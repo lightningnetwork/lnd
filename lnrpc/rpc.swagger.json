@@ -109,7 +109,7 @@
           "200": {
             "description": "",
             "schema": {
-              "$ref": "#/definitions/lnrpcPendingChannelResponse"
+              "$ref": "#/definitions/lnrpcPendingChannelsResponse"
             }
           }
         },
@@ -222,13 +222,13 @@
         ]
       },
       "post": {
-        "summary": "* lncli: `updatefees`\nUpdateFees allows the caller to update the fee schedule for all channels\nglobally, or a particular channel.",
-        "operationId": "UpdateFees",
+        "summary": "* lncli: `updatechanpolicy`\nUpdateChannelPolicy allows the caller to update the fee schedule and\nchannel policies for all channels globally, or a particular channel.",
+        "operationId": "UpdateChannelPolicy",
         "responses": {
           "200": {
             "description": "",
             "schema": {
-              "$ref": "#/definitions/lnrpcFeeUpdateResponse"
+              "$ref": "#/definitions/lnrpcPolicyUpdateResponse"
             }
           }
         },
@@ -238,7 +238,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/lnrpcFeeUpdateRequest"
+              "$ref": "#/definitions/lnrpcPolicyUpdateRequest"
             }
           }
         ],
@@ -696,11 +696,11 @@
     }
   },
   "definitions": {
-    "PendingChannelResponseClosedChannel": {
+    "PendingChannelsResponseClosedChannel": {
       "type": "object",
       "properties": {
         "channel": {
-          "$ref": "#/definitions/PendingChannelResponsePendingChannel",
+          "$ref": "#/definitions/PendingChannelsResponsePendingChannel",
           "title": "/ The pending channel to be closed"
         },
         "closing_txid": {
@@ -709,11 +709,11 @@
         }
       }
     },
-    "PendingChannelResponseForceClosedChannel": {
+    "PendingChannelsResponseForceClosedChannel": {
       "type": "object",
       "properties": {
         "channel": {
-          "$ref": "#/definitions/PendingChannelResponsePendingChannel",
+          "$ref": "#/definitions/PendingChannelsResponsePendingChannel",
           "title": "/ The pending channel to be force closed"
         },
         "closing_txid": {
@@ -748,7 +748,7 @@
         }
       }
     },
-    "PendingChannelResponsePendingChannel": {
+    "PendingChannelsResponsePendingChannel": {
       "type": "object",
       "properties": {
         "remote_node_pub": {
@@ -771,22 +771,17 @@
         }
       }
     },
-    "PendingChannelResponsePendingOpenChannel": {
+    "PendingChannelsResponsePendingOpenChannel": {
       "type": "object",
       "properties": {
         "channel": {
-          "$ref": "#/definitions/PendingChannelResponsePendingChannel",
+          "$ref": "#/definitions/PendingChannelsResponsePendingChannel",
           "title": "/ The pending channel"
         },
         "confirmation_height": {
           "type": "integer",
           "format": "int64",
           "title": "/ The height at which this channel will be confirmed"
-        },
-        "blocks_till_open": {
-          "type": "integer",
-          "format": "int32",
-          "title": "/ The number of blocks until this channel is open"
         },
         "commit_fee": {
           "type": "string",
@@ -1171,33 +1166,6 @@
         }
       }
     },
-    "lnrpcFeeUpdateRequest": {
-      "type": "object",
-      "properties": {
-        "global": {
-          "type": "boolean",
-          "format": "boolean",
-          "description": "/ If set, then this fee update applies to all currently active channels."
-        },
-        "chan_point": {
-          "$ref": "#/definitions/lnrpcChannelPoint",
-          "description": "/ If set, this fee update will target a specific channel."
-        },
-        "base_fee_msat": {
-          "type": "string",
-          "format": "int64",
-          "description": "/ The base fee charged regardless of the number of milli-satoshis sent."
-        },
-        "fee_rate": {
-          "type": "number",
-          "format": "double",
-          "description": "/ The effective fee rate in milli-satoshis. The precision of this value goes up to 6 decimal places, so 1e-6."
-        }
-      }
-    },
-    "lnrpcFeeUpdateResponse": {
-      "type": "object"
-    },
     "lnrpcGetInfoResponse": {
       "type": "object",
       "properties": {
@@ -1249,6 +1217,13 @@
             "type": "string"
           },
           "title": "/ A list of active chains the node is connected to"
+        },
+        "uris": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "/ The URIs of the current node."
         }
       }
     },
@@ -1609,6 +1584,16 @@
           "type": "string",
           "format": "int64",
           "description": "/ A manual fee rate set in sat/byte that should be used when crafting the closure transaction."
+        },
+        "private": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "/ Whether this channel should be private, not announced to the greater network."
+        },
+        "min_htlc_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ The minimum value in millisatoshi we will require for incoming HTLCs on the channel."
         }
       }
     },
@@ -1741,7 +1726,7 @@
         }
       }
     },
-    "lnrpcPendingChannelResponse": {
+    "lnrpcPendingChannelsResponse": {
       "type": "object",
       "properties": {
         "total_limbo_balance": {
@@ -1752,21 +1737,21 @@
         "pending_open_channels": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/PendingChannelResponsePendingOpenChannel"
+            "$ref": "#/definitions/PendingChannelsResponsePendingOpenChannel"
           },
           "title": "/ Channels pending opening"
         },
         "pending_closing_channels": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/PendingChannelResponseClosedChannel"
+            "$ref": "#/definitions/PendingChannelsResponseClosedChannel"
           },
           "title": "/ Channels pending closing"
         },
         "pending_force_closing_channels": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/PendingChannelResponseForceClosedChannel"
+            "$ref": "#/definitions/PendingChannelsResponseForceClosedChannel"
           },
           "title": "/ Channels pending force closing"
         }
@@ -1818,6 +1803,38 @@
           "format": "int64"
         }
       }
+    },
+    "lnrpcPolicyUpdateRequest": {
+      "type": "object",
+      "properties": {
+        "global": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "/ If set, then this update applies to all currently active channels."
+        },
+        "chan_point": {
+          "$ref": "#/definitions/lnrpcChannelPoint",
+          "description": "/ If set, this update will target a specific channel."
+        },
+        "base_fee_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ The base fee charged regardless of the number of milli-satoshis sent."
+        },
+        "fee_rate": {
+          "type": "number",
+          "format": "double",
+          "description": "/ The effective fee rate in milli-satoshis. The precision of this value goes up to 6 decimal places, so 1e-6."
+        },
+        "time_lock_delta": {
+          "type": "integer",
+          "format": "int64",
+          "description": "/ The required timelock delta for HTLCs forwarded over the channel."
+        }
+      }
+    },
+    "lnrpcPolicyUpdateResponse": {
+      "type": "object"
     },
     "lnrpcQueryRoutesResponse": {
       "type": "object",
@@ -1967,9 +1984,6 @@
           "$ref": "#/definitions/lnrpcRoute"
         }
       }
-    },
-    "lnrpcSetAliasResponse": {
-      "type": "object"
     },
     "lnrpcSignMessageResponse": {
       "type": "object",

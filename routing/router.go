@@ -32,9 +32,9 @@ const (
 	DefaultFinalCLTVDelta = 9
 )
 
-// ChannelGraphSource represent the source of information about the topology of
-// lightning network, it responsible for addition of nodes, edges
-// and applying edges updates, return the current block with with out
+// ChannelGraphSource represents the source of information about the topology of
+// the lightning network. It's responsible for the addition of nodes, edges,
+// applying edge updates, and returning the current block height with which the
 // topology is synchronized.
 type ChannelGraphSource interface {
 	// AddNode is used to add information about a node to the router
@@ -56,7 +56,7 @@ type ChannelGraphSource interface {
 	UpdateEdge(policy *channeldb.ChannelEdgePolicy) error
 
 	// ForAllOutgoingChannels is used to iterate over all channels
-	// eminating from the "source" node which is the center of the
+	// emanating from the "source" node which is the center of the
 	// star-graph.
 	ForAllOutgoingChannels(cb func(c *channeldb.ChannelEdgeInfo,
 		e *channeldb.ChannelEdgePolicy) error) error
@@ -79,7 +79,7 @@ type ChannelGraphSource interface {
 }
 
 // FeeSchema is the set fee configuration for a Lighting Node on the network.
-// Using the coefficients described within he schema, the required fee to
+// Using the coefficients described within the schema, the required fee to
 // forward outgoing payments can be derived.
 type FeeSchema struct {
 	// BaseFee is the base amount of milli-satoshis that will be chained
@@ -92,6 +92,18 @@ type FeeSchema struct {
 	// the effective fee rate charged per mSAT will be: (amount *
 	// FeeRate/1,000,000).
 	FeeRate uint32
+}
+
+// ChannelPolicy holds the parameters that determine the policy we enforce
+// when fowarding payments on a channel. These parameters are communicated
+// to the rest of the network in ChannelUpdate messages.
+type ChannelPolicy struct {
+	// FeeSchema holds the fee configuration for a channel.
+	FeeSchema
+
+	// TimeLockDelta is the required HTLC timelock delta to be used
+	// when forwarding payments.
+	TimeLockDelta uint32
 }
 
 // Config defines the configuration for the ChannelRouter. ALL elements within
@@ -148,6 +160,97 @@ func newRouteTuple(amt lnwire.MilliSatoshi, dest []byte) routeTuple {
 	copy(r.dest[:], dest)
 
 	return r
+}
+
+// cntMutex is a struct that wraps a counter and a mutex, and is used
+// to keep track of the number of goroutines waiting for access to the
+// mutex, such that we can forget about it when the counter is zero.
+type cntMutex struct {
+	cnt int
+	sync.Mutex
+}
+
+// mutexForID is a struct that keeps track of a set of mutexes with
+// a given ID. It can be used for making sure only one goroutine
+// gets given the mutex per ID. Here it is currently used to making
+// sure we only process one ChannelEdgePolicy per channelID at a
+// given time.
+type mutexForID struct {
+	// mutexes is a map of IDs to a cntMutex. The cntMutex for
+	// a given ID will hold the mutex to be used by all
+	// callers requesting access for the ID, in addition to
+	// the count of callers.
+	mutexes map[uint64]*cntMutex
+
+	// mapMtx is used to give synchronize concurrent access
+	// to the mutexes map.
+	mapMtx sync.Mutex
+}
+
+func newMutexForID() *mutexForID {
+	return &mutexForID{
+		mutexes: make(map[uint64]*cntMutex),
+	}
+}
+
+// Lock locks the mutex by the given ID. If the mutex is already
+// locked by this ID, Lock blocks until the mutex is available.
+func (c *mutexForID) Lock(id uint64) {
+	c.mapMtx.Lock()
+	mtx, ok := c.mutexes[id]
+	if ok {
+		// If the mutex already existed in the map, we
+		// increment its counter, to indicate that there
+		// now is one more goroutine waiting for it.
+		mtx.cnt++
+	} else {
+		// If it was not in the map, it means no other
+		// goroutine has locked the mutex for this ID,
+		// and we can create a new mutex with count 1
+		// and add it to the map.
+		mtx = &cntMutex{
+			cnt: 1,
+		}
+		c.mutexes[id] = mtx
+	}
+	c.mapMtx.Unlock()
+
+	// Acquire the mutex for this ID.
+	mtx.Lock()
+}
+
+// Unlock unlocks the mutex by the given ID. It is a run-time
+// error if the mutex is not locked by the ID on entry to Unlock.
+func (c *mutexForID) Unlock(id uint64) {
+	// Since we are done with all the work for this
+	// update, we update the map to reflect that.
+	c.mapMtx.Lock()
+
+	mtx, ok := c.mutexes[id]
+	if !ok {
+		// The mutex not existing in the map means
+		// an unlock for an ID not currently locked
+		// was attempted.
+		panic(fmt.Sprintf("double unlock for id %v",
+			id))
+	}
+
+	// Decrement the counter. If the count goes to
+	// zero, it means this caller was the last one
+	// to wait for the mutex, and we can delete it
+	// from the map. We can do this safely since we
+	// are under the mapMtx, meaning that all other
+	// goroutines waiting for the mutex already
+	// have incremented it, or will create a new
+	// mutex when they get the mapMtx.
+	mtx.cnt--
+	if mtx.cnt == 0 {
+		delete(c.mutexes, id)
+	}
+	c.mapMtx.Unlock()
+
+	// Unlock the mutex for this ID.
+	mtx.Unlock()
 }
 
 // ChannelRouter is the layer 3 router within the Lightning stack. Below the
@@ -219,6 +322,11 @@ type ChannelRouter struct {
 	// gained to the next execution.
 	missionControl *missionControl
 
+	// channelEdgeMtx is a mutex we use to make sure we process only one
+	// ChannelEdgePolicy at a time for a given channelID, to ensure
+	// consistency between the various database accesses.
+	channelEdgeMtx *mutexForID
+
 	sync.RWMutex
 
 	quit chan struct{}
@@ -247,6 +355,7 @@ func New(cfg Config) (*ChannelRouter, error) {
 		topologyClients:   make(map[uint64]*topologyClient),
 		ntfnClientUpdates: make(chan *topologyClientUpdate),
 		missionControl:    newMissionControl(cfg.Graph, selfNode),
+		channelEdgeMtx:    newMutexForID(),
 		selfNode:          selfNode,
 		routeCache:        make(map[routeTuple][]*Route),
 		quit:              make(chan struct{}),
@@ -942,6 +1051,13 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 
 	case *channeldb.ChannelEdgePolicy:
 		channelID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
+
+		// We make sure to hold the mutex for this channel ID,
+		// such that no other goroutine is concurrently doing
+		// database accesses for the same channel ID.
+		r.channelEdgeMtx.Lock(msg.ChannelID)
+		defer r.channelEdgeMtx.Unlock(msg.ChannelID)
+
 		edge1Timestamp, edge2Timestamp, exists, err := r.cfg.Graph.HasChannelEdge(
 			msg.ChannelID,
 		)
@@ -1331,7 +1447,7 @@ type LightningPayment struct {
 	// FinalCLTVDelta is the CTLV expiry delta to use for the _final_ hop
 	// in the route. This means that the final hop will have a CLTV delta
 	// of at least: currentHeight + FinalCLTVDelta. If this value is
-	// unspcified, then a default value of DefaultFinalCLTVDelta will be
+	// unspecified, then a default value of DefaultFinalCLTVDelta will be
 	// used.
 	FinalCLTVDelta *uint16
 
@@ -1372,15 +1488,21 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 		finalCLTVDelta = *payment.FinalCLTVDelta
 	}
 
+	// Before starting the HTLC routing attempt, we'll create a fresh
+	// payment session which will report our errors back to mission
+	// control.
+	paySession := r.missionControl.NewPaymentSession()
+
 	// We'll continue until either our payment succeeds, or we encounter a
 	// critical error during path finding.
 	for {
 		// We'll kick things off by requesting a new route from mission
-		// control, which will incoroporate the current best known
-		// state of the channel graph and our past HTLC routing
+		// control, which will incorporate the current best known state
+		// of the channel graph and our past HTLC routing
 		// successes/failures.
-		route, err := r.missionControl.RequestRoute(payment,
-			uint32(currentHeight), finalCLTVDelta)
+		route, err := paySession.RequestRoute(
+			payment, uint32(currentHeight), finalCLTVDelta,
+		)
 		if err != nil {
 			// If we're unable to successfully make a payment using
 			// any of the routes we've found, then return an error.
@@ -1438,6 +1560,10 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 			}
 
 			errSource := fErr.ErrorSource
+
+			log.Tracef("node=%x reported failure when sending "+
+				"htlc=%x", errSource.SerializeCompressed(),
+				payment.PaymentHash[:])
 
 			switch onionErr := fErr.FailureMessage.(type) {
 			// If the end destination didn't know they payment
@@ -1540,13 +1666,22 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 				// error was meant to pass the HTLC along to.
 				badChan, ok := route.nextHopChannel(errSource)
 				if !ok {
-					continue
+					// If we weren't able to find the hop
+					// *after* this node, then we'll
+					// attempt to disable the previous
+					// channel.
+					badChan, ok = route.prevHopChannel(
+						errSource,
+					)
+					if !ok {
+						continue
+					}
 				}
 
 				// If the channel was found, then we'll inform
 				// mission control of this failure so future
 				// attempts avoid this link temporarily.
-				r.missionControl.ReportChannelFailure(badChan)
+				paySession.ReportChannelFailure(badChan.ChannelID)
 				continue
 
 			// If the send fail due to a node not having the
@@ -1581,7 +1716,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 				// Once we've located the vertex, we'll report
 				// this failure to missionControl and restart
 				// path finding.
-				r.missionControl.ReportVertexFailure(missingNode)
+				paySession.ReportVertexFailure(missingNode)
 				continue
 
 			// If the node wasn't able to forward for which ever
@@ -1593,7 +1728,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 					continue
 				}
 
-				r.missionControl.ReportVertexFailure(missingNode)
+				paySession.ReportVertexFailure(missingNode)
 				continue
 
 			// If we get a permanent channel or node failure, then
@@ -1740,7 +1875,7 @@ func (r *ChannelRouter) ForEachNode(cb func(*channeldb.LightningNode) error) err
 	})
 }
 
-// ForAllOutgoingChannels is used to iterate over all outgiong channel owned by
+// ForAllOutgoingChannels is used to iterate over all outgoing channels owned by
 // the router.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.

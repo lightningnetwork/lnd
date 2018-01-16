@@ -302,6 +302,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		ChainHash:        *activeNetParams.GenesisHash,
 		Broadcast:        s.BroadcastMessage,
 		SendToPeer:       s.SendToPeer,
+		NotifyWhenOnline: s.NotifyWhenOnline,
 		ProofMatureDelta: 0,
 		TrickleDelay:     time.Millisecond * time.Duration(cfg.TrickleDelay),
 		RetransmitDelay:  time.Minute * 30,
@@ -343,7 +344,6 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	}
 
 	s.breachArbiter = newBreachArbiter(&BreachConfig{
-		ChainIO:   s.cc.chainIO,
 		CloseLink: closeLink,
 		DB:        chanDB,
 		Estimator: s.cc.feeEstimator,
@@ -364,7 +364,6 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		OnAccept:       s.InboundPeerConnected,
 		RetryDuration:  time.Second * 5,
 		TargetOutbound: 100,
-		GetNewAddress:  nil,
 		Dial:           noiseDial(s.identityPriv),
 		OnConnection:   s.OutboundPeerConnected,
 	})
@@ -570,6 +569,13 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 				return
 			}
 
+			// Add bootstrapped peer as persistent to maintain
+			// connectivity even if we have no open channels.
+			targetPub := string(conn.RemotePub().SerializeCompressed())
+			s.mu.Lock()
+			s.persistentPeers[targetPub] = struct{}{}
+			s.mu.Unlock()
+
 			s.OutboundPeerConnected(nil, conn)
 		}(addr)
 	}
@@ -673,6 +679,14 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 						atomic.AddUint32(&epochErrors, 1)
 						return
 					}
+
+					// Add bootstrapped peer as persistent to maintain
+					// connectivity even if we have no open channels.
+					targetPub := string(conn.RemotePub().SerializeCompressed())
+					s.mu.Lock()
+					s.persistentPeers[targetPub] = struct{}{}
+					s.mu.Unlock()
+
 					s.OutboundPeerConnected(nil, conn)
 				}(addr)
 			}
@@ -845,7 +859,7 @@ func (s *server) establishPersistentConnections() error {
 // messages to all peers other than the one specified by the `skip` parameter.
 //
 // NOTE: This function is safe for concurrent access.
-func (s *server) BroadcastMessage(skip *btcec.PublicKey,
+func (s *server) BroadcastMessage(skip map[routing.Vertex]struct{},
 	msgs ...lnwire.Message) error {
 
 	s.mu.Lock()
@@ -859,7 +873,7 @@ func (s *server) BroadcastMessage(skip *btcec.PublicKey,
 //
 // NOTE: This method MUST be called while the server's mutex is locked.
 func (s *server) broadcastMessages(
-	skip *btcec.PublicKey,
+	skips map[routing.Vertex]struct{},
 	msgs []lnwire.Message) error {
 
 	srvrLog.Debugf("Broadcasting %v messages", len(msgs))
@@ -869,10 +883,13 @@ func (s *server) broadcastMessages(
 	// throughout this process to ensure we deliver messages to exact set
 	// of peers present at the time of invocation.
 	var wg sync.WaitGroup
-	for pubStr, sPeer := range s.peersByPub {
-		if skip != nil && sPeer.addr.IdentityKey.IsEqual(skip) {
-			srvrLog.Debugf("Skipping %v in broadcast", pubStr)
-			continue
+	for _, sPeer := range s.peersByPub {
+		if skips != nil {
+			if _, ok := skips[sPeer.pubKeyBytes]; ok {
+				srvrLog.Tracef("Skipping %x in broadcast",
+					sPeer.pubKeyBytes[:])
+				continue
+			}
 		}
 
 		// Dispatch a go routine to enqueue all messages to this peer.
@@ -951,15 +968,29 @@ func (s *server) sendToPeer(target *btcec.PublicKey,
 		return err
 	}
 
-	s.sendPeerMessages(targetPeer, msgs, nil)
-
+	// Send messages to the peer and return any error from
+	// sending a message.
+	errChans := s.sendPeerMessages(targetPeer, msgs, nil)
+	for _, errChan := range errChans {
+		select {
+		case err := <-errChan:
+			return err
+		case <-targetPeer.quit:
+			return fmt.Errorf("peer shutting down")
+		case <-s.quit:
+			return ErrServerShuttingDown
+		}
+	}
 	return nil
 }
 
 // sendPeerMessages enqueues a list of messages into the outgoingQueue of the
 // `targetPeer`.  This method supports additional broadcast-level
 // synchronization by using the additional `wg` to coordinate a particular
-// broadcast.
+// broadcast. Since this method will wait for the return error from sending
+// each message, it should be run as a goroutine (see comment below) and
+// the error ignored if used for broadcasting messages, where the result
+// from sending the messages is not of importance.
 //
 // NOTE: This method must be invoked with a non-nil `wg` if it is spawned as a
 // go routine--both `wg` and the server's WaitGroup should be incremented
@@ -969,7 +1000,7 @@ func (s *server) sendToPeer(target *btcec.PublicKey,
 func (s *server) sendPeerMessages(
 	targetPeer *peer,
 	msgs []lnwire.Message,
-	wg *sync.WaitGroup) {
+	wg *sync.WaitGroup) []chan error {
 
 	// If a WaitGroup is provided, we assume that this method was spawned
 	// as a go routine, and that it is being tracked by both the server's
@@ -982,9 +1013,17 @@ func (s *server) sendPeerMessages(
 		defer wg.Done()
 	}
 
+	// We queue each message, creating a slice of error channels that
+	// can be inspected after every message is successfully added to
+	// the queue.
+	var errChans []chan error
 	for _, msg := range msgs {
-		targetPeer.queueMsg(msg, nil)
+		errChan := make(chan error, 1)
+		targetPeer.queueMsg(msg, errChan)
+		errChans = append(errChans, errChan)
 	}
+
+	return errChans
 }
 
 // FindPeer will return the peer that corresponds to the passed in public key.
@@ -1087,6 +1126,12 @@ func (s *server) peerTerminationWatcher(p *peer) {
 	pubStr := string(p.addr.IdentityKey.SerializeCompressed())
 	_, ok := s.persistentPeers[pubStr]
 	if ok {
+		// We'll only need to re-launch a connection request if one
+		// isn't already currently pending.
+		if _, ok := s.persistentConnReqs[pubStr]; ok {
+			return
+		}
+
 		srvrLog.Debugf("Attempting to re-establish persistent "+
 			"connection to peer %v", p)
 
@@ -1096,12 +1141,6 @@ func (s *server) peerTerminationWatcher(p *peer) {
 		connReq := &connmgr.ConnReq{
 			Addr:      p.addr,
 			Permanent: true,
-		}
-
-		// We'll only need to re-launch a connection requests if one
-		// isn't already currently pending.
-		if _, ok := s.persistentConnReqs[pubStr]; ok {
-			return
 		}
 
 		// Otherwise, we'll launch a new connection requests in order
@@ -1454,6 +1493,10 @@ type openChanReq struct {
 
 	fundingFeePerWeight btcutil.Amount
 
+	private bool
+
+	minHtlc lnwire.MilliSatoshi
+
 	// TODO(roasbeef): add ability to specify channel constraints as well
 
 	updates chan *lnrpc.OpenStatusUpdate
@@ -1571,7 +1614,9 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 // NOTE: This function is safe for concurrent access.
 func (s *server) OpenChannel(peerID int32, nodeKey *btcec.PublicKey,
 	localAmt btcutil.Amount, pushAmt lnwire.MilliSatoshi,
-	fundingFeePerByte btcutil.Amount) (chan *lnrpc.OpenStatusUpdate, chan error) {
+	minHtlc lnwire.MilliSatoshi,
+	fundingFeePerByte btcutil.Amount,
+	private bool) (chan *lnrpc.OpenStatusUpdate, chan error) {
 
 	updateChan := make(chan *lnrpc.OpenStatusUpdate, 1)
 	errChan := make(chan error, 1)
@@ -1631,6 +1676,8 @@ func (s *server) OpenChannel(peerID int32, nodeKey *btcec.PublicKey,
 		localFundingAmt:     localAmt,
 		fundingFeePerWeight: fundingFeePerWeight,
 		pushAmt:             pushAmt,
+		private:             private,
+		minHtlc:             minHtlc,
 		updates:             updateChan,
 		err:                 errChan,
 	}

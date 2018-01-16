@@ -89,8 +89,6 @@ description):
        amount of payment.
   * GetNetworkInfo
      * Returns some network level statistics.
-  * SetAlias
-     * Sets the node alias which is to be advertised on the network.
 
 ## Installation and Updating
 

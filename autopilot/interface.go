@@ -57,7 +57,7 @@ type Channel struct {
 
 // ChannelEdge is a struct that holds details concerning a channel, but also
 // contains a reference to the Node that this channel connects to as a directed
-// edge witihn the graph. The existence of this reference to the connected node
+// edge within the graph. The existence of this reference to the connected node
 // will allow callers to traverse the graph in an object-oriented manner.
 type ChannelEdge struct {
 	// Channel contains the attributes of this channel.

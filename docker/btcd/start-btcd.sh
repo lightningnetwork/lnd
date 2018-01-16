@@ -53,7 +53,8 @@ PARAMS=$(echo \
     "--logdir=/data" \
     "--rpccert=/rpc/rpc.cert" \
     "--rpckey=/rpc/rpc.key" \
-    "--rpclisten=0.0.0.0"
+    "--rpclisten=0.0.0.0" \
+    "--txindex"
 )
 
 # Set the mining flag only if address is non empty.

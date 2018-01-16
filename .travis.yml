@@ -4,6 +4,9 @@ go:
   - 1.9.2
 sudo: false
 install:
+  - add-apt-repository -y ppa:bitcoin/bitcoin
+  - apt-update
+  - apt-get -y install bitcoind
   - GLIDE_TAG=v0.12.3
   - GLIDE_DOWNLOAD="https://github.com/Masterminds/glide/releases/download/$GLIDE_TAG/glide-$GLIDE_TAG-linux-amd64.tar.gz"
   - curl -L $GLIDE_DOWNLOAD | tar -xvz

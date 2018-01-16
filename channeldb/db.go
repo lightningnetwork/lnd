@@ -88,6 +88,11 @@ func Open(dbPath string) (*DB, error) {
 	return chanDB, nil
 }
 
+// Path returns the file path to the channel database.
+func (d *DB) Path() string {
+	return d.dbPath
+}
+
 // Wipe completely deletes all saved state within all used buckets within the
 // database. The deletion is done in a single transaction, therefore this
 // operation is fully atomic.
@@ -392,7 +397,7 @@ func fetchChannels(d *DB, pendingOnly bool) ([]*OpenChannel, error) {
 
 // FetchClosedChannels attempts to fetch all closed channels from the database.
 // The pendingOnly bool toggles if channels that aren't yet fully closed should
-// be returned int he response or not. When a channel was cooperatively closed,
+// be returned in the response or not. When a channel was cooperatively closed,
 // it becomes fully closed after a single confirmation.  When a channel was
 // forcibly closed, it will become fully closed after _all_ the pending funds
 // (if any) have been swept.

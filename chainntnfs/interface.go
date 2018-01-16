@@ -25,7 +25,7 @@ type ChainNotifier interface {
 	// confirmations has been reached for the txid, as well as if the
 	// original tx gets re-org'd out of the mainchain.  The heightHint
 	// parameter is provided as a convenience to light clients. The
-	// heightHint denotes the earlies height in the blockchain in which the
+	// heightHint denotes the earliest height in the blockchain in which the
 	// target txid _could_ have been included in the chain.  This can be
 	// used to bound the search space when checking to see if a
 	// notification can immediately be dispatched due to historical data.
@@ -40,7 +40,7 @@ type ChainNotifier interface {
 	// returned SpendEvent will receive a send on the 'Spend' transaction
 	// once a transaction spending the input is detected on the blockchain.
 	// The heightHint parameter is provided as a convenience to light
-	// clients. The heightHint denotes the earlies height in the blockchain
+	// clients. The heightHint denotes the earliest height in the blockchain
 	// in which the target output could've been created.
 	//
 	// NOTE: This notifications should be triggered once the transaction is

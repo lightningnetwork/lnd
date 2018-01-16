@@ -8,7 +8,7 @@ import (
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
-// ChanUpdateFlag is a btifield that signals various options concerning a
+// ChanUpdateFlag is a bitfield that signals various options concerning a
 // particular channel edge. Each bit is to be examined in order to determine
 // how the ChannelUpdate message is to be interpreted.
 type ChanUpdateFlag uint16
@@ -27,7 +27,7 @@ const (
 
 // ChannelUpdate message is used after channel has been initially announced.
 // Each side independently announces its fees and minimum expiry for HTLCs and
-// other parameters. Also this message is used to redeclare initially setted
+// other parameters. Also this message is used to redeclare initially set
 // channel parameters.
 type ChannelUpdate struct {
 	// Signature is used to validate the announced data and prove the

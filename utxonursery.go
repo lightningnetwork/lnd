@@ -165,12 +165,12 @@ var byteOrder = binary.BigEndian
 
 var (
 	// ErrContractNotFound is returned when the nursery is unable to
-	// retreive information about a queried contract.
+	// retrieve information about a queried contract.
 	ErrContractNotFound = fmt.Errorf("unable to locate contract")
 )
 
 // NurseryConfig abstracts the required subsystems used by the utxo nursery. An
-// instance of NurseryConfig is passed to newUtxoNursery during instantiationn.
+// instance of NurseryConfig is passed to newUtxoNursery during instantiation.
 type NurseryConfig struct {
 	// ChainIO is used by the utxo nursery to determine the current block
 	// height, which drives the incubation of the nursery's outputs.

@@ -17,7 +17,7 @@ import (
 	"github.com/roasbeef/btcutil"
 )
 
-// MaxSliceLength is the maximum allowed lenth for any opaque byte slices in
+// MaxSliceLength is the maximum allowed length for any opaque byte slices in
 // the wire protocol.
 const MaxSliceLength = 65535
 

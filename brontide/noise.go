@@ -663,7 +663,7 @@ func (b *Machine) split() {
 }
 
 // WriteMessage writes the next message p to the passed io.Writer. The
-// ciphertext of the message is pre-pended with an encrypt+auth'd length which
+// ciphertext of the message is prepended with an encrypt+auth'd length which
 // must be used as the AD to the AEAD construction when being decrypted by the
 // other side.
 func (b *Machine) WriteMessage(w io.Writer, p []byte) error {

@@ -108,6 +108,10 @@ type initFundingReserveMsg struct {
 	// the responder as part of the initial channel creation.
 	pushMSat lnwire.MilliSatoshi
 
+	// flags are the channel flags specified by the initiator in the
+	// open_channel message.
+	flags lnwire.FundingFlag
+
 	// err is a channel in which all errors will be sent across. Will be
 	// nil if this initial set is successful.
 	//
@@ -364,7 +368,7 @@ func (l *LightningWallet) LockedOutpoints() []*wire.OutPoint {
 	return outPoints
 }
 
-// ResetReservations reset the volatile wallet state which trakcs all currently
+// ResetReservations reset the volatile wallet state which tracks all currently
 // active reservations.
 func (l *LightningWallet) ResetReservations() {
 	l.nextFundingID = 0
@@ -377,7 +381,7 @@ func (l *LightningWallet) ResetReservations() {
 }
 
 // ActiveReservations returns a slice of all the currently active
-// (non-cancalled) reservations.
+// (non-cancelled) reservations.
 func (l *LightningWallet) ActiveReservations() []*ChannelReservation {
 	reservations := make([]*ChannelReservation, 0, len(l.fundingLimbo))
 	for _, reservation := range l.fundingLimbo {
@@ -449,7 +453,7 @@ func (l *LightningWallet) InitChannelReservation(
 	capacity, ourFundAmt btcutil.Amount, pushMSat lnwire.MilliSatoshi,
 	commitFeePerKw, fundingFeePerWeight btcutil.Amount,
 	theirID *btcec.PublicKey, theirAddr *net.TCPAddr,
-	chainHash *chainhash.Hash) (*ChannelReservation, error) {
+	chainHash *chainhash.Hash, flags lnwire.FundingFlag) (*ChannelReservation, error) {
 
 	errChan := make(chan error, 1)
 	respChan := make(chan *ChannelReservation, 1)
@@ -463,6 +467,7 @@ func (l *LightningWallet) InitChannelReservation(
 		commitFeePerKw:      commitFeePerKw,
 		fundingFeePerWeight: fundingFeePerWeight,
 		pushMSat:            pushMSat,
+		flags:               flags,
 		err:                 errChan,
 		resp:                respChan,
 	}
@@ -493,7 +498,8 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 
 	id := atomic.AddUint64(&l.nextFundingID, 1)
 	reservation, err := NewChannelReservation(req.capacity, req.fundingAmount,
-		req.commitFeePerKw, l, id, req.pushMSat, l.Cfg.NetParams.GenesisHash)
+		req.commitFeePerKw, l, id, req.pushMSat,
+		l.Cfg.NetParams.GenesisHash, req.flags)
 	if err != nil {
 		req.err <- err
 		req.resp <- nil
@@ -626,23 +632,23 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 
 	pendingReservation, ok := l.fundingLimbo[req.pendingFundingID]
 	if !ok {
-		// TODO(roasbeef): make new error, "unkown funding state" or something
+		// TODO(roasbeef): make new error, "unknown funding state" or something
 		req.err <- fmt.Errorf("attempted to cancel non-existent funding state")
 		return
 	}
 
-	// Grab the mutex on the ChannelReservation to ensure thead-safety
+	// Grab the mutex on the ChannelReservation to ensure thread-safety
 	pendingReservation.Lock()
 	defer pendingReservation.Unlock()
 
-	// Mark all previously locked outpoints as usuable for future funding
+	// Mark all previously locked outpoints as useable for future funding
 	// requests.
 	for _, unusedInput := range pendingReservation.ourContribution.Inputs {
 		delete(l.lockedOutPoints, unusedInput.PreviousOutPoint)
 		l.UnlockOutpoint(unusedInput.PreviousOutPoint)
 	}
 
-	// TODO(roasbeef): is it even worth it to keep track of unsed keys?
+	// TODO(roasbeef): is it even worth it to keep track of unused keys?
 
 	// TODO(roasbeef): Is it possible to mark the unused change also as
 	// available?
@@ -660,7 +666,7 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 	ourChanCfg, theirChanCfg *channeldb.ChannelConfig,
 	localCommitPoint, remoteCommitPoint *btcec.PublicKey,
-	fundingTxIn *wire.TxIn) (*wire.MsgTx, *wire.MsgTx, error) {
+	fundingTxIn wire.TxIn) (*wire.MsgTx, *wire.MsgTx, error) {
 
 	localCommitmentKeys := deriveCommitmentKeys(localCommitPoint, true,
 		ourChanCfg, theirChanCfg)
@@ -813,7 +819,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 
 	// Create the txin to our commitment transaction; required to construct
 	// the commitment transactions.
-	fundingTxIn := &wire.TxIn{
+	fundingTxIn := wire.TxIn{
 		PreviousOutPoint: wire.OutPoint{
 			Hash:  fundingTxID,
 			Index: multiSigIndex,
@@ -1144,8 +1150,13 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		pendingReservation.theirContribution.ChannelConfig,
 		pendingReservation.ourContribution.FirstCommitmentPoint,
 		pendingReservation.theirContribution.FirstCommitmentPoint,
-		fundingTxIn,
+		*fundingTxIn,
 	)
+	if err != nil {
+		req.err <- err
+		req.completeChan <- nil
+		return
+	}
 
 	// With both commitment transactions constructed, we can now use the
 	// generator state obfuscator to encode the current state number within

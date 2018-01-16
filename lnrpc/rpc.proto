@@ -202,7 +202,7 @@ service Lightning {
     workflow and is waiting for confirmations for the funding txn, or is in the
     process of closure, either initiated cooperatively or non-cooperatively.
     */
-    rpc PendingChannels (PendingChannelRequest) returns (PendingChannelResponse) {
+    rpc PendingChannels (PendingChannelsRequest) returns (PendingChannelsResponse) {
         option (google.api.http) = {
            get: "/v1/channels/pending"
         };
@@ -423,11 +423,6 @@ service Lightning {
     */
     rpc SubscribeChannelGraph(GraphTopologySubscription) returns (stream GraphTopologyUpdate);
 
-    /**
-    SetAlias sets the alias for this node; e.g. "alice"
-    */
-    rpc SetAlias(SetAliasRequest) returns (SetAliasResponse);
-
     /** lncli: `debuglevel`
     DebugLevel allows a caller to programmatically set the logging verbosity of
     lnd. The logging can be targeted according to a coarse daemon-wide logging
@@ -446,11 +441,11 @@ service Lightning {
         };
     }
 
-    /** lncli: `updatefees`
-    UpdateFees allows the caller to update the fee schedule for all channels
-    globally, or a particular channel.
+    /** lncli: `updatechanpolicy`
+    UpdateChannelPolicy allows the caller to update the fee schedule and
+    channel policies for all channels globally, or a particular channel.
     */
-    rpc UpdateFees(FeeUpdateRequest) returns (FeeUpdateResponse) {
+    rpc UpdateChannelPolicy(PolicyUpdateRequest) returns (PolicyUpdateResponse) {
         option (google.api.http) = {
             post: "/v1/fees"
             body: "*"
@@ -798,13 +793,16 @@ message GetInfoResponse {
     string block_hash = 8 [json_name = "block_hash"];
 
     /// Whether the wallet's view is synced to the main chain
-    bool synced_to_chain = 9 [ json_name = "synced_to_chain" ];
+    bool synced_to_chain = 9 [json_name = "synced_to_chain"];
 
     /// Whether the current node is connected to testnet
-    bool testnet = 10 [ json_name = "testnet" ];
+    bool testnet = 10 [json_name = "testnet"];
 
     /// A list of active chains the node is connected to
-    repeated string chains = 11 [ json_name = "chains" ];
+    repeated string chains = 11 [json_name = "chains"];
+
+    /// The URIs of the current node.
+    repeated string uris = 12 [json_name = "uris"];
 }
 
 message ConfirmationUpdate {
@@ -876,6 +874,12 @@ message OpenChannelRequest {
 
     /// A manual fee rate set in sat/byte that should be used when crafting the closure transaction.
     int64 sat_per_byte = 7;
+
+    /// Whether this channel should be private, not announced to the greater network.
+    bool private = 8 [json_name = "private"];
+
+    /// The minimum value in millisatoshi we will require for incoming HTLCs on the channel.
+    int64 min_htlc_msat = 9 [json_name = "min_htlc_msat"];
 }
 message OpenStatusUpdate {
     oneof update {
@@ -910,8 +914,8 @@ message PendingHTLC {
     uint32 stage = 6 [ json_name = "stage" ];
 }
 
-message PendingChannelRequest {}
-message PendingChannelResponse {
+message PendingChannelsRequest {}
+message PendingChannelsResponse {
     message PendingChannel {
         string remote_node_pub = 1 [ json_name = "remote_node_pub" ];
         string channel_point = 2 [ json_name = "channel_point" ];
@@ -928,9 +932,6 @@ message PendingChannelResponse {
 
         /// The height at which this channel will be confirmed
         uint32 confirmation_height = 2 [ json_name = "confirmation_height" ];
-
-        /// The number of blocks until this channel is open
-        int32 blocks_till_open = 3 [ json_name = "blocks_till_open" ];
 
         /**
         The amount calculated to be paid in fees for the current set of
@@ -1242,12 +1243,6 @@ message ClosedChannelUpdate {
     ChannelPoint chan_point = 4;
 }
 
-message SetAliasRequest {
-    string new_alias = 1;
-}
-message SetAliasResponse {
-}
-
 message Invoice {
     /**
     An optional memo to attach along with the invoice. Used for record keeping
@@ -1409,12 +1404,12 @@ message FeeReportResponse {
     repeated ChannelFeeReport channel_fees = 1 [json_name = "channel_fees"];
 }
 
-message FeeUpdateRequest {
+message PolicyUpdateRequest {
     oneof scope {
-        /// If set, then this fee update applies to all currently active channels.
+        /// If set, then this update applies to all currently active channels.
         bool global = 1 [json_name = "global"] ;
 
-        /// If set, this fee update will target a specific channel.
+        /// If set, this update will target a specific channel.
         ChannelPoint chan_point = 2 [json_name = "chan_point"];
     }
 
@@ -1423,6 +1418,9 @@ message FeeUpdateRequest {
 
     /// The effective fee rate in milli-satoshis. The precision of this value goes up to 6 decimal places, so 1e-6.
     double fee_rate = 4 [json_name = "fee_rate"];
+
+    /// The required timelock delta for HTLCs forwarded over the channel.
+    uint32 time_lock_delta = 5 [json_name = "time_lock_delta"];
 }
-message FeeUpdateResponse {
+message PolicyUpdateResponse {
 }

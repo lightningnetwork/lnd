@@ -411,6 +411,41 @@ func TestBasicGraphPathFinding(t *testing.T) {
 			paymentAmt+firstHopFee, route.Hops[1].AmtToForward)
 	}
 
+	// Finally, the next and prev hop maps should be properly set.
+	//
+	// The previous hop from goku should be the channel from roasbeef, and
+	// the next hop should be the channel to sophon.
+	gokuPrevChan, ok := route.prevHopChannel(aliases["songoku"])
+	if !ok {
+		t.Fatalf("goku didn't have next chan but should have")
+	}
+	if gokuPrevChan.ChannelID != route.Hops[0].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			gokuPrevChan.ChannelID, route.Hops[0].Channel.ChannelID)
+	}
+	gokuNextChan, ok := route.nextHopChannel(aliases["songoku"])
+	if !ok {
+		t.Fatalf("goku didn't have prev chan but should have")
+	}
+	if gokuNextChan.ChannelID != route.Hops[1].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			gokuNextChan.ChannelID, route.Hops[1].Channel.ChannelID)
+	}
+
+	// Sophon shouldn't have a next chan, but she should have a prev chan.
+	if _, ok := route.nextHopChannel(aliases["sophon"]); ok {
+		t.Fatalf("incorrect next hop map, no vertexes should " +
+			"be after sophon")
+	}
+	sophonPrevEdge, ok := route.prevHopChannel(aliases["sophon"])
+	if !ok {
+		t.Fatalf("sophon didn't have prev chan but should have")
+	}
+	if sophonPrevEdge.ChannelID != route.Hops[1].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			sophonPrevEdge.ChannelID, route.Hops[1].Channel.ChannelID)
+	}
+
 	// Next, attempt to query for a path to Luo Ji for 100 satoshis, there
 	// exist two possible paths in the graph, but the shorter (1 hop) path
 	// should be selected.
@@ -690,7 +725,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 
-	// Now, if we attempt to route throuhg that edge, we should get a
+	// Now, if we attempt to route through that edge, we should get a
 	// failure as it is no longer elligble.
 	_, err = findPath(nil, graph, sourceNode, target, ignoredVertexes,
 		ignoredEdges, payAmt)

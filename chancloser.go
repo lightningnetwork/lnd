@@ -416,7 +416,7 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 		remoteSig := append(
 			closeSignedMsg.Signature.Serialize(), byte(txscript.SigHashAll),
 		)
-		closeTx, err := c.cfg.channel.CompleteCooperativeClose(
+		closeTx, finalLocalBalance, err := c.cfg.channel.CompleteCooperativeClose(
 			localSig, remoteSig, c.localDeliveryScript,
 			c.remoteDeliveryScript, remoteProposedFee,
 		)
@@ -465,7 +465,7 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 			ClosingTXID:    closingTxid,
 			RemotePub:      &chanInfo.RemoteIdentity,
 			Capacity:       chanInfo.Capacity,
-			SettledBalance: chanInfo.LocalBalance.ToSatoshis(),
+			SettledBalance: finalLocalBalance,
 			CloseType:      channeldb.CooperativeClose,
 			IsPending:      true,
 		}

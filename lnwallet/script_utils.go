@@ -1171,7 +1171,7 @@ func DeriveRevocationPubkey(revokeBase, commitPoint *btcec.PublicKey) *btcec.Pub
 // within the commitment transaction of a node in the case that they broadcast
 // a previously revoked commitment transaction.
 //
-// The private key is derived as follwos:
+// The private key is derived as follows:
 //   revokePriv := (revokeBasePriv * sha256(revocationBase || commitPoint)) +
 //                 (commitSecret * sha256(commitPoint || revocationBase)) mod N
 //
@@ -1241,7 +1241,7 @@ func DeriveRevocationRoot(derivationRoot *btcec.PrivateKey,
 // number is encoded using 48 bits. The lower 24 bits of the lock time are the
 // lower 24 bits of the obfuscated state number and the lower 24 bits of the
 // sequence field are the higher 24 bits. Finally before encoding, the
-// obfuscater is XOR'd against the state number in order to hide the exact
+// obfuscator is XOR'd against the state number in order to hide the exact
 // state number from the PoV of outside parties.
 func SetStateNumHint(commitTx *wire.MsgTx, stateNum uint64,
 	obfuscator [StateHintSize]byte) error {
@@ -1284,7 +1284,7 @@ func SetStateNumHint(commitTx *wire.MsgTx, stateNum uint64,
 // See setStateNumHint for further details w.r.t exactly how the state-hints
 // are encoded.
 func GetStateNumHint(commitTx *wire.MsgTx, obfuscator [StateHintSize]byte) uint64 {
-	// Convert the obfuscater into a uint64, this will be used to
+	// Convert the obfuscator into a uint64, this will be used to
 	// de-obfuscate the final recovered state number.
 	var obfs [8]byte
 	copy(obfs[2:], obfuscator[:])

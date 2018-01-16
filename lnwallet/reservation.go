@@ -137,7 +137,8 @@ type ChannelReservation struct {
 // lnwallet.InitChannelReservation interface.
 func NewChannelReservation(capacity, fundingAmt, commitFeePerKw btcutil.Amount,
 	wallet *LightningWallet, id uint64, pushMSat lnwire.MilliSatoshi,
-	chainHash *chainhash.Hash) (*ChannelReservation, error) {
+	chainHash *chainhash.Hash,
+	flags lnwire.FundingFlag) (*ChannelReservation, error) {
 
 	var (
 		ourBalance   lnwire.MilliSatoshi
@@ -219,11 +220,12 @@ func NewChannelReservation(capacity, fundingAmt, commitFeePerKw btcutil.Amount,
 			ChannelConfig: &channeldb.ChannelConfig{},
 		},
 		partialState: &channeldb.OpenChannel{
-			ChanType:    chanType,
-			ChainHash:   *chainHash,
-			IsPending:   true,
-			IsInitiator: initiator,
-			Capacity:    capacity,
+			ChanType:     chanType,
+			ChainHash:    *chainHash,
+			IsPending:    true,
+			IsInitiator:  initiator,
+			ChannelFlags: flags,
+			Capacity:     capacity,
 			LocalCommitment: channeldb.ChannelCommitment{
 				LocalBalance:  ourBalance,
 				RemoteBalance: theirBalance,
@@ -256,6 +258,16 @@ func (r *ChannelReservation) SetNumConfsRequired(numConfs uint16) {
 	defer r.Unlock()
 
 	r.partialState.NumConfsRequired = numConfs
+}
+
+// RegisterMinHTLC registers our desired amount for the smallest acceptable
+// HTLC we'll accept within this channel. Any HTLC's that are extended which
+// are below this value will SHOULD be rejected.
+func (r *ChannelReservation) RegisterMinHTLC(minHTLC lnwire.MilliSatoshi) {
+	r.Lock()
+	defer r.Unlock()
+
+	r.ourContribution.MinHTLC = minHTLC
 }
 
 // CommitConstraints takes the constraints that the remote party specifies for

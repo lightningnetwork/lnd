@@ -154,7 +154,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 
 	aliceCommitTx, bobCommitTx, err := lnwallet.CreateCommitmentTxns(aliceAmount,
 		bobAmount, &aliceCfg, &bobCfg, aliceCommitPoint, bobCommitPoint,
-		fundingTxIn)
+		*fundingTxIn)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}

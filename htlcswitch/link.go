@@ -39,7 +39,9 @@ const (
 // the error possibly carrying along a ChannelUpdate message that includes the
 // latest policy.
 type ForwardingPolicy struct {
-	// MinHTLC is the smallest HTLC that is to be forwarded.
+	// MinHTLC is the smallest HTLC that is to be forwarded. This is
+	// set when a channel is first opened, and will be static for the
+	// lifetime of the channel.
 	MinHTLC lnwire.MilliSatoshi
 
 	// BaseFee is the base fee, expressed in milli-satoshi that must be
@@ -289,7 +291,6 @@ func (l *channelLink) Stop() {
 	close(l.quit)
 	l.wg.Wait()
 
-	l.cfg.BlockEpochs.Cancel()
 }
 
 // EligibleToForward returns a bool indicating if the channel is able to
@@ -355,6 +356,7 @@ func shouldAdjustCommitFee(netFee, chanFee btcutil.Amount) bool {
 func (l *channelLink) htlcManager() {
 	defer func() {
 		l.wg.Done()
+		l.cfg.BlockEpochs.Cancel()
 		log.Infof("ChannelLink(%v) has exited", l)
 	}()
 
@@ -604,9 +606,6 @@ out:
 				// with a "null" field in the new policy, we'll
 				// only update to the set sub policy if the new
 				// value isn't uninitialized.
-				if req.policy.MinHTLC != 0 {
-					l.cfg.FwrdingPolicy.MinHTLC = req.policy.MinHTLC
-				}
 				if req.policy.BaseFee != 0 {
 					l.cfg.FwrdingPolicy.BaseFee = req.policy.BaseFee
 				}
@@ -662,22 +661,18 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 			// machine, as a result, we'll signal the switch to
 			// cancel the pending payment.
 			default:
+				log.Warnf("Unable to handle downstream add HTLC: %v", err)
+
 				var (
-					isObfuscated bool
+					localFailure = false
 					reason       lnwire.OpaqueReason
 				)
 
-				// We'll parse the sphinx packet enclosed so we
-				// can obtain the shared secret required to
-				// encrypt the error back to the source.
 				failure := lnwire.NewTemporaryChannelFailure(nil)
-				onionReader := bytes.NewReader(htlc.OnionBlob[:])
-				obfuscator, failCode := l.cfg.DecodeOnionObfuscator(onionReader)
 
-				switch {
-				// If we were unable to parse the onion blob,
-				// then we'll send an error back to the source.
-				case failCode != lnwire.CodeNone:
+				// Encrypt the error back to the source unless the payment was
+				// generated locally.
+				if pkt.obfuscator == nil {
 					var b bytes.Buffer
 					err := lnwire.EncodeFailure(&b, failure, 0)
 					if err != nil {
@@ -685,32 +680,30 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 						return
 					}
 					reason = lnwire.OpaqueReason(b.Bytes())
-					isObfuscated = false
-
-				// Otherwise, we'll send back a proper failure
-				// message.
-				default:
-					reason, err = obfuscator.EncryptFirstHop(failure)
+					localFailure = true
+				} else {
+					var err error
+					reason, err = pkt.obfuscator.EncryptFirstHop(failure)
 					if err != nil {
 						log.Errorf("unable to obfuscate error: %v", err)
 						return
 					}
-					isObfuscated = true
 				}
 
-				upddateFail := &lnwire.UpdateFailHTLC{
-					Reason: reason,
+				failPkt := &htlcPacket{
+					incomingChanID: pkt.incomingChanID,
+					incomingHTLCID: pkt.incomingHTLCID,
+					amount:         htlc.Amount,
+					isRouted:       true,
+					localFailure:   localFailure,
+					htlc: &lnwire.UpdateFailHTLC{
+						Reason: reason,
+					},
 				}
-				failPkt := newFailPacket(
-					l.ShortChanID(), upddateFail,
-					htlc.PaymentHash, htlc.Amount,
-					isObfuscated,
-				)
 
 				// TODO(roasbeef): need to identify if sent
 				// from switch so don't need to obfuscate
 				go l.cfg.Switch.forward(failPkt)
-				log.Infof("Unable to handle downstream add HTLC: %v", err)
 				return
 			}
 		}
@@ -719,6 +712,17 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 			"local_log_index=%v, batch_size=%v",
 			htlc.PaymentHash[:], index, l.batchCounter+1)
 
+		// Create circuit (remember the path) in order to forward settle/fail
+		// packet back.
+		l.cfg.Switch.addCircuit(&PaymentCircuit{
+			PaymentHash:    htlc.PaymentHash,
+			IncomingChanID: pkt.incomingChanID,
+			IncomingHTLCID: pkt.incomingHTLCID,
+			OutgoingChanID: l.ShortChanID(),
+			OutgoingHTLCID: index,
+			ErrorEncrypter: pkt.obfuscator,
+		})
+
 		htlc.ID = index
 		l.cfg.Peer.SendMessage(htlc)
 
@@ -726,8 +730,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		// An HTLC we forward to the switch has just settled somewhere
 		// upstream. Therefore we settle the HTLC within the our local
 		// state machine.
-		pre := htlc.PaymentPreimage
-		logIndex, _, err := l.channel.SettleHTLC(pre)
+		err := l.channel.SettleHTLC(htlc.PaymentPreimage, pkt.incomingHTLCID)
 		if err != nil {
 			// TODO(roasbeef): broadcast on-chain
 			l.fail("unable to settle incoming HTLC: %v", err)
@@ -738,7 +741,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		// message to target the specific channel and HTLC to be
 		// cancelled.
 		htlc.ChanID = l.ChanID()
-		htlc.ID = logIndex
+		htlc.ID = pkt.incomingHTLCID
 
 		// Then we send the HTLC settle message to the connected peer
 		// so we can continue the propagation of the settle message.
@@ -748,7 +751,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 	case *lnwire.UpdateFailHTLC:
 		// An HTLC cancellation has been triggered somewhere upstream,
 		// we'll remove then HTLC from our local state machine.
-		logIndex, err := l.channel.FailHTLC(pkt.payHash, htlc.Reason)
+		err := l.channel.FailHTLC(pkt.incomingHTLCID, htlc.Reason)
 		if err != nil {
 			log.Errorf("unable to cancel HTLC: %v", err)
 			return
@@ -759,7 +762,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		// cancelled. The "Reason" field will have already been set
 		// within the switch.
 		htlc.ChanID = l.ChanID()
-		htlc.ID = logIndex
+		htlc.ID = pkt.incomingHTLCID
 
 		// Finally, we send the HTLC message to the peer which
 		// initially created the HTLC.
@@ -874,7 +877,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// If remote side have been unable to parse the onion blob we
 		// have sent to it, than we should transform the malformed HTLC
 		// message to the usual HTLC fail message.
-		_, err := l.channel.ReceiveFailHTLC(msg.ID, b.Bytes())
+		err := l.channel.ReceiveFailHTLC(msg.ID, b.Bytes())
 		if err != nil {
 			l.fail("unable to handle upstream fail HTLC: %v", err)
 			return
@@ -882,18 +885,33 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 
 	case *lnwire.UpdateFailHTLC:
 		idx := msg.ID
-		_, err := l.channel.ReceiveFailHTLC(idx, msg.Reason[:])
+		err := l.channel.ReceiveFailHTLC(idx, msg.Reason[:])
 		if err != nil {
 			l.fail("unable to handle upstream fail HTLC: %v", err)
 			return
 		}
 
 	case *lnwire.CommitSig:
-		// We just received a new updates to our local commitment chain,
-		// validate this new commitment, closing the link if invalid.
+		// We just received a new updates to our local commitment
+		// chain, validate this new commitment, closing the link if
+		// invalid.
 		err := l.channel.ReceiveNewCommitment(msg.CommitSig, msg.HtlcSigs)
 		if err != nil {
-			l.fail("unable to accept new commitment: %v", err)
+			// If we were unable to reconstruct their proposed
+			// commitment, then we'll examine the type of error. If
+			// it's an InvalidCommitSigError, then we'll send a
+			// direct error.
+			//
+			// TODO(roasbeef): force close chan
+			if _, ok := err.(*lnwallet.InvalidCommitSigError); ok {
+				l.cfg.Peer.SendMessage(&lnwire.Error{
+					ChanID: l.ChanID(),
+					Data:   []byte(err.Error()),
+				})
+			}
+
+			l.fail("ChannelPoint(%v): unable to accept new "+
+				"commitment: %v", l.channel.ChannelPoint(), err)
 			return
 		}
 
@@ -1177,11 +1195,14 @@ func (l *channelLink) processLockedInHtlcs(
 		// received. So we'll forward the HTLC to the switch which
 		// will handle propagating the settle to the prior hop.
 		case lnwallet.Settle:
-			settleUpdate := &lnwire.UpdateFufillHTLC{
-				PaymentPreimage: pd.RPreimage,
+			settlePacket := &htlcPacket{
+				outgoingChanID: l.ShortChanID(),
+				outgoingHTLCID: pd.ParentIndex,
+				amount:         pd.Amount,
+				htlc: &lnwire.UpdateFufillHTLC{
+					PaymentPreimage: pd.RPreimage,
+				},
 			}
-			settlePacket := newSettlePacket(l.ShortChanID(),
-				settleUpdate, pd.RHash, pd.Amount)
 
 			// Add the packet to the batch to be forwarded, and
 			// notify the overflow queue that a spare spot has been
@@ -1196,12 +1217,14 @@ func (l *channelLink) processLockedInHtlcs(
 		case lnwallet.Fail:
 			// Fetch the reason the HTLC was cancelled so we can
 			// continue to propagate it.
-			failUpdate := &lnwire.UpdateFailHTLC{
-				Reason: lnwire.OpaqueReason(pd.FailReason),
-				ChanID: l.ChanID(),
+			failPacket := &htlcPacket{
+				outgoingChanID: l.ShortChanID(),
+				outgoingHTLCID: pd.ParentIndex,
+				amount:         pd.Amount,
+				htlc: &lnwire.UpdateFailHTLC{
+					Reason: lnwire.OpaqueReason(pd.FailReason),
+				},
 			}
-			failPacket := newFailPacket(l.ShortChanID(), failUpdate,
-				pd.RHash, pd.Amount, false)
 
 			// Add the packet to the batch to be forwarded, and
 			// notify the overflow queue that a spare spot has been
@@ -1231,7 +1254,7 @@ func (l *channelLink) processLockedInHtlcs(
 				// If we're unable to process the onion blob
 				// than we should send the malformed htlc error
 				// to payment sender.
-				l.sendMalformedHTLCError(pd.RHash, failureCode,
+				l.sendMalformedHTLCError(pd.HtlcIndex, failureCode,
 					onionBlob[:])
 				needUpdate = true
 
@@ -1259,7 +1282,7 @@ func (l *channelLink) processLockedInHtlcs(
 				// If we're unable to process the onion blob
 				// than we should send the malformed htlc error
 				// to payment sender.
-				l.sendMalformedHTLCError(pd.RHash, failureCode,
+				l.sendMalformedHTLCError(pd.HtlcIndex, failureCode,
 					onionBlob[:])
 				needUpdate = true
 
@@ -1284,7 +1307,7 @@ func (l *channelLink) processLockedInHtlcs(
 						pd.Timeout, heightNow)
 
 					failure := lnwire.FailFinalIncorrectCltvExpiry{}
-					l.sendHTLCError(pd.RHash, &failure, obfuscator)
+					l.sendHTLCError(pd.HtlcIndex, &failure, obfuscator)
 					needUpdate = true
 					continue
 				}
@@ -1299,7 +1322,21 @@ func (l *channelLink) processLockedInHtlcs(
 					log.Errorf("unable to query invoice registry: "+
 						" %v", err)
 					failure := lnwire.FailUnknownPaymentHash{}
-					l.sendHTLCError(pd.RHash, failure, obfuscator)
+					l.sendHTLCError(pd.HtlcIndex, failure, obfuscator)
+					needUpdate = true
+					continue
+				}
+
+				// If this invoice has already been settled,
+				// then we'll reject it as we don't allow an
+				// invoice to be paid twice.
+				if invoice.Terms.Settled == true {
+					log.Warnf("Rejecting duplicate "+
+						"payment for hash=%x", pd.RHash[:])
+					failure := lnwire.FailUnknownPaymentHash{}
+					l.sendHTLCError(
+						pd.HtlcIndex, failure, obfuscator,
+					)
 					needUpdate = true
 					continue
 				}
@@ -1315,7 +1352,7 @@ func (l *channelLink) processLockedInHtlcs(
 						"amount: expected %v, received %v",
 						invoice.Terms.Value, pd.Amount)
 					failure := lnwire.FailIncorrectPaymentAmount{}
-					l.sendHTLCError(pd.RHash, failure, obfuscator)
+					l.sendHTLCError(pd.HtlcIndex, failure, obfuscator)
 					needUpdate = true
 					continue
 				}
@@ -1335,7 +1372,7 @@ func (l *channelLink) processLockedInHtlcs(
 						fwdInfo.AmountToForward)
 
 					failure := lnwire.FailIncorrectPaymentAmount{}
-					l.sendHTLCError(pd.RHash, failure, obfuscator)
+					l.sendHTLCError(pd.HtlcIndex, failure, obfuscator)
 					needUpdate = true
 					continue
 				}
@@ -1357,7 +1394,7 @@ func (l *channelLink) processLockedInHtlcs(
 						failure := lnwire.NewFinalIncorrectCltvExpiry(
 							fwdInfo.OutgoingCTLV,
 						)
-						l.sendHTLCError(pd.RHash, failure, obfuscator)
+						l.sendHTLCError(pd.HtlcIndex, failure, obfuscator)
 						needUpdate = true
 						continue
 					case pd.Timeout != fwdInfo.OutgoingCTLV:
@@ -1369,7 +1406,7 @@ func (l *channelLink) processLockedInHtlcs(
 						failure := lnwire.NewFinalIncorrectCltvExpiry(
 							fwdInfo.OutgoingCTLV,
 						)
-						l.sendHTLCError(pd.RHash, failure, obfuscator)
+						l.sendHTLCError(pd.HtlcIndex, failure, obfuscator)
 						needUpdate = true
 						continue
 					}
@@ -1383,7 +1420,7 @@ func (l *channelLink) processLockedInHtlcs(
 				}
 
 				preimage := invoice.Terms.PaymentPreimage
-				logIndex, _, err := l.channel.SettleHTLC(preimage)
+				err = l.channel.SettleHTLC(preimage, pd.HtlcIndex)
 				if err != nil {
 					l.fail("unable to settle htlc: %v", err)
 					return nil
@@ -1402,7 +1439,7 @@ func (l *channelLink) processLockedInHtlcs(
 				// notification about it remote peer.
 				l.cfg.Peer.SendMessage(&lnwire.UpdateFufillHTLC{
 					ChanID:          l.ChanID(),
-					ID:              logIndex,
+					ID:              pd.HtlcIndex,
 					PaymentPreimage: preimage,
 				})
 				needUpdate = true
@@ -1431,7 +1468,7 @@ func (l *channelLink) processLockedInHtlcs(
 						failure = lnwire.NewExpiryTooSoon(*update)
 					}
 
-					l.sendHTLCError(pd.RHash, failure, obfuscator)
+					l.sendHTLCError(pd.HtlcIndex, failure, obfuscator)
 					needUpdate = true
 					continue
 				}
@@ -1458,7 +1495,7 @@ func (l *channelLink) processLockedInHtlcs(
 							pd.Amount, *update)
 					}
 
-					l.sendHTLCError(pd.RHash, failure, obfuscator)
+					l.sendHTLCError(pd.HtlcIndex, failure, obfuscator)
 					needUpdate = true
 					continue
 				}
@@ -1500,7 +1537,7 @@ func (l *channelLink) processLockedInHtlcs(
 							*update)
 					}
 
-					l.sendHTLCError(pd.RHash, failure, obfuscator)
+					l.sendHTLCError(pd.HtlcIndex, failure, obfuscator)
 					needUpdate = true
 					continue
 				}
@@ -1532,7 +1569,7 @@ func (l *channelLink) processLockedInHtlcs(
 
 					failure := lnwire.NewIncorrectCltvExpiry(
 						pd.Timeout, *update)
-					l.sendHTLCError(pd.RHash, failure, obfuscator)
+					l.sendHTLCError(pd.HtlcIndex, failure, obfuscator)
 					needUpdate = true
 					continue
 				}
@@ -1559,13 +1596,19 @@ func (l *channelLink) processLockedInHtlcs(
 						"remaining route %v", err)
 
 					failure := lnwire.NewTemporaryChannelFailure(nil)
-					l.sendHTLCError(pd.RHash, failure, obfuscator)
+					l.sendHTLCError(pd.HtlcIndex, failure, obfuscator)
 					needUpdate = true
 					continue
 				}
 
-				updatePacket := newAddPacket(l.ShortChanID(),
-					fwdInfo.NextHop, addMsg, obfuscator)
+				updatePacket := &htlcPacket{
+					incomingChanID: l.ShortChanID(),
+					incomingHTLCID: pd.HtlcIndex,
+					outgoingChanID: fwdInfo.NextHop,
+					amount:         addMsg.Amount,
+					htlc:           addMsg,
+					obfuscator:     obfuscator,
+				}
 				packetsToForward = append(packetsToForward, updatePacket)
 			}
 		}
@@ -1586,8 +1629,8 @@ func (l *channelLink) processLockedInHtlcs(
 
 // sendHTLCError functions cancels HTLC and send cancel message back to the
 // peer from which HTLC was received.
-func (l *channelLink) sendHTLCError(rHash [32]byte, failure lnwire.FailureMessage,
-	e ErrorEncrypter) {
+func (l *channelLink) sendHTLCError(htlcIndex uint64,
+	failure lnwire.FailureMessage, e ErrorEncrypter) {
 
 	reason, err := e.EncryptFirstHop(failure)
 	if err != nil {
@@ -1595,7 +1638,7 @@ func (l *channelLink) sendHTLCError(rHash [32]byte, failure lnwire.FailureMessag
 		return
 	}
 
-	index, err := l.channel.FailHTLC(rHash, reason)
+	err = l.channel.FailHTLC(htlcIndex, reason)
 	if err != nil {
 		log.Errorf("unable cancel htlc: %v", err)
 		return
@@ -1603,18 +1646,18 @@ func (l *channelLink) sendHTLCError(rHash [32]byte, failure lnwire.FailureMessag
 
 	l.cfg.Peer.SendMessage(&lnwire.UpdateFailHTLC{
 		ChanID: l.ChanID(),
-		ID:     index,
+		ID:     htlcIndex,
 		Reason: reason,
 	})
 }
 
 // sendMalformedHTLCError helper function which sends the malformed HTLC update
 // to the payment sender.
-func (l *channelLink) sendMalformedHTLCError(rHash [32]byte, code lnwire.FailCode,
-	onionBlob []byte) {
+func (l *channelLink) sendMalformedHTLCError(htlcIndex uint64,
+	code lnwire.FailCode, onionBlob []byte) {
 
 	shaOnionBlob := sha256.Sum256(onionBlob)
-	index, err := l.channel.MalformedFailHTLC(rHash, code, shaOnionBlob)
+	err := l.channel.MalformedFailHTLC(htlcIndex, code, shaOnionBlob)
 	if err != nil {
 		log.Errorf("unable cancel htlc: %v", err)
 		return
@@ -1622,7 +1665,7 @@ func (l *channelLink) sendMalformedHTLCError(rHash [32]byte, code lnwire.FailCod
 
 	l.cfg.Peer.SendMessage(&lnwire.UpdateFailMalformedHTLC{
 		ChanID:       l.ChanID(),
-		ID:           index,
+		ID:           htlcIndex,
 		ShaOnionBlob: shaOnionBlob,
 		FailureCode:  code,
 	})

@@ -456,7 +456,7 @@ func TestChannelLinkMultiHopPayment(t *testing.T) {
 	// links were changed.
 	invoice, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
-		t.Fatalf("unable to get inveoice: %v", err)
+		t.Fatalf("unable to get invoice: %v", err)
 	}
 	if !invoice.Terms.Settled {
 		t.Fatal("carol invoice haven't been settled")
@@ -912,7 +912,7 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 	// links hasn't been changed.
 	invoice, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
-		t.Fatalf("unable to get inveoice: %v", err)
+		t.Fatalf("unable to get invoice: %v", err)
 	}
 	if invoice.Terms.Settled {
 		t.Fatal("carol invoice have been settled")
@@ -1076,7 +1076,7 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	// links hasn't been changed.
 	invoice, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
-		t.Fatalf("unable to get inveoice: %v", err)
+		t.Fatalf("unable to get invoice: %v", err)
 	}
 	if invoice.Terms.Settled {
 		t.Fatal("carol invoice have been settled")
@@ -1164,7 +1164,7 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 	// links hasn't been changed.
 	invoice, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
-		t.Fatalf("unable to get inveoice: %v", err)
+		t.Fatalf("unable to get invoice: %v", err)
 	}
 	if invoice.Terms.Settled {
 		t.Fatal("carol invoice have been settled")
@@ -1448,7 +1448,7 @@ func newSingleLinkTestHarness(chanAmt btcutil.Amount) (ChannelLink, func(), erro
 	aliceCfg := ChannelLinkConfig{
 		FwrdingPolicy:     globalPolicy,
 		Peer:              &alicePeer,
-		Switch:            nil,
+		Switch:            New(Config{}),
 		DecodeHopIterator: decoder.DecodeHopIterator,
 		DecodeOnionObfuscator: func(io.Reader) (ErrorEncrypter, lnwire.FailCode) {
 			return obfuscator, lnwire.CodeNone
@@ -1540,7 +1540,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		htlc: htlc,
 	}
 	aliceLink.HandleSwitchPacket(&addPkt)
-	time.Sleep(time.Millisecond * 100)
+	time.Sleep(time.Millisecond * 500)
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt-htlcFee)
 
 	// If we now send in a valid HTLC settle for the prior HTLC we added,
@@ -1551,7 +1551,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		PaymentPreimage: invoice.Terms.PaymentPreimage,
 	}
 	aliceLink.HandleChannelUpdate(htlcSettle)
-	time.Sleep(time.Millisecond * 100)
+	time.Sleep(time.Millisecond * 500)
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt)
 
 	// Next, we'll add another HTLC initiated by the switch (of the same
@@ -1564,7 +1564,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		htlc: htlc,
 	}
 	aliceLink.HandleSwitchPacket(&addPkt)
-	time.Sleep(time.Millisecond * 100)
+	time.Sleep(time.Millisecond * 500)
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt*2-htlcFee)
 
 	// With that processed, we'll now generate an HTLC fail (sent by the
@@ -1575,7 +1575,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		Reason: lnwire.OpaqueReason([]byte("nop")),
 	}
 	aliceLink.HandleChannelUpdate(failMsg)
-	time.Sleep(time.Millisecond * 100)
+	time.Sleep(time.Millisecond * 500)
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt)
 
 	// Moving along, we'll now receive a new HTLC from the remote peer,
@@ -1583,12 +1583,13 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	// remain unchanged (but Alice will need to pay the fee for the extra
 	// HTLC).
 	updateMsg := &lnwire.UpdateAddHTLC{
+		ID:          0,
 		Amount:      htlcAmt,
 		Expiry:      9,
 		PaymentHash: htlc.PaymentHash, // Re-using the same payment hash.
 	}
 	aliceLink.HandleChannelUpdate(updateMsg)
-	time.Sleep(time.Millisecond * 100)
+	time.Sleep(time.Millisecond * 500)
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt-htlcFee)
 
 	// Next, we'll settle the HTLC with our knowledge of the pre-image that
@@ -1601,27 +1602,27 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		},
 	}
 	aliceLink.HandleSwitchPacket(&settlePkt)
-	time.Sleep(time.Millisecond * 100)
+	time.Sleep(time.Millisecond * 500)
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth)
 
 	// Finally, we'll test the scenario of failing an HTLC received by the
 	// remote node. This should result in no perceived bandwidth changes.
 	htlcAdd := &lnwire.UpdateAddHTLC{
+		ID:          1,
 		Amount:      htlcAmt,
 		Expiry:      9,
 		PaymentHash: htlc.PaymentHash,
 	}
 	aliceLink.HandleChannelUpdate(htlcAdd)
-	time.Sleep(time.Millisecond * 100)
+	time.Sleep(time.Millisecond * 500)
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcFee)
 	failPkt := htlcPacket{
 		htlc: &lnwire.UpdateFailHTLC{
 			ID: 3,
 		},
-		payHash: htlc.PaymentHash,
 	}
 	aliceLink.HandleSwitchPacket(&failPkt)
-	time.Sleep(time.Millisecond * 100)
+	time.Sleep(time.Millisecond * 500)
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth)
 }
 
@@ -1660,11 +1661,10 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unable to create payment: %v", err)
 		}
-		addPkt := htlcPacket{
+		aliceLink.HandleSwitchPacket(&htlcPacket{
 			htlc:   htlc,
 			amount: amt,
-		}
-		aliceLink.HandleSwitchPacket(&addPkt)
+		})
 
 		return invoice.Terms.PaymentPreimage
 	}
@@ -1683,6 +1683,7 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 		totalHtlcAmt += htlcAmt
 	}
 
+	// TODO(roasbeef): increase sleep
 	time.Sleep(time.Second * 1)
 	commitWeight := lnwallet.CommitWeight + lnwallet.HtlcWeight*numHTLCs
 	htlcFee := lnwire.NewMSatFromSatoshis(
@@ -1740,7 +1741,7 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 		coreLink.overflowQueue.SignalFreeSlot()
 	}
 
-	time.Sleep(time.Millisecond * 200)
+	time.Sleep(time.Millisecond * 500)
 	assertLinkBandwidth(t, aliceLink, expectedBandwidth)
 
 	// Finally, at this point, the queue itself should be fully empty. As
@@ -2241,7 +2242,7 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 			"network fee")
 	}
 
-	time.Sleep(time.Second * 1)
+	time.Sleep(time.Second * 2)
 
 	// At this point, Alice should've triggered a new fee update that
 	// increased the fee rate to match the new rate.
@@ -2262,5 +2263,67 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 	if aliceFeeRate != bobFeeRate {
 		t.Fatalf("fee rates don't match: expected %v got %v",
 			aliceFeeRate, bobFeeRate)
+	}
+}
+
+// TestChannelLinkRejectDuplicatePayment tests that if a link receives an
+// incoming HTLC for a payment we have already settled, then it rejects the
+// HTLC. We do this as we want to enforce the fact that invoices are only to be
+// used _once.
+func TestChannelLinkRejectDuplicatePayment(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll create our traditional three hop network. We'll only be
+	// interacting with and asserting the state of two of the end points
+	// for this test.
+	channels, cleanUp, _, err := createClusterChannels(
+		btcutil.SatoshiPerBitcoin*3,
+		btcutil.SatoshiPerBitcoin*5)
+	if err != nil {
+		t.Fatalf("unable to create channel: %v", err)
+	}
+	defer cleanUp()
+
+	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
+	if err := n.start(); err != nil {
+		t.Fatalf("unable to start three hop network: %v", err)
+	}
+	defer n.stop()
+
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+
+	// We'll start off by making a payment from Alice to Carol. We'll
+	// manually generate this request so we can control all the parameters.
+	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
+		n.firstBobChannelLink, n.carolChannelLink)
+	blob, err := generateRoute(hops...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invoice, htlc, err := generatePayment(amount, htlcAmt, totalTimelock,
+		blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := n.carolServer.registry.AddInvoice(*invoice); err != nil {
+		t.Fatalf("unable to add invoice in carol registry: %v", err)
+	}
+
+	// With the invoice now added to Carol's registry, we'll send the
+	// payment. It should succeed w/o any issues as it has been crafted
+	// properly.
+	_, err = n.aliceServer.htlcSwitch.SendHTLC(n.bobServer.PubKey(), htlc,
+		newMockDeobfuscator())
+	if err != nil {
+		t.Fatalf("unable to send payment to carol: %v", err)
+	}
+
+	// Now, if we attempt to send the payment *again* it should be rejected
+	// as it's a duplicate request.
+	_, err = n.aliceServer.htlcSwitch.SendHTLC(n.bobServer.PubKey(), htlc,
+		newMockDeobfuscator())
+	if err.Error() != lnwire.CodeUnknownPaymentHash.String() {
+		t.Fatal("error haven't been received")
 	}
 }

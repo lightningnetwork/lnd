@@ -1,8 +1,6 @@
 package htlcswitch
 
 import (
-	"crypto/sha256"
-
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -13,19 +11,21 @@ type htlcPacket struct {
 	// message.
 	destNode [33]byte
 
-	// payHash is the payment hash of the HTLC which was modified by either
-	// a settle or fail action.
-	//
-	// NOTE: This fields is initialized only in settle and fail packets.
-	payHash [sha256.Size]byte
+	// incomingChanID is the ID of the channel that we have received an incoming
+	// HTLC on.
+	incomingChanID lnwire.ShortChannelID
 
-	// dest is the destination of this packet identified by the short
-	// channel ID of the target link.
-	dest lnwire.ShortChannelID
+	// outgoingChanID is the ID of the channel that we have offered or will
+	// offer an outgoing HTLC on.
+	outgoingChanID lnwire.ShortChannelID
 
-	// src is the source of this packet identified by the short channel ID
-	// of the target link.
-	src lnwire.ShortChannelID
+	// incomingHTLCID is the ID of the HTLC that we have received from the peer
+	// on the incoming channel.
+	incomingHTLCID uint64
+
+	// outgoingHTLCID is the ID of the HTLC that we offered to the peer on the
+	// outgoing channel.
+	outgoingHTLCID uint64
 
 	// amount is the value of the HTLC that is being created or modified.
 	amount lnwire.MilliSatoshi
@@ -37,66 +37,13 @@ type htlcPacket struct {
 	// any forwarded errors in an additional layer of encryption.
 	obfuscator ErrorEncrypter
 
-	// isObfuscated is set to true if an error occurs as soon as the switch
-	// forwards a packet to the link. If so, and this is an error packet,
-	// then this allows the switch to avoid doubly encrypting the error.
-	//
-	// TODO(andrew.shvv) revisit after refactoring the way of returning
-	// errors inside the htlcswitch packet.
-	isObfuscated bool
-}
+	// localFailure is set to true if an HTLC fails for a local payment before
+	// the first hop. In this case, the failure reason is simply encoded, not
+	// encrypted with any shared secret.
+	localFailure bool
 
-// newInitPacket creates htlc switch add packet which encapsulates the add htlc
-// request and additional information for proper forwarding over htlc switch.
-func newInitPacket(destNode [33]byte, htlc *lnwire.UpdateAddHTLC) *htlcPacket {
-	return &htlcPacket{
-		destNode: destNode,
-		amount:   htlc.Amount,
-		htlc:     htlc,
-	}
-}
-
-// newAddPacket creates htlc switch add packet which encapsulates the add htlc
-// request and additional information for proper forwarding over htlc switch.
-func newAddPacket(src, dest lnwire.ShortChannelID,
-	htlc *lnwire.UpdateAddHTLC, e ErrorEncrypter) *htlcPacket {
-
-	return &htlcPacket{
-		amount:     htlc.Amount,
-		dest:       dest,
-		src:        src,
-		htlc:       htlc,
-		obfuscator: e,
-	}
-}
-
-// newSettlePacket creates htlc switch ack/settle packet which encapsulates the
-// settle htlc request which should be created and sent back by last hope in
-// htlc path.
-func newSettlePacket(src lnwire.ShortChannelID, htlc *lnwire.UpdateFufillHTLC,
-	payHash [sha256.Size]byte, amount lnwire.MilliSatoshi) *htlcPacket {
-
-	return &htlcPacket{
-		src:     src,
-		payHash: payHash,
-		htlc:    htlc,
-		amount:  amount,
-	}
-}
-
-// newFailPacket creates htlc switch fail packet which encapsulates the fail
-// htlc request which propagated back to the original hope who sent the htlc
-// add request if something wrong happened on the path to the final
-// destination.
-func newFailPacket(src lnwire.ShortChannelID, htlc *lnwire.UpdateFailHTLC,
-	payHash [sha256.Size]byte, amount lnwire.MilliSatoshi,
-	isObfuscated bool) *htlcPacket {
-
-	return &htlcPacket{
-		src:          src,
-		payHash:      payHash,
-		htlc:         htlc,
-		amount:       amount,
-		isObfuscated: isObfuscated,
-	}
+	// isRouted is set to true if the incomingChanID and incomingHTLCID fields
+	// of a forwarded fail packet are already set and do not need to be looked
+	// up in the circuit map.
+	isRouted bool
 }

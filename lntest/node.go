@@ -18,7 +18,7 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	macaroon "gopkg.in/macaroon.v1"
+	macaroon "gopkg.in/macaroon.v2"
 
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnrpc"

@@ -1,5 +1,5 @@
-hash: 70e2030c50a730ad0ad428176f12851f35178e31e262bae82cedd89579a14b40
-updated: 2018-01-24T15:24:09.346726778-08:00
+hash: f72fdbb4d93ddd98991e830f978bfe9e08623e2a9976857b0f7668641486369c
+updated: 2018-01-29T15:55:37.905498329-07:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -204,11 +204,11 @@ imports:
   - transport
 - name: gopkg.in/errgo.v1
   version: 442357a80af5c6bf9b6d51ae791a39c3421004f3
-- name: gopkg.in/macaroon-bakery.v1
-  version: 8e14f8b0f5e286ad100ca8d6ce5bde0f0dfb8b21
+- name: gopkg.in/macaroon-bakery.v2
+  version: 04cf5ef151a211d929975161aea7c65f94c90446
   subpackages:
   - bakery
   - bakery/checkers
-- name: gopkg.in/macaroon.v1
-  version: ab101776739ee61baab9bc50e4b33b5aeb3ac843
+- name: gopkg.in/macaroon.v2
+  version: bed2a428da6e56d950bed5b41fcbae3141e5b0d0
 testImports: []

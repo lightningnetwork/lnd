@@ -8,7 +8,7 @@ import (
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcwallet/wallet"
 	"golang.org/x/net/context"
-	"gopkg.in/macaroon-bakery.v1/bakery"
+	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
 // UnlockerService implements the WalletUnlocker service used to provide lnd
@@ -29,7 +29,7 @@ type UnlockerService struct {
 }
 
 // New creates and returns a new UnlockerService.
-func New(authSvc *bakery.Service, chainDir string,
+func New(authSvc *bakery.Bakery, chainDir string,
 	params *chaincfg.Params) *UnlockerService {
 	return &UnlockerService{
 		CreatePasswords: make(chan []byte, 1),

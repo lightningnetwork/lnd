@@ -3,15 +3,13 @@ package macaroons
 import (
 	"encoding/hex"
 	"fmt"
-	"net"
+
+	"google.golang.org/grpc/metadata"
 
 	"golang.org/x/net/context"
-	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/peer"
 
-	"gopkg.in/macaroon-bakery.v1/bakery"
-	"gopkg.in/macaroon-bakery.v1/bakery/checkers"
-	macaroon "gopkg.in/macaroon.v1"
+	"gopkg.in/macaroon-bakery.v2/bakery"
+	macaroon "gopkg.in/macaroon.v2"
 )
 
 // MacaroonCredential wraps a macaroon to implement the
@@ -54,29 +52,17 @@ func NewMacaroonCredential(m *macaroon.Macaroon) MacaroonCredential {
 // bakery service, context, and uri. Within the passed context.Context, we
 // expect a macaroon to be encoded as request metadata using the key
 // "macaroon".
-func ValidateMacaroon(ctx context.Context, method string,
-	svc *bakery.Service) error {
+func ValidateMacaroon(ctx context.Context, requiredPermissions []bakery.Op,
+	svc *bakery.Bakery) error {
 
 	// Get macaroon bytes from context and unmarshal into macaroon.
-	//
-	// TODO(aakselrod): use FromIncomingContext after grpc update in glide.
-	md, ok := metadata.FromContext(ctx)
+	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return fmt.Errorf("unable to get metadata from context")
 	}
 	if len(md["macaroon"]) != 1 {
 		return fmt.Errorf("expected 1 macaroon, got %d",
 			len(md["macaroon"]))
-	}
-
-	// Get peer info and extract IP address from it for macaroon check
-	pr, ok := peer.FromContext(ctx)
-	if !ok {
-		return fmt.Errorf("unable to get peer info from context")
-	}
-	peerAddr, _, err := net.SplitHostPort(pr.Addr.String())
-	if err != nil {
-		return fmt.Errorf("unable to parse peer address")
 	}
 
 	// With the macaroon obtained, we'll now decode the hex-string
@@ -93,12 +79,8 @@ func ValidateMacaroon(ctx context.Context, method string,
 	}
 
 	// Check the method being called against the permitted operation and
-	// the expiration time and return the result.
-	//
-	// TODO(aakselrod): Add more checks as required.
-	return svc.Check(macaroon.Slice{mac}, checkers.New(
-		AllowChecker(method),
-		TimeoutChecker(),
-		IPLockChecker(peerAddr),
-	))
+	// the expiration time and IP address and return the result.
+	authChecker := svc.Checker.Auth(macaroon.Slice{mac})
+	_, err = authChecker.Allow(ctx, requiredPermissions...)
+	return err
 }

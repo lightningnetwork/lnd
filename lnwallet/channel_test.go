@@ -3914,6 +3914,13 @@ func TestChanAvailableBandwidth(t *testing.T) {
 		t.Fatalf("unable to recv htlc cancel: %v", err)
 	}
 
+	// We must do a state transition before the balance is available
+	// for Alice.
+	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("unable to complete alice's state "+
+			"transition: %v", err)
+	}
+
 	// With the HTLC's settled in the log, we'll now assert that if we
 	// initiate a state transition, then our guess was correct.
 	assertBandwidthEstimateCorrect(false)
@@ -4290,6 +4297,69 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 	}
 	if err := vm.Execute(); err != nil {
 		t.Fatalf("htlc timeout spend is invalid: %v", err)
+	}
+}
+
+// TestDesyncHTLCs checks that we cannot add HTLCs that would make the
+// balance negative, when the remote and local update logs are desynced.
+func TestDesyncHTLCs(t *testing.T) {
+	t.Parallel()
+
+	// We'll kick off the test by creating our channels which both are
+	// loaded with 5 BTC each.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// First add one HTLC of value 4.1 BTC.
+	htlcAmt := lnwire.NewMSatFromSatoshis(4.1 * btcutil.SatoshiPerBitcoin)
+	htlc, _ := createHTLC(0, htlcAmt)
+	aliceIndex, err := aliceChannel.AddHTLC(htlc)
+	if err != nil {
+		t.Fatalf("unable to add htlc: %v", err)
+	}
+	bobIndex, err := bobChannel.ReceiveHTLC(htlc)
+	if err != nil {
+		t.Fatalf("unable to recv htlc: %v", err)
+	}
+
+	// Lock this HTLC in.
+	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("unable to complete state update: %v", err)
+	}
+
+	// Now let let Bob fail this HTLC.
+	if err := bobChannel.FailHTLC(bobIndex, []byte("failreason")); err != nil {
+		t.Fatalf("unable to cancel HTLC: %v", err)
+	}
+	if err := aliceChannel.ReceiveFailHTLC(aliceIndex, []byte("bad")); err != nil {
+		t.Fatalf("unable to recv htlc cancel: %v", err)
+	}
+
+	// Alice now has gotten all here original balance (5 BTC) back,
+	// however, adding a new HTLC at this point SHOULD fail, since
+	// if she add the HTLC and sign the next state, Bob cannot assume
+	// she received the FailHTLC, and must assume she doesn't have
+	// the necessary balance available.
+	//
+	// We try adding an HTLC of value 1 BTC, which should fail
+	// because the balance is unavailable.
+	htlcAmt = lnwire.NewMSatFromSatoshis(1 * btcutil.SatoshiPerBitcoin)
+	htlc, _ = createHTLC(1, htlcAmt)
+	if _, err = aliceChannel.AddHTLC(htlc); err != ErrInsufficientBalance {
+		t.Fatalf("expected ErrInsufficientBalance, instead received: %v",
+			err)
+	}
+
+	// Now do a state transition, which will ACK the FailHTLC, making
+	// Alice able to add the new HTLC.
+	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("unable to complete state update: %v", err)
+	}
+	if _, err = aliceChannel.AddHTLC(htlc); err != nil {
+		t.Fatalf("unable to add htlc: %v", err)
 	}
 }
 

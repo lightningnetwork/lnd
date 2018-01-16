@@ -864,7 +864,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 					incomingChanID: pkt.incomingChanID,
 					incomingHTLCID: pkt.incomingHTLCID,
 					amount:         htlc.Amount,
-					isRouted:       true,
+					hasSource:      true,
 					localFailure:   localFailure,
 					htlc: &lnwire.UpdateFailHTLC{
 						Reason: reason,
@@ -882,18 +882,20 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 			"local_log_index=%v, batch_size=%v",
 			htlc.PaymentHash[:], index, l.batchCounter+1)
 
+		pkt.outgoingChanID = l.ShortChanID()
+		pkt.outgoingHTLCID = index
+		htlc.ID = index
+
+		log.Debugf("Persisting keystone to create open circuit: %v->%v",
+			pkt.inKey(), pkt.outKey())
+
 		// Create circuit (remember the path) in order to forward settle/fail
 		// packet back.
-		l.cfg.Switch.addCircuit(&PaymentCircuit{
-			PaymentHash:    htlc.PaymentHash,
-			IncomingChanID: pkt.incomingChanID,
-			IncomingHTLCID: pkt.incomingHTLCID,
-			OutgoingChanID: l.ShortChanID(),
-			OutgoingHTLCID: index,
-			ErrorEncrypter: pkt.obfuscator,
-		})
+		if err := l.cfg.Switch.setKeystone(pkt.inKey(), pkt.outKey()); err != nil {
+			l.fail("unable to add full circuit: %v", err)
+			return
+		}
 
-		htlc.ID = index
 		l.cfg.Peer.SendMessage(htlc)
 
 	case *lnwire.UpdateFulfillHTLC:
@@ -1130,18 +1132,28 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// htlc switch or settled if our node was last node in htlc
 		// path.
 		htlcsToForward := l.processLockedInHtlcs(htlcs)
+
+		log.Debugf("ChannelPoint(%v) forwarding %v HTLC's",
+			l.channel.ChannelPoint(), len(htlcsToForward))
+
+		errChan := l.cfg.Switch.forwardBatch(htlcsToForward...)
+
 		go func() {
-			log.Debugf("ChannelPoint(%v) forwarding %v HTLC's",
-				l.channel.ChannelPoint(), len(htlcsToForward))
-			for _, packet := range htlcsToForward {
-				if err := l.cfg.Switch.forward(packet); err != nil {
-					// TODO(roasbeef): cancel back htlc
-					// under certain conditions?
-					log.Errorf("channel link(%v): "+
-						"unhandled error while forwarding "+
-						"htlc packet over htlc  "+
-						"switch: %v", l, err)
+			for {
+				err, ok := <-errChan
+				if !ok {
+					// Err chan has been drained or switch
+					// is shutting down.  Either way,
+					// return.
+					return
+				} else if err == nil {
+					// Successfully forwarded.
+					continue
 				}
+
+				log.Errorf("channel link(%v): unhandled error "+
+					"while forwarding htlc packet over "+
+					"htlcswitch: %v", l, err)
 			}
 		}()
 
@@ -1334,8 +1346,11 @@ func (l *channelLink) String() string {
 // another peer or if the update was created by user
 //
 // NOTE: Part of the ChannelLink interface.
-func (l *channelLink) HandleSwitchPacket(packet *htlcPacket) {
-	l.mailBox.AddPacket(packet)
+func (l *channelLink) HandleSwitchPacket(pkt *htlcPacket) error {
+	log.Debugf("ChannelLink(%s) received switch packet inkey=%v, outkey=%v",
+		l.ShortChanID(), pkt.inKey(), pkt.outKey())
+	l.mailBox.AddPacket(pkt)
+	return nil
 }
 
 // HandleChannelUpdate handles the htlc requests as settle/add/fail which sent
@@ -1822,6 +1837,7 @@ func (l *channelLink) processLockedInHtlcs(
 					incomingChanID: l.ShortChanID(),
 					incomingHTLCID: pd.HtlcIndex,
 					outgoingChanID: fwdInfo.NextHop,
+					incomingAmount: pd.Amount,
 					amount:         addMsg.Amount,
 					htlc:           addMsg,
 					obfuscator:     obfuscator,

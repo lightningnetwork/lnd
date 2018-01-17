@@ -10,6 +10,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/brontide"
+	"github.com/lightningnetwork/lnd/contractcourt"
 
 	"bytes"
 
@@ -294,8 +295,10 @@ func (p *peer) Start() error {
 // channels returned by the database.
 func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 	for _, dbChan := range chans {
-		lnChan, err := lnwallet.NewLightningChannel(p.server.cc.signer,
-			p.server.cc.chainNotifier, p.server.cc.feeEstimator, dbChan)
+		lnChan, err := lnwallet.NewLightningChannel(
+			p.server.cc.signer, p.server.cc.chainNotifier,
+			p.server.witnessBeacon, dbChan,
+		)
 		if err != nil {
 			return err
 		}
@@ -390,7 +393,13 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			FwrdingPolicy:    *forwardingPolicy,
 			FeeEstimator:     p.server.cc.feeEstimator,
 			BlockEpochs:      blockEpoch,
-			SyncStates:       true,
+			PreimageCache:    p.server.witnessBeacon,
+			UpdateContractSignals: func(signals *contractcourt.ContractSignals) error {
+				return p.server.chainArb.UpdateContractSignals(
+					*chanPoint, signals,
+				)
+			},
+			SyncStates: true,
 		}
 		link := htlcswitch.NewChannelLink(linkCfg, lnChan,
 			uint32(currentHeight))
@@ -1280,7 +1289,13 @@ out:
 				FwrdingPolicy:    p.server.cc.routingPolicy,
 				FeeEstimator:     p.server.cc.feeEstimator,
 				BlockEpochs:      blockEpoch,
-				SyncStates:       false,
+				PreimageCache:    p.server.witnessBeacon,
+				UpdateContractSignals: func(signals *contractcourt.ContractSignals) error {
+					return p.server.chainArb.UpdateContractSignals(
+						*chanPoint, signals,
+					)
+				},
+				SyncStates: false,
 			}
 			link := htlcswitch.NewChannelLink(linkConfig, newChan,
 				uint32(currentHeight))
@@ -1550,8 +1565,8 @@ func (p *peer) finalizeChanClosure(chanCloser *channelCloser) {
 	chanCloser.cfg.channel.CancelObserver()
 
 	// Next, we'll launch a goroutine which will request to be notified by
-	// the ChainNotifier once the closure
-	// transaction obtains a single confirmation.
+	// the ChainNotifier once the closure transaction obtains a single
+	// confirmation.
 	notifier := p.server.cc.chainNotifier
 
 	// If any error happens during waitForChanToClose, forward it to

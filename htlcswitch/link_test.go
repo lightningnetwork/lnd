@@ -17,6 +17,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -1445,6 +1446,11 @@ func newSingleLinkTestHarness(chanAmt btcutil.Amount) (ChannelLink, func(), erro
 		}
 	)
 
+	pCache := &mockPreimageCache{
+		// hash -> preimage
+		preimageMap: make(map[[32]byte][]byte),
+	}
+
 	aliceCfg := ChannelLinkConfig{
 		FwrdingPolicy:     globalPolicy,
 		Peer:              &alicePeer,
@@ -1454,8 +1460,12 @@ func newSingleLinkTestHarness(chanAmt btcutil.Amount) (ChannelLink, func(), erro
 			return obfuscator, lnwire.CodeNone
 		},
 		GetLastChannelUpdate: mockGetChanUpdateMessage,
-		Registry:             invoiveRegistry,
-		BlockEpochs:          globalEpoch,
+		PreimageCache:        pCache,
+		UpdateContractSignals: func(*contractcourt.ContractSignals) error {
+			return nil
+		},
+		Registry:    invoiveRegistry,
+		BlockEpochs: globalEpoch,
 	}
 
 	const startingHeight = 100
@@ -2327,3 +2337,5 @@ func TestChannelLinkRejectDuplicatePayment(t *testing.T) {
 		t.Fatal("error haven't been received")
 	}
 }
+
+// TODO(roasbeef): add test for re-sending after hodl mode, to settle any lingering

@@ -4311,4 +4311,172 @@ func TestInvalidCommitSigError(t *testing.T) {
 	}
 }
 
+// TestChannelUnilateralCloseHtlcResolution tests that in the case of a
+// unilateral channel closure, then the party that didn't broadcast the
+// commitment is able to properly sweep all relevant outputs.
+func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
+	t.Parallel()
+
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(3)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// We'll start off the test by adding an HTLC in both directions, then
+	// initiating enough state transitions to lock both of them in.
+	htlcAmount := lnwire.NewMSatFromSatoshis(20000)
+	htlcAlice, _ := createHTLC(0, htlcAmount)
+	if _, err := aliceChannel.AddHTLC(htlcAlice); err != nil {
+		t.Fatalf("alice unable to add htlc: %v", err)
+	}
+	if _, err := bobChannel.ReceiveHTLC(htlcAlice); err != nil {
+		t.Fatalf("bob unable to recv add htlc: %v", err)
+	}
+	htlcBob, preimageBob := createHTLC(0, htlcAmount)
+	if _, err := bobChannel.AddHTLC(htlcBob); err != nil {
+		t.Fatalf("bob unable to add htlc: %v", err)
+	}
+	if _, err := aliceChannel.ReceiveHTLC(htlcBob); err != nil {
+		t.Fatalf("alice unable to recv add htlc: %v", err)
+	}
+	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("Can't update the channel state: %v", err)
+	}
+	if err := forceStateTransition(bobChannel, aliceChannel); err != nil {
+		t.Fatalf("Can't update the channel state: %v", err)
+	}
+
+	// With both HTLC's locked in, we'll now simulate Bob force closing the
+	// transaction on Alice.
+	bobForceClose, err := bobChannel.ForceClose()
+	if err != nil {
+		t.Fatalf("unable to close: %v", err)
+	}
+
+	// Now that Bob has force closed, we'll modify Alice's pre image cache
+	// such that she now gains the ability to also settle the incoming HTLC
+	// from Bob.
+	aliceChannel.pCache.AddPreimage(preimageBob[:])
+
+	// We'll then use Bob's transaction to trigger a spend notification for
+	// Alice.
+	aliceNotifier := aliceChannel.channelEvents.(*mockNotfier)
+	closeTx := bobForceClose.CloseTx
+	commitTxHash := closeTx.TxHash()
+	select {
+	case aliceNotifier.activeSpendNtfn <- &chainntnfs.SpendDetail{
+		SpendingTx:    closeTx,
+		SpenderTxHash: &commitTxHash,
+	}:
+	case <-time.After(time.Second * 15):
+		t.Fatalf("alice didn't consume spend ntfn")
+	}
+
+	// Alice should now send over a signal on the unilateral close signal
+	// that we'll use to ensure she's able to sweep all the relevant
+	// outputs.
+	var aliceCloseSummary *UnilateralCloseSummary
+	select {
+	case aliceCloseSummary = <-aliceChannel.UnilateralClose:
+	case <-time.After(time.Second * 15):
+		t.Fatalf("alice didn't send her close summary")
+	}
+
+	// She should detect that she can sweep both the outgoing HTLC as well
+	// as the incoming one from Bob.
+	if len(aliceCloseSummary.HtlcResolutions.OutgoingHTLCs) != 1 {
+		t.Fatalf("alice out htlc resolutions not populated: expected %v "+
+			"htlcs, got %v htlcs",
+			1, len(aliceCloseSummary.HtlcResolutions.OutgoingHTLCs))
+	}
+	if len(aliceCloseSummary.HtlcResolutions.IncomingHTLCs) != 1 {
+		t.Fatalf("alice in htlc resolutions not populated: expected %v "+
+			"htlcs, got %v htlcs",
+			1, len(aliceCloseSummary.HtlcResolutions.IncomingHTLCs))
+	}
+
+	outHtlcResolution := aliceCloseSummary.HtlcResolutions.OutgoingHTLCs[0]
+	inHtlcResolution := aliceCloseSummary.HtlcResolutions.IncomingHTLCs[0]
+
+	// First, we'll ensure that Alice can directly spend the outgoing HTLC
+	// given a transaction with the proper lock time set.
+	receiverHtlcScript := closeTx.TxOut[outHtlcResolution.ClaimOutpoint.Index].PkScript
+	sweepTx := wire.NewMsgTx(2)
+	sweepTx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: outHtlcResolution.ClaimOutpoint,
+	})
+	sweepTx.AddTxOut(&wire.TxOut{
+		PkScript: receiverHtlcScript,
+		Value:    outHtlcResolution.SweepSignDesc.Output.Value,
+	})
+	outHtlcResolution.SweepSignDesc.InputIndex = 0
+	outHtlcResolution.SweepSignDesc.SigHashes = txscript.NewTxSigHashes(
+		sweepTx,
+	)
+	sweepTx.LockTime = outHtlcResolution.Expiry
+
+	// With the transaction constructed, we'll generate a witness that
+	// should be valid for it, and verify using an instance of Script.
+	sweepTx.TxIn[0].Witness, err = receiverHtlcSpendTimeout(
+		aliceChannel.signer, &outHtlcResolution.SweepSignDesc,
+		sweepTx, int32(outHtlcResolution.Expiry),
+	)
+	if err != nil {
+		t.Fatalf("unable to witness: %v", err)
+	}
+	vm, err := txscript.NewEngine(
+		outHtlcResolution.SweepSignDesc.Output.PkScript,
+		sweepTx, 0, txscript.StandardVerifyFlags, nil,
+		nil, outHtlcResolution.SweepSignDesc.Output.Value,
+	)
+	if err != nil {
+		t.Fatalf("unable to create engine: %v", err)
+	}
+	if err := vm.Execute(); err != nil {
+		t.Fatalf("htlc timeout spend is invalid: %v", err)
+	}
+
+	// Next, we'll ensure that we're able to sweep the incoming HTLC with a
+	// similar sweep transaction, this time using the payment pre-image.
+	senderHtlcScript := closeTx.TxOut[inHtlcResolution.ClaimOutpoint.Index].PkScript
+	sweepTx = wire.NewMsgTx(2)
+	sweepTx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: inHtlcResolution.ClaimOutpoint,
+	})
+	sweepTx.AddTxOut(&wire.TxOut{
+		PkScript: senderHtlcScript,
+		Value:    inHtlcResolution.SweepSignDesc.Output.Value,
+	})
+	inHtlcResolution.SweepSignDesc.InputIndex = 0
+	inHtlcResolution.SweepSignDesc.SigHashes = txscript.NewTxSigHashes(
+		sweepTx,
+	)
+	sweepTx.TxIn[0].Witness, err = SenderHtlcSpendRedeem(
+		aliceChannel.signer, &inHtlcResolution.SweepSignDesc,
+		sweepTx, preimageBob[:],
+	)
+	if err != nil {
+		t.Fatalf("unable to generate witness for success "+
+			"output: %v", err)
+	}
+
+	// Finally, we'll verify the constructed witness to ensure that Alice
+	// can properly sweep the output.
+	vm, err = txscript.NewEngine(
+		inHtlcResolution.SweepSignDesc.Output.PkScript,
+		sweepTx, 0, txscript.StandardVerifyFlags, nil,
+		nil, inHtlcResolution.SweepSignDesc.Output.Value,
+	)
+	if err != nil {
+		t.Fatalf("unable to create engine: %v", err)
+	}
+	if err := vm.Execute(); err != nil {
+		t.Fatalf("htlc timeout spend is invalid: %v", err)
+	}
+}
+
 // TODO(roasbeef): testing.Quick test case for retrans!!!

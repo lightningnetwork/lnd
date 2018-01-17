@@ -95,22 +95,25 @@ import (
 // constraints have fully matured. The store exposes methods for enumerating its
 // contents, and persisting state transitions detected by the utxo nursery.
 type NurseryStore interface {
-
-	// Incubate registers a commitment output and a slice of htlc outputs to
-	// be swept back into the user's wallet. The event is persisted to disk,
-	// such that the nursery can resume the incubation process after a
-	// potential crash.
-	Incubate(*kidOutput, []babyOutput) error
+	// Incubate registers a set of CSV delayed outputs (incoming HTLC's on
+	// our commitment transaction, or a commitment output), and a slice of
+	// outgoing htlc outputs to be swept back into the user's wallet. The
+	// event is persisted to disk, such that the nursery can resume the
+	// incubation process after a potential crash.
+	Incubate([]kidOutput, []babyOutput) error
 
 	// CribToKinder atomically moves a babyOutput in the crib bucket to the
-	// kindergarten bucket. The now mature kidOutput contained in the
-	// babyOutput will be stored as it waits out the kidOutput's CSV delay.
+	// kindergarten bucket. Baby outputs are outgoing HTLC's which require
+	// us to go to the second-layer to claim. The now mature kidOutput
+	// contained in the babyOutput will be stored as it waits out the
+	// kidOutput's CSV delay.
 	CribToKinder(*babyOutput) error
 
 	// PreschoolToKinder atomically moves a kidOutput from the preschool
-	// bucket to the kindergarten bucket. This transition should be executed
-	// after receiving confirmation of the preschool output's commitment
-	// transaction.
+	// bucket to the kindergarten bucket. This transition should be
+	// executed after receiving confirmation of the preschool output.
+	// Incoming HTLC's we need to go to the second-layer to claim, and also
+	// our commitment outputs fall into this class.
 	PreschoolToKinder(*kidOutput) error
 
 	// GraduateKinder atomically moves the kindergarten class at the
@@ -121,8 +124,8 @@ type NurseryStore interface {
 	// removed.
 	GraduateKinder(height uint32) error
 
-	// FetchPreschools returns a list of all outputs currently stored in the
-	// preschool bucket.
+	// FetchPreschools returns a list of all outputs currently stored in
+	// the preschool bucket.
 	FetchPreschools() ([]kidOutput, error)
 
 	// FetchClass returns a list of kindergarten and crib outputs whose
@@ -300,18 +303,23 @@ func newNurseryStore(chainHash *chainhash.Hash,
 	}, nil
 }
 
-// Incubate persists the beginning of the incubation process for the CSV-delayed
-// commitment output and a list of two-stage htlc outputs.
-func (ns *nurseryStore) Incubate(kid *kidOutput, babies []babyOutput) error {
+// Incubate persists the beginning of the incubation process for the
+// CSV-delayed outputs (commitment and incoming HTLC's), commitment output and
+// a list of outgoing two-stage htlc outputs.
+func (ns *nurseryStore) Incubate(kids []kidOutput, babies []babyOutput) error {
 	return ns.db.Update(func(tx *bolt.Tx) error {
-		// Store commitment output in preschool bucket if not nil.
-		if kid != nil {
-			if err := ns.enterPreschool(tx, kid); err != nil {
+		// If we have any kid outputs to incubate, then we'll attempt
+		// to add each of them to the nursery store. Any duplicate
+		// outputs will be ignored.
+		for _, kid := range kids {
+			if err := ns.enterPreschool(tx, &kid); err != nil {
 				return err
 			}
 		}
 
-		// Add all htlc outputs to the crib bucket.
+		// Next, we'll Add all htlc outputs to the crib bucket.
+		// Similarly, we'll ignore any outputs that have already been
+		// inserted.
 		for _, baby := range babies {
 			if err := ns.enterCrib(tx, &baby); err != nil {
 				return err
@@ -384,7 +392,7 @@ func (ns *nurseryStore) CribToKinder(bby *babyOutput) error {
 		// the block height at which the output was confirmed.
 		maturityHeight := bby.ConfHeight() + bby.BlocksToMaturity()
 
-		// Retrive or create a height-channel bucket corresponding to
+		// Retrieve or create a height-channel bucket corresponding to
 		// the kidOutput's maturity height.
 		hghtChanBucketCsv, err := ns.createHeightChanBucket(tx,
 			maturityHeight, chanPoint)

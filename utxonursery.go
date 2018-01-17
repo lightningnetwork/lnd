@@ -47,6 +47,8 @@ import (
 //
 //                        DESCRIPTION OF OUTPUT STATES
 //
+// TODO(roasbeef): update comment with both new output types
+//
 //  - CRIB (babyOutput) outputs are two-stage htlc outputs that are initially
 //    locked using a CLTV delay, followed by a CSV delay. The first stage of a
 //    crib output requires broadcasting a presigned htlc timeout txn generated

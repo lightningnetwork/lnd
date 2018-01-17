@@ -3793,14 +3793,17 @@ func (lc *LightningChannel) FullySynced() bool {
 // transaction in the local commitment chain. As a result the edge of our
 // revocation window is extended by one, and the tail of our local commitment
 // chain is advanced by a single commitment. This now lowest unrevoked
-// commitment becomes our currently accepted state within the channel.
-func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, error) {
+// commitment becomes our currently accepted state within the channel. This
+// method also returns the set of HTLC's currently active within the commitment
+// transaction. This return value allows callers to act once an HTLC has been
+// locked into our commitment transaction.
+func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, []channeldb.HTLC, error) {
 	lc.Lock()
 	defer lc.Unlock()
 
 	revocationMsg, err := lc.generateRevocation(lc.currentHeight)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	walletLog.Tracef("ChannelPoint(%v): revoking height=%v, now at height=%v",
@@ -3817,7 +3820,7 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, err
 	newCommitment := chainTail.toDiskCommit(true)
 	err = lc.channelState.UpdateCommitment(newCommitment)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	walletLog.Tracef("ChannelPoint(%v): state transition accepted: "+
@@ -3829,7 +3832,7 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, err
 		&lc.channelState.FundingOutpoint,
 	)
 
-	return revocationMsg, nil
+	return revocationMsg, newCommitment.Htlcs, nil
 }
 
 // ReceiveRevocation processes a revocation sent by the remote party for the

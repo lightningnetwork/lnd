@@ -730,7 +730,7 @@ func (u *utxoNursery) regraduateClass(classHeight uint32) error {
 	// this height. There is no need to finalize these txns, since the txid
 	// is predetermined when signed in the wallet.
 	for i := range cribOutputs {
-		err = u.registerTimeoutConf(&cribOutputs[i], classHeight)
+		err := u.sweepCribOutput(classHeight, &cribOutputs[i])
 		if err != nil {
 			utxnLog.Errorf("Failed to re-register first-stage "+
 				"HTLC output %v", cribOutputs[i].OutPoint())

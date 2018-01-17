@@ -314,16 +314,6 @@ const (
 	//      - OP_ENDIF: 1 byte
 	OfferedHtlcScriptSize = 3*1 + 20 + 5*1 + 33 + 10*1 + 33 + 5*1 + 20 + 4*1
 
-	// OfferedHtlcWitnessSize 243 bytes
-	//    - number_of_witness_elements: 1 byte
-	//    - revocation_sig_length: 1 byte
-	//    - revocation_sig: 73 bytes
-	//    - revocation_key_length: 1 byte
-	//    - revocation_key: 33 bytes
-	//    - witness_script_length: 1 byte
-	//    - witness_script (offered_htlc_script)
-	OfferedHtlcWitnessSize = 1 + 1 + 73 + 1 + 33 + 1 + OfferedHtlcScriptSize
-
 	// OfferedHtlcTimeoutWitnessSize 285 bytes
 	// - number_of_witness_elements: 1 byte
 	// - nil_length: 1 byte
@@ -335,6 +325,16 @@ const (
 	// - witness_script_length: 1 byte
 	// - witness_script (offered_htlc_script)
 	OfferedHtlcTimeoutWitnessSize = 1 + 1 + 1 + 73 + 1 + 73 + 1 + 1 + OfferedHtlcScriptSize
+
+	// OfferedHtlcSuccessWitnessSize: 283 bytes
+	// - number_of_witness_elements: 1 byte
+	// - nil_length: 1 byte
+	// - receiver_sig: 73 bytes
+	// - sender_sigs: 73 bytes
+	// - nil_length: 1 byte
+	// - witness_script_length: 1 byte
+	// - witness_script (offered_htlc_script)
+	OfferedHtlcSuccessWitnessSize = 1 + 1 + 73 + 73 + 73 + 1 + 1 + OfferedHtlcScriptSize
 
 	// OfferedHtlcPenaltyWitnessSize 243 bytes
 	//      - number_of_witness_elements: 1 byte

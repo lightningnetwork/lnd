@@ -508,7 +508,7 @@ func (u *utxoNursery) NurseryReport(
 
 			// Each crib output represents a stage one htlc, and
 			// will contribute towards the limbo balance.
-			report.AddLimboStage1Htlc(&baby)
+			report.AddLimboStage1TimeoutHtlc(&baby)
 
 		case bytes.HasPrefix(k, psclPrefix),
 			bytes.HasPrefix(k, kndrPrefix),
@@ -521,15 +521,24 @@ func (u *utxoNursery) NurseryReport(
 				return err
 			}
 
-			// Now, use the state prefixes to determine how the this
-			// output should be represented in the nursery report.
-			// An output's funds are always in limbo until reaching
-			// the graduate state.
+			// Now, use the state prefixes to determine how the
+			// this output should be represented in the nursery
+			// report.  An output's funds are always in limbo until
+			// reaching the graduate state.
 			switch {
 			case bytes.HasPrefix(k, psclPrefix):
 				// Preschool outputs are awaiting the
 				// confirmation of the commitment transaction.
-				report.AddLimboCommitment(&kid)
+				switch kid.WitnessType() {
+				case lnwallet.CommitmentTimeLock:
+					report.AddLimboCommitment(&kid)
+
+				// An HTLC output on our commitment transaction
+				// where the second-layer transaction hasn't
+				// yet confirmed.
+				case lnwallet.HtlcAcceptedSuccessSecondLevel:
+					report.AddLimboStage1SuccessHtlc(&kid)
+				}
 
 			case bytes.HasPrefix(k, kndrPrefix):
 				// Kindergarten outputs may originate from
@@ -543,10 +552,20 @@ func (u *utxoNursery) NurseryReport(
 					// delay to expire.
 					report.AddLimboCommitment(&kid)
 
-				case lnwallet.HtlcOfferedTimeout:
-					// The htlc timeout transaction has
-					// confirmed, and the CSV delay has
-					// begun ticking.
+				case lnwallet.HtlcOfferedRemoteTimeout:
+					// This is an HTLC output on the
+					// commitment transaction of the remote
+					// party. The CLTV timelock has
+					// expired, and we only need to sweep
+					// it.
+					report.AddLimboDirectHtlc(&kid)
+
+				case lnwallet.HtlcAcceptedSuccessSecondLevel:
+					fallthrough
+				case lnwallet.HtlcOfferedTimeoutSecondLevel:
+					// The htlc timeout or success
+					// transaction has confirmed, and the
+					// CSV delay has begun ticking.
 					report.AddLimboStage2Htlc(&kid)
 				}
 
@@ -562,10 +581,14 @@ func (u *utxoNursery) NurseryReport(
 					// regular p2wkh output.
 					report.AddRecoveredCommitment(&kid)
 
-				case lnwallet.HtlcOfferedTimeout:
-					// This htlc output successfully resides
-					// in a p2wkh output belonging to the
-					// user.
+				case lnwallet.HtlcAcceptedSuccessSecondLevel:
+					fallthrough
+				case lnwallet.HtlcOfferedTimeoutSecondLevel:
+					fallthrough
+				case lnwallet.HtlcOfferedRemoteTimeout:
+					// This htlc output successfully
+					// resides in a p2wkh output belonging
+					// to the user.
 					report.AddRecoveredHtlc(&kid)
 				}
 			}
@@ -600,11 +623,11 @@ func (u *utxoNursery) reloadPreschool(heightHint uint32) error {
 }
 
 // reloadClasses reinitializes any height-dependent state transitions for which
-// the utxonursery has not recevied confirmation, and replays the graduation of
+// the utxonursery has not received confirmation, and replays the graduation of
 // all kindergarten and crib outputs for heights that have not been finalized.
 // This allows the nursery to reinitialize all state to continue sweeping
-// outputs, even in the event that we missed blocks while offline. reloadClasses
-// is called during the startup of the UTXO Nursery.
+// outputs, even in the event that we missed blocks while offline.
+// reloadClasses is called during the startup of the UTXO Nursery.
 func (u *utxoNursery) reloadClasses(lastGradHeight uint32) error {
 	// Begin by loading all of the still-active heights up to and including
 	// the last height we successfully graduated.
@@ -672,11 +695,11 @@ func (u *utxoNursery) reloadClasses(lastGradHeight uint32) error {
 // properly registered, so they can be driven by the chain notifier. No
 // transactions or signing are done as a result of this step.
 func (u *utxoNursery) regraduateClass(classHeight uint32) error {
-	// Fetch all information about the crib and kindergarten outputs at this
-	// height. In addition to the outputs, we also retrieve the finalized
-	// kindergarten sweep txn, which will be nil if we have not attempted
-	// this height before, or if no kindergarten outputs exist at this
-	// height.
+	// Fetch all information about the crib and kindergarten outputs at
+	// this height. In addition to the outputs, we also retrieve the
+	// finalized kindergarten sweep txn, which will be nil if we have not
+	// attempted this height before, or if no kindergarten outputs exist at
+	// this height.
 	finalTx, kgtnOutputs, cribOutputs, err := u.cfg.Store.FetchClass(
 		classHeight)
 	if err != nil {
@@ -774,11 +797,11 @@ func (u *utxoNursery) graduateClass(classHeight uint32) error {
 
 	u.bestHeight = classHeight
 
-	// Fetch all information about the crib and kindergarten outputs at this
-	// height. In addition to the outputs, we also retrieve the finalized
-	// kindergarten sweep txn, which will be nil if we have not attempted
-	// this height before, or if no kindergarten outputs exist at this
-	// height.
+	// Fetch all information about the crib and kindergarten outputs at
+	// this height. In addition to the outputs, we also retrieve the
+	// finalized kindergarten sweep txn, which will be nil if we have not
+	// attempted this height before, or if no kindergarten outputs exist at
+	// this height.
 	finalTx, kgtnOutputs, cribOutputs, err := u.cfg.Store.FetchClass(
 		classHeight)
 	if err != nil {
@@ -1344,17 +1367,50 @@ func (c *contractMaturityReport) AddRecoveredCommitment(kid *kidOutput) {
 	c.maturityHeight = kid.BlocksToMaturity() + kid.ConfHeight()
 }
 
-// AddLimboStage1Htlc adds an htlc crib output to the maturity report's
+// AddLimboStage1TimeoutHtlc adds an htlc crib output to the maturity report's
 // htlcs, and contributes its amount to the limbo balance.
-func (c *contractMaturityReport) AddLimboStage1Htlc(baby *babyOutput) {
+func (c *contractMaturityReport) AddLimboStage1TimeoutHtlc(baby *babyOutput) {
 	c.limboBalance += baby.Amount()
 
+	// TODO(roasbeef): bool to indicate stage 1 vs stage 2?
 	c.htlcs = append(c.htlcs, htlcMaturityReport{
 		outpoint:       *baby.OutPoint(),
 		amount:         baby.Amount(),
 		confHeight:     baby.ConfHeight(),
 		maturityHeight: baby.expiry,
 		stage:          1,
+	})
+}
+
+// AddLimboDirectHtlc adds a direct HTLC on the commitment transaction of the
+// remote party to the maturity report. This a CLTV time-locked output that
+// hasn't yet expired.
+func (c *contractMaturityReport) AddLimboDirectHtlc(kid *kidOutput) {
+	c.limboBalance += kid.Amount()
+
+	htlcReport := htlcMaturityReport{
+		outpoint:       *kid.OutPoint(),
+		amount:         kid.Amount(),
+		confHeight:     kid.ConfHeight(),
+		maturityHeight: kid.absoluteMaturity,
+		stage:          2,
+	}
+
+	c.htlcs = append(c.htlcs, htlcReport)
+}
+
+// AddLimboStage1SuccessHtlcHtlc adds an htlc crib output to the maturity
+// report's set of HTLC's. We'll use this to report any incoming HTLC sweeps
+// where the second level transaction hasn't yet confirmed.
+func (c *contractMaturityReport) AddLimboStage1SuccessHtlc(kid *kidOutput) {
+	c.limboBalance += kid.Amount()
+
+	c.htlcs = append(c.htlcs, htlcMaturityReport{
+		outpoint:            *kid.OutPoint(),
+		amount:              kid.Amount(),
+		confHeight:          kid.ConfHeight(),
+		maturityRequirement: kid.BlocksToMaturity(),
+		stage:               1,
 	})
 }
 
@@ -1469,33 +1525,43 @@ type CsvSpendableOutput interface {
 // htlc outputs through incubation. The first stage requires broadcasting a
 // presigned timeout txn that spends from the CLTV locked output on the
 // commitment txn. A babyOutput is treated as a subset of CsvSpendableOutputs,
-// with the additional constraint that a transaction must be broadcast before it
-// can be spent. Each baby transaction embeds the kidOutput that can later be
-// used to spend the CSV output contained in the timeout txn.
+// with the additional constraint that a transaction must be broadcast before
+// it can be spent. Each baby transaction embeds the kidOutput that can later
+// be used to spend the CSV output contained in the timeout txn.
+//
+// TODO(roasbeef): re-rename to timeout tx
+//  * create CltvCsvSpendableOutput
 type babyOutput struct {
-	// expiry is the absolute block height at which the timeoutTx should be
-	// broadcast to the network.
+	// expiry is the absolute block height at which the secondLevelTx
+	// should be broadcast to the network.
+	//
+	// NOTE: This value will be zero if this is a baby output for a prior
+	// incoming HTLC.
 	expiry uint32
 
 	// timeoutTx is a fully-signed transaction that, upon confirmation,
 	// transitions the htlc into the delay+claim stage.
 	timeoutTx *wire.MsgTx
 
-	// kidOutput represents the CSV output to be swept from the timeoutTx
-	// after it has been broadcast and confirmed.
+	// kidOutput represents the CSV output to be swept from the
+	// secondLevelTx after it has been broadcast and confirmed.
 	kidOutput
 }
 
-// makeBabyOutput constructs a baby output the wraps a future kidOutput. The
+// makeBabyOutput constructs a baby output that wraps a future kidOutput. The
 // provided sign descriptors and witness types will be used once the output
 // reaches the delay and claim stage.
-func makeBabyOutput(outpoint, originChanPoint *wire.OutPoint,
-	blocksToMaturity uint32, witnessType lnwallet.WitnessType,
+func makeBabyOutput(chanPoint *wire.OutPoint,
 	htlcResolution *lnwallet.OutgoingHtlcResolution) babyOutput {
 
-	kid := makeKidOutput(outpoint, originChanPoint,
-		blocksToMaturity, witnessType,
-		&htlcResolution.SweepSignDesc)
+	htlcOutpoint := htlcResolution.ClaimOutpoint
+	blocksToMaturity := htlcResolution.CsvDelay
+	witnessType := lnwallet.HtlcOfferedTimeoutSecondLevel
+
+	kid := makeKidOutput(
+		&htlcOutpoint, chanPoint, blocksToMaturity, witnessType,
+		&htlcResolution.SweepSignDesc, 0,
+	)
 
 	return babyOutput{
 		kidOutput: kid,

@@ -4422,12 +4422,46 @@ type UnilateralCloseSummary struct {
 	ChanSnapshot channeldb.ChannelSnapshot
 }
 
+// IncomingHtlcResolution houses the information required to sweep any incoming
+// HTLC's that we know the preimage to. We'll need to sweep an HTLC manually
+// using this struct if we need to go on-chain for any reason, or if we detect
+// that the remote party broadcasts their commitment transaction.
+type IncomingHtlcResolution struct {
+	// Preimage is the preimage that will be used to satisfy the contract
+	// of the HTLC.
+	//
+	// NOTE: This field will only be populated if we know the preimage at
+	// the time a unilateral or force close occurs.
+	Preimage [32]byte
 
+	// SignedSuccessTx is the fully signed HTLC success transaction. This
+	// transaction (if non-nil) can be broadcast immediately. After a csv
+	// delay (included below), then the output created by this transactions
+	// can be swept on-chain.
+	//
+	// NOTE: If this field is nil, then this indicates that we don't need
+	// to go to the second level to claim this HTLC. Instead, it can be
+	// claimed directly from the outpoint listed below.
+	SignedSuccessTx *wire.MsgTx
 
-	// HtlcResolutions is a slice of HTLC resolutions which allows the
-	// local node to sweep any outgoing HTLC"s after the timeout period has
-	// passed.
-	HtlcResolutions []OutgoingHtlcResolution
+	// CsvDelay is the relative time lock (expressed in blocks) that must
+	// pass after the SignedSuccessTx is confirmed in the chain before the
+	// output can be swept.
+	//
+	// NOTE: If SignedSuccessTx is nil, then this field isn't needed.
+	CsvDelay uint32
+
+	// ClaimOutpoint is the final outpoint that needs to be spent in order
+	// to fully sweep the HTLC. The SignDescriptor below should be used to
+	// spend this outpoint. In the case of a second-level HTLC (non-nil
+	// SignedTimeoutTx), then we'll be spending a new transaction.
+	// Otherwise, it'll be an output in the commitment transaction.
+	ClaimOutpoint wire.OutPoint
+
+	// SweepSignDesc is a sign descriptor that has been populated with the
+	// necessary items required to spend the sole output of the above
+	// transaction.
+	SweepSignDesc SignDescriptor
 }
 
 // OutgoingHtlcResolution houses the information necessary to sweep any outgoing
@@ -4481,8 +4515,6 @@ func newHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelConfig,
 		return nil, err
 	}
 
-	// TODO(roasbeef): branch based on local vs remote commit
-
 	// With the transaction created, we can generate a sign descriptor
 	// that's capable of generating the signature required to spend the
 	// HTLC output using the timeout transaction.
@@ -4526,14 +4558,152 @@ func newHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelConfig,
 		return nil, err
 	}
 
-	// TODO(roasbeef): signing with the delay key is wrong for remote
-	// commitments
-	//  * would instead be signing with local htlc key
 	localDelayTweak := SingleTweakBytes(keyRing.commitPoint,
 		localChanCfg.DelayBasePoint)
 	return &OutgoingHtlcResolution{
 		Expiry:          htlc.RefundTimeout,
 		SignedTimeoutTx: timeoutTx,
+		CsvDelay:        csvDelay,
+		ClaimOutpoint: wire.OutPoint{
+			Hash:  timeoutTx.TxHash(),
+			Index: 0,
+		},
+		SweepSignDesc: SignDescriptor{
+			PubKey:        localChanCfg.DelayBasePoint,
+			SingleTweak:   localDelayTweak,
+			WitnessScript: htlcSweepScript,
+			Output: &wire.TxOut{
+				PkScript: htlcScriptHash,
+				Value:    int64(secondLevelOutputAmt),
+			},
+			HashType: txscript.SigHashAll,
+		},
+	}, nil
+}
+
+// newIncomingHtlcResolution creates a new HTLC resolution capable of allowing
+// the caller to sweep an incoming HTLC. If the HTLC is on the caller's
+// commitment transaction, then they'll need to broadcast a second-level
+// transaction before sweeping the output (and incur a CSV delay). Otherwise,
+// they can just sweep the output immediately with knowledge of the pre-image.
+//
+// TODO(roasbeef) consolidate code with above func
+func newIncomingHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelConfig,
+	commitHash chainhash.Hash, htlc *channeldb.HTLC, keyRing *commitmentKeyRing,
+	feePewKw, dustLimit btcutil.Amount, csvDelay uint32, localCommit bool,
+	preimage [32]byte,
+) (*IncomingHtlcResolution, error) {
+
+	op := wire.OutPoint{
+		Hash:  commitHash,
+		Index: uint32(htlc.OutputIndex),
+	}
+
+	// If we're spending this output from the remote node's commitment,
+	// then we can skip the second layer and spend the output directly.
+	if !localCommit {
+		// First, we'll re-generate the script the remote party used to
+		// send the HTLC to us in their commitment transaction.
+		htlcSenderScript, err := senderHTLCScript(
+			keyRing.remoteHtlcKey, keyRing.localHtlcKey,
+			keyRing.revocationKey, htlc.RHash[:],
+		)
+		if err != nil {
+			return nil, err
+		}
+		htlcScriptHash, err := witnessScriptHash(htlcSenderScript)
+		if err != nil {
+			return nil, err
+		}
+
+		// With the script generated, we can completely populated the
+		// SignDescriptor needed to sweep the output.
+		return &IncomingHtlcResolution{
+			Preimage:      preimage,
+			ClaimOutpoint: op,
+			CsvDelay:      csvDelay,
+			SweepSignDesc: SignDescriptor{
+				PubKey:        localChanCfg.HtlcBasePoint,
+				SingleTweak:   keyRing.localHtlcKeyTweak,
+				WitnessScript: htlcSenderScript,
+				Output: &wire.TxOut{
+					PkScript: htlcScriptHash,
+					Value:    int64(htlc.Amt.ToSatoshis()),
+				},
+				HashType: txscript.SigHashAll,
+			},
+		}, nil
+	}
+
+	// Otherwise, we'll need to go to the second level to sweep this HTLC.
+
+	// First, we'll reconstruct the original HTLC success transaction,
+	// taking into account the fee rate used.
+	htlcFee := htlcSuccessFee(feePewKw)
+	secondLevelOutputAmt := htlc.Amt.ToSatoshis() - htlcFee
+	successTx, err := createHtlcSuccessTx(
+		op, secondLevelOutputAmt, csvDelay,
+		keyRing.revocationKey, keyRing.delayKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Once we've created the second-level transaction, we'll generate the
+	// SignDesc needed spend the HTLC output using the success transaction.
+	htlcCreationScript, err := receiverHTLCScript(htlc.RefundTimeout,
+		keyRing.remoteHtlcKey, keyRing.localHtlcKey,
+		keyRing.revocationKey, htlc.RHash[:],
+	)
+	if err != nil {
+		return nil, err
+	}
+	successSignDesc := SignDescriptor{
+		PubKey:        localChanCfg.HtlcBasePoint,
+		SingleTweak:   keyRing.localHtlcKeyTweak,
+		WitnessScript: htlcCreationScript,
+		Output: &wire.TxOut{
+			Value: int64(htlc.Amt.ToSatoshis()),
+		},
+		HashType:   txscript.SigHashAll,
+		SigHashes:  txscript.NewTxSigHashes(successTx),
+		InputIndex: 0,
+	}
+
+	// Next, we'll construct the full witness needed to satisfy the input
+	// of the success transaction.
+	successWitness, err := receiverHtlcSpendRedeem(
+		htlc.Signature, preimage[:], signer, &successSignDesc, successTx,
+	)
+	if err != nil {
+		return nil, err
+	}
+	successTx.TxIn[0].Witness = successWitness
+
+	// Finally, we'll generate the script that the second-level transaction
+	// creates so we can generate the proper signDesc to sweep it after the
+	// CSV delay has passed.
+	htlcSweepScript, err := secondLevelHtlcScript(
+		keyRing.revocationKey, keyRing.delayKey, csvDelay,
+	)
+	if err != nil {
+		return nil, err
+	}
+	htlcScriptHash, err := witnessScriptHash(htlcSweepScript)
+	if err != nil {
+		return nil, err
+	}
+
+	localDelayTweak := SingleTweakBytes(keyRing.commitPoint,
+		localChanCfg.DelayBasePoint)
+	return &IncomingHtlcResolution{
+		Preimage:        preimage,
+		SignedSuccessTx: successTx,
+		CsvDelay:        csvDelay,
+		ClaimOutpoint: wire.OutPoint{
+			Hash:  successTx.TxHash(),
+			Index: 0,
+		},
 		SweepSignDesc: SignDescriptor{
 			PubKey:        localChanCfg.DelayBasePoint,
 			SingleTweak:   localDelayTweak,

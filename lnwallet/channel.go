@@ -2065,6 +2065,7 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 		//
 		// TODO(roasbeef): include HTLC's
 		//  * and time-locked balance, NEED TO???
+		localBalance := lc.channelState.LocalCommitment.LocalBalance.ToSatoshis()
 		closeSummary := channeldb.ChannelCloseSummary{
 			ChanPoint:      lc.channelState.FundingOutpoint,
 			ChainHash:      lc.channelState.ChainHash,
@@ -2072,7 +2073,7 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 			CloseHeight:    spendHeight,
 			RemotePub:      lc.channelState.IdentityPub,
 			Capacity:       lc.Capacity,
-			SettledBalance: lc.channelState.LocalCommitment.LocalBalance.ToSatoshis(),
+			SettledBalance: localBalance,
 			CloseType:      channeldb.ForceClose,
 			IsPending:      true,
 		}
@@ -2127,31 +2128,32 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 		// With the HTLC's taken care of, we'll generate the sign
 		// descriptor necessary to sweep our commitment output, but
 		// only if we had a non-trimmed balance.
-		var selfSignDesc *SignDescriptor
+		var commitResolution *CommitOutputResolution
 		if selfPoint != nil {
 			localPayBase := lc.localChanCfg.PaymentBasePoint
 			localBalance := lc.channelState.LocalCommitment.LocalBalance.ToSatoshis()
-			selfSignDesc = &SignDescriptor{
-				PubKey:        localPayBase,
-				SingleTweak:   keyRing.localCommitKeyTweak,
-				WitnessScript: selfP2WKH,
-				Output: &wire.TxOut{
-					Value:    int64(localBalance),
-					PkScript: selfP2WKH,
+			commitResolution = &CommitOutputResolution{
+				SelfOutPoint: *selfPoint,
+				SelfOutputSignDesc: SignDescriptor{
+					PubKey:        localPayBase,
+					SingleTweak:   keyRing.localCommitKeyTweak,
+					WitnessScript: selfP2WKH,
+					Output: &wire.TxOut{
+						Value:    int64(localBalance),
+						PkScript: selfP2WKH,
+					},
+					HashType: txscript.SigHashAll,
 				},
-				HashType: txscript.SigHashAll,
+				MaturityDelay: 0,
 			}
 		}
 
-		// We'll also send all the details necessary to re-claim funds
-		// that are suspended within any contracts.
-		unilateralCloseSummary := &UnilateralCloseSummary{
+		uniCloseSummary := &UnilateralCloseSummary{
 			SpendDetail:         commitSpend,
 			ChannelCloseSummary: closeSummary,
-			SelfOutPoint:        selfPoint,
-			SelfOutputSignDesc:  selfSignDesc,
-			MaturityDelay:       uint32(lc.remoteChanCfg.CsvDelay),
+			CommitResolution:    commitResolution,
 			HtlcResolutions:     htlcResolutions,
+			ChanSnapshot:        *lc.channelState.Snapshot(),
 		}
 
 		// TODO(roasbeef): send msg before writing to disk
@@ -2163,8 +2165,10 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 		// commitment transaction broadcast.
 		close(lc.UnilateralCloseSignal)
 
+		// We'll also send all the details necessary to re-claim funds
+		// that are suspended within any contracts.
 		select {
-		case lc.UnilateralClose <- unilateralCloseSummary:
+		case lc.UnilateralClose <- uniCloseSummary:
 		case <-lc.observerQuit:
 			walletLog.Errorf("channel shutting down")
 			return
@@ -2240,6 +2244,7 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 			SettledBalance: settledBalance,
 			CloseType:      channeldb.BreachClose,
 			IsPending:      true,
+			ShortChanID:    lc.channelState.ShortChanID,
 		}
 
 		err = lc.DeleteState(&closeSummary)
@@ -4366,6 +4371,25 @@ func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
 	return commitTx, nil
 }
 
+// CommitOutputResolution carries the necessary information required to allow
+// us to sweep our direct commitment output in the case that either party goes
+// to chain.
+type CommitOutputResolution struct {
+	// SelfOutPoint is the full outpoint that points to out pay-to-self
+	// output within the closing commitment transaction.
+	SelfOutPoint wire.OutPoint
+
+	// SelfOutputSignDesc is a fully populated sign descriptor capable of
+	// generating a valid signature to sweep the output paying to us.
+	SelfOutputSignDesc SignDescriptor
+
+	// MaturityDelay is the relative time-lock, in blocks for all outputs
+	// that pay to the local party within the broadcast commitment
+	// transaction. This value will be non-zero iff, this output was on our
+	// commitment transaction.
+	MaturityDelay uint32
+}
+
 // UnilateralCloseSummary describes the details of a detected unilateral
 // channel closure. This includes the information about with which
 // transactions, and block the channel was unilaterally closed, as well as
@@ -4384,19 +4408,21 @@ type UnilateralCloseSummary struct {
 	// channel and in which state is was closed.
 	channeldb.ChannelCloseSummary
 
-	// SelfOutPoint is the full outpoint that points to our non-delayed
-	// pay-to-self output within the commitment transaction of the remote
-	// party.
-	SelfOutPoint *wire.OutPoint
+	// CommitResolution contains all the data required to sweep the output
+	// to ourselves. If this is our commitment transaction, then we'll need
+	// to wait a time delay before we can sweep the output.
+	//
+	// NOTE: If our commitment delivery output is below the dust limit,
+	// then this will be nil.
+	CommitResolution *CommitOutputResolution
 
-	// SelfOutputSignDesc is a fully populated sign descriptor capable of
-	// generating a valid signature to sweep the output paying to us
-	SelfOutputSignDesc *SignDescriptor
 
-	// MaturityDelay is the relative time-lock, in blocks for all outputs
-	// that pay to the local party within the broadcast commitment
-	// transaction.
-	MaturityDelay uint32
+	// ChanSnapshot is a snapshot of the final state of the channel at the
+	// time it was closed.
+	ChanSnapshot channeldb.ChannelSnapshot
+}
+
+
 
 	// HtlcResolutions is a slice of HTLC resolutions which allows the
 	// local node to sweep any outgoing HTLC"s after the timeout period has
@@ -4577,31 +4603,28 @@ type ForceCloseSummary struct {
 	// force closed.
 	ChanPoint wire.OutPoint
 
-	// SelfOutpoint is the output created by the above close tx which is
-	// spendable by us after a relative time delay.
-	SelfOutpoint wire.OutPoint
-
 	// CloseTx is the transaction which closed the channel on-chain. If we
 	// initiate the force close, then this'll be our latest commitment
 	// state. Otherwise, this'll be the state that the remote peer
 	// broadcasted on-chain.
 	CloseTx *wire.MsgTx
 
-	// SelfOutputSignDesc is a fully populated sign descriptor capable of
-	// generating a valid signature to sweep the self output.
+	// CommitResolution contains all the data required to sweep the output
+	// to ourselves. If this is our commitment transaction, then we'll need
+	// to wait a time delay before we can sweep the output.
 	//
-	// NOTE: If the commitment delivery output of the force closing party
-	// is below the dust limit, then this will be nil.
-	SelfOutputSignDesc *SignDescriptor
+	// NOTE: If our commitment delivery output is below the dust limit,
+	// then this will be nil.
+	CommitResolution *CommitOutputResolution
 
-	// SelfOutputMaturity is the relative maturity period before the above
-	// output can be claimed.
-	SelfOutputMaturity uint32
+	// HtlcResolutions contains all the data required to sweep any outgoing
+	// HTLC's and incoming HTLc's we now the preimage to. For each of these
+	// HTLC's, we'll need to go to the second level to sweep them fully.
+	HtlcResolutions *HtlcResolutions
 
-	// HtlcResolutions is a slice of HTLC resolutions which allows the
-	// local node to sweep any outgoing HTLC"s after the timeout period has
-	// passed.
-	HtlcResolutions []OutgoingHtlcResolution
+	// ChanSnapshot is a snapshot of the final state of the channel at the
+	// time it was closed.
+	ChanSnapshot channeldb.ChannelSnapshot
 }
 
 // ForceClose executes a unilateral closure of the transaction at the current
@@ -4655,9 +4678,8 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 	// We'll return the details of this output to the caller so they can
 	// sweep it once it's mature.
 	var (
-		delayIndex   uint32
-		delayScript  []byte
-		selfSignDesc *SignDescriptor
+		delayIndex  uint32
+		delayScript []byte
 	)
 	for i, txOut := range commitTx.TxOut {
 		if !bytes.Equal(payToUsScriptHash, txOut.PkScript) {
@@ -4677,19 +4699,27 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 	// set as the caller will decide these values once sweeping the output.
 	// If the output is non-existent (dust), have the sign descriptor be
 	// nil.
+	var commitResolution *CommitOutputResolution
 	if len(delayScript) != 0 {
 		singleTweak := SingleTweakBytes(commitPoint,
 			lc.localChanCfg.DelayBasePoint)
 		localBalance := localCommitment.LocalBalance
-		selfSignDesc = &SignDescriptor{
-			PubKey:        lc.localChanCfg.DelayBasePoint,
-			SingleTweak:   singleTweak,
-			WitnessScript: selfScript,
-			Output: &wire.TxOut{
-				PkScript: delayScript,
-				Value:    int64(localBalance.ToSatoshis()),
+		commitResolution = &CommitOutputResolution{
+			SelfOutPoint: wire.OutPoint{
+				Hash:  commitTx.TxHash(),
+				Index: delayIndex,
 			},
-			HashType: txscript.SigHashAll,
+			SelfOutputSignDesc: SignDescriptor{
+				PubKey:        lc.localChanCfg.DelayBasePoint,
+				SingleTweak:   singleTweak,
+				WitnessScript: selfScript,
+				Output: &wire.TxOut{
+					PkScript: delayScript,
+					Value:    int64(localBalance.ToSatoshis()),
+				},
+				HashType: txscript.SigHashAll,
+			},
+			MaturityDelay: csvTimeout,
 		}
 	}
 
@@ -4711,15 +4741,11 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 	close(lc.ForceCloseSignal)
 
 	return &ForceCloseSummary{
-		ChanPoint: lc.channelState.FundingOutpoint,
-		SelfOutpoint: wire.OutPoint{
-			Hash:  commitTx.TxHash(),
-			Index: delayIndex,
-		},
-		CloseTx:            commitTx,
-		SelfOutputSignDesc: selfSignDesc,
-		SelfOutputMaturity: csvTimeout,
-		HtlcResolutions:    htlcResolutions,
+		ChanPoint:        lc.channelState.FundingOutpoint,
+		CloseTx:          commitTx,
+		CommitResolution: commitResolution,
+		HtlcResolutions:  htlcResolutions,
+		ChanSnapshot:     *lc.channelState.Snapshot(),
 	}, nil
 }
 
@@ -5300,7 +5326,7 @@ func (lc *LightningChannel) ActiveHtlcs() []channeldb.HTLC {
 		remoteHtlcs[onionHash] = struct{}{}
 	}
 
-	// Now tht we know which HTLC's they have, we'll only mark the HTLC's
+	// Now that we know which HTLC's they have, we'll only mark the HTLC's
 	// as active if *we* know them as well.
 	activeHtlcs := make([]channeldb.HTLC, 0, len(remoteHtlcs))
 	for _, htlc := range lc.channelState.LocalCommitment.Htlcs {

@@ -253,8 +253,8 @@ func (u *utxoNursery) Start() error {
 	// store's state machine.
 
 	// Register with the notifier to receive notifications for each newly
-	// connected block. We register immediately on startup to ensure that no
-	// blocks are missed while we are handling blocks that were missed
+	// connected block. We register immediately on startup to ensure that
+	// no blocks are missed while we are handling blocks that were missed
 	// during the time the UTXO nursery was unavailable.
 	newBlockChan, err := u.cfg.Notifier.RegisterBlockEpochNtfn()
 	if err != nil {
@@ -294,7 +294,8 @@ func (u *utxoNursery) Start() error {
 	}
 
 	// 2. Restart spend ntfns for any preschool outputs, which are waiting
-	// for the force closed commitment txn to confirm.
+	// for the force closed commitment txn to confirm, or any second-layer
+	// HTLC success transactions.
 	//
 	// NOTE: The next two steps *may* spawn go routines, thus from this
 	// point forward, we must close the nursery's quit channel if we detect
@@ -334,83 +335,144 @@ func (u *utxoNursery) Stop() error {
 	return nil
 }
 
-// IncubateOutputs sends a request to utxoNursery to incubate the outputs
-// defined within the summary of a closed channel. Individually, as all outputs
-// reach maturity, they'll be swept back into the wallet.
-func (u *utxoNursery) IncubateOutputs(
-	closeSummary *lnwallet.ForceCloseSummary) error {
+// IncubateOutputs sends a request to the utxoNursery to incubate a set of
+// outputs from an existing commitment transaction. Outputs need to incubate if
+// they're CLTV absolute time locked, or if they're CSV relative time locked.
+// Once all outputs reach maturity, they'll be swept back into the wallet.
+func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
+	commitResolution *lnwallet.CommitOutputResolution,
+	outgoingHtlcs []lnwallet.OutgoingHtlcResolution,
+	incomingHtlcs []lnwallet.IncomingHtlcResolution) error {
 
-	nHtlcs := len(closeSummary.HtlcResolutions)
-
+	numHtlcs := len(incomingHtlcs) + len(outgoingHtlcs)
 	var (
-		commOutput  *kidOutput
-		htlcOutputs = make([]babyOutput, 0, nHtlcs)
+		hasCommit bool
+
+		// Kid outputs can be swept after an initial confirmation
+		// followed by a maturity period.Baby outputs are two stage and
+		// will need to wait for a absolute time out to reach a
+		// confirmation, then require a relative confirmation delay.
+		kidOutputs  = make([]kidOutput, 0, 1+len(incomingHtlcs))
+		babyOutputs = make([]babyOutput, 0, len(outgoingHtlcs))
 	)
 
 	// 1. Build all the spendable outputs that we will try to incubate.
 
-	// It could be that our to-self output was below the dust limit. In that
-	// case the SignDescriptor would be nil and we would not have that
-	// output to incubate.
-	if closeSummary.SelfOutputSignDesc != nil {
+	// It could be that our to-self output was below the dust limit. In
+	// that case the commit resolution would be nil and we would not have
+	// that output to incubate.
+	if commitResolution != nil {
+		hasCommit = true
 		selfOutput := makeKidOutput(
-			&closeSummary.SelfOutpoint,
-			&closeSummary.ChanPoint,
-			closeSummary.SelfOutputMaturity,
+			&commitResolution.SelfOutPoint,
+			&chanPoint,
+			commitResolution.MaturityDelay,
 			lnwallet.CommitmentTimeLock,
-			closeSummary.SelfOutputSignDesc,
+			&commitResolution.SelfOutputSignDesc,
+			0,
 		)
 
 		// We'll skip any zero value'd outputs as this indicates we
 		// don't have a settled balance within the commitment
 		// transaction.
 		if selfOutput.Amount() > 0 {
-			commOutput = &selfOutput
+			kidOutputs = append(kidOutputs, selfOutput)
 		}
 	}
 
-	for i := range closeSummary.HtlcResolutions {
-		htlcRes := closeSummary.HtlcResolutions[i]
+	// TODO(roasbeef): query and see if we already have, if so don't add?
 
-		htlcOutpoint := &wire.OutPoint{
-			Hash:  htlcRes.SignedTimeoutTx.TxHash(),
-			Index: 0,
-		}
-
-		htlcOutput := makeBabyOutput(
-			htlcOutpoint,
-			&closeSummary.ChanPoint,
-			closeSummary.SelfOutputMaturity,
-			lnwallet.HtlcOfferedTimeout,
-			&htlcRes,
+	// For each incoming HTLC, we'll register a kid output marked as a
+	// second-layer HTLC output. We effectively skip the baby stage (as the
+	// timelock is zero), and enter the kid stage.
+	for _, htlcRes := range incomingHtlcs {
+		htlcOutput := makeKidOutput(
+			&htlcRes.ClaimOutpoint, &chanPoint, htlcRes.CsvDelay,
+			lnwallet.HtlcAcceptedSuccessSecondLevel,
+			&htlcRes.SweepSignDesc, 0,
 		)
 
 		if htlcOutput.Amount() > 0 {
-			htlcOutputs = append(htlcOutputs, htlcOutput)
+			kidOutputs = append(kidOutputs, htlcOutput)
+		}
+	}
+
+	// For each outgoing HTLC, we'll create a baby output. If this is our
+	// commitment transaction, then we'll broadcast a second-layer
+	// transaction to transition to a kid output. Otherwise, we'll directly
+	// spend once the CLTV delay us up.
+	for _, htlcRes := range outgoingHtlcs {
+		// If this HTLC is on our commitment transaction, then it'll be
+		// a baby output as we need to go to the second level to sweep
+		// it.
+		if htlcRes.SignedTimeoutTx != nil {
+			htlcOutput := makeBabyOutput(&chanPoint, &htlcRes)
+
+			if htlcOutput.Amount() > 0 {
+				babyOutputs = append(babyOutputs, htlcOutput)
+			}
+			continue
 		}
 
+		// Otherwise, this is actually a kid output as we can sweep it
+		// once the commitment transaction confirms, and the absolute
+		// CLTV lock has expired. We set the CSV delay to zero to
+		// indicate this is actually a CLTV output.
+		htlcOutput := makeKidOutput(
+			&htlcRes.ClaimOutpoint, &chanPoint, 0,
+			lnwallet.HtlcOfferedRemoteTimeout,
+			&htlcRes.SweepSignDesc, htlcRes.Expiry,
+		)
+		kidOutputs = append(kidOutputs, htlcOutput)
 	}
 
-	}
+	// TODO(roasbeef): if want to handle outgoing on remote commit
+	//  * need ability to cancel in the case that we learn of pre-image or
+	//    remote party pulls
 
 	utxnLog.Infof("Incubating Channel(%s) has-commit=%v, num-htlcs=%d",
-		&closeSummary.ChanPoint, commOutput != nil, len(htlcOutputs))
+		chanPoint, hasCommit, numHtlcs)
 
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
 	// 2. Persist the outputs we intended to sweep in the nursery store
-	if err := u.cfg.Store.Incubate(commOutput, htlcOutputs); err != nil {
+	if err := u.cfg.Store.Incubate(kidOutputs, babyOutputs); err != nil {
 		utxnLog.Errorf("unable to begin incubation of Channel(%s): %v",
-			&closeSummary.ChanPoint, err)
+			chanPoint, err)
 		return err
 	}
 
-	// 3. If we are incubating a preschool output, register for a
-	// confirmation notification that will transition it to the kindergarten
-	// bucket.
-	if commOutput != nil {
-		return u.registerCommitConf(commOutput, u.bestHeight)
+	// As an intermediate step, we'll now check to see if any of the baby
+	// outputs has actually _already_ expired. This may be the case if
+	// blocks were mined while we processed this message.
+	_, bestHeight, err := u.cfg.ChainIO.GetBestBlock()
+	if err != nil {
+		return err
+	}
+
+	// We'll examine all the baby outputs just inserted into the database,
+	// if the output has already expired, then we'll *immediately* sweep
+	// it. This may happen if the caller raced a block to call this method.
+	for _, babyOutput := range babyOutputs {
+		if uint32(bestHeight) >= babyOutput.expiry {
+			err = u.sweepCribOutput(uint32(bestHeight), &babyOutput)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	// 3. If we are incubating any preschool outputs, register for a
+	// confirmation notification that will transition it to the
+	// kindergarten bucket.
+	if len(kidOutputs) != 0 {
+		for _, kidOutput := range kidOutputs {
+			err := u.registerPreschoolConf(&kidOutput, u.bestHeight)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil

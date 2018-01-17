@@ -400,6 +400,10 @@ func (ns *nurseryStore) CribToKinder(bby *babyOutput) error {
 			return err
 		}
 
+		utxnLog.Tracef("Placing (crib -> baby) output for "+
+			"chan_point=%v at height_index=%v", chanPoint,
+			maturityHeight)
+
 		// Register the kindergarten output's prefixed output key in the
 		// height-channel bucket corresponding to its maturity height.
 		// This informs the utxo nursery that it should attempt to spend
@@ -413,7 +417,6 @@ func (ns *nurseryStore) CribToKinder(bby *babyOutput) error {
 // confirmation of the preschool output's commitment transaction.
 func (ns *nurseryStore) PreschoolToKinder(kid *kidOutput) error {
 	return ns.db.Update(func(tx *bolt.Tx) error {
-
 		// Create or retrieve the channel bucket corresponding to the
 		// kid output's origin channel point.
 		chanPoint := kid.OriginChanPoint()
@@ -459,13 +462,41 @@ func (ns *nurseryStore) PreschoolToKinder(kid *kidOutput) error {
 			return err
 		}
 
-		// Since the CSV delay on the kid output has now begun ticking,
-		// we must insert a record of in the height index to remind us
-		// to revisit this output once it has fully matured.
+		// If this output has an absolute time lock, then we'll set the
+		// maturity height directly.
+		var maturityHeight uint32
+		if kid.BlocksToMaturity() == 0 {
+			maturityHeight = kid.absoluteMaturity
+		} else {
+			// Otherwise, since the CSV delay on the kid output has
+			// now begun ticking, we must insert a record of in the
+			// height index to remind us to revisit this output
+			// once it has fully matured.
+			//
+			// Compute the maturity height, by adding the output's
+			// CSV delay to its confirmation height.
+			maturityHeight = kid.ConfHeight() + kid.BlocksToMaturity()
+		}
 
-		// Compute the maturity height, by adding the output's CSV delay
-		// to its confirmation height.
-		maturityHeight := kid.ConfHeight() + kid.BlocksToMaturity()
+		// In the case of a Late Registration, we've already graduated
+		// the class that this kid is destined for. So we'll bump it's
+		// height by one to ensure we don't forget to graduate it.
+		lastGradHeight, err := ns.getLastGraduatedHeight(tx)
+		if err != nil {
+			return err
+		}
+		if maturityHeight <= lastGradHeight {
+			utxnLog.Debugf("Late Registration for kid output=%v "+
+				"detected: class_height=%v, "+
+				"last_graduated_height=%v", kid.OutPoint(),
+				maturityHeight, lastGradHeight)
+
+			maturityHeight = lastGradHeight + 1
+		}
+
+		utxnLog.Tracef("Placing (crib -> kid) output for "+
+			"chan_point=%v at height_index=%v", chanPoint,
+			maturityHeight)
 
 		// Create or retrieve the height-channel bucket for this
 		// channel. This method will first create a height bucket for

@@ -824,9 +824,8 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		if err != nil {
 			return err
 		}
-		defer func() {
-			channel.Stop()
-		}()
+		channel.Stop()
+		channel.CancelObserver()
 
 		_, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
 		if err != nil {
@@ -856,11 +855,16 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 		// With the necessary indexes cleaned up, we'll now force close
 		// the channel.
-		closingTxid, closeSummary, err := r.forceCloseChan(channel)
+		chainArbitrator := r.server.chainArb
+		closingTx, err := chainArbitrator.ForceCloseContract(
+			*chanPoint,
+		)
 		if err != nil {
 			rpcsLog.Errorf("unable to force close transaction: %v", err)
 			return err
 		}
+
+		closingTxid := closingTx.TxHash()
 
 		// With the transaction broadcast, we send our first update to
 		// the client.
@@ -873,12 +877,10 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 			},
 		}
 
-		channel.CancelObserver()
-
 		errChan = make(chan error, 1)
 		notifier := r.server.cc.chainNotifier
 		go waitForChanToClose(uint32(bestHeight), notifier, errChan, chanPoint,
-			closingTxid, func() {
+			&closingTxid, func() {
 				// Respond to the local subsystem which
 				// requested the channel closure.
 				updateChan <- &lnrpc.CloseStatusUpdate{
@@ -889,24 +891,10 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 						},
 					},
 				}
-
-				// If we didn't have an output active on the
-				// commitment transaction, and had no outgoing
-				// HTLC's then we can mark the channels as
-				// closed as there are no funds to be swept.
-				if closeSummary.SelfOutputSignDesc == nil &&
-					len(closeSummary.HtlcResolutions) == 0 {
-					err := r.server.chanDB.MarkChanFullyClosed(chanPoint)
-					if err != nil {
-						rpcsLog.Errorf("unable to "+
-							"mark channel as closed: %v", err)
-						return
-					}
-				}
 			})
 	} else {
-		// Based on the passed fee related paramters, we'll determine
-		// an approriate fee rate for the cooperative closure
+		// Based on the passed fee related parameters, we'll determine
+		// an appropriate fee rate for the cooperative closure
 		// transaction.
 		feePerByte, err := determineFeePerByte(
 			r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
@@ -997,77 +985,9 @@ func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (*lnwallet.Light
 
 	// Otherwise, we create a fully populated channel state machine which
 	// uses the db channel as backing storage.
-	return lnwallet.NewLightningChannel(r.server.cc.wallet.Cfg.Signer, nil,
-		r.server.cc.feeEstimator, dbChan)
-}
-
-// forceCloseChan executes a unilateral close of the target channel by
-// broadcasting the current commitment state directly on-chain. Once the
-// commitment transaction has been broadcast, a struct describing the final
-// state of the channel is sent to the utxoNursery in order to ultimately sweep
-// the immature outputs.
-func (r *rpcServer) forceCloseChan(channel *lnwallet.LightningChannel) (*chainhash.Hash, *lnwallet.ForceCloseSummary, error) {
-
-	// Execute a unilateral close shutting down all further channel
-	// operation.
-	closeSummary, err := channel.ForceClose()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	closeTx := closeSummary.CloseTx
-	txid := closeTx.TxHash()
-
-	// With the close transaction in hand, broadcast the transaction to the
-	// network, thereby entering the postk channel resolution state.
-	rpcsLog.Infof("Broadcasting force close transaction, ChannelPoint(%v): %v",
-		channel.ChannelPoint(), newLogClosure(func() string {
-			return spew.Sdump(closeTx)
-		}))
-	if err := r.server.cc.wallet.PublishTransaction(closeTx); err != nil {
-		return nil, nil, err
-	}
-
-	// Now that the closing transaction has been broadcast successfully,
-	// we'll mark this channel as being in the pending closed state. The
-	// UTXO nursery will mark the channel as fully closed once all the
-	// outputs have been swept.
-	//
-	// TODO(roasbeef): don't set local balance if close summary detects
-	// dust output?
-	chanPoint := channel.ChannelPoint()
-	chanInfo := channel.StateSnapshot()
-	closeInfo := &channeldb.ChannelCloseSummary{
-		ChanPoint:   *chanPoint,
-		ChainHash:   chanInfo.ChainHash,
-		ClosingTXID: closeTx.TxHash(),
-		RemotePub:   &chanInfo.RemoteIdentity,
-		Capacity:    chanInfo.Capacity,
-		CloseType:   channeldb.ForceClose,
-		IsPending:   true,
-	}
-
-	// If our commitment output isn't dust or we have active HTLC's on the
-	// commitment transaction, then we'll populate the balances on the
-	// close channel summary.
-	if closeSummary.SelfOutputSignDesc != nil ||
-		len(closeSummary.HtlcResolutions) == 0 {
-
-		closeInfo.SettledBalance = chanInfo.LocalBalance.ToSatoshis()
-		closeInfo.TimeLockedBalance = chanInfo.LocalBalance.ToSatoshis()
-	}
-
-	if err := channel.DeleteState(closeInfo); err != nil {
-		return nil, nil, err
-	}
-
-	// Send the closed channel summary over to the utxoNursery in order to
-	// have its outputs swept back into the wallet once they're mature.
-	if err := r.server.utxoNursery.IncubateOutputs(closeSummary); err != nil {
-		return nil, nil, err
-	}
-
-	return &txid, closeSummary, nil
+	return lnwallet.NewLightningChannel(
+		r.server.cc.wallet.Cfg.Signer, nil, nil, dbChan,
+	)
 }
 
 // GetInfo returns general information concerning the lightning node including

@@ -120,6 +120,11 @@ type ChannelLinkConfig struct {
 	// in thread-safe manner.
 	Registry InvoiceDatabase
 
+	// PreimageCache is a global witness baacon that houses any new
+	// preimges discovered by other links. We'll use this to add new
+	// witnesses that we discover which will notify any sub-systems
+	// subscribed to new events.
+	PreimageCache contractcourt.WitnessBeacon
 	// FeeEstimator is an instance of a live fee estimator which will be
 	// used to dynamically regulate the current fee of the commitment
 	// transaction to ensure timely confirmation.
@@ -840,8 +845,15 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			return
 		}
 
-		// TODO(roasbeef): add preimage to DB in order to swipe
-		// repeated r-values
+		// TODO(roasbeef): pipeline to switch
+
+		// As we've learned of a new preimage for the first time, we'll
+		// add it to to our preimage cache. By doing this, we ensure
+		// any contested contracts watched by any on-chain arbitrators
+		// can now sweep this HTLC on-chain.
+		if err := l.cfg.PreimageCache.AddPreimage(pre[:]); err != nil {
+			log.Errorf("unable to add preimage=%x to cache", pre[:])
+		}
 
 	case *lnwire.UpdateFailMalformedHTLC:
 		// Convert the failure type encoded within the HTLC fail
@@ -918,7 +930,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// As we've just just accepted a new state, we'll now
 		// immediately send the remote peer a revocation for our prior
 		// state.
-		nextRevocation, err := l.channel.RevokeCurrentCommitment()
+		nextRevocation, currentHtlcs, err := l.channel.RevokeCurrentCommitment()
 		if err != nil {
 			log.Errorf("unable to revoke commitment: %v", err)
 			return
@@ -1478,7 +1490,7 @@ func (l *channelLink) processLockedInHtlcs(
 				// we'll cancel the HTLC directly.
 				if pd.Amount < l.cfg.FwrdingPolicy.MinHTLC {
 					log.Errorf("Incoming htlc(%x) is too "+
-						"small: min_htlc=%v, hltc_value=%v",
+						"small: min_htlc=%v, htlc_value=%v",
 						pd.RHash[:], l.cfg.FwrdingPolicy.MinHTLC,
 						pd.Amount)
 

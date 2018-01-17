@@ -979,6 +979,19 @@ func (ns *nurseryStore) enterCrib(tx *bolt.Tx, baby *babyOutput) error {
 		return err
 	}
 
+	// Since we are inserting this output into the crib bucket, we create a
+	// key that prefixes the baby output's outpoint with the crib prefix.
+	pfxOutputKey, err := prefixOutputKey(cribPrefix, baby.OutPoint())
+	if err != nil {
+		return err
+	}
+
+	// We'll first check that we don't already have an entry for this
+	// output. If we do, then we can exit early.
+	if rawBytes := chanBucket.Get(pfxOutputKey); rawBytes != nil {
+		return nil
+	}
+
 	// Next, retrieve or create the height-channel bucket located in the
 	// height bucket corresponding to the baby output's CLTV expiry height.
 	hghtChanBucket, err := ns.createHeightChanBucket(tx,
@@ -987,15 +1000,8 @@ func (ns *nurseryStore) enterCrib(tx *bolt.Tx, baby *babyOutput) error {
 		return err
 	}
 
-	// Since we are inserting this output into the crib bucket, we create a
-	// key that prefixes the baby output's outpoint with the crib prefix.
-	pfxOutputKey, err := prefixOutputKey(cribPrefix, baby.OutPoint())
-	if err != nil {
-		return err
-	}
-
-	// Serialize the baby output so that it can be written to the underlying
-	// key-value store.
+	// Serialize the baby output so that it can be written to the
+	// underlying key-value store.
 	var babyBuffer bytes.Buffer
 	if err := baby.Encode(&babyBuffer); err != nil {
 		return err
@@ -1009,9 +1015,9 @@ func (ns *nurseryStore) enterCrib(tx *bolt.Tx, baby *babyOutput) error {
 	}
 
 	// Finally, create a corresponding bucket in the height-channel bucket
-	// for this crib output. The existence of this bucket indicates that the
-	// serialized output can be retrieved from the channel bucket using the
-	// same prefix key.
+	// for this crib output. The existence of this bucket indicates that
+	// the serialized output can be retrieved from the channel bucket using
+	// the same prefix key.
 	return hghtChanBucket.Put(pfxOutputKey, []byte{})
 }
 
@@ -1033,6 +1039,12 @@ func (ns *nurseryStore) enterPreschool(tx *bolt.Tx, kid *kidOutput) error {
 	pfxOutputKey, err := prefixOutputKey(psclPrefix, kid.OutPoint())
 	if err != nil {
 		return err
+	}
+
+	// We'll first check if a entry for this key is already stored. If so,
+	// then we'll ignore this request, and return a nil error.
+	if rawBytes := chanBucket.Get(pfxOutputKey); rawBytes != nil {
+		return nil
 	}
 
 	// Serialize the kidOutput and insert it into the channel bucket.

@@ -257,6 +257,13 @@ const (
 	AcceptedHtlcScriptSize = 3*1 + 20 + 5*1 + 33 + 7*1 + 20 + 4*1 +
 		33 + 5*1 + 4 + 5*1
 
+	// AcceptedHtlcTimeoutWitnessSize: 214
+	//  - number_of_witness_elements: 1 byte
+	//  - sender_sig: 73 bytes
+	//  - nil_length: 1 byte
+	//  - witness_script: (accepted_htlc_script)
+	AcceptedHtlcTimeoutWitnessSize = 1 + 73 + 1 + AcceptedHtlcScriptSize
+
 	// AcceptedHtlcSuccessWitnessSize 325 bytes
 	//    - number_of_witness_elements: 1 byte
 	//    - nil_length: 1 byte

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"sync"
 
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -265,5 +267,30 @@ func (*mockWalletController) Start() error {
 	return nil
 }
 func (*mockWalletController) Stop() error {
+	return nil
+}
+
+type mockPreimageCache struct {
+	sync.Mutex
+	preimageMap map[[32]byte][]byte
+}
+
+func (m *mockPreimageCache) LookupPreimage(hash []byte) ([]byte, bool) {
+	m.Lock()
+	defer m.Unlock()
+
+	var h [32]byte
+	copy(h[:], hash)
+
+	p, ok := m.preimageMap[h]
+	return p, ok
+}
+
+func (m *mockPreimageCache) AddPreimage(preimage []byte) error {
+	m.Lock()
+	defer m.Unlock()
+
+	m.preimageMap[sha256.Sum256(preimage[:])] = preimage
+
 	return nil
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -220,13 +221,15 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	aliceSigner := &mockSigner{aliceKeyPriv}
 	bobSigner := &mockSigner{bobKeyPriv}
 
-	channelAlice, err := lnwallet.NewLightningChannel(aliceSigner, notifier,
-		estimator, aliceChannelState)
+	channelAlice, err := lnwallet.NewLightningChannel(
+		aliceSigner, notifier, nil, aliceChannelState,
+	)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	channelBob, err := lnwallet.NewLightningChannel(bobSigner, notifier,
-		estimator, bobChannelState)
+	channelBob, err := lnwallet.NewLightningChannel(
+		bobSigner, notifier, nil, bobChannelState,
+	)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -249,10 +252,15 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		settledContracts: make(chan *wire.OutPoint, 10),
 	}
 
+	chainArb := contractcourt.NewChainArbitrator(
+		contractcourt.ChainArbitratorConfig{}, nil,
+	)
+
 	s := &server{
 		chanDB:        dbAlice,
 		cc:            cc,
 		breachArbiter: breachArbiter,
+		chainArb:      chainArb,
 	}
 	s.htlcSwitch = htlcswitch.New(htlcswitch.Config{})
 	s.htlcSwitch.Start()

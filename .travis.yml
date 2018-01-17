@@ -2,11 +2,11 @@ language: go
 go:
   - 1.8.5
   - 1.9.2
-sudo: false
+sudo: required
 install:
-  - add-apt-repository -y ppa:bitcoin/bitcoin
-  - apt-update
-  - apt-get -y install bitcoind
+  - sudo add-apt-repository -y ppa:bitcoin/bitcoin -y
+  - sudo apt-get update -q
+  - sudo apt-get install bitcoind -y
   - GLIDE_TAG=v0.12.3
   - GLIDE_DOWNLOAD="https://github.com/Masterminds/glide/releases/download/$GLIDE_TAG/glide-$GLIDE_TAG-linux-amd64.tar.gz"
   - curl -L $GLIDE_DOWNLOAD | tar -xvz

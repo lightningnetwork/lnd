@@ -1393,7 +1393,6 @@ func (c *contractMaturityReport) AddRecoveredHtlc(kid *kidOutput) {
 		maturityRequirement: kid.BlocksToMaturity(),
 		maturityHeight:      kid.ConfHeight() + kid.BlocksToMaturity(),
 	})
-
 }
 
 // closeAndRemoveIfMature removes a particular channel from the channel index
@@ -1414,18 +1413,6 @@ func (u *utxoNursery) closeAndRemoveIfMature(chanPoint *wire.OutPoint) error {
 	if !isMature {
 		return nil
 	}
-
-	// Now that the sweeping transaction has been broadcast, for
-	// each of the immature outputs, we'll mark them as being fully
-	// closed within the database.
-	err = u.cfg.DB.MarkChanFullyClosed(chanPoint)
-	if err != nil {
-		utxnLog.Errorf("Unable to mark channel=%v as fully "+
-			"closed: %v", chanPoint, err)
-		return err
-	}
-
-	utxnLog.Infof("Marked Channel(%s) as fully closed", chanPoint)
 
 	// Now that the channel is fully closed, we remove the channel from the
 	// nursery store here. This preserves the invariant that we never remove

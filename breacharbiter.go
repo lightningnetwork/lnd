@@ -218,7 +218,7 @@ func (b *breachArbiter) Start() error {
 
 		// Initialize active channel from persisted channel state.
 		channel, err := lnwallet.NewLightningChannel(nil,
-			b.cfg.Notifier, b.cfg.Estimator, chanState)
+			b.cfg.Notifier, nil, chanState)
 		if err != nil {
 			brarLog.Errorf("unable to load channel from "+
 				"disk: %v", err)
@@ -228,13 +228,6 @@ func (b *breachArbiter) Start() error {
 		// Finally, add this channel to breach arbiter's list of
 		// channels to watch.
 		channelsToWatch = append(channelsToWatch, channel)
-	}
-
-	// Additionally, we'll also want to watch any pending close or force
-	// close transactions so we can properly mark them as resolved in the
-	// database.
-	if err := b.watchForPendingCloseConfs(); err != nil {
-		return err
 	}
 
 	// Spawn the exactRetribution tasks to monitor and resolve any breaches
@@ -262,71 +255,6 @@ func (b *breachArbiter) Start() error {
 	// Start watching the remaining active channels!
 	b.wg.Add(1)
 	go b.contractObserver(channelsToWatch)
-
-	return nil
-}
-
-// watchForPendingCloseConfs dispatches confirmation notification subscribers
-// that mark any pending channels as fully closed when signaled.
-func (b *breachArbiter) watchForPendingCloseConfs() error {
-	pendingCloseChans, err := b.cfg.DB.FetchClosedChannels(true)
-	if err != nil {
-		brarLog.Errorf("unable to fetch closing channels: %v", err)
-		return err
-	}
-
-	for _, pendingClose := range pendingCloseChans {
-		// If this channel was force closed, and we have a non-zero
-		// time-locked balance, then the utxoNursery is currently
-		// watching over it.  As a result we don't need to watch over
-		// it.
-		if pendingClose.CloseType == channeldb.ForceClose &&
-			pendingClose.TimeLockedBalance != 0 {
-			continue
-		}
-
-		brarLog.Infof("Watching for the closure of ChannelPoint(%v)",
-			pendingClose.ChanPoint)
-
-		closeTXID := pendingClose.ClosingTXID
-		confNtfn, err := b.cfg.Notifier.RegisterConfirmationsNtfn(
-			&closeTXID, 1, pendingClose.CloseHeight)
-		if err != nil {
-			return err
-		}
-
-		b.wg.Add(1)
-		go func(chanPoint wire.OutPoint) {
-			defer b.wg.Done()
-
-			// In the case that the ChainNotifier is shutting down,
-			// all subscriber notification channels will be closed,
-			// generating a nil receive.
-			select {
-			case confInfo, ok := <-confNtfn.Confirmed:
-				if !ok {
-					return
-				}
-
-				brarLog.Infof("ChannelPoint(%v) is "+
-					"fully closed, at height: %v",
-					chanPoint, confInfo.BlockHeight)
-
-				// TODO(roasbeef): need to store
-				// UnilateralCloseSummary on disk so can
-				// possibly sweep output here
-
-				err := b.cfg.DB.MarkChanFullyClosed(&chanPoint)
-				if err != nil {
-					brarLog.Errorf("unable to mark channel"+
-						" as closed: %v", err)
-				}
-
-			case <-b.quit:
-				return
-			}
-		}(pendingClose.ChanPoint)
-	}
 
 	return nil
 }
@@ -648,7 +576,8 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 
 	// The channel has been closed by a normal means: force closing with
 	// the latest commitment transaction.
-	case closeInfo := <-contract.UnilateralClose:
+	case <-contract.UnilateralCloseSignal:
+
 		// Launch a goroutine to cancel out this contract within the
 		// breachArbiter's main goroutine.
 		b.wg.Add(1)
@@ -662,63 +591,7 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 		}()
 
 		b.cfg.CloseLink(chanPoint, htlcswitch.CloseBreach)
-		contract.CancelObserver()
 		contract.Stop()
-
-		// Next, we'll launch a goroutine to wait until the closing
-		// transaction has been confirmed so we can mark the contract
-		// as resolved in the database. This go routine is _not_ tracked
-		// by the breach arbiter's wait group since the callback may not
-		// be executed before shutdown, potentially leading to a
-		// deadlocks as the arbiter may not be able to finish shutting
-		// down.
-		//
-		// TODO(roasbeef): also notify utxoNursery, might've had
-		// outbound HTLC's in flight
-		go waitForChanToClose(uint32(closeInfo.SpendingHeight),
-			b.cfg.Notifier, nil, chanPoint, closeInfo.SpenderTxHash,
-			func() {
-				// As we just detected a channel was closed via
-				// a unilateral commitment broadcast by the
-				// remote party, we'll need to sweep our main
-				// commitment output, and any outstanding
-				// outgoing HTLC we had as well.
-				//
-				// TODO(roasbeef): actually sweep HTLC's *
-				// ensure reliable confirmation
-				if closeInfo.SelfOutPoint != nil {
-					sweepTx, err := b.craftCommitSweepTx(
-						closeInfo,
-					)
-					if err != nil {
-						brarLog.Errorf("unable to "+
-							"generate sweep tx: %v",
-							err)
-						goto close
-					}
-
-					brarLog.Infof("Sweeping breached "+
-						"outputs with: %v",
-						spew.Sdump(sweepTx))
-
-					err = b.cfg.PublishTransaction(sweepTx)
-					if err != nil {
-						brarLog.Errorf("unable to "+
-							"broadcast tx: %v", err)
-					}
-				}
-
-			close:
-				brarLog.Infof("Force closed ChannelPoint(%v) "+
-					"is fully closed, updating DB",
-					chanPoint)
-
-				err := b.cfg.DB.MarkChanFullyClosed(chanPoint)
-				if err != nil {
-					brarLog.Errorf("unable to mark chan "+
-						"as closed: %v", err)
-				}
-			})
 
 	// A read from this channel indicates that a channel breach has been
 	// detected! So we notify the main coordination goroutine with the
@@ -1046,35 +919,6 @@ func (b *breachArbiter) createJusticeTx(
 
 	txWeight := uint64(weightEstimate.Weight())
 	return b.sweepSpendableOutputsTxn(txWeight, spendableOutputs...)
-}
-
-// craftCommitmentSweepTx creates a transaction to sweep the non-delayed output
-// within the commitment transaction that pays to us. We must manually sweep
-// this output as it uses a tweaked public key in its pkScript, so the wallet
-// won't immediately be aware of it.
-//
-// TODO(roasbeef): alternative options
-//  * leave the output in the chain, use as input to future funding tx
-//  * leave output in the chain, extend wallet to add knowledge of how to claim
-func (b *breachArbiter) craftCommitSweepTx(
-	closeInfo *lnwallet.UnilateralCloseSummary) (*wire.MsgTx, error) {
-
-	selfOutput := makeBreachedOutput(
-		closeInfo.SelfOutPoint,
-		lnwallet.CommitmentNoDelay,
-		closeInfo.SelfOutputSignDesc,
-	)
-
-	// Compute the transaction weight of the commit sweep transaction, which
-	// includes a single input and output.
-	var weightEstimate lnwallet.TxWeightEstimator
-	weightEstimate.AddP2WKHOutput()
-
-	// Add to_local p2wpkh witness and tx input.
-	weightEstimate.AddP2WKHInput()
-
-	txWeight := uint64(weightEstimate.Weight())
-	return b.sweepSpendableOutputsTxn(txWeight, &selfOutput)
 }
 
 // sweepSpendableOutputsTxn creates a signed transaction from a sequence of

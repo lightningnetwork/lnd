@@ -573,17 +573,24 @@ func ReceiverHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 // receiverHtlcSpendTimeout constructs a valid witness allowing the sender of
 // an HTLC to recover the pending funds after an absolute timeout in the
 // scenario that the receiver of the HTLC broadcasts their version of the
-// commitment transaction.
+// commitment transaction. If the caller has already set the lock time on the
+// spending transaction, than a value of -1 can be passed for the cltvExipiry
+// value.
 //
 // NOTE: The target input of the passed transaction MUST NOT have a final
 // sequence number. Otherwise, the OP_CHECKLOCKTIMEVERIFY check will fail.
 func receiverHtlcSpendTimeout(signer Signer, signDesc *SignDescriptor,
-	sweepTx *wire.MsgTx, cltvExpiry uint32) (wire.TxWitness, error) {
+	sweepTx *wire.MsgTx, cltvExpiry int32) (wire.TxWitness, error) {
 
-	// The HTLC output has an absolute time period before we are permitted
-	// to recover the pending funds. Therefore we need to set the locktime
-	// on this sweeping transaction in order to pass Script verification.
-	sweepTx.LockTime = cltvExpiry
+	// If the caller set a proper timeout value, then we'll apply it
+	// directly to the transaction.
+	if cltvExpiry != -1 {
+		// The HTLC output has an absolute time period before we are
+		// permitted to recover the pending funds. Therefore we need to
+		// set the locktime on this sweeping transaction in order to
+		// pass Script verification.
+		sweepTx.LockTime = uint32(cltvExpiry)
+	}
 
 	// With the lock time on the transaction set, we'll not generate a
 	// signature for the sweep transaction. The passed sign descriptor

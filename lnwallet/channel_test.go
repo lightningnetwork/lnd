@@ -874,11 +874,11 @@ func TestCooperativeChannelClosure(t *testing.T) {
 
 // TestForceClose checks that the resulting ForceCloseSummary is correct when a
 // peer is ForceClosing the channel. Will check outputs both above and below
-// the dust limit.
+// the dust limit. Additionally, we'll ensure that the node which executed the
+// force close generates HTLC resolutions that are capable of sweeping both
+// incoming and outgoing HTLC's.
 func TestForceClose(t *testing.T) {
 	t.Parallel()
-
-	// TODO(roasbeef): modify to add some HTLC's before closing?
 
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
@@ -895,85 +895,108 @@ func TestForceClose(t *testing.T) {
 	// will still be present within the broadcast commitment transaction.
 	// We'll ensure that the HTLC amount is above Alice's dust limit.
 	htlcAmount := lnwire.NewMSatFromSatoshis(20000)
-	htlc, _ := createHTLC(0, htlcAmount)
-	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
+	htlcAlice, _ := createHTLC(0, htlcAmount)
+	if _, err := aliceChannel.AddHTLC(htlcAlice); err != nil {
 		t.Fatalf("alice unable to add htlc: %v", err)
 	}
-	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+	if _, err := bobChannel.ReceiveHTLC(htlcAlice); err != nil {
 		t.Fatalf("bob unable to recv add htlc: %v", err)
 	}
+
+	// We'll also a distinct HTLC from Bob -> Alice. This way, Alice will
+	// have both an incoming and outgoing HTLC on her commitment
+	// transaction.
+	htlcBob, preimageBob := createHTLC(0, htlcAmount)
+	if _, err := bobChannel.AddHTLC(htlcBob); err != nil {
+		t.Fatalf("alice unable to add htlc: %v", err)
+	}
+	if _, err := aliceChannel.ReceiveHTLC(htlcBob); err != nil {
+		t.Fatalf("bob unable to recv add htlc: %v", err)
+	}
+
+	// Next, we'll perform two state transitions to ensure that both HTLC's
+	// get fully locked-in.
 	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
 		t.Fatalf("Can't update the channel state: %v", err)
 	}
+	if err := forceStateTransition(bobChannel, aliceChannel); err != nil {
+		t.Fatalf("Can't update the channel state: %v", err)
+	}
 
-	// Now with the HTLC in tact, we'll perform a force close on Alice's
-	// part.
+	// Before we force close Alice's channel, we'll add the pre-image of
+	// Bob's HTLC to her preimage cache.
+	aliceChannel.pCache.AddPreimage(preimageBob[:])
+
+	// With the cache populated, we'll now attempt the force close
+	// initiated by Alice.
 	closeSummary, err := aliceChannel.ForceClose()
 	if err != nil {
 		t.Fatalf("unable to force close channel: %v", err)
 	}
 
-	// Alice's force close summary should have a single HTLC resolution.
-	if len(closeSummary.HtlcResolutions) != 1 {
-		t.Fatalf("alice htlc resolutions not populated: expected %v "+
+	// Alice should detect that she can sweep the outgoing HTLC after a
+	// timeout, but also that she's able to sweep in incoming HTLC Bob sent
+	// her.
+	if len(closeSummary.HtlcResolutions.OutgoingHTLCs) != 1 {
+		t.Fatalf("alice out htlc resolutions not populated: expected %v "+
 			"htlcs, got %v htlcs",
-			1, len(closeSummary.HtlcResolutions))
+			1, len(closeSummary.HtlcResolutions.OutgoingHTLCs))
+	}
+	if len(closeSummary.HtlcResolutions.IncomingHTLCs) != 1 {
+		t.Fatalf("alice in htlc resolutions not populated: expected %v "+
+			"htlcs, got %v htlcs",
+			1, len(closeSummary.HtlcResolutions.IncomingHTLCs))
 	}
 
 	// The SelfOutputSignDesc should be non-nil since the output to-self is
 	// non-dust.
-	if closeSummary.SelfOutputSignDesc == nil {
+	aliceCommitResolution := closeSummary.CommitResolution
+	if aliceCommitResolution == nil {
 		t.Fatalf("alice fails to include to-self output in " +
 			"ForceCloseSummary")
 	}
 
 	// The rest of the close summary should have been populated properly.
 	aliceDelayPoint := aliceChannel.channelState.LocalChanCfg.DelayBasePoint
-	if !closeSummary.SelfOutputSignDesc.PubKey.IsEqual(aliceDelayPoint) {
+	if !aliceCommitResolution.SelfOutputSignDesc.PubKey.IsEqual(
+		aliceDelayPoint,
+	) {
 		t.Fatalf("alice incorrect pubkey in SelfOutputSignDesc")
 	}
 
 	// Factoring in the fee rate, Alice's amount should properly reflect
-	// that we've added an additional HTLC to the commitment transaction.
-	totalCommitWeight := CommitWeight + HtlcWeight
+	// that we've added two additional HTLC to the commitment transaction.
+	totalCommitWeight := CommitWeight + (HtlcWeight * 2)
 	feePerKw := aliceChannel.channelState.LocalCommitment.FeePerKw
 	commitFee := btcutil.Amount((int64(feePerKw) * totalCommitWeight) / 1000)
 	expectedAmount := (aliceChannel.Capacity / 2) - htlcAmount.ToSatoshis() - commitFee
-	if closeSummary.SelfOutputSignDesc.Output.Value != int64(expectedAmount) {
+	if aliceCommitResolution.SelfOutputSignDesc.Output.Value != int64(expectedAmount) {
 		t.Fatalf("alice incorrect output value in SelfOutputSignDesc, "+
 			"expected %v, got %v", int64(expectedAmount),
-			closeSummary.SelfOutputSignDesc.Output.Value)
+			aliceCommitResolution.SelfOutputSignDesc.Output.Value)
 	}
 
 	// Alice's listed CSV delay should also match the delay that was
 	// pre-committed to at channel opening.
-	if closeSummary.SelfOutputMaturity !=
+	if aliceCommitResolution.MaturityDelay !=
 		uint32(aliceChannel.localChanCfg.CsvDelay) {
 
 		t.Fatalf("alice: incorrect local CSV delay in ForceCloseSummary, "+
 			"expected %v, got %v",
 			aliceChannel.channelState.LocalChanCfg.CsvDelay,
-			closeSummary.SelfOutputMaturity)
+			aliceCommitResolution.MaturityDelay)
 	}
 
 	// Next, we'll ensure that the second level HTLC transaction it itself
 	// spendable, and also that the delivery output (with delay) itself has
 	// a valid sign descriptor.
-	var senderHtlcPkScript []byte
-	for _, txOut := range closeSummary.CloseTx.TxOut {
-		if txOut.Value == int64(htlcAmount.ToSatoshis()) {
-			senderHtlcPkScript = txOut.PkScript
-			break
-		}
-	}
-
-	if senderHtlcPkScript == nil {
-		t.Fatalf("unable to find htlc script")
-	}
+	htlcResolution := closeSummary.HtlcResolutions.OutgoingHTLCs[0]
+	outHtlcIndex := htlcResolution.SignedTimeoutTx.TxIn[0].PreviousOutPoint.Index
+	senderHtlcPkScript := closeSummary.CloseTx.TxOut[outHtlcIndex].PkScript
 
 	// First, verify that the second level transaction can properly spend
-	// the multi-sig clause within the
-	htlcResolution := closeSummary.HtlcResolutions[0]
+	// the multi-sig clause within the output on the commitment transaction
+	// that produces this HTLC.
 	timeoutTx := htlcResolution.SignedTimeoutTx
 	vm, err := txscript.NewEngine(senderHtlcPkScript,
 		timeoutTx, 0, txscript.StandardVerifyFlags, nil,
@@ -1029,39 +1052,114 @@ func TestForceClose(t *testing.T) {
 		t.Fatalf("alice: incorrect close transaction txid")
 	}
 
+	// We'll now perform similar set of checks to ensure that Alice is able
+	// to sweep the output that Bob sent to her on-chain with knowledge of
+	// the preimage.
+	inHtlcResolution := closeSummary.HtlcResolutions.IncomingHTLCs[0]
+	inHtlcIndex := inHtlcResolution.SignedSuccessTx.TxIn[0].PreviousOutPoint.Index
+	receiverHtlcScript := closeSummary.CloseTx.TxOut[inHtlcIndex].PkScript
+
+	// With the original pkscript located, we'll now verify that the second
+	// level transaction can spend from the multi-sig out.
+	successTx := inHtlcResolution.SignedSuccessTx
+	vm, err = txscript.NewEngine(receiverHtlcScript,
+		successTx, 0, txscript.StandardVerifyFlags, nil,
+		nil, int64(htlcAmount.ToSatoshis()))
+	if err != nil {
+		t.Fatalf("unable to create engine: %v", err)
+	}
+	if err := vm.Execute(); err != nil {
+		t.Fatalf("htlc success spend is invalid: %v", err)
+	}
+
+	// Finally, we'll construct a transaction to spend the produced
+	// second-level output with the attached SignDescriptor.
+	sweepTx = wire.NewMsgTx(2)
+	sweepTx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: inHtlcResolution.ClaimOutpoint,
+	})
+	sweepTx.AddTxOut(&wire.TxOut{
+		PkScript: receiverHtlcScript,
+		Value:    inHtlcResolution.SweepSignDesc.Output.Value,
+	})
+	inHtlcResolution.SweepSignDesc.InputIndex = 0
+	sweepTx.TxIn[0].Witness, err = htlcSpendSuccess(aliceChannel.signer,
+		&inHtlcResolution.SweepSignDesc, sweepTx,
+		uint32(aliceChannel.channelState.LocalChanCfg.CsvDelay))
+	if err != nil {
+		t.Fatalf("unable to gen witness for timeout output: %v", err)
+	}
+
+	// The spend we create above spending the second level HTLC output
+	// should validate without any issues.
+	vm, err = txscript.NewEngine(
+		inHtlcResolution.SweepSignDesc.Output.PkScript,
+		sweepTx, 0, txscript.StandardVerifyFlags, nil,
+		nil, inHtlcResolution.SweepSignDesc.Output.Value,
+	)
+	if err != nil {
+		t.Fatalf("unable to create engine: %v", err)
+	}
+	if err := vm.Execute(); err != nil {
+		t.Fatalf("htlc timeout spend is invalid: %v", err)
+	}
+
 	// Check the same for Bob's ForceCloseSummary.
 	closeSummary, err = bobChannel.ForceClose()
 	if err != nil {
 		t.Fatalf("unable to force close channel: %v", err)
 	}
-	if closeSummary.SelfOutputSignDesc == nil {
+	bobCommitResolution := closeSummary.CommitResolution
+	if bobCommitResolution == nil {
 		t.Fatalf("bob fails to include to-self output in ForceCloseSummary")
 	}
 	bobDelayPoint := bobChannel.channelState.LocalChanCfg.DelayBasePoint
-	if !closeSummary.SelfOutputSignDesc.PubKey.IsEqual(bobDelayPoint) {
+	if !bobCommitResolution.SelfOutputSignDesc.PubKey.IsEqual(bobDelayPoint) {
 		t.Fatalf("bob incorrect pubkey in SelfOutputSignDesc")
 	}
-	if closeSummary.SelfOutputSignDesc.Output.Value !=
-		int64(bobAmount.ToSatoshis()) {
+	if bobCommitResolution.SelfOutputSignDesc.Output.Value !=
+		int64(bobAmount.ToSatoshis()-htlcAmount.ToSatoshis()) {
 
 		t.Fatalf("bob incorrect output value in SelfOutputSignDesc, "+
 			"expected %v, got %v",
 			bobAmount.ToSatoshis(),
-			int64(closeSummary.SelfOutputSignDesc.Output.Value))
+			int64(bobCommitResolution.SelfOutputSignDesc.Output.Value))
 	}
-	if closeSummary.SelfOutputMaturity !=
+	if bobCommitResolution.MaturityDelay !=
 		uint32(bobChannel.channelState.LocalChanCfg.CsvDelay) {
 
 		t.Fatalf("bob: incorrect local CSV delay in ForceCloseSummary, "+
 			"expected %v, got %v",
 			bobChannel.channelState.LocalChanCfg.CsvDelay,
-			closeSummary.SelfOutputMaturity)
+			bobCommitResolution.MaturityDelay)
 	}
 
 	closeTxHash = closeSummary.CloseTx.TxHash()
 	commitTxHash = bobChannel.channelState.LocalCommitment.CommitTx.TxHash()
 	if !bytes.Equal(closeTxHash[:], commitTxHash[:]) {
 		t.Fatalf("bob: incorrect close transaction txid")
+	}
+
+	// As we didn't add the preimage of Alice's HTLC to bob's preimage
+	// cache, he should only detect that he can sweep only his outgoing
+	// HTLC upon force close.
+	if len(closeSummary.HtlcResolutions.OutgoingHTLCs) != 1 {
+		t.Fatalf("alice out htlc resolutions not populated: expected %v "+
+			"htlcs, got %v htlcs",
+			1, len(closeSummary.HtlcResolutions.OutgoingHTLCs))
+	}
+
+	// Bob should recognize that the incoming HTLC is there, but the
+	// preimage should be empty as he doesn't have the knowledge required
+	// to sweep it.
+	if len(closeSummary.HtlcResolutions.IncomingHTLCs) != 1 {
+		t.Fatalf("bob in htlc resolutions not populated: expected %v "+
+			"htlcs, got %v htlcs",
+			1, len(closeSummary.HtlcResolutions.IncomingHTLCs))
+	}
+	var zeroHash [32]byte
+	if closeSummary.HtlcResolutions.IncomingHTLCs[0].Preimage != zeroHash {
+		t.Fatalf("bob shouldn't know preimage but does")
 	}
 }
 

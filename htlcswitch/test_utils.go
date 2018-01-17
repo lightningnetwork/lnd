@@ -17,6 +17,7 @@ import (
 
 	"net"
 
+	"github.com/boltdb/bolt"
 	"github.com/btcsuite/fastsha256"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -314,7 +315,21 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	restore := func() (*lnwallet.LightningChannel, *lnwallet.LightningChannel,
 		error) {
 		aliceStoredChannels, err := dbAlice.FetchOpenChannels(aliceKeyPub)
-		if err != nil {
+		switch err {
+		case nil:
+		case bolt.ErrDatabaseNotOpen:
+			dbAlice, err = channeldb.Open(dbAlice.Path())
+			if err != nil {
+				return nil, nil, errors.Errorf("unable to reopen alice "+
+					"db: %v", err)
+			}
+
+			aliceStoredChannels, err = dbAlice.FetchOpenChannels(aliceKeyPub)
+			if err != nil {
+				return nil, nil, errors.Errorf("unable to fetch alice "+
+					"channel: %v", err)
+			}
+		default:
 			return nil, nil, errors.Errorf("unable to fetch alice channel: "+
 				"%v", err)
 		}
@@ -339,7 +354,21 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		}
 
 		bobStoredChannels, err := dbBob.FetchOpenChannels(bobKeyPub)
-		if err != nil {
+		switch err {
+		case nil:
+		case bolt.ErrDatabaseNotOpen:
+			dbBob, err = channeldb.Open(dbBob.Path())
+			if err != nil {
+				return nil, nil, errors.Errorf("unable to reopen bob "+
+					"db: %v", err)
+			}
+
+			bobStoredChannels, err = dbBob.FetchOpenChannels(bobKeyPub)
+			if err != nil {
+				return nil, nil, errors.Errorf("unable to fetch bob "+
+					"channel: %v", err)
+			}
+		default:
 			return nil, nil, errors.Errorf("unable to fetch bob channel: "+
 				"%v", err)
 		}
@@ -734,10 +763,23 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	secondBobChannel, carolChannel *lnwallet.LightningChannel,
 	startingHeight uint32) *threeHopNetwork {
 
+	aliceDb := aliceChannel.State().Db
+	bobDb := firstBobChannel.State().Db
+	carolDb := carolChannel.State().Db
+
 	// Create three peers/servers.
-	aliceServer := newMockServer(t, "alice")
-	bobServer := newMockServer(t, "bob")
-	carolServer := newMockServer(t, "carol")
+	aliceServer, err := newMockServer(t, "alice", aliceDb)
+	if err != nil {
+		t.Fatalf("unable to create alice server: %v", err)
+	}
+	bobServer, err := newMockServer(t, "bob", bobDb)
+	if err != nil {
+		t.Fatalf("unable to create bob server: %v", err)
+	}
+	carolServer, err := newMockServer(t, "carol", carolDb)
+	if err != nil {
+		t.Fatalf("unable to create carol server: %v", err)
+	}
 
 	// Create mock decoder instead of sphinx one in order to mock the route
 	// which htlc should follow.
@@ -759,7 +801,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 		BaseFee:       lnwire.NewMSatFromSatoshis(1),
 		TimeLockDelta: 6,
 	}
-	obfuscator := newMockObfuscator()
+	obfuscator := NewMockObfuscator()
 
 	aliceEpochChan := make(chan *chainntnfs.BlockEpoch)
 	aliceEpoch := &chainntnfs.BlockEpochEvent{

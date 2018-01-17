@@ -1546,22 +1546,49 @@ type kidOutput struct {
 
 	originChanPoint wire.OutPoint
 
-	// TODO(roasbeef): using block timeouts everywhere currently, will need
-	// to modify logic later to account for MTP based timeouts.
+	// isHtlc denotes if this kid output is an HTLC output or not. This
+	// value will be used to determine how to report this output within the
+	// nursery report.
+	isHtlc bool
+
+	// blocksToMaturity is the relative CSV delay required after initial
+	// confirmation of the commitment transaction before we can sweep this
+	// output.
+	//
+	// NOTE: This will be set for: commitment outputs, and incoming HTLC's.
+	// Otherwise, this will be zero.
 	blocksToMaturity uint32
-	confHeight       uint32
+
+	// absoluteMaturity is the absolute height that this output will be
+	// mature at. In order to sweep the output after this height, the
+	// locktime of sweep transaction will need to be set to this value.
+	//
+	// NOTE: This will only be set for: outgoing HTLC's on the commitment
+	// transaction of the remote party.
+	absoluteMaturity uint32
+
+	confHeight uint32
 }
 
 func makeKidOutput(outpoint, originChanPoint *wire.OutPoint,
 	blocksToMaturity uint32, witnessType lnwallet.WitnessType,
-	signDescriptor *lnwallet.SignDescriptor) kidOutput {
+	signDescriptor *lnwallet.SignDescriptor,
+	absoluteMaturity uint32) kidOutput {
+
+	// This is an HTLC either if it's an incoming HTLC on our commitment
+	// transaction, or is an outgoing HTLC on the commitment transaction of
+	// the remote peer.
+	isHtlc := (witnessType == lnwallet.HtlcAcceptedSuccessSecondLevel ||
+		witnessType == lnwallet.HtlcOfferedRemoteTimeout)
 
 	return kidOutput{
 		breachedOutput: makeBreachedOutput(
 			outpoint, witnessType, signDescriptor,
 		),
+		isHtlc:           isHtlc,
 		originChanPoint:  *originChanPoint,
 		blocksToMaturity: blocksToMaturity,
+		absoluteMaturity: absoluteMaturity,
 	}
 }
 
@@ -1599,7 +1626,16 @@ func (k *kidOutput) Encode(w io.Writer) error {
 		return err
 	}
 
+	if err := binary.Write(w, byteOrder, k.isHtlc); err != nil {
+		return err
+	}
+
 	byteOrder.PutUint32(scratch[:4], k.BlocksToMaturity())
+	if _, err := w.Write(scratch[:4]); err != nil {
+		return err
+	}
+
+	byteOrder.PutUint32(scratch[:4], k.absoluteMaturity)
 	if _, err := w.Write(scratch[:4]); err != nil {
 		return err
 	}
@@ -1637,10 +1673,19 @@ func (k *kidOutput) Decode(r io.Reader) error {
 		return err
 	}
 
+	if err := binary.Read(r, byteOrder, &k.isHtlc); err != nil {
+		return err
+	}
+
 	if _, err := r.Read(scratch[:4]); err != nil {
 		return err
 	}
 	k.blocksToMaturity = byteOrder.Uint32(scratch[:4])
+
+	if _, err := r.Read(scratch[:4]); err != nil {
+		return err
+	}
+	k.absoluteMaturity = byteOrder.Uint32(scratch[:4])
 
 	if _, err := r.Read(scratch[:4]); err != nil {
 		return err

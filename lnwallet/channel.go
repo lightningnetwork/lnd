@@ -2098,7 +2098,8 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 			lc.channelState.LocalCommitment.FeePerKw, false,
 			lc.signer, lc.channelState.LocalCommitment.Htlcs,
 			keyRing, lc.localChanCfg, lc.remoteChanCfg,
-			*commitSpend.SpenderTxHash)
+			*commitSpend.SpenderTxHash, lc.pCache,
+		)
 		if err != nil {
 			walletLog.Errorf("unable to create htlc "+
 				"resolutions: %v", err)
@@ -4416,6 +4417,10 @@ type UnilateralCloseSummary struct {
 	// then this will be nil.
 	CommitResolution *CommitOutputResolution
 
+	// HtlcResolutions contains a fully populated HtlcResolutions struct
+	// which contains all the data required to sweep any outgoing HTLC's,
+	// and also any incoming HTLC's that we know the pre-image to.
+	HtlcResolutions *HtlcResolutions
 
 	// ChanSnapshot is a snapshot of the final state of the channel at the
 	// time it was closed.
@@ -4504,10 +4509,20 @@ type OutgoingHtlcResolution struct {
 	SweepSignDesc SignDescriptor
 }
 
-// newHtlcResolution generates a new HTLC resolution capable of allowing the
-// caller to sweep an outgoing HTLC present on either their, or the remote
-// party's commitment transaction.
-func newHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelConfig,
+// HtlcResolutions contains the items necessary to sweep HTLC's on chain
+// directly from a commitment transaction. We'll use this in case either party
+// goes broadcasts a commitment transaction with live HTLC's.
+type HtlcResolutions struct {
+	// IncomingHTLCs contains a set of structs that can be used to sweep
+	// all the incoming HTL'C that we know the preimage to.
+	IncomingHTLCs []IncomingHtlcResolution
+
+	// OutgoingHTLCs contains a set of structs that contains all the info
+	// needed to sweep an outgoing HTLC we've sent to the remote party
+	// after an absolute delay has expired.
+	OutgoingHTLCs []OutgoingHtlcResolution
+}
+
 // newOutgoingHtlcResolution generates a new HTLC resolution capable of
 // allowing the caller to sweep an outgoing HTLC present on either their, or
 // the remote party's commitment transaction.
@@ -4784,8 +4799,9 @@ func newIncomingHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelCon
 func extractHtlcResolutions(feePerKw btcutil.Amount, ourCommit bool,
 	signer Signer, htlcs []channeldb.HTLC, keyRing *commitmentKeyRing,
 	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
-	commitHash chainhash.Hash) ([]OutgoingHtlcResolution, error) {
+	commitHash chainhash.Hash, pCache PreimageCache) (*HtlcResolutions, error) {
 
+	// TODO(roasbeef): don't need to swap csv delay?
 	dustLimit := remoteChanCfg.DustLimit
 	csvDelay := remoteChanCfg.CsvDelay
 	if ourCommit {
@@ -4793,16 +4809,10 @@ func extractHtlcResolutions(feePerKw btcutil.Amount, ourCommit bool,
 		csvDelay = localChanCfg.CsvDelay
 	}
 
-	htlcResolutions := make([]OutgoingHtlcResolution, 0, len(htlcs))
+	incomingResolutions := make([]IncomingHtlcResolution, 0, len(htlcs))
+	outgoingResolutions := make([]OutgoingHtlcResolution, 0, len(htlcs))
 	for _, htlc := range htlcs {
-		// Skip any incoming HTLC's, as unless we have the pre-image to
-		// spend them, they'll eventually be swept by the party that
-		// offered the HTLC after the timeout.
-		if htlc.Incoming {
-			continue
-		}
-
-		// We'll also skip any HTLC's which were dust on the commitment
+		// We'll skip any HTLC's which were dust on the commitment
 		// transaction, as these don't have a corresponding output
 		// within the commitment transaction.
 		if htlcIsDust(htlc.Incoming, ourCommit, feePerKw,
@@ -4810,19 +4820,46 @@ func extractHtlcResolutions(feePerKw btcutil.Amount, ourCommit bool,
 			continue
 		}
 
-		ohr, err := newHtlcResolution(
+		// If the HTLC is incoming, then we'll attempt to see if we
+		// know the pre-image to the HTLC.
+		if htlc.Incoming {
+			// We'll now query the preimage cache for the preimage
+			// for this HTLC. If it's present then we can fully
+			// populate this resolution.
+			preimage, _ := pCache.LookupPreimage(htlc.RHash[:])
+
+			// Otherwise, we'll create an incoming HTLC resolution
+			// as we can satisfy the contract.
+			var pre [32]byte
+			copy(pre[:], preimage)
+			ihr, err := newIncomingHtlcResolution(
+				signer, localChanCfg, commitHash, &htlc, keyRing,
+				feePerKw, dustLimit, uint32(csvDelay), ourCommit,
+				pre,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			incomingResolutions = append(incomingResolutions, *ihr)
+			continue
+		}
+
+		ohr, err := newOutgoingHtlcResolution(
 			signer, localChanCfg, commitHash, &htlc, keyRing,
-			feePerKw, dustLimit, uint32(csvDelay),
+			feePerKw, dustLimit, uint32(csvDelay), ourCommit,
 		)
 		if err != nil {
 			return nil, err
 		}
 
-		// TODO(roasbeef): needs to point to proper amount including
-		htlcResolutions = append(htlcResolutions, *ohr)
+		outgoingResolutions = append(outgoingResolutions, *ohr)
 	}
 
-	return htlcResolutions, nil
+	return &HtlcResolutions{
+		IncomingHTLCs: incomingResolutions,
+		OutgoingHTLCs: outgoingResolutions,
+	}, nil
 }
 
 // ForceCloseSummary describes the final commitment state before the channel is

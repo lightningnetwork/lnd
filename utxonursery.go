@@ -391,12 +391,6 @@ func (u *utxoNursery) IncubateOutputs(
 
 	}
 
-	// If there are no outputs to incubate for this channel, we simply mark
-	// the channel as fully closed.
-	if commOutput == nil && len(htlcOutputs) == 0 {
-		utxnLog.Infof("Channel(%s) has no outputs to incubate, "+
-			"marking fully closed.", &closeSummary.ChanPoint)
-		return u.cfg.DB.MarkChanFullyClosed(&closeSummary.ChanPoint)
 	}
 
 	utxnLog.Infof("Incubating Channel(%s) has-commit=%v, num-htlcs=%d",

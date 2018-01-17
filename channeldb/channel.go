@@ -746,7 +746,12 @@ type HTLC struct {
 	LogIndex uint64
 }
 
-func serializeHtlcs(b io.Writer, htlcs []HTLC) error {
+// SerializeHtlcs writes out the passed set of HTLC's into the passed writer
+// using the current default on-disk serialization format.
+//
+// NOTE: This API is NOT stable, the on-disk format will likely change in the
+// future.
+func SerializeHtlcs(b io.Writer, htlcs ...HTLC) error {
 	numHtlcs := uint16(len(htlcs))
 	if err := writeElement(b, numHtlcs); err != nil {
 		return err
@@ -765,7 +770,13 @@ func serializeHtlcs(b io.Writer, htlcs []HTLC) error {
 	return nil
 }
 
-func deserializeHtlcs(r io.Reader) ([]HTLC, error) {
+// DeserializeHtlcs attempts to read out a slice of HTLC's from the passed
+// io.Reader. The bytes within the passed reader MUST have been previously
+// written to using the SerializeHtlcs function.
+//
+// NOTE: This API is NOT stable, the on-disk format will likely change in the
+// future.
+func DeserializeHtlcs(r io.Reader) ([]HTLC, error) {
 	var numHtlcs uint16
 	if err := readElement(r, &numHtlcs); err != nil {
 		return nil, err
@@ -1520,7 +1531,7 @@ func serializeChanCommit(w io.Writer, c *ChannelCommitment) error {
 		return err
 	}
 
-	return serializeHtlcs(w, c.Htlcs)
+	return SerializeHtlcs(w, c.Htlcs...)
 }
 
 func putChanCommitment(chanBucket *bolt.Bucket, c *ChannelCommitment,
@@ -1624,7 +1635,7 @@ func deserializeChanCommit(r io.Reader) (ChannelCommitment, error) {
 		return c, err
 	}
 
-	c.Htlcs, err = deserializeHtlcs(r)
+	c.Htlcs, err = DeserializeHtlcs(r)
 	if err != nil {
 		return c, err
 	}

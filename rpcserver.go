@@ -1213,6 +1213,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 	// and map the db struct to the proto response.
 	pendingOpenChannels, err := r.server.chanDB.FetchPendingChannels()
 	if err != nil {
+		rpcsLog.Errorf("unable to fetch pending channels: %v", err)
 		return nil, err
 	}
 	resp.PendingOpenChannels = make([]*lnrpc.PendingChannelsResponse_PendingOpenChannel,
@@ -1256,6 +1257,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 	// can populate these fields within the response.
 	pendingCloseChannels, err := r.server.chanDB.FetchClosedChannels(true)
 	if err != nil {
+		rpcsLog.Errorf("unable to fetch closed channels: %v", err)
 		return nil, err
 	}
 	for _, pendingClose := range pendingCloseChannels {
@@ -1644,6 +1646,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					)
 					p.dest = nextPayment.Dest
 					p.pHash = nextPayment.PaymentHash
+					p.cltvDelta = uint16(nextPayment.FinalCltvDelta)
 				}
 
 				select {

@@ -1097,10 +1097,9 @@ func TestBreachHandoffFail(t *testing.T) {
 	aliceKeyPriv, _ := btcec.PrivKeyFromBytes(btcec.S256(),
 		alicesPrivKey)
 	aliceSigner := &mockSigner{aliceKeyPriv}
-	estimator := &lnwallet.StaticFeeEstimator{FeeRate: 50}
 
 	alice2, err := lnwallet.NewLightningChannel(aliceSigner, notifier,
-		estimator, alice.State())
+		nil, alice.State())
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
@@ -1382,16 +1381,23 @@ func createInitChannelsWithNotifier(revocationWindow int,
 		Db:                      dbBob,
 	}
 
+	pCache := &mockPreimageCache{
+		// hash -> preimage
+		preimageMap: make(map[[32]byte][]byte),
+	}
+
 	aliceSigner := &mockSigner{aliceKeyPriv}
 	bobSigner := &mockSigner{bobKeyPriv}
 
-	channelAlice, err := lnwallet.NewLightningChannel(aliceSigner, notifier,
-		estimator, aliceChannelState)
+	channelAlice, err := lnwallet.NewLightningChannel(
+		aliceSigner, notifier, pCache, aliceChannelState,
+	)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	channelBob, err := lnwallet.NewLightningChannel(bobSigner, notifier,
-		estimator, bobChannelState)
+	channelBob, err := lnwallet.NewLightningChannel(
+		bobSigner, notifier, pCache, bobChannelState,
+	)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -1476,7 +1482,7 @@ func forceStateTransition(chanA, chanB *lnwallet.LightningChannel) error {
 		return err
 	}
 
-	bobRevocation, err := chanB.RevokeCurrentCommitment()
+	bobRevocation, _, err := chanB.RevokeCurrentCommitment()
 	if err != nil {
 		return err
 	}
@@ -1492,7 +1498,7 @@ func forceStateTransition(chanA, chanB *lnwallet.LightningChannel) error {
 		return err
 	}
 
-	aliceRevocation, err := chanA.RevokeCurrentCommitment()
+	aliceRevocation, _, err := chanA.RevokeCurrentCommitment()
 	if err != nil {
 		return err
 	}

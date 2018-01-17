@@ -45,6 +45,14 @@ type BreachConfig struct {
 	// a close type to be included in the channel close summary.
 	CloseLink func(*wire.OutPoint, htlcswitch.ChannelCloseType)
 
+	// UpdateCloseSignal allows the breach arbiter to notify the
+	// ChainArbitrator that a set of new signals for the unilateral closing
+	// of a channel is now available. This ensures that ifa channel hasn't
+	// had any updates since it was live, then we're still able to act on
+	// on-chain events.
+	UpdateCloseSignal func(*wire.OutPoint,
+		chan *lnwallet.UnilateralCloseSummary) error
+
 	// DB provides access to the user's channels, allowing the breach
 	// arbiter to determine the current state of a user's channels, and how
 	// it should respond to channel closure.
@@ -305,6 +313,15 @@ func (b *breachArbiter) contractObserver(
 		settleSignal := make(chan struct{})
 		chanPoint := channel.ChanPoint
 		b.breachObservers[*chanPoint] = settleSignal
+
+		// Before we'll launch our breach observe, we'll send this
+		// latest set of contract signals to the ChainArbitrator.
+		//
+		// TODO(roasbeef): just move now?
+		err := b.cfg.UpdateCloseSignal(chanPoint, channel.UnilateralClose)
+		if err != nil {
+			brarLog.Errorf("unable to update close signals: %v", err)
+		}
 
 		b.wg.Add(1)
 		go b.breachObserver(channel, settleSignal)

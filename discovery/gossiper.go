@@ -996,7 +996,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 	}
 }
 
-// retransmitStaleChannels eaxmines all outgoing channels that the source node
+// retransmitStaleChannels examines all outgoing channels that the source node
 // is known to maintain to check to see if any of them are "stale". A channel
 // is stale iff, the last timestamp of it's rebroadcast is older then
 // broadcastInterval.
@@ -1012,10 +1012,10 @@ func (d *AuthenticatedGossiper) retransmitStaleChannels() error {
 		info *channeldb.ChannelEdgeInfo,
 		edge *channeldb.ChannelEdgePolicy) error {
 
-		// If there's no auth proof attaced to this edge, it
-		// means that it is a private channel not meant to be
-		// announced to the greater network, so avoid sending
-		// channel updates for this channel to not leak its
+		// If there's no auth proof attached to this edge, it means
+		// that it is a private channel not meant to be announced to
+		// the greater network, so avoid sending channel updates for
+		// this channel to not leak its
 		// existence.
 		if info.AuthProof == nil {
 			log.Debugf("Skipping retransmission of channel "+

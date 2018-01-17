@@ -234,6 +234,14 @@ type fundingConfig struct {
 	// in order to give us more time to claim funds in the case of a
 	// contract breach.
 	RequiredRemoteDelay func(btcutil.Amount) uint16
+
+	// ArbitrateNewChan is to be called once a new channel enters the final
+	// funding stage: waiting for on-chain confirmation. This method sends
+	// the channel to the ChainArbitrator so it can watch for any on-chain
+	// events related to the channel.
+	//
+	// TODO(roasbeef): pass signal as well?
+	ArbitrateNewChan func(*channeldb.OpenChannel) error
 }
 
 // fundingManager acts as an orchestrator/bridge between the wallet's
@@ -1198,6 +1206,14 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 		return
 	}
 
+	// Now that we've sent over our final signature for this channel, we'll
+	// send it to the ChainArbitrator so it can watch for any on-chain
+	// actions during this final confirmation stage.
+	if err := f.cfg.ArbitrateNewChan(completeChan); err != nil {
+		fndgLog.Error("Unable to send new ChannelPoint(%v) for "+
+			"arbitration", fundingOut)
+	}
+
 	// Create an entry in the local discovery map so we can ensure that we
 	// process the channel confirmation fully before we receive a funding
 	// locked message.
@@ -1328,6 +1344,17 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 		return
 	}
 
+	// Now that we have a finalized reservation for this funding flow,
+	// we'll send the to be active channel to the ChainArbitrator so it can
+	// watch for any on-chin actions before the channel has fully
+	// confirmed.
+	//
+	// TODO(roasbeef): ensure later it also gets new signals
+	if err := f.cfg.ArbitrateNewChan(completeChan); err != nil {
+		fndgLog.Error("Unable to send new ChannelPoint(%v) for "+
+			"arbitration", fundingPoint)
+	}
+
 	fndgLog.Infof("Finalizing pendingID(%x) over ChannelPoint(%v), "+
 		"waiting for channel open on-chain", pendingChanID[:], fundingPoint)
 
@@ -1352,7 +1379,7 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 
 		// In case the fundingManager is stopped at some point during
 		// the remaining part of the opening process, we must wait for
-		// this process to finish (either successully or with some
+		// this process to finish (either successfully or with some
 		// error), before the fundingManager can be shut down.
 		f.wg.Add(1)
 		go func() {
@@ -1374,16 +1401,14 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 			}
 		}
 
-		// Success, funding transaction was confirmed.
 		fndgLog.Debugf("Channel with ShortChanID %v now confirmed",
 			shortChanID.ToUint64())
 
 		// Go on adding the channel to the channel graph, and crafting
 		// channel announcements.
-
-		// We create the state-machine object which wraps the database state.
-		lnChannel, err := lnwallet.NewLightningChannel(nil, nil, f.cfg.FeeEstimator,
-			completeChan)
+		lnChannel, err := lnwallet.NewLightningChannel(
+			nil, nil, nil, completeChan,
+		)
 		if err != nil {
 			fndgLog.Errorf("failed creating lnChannel: %v", err)
 			return
@@ -1628,8 +1653,9 @@ func (f *fundingManager) handleFundingConfirmation(completeChan *channeldb.OpenC
 	shortChanID *lnwire.ShortChannelID) error {
 
 	// We create the state-machine object which wraps the database state.
-	lnChannel, err := lnwallet.NewLightningChannel(nil, nil, f.cfg.FeeEstimator,
-		completeChan)
+	lnChannel, err := lnwallet.NewLightningChannel(
+		nil, nil, nil, completeChan,
+	)
 	if err != nil {
 		return err
 	}

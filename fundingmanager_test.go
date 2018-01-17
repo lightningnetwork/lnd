@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -135,6 +136,7 @@ type testNode struct {
 func init() {
 	channeldb.UseLogger(btclog.Disabled)
 	lnwallet.UseLogger(btclog.Disabled)
+	contractcourt.UseLogger(btclog.Disabled)
 	fndgLog = btclog.Disabled
 }
 
@@ -255,7 +257,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 					return lnwallet.NewLightningChannel(
 						signer,
 						nil,
-						estimator,
+						nil,
 						channel)
 				}
 			}
@@ -268,6 +270,9 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		},
 		RequiredRemoteDelay: func(amt btcutil.Amount) uint16 {
 			return 4
+		},
+		ArbitrateNewChan: func(*channeldb.OpenChannel) error {
+			return nil
 		},
 	})
 	if err != nil {

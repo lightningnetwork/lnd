@@ -1221,29 +1221,30 @@ func TestForceCloseDustOutput(t *testing.T) {
 
 	// Alice's to-self output should still be in the commitment
 	// transaction.
-	if closeSummary.SelfOutputSignDesc == nil {
+	commitResolution := closeSummary.CommitResolution
+	if commitResolution == nil {
 		t.Fatalf("alice fails to include to-self output in " +
 			"ForceCloseSummary")
 	}
-	if !closeSummary.SelfOutputSignDesc.PubKey.IsEqual(
+	if !commitResolution.SelfOutputSignDesc.PubKey.IsEqual(
 		aliceChannel.channelState.LocalChanCfg.DelayBasePoint,
 	) {
 		t.Fatalf("alice incorrect pubkey in SelfOutputSignDesc")
 	}
-	if closeSummary.SelfOutputSignDesc.Output.Value !=
+	if commitResolution.SelfOutputSignDesc.Output.Value !=
 		int64(aliceAmount.ToSatoshis()) {
 		t.Fatalf("alice incorrect output value in SelfOutputSignDesc, "+
 			"expected %v, got %v",
 			aliceChannel.channelState.LocalCommitment.LocalBalance.ToSatoshis(),
-			closeSummary.SelfOutputSignDesc.Output.Value)
+			commitResolution.SelfOutputSignDesc.Output.Value)
 	}
 
-	if closeSummary.SelfOutputMaturity !=
+	if commitResolution.MaturityDelay !=
 		uint32(aliceChannel.channelState.LocalChanCfg.CsvDelay) {
 		t.Fatalf("alice: incorrect local CSV delay in ForceCloseSummary, "+
 			"expected %v, got %v",
 			aliceChannel.channelState.LocalChanCfg.CsvDelay,
-			closeSummary.SelfOutputMaturity)
+			commitResolution.MaturityDelay)
 	}
 
 	closeTxHash := closeSummary.CloseTx.TxHash()
@@ -1259,7 +1260,8 @@ func TestForceCloseDustOutput(t *testing.T) {
 
 	// Bob's to-self output is below Bob's dust value and should be
 	// reflected in the ForceCloseSummary.
-	if closeSummary.SelfOutputSignDesc != nil {
+	commitResolution = closeSummary.CommitResolution
+	if commitResolution != nil {
 		t.Fatalf("bob incorrectly includes to-self output in " +
 			"ForceCloseSummary")
 	}
@@ -1703,13 +1705,15 @@ func TestStateUpdatePersistence(t *testing.T) {
 		t.Fatalf("unable to fetch channel: %v", err)
 	}
 	notifier := aliceChannel.channelEvents
-	aliceChannelNew, err := NewLightningChannel(aliceChannel.signer,
-		notifier, aliceChannel.feeEstimator, aliceChannels[0])
+	aliceChannelNew, err := NewLightningChannel(
+		aliceChannel.signer, notifier, nil, aliceChannels[0],
+	)
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
 	}
-	bobChannelNew, err := NewLightningChannel(bobChannel.signer, notifier,
-		bobChannel.feeEstimator, bobChannels[0])
+	bobChannelNew, err := NewLightningChannel(
+		bobChannel.signer, notifier, nil, bobChannels[0],
+	)
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
 	}
@@ -2255,7 +2259,7 @@ func TestUpdateFeeSenderCommits(t *testing.T) {
 
 	// Bob can revoke the prior commitment he had. This should lock in the
 	// fee update for him.
-	bobRevocation, err := bobChannel.RevokeCurrentCommitment()
+	bobRevocation, _, err := bobChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("unable to generate bob revocation: %v", err)
 	}
@@ -2291,7 +2295,7 @@ func TestUpdateFeeSenderCommits(t *testing.T) {
 
 	// Alice can revoke the old commitment, which will lock in the fee
 	// update.
-	aliceRevocation, err := aliceChannel.RevokeCurrentCommitment()
+	aliceRevocation, _, err := aliceChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("unable to revoke alice channel: %v", err)
 	}
@@ -2363,7 +2367,7 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 	// Alice can revoke the prior commitment she had, this will ack
 	// everything received before last commitment signature, but in this
 	// case that is nothing.
-	aliceRevocation, err := aliceChannel.RevokeCurrentCommitment()
+	aliceRevocation, _, err := aliceChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("unable to generate bob revocation: %v", err)
 	}
@@ -2395,7 +2399,7 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 	// Bob can revoke the old commitment. This will ack what he has
 	// received, including the HTLC and fee update. This will lock in the
 	// fee update for bob.
-	bobRevocation, err := bobChannel.RevokeCurrentCommitment()
+	bobRevocation, _, err := bobChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("unable to revoke alice channel: %v", err)
 	}
@@ -2430,7 +2434,7 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 
 	// After Alice now revokes her old commitment, the fee update should
 	// lock in.
-	aliceRevocation, err = aliceChannel.RevokeCurrentCommitment()
+	aliceRevocation, _, err = aliceChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("unable to generate bob revocation: %v", err)
 	}
@@ -2535,7 +2539,7 @@ func TestUpdateFeeMultipleUpdates(t *testing.T) {
 
 	// Bob can revoke the prior commitment he had. This should lock in the
 	// fee update for him.
-	bobRevocation, err := bobChannel.RevokeCurrentCommitment()
+	bobRevocation, _, err := bobChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("unable to generate bob revocation: %v", err)
 	}
@@ -2570,7 +2574,7 @@ func TestUpdateFeeMultipleUpdates(t *testing.T) {
 
 	// Alice can revoke the old commitment, which will lock in the fee
 	// update.
-	aliceRevocation, err := aliceChannel.RevokeCurrentCommitment()
+	aliceRevocation, _, err := aliceChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("unable to revoke alice channel: %v", err)
 	}
@@ -2739,14 +2743,16 @@ func TestChanSyncFullySynced(t *testing.T) {
 		t.Fatalf("unable to fetch channel: %v", err)
 	}
 	notifier := aliceChannel.channelEvents
-	aliceChannelNew, err := NewLightningChannel(aliceChannel.signer,
-		notifier, aliceChannel.feeEstimator, aliceChannels[0])
+	aliceChannelNew, err := NewLightningChannel(
+		aliceChannel.signer, notifier, nil, aliceChannels[0],
+	)
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
 	}
 	defer aliceChannelNew.Stop()
-	bobChannelNew, err := NewLightningChannel(bobChannel.signer, notifier,
-		bobChannel.feeEstimator, bobChannels[0])
+	bobChannelNew, err := NewLightningChannel(
+		bobChannel.signer, notifier, nil, bobChannels[0],
+	)
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
 	}
@@ -2768,8 +2774,9 @@ func restartChannel(channelOld *LightningChannel) (*LightningChannel, error) {
 	}
 
 	notifier := channelOld.channelEvents
-	channelNew, err := NewLightningChannel(channelOld.signer,
-		notifier, channelOld.feeEstimator, nodeChannels[0])
+	channelNew, err := NewLightningChannel(
+		channelOld.signer, notifier, channelOld.pCache, nodeChannels[0],
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2991,7 +2998,7 @@ func TestChanSyncOweCommitment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bob unable to process alice's commitment: %v", err)
 	}
-	bobRevocation, err := bobChannel.RevokeCurrentCommitment()
+	bobRevocation, _, err := bobChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("unable to revoke bob commitment: %v", err)
 	}
@@ -3007,7 +3014,7 @@ func TestChanSyncOweCommitment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("alice unable to rev bob's commitment: %v", err)
 	}
-	aliceRevocation, err := aliceChannel.RevokeCurrentCommitment()
+	aliceRevocation, _, err := aliceChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("alice unable to revoke commitment: %v", err)
 	}
@@ -3160,7 +3167,7 @@ func TestChanSyncOweRevocation(t *testing.T) {
 		t.Fatalf("bob unable to process alice's commitment: %v", err)
 	}
 
-	bobRevocation, err := bobChannel.RevokeCurrentCommitment()
+	bobRevocation, _, err := bobChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("unable to revoke bob commitment: %v", err)
 	}
@@ -3180,7 +3187,7 @@ func TestChanSyncOweRevocation(t *testing.T) {
 
 	// At this point, we'll simulate the connection breaking down by Bob's
 	// lack of knowledge of the revocation message that Alice just sent.
-	aliceRevocation, err := aliceChannel.RevokeCurrentCommitment()
+	aliceRevocation, _, err := aliceChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("alice unable to revoke commitment: %v", err)
 	}
@@ -3345,7 +3352,7 @@ func TestChanSyncOweRevocationAndCommit(t *testing.T) {
 
 	// Bob generates the revoke and sig message, but the messages don't
 	// reach Alice before the connection dies.
-	bobRevocation, err := bobChannel.RevokeCurrentCommitment()
+	bobRevocation, _, err := bobChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("unable to revoke bob commitment: %v", err)
 	}
@@ -3440,7 +3447,7 @@ func TestChanSyncOweRevocationAndCommit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("alice unable to rev bob's commitment: %v", err)
 	}
-	aliceRevocation, err := aliceChannel.RevokeCurrentCommitment()
+	aliceRevocation, _, err := aliceChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("alice unable to revoke commitment: %v", err)
 	}
@@ -3516,7 +3523,7 @@ func TestChanSyncOweRevocationAndCommitForceTransition(t *testing.T) {
 	// Bob then sends his revocation message, but before Alice can process
 	// it (and before he scan send his CommitSig message), then connection
 	// dies.
-	bobRevocation, err := bobChannel.RevokeCurrentCommitment()
+	bobRevocation, _, err := bobChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("unable to revoke bob commitment: %v", err)
 	}
@@ -3628,7 +3635,7 @@ func TestChanSyncOweRevocationAndCommitForceTransition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("alice unable to rev bob's commitment: %v", err)
 	}
-	aliceRevocation, err := aliceChannel.RevokeCurrentCommitment()
+	aliceRevocation, _, err := aliceChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("alice unable to revoke commitment: %v", err)
 	}
@@ -3796,7 +3803,7 @@ func TestChannelRetransmissionFeeUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bob unable to process alice's commitment: %v", err)
 	}
-	bobRevocation, err := bobChannel.RevokeCurrentCommitment()
+	bobRevocation, _, err := bobChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("unable to revoke bob commitment: %v", err)
 	}
@@ -3812,7 +3819,7 @@ func TestChannelRetransmissionFeeUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("alice unable to rev bob's commitment: %v", err)
 	}
-	aliceRevocation, err := aliceChannel.RevokeCurrentCommitment()
+	aliceRevocation, _, err := aliceChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("alice unable to revoke commitment: %v", err)
 	}
@@ -4160,7 +4167,7 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bobRevocation, err := bobChannel.RevokeCurrentCommitment()
+	bobRevocation, _, err := bobChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4185,7 +4192,7 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	aliceRevocation, err := aliceChannel.RevokeCurrentCommitment()
+	aliceRevocation, _, err := aliceChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4233,7 +4240,7 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	aliceRevocation, err = aliceChannel.RevokeCurrentCommitment()
+	aliceRevocation, _, err = aliceChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatal(err)
 	}

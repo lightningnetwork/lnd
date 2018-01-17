@@ -320,12 +320,12 @@ func SenderHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 	return senderHtlcSpendRevoke(signer, signDesc, revokeKey, sweepTx)
 }
 
-// senderHtlcSpendRedeem constructs a valid witness allowing the receiver of an
+// SenderHtlcSpendRedeem constructs a valid witness allowing the receiver of an
 // HTLC to redeem the pending output in the scenario that the sender broadcasts
 // their version of the commitment transaction. A valid spend requires
 // knowledge of the payment preimage, and a valid signature under the receivers
 // public key.
-func senderHtlcSpendRedeem(signer Signer, signDesc *SignDescriptor,
+func SenderHtlcSpendRedeem(signer Signer, signDesc *SignDescriptor,
 	sweepTx *wire.MsgTx, paymentPreimage []byte) (wire.TxWitness, error) {
 
 	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
@@ -810,12 +810,15 @@ func htlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
 	return witnessStack, nil
 }
 
-// HtlcSpendSuccess exposes the public witness generation function for spending
-// an HTLC success transaction, either due to an expiring time lock or having
-// had the payment preimage.
+// HtlcSecondLevelSpend exposes the public witness generation function for
+// spending an HTLC success transaction, either due to an expiring time lock or
+// having had the payment preimage. This method is able to spend any
+// second-level HTLC transaction, assuming the caller sets the locktime or
+// seqno properly.
+//
 // NOTE: The caller MUST set the txn version, sequence number, and sign
 // descriptor's sig hash cache before invocation.
-func HtlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
+func HtlcSecondLevelSpend(signer Signer, signDesc *SignDescriptor,
 	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
 	// With the proper sequence an version set, we'll now sign the timeout

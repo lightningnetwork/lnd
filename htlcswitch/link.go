@@ -1414,6 +1414,13 @@ func (l *channelLink) processLockedInHtlcs(
 			fwdInfo := chanIterator.ForwardingInstructions()
 			switch fwdInfo.NextHop {
 			case exitHop:
+				if l.cfg.DebugHTLC && l.cfg.HodlHTLC {
+					log.Warnf("hodl HTLC mode enabled, " +
+						"will not attempt to settle " +
+						"HTLC with sender")
+					continue
+				}
+
 				// First, we'll check the expiry of the HTLC
 				// itself against, the current block height. If
 				// the timeout is too soon, then we'll reject
@@ -1528,13 +1535,6 @@ func (l *channelLink) processLockedInHtlcs(
 						needUpdate = true
 						continue
 					}
-				}
-
-				if l.cfg.DebugHTLC && l.cfg.HodlHTLC {
-					log.Warnf("hodl HTLC mode enabled, " +
-						"will not attempt to settle " +
-						"HTLC with sender")
-					continue
 				}
 
 				preimage := invoice.Terms.PaymentPreimage

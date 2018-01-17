@@ -490,6 +490,62 @@ func (l *channelLink) syncChanStates() error {
 		htlcsSettled[settleMsg.ID] = struct{}{}
 	}
 
+	// Now that we've synchronized our state, we'll check to see if
+	// there're any HTLC's that we received, but weren't able to settle
+	// directly the last time we were active. If we find any, then we'll
+	// send the settle message, then being to initiate a state transition.
+	//
+	// TODO(roasbeef): can later just inspect forwarding package
+	activeHTLCs := l.channel.ActiveHtlcs()
+	for _, htlc := range activeHTLCs {
+		if !htlc.Incoming {
+			continue
+		}
+
+		// Before we attempt to settle this HTLC, we'll check to see if
+		// we just re-sent it as part of the channel sync. If so, then
+		// we'll skip it.
+		if _, ok := htlcsSettled[htlc.HtlcIndex]; ok {
+			continue
+		}
+
+		// Now we'll check to if we we actually know the preimage if we
+		// don't then we'll skip it.
+		preimage, ok := l.cfg.PreimageCache.LookupPreimage(htlc.RHash[:])
+		if !ok {
+			continue
+		}
+
+		// At this point, we've found an unsettled HTLC that we know
+		// the preimage to, so we'll send a settle message to the
+		// remote party.
+		var p [32]byte
+		copy(p[:], preimage)
+		err := l.channel.SettleHTLC(p, htlc.HtlcIndex)
+		if err != nil {
+			l.fail("unable to settle htlc: %v", err)
+			return err
+		}
+
+		// We'll now mark the HTLC as settled in the invoice database,
+		// then send the settle message to the remote party.
+		err = l.cfg.Registry.SettleInvoice(htlc.RHash)
+		if err != nil {
+			l.fail("unable to settle invoice: %v", err)
+			return err
+		}
+		l.batchCounter++
+		l.cfg.Peer.SendMessage(&lnwire.UpdateFufillHTLC{
+			ChanID:          l.ChanID(),
+			ID:              htlc.HtlcIndex,
+			PaymentPreimage: p,
+		})
+
+	}
+
+	return nil
+}
+
 // htlcManager is the primary goroutine which drives a channel's commitment
 // update state-machine in response to messages received via several channels.
 // This goroutine reads messages from the upstream (remote) peer, and also from
@@ -524,11 +580,6 @@ func (l *channelLink) htlcManager() {
 		}
 	}
 
-	// TODO(roasbeef): check to see if able to settle any currently pending
-	// HTLCs
-	//   * also need signals when new invoices are added by the
-	//   invoiceRegistry
-
 	batchTimer := time.NewTicker(50 * time.Millisecond)
 	defer batchTimer.Stop()
 
@@ -536,6 +587,7 @@ func (l *channelLink) htlcManager() {
 out:
 	for {
 		select {
+
 		// A new block has arrived, we'll check the network fee to see
 		// if we should adjust our commitment fee, and also update our
 		// track of the best current height.

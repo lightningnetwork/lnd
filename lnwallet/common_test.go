@@ -2,7 +2,9 @@ package lnwallet
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
+	"sync"
 
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/roasbeef/btcd/btcec"
@@ -124,9 +126,11 @@ func (m *mockSigner) findKey(needleHash160 []byte, singleTweak []byte,
 }
 
 type mockNotfier struct {
+	activeSpendNtfn chan *chainntnfs.SpendDetail
 }
 
-func (m *mockNotfier) RegisterConfirmationsNtfn(txid *chainhash.Hash, numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
+func (m *mockNotfier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
+	numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
 	return nil, nil
 }
 func (m *mockNotfier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent, error) {
@@ -140,9 +144,38 @@ func (m *mockNotfier) Start() error {
 func (m *mockNotfier) Stop() error {
 	return nil
 }
-func (m *mockNotfier) RegisterSpendNtfn(outpoint *wire.OutPoint, heightHint uint32) (*chainntnfs.SpendEvent, error) {
+func (m *mockNotfier) RegisterSpendNtfn(outpoint *wire.OutPoint,
+	heightHint uint32) (*chainntnfs.SpendEvent, error) {
+
+	spendChan := make(chan *chainntnfs.SpendDetail)
+	m.activeSpendNtfn = spendChan
 	return &chainntnfs.SpendEvent{
-		Spend:  make(chan *chainntnfs.SpendDetail),
+		Spend:  spendChan,
 		Cancel: func() {},
 	}, nil
+}
+
+type mockPreimageCache struct {
+	sync.Mutex
+	preimageMap map[[32]byte][]byte
+}
+
+func (m *mockPreimageCache) LookupPreimage(hash []byte) ([]byte, bool) {
+	m.Lock()
+	defer m.Unlock()
+
+	var h [32]byte
+	copy(h[:], hash)
+
+	p, ok := m.preimageMap[h]
+	return p, ok
+}
+
+func (m *mockPreimageCache) AddPreimage(preimage []byte) error {
+	m.Lock()
+	defer m.Unlock()
+
+	m.preimageMap[sha256.Sum256(preimage[:])] = preimage
+
+	return nil
 }

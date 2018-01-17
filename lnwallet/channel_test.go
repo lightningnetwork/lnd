@@ -141,7 +141,7 @@ func forceStateTransition(chanA, chanB *LightningChannel) error {
 		return err
 	}
 
-	bobRevocation, err := chanB.RevokeCurrentCommitment()
+	bobRevocation, _, err := chanB.RevokeCurrentCommitment()
 	if err != nil {
 		return err
 	}
@@ -157,7 +157,7 @@ func forceStateTransition(chanA, chanB *LightningChannel) error {
 		return err
 	}
 
-	aliceRevocation, err := chanA.RevokeCurrentCommitment()
+	aliceRevocation, _, err := chanA.RevokeCurrentCommitment()
 	if err != nil {
 		return err
 	}
@@ -198,11 +198,6 @@ func createTestChannelsWithNotifier(revocationWindow int,
 	notifier chainntnfs.ChainNotifier) (*LightningChannel,
 	*LightningChannel, func(), error) {
 
-	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
-		testWalletPrivKey)
-	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
-		bobsPrivKey)
-
 	channelCapacity := btcutil.Amount(10 * 1e8)
 	channelBal := channelCapacity / 2
 	aliceDustLimit := btcutil.Amount(200)
@@ -216,7 +211,28 @@ func createTestChannelsWithNotifier(revocationWindow int,
 	}
 	fundingTxIn := wire.NewTxIn(prevOut, nil, nil)
 
-	// TODO(roasbeef): use distinct keys
+	// For each party, we'll create a distinct set of keys in order to
+	// emulate the typical set up with live channels.
+	var (
+		aliceKeys []*btcec.PrivateKey
+		bobKeys   []*btcec.PrivateKey
+	)
+	for i := 0; i < 5; i++ {
+		key := make([]byte, len(testWalletPrivKey))
+		copy(key[:], testWalletPrivKey[:])
+		key[0] ^= byte(i + 1)
+
+		aliceKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), key)
+		aliceKeys = append(aliceKeys, aliceKey)
+
+		key = make([]byte, len(bobsPrivKey))
+		copy(key[:], bobsPrivKey)
+		key[0] ^= byte(i + 1)
+
+		bobKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), key)
+		bobKeys = append(bobKeys, bobKey)
+	}
+
 	aliceCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
 			DustLimit:        aliceDustLimit,
@@ -226,11 +242,11 @@ func createTestChannelsWithNotifier(revocationWindow int,
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
 		},
 		CsvDelay:            uint16(csvTimeoutAlice),
-		MultiSigKey:         aliceKeyPub,
-		RevocationBasePoint: aliceKeyPub,
-		PaymentBasePoint:    aliceKeyPub,
-		DelayBasePoint:      aliceKeyPub,
-		HtlcBasePoint:       aliceKeyPub,
+		MultiSigKey:         aliceKeys[0].PubKey(),
+		RevocationBasePoint: aliceKeys[1].PubKey(),
+		PaymentBasePoint:    aliceKeys[2].PubKey(),
+		DelayBasePoint:      aliceKeys[3].PubKey(),
+		HtlcBasePoint:       aliceKeys[4].PubKey(),
 	}
 	bobCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
@@ -241,14 +257,16 @@ func createTestChannelsWithNotifier(revocationWindow int,
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
 		},
 		CsvDelay:            uint16(csvTimeoutBob),
-		MultiSigKey:         bobKeyPub,
-		RevocationBasePoint: bobKeyPub,
-		PaymentBasePoint:    bobKeyPub,
-		DelayBasePoint:      bobKeyPub,
-		HtlcBasePoint:       bobKeyPub,
+		MultiSigKey:         bobKeys[0].PubKey(),
+		RevocationBasePoint: bobKeys[1].PubKey(),
+		PaymentBasePoint:    bobKeys[2].PubKey(),
+		DelayBasePoint:      bobKeys[3].PubKey(),
+		HtlcBasePoint:       bobKeys[4].PubKey(),
 	}
 
-	bobRoot := DeriveRevocationRoot(bobKeyPriv, testHdSeed, aliceKeyPub)
+	bobRoot := DeriveRevocationRoot(
+		bobKeys[0], testHdSeed, aliceKeys[0].PubKey(),
+	)
 	bobPreimageProducer := shachain.NewRevocationProducer(bobRoot)
 	bobFirstRevoke, err := bobPreimageProducer.AtIndex(0)
 	if err != nil {
@@ -256,7 +274,9 @@ func createTestChannelsWithNotifier(revocationWindow int,
 	}
 	bobCommitPoint := ComputeCommitmentPoint(bobFirstRevoke[:])
 
-	aliceRoot := DeriveRevocationRoot(aliceKeyPriv, testHdSeed, bobKeyPub)
+	aliceRoot := DeriveRevocationRoot(
+		aliceKeys[0], testHdSeed, bobKeys[0].PubKey(),
+	)
 	alicePreimageProducer := shachain.NewRevocationProducer(aliceRoot)
 	aliceFirstRevoke, err := alicePreimageProducer.AtIndex(0)
 	if err != nil {
@@ -313,7 +333,7 @@ func createTestChannelsWithNotifier(revocationWindow int,
 	aliceChannelState := &channeldb.OpenChannel{
 		LocalChanCfg:            aliceCfg,
 		RemoteChanCfg:           bobCfg,
-		IdentityPub:             aliceKeyPub,
+		IdentityPub:             aliceKeys[0].PubKey(),
 		FundingOutpoint:         *prevOut,
 		ChanType:                channeldb.SingleFunder,
 		IsInitiator:             true,
@@ -328,7 +348,7 @@ func createTestChannelsWithNotifier(revocationWindow int,
 	bobChannelState := &channeldb.OpenChannel{
 		LocalChanCfg:            bobCfg,
 		RemoteChanCfg:           aliceCfg,
-		IdentityPub:             bobKeyPub,
+		IdentityPub:             bobKeys[0].PubKey(),
 		FundingOutpoint:         *prevOut,
 		ChanType:                channeldb.SingleFunder,
 		IsInitiator:             false,
@@ -341,16 +361,29 @@ func createTestChannelsWithNotifier(revocationWindow int,
 		Db:                      dbBob,
 	}
 
-	aliceSigner := &mockSigner{privkeys: []*btcec.PrivateKey{aliceKeyPriv}}
-	bobSigner := &mockSigner{privkeys: []*btcec.PrivateKey{bobKeyPriv}}
+	aliceSigner := &mockSigner{privkeys: aliceKeys}
+	bobSigner := &mockSigner{privkeys: bobKeys}
 
-	channelAlice, err := NewLightningChannel(aliceSigner, notifier,
-		estimator, aliceChannelState)
+	aliceNotifier := &mockNotfier{
+		activeSpendNtfn: make(chan *chainntnfs.SpendDetail),
+	}
+	bobNotifier := &mockNotfier{
+		activeSpendNtfn: make(chan *chainntnfs.SpendDetail),
+	}
+
+	pCache := &mockPreimageCache{
+		// hash -> preimage
+		preimageMap: make(map[[32]byte][]byte),
+	}
+
+	// TODO(roasbeef): make mock version of pre-image store
+	channelAlice, err := NewLightningChannel(aliceSigner, aliceNotifier,
+		pCache, aliceChannelState)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	channelBob, err := NewLightningChannel(bobSigner, notifier,
-		estimator, bobChannelState)
+	channelBob, err := NewLightningChannel(bobSigner, bobNotifier,
+		pCache, bobChannelState)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -487,7 +520,7 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 
 	// Bob revokes his prior commitment given to him by Alice, since he now
 	// has a valid signature for a newer commitment.
-	bobRevocation, err := bobChannel.RevokeCurrentCommitment()
+	bobRevocation, _, err := bobChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("unable to generate bob revocation: %v", err)
 	}
@@ -519,7 +552,7 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	}
 
 	// Alice then generates a revocation for bob.
-	aliceRevocation, err := aliceChannel.RevokeCurrentCommitment()
+	aliceRevocation, _, err := aliceChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("unable to revoke alice channel: %v", err)
 	}
@@ -608,7 +641,7 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 		t.Fatalf("alice unable to process bob's new commitment: %v", err)
 	}
 
-	aliceRevocation2, err := aliceChannel.RevokeCurrentCommitment()
+	aliceRevocation2, _, err := aliceChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("alice unable to generate revocation: %v", err)
 	}
@@ -628,7 +661,7 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 		t.Fatalf("bob unable to process alice's new commitment: %v", err)
 	}
 
-	bobRevocation2, err := bobChannel.RevokeCurrentCommitment()
+	bobRevocation2, _, err := bobChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("bob unable to revoke commitment: %v", err)
 	}

@@ -443,7 +443,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return senderHtlcSpendRedeem(bobSigner, signDesc,
+				return SenderHtlcSpendRedeem(bobSigner, signDesc,
 					sweepTx,
 					// Invalid preimage length
 					bytes.Repeat([]byte{1}, 45))
@@ -464,7 +464,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return senderHtlcSpendRedeem(bobSigner, signDesc,
+				return SenderHtlcSpendRedeem(bobSigner, signDesc,
 					sweepTx, paymentPreimage)
 			}),
 			true,
@@ -728,7 +728,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 				}
 
 				return receiverHtlcSpendTimeout(aliceSigner, signDesc,
-					sweepTx, cltvTimeout-2)
+					sweepTx, int32(cltvTimeout-2))
 			}),
 			false,
 		},
@@ -746,7 +746,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 				}
 
 				return receiverHtlcSpendTimeout(aliceSigner, signDesc,
-					sweepTx, cltvTimeout)
+					sweepTx, int32(cltvTimeout))
 			}),
 			true,
 		},

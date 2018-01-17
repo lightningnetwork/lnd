@@ -1249,6 +1249,11 @@ type ChannelCloseSummary struct {
 	// and is used as a unique identifier for the channel.
 	ChanPoint wire.OutPoint
 
+	// ShortChanID encodes the exact location in the chain in which the
+	// channel was initially confirmed. This includes: the block height,
+	// transaction index, and the output within the target transaction.
+	ShortChanID lnwire.ShortChannelID
+
 	// ChainHash is the hash of the genesis block that this channel resides
 	// within.
 	ChainHash chainhash.Hash
@@ -1293,8 +1298,6 @@ type ChannelCloseSummary struct {
 	// closed, they'll stay marked as "pending" until _all_ the pending
 	// funds have been swept.
 	IsPending bool
-
-	// TODO(roasbeef): also store short_chan_id?
 }
 
 // CloseChannel closes a previously active Lightning channel. Closing a channel
@@ -1452,8 +1455,8 @@ func putChannelCloseSummary(tx *bolt.Tx, chanID []byte,
 
 func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
 	return writeElements(w,
-		cs.ChanPoint, cs.ChainHash, cs.ClosingTXID, cs.CloseHeight,
-		cs.RemotePub, cs.Capacity, cs.SettledBalance,
+		cs.ChanPoint, cs.ShortChanID, cs.ChainHash, cs.ClosingTXID,
+		cs.CloseHeight, cs.RemotePub, cs.Capacity, cs.SettledBalance,
 		cs.TimeLockedBalance, cs.CloseType, cs.IsPending,
 	)
 }
@@ -1479,8 +1482,8 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 	c := &ChannelCloseSummary{}
 
 	err := readElements(r,
-		&c.ChanPoint, &c.ChainHash, &c.ClosingTXID, &c.CloseHeight,
-		&c.RemotePub, &c.Capacity, &c.SettledBalance,
+		&c.ChanPoint, &c.ShortChanID, &c.ChainHash, &c.ClosingTXID,
+		&c.CloseHeight, &c.RemotePub, &c.Capacity, &c.SettledBalance,
 		&c.TimeLockedBalance, &c.CloseType, &c.IsPending,
 	)
 	if err != nil {

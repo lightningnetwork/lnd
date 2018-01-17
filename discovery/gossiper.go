@@ -224,16 +224,35 @@ func (d *AuthenticatedGossiper) SynchronizeNode(pub *btcec.PublicKey) error {
 	// containing all the messages to be sent to the target peer.
 	var announceMessages []lnwire.Message
 
+	makeNodeAnn := func(n *channeldb.LightningNode) *lnwire.NodeAnnouncement {
+		alias, _ := lnwire.NewNodeAlias(n.Alias)
+		return &lnwire.NodeAnnouncement{
+			Signature: n.AuthSig,
+			Timestamp: uint32(n.LastUpdate.Unix()),
+			Addresses: n.Addresses,
+			NodeID:    n.PubKey,
+			Features:  n.Features.RawFeatureVector,
+			RGBColor:  n.Color,
+			Alias:     alias,
+		}
+	}
+
 	// As peers are expecting channel announcements before node
 	// announcements, we first retrieve the initial announcement, as well as
 	// the latest channel update announcement for both of the directed edges
 	// that make up each channel, and queue these to be sent to the peer.
-	var numEdges uint32
+	var (
+		numEdges uint32
+		numNodes uint32
+	)
 	if err := d.cfg.Router.ForEachChannel(func(chanInfo *channeldb.ChannelEdgeInfo,
 		e1, e2 *channeldb.ChannelEdgePolicy) error {
+
 		// First, using the parameters of the channel, along with the
 		// channel authentication proof, we'll create re-create the
-		// original authenticated channel announcement.
+		// original authenticated channel announcement. If the channel
+		// also has known validated nodes, then we'll send that as
+		// well.
 		if chanInfo.AuthProof != nil {
 			chanAnn, e1Ann, e2Ann := createChanAnnouncement(
 				chanInfo.AuthProof, chanInfo, e1, e2)
@@ -241,9 +260,29 @@ func (d *AuthenticatedGossiper) SynchronizeNode(pub *btcec.PublicKey) error {
 			announceMessages = append(announceMessages, chanAnn)
 			if e1Ann != nil {
 				announceMessages = append(announceMessages, e1Ann)
+
+				// If this edge has a validated node
+				// announcement, then we'll send that as well.
+				if e1.Node.HaveNodeAnnouncement {
+					nodeAnn := makeNodeAnn(e1.Node)
+					announceMessages = append(
+						announceMessages, nodeAnn,
+					)
+					numNodes++
+				}
 			}
 			if e2Ann != nil {
 				announceMessages = append(announceMessages, e2Ann)
+
+				// If this edge has a validated node
+				// announcement, then we'll send that as well.
+				if e2.Node.HaveNodeAnnouncement {
+					nodeAnn := makeNodeAnn(e2.Node)
+					announceMessages = append(
+						announceMessages, nodeAnn,
+					)
+					numNodes++
+				}
 			}
 
 			numEdges++
@@ -252,38 +291,6 @@ func (d *AuthenticatedGossiper) SynchronizeNode(pub *btcec.PublicKey) error {
 		return nil
 	}); err != nil && err != channeldb.ErrGraphNoEdgesFound {
 		log.Errorf("unable to sync infos with peer: %v", err)
-		return err
-	}
-
-	// Run through all the vertexes in the graph, retrieving the data for
-	// the node announcements we originally retrieved.
-	var numNodes uint32
-	if err := d.cfg.Router.ForEachNode(func(node *channeldb.LightningNode) error {
-		// If this is a node we never received a node announcement for,
-		// we skip it.
-		if !node.HaveNodeAnnouncement {
-			return nil
-		}
-
-		alias, err := lnwire.NewNodeAlias(node.Alias)
-		if err != nil {
-			return err
-		}
-		ann := &lnwire.NodeAnnouncement{
-			Signature: node.AuthSig,
-			Timestamp: uint32(node.LastUpdate.Unix()),
-			Addresses: node.Addresses,
-			NodeID:    node.PubKey,
-			Alias:     alias,
-			Features:  node.Features.RawFeatureVector,
-			RGBColor:  node.Color,
-		}
-		announceMessages = append(announceMessages, ann)
-
-		numNodes++
-
-		return nil
-	}); err != nil {
 		return err
 	}
 

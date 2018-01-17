@@ -1120,9 +1120,12 @@ type LightningChannel struct {
 	// signatures, of which there may be hundreds.
 	sigPool *sigPool
 
-	// feeEstimator is used to calculate the fee rate for the channel's
-	// commitment and cooperative close transactions.
-	feeEstimator FeeEstimator
+	// pCache is the global preimage cache shared across all other
+	// LightningChannel instance. We'll use this cache either when we force
+	// close, or we detect that the remote party has force closed. If the
+	// preimage for an incoming HTLC is found in the cache, then we'll try
+	// to claim it on chain.
+	pCache PreimageCache
 
 	// Capacity is the total capacity of this channel.
 	Capacity btcutil.Amount
@@ -1224,7 +1227,7 @@ type LightningChannel struct {
 // automatically persist pertinent state to the database in an efficient
 // manner.
 func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
-	fe FeeEstimator, state *channeldb.OpenChannel) (*LightningChannel, error) {
+	pCache PreimageCache, state *channeldb.OpenChannel) (*LightningChannel, error) {
 
 	localKey := state.LocalChanCfg.MultiSigKey.SerializeCompressed()
 	remoteKey := state.RemoteChanCfg.MultiSigKey.SerializeCompressed()
@@ -1263,7 +1266,7 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 		sigPool:               newSigPool(runtime.NumCPU(), signer),
 		signer:                signer,
 		channelEvents:         events,
-		feeEstimator:          fe,
+		pCache:                pCache,
 		stateHintObfuscator:   stateHint,
 		currentHeight:         localCommit.CommitHeight,
 		remoteCommitChain:     newCommitmentChain(remoteCommit.CommitHeight),

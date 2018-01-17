@@ -225,6 +225,10 @@ type channelLink struct {
 	// be forwarded and/or accepted.
 	linkControl chan interface{}
 
+	// htlcUpdates is a channel that we'll use to update outside
+	// sub-systems with the latest set of active HTLC's on our channel.
+	htlcUpdates chan []channeldb.HTLC
+
 	// logCommitTimer is a timer which is sent upon if we go an interval
 	// without receiving/sending a commitment update. It's role is to
 	// ensure both chains converge to identical state in a timely manner.
@@ -251,6 +255,7 @@ func NewChannelLink(cfg ChannelLinkConfig, channel *lnwallet.LightningChannel,
 		logCommitTimer: time.NewTimer(300 * time.Millisecond),
 		overflowQueue:  newPacketQueue(lnwallet.MaxHTLCNumber / 2),
 		bestHeight:     currentHeight,
+		htlcUpdates:    make(chan []channeldb.HTLC),
 		quit:           make(chan struct{}),
 	}
 
@@ -955,6 +960,15 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			return
 		}
 		l.cfg.Peer.SendMessage(nextRevocation)
+
+		// Since we just revoked our commitment, we may have a new set
+		// of HTLC's on our commitment, so we'll send them over our
+		// HTLC update channel so any callers can be notified.
+		select {
+		case l.htlcUpdates <- currentHtlcs:
+		case <-l.quit:
+			return
+		}
 
 		// As we've just received a commitment signature, we'll
 		// re-start the log commit timer to wake up the main processing

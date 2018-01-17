@@ -2,6 +2,7 @@ package htlcswitch
 
 import (
 	"bytes"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -125,6 +128,13 @@ type ChannelLinkConfig struct {
 	// witnesses that we discover which will notify any sub-systems
 	// subscribed to new events.
 	PreimageCache contractcourt.WitnessBeacon
+
+	// UpdateContractSignals is a function closure that we'll use to update
+	// outside sub-systems with the latest signals for our inner Lightning
+	// channel. These signals will notify the caller when the channel has
+	// been closed, or when the set of active HTLC's is updated.
+	UpdateContractSignals func(*contractcourt.ContractSignals) error
+
 	// FeeEstimator is an instance of a live fee estimator which will be
 	// used to dynamically regulate the current fee of the commitment
 	// transaction to ensure timely confirmation.
@@ -267,6 +277,16 @@ func (l *channelLink) Start() error {
 
 	log.Infof("ChannelLink(%v) is starting", l)
 
+	// Before we start the link, we'll update the ChainArbitrator with the
+	// set of new channel signals for this channel.
+	if err := l.cfg.UpdateContractSignals(&contractcourt.ContractSignals{
+		HtlcUpdates:    l.htlcUpdates,
+		UniCloseSignal: l.channel.UnilateralClose,
+		ShortChanID:    l.channel.ShortChanID(),
+	}); err != nil {
+		return err
+	}
+
 	l.mailBox.Start()
 	l.overflowQueue.Start()
 
@@ -295,7 +315,6 @@ func (l *channelLink) Stop() {
 
 	close(l.quit)
 	l.wg.Wait()
-
 }
 
 // EligibleToForward returns a bool indicating if the channel is able to

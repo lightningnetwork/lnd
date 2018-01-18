@@ -1437,6 +1437,48 @@ func (c *OpenChannel) Snapshot() *ChannelSnapshot {
 	return snapshot
 }
 
+// LatestCommitments returns the two latest commitments for both the local and
+// remote party. These commitments are read from disk to ensure that only the
+// latest fully committed state is returned. The first commitment returned is
+// the local commitment, and the second returned is the remote commitment.
+func (c *OpenChannel) LatestCommitments() (*ChannelCommitment, *ChannelCommitment, error) {
+	err := c.Db.View(func(tx *bolt.Tx) error {
+		chanBucket, err := readChanBucket(tx, c.IdentityPub,
+			&c.FundingOutpoint, c.ChainHash)
+		if err != nil {
+			return err
+		}
+
+		return fetchChanCommitments(chanBucket, c)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return &c.LocalCommitment, &c.RemoteCommitment, nil
+}
+
+// RemoteRevocationStore returns the most up to date commitment version of the
+// revocation storage tree for the remote party. This method can be used when
+// acting on a possible contract breach to ensure, that the caller has the most
+// up to date information required to deliver justice.
+func (c *OpenChannel) RemoteRevocationStore() (shachain.Store, error) {
+	err := c.Db.View(func(tx *bolt.Tx) error {
+		chanBucket, err := readChanBucket(tx, c.IdentityPub,
+			&c.FundingOutpoint, c.ChainHash)
+		if err != nil {
+			return err
+		}
+
+		return fetchChanRevocationState(chanBucket, c)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return c.RevocationStore, nil
+}
+
 func putChannelCloseSummary(tx *bolt.Tx, chanID []byte,
 	summary *ChannelCloseSummary) error {
 

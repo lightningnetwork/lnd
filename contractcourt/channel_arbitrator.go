@@ -80,6 +80,11 @@ type ChannelArbitratorConfig struct {
 	// reclaim/redeem the funds in an HTLC sent to/from us.
 	BlockEpochs *chainntnfs.BlockEpochEvent
 
+	// ChainEvents is an active subscription to the chain watcher for this
+	// channel to be notified of any on-chain activity related to this
+	// channel.
+	ChainEvents *ChainEventSubscription
+
 	// ForceCloseChan should force close the contract that this attendant
 	// is watching over. We'll use this when we decide that we need to go
 	// to chain. The returned summary contains all items needed to
@@ -164,10 +169,6 @@ type ChannelArbitrator struct {
 	// we're watching over will be sent.
 	signalUpdates chan *signalUpdateMsg
 
-	// uniCloseSignal is a channel that will be sent upon if we detect that
-	// the remote party closes the channel on-chain.
-	uniCloseSignal <-chan *lnwallet.UnilateralCloseSummary
-
 	// htlcUpdates is a channel that is sent upon with new updates from the
 	// active channel. Each time a new commitment state is accepted, the
 	// set of HTLC's on the new state should be sent across this channel.
@@ -202,7 +203,6 @@ func NewChannelArbitrator(cfg ChannelArbitratorConfig,
 	return &ChannelArbitrator{
 		log:              log,
 		signalUpdates:    make(chan *signalUpdateMsg),
-		uniCloseSignal:   make(<-chan *lnwallet.UnilateralCloseSummary),
 		htlcUpdates:      make(<-chan []channeldb.HTLC),
 		resolutionSignal: make(chan struct{}),
 		forceCloseReqs:   make(chan *forceCloseReq),
@@ -292,6 +292,8 @@ func (c *ChannelArbitrator) Stop() error {
 
 	log.Debugf("Stopping ChannelArbitrator(%v)", c.cfg.ChanPoint)
 
+	c.cfg.ChainEvents.Cancel()
+
 	for _, activeResolver := range c.activeResolvers {
 		activeResolver.Stop()
 	}
@@ -368,7 +370,8 @@ func (c *ChannelArbitrator) stateStep(bestHeight uint32, bestHash *chainhash.Has
 		// chain, we'll check to see if we need to make any on-chain
 		// claims on behalf of the channel contract that we're
 		// arbitrating for.
-		chainActions := c.checkChainActions(uint32(bestHeight), trigger)
+		chainActions := c.checkChainActions(uint32(bestHeight),
+			trigger)
 
 		// If there are no actions to be made, then we'll remain in the
 		// default state. If this isn't a self initiated event (we're
@@ -1320,7 +1323,6 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 
 			// First, we'll update our set of signals.
 			c.htlcUpdates = signalUpdate.newSignals.HtlcUpdates
-			c.uniCloseSignal = signalUpdate.newSignals.UniCloseSignal
 			c.cfg.ShortChanID = signalUpdate.newSignals.ShortChanID
 
 			// Now that the signals have been updated, we'll now
@@ -1347,7 +1349,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 		// The remote party has broadcast the commitment on-chain.
 		// We'll examine our state to determine if we need to act at
 		// all.
-		case uniClosure := <-c.uniCloseSignal:
+		case uniClosure := <-c.cfg.ChainEvents.UnilateralClosure:
 			if c.state != StateDefault {
 				continue
 			}

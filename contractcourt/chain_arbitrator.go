@@ -615,13 +615,27 @@ func (c *ChainArbitrator) ManuallyResolveChannel(chanPoint wire.OutPoint) error 
 	return chainWatcher.Start()
 }
 
-// SubscribeChannelSignals...
-func (c *ChainArbitrator) SubscribeChannelSignals() error {
-	// TODO(roasbeef): gives signals of spends, breaches, etc
-	//  * breach arg grabs initially
-	//  * create new db method for *just* getting the outpoints for em all?
+// SubscribeChannelEvents returns a new active subscription for the set of
+// possible on-chain events for a particular channel. The struct can be used by
+// callers to be notified whenever an event that changes the state of the
+// channel on-chain occurs.
+//
+// TODO(roasbeef): can be used later to provide RPC hook for all channel
+// lifetimes
+func (c *ChainArbitrator) SubscribeChannelEvents(
+	chanPoint wire.OutPoint) (*ChainEventSubscription, error) {
 
-	return nil
+	// First, we'll attempt to look up the active watcher for this channel.
+	// If we can't find it, then we'll return an error back to the caller.
+	watcher, ok := c.activeWatchers[chanPoint]
+	if !ok {
+		return nil, fmt.Errorf("unable to find watcher for: %v",
+			chanPoint)
+	}
+
+	// With the watcher located, we'll request for it to create a new chain
+	// event subscription client.
+	return watcher.SubscribeChannelEvents(), nil
 }
 
 // TODO(roasbeef): arbitration reports

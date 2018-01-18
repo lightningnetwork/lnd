@@ -1169,7 +1169,7 @@ var addInvoiceCommand = cli.Command{
 	Description: `
 	Add a new invoice, expressing intent for a future payment.
 	
-	The value of the invoice in satoshis is necessary for the creation, 
+	The number of satoshis in this invoice is necessary for the creation, 
 	the remaining parameters are optional.`,
 	ArgsUsage: "value preimage",
 	Flags: []cli.Flag{
@@ -1190,8 +1190,8 @@ var addInvoiceCommand = cli.Command{
 				"created.",
 		},
 		cli.Int64Flag{
-			Name:  "value",
-			Usage: "the value of this invoice in satoshis",
+			Name:  "amt",
+			Usage: "the amt of satoshis in this invoice",
 		},
 		cli.StringFlag{
 			Name: "description_hash",
@@ -1221,8 +1221,8 @@ func addInvoice(ctx *cli.Context) error {
 		preimage []byte
 		descHash []byte
 		receipt  []byte
-		value    int64
-		err      error
+		amt	int64
+		err	error
 	)
 
 	client, cleanUp := getClient(ctx)
@@ -1231,16 +1231,16 @@ func addInvoice(ctx *cli.Context) error {
 	args := ctx.Args()
 
 	switch {
-	case ctx.IsSet("value"):
-		value = ctx.Int64("value")
+	case ctx.IsSet("amt"):
+		amt = ctx.Int64("amt")
 	case args.Present():
-		value, err = strconv.ParseInt(args.First(), 10, 64)
+		amt, err = strconv.ParseInt(args.First(), 10, 64)
 		args = args.Tail()
 		if err != nil {
-			return fmt.Errorf("unable to decode value argument: %v", err)
+			return fmt.Errorf("unable to decode amt argument: %v", err)
 		}
 	default:
-		return fmt.Errorf("value argument missing")
+		return fmt.Errorf("amt argument missing")
 	}
 
 	switch {
@@ -1268,7 +1268,7 @@ func addInvoice(ctx *cli.Context) error {
 		Memo:            ctx.String("memo"),
 		Receipt:         receipt,
 		RPreimage:       preimage,
-		Value:           value,
+		Value:           amt,
 		DescriptionHash: descHash,
 		FallbackAddr:    ctx.String("fallback_addr"),
 		Expiry:          ctx.Int64("expiry"),
@@ -2009,8 +2009,8 @@ func verifyMessage(ctx *cli.Context) error {
 var feeReportCommand = cli.Command{
 	Name:  "feereport",
 	Usage: "display the current fee policies of all active channels",
-	Description: `
-	Returns the current fee policies of all active channels. 
+	Description: ` 
+	Returns the current fee policies of all active channels.
 	Fee policies can be updated using the updatechanpolicy command.`,
 	Action: actionDecorator(feeReport),
 }

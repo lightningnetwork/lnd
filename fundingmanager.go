@@ -164,12 +164,6 @@ type fundingConfig struct {
 	// transaction information.
 	FeeEstimator lnwallet.FeeEstimator
 
-	// ArbiterChan allows the FundingManager to notify the BreachArbiter
-	// that a new channel has been created that should be observed to
-	// ensure that the channel counterparty hasn't broadcast an invalid
-	// commitment transaction.
-	ArbiterChan chan<- *lnwallet.LightningChannel
-
 	// Notifier is used by the FundingManager to determine when the
 	// channel's funding transaction has been confirmed on the blockchain
 	// so that the channel creation process can be completed.
@@ -235,13 +229,11 @@ type fundingConfig struct {
 	// contract breach.
 	RequiredRemoteDelay func(btcutil.Amount) uint16
 
-	// ArbitrateNewChan is to be called once a new channel enters the final
+	// WatchNewChannel is to be called once a new channel enters the final
 	// funding stage: waiting for on-chain confirmation. This method sends
 	// the channel to the ChainArbitrator so it can watch for any on-chain
 	// events related to the channel.
-	//
-	// TODO(roasbeef): pass signal as well?
-	ArbitrateNewChan func(*channeldb.OpenChannel) error
+	WatchNewChannel func(*channeldb.OpenChannel) error
 }
 
 // fundingManager acts as an orchestrator/bridge between the wallet's
@@ -1209,7 +1201,7 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 	// Now that we've sent over our final signature for this channel, we'll
 	// send it to the ChainArbitrator so it can watch for any on-chain
 	// actions during this final confirmation stage.
-	if err := f.cfg.ArbitrateNewChan(completeChan); err != nil {
+	if err := f.cfg.WatchNewChannel(completeChan); err != nil {
 		fndgLog.Error("Unable to send new ChannelPoint(%v) for "+
 			"arbitration", fundingOut)
 	}
@@ -1348,9 +1340,7 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	// we'll send the to be active channel to the ChainArbitrator so it can
 	// watch for any on-chin actions before the channel has fully
 	// confirmed.
-	//
-	// TODO(roasbeef): ensure later it also gets new signals
-	if err := f.cfg.ArbitrateNewChan(completeChan); err != nil {
+	if err := f.cfg.WatchNewChannel(completeChan); err != nil {
 		fndgLog.Error("Unable to send new ChannelPoint(%v) for "+
 			"arbitration", fundingPoint)
 	}
@@ -1407,7 +1397,7 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 		// Go on adding the channel to the channel graph, and crafting
 		// channel announcements.
 		lnChannel, err := lnwallet.NewLightningChannel(
-			nil, nil, nil, completeChan,
+			nil, nil, completeChan,
 		)
 		if err != nil {
 			fndgLog.Errorf("failed creating lnChannel: %v", err)
@@ -1415,7 +1405,6 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 		}
 		defer func() {
 			lnChannel.Stop()
-			lnChannel.CancelObserver()
 		}()
 
 		err = f.sendFundingLocked(completeChan, lnChannel, shortChanID)
@@ -1654,14 +1643,13 @@ func (f *fundingManager) handleFundingConfirmation(completeChan *channeldb.OpenC
 
 	// We create the state-machine object which wraps the database state.
 	lnChannel, err := lnwallet.NewLightningChannel(
-		nil, nil, nil, completeChan,
+		nil, nil, completeChan,
 	)
 	if err != nil {
 		return err
 	}
 	defer func() {
 		lnChannel.Stop()
-		lnChannel.CancelObserver()
 	}()
 
 	chanID := lnwire.NewChanIDFromOutPoint(&completeChan.FundingOutpoint)
@@ -1993,16 +1981,6 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 		fndgLog.Infof("Received duplicate fundingLocked for "+
 			"ChannelID(%v), ignoring.", chanID)
 		channel.Stop()
-		channel.CancelObserver()
-		return
-	}
-
-	// With the channel retrieved, we'll send the breach arbiter the new
-	// channel so it can watch for attempts to breach the channel's
-	// contract by the remote party.
-	select {
-	case f.cfg.ArbiterChan <- channel:
-	case <-f.quit:
 		return
 	}
 

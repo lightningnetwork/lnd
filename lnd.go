@@ -268,7 +268,6 @@ func lndMain() error {
 				idPrivKey.PubKey())
 			return <-errChan
 		},
-		ArbiterChan:      server.breachArbiter.newContracts,
 		SendToPeer:       server.SendToPeer,
 		NotifyWhenOnline: server.NotifyWhenOnline,
 		FindPeer:         server.FindPeer,
@@ -284,7 +283,6 @@ func lndMain() error {
 					// TODO(rosbeef): populate baecon
 					return lnwallet.NewLightningChannel(
 						activeChainControl.signer,
-						activeChainControl.chainNotifier,
 						server.witnessBeacon,
 						channel)
 				}
@@ -359,9 +357,7 @@ func lndMain() error {
 			}
 			return delay
 		},
-		ArbitrateNewChan: func(c *channeldb.OpenChannel) error {
-			return server.chainArb.RequestChannelArbitration(c)
-		},
+		WatchNewChannel: server.chainArb.WatchNewChannel,
 	})
 	if err != nil {
 		return err

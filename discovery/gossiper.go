@@ -1019,7 +1019,7 @@ func (d *AuthenticatedGossiper) retransmitStaleChannels() error {
 		// existence.
 		if info.AuthProof == nil {
 			log.Debugf("Skipping retransmission of channel "+
-				"without AuthProof: %v", info)
+				"without AuthProof: %v", info.ChannelID)
 			return nil
 		}
 

@@ -312,14 +312,6 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 
 		peerLog.Infof("peerID(%v) loading ChannelPoint(%v)", p.id, chanPoint)
 
-		select {
-		case p.server.breachArbiter.newContracts <- lnChan:
-		case <-p.server.quit:
-			return fmt.Errorf("server shutting down")
-		case <-p.quit:
-			return fmt.Errorf("peer shutting down")
-		}
-
 		// Skip adding any permanently irreconcilable channels to the
 		// htlcswitch.
 		if dbChan.IsBorked {
@@ -1220,18 +1212,6 @@ out:
 				p.activeChanMtx.Unlock()
 				close(newChanReq.done)
 				newChanReq.channel.Stop()
-				newChanReq.channel.CancelObserver()
-
-				// We'll re-send our current channel to the
-				// breachArbiter to ensure that it has the most
-				// up to date version.
-				select {
-				case p.server.breachArbiter.newContracts <- currentChan:
-				case <-p.server.quit:
-					return
-				case <-p.quit:
-					return
-				}
 
 				// If we're being sent a new channel, and our
 				// existing channel doesn't have the next

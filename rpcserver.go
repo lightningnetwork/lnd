@@ -825,7 +825,6 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 			return err
 		}
 		channel.Stop()
-		channel.CancelObserver()
 
 		_, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
 		if err != nil {
@@ -986,7 +985,7 @@ func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (*lnwallet.Light
 	// Otherwise, we create a fully populated channel state machine which
 	// uses the db channel as backing storage.
 	return lnwallet.NewLightningChannel(
-		r.server.cc.wallet.Cfg.Signer, nil, nil, dbChan,
+		r.server.cc.wallet.Cfg.Signer, nil, dbChan,
 	)
 }
 

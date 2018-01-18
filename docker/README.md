@@ -192,7 +192,7 @@ alice$ lncli listchannels
 Send the payment from `Alice` to `Bob`.
 ```bash
 # Add invoice on "Bob" side:
-bob$ lncli addinvoice --value=10000
+bob$ lncli addinvoice --amt=10000
 {
         "r_hash": "<your_random_rhash_here>", 
         "pay_req": "<encoded_invoice>", 

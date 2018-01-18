@@ -1380,6 +1380,12 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 			// TODO(roasbeef): modify signal to also detect
 			// cooperative closures?
 
+			// As we're now acting upon an event triggered by the
+			// broadcast of the remote commitment transaction,
+			// we'll swap out our active HTLC set with the set
+			// present on their commitment.
+			c.activeHTLCs = newHtlcSet(uniClosure.RemoteCommit.Htlcs)
+
 			// When processing a remote party initiated event,
 			// we'll skip the BroadcastCommit state, and transition
 			// directly to the ContractClosed state. As a result,

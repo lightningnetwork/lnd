@@ -3,6 +3,7 @@ package sphinx
 import (
 	"bytes"
 	"encoding/hex"
+	"reflect"
 	"testing"
 
 	"github.com/roasbeef/btcd/btcec"
@@ -199,6 +200,21 @@ func TestOnionFailureSpecVector(t *testing.T) {
 		}
 		obfuscator := &OnionErrorEncrypter{
 			sharedSecret: sharedSecrets[len(sharedSecrets)-1-i],
+		}
+
+		var b bytes.Buffer
+		if err := obfuscator.Encode(&b); err != nil {
+			t.Fatalf("unable to encode obfuscator: %v", err)
+		}
+
+		obfuscator2 := &OnionErrorEncrypter{}
+		obfuscatorReader := bytes.NewReader(b.Bytes())
+		if err := obfuscator2.Decode(obfuscatorReader); err != nil {
+			t.Fatalf("unable to decode obfuscator: %v", err)
+		}
+
+		if !reflect.DeepEqual(obfuscator, obfuscator2) {
+			t.Fatalf("unable to reconstruct obfuscator: %v", err)
 		}
 
 		if !bytes.Equal(expectedSharedSecret, obfuscator.sharedSecret[:]) {

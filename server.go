@@ -409,20 +409,11 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		GenSweepScript: func() ([]byte, error) {
 			return newSweepPkScript(cc.wallet)
 		},
-		Notifier:           cc.chainNotifier,
-		PublishTransaction: cc.wallet.PublishTransaction,
-		Signer:             cc.wallet.Cfg.Signer,
-		Store:              newRetributionStore(chanDB),
-		UpdateCloseSignal: func(op *wire.OutPoint,
-			ucs chan *lnwallet.UnilateralCloseSummary) error {
-
-			signals := &contractcourt.ContractSignals{
-				HtlcUpdates:    make(chan []channeldb.HTLC),
-				UniCloseSignal: ucs,
-			}
-
-			return s.chainArb.UpdateContractSignals(*op, signals)
-		},
+		Notifier:               cc.chainNotifier,
+		PublishTransaction:     cc.wallet.PublishTransaction,
+		SubscribeChannelEvents: s.chainArb.SubscribeChannelEvents,
+		Signer:                 cc.wallet.Cfg.Signer,
+		Store:                  newRetributionStore(chanDB),
 	})
 
 	// Create the connection manager which will be responsible for

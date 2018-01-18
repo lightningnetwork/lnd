@@ -1707,10 +1707,10 @@ type BreachRetribution struct {
 	HtlcRetributions []HtlcRetribution
 }
 
-// newBreachRetribution creates a new fully populated BreachRetribution for the
+// NewBreachRetribution creates a new fully populated BreachRetribution for the
 // passed channel, at a particular revoked state number, and one which targets
 // the passed commitment transaction.
-func newBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
+func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	broadcastCommitment *wire.MsgTx,
 	breachHeight uint32) (*BreachRetribution, error) {
 
@@ -3875,7 +3875,6 @@ func (lc *LightningChannel) ShortChanID() lnwire.ShortChannelID {
 // output modified by two-bits denoting if this is an incoming HTLC, and if the
 // HTLC is being applied to their commitment transaction or ours.
 func genHtlcScript(isIncoming, ourCommit bool, timeout uint32, rHash [32]byte,
-	keyRing *commitmentKeyRing) ([]byte, []byte, error) {
 	keyRing *CommitmentKeyRing) ([]byte, []byte, error) {
 
 	var (

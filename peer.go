@@ -296,8 +296,7 @@ func (p *peer) Start() error {
 func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 	for _, dbChan := range chans {
 		lnChan, err := lnwallet.NewLightningChannel(
-			p.server.cc.signer, p.server.cc.chainNotifier,
-			p.server.witnessBeacon, dbChan,
+			p.server.cc.signer, p.server.witnessBeacon, dbChan,
 		)
 		if err != nil {
 			return err
@@ -379,6 +378,10 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		// Register this new channel link with the HTLC Switch. This is
 		// necessary to properly route multi-hop payments, and forward
 		// new payments triggered by RPC clients.
+		chainEvents, err := p.server.chainArb.SubscribeChannelEvents(*chanPoint)
+		if err != nil {
+			return err
+		}
 		linkCfg := htlcswitch.ChannelLinkConfig{
 			Peer:                  p,
 			DecodeHopIterator:     p.server.sphinx.DecodeHopIterator,
@@ -394,6 +397,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			FeeEstimator:     p.server.cc.feeEstimator,
 			BlockEpochs:      blockEpoch,
 			PreimageCache:    p.server.witnessBeacon,
+			ChainEvents:      chainEvents,
 			UpdateContractSignals: func(signals *contractcourt.ContractSignals) error {
 				return p.server.chainArb.UpdateContractSignals(
 					*chanPoint, signals,
@@ -1275,6 +1279,12 @@ out:
 				peerLog.Errorf("unable to get best block: %v", err)
 				continue
 			}
+			chainEvents, err := p.server.chainArb.SubscribeChannelEvents(*chanPoint)
+			if err != nil {
+				peerLog.Errorf("unable to subscribe to chain "+
+					"events: %v", err)
+				continue
+			}
 			linkConfig := htlcswitch.ChannelLinkConfig{
 				Peer:                  p,
 				DecodeHopIterator:     p.server.sphinx.DecodeHopIterator,
@@ -1290,6 +1300,7 @@ out:
 				FeeEstimator:     p.server.cc.feeEstimator,
 				BlockEpochs:      blockEpoch,
 				PreimageCache:    p.server.witnessBeacon,
+				ChainEvents:      chainEvents,
 				UpdateContractSignals: func(signals *contractcourt.ContractSignals) error {
 					return p.server.chainArb.UpdateContractSignals(
 						*chanPoint, signals,
@@ -1562,7 +1573,6 @@ func (p *peer) finalizeChanClosure(chanCloser *channelCloser) {
 	}
 
 	chanCloser.cfg.channel.Stop()
-	chanCloser.cfg.channel.CancelObserver()
 
 	// Next, we'll launch a goroutine which will request to be notified by
 	// the ChainNotifier once the closure transaction obtains a single

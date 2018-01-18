@@ -1,5 +1,5 @@
-hash: a69cfd6352bed3cc0d24a01f42609b849f9f6d5664be7470b281bf6b09c58d84
-updated: 2018-02-06T17:14:31.208312805-08:00
+hash: 3af2998b2e02f88bee3a868cdb8bc1c75bf2fa5f35b5d5d35436b4c4efd57e6d
+updated: 2018-02-02T19:03:28.562644-08:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c

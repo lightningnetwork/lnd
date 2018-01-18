@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -123,36 +121,6 @@ func (m *mockSigner) findKey(needleHash160 []byte, singleTweak []byte,
 		}
 	}
 	return nil
-}
-
-type mockNotfier struct {
-	activeSpendNtfn chan *chainntnfs.SpendDetail
-}
-
-func (m *mockNotfier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
-	numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
-	return nil, nil
-}
-func (m *mockNotfier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent, error) {
-	return nil, nil
-}
-
-func (m *mockNotfier) Start() error {
-	return nil
-}
-
-func (m *mockNotfier) Stop() error {
-	return nil
-}
-func (m *mockNotfier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	heightHint uint32) (*chainntnfs.SpendEvent, error) {
-
-	spendChan := make(chan *chainntnfs.SpendDetail)
-	m.activeSpendNtfn = spendChan
-	return &chainntnfs.SpendEvent{
-		Spend:  spendChan,
-		Cancel: func() {},
-	}, nil
 }
 
 type mockPreimageCache struct {

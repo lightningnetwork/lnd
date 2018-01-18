@@ -621,12 +621,29 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 	// specified, we can return.
 	switch conf := nodeConfig.(type) {
 	case *btcdConfig:
-		if conf.RPCUser != "" || conf.RPCPass != "" {
+		// If both RPCUser and RPCPass are set, we assume those
+		// credentials are good to use.
+		if conf.RPCUser != "" && conf.RPCPass != "" {
 			return nil
 		}
+		// If only ONE of RPCUser or RPCPass is set, we assume the
+		// user did that unintentionally.
+		if conf.RPCUser != "" || conf.RPCPass != "" {
+			return fmt.Errorf("please set both or neither of " +
+				"btcd.rpcuser and btcd.rpcpass")
+		}
 	case *bitcoindConfig:
-		if conf.RPCUser != "" || conf.RPCPass != "" || conf.ZMQPath != "" {
+		// If all of RPCUser, RPCPass, and ZMQPath are set, we assume
+		// those parameters are good to use.
+		if conf.RPCUser != "" && conf.RPCPass != "" && conf.ZMQPath != "" {
 			return nil
+		}
+		// If only one or two of the parameters are set, we assume the
+		// user did that unintentionally.
+		if conf.RPCUser != "" || conf.RPCPass != "" || conf.ZMQPath != "" {
+			return fmt.Errorf("please set all or none of " +
+				"bitcoind.rpcuser, bitcoind.rpcpass, and " +
+				"bitcoind.zmqpath")
 		}
 	}
 

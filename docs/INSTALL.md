@@ -189,7 +189,7 @@ command after `bitcoind` has finished syncing on testnet. Otherwise, replace
 and `rpcpass` parameters can typically be determined by `lnd` for a `bitcoind`
 instance running under the same user, including when using cookie auth.
 ```
-lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --bitcoin.node=bitcoind --bitcoind.rpcuser=kek bitcoind.rpcpass=kek --externalip=X.X.X.X
+lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --bitcoin.node=bitcoind --bitcoind.rpcuser=kek --bitcoind.rpcpass=kek --externalip=X.X.X.X
 ```
 
 #### Network Reachability 

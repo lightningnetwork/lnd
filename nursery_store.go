@@ -400,7 +400,7 @@ func (ns *nurseryStore) CribToKinder(bby *babyOutput) error {
 			return err
 		}
 
-		utxnLog.Tracef("Placing (crib -> baby) output for "+
+		utxnLog.Tracef("Transitioning (crib -> baby) output for "+
 			"chan_point=%v at height_index=%v", chanPoint,
 			maturityHeight)
 
@@ -494,7 +494,7 @@ func (ns *nurseryStore) PreschoolToKinder(kid *kidOutput) error {
 			maturityHeight = lastGradHeight + 1
 		}
 
-		utxnLog.Tracef("Placing (crib -> kid) output for "+
+		utxnLog.Infof("Transitioning (crib -> kid) output for "+
 			"chan_point=%v at height_index=%v", chanPoint,
 			maturityHeight)
 

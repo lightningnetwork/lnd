@@ -268,13 +268,13 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	}
 
 	channelAlice, err := lnwallet.NewLightningChannel(
-		aliceSigner, nil, pCache, aliceChannelState,
+		aliceSigner, pCache, aliceChannelState,
 	)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
 	channelBob, err := lnwallet.NewLightningChannel(
-		bobSigner, nil, pCache, bobChannelState,
+		bobSigner, pCache, bobChannelState,
 	)
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -319,7 +319,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		}
 
 		newAliceChannel, err := lnwallet.NewLightningChannel(aliceSigner,
-			nil, nil, aliceStoredChannel)
+			nil, aliceStoredChannel)
 		if err != nil {
 			return nil, nil, errors.Errorf("unable to create new channel: %v",
 				err)
@@ -343,7 +343,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 			return nil, nil, errors.New("unable to find stored bob channel")
 		}
 
-		newBobChannel, err := lnwallet.NewLightningChannel(bobSigner, nil,
+		newBobChannel, err := lnwallet.NewLightningChannel(bobSigner,
 			nil, bobStoredChannel)
 		if err != nil {
 			return nil, nil, errors.Errorf("unable to create new channel: %v",
@@ -761,7 +761,8 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 				return nil
 			},
-			SyncStates: true,
+			ChainEvents: &contractcourt.ChainEventSubscription{},
+			SyncStates:  true,
 		},
 		aliceChannel,
 		startingHeight,
@@ -799,7 +800,8 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 				return nil
 			},
-			SyncStates: true,
+			ChainEvents: &contractcourt.ChainEventSubscription{},
+			SyncStates:  true,
 		},
 		firstBobChannel,
 		startingHeight,
@@ -837,7 +839,8 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 				return nil
 			},
-			SyncStates: true,
+			ChainEvents: &contractcourt.ChainEventSubscription{},
+			SyncStates:  true,
 		},
 		secondBobChannel,
 		startingHeight,
@@ -875,7 +878,8 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 				return nil
 			},
-			SyncStates: true,
+			ChainEvents: &contractcourt.ChainEventSubscription{},
+			SyncStates:  true,
 		},
 		carolChannel,
 		startingHeight,

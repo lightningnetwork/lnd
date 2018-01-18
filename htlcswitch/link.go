@@ -135,6 +135,11 @@ type ChannelLinkConfig struct {
 	// been closed, or when the set of active HTLC's is updated.
 	UpdateContractSignals func(*contractcourt.ContractSignals) error
 
+	// ChainEvents is an active subscription to the chain watcher for this
+	// channel to be notified of any on-chain activity related to this
+	// channel.
+	ChainEvents *contractcourt.ChainEventSubscription
+
 	// FeeEstimator is an instance of a live fee estimator which will be
 	// used to dynamically regulate the current fee of the commitment
 	// transaction to ensure timely confirmation.
@@ -285,9 +290,8 @@ func (l *channelLink) Start() error {
 	// Before we start the link, we'll update the ChainArbitrator with the
 	// set of new channel signals for this channel.
 	if err := l.cfg.UpdateContractSignals(&contractcourt.ContractSignals{
-		HtlcUpdates:    l.htlcUpdates,
-		UniCloseSignal: l.channel.UnilateralClose,
-		ShortChanID:    l.channel.ShortChanID(),
+		HtlcUpdates: l.htlcUpdates,
+		ShortChanID: l.channel.ShortChanID(),
 	}); err != nil {
 		return err
 	}
@@ -312,6 +316,10 @@ func (l *channelLink) Stop() {
 	}
 
 	log.Infof("ChannelLink(%v) is stopping", l)
+
+	if l.cfg.ChainEvents.Cancel != nil {
+		l.cfg.ChainEvents.Cancel()
+	}
 
 	l.channel.Stop()
 
@@ -631,9 +639,11 @@ out:
 		// carried out by the remote peer. In the case of such an
 		// event, we'll wipe the channel state from the peer, and mark
 		// the contract as fully settled. Afterwards we can exit.
-		case <-l.channel.UnilateralCloseSignal:
+		case <-l.cfg.ChainEvents.UnilateralClosure:
 			log.Warnf("Remote peer has closed ChannelPoint(%v) on-chain",
 				l.channel.ChannelPoint())
+
+			// TODO(roasbeef): move this and above to chainJanitor
 
 			// TODO(roasbeef): remove all together
 			go func() {
@@ -647,17 +657,6 @@ out:
 				l.cfg.SettledContracts <- chanPoint
 			}()
 
-			break out
-
-		// A local sub-system has initiated a force close of the active
-		// channel. In this case we can exit immediately as no further
-		// updates should be processed for the channel.
-		case <-l.channel.ForceCloseSignal:
-			// TODO(roasbeef): path never taken now that server
-			// force closes's directly?
-			log.Warnf("ChannelPoint(%v) has been force "+
-				"closed, disconnecting from peer(%x)",
-				l.channel.ChannelPoint(), l.cfg.Peer.PubKey())
 			break out
 
 		case <-l.logCommitTick:

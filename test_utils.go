@@ -222,13 +222,13 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	bobSigner := &mockSigner{bobKeyPriv}
 
 	channelAlice, err := lnwallet.NewLightningChannel(
-		aliceSigner, notifier, nil, aliceChannelState,
+		aliceSigner, nil, aliceChannelState,
 	)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
 	channelBob, err := lnwallet.NewLightningChannel(
-		bobSigner, notifier, nil, bobChannelState,
+		bobSigner, nil, bobChannelState,
 	)
 	if err != nil {
 		return nil, nil, nil, nil, err

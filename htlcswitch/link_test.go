@@ -1465,6 +1465,7 @@ func newSingleLinkTestHarness(chanAmt btcutil.Amount) (ChannelLink, func(), erro
 			return nil
 		},
 		Registry:    invoiveRegistry,
+		ChainEvents: &contractcourt.ChainEventSubscription{},
 		BlockEpochs: globalEpoch,
 	}
 

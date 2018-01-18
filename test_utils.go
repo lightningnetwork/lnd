@@ -291,7 +291,13 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		breachArbiter: breachArbiter,
 		chainArb:      chainArb,
 	}
-	s.htlcSwitch = htlcswitch.New(htlcswitch.Config{})
+	htlcSwitch, err := htlcswitch.New(htlcswitch.Config{
+		DB: dbAlice,
+	})
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	s.htlcSwitch = htlcSwitch
 	s.htlcSwitch.Start()
 
 	alicePeer := &peer{

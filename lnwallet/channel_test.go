@@ -4184,26 +4184,18 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 
 	// We'll then use Bob's transaction to trigger a spend notification for
 	// Alice.
-	aliceNotifier := aliceChannel.channelEvents.(*mockNotfier)
 	closeTx := bobForceClose.CloseTx
 	commitTxHash := closeTx.TxHash()
-	select {
-	case aliceNotifier.activeSpendNtfn <- &chainntnfs.SpendDetail{
+	spendDetail := &chainntnfs.SpendDetail{
 		SpendingTx:    closeTx,
 		SpenderTxHash: &commitTxHash,
-	}:
-	case <-time.After(time.Second * 15):
-		t.Fatalf("alice didn't consume spend ntfn")
 	}
-
-	// Alice should now send over a signal on the unilateral close signal
-	// that we'll use to ensure she's able to sweep all the relevant
-	// outputs.
-	var aliceCloseSummary *UnilateralCloseSummary
-	select {
-	case aliceCloseSummary = <-aliceChannel.UnilateralClose:
-	case <-time.After(time.Second * 15):
-		t.Fatalf("alice didn't send her close summary")
+	aliceCloseSummary, err := NewUnilateralCloseSummary(
+		aliceChannel.channelState, aliceChannel.signer, aliceChannel.pCache,
+		spendDetail, aliceChannel.channelState.RemoteCommitment,
+	)
+	if err != nil {
+		t.Fatalf("unable to create alice close summary: %v", err)
 	}
 
 	// She should detect that she can sweep both the outgoing HTLC as well

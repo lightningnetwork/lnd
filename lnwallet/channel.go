@@ -4048,6 +4048,100 @@ type UnilateralCloseSummary struct {
 	// and also any incoming HTLC's that we know the pre-image to.
 	HtlcResolutions *HtlcResolutions
 
+	// RemoteCommit is the exact commitment state that the remote party
+	// broadcast.
+	RemoteCommit channeldb.ChannelCommitment
+}
+
+// NewUnilateralCloseSummary creates a new summary that provides the caller
+// with all the information required to claim all funds on chain in the event
+// that the remote party broadcasts their commitment.
+func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer Signer,
+	pCache PreimageCache, commitSpend *chainntnfs.SpendDetail,
+	remoteCommit channeldb.ChannelCommitment) (*UnilateralCloseSummary, error) {
+
+	// First, we'll generate the commitment point and the revocation point
+	// so we can re-construct the HTLC state and also our payment key.
+	commitPoint := chanState.RemoteCurrentRevocation
+	keyRing := deriveCommitmentKeys(
+		commitPoint, false, &chanState.LocalChanCfg,
+		&chanState.RemoteChanCfg,
+	)
+
+	// Next, we'll obtain HTLC resolutions for all the outgoing HTLC's we
+	// had on their commitment transaction.
+	htlcResolutions, err := extractHtlcResolutions(
+		remoteCommit.FeePerKw, false, signer, remoteCommit.Htlcs,
+		keyRing, &chanState.LocalChanCfg, &chanState.RemoteChanCfg,
+		*commitSpend.SpenderTxHash, pCache,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create htlc resolutions: %v", err)
+	}
+
+	commitTxBroadcast := commitSpend.SpendingTx
+
+	// Before we can generate the proper sign descriptor, we'll need to
+	// locate the output index of our non-delayed output on the commitment
+	// transaction.
+	selfP2WKH, err := commitScriptUnencumbered(keyRing.NoDelayKey)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create self commit script: %v", err)
+	}
+	var selfPoint *wire.OutPoint
+	for outputIndex, txOut := range commitTxBroadcast.TxOut {
+		if bytes.Equal(txOut.PkScript, selfP2WKH) {
+			selfPoint = &wire.OutPoint{
+				Hash:  *commitSpend.SpenderTxHash,
+				Index: uint32(outputIndex),
+			}
+			break
+		}
+	}
+
+	// With the HTLC's taken care of, we'll generate the sign descriptor
+	// necessary to sweep our commitment output, but only if we had a
+	// non-trimmed balance.
+	var commitResolution *CommitOutputResolution
+	if selfPoint != nil {
+		localPayBase := chanState.LocalChanCfg.PaymentBasePoint
+		localBalance := remoteCommit.LocalBalance.ToSatoshis()
+		commitResolution = &CommitOutputResolution{
+			SelfOutPoint: *selfPoint,
+			SelfOutputSignDesc: SignDescriptor{
+				PubKey:        localPayBase,
+				SingleTweak:   keyRing.LocalCommitKeyTweak,
+				WitnessScript: selfP2WKH,
+				Output: &wire.TxOut{
+					Value:    int64(localBalance),
+					PkScript: selfP2WKH,
+				},
+				HashType: txscript.SigHashAll,
+			},
+			MaturityDelay: 0,
+		}
+	}
+
+	localBalance := remoteCommit.LocalBalance.ToSatoshis()
+	closeSummary := channeldb.ChannelCloseSummary{
+		ChanPoint:      chanState.FundingOutpoint,
+		ChainHash:      chanState.ChainHash,
+		ClosingTXID:    *commitSpend.SpenderTxHash,
+		CloseHeight:    uint32(commitSpend.SpendingHeight),
+		RemotePub:      chanState.IdentityPub,
+		Capacity:       chanState.Capacity,
+		SettledBalance: localBalance,
+		CloseType:      channeldb.ForceClose,
+		IsPending:      true,
+	}
+
+	return &UnilateralCloseSummary{
+		SpendDetail:         commitSpend,
+		ChannelCloseSummary: closeSummary,
+		CommitResolution:    commitResolution,
+		HtlcResolutions:     htlcResolutions,
+		RemoteCommit:        remoteCommit,
+	}, nil
 }
 
 // IncomingHtlcResolution houses the information required to sweep any incoming

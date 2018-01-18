@@ -1299,7 +1299,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		delete(s.persistentConnReqs, pubStr)
 	}
 
-	s.peerConnected(conn, nil, false)
+	s.peerConnected(conn, nil, true)
 }
 
 // OutboundPeerConnected initializes a new peer in response to a new outbound
@@ -1387,7 +1387,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		s.ignorePeerTermination[connectedPeer] = struct{}{}
 	}
 
-	s.peerConnected(conn, connReq, true)
+	s.peerConnected(conn, connReq, false)
 }
 
 // addPeer adds the passed peer to the server's global state of all active

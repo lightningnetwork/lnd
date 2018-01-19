@@ -447,7 +447,7 @@ service Lightning {
     */
     rpc UpdateChannelPolicy(PolicyUpdateRequest) returns (PolicyUpdateResponse) {
         option (google.api.http) = {
-            post: "/v1/fees"
+            post: "/v1/chanpolicy"
             body: "*"
         };
     }

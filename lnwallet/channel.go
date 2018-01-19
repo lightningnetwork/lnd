@@ -1170,13 +1170,6 @@ type LightningChannel struct {
 	// initiated.
 	pendingAckFeeUpdate *btcutil.Amount
 
-	// FundingWitnessScript is the witness script for the 2-of-2 multi-sig
-	// that opened the channel.
-	FundingWitnessScript []byte
-
-	fundingTxIn  wire.TxIn
-	fundingP2WSH []byte
-
 	// ForceCloseSignal is a channel that is closed to indicate that a
 	// local system has initiated a force close by broadcasting the current
 	// commitment transaction directly on-chain.
@@ -1226,26 +1219,6 @@ type LightningChannel struct {
 func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 	fe FeeEstimator, state *channeldb.OpenChannel) (*LightningChannel, error) {
 
-	localKey := state.LocalChanCfg.MultiSigKey.SerializeCompressed()
-	remoteKey := state.RemoteChanCfg.MultiSigKey.SerializeCompressed()
-	multiSigScript, err := genMultiSigScript(localKey, remoteKey)
-	if err != nil {
-		return nil, err
-	}
-
-	var stateHint [StateHintSize]byte
-	if state.IsInitiator {
-		stateHint = deriveStateHintObfuscator(
-			state.LocalChanCfg.PaymentBasePoint,
-			state.RemoteChanCfg.PaymentBasePoint,
-		)
-	} else {
-		stateHint = deriveStateHintObfuscator(
-			state.RemoteChanCfg.PaymentBasePoint,
-			state.LocalChanCfg.PaymentBasePoint,
-		)
-	}
-
 	localCommit := state.LocalCommitment
 	remoteCommit := state.RemoteCommitment
 
@@ -1264,7 +1237,6 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 		signer:                signer,
 		channelEvents:         events,
 		feeEstimator:          fe,
-		stateHintObfuscator:   stateHint,
 		currentHeight:         localCommit.CommitHeight,
 		remoteCommitChain:     newCommitmentChain(remoteCommit.CommitHeight),
 		localCommitChain:      newCommitmentChain(localCommit.CommitHeight),
@@ -1275,7 +1247,6 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 		remoteUpdateLog:       remoteUpdateLog,
 		ChanPoint:             &state.FundingOutpoint,
 		Capacity:              state.Capacity,
-		FundingWitnessScript:  multiSigScript,
 		ForceCloseSignal:      make(chan struct{}),
 		UnilateralClose:       make(chan *UnilateralCloseSummary, 1),
 		UnilateralCloseSignal: make(chan struct{}),
@@ -1288,7 +1259,7 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 
 	// With the main channel struct reconstructed, we'll now restore the
 	// commitment state in memory and also the update logs themselves.
-	err = lc.restoreCommitState(
+	err := lc.restoreCommitState(
 		&localCommit, &remoteCommit, localUpdateLog, remoteUpdateLog,
 	)
 	if err != nil {
@@ -1298,22 +1269,12 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 	// Create the sign descriptor which we'll be using very frequently to
 	// request a signature for the 2-of-2 multi-sig from the signer in
 	// order to complete channel state transitions.
-	fundingPkScript, err := witnessScriptHash(multiSigScript)
+	err = lc.createSignDesc()
 	if err != nil {
 		return nil, err
 	}
-	lc.fundingTxIn = *wire.NewTxIn(&state.FundingOutpoint, nil, nil)
-	lc.fundingP2WSH = fundingPkScript
-	lc.signDesc = &SignDescriptor{
-		PubKey:        lc.localChanCfg.MultiSigKey,
-		WitnessScript: multiSigScript,
-		Output: &wire.TxOut{
-			PkScript: lc.fundingP2WSH,
-			Value:    int64(lc.channelState.Capacity),
-		},
-		HashType:   txscript.SigHashAll,
-		InputIndex: 0,
-	}
+
+	lc.createStateHintObfuscator()
 
 	// We'll only launch a close observer if the ChainNotifier
 	// implementation is non-nil. Passing a nil value indicates that the
@@ -1323,7 +1284,7 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 		// outpoint has been spent. This indicates that either us or
 		// the remote party has broadcast a commitment transaction
 		// on-chain.
-		fundingOut := &lc.fundingTxIn.PreviousOutPoint
+		fundingOut := &state.FundingOutpoint
 
 		// As a height hint, we'll try to use the opening height, but
 		// if the channel isn't yet open, then we'll use the height it
@@ -1354,6 +1315,53 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 	}
 
 	return lc, nil
+}
+
+// createSignDesc derives the SignDescriptor for commitment transactions from
+// other fields on the LightningChannel.
+func (lc *LightningChannel) createSignDesc() error {
+	localKey := lc.localChanCfg.MultiSigKey.SerializeCompressed()
+	remoteKey := lc.remoteChanCfg.MultiSigKey.SerializeCompressed()
+
+	multiSigScript, err := genMultiSigScript(localKey, remoteKey)
+	if err != nil {
+		return err
+	}
+
+	fundingPkScript, err := witnessScriptHash(multiSigScript)
+	if err != nil {
+		return err
+	}
+	lc.signDesc = &SignDescriptor{
+		PubKey:        lc.localChanCfg.MultiSigKey,
+		WitnessScript: multiSigScript,
+		Output: &wire.TxOut{
+			PkScript: fundingPkScript,
+			Value:    int64(lc.channelState.Capacity),
+		},
+		HashType:   txscript.SigHashAll,
+		InputIndex: 0,
+	}
+
+	return nil
+}
+
+// createStateHintObfuscator derives and assigns the state hint obfuscator for
+// the channel, which is used to encode the commitment height in the sequence
+// number of commitment transaction inputs.
+func (lc *LightningChannel) createStateHintObfuscator() {
+	state := lc.channelState
+	if state.IsInitiator {
+		lc.stateHintObfuscator = deriveStateHintObfuscator(
+			state.LocalChanCfg.PaymentBasePoint,
+			state.RemoteChanCfg.PaymentBasePoint,
+		)
+	} else {
+		lc.stateHintObfuscator = deriveStateHintObfuscator(
+			state.RemoteChanCfg.PaymentBasePoint,
+			state.LocalChanCfg.PaymentBasePoint,
+		)
+	}
 }
 
 // Stop gracefully shuts down any active goroutines spawned by the
@@ -2466,6 +2474,10 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	return c, nil
 }
 
+func (lc *LightningChannel) fundingTxIn() wire.TxIn {
+	return *wire.NewTxIn(&lc.channelState.FundingOutpoint, nil, nil)
+}
+
 // createCommitmentTx generates the unsigned commitment transaction for a
 // commitment view and assigns to txn field.
 func (lc *LightningChannel) createCommitmentTx(c *commitment,
@@ -2529,7 +2541,7 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 
 	// Generate a new commitment transaction with all the latest
 	// unsettled/un-timed out HTLCs.
-	commitTx, err := CreateCommitTx(lc.fundingTxIn, keyRing, delay,
+	commitTx, err := CreateCommitTx(lc.fundingTxIn(), keyRing, delay,
 		delayBalance, p2wkhBalance, c.dustLimit)
 	if err != nil {
 		return err
@@ -3686,7 +3698,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig *btcec.Signature,
 	// Construct the sighash of the commitment transaction corresponding to
 	// this newly proposed state update.
 	localCommitTx := localCommitmentView.txn
-	multiSigScript := lc.FundingWitnessScript
+	multiSigScript := lc.signDesc.WitnessScript
 	hashCache := txscript.NewTxSigHashes(localCommitTx)
 	sigHash, err := txscript.CalcWitnessSigHash(multiSigScript, hashCache,
 		txscript.SigHashAll, localCommitTx, 0,
@@ -4353,7 +4365,7 @@ func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
 	theirKey := lc.remoteChanCfg.MultiSigKey.SerializeCompressed()
 
 	commitTx.TxIn[0].Witness = SpendMultiSig(
-		lc.FundingWitnessScript, ourKey,
+		lc.signDesc.WitnessScript, ourKey,
 		ourSig, theirKey, theirSig,
 	)
 
@@ -4755,7 +4767,7 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 		theirBalance = theirBalance - proposedFee + commitFee
 	}
 
-	closeTx := CreateCooperativeCloseTx(lc.fundingTxIn,
+	closeTx := CreateCooperativeCloseTx(lc.fundingTxIn(),
 		lc.localChanCfg.DustLimit, lc.remoteChanCfg.DustLimit,
 		ourBalance, theirBalance, localDeliveryScript,
 		remoteDeliveryScript, lc.channelState.IsInitiator)
@@ -4824,7 +4836,7 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig []byte,
 	// Create the transaction used to return the current settled balance
 	// on this active channel back to both parties. In this current model,
 	// the initiator pays full fees for the cooperative close transaction.
-	closeTx := CreateCooperativeCloseTx(lc.fundingTxIn,
+	closeTx := CreateCooperativeCloseTx(lc.fundingTxIn(),
 		lc.localChanCfg.DustLimit, lc.remoteChanCfg.DustLimit,
 		ourBalance, theirBalance, localDeliveryScript,
 		remoteDeliveryScript, lc.channelState.IsInitiator)
@@ -4848,9 +4860,9 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig []byte,
 
 	// Validate the finalized transaction to ensure the output script is
 	// properly met, and that the remote peer supplied a valid signature.
-	vm, err := txscript.NewEngine(lc.fundingP2WSH, closeTx, 0,
-		txscript.StandardVerifyFlags, nil, hashCache,
-		int64(lc.channelState.Capacity))
+	prevOut := lc.signDesc.Output
+	vm, err := txscript.NewEngine(prevOut.PkScript, closeTx, 0,
+		txscript.StandardVerifyFlags, nil, hashCache, prevOut.Value)
 	if err != nil {
 		return nil, 0, err
 	}

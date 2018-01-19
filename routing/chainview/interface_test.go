@@ -4,13 +4,16 @@ import (
 	"bytes"
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
 
 	"github.com/lightninglabs/neutrino"
+	"github.com/ltcsuite/ltcd/btcjson"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -25,7 +28,7 @@ import (
 )
 
 var (
-	netParams = &chaincfg.SimNetParams
+	netParams = &chaincfg.RegressionNetParams
 
 	testPrivKey = []byte{
 		0x81, 0xb6, 0x37, 0xd8, 0xfc, 0xd2, 0xc6, 0xda,
@@ -41,6 +44,39 @@ var (
 
 	testScript, _ = txscript.PayToAddrScript(testAddr)
 )
+
+func waitForMempoolTx(r *rpctest.Harness, txid *chainhash.Hash) error {
+	var found bool
+	var tx *btcutil.Tx
+	var err error
+	timeout := time.After(10 * time.Second)
+	for !found {
+		// Do a short wait
+		select {
+		case <-timeout:
+			return fmt.Errorf("timeout after 10s")
+		default:
+		}
+		time.Sleep(100 * time.Millisecond)
+
+		// Check for the harness' knowledge of the txid
+		tx, err = r.Node.GetRawTransaction(txid)
+		if err != nil {
+			switch e := err.(type) {
+			case *btcjson.RPCError:
+				if e.Code == btcjson.ErrRPCNoTxInfo {
+					continue
+				}
+			default:
+			}
+			return err
+		}
+		if tx != nil && tx.MsgTx().TxHash() == *txid {
+			found = true
+		}
+	}
+	return nil
+}
 
 func getTestTXID(miner *rpctest.Harness) (*chainhash.Hash, error) {
 	script, err := txscript.PayToAddrScript(testAddr)
@@ -131,11 +167,19 @@ func testFilterBlockNotifications(node *rpctest.Harness,
 	// private key that we generated above.
 	txid1, err := getTestTXID(node)
 	if err != nil {
-		t.Fatalf("unable to get test txid")
+		t.Fatalf("unable to get test txid: %v", err)
+	}
+	err = waitForMempoolTx(node, txid1)
+	if err != nil {
+		t.Fatalf("unable to get test txid in mempool: %v", err)
 	}
 	txid2, err := getTestTXID(node)
 	if err != nil {
-		t.Fatalf("unable to get test txid")
+		t.Fatalf("unable to get test txid: %v", err)
+	}
+	err = waitForMempoolTx(node, txid2)
+	if err != nil {
+		t.Fatalf("unable to get test txid in mempool: %v", err)
 	}
 
 	blockChan := chainView.FilteredBlocks()
@@ -218,6 +262,10 @@ func testFilterBlockNotifications(node *rpctest.Harness,
 	if err != nil {
 		t.Fatalf("unable to broadcast transaction: %v", err)
 	}
+	err = waitForMempoolTx(node, spendTxid1)
+	if err != nil {
+		t.Fatalf("unable to get spending txid in mempool: %v", err)
+	}
 	newBlockHashes, err = node.Node.Generate(1)
 	if err != nil {
 		t.Fatalf("unable to generate block: %v", err)
@@ -239,6 +287,10 @@ func testFilterBlockNotifications(node *rpctest.Harness,
 	spendTxid2, err := node.Node.SendRawTransaction(spendingTx2, true)
 	if err != nil {
 		t.Fatalf("unable to broadcast transaction: %v", err)
+	}
+	err = waitForMempoolTx(node, spendTxid2)
+	if err != nil {
+		t.Fatalf("unable to get spending txid in mempool: %v", err)
 	}
 	newBlockHashes, err = node.Node.Generate(1)
 	if err != nil {
@@ -263,6 +315,10 @@ func testUpdateFilterBackTrack(node *rpctest.Harness,
 	txid, err := getTestTXID(node)
 	if err != nil {
 		t.Fatalf("unable to get test txid")
+	}
+	err = waitForMempoolTx(node, txid)
+	if err != nil {
+		t.Fatalf("unable to get test txid in mempool: %v", err)
 	}
 
 	// Next we'll mine a block confirming the output generated above.
@@ -305,6 +361,10 @@ func testUpdateFilterBackTrack(node *rpctest.Harness,
 	spendTxid, err := node.Node.SendRawTransaction(spendingTx, true)
 	if err != nil {
 		t.Fatalf("unable to broadcast transaction: %v", err)
+	}
+	err = waitForMempoolTx(node, spendTxid)
+	if err != nil {
+		t.Fatalf("unable to get spending txid in mempool: %v", err)
 	}
 	newBlockHashes, err := node.Node.Generate(1)
 	if err != nil {
@@ -352,9 +412,17 @@ func testFilterSingleBlock(node *rpctest.Harness, chainView FilteredChainView,
 	if err != nil {
 		t.Fatalf("unable to get test txid")
 	}
+	err = waitForMempoolTx(node, txid1)
+	if err != nil {
+		t.Fatalf("unable to get test txid in mempool: %v", err)
+	}
 	txid2, err := getTestTXID(node)
 	if err != nil {
 		t.Fatalf("unable to get test txid")
+	}
+	err = waitForMempoolTx(node, txid2)
+	if err != nil {
+		t.Fatalf("unable to get test txid in mempool: %v", err)
 	}
 
 	blockChan := chainView.FilteredBlocks()
@@ -671,7 +739,7 @@ var chainViewTests = []testCase{
 		test: testUpdateFilterBackTrack,
 	},
 	{
-		name: "fitler single block",
+		name: "filter single block",
 		test: testFilterSingleBlock,
 	},
 	{
@@ -684,6 +752,68 @@ var interfaceImpls = []struct {
 	name          string
 	chainViewInit chainViewInitFunc
 }{
+	{
+		name: "bitcoind_zmq",
+		chainViewInit: func(_ rpcclient.ConnConfig, p2pAddr string) (func(), FilteredChainView, error) {
+			// Start a bitcoind instance.
+			tempBitcoindDir, err := ioutil.TempDir("", "bitcoind")
+			if err != nil {
+				return nil, nil, err
+			}
+			zmqPath := "ipc:///" + tempBitcoindDir + "/weks.socket"
+			cleanUp1 := func() {
+				os.RemoveAll(tempBitcoindDir)
+			}
+			rpcPort := rand.Int()%(65536-1024) + 1024
+			bitcoind := exec.Command(
+				"bitcoind",
+				"-datadir="+tempBitcoindDir,
+				"-regtest",
+				"-connect="+p2pAddr,
+				"-txindex",
+				"-rpcauth=weks:469e9bb14ab2360f8e226efed5ca6f"+
+					"d$507c670e800a95284294edb5773b05544b"+
+					"220110063096c221be9933c82d38e1",
+				fmt.Sprintf("-rpcport=%d", rpcPort),
+				"-disablewallet",
+				"-zmqpubrawblock="+zmqPath,
+				"-zmqpubrawtx="+zmqPath,
+			)
+			err = bitcoind.Start()
+			if err != nil {
+				cleanUp1()
+				return nil, nil, err
+			}
+			cleanUp2 := func() {
+				bitcoind.Process.Kill()
+				bitcoind.Wait()
+				cleanUp1()
+			}
+
+			// Wait for the bitcoind instance to start up.
+			time.Sleep(time.Second)
+
+			// Start the FilteredChainView implementation instance.
+			config := rpcclient.ConnConfig{
+				Host: fmt.Sprintf(
+					"127.0.0.1:%d", rpcPort),
+				User:                 "weks",
+				Pass:                 "weks",
+				DisableAutoReconnect: false,
+				DisableConnectOnNew:  true,
+				DisableTLS:           true,
+				HTTPPostMode:         true,
+			}
+
+			chainView, err := NewBitcoindFilteredChainView(config,
+				zmqPath, chaincfg.RegressionNetParams)
+			if err != nil {
+				cleanUp2()
+				return nil, nil, err
+			}
+			return cleanUp2, chainView, nil
+		},
+	},
 	{
 		name: "p2p_neutrino",
 		chainViewInit: func(_ rpcclient.ConnConfig, p2pAddr string) (func(), FilteredChainView, error) {

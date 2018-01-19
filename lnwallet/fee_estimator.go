@@ -1,6 +1,8 @@
 package lnwallet
 
 import (
+	"encoding/json"
+
 	"github.com/roasbeef/btcd/blockchain"
 	"github.com/roasbeef/btcd/rpcclient"
 	"github.com/roasbeef/btcutil"
@@ -200,3 +202,145 @@ func (b *BtcdFeeEstimator) fetchEstimatePerByte(confTarget uint32) (btcutil.Amou
 // A compile-time assertion to ensure that BtcdFeeEstimator implements the
 // FeeEstimator interface.
 var _ FeeEstimator = (*BtcdFeeEstimator)(nil)
+
+// BitcoindFeeEstimator is an implementation of the FeeEstimator interface
+// backed by the RPC interface of an active bitcoind node. This implementation
+// will proxy any fee estimation requests to bitcoind's RPC interace.
+type BitcoindFeeEstimator struct {
+	// fallBackFeeRate is the fall back fee rate in satoshis per byte that
+	// is returned if the fee estimator does not yet have enough data to
+	// actually produce fee estimates.
+	fallBackFeeRate btcutil.Amount
+
+	bitcoindConn *rpcclient.Client
+}
+
+// NewBitcoindFeeEstimator creates a new BitcoindFeeEstimator given a fully
+// populated rpc config that is able to successfully connect and authenticate
+// with the bitcoind node, and also a fall back fee rate. The fallback fee rate
+// is used in the occasion that the estimator has insufficient data, or returns
+// zero for a fee estimate.
+func NewBitcoindFeeEstimator(rpcConfig rpcclient.ConnConfig,
+	fallBackFeeRate btcutil.Amount) (*BitcoindFeeEstimator, error) {
+
+	rpcConfig.DisableConnectOnNew = true
+	rpcConfig.DisableAutoReconnect = false
+	rpcConfig.DisableTLS = true
+	rpcConfig.HTTPPostMode = true
+	chainConn, err := rpcclient.New(&rpcConfig, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return &BitcoindFeeEstimator{
+		fallBackFeeRate: fallBackFeeRate,
+		bitcoindConn:    chainConn,
+	}, nil
+}
+
+// Start signals the FeeEstimator to start any processes or goroutines
+// it needs to perform its duty.
+//
+// NOTE: This method is part of the FeeEstimator interface.
+func (b *BitcoindFeeEstimator) Start() error {
+	return nil
+}
+
+// Stop stops any spawned goroutines and cleans up the resources used
+// by the fee estimator.
+//
+// NOTE: This method is part of the FeeEstimator interface.
+func (b *BitcoindFeeEstimator) Stop() error {
+	return nil
+}
+
+// EstimateFeePerByte takes in a target for the number of blocks until an
+// initial confirmation and returns the estimated fee expressed in
+// satoshis/byte.
+func (b *BitcoindFeeEstimator) EstimateFeePerByte(numBlocks uint32) (btcutil.Amount, error) {
+	feeEstimate, err := b.fetchEstimatePerByte(numBlocks)
+	switch {
+	// If the estimator doesn't have enough data, or returns an error, then
+	// to return a proper value, then we'll return the default fall back
+	// fee rate.
+	case err != nil:
+		walletLog.Errorf("unable to query estimator: %v", err)
+		fallthrough
+
+	case feeEstimate == 0:
+		return b.fallBackFeeRate, nil
+	}
+
+	return feeEstimate, nil
+}
+
+// EstimateFeePerWeight takes in a target for the number of blocks until an
+// initial confirmation and returns the estimated fee expressed in
+// satoshis/weight.
+func (b *BitcoindFeeEstimator) EstimateFeePerWeight(numBlocks uint32) (btcutil.Amount, error) {
+	feePerByte, err := b.EstimateFeePerByte(numBlocks)
+	if err != nil {
+		return 0, err
+	}
+
+	// We'll scale down the fee per byte to fee per weight, as for each raw
+	// byte, there's 1/4 unit of weight mapped to it.
+	satWeight := feePerByte / blockchain.WitnessScaleFactor
+
+	// If this ends up scaling down to a zero sat/weight amount, then we'll
+	// use the default fallback fee rate.
+	// TODO(aakselrod): maybe use the per-byte rate if it's non-zero?
+	// Otherwise, we can return a higher sat/byte than sat/weight.
+	if satWeight == 0 {
+		return b.fallBackFeeRate / blockchain.WitnessScaleFactor, nil
+	}
+
+	return satWeight, nil
+}
+
+// fetchEstimate returns a fee estimate for a transaction be be confirmed in
+// confTarget blocks. The estimate is returned in sat/byte.
+func (b *BitcoindFeeEstimator) fetchEstimatePerByte(confTarget uint32) (btcutil.Amount, error) {
+	// First, we'll send an "estimatesmartfee" command as a raw request,
+	// since it isn't supported by btcd but is available in bitcoind.
+	target, err := json.Marshal(uint64(confTarget))
+	if err != nil {
+		return 0, err
+	}
+	// TODO: Allow selection of economical/conservative modifiers.
+	resp, err := b.bitcoindConn.RawRequest("estimatesmartfee",
+		[]json.RawMessage{target})
+	if err != nil {
+		return 0, err
+	}
+
+	// Next, we'll parse the response to get the BTC per KB.
+	feeEstimate := struct {
+		Feerate float64 `json:"feerate"`
+	}{}
+	err = json.Unmarshal(resp, &feeEstimate)
+	if err != nil {
+		return 0, err
+	}
+
+	// Next, we'll convert the returned value to satoshis, as it's
+	// currently returned in BTC.
+	satPerKB, err := btcutil.NewAmount(feeEstimate.Feerate)
+	if err != nil {
+		return 0, err
+	}
+
+	// The value returned is expressed in fees per KB, while we want
+	// fee-per-byte, so we'll divide by 1024 to map to satoshis-per-byte
+	// before returning the estimate.
+	satPerByte := satPerKB / 1024
+
+	walletLog.Debugf("Returning %v sat/byte for conf target of %v",
+		int64(satPerByte), confTarget)
+
+	return satPerByte, nil
+}
+
+// A compile-time assertion to ensure that BitcoindFeeEstimator implements the
+// FeeEstimator interface.
+var _ FeeEstimator = (*BitcoindFeeEstimator)(nil)

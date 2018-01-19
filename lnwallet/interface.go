@@ -207,6 +207,11 @@ type WalletController interface {
 	// Stop signals the wallet for shutdown. Shutdown may entail closing
 	// any active sockets, database handles, stopping goroutines, etc.
 	Stop() error
+
+	// BackEnd returns a name for the wallet's backing chain service,
+	// which could be e.g. btcd, bitcoind, neutrino, or another consensus
+	// service.
+	BackEnd() string
 }
 
 // BlockChainIO is a dedicated source which will be used to obtain queries
@@ -288,6 +293,10 @@ type WalletDriver struct {
 	// initialization flexibility, thereby accommodating several potential
 	// WalletController implementations.
 	New func(args ...interface{}) (WalletController, error)
+
+	// BackEnds returns a list of available chain service drivers for the
+	// wallet driver. This could be e.g. bitcoind, btcd, neutrino, etc.
+	BackEnds func() []string
 }
 
 var (

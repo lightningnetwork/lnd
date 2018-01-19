@@ -183,6 +183,11 @@ type mockWalletController struct {
 	publishedTransactions chan *wire.MsgTx
 }
 
+// BackEnd returns "mock" to signify a mock wallet controller.
+func (*mockWalletController) BackEnd() string {
+	return "mock"
+}
+
 // FetchInputInfo will be called to get info about the inputs to the funding
 // transaction.
 func (*mockWalletController) FetchInputInfo(

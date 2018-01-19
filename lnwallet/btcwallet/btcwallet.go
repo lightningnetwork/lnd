@@ -119,6 +119,17 @@ func New(cfg Config) (*BtcWallet, error) {
 	}, nil
 }
 
+// BackEnd returns the underlying ChainService's name as a string.
+//
+// This is a part of the WalletController interface.
+func (b *BtcWallet) BackEnd() string {
+	if b.chain != nil {
+		return b.chain.BackEnd()
+	}
+
+	return ""
+}
+
 // Start initializes the underlying rpc connection, the wallet itself, and
 // begins syncing to the current available blockchain state.
 //
@@ -668,22 +679,9 @@ func (b *BtcWallet) IsSynced() (bool, error) {
 
 	// Next, query the chain backend to grab the info about the tip of the
 	// main chain.
-	switch backend := b.cfg.ChainSource.(type) {
-	case *chain.NeutrinoClient:
-		header, height, err := backend.CS.BlockHeaders.ChainTip()
-		if err != nil {
-			return false, err
-		}
-
-		bh := header.BlockHash()
-		bestHash = &bh
-		bestHeight = int32(height)
-
-	case *chain.RPCClient:
-		bestHash, bestHeight, err = backend.GetBestBlock()
-		if err != nil {
-			return false, err
-		}
+	bestHash, bestHeight, err = b.cfg.ChainSource.GetBestBlock()
+	if err != nil {
+		return false, err
 	}
 
 	// If the wallet hasn't yet fully synced to the node's best chain tip,
@@ -696,21 +694,9 @@ func (b *BtcWallet) IsSynced() (bool, error) {
 	// still may not yet be synced as the chain backend may still be
 	// catching up to the main chain. So we'll grab the block header in
 	// order to make a guess based on the current time stamp.
-	var blockHeader *wire.BlockHeader
-	switch backend := b.cfg.ChainSource.(type) {
-
-	case *chain.NeutrinoClient:
-		bh, _, err := backend.CS.BlockHeaders.FetchHeader(bestHash)
-		if err != nil {
-			return false, err
-		}
-		blockHeader = bh
-
-	case *chain.RPCClient:
-		blockHeader, err = backend.GetBlockHeader(bestHash)
-		if err != nil {
-			return false, err
-		}
+	blockHeader, err := b.cfg.ChainSource.GetBlockHeader(bestHash)
+	if err != nil {
+		return false, err
 	}
 
 	// If the timestamp no the best header is more than 2 hours in the

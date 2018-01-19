@@ -551,6 +551,7 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 
 	localFundingAmt := btcutil.Amount(in.LocalFundingAmount)
 	remoteInitialBalance := btcutil.Amount(in.PushSat)
+	minHtlc := lnwire.MilliSatoshi(in.MinHtlcMsat)
 
 	// Ensure that the initial balance of the remote party (if pushing
 	// satoshis) does not exceed the amount the local party has requested
@@ -627,7 +628,7 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	updateChan, errChan := r.server.OpenChannel(
 		in.TargetPeerId, nodePubKey, localFundingAmt,
 		lnwire.NewMSatFromSatoshis(remoteInitialBalance),
-		feePerByte, in.Private,
+		minHtlc, feePerByte, in.Private,
 	)
 
 	var outpoint wire.OutPoint
@@ -722,6 +723,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 
 	localFundingAmt := btcutil.Amount(in.LocalFundingAmount)
 	remoteInitialBalance := btcutil.Amount(in.PushSat)
+	minHtlc := lnwire.MilliSatoshi(in.MinHtlcMsat)
 
 	// Ensure that the initial balance of the remote party (if pushing
 	// satoshis) does not exceed the amount the local party has requested
@@ -746,7 +748,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	updateChan, errChan := r.server.OpenChannel(
 		in.TargetPeerId, nodepubKey, localFundingAmt,
 		lnwire.NewMSatFromSatoshis(remoteInitialBalance),
-		feePerByte, in.Private,
+		minHtlc, feePerByte, in.Private,
 	)
 
 	select {
@@ -2083,7 +2085,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 			zpay32.CLTVExpiry(invoice.CltvExpiry))
 	default:
 		// TODO(roasbeef): assumes set delta between versions
-		defaultDelta := defaultBitcoinForwardingPolicy.TimeLockDelta
+		defaultDelta := cfg.Bitcoin.TimeLockDelta
 		options = append(options, zpay32.CLTVExpiry(uint64(defaultDelta)))
 	}
 
@@ -3192,13 +3194,13 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 // 0.000001, or 0.0001%.
 const minFeeRate = 1e-6
 
-// UpdateFees allows the caller to update the fee schedule for all channels
-// globally, or a particular channel.
-func (r *rpcServer) UpdateFees(ctx context.Context,
-	req *lnrpc.FeeUpdateRequest) (*lnrpc.FeeUpdateResponse, error) {
+// UpdateChannelPolicy allows the caller to update the channel forwarding policy
+// for all channels globally, or a particular channel.
+func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
+	req *lnrpc.PolicyUpdateRequest) (*lnrpc.PolicyUpdateResponse, error) {
 
 	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "udpatefees",
+		if err := macaroons.ValidateMacaroon(ctx, "updatechannelpolicy",
 			r.authSvc); err != nil {
 			return nil, err
 		}
@@ -3208,11 +3210,11 @@ func (r *rpcServer) UpdateFees(ctx context.Context,
 	switch scope := req.Scope.(type) {
 	// If the request is targeting all active channels, then we don't need
 	// target any channels by their channel point.
-	case *lnrpc.FeeUpdateRequest_Global:
+	case *lnrpc.PolicyUpdateRequest_Global:
 
 	// Otherwise, we're targeting an individual channel by its channel
 	// point.
-	case *lnrpc.FeeUpdateRequest_ChanPoint:
+	case *lnrpc.PolicyUpdateRequest_ChanPoint:
 		txid, err := chainhash.NewHash(scope.ChanPoint.FundingTxid)
 		if err != nil {
 			return nil, err
@@ -3226,10 +3228,17 @@ func (r *rpcServer) UpdateFees(ctx context.Context,
 	}
 
 	// As a sanity check, we'll ensure that the passed fee rate is below
-	// 1e-6, or the lowest allowed fee rate.
+	// 1e-6, or the lowest allowed fee rate, and that the passed timelock
+	// is large enough.
 	if req.FeeRate < minFeeRate {
 		return nil, fmt.Errorf("fee rate of %v is too small, min fee "+
 			"rate is %v", req.FeeRate, minFeeRate)
+	}
+
+	if req.TimeLockDelta < minTimeLockDelta {
+		return nil, fmt.Errorf("time lock delta of %v is too small, "+
+			"minimum supported is %v", req.TimeLockDelta,
+			minTimeLockDelta)
 	}
 
 	// We'll also need to convert the floating point fee rate we accept
@@ -3244,16 +3253,21 @@ func (r *rpcServer) UpdateFees(ctx context.Context,
 		FeeRate: feeRateFixed,
 	}
 
-	rpcsLog.Tracef("[updatefees] updating fee schedule base_fee=%v, "+
-		"rate_float=%v, rate_fixed=%v, targets=%v",
-		req.BaseFeeMsat, req.FeeRate, feeRateFixed,
+	chanPolicy := routing.ChannelPolicy{
+		FeeSchema:     feeSchema,
+		TimeLockDelta: req.TimeLockDelta,
+	}
+
+	rpcsLog.Tracef("[updatechanpolicy] updating channel policy base_fee=%v, "+
+		"rate_float=%v, rate_fixed=%v, time_lock_delta: %v, targets=%v",
+		req.BaseFeeMsat, req.FeeRate, feeRateFixed, req.TimeLockDelta,
 		spew.Sdump(targetChans))
 
 	// With the scope resolved, we'll now send this to the
-	// AuthenticatedGossiper so it can propagate the new fee schema for out
+	// AuthenticatedGossiper so it can propagate the new policy for our
 	// target channel(s).
-	err := r.server.authGossiper.PropagateFeeUpdate(
-		feeSchema, targetChans...,
+	err := r.server.authGossiper.PropagateChanPolicyUpdate(
+		chanPolicy, targetChans...,
 	)
 	if err != nil {
 		return nil, err
@@ -3265,8 +3279,9 @@ func (r *rpcServer) UpdateFees(ctx context.Context,
 	// We create a partially policy as the logic won't overwrite a valid
 	// sub-policy with a "nil" one.
 	p := htlcswitch.ForwardingPolicy{
-		BaseFee: baseFeeMsat,
-		FeeRate: lnwire.MilliSatoshi(feeRateFixed),
+		BaseFee:       baseFeeMsat,
+		FeeRate:       lnwire.MilliSatoshi(feeRateFixed),
+		TimeLockDelta: req.TimeLockDelta,
 	}
 	err = r.server.htlcSwitch.UpdateForwardingPolicies(p, targetChans...)
 	if err != nil {
@@ -3276,5 +3291,5 @@ func (r *rpcServer) UpdateFees(ctx context.Context,
 		rpcsLog.Warnf("Unable to update link fees: %v", err)
 	}
 
-	return &lnrpc.FeeUpdateResponse{}, nil
+	return &lnrpc.PolicyUpdateResponse{}, nil
 }

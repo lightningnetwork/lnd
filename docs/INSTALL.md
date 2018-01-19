@@ -174,7 +174,7 @@ Otherwise, replace `--bitcoin.testnet` with `--bitcoin.simnet`. If you are
 installing `lnd` in preparation for the
 [tutorial](http://dev.lightning.community/tutorial), you may skip this step.
 ```
-lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --btcd.rpcuser=kek --btcd.rpcpass=kek --externalip=X.X.X.X
+lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --bitcoin.rpcuser=kek --bitcoin.rpcpass=kek --externalip=X.X.X.X
 ```
 
 #### Running lnd using the bitcoind backend

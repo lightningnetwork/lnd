@@ -27,6 +27,10 @@ type htlcPacket struct {
 	// outgoing channel.
 	outgoingHTLCID uint64
 
+	// incomingAmount is the value in milli-satoshis that arrived on an
+	// incoming link.
+	incomingAmount lnwire.MilliSatoshi
+
 	// amount is the value of the HTLC that is being created or modified.
 	amount lnwire.MilliSatoshi
 
@@ -42,10 +46,10 @@ type htlcPacket struct {
 	// encrypted with any shared secret.
 	localFailure bool
 
-	// isRouted is set to true if the incomingChanID and incomingHTLCID fields
-	// of a forwarded fail packet are already set and do not need to be looked
-	// up in the circuit map.
-	isRouted bool
+	// hasSource is set to true if the incomingChanID and incomingHTLCID
+	// fields of a forwarded fail packet are already set and do not need to
+	// be looked up in the circuit map.
+	hasSource bool
 
 	// isResolution is set to true if this packet was actually an incoming
 	// resolution message from an outside sub-system. We'll treat these as
@@ -53,4 +57,20 @@ type htlcPacket struct {
 	// encrypt all errors related to this packet as if we were the first
 	// hop.
 	isResolution bool
+}
+
+// inKey returns the circuit key used to identify the incoming htlc.
+func (p *htlcPacket) inKey() CircuitKey {
+	return CircuitKey{
+		ChanID: p.incomingChanID,
+		HtlcID: p.incomingHTLCID,
+	}
+}
+
+// outKey returns the circuit key used to identify the outgoing, forwarded htlc.
+func (p *htlcPacket) outKey() CircuitKey {
+	return CircuitKey{
+		ChanID: p.outgoingChanID,
+		HtlcID: p.outgoingHTLCID,
+	}
 }

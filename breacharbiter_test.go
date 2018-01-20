@@ -12,7 +12,6 @@ import (
 	"reflect"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/btcsuite/btclog"
 	"github.com/go-errors/errors"
@@ -949,14 +948,6 @@ func TestBreachHandoffSuccess(t *testing.T) {
 	}
 	defer cleanUpArb()
 
-	// Send the channel to the arbiter so that it set up the receiving end
-	// of the handoff.
-	select {
-	case brar.newContracts <- alice:
-	case <-time.After(500 * time.Millisecond):
-		t.Fatalf("unable to register alice with breach arbiter: %v", err)
-	}
-
 	// Send one HTLC to Bob and perform a state transition to lock it in.
 	htlcAmount := lnwire.NewMSatFromSatoshis(20000)
 	htlc, _ := createHTLC(0, htlcAmount)
@@ -1029,14 +1020,6 @@ func TestBreachHandoffFail(t *testing.T) {
 	}
 	defer cleanUpArb()
 
-	// Send the channel to the arbiter so that it set up the receiving end
-	// of the handoff.
-	select {
-	case brar.newContracts <- alice:
-	case <-time.After(500 * time.Millisecond):
-		t.Fatalf("unable to register alice with breach arbiter: %v", err)
-	}
-
 	// Send one HTLC to Bob and perform a state transition to lock it in.
 	htlcAmount := lnwire.NewMSatFromSatoshis(20000)
 	htlc, _ := createHTLC(0, htlcAmount)
@@ -1098,20 +1081,11 @@ func TestBreachHandoffFail(t *testing.T) {
 		alicesPrivKey)
 	aliceSigner := &mockSigner{aliceKeyPriv}
 
-	alice2, err := lnwallet.NewLightningChannel(aliceSigner, notifier,
-		nil, alice.State())
+	alice2, err := lnwallet.NewLightningChannel(aliceSigner, nil, alice.State())
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
 	defer alice2.Stop()
-
-	// Send this newer channel to breach arbiter, which should replace the
-	// prior.
-	select {
-	case brar.newContracts <- alice2:
-	case <-time.After(500 * time.Millisecond):
-		t.Fatalf("unable to register alice with breach arbiter: %v", err)
-	}
 
 	// Signal a spend of the funding transaction and wait for the close
 	// observer to exit. This time we are allowing the handoff to succeed.
@@ -1390,13 +1364,13 @@ func createInitChannelsWithNotifier(revocationWindow int,
 	bobSigner := &mockSigner{bobKeyPriv}
 
 	channelAlice, err := lnwallet.NewLightningChannel(
-		aliceSigner, notifier, pCache, aliceChannelState,
+		aliceSigner, pCache, aliceChannelState,
 	)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	channelBob, err := lnwallet.NewLightningChannel(
-		bobSigner, notifier, pCache, bobChannelState,
+		bobSigner, pCache, bobChannelState,
 	)
 	if err != nil {
 		return nil, nil, nil, err

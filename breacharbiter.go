@@ -544,6 +544,22 @@ func (b *breachArbiter) breachObserver(
 	case <-settleSignal:
 		return
 
+	// The channel has been closed cooperatively, so we're done here.
+	case <-chainEvents.CooperativeClosure:
+		// Launch a goroutine to cancel out this contract within the
+		// breachArbiter's main goroutine.
+		b.wg.Add(1)
+		go func() {
+			defer b.wg.Done()
+
+			select {
+			case b.settledContracts <- &chanPoint:
+			case <-b.quit:
+			}
+		}()
+
+		b.cfg.CloseLink(&chanPoint, htlcswitch.CloseBreach)
+
 	// The channel has been closed by a normal means: force closing with
 	// the latest commitment transaction.
 	case <-chainEvents.UnilateralClosure:

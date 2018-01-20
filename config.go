@@ -196,7 +196,8 @@ type config struct {
 	UnsafeDisconnect   bool `long:"unsafe-disconnect" description:"Allows the rpcserver to intentionally disconnect from peers with open channels. USED FOR TESTING ONLY."`
 	UnsafeReplay       bool `long:"unsafe-replay" description:"Causes a link to replay the adds on its commitment txn after starting up, this enables testing of the sphinx replay logic."`
 	MaxPendingChannels int  `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
-	UpnpSupport        bool `long:"upnpsupport" description:"Toggle Upnp support for auto network discovery"`
+	UpnpSupport        bool `long:"upnp" description:"Toggle Upnp support for auto network discovery"`
+	NatPmp             bool `long:"natpmp" description:"Toggle Nat Pmp support for auto network discovery"`
 
 	Bitcoin      *chainConfig    `group:"Bitcoin" namespace:"bitcoin"`
 	BtcdMode     *btcdConfig     `group:"btcd" namespace:"btcd"`

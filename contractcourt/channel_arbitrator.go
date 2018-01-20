@@ -679,20 +679,20 @@ const (
 	// needs to be taken for a given HTLC.
 	NoAction ChainAction = 0
 
-	// htlcTimeout indicates that the HTLC will timeout soon. As a result,
-	// we should get ready to sweep it on chain after the timeout.
+	// HtlcTimeoutAction indicates that the HTLC will timeout soon. As a
+	// result, we should get ready to sweep it on chain after the timeout.
 	HtlcTimeoutAction = 1
 
-	// HtlcClaim indicates that we should claim the HTLC on chain before
-	// its timeout period.
+	// HtlcClaimAction indicates that we should claim the HTLC on chain
+	// before its timeout period.
 	HtlcClaimAction = 2
 
-	// HtlcFailNow indicates that we should fail an outgoing HTLC
+	// HtlcFailNowAction indicates that we should fail an outgoing HTLC
 	// immediately by cancelling it backwards as it has no corresponding
 	// output in our commitment transaction.
 	HtlcFailNowAction = 3
 
-	// HtlcOutgoingWatchChain indicates that we can't yet timeout this
+	// HtlcOutgoingWatchAction indicates that we can't yet timeout this
 	// HTLC, but we had to go to chain on order to resolve an existing
 	// HTLC.  In this case, we'll either: time it out once it expires, or
 	// will learn the pre-image if the remote party claims the output. In

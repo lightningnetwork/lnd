@@ -31,18 +31,6 @@ type preimageBeacon struct {
 	subscribers   map[uint64]*preimageSubcriber
 }
 
-// NewPreimageBeacon creates a new preimageBeacon instance given an invoice
-// registry and witness cache.
-func NewPreimageBeacon(invoices *invoiceRegistry,
-	wCache *channeldb.WitnessCache) *preimageBeacon {
-
-	return &preimageBeacon{
-		invoices:    invoices,
-		wCache:      wCache,
-		subscribers: make(map[uint64]*preimageSubcriber),
-	}
-}
-
 // SubcribeUpdates returns a channel that will be sent upon *each* time a new
 // preimage is discovered.
 func (p *preimageBeacon) SubcribeUpdates() *contractcourt.WitnessSubcription {

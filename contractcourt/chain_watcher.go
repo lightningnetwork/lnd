@@ -340,7 +340,7 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 					commitSpend, *remoteCommit,
 				); err != nil {
 					log.Errorf("unable to handle remote "+
-						"close for chan_point=%v",
+						"close for chan_point=%v: %v",
 						c.chanState.FundingOutpoint, err)
 				}
 
@@ -618,7 +618,7 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 	return c.chanState.CloseChannel(&closeSummary)
 }
 
-// CooperativeCloseContext is a transactional object that's used by external
+// CooperativeCloseCtx is a transactional object that's used by external
 // parties to initiate a cooperative closure negotiation. During the
 // negotiation, we sign multiple versions of a closing transaction, either of
 // which may be counter signed and broadcast by the remote party at any time.
@@ -630,8 +630,12 @@ type CooperativeCloseCtx struct {
 	// watcher to ensure we detect all on-chain spends.
 	potentialCloses chan *channeldb.ChannelCloseSummary
 
+	// activeCloses keeps track of all the txid's that we're currently
+	// watching for.
 	activeCloses map[chainhash.Hash]struct{}
 
+	// watchCancel will be closed once *one* of the txid's in the map above
+	// is confirmed. This will cause all the lingering goroutines to exit.
 	watchCancel chan struct{}
 
 	watcher *chainWatcher

@@ -112,7 +112,7 @@ const (
 	// so yet.
 	StateBroadcastCommit ArbitratorState = 1
 
-	// StateContractClose is a state that indicates the contract has
+	// StateContractClosed is a state that indicates the contract has
 	// already been "closed". At this point, we can now examine our active
 	// contracts, in order to create the proper resolver for each one.
 	StateContractClosed ArbitratorState = 2

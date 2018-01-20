@@ -170,7 +170,11 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		quit: make(chan struct{}),
 	}
 
-	s.witnessBeacon = NewPreimageBeacon(s.invoices, chanDB.NewWitnessCache())
+	s.witnessBeacon = &preimageBeacon{
+		invoices:    s.invoices,
+		wCache:      chanDB.NewWitnessCache(),
+		subscribers: make(map[uint64]*preimageSubcriber),
+	}
 
 	// If the debug HTLC flag is on, then we invoice a "master debug"
 	// invoice which all outgoing payments will be sent and all incoming

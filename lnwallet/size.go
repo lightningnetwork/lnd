@@ -257,7 +257,7 @@ const (
 	AcceptedHtlcScriptSize = 3*1 + 20 + 5*1 + 33 + 7*1 + 20 + 4*1 +
 		33 + 5*1 + 4 + 5*1
 
-	// AcceptedHtlcTimeoutWitnessSize: 214
+	// AcceptedHtlcTimeoutWitnessSize 214
 	//  - number_of_witness_elements: 1 byte
 	//  - sender_sig: 73 bytes
 	//  - nil_length: 1 byte
@@ -333,7 +333,7 @@ const (
 	// - witness_script (offered_htlc_script)
 	OfferedHtlcTimeoutWitnessSize = 1 + 1 + 1 + 73 + 1 + 73 + 1 + 1 + OfferedHtlcScriptSize
 
-	// OfferedHtlcSuccessWitnessSize: 283 bytes
+	// OfferedHtlcSuccessWitnessSize 283 bytes
 	// - number_of_witness_elements: 1 byte
 	// - nil_length: 1 byte
 	// - receiver_sig: 73 bytes

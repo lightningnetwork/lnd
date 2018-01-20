@@ -4740,7 +4740,8 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 // TODO(roasbeef): caller should initiate signal to reject all incoming HTLCs,
 // settle any in flight.
 func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
-	localDeliveryScript, remoteDeliveryScript []byte) ([]byte, error) {
+	localDeliveryScript []byte,
+	remoteDeliveryScript []byte) ([]byte, *chainhash.Hash, btcutil.Amount, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -4748,7 +4749,7 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	// If we've already closed the channel, then ignore this request.
 	if lc.status == channelClosed {
 		// TODO(roasbeef): check to ensure no pending payments
-		return nil, ErrChanClosing
+		return nil, nil, 0, ErrChanClosing
 	}
 
 	// Subtract the proposed fee from the appropriate balance, taking care
@@ -4777,7 +4778,7 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	// negative output.
 	tx := btcutil.NewTx(closeTx)
 	if err := blockchain.CheckTransactionSanity(tx); err != nil {
-		return nil, err
+		return nil, nil, 0, err
 	}
 
 	// Finally, sign the completed cooperative closure transaction. As the
@@ -4787,14 +4788,15 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	lc.signDesc.SigHashes = txscript.NewTxSigHashes(closeTx)
 	sig, err := lc.signer.SignOutputRaw(closeTx, lc.signDesc)
 	if err != nil {
-		return nil, err
+		return nil, nil, 0, err
 	}
 
 	// As everything checks out, indicate in the channel status that a
 	// channel closure has been initiated.
 	lc.status = channelClosing
 
-	return sig, nil
+	closeTXID := closeTx.TxHash()
+	return sig, &closeTXID, ourBalance, nil
 }
 
 // CompleteCooperativeClose completes the cooperative closure of the target

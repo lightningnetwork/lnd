@@ -88,6 +88,11 @@ func Open(dbPath string) (*DB, error) {
 	return chanDB, nil
 }
 
+// Path returns the file path to the channel database.
+func (d *DB) Path() string {
+	return d.dbPath
+}
+
 // Wipe completely deletes all saved state within all used buckets within the
 // database. The deletion is done in a single transaction, therefore this
 // operation is fully atomic.

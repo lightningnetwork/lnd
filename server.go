@@ -378,7 +378,6 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	}
 
 	s.breachArbiter = newBreachArbiter(&BreachConfig{
-		ChainIO:   s.cc.chainIO,
 		CloseLink: closeLink,
 		DB:        chanDB,
 		Estimator: s.cc.feeEstimator,
@@ -604,6 +603,13 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 				return
 			}
 
+			// Add bootstrapped peer as persistent to maintain
+			// connectivity even if we have no open channels.
+			targetPub := string(conn.RemotePub().SerializeCompressed())
+			s.mu.Lock()
+			s.persistentPeers[targetPub] = struct{}{}
+			s.mu.Unlock()
+
 			s.OutboundPeerConnected(nil, conn)
 		}(addr)
 	}
@@ -707,6 +713,14 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 						atomic.AddUint32(&epochErrors, 1)
 						return
 					}
+
+					// Add bootstrapped peer as persistent to maintain
+					// connectivity even if we have no open channels.
+					targetPub := string(conn.RemotePub().SerializeCompressed())
+					s.mu.Lock()
+					s.persistentPeers[targetPub] = struct{}{}
+					s.mu.Unlock()
+
 					s.OutboundPeerConnected(nil, conn)
 				}(addr)
 			}
@@ -879,7 +893,7 @@ func (s *server) establishPersistentConnections() error {
 // messages to all peers other than the one specified by the `skip` parameter.
 //
 // NOTE: This function is safe for concurrent access.
-func (s *server) BroadcastMessage(skip *btcec.PublicKey,
+func (s *server) BroadcastMessage(skip map[routing.Vertex]struct{},
 	msgs ...lnwire.Message) error {
 
 	s.mu.Lock()
@@ -893,7 +907,7 @@ func (s *server) BroadcastMessage(skip *btcec.PublicKey,
 //
 // NOTE: This method MUST be called while the server's mutex is locked.
 func (s *server) broadcastMessages(
-	skip *btcec.PublicKey,
+	skips map[routing.Vertex]struct{},
 	msgs []lnwire.Message) error {
 
 	srvrLog.Debugf("Broadcasting %v messages", len(msgs))
@@ -903,10 +917,13 @@ func (s *server) broadcastMessages(
 	// throughout this process to ensure we deliver messages to exact set
 	// of peers present at the time of invocation.
 	var wg sync.WaitGroup
-	for pubStr, sPeer := range s.peersByPub {
-		if skip != nil && sPeer.addr.IdentityKey.IsEqual(skip) {
-			srvrLog.Debugf("Skipping %v in broadcast", pubStr)
-			continue
+	for _, sPeer := range s.peersByPub {
+		if skips != nil {
+			if _, ok := skips[sPeer.pubKeyBytes]; ok {
+				srvrLog.Tracef("Skipping %x in broadcast",
+					sPeer.pubKeyBytes[:])
+				continue
+			}
 		}
 
 		// Dispatch a go routine to enqueue all messages to this peer.
@@ -1512,6 +1529,8 @@ type openChanReq struct {
 
 	private bool
 
+	minHtlc lnwire.MilliSatoshi
+
 	// TODO(roasbeef): add ability to specify channel constraints as well
 
 	updates chan *lnrpc.OpenStatusUpdate
@@ -1629,6 +1648,7 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 // NOTE: This function is safe for concurrent access.
 func (s *server) OpenChannel(peerID int32, nodeKey *btcec.PublicKey,
 	localAmt btcutil.Amount, pushAmt lnwire.MilliSatoshi,
+	minHtlc lnwire.MilliSatoshi,
 	fundingFeePerByte btcutil.Amount,
 	private bool) (chan *lnrpc.OpenStatusUpdate, chan error) {
 
@@ -1691,6 +1711,7 @@ func (s *server) OpenChannel(peerID int32, nodeKey *btcec.PublicKey,
 		fundingFeePerWeight: fundingFeePerWeight,
 		pushAmt:             pushAmt,
 		private:             private,
+		minHtlc:             minHtlc,
 		updates:             updateChan,
 		err:                 errChan,
 	}

@@ -274,13 +274,14 @@ type annBatch struct {
 func createAnnouncements(blockHeight uint32) (*annBatch, error) {
 	var err error
 	var batch annBatch
+	timestamp := uint32(123456)
 
-	batch.nodeAnn1, err = createNodeAnnouncement(nodeKeyPriv1)
+	batch.nodeAnn1, err = createNodeAnnouncement(nodeKeyPriv1, timestamp)
 	if err != nil {
 		return nil, err
 	}
 
-	batch.nodeAnn2, err = createNodeAnnouncement(nodeKeyPriv2)
+	batch.nodeAnn2, err = createNodeAnnouncement(nodeKeyPriv2, timestamp)
 	if err != nil {
 		return nil, err
 	}
@@ -310,14 +311,14 @@ func createAnnouncements(blockHeight uint32) (*annBatch, error) {
 	batch.localChanAnn.NodeSig2 = nil
 
 	batch.chanUpdAnn1, err = createUpdateAnnouncement(
-		blockHeight, 0, nodeKeyPriv1,
+		blockHeight, 0, nodeKeyPriv1, timestamp,
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	batch.chanUpdAnn2, err = createUpdateAnnouncement(
-		blockHeight, 1, nodeKeyPriv2,
+		blockHeight, 1, nodeKeyPriv2, timestamp,
 	)
 	if err != nil {
 		return nil, err
@@ -327,7 +328,8 @@ func createAnnouncements(blockHeight uint32) (*annBatch, error) {
 
 }
 
-func createNodeAnnouncement(priv *btcec.PrivateKey) (*lnwire.NodeAnnouncement,
+func createNodeAnnouncement(priv *btcec.PrivateKey,
+	timestamp uint32) (*lnwire.NodeAnnouncement,
 	error) {
 	var err error
 
@@ -338,7 +340,7 @@ func createNodeAnnouncement(priv *btcec.PrivateKey) (*lnwire.NodeAnnouncement,
 	}
 
 	a := &lnwire.NodeAnnouncement{
-		Timestamp: uint32(prand.Int31()),
+		Timestamp: timestamp,
 		Addresses: testAddrs,
 		NodeID:    priv.PubKey(),
 		Alias:     alias,
@@ -355,7 +357,8 @@ func createNodeAnnouncement(priv *btcec.PrivateKey) (*lnwire.NodeAnnouncement,
 }
 
 func createUpdateAnnouncement(blockHeight uint32, flags lnwire.ChanUpdateFlag,
-	nodeKey *btcec.PrivateKey) (*lnwire.ChannelUpdate, error) {
+	nodeKey *btcec.PrivateKey, timestamp uint32) (*lnwire.ChannelUpdate,
+	error) {
 
 	var err error
 
@@ -363,7 +366,7 @@ func createUpdateAnnouncement(blockHeight uint32, flags lnwire.ChanUpdateFlag,
 		ShortChannelID: lnwire.ShortChannelID{
 			BlockHeight: blockHeight,
 		},
-		Timestamp:       uint32(prand.Int31()),
+		Timestamp:       timestamp,
 		TimeLockDelta:   uint16(prand.Int63()),
 		Flags:           flags,
 		HtlcMinimumMsat: lnwire.MilliSatoshi(prand.Int63()),
@@ -380,10 +383,9 @@ func createUpdateAnnouncement(blockHeight uint32, flags lnwire.ChanUpdateFlag,
 	return a, nil
 }
 
-func createRemoteChannelAnnouncement(blockHeight uint32) (*lnwire.ChannelAnnouncement,
-	error) {
-	var err error
+func createRemoteChannelAnnouncement(blockHeight uint32) (*lnwire.ChannelAnnouncement, error) {
 
+	var err error
 	a := &lnwire.ChannelAnnouncement{
 		ShortChannelID: lnwire.ShortChannelID{
 			BlockHeight: blockHeight,
@@ -428,7 +430,7 @@ type testCtx struct {
 	gossiper           *AuthenticatedGossiper
 	router             *mockGraphSource
 	notifier           *mockNotifier
-	broadcastedMessage chan lnwire.Message
+	broadcastedMessage chan msgWithSenders
 }
 
 func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
@@ -444,13 +446,19 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 		return nil, nil, err
 	}
 
-	broadcastedMessage := make(chan lnwire.Message, 10)
+	broadcastedMessage := make(chan msgWithSenders, 10)
 	gossiper, err := New(Config{
 		Notifier: notifier,
-		Broadcast: func(_ *btcec.PublicKey, msgs ...lnwire.Message) error {
+		Broadcast: func(senders map[routing.Vertex]struct{},
+			msgs ...lnwire.Message) error {
+
 			for _, msg := range msgs {
-				broadcastedMessage <- msg
+				broadcastedMessage <- msgWithSenders{
+					msg:     msg,
+					senders: senders,
+				}
 			}
+
 			return nil
 		},
 		SendToPeer: func(target *btcec.PublicKey, msg ...lnwire.Message) error {
@@ -489,17 +497,26 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 func TestProcessAnnouncement(t *testing.T) {
 	t.Parallel()
 
+	timestamp := uint32(123456)
+
 	ctx, cleanup, err := createTestCtx(0)
 	if err != nil {
 		t.Fatalf("can't create context: %v", err)
 	}
 	defer cleanup()
 
+	assertSenderExistence := func(sender *btcec.PublicKey, msg msgWithSenders) {
+		if _, ok := msg.senders[routing.NewVertex(sender)]; !ok {
+			t.Fatalf("sender=%x not present in %v",
+				sender.SerializeCompressed(), spew.Sdump(msg))
+		}
+	}
+
 	// Create node valid, signed announcement, process it with with
 	// gossiper service, check that valid announcement have been
 	// propagated farther into the lightning network, and check that we
 	// added new node into router.
-	na, err := createNodeAnnouncement(nodeKeyPriv1)
+	na, err := createNodeAnnouncement(nodeKeyPriv1, timestamp)
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
@@ -514,7 +531,8 @@ func TestProcessAnnouncement(t *testing.T) {
 	}
 
 	select {
-	case <-ctx.broadcastedMessage:
+	case msg := <-ctx.broadcastedMessage:
+		assertSenderExistence(na.NodeID, msg)
 	case <-time.After(2 * trickleDelay):
 		t.Fatal("announcememt wasn't proceeded")
 	}
@@ -541,7 +559,8 @@ func TestProcessAnnouncement(t *testing.T) {
 	}
 
 	select {
-	case <-ctx.broadcastedMessage:
+	case msg := <-ctx.broadcastedMessage:
+		assertSenderExistence(na.NodeID, msg)
 	case <-time.After(2 * trickleDelay):
 		t.Fatal("announcememt wasn't proceeded")
 	}
@@ -553,7 +572,7 @@ func TestProcessAnnouncement(t *testing.T) {
 	// Pretending that we received valid channel policy update from remote
 	// side, and check that we broadcasted it to the other network, and
 	// added updates to the router.
-	ua, err := createUpdateAnnouncement(0, 0, nodeKeyPriv1)
+	ua, err := createUpdateAnnouncement(0, 0, nodeKeyPriv1, timestamp)
 	if err != nil {
 		t.Fatalf("can't create update announcement: %v", err)
 	}
@@ -568,7 +587,8 @@ func TestProcessAnnouncement(t *testing.T) {
 	}
 
 	select {
-	case <-ctx.broadcastedMessage:
+	case msg := <-ctx.broadcastedMessage:
+		assertSenderExistence(na.NodeID, msg)
 	case <-time.After(2 * trickleDelay):
 		t.Fatal("announcememt wasn't proceeded")
 	}
@@ -584,13 +604,15 @@ func TestProcessAnnouncement(t *testing.T) {
 func TestPrematureAnnouncement(t *testing.T) {
 	t.Parallel()
 
+	timestamp := uint32(123456)
+
 	ctx, cleanup, err := createTestCtx(0)
 	if err != nil {
 		t.Fatalf("can't create context: %v", err)
 	}
 	defer cleanup()
 
-	na, err := createNodeAnnouncement(nodeKeyPriv1)
+	na, err := createNodeAnnouncement(nodeKeyPriv1, timestamp)
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
@@ -618,7 +640,7 @@ func TestPrematureAnnouncement(t *testing.T) {
 	// remote side, but block height of this announcement is greater than
 	// highest know to us, for that reason it should be added to the
 	// repeat/premature batch.
-	ua, err := createUpdateAnnouncement(1, 0, nodeKeyPriv1)
+	ua, err := createUpdateAnnouncement(1, 0, nodeKeyPriv1, timestamp)
 	if err != nil {
 		t.Fatalf("can't create update announcement: %v", err)
 	}
@@ -1553,6 +1575,7 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 func TestDeDuplicatedAnnouncements(t *testing.T) {
 	t.Parallel()
 
+	timestamp := uint32(123456)
 	announcements := deDupedAnnouncements{}
 	announcements.Reset()
 
@@ -1574,7 +1597,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("can't create remote channel announcement: %v", err)
 	}
-	announcements.AddMsgs(ca)
+	announcements.AddMsgs(networkMsg{msg: ca, peer: bitcoinKeyPub2})
 	if len(announcements.channelAnnouncements) != 1 {
 		t.Fatal("new channel announcement not stored in batch")
 	}
@@ -1587,7 +1610,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("can't create remote channel announcement: %v", err)
 	}
-	announcements.AddMsgs(ca2)
+	announcements.AddMsgs(networkMsg{msg: ca2, peer: bitcoinKeyPub2})
 	if len(announcements.channelAnnouncements) != 1 {
 		t.Fatal("channel announcement not replaced in batch")
 	}
@@ -1595,54 +1618,96 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	// Next, we'll ensure that channel update announcements are properly
 	// stored and de-duplicated. We do this by creating two updates
 	// announcements with the same short ID and flag.
-	ua, err := createUpdateAnnouncement(0, 0, nodeKeyPriv1)
+	ua, err := createUpdateAnnouncement(0, 0, nodeKeyPriv1, timestamp)
 	if err != nil {
 		t.Fatalf("can't create update announcement: %v", err)
 	}
-	announcements.AddMsgs(ua)
+	announcements.AddMsgs(networkMsg{msg: ua, peer: bitcoinKeyPub2})
 	if len(announcements.channelUpdates) != 1 {
 		t.Fatal("new channel update not stored in batch")
 	}
 
 	// Adding the very same announcement shouldn't cause an increase in the
 	// number of ChannelUpdate announcements stored.
-	ua2, err := createUpdateAnnouncement(0, 0, nodeKeyPriv1)
+	ua2, err := createUpdateAnnouncement(0, 0, nodeKeyPriv1, timestamp)
 	if err != nil {
 		t.Fatalf("can't create update announcement: %v", err)
 	}
-	announcements.AddMsgs(ua2)
+	announcements.AddMsgs(networkMsg{msg: ua2, peer: bitcoinKeyPub2})
 	if len(announcements.channelUpdates) != 1 {
 		t.Fatal("channel update not replaced in batch")
 	}
 
+	// Adding an announcment with a later timestamp should replace the
+	// stored one.
+	ua3, err := createUpdateAnnouncement(0, 0, nodeKeyPriv1, timestamp+1)
+	if err != nil {
+		t.Fatalf("can't create update announcement: %v", err)
+	}
+	announcements.AddMsgs(networkMsg{msg: ua3, peer: bitcoinKeyPub2})
+	if len(announcements.channelUpdates) != 1 {
+		t.Fatal("channel update not replaced in batch")
+	}
+
+	assertChannelUpdate := func(channelUpdate *lnwire.ChannelUpdate) {
+		channelKey := channelUpdateID{
+			ua3.ShortChannelID,
+			ua3.Flags,
+		}
+
+		mws, ok := announcements.channelUpdates[channelKey]
+		if !ok {
+			t.Fatal("channel update not in batch")
+		}
+		if mws.msg != channelUpdate {
+			t.Fatalf("expected channel update %v, got %v)",
+				channelUpdate, mws.msg)
+		}
+	}
+
+	// Check that ua3 is the currently stored channel update.
+	assertChannelUpdate(ua3)
+
+	// Adding a channel update with an earlier timestamp should NOT
+	// replace the one stored.
+	ua4, err := createUpdateAnnouncement(0, 0, nodeKeyPriv1, timestamp)
+	if err != nil {
+		t.Fatalf("can't create update announcement: %v", err)
+	}
+	announcements.AddMsgs(networkMsg{msg: ua4, peer: bitcoinKeyPub2})
+	if len(announcements.channelUpdates) != 1 {
+		t.Fatal("channel update not in batch")
+	}
+	assertChannelUpdate(ua3)
+
 	// Next well ensure that node announcements are properly de-duplicated.
 	// We'll first add a single instance with a node's private key.
-	na, err := createNodeAnnouncement(nodeKeyPriv1)
+	na, err := createNodeAnnouncement(nodeKeyPriv1, timestamp)
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
-	announcements.AddMsgs(na)
+	announcements.AddMsgs(networkMsg{msg: na, peer: bitcoinKeyPub2})
 	if len(announcements.nodeAnnouncements) != 1 {
 		t.Fatal("new node announcement not stored in batch")
 	}
 
 	// We'll now add another node to the batch.
-	na2, err := createNodeAnnouncement(nodeKeyPriv2)
+	na2, err := createNodeAnnouncement(nodeKeyPriv2, timestamp)
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
-	announcements.AddMsgs(na2)
+	announcements.AddMsgs(networkMsg{msg: na2, peer: bitcoinKeyPub2})
 	if len(announcements.nodeAnnouncements) != 2 {
 		t.Fatal("second node announcement not stored in batch")
 	}
 
 	// Adding a new instance of the _same_ node shouldn't increase the size
 	// of the node ann batch.
-	na3, err := createNodeAnnouncement(nodeKeyPriv2)
+	na3, err := createNodeAnnouncement(nodeKeyPriv2, timestamp)
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
-	announcements.AddMsgs(na3)
+	announcements.AddMsgs(networkMsg{msg: na3, peer: bitcoinKeyPub2})
 	if len(announcements.nodeAnnouncements) != 2 {
 		t.Fatal("second node announcement not replaced in batch")
 	}
@@ -1650,13 +1715,33 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	// Ensure that node announcement with different pointer to same public
 	// key is still de-duplicated.
 	newNodeKeyPointer := nodeKeyPriv2
-	na4, err := createNodeAnnouncement(newNodeKeyPointer)
+	na4, err := createNodeAnnouncement(newNodeKeyPointer, timestamp)
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
-	announcements.AddMsgs(na4)
+	announcements.AddMsgs(networkMsg{msg: na4, peer: bitcoinKeyPub2})
 	if len(announcements.nodeAnnouncements) != 2 {
 		t.Fatal("second node announcement not replaced again in batch")
+	}
+
+	// Ensure that node announcement with increased timestamp replaces
+	// what is currently stored.
+	na5, err := createNodeAnnouncement(nodeKeyPriv2, timestamp+1)
+	if err != nil {
+		t.Fatalf("can't create node announcement: %v", err)
+	}
+	announcements.AddMsgs(networkMsg{msg: na5, peer: bitcoinKeyPub2})
+	if len(announcements.nodeAnnouncements) != 2 {
+		t.Fatal("node announcement not replaced in batch")
+	}
+	nodeID := routing.NewVertex(nodeKeyPriv2.PubKey())
+	stored, ok := announcements.nodeAnnouncements[nodeID]
+	if !ok {
+		t.Fatalf("node announcement not found in batch")
+	}
+	if stored.msg != na5 {
+		t.Fatalf("expected de-duped node announcement to be %v, got %v",
+			na5, stored.msg)
 	}
 
 	// Ensure that announcement batch delivers channel announcements,
@@ -1666,28 +1751,28 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 		t.Fatal("announcement batch incorrect length")
 	}
 
-	if !reflect.DeepEqual(batch[0], ca2) {
-		t.Fatal("channel announcement not first in batch: got %v, "+
-			"expected %v", spew.Sdump(batch[0]), spew.Sdump(ca2))
+	if !reflect.DeepEqual(batch[0].msg, ca2) {
+		t.Fatalf("channel announcement not first in batch: got %v, "+
+			"expected %v", spew.Sdump(batch[0].msg), spew.Sdump(ca2))
 	}
 
-	if !reflect.DeepEqual(batch[1], ua2) {
-		t.Fatal("channel update not next in batch: got %v, "+
-			"expected %v", spew.Sdump(batch[1]), spew.Sdump(ua2))
+	if !reflect.DeepEqual(batch[1].msg, ua3) {
+		t.Fatalf("channel update not next in batch: got %v, "+
+			"expected %v", spew.Sdump(batch[1].msg), spew.Sdump(ua2))
 	}
 
 	// We'll ensure that both node announcements are present. We check both
 	// indexes as due to the randomized order of map iteration they may be
 	// in either place.
-	if !reflect.DeepEqual(batch[2], na) && !reflect.DeepEqual(batch[3], na) {
+	if !reflect.DeepEqual(batch[2].msg, na) && !reflect.DeepEqual(batch[3].msg, na) {
 		t.Fatal("first node announcement not in last part of batch: "+
-			"got %v, expected %v", batch[2],
+			"got %v, expected %v", batch[2].msg,
 			na)
 	}
-	if !reflect.DeepEqual(batch[2], na4) && !reflect.DeepEqual(batch[3], na4) {
+	if !reflect.DeepEqual(batch[2].msg, na5) && !reflect.DeepEqual(batch[3].msg, na5) {
 		t.Fatalf("second node announcement not in last part of batch: "+
-			"got %v, expected %v", batch[3],
-			na2)
+			"got %v, expected %v", batch[3].msg,
+			na5)
 	}
 
 	// Ensure that after reset, storage of each announcement type

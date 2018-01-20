@@ -132,7 +132,7 @@ type testNode struct {
 	shutdownChannel chan struct{}
 }
 
-func disableFndgLogger(t *testing.T) {
+func init() {
 	channeldb.UseLogger(btclog.Disabled)
 	lnwallet.UseLogger(btclog.Disabled)
 	fndgLog = btclog.Disabled
@@ -264,8 +264,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		},
 		NumRequiredConfs: func(chanAmt btcutil.Amount,
 			pushAmt lnwire.MilliSatoshi) uint16 {
-
-			return uint16(cfg.DefaultNumChanConfs)
+			return 3
 		},
 		RequiredRemoteDelay: func(amt btcutil.Amount) uint16 {
 			return 4
@@ -802,8 +801,6 @@ func assertHandleFundingLocked(t *testing.T, alice, bob *testNode) {
 }
 
 func TestFundingManagerNormalWorkflow(t *testing.T) {
-	disableFndgLogger(t)
-
 	alice, bob := setupFundingManagers(t)
 	defer tearDownFundingManagers(t, alice, bob)
 
@@ -866,8 +863,6 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 }
 
 func TestFundingManagerRestartBehavior(t *testing.T) {
-	disableFndgLogger(t)
-
 	alice, bob := setupFundingManagers(t)
 	defer tearDownFundingManagers(t, alice, bob)
 
@@ -986,8 +981,6 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 // server to notify when the peer comes online, in case sending the
 // fundingLocked message fails the first time.
 func TestFundingManagerOfflinePeer(t *testing.T) {
-	disableFndgLogger(t)
-
 	alice, bob := setupFundingManagers(t)
 	defer tearDownFundingManagers(t, alice, bob)
 
@@ -1114,8 +1107,6 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 }
 
 func TestFundingManagerFundingTimeout(t *testing.T) {
-	disableFndgLogger(t)
-
 	alice, bob := setupFundingManagers(t)
 	defer tearDownFundingManagers(t, alice, bob)
 
@@ -1158,8 +1149,6 @@ func TestFundingManagerFundingTimeout(t *testing.T) {
 // continues to operate as expected in case we receive a duplicate fundingLocked
 // message.
 func TestFundingManagerReceiveFundingLockedTwice(t *testing.T) {
-	disableFndgLogger(t)
-
 	alice, bob := setupFundingManagers(t)
 	defer tearDownFundingManagers(t, alice, bob)
 
@@ -1257,8 +1246,6 @@ func TestFundingManagerReceiveFundingLockedTwice(t *testing.T) {
 // handles receiving a fundingLocked after the its own fundingLocked and channel
 // announcement is sent and gets restarted.
 func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
-	disableFndgLogger(t)
-
 	alice, bob := setupFundingManagers(t)
 	defer tearDownFundingManagers(t, alice, bob)
 
@@ -1329,8 +1316,6 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 // fundingManager continues to operate as expected after it has received
 // fundingLocked and then gets restarted.
 func TestFundingManagerRestartAfterReceivingFundingLocked(t *testing.T) {
-	disableFndgLogger(t)
-
 	alice, bob := setupFundingManagers(t)
 	defer tearDownFundingManagers(t, alice, bob)
 
@@ -1397,8 +1382,6 @@ func TestFundingManagerRestartAfterReceivingFundingLocked(t *testing.T) {
 // (a channel not supposed to be announced to the rest of the network),
 // the announcementSignatures nor the nodeAnnouncement messages are sent.
 func TestFundingManagerPrivateChannel(t *testing.T) {
-	disableFndgLogger(t)
-
 	alice, bob := setupFundingManagers(t)
 	defer tearDownFundingManagers(t, alice, bob)
 
@@ -1475,8 +1458,6 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 // announcement signatures nor the node announcement messages are sent upon
 // restart.
 func TestFundingManagerPrivateRestart(t *testing.T) {
-	disableFndgLogger(t)
-
 	alice, bob := setupFundingManagers(t)
 	defer tearDownFundingManagers(t, alice, bob)
 

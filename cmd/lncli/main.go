@@ -193,7 +193,7 @@ func main() {
 		signMessageCommand,
 		verifyMessageCommand,
 		feeReportCommand,
-		updateFeesCommand,
+		updateChannelPolicyCommand,
 	}
 
 	if err := app.Run(os.Args); err != nil {

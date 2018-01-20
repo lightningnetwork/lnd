@@ -350,7 +350,7 @@ type Machine struct {
 // NewBrontideMachine creates a new instance of the brontide state-machine. If
 // the responder (listener) is creating the object, then the remotePub should
 // be nil. The handshake state within brontide is initialized using the ascii
-// string "bitcoin" as the prologue. The last parameter is a set of variadic
+// string "lightning" as the prologue. The last parameter is a set of variadic
 // arguments for adding additional options to the brontide Machine
 // initialization.
 func NewBrontideMachine(initiator bool, localPub *btcec.PrivateKey,
@@ -627,7 +627,7 @@ func (b *Machine) RecvActThree(actThree [ActThreeSize]byte) error {
 }
 
 // split is the final wrap-up act to be executed at the end of a successful
-// three act handshake. This function creates to internal cipherState
+// three act handshake. This function creates two internal cipherState
 // instances: one which is used to encrypt messages from the initiator to the
 // responder, and another which is used to encrypt message for the opposite
 // direction.

@@ -15,6 +15,12 @@
     sudo apt-get install golang-1.8-go
     ```
     > Note that golang-1.8-go puts binaries in /usr/lib/go-1.8/bin. If you want them on your PATH, you need to make that change yourself.
+    
+        **Note**: Ubuntu 16.04 repo only has 1.6 available. To install 1.8 from Gophers, use the following commands first
+    ```
+    sudo add-apt-repository ppa:gophers/archive
+    sudo apt-get update    
+    ```        
 
     On Mac OS X
     ```

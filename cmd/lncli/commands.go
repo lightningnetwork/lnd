@@ -975,6 +975,10 @@ var sendPaymentCommand = cli.Command{
 			Name:  "pay_req",
 			Usage: "a zpay32 encoded payment request to fulfill",
 		},
+		cli.Int64Flag{
+			Name:  "final_cltv_delta",
+			Usage: "the number of blocks the last hop has to reveal the preimage",
+		},
 	},
 	Action: sendPayment,
 }
@@ -1055,6 +1059,17 @@ func sendPayment(ctx *cli.Context) error {
 					"bytes, is instead %v", len(rHash))
 			}
 			req.PaymentHash = rHash
+
+			switch {
+			case ctx.IsSet("final_cltv_delta"):
+				req.FinalCltvDelta = int32(ctx.Int64("final_cltv_delta"))
+			case args.Present():
+				delta, err := strconv.ParseInt(args.First(), 10, 64)
+				if err != nil {
+					return err
+				}
+				req.FinalCltvDelta = int32(delta)
+			}
 		}
 	}
 

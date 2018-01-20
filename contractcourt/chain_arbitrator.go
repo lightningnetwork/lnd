@@ -364,6 +364,18 @@ func (c *ChainArbitrator) Start() error {
 	// Next, for each channel is the closing state, we'll launch a
 	// corresponding more restricted resolver.
 	for _, closeChanInfo := range closingChannels {
+		// If this is a pending cooperative close channel then we'll
+		// simply launch a goroutine to wait until the closing
+		// transaction has been confirmed.
+		if closeChanInfo.CloseType == channeldb.CooperativeClose {
+			go c.watchForChannelClose(closeChanInfo)
+
+			// TODO(roasbeef): actually need arb to possibly
+			// recover from race condition broadcast?
+			//  * if do, can't recover from multi-broadcast
+			continue
+		}
+
 		blockEpoch, err := c.cfg.Notifier.RegisterBlockEpochNtfn()
 		if err != nil {
 			return err
@@ -454,6 +466,67 @@ func (c *ChainArbitrator) Stop() error {
 	c.wg.Wait()
 
 	return nil
+}
+
+// watchForChannelClose is used by the ChainArbitrator to watch for the
+// ultimate on-chain conformation of an existing cooperative channel closure.
+// This is needed if we started a co-op close, but it wasn't fully confirmed
+// before we restarted.
+//
+// NOTE: This must be launched as a goroutine.
+func (c *ChainArbitrator) watchForChannelClose(closeInfo *channeldb.ChannelCloseSummary) {
+	spendNtfn, err := c.cfg.Notifier.RegisterSpendNtfn(
+		&closeInfo.ChanPoint, closeInfo.CloseHeight,
+	)
+	if err != nil {
+		log.Errorf("unable to register for spend: %v", err)
+		return
+	}
+
+	var (
+		commitSpend *chainntnfs.SpendDetail
+		ok          bool
+	)
+	select {
+	case commitSpend, ok = <-spendNtfn.Spend:
+		if !ok {
+			return
+		}
+	case <-c.quit:
+		return
+	}
+
+	confNtfn, err := c.cfg.Notifier.RegisterConfirmationsNtfn(
+		commitSpend.SpenderTxHash, 1,
+		uint32(commitSpend.SpendingHeight),
+	)
+	if err != nil {
+		log.Errorf("unable to register for "+
+			"conf: %v", err)
+		return
+	}
+
+	log.Infof("Waiting for txid=%v to close ChannelPoint(%v) on chain",
+		commitSpend.SpenderTxHash, closeInfo.ChanPoint)
+
+	select {
+	case confInfo, ok := <-confNtfn.Confirmed:
+		if !ok {
+			return
+		}
+
+		log.Infof("ChannelPoint(%v) is fully closed, at height: %v",
+			closeInfo.ChanPoint, confInfo.BlockHeight)
+
+		err := c.resolveContract(closeInfo.ChanPoint, nil)
+		if err != nil {
+			log.Errorf("unable to resolve contract: %v", err)
+		}
+
+	case <-c.quit:
+		return
+	}
+
 }
 
 // ContractSignals wraps the two signals that affect the state of a channel
@@ -603,8 +676,6 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 	// With the arbitrator created, we'll add it to our set of active
 	// arbitrators, then launch it.
 	c.activeChannels[chanPoint] = channelArb
-	return channelArb.Start()
-}
 
 	if err := channelArb.Start(); err != nil {
 		return err
@@ -634,6 +705,21 @@ func (c *ChainArbitrator) SubscribeChannelEvents(
 	// With the watcher located, we'll request for it to create a new chain
 	// event subscription client.
 	return watcher.SubscribeChannelEvents(), nil
+}
+
+// BeginCoopChanClose allows the initiator or responder to a cooperative
+// channel closure to signal to the ChainArbitrator that we're starting close
+// negotiation. The caller can use this context to allow the underlying chain
+// watcher to be prepared to act if *any* of the transactions that may
+// potentially be signed off on during fee negotiation are confirmed.
+func (c *ChainArbitrator) BeginCoopChanClose(chanPoint wire.OutPoint) (*CooperativeCloseCtx, error) {
+	watcher, ok := c.activeWatchers[chanPoint]
+	if !ok {
+		return nil, fmt.Errorf("unable to find watcher for: %v",
+			chanPoint)
+	}
+
+	return watcher.BeginCooperativeClose(), nil
 }
 
 // TODO(roasbeef): arbitration reports

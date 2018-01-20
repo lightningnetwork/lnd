@@ -479,7 +479,12 @@ func (s *Switch) handleLocalDispatch(packet *htlcPacket) error {
 	// user payment and return fail response.
 	case *lnwire.UpdateFailHTLC:
 		var failure *ForwardingError
-		if packet.localFailure {
+		switch {
+
+		// The payment never cleared the link, so we don't need to
+		// decrypt the error, simply decode it them report back to the
+		// user.
+		case packet.localFailure:
 			var userErr string
 			r := bytes.NewReader(htlc.Reason)
 			failureMsg, err := lnwire.DecodeFailure(r, 0)
@@ -494,9 +499,25 @@ func (s *Switch) handleLocalDispatch(packet *htlcPacket) error {
 				ExtraMsg:       userErr,
 				FailureMessage: failureMsg,
 			}
-		} else {
-			// We'll attempt to fully decrypt the onion encrypted error. If
-			// we're unable to then we'll bail early.
+
+		// A payment had to be timed out on chain before it got past
+		// the first hop. In this case, we'll report a permanent
+		// channel failure as this means us, or the remote party had to
+		// go on chain.
+		case packet.isResolution && htlc.Reason == nil:
+			userErr := fmt.Sprintf("payment was resolved " +
+				"on-chain, then cancelled back")
+			failure = &ForwardingError{
+				ErrorSource:    s.cfg.SelfKey,
+				ExtraMsg:       userErr,
+				FailureMessage: lnwire.FailPermanentChannelFailure{},
+			}
+
+		// A regular multi-hop payment error that we'll need to
+		// decrypt.
+		default:
+			// We'll attempt to fully decrypt the onion encrypted
+			// error. If we're unable to then we'll bail early.
 			failure, err = payment.deobfuscator.DecryptError(htlc.Reason)
 			if err != nil {
 				userErr := fmt.Sprintf("unable to de-obfuscate onion failure, "+
@@ -694,16 +715,16 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			}
 		}
 
-		// A blank IncomingChanID in a circuit indicates that it is a pending
-		// user-initiated payment.
+		// A blank IncomingChanID in a circuit indicates that it is a
+		// pending user-initiated payment.
 		if packet.incomingChanID == (lnwire.ShortChannelID{}) {
 			return s.handleLocalDispatch(packet)
 		}
 
 		source, err := s.getLinkByShortID(packet.incomingChanID)
 		if err != nil {
-			err := errors.Errorf("Unable to get source channel link to "+
-				"forward HTLC settle/fail: %v", err)
+			err := errors.Errorf("Unable to get source channel "+
+				"link to forward HTLC settle/fail: %v", err)
 			log.Error(err)
 			return err
 		}

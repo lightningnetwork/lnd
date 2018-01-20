@@ -215,7 +215,7 @@ func NewChannelArbitrator(cfg ChannelArbitratorConfig,
 // Start starts all the goroutines that the ChannelArbitrator needs to operate.
 func (c *ChannelArbitrator) Start() error {
 	if !atomic.CompareAndSwapInt32(&c.started, 0, 1) {
-		return fmt.Errorf("already started")
+		return nil
 	}
 
 	var (
@@ -287,12 +287,14 @@ func (c *ChannelArbitrator) Start() error {
 // Stop signals the ChannelArbitrator for a graceful shutdown.
 func (c *ChannelArbitrator) Stop() error {
 	if !atomic.CompareAndSwapInt32(&c.stopped, 0, 1) {
-		return fmt.Errorf("already shutting down")
+		return nil
 	}
 
 	log.Debugf("Stopping ChannelArbitrator(%v)", c.cfg.ChanPoint)
 
-	c.cfg.ChainEvents.Cancel()
+	if c.cfg.ChainEvents.Cancel != nil {
+		c.cfg.ChainEvents.Cancel()
+	}
 
 	for _, activeResolver := range c.activeResolvers {
 		activeResolver.Stop()
@@ -1345,6 +1347,13 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 					return spew.Sdump(c.activeHTLCs)
 				}),
 			)
+
+			// We've cooperatively closed the channel, so we're no longer
+			// needed.
+		case <-c.cfg.ChainEvents.CooperativeClosure:
+			log.Infof("ChannelArbitrator(%v) closing due to co-op "+
+				"closure", c.cfg.ChanPoint)
+			return
 
 		// The remote party has broadcast the commitment on-chain.
 		// We'll examine our state to determine if we need to act at

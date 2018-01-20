@@ -6,6 +6,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -141,6 +142,8 @@ type channelCloser struct {
 	// TODO(roasbeef): abstract away
 	closeReq *htlcswitch.ChanClose
 
+	closeCtx *contractcourt.CooperativeCloseCtx
+
 	// localDeliveryScript is the script that we'll send our settled
 	// channel funds to.
 	localDeliveryScript []byte
@@ -155,7 +158,8 @@ type channelCloser struct {
 // only be populated iff, we're the initiator of this closing request.
 func newChannelCloser(cfg chanCloseCfg, deliveryScript []byte,
 	idealFeePerkw btcutil.Amount, negotiationHeight uint32,
-	closeReq *htlcswitch.ChanClose) *channelCloser {
+	closeReq *htlcswitch.ChanClose,
+	closeCtx *contractcourt.CooperativeCloseCtx) *channelCloser {
 
 	// Given the target fee-per-kw, we'll compute what our ideal _total_
 	// fee will be starting at for this fee negotiation.
@@ -191,6 +195,7 @@ func newChannelCloser(cfg chanCloseCfg, deliveryScript []byte,
 		cfg:                 cfg,
 		negotiationHeight:   negotiationHeight,
 		idealFeeSat:         idealFeeSat,
+		closeCtx:            closeCtx,
 		localDeliveryScript: deliveryScript,
 		priorFeeOffers:      make(map[btcutil.Amount]*lnwire.ClosingSigned),
 	}
@@ -459,19 +464,20 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 		// being closed within the database.
 		closingTxid := closeTx.TxHash()
 		chanInfo := c.cfg.channel.StateSnapshot()
-		closeSummary := &channeldb.ChannelCloseSummary{
+		c.closeCtx.Finalize(&channeldb.ChannelCloseSummary{
 			ChanPoint:      c.chanPoint,
 			ChainHash:      chanInfo.ChainHash,
 			ClosingTXID:    closingTxid,
+			CloseHeight:    c.negotiationHeight,
 			RemotePub:      &chanInfo.RemoteIdentity,
 			Capacity:       chanInfo.Capacity,
 			SettledBalance: finalLocalBalance,
 			CloseType:      channeldb.CooperativeClose,
+			ShortChanID:    c.cfg.channel.ShortChanID(),
 			IsPending:      true,
-		}
-		if err := c.cfg.channel.DeleteState(closeSummary); err != nil {
-			return nil, false, err
-		}
+		})
+
+		// TODO(roasbeef): don't need, ChainWatcher will handle
 
 		c.state = closeFinished
 
@@ -507,7 +513,8 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 // transaction for a channel based on the prior fee negotiations and our
 // current compromise fee.
 func (c *channelCloser) proposeCloseSigned(fee btcutil.Amount) (*lnwire.ClosingSigned, error) {
-	rawSig, err := c.cfg.channel.CreateCloseProposal(
+
+	rawSig, txid, localAmt, err := c.cfg.channel.CreateCloseProposal(
 		fee, c.localDeliveryScript, c.remoteDeliveryScript,
 	)
 	if err != nil {
@@ -534,6 +541,20 @@ func (c *channelCloser) proposeCloseSigned(fee btcutil.Amount) (*lnwire.ClosingS
 	// We'll also save this close signed, in the case that the remote party
 	// accepts our offer. This way, we don't have to re-sign.
 	c.priorFeeOffers[fee] = closeSignedMsg
+
+	chanInfo := c.cfg.channel.StateSnapshot()
+	c.closeCtx.LogPotentialClose(&channeldb.ChannelCloseSummary{
+		ChanPoint:      c.chanPoint,
+		ChainHash:      chanInfo.ChainHash,
+		ClosingTXID:    *txid,
+		CloseHeight:    c.negotiationHeight,
+		RemotePub:      &chanInfo.RemoteIdentity,
+		Capacity:       chanInfo.Capacity,
+		SettledBalance: localAmt,
+		CloseType:      channeldb.CooperativeClose,
+		ShortChanID:    c.cfg.channel.ShortChanID(),
+		IsPending:      true,
+	})
 
 	return closeSignedMsg, nil
 }

@@ -230,7 +230,6 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement, error) {
 			return lnwire.NodeAnnouncement{}, nil
 		},
-		ArbiterChan: arbiterChan,
 		SendToPeer: func(target *btcec.PublicKey, msgs ...lnwire.Message) error {
 			select {
 			case sentMessages <- msgs[0]:
@@ -257,7 +256,6 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 					return lnwallet.NewLightningChannel(
 						signer,
 						nil,
-						nil,
 						channel)
 				}
 			}
@@ -271,7 +269,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		RequiredRemoteDelay: func(amt btcutil.Amount) uint16 {
 			return 4
 		},
-		ArbitrateNewChan: func(*channeldb.OpenChannel) error {
+		WatchNewChannel: func(*channeldb.OpenChannel) error {
 			return nil
 		},
 	})
@@ -330,7 +328,6 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement, error) {
 			return lnwire.NodeAnnouncement{}, nil
 		},
-		ArbiterChan: oldCfg.ArbiterChan,
 		SendToPeer: func(target *btcec.PublicKey,
 			msgs ...lnwire.Message) error {
 			select {

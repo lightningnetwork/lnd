@@ -1425,6 +1425,18 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 			return nil, err
 		}
 
+		// Before we create the chan closer, we'll start a new
+		// cooperative channel closure transaction from the chain arb.
+		// Wtih this context, we'll ensure that we're able to respond
+		// if *any* of the transactions we sign off on are ever
+		// braodacast.
+		closeCtx, err := p.server.chainArb.BeginCoopChanClose(
+			*channel.ChannelPoint(),
+		)
+		if err != nil {
+			return nil, err
+		}
+
 		chanCloser = newChannelCloser(
 			chanCloseCfg{
 				channel:           channel,
@@ -1437,6 +1449,7 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 			targetFeePerKw,
 			uint32(startingHeight),
 			nil,
+			closeCtx,
 		)
 		p.activeChanCloses[chanID] = chanCloser
 	}
@@ -1479,7 +1492,14 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 			return
 		}
 
-		_, startingHeight, err := p.server.cc.chainIO.GetBestBlock()
+		// Before we create the chan closer, we'll start a new
+		// cooperative channel closure transaction from the chain arb.
+		// Wtih this context, we'll ensure that we're able to respond
+		// if *any* of the transactions we sign off on are ever
+		// braodacast.
+		closeCtx, err := p.server.chainArb.BeginCoopChanClose(
+			*channel.ChannelPoint(),
+		)
 		if err != nil {
 			peerLog.Errorf(err.Error())
 			req.Err <- err
@@ -1488,6 +1508,12 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 
 		// Next, we'll create a new channel closer state machine to
 		// handle the close negotiation.
+		_, startingHeight, err := p.server.cc.chainIO.GetBestBlock()
+		if err != nil {
+			peerLog.Errorf(err.Error())
+			req.Err <- err
+			return
+		}
 		chanCloser := newChannelCloser(
 			chanCloseCfg{
 				channel:           channel,
@@ -1500,6 +1526,7 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 			req.TargetFeePerKw,
 			uint32(startingHeight),
 			req,
+			closeCtx,
 		)
 		p.activeChanCloses[chanID] = chanCloser
 
@@ -1591,18 +1618,6 @@ func (p *peer) finalizeChanClosure(chanCloser *channelCloser) {
 
 	go waitForChanToClose(chanCloser.negotiationHeight, notifier, errChan,
 		chanPoint, &closingTxid, func() {
-
-			// First, we'll mark the database as being fully closed
-			// so we'll no longer watch for its ultimate closure
-			// upon startup.
-			err := p.server.chanDB.MarkChanFullyClosed(chanPoint)
-			if err != nil {
-				if closeReq != nil {
-					closeReq.Err <- err
-				}
-				return
-			}
-
 			// Respond to the local subsystem which requested the
 			// channel closure.
 			if closeReq != nil {

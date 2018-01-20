@@ -400,6 +400,10 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 			chanID := lnwire.NewChanIDFromOutPoint(&chanPoint)
 			return s.htlcSwitch.RemoveLink(chanID)
 		},
+		IsOurAddress: func(addr btcutil.Address) bool {
+			_, err := cc.wallet.GetPrivKey(addr)
+			return err == nil
+		},
 	}, chanDB)
 
 	s.breachArbiter = newBreachArbiter(&BreachConfig{

@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcutil"
 )
 
 // ResolutionMsg is a message sent by resolvers to outside sub-systems once an
@@ -77,8 +78,13 @@ type ChainArbitratorConfig struct {
 	// ChannelArbitrator decides that it needs to go to chain in order to
 	// resolve contracts.
 	//
-	// TODO(Roasbeef): rename, routing based
+	// TODO(roasbeef): rename, routing based
 	MarkLinkInactive func(wire.OutPoint) error
+
+	// IsOurAddress is a function that returns true if the passed address
+	// is known to the underlying wallet. Otherwise, false should be
+	// returned.
+	IsOurAddress func(btcutil.Address) bool
 
 	// IncubateOutput sends either a incoming HTLC, an outgoing HTLC, or
 	// both to the utxo nursery. Once this function returns, the nursery
@@ -323,6 +329,9 @@ func (c *ChainArbitrator) Start() error {
 		// to ensure that we detect any relevant on chain events.
 		chainWatcher, err := newChainWatcher(
 			channel, c.cfg.Notifier, c.cfg.PreimageDB, c.cfg.Signer,
+			c.cfg.IsOurAddress, func() error {
+				return c.resolveContract(channel.FundingOutpoint, nil)
+			},
 		)
 		if err != nil {
 			return err
@@ -572,6 +581,9 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 	// that we detect any relevant on chain events.
 	chainWatcher, err := newChainWatcher(
 		newChan, c.cfg.Notifier, c.cfg.PreimageDB, c.cfg.Signer,
+		c.cfg.IsOurAddress, func() error {
+			return c.resolveContract(chanPoint, nil)
+		},
 	)
 	if err != nil {
 		return err

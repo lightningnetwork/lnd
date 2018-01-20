@@ -606,31 +606,10 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 	return channelArb.Start()
 }
 
-// ManuallyResolveChannel is a method to be called by outside sub-systems if a
-// channel becomes fully resolved, but due to manual intervention. An example
-// of such a manual intervention includes a cooperative channel closuer.
-//
-// TODO(roasbeef): remove after arbs watch chain for all actions directly
-func (c *ChainArbitrator) ManuallyResolveChannel(chanPoint wire.OutPoint) error {
-	c.Lock()
-	defer c.Unlock()
-
-	log.Infof("Manually resolving ChannelArbitrator for ChannelPoint(%v)",
-		chanPoint)
-
-	channelArb, ok := c.activeChannels[chanPoint]
-	if !ok {
-		return fmt.Errorf("unable to find arbitrator for: %v", chanPoint)
-	}
-
-	if err := channelArb.Stop(); err != nil {
 	if err := channelArb.Start(); err != nil {
 		return err
 	}
 
-	delete(c.activeChannels, chanPoint)
-
-	return channelArb.log.WipeHistory()
 	return chainWatcher.Start()
 }
 

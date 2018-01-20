@@ -310,27 +310,23 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		// Connect to router
 		d, err := upnp.DiscoverCtx(context.Background())
 		if err != nil {
-			fmt.Printf("Upnp: Unable to discover router %v\n", err)
-			return nil, err
+			srvrLog.Errorf("Upnp: Unable to discover router %v\n", err)
 		}
 
 		// Get external IP
 		ip, err := d.ExternalIP()
 		if err != nil {
-			fmt.Printf("Upnp: Unable to get external ip %v\n", err)
-			return nil, err
+			srvrLog.Errorf("Upnp: Unable to get external ip %v\n", err)
 		}
-
-		ltndLog.Infof("Your external IP is: %s", ip)
 
 		// Forward peer port
 		err = d.Forward(uint16(cfg.PeerPort), "lnd peer port")
 		if err != nil {
-			fmt.Printf("Upnp: Unable to forward pear port ip %v\n", err)
-			return nil, err
+			srvrLog.Errorf("Upnp: Unable to forward pear port ip %v\n", err)
+		} else {
+			srvrLog.Infof("Your external IP is: %s", ip)
+			externalIPs = append(externalIPs, ip)
 		}
-
-		externalIPs = append(externalIPs, ip)
 
 	}
 

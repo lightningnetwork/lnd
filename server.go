@@ -31,6 +31,8 @@ import (
 	"context"
 	"github.com/NebulousLabs/go-upnp"
 	"github.com/go-errors/errors"
+	"github.com/jackpal/gateway"
+	"github.com/jackpal/go-nat-pmp"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 )
 
@@ -114,6 +116,68 @@ type server struct {
 	quit chan struct{}
 
 	wg sync.WaitGroup
+}
+
+func configureUpnp() (string, error) {
+
+	// Connect to router
+	d, err := upnp.DiscoverCtx(context.Background())
+	if err != nil {
+		srvrLog.Errorf("Upnp: Unable to discover router %v\n", err)
+		return "", err
+	}
+
+	// Get external IP
+	ip, err := d.ExternalIP()
+	if err != nil {
+		srvrLog.Errorf("Upnp: Unable to get external ip %v\n", err)
+		return "", err
+	}
+
+	// Forward peer port
+	err = d.Forward(uint16(cfg.PeerPort), "lnd peer port")
+	if err != nil {
+		srvrLog.Errorf("Upnp: Unable to forward pear port ip %v\n", err)
+		return "", err
+	}
+
+	srvrLog.Infof("Your external IP is: %s", ip)
+
+	return ip, nil
+
+}
+
+func configureNatPmp() (string, error) {
+
+	gatewayIP, err := gateway.DiscoverGateway()
+
+	if err != nil {
+		srvrLog.Errorf("NatPmp: Unable to discover router %v\n", err)
+		return "", err
+	}
+
+	client := natpmp.NewClient(gatewayIP)
+	response, err := client.GetExternalAddress()
+
+	if err != nil {
+		srvrLog.Errorf("NatPmp: Unable to get external ip %v\n", err)
+		return "", err
+	}
+	externalIP := response.ExternalIPAddress
+
+	_, err = client.AddPortMapping("tcp", cfg.PeerPort, cfg.PeerPort, 3600)
+
+	if err != nil {
+		srvrLog.Errorf("NatPmp: Unable to create mapping for port %v %v\n", cfg.PeerPort, err)
+		return "", err
+	}
+
+	srvrLog.Infof("NatPmp: External IP address: %v `n", externalIP)
+
+	ipAddress := net.IPv4(externalIP[0], externalIP[1], externalIP[2], externalIP[3])
+
+	return ipAddress.String(), nil
+
 }
 
 // newServer creates a new instance of the server which is to listen using the
@@ -205,25 +269,18 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 
 	if cfg.UpnpSupport {
 
-		// Connect to router
-		d, err := upnp.DiscoverCtx(context.Background())
+		externalIP, err := configureUpnp()
 		if err != nil {
-			srvrLog.Errorf("Upnp: Unable to discover router %v\n", err)
+			externalIPs = append(externalIPs, externalIP)
 		}
 
-		// Get external IP
-		ip, err := d.ExternalIP()
-		if err != nil {
-			srvrLog.Errorf("Upnp: Unable to get external ip %v\n", err)
-		}
+	}
 
-		// Forward peer port
-		err = d.Forward(uint16(cfg.PeerPort), "lnd peer port")
+	if cfg.NatPmp {
+
+		externalIP, err := configureNatPmp()
 		if err != nil {
-			srvrLog.Errorf("Upnp: Unable to forward pear port ip %v\n", err)
-		} else {
-			srvrLog.Infof("Your external IP is: %s", ip)
-			externalIPs = append(externalIPs, ip)
+			externalIPs = append(externalIPs, externalIP)
 		}
 
 	}

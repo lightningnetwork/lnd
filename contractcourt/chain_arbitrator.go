@@ -273,17 +273,24 @@ func (c *ChainArbitrator) resolveContract(chanPoint wire.OutPoint,
 		return err
 	}
 
-	// Once this has been marked as resolved, we'll wipe the log that the
-	// channel arbitrator was using to store its persistent state. We do
-	// this after marking the channel resolved, as otherwise, the
-	// arbitrator would be re-created, and think it was starting from the
-	// default state.
-	if err := arbLog.WipeHistory(); err != nil {
-		return err
+	if arbLog != nil {
+		// Once this has been marked as resolved, we'll wipe the log
+		// that the channel arbitrator was using to store its
+		// persistent state. We do this after marking the channel
+		// resolved, as otherwise, the arbitrator would be re-created,
+		// and think it was starting from the default state.
+		if err := arbLog.WipeHistory(); err != nil {
+			return err
+		}
 	}
 
 	c.Lock()
 	delete(c.activeChannels, chanPoint)
+
+	chainWatcher, ok := c.activeWatchers[chanPoint]
+	if ok {
+		chainWatcher.Stop()
+	}
 	c.Unlock()
 
 	return nil

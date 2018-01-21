@@ -367,10 +367,10 @@ const (
 	// - nil_length: 1 byte
 	// - receiver_sig: 73 bytes
 	// - sender_sigs: 73 bytes
-	// - nil_length: 1 byte
+	// - payment_preimage: 32 bytes
 	// - witness_script_length: 1 byte
 	// - witness_script (offered_htlc_script)
-	OfferedHtlcSuccessWitnessSize = 1 + 1 + 73 + 73 + 73 + 1 + 1 + OfferedHtlcScriptSize
+	OfferedHtlcSuccessWitnessSize = 1 + 1 + 73 + 73 + 73 + 32 + 1 + OfferedHtlcScriptSize
 
 	// OfferedHtlcPenaltyWitnessSize 243 bytes
 	//      - number_of_witness_elements: 1 byte

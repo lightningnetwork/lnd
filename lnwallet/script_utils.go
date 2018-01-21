@@ -817,6 +817,31 @@ func htlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
 	return witnessStack, nil
 }
 
+// htlcSpendRevoke spends a second-level HTLC output. This function is to be
+// used by the sender or receiver of an HTLC to claim the HTLC after a revoked
+// commitment transaction was broadcast.
+func htlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
+	revokeTx *wire.MsgTx) (wire.TxWitness, error) {
+
+	// We don't need any spacial modifications to the transaction as this
+	// is just sweeping a revoked HTLC output. So we'll generate a regular
+	// witness signature.
+	sweepSig, err := signer.SignOutputRaw(revokeTx, signDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	// We set a one as the first element the witness stack (ignoring the
+	// witness script), in order to force execution to the revocation
+	// clause in the second level HTLC script.
+	witnessStack := wire.TxWitness(make([][]byte, 3))
+	witnessStack[0] = append(sweepSig, byte(signDesc.HashType))
+	witnessStack[1] = []byte{1}
+	witnessStack[2] = signDesc.WitnessScript
+
+	return witnessStack, nil
+}
+
 // HtlcSecondLevelSpend exposes the public witness generation function for
 // spending an HTLC success transaction, either due to an expiring time lock or
 // having had the payment preimage. This method is able to spend any
@@ -843,31 +868,6 @@ func HtlcSecondLevelSpend(signer Signer, signDesc *SignDescriptor,
 	witnessStack := wire.TxWitness(make([][]byte, 3))
 	witnessStack[0] = append(sweepSig, byte(txscript.SigHashAll))
 	witnessStack[1] = nil
-	witnessStack[2] = signDesc.WitnessScript
-
-	return witnessStack, nil
-}
-
-// htlcTimeoutRevoke spends a second-level HTLC output. This function is to be
-// used by the sender or receiver of an HTLC to claim the HTLC after a revoked
-// commitment transaction was broadcast.
-func htlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
-	revokeTx *wire.MsgTx) (wire.TxWitness, error) {
-
-	// We don't need any spacial modifications to the transaction as this
-	// is just sweeping a revoked HTLC output. So we'll generate a regular
-	// witness signature.
-	sweepSig, err := signer.SignOutputRaw(revokeTx, signDesc)
-	if err != nil {
-		return nil, err
-	}
-
-	// We set a one as the first element the witness stack (ignoring the
-	// witness script), in order to force execution to the revocation
-	// clause in the second level HTLC script.
-	witnessStack := wire.TxWitness(make([][]byte, 3))
-	witnessStack[0] = append(sweepSig, byte(signDesc.HashType))
-	witnessStack[1] = []byte{1}
 	witnessStack[2] = signDesc.WitnessScript
 
 	return witnessStack, nil

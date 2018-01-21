@@ -63,6 +63,12 @@ const (
 	// pre-image to the HTLC. We can sweep this without any additional
 	// timeout.
 	HtlcAcceptedRemoteSuccess WitnessType = 8
+
+	// HtlcSecondLevelRevoke is a witness that allows us to sweep an HTLC
+	// from the remote party's commitment transaction in the case that the
+	// broadcast a revoked commitment, but then also immediately attempt to
+	// go to the second level to claim the HTLC.
+	HtlcSecondLevelRevoke WitnessType = 9
 )
 
 // WitnessGenerator represents a function which is able to generate the final
@@ -110,6 +116,9 @@ func (wt WitnessType) GenWitnessFunc(signer Signer,
 			// expect the caller to have already set the lock time
 			// value.
 			return receiverHtlcSpendTimeout(signer, desc, tx, -1)
+
+		case HtlcSecondLevelRevoke:
+			return htlcSpendRevoke(signer, desc, tx)
 
 		default:
 			return nil, fmt.Errorf("unknown witness type: %v", wt)

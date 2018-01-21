@@ -303,10 +303,12 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	// Gather external IPs from config
 	externalIPs := cfg.ExternalIPs
 
+	// If enabled, use either UPnP or NAT-PMP to automatically configure
+	// port forwarding for users behind a NAT
 	if cfg.UpnpSupport {
 
 		externalIP, err := configureUpnp()
-		if err != nil {
+		if err == nil {
 			externalIPs = append(externalIPs, externalIP)
 		}
 
@@ -315,7 +317,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	if cfg.NatPmp {
 
 		externalIP, err := configureNatPmp()
-		if err != nil {
+		if err == nil {
 			externalIPs = append(externalIPs, externalIP)
 		}
 

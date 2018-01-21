@@ -725,6 +725,12 @@ func loadConfig() (*config, error) {
 		)
 	}
 
+	if cfg.UpnpSupport && cfg.NatPmp {
+		str := "%s: Currently both Upnp and NAT-PMP cannot be " +
+			"enabled together"
+		return nil, fmt.Errorf(str, funcName)
+	}
+
 	// Append the network type to the log directory so it is "namespaced"
 	// per network in the same fashion as the data directory.
 	cfg.LogDir = filepath.Join(cfg.LogDir,

@@ -419,6 +419,14 @@ func loadConfig() (*config, error) {
 		cfg.ReadMacPath = filepath.Join(cfg.DataDir, defaultReadMacFilename)
 	}
 
+
+	if cfg.UpnpSupport && cfg.NatPmp {
+		str := "%s: Currently both Upnp and NAT-PMP cannot be " +
+			"enabled together"
+		return nil, fmt.Errorf(str, funcName)
+	}
+
+
 	// Append the network type to the data directory so it is "namespaced"
 	// per network. In addition to the block database, there are other
 	// pieces of data that are saved to disk such as address manager state.

@@ -18,7 +18,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 )
 
@@ -152,11 +151,6 @@ type ChannelLinkConfig struct {
 	// (or are close to expiry).
 	BlockEpochs *chainntnfs.BlockEpochEvent
 
-	// SettledContracts is used to notify that a channel has peacefully
-	// been closed. Once a channel has been closed the other subsystem no
-	// longer needs to watch for breach closes.
-	SettledContracts chan *wire.OutPoint
-
 	// DebugHTLC should be turned on if you want all HTLCs sent to a node
 	// with the debug htlc R-Hash are immediately settled in the next
 	// available state transition.
@@ -289,12 +283,18 @@ func (l *channelLink) Start() error {
 
 	// Before we start the link, we'll update the ChainArbitrator with the
 	// set of new channel signals for this channel.
-	if err := l.cfg.UpdateContractSignals(&contractcourt.ContractSignals{
-		HtlcUpdates: l.htlcUpdates,
-		ShortChanID: l.channel.ShortChanID(),
-	}); err != nil {
-		return err
-	}
+	//
+	// TODO(roasbeef): split goroutines within channel arb to avoid
+	go func() {
+		err := l.cfg.UpdateContractSignals(&contractcourt.ContractSignals{
+			HtlcUpdates: l.htlcUpdates,
+			ShortChanID: l.channel.ShortChanID(),
+		})
+		if err != nil {
+			log.Errorf("Unable to update signals for "+
+				"ChannelLink(%v)", l)
+		}
+	}()
 
 	l.mailBox.Start()
 	l.overflowQueue.Start()
@@ -643,18 +643,12 @@ out:
 			log.Warnf("Remote peer has closed ChannelPoint(%v) on-chain",
 				l.channel.ChannelPoint())
 
-			// TODO(roasbeef): move this and above to chainJanitor
-
 			// TODO(roasbeef): remove all together
 			go func() {
 				chanPoint := l.channel.ChannelPoint()
 				if err := l.cfg.Peer.WipeChannel(chanPoint); err != nil {
 					log.Errorf("unable to wipe channel %v", err)
 				}
-
-				// TODO(roasbeef): need to send HTLC outputs to nursery
-				// TODO(roasbeef): or let the arb sweep?
-				l.cfg.SettledContracts <- chanPoint
 			}()
 
 			break out

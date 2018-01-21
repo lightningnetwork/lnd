@@ -1,5 +1,5 @@
-hash: 59d73259b4445fdb5982f2ec2538f53805e6e789c26b98b0fdfef43b7d0676a4
-updated: 2018-01-12T11:04:32.444091731-07:00
+hash: 977481aa3dddaa672707c7c3c8ecaba6efdc24c578a632dd8a7a18186932e954
+updated: 2018-01-21T13:41:27.570057Z
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -21,8 +21,6 @@ imports:
   version: 84c8d2346e9fc8c7b947e243b9c24e6df9fd206a
 - name: github.com/btcsuite/fastsha256
   version: 637e656429416087660c84436a2a035d69d54e2e
-- name: github.com/jessevdk/go-flags
-  version: f88afde2fa19a30cf50ba4b05b3d13bc6bae3079
 - name: github.com/btcsuite/go-socks
   version: 4720035b7bfd2a9bb130b1c184f8bbe41b6f0d0f
   subpackages:
@@ -61,6 +59,12 @@ imports:
   - utilities
 - name: github.com/howeyc/gopass
   version: bf9dde6d0d2c004a008c27aaee91170c786f6db8
+- name: github.com/jackpal/gateway
+  version: 5795ac81146e01d3fab7bcf21c043c3d6a32b006
+- name: github.com/jackpal/go-nat-pmp
+  version: c9cfead9f2a36ddf3daa40ba269aa7f4bbba6b62
+- name: github.com/jessevdk/go-flags
+  version: f88afde2fa19a30cf50ba4b05b3d13bc6bae3079
 - name: github.com/jrick/logrotate
   version: a93b200c26cbae3bb09dd0dc2c7c7fe1468a034a
   subpackages:
@@ -69,6 +73,8 @@ imports:
   version: 8232ab8918d91c72af1a9fb94d3edbe31d88b790
 - name: github.com/kkdai/bstream
   version: f391b8402d23024e7c0f624b31267a89998fca95
+- name: github.com/lightninglabs/gozmq
+  version: b0bbb30a99d00b25c3304994d20aac68607b75c0
 - name: github.com/lightninglabs/neutrino
   version: 5560001600544391c68e02bd1cc7cdbd25318030
   subpackages:
@@ -79,6 +85,7 @@ imports:
 - name: github.com/ltcsuite/ltcd
   version: 5f654d5faab99ee2b3488fabba98e5f7a5257ee3
   subpackages:
+  - btcjson
   - chaincfg
   - chaincfg/chainhash
   - wire
@@ -97,8 +104,6 @@ imports:
   - goupnp/scpd
   - goupnp/soap
   - goupnp/ssdp
-- name: github.com/lightninglabs/gozmq
-  version: b0bbb30a99d00b25c3304994d20aac68607b75c0
 - name: github.com/roasbeef/btcd
   version: 9978b939c33973be19b932fa7b936079bb7ba38d
   subpackages:
@@ -155,6 +160,7 @@ imports:
 - name: golang.org/x/crypto
   version: 9419663f5a44be8b34ca85f08abc5fe1be11f8a3
   subpackages:
+  - blake2b
   - chacha20poly1305
   - chacha20poly1305/internal/chacha20
   - curve25519
@@ -172,6 +178,9 @@ imports:
   version: 66aacef3dd8a676686c7ae3716979581e8b03c47
   subpackages:
   - context
+  - html
+  - html/atom
+  - html/charset
   - http2
   - http2/hpack
   - idna
@@ -186,6 +195,20 @@ imports:
 - name: golang.org/x/text
   version: 18c65dde6afd36dbc39197ca72008895b8dfbfb6
   subpackages:
+  - encoding
+  - encoding/charmap
+  - encoding/htmlindex
+  - encoding/internal
+  - encoding/internal/identifier
+  - encoding/japanese
+  - encoding/korean
+  - encoding/simplifiedchinese
+  - encoding/traditionalchinese
+  - encoding/unicode
+  - internal/tag
+  - internal/utf8internal
+  - language
+  - runes
   - secure/bidirule
   - transform
   - unicode/bidi

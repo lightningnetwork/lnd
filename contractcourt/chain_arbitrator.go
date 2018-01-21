@@ -339,7 +339,7 @@ func (c *ChainArbitrator) Start() error {
 
 		c.activeWatchers[channel.FundingOutpoint] = chainWatcher
 		channelArb, err := newActiveChannelArbitrator(
-			channel, c, chainWatcher.SubscribeChannelEvents(),
+			channel, c, chainWatcher.SubscribeChannelEvents(false),
 		)
 		if err != nil {
 			return err
@@ -667,7 +667,7 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 	// We'll also create a new channel arbitrator instance using this new
 	// channel, and our internal state.
 	channelArb, err := newActiveChannelArbitrator(
-		newChan, c, chainWatcher.SubscribeChannelEvents(),
+		newChan, c, chainWatcher.SubscribeChannelEvents(false),
 	)
 	if err != nil {
 		return err
@@ -687,12 +687,15 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 // SubscribeChannelEvents returns a new active subscription for the set of
 // possible on-chain events for a particular channel. The struct can be used by
 // callers to be notified whenever an event that changes the state of the
-// channel on-chain occurs.
+// channel on-chain occurs. If syncDispatch is true, then the sender of the
+// notification will wait until an error is sent over the ProcessACK before
+// modifying any database state. This allows callers to request a reliable hand
+// off.
 //
 // TODO(roasbeef): can be used later to provide RPC hook for all channel
 // lifetimes
 func (c *ChainArbitrator) SubscribeChannelEvents(
-	chanPoint wire.OutPoint) (*ChainEventSubscription, error) {
+	chanPoint wire.OutPoint, syncDispatch bool) (*ChainEventSubscription, error) {
 
 	// First, we'll attempt to look up the active watcher for this channel.
 	// If we can't find it, then we'll return an error back to the caller.
@@ -704,7 +707,7 @@ func (c *ChainArbitrator) SubscribeChannelEvents(
 
 	// With the watcher located, we'll request for it to create a new chain
 	// event subscription client.
-	return watcher.SubscribeChannelEvents(), nil
+	return watcher.SubscribeChannelEvents(syncDispatch), nil
 }
 
 // BeginCoopChanClose allows the initiator or responder to a cooperative

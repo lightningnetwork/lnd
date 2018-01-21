@@ -293,7 +293,7 @@ func (c *ChannelArbitrator) Stop() error {
 	log.Debugf("Stopping ChannelArbitrator(%v)", c.cfg.ChanPoint)
 
 	if c.cfg.ChainEvents.Cancel != nil {
-		c.cfg.ChainEvents.Cancel()
+		go c.cfg.ChainEvents.Cancel()
 	}
 
 	for _, activeResolver := range c.activeResolvers {
@@ -1319,7 +1319,6 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 		// state, so we'll get the most up to date signals to we can
 		// properly do our job.
 		case signalUpdate := <-c.signalUpdates:
-
 			log.Tracef("ChannelArbitrator(%v) got new signal "+
 				"update!", c.cfg.ChanPoint)
 

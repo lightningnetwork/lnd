@@ -370,7 +370,9 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		// Register this new channel link with the HTLC Switch. This is
 		// necessary to properly route multi-hop payments, and forward
 		// new payments triggered by RPC clients.
-		chainEvents, err := p.server.chainArb.SubscribeChannelEvents(*chanPoint)
+		chainEvents, err := p.server.chainArb.SubscribeChannelEvents(
+			*chanPoint, false,
+		)
 		if err != nil {
 			return err
 		}
@@ -1259,7 +1261,9 @@ out:
 				peerLog.Errorf("unable to get best block: %v", err)
 				continue
 			}
-			chainEvents, err := p.server.chainArb.SubscribeChannelEvents(*chanPoint)
+			chainEvents, err := p.server.chainArb.SubscribeChannelEvents(
+				*chanPoint, false,
+			)
 			if err != nil {
 				peerLog.Errorf("unable to subscribe to chain "+
 					"events: %v", err)

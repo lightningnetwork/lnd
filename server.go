@@ -417,11 +417,16 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		GenSweepScript: func() ([]byte, error) {
 			return newSweepPkScript(cc.wallet)
 		},
-		Notifier:               cc.chainNotifier,
-		PublishTransaction:     cc.wallet.PublishTransaction,
-		SubscribeChannelEvents: s.chainArb.SubscribeChannelEvents,
-		Signer:                 cc.wallet.Cfg.Signer,
-		Store:                  newRetributionStore(chanDB),
+		Notifier:           cc.chainNotifier,
+		PublishTransaction: cc.wallet.PublishTransaction,
+		SubscribeChannelEvents: func(chanPoint wire.OutPoint) (*contractcourt.ChainEventSubscription, error) {
+			// We'll request a sync dispatch to ensure that the channel
+			// is only marked as closed *after* we update our internal
+			// state.
+			return s.chainArb.SubscribeChannelEvents(chanPoint, true)
+		},
+		Signer: cc.wallet.Cfg.Signer,
+		Store:  newRetributionStore(chanDB),
 	})
 
 	// Create the connection manager which will be responsible for

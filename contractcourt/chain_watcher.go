@@ -45,7 +45,10 @@ type ChainEventSubscription struct {
 	// synchronize dispatch and processing of the notification with the act
 	// of updating the state of the channel on disk. This ensures that the
 	// event can be reliably handed off.
-	ProcessACK chan struct{}
+	//
+	// NOTE: This channel will only be used if the syncDispatch arg passed
+	// into the constructor is true.
+	ProcessACK chan error
 
 	// Cancel cancels the subscription to the event stream for a particular
 	// channel. This method should be called once the caller no longer needs to
@@ -89,7 +92,7 @@ type chainWatcher struct {
 	signer lnwallet.Signer
 
 	// All the fields below are protected by this mutex.
-	sync.RWMutex
+	sync.Mutex
 
 	// clientID is an ephemeral counter used to keep track of each
 	// individual client subscription.
@@ -207,13 +210,17 @@ func (c *chainWatcher) Stop() error {
 // SubscribeChannelEvents returns a n active subscription to the set of channel
 // events for the channel watched by this chain watcher. Once clients no longer
 // require the subscription, they should call the Cancel() method to allow the
-// watcher to regain those committed resources.
-func (c *chainWatcher) SubscribeChannelEvents() *ChainEventSubscription {
-	c.Lock()
-	defer c.Unlock()
+// watcher to regain those committed resources. The syncDispatch bool indicates
+// if the caller would like a synchronous dispatch of the notification. This
+// means that the main chain watcher goroutine won't proceed with
+// post-processing after the notification until the ProcessACK channel is sent
+// upon.
+func (c *chainWatcher) SubscribeChannelEvents(syncDispatch bool) *ChainEventSubscription {
 
+	c.Lock()
 	clientID := c.clientID
 	c.clientID++
+	c.Unlock()
 
 	log.Debugf("New ChainEventSubscription(id=%v) for ChannelPoint(%v)",
 		clientID, c.chanState.FundingOutpoint)
@@ -231,7 +238,13 @@ func (c *chainWatcher) SubscribeChannelEvents() *ChainEventSubscription {
 		},
 	}
 
+	if syncDispatch {
+		sub.ProcessACK = make(chan error, 1)
+	}
+
+	c.Lock()
 	c.clientSubscriptions[clientID] = sub
+	c.Unlock()
 
 	return sub
 }
@@ -547,7 +560,6 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 	}
 
 	var (
-		broadcastStateNum = remoteCommit.CommitHeight
 		commitTxBroadcast = spendEvent.SpendingTx
 		spendHeight       = uint32(spendEvent.SpendingHeight)
 	)
@@ -578,17 +590,20 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 		}
 
 		// Wait for the breach arbiter to ACK the handoff before
-		// marking the channel as pending force closed in channeldb.
-		select {
-		case <-sub.ProcessACK:
-			// Bail if the handoff failed.
-			if err != nil {
-				return fmt.Errorf("unable to handoff "+
-					"retribution info: %v", err)
-			}
+		// marking the channel as pending force closed in channeldb,
+		// but only if the client requested a sync dispatch.
+		if sub.ProcessACK != nil {
+			select {
+			case err := <-sub.ProcessACK:
+				// Bail if the handoff failed.
+				if err != nil {
+					return fmt.Errorf("unable to handoff "+
+						"retribution info: %v", err)
+				}
 
-		case <-c.quit:
-			return fmt.Errorf("quitting")
+			case <-c.quit:
+				return fmt.Errorf("quitting")
+			}
 		}
 	}
 	c.Unlock()

@@ -367,6 +367,7 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 			case broadcastStateNum < remoteStateNum:
 				if err := c.dispatchContractBreach(
 					commitSpend, remoteCommit,
+					broadcastStateNum,
 				); err != nil {
 					log.Errorf("unable to handle channel "+
 						"breach for chan_point=%v: %v",
@@ -549,11 +550,12 @@ func (c *chainWatcher) dispatchRemoteClose(commitSpend *chainntnfs.SpendDetail,
 // materials required to bring the cheater to justice, then notify all
 // registered subscribers of this event.
 func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail,
-	remoteCommit *channeldb.ChannelCommitment) error {
+	remoteCommit *channeldb.ChannelCommitment,
+	broadcastStateNum uint64) error {
 
 	log.Warnf("Remote peer has breached the channel contract for "+
 		"ChannelPoint(%v). Revoked state #%v was broadcast!!!",
-		c.chanState.FundingOutpoint, remoteCommit.CommitHeight)
+		c.chanState.FundingOutpoint, broadcastStateNum)
 
 	if err := c.chanState.MarkBorked(); err != nil {
 		return fmt.Errorf("unable to mark channel as borked: %v", err)

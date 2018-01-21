@@ -219,6 +219,35 @@ const (
 	//      - witness_script (to_local_script)
 	ToLocalPenaltyWitnessSize = 1 + 1 + 73 + 1 + 1 + ToLocalScriptSize
 
+	// SecondLevelHtlcScriptSize 73 bytes
+	//      - OP_IF: 1 byte
+	//          - OP_DATA: 1 byte
+	//          - revoke_key: 33 bytes
+	//      - OP_ELSE: 1 byte
+	//          - csv_delay: 1 byte
+	//          - OP_CHECKSEQUENCEVERIFY: 1 byte
+	//          - OP_DROP: 1 byte
+	//          - delay_key: 33 bytes
+	//      - OP_ENDIF: 1 byte
+	//      - OP_CHECKSIG: 1 byte
+	SecondLevelHtlcScriptSize = 73
+
+	// SecondLevelHtlcPenaltyWitnessSize 149 bytes
+	//  - number_of_witness_elements: 1 byte
+	//  - revoke_sig_length: 1 byte
+	//  - revoke_sig: 73 bytes
+	//  - OP_TRUE: 1 byte
+	//  - witness_script (second_level_script_size)
+	SecondLevelHtlcPenaltyWitnessSize = 1 + 1 + 73 + 1 + SecondLevelHtlcScriptSize
+
+	// SecondLevelHtlcSuccessWitnessSize 149 bytes
+	//  - number_of_witness_elements: 1 byte
+	//  - success_sig_length: 1 byte
+	//  - success_sig: 73 bytes
+	//  - nil_length: 1 byte
+	//  - witness_script (second_level_script_size)
+	SecondLevelHtlcSuccessWitnessSize = 1 + 1 + 73 + 1 + SecondLevelHtlcScriptSize
+
 	// AcceptedHtlcScriptSize 139 bytes
 	//      - OP_DUP: 1 byte
 	//      - OP_HASH160: 1 byte

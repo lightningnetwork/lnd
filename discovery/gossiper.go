@@ -972,11 +972,6 @@ func (d *AuthenticatedGossiper) networkHandler() {
 				}
 			}
 
-			// If we're able to broadcast the current batch
-			// successfully, then we reset the batch for a new
-			// round of announcements.
-			announcements.Reset()
-
 		// The retransmission timer has ticked which indicates that we
 		// should check if we need to prune or re-broadcast any of our
 		// personal channels. This addresses the case of "zombie" channels and

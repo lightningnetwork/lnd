@@ -82,11 +82,6 @@ type chanCloseCfg struct {
 	// broadcastTx broadcasts the passed transaction to the network.
 	broadcastTx func(*wire.MsgTx) error
 
-	// settledContracts is a channel that will be sent upon once the
-	// channel is partially closed. This notifies any sub-systems that they
-	// no longer need to watch the channel for any on-chain activity.
-	settledContracts chan<- *wire.OutPoint
-
 	// quit is a channel that should be sent upon in the occasion the state
 	// machine shouldk cease all progress and shutdown.
 	quit chan struct{}
@@ -450,14 +445,6 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 			default:
 				return nil, false, err
 			}
-		}
-
-		// As this contract is final, we'll send it over the settled
-		// contracts channel.
-		select {
-		case c.cfg.settledContracts <- &c.chanPoint:
-		case <-c.cfg.quit:
-			return nil, false, fmt.Errorf("peer shutting down")
 		}
 
 		// Clear out the current channel state, marking the channel as

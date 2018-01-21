@@ -248,9 +248,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		wallet:        wallet,
 	}
 
-	breachArbiter := &breachArbiter{
-		settledContracts: make(chan *wire.OutPoint, 10),
-	}
+	breachArbiter := &breachArbiter{}
 
 	chainArb := contractcourt.NewChainArbitrator(
 		contractcourt.ChainArbitratorConfig{}, nil,

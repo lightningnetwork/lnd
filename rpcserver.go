@@ -847,7 +847,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		}
 
 		select {
-		case r.server.breachArbiter.settledContracts <- chanPoint:
+		case r.server.breachArbiter.settledContracts <- *chanPoint:
 		case <-r.quit:
 			return fmt.Errorf("server shutting down")
 		}

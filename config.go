@@ -40,6 +40,7 @@ const (
 	defaultRPCHost            = "localhost"
 	defaultMaxPendingChannels = 1
 	defaultNoEncryptWallet    = false
+	defaultUpnpSupport        = false
 	defaultTrickleDelay       = 30 * 1000
 
 	// minTimeLockDelta is the minimum timelock we require for incoming
@@ -156,6 +157,8 @@ type config struct {
 	DebugHTLC          bool `long:"debughtlc" description:"Activate the debug htlc mode. With the debug HTLC mode, all payments sent use a pre-determined R-Hash. Additionally, all HTLCs sent to a node with the debug HTLC R-Hash are immediately settled in the next available state transition."`
 	HodlHTLC           bool `long:"hodlhtlc" description:"Activate the hodl HTLC mode.  With hodl HTLC mode, all incoming HTLCs will be accepted by the receiving node, but no attempt will be made to settle the payment with the sender."`
 	MaxPendingChannels int  `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
+	UpnpSupport        bool `long:"upnp" description:"Toggle Upnp support for auto network discovery"`
+	NatPmp             bool `long:"natpmp" description:"Toggle Nat Pmp support for auto network discovery"`
 
 	Bitcoin      *chainConfig    `group:"Bitcoin" namespace:"bitcoin"`
 	BtcdMode     *btcdConfig     `group:"btcd" namespace:"btcd"`
@@ -195,6 +198,7 @@ func loadConfig() (*config, error) {
 		PeerPort:     defaultPeerPort,
 		RPCPort:      defaultRPCPort,
 		RESTPort:     defaultRESTPort,
+		UpnpSupport:  defaultUpnpSupport,
 		Bitcoin: &chainConfig{
 			MinHTLC:       defaultBitcoinMinHTLCMSat,
 			BaseFee:       defaultBitcoinBaseFeeMSat,
@@ -414,6 +418,14 @@ func loadConfig() (*config, error) {
 	if cfg.DataDir != defaultDataDir && cfg.ReadMacPath == defaultReadMacPath {
 		cfg.ReadMacPath = filepath.Join(cfg.DataDir, defaultReadMacFilename)
 	}
+
+
+	if cfg.UpnpSupport && cfg.NatPmp {
+		str := "%s: Currently both Upnp and NAT-PMP cannot be " +
+			"enabled together"
+		return nil, fmt.Errorf(str, funcName)
+	}
+
 
 	// Append the network type to the data directory so it is "namespaced"
 	// per network. In addition to the block database, there are other

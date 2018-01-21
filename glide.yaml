@@ -79,3 +79,6 @@ import:
 - package: github.com/rogpeppe/fastuuid
 - package: gopkg.in/errgo.v1
 - package: github.com/miekg/dns
+- package: github.com/NebulousLabs/go-upnp
+- package: github.com/jackpal/go-nat-pmp
+  version: ^1.0.1

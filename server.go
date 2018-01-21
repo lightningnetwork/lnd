@@ -28,7 +28,11 @@ import (
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 
+	"context"
+	"github.com/NebulousLabs/go-upnp"
 	"github.com/go-errors/errors"
+	"github.com/jackpal/gateway"
+	"github.com/jackpal/go-nat-pmp"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 )
 
@@ -112,6 +116,74 @@ type server struct {
 	quit chan struct{}
 
 	wg sync.WaitGroup
+}
+
+// Attempt to use UPnP protocol to automatically configure
+// port forwarding rules
+func configureUpnp() (string, error) {
+
+	// Connect to router
+	d, err := upnp.DiscoverCtx(context.Background())
+	if err != nil {
+		srvrLog.Errorf("UPnP: Unable to discover router %v\n", err)
+		return "", err
+	}
+
+	// Get external IP
+	ip, err := d.ExternalIP()
+	if err != nil {
+		srvrLog.Errorf("UPnP: Unable to get external ip %v\n", err)
+		return "", err
+	}
+
+	// Forward peer port
+	err = d.Forward(uint16(cfg.PeerPort), "lnd peer port")
+	if err != nil {
+		srvrLog.Errorf("UPnP: Unable to forward pear port ip %v\n", err)
+		return "", err
+	}
+
+	srvrLog.Infof("UPnP: Your external IP is: %s", ip)
+
+	return ip, nil
+
+}
+
+// Attempt to use NAT PMP protocol to automatically configure
+// port forwarding rules
+// For more details on the protocol see the following RFC :
+// https://tools.ietf.org/html/rfc6886
+func configureNatPmp() (string, error) {
+
+	gatewayIP, err := gateway.DiscoverGateway()
+
+	if err != nil {
+		srvrLog.Errorf("NAT-PMP: Unable to discover router %v\n", err)
+		return "", err
+	}
+
+	client := natpmp.NewClient(gatewayIP)
+	response, err := client.GetExternalAddress()
+
+	if err != nil {
+		srvrLog.Errorf("NAT-PMP: Unable to get external ip %v\n", err)
+		return "", err
+	}
+	externalIP := response.ExternalIPAddress
+
+	_, err = client.AddPortMapping("tcp", cfg.PeerPort, cfg.PeerPort, 3600)
+
+	if err != nil {
+		srvrLog.Errorf("NatPmp: Unable to create mapping for port %v %v\n", cfg.PeerPort, err)
+		return "", err
+	}
+
+	srvrLog.Infof("NAT-PMP: External IP address: %v `n", externalIP)
+
+	ipAddress := net.IPv4(externalIP[0], externalIP[1], externalIP[2], externalIP[3])
+
+	return ipAddress.String(), nil
+
 }
 
 // newServer creates a new instance of the server which is to listen using the
@@ -198,10 +270,34 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		},
 	})
 
-	// If external IP addresses have been specified, add those to the list
+	// Gather external IPs from config
+	externalIPs := cfg.ExternalIPs
+
+
+	// If enabled, use either UPnP or NAT-PMP to automatically configure
+	// port forwarding for users behind a NAT
+	if cfg.UpnpSupport {
+
+		externalIP, err := configureUpnp()
+		if err == nil {
+			externalIPs = append(externalIPs, externalIP)
+		}
+
+	}
+
+	if cfg.NatPmp {
+
+		externalIP, err := configureNatPmp()
+		if err == nil {
+			externalIPs = append(externalIPs, externalIP)
+		}
+
+	}
+
+	// If we have external IP addresses, add those to the list
 	// of this server's addresses.
-	selfAddrs := make([]net.Addr, 0, len(cfg.ExternalIPs))
-	for _, ip := range cfg.ExternalIPs {
+	selfAddrs := make([]net.Addr, 0, len(externalIPs))
+	for _, ip := range externalIPs {
 		var addr string
 		_, _, err = net.SplitHostPort(ip)
 		if err != nil {

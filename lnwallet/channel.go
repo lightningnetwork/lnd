@@ -1640,6 +1640,13 @@ type HtlcRetribution struct {
 	// breached commitment transaction.
 	OutPoint wire.OutPoint
 
+	// SecondLevelWitnessScript is the witness script that will be created
+	// if the second level HTLC transaction for this output is
+	// broadcast/confirmed. We provide this as if the remote party attempts
+	// to to go the second level to claim the HTLC then we'll need to
+	// update the SignDesc above accordingly to sweep properly.
+	SecondLevelWitnessScript []byte
+
 	// IsIncoming is a boolean flag that indicates whether or not this
 	// HTLC was accepted from the counterparty. A false value indicates that
 	// this HTLC was offered by us. This flag is used determine the exact
@@ -1825,6 +1832,17 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 			err        error
 		)
 
+		// We'll generate the original second level witness script now,
+		// as we'll need it if we're revoking an HTLC output on the
+		// remote commitment transaction, and *they* go to the second
+		// level.
+		secondLevelWitnessScript, err := secondLevelHtlcScript(
+			keyRing.RevocationKey, keyRing.DelayKey, remoteDelay,
+		)
+		if err != nil {
+			return nil, err
+		}
+
 		// If this is an incoming HTLC, then this means that they were
 		// the sender of the HTLC (relative to us). So we'll
 		// re-generate the sender HTLC script.
@@ -1865,7 +1883,8 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 				Hash:  commitHash,
 				Index: uint32(htlc.OutputIndex),
 			},
-			IsIncoming: htlc.Incoming,
+			SecondLevelWitnessScript: secondLevelWitnessScript,
+			IsIncoming:               htlc.Incoming,
 		}
 	}
 

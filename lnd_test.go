@@ -2366,12 +2366,25 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Wait for all nodes to have seen all channels.
+	nodes := []*lntest.HarnessNode{net.Alice, net.Bob, carol, dave}
+	nodeNames := []string{"Alice", "Bob", "Carol", "Dave"}
 	for _, chanPoint := range networkChans {
-		for _, node := range []*lntest.HarnessNode{net.Alice, net.Bob, carol, dave} {
+		for i, node := range nodes {
+			txid, e := chainhash.NewHash(chanPoint.FundingTxid)
+			if e != nil {
+				t.Fatalf("unable to create sha hash: %v", e)
+			}
+			point := wire.OutPoint{
+				Hash:  *txid,
+				Index: chanPoint.OutputIndex,
+			}
+
 			ctxt, _ = context.WithTimeout(ctxb, timeout)
 			err = node.WaitForNetworkChannelOpen(ctxt, chanPoint)
 			if err != nil {
-				t.Fatalf("timeout waiting for channel open: %v", err)
+				t.Fatalf("%s(%d): timeout waiting for "+
+					"channel(%s) open: %v", nodeNames[i],
+					node.NodeID, point, err)
 			}
 		}
 	}
@@ -2551,17 +2564,27 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// Wait for all nodes to have seen all these channels, as they
 	// are all public.
 	nodes := []*lntest.HarnessNode{net.Alice, net.Bob, carol, dave}
+	nodeNames := []string{"Alice", "Bob", "Carol", "Dave"}
 	for _, chanPoint := range networkChans {
-		for _, node := range nodes {
+		for i, node := range nodes {
+			txid, e := chainhash.NewHash(chanPoint.FundingTxid)
+			if e != nil {
+				t.Fatalf("unable to create sha hash: %v", e)
+			}
+			point := wire.OutPoint{
+				Hash:  *txid,
+				Index: chanPoint.OutputIndex,
+			}
+
 			ctxt, _ = context.WithTimeout(ctxb, timeout)
 			err = node.WaitForNetworkChannelOpen(ctxt, chanPoint)
 			if err != nil {
-				t.Fatalf("timeout waiting for channel open: %v",
-					err)
+				t.Fatalf("%s(%d): timeout waiting for "+
+					"channel(%s) open: %v", nodeNames[i],
+					node.NodeID, point, err)
 			}
 		}
 	}
-
 	// Now create a _private_ channel directly between Carol and
 	// Alice of 100k.
 	if err := net.ConnectNodes(ctxb, carol, net.Alice); err != nil {

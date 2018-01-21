@@ -94,7 +94,7 @@ go install . ./cmd/...
 Running the following command will create `rpc.cert` and default `btcd.conf`.
 
 ```
-btcd --testnet --txindex --rpcuser=kek --rpcpass=kek
+btcd --testnet --txindex --rpcuser=REPLACEME --rpcpass=REPLACEME
 ```
 If you want to use `lnd` on testnet, `btcd` needs to first fully sync the
 testnet blockchain. Depending on your hardware, this may take up to a few
@@ -105,7 +105,7 @@ hours.
 While `btcd` is syncing you can check on its progress using btcd's `getinfo`
 RPC command:
 ```
-btcctl --testnet --rpcuser=kek --rpcpass=kek getinfo
+btcctl --testnet --rpcuser=REPLACEME --rpcpass=REPLACEME getinfo
 {
   "version": 120000,
   "protocolversion": 70002,
@@ -125,7 +125,7 @@ time.
 
 You can test your `btcd` node's connectivity using the `getpeerinfo` command:
 ```
-btcctl --testnet --rpcuser=kek --rpcpass=kek getpeerinfo | more
+btcctl --testnet --rpcuser=REPLACEME --rpcpass=REPLACEME getpeerinfo | more
 ```
 
 ### lnd
@@ -179,18 +179,26 @@ lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --btcd.rpcuser=kek --b
 
 #### Running lnd using the bitcoind backend
 
-In order to run `lnd` with a `bitcoind` back-end, the `bitcoind` instance must
-be configured with `--txindex` just like `btcd` above. In addition, you'll need
- to configure the `bitcoind` instance with `--zmqpubrawblock` and `--zmqpubrawtx`
+To configure your bitcoind backend for use with lnd, first complete and verify the following:
+
+- The `bitcoind` instance must
+be configured with `--txindex` just like `btcd` above
+- Additionally, since `lnd` uses [ZeroMQ](https://github.com/bitcoin/bitcoin/blob/master/doc/zmq.md) to interface with `bitcoind`, *your `bitcoind` installation must be compiled with ZMQ*. If you installed it from source, this is likely the case, but if you installed it via Homebrew in the past it may not be included ([this has now been fixed](https://github.com/Homebrew/homebrew-core/pull/23088) in the latest Homebrew recipe for bitcoin)
+- Configure the `bitcoind` instance for ZMQ with `--zmqpubrawblock` and `--zmqpubrawtx`
 (the latter is optional but allows you to see unconfirmed transactions in your
-wallet). They must be combined in the same ZMQ socket address. Then, run this
-command after `bitcoind` has finished syncing on testnet. Otherwise, replace
-`--bitcoin.testnet` with `--bitcoin.regtest`. Please note that the `rpcuser`
-and `rpcpass` parameters can typically be determined by `lnd` for a `bitcoind`
-instance running under the same user, including when using cookie auth.
+wallet). They must be combined in the same ZMQ socket address (e.g. `--zmqpubrawblock=tcp://127.0.0.1:28332` and `--zmqpubrawtx=tcp://127.0.0.1:28332`).
+- Start `bitcoind` running against testnet, and let it complete a full sync with the testnet chain (alternatively, use `--bitcoind.regtest` instead).
+
+Once all of the above is complete, and you've confirmed `bitcoind` is fully updated with the latest blocks on testnet, run the command below to launch `lnd` with `bitcoind` as your backend (as with `bitcoind`, you can create an `lnd.conf` to save these options, more info on that is described further below):
+
 ```
-lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --bitcoin.node=bitcoind --bitcoind.rpcuser=kek --bitcoind.rpcpass=kek --externalip=X.X.X.X
+lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --bitcoin.node=bitcoind --bitcoind.rpcuser=REPLACEME --bitcoind.rpcpass=REPLACEME --bitcoind.zmqpath=tcp://127.0.0.1:28332 --externalip=X.X.X.X
 ```
+
+*NOTE:* 
+- The auth parameters `rpcuser` and `rpcpass` parameters can typically be determined by `lnd` for a `bitcoind` instance running under the same user, including when using cookie auth. In this case, you can exclude them from the `lnd` options entirely.
+- If you DO choose to explicitly pass the auth parameters in your `lnd.conf` or command line options for `lnd` (`bitcoind.rpcuser` and `bitcoind.rpcpass` as shown in example command above), you must also specify the `bitcoind.zmqpath` option. Otherwise, `lnd` will attempt to get the configuration from your `bitcoin.conf`.
+- You must ensure the same address (including port) is used for the `bitcoind.zmqpath` option passed to `lnd` as for the `zmqpubrawblock` and `zmqpubrawtx` passed in the `bitcoind` options.
 
 #### Network Reachability 
 

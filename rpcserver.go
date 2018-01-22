@@ -1939,14 +1939,10 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 
 	amt := btcutil.Amount(invoice.Value)
 	amtMSat := lnwire.NewMSatFromSatoshis(amt)
-	switch {
-	// The value of an invoice MUST NOT be zero.
-	case invoice.Value == 0:
-		return nil, fmt.Errorf("zero value invoices are disallowed")
 
 	// The value of the invoice must also not exceed the current soft-limit
 	// on the largest payment within the network.
-	case amtMSat > maxPaymentMSat:
+	if amtMSat > maxPaymentMSat {
 		return nil, fmt.Errorf("payment of %v is too large, max "+
 			"payment allowed is %v", amt, maxPaymentMSat.ToSatoshis())
 	}
@@ -1962,9 +1958,12 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	// expiry, fallback address, and the amount field.
 	var options []func(*zpay32.Invoice)
 
-	// Add the amount. This field is optional by the BOLT-11 format, but
-	// we require it for now.
-	options = append(options, zpay32.Amount(amtMSat))
+	// We only include the amount in the invoice if it is greater than 0.
+	// By not including the amount, we enable the creation of invoices that
+	// allow the payee to specify the amount of satoshis they wish to send.
+	if amtMSat > 0 {
+		options = append(options, zpay32.Amount(amtMSat))
+	}
 
 	// If specified, add a fallback address to the payment request.
 	if len(invoice.FallbackAddr) > 0 {

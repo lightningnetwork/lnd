@@ -1014,6 +1014,7 @@ func sendPayment(ctx *cli.Context) error {
 	if ctx.IsSet("pay_req") {
 		req = &lnrpc.SendRequest{
 			PaymentRequest: ctx.String("pay_req"),
+			Amt:            ctx.Int64("amt"),
 		}
 	} else {
 		args := ctx.Args()
@@ -1138,6 +1139,11 @@ var payInvoiceCommand = cli.Command{
 			Name:  "pay_req",
 			Usage: "a zpay32 encoded payment request to fulfill",
 		},
+		cli.Int64Flag{
+			Name: "amt",
+			Usage: "(optional) number of satoshis to fulfill the " +
+				"invoice",
+		},
 	},
 	Action: actionDecorator(payInvoice),
 }
@@ -1158,6 +1164,7 @@ func payInvoice(ctx *cli.Context) error {
 
 	req := &lnrpc.SendRequest{
 		PaymentRequest: payReq,
+		Amt:            ctx.Int64("amt"),
 	}
 
 	return sendPaymentRequest(ctx, req)

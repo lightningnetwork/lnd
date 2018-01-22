@@ -36,16 +36,23 @@ var (
 	// defaultNodePort is the initial p2p port which will be used by the
 	// first created lightning node to listen on for incoming p2p
 	// connections.  Subsequent allocated ports for future lighting nodes
-	// instances will be monotonically increasing odd numbers calculated as
-	// such: defaultP2pPort + (2 * harness.nodeNum).
+	// instances will be monotonically increasing numbers calculated as
+	// such: defaultP2pPort + (3 * harness.nodeNum).
 	defaultNodePort = 19555
 
 	// defaultClientPort is the initial rpc port which will be used by the
 	// first created lightning node to listen on for incoming rpc
 	// connections. Subsequent allocated ports for future rpc harness
-	// instances will be monotonically increasing even numbers calculated
-	// as such: defaultP2pPort + (2 * harness.nodeNum).
+	// instances will be monotonically increasing numbers calculated
+	// as such: defaultP2pPort + (3 * harness.nodeNum).
 	defaultClientPort = 19556
+
+	// defaultRestPort is the initial rest port which will be used by the
+	// first created lightning node to listen on for incoming rest
+	// connections. Subsequent allocated ports for future rpc harness
+	// instances will be monotonically increasing numbers calculated
+	// as such: defaultP2pPort + (3 * harness.nodeNum).
+	defaultRestPort = 19557
 
 	// logOutput is a flag that can be set to append the output from the
 	// seed nodes to log files.
@@ -57,22 +64,24 @@ var (
 	trickleDelay = 50
 )
 
-// generateListeningPorts returns two strings representing ports to listen on
+// generateListeningPorts returns three ints representing ports to listen on
 // designated for the current lightning network test. If there haven't been any
 // test instances created, the default ports are used. Otherwise, in order to
-// support multiple test nodes running at once, the p2p and rpc port are
-// incremented after each initialization.
-func generateListeningPorts() (int, int) {
-	var p2p, rpc int
+// support multiple test nodes running at once, the p2p, rpc, and rest ports
+// are incremented after each initialization.
+func generateListeningPorts() (int, int, int) {
+	var p2p, rpc, rest int
 	if numActiveNodes == 0 {
 		p2p = defaultNodePort
 		rpc = defaultClientPort
+		rest = defaultRestPort
 	} else {
-		p2p = defaultNodePort + (2 * numActiveNodes)
-		rpc = defaultClientPort + (2 * numActiveNodes)
+		p2p = defaultNodePort + (3 * numActiveNodes)
+		rpc = defaultClientPort + (3 * numActiveNodes)
+		rest = defaultRestPort + (3 * numActiveNodes)
 	}
 
-	return p2p, rpc
+	return p2p, rpc, rest
 }
 
 type nodeConfig struct {
@@ -89,6 +98,7 @@ type nodeConfig struct {
 	ReadMacPath  string
 	P2PPort      int
 	RPCPort      int
+	RESTPort     int
 }
 
 func (cfg nodeConfig) P2PAddr() string {
@@ -97,6 +107,10 @@ func (cfg nodeConfig) P2PAddr() string {
 
 func (cfg nodeConfig) RPCAddr() string {
 	return net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.RPCPort))
+}
+
+func (cfg nodeConfig) RESTAddr() string {
+	return net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.RESTPort))
 }
 
 func (cfg nodeConfig) DBPath() string {
@@ -128,8 +142,9 @@ func (cfg nodeConfig) genArgs() []string {
 	args = append(args, fmt.Sprintf("--btcd.rpcuser=%v", cfg.RPCConfig.User))
 	args = append(args, fmt.Sprintf("--btcd.rpcpass=%v", cfg.RPCConfig.Pass))
 	args = append(args, fmt.Sprintf("--btcd.rawrpccert=%v", encodedCert))
-	args = append(args, fmt.Sprintf("--rpcport=%v", cfg.RPCPort))
-	args = append(args, fmt.Sprintf("--peerport=%v", cfg.P2PPort))
+	args = append(args, fmt.Sprintf("--rpclisten=%v", cfg.RPCAddr()))
+	args = append(args, fmt.Sprintf("--restlisten=%v", cfg.RESTAddr()))
+	args = append(args, fmt.Sprintf("--listen=%v", cfg.P2PAddr()))
 	args = append(args, fmt.Sprintf("--logdir=%v", cfg.LogDir))
 	args = append(args, fmt.Sprintf("--datadir=%v", cfg.DataDir))
 	args = append(args, fmt.Sprintf("--tlscertpath=%v", cfg.TLSCertPath))
@@ -197,7 +212,7 @@ func newNode(cfg nodeConfig) (*HarnessNode, error) {
 	cfg.AdminMacPath = filepath.Join(cfg.DataDir, "admin.macaroon")
 	cfg.ReadMacPath = filepath.Join(cfg.DataDir, "readonly.macaroon")
 
-	cfg.P2PPort, cfg.RPCPort = generateListeningPorts()
+	cfg.P2PPort, cfg.RPCPort, cfg.RESTPort = generateListeningPorts()
 
 	nodeNum := numActiveNodes
 	numActiveNodes++

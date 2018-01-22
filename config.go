@@ -141,8 +141,11 @@ type config struct {
 	ReadMacPath  string `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`
 	LogDir       string `long:"logdir" description:"Directory to log output."`
 
-	Listeners   []string `long:"listen" description:"Add an interface/port to listen for connections (default all interfaces port: 9735)"`
-	ExternalIPs []string `long:"externalip" description:"Add an ip to the list of local addresses we claim to listen on to peers"`
+	RPCListeners  []string `long:"rpclisten" description:"Add an interface/port to listen for RPC connections"`
+	RESTListeners []string `long:"restlisten" description:"Add an interface/port to listen for REST connections"`
+	Listeners     []string `long:"listen" description:"Add an interface/port to listen for peer connections"`
+	DisableListen bool     `long:"nolisten" description:"Disable listening for incoming peer connections"`
+	ExternalIPs   []string `long:"externalip" description:"Add an ip to the list of local addresses we claim to listen on to peers"`
 
 	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
 
@@ -150,9 +153,6 @@ type config struct {
 
 	Profile string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65536"`
 
-	PeerPort           int  `long:"peerport" description:"The port to listen on for incoming p2p connections"`
-	RPCPort            int  `long:"rpcport" description:"The port for the rpc server"`
-	RESTPort           int  `long:"restport" description:"The port for the REST server"`
 	DebugHTLC          bool `long:"debughtlc" description:"Activate the debug htlc mode. With the debug HTLC mode, all payments sent use a pre-determined R-Hash. Additionally, all HTLCs sent to a node with the debug HTLC R-Hash are immediately settled in the next available state transition."`
 	HodlHTLC           bool `long:"hodlhtlc" description:"Activate the hodl HTLC mode.  With hodl HTLC mode, all incoming HTLCs will be accepted by the receiving node, but no attempt will be made to settle the payment with the sender."`
 	MaxPendingChannels int  `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
@@ -192,9 +192,6 @@ func loadConfig() (*config, error) {
 		AdminMacPath: defaultAdminMacPath,
 		ReadMacPath:  defaultReadMacPath,
 		LogDir:       defaultLogDir,
-		PeerPort:     defaultPeerPort,
-		RPCPort:      defaultRPCPort,
-		RESTPort:     defaultRESTPort,
 		Bitcoin: &chainConfig{
 			MinHTLC:       defaultBitcoinMinHTLCMSat,
 			BaseFee:       defaultBitcoinBaseFeeMSat,
@@ -450,6 +447,44 @@ func loadConfig() (*config, error) {
 		fmt.Fprintln(os.Stderr, usageMessage)
 		return nil, err
 	}
+
+	// At least one RPCListener is required.
+	if len(cfg.RPCListeners) == 0 {
+		addr := fmt.Sprintf("localhost:%d", defaultRPCPort)
+		cfg.RPCListeners = append(cfg.RPCListeners, addr)
+	}
+
+	// Listen on the default interface/port if no REST listeners were specified.
+	if len(cfg.RESTListeners) == 0 {
+		addr := fmt.Sprintf("localhost:%d", defaultRESTPort)
+		cfg.RESTListeners = append(cfg.RESTListeners, addr)
+	}
+
+	// Listen on the default interface/port if no listeners were specified.
+	if len(cfg.Listeners) == 0 {
+		addr := fmt.Sprintf(":%d", defaultPeerPort)
+		cfg.Listeners = append(cfg.Listeners, addr)
+	}
+
+	// Remove all Listeners if listening is disabled.
+	if cfg.DisableListen {
+		cfg.Listeners = nil
+	}
+
+	// Add default port to all RPC listener addresses if needed and remove
+	// duplicate addresses.
+	cfg.RPCListeners = normalizeAddresses(cfg.RPCListeners,
+		strconv.Itoa(defaultRPCPort))
+
+	// Add default port to all REST listener addresses if needed and remove
+	// duplicate addresses.
+	cfg.RESTListeners = normalizeAddresses(cfg.RESTListeners,
+		strconv.Itoa(defaultRESTPort))
+
+	// Add default port to all listener addresses if needed and remove
+	// duplicate addresses.
+	cfg.Listeners = normalizeAddresses(cfg.Listeners,
+		strconv.Itoa(defaultPeerPort))
 
 	// Warn about missing config file only after all other configuration is
 	// done.  This prevents the warning on help messages and invalid
@@ -787,4 +822,21 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 
 	return string(userSubmatches[1]), string(passSubmatches[1]),
 		string(zmqPathSubmatches[1]), nil
+}
+
+// normalizeAddresses returns a new slice with all the passed addresses
+// normalized with the given default port and all duplicates removed.
+func normalizeAddresses(addrs []string, defaultPort string) []string {
+	result := make([]string, 0, len(addrs))
+	seen := map[string]struct{}{}
+	for _, addr := range addrs {
+		if _, _, err := net.SplitHostPort(addr); err != nil {
+			addr = net.JoinHostPort(addr, defaultPort)
+		}
+		if _, ok := seen[addr]; !ok {
+			result = append(result, addr)
+			seen[addr] = struct{}{}
+		}
+	}
+	return result
 }

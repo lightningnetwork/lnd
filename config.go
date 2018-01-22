@@ -133,6 +133,11 @@ type autoPilotConfig struct {
 	Allocation  float64 `long:"allocation" description:"The percentage of total funds that should be committed to automatic channel establishment"`
 }
 
+type torConfig struct {
+	Socks string `long:"socks" description:"The port that Tor's exposed SOCKS5 proxy is listening on. Using Tor allows outbound-only connections (listening will be disabled) -- NOTE port must be between 1024 and 65535"`
+	DNS   string `long:"dns" description:"The DNS server as IP:PORT that Tor will use for SRV queries - NOTE must have TCP resolution enabled"`
+}
+
 // config defines the configuration options for lnd.
 //
 // See loadConfig for further details regarding the configuration
@@ -161,9 +166,6 @@ type config struct {
 
 	Profile string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65535"`
 
-	TorSocks string `long:"torsocks" description:"The port that Tor's exposed SOCKS5 proxy is listening on -- NOTE port must be between 1024 and 65535"`
-	TorDNS   string `long:"tordns" description:"The DNS server as IP:PORT that Tor will use for SRV queries - NOTE must have TCP resolution enabled"`
-
 	DebugHTLC          bool `long:"debughtlc" description:"Activate the debug htlc mode. With the debug HTLC mode, all payments sent use a pre-determined R-Hash. Additionally, all HTLCs sent to a node with the debug HTLC R-Hash are immediately settled in the next available state transition."`
 	HodlHTLC           bool `long:"hodlhtlc" description:"Activate the hodl HTLC mode.  With hodl HTLC mode, all incoming HTLCs will be accepted by the receiving node, but no attempt will be made to settle the payment with the sender."`
 	MaxPendingChannels int  `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
@@ -177,6 +179,8 @@ type config struct {
 	LtcdMode *btcdConfig  `group:"ltcd" namespace:"ltcd"`
 
 	Autopilot *autoPilotConfig `group:"autopilot" namespace:"autopilot"`
+
+	Tor *torConfig `group:"Tor" namespace:"tor"`
 
 	NoNetBootstrap bool `long:"nobootstrap" description:"If true, then automatic network bootstrapping will not be attempted."`
 
@@ -298,9 +302,9 @@ func loadConfig() (*config, error) {
 	// the proxy specific dial function and the DNS resolution functions use
 	// Tor.
 	cfg.net = &torsvc.MultiNet{Tor: false}
-	if cfg.TorSocks != "" && cfg.TorDNS != "" {
+	if cfg.Tor.Socks != "" && cfg.Tor.DNS != "" {
 		// Validate Tor port number
-		torport, err := strconv.Atoi(cfg.TorSocks)
+		torport, err := strconv.Atoi(cfg.Tor.Socks)
 		if err != nil || torport < 1024 || torport > 65535 {
 			str := "%s: The tor socks5 port must be between 1024 and 65535"
 			err := fmt.Errorf(str, funcName)
@@ -319,16 +323,16 @@ func loadConfig() (*config, error) {
 			return nil, err
 		}
 
-		cfg.net.TorDNS = cfg.TorDNS
-		cfg.net.TorSocks = cfg.TorSocks
+		cfg.net.TorDNS = cfg.Tor.DNS
+		cfg.net.TorSocks = cfg.Tor.Socks
 
 		// If we are using Tor, since we only want connections routed
 		// through Tor, listening is disabled.
 		cfg.DisableListen = true
 
-	} else if cfg.TorSocks != "" || cfg.TorDNS != "" {
+	} else if cfg.Tor.Socks != "" || cfg.Tor.DNS != "" {
 		// Both TorSocks and TorDNS must be set.
-		str := "%s: Both the torsocks and the tordns flags must be set" +
+		str := "%s: Both the tor.socks and the tor.dns flags must be set" +
 			"to properly route connections and avoid DNS leaks while" +
 			"using Tor"
 		err := fmt.Errorf(str, funcName)

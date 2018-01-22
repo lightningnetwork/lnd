@@ -125,21 +125,21 @@ func configureUpnp() (string, error) {
 	// Connect to router
 	d, err := upnp.DiscoverCtx(context.Background())
 	if err != nil {
-		srvrLog.Errorf("UPnP: Unable to discover router %v\n", err)
+		srvrLog.Errorf("UPnP: Unable to discover router %v", err)
 		return "", err
 	}
 
 	// Get external IP
 	ip, err := d.ExternalIP()
 	if err != nil {
-		srvrLog.Errorf("UPnP: Unable to get external ip %v\n", err)
+		srvrLog.Errorf("UPnP: Unable to get external ip %v", err)
 		return "", err
 	}
 
 	// Forward peer port
 	err = d.Forward(uint16(cfg.PeerPort), "lnd peer port")
 	if err != nil {
-		srvrLog.Errorf("UPnP: Unable to forward pear port ip %v\n", err)
+		srvrLog.Errorf("UPnP: Unable to forward pear port ip %v", err)
 		return "", err
 	}
 
@@ -158,7 +158,7 @@ func configureNatPmp() (string, error) {
 	gatewayIP, err := gateway.DiscoverGateway()
 
 	if err != nil {
-		srvrLog.Errorf("NAT-PMP: Unable to discover router %v\n", err)
+		srvrLog.Errorf("NAT-PMP: Unable to discover router %v", err)
 		return "", err
 	}
 
@@ -166,7 +166,7 @@ func configureNatPmp() (string, error) {
 	response, err := client.GetExternalAddress()
 
 	if err != nil {
-		srvrLog.Errorf("NAT-PMP: Unable to get external ip %v\n", err)
+		srvrLog.Errorf("NAT-PMP: Unable to get external ip %v", err)
 		return "", err
 	}
 	externalIP := response.ExternalIPAddress
@@ -174,11 +174,11 @@ func configureNatPmp() (string, error) {
 	_, err = client.AddPortMapping("tcp", cfg.PeerPort, cfg.PeerPort, 3600)
 
 	if err != nil {
-		srvrLog.Errorf("NatPmp: Unable to create mapping for port %v %v\n", cfg.PeerPort, err)
+		srvrLog.Errorf("NatPmp: Unable to create mapping for port %v %v", cfg.PeerPort, err)
 		return "", err
 	}
 
-	srvrLog.Infof("NAT-PMP: External IP address: %v `n", externalIP)
+	srvrLog.Infof("NAT-PMP: External IP address: %v", externalIP)
 
 	ipAddress := net.IPv4(externalIP[0], externalIP[1], externalIP[2], externalIP[3])
 

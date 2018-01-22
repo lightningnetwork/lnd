@@ -1623,18 +1623,20 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					}
 					p.dest = payReq.Destination.SerializeCompressed()
 
+					// If the amount was not included in the
+					// invoice, then we let the payee
+					// specify the amount of satoshis they
+					// wish to send. We override the amount
+					// to pay with the amount provided from
+					// the payment request.
 					if payReq.MilliSat == nil {
-						err := fmt.Errorf("only payment" +
-							" requests specifying" +
-							" the amount are" +
-							" currently supported")
-						select {
-						case errChan <- err:
-						case <-reqQuit:
-						}
-						return
+						p.msat = lnwire.NewMSatFromSatoshis(
+							btcutil.Amount(nextPayment.Amt),
+						)
+					} else {
+						p.msat = *payReq.MilliSat
 					}
-					p.msat = *payReq.MilliSat
+
 					p.pHash = payReq.PaymentHash[:]
 					p.cltvDelta = uint16(payReq.MinFinalCLTVExpiry())
 				} else {
@@ -1806,11 +1808,18 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 
 		destPub = payReq.Destination
 
+		// If the amount was not included in the invoice, then we let
+		// the payee specify the amount of satoshis they wish to send.
+		// We override the amount to pay with the amount provided from
+		// the payment request.
 		if payReq.MilliSat == nil {
-			return nil, fmt.Errorf("payment requests with no " +
-				"amount specified not currently supported")
+			amtMSat = lnwire.NewMSatFromSatoshis(
+				btcutil.Amount(nextPayment.Amt),
+			)
+		} else {
+			amtMSat = *payReq.MilliSat
 		}
-		amtMSat = *payReq.MilliSat
+
 		rHash = *payReq.PaymentHash
 		cltvDelta = uint16(payReq.MinFinalCLTVExpiry())
 

@@ -131,6 +131,8 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 
 	listeners := make([]net.Listener, len(listenAddrs))
 	for i, addr := range listenAddrs {
+		// Note: though brontide.NewListener uses ResolveTCPAddr, it doesn't need to call the
+		// general lndResolveTCP function since we are resolving a local address.
 		listeners[i], err = brontide.NewListener(privKey, addr)
 		if err != nil {
 			return nil, err

@@ -24,8 +24,6 @@ var _ net.Listener = (*Listener)(nil)
 
 // NewListener returns a new net.Listener which enforces the Brontide scheme
 // during both initial connection establishment and data transfer.
-// Note: though this function uses ResolveTCPAddr, we don't need to call the
-// general lndResolveTCP function since we are resolving a local address.
 func NewListener(localStatic *btcec.PrivateKey, listenAddr string) (*Listener,
 	error) {
 	addr, err := net.ResolveTCPAddr("tcp", listenAddr)

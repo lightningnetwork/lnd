@@ -1469,7 +1469,15 @@ func (l *channelLink) processLockedInHtlcs(
 				// Otherwise, we settle this htlc within our
 				// local state update log, then send the update
 				// entry to the remote party.
-				if !l.cfg.DebugHTLC && pd.Amount < invoice.Terms.Value {
+				//
+				// NOTE: We make an exception when the value
+				// requested by the invoice is zero. This means
+				// the invoice allows the payee to specify the
+				// amount of satoshis they wish to send.
+				// So since we expect the htlc to have a
+				// different amount, we should not fail.
+				if !l.cfg.DebugHTLC && invoice.Terms.Value > 0 &&
+					pd.Amount < invoice.Terms.Value {
 					log.Errorf("rejecting htlc due to incorrect "+
 						"amount: expected %v, received %v",
 						invoice.Terms.Value, pd.Amount)
@@ -1484,7 +1492,14 @@ func (l *channelLink) processLockedInHtlcs(
 				// ensure that it was crafted correctly by the
 				// sender and matches the HTLC we were
 				// extended.
-				if !l.cfg.DebugHTLC &&
+				//
+				// NOTE: We make an exception when the value
+				// requested by the invoice is zero. This means
+				// the invoice allows the payee to specify the
+				// amount of satoshis they wish to send.
+				// So since we expect the htlc to have a
+				// different amount, we should not fail.
+				if !l.cfg.DebugHTLC && invoice.Terms.Value > 0 &&
 					fwdInfo.AmountToForward != invoice.Terms.Value {
 
 					log.Errorf("Onion payload of incoming "+

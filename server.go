@@ -205,7 +205,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		var addr string
 		_, _, err = net.SplitHostPort(ip)
 		if err != nil {
-			addr = net.JoinHostPort(ip, strconv.Itoa(defaultPeerPort))
+			addr = net.JoinHostPort(ip, strconv.Itoa(cfg.PeerPort))
 		} else {
 			addr = ip
 		}

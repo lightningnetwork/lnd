@@ -294,7 +294,7 @@ service Lightning {
     */
     rpc ListInvoices (ListInvoiceRequest) returns (ListInvoiceResponse) {
         option (google.api.http) = {
-            get: "/v1/invoices/{pending_only}"
+            get: "/v1/invoices"
         };
     }
 
@@ -305,7 +305,7 @@ service Lightning {
     */
     rpc LookupInvoice (PaymentHash) returns (Invoice) {
         option (google.api.http) = {
-            get: "/v1/invoices/{r_hash_str}"
+            get: "/v1/invoice/{r_hash_str}"
         };
     }
 

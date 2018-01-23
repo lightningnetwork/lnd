@@ -941,9 +941,13 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// add it to to our preimage cache. By doing this, we ensure
 		// any contested contracts watched by any on-chain arbitrators
 		// can now sweep this HTLC on-chain.
-		if err := l.cfg.PreimageCache.AddPreimage(pre[:]); err != nil {
-			log.Errorf("unable to add preimage=%x to cache", pre[:])
-		}
+		go func() {
+			err := l.cfg.PreimageCache.AddPreimage(pre[:])
+			if err != nil {
+				log.Errorf("unable to add preimage=%x to "+
+					"cache", pre[:])
+			}
+		}()
 
 	case *lnwire.UpdateFailMalformedHTLC:
 		// Convert the failure type encoded within the HTLC fail

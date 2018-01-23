@@ -238,7 +238,8 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	broadcastTxChan := make(chan *wire.MsgTx)
 
 	responder, responderChan, initiatorChan, cleanUp, err := createTestPeer(
-		notifier, broadcastTxChan)
+		notifier, broadcastTxChan,
+	)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}

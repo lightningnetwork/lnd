@@ -1345,7 +1345,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 			return nil, fmt.Errorf("quitting")
 		}
 
-		log.Infof("ChannelPoint(%v) is fully closed, at height: %v",
+		log.Infof("ChannelPoint(%v) commit tx is fully resolved, at height: %v",
 			c.chanPoint, confInfo.BlockHeight)
 
 	case <-c.Quit:

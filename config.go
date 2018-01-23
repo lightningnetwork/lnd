@@ -191,7 +191,7 @@ type config struct {
 	Alias string `long:"alias" description:"The node alias. Used as a moniker by peers and intelligence services"`
 	Color string `long:"color" description:"The color of the node in hex format (i.e. '#3399FF'). Used to customize node appearance in intelligence services"`
 
-	net *torsvc.MultiNet
+	net torsvc.Net
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -301,7 +301,7 @@ func loadConfig() (*config, error) {
 	// functions. When Tor's proxy is specified, the dial function is set to
 	// the proxy specific dial function and the DNS resolution functions use
 	// Tor.
-	cfg.net = &torsvc.MultiNet{Tor: false}
+	cfg.net = &torsvc.RegularNet{}
 	if cfg.Tor.Socks != "" && cfg.Tor.DNS != "" {
 		// Validate Tor port number
 		torport, err := strconv.Atoi(cfg.Tor.Socks)
@@ -323,8 +323,10 @@ func loadConfig() (*config, error) {
 			return nil, err
 		}
 
-		cfg.net.TorDNS = cfg.Tor.DNS
-		cfg.net.TorSocks = cfg.Tor.Socks
+		cfg.net = &torsvc.TorProxyNet{
+			TorDNS:   cfg.Tor.DNS,
+			TorSocks: cfg.Tor.Socks,
+		}
 
 		// If we are using Tor, since we only want connections routed
 		// through Tor, listening is disabled.

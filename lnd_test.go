@@ -5467,13 +5467,22 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	if _, err := net.Miner.Node.Generate(1); err != nil {
 		t.Fatalf("unable to mine block: %v", err)
 	}
-	pendingChanResp, err = carol.PendingChannels(ctxb, pendingChansRequest)
+	err = lntest.WaitPredicate(func() bool {
+		pendingChanResp, err = carol.PendingChannels(ctxb, pendingChansRequest)
+		if err != nil {
+			predErr = fmt.Errorf("unable to query for pending channels: %v", err)
+			return false
+		}
+		if len(pendingChanResp.PendingForceClosingChannels) != 0 {
+			predErr = fmt.Error("carol still has pending channels: %v",
+				spew.Sdump(pendingChanResp))
+			return false
+		}
+
+		return true
+	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("unable to query for pending channels: %v", err)
-	}
-	if len(pendingChanResp.PendingForceClosingChannels) != 0 {
-		t.Fatalf("carol still has pending channels: %v",
-			spew.Sdump(pendingChanResp))
+		t.Fatalf(predErr.Error())
 	}
 
 	// We'll close out the channel between Alice and Bob, then shutdown
@@ -6065,6 +6074,11 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	// destined for him.
 	if _, err := net.Miner.Node.Generate(defaultCSV); err != nil {
 		t.Fatalf("unable to generate block: %v", err)
+	}
+
+	_, err = waitForTxInMempool(net.Miner.Node, time.Second*10)
+	if err != nil {
+		t.Fatalf("unable to find bob's sweeping transaction")
 	}
 
 	// At this point, Bob should detect that he has no pending channels

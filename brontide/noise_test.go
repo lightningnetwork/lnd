@@ -47,7 +47,7 @@ func establishTestConnection() (net.Conn, net.Conn, func(), error) {
 	conErrChan := make(chan error, 1)
 	connChan := make(chan net.Conn, 1)
 	go func() {
-		conn, err := Dial(remotePriv, netAddr)
+		conn, err := Dial(remotePriv, netAddr, net.Dial)
 
 		conErrChan <- err
 		connChan <- conn

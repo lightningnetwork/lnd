@@ -5134,7 +5134,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 
 		return true
-	}, time.Second*5)
+	}, time.Second*15)
 	if err != nil {
 		t.Fatalf("htlc mismatch: %v", err)
 	}
@@ -5170,7 +5170,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 
 		return true
-	}, time.Second*5)
+	}, time.Second*15)
 	if err != nil {
 		t.Fatalf("htlc mismatch: %v", err)
 	}
@@ -5226,7 +5226,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 	nodes = []*lntest.HarnessNode{net.Alice}
 	err = lntest.WaitPredicate(func() bool {
 		return assertNumActiveHtlcs(nodes, 0)
-	}, time.Second*4)
+	}, time.Second*15)
 	if err != nil {
 		t.Fatalf("alice's channel still has active htlc's")
 	}
@@ -5276,7 +5276,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 
 		return true
 
-	}, time.Second*5)
+	}, time.Second*15)
 	if err != nil {
 		t.Fatalf(predErr.Error())
 	}
@@ -5340,7 +5340,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 		}
 
 		return true
-	}, time.Second*5)
+	}, time.Second*15)
 	if err != nil {
 		t.Fatalf("htlc mismatch: %v", err)
 	}
@@ -5444,7 +5444,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	nodes = []*lntest.HarnessNode{net.Alice}
 	err = lntest.WaitPredicate(func() bool {
 		return assertNumActiveHtlcs(nodes, 0)
-	}, time.Second*5)
+	}, time.Second*15)
 	if err != nil {
 		t.Fatalf("htlc mismatch: %v", err)
 	}
@@ -5539,7 +5539,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 		}
 
 		return true
-	}, time.Second*5)
+	}, time.Second*15)
 	if err != nil {
 		t.Fatalf("htlc mismatch: %v", err)
 	}
@@ -5603,7 +5603,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 		}
 
 		return true
-	}, time.Second*10)
+	}, time.Second*15)
 	if err != nil {
 		t.Fatalf("bob didn't hand off time-locked HTLC: %v", predErr)
 	}
@@ -5626,7 +5626,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	nodes = []*lntest.HarnessNode{net.Alice}
 	err = lntest.WaitPredicate(func() bool {
 		return assertNumActiveHtlcs(nodes, 0)
-	}, time.Second*4)
+	}, time.Second*15)
 	if err != nil {
 		t.Fatalf("alice's channel still has active htlc's")
 	}
@@ -5662,7 +5662,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 		}
 
 		return true
-	}, time.Second*10)
+	}, time.Second*15)
 	if err != nil {
 		t.Fatalf("bob didn't hand off time-locked HTLC: %v", predErr)
 	}
@@ -5700,7 +5700,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 		}
 
 		return true
-	}, time.Second*5)
+	}, time.Second*15)
 	if err != nil {
 		t.Fatalf(predErr.Error())
 	}
@@ -5766,7 +5766,7 @@ func testMultHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 		}
 
 		return true
-	}, time.Second*5)
+	}, time.Second*15)
 	if err != nil {
 		t.Fatalf("htlc mismatch: %v", err)
 	}
@@ -5826,7 +5826,7 @@ func testMultHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 		}
 
 		return true
-	}, time.Second*10)
+	}, time.Second*15)
 	if err != nil {
 		t.Fatalf("bob didn't hand off time-locked HTLC: %v", predErr)
 	}
@@ -5856,7 +5856,7 @@ func testMultHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	nodes = []*lntest.HarnessNode{net.Alice}
 	err = lntest.WaitPredicate(func() bool {
 		return assertNumActiveHtlcs(nodes, 0)
-	}, time.Second*4)
+	}, time.Second*15)
 	if err != nil {
 		t.Fatalf("alice's channel still has active htlc's")
 	}
@@ -5880,7 +5880,7 @@ func testMultHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 		}
 
 		return true
-	}, time.Second*5)
+	}, time.Second*15)
 	if err != nil {
 		t.Fatalf(predErr.Error())
 	}
@@ -5944,7 +5944,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 		}
 
 		return true
-	}, time.Second*5)
+	}, time.Second*15)
 	if err != nil {
 		t.Fatalf("htlc mismatch: %v", err)
 	}
@@ -6056,7 +6056,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 		}
 
 		return true
-	}, time.Second*10)
+	}, time.Second*15)
 	if err != nil {
 		t.Fatalf("bob didn't hand off time-locked HTLC: %v", predErr)
 	}
@@ -6147,7 +6147,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 		}
 
 		return true
-	}, time.Second*5)
+	}, time.Second*15)
 	if err != nil {
 		t.Fatalf("htlc mismatch: %v", err)
 	}
@@ -6250,7 +6250,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 		}
 
 		return true
-	}, time.Second*5)
+	}, time.Second*15)
 	if err != nil {
 		t.Fatalf(predErr.Error())
 	}

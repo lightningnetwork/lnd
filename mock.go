@@ -90,9 +90,11 @@ func (m *mockNotfier) RegisterConfirmationsNtfn(txid *chainhash.Hash, numConfs,
 		Confirmed: m.confChannel,
 	}, nil
 }
-func (m *mockNotfier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent,
-	error) {
-	return nil, nil
+func (m *mockNotfier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent, error) {
+	return &chainntnfs.BlockEpochEvent{
+		Epochs: make(chan *chainntnfs.BlockEpoch),
+		Cancel: func() {},
+	}, nil
 }
 
 func (m *mockNotfier) Start() error {

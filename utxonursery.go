@@ -1732,7 +1732,7 @@ func makeKidOutput(outpoint, originChanPoint *wire.OutPoint,
 
 	return kidOutput{
 		breachedOutput: makeBreachedOutput(
-			outpoint, witnessType, signDescriptor,
+			outpoint, witnessType, nil, signDescriptor,
 		),
 		isHtlc:           isHtlc,
 		originChanPoint:  *originChanPoint,

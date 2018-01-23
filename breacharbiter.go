@@ -410,20 +410,56 @@ out:
 	return
 }
 
+// convertToSecondLevelRevoke takes a breached output, and a transaction that
+// spends it to the second level, and mutates the breach output into one that
+// is able to properly sweep that second level output. We'll use this function
+// when we go to sweep a breached commitment transaction, but the cheating
+// party has already attempted to take it to the second level
+func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
+	spendDetails *chainntnfs.SpendDetail) {
+
+	// In this case, we'll modify the witness type of this output to
+	// actually prepare for a second level revoke.
+	bo.witnessType = lnwallet.HtlcSecondLevelRevoke
+
+	// We'll also redirect the outpoint to this second level output, so the
+	// spending transaction updates it inputs accordingly.
+	spendingTx := spendDetails.SpendingTx
+	oldOp := bo.outpoint
+	bo.outpoint = wire.OutPoint{
+		Hash:  spendingTx.TxHash(),
+		Index: 0,
+	}
+
+	// Next, we need to update the amount so we can do fee estimation
+	// properly, and also so we can generate a valid signature as we need
+	// to know the new input value (the second level transactions shaves
+	// off some funds to fees).
+	newAmt := spendingTx.TxOut[0].Value
+	bo.amt = btcutil.Amount(newAmt)
+	bo.signDesc.Output.Value = newAmt
+
+	// Finally, we'll need to adjust the witness program in the
+	// SignDescriptor.
+	bo.signDesc.WitnessScript = bo.secondLevelWitnessScript
+
+	brarLog.Warnf("HTLC(%v) for ChannelPoint(%v) has been spent to the "+
+		"second-level, adjusting -> %v", oldOp, breachInfo.chanPoint,
+		bo.outpoint)
+}
+
 // exactRetribution is a goroutine which is executed once a contract breach has
 // been detected by a breachObserver. This function is responsible for
 // punishing a counterparty for violating the channel contract by sweeping ALL
 // the lingering funds within the channel into the daemon's wallet.
 //
 // NOTE: This MUST be run as a goroutine.
-func (b *breachArbiter) exactRetribution(
-	confChan *chainntnfs.ConfirmationEvent,
+func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 	breachInfo *retributionInfo) {
 
 	defer b.wg.Done()
 
 	// TODO(roasbeef): state needs to be checkpointed here
-
 	var breachConfHeight uint32
 	select {
 	case breachConf, ok := <-confChan.Confirmed:
@@ -455,9 +491,60 @@ func (b *breachArbiter) exactRetribution(
 	// construct a sweep transaction and write it to disk. This will allow
 	// the breach arbiter to re-register for notifications for the justice
 	// txid.
+secondLevelCheck:
 	if finalTx == nil {
+		// Before we create the justice tx, we need to check to see if
+		// any of the active HTLC's on the commitment transactions has
+		// been spent. In this case, we'll need to go to the second
+		// level to sweep them before the remote party can.
+		for i := 0; i < len(breachInfo.breachedOutputs); i++ {
+			breachedOutput := &breachInfo.breachedOutputs[i]
+
+			// If this isn't an HTLC output, then we can skip it.
+			if breachedOutput.witnessType != lnwallet.HtlcAcceptedRevoke &&
+				breachedOutput.witnessType != lnwallet.HtlcOfferedRevoke {
+				continue
+			}
+
+			brarLog.Debugf("Checking for second-level attempt on "+
+				"HTLC(%v) for ChannelPoint(%v)",
+				breachedOutput.outpoint, breachInfo.chanPoint)
+
+			// Now that we have an HTLC output, we'll quickly check
+			// to see if it has been spent or not.
+			spendNtfn, err := b.cfg.Notifier.RegisterSpendNtfn(
+				&breachedOutput.outpoint, breachInfo.breachHeight,
+			)
+			if err != nil {
+				brarLog.Errorf("unable to check for spentness "+
+					"of out_point=%v: %v",
+					breachedOutput.outpoint, err)
+				continue
+			}
+
+			select {
+			// The output has been taken to the second level!
+			case spendDetails, ok := <-spendNtfn.Spend:
+				if !ok {
+					return
+				}
+
+				// In this case we'll morph our initial revoke
+				// spend to instead point to the second level
+				// output, and update the sign descriptor in
+				// the process.
+				convertToSecondLevelRevoke(
+					breachedOutput, breachInfo, spendDetails,
+				)
+
+			// It hasn't been spent so we'll continue.
+			default:
+			}
+		}
+
 		// With the breach transaction confirmed, we now create the
-		// justice tx which will claim ALL the funds within the channel.
+		// justice tx which will claim ALL the funds within the
+		// channel.
 		finalTx, err = b.createJusticeTx(breachInfo)
 		if err != nil {
 			brarLog.Errorf("unable to create justice tx: %v", err)
@@ -474,16 +561,22 @@ func (b *breachArbiter) exactRetribution(
 		}
 	}
 
-	brarLog.Debugf("Broadcasting justice tx: %v",
-		newLogClosure(func() string {
-			return spew.Sdump(finalTx)
-		}))
+	brarLog.Debugf("Broadcasting justice tx: %v", newLogClosure(func() string {
+		return spew.Sdump(finalTx)
+	}))
 
-	// Finally, broadcast the transaction, finalizing the channels'
-	// retribution against the cheating counterparty.
-	if err := b.cfg.PublishTransaction(finalTx); err != nil {
+	// We'll now attempt to broadcast the transaction which finalized the
+	// channel's retribution against the cheating counter party.
+	err = b.cfg.PublishTransaction(finalTx)
+	if err != nil {
 		brarLog.Errorf("unable to broadcast "+
 			"justice tx: %v", err)
+		if strings.Contains(err.Error(), "already been spent") {
+			brarLog.Infof("Attempting to transfer HTLC revocations " +
+				"to the second level")
+			finalTx = nil
+			goto secondLevelCheck
+		}
 	}
 
 	// As a conclusionary step, we register for a notification to be
@@ -709,6 +802,8 @@ type breachedOutput struct {
 	witnessType lnwallet.WitnessType
 	signDesc    lnwallet.SignDescriptor
 
+	secondLevelWitnessScript []byte
+
 	witnessFunc lnwallet.WitnessGenerator
 }
 
@@ -716,15 +811,17 @@ type breachedOutput struct {
 // breach arbiter to construct a justice or sweep transaction.
 func makeBreachedOutput(outpoint *wire.OutPoint,
 	witnessType lnwallet.WitnessType,
+	secondLevelScript []byte,
 	signDescriptor *lnwallet.SignDescriptor) breachedOutput {
 
 	amount := signDescriptor.Output.Value
 
 	return breachedOutput{
-		amt:         btcutil.Amount(amount),
-		outpoint:    *outpoint,
-		witnessType: witnessType,
-		signDesc:    *signDescriptor,
+		amt:                      btcutil.Amount(amount),
+		outpoint:                 *outpoint,
+		secondLevelWitnessScript: secondLevelScript,
+		witnessType:              witnessType,
+		signDesc:                 *signDescriptor,
 	}
 }
 
@@ -756,17 +853,14 @@ func (bo *breachedOutput) SignDesc() *lnwallet.SignDescriptor {
 // generation function, which parameterized primarily by the witness type and
 // sign descriptor. The method then returns the witness computed by invoking
 // this function on the first and subsequent calls.
-func (bo *breachedOutput) BuildWitness(signer lnwallet.Signer,
-	txn *wire.MsgTx,
-	hashCache *txscript.TxSigHashes,
-	txinIdx int) ([][]byte, error) {
+func (bo *breachedOutput) BuildWitness(signer lnwallet.Signer, txn *wire.MsgTx,
+	hashCache *txscript.TxSigHashes, txinIdx int) ([][]byte, error) {
 
-	// First, we ensure that the witness generation function has
-	// been initialized for this breached output.
-	if bo.witnessFunc == nil {
-		bo.witnessFunc = bo.witnessType.GenWitnessFunc(
-			signer, bo.SignDesc())
-	}
+	// First, we ensure that the witness generation function has been
+	// initialized for this breached output.
+	bo.witnessFunc = bo.witnessType.GenWitnessFunc(
+		signer, bo.SignDesc(),
+	)
 
 	// Now that we have ensured that the witness generation function has
 	// been initialized, we can proceed to execute it and generate the
@@ -818,6 +912,9 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 		localOutput := makeBreachedOutput(
 			&breachInfo.LocalOutpoint,
 			lnwallet.CommitmentNoDelay,
+			// No second level script as this is a commitment
+			// output.
+			nil,
 			breachInfo.LocalOutputSignDesc)
 
 		breachedOutputs = append(breachedOutputs, localOutput)
@@ -832,6 +929,9 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 		remoteOutput := makeBreachedOutput(
 			&breachInfo.RemoteOutpoint,
 			lnwallet.CommitmentRevoke,
+			// No second level script as this is a commitment
+			// output.
+			nil,
 			breachInfo.RemoteOutputSignDesc)
 
 		breachedOutputs = append(breachedOutputs, remoteOutput)
@@ -855,6 +955,7 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 		htlcOutput := makeBreachedOutput(
 			&breachInfo.HtlcRetributions[i].OutPoint,
 			htlcWitnessType,
+			breachInfo.HtlcRetributions[i].SecondLevelWitnessScript,
 			&breachInfo.HtlcRetributions[i].SignDesc)
 
 		breachedOutputs = append(breachedOutputs, htlcOutput)
@@ -865,6 +966,7 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 		chainHash:       breachInfo.ChainHash,
 		chanPoint:       *chanPoint,
 		breachedOutputs: breachedOutputs,
+		breachHeight:    breachInfo.BreachHeight,
 	}
 }
 
@@ -917,6 +1019,9 @@ func (b *breachArbiter) createJusticeTx(
 		case lnwallet.HtlcAcceptedRevoke:
 			witnessWeight = lnwallet.AcceptedHtlcPenaltyWitnessSize
 
+		case lnwallet.HtlcSecondLevelRevoke:
+			witnessWeight = lnwallet.SecondLevelHtlcPenaltyWitnessSize
+
 		default:
 			brarLog.Warnf("breached output in retribution info "+
 				"contains unexpected witness type: %v",
@@ -961,6 +1066,7 @@ func (b *breachArbiter) sweepSpendableOutputsTxn(txWeight uint64,
 	}
 	txFee := btcutil.Amount(txWeight * uint64(feePerWeight))
 
+	// TODO(roasbeef): already start to siphon their funds into fees
 	sweepAmt := int64(totalAmt - txFee)
 
 	// With the fee calculated, we can now create the transaction using the
@@ -1353,7 +1459,13 @@ func (bo *breachedOutput) Encode(w io.Writer) error {
 		return err
 	}
 
-	if err := lnwallet.WriteSignDescriptor(w, &bo.signDesc); err != nil {
+	err := lnwallet.WriteSignDescriptor(w, &bo.signDesc)
+	if err != nil {
+		return err
+	}
+
+	err = wire.WriteVarBytes(w, 0, bo.secondLevelWitnessScript)
+	if err != nil {
 		return err
 	}
 
@@ -1382,11 +1494,18 @@ func (bo *breachedOutput) Decode(r io.Reader) error {
 		return err
 	}
 
+	wScript, err := wire.ReadVarBytes(r, 0, 1000, "witness script")
+	if err != nil {
+		return err
+	}
+	bo.secondLevelWitnessScript = wScript
+
 	if _, err := io.ReadFull(r, scratch[:2]); err != nil {
 		return err
 	}
 	bo.witnessType = lnwallet.WitnessType(
-		binary.BigEndian.Uint16(scratch[:2]))
+		binary.BigEndian.Uint16(scratch[:2]),
+	)
 
 	return nil
 }

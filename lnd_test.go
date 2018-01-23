@@ -5136,7 +5136,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 		return true
 	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("htlc mismatch: %v", err)
+		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
 	// We'll now mine enough blocks to trigger Bob's broadcast of his

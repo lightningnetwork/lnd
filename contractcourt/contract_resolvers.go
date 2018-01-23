@@ -801,10 +801,21 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 	// Otherwise, we'll watch for two external signals to decide if we'll
 	// morph into another resolver, or fully resolve the contract.
 
+	// The output we'll be watching for is the *direct* spend from the HTLC
+	// output. If this isn't our commitment transaction, it'll be right on
+	// the resolution. Otherwise, we fetch this pointer from the input of
+	// the time out transaction.
+	var outPointToWatch wire.OutPoint
+	if h.htlcResolution.SignedTimeoutTx == nil {
+		outPointToWatch = h.htlcResolution.ClaimOutpoint
+	} else {
+		outPointToWatch = h.htlcResolution.SignedTimeoutTx.TxIn[0].PreviousOutPoint
+	}
+
 	// First, we'll register for a spend notification for this output. If
 	// the remote party sweeps with the pre-image, we'll  be notified.
 	spendNtfn, err := h.Notifier.RegisterSpendNtfn(
-		&h.htlcResolution.ClaimOutpoint,
+		&outPointToWatch,
 		h.broadcastHeight,
 	)
 	if err != nil {

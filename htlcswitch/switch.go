@@ -13,6 +13,7 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -161,6 +162,10 @@ type Switch struct {
 	// the channel close handler.
 	chanCloseRequests chan *ChanClose
 
+	// resolutionMsgs is the channel that all external contract resolution
+	// messages will be sent over.
+	resolutionMsgs chan *resolutionMsg
+
 	// linkControl is a channel used to propagate add/remove/get htlc
 	// switch handler commands.
 	linkControl chan interface{}
@@ -177,9 +182,46 @@ func New(cfg Config) *Switch {
 		pendingPayments:   make(map[uint64]*pendingPayment),
 		htlcPlex:          make(chan *plexPacket),
 		chanCloseRequests: make(chan *ChanClose),
+		resolutionMsgs:    make(chan *resolutionMsg),
 		linkControl:       make(chan interface{}),
 		quit:              make(chan struct{}),
 	}
+}
+
+// resolutionMsg is a struct that wraps an existing ResolutionMsg with a done
+// channel. We'll use this channel to synchronize delivery of the message with
+// the caller.
+type resolutionMsg struct {
+	contractcourt.ResolutionMsg
+
+	doneChan chan struct{}
+}
+
+// ProcessContractResolution is called by active contract resolvers once a
+// contract they are watching over has been fully resolved. The message carries
+// an external signal that *would* have been sent if the outgoing channel
+// didn't need to go to the chain in order to fulfill a contract. We'll process
+// this message just as if it came from an active outgoing channel.
+func (s *Switch) ProcessContractResolution(msg contractcourt.ResolutionMsg) error {
+
+	done := make(chan struct{})
+
+	select {
+	case s.resolutionMsgs <- &resolutionMsg{
+		ResolutionMsg: msg,
+		doneChan:      done,
+	}:
+	case <-s.quit:
+		return fmt.Errorf("switch shutting down")
+	}
+
+	select {
+	case <-done:
+	case <-s.quit:
+		return fmt.Errorf("switch shutting down")
+	}
+
+	return nil
 }
 
 // SendHTLC is used by other subsystems which aren't belong to htlc switch
@@ -437,7 +479,12 @@ func (s *Switch) handleLocalDispatch(packet *htlcPacket) error {
 	// user payment and return fail response.
 	case *lnwire.UpdateFailHTLC:
 		var failure *ForwardingError
-		if packet.localFailure {
+		switch {
+
+		// The payment never cleared the link, so we don't need to
+		// decrypt the error, simply decode it them report back to the
+		// user.
+		case packet.localFailure:
 			var userErr string
 			r := bytes.NewReader(htlc.Reason)
 			failureMsg, err := lnwire.DecodeFailure(r, 0)
@@ -452,9 +499,25 @@ func (s *Switch) handleLocalDispatch(packet *htlcPacket) error {
 				ExtraMsg:       userErr,
 				FailureMessage: failureMsg,
 			}
-		} else {
-			// We'll attempt to fully decrypt the onion encrypted error. If
-			// we're unable to then we'll bail early.
+
+		// A payment had to be timed out on chain before it got past
+		// the first hop. In this case, we'll report a permanent
+		// channel failure as this means us, or the remote party had to
+		// go on chain.
+		case packet.isResolution && htlc.Reason == nil:
+			userErr := fmt.Sprintf("payment was resolved " +
+				"on-chain, then cancelled back")
+			failure = &ForwardingError{
+				ErrorSource:    s.cfg.SelfKey,
+				ExtraMsg:       userErr,
+				FailureMessage: lnwire.FailPermanentChannelFailure{},
+			}
+
+		// A regular multi-hop payment error that we'll need to
+		// decrypt.
+		default:
+			// We'll attempt to fully decrypt the onion encrypted
+			// error. If we're unable to then we'll bail early.
 			failure, err = payment.deobfuscator.DecryptError(htlc.Reason)
 			if err != nil {
 				userErr := fmt.Sprintf("unable to de-obfuscate onion failure, "+
@@ -620,26 +683,48 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			packet.incomingChanID = circuit.IncomingChanID
 			packet.incomingHTLCID = circuit.IncomingHTLCID
 
-			// Obfuscate the error message for fail updates before sending back
-			// through the circuit unless the payment was generated locally.
+			// Obfuscate the error message for fail updates before
+			// sending back through the circuit unless the payment
+			// was generated locally.
 			if circuit.ErrorEncrypter != nil {
 				if htlc, ok := htlc.(*lnwire.UpdateFailHTLC); ok {
-					htlc.Reason = circuit.ErrorEncrypter.IntermediateEncrypt(
-						htlc.Reason)
+					// If this is a resolution message,
+					// then we'll need to encrypt it as
+					// it's actually internally sourced.
+					if packet.isResolution {
+						// TODO(roasbeef): don't need to pass actually?
+						failure := &lnwire.FailPermanentChannelFailure{}
+						htlc.Reason, err = circuit.ErrorEncrypter.EncryptFirstHop(
+							failure,
+						)
+						if err != nil {
+							err := errors.Errorf("unable to obfuscate "+
+								"error: %v", err)
+							log.Error(err)
+						}
+					} else {
+						// Otherwise, it's a forwarded
+						// error, so we'll perform a
+						// wrapper encryption as
+						// normal.
+						htlc.Reason = circuit.ErrorEncrypter.IntermediateEncrypt(
+							htlc.Reason,
+						)
+					}
 				}
 			}
 		}
 
-		// A blank IncomingChanID in a circuit indicates that it is a pending
-		// user-initiated payment.
+		// A blank IncomingChanID in a circuit indicates that it is a
+		// pending user-initiated payment.
 		if packet.incomingChanID == (lnwire.ShortChannelID{}) {
 			return s.handleLocalDispatch(packet)
 		}
 
 		source, err := s.getLinkByShortID(packet.incomingChanID)
 		if err != nil {
-			err := errors.Errorf("Unable to get source channel link to "+
-				"forward HTLC settle/fail: %v", err)
+			err := errors.Errorf("Unable to get source channel "+
+				"link to forward HTLC settle/fail: %v", err)
 			log.Error(err)
 			return err
 		}
@@ -735,6 +820,40 @@ func (s *Switch) htlcForwarder() {
 				"chan_id=%x", link.Peer(), chanID[:])
 
 			go s.cfg.LocalChannelClose(peerPub[:], req)
+
+		case resolutionMsg := <-s.resolutionMsgs:
+			pkt := &htlcPacket{
+				outgoingChanID: resolutionMsg.SourceChan,
+				outgoingHTLCID: resolutionMsg.HtlcIndex,
+				isResolution:   true,
+			}
+
+			// Resolution messages will either be cancelling
+			// backwards an existing HTLC, or settling a previously
+			// outgoing HTLC. Based on this, we'll map the message
+			// to the proper htlcPacket.
+			if resolutionMsg.Failure != nil {
+				pkt.htlc = &lnwire.UpdateFailHTLC{}
+			} else {
+				pkt.htlc = &lnwire.UpdateFufillHTLC{
+					PaymentPreimage: *resolutionMsg.PreImage,
+				}
+			}
+
+			log.Infof("Received outside contract resolution, "+
+				"mapping to: %v", spew.Sdump(pkt))
+
+			// We don't check the error, as the only failure we can
+			// encounter is due to the circuit already being
+			// closed. This is fine, as processing this message is
+			// meant to be idempotent.
+			err := s.handlePacketForward(pkt)
+			if err != nil {
+				log.Errorf("Unable to forward resolution msg: %v", err)
+			}
+
+			// With the message processed, we'll now close out
+			close(resolutionMsg.doneChan)
 
 		// A new packet has arrived for forwarding, we'll interpret the
 		// packet concretely, then either forward it along, or

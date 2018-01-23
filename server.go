@@ -17,8 +17,10 @@ import (
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/roasbeef/btcd/blockchain"
@@ -86,8 +88,12 @@ type server struct {
 
 	chanDB *channeldb.DB
 
-	htlcSwitch    *htlcswitch.Switch
-	invoices      *invoiceRegistry
+	htlcSwitch *htlcswitch.Switch
+
+	invoices *invoiceRegistry
+
+	witnessBeacon contractcourt.WitnessBeacon
+
 	breachArbiter *breachArbiter
 
 	chanRouter *routing.ChannelRouter
@@ -95,6 +101,8 @@ type server struct {
 	authGossiper *discovery.AuthenticatedGossiper
 
 	utxoNursery *utxoNursery
+
+	chainArb *contractcourt.ChainArbitrator
 
 	sphinx *htlcswitch.OnionProcessor
 
@@ -160,6 +168,12 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		globalFeatures: lnwire.NewFeatureVector(globalFeatures,
 			lnwire.GlobalFeatures),
 		quit: make(chan struct{}),
+	}
+
+	s.witnessBeacon = &preimageBeacon{
+		invoices:    s.invoices,
+		wCache:      chanDB.NewWitnessCache(),
+		subscribers: make(map[uint64]*preimageSubcriber),
 	}
 
 	// If the debug HTLC flag is on, then we invoice a "master debug"
@@ -343,6 +357,59 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		s.htlcSwitch.CloseLink(chanPoint, closureType, 0)
 	}
 
+	s.chainArb = contractcourt.NewChainArbitrator(contractcourt.ChainArbitratorConfig{
+		ChainHash: *activeNetParams.GenesisHash,
+		// TODO(roasbeef): properly configure
+		//  * needs to be << or specified final hop time delta
+		BroadcastDelta: defaultBroadcastDelta,
+		NewSweepAddr: func() ([]byte, error) {
+			return newSweepPkScript(cc.wallet)
+		},
+		PublishTx: cc.wallet.PublishTransaction,
+		DeliverResolutionMsg: func(msgs ...contractcourt.ResolutionMsg) error {
+			for _, msg := range msgs {
+				err := s.htlcSwitch.ProcessContractResolution(msg)
+				if err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+		IncubateOutputs: func(chanPoint wire.OutPoint,
+			commitRes *lnwallet.CommitOutputResolution,
+			outHtlcRes *lnwallet.OutgoingHtlcResolution,
+			inHtlcRes *lnwallet.IncomingHtlcResolution) error {
+
+			var (
+				inRes  []lnwallet.IncomingHtlcResolution
+				outRes []lnwallet.OutgoingHtlcResolution
+			)
+			if inHtlcRes != nil {
+				inRes = append(inRes, *inHtlcRes)
+			}
+			if outHtlcRes != nil {
+				outRes = append(outRes, *outHtlcRes)
+			}
+
+			return s.utxoNursery.IncubateOutputs(
+				chanPoint, commitRes, outRes, inRes,
+			)
+		},
+		PreimageDB:   s.witnessBeacon,
+		Notifier:     cc.chainNotifier,
+		Signer:       cc.wallet.Cfg.Signer,
+		FeeEstimator: cc.feeEstimator,
+		ChainIO:      cc.chainIO,
+		MarkLinkInactive: func(chanPoint wire.OutPoint) error {
+			chanID := lnwire.NewChanIDFromOutPoint(&chanPoint)
+			return s.htlcSwitch.RemoveLink(chanID)
+		},
+		IsOurAddress: func(addr btcutil.Address) bool {
+			_, err := cc.wallet.GetPrivKey(addr)
+			return err == nil
+		},
+	}, chanDB)
+
 	s.breachArbiter = newBreachArbiter(&BreachConfig{
 		CloseLink: closeLink,
 		DB:        chanDB,
@@ -352,8 +419,14 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		},
 		Notifier:           cc.chainNotifier,
 		PublishTransaction: cc.wallet.PublishTransaction,
-		Signer:             cc.wallet.Cfg.Signer,
-		Store:              newRetributionStore(chanDB),
+		SubscribeChannelEvents: func(chanPoint wire.OutPoint) (*contractcourt.ChainEventSubscription, error) {
+			// We'll request a sync dispatch to ensure that the channel
+			// is only marked as closed *after* we update our internal
+			// state.
+			return s.chainArb.SubscribeChannelEvents(chanPoint, true)
+		},
+		Signer: cc.wallet.Cfg.Signer,
+		Store:  newRetributionStore(chanDB),
 	})
 
 	// Create the connection manager which will be responsible for
@@ -403,6 +476,9 @@ func (s *server) Start() error {
 		return err
 	}
 	if err := s.utxoNursery.Start(); err != nil {
+		return err
+	}
+	if err := s.chainArb.Start(); err != nil {
 		return err
 	}
 	if err := s.breachArbiter.Start(); err != nil {
@@ -461,6 +537,7 @@ func (s *server) Stop() error {
 	s.utxoNursery.Stop()
 	s.breachArbiter.Stop()
 	s.authGossiper.Stop()
+	s.chainArb.Stop()
 	s.cc.wallet.Shutdown()
 	s.cc.chainView.Stop()
 	s.connMgr.Stop()

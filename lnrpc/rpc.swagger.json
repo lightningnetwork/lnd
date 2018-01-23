@@ -1967,6 +1967,11 @@
         "payment_request": {
           "type": "string",
           "description": "*\nA bare-bones invoice for a payment within the Lightning Network.  With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient."
+        },
+        "final_cltv_delta": {
+          "type": "integer",
+          "format": "int32",
+          "description": "/ The CLTV delta from the current height that should be used to set the timelock for the final hop."
         }
       }
     },

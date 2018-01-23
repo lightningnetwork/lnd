@@ -534,6 +534,8 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	// for the duration of the channel. The keys include: our multi-sig
 	// key, the base revocation key, the base htlc key,the base payment
 	// key, and the delayed payment key.
+	//
+	// TODO(roasbeef): special derivaiton?
 	reservation.ourContribution.MultiSigKey, err = l.NewRawKey()
 	if err != nil {
 		req.err <- err
@@ -845,7 +847,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// both commitment transactions.
 	var stateObfuscator [StateHintSize]byte
 	if chanState.ChanType == channeldb.SingleFunder {
-		stateObfuscator = deriveStateHintObfuscator(
+		stateObfuscator = DeriveStateHintObfuscator(
 			ourContribution.PaymentBasePoint,
 			theirContribution.PaymentBasePoint,
 		)
@@ -854,12 +856,12 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		theirSer := theirContribution.PaymentBasePoint.SerializeCompressed()
 		switch bytes.Compare(ourSer, theirSer) {
 		case -1:
-			stateObfuscator = deriveStateHintObfuscator(
+			stateObfuscator = DeriveStateHintObfuscator(
 				ourContribution.PaymentBasePoint,
 				theirContribution.PaymentBasePoint,
 			)
 		default:
-			stateObfuscator = deriveStateHintObfuscator(
+			stateObfuscator = DeriveStateHintObfuscator(
 				theirContribution.PaymentBasePoint,
 				ourContribution.PaymentBasePoint,
 			)
@@ -1161,7 +1163,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	// With both commitment transactions constructed, we can now use the
 	// generator state obfuscator to encode the current state number within
 	// both commitment transactions.
-	stateObfuscator := deriveStateHintObfuscator(
+	stateObfuscator := DeriveStateHintObfuscator(
 		pendingReservation.theirContribution.PaymentBasePoint,
 		pendingReservation.ourContribution.PaymentBasePoint)
 	err = initStateHints(ourCommitTx, theirCommitTx, stateObfuscator)
@@ -1349,7 +1351,7 @@ func (l *LightningWallet) deriveMasterRevocationRoot() (*btcec.PrivateKey, error
 	return masterElkremRoot.ECPrivKey()
 }
 
-// deriveStateHintObfuscator derives the bytes to be used for obfuscating the
+// DeriveStateHintObfuscator derives the bytes to be used for obfuscating the
 // state hints from the root to be used for a new channel. The obsfucsator is
 // generated via the following computation:
 //
@@ -1357,7 +1359,7 @@ func (l *LightningWallet) deriveMasterRevocationRoot() (*btcec.PrivateKey, error
 //     * where both keys are the multi-sig keys of the respective parties
 //
 // The first 6 bytes of the resulting hash are used as the state hint.
-func deriveStateHintObfuscator(key1, key2 *btcec.PublicKey) [StateHintSize]byte {
+func DeriveStateHintObfuscator(key1, key2 *btcec.PublicKey) [StateHintSize]byte {
 	h := sha256.New()
 	h.Write(key1.SerializeCompressed())
 	h.Write(key2.SerializeCompressed())

@@ -2,6 +2,7 @@ package htlcswitch
 
 import (
 	"bytes"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,10 +13,11 @@ import (
 
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 )
 
@@ -120,6 +122,23 @@ type ChannelLinkConfig struct {
 	// in thread-safe manner.
 	Registry InvoiceDatabase
 
+	// PreimageCache is a global witness baacon that houses any new
+	// preimges discovered by other links. We'll use this to add new
+	// witnesses that we discover which will notify any sub-systems
+	// subscribed to new events.
+	PreimageCache contractcourt.WitnessBeacon
+
+	// UpdateContractSignals is a function closure that we'll use to update
+	// outside sub-systems with the latest signals for our inner Lightning
+	// channel. These signals will notify the caller when the channel has
+	// been closed, or when the set of active HTLC's is updated.
+	UpdateContractSignals func(*contractcourt.ContractSignals) error
+
+	// ChainEvents is an active subscription to the chain watcher for this
+	// channel to be notified of any on-chain activity related to this
+	// channel.
+	ChainEvents *contractcourt.ChainEventSubscription
+
 	// FeeEstimator is an instance of a live fee estimator which will be
 	// used to dynamically regulate the current fee of the commitment
 	// transaction to ensure timely confirmation.
@@ -131,11 +150,6 @@ type ChannelLinkConfig struct {
 	// too close to expiry, and also when any active HTLC's have expired
 	// (or are close to expiry).
 	BlockEpochs *chainntnfs.BlockEpochEvent
-
-	// SettledContracts is used to notify that a channel has peacefully
-	// been closed. Once a channel has been closed the other subsystem no
-	// longer needs to watch for breach closes.
-	SettledContracts chan *wire.OutPoint
 
 	// DebugHTLC should be turned on if you want all HTLCs sent to a node
 	// with the debug htlc R-Hash are immediately settled in the next
@@ -210,6 +224,10 @@ type channelLink struct {
 	// be forwarded and/or accepted.
 	linkControl chan interface{}
 
+	// htlcUpdates is a channel that we'll use to update outside
+	// sub-systems with the latest set of active HTLC's on our channel.
+	htlcUpdates chan []channeldb.HTLC
+
 	// logCommitTimer is a timer which is sent upon if we go an interval
 	// without receiving/sending a commitment update. It's role is to
 	// ensure both chains converge to identical state in a timely manner.
@@ -236,6 +254,7 @@ func NewChannelLink(cfg ChannelLinkConfig, channel *lnwallet.LightningChannel,
 		logCommitTimer: time.NewTimer(300 * time.Millisecond),
 		overflowQueue:  newPacketQueue(lnwallet.MaxHTLCNumber / 2),
 		bestHeight:     currentHeight,
+		htlcUpdates:    make(chan []channeldb.HTLC),
 		quit:           make(chan struct{}),
 	}
 
@@ -262,6 +281,21 @@ func (l *channelLink) Start() error {
 
 	log.Infof("ChannelLink(%v) is starting", l)
 
+	// Before we start the link, we'll update the ChainArbitrator with the
+	// set of new channel signals for this channel.
+	//
+	// TODO(roasbeef): split goroutines within channel arb to avoid
+	go func() {
+		err := l.cfg.UpdateContractSignals(&contractcourt.ContractSignals{
+			HtlcUpdates: l.htlcUpdates,
+			ShortChanID: l.channel.ShortChanID(),
+		})
+		if err != nil {
+			log.Errorf("Unable to update signals for "+
+				"ChannelLink(%v)", l)
+		}
+	}()
+
 	l.mailBox.Start()
 	l.overflowQueue.Start()
 
@@ -283,6 +317,10 @@ func (l *channelLink) Stop() {
 
 	log.Infof("ChannelLink(%v) is stopping", l)
 
+	if l.cfg.ChainEvents.Cancel != nil {
+		l.cfg.ChainEvents.Cancel()
+	}
+
 	l.channel.Stop()
 
 	l.mailBox.Stop()
@@ -290,7 +328,6 @@ func (l *channelLink) Stop() {
 
 	close(l.quit)
 	l.wg.Wait()
-
 }
 
 // EligibleToForward returns a bool indicating if the channel is able to
@@ -343,6 +380,180 @@ func shouldAdjustCommitFee(netFee, chanFee btcutil.Amount) bool {
 	}
 }
 
+// syncChanState attempts to synchronize channel states with the remote party.
+// This method is to be called upon reconnection after the initial funding
+// flow. We'll compare out commitment chains with the remote party, and re-send
+// either a danging commit signature, a revocation, or both.
+func (l *channelLink) syncChanStates() error {
+	log.Infof("Attempting to re-resynchronize ChannelPoint(%v)",
+		l.channel.ChannelPoint())
+
+	// First, we'll generate our ChanSync message to send to the other
+	// side. Based on this message, the remote party will decide if they
+	// need to retransmit any data or not.
+	localChanSyncMsg, err := l.channel.ChanSyncMsg()
+	if err != nil {
+		return fmt.Errorf("unable to generate chan sync message for "+
+			"ChannelPoint(%v)", l.channel.ChannelPoint())
+	}
+	if err := l.cfg.Peer.SendMessage(localChanSyncMsg); err != nil {
+		return fmt.Errorf("Unable to send chan sync message for "+
+			"ChannelPoint(%v)", l.channel.ChannelPoint())
+	}
+
+	var msgsToReSend []lnwire.Message
+
+	// Next, we'll wait to receive the ChanSync message with a timeout
+	// period. The first message sent MUST be the ChanSync message,
+	// otherwise, we'll terminate the connection.
+	chanSyncDeadline := time.After(time.Second * 30)
+	select {
+	case msg := <-l.upstream:
+		remoteChanSyncMsg, ok := msg.(*lnwire.ChannelReestablish)
+		if !ok {
+			return fmt.Errorf("first message sent to sync "+
+				"should be ChannelReestablish, instead "+
+				"received: %T", msg)
+		}
+
+		// If the remote party indicates that they think we haven't
+		// done any state updates yet, then we'll retransmit the
+		// funding locked message first. We do this, as at this point
+		// we can't be sure if they've really received the
+		// FundingLocked message.
+		if remoteChanSyncMsg.NextLocalCommitHeight == 1 &&
+			localChanSyncMsg.NextLocalCommitHeight == 1 &&
+			!l.channel.IsPending() {
+
+			log.Infof("ChannelPoint(%v): resending "+
+				"FundingLocked message to peer",
+				l.channel.ChannelPoint())
+
+			nextRevocation, err := l.channel.NextRevocationKey()
+			if err != nil {
+				return fmt.Errorf("unable to create next "+
+					"revocation: %v", err)
+			}
+
+			fundingLockedMsg := lnwire.NewFundingLocked(
+				l.ChanID(), nextRevocation,
+			)
+			err = l.cfg.Peer.SendMessage(fundingLockedMsg)
+			if err != nil {
+				return fmt.Errorf("unable to re-send "+
+					"FundingLocked: %v", err)
+			}
+		}
+
+		// In any case, we'll then process their ChanSync message.
+		log.Infof("Received re-establishment message from remote side "+
+			"for channel(%v)", l.channel.ChannelPoint())
+
+		// We've just received a ChnSync message from the remote party,
+		// so we'll process the message  in order to determine if we
+		// need to re-transmit any messages to the remote party.
+		msgsToReSend, err = l.channel.ProcessChanSyncMsg(remoteChanSyncMsg)
+		if err != nil {
+			// TODO(roasbeef): check concrete type of error, act
+			// accordingly
+			return fmt.Errorf("unable to handle upstream reestablish "+
+				"message: %v", err)
+		}
+
+		if len(msgsToReSend) > 0 {
+			log.Infof("Sending %v updates to synchronize the "+
+				"state for ChannelPoint(%v)", len(msgsToReSend),
+				l.channel.ChannelPoint())
+		}
+
+		// If we have any messages to retransmit, we'll do so
+		// immediately so we return to a synchronized state as soon as
+		// possible.
+		for _, msg := range msgsToReSend {
+			l.cfg.Peer.SendMessage(msg)
+		}
+
+	case <-l.quit:
+		return fmt.Errorf("shutting down")
+
+	case <-chanSyncDeadline:
+		return fmt.Errorf("didn't receive ChannelReestablish before " +
+			"deadline")
+	}
+
+	// In order to prep for the fragment below, we'll note if we
+	// retransmitted any HTLC's settles earlier. We'll track them by the
+	// HTLC index of the remote party in order to avoid erroneously sending
+	// a duplicate settle.
+	htlcsSettled := make(map[uint64]struct{})
+	for _, msg := range msgsToReSend {
+		settleMsg, ok := msg.(*lnwire.UpdateFufillHTLC)
+		if !ok {
+			// If this isn't a settle message, then we'll skip it.
+			continue
+		}
+
+		// Otherwise, we'll note the ID of the HTLC we're settling so we
+		// don't duplicate it below.
+		htlcsSettled[settleMsg.ID] = struct{}{}
+	}
+
+	// Now that we've synchronized our state, we'll check to see if
+	// there're any HTLC's that we received, but weren't able to settle
+	// directly the last time we were active. If we find any, then we'll
+	// send the settle message, then being to initiate a state transition.
+	//
+	// TODO(roasbeef): can later just inspect forwarding package
+	activeHTLCs := l.channel.ActiveHtlcs()
+	for _, htlc := range activeHTLCs {
+		if !htlc.Incoming {
+			continue
+		}
+
+		// Before we attempt to settle this HTLC, we'll check to see if
+		// we just re-sent it as part of the channel sync. If so, then
+		// we'll skip it.
+		if _, ok := htlcsSettled[htlc.HtlcIndex]; ok {
+			continue
+		}
+
+		// Now we'll check to if we we actually know the preimage if we
+		// don't then we'll skip it.
+		preimage, ok := l.cfg.PreimageCache.LookupPreimage(htlc.RHash[:])
+		if !ok {
+			continue
+		}
+
+		// At this point, we've found an unsettled HTLC that we know
+		// the preimage to, so we'll send a settle message to the
+		// remote party.
+		var p [32]byte
+		copy(p[:], preimage)
+		err := l.channel.SettleHTLC(p, htlc.HtlcIndex)
+		if err != nil {
+			l.fail("unable to settle htlc: %v", err)
+			return err
+		}
+
+		// We'll now mark the HTLC as settled in the invoice database,
+		// then send the settle message to the remote party.
+		err = l.cfg.Registry.SettleInvoice(htlc.RHash)
+		if err != nil {
+			l.fail("unable to settle invoice: %v", err)
+			return err
+		}
+		l.batchCounter++
+		l.cfg.Peer.SendMessage(&lnwire.UpdateFufillHTLC{
+			ChanID:          l.ChanID(),
+			ID:              htlc.HtlcIndex,
+			PaymentPreimage: p,
+		})
+
+	}
+
+	return nil
+}
+
 // htlcManager is the primary goroutine which drives a channel's commitment
 // update state-machine in response to messages received via several channels.
 // This goroutine reads messages from the upstream (remote) peer, and also from
@@ -367,87 +578,15 @@ func (l *channelLink) htlcManager() {
 
 	// If this isn't the first time that this channel link has been
 	// created, then we'll need to check to see if we need to
-	// re-synchronize state with the remote peer.
+	// re-synchronize state with the remote peer. settledHtlcs is a map of
+	// HTLC's that we re-settled as part of the channel state sync.
 	if l.cfg.SyncStates {
-		log.Infof("Attempting to re-resynchronize ChannelPoint(%v)",
-			l.channel.ChannelPoint())
-
-		// First, we'll generate our ChanSync message to send to the
-		// other side. Based on this message, the remote party will
-		// decide if they need to retransmit any data or not.
-		localChanSyncMsg, err := l.channel.ChanSyncMsg()
-		if err != nil {
-			l.fail("unable to generate chan sync message for "+
-				"ChannelPoint(%v)", l.channel.ChannelPoint())
-			return
-		}
-		if err := l.cfg.Peer.SendMessage(localChanSyncMsg); err != nil {
-			l.fail("Unable to send chan sync message for "+
-				"ChannelPoint(%v)", l.channel.ChannelPoint())
-			return
-		}
-
-		// Next, we'll wait to receive the ChanSync message with a
-		// timeout period. The first message sent MUST be the ChanSync
-		// message, otherwise, we'll terminate the connection.
-		chanSyncDeadline := time.After(time.Second * 30)
-		select {
-		case msg := <-l.upstream:
-			remoteChanSyncMsg, ok := msg.(*lnwire.ChannelReestablish)
-			if !ok {
-				l.fail("first message sent to sync should be "+
-					"ChannelReestablish, instead "+
-					"received: %T", msg)
-				return
-			}
-
-			// If the remote party indicates that they think we
-			// haven't done any state updates yet, then we'll
-			// retransmit the funding locked message first. We do
-			// this, as at this point we can't be sure if they've
-			// really received the FundingLocked message.
-			if remoteChanSyncMsg.NextLocalCommitHeight == 1 &&
-				localChanSyncMsg.NextLocalCommitHeight == 1 &&
-				!l.channel.IsPending() {
-
-				log.Infof("ChannelPoint(%v): resending "+
-					"FundingLocked message to peer",
-					l.channel.ChannelPoint())
-
-				nextRevocation, err := l.channel.NextRevocationKey()
-				if err != nil {
-					l.fail("unable to create next "+
-						"revocation: %v", err)
-					return
-				}
-
-				fundingLockedMsg := lnwire.NewFundingLocked(
-					l.ChanID(), nextRevocation,
-				)
-				err = l.cfg.Peer.SendMessage(fundingLockedMsg)
-				if err != nil {
-					l.fail("unable to re-send "+
-						"FundingLocked: %v", err)
-					return
-				}
-			}
-
-			// In any case, we'll then process their ChanSync
-			// message.
-			l.handleUpstreamMsg(msg)
-		case <-l.quit:
-			return
-		case <-chanSyncDeadline:
-			l.fail("didn't receive ChannelReestablish before " +
-				"deadline")
+		// TODO(roasbeef): need to ensure haven't already settled?
+		if err := l.syncChanStates(); err != nil {
+			l.fail(err.Error())
 			return
 		}
 	}
-
-	// TODO(roasbeef): check to see if able to settle any currently pending
-	// HTLCs
-	//   * also need signals when new invoices are added by the
-	//   invoiceRegistry
 
 	batchTimer := time.NewTicker(50 * time.Millisecond)
 	defer batchTimer.Stop()
@@ -456,6 +595,7 @@ func (l *channelLink) htlcManager() {
 out:
 	for {
 		select {
+
 		// A new block has arrived, we'll check the network fee to see
 		// if we should adjust our commitment fee, and also update our
 		// track of the best current height.
@@ -499,7 +639,7 @@ out:
 		// carried out by the remote peer. In the case of such an
 		// event, we'll wipe the channel state from the peer, and mark
 		// the contract as fully settled. Afterwards we can exit.
-		case <-l.channel.UnilateralCloseSignal:
+		case <-l.cfg.ChainEvents.UnilateralClosure:
 			log.Warnf("Remote peer has closed ChannelPoint(%v) on-chain",
 				l.channel.ChannelPoint())
 
@@ -509,23 +649,8 @@ out:
 				if err := l.cfg.Peer.WipeChannel(chanPoint); err != nil {
 					log.Errorf("unable to wipe channel %v", err)
 				}
-
-				// TODO(roasbeef): need to send HTLC outputs to nursery
-				// TODO(roasbeef): or let the arb sweep?
-				l.cfg.SettledContracts <- chanPoint
 			}()
 
-			break out
-
-		// A local sub-system has initiated a force close of the active
-		// channel. In this case we can exit immediately as no further
-		// updates should be processed for the channel.
-		case <-l.channel.ForceCloseSignal:
-			// TODO(roasbeef): path never taken now that server
-			// force closes's directly?
-			log.Warnf("ChannelPoint(%v) has been force "+
-				"closed, disconnecting from peer(%x)",
-				l.channel.ChannelPoint(), l.cfg.Peer.PubKey())
 			break out
 
 		case <-l.logCommitTick:
@@ -787,36 +912,6 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 // direct channel with, updating our respective commitment chains.
 func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 	switch msg := msg.(type) {
-	case *lnwire.ChannelReestablish:
-		log.Infof("Received re-establishment message from remote side "+
-			"for channel(%v)", l.channel.ChannelPoint())
-
-		// We've just received a ChnSync message from the remote party,
-		// so we'll process the message  in order to determine if we
-		// need to re-transmit any messages to the remote party.
-		msgsToReSend, err := l.channel.ProcessChanSyncMsg(msg)
-		if err != nil {
-			// TODO(roasbeef): check concrete type of error, act
-			// accordingly
-			l.fail("unable to handle upstream reestablish "+
-				"message: %v", err)
-			return
-		}
-
-		if len(msgsToReSend) > 0 {
-			log.Infof("Sending %v updates to synchronize the "+
-				"state for ChannelPoint(%v)", len(msgsToReSend),
-				l.channel.ChannelPoint())
-		}
-
-		// If we have any messages to retransmit, we'll do so
-		// immediately so we return to a synchronized state as soon as
-		// possible.
-		for _, msg := range msgsToReSend {
-			l.cfg.Peer.SendMessage(msg)
-		}
-
-		return
 
 	case *lnwire.UpdateAddHTLC:
 		// We just received an add request from an upstream peer, so we
@@ -840,8 +935,19 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			return
 		}
 
-		// TODO(roasbeef): add preimage to DB in order to swipe
-		// repeated r-values
+		// TODO(roasbeef): pipeline to switch
+
+		// As we've learned of a new preimage for the first time, we'll
+		// add it to to our preimage cache. By doing this, we ensure
+		// any contested contracts watched by any on-chain arbitrators
+		// can now sweep this HTLC on-chain.
+		go func() {
+			err := l.cfg.PreimageCache.AddPreimage(pre[:])
+			if err != nil {
+				log.Errorf("unable to add preimage=%x to "+
+					"cache", pre[:])
+			}
+		}()
 
 	case *lnwire.UpdateFailMalformedHTLC:
 		// Convert the failure type encoded within the HTLC fail
@@ -918,12 +1024,21 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// As we've just just accepted a new state, we'll now
 		// immediately send the remote peer a revocation for our prior
 		// state.
-		nextRevocation, err := l.channel.RevokeCurrentCommitment()
+		nextRevocation, currentHtlcs, err := l.channel.RevokeCurrentCommitment()
 		if err != nil {
 			log.Errorf("unable to revoke commitment: %v", err)
 			return
 		}
 		l.cfg.Peer.SendMessage(nextRevocation)
+
+		// Since we just revoked our commitment, we may have a new set
+		// of HTLC's on our commitment, so we'll send them over our
+		// HTLC update channel so any callers can be notified.
+		select {
+		case l.htlcUpdates <- currentHtlcs:
+		case <-l.quit:
+			return
+		}
 
 		// As we've just received a commitment signature, we'll
 		// re-start the log commit timer to wake up the main processing
@@ -1296,6 +1411,13 @@ func (l *channelLink) processLockedInHtlcs(
 			fwdInfo := chanIterator.ForwardingInstructions()
 			switch fwdInfo.NextHop {
 			case exitHop:
+				if l.cfg.DebugHTLC && l.cfg.HodlHTLC {
+					log.Warnf("hodl HTLC mode enabled, " +
+						"will not attempt to settle " +
+						"HTLC with sender")
+					continue
+				}
+
 				// First, we'll check the expiry of the HTLC
 				// itself against, the current block height. If
 				// the timeout is too soon, then we'll reject
@@ -1412,13 +1534,6 @@ func (l *channelLink) processLockedInHtlcs(
 					}
 				}
 
-				if l.cfg.DebugHTLC && l.cfg.HodlHTLC {
-					log.Warnf("hodl HTLC mode enabled, " +
-						"will not attempt to settle " +
-						"HTLC with sender")
-					continue
-				}
-
 				preimage := invoice.Terms.PaymentPreimage
 				err = l.channel.SettleHTLC(preimage, pd.HtlcIndex)
 				if err != nil {
@@ -1478,7 +1593,7 @@ func (l *channelLink) processLockedInHtlcs(
 				// we'll cancel the HTLC directly.
 				if pd.Amount < l.cfg.FwrdingPolicy.MinHTLC {
 					log.Errorf("Incoming htlc(%x) is too "+
-						"small: min_htlc=%v, hltc_value=%v",
+						"small: min_htlc=%v, htlc_value=%v",
 						pd.RHash[:], l.cfg.FwrdingPolicy.MinHTLC,
 						pd.Amount)
 

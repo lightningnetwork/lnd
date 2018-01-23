@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -123,7 +124,7 @@ type testNode struct {
 	privKey         *btcec.PrivateKey
 	msgChan         chan lnwire.Message
 	announceChan    chan lnwire.Message
-	arbiterChan     chan *lnwallet.LightningChannel
+	arbiterChan     chan wire.OutPoint
 	publTxChan      chan *wire.MsgTx
 	fundingMgr      *fundingManager
 	peer            *peer
@@ -135,6 +136,7 @@ type testNode struct {
 func init() {
 	channeldb.UseLogger(btclog.Disabled)
 	lnwallet.UseLogger(btclog.Disabled)
+	contractcourt.UseLogger(btclog.Disabled)
 	fndgLog = btclog.Disabled
 }
 
@@ -183,7 +185,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	sentMessages := make(chan lnwire.Message)
 	sentAnnouncements := make(chan lnwire.Message)
 	publTxChan := make(chan *wire.MsgTx, 1)
-	arbiterChan := make(chan *lnwallet.LightningChannel)
+	arbiterChan := make(chan wire.OutPoint)
 	shutdownChan := make(chan struct{})
 
 	wc := &mockWalletController{
@@ -228,7 +230,6 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement, error) {
 			return lnwire.NodeAnnouncement{}, nil
 		},
-		ArbiterChan: arbiterChan,
 		SendToPeer: func(target *btcec.PublicKey, msgs ...lnwire.Message) error {
 			select {
 			case sentMessages <- msgs[0]:
@@ -255,7 +256,6 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 					return lnwallet.NewLightningChannel(
 						signer,
 						nil,
-						estimator,
 						channel)
 				}
 			}
@@ -268,6 +268,10 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		},
 		RequiredRemoteDelay: func(amt btcutil.Amount) uint16 {
 			return 4
+		},
+		ArbiterChan: arbiterChan,
+		WatchNewChannel: func(*channeldb.OpenChannel) error {
+			return nil
 		},
 	})
 	if err != nil {
@@ -325,7 +329,6 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement, error) {
 			return lnwire.NodeAnnouncement{}, nil
 		},
-		ArbiterChan: oldCfg.ArbiterChan,
 		SendToPeer: func(target *btcec.PublicKey,
 			msgs ...lnwire.Message) error {
 			select {
@@ -340,6 +343,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		},
 		FindPeer:       oldCfg.FindPeer,
 		TempChanIDSeed: oldCfg.TempChanIDSeed,
+		ArbiterChan:    alice.arbiterChan,
 		FindChannel:    oldCfg.FindChannel,
 	})
 	if err != nil {

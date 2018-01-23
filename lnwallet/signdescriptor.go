@@ -78,6 +78,7 @@ type SignDescriptor struct {
 
 // WriteSignDescriptor serializes a SignDescriptor struct into the passed
 // io.Writer stream.
+//
 // NOTE: We assume the SigHashes and InputIndex fields haven't been assigned
 // yet, since that is usually done just before broadcast by the witness
 // generator.
@@ -119,7 +120,6 @@ func WriteSignDescriptor(w io.Writer, sd *SignDescriptor) error {
 // ReadSignDescriptor deserializes a SignDescriptor struct from the passed
 // io.Reader stream.
 func ReadSignDescriptor(r io.Reader, sd *SignDescriptor) error {
-
 	pubKeyBytes, err := wire.ReadVarBytes(r, 0, 34, "pubkey")
 	if err != nil {
 		return err
@@ -134,11 +134,11 @@ func ReadSignDescriptor(r io.Reader, sd *SignDescriptor) error {
 		return err
 	}
 
-	// Serializing a SignDescriptor with a nil-valued SingleTweak results in
-	// deserializing a zero-length slice. Since a nil-valued SingleTweak has
-	// special meaning and a zero-length slice for a SingleTweak is invalid,
-	// we can use the zero-length slice as the flag for a nil-valued
-	// SingleTweak.
+	// Serializing a SignDescriptor with a nil-valued SingleTweak results
+	// in deserializing a zero-length slice. Since a nil-valued SingleTweak
+	// has special meaning and a zero-length slice for a SingleTweak is
+	// invalid, we can use the zero-length slice as the flag for a
+	// nil-valued SingleTweak.
 	if len(singleTweak) == 0 {
 		sd.SingleTweak = nil
 	} else {
@@ -150,11 +150,11 @@ func ReadSignDescriptor(r io.Reader, sd *SignDescriptor) error {
 		return err
 	}
 
-	// Serializing a SignDescriptor with a nil-valued DoubleTweak results in
-	// deserializing a zero-length slice. Since a nil-valued DoubleTweak has
-	// special meaning and a zero-length slice for a DoubleTweak is invalid,
-	// we can use the zero-length slice as the flag for a nil-valued
-	// DoubleTweak.
+	// Serializing a SignDescriptor with a nil-valued DoubleTweak results
+	// in deserializing a zero-length slice. Since a nil-valued DoubleTweak
+	// has special meaning and a zero-length slice for a DoubleTweak is
+	// invalid, we can use the zero-length slice as the flag for a
+	// nil-valued DoubleTweak.
 	if len(doubleTweakBytes) == 0 {
 		sd.DoubleTweak = nil
 	} else {

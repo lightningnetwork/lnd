@@ -281,10 +281,10 @@ func lndMain() error {
 
 			for _, channel := range dbChannels {
 				if chanID.IsChanPoint(&channel.FundingOutpoint) {
+					// TODO(rosbeef): populate baecon
 					return lnwallet.NewLightningChannel(
 						activeChainControl.signer,
-						activeChainControl.chainNotifier,
-						activeChainControl.feeEstimator,
+						server.witnessBeacon,
 						channel)
 				}
 			}
@@ -358,6 +358,7 @@ func lndMain() error {
 			}
 			return delay
 		},
+		WatchNewChannel: server.chainArb.WatchNewChannel,
 	})
 	if err != nil {
 		return err

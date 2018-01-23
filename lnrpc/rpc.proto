@@ -507,6 +507,9 @@ message SendRequest {
     payment to the recipient.
     */
     string payment_request = 6;
+
+    /// The CLTV delta from the current height that should be used to set the timelock for the final hop.
+    int32 final_cltv_delta = 7;
 }
 message SendResponse {
     string payment_error = 1 [json_name = "payment_error"];

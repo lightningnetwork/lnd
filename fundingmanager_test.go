@@ -124,7 +124,7 @@ type testNode struct {
 	privKey         *btcec.PrivateKey
 	msgChan         chan lnwire.Message
 	announceChan    chan lnwire.Message
-	arbiterChan     chan *lnwallet.LightningChannel
+	arbiterChan     chan wire.OutPoint
 	publTxChan      chan *wire.MsgTx
 	fundingMgr      *fundingManager
 	peer            *peer
@@ -185,7 +185,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	sentMessages := make(chan lnwire.Message)
 	sentAnnouncements := make(chan lnwire.Message)
 	publTxChan := make(chan *wire.MsgTx, 1)
-	arbiterChan := make(chan *lnwallet.LightningChannel)
+	arbiterChan := make(chan wire.OutPoint)
 	shutdownChan := make(chan struct{})
 
 	wc := &mockWalletController{
@@ -269,6 +269,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		RequiredRemoteDelay: func(amt btcutil.Amount) uint16 {
 			return 4
 		},
+		ArbiterChan: arbiterChan,
 		WatchNewChannel: func(*channeldb.OpenChannel) error {
 			return nil
 		},
@@ -342,6 +343,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		},
 		FindPeer:       oldCfg.FindPeer,
 		TempChanIDSeed: oldCfg.TempChanIDSeed,
+		ArbiterChan:    alice.arbiterChan,
 		FindChannel:    oldCfg.FindChannel,
 	})
 	if err != nil {

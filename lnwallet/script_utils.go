@@ -320,12 +320,12 @@ func SenderHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 	return senderHtlcSpendRevoke(signer, signDesc, revokeKey, sweepTx)
 }
 
-// senderHtlcSpendRedeem constructs a valid witness allowing the receiver of an
+// SenderHtlcSpendRedeem constructs a valid witness allowing the receiver of an
 // HTLC to redeem the pending output in the scenario that the sender broadcasts
 // their version of the commitment transaction. A valid spend requires
 // knowledge of the payment preimage, and a valid signature under the receivers
 // public key.
-func senderHtlcSpendRedeem(signer Signer, signDesc *SignDescriptor,
+func SenderHtlcSpendRedeem(signer Signer, signDesc *SignDescriptor,
 	sweepTx *wire.MsgTx, paymentPreimage []byte) (wire.TxWitness, error) {
 
 	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
@@ -573,17 +573,24 @@ func ReceiverHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 // receiverHtlcSpendTimeout constructs a valid witness allowing the sender of
 // an HTLC to recover the pending funds after an absolute timeout in the
 // scenario that the receiver of the HTLC broadcasts their version of the
-// commitment transaction.
+// commitment transaction. If the caller has already set the lock time on the
+// spending transaction, than a value of -1 can be passed for the cltvExipiry
+// value.
 //
 // NOTE: The target input of the passed transaction MUST NOT have a final
 // sequence number. Otherwise, the OP_CHECKLOCKTIMEVERIFY check will fail.
 func receiverHtlcSpendTimeout(signer Signer, signDesc *SignDescriptor,
-	sweepTx *wire.MsgTx, cltvExpiry uint32) (wire.TxWitness, error) {
+	sweepTx *wire.MsgTx, cltvExpiry int32) (wire.TxWitness, error) {
 
-	// The HTLC output has an absolute time period before we are permitted
-	// to recover the pending funds. Therefore we need to set the locktime
-	// on this sweeping transaction in order to pass Script verification.
-	sweepTx.LockTime = cltvExpiry
+	// If the caller set a proper timeout value, then we'll apply it
+	// directly to the transaction.
+	if cltvExpiry != -1 {
+		// The HTLC output has an absolute time period before we are
+		// permitted to recover the pending funds. Therefore we need to
+		// set the locktime on this sweeping transaction in order to
+		// pass Script verification.
+		sweepTx.LockTime = uint32(cltvExpiry)
+	}
 
 	// With the lock time on the transaction set, we'll not generate a
 	// signature for the sweep transaction. The passed sign descriptor
@@ -810,35 +817,7 @@ func htlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
 	return witnessStack, nil
 }
 
-// HtlcSpendSuccess exposes the public witness generation function for spending
-// an HTLC success transaction, either due to an expiring time lock or having
-// had the payment preimage.
-// NOTE: The caller MUST set the txn version, sequence number, and sign
-// descriptor's sig hash cache before invocation.
-func HtlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
-	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
-
-	// With the proper sequence an version set, we'll now sign the timeout
-	// transaction using the passed signed descriptor. In order to generate
-	// a valid signature, then signDesc should be using the base delay
-	// public key, and the proper single tweak bytes.
-	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
-	if err != nil {
-		return nil, err
-	}
-
-	// We set a zero as the first element the witness stack (ignoring the
-	// witness script), in order to force execution to the second portion
-	// of the if clause.
-	witnessStack := wire.TxWitness(make([][]byte, 3))
-	witnessStack[0] = append(sweepSig, byte(txscript.SigHashAll))
-	witnessStack[1] = nil
-	witnessStack[2] = signDesc.WitnessScript
-
-	return witnessStack, nil
-}
-
-// htlcTimeoutRevoke spends a second-level HTLC output. This function is to be
+// htlcSpendRevoke spends a second-level HTLC output. This function is to be
 // used by the sender or receiver of an HTLC to claim the HTLC after a revoked
 // commitment transaction was broadcast.
 func htlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
@@ -858,6 +837,37 @@ func htlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 	witnessStack := wire.TxWitness(make([][]byte, 3))
 	witnessStack[0] = append(sweepSig, byte(signDesc.HashType))
 	witnessStack[1] = []byte{1}
+	witnessStack[2] = signDesc.WitnessScript
+
+	return witnessStack, nil
+}
+
+// HtlcSecondLevelSpend exposes the public witness generation function for
+// spending an HTLC success transaction, either due to an expiring time lock or
+// having had the payment preimage. This method is able to spend any
+// second-level HTLC transaction, assuming the caller sets the locktime or
+// seqno properly.
+//
+// NOTE: The caller MUST set the txn version, sequence number, and sign
+// descriptor's sig hash cache before invocation.
+func HtlcSecondLevelSpend(signer Signer, signDesc *SignDescriptor,
+	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
+
+	// With the proper sequence an version set, we'll now sign the timeout
+	// transaction using the passed signed descriptor. In order to generate
+	// a valid signature, then signDesc should be using the base delay
+	// public key, and the proper single tweak bytes.
+	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	// We set a zero as the first element the witness stack (ignoring the
+	// witness script), in order to force execution to the second portion
+	// of the if clause.
+	witnessStack := wire.TxWitness(make([][]byte, 3))
+	witnessStack[0] = append(sweepSig, byte(txscript.SigHashAll))
+	witnessStack[1] = nil
 	witnessStack[2] = signDesc.WitnessScript
 
 	return witnessStack, nil

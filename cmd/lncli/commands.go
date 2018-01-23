@@ -951,8 +951,28 @@ func listChannels(ctx *cli.Context) error {
 var sendPaymentCommand = cli.Command{
 	Name:  "sendpayment",
 	Usage: "send a payment over lightning",
-	ArgsUsage: "(destination amount payment_hash " +
-		"| --pay_req=[payment request])",
+	Description: `
+	Send a payment over Lightning. One can either specify the full
+	parameters of the payment, or just use a payment request which encodes
+	all the payment details.
+
+	If payment isn't manually specified, then only a payment request needs
+	to be passed using the --pay_req argument.
+
+	If the payment *is* manually specified, then all four alternative
+	arguments need to be specified in order to complete the payment:
+	    * --dest=N
+	    * --amt=A
+	    * --final_ctlv_delta=T
+	    * --payment_hash=H
+
+	The --debug_send flag is provided for usage *purely* in test
+	environments. If specified, then the payment hash isn't required, as
+	it'll use the hash of all zeroes. This mode allows one to quickly test
+	payment connectivity without having to create an invoice at the
+	destination.
+	`,
+	ArgsUsage: "dest amt payment_hash final_cltv_delta | --pay_req=[payment request]",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name: "dest, d",
@@ -974,6 +994,10 @@ var sendPaymentCommand = cli.Command{
 		cli.StringFlag{
 			Name:  "pay_req",
 			Usage: "a zpay32 encoded payment request to fulfill",
+		},
+		cli.Int64Flag{
+			Name:  "final_cltv_delta",
+			Usage: "the number of blocks the last hop has to reveal the preimage",
 		},
 	},
 	Action: sendPayment,
@@ -1055,6 +1079,17 @@ func sendPayment(ctx *cli.Context) error {
 					"bytes, is instead %v", len(rHash))
 			}
 			req.PaymentHash = rHash
+
+			switch {
+			case ctx.IsSet("final_cltv_delta"):
+				req.FinalCltvDelta = int32(ctx.Int64("final_cltv_delta"))
+			case args.Present():
+				delta, err := strconv.ParseInt(args.First(), 10, 64)
+				if err != nil {
+					return err
+				}
+				req.FinalCltvDelta = int32(delta)
+			}
 		}
 	}
 

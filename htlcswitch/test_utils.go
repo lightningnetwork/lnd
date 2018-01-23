@@ -21,6 +21,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -261,13 +262,20 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	aliceSigner := &mockSigner{aliceKeyPriv}
 	bobSigner := &mockSigner{bobKeyPriv}
 
-	channelAlice, err := lnwallet.NewLightningChannel(aliceSigner,
-		nil, estimator, aliceChannelState)
+	pCache := &mockPreimageCache{
+		// hash -> preimage
+		preimageMap: make(map[[32]byte][]byte),
+	}
+
+	channelAlice, err := lnwallet.NewLightningChannel(
+		aliceSigner, pCache, aliceChannelState,
+	)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	channelBob, err := lnwallet.NewLightningChannel(bobSigner, nil,
-		estimator, bobChannelState)
+	channelBob, err := lnwallet.NewLightningChannel(
+		bobSigner, pCache, bobChannelState,
+	)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -311,7 +319,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		}
 
 		newAliceChannel, err := lnwallet.NewLightningChannel(aliceSigner,
-			nil, estimator, aliceStoredChannel)
+			nil, aliceStoredChannel)
 		if err != nil {
 			return nil, nil, errors.Errorf("unable to create new channel: %v",
 				err)
@@ -335,8 +343,8 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 			return nil, nil, errors.New("unable to find stored bob channel")
 		}
 
-		newBobChannel, err := lnwallet.NewLightningChannel(bobSigner, nil,
-			estimator, bobStoredChannel)
+		newBobChannel, err := lnwallet.NewLightningChannel(bobSigner,
+			nil, bobStoredChannel)
 		if err != nil {
 			return nil, nil, errors.Errorf("unable to create new channel: %v",
 				err)
@@ -717,6 +725,11 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 		quit:        make(chan struct{}),
 	}
 
+	pCache := &mockPreimageCache{
+		// hash -> preimage
+		preimageMap: make(map[[32]byte][]byte),
+	}
+
 	globalPolicy := ForwardingPolicy{
 		MinHTLC:       lnwire.NewMSatFromSatoshis(5),
 		BaseFee:       lnwire.NewMSatFromSatoshis(1),
@@ -744,7 +757,12 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			Registry:             aliceServer.registry,
 			BlockEpochs:          aliceEpoch,
 			FeeEstimator:         feeEstimator,
-			SyncStates:           true,
+			PreimageCache:        pCache,
+			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
+				return nil
+			},
+			ChainEvents: &contractcourt.ChainEventSubscription{},
+			SyncStates:  true,
 		},
 		aliceChannel,
 		startingHeight,
@@ -752,6 +770,11 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	if err := aliceServer.htlcSwitch.addLink(aliceChannelLink); err != nil {
 		t.Fatalf("unable to add alice channel link: %v", err)
 	}
+	go func() {
+		for {
+			<-aliceChannelLink.(*channelLink).htlcUpdates
+		}
+	}()
 
 	bobFirstEpochChan := make(chan *chainntnfs.BlockEpoch)
 	bobFirstEpoch := &chainntnfs.BlockEpochEvent{
@@ -773,7 +796,12 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			Registry:             bobServer.registry,
 			BlockEpochs:          bobFirstEpoch,
 			FeeEstimator:         feeEstimator,
-			SyncStates:           true,
+			PreimageCache:        pCache,
+			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
+				return nil
+			},
+			ChainEvents: &contractcourt.ChainEventSubscription{},
+			SyncStates:  true,
 		},
 		firstBobChannel,
 		startingHeight,
@@ -781,6 +809,11 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	if err := bobServer.htlcSwitch.addLink(firstBobChannelLink); err != nil {
 		t.Fatalf("unable to add first bob channel link: %v", err)
 	}
+	go func() {
+		for {
+			<-firstBobChannelLink.(*channelLink).htlcUpdates
+		}
+	}()
 
 	bobSecondEpochChan := make(chan *chainntnfs.BlockEpoch)
 	bobSecondEpoch := &chainntnfs.BlockEpochEvent{
@@ -802,7 +835,12 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			Registry:             bobServer.registry,
 			BlockEpochs:          bobSecondEpoch,
 			FeeEstimator:         feeEstimator,
-			SyncStates:           true,
+			PreimageCache:        pCache,
+			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
+				return nil
+			},
+			ChainEvents: &contractcourt.ChainEventSubscription{},
+			SyncStates:  true,
 		},
 		secondBobChannel,
 		startingHeight,
@@ -810,6 +848,11 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	if err := bobServer.htlcSwitch.addLink(secondBobChannelLink); err != nil {
 		t.Fatalf("unable to add second bob channel link: %v", err)
 	}
+	go func() {
+		for {
+			<-secondBobChannelLink.(*channelLink).htlcUpdates
+		}
+	}()
 
 	carolBlockEpoch := make(chan *chainntnfs.BlockEpoch)
 	carolEpoch := &chainntnfs.BlockEpochEvent{
@@ -831,7 +874,12 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			Registry:             carolServer.registry,
 			BlockEpochs:          carolEpoch,
 			FeeEstimator:         feeEstimator,
-			SyncStates:           true,
+			PreimageCache:        pCache,
+			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
+				return nil
+			},
+			ChainEvents: &contractcourt.ChainEventSubscription{},
+			SyncStates:  true,
 		},
 		carolChannel,
 		startingHeight,
@@ -839,6 +887,11 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	if err := carolServer.htlcSwitch.addLink(carolChannelLink); err != nil {
 		t.Fatalf("unable to add carol channel link: %v", err)
 	}
+	go func() {
+		for {
+			<-carolChannelLink.(*channelLink).htlcUpdates
+		}
+	}()
 
 	return &threeHopNetwork{
 		aliceServer:      aliceServer,

@@ -42,6 +42,8 @@ const (
 	defaultNoEncryptWallet    = false
 	defaultTrickleDelay       = 30 * 1000
 
+	defaultBroadcastDelta = 10
+
 	// minTimeLockDelta is the minimum timelock we require for incoming
 	// HTLCs on our channels.
 	minTimeLockDelta = 4

@@ -79,7 +79,7 @@ const (
 	// wireCourier is a type of courier that handles wire messages.
 	wireCourier courierType = iota
 
-	// pktCourier is a type of courier that handles hltc packets.
+	// pktCourier is a type of courier that handles htlc packets.
 	pktCourier
 )
 

@@ -746,7 +746,12 @@ type HTLC struct {
 	LogIndex uint64
 }
 
-func serializeHtlcs(b io.Writer, htlcs []HTLC) error {
+// SerializeHtlcs writes out the passed set of HTLC's into the passed writer
+// using the current default on-disk serialization format.
+//
+// NOTE: This API is NOT stable, the on-disk format will likely change in the
+// future.
+func SerializeHtlcs(b io.Writer, htlcs ...HTLC) error {
 	numHtlcs := uint16(len(htlcs))
 	if err := writeElement(b, numHtlcs); err != nil {
 		return err
@@ -765,7 +770,13 @@ func serializeHtlcs(b io.Writer, htlcs []HTLC) error {
 	return nil
 }
 
-func deserializeHtlcs(r io.Reader) ([]HTLC, error) {
+// DeserializeHtlcs attempts to read out a slice of HTLC's from the passed
+// io.Reader. The bytes within the passed reader MUST have been previously
+// written to using the SerializeHtlcs function.
+//
+// NOTE: This API is NOT stable, the on-disk format will likely change in the
+// future.
+func DeserializeHtlcs(r io.Reader) ([]HTLC, error) {
 	var numHtlcs uint16
 	if err := readElement(r, &numHtlcs); err != nil {
 		return nil, err
@@ -1238,6 +1249,11 @@ type ChannelCloseSummary struct {
 	// and is used as a unique identifier for the channel.
 	ChanPoint wire.OutPoint
 
+	// ShortChanID encodes the exact location in the chain in which the
+	// channel was initially confirmed. This includes: the block height,
+	// transaction index, and the output within the target transaction.
+	ShortChanID lnwire.ShortChannelID
+
 	// ChainHash is the hash of the genesis block that this channel resides
 	// within.
 	ChainHash chainhash.Hash
@@ -1282,8 +1298,6 @@ type ChannelCloseSummary struct {
 	// closed, they'll stay marked as "pending" until _all_ the pending
 	// funds have been swept.
 	IsPending bool
-
-	// TODO(roasbeef): also store short_chan_id?
 }
 
 // CloseChannel closes a previously active Lightning channel. Closing a channel
@@ -1423,6 +1437,48 @@ func (c *OpenChannel) Snapshot() *ChannelSnapshot {
 	return snapshot
 }
 
+// LatestCommitments returns the two latest commitments for both the local and
+// remote party. These commitments are read from disk to ensure that only the
+// latest fully committed state is returned. The first commitment returned is
+// the local commitment, and the second returned is the remote commitment.
+func (c *OpenChannel) LatestCommitments() (*ChannelCommitment, *ChannelCommitment, error) {
+	err := c.Db.View(func(tx *bolt.Tx) error {
+		chanBucket, err := readChanBucket(tx, c.IdentityPub,
+			&c.FundingOutpoint, c.ChainHash)
+		if err != nil {
+			return err
+		}
+
+		return fetchChanCommitments(chanBucket, c)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return &c.LocalCommitment, &c.RemoteCommitment, nil
+}
+
+// RemoteRevocationStore returns the most up to date commitment version of the
+// revocation storage tree for the remote party. This method can be used when
+// acting on a possible contract breach to ensure, that the caller has the most
+// up to date information required to deliver justice.
+func (c *OpenChannel) RemoteRevocationStore() (shachain.Store, error) {
+	err := c.Db.View(func(tx *bolt.Tx) error {
+		chanBucket, err := readChanBucket(tx, c.IdentityPub,
+			&c.FundingOutpoint, c.ChainHash)
+		if err != nil {
+			return err
+		}
+
+		return fetchChanRevocationState(chanBucket, c)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return c.RevocationStore, nil
+}
+
 func putChannelCloseSummary(tx *bolt.Tx, chanID []byte,
 	summary *ChannelCloseSummary) error {
 
@@ -1441,8 +1497,8 @@ func putChannelCloseSummary(tx *bolt.Tx, chanID []byte,
 
 func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
 	return writeElements(w,
-		cs.ChanPoint, cs.ChainHash, cs.ClosingTXID, cs.CloseHeight,
-		cs.RemotePub, cs.Capacity, cs.SettledBalance,
+		cs.ChanPoint, cs.ShortChanID, cs.ChainHash, cs.ClosingTXID,
+		cs.CloseHeight, cs.RemotePub, cs.Capacity, cs.SettledBalance,
 		cs.TimeLockedBalance, cs.CloseType, cs.IsPending,
 	)
 }
@@ -1468,8 +1524,8 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 	c := &ChannelCloseSummary{}
 
 	err := readElements(r,
-		&c.ChanPoint, &c.ChainHash, &c.ClosingTXID, &c.CloseHeight,
-		&c.RemotePub, &c.Capacity, &c.SettledBalance,
+		&c.ChanPoint, &c.ShortChanID, &c.ChainHash, &c.ClosingTXID,
+		&c.CloseHeight, &c.RemotePub, &c.Capacity, &c.SettledBalance,
 		&c.TimeLockedBalance, &c.CloseType, &c.IsPending,
 	)
 	if err != nil {
@@ -1520,7 +1576,7 @@ func serializeChanCommit(w io.Writer, c *ChannelCommitment) error {
 		return err
 	}
 
-	return serializeHtlcs(w, c.Htlcs)
+	return SerializeHtlcs(w, c.Htlcs...)
 }
 
 func putChanCommitment(chanBucket *bolt.Bucket, c *ChannelCommitment,
@@ -1624,7 +1680,7 @@ func deserializeChanCommit(r io.Reader) (ChannelCommitment, error) {
 		return c, err
 	}
 
-	c.Htlcs, err = deserializeHtlcs(r)
+	c.Htlcs, err = DeserializeHtlcs(r)
 	if err != nil {
 		return c, err
 	}

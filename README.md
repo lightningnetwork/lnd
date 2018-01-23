@@ -28,7 +28,7 @@ through the network.
 * Automatic channel management ([`autopilot`](https://github.com/lightningnetwork/lnd/tree/master/autopilot)).
 
 ## Lightning Network Specification Compliance
-`lnd` doesn't yet _fully_ conform to the [Lightning Network specification
+`lnd` _fully_ conforms to the [Lightning Network specification
 (BOLTs)](https://github.com/lightningnetwork/lightning-rfc). BOLT stands for:
 Basic of Lightning Technologies. The specifications are currently being drafted
 by several groups of implementers based around the world including the

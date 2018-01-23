@@ -46,4 +46,11 @@ type htlcPacket struct {
 	// of a forwarded fail packet are already set and do not need to be looked
 	// up in the circuit map.
 	isRouted bool
+
+	// isResolution is set to true if this packet was actually an incoming
+	// resolution message from an outside sub-system. We'll treat these as
+	// if they emanated directly from the switch. As a result, we'll
+	// encrypt all errors related to this packet as if we were the first
+	// hop.
+	isResolution bool
 }

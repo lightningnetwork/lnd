@@ -1,3 +1,5 @@
+// +build !rpctest
+
 package main
 
 import (
@@ -7,6 +9,7 @@ import (
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -23,6 +26,7 @@ func init() {
 	lnwallet.UseLogger(btclog.Disabled)
 	htlcswitch.UseLogger(btclog.Disabled)
 	channeldb.UseLogger(btclog.Disabled)
+	contractcourt.UseLogger(btclog.Disabled)
 }
 
 // TestPeerChannelClosureAcceptFeeResponder tests the shutdown responder's
@@ -84,7 +88,7 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 	// We accept the fee, and send a ClosingSigned with the same fee back,
 	// so she knows we agreed.
 	peerFee := responderClosingSigned.FeeSatoshis
-	initiatorSig, err := initiatorChan.CreateCloseProposal(
+	initiatorSig, _, _, err := initiatorChan.CreateCloseProposal(
 		peerFee, dummyDeliveryScript, respDeliveryScript,
 	)
 	if err != nil {
@@ -174,7 +178,7 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 		t.Fatalf("unable to query fee estimator: %v", err)
 	}
 	fee := btcutil.Amount(responderChan.CalcFee(uint64(feeRate * 1000)))
-	closeSig, err := responderChan.CreateCloseProposal(fee,
+	closeSig, _, _, err := responderChan.CreateCloseProposal(fee,
 		dummyDeliveryScript, initiatorDeliveryScript)
 	if err != nil {
 		t.Fatalf("unable to create close proposal: %v", err)
@@ -234,7 +238,8 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	broadcastTxChan := make(chan *wire.MsgTx)
 
 	responder, responderChan, initiatorChan, cleanUp, err := createTestPeer(
-		notifier, broadcastTxChan)
+		notifier, broadcastTxChan,
+	)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
@@ -283,7 +288,7 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	// We don't agree with the fee, and will send back one that's 2.5x.
 	preferredRespFee := responderClosingSigned.FeeSatoshis
 	increasedFee := btcutil.Amount(float64(preferredRespFee) * 2.5)
-	initiatorSig, err := initiatorChan.CreateCloseProposal(
+	initiatorSig, _, _, err := initiatorChan.CreateCloseProposal(
 		increasedFee, dummyDeliveryScript, respDeliveryScript,
 	)
 	if err != nil {
@@ -327,7 +332,7 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 
 	// We try negotiating a 2.1x fee, which should also be rejected.
 	increasedFee = btcutil.Amount(float64(preferredRespFee) * 2.1)
-	initiatorSig, err = initiatorChan.CreateCloseProposal(
+	initiatorSig, _, _, err = initiatorChan.CreateCloseProposal(
 		increasedFee, dummyDeliveryScript, respDeliveryScript,
 	)
 	if err != nil {
@@ -372,7 +377,7 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 
 	// Finally, we'll accept the fee by echoing back the same fee that they
 	// sent to us.
-	initiatorSig, err = initiatorChan.CreateCloseProposal(
+	initiatorSig, _, _, err = initiatorChan.CreateCloseProposal(
 		peerFee, dummyDeliveryScript, respDeliveryScript,
 	)
 	if err != nil {
@@ -467,7 +472,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 		uint64(initiatorIdealFeeRate * 1000),
 	)
 	increasedFee := btcutil.Amount(float64(initiatorIdealFee) * 2.5)
-	closeSig, err := responderChan.CreateCloseProposal(
+	closeSig, _, _, err := responderChan.CreateCloseProposal(
 		increasedFee, dummyDeliveryScript, initiatorDeliveryScript,
 	)
 	if err != nil {
@@ -532,7 +537,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 
 	// We try negotiating a 2.1x fee, which should also be rejected.
 	increasedFee = btcutil.Amount(float64(initiatorIdealFee) * 2.1)
-	responderSig, err := responderChan.CreateCloseProposal(
+	responderSig, _, _, err := responderChan.CreateCloseProposal(
 		increasedFee, dummyDeliveryScript, initiatorDeliveryScript,
 	)
 	if err != nil {
@@ -578,7 +583,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 
 	// At this point, we'll accept their fee by sending back a CloseSigned
 	// message with an identical fee.
-	responderSig, err = responderChan.CreateCloseProposal(
+	responderSig, _, _, err = responderChan.CreateCloseProposal(
 		peerFee, dummyDeliveryScript, initiatorDeliveryScript,
 	)
 	if err != nil {

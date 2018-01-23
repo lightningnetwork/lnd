@@ -127,7 +127,11 @@ func TestNurseryStoreIncubate(t *testing.T) {
 
 		// Begin incubating all of the outputs provided in this test
 		// vector.
-		err = ns.Incubate(test.commOutput, test.htlcOutputs)
+		var kids []kidOutput
+		if test.commOutput != nil {
+			kids = append(kids, *test.commOutput)
+		}
+		err = ns.Incubate(kids, test.htlcOutputs)
 		if err != nil {
 			t.Fatalf("unable to incubate outputs"+
 				"on test #%d: %v", i, err)
@@ -362,7 +366,7 @@ func TestNurseryStoreFinalize(t *testing.T) {
 
 	// Begin incubating the commitment output, which will be placed in the
 	// preschool bucket.
-	err = ns.Incubate(kid, nil)
+	err = ns.Incubate([]kidOutput{*kid}, nil)
 	if err != nil {
 		t.Fatalf("unable to incubate commitment output: %v", err)
 	}
@@ -449,7 +453,7 @@ func TestNurseryStoreGraduate(t *testing.T) {
 
 	// First, add a commitment output to the nursery store, which is
 	// initially inserted in the preschool bucket.
-	err = ns.Incubate(kid, nil)
+	err = ns.Incubate([]kidOutput{*kid}, nil)
 	if err != nil {
 		t.Fatalf("unable to incubate commitment output: %v", err)
 	}

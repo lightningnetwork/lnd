@@ -62,7 +62,9 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	aliceCommitTweak := SingleTweakBytes(commitPoint, aliceKeyPub)
 	bobCommitTweak := SingleTweakBytes(commitPoint, bobKeyPub)
 
-	aliceSelfOutputSigner := &mockSigner{aliceKeyPriv}
+	aliceSelfOutputSigner := &mockSigner{
+		privkeys: []*btcec.PrivateKey{aliceKeyPriv},
+	}
 
 	// With all the test data set up, we create the commitment transaction.
 	// We only focus on a single party's transactions, as the scripts are
@@ -71,10 +73,10 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	// This is Alice's commitment transaction, so she must wait a CSV delay
 	// of 5 blocks before sweeping the output, while bob can spend
 	// immediately with either the revocation key, or his regular key.
-	keyRing := &commitmentKeyRing{
-		delayKey:      aliceDelayKey,
-		revocationKey: revokePubKey,
-		noDelayKey:    bobPayKey,
+	keyRing := &CommitmentKeyRing{
+		DelayKey:      aliceDelayKey,
+		RevocationKey: revokePubKey,
+		NoDelayKey:    bobPayKey,
 	}
 	commitmentTx, err := CreateCommitTx(*fakeFundingTxIn, keyRing, csvTimeout,
 		channelBalance, channelBalance, DefaultDustLimit())
@@ -135,7 +137,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 		t.Fatalf("spend from delay output is invalid: %v", err)
 	}
 
-	bobSigner := &mockSigner{bobKeyPriv}
+	bobSigner := &mockSigner{privkeys: []*btcec.PrivateKey{bobKeyPriv}}
 
 	// Next, we'll test bob spending with the derived revocation key to
 	// simulate the scenario when Alice broadcasts this commitment
@@ -385,8 +387,8 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 	// Finally, we'll create mock signers for both of them based on their
 	// private keys. This test simplifies a bit and uses the same key as
 	// the base point for all scripts and derivations.
-	bobSigner := &mockSigner{bobKeyPriv}
-	aliceSigner := &mockSigner{aliceKeyPriv}
+	bobSigner := &mockSigner{privkeys: []*btcec.PrivateKey{bobKeyPriv}}
+	aliceSigner := &mockSigner{privkeys: []*btcec.PrivateKey{aliceKeyPriv}}
 
 	// We'll also generate a signature on the sweep transaction above
 	// that'll act as Bob's signature to Alice for the second level HTLC
@@ -441,7 +443,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return senderHtlcSpendRedeem(bobSigner, signDesc,
+				return SenderHtlcSpendRedeem(bobSigner, signDesc,
 					sweepTx,
 					// Invalid preimage length
 					bytes.Repeat([]byte{1}, 45))
@@ -462,7 +464,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return senderHtlcSpendRedeem(bobSigner, signDesc,
+				return SenderHtlcSpendRedeem(bobSigner, signDesc,
 					sweepTx, paymentPreimage)
 			}),
 			true,
@@ -630,8 +632,8 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	// Finally, we'll create mock signers for both of them based on their
 	// private keys. This test simplifies a bit and uses the same key as
 	// the base point for all scripts and derivations.
-	bobSigner := &mockSigner{bobKeyPriv}
-	aliceSigner := &mockSigner{aliceKeyPriv}
+	bobSigner := &mockSigner{privkeys: []*btcec.PrivateKey{bobKeyPriv}}
+	aliceSigner := &mockSigner{privkeys: []*btcec.PrivateKey{aliceKeyPriv}}
 
 	// We'll also generate a signature on the sweep transaction above
 	// that'll act as Alice's signature to Bob for the second level HTLC
@@ -726,7 +728,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 				}
 
 				return receiverHtlcSpendTimeout(aliceSigner, signDesc,
-					sweepTx, cltvTimeout-2)
+					sweepTx, int32(cltvTimeout-2))
 			}),
 			false,
 		},
@@ -744,7 +746,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 				}
 
 				return receiverHtlcSpendTimeout(aliceSigner, signDesc,
-					sweepTx, cltvTimeout)
+					sweepTx, int32(cltvTimeout))
 			}),
 			true,
 		},
@@ -866,8 +868,8 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 	// Finally, we'll create mock signers for both of them based on their
 	// private keys. This test simplifies a bit and uses the same key as
 	// the base point for all scripts and derivations.
-	bobSigner := &mockSigner{bobKeyPriv}
-	aliceSigner := &mockSigner{aliceKeyPriv}
+	bobSigner := &mockSigner{privkeys: []*btcec.PrivateKey{bobKeyPriv}}
+	aliceSigner := &mockSigner{privkeys: []*btcec.PrivateKey{aliceKeyPriv}}
 
 	testCases := []struct {
 		witness func() wire.TxWitness

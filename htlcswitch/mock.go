@@ -16,6 +16,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
@@ -24,6 +25,35 @@ import (
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 )
+
+type mockPreimageCache struct {
+	sync.Mutex
+	preimageMap map[[32]byte][]byte
+}
+
+func (m *mockPreimageCache) LookupPreimage(hash []byte) ([]byte, bool) {
+	m.Lock()
+	defer m.Unlock()
+
+	var h [32]byte
+	copy(h[:], hash)
+
+	p, ok := m.preimageMap[h]
+	return p, ok
+}
+
+func (m *mockPreimageCache) AddPreimage(preimage []byte) error {
+	m.Lock()
+	defer m.Unlock()
+
+	m.preimageMap[sha256.Sum256(preimage[:])] = preimage
+
+	return nil
+}
+
+func (m *mockPreimageCache) SubcribeUpdates() *contractcourt.WitnessSubcription {
+	return nil
+}
 
 type mockFeeEstimator struct {
 	byteFeeIn   chan btcutil.Amount

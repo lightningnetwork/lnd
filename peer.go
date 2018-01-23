@@ -10,6 +10,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/brontide"
+	"github.com/lightningnetwork/lnd/contractcourt"
 
 	"bytes"
 
@@ -294,8 +295,9 @@ func (p *peer) Start() error {
 // channels returned by the database.
 func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 	for _, dbChan := range chans {
-		lnChan, err := lnwallet.NewLightningChannel(p.server.cc.signer,
-			p.server.cc.chainNotifier, p.server.cc.feeEstimator, dbChan)
+		lnChan, err := lnwallet.NewLightningChannel(
+			p.server.cc.signer, p.server.witnessBeacon, dbChan,
+		)
 		if err != nil {
 			return err
 		}
@@ -309,14 +311,6 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		p.activeChanMtx.Unlock()
 
 		peerLog.Infof("peerID(%v) loading ChannelPoint(%v)", p.id, chanPoint)
-
-		select {
-		case p.server.breachArbiter.newContracts <- lnChan:
-		case <-p.server.quit:
-			return fmt.Errorf("server shutting down")
-		case <-p.quit:
-			return fmt.Errorf("peer shutting down")
-		}
 
 		// Skip adding any permanently irreconcilable channels to the
 		// htlcswitch.
@@ -376,21 +370,33 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		// Register this new channel link with the HTLC Switch. This is
 		// necessary to properly route multi-hop payments, and forward
 		// new payments triggered by RPC clients.
+		chainEvents, err := p.server.chainArb.SubscribeChannelEvents(
+			*chanPoint, false,
+		)
+		if err != nil {
+			return err
+		}
 		linkCfg := htlcswitch.ChannelLinkConfig{
 			Peer:                  p,
 			DecodeHopIterator:     p.server.sphinx.DecodeHopIterator,
 			DecodeOnionObfuscator: p.server.sphinx.ExtractErrorEncrypter,
 			GetLastChannelUpdate: createGetLastUpdate(p.server.chanRouter,
 				p.PubKey(), lnChan.ShortChanID()),
-			SettledContracts: p.server.breachArbiter.settledContracts,
-			DebugHTLC:        cfg.DebugHTLC,
-			HodlHTLC:         cfg.HodlHTLC,
-			Registry:         p.server.invoices,
-			Switch:           p.server.htlcSwitch,
-			FwrdingPolicy:    *forwardingPolicy,
-			FeeEstimator:     p.server.cc.feeEstimator,
-			BlockEpochs:      blockEpoch,
-			SyncStates:       true,
+			DebugHTLC:     cfg.DebugHTLC,
+			HodlHTLC:      cfg.HodlHTLC,
+			Registry:      p.server.invoices,
+			Switch:        p.server.htlcSwitch,
+			FwrdingPolicy: *forwardingPolicy,
+			FeeEstimator:  p.server.cc.feeEstimator,
+			BlockEpochs:   blockEpoch,
+			PreimageCache: p.server.witnessBeacon,
+			ChainEvents:   chainEvents,
+			UpdateContractSignals: func(signals *contractcourt.ContractSignals) error {
+				return p.server.chainArb.UpdateContractSignals(
+					*chanPoint, signals,
+				)
+			},
+			SyncStates: true,
 		}
 		link := htlcswitch.NewChannelLink(linkCfg, lnChan,
 			uint32(currentHeight))
@@ -1207,18 +1213,6 @@ out:
 				p.activeChanMtx.Unlock()
 				close(newChanReq.done)
 				newChanReq.channel.Stop()
-				newChanReq.channel.CancelObserver()
-
-				// We'll re-send our current channel to the
-				// breachArbiter to ensure that it has the most
-				// up to date version.
-				select {
-				case p.server.breachArbiter.newContracts <- currentChan:
-				case <-p.server.quit:
-					return
-				case <-p.quit:
-					return
-				}
 
 				// If we're being sent a new channel, and our
 				// existing channel doesn't have the next
@@ -1266,21 +1260,35 @@ out:
 				peerLog.Errorf("unable to get best block: %v", err)
 				continue
 			}
+			chainEvents, err := p.server.chainArb.SubscribeChannelEvents(
+				*chanPoint, false,
+			)
+			if err != nil {
+				peerLog.Errorf("unable to subscribe to chain "+
+					"events: %v", err)
+				continue
+			}
 			linkConfig := htlcswitch.ChannelLinkConfig{
 				Peer:                  p,
 				DecodeHopIterator:     p.server.sphinx.DecodeHopIterator,
 				DecodeOnionObfuscator: p.server.sphinx.ExtractErrorEncrypter,
 				GetLastChannelUpdate: createGetLastUpdate(p.server.chanRouter,
 					p.PubKey(), newChanReq.channel.ShortChanID()),
-				SettledContracts: p.server.breachArbiter.settledContracts,
-				DebugHTLC:        cfg.DebugHTLC,
-				HodlHTLC:         cfg.HodlHTLC,
-				Registry:         p.server.invoices,
-				Switch:           p.server.htlcSwitch,
-				FwrdingPolicy:    p.server.cc.routingPolicy,
-				FeeEstimator:     p.server.cc.feeEstimator,
-				BlockEpochs:      blockEpoch,
-				SyncStates:       false,
+				DebugHTLC:     cfg.DebugHTLC,
+				HodlHTLC:      cfg.HodlHTLC,
+				Registry:      p.server.invoices,
+				Switch:        p.server.htlcSwitch,
+				FwrdingPolicy: p.server.cc.routingPolicy,
+				FeeEstimator:  p.server.cc.feeEstimator,
+				BlockEpochs:   blockEpoch,
+				PreimageCache: p.server.witnessBeacon,
+				ChainEvents:   chainEvents,
+				UpdateContractSignals: func(signals *contractcourt.ContractSignals) error {
+					return p.server.chainArb.UpdateContractSignals(
+						*chanPoint, signals,
+					)
+				},
+				SyncStates: false,
 			}
 			link := htlcswitch.NewChannelLink(linkConfig, newChan,
 				uint32(currentHeight))
@@ -1419,18 +1427,30 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 			return nil, err
 		}
 
+		// Before we create the chan closer, we'll start a new
+		// cooperative channel closure transaction from the chain arb.
+		// Wtih this context, we'll ensure that we're able to respond
+		// if *any* of the transactions we sign off on are ever
+		// braodacast.
+		closeCtx, err := p.server.chainArb.BeginCoopChanClose(
+			*channel.ChannelPoint(),
+		)
+		if err != nil {
+			return nil, err
+		}
+
 		chanCloser = newChannelCloser(
 			chanCloseCfg{
 				channel:           channel,
 				unregisterChannel: p.server.htlcSwitch.RemoveLink,
 				broadcastTx:       p.server.cc.wallet.PublishTransaction,
-				settledContracts:  p.server.breachArbiter.settledContracts,
 				quit:              p.quit,
 			},
 			deliveryAddr,
 			targetFeePerKw,
 			uint32(startingHeight),
 			nil,
+			closeCtx,
 		)
 		p.activeChanCloses[chanID] = chanCloser
 	}
@@ -1473,7 +1493,14 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 			return
 		}
 
-		_, startingHeight, err := p.server.cc.chainIO.GetBestBlock()
+		// Before we create the chan closer, we'll start a new
+		// cooperative channel closure transaction from the chain arb.
+		// Wtih this context, we'll ensure that we're able to respond
+		// if *any* of the transactions we sign off on are ever
+		// braodacast.
+		closeCtx, err := p.server.chainArb.BeginCoopChanClose(
+			*channel.ChannelPoint(),
+		)
 		if err != nil {
 			peerLog.Errorf(err.Error())
 			req.Err <- err
@@ -1482,18 +1509,24 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 
 		// Next, we'll create a new channel closer state machine to
 		// handle the close negotiation.
+		_, startingHeight, err := p.server.cc.chainIO.GetBestBlock()
+		if err != nil {
+			peerLog.Errorf(err.Error())
+			req.Err <- err
+			return
+		}
 		chanCloser := newChannelCloser(
 			chanCloseCfg{
 				channel:           channel,
 				unregisterChannel: p.server.htlcSwitch.RemoveLink,
 				broadcastTx:       p.server.cc.wallet.PublishTransaction,
-				settledContracts:  p.server.breachArbiter.settledContracts,
 				quit:              p.quit,
 			},
 			deliveryAddr,
 			req.TargetFeePerKw,
 			uint32(startingHeight),
 			req,
+			closeCtx,
 		)
 		p.activeChanCloses[chanID] = chanCloser
 
@@ -1547,11 +1580,10 @@ func (p *peer) finalizeChanClosure(chanCloser *channelCloser) {
 	}
 
 	chanCloser.cfg.channel.Stop()
-	chanCloser.cfg.channel.CancelObserver()
 
 	// Next, we'll launch a goroutine which will request to be notified by
-	// the ChainNotifier once the closure
-	// transaction obtains a single confirmation.
+	// the ChainNotifier once the closure transaction obtains a single
+	// confirmation.
 	notifier := p.server.cc.chainNotifier
 
 	// If any error happens during waitForChanToClose, forward it to
@@ -1586,18 +1618,6 @@ func (p *peer) finalizeChanClosure(chanCloser *channelCloser) {
 
 	go waitForChanToClose(chanCloser.negotiationHeight, notifier, errChan,
 		chanPoint, &closingTxid, func() {
-
-			// First, we'll mark the database as being fully closed
-			// so we'll no longer watch for its ultimate closure
-			// upon startup.
-			err := p.server.chanDB.MarkChanFullyClosed(chanPoint)
-			if err != nil {
-				if closeReq != nil {
-					closeReq.Err <- err
-				}
-				return
-			}
-
 			// Respond to the local subsystem which requested the
 			// channel closure.
 			if closeReq != nil {

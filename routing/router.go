@@ -1735,8 +1735,31 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 			// we'll note this (exclude the vertex/edge), and
 			// continue with the rest of the routes.
 			case *lnwire.FailPermanentChannelFailure:
-				// TODO(roasbeef): remove channel from path
+				// As this error indicates that the target
+				// channel was unable to carry this HTLC (for
+				// w/e reason), we'll query the index to find
+				// the _outgoign_ channel the source of the
+				// error was meant to pass the HTLC along to.
+				badChan, ok := route.nextHopChannel(errSource)
+				if !ok {
+					// If we weren't able to find the hop
+					// *after* this node, then we'll
+					// attempt to disable the previous
+					// channel.
+					badChan, ok = route.prevHopChannel(
+						errSource,
+					)
+					if !ok {
+						continue
+					}
+				}
+
+				// If the channel was found, then we'll inform
+				// mission control of this failure so future
+				// attempts avoid this link temporarily.
+				paySession.ReportChannelFailure(badChan.ChannelID)
 				continue
+
 			case *lnwire.FailPermanentNodeFailure:
 				// TODO(rosabeef): remove node from path
 				continue

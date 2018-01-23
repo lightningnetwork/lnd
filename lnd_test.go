@@ -353,8 +353,7 @@ func assertNumConnections(ctxt context.Context, t *harnessTest,
 // calculations into account.
 //
 // TODO(bvu): Refactor when dynamic fee estimation is added.
-//
-// TODO(roasbeef): can remove as fee info now exposed in listchannels?
+// TODO(conner) remove code duplication
 func calcStaticFee(numHTLCs int) btcutil.Amount {
 	const (
 		commitWeight = btcutil.Amount(724)
@@ -1409,33 +1408,52 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	chanPoint := openChannelAndAssert(ctxt, t, net, net.Alice, carol,
 		chanAmt, pushAmt)
 
-	// Wait for Alice to receive the channel edge from the funding manager.
+	// Wait for Alice and Carol to receive the channel edge from the
+	// funding manager.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't see the alice->carol channel before "+
 			"timeout: %v", err)
 	}
-
-	// With the channel open, we'll create a few invoices for Carol that
-	// Alice will pay to in order to advance the state of the channel.
-	carolPaymentReqs := make([]string, numInvoices)
-	for i := 0; i < numInvoices; i++ {
-		preimage := bytes.Repeat([]byte{byte(128 - i)}, 32)
-		invoice := &lnrpc.Invoice{
-			Memo:      "testing",
-			RPreimage: preimage,
-			Value:     paymentAmt,
-		}
-		resp, err := carol.AddInvoice(ctxb, invoice)
-		if err != nil {
-			t.Fatalf("unable to add invoice: %v", err)
-		}
-
-		carolPaymentReqs[i] = resp.PaymentRequest
+	err = carol.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	if err != nil {
+		t.Fatalf("alice didn't see the alice->carol channel before "+
+			"timeout: %v", err)
 	}
 
-	// As we'll be querying the state of Carols's channels frequently we'll
+	// Send payments from Alice to Carol, since Carol is htlchodl mode, the
+	// htlc outputs should be left unsettled, and should be swept by the
+	// utxo nursery.
+	alicePayStream, err := net.Alice.SendPayment(ctxb)
+	if err != nil {
+		t.Fatalf("unable to create payment stream for alice: %v", err)
+	}
+	carolPubKey := carol.PubKey[:]
+	payHash := bytes.Repeat([]byte{2}, 32)
+	for i := 0; i < numInvoices; i++ {
+		err = alicePayStream.Send(&lnrpc.SendRequest{
+			Dest:           carolPubKey,
+			Amt:            int64(paymentAmt),
+			PaymentHash:    payHash,
+			FinalCltvDelta: defaultBitcoinTimeLockDelta,
+		})
+		if err != nil {
+			t.Fatalf("unable to send alice htlc: %v", err)
+		}
+	}
+
+	// Once the HTLC has cleared, all the nodes n our mini network should
+	// show that the HTLC has been locked in.
+	nodes := []*lntest.HarnessNode{net.Alice, carol}
+	err = lntest.WaitPredicate(func() bool {
+		return assertNumActiveHtlcs(nodes, numInvoices)
+	}, time.Second*5)
+	if err != nil {
+		t.Fatalf("htlc mismatch: %v", err)
+	}
+
+	// As we'll be querying the state of Carol's channels frequently we'll
 	// create a closure helper function for the purpose.
 	getAliceChanInfo := func() (*lnrpc.ActiveChannel, error) {
 		req := &lnrpc.ListChannelsRequest{}
@@ -1468,14 +1486,6 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 		htlcCsvMaturityHeight = startHeight + defaultCLTV + 1 + defaultCSV
 	)
 
-	// Send payments from Alice to Carol, since Carol is htlchodl mode,
-	// the htlc outputs should be left unsettled, and should be swept by the
-	// utxo nursery.
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	err = completePaymentRequests(ctxt, net.Alice, carolPaymentReqs, false)
-	if err != nil {
-		t.Fatalf("unable to send payment: %v", err)
-	}
 	time.Sleep(200 * time.Millisecond)
 
 	aliceChan, err := getAliceChanInfo()
@@ -1528,16 +1538,6 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// see a maturity height and blocks til maturity of 0.
 	assertCommitmentMaturity(t, forceClose, 0, 0)
 
-	// Since all of our payments were sent with Carol in hodl mode, all of
-	// them should be unsettled and attached to the commitment transaction.
-	// They also should have been configured such that they are not filtered
-	// as dust. At this point, all pending htlcs should be in stage 1, with
-	// a timeout set to the default CLTV expiry (144) blocks above the
-	// starting height.
-	assertPendingChannelNumHtlcs(t, forceClose, numInvoices)
-	assertPendingHtlcStageAndMaturity(t, forceClose, 1, htlcExpiryHeight,
-		int32(defaultCLTV))
-
 	// The several restarts in this test are intended to ensure that when a
 	// channel is force-closed, the UTXO nursery has persisted the state of
 	// the channel in the closure process and will recover the correct state
@@ -1576,12 +1576,6 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// height and number of blocks to confirm populated.
 	assertCommitmentMaturity(t, forceClose, commCsvMaturityHeight,
 		int32(defaultCSV))
-
-	// Check that our pending htlcs have deducted the block confirming the
-	// commitment transactionfrom their blocks til maturity value.
-	assertPendingChannelNumHtlcs(t, forceClose, numInvoices)
-	assertPendingHtlcStageAndMaturity(t, forceClose, 1, htlcExpiryHeight,
-		int32(defaultCLTV)-1)
 
 	// None of our outputs have been swept, so they should all be limbo.
 	if forceClose.LimboBalance == 0 {
@@ -1627,9 +1621,6 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// exactly defaultCSV blocks, so the htlc outputs should also reflect
 	// that this many blocks have passed.
 	assertCommitmentMaturity(t, forceClose, commCsvMaturityHeight, 1)
-	assertPendingChannelNumHtlcs(t, forceClose, numInvoices)
-	assertPendingHtlcStageAndMaturity(t, forceClose, 1, htlcExpiryHeight,
-		int32(defaultCLTV)-int32(defaultCSV))
 
 	// All funds should still be shown in limbo.
 	if forceClose.LimboBalance == 0 {
@@ -1700,25 +1691,11 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	assertNumForceClosedChannels(t, pendingChanResp, 1)
 
-	// Check that the commitment transactions shows that we are still past
-	// the maturity of the commitment output.
-	forceClose = findForceClosedChannel(t, pendingChanResp, &op)
-	assertCommitmentMaturity(t, forceClose, commCsvMaturityHeight, -1)
-
-	// Our pending htlcs should still be shown in the first stage, having
-	// deducted an additional two blocks from the relative maturity time..
-	assertPendingChannelNumHtlcs(t, forceClose, numInvoices)
-	assertPendingHtlcStageAndMaturity(t, forceClose, 1, htlcExpiryHeight,
-		int32(defaultCLTV)-int32(defaultCSV)-2)
-
 	// The htlc funds will still be shown as limbo, since they are still in
 	// their first stage. The commitment funds will have been recovered
 	// after the commit txn was included in the last block.
 	if forceClose.LimboBalance == 0 {
 		t.Fatalf("htlc funds should still be in limbo")
-	}
-	if forceClose.RecoveredBalance == 0 {
-		t.Fatalf("commitment funds should be shown as recovered")
 	}
 
 	// Compute the height preceding that which will cause the htlc CLTV
@@ -1728,14 +1705,6 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// an additional block off so that we end up one block shy of the expiry
 	// height.
 	cltvHeightDelta := defaultCLTV - defaultCSV - 2 - 1
-
-	// Check that our htlcs are still expected to expire the computed expiry
-	// height, and that the remaining number of blocks is equal to the delta
-	// we just computed, including an additional block to actually trigger
-	// the broadcast.
-	assertPendingChannelNumHtlcs(t, forceClose, numInvoices)
-	assertPendingHtlcStageAndMaturity(t, forceClose, 1, htlcExpiryHeight,
-		int32(cltvHeightDelta+1))
 
 	// Advance the blockchain until just before the CLTV expires, nothing
 	// exciting should have happened during this time.
@@ -1761,10 +1730,6 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 
 	forceClose = findForceClosedChannel(t, pendingChanResp, &op)
 
-	// Verify that commitment output was confirmed many moons ago.
-	assertCommitmentMaturity(t, forceClose, commCsvMaturityHeight,
-		-int32(cltvHeightDelta)-1)
-
 	// We should now be at the block just before the utxo nursery will
 	// attempt to broadcast the htlc timeout transactions.
 	assertPendingChannelNumHtlcs(t, forceClose, numInvoices)
@@ -1775,9 +1740,6 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// still left in limbo, so it should be non-zero as well.
 	if forceClose.LimboBalance == 0 {
 		t.Fatalf("htlc funds should still be in limbo")
-	}
-	if forceClose.RecoveredBalance == 0 {
-		t.Fatalf("commitment funds should not be in limbo")
 	}
 
 	// Now, generate the block which will cause Alice to broadcast the
@@ -1791,7 +1753,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// closing, we expect Alice to broadcast an htlc timeout txn for each
 	// one. Wait for them all to show up in the mempool.
 	htlcTxIDs, err := waitForNTxsInMempool(net.Miner.Node, numInvoices,
-		3*time.Second)
+		10*time.Second)
 	if err != nil {
 		t.Fatalf("unable to find htlc timeout txns in mempool: %v", err)
 	}
@@ -1869,14 +1831,9 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	assertNumForceClosedChannels(t, pendingChanResp, 1)
 
 	forceClose = findForceClosedChannel(t, pendingChanResp, &op)
-	assertCommitmentMaturity(t, forceClose, commCsvMaturityHeight,
-		-int32(cltvHeightDelta)-int32(defaultCSV)-2)
 
 	if forceClose.LimboBalance == 0 {
 		t.Fatalf("htlc funds should still be in limbo")
-	}
-	if forceClose.RecoveredBalance == 0 {
-		t.Fatalf("commitment funds should not be in limbo")
 	}
 
 	assertPendingChannelNumHtlcs(t, forceClose, numInvoices)
@@ -3341,7 +3298,7 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("justice tx wasn't mined")
 	}
 
-	assertNumChannels(t, ctxb, net.Alice, 0)
+	assertNodeNumChannels(t, ctxb, net.Alice, 0)
 }
 
 // testRevokedCloseRetributionZeroValueRemoteOutput tests that Alice is able

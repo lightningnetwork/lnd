@@ -1448,7 +1448,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	nodes := []*lntest.HarnessNode{net.Alice, carol}
 	err = lntest.WaitPredicate(func() bool {
 		return assertNumActiveHtlcs(nodes, numInvoices)
-	}, time.Second*5)
+	}, time.Second*15)
 	if err != nil {
 		t.Fatalf("htlc mismatch: %v", err)
 	}
@@ -6089,7 +6089,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 		}
 
 		return true
-	}, time.Second*5)
+	}, time.Second*15)
 	if err != nil {
 		t.Fatalf(predErr.Error())
 	}

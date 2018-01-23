@@ -33,17 +33,11 @@ var _ net.Conn = (*Conn)(nil)
 // public key. In the case of a handshake failure, the connection is closed and
 // a non-nil error is returned.
 func Dial(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress,
-	dialer ...func(string, string) (net.Conn, error)) (*Conn, error) {
+	dialer func(string, string) (net.Conn, error)) (*Conn, error) {
 	ipAddr := netAddr.Address.String()
 	var conn net.Conn
 	var err error
-	if dialer == nil {
-		// A dial function WAS NOT passed in.
-		conn, err = net.Dial("tcp", ipAddr)
-	} else {
-		// A dial function WAS passed in so we use it instead.
-		conn, err = dialer[0]("tcp", ipAddr)
-	}
+	conn, err = dialer("tcp", ipAddr)
 	if err != nil {
 		return nil, err
 	}

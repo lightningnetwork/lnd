@@ -5474,7 +5474,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 			return false
 		}
 		if len(pendingChanResp.PendingForceClosingChannels) != 0 {
-			predErr = fmt.Error("carol still has pending channels: %v",
+			predErr = fmt.Errorf("carol still has pending channels: %v",
 				spew.Sdump(pendingChanResp))
 			return false
 		}

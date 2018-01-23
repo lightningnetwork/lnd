@@ -906,10 +906,10 @@ func (b *breachArbiter) createJusticeTx(
 		var witnessWeight int
 		switch input.WitnessType() {
 		case lnwallet.CommitmentNoDelay:
-			witnessWeight = lnwallet.ToLocalPenaltyWitnessSize
+			witnessWeight = lnwallet.P2WKHWitnessSize
 
 		case lnwallet.CommitmentRevoke:
-			witnessWeight = lnwallet.P2WKHWitnessSize
+			witnessWeight = lnwallet.ToLocalPenaltyWitnessSize
 
 		case lnwallet.HtlcOfferedRevoke:
 			witnessWeight = lnwallet.OfferedHtlcPenaltyWitnessSize

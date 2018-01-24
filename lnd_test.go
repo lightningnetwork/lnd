@@ -6233,7 +6233,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// With the block mined above, Bob should detect that Carol is
 	// attempting to sweep the HTLC on-chain, and should obtain the
 	// preimage.
-	_, err = waitForTxInMempool(net.Miner.Node, time.Second*10)
+	_, err = waitForNTxsInMempool(net.Miner.Node, 2, time.Second*15)
 	if err != nil {
 		t.Fatalf("unable to find bob's sweeping transaction")
 	}

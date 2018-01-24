@@ -170,6 +170,7 @@ func main() {
 		disconnectCommand,
 		openChannelCommand,
 		closeChannelCommand,
+		closeAllChannelsCommand,
 		listPeersCommand,
 		walletBalanceCommand,
 		channelBalanceCommand,

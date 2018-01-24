@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -13,6 +14,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/awalterschulze/gographviz"
@@ -600,18 +602,17 @@ var closeChannelCommand = cli.Command{
 	Name:  "closechannel",
 	Usage: "Close an existing channel.",
 	Description: `
-	Close an existing channel. The channel can be closed either cooperatively, 
+	Close an existing channel. The channel can be closed either cooperatively,
 	or unilaterally (--force).
-	
+
 	A unilateral channel closure means that the latest commitment
 	transaction will be broadcast to the network. As a result, any settled
-	funds will be time locked for a few blocks before they can be swept int
-	lnd's wallet.
+	funds will be time locked for a few blocks before they can be spent.
 
 	In the case of a cooperative closure, One can manually set the fee to
 	be used for the closing transaction via either the --conf_target or
 	--sat_per_byte arguments. This will be the starting value used during
-	fee negotiation.  This is optional.`,
+	fee negotiation. This is optional.`,
 	ArgsUsage: "funding_txid [output_index [time_limit]]",
 	Flags: []cli.Flag{
 		cli.StringFlag{
@@ -654,17 +655,10 @@ var closeChannelCommand = cli.Command{
 }
 
 func closeChannel(ctx *cli.Context) error {
-	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	args := ctx.Args()
-	var (
-		txid string
-		err  error
-	)
-
-	// Show command help if no arguments provided
+	// Show command help if no arguments and flags were provided.
 	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
 		cli.ShowCommandHelp(ctx, "closechannel")
 		return nil
@@ -678,25 +672,27 @@ func closeChannel(ctx *cli.Context) error {
 		SatPerByte:   ctx.Int64("sat_per_byte"),
 	}
 
+	args := ctx.Args()
+
 	switch {
 	case ctx.IsSet("funding_txid"):
-		txid = ctx.String("funding_txid")
+		req.ChannelPoint.FundingTxid = &lnrpc.ChannelPoint_FundingTxidStr{
+			FundingTxidStr: ctx.String("funding_txid"),
+		}
 	case args.Present():
-		txid = args.First()
+		req.ChannelPoint.FundingTxid = &lnrpc.ChannelPoint_FundingTxidStr{
+			FundingTxidStr: args.First(),
+		}
 		args = args.Tail()
 	default:
 		return fmt.Errorf("funding txid argument missing")
-	}
-
-	req.ChannelPoint.FundingTxid = &lnrpc.ChannelPoint_FundingTxidStr{
-		FundingTxidStr: txid,
 	}
 
 	switch {
 	case ctx.IsSet("output_index"):
 		req.ChannelPoint.OutputIndex = uint32(ctx.Int("output_index"))
 	case args.Present():
-		index, err := strconv.ParseInt(args.First(), 10, 32)
+		index, err := strconv.ParseUint(args.First(), 10, 32)
 		if err != nil {
 			return fmt.Errorf("unable to decode output index: %v", err)
 		}
@@ -705,7 +701,46 @@ func closeChannel(ctx *cli.Context) error {
 		req.ChannelPoint.OutputIndex = 0
 	}
 
-	stream, err := client.CloseChannel(ctxb, req)
+	// After parsing the request, we'll spin up a goroutine that will
+	// retrieve the closing transaction ID when attempting to close the
+	// channel. We do this to because `executeChannelClose` can block, so we
+	// would like to present the closing transaction ID to the user as soon
+	// as it is broadcasted.
+	var wg sync.WaitGroup
+	txidChan := make(chan string, 1)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		printJSON(struct {
+			ClosingTxid string `json:"closing_txid"`
+		}{
+			ClosingTxid: <-txidChan,
+		})
+	}()
+
+	err := executeChannelClose(client, req, txidChan, ctx.Bool("block"))
+	if err != nil {
+		return err
+	}
+
+	// In the case that the user did not provide the `block` flag, then we
+	// need to wait for the goroutine to be done to prevent it from being
+	// destroyed when exiting before printing the closing transaction ID.
+	wg.Wait()
+
+	return nil
+}
+
+// executeChannelClose attempts to close the channel from a request. The closing
+// transaction ID is sent through `txidChan` as soon as it is broadcasted to the
+// network. The block boolean is used to determine if we should block until the
+// closing transaction receives all of its required confirmations.
+func executeChannelClose(client lnrpc.LightningClient, req *lnrpc.CloseChannelRequest,
+	txidChan chan<- string, block bool) error {
+
+	stream, err := client.CloseChannel(context.Background(), req)
 	if err != nil {
 		return err
 	}
@@ -726,28 +761,224 @@ func closeChannel(ctx *cli.Context) error {
 				return err
 			}
 
-			printJSON(struct {
-				ClosingTXID string `json:"closing_txid"`
-			}{
-				ClosingTXID: txid.String(),
-			})
+			txidChan <- txid.String()
 
-			if !ctx.Bool("block") {
+			if !block {
 				return nil
 			}
-
 		case *lnrpc.CloseStatusUpdate_ChanClose:
-			closingHash := update.ChanClose.ClosingTxid
-			txid, err := chainhash.NewHash(closingHash)
+			return nil
+		}
+	}
+}
+
+var closeAllChannelsCommand = cli.Command{
+	Name:  "closeallchannels",
+	Usage: "Close all existing channels.",
+	Description: `
+	Close all existing channels.
+
+	Channels will be closed either cooperatively or unilaterally, depending
+	on whether the channel is active or not. If the channel is inactive, any
+	settled funds within it will be time locked for a few blocks before they
+	can be spent.
+
+	One can request to close inactive channels only by using the
+	--inactive_only flag.
+
+	By default, one is prompted for confirmation every time an inactive
+	channel is requested to be closed. To avoid this, one can set the
+	--force flag, which will only prompt for confirmation once for all
+	inactive channels and proceed to close them.`,
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name:  "inactive_only",
+			Usage: "close inactive channels only",
+		},
+		cli.BoolFlag{
+			Name: "force",
+			Usage: "ask for confirmation once before attempting " +
+				"to close existing channels",
+		},
+	},
+	Action: actionDecorator(closeAllChannels),
+}
+
+func closeAllChannels(ctx *cli.Context) error {
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	listReq := &lnrpc.ListChannelsRequest{}
+	openChannels, err := client.ListChannels(context.Background(), listReq)
+	if err != nil {
+		return fmt.Errorf("unable to fetch open channels: %v", err)
+	}
+
+	if len(openChannels.Channels) == 0 {
+		return errors.New("no open channels to close")
+	}
+
+	var channelsToClose []*lnrpc.ActiveChannel
+
+	switch {
+	case ctx.Bool("force") && ctx.Bool("inactive_only"):
+		msg := "Unilaterally close all inactive channels? The funds " +
+			"within these channels will be locked for some blocks " +
+			"(CSV delay) before they can be spent. (yes/no): "
+
+		confirmed := promptForConfirmation(msg)
+
+		// We can safely exit if the user did not confirm.
+		if !confirmed {
+			return nil
+		}
+
+		// Go through the list of open channels and only add inactive
+		// channels to the closing list.
+		for _, channel := range openChannels.Channels {
+			if !channel.GetActive() {
+				channelsToClose = append(
+					channelsToClose, channel,
+				)
+			}
+		}
+	case ctx.Bool("force"):
+		msg := "Close all active and inactive channels? Inactive " +
+			"channels will be closed unilaterally, so funds " +
+			"within them will be locked for a few blocks (CSV " +
+			"delay) before they can be spent. (yes/no): "
+
+		confirmed := promptForConfirmation(msg)
+
+		// We can safely exit if the user did not confirm.
+		if !confirmed {
+			return nil
+		}
+
+		channelsToClose = openChannels.Channels
+	default:
+		// Go through the list of open channels and determine which
+		// should be added to the closing list.
+		for _, channel := range openChannels.Channels {
+			// If the channel is inactive, we'll attempt to
+			// unilaterally close the channel, so we should prompt
+			// the user for confirmation beforehand.
+			if !channel.GetActive() {
+				msg := fmt.Sprintf("Unilaterally close channel "+
+					"with node %s and channel point %s? "+
+					"The closing transaction will need %d "+
+					"confirmations before the funds can be "+
+					"spent. (yes/no): ", channel.RemotePubkey,
+					channel.ChannelPoint, channel.CsvDelay)
+
+				confirmed := promptForConfirmation(msg)
+
+				if confirmed {
+					channelsToClose = append(
+						channelsToClose, channel,
+					)
+				}
+			} else if !ctx.Bool("inactive_only") {
+				// Otherwise, we'll only add active channels if
+				// we were not requested to close inactive
+				// channels only.
+				channelsToClose = append(
+					channelsToClose, channel,
+				)
+			}
+		}
+	}
+
+	// result defines the result of closing a channel. The closing
+	// transaction ID is populated if a channel is successfully closed.
+	// Otherwise, the error that prevented closing the channel is populated.
+	type result struct {
+		RemotePubKey string `json:"remote_pub_key"`
+		ChannelPoint string `json:"channel_point"`
+		ClosingTxid  string `json:"closing_txid"`
+		FailErr      string `json:"error"`
+	}
+
+	// Launch each channel closure in a goroutine in order to execute them
+	// in parallel. Once they're all executed, we will print the results as
+	// they come.
+	resultChan := make(chan result, len(channelsToClose))
+	for _, channel := range channelsToClose {
+		go func(channel *lnrpc.ActiveChannel) {
+			res := result{}
+			res.RemotePubKey = channel.RemotePubkey
+			res.ChannelPoint = channel.ChannelPoint
+			defer func() {
+				resultChan <- res
+			}()
+
+			// Parse the channel point in order to create the close
+			// channel request.
+			s := strings.Split(res.ChannelPoint, ":")
+			if len(s) != 2 {
+				res.FailErr = "expected channel point with " +
+					"format txid:index"
+				return
+			}
+			index, err := strconv.ParseUint(s[1], 10, 32)
 			if err != nil {
-				return err
+				res.FailErr = fmt.Sprintf("unable to parse "+
+					"channel point output index: %v", err)
+				return
 			}
 
-			printJSON(struct {
-				ClosingTXID string `json:"closing_txid"`
-			}{
-				ClosingTXID: txid.String(),
-			})
+			req := &lnrpc.CloseChannelRequest{
+				ChannelPoint: &lnrpc.ChannelPoint{
+					FundingTxid: &lnrpc.ChannelPoint_FundingTxidStr{
+						FundingTxidStr: s[0],
+					},
+					OutputIndex: uint32(index),
+				},
+				Force: !channel.GetActive(),
+			}
+
+			txidChan := make(chan string, 1)
+			err = executeChannelClose(client, req, txidChan, false)
+			if err != nil {
+				res.FailErr = fmt.Sprintf("unable to close "+
+					"channel: %v", err)
+				return
+			}
+
+			res.ClosingTxid = <-txidChan
+		}(channel)
+	}
+
+	for range channelsToClose {
+		res := <-resultChan
+		printJSON(res)
+	}
+
+	return nil
+}
+
+// promptForConfirmation continuously prompts the user for the message until
+// receiving a response of "yes" or "no" and returns their answer as a bool.
+func promptForConfirmation(msg string) bool {
+	reader := bufio.NewReader(os.Stdin)
+
+	for {
+		fmt.Print(msg)
+
+		answer, err := reader.ReadString('\n')
+		if err != nil {
+			return false
+		}
+
+		answer = strings.ToLower(strings.TrimSpace(answer))
+
+		switch {
+		case answer == "yes":
+			return true
+		case answer == "no":
+			return false
+		default:
+			continue
 		}
 	}
 }

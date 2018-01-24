@@ -3173,14 +3173,23 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Next query for Bob's channel state, as we sent 3 payments of 10k
 	// satoshis each, Bob should now see his balance as being 30k satoshis.
-	time.Sleep(time.Millisecond * 200)
-	bobChan, err := getBobChanInfo()
+	var bobChan *lnrpc.ActiveChannel
+	var predErr error
+	err = lntest.WaitPredicate(func() bool {
+		bobChan, err = getBobChanInfo()
+		if err != nil {
+			t.Fatalf("unable to get bob's channel info: %v", err)
+		}
+		if bobChan.LocalBalance != 30000 {
+			predErr = fmt.Errorf("bob's balance is incorrect, "+
+				"got %v, expected %v", bobChan.LocalBalance,
+				30000)
+			return false
+		}
+		return true
+	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("unable to get bob's channel info: %v", err)
-	}
-	if bobChan.LocalBalance != 30000 {
-		t.Fatalf("bob's balance is incorrect, got %v, expected %v",
-			bobChan.LocalBalance, 30000)
+		t.Fatalf("%v", predErr)
 	}
 
 	// Grab Bob's current commitment height (update number), we'll later

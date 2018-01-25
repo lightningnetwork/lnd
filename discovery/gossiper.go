@@ -102,10 +102,6 @@ type Config struct {
 	// retry sending a peer message.
 	NotifyWhenOnline func(peer *btcec.PublicKey, connectedChan chan<- struct{})
 
-	// ProofMatureDelta the number of confirmations which is needed before
-	// exchange the channel announcement proofs.
-	ProofMatureDelta uint32
-
 	// TrickleDelay the period of trickle timer which flushes to the
 	// network the pending batch of new announcements we've received since
 	// the last trickle tick.
@@ -1312,11 +1308,9 @@ func (d *AuthenticatedGossiper) savePrematureChannelUpdate(nMsg *networkMsg) {
 // or redundant, then nil is returned. Otherwise, the set of announcements will
 // be returned which should be broadcasted to the rest of the network.
 func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []networkMsg {
-	isPremature := func(chanID lnwire.ShortChannelID, delta uint32) bool {
-		// TODO(roasbeef) make height delta 6
-		//  * or configurable
+	isPremature := func(chanID lnwire.ShortChannelID) bool {
 		bestHeight := atomic.LoadUint32(&d.bestHeight)
-		return chanID.BlockHeight+delta > bestHeight
+		return chanID.BlockHeight > bestHeight
 	}
 
 	var announcements []networkMsg
@@ -1390,7 +1384,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		// If the advertised inclusionary block is beyond our knowledge
 		// of the chain tip, then we'll put the announcement in limbo
 		// to be fully verified once we advance forward in the chain.
-		if nMsg.isRemote && isPremature(msg.ShortChannelID, 0) {
+		if nMsg.isRemote && isPremature(msg.ShortChannelID) {
 			blockHeight := msg.ShortChannelID.BlockHeight
 			log.Infof("Announcement for chan_id=(%v), is premature: "+
 				"advertises height %v, only height %v is known",
@@ -1571,7 +1565,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		// If the advertised inclusionary block is beyond our knowledge
 		// of the chain tip, then we'll put the announcement in limbo
 		// to be fully verified once we advance forward in the chain.
-		if nMsg.isRemote && isPremature(msg.ShortChannelID, 0) {
+		if nMsg.isRemote && isPremature(msg.ShortChannelID) {
 			log.Infof("Update announcement for "+
 				"short_chan_id(%v), is premature: advertises "+
 				"height %v, only height %v is known",
@@ -1712,7 +1706,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 	// willingness of nodes involved in the funding of a channel to
 	// announce this new channel to the rest of the world.
 	case *lnwire.AnnounceSignatures:
-		needBlockHeight := msg.ShortChannelID.BlockHeight + d.cfg.ProofMatureDelta
+		blockHeight := msg.ShortChannelID.BlockHeight
 		shortChanID := msg.ShortChannelID.ToUint64()
 
 		prefix := "local"
@@ -1720,26 +1714,24 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 			prefix = "remote"
 		}
 
-		log.Infof("Received new %v channel announcement: %v", prefix,
+		log.Infof("Received new %v proof announcement: %v", prefix,
 			spew.Sdump(msg))
 
-		// By the specification, channel announcement proofs should be
-		// sent after some number of confirmations after channel was
-		// registered in bitcoin blockchain. Therefore, we check if the
-		// proof is premature.  If so we'll halt processing until the
-		// expected announcement height.  This allows us to be tolerant
-		// to other clients if this constraint was changed.
-		if isPremature(msg.ShortChannelID, d.cfg.ProofMatureDelta) {
+		// We check if the proof is premature. If so we'll halt
+		// processing until we have caught up to the height it
+		// advertises.
+		if nMsg.isRemote && isPremature(msg.ShortChannelID) {
 			d.Lock()
-			d.prematureAnnouncements[needBlockHeight] = append(
-				d.prematureAnnouncements[needBlockHeight],
+			d.prematureAnnouncements[blockHeight] = append(
+				d.prematureAnnouncements[blockHeight],
 				nMsg,
 			)
 			d.Unlock()
 			log.Infof("Premature proof announcement, "+
-				"current block height lower than needed: %v <"+
-				" %v, add announcement to reprocessing batch",
-				atomic.LoadUint32(&d.bestHeight), needBlockHeight)
+				"current block height (%v) lower than "+
+				"advertised (%v). Adding announcement to "+
+				"reprocessing batch",
+				atomic.LoadUint32(&d.bestHeight), blockHeight)
 			return nil
 		}
 

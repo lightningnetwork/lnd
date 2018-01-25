@@ -1744,6 +1744,123 @@ func payInvoice(ctx *cli.Context) error {
 	return sendPaymentRequest(ctx, req)
 }
 
+var sendToRouteCommand = cli.Command{
+	Name:  "sendtoroute",
+	Usage: "send a payment over a predefined route",
+	Description: `
+	Send a payment over Lightning using a specific route. One must specify
+	a list of routes to attempt and the payment hash.
+
+	The --debug_send flag is provided for usage *purely* in test
+	environments. If specified, then the payment hash isn't required, as
+	it'll use the hash of all zeroes. This mode allows one to quickly test
+	payment connectivity without having to create an invoice at the
+	destination.
+	`,
+	ArgsUsage: "(lncli queryroutes --dest=<pubkey> --amt=<amt> " +
+		"| lncli sendtoroute --payment_hash=<payment_hash>)",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "payment_hash, r",
+			Usage: "the hash to use within the payment's HTLC",
+		},
+		cli.BoolFlag{
+			Name:  "debug_send",
+			Usage: "use the debug rHash when sending the HTLC",
+		},
+	},
+	Action: sendToRoute,
+}
+
+func sendToRoute(ctx *cli.Context) error {
+	// Show command help if no arguments provieded
+	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
+		cli.ShowCommandHelp(ctx, "sendtoroute")
+		return nil
+	}
+
+	args := ctx.Args()
+
+	b, err := ioutil.ReadAll(os.Stdin)
+	if err != nil {
+		return err
+	}
+	if len(b) == 0 {
+		return fmt.Errorf("queryroutes output is empty")
+	}
+
+	qroutes := &lnrpc.QueryRoutesResponse{}
+	err = jsonpb.UnmarshalString(string(b), qroutes)
+	if err != nil {
+		return fmt.Errorf("unable to unmarshal json string from "+
+			"incoming array of routes: %v", err)
+	}
+
+	var rHash []byte
+	if ctx.Bool("debug_send") &&
+		(ctx.IsSet("payment_hash") || args.Present()) {
+		return fmt.Errorf("do not provide a payment hash with debug send")
+	} else if !ctx.Bool("debug_send") {
+		switch {
+		case ctx.IsSet("payment_hash"):
+			rHash, err = hex.DecodeString(ctx.String("payment_hash"))
+		case args.Present():
+			rHash, err = hex.DecodeString(args.First())
+		default:
+			return fmt.Errorf("payment hash argument missing")
+		}
+
+		if err != nil {
+			return err
+		}
+
+		if len(rHash) != 32 {
+			return fmt.Errorf("payment hash must be exactly 32 "+
+				"bytes, is instead %d", len(rHash))
+		}
+	}
+
+	req := &lnrpc.SendToRouteRequest{
+		PaymentHash: rHash,
+		Routes:      qroutes.Routes,
+	}
+
+	return sendToRouteRequest(ctx, req)
+}
+
+func sendToRouteRequest(ctx *cli.Context, req *lnrpc.SendToRouteRequest) error {
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	paymentStream, err := client.SendToRoute(context.Background())
+	if err != nil {
+		return err
+	}
+
+	if err := paymentStream.Send(req); err != nil {
+		return err
+	}
+
+	resp, err := paymentStream.Recv()
+	if err != nil {
+		return err
+	}
+
+	paymentStream.CloseSend()
+
+	printJSON(struct {
+		E string       `json:"payment_error"`
+		P string       `json:"payment_preimage"`
+		R *lnrpc.Route `json:"payment_route"`
+	}{
+		E: resp.PaymentError,
+		P: hex.EncodeToString(resp.PaymentPreimage),
+		R: resp.PaymentRoute,
+	})
+
+	return nil
+}
+
 var addInvoiceCommand = cli.Command{
 	Name:     "addinvoice",
 	Category: "Payments",

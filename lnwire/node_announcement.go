@@ -40,7 +40,8 @@ func NewNodeAlias(s string) (NodeAlias, error) {
 
 // String returns a utf8 string representation of the alias bytes.
 func (n NodeAlias) String() string {
-	return string(n[:])
+	// Trim trailing zero-bytes for presentation
+	return string(bytes.Trim(n[:], "\x00"))
 }
 
 // NodeAnnouncement message is used to announce the presence of a Lightning

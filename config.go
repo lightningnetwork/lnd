@@ -57,6 +57,9 @@ const (
 	defaultLitecoinBaseFeeMSat   = 1000
 	defaultLitecoinFeeRate       = 1
 	defaultLitecoinTimeLockDelta = 576
+
+	defaultAlias = ""
+	defaultColor = "#3399FF"
 )
 
 var (
@@ -174,6 +177,9 @@ type config struct {
 	NoEncryptWallet bool `long:"noencryptwallet" description:"If set, wallet will be encrypted using the default passphrase."`
 
 	TrickleDelay int `long:"trickledelay" description:"Time in milliseconds between each release of announcements to the network"`
+
+	Alias string `long:"alias" description:"The node alias. Used as a moniker by peers and intelligence services"`
+	Color string `long:"color" description:"The color of the node in hex format (i.e. '#3399FF'). Used to customize node appearance in intelligence services"`
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -226,6 +232,8 @@ func loadConfig() (*config, error) {
 			Allocation:  0.6,
 		},
 		TrickleDelay: defaultTrickleDelay,
+		Alias:        defaultAlias,
+		Color:        defaultColor,
 	}
 
 	// Pre-parse the command line options to pick up an alternative config

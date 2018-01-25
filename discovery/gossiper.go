@@ -1226,6 +1226,31 @@ func (d *AuthenticatedGossiper) processRejectedEdge(chanAnnMsg *lnwire.ChannelAn
 	return announcements, nil
 }
 
+// savePrematureChannelUpdate takes a received ChannelUpdate for an unknown
+// channel and stores it for reprocessing later. This mathod takes care of
+// evicting old and duplicated updates, making sure an attacker cannot
+// force us to use excessive amounts of memory by sending us fake channel
+// updates.
+func (d *AuthenticatedGossiper) savePrematureChannelUpdate(nMsg *networkMsg) {
+	// Only ChannelUpdates should be passed to this method.
+	msg, ok := nMsg.msg.(*lnwire.ChannelUpdate)
+	if !ok {
+		log.Errorf("Message not ChannelUpdate, was %T", nMsg.msg)
+		return
+	}
+
+	// Store the message for processing later.
+	shortChanID := msg.ShortChannelID.ToUint64()
+	d.pChanUpdMtx.Lock()
+	d.prematureChannelUpdates[shortChanID] = append(
+		d.prematureChannelUpdates[shortChanID], nMsg)
+	d.pChanUpdMtx.Unlock()
+
+	log.Infof("Got ChannelUpdate for edge not found in "+
+		"graph(shortChanID=%v), saving for reprocessing later",
+		shortChanID)
+}
+
 // processNetworkAnnouncement processes a new network relate authenticated
 // channel or node announcement or announcements proofs. If the announcement
 // didn't affect the internal state due to either being out of date, invalid,
@@ -1534,18 +1559,10 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 				// exchanged and the channel is broadcasted to
 				// the rest of the network, but in case this
 				// is a private channel this won't ever happen.
-				// Because of this, we temporarily add it to a
-				// map, and reprocess it after our own
+				// Because of this, we save it temporarily, and
+				// reprocess it after our own
 				// ChannelAnnouncement has been processed.
-				d.pChanUpdMtx.Lock()
-				d.prematureChannelUpdates[shortChanID] = append(
-					d.prematureChannelUpdates[shortChanID],
-					nMsg)
-				d.pChanUpdMtx.Unlock()
-				log.Infof("Got ChannelUpdate for edge not "+
-					"found in graph(shortChanID=%v), "+
-					"saving for reprocessing later",
-					shortChanID)
+				d.savePrematureChannelUpdate(nMsg)
 				nMsg.err <- nil
 				return nil
 			default:

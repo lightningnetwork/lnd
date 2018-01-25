@@ -1233,6 +1233,20 @@ func (d *AuthenticatedGossiper) processRejectedEdge(chanAnnMsg *lnwire.ChannelAn
 	return announcements, nil
 }
 
+// savePrematureAnnouncement takes an announcement that is premature
+// (meaning it has a channel ID indicating the channel was confirmed in
+// a block we don't yet know about) and stores it for later reprocessing.
+func (d *AuthenticatedGossiper) savePrematureAnnouncement(
+	blockHeight uint32, nMsg *networkMsg) {
+
+	d.Lock()
+	defer d.Unlock()
+	d.prematureAnnouncements[blockHeight] = append(
+		d.prematureAnnouncements[blockHeight],
+		nMsg,
+	)
+}
+
 // savePrematureChannelUpdate takes a received ChannelUpdate for an unknown
 // channel and stores it for reprocessing later. This method takes care of
 // evicting old and duplicated updates, making sure an attacker cannot
@@ -1392,12 +1406,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 				msg.ShortChannelID.BlockHeight,
 				atomic.LoadUint32(&d.bestHeight))
 
-			d.Lock()
-			d.prematureAnnouncements[blockHeight] = append(
-				d.prematureAnnouncements[blockHeight],
-				nMsg,
-			)
-			d.Unlock()
+			d.savePrematureAnnouncement(blockHeight, nMsg)
 			return nil
 		}
 
@@ -1572,12 +1581,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 				shortChanID, blockHeight,
 				atomic.LoadUint32(&d.bestHeight))
 
-			d.Lock()
-			d.prematureAnnouncements[blockHeight] = append(
-				d.prematureAnnouncements[blockHeight],
-				nMsg,
-			)
-			d.Unlock()
+			d.savePrematureAnnouncement(blockHeight, nMsg)
 			return nil
 		}
 
@@ -1721,17 +1725,13 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		// processing until we have caught up to the height it
 		// advertises.
 		if nMsg.isRemote && isPremature(msg.ShortChannelID) {
-			d.Lock()
-			d.prematureAnnouncements[blockHeight] = append(
-				d.prematureAnnouncements[blockHeight],
-				nMsg,
-			)
-			d.Unlock()
 			log.Infof("Premature proof announcement, "+
 				"current block height (%v) lower than "+
 				"advertised (%v). Adding announcement to "+
 				"reprocessing batch",
 				atomic.LoadUint32(&d.bestHeight), blockHeight)
+
+			d.savePrematureAnnouncement(blockHeight, nMsg)
 			return nil
 		}
 

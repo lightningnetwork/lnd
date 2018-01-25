@@ -25,6 +25,7 @@ import:
   - wire
   - connmgr
 - package: github.com/lightninglabs/gozmq
+  version: 0d266ba6d55ea65c18c7a02d8992c89355149e80
 - package: github.com/roasbeef/btcrpcclient
   version: d0f4db8b4dad0ca3d569b804f21247c3dd96acbb
 - package: github.com/roasbeef/btcutil
@@ -35,7 +36,7 @@ import:
   - hdkeychain
   - txsort
 - package: github.com/roasbeef/btcwallet
-  version: 6c1491e092f39d6ed4e9103b9dc8322d04ca98bb
+  version: 4f4765c3e3baf4c7b40c311340a076ec83c5ef3a
   subpackages:
   - chain
   - waddrmgr
@@ -72,7 +73,7 @@ import:
   subpackages:
   - chaincfg
 - package: github.com/lightninglabs/neutrino
-  version: 5560001600544391c68e02bd1cc7cdbd25318030
+  version: 6c8f30a130bb170348ceb754ce4204156efe2741
 - package: gopkg.in/macaroon.v1
 - package: gopkg.in/macaroon-bakery.v1
 - package: github.com/juju/loggo

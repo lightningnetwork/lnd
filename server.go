@@ -234,14 +234,19 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 
 	chanGraph := chanDB.ChannelGraph()
 
-	defaultColor := color.RGBA{ // #3399FF
-		R: 51,
-		G: 153,
-		B: 255,
+	// Parse node color from configuration.
+	color, err := parseHexColor(cfg.Color)
+	if err != nil {
+		srvrLog.Errorf("unable to parse color: %v\n", err)
+		return nil, err
 	}
 
-	// TODO(roasbeef): make alias configurable
-	alias, err := lnwire.NewNodeAlias(hex.EncodeToString(serializedPubKey[:10]))
+	// If no alias is provided, default to first 10 characters of public key
+	alias := cfg.Alias
+	if alias == "" {
+		alias = hex.EncodeToString(serializedPubKey[:10])
+	}
+	nodeAlias, err := lnwire.NewNodeAlias(alias)
 	if err != nil {
 		return nil, err
 	}
@@ -250,9 +255,9 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		LastUpdate:           time.Now(),
 		Addresses:            selfAddrs,
 		PubKey:               privKey.PubKey(),
-		Alias:                alias.String(),
+		Alias:                nodeAlias.String(),
 		Features:             s.globalFeatures,
-		Color:                defaultColor,
+		Color:                color,
 	}
 
 	// If our information has changed since our last boot, then we'll
@@ -264,9 +269,9 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		Timestamp: uint32(selfNode.LastUpdate.Unix()),
 		Addresses: selfNode.Addresses,
 		NodeID:    selfNode.PubKey,
-		Alias:     alias,
+		Alias:     nodeAlias,
 		Features:  selfNode.Features.RawFeatureVector,
-		RGBColor:  defaultColor,
+		RGBColor:  color,
 	}
 	selfNode.AuthSig, err = discovery.SignAnnouncement(s.nodeSigner,
 		s.identityPriv.PubKey(), nodeAnn,
@@ -1779,4 +1784,22 @@ func (s *server) Peers() []*peer {
 	}
 
 	return peers
+}
+
+// parseHexColor takes a hex string representation of a color in the
+// form "#RRGGBB", parses the hex color values, and returns a color.RGBA
+// struct of the same color.
+func parseHexColor(colorStr string) (color.RGBA, error) {
+	if len(colorStr) != 7 || colorStr[0] != '#' {
+		return color.RGBA{}, errors.New("Color must be in format #RRGGBB")
+	}
+
+	// Decode the hex color string to bytes.
+	// The resulting byte array is in the form [R, G, B].
+	colorBytes, err := hex.DecodeString(colorStr[1:])
+	if err != nil {
+		return color.RGBA{}, err
+	}
+
+	return color.RGBA{R: colorBytes[0], G: colorBytes[1], B: colorBytes[2]}, nil
 }

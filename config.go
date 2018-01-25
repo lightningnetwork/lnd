@@ -57,6 +57,9 @@ const (
 	defaultLitecoinBaseFeeMSat   = 1000
 	defaultLitecoinFeeRate       = 1
 	defaultLitecoinTimeLockDelta = 576
+
+	defaultAlias = ""
+	defaultColor = "#3399FF"
 )
 
 var (
@@ -174,6 +177,9 @@ type config struct {
 	NoEncryptWallet bool `long:"noencryptwallet" description:"If set, wallet will be encrypted using the default passphrase."`
 
 	TrickleDelay int `long:"trickledelay" description:"Time in milliseconds between each release of announcements to the network"`
+
+	Alias string `long:"alias" description:"The node alias. Used as a moniker by peers and intelligence services"`
+	Color string `long:"color" description:"The color of the node in hex format (i.e. '#3399FF'). Used to customize node appearance in intelligence services"`
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -226,6 +232,8 @@ func loadConfig() (*config, error) {
 			Allocation:  0.6,
 		},
 		TrickleDelay: defaultTrickleDelay,
+		Alias:        defaultAlias,
+		Color:        defaultColor,
 	}
 
 	// Pre-parse the command line options to pick up an alternative config
@@ -613,12 +621,29 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 	// specified, we can return.
 	switch conf := nodeConfig.(type) {
 	case *btcdConfig:
-		if conf.RPCUser != "" || conf.RPCPass != "" {
+		// If both RPCUser and RPCPass are set, we assume those
+		// credentials are good to use.
+		if conf.RPCUser != "" && conf.RPCPass != "" {
 			return nil
 		}
+		// If only ONE of RPCUser or RPCPass is set, we assume the
+		// user did that unintentionally.
+		if conf.RPCUser != "" || conf.RPCPass != "" {
+			return fmt.Errorf("please set both or neither of " +
+				"btcd.rpcuser and btcd.rpcpass")
+		}
 	case *bitcoindConfig:
-		if conf.RPCUser != "" || conf.RPCPass != "" || conf.ZMQPath != "" {
+		// If all of RPCUser, RPCPass, and ZMQPath are set, we assume
+		// those parameters are good to use.
+		if conf.RPCUser != "" && conf.RPCPass != "" && conf.ZMQPath != "" {
 			return nil
+		}
+		// If only one or two of the parameters are set, we assume the
+		// user did that unintentionally.
+		if conf.RPCUser != "" || conf.RPCPass != "" || conf.ZMQPath != "" {
+			return fmt.Errorf("please set all or none of " +
+				"bitcoind.rpcuser, bitcoind.rpcpass, and " +
+				"bitcoind.zmqpath")
 		}
 	}
 

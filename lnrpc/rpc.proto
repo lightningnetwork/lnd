@@ -373,6 +373,28 @@ service Lightning {
         };
     }
 
+    /** lncli: `sendtoroute`
+    SendToRoute dispatches a bi-directional streaming RPC for sending payments
+    through the Lightning Network via predefined routes passed in. A single RPC
+    invocation creates a persistent bi-directional stream allowing clients to
+    rapidly send payments through the Lightning Network with a single
+    persistent connection.
+    */
+    rpc SendToRoute(stream SendToRouteRequest) returns (stream SendResponse);
+
+    /**
+    SendToRouteSync is the synchronous non-streaming version of SendToRoute.
+    This RPC is intended to be consumed by clients of the REST proxy.
+    Additionally, this RPC expects the payment hash to be encoded
+    as hex strings.
+    */
+    rpc SendToRouteSync (SendToRouteRequest) returns (SendResponse) {
+        option (google.api.http) = {
+            post: "/v1/channels/transactions/sendtoroute"
+            body: "*"
+        };
+    }
+
     /** lncli: `addinvoice`
     AddInvoice attempts to add a new invoice to the invoice database. Any
     duplicated invoices are rejected, therefore all invoices *must* have a
@@ -631,6 +653,17 @@ message SendResponse {
     string payment_error = 1 [json_name = "payment_error"];
     bytes payment_preimage = 2 [json_name = "payment_preimage"];
     Route payment_route = 3 [json_name = "payment_route"];
+}
+
+message SendToRouteRequest {
+    /// The hash to use within the payment's HTLC
+    bytes payment_hash = 1;
+
+    /// The hex-encoded hash to use within the payment's HTLC
+    string payment_hash_string = 2;
+
+    /// The routes that should be tried in sending the payment.
+    repeated Route routes = 3 [json_name = "routes"];
 }
 
 message ChannelPoint {

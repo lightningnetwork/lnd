@@ -192,6 +192,33 @@
         ]
       }
     },
+    "/v1/channels/transactions/sendtoroute": {
+      "post": {
+        "summary": "*\nSendToRouteSync is the synchronous non-streaming version of SendToRoute.\nThis RPC is intended to be consumed by clients of the REST proxy.\nAdditionally, this RPC expects the payment hash to be encoded\nas hex strings.",
+        "operationId": "SendToRouteSync",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcSendResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcSendToRouteRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/channels/{channel_point.funding_txid_str}/{channel_point.output_index}": {
       "delete": {
         "summary": "* lncli: `closechannel`\nCloseChannel attempts to close an active channel identified by its channel\noutpoint (ChannelPoint). The actions of this method can additionally be\naugmented to attempt a force close after a timeout period in the case of an\ninactive peer. If a non-force close (cooperative closure) is requested,\nthen the user can specify either a target number of blocks until the\nclosure transaction is confirmed, or a manual fee rate. If neither are\nspecified, then a default lax, block confirmation target is used.",
@@ -2361,6 +2388,27 @@
         },
         "payment_route": {
           "$ref": "#/definitions/lnrpcRoute"
+        }
+      }
+    },
+    "lnrpcSendToRouteRequest": {
+      "type": "object",
+      "properties": {
+        "payment_hash": {
+          "type": "string",
+          "format": "byte",
+          "title": "/ The hash to use within the payment's HTLC"
+        },
+        "payment_hash_string": {
+          "type": "string",
+          "title": "/ The hex-encoded hash to use within the payment's HTLC"
+        },
+        "routes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcRoute"
+          },
+          "description": "/ The routes that should be tried in sending the payment."
         }
       }
     },

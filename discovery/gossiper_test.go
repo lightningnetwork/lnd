@@ -57,9 +57,8 @@ var (
 	nodeKeyPriv2, _ = btcec.NewPrivateKey(btcec.S256())
 	nodeKeyPub2     = nodeKeyPriv2.PubKey()
 
-	trickleDelay     = time.Millisecond * 100
-	retransmitDelay  = time.Hour * 1
-	proofMatureDelta uint32
+	trickleDelay    = time.Millisecond * 100
+	retransmitDelay = time.Hour * 1
 )
 
 // makeTestDB creates a new instance of the ChannelDB for testing purposes. A
@@ -464,11 +463,10 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 		SendToPeer: func(target *btcec.PublicKey, msg ...lnwire.Message) error {
 			return nil
 		},
-		Router:           router,
-		TrickleDelay:     trickleDelay,
-		RetransmitDelay:  retransmitDelay,
-		ProofMatureDelta: proofMatureDelta,
-		DB:               db,
+		Router:          router,
+		TrickleDelay:    trickleDelay,
+		RetransmitDelay: retransmitDelay,
+		DB:              db,
 	}, nodeKeyPub1)
 	if err != nil {
 		cleanUpDb()
@@ -686,7 +684,7 @@ func TestPrematureAnnouncement(t *testing.T) {
 func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanup, err := createTestCtx(uint32(proofMatureDelta))
+	ctx, cleanup, err := createTestCtx(0)
 	if err != nil {
 		t.Fatalf("can't create context: %v", err)
 	}
@@ -842,7 +840,7 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 func TestOrphanSignatureAnnouncement(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanup, err := createTestCtx(uint32(proofMatureDelta))
+	ctx, cleanup, err := createTestCtx(0)
 	if err != nil {
 		t.Fatalf("can't create context: %v", err)
 	}
@@ -1010,7 +1008,7 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 func TestSignatureAnnouncementRetry(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanup, err := createTestCtx(uint32(proofMatureDelta))
+	ctx, cleanup, err := createTestCtx(0)
 	if err != nil {
 		t.Fatalf("can't create context: %v", err)
 	}
@@ -1192,7 +1190,7 @@ func TestSignatureAnnouncementRetry(t *testing.T) {
 func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanup, err := createTestCtx(uint32(proofMatureDelta))
+	ctx, cleanup, err := createTestCtx(0)
 	if err != nil {
 		t.Fatalf("can't create context: %v", err)
 	}
@@ -1320,11 +1318,10 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 			connectedChan chan<- struct{}) {
 			notifyPeers <- connectedChan
 		},
-		Router:           ctx.gossiper.cfg.Router,
-		TrickleDelay:     trickleDelay,
-		RetransmitDelay:  retransmitDelay,
-		ProofMatureDelta: proofMatureDelta,
-		DB:               ctx.gossiper.cfg.DB,
+		Router:          ctx.gossiper.cfg.Router,
+		TrickleDelay:    trickleDelay,
+		RetransmitDelay: retransmitDelay,
+		DB:              ctx.gossiper.cfg.DB,
 	}, ctx.gossiper.selfKey)
 	if err != nil {
 		t.Fatalf("unable to recreate gossiper: %v", err)
@@ -1411,7 +1408,7 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanup, err := createTestCtx(uint32(proofMatureDelta))
+	ctx, cleanup, err := createTestCtx(0)
 	if err != nil {
 		t.Fatalf("can't create context: %v", err)
 	}
@@ -1796,7 +1793,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanup, err := createTestCtx(uint32(proofMatureDelta))
+	ctx, cleanup, err := createTestCtx(0)
 	if err != nil {
 		t.Fatalf("can't create context: %v", err)
 	}
@@ -1965,7 +1962,7 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 func TestReceiveExcessiveChannelUpdates(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanup, err := createTestCtx(uint32(proofMatureDelta))
+	ctx, cleanup, err := createTestCtx(0)
 	if err != nil {
 		t.Fatalf("can't create context: %v", err)
 	}

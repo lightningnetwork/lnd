@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"runtime"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -21,6 +22,12 @@ import (
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 )
+
+// maxNumPrematureAnn is the max number of premature announcement we
+// will store before we start deleting old ones. We must have a limit
+// such that we cannot be served loads of announcements, eating our
+// free memory.
+const maxNumPrematureAnn = 128
 
 var (
 	// messageStoreKey is a key used to create a top level bucket in
@@ -159,8 +166,12 @@ type AuthenticatedGossiper struct {
 	// prematureChannelUpdates is a map of ChannelUpdates we have
 	// received that wasn't associated with any channel we know about.
 	// We store them temporarily, such that we can reprocess them when
-	// a ChannelAnnouncement for the channel is received.
-	prematureChannelUpdates map[uint64][]*networkMsg
+	// a ChannelAnnouncement for the channel is received. This is done
+	// to handle the edge case where we receive a ChannelUpdate from
+	// the remote before we have processed our own ChannelAnnouncement.
+	// Because of this, we only need to store one update per channel ID.
+	// We store at most maxNumPrematureAnn at a time.
+	prematureChannelUpdates map[uint64]*networkMsg
 	pChanUpdMtx             sync.Mutex
 
 	// waitingProofs is a persistent storage of partial channel proof
@@ -204,7 +215,7 @@ func New(cfg Config, selfKey *btcec.PublicKey) (*AuthenticatedGossiper, error) {
 		quit:                    make(chan struct{}),
 		chanPolicyUpdates:       make(chan *chanPolicyUpdateRequest),
 		prematureAnnouncements:  make(map[uint32][]*networkMsg),
-		prematureChannelUpdates: make(map[uint64][]*networkMsg),
+		prematureChannelUpdates: make(map[uint64]*networkMsg),
 		waitingProofs:           storage,
 	}, nil
 }
@@ -1227,7 +1238,7 @@ func (d *AuthenticatedGossiper) processRejectedEdge(chanAnnMsg *lnwire.ChannelAn
 }
 
 // savePrematureChannelUpdate takes a received ChannelUpdate for an unknown
-// channel and stores it for reprocessing later. This mathod takes care of
+// channel and stores it for reprocessing later. This method takes care of
 // evicting old and duplicated updates, making sure an attacker cannot
 // force us to use excessive amounts of memory by sending us fake channel
 // updates.
@@ -1239,12 +1250,56 @@ func (d *AuthenticatedGossiper) savePrematureChannelUpdate(nMsg *networkMsg) {
 		return
 	}
 
+	d.pChanUpdMtx.Lock()
+	defer d.pChanUpdMtx.Unlock()
+
+	// If we have already stored our max number of channel updates,
+	// we cut the number of updates stored in half, evicting old
+	// updates
+	if len(d.prematureChannelUpdates) >= maxNumPrematureAnn {
+		log.Warnf("Got excessive amount of premature ChannelUpdates, " +
+			"will cut storage in half.")
+
+		// Create a slice of all stored updates, such that we can easily
+		// sort them by their timestamp.
+		var updates []*networkMsg
+		for _, update := range d.prematureChannelUpdates {
+			updates = append(updates, update)
+		}
+
+		// Sort the updates, making the newest ones go last.
+		sort.Slice(updates, func(i, j int) bool {
+			upd1, ok := updates[i].msg.(*lnwire.ChannelUpdate)
+			if !ok {
+				return true
+			}
+			upd2, ok := updates[j].msg.(*lnwire.ChannelUpdate)
+			if !ok {
+				return false
+			}
+
+			return upd1.Timestamp < upd2.Timestamp
+		})
+
+		// Store the last half of the saved updates in a new map.
+		preChanUpdates := make(map[uint64]*networkMsg)
+		for i := len(updates) / 2; i < len(updates); i++ {
+			chanUpd, ok := updates[i].msg.(*lnwire.ChannelUpdate)
+			if !ok {
+				continue
+			}
+			shortChanID := chanUpd.ShortChannelID.ToUint64()
+			preChanUpdates[shortChanID] = updates[i]
+		}
+
+		// Finally set our map of channel updates to be this
+		// new map where half of the updates were evicted.
+		d.prematureChannelUpdates = preChanUpdates
+	}
+
 	// Store the message for processing later.
 	shortChanID := msg.ShortChannelID.ToUint64()
-	d.pChanUpdMtx.Lock()
-	d.prematureChannelUpdates[shortChanID] = append(
-		d.prematureChannelUpdates[shortChanID], nMsg)
-	d.pChanUpdMtx.Unlock()
+	d.prematureChannelUpdates[shortChanID] = nMsg
 
 	log.Infof("Got ChannelUpdate for edge not found in "+
 		"graph(shortChanID=%v), saving for reprocessing later",
@@ -1437,26 +1492,20 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 			return nil
 		}
 
-		// If we earlier received any ChannelUpdates for this channel,
-		// we can now process them, as the channel is added to the
-		// graph.
+		// If we earlier received a ChannelUpdates for this channel,
+		// we can now process and delete it, as the channel is added
+		// to the graph.
 		shortChanID := msg.ShortChannelID.ToUint64()
-		var channelUpdates []*networkMsg
 
 		d.pChanUpdMtx.Lock()
-		for _, cu := range d.prematureChannelUpdates[shortChanID] {
-			channelUpdates = append(channelUpdates, cu)
-		}
-
-		// Now delete the premature ChannelUpdates, since we added them
-		// all to the queue of network messages.
+		cu, ok := d.prematureChannelUpdates[shortChanID]
 		delete(d.prematureChannelUpdates, shortChanID)
 		d.pChanUpdMtx.Unlock()
 
-		// Launch a new goroutine to handle each ChannelUpdate, this to
-		// ensure we don't block here, as we can handle only one
+		// If a channel update was present, launch a new goroutine to handle
+		// it to ensure we don't block here, as we can handle only one
 		// announcement at a time.
-		for _, cu := range channelUpdates {
+		if ok {
 			go func(nMsg *networkMsg) {
 				switch msg := nMsg.msg.(type) {
 

@@ -1958,3 +1958,94 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 		t.Fatal("waiting proof should be removed from storage")
 	}
 }
+
+// TestReceiveExcessiveChannelUpdates checks that the gossiper starts
+// evicting ChannelUpdates from the map of premature updates if it
+// gets sent too many.
+func TestReceiveExcessiveChannelUpdates(t *testing.T) {
+	t.Parallel()
+
+	ctx, cleanup, err := createTestCtx(uint32(proofMatureDelta))
+	if err != nil {
+		t.Fatalf("can't create context: %v", err)
+	}
+	defer cleanup()
+
+	assertNumPremUpd := func(expected int) {
+		numChanUpds := len(ctx.gossiper.prematureChannelUpdates)
+		if numChanUpds != expected {
+			t.Fatalf("expected %d premature channel update, got %d",
+				expected, numChanUpds)
+		}
+	}
+
+	batch, err := createAnnouncements(0)
+	if err != nil {
+		t.Fatalf("can't generate announcements: %v", err)
+	}
+
+	remoteKey := batch.nodeAnn2.NodeID
+
+	// Send the same ChannelUpdate lots of times to the gossiper.
+	// Since it is all the same channel ID, only the last one
+	// should be kept.
+	for i := 0; i < 1000; i++ {
+		err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.chanUpdAnn2,
+			remoteKey)
+		if err != nil {
+			t.Fatalf("unable to process :%v", err)
+		}
+	}
+
+	// Should have only 1 stored.
+	assertNumPremUpd(1)
+
+	createChanUpdate := func(txIndex uint32) *lnwire.ChannelUpdate {
+		return &lnwire.ChannelUpdate{
+			ShortChannelID: lnwire.ShortChannelID{
+				BlockHeight: 0,
+				TxIndex:     txIndex,
+			},
+			Timestamp:       12345 + txIndex,
+			TimeLockDelta:   uint16(prand.Int63()),
+			Flags:           1,
+			HtlcMinimumMsat: lnwire.MilliSatoshi(prand.Int63()),
+			FeeRate:         uint32(prand.Int31()),
+			BaseFee:         uint32(prand.Int31()),
+		}
+	}
+
+	// Now fill up the map with ChannelUpdates of unique channel IDs.
+	for i := uint32(1); i < maxNumPrematureAnn; i++ {
+		chanUpd := createChanUpdate(i)
+		err = <-ctx.gossiper.ProcessRemoteAnnouncement(chanUpd,
+			remoteKey)
+		if err != nil {
+			t.Fatalf("unable to process :%v", err)
+		}
+	}
+
+	// Should've been filled up to the maximum.
+	assertNumPremUpd(maxNumPrematureAnn)
+
+	// Add one more, which will exceed the limit of stored updates.
+	chanUpd := createChanUpdate(maxNumPrematureAnn)
+	err = <-ctx.gossiper.ProcessRemoteAnnouncement(chanUpd, remoteKey)
+	if err != nil {
+		t.Fatalf("unable to process :%v", err)
+	}
+
+	// We expect the number of stored updates to be cut in half,
+	// before the new one is added.
+	assertNumPremUpd(maxNumPrematureAnn/2 + 1)
+
+	// Check that the channel updates with lowest timestamp were
+	// evicted.
+	for _, nMsg := range ctx.gossiper.prematureChannelUpdates {
+		upd := nMsg.msg.(*lnwire.ChannelUpdate)
+		if upd.Timestamp <= 12345+maxNumPrematureAnn/2 {
+			t.Fatalf("expected update with timestamp %d to be "+
+				"evicted", upd.Timestamp)
+		}
+	}
+}

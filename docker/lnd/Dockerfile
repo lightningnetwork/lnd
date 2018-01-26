@@ -22,5 +22,5 @@ WORKDIR $GOPATH/src/github.com/lightningnetwork/lnd
 RUN glide install
 RUN go install . ./cmd/...
 
-COPY "docker/lnd/start-lnd.sh" .
+COPY "start-lnd.sh" .
 RUN chmod +x start-lnd.sh

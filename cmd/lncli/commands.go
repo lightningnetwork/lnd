@@ -963,7 +963,7 @@ var sendPaymentCommand = cli.Command{
 	arguments need to be specified in order to complete the payment:
 	    * --dest=N
 	    * --amt=A
-	    * --final_ctlv_delta=T
+	    * --final_cltv_delta=T
 	    * --payment_hash=H
 
 	The --debug_send flag is provided for usage *purely* in test

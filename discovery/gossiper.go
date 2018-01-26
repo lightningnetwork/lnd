@@ -155,9 +155,10 @@ type AuthenticatedGossiper struct {
 	// main chain tip as we know it. Premature network messages will be
 	// processed once the chain tip as we know it extends to/past the
 	// premature height.
-	//
-	// TODO(roasbeef): limit premature networkMsgs to N
-	prematureAnnouncements map[uint32][]*networkMsg
+	// We store at most maxNumPrematureAnn at a time.
+	prematureAnnouncements    map[uint32][]*networkMsg
+	numPrematureAnnouncements int
+	pAnnMtx                   sync.Mutex
 
 	// prematureChannelUpdates is a map of ChannelUpdates we have
 	// received that wasn't associated with any channel we know about.
@@ -928,16 +929,14 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			// Next we check if we have any premature announcements
 			// for this height, if so, then we process them once
 			// more as normal announcements.
-			d.Lock()
 			numPremature := len(d.prematureAnnouncements[uint32(newBlock.Height)])
-			d.Unlock()
+			d.pAnnMtx.Unlock()
 			if numPremature != 0 {
 				log.Infof("Re-processing %v premature "+
 					"announcements for height %v",
 					numPremature, blockHeight)
 			}
 
-			d.Lock()
 			for _, ann := range d.prematureAnnouncements[uint32(newBlock.Height)] {
 				emittedAnnouncements := d.processNetworkAnnouncement(ann)
 				if emittedAnnouncements != nil {
@@ -946,8 +945,9 @@ func (d *AuthenticatedGossiper) networkHandler() {
 					)
 				}
 			}
+			d.numPrematureAnnouncements -= numPremature
 			delete(d.prematureAnnouncements, blockHeight)
-			d.Unlock()
+			d.pAnnMtx.Unlock()
 
 		// The trickle timer has ticked, which indicates we should
 		// flush to the network the pending batch of new announcements
@@ -1239,12 +1239,60 @@ func (d *AuthenticatedGossiper) processRejectedEdge(chanAnnMsg *lnwire.ChannelAn
 func (d *AuthenticatedGossiper) savePrematureAnnouncement(
 	blockHeight uint32, nMsg *networkMsg) {
 
-	d.Lock()
-	defer d.Unlock()
+	d.pAnnMtx.Lock()
+	defer d.pAnnMtx.Unlock()
+
+	// If we have already stored the max number of premature
+	// announcements, we will evict stored ones, starting with
+	// the ones with the greatest block height.
+	if d.numPrematureAnnouncements >= maxNumPrematureAnn {
+		log.Warnf("Number of premature announcements " +
+			"exceed the max number we will store. " +
+			"Will evict announcements.")
+
+		// Store all the block heights we have premature
+		// announcements for, and sort them from low
+		// to high.
+		var heights []uint32
+		for height := range d.prematureAnnouncements {
+			heights = append(heights, height)
+		}
+
+		sort.Slice(heights, func(i, j int) bool {
+			return heights[i] < heights[j]
+		})
+
+		// Delete height until the map of stored
+		// announcements is at most half the size.
+		for i := len(heights) - 1; i >= 0; i-- {
+			h := heights[i]
+			anns := d.prematureAnnouncements[h]
+
+			// Send error on the error channels for
+			// the announcements we are evicting.
+			for _, a := range anns {
+				// Error channel is buffered.
+				a.err <- fmt.Errorf("premature " +
+					"announcement evicted")
+			}
+
+			// Delete all announcements at this
+			// height and decrement our counter.
+			d.numPrematureAnnouncements -= len(anns)
+			delete(d.prematureAnnouncements, h)
+
+			// Break out if we have deleted at least half of
+			// the announcments.
+			if d.numPrematureAnnouncements <= maxNumPrematureAnn/2 {
+				break
+			}
+		}
+	}
+
+	// Add the announcement to the map of premature announcements.
 	d.prematureAnnouncements[blockHeight] = append(
-		d.prematureAnnouncements[blockHeight],
-		nMsg,
-	)
+		d.prematureAnnouncements[blockHeight], nMsg)
+	d.numPrematureAnnouncements++
 }
 
 // savePrematureChannelUpdate takes a received ChannelUpdate for an unknown

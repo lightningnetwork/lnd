@@ -679,6 +679,102 @@ func TestPrematureAnnouncement(t *testing.T) {
 	}
 }
 
+// TestPrematureAnnouncementEviction checks that we will evict
+// premature announcemets we store if the map starts filling up.
+func TestPrematureAnnouncementEviction(t *testing.T) {
+	t.Parallel()
+
+	timestamp := uint32(123456)
+
+	ctx, cleanup, err := createTestCtx(0)
+	if err != nil {
+		t.Fatalf("can't create context: %v", err)
+	}
+	defer cleanup()
+
+	na, err := createNodeAnnouncement(nodeKeyPriv1, timestamp)
+	if err != nil {
+		t.Fatalf("can't create node announcement: %v", err)
+	}
+
+	// Pretending that we receive a bunch of valid channel announcements
+	// from remote side, but block height of this announcement is greater
+	// than highest know to us, for that reason it should be added to the
+	// repeat/premature batch.
+	var errors []chan error
+	for i := uint32(1); i <= maxNumPrematureAnn; i++ {
+		ca, err := createRemoteChannelAnnouncement(i)
+		if err != nil {
+			t.Fatalf("can't create channel announcement: %v", err)
+		}
+		errChan := ctx.gossiper.ProcessRemoteAnnouncement(ca, na.NodeID)
+		errors = append(errors, errChan)
+	}
+
+	// Since they are all premature, they should not have been
+	// processed yet.
+	time.Sleep(300 * time.Millisecond)
+	for _, err := range errors {
+		select {
+		case <-err:
+			t.Fatalf("did not expect premature announcement to be "+
+				"processed: %v", err)
+		default:
+		}
+	}
+
+	numAnns := ctx.gossiper.numPrematureAnnouncements
+	if numAnns != maxNumPrematureAnn {
+		t.Fatalf("had %v premature announcements saved", numAnns)
+	}
+
+	// Add one more announcemnt. This should lead to half of the previous
+	// announcements fail, since they get evicted.
+	ca, err := createRemoteChannelAnnouncement(10)
+	if err != nil {
+		t.Fatalf("can't create channel announcement: %v", err)
+	}
+	errChan := ctx.gossiper.ProcessRemoteAnnouncement(ca, na.NodeID)
+
+	// We expect the annoncements with the greatest block height to
+	// be evicted. The rest should not be processed.
+	time.Sleep(300 * time.Millisecond)
+	for i := 0; i < len(errors); i++ {
+		blockHeight := i + 1
+		if i < maxNumPrematureAnn/2 {
+			select {
+			case <-errors[i]:
+				t.Fatalf("did not expect announcement at "+
+					"%d to be processed", blockHeight)
+			default:
+			}
+		} else {
+			select {
+			case err := <-errors[i]:
+				if err == nil {
+					t.Fatalf("expected announcement %d "+
+						"to fail", blockHeight)
+				}
+			default:
+				t.Fatalf("expected announcement %d "+
+					"to fail", blockHeight)
+			}
+		}
+	}
+
+	// The last announcement we added should not fail.
+	select {
+	case <-errChan:
+		t.Fatalf("did not expect announcement to be processed")
+	default:
+	}
+
+	numAnns = ctx.gossiper.numPrematureAnnouncements
+	if numAnns != maxNumPrematureAnn/2+1 {
+		t.Fatalf("had %v premature announcements saved", numAnns)
+	}
+}
+
 // TestSignatureAnnouncementLocalFirst ensures that the AuthenticatedGossiper
 // properly processes partial and fully announcement signatures message.
 func TestSignatureAnnouncementLocalFirst(t *testing.T) {

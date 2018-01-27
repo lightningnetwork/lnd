@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/boltdb/bolt"
+	"github.com/go-errors/errors"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
 )
@@ -432,6 +433,42 @@ func (d *DB) FetchClosedChannels(pendingOnly bool) ([]*ChannelCloseSummary, erro
 	}
 
 	return chanSummaries, nil
+}
+
+// ErrClosedChannelNotFound signals that a closed channel could not be found in
+// the channeldb.
+var ErrClosedChannelNotFound = errors.New("unable to find closed channel summary")
+
+// FetchClosedChannel queries for a channel close summary using the channel
+// point of the channel in question.
+func (d *DB) FetchClosedChannel(chanID *wire.OutPoint) (*ChannelCloseSummary, error) {
+	var chanSummary *ChannelCloseSummary
+	if err := d.View(func(tx *bolt.Tx) error {
+		closeBucket := tx.Bucket(closedChannelBucket)
+		if closeBucket == nil {
+			return ErrClosedChannelNotFound
+		}
+
+		var b bytes.Buffer
+		var err error
+		if err = writeOutpoint(&b, chanID); err != nil {
+			return err
+		}
+
+		summaryBytes := closeBucket.Get(b.Bytes())
+		if summaryBytes == nil {
+			return ErrClosedChannelNotFound
+		}
+
+		summaryReader := bytes.NewReader(summaryBytes)
+		chanSummary, err = deserializeCloseChannelSummary(summaryReader)
+
+		return err
+	}); err != nil {
+		return nil, err
+	}
+
+	return chanSummary, nil
 }
 
 // MarkChanFullyClosed marks a channel as fully closed within the database. A

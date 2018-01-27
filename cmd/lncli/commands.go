@@ -1221,8 +1221,8 @@ func addInvoice(ctx *cli.Context) error {
 		preimage []byte
 		descHash []byte
 		receipt  []byte
-		amt	int64
-		err	error
+		amt      int64
+		err      error
 	)
 
 	client, cleanUp := getClient(ctx)

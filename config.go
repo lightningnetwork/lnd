@@ -464,7 +464,8 @@ func loadConfig() (*config, error) {
 		cfg.RPCListeners = append(cfg.RPCListeners, addr)
 	}
 
-	// Listen on the default interface/port if no REST listeners were specified.
+	// Listen on the default interface/port if no REST listeners were
+	// specified.
 	if len(cfg.RESTListeners) == 0 {
 		addr := fmt.Sprintf("localhost:%d", defaultRESTPort)
 		cfg.RESTListeners = append(cfg.RESTListeners, addr)
@@ -474,6 +475,18 @@ func loadConfig() (*config, error) {
 	if len(cfg.Listeners) == 0 {
 		addr := fmt.Sprintf(":%d", defaultPeerPort)
 		cfg.Listeners = append(cfg.Listeners, addr)
+	}
+
+	// For each of the RPC listeners (REST+gRPC), we'll ensure that users
+	// have specified a safe combo for authentication. If not, we'll bail
+	// out with an error.
+	err := enforceSafeAuthentication(cfg.RPCListeners, !cfg.NoMacaroons)
+	if err != nil {
+		return nil, err
+	}
+	err = enforceSafeAuthentication(cfg.RESTListeners, !cfg.NoMacaroons)
+	if err != nil {
+		return nil, err
 	}
 
 	// Remove all Listeners if listening is disabled.
@@ -866,4 +879,40 @@ func normalizeAddresses(addrs []string, defaultPort string) []string {
 		}
 	}
 	return result
+}
+
+// enforceSafeAuthentication enforces "safe" authentication taking into account
+// the interfaces that the RPC servers are listening on, and if macaroons are
+// activated or not. To project users from using dangerous config combinations,
+// we'll prevent disabling authentication if the sever is listening on a public
+// interface.
+func enforceSafeAuthentication(addrs []string, macaroonsActive bool) error {
+	isLoopback := func(addr string) bool {
+		loopBackAddrs := []string{"localhost", "127.0.0.1"}
+		for _, loopback := range loopBackAddrs {
+			if strings.Contains(addr, loopback) {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	// We'll now examine all addresses that this RPC server is listening
+	// on. If it's a localhost address, we'll skip it, otherwise, we'll
+	// return an error if macaroons are inactive.
+	for _, addr := range addrs {
+		if isLoopback(addr) {
+			continue
+		}
+
+		if !macaroonsActive {
+			return fmt.Errorf("Detected RPC server listening on "+
+				"publicly reachable interface %v with "+
+				"authentication disabled! Refusing to start with "+
+				"--no-macaroons specified.", addr)
+		}
+	}
+
+	return nil
 }

@@ -3196,22 +3196,31 @@ func (*InvoiceSubscription) ProtoMessage()               {}
 func (*InvoiceSubscription) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{77} }
 
 type Payment struct {
+	// / The payment preimage
+	PaymentPreimage string `protobuf:"bytes,1,opt,name=payment_preimage" json:"payment_preimage,omitempty"`
 	// / The payment hash
-	PaymentHash string `protobuf:"bytes,1,opt,name=payment_hash" json:"payment_hash,omitempty"`
+	PaymentHash string `protobuf:"bytes,2,opt,name=payment_hash" json:"payment_hash,omitempty"`
 	// / The value of the payment in satoshis
-	Value int64 `protobuf:"varint,2,opt,name=value" json:"value,omitempty"`
+	Value int64 `protobuf:"varint,3,opt,name=value" json:"value,omitempty"`
 	// / The date of this payment
-	CreationDate int64 `protobuf:"varint,3,opt,name=creation_date" json:"creation_date,omitempty"`
+	CreationDate int64 `protobuf:"varint,4,opt,name=creation_date" json:"creation_date,omitempty"`
 	// / The path this payment took
-	Path []string `protobuf:"bytes,4,rep,name=path" json:"path,omitempty"`
+	Path []string `protobuf:"bytes,5,rep,name=path" json:"path,omitempty"`
 	// / The fee paid for this payment in satoshis
-	Fee int64 `protobuf:"varint,5,opt,name=fee" json:"fee,omitempty"`
+	Fee int64 `protobuf:"varint,6,opt,name=fee" json:"fee,omitempty"`
 }
 
 func (m *Payment) Reset()                    { *m = Payment{} }
 func (m *Payment) String() string            { return proto.CompactTextString(m) }
 func (*Payment) ProtoMessage()               {}
 func (*Payment) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{78} }
+
+func (m *Payment) GetPaymentPreimage() string {
+	if m != nil {
+		return m.PaymentPreimage
+	}
+	return ""
+}
 
 func (m *Payment) GetPaymentHash() string {
 	if m != nil {

@@ -2,7 +2,6 @@ package channeldb
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"fmt"
 	"math/rand"
 	"reflect"
@@ -31,13 +30,14 @@ func makeFakePayment() *OutgoingPayment {
 		copy(fakePath[i][:], bytes.Repeat([]byte{byte(i)}, 33))
 	}
 
-	return &OutgoingPayment{
+	fakePayment := &OutgoingPayment{
 		Invoice:        *fakeInvoice,
 		Fee:            101,
 		Path:           fakePath,
 		TimeLockLength: 1000,
-		PaymentHash:    sha256.Sum256(rev[:]),
 	}
+	copy(fakePayment.PaymentPreimage[:], rev[:])
+	return fakePayment
 }
 
 // randomBytes creates random []byte with length in range [minLen, maxLen)
@@ -90,14 +90,13 @@ func makeRandomFakePayment() (*OutgoingPayment, error) {
 		copy(fakePath[i][:], b)
 	}
 
-	rHash := sha256.Sum256(fakeInvoice.Terms.PaymentPreimage[:])
 	fakePayment := &OutgoingPayment{
 		Invoice:        *fakeInvoice,
 		Fee:            lnwire.MilliSatoshi(rand.Intn(1001)),
 		Path:           fakePath,
 		TimeLockLength: uint32(rand.Intn(10000)),
-		PaymentHash:    rHash,
 	}
+	copy(fakePayment.PaymentPreimage[:], fakeInvoice.Terms.PaymentPreimage[:])
 
 	return fakePayment, nil
 }

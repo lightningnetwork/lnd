@@ -547,7 +547,12 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 			}
 		}
 
-		if transaction != nil {
+		// We'll only request a rescan if the transaction has actually
+		// been included within a block. Otherwise, we'll encounter an
+		// error when scanning for blocks. This can happens in the case
+		// of a race condition, wherein the output itself is unspent,
+		// and only arrives in the mempool after the getxout call.
+		if transaction != nil && transaction.BlockHash != "" {
 			blockhash, err := chainhash.NewHashFromStr(transaction.BlockHash)
 			if err != nil {
 				return nil, err

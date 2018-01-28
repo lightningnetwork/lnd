@@ -356,6 +356,9 @@ generate identical compiled protos and related files:
    * grpc-ecosystem/grpc-gateway: `f2862b476edcef83412c7af8687c9cd8e4097c0f`
    * golang/protobuf: `ab9f9a6dab164b7d1246e0e688b0ab7b94d8553e`
 
+For detailed instructions on how to compile modifications to `lnd`'s `protobuf`
+definitions, check out the [lnrpc README](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/README.md).
+
 Additionally, in order to maintain a uniform display of the RPC responses
 rendered by `lncli`, all added or modified `protof` definitions, _must_ attach
 the proper `json_name` option for all fields. An example of such an option can

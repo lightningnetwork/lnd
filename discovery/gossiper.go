@@ -833,7 +833,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 	// We'll use this validation to ensure that we process jobs in their
 	// dependency order during parallel validation.
 	validationBarrier := routing.NewValidationBarrier(
-		runtime.NumCPU()*10, d.quit,
+		runtime.NumCPU()*4, d.quit,
 	)
 
 	for {

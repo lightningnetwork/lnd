@@ -1148,7 +1148,7 @@ func (p *peer) queueMsg(msg lnwire.Message, errChan chan error) {
 	select {
 	case p.outgoingQueue <- outgoinMsg{msg, errChan}:
 	case <-p.quit:
-		peerLog.Debugf("Peer shutting down, could not enqueue msg.")
+		peerLog.Tracef("Peer shutting down, could not enqueue msg.")
 		if errChan != nil {
 			errChan <- fmt.Errorf("peer shutting down")
 		}

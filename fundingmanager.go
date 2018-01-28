@@ -1347,7 +1347,7 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	// watch for any on-chin actions before the channel has fully
 	// confirmed.
 	if err := f.cfg.WatchNewChannel(completeChan); err != nil {
-		fndgLog.Error("Unable to send new ChannelPoint(%v) for "+
+		fndgLog.Errorf("Unable to send new ChannelPoint(%v) for "+
 			"arbitration", fundingPoint)
 	}
 

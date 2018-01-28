@@ -3284,16 +3284,18 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 	var bobChan *lnrpc.ActiveChannel
 	var predErr error
 	err = lntest.WaitPredicate(func() bool {
-		bobChan, err = getBobChanInfo()
+		bChan, err := getBobChanInfo()
 		if err != nil {
 			t.Fatalf("unable to get bob's channel info: %v", err)
 		}
-		if bobChan.LocalBalance != 30000 {
+		if bChan.LocalBalance != 30000 {
 			predErr = fmt.Errorf("bob's balance is incorrect, "+
-				"got %v, expected %v", bobChan.LocalBalance,
+				"got %v, expected %v", bChan.LocalBalance,
 				30000)
 			return false
 		}
+
+		bobChan = bChan
 		return true
 	}, time.Second*15)
 	if err != nil {

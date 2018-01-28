@@ -39,6 +39,18 @@
     We recommend placing the above in your .bashrc or in a setup script so that
     you can avoid typing this every time you open a new terminal window.
 
+    ```bash
+    echo -e 'export GOPATH=~/gocode' >> ~/.bashrc
+    echo -e 'export PATH=$PATH:$GOPATH/bin' >> ~/.bashrc
+    ```
+
+    On Linux you may want to add the Go binaries to your path and .bashrc as well.
+
+    ```bash
+    export PATH=$PATH:/usr/lib/go-1.8/bin
+    echo -e 'export PATH=$PATH:/usr/lib/go-1.8/bin' >> ~/.bashrc
+    ```
+
   * **Glide:** This project uses `Glide` to manage dependencies as well 
     as to provide *reproducible builds*. To install `Glide`, execute the
     following command (assumes you already have Go properly installed):

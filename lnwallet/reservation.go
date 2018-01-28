@@ -184,11 +184,11 @@ func NewChannelReservation(capacity, fundingAmt, commitFeePerKw btcutil.Amount,
 	}
 
 	// If we're the initiator and our starting balance within the channel
-	// after we take account of fees is below dust, then we'll reject this
-	// channel creation request.
+	// after we take account of fees is below 2x the dust limit, then we'll
+	// reject this channel creation request.
 	//
 	// TODO(roasbeef): reject if 30% goes to fees? dust channel
-	if initiator && ourBalance.ToSatoshis() <= DefaultDustLimit() {
+	if initiator && ourBalance.ToSatoshis() <= 2*DefaultDustLimit() {
 		return nil, fmt.Errorf("unable to init reservation, with "+
 			"fee=%v sat/kw, local output is too small: %v sat",
 			int64(commitFee), int64(ourBalance.ToSatoshis()))

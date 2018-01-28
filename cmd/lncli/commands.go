@@ -1014,6 +1014,7 @@ func sendPayment(ctx *cli.Context) error {
 	if ctx.IsSet("pay_req") {
 		req = &lnrpc.SendRequest{
 			PaymentRequest: ctx.String("pay_req"),
+			Amt:            ctx.Int64("amt"),
 		}
 	} else {
 		args := ctx.Args()
@@ -1138,6 +1139,11 @@ var payInvoiceCommand = cli.Command{
 			Name:  "pay_req",
 			Usage: "a zpay32 encoded payment request to fulfill",
 		},
+		cli.Int64Flag{
+			Name: "amt",
+			Usage: "(optional) number of satoshis to fulfill the " +
+				"invoice",
+		},
 	},
 	Action: actionDecorator(payInvoice),
 }
@@ -1158,6 +1164,7 @@ func payInvoice(ctx *cli.Context) error {
 
 	req := &lnrpc.SendRequest{
 		PaymentRequest: payReq,
+		Amt:            ctx.Int64("amt"),
 	}
 
 	return sendPaymentRequest(ctx, req)
@@ -1168,9 +1175,10 @@ var addInvoiceCommand = cli.Command{
 	Usage: "add a new invoice.",
 	Description: `
 	Add a new invoice, expressing intent for a future payment.
-	
-	The number of satoshis in this invoice is necessary for the creation, 
-	the remaining parameters are optional.`,
+
+	Invoices without an amount can be created by not supplying any
+	parameters or providing an amount of 0. These invoices allow the payee
+	to specify the amount of satoshis they wish to send.`,
 	ArgsUsage: "value preimage",
 	Flags: []cli.Flag{
 		cli.StringFlag{
@@ -1239,8 +1247,6 @@ func addInvoice(ctx *cli.Context) error {
 		if err != nil {
 			return fmt.Errorf("unable to decode amt argument: %v", err)
 		}
-	default:
-		return fmt.Errorf("amt argument missing")
 	}
 
 	switch {

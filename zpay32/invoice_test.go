@@ -234,6 +234,26 @@ func TestDecodeEncode(t *testing.T) {
 			skipEncoding: true, // Skip encoding since we don't have the unknown fields to encode.
 		},
 		{
+			// Invoice with no amount.
+			encodedInvoice: "lnbc1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdq5xysxxatsyp3k7enxv4jshwlglv23cytkzvq8ld39drs8sq656yh2zn0aevrwu6uqctaklelhtpjnmgjdzmvwsh0kuxuwqf69fjeap9m5mev2qzpp27xfswhs5vgqmn9xzq",
+			valid:          true,
+			decodedInvoice: func() *Invoice {
+				return &Invoice{
+					Net:         &chaincfg.MainNetParams,
+					Timestamp:   time.Unix(1496314658, 0),
+					PaymentHash: &testPaymentHash,
+					Description: &testCupOfCoffee,
+					Destination: testPubKey,
+				}
+			},
+			beforeEncoding: func(i *Invoice) {
+				// Since this destination pubkey was recovered
+				// from the signature, we must set it nil before
+				// encoding to get back the same invoice string.
+				i.Destination = nil
+			},
+		},
+		{
 			// Please make a donation of any amount using rhash 0001020304050607080900010203040506070809000102030405060708090102 to me @03e7156ae33b0a208d0744199163177e909e80176e55d97a2f221ede0f934dd9ad
 			encodedInvoice: "lnbc1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdpl2pkx2ctnv5sxxmmwwd5kgetjypeh2ursdae8g6twvus8g6rfwvs8qun0dfjkxaq8rkx3yf5tcsyz3d73gafnh3cax9rn449d9p5uxz9ezhhypd0elx87sjle52x86fux2ypatgddc6k63n7erqz25le42c4u4ecky03ylcqca784w",
 			valid:          true,
@@ -530,6 +550,19 @@ func TestNewInvoice(t *testing.T) {
 					Description(testPleaseConsider))
 			},
 			valid: false, // Both Description and DescriptionHash set.
+		},
+		{
+			// Invoice with no amount.
+			newInvoice: func() (*Invoice, error) {
+				return NewInvoice(
+					&chaincfg.MainNetParams,
+					testPaymentHash,
+					time.Unix(1496314658, 0),
+					Description(testCupOfCoffee),
+				)
+			},
+			valid:          true,
+			encodedInvoice: "lnbc1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdq5xysxxatsyp3k7enxv4jshwlglv23cytkzvq8ld39drs8sq656yh2zn0aevrwu6uqctaklelhtpjnmgjdzmvwsh0kuxuwqf69fjeap9m5mev2qzpp27xfswhs5vgqmn9xzq",
 		},
 		{
 			// 'n' field set.

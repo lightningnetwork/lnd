@@ -1375,31 +1375,31 @@ func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (*ChannelE
 		policy2  *ChannelEdgePolicy
 	)
 
-	err := c.db.Update(func(tx *bolt.Tx) error {
+	err := c.db.View(func(tx *bolt.Tx) error {
 		// First, grab the node bucket. This will be used to populate
 		// the Node pointers in each edge read from disk.
-		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
-		if err != nil {
-			return err
+		nodes := tx.Bucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNotFound
 		}
 
 		// Next, grab the edge bucket which stores the edges, and also
 		// the index itself so we can group the directed edges together
 		// logically.
-		edges, err := tx.CreateBucketIfNotExists(edgeBucket)
-		if err != nil {
-			return err
+		edges := tx.Bucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNoEdgesFound
 		}
-		edgeIndex, err := edges.CreateBucketIfNotExists(edgeIndexBucket)
-		if err != nil {
-			return err
+		edgeIndex := edges.Bucket(edgeIndexBucket)
+		if edgeIndex == nil {
+			return ErrGraphNoEdgesFound
 		}
 
 		// If the channel's outpoint doesn't exist within the outpoint
 		// index, then the edge does not exist.
-		chanIndex, err := edges.CreateBucketIfNotExists(channelPointBucket)
-		if err != nil {
-			return err
+		chanIndex := edges.Bucket(channelPointBucket)
+		if chanIndex == nil {
+			return ErrGraphNoEdgesFound
 		}
 		var b bytes.Buffer
 		if err := writeOutpoint(&b, op); err != nil {

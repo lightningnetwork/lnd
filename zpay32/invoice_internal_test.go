@@ -56,6 +56,10 @@ func TestDecodeAmount(t *testing.T) {
 			valid:  false,   // not divisible by 10
 		},
 		{
+			amount: "-10p", // pBTC
+			valid:  false,  // negative amount
+		},
+		{
 			amount: "10p", // pBTC
 			valid:  true,
 			result: 1, // mSat
@@ -145,6 +149,10 @@ func TestEncodeAmount(t *testing.T) {
 		valid  bool
 		result string
 	}{
+		{
+			msat:  -10,   // mSat
+			valid: false, // negative amount
+		},
 		{
 			msat:   1, // mSat
 			valid:  true,

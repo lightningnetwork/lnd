@@ -929,8 +929,8 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			// Next we check if we have any premature announcements
 			// for this height, if so, then we process them once
 			// more as normal announcements.
+			d.pAnnMtx.Lock()
 			numPremature := len(d.prematureAnnouncements[uint32(newBlock.Height)])
-			d.pAnnMtx.Unlock()
 			if numPremature != 0 {
 				log.Infof("Re-processing %v premature "+
 					"announcements for height %v",

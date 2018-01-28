@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/multimutex"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -186,6 +187,12 @@ type AuthenticatedGossiper struct {
 	// selfKey is the identity public key of the backing Lighting node.
 	selfKey *btcec.PublicKey
 
+	// channelMtx is used to restrict the database access to one
+	// goroutine per channel ID. This is done to ensure that when
+	// the gossiper is handling an announcement, the db state stays
+	// consistent between when the DB is first read to it's written.
+	channelMtx *multimutex.Mutex
+
 	sync.Mutex
 }
 
@@ -206,6 +213,7 @@ func New(cfg Config, selfKey *btcec.PublicKey) (*AuthenticatedGossiper, error) {
 		prematureAnnouncements:  make(map[uint32][]*networkMsg),
 		prematureChannelUpdates: make(map[uint64][]*networkMsg),
 		waitingProofs:           storage,
+		channelMtx:              multimutex.NewMutex(),
 	}, nil
 }
 
@@ -972,11 +980,6 @@ func (d *AuthenticatedGossiper) networkHandler() {
 				}
 			}
 
-			// If we're able to broadcast the current batch
-			// successfully, then we reset the batch for a new
-			// round of announcements.
-			announcements.Reset()
-
 		// The retransmission timer has ticked which indicates that we
 		// should check if we need to prune or re-broadcast any of our
 		// personal channels. This addresses the case of "zombie" channels and
@@ -1376,6 +1379,14 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		// present in this channel are not present in the database, a
 		// partial node will be added to represent each node while we
 		// wait for a node announcement.
+		//
+		// Before we add the edge to the database, we obtain
+		// the mutex for this channel ID. We do this to ensure
+		// no other goroutine has read the database and is now
+		// making decisions based on this DB state, before it
+		// writes to the DB.
+		d.channelMtx.Lock(msg.ShortChannelID.ToUint64())
+		defer d.channelMtx.Unlock(msg.ShortChannelID.ToUint64())
 		if err := d.cfg.Router.AddEdge(edge); err != nil {
 			// If the edge was rejected due to already being known,
 			// then it may be that case that this new message has a
@@ -1516,6 +1527,13 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		// Get the node pub key as far as we don't have it in channel
 		// update announcement message. We'll need this to properly
 		// verify message signature.
+		//
+		// We make sure to obtain the mutex for this channel ID
+		// before we acces the database. This ensures the state
+		// we read from the database has not changed between this
+		// point and when we call UpdateEdge() later.
+		d.channelMtx.Lock(msg.ShortChannelID.ToUint64())
+		defer d.channelMtx.Unlock(msg.ShortChannelID.ToUint64())
 		chanInfo, _, _, err := d.cfg.Router.GetChannelByID(msg.ShortChannelID)
 		if err != nil {
 			switch err {
@@ -1679,6 +1697,12 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 
 		// Ensure that we know of a channel with the target channel ID
 		// before proceeding further.
+		//
+		// We must acquire the mutex for this channel ID before getting
+		// the channel from the database, to ensure what we read does
+		// not change before we call AddProof() later.
+		d.channelMtx.Lock(msg.ShortChannelID.ToUint64())
+		defer d.channelMtx.Unlock(msg.ShortChannelID.ToUint64())
 		chanInfo, e1, e2, err := d.cfg.Router.GetChannelByID(
 			msg.ShortChannelID)
 		if err != nil {

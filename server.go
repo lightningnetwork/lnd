@@ -178,11 +178,13 @@ func configureNatPmp() (string, error) {
 		return "", err
 	}
 
-	srvrLog.Infof("NAT-PMP: External IP address: %v", externalIP)
-
 	ipAddress := net.IPv4(externalIP[0], externalIP[1], externalIP[2], externalIP[3])
 
-	return ipAddress.String(), nil
+	ipAddressStringFmt := ipAddress.String()
+
+	srvrLog.Infof("NAT-PMP: External IP address: %v", ipAddressStringFmt)
+
+	return ipAddressStringFmt, nil
 
 }
 

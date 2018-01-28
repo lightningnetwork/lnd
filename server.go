@@ -729,13 +729,13 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 			// With the number of peers we need calculated, we'll
 			// query the network bootstrappers to sample a set of
 			// random addrs for us.
-			s.mu.Lock()
+			s.mu.RLock()
 			ignoreList := make(map[autopilot.NodeID]struct{})
 			for _, peer := range s.peersByPub {
 				nID := autopilot.NewNodeID(peer.addr.IdentityKey)
 				ignoreList[nID] = struct{}{}
 			}
-			s.mu.Unlock()
+			s.mu.RUnlock()
 
 			peerAddrs, err := discovery.MultiSourceBootstrap(
 				ignoreList, numNeeded*2, bootStrappers...,

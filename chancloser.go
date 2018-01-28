@@ -552,7 +552,7 @@ func (c *channelCloser) proposeCloseSigned(fee btcutil.Amount) (*lnwire.ClosingS
 // consider their fee acceptable if it's within 30% of our fee.
 func feeInAcceptableRange(localFee, remoteFee btcutil.Amount) bool {
 	// If our offer is lower than theirs, then we'll accept their
-	// offer it it's no more than 30% *greater* than our current
+	// offer if it's no more than 30% *greater* than our current
 	// offer.
 	if localFee < remoteFee {
 		acceptableRange := localFee + ((localFee * 3) / 10)

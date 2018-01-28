@@ -615,7 +615,7 @@ func (u *utxoNursery) reloadPreschool() error {
 	}
 
 	// For each of the preschool outputs stored in the nursery store, load
-	// it's close summary from disk so that we can get an accurate height
+	// its close summary from disk so that we can get an accurate height
 	// hint from which to start our range for spend notifications.
 	for i := range psclOutputs {
 		kid := &psclOutputs[i]
@@ -1443,8 +1443,8 @@ type htlcMaturityReport struct {
 
 	// stage indicates whether the htlc is in the CLTV-timeout stage (1) or
 	// the CSV-delay stage (2). A stage 1 htlc's maturity height will be set
-	// to it's expiry height, while a stage 2 htlc's maturity height will be
-	// set to it's confirmation height plus the maturity requirement.
+	// to its expiry height, while a stage 2 htlc's maturity height will be
+	// set to its confirmation height plus the maturity requirement.
 	stage uint32
 }
 

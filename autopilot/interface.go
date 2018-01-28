@@ -86,7 +86,7 @@ type ChannelGraph interface {
 // to, and also the parameters which should be used in the channel creation.
 type AttachmentDirective struct {
 	// PeerKey is the target node for this attachment directive. It can be
-	// identified by it's public key, and therefore can be used along with
+	// identified by its public key, and therefore can be used along with
 	// a ChannelOpener implementation to execute the directive.
 	PeerKey *btcec.PublicKey
 

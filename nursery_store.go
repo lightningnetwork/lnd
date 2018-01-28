@@ -479,7 +479,7 @@ func (ns *nurseryStore) PreschoolToKinder(kid *kidOutput) error {
 		}
 
 		// In the case of a Late Registration, we've already graduated
-		// the class that this kid is destined for. So we'll bump it's
+		// the class that this kid is destined for. So we'll bump its
 		// height by one to ensure we don't forget to graduate it.
 		lastGradHeight, err := ns.getLastGraduatedHeight(tx)
 		if err != nil {

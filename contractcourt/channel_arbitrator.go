@@ -482,7 +482,7 @@ func (c *ChannelArbitrator) stateStep(bestHeight uint32, bestHash *chainhash.Has
 		}
 
 		// Now that the transaction has been broadcast, we can mark
-		// that it's has been closed to outside sub-systems.
+		// that it has been closed to outside sub-systems.
 		err = c.markContractClosed(
 			closeTx, closeSummary.ChanSnapshot, &contractRes,
 			bestHeight,

@@ -33,7 +33,7 @@ var (
 	openChannelBucket = []byte("open-chan-bucket")
 
 	// chanInfoKey can be accessed within the bucket for a channel
-	// (identified by it's chanPoint). This key stores all the static
+	// (identified by its chanPoint). This key stores all the static
 	// information for a channel which is decided at the end of  the
 	// funding flow.
 	chanInfoKey = []byte("chan-info-key")

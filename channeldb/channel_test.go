@@ -496,7 +496,7 @@ func TestChannelStateTransition(t *testing.T) {
 		t.Fatalf("expected ErrNoPendingCommit, instead got %v", err)
 	}
 
-	// We should be able to fetch the channel delta created above by it's
+	// We should be able to fetch the channel delta created above by its
 	// update number with all the state properly reconstructed.
 	diskPrevCommit, err := channel.FindPreviousState(
 		oldRemoteCommit.CommitHeight,

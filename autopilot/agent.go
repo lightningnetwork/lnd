@@ -269,7 +269,7 @@ func mergeChanState(pendingChans map[NodeID]Channel,
 
 // controller implements the closed-loop control system of the Agent. The
 // controller will make a decision w.r.t channel placement within the graph
-// based on: it's current internal state of the set of active channels open,
+// based on: its current internal state of the set of active channels open,
 // and external state changes as a result of decisions it  makes w.r.t channel
 // allocation, or attributes affecting its control loop being updated by the
 // backing Lightning Node.

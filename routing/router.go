@@ -1318,7 +1318,7 @@ func generateSphinxPacket(route *Route, paymentHash []byte) ([]byte,
 		return nil, nil, err
 	}
 
-	// Finally, encode Sphinx packet using it's wire representation to be
+	// Finally, encode Sphinx packet using its wire representation to be
 	// included within the HTLC add packet.
 	var onionBlob bytes.Buffer
 	if err := sphinxPacket.Encode(&onionBlob); err != nil {

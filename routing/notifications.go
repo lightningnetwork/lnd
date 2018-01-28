@@ -219,7 +219,7 @@ func createCloseSummaries(blockHeight uint32,
 
 // NetworkNodeUpdate is an update for a  node within the Lightning Network. A
 // NetworkNodeUpdate is sent out either when a new node joins the network, or a
-// node broadcasts a new update with a newer time stamp that supersedes it's
+// node broadcasts a new update with a newer time stamp that supersedes its
 // old update. All updates are properly authenticated.
 type NetworkNodeUpdate struct {
 	// Addresses is a slice of all the node's known addresses.

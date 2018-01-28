@@ -373,7 +373,7 @@ func senderHtlcSpendTimeout(receiverSig []byte, signer Signer,
 // receiverHTLCScript constructs the public key script for an incoming HTLC
 // output payment for the receiver's version of the commitment transaction. The
 // possible execution paths from this script include:
-//   * The receiver of the HTLC uses it's second level HTLC transaction to
+//   * The receiver of the HTLC uses its second level HTLC transaction to
 //     advance the state of the HTLC into the delay+claim state.
 //   * The sender of the HTLC sweeps all the funds of the HTLC as a breached
 //     commitment was broadcast.

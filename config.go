@@ -158,7 +158,7 @@ type config struct {
 	RESTListeners []string `long:"restlisten" description:"Add an interface/port to listen for REST connections"`
 	Listeners     []string `long:"listen" description:"Add an interface/port to listen for peer connections"`
 	DisableListen bool     `long:"nolisten" description:"Disable listening for incoming peer connections"`
-	ExternalIPs   []string `long:"externalip" description:"Add an ip to the list of local addresses we claim to listen on to peers"`
+	ExternalIPs   []string `long:"externalip" description:"Add an ip:port to the list of local addresses we claim to listen on to peers. If a port is not specified, the default (9735) will be used regardless of other parameters"`
 
 	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
 

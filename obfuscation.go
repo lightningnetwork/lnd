@@ -69,6 +69,18 @@ func (o *OnionErrorEncrypter) EncryptError(initial bool, data []byte) []byte {
 	return onionEncrypt(o.sharedSecret, data)
 }
 
+// Encode writes the encrypter's shared secret to the provided io.Writer.
+func (o *OnionErrorEncrypter) Encode(w io.Writer) error {
+	_, err := w.Write(o.sharedSecret[:])
+	return err
+}
+
+// Decode restores the encrypter's share secret from the provided io.Reader.
+func (o *OnionErrorEncrypter) Decode(r io.Reader) error {
+	_, err := io.ReadFull(r, o.sharedSecret[:])
+	return err
+}
+
 // Circuit is used encapsulate the data which is needed for data deobfuscation.
 type Circuit struct {
 	// SessionKey is the key which have been used during generation of the

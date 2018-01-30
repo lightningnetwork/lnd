@@ -127,16 +127,6 @@ func (c *ChannelGraph) Database() *DB {
 	return c.db
 }
 
-// addressType specifies the network protocol and version that should be used
-// when connecting to a node at a particular address.
-type addressType uint8
-
-const (
-	tcp4Addr  addressType = 0
-	tcp6Addr  addressType = 1
-	onionAddr addressType = 2
-)
-
 // ForEachChannel iterates through all the channel edges stored within the
 // graph and invokes the passed callback for each edge. The callback takes two
 // edges as since this is a directed graph, both the in/out edges are visited.
@@ -1609,31 +1599,8 @@ func putLightningNode(nodeBucket *bolt.Bucket, aliasBucket *bolt.Bucket, node *L
 	}
 
 	for _, address := range node.Addresses {
-		if address.Network() == "tcp" {
-			if address.(*net.TCPAddr).IP.To4() != nil {
-				scratch[0] = uint8(tcp4Addr)
-				if _, err := b.Write(scratch[:1]); err != nil {
-					return err
-				}
-				copy(scratch[:4], address.(*net.TCPAddr).IP.To4())
-				if _, err := b.Write(scratch[:4]); err != nil {
-					return err
-				}
-			} else {
-				scratch[0] = uint8(tcp6Addr)
-				if _, err := b.Write(scratch[:1]); err != nil {
-					return err
-				}
-				copy(scratch[:], address.(*net.TCPAddr).IP.To16())
-				if _, err := b.Write(scratch[:]); err != nil {
-					return err
-				}
-			}
-			byteOrder.PutUint16(scratch[:2],
-				uint16(address.(*net.TCPAddr).Port))
-			if _, err := b.Write(scratch[:2]); err != nil {
-				return err
-			}
+		if err := serializeAddr(&b, address); err != nil {
+			return err
 		}
 	}
 
@@ -1731,41 +1698,10 @@ func deserializeLightningNode(r io.Reader) (*LightningNode, error) {
 
 	var addresses []net.Addr
 	for i := 0; i < numAddresses; i++ {
-		var address net.Addr
-		if _, err := r.Read(scratch[:1]); err != nil {
+		address, err := deserializeAddr(r)
+		if err != nil {
 			return nil, err
 		}
-
-		// TODO(roasbeef): also add onion addrs
-		switch addressType(scratch[0]) {
-		case tcp4Addr:
-			addr := &net.TCPAddr{}
-			var ip [4]byte
-			if _, err := r.Read(ip[:]); err != nil {
-				return nil, err
-			}
-			addr.IP = (net.IP)(ip[:])
-			if _, err := r.Read(scratch[:2]); err != nil {
-				return nil, err
-			}
-			addr.Port = int(byteOrder.Uint16(scratch[:2]))
-			address = addr
-		case tcp6Addr:
-			addr := &net.TCPAddr{}
-			var ip [16]byte
-			if _, err := r.Read(ip[:]); err != nil {
-				return nil, err
-			}
-			addr.IP = (net.IP)(ip[:])
-			if _, err := r.Read(scratch[:2]); err != nil {
-				return nil, err
-			}
-			addr.Port = int(byteOrder.Uint16(scratch[:2]))
-			address = addr
-		default:
-			return nil, ErrUnknownAddressType
-		}
-
 		addresses = append(addresses, address)
 	}
 	node.Addresses = addresses

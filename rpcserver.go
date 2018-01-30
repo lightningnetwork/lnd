@@ -1412,6 +1412,11 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 			linkActive = link.EligibleToForward()
 		}
 
+		// Do not return non active channels when active_only flag is on
+		if in.ActiveOnly && !linkActive {
+			continue
+		}
+
 		// As this is required for display purposes, we'll calculate
 		// the weight of the commitment transaction. We also add on the
 		// estimated weight of the witness to calculate the weight of

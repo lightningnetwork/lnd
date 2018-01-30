@@ -999,12 +999,21 @@ func (m *ActiveChannel) GetCsvDelay() uint32 {
 }
 
 type ListChannelsRequest struct {
+	// / Whether all channels should be listed or just active channels.
+	ActiveOnly bool `protobuf:"varint,1,opt,name=active_only" json:"active_only,omitempty"`
 }
 
 func (m *ListChannelsRequest) Reset()                    { *m = ListChannelsRequest{} }
 func (m *ListChannelsRequest) String() string            { return proto.CompactTextString(m) }
 func (*ListChannelsRequest) ProtoMessage()               {}
 func (*ListChannelsRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{28} }
+
+func (m *ListChannelsRequest) GetActiveOnly() bool {
+	if m != nil {
+		return m.ActiveOnly
+	}
+	return false
+}
 
 type ListChannelsResponse struct {
 	// / The list of active channels

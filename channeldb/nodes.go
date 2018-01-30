@@ -227,8 +227,7 @@ func serializeLinkNode(w io.Writer, l *LinkNode) error {
 	}
 
 	for _, addr := range l.Addresses {
-		addrString := addr.String()
-		if err := wire.WriteVarString(w, 0, addrString); err != nil {
+		if err := serializeAddr(w, addr); err != nil {
 			return err
 		}
 	}
@@ -270,19 +269,11 @@ func deserializeLinkNode(r io.Reader) (*LinkNode, error) {
 
 	node.Addresses = make([]*net.TCPAddr, numAddrs)
 	for i := uint32(0); i < numAddrs; i++ {
-		addrString, err := wire.ReadVarString(r, 0)
+		addr, err := deserializeAddr(r)
 		if err != nil {
 			return nil, err
 		}
-
-		// We use the general resolveTCP function in case a separate
-		// resolver was specified in the SetResolver function. By
-		// default resolveTCP = net.ResolveTCPAddr.
-		addr, err := resolveTCP("tcp", addrString)
-		if err != nil {
-			return nil, err
-		}
-		node.Addresses[i] = addr
+		node.Addresses[i] = addr.(*net.TCPAddr)
 	}
 
 	return node, nil

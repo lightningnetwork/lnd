@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"io"
 	"sync/atomic"
@@ -616,4 +617,15 @@ func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint) (*chainntnfs.S
 	return &chainntnfs.SpendEvent{
 		Spend: make(chan *chainntnfs.SpendDetail),
 	}, nil
+}
+
+type mockTicker struct {
+	ticker <-chan time.Time
+}
+
+func (m *mockTicker) Start() <-chan time.Time {
+	return m.ticker
+}
+
+func (m *mockTicker) Stop() {
 }

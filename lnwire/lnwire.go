@@ -37,7 +37,7 @@ const (
 	// tcp4Addr denotes an IPv4 TCP address.
 	tcp4Addr addressType = 1
 
-	// tcp4Addr denotes an IPv6 TCP address.
+	// tcp6Addr denotes an IPv6 TCP address.
 	tcp6Addr addressType = 2
 
 	// v2OnionAddr denotes a version 2 Tor onion service address.

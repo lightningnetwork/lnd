@@ -31,7 +31,7 @@ type addressType uint8
 
 const (
 	// noAddr denotes a blank address. An address of this type indicates
-	// that a node doesn't have any advertise d addresses.
+	// that a node doesn't have any advertised addresses.
 	noAddr addressType = 0
 
 	// tcp4Addr denotes an IPv4 TCP address.

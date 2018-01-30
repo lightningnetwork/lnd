@@ -10,7 +10,7 @@ import (
 	"github.com/roasbeef/btcutil"
 )
 
-// Config couples all the items that that an autopilot agent needs to function.
+// Config couples all the items that an autopilot agent needs to function.
 // All items within the struct MUST be populated for the Agent to be able to
 // carry out its duties.
 type Config struct {

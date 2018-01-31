@@ -10,7 +10,6 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -410,12 +409,12 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 		// transaction!  We'll craft the final closing transaction so
 		// we can broadcast it to the network.
 		matchingSig := c.priorFeeOffers[remoteProposedFee].Signature
-		localSig := append(
-			matchingSig.Serialize(), byte(txscript.SigHashAll),
-		)
-		remoteSig := append(
-			closeSignedMsg.Signature.Serialize(), byte(txscript.SigHashAll),
-		)
+		localSigBytes := matchingSig.ToSignatureBytes()
+		localSig := append(localSigBytes, byte(txscript.SigHashAll))
+
+		remoteSigBytes := closeSignedMsg.Signature.ToSignatureBytes()
+		remoteSig := append(remoteSigBytes, byte(txscript.SigHashAll))
+
 		closeTx, finalLocalBalance, err := c.cfg.channel.CompleteCooperativeClose(
 			localSig, remoteSig, c.localDeliveryScript,
 			c.remoteDeliveryScript, remoteProposedFee,
@@ -512,7 +511,7 @@ func (c *channelCloser) proposeCloseSigned(fee btcutil.Amount) (*lnwire.ClosingS
 	// party responds we'll be able to decide if we've agreed on fees or
 	// not.
 	c.lastFeeProposal = fee
-	parsedSig, err := btcec.ParseSignature(rawSig, btcec.S256())
+	parsedSig, err := lnwire.NewSigFromRawSignature(rawSig)
 	if err != nil {
 		return nil, err
 	}

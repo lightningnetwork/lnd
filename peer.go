@@ -344,7 +344,9 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		// TODO(roasbeef): can add helper method to get policy for
 		// particular channel.
 		var selfPolicy *channeldb.ChannelEdgePolicy
-		if info != nil && info.NodeKey1.IsEqual(p.server.identityPriv.PubKey()) {
+		if info != nil && bytes.Equal(info.NodeKey1Bytes[:],
+			p.server.identityPriv.PubKey().SerializeCompressed()) {
+
 			selfPolicy = p1
 		} else {
 			selfPolicy = p2
@@ -900,8 +902,7 @@ func messageSummary(msg lnwire.Message) string {
 
 	case *lnwire.NodeAnnouncement:
 		return fmt.Sprintf("node=%x, update_time=%v",
-			msg.NodeID.SerializeCompressed(),
-			time.Unix(int64(msg.Timestamp), 0))
+			msg.NodeID, time.Unix(int64(msg.Timestamp), 0))
 
 	case *lnwire.Ping:
 		// No summary.
@@ -957,13 +958,6 @@ func (p *peer) logWireMessage(msg lnwire.Message, read bool) {
 		}
 	case *lnwire.RevokeAndAck:
 		m.NextRevocationKey.Curve = nil
-	case *lnwire.NodeAnnouncement:
-		m.NodeID.Curve = nil
-	case *lnwire.ChannelAnnouncement:
-		m.NodeID1.Curve = nil
-		m.NodeID2.Curve = nil
-		m.BitcoinKey1.Curve = nil
-		m.BitcoinKey2.Curve = nil
 	case *lnwire.AcceptChannel:
 		m.FundingKey.Curve = nil
 		m.RevocationPoint.Curve = nil
@@ -1774,16 +1768,17 @@ func createGetLastUpdate(router *routing.ChannelRouter,
 				"channel by ShortChannelID(%v)", chanID)
 		}
 
+		// If we're the outgoing node on the first edge, then that
+		// means the second edge is our policy. Otherwise, the first
+		// edge is our policy.
 		var local *channeldb.ChannelEdgePolicy
-		if bytes.Compare(edge1.Node.PubKey.SerializeCompressed(),
-			pubKey[:]) == 0 {
+		if bytes.Equal(edge1.Node.PubKeyBytes[:], pubKey[:]) {
 			local = edge2
 		} else {
 			local = edge1
 		}
 
 		update := &lnwire.ChannelUpdate{
-			Signature:       local.Signature,
 			ChainHash:       info.ChainHash,
 			ShortChannelID:  lnwire.NewShortChanIDFromInt(local.ChannelID),
 			Timestamp:       uint32(local.LastUpdate.Unix()),
@@ -1792,6 +1787,10 @@ func createGetLastUpdate(router *routing.ChannelRouter,
 			HtlcMinimumMsat: local.MinHTLC,
 			BaseFee:         uint32(local.FeeBaseMSat),
 			FeeRate:         uint32(local.FeeProportionalMillionths),
+		}
+		update.Signature, err = lnwire.NewSigFromRawSignature(local.SigBytes)
+		if err != nil {
+			return nil, err
 		}
 
 		hswcLog.Debugf("Sending latest channel_update: %v",

@@ -416,15 +416,15 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 	// The commitmentPoint is technically hidden in the spec, but we need it to
 	// generate the correct tweak.
 	tweak := SingleTweakBytes(tc.commitmentPoint, tc.localPaymentBasePoint)
-	keys := &commitmentKeyRing{
-		commitPoint:         tc.commitmentPoint,
-		localCommitKeyTweak: tweak,
-		localHtlcKeyTweak:   tweak,
-		localHtlcKey:        tc.localPaymentPubKey,
-		remoteHtlcKey:       tc.remotePaymentPubKey,
-		delayKey:            tc.localDelayPubKey,
-		noDelayKey:          tc.remotePaymentPubKey,
-		revocationKey:       tc.localRevocationPubKey,
+	keys := &CommitmentKeyRing{
+		CommitPoint:         tc.commitmentPoint,
+		LocalCommitKeyTweak: tweak,
+		LocalHtlcKeyTweak:   tweak,
+		LocalHtlcKey:        tc.localPaymentPubKey,
+		RemoteHtlcKey:       tc.remotePaymentPubKey,
+		DelayKey:            tc.localDelayPubKey,
+		NoDelayKey:          tc.remotePaymentPubKey,
+		RevocationKey:       tc.localRevocationPubKey,
 	}
 
 	// testCases encode the raw test vectors specified in Appendix C of BOLT 03.
@@ -761,6 +761,11 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 		},
 	}
 
+	pCache := &mockPreimageCache{
+		// hash -> preimage
+		preimageMap: make(map[[32]byte][]byte),
+	}
+
 	for i, test := range testCases {
 		expectedCommitmentTx, err := txFromHex(test.expectedCommitmentTxHex)
 		if err != nil {
@@ -798,8 +803,9 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 		channelState.LocalCommitment.Htlcs = htlcs
 		channelState.LocalCommitment.CommitTx = commitmentView.txn
 
-		// This is the remote party's signature over the commitment transaction
-		// which is included in the commitment tx's witness data.
+		// This is the remote party's signature over the commitment
+		// transaction which is included in the commitment tx's witness
+		// data.
 		channelState.LocalCommitment.CommitSig, err = hex.DecodeString(test.remoteSigHex)
 		if err != nil {
 			t.Fatalf("Case %d: Failed to parse serialized signature: %v",
@@ -820,10 +826,13 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 			continue
 		}
 
-		// Generate second-level HTLC transactions for HTLCs in commitment tx.
+		// Generate second-level HTLC transactions for HTLCs in
+		// commitment tx.
 		htlcResolutions, err := extractHtlcResolutions(
 			test.commitment.FeePerKw, true, signer, htlcs, keys,
-			channel.localChanCfg, channel.remoteChanCfg, commitTx.TxHash())
+			channel.localChanCfg, channel.remoteChanCfg,
+			commitTx.TxHash(), pCache,
+		)
 		if err != nil {
 			t.Errorf("Case %d: Failed to extract HTLC resolutions: %v", i, err)
 			continue
@@ -842,13 +851,14 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 				t.Fatalf("Failed to parse serialized tx: %v", err)
 			}
 
-			htlcResolution := htlcResolutions[resolutionIdx]
+			htlcResolution := htlcResolutions.OutgoingHTLCs[resolutionIdx]
 			resolutionIdx++
 
 			actualTx := htlcResolution.SignedTimeoutTx
 			if actualTx == nil {
 				t.Errorf("Case %d: Failed to generate second level tx: "+
-					"output %d, %v", i, j, htlcResolutions[j])
+					"output %d, %v", i, j,
+					htlcResolutions.OutgoingHTLCs[j])
 				continue
 			}
 

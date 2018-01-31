@@ -130,7 +130,7 @@ type Config struct {
 	// forward a fully encoded payment to the first hop in the route
 	// denoted by its public key. A non-nil error is to be returned if the
 	// payment was unsuccessful.
-	SendToSwitch func(firstHop *btcec.PublicKey, htlcAdd *lnwire.UpdateAddHTLC,
+	SendToSwitch func(firstHop [33]byte, htlcAdd *lnwire.UpdateAddHTLC,
 		circuit *sphinx.Circuit) ([sha256.Size]byte, error)
 
 	// ChannelPruneExpiry is the duration used to determine if a channel

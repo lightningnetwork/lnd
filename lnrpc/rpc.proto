@@ -251,7 +251,7 @@ service Lightning {
     */
     rpc CloseChannel (CloseChannelRequest) returns (stream CloseStatusUpdate) {
         option (google.api.http) = {
-            delete: "/v1/channels/{channel_point.funding_txid}/{channel_point.output_index}"
+            delete: "/v1/channels/{channel_point.funding_txid_str}/{channel_point.output_index}"
         };
     }
 
@@ -518,16 +518,16 @@ message SendResponse {
 }
 
 message ChannelPoint {
-    // TODO(roasbeef): make str vs bytes into a oneof
+    oneof funding_txid {
+        /// Txid of the funding transaction
+        bytes funding_txid_bytes = 1 [json_name = "funding_txid_bytes"];
 
-    /// Txid of the funding transaction
-    bytes funding_txid = 1 [ json_name = "funding_txid" ];
-
-    /// Hex-encoded string representing the funding transaction
-    string funding_txid_str = 2 [ json_name = "funding_txid_str" ];
+        /// Hex-encoded string representing the funding transaction
+        string funding_txid_str = 2 [json_name = "funding_txid_str"];
+    }
 
     /// The index of the output of the funding transaction
-    uint32 output_index = 3 [ json_name = "output_index" ];
+    uint32 output_index = 3 [json_name = "output_index"];
 }
 
 message LightningAddress {
@@ -840,8 +840,9 @@ message CloseChannelRequest {
     int32 target_conf = 3;
 
     /// A manual fee rate set in sat/byte that should be used when crafting the closure transaction.
-    int64 sat_per_byte = 5;
+    int64 sat_per_byte = 4;
 }
+
 message CloseStatusUpdate {
     oneof update {
         PendingUpdate close_pending = 1 [json_name = "close_pending"];

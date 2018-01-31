@@ -450,6 +450,29 @@ type chanWatchRequest struct {
 	eventChan chan struct{}
 }
 
+// getChanPointFundingTxid returns the given channel point's funding txid in
+// raw bytes.
+func getChanPointFundingTxid(chanPoint *lnrpc.ChannelPoint) ([]byte, error) {
+	var txid []byte
+
+	// A channel point's funding txid can be get/set as a byte slice or a
+	// string. In the case it is a string, decode it.
+	switch chanPoint.GetFundingTxid().(type) {
+	case *lnrpc.ChannelPoint_FundingTxidBytes:
+		txid = chanPoint.GetFundingTxidBytes()
+	case *lnrpc.ChannelPoint_FundingTxidStr:
+		s := chanPoint.GetFundingTxidStr()
+		h, err := chainhash.NewHashFromStr(s)
+		if err != nil {
+			return nil, err
+		}
+
+		txid = h[:]
+	}
+
+	return txid, nil
+}
+
 // lightningNetworkWatcher is a goroutine which is able to dispatch
 // notifications once it has been observed that a target channel has been
 // closed or opened within the network. In order to dispatch these
@@ -510,7 +533,8 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 			// For each new channel, we'll increment the number of
 			// edges seen by one.
 			for _, newChan := range graphUpdate.ChannelUpdates {
-				txid, _ := chainhash.NewHash(newChan.ChanPoint.FundingTxid)
+				txidHash, _ := getChanPointFundingTxid(newChan.ChanPoint)
+				txid, _ := chainhash.NewHash(txidHash)
 				op := wire.OutPoint{
 					Hash:  *txid,
 					Index: newChan.ChanPoint.OutputIndex,
@@ -536,7 +560,8 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 			// detected a channel closure while lnd was pruning the
 			// channel graph.
 			for _, closedChan := range graphUpdate.ClosedChans {
-				txid, _ := chainhash.NewHash(closedChan.ChanPoint.FundingTxid)
+				txidHash, _ := getChanPointFundingTxid(closedChan.ChanPoint)
+				txid, _ := chainhash.NewHash(txidHash)
 				op := wire.OutPoint{
 					Hash:  *txid,
 					Index: closedChan.ChanPoint.OutputIndex,
@@ -603,7 +628,11 @@ func (hn *HarnessNode) WaitForNetworkChannelOpen(ctx context.Context,
 
 	eventChan := make(chan struct{})
 
-	txid, err := chainhash.NewHash(op.FundingTxid)
+	txidHash, err := getChanPointFundingTxid(op)
+	if err != nil {
+		return err
+	}
+	txid, err := chainhash.NewHash(txidHash)
 	if err != nil {
 		return err
 	}
@@ -634,7 +663,11 @@ func (hn *HarnessNode) WaitForNetworkChannelClose(ctx context.Context,
 
 	eventChan := make(chan struct{})
 
-	txid, err := chainhash.NewHash(op.FundingTxid)
+	txidHash, err := getChanPointFundingTxid(op)
+	if err != nil {
+		return err
+	}
+	txid, err := chainhash.NewHash(txidHash)
 	if err != nil {
 		return err
 	}

@@ -145,7 +145,7 @@
         ]
       }
     },
-    "/v1/channels/{channel_point.funding_txid}/{channel_point.output_index}": {
+    "/v1/channels/{channel_point.funding_txid_str}/{channel_point.output_index}": {
       "delete": {
         "summary": "* lncli: `closechannel`\nCloseChannel attempts to close an active channel identified by its channel\noutpoint (ChannelPoint). The actions of this method can additionally be\naugmented to attempt a force close after a timeout period in the case of an\ninactive peer. If a non-force close (cooperative closure) is requested,\nthen the user can specify either a target number of blocks until the\nclosure transaction is confirmed, or a manual fee rate. If neither are\nspecified, then a default lax, block confirmation target is used.",
         "operationId": "CloseChannel",
@@ -159,11 +159,10 @@
         },
         "parameters": [
           {
-            "name": "channel_point.funding_txid",
+            "name": "channel_point.funding_txid_str",
             "in": "path",
             "required": true,
-            "type": "string",
-            "format": "byte"
+            "type": "string"
           },
           {
             "name": "channel_point.output_index",
@@ -1037,7 +1036,7 @@
     "lnrpcChannelPoint": {
       "type": "object",
       "properties": {
-        "funding_txid": {
+        "funding_txid_bytes": {
           "type": "string",
           "format": "byte",
           "title": "/ Txid of the funding transaction"

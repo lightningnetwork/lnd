@@ -543,7 +543,25 @@ func openChannel(ctx *cli.Context) error {
 
 		case *lnrpc.OpenStatusUpdate_ChanOpen:
 			channelPoint := update.ChanOpen.ChannelPoint
-			txid, err := chainhash.NewHash(channelPoint.FundingTxid)
+
+			// A channel point's funding txid can be get/set as a
+			// byte slice or a string. In the case it is a string,
+			// decode it.
+			var txidHash []byte
+			switch channelPoint.GetFundingTxid().(type) {
+			case *lnrpc.ChannelPoint_FundingTxidBytes:
+				txidHash = channelPoint.GetFundingTxidBytes()
+			case *lnrpc.ChannelPoint_FundingTxidStr:
+				s := channelPoint.GetFundingTxidStr()
+				h, err := chainhash.NewHashFromStr(s)
+				if err != nil {
+					return err
+				}
+
+				txidHash = h[:]
+			}
+
+			txid, err := chainhash.NewHash(txidHash)
 			if err != nil {
 				return err
 			}
@@ -653,11 +671,9 @@ func closeChannel(ctx *cli.Context) error {
 		return fmt.Errorf("funding txid argument missing")
 	}
 
-	txidhash, err := chainhash.NewHashFromStr(txid)
-	if err != nil {
-		return err
+	req.ChannelPoint.FundingTxid = &lnrpc.ChannelPoint_FundingTxidStr{
+		FundingTxidStr: txid,
 	}
-	req.ChannelPoint.FundingTxid = txidhash[:]
 
 	switch {
 	case ctx.IsSet("output_index"):
@@ -2147,17 +2163,15 @@ func updateChannelPolicy(ctx *cli.Context) error {
 				"txid:index")
 		}
 
-		txHash, err := chainhash.NewHashFromStr(split[0])
-		if err != nil {
-			return err
-		}
 		index, err := strconv.ParseInt(split[1], 10, 32)
 		if err != nil {
 			return fmt.Errorf("unable to decode output index: %v", err)
 		}
 
 		chanPoint = &lnrpc.ChannelPoint{
-			FundingTxid: txHash[:],
+			FundingTxid: &lnrpc.ChannelPoint_FundingTxidStr{
+				FundingTxidStr: split[0],
+			},
 			OutputIndex: uint32(index),
 		}
 	}

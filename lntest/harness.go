@@ -633,7 +633,11 @@ func (n *NetworkHarness) CloseChannel(ctx context.Context,
 
 	// Create a channel outpoint that we can use to compare to channels
 	// from the ListChannelsResponse.
-	fundingTxID, err := chainhash.NewHash(cp.FundingTxid)
+	txidHash, err := getChanPointFundingTxid(cp)
+	if err != nil {
+		return nil, nil, err
+	}
+	fundingTxID, err := chainhash.NewHash(txidHash)
 	if err != nil {
 		return nil, nil, err
 	}

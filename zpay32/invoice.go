@@ -327,8 +327,8 @@ func Decode(invoice string) (*Invoice, error) {
 	if err != nil {
 		return nil, err
 	}
-	var sigBytes [64]byte
-	copy(sigBytes[:], sigBase256[:64])
+	var sig lnwire.Sig
+	copy(sig[:], sigBase256[:64])
 	recoveryID := sigBase256[64]
 
 	// The signature is over the hrp + the data the invoice, encoded in
@@ -347,8 +347,7 @@ func Decode(invoice string) (*Invoice, error) {
 	// If the destination pubkey was provided as a tagged field, use that
 	// to verify the signature, if not do public key recovery.
 	if decodedInvoice.Destination != nil {
-		var signature *btcec.Signature
-		err := lnwire.DeserializeSigFromWire(&signature, sigBytes)
+		signature, err := sig.ToSignature()
 		if err != nil {
 			return nil, fmt.Errorf("unable to deserialize "+
 				"signature: %v", err)
@@ -358,7 +357,7 @@ func Decode(invoice string) (*Invoice, error) {
 		}
 	} else {
 		headerByte := recoveryID + 27 + 4
-		compactSign := append([]byte{headerByte}, sigBytes[:]...)
+		compactSign := append([]byte{headerByte}, sig[:]...)
 		pubkey, _, err := btcec.RecoverCompact(btcec.S256(),
 			compactSign, hash)
 		if err != nil {
@@ -449,18 +448,18 @@ func (invoice *Invoice) Encode(signer MessageSigner) (string, error) {
 	// From the header byte we can extract the recovery ID, and the last 64
 	// bytes encode the signature.
 	recoveryID := sign[0] - 27 - 4
-	var sigBytes [64]byte
-	copy(sigBytes[:], sign[1:])
+	var sig lnwire.Sig
+	copy(sig[:], sign[1:])
 
 	// If the pubkey field was explicitly set, it must be set to the pubkey
 	// used to create the signature.
 	if invoice.Destination != nil {
-		var signature *btcec.Signature
-		err = lnwire.DeserializeSigFromWire(&signature, sigBytes)
+		signature, err := sig.ToSignature()
 		if err != nil {
 			return "", fmt.Errorf("unable to deserialize "+
 				"signature: %v", err)
 		}
+
 		valid := signature.Verify(hash, invoice.Destination)
 		if !valid {
 			return "", fmt.Errorf("signature does not match " +
@@ -469,7 +468,7 @@ func (invoice *Invoice) Encode(signer MessageSigner) (string, error) {
 	}
 
 	// Convert the signature to base32 before writing it to the buffer.
-	signBase32, err := bech32.ConvertBits(append(sigBytes[:], recoveryID), 8, 5, true)
+	signBase32, err := bech32.ConvertBits(append(sig[:], recoveryID), 8, 5, true)
 	if err != nil {
 		return "", err
 	}

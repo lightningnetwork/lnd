@@ -174,9 +174,12 @@ func TestFindRoutesFeeSorting(t *testing.T) {
 
 	// Execute a query for all possible routes between roasbeef and luo ji.
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+	feeLimit := paymentAmt.ToSatoshis()
 	target := ctx.aliases["luoji"]
-	routes, err := ctx.router.FindRoutes(target, paymentAmt,
-		defaultNumRoutes, DefaultFinalCLTVDelta)
+	routes, err := ctx.router.FindRoutes(
+		target, paymentAmt, feeLimit, defaultNumRoutes,
+		DefaultFinalCLTVDelta,
+	)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
 	}
@@ -221,12 +224,15 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 	}
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
-	// to luo ji for 100 satoshis.
+	// to luo ji for 1000 satoshis, with a maximum of 1000 satoshis in fees.
 	var payHash [32]byte
+	paymentAmt := lnwire.NewMSatFromSatoshis(1000)
+	feeLimit := paymentAmt.ToSatoshis()
 	payment := LightningPayment{
 		Target:      ctx.aliases["luoji"],
-		Amount:      lnwire.NewMSatFromSatoshis(1000),
+		Amount:      paymentAmt,
 		PaymentHash: payHash,
+		FeeLimit:    feeLimit,
 	}
 
 	var preImage [32]byte
@@ -524,12 +530,15 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	}
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
-	// to luo ji for 100 satoshis.
+	// to luo ji for 1000 satoshis, with a maximum of 1000 satoshis in fees.
 	var payHash [32]byte
+	paymentAmt := lnwire.NewMSatFromSatoshis(1000)
+	feeLimit := paymentAmt.ToSatoshis()
 	payment := LightningPayment{
 		Target:      ctx.aliases["luoji"],
-		Amount:      lnwire.NewMSatFromSatoshis(1000),
+		Amount:      paymentAmt,
 		PaymentHash: payHash,
+		FeeLimit:    feeLimit,
 	}
 
 	var preImage [32]byte
@@ -965,9 +974,12 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// We should now be able to find two routes to node 2.
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+	feeLimit := paymentAmt.ToSatoshis()
 	targetNode := priv2.PubKey()
-	routes, err := ctx.router.FindRoutes(targetNode, paymentAmt,
-		defaultNumRoutes, DefaultFinalCLTVDelta)
+	routes, err := ctx.router.FindRoutes(
+		targetNode, paymentAmt, feeLimit, defaultNumRoutes,
+		DefaultFinalCLTVDelta,
+	)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
 	}
@@ -1009,8 +1021,10 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// Should still be able to find the routes, and the info should be
 	// updated.
-	routes, err = ctx.router.FindRoutes(targetNode, paymentAmt,
-		defaultNumRoutes, DefaultFinalCLTVDelta)
+	routes, err = ctx.router.FindRoutes(
+		targetNode, paymentAmt, feeLimit, defaultNumRoutes,
+		DefaultFinalCLTVDelta,
+	)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
 	}

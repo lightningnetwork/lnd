@@ -474,6 +474,14 @@
             "required": false,
             "type": "integer",
             "format": "int32"
+          },
+          {
+            "name": "fee_limit",
+            "description": "/ The maximum total fees for the route in satoshis.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
           }
         ],
         "tags": [
@@ -2381,6 +2389,11 @@
           "type": "integer",
           "format": "int32",
           "description": "/ The CLTV delta from the current height that should be used to set the timelock for the final hop."
+        },
+        "fee_limit": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ The maximum total fees for the payment in satoshis."
         }
       }
     },

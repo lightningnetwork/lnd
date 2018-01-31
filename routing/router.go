@@ -1259,7 +1259,8 @@ func pruneChannelFromRoutes(routes []*Route, skipChan uint64) []*Route {
 // initial set of paths as it's possible we drop a route if it can't handle the
 // total payment flow after fees are calculated.
 func pathsToFeeSortedRoutes(source Vertex, paths [][]*ChannelHop, finalCLTVDelta uint16,
-	amt lnwire.MilliSatoshi, currentHeight uint32) ([]*Route, error) {
+	amt lnwire.MilliSatoshi, feeLimit btcutil.Amount,
+	currentHeight uint32) ([]*Route, error) {
 
 	validRoutes := make([]*Route, 0, len(paths))
 	for _, path := range paths {
@@ -1268,6 +1269,7 @@ func pathsToFeeSortedRoutes(source Vertex, paths [][]*ChannelHop, finalCLTVDelta
 		// by our KSP algorithm.
 		route, err := newRoute(
 			amt, source, path[1:], currentHeight, finalCLTVDelta,
+			feeLimit,
 		)
 		if err != nil {
 			// TODO(roasbeef): report straw breaking edge?
@@ -1316,7 +1318,8 @@ func pathsToFeeSortedRoutes(source Vertex, paths [][]*ChannelHop, finalCLTVDelta
 // route that will be ranked the highest is the one with the lowest cumulative
 // fee along the route.
 func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
-	amt lnwire.MilliSatoshi, numPaths uint32, finalExpiry ...uint16) ([]*Route, error) {
+	amt lnwire.MilliSatoshi, feeLimit btcutil.Amount, numPaths uint32,
+	finalExpiry ...uint16) ([]*Route, error) {
 
 	var finalCLTVDelta uint16
 	if len(finalExpiry) == 0 {
@@ -1402,7 +1405,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	// factored in.
 	sourceVertex := Vertex(r.selfNode.PubKeyBytes)
 	validRoutes, err := pathsToFeeSortedRoutes(
-		sourceVertex, shortestPaths, finalCLTVDelta, amt,
+		sourceVertex, shortestPaths, finalCLTVDelta, amt, feeLimit,
 		uint32(currentHeight),
 	)
 	if err != nil {
@@ -1501,6 +1504,9 @@ type LightningPayment struct {
 	// Amount is the value of the payment to send through the network in
 	// milli-satoshis.
 	Amount lnwire.MilliSatoshi
+
+	// FeeLimit is a user-specified maximum fee for this payment in satoshis.
+	FeeLimit btcutil.Amount
 
 	// PaymentHash is the r-hash value to use within the HTLC extended to
 	// the first hop.

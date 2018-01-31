@@ -250,7 +250,7 @@ func (r *Route) ToHopPayloads() []sphinx.HopData {
 // the source to the target node of the path finding attempt.
 func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex Vertex,
 	pathEdges []*ChannelHop, currentHeight uint32,
-	finalCLTVDelta uint16) (*Route, error) {
+	finalCLTVDelta uint16, feeLimit btcutil.Amount) (*Route, error) {
 
 	// First, we'll create a new empty route with enough hops to match the
 	// amount of path edges. We set the TotalTimeLock to the current block
@@ -264,9 +264,6 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex Vertex,
 		nextHopMap:    make(map[Vertex]*ChannelHop),
 		prevHopMap:    make(map[Vertex]*ChannelHop),
 	}
-
-	// TODO(roasbeef): need to do sanity check to ensure we don't make a
-	// "dust" payment: over x% of money sending to fees
 
 	// We'll populate the next hop map for the _source_ node with the
 	// information for the first hop so the mapping is sound.
@@ -341,6 +338,14 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex Vertex,
 		}
 
 		route.TotalFees += nextHop.Fee
+
+		// If the total fees exceed the fee limit established for this
+		// payment, stop hopping the route and return
+		if route.TotalFees.ToSatoshis() > feeLimit {
+			err := fmt.Sprintf("Route fee exceeded fee limit of %v",
+				feeLimit)
+			return nil, newErrf(ErrFeeCutoffExceeded, err)
+		}
 
 		// As a sanity check, we ensure that the selected channel has
 		// enough capacity to forward the required amount which

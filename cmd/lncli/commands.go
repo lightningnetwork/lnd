@@ -103,6 +103,37 @@ func actionDecorator(f func(*cli.Context) error) func(*cli.Context) error {
 	}
 }
 
+// calculateFeeLimit takes ctx and the amount for the payment in satoshis.
+// It checks the fee_limit and fee_limit_percent flags and determines the
+// the feeLimit based on those values. If both flags are set, calculateFeeLimit
+// sets feeLimit to the Minumum value between them. If neither flag is set,
+// feeLimit is set to the maximum int64 value as to avoid enforcing a limit.
+func calculateFeeLimit(ctx *cli.Context, amount int64) int64 {
+	var (
+		feeLimit        int64
+		feeLimitPercent int64
+	)
+
+	const MaxInt64Value int64 = 1<<63 - 1 // 9223372036854775807
+	feeLimit = MaxInt64Value
+
+	if ctx.IsSet("fee_limit_percent") {
+		feeRatio := float64(ctx.Int64("fee_limit_percent")) / 100
+		feeLimitPercent = int64(float64(amount) * feeRatio)
+		feeLimit = feeLimitPercent
+	}
+
+	if ctx.IsSet("fee_limit") {
+		feeLimit = ctx.Int64("fee_limit")
+	}
+
+	// If both fee_limit and fee_limit_percent are set, pick the minimum
+	if ctx.IsSet("fee_limit") && ctx.IsSet("fee_limit_percent") {
+		feeLimit = int64(math.Min(float64(feeLimit), float64(feeLimitPercent)))
+	}
+	return feeLimit
+}
+
 var newAddressCommand = cli.Command{
 	Name:      "newaddress",
 	Category:  "Wallet",
@@ -1633,6 +1664,14 @@ var sendPaymentCommand = cli.Command{
 			Name:  "final_cltv_delta",
 			Usage: "the number of blocks the last hop has to reveal the preimage",
 		},
+		cli.Int64Flag{
+			Name:  "fee_limit",
+			Usage: "maximum total fees for the payment in satoshis",
+		},
+		cli.Int64Flag{
+			Name:  "fee_limit_percent",
+			Usage: "maximum total fees as a percentage of amt",
+		},
 	},
 	Action: sendPayment,
 }
@@ -1657,6 +1696,7 @@ func sendPayment(ctx *cli.Context) error {
 			destNode []byte
 			err      error
 			amount   int64
+			feeLimit int64
 		)
 
 		switch {
@@ -1687,9 +1727,12 @@ func sendPayment(ctx *cli.Context) error {
 			}
 		}
 
+		feeLimit = calculateFeeLimit(ctx, amount)
+
 		req = &lnrpc.SendRequest{
-			Dest: destNode,
-			Amt:  amount,
+			Dest:     destNode,
+			Amt:      amount,
+			FeeLimit: feeLimit,
 		}
 
 		if ctx.Bool("debug_send") && (ctx.IsSet("payment_hash") || args.Present()) {
@@ -1779,6 +1822,14 @@ var payInvoiceCommand = cli.Command{
 			Usage: "(optional) number of satoshis to fulfill the " +
 				"invoice",
 		},
+		cli.Int64Flag{
+			Name:  "fee_limit",
+			Usage: "maximum total fees for the payment in satoshis",
+		},
+		cli.Int64Flag{
+			Name:  "fee_limit_percent",
+			Usage: "maximum total fees as a percentage of amt",
+		},
 	},
 	Action: actionDecorator(payInvoice),
 }
@@ -1787,6 +1838,8 @@ func payInvoice(ctx *cli.Context) error {
 	args := ctx.Args()
 
 	var payReq string
+	var feeLimit int64
+	var amt int64
 
 	switch {
 	case ctx.IsSet("pay_req"):
@@ -1797,9 +1850,14 @@ func payInvoice(ctx *cli.Context) error {
 		return fmt.Errorf("pay_req argument missing")
 	}
 
+	amt = ctx.Int64("amt")
+
+	feeLimit = calculateFeeLimit(ctx, amt)
+
 	req := &lnrpc.SendRequest{
 		PaymentRequest: payReq,
-		Amt:            ctx.Int64("amt"),
+		Amt:            amt,
+		FeeLimit:       feeLimit,
 	}
 
 	return sendPaymentRequest(ctx, req)
@@ -2500,6 +2558,14 @@ var queryRoutesCommand = cli.Command{
 			Usage: "the amount to send expressed in satoshis",
 		},
 		cli.Int64Flag{
+			Name:  "fee_limit",
+			Usage: "maximum total fees for the payment in satoshis",
+		},
+		cli.Int64Flag{
+			Name:  "fee_limit_percent",
+			Usage: "maximum total fees as a percentage of amt",
+		},
+		cli.Int64Flag{
 			Name:  "num_max_routes",
 			Usage: "the max number of routes to be returned (default: 10)",
 			Value: 10,
@@ -2519,9 +2585,10 @@ func queryRoutes(ctx *cli.Context) error {
 	defer cleanUp()
 
 	var (
-		dest string
-		amt  int64
-		err  error
+		dest     string
+		amt      int64
+		err      error
+		feeLimit int64
 	)
 
 	args := ctx.Args()
@@ -2547,6 +2614,8 @@ func queryRoutes(ctx *cli.Context) error {
 	default:
 		return fmt.Errorf("amt argument missing")
 	}
+
+	feeLimit = calculateFeeLimit(ctx, amt)
 
 	req := &lnrpc.QueryRoutesRequest{
 		PubKey:         dest,

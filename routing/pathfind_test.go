@@ -310,6 +310,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	)
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+	feeLimit := paymentAmt.ToSatoshis()
 	target := aliases["sophon"]
 	path, err := findPath(
 		nil, graph, nil, sourceNode, target, ignoredVertexes,
@@ -318,8 +319,9 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
 	}
+
 	route, err := newRoute(paymentAmt, sourceVertex, path, startingHeight,
-		finalHopCLTV)
+		finalHopCLTV, feeLimit)
 	if err != nil {
 		t.Fatalf("unable to create path: %v", err)
 	}
@@ -460,8 +462,9 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to find route: %v", err)
 	}
+
 	route, err = newRoute(paymentAmt, sourceVertex, path, startingHeight,
-		finalHopCLTV)
+		finalHopCLTV, feeLimit)
 	if err != nil {
 		t.Fatalf("unable to create path: %v", err)
 	}
@@ -852,7 +855,8 @@ func TestPathFindSpecExample(t *testing.T) {
 	// Query for a route of 4,999,999 mSAT to carol.
 	carol := ctx.aliases["C"]
 	const amt lnwire.MilliSatoshi = 4999999
-	routes, err := ctx.router.FindRoutes(carol, amt, 100)
+	feeLimit := amt.ToSatoshis()
+	routes, err := ctx.router.FindRoutes(carol, amt, feeLimit, 100)
 	if err != nil {
 		t.Fatalf("unable to find route: %v", err)
 	}
@@ -912,7 +916,7 @@ func TestPathFindSpecExample(t *testing.T) {
 
 	// We'll now request a route from A -> B -> C.
 	ctx.router.routeCache = make(map[routeTuple][]*Route)
-	routes, err = ctx.router.FindRoutes(carol, amt, 100)
+	routes, err = ctx.router.FindRoutes(carol, amt, feeLimit, 100)
 	if err != nil {
 		t.Fatalf("unable to find routes: %v", err)
 	}

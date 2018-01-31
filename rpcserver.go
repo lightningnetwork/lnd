@@ -3047,6 +3047,7 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 	// largest payment size allotted to (2^32) - 1 mSAT or 4.29 million
 	// satoshis.
 	amt := btcutil.Amount(in.Amt)
+	feeLimit := btcutil.Amount(in.FeeLimit)
 	amtMSat := lnwire.NewMSatFromSatoshis(amt)
 	if amtMSat > maxPaymentMSat {
 		return nil, fmt.Errorf("payment of %v is too large, max payment "+

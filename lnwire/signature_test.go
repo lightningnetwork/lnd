@@ -14,16 +14,16 @@ func TestSignatureSerializeDeserialize(t *testing.T) {
 	// Local-scoped closure to serialize and deserialize a Signature and
 	// check for errors as well as check if the results are correct.
 	signatureSerializeDeserialize := func(e btcec.Signature) error {
-		var b [64]byte
-		err := SerializeSigToWire(&b, &e)
+		sig, err := NewSigFromSignature(&e)
 		if err != nil {
 			return err
 		}
-		var e2 *btcec.Signature
-		err = DeserializeSigFromWire(&e2, b)
+
+		e2, err := sig.ToSignature()
 		if err != nil {
 			return err
 		}
+
 		if e.R.Cmp(e2.R) != 0 {
 			return fmt.Errorf("Pre/post-serialize Rs don't match"+
 				": %s, %s", e.R, e2.R)

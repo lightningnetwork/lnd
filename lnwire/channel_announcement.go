@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"io"
 
-	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
@@ -16,14 +15,14 @@ type ChannelAnnouncement struct {
 	// references between node's channel and node. Requiring both nodes
 	// to sign indicates they are both willing to route other payments via
 	// this node.
-	NodeSig1 *btcec.Signature
-	NodeSig2 *btcec.Signature
+	NodeSig1 Sig
+	NodeSig2 Sig
 
 	// This signatures are used by nodes in order to create cross
 	// references between node's channel and node. Requiring the bitcoin
 	// signatures proves they control the channel.
-	BitcoinSig1 *btcec.Signature
-	BitcoinSig2 *btcec.Signature
+	BitcoinSig1 Sig
+	BitcoinSig2 Sig
 
 	// Features is the feature vector that encodes the features supported
 	// by the target node. This field can be used to signal the type of the

@@ -50,7 +50,7 @@ func (n NodeAlias) String() string {
 // announcement via a signature using the advertised node pubkey.
 type NodeAnnouncement struct {
 	// Signature is used to prove the ownership of node id.
-	Signature *btcec.Signature
+	Signature Sig
 
 	// Features is the list of protocol features this node supports.
 	Features *RawFeatureVector

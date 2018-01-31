@@ -146,7 +146,7 @@ func writeElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
-	case []*btcec.Signature:
+	case []Sig:
 		var b [2]byte
 		numSigs := uint16(len(e))
 		binary.BigEndian.PutUint16(b[:], numSigs)
@@ -159,18 +159,9 @@ func writeElement(w io.Writer, element interface{}) error {
 				return err
 			}
 		}
-	case *btcec.Signature:
-		if e == nil {
-			return fmt.Errorf("cannot write nil signature")
-		}
-
-		var b [64]byte
-		err := SerializeSigToWire(&b, e)
-		if err != nil {
-			return err
-		}
+	case Sig:
 		// Write buffer
-		if _, err = w.Write(b[:]); err != nil {
+		if _, err := w.Write(e[:]); err != nil {
 			return err
 		}
 	case PingPayload:
@@ -469,16 +460,16 @@ func readElement(r io.Reader, element interface{}) error {
 
 		*e = f
 
-	case *[]*btcec.Signature:
+	case *[]Sig:
 		var l [2]byte
 		if _, err := io.ReadFull(r, l[:]); err != nil {
 			return err
 		}
 		numSigs := binary.BigEndian.Uint16(l[:])
 
-		var sigs []*btcec.Signature
+		var sigs []Sig
 		if numSigs > 0 {
-			sigs = make([]*btcec.Signature, numSigs)
+			sigs = make([]Sig, numSigs)
 			for i := 0; i < int(numSigs); i++ {
 				if err := readElement(r, &sigs[i]); err != nil {
 					return err
@@ -488,13 +479,8 @@ func readElement(r io.Reader, element interface{}) error {
 
 		*e = sigs
 
-	case **btcec.Signature:
-		var b [64]byte
-		if _, err := io.ReadFull(r, b[:]); err != nil {
-			return err
-		}
-		err = DeserializeSigFromWire(e, b)
-		if err != nil {
+	case *Sig:
+		if _, err := io.ReadFull(r, e[:]); err != nil {
 			return err
 		}
 	case *OpaqueReason:

@@ -1020,17 +1020,17 @@ type LightningNode struct {
 //
 // NOTE: By having this method to access an attribute, we ensure we only need
 // to fully deserialize the pubkey if absolutely necessary.
-func (c *LightningNode) PubKey() (*btcec.PublicKey, error) {
-	if c.pubKey != nil {
-		return c.pubKey, nil
+func (l *LightningNode) PubKey() (*btcec.PublicKey, error) {
+	if l.pubKey != nil {
+		return l.pubKey, nil
 	}
 
-	key, err := btcec.ParsePubKey(c.PubKeyBytes[:], btcec.S256())
+	key, err := btcec.ParsePubKey(l.PubKeyBytes[:], btcec.S256())
 	if err != nil {
 		return nil, err
 	}
-	c.pubKey = key
-	c.pubKey.Curve = nil
+	l.pubKey = key
+	l.pubKey.Curve = nil
 
 	return key, nil
 }
@@ -1040,15 +1040,15 @@ func (c *LightningNode) PubKey() (*btcec.PublicKey, error) {
 //
 // NOTE: By having this method to access an attribute, we ensure we only need
 // to fully deserialize the signature if absolutely necessary.
-func (c *LightningNode) AuthSig() (*btcec.Signature, error) {
-	return btcec.ParseSignature(c.AuthSigBytes, btcec.S256())
+func (l *LightningNode) AuthSig() (*btcec.Signature, error) {
+	return btcec.ParseSignature(l.AuthSigBytes, btcec.S256())
 }
 
 // AddPubKey is a setter-link method that can be used to swap out the public
 // key for a node.
-func (c *LightningNode) AddPubKey(key *btcec.PublicKey) {
-	c.pubKey = key
-	copy(c.PubKeyBytes[:], key.SerializeCompressed())
+func (l *LightningNode) AddPubKey(key *btcec.PublicKey) {
+	l.pubKey = key
+	copy(l.PubKeyBytes[:], key.SerializeCompressed())
 }
 
 // FetchLightningNode attempts to look up a target node by its identity public
@@ -1442,7 +1442,7 @@ type ChannelAuthProof struct {
 	BitcoinSig2Bytes []byte
 }
 
-// NodeSig1 is the signature using the identity key of the node that is first
+// Node1Sig is the signature using the identity key of the node that is first
 // in a lexicographical ordering of the serialized public keys of the two nodes
 // that created the channel.
 //
@@ -1463,7 +1463,7 @@ func (c *ChannelAuthProof) Node1Sig() (*btcec.Signature, error) {
 	return sig, nil
 }
 
-// NodeSig2 is the signature using the identity key of the node that is second
+// Node2Sig is the signature using the identity key of the node that is second
 // in a lexicographical ordering of the serialized public keys of the two nodes
 // that created the channel.
 //
@@ -1526,11 +1526,11 @@ func (c *ChannelAuthProof) BitcoinSig2() (*btcec.Signature, error) {
 
 // IsEmpty check is the authentication proof is empty Proof is empty if at
 // least one of the signatures are equal to nil.
-func (p *ChannelAuthProof) IsEmpty() bool {
-	return len(p.NodeSig1Bytes) == 0 ||
-		len(p.NodeSig2Bytes) == 0 ||
-		len(p.BitcoinSig1Bytes) == 0 ||
-		len(p.BitcoinSig2Bytes) == 0
+func (c *ChannelAuthProof) IsEmpty() bool {
+	return len(c.NodeSig1Bytes) == 0 ||
+		len(c.NodeSig2Bytes) == 0 ||
+		len(c.BitcoinSig1Bytes) == 0 ||
+		len(c.BitcoinSig2Bytes) == 0
 }
 
 // ChannelEdgePolicy represents a *directed* edge within the channel graph. For

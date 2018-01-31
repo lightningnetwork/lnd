@@ -241,7 +241,7 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	// a route by applying the time-lock and fee requirements.
 	sourceVertex := Vertex(p.mc.selfNode.PubKeyBytes)
 	route, err := newRoute(payment.Amount, sourceVertex, path, height,
-		finalCltvDelta)
+		finalCltvDelta, payment.FeeLimit)
 	if err != nil {
 		// TODO(roasbeef): return which edge/vertex didn't work
 		// out

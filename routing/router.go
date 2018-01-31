@@ -1183,7 +1183,8 @@ func pruneChannelFromRoutes(routes []*Route, skipChan uint64) []*Route {
 // route that will be ranked the highest is the one with the lowest cumulative
 // fee along the route.
 func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
-	amt lnwire.MilliSatoshi, finalExpiry ...uint16) ([]*Route, error) {
+	amt lnwire.MilliSatoshi, feeLimit btcutil.Amount,
+	finalExpiry ...uint16) ([]*Route, error) {
 
 	var finalCLTVDelta uint16
 	if len(finalExpiry) == 0 {
@@ -1263,7 +1264,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 		// hop in the path as it contains a "self-hop" that is inserted
 		// by our KSP algorithm.
 		route, err := newRoute(amt, sourceVertex, path[1:],
-			uint32(currentHeight), finalCLTVDelta)
+			uint32(currentHeight), finalCLTVDelta, feeLimit)
 		if err != nil {
 			continue
 		}
@@ -1400,6 +1401,9 @@ type LightningPayment struct {
 	// unspecified, then a default value of DefaultFinalCLTVDelta will be
 	// used.
 	FinalCLTVDelta *uint16
+
+	// FeeLimit is a user-specified maximum fee for this payment in satoshis.
+	FeeLimit btcutil.Amount
 
 	// TODO(roasbeef): add e2e message?
 }

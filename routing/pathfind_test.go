@@ -53,10 +53,10 @@ var (
 	_, _ = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
 
 	testAuthProof = channeldb.ChannelAuthProof{
-		NodeSig1:    testSig,
-		NodeSig2:    testSig,
-		BitcoinSig1: testSig,
-		BitcoinSig2: testSig,
+		NodeSig1Bytes:    testSig.Serialize(),
+		NodeSig2Bytes:    testSig.Serialize(),
+		BitcoinSig1Bytes: testSig.Serialize(),
+		BitcoinSig2Bytes: testSig.Serialize(),
 	}
 )
 
@@ -165,26 +165,27 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		pub, err := btcec.ParsePubKey(pubBytes, btcec.S256())
-		if err != nil {
-			return nil, nil, nil, err
-		}
 
 		dbNode := &channeldb.LightningNode{
 			HaveNodeAnnouncement: true,
-			AuthSig:              testSig,
+			AuthSigBytes:         testSig.Serialize(),
 			LastUpdate:           time.Now(),
 			Addresses:            testAddrs,
-			PubKey:               pub,
 			Alias:                node.Alias,
 			Features:             testFeatures,
 		}
+		copy(dbNode.PubKeyBytes[:], pubBytes)
 
 		// We require all aliases within the graph to be unique for our
 		// tests.
 		if _, ok := aliasMap[node.Alias]; ok {
 			return nil, nil, nil, errors.New("aliases for nodes " +
 				"must be unique!")
+		}
+
+		pub, err := btcec.ParsePubKey(pubBytes, btcec.S256())
+		if err != nil {
+			return nil, nil, nil, err
 		}
 
 		// If the alias is unique, then add the node to the
@@ -228,16 +229,8 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		node1Pub, err := btcec.ParsePubKey(node1Bytes, btcec.S256())
-		if err != nil {
-			return nil, nil, nil, err
-		}
 
 		node2Bytes, err := hex.DecodeString(edge.Node2)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		node2Pub, err := btcec.ParsePubKey(node2Bytes, btcec.S256())
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -256,21 +249,23 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 		// nodes.
 		edgeInfo := channeldb.ChannelEdgeInfo{
 			ChannelID:    edge.ChannelID,
-			NodeKey1:     node1Pub,
-			NodeKey2:     node2Pub,
-			BitcoinKey1:  node1Pub,
-			BitcoinKey2:  node2Pub,
 			AuthProof:    &testAuthProof,
 			ChannelPoint: fundingPoint,
 			Capacity:     btcutil.Amount(edge.Capacity),
 		}
+
+		copy(edgeInfo.NodeKey1Bytes[:], node1Bytes)
+		copy(edgeInfo.NodeKey2Bytes[:], node2Bytes)
+		copy(edgeInfo.BitcoinKey1Bytes[:], node1Bytes)
+		copy(edgeInfo.BitcoinKey2Bytes[:], node2Bytes)
+
 		err = graph.AddChannelEdge(&edgeInfo)
 		if err != nil && err != channeldb.ErrEdgeAlreadyExist {
 			return nil, nil, nil, err
 		}
 
 		edgePolicy := &channeldb.ChannelEdgePolicy{
-			Signature:                 testSig,
+			SigBytes:                  testSig.Serialize(),
 			Flags:                     lnwire.ChanUpdateFlag(edge.Flags),
 			ChannelID:                 edge.ChannelID,
 			LastUpdate:                time.Now(),
@@ -300,7 +295,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
-	sourceVertex := NewVertex(sourceNode.PubKey)
+	sourceVertex := Vertex(sourceNode.PubKeyBytes)
 
 	ignoredEdges := make(map[uint64]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
@@ -342,13 +337,17 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	}
 
 	// The first hop in the path should be an edge from roasbeef to goku.
-	if !route.Hops[0].Channel.Node.PubKey.IsEqual(aliases["songoku"]) {
+	if !bytes.Equal(route.Hops[0].Channel.Node.PubKeyBytes[:],
+		aliases["songoku"].SerializeCompressed()) {
+
 		t.Fatalf("first hop should be goku, is instead: %v",
 			route.Hops[0].Channel.Node.Alias)
 	}
 
 	// The second hop should be from goku to sophon.
-	if !route.Hops[1].Channel.Node.PubKey.IsEqual(aliases["sophon"]) {
+	if !bytes.Equal(route.Hops[1].Channel.Node.PubKeyBytes[:],
+		aliases["sophon"].SerializeCompressed()) {
+
 		t.Fatalf("second hop should be sophon, is instead: %v",
 			route.Hops[0].Channel.Node.Alias)
 	}
@@ -833,7 +832,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to retrieve source node: %v", err)
 	}
-	if !source.PubKey.IsEqual(alice) {
+	if !bytes.Equal(source.PubKeyBytes[:], alice.SerializeCompressed()) {
 		t.Fatalf("source node not set")
 	}
 

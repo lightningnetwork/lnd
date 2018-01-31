@@ -239,7 +239,7 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 
 	// With the next candidate path found, we'll attempt to turn this into
 	// a route by applying the time-lock and fee requirements.
-	sourceVertex := NewVertex(p.mc.selfNode.PubKey)
+	sourceVertex := Vertex(p.mc.selfNode.PubKeyBytes)
 	route, err := newRoute(payment.Amount, sourceVertex, path, height,
 		finalCltvDelta)
 	if err != nil {

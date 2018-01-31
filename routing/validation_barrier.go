@@ -104,8 +104,8 @@ func (v *ValidationBarrier) InitJobDependencies(job interface{}) {
 			v.chanAnnFinSignal[msg.ShortChannelID] = annFinCond
 			v.chanEdgeDependencies[msg.ShortChannelID] = annFinCond
 
-			v.nodeAnnDependencies[NewVertex(msg.NodeID1)] = annFinCond
-			v.nodeAnnDependencies[NewVertex(msg.NodeID2)] = annFinCond
+			v.nodeAnnDependencies[Vertex(msg.NodeID1)] = annFinCond
+			v.nodeAnnDependencies[Vertex(msg.NodeID2)] = annFinCond
 		}
 	case *channeldb.ChannelEdgeInfo:
 
@@ -116,8 +116,8 @@ func (v *ValidationBarrier) InitJobDependencies(job interface{}) {
 			v.chanAnnFinSignal[shortID] = annFinCond
 			v.chanEdgeDependencies[shortID] = annFinCond
 
-			v.nodeAnnDependencies[NewVertex(msg.NodeKey1)] = annFinCond
-			v.nodeAnnDependencies[NewVertex(msg.NodeKey2)] = annFinCond
+			v.nodeAnnDependencies[Vertex(msg.NodeKey1)] = annFinCond
+			v.nodeAnnDependencies[Vertex(msg.NodeKey2)] = annFinCond
 		}
 
 	// These other types don't have any dependants, so no further
@@ -127,6 +127,7 @@ func (v *ValidationBarrier) InitJobDependencies(job interface{}) {
 	case *lnwire.ChannelUpdate:
 		return
 	case *lnwire.NodeAnnouncement:
+		// TODO(roasbeef): node ann needs to wait on existing channel updates
 		return
 	case *channeldb.LightningNode:
 		return
@@ -167,12 +168,12 @@ func (v *ValidationBarrier) WaitForDependants(job interface{}) {
 		shortID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
 		signal, ok = v.chanEdgeDependencies[shortID]
 	case *channeldb.LightningNode:
-		vertex := NewVertex(msg.PubKey)
+		vertex := Vertex(msg.PubKey)
 		signal, ok = v.nodeAnnDependencies[vertex]
 	case *lnwire.ChannelUpdate:
 		signal, ok = v.chanEdgeDependencies[msg.ShortChannelID]
 	case *lnwire.NodeAnnouncement:
-		vertex := NewVertex(msg.NodeID)
+		vertex := Vertex(msg.NodeID)
 		signal, ok = v.nodeAnnDependencies[vertex]
 
 	// Other types of jobs can be executed immediately, so we'll just
@@ -233,9 +234,9 @@ func (v *ValidationBarrier) SignalDependants(job interface{}) {
 	// map, as if we reach this point, then all dependants have already
 	// finished executing and we can proceed.
 	case *channeldb.LightningNode:
-		delete(v.nodeAnnDependencies, NewVertex(msg.PubKey))
+		delete(v.nodeAnnDependencies, Vertex(msg.PubKey))
 	case *lnwire.NodeAnnouncement:
-		delete(v.nodeAnnDependencies, NewVertex(msg.NodeID))
+		delete(v.nodeAnnDependencies, Vertex(msg.NodeID))
 	case *lnwire.ChannelUpdate:
 		delete(v.chanEdgeDependencies, msg.ShortChannelID)
 	case *channeldb.ChannelEdgePolicy:

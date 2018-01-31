@@ -52,6 +52,19 @@ func randPubKey() (*btcec.PublicKey, error) {
 	return priv.PubKey(), nil
 }
 
+func randRawKey() ([33]byte, error) {
+	var n [33]byte
+
+	priv, err := btcec.NewPrivateKey(btcec.S256())
+	if err != nil {
+		return n, err
+	}
+
+	copy(n[:], priv.PubKey().SerializeCompressed())
+
+	return n, nil
+}
+
 func randRawFeatureVector(r *rand.Rand) *RawFeatureVector {
 	featureVec := NewRawFeatureVector()
 	for i := 0; i < 10000; i++ {
@@ -266,20 +279,30 @@ func TestLightningWireProtocol(t *testing.T) {
 			}
 			req.FundingPoint.Index = uint32(r.Int31()) % math.MaxUint16
 
-			req.CommitSig = testSig
+			var err error
+			req.CommitSig, err = NewSigFromSignature(testSig)
+			if err != nil {
+				t.Fatalf("unable to parse sig: %v", err)
+				return
+			}
 
 			v[0] = reflect.ValueOf(req)
 		},
 		MsgFundingSigned: func(v []reflect.Value, r *rand.Rand) {
 			var c [32]byte
-			if _, err := r.Read(c[:]); err != nil {
+			_, err := r.Read(c[:])
+			if err != nil {
 				t.Fatalf("unable to generate chan id: %v", err)
 				return
 			}
 
 			req := FundingSigned{
-				ChanID:    ChannelID(c),
-				CommitSig: testSig,
+				ChanID: ChannelID(c),
+			}
+			req.CommitSig, err = NewSigFromSignature(testSig)
+			if err != nil {
+				t.Fatalf("unable to parse sig: %v", err)
+				return
 			}
 
 			v[0] = reflect.ValueOf(req)
@@ -305,7 +328,12 @@ func TestLightningWireProtocol(t *testing.T) {
 		MsgClosingSigned: func(v []reflect.Value, r *rand.Rand) {
 			req := ClosingSigned{
 				FeeSatoshis: btcutil.Amount(r.Int63()),
-				Signature:   testSig,
+			}
+			var err error
+			req.Signature, err = NewSigFromSignature(testSig)
+			if err != nil {
+				t.Fatalf("unable to parse sig: %v", err)
+				return
 			}
 
 			if _, err := r.Read(req.ChannelID[:]); err != nil {
@@ -321,17 +349,27 @@ func TestLightningWireProtocol(t *testing.T) {
 				t.Fatalf("unable to generate chan id: %v", err)
 				return
 			}
-			req.CommitSig = testSig
+
+			var err error
+			req.CommitSig, err = NewSigFromSignature(testSig)
+			if err != nil {
+				t.Fatalf("unable to parse sig: %v", err)
+				return
+			}
 
 			// Only create the slice if there will be any signatures
 			// in it to prevent false positive test failures due to
 			// an empty slice versus a nil slice.
 			numSigs := uint16(r.Int31n(1020))
 			if numSigs > 0 {
-				req.HtlcSigs = make([]*btcec.Signature, numSigs)
+				req.HtlcSigs = make([]Sig, numSigs)
 			}
 			for i := 0; i < int(numSigs); i++ {
-				req.HtlcSigs[i] = testSig
+				req.HtlcSigs[i], err = NewSigFromSignature(testSig)
+				if err != nil {
+					t.Fatalf("unable to parse sig: %v", err)
+					return
+				}
 			}
 
 			v[0] = reflect.ValueOf(*req)
@@ -356,32 +394,48 @@ func TestLightningWireProtocol(t *testing.T) {
 			v[0] = reflect.ValueOf(*req)
 		},
 		MsgChannelAnnouncement: func(v []reflect.Value, r *rand.Rand) {
+			var err error
 			req := ChannelAnnouncement{
 				ShortChannelID: NewShortChanIDFromInt(uint64(r.Int63())),
 				Features:       randRawFeatureVector(r),
 			}
-			req.NodeSig1 = testSig
-			req.NodeSig2 = testSig
-			req.BitcoinSig1 = testSig
-			req.BitcoinSig2 = testSig
+			req.NodeSig1, err = NewSigFromSignature(testSig)
+			if err != nil {
+				t.Fatalf("unable to parse sig: %v", err)
+				return
+			}
+			req.NodeSig2, err = NewSigFromSignature(testSig)
+			if err != nil {
+				t.Fatalf("unable to parse sig: %v", err)
+				return
+			}
+			req.BitcoinSig1, err = NewSigFromSignature(testSig)
+			if err != nil {
+				t.Fatalf("unable to parse sig: %v", err)
+				return
+			}
+			req.BitcoinSig2, err = NewSigFromSignature(testSig)
+			if err != nil {
+				t.Fatalf("unable to parse sig: %v", err)
+				return
+			}
 
-			var err error
-			req.NodeID1, err = randPubKey()
+			req.NodeID1, err = randRawKey()
 			if err != nil {
 				t.Fatalf("unable to generate key: %v", err)
 				return
 			}
-			req.NodeID2, err = randPubKey()
+			req.NodeID2, err = randRawKey()
 			if err != nil {
 				t.Fatalf("unable to generate key: %v", err)
 				return
 			}
-			req.BitcoinKey1, err = randPubKey()
+			req.BitcoinKey1, err = randRawKey()
 			if err != nil {
 				t.Fatalf("unable to generate key: %v", err)
 				return
 			}
-			req.BitcoinKey2, err = randPubKey()
+			req.BitcoinKey2, err = randRawKey()
 			if err != nil {
 				t.Fatalf("unable to generate key: %v", err)
 				return
@@ -400,8 +454,8 @@ func TestLightningWireProtocol(t *testing.T) {
 				return
 			}
 
+			var err error
 			req := NodeAnnouncement{
-				Signature: testSig,
 				Features:  randRawFeatureVector(r),
 				Timestamp: uint32(r.Int31()),
 				Alias:     a,
@@ -413,9 +467,13 @@ func TestLightningWireProtocol(t *testing.T) {
 				// TODO(roasbeef): proper gen rand addrs
 				Addresses: testAddrs,
 			}
+			req.Signature, err = NewSigFromSignature(testSig)
+			if err != nil {
+				t.Fatalf("unable to parse sig: %v", err)
+				return
+			}
 
-			var err error
-			req.NodeID, err = randPubKey()
+			req.NodeID, err = randRawKey()
 			if err != nil {
 				t.Fatalf("unable to generate key: %v", err)
 				return
@@ -424,8 +482,8 @@ func TestLightningWireProtocol(t *testing.T) {
 			v[0] = reflect.ValueOf(req)
 		},
 		MsgChannelUpdate: func(v []reflect.Value, r *rand.Rand) {
+			var err error
 			req := ChannelUpdate{
-				Signature:       testSig,
 				ShortChannelID:  NewShortChanIDFromInt(uint64(r.Int63())),
 				Timestamp:       uint32(r.Int31()),
 				Flags:           ChanUpdateFlag(r.Int31()),
@@ -434,6 +492,12 @@ func TestLightningWireProtocol(t *testing.T) {
 				BaseFee:         uint32(r.Int31()),
 				FeeRate:         uint32(r.Int31()),
 			}
+			req.Signature, err = NewSigFromSignature(testSig)
+			if err != nil {
+				t.Fatalf("unable to parse sig: %v", err)
+				return
+			}
+
 			if _, err := r.Read(req.ChainHash[:]); err != nil {
 				t.Fatalf("unable to generate chain hash: %v", err)
 				return
@@ -442,11 +506,23 @@ func TestLightningWireProtocol(t *testing.T) {
 			v[0] = reflect.ValueOf(req)
 		},
 		MsgAnnounceSignatures: func(v []reflect.Value, r *rand.Rand) {
+			var err error
 			req := AnnounceSignatures{
-				ShortChannelID:   NewShortChanIDFromInt(uint64(r.Int63())),
-				NodeSignature:    testSig,
-				BitcoinSignature: testSig,
+				ShortChannelID: NewShortChanIDFromInt(uint64(r.Int63())),
 			}
+
+			req.NodeSignature, err = NewSigFromSignature(testSig)
+			if err != nil {
+				t.Fatalf("unable to parse sig: %v", err)
+				return
+			}
+
+			req.BitcoinSignature, err = NewSigFromSignature(testSig)
+			if err != nil {
+				t.Fatalf("unable to parse sig: %v", err)
+				return
+			}
+
 			if _, err := r.Read(req.ChannelID[:]); err != nil {
 				t.Fatalf("unable to generate chan id: %v", err)
 				return

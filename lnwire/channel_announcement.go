@@ -41,13 +41,13 @@ type ChannelAnnouncement struct {
 	// The public keys of the two nodes who are operating the channel, such
 	// that is NodeID1 the numerically-lesser than NodeID2 (ascending
 	// numerical order).
-	NodeID1 *btcec.PublicKey
-	NodeID2 *btcec.PublicKey
+	NodeID1 [33]byte
+	NodeID2 [33]byte
 
 	// Public keys which corresponds to the keys which was declared in
 	// multisig funding transaction output.
-	BitcoinKey1 *btcec.PublicKey
-	BitcoinKey2 *btcec.PublicKey
+	BitcoinKey1 [33]byte
+	BitcoinKey2 [33]byte
 }
 
 // A compile time check to ensure ChannelAnnouncement implements the

@@ -116,8 +116,8 @@ func (v *ValidationBarrier) InitJobDependencies(job interface{}) {
 			v.chanAnnFinSignal[shortID] = annFinCond
 			v.chanEdgeDependencies[shortID] = annFinCond
 
-			v.nodeAnnDependencies[Vertex(msg.NodeKey1)] = annFinCond
-			v.nodeAnnDependencies[Vertex(msg.NodeKey2)] = annFinCond
+			v.nodeAnnDependencies[Vertex(msg.NodeKey1Bytes)] = annFinCond
+			v.nodeAnnDependencies[Vertex(msg.NodeKey2Bytes)] = annFinCond
 		}
 
 	// These other types don't have any dependants, so no further
@@ -168,7 +168,7 @@ func (v *ValidationBarrier) WaitForDependants(job interface{}) {
 		shortID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
 		signal, ok = v.chanEdgeDependencies[shortID]
 	case *channeldb.LightningNode:
-		vertex := Vertex(msg.PubKey)
+		vertex := Vertex(msg.PubKeyBytes)
 		signal, ok = v.nodeAnnDependencies[vertex]
 	case *lnwire.ChannelUpdate:
 		signal, ok = v.chanEdgeDependencies[msg.ShortChannelID]
@@ -234,7 +234,7 @@ func (v *ValidationBarrier) SignalDependants(job interface{}) {
 	// map, as if we reach this point, then all dependants have already
 	// finished executing and we can proceed.
 	case *channeldb.LightningNode:
-		delete(v.nodeAnnDependencies, Vertex(msg.PubKey))
+		delete(v.nodeAnnDependencies, Vertex(msg.PubKeyBytes))
 	case *lnwire.NodeAnnouncement:
 		delete(v.nodeAnnDependencies, Vertex(msg.NodeID))
 	case *lnwire.ChannelUpdate:

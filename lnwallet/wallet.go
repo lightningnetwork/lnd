@@ -1318,8 +1318,9 @@ func (l *LightningWallet) selectCoinsAndChange(feeRatePerWeight btcutil.Amount,
 	}
 
 	// Record any change output(s) generated as a result of the coin
-	// selection.
-	if changeAmt != 0 {
+	// selection, but only if the addition of the output won't lead to the
+	// creation of dust.
+	if changeAmt != 0 && changeAmt > DefaultDustLimit() {
 		changeAddr, err := l.NewAddress(WitnessPubKey, true)
 		if err != nil {
 			return err

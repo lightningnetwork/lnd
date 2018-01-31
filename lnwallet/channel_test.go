@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"io/ioutil"
-	"math/big"
 	"math/rand"
 	"os"
 	"reflect"
@@ -2768,20 +2767,20 @@ func TestChanSyncOweCommitment(t *testing.T) {
 			t.Fatalf("expected a CommitSig message, instead have %v",
 				spew.Sdump(aliceMsgsToSend[4]))
 		}
-		if !commitSigMsg.CommitSig.IsEqual(aliceSig) {
+		if commitSigMsg.CommitSig != aliceSig {
 			t.Fatalf("commit sig msgs don't match: expected %x got %x",
-				aliceSig.Serialize(), commitSigMsg.CommitSig.Serialize())
+				aliceSig, commitSigMsg.CommitSig)
 		}
 		if len(commitSigMsg.HtlcSigs) != len(aliceHtlcSigs) {
 			t.Fatalf("wrong number of htlc sigs: expected %v, got %v",
 				len(aliceHtlcSigs), len(commitSigMsg.HtlcSigs))
 		}
 		for i, htlcSig := range commitSigMsg.HtlcSigs {
-			if !htlcSig.IsEqual(aliceHtlcSigs[i]) {
+			if htlcSig != aliceHtlcSigs[i] {
 				t.Fatalf("htlc sig msgs don't match: "+
 					"expected %x got %x",
-					aliceHtlcSigs[i].Serialize(),
-					htlcSig.Serialize())
+					aliceHtlcSigs[i],
+					htlcSig)
 			}
 		}
 	}
@@ -3228,20 +3227,19 @@ func TestChanSyncOweRevocationAndCommit(t *testing.T) {
 			t.Fatalf("expected bob to re-send commit sig, instead sending: %v",
 				spew.Sdump(bobMsgsToSend[1]))
 		}
-		if !bobReCommitSigMsg.CommitSig.IsEqual(bobSig) {
+		if bobReCommitSigMsg.CommitSig != bobSig {
 			t.Fatalf("commit sig msgs don't match: expected %x got %x",
-				bobSig.Serialize(), bobReCommitSigMsg.CommitSig.Serialize())
+				bobSig, bobReCommitSigMsg.CommitSig)
 		}
 		if len(bobReCommitSigMsg.HtlcSigs) != len(bobHtlcSigs) {
 			t.Fatalf("wrong number of htlc sigs: expected %v, got %v",
 				len(bobHtlcSigs), len(bobReCommitSigMsg.HtlcSigs))
 		}
 		for i, htlcSig := range bobReCommitSigMsg.HtlcSigs {
-			if !htlcSig.IsEqual(aliceHtlcSigs[i]) {
+			if htlcSig != aliceHtlcSigs[i] {
 				t.Fatalf("htlc sig msgs don't match: "+
 					"expected %x got %x",
-					bobHtlcSigs[i].Serialize(),
-					htlcSig.Serialize())
+					bobHtlcSigs[i], htlcSig)
 			}
 		}
 	}
@@ -3426,21 +3424,20 @@ func TestChanSyncOweRevocationAndCommitForceTransition(t *testing.T) {
 		t.Fatalf("revocation msgs don't match: expected %v, got %v",
 			bobRevocation, bobReRevoke)
 	}
-	if !bobReCommitSigMsg.CommitSig.IsEqual(bobSigMsg.CommitSig) {
+	if bobReCommitSigMsg.CommitSig != bobSigMsg.CommitSig {
 		t.Fatalf("commit sig msgs don't match: expected %x got %x",
-			bobSigMsg.CommitSig.Serialize(),
-			bobReCommitSigMsg.CommitSig.Serialize())
+			bobSigMsg.CommitSig,
+			bobReCommitSigMsg.CommitSig)
 	}
 	if len(bobReCommitSigMsg.HtlcSigs) != len(bobSigMsg.HtlcSigs) {
 		t.Fatalf("wrong number of htlc sigs: expected %v, got %v",
 			len(bobSigMsg.HtlcSigs), len(bobReCommitSigMsg.HtlcSigs))
 	}
 	for i, htlcSig := range bobReCommitSigMsg.HtlcSigs {
-		if htlcSig.IsEqual(bobSigMsg.HtlcSigs[i]) {
+		if htlcSig != bobSigMsg.HtlcSigs[i] {
 			t.Fatalf("htlc sig msgs don't match: "+
 				"expected %x got %x",
-				bobSigMsg.HtlcSigs[i].Serialize(),
-				htlcSig.Serialize())
+				bobSigMsg.HtlcSigs[i], htlcSig)
 		}
 	}
 
@@ -3598,20 +3595,19 @@ func TestChannelRetransmissionFeeUpdate(t *testing.T) {
 		t.Fatalf("expected a CommitSig message, instead have %v",
 			spew.Sdump(aliceMsgsToSend[1]))
 	}
-	if !commitSigMsg.CommitSig.IsEqual(aliceSig) {
+	if commitSigMsg.CommitSig != aliceSig {
 		t.Fatalf("commit sig msgs don't match: expected %x got %x",
-			aliceSig.Serialize(), commitSigMsg.CommitSig.Serialize())
+			aliceSig, commitSigMsg.CommitSig)
 	}
 	if len(commitSigMsg.HtlcSigs) != len(aliceHtlcSigs) {
 		t.Fatalf("wrong number of htlc sigs: expected %v, got %v",
 			len(aliceHtlcSigs), len(commitSigMsg.HtlcSigs))
 	}
 	for i, htlcSig := range commitSigMsg.HtlcSigs {
-		if !htlcSig.IsEqual(aliceHtlcSigs[i]) {
+		if htlcSig != aliceHtlcSigs[i] {
 			t.Fatalf("htlc sig msgs don't match: "+
 				"expected %x got %x",
-				aliceHtlcSigs[i].Serialize(),
-				htlcSig.Serialize())
+				aliceHtlcSigs[i], htlcSig)
 		}
 	}
 
@@ -4127,7 +4123,7 @@ func TestInvalidCommitSigError(t *testing.T) {
 
 	// Before the signature gets to Bob, we'll mutate it, such that the
 	// signature is now actually invalid.
-	aliceSig.R.Add(aliceSig.R, new(big.Int).SetInt64(1))
+	aliceSig[0] ^= 88
 
 	// Bob should reject this new state, and return the proper error.
 	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)

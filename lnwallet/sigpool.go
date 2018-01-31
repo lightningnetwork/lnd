@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
 )
@@ -90,7 +91,7 @@ type signJobResp struct {
 	// sig is the generated signature for a particular signJob In the case
 	// of an error during signature generation, then this value sent will
 	// be nil.
-	sig *btcec.Signature
+	sig lnwire.Sig
 
 	// err is the error that occurred when executing the specified
 	// signature job. In the case that no error occurred, this value will
@@ -185,7 +186,7 @@ func (s *sigPool) poolWorker() {
 			if err != nil {
 				select {
 				case sigMsg.resp <- signJobResp{
-					sig: nil,
+					sig: lnwire.Sig{},
 					err: err,
 				}:
 					continue
@@ -196,7 +197,7 @@ func (s *sigPool) poolWorker() {
 				}
 			}
 
-			sig, err := btcec.ParseSignature(rawSig, btcec.S256())
+			sig, err := lnwire.NewSigFromRawSignature(rawSig)
 			select {
 			case sigMsg.resp <- signJobResp{
 				sig: sig,

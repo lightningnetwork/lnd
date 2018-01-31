@@ -50,17 +50,19 @@ func createTestVertex(db *DB) (*LightningNode, error) {
 	}
 
 	pub := priv.PubKey().SerializeCompressed()
-	return &LightningNode{
+	n := &LightningNode{
 		HaveNodeAnnouncement: true,
-		AuthSig:              testSig,
+		AuthSigBytes:         testSig.Serialize(),
 		LastUpdate:           time.Unix(updateTime, 0),
-		PubKey:               priv.PubKey(),
 		Color:                color.RGBA{1, 2, 3, 0},
 		Alias:                "kek" + string(pub[:]),
 		Features:             testFeatures,
 		Addresses:            testAddrs,
 		db:                   db,
-	}, nil
+	}
+	copy(n.PubKeyBytes[:], priv.PubKey().SerializeCompressed())
+
+	return n, nil
 }
 
 func TestNodeInsertionAndDeletion(t *testing.T) {
@@ -79,15 +81,15 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	_, testPub := btcec.PrivKeyFromBytes(btcec.S256(), key[:])
 	node := &LightningNode{
 		HaveNodeAnnouncement: true,
-		AuthSig:              testSig,
+		AuthSigBytes:         testSig.Serialize(),
 		LastUpdate:           time.Unix(1232342, 0),
-		PubKey:               testPub,
 		Color:                color.RGBA{1, 2, 3, 0},
 		Alias:                "kek",
 		Features:             testFeatures,
 		Addresses:            testAddrs,
 		db:                   db,
 	}
+	copy(node.PubKeyBytes[:], testPub.SerializeCompressed())
 
 	// First, insert the node into the graph DB. This should succeed
 	// without any errors.
@@ -102,7 +104,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 		t.Fatalf("unable to locate node: %v", err)
 	}
 
-	if _, exists, err := graph.HasLightningNode(testPub); err != nil {
+	if _, exists, err := graph.HasLightningNode(dbNode.PubKeyBytes); err != nil {
 		t.Fatalf("unable to query for node: %v", err)
 	} else if !exists {
 		t.Fatalf("node should be found but wasn't")
@@ -144,9 +146,9 @@ func TestPartialNode(t *testing.T) {
 	// PubKey set.
 	_, testPub := btcec.PrivKeyFromBytes(btcec.S256(), key[:])
 	node := &LightningNode{
-		PubKey:               testPub,
 		HaveNodeAnnouncement: false,
 	}
+	copy(node.PubKeyBytes[:], testPub.SerializeCompressed())
 
 	if err := graph.AddLightningNode(node); err != nil {
 		t.Fatalf("unable to add node: %v", err)
@@ -159,7 +161,7 @@ func TestPartialNode(t *testing.T) {
 		t.Fatalf("unable to locate node: %v", err)
 	}
 
-	if _, exists, err := graph.HasLightningNode(testPub); err != nil {
+	if _, exists, err := graph.HasLightningNode(dbNode.PubKeyBytes); err != nil {
 		t.Fatalf("unable to query for node: %v", err)
 	} else if !exists {
 		t.Fatalf("node should be found but wasn't")
@@ -168,11 +170,11 @@ func TestPartialNode(t *testing.T) {
 	// The two nodes should match exactly! (with default values for
 	// LastUpdate and db set to satisfy compareNodes())
 	node = &LightningNode{
-		PubKey:               testPub,
 		HaveNodeAnnouncement: false,
 		LastUpdate:           time.Unix(0, 0),
 		db:                   db,
 	}
+	copy(node.PubKeyBytes[:], testPub.SerializeCompressed())
 
 	if err := compareNodes(node, dbNode); err != nil {
 		t.Fatalf("nodes don't match: %v", err)
@@ -181,7 +183,7 @@ func TestPartialNode(t *testing.T) {
 	// Next, delete the node from the graph, this should purge all data
 	// related to the node.
 	if err := graph.DeleteLightningNode(testPub); err != nil {
-		t.Fatalf("unable to delete node; %v", err)
+		t.Fatalf("unable to delete node: %v", err)
 	}
 
 	// Finally, attempt to fetch the node again. This should fail as the
@@ -218,7 +220,11 @@ func TestAliasLookup(t *testing.T) {
 
 	// Next, attempt to lookup the alias. The alias should exactly match
 	// the one which the test node was assigned.
-	dbAlias, err := graph.LookupAlias(testNode.PubKey)
+	nodePub, err := testNode.PubKey()
+	if err != nil {
+		t.Fatalf("unable to generate pubkey: %v", err)
+	}
+	dbAlias, err := graph.LookupAlias(nodePub)
 	if err != nil {
 		t.Fatalf("unable to find alias: %v", err)
 	}
@@ -232,7 +238,11 @@ func TestAliasLookup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create test node: %v", err)
 	}
-	_, err = graph.LookupAlias(node.PubKey)
+	nodePub, err = node.PubKey()
+	if err != nil {
+		t.Fatalf("unable to generate pubkey: %v", err)
+	}
+	_, err = graph.LookupAlias(nodePub)
 	if err != ErrNodeAliasNotFound {
 		t.Fatalf("alias lookup should fail for non-existent pubkey")
 	}
@@ -311,22 +321,30 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 
 	// Add the new edge to the database, this should proceed without any
 	// errors.
+	node1Pub, err := node1.PubKey()
+	if err != nil {
+		t.Fatalf("unable to generate node key: %v", err)
+	}
+	node2Pub, err := node2.PubKey()
+	if err != nil {
+		t.Fatalf("unable to generate node key: %v", err)
+	}
 	edgeInfo := ChannelEdgeInfo{
-		ChannelID:   chanID,
-		ChainHash:   key,
-		NodeKey1:    node1.PubKey,
-		NodeKey2:    node2.PubKey,
-		BitcoinKey1: node1.PubKey,
-		BitcoinKey2: node2.PubKey,
+		ChannelID: chanID,
+		ChainHash: key,
 		AuthProof: &ChannelAuthProof{
-			NodeSig1:    testSig,
-			NodeSig2:    testSig,
-			BitcoinSig1: testSig,
-			BitcoinSig2: testSig,
+			NodeSig1Bytes:    testSig.Serialize(),
+			NodeSig2Bytes:    testSig.Serialize(),
+			BitcoinSig1Bytes: testSig.Serialize(),
+			BitcoinSig2Bytes: testSig.Serialize(),
 		},
 		ChannelPoint: outpoint,
 		Capacity:     9000,
 	}
+	copy(edgeInfo.NodeKey1Bytes[:], node1Pub.SerializeCompressed())
+	copy(edgeInfo.NodeKey2Bytes[:], node2Pub.SerializeCompressed())
+	copy(edgeInfo.BitcoinKey1Bytes[:], node1Pub.SerializeCompressed())
+	copy(edgeInfo.BitcoinKey2Bytes[:], node2Pub.SerializeCompressed())
 
 	if err := graph.AddChannelEdge(&edgeInfo); err != nil {
 		t.Fatalf("unable to create channel edge: %v", err)
@@ -413,22 +431,26 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 			Index: outPointIndex,
 		}
 
+		node1Pub, _ := node1.PubKey()
+		node2Pub, _ := node2.PubKey()
 		edgeInfo := ChannelEdgeInfo{
-			ChannelID:   shortChanID.ToUint64(),
-			ChainHash:   key,
-			NodeKey1:    node1.PubKey,
-			NodeKey2:    node2.PubKey,
-			BitcoinKey1: node1.PubKey,
-			BitcoinKey2: node2.PubKey,
+			ChannelID: shortChanID.ToUint64(),
+			ChainHash: key,
 			AuthProof: &ChannelAuthProof{
-				NodeSig1:    testSig,
-				NodeSig2:    testSig,
-				BitcoinSig1: testSig,
-				BitcoinSig2: testSig,
+				NodeSig1Bytes:    testSig.Serialize(),
+				NodeSig2Bytes:    testSig.Serialize(),
+				BitcoinSig1Bytes: testSig.Serialize(),
+				BitcoinSig2Bytes: testSig.Serialize(),
 			},
 			ChannelPoint: outpoint,
 			Capacity:     9000,
 		}
+
+		copy(edgeInfo.NodeKey1Bytes[:], node1Pub.SerializeCompressed())
+		copy(edgeInfo.NodeKey2Bytes[:], node2Pub.SerializeCompressed())
+		copy(edgeInfo.BitcoinKey1Bytes[:], node1Pub.SerializeCompressed())
+		copy(edgeInfo.BitcoinKey2Bytes[:], node2Pub.SerializeCompressed())
+
 		return edgeInfo
 	}
 
@@ -530,16 +552,16 @@ func assertEdgeInfoEqual(t *testing.T, e1 *ChannelEdgeInfo,
 			e2.ChainHash)
 	}
 
-	if !e1.NodeKey1.IsEqual(e2.NodeKey1) {
+	if !bytes.Equal(e1.NodeKey1Bytes[:], e2.NodeKey1Bytes[:]) {
 		t.Fatalf("nodekey1 doesn't match")
 	}
-	if !e1.NodeKey2.IsEqual(e2.NodeKey2) {
+	if !bytes.Equal(e1.NodeKey2Bytes[:], e2.NodeKey2Bytes[:]) {
 		t.Fatalf("nodekey2 doesn't match")
 	}
-	if !e1.BitcoinKey1.IsEqual(e2.BitcoinKey1) {
+	if !bytes.Equal(e1.BitcoinKey1Bytes[:], e2.BitcoinKey1Bytes[:]) {
 		t.Fatalf("bitcoinkey1 doesn't match")
 	}
-	if !e1.BitcoinKey2.IsEqual(e2.BitcoinKey2) {
+	if !bytes.Equal(e1.BitcoinKey2Bytes[:], e2.BitcoinKey2Bytes[:]) {
 		t.Fatalf("bitcoinkey2 doesn't match")
 	}
 
@@ -548,18 +570,18 @@ func assertEdgeInfoEqual(t *testing.T, e1 *ChannelEdgeInfo,
 			e2.Features)
 	}
 
-	if !e1.AuthProof.NodeSig1.IsEqual(e2.AuthProof.NodeSig1) {
+	if !bytes.Equal(e1.AuthProof.NodeSig1Bytes, e2.AuthProof.NodeSig1Bytes) {
 		t.Fatalf("nodesig1 doesn't match: %v vs %v",
-			spew.Sdump(e1.AuthProof.NodeSig1),
-			spew.Sdump(e2.AuthProof.NodeSig1))
+			spew.Sdump(e1.AuthProof.NodeSig1Bytes),
+			spew.Sdump(e2.AuthProof.NodeSig1Bytes))
 	}
-	if !e1.AuthProof.NodeSig2.IsEqual(e2.AuthProof.NodeSig2) {
+	if !bytes.Equal(e1.AuthProof.NodeSig2Bytes, e2.AuthProof.NodeSig2Bytes) {
 		t.Fatalf("nodesig2 doesn't match")
 	}
-	if !e1.AuthProof.BitcoinSig1.IsEqual(e2.AuthProof.BitcoinSig1) {
+	if !bytes.Equal(e1.AuthProof.BitcoinSig1Bytes, e2.AuthProof.BitcoinSig1Bytes) {
 		t.Fatalf("bitcoinsig1 doesn't match")
 	}
-	if !e1.AuthProof.BitcoinSig2.IsEqual(e2.AuthProof.BitcoinSig2) {
+	if !bytes.Equal(e1.AuthProof.BitcoinSig2Bytes, e2.AuthProof.BitcoinSig2Bytes) {
 		t.Fatalf("bitcoinsig2 doesn't match")
 	}
 
@@ -606,9 +628,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 		firstNode  *LightningNode
 		secondNode *LightningNode
 	)
-	node1Bytes := node1.PubKey.SerializeCompressed()
-	node2Bytes := node2.PubKey.SerializeCompressed()
-	if bytes.Compare(node1Bytes, node2Bytes) == -1 {
+	if bytes.Compare(node1.PubKeyBytes[:], node2.PubKeyBytes[:]) == -1 {
 		firstNode = node1
 		secondNode = node2
 	} else {
@@ -627,21 +647,21 @@ func TestEdgeInfoUpdates(t *testing.T) {
 	// Add the new edge to the database, this should proceed without any
 	// errors.
 	edgeInfo := &ChannelEdgeInfo{
-		ChannelID:   chanID,
-		ChainHash:   key,
-		NodeKey1:    firstNode.PubKey,
-		NodeKey2:    secondNode.PubKey,
-		BitcoinKey1: firstNode.PubKey,
-		BitcoinKey2: secondNode.PubKey,
+		ChannelID: chanID,
+		ChainHash: key,
 		AuthProof: &ChannelAuthProof{
-			NodeSig1:    testSig,
-			NodeSig2:    testSig,
-			BitcoinSig1: testSig,
-			BitcoinSig2: testSig,
+			NodeSig1Bytes:    testSig.Serialize(),
+			NodeSig2Bytes:    testSig.Serialize(),
+			BitcoinSig1Bytes: testSig.Serialize(),
+			BitcoinSig2Bytes: testSig.Serialize(),
 		},
 		ChannelPoint: outpoint,
 		Capacity:     1000,
 	}
+	copy(edgeInfo.NodeKey1Bytes[:], firstNode.PubKeyBytes[:])
+	copy(edgeInfo.NodeKey2Bytes[:], secondNode.PubKeyBytes[:])
+	copy(edgeInfo.BitcoinKey1Bytes[:], firstNode.PubKeyBytes[:])
+	copy(edgeInfo.BitcoinKey2Bytes[:], secondNode.PubKeyBytes[:])
 	if err := graph.AddChannelEdge(edgeInfo); err != nil {
 		t.Fatalf("unable to create channel edge: %v", err)
 	}
@@ -649,7 +669,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 	// With the edge added, we can now create some fake edge information to
 	// update for both edges.
 	edge1 := &ChannelEdgePolicy{
-		Signature:                 testSig,
+		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID,
 		LastUpdate:                time.Unix(433453, 0),
 		Flags:                     0,
@@ -661,7 +681,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 		db:   db,
 	}
 	edge2 := &ChannelEdgePolicy{
-		Signature:                 testSig,
+		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID,
 		LastUpdate:                time.Unix(124234, 0),
 		Flags:                     1,
@@ -796,9 +816,7 @@ func TestGraphTraversal(t *testing.T) {
 	// Determine which node is "smaller", we'll need this in order to
 	// properly create the edges for the graph.
 	var firstNode, secondNode *LightningNode
-	node1Bytes := nodes[0].PubKey.SerializeCompressed()
-	node2Bytes := nodes[1].PubKey.SerializeCompressed()
-	if bytes.Compare(node1Bytes, node2Bytes) == -1 {
+	if bytes.Compare(nodes[0].PubKeyBytes[:], nodes[1].PubKeyBytes[:]) == -1 {
 		firstNode = nodes[0]
 		secondNode = nodes[1]
 	} else {
@@ -818,21 +836,21 @@ func TestGraphTraversal(t *testing.T) {
 		}
 
 		edgeInfo := ChannelEdgeInfo{
-			ChannelID:   chanID,
-			ChainHash:   key,
-			NodeKey1:    nodes[0].PubKey,
-			NodeKey2:    nodes[1].PubKey,
-			BitcoinKey1: nodes[0].PubKey,
-			BitcoinKey2: nodes[1].PubKey,
+			ChannelID: chanID,
+			ChainHash: key,
 			AuthProof: &ChannelAuthProof{
-				NodeSig1:    testSig,
-				NodeSig2:    testSig,
-				BitcoinSig1: testSig,
-				BitcoinSig2: testSig,
+				NodeSig1Bytes:    testSig.Serialize(),
+				NodeSig2Bytes:    testSig.Serialize(),
+				BitcoinSig1Bytes: testSig.Serialize(),
+				BitcoinSig2Bytes: testSig.Serialize(),
 			},
 			ChannelPoint: op,
 			Capacity:     1000,
 		}
+		copy(edgeInfo.NodeKey1Bytes[:], nodes[0].PubKeyBytes[:])
+		copy(edgeInfo.NodeKey2Bytes[:], nodes[1].PubKeyBytes[:])
+		copy(edgeInfo.BitcoinKey1Bytes[:], nodes[0].PubKeyBytes[:])
+		copy(edgeInfo.BitcoinKey2Bytes[:], nodes[1].PubKeyBytes[:])
 		err := graph.AddChannelEdge(&edgeInfo)
 		if err != nil {
 			t.Fatalf("unable to add node: %v", err)
@@ -843,7 +861,7 @@ func TestGraphTraversal(t *testing.T) {
 		edge := randEdgePolicy(chanID, op, db)
 		edge.Flags = 0
 		edge.Node = secondNode
-		edge.Signature = testSig
+		edge.SigBytes = testSig.Serialize()
 		if err := graph.UpdateEdgePolicy(edge); err != nil {
 			t.Fatalf("unable to update edge: %v", err)
 		}
@@ -853,7 +871,7 @@ func TestGraphTraversal(t *testing.T) {
 		edge = randEdgePolicy(chanID, op, db)
 		edge.Flags = 1
 		edge.Node = firstNode
-		edge.Signature = testSig
+		edge.SigBytes = testSig.Serialize()
 		if err := graph.UpdateEdgePolicy(edge); err != nil {
 			t.Fatalf("unable to update edge: %v", err)
 		}
@@ -885,13 +903,13 @@ func TestGraphTraversal(t *testing.T) {
 
 		// Each each should indicate that it's outgoing (pointed
 		// towards the second node).
-		if !outEdge.Node.PubKey.IsEqual(secondNode.PubKey) {
+		if !bytes.Equal(outEdge.Node.PubKeyBytes[:], secondNode.PubKeyBytes[:]) {
 			return fmt.Errorf("wrong outgoing edge")
 		}
 
 		// The incoming edge should also indicate that it's pointing to
 		// the origin node.
-		if !inEdge.Node.PubKey.IsEqual(firstNode.PubKey) {
+		if !bytes.Equal(inEdge.Node.PubKeyBytes[:], firstNode.PubKeyBytes[:]) {
 			return fmt.Errorf("wrong outgoing edge")
 		}
 
@@ -1008,22 +1026,21 @@ func TestGraphPruning(t *testing.T) {
 		channelPoints = append(channelPoints, &op)
 
 		edgeInfo := ChannelEdgeInfo{
-			ChannelID:   chanID,
-			ChainHash:   key,
-			NodeKey1:    graphNodes[i].PubKey,
-			NodeKey2:    graphNodes[i+1].PubKey,
-			BitcoinKey1: graphNodes[i].PubKey,
-			BitcoinKey2: graphNodes[i+1].PubKey,
+			ChannelID: chanID,
+			ChainHash: key,
 			AuthProof: &ChannelAuthProof{
-				NodeSig1:    testSig,
-				NodeSig2:    testSig,
-				BitcoinSig1: testSig,
-				BitcoinSig2: testSig,
+				NodeSig1Bytes:    testSig.Serialize(),
+				NodeSig2Bytes:    testSig.Serialize(),
+				BitcoinSig1Bytes: testSig.Serialize(),
+				BitcoinSig2Bytes: testSig.Serialize(),
 			},
 			ChannelPoint: op,
 			Capacity:     1000,
 		}
-
+		copy(edgeInfo.NodeKey1Bytes[:], graphNodes[i].PubKeyBytes[:])
+		copy(edgeInfo.NodeKey2Bytes[:], graphNodes[i+1].PubKeyBytes[:])
+		copy(edgeInfo.BitcoinKey1Bytes[:], graphNodes[i].PubKeyBytes[:])
+		copy(edgeInfo.BitcoinKey2Bytes[:], graphNodes[i+1].PubKeyBytes[:])
 		if err := graph.AddChannelEdge(&edgeInfo); err != nil {
 			t.Fatalf("unable to add node: %v", err)
 		}
@@ -1033,7 +1050,7 @@ func TestGraphPruning(t *testing.T) {
 		edge := randEdgePolicy(chanID, op, db)
 		edge.Flags = 0
 		edge.Node = graphNodes[i]
-		edge.Signature = testSig
+		edge.SigBytes = testSig.Serialize()
 		if err := graph.UpdateEdgePolicy(edge); err != nil {
 			t.Fatalf("unable to update edge: %v", err)
 		}
@@ -1043,7 +1060,7 @@ func TestGraphPruning(t *testing.T) {
 		edge = randEdgePolicy(chanID, op, db)
 		edge.Flags = 1
 		edge.Node = graphNodes[i]
-		edge.Signature = testSig
+		edge.SigBytes = testSig.Serialize()
 		if err := graph.UpdateEdgePolicy(edge); err != nil {
 			t.Fatalf("unable to update edge: %v", err)
 		}
@@ -1159,9 +1176,9 @@ func compareNodes(a, b *LightningNode) error {
 		return fmt.Errorf("Addresses doesn't match: expected %#v, \n "+
 			"got %#v", a.Addresses, b.Addresses)
 	}
-	if !reflect.DeepEqual(a.PubKey, b.PubKey) {
+	if !reflect.DeepEqual(a.PubKeyBytes, b.PubKeyBytes) {
 		return fmt.Errorf("PubKey doesn't match: expected %#v, \n "+
-			"got %#v", a.PubKey, b.PubKey)
+			"got %#v", a.PubKeyBytes, b.PubKeyBytes)
 	}
 	if !reflect.DeepEqual(a.Color, b.Color) {
 		return fmt.Errorf("Color doesn't match: expected %#v, \n "+

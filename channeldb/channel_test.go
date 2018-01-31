@@ -81,6 +81,8 @@ var (
 		Index: 0,
 	}
 	privKey, pubKey = btcec.PrivKeyFromBytes(btcec.S256(), key[:])
+
+	wireSig, _ = lnwire.NewSigFromSignature(testSig)
 )
 
 // makeTestDB creates a new instance of the ChannelDB for testing purposes. A
@@ -428,10 +430,10 @@ func TestChannelStateTransition(t *testing.T) {
 		Commitment: remoteCommit,
 		CommitSig: &lnwire.CommitSig{
 			ChanID:    lnwire.ChannelID(key),
-			CommitSig: testSig,
-			HtlcSigs: []*btcec.Signature{
-				testSig,
-				testSig,
+			CommitSig: wireSig,
+			HtlcSigs: []lnwire.Sig{
+				wireSig,
+				wireSig,
 			},
 		},
 		LogUpdates: []LogUpdate{

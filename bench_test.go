@@ -70,11 +70,18 @@ func BenchmarkProcessPacket(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		pkt, err = path[0].ProcessOnionPacket(sphinxPacket, nil)
 		if err != nil {
-			b.Fatalf("unable to process packet: %v", err)
+			b.Fatalf("unable to process packet %d: %v", i, err)
 		}
 
 		b.StopTimer()
-		shutdown("0", path[0].log)
+		router := path[0]
+		shutdown("0", router.log)
+		path[0] = &Router{
+			nodeID:   router.nodeID,
+			nodeAddr: router.nodeAddr,
+			onionKey: router.onionKey,
+			log:      NewDecayedLog("0", nil),
+		}
 		path[0].log.Start()
 		b.StartTimer()
 	}

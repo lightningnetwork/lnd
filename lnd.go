@@ -154,28 +154,6 @@ func lndMain() error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	var macaroonService *bakery.Bakery
-	if !cfg.NoMacaroons {
-		// Create the macaroon authentication/authorization service.
-		macaroonService, err = macaroons.NewService(macaroonDatabaseDir,
-			macaroons.IPLockChecker)
-		if err != nil {
-			srvrLog.Errorf("unable to create macaroon service: %v", err)
-			return err
-		}
-
-		// Create macaroon files for lncli to use if they don't exist.
-		if !fileExists(cfg.AdminMacPath) && !fileExists(cfg.ReadMacPath) {
-			err = genMacaroons(ctx, macaroonService,
-				cfg.AdminMacPath, cfg.ReadMacPath)
-			if err != nil {
-				ltndLog.Errorf("unable to create macaroon "+
-					"files: %v", err)
-				return err
-			}
-		}
-	}
-
 	// Ensure we create TLS key and certificate if they don't exist
 	if !fileExists(cfg.TLSCertPath) && !fileExists(cfg.TLSKeyPath) {
 		if err := genCertPair(cfg.TLSCertPath, cfg.TLSKeyPath); err != nil {
@@ -200,6 +178,18 @@ func lndMain() error {
 	}
 	proxyOpts := []grpc.DialOption{grpc.WithTransportCredentials(cCreds)}
 
+	var macaroonService *macaroons.Service
+	if !cfg.NoMacaroons {
+		// Create the macaroon authentication/authorization service.
+		macaroonService, err = macaroons.NewService(macaroonDatabaseDir,
+			macaroons.IPLockChecker)
+		if err != nil {
+			srvrLog.Errorf("unable to create macaroon service: %v", err)
+			return err
+		}
+		defer macaroonService.Close()
+	}
+
 	// We wait until the user provides a password over RPC. In case lnd is
 	// started with the --noencryptwallet flag, we use the default password
 	// "hello" for wallet encryption.
@@ -212,6 +202,27 @@ func lndMain() error {
 		)
 		if err != nil {
 			return err
+		}
+	}
+
+	if !cfg.NoMacaroons {
+		// Try to unlock the macaroon store with the private password.
+		// Ignore ErrAlreadyUnlocked since it could be unlocked by the
+		// wallet unlocker.
+		err = macaroonService.CreateUnlock(&privateWalletPw)
+		if err != nil && err != macaroons.ErrAlreadyUnlocked {
+			srvrLog.Error(err)
+			return err
+		}
+		// Create macaroon files for lncli to use if they don't exist.
+		if !fileExists(cfg.AdminMacPath) && !fileExists(cfg.ReadMacPath) {
+			err = genMacaroons(ctx, macaroonService,
+				cfg.AdminMacPath, cfg.ReadMacPath)
+			if err != nil {
+				ltndLog.Errorf("unable to create macaroon "+
+					"files: %v", err)
+				return err
+			}
 		}
 	}
 
@@ -389,10 +400,10 @@ func lndMain() error {
 	// Check macaroon authentication if macaroons aren't disabled.
 	if macaroonService != nil {
 		serverOpts = append(serverOpts,
-			grpc.UnaryInterceptor(macaroons.UnaryServerInterceptor(
-				macaroonService, permissions)),
-			grpc.StreamInterceptor(macaroons.StreamServerInterceptor(
-				macaroonService, permissions)),
+			grpc.UnaryInterceptor(macaroonService.
+				UnaryServerInterceptor(permissions)),
+			grpc.StreamInterceptor(macaroonService.
+				StreamServerInterceptor(permissions)),
 		)
 	}
 
@@ -672,7 +683,7 @@ func genCertPair(certFile, keyFile string) error {
 
 // genMacaroons generates a pair of macaroon files; one admin-level and one
 // read-only. These can also be used to generate more granular macaroons.
-func genMacaroons(ctx context.Context, svc *bakery.Bakery, admFile,
+func genMacaroons(ctx context.Context, svc *macaroons.Service, admFile,
 	roFile string) error {
 
 	// Generate the read-only macaroon and write it to a file.
@@ -712,7 +723,7 @@ func genMacaroons(ctx context.Context, svc *bakery.Bakery, admFile,
 // the user to this RPC server.
 func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 	serverOpts []grpc.ServerOption, proxyOpts []grpc.DialOption,
-	tlsConf *tls.Config, macaroonService *bakery.Bakery) ([]byte, []byte, error) {
+	tlsConf *tls.Config, macaroonService *macaroons.Service) ([]byte, []byte, error) {
 
 	// Set up a new PasswordService, which will listen
 	// for passwords provided over RPC.

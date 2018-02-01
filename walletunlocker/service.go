@@ -5,10 +5,10 @@ import (
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
+	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcwallet/wallet"
 	"golang.org/x/net/context"
-	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
 // UnlockerService implements the WalletUnlocker service used to provide lnd
@@ -26,10 +26,11 @@ type UnlockerService struct {
 
 	chainDir  string
 	netParams *chaincfg.Params
+	authSvc   *macaroons.Service
 }
 
 // New creates and returns a new UnlockerService.
-func New(authSvc *bakery.Bakery, chainDir string,
+func New(authSvc *macaroons.Service, chainDir string,
 	params *chaincfg.Params) *UnlockerService {
 	return &UnlockerService{
 		CreatePasswords: make(chan []byte, 1),
@@ -65,6 +66,15 @@ func (u *UnlockerService) CreateWallet(ctx context.Context,
 	if walletExists {
 		// Cannot create wallet if it already exists!
 		return nil, fmt.Errorf("wallet already exists")
+	}
+
+	// Attempt to create a password for the macaroon service.
+	if u.authSvc != nil {
+		err = u.authSvc.CreateUnlock(&password)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create/unlock "+
+				"macaroon store: %v", err)
+		}
 	}
 
 	// We send the password over the CreatePasswords channel, such that it
@@ -107,6 +117,15 @@ func (u *UnlockerService) UnlockWallet(ctx context.Context,
 	if err := loader.UnloadWallet(); err != nil {
 		// TODO: not return error here?
 		return nil, err
+	}
+
+	// Attempt to create a password for the macaroon service.
+	if u.authSvc != nil {
+		err = u.authSvc.CreateUnlock(&in.Password)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create/unlock "+
+				"macaroon store: %v", err)
+		}
 	}
 
 	// At this point we was able to open the existing wallet with the

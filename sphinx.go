@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"io"
 	"io/ioutil"
+	"math/big"
 	"sync"
 
 	"github.com/aead/chacha20"
@@ -211,37 +212,60 @@ func generateSharedSecrets(paymentPath []*btcec.PublicKey,
 	// we only need to transmit a single group element, and hops can't link
 	// a session back to us if they have several nodes in the path.
 	numHops := len(paymentPath)
-	hopEphemeralPubKeys := make([]*btcec.PublicKey, numHops)
 	hopSharedSecrets := make([][sha256.Size]byte, numHops)
-	hopBlindingFactors := make([][sha256.Size]byte, numHops)
 
 	// Compute the triplet for the first hop outside of the main loop.
 	// Within the loop each new triplet will be computed recursively based
 	// off of the blinding factor of the last hop.
-	hopEphemeralPubKeys[0] = sessionKey.PubKey()
+	lastEphemeralPubKey := sessionKey.PubKey()
 	hopSharedSecrets[0] = generateSharedSecret(paymentPath[0], sessionKey)
-	hopBlindingFactors[0] = computeBlindingFactor(hopEphemeralPubKeys[0], hopSharedSecrets[0][:])
+	lastBlindingFactor := computeBlindingFactor(lastEphemeralPubKey, hopSharedSecrets[0][:])
 
-	// Now recursively compute the ephemeral ECDH pub keys, the shared
-	// secret, and blinding factor for each hop.
+	// The cached blinding factor will contain the running product of the
+	// session private key x and blinding factors b_i, computed as
+	//   c_0 = x
+	//   c_i = c_{i-1} * b_{i-1} 		 (mod |F(G)|).
+	//       = x * b_0 * b_1 * ... * b_{i-1} (mod |F(G)|).
+	//
+	// We begin with just the session private key x, so that base case
+	// c_0 = x. At the beginning of each iteration, the previous blinding
+	// factor is aggregated into the modular product, and used as the scalar
+	// value in deriving the hop ephemeral keys and shared secrets.
+	var cachedBlindingFactor big.Int
+	cachedBlindingFactor.SetBytes(sessionKey.D.Bytes())
+
+	// Now recursively compute the cached blinding factor, ephemeral ECDH
+	// pub keys, and shared secret for each hop.
+	var nextBlindingFactor big.Int
 	for i := 1; i <= numHops-1; i++ {
-		// a_{n} = a_{n-1} x c_{n-1} -> (Y_prev_pub_key x prevBlindingFactor)
-		hopEphemeralPubKeys[i] = blindGroupElement(hopEphemeralPubKeys[i-1],
-			hopBlindingFactors[i-1][:])
+		// Update the cached blinding factor with b_{i-1}.
+		nextBlindingFactor.SetBytes(lastBlindingFactor[:])
+		cachedBlindingFactor.Mul(&cachedBlindingFactor, &nextBlindingFactor)
+		cachedBlindingFactor.Mod(&cachedBlindingFactor, btcec.S256().Params().N)
 
-		// s_{n} = sha256( y_{n} x c_{n-1} ) ->
+		// a_i = g ^ c_i
+		//     = g^( x * b_0 * ... * b_{i-1} )
+		//     = X^( b_0 * ... * b_{i-1} )
+		// X_our_session_pub_key x all prev blinding factors
+		lastEphemeralPubKey = blindBaseElement(cachedBlindingFactor.Bytes())
+
+		// e_i = Y_i ^ c_i
+		//     = ( Y_i ^ x )^( b_0 * ... * b_{i-1} )
 		// (Y_their_pub_key x x_our_priv) x all prev blinding factors
-		yToX := blindGroupElement(paymentPath[i], sessionKey.D.Bytes())
-		hopSharedSecrets[i] = sha256.Sum256(
-			multiScalarMult(
-				yToX,
-				hopBlindingFactors[:i],
-			).SerializeCompressed(),
-		)
+		hopBlindedPubKey := blindGroupElement(
+			paymentPath[i], cachedBlindingFactor.Bytes())
 
-		// TODO(roasbeef): prob don't need to store all blinding factors, only the prev...
-		// b_{n} = sha256(a_{n} || s_{n})
-		hopBlindingFactors[i] = computeBlindingFactor(hopEphemeralPubKeys[i],
+		// s_i = sha256( e_i )
+		//     = sha256( Y_i ^ (x * b_0 * ... * b_{i-1} )
+		hopSharedSecrets[i] = sha256.Sum256(hopBlindedPubKey.SerializeCompressed())
+
+		// Only need to evaluate up to the penultimate blinding factor.
+		if i >= numHops-1 {
+			break
+		}
+
+		// b_i = sha256( a_i || s_i )
+		lastBlindingFactor = computeBlindingFactor(lastEphemeralPubKey,
 			hopSharedSecrets[i][:])
 	}
 
@@ -501,10 +525,17 @@ func computeBlindingFactor(hopPubKey *btcec.PublicKey, hopSharedSecret []byte) [
 	return hash
 }
 
-// blindGroupElement blinds the group element by performing scalar
-// multiplication of the group element by blindingFactor: G x blindingFactor.
+// blindGroupElement blinds the group element P by performing scalar
+// multiplication of the group element by blindingFactor: blindingFactor * P.
 func blindGroupElement(hopPubKey *btcec.PublicKey, blindingFactor []byte) *btcec.PublicKey {
 	newX, newY := btcec.S256().ScalarMult(hopPubKey.X, hopPubKey.Y, blindingFactor[:])
+	return &btcec.PublicKey{btcec.S256(), newX, newY}
+}
+
+// blindBaseElement blinds the groups's generator G by performing scalar base
+// multiplication using the blindingFactor: blindingFactor * G.
+func blindBaseElement(blindingFactor []byte) *btcec.PublicKey {
+	newX, newY := btcec.S256().ScalarBaseMult(blindingFactor)
 	return &btcec.PublicKey{btcec.S256(), newX, newY}
 }
 
@@ -521,22 +552,6 @@ func generateSharedSecret(pub *btcec.PublicKey, priv *btcec.PrivateKey) [32]byte
 	s.Y = y
 
 	return sha256.Sum256(s.SerializeCompressed())
-}
-
-// multiScalarMult computes the cumulative product of the blinding factors
-// times the passed public key.
-//
-// TODO(roasbeef): optimize using totient?
-func multiScalarMult(hopPubKey *btcec.PublicKey,
-	blindingFactors [][sha256.Size]byte) *btcec.PublicKey {
-
-	finalPubKey := hopPubKey
-
-	for _, blindingFactor := range blindingFactors {
-		finalPubKey = blindGroupElement(finalPubKey, blindingFactor[:])
-	}
-
-	return finalPubKey
 }
 
 // ProcessCode is an enum-like type which describes to the high-level package

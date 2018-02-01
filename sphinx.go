@@ -8,7 +8,6 @@ import (
 	"encoding/binary"
 	"io"
 	"io/ioutil"
-	"math"
 	"math/big"
 
 	"github.com/aead/chacha20"

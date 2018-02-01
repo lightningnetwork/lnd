@@ -184,8 +184,8 @@ func TestBolt4Packet(t *testing.T) {
 // shutdown deletes the temporary directory that the test database uses
 // and handles closing the database.
 func shutdown(dir string, d ReplayLog) {
-	os.RemoveAll(dir)
 	d.Stop()
+	os.RemoveAll(dir)
 }
 
 func TestSphinxCorrectness(t *testing.T) {
@@ -205,7 +205,7 @@ func TestSphinxCorrectness(t *testing.T) {
 		hop := nodes[i]
 
 		t.Logf("Processing at hop: %v \n", i)
-		onionPacket, err := hop.ProcessOnionPacket(fwdMsg, nil)
+		onionPacket, err := hop.ProcessOnionPacket(fwdMsg, nil, uint32(i)+1)
 		if err != nil {
 			t.Fatalf("Node %v was unable to process the "+
 				"forwarding message: %v", i, err)
@@ -268,7 +268,7 @@ func TestSphinxSingleHop(t *testing.T) {
 
 	// Simulating a direct single-hop payment, send the sphinx packet to
 	// the destination node, making it process the packet fully.
-	processedPacket, err := nodes[0].ProcessOnionPacket(fwdMsg, nil)
+	processedPacket, err := nodes[0].ProcessOnionPacket(fwdMsg, nil, 1)
 	if err != nil {
 		t.Fatalf("unable to process sphinx packet: %v", err)
 	}
@@ -295,13 +295,13 @@ func TestSphinxNodeRelpay(t *testing.T) {
 
 	// Allow the node to process the initial packet, this should proceed
 	// without any failures.
-	if _, err := nodes[0].ProcessOnionPacket(fwdMsg, nil); err != nil {
+	if _, err := nodes[0].ProcessOnionPacket(fwdMsg, nil, 1); err != nil {
 		t.Fatalf("unable to process sphinx packet: %v", err)
 	}
 
 	// Now, force the node to process the packet a second time, this should
 	// fail with a detected replay error.
-	if _, err := nodes[0].ProcessOnionPacket(fwdMsg, nil); err != ErrReplayedPacket {
+	if _, err := nodes[0].ProcessOnionPacket(fwdMsg, nil, 1); err != ErrReplayedPacket {
 		t.Fatalf("sphinx packet replay should be rejected, instead error is %v", err)
 	}
 }
@@ -322,14 +322,14 @@ func TestSphinxNodeRelpaySameBatch(t *testing.T) {
 
 	// Allow the node to process the initial packet, this should proceed
 	// without any failures.
-	if err := tx.ProcessOnionPacket(0, fwdMsg, nil); err != nil {
+	if err := tx.ProcessOnionPacket(0, fwdMsg, nil, 1); err != nil {
 		t.Fatalf("unable to process sphinx packet: %v", err)
 	}
 
 	// Now, force the node to process the packet a second time, this call
 	// should not fail, even though the batch has internally recorded this
 	// as a duplicate.
-	err = tx.ProcessOnionPacket(1, fwdMsg, nil)
+	err = tx.ProcessOnionPacket(1, fwdMsg, nil, 1)
 	if err != nil {
 		t.Fatalf("adding duplicate sphinx packet to batch should not "+
 			"result in an error, instead got: %v", err)
@@ -368,7 +368,7 @@ func TestSphinxNodeRelpayLaterBatch(t *testing.T) {
 
 	// Allow the node to process the initial packet, this should proceed
 	// without any failures.
-	if err := tx.ProcessOnionPacket(uint16(0), fwdMsg, nil); err != nil {
+	if err := tx.ProcessOnionPacket(uint16(0), fwdMsg, nil, 1); err != nil {
 		t.Fatalf("unable to process sphinx packet: %v", err)
 	}
 
@@ -381,7 +381,7 @@ func TestSphinxNodeRelpayLaterBatch(t *testing.T) {
 
 	// Now, force the node to process the packet a second time, this should
 	// fail with a detected replay error.
-	err = tx2.ProcessOnionPacket(uint16(0), fwdMsg, nil)
+	err = tx2.ProcessOnionPacket(uint16(0), fwdMsg, nil, 1)
 	if err != nil {
 		t.Fatalf("sphinx packet replay should not have been rejected, "+
 			"instead error is %v", err)
@@ -413,7 +413,7 @@ func TestSphinxNodeRelpayBatchIdempotency(t *testing.T) {
 
 	// Allow the node to process the initial packet, this should proceed
 	// without any failures.
-	if err := tx.ProcessOnionPacket(uint16(0), fwdMsg, nil); err != nil {
+	if err := tx.ProcessOnionPacket(uint16(0), fwdMsg, nil, 1); err != nil {
 		t.Fatalf("unable to process sphinx packet: %v", err)
 	}
 
@@ -426,7 +426,7 @@ func TestSphinxNodeRelpayBatchIdempotency(t *testing.T) {
 
 	// Now, force the node to process the packet a second time, this should
 	// not fail with a detected replay error.
-	err = tx2.ProcessOnionPacket(uint16(0), fwdMsg, nil)
+	err = tx2.ProcessOnionPacket(uint16(0), fwdMsg, nil, 1)
 	if err != nil {
 		t.Fatalf("sphinx packet replay should not have been rejected, "+
 			"instead error is %v", err)
@@ -460,7 +460,8 @@ func TestSphinxAssocData(t *testing.T) {
 	nodes[0].log.Start()
 	defer shutdown("0", nodes[0].log)
 
-	if _, err := nodes[0].ProcessOnionPacket(fwdMsg, []byte("somethingelse")); err == nil {
+	_, err = nodes[0].ProcessOnionPacket(fwdMsg, []byte("somethingelse"), 1)
+	if err == nil {
 		t.Fatalf("we should fail when associated data changes")
 	}
 

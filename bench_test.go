@@ -40,6 +40,7 @@ func BenchmarkPathPacketConstruction(b *testing.B) {
 	}
 
 	d, _ := btcec.PrivKeyFromBytes(btcec.S256(), bytes.Repeat([]byte{'A'}, 32))
+	b.ReportAllocs()
 	b.StartTimer()
 
 	for i := 0; i < b.N; i++ {
@@ -58,6 +59,7 @@ func BenchmarkProcessPacket(b *testing.B) {
 	if err != nil {
 		b.Fatalf("unable to create test route: %v", err)
 	}
+	b.ReportAllocs()
 	b.StartTimer()
 
 	var (

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
@@ -776,9 +777,54 @@ func listPeers(ctx *cli.Context) error {
 }
 
 var createCommand = cli.Command{
-	Name:   "create",
-	Usage:  "Used to set the wallet password at lnd startup",
+	Name: "create",
+	Description: `
+	The create command is used to initialize an lnd wallet from scratch for
+	the very first time. This is interactive command with one required
+	argument (the password), and one optional argument (the mnemonic
+	passphrase).  
+
+	The first argument (the password) is required and MUST be greater than
+	8 characters. This will be used to encrypt the wallet within lnd. This
+	MUST be remembered as it will be required to fully start up the daemon.
+
+	The second argument is an optional 24-word mnemonic derived from BIP
+	39. If provided, then the internal wallet will use the seed derived
+	from this mnemonic to generate all keys.
+
+	This command returns a 24-word seed in the scenario that NO mnemonic
+	was provided by the user. This should be written down as it can be used
+	to potentially recover all on-chain funds, and most off-chain funds as
+	well.
+	`,
 	Action: actionDecorator(create),
+}
+
+// monowidthColumns takes a set of words, and the number of desired columns,
+// and returns a new set of words that have had white space appended to the
+// word in order to create a mono-width column.
+func monowidthColumns(words []string, ncols int) []string {
+	// Determine max size of words in each column.
+	colWidths := make([]int, ncols)
+	for i, word := range words {
+		col := i % ncols
+		curWidth := colWidths[col]
+		if len(word) > curWidth {
+			colWidths[col] = len(word)
+		}
+	}
+
+	// Append whitespace to each word to make columns mono-width.
+	finalWords := make([]string, len(words))
+	for i, word := range words {
+		col := i % ncols
+		width := colWidths[col]
+
+		diff := width - len(word)
+		finalWords[i] = word + strings.Repeat(" ", diff)
+	}
+
+	return finalWords
 }
 
 func create(ctx *cli.Context) error {
@@ -786,6 +832,8 @@ func create(ctx *cli.Context) error {
 	client, cleanUp := getWalletUnlockerClient(ctx)
 	defer cleanUp()
 
+	// First, we'll prompt the user for their passphrase twice to ensure
+	// both attempts match up properly.
 	fmt.Printf("Input wallet password: ")
 	pw1, err := terminal.ReadPassword(int(syscall.Stdin))
 	if err != nil {
@@ -800,24 +848,176 @@ func create(ctx *cli.Context) error {
 	}
 	fmt.Println()
 
+	// If the passwords don't match, then we'll return an error.
 	if !bytes.Equal(pw1, pw2) {
 		return fmt.Errorf("passwords don't match")
 	}
 
-	req := &lnrpc.CreateWalletRequest{
-		Password: pw1,
+	// Next, we'll see if the user has 24-word mnemonic they want to use to
+	// derive a seed within the wallet.
+	var (
+		hasMnemonic bool
+	)
+
+mnemonicCheck:
+	for {
+		fmt.Println()
+		fmt.Printf("Do you have an existing cipher seed " +
+			"mnemonic you want to use? (Enter y/n): ")
+
+		reader := bufio.NewReader(os.Stdin)
+		answer, err := reader.ReadString('\n')
+		if err != nil {
+			return err
+		}
+
+		fmt.Println()
+
+		answer = strings.TrimSpace(answer)
+		answer = strings.ToLower(answer)
+
+		switch answer {
+		case "y":
+			hasMnemonic = true
+			break mnemonicCheck
+		case "n":
+			hasMnemonic = false
+			break mnemonicCheck
+		}
 	}
-	_, err = client.CreateWallet(ctxb, req)
-	if err != nil {
+
+	// If the user *does* have an existing seed they want to use, then
+	// we'll read that in directly from the terminal.
+	var (
+		cipherSeedMnemonic []string
+		aezeedPass         []byte
+	)
+	if hasMnemonic {
+		// We'll now prompt the user to enter in their 24-word
+		// mnemonic.
+		fmt.Printf("Input your 24-word mnemonic separated by spaces: ")
+		reader := bufio.NewReader(os.Stdin)
+		mnemonic, err := reader.ReadString('\n')
+		if err != nil {
+			return err
+		}
+
+		// We'll trim off extra spaces, and ensure the mnemonic is all
+		// lower case, then populate our request.
+		mnemonic = strings.TrimSpace(mnemonic)
+		mnemonic = strings.ToLower(mnemonic)
+
+		cipherSeedMnemonic = strings.Split(mnemonic, " ")
+
+		fmt.Println()
+
+		// Additionally, the user may have a passphrase, that will also
+		// need to be provided so the daemon can properly decipher the
+		// cipher seed.
+		fmt.Printf("Input your cipher seed passphrase (press enter if " +
+			"your seed doesn't have a passphrase): ")
+		passphrase, err := terminal.ReadPassword(int(syscall.Stdin))
+		if err != nil {
+			return err
+		}
+
+		aezeedPass = []byte(passphrase)
+
+		fmt.Println()
+	} else {
+		// Otherwise, if the user doesn't have a mnemonic that they
+		// want to use, we'll generate a fresh one with the GenSeed
+		// command.
+		fmt.Println("Your cipher seed can optionally be encrypted.")
+		fmt.Printf("Input your passphrase you wish to encrypt it " +
+			"(or press enter to proceed without a cipher seed " +
+			"passphrase): ")
+		aezeedPass1, err := terminal.ReadPassword(int(syscall.Stdin))
+		if err != nil {
+			return err
+		}
+		fmt.Println()
+
+		if len(aezeedPass1) != 0 {
+			fmt.Printf("Confirm cipher seed passphrase: ")
+			aezeedPass2, err := terminal.ReadPassword(
+				int(syscall.Stdin),
+			)
+			if err != nil {
+				return err
+			}
+			fmt.Println()
+
+			// If the passwords don't match, then we'll return an
+			// error.
+			if !bytes.Equal(aezeedPass1, aezeedPass2) {
+				return fmt.Errorf("cipher seed pass phrases " +
+					"don't match")
+			}
+		}
+
+		fmt.Println()
+		fmt.Println("Generating fresh cipher seed...")
+		fmt.Println()
+
+		genSeedReq := &lnrpc.GenSeedRequest{
+			AezeedPassphrase: aezeedPass1,
+		}
+		seedResp, err := client.GenSeed(ctxb, genSeedReq)
+		if err != nil {
+			return fmt.Errorf("unable to generate seed: %v", err)
+		}
+
+		cipherSeedMnemonic = seedResp.CipherSeedMnemonic
+		aezeedPass = aezeedPass1
+	}
+
+	// Before we initialize the wallet, we'll display the cipher seed to
+	// the user so they can write it down.
+	mnemonicWords := cipherSeedMnemonic
+
+	fmt.Println("!!!YOU MUST WRITE DOWN THIS SEED TO BE ABLE TO " +
+		"RESTORE THE WALLET!!!\n")
+
+	fmt.Println("---------------BEGIN LND CIPHER SEED---------------")
+
+	numCols := 4
+	colWords := monowidthColumns(mnemonicWords, numCols)
+	for i := 0; i < len(colWords); i += numCols {
+		fmt.Printf("%2d. %3s  %2d. %3s  %2d. %3s  %2d. %3s\n",
+			i+1, colWords[i], i+2, colWords[i+1], i+3,
+			colWords[i+2], i+4, colWords[i+3])
+	}
+
+	fmt.Println("---------------END LND CIPHER SEED-----------------")
+
+	fmt.Println("\n!!!YOU MUST WRITE DOWN THIS SEED TO BE ABLE TO " +
+		"RESTORE THE WALLET!!!")
+
+	// With either the user's prior cipher seed, or a newly generated one,
+	// we'll go ahead and initialize the wallet.
+	req := &lnrpc.InitWalletRequest{
+		WalletPassword:     pw1,
+		CipherSeedMnemonic: cipherSeedMnemonic,
+		AezeedPassphrase:   aezeedPass,
+	}
+	if _, err := client.InitWallet(ctxb, req); err != nil {
 		return err
 	}
+
+	fmt.Println("\nlnd successfully initialized!")
 
 	return nil
 }
 
 var unlockCommand = cli.Command{
-	Name:   "unlock",
-	Usage:  "Unlock encrypted wallet at lnd startup",
+	Name: "unlock",
+	Description: `
+	The unlock command is used to decrypt lnd's wallet state in order to
+	start up. This command MUST be run after booting up lnd before it's
+	able to carry out its duties. An exception is if a user is running with
+	--noencryptwallet, then a default passphrase will be used.
+	`,
 	Action: actionDecorator(unlock),
 }
 
@@ -834,12 +1034,14 @@ func unlock(ctx *cli.Context) error {
 	fmt.Println()
 
 	req := &lnrpc.UnlockWalletRequest{
-		Password: pw,
+		WalletPassword: pw,
 	}
 	_, err = client.UnlockWallet(ctxb, req)
 	if err != nil {
 		return err
 	}
+
+	fmt.Println("\nlnd successfully unlocked!")
 
 	return nil
 }

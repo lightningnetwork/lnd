@@ -3,7 +3,6 @@ package channeldb
 import (
 	"bytes"
 	"net"
-	"reflect"
 	"testing"
 	"time"
 
@@ -67,8 +66,7 @@ func TestLinkNodeEncodeDecode(t *testing.T) {
 			t.Fatalf("last seen timestamps don't match: expected %v got %v",
 				originalNodes[i].LastSeen.Unix(), node.LastSeen.Unix())
 		}
-		if !reflect.DeepEqual(originalNodes[i].Addresses,
-			node.Addresses) {
+		if originalNodes[i].Addresses[0].String() != node.Addresses[0].String() {
 			t.Fatalf("addresses don't match: expected %v, got %v",
 				originalNodes[i].Addresses, node.Addresses)
 		}

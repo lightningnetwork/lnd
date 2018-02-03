@@ -707,6 +707,21 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket,
 	return packet, nil
 }
 
+// ReconstructOnionPacket rederives the subsequent onion packet.
+// NOTE: This method does not do any sort of replay protection, and should only
+// be used to reconstruct packets that were successfully processed previously.
+func (r *Router) ReconstructOnionPacket(onionPkt *OnionPacket,
+	assocData []byte) (*ProcessedPacket, error) {
+
+	// Compute the shared secret for this onion packet.
+	sharedSecret, err := r.generateSharedSecret(onionPkt.EphemeralKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return processOnionPacket(onionPkt, &sharedSecret, assocData)
+}
+
 // processOnionPacket performs the primary key derivation and handling of onion
 // packets. The processed packets returned from this method should only be used
 // if the packet was not flagged as a replayed packet.

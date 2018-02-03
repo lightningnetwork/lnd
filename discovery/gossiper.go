@@ -155,6 +155,7 @@ type AuthenticatedGossiper struct {
 	// main chain tip as we know it. Premature network messages will be
 	// processed once the chain tip as we know it extends to/past the
 	// premature height.
+	//
 	// We store at most maxNumPrematureAnn at a time.
 	prematureAnnouncements    map[uint32][]*networkMsg
 	numPrematureAnnouncements int
@@ -167,6 +168,7 @@ type AuthenticatedGossiper struct {
 	// to handle the edge case where we receive a ChannelUpdate from
 	// the remote before we have processed our own ChannelAnnouncement.
 	// Because of this, we only need to store one update per channel ID.
+	//
 	// We store at most maxNumPrematureAnn at a time.
 	prematureChannelUpdates map[uint64]*networkMsg
 	pChanUpdMtx             sync.Mutex
@@ -1313,7 +1315,7 @@ func (d *AuthenticatedGossiper) savePrematureChannelUpdate(nMsg *networkMsg) {
 
 	// If we have already stored our max number of channel updates,
 	// we cut the number of updates stored in half, evicting old
-	// updates
+	// updates.
 	if len(d.prematureChannelUpdates) >= maxNumPrematureAnn {
 		log.Warnf("Got excessive amount of premature ChannelUpdates, " +
 			"will cut storage in half.")

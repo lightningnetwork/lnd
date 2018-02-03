@@ -110,7 +110,7 @@ type ChannelReservation struct {
 	theirContribution *ChannelContribution
 
 	partialState *channeldb.OpenChannel
-	nodeAddr     *net.TCPAddr
+	nodeAddr     net.Addr
 
 	// The ID of this reservation, used to uniquely track the reservation
 	// throughout its lifetime.

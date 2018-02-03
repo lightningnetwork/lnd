@@ -815,7 +815,7 @@ func (s *server) genNodeAnnouncement(
 
 type nodeAddresses struct {
 	pubKey    *btcec.PublicKey
-	addresses []*net.TCPAddr
+	addresses []net.Addr
 }
 
 // establishPersistentConnections attempts to establish persistent connections
@@ -838,9 +838,13 @@ func (s *server) establishPersistentConnections() error {
 	}
 	for _, node := range linkNodes {
 		for _, address := range node.Addresses {
-			if address.Port == 0 {
-				address.Port = defaultPeerPort
+			switch addr := address.(type) {
+			case *net.TCPAddr:
+				if addr.Port == 0 {
+					addr.Port = defaultPeerPort
+				}
 			}
+
 		}
 		pubStr := string(node.IdentityPub.SerializeCompressed())
 
@@ -872,14 +876,19 @@ func (s *server) establishPersistentConnections() error {
 		// list of addresses we'll connect to. If there are duplicates
 		// that have different ports specified, the port from the
 		// channel graph should supersede the port from the link node.
-		var addrs []*net.TCPAddr
+		var addrs []net.Addr
 		linkNodeAddrs, ok := nodeAddrsMap[pubStr]
 		if ok {
 			for _, lnAddress := range linkNodeAddrs.addresses {
+				lnAddrTCP, ok := lnAddress.(*net.TCPAddr)
+				if !ok {
+					continue
+				}
+
 				var addrMatched bool
 				for _, polAddress := range policy.Node.Addresses {
 					polTCPAddr, ok := polAddress.(*net.TCPAddr)
-					if ok && polTCPAddr.IP.Equal(lnAddress.IP) {
+					if ok && polTCPAddr.IP.Equal(lnAddrTCP.IP) {
 						addrMatched = true
 						addrs = append(addrs, polTCPAddr)
 					}

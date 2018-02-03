@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -26,7 +27,6 @@ import (
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
-	"net"
 )
 
 const (
@@ -836,7 +836,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	chainHash := chainhash.Hash(msg.ChainHash)
 	reservation, err := f.cfg.Wallet.InitChannelReservation(amt, 0,
 		msg.PushAmount, btcutil.Amount(msg.FeePerKiloWeight), 0,
-		fmsg.peerAddress.IdentityKey, fmsg.peerAddress.Address.(*net.TCPAddr),
+		fmsg.peerAddress.IdentityKey, fmsg.peerAddress.Address,
 		&chainHash, msg.ChannelFlags)
 	if err != nil {
 		fndgLog.Errorf("Unable to initialize reservation: %v", err)
@@ -1209,8 +1209,8 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 	// send it to the ChainArbitrator so it can watch for any on-chain
 	// actions during this final confirmation stage.
 	if err := f.cfg.WatchNewChannel(completeChan); err != nil {
-		fndgLog.Error("Unable to send new ChannelPoint(%v) for "+
-			"arbitration", fundingOut)
+		fndgLog.Errorf("Unable to send new ChannelPoint(%v) for "+
+			"arbitration: %v", fundingOut, err)
 	}
 
 	// Create an entry in the local discovery map so we can ensure that we
@@ -1348,8 +1348,8 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	// watch for any on-chin actions before the channel has fully
 	// confirmed.
 	if err := f.cfg.WatchNewChannel(completeChan); err != nil {
-		fndgLog.Error("Unable to send new ChannelPoint(%v) for "+
-			"arbitration", fundingPoint)
+		fndgLog.Errorf("Unable to send new ChannelPoint(%v) for "+
+			"arbitration: %v", fundingPoint, err)
 	}
 
 	fndgLog.Infof("Finalizing pendingID(%x) over ChannelPoint(%v), "+

@@ -82,10 +82,10 @@ type initFundingReserveMsg struct {
 	// with.
 	nodeID *btcec.PublicKey
 
-	// nodeAddr is the IP address plus port that we used to either
-	// establish or accept the connection which led to the negotiation of
-	// this funding workflow.
-	nodeAddr *net.TCPAddr
+	// nodeAddr is the address port that we used to either establish or
+	// accept the connection which led to the negotiation of this funding
+	// workflow.
+	nodeAddr net.Addr
 
 	// fundingAmount is the amount of funds requested for this channel.
 	fundingAmount btcutil.Amount
@@ -452,7 +452,7 @@ out:
 func (l *LightningWallet) InitChannelReservation(
 	capacity, ourFundAmt btcutil.Amount, pushMSat lnwire.MilliSatoshi,
 	commitFeePerKw, fundingFeePerWeight btcutil.Amount,
-	theirID *btcec.PublicKey, theirAddr *net.TCPAddr,
+	theirID *btcec.PublicKey, theirAddr net.Addr,
 	chainHash *chainhash.Hash, flags lnwire.FundingFlag) (*ChannelReservation, error) {
 
 	errChan := make(chan error, 1)

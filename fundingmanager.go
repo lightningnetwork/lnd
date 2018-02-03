@@ -1208,8 +1208,8 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 	// send it to the ChainArbitrator so it can watch for any on-chain
 	// actions during this final confirmation stage.
 	if err := f.cfg.WatchNewChannel(completeChan); err != nil {
-		fndgLog.Error("Unable to send new ChannelPoint(%v) for "+
-			"arbitration", fundingOut)
+		fndgLog.Errorf("Unable to send new ChannelPoint(%v) for "+
+			"arbitration: %v", fundingOut, err)
 	}
 
 	// Create an entry in the local discovery map so we can ensure that we
@@ -1348,7 +1348,7 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	// confirmed.
 	if err := f.cfg.WatchNewChannel(completeChan); err != nil {
 		fndgLog.Errorf("Unable to send new ChannelPoint(%v) for "+
-			"arbitration", fundingPoint)
+			"arbitration: %v", fundingPoint, err)
 	}
 
 	fndgLog.Infof("Finalizing pendingID(%x) over ChannelPoint(%v), "+

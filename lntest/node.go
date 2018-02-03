@@ -239,6 +239,7 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 	hn.quit = make(chan struct{})
 
 	args := hn.cfg.genArgs()
+	args = append(args, fmt.Sprintf("--profile=%d", 9000+hn.NodeID))
 	hn.cmd = exec.Command("lnd", args...)
 
 	// Redirect stderr output to buffer

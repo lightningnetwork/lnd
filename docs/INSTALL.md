@@ -188,7 +188,7 @@ be configured with `--txindex` just like `btcd` above
 wallet). They must be combined in the same ZMQ socket address (e.g. `--zmqpubrawblock=tcp://127.0.0.1:28332` and `--zmqpubrawtx=tcp://127.0.0.1:28332`).
 - Start `bitcoind` running against testnet, and let it complete a full sync with the testnet chain (alternatively, use `--bitcoind.regtest` instead).
 
-Here's a sample `bitcoin.conf` for use with the lnd:
+Here's a sample `bitcoin.conf` for use with lnd:
 ```
 [Application Options]
 testnet=1

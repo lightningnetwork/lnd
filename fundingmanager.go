@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -26,7 +27,6 @@ import (
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
-	"net"
 )
 
 const (
@@ -847,7 +847,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	chainHash := chainhash.Hash(msg.ChainHash)
 	reservation, err := f.cfg.Wallet.InitChannelReservation(amt, 0,
 		msg.PushAmount, btcutil.Amount(msg.FeePerKiloWeight), 0,
-		fmsg.peerAddress.IdentityKey, fmsg.peerAddress.Address.(*net.TCPAddr),
+		fmsg.peerAddress.IdentityKey, fmsg.peerAddress.Address,
 		&chainHash, msg.ChannelFlags)
 	if err != nil {
 		fndgLog.Errorf("Unable to initialize reservation: %v", err)

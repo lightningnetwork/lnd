@@ -756,13 +756,6 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 	}
 
 	srv := &http.Server{Handler: mux}
-	defer func() {
-		// We must shut down this server, since we'll let
-		// the regular rpcServer listen on the same address.
-		if err := srv.Shutdown(ctx); err != nil {
-			rpcsLog.Errorf("unable to shutdown password gRPC proxy: %v", err)
-		}
-	}()
 
 	for _, restEndpoint := range restEndpoints {
 		lis, err := tls.Listen("tcp", restEndpoint, tlsConf)

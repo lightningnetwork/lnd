@@ -27,6 +27,10 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// Error that occurs if a user provides a bad pubkey@host:port address.
+var ErrBadAddressFormat = fmt.Errorf(
+	"target address expected in format: pubkey@host:port")
+
 // TODO(roasbeef): cli logic for supporting both positional and unix style
 // arguments.
 
@@ -45,6 +49,10 @@ func printJSON(resp interface{}) {
 }
 
 func printRespJSON(resp proto.Message) {
+	printRespJSONToWriter(os.Stdout, resp)
+}
+
+func printRespJSONToWriter(writer io.Writer, resp proto.Message) {
 	jsonMarshaler := &jsonpb.Marshaler{
 		EmitDefaults: true,
 		Indent:       "    ",
@@ -52,11 +60,45 @@ func printRespJSON(resp proto.Message) {
 
 	jsonStr, err := jsonMarshaler.MarshalToString(resp)
 	if err != nil {
-		fmt.Println("unable to decode response: ", err)
+		fmt.Fprintln(writer, "unable to decode response: ", err)
 		return
 	}
 
-	fmt.Println(jsonStr)
+	fmt.Fprintln(writer, jsonStr)
+}
+
+// actionDecoratorWithClient is the same as actionDecorator except it allows
+// the LightningClient to be configurable and handles client cleanUp()
+// TODO(merehap): Replace actionDecorator with this once all commands have been
+// migrated over.
+func actionDecoratorWithClient(
+	f func(*cli.Context, lnrpc.LightningClient, io.Writer) error) func(*cli.Context) error {
+
+	return func(ctx *cli.Context) error {
+		client, cleanUp := getClient(ctx)
+		defer cleanUp()
+
+		err := f(ctx, client, os.Stdout)
+		if err != nil {
+			// lnd might be active, but not possible to contact
+			// using RPC if the wallet is encrypted. If we get
+			// error code Unimplemented, it means that lnd is
+			// running, but the RPC server is not active yet (only
+			// WalletUnlocker server active) and most likely this
+			// is because of an encrypted wallet.
+			s, ok := status.FromError(err)
+			if ok && s.Code() == codes.Unimplemented {
+				return fmt.Errorf("Wallet is encrypted. " +
+					"Please unlock using 'lncli unlock', " +
+					"or set password using 'lncli create'" +
+					" if this is the first time starting " +
+					"lnd.")
+			}
+			return err
+		}
+
+		return nil
+	}
 }
 
 // actionDecorator is used to add additional information and error handling
@@ -296,19 +338,18 @@ var connectCommand = cli.Command{
 				"           If not, the call will be synchronous.",
 		},
 	},
-	Action: actionDecorator(connectPeer),
+	Action: actionDecoratorWithClient(connectPeer),
 }
 
-func connectPeer(ctx *cli.Context) error {
+func connectPeer(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
+
 	ctxb := context.Background()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
 
 	targetAddress := ctx.Args().First()
 	splitAddr := strings.Split(targetAddress, "@")
 	if len(splitAddr) != 2 {
-		return fmt.Errorf("target address expected in format: " +
-			"pubkey@host:port")
+		return ErrBadAddressFormat
 	}
 
 	addr := &lnrpc.LightningAddress{
@@ -325,7 +366,7 @@ func connectPeer(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(lnid)
+	printRespJSONToWriter(writer, lnid)
 	return nil
 }
 
@@ -647,7 +688,7 @@ func closeChannel(ctx *cli.Context) error {
 		err  error
 	)
 
-	// Show command help if no arguments provieded
+	// Show command help if no arguments provided
 	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
 		cli.ShowCommandHelp(ctx, "closechannel")
 		return nil

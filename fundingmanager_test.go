@@ -273,6 +273,9 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		WatchNewChannel: func(*channeldb.OpenChannel) error {
 			return nil
 		},
+		ReportShortChanID: func(wire.OutPoint, lnwire.ShortChannelID) error {
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatalf("failed creating fundingManager: %v", err)

@@ -65,6 +65,12 @@ type ChannelLink interface {
 	// the original funding output can be found.
 	ShortChanID() lnwire.ShortChannelID
 
+	// UpdateShortChanID updates the short channel ID for a link. This may
+	// be required in the event that a link is created before the short
+	// chan ID for it is known, or a re-org occurs, and the funding
+	// transacton changes location within the chain.
+	UpdateShortChanID(lnwire.ShortChannelID)
+
 	// UpdateForwardingPolicy updates the forwarding policy for the target
 	// ChannelLink. Once updated, the link will use the new forwarding
 	// policy to govern if it an incoming HTLC should be forwarded or not.

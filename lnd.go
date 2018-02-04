@@ -42,6 +42,7 @@ import (
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 )
 
@@ -370,6 +371,12 @@ func lndMain() error {
 			return delay
 		},
 		WatchNewChannel: server.chainArb.WatchNewChannel,
+		ReportShortChanID: func(chanPoint wire.OutPoint,
+			sid lnwire.ShortChannelID) error {
+
+			cid := lnwire.NewChanIDFromOutPoint(&chanPoint)
+			return server.htlcSwitch.UpdateShortChanID(cid, sid)
+		},
 	})
 	if err != nil {
 		return err

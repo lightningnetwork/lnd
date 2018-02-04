@@ -476,13 +476,14 @@ func (f *mockChannelLink) Stats() (uint64, lnwire.MilliSatoshi, lnwire.MilliSato
 	return 0, 0, 0
 }
 
-func (f *mockChannelLink) ChanID() lnwire.ChannelID           { return f.chanID }
-func (f *mockChannelLink) ShortChanID() lnwire.ShortChannelID { return f.shortChanID }
-func (f *mockChannelLink) Bandwidth() lnwire.MilliSatoshi     { return 99999999 }
-func (f *mockChannelLink) Peer() Peer                         { return f.peer }
-func (f *mockChannelLink) Start() error                       { return nil }
-func (f *mockChannelLink) Stop()                              {}
-func (f *mockChannelLink) EligibleToForward() bool            { return f.eligible }
+func (f *mockChannelLink) ChanID() lnwire.ChannelID                    { return f.chanID }
+func (f *mockChannelLink) ShortChanID() lnwire.ShortChannelID          { return f.shortChanID }
+func (f *mockChannelLink) UpdateShortChanID(sid lnwire.ShortChannelID) { f.shortChanID = sid }
+func (f *mockChannelLink) Bandwidth() lnwire.MilliSatoshi              { return 99999999 }
+func (f *mockChannelLink) Peer() Peer                                  { return f.peer }
+func (f *mockChannelLink) Start() error                                { return nil }
+func (f *mockChannelLink) Stop()                                       {}
+func (f *mockChannelLink) EligibleToForward() bool                     { return f.eligible }
 
 var _ ChannelLink = (*mockChannelLink)(nil)
 

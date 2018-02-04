@@ -196,6 +196,9 @@ type channelLink struct {
 	// updates.
 	channel *lnwallet.LightningChannel
 
+	// shortChanID is the most up to date short channel ID for the link.
+	shortChanID lnwire.ShortChannelID
+
 	// cfg is a structure which carries all dependable fields/handlers
 	// which may affect behaviour of the service.
 	cfg ChannelLinkConfig
@@ -236,6 +239,8 @@ type channelLink struct {
 	logCommitTimer *time.Timer
 	logCommitTick  <-chan time.Time
 
+	sync.RWMutex
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -248,6 +253,7 @@ func NewChannelLink(cfg ChannelLinkConfig, channel *lnwallet.LightningChannel,
 	link := &channelLink{
 		cfg:         cfg,
 		channel:     channel,
+		shortChanID: channel.ShortChanID(),
 		mailBox:     newMemoryMailBox(),
 		linkControl: make(chan interface{}),
 		// TODO(roasbeef): just do reserve here?
@@ -1090,6 +1096,8 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 				l.channel.ChannelPoint(), len(htlcsToForward))
 			for _, packet := range htlcsToForward {
 				if err := l.cfg.Switch.forward(packet); err != nil {
+					// TODO(roasbeef): cancel back htlc
+					// under certain conditions?
 					log.Errorf("channel link(%v): "+
 						"unhandled error while forwarding "+
 						"htlc packet over htlc  "+
@@ -1161,7 +1169,37 @@ func (l *channelLink) Peer() Peer {
 //
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) ShortChanID() lnwire.ShortChannelID {
-	return l.channel.ShortChanID()
+	l.RLock()
+	defer l.RUnlock()
+	return l.shortChanID
+}
+
+// UpdateShortChanID updates the short channel ID for a link. This may be
+// required in the event that a link is created before the short chan ID for it
+// is known, or a re-org occurs, and the funding transaction changes location
+// within the chain.
+//
+// NOTE: Part of the ChannelLink interface.
+func (l *channelLink) UpdateShortChanID(sid lnwire.ShortChannelID) {
+	l.Lock()
+	defer l.Unlock()
+
+	log.Infof("Updating short chan ID for ChannelPoint(%v)", l)
+
+	l.shortChanID = sid
+
+	go func() {
+		err := l.cfg.UpdateContractSignals(&contractcourt.ContractSignals{
+			HtlcUpdates: l.htlcUpdates,
+			ShortChanID: l.channel.ShortChanID(),
+		})
+		if err != nil {
+			log.Errorf("Unable to update signals for "+
+				"ChannelLink(%v)", l)
+		}
+	}()
+
+	return
 }
 
 // ChanID returns the channel ID for the channel link. The channel ID is a more
@@ -1806,5 +1844,5 @@ func (l *channelLink) sendMalformedHTLCError(htlcIndex uint64,
 func (l *channelLink) fail(format string, a ...interface{}) {
 	reason := errors.Errorf(format, a...)
 	log.Error(reason)
-	l.cfg.Peer.Disconnect(reason)
+	go l.cfg.Peer.Disconnect(reason)
 }

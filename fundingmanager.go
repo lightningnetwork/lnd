@@ -240,6 +240,11 @@ type fundingConfig struct {
 	// the channel to the ChainArbitrator so it can watch for any on-chain
 	// events related to the channel.
 	WatchNewChannel func(*channeldb.OpenChannel) error
+
+	// ReportShortChanID allows the funding manager to report the newly
+	// discovered short channel ID of a formerly pending channel to outside
+	// sub-systems.
+	ReportShortChanID func(wire.OutPoint, lnwire.ShortChannelID) error
 }
 
 // fundingManager acts as an orchestrator/bridge between the wallet's
@@ -457,7 +462,8 @@ func (f *fundingManager) Start() error {
 			&channel.FundingOutpoint)
 		if err == ErrChannelNotFound {
 			// Channel not in fundingManager's opening database,
-			// meaning it was successully announced to the network.
+			// meaning it was successfully announced to the
+			// network.
 			continue
 		} else if err != nil {
 			return err
@@ -1612,9 +1618,9 @@ func (f *fundingManager) waitForFundingConfirmation(completeChan *channeldb.Open
 	// should be abstracted
 
 	// The funding transaction now being confirmed, we add this channel to
-	// the fundingManager's internal persistant state machine that we use
-	// to track the remaining process of the channel opening. This is useful
-	// to resume the opening process in case of restarts.
+	// the fundingManager's internal persistent state machine that we use
+	// to track the remaining process of the channel opening. This is
+	// useful to resume the opening process in case of restarts.
 	//
 	// TODO(halseth): make the two db transactions (MarkChannelAsOpen and
 	// saveChannelOpeningState) atomic by doing them in the same transaction.
@@ -1625,6 +1631,13 @@ func (f *fundingManager) waitForFundingConfirmation(completeChan *channeldb.Open
 		fndgLog.Errorf("error setting channel state to markedOpen: %v",
 			err)
 		return
+	}
+
+	// As there might already be an active link in the switch with an
+	// outdated short chan ID, we'll update it now.
+	err = f.cfg.ReportShortChanID(fundingPoint, shortChanID)
+	if err != nil {
+		fndgLog.Errorf("unable to report short chan id: %v", err)
 	}
 
 	select {

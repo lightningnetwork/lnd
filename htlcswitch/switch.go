@@ -941,6 +941,10 @@ func (s *Switch) htlcForwarder() {
 				links, err := s.getLinks(cmd.peer)
 				cmd.done <- links
 				cmd.err <- err
+			case *updateForwardingIndexCmd:
+				cmd.err <- s.updateShortChanID(
+					cmd.chanID, cmd.shortChanID,
+				)
 			}
 
 		case <-s.quit:
@@ -1006,6 +1010,8 @@ func (s *Switch) AddLink(link ChannelLink) error {
 // addLink is used to add the newly created channel link and start use it to
 // handle the channel updates.
 func (s *Switch) addLink(link ChannelLink) error {
+	// TODO(roasbeef): reject if link already tehre?
+
 	// First we'll add the link to the linkIndex which lets us quickly look
 	// up a channel when we need to close or register it, and the
 	// forwarding index which'll be used when forwarding HTLC's in the
@@ -1097,7 +1103,8 @@ func (s *Switch) RemoveLink(chanID lnwire.ChannelID) error {
 	case s.linkControl <- command:
 		return <-command.err
 	case <-s.quit:
-		return errors.New("unable to remove link htlc switch was stopped")
+		return errors.New("unable to remove link htlc switch was " +
+			"stopped")
 	}
 }
 
@@ -1119,6 +1126,62 @@ func (s *Switch) removeLink(chanID lnwire.ChannelID) error {
 	delete(s.interfaceIndex, peerPub)
 
 	link.Stop()
+
+	return nil
+}
+
+// updateForwardingIndexCmd is a command sent by outside sub-systems to update
+// the forwarding index of the switch in the event that the short channel ID of
+// a particular link changes.
+type updateForwardingIndexCmd struct {
+	chanID      lnwire.ChannelID
+	shortChanID lnwire.ShortChannelID
+
+	err chan error
+}
+
+// UpdateShortChanID updates the short chan ID for an existing channel. This is
+// required in the case of a re-org and re-confirmation or a channel, or in the
+// case that a link was added to the switch before its short chan ID was known.
+func (s *Switch) UpdateShortChanID(chanID lnwire.ChannelID,
+	shortChanID lnwire.ShortChannelID) error {
+
+	command := &updateForwardingIndexCmd{
+		chanID:      chanID,
+		shortChanID: shortChanID,
+		err:         make(chan error, 1),
+	}
+
+	select {
+	case s.linkControl <- command:
+		return <-command.err
+	case <-s.quit:
+		return errors.New("unable to remove link htlc switch was " +
+			"stopped")
+	}
+}
+
+// updateShortChanID updates the short chan ID of an existing link.
+func (s *Switch) updateShortChanID(chanID lnwire.ChannelID,
+	shortChanID lnwire.ShortChannelID) error {
+
+	// First, we'll extract the current link as is from the link link
+	// index. If the link isn't even in the index, then we'll return an
+	// error.
+	link, ok := s.linkIndex[chanID]
+	if !ok {
+		return fmt.Errorf("link %v not found", chanID)
+	}
+
+	log.Infof("Updating short_chan_id for ChannelLink(%v): old=%v, new=%v",
+		chanID, link.ShortChanID(), shortChanID)
+
+	// At this point the link is actually active, so we'll update the
+	// forwarding index with the next short channel ID.
+	s.forwardingIndex[shortChanID] = link
+
+	// Finally, we'll notify the link of its new short channel ID.
+	link.UpdateShortChanID(shortChanID)
 
 	return nil
 }

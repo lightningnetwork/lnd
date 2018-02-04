@@ -190,7 +190,6 @@ wallet). They must be combined in the same ZMQ socket address (e.g. `--zmqpubraw
 
 Here's a sample `bitcoin.conf` for use with lnd:
 ```
-[Application Options]
 testnet=1
 txindex=1
 server=1

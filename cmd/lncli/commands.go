@@ -136,9 +136,9 @@ var sendCoinsCommand = cli.Command{
 	Description: `
 	Send amt coins in satoshis to the BASE58 encoded bitcoin address addr.
 
-	Fees used when sending the transaction can be specified via the --conf_target, or 
+	Fees used when sending the transaction can be specified via the --conf_target, or
 	--sat_per_byte optional flags.
-	
+
 	Positional arguments and flags can be used interchangeably but not at the same time!
 	`,
 	Flags: []cli.Flag{
@@ -234,7 +234,7 @@ var sendManyCommand = cli.Command{
 	Description: `
 	Create and broadcast a transaction paying the specified amount(s) to the passed address(es).
 
-	The send-json-string' param decodes addresses and the amount to send 
+	The send-json-string' param decodes addresses and the amount to send
 	respectively in the following format:
 
 	    '{"ExampleAddr": NumCoinsInSatoshis, "SecondAddr": NumCoins}'
@@ -380,12 +380,12 @@ var openChannelCommand = cli.Command{
 	optionally blocking until the channel is 'open'.
 
 	The channel will be initialized with local-amt satoshis local and push-amt
-	satoshis for the remote node. Once the channel is open, a channelPoint (txid:vout) 
-	of the funding output is returned. 
+	satoshis for the remote node. Once the channel is open, a channelPoint (txid:vout)
+	of the funding output is returned.
 
 	One can manually set the fee to be used for the funding transaction via either
 	the --conf_target or --sat_per_byte arguments. This is optional.
-		
+
 	NOTE: peer_id and node_key are mutually exclusive, only one should be used, not both.`,
 	ArgsUsage: "node-key local-amt push-amt",
 	Flags: []cli.Flag{
@@ -583,9 +583,9 @@ var closeChannelCommand = cli.Command{
 	Name:  "closechannel",
 	Usage: "Close an existing channel.",
 	Description: `
-	Close an existing channel. The channel can be closed either cooperatively, 
+	Close an existing channel. The channel can be closed either cooperatively,
 	or unilaterally (--force).
-	
+
 	A unilateral channel closure means that the latest commitment
 	transaction will be broadcast to the network. As a result, any settled
 	funds will be time locked for a few blocks before they can be swept int
@@ -951,7 +951,10 @@ func listChannels(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	req := &lnrpc.ListChannelsRequest{}
+	req := &lnrpc.ListChannelsRequest{
+    ActiveOnly: ctx.Bool("active_only"),
+	}
+
 	resp, err := client.ListChannels(ctxb, req)
 	if err != nil {
 		return err
@@ -1803,7 +1806,7 @@ var debugLevelCommand = cli.Command{
 	Usage: "Set the debug level.",
 	Description: `Logging level for all subsystems {trace, debug, info, warn, error, critical}
 	You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems
-	
+
 	Use show to list available subsystems`,
 	Flags: []cli.Flag{
 		cli.BoolFlag{
@@ -1903,7 +1906,7 @@ var stopCommand = cli.Command{
 	Name:  "stop",
 	Usage: "Stop and shutdown the daemon.",
 	Description: `
-	Gracefully stop all daemon subsystems before stopping the daemon itself. 
+	Gracefully stop all daemon subsystems before stopping the daemon itself.
 	This is equivalent to stopping it using CTRL-C.`,
 	Action: actionDecorator(stopDaemon),
 }
@@ -1926,9 +1929,9 @@ var signMessageCommand = cli.Command{
 	Usage:     "sign a message with the node's private key",
 	ArgsUsage: "msg",
 	Description: `
-	Sign msg with the resident node's private key. 
-	Returns the signature as a zbase32 string. 
-	
+	Sign msg with the resident node's private key.
+	Returns the signature as a zbase32 string.
+
 	Positional arguments and flags can be used interchangeably but not at the same time!`,
 	Flags: []cli.Flag{
 		cli.StringFlag{
@@ -2031,7 +2034,7 @@ func verifyMessage(ctx *cli.Context) error {
 var feeReportCommand = cli.Command{
 	Name:  "feereport",
 	Usage: "display the current fee policies of all active channels",
-	Description: ` 
+	Description: `
 	Returns the current fee policies of all active channels.
 	Fee policies can be updated using the updatechanpolicy command.`,
 	Action: actionDecorator(feeReport),

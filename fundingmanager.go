@@ -467,14 +467,16 @@ func (f *fundingManager) Start() error {
 		fndgLog.Debugf("channel (%v) with opening state %v found",
 			chanID, channelState)
 
-		// Set up the channel barriers again, to make sure
-		// waitUntilChannelOpen correctly waits until the opening
-		// process is completely over.
-		f.barrierMtx.Lock()
-		fndgLog.Tracef("Loading pending ChannelPoint(%v), "+
-			"creating chan barrier", channel.FundingOutpoint)
-		f.newChanBarriers[chanID] = make(chan struct{})
-		f.barrierMtx.Unlock()
+		if channel.IsPending {
+			// Set up the channel barriers again, to make sure
+			// waitUntilChannelOpen correctly waits until the
+			// opening process is completely over.
+			f.barrierMtx.Lock()
+			fndgLog.Tracef("Loading pending ChannelPoint(%v), "+
+				"creating chan barrier", channel.FundingOutpoint)
+			f.newChanBarriers[chanID] = make(chan struct{})
+			f.barrierMtx.Unlock()
+		}
 
 		// If we did find the channel in the opening state database, we
 		// have seen the funding transaction being confirmed, but we

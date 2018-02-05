@@ -807,6 +807,9 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	fundingOutpoint := wire.NewOutPoint(&fundingTxID, multiSigIndex)
 	pendingReservation.partialState.FundingOutpoint = *fundingOutpoint
 
+	walletLog.Debugf("Funding tx for ChannelPoint(%v) generated: %v",
+		fundingOutpoint, spew.Sdump(fundingTx))
+
 	// Initialize an empty sha-chain for them, tracking the current pending
 	// revocation hash (we don't yet know the preimage so we can't add it
 	// to the chain).
@@ -878,6 +881,11 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// instead we'll just send signatures.
 	txsort.InPlaceSort(ourCommitTx)
 	txsort.InPlaceSort(theirCommitTx)
+
+	walletLog.Debugf("Local commit tx for ChannelPoint(%v): %v",
+		fundingOutpoint, spew.Sdump(ourCommitTx))
+	walletLog.Debugf("Remote commit tx for ChannelPoint(%v): %v",
+		fundingOutpoint, spew.Sdump(theirCommitTx))
 
 	// Record newly available information within the open channel state.
 	chanState.FundingOutpoint = *fundingOutpoint
@@ -1180,6 +1188,11 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	txsort.InPlaceSort(theirCommitTx)
 	chanState.LocalCommitment.CommitTx = ourCommitTx
 	chanState.RemoteCommitment.CommitTx = theirCommitTx
+
+	walletLog.Debugf("Local commit tx for ChannelPoint(%v): %v",
+		req.fundingOutpoint, spew.Sdump(ourCommitTx))
+	walletLog.Debugf("Remote commit tx for ChannelPoint(%v): %v",
+		req.fundingOutpoint, spew.Sdump(theirCommitTx))
 
 	channelValue := int64(pendingReservation.partialState.Capacity)
 	hashCache := txscript.NewTxSigHashes(ourCommitTx)

@@ -684,13 +684,16 @@ func (f *fundingManager) failFundingFlow(peer *btcec.PublicKey,
 
 	fndgLog.Errorf("Failing funding flow: %v", spew.Sdump(errMsg))
 
+	if _, err := f.cancelReservationCtx(peer, tempChanID); err != nil {
+		fndgLog.Errorf("unable to cancel reservation: %v", err)
+	}
+
 	err := f.cfg.SendToPeer(peer, errMsg)
 	if err != nil {
 		fndgLog.Errorf("unable to send error message to peer %v", err)
 		return
 	}
 
-	f.cancelReservationCtx(peer, tempChanID)
 	return
 }
 

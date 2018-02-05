@@ -865,6 +865,8 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer blockEpochs.Cancel()
+
 	for {
 		select {
 
@@ -1058,7 +1060,10 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer preimageSubscription.CancelSubcription()
+	defer func() {
+		preimageSubscription.CancelSubcription()
+		blockEpochs.Cancel()
+	}()
 	for {
 
 		select {

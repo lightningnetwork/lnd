@@ -395,6 +395,7 @@ func (c *ChainArbitrator) Start() error {
 			c.chanSource.DB, arbCfg, c.cfg.ChainHash, chanPoint,
 		)
 		if err != nil {
+			blockEpoch.Cancel()
 			return err
 		}
 		arbCfg.MarkChannelResolved = func() error {

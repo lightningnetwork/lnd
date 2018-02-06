@@ -259,6 +259,8 @@ func (s *sigPool) SubmitSignBatch(signJobs []signJob) {
 		case s.signJobs <- job:
 		case <-job.cancel:
 			// TODO(roasbeef): return error?
+		case <-s.quit:
+			return
 		}
 	}
 }

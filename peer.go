@@ -397,6 +397,9 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 				)
 			},
 			SyncStates: true,
+			BatchTicker: htlcswitch.NewBatchTicker(
+				time.NewTicker(50 * time.Millisecond)),
+			BatchSize: 10,
 		}
 		link := htlcswitch.NewChannelLink(linkCfg, lnChan,
 			uint32(currentHeight))
@@ -1289,6 +1292,9 @@ out:
 					)
 				},
 				SyncStates: false,
+				BatchTicker: htlcswitch.NewBatchTicker(
+					time.NewTicker(50 * time.Millisecond)),
+				BatchSize: 10,
 			}
 			link := htlcswitch.NewChannelLink(linkConfig, newChan,
 				uint32(currentHeight))

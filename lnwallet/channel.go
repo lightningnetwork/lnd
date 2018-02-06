@@ -2253,8 +2253,16 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 // settles, and timeouts found in both logs. The resulting view returned
 // reflects the current state of HTLCs within the remote or local commitment
 // chain.
+//
+// If mutateState is set to true, then the add height of all added HTLCs
+// will be set to nextHeight, and the remove height of all removed HTLCs
+// will be set to nextHeight. This should therefore only be set to true
+// once for each height, and only in concert with signing a new commitment.
+// TODO(halseth): return htlcs to mutate instead of mutating inside
+// method.
 func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
-	theirBalance *lnwire.MilliSatoshi, nextHeight uint64, remoteChain bool) *htlcView {
+	theirBalance *lnwire.MilliSatoshi, nextHeight uint64,
+	remoteChain, mutateState bool) *htlcView {
 
 	newView := &htlcView{}
 
@@ -2276,7 +2284,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		// If we're settling an inbound HTLC, and it hasn't been
 		// processed yet, then increment our state tracking the total
 		// number of satoshis we've received within the channel.
-		if entry.EntryType == Settle && !remoteChain &&
+		if mutateState && entry.EntryType == Settle && !remoteChain &&
 			entry.removeCommitHeightLocal == 0 {
 			lc.channelState.TotalMSatReceived += entry.Amount
 		}
@@ -2285,7 +2293,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 
 		skipThem[addEntry.HtlcIndex] = struct{}{}
 		processRemoveEntry(entry, ourBalance, theirBalance,
-			nextHeight, remoteChain, true)
+			nextHeight, remoteChain, true, mutateState)
 	}
 	for _, entry := range view.theirUpdates {
 		if entry.EntryType == Add {
@@ -2296,7 +2304,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		// and it hasn't been processed, yet, the increment our state
 		// tracking the total number of satoshis we've sent within the
 		// channel.
-		if entry.EntryType == Settle && !remoteChain &&
+		if mutateState && entry.EntryType == Settle && !remoteChain &&
 			entry.removeCommitHeightLocal == 0 {
 			lc.channelState.TotalMSatSent += entry.Amount
 		}
@@ -2305,7 +2313,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 
 		skipUs[addEntry.HtlcIndex] = struct{}{}
 		processRemoveEntry(entry, ourBalance, theirBalance,
-			nextHeight, remoteChain, false)
+			nextHeight, remoteChain, false, mutateState)
 	}
 
 	// Next we take a second pass through all the log entries, skipping any
@@ -2318,7 +2326,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		}
 
 		processAddEntry(entry, ourBalance, theirBalance, nextHeight,
-			remoteChain, false)
+			remoteChain, false, mutateState)
 		newView.ourUpdates = append(newView.ourUpdates, entry)
 	}
 	for _, entry := range view.theirUpdates {
@@ -2328,7 +2336,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		}
 
 		processAddEntry(entry, ourBalance, theirBalance, nextHeight,
-			remoteChain, true)
+			remoteChain, true, mutateState)
 		newView.theirUpdates = append(newView.theirUpdates, entry)
 	}
 
@@ -2340,7 +2348,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 // was committed is updated. Keeping track of this inclusion height allows us to
 // later compact the log once the change is fully committed in both chains.
 func processAddEntry(htlc *PaymentDescriptor, ourBalance, theirBalance *lnwire.MilliSatoshi,
-	nextHeight uint64, remoteChain bool, isIncoming bool) {
+	nextHeight uint64, remoteChain bool, isIncoming, mutateState bool) {
 
 	// If we're evaluating this entry for the remote chain (to create/view
 	// a new commitment), then we'll may be updating the height this entry
@@ -2368,7 +2376,9 @@ func processAddEntry(htlc *PaymentDescriptor, ourBalance, theirBalance *lnwire.M
 		*ourBalance -= htlc.Amount
 	}
 
-	*addHeight = nextHeight
+	if mutateState {
+		*addHeight = nextHeight
+	}
 }
 
 // processRemoveEntry processes a log entry which settles or times out a
@@ -2376,7 +2386,7 @@ func processAddEntry(htlc *PaymentDescriptor, ourBalance, theirBalance *lnwire.M
 // is skipped.
 func processRemoveEntry(htlc *PaymentDescriptor, ourBalance,
 	theirBalance *lnwire.MilliSatoshi, nextHeight uint64,
-	remoteChain bool, isIncoming bool) {
+	remoteChain bool, isIncoming, mutateState bool) {
 
 	var removeHeight *uint64
 	if remoteChain {
@@ -2416,7 +2426,9 @@ func processRemoveEntry(htlc *PaymentDescriptor, ourBalance,
 		*ourBalance += htlc.Amount
 	}
 
-	*removeHeight = nextHeight
+	if mutateState {
+		*removeHeight = nextHeight
+	}
 }
 
 // generateRemoteHtlcSigJobs generates a series of HTLC signature jobs for the

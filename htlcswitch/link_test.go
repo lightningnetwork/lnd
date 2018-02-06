@@ -225,7 +225,7 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 
 	// Wait for Bob to receive the revocation.
 	//
-	// TODO(roasbef); replace with select over returned err chan
+	// TODO(roasbeef); replace with select over returned err chan
 	time.Sleep(100 * time.Millisecond)
 
 	// Check that alice invoice was settled and bandwidth of HTLC
@@ -1338,7 +1338,7 @@ func TestChannelLinkSingleHopMessageOrdering(t *testing.T) {
 		{"bob", "alice", &lnwire.CommitSig{}, false},
 		{"alice", "bob", &lnwire.RevokeAndAck{}, false},
 
-		{"bob", "alice", &lnwire.UpdateFufillHTLC{}, false},
+		{"bob", "alice", &lnwire.UpdateFulfillHTLC{}, false},
 		{"bob", "alice", &lnwire.CommitSig{}, false},
 		{"alice", "bob", &lnwire.RevokeAndAck{}, false},
 		{"alice", "bob", &lnwire.CommitSig{}, false},
@@ -1429,7 +1429,7 @@ func newSingleLinkTestHarness(chanAmt btcutil.Amount) (ChannelLink,
 	}
 
 	var (
-		invoiveRegistry = newMockRegistry()
+		invoiceRegistry = newMockRegistry()
 		decoder         = &mockIteratorDecoder{}
 		obfuscator      = newMockObfuscator()
 		alicePeer       = &mockPeer{
@@ -1464,7 +1464,7 @@ func newSingleLinkTestHarness(chanAmt btcutil.Amount) (ChannelLink,
 		UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 			return nil
 		},
-		Registry:    invoiveRegistry,
+		Registry:    invoiceRegistry,
 		ChainEvents: &contractcourt.ChainEventSubscription{},
 		BlockEpochs: globalEpoch,
 		BatchTicker: ticker,
@@ -1754,7 +1754,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to settle htlc: %v", err)
 	}
-	htlcSettle := &lnwire.UpdateFufillHTLC{
+	htlcSettle := &lnwire.UpdateFulfillHTLC{
 		ID:              bobIndex,
 		PaymentPreimage: invoice.Terms.PaymentPreimage,
 	}
@@ -1880,7 +1880,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	// we eventually learn (simulating a multi-hop payment). The bandwidth
 	// of the channel should now be re-balanced to the starting point.
 	settlePkt := htlcPacket{
-		htlc: &lnwire.UpdateFufillHTLC{
+		htlc: &lnwire.UpdateFulfillHTLC{
 			ID:              bobIndex,
 			PaymentPreimage: invoice.Terms.PaymentPreimage,
 		},
@@ -2143,7 +2143,7 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 			t.Fatalf("unable to settle htlc: %v", err)
 		}
 
-		htlcSettle := &lnwire.UpdateFufillHTLC{
+		htlcSettle := &lnwire.UpdateFulfillHTLC{
 			ID:              uint64(i),
 			PaymentPreimage: preImages[i],
 		}
@@ -2235,13 +2235,13 @@ func TestChannelRetransmission(t *testing.T) {
 
 				// Alice should resend the revoke_and_ack
 				// message to Bob because Bob claimed it in the
-				// reestbalish message.
+				// re-establish message.
 				{"alice", "bob", &lnwire.RevokeAndAck{}, false},
 
 				// Proceed the payment farther by sending the
 				// fulfilment message and trigger the state
 				// update.
-				{"bob", "alice", &lnwire.UpdateFufillHTLC{}, false},
+				{"bob", "alice", &lnwire.UpdateFulfillHTLC{}, false},
 				{"bob", "alice", &lnwire.CommitSig{}, false},
 				{"alice", "bob", &lnwire.RevokeAndAck{}, false},
 				{"alice", "bob", &lnwire.CommitSig{}, false},
@@ -2283,7 +2283,7 @@ func TestChannelRetransmission(t *testing.T) {
 				// fulfilment message and trigger the state
 				// update.
 				{"alice", "bob", &lnwire.RevokeAndAck{}, false},
-				{"bob", "alice", &lnwire.UpdateFufillHTLC{}, false},
+				{"bob", "alice", &lnwire.UpdateFulfillHTLC{}, false},
 				{"bob", "alice", &lnwire.CommitSig{}, false},
 				{"alice", "bob", &lnwire.RevokeAndAck{}, false},
 				{"alice", "bob", &lnwire.CommitSig{}, false},
@@ -2325,7 +2325,7 @@ func TestChannelRetransmission(t *testing.T) {
 				{"bob", "alice", &lnwire.CommitSig{}, false},
 				{"alice", "bob", &lnwire.RevokeAndAck{}, false},
 
-				{"bob", "alice", &lnwire.UpdateFufillHTLC{}, false},
+				{"bob", "alice", &lnwire.UpdateFulfillHTLC{}, false},
 				{"bob", "alice", &lnwire.CommitSig{}, false},
 				{"alice", "bob", &lnwire.RevokeAndAck{}, false},
 				{"alice", "bob", &lnwire.CommitSig{}, false},

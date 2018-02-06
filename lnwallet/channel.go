@@ -31,7 +31,7 @@ var (
 	// that has already been closed or is in the process of being closed.
 	ErrChanClosing = fmt.Errorf("channel is being closed, operation disallowed")
 
-	// ErrNoWindow is returned when revocation window is exausted.
+	// ErrNoWindow is returned when revocation window is exhausted.
 	ErrNoWindow = fmt.Errorf("unable to sign new commitment, the current" +
 		" revocation window is exhausted")
 
@@ -941,7 +941,7 @@ type updateLog struct {
 	// htlcCounter is a monotonically increasing integer that tracks the
 	// total number of offered HTLC's by the owner of this update log. We
 	// use a distinct index for this purpose, as update's that remove
-	// entires from the log will be indexed using this counter.
+	// entries from the log will be indexed using this counter.
 	htlcCounter uint64
 
 	// List is the updatelog itself, we embed this value so updateLog has
@@ -953,7 +953,7 @@ type updateLog struct {
 	updateIndex map[uint64]*list.Element
 
 	// offerIndex is an index that maps the counter for offered HTLC's to
-	// their list elemtn within the main list.List.
+	// their list element within the main list.List.
 	htlcIndex map[uint64]*list.Element
 }
 
@@ -1130,7 +1130,7 @@ type LightningChannel struct {
 	// Capacity is the total capacity of this channel.
 	Capacity btcutil.Amount
 
-	// stateHintObfuscator is a 48-bit state hint that's used to obfsucate
+	// stateHintObfuscator is a 48-bit state hint that's used to obfuscate
 	// the current state number on the commitment transactions.
 	stateHintObfuscator [StateHintSize]byte
 
@@ -1387,7 +1387,7 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 	// For HTLC's we we're offered we'll fetch the original offered HTLc
 	// from the remote party's update log so we can retrieve the same
 	// PaymentDescriptor that SettleHTLC would produce.
-	case *lnwire.UpdateFufillHTLC:
+	case *lnwire.UpdateFulfillHTLC:
 		ogHTLC := remoteUpdateLog.lookupHtlc(wireMsg.ID)
 
 		pd = &PaymentDescriptor{
@@ -2620,7 +2620,7 @@ func (lc *LightningChannel) createCommitDiff(
 			logUpdate.UpdateMsg = htlc
 
 		case Settle:
-			logUpdate.UpdateMsg = &lnwire.UpdateFufillHTLC{
+			logUpdate.UpdateMsg = &lnwire.UpdateFulfillHTLC{
 				ChanID:          chanID,
 				ID:              pd.ParentIndex,
 				PaymentPreimage: pd.RPreimage,
@@ -3568,9 +3568,9 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) ([]*P
 			continue
 		}
 
-		uncomitted := (htlc.addCommitHeightRemote == 0 ||
+		uncommitted := (htlc.addCommitHeightRemote == 0 ||
 			htlc.addCommitHeightLocal == 0)
-		if htlc.EntryType == Add && uncomitted {
+		if htlc.EntryType == Add && uncommitted {
 			continue
 		}
 
@@ -4290,14 +4290,14 @@ func newOutgoingHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelCon
 	if !localCommit {
 		// First, we'll re-generate the script used to send the HTLC to
 		// the remote party within their commitment transaction.
-		htlcReciverScript, err := receiverHTLCScript(htlc.RefundTimeout,
+		htlcReceiverScript, err := receiverHTLCScript(htlc.RefundTimeout,
 			keyRing.LocalHtlcKey, keyRing.RemoteHtlcKey,
 			keyRing.RevocationKey, htlc.RHash[:],
 		)
 		if err != nil {
 			return nil, err
 		}
-		htlcScriptHash, err := witnessScriptHash(htlcReciverScript)
+		htlcScriptHash, err := witnessScriptHash(htlcReceiverScript)
 		if err != nil {
 			return nil, err
 		}
@@ -4310,7 +4310,7 @@ func newOutgoingHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelCon
 			SweepSignDesc: SignDescriptor{
 				PubKey:        localChanCfg.HtlcBasePoint,
 				SingleTweak:   keyRing.LocalHtlcKeyTweak,
-				WitnessScript: htlcReciverScript,
+				WitnessScript: htlcReceiverScript,
 				Output: &wire.TxOut{
 					PkScript: htlcScriptHash,
 					Value:    int64(htlc.Amt.ToSatoshis()),
@@ -4621,8 +4621,8 @@ type ForceCloseSummary struct {
 	ChanPoint wire.OutPoint
 
 	// CloseTx is the transaction which closed the channel on-chain. If we
-	// initiate the force close, then this'll be our latest commitment
-	// state. Otherwise, this'll be the state that the remote peer
+	// initiate the force close, then this will be our latest commitment
+	// state. Otherwise, this will be the state that the remote peer
 	// broadcasted on-chain.
 	CloseTx *wire.MsgTx
 
@@ -5327,7 +5327,7 @@ func (lc *LightningChannel) ActiveHtlcs() []channeldb.HTLC {
 
 	// We'll only return HTLC's that are locked into *both* commitment
 	// transactions. So we'll iterate through their set of HTLC's to note
-	// which ones are present on thir commitment.
+	// which ones are present on their commitment.
 	remoteHtlcs := make(map[[32]byte]struct{})
 	for _, htlc := range lc.channelState.RemoteCommitment.Htlcs {
 		onionHash := sha256.Sum256(htlc.OnionBlob[:])

@@ -89,7 +89,7 @@ func TestSwitchForward(t *testing.T) {
 		outgoingChanID: bobChannelLink.ShortChanID(),
 		outgoingHTLCID: 0,
 		amount:         1,
-		htlc: &lnwire.UpdateFufillHTLC{
+		htlc: &lnwire.UpdateFulfillHTLC{
 			PaymentPreimage: preimage,
 		},
 	}

@@ -165,7 +165,7 @@ func (s *sigPool) Stop() error {
 	return nil
 }
 
-// poolWorker is the main worker goroutine wtihin the sigPool. Individual
+// poolWorker is the main worker goroutine within the sigPool. Individual
 // batches are distributed amongst each of the active workers. The workers then
 // execute the task based on the type of job, and return the result back to
 // caller.

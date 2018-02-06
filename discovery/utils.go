@@ -10,8 +10,8 @@ import (
 
 // createChanAnnouncement is a helper function which creates all channel
 // announcements given the necessary channel related database items. This
-// function is used to transform out databse structs into the coresponding wire
-// sturcts for announcing new channels to other peers, or simply syncing up a
+// function is used to transform out database structs into the corresponding wire
+// structs for announcing new channels to other peers, or simply syncing up a
 // peer's initial routing table upon connect.
 func createChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 	chanInfo *channeldb.ChannelEdgeInfo,

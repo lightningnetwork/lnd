@@ -86,7 +86,7 @@ func New(cfg Config) (*BtcWallet, error) {
 		}
 	} else {
 		// Wallet has been created and been initialized at this point,
-		// open it along with all the required DB namepsaces, and the
+		// open it along with all the required DB namespaces, and the
 		// DB itself.
 		wallet, err = loader.OpenExistingWallet(pubPass, false)
 		if err != nil {

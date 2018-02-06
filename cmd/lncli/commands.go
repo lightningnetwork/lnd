@@ -647,7 +647,7 @@ func closeChannel(ctx *cli.Context) error {
 		err  error
 	)
 
-	// Show command help if no arguments provieded
+	// Show command help if no arguments provided
 	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
 		cli.ShowCommandHelp(ctx, "closechannel")
 		return nil
@@ -1020,7 +1020,7 @@ var sendPaymentCommand = cli.Command{
 }
 
 func sendPayment(ctx *cli.Context) error {
-	// Show command help if no arguments provieded
+	// Show command help if no arguments provided
 	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
 		cli.ShowCommandHelp(ctx, "sendpayment")
 		return nil
@@ -1836,7 +1836,7 @@ func debugLevel(ctx *cli.Context) error {
 	return nil
 }
 
-var decodePayReqComamnd = cli.Command{
+var decodePayReqCommand = cli.Command{
 	Name:        "decodepayreq",
 	Usage:       "Decode a payment request.",
 	Description: "Decode the passed payment request revealing the destination, payment hash and value of the payment request",

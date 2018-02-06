@@ -137,11 +137,11 @@ func TestConstrainedPrefAttachmentNeedMoreChan(t *testing.T) {
 		},
 	}
 
-	prefAttatch := NewConstrainedPrefAttachment(minChanSize, maxChanSize,
+	prefAttach := NewConstrainedPrefAttachment(minChanSize, maxChanSize,
 		chanLimit, threshold)
 
 	for i, testCase := range testCases {
-		amtToAllocate, needMore := prefAttatch.NeedMoreChans(testCase.channels,
+		amtToAllocate, needMore := prefAttach.NeedMoreChans(testCase.channels,
 			testCase.walletAmt)
 
 		if amtToAllocate != testCase.amtAvailable {
@@ -228,7 +228,7 @@ func TestConstrainedPrefAttachmentSelectEmptyGraph(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to generate self key: %v", err)
 	}
-	prefAttatch := NewConstrainedPrefAttachment(minChanSize, maxChanSize,
+	prefAttach := NewConstrainedPrefAttachment(minChanSize, maxChanSize,
 		chanLimit, threshold)
 
 	skipNodes := make(map[NodeID]struct{})
@@ -246,7 +246,7 @@ func TestConstrainedPrefAttachmentSelectEmptyGraph(t *testing.T) {
 			// attempt to select a set of candidates channel for
 			// creation given the current state of the graph.
 			const walletFunds = btcutil.SatoshiPerBitcoin
-			directives, err := prefAttatch.Select(self, graph,
+			directives, err := prefAttach.Select(self, graph,
 				walletFunds, skipNodes)
 			if err != nil {
 				t1.Fatalf("unable to select attachment "+
@@ -257,7 +257,7 @@ func TestConstrainedPrefAttachmentSelectEmptyGraph(t *testing.T) {
 			// started with an empty graph.
 			if len(directives) != 0 {
 				t1.Fatalf("zero attachment directives "+
-					"should've been returned instead %v were",
+					"should have been returned instead %v were",
 					len(directives))
 			}
 		})
@@ -300,7 +300,7 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 			if err != nil {
 				t1.Fatalf("unable to generate self key: %v", err)
 			}
-			prefAttatch := NewConstrainedPrefAttachment(minChanSize, maxChanSize,
+			prefAttach := NewConstrainedPrefAttachment(minChanSize, maxChanSize,
 				chanLimit, threshold)
 
 			// For this set, we'll load the memory graph with two
@@ -315,7 +315,7 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 			// attempt to select a set of candidates channel for
 			// creation given the current state of the graph.
 			const walletFunds = btcutil.SatoshiPerBitcoin * 10
-			directives, err := prefAttatch.Select(self, graph,
+			directives, err := prefAttach.Select(self, graph,
 				walletFunds, skipNodes)
 			if err != nil {
 				t1.Fatalf("unable to select attachment directives: %v", err)
@@ -324,7 +324,7 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 			// Two new directives should have been selected, one
 			// for each node already present within the graph.
 			if len(directives) != 2 {
-				t1.Fatalf("two attachment directives should've been "+
+				t1.Fatalf("two attachment directives should have been "+
 					"returned instead %v were", len(directives))
 			}
 
@@ -387,14 +387,14 @@ func TestConstrainedPrefAttachmentSelectInsufficientFunds(t *testing.T) {
 			if err != nil {
 				t1.Fatalf("unable to generate self key: %v", err)
 			}
-			prefAttatch := NewConstrainedPrefAttachment(
+			prefAttach := NewConstrainedPrefAttachment(
 				minChanSize, maxChanSize, chanLimit, threshold,
 			)
 
 			// Next, we'll attempt to select a set of candidates,
 			// passing zero for the amount of wallet funds. This
 			// should return an empty slice of directives.
-			directives, err := prefAttatch.Select(self, graph, 0,
+			directives, err := prefAttach.Select(self, graph, 0,
 				skipNodes)
 			if err != nil {
 				t1.Fatalf("unable to select attachment "+
@@ -402,7 +402,7 @@ func TestConstrainedPrefAttachmentSelectInsufficientFunds(t *testing.T) {
 			}
 			if len(directives) != 0 {
 				t1.Fatalf("zero attachment directives "+
-					"should've been returned instead %v were",
+					"should have been returned instead %v were",
 					len(directives))
 			}
 		})
@@ -446,21 +446,21 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 			if err != nil {
 				t1.Fatalf("unable to generate self key: %v", err)
 			}
-			prefAttatch := NewConstrainedPrefAttachment(
+			prefAttach := NewConstrainedPrefAttachment(
 				minChanSize, maxChanSize, chanLimit, threshold,
 			)
 
-			const chanCapcity = btcutil.SatoshiPerBitcoin
+			const chanCapacity = btcutil.SatoshiPerBitcoin
 
 			// Next, we'll add 3 nodes to the graph, creating an
 			// "open triangle topology".
 			edge1, _, err := graph.addRandChannel(nil, nil,
-				chanCapcity)
+				chanCapacity)
 			if err != nil {
 				t1.Fatalf("unable to create channel: %v", err)
 			}
 			_, _, err = graph.addRandChannel(
-				edge1.Peer.PubKey(), nil, chanCapcity,
+				edge1.Peer.PubKey(), nil, chanCapacity,
 			)
 			if err != nil {
 				t1.Fatalf("unable to create channel: %v", err)
@@ -502,7 +502,7 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 			// result, the heuristic should try to greedily
 			// allocate funds to channels.
 			const availableBalance = btcutil.SatoshiPerBitcoin * 2.5
-			directives, err := prefAttatch.Select(self, graph,
+			directives, err := prefAttach.Select(self, graph,
 				availableBalance, skipNodes)
 			if err != nil {
 				t1.Fatalf("unable to select attachment "+
@@ -576,15 +576,15 @@ func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
 			if err != nil {
 				t1.Fatalf("unable to generate self key: %v", err)
 			}
-			prefAttatch := NewConstrainedPrefAttachment(
+			prefAttach := NewConstrainedPrefAttachment(
 				minChanSize, maxChanSize, chanLimit, threshold,
 			)
 
 			// Next, we'll create a simple topology of two nodes,
 			// with a single channel connecting them.
-			const chanCapcity = btcutil.SatoshiPerBitcoin
+			const chanCapacity = btcutil.SatoshiPerBitcoin
 			_, _, err = graph.addRandChannel(nil, nil,
-				chanCapcity)
+				chanCapacity)
 			if err != nil {
 				t1.Fatalf("unable to create channel: %v", err)
 			}
@@ -593,7 +593,7 @@ func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
 			// function to recommend potential attachment
 			// candidates.
 			const availableBalance = btcutil.SatoshiPerBitcoin * 2.5
-			directives, err := prefAttatch.Select(self, graph,
+			directives, err := prefAttach.Select(self, graph,
 				availableBalance, skipNodes)
 			if err != nil {
 				t1.Fatalf("unable to select attachment "+
@@ -617,7 +617,7 @@ func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
 			// without providing any new information, then we
 			// should get no new directives as both nodes has
 			// already been attached to.
-			directives, err = prefAttatch.Select(self, graph,
+			directives, err = prefAttach.Select(self, graph,
 				availableBalance, skipNodes)
 			if err != nil {
 				t1.Fatalf("unable to select attachment "+

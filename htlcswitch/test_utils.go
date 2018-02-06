@@ -361,7 +361,7 @@ func getChanID(msg lnwire.Message) (lnwire.ChannelID, error) {
 	switch msg := msg.(type) {
 	case *lnwire.UpdateAddHTLC:
 		chanID = msg.ChanID
-	case *lnwire.UpdateFufillHTLC:
+	case *lnwire.UpdateFulfillHTLC:
 		chanID = msg.ChanID
 	case *lnwire.UpdateFailHTLC:
 		chanID = msg.ChanID

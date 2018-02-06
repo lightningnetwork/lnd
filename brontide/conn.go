@@ -112,7 +112,7 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 	// In order to reconcile the differences between the record abstraction
 	// of our AEAD connection, and the stream abstraction of TCP, we
 	// maintain an intermediate read buffer. If this buffer becomes
-	// depleated, then we read the next record, and feed it into the
+	// depleted, then we read the next record, and feed it into the
 	// buffer. Otherwise, we read directly from the buffer.
 	if c.readBuf.Len() == 0 {
 		plaintext, err := c.noise.ReadMessage(c.conn)

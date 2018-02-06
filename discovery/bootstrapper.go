@@ -18,7 +18,7 @@ import (
 )
 
 // NetworkPeerBootstrapper is an interface that represents an initial peer
-// boostrap mechanism. This interface is to be used to bootstrap a new peer to
+// bootstrap mechanism. This interface is to be used to bootstrap a new peer to
 // the connection by providing it with the pubkey+address of a set of existing
 // peers on the network. Several bootstrap mechanisms can be implemented such
 // as DNS, in channel graph, DHT's, etc.
@@ -48,7 +48,7 @@ func MultiSourceBootstrap(ignore map[autopilot.NodeID]struct{}, numAddrs uint32,
 	var addrs []*lnwire.NetAddress
 	for _, bootStrapper := range bootStrappers {
 		// If we already have enough addresses, then we can exit early
-		// w/o querying the additional boostrappers.
+		// w/o querying the additional bootstrappers.
 		if uint32(len(addrs)) >= numAddrs {
 			break
 		}
@@ -85,7 +85,7 @@ type ChannelGraphBootstrapper struct {
 	chanGraph autopilot.ChannelGraph
 
 	// hashAccumulator is a set of 32 random bytes that are read upon the
-	// creation of the channel graph boostrapper. We use this value to
+	// creation of the channel graph bootstrapper. We use this value to
 	// randomly select nodes within the known graph to connect to. After
 	// each selection, we rotate the accumulator by hashing it with itself.
 	hashAccumulator [32]byte
@@ -257,7 +257,7 @@ var _ NetworkPeerBootstrapper = (*ChannelGraphBootstrapper)(nil)
 
 // NewDNSSeedBootstrapper returns a new instance of the DNSSeedBootstrapper.
 // The set of passed seeds should point to DNS servers that properly implement
-// Lighting's DNS peer bootstrapping protocol as defined in BOLT-0010. The set
+// Lightning's DNS peer bootstrapping protocol as defined in BOLT-0010. The set
 // of passed DNS seeds should come in pairs, with the second host name to be
 // used as a fallback for manual TCP resolution in the case of an error
 // receiving the UDP response. The second host should return a single A record

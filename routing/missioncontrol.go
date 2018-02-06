@@ -92,7 +92,7 @@ type graphPruneView struct {
 // consulted during path finding. If a vertex/edge is found within the returned
 // prune view, it is to be ignored as a goroutine has had issues routing
 // through it successfully. Within this method the main view of the
-// missionControl is garbage collected as entires are detected to be "stale".
+// missionControl is garbage collected as entries are detected to be "stale".
 func (m *missionControl) GraphPruneView() graphPruneView {
 	// First, we'll grab the current time, this value will be used to
 	// determine if an entry is stale or not.

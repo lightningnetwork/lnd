@@ -341,7 +341,7 @@ func TestNurseryStoreIncubate(t *testing.T) {
 }
 
 // TestNurseryStoreFinalize tests that kindergarten sweep transactions are
-// properly persistted, and that the last finalized height is being set
+// properly persisted, and that the last finalized height is being set
 // accordingly.
 func TestNurseryStoreFinalize(t *testing.T) {
 	cdb, cleanUp, err := makeTestDB()

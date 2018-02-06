@@ -2023,7 +2023,7 @@ func TestUpdateFeeFail(t *testing.T) {
 
 }
 
-// TestUpdateFeeSenderCommits veriefies that the state machine progresses as
+// TestUpdateFeeSenderCommits verifies that the state machine progresses as
 // expected if we send a fee update, and then the sender of the fee update
 // sends a commitment signature.
 func TestUpdateFeeSenderCommits(t *testing.T) {
@@ -2103,7 +2103,7 @@ func TestUpdateFeeSenderCommits(t *testing.T) {
 	// that Bob's received everything up to the signature she sent,
 	// including the HTLC and fee update.
 	if _, err := aliceChannel.ReceiveRevocation(bobRevocation); err != nil {
-		t.Fatalf("alice unable to rocess bob's revocation: %v", err)
+		t.Fatalf("alice unable to process bob's revocation: %v", err)
 	}
 
 	// Alice receives new signature from Bob, and assumes this covers the
@@ -2198,7 +2198,7 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 
 	// Bob receives the revocation of the old commitment
 	if _, err := bobChannel.ReceiveRevocation(aliceRevocation); err != nil {
-		t.Fatalf("alice unable to rocess bob's revocation: %v", err)
+		t.Fatalf("alice unable to process bob's revocation: %v", err)
 	}
 
 	// Alice will sign next commitment. Since she sent the revocation, she
@@ -2239,7 +2239,7 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 		t.Fatalf("alice unable to sign commitment: %v", err)
 	}
 
-	// Alice receives revokation from Bob, and can now be sure that Bob
+	// Alice receives revocation from Bob, and can now be sure that Bob
 	// received the two updates, and they are considered locked in.
 	if _, err := aliceChannel.ReceiveRevocation(bobRevocation); err != nil {
 		t.Fatalf("bob unable to process alice's revocation: %v", err)
@@ -2383,7 +2383,7 @@ func TestUpdateFeeMultipleUpdates(t *testing.T) {
 	// Bob's received everything up to the signature she sent, including the
 	// HTLC and fee update.
 	if _, err := aliceChannel.ReceiveRevocation(bobRevocation); err != nil {
-		t.Fatalf("alice unable to rocess bob's revocation: %v", err)
+		t.Fatalf("alice unable to process bob's revocation: %v", err)
 	}
 
 	// Alice receives new signature from Bob, and assumes this covers the
@@ -2731,7 +2731,7 @@ func TestChanSyncOweCommitment(t *testing.T) {
 		// Each of the settle messages that Alice sent should match her
 		// original intent.
 		for i := 0; i < 3; i++ {
-			settleMsg, ok := aliceMsgsToSend[i].(*lnwire.UpdateFufillHTLC)
+			settleMsg, ok := aliceMsgsToSend[i].(*lnwire.UpdateFulfillHTLC)
 			if !ok {
 				t.Fatalf("expected a htlc settle message, "+
 					"instead have %v", spew.Sdump(settleMsg))
@@ -3489,7 +3489,7 @@ func TestFeeUpdateRejectInsaneFee(t *testing.T) {
 	// Both Alice and Bob should reject this new fee rate as it it far too
 	// large.
 	if err := aliceChannel.UpdateFee(newFeeRate); err == nil {
-		t.Fatalf("alice should've rejected fee update")
+		t.Fatalf("alice should have rejected fee update")
 	}
 }
 

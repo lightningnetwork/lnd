@@ -371,7 +371,7 @@ func testUpdateFilterBackTrack(node *rpctest.Harness,
 		t.Fatalf("unable to generate block: %v", err)
 	}
 
-	// We should've received another empty filtered block notification.
+	// We should have received another empty filtered block notification.
 	select {
 	case filteredBlock := <-blockChan:
 		assertFilteredBlock(t, filteredBlock, currentHeight+1,
@@ -606,7 +606,7 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 			}
 			expectedHeight := uint32(oldHeight - i)
 			if block.Height != expectedHeight {
-				t.Fatalf("expected to receive disconencted "+
+				t.Fatalf("expected to receive disconnected "+
 					"block at height %d, instead got at %d",
 					expectedHeight, block.Height)
 			}
@@ -878,7 +878,7 @@ var interfaceImpls = []struct {
 func TestFilteredChainView(t *testing.T) {
 	// Initialize the harness around a btcd node which will serve as our
 	// dedicated miner to generate blocks, cause re-orgs, etc. We'll set up
-	// this node with a chain length of 125, so we have plentyyy of BTC to
+	// this node with a chain length of 125, so we have plenty of BTC to
 	// play around with.
 	miner, err := rpctest.New(netParams, nil, nil)
 	if err != nil {

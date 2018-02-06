@@ -24,21 +24,21 @@ const (
 	broadcastRedeemMultiplier = 2
 )
 
-// WitnessSubcription represents an intent to be notified once new witnesses
+// WitnessSubscription represents an intent to be notified once new witnesses
 // are discovered by various active contract resolvers. A contract resolver may
 // use this to be notified of when it can satisfy an incoming contract after we
 // discover the witness for an outgoing contract.
-type WitnessSubcription struct {
+type WitnessSubscription struct {
 	// WitnessUpdates is a channel that newly discovered witnesses will be
 	// sent over.
 	//
-	// TODO(roasbef): couple with WitnessType?
+	// TODO(roasbeef): couple with WitnessType?
 	WitnessUpdates <-chan []byte
 
-	// CancelSubcription is a function closure that should be used by a
+	// CancelSubscription is a function closure that should be used by a
 	// client to cancel the subscription once they are no longer interested
 	// in receiving new updates.
-	CancelSubcription func()
+	CancelSubscription func()
 }
 
 // WitnessBeacon is a global beacon of witnesses. Contract resolvers will use
@@ -49,9 +49,9 @@ type WitnessSubcription struct {
 // TODO(roasbeef): need to delete the pre-images once we've used them
 // and have been sufficiently confirmed?
 type WitnessBeacon interface {
-	// SubcribeUpdates returns a channel that will be sent upon *each* time
+	// SubscribeUpdates returns a channel that will be sent upon *each* time
 	// a new preimage is discovered.
-	SubcribeUpdates() *WitnessSubcription
+	SubscribeUpdates() *WitnessSubscription
 
 	// LookupPreImage attempts to lookup a preimage in the global cache.
 	// True is returned for the second argument if the preimage is found.
@@ -254,7 +254,7 @@ func (c *ChannelArbitrator) Start() error {
 		return err
 	}
 
-	// If we start and ended at the awiting full resolution state, then
+	// If we start and ended at the awaiting full resolution state, then
 	// we'll relaunch our set of unresolved contracts.
 	if startingState == StateWaitingFullResolution &&
 		nextState == StateWaitingFullResolution {
@@ -1144,7 +1144,7 @@ func (c *ChannelArbitrator) prepContractResolutions(htlcActions ChainActionMap,
 	return htlcResolvers, msgsToSend, nil
 }
 
-// resolveContract is a goroutien tasked with fully resolving an unresolved
+// resolveContract is a goroutine tasked with fully resolving an unresolved
 // contract. Either the initial contract will be resolved after a single step,
 // or the contract will itself create another contract to be resolved. In
 // either case, one the contract has been fully resolved, we'll signal back to

@@ -86,7 +86,7 @@ func (h *harnessTest) RunTestCase(testCase *testCase,
 	defer func() {
 		if err := recover(); err != nil {
 			description := errors.Wrap(err, 2).ErrorStack()
-			h.t.Fatalf("Failed: (%v) paniced with: \n%v",
+			h.t.Fatalf("Failed: (%v) panicked with: \n%v",
 				h.testCase.name, description)
 		}
 	}()
@@ -192,7 +192,7 @@ func openChannelAndAssert(ctx context.Context, t *harnessTest,
 }
 
 // closeChannelAndAssert attempts to close a channel identified by the passed
-// channel point owned by the passed lighting node. A fully blocking channel
+// channel point owned by the passed Lightning node. A fully blocking channel
 // closure is attempted, therefore the passed context should be a child derived
 // via timeout from a base parent. Additionally, once the channel has been
 // detected as closed, an assertion checks that the transaction is found within
@@ -1346,7 +1346,7 @@ func assertNumForceClosedChannels(t *harnessTest,
 }
 
 // assertPendingHtlcStageAndMaturity uniformly tests all pending htlc's
-// belonging to a force closed channel, testing for the expeced stage number,
+// belonging to a force closed channel, testing for the expected stage number,
 // blocks till maturity, and the maturity height.
 func assertPendingHtlcStageAndMaturity(t *harnessTest,
 	forceClose *lnrpc.PendingChannelsResponse_ForceClosedChannel,
@@ -2783,7 +2783,7 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// Finally, we make sure Dave and Bob does not know about the
 	// private channel between Carol and Alice. We first mine
 	// plenty of blocks, such that the channel would have been
-	// announceed in case it was public.
+	// announced in case it was public.
 	mineBlocks(t, net, 10)
 
 	// We create a helper method to check how many edges each of the
@@ -2890,7 +2890,7 @@ func testInvoiceSubscriptions(net *lntest.NetworkHarness, t *harnessTest) {
 		// The invoice update should exactly match the invoice created
 		// above, but should now be settled and have SettleDate
 		if !invoiceUpdate.Settled {
-			t.Fatalf("invoice not settled but shoudl be")
+			t.Fatalf("invoice not settled but should be")
 		}
 		if invoiceUpdate.SettleDate == 0 {
 			t.Fatalf("invoice should have non zero settle date, but doesn't")
@@ -3029,7 +3029,7 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// Mine 6 blocks, then wait for node's to notify us that the channel has
 	// been opened. The funding transactions should be found within the
 	// first newly mined block. 6 blocks make sure the funding transaction
-	// has enouught confirmations to be announced publicly.
+	// has enough confirmations to be announced publicly.
 	block := mineBlocks(t, net, 6)[0]
 
 	chanPoints := make([]*lnrpc.ChannelPoint, maxPendingChannels)
@@ -3166,7 +3166,7 @@ func waitForNTxsInMempool(miner *rpcclient.Client, n int,
 	}
 }
 
-// testRevokedCloseRetributinPostBreachConf tests that Alice is able carry out
+// testRevokedCloseRetribution tests that Alice is able carry out
 // retribution in the event that she fails immediately after detecting Bob's
 // breach txn in the mempool.
 func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
@@ -3700,7 +3700,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	// We'll introduce another closure to validate that Carol's current
 	// number of updates is at least as large as the provided minimum
 	// number.
-	checkCarolNumUpdatesAtleast := func(minimum uint64) {
+	checkCarolNumUpdatesAtLeast := func(minimum uint64) {
 		carolChan, err := getCarolChanInfo()
 		if err != nil {
 			t.Fatalf("unable to get carol's channel info: %v", err)
@@ -3748,7 +3748,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	checkCarolBalance(pushAmt)
 	// Since Carol has not settled, she should only see at least one update
 	// to her channel.
-	checkCarolNumUpdatesAtleast(1)
+	checkCarolNumUpdatesAtLeast(1)
 
 	// Create a temporary file to house Carol's database state at this
 	// particular point in history.
@@ -3778,7 +3778,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	// pushed to her, and that at least one more update has occurred.
 	time.Sleep(500 * time.Millisecond)
 	checkCarolBalance(pushAmt)
-	checkCarolNumUpdatesAtleast(carolStateNumPreCopy + 1)
+	checkCarolNumUpdatesAtLeast(carolStateNumPreCopy + 1)
 
 	// Now we shutdown Carol, copying over the her temporary database state
 	// which has the *prior* channel state over her current most up to date
@@ -3795,7 +3795,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	// Ensure that Carol's view of the channel is consistent with the
 	// state of the channel just before it was snapshotted.
 	checkCarolBalance(pushAmt)
-	checkCarolNumUpdatesAtleast(1)
+	checkCarolNumUpdatesAtLeast(1)
 
 	// Now query for Carol's channel state, it should show that she's at a
 	// state number in the past, *not* the latest state.
@@ -4045,7 +4045,7 @@ out:
 		t.Fatalf("unable to send payment: %v", err)
 	}
 
-	// The payment should've resulted in an error since we sent it with the
+	// The payment should have resulted in an error since we sent it with the
 	// wrong payment hash.
 	if resp.PaymentError == "" {
 		t.Fatalf("payment should have been rejected due to invalid " +
@@ -4222,7 +4222,7 @@ func subscribeGraphNotifications(t *harnessTest, ctxb context.Context,
 		t.Fatalf("unable to create topology client: %v", err)
 	}
 
-	// We'll launch a goroutine that'll be responsible for proxying all
+	// We'll launch a goroutine that will be responsible for proxying all
 	// notifications recv'd from the client into the channel below.
 	quit := make(chan struct{})
 	graphUpdates := make(chan *lnrpc.GraphTopologyUpdate, 20)
@@ -4270,7 +4270,7 @@ func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) 
 	chanPoint := openChannelAndAssert(ctxt, t, net, net.Alice, net.Bob,
 		chanAmt, 0)
 
-	// The channel opening above should've triggered a few notifications
+	// The channel opening above should have triggered a few notifications
 	// sent to the notification client. We'll expect two channel updates,
 	// and two node announcements.
 	const numExpectedUpdates = 4

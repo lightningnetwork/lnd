@@ -112,7 +112,7 @@ func testSingleConfirmationNotification(miner *rpctest.Harness,
 	// We'd like to test the case of being notified once a txid reaches
 	// a *single* confirmation.
 	//
-	// So first, let's send some coins to "ourself", obtainig a txid.
+	// So first, let's send some coins to "ourself", obtaining a txid.
 	// We're spending from a coinbase output here, so we use the dedicated
 	// function.
 
@@ -226,7 +226,7 @@ func testMultiConfirmationNotification(miner *rpctest.Harness,
 func testBatchConfirmationNotification(miner *rpctest.Harness,
 	notifier chainntnfs.ChainNotifier, t *testing.T) {
 
-	// We'd like to test a case of serving notifiations to multiple
+	// We'd like to test a case of serving notifications to multiple
 	// clients, each requesting to be notified once a txid receives
 	// various numbers of confirmations.
 	confSpread := [6]uint32{1, 2, 3, 6, 20, 22}
@@ -887,7 +887,7 @@ func testSpendBeforeNtfnRegistration(miner *rpctest.Harness,
 	// Broadcast our spending transaction.
 	spenderSha, err := miner.Node.SendRawTransaction(spendingTx, true)
 	if err != nil {
-		t.Fatalf("unable to brodacst tx: %v", err)
+		t.Fatalf("unable to broadcast tx: %v", err)
 	}
 
 	err = waitForMempoolTx(miner, spenderSha)
@@ -928,7 +928,7 @@ func testSpendBeforeNtfnRegistration(miner *rpctest.Harness,
 				ntfn.SpentOutPoint, outpoint)
 		}
 		if !bytes.Equal(ntfn.SpenderTxHash[:], spenderSha[:]) {
-			t.Fatalf("ntfn includes wrong spender tx sha, reports %v intead of %v",
+			t.Fatalf("ntfn includes wrong spender tx sha, reports %v instead of %v",
 				ntfn.SpenderTxHash[:], spenderSha[:])
 		}
 		if ntfn.SpenderInputIndex != 0 {
@@ -980,7 +980,7 @@ func testCancelSpendNtfn(node *rpctest.Harness,
 	// Broadcast our spending transaction.
 	spenderSha, err := node.Node.SendRawTransaction(spendingTx, true)
 	if err != nil {
-		t.Fatalf("unable to brodacst tx: %v", err)
+		t.Fatalf("unable to broadcast tx: %v", err)
 	}
 
 	err = waitForMempoolTx(node, spenderSha)
@@ -1007,7 +1007,7 @@ func testCancelSpendNtfn(node *rpctest.Harness,
 		}
 		if !bytes.Equal(ntfn.SpenderTxHash[:], spenderSha[:]) {
 			t.Fatalf("ntfn includes wrong spender tx sha, "+
-				"reports %v intead of %v",
+				"reports %v instead of %v",
 				ntfn.SpenderTxHash[:], spenderSha[:])
 		}
 		if ntfn.SpenderInputIndex != 0 {
@@ -1063,7 +1063,7 @@ func testCancelEpochNtfn(node *rpctest.Harness, notifier chainntnfs.ChainNotifie
 	select {
 	case _, ok := <-epochClients[0].Epochs:
 		if ok {
-			t.Fatalf("epoch notification should've been cancelled")
+			t.Fatalf("epoch notification should have been cancelled")
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatalf("epoch notification not sent")
@@ -1303,7 +1303,7 @@ var ntfnTests = []testCase{
 func TestInterfaces(t *testing.T) {
 	// Initialize the harness around a btcd node which will serve as our
 	// dedicated miner to generate blocks, cause re-orgs, etc. We'll set up
-	// this node with a chain length of 125, so we have plentyyy of BTC to
+	// this node with a chain length of 125, so we have plenty of BTC to
 	// play around with.
 	miner, err := rpctest.New(netParams, nil, nil)
 	if err != nil {

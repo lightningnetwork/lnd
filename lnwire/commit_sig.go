@@ -10,7 +10,7 @@ import (
 // receiver's pending set into a new commitment state.  Implicitly, the new
 // commitment transaction constructed which has been signed by CommitSig
 // includes all HTLC's in the remote node's pending set. A CommitSig message
-// may be sent after a series of UpdateAddHTLC/UpdateFufillHTLC messages in
+// may be sent after a series of UpdateAddHTLC/UpdateFulfillHTLC messages in
 // order to batch add several HTLC's with a single signature covering all
 // implicitly accepted HTLC's.
 type CommitSig struct {

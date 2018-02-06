@@ -150,8 +150,8 @@ type ChannelLinkConfig struct {
 	// in thread-safe manner.
 	Registry InvoiceDatabase
 
-	// PreimageCache is a global witness baacon that houses any new
-	// preimges discovered by other links. We'll use this to add new
+	// PreimageCache is a global witness beacon that houses any new
+	// preimages discovered by other links. We'll use this to add new
 	// witnesses that we discover which will notify any sub-systems
 	// subscribed to new events.
 	PreimageCache contractcourt.WitnessBeacon
@@ -532,7 +532,7 @@ func (l *channelLink) syncChanStates() error {
 	// a duplicate settle.
 	htlcsSettled := make(map[uint64]struct{})
 	for _, msg := range msgsToReSend {
-		settleMsg, ok := msg.(*lnwire.UpdateFufillHTLC)
+		settleMsg, ok := msg.(*lnwire.UpdateFulfillHTLC)
 		if !ok {
 			// If this isn't a settle message, then we'll skip it.
 			continue
@@ -588,7 +588,7 @@ func (l *channelLink) syncChanStates() error {
 			return err
 		}
 		l.batchCounter++
-		l.cfg.Peer.SendMessage(&lnwire.UpdateFufillHTLC{
+		l.cfg.Peer.SendMessage(&lnwire.UpdateFulfillHTLC{
 			ChanID:          l.ChanID(),
 			ID:              htlc.HtlcIndex,
 			PaymentPreimage: p,
@@ -896,7 +896,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		htlc.ID = index
 		l.cfg.Peer.SendMessage(htlc)
 
-	case *lnwire.UpdateFufillHTLC:
+	case *lnwire.UpdateFulfillHTLC:
 		// An HTLC we forward to the switch has just settled somewhere
 		// upstream. Therefore we settle the HTLC within the our local
 		// state machine.
@@ -971,7 +971,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		log.Tracef("Receive upstream htlc with payment hash(%x), "+
 			"assigning index: %v", msg.PaymentHash[:], index)
 
-	case *lnwire.UpdateFufillHTLC:
+	case *lnwire.UpdateFulfillHTLC:
 		pre := msg.PaymentPreimage
 		idx := msg.ID
 		if err := l.channel.ReceiveHTLCSettle(pre, idx); err != nil {
@@ -1344,7 +1344,7 @@ func (l *channelLink) updateChannelFee(feePerKw btcutil.Amount) error {
 		feePerKw)
 
 	// We skip sending the UpdateFee message if the channel is not
-	// currently eligable to forward messages.
+	// currently eligible to forward messages.
 	if !l.EligibleToForward() {
 		log.Debugf("ChannelPoint(%v): skipping fee update for " +
 			"inactive channel")
@@ -1391,7 +1391,7 @@ func (l *channelLink) processLockedInHtlcs(
 				outgoingChanID: l.ShortChanID(),
 				outgoingHTLCID: pd.ParentIndex,
 				amount:         pd.Amount,
-				htlc: &lnwire.UpdateFufillHTLC{
+				htlc: &lnwire.UpdateFulfillHTLC{
 					PaymentPreimage: pd.RPreimage,
 				},
 			}
@@ -1644,7 +1644,7 @@ func (l *channelLink) processLockedInHtlcs(
 
 				// HTLC was successfully settled locally send
 				// notification about it remote peer.
-				l.cfg.Peer.SendMessage(&lnwire.UpdateFufillHTLC{
+				l.cfg.Peer.SendMessage(&lnwire.UpdateFulfillHTLC{
 					ChanID:          l.ChanID(),
 					ID:              pd.HtlcIndex,
 					PaymentPreimage: preimage,

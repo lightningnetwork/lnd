@@ -891,7 +891,7 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 		return fmt.Errorf("intentional error in SendToPeer")
 	}
 	alice.fundingMgr.cfg.NotifyWhenOnline = func(peer *btcec.PublicKey, con chan<- struct{}) {
-		// Intetionally empty.
+		// Intentionally empty.
 	}
 
 	// Notify that transaction was mined
@@ -966,7 +966,7 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
 
-	// Next, we check that Alice sends the annnouncement signatures
+	// Next, we check that Alice sends the announcement signatures
 	// on restart after six confirmations. Bob should as expected send
 	// them as well.
 	recreateAliceFundingManager(t, alice)

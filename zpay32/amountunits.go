@@ -80,13 +80,13 @@ func mSatToNBtc(msat lnwire.MilliSatoshi) (uint64, error) {
 	return uint64(msat / 100), nil
 }
 
-// mSatToPBtc converts the given amount in milllisatoshis to picoBTC.
+// mSatToPBtc converts the given amount in millisatoshis to picoBTC.
 func mSatToPBtc(msat lnwire.MilliSatoshi) (uint64, error) {
 	return uint64(msat * 10), nil
 }
 
 // decodeAmount returns the amount encoded by the provided string in
-// milllisatoshi.
+// millisatoshi.
 func decodeAmount(amount string) (lnwire.MilliSatoshi, error) {
 	if len(amount) < 1 {
 		return 0, fmt.Errorf("amount must be non-empty")

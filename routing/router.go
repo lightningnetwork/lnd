@@ -79,7 +79,7 @@ type ChannelGraphSource interface {
 		e1, e2 *channeldb.ChannelEdgePolicy) error) error
 }
 
-// FeeSchema is the set fee configuration for a Lighting Node on the network.
+// FeeSchema is the set fee configuration for a Lightning Node on the network.
 // Using the coefficients described within the schema, the required fee to
 // forward outgoing payments can be derived.
 type FeeSchema struct {
@@ -96,7 +96,7 @@ type FeeSchema struct {
 }
 
 // ChannelPolicy holds the parameters that determine the policy we enforce
-// when fowarding payments on a channel. These parameters are communicated
+// when forwarding payments on a channel. These parameters are communicated
 // to the rest of the network in ChannelUpdate messages.
 type ChannelPolicy struct {
 	// FeeSchema holds the fee configuration for a channel.
@@ -471,7 +471,7 @@ func (r *ChannelRouter) syncGraphWithChain() error {
 			return err
 		}
 
-		// We're only interested in all prior outputs that've been
+		// We're only interested in all prior outputs that have been
 		// spent in the block, so collate all the referenced previous
 		// outpoints within each tx and input.
 		var spentOutputs []*wire.OutPoint
@@ -529,7 +529,7 @@ func (r *ChannelRouter) networkHandler() {
 			// We'll set up any dependants, and wait until a free
 			// slot for this job opens up, this allow us to not
 			// have thousands of goroutines active.
-			validationBarrier.InitJobDependancies(updateMsg.msg)
+			validationBarrier.InitJobDependencies(updateMsg.msg)
 
 			go func() {
 				defer validationBarrier.CompleteJob()
@@ -632,7 +632,7 @@ func (r *ChannelRouter) networkHandler() {
 			log.Infof("Pruning channel graph using block %v (height=%v)",
 				chainUpdate.Hash, blockHeight)
 
-			// We're only interested in all prior outputs that've
+			// We're only interested in all prior outputs that have
 			// been spent in the block, so collate all the
 			// referenced previous outpoints within each tx and
 			// input.
@@ -730,7 +730,7 @@ func (r *ChannelRouter) networkHandler() {
 
 				// We'll ensure that we don't attempt to prune
 				// our *own* channels from the graph, as in any
-				// case this shuold be re-advertised by the
+				// case this should be re-advertised by the
 				// sub-system above us.
 				if info.NodeKey1.IsEqual(r.selfNode.PubKey) ||
 					info.NodeKey2.IsEqual(r.selfNode.PubKey) {
@@ -1572,7 +1572,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 				// As this error indicates that the target
 				// channel was unable to carry this HTLC (for
 				// w/e reason), we'll query the index to find
-				// the _outgoign_ channel the source of the
+				// the _outgoing_ channel the source of the
 				// error was meant to pass the HTLC along to.
 				badChan, ok := route.nextHopChannel(errSource)
 				if !ok {
@@ -1648,7 +1648,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 				// As this error indicates that the target
 				// channel was unable to carry this HTLC (for
 				// w/e reason), we'll query the index to find
-				// the _outgoign_ channel the source of the
+				// the _outgoing_ channel the source of the
 				// error was meant to pass the HTLC along to.
 				badChan, ok := route.nextHopChannel(errSource)
 				if !ok {
@@ -1671,7 +1671,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 				continue
 
 			case *lnwire.FailPermanentNodeFailure:
-				// TODO(rosabeef): remove node from path
+				// TODO(roasbeef): remove node from path
 				continue
 
 			default:

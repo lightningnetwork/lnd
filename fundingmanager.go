@@ -186,7 +186,7 @@ type fundingConfig struct {
 	SignMessage func(pubKey *btcec.PublicKey, msg []byte) (*btcec.Signature, error)
 
 	// CurrentNodeAnnouncement should return the latest, fully signed node
-	// announcement from the backing Lighting Network node.
+	// announcement from the backing Lightning Network node.
 	CurrentNodeAnnouncement func() (lnwire.NodeAnnouncement, error)
 
 	// SendAnnouncement is used by the FundingManager to send
@@ -981,7 +981,7 @@ func (f *fundingManager) processFundingAccept(msg *lnwire.AcceptChannel,
 	}
 }
 
-// handleFundingAceept processes a response to the workflow initiation sent by
+// handleFundingAccept processes a response to the workflow initiation sent by
 // the remote peer. This message then queues a message with the funding
 // outpoint, and a commitment signature to the remote peer.
 func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {

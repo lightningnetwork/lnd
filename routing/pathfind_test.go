@@ -120,7 +120,7 @@ func makeTestGraph() (*channeldb.ChannelGraph, func(), error) {
 }
 
 // aliasMap is a map from a node's alias to its public key. This type is
-// provided in order to allow easily look up from the human rememberable alias
+// provided in order to allow easily look up from the human memorable alias
 // to an exact node's public key.
 type aliasMap map[string]*btcec.PublicKey
 
@@ -498,9 +498,9 @@ func TestKShortestPathFinding(t *testing.T) {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
 
-	// In this test we'd like to ensure that our algoirthm to find the
+	// In this test we'd like to ensure that our algorithm to find the
 	// k-shortest paths from a given source node to any destination node
-	// works as exepcted.
+	// works as expected.
 
 	// In our basic_graph.json, there exist two paths from roasbeef to luo
 	// ji. Our algorithm should properly find both paths, and also rank
@@ -514,13 +514,13 @@ func TestKShortestPathFinding(t *testing.T) {
 			"luo ji: %v", err)
 	}
 
-	// The algorithm should've found two paths from roasbeef to luo ji.
+	// The algorithm should have found two paths from roasbeef to luo ji.
 	if len(paths) != 2 {
 		t.Fatalf("two path shouldn't been found, instead %v were",
 			len(paths))
 	}
 
-	// Additinoally, the total hop length of the first path returned should
+	// Additionally, the total hop length of the first path returned should
 	// be _less_ than that of the second path returned.
 	if len(paths[0]) > len(paths[1]) {
 		t.Fatalf("paths found not ordered properly")
@@ -566,7 +566,7 @@ func TestNewRoutePathTooLong(t *testing.T) {
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 
-	// We start by confirminig that routing a payment 20 hops away is possible.
+	// We start by confirming that routing a payment 20 hops away is possible.
 	// Alice should be able to find a valid route to ursula.
 	target := aliases["ursula"]
 	_, err = findPath(nil, graph, sourceNode, target, ignoredVertexes,
@@ -705,7 +705,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	// First, we'll try to route from roasbeef -> songoku. This should
-	// suceed without issue, and return a single path.
+	// succeed without issue, and return a single path.
 	target := aliases["songoku"]
 	payAmt := lnwire.NewMSatFromSatoshis(10000)
 	_, err = findPath(nil, graph, sourceNode, target, ignoredVertexes,
@@ -726,7 +726,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	}
 
 	// Now, if we attempt to route through that edge, we should get a
-	// failure as it is no longer elligble.
+	// failure as it is no longer eligible.
 	_, err = findPath(nil, graph, sourceNode, target, ignoredVertexes,
 		ignoredEdges, payAmt)
 	if !IsError(err, ErrNoPathFound) {
@@ -792,7 +792,7 @@ func TestPathFindSpecExample(t *testing.T) {
 
 	// Now we'll examine the first route returned for correctness.
 	//
-	// It should be sending the exact payment amount as there're no
+	// It should be sending the exact payment amount as there are no
 	// additional hops.
 	firstRoute := routes[0]
 	if firstRoute.TotalAmount != amt {

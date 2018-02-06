@@ -9,7 +9,7 @@ import (
 )
 
 // NetworkHop indicates the blockchain network that is intended to be the next
-// hop for a forwarded HTLC. The existnce of this field within the
+// hop for a forwarded HTLC. The existence of this field within the
 // ForwardingInfo struct enables the ability for HTLC to cross chain-boundaries
 // at will.
 type NetworkHop uint8

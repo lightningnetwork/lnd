@@ -120,7 +120,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	}
 
 	// Finally, attempt to fetch the node again. This should fail as the
-	// node should've been deleted from the database.
+	// node should have been deleted from the database.
 	_, err = graph.FetchLightningNode(testPub)
 	if err != ErrGraphNodeNotFound {
 		t.Fatalf("fetch after delete should fail!")
@@ -185,7 +185,7 @@ func TestPartialNode(t *testing.T) {
 	}
 
 	// Finally, attempt to fetch the node again. This should fail as the
-	// node should've been deleted from the database.
+	// node should have been deleted from the database.
 	_, err = graph.FetchLightningNode(testPub)
 	if err != ErrGraphNodeNotFound {
 		t.Fatalf("fetch after delete should fail!")
@@ -355,9 +355,9 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 	}
 }
 
-// TestDisconnecteBlockAtHeight checks that the pruned state of the channel
+// TestDisconnectBlockAtHeight checks that the pruned state of the channel
 // database is what we expect after calling DisconnectBlockAtHeight.
-func TestDisconnecteBlockAtHeight(t *testing.T) {
+func TestDisconnectBlockAtHeight(t *testing.T) {
 	t.Parallel()
 
 	db, cleanUp, err := makeTestDB()
@@ -927,7 +927,7 @@ func assertPruneTip(t *testing.T, graph *ChannelGraph, blockHash *chainhash.Hash
 	}
 }
 
-func asserNumChans(t *testing.T, graph *ChannelGraph, n int) {
+func assertNumChans(t *testing.T, graph *ChannelGraph, n int) {
 	numChans := 0
 	if err := graph.ForEachChannel(func(*ChannelEdgeInfo, *ChannelEdgePolicy,
 		*ChannelEdgePolicy) error {
@@ -948,7 +948,7 @@ func asserNumChans(t *testing.T, graph *ChannelGraph, n int) {
 func assertChanViewEqual(t *testing.T, a []wire.OutPoint, b []*wire.OutPoint) {
 	if len(a) != len(b) {
 		_, _, line, _ := runtime.Caller(1)
-		t.Fatalf("line %v: chan views dont match", line)
+		t.Fatalf("line %v: chan views don't match", line)
 	}
 
 	chanViewSet := make(map[wire.OutPoint]struct{})
@@ -1080,7 +1080,7 @@ func TestGraphPruning(t *testing.T) {
 
 	// Count up the number of channels known within the graph, only 2
 	// should be remaining.
-	asserNumChans(t, graph, 2)
+	assertNumChans(t, graph, 2)
 
 	// Those channels should also be missing from the channel view.
 	channelView, err = graph.ChannelView()
@@ -1104,14 +1104,14 @@ func TestGraphPruning(t *testing.T) {
 		t.Fatalf("unable to prune graph: %v", err)
 	}
 
-	// No channels should've been detected as pruned.
+	// No channels should have been detected as pruned.
 	if len(prunedChans) != 0 {
 		t.Fatalf("channels were pruned but shouldn't have been")
 	}
 
-	// Once again, the prune tip should've been updated.
+	// Once again, the prune tip should have been updated.
 	assertPruneTip(t, graph, &blockHash, blockHeight)
-	asserNumChans(t, graph, 2)
+	assertNumChans(t, graph, 2)
 
 	// Finally, create a block that prunes the remainder of the channels
 	// from the graph.
@@ -1123,7 +1123,7 @@ func TestGraphPruning(t *testing.T) {
 		t.Fatalf("unable to prune graph: %v", err)
 	}
 
-	// The remainder of the channels should've been pruned from the graph.
+	// The remainder of the channels should have been pruned from the graph.
 	if len(prunedChans) != 2 {
 		t.Fatalf("incorrect number of channels pruned: expected %v, got %v",
 			2, len(prunedChans))
@@ -1132,7 +1132,7 @@ func TestGraphPruning(t *testing.T) {
 	// The prune tip should be updated, and no channels should be found
 	// within the current graph.
 	assertPruneTip(t, graph, &blockHash, blockHeight)
-	asserNumChans(t, graph, 0)
+	assertNumChans(t, graph, 0)
 
 	// Finally, the channel view at this point in the graph should now be
 	// completely empty.

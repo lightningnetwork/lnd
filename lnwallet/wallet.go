@@ -184,7 +184,7 @@ type addCounterPartySigsMsg struct {
 	// https://github.com/bitcoin/bips/blob/master/bip-0069.mediawiki.
 	theirFundingInputScripts []*InputScript
 
-	// This should be 1/2 of the signatures needed to succesfully spend our
+	// This should be 1/2 of the signatures needed to successfully spend our
 	// version of the commitment transaction.
 	theirCommitmentSig []byte
 
@@ -210,7 +210,7 @@ type addSingleFunderSigsMsg struct {
 	fundingOutpoint *wire.OutPoint
 
 	// theirCommitmentSig are the 1/2 of the signatures needed to
-	// succesfully spend our version of the commitment transaction.
+	// successfully spend our version of the commitment transaction.
 	theirCommitmentSig []byte
 
 	// This channel is used to return the completed channel after the wallet
@@ -1366,7 +1366,7 @@ func (l *LightningWallet) deriveMasterRevocationRoot() (*btcec.PrivateKey, error
 }
 
 // DeriveStateHintObfuscator derives the bytes to be used for obfuscating the
-// state hints from the root to be used for a new channel. The obsfucsator is
+// state hints from the root to be used for a new channel. The obfuscator is
 // generated via the following computation:
 //
 //   * sha256(initiatorKey || responderKey)[26:]
@@ -1386,7 +1386,7 @@ func DeriveStateHintObfuscator(key1, key2 *btcec.PublicKey) [StateHintSize]byte 
 	return obfuscator
 }
 
-// initStateHints properly sets the obsfucated state hints on both commitment
+// initStateHints properly sets the obfuscated state hints on both commitment
 // transactions using the passed obfuscator.
 func initStateHints(commit1, commit2 *wire.MsgTx,
 	obfuscator [StateHintSize]byte) error {

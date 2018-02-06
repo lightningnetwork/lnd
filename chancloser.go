@@ -83,7 +83,7 @@ type chanCloseCfg struct {
 	broadcastTx func(*wire.MsgTx) error
 
 	// quit is a channel that should be sent upon in the occasion the state
-	// machine shouldk cease all progress and shutdown.
+	// machine should cease all progress and shutdown.
 	quit chan struct{}
 }
 
@@ -247,7 +247,7 @@ func (c *channelCloser) ShutdownChan() (*lnwire.Shutdown, error) {
 
 // ClosingTx returns the fully signed, final closing transaction.
 //
-// NOTE: THis transaction is only available if the state machine is in the
+// NOTE: This transaction is only available if the state machine is in the
 // closeFinished state.
 func (c *channelCloser) ClosingTx() (*wire.MsgTx, error) {
 	// If the state machine hasn't finished closing the channel then we'll

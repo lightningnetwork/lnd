@@ -356,14 +356,14 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
 
 // determineFeePerByte will determine the fee in sat/byte that should be paid
 // given an estimator, a confirmation target, and a manual value for sat/byte.
-// A value is chosen based on the two free paramters as one, or both of them
+// A value is chosen based on the two free parameters as one, or both of them
 // can be zero.
 func determineFeePerByte(feeEstimator lnwallet.FeeEstimator, targetConf int32,
 	satPerByte int64) (btcutil.Amount, error) {
 
 	switch {
 	// If the target number of confirmations is set, then we'll use that to
-	// consult our fee estimator for an adquate fee.
+	// consult our fee estimator for an adequate fee.
 	case targetConf != 0:
 		satPerByte, err := feeEstimator.EstimateFeePerByte(
 			uint32(targetConf),
@@ -375,7 +375,7 @@ func determineFeePerByte(feeEstimator lnwallet.FeeEstimator, targetConf int32,
 
 		return btcutil.Amount(satPerByte), nil
 
-	// If a manual sat/byte fee rate is set, then we'll use that diretly.
+	// If a manual sat/byte fee rate is set, then we'll use that directly.
 	case satPerByte != 0:
 		return btcutil.Amount(satPerByte), nil
 
@@ -397,8 +397,8 @@ func determineFeePerByte(feeEstimator lnwallet.FeeEstimator, targetConf int32,
 func (r *rpcServer) SendCoins(ctx context.Context,
 	in *lnrpc.SendCoinsRequest) (*lnrpc.SendCoinsResponse, error) {
 
-	// Based on the passed fee related paramters, we'll determine an
-	// approriate fee rate for this transaction.
+	// Based on the passed fee related parameters, we'll determine an
+	// appropriate fee rate for this transaction.
 	feePerByte, err := determineFeePerByte(
 		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
 	)
@@ -425,7 +425,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 func (r *rpcServer) SendMany(ctx context.Context,
 	in *lnrpc.SendManyRequest) (*lnrpc.SendManyResponse, error) {
 
-	// Based on the passed fee related paramters, we'll determine an
+	// Based on the passed fee related parameters, we'll determine an
 	// approriate fee rate for this transaction.
 	feePerByte, err := determineFeePerByte(
 		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
@@ -699,9 +699,9 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	const minChannelSize = btcutil.Amount(6000)
 
 	// Restrict the size of the channel we'll actually open. Atm, we
-	// require the amount to be above 6k satoahis s we currently hard-coded
+	// require the amount to be above 6k satoshis we currently hard-coded
 	// a 5k satoshi fee in several areas. As a result 6k sat is the min
-	// channnel size that allows us to safely sit above the dust threshold
+	// channel size that allows us to safely sit above the dust threshold
 	// after fees are applied
 	// TODO(roasbeef): remove after dynamic fees are in
 	if localFundingAmt < minChannelSize {
@@ -735,8 +735,8 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 		nodePubKeyBytes = nodePubKey.SerializeCompressed()
 	}
 
-	// Based on the passed fee related paramters, we'll determine an
-	// approriate fee rate for the funding transaction.
+	// Based on the passed fee related parameters, we'll determine an
+	// appropriate fee rate for the funding transaction.
 	feePerByte, err := determineFeePerByte(
 		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
 	)
@@ -858,7 +858,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 			"initial state must be below the local funding amount")
 	}
 
-	// Based on the passed fee related paramters, we'll determine an
+	// Based on the passed fee related parameters, we'll determine an
 	// appropriate fee rate for the funding transaction.
 	feePerByte, err := determineFeePerByte(
 		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
@@ -1272,7 +1272,7 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 		return nil, err
 	}
 
-	// Get uncomfirmed balance, from txs with 0 confirmations.
+	// Get unconfirmed balance, from txs with 0 confirmations.
 	unconfirmedBal := totalBal - confirmedBal
 
 	rpcsLog.Debugf("[walletbalance] Total balance=%v", totalBal)
@@ -1524,7 +1524,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		localBalance := localCommit.LocalBalance
 		remoteBalance := localCommit.RemoteBalance
 
-		// As an artefact of our usage of mSAT internally, either party
+		// As an artifact of our usage of mSAT internally, either party
 		// may end up in a state where they're holding a fractional
 		// amount of satoshis which can't be expressed within the
 		// actual commitment output. Since we round down when going
@@ -2195,7 +2195,7 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 	}, nil
 }
 
-// LookupInvoice attemps to look up an invoice according to its payment hash.
+// LookupInvoice attempts to look up an invoice according to its payment hash.
 // The passed payment hash *must* be exactly 32 bytes, if not an error is
 // returned.
 func (r *rpcServer) LookupInvoice(ctx context.Context,
@@ -2532,14 +2532,14 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	// With the node obtained, we'll now iterate through all its out going
 	// edges to gather some basic statistics about its out going channels.
 	var (
-		numChannels  uint32
-		totalCapcity btcutil.Amount
+		numChannels   uint32
+		totalCapacity btcutil.Amount
 	)
 	if err := node.ForEachChannel(nil, func(_ *bolt.Tx, edge *channeldb.ChannelEdgeInfo,
 		_, _ *channeldb.ChannelEdgePolicy) error {
 
 		numChannels++
-		totalCapcity += edge.Capacity
+		totalCapacity += edge.Capacity
 		return nil
 	}); err != nil {
 		return nil, err
@@ -2565,7 +2565,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 			Color:      nodeColor,
 		},
 		NumChannels:   numChannels,
-		TotalCapacity: int64(totalCapcity),
+		TotalCapacity: int64(totalCapacity),
 	}, nil
 }
 
@@ -2573,7 +2573,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 // route to a target destination capable of carrying a specific amount of
 // satoshis within the route's flow. The retuned route contains the full
 // details required to craft and send an HTLC, also including the necessary
-// information that should be present within the Sphinx packet encapsualted
+// information that should be present within the Sphinx packet encapsulated
 // within the HTLC.
 //
 // TODO(roasbeef): should return a slice of routes in reality
@@ -2581,7 +2581,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 func (r *rpcServer) QueryRoutes(ctx context.Context,
 	in *lnrpc.QueryRoutesRequest) (*lnrpc.QueryRoutesResponse, error) {
 
-	// First parse the hex-encdoed public key into a full public key objet
+	// First parse the hex-encoded public key into a full public key object
 	// we can properly manipulate.
 	pubKeyBytes, err := hex.DecodeString(in.PubKey)
 	if err != nil {
@@ -2817,7 +2817,7 @@ func (r *rpcServer) SubscribeChannelGraph(req *lnrpc.GraphTopologySubscription,
 	}
 }
 
-// marshallTopologyChange performs a mapping from the topology change sturct
+// marshallTopologyChange performs a mapping from the topology change struct
 // returned by the router to the form of notifications expected by the current
 // gRPC service.
 func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopologyUpdate {
@@ -3066,7 +3066,7 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 }
 
 // minFeeRate is the smallest permitted fee rate within the network. This is
-// dervied by the fact that fee rates are computed using a fixed point of
+// derived by the fact that fee rates are computed using a fixed point of
 // 1,000,000. As a result, the smallest representable fee rate is 1e-6, or
 // 0.000001, or 0.0001%.
 const minFeeRate = 1e-6

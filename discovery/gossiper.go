@@ -27,7 +27,7 @@ var (
 	// messageStoreKey is a key used to create a top level bucket in
 	// the gossiper database, used for storing messages that are to
 	// be sent to peers. Currently this is used for reliably sending
-	// AnnounceSignatures messages, by peristing them until a send
+	// AnnounceSignatures messages, by persisting them until a send
 	// operation has succeeded.
 	messageStoreKey = []byte("message-store")
 )
@@ -184,7 +184,7 @@ type AuthenticatedGossiper struct {
 	// as we know it.
 	bestHeight uint32
 
-	// selfKey is the identity public key of the backing Lighting node.
+	// selfKey is the identity public key of the backing Lightning node.
 	selfKey *btcec.PublicKey
 
 	// channelMtx is used to restrict the database access to one
@@ -315,7 +315,7 @@ func (d *AuthenticatedGossiper) SynchronizeNode(pub *btcec.PublicKey) error {
 // channel forwarding policies for the specified channels. If no channels are
 // specified, then the update will be applied to all outgoing channels from the
 // source node. Policy updates are done in two stages: first, the
-// AuthenticatedGossiper ensures the update has been committed by dependant
+// AuthenticatedGossiper ensures the update has been committed by dependent
 // sub-systems, then it signs and broadcasts new updates to the network.
 func (d *AuthenticatedGossiper) PropagateChanPolicyUpdate(
 	newSchema routing.ChannelPolicy, chanPoints ...wire.OutPoint) error {
@@ -493,7 +493,7 @@ func (d *deDupedAnnouncements) Reset() {
 // reset is the private version of the Reset method. We have this so we can
 // call this method within method that are already holding the lock.
 func (d *deDupedAnnouncements) reset() {
-	// Storage of each type of announcement (channel anouncements, channel
+	// Storage of each type of announcement (channel announcements, channel
 	// updates, node announcements) is set to an empty map where the
 	// appropriate key points to the corresponding lnwire.Message.
 	d.channelAnnouncements = make(map[lnwire.ShortChannelID]msgWithSenders)
@@ -502,7 +502,7 @@ func (d *deDupedAnnouncements) reset() {
 }
 
 // addMsg adds a new message to the current batch. If the message is already
-// persent in the current batch, then this new instance replaces the latter,
+// present in the current batch, then this new instance replaces the latter,
 // and the set of senders is updated to reflect which node sent us this
 // message.
 func (d *deDupedAnnouncements) addMsg(message networkMsg) {
@@ -590,7 +590,7 @@ func (d *deDupedAnnouncements) addMsg(message networkMsg) {
 		sender := routing.NewVertex(message.peer)
 		deDupKey := routing.NewVertex(msg.NodeID)
 
-		// We do the same for node annonuncements as we did for channel
+		// We do the same for node announcements as we did for channel
 		// updates, as they also carry a timestamp.
 		oldTimestamp := uint32(0)
 		mws, ok := d.nodeAnnouncements[deDupKey]
@@ -823,7 +823,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 	trickleTimer := time.NewTicker(d.cfg.TrickleDelay)
 	defer trickleTimer.Stop()
 
-	// To start, we'll first check to see if there're any stale channels
+	// To start, we'll first check to see if there are any stale channels
 	// that we need to re-transmit.
 	if err := d.retransmitStaleChannels(); err != nil {
 		log.Errorf("unable to rebroadcast stale channels: %v",
@@ -861,7 +861,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			policyUpdate.errResp <- nil
 
 		case announcement := <-d.networkMsgs:
-			// Channel annoucnement signatures are the only message
+			// Channel announcement signatures are the only message
 			// that we'll process serially.
 			if _, ok := announcement.msg.(*lnwire.AnnounceSignatures); ok {
 				emittedAnnouncements := d.processNetworkAnnouncement(
@@ -875,10 +875,10 @@ func (d *AuthenticatedGossiper) networkHandler() {
 				continue
 			}
 
-			// We'll set up any dependant, and wait until a free
+			// We'll set up any dependent, and wait until a free
 			// slot for this job opens up, this allow us to not
 			// have thousands of goroutines active.
-			validationBarrier.InitJobDependancies(announcement.msg)
+			validationBarrier.InitJobDependencies(announcement.msg)
 
 			go func() {
 				defer validationBarrier.CompleteJob()
@@ -1147,11 +1147,11 @@ func (d *AuthenticatedGossiper) processChanPolicyUpdate(
 	return chanUpdates, nil
 }
 
-// processRejectedEdge examines a rejected edge to see if we can eexrtact any
+// processRejectedEdge examines a rejected edge to see if we can extract any
 // new announcements from it.  An edge will get rejected if we already added
 // the same edge without AuthProof to the graph. If the received announcement
 // contains a proof, we can add this proof to our edge.  We can end up in this
-// situatation in the case where we create a channel, but for some reason fail
+// situation in the case where we create a channel, but for some reason fail
 // to receive the remote peer's proof, while the remote peer is able to fully
 // assemble the proof and craft the ChannelAnnouncement.
 func (d *AuthenticatedGossiper) processRejectedEdge(chanAnnMsg *lnwire.ChannelAnnouncement,
@@ -1938,7 +1938,7 @@ func (d *AuthenticatedGossiper) sendAnnSigReliably(
 	// we do not succeed in sending it to the peer, we'll fetch it
 	// from the DB next time we start, and retry. We use the peer ID
 	// + shortChannelID as key, as there possibly is more than one
-	// channel oepning in progress to the same peer.
+	// channel opening in progress to the same peer.
 	var key [41]byte
 	copy(key[:33], remotePeer.SerializeCompressed())
 	binary.BigEndian.PutUint64(key[33:], msg.ShortChannelID.ToUint64())

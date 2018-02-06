@@ -265,7 +265,7 @@ type ChannelCommitment struct {
 	Htlcs []HTLC
 
 	// TODO(roasbeef): pending commit pointer?
-	//  * lets just walk thru
+	//  * lets just walk through
 }
 
 // OpenChannel encapsulates the persistent and dynamic state of an open channel
@@ -399,7 +399,7 @@ func (c *OpenChannel) FullSync() error {
 	return c.Db.Update(c.fullSync)
 }
 
-// updateChanBucket is a helper function that returns a writeable bucket that a
+// updateChanBucket is a helper function that returns a writable bucket that a
 // channel's data resides in given: the public key for the node, the outpoint,
 // and the chainhash that the channel resides on.
 func updateChanBucket(tx *bolt.Tx, nodeKey *btcec.PublicKey,
@@ -474,7 +474,7 @@ func readChanBucket(tx *bolt.Tx, nodeKey *btcec.PublicKey,
 	}
 
 	// With the bucket for the node fetched, we can now go down another
-	// level, for this channel iteslf.
+	// level, for this channel itself.
 	var chanPointBuf bytes.Buffer
 	chanPointBuf.Grow(outPointSize)
 	if err := writeOutpoint(&chanPointBuf, outPoint); err != nil {
@@ -924,7 +924,7 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 	defer c.Unlock()
 
 	return c.Db.Update(func(tx *bolt.Tx) error {
-		// First, we'll grab the writeable bucket where this channel's
+		// First, we'll grab the writable bucket where this channel's
 		// data resides.
 		chanBucket, err := updateChanBucket(tx, c.IdentityPub,
 			&c.FundingOutpoint, c.ChainHash)
@@ -1099,7 +1099,7 @@ func (c *OpenChannel) RevocationLogTail() (*ChannelCommitment, error) {
 	c.RLock()
 	defer c.RUnlock()
 
-	// If we haven't created any state updates yet, then we'll exit erly as
+	// If we haven't created any state updates yet, then we'll exit early as
 	// there's nothing to be found on disk in the revocation bucket.
 	if c.RemoteCommitment.CommitHeight == 0 {
 		return nil, nil
@@ -1121,7 +1121,7 @@ func (c *OpenChannel) RevocationLogTail() (*ChannelCommitment, error) {
 		// Once we have the bucket that stores the revocation log from
 		// this channel, we'll jump to the _last_ key in bucket. As we
 		// store the update number on disk in a big-endian format,
-		// this'll retrieve the latest entry.
+		// this will retrieve the latest entry.
 		cursor := logBucket.Cursor()
 		_, tailLogEntry := cursor.Last()
 		logEntryReader := bytes.NewReader(tailLogEntry)

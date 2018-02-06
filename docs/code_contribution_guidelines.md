@@ -271,7 +271,7 @@ Further paragraphs come after blank lines.
 Here are some of the reasons why wrapping your commit messages to 72 columns is
 a good thing.
 
-- git log doesn’t do any special wrapping of the commit messages. With
+- git log doesn't do any special wrapping of the commit messages. With
   the default pager of less -S, this means your paragraphs flow far off the edge
   of the screen, making them difficult to read. On an 80 column terminal, if we
   subtract 4 columns for the indent on the left and 4 more for symmetry on the
@@ -298,7 +298,7 @@ Blocks of code within `lnd` should be segmented into logical stanzas of
 operation. Such spacing makes the code easier to follow at a skim, and reduces
 unnecessary line noise. Coupled with the commenting scheme specified above,
 proper spacing allows readers to quickly scan code, extracting semantics quickly.
-Functions should _not_ just be layed out as a bare contiguous block of code. 
+Functions should _not_ just be laid out as a bare contiguous block of code. 
 
 **WRONG**   
 ```go

@@ -347,7 +347,7 @@ func TestEdgeUpdateNotification(t *testing.T) {
 		bitcoinKey1.SerializeCompressed(), bitcoinKey2.SerializeCompressed(),
 		chanValue, 0)
 	if err != nil {
-		t.Fatalf("unbale create channel edge: %v", err)
+		t.Fatalf("unable create channel edge: %v", err)
 	}
 
 	// We'll also add a record for the block that included our funding
@@ -871,7 +871,7 @@ func TestChannelCloseNotification(t *testing.T) {
 		if len(closedChans) == 0 {
 			t.Fatal("close channel ntfn not populated")
 		} else if len(closedChans) != 1 {
-			t.Fatalf("only one should've been detected as closed, "+
+			t.Fatalf("only one should have been detected as closed, "+
 				"instead %v were", len(closedChans))
 		}
 

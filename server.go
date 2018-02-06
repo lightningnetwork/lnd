@@ -175,7 +175,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	s.witnessBeacon = &preimageBeacon{
 		invoices:    s.invoices,
 		wCache:      chanDB.NewWitnessCache(),
-		subscribers: make(map[uint64]*preimageSubcriber),
+		subscribers: make(map[uint64]*preimageSubscriber),
 	}
 
 	// If the debug HTLC flag is on, then we invoice a "master debug"
@@ -579,7 +579,7 @@ func (s *server) WaitForShutdown() {
 // based on the server, and currently active bootstrap mechanisms as defined
 // within the current configuration.
 func initNetworkBootstrappers(s *server) ([]discovery.NetworkPeerBootstrapper, error) {
-	srvrLog.Infof("Initializing peer network boostrappers!")
+	srvrLog.Infof("Initializing peer network bootstrappers!")
 
 	var bootStrappers []discovery.NetworkPeerBootstrapper
 
@@ -599,9 +599,9 @@ func initNetworkBootstrappers(s *server) ([]discovery.NetworkPeerBootstrapper, e
 		dnsSeeds, ok := chainDNSSeeds[*activeNetParams.GenesisHash]
 
 		// If we have a set of DNS seeds for this chain, then we'll add
-		// it as an additional boostrapping source.
+		// it as an additional bootstrapping source.
 		if ok {
-			srvrLog.Infof("Creating DNS peer boostrapper with "+
+			srvrLog.Infof("Creating DNS peer bootstrapper with "+
 				"seeds: %v", dnsSeeds)
 
 			dnsBootStrapper, err := discovery.NewDNSSeedBootstrapper(
@@ -670,7 +670,7 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 
 	// We'll start with a 15 second backoff, and double the time every time
 	// an epoch fails up to a ceiling.
-	const backOffCeliing = time.Minute * 5
+	const backOffCeiling = time.Minute * 5
 	backOff := time.Second * 15
 
 	// We'll create a new ticker to wake us up every 15 seconds so we can
@@ -712,8 +712,8 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 				sampleTicker.Stop()
 
 				backOff *= 2
-				if backOff > backOffCeliing {
-					backOff = backOffCeliing
+				if backOff > backOffCeiling {
+					backOff = backOffCeiling
 				}
 
 				srvrLog.Debugf("Backing off peer bootstrapper to "+

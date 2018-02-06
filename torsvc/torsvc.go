@@ -44,9 +44,16 @@ var (
 )
 
 // TorDial returns a connection to a remote peer via Tor's socks proxy. Only
-// TCP is supported over Tor.
-func TorDial(address, socksPort string) (net.Conn, error) {
-	p := &socks.Proxy{Addr: localhost + ":" + socksPort}
+// TCP is supported over Tor. The final argument determines if we should force
+// stream isolation for this new connection. If we do, then this means this new
+// connection will use a fresh circuit, rather than possibly re-using an
+// existing circuit.
+func TorDial(address, socksPort string, streamIsolation bool) (net.Conn, error) {
+	p := &socks.Proxy{
+		Addr:         localhost + ":" + socksPort,
+		TorIsolation: streamIsolation,
+	}
+
 	return p.Dial("tcp", address)
 }
 

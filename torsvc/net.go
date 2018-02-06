@@ -39,6 +39,12 @@ type TorProxyNet struct {
 	// This is used for an outbound-only mode, so the node will not listen for
 	// incoming connections
 	TorSocks string
+
+	// StreamIsolation is a bool that determines if we should force the
+	// creation of a new circuit for this connection. If true, then this
+	// means that our traffic may be harder to correlate as each connection
+	// will now use a distinct circuit.
+	StreamIsolation bool
 }
 
 // Dial on the Tor network uses the torsvc TorDial() function, and requires
@@ -47,7 +53,7 @@ func (t *TorProxyNet) Dial(network, address string) (net.Conn, error) {
 	if network != "tcp" {
 		return nil, fmt.Errorf("Cannot dial non-tcp network via Tor")
 	}
-	return TorDial(address, t.TorSocks)
+	return TorDial(address, t.TorSocks, t.StreamIsolation)
 }
 
 // LookupHost on Tor network uses the torsvc TorLookupHost function.

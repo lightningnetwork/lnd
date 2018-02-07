@@ -499,7 +499,7 @@ func (r *ChannelRouter) syncGraphWithChain() error {
 		numChansClosed += numClosed
 	}
 
-	log.Infof("Graph pruning complete: %v channels we're closed since "+
+	log.Infof("Graph pruning complete: %v channels were closed since "+
 		"height %v", numChansClosed, pruneHeight)
 	return nil
 }

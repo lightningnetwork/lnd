@@ -1435,7 +1435,7 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 
 		// Before we create the chan closer, we'll start a new
 		// cooperative channel closure transaction from the chain arb.
-		// Wtih this context, we'll ensure that we're able to respond
+		// With this context, we'll ensure that we're able to respond
 		// if *any* of the transactions we sign off on are ever
 		// broadcast.
 		closeCtx, err := p.server.chainArb.BeginCoopChanClose(
@@ -1501,7 +1501,7 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 
 		// Before we create the chan closer, we'll start a new
 		// cooperative channel closure transaction from the chain arb.
-		// Wtih this context, we'll ensure that we're able to respond
+		// With this context, we'll ensure that we're able to respond
 		// if *any* of the transactions we sign off on are ever
 		// broadcast.
 		closeCtx, err := p.server.chainArb.BeginCoopChanClose(

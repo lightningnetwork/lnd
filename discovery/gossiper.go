@@ -1590,7 +1590,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		// verify message signature.
 		//
 		// We make sure to obtain the mutex for this channel ID
-		// before we acces the database. This ensures the state
+		// before we access the database. This ensures the state
 		// we read from the database has not changed between this
 		// point and when we call UpdateEdge() later.
 		d.channelMtx.Lock(msg.ShortChannelID.ToUint64())

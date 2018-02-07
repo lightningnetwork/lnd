@@ -13,7 +13,7 @@ import (
 type Sig [64]byte
 
 // NewSigFromRawSignature returns a Sig from a Bitcoin raw signature encoded in
-// the cannonical DER encoding.
+// the canonical DER encoding.
 func NewSigFromRawSignature(sig []byte) (Sig, error) {
 	var b Sig
 

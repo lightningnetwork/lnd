@@ -1398,7 +1398,7 @@ func (c *ChannelEdgeInfo) BitcoinKey2() (*btcec.PublicKey, error) {
 
 // ChannelAuthProof is the authentication proof (the signature portion) for a
 // channel. Using the four signatures contained in the struct, and some
-// auxillary knowledge (the funding script, node identities, and outpoint) nodes
+// auxiliary knowledge (the funding script, node identities, and outpoint) nodes
 // on the network are able to validate the authenticity and existence of a
 // channel. Each of these signatures signs the following digest: chanID ||
 // nodeID1 || nodeID2 || bitcoinKey1|| bitcoinKey2 || 2-byte-feature-len ||

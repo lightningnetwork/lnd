@@ -534,7 +534,7 @@ func TestProcessAnnouncement(t *testing.T) {
 	case msg := <-ctx.broadcastedMessage:
 		assertSenderExistence(na.NodeID, msg)
 	case <-time.After(2 * trickleDelay):
-		t.Fatal("announcememt wasn't proceeded")
+		t.Fatal("announcement wasn't proceeded")
 	}
 
 	if len(ctx.router.nodes) != 1 {
@@ -562,7 +562,7 @@ func TestProcessAnnouncement(t *testing.T) {
 	case msg := <-ctx.broadcastedMessage:
 		assertSenderExistence(na.NodeID, msg)
 	case <-time.After(2 * trickleDelay):
-		t.Fatal("announcememt wasn't proceeded")
+		t.Fatal("announcement wasn't proceeded")
 	}
 
 	if len(ctx.router.infos) != 1 {
@@ -590,7 +590,7 @@ func TestProcessAnnouncement(t *testing.T) {
 	case msg := <-ctx.broadcastedMessage:
 		assertSenderExistence(na.NodeID, msg)
 	case <-time.After(2 * trickleDelay):
-		t.Fatal("announcememt wasn't proceeded")
+		t.Fatal("announcement wasn't proceeded")
 	}
 
 	if len(ctx.router.edges) != 1 {
@@ -663,17 +663,17 @@ func TestPrematureAnnouncement(t *testing.T) {
 	select {
 	case <-ctx.broadcastedMessage:
 	case <-time.After(2 * trickleDelay):
-		t.Fatal("announcememt wasn't broadcasted")
+		t.Fatal("announcement wasn't broadcasted")
 	}
 
 	if len(ctx.router.infos) != 1 {
-		t.Fatalf("edge was't added to router: %v", err)
+		t.Fatalf("edge wasn't added to router: %v", err)
 	}
 
 	select {
 	case <-ctx.broadcastedMessage:
 	case <-time.After(2 * trickleDelay):
-		t.Fatal("announcememt wasn't broadcasted")
+		t.Fatal("announcement wasn't broadcasted")
 	}
 
 	if len(ctx.router.edges) != 1 {
@@ -1132,7 +1132,7 @@ func TestSignatureAnnouncementRetry(t *testing.T) {
 	}
 
 	// When the peer comes online, the gossiper gets notified, and should
-	// retry sending the AnnnounceSignatures. We make the SendToPeer
+	// retry sending the AnnounceSignatures. We make the SendToPeer
 	// method work again.
 	sentToPeer := make(chan lnwire.Message, 1)
 	ctx.gossiper.cfg.SendToPeer = func(target *btcec.PublicKey,
@@ -1141,7 +1141,7 @@ func TestSignatureAnnouncementRetry(t *testing.T) {
 		return nil
 	}
 
-	// Notify that peer is now online. THis should trigger a new call
+	// Notify that peer is now online. This should trigger a new call
 	// to SendToPeer.
 	close(conChan)
 
@@ -1369,7 +1369,7 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 		t.Fatalf("gossiper did not send message when peer came online")
 	}
 
-	// Now exchanging the remote channel proof, the channel annoncement
+	// Now exchanging the remote channel proof, the channel announcement
 	// broadcast should continue as normal.
 	select {
 	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.remoteProofAnn,
@@ -1562,7 +1562,7 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 	case msg := <-sentToPeer:
 		_, ok := msg.(*lnwire.ChannelAnnouncement)
 		if !ok {
-			t.Fatalf("expected ChannelAnnouncement, intead got %T", msg)
+			t.Fatalf("expected ChannelAnnouncement, instead got %T", msg)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not send local proof to peer")
@@ -1638,7 +1638,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 		t.Fatal("channel update not replaced in batch")
 	}
 
-	// Adding an announcment with a later timestamp should replace the
+	// Adding an announcement with a later timestamp should replace the
 	// stored one.
 	ua3, err := createUpdateAnnouncement(0, 0, nodeKeyPriv1, timestamp+1)
 	if err != nil {
@@ -1790,7 +1790,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 }
 
 // TestReceiveRemoteChannelUpdateFirst tests that if we receive a
-// CHannelUpdate from the remote before we have processed our
+// ChannelUpdate from the remote before we have processed our
 // own ChannelAnnouncement, it will be reprocessed later, after
 // our ChannelAnnouncement.
 func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
@@ -1822,7 +1822,7 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 	localKey := batch.nodeAnn1.NodeID
 	remoteKey := batch.nodeAnn2.NodeID
 
-	// Recreate the case where the remote node is snding us its ChannelUpdate
+	// Recreate the case where the remote node is sending us its ChannelUpdate
 	// before we have been able to process our own ChannelAnnouncement and
 	// ChannelUpdate.
 	err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.chanUpdAnn2, remoteKey)

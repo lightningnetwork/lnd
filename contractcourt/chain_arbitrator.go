@@ -90,7 +90,7 @@ type ChainArbitratorConfig struct {
 	// both to the utxo nursery. Once this function returns, the nursery
 	// should have safely persisted the outputs to disk, and should start
 	// the process of incubation. This is used when a resolver wishes to
-	// pass off the output to the nursery as we're inly waiting on an
+	// pass off the output to the nursery as we're only waiting on an
 	// absolute/relative item block.
 	IncubateOutputs func(wire.OutPoint, *lnwallet.CommitOutputResolution,
 		*lnwallet.OutgoingHtlcResolution,

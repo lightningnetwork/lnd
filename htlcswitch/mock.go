@@ -52,7 +52,7 @@ func (m *mockPreimageCache) AddPreimage(preimage []byte) error {
 	return nil
 }
 
-func (m *mockPreimageCache) SubcribeUpdates() *contractcourt.WitnessSubcription {
+func (m *mockPreimageCache) SubscribeUpdates() *contractcourt.WitnessSubscription {
 	return nil
 }
 
@@ -356,7 +356,7 @@ func (s *mockServer) readHandler(message lnwire.Message) error {
 	switch msg := message.(type) {
 	case *lnwire.UpdateAddHTLC:
 		targetChan = msg.ChanID
-	case *lnwire.UpdateFufillHTLC:
+	case *lnwire.UpdateFulfillHTLC:
 		targetChan = msg.ChanID
 	case *lnwire.UpdateFailHTLC:
 		targetChan = msg.ChanID

@@ -42,7 +42,7 @@ type PaymentCircuit struct {
 }
 
 // circuitKey is a channel ID, HTLC ID tuple used as an identifying key for a
-// payment circuit. The circuit map is keyed with the idenitifer for the
+// payment circuit. The circuit map is keyed with the identifier for the
 // outgoing HTLC
 type circuitKey struct {
 	chanID lnwire.ShortChannelID

@@ -563,8 +563,8 @@ func TestLightningWireProtocol(t *testing.T) {
 			},
 		},
 		{
-			msgType: MsgUpdateFufillHTLC,
-			scenario: func(m UpdateFufillHTLC) bool {
+			msgType: MsgUpdateFulfillHTLC,
+			scenario: func(m UpdateFulfillHTLC) bool {
 				return mainScenario(&m)
 			},
 		},

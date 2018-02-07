@@ -131,7 +131,7 @@ Execute the following command in the directory where the **pom.xml** file is loc
 ```
 mvn compile exec:java -Dexec.mainClass="Main" -Dexec.cleanupDaemonThreads=false
 ```
-##### Sample ouput
+##### Sample output
 ```
 [INFO] Scanning for projects...
 [INFO] ------------------------------------------------------------------------

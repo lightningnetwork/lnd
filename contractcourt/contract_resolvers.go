@@ -69,7 +69,7 @@ type ContractResolver interface {
 // given ContractResolver implementation. It contains all the items that a
 // resolver requires to carry out its duties.
 type ResolverKit struct {
-	// ChannelArbiratorConfig contains all the interfaces and closures
+	// ChannelArbitratorConfig contains all the interfaces and closures
 	// required for the resolver to interact with outside sub-systems.
 	ChannelArbitratorConfig
 
@@ -960,7 +960,7 @@ var _ ContractResolver = (*htlcOutgoingContestResolver)(nil)
 // it hasn't expired. In this case, we can resolve the HTLC if we learn of the
 // preimage, otherwise the remote party will sweep it after it expires.
 //
-// TODO(roabseef): just embed the other resolver?
+// TODO(roasbeef): just embed the other resolver?
 type htlcIncomingContestResolver struct {
 	// htlcExpiry is the absolute expiry of this incoming HTLC. We use this
 	// value to determine if we can exit early as if the HTLC times out,
@@ -1055,13 +1055,13 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	// If the HTLC hasn't expired yet, then we may still be able to claim
 	// it if we learn of the pre-image, so we'll wait and see if it pops
 	// up, or the HTLC times out.
-	preimageSubscription := h.PreimageDB.SubcribeUpdates()
+	preimageSubscription := h.PreimageDB.SubscribeUpdates()
 	blockEpochs, err := h.Notifier.RegisterBlockEpochNtfn()
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
-		preimageSubscription.CancelSubcription()
+		preimageSubscription.CancelSubscription()
 		blockEpochs.Cancel()
 	}()
 	for {

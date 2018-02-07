@@ -46,7 +46,7 @@ func (n *NetAddress) String() string {
 	return fmt.Sprintf("%x@%v", pubkey, n.Address)
 }
 
-// Network returns the name of the network this address is binded to.
+// Network returns the name of the network this address is bound to.
 //
 // This part of the net.Addr interface.
 func (n *NetAddress) Network() string {

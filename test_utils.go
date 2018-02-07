@@ -269,8 +269,8 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 
 	alicePeer := &peer{
 		server:        s,
-		sendQueue:     make(chan outgoinMsg, 1),
-		outgoingQueue: make(chan outgoinMsg, outgoingQueueLen),
+		sendQueue:     make(chan outgoingMsg, 1),
+		outgoingQueue: make(chan outgoingMsg, outgoingQueueLen),
 
 		activeChannels: make(map[lnwire.ChannelID]*lnwallet.LightningChannel),
 		newChannels:    make(chan *newChannelMsg, 1),

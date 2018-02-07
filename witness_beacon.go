@@ -9,9 +9,9 @@ import (
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
-// preimageSubcriber reprints an active subscription to be notified once the
+// preimageSubscriber reprints an active subscription to be notified once the
 // daemon discovers new preimages, either on chain or off-chain.
-type preimageSubcriber struct {
+type preimageSubscriber struct {
 	updateChan chan []byte
 
 	quit chan struct{}
@@ -28,17 +28,17 @@ type preimageBeacon struct {
 	wCache *channeldb.WitnessCache
 
 	clientCounter uint64
-	subscribers   map[uint64]*preimageSubcriber
+	subscribers   map[uint64]*preimageSubscriber
 }
 
-// SubcribeUpdates returns a channel that will be sent upon *each* time a new
+// SubscribeUpdates returns a channel that will be sent upon *each* time a new
 // preimage is discovered.
-func (p *preimageBeacon) SubcribeUpdates() *contractcourt.WitnessSubcription {
+func (p *preimageBeacon) SubscribeUpdates() *contractcourt.WitnessSubscription {
 	p.Lock()
 	defer p.Unlock()
 
 	clientID := p.clientCounter
-	client := &preimageSubcriber{
+	client := &preimageSubscriber{
 		updateChan: make(chan []byte, 10),
 		quit:       make(chan struct{}),
 	}
@@ -50,9 +50,9 @@ func (p *preimageBeacon) SubcribeUpdates() *contractcourt.WitnessSubcription {
 	srvrLog.Debugf("Creating new witness beacon subscriber, id=%v",
 		p.clientCounter)
 
-	return &contractcourt.WitnessSubcription{
+	return &contractcourt.WitnessSubscription{
 		WitnessUpdates: client.updateChan,
-		CancelSubcription: func() {
+		CancelSubscription: func() {
 			p.Lock()
 			defer p.Unlock()
 
@@ -117,7 +117,7 @@ func (p *preimageBeacon) AddPreimage(pre []byte) error {
 	// With the preimage added to our state, we'll now send a new
 	// notification to all subscribers.
 	for _, client := range p.subscribers {
-		go func(c *preimageSubcriber) {
+		go func(c *preimageSubscriber) {
 			select {
 			case c.updateChan <- pre:
 			case <-c.quit:

@@ -140,7 +140,7 @@ func TestMaxPayloadLength(t *testing.T) {
 	b := Machine{}
 	b.split()
 
-	// Create a payload that's juust over the maximum allotted payload
+	// Create a payload that's only *slightly* above the maximum allotted payload
 	// length.
 	payloadToReject := make([]byte, math.MaxUint16+1)
 
@@ -162,7 +162,7 @@ func TestMaxPayloadLength(t *testing.T) {
 			"accepted")
 	}
 
-	// Generate a final payload which is juuust over the max payload length
+	// Generate a final payload which is only *slightly* above the max payload length
 	// when the MAC is accounted for.
 	payloadToReject = make([]byte, math.MaxUint16+1)
 
@@ -190,7 +190,7 @@ func TestWriteMessageChunking(t *testing.T) {
 
 	// Launch a new goroutine to write the large message generated above in
 	// chunks. We spawn a new goroutine because otherwise, we may block as
-	// the kernal waits for the buffer to flush.
+	// the kernel waits for the buffer to flush.
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -364,7 +364,7 @@ func TestBolt0008TestVectors(t *testing.T) {
 	recvKey, err := hex.DecodeString("bb9020b8965f4df047e07f955f3c4b884" +
 		"18984aadc5cdb35096b9ea8fa5c3442")
 	if err != nil {
-		t.Fatalf("unable to parse recv'ing key: %v", err)
+		t.Fatalf("unable to parse receiving key: %v", err)
 	}
 
 	chainKey, err := hex.DecodeString("919219dbb2920afa8db80f9a51787a840" +

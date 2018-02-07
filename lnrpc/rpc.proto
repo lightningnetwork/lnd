@@ -299,7 +299,7 @@ service Lightning {
     }
 
     /** lncli: `lookupinvoice`
-    LookupInvoice attemps to look up an invoice according to its payment hash.
+    LookupInvoice attempts to look up an invoice according to its payment hash.
     The passed payment hash *must* be exactly 32 bytes, if not, an error is
     returned.
     */
@@ -389,7 +389,7 @@ service Lightning {
     route to a target destination capable of carrying a specific amount of
     satoshis. The retuned route contains the full details required to craft and
     send an HTLC, also including the necessary information that should be
-    present within the Sphinx packet encapsualted within the HTLC.
+    present within the Sphinx packet encapsulated within the HTLC.
     */
     rpc QueryRoutes(QueryRoutesRequest) returns (QueryRoutesResponse) {
         option (google.api.http) = {
@@ -610,7 +610,7 @@ message VerifyMessageRequest {
     /// The message over which the signature is to be verified
     bytes msg = 1 [ json_name = "msg" ];
 
-    /// The signature to be verifed over the given message
+    /// The signature to be verified over the given message
     string signature = 2 [ json_name = "signature" ];
 }
 message VerifyMessageResponse {
@@ -864,7 +864,7 @@ message OpenChannelRequest {
     /// The pubkey of the node to open a channel with
     bytes node_pubkey = 2 [json_name = "node_pubkey"];
 
-    /// The hex encorded pubkey of the node to open a channel with 
+    /// The hex encoded pubkey of the node to open a channel with 
     string node_pubkey_string = 3 [json_name = "node_pubkey_string"];
 
     /// The number of satoshis the wallet should commit to the channel

@@ -23,7 +23,7 @@ var (
 // channel open with. Information such as the Bitcoin network the node
 // advertised, and its identity public key are also stored. Additionally, this
 // struct and the bucket its stored within have store data similar to that of
-// Bitcion's addrmanager. The TCP address information stored within the struct
+// Bitcoin's addrmanager. The TCP address information stored within the struct
 // can be used to establish persistent connections will all channel
 // counterparties on daemon startup.
 //

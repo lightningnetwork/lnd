@@ -45,10 +45,10 @@ const (
 	outgoingQueueLen = 50
 )
 
-// outgoinMsg packages an lnwire.Message to be sent out on the wire, along with
+// outgoingMsg packages an lnwire.Message to be sent out on the wire, along with
 // a buffered channel which will be sent upon once the write is complete. This
 // buffered channel acts as a semaphore to be used for synchronization purposes.
-type outgoinMsg struct {
+type outgoingMsg struct {
 	msg     lnwire.Message
 	errChan chan error // MUST be buffered.
 }
@@ -116,11 +116,11 @@ type peer struct {
 
 	// sendQueue is the channel which is used to queue outgoing to be
 	// written onto the wire. Note that this channel is unbuffered.
-	sendQueue chan outgoinMsg
+	sendQueue chan outgoingMsg
 
 	// outgoingQueue is a buffered channel which allows second/third party
 	// objects to queue messages to be sent out on the wire.
-	outgoingQueue chan outgoinMsg
+	outgoingQueue chan outgoingMsg
 
 	// activeChannels is a map which stores the state machines of all
 	// active channels. Channels are indexed into the map by the txid of
@@ -187,8 +187,8 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 
 		localFeatures: localFeatures,
 
-		sendQueue:     make(chan outgoinMsg),
-		outgoingQueue: make(chan outgoinMsg),
+		sendQueue:     make(chan outgoingMsg),
+		outgoingQueue: make(chan outgoingMsg),
 
 		activeChannels: make(map[lnwire.ChannelID]*lnwallet.LightningChannel),
 		newChannels:    make(chan *newChannelMsg, 1),
@@ -748,7 +748,7 @@ out:
 		case *lnwire.UpdateAddHTLC:
 			isChanUpdate = true
 			targetChan = msg.ChanID
-		case *lnwire.UpdateFufillHTLC:
+		case *lnwire.UpdateFulfillHTLC:
 			isChanUpdate = true
 			targetChan = msg.ChanID
 		case *lnwire.UpdateFailMalformedHTLC:
@@ -864,7 +864,7 @@ func messageSummary(msg lnwire.Message) string {
 		return fmt.Sprintf("chan_id=%v, id=%v, reason=%x", msg.ChanID,
 			msg.ID, msg.Reason)
 
-	case *lnwire.UpdateFufillHTLC:
+	case *lnwire.UpdateFulfillHTLC:
 		return fmt.Sprintf("chan_id=%v, id=%v, pre_image=%x",
 			msg.ChanID, msg.ID, msg.PaymentPreimage[:])
 
@@ -1092,7 +1092,7 @@ func (p *peer) queueHandler() {
 			// writeHandler cannot accept messages on the
 			// sendQueue.
 			select {
-			case p.sendQueue <- elem.Value.(outgoinMsg):
+			case p.sendQueue <- elem.Value.(outgoingMsg):
 				pendingMsgs.Remove(elem)
 			case msg := <-p.outgoingQueue:
 				pendingMsgs.PushBack(msg)
@@ -1149,7 +1149,7 @@ func (p *peer) PingTime() int64 {
 // nil otherwise.
 func (p *peer) queueMsg(msg lnwire.Message, errChan chan error) {
 	select {
-	case p.outgoingQueue <- outgoinMsg{msg, errChan}:
+	case p.outgoingQueue <- outgoingMsg{msg, errChan}:
 	case <-p.quit:
 		peerLog.Tracef("Peer shutting down, could not enqueue msg.")
 		if errChan != nil {
@@ -1437,7 +1437,7 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 		// cooperative channel closure transaction from the chain arb.
 		// Wtih this context, we'll ensure that we're able to respond
 		// if *any* of the transactions we sign off on are ever
-		// braodacast.
+		// broadcast.
 		closeCtx, err := p.server.chainArb.BeginCoopChanClose(
 			*channel.ChannelPoint(),
 		)
@@ -1503,7 +1503,7 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 		// cooperative channel closure transaction from the chain arb.
 		// Wtih this context, we'll ensure that we're able to respond
 		// if *any* of the transactions we sign off on are ever
-		// braodacast.
+		// broadcast.
 		closeCtx, err := p.server.chainArb.BeginCoopChanClose(
 			*channel.ChannelPoint(),
 		)

@@ -280,7 +280,7 @@ bitcoins. The schema will be following:
                        + --------------- +        
         
         
- (1) You may connect an additinal node "Bob" and make the multihop
+ (1) You may connect an additional node "Bob" and make the multihop
  payment Alice->Faucet->Bob
   
  (2) "Faucet", "Alice" and "Bob" are the lightning network daemons which 

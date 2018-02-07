@@ -32,7 +32,7 @@ func (logWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-// Loggers per subsystem.  A single backend logger is created and all subsytem
+// Loggers per subsystem.  A single backend logger is created and all subsystem
 // loggers created from it will write to the backend.  When adding new
 // subsystems, add the subsystem logger variable here and to the
 // subsystemLoggers map.

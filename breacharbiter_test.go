@@ -639,7 +639,7 @@ func TestChannelDBRetributionStore(t *testing.T) {
 	restartDb := func() RetributionStore {
 		// Close and reopen channeldb
 		if err = db.Close(); err != nil {
-			t.Fatalf("unalbe to close channeldb during restart: %v",
+			t.Fatalf("unable to close channeldb during restart: %v",
 				err)
 		}
 		db, err = channeldb.Open(db.Path())
@@ -688,7 +688,7 @@ func countRetributions(t *testing.T, rs RetributionStore) int {
 // removes each one individually.  Between each addition or removal, the number
 // of elements in the store is checked to ensure that it only changes by one.
 func testRetributionStoreAddRemove(frs FailingRetributionStore, t *testing.T) {
-	// Make sure that a new retribution store is actually emtpy.
+	// Make sure that a new retribution store is actually empty.
 	if count := countRetributions(t, frs); count != 0 {
 		t.Fatalf("expected 0 retributions, found %v", count)
 	}
@@ -704,7 +704,7 @@ func testRetributionStoreAddRemove(frs FailingRetributionStore, t *testing.T) {
 // testRetributionStoreAddRemove, except that it also restarts the store between
 // each operation to ensure that the results are properly persisted.
 func testRetributionStorePersistence(frs FailingRetributionStore, t *testing.T) {
-	// Make sure that a new retribution store is still emtpy after failing
+	// Make sure that a new retribution store is still empty after failing
 	// right off the bat.
 	frs.Restart()
 	if count := countRetributions(t, frs); count != 0 {
@@ -870,9 +870,9 @@ func testRetributionStoreForAll(
 	var isRestart bool
 
 restartCheck:
-	// Construct a set of all channel points presented by the store. Entires
+	// Construct a set of all channel points presented by the store. Entries
 	// are only be added to the set if their corresponding retribution
-	// infromation matches the test vector.
+	// information matches the test vector.
 	var foundSet = make(map[wire.OutPoint]struct{})
 
 	// Iterate through the stored retributions, checking to see if we have
@@ -897,7 +897,7 @@ restartCheck:
 			foundSet[ret.chanPoint] = struct{}{}
 
 		} else {
-			return fmt.Errorf("unkwown retribution retrieved "+
+			return fmt.Errorf("unknown retribution retrieved "+
 				"from db: %v", ret)
 		}
 

@@ -61,7 +61,7 @@ type ContractTerm struct {
 	// extended.
 	PaymentPreimage [32]byte
 
-	// Value is the expected amount of milli-satoshis to be payed to an
+	// Value is the expected amount of milli-satoshis to be paid to an
 	// HTLC which can be satisfied by the above preimage.
 	Value lnwire.MilliSatoshi
 
@@ -301,7 +301,7 @@ func putInvoice(invoices *bolt.Bucket, invoiceIndex *bolt.Bucket,
 		return err
 	}
 
-	// Add the payment hash to the invoice index. This'll let us quickly
+	// Add the payment hash to the invoice index. This will let us quickly
 	// identify if we can settle an incoming payment, and also to possibly
 	// allow a single invoice to have multiple payment installations.
 	paymentHash := sha256.Sum256(i.Terms.PaymentPreimage[:])

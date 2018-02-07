@@ -322,7 +322,7 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	}
 
 	// The fee sent by the responder should be less than the fee we just
-	// sent as it should attempt to comrpomise.
+	// sent as it should attempt to compromise.
 	peerFee := responderClosingSigned.FeeSatoshis
 	if peerFee > increasedFee {
 		t.Fatalf("new fee should be less than our fee: new=%v, "+

@@ -27,7 +27,7 @@ func randInvoice(value lnwire.MilliSatoshi) (*Invoice, error) {
 		},
 	}
 	i.Memo = []byte("memo")
-	i.Receipt = []byte("recipt")
+	i.Receipt = []byte("receipt")
 
 	// Create a random byte slice of MaxPaymentRequestSize bytes to be used
 	// as a dummy paymentrequest, and  determine if it should be set based
@@ -62,12 +62,12 @@ func TestInvoiceWorkflow(t *testing.T) {
 		CreationDate: time.Unix(time.Now().Unix(), 0),
 	}
 	fakeInvoice.Memo = []byte("memo")
-	fakeInvoice.Receipt = []byte("recipt")
+	fakeInvoice.Receipt = []byte("receipt")
 	fakeInvoice.PaymentRequest = []byte("")
 	copy(fakeInvoice.Terms.PaymentPreimage[:], rev[:])
 	fakeInvoice.Terms.Value = lnwire.NewMSatFromSatoshis(10000)
 
-	// Add the invoice to the database, this should suceed as there aren't
+	// Add the invoice to the database, this should succeed as there aren't
 	// any existing invoices within the database with the same payment
 	// hash.
 	if err := db.AddInvoice(fakeInvoice); err != nil {
@@ -144,12 +144,12 @@ func TestInvoiceWorkflow(t *testing.T) {
 	}
 
 	// The retrieve list of invoices should be identical as since we're
-	// using big endian, the invoices should be retrieved in asecending
+	// using big endian, the invoices should be retrieved in ascending
 	// order (and the primary key should be incremented with each
 	// insertion).
 	for i := 0; i < len(invoices)-1; i++ {
 		if !reflect.DeepEqual(invoices[i], dbInvoices[i]) {
-			t.Fatalf("retrived invoices don't match %v vs %v",
+			t.Fatalf("retrieved invoices don't match %v vs %v",
 				spew.Sdump(invoices[i]),
 				spew.Sdump(dbInvoices[i]))
 		}

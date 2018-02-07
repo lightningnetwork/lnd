@@ -469,7 +469,7 @@ func (s *Switch) handleLocalDispatch(packet *htlcPacket) error {
 
 	// We've just received a settle update which means we can finalize the
 	// user payment and return successful response.
-	case *lnwire.UpdateFufillHTLC:
+	case *lnwire.UpdateFulfillHTLC:
 		// Notify the user that his payment was successfully proceed.
 		payment.err <- nil
 		payment.preimage <- htlc.PaymentPreimage
@@ -652,7 +652,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 	// We've just received a settle packet which means we can finalize the
 	// payment circuit by forwarding the settle msg to the channel from
 	// which htlc add packet was initially received.
-	case *lnwire.UpdateFufillHTLC, *lnwire.UpdateFailHTLC:
+	case *lnwire.UpdateFulfillHTLC, *lnwire.UpdateFailHTLC:
 		if !packet.isRouted {
 			// Use circuit map to find the link to forward settle/fail to.
 			circuit := s.circuits.LookupByHTLC(packet.outgoingChanID,
@@ -835,7 +835,7 @@ func (s *Switch) htlcForwarder() {
 			if resolutionMsg.Failure != nil {
 				pkt.htlc = &lnwire.UpdateFailHTLC{}
 			} else {
-				pkt.htlc = &lnwire.UpdateFufillHTLC{
+				pkt.htlc = &lnwire.UpdateFulfillHTLC{
 					PaymentPreimage: *resolutionMsg.PreImage,
 				}
 			}

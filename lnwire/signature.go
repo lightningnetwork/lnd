@@ -17,7 +17,7 @@ func SerializeSigToWire(b *[64]byte, e *btcec.Signature) error {
 	// 0x30 <length> 0x02 <length r> r 0x02 <length s> s
 	// which means the length of R is the 4th byte and the length of S
 	// is the second byte after R ends. 0x02 signifies a length-prefixed,
-	// zero-padded, big-endian bigint. 0x30 sigifies a DER signature.
+	// zero-padded, big-endian bigint. 0x30 signifies a DER signature.
 	// See the Serialize() method for btcec.Signature for details.
 	rLen := sig[3]
 	sLen := sig[5+rLen]

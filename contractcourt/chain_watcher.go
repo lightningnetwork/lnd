@@ -41,7 +41,7 @@ type ChainEventSubscription struct {
 	// material required to bring the cheating channel peer to justice.
 	ContractBreach chan *lnwallet.BreachRetribution
 
-	// ProcessACK is a channel that'll be used by the chainWatcher to
+	// ProcessACK is a channel that will be used by the chainWatcher to
 	// synchronize dispatch and processing of the notification with the act
 	// of updating the state of the channel on disk. This ensures that the
 	// event can be reliably handed off.
@@ -73,7 +73,7 @@ type chainWatcher struct {
 	// database to ensure that we act using the most up to date state.
 	chanState *channeldb.OpenChannel
 
-	// stateHintObfuscator is a 48-bit state hint that's used to obfsucate
+	// stateHintObfuscator is a 48-bit state hint that's used to obfuscate
 	// the current state number on the commitment transactions.
 	stateHintObfuscator [lnwallet.StateHintSize]byte
 

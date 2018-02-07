@@ -95,12 +95,12 @@ volumes:
   shared:
     driver: local
 
-  # bitcoin volume is needed for maintaining blockchain persistance
+  # bitcoin volume is needed for maintaining blockchain persistence
   # during btcd container recreation.
   bitcoin:
     driver: local
 
-  # litecoin volume is needed for maintaining blockchain persistance
+  # litecoin volume is needed for maintaining blockchain persistence
   # during ltcd container recreation.
   litecoin:
     driver: local

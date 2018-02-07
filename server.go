@@ -258,11 +258,11 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Now(),
 		Addresses:            selfAddrs,
-		PubKey:               privKey.PubKey(),
 		Alias:                nodeAlias.String(),
 		Features:             s.globalFeatures,
 		Color:                color,
 	}
+	copy(selfNode.PubKeyBytes[:], privKey.PubKey().SerializeCompressed())
 
 	// If our information has changed since our last boot, then we'll
 	// re-sign our node announcement so a fresh authenticated version of it
@@ -272,31 +272,35 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	nodeAnn := &lnwire.NodeAnnouncement{
 		Timestamp: uint32(selfNode.LastUpdate.Unix()),
 		Addresses: selfNode.Addresses,
-		NodeID:    selfNode.PubKey,
+		NodeID:    selfNode.PubKeyBytes,
 		Alias:     nodeAlias,
 		Features:  selfNode.Features.RawFeatureVector,
 		RGBColor:  color,
 	}
-	selfNode.AuthSig, err = discovery.SignAnnouncement(s.nodeSigner,
-		s.identityPriv.PubKey(), nodeAnn,
+	authSig, err := discovery.SignAnnouncement(
+		s.nodeSigner, s.identityPriv.PubKey(), nodeAnn,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate signature for "+
 			"self node announcement: %v", err)
 	}
 
+	selfNode.AuthSigBytes = authSig.Serialize()
+	s.currentNodeAnn = nodeAnn
+
 	if err := chanGraph.SetSourceNode(selfNode); err != nil {
 		return nil, fmt.Errorf("can't set self node: %v", err)
 	}
 
-	nodeAnn.Signature = selfNode.AuthSig
-	s.currentNodeAnn = nodeAnn
-
+	nodeAnn.Signature, err = lnwire.NewSigFromRawSignature(selfNode.AuthSigBytes)
+	if err != nil {
+		return nil, err
+	}
 	s.chanRouter, err = routing.New(routing.Config{
 		Graph:     chanGraph,
 		Chain:     cc.chainIO,
 		ChainView: cc.chainView,
-		SendToSwitch: func(firstHop *btcec.PublicKey,
+		SendToSwitch: func(firstHopPub [33]byte,
 			htlcAdd *lnwire.UpdateAddHTLC,
 			circuit *sphinx.Circuit) ([32]byte, error) {
 
@@ -306,9 +310,6 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 			errorDecryptor := &htlcswitch.SphinxErrorDecrypter{
 				OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
 			}
-
-			var firstHopPub [33]byte
-			copy(firstHopPub[:], firstHop.SerializeCompressed())
 
 			return s.htlcSwitch.SendHTLC(firstHopPub, htlcAdd, errorDecryptor)
 		},
@@ -806,11 +807,19 @@ func (s *server) genNodeAnnouncement(
 	}
 
 	s.currentNodeAnn.Timestamp = newStamp
-	s.currentNodeAnn.Signature, err = discovery.SignAnnouncement(
+	sig, err := discovery.SignAnnouncement(
 		s.nodeSigner, s.identityPriv.PubKey(), s.currentNodeAnn,
 	)
+	if err != nil {
+		return lnwire.NodeAnnouncement{}, err
+	}
 
-	return *s.currentNodeAnn, err
+	s.currentNodeAnn.Signature, err = lnwire.NewSigFromSignature(sig)
+	if err != nil {
+		return lnwire.NodeAnnouncement{}, err
+	}
+
+	return *s.currentNodeAnn, nil
 }
 
 type nodeAddresses struct {
@@ -870,7 +879,7 @@ func (s *server) establishPersistentConnections() error {
 		_ *channeldb.ChannelEdgeInfo,
 		policy, _ *channeldb.ChannelEdgePolicy) error {
 
-		pubStr := string(policy.Node.PubKey.SerializeCompressed())
+		pubStr := string(policy.Node.PubKeyBytes[:])
 
 		// Add addresses from channel graph/NodeAnnouncements to the
 		// list of addresses we'll connect to. If there are duplicates
@@ -906,11 +915,15 @@ func (s *server) establishPersistentConnections() error {
 			}
 		}
 
-		nodeAddrsMap[pubStr] = &nodeAddresses{
-			pubKey:    policy.Node.PubKey,
+		n := &nodeAddresses{
 			addresses: addrs,
 		}
+		n.pubKey, err = policy.Node.PubKey()
+		if err != nil {
+			return err
+		}
 
+		nodeAddrsMap[pubStr] = n
 		return nil
 	})
 	if err != nil && err != channeldb.ErrGraphNoEdgesFound {

@@ -296,9 +296,13 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 	// Any node announcement maps directly to a NetworkNodeUpdate struct.
 	// No further data munging or db queries are required.
 	case *channeldb.LightningNode:
+		pubKey, err := m.PubKey()
+		if err != nil {
+			return err
+		}
 		nodeUpdate := &NetworkNodeUpdate{
 			Addresses:   m.Addresses,
-			IdentityKey: m.PubKey,
+			IdentityKey: pubKey,
 			Alias:       m.Alias,
 		}
 		nodeUpdate.IdentityKey.Curve = nil
@@ -332,6 +336,15 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 			connectingNode = edgeInfo.NodeKey1
 		}
 
+		aNode, err := sourceNode()
+		if err != nil {
+			return err
+		}
+		cNode, err := connectingNode()
+		if err != nil {
+			return err
+		}
+
 		edgeUpdate := &ChannelEdgeUpdate{
 			ChanID:          m.ChannelID,
 			ChanPoint:       edgeInfo.ChannelPoint,
@@ -340,8 +353,8 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 			MinHTLC:         m.MinHTLC,
 			BaseFee:         m.FeeBaseMSat,
 			FeeRate:         m.FeeProportionalMillionths,
-			AdvertisingNode: sourceNode,
-			ConnectingNode:  connectingNode,
+			AdvertisingNode: aNode,
+			ConnectingNode:  cNode,
 		}
 		edgeUpdate.AdvertisingNode.Curve = nil
 		edgeUpdate.ConnectingNode.Curve = nil

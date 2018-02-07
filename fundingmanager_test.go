@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"io/ioutil"
+	"math/big"
 	"net"
 	"os"
 	"path/filepath"
@@ -79,6 +80,13 @@ var (
 		IdentityKey: bobPubKey,
 		Address:     bobTCPAddr,
 	}
+
+	testSig = &btcec.Signature{
+		R: new(big.Int),
+		S: new(big.Int),
+	}
+	_, _ = testSig.R.SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
+	_, _ = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
 )
 
 type mockNotifier struct {
@@ -217,7 +225,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		Notifier:     chainNotifier,
 		FeeEstimator: estimator,
 		SignMessage: func(pubKey *btcec.PublicKey, msg []byte) (*btcec.Signature, error) {
-			return nil, nil
+			return testSig, nil
 		},
 		SendAnnouncement: func(msg lnwire.Message) error {
 			select {
@@ -319,7 +327,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		FeeEstimator: oldCfg.FeeEstimator,
 		SignMessage: func(pubKey *btcec.PublicKey,
 			msg []byte) (*btcec.Signature, error) {
-			return nil, nil
+			return testSig, nil
 		},
 		SendAnnouncement: func(msg lnwire.Message) error {
 			select {

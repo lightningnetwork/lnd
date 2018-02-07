@@ -57,13 +57,6 @@ func messageToString(msg lnwire.Message) string {
 	switch m := msg.(type) {
 	case *lnwire.RevokeAndAck:
 		m.NextRevocationKey.Curve = nil
-	case *lnwire.NodeAnnouncement:
-		m.NodeID.Curve = nil
-	case *lnwire.ChannelAnnouncement:
-		m.NodeID1.Curve = nil
-		m.NodeID2.Curve = nil
-		m.BitcoinKey1.Curve = nil
-		m.BitcoinKey2.Curve = nil
 	case *lnwire.AcceptChannel:
 		m.FundingKey.Curve = nil
 		m.RevocationPoint.Curve = nil

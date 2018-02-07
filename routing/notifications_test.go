@@ -51,23 +51,25 @@ func createTestNode() (*channeldb.LightningNode, error) {
 	}
 
 	pub := priv.PubKey().SerializeCompressed()
-	return &channeldb.LightningNode{
+	n := &channeldb.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Unix(updateTime, 0),
 		Addresses:            testAddrs,
-		PubKey:               priv.PubKey(),
 		Color:                color.RGBA{1, 2, 3, 0},
 		Alias:                "kek" + string(pub[:]),
-		AuthSig:              testSig,
+		AuthSigBytes:         testSig.Serialize(),
 		Features:             testFeatures,
-	}, nil
+	}
+	copy(n.PubKeyBytes[:], pub)
+
+	return n, nil
 }
 
 func randEdgePolicy(chanID *lnwire.ShortChannelID,
 	node *channeldb.LightningNode) *channeldb.ChannelEdgePolicy {
 
 	return &channeldb.ChannelEdgePolicy{
-		Signature:                 testSig,
+		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID.ToUint64(),
 		LastUpdate:                time.Unix(int64(prand.Int31()), 0),
 		TimeLockDelta:             uint16(prand.Int63()),
@@ -371,18 +373,18 @@ func TestEdgeUpdateNotification(t *testing.T) {
 	// Finally, to conclude our test set up, we'll create a channel
 	// update to announce the created channel between the two nodes.
 	edge := &channeldb.ChannelEdgeInfo{
-		ChannelID:   chanID.ToUint64(),
-		NodeKey1:    node1.PubKey,
-		NodeKey2:    node2.PubKey,
-		BitcoinKey1: bitcoinKey1,
-		BitcoinKey2: bitcoinKey2,
+		ChannelID:     chanID.ToUint64(),
+		NodeKey1Bytes: node1.PubKeyBytes,
+		NodeKey2Bytes: node2.PubKeyBytes,
 		AuthProof: &channeldb.ChannelAuthProof{
-			NodeSig1:    testSig,
-			NodeSig2:    testSig,
-			BitcoinSig1: testSig,
-			BitcoinSig2: testSig,
+			NodeSig1Bytes:    testSig.Serialize(),
+			NodeSig2Bytes:    testSig.Serialize(),
+			BitcoinSig1Bytes: testSig.Serialize(),
+			BitcoinSig2Bytes: testSig.Serialize(),
 		},
 	}
+	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
+	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
 
 	if err := ctx.router.AddEdge(edge); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
@@ -450,8 +452,17 @@ func TestEdgeUpdateNotification(t *testing.T) {
 	// Create lookup map for notifications we are intending to receive. Entries
 	// are removed from the map when the anticipated notification is received.
 	var waitingFor = map[Vertex]int{
-		NewVertex(node1.PubKey): 1,
-		NewVertex(node2.PubKey): 2,
+		Vertex(node1.PubKeyBytes): 1,
+		Vertex(node2.PubKeyBytes): 2,
+	}
+
+	node1Pub, err := node1.PubKey()
+	if err != nil {
+		t.Fatalf("unable to encode key: %v", err)
+	}
+	node2Pub, err := node2.PubKey()
+	if err != nil {
+		t.Fatalf("unable to encode key: %v", err)
 	}
 
 	const numEdgePolicies = 2
@@ -473,20 +484,20 @@ func TestEdgeUpdateNotification(t *testing.T) {
 				case 1:
 					// Received notification corresponding to edge1.
 					assertEdgeCorrect(t, edgeUpdate, edge1)
-					if !edgeUpdate.AdvertisingNode.IsEqual(node1.PubKey) {
+					if !edgeUpdate.AdvertisingNode.IsEqual(node1Pub) {
 						t.Fatal("advertising node mismatch")
 					}
-					if !edgeUpdate.ConnectingNode.IsEqual(node2.PubKey) {
+					if !edgeUpdate.ConnectingNode.IsEqual(node2Pub) {
 						t.Fatal("connecting node mismatch")
 					}
 
 				case 2:
 					// Received notification corresponding to edge2.
 					assertEdgeCorrect(t, edgeUpdate, edge2)
-					if !edgeUpdate.AdvertisingNode.IsEqual(node2.PubKey) {
+					if !edgeUpdate.AdvertisingNode.IsEqual(node2Pub) {
 						t.Fatal("advertising node mismatch")
 					}
-					if !edgeUpdate.ConnectingNode.IsEqual(node1.PubKey) {
+					if !edgeUpdate.ConnectingNode.IsEqual(node1Pub) {
 						t.Fatal("connecting node mismatch")
 					}
 
@@ -494,8 +505,8 @@ func TestEdgeUpdateNotification(t *testing.T) {
 					t.Fatal("invalid edge index")
 				}
 
-				// Remove entry from waitingFor map to ensure we don't double count a
-				// repeat notification.
+				// Remove entry from waitingFor map to ensure
+				// we don't double count a repeat notification.
 				delete(waitingFor, nodeVertex)
 
 			} else {
@@ -552,18 +563,18 @@ func TestNodeUpdateNotification(t *testing.T) {
 	}
 
 	edge := &channeldb.ChannelEdgeInfo{
-		ChannelID:   chanID.ToUint64(),
-		NodeKey1:    node1.PubKey,
-		NodeKey2:    node2.PubKey,
-		BitcoinKey1: bitcoinKey1,
-		BitcoinKey2: bitcoinKey2,
+		ChannelID:     chanID.ToUint64(),
+		NodeKey1Bytes: node1.PubKeyBytes,
+		NodeKey2Bytes: node2.PubKeyBytes,
 		AuthProof: &channeldb.ChannelAuthProof{
-			NodeSig1:    testSig,
-			NodeSig2:    testSig,
-			BitcoinSig1: testSig,
-			BitcoinSig2: testSig,
+			NodeSig1Bytes:    testSig.Serialize(),
+			NodeSig2Bytes:    testSig.Serialize(),
+			BitcoinSig1Bytes: testSig.Serialize(),
+			BitcoinSig2Bytes: testSig.Serialize(),
 		},
 	}
+	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
+	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
 
 	// Adding the edge will add the nodes to the graph, but with no info
 	// except the pubkey known.
@@ -589,15 +600,17 @@ func TestNodeUpdateNotification(t *testing.T) {
 	assertNodeNtfnCorrect := func(t *testing.T, ann *channeldb.LightningNode,
 		nodeUpdate *NetworkNodeUpdate) {
 
+		nodeKey, _ := ann.PubKey()
+
 		// The notification received should directly map the
 		// announcement originally sent.
 		if nodeUpdate.Addresses[0] != ann.Addresses[0] {
 			t.Fatalf("node address doesn't match: expected %v, got %v",
 				nodeUpdate.Addresses[0], ann.Addresses[0])
 		}
-		if !nodeUpdate.IdentityKey.IsEqual(ann.PubKey) {
+		if !nodeUpdate.IdentityKey.IsEqual(nodeKey) {
 			t.Fatalf("node identity keys don't match: expected %x, "+
-				"got %x", ann.PubKey.SerializeCompressed(),
+				"got %x", nodeKey.SerializeCompressed(),
 				nodeUpdate.IdentityKey.SerializeCompressed())
 		}
 		if nodeUpdate.Alias != ann.Alias {
@@ -609,8 +622,8 @@ func TestNodeUpdateNotification(t *testing.T) {
 	// Create lookup map for notifications we are intending to receive. Entries
 	// are removed from the map when the anticipated notification is received.
 	var waitingFor = map[Vertex]int{
-		NewVertex(node1.PubKey): 1,
-		NewVertex(node2.PubKey): 2,
+		Vertex(node1.PubKeyBytes): 1,
+		Vertex(node2.PubKeyBytes): 2,
 	}
 
 	// Exactly two notifications should be sent, each corresponding to the
@@ -738,18 +751,18 @@ func TestNotificationCancellation(t *testing.T) {
 	ntfnClient.Cancel()
 
 	edge := &channeldb.ChannelEdgeInfo{
-		ChannelID:   chanID.ToUint64(),
-		NodeKey1:    node1.PubKey,
-		NodeKey2:    node2.PubKey,
-		BitcoinKey1: bitcoinKey1,
-		BitcoinKey2: bitcoinKey2,
+		ChannelID:     chanID.ToUint64(),
+		NodeKey1Bytes: node1.PubKeyBytes,
+		NodeKey2Bytes: node2.PubKeyBytes,
 		AuthProof: &channeldb.ChannelAuthProof{
-			NodeSig1:    testSig,
-			NodeSig2:    testSig,
-			BitcoinSig1: testSig,
-			BitcoinSig2: testSig,
+			NodeSig1Bytes:    testSig.Serialize(),
+			NodeSig2Bytes:    testSig.Serialize(),
+			BitcoinSig1Bytes: testSig.Serialize(),
+			BitcoinSig2Bytes: testSig.Serialize(),
 		},
 	}
+	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
+	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
 	if err := ctx.router.AddEdge(edge); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
@@ -819,18 +832,18 @@ func TestChannelCloseNotification(t *testing.T) {
 	// Finally, to conclude our test set up, we'll create a channel
 	// announcement to announce the created channel between the two nodes.
 	edge := &channeldb.ChannelEdgeInfo{
-		ChannelID:   chanID.ToUint64(),
-		NodeKey1:    node1.PubKey,
-		NodeKey2:    node2.PubKey,
-		BitcoinKey1: bitcoinKey1,
-		BitcoinKey2: bitcoinKey2,
+		ChannelID:     chanID.ToUint64(),
+		NodeKey1Bytes: node1.PubKeyBytes,
+		NodeKey2Bytes: node2.PubKeyBytes,
 		AuthProof: &channeldb.ChannelAuthProof{
-			NodeSig1:    testSig,
-			NodeSig2:    testSig,
-			BitcoinSig1: testSig,
-			BitcoinSig2: testSig,
+			NodeSig1Bytes:    testSig.Serialize(),
+			NodeSig2Bytes:    testSig.Serialize(),
+			BitcoinSig1Bytes: testSig.Serialize(),
+			BitcoinSig2Bytes: testSig.Serialize(),
 		},
 	}
+	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
+	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
 	if err := ctx.router.AddEdge(edge); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}

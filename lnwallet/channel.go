@@ -2557,8 +2557,8 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 // new commitment to the remote party. The commit diff returned contains all
 // information necessary for retransmission.
 func (lc *LightningChannel) createCommitDiff(
-	newCommit *commitment, commitSig *btcec.Signature,
-	htlcSigs []*btcec.Signature) (*channeldb.CommitDiff, error) {
+	newCommit *commitment, commitSig lnwire.Sig,
+	htlcSigs []lnwire.Sig) (*channeldb.CommitDiff, error) {
 
 	// First, we need to convert the funding outpoint into the ID that's
 	// used on the wire to identify this channel. We'll use this shortly
@@ -2673,9 +2673,14 @@ func (lc *LightningChannel) createCommitDiff(
 // itself, while the second parameter is a slice of all HTLC signatures (if
 // any). The HTLC signatures are sorted according to the BIP 69 order of the
 // HTLC's on the commitment transaction.
-func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Signature, error) {
+func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, error) {
 	lc.Lock()
 	defer lc.Unlock()
+
+	var (
+		sig      lnwire.Sig
+		htlcSigs []lnwire.Sig
+	)
 
 	// If we're awaiting for an ACK to a commitment signature, or if we
 	// don't yet have the initial next revocation point of the remote
@@ -2684,7 +2689,7 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 	commitPoint := lc.channelState.RemoteNextRevocation
 	if lc.remoteCommitChain.hasUnackedCommitment() || commitPoint == nil {
 
-		return nil, nil, ErrNoWindow
+		return sig, htlcSigs, ErrNoWindow
 	}
 
 	// Determine the last update on the remote log that has been locked in.
@@ -2698,7 +2703,7 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 	err := lc.validateCommitmentSanity(remoteACKedIndex,
 		lc.localUpdateLog.logIndex, false, true, true)
 	if err != nil {
-		return nil, nil, err
+		return sig, htlcSigs, err
 	}
 
 	// Grab the next commitment point for the remote party. This will be
@@ -2719,7 +2724,7 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 		remoteACKedIndex, remoteHtlcIndex, keyRing,
 	)
 	if err != nil {
-		return nil, nil, err
+		return sig, htlcSigs, err
 	}
 
 	walletLog.Tracef("ChannelPoint(%v): extending remote chain to height %v, "+
@@ -2744,7 +2749,7 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 		lc.localChanCfg, lc.remoteChanCfg, newCommitView,
 	)
 	if err != nil {
-		return nil, nil, err
+		return sig, htlcSigs, err
 	}
 	lc.sigPool.SubmitSignBatch(sigBatch)
 
@@ -2755,12 +2760,12 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 	rawSig, err := lc.signer.SignOutputRaw(newCommitView.txn, lc.signDesc)
 	if err != nil {
 		close(cancelChan)
-		return nil, nil, err
+		return sig, htlcSigs, err
 	}
-	sig, err := btcec.ParseSignature(rawSig, btcec.S256())
+	sig, err = lnwire.NewSigFromRawSignature(rawSig)
 	if err != nil {
 		close(cancelChan)
-		return nil, nil, err
+		return sig, htlcSigs, err
 	}
 
 	// We'll need to send over the signatures to the remote party in the
@@ -2772,7 +2777,7 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 
 	// With the jobs sorted, we'll now iterate through all the responses to
 	// gather each of the signatures in order.
-	htlcSigs := make([]*btcec.Signature, 0, len(sigBatch))
+	htlcSigs = make([]lnwire.Sig, 0, len(sigBatch))
 	for _, htlcSigJob := range sigBatch {
 		select {
 		case jobResp := <-htlcSigJob.resp:
@@ -2780,12 +2785,12 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 			// active jobs.
 			if jobResp.err != nil {
 				close(cancelChan)
-				return nil, nil, err
+				return sig, htlcSigs, err
 			}
 
 			htlcSigs = append(htlcSigs, jobResp.sig)
 		case <-lc.quit:
-			return nil, nil, fmt.Errorf("channel shutting down")
+			return sig, htlcSigs, fmt.Errorf("channel shutting down")
 		}
 	}
 
@@ -2794,10 +2799,10 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 	// can retransmit it if necessary.
 	commitDiff, err := lc.createCommitDiff(newCommitView, sig, htlcSigs)
 	if err != nil {
-		return nil, nil, err
+		return sig, htlcSigs, err
 	}
 	if lc.channelState.AppendRemoteCommitChain(commitDiff); err != nil {
-		return nil, nil, err
+		return sig, htlcSigs, err
 	}
 
 	// TODO(roasbeef): check that one eclair bug
@@ -3128,13 +3133,13 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 // commitment state. The jobs generated are fully populated, and can be sent
 // directly into the pool of workers.
 func genHtlcSigValidationJobs(localCommitmentView *commitment,
-	keyRing *CommitmentKeyRing, htlcSigs []*btcec.Signature,
-	localChanCfg, remoteChanCfg *channeldb.ChannelConfig) []verifyJob {
+	keyRing *CommitmentKeyRing, htlcSigs []lnwire.Sig,
+	localChanCfg, remoteChanCfg *channeldb.ChannelConfig) ([]verifyJob, error) {
 
 	// If this new commitment state doesn't have any HTLC's that are to be
 	// signed, then we'll return a nil slice.
 	if len(htlcSigs) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	txHash := localCommitmentView.txn.TxHash()
@@ -3154,7 +3159,11 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 	// to validate each signature within the worker pool.
 	i := 0
 	for index := range localCommitmentView.txn.TxOut {
-		var sigHash func() ([]byte, error)
+		var (
+			sigHash func() ([]byte, error)
+			sig     *btcec.Signature
+			err     error
+		)
 
 		outputIndex := int32(index)
 		switch {
@@ -3197,7 +3206,11 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 			// With the sighash generated, we'll also store the
 			// signature so it can be written to disk if this state
 			// is valid.
-			htlc.sig = htlcSigs[i]
+			sig, err = htlcSigs[i].ToSignature()
+			if err != nil {
+				return nil, err
+			}
+			htlc.sig = sig
 
 		// Otherwise, if this is an outgoing HTLC, then we'll need to
 		// generate a timeout transaction so we can verify the
@@ -3239,7 +3252,11 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 			// With the sighash generated, we'll also store the
 			// signature so it can be written to disk if this state
 			// is valid.
-			htlc.sig = htlcSigs[i]
+			sig, err = htlcSigs[i].ToSignature()
+			if err != nil {
+				return nil, err
+			}
+			htlc.sig = sig
 
 		default:
 			continue
@@ -3247,14 +3264,14 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 
 		verifyJobs = append(verifyJobs, verifyJob{
 			pubKey:  keyRing.RemoteHtlcKey,
-			sig:     htlcSigs[i],
+			sig:     sig,
 			sigHash: sigHash,
 		})
 
 		i++
 	}
 
-	return verifyJobs
+	return verifyJobs, nil
 }
 
 // InvalidCommitSigError is a struct that implements the error interface to
@@ -3292,8 +3309,8 @@ var _ error = (*InvalidCommitSigError)(nil)
 // to our local commitment chain. Once we send a revocation for our prior
 // state, then this newly added commitment becomes our current accepted channel
 // state.
-func (lc *LightningChannel) ReceiveNewCommitment(commitSig *btcec.Signature,
-	htlcSigs []*btcec.Signature) error {
+func (lc *LightningChannel) ReceiveNewCommitment(commitSig lnwire.Sig,
+	htlcSigs []lnwire.Sig) error {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -3366,8 +3383,14 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig *btcec.Signature,
 	// As an optimization, we'll generate a series of jobs for the worker
 	// pool to verify each of the HTLc signatures presented. Once
 	// generated, we'll submit these jobs to the worker pool.
-	verifyJobs := genHtlcSigValidationJobs(localCommitmentView,
-		keyRing, htlcSigs, lc.localChanCfg, lc.remoteChanCfg)
+	verifyJobs, err := genHtlcSigValidationJobs(
+		localCommitmentView, keyRing, htlcSigs, lc.localChanCfg,
+		lc.remoteChanCfg,
+	)
+	if err != nil {
+		return err
+	}
+
 	cancelChan := make(chan struct{})
 	verifyResps := lc.sigPool.SubmitVerifyBatch(verifyJobs, cancelChan)
 
@@ -3379,7 +3402,11 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig *btcec.Signature,
 		Y:     lc.remoteChanCfg.MultiSigKey.Y,
 		Curve: btcec.S256(),
 	}
-	if !commitSig.Verify(sigHash, &verifyKey) {
+	cSig, err := commitSig.ToSignature()
+	if err != nil {
+		return err
+	}
+	if !cSig.Verify(sigHash, &verifyKey) {
 		close(cancelChan)
 
 		// If we fail to validate their commitment signature, we'll
@@ -3390,7 +3417,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig *btcec.Signature,
 		localCommitTx.Serialize(&txBytes)
 		return &InvalidCommitSigError{
 			commitHeight: nextHeight,
-			commitSig:    commitSig.Serialize(),
+			commitSig:    commitSig.ToSignatureBytes(),
 			sigHash:      sigHash,
 			commitTx:     txBytes.Bytes(),
 		}
@@ -3414,7 +3441,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig *btcec.Signature,
 
 	// The signature checks out, so we can now add the new commitment to
 	// our local commitment chain.
-	localCommitmentView.sig = commitSig.Serialize()
+	localCommitmentView.sig = commitSig.ToSignatureBytes()
 	lc.localCommitChain.addCommitment(localCommitmentView)
 
 	// If we are not channel initiator, then the commitment just received

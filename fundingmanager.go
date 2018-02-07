@@ -1062,14 +1062,6 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 	// the commitment transaction to the remote peer.
 	outPoint := resCtx.reservation.FundingOutpoint()
 	_, sig := resCtx.reservation.OurSignatures()
-	commitSig, err := btcec.ParseSignature(sig, btcec.S256())
-	if err != nil {
-		fndgLog.Errorf("Unable to parse signature: %v", err)
-		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
-			msg.PendingChannelID, []byte(err.Error()))
-		resCtx.err <- err
-		return
-	}
 
 	// A new channel has almost finished the funding process. In order to
 	// properly synchronize with the writeHandler goroutine, we add a new
@@ -1095,7 +1087,14 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 	fundingCreated := &lnwire.FundingCreated{
 		PendingChannelID: pendingChanID,
 		FundingPoint:     *outPoint,
-		CommitSig:        commitSig,
+	}
+	fundingCreated.CommitSig, err = lnwire.NewSigFromRawSignature(sig)
+	if err != nil {
+		fndgLog.Errorf("Unable to parse signature: %v", err)
+		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
+			msg.PendingChannelID, []byte(err.Error()))
+		resCtx.err <- err
+		return
 	}
 	err = f.cfg.SendToPeer(fmsg.peerAddress.IdentityKey, fundingCreated)
 	if err != nil {
@@ -1148,7 +1147,7 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 	// funding transaction will broadcast after our next message.
 	// CompleteReservationSingle will also mark the channel as 'IsPending'
 	// in the database.
-	commitSig := fmsg.msg.CommitSig.Serialize()
+	commitSig := fmsg.msg.CommitSig.ToSignatureBytes()
 	completeChan, err := resCtx.reservation.CompleteReservationSingle(
 		&fundingOut, commitSig)
 	if err != nil {
@@ -1191,11 +1190,8 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 
 	// With their signature for our version of the commitment transaction
 	// verified, we can now send over our signature to the remote peer.
-	//
-	// TODO(roasbeef): just have raw bytes in wire msg? avoids decoding
-	// then decoding shortly afterwards.
 	_, sig := resCtx.reservation.OurSignatures()
-	ourCommitSig, err := btcec.ParseSignature(sig, btcec.S256())
+	ourCommitSig, err := lnwire.NewSigFromRawSignature(sig)
 	if err != nil {
 		fndgLog.Errorf("unable to parse signature: %v", err)
 		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
@@ -1344,7 +1340,7 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	// The remote peer has responded with a signature for our commitment
 	// transaction. We'll verify the signature for validity, then commit
 	// the state to disk as we can now open the channel.
-	commitSig := fmsg.msg.CommitSig.Serialize()
+	commitSig := fmsg.msg.CommitSig.ToSignatureBytes()
 	completeChan, err := resCtx.reservation.CompleteReservation(nil, commitSig)
 	if err != nil {
 		fndgLog.Errorf("Unable to complete reservation sign complete: %v", err)
@@ -2127,19 +2123,19 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 	selfBytes := localPubKey.SerializeCompressed()
 	remoteBytes := remotePubKey.SerializeCompressed()
 	if bytes.Compare(selfBytes, remoteBytes) == -1 {
-		chanAnn.NodeID1 = localPubKey
-		chanAnn.NodeID2 = remotePubKey
-		chanAnn.BitcoinKey1 = localFundingKey
-		chanAnn.BitcoinKey2 = remoteFundingKey
+		copy(chanAnn.NodeID1[:], localPubKey.SerializeCompressed())
+		copy(chanAnn.NodeID2[:], remotePubKey.SerializeCompressed())
+		copy(chanAnn.BitcoinKey1[:], localFundingKey.SerializeCompressed())
+		copy(chanAnn.BitcoinKey2[:], remoteFundingKey.SerializeCompressed())
 
 		// If we're the first node then update the chanFlags to
 		// indicate the "direction" of the update.
 		chanFlags = 0
 	} else {
-		chanAnn.NodeID1 = remotePubKey
-		chanAnn.NodeID2 = localPubKey
-		chanAnn.BitcoinKey1 = remoteFundingKey
-		chanAnn.BitcoinKey2 = localFundingKey
+		copy(chanAnn.NodeID1[:], remotePubKey.SerializeCompressed())
+		copy(chanAnn.NodeID2[:], localPubKey.SerializeCompressed())
+		copy(chanAnn.BitcoinKey1[:], remoteFundingKey.SerializeCompressed())
+		copy(chanAnn.BitcoinKey2[:], localFundingKey.SerializeCompressed())
 
 		// If we're the second node then update the chanFlags to
 		// indicate the "direction" of the update.
@@ -2171,7 +2167,12 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 	if err != nil {
 		return nil, err
 	}
-	chanUpdateAnn.Signature, err = f.cfg.SignMessage(f.cfg.IDKey, chanUpdateMsg)
+	sig, err := f.cfg.SignMessage(f.cfg.IDKey, chanUpdateMsg)
+	if err != nil {
+		return nil, errors.Errorf("unable to generate channel "+
+			"update announcement signature: %v", err)
+	}
+	chanUpdateAnn.Signature, err = lnwire.NewSigFromSignature(sig)
 	if err != nil {
 		return nil, errors.Errorf("unable to generate channel "+
 			"update announcement signature: %v", err)
@@ -2203,10 +2204,16 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 	// provide the other side with the necessary signatures required to
 	// allow them to reconstruct the full channel announcement.
 	proof := &lnwire.AnnounceSignatures{
-		ChannelID:        chanID,
-		ShortChannelID:   shortChanID,
-		NodeSignature:    nodeSig,
-		BitcoinSignature: bitcoinSig,
+		ChannelID:      chanID,
+		ShortChannelID: shortChanID,
+	}
+	proof.NodeSignature, err = lnwire.NewSigFromSignature(nodeSig)
+	if err != nil {
+		return nil, err
+	}
+	proof.BitcoinSignature, err = lnwire.NewSigFromSignature(bitcoinSig)
+	if err != nil {
+		return nil, err
 	}
 
 	return &chanAnnouncement{

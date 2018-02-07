@@ -535,11 +535,14 @@ func (r *rpcServer) VerifyMessage(ctx context.Context,
 	}
 	pubKeyHex := hex.EncodeToString(pubKey.SerializeCompressed())
 
+	var pub [33]byte
+	copy(pub[:], pubKey.SerializeCompressed())
+
 	// Query the channel graph to ensure a node in the network with active
 	// channels signed the message.
 	// TODO(phlip9): Require valid nodes to have capital in active channels.
 	graph := r.server.chanDB.ChannelGraph()
-	_, active, err := graph.HasLightningNode(pubKey)
+	_, active, err := graph.HasLightningNode(pub)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query graph: %v", err)
 	}
@@ -1576,8 +1579,8 @@ func (r *rpcServer) savePayment(route *routing.Route, amount lnwire.MilliSatoshi
 
 	paymentPath := make([][33]byte, len(route.Hops))
 	for i, hop := range route.Hops {
-		hopPub := hop.Channel.Node.PubKey.SerializeCompressed()
-		copy(paymentPath[i][:], hopPub)
+		hopPub := hop.Channel.Node.PubKeyBytes
+		copy(paymentPath[i][:], hopPub[:])
 	}
 
 	payment := &channeldb.OutgoingPayment{
@@ -2407,7 +2410,7 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 		nodeColor := fmt.Sprintf("#%02x%02x%02x", node.Color.R, node.Color.G, node.Color.B)
 		resp.Nodes = append(resp.Nodes, &lnrpc.LightningNode{
 			LastUpdate: uint32(node.LastUpdate.Unix()),
-			PubKey:     hex.EncodeToString(node.PubKey.SerializeCompressed()),
+			PubKey:     hex.EncodeToString(node.PubKeyBytes[:]),
 			Addresses:  nodeAddrs,
 			Alias:      node.Alias,
 			Color:      nodeColor,
@@ -2455,8 +2458,8 @@ func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 		ChanPoint: edgeInfo.ChannelPoint.String(),
 		// TODO(roasbeef): update should be on edge info itself
 		LastUpdate: uint32(lastUpdate),
-		Node1Pub:   hex.EncodeToString(edgeInfo.NodeKey1.SerializeCompressed()),
-		Node2Pub:   hex.EncodeToString(edgeInfo.NodeKey2.SerializeCompressed()),
+		Node1Pub:   hex.EncodeToString(edgeInfo.NodeKey1Bytes[:]),
+		Node2Pub:   hex.EncodeToString(edgeInfo.NodeKey2Bytes[:]),
 		Capacity:   int64(edgeInfo.Capacity),
 	}
 

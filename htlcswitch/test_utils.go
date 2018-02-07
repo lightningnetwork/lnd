@@ -48,6 +48,7 @@ var (
 		R: new(big.Int),
 		S: new(big.Int),
 	}
+	wireSig, _ = lnwire.NewSigFromSignature(testSig)
 
 	_, _ = testSig.R.SetString("6372440660162918006277497454296753625158993"+
 		"5445068131219452686511677818569431", 10)
@@ -55,11 +56,11 @@ var (
 		"3135609736119018462340006816851118", 10)
 )
 
-// mockGetChanUpdateMessage helper function which returns topology update
-// of the channel
+// mockGetChanUpdateMessage helper function which returns topology update of
+// the channel
 func mockGetChanUpdateMessage() (*lnwire.ChannelUpdate, error) {
 	return &lnwire.ChannelUpdate{
-		Signature: testSig,
+		Signature: wireSig,
 	}, nil
 }
 

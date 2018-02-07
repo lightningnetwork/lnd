@@ -130,7 +130,7 @@ type Config struct {
 	// forward a fully encoded payment to the first hop in the route
 	// denoted by its public key. A non-nil error is to be returned if the
 	// payment was unsuccessful.
-	SendToSwitch func(firstHop *btcec.PublicKey, htlcAdd *lnwire.UpdateAddHTLC,
+	SendToSwitch func(firstHop [33]byte, htlcAdd *lnwire.UpdateAddHTLC,
 		circuit *sphinx.Circuit) ([sha256.Size]byte, error)
 
 	// ChannelPruneExpiry is the duration used to determine if a channel
@@ -237,6 +237,9 @@ type ChannelRouter struct {
 	// consistency between the various database accesses.
 	channelEdgeMtx *multimutex.Mutex
 
+	rejectMtx   sync.RWMutex
+	rejectCache map[uint64]struct{}
+
 	sync.RWMutex
 
 	quit chan struct{}
@@ -268,6 +271,7 @@ func New(cfg Config) (*ChannelRouter, error) {
 		channelEdgeMtx:    multimutex.NewMutex(),
 		selfNode:          selfNode,
 		routeCache:        make(map[routeTuple][]*Route),
+		rejectCache:       make(map[uint64]struct{}),
 		quit:              make(chan struct{}),
 	}, nil
 }
@@ -504,6 +508,93 @@ func (r *ChannelRouter) syncGraphWithChain() error {
 	return nil
 }
 
+// pruneZombieChans is a method that will be called periodically to prune out
+// any "zombie" channels. We consider channels zombies if *both* edges haven't
+// been updated since our zombie horizon. We do this periodically to keep a
+// health, lively routing table.
+func (r *ChannelRouter) pruneZombieChans() error {
+	var chansToPrune []wire.OutPoint
+	chanExpiry := r.cfg.ChannelPruneExpiry
+
+	log.Infof("Examining Channel Graph for zombie channels")
+
+	// First, we'll collect all the channels which are eligible for garbage
+	// collection due to being zombies.
+	filterPruneChans := func(info *channeldb.ChannelEdgeInfo,
+		e1, e2 *channeldb.ChannelEdgePolicy) error {
+
+		// We'll ensure that we don't attempt to prune our *own*
+		// channels from the graph, as in any case this should be
+		// re-advertised by the sub-system above us.
+		if info.NodeKey1Bytes == r.selfNode.PubKeyBytes ||
+			info.NodeKey2Bytes == r.selfNode.PubKeyBytes {
+
+			return nil
+		}
+
+		// If *both* edges haven't been updated for a period of
+		// chanExpiry, then we'll mark the channel itself as eligible
+		// for graph pruning.
+		e1Zombie, e2Zombie := true, true
+		if e1 != nil {
+			e1Zombie = time.Since(e1.LastUpdate) >= chanExpiry
+			if e1Zombie {
+				log.Tracef("Edge #1 of ChannelPoint(%v) "+
+					"last update: %v",
+					info.ChannelPoint, e1.LastUpdate)
+			}
+		}
+		if e2 != nil {
+			e2Zombie = time.Since(e2.LastUpdate) >= chanExpiry
+			if e2Zombie {
+				log.Tracef("Edge #2 of ChannelPoint(%v) "+
+					"last update: %v",
+					info.ChannelPoint, e2.LastUpdate)
+			}
+		}
+		if e1Zombie && e2Zombie {
+			log.Debugf("ChannelPoint(%v) is a zombie, collecting "+
+				"to prune", info.ChannelPoint)
+
+			// TODO(roasbeef): add ability to delete single
+			// directional edge
+			chansToPrune = append(chansToPrune, info.ChannelPoint)
+
+			// As we're detecting this as a zombie channel, we'll
+			// add this to the set of recently rejected items so we
+			// don't re-accept it shortly after.
+			r.rejectCache[info.ChannelID] = struct{}{}
+		}
+
+		return nil
+	}
+
+	r.rejectMtx.Lock()
+	defer r.rejectMtx.Unlock()
+
+	err := r.cfg.Graph.ForEachChannel(filterPruneChans)
+	if err != nil {
+		return fmt.Errorf("Unable to filter local zombie "+
+			"chans: %v", err)
+	}
+
+	log.Infof("Pruning %v Zombie Channels", len(chansToPrune))
+
+	// With the set zombie-like channels obtained, we'll do another pass to
+	// delete al zombie channels from the channel graph.
+	for _, chanToPrune := range chansToPrune {
+		log.Tracef("Pruning zombie chan ChannelPoint(%v)", chanToPrune)
+
+		err := r.cfg.Graph.DeleteChannelEdge(&chanToPrune)
+		if err != nil {
+			return fmt.Errorf("Unable to prune zombie "+
+				"chans: %v", err)
+		}
+	}
+
+	return nil
+}
+
 // networkHandler is the primary goroutine for the ChannelRouter. The roles of
 // this goroutine include answering queries related to the state of the
 // network, pruning the graph on new block notification, applying network
@@ -716,79 +807,8 @@ func (r *ChannelRouter) networkHandler() {
 		// state of the known graph to filter out any zombie channels
 		// for pruning.
 		case <-graphPruneTicker.C:
-
-			var chansToPrune []wire.OutPoint
-			chanExpiry := r.cfg.ChannelPruneExpiry
-
-			log.Infof("Examining Channel Graph for zombie channels")
-
-			// First, we'll collect all the channels which are
-			// eligible for garbage collection due to being
-			// zombies.
-			filterPruneChans := func(info *channeldb.ChannelEdgeInfo,
-				e1, e2 *channeldb.ChannelEdgePolicy) error {
-
-				// We'll ensure that we don't attempt to prune
-				// our *own* channels from the graph, as in any
-				// case this should be re-advertised by the
-				// sub-system above us.
-				if info.NodeKey1.IsEqual(r.selfNode.PubKey) ||
-					info.NodeKey2.IsEqual(r.selfNode.PubKey) {
-
-					return nil
-				}
-
-				// If *both* edges haven't been updated for a
-				// period of chanExpiry, then we'll mark the
-				// channel itself as eligible for graph
-				// pruning.
-				e1Zombie, e2Zombie := true, true
-				if e1 != nil {
-					e1Zombie = time.Since(e1.LastUpdate) >= chanExpiry
-					log.Tracef("Edge #1 of ChannelPoint(%v) "+
-						"last update: %v",
-						info.ChannelPoint, e1.LastUpdate)
-				}
-				if e2 != nil {
-					e2Zombie = time.Since(e2.LastUpdate) >= chanExpiry
-					log.Tracef("Edge #2 of ChannelPoint(%v) "+
-						"last update: %v",
-						info.ChannelPoint, e2.LastUpdate)
-				}
-				if e1Zombie && e2Zombie {
-					log.Infof("ChannelPoint(%v) is a "+
-						"zombie, collecting to prune",
-						info.ChannelPoint)
-
-					// TODO(roasbeef): add ability to
-					// delete single directional edge
-					chansToPrune = append(chansToPrune,
-						info.ChannelPoint)
-				}
-
-				return nil
-			}
-			err := r.cfg.Graph.ForEachChannel(filterPruneChans)
-			if err != nil {
-				log.Errorf("Unable to local zombie chans: %v", err)
-				continue
-			}
-
-			log.Infof("Pruning %v Zombie Channels", len(chansToPrune))
-
-			// With the set zombie-like channels obtained, we'll do
-			// another pass to delete al zombie channels from the
-			// channel graph.
-			for _, chanToPrune := range chansToPrune {
-				log.Tracef("Pruning zombie chan ChannelPoint(%v)",
-					chanToPrune)
-
-				err := r.cfg.Graph.DeleteChannelEdge(&chanToPrune)
-				if err != nil {
-					log.Errorf("Unable to prune zombie "+
-						"chans: %v", err)
-					continue
-				}
+			if err := r.pruneZombieChans(); err != nil {
+				log.Errorf("unable to prune zombies: %v", err)
 			}
 
 		// The router has been signalled to exit, to we exit our main
@@ -814,7 +834,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		// attack by node announcements, we will ignore such nodes. If
 		// we do know about this node, check that this update brings
 		// info newer than what we already have.
-		lastUpdate, exists, err := r.cfg.Graph.HasLightningNode(msg.PubKey)
+		lastUpdate, exists, err := r.cfg.Graph.HasLightningNode(msg.PubKeyBytes)
 		if err != nil {
 			return errors.Errorf("unable to query for the "+
 				"existence of node: %v", err)
@@ -822,7 +842,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		if !exists {
 			return newErrf(ErrIgnored, "Ignoring node announcement"+
 				" for node not found in channel graph (%x)",
-				msg.PubKey.SerializeCompressed())
+				msg.PubKeyBytes)
 		}
 
 		// If we've reached this point then we're aware of the vertex
@@ -833,18 +853,27 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 			lastUpdate.Equal(msg.LastUpdate) {
 
 			return newErrf(ErrOutdated, "Ignoring outdated "+
-				"announcement for %x", msg.PubKey.SerializeCompressed())
+				"announcement for %x", msg.PubKeyBytes)
 		}
 
 		if err := r.cfg.Graph.AddLightningNode(msg); err != nil {
 			return errors.Errorf("unable to add node %v to the "+
-				"graph: %v", msg.PubKey.SerializeCompressed(), err)
+				"graph: %v", msg.PubKeyBytes, err)
 		}
 
-		log.Infof("Updated vertex data for node=%x",
-			msg.PubKey.SerializeCompressed())
+		log.Infof("Updated vertex data for node=%x", msg.PubKeyBytes)
 
 	case *channeldb.ChannelEdgeInfo:
+		// If we recently rejected this channel edge, then we won't
+		// attempt to re-process it.
+		r.rejectMtx.RLock()
+		if _, ok := r.rejectCache[msg.ChannelID]; ok {
+			r.rejectMtx.RUnlock()
+			return newErrf(ErrIgnored, "recently rejected "+
+				"chan_id=%v", msg.ChannelID)
+		}
+		r.rejectMtx.RUnlock()
+
 		// Prior to processing the announcement we first check if we
 		// already know of this channel, if so, then we can exit early.
 		_, _, exists, err := r.cfg.Graph.HasChannelEdge(msg.ChannelID)
@@ -859,30 +888,28 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		// Query the database for the existence of the two nodes in this
 		// channel. If not found, add a partial node to the database,
 		// containing only the node keys.
-		_, exists, _ = r.cfg.Graph.HasLightningNode(msg.NodeKey1)
+		_, exists, _ = r.cfg.Graph.HasLightningNode(msg.NodeKey1Bytes)
 		if !exists {
 			node1 := &channeldb.LightningNode{
-				PubKey:               msg.NodeKey1,
+				PubKeyBytes:          msg.NodeKey1Bytes,
 				HaveNodeAnnouncement: false,
 			}
 			err := r.cfg.Graph.AddLightningNode(node1)
 			if err != nil {
 				return errors.Errorf("unable to add node %v to"+
-					" the graph: %v",
-					node1.PubKey.SerializeCompressed(), err)
+					" the graph: %v", node1.PubKeyBytes, err)
 			}
 		}
-		_, exists, _ = r.cfg.Graph.HasLightningNode(msg.NodeKey2)
+		_, exists, _ = r.cfg.Graph.HasLightningNode(msg.NodeKey2Bytes)
 		if !exists {
 			node2 := &channeldb.LightningNode{
-				PubKey:               msg.NodeKey2,
+				PubKeyBytes:          msg.NodeKey2Bytes,
 				HaveNodeAnnouncement: false,
 			}
 			err := r.cfg.Graph.AddLightningNode(node2)
 			if err != nil {
 				return errors.Errorf("unable to add node %v to"+
-					" the graph: %v",
-					node2.PubKey.SerializeCompressed(), err)
+					" the graph: %v", node2.PubKeyBytes, err)
 			}
 		}
 
@@ -911,8 +938,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		// edge bitcoin keys and channel value corresponds to the
 		// reality.
 		_, witnessOutput, err := lnwallet.GenFundingPkScript(
-			msg.BitcoinKey1.SerializeCompressed(),
-			msg.BitcoinKey2.SerializeCompressed(),
+			msg.BitcoinKey1Bytes[:], msg.BitcoinKey2Bytes[:],
 			chanUtxo.Value,
 		)
 		if err != nil {
@@ -942,8 +968,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		log.Infof("New channel discovered! Link "+
 			"connects %x and %x with ChannelPoint(%v): "+
 			"chan_id=%v, capacity=%v",
-			msg.NodeKey1.SerializeCompressed(),
-			msg.NodeKey2.SerializeCompressed(),
+			msg.NodeKey1Bytes, msg.NodeKey2Bytes,
 			fundingPoint, msg.ChannelID, msg.Capacity)
 
 		// As a new edge has been added to the channel graph, we'll
@@ -960,6 +985,16 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		}
 
 	case *channeldb.ChannelEdgePolicy:
+		// If we recently rejected this channel edge, then we won't
+		// attempt to re-process it.
+		r.rejectMtx.RLock()
+		if _, ok := r.rejectCache[msg.ChannelID]; ok {
+			r.rejectMtx.RUnlock()
+			return newErrf(ErrIgnored, "recently rejected "+
+				"chan_id=%v", msg.ChannelID)
+		}
+		r.rejectMtx.RUnlock()
+
 		channelID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
 
 		// We make sure to hold the mutex for this channel ID,
@@ -1183,7 +1218,8 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 
 	// We can short circuit the routing by opportunistically checking to
 	// see if the target vertex event exists in the current graph.
-	if _, exists, err := r.cfg.Graph.HasLightningNode(target); err != nil {
+	targetVertex := NewVertex(target)
+	if _, exists, err := r.cfg.Graph.HasLightningNode(targetVertex); err != nil {
 		return nil, err
 	} else if !exists {
 		log.Debugf("Target %x is not in known graph", dest)
@@ -1221,7 +1257,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	// aren't able to support the total satoshis flow once fees have been
 	// factored in.
 	validRoutes := make([]*Route, 0, len(shortestPaths))
-	sourceVertex := NewVertex(r.selfNode.PubKey)
+	sourceVertex := Vertex(r.selfNode.PubKeyBytes)
 	for _, path := range shortestPaths {
 		// Attempt to make the path into a route. We snip off the first
 		// hop in the path as it contains a "self-hop" that is inserted
@@ -1289,10 +1325,14 @@ func generateSphinxPacket(route *Route, paymentHash []byte) ([]byte,
 		// We create a new instance of the public key to avoid possibly
 		// mutating the curve parameters, which are unset in a higher
 		// level in order to avoid spamming the logs.
+		nodePub, err := hop.Channel.Node.PubKey()
+		if err != nil {
+			return nil, nil, err
+		}
 		pub := btcec.PublicKey{
 			Curve: btcec.S256(),
-			X:     hop.Channel.Node.PubKey.X,
-			Y:     hop.Channel.Node.PubKey.Y,
+			X:     nodePub.X,
+			Y:     nodePub.Y,
 		}
 		nodes[i] = &pub
 	}
@@ -1453,7 +1493,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 		// Attempt to send this payment through the network to complete
 		// the payment. If this attempt fails, then we'll continue on
 		// to the next available route.
-		firstHop := route.Hops[0].Channel.Node.PubKey
+		firstHop := route.Hops[0].Channel.Node.PubKeyBytes
 		preImage, sendError = r.cfg.SendToSwitch(firstHop, htlcAdd,
 			circuit)
 		if sendError != nil {
@@ -1693,7 +1733,7 @@ func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate) error {
 	}
 
 	err := r.UpdateEdge(&channeldb.ChannelEdgePolicy{
-		Signature:                 msg.Signature,
+		SigBytes:                  msg.Signature.ToSignatureBytes(),
 		ChannelID:                 msg.ShortChannelID.ToUint64(),
 		LastUpdate:                time.Unix(int64(msg.Timestamp), 0),
 		Flags:                     msg.Flags,

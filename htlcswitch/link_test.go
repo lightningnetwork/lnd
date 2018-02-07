@@ -1899,9 +1899,9 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		t.Fatalf("did not receive message")
 	}
 
-	settleHtlc, ok := msg.(*lnwire.UpdateFufillHTLC)
+	settleHtlc, ok := msg.(*lnwire.UpdateFulfillHTLC)
 	if !ok {
-		t.Fatalf("expected UpdateFufillHTLC, got %T", msg)
+		t.Fatalf("expected UpdateFulfillHTLC, got %T", msg)
 	}
 	pre := settleHtlc.PaymentPreimage
 	idx := settleHtlc.ID

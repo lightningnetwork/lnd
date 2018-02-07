@@ -272,7 +272,7 @@ func (b *BtcWallet) FetchRootKey() (*btcec.PrivateKey, error) {
 
 	if rootAddrHash == nil {
 		// Otherwise, we need to generate a fresh address from the
-		// wallet, then stores it's hash160 within the database so we
+		// wallet, then stores its hash160 within the database so we
 		// can look up the exact key later.
 		if err := walletdb.Update(b.db, func(tx walletdb.ReadWriteTx) error {
 			addrmgrNs := tx.ReadWriteBucket(waddrmgrNamespaceKey)

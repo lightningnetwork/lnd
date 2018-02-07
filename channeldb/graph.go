@@ -38,7 +38,7 @@ var (
 	sourceKey = []byte("source")
 
 	// aliasIndexBucket is a sub-bucket that's nested within the main
-	// nodeBucket. This bucket maps the public key of a node to it's
+	// nodeBucket. This bucket maps the public key of a node to its
 	// current alias. This bucket is provided as it can be used within a
 	// future UI layer to add an additional degree of confirmation.
 	aliasIndexBucket = []byte("alias")
@@ -529,7 +529,7 @@ func (c *ChannelGraph) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool
 }
 
 // UpdateChannelEdge retrieves and update edge of the graph database. Method
-// only reserved for updating an edge info after it's already been created.
+// only reserved for updating an edge info after its already been created.
 // In order to maintain this constraints, we return an error in the scenario
 // that an edge info hasn't yet been created yet, but someone attempts to update
 // it.
@@ -806,7 +806,7 @@ func (c *ChannelGraph) PruneTip() (*chainhash.Hash, uint32, error) {
 	return &tipHash, tipHeight, nil
 }
 
-// DeleteChannelEdge removes an edge from the database as identified by it's
+// DeleteChannelEdge removes an edge from the database as identified by its
 // funding outpoint. If the edge does not exist within the database, then
 // ErrEdgeNotFound will be returned.
 func (c *ChannelGraph) DeleteChannelEdge(chanPoint *wire.OutPoint) error {

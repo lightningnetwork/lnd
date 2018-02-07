@@ -1445,7 +1445,7 @@ func normalizeFunc(edges []*lnrpc.ChannelEdge, scaleFactor float64) func(int64) 
 
 	for _, edge := range edges {
 		// In order to obtain saner values, we reduce the capacity of a
-		// channel to it's base 2 logarithm.
+		// channel to its base 2 logarithm.
 		z := math.Log2(float64(edge.Capacity))
 
 		if z < min {
@@ -1530,7 +1530,7 @@ func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
 		edgeWeight := strconv.FormatFloat(amt, 'f', -1, 64)
 
 		// The label for each edge will simply be a truncated version
-		// of it's channel ID.
+		// of its channel ID.
 		chanIDStr := strconv.FormatUint(edge.ChannelId, 10)
 		edgeLabel := fmt.Sprintf(`"cid:%v"`, truncateStr(chanIDStr, 7))
 

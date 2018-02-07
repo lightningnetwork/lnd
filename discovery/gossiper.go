@@ -190,7 +190,7 @@ type AuthenticatedGossiper struct {
 	// channelMtx is used to restrict the database access to one
 	// goroutine per channel ID. This is done to ensure that when
 	// the gossiper is handling an announcement, the db state stays
-	// consistent between when the DB is first read to it's written.
+	// consistent between when the DB is first read until it's written.
 	channelMtx *multimutex.Mutex
 
 	sync.Mutex
@@ -1001,7 +1001,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 
 // retransmitStaleChannels examines all outgoing channels that the source node
 // is known to maintain to check to see if any of them are "stale". A channel
-// is stale iff, the last timestamp of it's rebroadcast is older then
+// is stale iff, the last timestamp of its rebroadcast is older then
 // broadcastInterval.
 func (d *AuthenticatedGossiper) retransmitStaleChannels() error {
 	// Iterate over all of our channels and check if any of them fall

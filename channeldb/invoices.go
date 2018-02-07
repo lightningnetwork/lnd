@@ -174,8 +174,8 @@ func (d *DB) AddInvoice(i *Invoice) error {
 	})
 }
 
-// LookupInvoice attempts to look up an invoice according to it's 32 byte
-// payment hash. In an invoice which can settle the HTLC identified by the
+// LookupInvoice attempts to look up an invoice according to its 32 byte
+// payment hash. If an invoice which can settle the HTLC identified by the
 // passed payment hash isn't found, then an error is returned. Otherwise, the
 // full invoice is returned. Before setting the incoming HTLC, the values
 // SHOULD be checked to ensure the payer meets the agreed upon contractual

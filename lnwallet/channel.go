@@ -997,7 +997,7 @@ func (u *updateLog) appendHtlc(pd *PaymentDescriptor) {
 	u.logIndex++
 }
 
-// lookupHtlc attempts to look up an offered HTLC according to it's offer
+// lookupHtlc attempts to look up an offered HTLC according to its offer
 // index. If the entry isn't found, then a nil pointer is returned.
 func (u *updateLog) lookupHtlc(i uint64) *PaymentDescriptor {
 	htlc, ok := u.htlcIndex[i]
@@ -2597,7 +2597,7 @@ func (lc *LightningChannel) createCommitDiff(
 		}
 
 		// Knowing that this update is a part of this new commitment,
-		// we'll create a log update and not it's index in the log so
+		// we'll create a log update and not its index in the log so
 		// we can later restore it properly if a restart occurs.
 		logUpdate := channeldb.LogUpdate{
 			LogIndex: pd.LogIndex,

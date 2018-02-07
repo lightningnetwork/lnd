@@ -1097,7 +1097,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	res.partialState.LocalChanCfg = res.ourContribution.toChanConfig()
 	res.partialState.RemoteChanCfg = res.theirContribution.toChanConfig()
 
-	// Add the complete funding transaction to the DB, in it's open bucket
+	// Add the complete funding transaction to the DB, in its open bucket
 	// which will be used for the lifetime of this channel.
 	// TODO(roasbeef):
 	//  * attempt to retransmit funding transactions on re-start

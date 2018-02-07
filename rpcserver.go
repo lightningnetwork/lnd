@@ -1105,7 +1105,7 @@ out:
 	return nil
 }
 
-// fetchActiveChannel attempts to locate a channel identified by it's channel
+// fetchActiveChannel attempts to locate a channel identified by its channel
 // point from the database's set of all currently opened channels.
 func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (*lnwallet.LightningChannel, error) {
 	dbChannels, err := r.server.chanDB.FetchAllChannels()
@@ -1137,7 +1137,7 @@ func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (*lnwallet.Light
 }
 
 // GetInfo returns general information concerning the lightning node including
-// it's identity pubkey, alias, the chains it is connected to, and information
+// its identity pubkey, alias, the chains it is connected to, and information
 // concerning the number of open+pending channels.
 func (r *rpcServer) GetInfo(ctx context.Context,
 	in *lnrpc.GetInfoRequest) (*lnrpc.GetInfoResponse, error) {

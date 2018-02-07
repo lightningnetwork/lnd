@@ -1520,7 +1520,7 @@ func (s *server) addPeer(p *peer) {
 	}
 
 	// Track the new peer in our indexes so we can quickly look it up either
-	// according to its public key, or it's peer ID.
+	// according to its public key, or its peer ID.
 	// TODO(roasbeef): pipe all requests through to the
 	// queryHandler/peerManager
 

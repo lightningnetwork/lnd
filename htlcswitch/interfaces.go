@@ -10,7 +10,7 @@ import (
 // InvoiceDatabase is an interface which represents the persistent subsystem
 // which may search, lookup and settle invoices.
 type InvoiceDatabase interface {
-	// LookupInvoice attempts to look up an invoice according to it's 32
+	// LookupInvoice attempts to look up an invoice according to its 32
 	// byte payment hash.
 	LookupInvoice(chainhash.Hash) (channeldb.Invoice, error)
 

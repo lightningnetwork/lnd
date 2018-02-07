@@ -250,7 +250,7 @@
     },
     "/v1/getinfo": {
       "get": {
-        "summary": "* lncli: `getinfo`\nGetInfo returns general information concerning the lightning node including\nit's identity pubkey, alias, the chains it is connected to, and information\nconcerning the number of open+pending channels.",
+        "summary": "* lncli: `getinfo`\nGetInfo returns general information concerning the lightning node including\nits identity pubkey, alias, the chains it is connected to, and information\nconcerning the number of open+pending channels.",
         "operationId": "GetInfo",
         "responses": {
           "200": {

@@ -1557,7 +1557,7 @@ func handleStateUpdate(link *channelLink,
 	}
 	_, err = remoteChannel.ReceiveRevocation(revoke)
 	if err != nil {
-		return fmt.Errorf("unable to recieve "+
+		return fmt.Errorf("unable to receive "+
 			"revocation: %v", err)
 	}
 
@@ -1578,7 +1578,7 @@ func updateState(batchTick chan time.Time, link *channelLink,
 		select {
 		case batchTick <- time.Now():
 		case <-link.quit:
-			return fmt.Errorf("link shuttin down")
+			return fmt.Errorf("link shutting down")
 		}
 		return handleStateUpdate(link, remoteChannel)
 	}
@@ -1611,7 +1611,7 @@ func updateState(batchTick chan time.Time, link *channelLink,
 	}
 	_, err = remoteChannel.ReceiveRevocation(revoke)
 	if err != nil {
-		return fmt.Errorf("unable to recieve "+
+		return fmt.Errorf("unable to receive "+
 			"revocation: %v", err)
 	}
 	select {
@@ -1826,7 +1826,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		t.Fatalf("unable to update state: %v", err)
 	}
 
-	// Now the bancdwidth should reflect the failed HTLC.
+	// Now the bandwidth should reflect the failed HTLC.
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt)
 
 	// Moving along, we'll now receive a new HTLC from the remote peer,

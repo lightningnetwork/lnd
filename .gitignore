@@ -30,13 +30,13 @@ lncli
 output*.log
 
 cmd/cmd
-**.key
-**.hex
+*.key
+*.hex
 
 cmd/lncli/lncli
 
 # vim
-**.swp
+*.swp
 
 *.hex
 *.db

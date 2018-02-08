@@ -4378,3 +4378,359 @@ func TestDesyncHTLCs(t *testing.T) {
 }
 
 // TODO(roasbeef): testing.Quick test case for retrans!!!
+
+// TestMaxAcceptedHTLCs tests that the correct error message (ErrMaxHTLCNumber)
+// is thrown when a node tries to accept more than MaxAcceptedHTLCs in a channel.
+func TestMaxAcceptedHTLCs(t *testing.T) {
+	t.Parallel()
+
+	// We'll kick off the test by creating our channels which both are
+	// loaded with 5 BTC each.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// One over the maximum number of HTLCs that either can accept.
+	const numHTLCs = 20
+	const numHTLCsReceived = 12
+
+	// Set the remote's required MaxAcceptedHtlcs. This means that alice
+	// can only offer the remote up to numHTLCs HTLCs.
+	aliceChannel.localChanCfg.MaxAcceptedHtlcs = numHTLCs
+	bobChannel.remoteChanCfg.MaxAcceptedHtlcs = numHTLCs
+
+	// Similarly, set the remote config's MaxAcceptedHtlcs. This means
+	// that the remote will be aware that Alice will only accept up to
+	// numHTLCsRecevied at a time.
+	aliceChannel.remoteChanCfg.MaxAcceptedHtlcs = numHTLCsReceived
+	bobChannel.localChanCfg.MaxAcceptedHtlcs = numHTLCsReceived
+
+	// Each HTLC amount is 0.1 BTC.
+	htlcAmt := lnwire.NewMSatFromSatoshis(0.1 * btcutil.SatoshiPerBitcoin)
+
+	// Send the maximum allowed number of HTLCs.
+	for i := 0; i < numHTLCs; i++ {
+		htlc, _ := createHTLC(i, htlcAmt)
+		if _, err := aliceChannel.AddHTLC(htlc); err != nil {
+			t.Fatalf("unable to add htlc: %v", err)
+		}
+		if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+			t.Fatalf("unable to recv htlc: %v", err)
+		}
+	}
+
+	// The next HTLC should fail with ErrMaxHTLCNumber.
+	htlc, _ := createHTLC(numHTLCs, htlcAmt)
+	_, err = aliceChannel.AddHTLC(htlc)
+	if err != ErrMaxHTLCNumber {
+		t.Fatalf("expected ErrMaxHTLCNumber, instead received: %v", err)
+	}
+
+	// After receiving the next HTLC, next state transition should fail
+	// with ErrMaxHTLCNumber.
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("unable to recv htlc: %v", err)
+	}
+	err = forceStateTransition(aliceChannel, bobChannel)
+	if err != ErrMaxHTLCNumber {
+		t.Fatalf("expected ErrMaxHTLCNumber, instead received: %v", err)
+	}
+}
+
+// TestMaxPendingAmount tests that the maximum overall pending HTLC value is met
+// given several HTLCs that, combined, exceed this value. An ErrMaxPendingAmount
+// error should be returned.
+func TestMaxPendingAmount(t *testing.T) {
+	t.Parallel()
+
+	// We'll kick off the test by creating our channels which both are
+	// loaded with 5 BTC each.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// We set the remote required MaxPendingAmount to 3 BTC. We will
+	// attempt to overflow this value and see if it gives us the
+	// ErrMaxPendingAmount error.
+	maxPending := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin * 3)
+
+	// We set the max pending amount of Alice's config. This mean that she
+	// cannot offer Bob HTLCs with a total value above this limit at a given
+	// time.
+	aliceChannel.localChanCfg.MaxPendingAmount = maxPending
+	bobChannel.remoteChanCfg.MaxPendingAmount = maxPending
+
+	// First, we'll add 2 HTLCs of 1.5 BTC each to Alice's commitment.
+	// This won't trigger Alice's ErrMaxPendingAmount error.
+	const numHTLCs = 2
+	htlcAmt := lnwire.NewMSatFromSatoshis(1.5 * btcutil.SatoshiPerBitcoin)
+	for i := 0; i < numHTLCs; i++ {
+		htlc, _ := createHTLC(i, htlcAmt)
+		if _, err := aliceChannel.AddHTLC(htlc); err != nil {
+			t.Fatalf("unable to add htlc: %v", err)
+		}
+		if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+			t.Fatalf("unable to recv htlc: %v", err)
+		}
+	}
+
+	// We finally add one more HTLC of 0.1 BTC to Alice's commitment. This
+	// SHOULD trigger Alice's ErrMaxPendingAmount error.
+	htlcAmt = lnwire.NewMSatFromSatoshis(0.1 * btcutil.SatoshiPerBitcoin)
+	htlc, _ := createHTLC(numHTLCs, htlcAmt)
+	_, err = aliceChannel.AddHTLC(htlc)
+	if err != ErrMaxPendingAmount {
+		t.Fatalf("expected ErrMaxPendingAmount, instead received: %v", err)
+	}
+
+	// And also Bob shouldn't be accepting this HTLC in the next state
+	// transition.
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("unable to recv htlc: %v", err)
+	}
+	err = forceStateTransition(aliceChannel, bobChannel)
+	if err != ErrMaxPendingAmount {
+		t.Fatalf("expected ErrMaxPendingAmount, instead received: %v", err)
+	}
+}
+
+// TestChanReserve tests that the ErrBelowChanReserve error is thrown when
+// an HTLC is added that causes a node's balance to dip below its channel
+// reserve limit.
+func TestChanReserve(t *testing.T) {
+	t.Parallel()
+
+	setupChannels := func() (*LightningChannel, *LightningChannel, func()) {
+		// We'll kick off the test by creating our channels which both are
+		// loaded with 5 BTC each.
+		aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
+		if err != nil {
+			t.Fatalf("unable to create test channels: %v", err)
+		}
+
+		// We set the remote required ChanReserve to 0.5 BTC. We will
+		// attempt to cause Alice's balance to dip below this amount and test
+		// whether it triggers the ErrBelowChanReserve error.
+		aliceMinReserve := btcutil.Amount(0.5 * btcutil.SatoshiPerBitcoin)
+
+		// Alice will need to keep her reserve above aliceMinReserve, so
+		// set this limit to here local config.
+		aliceChannel.localChanCfg.ChanReserve = aliceMinReserve
+
+		// During channel opening Bob will also get to know Alice's minimum
+		// reserve, and this will be found in his remote config.
+		bobChannel.remoteChanCfg.ChanReserve = aliceMinReserve
+
+		// We set Bob's channel reserve to a value that is larger than his
+		// current balance in the channel. This will ensure that after a
+		// channel is first opened, Bob can still receive HTLCs
+		// even though his balance is less than his channel reserve.
+		bobMinReserve := btcutil.Amount(6 * btcutil.SatoshiPerBitcoin)
+		bobChannel.localChanCfg.ChanReserve = bobMinReserve
+		aliceChannel.remoteChanCfg.ChanReserve = bobMinReserve
+
+		return aliceChannel, bobChannel, cleanUp
+	}
+	aliceChannel, bobChannel, cleanUp := setupChannels()
+	defer cleanUp()
+
+	aliceIndex := 0
+	bobIndex := 0
+
+	// Add an HTLC that will increase Bob's balance. This should
+	// succeed, since Alice stays above her channel reserve, and
+	// Bob increases his balance (while still being below his
+	// channel reserve).
+	// Resulting balances:
+	//	Alice:	4.5
+	//	Bob:	5.5
+	htlcAmt := lnwire.NewMSatFromSatoshis(0.5 * btcutil.SatoshiPerBitcoin)
+	htlc, _ := createHTLC(aliceIndex, htlcAmt)
+	aliceIndex++
+	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
+		t.Fatalf("unable to add htlc: %v", err)
+	}
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("unable to recv htlc: %v", err)
+	}
+
+	// Force a state transation, making sure this HTLC is considered
+	// valid even though the channel reserves are not met.
+	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("unable to complete state update: %v", err)
+	}
+
+	// Now let Bob try to add an HTLC. This should fail, since it
+	// will decrease his balance, which is already below the channel
+	// reserve.
+	// Resulting balances:
+	//	Alice:	4.5
+	//	Bob:	5.5
+	htlc, _ = createHTLC(bobIndex, htlcAmt)
+	bobIndex++
+	_, err := bobChannel.AddHTLC(htlc)
+	if err != ErrBelowChanReserve {
+		t.Fatalf("expected ErrBelowChanReserve, instead received: %v", err)
+	}
+
+	// Alice will reject this htlc when a state transition is attempted.
+	if _, err := aliceChannel.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("unable to recv htlc: %v", err)
+	}
+	err = forceStateTransition(aliceChannel, bobChannel)
+	if err != ErrBelowChanReserve {
+		t.Fatalf("expected ErrBelowChanReserve, instead received: %v", err)
+	}
+
+	// We must setup the channels again, since a violation of the channel
+	// constraints leads to channel shutdown.
+	aliceChannel, bobChannel, cleanUp = setupChannels()
+	defer cleanUp()
+
+	aliceIndex = 0
+	bobIndex = 0
+
+	// Now we'll add HTLC of 3.5 BTC to Alice's commitment, this should
+	// put Alice's balance at 1.5 BTC.
+	// Resulting balances:
+	//	Alice:	1.5
+	//	Bob:	9.5
+	htlcAmt = lnwire.NewMSatFromSatoshis(3.5 * btcutil.SatoshiPerBitcoin)
+
+	// The first HTLC should successfully be sent.
+	htlc, _ = createHTLC(aliceIndex, htlcAmt)
+	aliceIndex++
+	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
+		t.Fatalf("unable to add htlc: %v", err)
+	}
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("unable to recv htlc: %v", err)
+	}
+
+	// Add a second HTLC of 1 BTC. This should fail because it will take
+	// Alice's balance all the way down to her channel reserve, but
+	// since she is the initiator the additional transaction fee makes
+	// her balance dip below.
+	htlcAmt = lnwire.NewMSatFromSatoshis(1 * btcutil.SatoshiPerBitcoin)
+	htlc, _ = createHTLC(aliceIndex, htlcAmt)
+	aliceIndex++
+	_, err = aliceChannel.AddHTLC(htlc)
+	if err != ErrBelowChanReserve {
+		t.Fatalf("expected ErrBelowChanReserve, instead received: %v", err)
+	}
+
+	// Likewise, Bob will reject a state transition after this htlc is
+	// received, of the same reason.
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("unable to recv htlc: %v", err)
+	}
+	err = forceStateTransition(aliceChannel, bobChannel)
+	if err != ErrBelowChanReserve {
+		t.Fatalf("expected ErrBelowChanReserve, instead received: %v", err)
+	}
+
+	// We must setup the channels again, since a violation of the channel
+	// constraints leads to channel shutdown.
+	aliceChannel, bobChannel, cleanUp = setupChannels()
+	defer cleanUp()
+
+	aliceIndex = 0
+	bobIndex = 0
+
+	// Add a HTLC of 2 BTC to Alice, and the settle it.
+	// Resulting balances:
+	//	Alice:	3.0
+	//	Bob:	7.0
+	htlcAmt = lnwire.NewMSatFromSatoshis(2 * btcutil.SatoshiPerBitcoin)
+	htlc, preimage := createHTLC(aliceIndex, htlcAmt)
+	aliceIndex++
+	aliceHtlcIndex, err := aliceChannel.AddHTLC(htlc)
+	if err != nil {
+		t.Fatalf("unable to add htlc: %v", err)
+	}
+	bobHtlcIndex, err := bobChannel.ReceiveHTLC(htlc)
+	if err != nil {
+		t.Fatalf("unable to recv htlc: %v", err)
+	}
+	if err := bobChannel.SettleHTLC(preimage, bobHtlcIndex); err != nil {
+		t.Fatalf("bob unable to settle inbound htlc: %v", err)
+	}
+	if err := aliceChannel.ReceiveHTLCSettle(preimage, aliceHtlcIndex); err != nil {
+		t.Fatalf("alice unable to accept settle of outbound htlc: %v", err)
+	}
+
+	// And now let Bob add an HTLC of 1 BTC. This will take Bob's balance
+	// all the way down to his channel reserve, but since he is not paying the
+	// fee this is okay.
+	htlcAmt = lnwire.NewMSatFromSatoshis(1 * btcutil.SatoshiPerBitcoin)
+	htlc, _ = createHTLC(bobIndex, htlcAmt)
+	bobIndex++
+	if _, err := bobChannel.AddHTLC(htlc); err != nil {
+		t.Fatalf("unable to add htlc: %v", err)
+	}
+	if _, err := aliceChannel.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("unable to recv htlc: %v", err)
+	}
+	// Do a last state transition, which should succeed.
+	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("unable to complete state update: %v", err)
+	}
+}
+
+// TestMinHTLC tests that the ErrBelowMinHTLC error is thrown if an HTLC is added
+// that is below the minimm allowed value for HTLCs.
+func TestMinHTLC(t *testing.T) {
+	t.Parallel()
+
+	// We'll kick off the test by creating our channels which both are
+	// loaded with 5 BTC each.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// We set Alice's MinHTLC to 0.1 BTC. We will attempt to send an
+	// HTLC BELOW this value to trigger the ErrBelowMinHTLC error.
+	minValue := lnwire.NewMSatFromSatoshis(0.1 * btcutil.SatoshiPerBitcoin)
+
+	// Setting the min value in Alice's local config means that the
+	// remote will not accept any HTLCs of value less than specified.
+	aliceChannel.localChanCfg.MinHTLC = minValue
+	bobChannel.remoteChanCfg.MinHTLC = minValue
+
+	// First, we will add an HTLC of 0.5 BTC. This will not trigger
+	// ErrBelowMinHTLC.
+	htlcAmt := lnwire.NewMSatFromSatoshis(0.5 * btcutil.SatoshiPerBitcoin)
+	htlc, _ := createHTLC(0, htlcAmt)
+	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
+		t.Fatalf("unable to add htlc: %v", err)
+	}
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("unable to recv htlc: %v", err)
+	}
+
+	// We add an HTLC below the min value, this should result in
+	// an ErrBelowMinHTLC error.
+	amt := minValue - 100
+	htlc, _ = createHTLC(1, amt)
+	_, err = aliceChannel.AddHTLC(htlc)
+	if err != ErrBelowMinHTLC {
+		t.Fatalf("expected ErrBelowMinHTLC, instead received: %v", err)
+	}
+
+	// Bob will receive this HTLC, but reject the next state update, since
+	// the htlc is too small.
+	_, err = bobChannel.ReceiveHTLC(htlc)
+	if err != nil {
+		t.Fatalf("error receiving htlc: %v", err)
+	}
+	err = forceStateTransition(aliceChannel, bobChannel)
+	if err != ErrBelowMinHTLC {
+		t.Fatalf("expected ErrBelowMinHTLC, instead received: %v", err)
+	}
+}

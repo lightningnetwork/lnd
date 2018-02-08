@@ -519,7 +519,16 @@ secondLevelCheck:
 				brarLog.Errorf("unable to check for spentness "+
 					"of out_point=%v: %v",
 					breachedOutput.outpoint, err)
-				continue
+
+				// Registration may have failed if we've been
+				// instructed to shutdown. If so, return here to
+				// avoid entering an infinite loop.
+				select {
+				case <-b.quit:
+					return
+				default:
+					continue
+				}
 			}
 
 			select {
@@ -575,7 +584,15 @@ secondLevelCheck:
 			brarLog.Infof("Attempting to transfer HTLC revocations " +
 				"to the second level")
 			finalTx = nil
-			goto secondLevelCheck
+
+			// Txn publication may fail if we're shutting down.
+			// If so, return to avoid entering an infinite loop.
+			select {
+			case <-b.quit:
+				return
+			default:
+				goto secondLevelCheck
+			}
 		}
 	}
 

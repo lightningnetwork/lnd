@@ -351,7 +351,7 @@ func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 
 		// Kid outputs can be swept after an initial confirmation
 		// followed by a maturity period.Baby outputs are two stage and
-		// will need to wait for a absolute time out to reach a
+		// will need to wait for an absolute time out to reach a
 		// confirmation, then require a relative confirmation delay.
 		kidOutputs  = make([]kidOutput, 0, 1+len(incomingHtlcs))
 		babyOutputs = make([]babyOutput, 0, len(outgoingHtlcs))
@@ -918,7 +918,7 @@ func (u *utxoNursery) createSweepTx(kgtnOutputs []kidOutput,
 	classHeight uint32) (*wire.MsgTx, error) {
 
 	// Create a transaction which sweeps all the newly mature outputs into
-	// a output controlled by the wallet.
+	// an output controlled by the wallet.
 
 	// TODO(roasbeef): can be more intelligent about buffering outputs to
 	// be more efficient on-chain.
@@ -1541,7 +1541,7 @@ func (c *contractMaturityReport) AddLimboStage2Htlc(kid *kidOutput) {
 	c.htlcs = append(c.htlcs, htlcReport)
 }
 
-// AddRecoveredHtlc adds an graduate output to the maturity report's htlcs, and
+// AddRecoveredHtlc adds a graduate output to the maturity report's htlcs, and
 // contributes its amount to the recovered balance.
 func (c *contractMaturityReport) AddRecoveredHtlc(kid *kidOutput) {
 	c.recoveredBalance += kid.Amount()

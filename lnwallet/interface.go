@@ -15,7 +15,7 @@ import (
 // to spend a specified output.
 var ErrNotMine = errors.New("the passed output doesn't belong to the wallet")
 
-// AddressType is a enum-like type which denotes the possible address types
+// AddressType is an enum-like type which denotes the possible address types
 // WalletController supports.
 type AddressType uint8
 
@@ -169,7 +169,7 @@ type WalletController interface {
 	// usage when funding a channel.
 	LockOutpoint(o wire.OutPoint)
 
-	// UnlockOutpoint unlocks an previously locked output, marking it
+	// UnlockOutpoint unlocks a previously locked output, marking it
 	// eligible for coin selection.
 	UnlockOutpoint(o wire.OutPoint)
 

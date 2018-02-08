@@ -129,7 +129,7 @@ func (n *NeutrinoNotifier) Start() error {
 	n.bestHeight = bestHeight
 
 	// Next, we'll create our set of rescan options. Currently it's
-	// required that a user MUST set a addr/outpoint/txid when creating a
+	// required that a user MUST set an addr/outpoint/txid when creating a
 	// rescan. To get around this, we'll add a "zero" outpoint, that won't
 	// actually be matched.
 	var zeroHash chainhash.Hash

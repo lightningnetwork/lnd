@@ -3026,7 +3026,7 @@ func TestChanSyncOweCommitment(t *testing.T) {
 		for i := 0; i < 3; i++ {
 			settleMsg, ok := aliceMsgsToSend[i].(*lnwire.UpdateFulfillHTLC)
 			if !ok {
-				t.Fatalf("expected a htlc settle message, "+
+				t.Fatalf("expected an HTLC settle message, "+
 					"instead have %v", spew.Sdump(settleMsg))
 			}
 			if settleMsg.ID != uint64(i) {
@@ -3045,7 +3045,7 @@ func TestChanSyncOweCommitment(t *testing.T) {
 
 		// The HTLC add message should be identical.
 		if _, ok := aliceMsgsToSend[3].(*lnwire.UpdateAddHTLC); !ok {
-			t.Fatalf("expected a htlc add message, instead have %v",
+			t.Fatalf("expected an HTLC add message, instead have %v",
 				spew.Sdump(aliceMsgsToSend[3]))
 		}
 		if !reflect.DeepEqual(aliceHtlc, aliceMsgsToSend[3]) {

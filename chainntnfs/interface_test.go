@@ -369,7 +369,7 @@ func testSpendNotification(miner *rpctest.Harness,
 		t.Fatalf("unable to get current height: %v", err)
 	}
 
-	// Now that we have a output index and the pkScript, register for a
+	// Now that we have an output index and the pkScript, register for a
 	// spentness notification for the newly created output with multiple
 	// clients in order to ensure the implementation can support
 	// multi-client spend notifications.

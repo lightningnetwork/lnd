@@ -19,7 +19,7 @@ type FilteredChainView interface {
 	// sent over. Each time a block is connected to the end of a main
 	// chain, and appropriate FilteredBlock which contains the transactions
 	// which mutate our watched UTXO set is to be returned. In case of a
-	// UpdateFilter call with a updateHeight lower than the current best
+	// UpdateFilter call with an updateHeight lower than the current best
 	// height, blocks with the updated filter will be resent, and must be
 	// handled by the receiver as an update to an already known block, NOT
 	// as a new block being connected to the chain.

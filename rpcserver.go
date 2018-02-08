@@ -1096,7 +1096,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 		if feeRate == 0 {
 			// If the fee rate returned isn't usable, then we'll
-			// fall back to an lax fee estimate.
+			// fall back to a lax fee estimate.
 			feeRate, err = r.server.cc.feeEstimator.EstimateFeePerVSize(6)
 			if err != nil {
 				return err

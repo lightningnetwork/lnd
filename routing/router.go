@@ -1697,7 +1697,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 
 			// If the onion error includes a channel update, and
 			// isn't necessarily fatal, then we'll apply the update
-			// an continue with the rest of the routes.
+			// and continue with the rest of the routes.
 			case *lnwire.FailAmountBelowMinimum:
 				update := onionErr.Update
 				if err := r.applyChannelUpdate(&update); err != nil {

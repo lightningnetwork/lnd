@@ -53,7 +53,7 @@ type outgoingMsg struct {
 	errChan chan error // MUST be buffered.
 }
 
-// newChannelMsg packages a lnwallet.LightningChannel with a channel that
+// newChannelMsg packages an lnwallet.LightningChannel with a channel that
 // allows the receiver of the request to report when the funding transaction
 // has been confirmed and the channel creation process completed.
 type newChannelMsg struct {

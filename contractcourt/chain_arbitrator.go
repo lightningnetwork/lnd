@@ -86,7 +86,7 @@ type ChainArbitratorConfig struct {
 	// returned.
 	IsOurAddress func(btcutil.Address) bool
 
-	// IncubateOutput sends either a incoming HTLC, an outgoing HTLC, or
+	// IncubateOutput sends either an incoming HTLC, an outgoing HTLC, or
 	// both to the utxo nursery. Once this function returns, the nursery
 	// should have safely persisted the outputs to disk, and should start
 	// the process of incubation. This is used when a resolver wishes to

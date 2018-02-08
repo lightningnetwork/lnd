@@ -52,7 +52,7 @@ type pendingPayment struct {
 	response chan *htlcPacket
 	err      chan error
 
-	// deobfuscator is an serializable entity which is used if we received
+	// deobfuscator is a serializable entity which is used if we received
 	// an error, it deobfuscates the onion failure blob, and extracts the
 	// exact error from it.
 	deobfuscator ErrorDecrypter
@@ -65,7 +65,7 @@ type plexPacket struct {
 	err chan error
 }
 
-// ChannelCloseType is a enum which signals the type of channel closure the
+// ChannelCloseType is an enum which signals the type of channel closure the
 // peer should execute.
 type ChannelCloseType uint8
 

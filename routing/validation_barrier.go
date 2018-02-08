@@ -44,7 +44,7 @@ type ValidationBarrier struct {
 
 // NewValidationBarrier creates a new instance of a validation barrier given
 // the total number of active requests, and a quit channel which will be used
-// to know when to kill an pending, but unfilled jobs.
+// to know when to kill pending, but unfilled jobs.
 func NewValidationBarrier(numActiveReqs int,
 	quitChan chan struct{}) *ValidationBarrier {
 

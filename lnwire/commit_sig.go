@@ -28,7 +28,7 @@ type CommitSig struct {
 	// created commitment. The order of the signatures is expected to be
 	// identical to the placement of the HTLC's within the BIP 69 sorted
 	// commitment transaction. For each outgoing HTLC (from the PoV of the
-	// sender of this message), a signature for a HTLC timeout transaction
+	// sender of this message), a signature for an HTLC timeout transaction
 	// should be signed, for each incoming HTLC the HTLC timeout
 	// transaction should be signed.
 	HtlcSigs []Sig

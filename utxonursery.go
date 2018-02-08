@@ -1095,8 +1095,12 @@ func (u *utxoNursery) populateSweepTx(txWeight uint64, classHeight uint32,
 			return nil, err
 		}
 	}
+
+	// Add offset to relative indexes so cltv witnesses don't overwrite csv
+	// witnesses.
+	offset := len(csvInputs)
 	for i, input := range cltvInputs {
-		if err := addWitness(i, input); err != nil {
+		if err := addWitness(offset+i, input); err != nil {
 			return nil, err
 		}
 	}

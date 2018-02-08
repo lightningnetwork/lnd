@@ -1,5 +1,5 @@
-hash: e0cbbf733425814948ced513c5921d8a4920f179d059f39eeafbf337c32b4ead
-updated: 2018-03-08T20:06:04.267833-05:00
+hash: 607d774162a30647479b037b9291e372c92d1ab6b60808837b22c205ac58981f
+updated: 2018-03-08T21:10:50.953704-05:00
 imports:
 - name: git.schwanenlied.me/yawning/bsaes.git
   version: e06297f34865a50b8e473105e52cb64ad1b55da8
@@ -84,7 +84,7 @@ imports:
   - filterdb
   - headerfs
 - name: github.com/lightningnetwork/lightning-onion
-  version: dbb6dc0eaf32a043c9bc3cfed0fd5fd8db08e3b9
+  version: 9e4b184daf3e32e0c2e523b92ec1b2d6c51ad77f
 - name: github.com/ltcsuite/ltcd
   version: 5f654d5faab99ee2b3488fabba98e5f7a5257ee3
   subpackages:

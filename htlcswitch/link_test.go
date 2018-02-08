@@ -1405,8 +1405,8 @@ func (m *mockPeer) Disconnect(reason error) {
 
 var _ Peer = (*mockPeer)(nil)
 
-func newSingleLinkTestHarness(chanAmt btcutil.Amount) (ChannelLink,
-	*lnwallet.LightningChannel, chan time.Time, func(), error) {
+func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
+	ChannelLink, *lnwallet.LightningChannel, chan time.Time, func(), error) {
 	globalEpoch := &chainntnfs.BlockEpochEvent{
 		Epochs: make(chan *chainntnfs.BlockEpoch),
 		Cancel: func() {
@@ -1415,7 +1415,8 @@ func newSingleLinkTestHarness(chanAmt btcutil.Amount) (ChannelLink,
 
 	chanID := lnwire.NewShortChanIDFromInt(4)
 	aliceChannel, bobChannel, fCleanUp, _, err := createTestChannel(
-		alicePrivKey, bobPrivKey, chanAmt, chanAmt, chanID,
+		alicePrivKey, bobPrivKey, chanAmt, chanAmt,
+		chanReserve, chanReserve, chanID,
 	)
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -1659,7 +1660,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 
 	// We'll start the test by creating a single instance of
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
-	link, bobChannel, tmr, cleanUp, err := newSingleLinkTestHarness(chanAmt)
+	link, bobChannel, tmr, cleanUp, err := newSingleLinkTestHarness(chanAmt, 0)
 	if err != nil {
 		t.Fatalf("unable to create link: %v", err)
 	}
@@ -1992,7 +1993,8 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 	var mockBlob [lnwire.OnionPacketSize]byte
 
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
-	aliceLink, bobChannel, batchTick, cleanUp, err := newSingleLinkTestHarness(chanAmt)
+	aliceLink, bobChannel, batchTick, cleanUp, err :=
+		newSingleLinkTestHarness(chanAmt, 0)
 	if err != nil {
 		t.Fatalf("unable to create link: %v", err)
 	}
@@ -2189,6 +2191,134 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 		t.Fatalf("wrong overflow queue length: expected %v, got %v", 0,
 			coreLink.overflowQueue.Length())
 	}
+}
+
+// TestChannelLinkBandwidthChanReserve checks that the bandwidth available
+// on the channel link reflects the channel reserve that must be kept
+// at all times.
+func TestChannelLinkBandwidthChanReserve(t *testing.T) {
+	t.Parallel()
+
+	// First start a link that has a balance greater than it's
+	// channel reserve.
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	const chanReserve = btcutil.SatoshiPerBitcoin * 1
+	aliceLink, bobChannel, batchTimer, cleanUp, err :=
+		newSingleLinkTestHarness(chanAmt, chanReserve)
+	if err != nil {
+		t.Fatalf("unable to create link: %v", err)
+	}
+	defer cleanUp()
+
+	var (
+		mockBlob               [lnwire.OnionPacketSize]byte
+		coreLink               = aliceLink.(*channelLink)
+		coreChan               = coreLink.channel
+		defaultCommitFee       = coreChan.StateSnapshot().CommitFee
+		aliceStartingBandwidth = aliceLink.Bandwidth()
+		aliceMsgs              = coreLink.cfg.Peer.(*mockPeer).sentMsgs
+	)
+
+	estimator := &lnwallet.StaticFeeEstimator{
+		FeeRate: 24,
+	}
+	feePerWeight, err := estimator.EstimateFeePerWeight(1)
+	if err != nil {
+		t.Fatalf("unable to query fee estimator: %v", err)
+	}
+	feePerKw := feePerWeight * 1000
+	htlcFee := lnwire.NewMSatFromSatoshis(
+		btcutil.Amount((int64(feePerKw) * lnwallet.HtlcWeight) / 1000),
+	)
+
+	// The starting bandwidth of the channel should be exactly the amount
+	// that we created the channel between her and Bob, minus the channel
+	// reserve.
+	expectedBandwidth := lnwire.NewMSatFromSatoshis(
+		chanAmt - defaultCommitFee - chanReserve)
+	assertLinkBandwidth(t, aliceLink, expectedBandwidth)
+
+	// Next, we'll create an HTLC worth 3 BTC, and send it into the link as
+	// a switch initiated payment.  The resulting bandwidth should
+	// now be decremented to reflect the new HTLC.
+	htlcAmt := lnwire.NewMSatFromSatoshis(3 * btcutil.SatoshiPerBitcoin)
+	invoice, htlc, err := generatePayment(htlcAmt, htlcAmt, 5, mockBlob)
+	if err != nil {
+		t.Fatalf("unable to create payment: %v", err)
+	}
+	addPkt := htlcPacket{
+		htlc: htlc,
+	}
+	aliceLink.HandleSwitchPacket(&addPkt)
+	time.Sleep(time.Millisecond * 100)
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt-htlcFee)
+
+	// Alice should send the HTLC to Bob.
+	var msg lnwire.Message
+	select {
+	case msg = <-aliceMsgs:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("did not receive message")
+	}
+
+	addHtlc, ok := msg.(*lnwire.UpdateAddHTLC)
+	if !ok {
+		t.Fatalf("expected UpdateAddHTLC, got %T", msg)
+	}
+
+	bobIndex, err := bobChannel.ReceiveHTLC(addHtlc)
+	if err != nil {
+		t.Fatalf("bob failed receiving htlc: %v", err)
+	}
+
+	// Lock in the HTLC.
+	if err := updateState(batchTimer, coreLink, bobChannel, true); err != nil {
+		t.Fatalf("unable to update state: %v", err)
+	}
+
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt-htlcFee)
+
+	// If we now send in a valid HTLC settle for the prior HTLC we added,
+	// then the bandwidth should remain unchanged as the remote party will
+	// gain additional channel balance.
+	err = bobChannel.SettleHTLC(invoice.Terms.PaymentPreimage, bobIndex)
+	if err != nil {
+		t.Fatalf("unable to settle htlc: %v", err)
+	}
+	htlcSettle := &lnwire.UpdateFulfillHTLC{
+		ID:              bobIndex,
+		PaymentPreimage: invoice.Terms.PaymentPreimage,
+	}
+	aliceLink.HandleChannelUpdate(htlcSettle)
+	time.Sleep(time.Millisecond * 500)
+
+	// Since the settle is not locked in yet, Alice's bandwidth should still
+	// reflect that she has to pay the fee.
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt-htlcFee)
+
+	// Lock in the settle.
+	if err := updateState(batchTimer, coreLink, bobChannel, false); err != nil {
+		t.Fatalf("unable to update state: %v", err)
+	}
+
+	time.Sleep(time.Millisecond * 100)
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt)
+
+	// Now we create a channel that has a channel reserve that is
+	// greater than it's balance. In these case only payments can
+	// be received on this channel, not sent. The available bandwidth
+	// should therefore be 0.
+	const bobChanAmt = btcutil.SatoshiPerBitcoin * 1
+	const bobChanReserve = btcutil.SatoshiPerBitcoin * 1.5
+	bobLink, _, _, bobCleanUp, err := newSingleLinkTestHarness(bobChanAmt,
+		bobChanReserve)
+	if err != nil {
+		t.Fatalf("unable to create link: %v", err)
+	}
+	defer bobCleanUp()
+
+	// Make sure bandwidth is reported as 0.
+	assertLinkBandwidth(t, bobLink, 0)
 }
 
 // TestChannelRetransmission tests the ability of the channel links to

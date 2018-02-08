@@ -88,7 +88,7 @@ func generateRandomBytes(n int) ([]byte, error) {
 //
 // TODO(roasbeef): need to factor out, similar func re-used in many parts of codebase
 func createTestChannel(alicePrivKey, bobPrivKey []byte,
-	aliceAmount, bobAmount btcutil.Amount,
+	aliceAmount, bobAmount, aliceReserve, bobReserve btcutil.Amount,
 	chanID lnwire.ShortChannelID) (*lnwallet.LightningChannel, *lnwallet.LightningChannel, func(),
 	func() (*lnwallet.LightningChannel, *lnwallet.LightningChannel,
 		error), error) {
@@ -104,7 +104,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		DustLimit: btcutil.Amount(200),
 		MaxPendingAmount: lnwire.NewMSatFromSatoshis(
 			channelCapacity),
-		ChanReserve:      0,
+		ChanReserve:      aliceReserve,
 		MinHTLC:          0,
 		MaxAcceptedHtlcs: lnwallet.MaxHTLCNumber / 2,
 	}
@@ -113,7 +113,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		DustLimit: btcutil.Amount(800),
 		MaxPendingAmount: lnwire.NewMSatFromSatoshis(
 			channelCapacity),
-		ChanReserve:      0,
+		ChanReserve:      bobReserve,
 		MinHTLC:          0,
 		MaxAcceptedHtlcs: lnwallet.MaxHTLCNumber / 2,
 	}
@@ -668,15 +668,17 @@ func createClusterChannels(aliceToBob, bobToCarol btcutil.Amount) (
 	secondChanID := lnwire.NewShortChanIDFromInt(5)
 
 	// Create lightning channels between Alice<->Bob and Bob<->Carol
-	aliceChannel, firstBobChannel, cleanAliceBob, restoreAliceBob, err := createTestChannel(
-		alicePrivKey, bobPrivKey, aliceToBob, aliceToBob, firstChanID)
+	aliceChannel, firstBobChannel, cleanAliceBob, restoreAliceBob, err :=
+		createTestChannel(alicePrivKey, bobPrivKey, aliceToBob,
+			aliceToBob, 0, 0, firstChanID)
 	if err != nil {
 		return nil, nil, nil, errors.Errorf("unable to create "+
 			"alice<->bob channel: %v", err)
 	}
 
-	secondBobChannel, carolChannel, cleanBobCarol, restoreBobCarol, err := createTestChannel(
-		bobPrivKey, carolPrivKey, bobToCarol, bobToCarol, secondChanID)
+	secondBobChannel, carolChannel, cleanBobCarol, restoreBobCarol, err :=
+		createTestChannel(bobPrivKey, carolPrivKey, bobToCarol,
+			bobToCarol, 0, 0, secondChanID)
 	if err != nil {
 		cleanAliceBob()
 		return nil, nil, nil, errors.Errorf("unable to create "+

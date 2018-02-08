@@ -27,13 +27,13 @@ _testmain.go
 /lnd
 
 cmd/cmd
-**.key
-**.hex
+*.key
+*.hex
 
 cmd/lncli/lncli
 
 # vim
-**.swp
+*.swp
 
 *.hex
 *.db

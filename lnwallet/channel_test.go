@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"io/ioutil"
-	"math/rand"
+
 	"os"
 	"reflect"
 	"runtime"
@@ -163,10 +163,10 @@ func createTestChannels(revocationWindow int) (*LightningChannel,
 	aliceCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
 			DustLimit:        aliceDustLimit,
-			MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
+			MaxPendingAmount: lnwire.NewMSatFromSatoshis(channelCapacity),
 			ChanReserve:      channelCapacity / 100,
-			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
-			MaxAcceptedHtlcs: uint16(rand.Int31()),
+			MinHTLC:          0,
+			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
 		},
 		CsvDelay:            uint16(csvTimeoutAlice),
 		MultiSigKey:         aliceKeys[0].PubKey(),
@@ -178,10 +178,10 @@ func createTestChannels(revocationWindow int) (*LightningChannel,
 	bobCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
 			DustLimit:        bobDustLimit,
-			MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
+			MaxPendingAmount: lnwire.NewMSatFromSatoshis(channelCapacity),
 			ChanReserve:      channelCapacity / 100,
-			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
-			MaxAcceptedHtlcs: uint16(rand.Int31()),
+			MinHTLC:          0,
+			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
 		},
 		CsvDelay:            uint16(csvTimeoutBob),
 		MultiSigKey:         bobKeys[0].PubKey(),
@@ -1100,6 +1100,14 @@ func TestForceCloseDustOutput(t *testing.T) {
 	}
 	defer cleanUp()
 
+	// We set both node's channel reserves to 0, to make sure
+	// they can create small dust ouputs without going under
+	// their channel reserves.
+	aliceChannel.localChanCfg.ChanReserve = 0
+	bobChannel.localChanCfg.ChanReserve = 0
+	aliceChannel.remoteChanCfg.ChanReserve = 0
+	bobChannel.remoteChanCfg.ChanReserve = 0
+
 	htlcAmount := lnwire.NewMSatFromSatoshis(500)
 
 	aliceAmount := aliceChannel.channelState.LocalCommitment.LocalBalance
@@ -1371,6 +1379,11 @@ func TestChannelBalanceDustLimit(t *testing.T) {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
 	defer cleanUp()
+
+	// To allow Alice's balance to get beneath her dust limit, set the
+	// channel reserve to be 0.
+	aliceChannel.localChanCfg.ChanReserve = 0
+	bobChannel.remoteChanCfg.ChanReserve = 0
 
 	// This amount should leave an amount larger than Alice's dust limit
 	// once fees have been subtracted, but smaller than Bob's dust limit.
@@ -2426,8 +2439,12 @@ func TestAddHTLCNegativeBalance(t *testing.T) {
 	}
 	defer cleanUp()
 
-	// First, we'll add 5 HTLCs of 1 BTC each to Alice's commitment.
-	const numHTLCs = 4
+	// We set the channel reserve to 0, such that we can add HTLCs
+	// all the way to a negative balance.
+	aliceChannel.localChanCfg.ChanReserve = 0
+
+	// First, we'll add 3 HTLCs of 1 BTC each to Alice's commitment.
+	const numHTLCs = 3
 	htlcAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 	for i := 0; i < numHTLCs; i++ {
 		htlc, _ := createHTLC(i, htlcAmt)
@@ -2436,13 +2453,14 @@ func TestAddHTLCNegativeBalance(t *testing.T) {
 		}
 	}
 
-	// We'll then craft another HTLC with 2 BTC to add to Alice's channel.
-	// This attempt should put Alice in the negative, meaning she should
-	// reject the HTLC.
-	htlc, _ := createHTLC(numHTLCs+1, htlcAmt*2)
+	// Alice now has an available balance of 2 BTC. We'll add a new HTLC
+	// of value 2 BTC, which should make Alice's balance negative (since
+	// (she has to pay a commitment fee).
+	htlcAmt = lnwire.NewMSatFromSatoshis(2 * btcutil.SatoshiPerBitcoin)
+	htlc, _ := createHTLC(numHTLCs+1, htlcAmt)
 	_, err = aliceChannel.AddHTLC(htlc)
-	if err != ErrInsufficientBalance {
-		t.Fatalf("expected insufficient balance, instead got: %v", err)
+	if err != ErrBelowChanReserve {
+		t.Fatalf("expected balance below channel reserve, instead got: %v", err)
 	}
 }
 
@@ -4344,7 +4362,7 @@ func TestDesyncHTLCs(t *testing.T) {
 	// because the balance is unavailable.
 	htlcAmt = lnwire.NewMSatFromSatoshis(1 * btcutil.SatoshiPerBitcoin)
 	htlc, _ = createHTLC(1, htlcAmt)
-	if _, err = aliceChannel.AddHTLC(htlc); err != ErrInsufficientBalance {
+	if _, err = aliceChannel.AddHTLC(htlc); err != ErrBelowChanReserve {
 		t.Fatalf("expected ErrInsufficientBalance, instead received: %v",
 			err)
 	}

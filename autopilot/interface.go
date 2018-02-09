@@ -111,17 +111,20 @@ type AttachmentHeuristic interface {
 	// opened within the channel graph. If the heuristic decides that we do
 	// indeed need more channels, then the second argument returned will
 	// represent the amount of additional funds to be used towards creating
-	// channels.
-	//
-	// TODO(roasbeef): return number of chans? ensure doesn't go over
-	NeedMoreChans(chans []Channel, balance btcutil.Amount) (btcutil.Amount, bool)
+	// channels. This method should also return the exact *number* of
+	// additional channels that are needed in order to converge towards our
+	// ideal state.
+	NeedMoreChans(chans []Channel, balance btcutil.Amount) (btcutil.Amount, uint32, bool)
 
 	// Select is a method that given the current state of the channel
 	// graph, a set of nodes to ignore, and an amount of available funds,
 	// should return a set of attachment directives which describe which
 	// additional channels should be opened within the graph to push the
-	// heuristic back towards its equilibrium state.
-	Select(self *btcec.PublicKey, graph ChannelGraph, amtToUse btcutil.Amount,
+	// heuristic back towards its equilibrium state. The numNewChans
+	// argument represents the additional number of channels that should be
+	// open.
+	Select(self *btcec.PublicKey, graph ChannelGraph,
+		amtToUse btcutil.Amount, numNewChans uint32,
 		skipNodes map[NodeID]struct{}) ([]AttachmentDirective, error)
 }
 

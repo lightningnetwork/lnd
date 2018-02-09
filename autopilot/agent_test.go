@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"errors"
-	"fmt"
 
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
@@ -17,6 +16,7 @@ import (
 
 type moreChansResp struct {
 	needMore bool
+	numMore  uint32
 	amt      btcutil.Amount
 }
 
@@ -34,7 +34,7 @@ type mockHeuristic struct {
 }
 
 func (m *mockHeuristic) NeedMoreChans(chans []Channel,
-	balance btcutil.Amount) (btcutil.Amount, bool) {
+	balance btcutil.Amount) (btcutil.Amount, uint32, bool) {
 
 	if m.moreChanArgs != nil {
 		m.moreChanArgs <- moreChanArg{
@@ -45,7 +45,7 @@ func (m *mockHeuristic) NeedMoreChans(chans []Channel,
 	}
 
 	resp := <-m.moreChansResps
-	return resp.amt, resp.needMore
+	return resp.amt, resp.numMore, resp.needMore
 }
 
 type directiveArg struct {
@@ -56,8 +56,8 @@ type directiveArg struct {
 }
 
 func (m *mockHeuristic) Select(self *btcec.PublicKey, graph ChannelGraph,
-
-	amtToUse btcutil.Amount, skipChans map[NodeID]struct{}) ([]AttachmentDirective, error) {
+	amtToUse btcutil.Amount, numChans uint32,
+	skipChans map[NodeID]struct{}) ([]AttachmentDirective, error) {
 
 	if m.directiveArgs != nil {
 		m.directiveArgs <- directiveArg{
@@ -160,7 +160,7 @@ func TestAgentChannelOpenSignal(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		select {
-		case heuristic.moreChansResps <- moreChansResp{false, 0}:
+		case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
 			wg.Done()
 			return
 		case <-time.After(time.Second * 10):
@@ -185,7 +185,7 @@ func TestAgentChannelOpenSignal(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		select {
-		case heuristic.moreChansResps <- moreChansResp{false, 0}:
+		case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
 			// At this point, the local state of the agent should
 			// have also been updated to reflect that the LN node
 			// now has an additional channel with one BTC.
@@ -290,15 +290,14 @@ func TestAgentChannelFailureSignal(t *testing.T) {
 	// First ensure the agent will attempt to open a new channel. Return
 	// that we need more channels, and have 5BTC to use.
 	select {
-	case heuristic.moreChansResps <- moreChansResp{true, 5 * btcutil.SatoshiPerBitcoin}:
-		fmt.Println("Returning 5BTC from heuristic")
+	case heuristic.moreChansResps <- moreChansResp{true, 1, 5 * btcutil.SatoshiPerBitcoin}:
 	case <-time.After(time.Second * 10):
 		t.Fatal("heuristic wasn't queried in time")
 	}
 
 	// At this point, the agent should now be querying the heuristic to
-	// request attachment directives, return a fake so the agent will attempt
-	// to open a channel.
+	// request attachment directives, return a fake so the agent will
+	// attempt to open a channel.
 	var fakeDirective = AttachmentDirective{
 		PeerKey: self,
 		ChanAmt: btcutil.SatoshiPerBitcoin,
@@ -311,7 +310,6 @@ func TestAgentChannelFailureSignal(t *testing.T) {
 
 	select {
 	case heuristic.directiveResps <- []AttachmentDirective{fakeDirective}:
-		fmt.Println("Returning a node to connect to from heuristic")
 	case <-time.After(time.Second * 10):
 		t.Fatal("heuristic wasn't queried in time")
 	}
@@ -320,15 +318,13 @@ func TestAgentChannelFailureSignal(t *testing.T) {
 
 	// Now ensure that the controller loop is re-executed.
 	select {
-	case heuristic.moreChansResps <- moreChansResp{true, 5 * btcutil.SatoshiPerBitcoin}:
-		fmt.Println("Returning need more channels from heuristic")
+	case heuristic.moreChansResps <- moreChansResp{true, 1, 5 * btcutil.SatoshiPerBitcoin}:
 	case <-time.After(time.Second * 10):
 		t.Fatal("heuristic wasn't queried in time")
 	}
 
 	select {
 	case heuristic.directiveResps <- []AttachmentDirective{}:
-		fmt.Println("Returning an empty directives list")
 	case <-time.After(time.Second * 10):
 		t.Fatal("heuristic wasn't queried in time")
 	}
@@ -397,7 +393,7 @@ func TestAgentChannelCloseSignal(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		select {
-		case heuristic.moreChansResps <- moreChansResp{false, 0}:
+		case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
 			wg.Done()
 			return
 		case <-time.After(time.Second * 10):
@@ -418,7 +414,7 @@ func TestAgentChannelCloseSignal(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		select {
-		case heuristic.moreChansResps <- moreChansResp{false, 0}:
+		case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
 			// At this point, the local state of the agent should
 			// have also been updated to reflect that the LN node
 			// has no existing open channels.
@@ -509,7 +505,7 @@ func TestAgentBalanceUpdate(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		select {
-		case heuristic.moreChansResps <- moreChansResp{false, 0}:
+		case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
 			wg.Done()
 			return
 		case <-time.After(time.Second * 10):
@@ -531,7 +527,7 @@ func TestAgentBalanceUpdate(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		select {
-		case heuristic.moreChansResps <- moreChansResp{false, 0}:
+		case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
 			// At this point, the local state of the agent should
 			// have also been updated to reflect that the LN node
 			// now has an additional  5BTC available.
@@ -619,6 +615,8 @@ func TestAgentImmediateAttach(t *testing.T) {
 
 	var wg sync.WaitGroup
 
+	const numChans = 5
+
 	// The very first thing the agent should do is query the NeedMoreChans
 	// method on the passed heuristic. So we'll provide it with a response
 	// that will kick off the main loop.
@@ -629,7 +627,7 @@ func TestAgentImmediateAttach(t *testing.T) {
 		// We'll send over a response indicating that it should
 		// establish more channels, and give it a budget of 5 BTC to do
 		// so.
-		case heuristic.moreChansResps <- moreChansResp{true, 5 * btcutil.SatoshiPerBitcoin}:
+		case heuristic.moreChansResps <- moreChansResp{true, numChans, 5 * btcutil.SatoshiPerBitcoin}:
 			wg.Done()
 			return
 		case <-time.After(time.Second * 10):
@@ -644,7 +642,6 @@ func TestAgentImmediateAttach(t *testing.T) {
 	// At this point, the agent should now be querying the heuristic to
 	// requests attachment directives. We'll generate 5 mock directives so
 	// it can progress within its loop.
-	const numChans = 5
 	directives := make([]AttachmentDirective, numChans)
 	for i := 0; i < numChans; i++ {
 		directives[i] = AttachmentDirective{
@@ -762,7 +759,7 @@ func TestAgentPendingChannelState(t *testing.T) {
 		// We'll send over a response indicating that it should
 		// establish more channels, and give it a budget of 1 BTC to do
 		// so.
-		case heuristic.moreChansResps <- moreChansResp{true, btcutil.SatoshiPerBitcoin}:
+		case heuristic.moreChansResps <- moreChansResp{true, 1, btcutil.SatoshiPerBitcoin}:
 			wg.Done()
 			return
 		case <-time.After(time.Second * 10):
@@ -856,7 +853,7 @@ func TestAgentPendingChannelState(t *testing.T) {
 	// We'll send across a response indicating that it *does* need more
 	// channels.
 	select {
-	case heuristic.moreChansResps <- moreChansResp{true, btcutil.SatoshiPerBitcoin}:
+	case heuristic.moreChansResps <- moreChansResp{true, 1, btcutil.SatoshiPerBitcoin}:
 	case <-time.After(time.Second * 10):
 		t.Fatalf("need more chans wasn't queried in time")
 	}

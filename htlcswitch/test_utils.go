@@ -88,7 +88,7 @@ func generateRandomBytes(n int) ([]byte, error) {
 //
 // TODO(roasbeef): need to factor out, similar func re-used in many parts of codebase
 func createTestChannel(alicePrivKey, bobPrivKey []byte,
-	aliceAmount, bobAmount btcutil.Amount,
+	aliceAmount, bobAmount, aliceReserve, bobReserve btcutil.Amount,
 	chanID lnwire.ShortChannelID) (*lnwallet.LightningChannel, *lnwallet.LightningChannel, func(),
 	func() (*lnwallet.LightningChannel, *lnwallet.LightningChannel,
 		error), error) {
@@ -97,10 +97,26 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(btcec.S256(), bobPrivKey)
 
 	channelCapacity := aliceAmount + bobAmount
-	aliceDustLimit := btcutil.Amount(200)
-	bobDustLimit := btcutil.Amount(800)
 	csvTimeoutAlice := uint32(5)
 	csvTimeoutBob := uint32(4)
+
+	aliceConstraints := &channeldb.ChannelConstraints{
+		DustLimit: btcutil.Amount(200),
+		MaxPendingAmount: lnwire.NewMSatFromSatoshis(
+			channelCapacity),
+		ChanReserve:      aliceReserve,
+		MinHTLC:          0,
+		MaxAcceptedHtlcs: lnwallet.MaxHTLCNumber / 2,
+	}
+
+	bobConstraints := &channeldb.ChannelConstraints{
+		DustLimit: btcutil.Amount(800),
+		MaxPendingAmount: lnwire.NewMSatFromSatoshis(
+			channelCapacity),
+		ChanReserve:      bobReserve,
+		MinHTLC:          0,
+		MaxAcceptedHtlcs: lnwallet.MaxHTLCNumber / 2,
+	}
 
 	var hash [sha256.Size]byte
 	randomSeed, err := generateRandomBytes(sha256.Size)
@@ -116,9 +132,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	fundingTxIn := wire.NewTxIn(prevOut, nil, nil)
 
 	aliceCfg := channeldb.ChannelConfig{
-		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit: aliceDustLimit,
-		},
+		ChannelConstraints:  *aliceConstraints,
 		CsvDelay:            uint16(csvTimeoutAlice),
 		MultiSigKey:         aliceKeyPub,
 		RevocationBasePoint: aliceKeyPub,
@@ -127,9 +141,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		HtlcBasePoint:       aliceKeyPub,
 	}
 	bobCfg := channeldb.ChannelConfig{
-		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit: bobDustLimit,
-		},
+		ChannelConstraints:  *bobConstraints,
 		CsvDelay:            uint16(csvTimeoutBob),
 		MultiSigKey:         bobKeyPub,
 		RevocationBasePoint: bobKeyPub,
@@ -656,15 +668,17 @@ func createClusterChannels(aliceToBob, bobToCarol btcutil.Amount) (
 	secondChanID := lnwire.NewShortChanIDFromInt(5)
 
 	// Create lightning channels between Alice<->Bob and Bob<->Carol
-	aliceChannel, firstBobChannel, cleanAliceBob, restoreAliceBob, err := createTestChannel(
-		alicePrivKey, bobPrivKey, aliceToBob, aliceToBob, firstChanID)
+	aliceChannel, firstBobChannel, cleanAliceBob, restoreAliceBob, err :=
+		createTestChannel(alicePrivKey, bobPrivKey, aliceToBob,
+			aliceToBob, 0, 0, firstChanID)
 	if err != nil {
 		return nil, nil, nil, errors.Errorf("unable to create "+
 			"alice<->bob channel: %v", err)
 	}
 
-	secondBobChannel, carolChannel, cleanBobCarol, restoreBobCarol, err := createTestChannel(
-		bobPrivKey, carolPrivKey, bobToCarol, bobToCarol, secondChanID)
+	secondBobChannel, carolChannel, cleanBobCarol, restoreBobCarol, err :=
+		createTestChannel(bobPrivKey, carolPrivKey, bobToCarol,
+			bobToCarol, 0, 0, secondChanID)
 	if err != nil {
 		cleanAliceBob()
 		return nil, nil, nil, errors.Errorf("unable to create "+

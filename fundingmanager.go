@@ -236,6 +236,22 @@ type fundingConfig struct {
 	// contract breach.
 	RequiredRemoteDelay func(btcutil.Amount) uint16
 
+	// RequiredRemoteChanReserve is a function closure that, given the
+	// channel capacity, will return an appropriate amount for the remote
+	// peer's required channel reserve that is to be adhered to at all
+	// times.
+	RequiredRemoteChanReserve func(btcutil.Amount) btcutil.Amount
+
+	// RequiredRemoteMaxValue is a function closure that, given the
+	// channel capacity, returns the amount of MilliSatoshis that our
+	// remote peer can have in total outstanding HTLCs with us.
+	RequiredRemoteMaxValue func(btcutil.Amount) lnwire.MilliSatoshi
+
+	// RequiredRemoteMaxHTLCs is a function closure that, given the
+	// channel capacity, returns the number of maximum HTLCs the remote
+	// peer can offer us.
+	RequiredRemoteMaxHTLCs func(btcutil.Amount) uint16
+
 	// WatchNewChannel is to be called once a new channel enters the final
 	// funding stage: waiting for on-chain confirmation. This method sends
 	// the channel to the ChainArbitrator so it can watch for any on-chain
@@ -868,7 +884,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// party is attempting to dictate for our commitment transaction.
 	err = reservation.CommitConstraints(
 		uint16(msg.CsvDelay), msg.MaxAcceptedHTLCs,
-		msg.MaxValueInFlight, msg.ChannelReserve,
+		msg.MaxValueInFlight, msg.HtlcMinimum, msg.ChannelReserve,
 	)
 	if err != nil {
 		f.failFundingFlow(
@@ -904,7 +920,9 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	remoteCsvDelay := f.cfg.RequiredRemoteDelay(amt)
 
 	// We'll also generate our required constraints for the remote party,
-	chanReserve, maxValue, maxHtlcs := reservation.RemoteChanConstraints()
+	chanReserve := f.cfg.RequiredRemoteChanReserve(amt)
+	maxValue := f.cfg.RequiredRemoteMaxValue(amt)
+	maxHtlcs := f.cfg.RequiredRemoteMaxHTLCs(amt)
 
 	// With our parameters set, we'll now process their contribution so we
 	// can move the funding workflow ahead.
@@ -1004,7 +1022,7 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 	resCtx.reservation.SetNumConfsRequired(uint16(msg.MinAcceptDepth))
 	err = resCtx.reservation.CommitConstraints(
 		uint16(msg.CsvDelay), msg.MaxAcceptedHTLCs,
-		msg.MaxValueInFlight, msg.ChannelReserve,
+		msg.MaxValueInFlight, msg.HtlcMinimum, msg.ChannelReserve,
 	)
 	if err != nil {
 		f.failFundingFlow(
@@ -1018,7 +1036,9 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 	// As they've accepted our channel constraints, we'll regenerate them
 	// here so we can properly commit their accepted constraints to the
 	// reservation.
-	chanReserve, maxValue, maxHtlcs := resCtx.reservation.RemoteChanConstraints()
+	chanReserve := f.cfg.RequiredRemoteChanReserve(resCtx.chanAmt)
+	maxValue := f.cfg.RequiredRemoteMaxValue(resCtx.chanAmt)
+	maxHtlcs := f.cfg.RequiredRemoteMaxHTLCs(resCtx.chanAmt)
 
 	// The remote node has responded with their portion of the channel
 	// contribution. At this point, we can process their contribution which
@@ -2389,7 +2409,9 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// Finally, we'll use the current value of the channels and our default
 	// policy to determine of required commitment constraints for the
 	// remote party.
-	chanReserve, maxValue, maxHtlcs := reservation.RemoteChanConstraints()
+	chanReserve := f.cfg.RequiredRemoteChanReserve(capacity)
+	maxValue := f.cfg.RequiredRemoteMaxValue(capacity)
+	maxHtlcs := f.cfg.RequiredRemoteMaxHTLCs(capacity)
 
 	fndgLog.Infof("Starting funding workflow with %v for pendingID(%x)",
 		msg.peerAddress.Address, chanID)

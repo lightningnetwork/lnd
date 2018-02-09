@@ -154,13 +154,14 @@ func createTestWallet(cdb *channeldb.DB, netParams *chaincfg.Params,
 	estimator lnwallet.FeeEstimator) (*lnwallet.LightningWallet, error) {
 
 	wallet, err := lnwallet.NewLightningWallet(lnwallet.Config{
-		Database:         cdb,
-		Notifier:         notifier,
-		WalletController: wc,
-		Signer:           signer,
-		ChainIO:          bio,
-		FeeEstimator:     estimator,
-		NetParams:        *netParams,
+		Database:           cdb,
+		Notifier:           notifier,
+		WalletController:   wc,
+		Signer:             signer,
+		ChainIO:            bio,
+		FeeEstimator:       estimator,
+		NetParams:          *netParams,
+		DefaultConstraints: defaultChannelConstraints,
 	})
 	if err != nil {
 		return nil, err
@@ -276,6 +277,16 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		},
 		RequiredRemoteDelay: func(amt btcutil.Amount) uint16 {
 			return 4
+		},
+		RequiredRemoteChanReserve: func(chanAmt btcutil.Amount) btcutil.Amount {
+			return chanAmt / 100
+		},
+		RequiredRemoteMaxValue: func(chanAmt btcutil.Amount) lnwire.MilliSatoshi {
+			reserve := lnwire.NewMSatFromSatoshis(chanAmt / 100)
+			return lnwire.NewMSatFromSatoshis(chanAmt) - reserve
+		},
+		RequiredRemoteMaxHTLCs: func(chanAmt btcutil.Amount) uint16 {
+			return uint16(lnwallet.MaxHTLCNumber / 2)
 		},
 		ArbiterChan: arbiterChan,
 		WatchNewChannel: func(*channeldb.OpenChannel) error {

@@ -1160,6 +1160,12 @@ func (p *peer) ChannelSnapshots() []*channeldb.ChannelSnapshot {
 
 	snapshots := make([]*channeldb.ChannelSnapshot, 0, len(p.activeChannels))
 	for _, activeChan := range p.activeChannels {
+		// We'll only return a snapshot for channels that are
+		// *immedately* available for routing payments over.
+		if activeChan.RemoteNextRevocation() == nil {
+			continue
+		}
+
 		snapshot := activeChan.StateSnapshot()
 		snapshots = append(snapshots, snapshot)
 	}

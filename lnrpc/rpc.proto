@@ -510,6 +510,10 @@ message SendRequest {
 
     /// The CLTV delta from the current height that should be used to set the timelock for the final hop.
     int32 final_cltv_delta = 7;
+
+    /// The maximum total fees for the payment in satoshis.
+    int64 fee_limit = 8 [json_name = "fee_limit"];
+
 }
 message SendResponse {
     string payment_error = 1 [json_name = "payment_error"];
@@ -1032,6 +1036,9 @@ message QueryRoutesRequest {
 
     /// The amount to send expressed in satoshis
     int64 amt = 2;
+
+    /// The maximum total fees for the route in satoshis.
+    int64 fee_limit = 3 [json_name = "fee_limit"];
 }
 message QueryRoutesResponse {
     repeated Route routes = 1 [ json_name = "routes"];

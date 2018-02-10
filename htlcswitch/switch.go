@@ -1018,7 +1018,7 @@ func (s *Switch) closeCircuit(htlc lnwire.Message, pkt *htlcPacket) (*PaymentCir
 func (s *Switch) teardownCircuit(circuit *PaymentCircuit, packet *htlcPacket) error {
 	var pktType string
 	switch htlc := packet.htlc.(type) {
-	case *lnwire.UpdateFufillHTLC:
+	case *lnwire.UpdateFulfillHTLC:
 		pktType = "SETTLE"
 	case *lnwire.UpdateFailHTLC:
 		pktType = "FAIL"

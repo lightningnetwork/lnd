@@ -704,15 +704,6 @@
     }
   },
   "definitions": {
-    "NewAddressRequestAddressType": {
-      "type": "string",
-      "enum": [
-        "WITNESS_PUBKEY_HASH",
-        "NESTED_PUBKEY_HASH",
-        "PUBKEY_HASH"
-      ],
-      "default": "WITNESS_PUBKEY_HASH"
-    },
     "PendingChannelsResponseClosedChannel": {
       "type": "object",
       "properties": {

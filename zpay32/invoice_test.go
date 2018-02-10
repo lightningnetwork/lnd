@@ -27,6 +27,7 @@ var (
 
 	testEmptyString    = ""
 	testCupOfCoffee    = "1 cup coffee"
+	testCupOfNonsense  = "ナンセンス 1杯"
 	testPleaseConsider = "Please consider supporting this project"
 
 	testPrivKeyBytes, _     = hex.DecodeString("e126f68f7eafcc8b74f54d269fe206be715000f94dac067d1c04a8ca3b2db734")
@@ -307,6 +308,28 @@ func TestDecodeEncode(t *testing.T) {
 					time.Unix(1496314658, 0),
 					Amount(testMillisat2500uBTC),
 					Description(testCupOfCoffee),
+					Destination(testPubKey),
+					Expiry(testExpiry60))
+				return i
+			},
+			beforeEncoding: func(i *Invoice) {
+				// Since this destination pubkey was recovered
+				// from the signature, we must set it nil before
+				// encoding to get back the same invoice string.
+				i.Destination = nil
+			},
+		},
+		{
+			// Please send 0.0025 BTC for a cup of nonsense (ナンセンス 1杯) to the same peer, within 1 minute
+			encodedInvoice: "lnbc2500u1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdpquwpc4curk03c9wlrswe78q4eyqc7d8d0xqzpuyk0sg5g70me25alkluzd2x62aysf2pyy8edtjeevuv4p2d5p76r4zkmneet7uvyakky2zr4cusd45tftc9c5fh0nnqpnl2jfll544esqchsrny",
+			valid:          true,
+			decodedInvoice: func() *Invoice {
+				i, _ := NewInvoice(
+					&chaincfg.MainNetParams,
+					testPaymentHash,
+					time.Unix(1496314658, 0),
+					Amount(testMillisat2500uBTC),
+					Description(testCupOfNonsense),
 					Destination(testPubKey),
 					Expiry(testExpiry60))
 				return i

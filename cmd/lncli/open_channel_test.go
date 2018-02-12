@@ -25,7 +25,7 @@ func TestOpenChannel(t *testing.T) {
 		[]lnrpc.OpenStatusUpdate{chanOpenUpdateBytes()},
 		[]string{PubKey, LocalAmount, PushAmount},
 		expectedRequest(),
-		"{0000000000000000000000000000000012000000000000000000000000000000:5}\n")
+		"{\n\t\"channel_point\": \"0000000000000000000000000000000012000000000000000000000000000000:5\"\n}\n")
 }
 
 // node_key can be passed as a flag instead of an argument.
@@ -34,7 +34,7 @@ func TestOpenChannel_NodeKeyFlag(t *testing.T) {
 		[]lnrpc.OpenStatusUpdate{chanOpenUpdateBytes()},
 		[]string{"--node_key", PubKey, LocalAmount, PushAmount},
 		expectedRequest(),
-		"{0000000000000000000000000000000012000000000000000000000000000000:5}\n")
+		"{\n\t\"channel_point\": \"0000000000000000000000000000000012000000000000000000000000000000:5\"\n}\n")
 }
 
 // peer_id can be specified instead of node_key.
@@ -48,7 +48,7 @@ func TestOpenChannel_PeerId(t *testing.T) {
 		[]lnrpc.OpenStatusUpdate{chanOpenUpdateBytes()},
 		[]string{"--peer_id", PeerId, LocalAmount, PushAmount},
 		expectedReq,
-		"{0000000000000000000000000000000012000000000000000000000000000000:5}\n")
+		"{\n\t\"channel_point\": \"0000000000000000000000000000000012000000000000000000000000000000:5\"\n}\n")
 }
 
 // local_amt can be passed as a flag instead of an argument.
@@ -57,7 +57,7 @@ func TestOpenChannel_LocalAmtFlag(t *testing.T) {
 		[]lnrpc.OpenStatusUpdate{chanOpenUpdateBytes()},
 		[]string{"--local_amt", LocalAmount, PubKey, PushAmount},
 		expectedRequest(),
-		"{0000000000000000000000000000000012000000000000000000000000000000:5}\n")
+		"{\n\t\"channel_point\": \"0000000000000000000000000000000012000000000000000000000000000000:5\"\n}\n")
 }
 
 // push_amt can be passed as a flag instead of an argument.
@@ -66,7 +66,7 @@ func TestOpenChannel_PushAmtFlag(t *testing.T) {
 		[]lnrpc.OpenStatusUpdate{chanOpenUpdateBytes()},
 		[]string{"--push_amt", PushAmount, PubKey, LocalAmount},
 		expectedRequest(),
-		"{0000000000000000000000000000000012000000000000000000000000000000:5}\n")
+		"{\n\t\"channel_point\": \"0000000000000000000000000000000012000000000000000000000000000000:5\"\n}\n")
 }
 
 // push_amt doesn't have to be specified and will be defaulted if it isn't.
@@ -77,7 +77,7 @@ func TestOpenChannel_DefaultPushAmt(t *testing.T) {
 		[]lnrpc.OpenStatusUpdate{chanOpenUpdateBytes()},
 		[]string{PubKey, "--local_amt", LocalAmount},
 		expectedReq,
-		"{0000000000000000000000000000000012000000000000000000000000000000:5}\n")
+		"{\n\t\"channel_point\": \"0000000000000000000000000000000012000000000000000000000000000000:5\"\n}\n")
 }
 
 // The funding txid can be passed as a string instead of bytes.
@@ -86,7 +86,7 @@ func TestOpenChannel_FundingTxidString(t *testing.T) {
 		[]lnrpc.OpenStatusUpdate{chanOpenUpdateString()},
 		[]string{PubKey, LocalAmount, PushAmount},
 		expectedRequest(),
-		"{0000000000000000000000000000000000000000000000001234567890abcdef:6}\n")
+		"{\n\t\"channel_point\": \"0000000000000000000000000000000000000000000000001234567890abcdef:6\"\n}\n")
 }
 
 // Specifying that a call should block has no effect if the first update
@@ -96,7 +96,7 @@ func TestOpenChannel_UnnecessaryBlock(t *testing.T) {
 		[]lnrpc.OpenStatusUpdate{chanOpenUpdateBytes()},
 		[]string{"--block", PubKey, LocalAmount, PushAmount},
 		expectedRequest(),
-		"{0000000000000000000000000000000012000000000000000000000000000000:5}\n")
+		"{\n\t\"channel_point\": \"0000000000000000000000000000000012000000000000000000000000000000:5\"\n}\n")
 }
 
 // Verify that all pass through flags are passed through to the RPC call.
@@ -115,7 +115,7 @@ func TestOpenChannel_OverrideDefaults(t *testing.T) {
 			"--min_htlc_msat", "2000000",
 			PubKey, LocalAmount, PushAmount},
 		expectedReq,
-		"{0000000000000000000000000000000012000000000000000000000000000000:5}\n")
+		"{\n\t\"channel_point\": \"0000000000000000000000000000000012000000000000000000000000000000:5\"\n}\n")
 }
 
 // openChannel endlessly loops if unrecognized or nil OpenStatusUpdates are returned.
@@ -268,7 +268,7 @@ func TestOpenChannel_NonBlockingChanPending(t *testing.T) {
 	resp, err := testOpenChannel(t, &client, []string{PubKey, LocalAmount, PushAmount})
 	assert.NoError(t, err)
 	assert.Equal(t,
-		"{0000000000000000000000000000000089000000000000000000000000000000}\n",
+		"{\n\t\"funding_txid\": \"0000000000000000000000000000000089000000000000000000000000000000\"\n}\n",
 		resp,
 		"Incorrect response from openChannel.")
 }
@@ -279,7 +279,7 @@ func TestOpenChannel_ChanPendingThenEOF(t *testing.T) {
 		[]lnrpc.OpenStatusUpdate{chanPendingUpdate()},
 		[]string{"--block", PubKey, LocalAmount, PushAmount},
 		expectedRequest(),
-		"{0000000000000000000000000000000089000000000000000000000000000000}\n")
+		"{\n\t\"funding_txid\": \"0000000000000000000000000000000089000000000000000000000000000000\"\n}\n")
 }
 
 // A ChanPending followed by a ChanOpen should print a txid followed by a channel point.
@@ -288,8 +288,8 @@ func TestOpenChannel_ChanPendingThenChanOpen(t *testing.T) {
 		[]lnrpc.OpenStatusUpdate{chanPendingUpdate(), chanOpenUpdateBytes()},
 		[]string{"--block", PubKey, LocalAmount, PushAmount},
 		expectedRequest(),
-		"{0000000000000000000000000000000089000000000000000000000000000000}\n\n"+
-			"{0000000000000000000000000000000012000000000000000000000000000000:5}\n")
+		"{\n\t\"funding_txid\": \"0000000000000000000000000000000089000000000000000000000000000000\"\n}\n\n"+
+			"{\n\t\"channel_point\": \"0000000000000000000000000000000012000000000000000000000000000000:5\"\n}\n")
 }
 
 // A ChanOpen followed by a ChanPending currently prints a channel point
@@ -300,8 +300,8 @@ func TestOpenChannel_ChanOpenThenChanPending(t *testing.T) {
 		[]lnrpc.OpenStatusUpdate{chanOpenUpdateBytes(), chanPendingUpdate()},
 		[]string{"--block", PubKey, LocalAmount, PushAmount},
 		expectedRequest(),
-		"{0000000000000000000000000000000012000000000000000000000000000000:5}\n\n"+
-			"{0000000000000000000000000000000089000000000000000000000000000000}\n")
+		"{\n\t\"channel_point\": \"0000000000000000000000000000000012000000000000000000000000000000:5\"\n}\n\n"+
+			"{\n\t\"funding_txid\": \"0000000000000000000000000000000089000000000000000000000000000000\"\n}\n")
 }
 
 // A bad tx hash should result in an error being propagated up.
@@ -348,10 +348,10 @@ func TestOpenChannel_MultipleChanPendingThenChanOpen(t *testing.T) {
 			chanPendingUpdate(), chanPendingUpdate(), chanPendingUpdate(), chanOpenUpdateBytes()},
 		[]string{"--block", PubKey, LocalAmount, PushAmount},
 		expectedRequest(),
-		"{0000000000000000000000000000000089000000000000000000000000000000}\n\n"+
-			"{0000000000000000000000000000000089000000000000000000000000000000}\n\n"+
-			"{0000000000000000000000000000000089000000000000000000000000000000}\n\n"+
-			"{0000000000000000000000000000000012000000000000000000000000000000:5}\n")
+		"{\n\t\"funding_txid\": \"0000000000000000000000000000000089000000000000000000000000000000\"\n}\n\n"+
+			"{\n\t\"funding_txid\": \"0000000000000000000000000000000089000000000000000000000000000000\"\n}\n\n"+
+			"{\n\t\"funding_txid\": \"0000000000000000000000000000000089000000000000000000000000000000\"\n}\n\n"+
+			"{\n\t\"channel_point\": \"0000000000000000000000000000000012000000000000000000000000000000:5\"\n}\n")
 }
 
 // Currently it doesn't matter if multiple ChanOpens are received.
@@ -361,10 +361,10 @@ func TestOpenChannel_MultipleChanOpen(t *testing.T) {
 			chanOpenUpdateBytes(), chanOpenUpdateBytes(), chanOpenUpdateBytes(), chanOpenUpdateBytes()},
 		[]string{"--block", PubKey, LocalAmount, PushAmount},
 		expectedRequest(),
-		"{0000000000000000000000000000000012000000000000000000000000000000:5}\n\n"+
-			"{0000000000000000000000000000000012000000000000000000000000000000:5}\n\n"+
-			"{0000000000000000000000000000000012000000000000000000000000000000:5}\n\n"+
-			"{0000000000000000000000000000000012000000000000000000000000000000:5}\n")
+		"{\n\t\"channel_point\": \"0000000000000000000000000000000012000000000000000000000000000000:5\"\n}\n\n"+
+			"{\n\t\"channel_point\": \"0000000000000000000000000000000012000000000000000000000000000000:5\"\n}\n\n"+
+			"{\n\t\"channel_point\": \"0000000000000000000000000000000012000000000000000000000000000000:5\"\n}\n\n"+
+			"{\n\t\"channel_point\": \"0000000000000000000000000000000012000000000000000000000000000000:5\"\n}\n")
 }
 
 // Currently it doesn't matter what sequence of ChanPendings and ChanOpens are received.
@@ -374,10 +374,10 @@ func TestOpenChannel_MultipleAlternatingChanPendingAndChanOpen(t *testing.T) {
 			chanPendingUpdate(), chanOpenUpdateBytes(), chanPendingUpdate(), chanOpenUpdateBytes()},
 		[]string{"--block", PubKey, LocalAmount, PushAmount},
 		expectedRequest(),
-		"{0000000000000000000000000000000089000000000000000000000000000000}\n\n"+
-			"{0000000000000000000000000000000012000000000000000000000000000000:5}\n\n"+
-			"{0000000000000000000000000000000089000000000000000000000000000000}\n\n"+
-			"{0000000000000000000000000000000012000000000000000000000000000000:5}\n")
+		"{\n\t\"funding_txid\": \"0000000000000000000000000000000089000000000000000000000000000000\"\n}\n\n"+
+			"{\n\t\"channel_point\": \"0000000000000000000000000000000012000000000000000000000000000000:5\"\n}\n\n"+
+			"{\n\t\"funding_txid\": \"0000000000000000000000000000000089000000000000000000000000000000\"\n}\n\n"+
+			"{\n\t\"channel_point\": \"0000000000000000000000000000000012000000000000000000000000000000:5\"\n}\n")
 }
 
 var OpenChannelTimeout = 50 * time.Millisecond

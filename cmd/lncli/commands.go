@@ -587,7 +587,7 @@ func openChannel(
 				return err
 			}
 
-			fmt.Fprintln(writer, struct {
+			printJSONToWriter(writer, struct {
 				FundingTxid string `json:"funding_txid"`
 			}{
 				FundingTxid: txid.String(),
@@ -624,7 +624,7 @@ func openChannel(
 			}
 
 			index := channelPoint.OutputIndex
-			fmt.Fprintln(writer, struct {
+			printJSONToWriter(writer, struct {
 				ChannelPoint string `json:"channel_point"`
 			}{
 				ChannelPoint: fmt.Sprintf("%v:%v", txid, index),

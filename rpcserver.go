@@ -141,7 +141,7 @@ var (
 			Entity: "offchain",
 			Action: "write",
 		}},
-		"/lnrpc.Lightning/OpenchannelSync": {{
+		"/lnrpc.Lightning/OpenChannelSync": {{
 			Entity: "onchain",
 			Action: "write",
 		}, {

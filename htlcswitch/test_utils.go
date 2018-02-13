@@ -188,12 +188,12 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	estimator := &lnwallet.StaticFeeEstimator{
 		FeeRate: 24,
 	}
-	feePerWeight, err := estimator.EstimateFeePerWeight(1)
+	feePerVSize, err := estimator.EstimateFeePerVSize(1)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	feePerKw := btcutil.Amount(feePerWeight * 1000)
-	commitFee := (feePerKw * btcutil.Amount(724)) / 1000
+	feePerKw := feePerVSize.FeePerKWeight()
+	commitFee := feePerKw.FeeForWeight(724)
 
 	const broadcastHeight = 1
 	bobAddr := &net.TCPAddr{
@@ -211,7 +211,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		LocalBalance:  lnwire.NewMSatFromSatoshis(aliceAmount - commitFee),
 		RemoteBalance: lnwire.NewMSatFromSatoshis(bobAmount),
 		CommitFee:     commitFee,
-		FeePerKw:      feePerKw,
+		FeePerKw:      btcutil.Amount(feePerKw),
 		CommitTx:      aliceCommitTx,
 		CommitSig:     bytes.Repeat([]byte{1}, 71),
 	}
@@ -220,7 +220,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		LocalBalance:  lnwire.NewMSatFromSatoshis(bobAmount),
 		RemoteBalance: lnwire.NewMSatFromSatoshis(aliceAmount - commitFee),
 		CommitFee:     commitFee,
-		FeePerKw:      feePerKw,
+		FeePerKw:      btcutil.Amount(feePerKw),
 		CommitTx:      bobCommitTx,
 		CommitSig:     bytes.Repeat([]byte{1}, 71),
 	}
@@ -744,9 +744,8 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	decoder := &mockIteratorDecoder{}
 
 	feeEstimator := &mockFeeEstimator{
-		byteFeeIn:   make(chan btcutil.Amount),
-		weightFeeIn: make(chan btcutil.Amount),
-		quit:        make(chan struct{}),
+		byteFeeIn: make(chan lnwallet.SatPerVByte),
+		quit:      make(chan struct{}),
 	}
 
 	pCache := &mockPreimageCache{

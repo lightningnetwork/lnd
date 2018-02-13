@@ -135,9 +135,9 @@ type ChannelReservation struct {
 // used only internally by lnwallet. In order to concurrent safety, the
 // creation of all channel reservations should be carried out via the
 // lnwallet.InitChannelReservation interface.
-func NewChannelReservation(capacity, fundingAmt, commitFeePerKw btcutil.Amount,
-	wallet *LightningWallet, id uint64, pushMSat lnwire.MilliSatoshi,
-	chainHash *chainhash.Hash,
+func NewChannelReservation(capacity, fundingAmt btcutil.Amount,
+	commitFeePerKw SatPerKWeight, wallet *LightningWallet,
+	id uint64, pushMSat lnwire.MilliSatoshi, chainHash *chainhash.Hash,
 	flags lnwire.FundingFlag) (*ChannelReservation, error) {
 
 	var (
@@ -146,10 +146,7 @@ func NewChannelReservation(capacity, fundingAmt, commitFeePerKw btcutil.Amount,
 		initiator    bool
 	)
 
-	commitFee := btcutil.Amount(
-		(int64(commitFeePerKw) * CommitWeight) / 1000,
-	)
-
+	commitFee := commitFeePerKw.FeeForWeight(CommitWeight)
 	fundingMSat := lnwire.NewMSatFromSatoshis(fundingAmt)
 	capacityMSat := lnwire.NewMSatFromSatoshis(capacity)
 	feeMSat := lnwire.NewMSatFromSatoshis(commitFee)
@@ -229,13 +226,13 @@ func NewChannelReservation(capacity, fundingAmt, commitFeePerKw btcutil.Amount,
 			LocalCommitment: channeldb.ChannelCommitment{
 				LocalBalance:  ourBalance,
 				RemoteBalance: theirBalance,
-				FeePerKw:      commitFeePerKw,
+				FeePerKw:      btcutil.Amount(commitFeePerKw),
 				CommitFee:     commitFee,
 			},
 			RemoteCommitment: channeldb.ChannelCommitment{
 				LocalBalance:  ourBalance,
 				RemoteBalance: theirBalance,
-				FeePerKw:      commitFeePerKw,
+				FeePerKw:      btcutil.Amount(commitFeePerKw),
 				CommitFee:     commitFee,
 			},
 			Db: wallet.Cfg.Database,

@@ -1334,3 +1334,56 @@ func TestRouterChansClosedOfflinePruneGraph(t *testing.T) {
 		t.Fatalf("channel was found in graph but shouldn't have been")
 	}
 }
+
+// TestFindPathFeeWeighting tests that the findPath method will properly prefer
+// routes with lower fees over routes with lower time lock values. This is
+// meant to exercise the fact that the internal findPath method ranks edges
+// with the square of the total fee in order bias towards lower fees.
+func TestFindPathFeeWeighting(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx, cleanUp, err := createTestCtx(startingBlockHeight, basicGraphFilePath)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	var preImage [32]byte
+	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
+
+	sourceNode, err := ctx.graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+	}
+
+	ignoreVertex := make(map[Vertex]struct{})
+	ignoreEdge := make(map[uint64]struct{})
+
+	amt := lnwire.MilliSatoshi(100)
+
+	target := ctx.aliases["luoji"]
+	if target == nil {
+		t.Fatalf("unable to find target node")
+	}
+
+	// We'll now attempt a path finding attempt using this set up. Due to
+	// the edge weighting, we should select the direct path over the 2 hop
+	// path even though the direct path has a higher potential time lock.
+	path, err := findPath(
+		nil, ctx.graph, sourceNode, target, ignoreVertex, ignoreEdge,
+		amt,
+	)
+	if err != nil {
+		t.Fatalf("unable to find path: %v", err)
+	}
+
+	// The route that was chosen should be exactly one hop, and should be
+	// directly to luoji.
+	if len(path) != 1 {
+		t.Fatalf("expected path length of 1, instead was: %v", len(path))
+	}
+	if path[0].Node.Alias != "luoji" {
+		t.Fatalf("wrong node: %v", path[0].Node.Alias)
+	}
+}

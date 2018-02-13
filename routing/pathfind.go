@@ -25,7 +25,7 @@ const (
 	HopLimit = 20
 
 	// infinity is used as a starting distance in our shortest path search.
-	infinity = math.MaxFloat64
+	infinity = math.MaxInt64
 )
 
 // ChannelHop is an intermediate hop within the network with a greater
@@ -74,7 +74,9 @@ type Hop struct {
 // computeFee computes the fee to forward an HTLC of `amt` milli-satoshis over
 // the passed active payment channel. This value is currently computed as
 // specified in BOLT07, but will likely change in the near future.
-func computeFee(amt lnwire.MilliSatoshi, edge *ChannelHop) lnwire.MilliSatoshi {
+func computeFee(amt lnwire.MilliSatoshi,
+	edge *channeldb.ChannelEdgePolicy) lnwire.MilliSatoshi {
+
 	return edge.FeeBaseMSat + (amt*edge.FeeProportionalMillionths)/1000000
 }
 
@@ -293,7 +295,7 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex Vertex,
 			// amount of satoshis incoming into this hop to
 			// properly pay the required fees.
 			prevAmount := prevHop.AmtToForward
-			fee = computeFee(prevAmount, prevEdge)
+			fee = computeFee(prevAmount, prevEdge.ChannelEdgePolicy)
 
 			// With the fee computed, we increment the total amount
 			// as we need to pay this fee. This value represents
@@ -398,12 +400,28 @@ type edgeWithPrev struct {
 
 // edgeWeight computes the weight of an edge. This value is used when searching
 // for the shortest path within the channel graph between two nodes. Currently
-// this is just 1 + the cltv delta value required at this hop, this value
-// should be tuned with experimental and empirical data.
+// a component is just 1 + the cltv delta value required at this hop, this
+// value should be tuned with experimental and empirical data. We'll also
+// factor in the "pure fee" through this hop, using the square of this fee as
+// part of the weighting. The goal here is to bias more heavily towards fee
+// ranking, and fallback to a time-lock based value in the case of a fee tie.
 //
 // TODO(roasbeef): compute robust weight metric
-func edgeWeight(e *channeldb.ChannelEdgePolicy) float64 {
-	return float64(1 + e.TimeLockDelta)
+func edgeWeight(amt lnwire.MilliSatoshi, e *channeldb.ChannelEdgePolicy) int64 {
+	// First, we'll compute the "pure" fee through this hop. We say pure,
+	// as this may not be what's ultimately paid as fees are properly
+	// calculated backwards, while we're going in the reverse direction.
+	pureFee := computeFee(amt, e)
+
+	// We'll then square the fee itself in order to more heavily weight our
+	// edge selection to bias towards lower fees.
+	feeWeight := int64(pureFee * pureFee)
+
+	// The final component is then 1 plus the timelock delta.
+	timeWeight := int64(1 + e.TimeLockDelta)
+
+	// The final weighting is: fee^2 + time_lock_delta.
+	return feeWeight + timeWeight
 }
 
 // findPath attempts to find a path from the source node within the
@@ -514,7 +532,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			// Compute the tentative distance to this new
 			// channel/edge which is the distance to our current
 			// pivot node plus the weight of this edge.
-			tempDist := distance[pivot].dist + edgeWeight(outEdge)
+			tempDist := distance[pivot].dist + edgeWeight(amt, outEdge)
 
 			// If this new tentative distance is better than the
 			// current best known distance to this node, then we

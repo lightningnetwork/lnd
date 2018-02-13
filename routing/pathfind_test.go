@@ -390,7 +390,9 @@ func TestBasicGraphPathFinding(t *testing.T) {
 
 	// Additionally, we'll ensure that the amount to forward, and fees
 	// computed for each hop are correct.
-	firstHopFee := computeFee(paymentAmt, route.Hops[1].Channel)
+	firstHopFee := computeFee(
+		paymentAmt, route.Hops[1].Channel.ChannelEdgePolicy,
+	)
 	if route.Hops[0].Fee != firstHopFee {
 		t.Fatalf("first hop fee incorrect: expected %v, got %v",
 			firstHopFee, route.Hops[0].Fee)
@@ -507,7 +509,9 @@ func TestKShortestPathFinding(t *testing.T) {
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := aliases["luoji"]
-	paths, err := findPaths(nil, graph, sourceNode, target, paymentAmt)
+	paths, err := findPaths(
+		nil, graph, sourceNode, target, paymentAmt, 100,
+	)
 	if err != nil {
 		t.Fatalf("unable to find paths between roasbeef and "+
 			"luo ji: %v", err)

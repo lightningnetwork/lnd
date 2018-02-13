@@ -85,7 +85,7 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 
 	// With the connection established, we'll now establish our connection
 	// to the target peer, waiting for the first update before we exit.
-	feePerWeight, err := c.server.cc.feeEstimator.EstimateFeePerWeight(3)
+	feePerVSize, err := c.server.cc.feeEstimator.EstimateFeePerVSize(3)
 	if err != nil {
 		return err
 	}
@@ -94,7 +94,7 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 	minHtlc := lnwire.NewMSatFromSatoshis(1)
 
 	updateStream, errChan := c.server.OpenChannel(target, amt, 0,
-		minHtlc, feePerWeight, false)
+		minHtlc, feePerVSize, false)
 
 	select {
 	case err := <-errChan:

@@ -2608,7 +2608,9 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 	// Query the channel router for a possible path to the destination that
 	// can carry `in.Amt` satoshis _including_ the total fee required on
 	// the route.
-	routes, err := r.server.chanRouter.FindRoutes(pubKey, amtMSat)
+	routes, err := r.server.chanRouter.FindRoutes(
+		pubKey, amtMSat, uint32(in.NumRoutes),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2616,10 +2618,12 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 	// For each valid route, we'll convert the result into the format
 	// required by the RPC system.
 	routeResp := &lnrpc.QueryRoutesResponse{
-		Routes: make([]*lnrpc.Route, len(routes)),
+		Routes: make([]*lnrpc.Route, 0, in.NumRoutes),
 	}
-	for i, route := range routes {
-		routeResp.Routes[i] = marshallRoute(route)
+	for i := int32(0); i < in.NumRoutes; i++ {
+		routeResp.Routes = append(
+			routeResp.Routes, marshallRoute(routes[i]),
+		)
 	}
 
 	return routeResp, nil

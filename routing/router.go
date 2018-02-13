@@ -1255,9 +1255,10 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	routes, ok := r.routeCache[rt]
 	r.routeCacheMtx.RUnlock()
 
-	// If we already have a cached route, then we'll return it directly as
-	// there's no need to repeat the computation.
-	if ok {
+	// If we already have a cached route, and it contains at least the
+	// number of paths requested, then we'll return it directly as there's
+	// no need to repeat the computation.
+	if ok && uint32(len(routes)) >= numPaths {
 		return routes, nil
 	}
 

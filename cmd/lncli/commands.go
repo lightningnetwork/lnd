@@ -47,6 +47,9 @@ var (
 	ErrMissingPeerSpecifiers = fmt.Errorf("node id argument missing")
 	// ErrMissingLocalAmount occurs if the local_amt argument is omitted.
 	ErrMissingLocalAmount = fmt.Errorf("local amt argument missing")
+
+	// ErrMissingFundingTxid occurs if the funding_txid argument is omitted.
+	ErrMissingFundingTxid = fmt.Errorf("funding txid argument missing")
 )
 
 func printJSON(resp interface{}) {
@@ -690,13 +693,13 @@ var closeChannelCommand = cli.Command{
 				"the transaction",
 		},
 	},
-	Action: actionDecorator(closeChannel),
+	Action: actionDecoratorWithClient(closeChannel),
 }
 
-func closeChannel(ctx *cli.Context) error {
+func closeChannel(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
+
 	ctxb := context.Background()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
 
 	args := ctx.Args()
 	var (
@@ -725,7 +728,7 @@ func closeChannel(ctx *cli.Context) error {
 		txid = args.First()
 		args = args.Tail()
 	default:
-		return fmt.Errorf("funding txid argument missing")
+		return ErrMissingFundingTxid
 	}
 
 	req.ChannelPoint.FundingTxid = &lnrpc.ChannelPoint_FundingTxidStr{
@@ -766,7 +769,7 @@ func closeChannel(ctx *cli.Context) error {
 				return err
 			}
 
-			printJSON(struct {
+			printJSONToWriter(writer, struct {
 				ClosingTXID string `json:"closing_txid"`
 			}{
 				ClosingTXID: txid.String(),
@@ -783,7 +786,7 @@ func closeChannel(ctx *cli.Context) error {
 				return err
 			}
 
-			printJSON(struct {
+			printJSONToWriter(writer, struct {
 				ClosingTXID string `json:"closing_txid"`
 			}{
 				ClosingTXID: txid.String(),

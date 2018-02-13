@@ -7,13 +7,11 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/testing"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/stretchr/testify/assert"
-	"github.com/urfave/cli"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 )
@@ -123,14 +121,14 @@ func TestOpenChannel_OverrideDefaults(t *testing.T) {
 // repeating sequence of valid OpenStatusUpdates.
 func TestOpenChannel_NoTerminationIfUnrecognizedUpdate(t *testing.T) {
 	client := lnrpctesting.NewStubLightningClient()
-	_, err := testOpenChannel(t, &client, []string{PubKey, LocalAmount, PushAmount})
+	_, err := testOpenChannel(&client, []string{PubKey, LocalAmount, PushAmount})
 	assert.Equal(t, ErrTimeout, err)
 }
 
 // Help text should be printed if no arguments are passed.
 func TestOpenChannel_Help(t *testing.T) {
 	client := lnrpctesting.NewStubLightningClient()
-	resp, _ := testOpenChannel(t, &client, []string{})
+	resp, _ := testOpenChannel(&client, []string{})
 	// Checking the whole usage text would result in too much test churn
 	// so just verify that a portion of it is present.
 	assert.True(t,
@@ -142,7 +140,7 @@ func TestOpenChannel_Help(t *testing.T) {
 // Peer ID and pubkey can't both be specified.
 func TestOpenChannel_PeerIdAndPubKey(t *testing.T) {
 	client := lnrpctesting.NewStubLightningClient()
-	_, err := testOpenChannel(t, &client,
+	_, err := testOpenChannel(&client,
 		[]string{"--peer_id", PeerId, "--node_key", PubKey})
 	assert.Equal(t, ErrDuplicatePeerSpecifiers, err)
 }
@@ -150,7 +148,7 @@ func TestOpenChannel_PeerIdAndPubKey(t *testing.T) {
 // Reject invalid pubkeys.
 func TestOpenChannel_BadPubKeyFromFlag(t *testing.T) {
 	client := lnrpctesting.NewStubLightningClient()
-	_, err := testOpenChannel(t, &client, []string{"--node_key", "BadPubKey"})
+	_, err := testOpenChannel(&client, []string{"--node_key", "BadPubKey"})
 	assert.Error(t, err)
 	assert.True(t, strings.Contains(err.Error(), "unable to decode node public key"))
 }
@@ -158,7 +156,7 @@ func TestOpenChannel_BadPubKeyFromFlag(t *testing.T) {
 // Reject invalid pubkeys.
 func TestOpenChannel_BadPubKeyFromArg(t *testing.T) {
 	client := lnrpctesting.NewStubLightningClient()
-	_, err := testOpenChannel(t, &client, []string{"BadPubKey"})
+	_, err := testOpenChannel(&client, []string{"BadPubKey"})
 	assert.Error(t, err)
 	assert.True(t, strings.Contains(err.Error(), "unable to decode node public key"))
 }
@@ -166,14 +164,14 @@ func TestOpenChannel_BadPubKeyFromArg(t *testing.T) {
 // Either pubkey or peer ID must be specified.
 func TestOpenChannel_NoNodeId(t *testing.T) {
 	client := lnrpctesting.NewStubLightningClient()
-	_, err := testOpenChannel(t, &client, []string{"--local_amt", LocalAmount})
+	_, err := testOpenChannel(&client, []string{"--local_amt", LocalAmount})
 	assert.Equal(t, ErrMissingPeerSpecifiers, err)
 }
 
 // Reject bad local amounts.
 func TestOpenChannel_BadLocalAmtFromArg(t *testing.T) {
 	client := lnrpctesting.NewStubLightningClient()
-	_, err := testOpenChannel(t, &client,
+	_, err := testOpenChannel(&client,
 		[]string{PubKey, "InvalidLocalAmount", PushAmount})
 	assert.Error(t, err)
 	assert.True(t, strings.Contains(err.Error(), "unable to decode local amt"))
@@ -183,7 +181,7 @@ func TestOpenChannel_BadLocalAmtFromArg(t *testing.T) {
 // Bug: This is supposed to fail.
 func TestOpenChannel_BadLocalAmtFromFlag(t *testing.T) {
 	client := lnrpctesting.NewStubLightningClient()
-	resp, err := testOpenChannel(t, &client,
+	resp, err := testOpenChannel(&client,
 		[]string{"--local_amt", "InvalidLocalAmount", PubKey, PushAmount})
 	//TODO: Remove this the following line and uncomment the ones after upon bug fix.
 	assert.NoError(t, err)
@@ -197,14 +195,14 @@ func TestOpenChannel_BadLocalAmtFromFlag(t *testing.T) {
 // Local amount must be specified.
 func TestOpenChannel_NoLocalAmt(t *testing.T) {
 	client := lnrpctesting.NewStubLightningClient()
-	_, err := testOpenChannel(t, &client, []string{PubKey, "--push_amt", PushAmount})
+	_, err := testOpenChannel(&client, []string{PubKey, "--push_amt", PushAmount})
 	assert.Equal(t, ErrMissingLocalAmount, err)
 }
 
 // Reject bad push amounts.
 func TestOpenChannel_BadPushAmtFromArg(t *testing.T) {
 	client := lnrpctesting.NewStubLightningClient()
-	_, err := testOpenChannel(t, &client,
+	_, err := testOpenChannel(&client,
 		[]string{PubKey, LocalAmount, "InvalidPushAmount"})
 	assert.Error(t, err)
 	assert.True(t, strings.Contains(err.Error(), "unable to decode push amt"))
@@ -214,7 +212,7 @@ func TestOpenChannel_BadPushAmtFromArg(t *testing.T) {
 // Bug: This is supposed to fail.
 func TestOpenChannel_BadPushAmtFromFlag(t *testing.T) {
 	client := lnrpctesting.NewStubLightningClient()
-	resp, err := testOpenChannel(t, &client,
+	resp, err := testOpenChannel(&client,
 		[]string{"--push_amt", "InvalidPushAmount", PubKey, LocalAmount})
 	//TODO: Remove this the following line and uncomment the ones after upon bug fix.
 	assert.NoError(t, err)
@@ -228,7 +226,7 @@ func TestOpenChannel_BadPushAmtFromFlag(t *testing.T) {
 // Most errors that occur during opening a channel should be propagated up unmodified.
 func TestOpenChannel_Failed(t *testing.T) {
 	client := lnrpctesting.NewFailingStubLightningClient(io.ErrClosedPipe)
-	_, err := testOpenChannel(t, &client, []string{PubKey, LocalAmount, PushAmount})
+	_, err := testOpenChannel(&client, []string{PubKey, LocalAmount, PushAmount})
 	assert.Error(t, err)
 	assert.Equal(t, io.ErrClosedPipe, err, "Incorrect error returned.")
 }
@@ -237,7 +235,7 @@ func TestOpenChannel_Failed(t *testing.T) {
 // but should be given a friendlier form.
 func TestOpenChannel_FailedWithEOF(t *testing.T) {
 	client := lnrpctesting.NewFailingStubLightningClient(io.EOF)
-	_, err := testOpenChannel(t, &client, []string{PubKey, LocalAmount, PushAmount})
+	_, err := testOpenChannel(&client, []string{PubKey, LocalAmount, PushAmount})
 	assert.Error(t, err)
 	assert.Equal(t, io.EOF, err, "Incorrect error returned.")
 }
@@ -247,7 +245,7 @@ func TestOpenChannel_FailedWithEOF(t *testing.T) {
 // initial connection, but they currently are represented identically.
 func TestOpenChannel_RecvFailed(t *testing.T) {
 	client := NewStubClient([]lnrpc.OpenStatusUpdate{}, io.ErrClosedPipe)
-	_, err := testOpenChannel(t, &client, []string{PubKey, LocalAmount, PushAmount})
+	_, err := testOpenChannel(&client, []string{PubKey, LocalAmount, PushAmount})
 	assert.Error(t, err)
 	assert.Equal(t, io.ErrClosedPipe, err, "Incorrect error returned.")
 }
@@ -256,7 +254,7 @@ func TestOpenChannel_RecvFailed(t *testing.T) {
 // successful OpenChannel call.
 func TestOpenChannel_RecvEOF(t *testing.T) {
 	client := NewStubClient([]lnrpc.OpenStatusUpdate{}, io.EOF)
-	resp, err := testOpenChannel(t, &client, []string{PubKey, LocalAmount, PushAmount})
+	resp, err := testOpenChannel(&client, []string{PubKey, LocalAmount, PushAmount})
 	assert.NoError(t, err)
 	assert.Equal(t, "", resp, "Incorrect response from openChannel.")
 }
@@ -265,7 +263,7 @@ func TestOpenChannel_RecvEOF(t *testing.T) {
 func TestOpenChannel_NonBlockingChanPending(t *testing.T) {
 	client := NewStubClient(
 		[]lnrpc.OpenStatusUpdate{chanPendingUpdate()}, io.EOF)
-	resp, err := testOpenChannel(t, &client, []string{PubKey, LocalAmount, PushAmount})
+	resp, err := testOpenChannel(&client, []string{PubKey, LocalAmount, PushAmount})
 	assert.NoError(t, err)
 	assert.Equal(t,
 		"{\n\t\"funding_txid\": \"0000000000000000000000000000000089000000000000000000000000000000\"\n}\n",
@@ -310,7 +308,7 @@ func TestOpenChannel_ChanPendingBadTxHash(t *testing.T) {
 	client := NewStubClient(
 		[]lnrpc.OpenStatusUpdate{chanPendingUpdateWithTxid(bytes)},
 		io.EOF)
-	_, err := testOpenChannel(t, &client, []string{PubKey, LocalAmount, PushAmount})
+	_, err := testOpenChannel(&client, []string{PubKey, LocalAmount, PushAmount})
 	assert.Error(t, err)
 	assert.Equal(t,
 		"invalid hash length of 31, want 32", err.Error(), "Incorrect error returned.")
@@ -319,7 +317,7 @@ func TestOpenChannel_ChanPendingBadTxHash(t *testing.T) {
 // A bad tx hash should result in an error being propagated up.
 func TestOpenChannel_ChanOpenBadTxHash(t *testing.T) {
 	client := NewStubClient([]lnrpc.OpenStatusUpdate{chanOpenUpdateBadBytes()}, io.EOF)
-	_, err := testOpenChannel(t, &client, []string{PubKey, LocalAmount, PushAmount})
+	_, err := testOpenChannel(&client, []string{PubKey, LocalAmount, PushAmount})
 	assert.Error(t, err)
 	assert.Equal(t,
 		"invalid hash length of 31, want 32", err.Error(), "Incorrect error returned.")
@@ -335,7 +333,7 @@ func TestOpenChannel_ChanOpenBadFundingTxidString(t *testing.T) {
 	})
 
 	client := NewStubClient([]lnrpc.OpenStatusUpdate{update}, io.EOF)
-	_, err := testOpenChannel(t, &client, []string{PubKey, LocalAmount, PushAmount})
+	_, err := testOpenChannel(&client, []string{PubKey, LocalAmount, PushAmount})
 	assert.Error(t, err)
 	assert.Equal(t,
 		"encoding/hex: invalid byte: U+0075 'u'", err.Error(), "Incorrect error returned.")
@@ -380,55 +378,13 @@ func TestOpenChannel_MultipleAlternatingChanPendingAndChanOpen(t *testing.T) {
 			"{\n\t\"channel_point\": \"0000000000000000000000000000000012000000000000000000000000000000:5\"\n}\n")
 }
 
-var OpenChannelTimeout = 50 * time.Millisecond
-var ErrTimeout = fmt.Errorf("Timed out waiting for the command to complete.")
-
 // Calls openChannel with the specified LightningClient and args.
 // Replaces stdout as the writer so that the output can be unit tested (without IO).
 // Applies a timeout to the openChannel call since openChannel can loop infinitely,
 // and unit tests should terminate, even if non-termination would indicate a bug.
-func testOpenChannel(
-	t *testing.T, client lnrpc.LightningClient, args []string) (string, error) {
-
-	app := cli.NewApp()
-	command := openChannelCommand
-	writer := StringWriter{}
-	// Redirect the command output from stdout to a writer we can test.
-	app.Writer = &writer
-
-	// The actual openChannelCommand causes real network events and
-	// prints to the console. For testing purposes we need to override
-	// this functionality to stub out the network events and write to
-	// a Writer that we can validate.
-	var err error
-	command.Action = func(context *cli.Context) {
-		err = openChannel(context, client, &writer)
-	}
-
-	app.Commands = []cli.Command{command}
-	args = append([]string{"lncli", "openchannel"}, args...)
-	// A channel is needed to tell when openChannel has ended.
-	// openChannel can infinitely loop, so it needs to be run on a
-	// separate thread with a timeout.
-	channel := make(chan string, 1)
-	go func() {
-		app.Run(args)
-		channel <- "goroutine terminated"
-	}()
-
-	select {
-	case <-channel:
-		// openChannel completed within the timeout
-		if err != nil {
-			return "", err
-		}
-
-		return writer.Join(), nil
-	case <-time.After(OpenChannelTimeout):
-		// openChannel was blocking (probably) indefinitely,
-		// which it is currently intended only if no EOF nor error occurred.
-		return "", ErrTimeout
-	}
+func testOpenChannel(client lnrpc.LightningClient, args []string) (string, error) {
+	return TestCommandWithTimeout(
+		client, openChannelCommand, openChannel, "openchannel", args)
 }
 
 // Test openChannel validating that no error occurs and that the output
@@ -441,7 +397,7 @@ func testErrorlessOpenChannel(
 	expectedResult string) {
 
 	client := NewStubClient(updates, io.EOF)
-	resp, err := testOpenChannel(t, &client, args)
+	resp, err := testOpenChannel(&client, args)
 	assert.NoError(t, err)
 	errorMessage := fmt.Sprintf(
 		"Values passed to openChannel were incorrect. Expected\n%+v\n but found\n%+v\n",

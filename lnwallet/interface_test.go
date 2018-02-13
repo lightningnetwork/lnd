@@ -283,13 +283,13 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 
 	// Alice initiates a channel funded with 5 BTC for each side, so 10 BTC
 	// total. She also generates 2 BTC in change.
-	feePerWeight, err := alice.Cfg.FeeEstimator.EstimateFeePerWeight(1)
+	feeRate, err := alice.Cfg.FeeEstimator.EstimateFeePerVSize(1)
 	if err != nil {
 		t.Fatalf("unable to query fee estimator: %v", err)
 	}
-	feePerKw := feePerWeight * 1000
+	feePerKw := feeRate.FeePerKWeight()
 	aliceChanReservation, err := alice.InitChannelReservation(
-		fundingAmount*2, fundingAmount, 0, feePerKw, feePerKw,
+		fundingAmount*2, fundingAmount, 0, feePerKw, feeRate,
 		bobPub, bobAddr, chainHash, lnwire.FFAnnounceChannel)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation: %v", err)
@@ -313,7 +313,7 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	// receives' Alice's contribution, and consumes that so we can continue
 	// the funding process.
 	bobChanReservation, err := bob.InitChannelReservation(fundingAmount*2,
-		fundingAmount, 0, feePerKw, feePerKw, alicePub, aliceAddr,
+		fundingAmount, 0, feePerKw, feeRate, alicePub, aliceAddr,
 		chainHash, lnwire.FFAnnounceChannel)
 	if err != nil {
 		t.Fatalf("bob unable to init channel reservation: %v", err)
@@ -449,13 +449,13 @@ func testFundingTransactionLockedOutputs(miner *rpctest.Harness,
 
 	// Create a single channel asking for 16 BTC total.
 	fundingAmount := btcutil.Amount(8 * 1e8)
-	feePerWeight, err := alice.Cfg.FeeEstimator.EstimateFeePerWeight(1)
+	feeRate, err := alice.Cfg.FeeEstimator.EstimateFeePerVSize(1)
 	if err != nil {
 		t.Fatalf("unable to query fee estimator: %v", err)
 	}
-	feePerKw := feePerWeight * 1000
+	feePerKw := feeRate.FeePerKWeight()
 	_, err = alice.InitChannelReservation(fundingAmount,
-		fundingAmount, 0, feePerKw, feePerKw, bobPub, bobAddr, chainHash,
+		fundingAmount, 0, feePerKw, feeRate, bobPub, bobAddr, chainHash,
 		lnwire.FFAnnounceChannel,
 	)
 	if err != nil {
@@ -467,7 +467,8 @@ func testFundingTransactionLockedOutputs(miner *rpctest.Harness,
 	// that aren't locked, so this should fail.
 	amt := btcutil.Amount(900 * 1e8)
 	failedReservation, err := alice.InitChannelReservation(amt, amt, 0,
-		feePerKw, feePerKw, bobPub, bobAddr, chainHash, lnwire.FFAnnounceChannel)
+		feePerKw, feeRate, bobPub, bobAddr, chainHash,
+		lnwire.FFAnnounceChannel)
 	if err == nil {
 		t.Fatalf("not error returned, should fail on coin selection")
 	}
@@ -482,16 +483,16 @@ func testFundingTransactionLockedOutputs(miner *rpctest.Harness,
 func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness,
 	alice, _ *lnwallet.LightningWallet, t *testing.T) {
 
-	feePerWeight, err := alice.Cfg.FeeEstimator.EstimateFeePerWeight(1)
+	feeRate, err := alice.Cfg.FeeEstimator.EstimateFeePerVSize(1)
 	if err != nil {
 		t.Fatalf("unable to query fee estimator: %v", err)
 	}
-	feePerKw := feePerWeight * 1000
+	feePerKw := feeRate.FeePerKWeight()
 
 	// Create a reservation for 44 BTC.
 	fundingAmount := btcutil.Amount(44 * 1e8)
 	chanReservation, err := alice.InitChannelReservation(fundingAmount,
-		fundingAmount, 0, feePerKw, feePerKw, bobPub, bobAddr, chainHash,
+		fundingAmount, 0, feePerKw, feeRate, bobPub, bobAddr, chainHash,
 		lnwire.FFAnnounceChannel)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation: %v", err)
@@ -499,7 +500,7 @@ func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness,
 
 	// Attempt to create another channel with 44 BTC, this should fail.
 	_, err = alice.InitChannelReservation(fundingAmount,
-		fundingAmount, 0, feePerKw, feePerKw, bobPub, bobAddr, chainHash,
+		fundingAmount, 0, feePerKw, feeRate, bobPub, bobAddr, chainHash,
 		lnwire.FFAnnounceChannel,
 	)
 	if _, ok := err.(*lnwallet.ErrInsufficientFunds); !ok {
@@ -530,8 +531,9 @@ func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness,
 	// attempting coin selection.
 
 	// Request to fund a new channel should now succeed.
-	_, err = alice.InitChannelReservation(fundingAmount, fundingAmount, 0,
-		feePerKw, feePerKw, bobPub, bobAddr, chainHash, lnwire.FFAnnounceChannel)
+	_, err = alice.InitChannelReservation(fundingAmount, fundingAmount,
+		0, feePerKw, feeRate, bobPub, bobAddr, chainHash,
+		lnwire.FFAnnounceChannel)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation: %v", err)
 	}
@@ -540,14 +542,15 @@ func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness,
 func testCancelNonExistentReservation(miner *rpctest.Harness,
 	alice, _ *lnwallet.LightningWallet, t *testing.T) {
 
-	feeRate, err := alice.Cfg.FeeEstimator.EstimateFeePerWeight(1)
+	feeRate, err := alice.Cfg.FeeEstimator.EstimateFeePerVSize(1)
 	if err != nil {
 		t.Fatalf("unable to query fee estimator: %v", err)
 	}
 
 	// Create our own reservation, give it some ID.
 	res, err := lnwallet.NewChannelReservation(
-		10000, 10000, feeRate, alice, 22, 10, &testHdSeed, lnwire.FFAnnounceChannel,
+		10000, 10000, feeRate.FeePerKWeight(), alice,
+		22, 10, &testHdSeed, lnwire.FFAnnounceChannel,
 	)
 	if err != nil {
 		t.Fatalf("unable to create res: %v", err)
@@ -567,9 +570,10 @@ func testReservationInitiatorBalanceBelowDustCancel(miner *rpctest.Harness,
 	// rate. This should push our balance into the negative and result in a
 	// failure to create the reservation.
 	fundingAmount := btcutil.Amount(4 * 1e8)
-	feePerKw := btcutil.Amount(btcutil.SatoshiPerBitcoin * 10)
+	feePerVSize := lnwallet.SatPerVByte(btcutil.SatoshiPerBitcoin * 4 / 100)
+	feePerKw := feePerVSize.FeePerKWeight()
 	_, err := alice.InitChannelReservation(
-		fundingAmount, fundingAmount, 0, feePerKw, feePerKw, bobPub,
+		fundingAmount, fundingAmount, 0, feePerKw, feePerVSize, bobPub,
 		bobAddr, chainHash, lnwire.FFAnnounceChannel,
 	)
 	switch {
@@ -636,13 +640,13 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	// towards Bob's side.
 	fundingAmt := btcutil.Amount(4 * 1e8)
 	pushAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
-	feePerWeight, err := alice.Cfg.FeeEstimator.EstimateFeePerWeight(1)
+	feeRate, err := alice.Cfg.FeeEstimator.EstimateFeePerVSize(1)
 	if err != nil {
 		t.Fatalf("unable to query fee estimator: %v", err)
 	}
-	feePerKw := feePerWeight * 1000
+	feePerKw := feeRate.FeePerKWeight()
 	aliceChanReservation, err := alice.InitChannelReservation(fundingAmt,
-		fundingAmt, pushAmt, feePerKw, feePerKw, bobPub, bobAddr, chainHash,
+		fundingAmt, pushAmt, feePerKw, feeRate, bobPub, bobAddr, chainHash,
 		lnwire.FFAnnounceChannel)
 	if err != nil {
 		t.Fatalf("unable to init channel reservation: %v", err)
@@ -666,7 +670,7 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	// Next, Bob receives the initial request, generates a corresponding
 	// reservation initiation, then consume Alice's contribution.
 	bobChanReservation, err := bob.InitChannelReservation(fundingAmt, 0,
-		pushAmt, feePerKw, feePerKw, alicePub, aliceAddr, chainHash,
+		pushAmt, feePerKw, feeRate, alicePub, aliceAddr, chainHash,
 		lnwire.FFAnnounceChannel)
 	if err != nil {
 		t.Fatalf("unable to create bob reservation: %v", err)

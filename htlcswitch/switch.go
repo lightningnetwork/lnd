@@ -81,7 +81,7 @@ type ChanClose struct {
 	// This value is only utilized if the closure type is CloseRegular.
 	// This will be the starting offered fee when the fee negotiation
 	// process for the cooperative closure transaction kicks off.
-	TargetFeePerKw btcutil.Amount
+	TargetFeePerKw lnwallet.SatPerKWeight
 
 	// Updates is used by request creator to receive the notifications about
 	// execution of the close channel request.
@@ -741,9 +741,9 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 // directing the specified closure type. If the closure type if CloseRegular,
 // then the last parameter should be the ideal fee-per-kw that will be used as
 // a starting point for close negotiation.
-func (s *Switch) CloseLink(chanPoint *wire.OutPoint,
-	closeType ChannelCloseType,
-	targetFeePerKw btcutil.Amount) (chan *lnrpc.CloseStatusUpdate, chan error) {
+func (s *Switch) CloseLink(chanPoint *wire.OutPoint, closeType ChannelCloseType,
+	targetFeePerKw lnwallet.SatPerKWeight) (chan *lnrpc.CloseStatusUpdate,
+	chan error) {
 
 	// TODO(roasbeef) abstract out the close updates.
 	updateChan := make(chan *lnrpc.CloseStatusUpdate, 2)

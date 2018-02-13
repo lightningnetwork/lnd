@@ -1157,7 +1157,6 @@ func pruneNodeFromRoutes(routes []*Route, skipNode Vertex) []*Route {
 // pruneChannelFromRoutes accepts a set of routes, and returns a new set of
 // routes with the target channel filtered out.
 func pruneChannelFromRoutes(routes []*Route, skipChan uint64) []*Route {
-
 	prunedRoutes := make([]*Route, 0, len(routes))
 	for _, route := range routes {
 		if route.containsChannel(skipChan) {
@@ -1173,17 +1172,70 @@ func pruneChannelFromRoutes(routes []*Route, skipChan uint64) []*Route {
 	return prunedRoutes
 }
 
-// FindRoutes attempts to query the ChannelRouter for the all available paths
-// to a particular target destination which is able to send `amt` after
-// factoring in channel capacities and cumulative fees along each route route.
-// To find all eligible paths, we use a modified version of Yen's algorithm
-// which itself uses a modified version of Dijkstra's algorithm within its
-// inner loop.  Once we have a set of candidate routes, we calculate the
-// required fee and time lock values running backwards along the route. The
+// pathsToFeeSortedRoutes takes a set of paths, and returns a corresponding set
+// of of routes. A route differs from a path in that it has full time-lock and
+// fee information attached. The set of routes return ed may be less than the
+// initial set of paths as it's possible we drop a route if it can't handle the
+// total payment flow after fees are calculated.
+func pathsToFeeSortedRoutes(source Vertex, paths [][]*ChannelHop, finalCLTVDelta uint16,
+	amt lnwire.MilliSatoshi, currentHeight uint32) ([]*Route, error) {
+
+	validRoutes := make([]*Route, 0, len(paths))
+	for _, path := range paths {
+		// Attempt to make the path into a route. We snip off the first
+		// hop in the path as it contains a "self-hop" that is inserted
+		// by our KSP algorithm.
+		route, err := newRoute(
+			amt, source, path[1:], currentHeight, finalCLTVDelta,
+		)
+		if err != nil {
+			// TODO(roasbeef): report straw breaking edge?
+			continue
+		}
+
+		// If the path as enough total flow to support the computed
+		// route, then we'll add it to our set of valid routes.
+		validRoutes = append(validRoutes, route)
+	}
+
+	// If all our perspective routes were eliminating during the transition
+	// from path to route, then we'll return an error to the caller
+	if len(validRoutes) == 0 {
+		return nil, newErr(ErrNoPathFound, "unable to find a path to "+
+			"destination")
+	}
+
+	// Finally, we'll sort the set of validate routes to optimize for
+	// lowest total fees, using the required time-lock within the route as
+	// a tie-breaker.
+	sort.Slice(validRoutes, func(i, j int) bool {
+		// To make this decision we first check if the total fees
+		// required for both routes are equal. If so, then we'll let
+		// the total time lock be the tie breaker. Otherwise, we'll put
+		// the route with the lowest total fees first.
+		if validRoutes[i].TotalFees == validRoutes[j].TotalFees {
+			timeLockI := validRoutes[i].TotalTimeLock
+			timeLockJ := validRoutes[j].TotalTimeLock
+			return timeLockI < timeLockJ
+		}
+
+		return validRoutes[i].TotalFees < validRoutes[j].TotalFees
+	})
+
+	return validRoutes, nil
+}
+
+// FindRoutes attempts to query the ChannelRouter for a bounded number
+// available paths to a particular target destination which is able to send
+// `amt` after factoring in channel capacities and cumulative fees along each
+// route route.  To `numPaths eligible paths, we use a modified version of
+// Yen's algorithm which itself uses a modified version of Dijkstra's algorithm
+// within its inner loop.  Once we have a set of candidate routes, we calculate
+// the required fee and time lock values running backwards along the route. The
 // route that will be ranked the highest is the one with the lowest cumulative
 // fee along the route.
 func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
-	amt lnwire.MilliSatoshi, finalExpiry ...uint16) ([]*Route, error) {
+	amt lnwire.MilliSatoshi, numPaths uint32, finalExpiry ...uint16) ([]*Route, error) {
 
 	var finalCLTVDelta uint16
 	if len(finalExpiry) == 0 {
@@ -1191,8 +1243,6 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	} else {
 		finalCLTVDelta = finalExpiry[0]
 	}
-
-	// TODO(roasbeef): make num routes a param
 
 	dest := target.SerializeCompressed()
 	log.Debugf("Searching for path to %x, sending %v", dest, amt)
@@ -1242,8 +1292,9 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	// Now that we know the destination is reachable within the graph,
 	// we'll execute our KSP algorithm to find the k-shortest paths from
 	// our source to the destination.
-	shortestPaths, err := findPaths(tx, r.cfg.Graph, r.selfNode, target,
-		amt)
+	shortestPaths, err := findPaths(
+		tx, r.cfg.Graph, r.selfNode, target, amt, numPaths,
+	)
 	if err != nil {
 		tx.Rollback()
 		return nil, err
@@ -1256,46 +1307,14 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	// each path. During this process, some paths may be discarded if they
 	// aren't able to support the total satoshis flow once fees have been
 	// factored in.
-	validRoutes := make([]*Route, 0, len(shortestPaths))
 	sourceVertex := Vertex(r.selfNode.PubKeyBytes)
-	for _, path := range shortestPaths {
-		// Attempt to make the path into a route. We snip off the first
-		// hop in the path as it contains a "self-hop" that is inserted
-		// by our KSP algorithm.
-		route, err := newRoute(amt, sourceVertex, path[1:],
-			uint32(currentHeight), finalCLTVDelta)
-		if err != nil {
-			continue
-		}
-
-		// If the path as enough total flow to support the computed
-		// route, then we'll add it to our set of valid routes.
-		validRoutes = append(validRoutes, route)
+	validRoutes, err := pathsToFeeSortedRoutes(
+		sourceVertex, shortestPaths, finalCLTVDelta, amt,
+		uint32(currentHeight),
+	)
+	if err != nil {
+		return nil, err
 	}
-
-	// If all our perspective routes were eliminating during the transition
-	// from path to route, then we'll return an error to the caller
-	if len(validRoutes) == 0 {
-		return nil, newErr(ErrNoPathFound, "unable to find a path to "+
-			"destination")
-	}
-
-	// Finally, we'll sort the set of validate routes to optimize for
-	// lowest total fees, using the required time-lock within the
-	// route as a tie-breaker.
-	sort.Slice(validRoutes, func(i, j int) bool {
-		// To make this decision we first check if the total fees
-		// required for both routes are equal. If so, then we'll let
-		// the total time lock be the tie breaker. Otherwise, we'll
-		// put the route with the lowest total fees first.
-		if validRoutes[i].TotalFees == validRoutes[j].TotalFees {
-			timeLockI := validRoutes[i].TotalTimeLock
-			timeLockJ := validRoutes[j].TotalTimeLock
-			return timeLockI < timeLockJ
-		}
-
-		return validRoutes[i].TotalFees < validRoutes[j].TotalFees
-	})
 
 	go log.Tracef("Obtained %v paths sending %v to %x: %v", len(validRoutes),
 		amt, dest, newLogClosure(func() string {
@@ -1303,8 +1322,8 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 		}),
 	)
 
-	// Populate the cache with this set of fresh routes so we can
-	// reuse them in the future.
+	// Populate the cache with this set of fresh routes so we can reuse
+	// them in the future.
 	r.routeCacheMtx.Lock()
 	r.routeCache[rt] = validRoutes
 	r.routeCacheMtx.Unlock()

@@ -612,9 +612,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 // algorithm in a block box manner.
 func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	source *channeldb.LightningNode, target *btcec.PublicKey,
-	amt lnwire.MilliSatoshi) ([][]*ChannelHop, error) {
-
-	// TODO(roasbeef): take in db tx
+	amt lnwire.MilliSatoshi, numPaths uint32) ([][]*ChannelHop, error) {
 
 	ignoredEdges := make(map[uint64]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
@@ -629,8 +627,9 @@ func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	// First we'll find a single shortest path from the source (our
 	// selfNode) to the target destination that's capable of carrying amt
 	// satoshis along the path before fees are calculated.
-	startingPath, err := findPath(tx, graph, source, target,
-		ignoredVertexes, ignoredEdges, amt)
+	startingPath, err := findPath(
+		tx, graph, source, target, ignoredVertexes, ignoredEdges, amt,
+	)
 	if err != nil {
 		log.Errorf("Unable to find path: %v", err)
 		return nil, err
@@ -651,7 +650,7 @@ func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 
 	// While we still have candidate paths to explore we'll keep exploring
 	// the sub-graphs created to find the next k-th shortest path.
-	for k := 1; k < 100; k++ {
+	for k := uint32(1); k < numPaths; k++ {
 		prevShortest := shortestPaths[k-1]
 
 		// We'll examine each edge in the previous iteration's shortest
@@ -673,7 +672,8 @@ func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 
 			// Before we kickoff our next path finding iteration,
 			// we'll find all the edges we need to ignore in this
-			// next round.
+			// next round. This ensures that we create a new unique
+			// path.
 			for _, path := range shortestPaths {
 				// If our current rootPath is a prefix of this
 				// shortest path, then we'll remove the edge
@@ -685,7 +685,8 @@ func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			}
 
 			// Next we'll remove all entries in the root path that
-			// aren't the current spur node from the graph.
+			// aren't the current spur node from the graph. This
+			// ensures we don't create a path with loops.
 			for _, hop := range rootPath {
 				node := hop.Node.PubKeyBytes
 				if node == spurNode.PubKeyBytes {
@@ -699,8 +700,10 @@ func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			// the Vertexes (other than the spur path) within the
 			// root path removed, we'll attempt to find another
 			// shortest path from the spur node to the destination.
-			spurPath, err := findPath(tx, graph, spurNode, target,
-				ignoredVertexes, ignoredEdges, amt)
+			spurPath, err := findPath(
+				tx, graph, spurNode, target, ignoredVertexes,
+				ignoredEdges, amt,
+			)
 
 			// If we weren't able to find a path, we'll continue to
 			// the next round.

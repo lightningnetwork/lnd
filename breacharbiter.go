@@ -418,6 +418,11 @@ out:
 func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 	spendDetails *chainntnfs.SpendDetail) {
 
+	// First, we reset the witness function in case BuildWitness has already
+	// been executed on this output, otherwise we will continue to generate
+	// the old witness.
+	bo.witnessFunc = nil
+
 	// In this case, we'll modify the witness type of this output to
 	// actually prepare for a second level revoke.
 	bo.witnessType = lnwallet.HtlcSecondLevelRevoke

@@ -832,8 +832,6 @@ func (m *ConnectPeerRequest) GetPerm() bool {
 }
 
 type ConnectPeerResponse struct {
-	// / The id of the newly connected peer
-	PeerId int32 `protobuf:"varint,1,opt,name=peer_id" json:"peer_id,omitempty"`
 }
 
 func (m *ConnectPeerResponse) Reset()                    { *m = ConnectPeerResponse{} }
@@ -1113,8 +1111,6 @@ func (m *ListChannelsResponse) GetChannels() []*ActiveChannel {
 type Peer struct {
 	// / The identity pubkey of the peer
 	PubKey string `protobuf:"bytes,1,opt,name=pub_key" json:"pub_key,omitempty"`
-	// / The peer's id from the local point of view
-	PeerId int32 `protobuf:"varint,2,opt,name=peer_id" json:"peer_id,omitempty"`
 	// / Network address of the peer; eg `127.0.0.1:10011`
 	Address string `protobuf:"bytes,3,opt,name=address" json:"address,omitempty"`
 	// / Bytes of data transmitted to this peer
@@ -1635,8 +1631,6 @@ func (m *PendingUpdate) GetOutputIndex() uint32 {
 }
 
 type OpenChannelRequest struct {
-	// / The peer_id of the node to open a channel with
-	TargetPeerId int32 `protobuf:"varint,1,opt,name=target_peer_id" json:"target_peer_id,omitempty"`
 	// / The pubkey of the node to open a channel with
 	NodePubkey []byte `protobuf:"bytes,2,opt,name=node_pubkey,proto3" json:"node_pubkey,omitempty"`
 	// / The hex encoded pubkey of the node to open a channel with

@@ -1127,14 +1127,7 @@
       }
     },
     "lnrpcConnectPeerResponse": {
-      "type": "object",
-      "properties": {
-        "peer_id": {
-          "type": "integer",
-          "format": "int32",
-          "title": "/ The id of the newly connected peer"
-        }
-      }
+      "type": "object"
     },
     "lnrpcCreateWalletRequest": {
       "type": "object",
@@ -1559,11 +1552,6 @@
     "lnrpcOpenChannelRequest": {
       "type": "object",
       "properties": {
-        "target_peer_id": {
-          "type": "integer",
-          "format": "int32",
-          "title": "/ The peer_id of the node to open a channel with"
-        },
         "node_pubkey": {
           "type": "string",
           "format": "byte",
@@ -1696,11 +1684,6 @@
         "pub_key": {
           "type": "string",
           "title": "/ The identity pubkey of the peer"
-        },
-        "peer_id": {
-          "type": "integer",
-          "format": "int32",
-          "title": "/ The peer's id from the local point of view"
         },
         "address": {
           "type": "string",

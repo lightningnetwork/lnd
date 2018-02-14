@@ -40,6 +40,10 @@ var (
 	// exitHop is a special "hop" which denotes that an incoming HTLC is
 	// meant to pay finally to the receiving node.
 	exitHop lnwire.ShortChannelID
+
+	// sourceHop is a sentinel value denoting that an incoming HTLC is
+	// initiated by our own switch.
+	sourceHop lnwire.ShortChannelID
 )
 
 // ForwardingInfo contains all the information that is necessary to forward and

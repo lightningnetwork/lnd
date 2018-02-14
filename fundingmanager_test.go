@@ -434,7 +434,6 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	// Create a funding request and start the workflow.
 	errChan := make(chan error, 1)
 	initReq := &openChanReq{
-		targetPeerID:    int32(1),
 		targetPubkey:    bob.privKey.PubKey(),
 		chainHash:       *activeNetParams.GenesisHash,
 		localFundingAmt: localFundingAmt,

@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -580,7 +579,7 @@ secondLevelCheck:
 	if err != nil {
 		brarLog.Errorf("unable to broadcast "+
 			"justice tx: %v", err)
-		if strings.Contains(err.Error(), "already been spent") {
+		if err == lnwallet.ErrDoubleSpend {
 			brarLog.Infof("Attempting to transfer HTLC revocations " +
 				"to the second level")
 			finalTx = nil

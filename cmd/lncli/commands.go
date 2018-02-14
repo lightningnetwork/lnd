@@ -388,15 +388,9 @@ var openChannelCommand = cli.Command{
 	of the funding output is returned.
 
 	One can manually set the fee to be used for the funding transaction via either
-	the --conf_target or --sat_per_byte arguments. This is optional.
-
-	NOTE: peer_id and node_key are mutually exclusive, only one should be used, not both.`,
+	the --conf_target or --sat_per_byte arguments. This is optional.`,
 	ArgsUsage: "node-key local-amt push-amt",
 	Flags: []cli.Flag{
-		cli.IntFlag{
-			Name:  "peer_id",
-			Usage: "the relative id of the peer to open a channel with",
-		},
 		cli.StringFlag{
 			Name: "node_key",
 			Usage: "the identity public key of the target node/peer " +
@@ -463,11 +457,6 @@ func openChannel(ctx *cli.Context) error {
 		return nil
 	}
 
-	if ctx.IsSet("peer_id") && ctx.IsSet("node_key") {
-		return fmt.Errorf("both peer_id and lightning_id cannot be set " +
-			"at the same time, only one can be specified")
-	}
-
 	req := &lnrpc.OpenChannelRequest{
 		TargetConf:  int32(ctx.Int64("conf_target")),
 		SatPerByte:  ctx.Int64("sat_per_byte"),
@@ -475,8 +464,6 @@ func openChannel(ctx *cli.Context) error {
 	}
 
 	switch {
-	case ctx.IsSet("peer_id"):
-		req.TargetPeerId = int32(ctx.Int("peer_id"))
 	case ctx.IsSet("node_key"):
 		nodePubHex, err := hex.DecodeString(ctx.String("node_key"))
 		if err != nil {

@@ -93,6 +93,19 @@ services:
       volumes:
           - lnd_btc_data:/root/.lnd
 
+    alice:
+      extends: lnd
+      links:
+          - "btcd:blockchain"
+      volumes:
+          - alice_data:/root/.lnd
+    bob:
+      extends: lnd
+      links:
+          - "btcd:blockchain"
+      volumes:
+          - bob_data:/root/.lnd
+
 volumes:
   # shared volume is need to store the btcd rpc certificates and use it within
   # btcctl and lnd containers.
@@ -115,3 +128,9 @@ volumes:
      driver: local
   lnd_btc_data:
      driver: local
+
+  # alice and bob are need for running README examples
+  alice_data:
+    driver: local
+  bob_data:
+    driver: local

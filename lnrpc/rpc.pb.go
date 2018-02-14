@@ -839,13 +839,6 @@ func (m *ConnectPeerResponse) String() string            { return proto.CompactT
 func (*ConnectPeerResponse) ProtoMessage()               {}
 func (*ConnectPeerResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{23} }
 
-func (m *ConnectPeerResponse) GetPeerId() int32 {
-	if m != nil {
-		return m.PeerId
-	}
-	return 0
-}
-
 type DisconnectPeerRequest struct {
 	// / The pubkey of the node to disconnect from
 	PubKey string `protobuf:"bytes,1,opt,name=pub_key" json:"pub_key,omitempty"`
@@ -1137,13 +1130,6 @@ func (m *Peer) GetPubKey() string {
 		return m.PubKey
 	}
 	return ""
-}
-
-func (m *Peer) GetPeerId() int32 {
-	if m != nil {
-		return m.PeerId
-	}
-	return 0
 }
 
 func (m *Peer) GetAddress() string {
@@ -1653,13 +1639,6 @@ func (m *OpenChannelRequest) Reset()                    { *m = OpenChannelReques
 func (m *OpenChannelRequest) String() string            { return proto.CompactTextString(m) }
 func (*OpenChannelRequest) ProtoMessage()               {}
 func (*OpenChannelRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{41} }
-
-func (m *OpenChannelRequest) GetTargetPeerId() int32 {
-	if m != nil {
-		return m.TargetPeerId
-	}
-	return 0
-}
 
 func (m *OpenChannelRequest) GetNodePubkey() []byte {
 	if m != nil {

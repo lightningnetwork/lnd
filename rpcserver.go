@@ -3080,11 +3080,21 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 	// Query the channel router for a possible path to the destination that
 	// can carry `in.Amt` satoshis _including_ the total fee required on
 	// the route.
-	routes, err := r.server.chanRouter.FindRoutes(
-		pubKey, amtMSat, uint32(in.NumRoutes),
+	var (
+		routes  []*routing.Route
+		findErr error
 	)
-	if err != nil {
-		return nil, err
+	if in.FinalCltvDelta == 0 {
+		routes, findErr = r.server.chanRouter.FindRoutes(
+			pubKey, amtMSat, uint32(in.NumRoutes),
+		)
+	} else {
+		routes, findErr = r.server.chanRouter.FindRoutes(
+			pubKey, amtMSat, uint32(in.NumRoutes), uint16(in.FinalCltvDelta),
+		)
+	}
+	if findErr != nil {
+		return nil, findErr
 	}
 
 	// As the number of returned routes can be less than the number of

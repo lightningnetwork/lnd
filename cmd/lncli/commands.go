@@ -2416,6 +2416,11 @@ var queryRoutesCommand = cli.Command{
 			Usage: "the max number of routes to be returned (default: 10)",
 			Value: 10,
 		},
+		cli.Int64Flag{
+			Name: "final_cltv_delta",
+			Usage: "(optional) number of blocks the last hop has to reveal " +
+				"the preimage",
+		},
 	},
 	Action: actionDecorator(queryRoutes),
 }
@@ -2456,9 +2461,10 @@ func queryRoutes(ctx *cli.Context) error {
 	}
 
 	req := &lnrpc.QueryRoutesRequest{
-		PubKey:    dest,
-		Amt:       amt,
-		NumRoutes: int32(ctx.Int("num_max_routes")),
+		PubKey:         dest,
+		Amt:            amt,
+		NumRoutes:      int32(ctx.Int("num_max_routes")),
+		FinalCltvDelta: int32(ctx.Int("final_cltv_delta")),
 	}
 
 	route, err := client.QueryRoutes(ctxb, req)

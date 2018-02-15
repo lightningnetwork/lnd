@@ -1204,6 +1204,9 @@ message QueryRoutesRequest {
 
     /// The max number of routes to return.
     int32 num_routes = 3;
+
+    /// An optional CLTV delta from the current height that should be used for the timelock of the final hop
+    int32 final_cltv_delta = 4;
 }
 message QueryRoutesResponse {
     repeated Route routes = 1 [ json_name = "routes"];

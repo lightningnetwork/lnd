@@ -53,6 +53,15 @@ var (
 
 	// ErrMissingPayReq occurs if the pay_req argument is omitted.
 	ErrMissingPayReq = fmt.Errorf("pay_req argument missing")
+
+	// ErrMissingDestinationTxid occurs if the dest argument is omitted.
+	ErrMissingDestinationTxid = fmt.Errorf("destination txid argument missing")
+
+	// ErrMissingPaymentHash
+	ErrMissingPaymentHash = fmt.Errorf("payment hash argument missing")
+
+	// ErrUnnecessaryArgumentForDebugSend
+	ErrUnnecessaryArgumentForDebugSend = fmt.Errorf("do not provide a payment hash with debug send")
 )
 
 func printJSON(resp interface{}) {
@@ -1085,7 +1094,7 @@ var sendPaymentCommand = cli.Command{
 func sendPayment(
 	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
 
-	// Show command help if no arguments provieded
+	// Show command help if no arguments provided
 	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
 		cli.ShowCommandHelp(ctx, "sendpayment")
 		return nil
@@ -1113,7 +1122,7 @@ func sendPayment(
 			destNode, err = hex.DecodeString(args.First())
 			args = args.Tail()
 		default:
-			return fmt.Errorf("destination txid argument missing")
+			return ErrMissingDestinationTxid
 		}
 		if err != nil {
 			return err
@@ -1140,7 +1149,7 @@ func sendPayment(
 		}
 
 		if ctx.Bool("debug_send") && (ctx.IsSet("payment_hash") || args.Present()) {
-			return fmt.Errorf("do not provide a payment hash with debug send")
+			return ErrUnnecessaryArgumentForDebugSend
 		} else if !ctx.Bool("debug_send") {
 			var rHash []byte
 
@@ -1149,8 +1158,9 @@ func sendPayment(
 				rHash, err = hex.DecodeString(ctx.String("payment_hash"))
 			case args.Present():
 				rHash, err = hex.DecodeString(args.First())
+				// TODO(merehap): Bug fix. Add "args = args.Tail()" here.
 			default:
-				return fmt.Errorf("payment hash argument missing")
+				return ErrMissingPaymentHash
 			}
 
 			if err != nil {

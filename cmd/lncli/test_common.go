@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/testing"
 	"github.com/urfave/cli"
+	"golang.org/x/net/context"
 )
 
 var (
@@ -30,6 +32,32 @@ var (
 	OutputIndex              = "555"
 	OutputIndexInt    uint32 = 555
 	TimeLimit                = "42"
+
+	PayReq           = "MyPayReq"
+	Dest             = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01"
+	DestBytes        = []byte{0x1, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x1, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x1, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x1, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x1}
+	PaymentHash      = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	PaymentHashBytes = []byte{0x1, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x1, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x1, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x1, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef}
+
+	FinalCltvDeltaInt int32 = 21
+	FinalCltvDelta          = "21"
+
+	SendPaymentResponse = "{\n\t\"payment_error\": \"ERROR\"," +
+		"\n\t\"payment_preimage\": \"0c22384e\"," +
+		"\n\t\"payment_route\": {" +
+		"\n\t\t\"total_time_lock\": 2," +
+		"\n\t\t\"total_fees\": 5," +
+		"\n\t\t\"total_amt\": 8," +
+		"\n\t\t\"hops\": [\n\t\t\t" +
+		"{\n\t\t\t\t\"chan_capacity\": 1," +
+		"\n\t\t\t\t\"amt_to_forward\": 2," +
+		"\n\t\t\t\t\"fee\": 3," +
+		"\n\t\t\t\t\"expiry\": 4\n\t\t\t},\n\t\t\t" +
+		"{\n\t\t\t\t\"chan_id\": 5," +
+		"\n\t\t\t\t\"chan_capacity\": 6," +
+		"\n\t\t\t\t\"amt_to_forward\": 7," +
+		"\n\t\t\t\t\"fee\": 8," +
+		"\n\t\t\t\t\"expiry\": 9\n\t\t\t}\n\t\t]\n\t}\n}\n"
 )
 
 type StringWriter struct {
@@ -123,4 +151,55 @@ func TestCommand(
 	app.Run(args)
 
 	return writer.Join(), err
+}
+
+func NewSendPaymentLightningClient(stream *SendPaymentStream) lnrpctesting.StubLightningClient {
+	client := lnrpctesting.NewStubLightningClient()
+	clientStream := lnrpctesting.StubClientStream{stream}
+	client.SendPaymentClient = lnrpctesting.StubSendPaymentClient{&clientStream}
+	return client
+}
+
+// A Stream that allows setting errors on send and recv,
+// or returning a specified SendResponse
+// while capturing the SendRequest that is received so it can be verified in tests.
+type SendPaymentStream struct {
+	SendError           error
+	RecvError           error
+	SendResponse        *lnrpc.SendResponse
+	CapturedSendRequest *lnrpc.SendRequest
+}
+
+func NewSendPaymentStream(sendError error, recvError error) SendPaymentStream {
+	hop1 := lnrpc.Hop{0, 1, 2, 3, 4}
+	hop2 := lnrpc.Hop{5, 6, 7, 8, 9}
+	hops := []*lnrpc.Hop{&hop1, &hop2}
+	route := lnrpc.Route{2, 5, 8, hops}
+	sendResponse := lnrpc.SendResponse{"ERROR", []byte{12, 34, 56, 78}, &route}
+	return SendPaymentStream{sendError, recvError, &sendResponse, nil}
+}
+
+func (s *SendPaymentStream) Context() context.Context {
+	return new(lnrpctesting.StubContext)
+}
+
+func (s *SendPaymentStream) SendMsg(m interface{}) error {
+	result, ok := m.(*lnrpc.SendRequest)
+	if ok {
+		s.CapturedSendRequest = result
+	}
+
+	return s.SendError
+}
+
+func (s *SendPaymentStream) RecvMsg(m interface{}) error {
+	result, ok := m.(*lnrpc.SendResponse)
+
+	if ok {
+		result.PaymentError = s.SendResponse.PaymentError
+		result.PaymentPreimage = s.SendResponse.PaymentPreimage
+		result.PaymentRoute = s.SendResponse.PaymentRoute
+	}
+
+	return s.RecvError
 }

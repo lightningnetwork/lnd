@@ -1721,6 +1721,11 @@ var queryRoutesCommand = cli.Command{
 			Name:  "amt",
 			Usage: "the amount to send expressed in satoshis",
 		},
+		cli.Int64Flag{
+			Name:  "num_max_routes",
+			Usage: "the max number of routes to be returned (default: 10)",
+			Value: 10,
+		},
 	},
 	Action: actionDecorator(queryRoutes),
 }
@@ -1761,8 +1766,9 @@ func queryRoutes(ctx *cli.Context) error {
 	}
 
 	req := &lnrpc.QueryRoutesRequest{
-		PubKey: dest,
-		Amt:    amt,
+		PubKey:    dest,
+		Amt:       amt,
+		NumRoutes: int32(ctx.Int("num_max_routes")),
 	}
 
 	route, err := client.QueryRoutes(ctxb, req)

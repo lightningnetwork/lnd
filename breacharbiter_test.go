@@ -1268,8 +1268,8 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 		ChannelConstraints: channeldb.ChannelConstraints{
 			DustLimit:        aliceDustLimit,
 			MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
-			ChanReserve:      btcutil.Amount(rand.Int63()),
-			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
+			ChanReserve:      0,
+			MinHTLC:          0,
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
 		},
 		CsvDelay:            uint16(csvTimeoutAlice),
@@ -1283,8 +1283,8 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 		ChannelConstraints: channeldb.ChannelConstraints{
 			DustLimit:        bobDustLimit,
 			MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
-			ChanReserve:      btcutil.Amount(rand.Int63()),
-			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
+			ChanReserve:      0,
+			MinHTLC:          0,
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
 		},
 		CsvDelay:            uint16(csvTimeoutBob),

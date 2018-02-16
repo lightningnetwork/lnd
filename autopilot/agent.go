@@ -10,7 +10,7 @@ import (
 	"github.com/roasbeef/btcutil"
 )
 
-// Config couples all the items that that an autopilot agent needs to function.
+// Config couples all the items that an autopilot agent needs to function.
 // All items within the struct MUST be populated for the Agent to be able to
 // carry out its duties.
 type Config struct {
@@ -362,7 +362,7 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 			// consult our channel attachment heuristic to
 			// determine if we should open up any additional
 			// channels or modify existing channels.
-			availableFunds, needMore := a.cfg.Heuristic.NeedMoreChans(
+			availableFunds, numChans, needMore := a.cfg.Heuristic.NeedMoreChans(
 				totalChans, a.totalBalance,
 			)
 			if !needMore {
@@ -387,7 +387,7 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 			// for us to use.
 			chanCandidates, err := a.cfg.Heuristic.Select(
 				a.cfg.Self, a.cfg.Graph, availableFunds,
-				nodesToSkip,
+				numChans, nodesToSkip,
 			)
 			if err != nil {
 				log.Errorf("Unable to select candidates for "+
@@ -419,6 +419,7 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 				go func(directive AttachmentDirective) {
 					pub := directive.PeerKey
 					err := a.cfg.ChanController.OpenChannel(
+
 						directive.PeerKey,
 						directive.ChanAmt,
 						directive.Addrs,

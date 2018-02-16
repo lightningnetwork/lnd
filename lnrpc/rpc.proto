@@ -1032,6 +1032,9 @@ message QueryRoutesRequest {
 
     /// The amount to send expressed in satoshis
     int64 amt = 2;
+
+    /// The max number of routes to return.
+    int32 num_routes = 3;
 }
 message QueryRoutesResponse {
     repeated Route routes = 1 [ json_name = "routes"];

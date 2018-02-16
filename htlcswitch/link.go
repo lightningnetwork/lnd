@@ -1261,11 +1261,21 @@ type getBandwidthCmd struct {
 //
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) Bandwidth() lnwire.MilliSatoshi {
-	// TODO(roasbeef): subtract reserve
 	channelBandwidth := l.channel.AvailableBalance()
 	overflowBandwidth := l.overflowQueue.TotalHtlcAmount()
+	linkBandwidth := channelBandwidth - overflowBandwidth
+	reserve := lnwire.NewMSatFromSatoshis(l.channel.LocalChanReserve())
 
-	return channelBandwidth - overflowBandwidth
+	// If the channel reserve is greater than the total available
+	// balance of the link, just return 0.
+	if linkBandwidth < reserve {
+		return 0
+	}
+
+	// Else the amount that is available to flow through the link at
+	// this point is the available balance minus the reserve amount
+	// we are required to keep as collateral.
+	return linkBandwidth - reserve
 }
 
 // policyUpdate is a message sent to a channel link when an outside sub-system

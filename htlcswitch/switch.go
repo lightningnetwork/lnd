@@ -1001,10 +1001,15 @@ func (s *Switch) AddLink(link ChannelLink) error {
 
 	select {
 	case s.linkControl <- command:
-		return <-command.err
+		select {
+		case err := <-command.err:
+			return err
+		case <-s.quit:
+		}
 	case <-s.quit:
-		return errors.New("unable to add link htlc switch was stopped")
 	}
+
+	return errors.New("unable to add link htlc switch was stopped")
 }
 
 // addLink is used to add the newly created channel link and start use it to
@@ -1055,12 +1060,26 @@ func (s *Switch) GetLink(chanID lnwire.ChannelID) (ChannelLink, error) {
 		done:   make(chan ChannelLink, 1),
 	}
 
+query:
 	select {
 	case s.linkControl <- command:
-		return <-command.done, <-command.err
+
+		var link ChannelLink
+		select {
+		case link = <-command.done:
+		case <-s.quit:
+			break query
+		}
+
+		select {
+		case err := <-command.err:
+			return link, err
+		case <-s.quit:
+		}
 	case <-s.quit:
-		return nil, errors.New("unable to get link htlc switch was stopped")
 	}
+
+	return nil, errors.New("unable to get link htlc switch was stopped")
 }
 
 // getLink attempts to return the link that has the specified channel ID.
@@ -1101,11 +1120,15 @@ func (s *Switch) RemoveLink(chanID lnwire.ChannelID) error {
 
 	select {
 	case s.linkControl <- command:
-		return <-command.err
+		select {
+		case err := <-command.err:
+			return err
+		case <-s.quit:
+		}
 	case <-s.quit:
-		return errors.New("unable to remove link htlc switch was " +
-			"stopped")
 	}
+
+	return errors.New("unable to remove link htlc switch was stopped")
 }
 
 // removeLink is used to remove and stop the channel link.
@@ -1154,11 +1177,15 @@ func (s *Switch) UpdateShortChanID(chanID lnwire.ChannelID,
 
 	select {
 	case s.linkControl <- command:
-		return <-command.err
+		select {
+		case err := <-command.err:
+			return err
+		case <-s.quit:
+		}
 	case <-s.quit:
-		return errors.New("unable to remove link htlc switch was " +
-			"stopped")
 	}
+
+	return errors.New("unable to update short chan id htlc switch was stopped")
 }
 
 // updateShortChanID updates the short chan ID of an existing link.
@@ -1203,12 +1230,26 @@ func (s *Switch) GetLinksByInterface(hop [33]byte) ([]ChannelLink, error) {
 		done: make(chan []ChannelLink, 1),
 	}
 
+query:
 	select {
 	case s.linkControl <- command:
-		return <-command.done, <-command.err
+
+		var links []ChannelLink
+		select {
+		case links = <-command.done:
+		case <-s.quit:
+			break query
+		}
+
+		select {
+		case err := <-command.err:
+			return links, err
+		case <-s.quit:
+		}
 	case <-s.quit:
-		return nil, errors.New("unable to get links htlc switch was stopped")
 	}
+
+	return nil, errors.New("unable to get links htlc switch was stopped")
 }
 
 // getLinks is function which returns the channel links of the peer by hop

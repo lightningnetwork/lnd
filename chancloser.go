@@ -302,8 +302,8 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 		peerLog.Infof("ChannelPoint(%v): Responding to shutdown",
 			c.chanPoint)
 
-		msgsToSend := make([]lnwire.Message, 2)
-		msgsToSend[0] = localShutdown
+		msgsToSend := make([]lnwire.Message, 0, 2)
+		msgsToSend = append(msgsToSend, localShutdown)
 
 		// After the other party receives this message, we'll actually
 		// start the final stage of the closure process: fee
@@ -312,12 +312,14 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 		c.state = closeFeeNegotiation
 
 		// We'll also craft our initial close proposal in order to keep
-		// the negotiation moving.
-		closeSigned, err := c.proposeCloseSigned(c.idealFeeSat)
-		if err != nil {
-			return nil, false, err
+		// the negotiation moving, but only if we're the negotiator.
+		if c.cfg.channel.IsInitiator() {
+			closeSigned, err := c.proposeCloseSigned(c.idealFeeSat)
+			if err != nil {
+				return nil, false, err
+			}
+			msgsToSend = append(msgsToSend, closeSigned)
 		}
-		msgsToSend[1] = closeSigned
 
 		// We'll return both sent of messages to sent to the remote
 		// party to kick off the fee negotiation process.
@@ -348,13 +350,19 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 			"entering fee negotiation", c.chanPoint)
 
 		// Starting with our ideal fee rate, we'll create an initial
-		// closing proposal.
-		closeSigned, err := c.proposeCloseSigned(c.idealFeeSat)
-		if err != nil {
-			return nil, false, err
+		// closing proposal, but only if we're the initiator, as
+		// otherwise, the other party will send their first proposal
+		// first.
+		if c.cfg.channel.IsInitiator() {
+			closeSigned, err := c.proposeCloseSigned(c.idealFeeSat)
+			if err != nil {
+				return nil, false, err
+			}
+
+			return []lnwire.Message{closeSigned}, false, nil
 		}
 
-		return []lnwire.Message{closeSigned}, false, nil
+		return nil, false, nil
 
 	// If we're receiving a message while we're in the fee negotiation
 	// phase, then this indicates the remote party is responding a closed

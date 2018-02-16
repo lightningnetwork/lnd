@@ -38,6 +38,7 @@ func TestConstrainedPrefAttachmentNeedMoreChan(t *testing.T) {
 
 		needMore     bool
 		amtAvailable btcutil.Amount
+		numMore      uint32
 	}{
 		// Many available funds, but already have too many active open
 		// channels.
@@ -59,6 +60,7 @@ func TestConstrainedPrefAttachmentNeedMoreChan(t *testing.T) {
 			btcutil.Amount(btcutil.SatoshiPerBitcoin * 10),
 			false,
 			0,
+			0,
 		},
 
 		// Ratio of funds in channels and total funds meets the
@@ -77,13 +79,15 @@ func TestConstrainedPrefAttachmentNeedMoreChan(t *testing.T) {
 			btcutil.Amount(btcutil.SatoshiPerBitcoin * 2),
 			false,
 			0,
+			0,
 		},
 
 		// Ratio of funds in channels and total funds is below the
 		// threshold. We have 10 BTC allocated amongst channels and
 		// funds, atm. We're targeting 50%, so 5 BTC should be
 		// allocated. Only 1 BTC is atm, so 4 BTC should be
-		// recommended.
+		// recommended. We should also request 2 more channels as the
+		// limit is 3.
 		{
 			[]Channel{
 				{
@@ -94,14 +98,16 @@ func TestConstrainedPrefAttachmentNeedMoreChan(t *testing.T) {
 			btcutil.Amount(btcutil.SatoshiPerBitcoin * 9),
 			true,
 			btcutil.Amount(btcutil.SatoshiPerBitcoin * 4),
+			2,
 		},
 
 		// Ratio of funds in channels and total funds is below the
 		// threshold. We have 14 BTC total amongst the wallet's
 		// balance, and our currently opened channels. Since we're
 		// targeting a 50% allocation, we should commit 7 BTC. The
-		// current channels commit 4 BTC, so we should expected 3 bTC
-		// to be committed.
+		// current channels commit 4 BTC, so we should expected 3 BTC
+		// to be committed. We should only request a single additional
+		// channel as the limit is 3.
 		{
 			[]Channel{
 				{
@@ -116,6 +122,7 @@ func TestConstrainedPrefAttachmentNeedMoreChan(t *testing.T) {
 			btcutil.Amount(btcutil.SatoshiPerBitcoin * 10),
 			true,
 			btcutil.Amount(btcutil.SatoshiPerBitcoin * 3),
+			1,
 		},
 
 		// Ratio of funds in channels and total funds is above the
@@ -134,6 +141,7 @@ func TestConstrainedPrefAttachmentNeedMoreChan(t *testing.T) {
 			btcutil.Amount(btcutil.SatoshiPerBitcoin),
 			false,
 			0,
+			0,
 		},
 	}
 
@@ -141,8 +149,9 @@ func TestConstrainedPrefAttachmentNeedMoreChan(t *testing.T) {
 		chanLimit, threshold)
 
 	for i, testCase := range testCases {
-		amtToAllocate, needMore := prefAttach.NeedMoreChans(testCase.channels,
-			testCase.walletAmt)
+		amtToAllocate, numMore, needMore := prefAttach.NeedMoreChans(
+			testCase.channels, testCase.walletAmt,
+		)
 
 		if amtToAllocate != testCase.amtAvailable {
 			t.Fatalf("test #%v: expected %v, got %v",
@@ -151,6 +160,10 @@ func TestConstrainedPrefAttachmentNeedMoreChan(t *testing.T) {
 		if needMore != testCase.needMore {
 			t.Fatalf("test #%v: expected %v, got %v",
 				i, testCase.needMore, needMore)
+		}
+		if numMore != testCase.numMore {
+			t.Fatalf("test #%v: expected %v, got %v",
+				i, testCase.numMore, numMore)
 		}
 	}
 }
@@ -247,7 +260,7 @@ func TestConstrainedPrefAttachmentSelectEmptyGraph(t *testing.T) {
 			// creation given the current state of the graph.
 			const walletFunds = btcutil.SatoshiPerBitcoin
 			directives, err := prefAttach.Select(self, graph,
-				walletFunds, skipNodes)
+				walletFunds, 5, skipNodes)
 			if err != nil {
 				t1.Fatalf("unable to select attachment "+
 					"directives: %v", err)
@@ -316,7 +329,7 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 			// creation given the current state of the graph.
 			const walletFunds = btcutil.SatoshiPerBitcoin * 10
 			directives, err := prefAttach.Select(self, graph,
-				walletFunds, skipNodes)
+				walletFunds, 2, skipNodes)
 			if err != nil {
 				t1.Fatalf("unable to select attachment directives: %v", err)
 			}
@@ -395,7 +408,7 @@ func TestConstrainedPrefAttachmentSelectInsufficientFunds(t *testing.T) {
 			// passing zero for the amount of wallet funds. This
 			// should return an empty slice of directives.
 			directives, err := prefAttach.Select(self, graph, 0,
-				skipNodes)
+				0, skipNodes)
 			if err != nil {
 				t1.Fatalf("unable to select attachment "+
 					"directives: %v", err)
@@ -503,7 +516,7 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 			// allocate funds to channels.
 			const availableBalance = btcutil.SatoshiPerBitcoin * 2.5
 			directives, err := prefAttach.Select(self, graph,
-				availableBalance, skipNodes)
+				availableBalance, 5, skipNodes)
 			if err != nil {
 				t1.Fatalf("unable to select attachment "+
 					"directives: %v", err)
@@ -594,7 +607,7 @@ func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
 			// candidates.
 			const availableBalance = btcutil.SatoshiPerBitcoin * 2.5
 			directives, err := prefAttach.Select(self, graph,
-				availableBalance, skipNodes)
+				availableBalance, 2, skipNodes)
 			if err != nil {
 				t1.Fatalf("unable to select attachment "+
 					"directives: %v", err)
@@ -618,7 +631,7 @@ func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
 			// should get no new directives as both nodes has
 			// already been attached to.
 			directives, err = prefAttach.Select(self, graph,
-				availableBalance, skipNodes)
+				availableBalance, 2, skipNodes)
 			if err != nil {
 				t1.Fatalf("unable to select attachment "+
 					"directives: %v", err)

@@ -149,6 +149,7 @@ type config struct {
 	DataDir      string `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
 	TLSCertPath  string `long:"tlscertpath" description:"Path to TLS certificate for lnd's RPC and REST services"`
 	TLSKeyPath   string `long:"tlskeypath" description:"Path to TLS private key for lnd's RPC and REST services"`
+	TLSExtraIP   string `long:"tlsextraip" description:"Adds an extra ip to the generated certificate"`
 	NoMacaroons  bool   `long:"no-macaroons" description:"Disable macaroon authentication"`
 	AdminMacPath string `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
 	ReadMacPath  string `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`
@@ -158,7 +159,7 @@ type config struct {
 	RESTListeners []string `long:"restlisten" description:"Add an interface/port to listen for REST connections"`
 	Listeners     []string `long:"listen" description:"Add an interface/port to listen for peer connections"`
 	DisableListen bool     `long:"nolisten" description:"Disable listening for incoming peer connections"`
-	ExternalIPs   []string `long:"externalip" description:"Add an ip to the list of local addresses we claim to listen on to peers"`
+	ExternalIPs   []string `long:"externalip" description:"Add an ip:port to the list of local addresses we claim to listen on to peers. If a port is not specified, the default (9735) will be used regardless of other parameters"`
 
 	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
 

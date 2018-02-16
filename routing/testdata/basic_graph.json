@@ -135,7 +135,7 @@
             "channel_id": 689530843, 
             "channel_point": "25376aa6cb81913ad30416bd22d4083241bd6d68e811d0284d3c3a17795c458a:0", 
             "flags": 0, 
-            "expiry": 1,
+            "expiry": 10,
             "min_htlc": 1, 
             "fee_base_msat": 10, 
             "fee_rate": 1000, 

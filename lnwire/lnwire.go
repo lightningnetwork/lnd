@@ -31,13 +31,13 @@ type addressType uint8
 
 const (
 	// noAddr denotes a blank address. An address of this type indicates
-	// that a node doesn't have any advertise d addresses.
+	// that a node doesn't have any advertised addresses.
 	noAddr addressType = 0
 
 	// tcp4Addr denotes an IPv4 TCP address.
 	tcp4Addr addressType = 1
 
-	// tcp4Addr denotes an IPv6 TCP address.
+	// tcp6Addr denotes an IPv6 TCP address.
 	tcp6Addr addressType = 2
 
 	// v2OnionAddr denotes a version 2 Tor onion service address.

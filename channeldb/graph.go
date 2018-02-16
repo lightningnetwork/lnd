@@ -210,7 +210,7 @@ func (c *ChannelGraph) ForEachChannel(cb func(*ChannelEdgeInfo, *ChannelEdgePoli
 			// With both edges read, execute the call back. IF this
 			// function returns an error then the transaction will
 			// be aborted.
-			return cb(edgeInfo, edge1, edge2)
+			return cb(&edgeInfo, edge1, edge2)
 		})
 	})
 }
@@ -253,7 +253,7 @@ func (c *ChannelGraph) ForEachNode(tx *bolt.Tx, cb func(*bolt.Tx, *LightningNode
 
 			// Execute the callback, the transaction will abort if
 			// this returns an error.
-			return cb(tx, node)
+			return cb(tx, &node)
 		})
 	}
 
@@ -294,7 +294,7 @@ func (c *ChannelGraph) SourceNode() (*LightningNode, error) {
 			return err
 		}
 
-		source = node
+		source = &node
 		source.db = c.db
 		return nil
 	})
@@ -622,7 +622,7 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 			if err != nil {
 				return err
 			}
-			chansClosed = append(chansClosed, edgeInfo)
+			chansClosed = append(chansClosed, &edgeInfo)
 
 			// Attempt to delete the channel, an ErrEdgeNotFound
 			// will be returned if that outpoint isn't known to be
@@ -727,7 +727,7 @@ func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) ([]*ChannelEdgeInf
 				return err
 			}
 
-			removedChans = append(removedChans, edgeInfo)
+			removedChans = append(removedChans, &edgeInfo)
 		}
 
 		// Delete all the entries in the prune log having a height
@@ -1081,7 +1081,7 @@ func (c *ChannelGraph) FetchLightningNode(pub *btcec.PublicKey) (*LightningNode,
 		}
 		n.db = c.db
 
-		node = n
+		node = &n
 
 		return nil
 	})
@@ -1153,11 +1153,7 @@ func (c *ChannelGraph) HasLightningNode(nodePub [33]byte) (time.Time, bool, erro
 func (l *LightningNode) ForEachChannel(tx *bolt.Tx,
 	cb func(*bolt.Tx, *ChannelEdgeInfo, *ChannelEdgePolicy, *ChannelEdgePolicy) error) error {
 
-	pub, err := l.PubKey()
-	if err != nil {
-		return err
-	}
-	nodePub := pub.SerializeCompressed()
+	nodePub := l.PubKeyBytes[:]
 
 	traversal := func(tx *bolt.Tx) error {
 		nodes := tx.Bucket(nodeBucket)
@@ -1210,12 +1206,7 @@ func (l *LightningNode) ForEachChannel(tx *bolt.Tx,
 
 			// We'll also fetch the incoming edge so this
 			// information can be available to the caller.
-			incomingNodeKey, err := toEdgePolicy.Node.PubKey()
-			if err != nil {
-				return err
-			}
-			incomingNode := incomingNodeKey.SerializeCompressed()
-
+			incomingNode := toEdgePolicy.Node.PubKeyBytes[:]
 			fromEdgePolicy, err := fetchChanEdgePolicy(
 				edges, chanID, incomingNode, nodes,
 			)
@@ -1231,7 +1222,7 @@ func (l *LightningNode) ForEachChannel(tx *bolt.Tx,
 			}
 
 			// Finally, we execute the callback.
-			err = cb(tx, edgeInfo, toEdgePolicy, fromEdgePolicy)
+			err = cb(tx, &edgeInfo, toEdgePolicy, fromEdgePolicy)
 			if err != nil {
 				return err
 			}
@@ -1658,7 +1649,7 @@ func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (*ChannelE
 		if err != nil {
 			return err
 		}
-		edgeInfo = edge
+		edgeInfo = &edge
 
 		// Once we have the information about the channels' parameters,
 		// we'll fetch the routing policies for each for the directed
@@ -1720,7 +1711,7 @@ func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64) (*ChannelEdgeInfo, *
 		if err != nil {
 			return err
 		}
-		edgeInfo = edge
+		edgeInfo = &edge
 
 		e1, e2, err := fetchChanEdgePolicies(edgeIndex, edges, nodes,
 			channelID[:], c.db)
@@ -1874,38 +1865,37 @@ func putLightningNode(nodeBucket *bolt.Bucket, aliasBucket *bolt.Bucket, node *L
 }
 
 func fetchLightningNode(nodeBucket *bolt.Bucket,
-	nodePub []byte) (*LightningNode, error) {
+	nodePub []byte) (LightningNode, error) {
 
 	nodeBytes := nodeBucket.Get(nodePub)
 	if nodeBytes == nil {
-		return nil, ErrGraphNodeNotFound
+		return LightningNode{}, ErrGraphNodeNotFound
 	}
 
 	nodeReader := bytes.NewReader(nodeBytes)
 	return deserializeLightningNode(nodeReader)
 }
 
-func deserializeLightningNode(r io.Reader) (*LightningNode, error) {
+func deserializeLightningNode(r io.Reader) (LightningNode, error) {
 	var (
+		node    LightningNode
 		scratch [8]byte
 		err     error
 	)
 
-	node := &LightningNode{}
-
 	if _, err := r.Read(scratch[:]); err != nil {
-		return nil, err
+		return LightningNode{}, err
 	}
 
 	unix := int64(byteOrder.Uint64(scratch[:]))
 	node.LastUpdate = time.Unix(unix, 0)
 
 	if _, err := io.ReadFull(r, node.PubKeyBytes[:]); err != nil {
-		return nil, err
+		return LightningNode{}, err
 	}
 
 	if _, err := r.Read(scratch[:2]); err != nil {
-		return nil, err
+		return LightningNode{}, err
 	}
 
 	hasNodeAnn := byteOrder.Uint16(scratch[:2])
@@ -1924,29 +1914,29 @@ func deserializeLightningNode(r io.Reader) (*LightningNode, error) {
 	// We did get a node announcement for this node, so we'll have the rest
 	// of the data available.
 	if err := binary.Read(r, byteOrder, &node.Color.R); err != nil {
-		return nil, err
+		return LightningNode{}, err
 	}
 	if err := binary.Read(r, byteOrder, &node.Color.G); err != nil {
-		return nil, err
+		return LightningNode{}, err
 	}
 	if err := binary.Read(r, byteOrder, &node.Color.B); err != nil {
-		return nil, err
+		return LightningNode{}, err
 	}
 
 	node.Alias, err = wire.ReadVarString(r, 0)
 	if err != nil {
-		return nil, err
+		return LightningNode{}, err
 	}
 
 	fv := lnwire.NewFeatureVector(nil, lnwire.GlobalFeatures)
 	err = fv.Decode(r)
 	if err != nil {
-		return nil, err
+		return LightningNode{}, err
 	}
 	node.Features = fv
 
 	if _, err := r.Read(scratch[:2]); err != nil {
-		return nil, err
+		return LightningNode{}, err
 	}
 	numAddresses := int(byteOrder.Uint16(scratch[:2]))
 
@@ -1954,7 +1944,7 @@ func deserializeLightningNode(r io.Reader) (*LightningNode, error) {
 	for i := 0; i < numAddresses; i++ {
 		address, err := deserializeAddr(r)
 		if err != nil {
-			return nil, err
+			return LightningNode{}, err
 		}
 		addresses = append(addresses, address)
 	}
@@ -1962,7 +1952,7 @@ func deserializeLightningNode(r io.Reader) (*LightningNode, error) {
 
 	node.AuthSigBytes, err = wire.ReadVarBytes(r, 0, 80, "sig")
 	if err != nil {
-		return nil, err
+		return LightningNode{}, err
 	}
 
 	return node, nil
@@ -2027,62 +2017,58 @@ func putChanEdgeInfo(edgeIndex *bolt.Bucket, edgeInfo *ChannelEdgeInfo, chanID [
 }
 
 func fetchChanEdgeInfo(edgeIndex *bolt.Bucket,
-	chanID []byte) (*ChannelEdgeInfo, error) {
+	chanID []byte) (ChannelEdgeInfo, error) {
 
 	edgeInfoBytes := edgeIndex.Get(chanID)
 	if edgeInfoBytes == nil {
-		return nil, ErrEdgeNotFound
+		return ChannelEdgeInfo{}, ErrEdgeNotFound
 	}
 
 	edgeInfoReader := bytes.NewReader(edgeInfoBytes)
 	return deserializeChanEdgeInfo(edgeInfoReader)
 }
 
-func deserializeChanEdgeInfo(r io.Reader) (*ChannelEdgeInfo, error) {
+func deserializeChanEdgeInfo(r io.Reader) (ChannelEdgeInfo, error) {
 	var (
 		err      error
-		edgeInfo = &ChannelEdgeInfo{}
+		edgeInfo ChannelEdgeInfo
 	)
 
 	if _, err := io.ReadFull(r, edgeInfo.NodeKey1Bytes[:]); err != nil {
-		return nil, err
+		return ChannelEdgeInfo{}, err
 	}
 	if _, err := io.ReadFull(r, edgeInfo.NodeKey2Bytes[:]); err != nil {
-		return nil, err
+		return ChannelEdgeInfo{}, err
 	}
 	if _, err := io.ReadFull(r, edgeInfo.BitcoinKey1Bytes[:]); err != nil {
-		return nil, err
+		return ChannelEdgeInfo{}, err
 	}
 	if _, err := io.ReadFull(r, edgeInfo.BitcoinKey2Bytes[:]); err != nil {
-		return nil, err
+		return ChannelEdgeInfo{}, err
 	}
 
 	edgeInfo.Features, err = wire.ReadVarBytes(r, 0, 900, "features")
 	if err != nil {
-		return nil, err
+		return ChannelEdgeInfo{}, err
 	}
 
 	proof := &ChannelAuthProof{}
 
-	readSig := func() ([]byte, error) {
-		return wire.ReadVarBytes(r, 0, 80, "sigs")
-	}
-
-	proof.NodeSig1Bytes, err = readSig()
+	proof.NodeSig1Bytes, err = wire.ReadVarBytes(r, 0, 80, "sigs")
 	if err != nil {
-		return nil, err
+		return ChannelEdgeInfo{}, err
 	}
-	proof.NodeSig2Bytes, err = readSig()
+	proof.NodeSig2Bytes, err = wire.ReadVarBytes(r, 0, 80, "sigs")
 	if err != nil {
-		return nil, err
+		return ChannelEdgeInfo{}, err
 	}
-	proof.BitcoinSig1Bytes, err = readSig()
+	proof.BitcoinSig1Bytes, err = wire.ReadVarBytes(r, 0, 80, "sigs")
 	if err != nil {
-		return nil, err
+		return ChannelEdgeInfo{}, err
 	}
-	proof.BitcoinSig2Bytes, err = readSig()
+	proof.BitcoinSig2Bytes, err = wire.ReadVarBytes(r, 0, 80, "sigs")
 	if err != nil {
-		return nil, err
+		return ChannelEdgeInfo{}, err
 	}
 
 	if !proof.IsEmpty() {
@@ -2091,17 +2077,17 @@ func deserializeChanEdgeInfo(r io.Reader) (*ChannelEdgeInfo, error) {
 
 	edgeInfo.ChannelPoint = wire.OutPoint{}
 	if err := readOutpoint(r, &edgeInfo.ChannelPoint); err != nil {
-		return nil, err
+		return ChannelEdgeInfo{}, err
 	}
 	if err := binary.Read(r, byteOrder, &edgeInfo.Capacity); err != nil {
-		return nil, err
+		return ChannelEdgeInfo{}, err
 	}
 	if err := binary.Read(r, byteOrder, &edgeInfo.ChannelID); err != nil {
-		return nil, err
+		return ChannelEdgeInfo{}, err
 	}
 
 	if _, err := io.ReadFull(r, edgeInfo.ChainHash[:]); err != nil {
-		return nil, err
+		return ChannelEdgeInfo{}, err
 	}
 
 	return edgeInfo, nil
@@ -2216,11 +2202,11 @@ func deserializeChanEdgePolicy(r io.Reader,
 
 	edge := &ChannelEdgePolicy{}
 
-	sigBytes, err := wire.ReadVarBytes(r, 0, 80, "sig")
+	var err error
+	edge.SigBytes, err = wire.ReadVarBytes(r, 0, 80, "sig")
 	if err != nil {
 		return nil, err
 	}
-	edge.SigBytes = sigBytes
 
 	if err := binary.Read(r, byteOrder, &edge.ChannelID); err != nil {
 		return nil, err
@@ -2266,6 +2252,6 @@ func deserializeChanEdgePolicy(r io.Reader,
 		return nil, err
 	}
 
-	edge.Node = node
+	edge.Node = &node
 	return edge, nil
 }

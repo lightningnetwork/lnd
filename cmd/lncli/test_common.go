@@ -96,3 +96,31 @@ func TestCommandWithTimeout(
 		return "", ErrTimeout
 	}
 }
+
+func TestCommand(
+	client lnrpc.LightningClient,
+	command cli.Command,
+	commandAction func(*cli.Context, lnrpc.LightningClient, io.Writer) error,
+	commandName string,
+	args []string) (string, error) {
+
+	app := cli.NewApp()
+	writer := StringWriter{}
+	// Redirect the command output from stdout to a writer we can test.
+	app.Writer = &writer
+
+	// The actual command causes real network events and
+	// prints to the console. For testing purposes we need to override
+	// this functionality to stub out the network events and write to
+	// a Writer that we can validate.
+	var err error
+	command.Action = func(context *cli.Context) {
+		err = commandAction(context, client, &writer)
+	}
+
+	app.Commands = []cli.Command{command}
+	args = append([]string{"lncli", commandName}, args...)
+	app.Run(args)
+
+	return writer.Join(), err
+}

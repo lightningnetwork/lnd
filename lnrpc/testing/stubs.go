@@ -44,11 +44,11 @@ func (s *StubStream) RecvMsg(m interface{}) error {
 }
 
 type StubClientStream struct {
-	StubStream
+	grpc.Stream
 }
 
 func NewStubClientStream() StubClientStream {
-	return StubClientStream{*new(StubStream)}
+	return StubClientStream{new(StubStream)}
 }
 
 func (cs *StubClientStream) Header() (metadata.MD, error) {
@@ -111,18 +111,6 @@ type StubLightningCloseChannelClient struct {
 
 func (x *StubLightningCloseChannelClient) Recv() (*lnrpc.CloseStatusUpdate, error) {
 	return new(lnrpc.CloseStatusUpdate), nil
-}
-
-type StubLightningSendPaymentClient struct {
-	grpc.ClientStream
-}
-
-func (x *StubLightningSendPaymentClient) Send(m *lnrpc.SendRequest) error {
-	return x.ClientStream.SendMsg(m)
-}
-
-func (x *StubLightningSendPaymentClient) Recv() (*lnrpc.SendResponse, error) {
-	return new(lnrpc.SendResponse), nil
 }
 
 type StubLightningSubscribeInvoicesClient struct {

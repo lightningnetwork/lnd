@@ -50,6 +50,9 @@ var (
 
 	// ErrMissingFundingTxid occurs if the funding_txid argument is omitted.
 	ErrMissingFundingTxid = fmt.Errorf("funding txid argument missing")
+
+	// ErrMissingPayReq occurs if the pay_req argument is omitted.
+	ErrMissingPayReq = fmt.Errorf("pay_req argument missing")
 )
 
 func printJSON(resp interface{}) {
@@ -1076,10 +1079,12 @@ var sendPaymentCommand = cli.Command{
 			Usage: "the number of blocks the last hop has to reveal the preimage",
 		},
 	},
-	Action: sendPayment,
+	Action: actionDecoratorWithClient(sendPayment),
 }
 
-func sendPayment(ctx *cli.Context) error {
+func sendPayment(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
+
 	// Show command help if no arguments provieded
 	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
 		cli.ShowCommandHelp(ctx, "sendpayment")
@@ -1170,12 +1175,14 @@ func sendPayment(ctx *cli.Context) error {
 		}
 	}
 
-	return sendPaymentRequest(ctx, req)
+	return sendPaymentRequest(ctx, client, writer, req)
 }
 
-func sendPaymentRequest(ctx *cli.Context, req *lnrpc.SendRequest) error {
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
+func sendPaymentRequest(
+	ctx *cli.Context,
+	client lnrpc.LightningClient,
+	writer io.Writer,
+	req *lnrpc.SendRequest) error {
 
 	paymentStream, err := client.SendPayment(context.Background())
 	if err != nil {
@@ -1193,7 +1200,7 @@ func sendPaymentRequest(ctx *cli.Context, req *lnrpc.SendRequest) error {
 
 	paymentStream.CloseSend()
 
-	printJSON(struct {
+	printJSONToWriter(writer, struct {
 		E string       `json:"payment_error"`
 		P string       `json:"payment_preimage"`
 		R *lnrpc.Route `json:"payment_route"`
@@ -1221,10 +1228,11 @@ var payInvoiceCommand = cli.Command{
 				"invoice",
 		},
 	},
-	Action: actionDecorator(payInvoice),
+	Action: actionDecoratorWithClient(payInvoice),
 }
 
-func payInvoice(ctx *cli.Context) error {
+func payInvoice(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
 	args := ctx.Args()
 
 	var payReq string
@@ -1235,7 +1243,7 @@ func payInvoice(ctx *cli.Context) error {
 	case args.Present():
 		payReq = args.First()
 	default:
-		return fmt.Errorf("pay_req argument missing")
+		return ErrMissingPayReq
 	}
 
 	req := &lnrpc.SendRequest{
@@ -1243,7 +1251,7 @@ func payInvoice(ctx *cli.Context) error {
 		Amt:            ctx.Int64("amt"),
 	}
 
-	return sendPaymentRequest(ctx, req)
+	return sendPaymentRequest(ctx, client, writer, req)
 }
 
 var addInvoiceCommand = cli.Command{

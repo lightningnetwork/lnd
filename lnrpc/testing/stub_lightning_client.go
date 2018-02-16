@@ -9,10 +9,14 @@ import (
 // A LightningClient that doesn't do any work,
 // but instead just returns minimal, successful responses for all APIs.
 type StubLightningClient struct {
+	SendPaymentClient StubSendPaymentClient
 }
 
 func NewStubLightningClient() StubLightningClient {
-	return StubLightningClient{}
+	lightningClient := StubLightningClient{}
+	clientStream := NewStubClientStream()
+	lightningClient.SendPaymentClient = StubSendPaymentClient{&clientStream}
+	return lightningClient
 }
 
 func (c *StubLightningClient) WalletBalance(ctx context.Context, in *lnrpc.WalletBalanceRequest, opts ...grpc.CallOption) (*lnrpc.WalletBalanceResponse, error) {
@@ -92,7 +96,7 @@ func (c *StubLightningClient) CloseChannel(ctx context.Context, in *lnrpc.CloseC
 }
 
 func (c *StubLightningClient) SendPayment(ctx context.Context, opts ...grpc.CallOption) (lnrpc.Lightning_SendPaymentClient, error) {
-	return new(StubLightningSendPaymentClient), nil
+	return &c.SendPaymentClient, nil
 }
 
 func (c *StubLightningClient) SendPaymentSync(ctx context.Context, in *lnrpc.SendRequest, opts ...grpc.CallOption) (*lnrpc.SendResponse, error) {
@@ -165,4 +169,24 @@ func (c *StubLightningClient) FeeReport(ctx context.Context, in *lnrpc.FeeReport
 
 func (c *StubLightningClient) UpdateChannelPolicy(ctx context.Context, in *lnrpc.PolicyUpdateRequest, opts ...grpc.CallOption) (*lnrpc.PolicyUpdateResponse, error) {
 	return new(lnrpc.PolicyUpdateResponse), nil
+}
+
+// A duplicate of lightningSendPaymentClient, but that is private so it
+// must be duplicated here. The only other option is using the lnrpc
+// namespace so that private access can be obtained, cluttering a non-test
+// namespace with test objects in the process.
+type StubSendPaymentClient struct {
+	grpc.ClientStream
+}
+
+func (x *StubSendPaymentClient) Send(m *lnrpc.SendRequest) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *StubSendPaymentClient) Recv() (*lnrpc.SendResponse, error) {
+	m := new(lnrpc.SendResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
 }

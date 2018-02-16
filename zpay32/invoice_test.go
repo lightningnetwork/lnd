@@ -102,6 +102,7 @@ func init() {
 	copy(testPaymentHash[:], testPaymentHashSlice[:])
 	copy(testDescriptionHash[:], testDescriptionHashSlice[:])
 
+	// TODO(sangaman): create an interface for chaincfg.params
 	ltcTestNetParams = chaincfg.TestNet3Params
 	ltcTestNetParams.Net = wire.BitcoinNet(litecoinCfg.TestNet4Params.Net)
 	ltcTestNetParams.Bech32HRPSegwit = litecoinCfg.TestNet4Params.Bech32HRPSegwit
@@ -118,7 +119,6 @@ func TestDecodeEncode(t *testing.T) {
 
 	tests := []struct {
 		encodedInvoice string
-		network        string
 		valid          bool
 		decodedInvoice func() *Invoice
 		skipEncoding   bool
@@ -379,7 +379,6 @@ func TestDecodeEncode(t *testing.T) {
 		{
 			// The same, on testnet, with a fallback address mk2QpYatsKicvFVuTAQLBryyccRXMUaGHP
 			encodedInvoice: "lntb20m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqsfpp3x9et2e20v6pu37c5d9vax37wxq72un98k6vcx9fz94w0qf237cm2rqv9pmn5lnexfvf5579slr4zq3u8kmczecytdx0xg9rwzngp7e6guwqpqlhssu04sucpnz4axcv2dstmknqq6jsk2l",
-			network:        "tb",
 			valid:          true,
 			decodedInvoice: func() *Invoice {
 				return &Invoice{
@@ -531,12 +530,28 @@ func TestDecodeEncode(t *testing.T) {
 			},
 		},
 		{
+			// Decode a mainnet invoice while expecting a testnet invoice
+			encodedInvoice: "lnbc241pveeq09pp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdqqnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66jd3m5klcwhq68vdsmx2rjgxeay5v0tkt2v5sjaky4eqahe4fx3k9sqavvce3capfuwv8rvjng57jrtfajn5dkpqv8yelsewtljwmmycq62k443",
+			valid:          false,
+			decodedInvoice: func() *Invoice {
+				return &Invoice{
+					Net:         &chaincfg.TestNet3Params,
+					MilliSat:    &testMillisat24BTC,
+					Timestamp:   time.Unix(1503429093, 0),
+					PaymentHash: &testPaymentHash,
+					Destination: testPubKey,
+					Description: &testEmptyString,
+				}
+			},
+			skipEncoding: true, // Skip encoding since we were given the wrong net
+		},
+		{
 			// Decode a litecoin testnet invoice
 			encodedInvoice: "lntltc241pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqsnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66m2eq2fx9uctzkmj30meaghyskkgsd6geap5qg9j2ae444z24a4p8xg3a6g73p8l7d689vtrlgzj0wyx2h6atq8dfty7wmkt4frx9g9sp730h5a",
-			network:        "tltc",
 			valid:          true,
 			decodedInvoice: func() *Invoice {
 				return &Invoice{
+					// TODO(sangaman): create an interface for chaincfg.params
 					Net:             &ltcTestNetParams,
 					MilliSat:        &testMillisat24BTC,
 					Timestamp:       time.Unix(1496314658, 0),
@@ -549,7 +564,6 @@ func TestDecodeEncode(t *testing.T) {
 		{
 			// Decode a litecoin mainnet invoice
 			encodedInvoice: "lnltc241pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqsnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66859t2d55efrxdlgqg9hdqskfstdmyssdw4fjc8qdl522ct885pqk7acn2aczh0jeht0xhuhnkmm3h0qsrxedlwm9x86787zzn4qwwwcpjkl3t2",
-			network:        "ltc",
 			valid:          true,
 			decodedInvoice: func() *Invoice {
 				return &Invoice{
@@ -565,16 +579,12 @@ func TestDecodeEncode(t *testing.T) {
 	}
 
 	for i, test := range tests {
+		var decodedInvoice *Invoice
 		var net *chaincfg.Params
-
-		switch test.network {
-		case "tb":
-			net = &chaincfg.TestNet3Params
-		case "ltc":
-			net = &ltcMainNetParams
-		case "tltc":
-			net = &ltcTestNetParams
-		default:
+		if test.decodedInvoice != nil {
+			decodedInvoice = test.decodedInvoice()
+			net = decodedInvoice.Net
+		} else {
 			net = &chaincfg.MainNetParams
 		}
 
@@ -594,11 +604,6 @@ func TestDecodeEncode(t *testing.T) {
 
 		if test.skipEncoding {
 			continue
-		}
-
-		var decodedInvoice *Invoice
-		if test.decodedInvoice != nil {
-			decodedInvoice = test.decodedInvoice()
 		}
 
 		if test.beforeEncoding != nil {

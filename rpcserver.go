@@ -1693,7 +1693,8 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 				// attempt to decode it, populating the
 				// payment accordingly.
 				if nextPayment.PaymentRequest != "" {
-					payReq, err := zpay32.Decode(nextPayment.PaymentRequest, activeNetParams.Params)
+					payReq, err := zpay32.Decode(nextPayment.PaymentRequest,
+						activeNetParams.Params)
 					if err != nil {
 						select {
 						case errChan <- err:
@@ -1882,7 +1883,8 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	// If the proto request has an encoded payment request, then we we'll
 	// use that solely to dispatch the payment.
 	if nextPayment.PaymentRequest != "" {
-		payReq, err := zpay32.Decode(nextPayment.PaymentRequest, activeNetParams.Params)
+		payReq, err := zpay32.Decode(nextPayment.PaymentRequest,
+			activeNetParams.Params)
 		if err != nil {
 			return nil, err
 		}

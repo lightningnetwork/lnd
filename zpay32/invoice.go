@@ -276,9 +276,9 @@ func Decode(invoice string, net *chaincfg.Params) (*Invoice, error) {
 		return nil, err
 	}
 
-	// We expect the human-readable part to at least have ln + two chars
+	// We expect the human-readable part to at least have ln + one char
 	// encoding the network.
-	if len(hrp) < 4 {
+	if len(hrp) < 3 {
 		return nil, fmt.Errorf("hrp too short")
 	}
 
@@ -294,8 +294,8 @@ func Decode(invoice string, net *chaincfg.Params) (*Invoice, error) {
 	}
 	decodedInvoice.Net = net
 
-	// If the HRP is longer than "ln" + the segwit prefix, parse the
-	// payment amount.
+	// Optionally, if there's anything left of the HRP after ln + the segwit
+	// prefix, it parses the payment amount.
 	var netPrefixLength = len(net.Bech32HRPSegwit) + 2
 	if len(hrp) > netPrefixLength {
 		amount, err := decodeAmount(hrp[netPrefixLength:])

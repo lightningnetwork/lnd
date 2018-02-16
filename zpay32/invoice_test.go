@@ -137,7 +137,7 @@ func TestDecodeEncode(t *testing.T) {
 			valid:          false,
 		},
 		{
-			encodedInvoice: "lnb1asdsaddnv4wudz", // hrp too short
+			encodedInvoice: "ln1asdsaddnv4wudz", // hrp too short
 			valid:          false,
 		},
 		{

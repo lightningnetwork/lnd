@@ -206,28 +206,17 @@ func (b *BtcWallet) Stop() error {
 // final sum.
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) ConfirmedBalance(confs int32, witness bool) (btcutil.Amount, error) {
+func (b *BtcWallet) ConfirmedBalance(confs int32) (btcutil.Amount, error) {
 	var balance btcutil.Amount
 
-	if witness {
-		witnessOutputs, err := b.ListUnspentWitness(confs)
-		if err != nil {
-			return 0, err
-		}
-
-		for _, witnessOutput := range witnessOutputs {
-			balance += witnessOutput.Value
-		}
-	} else {
-		outputSum, err := b.wallet.CalculateBalance(confs)
-		if err != nil {
-			return 0, err
-		}
-
-		balance = outputSum
+	witnessOutputs, err := b.ListUnspentWitness(confs)
+	if err != nil {
+		return 0, err
 	}
 
-	// TODO(roasbeef): remove witness only distinction?
+	for _, witnessOutput := range witnessOutputs {
+		balance += witnessOutput.Value
+	}
 
 	return balance, nil
 }

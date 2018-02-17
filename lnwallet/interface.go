@@ -20,19 +20,16 @@ var ErrNotMine = errors.New("the passed output doesn't belong to the wallet")
 type AddressType uint8
 
 const (
-	// UnknownAddressType represents an output with an unknown or non-standard
-	// script.
-	UnknownAddressType AddressType = iota
-
 	// WitnessPubKey represents a p2wkh address.
-	WitnessPubKey
+	WitnessPubKey AddressType = iota
 
 	// NestedWitnessPubKey represents a p2sh output which is itself a
 	// nested p2wkh output.
 	NestedWitnessPubKey
 
-	// PubKeyHash represents a regular p2pkh output.
-	PubKeyHash
+	// UnknownAddressType represents an output with an unknown or non-standard
+	// script.
+	UnknownAddressType
 )
 
 // ErrDoubleSpend is returned from PublishTransaction in case the
@@ -127,14 +124,18 @@ type WalletController interface {
 	// that have at least confs confirmations. If confs is set to zero,
 	// then all unspent outputs, including those currently in the mempool
 	// will be included in the final sum.
-	ConfirmedBalance(confs int32, witness bool) (btcutil.Amount, error)
+	//
+	// NOTE: Only witness outputs should be included in the computation of
+	// the total spendable balance of the wallet. We require this as only
+	// witness inputs can be used for funding channels.
+	ConfirmedBalance(confs int32) (btcutil.Amount, error)
 
 	// NewAddress returns the next external or internal address for the
 	// wallet dictated by the value of the `change` parameter. If change is
 	// true, then an internal address should be used, otherwise an external
 	// address should be returned. The type of address returned is dictated
-	// by the wallet's capabilities, and may be of type: p2sh, p2pkh,
-	// p2wkh, p2wsh, etc.
+	// by the wallet's capabilities, and may be of type: p2sh, p2wkh,
+	// p2wsh, etc.
 	NewAddress(addrType AddressType, change bool) (btcutil.Address, error)
 
 	// GetPrivKey retrieves the underlying private key associated with the

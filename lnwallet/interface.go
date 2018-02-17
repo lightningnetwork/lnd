@@ -143,20 +143,6 @@ type WalletController interface {
 	// error should be returned.
 	GetPrivKey(a btcutil.Address) (*btcec.PrivateKey, error)
 
-	// NewRawKey returns a raw private key controlled by the wallet. These
-	// keys are used for the 2-of-2 multi-sig outputs for funding
-	// transactions, as well as the pub key used for commitment transactions.
-	//
-	// NOTE: The wallet MUST watch for on-chain outputs created to a p2wpkh
-	// script using keys returned by this function.
-	NewRawKey() (*btcec.PublicKey, error)
-
-	// FetchRootKey returns a root key which will be used by the
-	// LightningWallet to deterministically generate secrets. The private
-	// key returned by this method should remain constant in-between
-	// WalletController restarts.
-	FetchRootKey() (*btcec.PrivateKey, error)
-
 	// SendOutputs funds, signs, and broadcasts a Bitcoin transaction
 	// paying out to the specified outputs. In the case the wallet has
 	// insufficient funds, or the outputs are non-standard, an error should

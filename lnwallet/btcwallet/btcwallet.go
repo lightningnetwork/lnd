@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
@@ -27,9 +28,25 @@ const (
 )
 
 var (
-	lnNamespace          = []byte("ln")
-	rootKey              = []byte("ln-root")
+	// waddrmgrNamespaceKey is the namespace key that the waddrmgr state is
+	// stored within the top-level waleltdb buckets of btcwallet.
 	waddrmgrNamespaceKey = []byte("waddrmgr")
+
+	// lightningKeyScope is the key scope that will be used within the
+	// waddrmgr to create an HD chain for deriving all of our required
+	// keys. We'll ensure this this scope is created upon start.
+	lightningKeyScope = waddrmgr.KeyScope{
+		Purpose: keychain.BIP0043Purpose,
+		Coin:    0,
+	}
+
+	// lightningAddrSchema is the scope addr schema for all keys that we
+	// derive. We'll treat them all as p2wkh addresses, as atm we must
+	// specify a particular type.
+	lightningAddrSchema = waddrmgr.ScopeAddrSchema{
+		ExternalAddrType: waddrmgr.WitnessPubKey,
+		InternalAddrType: waddrmgr.WitnessPubKey,
+	}
 )
 
 // BtcWallet is an implementation of the lnwallet.WalletController interface
@@ -83,49 +100,23 @@ func New(cfg Config) (*BtcWallet, error) {
 		wallet, err = loader.CreateNewWallet(
 			pubPass, cfg.PrivatePass, cfg.HdSeed,
 		)
-
-		switch {
-		// If the wallet already exists, then we'll ignore this error
-		// and proceed directly to opening the wallet.
-		case err == base.ErrExists:
-
-		// Otherwise, there's a greater error here, and we'll return
-		// early.
-		case err != nil:
+		if err != nil {
 			return nil, err
 		}
-
-		if err := loader.UnloadWallet(); err != nil {
+	} else {
+		// Wallet has been created and been initialized at this point,
+		// open it along with all the required DB namespaces, and the
+		// DB itself.
+		wallet, err = loader.OpenExistingWallet(pubPass, false)
+		if err != nil {
 			return nil, err
 		}
-	}
-
-	// Wallet has been created and been initialized at this point, open it
-	// along with all the required DB namepsaces, and the DB itself.
-	wallet, err = loader.OpenExistingWallet(pubPass, false)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create a bucket within the wallet's database dedicated to storing
-	// our LN specific data.
-	db := wallet.Database()
-	err = walletdb.Update(db, func(tx walletdb.ReadWriteTx) error {
-		_, err := tx.CreateTopLevelBucket(lnNamespace)
-		if err != nil && err != walletdb.ErrBucketExists {
-			return err
-		}
-
-		return nil
-	})
-	if err != nil {
-		return nil, err
 	}
 
 	return &BtcWallet{
 		cfg:       &cfg,
 		wallet:    wallet,
-		db:        db,
+		db:        wallet.Database(),
 		chain:     cfg.ChainSource,
 		netParams: cfg.NetParams,
 		utxoCache: make(map[wire.OutPoint]*wire.TxOut),
@@ -141,6 +132,12 @@ func (b *BtcWallet) BackEnd() string {
 	}
 
 	return ""
+}
+
+// InternalWallet returns a pointer to the internal base wallet which is the
+// core of btcwallet.
+func (b *BtcWallet) InternalWallet() *base.Wallet {
+	return b.wallet
 }
 
 // Start initializes the underlying rpc connection, the wallet itself, and
@@ -163,6 +160,27 @@ func (b *BtcWallet) Start() error {
 
 	if err := b.wallet.Unlock(b.cfg.PrivatePass, nil); err != nil {
 		return err
+	}
+
+	// We'll now ensure that the KeyScope: (1017, 1) exists within the
+	// internal waddrmgr. We'll need this in order to properly generate the
+	// keys required for signing various contracts.
+	_, err := b.wallet.Manager.FetchScopedKeyManager(lightningKeyScope)
+	if err != nil {
+		// If the scope hasn't yet been created (it wouldn't been
+		// loaded by default if it was), then we'll manually create the
+		// scope for the first time ourselves.
+		err := walletdb.Update(b.db, func(tx walletdb.ReadWriteTx) error {
+			addrmgrNs := tx.ReadWriteBucket(waddrmgrNamespaceKey)
+
+			_, err := b.wallet.Manager.NewScopedKeyManager(
+				addrmgrNs, lightningKeyScope, lightningAddrSchema,
+			)
+			return err
+		})
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -209,6 +227,8 @@ func (b *BtcWallet) ConfirmedBalance(confs int32, witness bool) (btcutil.Amount,
 		balance = outputSum
 	}
 
+	// TODO(roasbeef): remove witness only distinction?
+
 	return balance, nil
 }
 
@@ -219,24 +239,22 @@ func (b *BtcWallet) ConfirmedBalance(confs int32, witness bool) (btcutil.Amount,
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) NewAddress(t lnwallet.AddressType, change bool) (btcutil.Address, error) {
-	var addrType waddrmgr.AddressType
+	var keyScope waddrmgr.KeyScope
 
 	switch t {
 	case lnwallet.WitnessPubKey:
-		addrType = waddrmgr.WitnessPubKey
+		keyScope = waddrmgr.KeyScopeBIP0084
 	case lnwallet.NestedWitnessPubKey:
-		addrType = waddrmgr.NestedWitnessPubKey
-	case lnwallet.PubKeyHash:
-		addrType = waddrmgr.PubKeyHash
+		keyScope = waddrmgr.KeyScopeBIP0049Plus
 	default:
 		return nil, fmt.Errorf("unknown address type")
 	}
 
 	if change {
-		return b.wallet.NewChangeAddress(defaultAccount, addrType)
+		return b.wallet.NewChangeAddress(defaultAccount, keyScope)
 	}
 
-	return b.wallet.NewAddress(defaultAccount, addrType)
+	return b.wallet.NewAddress(defaultAccount, keyScope)
 }
 
 // GetPrivKey retrieves the underlying private key associated with the passed

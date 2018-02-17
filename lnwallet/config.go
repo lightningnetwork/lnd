@@ -3,6 +3,7 @@ package lnwallet
 import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/roasbeef/btcd/chaincfg"
 )
 
@@ -21,6 +22,12 @@ type Config struct {
 	// transaction reaching a specified confirmation depth, and to catch
 	// counterparty's broadcasting revoked commitment states.
 	Notifier chainntnfs.ChainNotifier
+
+	// SecretKeyRing is used by the wallet during the funding workflow
+	// process to obtain keys to be used directly within contracts. Usage
+	// of this interface ensures that all key derivation is itself fully
+	// deterministic.
+	SecretKeyRing keychain.SecretKeyRing
 
 	// WalletController is the core wallet, all non Lightning Network
 	// specific interaction is proxied to the internal wallet.

@@ -23,7 +23,7 @@ type mockSigner struct {
 }
 
 func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx, signDesc *SignDescriptor) ([]byte, error) {
-	pubkey := signDesc.PubKey
+	pubkey := signDesc.KeyDesc.PubKey
 	switch {
 	case signDesc.SingleTweak != nil:
 		pubkey = TweakPubKeyWithTweak(pubkey, signDesc.SingleTweak)

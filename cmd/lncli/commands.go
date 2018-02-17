@@ -91,9 +91,8 @@ var newAddressCommand = cli.Command{
 	ArgsUsage: "address-type",
 	Description: `
 	Generate a wallet new address. Address-types has to be one of:
-	    - p2wkh:  Push to witness key hash
-	    - np2wkh: Push to nested witness key hash
-	    - p2pkh:  Push to public key hash (can't be used to fund channels)`,
+	    - p2wkh:  Pay to witness key hash
+	    - np2wkh: Pay to nested witness key hash`,
 	Action: actionDecorator(newAddress),
 }
 
@@ -111,11 +110,9 @@ func newAddress(ctx *cli.Context) error {
 		addrType = lnrpc.NewAddressRequest_WITNESS_PUBKEY_HASH
 	case "np2wkh":
 		addrType = lnrpc.NewAddressRequest_NESTED_PUBKEY_HASH
-	case "p2pkh":
-		addrType = lnrpc.NewAddressRequest_PUBKEY_HASH
 	default:
 		return fmt.Errorf("invalid address type %v, support address type "+
-			"are: p2wkh, np2wkh, p2pkh", stringAddrType)
+			"are: p2wkh and np2wkh", stringAddrType)
 	}
 
 	ctxb := context.Background()

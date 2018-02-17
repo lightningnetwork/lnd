@@ -463,8 +463,6 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 		addrType = lnwallet.WitnessPubKey
 	case lnrpc.NewAddressRequest_NESTED_PUBKEY_HASH:
 		addrType = lnwallet.NestedWitnessPubKey
-	case lnrpc.NewAddressRequest_PUBKEY_HASH:
-		addrType = lnwallet.PubKeyHash
 	}
 
 	addr, err := r.server.cc.wallet.NewAddress(addrType, false)
@@ -1264,13 +1262,13 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 	in *lnrpc.WalletBalanceRequest) (*lnrpc.WalletBalanceResponse, error) {
 
 	// Get total balance, from txs that have >= 0 confirmations.
-	totalBal, err := r.server.cc.wallet.ConfirmedBalance(0, in.WitnessOnly)
+	totalBal, err := r.server.cc.wallet.ConfirmedBalance(0)
 	if err != nil {
 		return nil, err
 	}
 
 	// Get confirmed balance, from txs that have >= 1 confirmations.
-	confirmedBal, err := r.server.cc.wallet.ConfirmedBalance(1, in.WitnessOnly)
+	confirmedBal, err := r.server.cc.wallet.ConfirmedBalance(1)
 	if err != nil {
 		return nil, err
 	}

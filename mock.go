@@ -203,8 +203,7 @@ func (*mockWalletController) FetchInputInfo(
 	}
 	return txOut, nil
 }
-func (*mockWalletController) ConfirmedBalance(confs int32,
-	witness bool) (btcutil.Amount, error) {
+func (*mockWalletController) ConfirmedBalance(confs int32) (btcutil.Amount, error) {
 	return 0, nil
 }
 

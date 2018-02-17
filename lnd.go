@@ -37,6 +37,7 @@ import (
 	flags "github.com/jessevdk/go-flags"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
@@ -237,7 +238,13 @@ func lndMain() error {
 	primaryChain := registeredChains.PrimaryChain()
 	registeredChains.RegisterChain(primaryChain, activeChainControl)
 
-	idPrivKey, err := activeChainControl.wallet.GetIdentitykey()
+	// TODO(roasbeef): add rotation
+	idPrivKey, err := activeChainControl.wallet.DerivePrivKey(keychain.KeyDescriptor{
+		KeyLocator: keychain.KeyLocator{
+			Family: keychain.KeyFamilyNodeKey,
+			Index:  0,
+		},
+	})
 	if err != nil {
 		return err
 	}
@@ -252,8 +259,9 @@ func lndMain() error {
 
 	// Set up the core server which will listen for incoming peer
 	// connections.
-	server, err := newServer(cfg.Listeners, chanDB, activeChainControl,
-		idPrivKey)
+	server, err := newServer(
+		cfg.Listeners, chanDB, activeChainControl, idPrivKey,
+	)
 	if err != nil {
 		srvrLog.Errorf("unable to create server: %v\n", err)
 		return err

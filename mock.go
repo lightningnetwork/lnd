@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
@@ -28,7 +29,7 @@ func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx,
 	witnessScript := signDesc.WitnessScript
 	privKey := m.key
 
-	if !privKey.PubKey().IsEqual(signDesc.PubKey) {
+	if !privKey.PubKey().IsEqual(signDesc.KeyDesc.PubKey) {
 		return nil, fmt.Errorf("incorrect key passed")
 	}
 
@@ -218,16 +219,6 @@ func (*mockWalletController) GetPrivKey(a btcutil.Address) (*btcec.PrivateKey, e
 	return nil, nil
 }
 
-// NewRawKey will be called to get keys to be used for the funding tx and the
-// commitment tx.
-func (m *mockWalletController) NewRawKey() (*btcec.PublicKey, error) {
-	return m.rootKey.PubKey(), nil
-}
-
-// FetchRootKey will be called to provide the wallet with a root key.
-func (m *mockWalletController) FetchRootKey() (*btcec.PrivateKey, error) {
-	return m.rootKey, nil
-}
 func (*mockWalletController) SendOutputs(outputs []*wire.TxOut,
 	_ lnwallet.SatPerVByte) (*chainhash.Hash, error) {
 
@@ -270,6 +261,31 @@ func (*mockWalletController) Start() error {
 }
 func (*mockWalletController) Stop() error {
 	return nil
+}
+
+type mockSecretKeyRing struct {
+	rootKey *btcec.PrivateKey
+}
+
+func (m *mockSecretKeyRing) DeriveNextKey(keyFam keychain.KeyFamily) (keychain.KeyDescriptor, error) {
+	return keychain.KeyDescriptor{
+		PubKey: m.rootKey.PubKey(),
+	}, nil
+}
+
+func (m *mockSecretKeyRing) DeriveKey(keyLoc keychain.KeyLocator) (keychain.KeyDescriptor, error) {
+	return keychain.KeyDescriptor{
+		PubKey: m.rootKey.PubKey(),
+	}, nil
+}
+
+func (m *mockSecretKeyRing) DerivePrivKey(keyDesc keychain.KeyDescriptor) (*btcec.PrivateKey, error) {
+	return m.rootKey, nil
+}
+
+func (m *mockSecretKeyRing) ScalarMult(keyDesc keychain.KeyDescriptor,
+	pubKey *btcec.PublicKey) ([]byte, error) {
+	return nil, nil
 }
 
 type mockPreimageCache struct {

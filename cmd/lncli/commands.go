@@ -1044,15 +1044,8 @@ func unlock(ctx *cli.Context) error {
 }
 
 var walletBalanceCommand = cli.Command{
-	Name:  "walletbalance",
-	Usage: "Compute and display the wallet's current balance",
-	Flags: []cli.Flag{
-		cli.BoolFlag{
-			Name: "witness_only",
-			Usage: "if only witness outputs should be considered when " +
-				"calculating the wallet's balance",
-		},
-	},
+	Name:   "walletbalance",
+	Usage:  "Compute and display the wallet's current balance",
 	Action: actionDecorator(walletBalance),
 }
 
@@ -1061,9 +1054,7 @@ func walletBalance(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	req := &lnrpc.WalletBalanceRequest{
-		WitnessOnly: ctx.Bool("witness_only"),
-	}
+	req := &lnrpc.WalletBalanceRequest{}
 	resp, err := client.WalletBalance(ctxb, req)
 	if err != nil {
 		return err

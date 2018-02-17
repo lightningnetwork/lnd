@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/boltdb/bolt"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/roasbeef/btcd/btcec"
@@ -170,33 +171,33 @@ type ChannelConfig struct {
 
 	// MultiSigKey is the key to be used within the 2-of-2 output script
 	// for the owner of this channel config.
-	MultiSigKey *btcec.PublicKey
+	MultiSigKey keychain.KeyDescriptor
 
 	// RevocationBasePoint is the base public key to be used when deriving
 	// revocation keys for the remote node's commitment transaction. This
 	// will be combined along with a per commitment secret to derive a
 	// unique revocation key for each state.
-	RevocationBasePoint *btcec.PublicKey
+	RevocationBasePoint keychain.KeyDescriptor
 
 	// PaymentBasePoint is the base public key to be used when deriving
 	// the key used within the non-delayed pay-to-self output on the
 	// commitment transaction for a node. This will be combined with a
 	// tweak derived from the per-commitment point to ensure unique keys
 	// for each commitment transaction.
-	PaymentBasePoint *btcec.PublicKey
+	PaymentBasePoint keychain.KeyDescriptor
 
 	// DelayBasePoint is the base public key to be used when deriving the
 	// key used within the delayed pay-to-self output on the commitment
 	// transaction for a node. This will be combined with a tweak derived
 	// from the per-commitment point to ensure unique keys for each
 	// commitment transaction.
-	DelayBasePoint *btcec.PublicKey
+	DelayBasePoint keychain.KeyDescriptor
 
 	// HtlcBasePoint is the base public key to be used when deriving the
 	// local HTLC key. The derived key (combined with the tweak derived
 	// from the per-commitment point) is used within the "to self" clause
 	// within any HTLC output scripts.
-	HtlcBasePoint *btcec.PublicKey
+	HtlcBasePoint keychain.KeyDescriptor
 }
 
 // ChannelCommitment is a snapshot of the commitment state at a particular

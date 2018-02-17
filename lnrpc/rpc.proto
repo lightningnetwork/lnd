@@ -145,8 +145,7 @@ service Lightning {
     /** lncli: `walletbalance`
     WalletBalance returns total unspent outputs(confirmed and unconfirmed), all
     confirmed unspent outputs and all unconfirmed unspent outputs under control
-    by the wallet. This method can be modified by having the request specify
-    only witness outputs should be factored into the final output sum.
+    of the wallet. 
     */
     rpc WalletBalance (WalletBalanceRequest) returns (WalletBalanceResponse) {
         option (google.api.http) = {
@@ -681,7 +680,6 @@ message NewAddressRequest {
     enum AddressType {
         WITNESS_PUBKEY_HASH = 0;
         NESTED_PUBKEY_HASH = 1;
-        PUBKEY_HASH = 2;
     }
 
     /// The address type
@@ -1099,8 +1097,6 @@ message PendingChannelsResponse {
 }
 
 message WalletBalanceRequest {
-    /// If only witness outputs should be considered when calculating the wallet's balance
-    bool witness_only = 1;
 }
 message WalletBalanceResponse {
     /// The balance of the wallet

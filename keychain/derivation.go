@@ -6,7 +6,7 @@ const (
 	// KeyDerivationVersion is the version of the key derivation schema
 	// defined below. We use a version as this means that we'll be able to
 	// accept new seed in the future and be able to discern if the software
-	// is compatible with the version of the weed.
+	// is compatible with the version of the seed.
 	KeyDerivationVersion = 0
 
 	// BIP0043Purpose is the "purpose" value that we'll use for the first

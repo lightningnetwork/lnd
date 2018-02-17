@@ -541,30 +541,31 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	}
 
 	// With the above keys created, we'll also need to initialization our
-	// initial revocation tree state. In order to do so in a deterministic
-	// manner (for recovery purposes), we'll use the current block hash
-	// along with the identity public key of the node we're creating the
-	// channel with. In the event of a recovery, given these two items and
-	// the initialize wallet HD seed, we can derive all of our revocation
-	// secrets.
-	masterElkremRoot, err := l.deriveMasterRevocationRoot()
+	// initial revocation tree state.
+	nextRevocationKeyDesc, err := l.DeriveNextKey(
+		keychain.KeyFamilyRevocationRoot,
+	)
 	if err != nil {
 		req.err <- err
 		req.resp <- nil
 		return
 	}
-	bestHash, _, err := l.Cfg.ChainIO.GetBestBlock()
+	revocationRoot, err := l.DerivePrivKey(nextRevocationKeyDesc)
 	if err != nil {
 		req.err <- err
 		req.resp <- nil
 		return
 	}
-	revocationRoot := DeriveRevocationRoot(masterElkremRoot, *bestHash,
-		req.nodeID)
 
 	// Once we have the root, we can then generate our shachain producer
 	// and from that generate the per-commitment point.
-	producer := shachain.NewRevocationProducer(revocationRoot)
+	revRoot, err := chainhash.NewHash(revocationRoot.Serialize())
+	if err != nil {
+		req.err <- err
+		req.resp <- nil
+		return
+	}
+	producer := shachain.NewRevocationProducer(*revRoot)
 	firstPreimage, err := producer.AtIndex(0)
 	if err != nil {
 		req.err <- err
@@ -1329,18 +1330,6 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerVByte,
 	return nil
 }
 
-// deriveMasterRevocationRoot derives the private key which serves as the master
-// producer root. This master secret is used as the secret input to a HKDF to
-// generate revocation secrets based on random, but public data.
-func (l *LightningWallet) deriveMasterRevocationRoot() (*btcec.PrivateKey, error) {
-	masterElkremRoot, err := l.rootKey.Child(revocationRootIndex)
-	if err != nil {
-		return nil, err
-	}
-
-	return masterElkremRoot.ECPrivKey()
-}
-
 // DeriveStateHintObfuscator derives the bytes to be used for obfuscating the
 // state hints from the root to be used for a new channel. The obfuscator is
 // generated via the following computation:
@@ -1417,8 +1406,6 @@ func coinSelect(feeRate SatPerVByte, amt btcutil.Amount,
 				weightEstimate.AddP2WKHInput()
 			case NestedWitnessPubKey:
 				weightEstimate.AddNestedP2WKHInput()
-			case PubKeyHash:
-				weightEstimate.AddP2PKHInput()
 			default:
 				return nil, 0, fmt.Errorf("Unsupported address type: %v",
 					utxo.AddressType)
@@ -1429,7 +1416,9 @@ func coinSelect(feeRate SatPerVByte, amt btcutil.Amount,
 		weightEstimate.AddP2WSHOutput()
 
 		// Assume that change output is a P2WKH output.
-		// TODO: Handle wallets that generate non-witness change addresses.
+		//
+		// TODO: Handle wallets that generate non-witness change
+		// addresses.
 		weightEstimate.AddP2WKHOutput()
 
 		// The difference between the selected amount and the amount

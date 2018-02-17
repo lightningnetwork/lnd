@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math/big"
 
-	"golang.org/x/crypto/hkdf"
 	"golang.org/x/crypto/ripemd160"
 
 	"github.com/roasbeef/btcd/btcec"
@@ -1234,33 +1233,6 @@ func DeriveRevocationPrivKey(revokeBasePriv *btcec.PrivateKey,
 
 	priv, _ := btcec.PrivKeyFromBytes(btcec.S256(), revocationPriv.Bytes())
 	return priv
-}
-
-// DeriveRevocationRoot derives an root unique to a channel given the
-// derivation root, and the blockhash that the funding process began at and the
-// remote node's identity public key. The seed is derived using the HKDF[1][2]
-// instantiated with sha-256. With this schema, once we know the block hash of
-// the funding transaction, and who we funded the channel with, we can
-// reconstruct all of our revocation state.
-//
-// [1]: https://eprint.iacr.org/2010/264.pdf
-// [2]: https://tools.ietf.org/html/rfc5869
-func DeriveRevocationRoot(derivationRoot *btcec.PrivateKey,
-	blockSalt chainhash.Hash, nodePubKey *btcec.PublicKey) chainhash.Hash {
-
-	secret := derivationRoot.Serialize()
-	salt := blockSalt[:]
-	info := nodePubKey.SerializeCompressed()
-
-	seedReader := hkdf.New(sha256.New, secret, salt, info)
-
-	// It's safe to ignore the error her as we know for sure that we won't
-	// be draining the HKDF past its available entropy horizon.
-	// TODO(roasbeef): revisit...
-	var root chainhash.Hash
-	seedReader.Read(root[:])
-
-	return root
 }
 
 // SetStateNumHint encodes the current state number within the passed

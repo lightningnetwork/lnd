@@ -11,7 +11,6 @@ import (
 	"golang.org/x/crypto/ripemd160"
 
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -312,10 +311,17 @@ func senderHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 func SenderHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
+	if signDesc.KeyDesc.PubKey == nil {
+		return nil, fmt.Errorf("cannot generate witness with nil " +
+			"KeyDesc pubkey")
+	}
+
 	// Derive the revocation key using the local revocation base point and
 	// commitment point.
-	revokeKey := DeriveRevocationPubkey(signDesc.PubKey,
-		signDesc.DoubleTweak.PubKey())
+	revokeKey := DeriveRevocationPubkey(
+		signDesc.KeyDesc.PubKey,
+		signDesc.DoubleTweak.PubKey(),
+	)
 
 	return senderHtlcSpendRevoke(signer, signDesc, revokeKey, sweepTx)
 }
@@ -562,10 +568,17 @@ func receiverHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 func ReceiverHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
+	if signDesc.KeyDesc.PubKey == nil {
+		return nil, fmt.Errorf("cannot generate witness with nil " +
+			"KeyDesc pubkey")
+	}
+
 	// Derive the revocation key using the local revocation base point and
 	// commitment point.
-	revokeKey := DeriveRevocationPubkey(signDesc.PubKey,
-		signDesc.DoubleTweak.PubKey())
+	revokeKey := DeriveRevocationPubkey(
+		signDesc.KeyDesc.PubKey,
+		signDesc.DoubleTweak.PubKey(),
+	)
 
 	return receiverHtlcSpendRevoke(signer, signDesc, revokeKey, sweepTx)
 }
@@ -1023,6 +1036,11 @@ func CommitSpendRevoke(signer Signer, signDesc *SignDescriptor,
 func CommitSpendNoDelay(signer Signer, signDesc *SignDescriptor,
 	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
+	if signDesc.KeyDesc.PubKey == nil {
+		return nil, fmt.Errorf("cannot generate witness with nil " +
+			"KeyDesc pubkey")
+	}
+
 	// This is just a regular p2wkh spend which looks something like:
 	//  * witness: <sig> <pubkey>
 	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
@@ -1037,7 +1055,7 @@ func CommitSpendNoDelay(signer Signer, signDesc *SignDescriptor,
 	witness := make([][]byte, 2)
 	witness[0] = append(sweepSig, byte(signDesc.HashType))
 	witness[1] = TweakPubKeyWithTweak(
-		signDesc.PubKey, signDesc.SingleTweak,
+		signDesc.KeyDesc.PubKey, signDesc.SingleTweak,
 	).SerializeCompressed()
 
 	return witness, nil

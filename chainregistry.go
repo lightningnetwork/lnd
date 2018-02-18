@@ -174,6 +174,27 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			ChainParams:  *activeNetParams.Params,
 			AddPeers:     cfg.NeutrinoMode.AddPeers,
 			ConnectPeers: cfg.NeutrinoMode.ConnectPeers,
+			Dialer: func(addr net.Addr) (net.Conn, error) {
+				return cfg.net.Dial(addr.Network(), addr.String())
+			},
+			NameResolver: func(host string) ([]net.IP, error) {
+				addrs, err := cfg.net.LookupHost(host)
+				if err != nil {
+					return nil, err
+				}
+
+				ips := make([]net.IP, 0, len(addrs))
+				for _, strIP := range addrs {
+					ip := net.ParseIP(strIP)
+					if ip == nil {
+						continue
+					}
+
+					ips = append(ips, ip)
+				}
+
+				return ips, nil
+			},
 		}
 		neutrino.WaitForMoreCFHeaders = time.Second * 1
 		neutrino.MaxPeers = 8

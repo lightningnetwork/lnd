@@ -1700,7 +1700,6 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 				neutrino.Config{
 					DataDir:     tempTestDirAlice,
 					Database:    aliceDB,
-					Namespace:   []byte("alice"),
 					ChainParams: *netParams,
 					ConnectPeers: []string{
 						miningNode.P2PAddress(),
@@ -1726,7 +1725,6 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 				neutrino.Config{
 					DataDir:     tempTestDirBob,
 					Database:    bobDB,
-					Namespace:   []byte("bob"),
 					ChainParams: *netParams,
 					ConnectPeers: []string{
 						miningNode.P2PAddress(),

@@ -251,6 +251,13 @@ func lndMain() error {
 	}
 	idPrivKey.Curve = btcec.S256()
 
+	if cfg.Tor.Socks != "" && cfg.Tor.DNS != "" {
+		srvrLog.Infof("Proxying all network traffic via Tor "+
+			"(stream_isolation=%v)! NOTE: If running with a full-node "+
+			"backend, ensure that is proxying over Tor as well",
+			cfg.Tor.StreamIsolation)
+	}
+
 	// Set up the core server which will listen for incoming peer
 	// connections.
 	server, err := newServer(cfg.Listeners, chanDB, activeChainControl,

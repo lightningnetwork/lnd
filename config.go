@@ -134,8 +134,9 @@ type autoPilotConfig struct {
 }
 
 type torConfig struct {
-	Socks string `long:"socks" description:"The port that Tor's exposed SOCKS5 proxy is listening on. Using Tor allows outbound-only connections (listening will be disabled) -- NOTE port must be between 1024 and 65535"`
-	DNS   string `long:"dns" description:"The DNS server as IP:PORT that Tor will use for SRV queries - NOTE must have TCP resolution enabled"`
+	Socks           string `long:"socks" description:"The port that Tor's exposed SOCKS5 proxy is listening on. Using Tor allows outbound-only connections (listening will be disabled) -- NOTE port must be between 1024 and 65535"`
+	DNS             string `long:"dns" description:"The DNS server as IP:PORT that Tor will use for SRV queries - NOTE must have TCP resolution enabled"`
+	StreamIsolation bool   `long:"streamisolation" description:"Enable Tor stream isolation by randomizing user credentials for each connection."`
 }
 
 // config defines the configuration options for lnd.
@@ -325,8 +326,9 @@ func loadConfig() (*config, error) {
 		}
 
 		cfg.net = &torsvc.TorProxyNet{
-			TorDNS:   cfg.Tor.DNS,
-			TorSocks: cfg.Tor.Socks,
+			TorDNS:          cfg.Tor.DNS,
+			TorSocks:        cfg.Tor.Socks,
+			StreamIsolation: cfg.Tor.StreamIsolation,
 		}
 
 		// If we are using Tor, since we only want connections routed

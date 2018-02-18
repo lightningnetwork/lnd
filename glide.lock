@@ -1,5 +1,5 @@
-hash: a69cfd6352bed3cc0d24a01f42609b849f9f6d5664be7470b281bf6b09c58d84
-updated: 2018-02-06T17:14:31.208312805-08:00
+hash: 63c0706e71ebdd4664e6a452bf58035571a8799b24e517ea0d8aa2fb8dd94155
+updated: 2018-02-08T15:26:31.423935935-08:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -72,7 +72,7 @@ imports:
 - name: github.com/lightninglabs/gozmq
   version: 0d266ba6d55ea65c18c7a02d8992c89355149e80
 - name: github.com/lightninglabs/neutrino
-  version: 6c8f30a130bb170348ceb754ce4204156efe2741
+  version: c933ad49936ac3e5bc1b42e855f2da69745e34cc
   subpackages:
   - filterdb
   - headerfs

@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs/neutrinonotify"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/routing/chainview"
@@ -443,6 +444,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 		WalletController:   wc,
 		Signer:             cc.signer,
 		FeeEstimator:       cc.feeEstimator,
+		SecretKeyRing:      keychain.NewBtcWalletKeyRing(wc.InternalWallet()),
 		ChainIO:            cc.chainIO,
 		DefaultConstraints: defaultChannelConstraints,
 		NetParams:          *activeNetParams.Params,

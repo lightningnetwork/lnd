@@ -27,14 +27,22 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Error that occurs if a user provides a bad pubkey@host:port address.
-var ErrBadAddressFormat = fmt.Errorf(
-	"target address expected in format: pubkey@host:port")
-
 // TODO(roasbeef): cli logic for supporting both positional and unix style
 // arguments.
 
 // TODO(roasbeef): expose all fee conf targets
+
+var (
+	// ErrBadAddressFormat occurs if a user provides a bad LightningAddress.
+	ErrBadAddressFormat = fmt.Errorf(
+		"target address expected in format: pubkey@host:port")
+	// ErrFriendlyEOF is used as a user-friendly replacment when an EOF occurs.
+	ErrFriendlyEOF = fmt.Errorf(
+		"remote peer is unavailable, rejected the HTTP connection, " +
+			"or is not using the specified pubkey")
+	// ErrMissingPubKey is used when the user fails to supply a pubkey.
+	ErrMissingPubKey = fmt.Errorf("must specify target public key")
+)
 
 func printJSON(resp interface{}) {
 	b, err := json.Marshal(resp)
@@ -381,13 +389,13 @@ var disconnectCommand = cli.Command{
 				"to disconnect from",
 		},
 	},
-	Action: actionDecorator(disconnectPeer),
+	Action: actionDecoratorWithClient(disconnectPeer),
 }
 
-func disconnectPeer(ctx *cli.Context) error {
+func disconnectPeer(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
+
 	ctxb := context.Background()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
 
 	var pubKey string
 	switch {
@@ -396,7 +404,7 @@ func disconnectPeer(ctx *cli.Context) error {
 	case ctx.Args().Present():
 		pubKey = ctx.Args().First()
 	default:
-		return fmt.Errorf("must specify target public key")
+		return ErrMissingPubKey
 	}
 
 	req := &lnrpc.DisconnectPeerRequest{
@@ -408,7 +416,7 @@ func disconnectPeer(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(lnid)
+	printRespJSONToWriter(writer, lnid)
 	return nil
 }
 

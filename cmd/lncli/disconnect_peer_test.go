@@ -1,14 +1,12 @@
 package main
 
 import (
-	"flag"
 	"io"
 	"testing"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/testing"
 	"github.com/stretchr/testify/require"
-	"github.com/urfave/cli"
 )
 
 // disconnectPeer returns the correct output if no errors occur.
@@ -18,23 +16,21 @@ func TestDisconnectPeer(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "{\n\n}\n", resp,
 		"Incorrect JSON response from disconnectPeer.")
+
+	expectedRequest := lnrpc.DisconnectPeerRequest{PubKey}
+	require.Equal(t, &expectedRequest, client.CapturedDisconnectPeerRequest)
 }
 
 // disconnectPeer can take the pubkey as a flag instead of arg.
 func TestDisconnectPeer_NodeKeyFlag(t *testing.T) {
-
-	set := flag.NewFlagSet("test", 0)
-	set.String("node_key", "default value", "doc")
-
-	context := cli.NewContext(nil, set, nil)
-	set.Parse([]string{"--node_key", PubKey})
-
 	client := lnrpctesting.NewStubLightningClient()
-	writer := StringWriter{}
-	err := disconnectPeer(context, &client, &writer)
+	resp, err := testDisconnectPeer(&client, []string{"--node_key", PubKey})
 	require.NoError(t, err)
-	require.Equal(t, "{\n\n}\n", writer.Join(),
+	require.Equal(t, "{\n\n}\n", resp,
 		"Incorrect JSON response from disconnectPeer.")
+
+	expectedRequest := lnrpc.DisconnectPeerRequest{PubKey}
+	require.Equal(t, &expectedRequest, client.CapturedDisconnectPeerRequest)
 }
 
 // disconnectPeer returns the correct error if no pubkey was specified
@@ -62,19 +58,6 @@ func TestDisconnectPeer_FailedDisconnectingWithEOF(t *testing.T) {
 }
 
 func testDisconnectPeer(client lnrpc.LightningClient, args []string) (string, error) {
-
-	set := flag.NewFlagSet("test", 0)
-	context := cli.NewContext(nil, set, nil)
-	set.Parse(args)
-
-	writer := StringWriter{}
-	err := disconnectPeer(context, client, &writer)
-	if err != nil {
-		return "", err
-	}
-
-	return writer.Join(), nil
-
 	return TestCommand(
 		client, disconnectCommand, disconnectPeer, "disconnect", args)
 }

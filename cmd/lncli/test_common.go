@@ -13,16 +13,18 @@ import (
 )
 
 var (
-	CommandTimeout = 50 * time.Millisecond
+	commandTimeout = 50 * time.Millisecond
 	ErrTimeout     = fmt.Errorf("Timed out waiting for the command to complete.")
 
 	PubKey                 = "02c39955c1579afe4824dc0ef4493fdf7f3760b158cf6d367d8570b9f19683afb4"
 	GoodAddress            = "02c39955c1579afe4824dc0ef4493fdf7f3760b158cf6d367d8570b9f19683afb4@bitcoin.org:1234"
 	GoodAddressWithoutPort = "02c39955c1579afe4824dc0ef4493fdf7f3760b158cf6d367d8570b9f19683afb4@bitcoin.org"
 	BadAddress             = "02c39955c1579afe4824dc0ef4493fdf7f3760b158cf6d367d8570b9f19683afb4"
+	Host                   = "bitcoin.org"
+	HostWithPort           = "bitcoin.org:1234"
 
-	PeerIdInt      int32 = 321
-	PeerId               = "321"
+	PeerIDInt      int32 = 321
+	PeerID               = "321"
 	LocalAmountInt int64 = 10000
 	LocalAmount          = "10000"
 	PushAmountInt  int64 = 5000
@@ -73,7 +75,7 @@ func (w *StringWriter) Join() string {
 	return strings.Join(w.outputs, "\n")
 }
 
-// Calls the specified command with the specified LightningClient and args.
+// TestCommandWithTimeout calls the specified command with the specified LightningClient and args.
 // Replaces stdout as the writer so that the output can be unit tested (without IO).
 // Applies a timeout to the command call to prevent infinite looping
 // since unit tests should terminate, even if non-termination would indicate a bug.
@@ -118,7 +120,7 @@ func TestCommandWithTimeout(
 		}
 
 		return writer.Join(), nil
-	case <-time.After(CommandTimeout):
+	case <-time.After(commandTimeout):
 		// The command was blocking (probably) indefinitely,
 		// which it is currently intended only if no EOF nor error occurred.
 		return "", ErrTimeout

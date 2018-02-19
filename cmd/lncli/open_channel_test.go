@@ -39,12 +39,12 @@ func TestOpenChannel_NodeKeyFlag(t *testing.T) {
 func TestOpenChannel_PeerId(t *testing.T) {
 	// The normal expected request has NodeKey set instead of PeerId. Override that.
 	expectedReq := expectedRequest()
-	expectedReq.TargetPeerId = PeerIdInt
+	expectedReq.TargetPeerId = PeerIDInt
 	expectedReq.NodePubkey = nil
 
 	testErrorlessOpenChannel(t,
 		[]lnrpc.OpenStatusUpdate{chanOpenUpdateBytes()},
-		[]string{"--peer_id", PeerId, LocalAmount, PushAmount},
+		[]string{"--peer_id", PeerID, LocalAmount, PushAmount},
 		expectedReq,
 		"{\n\t\"channel_point\": \"0000000000000000000000000000000012000000000000000000000000000000:5\"\n}\n")
 }
@@ -141,7 +141,7 @@ func TestOpenChannel_Help(t *testing.T) {
 func TestOpenChannel_PeerIdAndPubKey(t *testing.T) {
 	client := lnrpctesting.NewStubLightningClient()
 	_, err := testOpenChannel(&client,
-		[]string{"--peer_id", PeerId, "--node_key", PubKey})
+		[]string{"--peer_id", PeerID, "--node_key", PubKey})
 	require.Equal(t, ErrDuplicatePeerSpecifiers, err)
 }
 

@@ -16,6 +16,11 @@ func TestConnectPeer(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "{\n    \"peer_id\": 0\n}\n", resp,
 		"Incorrect JSON response from connectPeer.")
+
+	expectedRequest := lnrpc.ConnectPeerRequest{
+		&lnrpc.LightningAddress{PubKey, HostWithPort},
+		false}
+	require.Equal(t, &expectedRequest, client.CapturedConnectPeerRequest)
 }
 
 // connectPeer doesn't require a port in order to successfully connect.
@@ -25,6 +30,11 @@ func TestConnectPeer_NoPort(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "{\n    \"peer_id\": 0\n}\n", resp,
 		"Incorrect JSON response from connectPeer.")
+
+	expectedRequest := lnrpc.ConnectPeerRequest{
+		&lnrpc.LightningAddress{PubKey, Host},
+		false}
+	require.Equal(t, &expectedRequest, client.CapturedConnectPeerRequest)
 }
 
 // connectPeer returns the correct error if an invalid address was specified.

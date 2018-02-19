@@ -57,10 +57,11 @@ var (
 	// ErrMissingDestinationTxid occurs if the dest argument is omitted.
 	ErrMissingDestinationTxid = fmt.Errorf("destination txid argument missing")
 
-	// ErrMissingPaymentHash
+	// ErrMissingPaymentHash occurs if the payemtn hash is omitted.
 	ErrMissingPaymentHash = fmt.Errorf("payment hash argument missing")
 
-	// ErrUnnecessaryArgumentForDebugSend
+	// ErrUnnecessaryArgumentForDebugSend if unnecessary args are specified
+	// on a debug send.
 	ErrUnnecessaryArgumentForDebugSend = fmt.Errorf("do not provide a payment hash with debug send")
 )
 

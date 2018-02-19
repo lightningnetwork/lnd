@@ -167,12 +167,11 @@ var newAddressCommand = cli.Command{
 	    - p2wkh:  Push to witness key hash
 	    - np2wkh: Push to nested witness key hash
 	    - p2pkh:  Push to public key hash (can't be used to fund channels)`,
-	Action: actionDecorator(newAddress),
+	Action: actionDecoratorWithClient(newAddress),
 }
 
-func newAddress(ctx *cli.Context) error {
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
+func newAddress(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
 
 	stringAddrType := ctx.Args().First()
 
@@ -199,7 +198,7 @@ func newAddress(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(addr)
+	printRespJSONToWriter(writer, addr)
 	return nil
 }
 

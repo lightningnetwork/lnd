@@ -9,7 +9,8 @@ import (
 // A LightningClient that doesn't do any work,
 // but instead just returns minimal, successful responses for all APIs.
 type StubLightningClient struct {
-	SendPaymentClient StubSendPaymentClient
+	SendPaymentClient         StubSendPaymentClient
+	CapturedNewAddressRequest *lnrpc.NewAddressRequest
 }
 
 func NewStubLightningClient() StubLightningClient {
@@ -44,7 +45,9 @@ func (c *StubLightningClient) SendMany(ctx context.Context, in *lnrpc.SendManyRe
 }
 
 func (c *StubLightningClient) NewAddress(ctx context.Context, in *lnrpc.NewAddressRequest, opts ...grpc.CallOption) (*lnrpc.NewAddressResponse, error) {
-	return new(lnrpc.NewAddressResponse), nil
+	c.CapturedNewAddressRequest = in
+	response := lnrpc.NewAddressResponse{"Address"}
+	return &response, nil
 }
 
 func (c *StubLightningClient) NewWitnessAddress(ctx context.Context, in *lnrpc.NewWitnessAddressRequest, opts ...grpc.CallOption) (*lnrpc.NewAddressResponse, error) {

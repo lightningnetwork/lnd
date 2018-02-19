@@ -824,11 +824,10 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// synced to the network as we won't be able to properly validate the
 	// confirmation of the funding transaction.
 	isSynced, _, err := f.cfg.Wallet.IsSynced()
-	if err != nil {
-		fndgLog.Errorf("unable to query wallet: %v", err)
-		return
-	}
-	if !isSynced {
+	if err != nil || !isSynced {
+		if err != nil {
+			fndgLog.Errorf("unable to query wallet: %v", err)
+		}
 		f.failFundingFlow(
 			fmsg.peerAddress.IdentityKey, fmsg.msg.PendingChannelID,
 			lnwire.ErrorData{byte(lnwire.ErrSynchronizingChain)},

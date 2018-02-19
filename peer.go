@@ -274,7 +274,7 @@ func (p *peer) Start() error {
 	// registering them with the switch and launching the necessary
 	// goroutines required to operate them.
 	peerLog.Debugf("Loaded %v active channels from database with "+
-		"peerIDKey(%x)", len(activeChans), p.PubKey())
+		"NodeKey(%x)", len(activeChans), p.PubKey())
 	if err := p.loadActiveChannels(activeChans); err != nil {
 		return fmt.Errorf("unable to load channels: %v", err)
 	}
@@ -308,7 +308,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		p.activeChannels[chanID] = lnChan
 		p.activeChanMtx.Unlock()
 
-		peerLog.Infof("peerIDKey(%x) loading ChannelPoint(%v)", p.PubKey(), chanPoint)
+		peerLog.Infof("NodeKey(%x) loading ChannelPoint(%v)", p.PubKey(), chanPoint)
 
 		// Skip adding any permanently irreconcilable channels to the
 		// htlcswitch.
@@ -1245,7 +1245,7 @@ out:
 			p.activeChanMtx.Unlock()
 
 			peerLog.Infof("New channel active ChannelPoint(%v) "+
-				"with peerIDKey(%x)", chanPoint, p.PubKey())
+				"with NodeKey(%x)", chanPoint, p.PubKey())
 
 			// Next, we'll assemble a ChannelLink along with the
 			// necessary items it needs to function.
@@ -1302,7 +1302,7 @@ out:
 			// local payments and also passively forward payments.
 			if err := p.server.htlcSwitch.AddLink(link); err != nil {
 				peerLog.Errorf("can't register new channel "+
-					"link(%v) with peerIdKey(%x)", chanPoint, p.PubKey())
+					"link(%v) with NodeKey(%x)", chanPoint, p.PubKey())
 			}
 
 			close(newChanReq.done)

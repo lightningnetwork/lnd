@@ -1807,7 +1807,7 @@ func (s *server) OpenChannel(nodeKey *btcec.PublicKey,
 	s.mu.RUnlock()
 
 	if targetPeer == nil {
-		errChan <- fmt.Errorf("unable to find peer nodeID(%x)", pubKeyBytes)
+		errChan <- fmt.Errorf("unable to find peer NodeKey(%x)", pubKeyBytes)
 		return updateChan, errChan
 	}
 

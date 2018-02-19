@@ -1773,7 +1773,7 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 }
 
 // OpenChannel sends a request to the server to open a channel to the specified
-// peer identified by Public Key with the passed channel funding parameters.
+// peer identified by nodeKey with the passed channel funding parameters.
 //
 // NOTE: This function is safe for concurrent access.
 func (s *server) OpenChannel(nodeKey *btcec.PublicKey,

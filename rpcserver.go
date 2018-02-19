@@ -668,7 +668,7 @@ func (r *rpcServer) DisconnectPeer(ctx context.Context,
 func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	updateStream lnrpc.Lightning_OpenChannelServer) error {
 
-	rpcsLog.Tracef("[openchannel] request to identityPub(%v) "+
+	rpcsLog.Tracef("[openchannel] request to NodeKey(%v) "+
 		"allocation(us=%v, them=%v)", in.NodePubkeyString,
 		in.LocalFundingAmount, in.PushSat)
 
@@ -766,7 +766,7 @@ out:
 	for {
 		select {
 		case err := <-errChan:
-			rpcsLog.Errorf("unable to open channel to identityPub(%x): %v",
+			rpcsLog.Errorf("unable to open channel to NodeKey(%x): %v",
 				nodePubKeyBytes, err)
 			return err
 		case fundingUpdate := <-updateChan:
@@ -803,7 +803,7 @@ out:
 		}
 	}
 
-	rpcsLog.Tracef("[openchannel] success identityPub(%x), ChannelPoint(%v)",
+	rpcsLog.Tracef("[openchannel] success NodeKey(%x), ChannelPoint(%v)",
 		nodePubKeyBytes, outpoint)
 	return nil
 }
@@ -815,7 +815,7 @@ out:
 func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	in *lnrpc.OpenChannelRequest) (*lnrpc.ChannelPoint, error) {
 
-	rpcsLog.Tracef("[openchannel] request to identityPub(%v) "+
+	rpcsLog.Tracef("[openchannel] request to NodeKey(%v) "+
 		"allocation(us=%v, them=%v)", in.NodePubkeyString,
 		in.LocalFundingAmount, in.PushSat)
 
@@ -883,7 +883,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	select {
 	// If an error occurs them immediately return the error to the client.
 	case err := <-errChan:
-		rpcsLog.Errorf("unable to open channel to identityPub(%x): %v",
+		rpcsLog.Errorf("unable to open channel to NodeKey(%x): %v",
 			nodepubKey, err)
 		return nil, err
 

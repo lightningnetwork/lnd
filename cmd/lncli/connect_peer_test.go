@@ -7,7 +7,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/testing"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli"
 )
 
@@ -31,8 +31,8 @@ func testConnectPeer(
 func TestConnectPeer(t *testing.T) {
 	client := lnrpctesting.NewStubLightningClient()
 	resp, err := testConnectPeer(t, &client, GoodAddress)
-	assert.NoError(t, err)
-	assert.Equal(t, "{\n    \"peer_id\": 0\n}\n", resp,
+	require.NoError(t, err)
+	require.Equal(t, "{\n    \"peer_id\": 0\n}\n", resp,
 		"Incorrect JSON response from connectPeer.")
 }
 
@@ -40,8 +40,8 @@ func TestConnectPeer(t *testing.T) {
 func TestConnectPeer_NoPort(t *testing.T) {
 	client := lnrpctesting.NewStubLightningClient()
 	resp, err := testConnectPeer(t, &client, GoodAddressWithoutPort)
-	assert.NoError(t, err)
-	assert.Equal(t, "{\n    \"peer_id\": 0\n}\n", resp,
+	require.NoError(t, err)
+	require.Equal(t, "{\n    \"peer_id\": 0\n}\n", resp,
 		"Incorrect JSON response from connectPeer.")
 }
 
@@ -49,22 +49,22 @@ func TestConnectPeer_NoPort(t *testing.T) {
 func TestConnectPeer_BadAddressFormat(t *testing.T) {
 	client := lnrpctesting.NewStubLightningClient()
 	_, err := testConnectPeer(t, &client, BadAddress)
-	assert.Error(t, err)
-	assert.Equal(t, ErrBadAddressFormat, err, "Incorrect error returned")
+	require.Error(t, err)
+	require.Equal(t, ErrBadAddressFormat, err, "Incorrect error returned")
 }
 
 // connectPeer bubbles up the error if the LightningClient fails to connect.
 func TestConnectPeer_FailedConnecting(t *testing.T) {
 	client := lnrpctesting.NewFailingStubLightningClient(io.ErrClosedPipe)
 	_, err := testConnectPeer(t, &client, GoodAddress)
-	assert.Error(t, err)
-	assert.Equal(t, io.ErrClosedPipe, err, "Incorrect error returned.")
+	require.Error(t, err)
+	require.Equal(t, io.ErrClosedPipe, err, "Incorrect error returned.")
 }
 
 // connectPeer returns a friendly error message upon EOF errors.
 func TestConnectPeer_FailedConnectingWithEOF(t *testing.T) {
 	client := lnrpctesting.NewFailingStubLightningClient(io.EOF)
 	_, err := testConnectPeer(t, &client, GoodAddress)
-	assert.Error(t, err)
-	assert.Equal(t, io.EOF, err, "Incorrect error returned.")
+	require.Error(t, err)
+	require.Equal(t, io.EOF, err, "Incorrect error returned.")
 }

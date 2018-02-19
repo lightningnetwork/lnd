@@ -6,7 +6,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/testing"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/net/context"
 )
 
@@ -41,9 +41,9 @@ func TestPayInvoice(t *testing.T) {
 	client := newPayInvoiceLightningClient(&stream)
 	resp, err := testPayInvoice(&client, []string{PayReq})
 
-	assert.Equal(t, expectedSendRequest, stream.CapturedSendRequest)
-	assert.NoError(t, err)
-	assert.Equal(t, PayInvoiceResponse, resp)
+	require.Equal(t, expectedSendRequest, stream.CapturedSendRequest)
+	require.NoError(t, err)
+	require.Equal(t, PayInvoiceResponse, resp)
 }
 
 // PayReq can be passed as a flag.
@@ -55,9 +55,9 @@ func TestPayInvoice_PayReqFlag(t *testing.T) {
 	client := newPayInvoiceLightningClient(&stream)
 	resp, err := testPayInvoice(&client, []string{"--pay_req", PayReq})
 
-	assert.Equal(t, expectedSendRequest, stream.CapturedSendRequest)
-	assert.NoError(t, err)
-	assert.Equal(t, PayInvoiceResponse, resp)
+	require.Equal(t, expectedSendRequest, stream.CapturedSendRequest)
+	require.NoError(t, err)
+	require.Equal(t, PayInvoiceResponse, resp)
 }
 
 // A PayReq can include an amount.
@@ -70,30 +70,30 @@ func TestPayInvoice_Amt(t *testing.T) {
 	client := newPayInvoiceLightningClient(&stream)
 	resp, err := testPayInvoice(&client, []string{"--amt", "12000", PayReq})
 
-	assert.Equal(t, expectedSendRequest, stream.CapturedSendRequest)
-	assert.NoError(t, err)
-	assert.Equal(t, PayInvoiceResponse, resp)
+	require.Equal(t, expectedSendRequest, stream.CapturedSendRequest)
+	require.NoError(t, err)
+	require.Equal(t, PayInvoiceResponse, resp)
 }
 
 // PayReq is required.
 func TestPayInvoice_NoPayReq(t *testing.T) {
 	client := lnrpctesting.NewStubLightningClient()
 	_, err := testPayInvoice(&client, []string{})
-	assert.Equal(t, ErrMissingPayReq, err)
+	require.Equal(t, ErrMissingPayReq, err)
 }
 
 // Errors on initiating a payment should be propagated up.
 func TestPayInvoice_SendPaymentError(t *testing.T) {
 	client := lnrpctesting.NewFailingStubLightningClient(io.ErrClosedPipe)
 	_, err := testPayInvoice(&client, []string{PayReq})
-	assert.Equal(t, io.ErrClosedPipe, err)
+	require.Equal(t, io.ErrClosedPipe, err)
 }
 
 // EOFs on initiating a payment are currently propagated up.
 func TestPayInvoice_SendPaymentEOF(t *testing.T) {
 	client := lnrpctesting.NewFailingStubLightningClient(io.EOF)
 	_, err := testPayInvoice(&client, []string{PayReq})
-	assert.Equal(t, io.EOF, err)
+	require.Equal(t, io.EOF, err)
 }
 
 // Errors on sending a payment should be propagated up.
@@ -101,7 +101,7 @@ func TestPayInvoice_StreamSendError(t *testing.T) {
 	stream := NewPayInvoiceStream(io.ErrClosedPipe, nil)
 	client := newPayInvoiceLightningClient(&stream)
 	_, err := testPayInvoice(&client, []string{PayReq})
-	assert.Equal(t, io.ErrClosedPipe, err)
+	require.Equal(t, io.ErrClosedPipe, err)
 }
 
 // EOFs on sending a payment are currently propagated up.
@@ -109,7 +109,7 @@ func TestPayInvoice_StreamSendEOF(t *testing.T) {
 	stream := NewPayInvoiceStream(io.EOF, nil)
 	client := newPayInvoiceLightningClient(&stream)
 	_, err := testPayInvoice(&client, []string{PayReq})
-	assert.Equal(t, io.EOF, err)
+	require.Equal(t, io.EOF, err)
 }
 
 // Errors on receiving confirmation of a payment should be propagated up.
@@ -117,7 +117,7 @@ func TestPayInvoice_StreamRecvError(t *testing.T) {
 	stream := NewPayInvoiceStream(nil, io.ErrClosedPipe)
 	client := newPayInvoiceLightningClient(&stream)
 	_, err := testPayInvoice(&client, []string{PayReq})
-	assert.Equal(t, io.ErrClosedPipe, err)
+	require.Equal(t, io.ErrClosedPipe, err)
 }
 
 // EOFs on receiving confirmation of a payment are currently propagated up.
@@ -125,7 +125,7 @@ func TestPayInvoice_StreamRecvEOF(t *testing.T) {
 	stream := NewPayInvoiceStream(nil, io.EOF)
 	client := newPayInvoiceLightningClient(&stream)
 	_, err := testPayInvoice(&client, []string{PayReq})
-	assert.Equal(t, io.EOF, err)
+	require.Equal(t, io.EOF, err)
 }
 
 func testPayInvoice(client lnrpc.LightningClient, args []string) (string, error) {

@@ -7,7 +7,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/testing"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli"
 )
 
@@ -31,8 +31,8 @@ func testDisconnectPeer(
 func TestDisconnectPeer(t *testing.T) {
 	client := lnrpctesting.NewStubLightningClient()
 	resp, err := testDisconnectPeer(t, &client, []string{PubKey})
-	assert.NoError(t, err)
-	assert.Equal(t, "{\n\n}\n", resp,
+	require.NoError(t, err)
+	require.Equal(t, "{\n\n}\n", resp,
 		"Incorrect JSON response from disconnectPeer.")
 }
 
@@ -48,8 +48,8 @@ func TestDisconnectPeer_NodeKeyFlag(t *testing.T) {
 	client := lnrpctesting.NewStubLightningClient()
 	writer := StringWriter{}
 	err := disconnectPeer(context, &client, &writer)
-	assert.NoError(t, err)
-	assert.Equal(t, "{\n\n}\n", writer.Join(),
+	require.NoError(t, err)
+	require.Equal(t, "{\n\n}\n", writer.Join(),
 		"Incorrect JSON response from disconnectPeer.")
 }
 
@@ -57,22 +57,22 @@ func TestDisconnectPeer_NodeKeyFlag(t *testing.T) {
 func TestDisconnectPeer_NoPubkey(t *testing.T) {
 	client := lnrpctesting.NewStubLightningClient()
 	_, err := testDisconnectPeer(t, &client, []string{})
-	assert.Error(t, err)
-	assert.Equal(t, ErrMissingPubKey, err, "Incorrect error returned.")
+	require.Error(t, err)
+	require.Equal(t, ErrMissingPubKey, err, "Incorrect error returned.")
 }
 
 // disconnectPeer bubbles up the error if the LightningClient fails to connect.
 func TestDisconnectPeer_FailedDisconnecting(t *testing.T) {
 	client := lnrpctesting.NewFailingStubLightningClient(io.ErrClosedPipe)
 	_, err := testDisconnectPeer(t, &client, []string{PubKey})
-	assert.Error(t, err)
-	assert.Equal(t, io.ErrClosedPipe, err, "Incorrect error returned.")
+	require.Error(t, err)
+	require.Equal(t, io.ErrClosedPipe, err, "Incorrect error returned.")
 }
 
 // disconnectPeer returns a friendly error message upon EOF errors.
 func TestDisconnectPeer_FailedDisconnectingWithEOF(t *testing.T) {
 	client := lnrpctesting.NewFailingStubLightningClient(io.EOF)
 	_, err := testDisconnectPeer(t, &client, []string{PubKey})
-	assert.Error(t, err)
-	assert.Equal(t, io.EOF, err, "Incorrect error returned.")
+	require.Error(t, err)
+	require.Equal(t, io.EOF, err, "Incorrect error returned.")
 }

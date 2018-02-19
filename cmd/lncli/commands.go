@@ -42,9 +42,22 @@ var (
 			"or is not using the specified pubkey")
 	// ErrMissingPubKey is used when the user fails to supply a pubkey.
 	ErrMissingPubKey = fmt.Errorf("must specify target public key")
+	// ErrDuplicatePeerSpecifiers occurs if both peer_id and node_key
+	// are set at the same time.
+	ErrDuplicatePeerSpecifiers = fmt.Errorf("both peer_id and node_key " +
+		"cannot be set at the same time, only one can be specified")
+	// ErrMissingPeerSpecifiers occurs if neither peer_id nor node_key
+	// are specified.
+	ErrMissingPeerSpecifiers = fmt.Errorf("node id argument missing")
+	// ErrMissingLocalAmount occurs if the local_amt argument is omitted.
+	ErrMissingLocalAmount = fmt.Errorf("local amt argument missing")
 )
 
 func printJSON(resp interface{}) {
+	printJSONToWriter(os.Stdout, resp)
+}
+
+func printJSONToWriter(writer io.Writer, resp interface{}) {
 	b, err := json.Marshal(resp)
 	if err != nil {
 		fatal(err)
@@ -53,7 +66,7 @@ func printJSON(resp interface{}) {
 	var out bytes.Buffer
 	json.Indent(&out, b, "", "\t")
 	out.WriteString("\n")
-	out.WriteTo(os.Stdout)
+	out.WriteTo(writer)
 }
 
 func printRespJSON(resp proto.Message) {
@@ -486,14 +499,14 @@ var openChannelCommand = cli.Command{
 				"for incoming HTLCs on the channel",
 		},
 	},
-	Action: actionDecorator(openChannel),
+	Action: actionDecoratorWithClient(openChannel),
 }
 
-func openChannel(ctx *cli.Context) error {
+func openChannel(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
+
 	// TODO(roasbeef): add deadline to context
 	ctxb := context.Background()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
 
 	args := ctx.Args()
 	var err error
@@ -505,8 +518,7 @@ func openChannel(ctx *cli.Context) error {
 	}
 
 	if ctx.IsSet("peer_id") && ctx.IsSet("node_key") {
-		return fmt.Errorf("both peer_id and lightning_id cannot be set " +
-			"at the same time, only one can be specified")
+		return ErrDuplicatePeerSpecifiers
 	}
 
 	req := &lnrpc.OpenChannelRequest{
@@ -532,7 +544,7 @@ func openChannel(ctx *cli.Context) error {
 		args = args.Tail()
 		req.NodePubkey = nodePubHex
 	default:
-		return fmt.Errorf("node id argument missing")
+		return ErrMissingPeerSpecifiers
 	}
 
 	switch {
@@ -545,7 +557,7 @@ func openChannel(ctx *cli.Context) error {
 		}
 		args = args.Tail()
 	default:
-		return fmt.Errorf("local amt argument missing")
+		return ErrMissingLocalAmount
 	}
 
 	if ctx.IsSet("push_amt") {
@@ -579,7 +591,7 @@ func openChannel(ctx *cli.Context) error {
 				return err
 			}
 
-			printJSON(struct {
+			fmt.Fprintln(writer, struct {
 				FundingTxid string `json:"funding_txid"`
 			}{
 				FundingTxid: txid.String(),
@@ -616,7 +628,7 @@ func openChannel(ctx *cli.Context) error {
 			}
 
 			index := channelPoint.OutputIndex
-			printJSON(struct {
+			fmt.Fprintln(writer, struct {
 				ChannelPoint string `json:"channel_point"`
 			}{
 				ChannelPoint: fmt.Sprintf("%v:%v", txid, index),

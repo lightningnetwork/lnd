@@ -84,8 +84,25 @@ type StubLightningOpenChannelClient struct {
 	grpc.ClientStream
 }
 
-func (x *StubLightningOpenChannelClient) Recv() (*lnrpc.OpenStatusUpdate, error) {
+func (client *StubLightningOpenChannelClient) Recv() (*lnrpc.OpenStatusUpdate, error) {
 	return new(lnrpc.OpenStatusUpdate), nil
+}
+
+type TerminatingStubLightningOpenChannelClient struct {
+	grpc.ClientStream
+	updates          []lnrpc.OpenStatusUpdate
+	terminatingError error
+}
+
+func (client *TerminatingStubLightningOpenChannelClient) Recv() (*lnrpc.OpenStatusUpdate, error) {
+	if len(client.updates) < 1 {
+		return nil, client.terminatingError
+	}
+
+	update := client.updates[0]
+	client.updates = client.updates[1:]
+
+	return &update, nil
 }
 
 type StubLightningCloseChannelClient struct {

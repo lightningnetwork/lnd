@@ -74,7 +74,8 @@ func (c *StubLightningClient) GetTransactions(ctx context.Context, in *lnrpc.Get
 
 func (c *StubLightningClient) SendCoins(ctx context.Context, in *lnrpc.SendCoinsRequest, opts ...grpc.CallOption) (*lnrpc.SendCoinsResponse, error) {
 	c.CapturedSendCoinsRequest = in
-	return new(lnrpc.SendCoinsResponse), nil
+	response := lnrpc.SendCoinsResponse{"BitcoinTxid"}
+	return &response, nil
 }
 
 func (c *StubLightningClient) SubscribeTransactions(ctx context.Context, in *lnrpc.GetTransactionsRequest, opts ...grpc.CallOption) (lnrpc.Lightning_SubscribeTransactionsClient, error) {

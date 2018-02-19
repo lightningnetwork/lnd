@@ -44,6 +44,8 @@ var (
 	FinalCltvDeltaInt int32 = 21
 	FinalCltvDelta          = "21"
 
+	BitcoinAddress = "BitcoinAddress"
+
 	SendPaymentResponse = "{\n\t\"payment_error\": \"ERROR\"," +
 		"\n\t\"payment_preimage\": \"0c22384e\"," +
 		"\n\t\"payment_route\": {" +

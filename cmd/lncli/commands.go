@@ -63,6 +63,16 @@ var (
 	// ErrUnnecessaryArgumentForDebugSend if unnecessary args are specified
 	// on a debug send.
 	ErrUnnecessaryArgumentForDebugSend = fmt.Errorf("do not provide a payment hash with debug send")
+
+	// ErrMissingAddress occurs if address is omitted.
+	ErrMissingAddress = fmt.Errorf("Address argument missing")
+	// ErrMissingAmount occurs if amt is omitted.
+	ErrMissingAmount = fmt.Errorf("Amount argument missing")
+
+	// ErrMultipleFeeArgs occurs if multiple conflicting ways to specify
+	// fees were provided.
+	ErrMultipleFeeArgs = fmt.Errorf(
+		"either conf_target or sat_per_byte should be set, but not both")
 )
 
 func printJSON(resp interface{}) {
@@ -238,10 +248,12 @@ var sendCoinsCommand = cli.Command{
 				"the transaction",
 		},
 	},
-	Action: actionDecorator(sendCoins),
+	Action: actionDecoratorWithClient(sendCoins),
 }
 
-func sendCoins(ctx *cli.Context) error {
+func sendCoins(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
+
 	var (
 		addr string
 		amt  int64
@@ -255,8 +267,7 @@ func sendCoins(ctx *cli.Context) error {
 	}
 
 	if ctx.IsSet("conf_target") && ctx.IsSet("sat_per_byte") {
-		return fmt.Errorf("either conf_target or sat_per_byte should be " +
-			"set, but not both")
+		return ErrMultipleFeeArgs
 	}
 
 	switch {
@@ -266,7 +277,7 @@ func sendCoins(ctx *cli.Context) error {
 		addr = args.First()
 		args = args.Tail()
 	default:
-		return fmt.Errorf("Address argument missing")
+		return ErrMissingAddress
 	}
 
 	switch {
@@ -275,7 +286,7 @@ func sendCoins(ctx *cli.Context) error {
 	case args.Present():
 		amt, err = strconv.ParseInt(args.First(), 10, 64)
 	default:
-		return fmt.Errorf("Amount argument missing")
+		return ErrMissingAmount
 	}
 
 	if err != nil {
@@ -283,8 +294,6 @@ func sendCoins(ctx *cli.Context) error {
 	}
 
 	ctxb := context.Background()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
 
 	req := &lnrpc.SendCoinsRequest{
 		Addr:       addr,
@@ -297,7 +306,7 @@ func sendCoins(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(txid)
+	printRespJSONToWriter(writer, txid)
 	return nil
 }
 

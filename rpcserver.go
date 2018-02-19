@@ -720,6 +720,11 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 
 	// TODO(roasbeef): also return channel ID?
 
+	// Ensure that the NodePubKey is set before attempting to use it
+	if len(in.NodePubkey) == 0 {
+		return fmt.Errorf("NodePubKey is not set")
+	}
+
 	// Parse the raw bytes of the node key into a pubkey object so we
 	// can easily manipulate it.
 	nodePubKey, err = btcec.ParsePubKey(in.NodePubkey, btcec.S256())

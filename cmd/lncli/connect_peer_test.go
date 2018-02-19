@@ -37,6 +37,20 @@ func TestConnectPeer_NoPort(t *testing.T) {
 	require.Equal(t, &expectedRequest, client.CapturedConnectPeerRequest)
 }
 
+// connectPeer passes "perm" to the RPC.
+func TestConnectPeer_Perm(t *testing.T) {
+	client := lnrpctesting.NewStubLightningClient()
+	resp, err := testConnectPeer(&client, []string{"--perm", GoodAddress})
+	require.NoError(t, err)
+	require.Equal(t, "{\n    \"peer_id\": 0\n}\n", resp,
+		"Incorrect JSON response from connectPeer.")
+
+	expectedRequest := lnrpc.ConnectPeerRequest{
+		&lnrpc.LightningAddress{PubKey, HostWithPort},
+		true}
+	require.Equal(t, &expectedRequest, client.CapturedConnectPeerRequest)
+}
+
 // connectPeer returns the correct error if an invalid address was specified.
 func TestConnectPeer_BadAddressFormat(t *testing.T) {
 	client := lnrpctesting.NewStubLightningClient()

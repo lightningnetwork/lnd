@@ -36,10 +36,6 @@ var (
 	// ErrBadAddressFormat occurs if a user provides a bad LightningAddress.
 	ErrBadAddressFormat = fmt.Errorf(
 		"target address expected in format: pubkey@host:port")
-	// ErrFriendlyEOF is used as a user-friendly replacment when an EOF occurs.
-	ErrFriendlyEOF = fmt.Errorf(
-		"remote peer is unavailable, rejected the HTTP connection, " +
-			"or is not using the specified pubkey")
 	// ErrMissingPubKey is used when the user fails to supply a pubkey.
 	ErrMissingPubKey = fmt.Errorf("must specify target public key")
 	// ErrDuplicatePeerSpecifiers occurs if both peer_id and node_key

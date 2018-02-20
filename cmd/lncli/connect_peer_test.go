@@ -5,79 +5,60 @@ import (
 	"testing"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lnrpc/testing"
-	"github.com/stretchr/testify/require"
 )
+
+var expectedConnectPeerResponse = "{\n    \"peer_id\": 0\n}\n"
 
 // connectPeer returns the correct output if no errors occurred.
 func TestConnectPeer(t *testing.T) {
-	client := lnrpctesting.NewStubLightningClient()
-	resp, err := testConnectPeer(&client, []string{GoodAddress})
-	require.NoError(t, err)
-	require.Equal(t, "{\n    \"peer_id\": 0\n}\n", resp,
-		"Incorrect JSON response from connectPeer.")
-
-	expectedRequest := lnrpc.ConnectPeerRequest{
-		&lnrpc.LightningAddress{PubKey, HostWithPort},
-		false}
-	require.Equal(t, &expectedRequest, client.CapturedConnectPeerRequest)
+	TestCommandNoError(t, runConnectPeer,
+		[]string{GoodAddress},
+		expectedConnectPeerRequest(HostWithPort, false),
+		expectedConnectPeerResponse)
 }
 
 // connectPeer doesn't require a port in order to successfully connect.
 func TestConnectPeer_NoPort(t *testing.T) {
-	client := lnrpctesting.NewStubLightningClient()
-	resp, err := testConnectPeer(&client, []string{GoodAddressWithoutPort})
-	require.NoError(t, err)
-	require.Equal(t, "{\n    \"peer_id\": 0\n}\n", resp,
-		"Incorrect JSON response from connectPeer.")
-
-	expectedRequest := lnrpc.ConnectPeerRequest{
-		&lnrpc.LightningAddress{PubKey, Host},
-		false}
-	require.Equal(t, &expectedRequest, client.CapturedConnectPeerRequest)
+	TestCommandNoError(t, runConnectPeer,
+		[]string{GoodAddressWithoutPort},
+		expectedConnectPeerRequest(Host, false),
+		expectedConnectPeerResponse)
 }
 
 // connectPeer passes "perm" to the RPC.
 func TestConnectPeer_Perm(t *testing.T) {
-	client := lnrpctesting.NewStubLightningClient()
-	resp, err := testConnectPeer(&client, []string{"--perm", GoodAddress})
-	require.NoError(t, err)
-	require.Equal(t, "{\n    \"peer_id\": 0\n}\n", resp,
-		"Incorrect JSON response from connectPeer.")
-
-	expectedRequest := lnrpc.ConnectPeerRequest{
-		&lnrpc.LightningAddress{PubKey, HostWithPort},
-		true}
-	require.Equal(t, &expectedRequest, client.CapturedConnectPeerRequest)
+	TestCommandNoError(t, runConnectPeer,
+		[]string{"--perm", GoodAddress},
+		expectedConnectPeerRequest(HostWithPort, true),
+		expectedConnectPeerResponse)
 }
 
 // connectPeer returns the correct error if an invalid address was specified.
 func TestConnectPeer_BadAddressFormat(t *testing.T) {
-	client := lnrpctesting.NewStubLightningClient()
-	_, err := testConnectPeer(&client, []string{BadAddress})
-	require.Error(t, err)
-	require.Equal(t, ErrBadAddressFormat, err, "Incorrect error returned")
+	TestCommandValidationError(t, runConnectPeer,
+		[]string{BadAddress},
+		ErrBadAddressFormat)
 }
 
 // connectPeer bubbles up the error if the LightningClient fails to connect.
 func TestConnectPeer_FailedConnecting(t *testing.T) {
-	client := lnrpctesting.NewFailingStubLightningClient(io.ErrClosedPipe)
-	_, err := testConnectPeer(&client, []string{GoodAddress})
-	require.Error(t, err)
-	require.Equal(t, io.ErrClosedPipe, err, "Incorrect error returned.")
+	TestCommandRPCError(t, runConnectPeer,
+		[]string{GoodAddress},
+		io.ErrClosedPipe,
+		io.ErrClosedPipe)
 }
 
-// connectPeer returns a friendly error message upon EOF errors.
-func TestConnectPeer_FailedConnectingWithEOF(t *testing.T) {
-	client := lnrpctesting.NewFailingStubLightningClient(io.EOF)
-	_, err := testConnectPeer(&client, []string{GoodAddress})
-	require.Error(t, err)
-	require.Equal(t, io.EOF, err, "Incorrect error returned.")
-}
-
-func testConnectPeer(
+func runConnectPeer(
 	client lnrpc.LightningClient, args []string) (string, error) {
 
-	return TestCommand(
+	return RunCommand(
 		client, connectCommand, connectPeer, "connect", args)
+}
+
+func expectedConnectPeerRequest(host string, perm bool) *lnrpc.ConnectPeerRequest {
+	request := lnrpc.ConnectPeerRequest{
+		&lnrpc.LightningAddress{PubKey, host},
+		perm}
+
+	return &request
 }

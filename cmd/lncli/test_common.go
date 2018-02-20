@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/testing"
+	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli"
 	"golang.org/x/net/context"
 )
@@ -81,7 +83,7 @@ func (w *StringWriter) Join() string {
 // Replaces stdout as the writer so that the output can be unit tested (without IO).
 // Applies a timeout to the command call to prevent infinite looping
 // since unit tests should terminate, even if non-termination would indicate a bug.
-func TestCommandWithTimeout(
+func RunCommandWithTimeout(
 	client lnrpc.LightningClient,
 	command cli.Command,
 	commandAction func(*cli.Context, lnrpc.LightningClient, io.Writer) error,
@@ -129,7 +131,7 @@ func TestCommandWithTimeout(
 	}
 }
 
-func TestCommand(
+func RunCommand(
 	client lnrpc.LightningClient,
 	command cli.Command,
 	commandAction func(*cli.Context, lnrpc.LightningClient, io.Writer) error,
@@ -155,6 +157,86 @@ func TestCommand(
 	app.Run(args)
 
 	return writer.Join(), err
+}
+
+// Verify that the expected output and command request are created
+// for the specified command line args.
+func TestCommandNoError(
+	t *testing.T,
+	command func(lnrpc.LightningClient, []string) (string, error),
+	args []string,
+	expectedRequest interface{},
+	expectedResponseText string) {
+
+	client := lnrpctesting.NewStubLightningClient()
+	resp, err := command(&client, args)
+	require.NoError(t, err)
+	require.Equal(t, expectedResponseText, resp)
+
+	require.Equal(t, expectedRequest, client.CapturedRequest,
+		"Incorrect request passed to RPC.")
+}
+
+// Verify that the specified text is contained in the command output.
+func TestCommandTextInResponse(
+	t *testing.T,
+	command func(lnrpc.LightningClient, []string) (string, error),
+	args []string,
+	expectedText string) {
+
+	client := lnrpctesting.NewStubLightningClient()
+	resp, err := command(&client, args)
+	require.NoError(t, err)
+	require.True(t, strings.Contains(resp, expectedText),
+		fmt.Sprintf("Expected text %s to be present, but it wasn't contained in \n%s\n",
+			expectedText, resp))
+}
+
+// Verify that the specified validation error occurs.
+func TestCommandValidationError(
+	t *testing.T,
+	command func(lnrpc.LightningClient, []string) (string, error),
+	args []string,
+	expectedError error) {
+
+	client := lnrpctesting.NewStubLightningClient()
+	_, err := command(&client, args)
+
+	require.Error(t, err)
+	require.Equal(t, expectedError, err, "Unexpected error returned.")
+}
+
+// Verify that the specified text is present in the validation
+// error that occurs.
+// Useful for when there is variable or unwieldy text in the error.
+func TestCommandTextInValidationError(
+	t *testing.T,
+	command func(lnrpc.LightningClient, []string) (string, error),
+	args []string,
+	expectedText string) {
+
+	client := lnrpctesting.NewStubLightningClient()
+	_, err := command(&client, args)
+	require.Error(t, err)
+	require.True(t,
+		strings.Contains(err.Error(), expectedText),
+		fmt.Sprintf("Expected text %s to be present, but it wasn't contained in \n%s\n",
+			expectedText, err.Error()))
+}
+
+// Simulate an RPC failure then check that the expected error is returned.
+func TestCommandRPCError(
+	t *testing.T,
+	command func(lnrpc.LightningClient, []string) (string, error),
+	args []string,
+	rpcError error,
+	resultError error) {
+
+	client := lnrpctesting.NewFailingStubLightningClient(rpcError)
+	_, err := command(&client, args)
+
+	require.Error(t, err)
+	require.Equal(t, resultError, err, "Unexpected error returned.")
 }
 
 func NewSendPaymentLightningClient(stream *SendPaymentStream) lnrpctesting.StubLightningClient {

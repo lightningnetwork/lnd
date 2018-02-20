@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -84,9 +83,8 @@ func TestCloseChannel_TimeLimitFlag(t *testing.T) {
 
 // FundingTxid must be specified.
 func TestCloseChannel_NoFundingTxid(t *testing.T) {
-
 	client := NewStubCloseClient([]lnrpc.CloseStatusUpdate{}, io.EOF)
-	_, err := testCloseChannel(&client, []string{"--output_index", OutputIndex})
+	_, err := runCloseChannel(&client, []string{"--output_index", OutputIndex})
 	require.Error(t, err)
 	require.Equal(t, ErrMissingFundingTxid, err, "Incorrect error returned.")
 }
@@ -94,7 +92,7 @@ func TestCloseChannel_NoFundingTxid(t *testing.T) {
 // OutputIndex must be an integer.
 func TestCloseChannel_BadOutputIndex(t *testing.T) {
 	client := NewStubCloseClient([]lnrpc.CloseStatusUpdate{}, io.EOF)
-	_, err := testCloseChannel(&client, []string{FundingTxidString, "BadOutputIndex"})
+	_, err := runCloseChannel(&client, []string{FundingTxidString, "BadOutputIndex"})
 	require.Error(t, err)
 	require.True(t,
 		strings.Contains(err.Error(), "unable to decode output index:"),
@@ -133,14 +131,14 @@ func TestCloseChannel_OverrideDefaults(t *testing.T) {
 // repeating sequence of valid CloseStatusUpdates.
 func TestCloseChannel_NoTerminationIfUnrecognizedUpdate(t *testing.T) {
 	client := lnrpctesting.NewStubLightningClient()
-	_, err := testCloseChannel(&client, []string{FundingTxidString})
+	_, err := runCloseChannel(&client, []string{FundingTxidString})
 	require.Equal(t, ErrTimeout, err)
 }
 
 // Help text should be printed if no arguments are passed.
 func TestCloseChannel_Help(t *testing.T) {
 	client := lnrpctesting.NewStubLightningClient()
-	resp, _ := testCloseChannel(&client, []string{})
+	resp, _ := runCloseChannel(&client, []string{})
 	// Checking the whole usage text would result in too much test churn
 	// so just verify that a portion of it is present.
 	require.True(t,
@@ -151,18 +149,9 @@ func TestCloseChannel_Help(t *testing.T) {
 // Most errors that occur during closing a channel should be propagated up unmodified.
 func TestCloseChannel_Failed(t *testing.T) {
 	client := lnrpctesting.NewFailingStubLightningClient(io.ErrClosedPipe)
-	_, err := testCloseChannel(&client, []string{FundingTxidString})
+	_, err := runCloseChannel(&client, []string{FundingTxidString})
 	require.Error(t, err)
 	require.Equal(t, io.ErrClosedPipe, err, "Incorrect error returned.")
-}
-
-// EOF errors are currently propagated up unmodified,
-// but should be given a friendlier form.
-func TestCloseChannel_FailedWithEOF(t *testing.T) {
-	client := lnrpctesting.NewFailingStubLightningClient(io.EOF)
-	_, err := testCloseChannel(&client, []string{FundingTxidString})
-	require.Error(t, err)
-	require.Equal(t, io.EOF, err, "Incorrect error returned.")
 }
 
 // Errors when receiving updates are propagated up unmodified.
@@ -170,25 +159,16 @@ func TestCloseChannel_FailedWithEOF(t *testing.T) {
 // initial connection, but they currently are represented identically.
 func TestCloseChannel_RecvFailed(t *testing.T) {
 	client := NewStubCloseClient([]lnrpc.CloseStatusUpdate{}, io.ErrClosedPipe)
-	_, err := testCloseChannel(&client, []string{FundingTxidString})
+	_, err := runCloseChannel(&client, []string{FundingTxidString})
 	require.Error(t, err)
 	require.Equal(t, io.ErrClosedPipe, err, "Incorrect error returned.")
-}
-
-// It is currently not an error for EOF to occur immediately after a
-// successful CloseChannel call.
-func TestCloseChannel_RecvEOF(t *testing.T) {
-	client := NewStubCloseClient([]lnrpc.CloseStatusUpdate{}, io.EOF)
-	resp, err := testCloseChannel(&client, []string{FundingTxidString})
-	require.NoError(t, err)
-	require.Equal(t, "", resp, "Incorrect response from closeChannel.")
 }
 
 // Non-blocking calls that retrieve a ChanPending are successes.
 func TestCloseChannel_NonBlockingChanClose(t *testing.T) {
 	client := NewStubCloseClient(
 		[]lnrpc.CloseStatusUpdate{chanPendingCloseUpdate()}, io.EOF)
-	resp, err := testCloseChannel(&client, []string{FundingTxidString})
+	resp, err := runCloseChannel(&client, []string{FundingTxidString})
 	require.NoError(t, err)
 	require.Equal(t,
 		"{\n\t\"closing_txid\": \"0000000000000000000000000000000089000000000000000000000000000000\"\n}\n",
@@ -232,7 +212,7 @@ func TestCloseChannel_ChanPendingBadTxHash(t *testing.T) {
 	client := NewStubCloseClient(
 		[]lnrpc.CloseStatusUpdate{chanPendingCloseUpdateWithTxid(bytes)},
 		io.EOF)
-	_, err := testCloseChannel(&client, []string{FundingTxidString})
+	_, err := runCloseChannel(&client, []string{FundingTxidString})
 	require.Error(t, err)
 	require.Equal(t,
 		"invalid hash length of 31, want 32", err.Error(), "Incorrect error returned.")
@@ -241,7 +221,7 @@ func TestCloseChannel_ChanPendingBadTxHash(t *testing.T) {
 // A bad tx hash should result in an error being propagated up.
 func TestCloseChannel_ChanCloseBadTxHash(t *testing.T) {
 	client := NewStubCloseClient([]lnrpc.CloseStatusUpdate{chanCloseUpdateBadTxid()}, io.EOF)
-	_, err := testCloseChannel(&client, []string{FundingTxidString})
+	_, err := runCloseChannel(&client, []string{FundingTxidString})
 	require.Error(t, err)
 	require.Equal(t,
 		"invalid hash length of 31, want 32", err.Error(), "Incorrect error returned.")
@@ -286,8 +266,8 @@ func TestCloseChannel_MultipleAlternatingChanPendingAndChanClose(t *testing.T) {
 			"{\n\t\"closing_txid\": \"0000000000000000000000000000000089000000000000000000000000000000\"\n}\n")
 }
 
-func testCloseChannel(client lnrpc.LightningClient, args []string) (string, error) {
-	return TestCommandWithTimeout(
+func runCloseChannel(client lnrpc.LightningClient, args []string) (string, error) {
+	return RunCommandWithTimeout(
 		client, closeChannelCommand, closeChannel, "closechannel", args)
 }
 
@@ -301,15 +281,16 @@ func testErrorlessCloseChannel(
 	expectedResult string) {
 
 	client := NewStubCloseClient(updates, io.EOF)
-	resp, err := testCloseChannel(&client, args)
+	resp, err := runCloseChannel(&client, args)
 	require.NoError(t, err)
 	errorMessage := fmt.Sprintf(
 		"Values passed to closeChannel were incorrect. Expected\n%+v\n but found\n%+v\n",
 		expectedRequest,
 		client.capturedRequest)
 	// Check that the values passed to the CloseChannel RPC were correct.
-	require.True(t,
-		reflect.DeepEqual(expectedRequest, client.capturedRequest),
+	require.Equal(t,
+		expectedRequest,
+		client.capturedRequest,
 		errorMessage)
 
 	require.Equal(t,

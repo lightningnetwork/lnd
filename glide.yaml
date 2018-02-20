@@ -15,7 +15,7 @@ import:
   - proto
 - package: github.com/howeyc/gopass
 - package: github.com/roasbeef/btcd
-  version: 9978b939c33973be19b932fa7b936079bb7ba38d
+  version: e6807bc4dd5ddbb95b4ab163f6dd61e4ad79463a
   subpackages:
   - blockchain
   - btcec

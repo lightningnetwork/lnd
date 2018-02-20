@@ -796,7 +796,7 @@ func TestScopeIsolation(t *testing.T) {
 }
 
 func init() {
-	testSignDesc.PubKey, _ = btcec.ParsePubKey(key1, btcec.S256())
+	testSignDesc.KeyDesc.PubKey, _ = btcec.ParsePubKey(key1, btcec.S256())
 
 	prand.Seed(time.Now().Unix())
 }

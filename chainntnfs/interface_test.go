@@ -1116,7 +1116,7 @@ func testReorgConf(miner *rpctest.Harness, notifier chainntnfs.ChainNotifier,
 	}
 
 	if nodeHeight1 != nodeHeight2 {
-		t.Fatalf("expected both miners to be on the same height",
+		t.Fatalf("expected both miners to be on the same height: %v vs %v",
 			nodeHeight1, nodeHeight2)
 	}
 
@@ -1190,7 +1190,7 @@ func testReorgConf(miner *rpctest.Harness, notifier chainntnfs.ChainNotifier,
 	}
 
 	if nodeHeight1 != nodeHeight2 {
-		t.Fatalf("expected both miners to be on the same height",
+		t.Fatalf("expected both miners to be on the same height: %v vs %v",
 			nodeHeight1, nodeHeight2)
 	}
 

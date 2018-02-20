@@ -1,5 +1,5 @@
-hash: ca248eaf0ddf2e5daab59a13c8a62df255721e11fd10b0169b608f9c3349ad58
-updated: 2018-03-04T21:24:12.266291-05:00
+hash: 75e7ae24914974ad34be24e5176b64e6d8cdc80aa65084714f1eb4d469b7830b
+updated: 2018-03-06T13:12:10.827387022-05:00
 imports:
 - name: git.schwanenlied.me/yawning/bsaes.git
   version: e06297f34865a50b8e473105e52cb64ad1b55da8
@@ -45,13 +45,13 @@ imports:
 - name: github.com/btcsuite/websocket
   version: 31079b6807923eb23992c421b114992b95131b55
 - name: github.com/davecgh/go-spew
-  version: ecdeabc65495df2dec95d7c4a4c3e021903035e5
+  version: 8991bc29aa16c548c550c7ff78260e27b9ab7c73
   subpackages:
   - spew
 - name: github.com/go-errors/errors
-  version: 8fa88b06e5974e97fbf9899a7f86a344bfd1f105
+  version: 3afebba5a48dbc89b574d890b6b34d9ee10b4785
 - name: github.com/golang/protobuf
-  version: ab9f9a6dab164b7d1246e0e688b0ab7b94d8553e
+  version: bbd03ef6da3a115852eaf24c8a1c46aeb39aa175
   subpackages:
   - jsonpb
   - proto
@@ -93,9 +93,7 @@ imports:
   - chaincfg/chainhash
   - wire
 - name: github.com/miekg/dns
-  version: 946bd9fbed05568b0f3cd188353d8aa28f38b688
-  subpackages:
-  - internal/socket
+  version: 5364553f1ee9cddc7ac8b62dce148309c386695b
 - name: github.com/roasbeef/btcd
   version: e6807bc4dd5ddbb95b4ab163f6dd61e4ad79463a
   subpackages:
@@ -126,7 +124,7 @@ imports:
   - hdkeychain
   - txsort
 - name: github.com/roasbeef/btcwallet
-  version: 7447531cb6752ebf8680bc180e9a21c2c445ee7c
+  version: 97f2ef9c15d9a82a0e8b160df01157893f3853b5
   subpackages:
   - chain
   - internal/helpers
@@ -157,6 +155,8 @@ imports:
   - blake2b
   - chacha20poly1305
   - curve25519
+  - ed25519
+  - ed25519/internal/edwards25519
   - hkdf
   - internal/chacha20
   - nacl/box
@@ -169,30 +169,35 @@ imports:
   - scrypt
   - ssh/terminal
 - name: golang.org/x/net
-  version: 66aacef3dd8a676686c7ae3716979581e8b03c47
+  version: cbe0f9307d0156177f9dd5dc85da1a31abc5f2fb
   subpackages:
+  - bpf
   - context
   - http2
   - http2/hpack
   - idna
+  - internal/iana
+  - internal/socket
   - internal/timeseries
+  - ipv4
+  - ipv6
   - lex/httplex
   - proxy
   - trace
 - name: golang.org/x/sys
-  version: ab9e364efd8b52800ff7ee48a9ffba4e0ed78dfb
+  version: 88d2dcc510266da9f7f8c7f34e1940716cab5f5c
   subpackages:
   - unix
   - windows
 - name: golang.org/x/text
-  version: 18c65dde6afd36dbc39197ca72008895b8dfbfb6
+  version: 27420a1a391f5504f73155051cd274311bf70883
   subpackages:
   - secure/bidirule
   - transform
   - unicode/bidi
   - unicode/norm
 - name: google.golang.org/genproto
-  version: ee236bd376b077c7a89f260c026c4735b195e459
+  version: 2b5a72b8730b0b16380010cfe5286c42108d88e7
   subpackages:
   - googleapis/api/annotations
   - googleapis/rpc/status
@@ -216,7 +221,7 @@ imports:
 - name: gopkg.in/errgo.v1
   version: 442357a80af5c6bf9b6d51ae791a39c3421004f3
 - name: gopkg.in/macaroon-bakery.v2
-  version: 04cf5ef151a211d929975161aea7c65f94c90446
+  version: 22c04a94d902625448265ef041bb53e715452a40
   subpackages:
   - bakery
   - bakery/checkers

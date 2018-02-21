@@ -366,7 +366,7 @@ func calcStaticFee(numHTLCs int) btcutil.Amount {
 	const (
 		commitWeight = btcutil.Amount(724)
 		htlcWeight   = 172
-		feePerKw     = btcutil.Amount(50/4) * 1000
+		feePerKw     = btcutil.Amount(50 * 1000 / 4)
 	)
 	return feePerKw * (commitWeight +
 		btcutil.Amount(htlcWeight*numHTLCs)) / 1000

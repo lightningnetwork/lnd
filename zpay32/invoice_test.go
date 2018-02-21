@@ -15,7 +15,10 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
+
+	litecoinCfg "github.com/ltcsuite/ltcd/chaincfg"
 )
 
 var (
@@ -90,11 +93,24 @@ var (
 	// Must be initialized in init().
 	testPaymentHash     [32]byte
 	testDescriptionHash [32]byte
+
+	ltcTestNetParams chaincfg.Params
+	ltcMainNetParams chaincfg.Params
 )
 
 func init() {
 	copy(testPaymentHash[:], testPaymentHashSlice[:])
 	copy(testDescriptionHash[:], testDescriptionHashSlice[:])
+
+	// Initialize litecoin testnet and mainnet params by applying key fields
+	// to copies of bitcoin params.
+	// TODO(sangaman): create an interface for chaincfg.params
+	ltcTestNetParams = chaincfg.TestNet3Params
+	ltcTestNetParams.Net = wire.BitcoinNet(litecoinCfg.TestNet4Params.Net)
+	ltcTestNetParams.Bech32HRPSegwit = litecoinCfg.TestNet4Params.Bech32HRPSegwit
+	ltcMainNetParams = chaincfg.MainNetParams
+	ltcMainNetParams.Net = wire.BitcoinNet(litecoinCfg.MainNetParams.Net)
+	ltcMainNetParams.Bech32HRPSegwit = litecoinCfg.MainNetParams.Bech32HRPSegwit
 }
 
 // TestDecodeEncode tests that an encoded invoice gets decoded into the expected
@@ -123,7 +139,7 @@ func TestDecodeEncode(t *testing.T) {
 			valid:          false,
 		},
 		{
-			encodedInvoice: "lnb1asdsaddnv4wudz", // hrp too short
+			encodedInvoice: "ln1asdsaddnv4wudz", // hrp too short
 			valid:          false,
 		},
 		{
@@ -515,10 +531,64 @@ func TestDecodeEncode(t *testing.T) {
 				return i
 			},
 		},
+		{
+			// Decode a mainnet invoice while expecting active net to be testnet
+			encodedInvoice: "lnbc241pveeq09pp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdqqnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66jd3m5klcwhq68vdsmx2rjgxeay5v0tkt2v5sjaky4eqahe4fx3k9sqavvce3capfuwv8rvjng57jrtfajn5dkpqv8yelsewtljwmmycq62k443",
+			valid:          false,
+			decodedInvoice: func() *Invoice {
+				return &Invoice{
+					Net:         &chaincfg.TestNet3Params,
+					MilliSat:    &testMillisat24BTC,
+					Timestamp:   time.Unix(1503429093, 0),
+					PaymentHash: &testPaymentHash,
+					Destination: testPubKey,
+					Description: &testEmptyString,
+				}
+			},
+			skipEncoding: true, // Skip encoding since we were given the wrong net
+		},
+		{
+			// Decode a litecoin testnet invoice
+			encodedInvoice: "lntltc241pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqsnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66m2eq2fx9uctzkmj30meaghyskkgsd6geap5qg9j2ae444z24a4p8xg3a6g73p8l7d689vtrlgzj0wyx2h6atq8dfty7wmkt4frx9g9sp730h5a",
+			valid:          true,
+			decodedInvoice: func() *Invoice {
+				return &Invoice{
+					// TODO(sangaman): create an interface for chaincfg.params
+					Net:             &ltcTestNetParams,
+					MilliSat:        &testMillisat24BTC,
+					Timestamp:       time.Unix(1496314658, 0),
+					PaymentHash:     &testPaymentHash,
+					DescriptionHash: &testDescriptionHash,
+					Destination:     testPubKey,
+				}
+			},
+		},
+		{
+			// Decode a litecoin mainnet invoice
+			encodedInvoice: "lnltc241pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqsnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66859t2d55efrxdlgqg9hdqskfstdmyssdw4fjc8qdl522ct885pqk7acn2aczh0jeht0xhuhnkmm3h0qsrxedlwm9x86787zzn4qwwwcpjkl3t2",
+			valid:          true,
+			decodedInvoice: func() *Invoice {
+				return &Invoice{
+					Net:             &ltcMainNetParams,
+					MilliSat:        &testMillisat24BTC,
+					Timestamp:       time.Unix(1496314658, 0),
+					PaymentHash:     &testPaymentHash,
+					DescriptionHash: &testDescriptionHash,
+					Destination:     testPubKey,
+				}
+			},
+		},
 	}
 
 	for i, test := range tests {
-		invoice, err := Decode(test.encodedInvoice)
+		var decodedInvoice *Invoice
+		net := &chaincfg.MainNetParams
+		if test.decodedInvoice != nil {
+			decodedInvoice = test.decodedInvoice()
+			net = decodedInvoice.Net
+		}
+
+		invoice, err := Decode(test.encodedInvoice, net)
 		if (err == nil) != test.valid {
 			t.Errorf("Decoding test %d failed: %v", i, err)
 			return
@@ -533,11 +603,6 @@ func TestDecodeEncode(t *testing.T) {
 
 		if test.skipEncoding {
 			continue
-		}
-
-		var decodedInvoice *Invoice
-		if test.decodedInvoice != nil {
-			decodedInvoice = test.decodedInvoice()
 		}
 
 		if test.beforeEncoding != nil {
@@ -621,6 +686,30 @@ func TestNewInvoice(t *testing.T) {
 			valid:          true,
 			encodedInvoice: "lnbc20m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqsfpp3qjmp7lwpagxun9pygexvgpjdc4jdj85fr9yq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvpeuqafqxu92d8lr6fvg0r5gv0heeeqgcrqlnm6jhphu9y00rrhy4grqszsvpcgpy9qqqqqqgqqqqq7qqzqj9n4evl6mr5aj9f58zp6fyjzup6ywn3x6sk8akg5v4tgn2q8g4fhx05wf6juaxu9760yp46454gpg5mtzgerlzezqcqvjnhjh8z3g2qqdhhwkj",
 		},
+		{
+			// Create a litecoin testnet invoice
+			newInvoice: func() (*Invoice, error) {
+				return NewInvoice(&ltcTestNetParams,
+					testPaymentHash, time.Unix(1496314658, 0),
+					Amount(testMillisat24BTC),
+					DescriptionHash(testDescriptionHash),
+					Destination(testPubKey))
+			},
+			valid:          true,
+			encodedInvoice: "lntltc241pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqsnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66m2eq2fx9uctzkmj30meaghyskkgsd6geap5qg9j2ae444z24a4p8xg3a6g73p8l7d689vtrlgzj0wyx2h6atq8dfty7wmkt4frx9g9sp730h5a",
+		},
+		{
+			// Create a litecoin mainnet invoice
+			newInvoice: func() (*Invoice, error) {
+				return NewInvoice(&ltcMainNetParams,
+					testPaymentHash, time.Unix(1496314658, 0),
+					Amount(testMillisat24BTC),
+					DescriptionHash(testDescriptionHash),
+					Destination(testPubKey))
+			},
+			valid:          true,
+			encodedInvoice: "lnltc241pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqsnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66859t2d55efrxdlgqg9hdqskfstdmyssdw4fjc8qdl522ct885pqk7acn2aczh0jeht0xhuhnkmm3h0qsrxedlwm9x86787zzn4qwwwcpjkl3t2",
+		},
 	}
 
 	for i, test := range tests {
@@ -689,11 +778,7 @@ func compareInvoices(expected, actual *Invoice) error {
 			expected.FallbackAddr, actual.FallbackAddr)
 	}
 
-	if err := compareRoutingInfos(expected.RoutingInfo, actual.RoutingInfo); err != nil {
-		return err
-	}
-
-	return nil
+	return compareRoutingInfos(expected.RoutingInfo, actual.RoutingInfo)
 }
 
 func comparePubkeys(a, b *btcec.PublicKey) bool {

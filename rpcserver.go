@@ -1693,7 +1693,8 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 				// attempt to decode it, populating the
 				// payment accordingly.
 				if nextPayment.PaymentRequest != "" {
-					payReq, err := zpay32.Decode(nextPayment.PaymentRequest)
+					payReq, err := zpay32.Decode(nextPayment.PaymentRequest,
+						activeNetParams.Params)
 					if err != nil {
 						select {
 						case errChan <- err:
@@ -1882,7 +1883,8 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	// If the proto request has an encoded payment request, then we we'll
 	// use that solely to dispatch the payment.
 	if nextPayment.PaymentRequest != "" {
-		payReq, err := zpay32.Decode(nextPayment.PaymentRequest)
+		payReq, err := zpay32.Decode(nextPayment.PaymentRequest,
+			activeNetParams.Params)
 		if err != nil {
 			return nil, err
 		}
@@ -2150,7 +2152,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 // createRPCInvoice creates an *lnrpc.Invoice from the *channeldb.Invoice.
 func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 	paymentRequest := string(invoice.PaymentRequest)
-	decoded, err := zpay32.Decode(paymentRequest)
+	decoded, err := zpay32.Decode(paymentRequest, activeNetParams.Params)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode payment request: %v",
 			err)
@@ -2978,7 +2980,7 @@ func (r *rpcServer) DecodePayReq(ctx context.Context,
 	// Fist we'll attempt to decode the payment request string, if the
 	// request is invalid or the checksum doesn't match, then we'll exit
 	// here with an error.
-	payReq, err := zpay32.Decode(req.PayReq)
+	payReq, err := zpay32.Decode(req.PayReq, activeNetParams.Params)
 	if err != nil {
 		return nil, err
 	}

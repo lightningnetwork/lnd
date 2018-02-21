@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"net"
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -1114,12 +1113,9 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 
 	// Broadcast the finalized funding transaction to the network.
 	if err := l.PublishTransaction(fundingTx); err != nil {
-		// TODO(roasbeef): need to make this into a concrete error
-		if !strings.Contains(err.Error(), "already have") {
-			msg.err <- err
-			msg.completeChan <- nil
-			return
-		}
+		msg.err <- err
+		msg.completeChan <- nil
+		return
 	}
 
 	msg.completeChan <- res.partialState

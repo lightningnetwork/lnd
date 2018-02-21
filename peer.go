@@ -106,7 +106,6 @@ type peer struct {
 	pubKeyBytes [33]byte
 
 	inbound bool
-	id      int32
 
 	// This mutex protects all the stats below it.
 	sync.RWMutex
@@ -179,7 +178,6 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 		conn: conn,
 		addr: addr,
 
-		id:      atomic.AddInt32(&numNodes, 1),
 		inbound: inbound,
 		connReq: connReq,
 
@@ -276,7 +274,7 @@ func (p *peer) Start() error {
 	// registering them with the switch and launching the necessary
 	// goroutines required to operate them.
 	peerLog.Debugf("Loaded %v active channels from database with "+
-		"peerID(%v)", len(activeChans), p.id)
+		"NodeKey(%x)", len(activeChans), p.PubKey())
 	if err := p.loadActiveChannels(activeChans); err != nil {
 		return fmt.Errorf("unable to load channels: %v", err)
 	}
@@ -310,7 +308,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		p.activeChannels[chanID] = lnChan
 		p.activeChanMtx.Unlock()
 
-		peerLog.Infof("peerID(%v) loading ChannelPoint(%v)", p.id, chanPoint)
+		peerLog.Infof("NodeKey(%x) loading ChannelPoint(%v)", p.PubKey(), chanPoint)
 
 		// Skip adding any permanently irreconcilable channels to the
 		// htlcswitch.
@@ -1247,7 +1245,7 @@ out:
 			p.activeChanMtx.Unlock()
 
 			peerLog.Infof("New channel active ChannelPoint(%v) "+
-				"with peerId(%v)", chanPoint, p.id)
+				"with NodeKey(%x)", chanPoint, p.PubKey())
 
 			// Next, we'll assemble a ChannelLink along with the
 			// necessary items it needs to function.
@@ -1304,7 +1302,7 @@ out:
 			// local payments and also passively forward payments.
 			if err := p.server.htlcSwitch.AddLink(link); err != nil {
 				peerLog.Errorf("can't register new channel "+
-					"link(%v) with peerId(%v)", chanPoint, p.id)
+					"link(%v) with NodeKey(%x)", chanPoint, p.PubKey())
 			}
 
 			close(newChanReq.done)

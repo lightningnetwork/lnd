@@ -75,7 +75,6 @@ type server struct {
 	lightningID [32]byte
 
 	mu         sync.RWMutex
-	peersByID  map[int32]*peer
 	peersByPub map[string]*peer
 
 	inboundPeers  map[string]*peer
@@ -173,7 +172,6 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		persistentConnReqs:     make(map[string][]*connmgr.ConnReq),
 		ignorePeerTermination:  make(map[*peer]struct{}),
 
-		peersByID:              make(map[int32]*peer),
 		peersByPub:             make(map[string]*peer),
 		inboundPeers:           make(map[string]*peer),
 		outboundPeers:          make(map[string]*peer),
@@ -1575,7 +1573,6 @@ func (s *server) addPeer(p *peer) {
 
 	pubStr := string(p.addr.IdentityKey.SerializeCompressed())
 
-	s.peersByID[p.id] = p
 	s.peersByPub[pubStr] = p
 
 	if p.inbound {
@@ -1632,7 +1629,6 @@ func (s *server) removePeer(p *peer) {
 
 	pubStr := string(p.addr.IdentityKey.SerializeCompressed())
 
-	delete(s.peersByID, p.id)
 	delete(s.peersByPub, pubStr)
 
 	if p.inbound {
@@ -1646,7 +1642,6 @@ func (s *server) removePeer(p *peer) {
 // initiation of a channel funding workflow to the peer with either the
 // specified relative peer ID, or a global lightning  ID.
 type openChanReq struct {
-	targetPeerID int32
 	targetPubkey *btcec.PublicKey
 
 	chainHash chainhash.Hash
@@ -1778,10 +1773,10 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 }
 
 // OpenChannel sends a request to the server to open a channel to the specified
-// peer identified by ID with the passed channel funding parameters.
+// peer identified by nodeKey with the passed channel funding parameters.
 //
 // NOTE: This function is safe for concurrent access.
-func (s *server) OpenChannel(peerID int32, nodeKey *btcec.PublicKey,
+func (s *server) OpenChannel(nodeKey *btcec.PublicKey,
 	localAmt btcutil.Amount, pushAmt lnwire.MilliSatoshi,
 	minHtlc lnwire.MilliSatoshi,
 	fundingFeePerByte btcutil.Amount,
@@ -1806,16 +1801,13 @@ func (s *server) OpenChannel(peerID int32, nodeKey *btcec.PublicKey,
 	// First attempt to locate the target peer to open a channel with, if
 	// we're unable to locate the peer then this request will fail.
 	s.mu.RLock()
-	if peer, ok := s.peersByID[peerID]; ok {
-		targetPeer = peer
-	} else if peer, ok := s.peersByPub[string(pubKeyBytes)]; ok {
+	if peer, ok := s.peersByPub[string(pubKeyBytes)]; ok {
 		targetPeer = peer
 	}
 	s.mu.RUnlock()
 
 	if targetPeer == nil {
-		errChan <- fmt.Errorf("unable to find peer nodeID(%x), "+
-			"peerID(%v)", pubKeyBytes, peerID)
+		errChan <- fmt.Errorf("unable to find peer NodeKey(%x)", pubKeyBytes)
 		return updateChan, errChan
 	}
 
@@ -1839,7 +1831,6 @@ func (s *server) OpenChannel(peerID int32, nodeKey *btcec.PublicKey,
 	// instead of blocking on this request which is exported as a
 	// synchronous request to the outside world.
 	req := &openChanReq{
-		targetPeerID:        peerID,
 		targetPubkey:        nodeKey,
 		chainHash:           *activeNetParams.GenesisHash,
 		localFundingAmt:     localAmt,
@@ -1865,8 +1856,8 @@ func (s *server) Peers() []*peer {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	peers := make([]*peer, 0, len(s.peersByID))
-	for _, peer := range s.peersByID {
+	peers := make([]*peer, 0, len(s.peersByPub))
+	for _, peer := range s.peersByPub {
 		peers = append(peers, peer)
 	}
 

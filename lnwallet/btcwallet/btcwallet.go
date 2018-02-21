@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -399,9 +400,93 @@ func (b *BtcWallet) ListUnspentWitness(minConfs int32) ([]*lnwallet.Utxo, error)
 }
 
 // PublishTransaction performs cursory validation (dust checks, etc), then
-// finally broadcasts the passed transaction to the Bitcoin network.
+// finally broadcasts the passed transaction to the Bitcoin network. If
+// publishing the transaction fails, an error describing the reason is
+// returned (currently ErrDoubleSpend). If the transaction is already
+// published to the network (either in the mempool or chain) no error
+// will be returned.
 func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx) error {
-	return b.wallet.PublishTransaction(tx)
+	if err := b.wallet.PublishTransaction(tx); err != nil {
+		switch b.chain.(type) {
+		case *chain.RPCClient:
+			if strings.Contains(err.Error(), "already have") {
+				// Transaction was already in the mempool, do
+				// not treat as an error. We do this to mimic
+				// the behaviour of bitcoind, which will not
+				// return an error if a transaction in the
+				// mempool is sent again using the
+				// sendrawtransaction RPC call.
+				return nil
+			}
+			if strings.Contains(err.Error(), "already exists") {
+				// Transaction was already mined, we don't
+				// consider this an error.
+				return nil
+			}
+			if strings.Contains(err.Error(), "already spent") {
+				// Output was already spent.
+				return lnwallet.ErrDoubleSpend
+			}
+			if strings.Contains(err.Error(), "already been spent") {
+				// Output was already spent.
+				return lnwallet.ErrDoubleSpend
+			}
+			if strings.Contains(err.Error(), "orphan transaction") {
+				// Transaction is spending either output that
+				// is missing or already spent.
+				return lnwallet.ErrDoubleSpend
+			}
+
+		case *chain.BitcoindClient:
+			if strings.Contains(err.Error(), "txn-already-in-mempool") {
+				// Transaction in mempool, treat as non-error.
+				return nil
+			}
+			if strings.Contains(err.Error(), "txn-already-known") {
+				// Transaction in mempool, treat as non-error.
+				return nil
+			}
+			if strings.Contains(err.Error(), "already in block") {
+				// Transaction was already mined, we don't
+				// consider this an error.
+				return nil
+			}
+			if strings.Contains(err.Error(), "txn-mempool-conflict") {
+				// Output was spent by other transaction
+				// already in the mempool.
+				return lnwallet.ErrDoubleSpend
+			}
+			if strings.Contains(err.Error(), "insufficient fee") {
+				// RBF enabled transaction did not have enough fee.
+				return lnwallet.ErrDoubleSpend
+			}
+			if strings.Contains(err.Error(), "Missing inputs") {
+				// Transaction is spending either output that
+				// is missing or already spent.
+				return lnwallet.ErrDoubleSpend
+			}
+
+		case *chain.NeutrinoClient:
+			if strings.Contains(err.Error(), "already have") {
+				// Transaction was already in the mempool, do
+				// not treat as an error.
+				return nil
+			}
+			if strings.Contains(err.Error(), "already exists") {
+				// Transaction was already mined, we don't
+				// consider this an error.
+				return nil
+			}
+			if strings.Contains(err.Error(), "already spent") {
+				// Output was already spent.
+				return lnwallet.ErrDoubleSpend
+			}
+
+		default:
+		}
+		return err
+	}
+	return nil
 }
 
 // extractBalanceDelta extracts the net balance delta from the PoV of the
@@ -667,27 +752,32 @@ func (b *BtcWallet) SubscribeTransactions() (lnwallet.TransactionSubscription, e
 // it has fully synced to the current best block in the main chain.
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) IsSynced() (bool, error) {
-	// Grab the best chain state the wallet is currently aware of.
+func (b *BtcWallet) IsSynced() (bool, int64, error) {
+	// Grab the best chain state the wallet is currently aware of. We'll
+	// also grab the timestamp of the best block to return for determining
+	// sync progress.
 	syncState := b.wallet.Manager.SyncedTo()
+	walletBestHeader, err := b.chain.GetBlockHeader(&syncState.Hash)
+	if err != nil {
+		return false, 0, err
+	}
 
 	var (
 		bestHash   *chainhash.Hash
 		bestHeight int32
-		err        error
 	)
 
 	// Next, query the chain backend to grab the info about the tip of the
 	// main chain.
 	bestHash, bestHeight, err = b.cfg.ChainSource.GetBestBlock()
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 
 	// If the wallet hasn't yet fully synced to the node's best chain tip,
 	// then we're not yet fully synced.
 	if syncState.Height < bestHeight {
-		return false, nil
+		return false, walletBestHeader.Timestamp.Unix(), nil
 	}
 
 	// If the wallet is on par with the current best chain tip, then we
@@ -696,11 +786,11 @@ func (b *BtcWallet) IsSynced() (bool, error) {
 	// order to make a guess based on the current time stamp.
 	blockHeader, err := b.cfg.ChainSource.GetBlockHeader(bestHash)
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 
 	// If the timestamp no the best header is more than 2 hours in the
 	// past, then we're not yet synced.
 	minus24Hours := time.Now().Add(-2 * time.Hour)
-	return !blockHeader.Timestamp.Before(minus24Hours), nil
+	return !blockHeader.Timestamp.Before(minus24Hours), walletBestHeader.Timestamp.Unix(), nil
 }

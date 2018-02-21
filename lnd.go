@@ -490,7 +490,7 @@ func lndMain() error {
 			"start_height=%v", bestHeight)
 
 		for {
-			synced, err := activeChainControl.wallet.IsSynced()
+			synced, _, err := activeChainControl.wallet.IsSynced()
 			if err != nil {
 				return err
 			}

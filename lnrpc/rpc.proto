@@ -630,8 +630,6 @@ message ConnectPeerRequest {
     bool perm = 2;
 }
 message ConnectPeerResponse {
-    /// The id of the newly connected peer
-    int32 peer_id = 1 [json_name = "peer_id"];
 }
 
 message DisconnectPeerRequest {
@@ -738,9 +736,6 @@ message Peer {
     /// The identity pubkey of the peer
     string pub_key = 1 [json_name = "pub_key"];
 
-    /// The peer's id from the local point of view
-    int32 peer_id = 2 [json_name = "peer_id"];
-
     /// Network address of the peer; eg `127.0.0.1:10011`
     string address = 3 [json_name = "address"];
 
@@ -806,6 +801,9 @@ message GetInfoResponse {
 
     /// The URIs of the current node.
     repeated string uris = 12 [json_name = "uris"];
+
+    /// Timestamp of the block best known to the wallet
+    int64 best_header_timestamp = 13 [ json_name = "best_header_timestamp" ];
 }
 
 message ConfirmationUpdate {
@@ -857,9 +855,6 @@ message PendingUpdate {
 }
 
 message OpenChannelRequest {
-
-    /// The peer_id of the node to open a channel with
-    int32 target_peer_id = 1 [json_name = "target_peer_id"];
 
     /// The pubkey of the node to open a channel with
     bytes node_pubkey = 2 [json_name = "node_pubkey"];

@@ -823,7 +823,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// We'll also reject any requests to create channels until we're fully
 	// synced to the network as we won't be able to properly validate the
 	// confirmation of the funding transaction.
-	isSynced, err := f.cfg.Wallet.IsSynced()
+	isSynced, _, err := f.cfg.Wallet.IsSynced()
 	if err != nil {
 		fndgLog.Errorf("unable to query wallet: %v", err)
 		return

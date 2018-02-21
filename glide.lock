@@ -1,5 +1,5 @@
-hash: 63c0706e71ebdd4664e6a452bf58035571a8799b24e517ea0d8aa2fb8dd94155
-updated: 2018-02-08T15:26:31.423935935-08:00
+hash: ccd5caad2b8fa46f76338964fe06f5d6a35b9ed36dd5df8da0748e3e3ab99e6a
+updated: 2018-02-19T17:31:51.88595122-08:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -90,7 +90,7 @@ imports:
   subpackages:
   - internal/socket
 - name: github.com/roasbeef/btcd
-  version: 9978b939c33973be19b932fa7b936079bb7ba38d
+  version: e6807bc4dd5ddbb95b4ab163f6dd61e4ad79463a
   subpackages:
   - addrmgr
   - blockchain

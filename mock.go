@@ -262,8 +262,8 @@ func (m *mockWalletController) PublishTransaction(tx *wire.MsgTx) error {
 func (*mockWalletController) SubscribeTransactions() (lnwallet.TransactionSubscription, error) {
 	return nil, nil
 }
-func (*mockWalletController) IsSynced() (bool, error) {
-	return true, nil
+func (*mockWalletController) IsSynced() (bool, int64, error) {
+	return true, int64(0), nil
 }
 func (*mockWalletController) Start() error {
 	return nil

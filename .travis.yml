@@ -1,7 +1,7 @@
 language: go
 go:
-  - 1.8.5
-  - 1.9.2
+  - 1.9.4
+  - "1.10"
 sudo: required
 install:
   - sudo add-apt-repository -y ppa:bitcoin/bitcoin -y

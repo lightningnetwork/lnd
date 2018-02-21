@@ -1127,14 +1127,7 @@
       }
     },
     "lnrpcConnectPeerResponse": {
-      "type": "object",
-      "properties": {
-        "peer_id": {
-          "type": "integer",
-          "format": "int32",
-          "title": "/ The id of the newly connected peer"
-        }
-      }
+      "type": "object"
     },
     "lnrpcCreateWalletRequest": {
       "type": "object",
@@ -1232,6 +1225,11 @@
             "type": "string"
           },
           "description": "/ The URIs of the current node."
+        },
+        "best_header_timestamp": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ Timestamp of the block best known to the wallet"
         }
       }
     },
@@ -1559,11 +1557,6 @@
     "lnrpcOpenChannelRequest": {
       "type": "object",
       "properties": {
-        "target_peer_id": {
-          "type": "integer",
-          "format": "int32",
-          "title": "/ The peer_id of the node to open a channel with"
-        },
         "node_pubkey": {
           "type": "string",
           "format": "byte",
@@ -1696,11 +1689,6 @@
         "pub_key": {
           "type": "string",
           "title": "/ The identity pubkey of the peer"
-        },
-        "peer_id": {
-          "type": "integer",
-          "format": "int32",
-          "title": "/ The peer's id from the local point of view"
         },
         "address": {
           "type": "string",
@@ -2024,7 +2012,7 @@
         "amount": {
           "type": "string",
           "format": "int64",
-          "title": "/ The transaction amount, denominated in satoshis"
+          "title": "/ The transaction ammount, denominated in satoshis"
         },
         "num_confirmations": {
           "type": "integer",

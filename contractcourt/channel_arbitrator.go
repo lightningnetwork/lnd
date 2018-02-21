@@ -449,7 +449,6 @@ func (c *ChannelArbitrator) stateStep(bestHeight uint32, bestHash *chainhash.Has
 		// At this point, we'll now broadcast the commitment
 		// transaction itself.
 		if err := c.cfg.PublishTx(closeTx); err != nil {
-			// TODO(roasbeef): need to check for errors (duplicate)
 			log.Errorf("ChannelArbitrator(%v): unable to broadcast "+
 				"close tx: %v", c.cfg.ChanPoint, err)
 			return StateError, closeTx, err

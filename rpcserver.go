@@ -668,8 +668,8 @@ func (r *rpcServer) DisconnectPeer(ctx context.Context,
 func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	updateStream lnrpc.Lightning_OpenChannelServer) error {
 
-	rpcsLog.Tracef("[openchannel] request to peerid(%v) "+
-		"allocation(us=%v, them=%v)", in.TargetPeerId,
+	rpcsLog.Tracef("[openchannel] request to NodeKey(%v) "+
+		"allocation(us=%v, them=%v)", in.NodePubkeyString,
 		in.LocalFundingAmount, in.PushSat)
 
 	if !r.server.Started() {
@@ -720,23 +720,25 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 
 	// TODO(roasbeef): also return channel ID?
 
-	// If the node key is set, then we'll parse the raw bytes into a pubkey
-	// object so we can easily manipulate it. If this isn't set, then we
-	// expected the TargetPeerId to be set accordingly.
-	if len(in.NodePubkey) != 0 {
-		nodePubKey, err = btcec.ParsePubKey(in.NodePubkey, btcec.S256())
-		if err != nil {
-			return err
-		}
-
-		// Making a channel to ourselves wouldn't be of any use, so we
-		// explicitly disallow them.
-		if nodePubKey.IsEqual(r.server.identityPriv.PubKey()) {
-			return fmt.Errorf("cannot open channel to self")
-		}
-
-		nodePubKeyBytes = nodePubKey.SerializeCompressed()
+	// Ensure that the NodePubKey is set before attempting to use it
+	if len(in.NodePubkey) == 0 {
+		return fmt.Errorf("NodePubKey is not set")
 	}
+
+	// Parse the raw bytes of the node key into a pubkey object so we
+	// can easily manipulate it.
+	nodePubKey, err = btcec.ParsePubKey(in.NodePubkey, btcec.S256())
+	if err != nil {
+		return err
+	}
+
+	// Making a channel to ourselves wouldn't be of any use, so we
+	// explicitly disallow them.
+	if nodePubKey.IsEqual(r.server.identityPriv.PubKey()) {
+		return fmt.Errorf("cannot open channel to self")
+	}
+
+	nodePubKeyBytes = nodePubKey.SerializeCompressed()
 
 	// Based on the passed fee related parameters, we'll determine an
 	// appropriate fee rate for the funding transaction.
@@ -754,7 +756,7 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	// open a new channel. A stream is returned in place, this stream will
 	// be used to consume updates of the state of the pending channel.
 	updateChan, errChan := r.server.OpenChannel(
-		in.TargetPeerId, nodePubKey, localFundingAmt,
+		nodePubKey, localFundingAmt,
 		lnwire.NewMSatFromSatoshis(remoteInitialBalance),
 		minHtlc, feePerByte, in.Private,
 	)
@@ -764,9 +766,8 @@ out:
 	for {
 		select {
 		case err := <-errChan:
-			rpcsLog.Errorf("unable to open channel to "+
-				"identityPub(%x) nor peerID(%v): %v",
-				nodePubKeyBytes, in.TargetPeerId, err)
+			rpcsLog.Errorf("unable to open channel to NodeKey(%x): %v",
+				nodePubKeyBytes, err)
 			return err
 		case fundingUpdate := <-updateChan:
 			rpcsLog.Tracef("[openchannel] sending update: %v",
@@ -802,8 +803,8 @@ out:
 		}
 	}
 
-	rpcsLog.Tracef("[openchannel] success peerid(%v), ChannelPoint(%v)",
-		in.TargetPeerId, outpoint)
+	rpcsLog.Tracef("[openchannel] success NodeKey(%x), ChannelPoint(%v)",
+		nodePubKeyBytes, outpoint)
 	return nil
 }
 
@@ -814,8 +815,8 @@ out:
 func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	in *lnrpc.OpenChannelRequest) (*lnrpc.ChannelPoint, error) {
 
-	rpcsLog.Tracef("[openchannel] request to peerid(%v) "+
-		"allocation(us=%v, them=%v)", in.TargetPeerId,
+	rpcsLog.Tracef("[openchannel] request to NodeKey(%v) "+
+		"allocation(us=%v, them=%v)", in.NodePubkeyString,
 		in.LocalFundingAmount, in.PushSat)
 
 	// We don't allow new channels to be open while the server is still
@@ -828,7 +829,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 
 	// Creation of channels before the wallet syncs up is currently
 	// disallowed.
-	isSynced, err := r.server.cc.wallet.IsSynced()
+	isSynced, _, err := r.server.cc.wallet.IsSynced()
 	if err != nil {
 		return nil, err
 	}
@@ -874,7 +875,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 		int64(feePerByte))
 
 	updateChan, errChan := r.server.OpenChannel(
-		in.TargetPeerId, nodepubKey, localFundingAmt,
+		nodepubKey, localFundingAmt,
 		lnwire.NewMSatFromSatoshis(remoteInitialBalance),
 		minHtlc, feePerByte, in.Private,
 	)
@@ -882,9 +883,8 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	select {
 	// If an error occurs them immediately return the error to the client.
 	case err := <-errChan:
-		rpcsLog.Errorf("unable to open channel to "+
-			"identityPub(%x) nor peerID(%v): %v",
-			nodepubKey, in.TargetPeerId, err)
+		rpcsLog.Errorf("unable to open channel to NodeKey(%x): %v",
+			nodepubKey, err)
 		return nil, err
 
 	// Otherwise, wait for the first channel update. The first update sent
@@ -1166,7 +1166,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		return nil, fmt.Errorf("unable to get best block info: %v", err)
 	}
 
-	isSynced, err := r.server.cc.wallet.IsSynced()
+	isSynced, bestHeaderTimestamp, err := r.server.cc.wallet.IsSynced()
 	if err != nil {
 		return nil, fmt.Errorf("unable to sync PoV of the wallet "+
 			"with current best block in the main chain: %v", err)
@@ -1192,17 +1192,18 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 
 	// TODO(roasbeef): add synced height n stuff
 	return &lnrpc.GetInfoResponse{
-		IdentityPubkey:     encodedIDPub,
-		NumPendingChannels: nPendingChannels,
-		NumActiveChannels:  activeChannels,
-		NumPeers:           uint32(len(serverPeers)),
-		BlockHeight:        uint32(bestHeight),
-		BlockHash:          bestHash.String(),
-		SyncedToChain:      isSynced,
-		Testnet:            activeNetParams.Params == &chaincfg.TestNet3Params,
-		Chains:             activeChains,
-		Uris:               uris,
-		Alias:              nodeAnn.Alias.String(),
+		IdentityPubkey:      encodedIDPub,
+		NumPendingChannels:  nPendingChannels,
+		NumActiveChannels:   activeChannels,
+		NumPeers:            uint32(len(serverPeers)),
+		BlockHeight:         uint32(bestHeight),
+		BlockHash:           bestHash.String(),
+		SyncedToChain:       isSynced,
+		Testnet:             activeNetParams.Params == &chaincfg.TestNet3Params,
+		Chains:              activeChains,
+		Uris:                uris,
+		Alias:               nodeAnn.Alias.String(),
+		BestHeaderTimestamp: int64(bestHeaderTimestamp),
 	}, nil
 }
 
@@ -1237,7 +1238,6 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 		nodePub := serverPeer.addr.IdentityKey.SerializeCompressed()
 		peer := &lnrpc.Peer{
 			PubKey:    hex.EncodeToString(nodePub),
-			PeerId:    serverPeer.id,
 			Address:   serverPeer.conn.RemoteAddr().String(),
 			Inbound:   !serverPeer.inbound, // Flip for display
 			BytesRecv: atomic.LoadUint64(&serverPeer.bytesReceived),

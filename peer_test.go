@@ -139,7 +139,7 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 		CloseType:      htlcswitch.CloseRegular,
 		ChanPoint:      initiatorChan.ChannelPoint(),
 		Updates:        updateChan,
-		TargetFeePerKw: 12000,
+		TargetFeePerKw: 12500,
 		Err:            errChan,
 	}
 	initiator.localCloseChanReqs <- closeCommand
@@ -175,7 +175,7 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 		t.Fatalf("unable to query fee estimator: %v", err)
 	}
 	feePerKw := feeRate.FeePerKWeight()
-	fee := btcutil.Amount(responderChan.CalcFee(feePerKw))
+	fee := responderChan.CalcFee(feePerKw)
 	closeSig, _, _, err := responderChan.CreateCloseProposal(fee,
 		dummyDeliveryScript, initiatorDeliveryScript)
 	if err != nil {
@@ -429,7 +429,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 		CloseType:      htlcswitch.CloseRegular,
 		ChanPoint:      initiatorChan.ChannelPoint(),
 		Updates:        updateChan,
-		TargetFeePerKw: 12000,
+		TargetFeePerKw: 12500,
 		Err:            errChan,
 	}
 
@@ -500,7 +500,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected ClosingSigned message, got %T", msg)
 	}
-	if uint64(closingSignedMsg.FeeSatoshis) != initiatorIdealFee {
+	if closingSignedMsg.FeeSatoshis != initiatorIdealFee {
 		t.Fatalf("expected ClosingSigned fee to be %v, instead got %v",
 			initiatorIdealFee, closingSignedMsg.FeeSatoshis)
 	}

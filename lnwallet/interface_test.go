@@ -211,7 +211,7 @@ func loadTestCredits(miner *rpctest.Harness, w *lnwallet.LightningWallet,
 		}
 		select {
 		case <-timeout:
-			synced, err := w.IsSynced()
+			synced, _, err := w.IsSynced()
 			if err != nil {
 				return err
 			}
@@ -1886,7 +1886,7 @@ func waitForWalletSync(r *rpctest.Harness, w *lnwallet.LightningWallet) error {
 		}
 
 		// Check for synchronization.
-		synced, err = w.IsSynced()
+		synced, _, err = w.IsSynced()
 		if err != nil {
 			return err
 		}

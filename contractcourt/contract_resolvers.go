@@ -582,7 +582,6 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	//
 	// TODO(roasbeef): after changing sighashes send to tx bundler
 	if err := h.PublishTx(h.htlcResolution.SignedSuccessTx); err != nil {
-		// TODO(roasbeef): detect double spends
 		return nil, err
 	}
 

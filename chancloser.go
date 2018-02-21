@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -439,19 +438,7 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 				return spew.Sdump(closeTx)
 			}))
 		if err := c.cfg.broadcastTx(closeTx); err != nil {
-			// TODO(halseth): add relevant error types to the
-			// WalletController interface as this is quite fragile.
-			switch {
-			case strings.Contains(err.Error(), "already exists"):
-				fallthrough
-			case strings.Contains(err.Error(), "already have"):
-				peerLog.Debugf("channel close tx from "+
-					"ChannelPoint(%v) already exist, "+
-					"probably broadcast by peer: %v",
-					c.chanPoint, err)
-			default:
-				return nil, false, err
-			}
+			return nil, false, err
 		}
 
 		// Clear out the current channel state, marking the channel as

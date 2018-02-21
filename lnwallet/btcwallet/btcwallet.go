@@ -427,6 +427,10 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx) error {
 				// Output was already spent.
 				return lnwallet.ErrDoubleSpend
 			}
+			if strings.Contains(err.Error(), "already been spent") {
+				// Output was already spent.
+				return lnwallet.ErrDoubleSpend
+			}
 			if strings.Contains(err.Error(), "orphan transaction") {
 				// Transaction is spending either output that
 				// is missing or already spent.

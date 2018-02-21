@@ -1,5 +1,5 @@
-hash: 02ca2623123671074881b4e61e5b0bc0805530e1a68ae23bf7a5d67e04b7b326
-updated: 2017-10-11T17:39:22.162242846-04:00
+hash: 2d47f5b9766af60984cadf5ba0ba9a21e085e4715cafcbdae080a7b620c38b0d
+updated: 2018-02-20T23:10:22.589085-08:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -16,36 +16,29 @@ imports:
 - name: github.com/go-errors/errors
   version: 8fa88b06e5974e97fbf9899a7f86a344bfd1f105
 - name: github.com/lightningnetwork/lnd
-  version: a314e661bd1fd4ed2aeeb14db5f2d68b1b424e2b
+  version: 1c3dbb25434ef9f4d3dedc226dea41755e1621e7
   subpackages:
   - chainntnfs
-  - channeldb
-  - lnwire
-  - shachain
 - name: github.com/roasbeef/btcd
-  version: 4b411f0e78f1faa96ae650d886170d018c1835bf
+  version: e6807bc4dd5ddbb95b4ab163f6dd61e4ad79463a
   subpackages:
   - btcec
   - chaincfg
   - chaincfg/chainhash
   - wire
 - name: github.com/roasbeef/btcutil
-  version: 1584022350b4400b511beab6a013f0189adeef40
+  version: c3ff179366044979fb9856c2feb79bd4c2184c7a
   subpackages:
   - base58
   - bech32
 - name: golang.org/x/crypto
-  version: 459e26527287adbc2adcc5d0d49abff9a5f315a7
+  version: 9419663f5a44be8b34ca85f08abc5fe1be11f8a3
   subpackages:
   - ripemd160
 - name: golang.org/x/sys
-  version: b6e1ae21643682ce023deb8d152024597b0e9bb4
+  version: ab9e364efd8b52800ff7ee48a9ffba4e0ed78dfb
   subpackages:
   - unix
-- name: google.golang.org/grpc
-  version: b3ddf786825de56a4178401b7e174ee332173b66
-  subpackages:
-  - codes
 testImports:
 - name: github.com/davecgh/go-spew
   version: 346938d642f2ec3594ed81d874461961cd0faa76

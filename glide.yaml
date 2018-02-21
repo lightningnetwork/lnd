@@ -7,7 +7,6 @@ import:
 - package: github.com/lightningnetwork/lnd
   subpackages:
   - chainntnfs
-  - channeldb
 - package: github.com/roasbeef/btcd
   subpackages:
   - btcec

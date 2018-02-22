@@ -97,7 +97,21 @@ func (c *StubLightningClient) ListPeers(ctx context.Context, in *lnrpc.ListPeers
 
 func (c *StubLightningClient) GetInfo(ctx context.Context, in *lnrpc.GetInfoRequest, opts ...grpc.CallOption) (*lnrpc.GetInfoResponse, error) {
 	c.CapturedRequest = in
-	return new(lnrpc.GetInfoResponse), nil
+
+	response := lnrpc.GetInfoResponse{
+		IdentityPubkey:     "Pubkey",
+		Alias:              "Alias",
+		NumPendingChannels: 55,
+		NumActiveChannels:  21,
+		NumPeers:           77,
+		BlockHeight:        123456,
+		BlockHash:          "BlockHash",
+		SyncedToChain:      true,
+		Testnet:            true,
+		Chains:             []string{"Bitcoin", "Litecoin"},
+		Uris:               []string{"URI0", "URI1"}}
+
+	return &response, nil
 }
 
 func (c *StubLightningClient) PendingChannels(ctx context.Context, in *lnrpc.PendingChannelsRequest, opts ...grpc.CallOption) (*lnrpc.PendingChannelsResponse, error) {

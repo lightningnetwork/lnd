@@ -958,13 +958,13 @@ func channelBalance(
 var getInfoCommand = cli.Command{
 	Name:   "getinfo",
 	Usage:  "returns basic information related to the active daemon",
-	Action: actionDecorator(getInfo),
+	Action: actionDecoratorWithClient(getInfo),
 }
 
-func getInfo(ctx *cli.Context) error {
+func getInfo(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
+
 	ctxb := context.Background()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
 
 	req := &lnrpc.GetInfoRequest{}
 	resp, err := client.GetInfo(ctxb, req)
@@ -972,7 +972,7 @@ func getInfo(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(resp)
+	printRespJSONToWriter(writer, resp)
 	return nil
 }
 

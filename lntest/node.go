@@ -395,6 +395,12 @@ func (hn *HarnessNode) connectRPC() (*grpc.ClientConn, error) {
 	return grpc.Dial(hn.cfg.RPCAddr(), opts...)
 }
 
+// SetExtraArgs assigns the ExtraArgs field for the node's configuration. The
+// changes will take effect on restart.
+func (hn *HarnessNode) SetExtraArgs(extraArgs []string) {
+	hn.cfg.ExtraArgs = extraArgs
+}
+
 // cleanup cleans up all the temporary files created by the node's process.
 func (hn *HarnessNode) cleanup() error {
 	return os.RemoveAll(hn.cfg.BaseDir)

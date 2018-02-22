@@ -1464,13 +1464,8 @@ var listInvoicesCommand = cli.Command{
 func listInvoices(
 	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
 
-	pendingOnly := true
-	if !ctx.Bool("pending_only") {
-		pendingOnly = false
-	}
-
 	req := &lnrpc.ListInvoiceRequest{
-		PendingOnly: pendingOnly,
+		PendingOnly: ctx.Bool("pending_only"),
 	}
 
 	invoices, err := client.ListInvoices(context.Background(), req)

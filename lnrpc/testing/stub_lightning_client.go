@@ -162,7 +162,12 @@ func (c *StubLightningClient) AddInvoice(ctx context.Context, in *lnrpc.Invoice,
 
 func (c *StubLightningClient) ListInvoices(ctx context.Context, in *lnrpc.ListInvoiceRequest, opts ...grpc.CallOption) (*lnrpc.ListInvoiceResponse, error) {
 	c.CapturedRequest = in
-	return new(lnrpc.ListInvoiceResponse), nil
+	invoice := lnrpc.Invoice{
+		Value:           5000,
+		Receipt:         []uint8{0x78, 0x9a, 0xaa},
+		DescriptionHash: []uint8{0x45, 0x6d, 0xef},
+		RPreimage:       []uint8{0x12, 0x3a, 0xbc}}
+	return &lnrpc.ListInvoiceResponse{[]*lnrpc.Invoice{&invoice}}, nil
 }
 
 func (c *StubLightningClient) LookupInvoice(ctx context.Context, in *lnrpc.PaymentHash, opts ...grpc.CallOption) (*lnrpc.Invoice, error) {

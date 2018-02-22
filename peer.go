@@ -402,7 +402,8 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 				time.NewTicker(50 * time.Millisecond)),
 			FwdPkgGCTicker: htlcswitch.NewBatchTicker(
 				time.NewTicker(time.Minute)),
-			BatchSize: 10,
+			BatchSize:    10,
+			UnsafeReplay: cfg.UnsafeReplay,
 		}
 		link := htlcswitch.NewChannelLink(linkCfg, lnChan,
 			uint32(currentHeight))
@@ -1023,6 +1024,7 @@ func (p *peer) writeMessage(msg lnwire.Message) error {
 // NOTE: This method MUST be run as a goroutine.
 func (p *peer) writeHandler() {
 	var exitErr error
+
 out:
 	for {
 		select {
@@ -1298,7 +1300,8 @@ out:
 					time.NewTicker(50 * time.Millisecond)),
 				FwdPkgGCTicker: htlcswitch.NewBatchTicker(
 					time.NewTicker(time.Minute)),
-				BatchSize: 10,
+				BatchSize:    10,
+				UnsafeReplay: cfg.UnsafeReplay,
 			}
 			link := htlcswitch.NewChannelLink(linkConfig, newChan,
 				uint32(currentHeight))

@@ -9,7 +9,6 @@ import (
 
 var expectedAddInvoiceResponse = "{\n\t\"r_hash\": \"7b\",\n\t\"pay_req\": \"PaymentRequest\"\n}\n"
 
-// connectPeer returns the correct output if no errors occurred.
 func TestAddInvoice(t *testing.T) {
 	TestCommandNoError(t, runAddInvoice,
 		[]string{

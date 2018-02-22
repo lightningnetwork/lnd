@@ -73,6 +73,9 @@ var (
 	// fees were provided.
 	ErrMultipleFeeArgs = fmt.Errorf(
 		"either conf_target or sat_per_byte should be set, but not both")
+
+	// ErrMissingRhash occurs if the rhash is omitted.
+	ErrMissingRhash = fmt.Errorf("rhash argument missing")
 )
 
 func printJSON(resp interface{}) {
@@ -1424,7 +1427,7 @@ func lookupInvoice(
 	case ctx.Args().Present():
 		rHash, err = hex.DecodeString(ctx.Args().First())
 	default:
-		return fmt.Errorf("rhash argument missing")
+		return ErrMissingRhash
 	}
 
 	if err != nil {

@@ -914,13 +914,13 @@ var walletBalanceCommand = cli.Command{
 				"calculating the wallet's balance",
 		},
 	},
-	Action: actionDecorator(walletBalance),
+	Action: actionDecoratorWithClient(walletBalance),
 }
 
-func walletBalance(ctx *cli.Context) error {
+func walletBalance(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
+
 	ctxb := context.Background()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
 
 	req := &lnrpc.WalletBalanceRequest{
 		WitnessOnly: ctx.Bool("witness_only"),
@@ -930,7 +930,7 @@ func walletBalance(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(resp)
+	printRespJSONToWriter(writer, resp)
 	return nil
 }
 

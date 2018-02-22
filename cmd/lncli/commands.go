@@ -994,13 +994,13 @@ var pendingChannelsCommand = cli.Command{
 				"process of being opened or closed",
 		},
 	},
-	Action: actionDecorator(pendingChannels),
+	Action: actionDecoratorWithClient(pendingChannels),
 }
 
-func pendingChannels(ctx *cli.Context) error {
+func pendingChannels(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
+
 	ctxb := context.Background()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
 
 	req := &lnrpc.PendingChannelsRequest{}
 	resp, err := client.PendingChannels(ctxb, req)
@@ -1008,7 +1008,7 @@ func pendingChannels(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(resp)
+	printRespJSONToWriter(writer, resp)
 
 	return nil
 }
@@ -1022,13 +1022,13 @@ var listChannelsCommand = cli.Command{
 			Usage: "only list channels which are currently active",
 		},
 	},
-	Action: actionDecorator(listChannels),
+	Action: actionDecoratorWithClient(listChannels),
 }
 
-func listChannels(ctx *cli.Context) error {
+func listChannels(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
+
 	ctxb := context.Background()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
 
 	req := &lnrpc.ListChannelsRequest{}
 	resp, err := client.ListChannels(ctxb, req)
@@ -1038,7 +1038,7 @@ func listChannels(ctx *cli.Context) error {
 
 	// TODO(roasbeef): defer close the client for the all
 
-	printRespJSON(resp)
+	printRespJSONToWriter(writer, resp)
 
 	return nil
 }
@@ -1322,10 +1322,12 @@ var addInvoiceCommand = cli.Command{
 				"is implied.",
 		},
 	},
-	Action: actionDecorator(addInvoice),
+	Action: actionDecoratorWithClient(addInvoice),
 }
 
-func addInvoice(ctx *cli.Context) error {
+func addInvoice(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
+
 	var (
 		preimage []byte
 		descHash []byte
@@ -1333,9 +1335,6 @@ func addInvoice(ctx *cli.Context) error {
 		amt      int64
 		err      error
 	)
-
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
 
 	args := ctx.Args()
 
@@ -1408,12 +1407,11 @@ var lookupInvoiceCommand = cli.Command{
 				"should be a hex-encoded string",
 		},
 	},
-	Action: actionDecorator(lookupInvoice),
+	Action: actionDecoratorWithClient(lookupInvoice),
 }
 
-func lookupInvoice(ctx *cli.Context) error {
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
+func lookupInvoice(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
 
 	var (
 		rHash []byte
@@ -1442,7 +1440,7 @@ func lookupInvoice(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(invoice)
+	printRespJSONToWriter(writer, invoice)
 
 	return nil
 }
@@ -1457,12 +1455,11 @@ var listInvoicesCommand = cli.Command{
 				"those that are currently unsettled",
 		},
 	},
-	Action: actionDecorator(listInvoices),
+	Action: actionDecoratorWithClient(listInvoices),
 }
 
-func listInvoices(ctx *cli.Context) error {
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
+func listInvoices(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
 
 	pendingOnly := true
 	if !ctx.Bool("pending_only") {
@@ -1478,7 +1475,7 @@ func listInvoices(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(invoices)
+	printRespJSONToWriter(writer, invoices)
 
 	return nil
 }
@@ -1494,12 +1491,11 @@ var describeGraphCommand = cli.Command{
 			Usage: "If set, then an image of graph will be generated and displayed. The generated image is stored within the current directory with a file name of 'graph.svg'",
 		},
 	},
-	Action: actionDecorator(describeGraph),
+	Action: actionDecoratorWithClient(describeGraph),
 }
 
-func describeGraph(ctx *cli.Context) error {
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
+func describeGraph(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
 
 	req := &lnrpc.ChannelGraphRequest{}
 
@@ -1514,7 +1510,7 @@ func describeGraph(ctx *cli.Context) error {
 		return drawChannelGraph(graph)
 	}
 
-	printRespJSON(graph)
+	printRespJSONToWriter(writer, graph)
 	return nil
 }
 
@@ -1681,12 +1677,11 @@ func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
 var listPaymentsCommand = cli.Command{
 	Name:   "listpayments",
 	Usage:  "list all outgoing payments",
-	Action: actionDecorator(listPayments),
+	Action: actionDecoratorWithClient(listPayments),
 }
 
-func listPayments(ctx *cli.Context) error {
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
+func listPayments(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
 
 	req := &lnrpc.ListPaymentsRequest{}
 
@@ -1695,7 +1690,7 @@ func listPayments(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(payments)
+	printRespJSONToWriter(writer, payments)
 	return nil
 }
 
@@ -1711,13 +1706,13 @@ var getChanInfoCommand = cli.Command{
 			Usage: "the 8-byte compact channel ID to query for",
 		},
 	},
-	Action: actionDecorator(getChanInfo),
+	Action: actionDecoratorWithClient(getChanInfo),
 }
 
-func getChanInfo(ctx *cli.Context) error {
+func getChanInfo(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
+
 	ctxb := context.Background()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
 
 	var (
 		chanID int64
@@ -1742,7 +1737,7 @@ func getChanInfo(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(chanInfo)
+	printRespJSONToWriter(writer, chanInfo)
 	return nil
 }
 
@@ -1758,13 +1753,13 @@ var getNodeInfoCommand = cli.Command{
 				"node",
 		},
 	},
-	Action: actionDecorator(getNodeInfo),
+	Action: actionDecoratorWithClient(getNodeInfo),
 }
 
-func getNodeInfo(ctx *cli.Context) error {
+func getNodeInfo(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
+
 	ctxb := context.Background()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
 
 	args := ctx.Args()
 
@@ -1787,7 +1782,7 @@ func getNodeInfo(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(nodeInfo)
+	printRespJSONToWriter(writer, nodeInfo)
 	return nil
 }
 
@@ -1807,13 +1802,13 @@ var queryRoutesCommand = cli.Command{
 			Usage: "the amount to send expressed in satoshis",
 		},
 	},
-	Action: actionDecorator(queryRoutes),
+	Action: actionDecoratorWithClient(queryRoutes),
 }
 
-func queryRoutes(ctx *cli.Context) error {
+func queryRoutes(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
+
 	ctxb := context.Background()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
 
 	var (
 		dest string
@@ -1855,7 +1850,7 @@ func queryRoutes(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(route)
+	printRespJSONToWriter(writer, route)
 	return nil
 }
 
@@ -1864,13 +1859,13 @@ var getNetworkInfoCommand = cli.Command{
 	Usage: "getnetworkinfo",
 	Description: "returns a set of statistics pertaining to the known channel " +
 		"graph",
-	Action: actionDecorator(getNetworkInfo),
+	Action: actionDecoratorWithClient(getNetworkInfo),
 }
 
-func getNetworkInfo(ctx *cli.Context) error {
+func getNetworkInfo(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
+
 	ctxb := context.Background()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
 
 	req := &lnrpc.NetworkInfoRequest{}
 
@@ -1879,7 +1874,7 @@ func getNetworkInfo(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(netInfo)
+	printRespJSONToWriter(writer, netInfo)
 	return nil
 }
 
@@ -1900,13 +1895,13 @@ var debugLevelCommand = cli.Command{
 			Usage: "the level specification to target either a coarse logging level, or granular set of specific sub-systems with logging levels for each",
 		},
 	},
-	Action: actionDecorator(debugLevel),
+	Action: actionDecoratorWithClient(debugLevel),
 }
 
-func debugLevel(ctx *cli.Context) error {
+func debugLevel(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
+
 	ctxb := context.Background()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
 	req := &lnrpc.DebugLevelRequest{
 		Show:      ctx.Bool("show"),
 		LevelSpec: ctx.String("level"),
@@ -1917,7 +1912,7 @@ func debugLevel(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(resp)
+	printRespJSONToWriter(writer, resp)
 	return nil
 }
 
@@ -1932,13 +1927,13 @@ var decodePayReqComamnd = cli.Command{
 			Usage: "the bech32 encoded payment request",
 		},
 	},
-	Action: actionDecorator(decodePayReq),
+	Action: actionDecoratorWithClient(decodePayReq),
 }
 
-func decodePayReq(ctx *cli.Context) error {
+func decodePayReq(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
+
 	ctxb := context.Background()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
 
 	var payreq string
 
@@ -1958,7 +1953,7 @@ func decodePayReq(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(resp)
+	printRespJSONToWriter(writer, resp)
 	return nil
 }
 
@@ -1966,13 +1961,13 @@ var listChainTxnsCommand = cli.Command{
 	Name:        "listchaintxns",
 	Usage:       "List transactions from the wallet.",
 	Description: "List all transactions an address of the wallet was involved in.",
-	Action:      actionDecorator(listChainTxns),
+	Action:      actionDecoratorWithClient(listChainTxns),
 }
 
-func listChainTxns(ctx *cli.Context) error {
+func listChainTxns(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
+
 	ctxb := context.Background()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
 
 	resp, err := client.GetTransactions(ctxb, &lnrpc.GetTransactionsRequest{})
 
@@ -1980,7 +1975,7 @@ func listChainTxns(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(resp)
+	printRespJSONToWriter(writer, resp)
 	return nil
 }
 
@@ -1990,13 +1985,13 @@ var stopCommand = cli.Command{
 	Description: `
 	Gracefully stop all daemon subsystems before stopping the daemon itself. 
 	This is equivalent to stopping it using CTRL-C.`,
-	Action: actionDecorator(stopDaemon),
+	Action: actionDecoratorWithClient(stopDaemon),
 }
 
-func stopDaemon(ctx *cli.Context) error {
+func stopDaemon(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
+
 	ctxb := context.Background()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
 
 	_, err := client.StopDaemon(ctxb, &lnrpc.StopRequest{})
 	if err != nil {
@@ -2021,13 +2016,13 @@ var signMessageCommand = cli.Command{
 			Usage: "the message to sign",
 		},
 	},
-	Action: actionDecorator(signMessage),
+	Action: actionDecoratorWithClient(signMessage),
 }
 
-func signMessage(ctx *cli.Context) error {
+func signMessage(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
+
 	ctxb := context.Background()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
 
 	var msg []byte
 
@@ -2045,7 +2040,7 @@ func signMessage(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(resp)
+	printRespJSONToWriter(writer, resp)
 	return nil
 }
 
@@ -2069,13 +2064,13 @@ var verifyMessageCommand = cli.Command{
 			Usage: "the zbase32 encoded signature of the message",
 		},
 	},
-	Action: actionDecorator(verifyMessage),
+	Action: actionDecoratorWithClient(verifyMessage),
 }
 
-func verifyMessage(ctx *cli.Context) error {
+func verifyMessage(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
+
 	ctxb := context.Background()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
 
 	var (
 		msg []byte
@@ -2109,7 +2104,7 @@ func verifyMessage(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(resp)
+	printRespJSONToWriter(writer, resp)
 	return nil
 }
 
@@ -2119,13 +2114,13 @@ var feeReportCommand = cli.Command{
 	Description: ` 
 	Returns the current fee policies of all active channels.
 	Fee policies can be updated using the updatechanpolicy command.`,
-	Action: actionDecorator(feeReport),
+	Action: actionDecoratorWithClient(feeReport),
 }
 
-func feeReport(ctx *cli.Context) error {
+func feeReport(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
+
 	ctxb := context.Background()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
 
 	req := &lnrpc.FeeReportRequest{}
 	resp, err := client.FeeReport(ctxb, req)
@@ -2133,7 +2128,7 @@ func feeReport(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(resp)
+	printRespJSONToWriter(writer, resp)
 	return nil
 }
 
@@ -2171,13 +2166,13 @@ var updateChannelPolicyCommand = cli.Command{
 				"will be updated. Takes the form of: txid:output_index",
 		},
 	},
-	Action: actionDecorator(updateChannelPolicy),
+	Action: actionDecoratorWithClient(updateChannelPolicy),
 }
 
-func updateChannelPolicy(ctx *cli.Context) error {
+func updateChannelPolicy(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
+
 	ctxb := context.Background()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
 
 	var (
 		baseFee       int64
@@ -2282,6 +2277,6 @@ func updateChannelPolicy(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(resp)
+	printRespJSONToWriter(writer, resp)
 	return nil
 }

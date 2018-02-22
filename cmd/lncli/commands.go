@@ -818,21 +818,20 @@ func closeChannel(
 var listPeersCommand = cli.Command{
 	Name:   "listpeers",
 	Usage:  "List all active, currently connected peers.",
-	Action: actionDecorator(listPeers),
+	Action: actionDecoratorWithClient(listPeers),
 }
 
-func listPeers(ctx *cli.Context) error {
-	ctxb := context.Background()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
+func listPeers(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
 
+	ctxb := context.Background()
 	req := &lnrpc.ListPeersRequest{}
 	resp, err := client.ListPeers(ctxb, req)
 	if err != nil {
 		return err
 	}
 
-	printRespJSON(resp)
+	printRespJSONToWriter(writer, resp)
 	return nil
 }
 

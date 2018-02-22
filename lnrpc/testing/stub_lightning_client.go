@@ -88,7 +88,9 @@ func (c *StubLightningClient) DisconnectPeer(ctx context.Context, in *lnrpc.Disc
 
 func (c *StubLightningClient) ListPeers(ctx context.Context, in *lnrpc.ListPeersRequest, opts ...grpc.CallOption) (*lnrpc.ListPeersResponse, error) {
 	c.CapturedRequest = in
-	return new(lnrpc.ListPeersResponse), nil
+	peer := createPeer()
+	peers := []*lnrpc.Peer{&peer}
+	return &lnrpc.ListPeersResponse{peers}, nil
 }
 
 func (c *StubLightningClient) GetInfo(ctx context.Context, in *lnrpc.GetInfoRequest, opts ...grpc.CallOption) (*lnrpc.GetInfoResponse, error) {
@@ -232,4 +234,18 @@ func (x *StubSendPaymentClient) Recv() (*lnrpc.SendResponse, error) {
 		return nil, err
 	}
 	return m, nil
+}
+
+func createPeer() lnrpc.Peer {
+	return lnrpc.Peer{
+		PubKey:    "PubKey",
+		PeerId:    21,
+		Address:   "Address",
+		BytesSent: 78,
+		BytesRecv: 89,
+		SatSent:   123,
+		SatRecv:   456,
+		Inbound:   true,
+		PingTime:  7890,
+	}
 }

@@ -48,6 +48,10 @@ var (
 
 	BitcoinAddress = "BitcoinAddress"
 
+	Preimage        = "123abc"
+	DescriptionHash = "456def"
+	Receipt         = "789aaa"
+
 	SendPaymentResponse = "{\n\t\"payment_error\": \"ERROR\"," +
 		"\n\t\"payment_preimage\": \"0c22384e\"," +
 		"\n\t\"payment_route\": {" +

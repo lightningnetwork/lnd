@@ -1385,7 +1385,7 @@ func addInvoice(
 		return err
 	}
 
-	printJSON(struct {
+	printJSONToWriter(writer, struct {
 		RHash  string `json:"r_hash"`
 		PayReq string `json:"pay_req"`
 	}{

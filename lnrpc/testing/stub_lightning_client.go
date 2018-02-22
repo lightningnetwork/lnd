@@ -157,7 +157,7 @@ func (c *StubLightningClient) SendPaymentSync(ctx context.Context, in *lnrpc.Sen
 
 func (c *StubLightningClient) AddInvoice(ctx context.Context, in *lnrpc.Invoice, opts ...grpc.CallOption) (*lnrpc.AddInvoiceResponse, error) {
 	c.CapturedRequest = in
-	return new(lnrpc.AddInvoiceResponse), nil
+	return &lnrpc.AddInvoiceResponse{RHash: []byte{123}, PaymentRequest: "PaymentRequest"}, nil
 }
 
 func (c *StubLightningClient) ListInvoices(ctx context.Context, in *lnrpc.ListInvoiceRequest, opts ...grpc.CallOption) (*lnrpc.ListInvoiceResponse, error) {

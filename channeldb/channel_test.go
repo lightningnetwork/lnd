@@ -219,6 +219,7 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 		RevocationProducer:      producer,
 		RevocationStore:         store,
 		Db:                      cdb,
+		Packager:                NewChannelPackager(chanID),
 	}, nil
 }
 
@@ -475,6 +476,8 @@ func TestChannelStateTransition(t *testing.T) {
 				},
 			},
 		},
+		OpenedCircuitKeys: []CircuitKey{},
+		ClosedCircuitKeys: []CircuitKey{},
 	}
 	copy(commitDiff.LogUpdates[0].UpdateMsg.(*lnwire.UpdateAddHTLC).PaymentHash[:],
 		bytes.Repeat([]byte{1}, 32))
@@ -509,7 +512,12 @@ func TestChannelStateTransition(t *testing.T) {
 		t.Fatalf("unable to generate key: %v", err)
 	}
 	channel.RemoteNextRevocation = newPriv.PubKey()
-	if err := channel.AdvanceCommitChainTail(); err != nil {
+
+	fwdPkg := NewFwdPkg(channel.ShortChanID, oldRemoteCommit.CommitHeight,
+		diskCommitDiff.LogUpdates, nil)
+
+	err = channel.AdvanceCommitChainTail(fwdPkg)
+	if err != nil {
 		t.Fatalf("unable to append to revocation log: %v", err)
 	}
 
@@ -553,7 +561,11 @@ func TestChannelStateTransition(t *testing.T) {
 	if err := channel.AppendRemoteCommitChain(commitDiff); err != nil {
 		t.Fatalf("unable to add to commit chain: %v", err)
 	}
-	if err := channel.AdvanceCommitChainTail(); err != nil {
+
+	fwdPkg = NewFwdPkg(channel.ShortChanID, oldRemoteCommit.CommitHeight, nil, nil)
+
+	err = channel.AdvanceCommitChainTail(fwdPkg)
+	if err != nil {
 		t.Fatalf("unable to append to revocation log: %v", err)
 	}
 

@@ -121,7 +121,14 @@ func (c *StubLightningClient) PendingChannels(ctx context.Context, in *lnrpc.Pen
 
 func (c *StubLightningClient) ListChannels(ctx context.Context, in *lnrpc.ListChannelsRequest, opts ...grpc.CallOption) (*lnrpc.ListChannelsResponse, error) {
 	c.CapturedRequest = in
-	return new(lnrpc.ListChannelsResponse), nil
+
+	channel := lnrpc.ActiveChannel{
+		Active:        true,
+		RemotePubkey:  "RemotePubkey",
+		LocalBalance:  1234,
+		RemoteBalance: 5678}
+
+	return &lnrpc.ListChannelsResponse{[]*lnrpc.ActiveChannel{&channel}}, nil
 }
 
 func (c *StubLightningClient) OpenChannelSync(ctx context.Context, in *lnrpc.OpenChannelRequest, opts ...grpc.CallOption) (*lnrpc.ChannelPoint, error) {

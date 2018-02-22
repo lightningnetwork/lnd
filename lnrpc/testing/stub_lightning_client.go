@@ -187,7 +187,12 @@ func (c *StubLightningClient) DecodePayReq(ctx context.Context, in *lnrpc.PayReq
 
 func (c *StubLightningClient) ListPayments(ctx context.Context, in *lnrpc.ListPaymentsRequest, opts ...grpc.CallOption) (*lnrpc.ListPaymentsResponse, error) {
 	c.CapturedRequest = in
-	return new(lnrpc.ListPaymentsResponse), nil
+
+	payment := lnrpc.Payment{
+		PaymentHash: "PaymentHash",
+		Value:       765,
+	}
+	return &lnrpc.ListPaymentsResponse{[]*lnrpc.Payment{&payment}}, nil
 }
 
 func (c *StubLightningClient) DeleteAllPayments(ctx context.Context, in *lnrpc.DeleteAllPaymentsRequest, opts ...grpc.CallOption) (*lnrpc.DeleteAllPaymentsResponse, error) {

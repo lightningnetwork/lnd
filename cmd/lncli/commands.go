@@ -937,13 +937,13 @@ func walletBalance(
 var channelBalanceCommand = cli.Command{
 	Name:   "channelbalance",
 	Usage:  "returns the sum of the total available channel balance across all open channels",
-	Action: actionDecorator(channelBalance),
+	Action: actionDecoratorWithClient(channelBalance),
 }
 
-func channelBalance(ctx *cli.Context) error {
+func channelBalance(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
+
 	ctxb := context.Background()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
 
 	req := &lnrpc.ChannelBalanceRequest{}
 	resp, err := client.ChannelBalance(ctxb, req)
@@ -951,7 +951,7 @@ func channelBalance(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(resp)
+	printRespJSONToWriter(writer, resp)
 	return nil
 }
 

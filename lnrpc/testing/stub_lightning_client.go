@@ -34,7 +34,7 @@ func (c *StubLightningClient) WalletBalance(ctx context.Context, in *lnrpc.Walle
 
 func (c *StubLightningClient) ChannelBalance(ctx context.Context, in *lnrpc.ChannelBalanceRequest, opts ...grpc.CallOption) (*lnrpc.ChannelBalanceResponse, error) {
 	c.CapturedRequest = in
-	return new(lnrpc.ChannelBalanceResponse), nil
+	return &lnrpc.ChannelBalanceResponse{Balance: 42}, nil
 }
 
 func (c *StubLightningClient) GetTransactions(ctx context.Context, in *lnrpc.GetTransactionsRequest, opts ...grpc.CallOption) (*lnrpc.TransactionDetails, error) {

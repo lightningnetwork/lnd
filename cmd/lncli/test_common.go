@@ -220,7 +220,7 @@ func TestCommandTextInValidationError(
 	require.Error(t, err)
 	require.True(t,
 		strings.Contains(err.Error(), expectedText),
-		fmt.Sprintf("Expected text %s to be present, but it wasn't contained in \n%s\n",
+		fmt.Sprintf("Expected text '%s' to be present, but it wasn't contained in \n%s\n",
 			expectedText, err.Error()))
 }
 

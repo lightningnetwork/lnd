@@ -53,13 +53,12 @@ func (c *StubLightningClient) SubscribeTransactions(ctx context.Context, in *lnr
 
 func (c *StubLightningClient) SendMany(ctx context.Context, in *lnrpc.SendManyRequest, opts ...grpc.CallOption) (*lnrpc.SendManyResponse, error) {
 	c.CapturedRequest = in
-	return new(lnrpc.SendManyResponse), nil
+	return &lnrpc.SendManyResponse{"BitcoinTxid"}, nil
 }
 
 func (c *StubLightningClient) NewAddress(ctx context.Context, in *lnrpc.NewAddressRequest, opts ...grpc.CallOption) (*lnrpc.NewAddressResponse, error) {
 	c.CapturedRequest = in
-	response := lnrpc.NewAddressResponse{"Address"}
-	return &response, nil
+	return &lnrpc.NewAddressResponse{"Address"}, nil
 }
 
 func (c *StubLightningClient) NewWitnessAddress(ctx context.Context, in *lnrpc.NewWitnessAddressRequest, opts ...grpc.CallOption) (*lnrpc.NewAddressResponse, error) {

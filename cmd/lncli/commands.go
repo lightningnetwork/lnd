@@ -334,10 +334,12 @@ var sendManyCommand = cli.Command{
 				"used when crafting the transaction",
 		},
 	},
-	Action: actionDecorator(sendMany),
+	Action: actionDecoratorWithClient(sendMany),
 }
 
-func sendMany(ctx *cli.Context) error {
+func sendMany(
+	ctx *cli.Context, client lnrpc.LightningClient, writer io.Writer) error {
+
 	var amountToAddr map[string]int64
 
 	jsonMap := ctx.Args().First()
@@ -346,13 +348,10 @@ func sendMany(ctx *cli.Context) error {
 	}
 
 	if ctx.IsSet("conf_target") && ctx.IsSet("sat_per_byte") {
-		return fmt.Errorf("either conf_target or sat_per_byte should be " +
-			"set, but not both")
+		return ErrMultipleFeeArgs
 	}
 
 	ctxb := context.Background()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
 
 	txid, err := client.SendMany(ctxb, &lnrpc.SendManyRequest{
 		AddrToAmount: amountToAddr,
@@ -363,7 +362,7 @@ func sendMany(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(txid)
+	printRespJSONToWriter(writer, txid)
 	return nil
 }
 

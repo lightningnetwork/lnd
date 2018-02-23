@@ -39,7 +39,11 @@ func (c *StubLightningClient) ChannelBalance(ctx context.Context, in *lnrpc.Chan
 
 func (c *StubLightningClient) GetTransactions(ctx context.Context, in *lnrpc.GetTransactionsRequest, opts ...grpc.CallOption) (*lnrpc.TransactionDetails, error) {
 	c.CapturedRequest = in
-	return new(lnrpc.TransactionDetails), nil
+
+	transaction := lnrpc.Transaction{
+		TxHash: "TxHash",
+		Amount: 42}
+	return &lnrpc.TransactionDetails{[]*lnrpc.Transaction{&transaction}}, nil
 }
 
 func (c *StubLightningClient) SendCoins(ctx context.Context, in *lnrpc.SendCoinsRequest, opts ...grpc.CallOption) (*lnrpc.SendCoinsResponse, error) {

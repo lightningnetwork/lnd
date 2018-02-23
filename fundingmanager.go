@@ -2436,8 +2436,17 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		ChannelFlags:         channelFlags,
 	}
 	if err := f.cfg.SendToPeer(peerKey, &fundingOpen); err != nil {
-		fndgLog.Errorf("Unable to send funding request message: %v", err)
-		msg.err <- err
+		e := fmt.Errorf("Unable to send funding request message: %v",
+			err)
+		fndgLog.Errorf(e.Error())
+
+		// Since we were unable to send the initial message to the peer
+		// and start the funding flow, we'll cancel this reservation.
+		if _, err := f.cancelReservationCtx(peerKey, chanID); err != nil {
+			fndgLog.Errorf("unable to cancel reservation: %v", err)
+		}
+
+		msg.err <- e
 		return
 	}
 }

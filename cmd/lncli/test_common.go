@@ -33,6 +33,7 @@ var (
 	PushAmount           = "5000"
 
 	FundingTxidString        = "1234567890000000000000000000000000000000000000000000000000000000"
+	ChanPoint                = "1234567890000000000000000000000000000000000000000000000000000000:78"
 	OutputIndex              = "555"
 	OutputIndexInt    uint32 = 555
 	TimeLimit                = "42"
@@ -51,6 +52,13 @@ var (
 	Preimage        = "123abc"
 	DescriptionHash = "456def"
 	Receipt         = "789aaa"
+
+	BaseFeeMsat              = "111"
+	BaseFeeMsatInt   int64   = 111
+	FeeRate                  = "222"
+	FeeRateFloat     float64 = 222
+	TimeLockDelta            = "333"
+	TimeLockDeltaInt uint32  = 333
 
 	SendPaymentResponse = "{\n\t\"payment_error\": \"ERROR\"," +
 		"\n\t\"payment_preimage\": \"0c22384e\"," +

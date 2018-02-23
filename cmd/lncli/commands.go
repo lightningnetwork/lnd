@@ -87,6 +87,16 @@ var (
 	ErrMissingMessage = fmt.Errorf("msg argument missing")
 	// ErrMissing Signature occurs if the sig is omitted.
 	ErrMissingSignature = fmt.Errorf("signature argument missing")
+
+	// ErrMissingBaseFeeMsat occurs if the base_fee_msat is omitted.
+	ErrMissingBaseFeeMsat = fmt.Errorf("base_fee_msat argument missing")
+	// ErrMissingFeeRate occurs if the fee_rate is omitted.
+	ErrMissingFeeRate = fmt.Errorf("fee_rate argument missing")
+	// ErrMissingTimeLockDelta occurs if the time_lock_delta is omitted.
+	ErrMissingTimeLockDelta = fmt.Errorf("time_lock_delta argument missing")
+
+	// ErrBadChanPointFormat occurs if the chan_point was not in the correct format.
+	ErrBadChanPointFormat = fmt.Errorf("expecting chan_point to be in format of: txid:index")
 )
 
 func printJSON(resp interface{}) {
@@ -2201,7 +2211,7 @@ func updateChannelPolicy(
 		}
 		args = args.Tail()
 	default:
-		return fmt.Errorf("base_fee_msat argument missing")
+		return ErrMissingBaseFeeMsat
 	}
 
 	switch {
@@ -2215,7 +2225,7 @@ func updateChannelPolicy(
 
 		args = args.Tail()
 	default:
-		return fmt.Errorf("fee_rate argument missing")
+		return ErrMissingFeeRate
 	}
 
 	switch {
@@ -2230,7 +2240,7 @@ func updateChannelPolicy(
 
 		args = args.Tail()
 	default:
-		return fmt.Errorf("time_lock_delta argument missing")
+		return ErrMissingTimeLockDelta
 	}
 
 	var (
@@ -2248,8 +2258,7 @@ func updateChannelPolicy(
 	if chanPointStr != "" {
 		split := strings.Split(chanPointStr, ":")
 		if len(split) != 2 {
-			return fmt.Errorf("expecting chan_point to be in format of: " +
-				"txid:index")
+			return ErrBadChanPointFormat
 		}
 
 		index, err := strconv.ParseInt(split[1], 10, 32)

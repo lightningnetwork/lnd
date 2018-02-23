@@ -1704,7 +1704,7 @@ func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
 var listPaymentsCommand = cli.Command{
 	Name:   "listpayments",
 	Usage:  "List all outgoing payments",
-	Action: actionDecorator(listPayments),
+	Action: actionDecoratorWithClient(listPayments),
 }
 
 func listPayments(

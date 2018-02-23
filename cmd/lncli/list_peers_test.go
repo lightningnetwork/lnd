@@ -9,7 +9,6 @@ import (
 
 var expectedListPeersResponseText = "{\n    \"peers\": [\n        {\n            " +
 	"\"pub_key\": \"PubKey\",\n            " +
-	"\"peer_id\": 21,\n            " +
 	"\"address\": \"Address\",\n            " +
 	"\"bytes_sent\": \"78\",\n            " +
 	"\"bytes_recv\": \"89\",\n            " +

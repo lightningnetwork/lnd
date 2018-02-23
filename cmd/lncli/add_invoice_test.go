@@ -129,7 +129,7 @@ func TestAddInvoice_BadExpiry(t *testing.T) {
 			"--description_hash", DescriptionHash,
 			"--receipt", Receipt,
 			"--expiry", "BadExpiry"},
-		"addinvoice - add a new invoice")
+		"Incorrect Usage: invalid value")
 }
 
 func TestAddInvoice_RPCError(t *testing.T) {

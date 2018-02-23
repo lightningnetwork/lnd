@@ -44,7 +44,7 @@ func TestGetChanInfo_BadChanId(t *testing.T) {
 func TestGetChanInfo_BadChanIdFlag(t *testing.T) {
 	TestCommandTextInResponse(t, runGetChanInfo,
 		[]string{"--chan_id", "BadChanId"},
-		"getchaninfo - get the state of a channel")
+		"Incorrect Usage: invalid value")
 }
 
 func TestGetChanInfo_MissingChanId(t *testing.T) {

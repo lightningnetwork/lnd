@@ -7,7 +7,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
-var expectedConnectPeerResponse = "{\n    \"peer_id\": 0\n}\n"
+var expectedConnectPeerResponse = "{\n\n}\n"
 
 // connectPeer returns the correct output if no errors occurred.
 func TestConnectPeer(t *testing.T) {

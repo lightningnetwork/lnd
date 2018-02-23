@@ -95,7 +95,7 @@ func TestUpdateChannelPolicy_BadBaseFeeMsat(t *testing.T) {
 func TestUpdateChannelPolicy_BadBaseFeeMsatFlag(t *testing.T) {
 	TestCommandTextInResponse(t, runUpdateChannelPolicy,
 		[]string{"--base_fee_msat", "BadBaseFeeMsat", FeeRate, TimeLockDelta, ChanPoint},
-		"updatechanpolicy - update the channel policy for all channels, or a single channel")
+		"updatechanpolicy - Update the channel policy for all channels, or a single channel")
 }
 
 func TestUpdateChannelPolicy_BadFeeRate(t *testing.T) {
@@ -120,7 +120,7 @@ func TestUpdateChannelPolicy_BadTimeLockDelta(t *testing.T) {
 func TestUpdateChannelPolicy_BadTimeLockDeltaFlag(t *testing.T) {
 	TestCommandTextInResponse(t, runUpdateChannelPolicy,
 		[]string{"--time_lock_delta", "BadTimeLockDelta", BaseFeeMsat, FeeRate, ChanPoint},
-		"updatechanpolicy - update the channel policy for all channels, or a single channel")
+		"updatechanpolicy - Update the channel policy for all channels, or a single channel")
 }
 
 func TestUpdateChannelPolicy_NotEnoughChanPointSegments(t *testing.T) {

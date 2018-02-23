@@ -32,20 +32,6 @@ func TestOpenChannel_NodeKeyFlag(t *testing.T) {
 		"{\n\t\"channel_point\": \"0000000000000000000000000000000012000000000000000000000000000000:5\"\n}\n")
 }
 
-// peer_id can be specified instead of node_key.
-func TestOpenChannel_PeerId(t *testing.T) {
-	// The normal expected request has NodeKey set instead of PeerId. Override that.
-	expectedReq := expectedRequest()
-	expectedReq.TargetPeerId = PeerIDInt
-	expectedReq.NodePubkey = nil
-
-	testErrorlessOpenChannel(t,
-		[]lnrpc.OpenStatusUpdate{chanOpenUpdateBytes()},
-		[]string{"--peer_id", PeerID, LocalAmount, PushAmount},
-		expectedReq,
-		"{\n\t\"channel_point\": \"0000000000000000000000000000000012000000000000000000000000000000:5\"\n}\n")
-}
-
 // local_amt can be passed as a flag instead of an argument.
 func TestOpenChannel_LocalAmtFlag(t *testing.T) {
 	testErrorlessOpenChannel(t,
@@ -126,14 +112,7 @@ func TestOpenChannel_NoTerminationIfUnrecognizedUpdate(t *testing.T) {
 func TestOpenChannel_Help(t *testing.T) {
 	TestCommandTextInResponse(t, runOpenChannel,
 		[]string{},
-		"openchannel - Open a channel to an existing peer.")
-}
-
-// Peer ID and pubkey can't both be specified.
-func TestOpenChannel_PeerIdAndPubKey(t *testing.T) {
-	TestCommandValidationError(t, runOpenChannel,
-		[]string{"--peer_id", PeerID, "--node_key", PubKey},
-		ErrDuplicatePeerSpecifiers)
+		"openchannel - Open a channel to a node or an existing peer.")
 }
 
 // Reject invalid pubkeys.
@@ -473,7 +452,6 @@ func chanPendingUpdateWithTxid(txid []byte) lnrpc.OpenStatusUpdate {
 func expectedRequest() lnrpc.OpenChannelRequest {
 	hexPubKey, _ := hex.DecodeString(PubKey)
 	return lnrpc.OpenChannelRequest{
-		TargetPeerId:       0,
 		NodePubkey:         hexPubKey,
 		NodePubkeyString:   "",
 		LocalFundingAmount: LocalAmountInt,

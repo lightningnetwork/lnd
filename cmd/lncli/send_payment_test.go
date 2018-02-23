@@ -2,21 +2,17 @@ package main
 
 import (
 	"io"
-	"strings"
 	"testing"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lnrpc/testing"
 	"github.com/stretchr/testify/require"
 )
 
 // Passing no arguments results in help/usage text.
 func TestSendPayment_Usage(t *testing.T) {
-	client := lnrpctesting.NewStubLightningClient()
-	resp, err := runSendPayment(&client, []string{})
-	require.NoError(t, err)
-	require.True(t,
-		strings.Contains(resp, "sendpayment - send a payment over lightning"))
+	TestCommandTextInResponse(t, runSendPayment,
+		[]string{},
+		"sendpayment - Send a payment over lightning")
 }
 
 // sendPayment can be used with a PayReq, just like payInvoice.
@@ -208,7 +204,7 @@ func TestSendPayment_BadAmt(t *testing.T) {
 func TestSendPayment_BadAmtFlag(t *testing.T) {
 	TestCommandTextInResponse(t, runSendPayment,
 		[]string{Dest, "--amt", "BadAmount", "--payment_hash", PaymentHash},
-		"sendpayment - send a payment over lightning")
+		"Incorrect Usage: invalid value")
 }
 
 // PaymentHashes must be hexadecimal.
@@ -250,7 +246,7 @@ func TestSendPaymentBadFinalCltvDeltaFlag(t *testing.T) {
 			Dest,
 			"--payment_hash", PaymentHash,
 			"--final_cltv_delta", "BadFinalCltvDelta"},
-		"sendpayment - send a payment over lightning")
+		"Incorrect Usage: invalid value")
 }
 
 // Payments can be test-sent with no PaymentHash.

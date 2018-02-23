@@ -54,7 +54,7 @@ func TestSendCoins_SatPerByte(t *testing.T) {
 func TestSendCoins_Usage(t *testing.T) {
 	TestCommandTextInResponse(t, runSendCoins,
 		[]string{},
-		"sendcoins - send bitcoin on-chain to an address")
+		"sendcoins - Send bitcoin on-chain to an address")
 }
 
 // Address is required.

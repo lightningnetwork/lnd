@@ -288,7 +288,6 @@ func (x *StubSendPaymentClient) Recv() (*lnrpc.SendResponse, error) {
 func createPeer() lnrpc.Peer {
 	return lnrpc.Peer{
 		PubKey:    "PubKey",
-		PeerId:    21,
 		Address:   "Address",
 		BytesSent: 78,
 		BytesRecv: 89,

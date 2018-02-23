@@ -76,6 +76,7 @@ func runQueryRoutes(
 
 func expectedQueryRoutesRequest() *lnrpc.QueryRoutesRequest {
 	return &lnrpc.QueryRoutesRequest{
-		PubKey: "02c39955c1579afe4824dc0ef4493fdf7f3760b158cf6d367d8570b9f19683afb4",
-		Amt:    5000}
+		PubKey:    "02c39955c1579afe4824dc0ef4493fdf7f3760b158cf6d367d8570b9f19683afb4",
+		Amt:       5000,
+		NumRoutes: 10}
 }

@@ -7,7 +7,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
-var expectedGetInfoResponse = "{\n    \"identity_pubkey\": \"Pubkey\",\n    " +
+var expectedGetInfoResponse = "{\n    " +
+	"\"identity_pubkey\": \"Pubkey\",\n    " +
 	"\"alias\": \"Alias\",\n    " +
 	"\"num_pending_channels\": 55,\n    " +
 	"\"num_active_channels\": 21,\n    " +
@@ -16,8 +17,11 @@ var expectedGetInfoResponse = "{\n    \"identity_pubkey\": \"Pubkey\",\n    " +
 	"\"block_hash\": \"BlockHash\",\n    " +
 	"\"synced_to_chain\": true,\n    " +
 	"\"testnet\": true,\n    " +
-	"\"chains\": [\n        \"Bitcoin\",\n        \"Litecoin\"\n    ],\n    " +
-	"\"uris\": [\n        \"URI0\",\n        \"URI1\"\n    ]\n}\n"
+	"\"chains\": [\n        " +
+	"\"Bitcoin\",\n        " +
+	"\"Litecoin\"\n    ],\n    " +
+	"\"uris\": [\n        \"URI0\",\n        \"URI1\"\n    ],\n    " +
+	"\"best_header_timestamp\": \"0\"\n}\n"
 
 func TestGetInfo(t *testing.T) {
 	TestCommandNoError(t, runGetInfo,

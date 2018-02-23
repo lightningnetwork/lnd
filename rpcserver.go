@@ -141,7 +141,7 @@ var (
 			Entity: "offchain",
 			Action: "write",
 		}},
-		"/lnrpc.Lightning/OpenchannelSync": {{
+		"/lnrpc.Lightning/OpenChannelSync": {{
 			Entity: "onchain",
 			Action: "write",
 		}, {
@@ -356,14 +356,14 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
 
 // determineFeePerByte will determine the fee in sat/byte that should be paid
 // given an estimator, a confirmation target, and a manual value for sat/byte.
-// A value is chosen based on the two free paramters as one, or both of them
+// A value is chosen based on the two free parameters as one, or both of them
 // can be zero.
 func determineFeePerByte(feeEstimator lnwallet.FeeEstimator, targetConf int32,
 	satPerByte int64) (btcutil.Amount, error) {
 
 	switch {
 	// If the target number of confirmations is set, then we'll use that to
-	// consult our fee estimator for an adquate fee.
+	// consult our fee estimator for an adequate fee.
 	case targetConf != 0:
 		satPerByte, err := feeEstimator.EstimateFeePerByte(
 			uint32(targetConf),
@@ -375,7 +375,7 @@ func determineFeePerByte(feeEstimator lnwallet.FeeEstimator, targetConf int32,
 
 		return btcutil.Amount(satPerByte), nil
 
-	// If a manual sat/byte fee rate is set, then we'll use that diretly.
+	// If a manual sat/byte fee rate is set, then we'll use that directly.
 	case satPerByte != 0:
 		return btcutil.Amount(satPerByte), nil
 
@@ -397,8 +397,8 @@ func determineFeePerByte(feeEstimator lnwallet.FeeEstimator, targetConf int32,
 func (r *rpcServer) SendCoins(ctx context.Context,
 	in *lnrpc.SendCoinsRequest) (*lnrpc.SendCoinsResponse, error) {
 
-	// Based on the passed fee related paramters, we'll determine an
-	// approriate fee rate for this transaction.
+	// Based on the passed fee related parameters, we'll determine an
+	// appropriate fee rate for this transaction.
 	feePerByte, err := determineFeePerByte(
 		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
 	)
@@ -425,7 +425,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 func (r *rpcServer) SendMany(ctx context.Context,
 	in *lnrpc.SendManyRequest) (*lnrpc.SendManyResponse, error) {
 
-	// Based on the passed fee related paramters, we'll determine an
+	// Based on the passed fee related parameters, we'll determine an
 	// approriate fee rate for this transaction.
 	feePerByte, err := determineFeePerByte(
 		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
@@ -535,11 +535,14 @@ func (r *rpcServer) VerifyMessage(ctx context.Context,
 	}
 	pubKeyHex := hex.EncodeToString(pubKey.SerializeCompressed())
 
+	var pub [33]byte
+	copy(pub[:], pubKey.SerializeCompressed())
+
 	// Query the channel graph to ensure a node in the network with active
 	// channels signed the message.
 	// TODO(phlip9): Require valid nodes to have capital in active channels.
 	graph := r.server.chanDB.ChannelGraph()
-	_, active, err := graph.HasLightningNode(pubKey)
+	_, active, err := graph.HasLightningNode(pub)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query graph: %v", err)
 	}
@@ -589,7 +592,8 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 		addr = in.Addr.Host
 	}
 
-	host, err := net.ResolveTCPAddr("tcp", addr)
+	// We use ResolveTCPAddr here in case we wish to resolve hosts over Tor.
+	host, err := cfg.net.ResolveTCPAddr("tcp", addr)
 	if err != nil {
 		return nil, err
 	}
@@ -664,8 +668,8 @@ func (r *rpcServer) DisconnectPeer(ctx context.Context,
 func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	updateStream lnrpc.Lightning_OpenChannelServer) error {
 
-	rpcsLog.Tracef("[openchannel] request to peerid(%v) "+
-		"allocation(us=%v, them=%v)", in.TargetPeerId,
+	rpcsLog.Tracef("[openchannel] request to NodeKey(%v) "+
+		"allocation(us=%v, them=%v)", in.NodePubkeyString,
 		in.LocalFundingAmount, in.PushSat)
 
 	if !r.server.Started() {
@@ -698,9 +702,9 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	const minChannelSize = btcutil.Amount(6000)
 
 	// Restrict the size of the channel we'll actually open. Atm, we
-	// require the amount to be above 6k satoahis s we currently hard-coded
+	// require the amount to be above 6k satoshis we currently hard-coded
 	// a 5k satoshi fee in several areas. As a result 6k sat is the min
-	// channnel size that allows us to safely sit above the dust threshold
+	// channel size that allows us to safely sit above the dust threshold
 	// after fees are applied
 	// TODO(roasbeef): remove after dynamic fees are in
 	if localFundingAmt < minChannelSize {
@@ -716,26 +720,28 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 
 	// TODO(roasbeef): also return channel ID?
 
-	// If the node key is set, then we'll parse the raw bytes into a pubkey
-	// object so we can easily manipulate it. If this isn't set, then we
-	// expected the TargetPeerId to be set accordingly.
-	if len(in.NodePubkey) != 0 {
-		nodePubKey, err = btcec.ParsePubKey(in.NodePubkey, btcec.S256())
-		if err != nil {
-			return err
-		}
-
-		// Making a channel to ourselves wouldn't be of any use, so we
-		// explicitly disallow them.
-		if nodePubKey.IsEqual(r.server.identityPriv.PubKey()) {
-			return fmt.Errorf("cannot open channel to self")
-		}
-
-		nodePubKeyBytes = nodePubKey.SerializeCompressed()
+	// Ensure that the NodePubKey is set before attempting to use it
+	if len(in.NodePubkey) == 0 {
+		return fmt.Errorf("NodePubKey is not set")
 	}
 
-	// Based on the passed fee related paramters, we'll determine an
-	// approriate fee rate for the funding transaction.
+	// Parse the raw bytes of the node key into a pubkey object so we
+	// can easily manipulate it.
+	nodePubKey, err = btcec.ParsePubKey(in.NodePubkey, btcec.S256())
+	if err != nil {
+		return err
+	}
+
+	// Making a channel to ourselves wouldn't be of any use, so we
+	// explicitly disallow them.
+	if nodePubKey.IsEqual(r.server.identityPriv.PubKey()) {
+		return fmt.Errorf("cannot open channel to self")
+	}
+
+	nodePubKeyBytes = nodePubKey.SerializeCompressed()
+
+	// Based on the passed fee related parameters, we'll determine an
+	// appropriate fee rate for the funding transaction.
 	feePerByte, err := determineFeePerByte(
 		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
 	)
@@ -750,7 +756,7 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	// open a new channel. A stream is returned in place, this stream will
 	// be used to consume updates of the state of the pending channel.
 	updateChan, errChan := r.server.OpenChannel(
-		in.TargetPeerId, nodePubKey, localFundingAmt,
+		nodePubKey, localFundingAmt,
 		lnwire.NewMSatFromSatoshis(remoteInitialBalance),
 		minHtlc, feePerByte, in.Private,
 	)
@@ -760,9 +766,8 @@ out:
 	for {
 		select {
 		case err := <-errChan:
-			rpcsLog.Errorf("unable to open channel to "+
-				"identityPub(%x) nor peerID(%v): %v",
-				nodePubKeyBytes, in.TargetPeerId, err)
+			rpcsLog.Errorf("unable to open channel to NodeKey(%x): %v",
+				nodePubKeyBytes, err)
 			return err
 		case fundingUpdate := <-updateChan:
 			rpcsLog.Tracef("[openchannel] sending update: %v",
@@ -798,8 +803,8 @@ out:
 		}
 	}
 
-	rpcsLog.Tracef("[openchannel] success peerid(%v), ChannelPoint(%v)",
-		in.TargetPeerId, outpoint)
+	rpcsLog.Tracef("[openchannel] success NodeKey(%x), ChannelPoint(%v)",
+		nodePubKeyBytes, outpoint)
 	return nil
 }
 
@@ -810,8 +815,8 @@ out:
 func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	in *lnrpc.OpenChannelRequest) (*lnrpc.ChannelPoint, error) {
 
-	rpcsLog.Tracef("[openchannel] request to peerid(%v) "+
-		"allocation(us=%v, them=%v)", in.TargetPeerId,
+	rpcsLog.Tracef("[openchannel] request to NodeKey(%v) "+
+		"allocation(us=%v, them=%v)", in.NodePubkeyString,
 		in.LocalFundingAmount, in.PushSat)
 
 	// We don't allow new channels to be open while the server is still
@@ -824,7 +829,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 
 	// Creation of channels before the wallet syncs up is currently
 	// disallowed.
-	isSynced, err := r.server.cc.wallet.IsSynced()
+	isSynced, _, err := r.server.cc.wallet.IsSynced()
 	if err != nil {
 		return nil, err
 	}
@@ -857,7 +862,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 			"initial state must be below the local funding amount")
 	}
 
-	// Based on the passed fee related paramters, we'll determine an
+	// Based on the passed fee related parameters, we'll determine an
 	// appropriate fee rate for the funding transaction.
 	feePerByte, err := determineFeePerByte(
 		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
@@ -870,7 +875,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 		int64(feePerByte))
 
 	updateChan, errChan := r.server.OpenChannel(
-		in.TargetPeerId, nodepubKey, localFundingAmt,
+		nodepubKey, localFundingAmt,
 		lnwire.NewMSatFromSatoshis(remoteInitialBalance),
 		minHtlc, feePerByte, in.Private,
 	)
@@ -878,9 +883,8 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	select {
 	// If an error occurs them immediately return the error to the client.
 	case err := <-errChan:
-		rpcsLog.Errorf("unable to open channel to "+
-			"identityPub(%x) nor peerID(%v): %v",
-			nodepubKey, in.TargetPeerId, err)
+		rpcsLog.Errorf("unable to open channel to NodeKey(%x): %v",
+			nodepubKey, err)
 		return nil, err
 
 	// Otherwise, wait for the first channel update. The first update sent
@@ -1104,7 +1108,7 @@ out:
 	return nil
 }
 
-// fetchActiveChannel attempts to locate a channel identified by it's channel
+// fetchActiveChannel attempts to locate a channel identified by its channel
 // point from the database's set of all currently opened channels.
 func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (*lnwallet.LightningChannel, error) {
 	dbChannels, err := r.server.chanDB.FetchAllChannels()
@@ -1136,7 +1140,7 @@ func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (*lnwallet.Light
 }
 
 // GetInfo returns general information concerning the lightning node including
-// it's identity pubkey, alias, the chains it is connected to, and information
+// its identity pubkey, alias, the chains it is connected to, and information
 // concerning the number of open+pending channels.
 func (r *rpcServer) GetInfo(ctx context.Context,
 	in *lnrpc.GetInfoRequest) (*lnrpc.GetInfoResponse, error) {
@@ -1162,7 +1166,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		return nil, fmt.Errorf("unable to get best block info: %v", err)
 	}
 
-	isSynced, err := r.server.cc.wallet.IsSynced()
+	isSynced, bestHeaderTimestamp, err := r.server.cc.wallet.IsSynced()
 	if err != nil {
 		return nil, fmt.Errorf("unable to sync PoV of the wallet "+
 			"with current best block in the main chain: %v", err)
@@ -1188,17 +1192,18 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 
 	// TODO(roasbeef): add synced height n stuff
 	return &lnrpc.GetInfoResponse{
-		IdentityPubkey:     encodedIDPub,
-		NumPendingChannels: nPendingChannels,
-		NumActiveChannels:  activeChannels,
-		NumPeers:           uint32(len(serverPeers)),
-		BlockHeight:        uint32(bestHeight),
-		BlockHash:          bestHash.String(),
-		SyncedToChain:      isSynced,
-		Testnet:            activeNetParams.Params == &chaincfg.TestNet3Params,
-		Chains:             activeChains,
-		Uris:               uris,
-		Alias:              nodeAnn.Alias.String(),
+		IdentityPubkey:      encodedIDPub,
+		NumPendingChannels:  nPendingChannels,
+		NumActiveChannels:   activeChannels,
+		NumPeers:            uint32(len(serverPeers)),
+		BlockHeight:         uint32(bestHeight),
+		BlockHash:           bestHash.String(),
+		SyncedToChain:       isSynced,
+		Testnet:             activeNetParams.Params == &chaincfg.TestNet3Params,
+		Chains:              activeChains,
+		Uris:                uris,
+		Alias:               nodeAnn.Alias.String(),
+		BestHeaderTimestamp: int64(bestHeaderTimestamp),
 	}, nil
 }
 
@@ -1233,9 +1238,8 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 		nodePub := serverPeer.addr.IdentityKey.SerializeCompressed()
 		peer := &lnrpc.Peer{
 			PubKey:    hex.EncodeToString(nodePub),
-			PeerId:    serverPeer.id,
 			Address:   serverPeer.conn.RemoteAddr().String(),
-			Inbound:   serverPeer.inbound,
+			Inbound:   !serverPeer.inbound, // Flip for display
 			BytesRecv: atomic.LoadUint64(&serverPeer.bytesReceived),
 			BytesSent: atomic.LoadUint64(&serverPeer.bytesSent),
 			SatSent:   satSent,
@@ -1271,7 +1275,7 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 		return nil, err
 	}
 
-	// Get uncomfirmed balance, from txs with 0 confirmations.
+	// Get unconfirmed balance, from txs with 0 confirmations.
 	unconfirmedBal := totalBal - confirmedBal
 
 	rpcsLog.Debugf("[walletbalance] Total balance=%v", totalBal)
@@ -1523,7 +1527,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		localBalance := localCommit.LocalBalance
 		remoteBalance := localCommit.RemoteBalance
 
-		// As an artefact of our usage of mSAT internally, either party
+		// As an artifact of our usage of mSAT internally, either party
 		// may end up in a state where they're holding a fractional
 		// amount of satoshis which can't be expressed within the
 		// actual commitment output. Since we round down when going
@@ -1575,8 +1579,8 @@ func (r *rpcServer) savePayment(route *routing.Route, amount lnwire.MilliSatoshi
 
 	paymentPath := make([][33]byte, len(route.Hops))
 	for i, hop := range route.Hops {
-		hopPub := hop.Channel.Node.PubKey.SerializeCompressed()
-		copy(paymentPath[i][:], hopPub)
+		hopPub := hop.Channel.Node.PubKeyBytes
+		copy(paymentPath[i][:], hopPub[:])
 	}
 
 	payment := &channeldb.OutgoingPayment{
@@ -1689,7 +1693,8 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 				// attempt to decode it, populating the
 				// payment accordingly.
 				if nextPayment.PaymentRequest != "" {
-					payReq, err := zpay32.Decode(nextPayment.PaymentRequest)
+					payReq, err := zpay32.Decode(nextPayment.PaymentRequest,
+						activeNetParams.Params)
 					if err != nil {
 						select {
 						case errChan <- err:
@@ -1878,7 +1883,8 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	// If the proto request has an encoded payment request, then we we'll
 	// use that solely to dispatch the payment.
 	if nextPayment.PaymentRequest != "" {
-		payReq, err := zpay32.Decode(nextPayment.PaymentRequest)
+		payReq, err := zpay32.Decode(nextPayment.PaymentRequest,
+			activeNetParams.Params)
 		if err != nil {
 			return nil, err
 		}
@@ -2146,7 +2152,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 // createRPCInvoice creates an *lnrpc.Invoice from the *channeldb.Invoice.
 func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 	paymentRequest := string(invoice.PaymentRequest)
-	decoded, err := zpay32.Decode(paymentRequest)
+	decoded, err := zpay32.Decode(paymentRequest, activeNetParams.Params)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode payment request: %v",
 			err)
@@ -2194,7 +2200,7 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 	}, nil
 }
 
-// LookupInvoice attemps to look up an invoice according to its payment hash.
+// LookupInvoice attempts to look up an invoice according to its payment hash.
 // The passed payment hash *must* be exactly 32 bytes, if not an error is
 // returned.
 func (r *rpcServer) LookupInvoice(ctx context.Context,
@@ -2406,7 +2412,7 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 		nodeColor := fmt.Sprintf("#%02x%02x%02x", node.Color.R, node.Color.G, node.Color.B)
 		resp.Nodes = append(resp.Nodes, &lnrpc.LightningNode{
 			LastUpdate: uint32(node.LastUpdate.Unix()),
-			PubKey:     hex.EncodeToString(node.PubKey.SerializeCompressed()),
+			PubKey:     hex.EncodeToString(node.PubKeyBytes[:]),
 			Addresses:  nodeAddrs,
 			Alias:      node.Alias,
 			Color:      nodeColor,
@@ -2454,8 +2460,8 @@ func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 		ChanPoint: edgeInfo.ChannelPoint.String(),
 		// TODO(roasbeef): update should be on edge info itself
 		LastUpdate: uint32(lastUpdate),
-		Node1Pub:   hex.EncodeToString(edgeInfo.NodeKey1.SerializeCompressed()),
-		Node2Pub:   hex.EncodeToString(edgeInfo.NodeKey2.SerializeCompressed()),
+		Node1Pub:   hex.EncodeToString(edgeInfo.NodeKey1Bytes[:]),
+		Node2Pub:   hex.EncodeToString(edgeInfo.NodeKey2Bytes[:]),
 		Capacity:   int64(edgeInfo.Capacity),
 	}
 
@@ -2531,14 +2537,14 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	// With the node obtained, we'll now iterate through all its out going
 	// edges to gather some basic statistics about its out going channels.
 	var (
-		numChannels  uint32
-		totalCapcity btcutil.Amount
+		numChannels   uint32
+		totalCapacity btcutil.Amount
 	)
 	if err := node.ForEachChannel(nil, func(_ *bolt.Tx, edge *channeldb.ChannelEdgeInfo,
 		_, _ *channeldb.ChannelEdgePolicy) error {
 
 		numChannels++
-		totalCapcity += edge.Capacity
+		totalCapacity += edge.Capacity
 		return nil
 	}); err != nil {
 		return nil, err
@@ -2564,7 +2570,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 			Color:      nodeColor,
 		},
 		NumChannels:   numChannels,
-		TotalCapacity: int64(totalCapcity),
+		TotalCapacity: int64(totalCapacity),
 	}, nil
 }
 
@@ -2572,7 +2578,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 // route to a target destination capable of carrying a specific amount of
 // satoshis within the route's flow. The retuned route contains the full
 // details required to craft and send an HTLC, also including the necessary
-// information that should be present within the Sphinx packet encapsualted
+// information that should be present within the Sphinx packet encapsulated
 // within the HTLC.
 //
 // TODO(roasbeef): should return a slice of routes in reality
@@ -2580,7 +2586,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 func (r *rpcServer) QueryRoutes(ctx context.Context,
 	in *lnrpc.QueryRoutesRequest) (*lnrpc.QueryRoutesResponse, error) {
 
-	// First parse the hex-encdoed public key into a full public key objet
+	// First parse the hex-encoded public key into a full public key object
 	// we can properly manipulate.
 	pubKeyBytes, err := hex.DecodeString(in.PubKey)
 	if err != nil {
@@ -2604,7 +2610,9 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 	// Query the channel router for a possible path to the destination that
 	// can carry `in.Amt` satoshis _including_ the total fee required on
 	// the route.
-	routes, err := r.server.chanRouter.FindRoutes(pubKey, amtMSat)
+	routes, err := r.server.chanRouter.FindRoutes(
+		pubKey, amtMSat, uint32(in.NumRoutes),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2612,10 +2620,12 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 	// For each valid route, we'll convert the result into the format
 	// required by the RPC system.
 	routeResp := &lnrpc.QueryRoutesResponse{
-		Routes: make([]*lnrpc.Route, len(routes)),
+		Routes: make([]*lnrpc.Route, 0, in.NumRoutes),
 	}
-	for i, route := range routes {
-		routeResp.Routes[i] = marshallRoute(route)
+	for i := int32(0); i < in.NumRoutes; i++ {
+		routeResp.Routes = append(
+			routeResp.Routes, marshallRoute(routes[i]),
+		)
 	}
 
 	return routeResp, nil
@@ -2816,7 +2826,7 @@ func (r *rpcServer) SubscribeChannelGraph(req *lnrpc.GraphTopologySubscription,
 	}
 }
 
-// marshallTopologyChange performs a mapping from the topology change sturct
+// marshallTopologyChange performs a mapping from the topology change struct
 // returned by the router to the form of notifications expected by the current
 // gRPC service.
 func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopologyUpdate {
@@ -2970,7 +2980,7 @@ func (r *rpcServer) DecodePayReq(ctx context.Context,
 	// Fist we'll attempt to decode the payment request string, if the
 	// request is invalid or the checksum doesn't match, then we'll exit
 	// here with an error.
-	payReq, err := zpay32.Decode(req.PayReq)
+	payReq, err := zpay32.Decode(req.PayReq, activeNetParams.Params)
 	if err != nil {
 		return nil, err
 	}
@@ -3065,7 +3075,7 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 }
 
 // minFeeRate is the smallest permitted fee rate within the network. This is
-// dervied by the fact that fee rates are computed using a fixed point of
+// derived by the fact that fee rates are computed using a fixed point of
 // 1,000,000. As a result, the smallest representable fee rate is 1e-6, or
 // 0.000001, or 0.0001%.
 const minFeeRate = 1e-6

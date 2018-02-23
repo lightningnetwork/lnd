@@ -473,7 +473,7 @@ func (d *DB) FetchClosedChannel(chanID *wire.OutPoint) (*ChannelCloseSummary, er
 
 // MarkChanFullyClosed marks a channel as fully closed within the database. A
 // channel should be marked as fully closed if the channel was initially
-// cooperatively closed and it's reach a single confirmation, or after all the
+// cooperatively closed and it's reached a single confirmation, or after all the
 // pending funds in a channel that has been forcibly closed have been swept.
 func (d *DB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
 	return d.Update(func(tx *bolt.Tx) error {

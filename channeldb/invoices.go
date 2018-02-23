@@ -61,7 +61,7 @@ type ContractTerm struct {
 	// extended.
 	PaymentPreimage [32]byte
 
-	// Value is the expected amount of milli-satoshis to be payed to an
+	// Value is the expected amount of milli-satoshis to be paid to an
 	// HTLC which can be satisfied by the above preimage.
 	Value lnwire.MilliSatoshi
 
@@ -174,8 +174,8 @@ func (d *DB) AddInvoice(i *Invoice) error {
 	})
 }
 
-// LookupInvoice attempts to look up an invoice according to it's 32 byte
-// payment hash. In an invoice which can settle the HTLC identified by the
+// LookupInvoice attempts to look up an invoice according to its 32 byte
+// payment hash. If an invoice which can settle the HTLC identified by the
 // passed payment hash isn't found, then an error is returned. Otherwise, the
 // full invoice is returned. Before setting the incoming HTLC, the values
 // SHOULD be checked to ensure the payer meets the agreed upon contractual
@@ -301,7 +301,7 @@ func putInvoice(invoices *bolt.Bucket, invoiceIndex *bolt.Bucket,
 		return err
 	}
 
-	// Add the payment hash to the invoice index. This'll let us quickly
+	// Add the payment hash to the invoice index. This will let us quickly
 	// identify if we can settle an incoming payment, and also to possibly
 	// allow a single invoice to have multiple payment installations.
 	paymentHash := sha256.Sum256(i.Terms.PaymentPreimage[:])

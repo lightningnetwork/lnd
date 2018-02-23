@@ -15,7 +15,7 @@ import:
   - proto
 - package: github.com/howeyc/gopass
 - package: github.com/roasbeef/btcd
-  version: 9978b939c33973be19b932fa7b936079bb7ba38d
+  version: e6807bc4dd5ddbb95b4ab163f6dd61e4ad79463a
   subpackages:
   - blockchain
   - btcec
@@ -58,7 +58,7 @@ import:
 - package: google.golang.org/grpc
   version: b3ddf786825de56a4178401b7e174ee332173b66
 - package: github.com/lightningnetwork/lightning-onion
-  version: 18bf6612a0653a21daf1a08b4a59e54670a524a1
+  version: dbb6dc0eaf32a043c9bc3cfed0fd5fd8db08e3b9
 - package: github.com/grpc-ecosystem/grpc-gateway
   version: f2862b476edcef83412c7af8687c9cd8e4097c0f
 - package: github.com/go-errors/errors
@@ -73,7 +73,7 @@ import:
   subpackages:
   - chaincfg
 - package: github.com/lightninglabs/neutrino
-  version: 6c8f30a130bb170348ceb754ce4204156efe2741
+  version: c933ad49936ac3e5bc1b42e855f2da69745e34cc
 - package: gopkg.in/macaroon.v2
 - package: gopkg.in/macaroon-bakery.v2
 - package: github.com/juju/loggo

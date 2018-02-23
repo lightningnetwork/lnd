@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"io/ioutil"
+	"math/big"
 	"net"
 	"os"
 	"path/filepath"
@@ -79,6 +80,13 @@ var (
 		IdentityKey: bobPubKey,
 		Address:     bobTCPAddr,
 	}
+
+	testSig = &btcec.Signature{
+		R: new(big.Int),
+		S: new(big.Int),
+	}
+	_, _ = testSig.R.SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
+	_, _ = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
 )
 
 type mockNotifier struct {
@@ -146,13 +154,14 @@ func createTestWallet(cdb *channeldb.DB, netParams *chaincfg.Params,
 	estimator lnwallet.FeeEstimator) (*lnwallet.LightningWallet, error) {
 
 	wallet, err := lnwallet.NewLightningWallet(lnwallet.Config{
-		Database:         cdb,
-		Notifier:         notifier,
-		WalletController: wc,
-		Signer:           signer,
-		ChainIO:          bio,
-		FeeEstimator:     estimator,
-		NetParams:        *netParams,
+		Database:           cdb,
+		Notifier:           notifier,
+		WalletController:   wc,
+		Signer:             signer,
+		ChainIO:            bio,
+		FeeEstimator:       estimator,
+		NetParams:          *netParams,
+		DefaultConstraints: defaultChannelConstraints,
 	})
 	if err != nil {
 		return nil, err
@@ -217,7 +226,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		Notifier:     chainNotifier,
 		FeeEstimator: estimator,
 		SignMessage: func(pubKey *btcec.PublicKey, msg []byte) (*btcec.Signature, error) {
-			return nil, nil
+			return testSig, nil
 		},
 		SendAnnouncement: func(msg lnwire.Message) error {
 			select {
@@ -269,6 +278,16 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		RequiredRemoteDelay: func(amt btcutil.Amount) uint16 {
 			return 4
 		},
+		RequiredRemoteChanReserve: func(chanAmt btcutil.Amount) btcutil.Amount {
+			return chanAmt / 100
+		},
+		RequiredRemoteMaxValue: func(chanAmt btcutil.Amount) lnwire.MilliSatoshi {
+			reserve := lnwire.NewMSatFromSatoshis(chanAmt / 100)
+			return lnwire.NewMSatFromSatoshis(chanAmt) - reserve
+		},
+		RequiredRemoteMaxHTLCs: func(chanAmt btcutil.Amount) uint16 {
+			return uint16(lnwallet.MaxHTLCNumber / 2)
+		},
 		ArbiterChan: arbiterChan,
 		WatchNewChannel: func(*channeldb.OpenChannel) error {
 			return nil
@@ -319,7 +338,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		FeeEstimator: oldCfg.FeeEstimator,
 		SignMessage: func(pubKey *btcec.PublicKey,
 			msg []byte) (*btcec.Signature, error) {
-			return nil, nil
+			return testSig, nil
 		},
 		SendAnnouncement: func(msg lnwire.Message) error {
 			select {
@@ -415,7 +434,6 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	// Create a funding request and start the workflow.
 	errChan := make(chan error, 1)
 	initReq := &openChanReq{
-		targetPeerID:    int32(1),
 		targetPubkey:    bob.privKey.PubKey(),
 		chainHash:       *activeNetParams.GenesisHash,
 		localFundingAmt: localFundingAmt,
@@ -891,7 +909,7 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 		return fmt.Errorf("intentional error in SendToPeer")
 	}
 	alice.fundingMgr.cfg.NotifyWhenOnline = func(peer *btcec.PublicKey, con chan<- struct{}) {
-		// Intetionally empty.
+		// Intentionally empty.
 	}
 
 	// Notify that transaction was mined
@@ -966,7 +984,7 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
 
-	// Next, we check that Alice sends the annnouncement signatures
+	// Next, we check that Alice sends the announcement signatures
 	// on restart after six confirmations. Bob should as expected send
 	// them as well.
 	recreateAliceFundingManager(t, alice)

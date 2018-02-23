@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -10,7 +9,6 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -83,7 +81,7 @@ type chanCloseCfg struct {
 	broadcastTx func(*wire.MsgTx) error
 
 	// quit is a channel that should be sent upon in the occasion the state
-	// machine shouldk cease all progress and shutdown.
+	// machine should cease all progress and shutdown.
 	quit chan struct{}
 }
 
@@ -247,7 +245,7 @@ func (c *channelCloser) ShutdownChan() (*lnwire.Shutdown, error) {
 
 // ClosingTx returns the fully signed, final closing transaction.
 //
-// NOTE: THis transaction is only available if the state machine is in the
+// NOTE: This transaction is only available if the state machine is in the
 // closeFinished state.
 func (c *channelCloser) ClosingTx() (*wire.MsgTx, error) {
 	// If the state machine hasn't finished closing the channel then we'll
@@ -303,8 +301,8 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 		peerLog.Infof("ChannelPoint(%v): Responding to shutdown",
 			c.chanPoint)
 
-		msgsToSend := make([]lnwire.Message, 2)
-		msgsToSend[0] = localShutdown
+		msgsToSend := make([]lnwire.Message, 0, 2)
+		msgsToSend = append(msgsToSend, localShutdown)
 
 		// After the other party receives this message, we'll actually
 		// start the final stage of the closure process: fee
@@ -313,12 +311,14 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 		c.state = closeFeeNegotiation
 
 		// We'll also craft our initial close proposal in order to keep
-		// the negotiation moving.
-		closeSigned, err := c.proposeCloseSigned(c.idealFeeSat)
-		if err != nil {
-			return nil, false, err
+		// the negotiation moving, but only if we're the negotiator.
+		if c.cfg.channel.IsInitiator() {
+			closeSigned, err := c.proposeCloseSigned(c.idealFeeSat)
+			if err != nil {
+				return nil, false, err
+			}
+			msgsToSend = append(msgsToSend, closeSigned)
 		}
-		msgsToSend[1] = closeSigned
 
 		// We'll return both sent of messages to sent to the remote
 		// party to kick off the fee negotiation process.
@@ -349,13 +349,19 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 			"entering fee negotiation", c.chanPoint)
 
 		// Starting with our ideal fee rate, we'll create an initial
-		// closing proposal.
-		closeSigned, err := c.proposeCloseSigned(c.idealFeeSat)
-		if err != nil {
-			return nil, false, err
+		// closing proposal, but only if we're the initiator, as
+		// otherwise, the other party will send their first proposal
+		// first.
+		if c.cfg.channel.IsInitiator() {
+			closeSigned, err := c.proposeCloseSigned(c.idealFeeSat)
+			if err != nil {
+				return nil, false, err
+			}
+
+			return []lnwire.Message{closeSigned}, false, nil
 		}
 
-		return []lnwire.Message{closeSigned}, false, nil
+		return nil, false, nil
 
 	// If we're receiving a message while we're in the fee negotiation
 	// phase, then this indicates the remote party is responding a closed
@@ -410,12 +416,12 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 		// transaction!  We'll craft the final closing transaction so
 		// we can broadcast it to the network.
 		matchingSig := c.priorFeeOffers[remoteProposedFee].Signature
-		localSig := append(
-			matchingSig.Serialize(), byte(txscript.SigHashAll),
-		)
-		remoteSig := append(
-			closeSignedMsg.Signature.Serialize(), byte(txscript.SigHashAll),
-		)
+		localSigBytes := matchingSig.ToSignatureBytes()
+		localSig := append(localSigBytes, byte(txscript.SigHashAll))
+
+		remoteSigBytes := closeSignedMsg.Signature.ToSignatureBytes()
+		remoteSig := append(remoteSigBytes, byte(txscript.SigHashAll))
+
 		closeTx, finalLocalBalance, err := c.cfg.channel.CompleteCooperativeClose(
 			localSig, remoteSig, c.localDeliveryScript,
 			c.remoteDeliveryScript, remoteProposedFee,
@@ -432,19 +438,7 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 				return spew.Sdump(closeTx)
 			}))
 		if err := c.cfg.broadcastTx(closeTx); err != nil {
-			// TODO(halseth): add relevant error types to the
-			// WalletController interface as this is quite fragile.
-			switch {
-			case strings.Contains(err.Error(), "already exists"):
-				fallthrough
-			case strings.Contains(err.Error(), "already have"):
-				peerLog.Debugf("channel close tx from "+
-					"ChannelPoint(%v) already exist, "+
-					"probably broadcast by peer: %v",
-					c.chanPoint, err)
-			default:
-				return nil, false, err
-			}
+			return nil, false, err
 		}
 
 		// Clear out the current channel state, marking the channel as
@@ -512,7 +506,7 @@ func (c *channelCloser) proposeCloseSigned(fee btcutil.Amount) (*lnwire.ClosingS
 	// party responds we'll be able to decide if we've agreed on fees or
 	// not.
 	c.lastFeeProposal = fee
-	parsedSig, err := btcec.ParseSignature(rawSig, btcec.S256())
+	parsedSig, err := lnwire.NewSigFromRawSignature(rawSig)
 	if err != nil {
 		return nil, err
 	}
@@ -552,7 +546,7 @@ func (c *channelCloser) proposeCloseSigned(fee btcutil.Amount) (*lnwire.ClosingS
 // consider their fee acceptable if it's within 30% of our fee.
 func feeInAcceptableRange(localFee, remoteFee btcutil.Amount) bool {
 	// If our offer is lower than theirs, then we'll accept their
-	// offer it it's no more than 30% *greater* than our current
+	// offer if it's no more than 30% *greater* than our current
 	// offer.
 	if localFee < remoteFee {
 		acceptableRange := localFee + ((localFee * 3) / 10)

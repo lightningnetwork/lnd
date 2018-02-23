@@ -18,7 +18,7 @@ RUN git clone https://github.com/lightningnetwork/lnd $GOPATH/src/github.com/lig
 # Make lnd folder default.
 WORKDIR $GOPATH/src/github.com/lightningnetwork/lnd
 
-# Instll dependency and install/build lnd.
+# Install dependency and install/build lnd.
 RUN glide install
 RUN go install . ./cmd/...
 

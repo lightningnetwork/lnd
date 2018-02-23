@@ -373,7 +373,7 @@ func senderHtlcSpendTimeout(receiverSig []byte, signer Signer,
 // receiverHTLCScript constructs the public key script for an incoming HTLC
 // output payment for the receiver's version of the commitment transaction. The
 // possible execution paths from this script include:
-//   * The receiver of the HTLC uses it's second level HTLC transaction to
+//   * The receiver of the HTLC uses its second level HTLC transaction to
 //     advance the state of the HTLC into the delay+claim state.
 //   * The sender of the HTLC sweeps all the funds of the HTLC as a breached
 //     commitment was broadcast.
@@ -400,7 +400,7 @@ func senderHtlcSpendTimeout(receiverSig []byte, signer Signer,
 //         OP_CHECKSIG
 //     OP_ENDIF
 // OP_ENDIF
-func receiverHTLCScript(cltvExipiry uint32, senderHtlcKey,
+func receiverHTLCScript(cltvExpiry uint32, senderHtlcKey,
 	receiverHtlcKey, revocationKey *btcec.PublicKey,
 	paymentHash []byte) ([]byte, error) {
 
@@ -477,7 +477,7 @@ func receiverHTLCScript(cltvExipiry uint32, senderHtlcKey,
 	// lock-time required to timeout the HTLC. If the time has passed, then
 	// we'll proceed with a checksig to ensure that this is actually the
 	// sender of he original HTLC.
-	builder.AddInt64(int64(cltvExipiry))
+	builder.AddInt64(int64(cltvExpiry))
 	builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
 	builder.AddOp(txscript.OP_DROP)
 	builder.AddOp(txscript.OP_CHECKSIG)
@@ -574,7 +574,7 @@ func ReceiverHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 // an HTLC to recover the pending funds after an absolute timeout in the
 // scenario that the receiver of the HTLC broadcasts their version of the
 // commitment transaction. If the caller has already set the lock time on the
-// spending transaction, than a value of -1 can be passed for the cltvExipiry
+// spending transaction, than a value of -1 can be passed for the cltvExpiry
 // value.
 //
 // NOTE: The target input of the passed transaction MUST NOT have a final
@@ -665,7 +665,7 @@ func createHtlcTimeoutTx(htlcOutput wire.OutPoint, htlcAmt btcutil.Amount,
 	return timeoutTx, nil
 }
 
-// createHtlcSuccessTx creats a transaction that spends the output on the
+// createHtlcSuccessTx creates a transaction that spends the output on the
 // commitment transaction of the peer that receives an HTLC. This transaction
 // essentially acts as an off-chain covenant as it's only permitted to spend
 // the designated HTLC output, and also that spend can _only_ be used as a
@@ -1305,7 +1305,7 @@ func GetStateNumHint(commitTx *wire.MsgTx, obfuscator [StateHintSize]byte) uint6
 	stateNumXor := uint64(commitTx.TxIn[0].Sequence&0xFFFFFF) << 24
 	stateNumXor |= uint64(commitTx.LockTime & 0xFFFFFF)
 
-	// Finally, to obtain the final state number, we XOR by the obfuscater
+	// Finally, to obtain the final state number, we XOR by the obfuscator
 	// value to de-obfuscate the state number.
 	return stateNumXor ^ xorInt
 }

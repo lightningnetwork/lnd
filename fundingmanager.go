@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -185,7 +186,7 @@ type fundingConfig struct {
 	SignMessage func(pubKey *btcec.PublicKey, msg []byte) (*btcec.Signature, error)
 
 	// CurrentNodeAnnouncement should return the latest, fully signed node
-	// announcement from the backing Lighting Network node.
+	// announcement from the backing Lightning Network node.
 	CurrentNodeAnnouncement func() (lnwire.NodeAnnouncement, error)
 
 	// SendAnnouncement is used by the FundingManager to send
@@ -234,6 +235,22 @@ type fundingConfig struct {
 	// in order to give us more time to claim funds in the case of a
 	// contract breach.
 	RequiredRemoteDelay func(btcutil.Amount) uint16
+
+	// RequiredRemoteChanReserve is a function closure that, given the
+	// channel capacity, will return an appropriate amount for the remote
+	// peer's required channel reserve that is to be adhered to at all
+	// times.
+	RequiredRemoteChanReserve func(btcutil.Amount) btcutil.Amount
+
+	// RequiredRemoteMaxValue is a function closure that, given the
+	// channel capacity, returns the amount of MilliSatoshis that our
+	// remote peer can have in total outstanding HTLCs with us.
+	RequiredRemoteMaxValue func(btcutil.Amount) lnwire.MilliSatoshi
+
+	// RequiredRemoteMaxHTLCs is a function closure that, given the
+	// channel capacity, returns the number of maximum HTLCs the remote
+	// peer can offer us.
+	RequiredRemoteMaxHTLCs func(btcutil.Amount) uint16
 
 	// WatchNewChannel is to be called once a new channel enters the final
 	// funding stage: waiting for on-chain confirmation. This method sends
@@ -668,7 +685,7 @@ func (f *fundingManager) CancelPeerReservations(nodePub [33]byte) {
 }
 
 // failFundingFlow will fail the active funding flow with the target peer,
-// identified by it's unique temporary channel ID. This method is send an error
+// identified by its unique temporary channel ID. This method is send an error
 // to the remote peer, and also remove the reservation from our set of pending
 // reservations.
 //
@@ -684,13 +701,16 @@ func (f *fundingManager) failFundingFlow(peer *btcec.PublicKey,
 
 	fndgLog.Errorf("Failing funding flow: %v", spew.Sdump(errMsg))
 
+	if _, err := f.cancelReservationCtx(peer, tempChanID); err != nil {
+		fndgLog.Errorf("unable to cancel reservation: %v", err)
+	}
+
 	err := f.cfg.SendToPeer(peer, errMsg)
 	if err != nil {
 		fndgLog.Errorf("unable to send error message to peer %v", err)
 		return
 	}
 
-	f.cancelReservationCtx(peer, tempChanID)
 	return
 }
 
@@ -803,7 +823,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// We'll also reject any requests to create channels until we're fully
 	// synced to the network as we won't be able to properly validate the
 	// confirmation of the funding transaction.
-	isSynced, err := f.cfg.Wallet.IsSynced()
+	isSynced, _, err := f.cfg.Wallet.IsSynced()
 	if err != nil {
 		fndgLog.Errorf("unable to query wallet: %v", err)
 		return
@@ -864,7 +884,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// party is attempting to dictate for our commitment transaction.
 	err = reservation.CommitConstraints(
 		uint16(msg.CsvDelay), msg.MaxAcceptedHTLCs,
-		msg.MaxValueInFlight, msg.ChannelReserve,
+		msg.MaxValueInFlight, msg.HtlcMinimum, msg.ChannelReserve,
 	)
 	if err != nil {
 		f.failFundingFlow(
@@ -900,7 +920,9 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	remoteCsvDelay := f.cfg.RequiredRemoteDelay(amt)
 
 	// We'll also generate our required constraints for the remote party,
-	chanReserve, maxValue, maxHtlcs := reservation.RemoteChanConstraints()
+	chanReserve := f.cfg.RequiredRemoteChanReserve(amt)
+	maxValue := f.cfg.RequiredRemoteMaxValue(amt)
+	maxHtlcs := f.cfg.RequiredRemoteMaxHTLCs(amt)
 
 	// With our parameters set, we'll now process their contribution so we
 	// can move the funding workflow ahead.
@@ -977,7 +999,7 @@ func (f *fundingManager) processFundingAccept(msg *lnwire.AcceptChannel,
 	}
 }
 
-// handleFundingAceept processes a response to the workflow initiation sent by
+// handleFundingAccept processes a response to the workflow initiation sent by
 // the remote peer. This message then queues a message with the funding
 // outpoint, and a commitment signature to the remote peer.
 func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
@@ -1000,7 +1022,7 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 	resCtx.reservation.SetNumConfsRequired(uint16(msg.MinAcceptDepth))
 	err = resCtx.reservation.CommitConstraints(
 		uint16(msg.CsvDelay), msg.MaxAcceptedHTLCs,
-		msg.MaxValueInFlight, msg.ChannelReserve,
+		msg.MaxValueInFlight, msg.HtlcMinimum, msg.ChannelReserve,
 	)
 	if err != nil {
 		f.failFundingFlow(
@@ -1014,7 +1036,9 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 	// As they've accepted our channel constraints, we'll regenerate them
 	// here so we can properly commit their accepted constraints to the
 	// reservation.
-	chanReserve, maxValue, maxHtlcs := resCtx.reservation.RemoteChanConstraints()
+	chanReserve := f.cfg.RequiredRemoteChanReserve(resCtx.chanAmt)
+	maxValue := f.cfg.RequiredRemoteMaxValue(resCtx.chanAmt)
+	maxHtlcs := f.cfg.RequiredRemoteMaxHTLCs(resCtx.chanAmt)
 
 	// The remote node has responded with their portion of the channel
 	// contribution. At this point, we can process their contribution which
@@ -1058,14 +1082,6 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 	// the commitment transaction to the remote peer.
 	outPoint := resCtx.reservation.FundingOutpoint()
 	_, sig := resCtx.reservation.OurSignatures()
-	commitSig, err := btcec.ParseSignature(sig, btcec.S256())
-	if err != nil {
-		fndgLog.Errorf("Unable to parse signature: %v", err)
-		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
-			msg.PendingChannelID, []byte(err.Error()))
-		resCtx.err <- err
-		return
-	}
 
 	// A new channel has almost finished the funding process. In order to
 	// properly synchronize with the writeHandler goroutine, we add a new
@@ -1091,7 +1107,14 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 	fundingCreated := &lnwire.FundingCreated{
 		PendingChannelID: pendingChanID,
 		FundingPoint:     *outPoint,
-		CommitSig:        commitSig,
+	}
+	fundingCreated.CommitSig, err = lnwire.NewSigFromRawSignature(sig)
+	if err != nil {
+		fndgLog.Errorf("Unable to parse signature: %v", err)
+		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
+			msg.PendingChannelID, []byte(err.Error()))
+		resCtx.err <- err
+		return
 	}
 	err = f.cfg.SendToPeer(fmsg.peerAddress.IdentityKey, fundingCreated)
 	if err != nil {
@@ -1144,7 +1167,7 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 	// funding transaction will broadcast after our next message.
 	// CompleteReservationSingle will also mark the channel as 'IsPending'
 	// in the database.
-	commitSig := fmsg.msg.CommitSig.Serialize()
+	commitSig := fmsg.msg.CommitSig.ToSignatureBytes()
 	completeChan, err := resCtx.reservation.CompleteReservationSingle(
 		&fundingOut, commitSig)
 	if err != nil {
@@ -1187,11 +1210,8 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 
 	// With their signature for our version of the commitment transaction
 	// verified, we can now send over our signature to the remote peer.
-	//
-	// TODO(roasbeef): just have raw bytes in wire msg? avoids decoding
-	// then decoding shortly afterwards.
 	_, sig := resCtx.reservation.OurSignatures()
-	ourCommitSig, err := btcec.ParseSignature(sig, btcec.S256())
+	ourCommitSig, err := lnwire.NewSigFromRawSignature(sig)
 	if err != nil {
 		fndgLog.Errorf("unable to parse signature: %v", err)
 		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
@@ -1301,7 +1321,7 @@ func (f *fundingManager) processFundingSigned(msg *lnwire.FundingSigned,
 // confirmations, a message is sent to the responding peer along with a compact
 // encoding of the location of the channel within the blockchain.
 func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
-	// As the funding signed message will reference the reservation by it's
+	// As the funding signed message will reference the reservation by its
 	// permanent channel ID, we'll need to perform an intermediate look up
 	// before we can obtain the reservation.
 	f.resMtx.Lock()
@@ -1340,7 +1360,7 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	// The remote peer has responded with a signature for our commitment
 	// transaction. We'll verify the signature for validity, then commit
 	// the state to disk as we can now open the channel.
-	commitSig := fmsg.msg.CommitSig.Serialize()
+	commitSig := fmsg.msg.CommitSig.ToSignatureBytes()
 	completeChan, err := resCtx.reservation.CompleteReservation(nil, commitSig)
 	if err != nil {
 		fndgLog.Errorf("Unable to complete reservation sign complete: %v", err)
@@ -2123,19 +2143,19 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 	selfBytes := localPubKey.SerializeCompressed()
 	remoteBytes := remotePubKey.SerializeCompressed()
 	if bytes.Compare(selfBytes, remoteBytes) == -1 {
-		chanAnn.NodeID1 = localPubKey
-		chanAnn.NodeID2 = remotePubKey
-		chanAnn.BitcoinKey1 = localFundingKey
-		chanAnn.BitcoinKey2 = remoteFundingKey
+		copy(chanAnn.NodeID1[:], localPubKey.SerializeCompressed())
+		copy(chanAnn.NodeID2[:], remotePubKey.SerializeCompressed())
+		copy(chanAnn.BitcoinKey1[:], localFundingKey.SerializeCompressed())
+		copy(chanAnn.BitcoinKey2[:], remoteFundingKey.SerializeCompressed())
 
 		// If we're the first node then update the chanFlags to
 		// indicate the "direction" of the update.
 		chanFlags = 0
 	} else {
-		chanAnn.NodeID1 = remotePubKey
-		chanAnn.NodeID2 = localPubKey
-		chanAnn.BitcoinKey1 = remoteFundingKey
-		chanAnn.BitcoinKey2 = localFundingKey
+		copy(chanAnn.NodeID1[:], remotePubKey.SerializeCompressed())
+		copy(chanAnn.NodeID2[:], localPubKey.SerializeCompressed())
+		copy(chanAnn.BitcoinKey1[:], remoteFundingKey.SerializeCompressed())
+		copy(chanAnn.BitcoinKey2[:], localFundingKey.SerializeCompressed())
 
 		// If we're the second node then update the chanFlags to
 		// indicate the "direction" of the update.
@@ -2167,7 +2187,12 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 	if err != nil {
 		return nil, err
 	}
-	chanUpdateAnn.Signature, err = f.cfg.SignMessage(f.cfg.IDKey, chanUpdateMsg)
+	sig, err := f.cfg.SignMessage(f.cfg.IDKey, chanUpdateMsg)
+	if err != nil {
+		return nil, errors.Errorf("unable to generate channel "+
+			"update announcement signature: %v", err)
+	}
+	chanUpdateAnn.Signature, err = lnwire.NewSigFromSignature(sig)
 	if err != nil {
 		return nil, errors.Errorf("unable to generate channel "+
 			"update announcement signature: %v", err)
@@ -2199,10 +2224,16 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 	// provide the other side with the necessary signatures required to
 	// allow them to reconstruct the full channel announcement.
 	proof := &lnwire.AnnounceSignatures{
-		ChannelID:        chanID,
-		ShortChannelID:   shortChanID,
-		NodeSignature:    nodeSig,
-		BitcoinSignature: bitcoinSig,
+		ChannelID:      chanID,
+		ShortChannelID: shortChanID,
+	}
+	proof.NodeSignature, err = lnwire.NewSigFromSignature(nodeSig)
+	if err != nil {
+		return nil, err
+	}
+	proof.BitcoinSignature, err = lnwire.NewSigFromSignature(bitcoinSig)
+	if err != nil {
+		return nil, err
 	}
 
 	return &chanAnnouncement{
@@ -2330,7 +2361,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// request will fail, and be aborted.
 	reservation, err := f.cfg.Wallet.InitChannelReservation(capacity,
 		localAmt, msg.pushAmt, commitFeePerKw, msg.fundingFeePerWeight,
-		peerKey, msg.peerAddress.Address, &msg.chainHash, channelFlags)
+		peerKey, msg.peerAddress.Address.(*net.TCPAddr), &msg.chainHash, channelFlags)
 	if err != nil {
 		msg.err <- err
 		return
@@ -2378,7 +2409,9 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// Finally, we'll use the current value of the channels and our default
 	// policy to determine of required commitment constraints for the
 	// remote party.
-	chanReserve, maxValue, maxHtlcs := reservation.RemoteChanConstraints()
+	chanReserve := f.cfg.RequiredRemoteChanReserve(capacity)
+	maxValue := f.cfg.RequiredRemoteMaxValue(capacity)
+	maxHtlcs := f.cfg.RequiredRemoteMaxHTLCs(capacity)
 
 	fndgLog.Infof("Starting funding workflow with %v for pendingID(%x)",
 		msg.peerAddress.Address, chanID)

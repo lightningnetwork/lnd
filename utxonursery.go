@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -374,7 +373,7 @@ func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 			0,
 		)
 
-		// We'll skip any zero value'd outputs as this indicates we
+		// We'll skip any zero valued outputs as this indicates we
 		// don't have a settled balance within the commitment
 		// transaction.
 		if selfOutput.Amount() > 0 {
@@ -615,7 +614,7 @@ func (u *utxoNursery) reloadPreschool() error {
 	}
 
 	// For each of the preschool outputs stored in the nursery store, load
-	// it's close summary from disk so that we can get an accurate height
+	// its close summary from disk so that we can get an accurate height
 	// hint from which to start our range for spend notifications.
 	for i := range psclOutputs {
 		kid := &psclOutputs[i]
@@ -1095,8 +1094,12 @@ func (u *utxoNursery) populateSweepTx(txWeight uint64, classHeight uint32,
 			return nil, err
 		}
 	}
+
+	// Add offset to relative indexes so cltv witnesses don't overwrite csv
+	// witnesses.
+	offset := len(csvInputs)
 	for i, input := range cltvInputs {
-		if err := addWitness(i, input); err != nil {
+		if err := addWitness(offset+i, input); err != nil {
 			return nil, err
 		}
 	}
@@ -1121,9 +1124,7 @@ func (u *utxoNursery) sweepMatureOutputs(classHeight uint32, finalTx *wire.MsgTx
 	// With the sweep transaction fully signed, broadcast the transaction
 	// to the network. Additionally, we can stop tracking these outputs as
 	// they've just been swept.
-	// TODO(conner): handle concrete error types returned from publication
-	err := u.cfg.PublishTransaction(finalTx)
-	if err != nil && !strings.Contains(err.Error(), "TX rejected:") {
+	if err := u.cfg.PublishTransaction(finalTx); err != nil {
 		utxnLog.Errorf("unable to broadcast sweep tx: %v, %v",
 			err, spew.Sdump(finalTx))
 		return err
@@ -1189,7 +1190,7 @@ func (u *utxoNursery) waitForSweepConf(classHeight uint32,
 
 	// Mark the confirmed kindergarten outputs as graduated.
 	if err := u.cfg.Store.GraduateKinder(classHeight); err != nil {
-		utxnLog.Errorf("Unable to graduate %v kingdergarten outputs: "+
+		utxnLog.Errorf("Unable to graduate %v kindergarten outputs: "+
 			"%v", len(kgtnOutputs), err)
 		return
 	}
@@ -1229,14 +1230,9 @@ func (u *utxoNursery) sweepCribOutput(classHeight uint32, baby *babyOutput) erro
 
 	// We'll now broadcast the HTLC transaction, then wait for it to be
 	// confirmed before transitioning it to kindergarten.
-	//
-	// TODO(conner): handle concrete error types returned from publication
-	err := u.cfg.PublishTransaction(baby.timeoutTx)
-	if err != nil &&
-		!strings.Contains(err.Error(), "TX rejected:") {
+	if err := u.cfg.PublishTransaction(baby.timeoutTx); err != nil {
 		utxnLog.Errorf("Unable to broadcast baby tx: "+
-			"%v, %v", err,
-			spew.Sdump(baby.timeoutTx))
+			"%v, %v", err, spew.Sdump(baby.timeoutTx))
 		return err
 	}
 
@@ -1443,8 +1439,8 @@ type htlcMaturityReport struct {
 
 	// stage indicates whether the htlc is in the CLTV-timeout stage (1) or
 	// the CSV-delay stage (2). A stage 1 htlc's maturity height will be set
-	// to it's expiry height, while a stage 2 htlc's maturity height will be
-	// set to it's confirmation height plus the maturity requirement.
+	// to its expiry height, while a stage 2 htlc's maturity height will be
+	// set to its confirmation height plus the maturity requirement.
 	stage uint32
 }
 
@@ -1940,7 +1936,7 @@ func readTxOut(r io.Reader, txo *wire.TxOut) error {
 	return nil
 }
 
-// Compile-time constraint to ensure kidOutput and babyOutpt implement the
+// Compile-time constraint to ensure kidOutput and babyOutput implement the
 // CsvSpendableOutput interface.
 var _ CsvSpendableOutput = (*kidOutput)(nil)
 var _ CsvSpendableOutput = (*babyOutput)(nil)

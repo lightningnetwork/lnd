@@ -44,7 +44,7 @@ Two files will be generated in the current directory:
 
 ### Example - Simple client to display wallet balance
 
-Everytime you use the Ruby gRPC you need to require the `rpc_services_pb` file.
+Every time you use the Ruby gRPC you need to require the `rpc_services_pb` file.
 
 We assume that `lnd` runs on the default `localhost:10009`.
 

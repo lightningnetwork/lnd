@@ -181,18 +181,18 @@ func TestCommitmentSpendValidation(t *testing.T) {
 
 	// Finally, we test bob sweeping his output as normal in the case that
 	// Alice broadcasts this commitment transaction.
-	bobScriptp2wkh, err := commitScriptUnencumbered(bobPayKey)
+	bobScriptP2WKH, err := commitScriptUnencumbered(bobPayKey)
 	if err != nil {
 		t.Fatalf("unable to create bob p2wkh script: %v", err)
 	}
 	signDesc = &SignDescriptor{
 		PubKey:        bobKeyPub,
 		SingleTweak:   bobCommitTweak,
-		WitnessScript: bobScriptp2wkh,
+		WitnessScript: bobScriptP2WKH,
 		SigHashes:     txscript.NewTxSigHashes(sweepTx),
 		Output: &wire.TxOut{
 			Value:    int64(channelBalance),
-			PkScript: bobScriptp2wkh,
+			PkScript: bobScriptP2WKH,
 		},
 		HashType:   txscript.SigHashAll,
 		InputIndex: 0,
@@ -391,7 +391,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 	aliceSigner := &mockSigner{privkeys: []*btcec.PrivateKey{aliceKeyPriv}}
 
 	// We'll also generate a signature on the sweep transaction above
-	// that'll act as Bob's signature to Alice for the second level HTLC
+	// that will act as Bob's signature to Alice for the second level HTLC
 	// transaction.
 	bobSignDesc := SignDescriptor{
 		PubKey:        bobKeyPub,
@@ -452,7 +452,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 		},
 		{
 			// HTLC with valid preimage size + sig
-			// TODO(roabeef): invalid preimage
+			// TODO(roasbeef): invalid preimage
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
 				signDesc := &SignDescriptor{
 					PubKey:        bobKeyPub,
@@ -636,7 +636,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	aliceSigner := &mockSigner{privkeys: []*btcec.PrivateKey{aliceKeyPriv}}
 
 	// We'll also generate a signature on the sweep transaction above
-	// that'll act as Alice's signature to Bob for the second level HTLC
+	// that will act as Alice's signature to Bob for the second level HTLC
 	// transaction.
 	aliceSignDesc := SignDescriptor{
 		PubKey:        aliceKeyPub,
@@ -863,7 +863,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 		Value:    int64(htlcAmt),
 	}
 
-	// TODO(roasbeef): make actually use timeout/sucess txns?
+	// TODO(roasbeef): make actually use timeout/success txns?
 
 	// Finally, we'll create mock signers for both of them based on their
 	// private keys. This test simplifies a bit and uses the same key as

@@ -83,6 +83,34 @@ func ExpectedFee(f ForwardingPolicy, htlcAmt lnwire.MilliSatoshi) lnwire.MilliSa
 	return f.BaseFee + (htlcAmt*f.FeeRate)/1000000
 }
 
+// Ticker is an interface used to wrap a time.Ticker in a struct,
+// making mocking it easier.
+type Ticker interface {
+	Start() <-chan time.Time
+	Stop()
+}
+
+// BatchTicker implements the Ticker interface, and wraps a time.Ticker.
+type BatchTicker struct {
+	ticker *time.Ticker
+}
+
+// NewBatchTicker returns a new BatchTicker that wraps the passed
+// time.Ticker.
+func NewBatchTicker(t *time.Ticker) *BatchTicker {
+	return &BatchTicker{t}
+}
+
+// Start returns the tick channel for the underlying time.Ticker.
+func (t *BatchTicker) Start() <-chan time.Time {
+	return t.ticker.C
+}
+
+// Stop stops the underlying time.Ticker.
+func (t *BatchTicker) Stop() {
+	t.ticker.Stop()
+}
+
 // ChannelLinkConfig defines the configuration for the channel link. ALL
 // elements within the configuration MUST be non-nil for channel link to carry
 // out its duties.
@@ -122,8 +150,8 @@ type ChannelLinkConfig struct {
 	// in thread-safe manner.
 	Registry InvoiceDatabase
 
-	// PreimageCache is a global witness baacon that houses any new
-	// preimges discovered by other links. We'll use this to add new
+	// PreimageCache is a global witness beacon that houses any new
+	// preimages discovered by other links. We'll use this to add new
 	// witnesses that we discover which will notify any sub-systems
 	// subscribed to new events.
 	PreimageCache contractcourt.WitnessBeacon
@@ -167,6 +195,17 @@ type ChannelLinkConfig struct {
 	// reestablishment message to the remote peer. It should be done if our
 	// clients have been restarted, or remote peer have been reconnected.
 	SyncStates bool
+
+	// BatchTicker is the ticker that determines the interval that we'll
+	// use to check the batch to see if there're any updates we should
+	// flush out. By batching updates into a single commit, we attempt
+	// to increase throughput by maximizing the number of updates
+	// coalesced into a single commit.
+	BatchTicker Ticker
+
+	// BatchSize is the max size of a batch of updates done to the link
+	// before we do a state update.
+	BatchSize uint32
 }
 
 // channelLink is the service which drives a channel's commitment update
@@ -493,7 +532,7 @@ func (l *channelLink) syncChanStates() error {
 	// a duplicate settle.
 	htlcsSettled := make(map[uint64]struct{})
 	for _, msg := range msgsToReSend {
-		settleMsg, ok := msg.(*lnwire.UpdateFufillHTLC)
+		settleMsg, ok := msg.(*lnwire.UpdateFulfillHTLC)
 		if !ok {
 			// If this isn't a settle message, then we'll skip it.
 			continue
@@ -549,7 +588,7 @@ func (l *channelLink) syncChanStates() error {
 			return err
 		}
 		l.batchCounter++
-		l.cfg.Peer.SendMessage(&lnwire.UpdateFufillHTLC{
+		l.cfg.Peer.SendMessage(&lnwire.UpdateFulfillHTLC{
 			ChanID:          l.ChanID(),
 			ID:              htlc.HtlcIndex,
 			PaymentPreimage: p,
@@ -594,8 +633,8 @@ func (l *channelLink) htlcManager() {
 		}
 	}
 
-	batchTimer := time.NewTicker(50 * time.Millisecond)
-	defer batchTimer.Stop()
+	batchTick := l.cfg.BatchTicker.Start()
+	defer l.cfg.BatchTicker.Stop()
 
 	// TODO(roasbeef): fail chan in case of protocol violation
 out:
@@ -673,7 +712,7 @@ out:
 				break out
 			}
 
-		case <-batchTimer.C:
+		case <-batchTick:
 			// If the current batch is empty, then we have no work
 			// here.
 			if l.batchCounter == 0 {
@@ -857,7 +896,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		htlc.ID = index
 		l.cfg.Peer.SendMessage(htlc)
 
-	case *lnwire.UpdateFufillHTLC:
+	case *lnwire.UpdateFulfillHTLC:
 		// An HTLC we forward to the switch has just settled somewhere
 		// upstream. Therefore we settle the HTLC within the our local
 		// state machine.
@@ -905,7 +944,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 
 	// If this newly added update exceeds the min batch size for adds, or
 	// this is a settle request, then initiate an update.
-	if l.batchCounter >= 10 || isSettle {
+	if l.batchCounter >= l.cfg.BatchSize || isSettle {
 		if err := l.updateCommitTx(); err != nil {
 			l.fail("unable to update commitment: %v", err)
 			return
@@ -932,7 +971,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		log.Tracef("Receive upstream htlc with payment hash(%x), "+
 			"assigning index: %v", msg.PaymentHash[:], index)
 
-	case *lnwire.UpdateFufillHTLC:
+	case *lnwire.UpdateFulfillHTLC:
 		pre := msg.PaymentPreimage
 		idx := msg.ID
 		if err := l.channel.ReceiveHTLCSettle(pre, idx); err != nil {
@@ -1222,11 +1261,21 @@ type getBandwidthCmd struct {
 //
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) Bandwidth() lnwire.MilliSatoshi {
-	// TODO(roasbeef): subtract reserve
 	channelBandwidth := l.channel.AvailableBalance()
 	overflowBandwidth := l.overflowQueue.TotalHtlcAmount()
+	linkBandwidth := channelBandwidth - overflowBandwidth
+	reserve := lnwire.NewMSatFromSatoshis(l.channel.LocalChanReserve())
 
-	return channelBandwidth - overflowBandwidth
+	// If the channel reserve is greater than the total available
+	// balance of the link, just return 0.
+	if linkBandwidth < reserve {
+		return 0
+	}
+
+	// Else the amount that is available to flow through the link at
+	// this point is the available balance minus the reserve amount
+	// we are required to keep as collateral.
+	return linkBandwidth - reserve
 }
 
 // policyUpdate is a message sent to a channel link when an outside sub-system
@@ -1305,7 +1354,7 @@ func (l *channelLink) updateChannelFee(feePerKw btcutil.Amount) error {
 		feePerKw)
 
 	// We skip sending the UpdateFee message if the channel is not
-	// currently eligable to forward messages.
+	// currently eligible to forward messages.
 	if !l.EligibleToForward() {
 		log.Debugf("ChannelPoint(%v): skipping fee update for " +
 			"inactive channel")
@@ -1352,7 +1401,7 @@ func (l *channelLink) processLockedInHtlcs(
 				outgoingChanID: l.ShortChanID(),
 				outgoingHTLCID: pd.ParentIndex,
 				amount:         pd.Amount,
-				htlc: &lnwire.UpdateFufillHTLC{
+				htlc: &lnwire.UpdateFulfillHTLC{
 					PaymentPreimage: pd.RPreimage,
 				},
 			}
@@ -1605,7 +1654,7 @@ func (l *channelLink) processLockedInHtlcs(
 
 				// HTLC was successfully settled locally send
 				// notification about it remote peer.
-				l.cfg.Peer.SendMessage(&lnwire.UpdateFufillHTLC{
+				l.cfg.Peer.SendMessage(&lnwire.UpdateFulfillHTLC{
 					ChanID:          l.ChanID(),
 					ID:              pd.HtlcIndex,
 					PaymentPreimage: preimage,

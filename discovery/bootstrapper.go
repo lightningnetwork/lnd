@@ -18,7 +18,7 @@ import (
 )
 
 // NetworkPeerBootstrapper is an interface that represents an initial peer
-// boostrap mechanism. This interface is to be used to bootstrap a new peer to
+// bootstrap mechanism. This interface is to be used to bootstrap a new peer to
 // the connection by providing it with the pubkey+address of a set of existing
 // peers on the network. Several bootstrap mechanisms can be implemented such
 // as DNS, in channel graph, DHT's, etc.
@@ -48,7 +48,7 @@ func MultiSourceBootstrap(ignore map[autopilot.NodeID]struct{}, numAddrs uint32,
 	var addrs []*lnwire.NetAddress
 	for _, bootStrapper := range bootStrappers {
 		// If we already have enough addresses, then we can exit early
-		// w/o querying the additional boostrappers.
+		// w/o querying the additional bootstrappers.
 		if uint32(len(addrs)) >= numAddrs {
 			break
 		}
@@ -85,7 +85,7 @@ type ChannelGraphBootstrapper struct {
 	chanGraph autopilot.ChannelGraph
 
 	// hashAccumulator is a set of 32 random bytes that are read upon the
-	// creation of the channel graph boostrapper. We use this value to
+	// creation of the channel graph bootstrapper. We use this value to
 	// randomly select nodes within the known graph to connect to. After
 	// each selection, we rotate the accumulator by hashing it with itself.
 	hashAccumulator [32]byte
@@ -246,7 +246,9 @@ type DNSSeedBootstrapper struct {
 	// in the tuple is a special A record that we'll query in order to
 	// receive the IP address of the current authoritative DNS server for
 	// the network seed.
-	dnsSeeds [][2]string
+	dnsSeeds   [][2]string
+	lookupHost func(string) ([]string, error)
+	lookupSRV  func(string, string, string) (string, []*net.SRV, error)
 }
 
 // A compile time assertion to ensure that DNSSeedBootstrapper meets the
@@ -255,17 +257,18 @@ var _ NetworkPeerBootstrapper = (*ChannelGraphBootstrapper)(nil)
 
 // NewDNSSeedBootstrapper returns a new instance of the DNSSeedBootstrapper.
 // The set of passed seeds should point to DNS servers that properly implement
-// Lighting's DNS peer bootstrapping protocol as defined in BOLT-0010. The set
+// Lightning's DNS peer bootstrapping protocol as defined in BOLT-0010. The set
 // of passed DNS seeds should come in pairs, with the second host name to be
 // used as a fallback for manual TCP resolution in the case of an error
 // receiving the UDP response. The second host should return a single A record
 // with the IP address of the authoritative name server.
-//
-// TODO(roasbeef): add a lookUpFunc param to pass in, so can divert queries
-// over Tor in future
-func NewDNSSeedBootstrapper(seeds [][2]string) (NetworkPeerBootstrapper, error) {
+func NewDNSSeedBootstrapper(seeds [][2]string, lookupHost func(string) ([]string, error),
+	lookupSRV func(string, string, string) (string, []*net.SRV, error)) (
+	NetworkPeerBootstrapper, error) {
 	return &DNSSeedBootstrapper{
-		dnsSeeds: seeds,
+		dnsSeeds:   seeds,
+		lookupHost: lookupHost,
+		lookupSRV:  lookupSRV,
 	}, nil
 }
 
@@ -349,9 +352,10 @@ search:
 		for _, dnsSeedTuple := range d.dnsSeeds {
 			// We'll first query the seed with an SRV record so we
 			// can obtain a random sample of the encoded public
-			// keys of nodes.
+			// keys of nodes. We use the lndLookupSRV function for
+			// this task.
 			primarySeed := dnsSeedTuple[0]
-			_, addrs, err := net.LookupSRV("nodes", "tcp", primarySeed)
+			_, addrs, err := d.lookupSRV("nodes", "tcp", primarySeed)
 			if err != nil {
 				log.Tracef("Unable to lookup SRV records via " +
 					"primary seed, falling back to secondary")
@@ -387,9 +391,10 @@ search:
 				// With the SRV target obtained, we'll now
 				// perform another query to obtain the IP
 				// address for the matching bech32 encoded node
-				// key.
+				// key. We use the lndLookup function for this
+				// task.
 				bechNodeHost := nodeSrv.Target
-				addrs, err := net.LookupHost(bechNodeHost)
+				addrs, err := d.lookupHost(bechNodeHost)
 				if err != nil {
 					return nil, err
 				}
@@ -441,7 +446,9 @@ search:
 
 				// Finally we'll convert the host:port peer to
 				// a proper TCP address to use within the
-				// lnwire.NetAddress.
+				// lnwire.NetAddress. We don't need to use
+				// the lndResolveTCP function here because we
+				// already have the host:port peer.
 				addr := net.JoinHostPort(addrs[0],
 					strconv.FormatUint(uint64(nodeSrv.Port), 10))
 				tcpAddr, err := net.ResolveTCPAddr("tcp", addr)

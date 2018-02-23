@@ -45,10 +45,10 @@ const (
 	outgoingQueueLen = 50
 )
 
-// outgoinMsg packages an lnwire.Message to be sent out on the wire, along with
+// outgoingMsg packages an lnwire.Message to be sent out on the wire, along with
 // a buffered channel which will be sent upon once the write is complete. This
 // buffered channel acts as a semaphore to be used for synchronization purposes.
-type outgoinMsg struct {
+type outgoingMsg struct {
 	msg     lnwire.Message
 	errChan chan error // MUST be buffered.
 }
@@ -106,7 +106,6 @@ type peer struct {
 	pubKeyBytes [33]byte
 
 	inbound bool
-	id      int32
 
 	// This mutex protects all the stats below it.
 	sync.RWMutex
@@ -116,11 +115,11 @@ type peer struct {
 
 	// sendQueue is the channel which is used to queue outgoing to be
 	// written onto the wire. Note that this channel is unbuffered.
-	sendQueue chan outgoinMsg
+	sendQueue chan outgoingMsg
 
 	// outgoingQueue is a buffered channel which allows second/third party
 	// objects to queue messages to be sent out on the wire.
-	outgoingQueue chan outgoinMsg
+	outgoingQueue chan outgoingMsg
 
 	// activeChannels is a map which stores the state machines of all
 	// active channels. Channels are indexed into the map by the txid of
@@ -179,7 +178,6 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 		conn: conn,
 		addr: addr,
 
-		id:      atomic.AddInt32(&numNodes, 1),
 		inbound: inbound,
 		connReq: connReq,
 
@@ -187,8 +185,8 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 
 		localFeatures: localFeatures,
 
-		sendQueue:     make(chan outgoinMsg),
-		outgoingQueue: make(chan outgoinMsg),
+		sendQueue:     make(chan outgoingMsg),
+		outgoingQueue: make(chan outgoingMsg),
 
 		activeChannels: make(map[lnwire.ChannelID]*lnwallet.LightningChannel),
 		newChannels:    make(chan *newChannelMsg, 1),
@@ -276,7 +274,7 @@ func (p *peer) Start() error {
 	// registering them with the switch and launching the necessary
 	// goroutines required to operate them.
 	peerLog.Debugf("Loaded %v active channels from database with "+
-		"peerID(%v)", len(activeChans), p.id)
+		"NodeKey(%x)", len(activeChans), p.PubKey())
 	if err := p.loadActiveChannels(activeChans); err != nil {
 		return fmt.Errorf("unable to load channels: %v", err)
 	}
@@ -310,7 +308,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		p.activeChannels[chanID] = lnChan
 		p.activeChanMtx.Unlock()
 
-		peerLog.Infof("peerID(%v) loading ChannelPoint(%v)", p.id, chanPoint)
+		peerLog.Infof("NodeKey(%x) loading ChannelPoint(%v)", p.PubKey(), chanPoint)
 
 		// Skip adding any permanently irreconcilable channels to the
 		// htlcswitch.
@@ -344,7 +342,9 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		// TODO(roasbeef): can add helper method to get policy for
 		// particular channel.
 		var selfPolicy *channeldb.ChannelEdgePolicy
-		if info != nil && info.NodeKey1.IsEqual(p.server.identityPriv.PubKey()) {
+		if info != nil && bytes.Equal(info.NodeKey1Bytes[:],
+			p.server.identityPriv.PubKey().SerializeCompressed()) {
+
 			selfPolicy = p1
 		} else {
 			selfPolicy = p2
@@ -397,6 +397,9 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 				)
 			},
 			SyncStates: true,
+			BatchTicker: htlcswitch.NewBatchTicker(
+				time.NewTicker(50 * time.Millisecond)),
+			BatchSize: 10,
 		}
 		link := htlcswitch.NewChannelLink(linkCfg, lnChan,
 			uint32(currentHeight))
@@ -745,7 +748,7 @@ out:
 		case *lnwire.UpdateAddHTLC:
 			isChanUpdate = true
 			targetChan = msg.ChanID
-		case *lnwire.UpdateFufillHTLC:
+		case *lnwire.UpdateFulfillHTLC:
 			isChanUpdate = true
 			targetChan = msg.ChanID
 		case *lnwire.UpdateFailMalformedHTLC:
@@ -861,7 +864,7 @@ func messageSummary(msg lnwire.Message) string {
 		return fmt.Sprintf("chan_id=%v, id=%v, reason=%x", msg.ChanID,
 			msg.ID, msg.Reason)
 
-	case *lnwire.UpdateFufillHTLC:
+	case *lnwire.UpdateFulfillHTLC:
 		return fmt.Sprintf("chan_id=%v, id=%v, pre_image=%x",
 			msg.ChanID, msg.ID, msg.PaymentPreimage[:])
 
@@ -897,8 +900,7 @@ func messageSummary(msg lnwire.Message) string {
 
 	case *lnwire.NodeAnnouncement:
 		return fmt.Sprintf("node=%x, update_time=%v",
-			msg.NodeID.SerializeCompressed(),
-			time.Unix(int64(msg.Timestamp), 0))
+			msg.NodeID, time.Unix(int64(msg.Timestamp), 0))
 
 	case *lnwire.Ping:
 		// No summary.
@@ -954,13 +956,6 @@ func (p *peer) logWireMessage(msg lnwire.Message, read bool) {
 		}
 	case *lnwire.RevokeAndAck:
 		m.NextRevocationKey.Curve = nil
-	case *lnwire.NodeAnnouncement:
-		m.NodeID.Curve = nil
-	case *lnwire.ChannelAnnouncement:
-		m.NodeID1.Curve = nil
-		m.NodeID2.Curve = nil
-		m.BitcoinKey1.Curve = nil
-		m.BitcoinKey2.Curve = nil
 	case *lnwire.AcceptChannel:
 		m.FundingKey.Curve = nil
 		m.RevocationPoint.Curve = nil
@@ -1089,7 +1084,7 @@ func (p *peer) queueHandler() {
 			// writeHandler cannot accept messages on the
 			// sendQueue.
 			select {
-			case p.sendQueue <- elem.Value.(outgoinMsg):
+			case p.sendQueue <- elem.Value.(outgoingMsg):
 				pendingMsgs.Remove(elem)
 			case msg := <-p.outgoingQueue:
 				pendingMsgs.PushBack(msg)
@@ -1146,7 +1141,7 @@ func (p *peer) PingTime() int64 {
 // nil otherwise.
 func (p *peer) queueMsg(msg lnwire.Message, errChan chan error) {
 	select {
-	case p.outgoingQueue <- outgoinMsg{msg, errChan}:
+	case p.outgoingQueue <- outgoingMsg{msg, errChan}:
 	case <-p.quit:
 		peerLog.Tracef("Peer shutting down, could not enqueue msg.")
 		if errChan != nil {
@@ -1163,6 +1158,12 @@ func (p *peer) ChannelSnapshots() []*channeldb.ChannelSnapshot {
 
 	snapshots := make([]*channeldb.ChannelSnapshot, 0, len(p.activeChannels))
 	for _, activeChan := range p.activeChannels {
+		// We'll only return a snapshot for channels that are
+		// *immedately* available for routing payments over.
+		if activeChan.RemoteNextRevocation() == nil {
+			continue
+		}
+
 		snapshot := activeChan.StateSnapshot()
 		snapshots = append(snapshots, snapshot)
 	}
@@ -1244,7 +1245,7 @@ out:
 			p.activeChanMtx.Unlock()
 
 			peerLog.Infof("New channel active ChannelPoint(%v) "+
-				"with peerId(%v)", chanPoint, p.id)
+				"with NodeKey(%x)", chanPoint, p.PubKey())
 
 			// Next, we'll assemble a ChannelLink along with the
 			// necessary items it needs to function.
@@ -1289,6 +1290,9 @@ out:
 					)
 				},
 				SyncStates: false,
+				BatchTicker: htlcswitch.NewBatchTicker(
+					time.NewTicker(50 * time.Millisecond)),
+				BatchSize: 10,
 			}
 			link := htlcswitch.NewChannelLink(linkConfig, newChan,
 				uint32(currentHeight))
@@ -1298,7 +1302,7 @@ out:
 			// local payments and also passively forward payments.
 			if err := p.server.htlcSwitch.AddLink(link); err != nil {
 				peerLog.Errorf("can't register new channel "+
-					"link(%v) with peerId(%v)", chanPoint, p.id)
+					"link(%v) with NodeKey(%x)", chanPoint, p.PubKey())
 			}
 
 			close(newChanReq.done)
@@ -1429,9 +1433,9 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 
 		// Before we create the chan closer, we'll start a new
 		// cooperative channel closure transaction from the chain arb.
-		// Wtih this context, we'll ensure that we're able to respond
+		// With this context, we'll ensure that we're able to respond
 		// if *any* of the transactions we sign off on are ever
-		// braodacast.
+		// broadcast.
 		closeCtx, err := p.server.chainArb.BeginCoopChanClose(
 			*channel.ChannelPoint(),
 		)
@@ -1495,9 +1499,9 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 
 		// Before we create the chan closer, we'll start a new
 		// cooperative channel closure transaction from the chain arb.
-		// Wtih this context, we'll ensure that we're able to respond
+		// With this context, we'll ensure that we're able to respond
 		// if *any* of the transactions we sign off on are ever
-		// braodacast.
+		// broadcast.
 		closeCtx, err := p.server.chainArb.BeginCoopChanClose(
 			*channel.ChannelPoint(),
 		)
@@ -1768,16 +1772,17 @@ func createGetLastUpdate(router *routing.ChannelRouter,
 				"channel by ShortChannelID(%v)", chanID)
 		}
 
+		// If we're the outgoing node on the first edge, then that
+		// means the second edge is our policy. Otherwise, the first
+		// edge is our policy.
 		var local *channeldb.ChannelEdgePolicy
-		if bytes.Compare(edge1.Node.PubKey.SerializeCompressed(),
-			pubKey[:]) == 0 {
+		if bytes.Equal(edge1.Node.PubKeyBytes[:], pubKey[:]) {
 			local = edge2
 		} else {
 			local = edge1
 		}
 
 		update := &lnwire.ChannelUpdate{
-			Signature:       local.Signature,
 			ChainHash:       info.ChainHash,
 			ShortChannelID:  lnwire.NewShortChanIDFromInt(local.ChannelID),
 			Timestamp:       uint32(local.LastUpdate.Unix()),
@@ -1786,6 +1791,10 @@ func createGetLastUpdate(router *routing.ChannelRouter,
 			HtlcMinimumMsat: local.MinHTLC,
 			BaseFee:         uint32(local.FeeBaseMSat),
 			FeeRate:         uint32(local.FeeProportionalMillionths),
+		}
+		update.Signature, err = lnwire.NewSigFromRawSignature(local.SigBytes)
+		if err != nil {
+			return nil, err
 		}
 
 		hswcLog.Debugf("Sending latest channel_update: %v",

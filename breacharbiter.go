@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -519,7 +518,16 @@ secondLevelCheck:
 				brarLog.Errorf("unable to check for spentness "+
 					"of out_point=%v: %v",
 					breachedOutput.outpoint, err)
-				continue
+
+				// Registration may have failed if we've been
+				// instructed to shutdown. If so, return here to
+				// avoid entering an infinite loop.
+				select {
+				case <-b.quit:
+					return
+				default:
+					continue
+				}
 			}
 
 			select {
@@ -571,11 +579,19 @@ secondLevelCheck:
 	if err != nil {
 		brarLog.Errorf("unable to broadcast "+
 			"justice tx: %v", err)
-		if strings.Contains(err.Error(), "already been spent") {
+		if err == lnwallet.ErrDoubleSpend {
 			brarLog.Infof("Attempting to transfer HTLC revocations " +
 				"to the second level")
 			finalTx = nil
-			goto secondLevelCheck
+
+			// Txn publication may fail if we're shutting down.
+			// If so, return to avoid entering an infinite loop.
+			select {
+			case <-b.quit:
+				return
+			default:
+				goto secondLevelCheck
+			}
 		}
 	}
 

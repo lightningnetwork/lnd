@@ -469,7 +469,7 @@ func (s *Switch) handleLocalDispatch(packet *htlcPacket) error {
 
 	// We've just received a settle update which means we can finalize the
 	// user payment and return successful response.
-	case *lnwire.UpdateFufillHTLC:
+	case *lnwire.UpdateFulfillHTLC:
 		// Notify the user that his payment was successfully proceed.
 		payment.err <- nil
 		payment.preimage <- htlc.PaymentPreimage
@@ -652,7 +652,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 	// We've just received a settle packet which means we can finalize the
 	// payment circuit by forwarding the settle msg to the channel from
 	// which htlc add packet was initially received.
-	case *lnwire.UpdateFufillHTLC, *lnwire.UpdateFailHTLC:
+	case *lnwire.UpdateFulfillHTLC, *lnwire.UpdateFailHTLC:
 		if !packet.isRouted {
 			// Use circuit map to find the link to forward settle/fail to.
 			circuit := s.circuits.LookupByHTLC(packet.outgoingChanID,
@@ -835,7 +835,7 @@ func (s *Switch) htlcForwarder() {
 			if resolutionMsg.Failure != nil {
 				pkt.htlc = &lnwire.UpdateFailHTLC{}
 			} else {
-				pkt.htlc = &lnwire.UpdateFufillHTLC{
+				pkt.htlc = &lnwire.UpdateFulfillHTLC{
 					PaymentPreimage: *resolutionMsg.PreImage,
 				}
 			}
@@ -1001,10 +1001,15 @@ func (s *Switch) AddLink(link ChannelLink) error {
 
 	select {
 	case s.linkControl <- command:
-		return <-command.err
+		select {
+		case err := <-command.err:
+			return err
+		case <-s.quit:
+		}
 	case <-s.quit:
-		return errors.New("unable to add link htlc switch was stopped")
 	}
+
+	return errors.New("unable to add link htlc switch was stopped")
 }
 
 // addLink is used to add the newly created channel link and start use it to
@@ -1055,12 +1060,26 @@ func (s *Switch) GetLink(chanID lnwire.ChannelID) (ChannelLink, error) {
 		done:   make(chan ChannelLink, 1),
 	}
 
+query:
 	select {
 	case s.linkControl <- command:
-		return <-command.done, <-command.err
+
+		var link ChannelLink
+		select {
+		case link = <-command.done:
+		case <-s.quit:
+			break query
+		}
+
+		select {
+		case err := <-command.err:
+			return link, err
+		case <-s.quit:
+		}
 	case <-s.quit:
-		return nil, errors.New("unable to get link htlc switch was stopped")
 	}
+
+	return nil, errors.New("unable to get link htlc switch was stopped")
 }
 
 // getLink attempts to return the link that has the specified channel ID.
@@ -1101,11 +1120,15 @@ func (s *Switch) RemoveLink(chanID lnwire.ChannelID) error {
 
 	select {
 	case s.linkControl <- command:
-		return <-command.err
+		select {
+		case err := <-command.err:
+			return err
+		case <-s.quit:
+		}
 	case <-s.quit:
-		return errors.New("unable to remove link htlc switch was " +
-			"stopped")
 	}
+
+	return errors.New("unable to remove link htlc switch was stopped")
 }
 
 // removeLink is used to remove and stop the channel link.
@@ -1154,11 +1177,15 @@ func (s *Switch) UpdateShortChanID(chanID lnwire.ChannelID,
 
 	select {
 	case s.linkControl <- command:
-		return <-command.err
+		select {
+		case err := <-command.err:
+			return err
+		case <-s.quit:
+		}
 	case <-s.quit:
-		return errors.New("unable to remove link htlc switch was " +
-			"stopped")
 	}
+
+	return errors.New("unable to update short chan id htlc switch was stopped")
 }
 
 // updateShortChanID updates the short chan ID of an existing link.
@@ -1203,12 +1230,26 @@ func (s *Switch) GetLinksByInterface(hop [33]byte) ([]ChannelLink, error) {
 		done: make(chan []ChannelLink, 1),
 	}
 
+query:
 	select {
 	case s.linkControl <- command:
-		return <-command.done, <-command.err
+
+		var links []ChannelLink
+		select {
+		case links = <-command.done:
+		case <-s.quit:
+			break query
+		}
+
+		select {
+		case err := <-command.err:
+			return links, err
+		case <-s.quit:
+		}
 	case <-s.quit:
-		return nil, errors.New("unable to get links htlc switch was stopped")
 	}
+
+	return nil, errors.New("unable to get links htlc switch was stopped")
 }
 
 // getLinks is function which returns the channel links of the peer by hop

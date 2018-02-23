@@ -81,6 +81,8 @@ var (
 		Index: 0,
 	}
 	privKey, pubKey = btcec.PrivKeyFromBytes(btcec.S256(), key[:])
+
+	wireSig, _ = lnwire.NewSigFromSignature(testSig)
 )
 
 // makeTestDB creates a new instance of the ChannelDB for testing purposes. A
@@ -428,10 +430,10 @@ func TestChannelStateTransition(t *testing.T) {
 		Commitment: remoteCommit,
 		CommitSig: &lnwire.CommitSig{
 			ChanID:    lnwire.ChannelID(key),
-			CommitSig: testSig,
-			HtlcSigs: []*btcec.Signature{
-				testSig,
-				testSig,
+			CommitSig: wireSig,
+			HtlcSigs: []lnwire.Sig{
+				wireSig,
+				wireSig,
 			},
 		},
 		LogUpdates: []LogUpdate{
@@ -490,13 +492,13 @@ func TestChannelStateTransition(t *testing.T) {
 		t.Fatalf("unable to append to revocation log: %v", err)
 	}
 
-	// At this point, the remote commit chain shuold be nil, and the posted
+	// At this point, the remote commit chain should be nil, and the posted
 	// remote commitment should match the one we added as a diff above.
 	if _, err := channel.RemoteCommitChainTip(); err != ErrNoPendingCommit {
 		t.Fatalf("expected ErrNoPendingCommit, instead got %v", err)
 	}
 
-	// We should be able to fetch the channel delta created above by it's
+	// We should be able to fetch the channel delta created above by its
 	// update number with all the state properly reconstructed.
 	diskPrevCommit, err := channel.FindPreviousState(
 		oldRemoteCommit.CommitHeight,
@@ -591,7 +593,7 @@ func TestChannelStateTransition(t *testing.T) {
 	// revocation log has been deleted.
 	_, err = updatedChannel[0].FindPreviousState(oldRemoteCommit.CommitHeight)
 	if err == nil {
-		t.Fatal("revocation log search should've failed")
+		t.Fatal("revocation log search should have failed")
 	}
 }
 
@@ -600,7 +602,7 @@ func TestFetchPendingChannels(t *testing.T) {
 
 	cdb, cleanUp, err := makeTestDB()
 	if err != nil {
-		t.Fatalf("uanble to make test database: %v", err)
+		t.Fatalf("unable to make test database: %v", err)
 	}
 	defer cleanUp()
 
@@ -630,7 +632,7 @@ func TestFetchPendingChannels(t *testing.T) {
 			"got %v", 1, len(pendingChannels))
 	}
 
-	// The broadcast height of the pending channel should've been set
+	// The broadcast height of the pending channel should have been set
 	// properly.
 	if pendingChannels[0].FundingBroadcastHeight != broadcastHeight {
 		t.Fatalf("broadcast height mismatch: expected %v, got %v",
@@ -736,7 +738,7 @@ func TestFetchClosedChannels(t *testing.T) {
 	// channels only, or not.
 	pendingClosed, err := cdb.FetchClosedChannels(true)
 	if err != nil {
-		t.Fatalf("failed fetcing closed channels: %v", err)
+		t.Fatalf("failed fetching closed channels: %v", err)
 	}
 	if len(pendingClosed) != 1 {
 		t.Fatalf("incorrect number of pending closed channels: expecting %v,"+
@@ -769,7 +771,7 @@ func TestFetchClosedChannels(t *testing.T) {
 	// be retrieved when fetching all the closed channels.
 	closed, err = cdb.FetchClosedChannels(false)
 	if err != nil {
-		t.Fatalf("failed fetcing closed channels: %v", err)
+		t.Fatalf("failed fetching closed channels: %v", err)
 	}
 	if len(closed) != 1 {
 		t.Fatalf("incorrect number of closed channels: expecting %v, "+

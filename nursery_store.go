@@ -221,7 +221,7 @@ var (
 	// kndrPrefix is the state prefix given to all CSV delayed outputs,
 	// either from the commitment transaction, or a stage-one htlc
 	// transaction, whose maturity height has solidified. Outputs marked in
-	// this state are in their final stage of incubation withn the nursery,
+	// this state are in their final stage of incubation within the nursery,
 	// and will be swept into the wallet after waiting out the relative
 	// timelock.
 	kndrPrefix = []byte("kndr")
@@ -479,7 +479,7 @@ func (ns *nurseryStore) PreschoolToKinder(kid *kidOutput) error {
 		}
 
 		// In the case of a Late Registration, we've already graduated
-		// the class that this kid is destined for. So we'll bump it's
+		// the class that this kid is destined for. So we'll bump its
 		// height by one to ensure we don't forget to graduate it.
 		lastGradHeight, err := ns.getLastGraduatedHeight(tx)
 		if err != nil {
@@ -1355,7 +1355,7 @@ func (ns *nurseryStore) getLastFinalizedHeight(tx *bolt.Tx) (uint32, error) {
 	return byteOrder.Uint32(heightBytes), nil
 }
 
-// finalizeKinder records a finalized kingergarten sweep txn to the given height
+// finalizeKinder records a finalized kindergarten sweep txn to the given height
 // bucket. It also updates the nursery store's last finalized height, so that we
 // do not finalize the same height twice. If the finalized txn is nil, i.e. if
 // the height has no kindergarten outputs, the height will be marked as
@@ -1463,7 +1463,7 @@ func (ns *nurseryStore) putLastGraduatedHeight(tx *bolt.Tx, height uint32) error
 		return err
 	}
 
-	// Serialize the provided last-gradauted height, and store it in the
+	// Serialize the provided last-graduated height, and store it in the
 	// top-level chain bucket for this nursery store.
 	var lastHeightBytes [4]byte
 	byteOrder.PutUint32(lastHeightBytes[:], height)

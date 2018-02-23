@@ -84,7 +84,7 @@ func decodeBech32(bech string) (string, []byte, error) {
 }
 
 // toBytes converts each character in the string 'chars' to the value of the
-// index of the correspoding character in 'charset'.
+// index of the corresponding character in 'charset'.
 func toBytes(chars string) ([]byte, error) {
 	decoded := make([]byte, 0, len(chars))
 	for i := 0; i < len(chars); i++ {

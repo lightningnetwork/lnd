@@ -1,5 +1,5 @@
-hash: f72fdbb4d93ddd98991e830f978bfe9e08623e2a9976857b0f7668641486369c
-updated: 2018-01-29T15:55:37.905498329-07:00
+hash: ccd5caad2b8fa46f76338964fe06f5d6a35b9ed36dd5df8da0748e3e3ab99e6a
+updated: 2018-02-19T17:31:51.88595122-08:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -72,12 +72,12 @@ imports:
 - name: github.com/lightninglabs/gozmq
   version: 0d266ba6d55ea65c18c7a02d8992c89355149e80
 - name: github.com/lightninglabs/neutrino
-  version: 6c8f30a130bb170348ceb754ce4204156efe2741
+  version: c933ad49936ac3e5bc1b42e855f2da69745e34cc
   subpackages:
   - filterdb
   - headerfs
 - name: github.com/lightningnetwork/lightning-onion
-  version: 18bf6612a0653a21daf1a08b4a59e54670a524a1
+  version: dbb6dc0eaf32a043c9bc3cfed0fd5fd8db08e3b9
 - name: github.com/ltcsuite/ltcd
   version: 5f654d5faab99ee2b3488fabba98e5f7a5257ee3
   subpackages:
@@ -90,7 +90,7 @@ imports:
   subpackages:
   - internal/socket
 - name: github.com/roasbeef/btcd
-  version: 9978b939c33973be19b932fa7b936079bb7ba38d
+  version: e6807bc4dd5ddbb95b4ab163f6dd61e4ad79463a
   subpackages:
   - addrmgr
   - blockchain
@@ -167,6 +167,7 @@ imports:
   - idna
   - internal/timeseries
   - lex/httplex
+  - proxy
   - trace
 - name: golang.org/x/sys
   version: ab9e364efd8b52800ff7ee48a9ffba4e0ed78dfb
@@ -209,6 +210,7 @@ imports:
   subpackages:
   - bakery
   - bakery/checkers
+  - bakery/internal/macaroonpb
 - name: gopkg.in/macaroon.v2
   version: bed2a428da6e56d950bed5b41fcbae3141e5b0d0
 testImports: []

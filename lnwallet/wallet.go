@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"net"
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -82,10 +81,10 @@ type initFundingReserveMsg struct {
 	// with.
 	nodeID *btcec.PublicKey
 
-	// nodeAddr is the IP address plus port that we used to either
-	// establish or accept the connection which led to the negotiation of
-	// this funding workflow.
-	nodeAddr *net.TCPAddr
+	// nodeAddr is the address port that we used to either establish or
+	// accept the connection which led to the negotiation of this funding
+	// workflow.
+	nodeAddr net.Addr
 
 	// fundingAmount is the amount of funds requested for this channel.
 	fundingAmount btcutil.Amount
@@ -184,7 +183,7 @@ type addCounterPartySigsMsg struct {
 	// https://github.com/bitcoin/bips/blob/master/bip-0069.mediawiki.
 	theirFundingInputScripts []*InputScript
 
-	// This should be 1/2 of the signatures needed to succesfully spend our
+	// This should be 1/2 of the signatures needed to successfully spend our
 	// version of the commitment transaction.
 	theirCommitmentSig []byte
 
@@ -210,7 +209,7 @@ type addSingleFunderSigsMsg struct {
 	fundingOutpoint *wire.OutPoint
 
 	// theirCommitmentSig are the 1/2 of the signatures needed to
-	// succesfully spend our version of the commitment transaction.
+	// successfully spend our version of the commitment transaction.
 	theirCommitmentSig []byte
 
 	// This channel is used to return the completed channel after the wallet
@@ -452,7 +451,7 @@ out:
 func (l *LightningWallet) InitChannelReservation(
 	capacity, ourFundAmt btcutil.Amount, pushMSat lnwire.MilliSatoshi,
 	commitFeePerKw, fundingFeePerWeight btcutil.Amount,
-	theirID *btcec.PublicKey, theirAddr *net.TCPAddr,
+	theirID *btcec.PublicKey, theirAddr net.Addr,
 	chainHash *chainhash.Hash, flags lnwire.FundingFlag) (*ChannelReservation, error) {
 
 	errChan := make(chan error, 1)
@@ -807,6 +806,9 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	fundingOutpoint := wire.NewOutPoint(&fundingTxID, multiSigIndex)
 	pendingReservation.partialState.FundingOutpoint = *fundingOutpoint
 
+	walletLog.Debugf("Funding tx for ChannelPoint(%v) generated: %v",
+		fundingOutpoint, spew.Sdump(fundingTx))
+
 	// Initialize an empty sha-chain for them, tracking the current pending
 	// revocation hash (we don't yet know the preimage so we can't add it
 	// to the chain).
@@ -878,6 +880,11 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// instead we'll just send signatures.
 	txsort.InPlaceSort(ourCommitTx)
 	txsort.InPlaceSort(theirCommitTx)
+
+	walletLog.Debugf("Local commit tx for ChannelPoint(%v): %v",
+		fundingOutpoint, spew.Sdump(ourCommitTx))
+	walletLog.Debugf("Remote commit tx for ChannelPoint(%v): %v",
+		fundingOutpoint, spew.Sdump(theirCommitTx))
 
 	// Record newly available information within the open channel state.
 	chanState.FundingOutpoint = *fundingOutpoint
@@ -1089,7 +1096,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	res.partialState.LocalChanCfg = res.ourContribution.toChanConfig()
 	res.partialState.RemoteChanCfg = res.theirContribution.toChanConfig()
 
-	// Add the complete funding transaction to the DB, in it's open bucket
+	// Add the complete funding transaction to the DB, in its open bucket
 	// which will be used for the lifetime of this channel.
 	// TODO(roasbeef):
 	//  * attempt to retransmit funding transactions on re-start
@@ -1106,12 +1113,9 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 
 	// Broadcast the finalized funding transaction to the network.
 	if err := l.PublishTransaction(fundingTx); err != nil {
-		// TODO(roasbeef): need to make this into a concrete error
-		if !strings.Contains(err.Error(), "already have") {
-			msg.err <- err
-			msg.completeChan <- nil
-			return
-		}
+		msg.err <- err
+		msg.completeChan <- nil
+		return
 	}
 
 	msg.completeChan <- res.partialState
@@ -1180,6 +1184,11 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	txsort.InPlaceSort(theirCommitTx)
 	chanState.LocalCommitment.CommitTx = ourCommitTx
 	chanState.RemoteCommitment.CommitTx = theirCommitTx
+
+	walletLog.Debugf("Local commit tx for ChannelPoint(%v): %v",
+		req.fundingOutpoint, spew.Sdump(ourCommitTx))
+	walletLog.Debugf("Remote commit tx for ChannelPoint(%v): %v",
+		req.fundingOutpoint, spew.Sdump(theirCommitTx))
 
 	channelValue := int64(pendingReservation.partialState.Capacity)
 	hashCache := txscript.NewTxSigHashes(ourCommitTx)
@@ -1353,7 +1362,7 @@ func (l *LightningWallet) deriveMasterRevocationRoot() (*btcec.PrivateKey, error
 }
 
 // DeriveStateHintObfuscator derives the bytes to be used for obfuscating the
-// state hints from the root to be used for a new channel. The obsfucsator is
+// state hints from the root to be used for a new channel. The obfuscator is
 // generated via the following computation:
 //
 //   * sha256(initiatorKey || responderKey)[26:]
@@ -1373,7 +1382,7 @@ func DeriveStateHintObfuscator(key1, key2 *btcec.PublicKey) [StateHintSize]byte 
 	return obfuscator
 }
 
-// initStateHints properly sets the obsfucated state hints on both commitment
+// initStateHints properly sets the obfuscated state hints on both commitment
 // transactions using the passed obfuscator.
 func initStateHints(commit1, commit2 *wire.MsgTx,
 	obfuscator [StateHintSize]byte) error {

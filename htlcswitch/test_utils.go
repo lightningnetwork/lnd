@@ -48,6 +48,7 @@ var (
 		R: new(big.Int),
 		S: new(big.Int),
 	}
+	wireSig, _ = lnwire.NewSigFromSignature(testSig)
 
 	_, _ = testSig.R.SetString("6372440660162918006277497454296753625158993"+
 		"5445068131219452686511677818569431", 10)
@@ -55,11 +56,11 @@ var (
 		"3135609736119018462340006816851118", 10)
 )
 
-// mockGetChanUpdateMessage helper function which returns topology update
-// of the channel
+// mockGetChanUpdateMessage helper function which returns topology update of
+// the channel
 func mockGetChanUpdateMessage() (*lnwire.ChannelUpdate, error) {
 	return &lnwire.ChannelUpdate{
-		Signature: testSig,
+		Signature: wireSig,
 	}, nil
 }
 
@@ -87,7 +88,7 @@ func generateRandomBytes(n int) ([]byte, error) {
 //
 // TODO(roasbeef): need to factor out, similar func re-used in many parts of codebase
 func createTestChannel(alicePrivKey, bobPrivKey []byte,
-	aliceAmount, bobAmount btcutil.Amount,
+	aliceAmount, bobAmount, aliceReserve, bobReserve btcutil.Amount,
 	chanID lnwire.ShortChannelID) (*lnwallet.LightningChannel, *lnwallet.LightningChannel, func(),
 	func() (*lnwallet.LightningChannel, *lnwallet.LightningChannel,
 		error), error) {
@@ -96,10 +97,26 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(btcec.S256(), bobPrivKey)
 
 	channelCapacity := aliceAmount + bobAmount
-	aliceDustLimit := btcutil.Amount(200)
-	bobDustLimit := btcutil.Amount(800)
 	csvTimeoutAlice := uint32(5)
 	csvTimeoutBob := uint32(4)
+
+	aliceConstraints := &channeldb.ChannelConstraints{
+		DustLimit: btcutil.Amount(200),
+		MaxPendingAmount: lnwire.NewMSatFromSatoshis(
+			channelCapacity),
+		ChanReserve:      aliceReserve,
+		MinHTLC:          0,
+		MaxAcceptedHtlcs: lnwallet.MaxHTLCNumber / 2,
+	}
+
+	bobConstraints := &channeldb.ChannelConstraints{
+		DustLimit: btcutil.Amount(800),
+		MaxPendingAmount: lnwire.NewMSatFromSatoshis(
+			channelCapacity),
+		ChanReserve:      bobReserve,
+		MinHTLC:          0,
+		MaxAcceptedHtlcs: lnwallet.MaxHTLCNumber / 2,
+	}
 
 	var hash [sha256.Size]byte
 	randomSeed, err := generateRandomBytes(sha256.Size)
@@ -115,9 +132,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	fundingTxIn := wire.NewTxIn(prevOut, nil, nil)
 
 	aliceCfg := channeldb.ChannelConfig{
-		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit: aliceDustLimit,
-		},
+		ChannelConstraints:  *aliceConstraints,
 		CsvDelay:            uint16(csvTimeoutAlice),
 		MultiSigKey:         aliceKeyPub,
 		RevocationBasePoint: aliceKeyPub,
@@ -126,9 +141,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		HtlcBasePoint:       aliceKeyPub,
 	}
 	bobCfg := channeldb.ChannelConfig{
-		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit: bobDustLimit,
-		},
+		ChannelConstraints:  *bobConstraints,
 		CsvDelay:            uint16(csvTimeoutBob),
 		MultiSigKey:         bobKeyPub,
 		RevocationBasePoint: bobKeyPub,
@@ -361,7 +374,7 @@ func getChanID(msg lnwire.Message) (lnwire.ChannelID, error) {
 	switch msg := msg.(type) {
 	case *lnwire.UpdateAddHTLC:
 		chanID = msg.ChanID
-	case *lnwire.UpdateFufillHTLC:
+	case *lnwire.UpdateFulfillHTLC:
 		chanID = msg.ChanID
 	case *lnwire.UpdateFailHTLC:
 		chanID = msg.ChanID
@@ -437,17 +450,21 @@ type threeHopNetwork struct {
 	aliceServer      *mockServer
 	aliceChannelLink *channelLink
 	aliceBlockEpoch  chan *chainntnfs.BlockEpoch
+	aliceTicker      *time.Ticker
 
 	firstBobChannelLink *channelLink
 	bobFirstBlockEpoch  chan *chainntnfs.BlockEpoch
+	firstBobTicker      *time.Ticker
 
 	bobServer            *mockServer
 	secondBobChannelLink *channelLink
 	bobSecondBlockEpoch  chan *chainntnfs.BlockEpoch
+	secondBobTicker      *time.Ticker
 
 	carolChannelLink *channelLink
 	carolServer      *mockServer
 	carolBlockEpoch  chan *chainntnfs.BlockEpoch
+	carolTicker      *time.Ticker
 
 	feeEstimator *mockFeeEstimator
 
@@ -625,6 +642,11 @@ func (n *threeHopNetwork) stop() {
 		done <- struct{}{}
 	}()
 
+	n.aliceTicker.Stop()
+	n.firstBobTicker.Stop()
+	n.secondBobTicker.Stop()
+	n.carolTicker.Stop()
+
 	for i := 0; i < 3; i++ {
 		<-done
 	}
@@ -646,15 +668,17 @@ func createClusterChannels(aliceToBob, bobToCarol btcutil.Amount) (
 	secondChanID := lnwire.NewShortChanIDFromInt(5)
 
 	// Create lightning channels between Alice<->Bob and Bob<->Carol
-	aliceChannel, firstBobChannel, cleanAliceBob, restoreAliceBob, err := createTestChannel(
-		alicePrivKey, bobPrivKey, aliceToBob, aliceToBob, firstChanID)
+	aliceChannel, firstBobChannel, cleanAliceBob, restoreAliceBob, err :=
+		createTestChannel(alicePrivKey, bobPrivKey, aliceToBob,
+			aliceToBob, 0, 0, firstChanID)
 	if err != nil {
 		return nil, nil, nil, errors.Errorf("unable to create "+
 			"alice<->bob channel: %v", err)
 	}
 
-	secondBobChannel, carolChannel, cleanBobCarol, restoreBobCarol, err := createTestChannel(
-		bobPrivKey, carolPrivKey, bobToCarol, bobToCarol, secondChanID)
+	secondBobChannel, carolChannel, cleanBobCarol, restoreBobCarol, err :=
+		createTestChannel(bobPrivKey, carolPrivKey, bobToCarol,
+			bobToCarol, 0, 0, secondChanID)
 	if err != nil {
 		cleanAliceBob()
 		return nil, nil, nil, errors.Errorf("unable to create "+
@@ -743,6 +767,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 		Cancel: func() {
 		},
 	}
+	aliceTicker := time.NewTicker(50 * time.Millisecond)
 	aliceChannelLink := NewChannelLink(
 		ChannelLinkConfig{
 			FwrdingPolicy:     globalPolicy,
@@ -763,6 +788,8 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			},
 			ChainEvents: &contractcourt.ChainEventSubscription{},
 			SyncStates:  true,
+			BatchTicker: &mockTicker{aliceTicker.C},
+			BatchSize:   10,
 		},
 		aliceChannel,
 		startingHeight,
@@ -772,7 +799,11 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	}
 	go func() {
 		for {
-			<-aliceChannelLink.(*channelLink).htlcUpdates
+			select {
+			case <-aliceChannelLink.(*channelLink).htlcUpdates:
+			case <-aliceChannelLink.(*channelLink).quit:
+				return
+			}
 		}
 	}()
 
@@ -782,6 +813,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 		Cancel: func() {
 		},
 	}
+	firstBobTicker := time.NewTicker(50 * time.Millisecond)
 	firstBobChannelLink := NewChannelLink(
 		ChannelLinkConfig{
 			FwrdingPolicy:     globalPolicy,
@@ -802,6 +834,8 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			},
 			ChainEvents: &contractcourt.ChainEventSubscription{},
 			SyncStates:  true,
+			BatchTicker: &mockTicker{firstBobTicker.C},
+			BatchSize:   10,
 		},
 		firstBobChannel,
 		startingHeight,
@@ -811,7 +845,11 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	}
 	go func() {
 		for {
-			<-firstBobChannelLink.(*channelLink).htlcUpdates
+			select {
+			case <-firstBobChannelLink.(*channelLink).htlcUpdates:
+			case <-firstBobChannelLink.(*channelLink).quit:
+				return
+			}
 		}
 	}()
 
@@ -821,6 +859,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 		Cancel: func() {
 		},
 	}
+	secondBobTicker := time.NewTicker(50 * time.Millisecond)
 	secondBobChannelLink := NewChannelLink(
 		ChannelLinkConfig{
 			FwrdingPolicy:     globalPolicy,
@@ -841,6 +880,8 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			},
 			ChainEvents: &contractcourt.ChainEventSubscription{},
 			SyncStates:  true,
+			BatchTicker: &mockTicker{secondBobTicker.C},
+			BatchSize:   10,
 		},
 		secondBobChannel,
 		startingHeight,
@@ -850,7 +891,11 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	}
 	go func() {
 		for {
-			<-secondBobChannelLink.(*channelLink).htlcUpdates
+			select {
+			case <-secondBobChannelLink.(*channelLink).htlcUpdates:
+			case <-secondBobChannelLink.(*channelLink).quit:
+				return
+			}
 		}
 	}()
 
@@ -860,6 +905,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 		Cancel: func() {
 		},
 	}
+	carolTicker := time.NewTicker(50 * time.Millisecond)
 	carolChannelLink := NewChannelLink(
 		ChannelLinkConfig{
 			FwrdingPolicy:     globalPolicy,
@@ -880,6 +926,8 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			},
 			ChainEvents: &contractcourt.ChainEventSubscription{},
 			SyncStates:  true,
+			BatchTicker: &mockTicker{carolTicker.C},
+			BatchSize:   10,
 		},
 		carolChannel,
 		startingHeight,
@@ -889,7 +937,11 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	}
 	go func() {
 		for {
-			<-carolChannelLink.(*channelLink).htlcUpdates
+			select {
+			case <-carolChannelLink.(*channelLink).htlcUpdates:
+			case <-carolChannelLink.(*channelLink).quit:
+				return
+			}
 		}
 	}()
 
@@ -897,17 +949,21 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 		aliceServer:      aliceServer,
 		aliceChannelLink: aliceChannelLink.(*channelLink),
 		aliceBlockEpoch:  aliceEpochChan,
+		aliceTicker:      aliceTicker,
 
 		firstBobChannelLink: firstBobChannelLink.(*channelLink),
 		bobFirstBlockEpoch:  bobFirstEpochChan,
+		firstBobTicker:      firstBobTicker,
 
 		bobServer:            bobServer,
 		secondBobChannelLink: secondBobChannelLink.(*channelLink),
 		bobSecondBlockEpoch:  bobSecondEpochChan,
+		secondBobTicker:      secondBobTicker,
 
 		carolChannelLink: carolChannelLink.(*channelLink),
 		carolServer:      carolServer,
 		carolBlockEpoch:  carolBlockEpoch,
+		carolTicker:      carolTicker,
 
 		feeEstimator: feeEstimator,
 		globalPolicy: globalPolicy,

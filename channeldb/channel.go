@@ -33,7 +33,7 @@ var (
 	openChannelBucket = []byte("open-chan-bucket")
 
 	// chanInfoKey can be accessed within the bucket for a channel
-	// (identified by it's chanPoint). This key stores all the static
+	// (identified by its chanPoint). This key stores all the static
 	// information for a channel which is decided at the end of  the
 	// funding flow.
 	chanInfoKey = []byte("chan-info-key")
@@ -109,7 +109,7 @@ const (
 )
 
 // ChannelConstraints represents a set of constraints meant to allow a node to
-// limit their exposure, enact flow control and ensure that all HTLC's are
+// limit their exposure, enact flow control and ensure that all HTLCs are
 // economically relevant This struct will be mirrored for both sides of the
 // channel, as each side will enforce various constraints that MUST be adhered
 // to for the life time of the channel. The parameters for each of these
@@ -121,27 +121,28 @@ type ChannelConstraints struct {
 	// as an actual output, but is instead burned to miner's fees.
 	DustLimit btcutil.Amount
 
-	// MaxPendingAmount is the maximum pending HTLC value that can be
-	// present within the channel at a particular time. This value is set
-	// by the initiator of the channel and must be upheld at all times.
-	MaxPendingAmount lnwire.MilliSatoshi
-
-	// ChanReserve is an absolute reservation on the channel for this
-	// particular node. This means that the current settled balance for
-	// this node CANNOT dip below the reservation amount. This acts as a
-	// defense against costless attacks when either side no longer has any
-	// skin in the game.
+	// ChanReserve is an absolute reservation on the channel for the
+	// owner of this set of constraints. This means that the current
+	// settled balance for this node CANNOT dip below the reservation
+	// amount. This acts as a defense against costless attacks when
+	// either side no longer has any skin in the game.
 	ChanReserve btcutil.Amount
 
-	// MinHTLC is the minimum HTLC accepted for a direction of the channel.
-	// If any HTLC's below this amount are offered, then the HTLC will be
-	// rejected. This, in tandem with the dust limit allows a node to
-	// regulate the smallest HTLC that it deems economically relevant.
+	// MaxPendingAmount is the maximum pending HTLC value that the
+	// owner of these constraints can offer the remote node at a
+	// particular time.
+	MaxPendingAmount lnwire.MilliSatoshi
+
+	// MinHTLC is the minimum HTLC value that the the owner of these
+	// constraints can offer the remote node. If any HTLCs below this
+	// amount are offered, then the HTLC will be rejected. This, in
+	// tandem with the dust limit allows a node to regulate the
+	// smallest HTLC that it deems economically relevant.
 	MinHTLC lnwire.MilliSatoshi
 
-	// MaxAcceptedHtlcs is the maximum amount of HTLC's that are to be
-	// accepted by the owner of this set of constraints. This allows each
-	// node to limit their over all exposure to HTLC's that may need to be
+	// MaxAcceptedHtlcs is the maximum number of HTLCs that the owner of
+	// this set of constraints can offer the remote node. This allows each
+	// node to limit their over all exposure to HTLCs that may need to be
 	// acted upon in the case of a unilateral channel closure or a contract
 	// breach.
 	MaxAcceptedHtlcs uint16
@@ -265,7 +266,7 @@ type ChannelCommitment struct {
 	Htlcs []HTLC
 
 	// TODO(roasbeef): pending commit pointer?
-	//  * lets just walk thru
+	//  * lets just walk through
 }
 
 // OpenChannel encapsulates the persistent and dynamic state of an open channel
@@ -399,7 +400,7 @@ func (c *OpenChannel) FullSync() error {
 	return c.Db.Update(c.fullSync)
 }
 
-// updateChanBucket is a helper function that returns a writeable bucket that a
+// updateChanBucket is a helper function that returns a writable bucket that a
 // channel's data resides in given: the public key for the node, the outpoint,
 // and the chainhash that the channel resides on.
 func updateChanBucket(tx *bolt.Tx, nodeKey *btcec.PublicKey,
@@ -474,7 +475,7 @@ func readChanBucket(tx *bolt.Tx, nodeKey *btcec.PublicKey,
 	}
 
 	// With the bucket for the node fetched, we can now go down another
-	// level, for this channel iteslf.
+	// level, for this channel itself.
 	var chanPointBuf bytes.Buffer
 	chanPointBuf.Grow(outPointSize)
 	if err := writeOutpoint(&chanPointBuf, outPoint); err != nil {
@@ -623,7 +624,7 @@ func fetchOpenChannel(chanBucket *bolt.Bucket,
 //
 // TODO(roasbeef): addr param should eventually be a lnwire.NetAddress type
 // that includes service bits.
-func (c *OpenChannel) SyncPending(addr *net.TCPAddr, pendingHeight uint32) error {
+func (c *OpenChannel) SyncPending(addr net.Addr, pendingHeight uint32) error {
 	c.Lock()
 	defer c.Unlock()
 
@@ -924,7 +925,7 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 	defer c.Unlock()
 
 	return c.Db.Update(func(tx *bolt.Tx) error {
-		// First, we'll grab the writeable bucket where this channel's
+		// First, we'll grab the writable bucket where this channel's
 		// data resides.
 		chanBucket, err := updateChanBucket(tx, c.IdentityPub,
 			&c.FundingOutpoint, c.ChainHash)
@@ -1099,7 +1100,7 @@ func (c *OpenChannel) RevocationLogTail() (*ChannelCommitment, error) {
 	c.RLock()
 	defer c.RUnlock()
 
-	// If we haven't created any state updates yet, then we'll exit erly as
+	// If we haven't created any state updates yet, then we'll exit early as
 	// there's nothing to be found on disk in the revocation bucket.
 	if c.RemoteCommitment.CommitHeight == 0 {
 		return nil, nil
@@ -1121,7 +1122,7 @@ func (c *OpenChannel) RevocationLogTail() (*ChannelCommitment, error) {
 		// Once we have the bucket that stores the revocation log from
 		// this channel, we'll jump to the _last_ key in bucket. As we
 		// store the update number on disk in a big-endian format,
-		// this'll retrieve the latest entry.
+		// this will retrieve the latest entry.
 		cursor := logBucket.Cursor()
 		_, tailLogEntry := cursor.Last()
 		logEntryReader := bytes.NewReader(tailLogEntry)

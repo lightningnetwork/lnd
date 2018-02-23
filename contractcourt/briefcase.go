@@ -160,7 +160,7 @@ func (a ArbitratorState) String() string {
 }
 
 // resolverType is an enum that enumerates the various types of resolvers. When
-// writing resolvers to disk, we prepend this to the raw bytes stroed. This
+// writing resolvers to disk, we prepend this to the raw bytes stored. This
 // allows us to properly decode the resolver into the proper type.
 type resolverType uint8
 

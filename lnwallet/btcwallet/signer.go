@@ -33,7 +33,7 @@ func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*wire.TxOut, error) 
 	}
 	b.cacheMtx.RUnlock()
 
-	// Otherwse, we manually look up the output within the tx store.
+	// Otherwise, we manually look up the output within the tx store.
 	txid := &prevOut.Hash
 	txDetail, err := base.UnstableAPI(b.wallet).TxDetails(txid)
 	if err != nil {
@@ -180,7 +180,7 @@ func (b *BtcWallet) ComputeInputScript(tx *wire.MsgTx,
 		pubKey := privKey.PubKey()
 		pubKeyHash := btcutil.Hash160(pubKey.SerializeCompressed())
 
-		// Next, we'll generate a valid sigScript that'll allow us to
+		// Next, we'll generate a valid sigScript that will allow us to
 		// spend the p2sh output. The sigScript will contain only a
 		// single push of the p2wkh witness program corresponding to
 		// the matching public key of this address.

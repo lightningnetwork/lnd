@@ -39,7 +39,7 @@ func fatal(err error) {
 }
 
 func getWalletUnlockerClient(ctx *cli.Context) (lnrpc.WalletUnlockerClient, func()) {
-	conn := getClientConn(ctx)
+	conn := getClientConn(ctx, true)
 
 	cleanUp := func() {
 		conn.Close()
@@ -49,7 +49,7 @@ func getWalletUnlockerClient(ctx *cli.Context) (lnrpc.WalletUnlockerClient, func
 }
 
 func getClient(ctx *cli.Context) (lnrpc.LightningClient, func()) {
-	conn := getClientConn(ctx)
+	conn := getClientConn(ctx, false)
 
 	cleanUp := func() {
 		conn.Close()
@@ -58,7 +58,7 @@ func getClient(ctx *cli.Context) (lnrpc.LightningClient, func()) {
 	return lnrpc.NewLightningClient(conn), cleanUp
 }
 
-func getClientConn(ctx *cli.Context) *grpc.ClientConn {
+func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 	// Load the specified TLS certificate and build transport credentials
 	// with it.
 	tlsCertPath := cleanAndExpandPath(ctx.GlobalString("tlscertpath"))
@@ -72,8 +72,9 @@ func getClientConn(ctx *cli.Context) *grpc.ClientConn {
 		grpc.WithTransportCredentials(creds),
 	}
 
-	// Only process macaroon credentials if --no-macaroons isn't set.
-	if !ctx.GlobalBool("no-macaroons") {
+	// Only process macaroon credentials if --no-macaroons isn't set and
+	// if we're not skipping macaroon processing.
+	if !ctx.GlobalBool("no-macaroons") && !skipMacaroons {
 		// Load the specified macaroon file.
 		macPath := cleanAndExpandPath(ctx.GlobalString("macaroonpath"))
 		macBytes, err := ioutil.ReadFile(macPath)

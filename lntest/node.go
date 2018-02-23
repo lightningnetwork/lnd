@@ -35,7 +35,7 @@ var (
 
 	// defaultNodePort is the initial p2p port which will be used by the
 	// first created lightning node to listen on for incoming p2p
-	// connections.  Subsequent allocated ports for future lighting nodes
+	// connections.  Subsequent allocated ports for future Lightning nodes
 	// instances will be monotonically increasing numbers calculated as
 	// such: defaultP2pPort + (3 * harness.nodeNum).
 	defaultNodePort = 19555
@@ -317,7 +317,7 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 	}
 	copy(hn.PubKey[:], pubkey)
 
-	// Launch the watcher that'll hook into graph related topology change
+	// Launch the watcher that will hook into graph related topology change
 	// from the PoV of this node.
 	hn.wg.Add(1)
 	go hn.lightningNetworkWatcher()

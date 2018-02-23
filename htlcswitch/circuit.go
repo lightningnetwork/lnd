@@ -42,7 +42,7 @@ type PaymentCircuit struct {
 }
 
 // circuitKey is a channel ID, HTLC ID tuple used as an identifying key for a
-// payment circuit. The circuit map is keyed with the idenitifer for the
+// payment circuit. The circuit map is keyed with the identifier for the
 // outgoing HTLC
 type circuitKey struct {
 	chanID lnwire.ShortChannelID
@@ -56,7 +56,7 @@ func (k *circuitKey) String() string {
 
 // CircuitMap is a data structure that implements thread safe storage of
 // circuit routing information. The switch consults a circuit map to determine
-// where to forward HTLC update messages. Each circuit is stored with it's
+// where to forward HTLC update messages. Each circuit is stored with its
 // outgoing HTLC as the primary key because, each offered HTLC has at most one
 // received HTLC, but there may be multiple offered or received HTLCs with the
 // same payment hash. Circuits are also indexed to provide fast lookups by

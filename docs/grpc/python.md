@@ -44,7 +44,7 @@ Python gRPC.
 
 #### Imports and Client
 
-Everytime you use Python gRPC, you will have to import the generated rpc modules
+Every time you use Python gRPC, you will have to import the generated rpc modules
 and set up a channel and stub to your connect to your `lnd` node:
 
 ```python

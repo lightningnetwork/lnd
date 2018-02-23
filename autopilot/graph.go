@@ -63,7 +63,8 @@ var _ Node = (*dbNode)(nil)
 //
 // NOTE: Part of the autopilot.Node interface.
 func (d dbNode) PubKey() *btcec.PublicKey {
-	return d.node.PubKey
+	pubKey, _ := d.node.PubKey()
+	return pubKey
 }
 
 // Addrs returns a slice of publicly reachable public TCP addresses that the
@@ -84,12 +85,13 @@ func (d dbNode) ForEachChannel(cb func(ChannelEdge) error) error {
 	return d.node.ForEachChannel(d.tx, func(tx *bolt.Tx,
 		ei *channeldb.ChannelEdgeInfo, ep, _ *channeldb.ChannelEdgePolicy) error {
 
+		pubkey, _ := ep.Node.PubKey()
 		edge := ChannelEdge{
 			Channel: Channel{
 				ChanID:    lnwire.NewShortChanIDFromInt(ep.ChannelID),
 				Capacity:  ei.Capacity,
 				FundedAmt: ei.Capacity,
-				Node:      NewNodeID(ep.Node.PubKey),
+				Node:      NewNodeID(pubkey),
 			},
 			Peer: dbNode{
 				tx:   tx,
@@ -138,7 +140,6 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 				fallthrough
 			case err == channeldb.ErrGraphNotFound:
 				graphNode := &channeldb.LightningNode{
-					PubKey:               pub,
 					HaveNodeAnnouncement: true,
 					Addresses: []net.Addr{
 						&net.TCPAddr{
@@ -147,8 +148,9 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 					},
 					Features: lnwire.NewFeatureVector(nil,
 						lnwire.GlobalFeatures),
-					AuthSig: testSig,
+					AuthSigBytes: testSig.Serialize(),
 				}
+				graphNode.AddPubKey(pub)
 				if err := d.db.AddLightningNode(graphNode); err != nil {
 					return nil, err
 				}
@@ -164,16 +166,16 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 			return nil, err
 		}
 		dbNode := &channeldb.LightningNode{
-			PubKey:               nodeKey,
 			HaveNodeAnnouncement: true,
 			Addresses: []net.Addr{
 				&net.TCPAddr{
 					IP: bytes.Repeat([]byte("a"), 16),
 				},
 			},
-			Features: lnwire.NewFeatureVector(nil, lnwire.GlobalFeatures),
-			AuthSig:  testSig,
+			Features:     lnwire.NewFeatureVector(nil, lnwire.GlobalFeatures),
+			AuthSigBytes: testSig.Serialize(),
 		}
+		dbNode.AddPubKey(nodeKey)
 		if err := d.db.AddLightningNode(dbNode); err != nil {
 			return nil, err
 		}
@@ -192,30 +194,25 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	}
 
 	var lnNode1, lnNode2 *btcec.PublicKey
-	node1Bytes := vertex1.PubKey.SerializeCompressed()
-	node2Bytes := vertex2.PubKey.SerializeCompressed()
-	if bytes.Compare(node1Bytes, node2Bytes) == -1 {
-		lnNode1 = vertex1.PubKey
-		lnNode2 = vertex2.PubKey
+	if bytes.Compare(vertex1.PubKeyBytes[:], vertex2.PubKeyBytes[:]) == -1 {
+		lnNode1, _ = vertex1.PubKey()
+		lnNode2, _ = vertex2.PubKey()
 	} else {
-		lnNode1 = vertex2.PubKey
-		lnNode2 = vertex1.PubKey
+		lnNode1, _ = vertex2.PubKey()
+		lnNode2, _ = vertex1.PubKey()
 	}
 
 	chanID := randChanID()
 	edge := &channeldb.ChannelEdgeInfo{
-		ChannelID:   chanID.ToUint64(),
-		NodeKey1:    lnNode1,
-		NodeKey2:    lnNode2,
-		BitcoinKey1: vertex1.PubKey,
-		BitcoinKey2: vertex2.PubKey,
-		Capacity:    capacity,
+		ChannelID: chanID.ToUint64(),
+		Capacity:  capacity,
 	}
+	edge.AddNodeKeys(lnNode1, lnNode2, lnNode1, lnNode2)
 	if err := d.db.AddChannelEdge(edge); err != nil {
 		return nil, nil, err
 	}
 	edgePolicy := &channeldb.ChannelEdgePolicy{
-		Signature:                 testSig,
+		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID.ToUint64(),
 		LastUpdate:                time.Now(),
 		TimeLockDelta:             10,
@@ -229,7 +226,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		return nil, nil, err
 	}
 	edgePolicy = &channeldb.ChannelEdgePolicy{
-		Signature:                 testSig,
+		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID.ToUint64(),
 		LastUpdate:                time.Now(),
 		TimeLockDelta:             10,

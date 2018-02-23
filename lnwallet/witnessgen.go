@@ -29,7 +29,7 @@ const (
 
 	// HtlcOfferedRevoke is a witness that allows us to sweep an HTLC which
 	// we offered to the remote party in the case that they broadcast a
-	// revoked commitmetn state.
+	// revoked commitment state.
 	HtlcOfferedRevoke WitnessType = 3
 
 	// HtlcAcceptedRevoke is a witness that allows us to sweep an HTLC
@@ -46,7 +46,7 @@ const (
 
 	// HtlcAcceptedSuccessSecondLevel is a witness that allows us to sweep
 	// an HTLC output that was offered to us, and for which we have a
-	// payment preimage. This HTLC output isn't diretly on our commitment
+	// payment preimage. This HTLC output isn't directly on our commitment
 	// transaction, but is the result of confirmed second-level HTLC
 	// transaction. As a result, we can only spend this after a CSV delay.
 	HtlcAcceptedSuccessSecondLevel WitnessType = 6

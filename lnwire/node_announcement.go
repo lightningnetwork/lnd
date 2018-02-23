@@ -7,8 +7,6 @@ import (
 	"io"
 	"net"
 	"unicode/utf8"
-
-	"github.com/roasbeef/btcd/btcec"
 )
 
 var (
@@ -50,7 +48,7 @@ func (n NodeAlias) String() string {
 // announcement via a signature using the advertised node pubkey.
 type NodeAnnouncement struct {
 	// Signature is used to prove the ownership of node id.
-	Signature *btcec.Signature
+	Signature Sig
 
 	// Features is the list of protocol features this node supports.
 	Features *RawFeatureVector
@@ -59,7 +57,7 @@ type NodeAnnouncement struct {
 	Timestamp uint32
 
 	// NodeID is a public key which is used as node identification.
-	NodeID *btcec.PublicKey
+	NodeID [33]byte
 
 	// RGBColor is used to customize their node's appearance in maps and
 	// graphs

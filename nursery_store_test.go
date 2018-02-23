@@ -187,7 +187,7 @@ func TestNurseryStoreIncubate(t *testing.T) {
 
 			// The total number of outputs for this channel should
 			// not have changed, and the kindergarten output should
-			// reside at it's maturity height.
+			// reside at its maturity height.
 			assertNumChanOutputs(t, ns, test.chanPoint, test.nOutputs)
 			assertKndrAtMaturityHeight(t, ns, test.commOutput)
 
@@ -227,7 +227,7 @@ func TestNurseryStoreIncubate(t *testing.T) {
 
 			// The total number of outputs for this channel should
 			// not have changed, but the kindergarten output should
-			// have been removed from it's maturity height.
+			// have been removed from its maturity height.
 			assertNumChanOutputs(t, ns, test.chanPoint, test.nOutputs)
 			assertKndrNotAtMaturityHeight(t, ns, test.commOutput)
 
@@ -258,7 +258,7 @@ func TestNurseryStoreIncubate(t *testing.T) {
 					test.nOutputs)
 
 				// If the output hasn't moved to kndr, it should
-				// be at it's crib expiry height, otherwise is
+				// be at its crib expiry height, otherwise is
 				// should have been removed.
 				for j := range test.htlcOutputs {
 					if j > i {
@@ -341,7 +341,7 @@ func TestNurseryStoreIncubate(t *testing.T) {
 }
 
 // TestNurseryStoreFinalize tests that kindergarten sweep transactions are
-// properly persistted, and that the last finalized height is being set
+// properly persisted, and that the last finalized height is being set
 // accordingly.
 func TestNurseryStoreFinalize(t *testing.T) {
 	cdb, cleanUp, err := makeTestDB()
@@ -459,7 +459,7 @@ func TestNurseryStoreGraduate(t *testing.T) {
 	}
 
 	// Then, move the commitment output to the kindergarten bucket, such
-	// that it resides in the height index at it's maturity height.
+	// that it resides in the height index at its maturity height.
 	err = ns.PreschoolToKinder(kid)
 	if err != nil {
 		t.Fatalf("unable to move pscl output to kndr: %v", err)
@@ -478,7 +478,7 @@ func TestNurseryStoreGraduate(t *testing.T) {
 		assertHeightIsPurged(t, ns, uint32(i))
 	}
 
-	// Check that the commitment output currently exists at it's maturity
+	// Check that the commitment output currently exists at its maturity
 	// height.
 	assertKndrAtMaturityHeight(t, ns, kid)
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"io"
 	"sync/atomic"
@@ -51,7 +52,7 @@ func (m *mockPreimageCache) AddPreimage(preimage []byte) error {
 	return nil
 }
 
-func (m *mockPreimageCache) SubcribeUpdates() *contractcourt.WitnessSubcription {
+func (m *mockPreimageCache) SubscribeUpdates() *contractcourt.WitnessSubscription {
 	return nil
 }
 
@@ -355,7 +356,7 @@ func (s *mockServer) readHandler(message lnwire.Message) error {
 	switch msg := message.(type) {
 	case *lnwire.UpdateAddHTLC:
 		targetChan = msg.ChanID
-	case *lnwire.UpdateFufillHTLC:
+	case *lnwire.UpdateFulfillHTLC:
 		targetChan = msg.ChanID
 	case *lnwire.UpdateFailHTLC:
 		targetChan = msg.ChanID
@@ -617,4 +618,15 @@ func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint) (*chainntnfs.S
 	return &chainntnfs.SpendEvent{
 		Spend: make(chan *chainntnfs.SpendDetail),
 	}, nil
+}
+
+type mockTicker struct {
+	ticker <-chan time.Time
+}
+
+func (m *mockTicker) Start() <-chan time.Time {
+	return m.ticker
+}
+
+func (m *mockTicker) Stop() {
 }

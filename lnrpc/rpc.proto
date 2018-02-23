@@ -299,7 +299,7 @@ service Lightning {
     }
 
     /** lncli: `lookupinvoice`
-    LookupInvoice attemps to look up an invoice according to its payment hash.
+    LookupInvoice attempts to look up an invoice according to its payment hash.
     The passed payment hash *must* be exactly 32 bytes, if not, an error is
     returned.
     */
@@ -389,7 +389,7 @@ service Lightning {
     route to a target destination capable of carrying a specific amount of
     satoshis. The retuned route contains the full details required to craft and
     send an HTLC, also including the necessary information that should be
-    present within the Sphinx packet encapsualted within the HTLC.
+    present within the Sphinx packet encapsulated within the HTLC.
     */
     rpc QueryRoutes(QueryRoutesRequest) returns (QueryRoutesResponse) {
         option (google.api.http) = {
@@ -610,7 +610,7 @@ message VerifyMessageRequest {
     /// The message over which the signature is to be verified
     bytes msg = 1 [ json_name = "msg" ];
 
-    /// The signature to be verifed over the given message
+    /// The signature to be verified over the given message
     string signature = 2 [ json_name = "signature" ];
 }
 message VerifyMessageResponse {
@@ -630,8 +630,6 @@ message ConnectPeerRequest {
     bool perm = 2;
 }
 message ConnectPeerResponse {
-    /// The id of the newly connected peer
-    int32 peer_id = 1 [json_name = "peer_id"];
 }
 
 message DisconnectPeerRequest {
@@ -738,9 +736,6 @@ message Peer {
     /// The identity pubkey of the peer
     string pub_key = 1 [json_name = "pub_key"];
 
-    /// The peer's id from the local point of view
-    int32 peer_id = 2 [json_name = "peer_id"];
-
     /// Network address of the peer; eg `127.0.0.1:10011`
     string address = 3 [json_name = "address"];
 
@@ -806,6 +801,9 @@ message GetInfoResponse {
 
     /// The URIs of the current node.
     repeated string uris = 12 [json_name = "uris"];
+
+    /// Timestamp of the block best known to the wallet
+    int64 best_header_timestamp = 13 [ json_name = "best_header_timestamp" ];
 }
 
 message ConfirmationUpdate {
@@ -858,13 +856,10 @@ message PendingUpdate {
 
 message OpenChannelRequest {
 
-    /// The peer_id of the node to open a channel with
-    int32 target_peer_id = 1 [json_name = "target_peer_id"];
-
     /// The pubkey of the node to open a channel with
     bytes node_pubkey = 2 [json_name = "node_pubkey"];
 
-    /// The hex encorded pubkey of the node to open a channel with 
+    /// The hex encoded pubkey of the node to open a channel with 
     string node_pubkey_string = 3 [json_name = "node_pubkey_string"];
 
     /// The number of satoshis the wallet should commit to the channel
@@ -1032,6 +1027,9 @@ message QueryRoutesRequest {
 
     /// The amount to send expressed in satoshis
     int64 amt = 2;
+
+    /// The max number of routes to return.
+    int32 num_routes = 3;
 }
 message QueryRoutesResponse {
     repeated Route routes = 1 [ json_name = "routes"];

@@ -35,6 +35,11 @@ const (
 	PubKeyHash
 )
 
+// ErrDoubleSpend is returned from PublishTransaction in case the
+// tx being published is spending an output spent by a conflicting
+// transaction.
+var ErrDoubleSpend = errors.New("Transaction rejected: output already spent")
+
 // Utxo is an unspent output denoted by its outpoint, and output value of the
 // original output.
 type Utxo struct {
@@ -183,6 +188,11 @@ type WalletController interface {
 
 	// PublishTransaction performs cursory validation (dust checks, etc),
 	// then finally broadcasts the passed transaction to the Bitcoin network.
+	// If the transaction is rejected because it is conflicting with an
+	// already known transaction, ErrDoubleSpend is returned. If the
+	// transaction is already known (published already), no error will be
+	// returned. Other error returned depends on the currently active chain
+	// backend.
 	PublishTransaction(tx *wire.MsgTx) error
 
 	// SubscribeTransactions returns a TransactionSubscription client which
@@ -198,7 +208,9 @@ type WalletController interface {
 
 	// IsSynced returns a boolean indicating if from the PoV of the wallet,
 	// it has fully synced to the current best block in the main chain.
-	IsSynced() (bool, error)
+	// It also returns an int64 indicating the timestamp of the best block
+	// known to the wallet, expressed in Unix epoch time
+	IsSynced() (bool, int64, error)
 
 	// Start initializes the wallet, making any necessary connections,
 	// starting up required goroutines etc.

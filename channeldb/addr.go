@@ -134,8 +134,8 @@ func deserializeAddr(r io.Reader) (net.Addr, error) {
 		if _, err := r.Read(hs[:]); err != nil {
 			return nil, err
 		}
-		onionString := encoding.EncodeToString(hs[:])
-		addr.HiddenService = append([]byte(onionString), []byte(".onion"))
+		onionString := encoding.EncodeToString(hs[:]) + ".onion"
+		addr.HiddenService = []byte(onionString)
 		address = addr
 	case v3OnionAddr:
 		// TODO(eugene)

@@ -711,8 +711,8 @@ func readElement(r io.Reader, element interface{}) error {
 				if _, err = io.ReadFull(addrBuf, hs[:]); err != nil {
 					return err
 				}
-				onionString := encoding.EncodeToString(hs[:])
-				address.HiddenService = append([]byte(onionString), []byte(".onion"))
+				onionString := encoding.EncodeToString(hs[:]) + ".onion"
+				address.HiddenService = []byte(onionString)
 
 				// TODO(eugene) - port?
 

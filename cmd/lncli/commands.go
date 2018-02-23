@@ -37,7 +37,7 @@ var (
 	ErrBadAddressFormat = fmt.Errorf(
 		"target address expected in format: pubkey@host:port")
 	// ErrMissingPubKey is used when the user fails to supply a pubkey.
-	ErrMissingPubKey = fmt.Errorf("must specify target public key")
+	ErrMissingPubKey = fmt.Errorf("pub_key argument missing")
 	// ErrDuplicatePeerSpecifiers occurs if both peer_id and node_key
 	// are set at the same time.
 	ErrDuplicatePeerSpecifiers = fmt.Errorf("both peer_id and node_key " +
@@ -1771,7 +1771,7 @@ func getNodeInfo(
 	case args.Present():
 		pubKey = args.First()
 	default:
-		return fmt.Errorf("pub_key argument missing")
+		return ErrMissingPubKey
 	}
 
 	req := &lnrpc.NodeInfoRequest{

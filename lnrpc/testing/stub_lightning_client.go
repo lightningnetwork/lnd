@@ -250,7 +250,14 @@ func (c *StubLightningClient) DebugLevel(ctx context.Context, in *lnrpc.DebugLev
 
 func (c *StubLightningClient) FeeReport(ctx context.Context, in *lnrpc.FeeReportRequest, opts ...grpc.CallOption) (*lnrpc.FeeReportResponse, error) {
 	c.CapturedRequest = in
-	return new(lnrpc.FeeReportResponse), nil
+
+	channelFeeReport := lnrpc.ChannelFeeReport{
+		ChanPoint:   "ChanPoint",
+		BaseFeeMsat: 789,
+		FeePerMil:   456,
+		FeeRate:     123}
+
+	return &lnrpc.FeeReportResponse{[]*lnrpc.ChannelFeeReport{&channelFeeReport}}, nil
 }
 
 func (c *StubLightningClient) UpdateChannelPolicy(ctx context.Context, in *lnrpc.PolicyUpdateRequest, opts ...grpc.CallOption) (*lnrpc.PolicyUpdateResponse, error) {

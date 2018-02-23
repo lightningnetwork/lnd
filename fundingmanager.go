@@ -824,11 +824,10 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// synced to the network as we won't be able to properly validate the
 	// confirmation of the funding transaction.
 	isSynced, _, err := f.cfg.Wallet.IsSynced()
-	if err != nil {
-		fndgLog.Errorf("unable to query wallet: %v", err)
-		return
-	}
-	if !isSynced {
+	if err != nil || !isSynced {
+		if err != nil {
+			fndgLog.Errorf("unable to query wallet: %v", err)
+		}
 		f.failFundingFlow(
 			fmsg.peerAddress.IdentityKey, fmsg.msg.PendingChannelID,
 			lnwire.ErrorData{byte(lnwire.ErrSynchronizingChain)},
@@ -2437,8 +2436,17 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		ChannelFlags:         channelFlags,
 	}
 	if err := f.cfg.SendToPeer(peerKey, &fundingOpen); err != nil {
-		fndgLog.Errorf("Unable to send funding request message: %v", err)
-		msg.err <- err
+		e := fmt.Errorf("Unable to send funding request message: %v",
+			err)
+		fndgLog.Errorf(e.Error())
+
+		// Since we were unable to send the initial message to the peer
+		// and start the funding flow, we'll cancel this reservation.
+		if _, err := f.cancelReservationCtx(peerKey, chanID); err != nil {
+			fndgLog.Errorf("unable to cancel reservation: %v", err)
+		}
+
+		msg.err <- e
 		return
 	}
 }

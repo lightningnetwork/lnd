@@ -76,7 +76,7 @@ func main() {
 		}
 
 		privkey, _ := btcec.PrivKeyFromBytes(btcec.S256(), binKey)
-		s := sphinx.NewRouter(privkey, &chaincfg.TestNet3Params)
+		s := sphinx.NewRouter(privkey, &chaincfg.TestNet3Params, nil)
 
 		var packet sphinx.OnionPacket
 		err = packet.Decode(bytes.NewBuffer(binMsg))

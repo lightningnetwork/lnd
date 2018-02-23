@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"reflect"
+	"strconv"
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
@@ -97,7 +99,9 @@ func newTestRoute(numHops int) ([]*Router, *[]HopData, *OnionPacket, error) {
 				" random key for sphinx node: %v", err)
 		}
 
-		nodes[i] = NewRouter(privKey, &chaincfg.MainNetParams)
+		dbPath := strconv.Itoa(i)
+
+		nodes[i] = NewRouter(dbPath, privKey, &chaincfg.MainNetParams, nil)
 	}
 
 	// Gather all the pub keys in the path.
@@ -177,6 +181,13 @@ func TestBolt4Packet(t *testing.T) {
 	}
 }
 
+// shutdown deletes the temporary directory that the test database uses
+// and handles closing the database.
+func shutdown(dir string, d ReplayLog) {
+	d.Stop()
+	os.RemoveAll(dir)
+}
+
 func TestSphinxCorrectness(t *testing.T) {
 	nodes, hopDatas, fwdMsg, err := newTestRoute(NumMaxHops)
 	if err != nil {
@@ -186,10 +197,15 @@ func TestSphinxCorrectness(t *testing.T) {
 	// Now simulate the message propagating through the mix net eventually
 	// reaching the final destination.
 	for i := 0; i < len(nodes); i++ {
+		// Start each node's DecayedLog and defer shutdown
+		tempDir := strconv.Itoa(i)
+		nodes[i].log.Start()
+		defer shutdown(tempDir, nodes[i].log)
+
 		hop := nodes[i]
 
 		t.Logf("Processing at hop: %v \n", i)
-		onionPacket, err := hop.ProcessOnionPacket(fwdMsg, nil)
+		onionPacket, err := hop.ProcessOnionPacket(fwdMsg, nil, uint32(i)+1)
 		if err != nil {
 			t.Fatalf("Node %v was unable to process the "+
 				"forwarding message: %v", i, err)
@@ -246,9 +262,13 @@ func TestSphinxSingleHop(t *testing.T) {
 		t.Fatalf("unable to create test route: %v", err)
 	}
 
+	// Start the DecayedLog and defer shutdown
+	nodes[0].log.Start()
+	defer shutdown("0", nodes[0].log)
+
 	// Simulating a direct single-hop payment, send the sphinx packet to
 	// the destination node, making it process the packet fully.
-	processedPacket, err := nodes[0].ProcessOnionPacket(fwdMsg, nil)
+	processedPacket, err := nodes[0].ProcessOnionPacket(fwdMsg, nil, 1)
 	if err != nil {
 		t.Fatalf("unable to process sphinx packet: %v", err)
 	}
@@ -269,16 +289,162 @@ func TestSphinxNodeRelpay(t *testing.T) {
 		t.Fatalf("unable to create test route: %v", err)
 	}
 
+	// Start the DecayedLog and defer shutdown
+	nodes[0].log.Start()
+	defer shutdown("0", nodes[0].log)
+
 	// Allow the node to process the initial packet, this should proceed
 	// without any failures.
-	if _, err := nodes[0].ProcessOnionPacket(fwdMsg, nil); err != nil {
+	if _, err := nodes[0].ProcessOnionPacket(fwdMsg, nil, 1); err != nil {
 		t.Fatalf("unable to process sphinx packet: %v", err)
 	}
 
 	// Now, force the node to process the packet a second time, this should
 	// fail with a detected replay error.
-	if _, err := nodes[0].ProcessOnionPacket(fwdMsg, nil); err != ErrReplayedPacket {
+	if _, err := nodes[0].ProcessOnionPacket(fwdMsg, nil, 1); err != ErrReplayedPacket {
 		t.Fatalf("sphinx packet replay should be rejected, instead error is %v", err)
+	}
+}
+
+func TestSphinxNodeRelpaySameBatch(t *testing.T) {
+	// We'd like to ensure that the sphinx node itself rejects all replayed
+	// packets which share the same shared secret.
+	nodes, _, fwdMsg, err := newTestRoute(NumMaxHops)
+	if err != nil {
+		t.Fatalf("unable to create test route: %v", err)
+	}
+
+	// Start the DecayedLog and defer shutdown
+	nodes[0].log.Start()
+	defer shutdown("0", nodes[0].log)
+
+	tx := nodes[0].BeginTxn([]byte("0"), 2)
+
+	// Allow the node to process the initial packet, this should proceed
+	// without any failures.
+	if err := tx.ProcessOnionPacket(0, fwdMsg, nil, 1); err != nil {
+		t.Fatalf("unable to process sphinx packet: %v", err)
+	}
+
+	// Now, force the node to process the packet a second time, this call
+	// should not fail, even though the batch has internally recorded this
+	// as a duplicate.
+	err = tx.ProcessOnionPacket(1, fwdMsg, nil, 1)
+	if err != nil {
+		t.Fatalf("adding duplicate sphinx packet to batch should not "+
+			"result in an error, instead got: %v", err)
+	}
+
+	// Commit the batch to disk, then we will inspect the replay set to
+	// ensure the duplicate entry was properly included.
+	_, replaySet, err := tx.Commit()
+	if err != nil {
+		t.Fatalf("unable to commit batch of sphinx packets: %v", err)
+	}
+
+	if replaySet.Contains(0) {
+		t.Fatalf("index 0 was not expected to be in replay set")
+	}
+
+	if !replaySet.Contains(1) {
+		t.Fatalf("expected replay set to contain duplicate packet " +
+			"at index 1")
+	}
+}
+
+func TestSphinxNodeRelpayLaterBatch(t *testing.T) {
+	// We'd like to ensure that the sphinx node itself rejects all replayed
+	// packets which share the same shared secret.
+	nodes, _, fwdMsg, err := newTestRoute(NumMaxHops)
+	if err != nil {
+		t.Fatalf("unable to create test route: %v", err)
+	}
+
+	// Start the DecayedLog and defer shutdown
+	nodes[0].log.Start()
+	defer shutdown("0", nodes[0].log)
+
+	tx := nodes[0].BeginTxn([]byte("0"), 1)
+
+	// Allow the node to process the initial packet, this should proceed
+	// without any failures.
+	if err := tx.ProcessOnionPacket(uint16(0), fwdMsg, nil, 1); err != nil {
+		t.Fatalf("unable to process sphinx packet: %v", err)
+	}
+
+	_, _, err = tx.Commit()
+	if err != nil {
+		t.Fatalf("unable to commit sphinx batch: %v", err)
+	}
+
+	tx2 := nodes[0].BeginTxn([]byte("1"), 1)
+
+	// Now, force the node to process the packet a second time, this should
+	// fail with a detected replay error.
+	err = tx2.ProcessOnionPacket(uint16(0), fwdMsg, nil, 1)
+	if err != nil {
+		t.Fatalf("sphinx packet replay should not have been rejected, "+
+			"instead error is %v", err)
+	}
+
+	_, replays, err := tx2.Commit()
+	if err != nil {
+		t.Fatalf("unable to commit second sphinx batch: %v", err)
+	}
+
+	if !replays.Contains(0) {
+		t.Fatalf("expected replay set to contain index: %v", 0)
+	}
+}
+
+func TestSphinxNodeRelpayBatchIdempotency(t *testing.T) {
+	// We'd like to ensure that the sphinx node itself rejects all replayed
+	// packets which share the same shared secret.
+	nodes, _, fwdMsg, err := newTestRoute(NumMaxHops)
+	if err != nil {
+		t.Fatalf("unable to create test route: %v", err)
+	}
+
+	// Start the DecayedLog and defer shutdown
+	nodes[0].log.Start()
+	defer shutdown("0", nodes[0].log)
+
+	tx := nodes[0].BeginTxn([]byte("0"), 1)
+
+	// Allow the node to process the initial packet, this should proceed
+	// without any failures.
+	if err := tx.ProcessOnionPacket(uint16(0), fwdMsg, nil, 1); err != nil {
+		t.Fatalf("unable to process sphinx packet: %v", err)
+	}
+
+	packets, replays, err := tx.Commit()
+	if err != nil {
+		t.Fatalf("unable to commit sphinx batch: %v", err)
+	}
+
+	tx2 := nodes[0].BeginTxn([]byte("0"), 1)
+
+	// Now, force the node to process the packet a second time, this should
+	// not fail with a detected replay error.
+	err = tx2.ProcessOnionPacket(uint16(0), fwdMsg, nil, 1)
+	if err != nil {
+		t.Fatalf("sphinx packet replay should not have been rejected, "+
+			"instead error is %v", err)
+	}
+
+	packets2, replays2, err := tx2.Commit()
+	if err != nil {
+		t.Fatalf("unable to commit second sphinx batch: %v", err)
+	}
+
+	if replays.Size() != replays2.Size() {
+		t.Fatalf("expected replay set to be %v, instead got %v",
+			replays, replays2)
+	}
+
+	if !reflect.DeepEqual(packets, packets2) {
+		t.Fatalf("expected packets to be %v, instead go %v",
+			packets, packets2)
 	}
 }
 
@@ -290,7 +456,12 @@ func TestSphinxAssocData(t *testing.T) {
 		t.Fatalf("unable to create random onion packet: %v", err)
 	}
 
-	if _, err := nodes[0].ProcessOnionPacket(fwdMsg, []byte("somethingelse")); err == nil {
+	// Start the DecayedLog and defer shutdown
+	nodes[0].log.Start()
+	defer shutdown("0", nodes[0].log)
+
+	_, err = nodes[0].ProcessOnionPacket(fwdMsg, []byte("somethingelse"), 1)
+	if err == nil {
 		t.Fatalf("we should fail when associated data changes")
 	}
 

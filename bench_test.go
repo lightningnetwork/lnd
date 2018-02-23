@@ -60,19 +60,29 @@ func BenchmarkProcessPacket(b *testing.B) {
 		b.Fatalf("unable to create test route: %v", err)
 	}
 	b.ReportAllocs()
+	path[0].log.Start()
+	defer shutdown("0", path[0].log)
 	b.StartTimer()
 
 	var (
 		pkt *ProcessedPacket
 	)
 	for i := 0; i < b.N; i++ {
-		pkt, err = path[0].ProcessOnionPacket(sphinxPacket, nil)
+		pkt, err = path[0].ProcessOnionPacket(sphinxPacket, nil, uint32(i))
 		if err != nil {
-			b.Fatalf("unable to process packet: %v", err)
+			b.Fatalf("unable to process packet %d: %v", i, err)
 		}
 
 		b.StopTimer()
-		path[0].seenSecrets = make(map[[sharedSecretSize]byte]struct{})
+		router := path[0]
+		shutdown("0", router.log)
+		path[0] = &Router{
+			nodeID:   router.nodeID,
+			nodeAddr: router.nodeAddr,
+			onionKey: router.onionKey,
+			log:      NewDecayedLog("0", nil),
+		}
+		path[0].log.Start()
 		b.StartTimer()
 	}
 

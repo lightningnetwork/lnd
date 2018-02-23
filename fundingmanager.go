@@ -430,19 +430,23 @@ func (f *fundingManager) Start() error {
 
 			select {
 			case <-timeoutChan:
-				// Timeout waiting for the funding transaction
-				// to confirm, so we forget the channel and
-				// delete it from the database.
+				// Timeout channel will be triggered if the number of blocks
+				// mined since the channel was initiated reaches
+				// maxWaitNumBlocksFundingConf and we are not the channel
+				// initiator.
+
 				closeInfo := &channeldb.ChannelCloseSummary{
 					ChainHash: ch.ChainHash,
 					ChanPoint: ch.FundingOutpoint,
 					RemotePub: ch.IdentityPub,
 					CloseType: channeldb.FundingCanceled,
 				}
+
 				if err := ch.CloseChannel(closeInfo); err != nil {
 					fndgLog.Errorf("Failed closing channel "+
 						"%v: %v", ch.FundingOutpoint, err)
 				}
+
 			case <-f.quit:
 				// The fundingManager is shutting down, and will
 				// resume wait on startup.
@@ -1484,10 +1488,11 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 }
 
 // waitForFundingWithTimeout is a wrapper around waitForFundingConfirmation that
-// will cancel the wait for confirmation if maxWaitNumBlocksFundingConf has
-// passed from bestHeight. In the case of timeout, the timeoutChan will be
-// closed. In case of error, confChan will be closed. In case of success,
-// a *lnwire.ShortChannelID will be passed to confChan.
+// will cancel the wait for confirmation if we are not the channel initiator and
+// the maxWaitNumBlocksFundingConf has passed from bestHeight.
+// In the case of timeout, the timeoutChan will be closed. In case of error,
+// confChan will be closed. In case of success, a *lnwire.ShortChannelID will be
+// passed to confChan.
 func (f *fundingManager) waitForFundingWithTimeout(completeChan *channeldb.OpenChannel,
 	confChan chan<- *lnwire.ShortChannelID, timeoutChan chan<- struct{}) {
 
@@ -1523,7 +1528,9 @@ func (f *fundingManager) waitForFundingWithTimeout(completeChan *channeldb.OpenC
 				return
 			}
 
-			if uint32(epoch.Height) >= maxHeight {
+			// If we are not the channel initiator it's safe
+			// to timeout the channel
+			if uint32(epoch.Height) >= maxHeight && !completeChan.IsInitiator {
 				fndgLog.Warnf("waited for %v blocks without "+
 					"seeing funding transaction confirmed,"+
 					" cancelling.", maxWaitNumBlocksFundingConf)
@@ -1536,6 +1543,11 @@ func (f *fundingManager) waitForFundingWithTimeout(completeChan *channeldb.OpenC
 				close(timeoutChan)
 				return
 			}
+
+			// TODO: If we are the channel initiator implement
+			// a method for recovering the funds from the funding
+			// transaction
+
 		case <-f.quit:
 			// The fundingManager is shutting down, will resume
 			// waiting for the funding transaction on startup.

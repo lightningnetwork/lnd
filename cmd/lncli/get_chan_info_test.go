@@ -50,7 +50,7 @@ func TestGetChanInfo_BadChanIdFlag(t *testing.T) {
 func TestGetChanInfo_MissingChanId(t *testing.T) {
 	TestCommandValidationError(t, runGetChanInfo,
 		[]string{},
-		ErrMissingChanId)
+		ErrMissingChanID)
 }
 
 func TestGetChanInfo_RPCError(t *testing.T) {

@@ -77,15 +77,15 @@ var (
 	// ErrMissingRhash occurs if the rhash is omitted.
 	ErrMissingRhash = fmt.Errorf("rhash argument missing")
 
-	// ErrMissingChanId occurs if the chan_id is omitted.
-	ErrMissingChanId = fmt.Errorf("chan_id argument missing")
+	// ErrMissingChanID occurs if the chan_id is omitted.
+	ErrMissingChanID = fmt.Errorf("chan_id argument missing")
 
 	// ErrMissingDest occurs if the dest is omitted.
 	ErrMissingDest = fmt.Errorf("dest argument missing")
 
-	// ErrMissingMsg occurs if the msg is omitted.
+	// ErrMissingMessage occurs if the msg is omitted.
 	ErrMissingMessage = fmt.Errorf("msg argument missing")
-	// ErrMissing Signature occurs if the sig is omitted.
+	// ErrMissingSignature Signature occurs if the sig is omitted.
 	ErrMissingSignature = fmt.Errorf("signature argument missing")
 
 	// ErrMissingBaseFeeMsat occurs if the base_fee_msat is omitted.
@@ -99,10 +99,6 @@ var (
 	ErrBadChanPointFormat = fmt.Errorf("expecting chan_point to be in format of: txid:index")
 )
 
-func printJSON(resp interface{}) {
-	printJSONToWriter(os.Stdout, resp)
-}
-
 func printJSONToWriter(writer io.Writer, resp interface{}) {
 	b, err := json.Marshal(resp)
 	if err != nil {
@@ -113,10 +109,6 @@ func printJSONToWriter(writer io.Writer, resp interface{}) {
 	json.Indent(&out, b, "", "\t")
 	out.WriteString("\n")
 	out.WriteTo(writer)
-}
-
-func printRespJSON(resp proto.Message) {
-	printRespJSONToWriter(os.Stdout, resp)
 }
 
 func printRespJSONToWriter(writer io.Writer, resp proto.Message) {
@@ -1744,7 +1736,7 @@ func getChanInfo(
 	case ctx.Args().Present():
 		chanID, err = strconv.ParseInt(ctx.Args().First(), 10, 64)
 	default:
-		return ErrMissingChanId
+		return ErrMissingChanID
 	}
 
 	req := &lnrpc.ChanInfoRequest{

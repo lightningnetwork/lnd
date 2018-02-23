@@ -1920,7 +1920,7 @@ func debugLevel(
 	return nil
 }
 
-var decodePayReqComamnd = cli.Command{
+var decodePayReqCommand = cli.Command{
 	Name:        "decodepayreq",
 	Usage:       "Decode a payment request.",
 	Description: "Decode the passed payment request revealing the destination, payment hash and value of the payment request",
@@ -1947,7 +1947,7 @@ func decodePayReq(
 	case ctx.Args().Present():
 		payreq = ctx.Args().First()
 	default:
-		return fmt.Errorf("pay_req argument missing")
+		return ErrMissingPayReq
 	}
 
 	resp, err := client.DecodePayReq(ctxb, &lnrpc.PayReqString{

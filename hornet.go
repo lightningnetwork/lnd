@@ -21,7 +21,7 @@ const fSLength = 48
 //  * NOTE: this doesn't include adding R to the forwarding segment, and w/e esle
 
 // Hmmm since each uses diff key, just use AES-CTR with blank nonce, given key,
-// encrypt plaintext of all zeroes, this'll give us our len(plaintext) rand bytes.
+// encrypt plaintext of all zeros, this'll give us our len(plaintext) rand bytes.
 // PRG0 -> {0, 1}^k -> {0, 1}^r(c+k) or {0, 1}^1280  (assuming 20 hops, like rusty, but, is that too large? maybe, idk)
 // PRG1 -> {0, 1}^k -> {0, 1}^r(c+k) or {0, 1}^1280  (assuming 20 hops)
 // PRG2 -> {0, 1}^k -> {0, 1}^rc or {0, 1}^960 (assuming 20 hops, c=48)

@@ -79,6 +79,9 @@ var (
 
 	// ErrMissingChanId occurs if the chan_id is omitted.
 	ErrMissingChanId = fmt.Errorf("chan_id argument missing")
+
+	// ErrMissingDest occurs if the dest is omitted.
+	ErrMissingDest = fmt.Errorf("dest argument missing")
 )
 
 func printJSON(resp interface{}) {
@@ -1826,7 +1829,7 @@ func queryRoutes(
 		dest = args.First()
 		args = args.Tail()
 	default:
-		return fmt.Errorf("dest argument missing")
+		return ErrMissingDest
 	}
 
 	switch {
@@ -1838,7 +1841,7 @@ func queryRoutes(
 			return fmt.Errorf("unable to decode amt argument: %v", err)
 		}
 	default:
-		return fmt.Errorf("amt argument missing")
+		return ErrMissingAmount
 	}
 
 	req := &lnrpc.QueryRoutesRequest{

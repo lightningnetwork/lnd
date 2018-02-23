@@ -216,7 +216,12 @@ func (c *StubLightningClient) GetNodeInfo(ctx context.Context, in *lnrpc.NodeInf
 
 func (c *StubLightningClient) QueryRoutes(ctx context.Context, in *lnrpc.QueryRoutesRequest, opts ...grpc.CallOption) (*lnrpc.QueryRoutesResponse, error) {
 	c.CapturedRequest = in
-	return new(lnrpc.QueryRoutesResponse), nil
+
+	route := lnrpc.Route{
+		TotalTimeLock: 123,
+		TotalFees:     456,
+		TotalAmt:      789}
+	return &lnrpc.QueryRoutesResponse{[]*lnrpc.Route{&route}}, nil
 }
 
 func (c *StubLightningClient) GetNetworkInfo(ctx context.Context, in *lnrpc.NetworkInfoRequest, opts ...grpc.CallOption) (*lnrpc.NetworkInfo, error) {

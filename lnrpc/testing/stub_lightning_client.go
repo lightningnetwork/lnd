@@ -74,7 +74,7 @@ func (c *StubLightningClient) NewWitnessAddress(ctx context.Context, in *lnrpc.N
 
 func (c *StubLightningClient) SignMessage(ctx context.Context, in *lnrpc.SignMessageRequest, opts ...grpc.CallOption) (*lnrpc.SignMessageResponse, error) {
 	c.CapturedRequest = in
-	return new(lnrpc.SignMessageResponse), nil
+	return &lnrpc.SignMessageResponse{Signature: "Signature"}, nil
 }
 
 func (c *StubLightningClient) VerifyMessage(ctx context.Context, in *lnrpc.VerifyMessageRequest, opts ...grpc.CallOption) (*lnrpc.VerifyMessageResponse, error) {

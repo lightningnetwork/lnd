@@ -82,6 +82,9 @@ var (
 
 	// ErrMissingDest occurs if the dest is omitted.
 	ErrMissingDest = fmt.Errorf("dest argument missing")
+
+	// ErrMissingMsg occurs if the msg is omitted.
+	ErrMissingMsg = fmt.Errorf("msg argument missing")
 )
 
 func printJSON(resp interface{}) {
@@ -2036,7 +2039,7 @@ func signMessage(
 	case ctx.Args().Present():
 		msg = []byte(ctx.Args().First())
 	default:
-		return fmt.Errorf("msg argument missing")
+		return ErrMissingMsg
 	}
 
 	resp, err := client.SignMessage(ctxb, &lnrpc.SignMessageRequest{Msg: msg})

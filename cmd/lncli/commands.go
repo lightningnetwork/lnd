@@ -84,7 +84,9 @@ var (
 	ErrMissingDest = fmt.Errorf("dest argument missing")
 
 	// ErrMissingMsg occurs if the msg is omitted.
-	ErrMissingMsg = fmt.Errorf("msg argument missing")
+	ErrMissingMessage = fmt.Errorf("msg argument missing")
+	// ErrMissing Signature occurs if the sig is omitted.
+	ErrMissingSignature = fmt.Errorf("signature argument missing")
 )
 
 func printJSON(resp interface{}) {
@@ -2039,7 +2041,7 @@ func signMessage(
 	case ctx.Args().Present():
 		msg = []byte(ctx.Args().First())
 	default:
-		return ErrMissingMsg
+		return ErrMissingMessage
 	}
 
 	resp, err := client.SignMessage(ctxb, &lnrpc.SignMessageRequest{Msg: msg})
@@ -2093,7 +2095,7 @@ func verifyMessage(
 		msg = []byte(ctx.Args().First())
 		args = args.Tail()
 	default:
-		return fmt.Errorf("msg argument missing")
+		return ErrMissingMessage
 	}
 
 	switch {
@@ -2102,7 +2104,7 @@ func verifyMessage(
 	case args.Present():
 		sig = args.First()
 	default:
-		return fmt.Errorf("signature argument missing")
+		return ErrMissingSignature
 	}
 
 	req := &lnrpc.VerifyMessageRequest{Msg: msg, Signature: sig}

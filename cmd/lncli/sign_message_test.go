@@ -30,7 +30,7 @@ func TestSignMessage_MsgFlag(t *testing.T) {
 func TestSignMessage_NoMsg(t *testing.T) {
 	TestCommandValidationError(t, runSignMessage,
 		[]string{},
-		ErrMissingMsg)
+		ErrMissingMessage)
 }
 
 func TestSignMessage_RPCError(t *testing.T) {

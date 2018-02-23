@@ -80,3 +80,7 @@ import:
 - package: github.com/rogpeppe/fastuuid
 - package: gopkg.in/errgo.v1
 - package: github.com/miekg/dns
+- package: github.com/Yawning/aez
+  version: 4dad034d9db2caec23fb8f69b9160ae16f8d46a3
+- package: github.com/kkdai/bstream
+  version: f391b8402d23024e7c0f624b31267a89998fca95

@@ -76,6 +76,9 @@ var (
 
 	// ErrMissingRhash occurs if the rhash is omitted.
 	ErrMissingRhash = fmt.Errorf("rhash argument missing")
+
+	// ErrMissingChanId occurs if the chan_id is omitted.
+	ErrMissingChanId = fmt.Errorf("chan_id argument missing")
 )
 
 func printJSON(resp interface{}) {
@@ -1723,7 +1726,7 @@ func getChanInfo(
 	case ctx.Args().Present():
 		chanID, err = strconv.ParseInt(ctx.Args().First(), 10, 64)
 	default:
-		return fmt.Errorf("chan_id argument missing")
+		return ErrMissingChanId
 	}
 
 	req := &lnrpc.ChanInfoRequest{

@@ -1,5 +1,5 @@
-hash: ccd5caad2b8fa46f76338964fe06f5d6a35b9ed36dd5df8da0748e3e3ab99e6a
-updated: 2018-02-19T17:31:51.88595122-08:00
+hash: b7b9aed5daf9b2fdc4083d310ab2cabfc86e08db6796b9301b2e2d73c9bd6174
+updated: 2018-02-23T15:57:52.662879082-08:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -38,13 +38,13 @@ imports:
 - name: github.com/btcsuite/websocket
   version: 31079b6807923eb23992c421b114992b95131b55
 - name: github.com/davecgh/go-spew
-  version: ecdeabc65495df2dec95d7c4a4c3e021903035e5
+  version: 8991bc29aa16c548c550c7ff78260e27b9ab7c73
   subpackages:
   - spew
 - name: github.com/go-errors/errors
-  version: 8fa88b06e5974e97fbf9899a7f86a344bfd1f105
+  version: 3afebba5a48dbc89b574d890b6b34d9ee10b4785
 - name: github.com/golang/protobuf
-  version: ab9f9a6dab164b7d1246e0e688b0ab7b94d8553e
+  version: bbd03ef6da3a115852eaf24c8a1c46aeb39aa175
   subpackages:
   - jsonpb
   - proto
@@ -86,9 +86,7 @@ imports:
   - chaincfg/chainhash
   - wire
 - name: github.com/miekg/dns
-  version: 946bd9fbed05568b0f3cd188353d8aa28f38b688
-  subpackages:
-  - internal/socket
+  version: 5364553f1ee9cddc7ac8b62dce148309c386695b
 - name: github.com/roasbeef/btcd
   version: e6807bc4dd5ddbb95b4ab163f6dd61e4ad79463a
   subpackages:
@@ -119,7 +117,7 @@ imports:
   - hdkeychain
   - txsort
 - name: github.com/roasbeef/btcwallet
-  version: 4f4765c3e3baf4c7b40c311340a076ec83c5ef3a
+  version: 7447531cb6752ebf8680bc180e9a21c2c445ee7c
   subpackages:
   - chain
   - internal/helpers
@@ -143,12 +141,14 @@ imports:
 - name: github.com/urfave/cli
   version: cfb38830724cc34fedffe9a2a29fb54fa9169cd1
 - name: golang.org/x/crypto
-  version: 9419663f5a44be8b34ca85f08abc5fe1be11f8a3
+  version: 49796115aa4b964c318aad4f3084fdb41e9aa067
   subpackages:
   - chacha20poly1305
-  - chacha20poly1305/internal/chacha20
   - curve25519
+  - ed25519
+  - ed25519/internal/edwards25519
   - hkdf
+  - internal/chacha20
   - nacl/box
   - nacl/secretbox
   - pbkdf2
@@ -159,30 +159,35 @@ imports:
   - scrypt
   - ssh/terminal
 - name: golang.org/x/net
-  version: 66aacef3dd8a676686c7ae3716979581e8b03c47
+  version: cbe0f9307d0156177f9dd5dc85da1a31abc5f2fb
   subpackages:
+  - bpf
   - context
   - http2
   - http2/hpack
   - idna
+  - internal/iana
+  - internal/socket
   - internal/timeseries
+  - ipv4
+  - ipv6
   - lex/httplex
   - proxy
   - trace
 - name: golang.org/x/sys
-  version: ab9e364efd8b52800ff7ee48a9ffba4e0ed78dfb
+  version: 88d2dcc510266da9f7f8c7f34e1940716cab5f5c
   subpackages:
   - unix
   - windows
 - name: golang.org/x/text
-  version: 18c65dde6afd36dbc39197ca72008895b8dfbfb6
+  version: 27420a1a391f5504f73155051cd274311bf70883
   subpackages:
   - secure/bidirule
   - transform
   - unicode/bidi
   - unicode/norm
 - name: google.golang.org/genproto
-  version: ee236bd376b077c7a89f260c026c4735b195e459
+  version: 2b5a72b8730b0b16380010cfe5286c42108d88e7
   subpackages:
   - googleapis/api/annotations
   - googleapis/rpc/status
@@ -206,7 +211,7 @@ imports:
 - name: gopkg.in/errgo.v1
   version: 442357a80af5c6bf9b6d51ae791a39c3421004f3
 - name: gopkg.in/macaroon-bakery.v2
-  version: 04cf5ef151a211d929975161aea7c65f94c90446
+  version: 22c04a94d902625448265ef041bb53e715452a40
   subpackages:
   - bakery
   - bakery/checkers

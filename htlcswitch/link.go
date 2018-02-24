@@ -503,7 +503,7 @@ func (l *channelLink) syncChanStates() error {
 		// We've just received a ChnSync message from the remote party,
 		// so we'll process the message  in order to determine if we
 		// need to re-transmit any messages to the remote party.
-		msgsToReSend, err = l.channel.ProcessChanSyncMsg(remoteChanSyncMsg)
+		msgsToReSend, _, _, err = l.channel.ProcessChanSyncMsg(remoteChanSyncMsg)
 		if err != nil {
 			// TODO(roasbeef): check concrete type of error, act
 			// accordingly
@@ -580,7 +580,7 @@ func (l *channelLink) syncChanStates() error {
 		// remote party.
 		var p [32]byte
 		copy(p[:], preimage)
-		err := l.channel.SettleHTLC(p, htlc.HtlcIndex)
+		err := l.channel.SettleHTLC(p, htlc.HtlcIndex, nil, nil, nil)
 		if err != nil {
 			l.fail("unable to settle htlc: %v", err)
 			return err
@@ -819,7 +819,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		// so we add the new HTLC to our local log, then update the
 		// commitment chains.
 		htlc.ChanID = l.ChanID()
-		index, err := l.channel.AddHTLC(htlc)
+		index, err := l.channel.AddHTLC(htlc, nil)
 		if err != nil {
 			switch err {
 
@@ -910,7 +910,13 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		// An HTLC we forward to the switch has just settled somewhere
 		// upstream. Therefore we settle the HTLC within the our local
 		// state machine.
-		err := l.channel.SettleHTLC(htlc.PaymentPreimage, pkt.incomingHTLCID)
+		err := l.channel.SettleHTLC(
+			htlc.PaymentPreimage,
+			pkt.incomingHTLCID,
+			nil,
+			nil,
+			nil,
+		)
 		if err != nil {
 			// TODO(roasbeef): broadcast on-chain
 			l.fail("unable to settle incoming HTLC: %v", err)
@@ -931,7 +937,13 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 	case *lnwire.UpdateFailHTLC:
 		// An HTLC cancellation has been triggered somewhere upstream,
 		// we'll remove then HTLC from our local state machine.
-		err := l.channel.FailHTLC(pkt.incomingHTLCID, htlc.Reason)
+		err := l.channel.FailHTLC(
+			pkt.incomingHTLCID,
+			htlc.Reason,
+			nil,
+			nil,
+			nil,
+		)
 		if err != nil {
 			log.Errorf("unable to cancel HTLC: %v", err)
 			return
@@ -1129,7 +1141,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// We've received a revocation from the remote chain, if valid,
 		// this moves the remote chain forward, and expands our
 		// revocation window.
-		htlcs, err := l.channel.ReceiveRevocation(msg)
+		_, adds, settleFails, err := l.channel.ReceiveRevocation(msg)
 		if err != nil {
 			l.fail("unable to accept revocation: %v", err)
 			return
@@ -1139,6 +1151,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// commitment transactions they might be safely propagated over
 		// htlc switch or settled if our node was last node in htlc
 		// path.
+		htlcs := append(settleFails, adds...)
 		htlcsToForward := l.processLockedInHtlcs(htlcs)
 		go func() {
 			log.Debugf("ChannelPoint(%v) forwarding %v HTLC's",
@@ -1646,7 +1659,7 @@ func (l *channelLink) processLockedInHtlcs(
 				}
 
 				preimage := invoice.Terms.PaymentPreimage
-				err = l.channel.SettleHTLC(preimage, pd.HtlcIndex)
+				err = l.channel.SettleHTLC(preimage, pd.HtlcIndex, nil, nil, nil)
 				if err != nil {
 					l.fail("unable to settle htlc: %v", err)
 					return nil
@@ -1868,7 +1881,7 @@ func (l *channelLink) sendHTLCError(htlcIndex uint64,
 		return
 	}
 
-	err = l.channel.FailHTLC(htlcIndex, reason)
+	err = l.channel.FailHTLC(htlcIndex, reason, nil, nil, nil)
 	if err != nil {
 		log.Errorf("unable cancel htlc: %v", err)
 		return
@@ -1887,7 +1900,7 @@ func (l *channelLink) sendMalformedHTLCError(htlcIndex uint64,
 	code lnwire.FailCode, onionBlob []byte) {
 
 	shaOnionBlob := sha256.Sum256(onionBlob)
-	err := l.channel.MalformedFailHTLC(htlcIndex, code, shaOnionBlob)
+	err := l.channel.MalformedFailHTLC(htlcIndex, code, shaOnionBlob, nil)
 	if err != nil {
 		log.Errorf("unable cancel htlc: %v", err)
 		return

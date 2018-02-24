@@ -75,13 +75,13 @@ var (
 	defaultReadMacPath  = filepath.Join(defaultLndDir, defaultReadMacFilename)
 	defaultLogDir       = filepath.Join(defaultLndDir, defaultLogDirname)
 
-	btcdHomeDir            = btcutil.AppDataDir("btcd", false)
-	defaultBtcdRPCCertFile = filepath.Join(btcdHomeDir, "rpc.cert")
+	defaultBtcdDir         = btcutil.AppDataDir("btcd", false)
+	defaultBtcdRPCCertFile = filepath.Join(defaultBtcdDir, "rpc.cert")
 
-	ltcdHomeDir            = btcutil.AppDataDir("ltcd", false)
-	defaultLtcdRPCCertFile = filepath.Join(ltcdHomeDir, "rpc.cert")
+	defaultLtcdDir         = btcutil.AppDataDir("ltcd", false)
+	defaultLtcdRPCCertFile = filepath.Join(defaultLtcdDir, "rpc.cert")
 
-	bitcoindHomeDir = btcutil.AppDataDir("bitcoin", false)
+	defaultBitcoindDir = btcutil.AppDataDir("bitcoin", false)
 )
 
 type chainConfig struct {
@@ -111,6 +111,7 @@ type neutrinoConfig struct {
 }
 
 type btcdConfig struct {
+	Dir        string `long:"dir" description:"The base directory that contains the node's data, logs, configuration file, etc."`
 	RPCHost    string `long:"rpchost" description:"The daemon's rpc listening address. If a port is omitted, then the default port for the selected chain parameters will be used."`
 	RPCUser    string `long:"rpcuser" description:"Username for RPC connections"`
 	RPCPass    string `long:"rpcpass" default-mask:"-" description:"Password for RPC connections"`
@@ -119,6 +120,7 @@ type btcdConfig struct {
 }
 
 type bitcoindConfig struct {
+	Dir     string `long:"dir" description:"The base directory that contains the node's data, logs, configuration file, etc."`
 	RPCHost string `long:"rpchost" description:"The daemon's rpc listening address. If a port is omitted, then the default port for the selected chain parameters will be used."`
 	RPCUser string `long:"rpcuser" description:"Username for RPC connections"`
 	RPCPass string `long:"rpcpass" default-mask:"-" description:"Password for RPC connections"`
@@ -225,10 +227,12 @@ func loadConfig() (*config, error) {
 			Node:          "btcd",
 		},
 		BtcdMode: &btcdConfig{
+			Dir:     defaultBtcdDir,
 			RPCHost: defaultRPCHost,
 			RPCCert: defaultBtcdRPCCertFile,
 		},
 		BitcoindMode: &bitcoindConfig{
+			Dir:     defaultBitcoindDir,
 			RPCHost: defaultRPCHost,
 		},
 		Litecoin: &chainConfig{
@@ -239,6 +243,7 @@ func loadConfig() (*config, error) {
 			Node:          "btcd",
 		},
 		LtcdMode: &btcdConfig{
+			Dir:     defaultLtcdDir,
 			RPCHost: defaultRPCHost,
 			RPCCert: defaultLtcdRPCCertFile,
 		},
@@ -708,9 +713,11 @@ func noiseDial(idPriv *btcec.PrivateKey) func(net.Addr) (net.Conn, error) {
 
 func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 	funcName string) error {
-	// If the configuration has already set the RPCUser and RPCPass, and
-	// if we're either not using bitcoind mode or the ZMQ path is already
-	// specified, we can return.
+
+	// First, we'll check our node config to make sure the RPC parameters
+	// were set correctly. We'll also determine the path to the conf file
+	// depending on the backend node.
+	var daemonName, confDir, confFile string
 	switch conf := nodeConfig.(type) {
 	case *btcdConfig:
 		// If both RPCUser and RPCPass are set, we assume those
@@ -723,6 +730,17 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 		if conf.RPCUser != "" || conf.RPCPass != "" {
 			return fmt.Errorf("please set both or neither of " +
 				"btcd.rpcuser and btcd.rpcpass")
+		}
+
+		switch net {
+		case bitcoinChain:
+			daemonName = "btcd"
+			confDir = conf.Dir
+			confFile = "btcd"
+		case litecoinChain:
+			daemonName = "ltcd"
+			confDir = conf.Dir
+			confFile = "ltcd"
 		}
 	case *bitcoindConfig:
 		// If all of RPCUser, RPCPass, and ZMQPath are set, we assume
@@ -737,6 +755,10 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 				"bitcoind.rpcuser, bitcoind.rpcpass, and " +
 				"bitcoind.zmqpath")
 		}
+
+		daemonName = "bitcoind"
+		confDir = conf.Dir
+		confFile = "bitcoin"
 	}
 
 	// If we're in simnet mode, then the running btcd instance won't read
@@ -748,33 +770,9 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 		return fmt.Errorf(str, funcName)
 	}
 
-	var daemonName, homeDir, confFile string
-	switch net {
-	case bitcoinChain:
-		switch cConfig.Node {
-		case "btcd":
-			daemonName = "btcd"
-			homeDir = btcdHomeDir
-			confFile = "btcd"
-		case "bitcoind":
-			daemonName = "bitcoind"
-			homeDir = bitcoindHomeDir
-			confFile = "bitcoin"
-		}
-	case litecoinChain:
-		switch cConfig.Node {
-		case "btcd":
-			daemonName = "ltcd"
-			homeDir = ltcdHomeDir
-			confFile = "ltcd"
-		case "bitcoind":
-			return fmt.Errorf("bitcoind mode doesn't work with Litecoin yet")
-		}
-	}
-
 	fmt.Println("Attempting automatic RPC configuration to " + daemonName)
 
-	confFile = filepath.Join(homeDir, fmt.Sprintf("%v.conf", confFile))
+	confFile = filepath.Join(confDir, fmt.Sprintf("%v.conf", confFile))
 	switch cConfig.Node {
 	case "btcd":
 		nConf := nodeConfig.(*btcdConfig)

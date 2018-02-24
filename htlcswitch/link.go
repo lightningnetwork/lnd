@@ -3,11 +3,10 @@ package htlcswitch
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"io"
 
 	"crypto/sha256"
 
@@ -130,11 +129,19 @@ type ChannelLinkConfig struct {
 	// DecodeHopIterator function is responsible for decoding HTLC Sphinx
 	// onion blob, and creating hop iterator which will give us next
 	// destination of HTLC.
-	DecodeHopIterator func(r io.Reader, rHash []byte) (HopIterator, lnwire.FailCode)
+	DecodeHopIterator func(r io.Reader, rHash []byte,
+		cltv uint32) (HopIterator, lnwire.FailCode)
+
+	// DecodeHopIterators facilitates batched decoding of HTLC Sphinx onion
+	// blobs, which are then used to inform how to forward an HTLC.
+	// NOTE: This function assumes the same set of readers and preimages are
+	// always presented for the same identifier.
+	DecodeHopIterators func([]byte, []DecodeHopIteratorRequest) (
+		[]DecodeHopIteratorResponse, error)
 
 	// DecodeOnionObfuscator function is responsible for decoding HTLC
 	// Sphinx onion blob, and creating onion failure obfuscator.
-	DecodeOnionObfuscator func(r io.Reader) (ErrorEncrypter, lnwire.FailCode)
+	DecodeOnionObfuscator ErrorEncrypterExtracter
 
 	// GetLastChannelUpdate retrieves the latest routing policy for this
 	// particular channel. This will be used to provide payment senders our
@@ -1448,26 +1455,6 @@ func (l *channelLink) processLockedInHtlcs(
 			var onionBlob [lnwire.OnionPacketSize]byte
 			copy(onionBlob[:], pd.OnionBlob)
 
-			// Retrieve onion obfuscator from onion blob in order
-			// to produce initial obfuscation of the onion
-			// failureCode.
-			onionReader := bytes.NewReader(onionBlob[:])
-			obfuscator, failureCode := l.cfg.DecodeOnionObfuscator(
-				onionReader,
-			)
-			if failureCode != lnwire.CodeNone {
-				// If we're unable to process the onion blob
-				// than we should send the malformed htlc error
-				// to payment sender.
-				l.sendMalformedHTLCError(pd.HtlcIndex, failureCode,
-					onionBlob[:])
-				needUpdate = true
-
-				log.Errorf("unable to decode onion "+
-					"obfuscator: %v", failureCode)
-				continue
-			}
-
 			// Before adding the new htlc to the state machine,
 			// parse the onion object in order to obtain the
 			// routing information with DecodeHopIterator function
@@ -1479,9 +1466,9 @@ func (l *channelLink) processLockedInHtlcs(
 			// attacks. In the case of a replay, an attacker is
 			// *forced* to use the same payment hash twice, thereby
 			// losing their money entirely.
-			onionReader = bytes.NewReader(onionBlob[:])
+			onionReader := bytes.NewReader(onionBlob[:])
 			chanIterator, failureCode := l.cfg.DecodeHopIterator(
-				onionReader, pd.RHash[:],
+				onionReader, pd.RHash[:], pd.Timeout,
 			)
 			if failureCode != lnwire.CodeNone {
 				// If we're unable to process the onion blob
@@ -1493,6 +1480,25 @@ func (l *channelLink) processLockedInHtlcs(
 
 				log.Errorf("unable to decode onion hop "+
 					"iterator: %v", failureCode)
+				continue
+			}
+
+			// Retrieve onion obfuscator from onion blob in order
+			// to produce initial obfuscation of the onion
+			// failureCode.
+			obfuscator, failureCode := chanIterator.ExtractErrorEncrypter(
+				l.cfg.DecodeOnionObfuscator,
+			)
+			if failureCode != lnwire.CodeNone {
+				// If we're unable to process the onion blob
+				// than we should send the malformed htlc error
+				// to payment sender.
+				l.sendMalformedHTLCError(pd.HtlcIndex, failureCode,
+					onionBlob[:])
+				needUpdate = true
+
+				log.Errorf("unable to decode onion "+
+					"obfuscator: %v", failureCode)
 				continue
 			}
 

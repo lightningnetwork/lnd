@@ -66,15 +66,14 @@ const (
 )
 
 var (
-	// TODO(roasbeef): base off of datadir instead?
-	lndHomeDir          = btcutil.AppDataDir("lnd", false)
-	defaultConfigFile   = filepath.Join(lndHomeDir, defaultConfigFilename)
-	defaultDataDir      = filepath.Join(lndHomeDir, defaultDataDirname)
-	defaultTLSCertPath  = filepath.Join(lndHomeDir, defaultTLSCertFilename)
-	defaultTLSKeyPath   = filepath.Join(lndHomeDir, defaultTLSKeyFilename)
-	defaultAdminMacPath = filepath.Join(lndHomeDir, defaultAdminMacFilename)
-	defaultReadMacPath  = filepath.Join(lndHomeDir, defaultReadMacFilename)
-	defaultLogDir       = filepath.Join(lndHomeDir, defaultLogDirname)
+	defaultLndDir       = btcutil.AppDataDir("lnd", false)
+	defaultConfigFile   = filepath.Join(defaultLndDir, defaultConfigFilename)
+	defaultDataDir      = filepath.Join(defaultLndDir, defaultDataDirname)
+	defaultTLSCertPath  = filepath.Join(defaultLndDir, defaultTLSCertFilename)
+	defaultTLSKeyPath   = filepath.Join(defaultLndDir, defaultTLSKeyFilename)
+	defaultAdminMacPath = filepath.Join(defaultLndDir, defaultAdminMacFilename)
+	defaultReadMacPath  = filepath.Join(defaultLndDir, defaultReadMacFilename)
+	defaultLogDir       = filepath.Join(defaultLndDir, defaultLogDirname)
 
 	btcdHomeDir            = btcutil.AppDataDir("btcd", false)
 	defaultBtcdRPCCertFile = filepath.Join(btcdHomeDir, "rpc.cert")
@@ -146,6 +145,7 @@ type torConfig struct {
 type config struct {
 	ShowVersion bool `short:"V" long:"version" description:"Display version information and exit"`
 
+	LndDir       string `long:"lnddir" description:"The base directory that contains lnd's data, logs, configuration file, etc."`
 	ConfigFile   string `long:"C" long:"configfile" description:"Path to configuration file"`
 	DataDir      string `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
 	TLSCertPath  string `long:"tlscertpath" description:"Path to TLS certificate for lnd's RPC and REST services"`
@@ -208,6 +208,7 @@ type config struct {
 // 	4) Parse CLI options and overwrite/add any specified options
 func loadConfig() (*config, error) {
 	defaultCfg := config{
+		LndDir:       defaultLndDir,
 		ConfigFile:   defaultConfigFile,
 		DataDir:      defaultDataDir,
 		DebugLevel:   defaultLogLevel,
@@ -268,9 +269,22 @@ func loadConfig() (*config, error) {
 		os.Exit(0)
 	}
 
-	// Create the home directory if it doesn't already exist.
+	// If the provided lnd directory is not the default, we'll modify the
+	// path to all of the files and directories that will live within it.
+	lndDir := cleanAndExpandPath(preCfg.LndDir)
+	if lndDir != defaultLndDir {
+		defaultCfg.ConfigFile = filepath.Join(lndDir, defaultConfigFilename)
+		defaultCfg.DataDir = filepath.Join(lndDir, defaultDataDirname)
+		defaultCfg.TLSCertPath = filepath.Join(lndDir, defaultTLSCertFilename)
+		defaultCfg.TLSKeyPath = filepath.Join(lndDir, defaultTLSKeyFilename)
+		defaultCfg.AdminMacPath = filepath.Join(lndDir, defaultAdminMacFilename)
+		defaultCfg.ReadMacPath = filepath.Join(lndDir, defaultReadMacFilename)
+		defaultCfg.LogDir = filepath.Join(lndDir, defaultLogDirname)
+	}
+
+	// Create the lnd directory if it doesn't already exist.
 	funcName := "loadConfig"
-	if err := os.MkdirAll(lndHomeDir, 0700); err != nil {
+	if err := os.MkdirAll(lndDir, 0700); err != nil {
 		// Show a nicer error message if it's because a symlink is
 		// linked to a directory that does not exist (probably because
 		// it's not mounted).
@@ -281,7 +295,7 @@ func loadConfig() (*config, error) {
 			}
 		}
 
-		str := "%s: Failed to create home directory: %v"
+		str := "%s: Failed to create lnd directory: %v"
 		err := fmt.Errorf(str, funcName, err)
 		fmt.Fprintln(os.Stderr, err)
 		return nil, err
@@ -290,7 +304,8 @@ func loadConfig() (*config, error) {
 	// Next, load any additional configuration options from the file.
 	var configFileError error
 	cfg := defaultCfg
-	if err := flags.IniParse(preCfg.ConfigFile, &cfg); err != nil {
+	configFile := cleanAndExpandPath(preCfg.ConfigFile)
+	if err := flags.IniParse(configFile, &cfg); err != nil {
 		configFileError = err
 	}
 
@@ -589,7 +604,7 @@ func loadConfig() (*config, error) {
 func cleanAndExpandPath(path string) string {
 	// Expand initial ~ to OS specific home directory.
 	if strings.HasPrefix(path, "~") {
-		homeDir := filepath.Dir(lndHomeDir)
+		homeDir := filepath.Dir(defaultLndDir)
 		path = strings.Replace(path, "~", homeDir, 1)
 	}
 

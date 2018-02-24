@@ -11,14 +11,13 @@ import (
 	"io/ioutil"
 	"os"
 
-	"io"
-
 	"math/big"
 
 	"net"
 
 	"github.com/btcsuite/fastsha256"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -800,7 +799,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			Peer:              bobServer,
 			Switch:            aliceServer.htlcSwitch,
 			DecodeHopIterator: decoder.DecodeHopIterator,
-			DecodeOnionObfuscator: func(io.Reader) (ErrorEncrypter,
+			DecodeOnionObfuscator: func(*sphinx.OnionPacket) (ErrorEncrypter,
 				lnwire.FailCode) {
 				return obfuscator, lnwire.CodeNone
 			},
@@ -846,7 +845,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			Peer:              aliceServer,
 			Switch:            bobServer.htlcSwitch,
 			DecodeHopIterator: decoder.DecodeHopIterator,
-			DecodeOnionObfuscator: func(io.Reader) (ErrorEncrypter,
+			DecodeOnionObfuscator: func(*sphinx.OnionPacket) (ErrorEncrypter,
 				lnwire.FailCode) {
 				return obfuscator, lnwire.CodeNone
 			},
@@ -892,7 +891,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			Peer:              carolServer,
 			Switch:            bobServer.htlcSwitch,
 			DecodeHopIterator: decoder.DecodeHopIterator,
-			DecodeOnionObfuscator: func(io.Reader) (ErrorEncrypter,
+			DecodeOnionObfuscator: func(*sphinx.OnionPacket) (ErrorEncrypter,
 				lnwire.FailCode) {
 				return obfuscator, lnwire.CodeNone
 			},
@@ -938,7 +937,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			Peer:              bobServer,
 			Switch:            carolServer.htlcSwitch,
 			DecodeHopIterator: decoder.DecodeHopIterator,
-			DecodeOnionObfuscator: func(io.Reader) (ErrorEncrypter,
+			DecodeOnionObfuscator: func(*sphinx.OnionPacket) (ErrorEncrypter,
 				lnwire.FailCode) {
 				return obfuscator, lnwire.CodeNone
 			},

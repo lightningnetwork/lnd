@@ -6,8 +6,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -72,23 +73,13 @@ var (
 	 * - Are available in the Go 1.7.6 standard library (more are
 	 *   available in 1.8.3 and will be added after lnd no longer
 	 *   supports 1.7, including suites that support CBC mode)
-	 *
-	 * The cipher suites are ordered from strongest to weakest
-	 * primitives, but the client's preference order has more
-	 * effect during negotiation.
 	**/
 	tlsCipherSuites = []uint16{
-		tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-		tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-		tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
 		tls.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
-		tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
-		tls.TLS_RSA_WITH_AES_128_CBC_SHA256,
 		tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-		tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-		tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
+		tls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
+		tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 		tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
-		tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
 	}
 )
 
@@ -650,7 +641,7 @@ func genCertPair(certFile, keyFile string) error {
 	}
 
 	// Generate a private key for the certificate.
-	priv, err := rsa.GenerateKey(rand.Reader, 4096)
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return err
 	}
@@ -672,10 +663,6 @@ func genCertPair(certFile, keyFile string) error {
 
 		DNSNames:    dnsNames,
 		IPAddresses: ipAddresses,
-
-		// This signature algorithm is most likely to be compatible
-		// with clients using less-common TLS libraries like BoringSSL.
-		SignatureAlgorithm: x509.SHA256WithRSA,
 	}
 
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template,
@@ -691,9 +678,12 @@ func genCertPair(certFile, keyFile string) error {
 		return fmt.Errorf("failed to encode certificate: %v", err)
 	}
 
-	keybytes := x509.MarshalPKCS1PrivateKey(priv)
+	keybytes, err := x509.MarshalECPrivateKey(priv)
+	if err != nil {
+		return fmt.Errorf("unable to encode privkey: %v", err)
+	}
 	keyBuf := &bytes.Buffer{}
-	err = pem.Encode(keyBuf, &pem.Block{Type: "RSA PRIVATE KEY",
+	err = pem.Encode(keyBuf, &pem.Block{Type: "EC PRIVATE KEY",
 		Bytes: keybytes})
 	if err != nil {
 		return fmt.Errorf("failed to encode private key: %v", err)

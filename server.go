@@ -230,28 +230,47 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	// CAN be passed into the ExternalIPs configuration option.
 	selfAddrs := make([]net.Addr, 0, len(cfg.ExternalIPs))
 	for _, ip := range cfg.ExternalIPs {
-		// We first check if ip is a v2 or v3 hidden service.
 		ipLen := len(ip)
-		if (ipLen == 22 || ipLen == 62) && ip[ipLen-6:] == ".onion" {
-			// is a hidden service
-			onionAddr := &torsvc.OnionAddress{HiddenService: []byte(ip)}
-			selfAddrs = append(selfAddrs, onionAddr)
-		} else {
-			// not a hidden service
-			var addr string
-			_, _, err = net.SplitHostPort(ip)
-			if err != nil {
-				addr = net.JoinHostPort(ip, strconv.Itoa(defaultPeerPort))
+		host, port, err := net.SplitHostPort(ip)
+		if err != nil {
+			if (ipLen == 22 || ipLen == 62) && ip[ipLen-6:] == ".onion" {
+				// hidden service without a port
+				onionAddr := &torsvc.OnionAddress{
+					HiddenService: ip,
+					Port:          defaultOnionPort,
+				}
+				selfAddrs = append(selfAddrs, onionAddr)
 			} else {
-				addr = ip
+				// ipv4/6 address without a port
+				addr := net.JoinHostPort(ip, strconv.Itoa(defaultPeerPort))
+				lnAddr, err := cfg.net.ResolveTCPAddr("tcp", addr)
+				if err != nil {
+					return nil, err
+				}
+				selfAddrs = append(selfAddrs, lnAddr)
 			}
+		} else {
+			hostLen := len(host)
+			if (hostLen == 22 || hostLen == 62) && host[hostLen-6:] == ".onion" {
+				// hidden service with port
+				p, err := strconv.Atoi(port)
+				if err != nil {
+					return nil, err
+				}
 
-			lnAddr, err := cfg.net.ResolveTCPAddr("tcp", addr)
-			if err != nil {
-				return nil, err
+				onionAddr := &torsvc.OnionAddress{
+					HiddenService: host,
+					Port:          p,
+				}
+				selfAddrs = append(selfAddrs, onionAddr)
+			} else {
+				// ipv4/6 address with port
+				lnAddr, err := cfg.net.ResolveTCPAddr("tcp", ip)
+				if err != nil {
+					return nil, err
+				}
+				selfAddrs = append(selfAddrs, lnAddr)
 			}
-
-			selfAddrs = append(selfAddrs, lnAddr)
 		}
 	}
 
@@ -870,6 +889,8 @@ func (s *server) establishPersistentConnections() error {
 	if err != nil && err != channeldb.ErrLinkNodesNotFound {
 		return err
 	}
+
+	// TODO(eugene) - onion addresses
 	for _, node := range linkNodes {
 		for _, address := range node.Addresses {
 			switch addr := address.(type) {

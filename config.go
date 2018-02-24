@@ -40,6 +40,7 @@ const (
 	defaultRPCPort            = 10009
 	defaultRESTPort           = 8080
 	defaultPeerPort           = 9735
+	defaultOnionPort          = 80
 	defaultRPCHost            = "localhost"
 	defaultMaxPendingChannels = 1
 	defaultNoEncryptWallet    = false

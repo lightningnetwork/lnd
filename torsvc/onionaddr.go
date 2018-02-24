@@ -2,11 +2,12 @@ package torsvc
 
 import (
 	"net"
-	"fmt"
+	"strconv"
 )
 
 type OnionAddress struct {
-	HiddenService []byte
+	HiddenService string
+	Port int
 }
 
 // A compile-time check to ensure that OnionAddress implements the net.Addr
@@ -14,7 +15,7 @@ type OnionAddress struct {
 var _ net.Addr = (*OnionAddress)(nil)
 
 func (o *OnionAddress) String() string {
-	return fmt.Sprintf("%s", o.HiddenService)
+	return net.JoinHostPort(o.HiddenService, strconv.Itoa(o.Port))
 }
 
 func (o *OnionAddress) Network() string {

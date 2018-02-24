@@ -343,6 +343,7 @@ func writeElement(w io.Writer, element interface{}) error {
 			if _, err := w.Write(descriptor[:]); err != nil {
 				return err
 			}
+
 			// unbase32 the v2 hidden service string, truncating
 			// the .onion suffix
 			data, err := encoding.DecodeString(e.String()[:16])
@@ -353,9 +354,16 @@ func writeElement(w io.Writer, element interface{}) error {
 				return err
 			}
 
-			// TODO(eugene) - port?
+			// write the port
+			var port [2]byte
+			binary.BigEndian.PutUint16(port[:], uint16(e.Port))
+			if _, err := w.Write(port[:]); err != nil {
+				return err
+			}
+
 		} else {
 			// v3 hidden service
+			// TODO(eugene)
 		}
 
 	case []net.Addr:
@@ -712,9 +720,13 @@ func readElement(r io.Reader, element interface{}) error {
 					return err
 				}
 				onionString := encoding.EncodeToString(hs[:]) + ".onion"
-				address.HiddenService = []byte(onionString)
+				address.HiddenService = onionString
 
-				// TODO(eugene) - port?
+				var port [2]byte
+				if _, err = io.ReadFull(addrBuf, port[:]); err != nil {
+					return err
+				}
+				address.Port = int(binary.BigEndian.Uint16(port[:]))
 
 				addrBytesRead += aType.AddrLen()
 

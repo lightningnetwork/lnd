@@ -7488,6 +7488,251 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	}
 }
 
+// testSwitchOfflineDeliveryOutgoingOffline constructs a set of multihop payments,
+// and tests that the returning payments are not lost if a peer on the backwards
+// path is offline when the settle/fails are received AND the peer buffering the
+// responses is completely restarts. We expect the payments to be reloaded from
+// disk, and transmitted as soon as the intermediaries are reconnected.
+//
+// The general flow of this test:
+//   1. Carol --> Dave --> Alice --> Bob  forward payment
+//   2. Carol --- Dave  X  Alice --- Bob  disconnect intermediaries
+//   3. Carol --- Dave  X  Alice <-- Bob  settle last hop
+//   4. Carol --- Dave  X         X  Bob  restart Alice
+//   5. Carol <-- Dave <-- Alice --- Bob  expect settle to propagate
+func testSwitchOfflineDeliveryOutgoingOffline(
+	net *lntest.NetworkHarness, t *harnessTest) {
+
+	const chanAmt = btcutil.Amount(100000)
+	const pushAmt = btcutil.Amount(90000)
+
+	ctxb := context.Background()
+	timeout := time.Duration(time.Second * 15)
+	var networkChans []*lnrpc.ChannelPoint
+
+	// Open a channel with 100k satoshis between Alice and Bob with Alice
+	// being the sole funder of the channel.
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	chanPointAlice := openChannelAndAssert(ctxt, t, net, net.Alice,
+		net.Bob, chanAmt, pushAmt)
+	networkChans = append(networkChans, chanPointAlice)
+
+	txidHash, err := getChanPointFundingTxid(chanPointAlice)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	aliceChanTXID, err := chainhash.NewHash(txidHash)
+	if err != nil {
+		t.Fatalf("unable to create sha hash: %v", err)
+	}
+	aliceFundPoint := wire.OutPoint{
+		Hash:  *aliceChanTXID,
+		Index: chanPointAlice.OutputIndex,
+	}
+
+	// As preliminary setup, we'll create two new nodes: Carol and Dave,
+	// such that we now have a 4 ndoe, 3 channel topology. Dave will make
+	// a channel with Alice, and Carol with Dave. After this setup, the
+	// network topology should now look like:
+	//     Carol -> Dave -> Alice -> Bob
+	//
+	// First, we'll create Dave and establish a channel to Alice.
+	dave, err := net.NewNode([]string{"--unsafe-disconnect"})
+	if err != nil {
+		t.Fatalf("unable to create new nodes: %v", err)
+	}
+	if err := net.ConnectNodes(ctxb, dave, net.Alice); err != nil {
+		t.Fatalf("unable to connect dave to alice: %v", err)
+	}
+	err = net.SendCoins(ctxb, btcutil.SatoshiPerBitcoin, dave)
+	if err != nil {
+		t.Fatalf("unable to send coins to dave: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPointDave := openChannelAndAssert(ctxt, t, net, dave,
+		net.Alice, chanAmt, pushAmt)
+	networkChans = append(networkChans, chanPointDave)
+	txidHash, err = getChanPointFundingTxid(chanPointDave)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	daveChanTXID, err := chainhash.NewHash(txidHash)
+	if err != nil {
+		t.Fatalf("unable to create sha hash: %v", err)
+	}
+	daveFundPoint := wire.OutPoint{
+		Hash:  *daveChanTXID,
+		Index: chanPointDave.OutputIndex,
+	}
+
+	// Next, we'll create Carol and establish a channel to from her to
+	// Dave. Carol is started in htlchodl mode so that we can disconnect the
+	// intermediary hops before starting the settle.
+	carol, err := net.NewNode([]string{"--debughtlc", "--hodlhtlc"})
+	if err != nil {
+		t.Fatalf("unable to create new nodes: %v", err)
+	}
+	if err := net.ConnectNodes(ctxb, carol, dave); err != nil {
+		t.Fatalf("unable to connect carol to dave: %v", err)
+	}
+	err = net.SendCoins(ctxb, btcutil.SatoshiPerBitcoin, carol)
+	if err != nil {
+		t.Fatalf("unable to send coins to carol: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPointCarol := openChannelAndAssert(ctxt, t, net, carol,
+		dave, chanAmt, pushAmt)
+	networkChans = append(networkChans, chanPointCarol)
+
+	txidHash, err = getChanPointFundingTxid(chanPointCarol)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	carolChanTXID, err := chainhash.NewHash(txidHash)
+	if err != nil {
+		t.Fatalf("unable to create sha hash: %v", err)
+	}
+	carolFundPoint := wire.OutPoint{
+		Hash:  *carolChanTXID,
+		Index: chanPointCarol.OutputIndex,
+	}
+
+	// Wait for all nodes to have seen all channels.
+	nodes := []*lntest.HarnessNode{net.Alice, net.Bob, carol, dave}
+	nodeNames := []string{"Alice", "Bob", "Carol", "Dave"}
+	for _, chanPoint := range networkChans {
+		for i, node := range nodes {
+			txidHash, err := getChanPointFundingTxid(chanPoint)
+			if err != nil {
+				t.Fatalf("unable to get txid: %v", err)
+			}
+			txid, e := chainhash.NewHash(txidHash)
+			if e != nil {
+				t.Fatalf("unable to create sha hash: %v", e)
+			}
+			point := wire.OutPoint{
+				Hash:  *txid,
+				Index: chanPoint.OutputIndex,
+			}
+
+			ctxt, _ = context.WithTimeout(ctxb, timeout)
+			err = node.WaitForNetworkChannelOpen(ctxt, chanPoint)
+			if err != nil {
+				t.Fatalf("%s(%d): timeout waiting for "+
+					"channel(%s) open: %v", nodeNames[i],
+					node.NodeID, point, err)
+			}
+		}
+	}
+
+	// Create 5 invoices for Carol, which expect a payment from Bob for 1k
+	// satoshis with a different preimage each time.
+	const numPayments = 5
+	const paymentAmt = 1000
+	payReqs := make([]string, numPayments)
+	for i := 0; i < numPayments; i++ {
+		invoice := &lnrpc.Invoice{
+			Memo:  "testing",
+			Value: paymentAmt,
+		}
+		resp, err := carol.AddInvoice(ctxb, invoice)
+		if err != nil {
+			t.Fatalf("unable to add invoice: %v", err)
+		}
+
+		payReqs[i] = resp.PaymentRequest
+	}
+
+	// We'll wait for all parties to recognize the new channels within the
+	// network.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = dave.WaitForNetworkChannelOpen(ctxt, chanPointDave)
+	if err != nil {
+		t.Fatalf("dave didn't advertise his channel: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = carol.WaitForNetworkChannelOpen(ctxt, chanPointCarol)
+	if err != nil {
+		t.Fatalf("carol didn't advertise her channel in time: %v",
+			err)
+	}
+
+	time.Sleep(time.Millisecond * 50)
+
+	// Using Carol as the source, pay to the 5 invoices from Bob created
+	// above.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = completePaymentRequests(ctxt, net.Bob, payReqs, false)
+	if err != nil {
+		t.Fatalf("unable to send payments: %v", err)
+	}
+
+	time.Sleep(2 * time.Second)
+
+	// Restart the intermediaries and the sender.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	if err := net.DisconnectNodes(ctxt, dave, net.Alice); err != nil {
+		t.Fatalf("unable to disconnect alice from dave: %v", err)
+	}
+
+	// Now restart carol without hodl mode, to settle back the outstanding
+	// payments.
+	carol.SetExtraArgs(nil)
+	if err := net.RestartNode(carol, nil); err != nil {
+		t.Fatalf("Node restart failed: %v", err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	const amountPaid = int64(5000)
+	assertAmountPaid(t, ctxb, "Dave(local) => Carol(remote)", carol,
+		carolFundPoint, int64(0), amountPaid)
+	assertAmountPaid(t, ctxb, "Dave(local) => Carol(remote)", dave,
+		carolFundPoint, amountPaid, int64(0))
+
+	if err := net.ShutdownNode(carol); err != nil {
+		t.Fatalf("unable to shutdown carol: %v", err)
+	}
+
+	if err := net.RestartNode(dave, nil); err != nil {
+		t.Fatalf("unable to reconnect alice to dave: %v", err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	// When asserting the amount of satoshis moved, we'll factor in the
+	// default base fee, as we didn't modify the fee structure when
+	// creating the seed nodes in the network.
+	const baseFee = 1
+
+	// At this point all the channels within our proto network should be
+	// shifted by 5k satoshis in the direction of Carol, the sink within the
+	// payment flow generated above. The order of asserts corresponds to
+	// increasing of time is needed to embed the HTLC in commitment
+	// transaction, in channel Bob->Alice->David->Carol, order is Carol,
+	// David, Alice, Bob.
+	assertAmountPaid(t, ctxb, "Alice(local) => Dave(remote)", dave,
+		daveFundPoint, int64(0), amountPaid+(baseFee*numPayments))
+	assertAmountPaid(t, ctxb, "Alice(local) => Dave(remote)", net.Alice,
+		daveFundPoint, amountPaid+(baseFee*numPayments), int64(0))
+	assertAmountPaid(t, ctxb, "Bob(local) => Alice(remote)", net.Alice,
+		aliceFundPoint, int64(0), amountPaid+((baseFee*numPayments)*2))
+	assertAmountPaid(t, ctxb, "Bob(local) => Alice(remote)", net.Bob,
+		aliceFundPoint, amountPaid+(baseFee*numPayments)*2, int64(0))
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, dave, chanPointDave, false)
+
+	// Finally, shutdown the nodes we created for the duration of the tests,
+	// only leaving the two seed nodes (Alice and Bob) within our test
+	// network.
+	if err := net.ShutdownNode(dave); err != nil {
+		t.Fatalf("unable to shutdown dave: %v", err)
+	}
+}
+
 type testCase struct {
 	name string
 	test func(net *lntest.NetworkHarness, t *harnessTest)
@@ -7642,6 +7887,10 @@ var testsCases = []*testCase{
 	{
 		name: "switch offline delivery persistence",
 		test: testSwitchOfflineDeliveryPersistence,
+	},
+	{
+		name: "switch offline delivery outgoing offline",
+		test: testSwitchOfflineDeliveryOutgoingOffline,
 	},
 }
 

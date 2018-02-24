@@ -9,12 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"io"
-
 	"math"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -1119,7 +1118,7 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 
 	// Replace decode function with another which throws an error.
 	n.carolChannelLink.cfg.DecodeOnionObfuscator = func(
-		r io.Reader) (ErrorEncrypter, lnwire.FailCode) {
+		*sphinx.OnionPacket) (ErrorEncrypter, lnwire.FailCode) {
 		return nil, lnwire.CodeInvalidOnionVersion
 	}
 
@@ -1450,7 +1449,7 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 		Peer:              alicePeer,
 		Switch:            New(Config{}),
 		DecodeHopIterator: decoder.DecodeHopIterator,
-		DecodeOnionObfuscator: func(io.Reader) (ErrorEncrypter, lnwire.FailCode) {
+		DecodeOnionObfuscator: func(*sphinx.OnionPacket) (ErrorEncrypter, lnwire.FailCode) {
 			return obfuscator, lnwire.CodeNone
 		},
 		GetLastChannelUpdate: mockGetChanUpdateMessage,

@@ -2142,10 +2142,19 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 
 	// Currently, within the protocol, the initiator always pays the fees.
 	// So we'll subtract the fee amount from the balance of the current
-	// initiator.
-	if lc.channelState.IsInitiator {
+	// initiator. If the initiator is unable to pay the fee fully, then
+	// their entire output is consumed.
+	switch {
+	case lc.channelState.IsInitiator && commitFee > ourBalance.ToSatoshis():
+		ourBalance = 0
+
+	case lc.channelState.IsInitiator:
 		ourBalance -= lnwire.NewMSatFromSatoshis(commitFee)
-	} else if !lc.channelState.IsInitiator {
+
+	case !lc.channelState.IsInitiator && commitFee > theirBalance.ToSatoshis():
+		theirBalance = 0
+
+	case !lc.channelState.IsInitiator:
 		theirBalance -= lnwire.NewMSatFromSatoshis(commitFee)
 	}
 

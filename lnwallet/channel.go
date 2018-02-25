@@ -2139,6 +2139,7 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 	// With the weight known, we can now calculate the commitment fee,
 	// ensuring that we account for any dust outputs trimmed above.
 	commitFee := c.feePerKw.FeeForWeight(totalCommitWeight)
+	commitFeeMSat := lnwire.NewMSatFromSatoshis(commitFee)
 
 	// Currently, within the protocol, the initiator always pays the fees.
 	// So we'll subtract the fee amount from the balance of the current
@@ -2149,13 +2150,13 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 		ourBalance = 0
 
 	case lc.channelState.IsInitiator:
-		ourBalance -= lnwire.NewMSatFromSatoshis(commitFee)
+		ourBalance -= commitFeeMSat
 
 	case !lc.channelState.IsInitiator && commitFee > theirBalance.ToSatoshis():
 		theirBalance = 0
 
 	case !lc.channelState.IsInitiator:
-		theirBalance -= lnwire.NewMSatFromSatoshis(commitFee)
+		theirBalance -= commitFeeMSat
 	}
 
 	var (
@@ -3227,57 +3228,58 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	validateUpdates := func(updates []*PaymentDescriptor,
 		constraints *channeldb.ChannelConfig) error {
 
-		// We keep track of the number of HTLCs in flight for
-		// the commitment, and the amount in flight.
+		// We keep track of the number of HTLCs in flight for the
+		// commitment, and the amount in flight.
 		var numInFlight uint16
 		var amtInFlight lnwire.MilliSatoshi
 
-		// Go through all updates, checking that they don't
-		// violate the channel constraints.
+		// Go through all updates, checking that they don't violate the
+		// channel constraints.
 		for _, entry := range updates {
 			if entry.EntryType == Add {
-				// An HTLC is being added, this will
-				// add to the number and amount in
-				// flight.
+				// An HTLC is being added, this will add to the
+				// number and amount in flight.
 				amtInFlight += entry.Amount
 				numInFlight++
 
-				// Check that the value of the HTLC they
-				// added is above our minimum.
+				// Check that the value of the HTLC they added
+				// is above our minimum.
 				if entry.Amount < constraints.MinHTLC {
 					return ErrBelowMinHTLC
 				}
 			}
 		}
 
-		// Now that we know the total value of added HTLCs,
-		// we check that this satisfy the MaxPendingAmont
-		// contraint.
+		// Now that we know the total value of added HTLCs, we check
+		// that this satisfy the MaxPendingAmont contraint.
 		if amtInFlight > constraints.MaxPendingAmount {
 			return ErrMaxPendingAmount
 		}
 
-		// In this step, we verify that the total number of
-		// active HTLCs does not exceed the constraint of the
-		// maximum number of HTLCs in flight.
+		// In this step, we verify that the total number of active
+		// HTLCs does not exceed the constraint of the maximum number
+		// of HTLCs in flight.
 		if numInFlight > constraints.MaxAcceptedHtlcs {
 			return ErrMaxHTLCNumber
 		}
+
 		return nil
 	}
 
-	// First check that the remote updates won't violate it's
-	// channel constraints.
-	err := validateUpdates(filteredView.theirUpdates,
-		lc.remoteChanCfg)
+	// First check that the remote updates won't violate it's channel
+	// constraints.
+	err := validateUpdates(
+		filteredView.theirUpdates, lc.remoteChanCfg,
+	)
 	if err != nil {
 		return err
 	}
 
-	// Secondly check that our updates won't violate our
-	// channel constraints.
-	err = validateUpdates(filteredView.ourUpdates,
-		lc.localChanCfg)
+	// Secondly check that our updates won't violate our channel
+	// constraints.
+	err = validateUpdates(
+		filteredView.ourUpdates, lc.localChanCfg,
+	)
 	if err != nil {
 		return err
 	}
@@ -3836,11 +3838,13 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, error) 
 		OnionBlob: htlc.OnionBlob[:],
 	}
 
-	// Make sure adding this HTLC won't violate any of the constrainst
-	// we must keep on our commitment transaction.
+	// Make sure adding this HTLC won't violate any of the constraints we
+	// must keep on our commitment transaction.
 	remoteACKedIndex := lc.localCommitChain.tail().theirMessageIndex
-	if err := lc.validateCommitmentSanity(remoteACKedIndex,
-		lc.localUpdateLog.logIndex, true, pd); err != nil {
+	err := lc.validateCommitmentSanity(
+		remoteACKedIndex, lc.localUpdateLog.logIndex, true, pd,
+	)
+	if err != nil {
 		return 0, err
 	}
 

@@ -93,10 +93,27 @@ func encodeOnionAddr(w io.Writer, addr *torsvc.OnionAddress) error {
 		if _, err := w.Write(scratch[:2]); err != nil {
 			return err
 		}
-
 	} else {
 		// v3 hidden service
-		// TODO(eugene)
+		scratch[0] = uint8(v3OnionAddr)
+		if _, err := w.Write(scratch[:1]); err != nil {
+			return err
+		}
+
+		// Write raw bytes of unbase32 hidden service string
+		data, err := encoding.DecodeString(addr.String()[:56])
+		if err != nil {
+			return err
+		}
+		if _, err := w.Write(data); err != nil {
+			return err
+		}
+
+		// Write port
+		byteOrder.PutUint16(scratch[:2], uint16(addr.Port))
+		if _, err := w.Write(scratch[:2]); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -152,7 +169,18 @@ func deserializeAddr(r io.Reader) (net.Addr, error) {
 		addr.Port = int(byteOrder.Uint16(scratch[:2]))
 		address = addr
 	case v3OnionAddr:
-		// TODO(eugene)
+		addr := &torsvc.OnionAddress{}
+		var hs [35]byte
+		if _, err := r.Read(hs[:]); err != nil {
+			return nil, err
+		}
+		onionString := encoding.EncodeToString(hs[:]) + ".onion"
+		addr.HiddenService = onionString
+		if _, err := r.Read(scratch[:2]); err != nil {
+			return nil, err
+		}
+		addr.Port = int(byteOrder.Uint16(scratch[:2]))
+		address = addr
 	default:
 		return nil, ErrUnknownAddressType
 	}

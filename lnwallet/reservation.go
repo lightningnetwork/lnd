@@ -288,40 +288,36 @@ func (r *ChannelReservation) CommitConstraints(csvDelay, maxHtlcs uint16,
 		return ErrCsvDelayTooLarge(csvDelay, maxDelay)
 	}
 
-	// Fail if we consider the channel reserve to be too large.
-	// We currently fail if it is greater than 20% of the
-	// channel capacity.
+	// Fail if we consider the channel reserve to be too large.  We
+	// currently fail if it is greater than 20% of the channel capacity.
 	maxChanReserve := r.partialState.Capacity / 5
 	if chanReserve > maxChanReserve {
 		return ErrChanReserveTooLarge(chanReserve, maxChanReserve)
 	}
 
-	// Fail if the minimum HTLC value is too large. If this is
-	// too large, the channel won't be useful for sending small
-	// payments. This limit is currently set to maxValueInFlight,
-	// effictively letting the remote setting this as large as
-	// it wants.
-	// TODO(halseth): set a reasonable/dynamic value.
+	// Fail if the minimum HTLC value is too large. If this is too large,
+	// the channel won't be useful for sending small payments. This limit
+	// is currently set to maxValueInFlight, effectively letting the remote
+	// setting this as large as it wants.
 	if minHtlc > maxValueInFlight {
 		return ErrMinHtlcTooLarge(minHtlc, maxValueInFlight)
 	}
 
-	// Fail if maxHtlcs is above the maximum allowed number of 483.
-	// This number is specified in BOLT-02.
+	// Fail if maxHtlcs is above the maximum allowed number of 483.  This
+	// number is specified in BOLT-02.
 	if maxHtlcs > uint16(MaxHTLCNumber/2) {
 		return ErrMaxHtlcNumTooLarge(maxHtlcs, uint16(MaxHTLCNumber/2))
 	}
 
-	// Fail if we consider maxHtlcs too small. If this is too small
-	// we cannot offer many HTLCs to the remote.
+	// Fail if we consider maxHtlcs too small. If this is too small we
+	// cannot offer many HTLCs to the remote.
 	const minNumHtlc = 5
 	if maxHtlcs < minNumHtlc {
 		return ErrMaxHtlcNumTooSmall(maxHtlcs, minNumHtlc)
 	}
 
-	// Fail if we consider maxValueInFlight too small. We currently
-	// require the remote to at least allow minNumHtlc * minHtlc
-	// in flight.
+	// Fail if we consider maxValueInFlight too small. We currently require
+	// the remote to at least allow minNumHtlc * minHtlc in flight.
 	if maxValueInFlight < minNumHtlc*minHtlc {
 		return ErrMaxValueInFlightTooSmall(maxValueInFlight,
 			minNumHtlc*minHtlc)

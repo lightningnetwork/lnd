@@ -24,11 +24,11 @@ import (
 const MaxSliceLength = 65535
 
 // alphabet is the alphabet that the base32 library will use for encoding
-// and decoding v2 onion addresses.
+// and decoding v2 and v3 onion addresses.
 const alphabet = "abcdefghijklmnopqrstuvwxyz234567"
 
 // encoding represents a base32 encoding compliant with Tor's base32 encoding
-// scheme for v2 hidden services.
+// scheme for v2 and v3 hidden services.
 var encoding = base32.NewEncoding(alphabet)
 
 // PkScript is simple type definition which represents a raw serialized public
@@ -363,7 +363,28 @@ func writeElement(w io.Writer, element interface{}) error {
 
 		} else {
 			// v3 hidden service
-			// TODO(eugene)
+			var descriptor [1]byte
+			descriptor[0] = uint8(v3OnionAddr)
+			if _, err := w.Write(descriptor[:]); err != nil {
+				return err
+			}
+
+			// unbase32 the v3 hidden service string, truncating
+			// the .onion suffix
+			data, err := encoding.DecodeString(e.String()[:56])
+			if err != nil {
+				return err
+			}
+			if _, err := w.Write(data); err != nil {
+				return err
+			}
+
+			// write the port
+			var port [2]byte
+			binary.BigEndian.PutUint16(port[:], uint16(e.Port))
+			if _, err := w.Write(port[:]); err != nil {
+				return err
+			}
 		}
 
 	case []net.Addr:
@@ -733,8 +754,23 @@ func readElement(r io.Reader, element interface{}) error {
 				addresses = append(addresses, address)
 
 			case v3OnionAddr:
+				address := &torsvc.OnionAddress{}
+				var hs [35]byte
+				if _, err = io.ReadFull(addrBuf, hs[:]); err != nil {
+					return err
+				}
+				onionString := encoding.EncodeToString(hs[:]) + ".onion"
+				address.HiddenService = onionString
+
+				var port [2]byte
+				if _, err = io.ReadFull(addrBuf, port[:]); err != nil {
+					return err
+				}
+				address.Port = int(binary.BigEndian.Uint16(port[:]))
+
 				addrBytesRead += aType.AddrLen()
-				continue
+
+				addresses = append(addresses, address)
 
 			default:
 				return fmt.Errorf("unknown address type: %v", aType)

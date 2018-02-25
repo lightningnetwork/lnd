@@ -10,11 +10,11 @@ import (
 )
 
 // alphabet is the alphabet that the base32 library will use for encoding
-// and decoding v2 onion addresses.
+// and decoding v2 and v3 onion addresses.
 const alphabet = "abcdefghijklmnopqrstuvwxyz234567"
 
 // encoding represents a base32 encoding compliant with Tor's base32 encoding
-// scheme for v2 hidden services.
+// scheme for v2 and v3 hidden services.
 var encoding = base32.NewEncoding(alphabet)
 
 // addressType specifies the network protocol and version that should be used

@@ -890,7 +890,6 @@ func (s *server) establishPersistentConnections() error {
 		return err
 	}
 
-	// TODO(eugene) - onion addresses
 	for _, node := range linkNodes {
 		for _, address := range node.Addresses {
 			switch addr := address.(type) {
@@ -898,8 +897,12 @@ func (s *server) establishPersistentConnections() error {
 				if addr.Port == 0 {
 					addr.Port = defaultPeerPort
 				}
-			}
 
+			case *torsvc.OnionAddress:
+				if addr.Port == 0 {
+					addr.Port = defaultOnionPort
+				}
+			}
 		}
 		pubStr := string(node.IdentityPub.SerializeCompressed())
 

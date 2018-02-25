@@ -33,8 +33,8 @@ const (
 	DefaultFinalCLTVDelta = 9
 )
 
-// ChannelGraphSource represents the source of information about the topology of
-// the lightning network. It's responsible for the addition of nodes, edges,
+// ChannelGraphSource represents the source of information about the topology
+// of the lightning network. It's responsible for the addition of nodes, edges,
 // applying edge updates, and returning the current block height with which the
 // topology is synchronized.
 type ChannelGraphSource interface {
@@ -55,6 +55,22 @@ type ChannelGraphSource interface {
 	// UpdateEdge is used to update edge information, without this message
 	// edge considered as not fully constructed.
 	UpdateEdge(policy *channeldb.ChannelEdgePolicy) error
+
+	// IsStaleNode returns true if the graph source has a node announcement
+	// for the target node with a more recent timestamp. This method will
+	// also return true if we don't have an active channel announcement for
+	// the target node.
+	IsStaleNode(node Vertex, timestamp time.Time) bool
+
+	// IsKnownEdge returns true if the graph source already knows of the
+	// passed channel ID.
+	IsKnownEdge(chanID lnwire.ShortChannelID) bool
+
+	// IsStaleEdgePolicy returns true if the graph source has a channel
+	// edge for the passed channel ID (and flags) that have a more recent
+	// timestamp.
+	IsStaleEdgePolicy(chanID lnwire.ShortChannelID, timestamp time.Time,
+		flags lnwire.ChanUpdateFlag) bool
 
 	// ForAllOutgoingChannels is used to iterate over all channels
 	// emanating from the "source" node which is the center of the
@@ -819,6 +835,42 @@ func (r *ChannelRouter) networkHandler() {
 	}
 }
 
+// assertNodeAnnFreshness returns a non-nil error if we have an announcement in
+// the database for the passed node with a timestamp newer than the passed
+// timestamp. ErrIgnored will be returned if we already have the node, and
+// ErrOutdated will be returned if we have a timestamp that's after the new
+// timestamp.
+func (r *ChannelRouter) assertNodeAnnFreshness(node Vertex,
+	msgTimestamp time.Time) error {
+
+	// If we are not already aware of this node, it means that we don't
+	// know about any channel using this node. To avoid a DoS attack by
+	// node announcements, we will ignore such nodes. If we do know about
+	// this node, check that this update brings info newer than what we
+	// already have.
+	lastUpdate, exists, err := r.cfg.Graph.HasLightningNode(node)
+	if err != nil {
+		return errors.Errorf("unable to query for the "+
+			"existence of node: %v", err)
+	}
+	if !exists {
+		return newErrf(ErrIgnored, "Ignoring node announcement"+
+			" for node not found in channel graph (%x)",
+			node[:])
+	}
+
+	// If we've reached this point then we're aware of the vertex being
+	// advertised. So we now check if the new message has a new time stamp,
+	// if not then we won't accept the new data as it would override newer
+	// data.
+	if !lastUpdate.Before(msgTimestamp) {
+		return newErrf(ErrOutdated, "Ignoring outdated "+
+			"announcement for %x", node[:])
+	}
+
+	return nil
+}
+
 // processUpdate processes a new relate authenticated channel/edge, node or
 // channel/edge update network update. If the update didn't affect the internal
 // state of the draft due to either being out of date, invalid, or redundant,
@@ -829,31 +881,12 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 
 	switch msg := msg.(type) {
 	case *channeldb.LightningNode:
-		// If we are not already aware of this node, it means that we
-		// don't know about any channel using this node. To avoid a DoS
-		// attack by node announcements, we will ignore such nodes. If
-		// we do know about this node, check that this update brings
-		// info newer than what we already have.
-		lastUpdate, exists, err := r.cfg.Graph.HasLightningNode(msg.PubKeyBytes)
+		// Before we add the node to the database, we'll check to see
+		// if the announcement is "fresh" or not. If it isn't, then
+		// we'll return an error.
+		err := r.assertNodeAnnFreshness(msg.PubKeyBytes, msg.LastUpdate)
 		if err != nil {
-			return errors.Errorf("unable to query for the "+
-				"existence of node: %v", err)
-		}
-		if !exists {
-			return newErrf(ErrIgnored, "Ignoring node announcement"+
-				" for node not found in channel graph (%x)",
-				msg.PubKeyBytes)
-		}
-
-		// If we've reached this point then we're aware of the vertex
-		// being advertised. So we now check if the new message has a
-		// new time stamp, if not then we won't accept the new data as
-		// it would override newer data.
-		if exists && lastUpdate.After(msg.LastUpdate) ||
-			lastUpdate.Equal(msg.LastUpdate) {
-
-			return newErrf(ErrOutdated, "Ignoring outdated "+
-				"announcement for %x", msg.PubKeyBytes)
+			return err
 		}
 
 		if err := r.cfg.Graph.AddLightningNode(msg); err != nil {
@@ -1070,8 +1103,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		}
 
 		invalidateCache = true
-		log.Infof("New channel update applied: %v",
-			spew.Sdump(msg))
+		log.Debugf("New channel update applied: %v", spew.Sdump(msg))
 
 	default:
 		return errors.Errorf("wrong routing update message type")
@@ -1906,4 +1938,64 @@ func (r *ChannelRouter) AddProof(chanID lnwire.ShortChannelID,
 
 	info.AuthProof = proof
 	return r.cfg.Graph.UpdateChannelEdge(info)
+}
+
+// IsStaleNode returns true if the graph source has a node announcement for the
+// target node with a more recent timestamp.
+//
+// NOTE: This method is part of the ChannelGraphSource interface.
+func (r *ChannelRouter) IsStaleNode(node Vertex, timestamp time.Time) bool {
+	// If our attempt to assert that the node announcement is fresh fails,
+	// then we know that this is actually a stale announcement.
+	return r.assertNodeAnnFreshness(node, timestamp) != nil
+}
+
+// IsKnownEdge returns true if the graph source already knows of the passed
+// channel ID.
+//
+// NOTE: This method is part of the ChannelGraphSource interface.
+func (r *ChannelRouter) IsKnownEdge(chanID lnwire.ShortChannelID) bool {
+	_, _, exists, _ := r.cfg.Graph.HasChannelEdge(chanID.ToUint64())
+	return exists
+}
+
+// IsStaleEdgePolicy returns true if the graph soruce has a channel edge for
+// the passed channel ID (and flags) that have a more recent timestamp.
+//
+// NOTE: This method is part of the ChannelGraphSource interface.
+func (r *ChannelRouter) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
+	timestamp time.Time, flags lnwire.ChanUpdateFlag) bool {
+
+	edge1Timestamp, edge2Timestamp, exists, err := r.cfg.Graph.HasChannelEdge(
+		chanID.ToUint64(),
+	)
+	if err != nil {
+		return false
+
+	}
+
+	// If we don't know of the edge, then it means it's fresh (thus not
+	// stale).
+	if !exists {
+		return false
+	}
+
+	// As edges are directional edge node has a unique policy for the
+	// direction of the edge they control. Therefore we first check if we
+	// already have the most up to date information for that edge. If so,
+	// then we can exit early.
+	switch {
+
+	// A flag set of 0 indicates this is an announcement for the "first"
+	// node in the channel.
+	case flags&lnwire.ChanUpdateDirection == 0:
+		return !edge1Timestamp.Before(timestamp)
+
+	// Similarly, a flag set of 1 indicates this is an announcement for the
+	// "second" node in the channel.
+	case flags&lnwire.ChanUpdateDirection == 1:
+		return !edge2Timestamp.Before(timestamp)
+	}
+
+	return false
 }

@@ -1391,3 +1391,242 @@ func TestFindPathFeeWeighting(t *testing.T) {
 		t.Fatalf("wrong node: %v", path[0].Node.Alias)
 	}
 }
+
+// TestIsStaleNode tests that the IsStaleNode method properly detects stale
+// node announcements.
+func TestIsStaleNode(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	// Before we can insert a node in to the database, we need to create a
+	// channel that it's linked to.
+	var (
+		pub1 [33]byte
+		pub2 [33]byte
+	)
+	copy(pub1[:], priv1.PubKey().SerializeCompressed())
+	copy(pub2[:], priv2.PubKey().SerializeCompressed())
+
+	fundingTx, _, chanID, err := createChannelEdge(ctx,
+		bitcoinKey1.SerializeCompressed(),
+		bitcoinKey2.SerializeCompressed(),
+		10000, 500)
+	if err != nil {
+		t.Fatalf("unable to create channel edge: %v", err)
+	}
+	fundingBlock := &wire.MsgBlock{
+		Transactions: []*wire.MsgTx{fundingTx},
+	}
+	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
+
+	edge := &channeldb.ChannelEdgeInfo{
+		ChannelID:        chanID.ToUint64(),
+		NodeKey1Bytes:    pub1,
+		NodeKey2Bytes:    pub2,
+		BitcoinKey1Bytes: pub1,
+		BitcoinKey2Bytes: pub2,
+		AuthProof:        nil,
+	}
+	if err := ctx.router.AddEdge(edge); err != nil {
+		t.Fatalf("unable to add edge: %v", err)
+	}
+
+	// Before we add the node, if we query for staleness, we should get
+	// false, as we haven't added the full node.
+	updateTimeStamp := time.Unix(123, 0)
+	if ctx.router.IsStaleNode(pub1, updateTimeStamp) {
+		t.Fatalf("incorrectly detected node as stale")
+	}
+
+	// With the node stub in the database, we'll add the fully node
+	// announcement to the database.
+	n1 := &channeldb.LightningNode{
+		HaveNodeAnnouncement: true,
+		LastUpdate:           updateTimeStamp,
+		Addresses:            testAddrs,
+		Color:                color.RGBA{1, 2, 3, 0},
+		Alias:                "node11",
+		AuthSigBytes:         testSig.Serialize(),
+		Features:             testFeatures,
+	}
+	copy(n1.PubKeyBytes[:], priv1.PubKey().SerializeCompressed())
+	if err := ctx.router.AddNode(n1); err != nil {
+		t.Fatalf("could not add node: %v", err)
+	}
+
+	// If we use the same timestamp and query for staleness, we should get
+	// true.
+	if !ctx.router.IsStaleNode(pub1, updateTimeStamp) {
+		t.Fatalf("failure to detect stale node update")
+	}
+
+	// If we update the timestamp and once again query for staleness, it
+	// should report false.
+	newTimeStamp := time.Unix(1234, 0)
+	if ctx.router.IsStaleNode(pub1, newTimeStamp) {
+		t.Fatalf("incorrectly detected node as stale")
+	}
+}
+
+// TestIsKnownEdge tests that the IsKnownEdge method properly detects stale
+// channel announcements.
+func TestIsKnownEdge(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	// First, we'll create a new channel edge (just the info) and insert it
+	// into the database.
+	var (
+		pub1 [33]byte
+		pub2 [33]byte
+	)
+	copy(pub1[:], priv1.PubKey().SerializeCompressed())
+	copy(pub2[:], priv2.PubKey().SerializeCompressed())
+
+	fundingTx, _, chanID, err := createChannelEdge(ctx,
+		bitcoinKey1.SerializeCompressed(),
+		bitcoinKey2.SerializeCompressed(),
+		10000, 500)
+	if err != nil {
+		t.Fatalf("unable to create channel edge: %v", err)
+	}
+	fundingBlock := &wire.MsgBlock{
+		Transactions: []*wire.MsgTx{fundingTx},
+	}
+	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
+
+	edge := &channeldb.ChannelEdgeInfo{
+		ChannelID:        chanID.ToUint64(),
+		NodeKey1Bytes:    pub1,
+		NodeKey2Bytes:    pub2,
+		BitcoinKey1Bytes: pub1,
+		BitcoinKey2Bytes: pub2,
+		AuthProof:        nil,
+	}
+	if err := ctx.router.AddEdge(edge); err != nil {
+		t.Fatalf("unable to add edge: %v", err)
+	}
+
+	// Now that the edge has been inserted, query is the router already
+	// knows of the edge should return true.
+	if !ctx.router.IsKnownEdge(*chanID) {
+		t.Fatalf("router should detect edge as known")
+	}
+}
+
+// TestIsStaleEdgePolicy tests that the IsStaleEdgePolicy properly detects
+// stale channel edge update announcements.
+func TestIsStaleEdgePolicy(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx, cleanUp, err := createTestCtx(startingBlockHeight,
+		basicGraphFilePath)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	// First, we'll create a new channel edge (just the info) and insert it
+	// into the database.
+	var (
+		pub1 [33]byte
+		pub2 [33]byte
+	)
+	copy(pub1[:], priv1.PubKey().SerializeCompressed())
+	copy(pub2[:], priv2.PubKey().SerializeCompressed())
+
+	fundingTx, _, chanID, err := createChannelEdge(ctx,
+		bitcoinKey1.SerializeCompressed(),
+		bitcoinKey2.SerializeCompressed(),
+		10000, 500)
+	if err != nil {
+		t.Fatalf("unable to create channel edge: %v", err)
+	}
+	fundingBlock := &wire.MsgBlock{
+		Transactions: []*wire.MsgTx{fundingTx},
+	}
+	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
+
+	// If we query for staleness before adding the edge, we should get
+	// false.
+	updateTimeStamp := time.Unix(123, 0)
+	if ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 0) {
+		t.Fatalf("router failed to detect fresh edge policy")
+	}
+	if ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 1) {
+		t.Fatalf("router failed to detect fresh edge policy")
+	}
+
+	edge := &channeldb.ChannelEdgeInfo{
+		ChannelID:        chanID.ToUint64(),
+		NodeKey1Bytes:    pub1,
+		NodeKey2Bytes:    pub2,
+		BitcoinKey1Bytes: pub1,
+		BitcoinKey2Bytes: pub2,
+		AuthProof:        nil,
+	}
+	if err := ctx.router.AddEdge(edge); err != nil {
+		t.Fatalf("unable to add edge: %v", err)
+	}
+
+	// We'll also add two edge policies, one for each direction.
+	edgePolicy := &channeldb.ChannelEdgePolicy{
+		SigBytes:                  testSig.Serialize(),
+		ChannelID:                 edge.ChannelID,
+		LastUpdate:                updateTimeStamp,
+		TimeLockDelta:             10,
+		MinHTLC:                   1,
+		FeeBaseMSat:               10,
+		FeeProportionalMillionths: 10000,
+	}
+	edgePolicy.Flags = 0
+	if err := ctx.router.UpdateEdge(edgePolicy); err != nil {
+		t.Fatalf("unable to update edge policy: %v", err)
+	}
+
+	edgePolicy = &channeldb.ChannelEdgePolicy{
+		SigBytes:                  testSig.Serialize(),
+		ChannelID:                 edge.ChannelID,
+		LastUpdate:                updateTimeStamp,
+		TimeLockDelta:             10,
+		MinHTLC:                   1,
+		FeeBaseMSat:               10,
+		FeeProportionalMillionths: 10000,
+	}
+	edgePolicy.Flags = 1
+	if err := ctx.router.UpdateEdge(edgePolicy); err != nil {
+		t.Fatalf("unable to update edge policy: %v", err)
+	}
+
+	// Now that the edges have been added, an identical (chanID, flag,
+	// timestamp) tuple for each edge should be detected as a stale edge.
+	if !ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 0) {
+		t.Fatalf("router failed to detect stale edge policy")
+	}
+	if !ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 1) {
+		t.Fatalf("router failed to detect stale edge policy")
+	}
+
+	// If we now update the timestamp for both edges, the router should
+	// detect that this tuple represents a fresh edge.
+	updateTimeStamp = time.Unix(9999, 0)
+	if ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 0) {
+		t.Fatalf("router failed to detect fresh edge policy")
+	}
+	if ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 1) {
+		t.Fatalf("router failed to detect fresh edge policy")
+	}
+}

@@ -157,6 +157,15 @@ func NewChannelReservation(capacity, fundingAmt btcutil.Amount,
 		ourBalance = pushMSat
 		theirBalance = capacityMSat - feeMSat - pushMSat
 		initiator = false
+
+		// If the responder doesn't have enough funds to actually pay
+		// the fees, then we'll bail our early.
+		if int64(theirBalance) < 0 {
+			return nil, ErrFunderBalanceDust(
+				int64(commitFee), int64(theirBalance.ToSatoshis()),
+				int64(2*DefaultDustLimit()),
+			)
+		}
 	} else {
 		// TODO(roasbeef): need to rework fee structure in general and
 		// also when we "unlock" dual funder within the daemon
@@ -177,6 +186,15 @@ func NewChannelReservation(capacity, fundingAmt btcutil.Amount,
 		}
 
 		initiator = true
+
+		// If we, the initiator don't have enough funds to actually pay
+		// the fees, then we'll exit with an error.
+		if int64(ourBalance) < 0 {
+			return nil, ErrFunderBalanceDust(
+				int64(commitFee), int64(ourBalance),
+				int64(2*DefaultDustLimit()),
+			)
+		}
 	}
 
 	// If we're the initiator and our starting balance within the channel

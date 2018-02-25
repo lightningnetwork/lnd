@@ -150,10 +150,6 @@ func TestEncodeAmount(t *testing.T) {
 		result string
 	}{
 		{
-			msat:  -10,   // mSat
-			valid: false, // negative amount
-		},
-		{
 			msat:   1, // mSat
 			valid:  true,
 			result: "10p", // pBTC

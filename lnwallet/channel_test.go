@@ -2462,8 +2462,8 @@ func TestAddHTLCNegativeBalance(t *testing.T) {
 	}
 	defer cleanUp()
 
-	// We set the channel reserve to 0, such that we can add HTLCs
-	// all the way to a negative balance.
+	// We set the channel reserve to 0, such that we can add HTLCs all the
+	// way to a negative balance.
 	aliceChannel.localChanCfg.ChanReserve = 0
 
 	// First, we'll add 3 HTLCs of 1 BTC each to Alice's commitment.
@@ -2476,14 +2476,15 @@ func TestAddHTLCNegativeBalance(t *testing.T) {
 		}
 	}
 
-	// Alice now has an available balance of 2 BTC. We'll add a new HTLC
-	// of value 2 BTC, which should make Alice's balance negative (since
-	// (she has to pay a commitment fee).
+	// Alice now has an available balance of 2 BTC. We'll add a new HTLC of
+	// value 2 BTC, which should make Alice's balance negative (since (she
+	// has to pay a commitment fee).
 	htlcAmt = lnwire.NewMSatFromSatoshis(2 * btcutil.SatoshiPerBitcoin)
 	htlc, _ := createHTLC(numHTLCs+1, htlcAmt)
 	_, err = aliceChannel.AddHTLC(htlc)
 	if err != ErrBelowChanReserve {
-		t.Fatalf("expected balance below channel reserve, instead got: %v", err)
+		t.Fatalf("expected balance below channel reserve, instead "+
+			"got: %v", err)
 	}
 }
 
@@ -4375,23 +4376,22 @@ func TestDesyncHTLCs(t *testing.T) {
 		t.Fatalf("unable to recv htlc cancel: %v", err)
 	}
 
-	// Alice now has gotten all here original balance (5 BTC) back,
-	// however, adding a new HTLC at this point SHOULD fail, since
-	// if she add the HTLC and sign the next state, Bob cannot assume
-	// she received the FailHTLC, and must assume she doesn't have
-	// the necessary balance available.
+	// Alice now has gotten all her original balance (5 BTC) back, however,
+	// adding a new HTLC at this point SHOULD fail, since if she adds the
+	// HTLC and sign the next state, Bob cannot assume she received the
+	// FailHTLC, and must assume she doesn't have the necessary balance
+	// available.
 	//
-	// We try adding an HTLC of value 1 BTC, which should fail
-	// because the balance is unavailable.
+	// We try adding an HTLC of value 1 BTC, which should fail because the
+	// balance is unavailable.
 	htlcAmt = lnwire.NewMSatFromSatoshis(1 * btcutil.SatoshiPerBitcoin)
 	htlc, _ = createHTLC(1, htlcAmt)
 	if _, err = aliceChannel.AddHTLC(htlc); err != ErrBelowChanReserve {
-		t.Fatalf("expected ErrInsufficientBalance, instead received: %v",
-			err)
+		t.Fatalf("expected ErrBelowChanReserve, instead received: %v", err)
 	}
 
-	// Now do a state transition, which will ACK the FailHTLC, making
-	// Alice able to add the new HTLC.
+	// Now do a state transition, which will ACK the FailHTLC, making Alice
+	// able to add the new HTLC.
 	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
 		t.Fatalf("unable to complete state update: %v", err)
 	}
@@ -4403,7 +4403,8 @@ func TestDesyncHTLCs(t *testing.T) {
 // TODO(roasbeef): testing.Quick test case for retrans!!!
 
 // TestMaxAcceptedHTLCs tests that the correct error message (ErrMaxHTLCNumber)
-// is thrown when a node tries to accept more than MaxAcceptedHTLCs in a channel.
+// is thrown when a node tries to accept more than MaxAcceptedHTLCs in a
+// channel.
 func TestMaxAcceptedHTLCs(t *testing.T) {
 	t.Parallel()
 

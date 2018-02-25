@@ -199,6 +199,49 @@ func (r *mockGraphSource) GetChannelByID(chanID lnwire.ShortChannelID) (
 	return chanInfo, edges[0], edges[1], nil
 }
 
+// IsStaleNode returns true if the graph source has a node announcement for the
+// target node with a more recent timestamp.
+func (r *mockGraphSource) IsStaleNode(nodePub routing.Vertex, timestamp time.Time) bool {
+	for _, node := range r.nodes {
+		if node.PubKeyBytes == nodePub {
+			return node.LastUpdate.After(timestamp) ||
+				node.LastUpdate.Equal(timestamp)
+		}
+	}
+
+	return false
+}
+
+// IsKnownEdge returns true if the graph source already knows of the passed
+// channel ID.
+func (r *mockGraphSource) IsKnownEdge(chanID lnwire.ShortChannelID) bool {
+	_, ok := r.infos[chanID.ToUint64()]
+	return ok
+}
+
+// IsStaleEdgePolicy returns true if the graph source has a channel edge for
+// the passed channel ID (and flags) that have a more recent timestamp.
+func (r *mockGraphSource) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
+	timestamp time.Time, flags lnwire.ChanUpdateFlag) bool {
+
+	edges, ok := r.edges[chanID.ToUint64()]
+	if !ok {
+		return false
+	}
+
+	switch {
+
+	case len(edges) >= 1 && edges[0].Flags == flags:
+		return !edges[0].LastUpdate.Before(timestamp)
+
+	case len(edges) >= 2 && edges[1].Flags == flags:
+		return !edges[1].LastUpdate.Before(timestamp)
+
+	default:
+		return false
+	}
+}
+
 type mockNotifier struct {
 	clientCounter uint32
 	epochClients  map[uint32]chan *chainntnfs.BlockEpoch

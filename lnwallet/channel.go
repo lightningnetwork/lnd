@@ -3054,7 +3054,7 @@ func (lc *LightningChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
 
 // computeView takes the given htlcView, and calculates the balances, filtered
 // view (settling unsettled HTLCs), commitment weight and feePerKw, after
-// applying the HTLCs to the latest commitment. The returned balanced are the
+// applying the HTLCs to the latest commitment. The returned balances are the
 // balances *before* subtracting the commitment fee from the initiator's
 // balance.
 //
@@ -5137,10 +5137,18 @@ func (lc *LightningChannel) validateFeeRate(feePerKw SatPerKWeight) error {
 	newFee := lnwire.NewMSatFromSatoshis(
 		feePerKw.FeeForWeight(txWeight),
 	)
-	balanceAfterFee := availableBalance - newFee
+
+	// If the total fee exceeds our available balance, then we'll reject
+	// this update as it would mean we need to trim our entire output.
+	if newFee > availableBalance {
+		return fmt.Errorf("cannot apply fee_update=%v sat/kw, new fee "+
+			"of %v is greater than balance of %v", int64(feePerKw),
+			newFee, availableBalance)
+	}
 
 	// If this new balance is below our reserve, then we can't accommodate
 	// the fee change, so we'll reject it.
+	balanceAfterFee := availableBalance - newFee
 	if balanceAfterFee.ToSatoshis() < lc.channelState.LocalChanCfg.ChanReserve {
 		return fmt.Errorf("cannot apply fee_update=%v sat/kw, "+
 			"insufficient balance: start=%v, end=%v",

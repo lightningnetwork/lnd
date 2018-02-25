@@ -2477,7 +2477,7 @@ func TestAddHTLCNegativeBalance(t *testing.T) {
 	}
 
 	// Alice now has an available balance of 2 BTC. We'll add a new HTLC of
-	// value 2 BTC, which should make Alice's balance negative (since (she
+	// value 2 BTC, which should make Alice's balance negative (since she
 	// has to pay a commitment fee).
 	htlcAmt = lnwire.NewMSatFromSatoshis(2 * btcutil.SatoshiPerBitcoin)
 	htlc, _ := createHTLC(numHTLCs+1, htlcAmt)
@@ -4378,7 +4378,7 @@ func TestDesyncHTLCs(t *testing.T) {
 
 	// Alice now has gotten all her original balance (5 BTC) back, however,
 	// adding a new HTLC at this point SHOULD fail, since if she adds the
-	// HTLC and sign the next state, Bob cannot assume she received the
+	// HTLC and signs the next state, Bob cannot assume she received the
 	// FailHTLC, and must assume she doesn't have the necessary balance
 	// available.
 	//

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -806,8 +807,9 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 			dustLimit:    tc.dustLimit,
 			isOurs:       true,
 		}
-		err = channel.createCommitmentTx(commitmentView, theHTLCView,
-			keys)
+		err = channel.createCommitmentTx(
+			commitmentView, theHTLCView, keys,
+		)
 		if err != nil {
 			t.Errorf("Case %d: Failed to create new commitment tx: %v", i, err)
 			continue
@@ -836,8 +838,8 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 		// Check that commitment transaction was created correctly.
 		if commitTx.WitnessHash() != *expectedCommitmentTx.WitnessHash() {
 			t.Errorf("Case %d: Generated unexpected commitment tx: "+
-				"expected %s, got %s", i, expectedCommitmentTx.WitnessHash(),
-				commitTx.WitnessHash())
+				"expected %s, got %s", i, spew.Sdump(expectedCommitmentTx),
+				spew.Sdump(commitTx))
 			continue
 		}
 

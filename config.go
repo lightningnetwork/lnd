@@ -151,8 +151,8 @@ type config struct {
 	LndDir       string `long:"lnddir" description:"The base directory that contains lnd's data, logs, configuration file, etc."`
 	ConfigFile   string `long:"C" long:"configfile" description:"Path to configuration file"`
 	DataDir      string `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
-	TLSCertPath  string `long:"tlscertpath" description:"Path to TLS certificate for lnd's RPC and REST services"`
-	TLSKeyPath   string `long:"tlskeypath" description:"Path to TLS private key for lnd's RPC and REST services"`
+	TLSCertPath  string `long:"tlscertpath" description:"Path to write the TLS certificate for lnd's RPC and REST services"`
+	TLSKeyPath   string `long:"tlskeypath" description:"Path to write the TLS private key for lnd's RPC and REST services"`
 	TLSExtraIP   string `long:"tlsextraip" description:"Adds an extra ip to the generated certificate"`
 	NoMacaroons  bool   `long:"no-macaroons" description:"Disable macaroon authentication"`
 	AdminMacPath string `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
@@ -320,6 +320,19 @@ func loadConfig() (*config, error) {
 	if _, err := flags.Parse(&cfg); err != nil {
 		return nil, err
 	}
+
+	// As soon as we're done parsing configuration options, ensure all paths
+	// to directories and files are cleaned and expanded before attempting
+	// to use them later on.
+	cfg.DataDir = cleanAndExpandPath(cfg.DataDir)
+	cfg.TLSCertPath = cleanAndExpandPath(cfg.TLSCertPath)
+	cfg.TLSKeyPath = cleanAndExpandPath(cfg.TLSKeyPath)
+	cfg.AdminMacPath = cleanAndExpandPath(cfg.AdminMacPath)
+	cfg.ReadMacPath = cleanAndExpandPath(cfg.ReadMacPath)
+	cfg.LogDir = cleanAndExpandPath(cfg.LogDir)
+	cfg.BtcdMode.Dir = cleanAndExpandPath(cfg.BtcdMode.Dir)
+	cfg.LtcdMode.Dir = cleanAndExpandPath(cfg.LtcdMode.Dir)
+	cfg.BitcoindMode.Dir = cleanAndExpandPath(cfg.BitcoindMode.Dir)
 
 	// Setup dial and DNS resolution functions depending on the specified
 	// options. The default is to use the standard golang "net" package
@@ -510,27 +523,11 @@ func loadConfig() (*config, error) {
 		cfg.ReadMacPath = filepath.Join(cfg.DataDir, defaultReadMacFilename)
 	}
 
-	// Append the network type to the data directory so it is "namespaced"
-	// per network. In addition to the block database, there are other
-	// pieces of data that are saved to disk such as address manager state.
-	// All data is specific to a network, so namespacing the data directory
-	// means each individual piece of serialized data does not have to
-	// worry about changing names per network and such.
-	// TODO(roasbeef): when we go full multi-chain remove the additional
-	// namespacing on the target chain.
-	cfg.DataDir = cleanAndExpandPath(cfg.DataDir)
-
 	// Append the network type to the log directory so it is "namespaced"
 	// per network in the same fashion as the data directory.
-	cfg.LogDir = cleanAndExpandPath(cfg.LogDir)
 	cfg.LogDir = filepath.Join(cfg.LogDir,
 		registeredChains.PrimaryChain().String(),
 		normalizeNetwork(activeNetParams.Name))
-
-	// Ensure that the paths to the TLS key and certificate files are
-	// expanded and cleaned.
-	cfg.TLSCertPath = cleanAndExpandPath(cfg.TLSCertPath)
-	cfg.TLSKeyPath = cleanAndExpandPath(cfg.TLSKeyPath)
 
 	// Initialize logging at the default logging level.
 	initLogRotator(filepath.Join(cfg.LogDir, defaultLogFilename))

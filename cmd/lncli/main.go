@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 
@@ -236,7 +237,15 @@ func main() {
 func cleanAndExpandPath(path string) string {
 	// Expand initial ~ to OS specific home directory.
 	if strings.HasPrefix(path, "~") {
-		homeDir := filepath.Dir(defaultLndDir)
+		var homeDir string
+
+		user, err := user.Current()
+		if err == nil {
+			homeDir = user.HomeDir
+		} else {
+			homeDir = os.Getenv("HOME")
+		}
+
 		path = strings.Replace(path, "~", homeDir, 1)
 	}
 

@@ -1,7 +1,6 @@
 package lnwallet
 
 import (
-	"fmt"
 	"net"
 	"sync"
 
@@ -186,9 +185,11 @@ func NewChannelReservation(capacity, fundingAmt btcutil.Amount,
 	//
 	// TODO(roasbeef): reject if 30% goes to fees? dust channel
 	if initiator && ourBalance.ToSatoshis() <= 2*DefaultDustLimit() {
-		return nil, fmt.Errorf("unable to init reservation, with "+
-			"fee=%v sat/kw, local output is too small: %v sat",
-			int64(commitFee), int64(ourBalance.ToSatoshis()))
+		return nil, ErrFunderBalanceDust(
+			int64(commitFee),
+			int64(ourBalance.ToSatoshis()),
+			int64(2*DefaultDustLimit()),
+		)
 	}
 
 	// Next we'll set the channel type based on what we can ascertain about
@@ -282,8 +283,9 @@ func (r *ChannelReservation) CommitConstraints(csvDelay, maxHtlcs uint16,
 
 	// Fail if we consider csvDelay excessively large.
 	// TODO(halseth): find a more scientific choice of value.
-	if csvDelay > 10000 {
-		return fmt.Errorf("csvDelay is too large: %d", csvDelay)
+	const maxDelay = 10000
+	if csvDelay > maxDelay {
+		return ErrCsvDelayTooLarge(csvDelay, maxDelay)
 	}
 
 	// Fail if we consider the channel reserve to be too large.
@@ -291,8 +293,7 @@ func (r *ChannelReservation) CommitConstraints(csvDelay, maxHtlcs uint16,
 	// channel capacity.
 	maxChanReserve := r.partialState.Capacity / 5
 	if chanReserve > maxChanReserve {
-		return fmt.Errorf("chanReserve is too large: %g",
-			chanReserve.ToBTC())
+		return ErrChanReserveTooLarge(chanReserve, maxChanReserve)
 	}
 
 	// Fail if the minimum HTLC value is too large. If this is
@@ -302,29 +303,28 @@ func (r *ChannelReservation) CommitConstraints(csvDelay, maxHtlcs uint16,
 	// it wants.
 	// TODO(halseth): set a reasonable/dynamic value.
 	if minHtlc > maxValueInFlight {
-		return fmt.Errorf("minimum HTLC value is too large: %g",
-			r.ourContribution.MinHTLC.ToBTC())
+		return ErrMinHtlcTooLarge(minHtlc, maxValueInFlight)
 	}
 
 	// Fail if maxHtlcs is above the maximum allowed number of 483.
 	// This number is specified in BOLT-02.
 	if maxHtlcs > uint16(MaxHTLCNumber/2) {
-		return fmt.Errorf("maxHtlcs is too large: %d", maxHtlcs)
+		return ErrMaxHtlcNumTooLarge(maxHtlcs, uint16(MaxHTLCNumber/2))
 	}
 
 	// Fail if we consider maxHtlcs too small. If this is too small
 	// we cannot offer many HTLCs to the remote.
 	const minNumHtlc = 5
 	if maxHtlcs < minNumHtlc {
-		return fmt.Errorf("maxHtlcs is too small: %d", maxHtlcs)
+		return ErrMaxHtlcNumTooSmall(maxHtlcs, minNumHtlc)
 	}
 
 	// Fail if we consider maxValueInFlight too small. We currently
 	// require the remote to at least allow minNumHtlc * minHtlc
 	// in flight.
 	if maxValueInFlight < minNumHtlc*minHtlc {
-		return fmt.Errorf("maxValueInFlight is too small: %g",
-			maxValueInFlight.ToBTC())
+		return ErrMaxValueInFlightTooSmall(maxValueInFlight,
+			minNumHtlc*minHtlc)
 	}
 
 	r.ourContribution.ChannelConfig.CsvDelay = csvDelay

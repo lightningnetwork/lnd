@@ -994,15 +994,15 @@ func (u *utxoNursery) createSweepTx(kgtnOutputs []kidOutput,
 	utxnLog.Infof("Creating sweep transaction for %v CSV inputs, %v CLTV "+
 		"inputs", len(csvOutputs), len(cltvOutputs))
 
-	txWeight := uint64(weightEstimate.Weight())
-	return u.populateSweepTx(txWeight, classHeight, csvOutputs, cltvOutputs)
+	txVSize := int64(weightEstimate.VSize())
+	return u.populateSweepTx(txVSize, classHeight, csvOutputs, cltvOutputs)
 }
 
 // populateSweepTx populate the final sweeping transaction with all witnesses
 // in place for all inputs using the provided txn fee. The created transaction
 // has a single output sending all the funds back to the source wallet, after
 // accounting for the fee estimate.
-func (u *utxoNursery) populateSweepTx(txWeight uint64, classHeight uint32,
+func (u *utxoNursery) populateSweepTx(txVSize int64, classHeight uint32,
 	csvInputs []CsvSpendableOutput,
 	cltvInputs []SpendableOutput) (*wire.MsgTx, error) {
 
@@ -1022,11 +1022,11 @@ func (u *utxoNursery) populateSweepTx(txWeight uint64, classHeight uint32,
 	}
 
 	// Using the txn weight estimate, compute the required txn fee.
-	feePerWeight, err := u.cfg.Estimator.EstimateFeePerWeight(6)
+	feePerVSize, err := u.cfg.Estimator.EstimateFeePerVSize(6)
 	if err != nil {
 		return nil, err
 	}
-	txFee := btcutil.Amount(txWeight) * feePerWeight
+	txFee := feePerVSize.FeeForVSize(txVSize)
 
 	// Sweep as much possible, after subtracting txn fees.
 	sweepAmt := int64(totalSum - txFee)

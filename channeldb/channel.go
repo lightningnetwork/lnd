@@ -249,6 +249,10 @@ type ChannelCommitment struct {
 	// the commitment transaction for the entire duration of the channel's
 	// lifetime. This field may be updated during normal operation of the
 	// channel as on-chain conditions change.
+	//
+	// TODO(halseth): make this SatPerKWeight. Cannot be done atm because
+	// this will cause the import cycle lnwallet<->channeldb. Fee
+	// estimation stuff should be in its own package.
 	FeePerKw btcutil.Amount
 
 	// CommitTx is the latest version of the commitment state, broadcast

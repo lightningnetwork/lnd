@@ -24,7 +24,6 @@ import (
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 type mockPreimageCache struct {
@@ -57,24 +56,14 @@ func (m *mockPreimageCache) SubscribeUpdates() *contractcourt.WitnessSubscriptio
 }
 
 type mockFeeEstimator struct {
-	byteFeeIn   chan btcutil.Amount
-	weightFeeIn chan btcutil.Amount
+	byteFeeIn chan lnwallet.SatPerVByte
 
 	quit chan struct{}
 }
 
-func (m *mockFeeEstimator) EstimateFeePerByte(numBlocks uint32) (btcutil.Amount, error) {
+func (m *mockFeeEstimator) EstimateFeePerVSize(numBlocks uint32) (lnwallet.SatPerVByte, error) {
 	select {
 	case feeRate := <-m.byteFeeIn:
-		return feeRate, nil
-	case <-m.quit:
-		return 0, fmt.Errorf("exiting")
-	}
-}
-
-func (m *mockFeeEstimator) EstimateFeePerWeight(numBlocks uint32) (btcutil.Amount, error) {
-	select {
-	case feeRate := <-m.weightFeeIn:
 		return feeRate, nil
 	case <-m.quit:
 		return 0, fmt.Errorf("exiting")

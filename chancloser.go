@@ -150,7 +150,7 @@ type channelCloser struct {
 // passed configuration, and delivery+fee preference. The final argument should
 // only be populated iff, we're the initiator of this closing request.
 func newChannelCloser(cfg chanCloseCfg, deliveryScript []byte,
-	idealFeePerkw btcutil.Amount, negotiationHeight uint32,
+	idealFeePerKw lnwallet.SatPerKWeight, negotiationHeight uint32,
 	closeReq *htlcswitch.ChanClose,
 	closeCtx *contractcourt.CooperativeCloseCtx) *channelCloser {
 
@@ -158,9 +158,7 @@ func newChannelCloser(cfg chanCloseCfg, deliveryScript []byte,
 	// fee will be starting at for this fee negotiation.
 	//
 	// TODO(roasbeef): should factor in minimal commit
-	idealFeeSat := btcutil.Amount(
-		cfg.channel.CalcFee(uint64(idealFeePerkw)),
-	)
+	idealFeeSat := cfg.channel.CalcFee(idealFeePerKw)
 
 	// If this fee is greater than the fee currently present within the
 	// commitment transaction, then we'll clamp it down to be within the

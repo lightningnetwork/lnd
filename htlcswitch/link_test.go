@@ -1683,13 +1683,13 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	estimator := &lnwallet.StaticFeeEstimator{
 		FeeRate: 24,
 	}
-	feePerWeight, err := estimator.EstimateFeePerWeight(1)
+	feeRate, err := estimator.EstimateFeePerVSize(1)
 	if err != nil {
 		t.Fatalf("unable to query fee estimator: %v", err)
 	}
-	feePerKw := feePerWeight * 1000
+	feePerKw := feeRate.FeePerKWeight()
 	htlcFee := lnwire.NewMSatFromSatoshis(
-		btcutil.Amount((int64(feePerKw) * lnwallet.HtlcWeight) / 1000),
+		feePerKw.FeeForWeight(lnwallet.HtlcWeight),
 	)
 
 	// The starting bandwidth of the channel should be exactly the amount
@@ -2010,11 +2010,11 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 	estimator := &lnwallet.StaticFeeEstimator{
 		FeeRate: 24,
 	}
-	feePerWeight, err := estimator.EstimateFeePerWeight(1)
+	feeRate, err := estimator.EstimateFeePerVSize(1)
 	if err != nil {
 		t.Fatalf("unable to query fee estimator: %v", err)
 	}
-	feePerKw := feePerWeight * 1000
+	feePerKw := feeRate.FeePerKWeight()
 
 	// The starting bandwidth of the channel should be exactly the amount
 	// that we created the channel between her and Bob.
@@ -2077,7 +2077,7 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 	time.Sleep(time.Second * 1)
 	commitWeight := lnwallet.CommitWeight + lnwallet.HtlcWeight*numHTLCs
 	htlcFee := lnwire.NewMSatFromSatoshis(
-		btcutil.Amount((int64(feePerKw) * commitWeight) / 1000),
+		feePerKw.FeeForWeight(commitWeight),
 	)
 	expectedBandwidth = aliceStartingBandwidth - totalHtlcAmt - htlcFee
 	expectedBandwidth += lnwire.NewMSatFromSatoshis(defaultCommitFee)
@@ -2222,13 +2222,13 @@ func TestChannelLinkBandwidthChanReserve(t *testing.T) {
 	estimator := &lnwallet.StaticFeeEstimator{
 		FeeRate: 24,
 	}
-	feePerWeight, err := estimator.EstimateFeePerWeight(1)
+	feeRate, err := estimator.EstimateFeePerVSize(1)
 	if err != nil {
 		t.Fatalf("unable to query fee estimator: %v", err)
 	}
-	feePerKw := feePerWeight * 1000
+	feePerKw := feeRate.FeePerKWeight()
 	htlcFee := lnwire.NewMSatFromSatoshis(
-		btcutil.Amount((int64(feePerKw) * lnwallet.HtlcWeight) / 1000),
+		feePerKw.FeeForWeight(lnwallet.HtlcWeight),
 	)
 
 	// The starting bandwidth of the channel should be exactly the amount
@@ -2595,8 +2595,8 @@ func TestChannelRetransmission(t *testing.T) {
 // deviates from our current fee by more 10% or more.
 func TestShouldAdjustCommitFee(t *testing.T) {
 	tests := []struct {
-		netFee       btcutil.Amount
-		chanFee      btcutil.Amount
+		netFee       lnwallet.SatPerKWeight
+		chanFee      lnwallet.SatPerKWeight
 		shouldAdjust bool
 	}{
 
@@ -2754,9 +2754,15 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 
 	startingFeeRate := channels.aliceToBob.CommitFeeRate()
 
+	// Convert starting fee rate to sat/vbyte. This is usually a
+	// lossy conversion, but since the startingFeeRate is
+	// 6000 sat/kw in this case, we won't lose precision.
+	startingFeeRateSatPerVByte := lnwallet.SatPerVByte(
+		startingFeeRate * 4 / 1000)
+
 	// Next, we'll send the first fee rate response to Alice.
 	select {
-	case n.feeEstimator.weightFeeIn <- startingFeeRate / 1000:
+	case n.feeEstimator.byteFeeIn <- startingFeeRateSatPerVByte:
 	case <-time.After(time.Second * 5):
 		t.Fatalf("alice didn't query for the new " +
 			"network fee")
@@ -2803,7 +2809,7 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 	// fee update.
 	newFeeRate := startingFeeRate * 3
 	select {
-	case n.feeEstimator.weightFeeIn <- newFeeRate:
+	case n.feeEstimator.byteFeeIn <- startingFeeRateSatPerVByte * 3:
 	case <-time.After(time.Second * 5):
 		t.Fatalf("alice didn't query for the new " +
 			"network fee")
@@ -2813,19 +2819,15 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 
 	// At this point, Alice should've triggered a new fee update that
 	// increased the fee rate to match the new rate.
-	//
-	// We'll scale the new fee rate by 100 as we deal with units of fee
-	// per-kw.
-	expectedFeeRate := newFeeRate * 1000
 	aliceFeeRate = channels.aliceToBob.CommitFeeRate()
 	bobFeeRate = channels.bobToAlice.CommitFeeRate()
-	if aliceFeeRate != expectedFeeRate {
+	if aliceFeeRate != newFeeRate {
 		t.Fatalf("alice's fee rate didn't change: expected %v, got %v",
-			expectedFeeRate, aliceFeeRate)
+			newFeeRate, aliceFeeRate)
 	}
-	if bobFeeRate != expectedFeeRate {
+	if bobFeeRate != newFeeRate {
 		t.Fatalf("bob's fee rate didn't change: expected %v, got %v",
-			expectedFeeRate, aliceFeeRate)
+			newFeeRate, aliceFeeRate)
 	}
 	if aliceFeeRate != bobFeeRate {
 		t.Fatalf("fee rates don't match: expected %v got %v",

@@ -25,7 +25,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
-	"github.com/roasbeef/btcd/blockchain"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/connmgr"
@@ -1651,7 +1650,7 @@ type openChanReq struct {
 
 	pushAmt lnwire.MilliSatoshi
 
-	fundingFeePerWeight btcutil.Amount
+	fundingFeePerVSize lnwallet.SatPerVByte
 
 	private bool
 
@@ -1779,7 +1778,7 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 func (s *server) OpenChannel(nodeKey *btcec.PublicKey,
 	localAmt btcutil.Amount, pushAmt lnwire.MilliSatoshi,
 	minHtlc lnwire.MilliSatoshi,
-	fundingFeePerByte btcutil.Amount,
+	fundingFeePerVSize lnwallet.SatPerVByte,
 	private bool) (chan *lnrpc.OpenStatusUpdate, chan error) {
 
 	updateChan := make(chan *lnrpc.OpenStatusUpdate, 1)
@@ -1811,15 +1810,11 @@ func (s *server) OpenChannel(nodeKey *btcec.PublicKey,
 		return updateChan, errChan
 	}
 
-	// We'll scale the sat/byte set as the fee  rate to sat/weight as this
-	// is what's used internally when deciding upon coin selection.
-	fundingFeePerWeight := fundingFeePerByte / blockchain.WitnessScaleFactor
-
-	// If the fee rate wasn't high enough to cleanly convert to weight,
-	// then we'll use a default confirmation target.
-	if fundingFeePerWeight == 0 {
+	// If the fee rate wasn't specified, then we'll use a default
+	// confirmation target.
+	if fundingFeePerVSize == 0 {
 		estimator := s.cc.feeEstimator
-		fundingFeePerWeight, err = estimator.EstimateFeePerWeight(6)
+		fundingFeePerVSize, err = estimator.EstimateFeePerVSize(6)
 		if err != nil {
 			errChan <- err
 			return updateChan, errChan
@@ -1831,15 +1826,15 @@ func (s *server) OpenChannel(nodeKey *btcec.PublicKey,
 	// instead of blocking on this request which is exported as a
 	// synchronous request to the outside world.
 	req := &openChanReq{
-		targetPubkey:        nodeKey,
-		chainHash:           *activeNetParams.GenesisHash,
-		localFundingAmt:     localAmt,
-		fundingFeePerWeight: fundingFeePerWeight,
-		pushAmt:             pushAmt,
-		private:             private,
-		minHtlc:             minHtlc,
-		updates:             updateChan,
-		err:                 errChan,
+		targetPubkey:       nodeKey,
+		chainHash:          *activeNetParams.GenesisHash,
+		localFundingAmt:    localAmt,
+		fundingFeePerVSize: fundingFeePerVSize,
+		pushAmt:            pushAmt,
+		private:            private,
+		minHtlc:            minHtlc,
+		updates:            updateChan,
+		err:                errChan,
 	}
 
 	// TODO(roasbeef): pass in chan that's closed if/when funding succeeds

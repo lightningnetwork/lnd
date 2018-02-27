@@ -865,7 +865,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// port with default advertised port
 	chainHash := chainhash.Hash(msg.ChainHash)
 	reservation, err := f.cfg.Wallet.InitChannelReservation(amt, 0,
-		msg.PushAmount, btcutil.Amount(msg.FeePerKiloWeight), 0,
+		msg.PushAmount, lnwallet.SatPerKWeight(msg.FeePerKiloWeight), 0,
 		fmsg.peerAddress.IdentityKey, fmsg.peerAddress.Address,
 		&chainHash, msg.ChannelFlags)
 	if err != nil {
@@ -2349,7 +2349,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// commitment transaction confirmed by the next few blocks (conf target
 	// of 3). We target the near blocks here to ensure that we'll be able
 	// to execute a timely unilateral channel closure if needed.
-	feePerWeight, err := f.cfg.FeeEstimator.EstimateFeePerWeight(3)
+	feePerVSize, err := f.cfg.FeeEstimator.EstimateFeePerVSize(3)
 	if err != nil {
 		msg.err <- err
 		return
@@ -2357,7 +2357,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 
 	// The protocol currently operates on the basis of fee-per-kw, so we'll
 	// multiply the computed sat/weight by 1000 to arrive at fee-per-kw.
-	commitFeePerKw := feePerWeight * 1000
+	commitFeePerKw := feePerVSize.FeePerKWeight()
 
 	// We set the channel flags to indicate whether we want this channel
 	// to be announced to the network.
@@ -2371,8 +2371,9 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// wallet doesn't have enough funds to commit to this channel, then the
 	// request will fail, and be aborted.
 	reservation, err := f.cfg.Wallet.InitChannelReservation(capacity,
-		localAmt, msg.pushAmt, commitFeePerKw, msg.fundingFeePerWeight,
-		peerKey, msg.peerAddress.Address.(*net.TCPAddr), &msg.chainHash, channelFlags)
+		localAmt, msg.pushAmt, commitFeePerKw, msg.fundingFeePerVSize,
+		peerKey, msg.peerAddress.Address.(*net.TCPAddr),
+		&msg.chainHash, channelFlags)
 	if err != nil {
 		msg.err <- err
 		return

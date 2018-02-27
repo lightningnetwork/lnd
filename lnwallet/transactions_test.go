@@ -787,7 +787,7 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 			height:       test.commitment.CommitHeight,
 			ourBalance:   test.commitment.LocalBalance,
 			theirBalance: test.commitment.RemoteBalance,
-			feePerKw:     test.commitment.FeePerKw,
+			feePerKw:     SatPerKWeight(test.commitment.FeePerKw),
 			dustLimit:    tc.dustLimit,
 			isOurs:       true,
 		}
@@ -829,8 +829,8 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 		// Generate second-level HTLC transactions for HTLCs in
 		// commitment tx.
 		htlcResolutions, err := extractHtlcResolutions(
-			test.commitment.FeePerKw, true, signer, htlcs, keys,
-			channel.localChanCfg, channel.remoteChanCfg,
+			SatPerKWeight(test.commitment.FeePerKw), true, signer,
+			htlcs, keys, channel.localChanCfg, channel.remoteChanCfg,
 			commitTx.TxHash(), pCache,
 		)
 		if err != nil {

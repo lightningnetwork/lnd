@@ -316,11 +316,11 @@ func (b *BtcWallet) FetchRootKey() (*btcec.PrivateKey, error) {
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
-	feeSatPerByte btcutil.Amount) (*chainhash.Hash, error) {
+	feeRate lnwallet.SatPerVByte) (*chainhash.Hash, error) {
 
-	// The fee rate is passed in using units of sat/byte, so we'll scale
+	// The fee rate is passed in using units of sat/vbyte, so we'll scale
 	// this up to sat/KB as the SendOutputs method requires this unit.
-	feeSatPerKB := feeSatPerByte * 1024
+	feeSatPerKB := btcutil.Amount(feeRate * 1000)
 
 	return b.wallet.SendOutputs(outputs, defaultAccount, 1, feeSatPerKB)
 }

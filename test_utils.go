@@ -138,19 +138,19 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	}
 
 	estimator := &lnwallet.StaticFeeEstimator{FeeRate: 50}
-	feePerWeight, err := estimator.EstimateFeePerWeight(1)
+	feePerVSize, err := estimator.EstimateFeePerVSize(1)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	feePerKw := feePerWeight * 1000
+	feePerKw := feePerVSize.FeePerKWeight()
 
 	// TODO(roasbeef): need to factor in commit fee?
 	aliceCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
 		LocalBalance:  lnwire.NewMSatFromSatoshis(channelBal),
 		RemoteBalance: lnwire.NewMSatFromSatoshis(channelBal),
-		FeePerKw:      feePerKw,
-		CommitFee:     8688,
+		FeePerKw:      btcutil.Amount(feePerKw),
+		CommitFee:     feePerKw.FeeForWeight(lnwallet.CommitWeight),
 		CommitTx:      aliceCommitTx,
 		CommitSig:     bytes.Repeat([]byte{1}, 71),
 	}
@@ -158,8 +158,8 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		CommitHeight:  0,
 		LocalBalance:  lnwire.NewMSatFromSatoshis(channelBal),
 		RemoteBalance: lnwire.NewMSatFromSatoshis(channelBal),
-		FeePerKw:      feePerKw,
-		CommitFee:     8688,
+		FeePerKw:      btcutil.Amount(feePerKw),
+		CommitFee:     feePerKw.FeeForWeight(lnwallet.CommitWeight),
 		CommitTx:      bobCommitTx,
 		CommitSig:     bytes.Repeat([]byte{1}, 71),
 	}

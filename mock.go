@@ -229,7 +229,7 @@ func (m *mockWalletController) FetchRootKey() (*btcec.PrivateKey, error) {
 	return m.rootKey, nil
 }
 func (*mockWalletController) SendOutputs(outputs []*wire.TxOut,
-	_ btcutil.Amount) (*chainhash.Hash, error) {
+	_ lnwallet.SatPerVByte) (*chainhash.Hash, error) {
 
 	return nil, nil
 }

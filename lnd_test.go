@@ -366,7 +366,7 @@ func calcStaticFee(numHTLCs int) btcutil.Amount {
 	const (
 		commitWeight = btcutil.Amount(724)
 		htlcWeight   = 172
-		feePerKw     = btcutil.Amount(50/4) * 1000
+		feePerKw     = btcutil.Amount(50 * 1000 / 4)
 	)
 	return feePerKw * (commitWeight +
 		btcutil.Amount(htlcWeight*numHTLCs)) / 1000
@@ -4635,8 +4635,9 @@ func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// amount of payments, between Alice and Bob, at the end of the test
 	// Alice should send all money from her side to Bob.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	channelCapacity := btcutil.Amount(paymentAmt * 2000)
 	chanPoint := openChannelAndAssert(ctxt, t, net, net.Alice, net.Bob,
-		paymentAmt*2000, 0)
+		channelCapacity, 0)
 
 	info, err := getChanInfo(net.Alice)
 	if err != nil {
@@ -4645,8 +4646,10 @@ func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Calculate the number of invoices. We will deplete the channel
 	// all the way down to the channel reserve.
-	chanReserve := info.LocalBalance / 100
-	numInvoices := int((info.LocalBalance - chanReserve) / paymentAmt)
+	chanReserve := channelCapacity / 100
+	availableBalance := btcutil.Amount(info.LocalBalance) - chanReserve
+	numInvoices := int(availableBalance / paymentAmt)
+
 	bobAmt := int64(numInvoices * paymentAmt)
 	aliceAmt := info.LocalBalance - bobAmt
 

@@ -2617,12 +2617,20 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 		return nil, err
 	}
 
+	// As the number of returned routes can be less than the number of
+	// requested routes, we'll clamp down the length of the response to the
+	// minimum of the two.
+	numRoutes := int32(len(routes))
+	if in.NumRoutes < numRoutes {
+		numRoutes = in.NumRoutes
+	}
+
 	// For each valid route, we'll convert the result into the format
 	// required by the RPC system.
 	routeResp := &lnrpc.QueryRoutesResponse{
 		Routes: make([]*lnrpc.Route, 0, in.NumRoutes),
 	}
-	for i := int32(0); i < in.NumRoutes; i++ {
+	for i := int32(0); i < numRoutes; i++ {
 		routeResp.Routes = append(
 			routeResp.Routes, marshallRoute(routes[i]),
 		)

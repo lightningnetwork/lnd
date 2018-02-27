@@ -48,6 +48,13 @@ func (e ErrorCode) String() string {
 	}
 }
 
+// Error returns the human redable version of the target ErrorCode.
+//
+// Satisfies the Error interface.
+func (e ErrorCode) Error() string {
+	return e.String()
+}
+
 // ErrorData is a set of bytes associated with a particular sent error. A
 // receiving node SHOULD only print out data verbatim if the string is composed
 // solely of printable ASCII characters. For reference, the printable character

@@ -2427,3 +2427,117 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	printRespJSON(resp)
 	return nil
 }
+
+var forwardingHistoryCommand = cli.Command{
+	Name:      "fwdinghistory",
+	Usage:     "Query the history of all forwarded htlcs",
+	ArgsUsage: "start_time [end_time] [index_offset] [max_events]",
+	Description: `
+	Query the htlc switch's internal forwarding log for all completed
+	payment circuits (HTLCs) over a particular time range (--start_time and
+	--end_time). The start and end times are meant to be expressed in
+	seconds since the Unix epoch. If a start and end time aren't provided,
+	then events over the past 24 hours are queried for.
+
+	The max number of events returned is 50k. The default number is 100,
+	callers can use the --max_events param to modify this value.
+
+	Finally, callers can skip a series of events using the --index_offset
+	parameter. Each response will contain the offset index of the last
+	entry. Using this callers can manually paginate within a time slice.
+	`,
+	Flags: []cli.Flag{
+		cli.Int64Flag{
+			Name: "start_time",
+			Usage: "the starting time for the query, expressed in " +
+				"seconds since the unix epoch",
+		},
+		cli.Int64Flag{
+			Name: "end_time",
+			Usage: "the end time for the query, expressed in " +
+				"seconds since the unix epoch",
+		},
+		cli.Int64Flag{
+			Name:  "index_offset",
+			Usage: "the number of events to skip",
+		},
+		cli.Int64Flag{
+			Name:  "max_events",
+			Usage: "the max number of events to return",
+		},
+	},
+	Action: actionDecorator(forwardingHistory),
+}
+
+func forwardingHistory(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	var (
+		startTime, endTime     uint64
+		indexOffset, maxEvents uint32
+		err                    error
+	)
+	args := ctx.Args()
+
+	switch {
+	case ctx.IsSet("start_time"):
+		startTime = ctx.Uint64("start_time")
+	case args.Present():
+		startTime, err = strconv.ParseUint(args.First(), 10, 64)
+		if err != nil {
+			return fmt.Errorf("unable to decode start_time %v", err)
+		}
+		args = args.Tail()
+	}
+
+	switch {
+	case ctx.IsSet("end_time"):
+		endTime = ctx.Uint64("end_time")
+	case args.Present():
+		endTime, err = strconv.ParseUint(args.First(), 10, 64)
+		if err != nil {
+			return fmt.Errorf("unable to decode end_time: %v", err)
+		}
+		args = args.Tail()
+	}
+
+	switch {
+	case ctx.IsSet("index_offset"):
+		indexOffset = uint32(ctx.Int64("index_offset"))
+	case args.Present():
+		i, err := strconv.ParseInt(args.First(), 10, 64)
+		if err != nil {
+			return fmt.Errorf("unable to decode index_offset: %v", err)
+		}
+		indexOffset = uint32(i)
+		args = args.Tail()
+	}
+
+	switch {
+	case ctx.IsSet("max_events"):
+		maxEvents = uint32(ctx.Int64("max_events"))
+	case args.Present():
+		m, err := strconv.ParseInt(args.First(), 10, 64)
+		if err != nil {
+			return fmt.Errorf("unable to decode max_events: %v", err)
+		}
+		maxEvents = uint32(m)
+		args = args.Tail()
+	}
+
+	req := &lnrpc.ForwardingHistoryRequest{
+		StartTime:    startTime,
+		EndTime:      endTime,
+		IndexOffset:  indexOffset,
+		NumMaxEvents: maxEvents,
+	}
+	resp, err := client.ForwardingHistory(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}

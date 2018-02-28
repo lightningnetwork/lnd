@@ -195,6 +195,7 @@ func main() {
 		verifyMessageCommand,
 		feeReportCommand,
 		updateChannelPolicyCommand,
+		forwardingHistoryCommand,
 	}
 
 	if err := app.Run(os.Args); err != nil {

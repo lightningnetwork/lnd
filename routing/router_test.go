@@ -19,6 +19,10 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 )
 
+// defaultNumRoutes is the default value for the maximum number of routes to
+// be returned by FindRoutes
+const defaultNumRoutes = 10
+
 type testCtx struct {
 	router *ChannelRouter
 
@@ -169,7 +173,7 @@ func TestFindRoutesFeeSorting(t *testing.T) {
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := ctx.aliases["luoji"]
 	routes, err := ctx.router.FindRoutes(target, paymentAmt,
-		DefaultFinalCLTVDelta)
+		defaultNumRoutes, DefaultFinalCLTVDelta)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
 	}
@@ -719,7 +723,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	targetNode := priv2.PubKey()
 	routes, err := ctx.router.FindRoutes(targetNode, paymentAmt,
-		DefaultFinalCLTVDelta)
+		defaultNumRoutes, DefaultFinalCLTVDelta)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
 	}
@@ -762,7 +766,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// Should still be able to find the route, and the info should be
 	// updated.
 	routes, err = ctx.router.FindRoutes(targetNode, paymentAmt,
-		DefaultFinalCLTVDelta)
+		defaultNumRoutes, DefaultFinalCLTVDelta)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
 	}

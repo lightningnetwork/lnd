@@ -3042,6 +3042,8 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 
 	// TODO(roasbeef): use UnaryInterceptor to add automated logging
 
+	rpcsLog.Debugf("[feereport]")
+
 	channelGraph := r.server.chanDB.ChannelGraph()
 	selfNode, err := channelGraph.SourceNode()
 	if err != nil {
@@ -3074,8 +3076,94 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 		return nil, err
 	}
 
+	fwdEventLog := r.server.chanDB.ForwardingLog()
+
+	// computeFeeSum is a helper function that computes the total fees for
+	// a particular time slice described by a forwarding event query.
+	computeFeeSum := func(query channeldb.ForwardingEventQuery) (lnwire.MilliSatoshi, error) {
+
+		var totalFees lnwire.MilliSatoshi
+
+		// We'll continue to fetch the next query and accumulate the
+		// fees until the next query returns no events.
+		for {
+			timeSlice, err := fwdEventLog.Query(query)
+			if err != nil {
+				return 0, nil
+			}
+
+			// If the timeslice is empty, then we'll return as
+			// we've retrieved all the entries in this range.
+			if len(timeSlice.ForwardingEvents) == 0 {
+				break
+			}
+
+			// Otherwise, we'll tally up an accumulate the total
+			// fees for this time slice.
+			for _, event := range timeSlice.ForwardingEvents {
+				fee := event.AmtIn - event.AmtOut
+				totalFees += fee
+			}
+
+			// We'll now take the last offset index returned as
+			// part of this response, and modify our query to start
+			// at this index. This has a pagination effect in the
+			// case that our query bounds has more than 100k
+			// entries.
+			query.IndexOffset = timeSlice.LastIndexOffset
+		}
+
+		return totalFees, nil
+	}
+
+	now := time.Now()
+
+	// Before we perform the queries below, we'll instruct the switch to
+	// flush any pending events to disk. This ensure we get a complete
+	// snapshot at this particular time.
+	if r.server.htlcSwitch.FlushForwardingEvents(); err != nil {
+		return nil, fmt.Errorf("unable to flush forwarding "+
+			"events: %v", err)
+	}
+
+	// In addition to returning the current fee schedule for each channel.
+	// We'll also perform a series of queries to obtain the total fees
+	// earned over the past day, week, and month.
+	dayQuery := channeldb.ForwardingEventQuery{
+		StartTime:    now.Add(-time.Hour * 24),
+		EndTime:      now,
+		NumMaxEvents: 1000,
+	}
+	dayFees, err := computeFeeSum(dayQuery)
+	if err != nil {
+		return nil, fmt.Errorf("unable to retrieve day fees: %v", err)
+	}
+
+	weekQuery := channeldb.ForwardingEventQuery{
+		StartTime:    now.Add(-time.Hour * 24 * 7),
+		EndTime:      now,
+		NumMaxEvents: 1000,
+	}
+	weekFees, err := computeFeeSum(weekQuery)
+	if err != nil {
+		return nil, fmt.Errorf("unable to retrieve day fees: %v", err)
+	}
+
+	monthQuery := channeldb.ForwardingEventQuery{
+		StartTime:    now.Add(-time.Hour * 24 * 30),
+		EndTime:      now,
+		NumMaxEvents: 1000,
+	}
+	monthFees, err := computeFeeSum(monthQuery)
+	if err != nil {
+		return nil, fmt.Errorf("unable to retrieve day fees: %v", err)
+	}
+
 	return &lnrpc.FeeReportResponse{
 		ChannelFees: feeReports,
+		DayFeeSum:   uint64(dayFees.ToSatoshis()),
+		WeekFeeSum:  uint64(weekFees.ToSatoshis()),
+		MonthFeeSum: uint64(monthFees.ToSatoshis()),
 	}, nil
 }
 

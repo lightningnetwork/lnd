@@ -263,6 +263,10 @@ var (
 			Entity: "offchain",
 			Action: "write",
 		}},
+		"/lnrpc.Lightning/ForwardingHistory": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
 	}
 )
 
@@ -3268,4 +3272,93 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 	}
 
 	return &lnrpc.PolicyUpdateResponse{}, nil
+}
+
+// ForwardingHistory allows the caller to query the htlcswitch for a record of
+// all HTLC's forwarded within the target time range, and integer offset within
+// that time range. If no time-range is specified, then the first chunk of the
+// past 24 hrs of forwarding history are returned.
+
+// A list of forwarding events are returned. The size of each forwarding event
+// is 40 bytes, and the max message size able to be returned in gRPC is 4 MiB.
+// In order to safely stay under this max limit, we'll return 50k events per
+// response.  Each response has the index offset of the last entry. The index
+// offset can be provided to the request to allow the caller to skip a series
+// of records.
+func (r *rpcServer) ForwardingHistory(ctx context.Context,
+	req *lnrpc.ForwardingHistoryRequest) (*lnrpc.ForwardingHistoryResponse, error) {
+
+	rpcsLog.Debugf("[forwardinghistory]")
+
+	// Before we perform the queries below, we'll instruct the switch to
+	// flush any pending events to disk. This ensure we get a complete
+	// snapshot at this particular time.
+	if err := r.server.htlcSwitch.FlushForwardingEvents(); err != nil {
+		return nil, fmt.Errorf("unable to flush forwarding "+
+			"events: %v", err)
+	}
+
+	var (
+		startTime, endTime time.Time
+
+		numEvents uint32
+	)
+
+	// If the start and end time were not set, then we'll just return the
+	// records over the past 24 hours.
+	if req.StartTime == 0 && req.EndTime == 0 {
+		now := time.Now()
+		startTime = now.Add(-time.Hour * 24)
+		endTime = now
+	} else {
+		startTime = time.Unix(int64(req.StartTime), 0)
+		endTime = time.Unix(int64(req.EndTime), 0)
+	}
+
+	// If the number of events wasn't specified, then we'll default to
+	// returning the last 100 events.
+	numEvents = req.NumMaxEvents
+	if numEvents == 0 {
+		numEvents = 100
+	}
+
+	// Next, we'll map the proto request into a format the is understood by
+	// the forwarding log.
+	eventQuery := channeldb.ForwardingEventQuery{
+		StartTime:    startTime,
+		EndTime:      endTime,
+		IndexOffset:  req.IndexOffset,
+		NumMaxEvents: numEvents,
+	}
+	timeSlice, err := r.server.chanDB.ForwardingLog().Query(eventQuery)
+	if err != nil {
+		return nil, fmt.Errorf("unable to query forwarding log: %v", err)
+	}
+
+	// TODO(roasbeef): add settlement latency?
+	//  * use FPE on all records?
+
+	// With the events retrieved, we'll now map them into the proper proto
+	// response.
+	//
+	// TODO(roasbeef): show in ns for the outside?
+	resp := &lnrpc.ForwardingHistoryResponse{
+		ForwardingEvents: make([]*lnrpc.ForwardingEvent, len(timeSlice.ForwardingEvents)),
+		LastOffsetIndex:  timeSlice.LastIndexOffset,
+	}
+	for i, event := range timeSlice.ForwardingEvents {
+		amtInSat := event.AmtIn.ToSatoshis()
+		amtOutSat := event.AmtOut.ToSatoshis()
+
+		resp.ForwardingEvents[i] = &lnrpc.ForwardingEvent{
+			Timestamp: uint64(event.Timestamp.Unix()),
+			ChanIdIn:  event.IncomingChanID.ToUint64(),
+			ChanIdOut: event.OutgoingChanID.ToUint64(),
+			AmtIn:     uint64(amtInSat),
+			AmtOut:    uint64(amtOutSat),
+			Fee:       uint64(amtInSat - amtOutSat),
+		}
+	}
+
+	return resp, nil
 }

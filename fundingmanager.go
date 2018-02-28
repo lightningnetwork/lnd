@@ -2639,6 +2639,22 @@ func (f *fundingManager) getReservationCtx(peerKey *btcec.PublicKey,
 	return resCtx, nil
 }
 
+// IsPendingChannel returns a boolean indicating whether the channel identified
+// by the pendingChanID and given peer is pending, meaning it is in the process
+// of being funded. After the funding transaction has been confirmed, the
+// channel will receive a new, permanent channel ID, and will no longer be
+// considered pending.
+func (f *fundingManager) IsPendingChannel(pendingChanID [32]byte,
+	peerAddress *lnwire.NetAddress) bool {
+
+	peerIDKey := newSerializedKey(peerAddress.IdentityKey)
+	f.resMtx.RLock()
+	_, ok := f.activeReservations[peerIDKey][pendingChanID]
+	f.resMtx.RUnlock()
+
+	return ok
+}
+
 func copyPubKey(pub *btcec.PublicKey) *btcec.PublicKey {
 	return &btcec.PublicKey{
 		Curve: btcec.S256(),

@@ -46,7 +46,7 @@ const (
 	// The actual delay we will require will be somewhere between these
 	// values, depending on channel size.
 	minRemoteDelay = 144
-	maxRemoteDelay = 2016
+	maxRemoteDelay = 432
 
 	// maxWaitNumBlocksFundingConf is the maximum number of blocks to wait
 	// for the funding transaction to be confirmed before forgetting about

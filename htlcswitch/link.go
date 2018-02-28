@@ -683,6 +683,8 @@ out:
 		// carried out by the remote peer. In the case of such an
 		// event, we'll wipe the channel state from the peer, and mark
 		// the contract as fully settled. Afterwards we can exit.
+		//
+		// TODO(roasbeef): add force closure? also breach?
 		case <-l.cfg.ChainEvents.UnilateralClosure:
 			log.Warnf("Remote peer has closed ChannelPoint(%v) on-chain",
 				l.channel.ChannelPoint())

@@ -7,10 +7,13 @@ import (
 	"time"
 
 	"github.com/btcsuite/fastsha256"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcutil"
 )
 
 var (
@@ -35,7 +38,11 @@ func TestSwitchForward(t *testing.T) {
 	alicePeer := newMockServer(t, "alice")
 	bobPeer := newMockServer(t, "bob")
 
-	s := New(Config{})
+	s := New(Config{
+		FwdingLog: &mockForwardingLog{
+			events: make(map[time.Time]channeldb.ForwardingEvent),
+		},
+	})
 	s.Start()
 
 	aliceChannelLink := newMockChannelLink(
@@ -122,7 +129,11 @@ func TestSkipIneligibleLinksMultiHopForward(t *testing.T) {
 	alicePeer := newMockServer(t, "alice")
 	bobPeer := newMockServer(t, "bob")
 
-	s := New(Config{})
+	s := New(Config{
+		FwdingLog: &mockForwardingLog{
+			events: make(map[time.Time]channeldb.ForwardingEvent),
+		},
+	})
 	s.Start()
 
 	aliceChannelLink := newMockChannelLink(
@@ -177,7 +188,11 @@ func TestSkipIneligibleLinksLocalForward(t *testing.T) {
 	// to forward form the get go.
 	alicePeer := newMockServer(t, "alice")
 
-	s := New(Config{})
+	s := New(Config{
+		FwdingLog: &mockForwardingLog{
+			events: make(map[time.Time]channeldb.ForwardingEvent),
+		},
+	})
 	s.Start()
 
 	aliceChannelLink := newMockChannelLink(
@@ -216,7 +231,11 @@ func TestSwitchCancel(t *testing.T) {
 	alicePeer := newMockServer(t, "alice")
 	bobPeer := newMockServer(t, "bob")
 
-	s := New(Config{})
+	s := New(Config{
+		FwdingLog: &mockForwardingLog{
+			events: make(map[time.Time]channeldb.ForwardingEvent),
+		},
+	})
 	s.Start()
 
 	aliceChannelLink := newMockChannelLink(
@@ -298,7 +317,11 @@ func TestSwitchAddSamePayment(t *testing.T) {
 	alicePeer := newMockServer(t, "alice")
 	bobPeer := newMockServer(t, "bob")
 
-	s := New(Config{})
+	s := New(Config{
+		FwdingLog: &mockForwardingLog{
+			events: make(map[time.Time]channeldb.ForwardingEvent),
+		},
+	})
 	s.Start()
 
 	aliceChannelLink := newMockChannelLink(
@@ -422,7 +445,11 @@ func TestSwitchSendPayment(t *testing.T) {
 
 	alicePeer := newMockServer(t, "alice")
 
-	s := New(Config{})
+	s := New(Config{
+		FwdingLog: &mockForwardingLog{
+			events: make(map[time.Time]channeldb.ForwardingEvent),
+		},
+	})
 	s.Start()
 
 	aliceChannelLink := newMockChannelLink(
@@ -540,5 +567,167 @@ func TestSwitchSendPayment(t *testing.T) {
 
 	if s.numPendingPayments() != 0 {
 		t.Fatal("wrong amount of pending payments")
+	}
+}
+
+// TestLocalPaymentNoForwardingEvents tests that if we send a series of locally
+// initiated payments, then they aren't reflected in the forwarding log.
+func TestLocalPaymentNoForwardingEvents(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll create our traditional three hop network. We'll only be
+	// interacting with and asserting the state of the first end point for
+	// this test.
+	channels, cleanUp, _, err := createClusterChannels(
+		btcutil.SatoshiPerBitcoin*3,
+		btcutil.SatoshiPerBitcoin*5)
+	if err != nil {
+		t.Fatalf("unable to create channel: %v", err)
+	}
+	defer cleanUp()
+
+	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
+	if err := n.start(); err != nil {
+		t.Fatalf("unable to start three hop network: %v", err)
+	}
+
+	// We'll now craft and send a payment from Alice to Bob.
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	htlcAmt, totalTimelock, hops := generateHops(
+		amount, testStartingHeight, n.firstBobChannelLink,
+	)
+
+	// With the payment crafted, we'll send it from Alice to Bob. We'll
+	// wait for Alice to receive the preimage for the payment before
+	// proceeding.
+	receiver := n.bobServer
+	_, err = n.makePayment(
+		n.aliceServer, receiver, n.bobServer.PubKey(), hops, amount,
+		htlcAmt, totalTimelock,
+	).Wait(30 * time.Second)
+	if err != nil {
+		t.Fatalf("unable to make the payment: %v", err)
+	}
+
+	// At this point, we'll forcibly stop the three hop network. Doing
+	// this will cause any pending forwarding events to be flushed by the
+	// various switches in the network.
+	n.stop()
+
+	// With all the switches stopped, we'll fetch Alice's mock forwarding
+	// event log.
+	log, ok := n.aliceServer.htlcSwitch.cfg.FwdingLog.(*mockForwardingLog)
+	if !ok {
+		t.Fatalf("mockForwardingLog assertion failed")
+	}
+
+	// If we examine the memory of the forwarding log, then it should be
+	// blank.
+	if len(log.events) != 0 {
+		t.Fatalf("log should have no events, instead has: %v",
+			spew.Sdump(log.events))
+	}
+}
+
+// TestMultiHopPaymentForwardingEvents tests that if we send a series of
+// multi-hop payments via Alice->Bob->Carol. Then Bob properly logs forwarding
+// events, while Alice and Carol don't.
+func TestMultiHopPaymentForwardingEvents(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll create our traditional three hop network.
+	channels, cleanUp, _, err := createClusterChannels(
+		btcutil.SatoshiPerBitcoin*3,
+		btcutil.SatoshiPerBitcoin*5)
+	if err != nil {
+		t.Fatalf("unable to create channel: %v", err)
+	}
+	defer cleanUp()
+
+	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
+	if err := n.start(); err != nil {
+		t.Fatalf("unable to start three hop network: %v", err)
+	}
+
+	// We'll make now 10 payments, of 100k satoshis each from Alice to
+	// Carol via Bob.
+	const numPayments = 10
+	finalAmt := lnwire.NewMSatFromSatoshis(100000)
+	htlcAmt, totalTimelock, hops := generateHops(
+		finalAmt, testStartingHeight, n.firstBobChannelLink,
+		n.carolChannelLink,
+	)
+	for i := 0; i < numPayments; i++ {
+		_, err := n.makePayment(
+			n.aliceServer, n.carolServer, n.bobServer.PubKey(),
+			hops, finalAmt, htlcAmt, totalTimelock,
+		).Wait(30 * time.Second)
+		if err != nil {
+			t.Fatalf("unable to send payment: %v", err)
+		}
+	}
+
+	time.Sleep(time.Millisecond * 200)
+
+	// With all 10 payments sent. We'll now manually stop each of the
+	// switches so we can examine their end state.
+	n.stop()
+
+	// Alice and Carol shouldn't have any recorded forwarding events, as
+	// they were the source and the sink for these payment flows.
+	aliceLog, ok := n.aliceServer.htlcSwitch.cfg.FwdingLog.(*mockForwardingLog)
+	if !ok {
+		t.Fatalf("mockForwardingLog assertion failed")
+	}
+	if len(aliceLog.events) != 0 {
+		t.Fatalf("log should have no events, instead has: %v",
+			spew.Sdump(aliceLog.events))
+	}
+	carolLog, ok := n.carolServer.htlcSwitch.cfg.FwdingLog.(*mockForwardingLog)
+	if !ok {
+		t.Fatalf("mockForwardingLog assertion failed")
+	}
+	if len(carolLog.events) != 0 {
+		t.Fatalf("log should have no events, instead has: %v",
+			spew.Sdump(carolLog.events))
+	}
+
+	// Bob on the other hand, should have 10 events.
+	bobLog, ok := n.bobServer.htlcSwitch.cfg.FwdingLog.(*mockForwardingLog)
+	if !ok {
+		t.Fatalf("mockForwardingLog assertion failed")
+	}
+	if len(bobLog.events) != 10 {
+		t.Fatalf("log should have 10 events, instead has: %v",
+			spew.Sdump(bobLog.events))
+	}
+
+	// Each of the 10 events should have had all fields set properly.
+	for _, event := range bobLog.events {
+		// The incoming and outgoing channels should properly be set for
+		// the event.
+		if event.IncomingChanID != n.aliceChannelLink.ShortChanID() {
+			t.Fatalf("chan id mismatch: expected %v, got %v",
+				event.IncomingChanID,
+				n.aliceChannelLink.ShortChanID())
+		}
+		if event.OutgoingChanID != n.carolChannelLink.ShortChanID() {
+			t.Fatalf("chan id mismatch: expected %v, got %v",
+				event.OutgoingChanID,
+				n.carolChannelLink.ShortChanID())
+		}
+
+		// Additionally, the incoming and outgoing amounts should also
+		// be properly set.
+		if event.AmtIn != htlcAmt {
+			t.Fatalf("incoming amt mismatch: expected %v, got %v",
+				event.AmtIn, htlcAmt)
+		}
+		if event.AmtOut != finalAmt {
+			t.Fatalf("outgoing amt mismatch: expected %v, got %v",
+				event.AmtOut, finalAmt)
+		}
 	}
 }

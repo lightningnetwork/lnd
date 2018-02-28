@@ -754,7 +754,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			}
 		}
 
-		// For local HTLC's we'll dispatch the settle event back to the
+		// For local HTLCs we'll dispatch the settle event back to the
 		// caller, rather than to the peer that sent us the HTLC
 		// originally.
 		localHTLC := packet.incomingChanID == (lnwire.ShortChannelID{})

@@ -531,6 +531,25 @@ service Lightning {
             body: "*"
         };
     }
+
+    /** lncli: `forwardinghistory`
+    ForwardingHistory allows the caller to query the htlcswitch for a record of
+    all HTLC's forwarded within the target time range, and integer offset
+    within that time range. If no time-range is specified, then the first chunk
+    of the past 24 hrs of forwarding history are returned.
+
+    A list of forwarding events are returned. The size of each forwarding event
+    is 40 bytes, and the max message size able to be returned in gRPC is 4 MiB.
+    As a result each message can only contain 50k entries.  Each response has
+    the index offset of the last entry. The index offset can be provided to the
+    request to allow the caller to skip a series of records.
+    */
+    rpc ForwardingHistory(ForwardingHistoryRequest) returns (ForwardingHistoryResponse) {
+        option (google.api.http) = {
+            post: "/v1/switch"
+            body: "*"
+        };
+    };
 }
 
 message Transaction {
@@ -1518,4 +1537,48 @@ message PolicyUpdateRequest {
     uint32 time_lock_delta = 5 [json_name = "time_lock_delta"];
 }
 message PolicyUpdateResponse {
+}
+
+message ForwardingHistoryRequest {
+    /// Start time is the starting point of the forwarding history request. All records beyond this point will be included, respecting the end time, and the index offset.
+    uint64 start_time = 1 [json_name = "start_time"];
+
+    /// End time is the end point of the forwarding history request. The response will carry at most 50k records between the start time and the end time. The index offset can be used to implement pagination.
+    uint64 end_time = 2 [json_name = "end_time"];
+
+    /// Index offset is the offset in the time series to start at. As each response can only contain 50k records, callers can use this to skip around within a packed time series.
+    uint32 index_offset = 3 [json_name = "index_offset"];
+
+    /// The max number of events to return in the response to this query.
+    uint32 num_max_events = 4 [json_name = "num_max_events"];
+}
+message ForwardingEvent {
+    /// Timestamp is the time (unix epoch offset) that this circuit was completed.
+    uint64 timestamp = 1 [json_name = "timestamp"];
+
+    /// The incoming channel ID that carried the HTLC that created the circuit.
+    uint64 chan_id_in = 2 [json_name = "chan_id_in"];
+
+    /// The outgoing channel ID that carried the preimage that completed the circuit.
+    uint64 chan_id_out = 4 [json_name = "chan_id_out"];
+
+    /// The total amount of the incoming HTLC that created half the circuit.
+    uint64 amt_in = 5 [json_name = "amt_in"];
+
+    /// The total amount of the outgoign HTLC that created the second half of the circuit.
+    uint64 amt_out = 6 [json_name = "amt_out"];
+
+    /// The total fee that this payment circuit carried.
+    uint64 fee = 7 [json_name = "fee"];
+
+    // TODO(roasbeef): add settlement latency?
+    //  * use FPE on the chan id?
+    //  * also list failures?
+}
+message ForwardingHistoryResponse {
+   /// A list of forwarding events from the time slice of the time series specified in the request.
+   repeated ForwardingEvent forwarding_events = 1 [json_name = "forwarding_events"];
+
+   /// The index of the last time in the set of returned forwarding events. Can be used to seek further, pagination style.
+   uint32 last_offset_index = 2 [json_name = "last_offset_index"];
 }

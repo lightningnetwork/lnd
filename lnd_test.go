@@ -117,9 +117,7 @@ func assertTxInBlock(t *harnessTest, block *wire.MsgBlock, txid *chainhash.Hash)
 
 // mineBlocks mine 'num' of blocks and check that blocks are present in
 // node blockchain.
-func mineBlocks(t *harnessTest, net *lntest.NetworkHarness, num uint32,
-) []*wire.MsgBlock {
-
+func mineBlocks(t *harnessTest, net *lntest.NetworkHarness, num uint32) []*wire.MsgBlock {
 	blocks := make([]*wire.MsgBlock, num)
 
 	blockHashes, err := net.Miner.Node.Generate(num)
@@ -2497,6 +2495,51 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	assertAmountPaid(t, ctxb, "Carol(local) => Dave(remote)", carol,
 		carolFundPoint, amountPaid+(baseFee*numPayments)*2, int64(0))
 
+	// Now that we know all the balances have been settled out properly,
+	// we'll ensure that our internal record keeping for completed circuits
+	// was properly updated.
+
+	// First, check that the FeeReport response shows the proper fees
+	// accrued over each time range. Dave should've earned 1 satoshi for
+	// each of the forwarded payments.
+	feeReport, err := dave.FeeReport(ctxb, &lnrpc.FeeReportRequest{})
+	if err != nil {
+		t.Fatalf("unable to query for fee report: %v", err)
+	}
+	const exectedFees = 5
+	if feeReport.DayFeeSum != exectedFees {
+		t.Fatalf("fee mismatch: expected %v, got %v", 5,
+			feeReport.DayFeeSum)
+	}
+	if feeReport.WeekFeeSum != exectedFees {
+		t.Fatalf("fee mismatch: expected %v, got %v", 5,
+			feeReport.WeekFeeSum)
+	}
+	if feeReport.MonthFeeSum != exectedFees {
+		t.Fatalf("fee mismatch: expected %v, got %v", 5,
+			feeReport.MonthFeeSum)
+	}
+
+	// Next, ensure that if we issue the vanilla query for the forwarding
+	// history, it returns 5 values, and each entry is formatted properly.
+	fwdingHistory, err := dave.ForwardingHistory(
+		ctxb, &lnrpc.ForwardingHistoryRequest{},
+	)
+	if err != nil {
+		t.Fatalf("unable to query for fee report: %v", err)
+	}
+	if len(fwdingHistory.ForwardingEvents) != 5 {
+		t.Fatalf("wrong number of forwarding event: expected %v, "+
+			"got %v", 5, len(fwdingHistory.ForwardingEvents))
+	}
+	for _, event := range fwdingHistory.ForwardingEvents {
+		// Each event should show a fee of 1 satoshi.
+		if event.Fee != 1 {
+			t.Fatalf("fee mismatch: expected %v, got %v", 1,
+				event.Fee)
+		}
+	}
+
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
@@ -2504,9 +2547,9 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarol, false)
 
-	// Finally, shutdown the nodes we created for the duration of the tests,
-	// only leaving the two seed nodes (Alice and Bob) within our test
-	// network.
+	// Finally, shutdown the nodes we created for the duration of the
+	// tests, only leaving the two seed nodes (Alice and Bob) within our
+	// test network.
 	if err := net.ShutdownNode(carol); err != nil {
 		t.Fatalf("unable to shutdown carol: %v", err)
 	}

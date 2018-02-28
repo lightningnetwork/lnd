@@ -748,7 +748,27 @@ out:
 			}
 
 		case *lnwire.Error:
-			p.server.fundingMgr.processFundingError(msg, p.addr)
+			switch {
+
+			// In the case of an all-zero channel ID we want to
+			// forward the error to all channels with this peer.
+			case msg.ChanID == lnwire.ConnectionWideID:
+				for _, chanStream := range chanMsgStreams {
+					chanStream.AddMsg(nextMsg)
+				}
+
+			// If the channel ID for the error message corresponds
+			// to a pending channel, then the funding manager will
+			// handle the error.
+			case p.server.fundingMgr.IsPendingChannel(msg.ChanID, p.addr):
+				p.server.fundingMgr.processFundingError(msg, p.addr)
+
+			// If not we hand the error to the channel link for
+			// this channel.
+			default:
+				isChanUpdate = true
+				targetChan = msg.ChanID
+			}
 
 		// TODO(roasbeef): create ChanUpdater interface for the below
 		case *lnwire.UpdateAddHTLC:

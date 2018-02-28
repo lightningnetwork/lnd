@@ -224,21 +224,21 @@ type PaymentDescriptor struct {
 	// link's commitment txn.
 	DestRef *channeldb.SettleFailRef
 
-	// OpenCircuitRef references the incoming Chan/HTLC ID of an Add HTLC
+	// OpenCircuitKey references the incoming Chan/HTLC ID of an Add HTLC
 	// packet delivered by the switch.
 	//
 	// NOTE: This field is only populated for payment descriptors in the
 	// *local* update log, and if the Add packet was delivered by the
 	// switch.
-	OpenCircuitRef *channeldb.CircuitKey
+	OpenCircuitKey *channeldb.CircuitKey
 
-	// ClosedCircuitRef references the incoming Chan/HTLC ID of the Add HTLC
+	// ClosedCircuitKey references the incoming Chan/HTLC ID of the Add HTLC
 	// that opened the circuit.
 	//
 	// NOTE: This field is only populated for payment descriptors in the
 	// *local* update log, and if settle/fails have a committed circuit in
 	// the circuit map.
-	ClosedCircuitRef *channeldb.CircuitKey
+	ClosedCircuitKey *channeldb.CircuitKey
 
 	// localOutputIndex is the output index of this HTLc output in the
 	// commitment transaction of the local node.
@@ -327,11 +327,8 @@ type PaymentDescriptor struct {
 //
 // NOTE: The provided `logUpdates` MUST corresponding exactly to either the Adds
 // or SettleFails in this channel's forwarding package at `height`.
-func (lc *LightningChannel) PayDescsFromRemoteLogUpdates(height uint64,
+func PayDescsFromRemoteLogUpdates(chanID lnwire.ShortChannelID, height uint64,
 	logUpdates []channeldb.LogUpdate) []*PaymentDescriptor {
-
-	lc.RLock()
-	defer lc.RUnlock()
 
 	// Allocate enough space to hold all of the payment descriptors we will
 	// reconstruct, and also the list of pointers that will be returned to
@@ -373,7 +370,7 @@ func (lc *LightningChannel) PayDescsFromRemoteLogUpdates(height uint64,
 				ParentIndex: wireMsg.ID,
 				EntryType:   Settle,
 				DestRef: &channeldb.SettleFailRef{
-					Source: lc.ShortChanID(),
+					Source: chanID,
 					Height: height,
 					Index:  uint16(i),
 				},
@@ -385,7 +382,7 @@ func (lc *LightningChannel) PayDescsFromRemoteLogUpdates(height uint64,
 				EntryType:   Fail,
 				FailReason:  wireMsg.Reason[:],
 				DestRef: &channeldb.SettleFailRef{
-					Source: lc.ShortChanID(),
+					Source: chanID,
 					Height: height,
 					Index:  uint16(i),
 				},
@@ -398,7 +395,7 @@ func (lc *LightningChannel) PayDescsFromRemoteLogUpdates(height uint64,
 				FailCode:     wireMsg.FailureCode,
 				ShaOnionBlob: wireMsg.ShaOnionBlob,
 				DestRef: &channeldb.SettleFailRef{
-					Source: lc.ShortChanID(),
+					Source: chanID,
 					Height: height,
 					Index:  uint16(i),
 				},
@@ -2741,9 +2738,9 @@ func (lc *LightningChannel) createCommitDiff(
 
 			// Gather any references for circuits opened by this Add
 			// HTLC.
-			if pd.OpenCircuitRef != nil {
+			if pd.OpenCircuitKey != nil {
 				openCircuitKeys = append(openCircuitKeys,
-					*pd.OpenCircuitRef)
+					*pd.OpenCircuitKey)
 			}
 
 			logUpdates = append(logUpdates, logUpdate)
@@ -2784,9 +2781,9 @@ func (lc *LightningChannel) createCommitDiff(
 		if pd.DestRef != nil {
 			settleFailRefs = append(settleFailRefs, *pd.DestRef)
 		}
-		if pd.ClosedCircuitRef != nil {
+		if pd.ClosedCircuitKey != nil {
 			closedCircuitKeys = append(closedCircuitKeys,
-				*pd.ClosedCircuitRef)
+				*pd.ClosedCircuitKey)
 		}
 
 		logUpdates = append(logUpdates, logUpdate)
@@ -2991,8 +2988,16 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, erro
 //    have not received
 //  * RevokeAndAck: if we sent a revocation message that they claim to have
 //    not received
+//
+// If we detect a scenario where we need to send a CommitSig+Updates, this
+// method also returns two sets channeldb.CircuitKeys identifying the circuits
+// that were opened and closed, respectively, as a result of signing the
+// previous commitment txn. This allows the link to clear its mailbox of those
+// circuits in case they are still in memory, and ensure the switch's circuit
+// map has been updated by deleting the closed circuits.
 func (lc *LightningChannel) ProcessChanSyncMsg(
-	msg *lnwire.ChannelReestablish) ([]lnwire.Message, error) {
+	msg *lnwire.ChannelReestablish) ([]lnwire.Message, []channeldb.CircuitKey,
+	[]channeldb.CircuitKey, error) {
 
 	// We owe them a commitment if they have an un-acked commitment and the
 	// tip of their chain (from our Pov) is equal to what they think their
@@ -3011,11 +3016,9 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 	// batch of messages which when applied will kick start the chain
 	// resync.
 	var (
-		updates []lnwire.Message
-		// TODO(conner): uncomment after API exposes these return
-		// variables, this permits compilation in the meantime
-		//openedCircuits []channeldb.CircuitKey
-		//closedCircuits []channeldb.CircuitKey
+		updates        []lnwire.Message
+		openedCircuits []channeldb.CircuitKey
+		closedCircuits []channeldb.CircuitKey
 	)
 
 	// If the remote party included the optional fields, then we'll verify
@@ -3030,7 +3033,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 			msg.RemoteCommitTailHeight - 1,
 		)
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 		commitSecretCorrect = bytes.Equal(
 			heightSecret[:], msg.LastRemoteCommitSecret[:],
@@ -3045,7 +3048,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		// In this case, we'll return an error to indicate the remote
 		// node sent us the wrong values. This will let the caller act
 		// accordingly.
-		return nil, ErrInvalidLastCommitSecret
+		return nil, nil, nil, ErrInvalidLastCommitSecret
 	}
 
 	switch {
@@ -3057,7 +3060,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 			localChainTail.height - 1,
 		)
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 		updates = append(updates, revocationMsg)
 
@@ -3092,7 +3095,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 			// Otherwise, this is an error and we'll treat it as
 			// such.
 			default:
-				return nil, err
+				return nil, nil, nil, err
 			}
 		}
 
@@ -3105,17 +3108,17 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		// In this case, we've likely lost data and shouldn't proceed
 		// with channel updates. So we'll return the appropriate error
 		// to signal to the caller the current state.
-		return nil, ErrCommitSyncDataLoss
+		return nil, nil, nil, ErrCommitSyncDataLoss
 
 	// If we don't owe them a revocation, and the height of our commitment
 	// chain reported by the remote party is not equal to our chain tail,
 	// then we cannot sync.
 	case !oweRevocation && localChainTail.height != msg.RemoteCommitTailHeight:
 		if err := lc.channelState.MarkBorked(); err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 
-		return nil, ErrCannotSyncCommitChains
+		return nil, nil, nil, ErrCannotSyncCommitChains
 	}
 
 	// If we owe them a commitment, then we'll read from disk our
@@ -3126,7 +3129,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		// our states.
 		commitDiff, err := lc.channelState.RemoteCommitChainTip()
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 
 		// Next, we'll need to send over any updates we sent as part of
@@ -3140,23 +3143,21 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		// commitment chain with our local version of their chain.
 		updates = append(updates, commitDiff.CommitSig)
 
-		// TODO(conner): uncomment after API exposes these return
-		// variables, this permits compilation in the meantime
-		//openedCircuits = commitDiff.OpenedCircuitKeys
-		//closedCircuits = commitDiff.ClosedCircuitKeys
+		openedCircuits = commitDiff.OpenedCircuitKeys
+		closedCircuits = commitDiff.ClosedCircuitKeys
 
 	} else if remoteChainTip.height+1 != msg.NextLocalCommitHeight {
 		if err := lc.channelState.MarkBorked(); err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 
 		// If we don't owe them a commitment, yet the tip of their
 		// chain isn't one more than the next local commit height they
 		// report, we'll fail the channel.
-		return nil, ErrCannotSyncCommitChains
+		return nil, nil, nil, ErrCannotSyncCommitChains
 	}
 
-	return updates, nil
+	return updates, openedCircuits, closedCircuits, nil
 }
 
 // ChanSyncMsg returns the ChannelReestablish message that should be sent upon
@@ -3859,10 +3860,17 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, []c
 // revocation either during the initial session negotiation wherein revocation
 // windows are extended, or in response to a state update that we initiate. If
 // successful, then the remote commitment chain is advanced by a single
-// commitment, and a log compaction is attempted. In addition, a slice of
-// HTLC's which can be forwarded upstream are returned.
+// commitment, and a log compaction is attempted.
+//
+// The returned values correspond to:
+//   1. The forwarding package corresponding to the remote commitment height
+//      that was revoked.
+//   2. The PaymentDescriptor of any Add HTLCs that were locked in by this
+//      revocation.
+//   3. The PaymentDescriptor of any Settle/Fail HTLCs that were locked in by
+//      this revocation.
 func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
-	[]*PaymentDescriptor, error) {
+	*channeldb.FwdPkg, []*PaymentDescriptor, []*PaymentDescriptor, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -3871,10 +3879,10 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	store := lc.channelState.RevocationStore
 	revocation, err := chainhash.NewHash(revMsg.Revocation[:])
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	if err := store.AddNextEntry(revocation); err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	// Verify that if we use the commitment point computed based off of the
@@ -3883,7 +3891,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	currentCommitPoint := lc.channelState.RemoteCurrentRevocation
 	derivedCommitPoint := ComputeCommitmentPoint(revMsg.Revocation[:])
 	if !derivedCommitPoint.IsEqual(currentCommitPoint) {
-		return nil, fmt.Errorf("revocation key mismatch")
+		return nil, nil, nil, fmt.Errorf("revocation key mismatch")
 	}
 
 	// Now that we've verified that the prior commitment has been properly
@@ -4048,7 +4056,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	// commitment chain.
 	err = lc.channelState.AdvanceCommitChainTail(fwdPkg)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	// Since they revoked the current lowest height in their commitment
@@ -4061,10 +4069,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	compactLogs(lc.localUpdateLog, lc.remoteUpdateLog,
 		localChainTail, remoteChainTail)
 
-	htlcsToForward := append(settleFailsToForward,
-		addsToForward...)
-
-	return htlcsToForward, nil
+	return fwdPkg, addsToForward, settleFailsToForward, nil
 }
 
 // LoadFwdPkgs loads any pending log updates from disk and returns the payment
@@ -4116,19 +4121,26 @@ func (lc *LightningChannel) InitNextRevocation(revKey *btcec.PublicKey) error {
 
 // AddHTLC adds an HTLC to the state machine's local update log. This method
 // should be called when preparing to send an outgoing HTLC.
-func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, error) {
+//
+// The additional openKey argument corresponds to the incoming CircuitKey of the
+// committed circuit for this HTLC. This value should never be nil.
+//
+// NOTE: It is okay for sourceRef to be nil when unit testing the wallet.
+func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC,
+	openKey *channeldb.CircuitKey) (uint64, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
 
 	pd := &PaymentDescriptor{
-		EntryType: Add,
-		RHash:     PaymentHash(htlc.PaymentHash),
-		Timeout:   htlc.Expiry,
-		Amount:    htlc.Amount,
-		LogIndex:  lc.localUpdateLog.logIndex,
-		HtlcIndex: lc.localUpdateLog.htlcCounter,
-		OnionBlob: htlc.OnionBlob[:],
+		EntryType:      Add,
+		RHash:          PaymentHash(htlc.PaymentHash),
+		Timeout:        htlc.Expiry,
+		Amount:         htlc.Amount,
+		LogIndex:       lc.localUpdateLog.logIndex,
+		HtlcIndex:      lc.localUpdateLog.htlcCounter,
+		OnionBlob:      htlc.OnionBlob[:],
+		OpenCircuitKey: openKey,
 	}
 
 	// Make sure adding this HTLC won't violate any of the constraints we
@@ -4176,9 +4188,29 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 // SettleHTLC attempts to settle an existing outstanding received HTLC. The
 // remote log index of the HTLC settled is returned in order to facilitate
 // creating the corresponding wire message. In the case the supplied preimage
-// is invalid, an error is returned. Additionally, the value of the settled
-// HTLC is also returned.
-func (lc *LightningChannel) SettleHTLC(preimage [32]byte, htlcIndex uint64) error {
+// is invalid, an error is returned.
+//
+// The additional arguments correspond to:
+//  * sourceRef: specifies the location of the Add HTLC within a forwarding
+//      package that this HTLC is settling. Every Settle fails exactly one Add,
+//      so this should never be empty in practice.
+//
+//  * destRef: specifies the location of the Settle HTLC within another
+//      channel's forwarding package. This value can be nil if the corresponding
+//      Add HTLC was never locked into an outgoing commitment txn, or this
+//      HTLC does not originate as a response from the peer on the outgoing
+//      link, e.g. on-chain resolutions.
+//
+//  * closeKey: identifies the circuit that should be deleted after this Settle
+//      HTLC is included in a commitment txn. This value should only be nil if
+//      the HTLC was settled locally before committing a circuit to the circuit
+//      map.
+//
+// NOTE: It is okay for sourceRef, destRef, and closeKey to be nil when unit
+// testing the wallet.
+func (lc *LightningChannel) SettleHTLC(preimage [32]byte,
+	htlcIndex uint64, sourceRef *channeldb.AddRef,
+	destRef *channeldb.SettleFailRef, closeKey *channeldb.CircuitKey) error {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -4195,11 +4227,14 @@ func (lc *LightningChannel) SettleHTLC(preimage [32]byte, htlcIndex uint64) erro
 	}
 
 	pd := &PaymentDescriptor{
-		Amount:      htlc.Amount,
-		RPreimage:   preimage,
-		LogIndex:    lc.localUpdateLog.logIndex,
-		ParentIndex: htlcIndex,
-		EntryType:   Settle,
+		Amount:           htlc.Amount,
+		RPreimage:        preimage,
+		LogIndex:         lc.localUpdateLog.logIndex,
+		ParentIndex:      htlcIndex,
+		EntryType:        Settle,
+		SourceRef:        sourceRef,
+		DestRef:          destRef,
+		ClosedCircuitKey: closeKey,
 	}
 
 	lc.localUpdateLog.appendUpdate(pd)
@@ -4243,7 +4278,28 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, htlcIndex uint6
 // entry which will remove the target log entry within the next commitment
 // update. This method is intended to be called in order to cancel in
 // _incoming_ HTLC.
-func (lc *LightningChannel) FailHTLC(htlcIndex uint64, reason []byte) error {
+//
+// The additional arguments correspond to:
+//  * sourceRef: specifies the location of the Add HTLC within a forwarding
+//      package that this HTLC is failing. Every Fail fails exactly one Add, so
+//      this should never be empty in practice.
+//
+//  * destRef: specifies the location of the Fail HTLC within another channel's
+//      forwarding package. This value can be nil if the corresponding Add HTLC
+//      was never locked into an outgoing commitment txn, or this HTLC does not
+//      originate as a response from the peer on the outgoing link, e.g.
+//      on-chain resolutions.
+//
+//  * closeKey: identifies the circuit that should be deleted after this Fail
+//      HTLC is included in a commitment txn. This value should only be nil if
+//      the HTLC was failed locally before committing a circuit to the circuit
+//      map.
+//
+// NOTE: It is okay for sourceRef, destRef, and closeKey to be nil when unit
+// testing the wallet.
+func (lc *LightningChannel) FailHTLC(htlcIndex uint64, reason []byte,
+	sourceRef *channeldb.AddRef, destRef *channeldb.SettleFailRef,
+	closeKey *channeldb.CircuitKey) error {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -4255,12 +4311,15 @@ func (lc *LightningChannel) FailHTLC(htlcIndex uint64, reason []byte) error {
 	}
 
 	pd := &PaymentDescriptor{
-		Amount:      htlc.Amount,
-		RHash:       htlc.RHash,
-		ParentIndex: htlcIndex,
-		LogIndex:    lc.localUpdateLog.logIndex,
-		EntryType:   Fail,
-		FailReason:  reason,
+		Amount:           htlc.Amount,
+		RHash:            htlc.RHash,
+		ParentIndex:      htlcIndex,
+		LogIndex:         lc.localUpdateLog.logIndex,
+		EntryType:        Fail,
+		FailReason:       reason,
+		SourceRef:        sourceRef,
+		DestRef:          destRef,
+		ClosedCircuitKey: closeKey,
 	}
 
 	lc.localUpdateLog.appendUpdate(pd)
@@ -4272,8 +4331,15 @@ func (lc *LightningChannel) FailHTLC(htlcIndex uint64, reason []byte) error {
 // inserting an entry which will remove the target log entry within the next
 // commitment update. This method is intended to be called in order to cancel
 // in _incoming_ HTLC.
+//
+// The additional sourceRef specifies the location of the Add HTLC within a
+// forwarding package that this HTLC is failing. This value should never be
+// empty.
+//
+// NOTE: It is okay for sourceRef to be nil when unit testing the wallet.
 func (lc *LightningChannel) MalformedFailHTLC(htlcIndex uint64,
-	failCode lnwire.FailCode, shaOnionBlob [sha256.Size]byte) error {
+	failCode lnwire.FailCode, shaOnionBlob [sha256.Size]byte,
+	sourceRef *channeldb.AddRef) error {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -4292,6 +4358,7 @@ func (lc *LightningChannel) MalformedFailHTLC(htlcIndex uint64,
 		EntryType:    MalformedFail,
 		FailCode:     failCode,
 		ShaOnionBlob: shaOnionBlob,
+		SourceRef:    sourceRef,
 	}
 
 	lc.localUpdateLog.appendUpdate(pd)

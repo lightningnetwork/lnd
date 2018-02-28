@@ -835,12 +835,15 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 
 	// TODO(roasbeef): modify to only accept a _single_ pending channel per
 	// block unless white listed
+	f.resMtx.RLock()
 	if len(f.activeReservations[peerIDKey]) >= cfg.MaxPendingChannels {
+		f.resMtx.RUnlock()
 		f.failFundingFlow(
 			fmsg.peerAddress.IdentityKey, fmsg.msg.PendingChannelID,
 			lnwire.ErrMaxPendingChannels)
 		return
 	}
+	f.resMtx.RUnlock()
 
 	// We'll also reject any requests to create channels until we're fully
 	// synced to the network as we won't be able to properly validate the

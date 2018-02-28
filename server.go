@@ -206,7 +206,8 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 			debugPre[:], debugHash[:])
 	}
 
-	s.htlcSwitch = htlcswitch.New(htlcswitch.Config{
+	htlcSwitch, err := htlcswitch.New(htlcswitch.Config{
+		DB:      chanDB,
 		SelfKey: s.identityPriv.PubKey(),
 		LocalChannelClose: func(pubKey []byte,
 			request *htlcswitch.ChanClose) {
@@ -230,8 +231,13 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 					pubKey[:], err)
 			}
 		},
-		FwdingLog: chanDB.ForwardingLog(),
+		FwdingLog:      chanDB.ForwardingLog(),
+		SwitchPackager: channeldb.NewSwitchPackager(),
 	})
+	if err != nil {
+		return nil, err
+	}
+	s.htlcSwitch = htlcSwitch
 
 	// If external IP addresses have been specified, add those to the list
 	// of this server's addresses. We need to use the cfg.net.ResolveTCPAddr

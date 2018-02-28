@@ -1488,6 +1488,15 @@ message ChannelFeeReport {
 message FeeReportResponse {
     /// An array of channel fee reports which describes the current fee schedule for each channel.
     repeated ChannelFeeReport channel_fees = 1 [json_name = "channel_fees"];
+
+    /// The total amount of fee revenue (in satoshis) the switch has collected over the past 24 hrs.
+    uint64 day_fee_sum = 2 [json_name = "day_fee_sum"];
+
+    /// The total amount of fee revenue (in satoshis) the switch has collected over the past 1 week.
+    uint64 week_fee_sum = 3 [json_name = "week_fee_sum"];
+
+    /// The total amount of fee revenue (in satoshis) the switch has collected over the past 1 month.
+    uint64 month_fee_sum = 4 [json_name = "month_fee_sum"];
 }
 
 message PolicyUpdateRequest {

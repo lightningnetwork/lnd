@@ -881,14 +881,16 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 			"local_log_index=%v, batch_size=%v",
 			htlc.PaymentHash[:], index, l.batchCounter+1)
 
-		// Create circuit (remember the path) in order to forward settle/fail
-		// packet back.
+		// Create circuit (remember the path) in order to forward
+		// settle/fail packet back.
 		l.cfg.Switch.addCircuit(&PaymentCircuit{
 			PaymentHash:    htlc.PaymentHash,
 			IncomingChanID: pkt.incomingChanID,
 			IncomingHTLCID: pkt.incomingHTLCID,
+			IncomingAmt:    pkt.incomingHtlcAmt,
 			OutgoingChanID: l.ShortChanID(),
 			OutgoingHTLCID: index,
+			OutgoingAmt:    htlc.Amount,
 			ErrorEncrypter: pkt.obfuscator,
 		})
 

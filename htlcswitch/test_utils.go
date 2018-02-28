@@ -5,15 +5,12 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
+	"io/ioutil"
+	"math/big"
+	"net"
+	"os"
 	"testing"
 	"time"
-
-	"io/ioutil"
-	"os"
-
-	"math/big"
-
-	"net"
 
 	"github.com/btcsuite/fastsha256"
 	"github.com/go-errors/errors"
@@ -266,6 +263,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		RemoteCommitment:        aliceCommit,
 		ShortChanID:             chanID,
 		Db:                      dbAlice,
+		Packager:                channeldb.NewChannelPackager(chanID),
 	}
 
 	bobChannelState := &channeldb.OpenChannel{
@@ -283,6 +281,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		RemoteCommitment:        bobCommit,
 		ShortChanID:             chanID,
 		Db:                      dbBob,
+		Packager:                channeldb.NewChannelPackager(chanID),
 	}
 
 	if err := aliceChannelState.SyncPending(bobAddr, broadcastHeight); err != nil {

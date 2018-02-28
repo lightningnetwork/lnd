@@ -80,6 +80,22 @@ func (m *mockFeeEstimator) Stop() error {
 
 var _ lnwallet.FeeEstimator = (*mockFeeEstimator)(nil)
 
+type mockForwardingLog struct {
+	sync.Mutex
+	events map[time.Time]channeldb.ForwardingEvent
+}
+
+func (m *mockForwardingLog) AddForwardingEvents(events []channeldb.ForwardingEvent) error {
+	m.Lock()
+	defer m.Unlock()
+
+	for _, event := range events {
+		m.events[event.Timestamp] = event
+	}
+
+	return nil
+}
+
 type mockServer struct {
 	started  int32
 	shutdown int32

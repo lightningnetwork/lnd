@@ -97,6 +97,23 @@ timeout can be changed with the `--macaroontimeout` option; this can be
 increased for making RPC calls between systems whose clocks are more than 60s
 apart.
 
+## Using Macaroons with GRPC clients
+
+When interacting with `lnd` using the GRPC interface, the macaroons are encoded
+as a hex string over the wire and can be passed to `lnd` by specifying the
+hex-encoded macaroon as GRPC metadata:
+
+    GET https://localhost:8080/v1/getinfo
+    Grpc-Metadata-macaroon: <macaroon>
+
+Where `<macaroon>` is the hex encoded binary data from the macaroon file itself.
+
+A very simple example using `curl` may look something like this:
+
+    curl --insecure --header "Grpc-Metadata-macaroon: $(xxd -ps -u -c 1000  $HOME/.lnd/admin.macaroon)" https://localhost:8080/v1/getinfo
+
+Have a look at the [Java GRPC example](/docs/grpc/java.md) for programmatic usage details.
+
 ## Future improvements to the `lnd` macaroon implementation
 
 The existing macaroon implementation in `lnd` and `lncli` lays the groundwork

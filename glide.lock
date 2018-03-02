@@ -1,6 +1,13 @@
-hash: b7b9aed5daf9b2fdc4083d310ab2cabfc86e08db6796b9301b2e2d73c9bd6174
-updated: 2018-02-23T15:57:52.662879082-08:00
+hash: 31c7557ef187f50de28557359e5179a47d5f4f153ec9b4f1ad264f771e7d1b5c
+updated: 2018-03-01T16:45:01.924542733-08:00
 imports:
+- name: git.schwanenlied.me/yawning/bsaes.git
+  version: e06297f34865a50b8e473105e52cb64ad1b55da8
+  subpackages:
+  - ct32
+  - ct64
+  - ghash
+  - internal/modes
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
   subpackages:
@@ -140,9 +147,12 @@ imports:
   version: 501572607d0273fc75b3b261fa4904d63f6ffa0e
 - name: github.com/urfave/cli
   version: cfb38830724cc34fedffe9a2a29fb54fa9169cd1
+- name: github.com/Yawning/aez
+  version: 4dad034d9db2caec23fb8f69b9160ae16f8d46a3
 - name: golang.org/x/crypto
   version: 49796115aa4b964c318aad4f3084fdb41e9aa067
   subpackages:
+  - blake2b
   - chacha20poly1305
   - curve25519
   - ed25519

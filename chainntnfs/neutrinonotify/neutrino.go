@@ -285,7 +285,8 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 			switch msg := registerMsg.(type) {
 			case *spendNotification:
 				chainntnfs.Log.Infof("New spend subscription: "+
-					"utxo=%v", msg.targetOutpoint)
+					"utxo=%v, height_hint=%v",
+					msg.targetOutpoint, msg.heightHint)
 				op := *msg.targetOutpoint
 
 				if _, ok := n.spendNotifications[op]; !ok {
@@ -556,6 +557,8 @@ type spendNotification struct {
 	spendChan chan *chainntnfs.SpendDetail
 
 	spendID uint64
+
+	heightHint uint32
 }
 
 // spendCancel is a message sent to the NeutrinoNotifier when a client wishes
@@ -586,6 +589,7 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		targetOutpoint: outpoint,
 		spendChan:      make(chan *chainntnfs.SpendDetail, 1),
 		spendID:        atomic.AddUint64(&n.spendClientCounter, 1),
+		heightHint:     heightHint,
 	}
 	spendEvent := &chainntnfs.SpendEvent{
 		Spend: ntfn.spendChan,

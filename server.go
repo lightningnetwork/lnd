@@ -639,7 +639,9 @@ func (s *server) Stop() error {
 	s.cc.feeEstimator.Stop()
 
 	// Disconnect from Tor's ControlPort.
-	s.torCtrl.Close()
+	if s.torCtrl != nil {
+		s.torCtrl.Close()
+	}
 
 	// Disconnect from each active peers to ensure that
 	// peerTerminationWatchers signal completion to each peer.

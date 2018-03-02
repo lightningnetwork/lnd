@@ -118,6 +118,8 @@ type server struct {
 
 	connMgr *connmgr.ConnManager
 
+	torCtrl *torsvc.TorControl
+
 	// globalFeatures feature vector which affects HTLCs and thus are also
 	// advertised to other nodes.
 	globalFeatures *lnwire.FeatureVector
@@ -272,6 +274,49 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 				selfAddrs = append(selfAddrs, lnAddr)
 			}
 		}
+	}
+
+	// This code handles authenticating and dynamically creating v2 hidden
+	// services via Tor's ControlPort. The created v2 hidden service will
+	// be added to selfAddrs and used in the NodeAnnouncement message.
+	if cfg.torCtrl != nil {
+		// Set the server's TorControl struct. We will use the TorControl
+		// struct to dynamically create v2 hidden services.
+		s.torCtrl = cfg.torCtrl
+
+		// Open the connection to Tor's ControlPort.
+		if err := s.torCtrl.Open(); err != nil {
+			return nil, err
+		}
+
+		// Authenticate to Tor's ControlPort.
+		if err := s.torCtrl.AuthWithPass(); err != nil {
+			return nil, err
+		}
+
+		// Create v2 hidden service via Tor's ControlPort.
+		hs, err := s.torCtrl.AddOnion()
+		if err != nil {
+			return nil, err
+		}
+
+		// Add the .onion suffix
+		hs += ".onion"
+
+		// We have successfully created a v2 hidden service via the
+		// ControlPort and will now add it to the list of addresses
+		// we listen on.
+		p, err := strconv.Atoi(s.torCtrl.TargPort)
+		if err != nil {
+			return nil, err
+		}
+
+		onionAddr := &torsvc.OnionAddress{
+			HiddenService: hs,
+			Port:          p,
+		}
+
+		selfAddrs = append(selfAddrs, onionAddr)
 	}
 
 	chanGraph := chanDB.ChannelGraph()
@@ -590,6 +635,9 @@ func (s *server) Stop() error {
 	s.cc.chainView.Stop()
 	s.connMgr.Stop()
 	s.cc.feeEstimator.Stop()
+
+	// Disconnect from Tor's ControlPort.
+	s.torCtrl.Close()
 
 	// Disconnect from each active peers to ensure that
 	// peerTerminationWatchers signal completion to each peer.

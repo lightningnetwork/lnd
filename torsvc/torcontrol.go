@@ -1,10 +1,10 @@
 package torsvc
 
 import (
-	"net"
-	"net/textproto"
 	"bufio"
 	"fmt"
+	"net"
+	"net/textproto"
 	"strings"
 )
 
@@ -15,6 +15,9 @@ const (
 	success = 250
 )
 
+// TorControl houses options for interacting with Tor's ControlPort. These
+// options determine the hidden service creation configuration that LND will use
+// when automatically creating hidden services.
 type TorControl struct {
 	conn     net.Conn
 	reader   *textproto.Reader
@@ -85,12 +88,12 @@ func (tc *TorControl) AddOnion() (string, error) {
 		return "", fmt.Errorf("Could not retrieve hidden service")
 	}
 
-	return messageStr[j+1:k], err
+	return messageStr[j+1 : k], err
 }
 
-// TODO(eugene)
 // DelOnion deletes a Tor v2 hidden service given its ServiceID.
 func (tc *TorControl) DelOnion() error {
+	// TODO(eugene)
 	return nil
 }
 
@@ -130,7 +133,7 @@ func (tc *TorControl) sendCommand(command string) (int, string, error) {
 	// variable.
 	code, message, err := tc.reader.ReadResponse(success)
 	if err != nil {
-		return code, message, fmt.Errorf("Reading Tor's ControlPort " +
+		return code, message, fmt.Errorf("Reading Tor's ControlPort "+
 			"command status failed: %s", err)
 	}
 

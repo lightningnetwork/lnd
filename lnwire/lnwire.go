@@ -12,11 +12,11 @@ import (
 	"net"
 
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/torsvc"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
-	"github.com/lightningnetwork/lnd/torsvc"
 )
 
 // MaxSliceLength is the maximum allowed length for any opaque byte slices in

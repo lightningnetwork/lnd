@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/torsvc"
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/roasbeef/btcd/blockchain"
 	"github.com/roasbeef/btcd/btcec"
@@ -37,7 +38,6 @@ import (
 	"github.com/roasbeef/btcwallet/waddrmgr"
 	"github.com/tv42/zbase32"
 	"golang.org/x/net/context"
-	"github.com/lightningnetwork/lnd/torsvc"
 )
 
 var (

@@ -138,7 +138,7 @@ type torConfig struct {
 	Socks           string `long:"socks" description:"The port that Tor's exposed SOCKS5 proxy is listening on. Using Tor allows outbound-only connections (listening will be disabled) -- NOTE port must be between 1024 and 65535"`
 	Control         string `long:"control" description:"The port that Tor's ControlPort is listening on -- NOTE port must be between 1024 and 65535"`
 	ControlPassword string `long:"controlpass" description:"The password to be used for authenticating to Tor's ControlPort."`
-	VirtPort        string `long:"virtport" description:"The virtual port as described in Tor's control-spec to be used when creating hidden services -- NOTE port must be between 1024 and 65535"`
+	VirtPort        string `long:"virtport" description:"The virtual port as described in Tor's control-spec to be used when creating hidden services -- NOTE port can be below 1024"`
 	TargPort        string `long:"targport" description:"The target port as described in Tor's control-spec to be used when creating hidden services -- NOTE port must be between 1024 and 65535"`
 	PrivKey         string `long:"privkey" description:"The private key used to create a hidden service."`
 	Save            bool   `long:"save" description:"Save private keys to file when dealing with dynamically created hidden services."`

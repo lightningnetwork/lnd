@@ -470,9 +470,8 @@ Rejoice as you will now be listed as a [contributor](https://github.com/lightnin
 
 #### 6.2. Licensing of Contributions
 ****
-All contributions must be licensed with the
-[MIT license](https://github.com/lightningnetwork/lnd/blob/master/LICENSE).  This is
-the same license as all of the code found within lnd.
+All contributions have Copyright (C) 2015-2018 The Lightning Network Developers
+This is the same license as all of the code found within lnd.
 
 
 ## Acknowledgements

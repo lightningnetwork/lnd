@@ -370,17 +370,7 @@ func loadConfig() (*config, error) {
 		// Validate targport
 		torport, err = strconv.Atoi(cfg.Tor.TargPort)
 		if err != nil || torport < 1024 || torport > 65535 {
-			str := "%s: The tor controlport must be between 1024 and 65535"
-			err := fmt.Errorf(str, funcName)
-			fmt.Fprintln(os.Stderr, err)
-			fmt.Fprintln(os.Stderr, usageMessage)
-			return nil, err
-		}
-
-		// Validate virtport
-		torport, err = strconv.Atoi(cfg.Tor.VirtPort)
-		if err != nil || torport < 1024 || torport > 65535 {
-			str := "%s: The tor controlport must be between 1024 and 65535"
+			str := "%s: The tor target port must be between 1024 and 65535"
 			err := fmt.Errorf(str, funcName)
 			fmt.Fprintln(os.Stderr, err)
 			fmt.Fprintln(os.Stderr, usageMessage)

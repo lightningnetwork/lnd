@@ -306,7 +306,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		// We have successfully created a v2 hidden service via the
 		// ControlPort and will now add it to the list of addresses
 		// we listen on.
-		p, err := strconv.Atoi(s.torCtrl.TargPort)
+		p, err := strconv.Atoi(s.torCtrl.VirtPort)
 		if err != nil {
 			return nil, err
 		}
@@ -317,6 +317,8 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		}
 
 		selfAddrs = append(selfAddrs, onionAddr)
+
+		srvrLog.Infof("Listening on %s:%d", onionAddr.HiddenService, onionAddr.Port)
 	}
 
 	chanGraph := chanDB.ChannelGraph()

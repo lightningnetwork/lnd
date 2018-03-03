@@ -90,7 +90,7 @@ end
 Now, create an invoice on your node:
 
 ```bash
-$ lncli addinvoice --value=590
+$ lncli addinvoice --amt=590
 {
 	"r_hash": <R_HASH>,
 	"pay_req": <PAY_REQ>

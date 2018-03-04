@@ -1,0 +1,107 @@
+[[constraint]]
+  name = "github.com/awalterschulze/gographviz"
+  revision = "761fd5fbb34e4c2c138c280395b65b48e4ff5a53"
+
+[[constraint]]
+  name = "github.com/btcsuite/btclog"
+  revision = "84c8d2346e9fc8c7b947e243b9c24e6df9fd206a"
+
+[[constraint]]
+  name = "github.com/coreos/bbolt"
+  revision = "4f5275f4ebbf6fe7cb772de987fa96ee674460a7"
+
+[[constraint]]
+  name = "github.com/davecgh/go-spew"
+  revision = "8991bc29aa16c548c550c7ff78260e27b9ab7c73"
+
+[[constraint]]
+  name = "github.com/go-errors/errors"
+  revision = "a6af135bd4e28680facf08a3d206b454abc877a4"
+
+[[constraint]]
+  name = "github.com/golang/protobuf"
+  revision = "bbd03ef6da3a115852eaf24c8a1c46aeb39aa175"
+
+[[constraint]]
+  name = "github.com/grpc-ecosystem/grpc-gateway"
+  revision = "f2862b476edcef83412c7af8687c9cd8e4097c0f"
+
+[[constraint]]
+  name = "github.com/jessevdk/go-flags"
+  revision = "f88afde2fa19a30cf50ba4b05b3d13bc6bae3079"
+
+[[constraint]]
+  name = "github.com/jrick/logrotate"
+  revision = "a93b200c26cbae3bb09dd0dc2c7c7fe1468a034a"
+
+[[constraint]]
+  name = "github.com/kkdai/bstream"
+  revision = "f391b8402d23024e7c0f624b31267a89998fca95"
+
+[[constraint]]
+  name = "github.com/lightninglabs/neutrino"
+  revision = "601b7eda6e5c9e8ca91c097f0bb7be2664802ab3"
+
+[[constraint]]
+  name = "github.com/lightningnetwork/lightning-onion"
+  revision = "6d4b1353e2835def84ee240f40499464521c6046"
+
+[[constraint]]
+  name = "github.com/ltcsuite/ltcd"
+  revision = "5f654d5faab99ee2b3488fabba98e5f7a5257ee3"
+
+[[constraint]]
+  name = "github.com/miekg/dns"
+  revision = "79bfde677fa81ff8d27c4330c35bda075d360641"
+
+[[constraint]]
+  name = "github.com/roasbeef/btcutil"
+  revision = "c3ff179366044979fb9856c2feb79bd4c2184c7a"
+
+[[constraint]]
+  name = "github.com/roasbeef/btcd"
+  revision = "e6807bc4dd5ddbb95b4ab163f6dd61e4ad79463a"
+
+[[constraint]]
+  name = "github.com/roasbeef/btcwallet"
+  revision = "46f7390abe89576059b52588d91b82212e753493"
+
+[[constraint]]
+  name = "github.com/tv42/zbase32"
+  revision = "501572607d0273fc75b3b261fa4904d63f6ffa0e"
+
+[[constraint]]
+  name = "github.com/urfave/cli"
+  revision = "1efa31f08b9333f1bd4882d61f9d668a70cd902e"
+
+[[constraint]]
+  name = "github.com/Yawning/aez"
+  revision = "4dad034d9db2caec23fb8f69b9160ae16f8d46a3"
+
+[[constraint]]
+  name = "golang.org/x/crypto"
+  revision = "49796115aa4b964c318aad4f3084fdb41e9aa067"
+
+[[constraint]]
+  name = "golang.org/x/net"
+  revision = "ae89d30ce0c63142b652837da33d782e2b0a9b25"
+
+[[constraint]]
+  name = "google.golang.org/genproto"
+  revision = "df60624c1e9b9d2973e889c7a1cff73155da81c4"
+
+[[constraint]]
+  name = "google.golang.org/grpc"
+  revision = "b3ddf786825de56a4178401b7e174ee332173b66"
+
+[[constraint]]
+  name = "gopkg.in/macaroon-bakery.v2"
+  revision = "94012773d2874a067572bd16d7d11ae02968b47b"
+
+[[constraint]]
+  name = "gopkg.in/macaroon.v2"
+  revision = "bed2a428da6e56d950bed5b41fcbae3141e5b0d0"
+
+[prune]
+  go-tests = true
+  unused-packages = true

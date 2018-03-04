@@ -7498,13 +7498,13 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 //   1. Carol --> Dave --> Alice --> Bob  forward payment
 //   2. Carol --- Dave  X  Alice --- Bob  disconnect intermediaries
 //   3. Carol --- Dave  X  Alice <-- Bob  settle last hop
-//   4. Carol --- Dave  X         X  Bob  restart Alice
-//   5. Carol <-- Dave <-- Alice --- Bob  expect settle to propagate
+//   4. Carol --- Dave  X         X       shutdown Bob, restart Alice
+//   5. Carol <-- Dave <-- Alice  X       expect settle to propagate
 func testSwitchOfflineDeliveryOutgoingOffline(
 	net *lntest.NetworkHarness, t *harnessTest) {
 
-	const chanAmt = btcutil.Amount(100000)
-	const pushAmt = btcutil.Amount(90000)
+	const chanAmt = btcutil.Amount(1000000)
+	const pushAmt = btcutil.Amount(900000)
 
 	ctxb := context.Background()
 	timeout := time.Duration(time.Second * 15)

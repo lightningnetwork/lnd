@@ -41,11 +41,11 @@
     We recommend placing the above in your .bashrc or in a setup script so that
     you can avoid typing this every time you open a new terminal window.
 
-  * **Glide:** This project uses `Glide` to manage dependencies as well 
-    as to provide *reproducible builds*. To install `Glide`, execute the
+  * **dep:** This project uses `dep` to manage dependencies as well
+    as to provide *reproducible builds*. To install `dep`, execute the
     following command (assumes you already have Go properly installed):
     ```
-    go get -u github.com/Masterminds/glide
+    go get -u github.com/golang/dep/cmd/dep
     ```
 
 ### Installing lnd
@@ -55,17 +55,17 @@ related dependencies run the following commands:
 ```
 git clone https://github.com/lightningnetwork/lnd $GOPATH/src/github.com/lightningnetwork/lnd
 cd $GOPATH/src/github.com/lightningnetwork/lnd
-glide install
+dep ensure
 go install . ./cmd/...
 ```
 
 **Updating**
 
-To update your version of `lnd` to the latest version run the following 
+To update your version of `lnd` to the latest version run the following
 commands:
 ```
 cd $GOPATH/src/github.com/lightningnetwork/lnd
-git pull && glide install
+git pull && dep ensure
 go install . ./cmd/...
 ```
 
@@ -84,6 +84,7 @@ branch. To install, run the following commands:
 
 Install **btcd**: (must be from roasbeef fork, not from btcsuite)
 ```
+go get -u github.com/Masterminds/glide
 git clone https://github.com/roasbeef/btcd $GOPATH/src/github.com/roasbeef/btcd
 cd $GOPATH/src/github.com/roasbeef/btcd
 glide install

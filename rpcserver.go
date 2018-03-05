@@ -2927,6 +2927,7 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 			Value:           int64(payment.Terms.Value.ToSatoshis()),
 			CreationDate:    payment.CreationDate.Unix(),
 			Path:            path,
+			Fee:             int64(payment.Fee.ToSatoshis()),
 			PaymentPreimage: hex.EncodeToString(payment.PaymentPreimage[:]),
 		}
 	}

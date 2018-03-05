@@ -45,6 +45,7 @@ import:
 - package: github.com/urfave/cli
   version: ^1.18.0
 - package: golang.org/x/crypto
+  version: 49796115aa4b964c318aad4f3084fdb41e9aa067
   subpackages:
   - hkdf
   - nacl/secretbox

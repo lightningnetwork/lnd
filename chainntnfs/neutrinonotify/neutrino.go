@@ -528,24 +528,14 @@ func (n *NeutrinoNotifier) notifyBlockEpochs(newHeight int32, newSha *chainhash.
 	}
 
 	for _, epochClient := range n.blockEpochClients {
-		n.wg.Add(1)
-		epochClient.wg.Add(1)
-		go func(ntfnChan chan *chainntnfs.BlockEpoch, cancelChan chan struct{},
-			clientWg *sync.WaitGroup) {
+		select {
 
-			defer clientWg.Done()
-			defer n.wg.Done()
+		case epochClient.epochQueue.ChanIn() <- epoch:
 
-			select {
-			case ntfnChan <- epoch:
+		case <-epochClient.cancelChan:
 
-			case <-cancelChan:
-				return
-
-			case <-n.quit:
-				return
-			}
-		}(epochClient.epochChan, epochClient.cancelChan, &epochClient.wg)
+		case <-n.quit:
+		}
 	}
 }
 

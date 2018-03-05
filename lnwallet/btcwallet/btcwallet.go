@@ -80,19 +80,31 @@ func New(cfg Config) (*BtcWallet, error) {
 	var wallet *base.Wallet
 	if !walletExists {
 		// Wallet has never been created, perform initial set up.
-		wallet, err = loader.CreateNewWallet(pubPass, cfg.PrivatePass,
-			cfg.HdSeed)
-		if err != nil {
+		wallet, err = loader.CreateNewWallet(
+			pubPass, cfg.PrivatePass, cfg.HdSeed,
+		)
+
+		switch {
+		// If the wallet already exists, then we'll ignore this error
+		// and proceed directly to opening the wallet.
+		case err == base.ErrExists:
+
+		// Otherwise, there's a greater error here, and we'll return
+		// early.
+		case err != nil:
 			return nil, err
 		}
-	} else {
-		// Wallet has been created and been initialized at this point,
-		// open it along with all the required DB namespaces, and the
-		// DB itself.
-		wallet, err = loader.OpenExistingWallet(pubPass, false)
-		if err != nil {
+
+		if err := loader.UnloadWallet(); err != nil {
 			return nil, err
 		}
+	}
+
+	// Wallet has been created and been initialized at this point, open it
+	// along with all the required DB namepsaces, and the DB itself.
+	wallet, err = loader.OpenExistingWallet(pubPass, false)
+	if err != nil {
+		return nil, err
 	}
 
 	// Create a bucket within the wallet's database dedicated to storing

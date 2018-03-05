@@ -22,19 +22,28 @@ func main() {
 
 	assocData := bytes.Repeat([]byte{'B'}, 32)
 
+	tempDir, err := ioutil.TempDir("", "onion-test")
+	defer os.Remove(tempDir)
+	if err != nil {
+		panic(err)
+	}
+
 	if len(args) == 1 {
 		fmt.Printf("Usage: %s (generate|decode) <private-keys>\n", args[0])
 	} else if args[1] == "generate" {
-		var privKeys []*btcec.PrivateKey
 		var route []*btcec.PublicKey
 		for i, hexKey := range args[2:] {
 			binKey, err := hex.DecodeString(hexKey)
-			if err != nil || len(binKey) != 32 {
-				log.Fatalf("%s is not a valid hex privkey %s", hexKey, err)
+			if err != nil || len(binKey) != 33 {
+				log.Fatalf("%s is not a valid hex pubkey %s", hexKey, err)
 			}
-			privkey, pubkey := btcec.PrivKeyFromBytes(btcec.S256(), binKey)
+
+			pubkey, err := btcec.ParsePubKey(binKey, btcec.S256())
+			if err != nil {
+				panic(err)
+			}
+
 			route = append(route, pubkey)
-			privKeys = append(privKeys, privkey)
 			fmt.Fprintf(os.Stderr, "Node %d pubkey %x\n", i, pubkey.SerializeCompressed())
 		}
 
@@ -44,7 +53,7 @@ func main() {
 		for i := 0; i < len(route); i++ {
 			hopsData = append(hopsData, sphinx.HopData{
 				Realm:         0x00,
-				ForwardAmount: uint32(i),
+				ForwardAmount: uint64(i),
 				OutgoingCltv:  uint32(i),
 			})
 			copy(hopsData[i].NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
@@ -76,7 +85,7 @@ func main() {
 		}
 
 		privkey, _ := btcec.PrivKeyFromBytes(btcec.S256(), binKey)
-		s := sphinx.NewRouter(privkey, &chaincfg.TestNet3Params, nil)
+		s := sphinx.NewRouter(tempDir, privkey, &chaincfg.TestNet3Params, nil)
 
 		var packet sphinx.OnionPacket
 		err = packet.Decode(bytes.NewBuffer(binMsg))
@@ -84,13 +93,13 @@ func main() {
 		if err != nil {
 			log.Fatalf("Error parsing message: %v", err)
 		}
-		p, err := s.ProcessOnionPacket(&packet, assocData)
+		p, err := s.ProcessOnionPacket(&packet, assocData, 10)
 		if err != nil {
 			log.Fatalf("Failed to decode message: %s", err)
 		}
 
 		w := bytes.NewBuffer([]byte{})
-		err = p.Packet.Encode(w)
+		err = p.NextPacket.Encode(w)
 
 		if err != nil {
 			log.Fatalf("Error serializing message: %v", err)

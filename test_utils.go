@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	crand "crypto/rand"
+	"encoding/binary"
+	"io"
 	"io/ioutil"
 	"math/rand"
 	"net"
@@ -191,11 +194,21 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		CommitSig:     bytes.Repeat([]byte{1}, 71),
 	}
 
+	var chanIDBytes [8]byte
+	if _, err := io.ReadFull(crand.Reader, chanIDBytes[:]); err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	shortChanID := lnwire.NewShortChanIDFromInt(
+		binary.BigEndian.Uint64(chanIDBytes[:]),
+	)
+
 	aliceChannelState := &channeldb.OpenChannel{
 		LocalChanCfg:            aliceCfg,
 		RemoteChanCfg:           bobCfg,
 		IdentityPub:             aliceKeyPub,
 		FundingOutpoint:         *prevOut,
+		ShortChanID:             shortChanID,
 		ChanType:                channeldb.SingleFunder,
 		IsInitiator:             true,
 		Capacity:                channelCapacity,
@@ -205,6 +218,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		LocalCommitment:         aliceCommit,
 		RemoteCommitment:        aliceCommit,
 		Db:                      dbAlice,
+		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 	bobChannelState := &channeldb.OpenChannel{
 		LocalChanCfg:            bobCfg,
@@ -220,6 +234,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		LocalCommitment:         bobCommit,
 		RemoteCommitment:        bobCommit,
 		Db:                      dbBob,
+		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 
 	addr := &net.TCPAddr{
@@ -292,7 +307,8 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		chainArb:      chainArb,
 	}
 	htlcSwitch, err := htlcswitch.New(htlcswitch.Config{
-		DB: dbAlice,
+		DB:             dbAlice,
+		SwitchPackager: channeldb.NewSwitchPackager(),
 	})
 	if err != nil {
 		return nil, nil, nil, nil, err

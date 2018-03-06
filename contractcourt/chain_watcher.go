@@ -133,13 +133,13 @@ func newChainWatcher(chanState *channeldb.OpenChannel,
 	var stateHint [lnwallet.StateHintSize]byte
 	if chanState.IsInitiator {
 		stateHint = lnwallet.DeriveStateHintObfuscator(
-			chanState.LocalChanCfg.PaymentBasePoint,
-			chanState.RemoteChanCfg.PaymentBasePoint,
+			chanState.LocalChanCfg.PaymentBasePoint.PubKey,
+			chanState.RemoteChanCfg.PaymentBasePoint.PubKey,
 		)
 	} else {
 		stateHint = lnwallet.DeriveStateHintObfuscator(
-			chanState.RemoteChanCfg.PaymentBasePoint,
-			chanState.LocalChanCfg.PaymentBasePoint,
+			chanState.RemoteChanCfg.PaymentBasePoint.PubKey,
+			chanState.LocalChanCfg.PaymentBasePoint.PubKey,
 		)
 	}
 

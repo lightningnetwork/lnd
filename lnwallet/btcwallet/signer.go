@@ -2,6 +2,7 @@ package btcwallet
 
 import (
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -10,6 +11,7 @@ import (
 	"github.com/roasbeef/btcutil"
 	"github.com/roasbeef/btcwallet/waddrmgr"
 	base "github.com/roasbeef/btcwallet/wallet"
+	"github.com/roasbeef/btcwallet/walletdb"
 )
 
 // FetchInputInfo queries for the WalletController's knowledge of the passed
@@ -74,11 +76,44 @@ func (b *BtcWallet) fetchOutputAddr(script []byte) (waddrmgr.ManagedAddress, err
 }
 
 // fetchPrivKey attempts to retrieve the raw private key corresponding to the
-// passed public key.
-// TODO(roasbeef): alternatively can extract all the data pushes within the
-// script, then attempt to match keys one by one
-func (b *BtcWallet) fetchPrivKey(pub *btcec.PublicKey) (*btcec.PrivateKey, error) {
-	hash160 := btcutil.Hash160(pub.SerializeCompressed())
+// passed public key if populated, or the key descriptor path (if non-empty).
+func (b *BtcWallet) fetchPrivKey(keyDesc *keychain.KeyDescriptor) (*btcec.PrivateKey, error) {
+	// If the key locator within the descriptor *isn't* empty, then we can
+	// directly derive the keys raw.
+	if !keyDesc.KeyLocator.IsEmpty() {
+		// We'll assume the special lightning key scope in this case.
+		scopedMgr, err := b.wallet.Manager.FetchScopedKeyManager(
+			lightningKeyScope,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		var key *btcec.PrivateKey
+		err = walletdb.View(b.db, func(tx walletdb.ReadTx) error {
+			addrmgrNs := tx.ReadBucket(waddrmgrNamespaceKey)
+
+			path := waddrmgr.DerivationPath{
+				Account: uint32(keyDesc.Family),
+				Branch:  0,
+				Index:   uint32(keyDesc.Index),
+			}
+			addr, err := scopedMgr.DeriveFromKeyPath(addrmgrNs, path)
+			if err != nil {
+				return err
+			}
+
+			key, err = addr.(waddrmgr.ManagedPubKeyAddress).PrivKey()
+			return err
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		return key, nil
+	}
+
+	hash160 := btcutil.Hash160(keyDesc.PubKey.SerializeCompressed())
 	addr, err := btcutil.NewAddressWitnessPubKeyHash(hash160, b.netParams)
 	if err != nil {
 		return nil, err
@@ -117,11 +152,12 @@ func maybeTweakPrivKey(signDesc *lnwallet.SignDescriptor,
 // This is a part of the WalletController interface.
 func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx,
 	signDesc *lnwallet.SignDescriptor) ([]byte, error) {
+
 	witnessScript := signDesc.WitnessScript
 
 	// First attempt to fetch the private key which corresponds to the
 	// specified public key.
-	privKey, err := b.fetchPrivKey(signDesc.PubKey)
+	privKey, err := b.fetchPrivKey(&signDesc.KeyDesc)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +212,7 @@ func (b *BtcWallet) ComputeInputScript(tx *wire.MsgTx,
 
 	// If we're spending p2wkh output nested within a p2sh output, then
 	// we'll need to attach a sigScript in addition to witness data.
-	case pka.IsNestedWitness():
+	case pka.AddrType() == waddrmgr.NestedWitnessPubKey:
 		pubKey := privKey.PubKey()
 		pubKeyHash := btcutil.Hash160(pubKey.SerializeCompressed())
 
@@ -249,7 +285,9 @@ func (b *BtcWallet) SignMessage(pubKey *btcec.PublicKey,
 
 	// First attempt to fetch the private key which corresponds to the
 	// specified public key.
-	privKey, err := b.fetchPrivKey(pubKey)
+	privKey, err := b.fetchPrivKey(&keychain.KeyDescriptor{
+		PubKey: pubKey,
+	})
 	if err != nil {
 		return nil, err
 	}

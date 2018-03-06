@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/roasbeef/btcd/btcec"
@@ -325,7 +326,7 @@ func (tc *testContext) extractFundingInput() (*Utxo, *wire.TxOut, error) {
 	}
 
 	block1Utxo := Utxo{
-		AddressType: PubKeyHash,
+		AddressType: WitnessPubKey,
 		Value:       btcutil.Amount(txout.Value),
 		OutPoint: wire.OutPoint{
 			Hash:  *tx.Hash(),
@@ -378,16 +379,30 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 				MaxPendingAmount: lnwire.NewMSatFromSatoshis(tc.fundingAmount),
 				MaxAcceptedHtlcs: MaxHTLCNumber,
 			},
-			CsvDelay:         tc.localCsvDelay,
-			MultiSigKey:      tc.localFundingPubKey,
-			PaymentBasePoint: tc.localPaymentBasePoint,
-			HtlcBasePoint:    tc.localPaymentBasePoint,
-			DelayBasePoint:   localDelayBasePoint,
+			CsvDelay: tc.localCsvDelay,
+			MultiSigKey: keychain.KeyDescriptor{
+				PubKey: tc.localFundingPubKey,
+			},
+			PaymentBasePoint: keychain.KeyDescriptor{
+				PubKey: tc.localPaymentBasePoint,
+			},
+			HtlcBasePoint: keychain.KeyDescriptor{
+				PubKey: tc.localPaymentBasePoint,
+			},
+			DelayBasePoint: keychain.KeyDescriptor{
+				PubKey: localDelayBasePoint,
+			},
 		},
 		RemoteChanCfg: channeldb.ChannelConfig{
-			MultiSigKey:      tc.remoteFundingPubKey,
-			PaymentBasePoint: tc.remotePaymentBasePoint,
-			HtlcBasePoint:    tc.remotePaymentBasePoint,
+			MultiSigKey: keychain.KeyDescriptor{
+				PubKey: tc.remoteFundingPubKey,
+			},
+			PaymentBasePoint: keychain.KeyDescriptor{
+				PubKey: tc.remotePaymentBasePoint,
+			},
+			HtlcBasePoint: keychain.KeyDescriptor{
+				PubKey: tc.remotePaymentBasePoint,
+			},
 		},
 		Capacity:           tc.fundingAmount,
 		RevocationProducer: shachain.NewRevocationProducer(zeroHash),

@@ -557,7 +557,7 @@ func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx, signDesc *lnwallet.SignDescri
 	witnessScript := signDesc.WitnessScript
 	privKey := m.key
 
-	if !privKey.PubKey().IsEqual(signDesc.PubKey) {
+	if !privKey.PubKey().IsEqual(signDesc.KeyDesc.PubKey) {
 		return nil, fmt.Errorf("incorrect key passed")
 	}
 

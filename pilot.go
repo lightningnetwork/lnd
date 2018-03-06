@@ -146,7 +146,7 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 		Heuristic:      prefAttachment,
 		ChanController: &chanController{svr},
 		WalletBalance: func() (btcutil.Amount, error) {
-			return svr.cc.wallet.ConfirmedBalance(1, true)
+			return svr.cc.wallet.ConfirmedBalance(1)
 		},
 		Graph: autopilot.ChannelGraphFromDatabase(svr.chanDB.ChannelGraph()),
 	}

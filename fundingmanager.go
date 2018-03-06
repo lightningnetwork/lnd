@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -955,12 +956,22 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 				MinHTLC:          msg.HtlcMinimum,
 				MaxAcceptedHtlcs: maxHtlcs,
 			},
-			CsvDelay:            remoteCsvDelay,
-			MultiSigKey:         copyPubKey(msg.FundingKey),
-			RevocationBasePoint: copyPubKey(msg.RevocationPoint),
-			PaymentBasePoint:    copyPubKey(msg.PaymentPoint),
-			DelayBasePoint:      copyPubKey(msg.DelayedPaymentPoint),
-			HtlcBasePoint:       copyPubKey(msg.HtlcPoint),
+			CsvDelay: remoteCsvDelay,
+			MultiSigKey: keychain.KeyDescriptor{
+				PubKey: copyPubKey(msg.FundingKey),
+			},
+			RevocationBasePoint: keychain.KeyDescriptor{
+				PubKey: copyPubKey(msg.RevocationPoint),
+			},
+			PaymentBasePoint: keychain.KeyDescriptor{
+				PubKey: copyPubKey(msg.PaymentPoint),
+			},
+			DelayBasePoint: keychain.KeyDescriptor{
+				PubKey: copyPubKey(msg.DelayedPaymentPoint),
+			},
+			HtlcBasePoint: keychain.KeyDescriptor{
+				PubKey: copyPubKey(msg.HtlcPoint),
+			},
 		},
 	}
 	err = reservation.ProcessSingleContribution(remoteContribution)
@@ -988,11 +999,11 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		HtlcMinimum:          ourContribution.MinHTLC,
 		CsvDelay:             uint16(remoteCsvDelay),
 		MaxAcceptedHTLCs:     maxHtlcs,
-		FundingKey:           ourContribution.MultiSigKey,
-		RevocationPoint:      ourContribution.RevocationBasePoint,
-		PaymentPoint:         ourContribution.PaymentBasePoint,
-		DelayedPaymentPoint:  ourContribution.DelayBasePoint,
-		HtlcPoint:            ourContribution.HtlcBasePoint,
+		FundingKey:           ourContribution.MultiSigKey.PubKey,
+		RevocationPoint:      ourContribution.RevocationBasePoint.PubKey,
+		PaymentPoint:         ourContribution.PaymentBasePoint.PubKey,
+		DelayedPaymentPoint:  ourContribution.DelayBasePoint.PubKey,
+		HtlcPoint:            ourContribution.HtlcBasePoint.PubKey,
 		FirstCommitmentPoint: ourContribution.FirstCommitmentPoint,
 	}
 	err = f.cfg.SendToPeer(fmsg.peerAddress.IdentityKey, &fundingAccept)
@@ -1069,11 +1080,21 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 				MinHTLC:          msg.HtlcMinimum,
 				MaxAcceptedHtlcs: maxHtlcs,
 			},
-			MultiSigKey:         copyPubKey(msg.FundingKey),
-			RevocationBasePoint: copyPubKey(msg.RevocationPoint),
-			PaymentBasePoint:    copyPubKey(msg.PaymentPoint),
-			DelayBasePoint:      copyPubKey(msg.DelayedPaymentPoint),
-			HtlcBasePoint:       copyPubKey(msg.HtlcPoint),
+			MultiSigKey: keychain.KeyDescriptor{
+				PubKey: copyPubKey(msg.FundingKey),
+			},
+			RevocationBasePoint: keychain.KeyDescriptor{
+				PubKey: copyPubKey(msg.RevocationPoint),
+			},
+			PaymentBasePoint: keychain.KeyDescriptor{
+				PubKey: copyPubKey(msg.PaymentPoint),
+			},
+			DelayBasePoint: keychain.KeyDescriptor{
+				PubKey: copyPubKey(msg.DelayedPaymentPoint),
+			},
+			HtlcBasePoint: keychain.KeyDescriptor{
+				PubKey: copyPubKey(msg.HtlcPoint),
+			},
 		},
 	}
 	remoteContribution.CsvDelay = f.cfg.RequiredRemoteDelay(resCtx.chanAmt)
@@ -1832,10 +1853,11 @@ func (f *fundingManager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 	// will be the one that's carrying the HTLC towards us.
 	remoteMinHTLC := completeChan.RemoteChanCfg.MinHTLC
 
-	ann, err := f.newChanAnnouncement(f.cfg.IDKey, completeChan.IdentityPub,
-		completeChan.LocalChanCfg.MultiSigKey,
-		completeChan.RemoteChanCfg.MultiSigKey, *shortChanID, chanID,
-		remoteMinHTLC,
+	ann, err := f.newChanAnnouncement(
+		f.cfg.IDKey, completeChan.IdentityPub,
+		completeChan.LocalChanCfg.MultiSigKey.PubKey,
+		completeChan.RemoteChanCfg.MultiSigKey.PubKey, *shortChanID,
+		chanID, remoteMinHTLC,
 	)
 	if err != nil {
 		return fmt.Errorf("error generating channel "+
@@ -1941,10 +1963,11 @@ func (f *fundingManager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 
 		// Create and broadcast the proofs required to make this channel
 		// public and usable for other nodes for routing.
-		err = f.announceChannel(f.cfg.IDKey, completeChan.IdentityPub,
-			completeChan.LocalChanCfg.MultiSigKey,
-			completeChan.RemoteChanCfg.MultiSigKey, *shortChanID, chanID,
-			remoteMinHTLC,
+		err = f.announceChannel(
+			f.cfg.IDKey, completeChan.IdentityPub,
+			completeChan.LocalChanCfg.MultiSigKey.PubKey,
+			completeChan.RemoteChanCfg.MultiSigKey.PubKey,
+			*shortChanID, chanID, remoteMinHTLC,
 		)
 		if err != nil {
 			return fmt.Errorf("channel announcement failed: %v", err)
@@ -2454,11 +2477,11 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		FeePerKiloWeight:     uint32(commitFeePerKw),
 		CsvDelay:             uint16(remoteCsvDelay),
 		MaxAcceptedHTLCs:     maxHtlcs,
-		FundingKey:           ourContribution.MultiSigKey,
-		RevocationPoint:      ourContribution.RevocationBasePoint,
-		PaymentPoint:         ourContribution.PaymentBasePoint,
-		HtlcPoint:            ourContribution.HtlcBasePoint,
-		DelayedPaymentPoint:  ourContribution.DelayBasePoint,
+		FundingKey:           ourContribution.MultiSigKey.PubKey,
+		RevocationPoint:      ourContribution.RevocationBasePoint.PubKey,
+		PaymentPoint:         ourContribution.PaymentBasePoint.PubKey,
+		HtlcPoint:            ourContribution.HtlcBasePoint.PubKey,
+		DelayedPaymentPoint:  ourContribution.DelayBasePoint.PubKey,
 		FirstCommitmentPoint: ourContribution.FirstCommitmentPoint,
 		ChannelFlags:         channelFlags,
 	}

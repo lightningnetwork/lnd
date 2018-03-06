@@ -13,6 +13,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/roasbeef/btcd/blockchain"
@@ -168,12 +169,22 @@ func createTestChannels(revocationWindow int) (*LightningChannel,
 			MinHTLC:          0,
 			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
 		},
-		CsvDelay:            uint16(csvTimeoutAlice),
-		MultiSigKey:         aliceKeys[0].PubKey(),
-		RevocationBasePoint: aliceKeys[1].PubKey(),
-		PaymentBasePoint:    aliceKeys[2].PubKey(),
-		DelayBasePoint:      aliceKeys[3].PubKey(),
-		HtlcBasePoint:       aliceKeys[4].PubKey(),
+		CsvDelay: uint16(csvTimeoutAlice),
+		MultiSigKey: keychain.KeyDescriptor{
+			PubKey: aliceKeys[0].PubKey(),
+		},
+		RevocationBasePoint: keychain.KeyDescriptor{
+			PubKey: aliceKeys[1].PubKey(),
+		},
+		PaymentBasePoint: keychain.KeyDescriptor{
+			PubKey: aliceKeys[2].PubKey(),
+		},
+		DelayBasePoint: keychain.KeyDescriptor{
+			PubKey: aliceKeys[3].PubKey(),
+		},
+		HtlcBasePoint: keychain.KeyDescriptor{
+			PubKey: aliceKeys[4].PubKey(),
+		},
 	}
 	bobCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
@@ -183,28 +194,40 @@ func createTestChannels(revocationWindow int) (*LightningChannel,
 			MinHTLC:          0,
 			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
 		},
-		CsvDelay:            uint16(csvTimeoutBob),
-		MultiSigKey:         bobKeys[0].PubKey(),
-		RevocationBasePoint: bobKeys[1].PubKey(),
-		PaymentBasePoint:    bobKeys[2].PubKey(),
-		DelayBasePoint:      bobKeys[3].PubKey(),
-		HtlcBasePoint:       bobKeys[4].PubKey(),
+		CsvDelay: uint16(csvTimeoutBob),
+		MultiSigKey: keychain.KeyDescriptor{
+			PubKey: bobKeys[0].PubKey(),
+		},
+		RevocationBasePoint: keychain.KeyDescriptor{
+			PubKey: bobKeys[1].PubKey(),
+		},
+		PaymentBasePoint: keychain.KeyDescriptor{
+			PubKey: bobKeys[2].PubKey(),
+		},
+		DelayBasePoint: keychain.KeyDescriptor{
+			PubKey: bobKeys[3].PubKey(),
+		},
+		HtlcBasePoint: keychain.KeyDescriptor{
+			PubKey: bobKeys[4].PubKey(),
+		},
 	}
 
-	bobRoot := DeriveRevocationRoot(
-		bobKeys[0], testHdSeed, aliceKeys[0].PubKey(),
-	)
-	bobPreimageProducer := shachain.NewRevocationProducer(bobRoot)
+	bobRoot, err := chainhash.NewHash(bobKeys[0].Serialize())
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	bobPreimageProducer := shachain.NewRevocationProducer(*bobRoot)
 	bobFirstRevoke, err := bobPreimageProducer.AtIndex(0)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	bobCommitPoint := ComputeCommitmentPoint(bobFirstRevoke[:])
 
-	aliceRoot := DeriveRevocationRoot(
-		aliceKeys[0], testHdSeed, bobKeys[0].PubKey(),
-	)
-	alicePreimageProducer := shachain.NewRevocationProducer(aliceRoot)
+	aliceRoot, err := chainhash.NewHash(aliceKeys[0].Serialize())
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	alicePreimageProducer := shachain.NewRevocationProducer(*aliceRoot)
 	aliceFirstRevoke, err := alicePreimageProducer.AtIndex(0)
 	if err != nil {
 		return nil, nil, nil, err
@@ -880,8 +903,8 @@ func TestForceClose(t *testing.T) {
 
 	// The rest of the close summary should have been populated properly.
 	aliceDelayPoint := aliceChannel.channelState.LocalChanCfg.DelayBasePoint
-	if !aliceCommitResolution.SelfOutputSignDesc.PubKey.IsEqual(
-		aliceDelayPoint,
+	if !aliceCommitResolution.SelfOutputSignDesc.KeyDesc.PubKey.IsEqual(
+		aliceDelayPoint.PubKey,
 	) {
 		t.Fatalf("alice incorrect pubkey in SelfOutputSignDesc")
 	}
@@ -1036,7 +1059,7 @@ func TestForceClose(t *testing.T) {
 		t.Fatalf("bob fails to include to-self output in ForceCloseSummary")
 	}
 	bobDelayPoint := bobChannel.channelState.LocalChanCfg.DelayBasePoint
-	if !bobCommitResolution.SelfOutputSignDesc.PubKey.IsEqual(bobDelayPoint) {
+	if !bobCommitResolution.SelfOutputSignDesc.KeyDesc.PubKey.IsEqual(bobDelayPoint.PubKey) {
 		t.Fatalf("bob incorrect pubkey in SelfOutputSignDesc")
 	}
 	if bobCommitResolution.SelfOutputSignDesc.Output.Value !=
@@ -1156,8 +1179,8 @@ func TestForceCloseDustOutput(t *testing.T) {
 		t.Fatalf("alice fails to include to-self output in " +
 			"ForceCloseSummary")
 	}
-	if !commitResolution.SelfOutputSignDesc.PubKey.IsEqual(
-		aliceChannel.channelState.LocalChanCfg.DelayBasePoint,
+	if !commitResolution.SelfOutputSignDesc.KeyDesc.PubKey.IsEqual(
+		aliceChannel.channelState.LocalChanCfg.DelayBasePoint.PubKey,
 	) {
 		t.Fatalf("alice incorrect pubkey in SelfOutputSignDesc")
 	}

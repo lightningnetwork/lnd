@@ -835,15 +835,18 @@ func deriveCommitmentKeys(commitPoint *btcec.PublicKey, isOurCommit bool,
 	keyRing := &CommitmentKeyRing{
 		CommitPoint: commitPoint,
 
-		LocalCommitKeyTweak: SingleTweakBytes(commitPoint,
-			localChanCfg.PaymentBasePoint),
-		LocalHtlcKeyTweak: SingleTweakBytes(commitPoint,
-			localChanCfg.HtlcBasePoint),
-
-		LocalHtlcKey: TweakPubKey(localChanCfg.HtlcBasePoint,
-			commitPoint),
-		RemoteHtlcKey: TweakPubKey(remoteChanCfg.HtlcBasePoint,
-			commitPoint),
+		LocalCommitKeyTweak: SingleTweakBytes(
+			commitPoint, localChanCfg.PaymentBasePoint.PubKey,
+		),
+		LocalHtlcKeyTweak: SingleTweakBytes(
+			commitPoint, localChanCfg.HtlcBasePoint.PubKey,
+		),
+		LocalHtlcKey: TweakPubKey(
+			localChanCfg.HtlcBasePoint.PubKey, commitPoint,
+		),
+		RemoteHtlcKey: TweakPubKey(
+			remoteChanCfg.HtlcBasePoint.PubKey, commitPoint,
+		),
 	}
 
 	// We'll now compute the delay, no delay, and revocation key based on
@@ -857,13 +860,13 @@ func deriveCommitmentKeys(commitPoint *btcec.PublicKey, isOurCommit bool,
 		revocationBasePoint *btcec.PublicKey
 	)
 	if isOurCommit {
-		delayBasePoint = localChanCfg.DelayBasePoint
-		noDelayBasePoint = remoteChanCfg.PaymentBasePoint
-		revocationBasePoint = remoteChanCfg.RevocationBasePoint
+		delayBasePoint = localChanCfg.DelayBasePoint.PubKey
+		noDelayBasePoint = remoteChanCfg.PaymentBasePoint.PubKey
+		revocationBasePoint = remoteChanCfg.RevocationBasePoint.PubKey
 	} else {
-		delayBasePoint = remoteChanCfg.DelayBasePoint
-		noDelayBasePoint = localChanCfg.PaymentBasePoint
-		revocationBasePoint = localChanCfg.RevocationBasePoint
+		delayBasePoint = remoteChanCfg.DelayBasePoint.PubKey
+		noDelayBasePoint = localChanCfg.PaymentBasePoint.PubKey
+		revocationBasePoint = localChanCfg.RevocationBasePoint.PubKey
 	}
 
 	// With the base points assigned, we can now derive the actual keys
@@ -1241,8 +1244,8 @@ func NewLightningChannel(signer Signer, pCache PreimageCache,
 		remoteUpdateLog:   remoteUpdateLog,
 		ChanPoint:         &state.FundingOutpoint,
 		Capacity:          state.Capacity,
-		LocalFundingKey:   state.LocalChanCfg.MultiSigKey,
-		RemoteFundingKey:  state.RemoteChanCfg.MultiSigKey,
+		LocalFundingKey:   state.LocalChanCfg.MultiSigKey.PubKey,
+		RemoteFundingKey:  state.RemoteChanCfg.MultiSigKey.PubKey,
 		quit:              make(chan struct{}),
 	}
 
@@ -1277,8 +1280,8 @@ func NewLightningChannel(signer Signer, pCache PreimageCache,
 // createSignDesc derives the SignDescriptor for commitment transactions from
 // other fields on the LightningChannel.
 func (lc *LightningChannel) createSignDesc() error {
-	localKey := lc.localChanCfg.MultiSigKey.SerializeCompressed()
-	remoteKey := lc.remoteChanCfg.MultiSigKey.SerializeCompressed()
+	localKey := lc.localChanCfg.MultiSigKey.PubKey.SerializeCompressed()
+	remoteKey := lc.remoteChanCfg.MultiSigKey.PubKey.SerializeCompressed()
 
 	multiSigScript, err := genMultiSigScript(localKey, remoteKey)
 	if err != nil {
@@ -1290,7 +1293,7 @@ func (lc *LightningChannel) createSignDesc() error {
 		return err
 	}
 	lc.signDesc = &SignDescriptor{
-		PubKey:        lc.localChanCfg.MultiSigKey,
+		KeyDesc:       lc.localChanCfg.MultiSigKey,
 		WitnessScript: multiSigScript,
 		Output: &wire.TxOut{
 			PkScript: fundingPkScript,
@@ -1310,13 +1313,13 @@ func (lc *LightningChannel) createStateHintObfuscator() {
 	state := lc.channelState
 	if state.IsInitiator {
 		lc.stateHintObfuscator = DeriveStateHintObfuscator(
-			state.LocalChanCfg.PaymentBasePoint,
-			state.RemoteChanCfg.PaymentBasePoint,
+			state.LocalChanCfg.PaymentBasePoint.PubKey,
+			state.RemoteChanCfg.PaymentBasePoint.PubKey,
 		)
 	} else {
 		lc.stateHintObfuscator = DeriveStateHintObfuscator(
-			state.RemoteChanCfg.PaymentBasePoint,
-			state.LocalChanCfg.PaymentBasePoint,
+			state.RemoteChanCfg.PaymentBasePoint.PubKey,
+			state.LocalChanCfg.PaymentBasePoint.PubKey,
 		)
 	}
 }
@@ -1820,7 +1823,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	if localAmt >= chanState.RemoteChanCfg.DustLimit {
 		localSignDesc = &SignDescriptor{
 			SingleTweak:   keyRing.LocalCommitKeyTweak,
-			PubKey:        chanState.LocalChanCfg.PaymentBasePoint,
+			KeyDesc:       chanState.LocalChanCfg.PaymentBasePoint,
 			WitnessScript: localPkScript,
 			Output: &wire.TxOut{
 				PkScript: localPkScript,
@@ -1834,7 +1837,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	// limit, assemble the remote sign descriptor.
 	if remoteAmt >= chanState.RemoteChanCfg.DustLimit {
 		remoteSignDesc = &SignDescriptor{
-			PubKey:        chanState.LocalChanCfg.RevocationBasePoint,
+			KeyDesc:       chanState.LocalChanCfg.RevocationBasePoint,
 			DoubleTweak:   commitmentSecret,
 			WitnessScript: remotePkScript,
 			Output: &wire.TxOut{
@@ -1894,7 +1897,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 
 		htlcRetributions[i] = HtlcRetribution{
 			SignDesc: SignDescriptor{
-				PubKey:        chanState.LocalChanCfg.RevocationBasePoint,
+				KeyDesc:       chanState.LocalChanCfg.RevocationBasePoint,
 				DoubleTweak:   commitmentSecret,
 				WitnessScript: htlcScript,
 				Output: &wire.TxOut{
@@ -2462,7 +2465,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 		// signature to give to the remote party for this commitment
 		// transaction. Note we use the raw HTLC amount.
 		sigJob.signDesc = SignDescriptor{
-			PubKey:        localChanCfg.HtlcBasePoint,
+			KeyDesc:       localChanCfg.HtlcBasePoint,
 			SingleTweak:   keyRing.LocalHtlcKeyTweak,
 			WitnessScript: htlc.theirWitnessScript,
 			Output: &wire.TxOut{
@@ -2512,7 +2515,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 		// signature to give to the remote party for this commitment
 		// transaction. Note we use the raw HTLC amount.
 		sigJob.signDesc = SignDescriptor{
-			PubKey:        localChanCfg.HtlcBasePoint,
+			KeyDesc:       localChanCfg.HtlcBasePoint,
 			SingleTweak:   keyRing.LocalHtlcKeyTweak,
 			WitnessScript: htlc.theirWitnessScript,
 			Output: &wire.TxOut{
@@ -3532,8 +3535,8 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig lnwire.Sig,
 	// we'll ensure that the newly constructed commitment state has a valid
 	// signature.
 	verifyKey := btcec.PublicKey{
-		X:     lc.remoteChanCfg.MultiSigKey.X,
-		Y:     lc.remoteChanCfg.MultiSigKey.Y,
+		X:     lc.remoteChanCfg.MultiSigKey.PubKey.X,
+		Y:     lc.remoteChanCfg.MultiSigKey.PubKey.Y,
 		Curve: btcec.S256(),
 	}
 	cSig, err := commitSig.ToSignature()
@@ -4145,8 +4148,8 @@ func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
 
 	// With the final signature generated, create the witness stack
 	// required to spend from the multi-sig output.
-	ourKey := lc.localChanCfg.MultiSigKey.SerializeCompressed()
-	theirKey := lc.remoteChanCfg.MultiSigKey.SerializeCompressed()
+	ourKey := lc.localChanCfg.MultiSigKey.PubKey.SerializeCompressed()
+	theirKey := lc.remoteChanCfg.MultiSigKey.PubKey.SerializeCompressed()
 
 	commitTx.TxIn[0].Witness = SpendMultiSig(
 		lc.signDesc.WitnessScript, ourKey,
@@ -4267,7 +4270,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer Signer,
 		commitResolution = &CommitOutputResolution{
 			SelfOutPoint: *selfPoint,
 			SelfOutputSignDesc: SignDescriptor{
-				PubKey:        localPayBase,
+				KeyDesc:       localPayBase,
 				SingleTweak:   keyRing.LocalCommitKeyTweak,
 				WitnessScript: selfP2WKH,
 				Output: &wire.TxOut{
@@ -4435,7 +4438,7 @@ func newOutgoingHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelCon
 			Expiry:        htlc.RefundTimeout,
 			ClaimOutpoint: op,
 			SweepSignDesc: SignDescriptor{
-				PubKey:        localChanCfg.HtlcBasePoint,
+				KeyDesc:       localChanCfg.HtlcBasePoint,
 				SingleTweak:   keyRing.LocalHtlcKeyTweak,
 				WitnessScript: htlcReceiverScript,
 				Output: &wire.TxOut{
@@ -4475,7 +4478,7 @@ func newOutgoingHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelCon
 		return nil, err
 	}
 	timeoutSignDesc := SignDescriptor{
-		PubKey:        localChanCfg.HtlcBasePoint,
+		KeyDesc:       localChanCfg.HtlcBasePoint,
 		SingleTweak:   keyRing.LocalHtlcKeyTweak,
 		WitnessScript: htlcCreationScript,
 		Output: &wire.TxOut{
@@ -4509,8 +4512,9 @@ func newOutgoingHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelCon
 		return nil, err
 	}
 
-	localDelayTweak := SingleTweakBytes(keyRing.CommitPoint,
-		localChanCfg.DelayBasePoint)
+	localDelayTweak := SingleTweakBytes(
+		keyRing.CommitPoint, localChanCfg.DelayBasePoint.PubKey,
+	)
 	return &OutgoingHtlcResolution{
 		Expiry:          htlc.RefundTimeout,
 		SignedTimeoutTx: timeoutTx,
@@ -4520,7 +4524,7 @@ func newOutgoingHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelCon
 			Index: 0,
 		},
 		SweepSignDesc: SignDescriptor{
-			PubKey:        localChanCfg.DelayBasePoint,
+			KeyDesc:       localChanCfg.DelayBasePoint,
 			SingleTweak:   localDelayTweak,
 			WitnessScript: htlcSweepScript,
 			Output: &wire.TxOut{
@@ -4573,7 +4577,7 @@ func newIncomingHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelCon
 			ClaimOutpoint: op,
 			CsvDelay:      csvDelay,
 			SweepSignDesc: SignDescriptor{
-				PubKey:        localChanCfg.HtlcBasePoint,
+				KeyDesc:       localChanCfg.HtlcBasePoint,
 				SingleTweak:   keyRing.LocalHtlcKeyTweak,
 				WitnessScript: htlcSenderScript,
 				Output: &wire.TxOut{
@@ -4609,7 +4613,7 @@ func newIncomingHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelCon
 		return nil, err
 	}
 	successSignDesc := SignDescriptor{
-		PubKey:        localChanCfg.HtlcBasePoint,
+		KeyDesc:       localChanCfg.HtlcBasePoint,
 		SingleTweak:   keyRing.LocalHtlcKeyTweak,
 		WitnessScript: htlcCreationScript,
 		Output: &wire.TxOut{
@@ -4645,7 +4649,7 @@ func newIncomingHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelCon
 	}
 
 	localDelayTweak := SingleTweakBytes(
-		keyRing.CommitPoint, localChanCfg.DelayBasePoint,
+		keyRing.CommitPoint, localChanCfg.DelayBasePoint.PubKey,
 	)
 	return &IncomingHtlcResolution{
 		Preimage:        preimage,
@@ -4656,7 +4660,7 @@ func newIncomingHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelCon
 			Index: 0,
 		},
 		SweepSignDesc: SignDescriptor{
-			PubKey:        localChanCfg.DelayBasePoint,
+			KeyDesc:       localChanCfg.DelayBasePoint,
 			SingleTweak:   localDelayTweak,
 			WitnessScript: htlcSweepScript,
 			Output: &wire.TxOut{
@@ -4844,8 +4848,9 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 	// nil.
 	var commitResolution *CommitOutputResolution
 	if len(delayScript) != 0 {
-		singleTweak := SingleTweakBytes(commitPoint,
-			lc.localChanCfg.DelayBasePoint)
+		singleTweak := SingleTweakBytes(
+			commitPoint, lc.localChanCfg.DelayBasePoint.PubKey,
+		)
 		localBalance := localCommitment.LocalBalance
 		commitResolution = &CommitOutputResolution{
 			SelfOutPoint: wire.OutPoint{
@@ -4853,7 +4858,7 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 				Index: delayIndex,
 			},
 			SelfOutputSignDesc: SignDescriptor{
-				PubKey:        lc.localChanCfg.DelayBasePoint,
+				KeyDesc:       lc.localChanCfg.DelayBasePoint,
 				SingleTweak:   singleTweak,
 				WitnessScript: selfScript,
 				Output: &wire.TxOut{
@@ -5012,8 +5017,8 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig []byte,
 
 	// Finally, construct the witness stack minding the order of the
 	// pubkeys+sigs on the stack.
-	ourKey := lc.localChanCfg.MultiSigKey.SerializeCompressed()
-	theirKey := lc.remoteChanCfg.MultiSigKey.SerializeCompressed()
+	ourKey := lc.localChanCfg.MultiSigKey.PubKey.SerializeCompressed()
+	theirKey := lc.remoteChanCfg.MultiSigKey.PubKey.SerializeCompressed()
 	witness := SpendMultiSig(lc.signDesc.WitnessScript, ourKey,
 		localSig, theirKey, remoteSig)
 	closeTx.TxIn[0].Witness = witness

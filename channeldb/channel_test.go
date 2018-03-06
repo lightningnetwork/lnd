@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/roasbeef/btcd/btcec"
@@ -136,12 +137,22 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
 		},
-		CsvDelay:            uint16(rand.Int31()),
-		MultiSigKey:         privKey.PubKey(),
-		RevocationBasePoint: privKey.PubKey(),
-		PaymentBasePoint:    privKey.PubKey(),
-		DelayBasePoint:      privKey.PubKey(),
-		HtlcBasePoint:       privKey.PubKey(),
+		CsvDelay: uint16(rand.Int31()),
+		MultiSigKey: keychain.KeyDescriptor{
+			PubKey: privKey.PubKey(),
+		},
+		RevocationBasePoint: keychain.KeyDescriptor{
+			PubKey: privKey.PubKey(),
+		},
+		PaymentBasePoint: keychain.KeyDescriptor{
+			PubKey: privKey.PubKey(),
+		},
+		DelayBasePoint: keychain.KeyDescriptor{
+			PubKey: privKey.PubKey(),
+		},
+		HtlcBasePoint: keychain.KeyDescriptor{
+			PubKey: privKey.PubKey(),
+		},
 	}
 	remoteCfg := ChannelConfig{
 		ChannelConstraints: ChannelConstraints{
@@ -151,12 +162,22 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
 		},
-		CsvDelay:            uint16(rand.Int31()),
-		MultiSigKey:         privKey.PubKey(),
-		RevocationBasePoint: privKey.PubKey(),
-		PaymentBasePoint:    privKey.PubKey(),
-		DelayBasePoint:      privKey.PubKey(),
-		HtlcBasePoint:       privKey.PubKey(),
+		CsvDelay: uint16(rand.Int31()),
+		MultiSigKey: keychain.KeyDescriptor{
+			PubKey: privKey.PubKey(),
+		},
+		RevocationBasePoint: keychain.KeyDescriptor{
+			PubKey: privKey.PubKey(),
+		},
+		PaymentBasePoint: keychain.KeyDescriptor{
+			PubKey: privKey.PubKey(),
+		},
+		DelayBasePoint: keychain.KeyDescriptor{
+			PubKey: privKey.PubKey(),
+		},
+		HtlcBasePoint: keychain.KeyDescriptor{
+			PubKey: privKey.PubKey(),
+		},
 	}
 
 	chanID := lnwire.NewShortChanIDFromInt(uint64(rand.Int63()))

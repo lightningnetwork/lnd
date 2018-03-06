@@ -7,11 +7,9 @@ import (
 	"fmt"
 	"math/big"
 
-	"golang.org/x/crypto/hkdf"
 	"golang.org/x/crypto/ripemd160"
 
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -312,10 +310,17 @@ func senderHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 func SenderHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
+	if signDesc.KeyDesc.PubKey == nil {
+		return nil, fmt.Errorf("cannot generate witness with nil " +
+			"KeyDesc pubkey")
+	}
+
 	// Derive the revocation key using the local revocation base point and
 	// commitment point.
-	revokeKey := DeriveRevocationPubkey(signDesc.PubKey,
-		signDesc.DoubleTweak.PubKey())
+	revokeKey := DeriveRevocationPubkey(
+		signDesc.KeyDesc.PubKey,
+		signDesc.DoubleTweak.PubKey(),
+	)
 
 	return senderHtlcSpendRevoke(signer, signDesc, revokeKey, sweepTx)
 }
@@ -562,10 +567,17 @@ func receiverHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 func ReceiverHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
+	if signDesc.KeyDesc.PubKey == nil {
+		return nil, fmt.Errorf("cannot generate witness with nil " +
+			"KeyDesc pubkey")
+	}
+
 	// Derive the revocation key using the local revocation base point and
 	// commitment point.
-	revokeKey := DeriveRevocationPubkey(signDesc.PubKey,
-		signDesc.DoubleTweak.PubKey())
+	revokeKey := DeriveRevocationPubkey(
+		signDesc.KeyDesc.PubKey,
+		signDesc.DoubleTweak.PubKey(),
+	)
 
 	return receiverHtlcSpendRevoke(signer, signDesc, revokeKey, sweepTx)
 }
@@ -1023,6 +1035,11 @@ func CommitSpendRevoke(signer Signer, signDesc *SignDescriptor,
 func CommitSpendNoDelay(signer Signer, signDesc *SignDescriptor,
 	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
+	if signDesc.KeyDesc.PubKey == nil {
+		return nil, fmt.Errorf("cannot generate witness with nil " +
+			"KeyDesc pubkey")
+	}
+
 	// This is just a regular p2wkh spend which looks something like:
 	//  * witness: <sig> <pubkey>
 	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
@@ -1037,7 +1054,7 @@ func CommitSpendNoDelay(signer Signer, signDesc *SignDescriptor,
 	witness := make([][]byte, 2)
 	witness[0] = append(sweepSig, byte(signDesc.HashType))
 	witness[1] = TweakPubKeyWithTweak(
-		signDesc.PubKey, signDesc.SingleTweak,
+		signDesc.KeyDesc.PubKey, signDesc.SingleTweak,
 	).SerializeCompressed()
 
 	return witness, nil
@@ -1216,33 +1233,6 @@ func DeriveRevocationPrivKey(revokeBasePriv *btcec.PrivateKey,
 
 	priv, _ := btcec.PrivKeyFromBytes(btcec.S256(), revocationPriv.Bytes())
 	return priv
-}
-
-// DeriveRevocationRoot derives an root unique to a channel given the
-// derivation root, and the blockhash that the funding process began at and the
-// remote node's identity public key. The seed is derived using the HKDF[1][2]
-// instantiated with sha-256. With this schema, once we know the block hash of
-// the funding transaction, and who we funded the channel with, we can
-// reconstruct all of our revocation state.
-//
-// [1]: https://eprint.iacr.org/2010/264.pdf
-// [2]: https://tools.ietf.org/html/rfc5869
-func DeriveRevocationRoot(derivationRoot *btcec.PrivateKey,
-	blockSalt chainhash.Hash, nodePubKey *btcec.PublicKey) chainhash.Hash {
-
-	secret := derivationRoot.Serialize()
-	salt := blockSalt[:]
-	info := nodePubKey.SerializeCompressed()
-
-	seedReader := hkdf.New(sha256.New, secret, salt, info)
-
-	// It's safe to ignore the error her as we know for sure that we won't
-	// be draining the HKDF past its available entropy horizon.
-	// TODO(roasbeef): revisit...
-	var root chainhash.Hash
-	seedReader.Read(root[:])
-
-	return root
 }
 
 // SetStateNumHint encodes the current state number within the passed

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
@@ -112,9 +113,11 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	sweepTx.TxIn[0].Sequence = lockTimeToSequence(false, csvTimeout)
 	signDesc := &SignDescriptor{
 		WitnessScript: delayScript,
-		PubKey:        aliceKeyPub,
-		SingleTweak:   aliceCommitTweak,
-		SigHashes:     txscript.NewTxSigHashes(sweepTx),
+		KeyDesc: keychain.KeyDescriptor{
+			PubKey: aliceKeyPub,
+		},
+		SingleTweak: aliceCommitTweak,
+		SigHashes:   txscript.NewTxSigHashes(sweepTx),
 		Output: &wire.TxOut{
 			Value: int64(channelBalance),
 		},
@@ -143,7 +146,9 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	// simulate the scenario when Alice broadcasts this commitment
 	// transaction after it's been revoked.
 	signDesc = &SignDescriptor{
-		PubKey:        bobKeyPub,
+		KeyDesc: keychain.KeyDescriptor{
+			PubKey: bobKeyPub,
+		},
 		DoubleTweak:   commitSecret,
 		WitnessScript: delayScript,
 		SigHashes:     txscript.NewTxSigHashes(sweepTx),
@@ -186,7 +191,9 @@ func TestCommitmentSpendValidation(t *testing.T) {
 		t.Fatalf("unable to create bob p2wkh script: %v", err)
 	}
 	signDesc = &SignDescriptor{
-		PubKey:        bobKeyPub,
+		KeyDesc: keychain.KeyDescriptor{
+			PubKey: bobKeyPub,
+		},
 		SingleTweak:   bobCommitTweak,
 		WitnessScript: bobScriptP2WKH,
 		SigHashes:     txscript.NewTxSigHashes(sweepTx),
@@ -394,7 +401,9 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 	// that will act as Bob's signature to Alice for the second level HTLC
 	// transaction.
 	bobSignDesc := SignDescriptor{
-		PubKey:        bobKeyPub,
+		KeyDesc: keychain.KeyDescriptor{
+			PubKey: bobKeyPub,
+		},
 		SingleTweak:   bobCommitTweak,
 		WitnessScript: htlcWitnessScript,
 		Output:        htlcOutput,
@@ -416,7 +425,9 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 			// TODO(roasbeef): test invalid revoke
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
 				signDesc := &SignDescriptor{
-					PubKey:        bobKeyPub,
+					KeyDesc: keychain.KeyDescriptor{
+						PubKey: bobKeyPub,
+					},
 					DoubleTweak:   commitSecret,
 					WitnessScript: htlcWitnessScript,
 					Output:        htlcOutput,
@@ -434,7 +445,9 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 			// HTLC with invalid preimage size
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
 				signDesc := &SignDescriptor{
-					PubKey:        bobKeyPub,
+					KeyDesc: keychain.KeyDescriptor{
+						PubKey: bobKeyPub,
+					},
 					SingleTweak:   bobCommitTweak,
 					WitnessScript: htlcWitnessScript,
 					Output:        htlcOutput,
@@ -455,7 +468,9 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 			// TODO(roasbeef): invalid preimage
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
 				signDesc := &SignDescriptor{
-					PubKey:        bobKeyPub,
+					KeyDesc: keychain.KeyDescriptor{
+						PubKey: bobKeyPub,
+					},
 					SingleTweak:   bobCommitTweak,
 					WitnessScript: htlcWitnessScript,
 					Output:        htlcOutput,
@@ -475,7 +490,9 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 			// transaction.
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
 				signDesc := &SignDescriptor{
-					PubKey:        aliceKeyPub,
+					KeyDesc: keychain.KeyDescriptor{
+						PubKey: aliceKeyPub,
+					},
 					SingleTweak:   aliceCommitTweak,
 					WitnessScript: htlcWitnessScript,
 					Output:        htlcOutput,
@@ -490,6 +507,9 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 			true,
 		},
 	}
+
+	// TODO(roasbeef): set of cases to ensure able to sign w/ keypath and
+	// not
 
 	for i, testCase := range testCases {
 		sweepTx.TxIn[0].Witness = testCase.witness()
@@ -639,7 +659,9 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	// that will act as Alice's signature to Bob for the second level HTLC
 	// transaction.
 	aliceSignDesc := SignDescriptor{
-		PubKey:        aliceKeyPub,
+		KeyDesc: keychain.KeyDescriptor{
+			PubKey: aliceKeyPub,
+		},
 		SingleTweak:   aliceCommitTweak,
 		WitnessScript: htlcWitnessScript,
 		Output:        htlcOutput,
@@ -661,7 +683,9 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 			// HTLC redemption w/ invalid preimage size
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
 				signDesc := &SignDescriptor{
-					PubKey:        bobKeyPub,
+					KeyDesc: keychain.KeyDescriptor{
+						PubKey: bobKeyPub,
+					},
 					SingleTweak:   bobCommitTweak,
 					WitnessScript: htlcWitnessScript,
 					Output:        htlcOutput,
@@ -681,7 +705,9 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 			// HTLC redemption w/ valid preimage size
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
 				signDesc := &SignDescriptor{
-					PubKey:        bobKeyPub,
+					KeyDesc: keychain.KeyDescriptor{
+						PubKey: bobKeyPub,
+					},
 					SingleTweak:   bobCommitTweak,
 					WitnessScript: htlcWitnessScript,
 					Output:        htlcOutput,
@@ -700,7 +726,9 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 			// revoke w/ sig
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
 				signDesc := &SignDescriptor{
-					PubKey:        aliceKeyPub,
+					KeyDesc: keychain.KeyDescriptor{
+						PubKey: aliceKeyPub,
+					},
 					DoubleTweak:   commitSecret,
 					WitnessScript: htlcWitnessScript,
 					Output:        htlcOutput,
@@ -718,7 +746,9 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 			// refund w/ invalid lock time
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
 				signDesc := &SignDescriptor{
-					PubKey:        aliceKeyPub,
+					KeyDesc: keychain.KeyDescriptor{
+						PubKey: aliceKeyPub,
+					},
 					SingleTweak:   aliceCommitTweak,
 					WitnessScript: htlcWitnessScript,
 					Output:        htlcOutput,
@@ -736,7 +766,9 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 			// refund w/ valid lock time
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
 				signDesc := &SignDescriptor{
-					PubKey:        aliceKeyPub,
+					KeyDesc: keychain.KeyDescriptor{
+						PubKey: aliceKeyPub,
+					},
 					SingleTweak:   aliceCommitTweak,
 					WitnessScript: htlcWitnessScript,
 					Output:        htlcOutput,
@@ -881,7 +913,9 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 			// use the double tweak in this case).
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
 				signDesc := &SignDescriptor{
-					PubKey:        aliceKeyPub,
+					KeyDesc: keychain.KeyDescriptor{
+						PubKey: aliceKeyPub,
+					},
 					WitnessScript: htlcWitnessScript,
 					Output:        htlcOutput,
 					HashType:      txscript.SigHashAll,
@@ -898,7 +932,9 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 			// Sender of HTLC activates the revocation clause.
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
 				signDesc := &SignDescriptor{
-					PubKey:        aliceKeyPub,
+					KeyDesc: keychain.KeyDescriptor{
+						PubKey: aliceKeyPub,
+					},
 					DoubleTweak:   commitSecret,
 					WitnessScript: htlcWitnessScript,
 					Output:        htlcOutput,
@@ -918,7 +954,9 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 			// blocks instead of 5 blocks).
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
 				signDesc := &SignDescriptor{
-					PubKey:        bobKeyPub,
+					KeyDesc: keychain.KeyDescriptor{
+						PubKey: bobKeyPub,
+					},
 					SingleTweak:   commitTweak,
 					WitnessScript: htlcWitnessScript,
 					Output:        htlcOutput,
@@ -938,7 +976,9 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 			// tweak).
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
 				signDesc := &SignDescriptor{
-					PubKey:        bobKeyPub,
+					KeyDesc: keychain.KeyDescriptor{
+						PubKey: bobKeyPub,
+					},
 					WitnessScript: htlcWitnessScript,
 					Output:        htlcOutput,
 					HashType:      txscript.SigHashAll,
@@ -956,7 +996,9 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 			// delay, and the correct key.
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
 				signDesc := &SignDescriptor{
-					PubKey:        bobKeyPub,
+					KeyDesc: keychain.KeyDescriptor{
+						PubKey: bobKeyPub,
+					},
 					SingleTweak:   commitTweak,
 					WitnessScript: htlcWitnessScript,
 					Output:        htlcOutput,

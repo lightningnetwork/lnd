@@ -37,6 +37,7 @@ import (
 	flags "github.com/jessevdk/go-flags"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
@@ -237,7 +238,13 @@ func lndMain() error {
 	primaryChain := registeredChains.PrimaryChain()
 	registeredChains.RegisterChain(primaryChain, activeChainControl)
 
-	idPrivKey, err := activeChainControl.wallet.GetIdentitykey()
+	// TODO(roasbeef): add rotation
+	idPrivKey, err := activeChainControl.wallet.DerivePrivKey(keychain.KeyDescriptor{
+		KeyLocator: keychain.KeyLocator{
+			Family: keychain.KeyFamilyNodeKey,
+			Index:  0,
+		},
+	})
 	if err != nil {
 		return err
 	}
@@ -252,8 +259,9 @@ func lndMain() error {
 
 	// Set up the core server which will listen for incoming peer
 	// connections.
-	server, err := newServer(cfg.Listeners, chanDB, activeChainControl,
-		idPrivKey)
+	server, err := newServer(
+		cfg.Listeners, chanDB, activeChainControl, idPrivKey,
+	)
 	if err != nil {
 		srvrLog.Errorf("unable to create server: %v\n", err)
 		return err
@@ -834,6 +842,17 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 		password := initMsg.Passphrase
 		cipherSeed := initMsg.WalletSeed
 
+		// Before we proceed, we'll check the internal version of the
+		// seed. If it's greater than the current key derivation
+		// version, then we'll return an error as we don't understand
+		// this.
+		if cipherSeed.InternalVersion != keychain.KeyDerivationVersion {
+			return nil, nil, fmt.Errorf("invalid internal seed "+
+				"version %v, current version is %v",
+				cipherSeed.InternalVersion,
+				keychain.KeyDerivationVersion)
+		}
+
 		netDir := btcwallet.NetworkDir(
 			chainConfig.ChainDir, activeNetParams.Params,
 		)
@@ -842,9 +861,7 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 		// With the seed, we can now use the wallet loader to create
 		// the wallet, then unload it so it can be opened shortly
 		// after.
-		//
 		// TODO(roasbeef): extend loader to also accept birthday
-		//  * also check with keychain version
 		_, err = loader.CreateNewWallet(
 			password, password, cipherSeed.Entropy[:],
 		)

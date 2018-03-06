@@ -221,6 +221,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 					pubKey[:], err)
 			}
 		},
+		FwdingLog: chanDB.ForwardingLog(),
 	})
 
 	// If external IP addresses have been specified, add those to the list

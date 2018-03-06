@@ -683,6 +683,8 @@ out:
 		// carried out by the remote peer. In the case of such an
 		// event, we'll wipe the channel state from the peer, and mark
 		// the contract as fully settled. Afterwards we can exit.
+		//
+		// TODO(roasbeef): add force closure? also breach?
 		case <-l.cfg.ChainEvents.UnilateralClosure:
 			log.Warnf("Remote peer has closed ChannelPoint(%v) on-chain",
 				l.channel.ChannelPoint())
@@ -881,14 +883,16 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 			"local_log_index=%v, batch_size=%v",
 			htlc.PaymentHash[:], index, l.batchCounter+1)
 
-		// Create circuit (remember the path) in order to forward settle/fail
-		// packet back.
+		// Create circuit (remember the path) in order to forward
+		// settle/fail packet back.
 		l.cfg.Switch.addCircuit(&PaymentCircuit{
 			PaymentHash:    htlc.PaymentHash,
 			IncomingChanID: pkt.incomingChanID,
 			IncomingHTLCID: pkt.incomingHTLCID,
+			IncomingAmt:    pkt.incomingHtlcAmt,
 			OutgoingChanID: l.ShortChanID(),
 			OutgoingHTLCID: index,
+			OutgoingAmt:    htlc.Amount,
 			ErrorEncrypter: pkt.obfuscator,
 		})
 
@@ -1393,8 +1397,8 @@ func (l *channelLink) processLockedInHtlcs(
 		switch pd.EntryType {
 
 		// A settle for an HTLC we previously forwarded HTLC has been
-		// received. So we'll forward the HTLC to the switch which
-		// will handle propagating the settle to the prior hop.
+		// received. So we'll forward the HTLC to the switch which will
+		// handle propagating the settle to the prior hop.
 		case lnwallet.Settle:
 			settlePacket := &htlcPacket{
 				outgoingChanID: l.ShortChanID(),
@@ -1411,10 +1415,10 @@ func (l *channelLink) processLockedInHtlcs(
 			packetsToForward = append(packetsToForward, settlePacket)
 			l.overflowQueue.SignalFreeSlot()
 
-		// A failureCode message for a previously forwarded HTLC has been
-		// received. As a result a new slot will be freed up in our
-		// commitment state, so we'll forward this to the switch so the
-		// backwards undo can continue.
+		// A failureCode message for a previously forwarded HTLC has
+		// been received. As a result a new slot will be freed up in
+		// our commitment state, so we'll forward this to the switch so
+		// the backwards undo can continue.
 		case lnwallet.Fail:
 			// Fetch the reason the HTLC was cancelled so we can
 			// continue to propagate it.
@@ -1818,12 +1822,13 @@ func (l *channelLink) processLockedInHtlcs(
 				}
 
 				updatePacket := &htlcPacket{
-					incomingChanID: l.ShortChanID(),
-					incomingHTLCID: pd.HtlcIndex,
-					outgoingChanID: fwdInfo.NextHop,
-					amount:         addMsg.Amount,
-					htlc:           addMsg,
-					obfuscator:     obfuscator,
+					incomingChanID:  l.ShortChanID(),
+					incomingHTLCID:  pd.HtlcIndex,
+					outgoingChanID:  fwdInfo.NextHop,
+					incomingHtlcAmt: pd.Amount,
+					amount:          addMsg.Amount,
+					htlc:            addMsg,
+					obfuscator:      obfuscator,
 				}
 				packetsToForward = append(packetsToForward, updatePacket)
 			}

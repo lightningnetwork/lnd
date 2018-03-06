@@ -80,6 +80,23 @@ func (m *mockFeeEstimator) Stop() error {
 
 var _ lnwallet.FeeEstimator = (*mockFeeEstimator)(nil)
 
+type mockForwardingLog struct {
+	sync.Mutex
+
+	events map[time.Time]channeldb.ForwardingEvent
+}
+
+func (m *mockForwardingLog) AddForwardingEvents(events []channeldb.ForwardingEvent) error {
+	m.Lock()
+	defer m.Unlock()
+
+	for _, event := range events {
+		m.events[event.Timestamp] = event
+	}
+
+	return nil
+}
+
 type mockServer struct {
 	started  int32
 	shutdown int32
@@ -108,13 +125,17 @@ func newMockServer(t testing.TB, name string) *mockServer {
 	copy(id[:], h[:])
 
 	return &mockServer{
-		t:                t,
-		id:               id,
-		name:             name,
-		messages:         make(chan lnwire.Message, 3000),
-		quit:             make(chan struct{}),
-		registry:         newMockRegistry(),
-		htlcSwitch:       New(Config{}),
+		t:        t,
+		id:       id,
+		name:     name,
+		messages: make(chan lnwire.Message, 3000),
+		quit:     make(chan struct{}),
+		registry: newMockRegistry(),
+		htlcSwitch: New(Config{
+			FwdingLog: &mockForwardingLog{
+				events: make(map[time.Time]channeldb.ForwardingEvent),
+			},
+		}),
 		interceptorFuncs: make([]messageInterceptor, 0),
 	}
 }

@@ -23,6 +23,14 @@ type htlcPacket struct {
 	// on the incoming channel.
 	incomingHTLCID uint64
 
+	// incomingHtlcAmt is the value of the *incoming* HTLC. This will be
+	// set by the link when it receives an incoming HTLC to be forwarded
+	// through the switch. Then the outgoing link will use this once it
+	// creates a full circuit add. This allows us to properly populate the
+	// forwarding event for this circuit/packet in the case the payment
+	// circuit is successful.
+	incomingHtlcAmt lnwire.MilliSatoshi
+
 	// outgoingHTLCID is the ID of the HTLC that we offered to the peer on the
 	// outgoing channel.
 	outgoingHTLCID uint64

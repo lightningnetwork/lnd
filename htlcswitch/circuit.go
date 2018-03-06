@@ -16,25 +16,35 @@ type PaymentCircuit struct {
 	// PaymentHash used as unique identifier of payment.
 	PaymentHash [32]byte
 
-	// IncomingChanID identifies the channel from which add HTLC request came
-	// and to which settle/fail HTLC request will be returned back. Once
-	// the switch forwards the settle/fail message to the src the circuit
-	// is considered to be completed.
+	// IncomingChanID identifies the channel from which add HTLC request
+	// came and to which settle/fail HTLC request will be returned back.
+	// Once the switch forwards the settle/fail message to the src the
+	// circuit is considered to be completed.
 	IncomingChanID lnwire.ShortChannelID
 
-	// IncomingHTLCID is the ID in the update_add_htlc message we received from
-	// the incoming channel, which will be included in any settle/fail messages
-	// we send back.
+	// IncomingHTLCID is the ID in the update_add_htlc message we received
+	// from the incoming channel, which will be included in any settle/fail
+	// messages we send back.
 	IncomingHTLCID uint64
 
-	// OutgoingChanID identifies the channel to which we propagate the HTLC add
-	// update and from which we are expecting to receive HTLC settle/fail
-	// request back.
+	// IncomingAmt is the value of the incoming HTLC. If we take this and
+	// subtract it from the OutgoingAmt, then we'll compute the total fee
+	// attached to this payment circuit.
+	IncomingAmt lnwire.MilliSatoshi
+
+	// OutgoingChanID identifies the channel to which we propagate the HTLC
+	// add update and from which we are expecting to receive HTLC
+	// settle/fail request back.
 	OutgoingChanID lnwire.ShortChannelID
 
-	// OutgoingHTLCID is the ID in the update_add_htlc message we sent to the
-	// outgoing channel.
+	// OutgoingHTLCID is the ID in the update_add_htlc message we sent to
+	// the outgoing channel.
 	OutgoingHTLCID uint64
+
+	// OutgoingAmt is the value of the outgoing HTLC. If we subtract this
+	// from the IncomingAmt, then we'll compute the total fee attached to
+	// this payment circuit.
+	OutgoingAmt lnwire.MilliSatoshi
 
 	// ErrorEncrypter is used to re-encrypt the onion failure before
 	// sending it back to the originator of the payment.

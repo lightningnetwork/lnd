@@ -121,3 +121,15 @@ type Peer interface {
 	// properly handle.
 	Disconnect(reason error)
 }
+
+// ForwardingLog is an interface that represents a time series database which
+// keep track of all successfully completed payment circuits. Every few
+// seconds, the switch will collate and flush out all the successful payment
+// circuits during the last interval.
+type ForwardingLog interface {
+	// AddForwardingEvents is a method that should write out the set of
+	// forwarding events in a batch to persistent storage. Outside
+	// sub-systems can then query the contents of the log for analysis,
+	// visualizations, etc.
+	AddForwardingEvents([]channeldb.ForwardingEvent) error
+}

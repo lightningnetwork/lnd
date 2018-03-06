@@ -842,6 +842,17 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 		password := initMsg.Passphrase
 		cipherSeed := initMsg.WalletSeed
 
+		// Before we proceed, we'll check the internal version of the
+		// seed. If it's greater than the current key derivation
+		// version, then we'll return an error as we don't understand
+		// this.
+		if cipherSeed.InternalVersion != keychain.KeyDerivationVersion {
+			return nil, nil, fmt.Errorf("invalid internal seed "+
+				"version %v, current version is %v",
+				cipherSeed.InternalVersion,
+				keychain.KeyDerivationVersion)
+		}
+
 		netDir := btcwallet.NetworkDir(
 			chainConfig.ChainDir, activeNetParams.Params,
 		)
@@ -850,9 +861,7 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 		// With the seed, we can now use the wallet loader to create
 		// the wallet, then unload it so it can be opened shortly
 		// after.
-		//
 		// TODO(roasbeef): extend loader to also accept birthday
-		//  * also check with keychain version
 		_, err = loader.CreateNewWallet(
 			password, password, cipherSeed.Entropy[:],
 		)

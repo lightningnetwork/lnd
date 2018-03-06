@@ -137,6 +137,9 @@ func initSwitchWithDB(db *channeldb.DB) (*Switch, error) {
 	return New(Config{
 		DB:             db,
 		SwitchPackager: channeldb.NewSwitchPackager(),
+		FwdingLog: &mockForwardingLog{
+			events: make(map[time.Time]channeldb.ForwardingEvent),
+		},
 	})
 }
 

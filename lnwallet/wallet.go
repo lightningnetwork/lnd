@@ -479,8 +479,8 @@ func (l *LightningWallet) InitChannelReservation(
 func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg) {
 	// It isn't possible to create a channel with zero funds committed.
 	if req.fundingAmount+req.capacity == 0 {
-		req.err <- fmt.Errorf("cannot have channel with zero " +
-			"satoshis funded")
+		err := ErrZeroCapacity()
+		req.err <- err
 		req.resp <- nil
 		return
 	}
@@ -488,9 +488,9 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	// If the funding request is for a different chain than the one the
 	// wallet is aware of, then we'll reject the request.
 	if !bytes.Equal(l.Cfg.NetParams.GenesisHash[:], req.chainHash[:]) {
-		req.err <- fmt.Errorf("unable to create channel reservation "+
-			"for chain=%v, wallet is on chain=%v",
-			req.chainHash, l.Cfg.NetParams.GenesisHash)
+		err := ErrChainMismatch(l.Cfg.NetParams.GenesisHash,
+			req.chainHash)
+		req.err <- err
 		req.resp <- nil
 		return
 	}

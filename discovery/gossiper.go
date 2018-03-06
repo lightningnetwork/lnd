@@ -1299,7 +1299,17 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 	// information about a node in one of the channels we know about, or a
 	// updating previously advertised information.
 	case *lnwire.NodeAnnouncement:
+		timestamp := time.Unix(int64(msg.Timestamp), 0)
+
 		if nMsg.isRemote {
+			// We'll quickly ask the router if it already has a
+			// newer update for this node so we can skip validating
+			// signatures if not required.
+			if d.cfg.Router.IsStaleNode(msg.NodeID, timestamp) {
+				nMsg.err <- nil
+				return nil
+			}
+
 			if err := ValidateNodeAnn(msg); err != nil {
 				err := errors.Errorf("unable to validate "+
 					"node announcement: %v", err)
@@ -1312,7 +1322,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		features := lnwire.NewFeatureVector(msg.Features, lnwire.GlobalFeatures)
 		node := &channeldb.LightningNode{
 			HaveNodeAnnouncement: true,
-			LastUpdate:           time.Unix(int64(msg.Timestamp), 0),
+			LastUpdate:           timestamp,
 			Addresses:            msg.Addresses,
 			PubKeyBytes:          msg.NodeID,
 			Alias:                msg.Alias.String(),
@@ -1382,6 +1392,13 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 			return nil
 		}
 
+		// At this point, we'll now ask the router if this is a stale
+		// update. If so we can skip all the processing below.
+		if d.cfg.Router.IsKnownEdge(msg.ShortChannelID) {
+			nMsg.err <- nil
+			return nil
+		}
+
 		// If this is a remote channel announcement, then we'll validate
 		// all the signatures within the proof as it should be well
 		// formed.
@@ -1445,7 +1462,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		if err := d.cfg.Router.AddEdge(edge); err != nil {
 			// If the edge was rejected due to already being known,
 			// then it may be that case that this new message has a
-			// fresh channel proof, so we'll cechk.
+			// fresh channel proof, so we'll check.
 			if routing.IsError(err, routing.ErrOutdated,
 				routing.ErrIgnored) {
 
@@ -1585,6 +1602,18 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 			return nil
 		}
 
+		// Before we perform any of the expensive checks below, we'll
+		// make sure that the router doesn't already have a fresher
+		// announcement for this edge.
+		timestamp := time.Unix(int64(msg.Timestamp), 0)
+		if d.cfg.Router.IsStaleEdgePolicy(
+			msg.ShortChannelID, timestamp, msg.Flags,
+		) {
+
+			nMsg.err <- nil
+			return nil
+		}
+
 		// Get the node pub key as far as we don't have it in channel
 		// update announcement message. We'll need this to properly
 		// verify message signature.
@@ -1668,7 +1697,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		update := &channeldb.ChannelEdgePolicy{
 			SigBytes:                  msg.Signature.ToSignatureBytes(),
 			ChannelID:                 shortChanID,
-			LastUpdate:                time.Unix(int64(msg.Timestamp), 0),
+			LastUpdate:                timestamp,
 			Flags:                     msg.Flags,
 			TimeLockDelta:             msg.TimeLockDelta,
 			MinHTLC:                   msg.HtlcMinimumMsat,

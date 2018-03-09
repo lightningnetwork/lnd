@@ -1729,15 +1729,18 @@ func (l *channelLink) processLockedInHtlcs(
 					fwdInfo.AmountToForward,
 				)
 
-				// If the amount of the incoming HTLC, minus
-				// our expected fee isn't equal to the
-				// forwarding instructions, then either the
-				// values have been tampered with, or the send
-				// used incorrect/dated information to
+				// If the actual fee is less than our expected
+				// fee, then we'll reject this HTLC as it
+				// didn't provide a sufficient amount of fees,
+				// or the values have been tampered with, or
+				// the send used incorrect/dated information to
 				// construct the forwarding information for
 				// this hop. In any case, we'll cancel this
 				// HTLC.
-				if pd.Amount-expectedFee < fwdInfo.AmountToForward {
+				actualFee := pd.Amount - fwdInfo.AmountToForward
+				if pd.Amount < fwdInfo.AmountToForward ||
+					actualFee < expectedFee {
+
 					log.Errorf("Incoming htlc(%x) has "+
 						"insufficient fee: expected "+
 						"%v, got %v", pd.RHash[:],

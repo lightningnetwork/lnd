@@ -777,7 +777,7 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 		testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
 
-	// First, send this 1 BTC payment over the three hops, the payment
+	// First, send this 10 mSAT payment over the three hops, the payment
 	// should succeed, and all balances should be updated accordingly.
 	payResp, err := n.makePayment(n.aliceServer, n.carolServer,
 		n.bobServer.PubKey(), hops, amountNoFee, htlcAmt,
@@ -827,7 +827,7 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 	n.firstBobChannelLink.UpdateForwardingPolicy(newPolicy)
 
 	// Next, we'll send the payment again, using the exact same per-hop
-	// payload for each node. This payment should fail as it wont' factor
+	// payload for each node. This payment should fail as it won't factor
 	// in Bob's new fee policy.
 	_, err = n.makePayment(n.aliceServer, n.carolServer,
 		n.bobServer.PubKey(), hops, amountNoFee, htlcAmt,

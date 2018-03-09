@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -881,10 +880,12 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// TODO(roasbeef): assuming this was an inbound connection, replace
 	// port with default advertised port
 	chainHash := chainhash.Hash(msg.ChainHash)
-	reservation, err := f.cfg.Wallet.InitChannelReservation(amt, 0,
-		msg.PushAmount, lnwallet.SatPerKWeight(msg.FeePerKiloWeight), 0,
+	reservation, err := f.cfg.Wallet.InitChannelReservation(
+		amt, 0, msg.PushAmount,
+		lnwallet.SatPerKWeight(msg.FeePerKiloWeight), 0,
 		fmsg.peerAddress.IdentityKey, fmsg.peerAddress.Address,
-		&chainHash, msg.ChannelFlags)
+		&chainHash, msg.ChannelFlags,
+	)
 	if err != nil {
 		fndgLog.Errorf("Unable to initialize reservation: %v", err)
 		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
@@ -2407,10 +2408,11 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// Initialize a funding reservation with the local wallet. If the
 	// wallet doesn't have enough funds to commit to this channel, then the
 	// request will fail, and be aborted.
-	reservation, err := f.cfg.Wallet.InitChannelReservation(capacity,
-		localAmt, msg.pushAmt, commitFeePerKw, msg.fundingFeePerVSize,
-		peerKey, msg.peerAddress.Address.(*net.TCPAddr),
-		&msg.chainHash, channelFlags)
+	reservation, err := f.cfg.Wallet.InitChannelReservation(
+		capacity, localAmt, msg.pushAmt, commitFeePerKw,
+		msg.fundingFeePerVSize, peerKey, msg.peerAddress.Address,
+		&msg.chainHash, channelFlags,
+	)
 	if err != nil {
 		msg.err <- err
 		return

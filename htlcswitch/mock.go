@@ -15,6 +15,7 @@ import (
 
 	"github.com/btcsuite/fastsha256"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -195,6 +196,10 @@ type mockHopIterator struct {
 	hops []ForwardingInfo
 }
 
+func (r *mockHopIterator) OnionPacket() *sphinx.OnionPacket {
+	return nil
+}
+
 func newMockHopIterator(hops ...ForwardingInfo) HopIterator {
 	return &mockHopIterator{hops: hops}
 }
@@ -203,6 +208,12 @@ func (r *mockHopIterator) ForwardingInstructions() ForwardingInfo {
 	h := r.hops[0]
 	r.hops = r.hops[1:]
 	return h
+}
+
+func (r *mockHopIterator) ExtractErrorEncrypter(
+	extracter ErrorEncrypterExtracter) (ErrorEncrypter, lnwire.FailCode) {
+
+	return extracter(nil)
 }
 
 func (r *mockHopIterator) EncodeNextHop(w io.Writer) error {
@@ -246,10 +257,28 @@ var _ HopIterator = (*mockHopIterator)(nil)
 
 // mockObfuscator mock implementation of the failure obfuscator which only
 // encodes the failure and do not makes any onion obfuscation.
-type mockObfuscator struct{}
+type mockObfuscator struct {
+	ogPacket *sphinx.OnionPacket
+}
 
 func newMockObfuscator() ErrorEncrypter {
 	return &mockObfuscator{}
+}
+
+func (o *mockObfuscator) OnionPacket() *sphinx.OnionPacket {
+	return o.ogPacket
+}
+
+func (o *mockObfuscator) Type() EncrypterType {
+	return EncrypterTypeMock
+}
+
+func (o *mockObfuscator) Encode(w io.Writer) error {
+	return nil
+}
+
+func (o *mockObfuscator) Decode(r io.Reader) error {
+	return nil
 }
 
 func (o *mockObfuscator) EncryptFirstHop(failure lnwire.FailureMessage) (
@@ -292,10 +321,20 @@ var _ ErrorDecrypter = (*mockDeobfuscator)(nil)
 
 // mockIteratorDecoder test version of hop iterator decoder which decodes the
 // encoded array of hops.
-type mockIteratorDecoder struct{}
+type mockIteratorDecoder struct {
+	mu sync.RWMutex
 
-func (p *mockIteratorDecoder) DecodeHopIterator(r io.Reader, meta []byte) (
-	HopIterator, lnwire.FailCode) {
+	responses map[[32]byte][]DecodeHopIteratorResponse
+}
+
+func newMockIteratorDecoder() *mockIteratorDecoder {
+	return &mockIteratorDecoder{
+		responses: make(map[[32]byte][]DecodeHopIteratorResponse),
+	}
+}
+
+func (p *mockIteratorDecoder) DecodeHopIterator(r io.Reader, rHash []byte,
+	cltv uint32) (HopIterator, lnwire.FailCode) {
 
 	var b [4]byte
 	_, err := r.Read(b[:])
@@ -315,6 +354,40 @@ func (p *mockIteratorDecoder) DecodeHopIterator(r io.Reader, meta []byte) (
 	}
 
 	return newMockHopIterator(hops...), lnwire.CodeNone
+}
+
+func (p *mockIteratorDecoder) DecodeHopIterators(id []byte,
+	reqs []DecodeHopIteratorRequest) ([]DecodeHopIteratorResponse, error) {
+
+	idHash := sha256.Sum256(id)
+
+	p.mu.RLock()
+	if resps, ok := p.responses[idHash]; ok {
+		p.mu.RUnlock()
+		return resps, nil
+	}
+	p.mu.RUnlock()
+
+	batchSize := len(reqs)
+
+	resps := make([]DecodeHopIteratorResponse, 0, batchSize)
+	for _, req := range reqs {
+		iterator, failcode := p.DecodeHopIterator(
+			req.OnionReader, req.RHash, req.IncomingCltv,
+		)
+
+		resp := DecodeHopIteratorResponse{
+			HopIterator: iterator,
+			FailCode:    failcode,
+		}
+		resps = append(resps, resp)
+	}
+
+	p.mu.Lock()
+	p.responses[idHash] = resps
+	p.mu.Unlock()
+
+	return resps, nil
 }
 
 func (f *ForwardingInfo) decode(r io.Reader) error {

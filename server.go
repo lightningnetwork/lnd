@@ -9,6 +9,7 @@ import (
 	"image/color"
 	"math/big"
 	"net"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -151,6 +152,15 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	globalFeatures := lnwire.NewRawFeatureVector()
 
 	serializedPubKey := privKey.PubKey().SerializeCompressed()
+
+	// Initialize the sphinx router, placing it's persistent replay log in
+	// the same directory as the channel graph database.
+	graphDir := filepath.Dir(chanDB.Path())
+	sharedSecretPath := filepath.Join(graphDir, "sphinxreplay.db")
+	sphinxRouter := sphinx.NewRouter(
+		sharedSecretPath, privKey, activeNetParams.Params, cc.chainNotifier,
+	)
+
 	s := &server{
 		chanDB: chanDB,
 		cc:     cc,
@@ -162,8 +172,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 
 		// TODO(roasbeef): derive proper onion key based on rotation
 		// schedule
-		sphinx: htlcswitch.NewOnionProcessor(
-			sphinx.NewRouter(privKey, activeNetParams.Params)),
+		sphinx:      htlcswitch.NewOnionProcessor(sphinxRouter),
 		lightningID: sha256.Sum256(serializedPubKey),
 
 		persistentPeers:        make(map[string]struct{}),
@@ -491,7 +500,9 @@ func (s *server) Start() error {
 	if err := s.cc.chainNotifier.Start(); err != nil {
 		return err
 	}
-
+	if err := s.sphinx.Start(); err != nil {
+		return err
+	}
 	if err := s.htlcSwitch.Start(); err != nil {
 		return err
 	}
@@ -554,6 +565,7 @@ func (s *server) Stop() error {
 	s.cc.chainNotifier.Stop()
 	s.chanRouter.Stop()
 	s.htlcSwitch.Stop()
+	s.sphinx.Stop()
 	s.utxoNursery.Stop()
 	s.breachArbiter.Stop()
 	s.authGossiper.Stop()

@@ -73,7 +73,7 @@ func (b *BtcWalletKeyRing) keyScope() (*waddrmgr.ScopedKeyManager, error) {
 
 	// Otherwise, we'll first do a check to ensure that the root manager
 	// isn't locked, as otherwise we won't be able to *use* the scope.
-	if b.wallet.Manager.Locked() {
+	if b.wallet.Manager.IsLocked() {
 		return nil, fmt.Errorf("cannot create BtcWalletKeyRing with " +
 			"locked waddrmgr.Manager")
 	}

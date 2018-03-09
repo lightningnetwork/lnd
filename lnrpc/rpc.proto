@@ -44,7 +44,7 @@ service WalletUnlocker {
         };
     }
 
-    /** lncli: `init`
+    /** 
     InitWallet is used when lnd is starting up for the first time to fully
     initialize the daemon and its internal wallet. At the very least a wallet
     password must be provided. This will be used to encrypt sensitive material
@@ -531,7 +531,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `forwardinghistory`
+    /** lncli: `fwdinghistory`
     ForwardingHistory allows the caller to query the htlcswitch for a record of
     all HTLC's forwarded within the target time range, and integer offset
     within that time range. If no time-range is specified, then the first chunk

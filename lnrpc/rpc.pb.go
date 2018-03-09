@@ -4109,7 +4109,7 @@ type WalletUnlockerClient interface {
 	// method should be used to commit the newly generated seed, and create the
 	// wallet.
 	GenSeed(ctx context.Context, in *GenSeedRequest, opts ...grpc.CallOption) (*GenSeedResponse, error)
-	// * lncli: `init`
+	// *
 	// InitWallet is used when lnd is starting up for the first time to fully
 	// initialize the daemon and its internal wallet. At the very least a wallet
 	// password must be provided. This will be used to encrypt sensitive material
@@ -4177,7 +4177,7 @@ type WalletUnlockerServer interface {
 	// method should be used to commit the newly generated seed, and create the
 	// wallet.
 	GenSeed(context.Context, *GenSeedRequest) (*GenSeedResponse, error)
-	// * lncli: `init`
+	// *
 	// InitWallet is used when lnd is starting up for the first time to fully
 	// initialize the daemon and its internal wallet. At the very least a wallet
 	// password must be provided. This will be used to encrypt sensitive material
@@ -4473,7 +4473,7 @@ type LightningClient interface {
 	// UpdateChannelPolicy allows the caller to update the fee schedule and
 	// channel policies for all channels globally, or a particular channel.
 	UpdateChannelPolicy(ctx context.Context, in *PolicyUpdateRequest, opts ...grpc.CallOption) (*PolicyUpdateResponse, error)
-	// * lncli: `forwardinghistory`
+	// * lncli: `fwdinghistory`
 	// ForwardingHistory allows the caller to query the htlcswitch for a record of
 	// all HTLC's forwarded within the target time range, and integer offset
 	// within that time range. If no time-range is specified, then the first chunk
@@ -5180,7 +5180,7 @@ type LightningServer interface {
 	// UpdateChannelPolicy allows the caller to update the fee schedule and
 	// channel policies for all channels globally, or a particular channel.
 	UpdateChannelPolicy(context.Context, *PolicyUpdateRequest) (*PolicyUpdateResponse, error)
-	// * lncli: `forwardinghistory`
+	// * lncli: `fwdinghistory`
 	// ForwardingHistory allows the caller to query the htlcswitch for a record of
 	// all HTLC's forwarded within the target time range, and integer offset
 	// within that time range. If no time-range is specified, then the first chunk

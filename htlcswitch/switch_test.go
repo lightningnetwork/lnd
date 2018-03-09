@@ -621,6 +621,8 @@ func TestLocalPaymentNoForwardingEvents(t *testing.T) {
 	if !ok {
 		t.Fatalf("mockForwardingLog assertion failed")
 	}
+	log.Lock()
+	defer log.Unlock()
 
 	// If we examine the memory of the forwarding log, then it should be
 	// blank.
@@ -681,14 +683,19 @@ func TestMultiHopPaymentForwardingEvents(t *testing.T) {
 	if !ok {
 		t.Fatalf("mockForwardingLog assertion failed")
 	}
+	aliceLog.Lock()
+	defer aliceLog.Unlock()
 	if len(aliceLog.events) != 0 {
 		t.Fatalf("log should have no events, instead has: %v",
 			spew.Sdump(aliceLog.events))
 	}
+
 	carolLog, ok := n.carolServer.htlcSwitch.cfg.FwdingLog.(*mockForwardingLog)
 	if !ok {
 		t.Fatalf("mockForwardingLog assertion failed")
 	}
+	carolLog.Lock()
+	defer carolLog.Unlock()
 	if len(carolLog.events) != 0 {
 		t.Fatalf("log should have no events, instead has: %v",
 			spew.Sdump(carolLog.events))
@@ -699,6 +706,8 @@ func TestMultiHopPaymentForwardingEvents(t *testing.T) {
 	if !ok {
 		t.Fatalf("mockForwardingLog assertion failed")
 	}
+	bobLog.Lock()
+	defer bobLog.Unlock()
 	if len(bobLog.events) != 10 {
 		t.Fatalf("log should have 10 events, instead has: %v",
 			spew.Sdump(bobLog.events))

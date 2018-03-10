@@ -1555,7 +1555,7 @@ func handleStateUpdate(link *channelLink,
 	if !ok {
 		return fmt.Errorf("expected RevokeAndAck got %T", msg)
 	}
-	_, err = remoteChannel.ReceiveRevocation(revoke)
+	_, _, _, err = remoteChannel.ReceiveRevocation(revoke)
 	if err != nil {
 		return fmt.Errorf("unable to receive "+
 			"revocation: %v", err)
@@ -1609,7 +1609,7 @@ func updateState(batchTick chan time.Time, link *channelLink,
 		return fmt.Errorf("expected RevokeAndAck got %T",
 			msg)
 	}
-	_, err = remoteChannel.ReceiveRevocation(revoke)
+	_, _, _, err = remoteChannel.ReceiveRevocation(revoke)
 	if err != nil {
 		return fmt.Errorf("unable to receive "+
 			"revocation: %v", err)
@@ -1743,7 +1743,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	// If we now send in a valid HTLC settle for the prior HTLC we added,
 	// then the bandwidth should remain unchanged as the remote party will
 	// gain additional channel balance.
-	err = bobChannel.SettleHTLC(invoice.Terms.PaymentPreimage, bobIndex)
+	err = bobChannel.SettleHTLC(invoice.Terms.PaymentPreimage, bobIndex, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unable to settle htlc: %v", err)
 	}
@@ -1807,7 +1807,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	// With that processed, we'll now generate an HTLC fail (sent by the
 	// remote peer) to cancel the HTLC we just added. This should return us
 	// back to the bandwidth of the link right before the HTLC was sent.
-	err = bobChannel.FailHTLC(bobIndex, []byte("nop"))
+	err = bobChannel.FailHTLC(bobIndex, []byte("nop"), nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unable to fail htlc: %v", err)
 	}
@@ -1852,7 +1852,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		t.Fatalf("unable to add invoice to registry: %v", err)
 	}
 
-	bobIndex, err = bobChannel.AddHTLC(htlc)
+	bobIndex, err = bobChannel.AddHTLC(htlc, nil)
 	if err != nil {
 		t.Fatalf("unable to add htlc: %v", err)
 	}
@@ -1931,7 +1931,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	// HTLC we add, hence it should have an ID of 1 (Alice's channel
 	// link will set this automatically for her side).
 	htlc.ID = 1
-	bobIndex, err = bobChannel.AddHTLC(htlc)
+	bobIndex, err = bobChannel.AddHTLC(htlc, nil)
 	if err != nil {
 		t.Fatalf("unable to add htlc: %v", err)
 	}
@@ -2132,7 +2132,7 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 	// will simply transfer over funds to the remote party. However, the
 	// size of the overflow queue should be decreasing
 	for i := 0; i < numOverFlowHTLCs; i++ {
-		err = bobChannel.SettleHTLC(preImages[i], uint64(i))
+		err = bobChannel.SettleHTLC(preImages[i], uint64(i), nil, nil, nil)
 		if err != nil {
 			t.Fatalf("unable to settle htlc: %v", err)
 		}
@@ -2280,7 +2280,7 @@ func TestChannelLinkBandwidthChanReserve(t *testing.T) {
 	// If we now send in a valid HTLC settle for the prior HTLC we added,
 	// then the bandwidth should remain unchanged as the remote party will
 	// gain additional channel balance.
-	err = bobChannel.SettleHTLC(invoice.Terms.PaymentPreimage, bobIndex)
+	err = bobChannel.SettleHTLC(invoice.Terms.PaymentPreimage, bobIndex, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unable to settle htlc: %v", err)
 	}

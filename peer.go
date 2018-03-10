@@ -379,18 +379,21 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		linkCfg := htlcswitch.ChannelLinkConfig{
 			Peer:                  p,
 			DecodeHopIterator:     p.server.sphinx.DecodeHopIterator,
+			DecodeHopIterators:    p.server.sphinx.DecodeHopIterators,
 			DecodeOnionObfuscator: p.server.sphinx.ExtractErrorEncrypter,
 			GetLastChannelUpdate: createGetLastUpdate(p.server.chanRouter,
 				p.PubKey(), lnChan.ShortChanID()),
-			DebugHTLC:     cfg.DebugHTLC,
-			HodlHTLC:      cfg.HodlHTLC,
-			Registry:      p.server.invoices,
-			Switch:        p.server.htlcSwitch,
-			FwrdingPolicy: *forwardingPolicy,
-			FeeEstimator:  p.server.cc.feeEstimator,
-			BlockEpochs:   blockEpoch,
-			PreimageCache: p.server.witnessBeacon,
-			ChainEvents:   chainEvents,
+			DebugHTLC:      cfg.DebugHTLC,
+			HodlHTLC:       cfg.HodlHTLC,
+			Registry:       p.server.invoices,
+			Switch:         p.server.htlcSwitch,
+			Circuits:       p.server.htlcSwitch.CircuitModifier(),
+			ForwardPackets: p.server.htlcSwitch.ForwardPackets,
+			FwrdingPolicy:  *forwardingPolicy,
+			FeeEstimator:   p.server.cc.feeEstimator,
+			BlockEpochs:    blockEpoch,
+			PreimageCache:  p.server.witnessBeacon,
+			ChainEvents:    chainEvents,
 			UpdateContractSignals: func(signals *contractcourt.ContractSignals) error {
 				return p.server.chainArb.UpdateContractSignals(
 					*chanPoint, signals,
@@ -399,7 +402,10 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			SyncStates: true,
 			BatchTicker: htlcswitch.NewBatchTicker(
 				time.NewTicker(50 * time.Millisecond)),
-			BatchSize: 10,
+			FwdPkgGCTicker: htlcswitch.NewBatchTicker(
+				time.NewTicker(time.Minute)),
+			BatchSize:    10,
+			UnsafeReplay: cfg.UnsafeReplay,
 		}
 		link := htlcswitch.NewChannelLink(linkCfg, lnChan,
 			uint32(currentHeight))
@@ -1020,6 +1026,7 @@ func (p *peer) writeMessage(msg lnwire.Message) error {
 // NOTE: This method MUST be run as a goroutine.
 func (p *peer) writeHandler() {
 	var exitErr error
+
 out:
 	for {
 		select {
@@ -1272,18 +1279,21 @@ out:
 			linkConfig := htlcswitch.ChannelLinkConfig{
 				Peer:                  p,
 				DecodeHopIterator:     p.server.sphinx.DecodeHopIterator,
+				DecodeHopIterators:    p.server.sphinx.DecodeHopIterators,
 				DecodeOnionObfuscator: p.server.sphinx.ExtractErrorEncrypter,
 				GetLastChannelUpdate: createGetLastUpdate(p.server.chanRouter,
 					p.PubKey(), newChanReq.channel.ShortChanID()),
-				DebugHTLC:     cfg.DebugHTLC,
-				HodlHTLC:      cfg.HodlHTLC,
-				Registry:      p.server.invoices,
-				Switch:        p.server.htlcSwitch,
-				FwrdingPolicy: p.server.cc.routingPolicy,
-				FeeEstimator:  p.server.cc.feeEstimator,
-				BlockEpochs:   blockEpoch,
-				PreimageCache: p.server.witnessBeacon,
-				ChainEvents:   chainEvents,
+				DebugHTLC:      cfg.DebugHTLC,
+				HodlHTLC:       cfg.HodlHTLC,
+				Registry:       p.server.invoices,
+				Switch:         p.server.htlcSwitch,
+				Circuits:       p.server.htlcSwitch.CircuitModifier(),
+				ForwardPackets: p.server.htlcSwitch.ForwardPackets,
+				FwrdingPolicy:  p.server.cc.routingPolicy,
+				FeeEstimator:   p.server.cc.feeEstimator,
+				BlockEpochs:    blockEpoch,
+				PreimageCache:  p.server.witnessBeacon,
+				ChainEvents:    chainEvents,
 				UpdateContractSignals: func(signals *contractcourt.ContractSignals) error {
 					return p.server.chainArb.UpdateContractSignals(
 						*chanPoint, signals,
@@ -1292,7 +1302,10 @@ out:
 				SyncStates: false,
 				BatchTicker: htlcswitch.NewBatchTicker(
 					time.NewTicker(50 * time.Millisecond)),
-				BatchSize: 10,
+				FwdPkgGCTicker: htlcswitch.NewBatchTicker(
+					time.NewTicker(time.Minute)),
+				BatchSize:    10,
+				UnsafeReplay: cfg.UnsafeReplay,
 			}
 			link := htlcswitch.NewChannelLink(linkConfig, newChan,
 				uint32(currentHeight))

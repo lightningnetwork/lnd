@@ -47,7 +47,7 @@ type ChannelLink interface {
 	//
 	// NOTE: This function MUST be non-blocking (or block as little as
 	// possible).
-	HandleSwitchPacket(*htlcPacket)
+	HandleSwitchPacket(*htlcPacket) error
 
 	// HandleChannelUpdate handles the htlc requests as settle/add/fail
 	// which sent to us from remote peer we have a channel with.
@@ -97,6 +97,10 @@ type ChannelLink interface {
 	// the pre-channel operation protocol with the remote peer. The switch
 	// will use this function in forwarding decisions accordingly.
 	EligibleToForward() bool
+
+	// AttachMailBox delivers an active MailBox to the link. The MailBox may
+	// have buffered messages.
+	AttachMailBox(MailBox)
 
 	// Start/Stop are used to initiate the start/stop of the channel link
 	// functioning.

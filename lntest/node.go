@@ -239,6 +239,7 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 	hn.quit = make(chan struct{})
 
 	args := hn.cfg.genArgs()
+	args = append(args, fmt.Sprintf("--profile=%d", 9000+hn.NodeID))
 	hn.cmd = exec.Command("lnd", args...)
 
 	// Redirect stderr output to buffer
@@ -392,6 +393,12 @@ func (hn *HarnessNode) connectRPC() (*grpc.ClientConn, error) {
 		grpc.WithTimeout(time.Second * 20),
 	}
 	return grpc.Dial(hn.cfg.RPCAddr(), opts...)
+}
+
+// SetExtraArgs assigns the ExtraArgs field for the node's configuration. The
+// changes will take effect on restart.
+func (hn *HarnessNode) SetExtraArgs(extraArgs []string) {
+	hn.cfg.ExtraArgs = extraArgs
 }
 
 // cleanup cleans up all the temporary files created by the node's process.

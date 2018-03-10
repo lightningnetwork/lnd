@@ -141,8 +141,9 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 
 	listeners := make([]net.Listener, len(listenAddrs))
 	for i, addr := range listenAddrs {
-		// Note: though brontide.NewListener uses ResolveTCPAddr, it doesn't need to call the
-		// general lndResolveTCP function since we are resolving a local address.
+		// Note: though brontide.NewListener uses ResolveTCPAddr, it
+		// doesn't need to call the general lndResolveTCP function
+		// since we are resolving a local address.
 		listeners[i], err = brontide.NewListener(privKey, addr)
 		if err != nil {
 			return nil, err
@@ -155,7 +156,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 
 	// Initialize the sphinx router, placing it's persistent replay log in
 	// the same directory as the channel graph database.
-	graphDir := filepath.Dir(chanDB.Path())
+	graphDir := chanDB.Path()
 	sharedSecretPath := filepath.Join(graphDir, "sphinxreplay.db")
 	sphinxRouter := sphinx.NewRouter(
 		sharedSecretPath, privKey, activeNetParams.Params, cc.chainNotifier,

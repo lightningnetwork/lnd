@@ -432,6 +432,12 @@ func settleInvoice(invoices *bolt.Bucket, invoiceNum []byte) error {
 		return err
 	}
 
+	// Add idempotency to duplicate settles, return here to avoid
+	// overwriting the previous info.
+	if invoice.Terms.Settled {
+		return nil
+	}
+
 	invoice.Terms.Settled = true
 	invoice.SettleDate = time.Now()
 

@@ -4,8 +4,11 @@ package main
 
 import (
 	"bytes"
+	crand "crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"math/rand"
 	"net"
@@ -1384,6 +1387,15 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 		CommitSig:     bytes.Repeat([]byte{1}, 71),
 	}
 
+	var chanIDBytes [8]byte
+	if _, err := io.ReadFull(crand.Reader, chanIDBytes[:]); err != nil {
+		return nil, nil, nil, err
+	}
+
+	shortChanID := lnwire.NewShortChanIDFromInt(
+		binary.BigEndian.Uint64(chanIDBytes[:]),
+	)
+
 	aliceChannelState := &channeldb.OpenChannel{
 		LocalChanCfg:            aliceCfg,
 		RemoteChanCfg:           bobCfg,
@@ -1398,6 +1410,7 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 		LocalCommitment:         aliceCommit,
 		RemoteCommitment:        aliceCommit,
 		Db:                      dbAlice,
+		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 	bobChannelState := &channeldb.OpenChannel{
 		LocalChanCfg:            bobCfg,
@@ -1413,6 +1426,7 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 		LocalCommitment:         bobCommit,
 		RemoteCommitment:        bobCommit,
 		Db:                      dbBob,
+		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 
 	pCache := &mockPreimageCache{

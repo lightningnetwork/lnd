@@ -98,6 +98,18 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 
 	select {
 	case err := <-errChan:
+		// If we were not able to actually open a channel to the peer
+		// for whatever reason, then we'll disconnect from the peer to
+		// ensure we don't accumulate a bunch of unnecessary
+		// connections.
+		if err != nil {
+			dcErr := c.server.DisconnectPeer(target)
+			if dcErr != nil {
+				atplLog.Errorf("Unable to disconnect from peer %v",
+					target.SerializeCompressed())
+			}
+		}
+
 		return err
 	case <-updateStream:
 		return nil
@@ -148,7 +160,8 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 		WalletBalance: func() (btcutil.Amount, error) {
 			return svr.cc.wallet.ConfirmedBalance(1)
 		},
-		Graph: autopilot.ChannelGraphFromDatabase(svr.chanDB.ChannelGraph()),
+		Graph:           autopilot.ChannelGraphFromDatabase(svr.chanDB.ChannelGraph()),
+		MaxPendingOpens: 10,
 	}
 
 	// Next, we'll fetch the current state of open channels from the

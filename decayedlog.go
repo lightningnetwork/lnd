@@ -208,9 +208,16 @@ func (d *DecayedLog) garbageCollector(epochClient *chainntnfs.BlockEpochEvent) {
 			// Perform a bout of garbage collection using the
 			// epoch's block height.
 			height := uint32(epoch.Height)
-			if err := d.gcExpiredHashes(height); err != nil {
+			numExpired, err := d.gcExpiredHashes(height)
+			if err != nil {
 				sphxLog.Errorf("unable to expire hashes at "+
 					"height=%d", height)
+			}
+
+			if numExpired > 0 {
+				sphxLog.Infof("Garbage collected %v shared "+
+					"secret hashes at height=%v",
+					numExpired, height)
 			}
 
 		case <-d.quit:
@@ -224,8 +231,12 @@ func (d *DecayedLog) garbageCollector(epochClient *chainntnfs.BlockEpochEvent) {
 
 // gcExpiredHashes purges the decaying log of all entries whose CLTV expires
 // below the provided height.
-func (d *DecayedLog) gcExpiredHashes(height uint32) error {
-	return d.db.Batch(func(tx *bolt.Tx) error {
+func (d *DecayedLog) gcExpiredHashes(height uint32) (uint32, error) {
+	var numExpiredHashes uint32
+
+	err := d.db.Batch(func(tx *bolt.Tx) error {
+		numExpiredHashes = 0
+
 		// Grab the shared hash bucket
 		sharedHashes := tx.Bucket(sharedHashBucket)
 		if sharedHashes == nil {
@@ -243,6 +254,8 @@ func (d *DecayedLog) gcExpiredHashes(height uint32) error {
 				// array which we'll loop over and delete every
 				// hash contained from the db.
 				expiredCltv = append(expiredCltv, k)
+				numExpiredHashes++
+				fmt.Println("inc")
 			}
 
 			return nil
@@ -262,6 +275,11 @@ func (d *DecayedLog) gcExpiredHashes(height uint32) error {
 
 		return nil
 	})
+	if err != nil {
+		return 0, nil
+	}
+
+	return numExpiredHashes, nil
 }
 
 // hashSharedSecret Sha-256 hashes the shared secret and returns the first

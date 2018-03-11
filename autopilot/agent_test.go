@@ -138,7 +138,8 @@ func TestAgentChannelOpenSignal(t *testing.T) {
 		WalletBalance: func() (btcutil.Amount, error) {
 			return 0, nil
 		},
-		Graph: memGraph,
+		Graph:           memGraph,
+		MaxPendingOpens: 10,
 	}
 	initialChans := []Channel{}
 	agent, err := New(testCfg, initialChans)
@@ -271,7 +272,8 @@ func TestAgentChannelFailureSignal(t *testing.T) {
 		WalletBalance: func() (btcutil.Amount, error) {
 			return 0, nil
 		},
-		Graph: memGraph,
+		Graph:           memGraph,
+		MaxPendingOpens: 10,
 	}
 
 	initialChans := []Channel{}
@@ -360,7 +362,8 @@ func TestAgentChannelCloseSignal(t *testing.T) {
 		WalletBalance: func() (btcutil.Amount, error) {
 			return 0, nil
 		},
-		Graph: memGraph,
+		Graph:           memGraph,
+		MaxPendingOpens: 10,
 	}
 
 	// We'll start the agent with two channels already being active.
@@ -483,7 +486,8 @@ func TestAgentBalanceUpdate(t *testing.T) {
 		WalletBalance: func() (btcutil.Amount, error) {
 			return walletBalance, nil
 		},
-		Graph: memGraph,
+		Graph:           memGraph,
+		MaxPendingOpens: 10,
 	}
 	initialChans := []Channel{}
 	agent, err := New(testCfg, initialChans)
@@ -530,7 +534,7 @@ func TestAgentBalanceUpdate(t *testing.T) {
 		case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
 			// At this point, the local state of the agent should
 			// have also been updated to reflect that the LN node
-			// now has an additional  5BTC available.
+			// now has an additional 5BTC available.
 			const expectedAmt = walletBalance + balanceDelta
 			if agent.totalBalance != expectedAmt {
 				t.Fatalf("expected %v wallet balance "+
@@ -598,7 +602,8 @@ func TestAgentImmediateAttach(t *testing.T) {
 		WalletBalance: func() (btcutil.Amount, error) {
 			return walletBalance, nil
 		},
-		Graph: memGraph,
+		Graph:           memGraph,
+		MaxPendingOpens: 10,
 	}
 	initialChans := []Channel{}
 	agent, err := New(testCfg, initialChans)
@@ -732,7 +737,8 @@ func TestAgentPendingChannelState(t *testing.T) {
 		WalletBalance: func() (btcutil.Amount, error) {
 			return walletBalance, nil
 		},
-		Graph: memGraph,
+		Graph:           memGraph,
+		MaxPendingOpens: 10,
 	}
 	initialChans := []Channel{}
 	agent, err := New(testCfg, initialChans)

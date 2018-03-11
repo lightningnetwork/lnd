@@ -41,6 +41,12 @@ type Config struct {
 	// within the graph.
 	Graph ChannelGraph
 
+	// MaxPendingOpens is the maximum number of pending channel
+	// establishment goroutines that can be lingering. We cap this value in
+	// order to control the level of parallelism caused by the autopiloit
+	// agent.
+	MaxPendingOpens uint16
+
 	// TODO(roasbeef): add additional signals from fee rates and revenue of
 	// currently opened channels
 }
@@ -410,6 +416,21 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 			// top of our controller loop.
 			pendingMtx.Lock()
 			for _, chanCandidate := range chanCandidates {
+				// Before we proceed, we'll check to see if
+				// this attempt would take us past the total
+				// number of allowed pending opens. If so, then
+				// we'll skip this round and wait for an
+				// attempt to either fail or succeed.
+				if uint16(len(pendingOpens))+1 >
+					a.cfg.MaxPendingOpens {
+
+					log.Debugf("Reached cap of %v pending "+
+						"channel opens, will retry "+
+						"after success/failure",
+						a.cfg.MaxPendingOpens)
+					continue
+				}
+
 				nID := NewNodeID(chanCandidate.PeerKey)
 				pendingOpens[nID] = Channel{
 					Capacity: chanCandidate.ChanAmt,
@@ -417,6 +438,7 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 				}
 
 				go func(directive AttachmentDirective) {
+
 					pub := directive.PeerKey
 					err := a.cfg.ChanController.OpenChannel(
 

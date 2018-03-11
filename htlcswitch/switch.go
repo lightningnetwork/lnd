@@ -9,7 +9,7 @@ import (
 
 	"crypto/sha256"
 
-	"github.com/boltdb/bolt"
+	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/roasbeef/btcd/btcec"
 

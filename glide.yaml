@@ -1,7 +1,7 @@
 package: github.com/lightningnetwork/lnd
 import:
-- package: github.com/boltdb/bolt
-  version: ^1.2.1
+- package: github.com/coreos/bbolt
+  version: 4f5275f4ebbf6fe7cb772de987fa96ee674460a7
 - package: github.com/btcsuite/btclog
   version: 84c8d2346e9fc8c7b947e243b9c24e6df9fd206a
 - package: github.com/jessevdk/go-flags
@@ -36,7 +36,7 @@ import:
   - hdkeychain
   - txsort
 - package: github.com/roasbeef/btcwallet
-  version: b3efdffeccf966d294b87f05d760d3946afcfe0c
+  version: 46f7390abe89576059b52588d91b82212e753493
   subpackages:
   - chain
   - waddrmgr
@@ -59,7 +59,7 @@ import:
 - package: google.golang.org/grpc
   version: b3ddf786825de56a4178401b7e174ee332173b66
 - package: github.com/lightningnetwork/lightning-onion
-  version: efe4c3416ea16d52510edb0ac98764ff0796cc9a
+  version: 6d4b1353e2835def84ee240f40499464521c6046
 - package: github.com/grpc-ecosystem/grpc-gateway
   version: f2862b476edcef83412c7af8687c9cd8e4097c0f
 - package: github.com/go-errors/errors
@@ -74,7 +74,7 @@ import:
   subpackages:
   - chaincfg
 - package: github.com/lightninglabs/neutrino
-  version: c933ad49936ac3e5bc1b42e855f2da69745e34cc
+  version: 601b7eda6e5c9e8ca91c097f0bb7be2664802ab3
 - package: gopkg.in/macaroon.v2
 - package: gopkg.in/macaroon-bakery.v2
 - package: github.com/juju/loggo

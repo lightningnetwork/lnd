@@ -7,7 +7,7 @@ import (
 	"path"
 	"testing"
 
-	"github.com/boltdb/bolt"
+	"github.com/coreos/bbolt"
 
 	"github.com/lightningnetwork/lnd/macaroons"
 

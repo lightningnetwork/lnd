@@ -3,7 +3,7 @@ package htlcswitch
 import (
 	"sync"
 
-	"github.com/boltdb/bolt"
+	"github.com/coreos/bbolt"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 )

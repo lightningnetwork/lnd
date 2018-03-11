@@ -4,7 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 
-	"github.com/boltdb/bolt"
+	"github.com/coreos/bbolt"
 )
 
 var (

@@ -1,5 +1,5 @@
-hash: fc72dd5b6c928784fccc85a36392bd230a1c6c8dda0179e2d77b0346e5047958
-updated: 2018-03-10T16:40:14.507372914-08:00
+hash: c214d062c3fd6f1fe3596c3a7bbe8f456308c7123c0868a5e13d21c9c223480a
+updated: 2018-03-10T18:59:00.939821514-08:00
 imports:
 - name: git.schwanenlied.me/yawning/bsaes.git
   version: e06297f34865a50b8e473105e52cb64ad1b55da8
@@ -22,8 +22,6 @@ imports:
   - lexer
   - parser
   - token
-- name: github.com/boltdb/bolt
-  version: 2f1ce7a837dcb8da3ec595b1dac9d0632f0f99e8
 - name: github.com/btcsuite/btclog
   version: 84c8d2346e9fc8c7b947e243b9c24e6df9fd206a
 - name: github.com/btcsuite/fastsha256
@@ -44,6 +42,8 @@ imports:
   - ssh/terminal
 - name: github.com/btcsuite/websocket
   version: 31079b6807923eb23992c421b114992b95131b55
+- name: github.com/coreos/bbolt
+  version: 4f5275f4ebbf6fe7cb772de987fa96ee674460a7
 - name: github.com/davecgh/go-spew
   version: 346938d642f2ec3594ed81d874461961cd0faa76
   subpackages:
@@ -67,7 +67,7 @@ imports:
 - name: github.com/howeyc/gopass
   version: bf9dde6d0d2c004a008c27aaee91170c786f6db8
 - name: github.com/jessevdk/go-flags
-  version: f88afde2fa19a30cf50ba4b05b3d13bc6bae3079
+  version: 1679536dcc895411a9f5848d9a0250be7856448c
 - name: github.com/jrick/logrotate
   version: a93b200c26cbae3bb09dd0dc2c7c7fe1468a034a
   subpackages:
@@ -79,12 +79,12 @@ imports:
 - name: github.com/lightninglabs/gozmq
   version: 0d266ba6d55ea65c18c7a02d8992c89355149e80
 - name: github.com/lightninglabs/neutrino
-  version: c933ad49936ac3e5bc1b42e855f2da69745e34cc
+  version: 601b7eda6e5c9e8ca91c097f0bb7be2664802ab3
   subpackages:
   - filterdb
   - headerfs
 - name: github.com/lightningnetwork/lightning-onion
-  version: efe4c3416ea16d52510edb0ac98764ff0796cc9a
+  version: 6d4b1353e2835def84ee240f40499464521c6046
 - name: github.com/ltcsuite/ltcd
   version: 5f654d5faab99ee2b3488fabba98e5f7a5257ee3
   subpackages:
@@ -126,7 +126,7 @@ imports:
   - hdkeychain
   - txsort
 - name: github.com/roasbeef/btcwallet
-  version: b3efdffeccf966d294b87f05d760d3946afcfe0c
+  version: 46f7390abe89576059b52588d91b82212e753493
   subpackages:
   - chain
   - internal/helpers

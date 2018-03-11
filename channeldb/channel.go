@@ -403,6 +403,14 @@ type OpenChannel struct {
 	// failures and reforward HTLCs that were not fully processed.
 	Packager FwdPackager
 
+	// FundingTxn is the transaction containing this channel's funding
+	// outpoint. Upon restarts, this txn will be rebroadcast if the channel
+	// is found to be pending.
+	//
+	// NOTE: This value will only be populated for single-funder channels
+	// for which we are the initiator.
+	FundingTxn *wire.MsgTx
+
 	// TODO(roasbeef): eww
 	Db *DB
 
@@ -1797,6 +1805,13 @@ func putChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 		return err
 	}
 
+	// For single funder channels that we initiated, write the funding txn.
+	if channel.ChanType == SingleFunder && channel.IsInitiator {
+		if err := writeElement(&w, channel.FundingTxn); err != nil {
+			return err
+		}
+	}
+
 	writeChanConfig := func(b io.Writer, c *ChannelConfig) error {
 		return writeElements(b,
 			c.DustLimit, c.MaxPendingAmount, c.ChanReserve, c.MinHTLC,
@@ -1896,6 +1911,13 @@ func fetchChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 		&channel.TotalMSatReceived,
 	); err != nil {
 		return err
+	}
+
+	// For single funder channels that we initiated, read the funding txn.
+	if channel.ChanType == SingleFunder && channel.IsInitiator {
+		if err := readElement(r, &channel.FundingTxn); err != nil {
+			return err
+		}
 	}
 
 	readChanConfig := func(b io.Reader, c *ChannelConfig) error {

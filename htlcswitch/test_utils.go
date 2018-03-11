@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coreos/bbolt"
 	"github.com/btcsuite/fastsha256"
+	"github.com/coreos/bbolt"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"

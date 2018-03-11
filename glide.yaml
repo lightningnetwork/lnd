@@ -36,7 +36,7 @@ import:
   - hdkeychain
   - txsort
 - package: github.com/roasbeef/btcwallet
-  version: f7f0a70678cb406625ecd63984b739a72ac9fd4a
+  version: b3efdffeccf966d294b87f05d760d3946afcfe0c
   subpackages:
   - chain
   - waddrmgr
@@ -59,7 +59,7 @@ import:
 - package: google.golang.org/grpc
   version: b3ddf786825de56a4178401b7e174ee332173b66
 - package: github.com/lightningnetwork/lightning-onion
-  version: 9e4b184daf3e32e0c2e523b92ec1b2d6c51ad77f
+  version: efe4c3416ea16d52510edb0ac98764ff0796cc9a
 - package: github.com/grpc-ecosystem/grpc-gateway
   version: f2862b476edcef83412c7af8687c9cd8e4097c0f
 - package: github.com/go-errors/errors

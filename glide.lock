@@ -1,5 +1,5 @@
-hash: 607d774162a30647479b037b9291e372c92d1ab6b60808837b22c205ac58981f
-updated: 2018-03-08T21:10:50.953704-05:00
+hash: fc72dd5b6c928784fccc85a36392bd230a1c6c8dda0179e2d77b0346e5047958
+updated: 2018-03-10T16:40:14.507372914-08:00
 imports:
 - name: git.schwanenlied.me/yawning/bsaes.git
   version: e06297f34865a50b8e473105e52cb64ad1b55da8
@@ -45,7 +45,7 @@ imports:
 - name: github.com/btcsuite/websocket
   version: 31079b6807923eb23992c421b114992b95131b55
 - name: github.com/davecgh/go-spew
-  version: ecdeabc65495df2dec95d7c4a4c3e021903035e5
+  version: 346938d642f2ec3594ed81d874461961cd0faa76
   subpackages:
   - spew
 - name: github.com/go-errors/errors
@@ -84,7 +84,7 @@ imports:
   - filterdb
   - headerfs
 - name: github.com/lightningnetwork/lightning-onion
-  version: 9e4b184daf3e32e0c2e523b92ec1b2d6c51ad77f
+  version: efe4c3416ea16d52510edb0ac98764ff0796cc9a
 - name: github.com/ltcsuite/ltcd
   version: 5f654d5faab99ee2b3488fabba98e5f7a5257ee3
   subpackages:
@@ -126,7 +126,7 @@ imports:
   - hdkeychain
   - txsort
 - name: github.com/roasbeef/btcwallet
-  version: f7f0a70678cb406625ecd63984b739a72ac9fd4a
+  version: b3efdffeccf966d294b87f05d760d3946afcfe0c
   subpackages:
   - chain
   - internal/helpers

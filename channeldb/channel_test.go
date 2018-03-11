@@ -220,6 +220,7 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 		RevocationStore:         store,
 		Db:                      cdb,
 		Packager:                NewChannelPackager(chanID),
+		FundingTxn:              testTx,
 	}, nil
 }
 

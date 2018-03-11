@@ -1,18 +1,18 @@
-hash: 2d47f5b9766af60984cadf5ba0ba9a21e085e4715cafcbdae080a7b620c38b0d
-updated: 2018-03-10T16:22:34.078655965-08:00
+hash: b61312a18f7859413a3b184845b0d6e3fb27f1c5373b1ba0854dc1c6a133f7d0
+updated: 2018-03-10T18:56:07.245500445-08:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
   subpackages:
   - chacha
-- name: github.com/boltdb/bolt
-  version: 2f1ce7a837dcb8da3ec595b1dac9d0632f0f99e8
 - name: github.com/btcsuite/btclog
   version: 84c8d2346e9fc8c7b947e243b9c24e6df9fd206a
 - name: github.com/btcsuite/golangcrypto
   version: 53f62d9b43e87a6c56975cf862af7edf33a8d0df
   subpackages:
   - ripemd160
+- name: github.com/coreos/bbolt
+  version: 4f5275f4ebbf6fe7cb772de987fa96ee674460a7
 - name: github.com/go-errors/errors
   version: 8fa88b06e5974e97fbf9899a7f86a344bfd1f105
 - name: github.com/lightningnetwork/lnd

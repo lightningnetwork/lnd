@@ -300,6 +300,16 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 	pendingOpens := make(map[NodeID]Channel)
 	var pendingMtx sync.Mutex
 
+	updateBalance := func() {
+		newBalance, err := a.cfg.WalletBalance()
+		if err != nil {
+			log.Warnf("unable to update wallet balance: %v", err)
+			return
+		}
+
+		a.totalBalance = newBalance
+	}
+
 	// TODO(roasbeef): add 10-minute wake up timer
 	for {
 		select {
@@ -325,6 +335,8 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 			case *chanOpenFailureUpdate:
 				log.Debug("Retrying after previous channel open failure.")
 
+				updateBalance()
+
 			// A new channel has been opened successfully. This was
 			// either opened by the Agent, or an external system
 			// that is able to drive the Lightning Node.
@@ -340,6 +352,8 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 				delete(pendingOpens, newChan.Node)
 				pendingMtx.Unlock()
 
+				updateBalance()
+
 			// A channel has been closed, this may free up an
 			// available slot, triggering a new channel update.
 			case *chanCloseUpdate:
@@ -350,6 +364,8 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 				for _, closedChan := range update.closedChans {
 					delete(a.chanState, closedChan)
 				}
+
+				updateBalance()
 			}
 
 			pendingMtx.Lock()
@@ -375,7 +391,8 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 				continue
 			}
 
-			log.Infof("Triggering attachment directive dispatch")
+			log.Infof("Triggering attachment directive dispatch, "+
+				"total_funds=%v", a.totalBalance)
 
 			// We're to attempt an attachment so we'll o obtain the
 			// set of nodes that we currently have channels with so

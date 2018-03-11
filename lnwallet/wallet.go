@@ -1073,10 +1073,12 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	res.partialState.LocalChanCfg = res.ourContribution.toChanConfig()
 	res.partialState.RemoteChanCfg = res.theirContribution.toChanConfig()
 
+	// We'll also record the finalized funding txn, which will allow us to
+	// rebroadcast on startup in case we fail.
+	res.partialState.FundingTxn = fundingTx
+
 	// Add the complete funding transaction to the DB, in its open bucket
 	// which will be used for the lifetime of this channel.
-	// TODO(roasbeef):
-	//  * attempt to retransmit funding transactions on re-start
 	nodeAddr := res.nodeAddr
 	err = res.partialState.SyncPending(nodeAddr, uint32(bestHeight))
 	if err != nil {

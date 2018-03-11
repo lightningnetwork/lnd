@@ -1,5 +1,5 @@
 hash: 2d47f5b9766af60984cadf5ba0ba9a21e085e4715cafcbdae080a7b620c38b0d
-updated: 2018-02-20T23:10:22.589085-08:00
+updated: 2018-03-10T16:22:34.078655965-08:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -16,7 +16,7 @@ imports:
 - name: github.com/go-errors/errors
   version: 8fa88b06e5974e97fbf9899a7f86a344bfd1f105
 - name: github.com/lightningnetwork/lnd
-  version: 1c3dbb25434ef9f4d3dedc226dea41755e1621e7
+  version: 236d53785d1b7dae39207edb6256a96f5b75e858
   subpackages:
   - chainntnfs
 - name: github.com/roasbeef/btcd
@@ -32,7 +32,7 @@ imports:
   - base58
   - bech32
 - name: golang.org/x/crypto
-  version: 9419663f5a44be8b34ca85f08abc5fe1be11f8a3
+  version: 49796115aa4b964c318aad4f3084fdb41e9aa067
   subpackages:
   - ripemd160
 - name: golang.org/x/sys

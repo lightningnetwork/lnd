@@ -7,7 +7,7 @@
   * **Go:** `lnd` is written in Go. To install, run one of the following commands:
 
   
-    **Note**: The minimum version of Go supported is Go 1.8. We recommend that
+    **Note**: The minimum version of Go supported is Go 1.9. We recommend that
     users use the latest version of Go, which at the time of writing is
     [`1.10`](https://blog.golang.org/go1.10).
 

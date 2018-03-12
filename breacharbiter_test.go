@@ -1412,6 +1412,7 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 		RemoteCommitment:        aliceCommit,
 		Db:                      dbAlice,
 		Packager:                channeldb.NewChannelPackager(shortChanID),
+		FundingTxn:              testTx,
 	}
 	bobChannelState := &channeldb.OpenChannel{
 		LocalChanCfg:            bobCfg,

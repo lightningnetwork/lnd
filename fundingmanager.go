@@ -161,6 +161,10 @@ type fundingConfig struct {
 	// funds from on-chain transaction outputs into Lightning channels.
 	Wallet *lnwallet.LightningWallet
 
+	// PublishTransaction facilitates the process of broadcasting a
+	// transaction to the network.
+	PublishTransaction func(*wire.MsgTx) error
+
 	// FeeEstimator calculates appropriate fee rates based on historical
 	// transaction information.
 	FeeEstimator lnwallet.FeeEstimator
@@ -421,6 +425,22 @@ func (f *fundingManager) Start() error {
 		f.barrierMtx.Unlock()
 
 		f.localDiscoverySignals[chanID] = make(chan struct{})
+
+		// Rebroadcast the funding transaction for any pending channel
+		// that we initiated. If this operation fails due to a reported
+		// double spend, we treat this as an indicator that we have
+		// already broadcast this transaction. Otherwise, we simply log
+		// the error as there isn't anything we can currently do to
+		// recover.
+		if channel.ChanType == channeldb.SingleFunder &&
+			channel.IsInitiator {
+
+			err := f.cfg.PublishTransaction(channel.FundingTxn)
+			if err != nil && err != lnwallet.ErrDoubleSpend {
+				fndgLog.Warnf("unable to rebroadcast funding "+
+					"txn: %v", err)
+			}
+		}
 
 		confChan := make(chan *lnwire.ShortChannelID)
 		timeoutChan := make(chan struct{})

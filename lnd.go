@@ -275,10 +275,11 @@ func lndMain() error {
 		return err
 	}
 	fundingMgr, err := newFundingManager(fundingConfig{
-		IDKey:        idPrivKey.PubKey(),
-		Wallet:       activeChainControl.wallet,
-		Notifier:     activeChainControl.chainNotifier,
-		FeeEstimator: activeChainControl.feeEstimator,
+		IDKey:              idPrivKey.PubKey(),
+		Wallet:             activeChainControl.wallet,
+		PublishTransaction: activeChainControl.wallet.PublishTransaction,
+		Notifier:           activeChainControl.chainNotifier,
+		FeeEstimator:       activeChainControl.feeEstimator,
 		SignMessage: func(pubKey *btcec.PublicKey,
 			msg []byte) (*btcec.Signature, error) {
 

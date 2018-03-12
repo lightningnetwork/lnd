@@ -337,6 +337,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 	aliceMsgChan := make(chan lnwire.Message)
 	aliceAnnounceChan := make(chan lnwire.Message)
 	shutdownChan := make(chan struct{})
+	publishChan := make(chan *wire.MsgTx, 10)
 
 	oldCfg := alice.fundingMgr.cfg
 
@@ -376,6 +377,10 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		TempChanIDSeed: oldCfg.TempChanIDSeed,
 		ArbiterChan:    alice.arbiterChan,
 		FindChannel:    oldCfg.FindChannel,
+		PublishTransaction: func(txn *wire.MsgTx) error {
+			publishChan <- txn
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatalf("failed recreating aliceFundingManager: %v", err)
@@ -384,6 +389,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 	alice.fundingMgr = f
 	alice.msgChan = aliceMsgChan
 	alice.announceChan = aliceAnnounceChan
+	alice.publTxChan = publishChan
 	alice.shutdownChannel = shutdownChan
 
 	if err = f.Start(); err != nil {
@@ -1227,6 +1233,13 @@ func TestFundingManagerFundingNotTimeoutInitiator(t *testing.T) {
 	}
 
 	recreateAliceFundingManager(t, alice)
+
+	// We should receive the rebroadcasted funding txn.
+	select {
+	case <-alice.publTxChan:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice did not publish funding tx")
+	}
 
 	// Increase the height to 1 minus the maxWaitNumBlocksFundingConf height
 	alice.mockNotifier.epochChan <- &chainntnfs.BlockEpoch{

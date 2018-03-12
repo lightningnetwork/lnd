@@ -134,6 +134,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 		DataDir:      homeChainConfig.ChainDir,
 		NetParams:    activeNetParams.Params,
 		FeeEstimator: cc.feeEstimator,
+		CoinType:     activeNetParams.CoinType,
 	}
 
 	var (
@@ -436,6 +437,10 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 	cc.signer = wc
 	cc.chainIO = wc
 
+	keyRing := keychain.NewBtcWalletKeyRing(
+		wc.InternalWallet(), activeNetParams.CoinType,
+	)
+
 	// Create, and start the lnwallet, which handles the core payment
 	// channel logic, and exposes control via proxy state machines.
 	walletCfg := lnwallet.Config{
@@ -444,7 +449,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 		WalletController:   wc,
 		Signer:             cc.signer,
 		FeeEstimator:       cc.feeEstimator,
-		SecretKeyRing:      keychain.NewBtcWalletKeyRing(wc.InternalWallet()),
+		SecretKeyRing:      keyRing,
 		ChainIO:            cc.chainIO,
 		DefaultConstraints: defaultChannelConstraints,
 		NetParams:          *activeNetParams.Params,

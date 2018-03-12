@@ -302,6 +302,10 @@ func (o *mockObfuscator) Decode(r io.Reader) error {
 	return nil
 }
 
+func (o *mockObfuscator) Reextract(extracter ErrorEncrypterExtracter) error {
+	return nil
+}
+
 func (o *mockObfuscator) EncryptFirstHop(failure lnwire.FailureMessage) (
 	lnwire.OpaqueReason, error) {
 

@@ -130,6 +130,11 @@ type Config struct {
 	// active channels. This gives the switch the ability to read arbitrary
 	// forwarding packages, and ack settles and fails contained within them.
 	SwitchPackager channeldb.FwdOperator
+
+	// ExtractErrorEncrypter is an interface allowing switch to reextract
+	// error encrypters stored in the circuit map on restarts, since they
+	// are not stored directly within the database.
+	ExtractErrorEncrypter ErrorEncrypterExtracter
 }
 
 // Switch is the central messaging bus for all incoming/outgoing HTLCs.
@@ -214,7 +219,10 @@ type Switch struct {
 
 // New creates the new instance of htlc switch.
 func New(cfg Config) (*Switch, error) {
-	circuitMap, err := NewCircuitMap(cfg.DB)
+	circuitMap, err := NewCircuitMap(&CircuitMapConfig{
+		DB: cfg.DB,
+		ExtractErrorEncrypter: cfg.ExtractErrorEncrypter,
+	})
 	if err != nil {
 		return nil, err
 	}

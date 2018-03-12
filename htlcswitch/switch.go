@@ -513,11 +513,22 @@ func (s *Switch) ForwardPackets(packets ...*htlcPacket) chan error {
 	wg.Add(1)
 	defer wg.Done()
 
-	// Spawn a goroutine the proxy the errs back to the returned err chan.
-	// This is done to ensure the err chan returned to the caller closed
-	// properly, alerting the receiver of completion or shutdown.
-	s.wg.Add(1)
-	go s.proxyFwdErrs(&numSent, &wg, fwdChan, errChan)
+	// Before spawning the following goroutine to proxy our error responses,
+	// check to see if we have already been issued a shutdown request. If
+	// so, we exit early to avoid incrementing the switch's waitgroup while
+	// it is already in the process of shutting down.
+	select {
+	case <-s.quit:
+		close(errChan)
+		return errChan
+	default:
+		// Spawn a goroutine the proxy the errs back to the returned err
+		// chan.  This is done to ensure the err chan returned to the
+		// caller closed properly, alerting the receiver of completion
+		// or shutdown.
+		s.wg.Add(1)
+		go s.proxyFwdErrs(&numSent, &wg, fwdChan, errChan)
+	}
 
 	// Make a first pass over the packets, forwarding any settles or fails.
 	// As adds are found, we create a circuit and append it to our set of
@@ -1420,6 +1431,7 @@ func (s *Switch) Start() error {
 	go s.htlcForwarder()
 
 	if err := s.reforwardResponses(); err != nil {
+		s.Stop()
 		log.Errorf("unable to reforward responses: %v", err)
 		return err
 	}
@@ -1576,11 +1588,14 @@ func (s *Switch) Stop() error {
 
 	close(s.quit)
 
+	s.wg.Wait()
+
+	// Wait until all active goroutines have finished exiting before
+	// stopping the mailboxes, otherwise the mailbox map could still be
+	// accessed and modified.
 	for _, mailBox := range s.mailboxes {
 		mailBox.Stop()
 	}
-
-	s.wg.Wait()
 
 	return nil
 }

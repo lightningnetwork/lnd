@@ -147,9 +147,9 @@ type ChannelLinkConfig struct {
 	DecodeHopIterators func([]byte, []DecodeHopIteratorRequest) (
 		[]DecodeHopIteratorResponse, error)
 
-	// DecodeOnionObfuscator function is responsible for decoding HTLC
+	// ExtractErrorEncrypter function is responsible for decoding HTLC
 	// Sphinx onion blob, and creating onion failure obfuscator.
-	DecodeOnionObfuscator ErrorEncrypterExtracter
+	ExtractErrorEncrypter ErrorEncrypterExtracter
 
 	// GetLastChannelUpdate retrieves the latest routing policy for this
 	// particular channel. This will be used to provide payment senders our
@@ -1843,7 +1843,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 		// Retrieve onion obfuscator from onion blob in order to
 		// produce initial obfuscation of the onion failureCode.
 		obfuscator, failureCode := chanIterator.ExtractErrorEncrypter(
-			l.cfg.DecodeOnionObfuscator,
+			l.cfg.ExtractErrorEncrypter,
 		)
 		if failureCode != lnwire.CodeNone {
 			// If we're unable to process the onion blob than we

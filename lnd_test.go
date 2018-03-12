@@ -7863,20 +7863,6 @@ var testsCases = []*testCase{
 		test: testMultiHopHtlcRemoteChainClaim,
 	},
 	{
-		// TODO(roasbeef): test always needs to be last as Bob's state
-		// is borked since we trick him into attempting to cheat Alice?
-		name: "revoked uncooperative close retribution",
-		test: testRevokedCloseRetribution,
-	},
-	{
-		name: "revoked uncooperative close retribution zero value remote output",
-		test: testRevokedCloseRetributionZeroValueRemoteOutput,
-	},
-	{
-		name: "revoked uncooperative close retribution remote hodl",
-		test: testRevokedCloseRetributionRemoteHodl,
-	},
-	{
 		name: "switch circuit persistence",
 		test: testSwitchCircuitPersistence,
 	},
@@ -7891,6 +7877,20 @@ var testsCases = []*testCase{
 	{
 		name: "switch offline delivery outgoing offline",
 		test: testSwitchOfflineDeliveryOutgoingOffline,
+	},
+	{
+		// TODO(roasbeef): test always needs to be last as Bob's state
+		// is borked since we trick him into attempting to cheat Alice?
+		name: "revoked uncooperative close retribution",
+		test: testRevokedCloseRetribution,
+	},
+	{
+		name: "revoked uncooperative close retribution zero value remote output",
+		test: testRevokedCloseRetributionZeroValueRemoteOutput,
+	},
+	{
+		name: "revoked uncooperative close retribution remote hodl",
+		test: testRevokedCloseRetributionRemoteHodl,
 	},
 }
 

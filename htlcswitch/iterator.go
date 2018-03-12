@@ -6,6 +6,7 @@ import (
 
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/roasbeef/btcd/btcec"
 )
 
 // NetworkHop indicates the blockchain network that is intended to be the next
@@ -167,7 +168,7 @@ func (r *sphinxHopIterator) ForwardingInstructions() ForwardingInfo {
 func (r *sphinxHopIterator) ExtractErrorEncrypter(
 	extracter ErrorEncrypterExtracter) (ErrorEncrypter, lnwire.FailCode) {
 
-	return extracter(r.ogPacket)
+	return extracter(r.ogPacket.EphemeralKey)
 }
 
 // OnionProcessor is responsible for keeping all sphinx dependent parts inside
@@ -401,11 +402,12 @@ func (p *OnionProcessor) DecodeHopIterators(id []byte,
 // ErrorEncrypter instance using the derived shared secret. In the case that en
 // error occurs, a lnwire failure code detailing the parsing failure will be
 // returned.
-func (p *OnionProcessor) ExtractErrorEncrypter(onionPkt *sphinx.OnionPacket) (
+func (p *OnionProcessor) ExtractErrorEncrypter(ephemeralKey *btcec.PublicKey) (
 	ErrorEncrypter, lnwire.FailCode) {
 
-	onionObfuscator, err := sphinx.NewOnionErrorEncrypter(p.router,
-		onionPkt.EphemeralKey)
+	onionObfuscator, err := sphinx.NewOnionErrorEncrypter(
+		p.router, ephemeralKey,
+	)
 	if err != nil {
 		switch err {
 		case sphinx.ErrInvalidOnionVersion:
@@ -422,6 +424,6 @@ func (p *OnionProcessor) ExtractErrorEncrypter(onionPkt *sphinx.OnionPacket) (
 
 	return &SphinxErrorEncrypter{
 		OnionErrorEncrypter: onionObfuscator,
-		ogPacket:            onionPkt,
+		EphemeralKey:        ephemeralKey,
 	}, lnwire.CodeNone
 }

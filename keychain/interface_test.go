@@ -9,6 +9,7 @@ import (
 
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/roasbeef/btcwallet/waddrmgr"
 	"github.com/roasbeef/btcwallet/wallet"
 	"github.com/roasbeef/btcwallet/walletdb"
 
@@ -36,7 +37,7 @@ var (
 	}
 )
 
-func createTestBtcWallet() (func(), *wallet.Wallet, error) {
+func createTestBtcWallet(coinType uint32) (func(), *wallet.Wallet, error) {
 	tempDir, err := ioutil.TempDir("", "keyring-lnwallet")
 	if err != nil {
 		return nil, nil, err
@@ -54,16 +55,23 @@ func createTestBtcWallet() (func(), *wallet.Wallet, error) {
 		return nil, nil, err
 	}
 
-	// We'll now ensure that the KeyScope: (201, 1) exists within the
-	// internal waddrmgr. We'll need this in order to properly generate the
-	// keys required for signing various contracts.
-	_, err = baseWallet.Manager.FetchScopedKeyManager(lightningKeyScope)
+	// Construct the key scope required to derive keys for the chose
+	// coinType.
+	chainKeyScope := waddrmgr.KeyScope{
+		Purpose: BIP0043Purpose,
+		Coin:    coinType,
+	}
+
+	// We'll now ensure that the KeyScope: (1017, coinType) exists within
+	// the internal waddrmgr. We'll need this in order to properly generate
+	// the keys required for signing various contracts.
+	_, err = baseWallet.Manager.FetchScopedKeyManager(chainKeyScope)
 	if err != nil {
 		err := walletdb.Update(baseWallet.Database(), func(tx walletdb.ReadWriteTx) error {
 			addrmgrNs := tx.ReadWriteBucket(waddrmgrNamespaceKey)
 
 			_, err := baseWallet.Manager.NewScopedKeyManager(
-				addrmgrNs, lightningKeyScope, lightningAddrSchema,
+				addrmgrNs, chainKeyScope, lightningAddrSchema,
 			)
 			return err
 		})
@@ -93,14 +101,40 @@ func TestKeyRingDerivation(t *testing.T) {
 
 	keyRingImplementations := []keyRingConstructor{
 		func() (string, func(), KeyRing, error) {
-			cleanUp, wallet, err := createTestBtcWallet()
+			cleanUp, wallet, err := createTestBtcWallet(
+				CoinTypeBitcoin,
+			)
 			if err != nil {
 				t.Fatalf("unable to create wallet: %v", err)
 			}
 
-			keyRing := NewBtcWalletKeyRing(wallet)
+			keyRing := NewBtcWalletKeyRing(wallet, CoinTypeBitcoin)
 
 			return "btcwallet", cleanUp, keyRing, nil
+		},
+		func() (string, func(), KeyRing, error) {
+			cleanUp, wallet, err := createTestBtcWallet(
+				CoinTypeLitecoin,
+			)
+			if err != nil {
+				t.Fatalf("unable to create wallet: %v", err)
+			}
+
+			keyRing := NewBtcWalletKeyRing(wallet, CoinTypeLitecoin)
+
+			return "ltcwallet", cleanUp, keyRing, nil
+		},
+		func() (string, func(), KeyRing, error) {
+			cleanUp, wallet, err := createTestBtcWallet(
+				CoinTypeTestnet,
+			)
+			if err != nil {
+				t.Fatalf("unable to create wallet: %v", err)
+			}
+
+			keyRing := NewBtcWalletKeyRing(wallet, CoinTypeTestnet)
+
+			return "testwallet", cleanUp, keyRing, nil
 		},
 	}
 
@@ -182,14 +216,40 @@ func TestSecretKeyRingDerivation(t *testing.T) {
 
 	secretKeyRingImplementations := []secretKeyRingConstructor{
 		func() (string, func(), SecretKeyRing, error) {
-			cleanUp, wallet, err := createTestBtcWallet()
+			cleanUp, wallet, err := createTestBtcWallet(
+				CoinTypeBitcoin,
+			)
 			if err != nil {
 				t.Fatalf("unable to create wallet: %v", err)
 			}
 
-			keyRing := NewBtcWalletKeyRing(wallet)
+			keyRing := NewBtcWalletKeyRing(wallet, CoinTypeBitcoin)
 
 			return "btcwallet", cleanUp, keyRing, nil
+		},
+		func() (string, func(), SecretKeyRing, error) {
+			cleanUp, wallet, err := createTestBtcWallet(
+				CoinTypeLitecoin,
+			)
+			if err != nil {
+				t.Fatalf("unable to create wallet: %v", err)
+			}
+
+			keyRing := NewBtcWalletKeyRing(wallet, CoinTypeLitecoin)
+
+			return "ltcwallet", cleanUp, keyRing, nil
+		},
+		func() (string, func(), SecretKeyRing, error) {
+			cleanUp, wallet, err := createTestBtcWallet(
+				CoinTypeTestnet,
+			)
+			if err != nil {
+				t.Fatalf("unable to create wallet: %v", err)
+			}
+
+			keyRing := NewBtcWalletKeyRing(wallet, CoinTypeTestnet)
+
+			return "testwallet", cleanUp, keyRing, nil
 		},
 	}
 

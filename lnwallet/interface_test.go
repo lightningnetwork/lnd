@@ -1841,7 +1841,7 @@ func waitForMempoolTx(r *rpctest.Harness, txid *chainhash.Hash) error {
 	var found bool
 	var tx *btcutil.Tx
 	var err error
-	timeout := time.After(10 * time.Second)
+	timeout := time.After(30 * time.Second)
 	for !found {
 		// Do a short wait
 		select {

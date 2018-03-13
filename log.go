@@ -72,6 +72,7 @@ var (
 	btcnLog = backendLog.Logger("BTCN")
 	atplLog = backendLog.Logger("ATPL")
 	cnctLog = backendLog.Logger("CNCT")
+	sphxLog = backendLog.Logger("SPHX")
 )
 
 // Initialize package-global logger variables.
@@ -86,6 +87,7 @@ func init() {
 	neutrino.UseLogger(btcnLog)
 	autopilot.UseLogger(atplLog)
 	contractcourt.UseLogger(cnctLog)
+	sphinx.UseLogger(sphxLog)
 }
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.
@@ -107,6 +109,7 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"BTCN": btcnLog,
 	"ATPL": atplLog,
 	"CNCT": cnctLog,
+	"SPHX": sphxLog,
 }
 
 // initLogRotator initializes the logging rotator to write logs to logFile and

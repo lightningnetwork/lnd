@@ -228,7 +228,7 @@ func (b *BitcoindFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*Fil
 }
 
 // chainFilterer is the primary goroutine which: listens for new blocks coming
-// and dispatches the relevent FilteredBlock notifications, updates the filter
+// and dispatches the relevant FilteredBlock notifications, updates the filter
 // due to requests by callers, and finally is able to preform targeted block
 // filtration.
 //
@@ -236,7 +236,7 @@ func (b *BitcoindFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*Fil
 func (b *BitcoindFilteredChainView) chainFilterer() {
 	defer b.wg.Done()
 
-	// filterBlock is a helper funciton that scans the given block, and
+	// filterBlock is a helper function that scans the given block, and
 	// notes which transactions spend outputs which are currently being
 	// watched. Additionally, the chain filter will also be updated by
 	// removing any spent outputs.

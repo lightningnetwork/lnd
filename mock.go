@@ -1,9 +1,12 @@
 package main
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"sync"
 
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
@@ -26,7 +29,7 @@ func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx,
 	witnessScript := signDesc.WitnessScript
 	privKey := m.key
 
-	if !privKey.PubKey().IsEqual(signDesc.PubKey) {
+	if !privKey.PubKey().IsEqual(signDesc.KeyDesc.PubKey) {
 		return nil, fmt.Errorf("incorrect key passed")
 	}
 
@@ -88,9 +91,11 @@ func (m *mockNotfier) RegisterConfirmationsNtfn(txid *chainhash.Hash, numConfs,
 		Confirmed: m.confChannel,
 	}, nil
 }
-func (m *mockNotfier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent,
-	error) {
-	return nil, nil
+func (m *mockNotfier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent, error) {
+	return &chainntnfs.BlockEpochEvent{
+		Epochs: make(chan *chainntnfs.BlockEpoch),
+		Cancel: func() {},
+	}, nil
 }
 
 func (m *mockNotfier) Start() error {
@@ -198,8 +203,7 @@ func (*mockWalletController) FetchInputInfo(
 	}
 	return txOut, nil
 }
-func (*mockWalletController) ConfirmedBalance(confs int32,
-	witness bool) (btcutil.Amount, error) {
+func (*mockWalletController) ConfirmedBalance(confs int32) (btcutil.Amount, error) {
 	return 0, nil
 }
 
@@ -214,18 +218,8 @@ func (*mockWalletController) GetPrivKey(a btcutil.Address) (*btcec.PrivateKey, e
 	return nil, nil
 }
 
-// NewRawKey will be called to get keys to be used for the funding tx and the
-// commitment tx.
-func (m *mockWalletController) NewRawKey() (*btcec.PublicKey, error) {
-	return m.rootKey.PubKey(), nil
-}
-
-// FetchRootKey will be called to provide the wallet with a root key.
-func (m *mockWalletController) FetchRootKey() (*btcec.PrivateKey, error) {
-	return m.rootKey, nil
-}
 func (*mockWalletController) SendOutputs(outputs []*wire.TxOut,
-	_ btcutil.Amount) (*chainhash.Hash, error) {
+	_ lnwallet.SatPerVByte) (*chainhash.Hash, error) {
 
 	return nil, nil
 }
@@ -258,12 +252,62 @@ func (m *mockWalletController) PublishTransaction(tx *wire.MsgTx) error {
 func (*mockWalletController) SubscribeTransactions() (lnwallet.TransactionSubscription, error) {
 	return nil, nil
 }
-func (*mockWalletController) IsSynced() (bool, error) {
-	return true, nil
+func (*mockWalletController) IsSynced() (bool, int64, error) {
+	return true, int64(0), nil
 }
 func (*mockWalletController) Start() error {
 	return nil
 }
 func (*mockWalletController) Stop() error {
+	return nil
+}
+
+type mockSecretKeyRing struct {
+	rootKey *btcec.PrivateKey
+}
+
+func (m *mockSecretKeyRing) DeriveNextKey(keyFam keychain.KeyFamily) (keychain.KeyDescriptor, error) {
+	return keychain.KeyDescriptor{
+		PubKey: m.rootKey.PubKey(),
+	}, nil
+}
+
+func (m *mockSecretKeyRing) DeriveKey(keyLoc keychain.KeyLocator) (keychain.KeyDescriptor, error) {
+	return keychain.KeyDescriptor{
+		PubKey: m.rootKey.PubKey(),
+	}, nil
+}
+
+func (m *mockSecretKeyRing) DerivePrivKey(keyDesc keychain.KeyDescriptor) (*btcec.PrivateKey, error) {
+	return m.rootKey, nil
+}
+
+func (m *mockSecretKeyRing) ScalarMult(keyDesc keychain.KeyDescriptor,
+	pubKey *btcec.PublicKey) ([]byte, error) {
+	return nil, nil
+}
+
+type mockPreimageCache struct {
+	sync.Mutex
+	preimageMap map[[32]byte][]byte
+}
+
+func (m *mockPreimageCache) LookupPreimage(hash []byte) ([]byte, bool) {
+	m.Lock()
+	defer m.Unlock()
+
+	var h [32]byte
+	copy(h[:], hash)
+
+	p, ok := m.preimageMap[h]
+	return p, ok
+}
+
+func (m *mockPreimageCache) AddPreimage(preimage []byte) error {
+	m.Lock()
+	defer m.Unlock()
+
+	m.preimageMap[sha256.Sum256(preimage[:])] = preimage
+
 	return nil
 }

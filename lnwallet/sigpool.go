@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
 )
@@ -90,7 +91,7 @@ type signJobResp struct {
 	// sig is the generated signature for a particular signJob In the case
 	// of an error during signature generation, then this value sent will
 	// be nil.
-	sig *btcec.Signature
+	sig lnwire.Sig
 
 	// err is the error that occurred when executing the specified
 	// signature job. In the case that no error occurred, this value will
@@ -165,7 +166,7 @@ func (s *sigPool) Stop() error {
 	return nil
 }
 
-// poolWorker is the main worker goroutine wtihin the sigPool. Individual
+// poolWorker is the main worker goroutine within the sigPool. Individual
 // batches are distributed amongst each of the active workers. The workers then
 // execute the task based on the type of job, and return the result back to
 // caller.
@@ -185,7 +186,7 @@ func (s *sigPool) poolWorker() {
 			if err != nil {
 				select {
 				case sigMsg.resp <- signJobResp{
-					sig: nil,
+					sig: lnwire.Sig{},
 					err: err,
 				}:
 					continue
@@ -196,7 +197,7 @@ func (s *sigPool) poolWorker() {
 				}
 			}
 
-			sig, err := btcec.ParseSignature(rawSig, btcec.S256())
+			sig, err := lnwire.NewSigFromRawSignature(rawSig)
 			select {
 			case sigMsg.resp <- signJobResp{
 				sig: sig,
@@ -259,6 +260,8 @@ func (s *sigPool) SubmitSignBatch(signJobs []signJob) {
 		case s.signJobs <- job:
 		case <-job.cancel:
 			// TODO(roasbeef): return error?
+		case <-s.quit:
+			return
 		}
 	}
 }

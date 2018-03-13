@@ -37,6 +37,10 @@ const (
 	// with zeroes.
 	pubKeyBase32Len = 53
 
+	// routingInfoLen is the number of bytes needed to encode the extra
+	// routing info of a single private route.
+	routingInfoLen = 51
+
 	// The following byte values correspond to the supported field types.
 	// The field name is the character representing that 5-bit value in the
 	// bech32 string.
@@ -261,9 +265,9 @@ func NewInvoice(net *chaincfg.Params, paymentHash [32]byte,
 	return invoice, nil
 }
 
-// Decode parses the provided encoded invoice, and returns a decoded Invoice in
-// case it is valid by BOLT-0011.
-func Decode(invoice string) (*Invoice, error) {
+// Decode parses the provided encoded invoice and returns a decoded Invoice if
+// it is valid by BOLT-0011 and matches the provided active network.
+func Decode(invoice string, net *chaincfg.Params) (*Invoice, error) {
 	decodedInvoice := Invoice{}
 
 	// Decode the invoice using the modified bech32 decoder.
@@ -272,9 +276,9 @@ func Decode(invoice string) (*Invoice, error) {
 		return nil, err
 	}
 
-	// We expect the human-readable part to at least have ln + two chars
+	// We expect the human-readable part to at least have ln + one char
 	// encoding the network.
-	if len(hrp) < 4 {
+	if len(hrp) < 3 {
 		return nil, fmt.Errorf("hrp too short")
 	}
 
@@ -284,24 +288,17 @@ func Decode(invoice string) (*Invoice, error) {
 	}
 
 	// The next characters should be a valid prefix for a segwit BIP173
-	// address. This will also determine which network this invoice is
-	// meant for.
-	var net *chaincfg.Params
-	if strings.HasPrefix(hrp[2:], chaincfg.MainNetParams.Bech32HRPSegwit) {
-		net = &chaincfg.MainNetParams
-	} else if strings.HasPrefix(hrp[2:], chaincfg.TestNet3Params.Bech32HRPSegwit) {
-		net = &chaincfg.TestNet3Params
-	} else if strings.HasPrefix(hrp[2:], chaincfg.SimNetParams.Bech32HRPSegwit) {
-		net = &chaincfg.SimNetParams
-	} else {
+	// address that match the active network.
+	if !strings.HasPrefix(hrp[2:], net.Bech32HRPSegwit) {
 		return nil, fmt.Errorf("unknown network")
 	}
 	decodedInvoice.Net = net
 
-	// Optionally, if there's anything left of the HRP, it encodes the
-	// payment amount.
-	if len(hrp) > 4 {
-		amount, err := decodeAmount(hrp[4:])
+	// Optionally, if there's anything left of the HRP after ln + the segwit
+	// prefix, we try to decode this as the payment amount.
+	var netPrefixLength = len(net.Bech32HRPSegwit) + 2
+	if len(hrp) > netPrefixLength {
+		amount, err := decodeAmount(hrp[netPrefixLength:])
 		if err != nil {
 			return nil, err
 		}
@@ -323,8 +320,8 @@ func Decode(invoice string) (*Invoice, error) {
 	if err != nil {
 		return nil, err
 	}
-	var sigBytes [64]byte
-	copy(sigBytes[:], sigBase256[:64])
+	var sig lnwire.Sig
+	copy(sig[:], sigBase256[:64])
 	recoveryID := sigBase256[64]
 
 	// The signature is over the hrp + the data the invoice, encoded in
@@ -343,8 +340,7 @@ func Decode(invoice string) (*Invoice, error) {
 	// If the destination pubkey was provided as a tagged field, use that
 	// to verify the signature, if not do public key recovery.
 	if decodedInvoice.Destination != nil {
-		var signature *btcec.Signature
-		err := lnwire.DeserializeSigFromWire(&signature, sigBytes)
+		signature, err := sig.ToSignature()
 		if err != nil {
 			return nil, fmt.Errorf("unable to deserialize "+
 				"signature: %v", err)
@@ -354,7 +350,7 @@ func Decode(invoice string) (*Invoice, error) {
 		}
 	} else {
 		headerByte := recoveryID + 27 + 4
-		compactSign := append([]byte{headerByte}, sigBytes[:]...)
+		compactSign := append([]byte{headerByte}, sig[:]...)
 		pubkey, _, err := btcec.RecoverCompact(btcec.S256(),
 			compactSign, hash)
 		if err != nil {
@@ -445,18 +441,18 @@ func (invoice *Invoice) Encode(signer MessageSigner) (string, error) {
 	// From the header byte we can extract the recovery ID, and the last 64
 	// bytes encode the signature.
 	recoveryID := sign[0] - 27 - 4
-	var sigBytes [64]byte
-	copy(sigBytes[:], sign[1:])
+	var sig lnwire.Sig
+	copy(sig[:], sign[1:])
 
 	// If the pubkey field was explicitly set, it must be set to the pubkey
 	// used to create the signature.
 	if invoice.Destination != nil {
-		var signature *btcec.Signature
-		err = lnwire.DeserializeSigFromWire(&signature, sigBytes)
+		signature, err := sig.ToSignature()
 		if err != nil {
 			return "", fmt.Errorf("unable to deserialize "+
 				"signature: %v", err)
 		}
+
 		valid := signature.Verify(hash, invoice.Destination)
 		if !valid {
 			return "", fmt.Errorf("signature does not match " +
@@ -465,7 +461,7 @@ func (invoice *Invoice) Encode(signer MessageSigner) (string, error) {
 	}
 
 	// Convert the signature to base32 before writing it to the buffer.
-	signBase32, err := bech32.ConvertBits(append(sigBytes[:], recoveryID), 8, 5, true)
+	signBase32, err := bech32.ConvertBits(append(sig[:], recoveryID), 8, 5, true)
 	if err != nil {
 		return "", err
 	}
@@ -508,6 +504,11 @@ func validateInvoice(invoice *Invoice) error {
 	// The net must be set.
 	if invoice.Net == nil {
 		return fmt.Errorf("net params not set")
+	}
+
+	// Ensure that if there is an amount set, it is not negative.
+	if invoice.MilliSat != nil && *invoice.MilliSat < 0 {
+		return fmt.Errorf("negative amount: %v", *invoice.MilliSat)
 	}
 
 	// The invoice must contain a payment hash.
@@ -557,8 +558,7 @@ func parseData(invoice *Invoice, data []byte, net *chaincfg.Params) error {
 		return fmt.Errorf("data too short: %d", len(data))
 	}
 
-	// Timestamp: 35 bits, 7 groups.
-	t, err := base32ToUint64(data[:7])
+	t, err := parseTimestamp(data[:timestampBase32Len])
 	if err != nil {
 		return err
 	}
@@ -566,16 +566,12 @@ func parseData(invoice *Invoice, data []byte, net *chaincfg.Params) error {
 
 	// The rest are tagged parts.
 	tagData := data[7:]
-	if err := parseTaggedFields(invoice, tagData, net); err != nil {
-		return err
-	}
-
-	return nil
+	return parseTaggedFields(invoice, tagData, net)
 }
 
 // parseTimestamp converts a 35-bit timestamp (encoded in base32) to uint64.
 func parseTimestamp(data []byte) (uint64, error) {
-	if len(data) != 7 {
+	if len(data) != timestampBase32Len {
 		return 0, fmt.Errorf("timestamp must be 35 bits, was %d",
 			len(data)*5)
 	}
@@ -588,7 +584,7 @@ func parseTimestamp(data []byte) (uint64, error) {
 func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) error {
 	index := 0
 	for {
-		// If less than 3 groups less, it cannot possibly contain more
+		// If there are less than 3 groups to read, there cannot be more
 		// interesting information, as we need the type (1 group) and
 		// length (2 groups).
 		if len(fields)-index < 3 {
@@ -596,7 +592,10 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 		}
 
 		typ := fields[index]
-		dataLength := uint16(fields[index+1]<<5) | uint16(fields[index+2])
+		dataLength, err := parseFieldDataLength(fields[index+1 : index+3])
+		if err != nil {
+			return err
+		}
 
 		// If we don't have enough field data left to read this length,
 		// return error.
@@ -616,17 +615,7 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 				continue
 			}
 
-			if dataLength != hashBase32Len {
-				// Skipping unknown field length.
-				continue
-			}
-			hash, err := bech32.ConvertBits(base32Data, 5, 8, false)
-			if err != nil {
-				return err
-			}
-			var pHash [32]byte
-			copy(pHash[:], hash[:])
-			invoice.PaymentHash = &pHash
+			invoice.PaymentHash, err = parsePaymentHash(base32Data)
 		case fieldTypeD:
 			if invoice.Description != nil {
 				// We skip the field if we have already seen a
@@ -634,13 +623,7 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 				continue
 			}
 
-			base256Data, err := bech32.ConvertBits(base32Data, 5, 8,
-				false)
-			if err != nil {
-				return err
-			}
-			desc := string(base256Data)
-			invoice.Description = &desc
+			invoice.Description, err = parseDescription(base32Data)
 		case fieldTypeN:
 			if invoice.Destination != nil {
 				// We skip the field if we have already seen a
@@ -648,21 +631,7 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 				continue
 			}
 
-			if len(base32Data) != pubKeyBase32Len {
-				// Skip unknown length.
-				continue
-			}
-
-			base256Data, err := bech32.ConvertBits(base32Data, 5, 8,
-				false)
-			if err != nil {
-				return err
-			}
-			invoice.Destination, err = btcec.ParsePubKey(base256Data,
-				btcec.S256())
-			if err != nil {
-				return err
-			}
+			invoice.Destination, err = parseDestination(base32Data)
 		case fieldTypeH:
 			if invoice.DescriptionHash != nil {
 				// We skip the field if we have already seen a
@@ -670,17 +639,7 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 				continue
 			}
 
-			if len(base32Data) != hashBase32Len {
-				// Skip unknown length.
-				continue
-			}
-			hash, err := bech32.ConvertBits(base32Data, 5, 8, false)
-			if err != nil {
-				return err
-			}
-			var dHash [32]byte
-			copy(dHash[:], hash[:])
-			invoice.DescriptionHash = &dHash
+			invoice.DescriptionHash, err = parseDescriptionHash(base32Data)
 		case fieldTypeX:
 			if invoice.expiry != nil {
 				// We skip the field if we have already seen a
@@ -688,12 +647,7 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 				continue
 			}
 
-			exp, err := base32ToUint64(base32Data)
-			if err != nil {
-				return err
-			}
-			dur := time.Duration(exp) * time.Second
-			invoice.expiry = &dur
+			invoice.expiry, err = parseExpiry(base32Data)
 		case fieldTypeC:
 			if invoice.minFinalCLTVExpiry != nil {
 				// We skip the field if we have already seen a
@@ -701,11 +655,7 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 				continue
 			}
 
-			expiry, err := base32ToUint64(base32Data)
-			if err != nil {
-				return err
-			}
-			invoice.minFinalCLTVExpiry = &expiry
+			invoice.minFinalCLTVExpiry, err = parseMinFinalCLTVExpiry(base32Data)
 		case fieldTypeF:
 			if invoice.FallbackAddr != nil {
 				// We skip the field if we have already seen a
@@ -713,56 +663,7 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 				continue
 			}
 
-			var addr btcutil.Address
-			version := base32Data[0]
-			switch version {
-			case 0:
-				witness, err := bech32.ConvertBits(
-					base32Data[1:], 5, 8, false)
-				if err != nil {
-					return err
-				}
-				switch len(witness) {
-				case 20:
-					addr, err = btcutil.NewAddressWitnessPubKeyHash(
-						witness, net)
-				case 32:
-					addr, err = btcutil.NewAddressWitnessScriptHash(
-						witness, net)
-				default:
-					return fmt.Errorf("unknown witness "+
-						"program length: %d", len(witness))
-				}
-				if err != nil {
-					return err
-				}
-			case 17:
-				pkHash, err := bech32.ConvertBits(base32Data[1:],
-					5, 8, false)
-				if err != nil {
-					return err
-				}
-				addr, err = btcutil.NewAddressPubKeyHash(pkHash,
-					net)
-				if err != nil {
-					return err
-				}
-			case 18:
-				scriptHash, err := bech32.ConvertBits(
-					base32Data[1:], 5, 8, false)
-				if err != nil {
-					return err
-				}
-				addr, err = btcutil.NewAddressScriptHashFromHash(
-					scriptHash, net)
-				if err != nil {
-					return err
-				}
-			default:
-				// Skipping unknown witness version.
-				continue
-			}
-			invoice.FallbackAddr = addr
+			invoice.FallbackAddr, err = parseFallbackAddr(base32Data, net)
 		case fieldTypeR:
 			if invoice.RoutingInfo != nil {
 				// We skip the field if we have already seen a
@@ -770,37 +671,213 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 				continue
 			}
 
-			base256Data, err := bech32.ConvertBits(base32Data, 5, 8,
-				false)
-			if err != nil {
-				return err
-			}
-
-			for len(base256Data) > 0 {
-				info := ExtraRoutingInfo{}
-				info.PubKey, err = btcec.ParsePubKey(
-					base256Data[:33], btcec.S256())
-				if err != nil {
-					return err
-				}
-				info.ShortChanID = binary.BigEndian.Uint64(
-					base256Data[33:41])
-				info.FeeBaseMsat = binary.BigEndian.Uint32(
-					base256Data[41:45])
-				info.FeeProportionalMillionths = binary.BigEndian.Uint32(
-					base256Data[45:49])
-				info.CltvExpDelta = binary.BigEndian.Uint16(
-					base256Data[49:51])
-				invoice.RoutingInfo = append(
-					invoice.RoutingInfo, info)
-				base256Data = base256Data[51:]
-			}
+			invoice.RoutingInfo, err = parseRoutingInfo(base32Data)
 		default:
 			// Ignore unknown type.
+		}
+
+		// Check if there was an error from parsing any of the tagged
+		// fields and return it.
+		if err != nil {
+			return err
 		}
 	}
 
 	return nil
+}
+
+// parseFieldDataLength converts the two byte slice into a uint16.
+func parseFieldDataLength(data []byte) (uint16, error) {
+	if len(data) != 2 {
+		return 0, fmt.Errorf("data length must be 2 bytes, was %d",
+			len(data))
+	}
+
+	return uint16(data[0])<<5 | uint16(data[1]), nil
+}
+
+// parsePaymentHash converts a 256-bit payment hash (encoded in base32)
+// to *[32]byte.
+func parsePaymentHash(data []byte) (*[32]byte, error) {
+	var paymentHash [32]byte
+
+	// As BOLT-11 states, a reader must skip over the payment hash field if
+	// it does not have a length of 52, so avoid returning an error.
+	if len(data) != hashBase32Len {
+		return nil, nil
+	}
+
+	hash, err := bech32.ConvertBits(data, 5, 8, false)
+	if err != nil {
+		return nil, err
+	}
+
+	copy(paymentHash[:], hash[:])
+
+	return &paymentHash, nil
+}
+
+// parseDescription converts the data (encoded in base32) into a string to use
+// as the description.
+func parseDescription(data []byte) (*string, error) {
+	base256Data, err := bech32.ConvertBits(data, 5, 8, false)
+	if err != nil {
+		return nil, err
+	}
+
+	description := string(base256Data)
+
+	return &description, nil
+}
+
+// parseDestination converts the data (encoded in base32) into a 33-byte public
+// key of the payee node.
+func parseDestination(data []byte) (*btcec.PublicKey, error) {
+	// As BOLT-11 states, a reader must skip over the destination field
+	// if it does not have a length of 53, so avoid returning an error.
+	if len(data) != pubKeyBase32Len {
+		return nil, nil
+	}
+
+	base256Data, err := bech32.ConvertBits(data, 5, 8, false)
+	if err != nil {
+		return nil, err
+	}
+
+	return btcec.ParsePubKey(base256Data, btcec.S256())
+}
+
+// parseDescriptionHash converts a 256-bit description hash (encoded in base32)
+// to *[32]byte.
+func parseDescriptionHash(data []byte) (*[32]byte, error) {
+	var descriptionHash [32]byte
+
+	// As BOLT-11 states, a reader must skip over the description hash field
+	// if it does not have a length of 52, so avoid returning an error.
+	if len(data) != hashBase32Len {
+		return nil, nil
+	}
+
+	hash, err := bech32.ConvertBits(data, 5, 8, false)
+	if err != nil {
+		return nil, err
+	}
+
+	copy(descriptionHash[:], hash[:])
+
+	return &descriptionHash, nil
+}
+
+// parseExpiry converts the data (encoded in base32) into the expiry time.
+func parseExpiry(data []byte) (*time.Duration, error) {
+	expiry, err := base32ToUint64(data)
+	if err != nil {
+		return nil, err
+	}
+
+	duration := time.Duration(expiry) * time.Second
+
+	return &duration, nil
+}
+
+// parseMinFinalCLTVExpiry converts the data (encoded in base32) into a uint64
+// to use as the minFinalCLTVExpiry.
+func parseMinFinalCLTVExpiry(data []byte) (*uint64, error) {
+	expiry, err := base32ToUint64(data)
+	if err != nil {
+		return nil, err
+	}
+
+	return &expiry, nil
+}
+
+// parseFallbackAddr converts the data (encoded in base32) into a fallback
+// on-chain address.
+func parseFallbackAddr(data []byte, net *chaincfg.Params) (btcutil.Address, error) {
+	// Checks if the data is empty or contains a version without an address.
+	if len(data) < 2 {
+		return nil, fmt.Errorf("empty fallback address field")
+	}
+
+	var addr btcutil.Address
+
+	version := data[0]
+	switch version {
+	case 0:
+		witness, err := bech32.ConvertBits(data[1:], 5, 8, false)
+		if err != nil {
+			return nil, err
+		}
+
+		switch len(witness) {
+		case 20:
+			addr, err = btcutil.NewAddressWitnessPubKeyHash(witness, net)
+		case 32:
+			addr, err = btcutil.NewAddressWitnessScriptHash(witness, net)
+		default:
+			return nil, fmt.Errorf("unknown witness program length %d",
+				len(witness))
+		}
+
+		if err != nil {
+			return nil, err
+		}
+	case 17:
+		pubKeyHash, err := bech32.ConvertBits(data[1:], 5, 8, false)
+		if err != nil {
+			return nil, err
+		}
+
+		addr, err = btcutil.NewAddressPubKeyHash(pubKeyHash, net)
+		if err != nil {
+			return nil, err
+		}
+	case 18:
+		scriptHash, err := bech32.ConvertBits(data[1:], 5, 8, false)
+		if err != nil {
+			return nil, err
+		}
+
+		addr, err = btcutil.NewAddressScriptHashFromHash(scriptHash, net)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		// Ignore unknown version.
+	}
+
+	return addr, nil
+}
+
+// parseRoutingInfo converts the data (encoded in base32) into an array
+// containing one or more entries of extra routing info.
+func parseRoutingInfo(data []byte) ([]ExtraRoutingInfo, error) {
+	base256Data, err := bech32.ConvertBits(data, 5, 8, false)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(base256Data)%routingInfoLen != 0 {
+		return nil, fmt.Errorf("expected length multiple of %d bytes, got %d",
+			routingInfoLen, len(base256Data))
+	}
+
+	var routingInfo []ExtraRoutingInfo
+	info := ExtraRoutingInfo{}
+	for len(base256Data) > 0 {
+		info.PubKey, err = btcec.ParsePubKey(base256Data[:33], btcec.S256())
+		if err != nil {
+			return nil, err
+		}
+		info.ShortChanID = binary.BigEndian.Uint64(base256Data[33:41])
+		info.FeeBaseMsat = binary.BigEndian.Uint32(base256Data[41:45])
+		info.FeeProportionalMillionths = binary.BigEndian.Uint32(base256Data[45:49])
+		info.CltvExpDelta = binary.BigEndian.Uint16(base256Data[49:51])
+		routingInfo = append(routingInfo, info)
+		base256Data = base256Data[51:]
+	}
+
+	return routingInfo, nil
 }
 
 // writeTaggedFields writes the non-nil tagged fields of the Invoice to the

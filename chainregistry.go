@@ -19,12 +19,12 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs/neutrinonotify"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/routing/chainview"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/rpcclient"
-	"github.com/roasbeef/btcutil"
 	"github.com/roasbeef/btcwallet/chain"
 	"github.com/roasbeef/btcwallet/walletdb"
 )
@@ -149,8 +149,17 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 	switch homeChainConfig.Node {
 	case "neutrino":
 		// First we'll open the database file for neutrino, creating
-		// the database if needed.
-		dbName := filepath.Join(cfg.DataDir, "neutrino.db")
+		// the database if needed. We append the normalized network name
+		// here to match the behavior of btcwallet.
+		neutrinoDbPath := filepath.Join(homeChainConfig.ChainDir,
+			normalizeNetwork(activeNetParams.Name))
+
+		// Ensure that the neutrino db path exists.
+		if err := os.MkdirAll(neutrinoDbPath, 0700); err != nil {
+			return nil, nil, err
+		}
+
+		dbName := filepath.Join(neutrinoDbPath, "neutrino.db")
 		nodeDatabase, err := walletdb.Create("bdb", dbName)
 		if err != nil {
 			return nil, nil, err
@@ -160,11 +169,32 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 		// neutrino light client. We pass in relevant configuration
 		// parameters required.
 		config := neutrino.Config{
-			DataDir:      cfg.DataDir,
+			DataDir:      neutrinoDbPath,
 			Database:     nodeDatabase,
 			ChainParams:  *activeNetParams.Params,
 			AddPeers:     cfg.NeutrinoMode.AddPeers,
 			ConnectPeers: cfg.NeutrinoMode.ConnectPeers,
+			Dialer: func(addr net.Addr) (net.Conn, error) {
+				return cfg.net.Dial(addr.Network(), addr.String())
+			},
+			NameResolver: func(host string) ([]net.IP, error) {
+				addrs, err := cfg.net.LookupHost(host)
+				if err != nil {
+					return nil, err
+				}
+
+				ips := make([]net.IP, 0, len(addrs))
+				for _, strIP := range addrs {
+					ip := net.ParseIP(strIP)
+					if ip == nil {
+						continue
+					}
+
+					ips = append(ips, ip)
+				}
+
+				return ips, nil
+			},
 		}
 		neutrino.WaitForMoreCFHeaders = time.Second * 1
 		neutrino.MaxPeers = 8
@@ -276,7 +306,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			// if we're using bitcoind as a backend, then we can
 			// use live fee estimates, rather than a statically
 			// coded value.
-			fallBackFeeRate := btcutil.Amount(25)
+			fallBackFeeRate := lnwallet.SatPerVByte(25)
 			cc.feeEstimator, err = lnwallet.NewBitcoindFeeEstimator(
 				*rpcConfig, fallBackFeeRate,
 			)
@@ -380,7 +410,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			// if we're using btcd as a backend, then we can use
 			// live fee estimates, rather than a statically coded
 			// value.
-			fallBackFeeRate := btcutil.Amount(25)
+			fallBackFeeRate := lnwallet.SatPerVByte(25)
 			cc.feeEstimator, err = lnwallet.NewBtcdFeeEstimator(
 				*rpcConfig, fallBackFeeRate,
 			)
@@ -414,6 +444,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 		WalletController:   wc,
 		Signer:             cc.signer,
 		FeeEstimator:       cc.feeEstimator,
+		SecretKeyRing:      keychain.NewBtcWalletKeyRing(wc.InternalWallet()),
 		ChainIO:            cc.chainIO,
 		DefaultConstraints: defaultChannelConstraints,
 		NetParams:          *activeNetParams.Params,

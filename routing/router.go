@@ -9,12 +9,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/boltdb/bolt"
+	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/multimutex"
 	"github.com/lightningnetwork/lnd/routing/chainview"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
@@ -32,8 +33,8 @@ const (
 	DefaultFinalCLTVDelta = 9
 )
 
-// ChannelGraphSource represents the source of information about the topology of
-// the lightning network. It's responsible for the addition of nodes, edges,
+// ChannelGraphSource represents the source of information about the topology
+// of the lightning network. It's responsible for the addition of nodes, edges,
 // applying edge updates, and returning the current block height with which the
 // topology is synchronized.
 type ChannelGraphSource interface {
@@ -54,6 +55,22 @@ type ChannelGraphSource interface {
 	// UpdateEdge is used to update edge information, without this message
 	// edge considered as not fully constructed.
 	UpdateEdge(policy *channeldb.ChannelEdgePolicy) error
+
+	// IsStaleNode returns true if the graph source has a node announcement
+	// for the target node with a more recent timestamp. This method will
+	// also return true if we don't have an active channel announcement for
+	// the target node.
+	IsStaleNode(node Vertex, timestamp time.Time) bool
+
+	// IsKnownEdge returns true if the graph source already knows of the
+	// passed channel ID.
+	IsKnownEdge(chanID lnwire.ShortChannelID) bool
+
+	// IsStaleEdgePolicy returns true if the graph source has a channel
+	// edge for the passed channel ID (and flags) that have a more recent
+	// timestamp.
+	IsStaleEdgePolicy(chanID lnwire.ShortChannelID, timestamp time.Time,
+		flags lnwire.ChanUpdateFlag) bool
 
 	// ForAllOutgoingChannels is used to iterate over all channels
 	// emanating from the "source" node which is the center of the
@@ -78,7 +95,7 @@ type ChannelGraphSource interface {
 		e1, e2 *channeldb.ChannelEdgePolicy) error) error
 }
 
-// FeeSchema is the set fee configuration for a Lighting Node on the network.
+// FeeSchema is the set fee configuration for a Lightning Node on the network.
 // Using the coefficients described within the schema, the required fee to
 // forward outgoing payments can be derived.
 type FeeSchema struct {
@@ -95,7 +112,7 @@ type FeeSchema struct {
 }
 
 // ChannelPolicy holds the parameters that determine the policy we enforce
-// when fowarding payments on a channel. These parameters are communicated
+// when forwarding payments on a channel. These parameters are communicated
 // to the rest of the network in ChannelUpdate messages.
 type ChannelPolicy struct {
 	// FeeSchema holds the fee configuration for a channel.
@@ -129,7 +146,7 @@ type Config struct {
 	// forward a fully encoded payment to the first hop in the route
 	// denoted by its public key. A non-nil error is to be returned if the
 	// payment was unsuccessful.
-	SendToSwitch func(firstHop *btcec.PublicKey, htlcAdd *lnwire.UpdateAddHTLC,
+	SendToSwitch func(firstHop [33]byte, htlcAdd *lnwire.UpdateAddHTLC,
 		circuit *sphinx.Circuit) ([sha256.Size]byte, error)
 
 	// ChannelPruneExpiry is the duration used to determine if a channel
@@ -160,97 +177,6 @@ func newRouteTuple(amt lnwire.MilliSatoshi, dest []byte) routeTuple {
 	copy(r.dest[:], dest)
 
 	return r
-}
-
-// cntMutex is a struct that wraps a counter and a mutex, and is used
-// to keep track of the number of goroutines waiting for access to the
-// mutex, such that we can forget about it when the counter is zero.
-type cntMutex struct {
-	cnt int
-	sync.Mutex
-}
-
-// mutexForID is a struct that keeps track of a set of mutexes with
-// a given ID. It can be used for making sure only one goroutine
-// gets given the mutex per ID. Here it is currently used to making
-// sure we only process one ChannelEdgePolicy per channelID at a
-// given time.
-type mutexForID struct {
-	// mutexes is a map of IDs to a cntMutex. The cntMutex for
-	// a given ID will hold the mutex to be used by all
-	// callers requesting access for the ID, in addition to
-	// the count of callers.
-	mutexes map[uint64]*cntMutex
-
-	// mapMtx is used to give synchronize concurrent access
-	// to the mutexes map.
-	mapMtx sync.Mutex
-}
-
-func newMutexForID() *mutexForID {
-	return &mutexForID{
-		mutexes: make(map[uint64]*cntMutex),
-	}
-}
-
-// Lock locks the mutex by the given ID. If the mutex is already
-// locked by this ID, Lock blocks until the mutex is available.
-func (c *mutexForID) Lock(id uint64) {
-	c.mapMtx.Lock()
-	mtx, ok := c.mutexes[id]
-	if ok {
-		// If the mutex already existed in the map, we
-		// increment its counter, to indicate that there
-		// now is one more goroutine waiting for it.
-		mtx.cnt++
-	} else {
-		// If it was not in the map, it means no other
-		// goroutine has locked the mutex for this ID,
-		// and we can create a new mutex with count 1
-		// and add it to the map.
-		mtx = &cntMutex{
-			cnt: 1,
-		}
-		c.mutexes[id] = mtx
-	}
-	c.mapMtx.Unlock()
-
-	// Acquire the mutex for this ID.
-	mtx.Lock()
-}
-
-// Unlock unlocks the mutex by the given ID. It is a run-time
-// error if the mutex is not locked by the ID on entry to Unlock.
-func (c *mutexForID) Unlock(id uint64) {
-	// Since we are done with all the work for this
-	// update, we update the map to reflect that.
-	c.mapMtx.Lock()
-
-	mtx, ok := c.mutexes[id]
-	if !ok {
-		// The mutex not existing in the map means
-		// an unlock for an ID not currently locked
-		// was attempted.
-		panic(fmt.Sprintf("double unlock for id %v",
-			id))
-	}
-
-	// Decrement the counter. If the count goes to
-	// zero, it means this caller was the last one
-	// to wait for the mutex, and we can delete it
-	// from the map. We can do this safely since we
-	// are under the mapMtx, meaning that all other
-	// goroutines waiting for the mutex already
-	// have incremented it, or will create a new
-	// mutex when they get the mapMtx.
-	mtx.cnt--
-	if mtx.cnt == 0 {
-		delete(c.mutexes, id)
-	}
-	c.mapMtx.Unlock()
-
-	// Unlock the mutex for this ID.
-	mtx.Unlock()
 }
 
 // ChannelRouter is the layer 3 router within the Lightning stack. Below the
@@ -325,7 +251,10 @@ type ChannelRouter struct {
 	// channelEdgeMtx is a mutex we use to make sure we process only one
 	// ChannelEdgePolicy at a time for a given channelID, to ensure
 	// consistency between the various database accesses.
-	channelEdgeMtx *mutexForID
+	channelEdgeMtx *multimutex.Mutex
+
+	rejectMtx   sync.RWMutex
+	rejectCache map[uint64]struct{}
 
 	sync.RWMutex
 
@@ -355,9 +284,10 @@ func New(cfg Config) (*ChannelRouter, error) {
 		topologyClients:   make(map[uint64]*topologyClient),
 		ntfnClientUpdates: make(chan *topologyClientUpdate),
 		missionControl:    newMissionControl(cfg.Graph, selfNode),
-		channelEdgeMtx:    newMutexForID(),
+		channelEdgeMtx:    multimutex.NewMutex(),
 		selfNode:          selfNode,
 		routeCache:        make(map[routeTuple][]*Route),
+		rejectCache:       make(map[uint64]struct{}),
 		quit:              make(chan struct{}),
 	}, nil
 }
@@ -561,7 +491,7 @@ func (r *ChannelRouter) syncGraphWithChain() error {
 			return err
 		}
 
-		// We're only interested in all prior outputs that've been
+		// We're only interested in all prior outputs that have been
 		// spent in the block, so collate all the referenced previous
 		// outpoints within each tx and input.
 		var spentOutputs []*wire.OutPoint
@@ -589,8 +519,95 @@ func (r *ChannelRouter) syncGraphWithChain() error {
 		numChansClosed += numClosed
 	}
 
-	log.Infof("Graph pruning complete: %v channels we're closed since "+
+	log.Infof("Graph pruning complete: %v channels were closed since "+
 		"height %v", numChansClosed, pruneHeight)
+	return nil
+}
+
+// pruneZombieChans is a method that will be called periodically to prune out
+// any "zombie" channels. We consider channels zombies if *both* edges haven't
+// been updated since our zombie horizon. We do this periodically to keep a
+// health, lively routing table.
+func (r *ChannelRouter) pruneZombieChans() error {
+	var chansToPrune []wire.OutPoint
+	chanExpiry := r.cfg.ChannelPruneExpiry
+
+	log.Infof("Examining Channel Graph for zombie channels")
+
+	// First, we'll collect all the channels which are eligible for garbage
+	// collection due to being zombies.
+	filterPruneChans := func(info *channeldb.ChannelEdgeInfo,
+		e1, e2 *channeldb.ChannelEdgePolicy) error {
+
+		// We'll ensure that we don't attempt to prune our *own*
+		// channels from the graph, as in any case this should be
+		// re-advertised by the sub-system above us.
+		if info.NodeKey1Bytes == r.selfNode.PubKeyBytes ||
+			info.NodeKey2Bytes == r.selfNode.PubKeyBytes {
+
+			return nil
+		}
+
+		// If *both* edges haven't been updated for a period of
+		// chanExpiry, then we'll mark the channel itself as eligible
+		// for graph pruning.
+		e1Zombie, e2Zombie := true, true
+		if e1 != nil {
+			e1Zombie = time.Since(e1.LastUpdate) >= chanExpiry
+			if e1Zombie {
+				log.Tracef("Edge #1 of ChannelPoint(%v) "+
+					"last update: %v",
+					info.ChannelPoint, e1.LastUpdate)
+			}
+		}
+		if e2 != nil {
+			e2Zombie = time.Since(e2.LastUpdate) >= chanExpiry
+			if e2Zombie {
+				log.Tracef("Edge #2 of ChannelPoint(%v) "+
+					"last update: %v",
+					info.ChannelPoint, e2.LastUpdate)
+			}
+		}
+		if e1Zombie && e2Zombie {
+			log.Debugf("ChannelPoint(%v) is a zombie, collecting "+
+				"to prune", info.ChannelPoint)
+
+			// TODO(roasbeef): add ability to delete single
+			// directional edge
+			chansToPrune = append(chansToPrune, info.ChannelPoint)
+
+			// As we're detecting this as a zombie channel, we'll
+			// add this to the set of recently rejected items so we
+			// don't re-accept it shortly after.
+			r.rejectCache[info.ChannelID] = struct{}{}
+		}
+
+		return nil
+	}
+
+	r.rejectMtx.Lock()
+	defer r.rejectMtx.Unlock()
+
+	err := r.cfg.Graph.ForEachChannel(filterPruneChans)
+	if err != nil {
+		return fmt.Errorf("Unable to filter local zombie "+
+			"chans: %v", err)
+	}
+
+	log.Infof("Pruning %v Zombie Channels", len(chansToPrune))
+
+	// With the set zombie-like channels obtained, we'll do another pass to
+	// delete al zombie channels from the channel graph.
+	for _, chanToPrune := range chansToPrune {
+		log.Tracef("Pruning zombie chan ChannelPoint(%v)", chanToPrune)
+
+		err := r.cfg.Graph.DeleteChannelEdge(&chanToPrune)
+		if err != nil {
+			return fmt.Errorf("Unable to prune zombie "+
+				"chans: %v", err)
+		}
+	}
+
 	return nil
 }
 
@@ -608,7 +625,7 @@ func (r *ChannelRouter) networkHandler() {
 
 	// We'll use this validation barrier to ensure that we process all jobs
 	// in the proper order during parallel validation.
-	validationBarrier := NewValidationBarrier(runtime.NumCPU()*10, r.quit)
+	validationBarrier := NewValidationBarrier(runtime.NumCPU()*4, r.quit)
 
 	for {
 		select {
@@ -619,7 +636,7 @@ func (r *ChannelRouter) networkHandler() {
 			// We'll set up any dependants, and wait until a free
 			// slot for this job opens up, this allow us to not
 			// have thousands of goroutines active.
-			validationBarrier.InitJobDependancies(updateMsg.msg)
+			validationBarrier.InitJobDependencies(updateMsg.msg)
 
 			go func() {
 				defer validationBarrier.CompleteJob()
@@ -722,7 +739,7 @@ func (r *ChannelRouter) networkHandler() {
 			log.Infof("Pruning channel graph using block %v (height=%v)",
 				chainUpdate.Hash, blockHeight)
 
-			// We're only interested in all prior outputs that've
+			// We're only interested in all prior outputs that have
 			// been spent in the block, so collate all the
 			// referenced previous outpoints within each tx and
 			// input.
@@ -806,79 +823,8 @@ func (r *ChannelRouter) networkHandler() {
 		// state of the known graph to filter out any zombie channels
 		// for pruning.
 		case <-graphPruneTicker.C:
-
-			var chansToPrune []wire.OutPoint
-			chanExpiry := r.cfg.ChannelPruneExpiry
-
-			log.Infof("Examining Channel Graph for zombie channels")
-
-			// First, we'll collect all the channels which are
-			// eligible for garbage collection due to being
-			// zombies.
-			filterPruneChans := func(info *channeldb.ChannelEdgeInfo,
-				e1, e2 *channeldb.ChannelEdgePolicy) error {
-
-				// We'll ensure that we don't attempt to prune
-				// our *own* channels from the graph, as in any
-				// case this shuold be re-advertised by the
-				// sub-system above us.
-				if info.NodeKey1.IsEqual(r.selfNode.PubKey) ||
-					info.NodeKey2.IsEqual(r.selfNode.PubKey) {
-
-					return nil
-				}
-
-				// If *both* edges haven't been updated for a
-				// period of chanExpiry, then we'll mark the
-				// channel itself as eligible for graph
-				// pruning.
-				e1Zombie, e2Zombie := true, true
-				if e1 != nil {
-					e1Zombie = time.Since(e1.LastUpdate) >= chanExpiry
-					log.Tracef("Edge #1 of ChannelPoint(%v) "+
-						"last update: %v",
-						info.ChannelPoint, e1.LastUpdate)
-				}
-				if e2 != nil {
-					e2Zombie = time.Since(e2.LastUpdate) >= chanExpiry
-					log.Tracef("Edge #2 of ChannelPoint(%v) "+
-						"last update: %v",
-						info.ChannelPoint, e2.LastUpdate)
-				}
-				if e1Zombie && e2Zombie {
-					log.Infof("ChannelPoint(%v) is a "+
-						"zombie, collecting to prune",
-						info.ChannelPoint)
-
-					// TODO(roasbeef): add ability to
-					// delete single directional edge
-					chansToPrune = append(chansToPrune,
-						info.ChannelPoint)
-				}
-
-				return nil
-			}
-			err := r.cfg.Graph.ForEachChannel(filterPruneChans)
-			if err != nil {
-				log.Errorf("Unable to local zombie chans: %v", err)
-				continue
-			}
-
-			log.Infof("Pruning %v Zombie Channels", len(chansToPrune))
-
-			// With the set zombie-like channels obtained, we'll do
-			// another pass to delete al zombie channels from the
-			// channel graph.
-			for _, chanToPrune := range chansToPrune {
-				log.Tracef("Pruning zombie chan ChannelPoint(%v)",
-					chanToPrune)
-
-				err := r.cfg.Graph.DeleteChannelEdge(&chanToPrune)
-				if err != nil {
-					log.Errorf("Unable to prune zombie "+
-						"chans: %v", err)
-					continue
-				}
+			if err := r.pruneZombieChans(); err != nil {
+				log.Errorf("unable to prune zombies: %v", err)
 			}
 
 		// The router has been signalled to exit, to we exit our main
@@ -887,6 +833,42 @@ func (r *ChannelRouter) networkHandler() {
 			return
 		}
 	}
+}
+
+// assertNodeAnnFreshness returns a non-nil error if we have an announcement in
+// the database for the passed node with a timestamp newer than the passed
+// timestamp. ErrIgnored will be returned if we already have the node, and
+// ErrOutdated will be returned if we have a timestamp that's after the new
+// timestamp.
+func (r *ChannelRouter) assertNodeAnnFreshness(node Vertex,
+	msgTimestamp time.Time) error {
+
+	// If we are not already aware of this node, it means that we don't
+	// know about any channel using this node. To avoid a DoS attack by
+	// node announcements, we will ignore such nodes. If we do know about
+	// this node, check that this update brings info newer than what we
+	// already have.
+	lastUpdate, exists, err := r.cfg.Graph.HasLightningNode(node)
+	if err != nil {
+		return errors.Errorf("unable to query for the "+
+			"existence of node: %v", err)
+	}
+	if !exists {
+		return newErrf(ErrIgnored, "Ignoring node announcement"+
+			" for node not found in channel graph (%x)",
+			node[:])
+	}
+
+	// If we've reached this point then we're aware of the vertex being
+	// advertised. So we now check if the new message has a new time stamp,
+	// if not then we won't accept the new data as it would override newer
+	// data.
+	if !lastUpdate.Before(msgTimestamp) {
+		return newErrf(ErrOutdated, "Ignoring outdated "+
+			"announcement for %x", node[:])
+	}
+
+	return nil
 }
 
 // processUpdate processes a new relate authenticated channel/edge, node or
@@ -899,42 +881,32 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 
 	switch msg := msg.(type) {
 	case *channeldb.LightningNode:
-		// If we are not already aware of this node, it means that we
-		// don't know about any channel using this node. To avoid a DoS
-		// attack by node announcements, we will ignore such nodes. If
-		// we do know about this node, check that this update brings
-		// info newer than what we already have.
-		lastUpdate, exists, err := r.cfg.Graph.HasLightningNode(msg.PubKey)
+		// Before we add the node to the database, we'll check to see
+		// if the announcement is "fresh" or not. If it isn't, then
+		// we'll return an error.
+		err := r.assertNodeAnnFreshness(msg.PubKeyBytes, msg.LastUpdate)
 		if err != nil {
-			return errors.Errorf("unable to query for the "+
-				"existence of node: %v", err)
-		}
-		if !exists {
-			return newErrf(ErrIgnored, "Ignoring node announcement"+
-				" for node not found in channel graph (%x)",
-				msg.PubKey.SerializeCompressed())
-		}
-
-		// If we've reached this point then we're aware of the vertex
-		// being advertised. So we now check if the new message has a
-		// new time stamp, if not then we won't accept the new data as
-		// it would override newer data.
-		if exists && lastUpdate.After(msg.LastUpdate) ||
-			lastUpdate.Equal(msg.LastUpdate) {
-
-			return newErrf(ErrOutdated, "Ignoring outdated "+
-				"announcement for %x", msg.PubKey.SerializeCompressed())
+			return err
 		}
 
 		if err := r.cfg.Graph.AddLightningNode(msg); err != nil {
 			return errors.Errorf("unable to add node %v to the "+
-				"graph: %v", msg.PubKey.SerializeCompressed(), err)
+				"graph: %v", msg.PubKeyBytes, err)
 		}
 
-		log.Infof("Updated vertex data for node=%x",
-			msg.PubKey.SerializeCompressed())
+		log.Infof("Updated vertex data for node=%x", msg.PubKeyBytes)
 
 	case *channeldb.ChannelEdgeInfo:
+		// If we recently rejected this channel edge, then we won't
+		// attempt to re-process it.
+		r.rejectMtx.RLock()
+		if _, ok := r.rejectCache[msg.ChannelID]; ok {
+			r.rejectMtx.RUnlock()
+			return newErrf(ErrIgnored, "recently rejected "+
+				"chan_id=%v", msg.ChannelID)
+		}
+		r.rejectMtx.RUnlock()
+
 		// Prior to processing the announcement we first check if we
 		// already know of this channel, if so, then we can exit early.
 		_, _, exists, err := r.cfg.Graph.HasChannelEdge(msg.ChannelID)
@@ -949,30 +921,28 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		// Query the database for the existence of the two nodes in this
 		// channel. If not found, add a partial node to the database,
 		// containing only the node keys.
-		_, exists, _ = r.cfg.Graph.HasLightningNode(msg.NodeKey1)
+		_, exists, _ = r.cfg.Graph.HasLightningNode(msg.NodeKey1Bytes)
 		if !exists {
 			node1 := &channeldb.LightningNode{
-				PubKey:               msg.NodeKey1,
+				PubKeyBytes:          msg.NodeKey1Bytes,
 				HaveNodeAnnouncement: false,
 			}
 			err := r.cfg.Graph.AddLightningNode(node1)
 			if err != nil {
 				return errors.Errorf("unable to add node %v to"+
-					" the graph: %v",
-					node1.PubKey.SerializeCompressed(), err)
+					" the graph: %v", node1.PubKeyBytes, err)
 			}
 		}
-		_, exists, _ = r.cfg.Graph.HasLightningNode(msg.NodeKey2)
+		_, exists, _ = r.cfg.Graph.HasLightningNode(msg.NodeKey2Bytes)
 		if !exists {
 			node2 := &channeldb.LightningNode{
-				PubKey:               msg.NodeKey2,
+				PubKeyBytes:          msg.NodeKey2Bytes,
 				HaveNodeAnnouncement: false,
 			}
 			err := r.cfg.Graph.AddLightningNode(node2)
 			if err != nil {
 				return errors.Errorf("unable to add node %v to"+
-					" the graph: %v",
-					node2.PubKey.SerializeCompressed(), err)
+					" the graph: %v", node2.PubKeyBytes, err)
 			}
 		}
 
@@ -1001,8 +971,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		// edge bitcoin keys and channel value corresponds to the
 		// reality.
 		_, witnessOutput, err := lnwallet.GenFundingPkScript(
-			msg.BitcoinKey1.SerializeCompressed(),
-			msg.BitcoinKey2.SerializeCompressed(),
+			msg.BitcoinKey1Bytes[:], msg.BitcoinKey2Bytes[:],
 			chanUtxo.Value,
 		)
 		if err != nil {
@@ -1032,8 +1001,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		log.Infof("New channel discovered! Link "+
 			"connects %x and %x with ChannelPoint(%v): "+
 			"chan_id=%v, capacity=%v",
-			msg.NodeKey1.SerializeCompressed(),
-			msg.NodeKey2.SerializeCompressed(),
+			msg.NodeKey1Bytes, msg.NodeKey2Bytes,
 			fundingPoint, msg.ChannelID, msg.Capacity)
 
 		// As a new edge has been added to the channel graph, we'll
@@ -1050,6 +1018,16 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		}
 
 	case *channeldb.ChannelEdgePolicy:
+		// If we recently rejected this channel edge, then we won't
+		// attempt to re-process it.
+		r.rejectMtx.RLock()
+		if _, ok := r.rejectCache[msg.ChannelID]; ok {
+			r.rejectMtx.RUnlock()
+			return newErrf(ErrIgnored, "recently rejected "+
+				"chan_id=%v", msg.ChannelID)
+		}
+		r.rejectMtx.RUnlock()
+
 		channelID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
 
 		// We make sure to hold the mutex for this channel ID,
@@ -1125,8 +1103,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		}
 
 		invalidateCache = true
-		log.Infof("New channel update applied: %v",
-			spew.Sdump(msg))
+		log.Debugf("New channel update applied: %v", spew.Sdump(msg))
 
 	default:
 		return errors.Errorf("wrong routing update message type")
@@ -1212,7 +1189,6 @@ func pruneNodeFromRoutes(routes []*Route, skipNode Vertex) []*Route {
 // pruneChannelFromRoutes accepts a set of routes, and returns a new set of
 // routes with the target channel filtered out.
 func pruneChannelFromRoutes(routes []*Route, skipChan uint64) []*Route {
-
 	prunedRoutes := make([]*Route, 0, len(routes))
 	for _, route := range routes {
 		if route.containsChannel(skipChan) {
@@ -1228,17 +1204,70 @@ func pruneChannelFromRoutes(routes []*Route, skipChan uint64) []*Route {
 	return prunedRoutes
 }
 
-// FindRoutes attempts to query the ChannelRouter for the all available paths
-// to a particular target destination which is able to send `amt` after
-// factoring in channel capacities and cumulative fees along each route route.
-// To find all eligible paths, we use a modified version of Yen's algorithm
-// which itself uses a modified version of Dijkstra's algorithm within its
-// inner loop.  Once we have a set of candidate routes, we calculate the
-// required fee and time lock values running backwards along the route. The
+// pathsToFeeSortedRoutes takes a set of paths, and returns a corresponding set
+// of of routes. A route differs from a path in that it has full time-lock and
+// fee information attached. The set of routes return ed may be less than the
+// initial set of paths as it's possible we drop a route if it can't handle the
+// total payment flow after fees are calculated.
+func pathsToFeeSortedRoutes(source Vertex, paths [][]*ChannelHop, finalCLTVDelta uint16,
+	amt lnwire.MilliSatoshi, currentHeight uint32) ([]*Route, error) {
+
+	validRoutes := make([]*Route, 0, len(paths))
+	for _, path := range paths {
+		// Attempt to make the path into a route. We snip off the first
+		// hop in the path as it contains a "self-hop" that is inserted
+		// by our KSP algorithm.
+		route, err := newRoute(
+			amt, source, path[1:], currentHeight, finalCLTVDelta,
+		)
+		if err != nil {
+			// TODO(roasbeef): report straw breaking edge?
+			continue
+		}
+
+		// If the path as enough total flow to support the computed
+		// route, then we'll add it to our set of valid routes.
+		validRoutes = append(validRoutes, route)
+	}
+
+	// If all our perspective routes were eliminating during the transition
+	// from path to route, then we'll return an error to the caller
+	if len(validRoutes) == 0 {
+		return nil, newErr(ErrNoPathFound, "unable to find a path to "+
+			"destination")
+	}
+
+	// Finally, we'll sort the set of validate routes to optimize for
+	// lowest total fees, using the required time-lock within the route as
+	// a tie-breaker.
+	sort.Slice(validRoutes, func(i, j int) bool {
+		// To make this decision we first check if the total fees
+		// required for both routes are equal. If so, then we'll let
+		// the total time lock be the tie breaker. Otherwise, we'll put
+		// the route with the lowest total fees first.
+		if validRoutes[i].TotalFees == validRoutes[j].TotalFees {
+			timeLockI := validRoutes[i].TotalTimeLock
+			timeLockJ := validRoutes[j].TotalTimeLock
+			return timeLockI < timeLockJ
+		}
+
+		return validRoutes[i].TotalFees < validRoutes[j].TotalFees
+	})
+
+	return validRoutes, nil
+}
+
+// FindRoutes attempts to query the ChannelRouter for a bounded number
+// available paths to a particular target destination which is able to send
+// `amt` after factoring in channel capacities and cumulative fees along each
+// route route.  To `numPaths eligible paths, we use a modified version of
+// Yen's algorithm which itself uses a modified version of Dijkstra's algorithm
+// within its inner loop.  Once we have a set of candidate routes, we calculate
+// the required fee and time lock values running backwards along the route. The
 // route that will be ranked the highest is the one with the lowest cumulative
 // fee along the route.
 func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
-	amt lnwire.MilliSatoshi, finalExpiry ...uint16) ([]*Route, error) {
+	amt lnwire.MilliSatoshi, numPaths uint32, finalExpiry ...uint16) ([]*Route, error) {
 
 	var finalCLTVDelta uint16
 	if len(finalExpiry) == 0 {
@@ -1246,8 +1275,6 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	} else {
 		finalCLTVDelta = finalExpiry[0]
 	}
-
-	// TODO(roasbeef): make num routes a param
 
 	dest := target.SerializeCompressed()
 	log.Debugf("Searching for path to %x, sending %v", dest, amt)
@@ -1260,9 +1287,10 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	routes, ok := r.routeCache[rt]
 	r.routeCacheMtx.RUnlock()
 
-	// If we already have a cached route, then we'll return it directly as
-	// there's no need to repeat the computation.
-	if ok {
+	// If we already have a cached route, and it contains at least the
+	// number of paths requested, then we'll return it directly as there's
+	// no need to repeat the computation.
+	if ok && uint32(len(routes)) >= numPaths {
 		return routes, nil
 	}
 
@@ -1273,7 +1301,8 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 
 	// We can short circuit the routing by opportunistically checking to
 	// see if the target vertex event exists in the current graph.
-	if _, exists, err := r.cfg.Graph.HasLightningNode(target); err != nil {
+	targetVertex := NewVertex(target)
+	if _, exists, err := r.cfg.Graph.HasLightningNode(targetVertex); err != nil {
 		return nil, err
 	} else if !exists {
 		log.Debugf("Target %x is not in known graph", dest)
@@ -1296,8 +1325,9 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	// Now that we know the destination is reachable within the graph,
 	// we'll execute our KSP algorithm to find the k-shortest paths from
 	// our source to the destination.
-	shortestPaths, err := findPaths(tx, r.cfg.Graph, r.selfNode, target,
-		amt)
+	shortestPaths, err := findPaths(
+		tx, r.cfg.Graph, r.selfNode, target, amt, numPaths,
+	)
 	if err != nil {
 		tx.Rollback()
 		return nil, err
@@ -1310,46 +1340,14 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	// each path. During this process, some paths may be discarded if they
 	// aren't able to support the total satoshis flow once fees have been
 	// factored in.
-	validRoutes := make([]*Route, 0, len(shortestPaths))
-	sourceVertex := NewVertex(r.selfNode.PubKey)
-	for _, path := range shortestPaths {
-		// Attempt to make the path into a route. We snip off the first
-		// hop in the path as it contains a "self-hop" that is inserted
-		// by our KSP algorithm.
-		route, err := newRoute(amt, sourceVertex, path[1:],
-			uint32(currentHeight), finalCLTVDelta)
-		if err != nil {
-			continue
-		}
-
-		// If the path as enough total flow to support the computed
-		// route, then we'll add it to our set of valid routes.
-		validRoutes = append(validRoutes, route)
+	sourceVertex := Vertex(r.selfNode.PubKeyBytes)
+	validRoutes, err := pathsToFeeSortedRoutes(
+		sourceVertex, shortestPaths, finalCLTVDelta, amt,
+		uint32(currentHeight),
+	)
+	if err != nil {
+		return nil, err
 	}
-
-	// If all our perspective routes were eliminating during the transition
-	// from path to route, then we'll return an error to the caller
-	if len(validRoutes) == 0 {
-		return nil, newErr(ErrNoPathFound, "unable to find a path to "+
-			"destination")
-	}
-
-	// Finally, we'll sort the set of validate routes to optimize for
-	// lowest total fees, using the required time-lock within the
-	// route as a tie-breaker.
-	sort.Slice(validRoutes, func(i, j int) bool {
-		// To make this decision we first check if the total fees
-		// required for both routes are equal. If so, then we'll let
-		// the total time lock be the tie breaker. Otherwise, we'll
-		// put the route with the lowest total fees first.
-		if validRoutes[i].TotalFees == validRoutes[j].TotalFees {
-			timeLockI := validRoutes[i].TotalTimeLock
-			timeLockJ := validRoutes[j].TotalTimeLock
-			return timeLockI < timeLockJ
-		}
-
-		return validRoutes[i].TotalFees < validRoutes[j].TotalFees
-	})
 
 	go log.Tracef("Obtained %v paths sending %v to %x: %v", len(validRoutes),
 		amt, dest, newLogClosure(func() string {
@@ -1357,8 +1355,8 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 		}),
 	)
 
-	// Populate the cache with this set of fresh routes so we can
-	// reuse them in the future.
+	// Populate the cache with this set of fresh routes so we can reuse
+	// them in the future.
 	r.routeCacheMtx.Lock()
 	r.routeCache[rt] = validRoutes
 	r.routeCacheMtx.Unlock()
@@ -1379,10 +1377,14 @@ func generateSphinxPacket(route *Route, paymentHash []byte) ([]byte,
 		// We create a new instance of the public key to avoid possibly
 		// mutating the curve parameters, which are unset in a higher
 		// level in order to avoid spamming the logs.
+		nodePub, err := hop.Channel.Node.PubKey()
+		if err != nil {
+			return nil, nil, err
+		}
 		pub := btcec.PublicKey{
 			Curve: btcec.S256(),
-			X:     hop.Channel.Node.PubKey.X,
-			Y:     hop.Channel.Node.PubKey.Y,
+			X:     nodePub.X,
+			Y:     nodePub.Y,
 		}
 		nodes[i] = &pub
 	}
@@ -1408,7 +1410,7 @@ func generateSphinxPacket(route *Route, paymentHash []byte) ([]byte,
 		return nil, nil, err
 	}
 
-	// Finally, encode Sphinx packet using it's wire representation to be
+	// Finally, encode Sphinx packet using its wire representation to be
 	// included within the HTLC add packet.
 	var onionBlob bytes.Buffer
 	if err := sphinxPacket.Encode(&onionBlob); err != nil {
@@ -1543,7 +1545,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 		// Attempt to send this payment through the network to complete
 		// the payment. If this attempt fails, then we'll continue on
 		// to the next available route.
-		firstHop := route.Hops[0].Channel.Node.PubKey
+		firstHop := route.Hops[0].Channel.Node.PubKeyBytes
 		preImage, sendError = r.cfg.SendToSwitch(firstHop, htlcAdd,
 			circuit)
 		if sendError != nil {
@@ -1662,7 +1664,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 				// As this error indicates that the target
 				// channel was unable to carry this HTLC (for
 				// w/e reason), we'll query the index to find
-				// the _outgoign_ channel the source of the
+				// the _outgoing_ channel the source of the
 				// error was meant to pass the HTLC along to.
 				badChan, ok := route.nextHopChannel(errSource)
 				if !ok {
@@ -1735,10 +1737,33 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 			// we'll note this (exclude the vertex/edge), and
 			// continue with the rest of the routes.
 			case *lnwire.FailPermanentChannelFailure:
-				// TODO(roasbeef): remove channel from path
+				// As this error indicates that the target
+				// channel was unable to carry this HTLC (for
+				// w/e reason), we'll query the index to find
+				// the _outgoing_ channel the source of the
+				// error was meant to pass the HTLC along to.
+				badChan, ok := route.nextHopChannel(errSource)
+				if !ok {
+					// If we weren't able to find the hop
+					// *after* this node, then we'll
+					// attempt to disable the previous
+					// channel.
+					badChan, ok = route.prevHopChannel(
+						errSource,
+					)
+					if !ok {
+						continue
+					}
+				}
+
+				// If the channel was found, then we'll inform
+				// mission control of this failure so future
+				// attempts avoid this link temporarily.
+				paySession.ReportChannelFailure(badChan.ChannelID)
 				continue
+
 			case *lnwire.FailPermanentNodeFailure:
-				// TODO(rosabeef): remove node from path
+				// TODO(roasbeef): remove node from path
 				continue
 
 			default:
@@ -1760,7 +1785,7 @@ func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate) error {
 	}
 
 	err := r.UpdateEdge(&channeldb.ChannelEdgePolicy{
-		Signature:                 msg.Signature,
+		SigBytes:                  msg.Signature.ToSignatureBytes(),
 		ChannelID:                 msg.ShortChannelID.ToUint64(),
 		LastUpdate:                time.Unix(int64(msg.Timestamp), 0),
 		Flags:                     msg.Flags,
@@ -1913,4 +1938,64 @@ func (r *ChannelRouter) AddProof(chanID lnwire.ShortChannelID,
 
 	info.AuthProof = proof
 	return r.cfg.Graph.UpdateChannelEdge(info)
+}
+
+// IsStaleNode returns true if the graph source has a node announcement for the
+// target node with a more recent timestamp.
+//
+// NOTE: This method is part of the ChannelGraphSource interface.
+func (r *ChannelRouter) IsStaleNode(node Vertex, timestamp time.Time) bool {
+	// If our attempt to assert that the node announcement is fresh fails,
+	// then we know that this is actually a stale announcement.
+	return r.assertNodeAnnFreshness(node, timestamp) != nil
+}
+
+// IsKnownEdge returns true if the graph source already knows of the passed
+// channel ID.
+//
+// NOTE: This method is part of the ChannelGraphSource interface.
+func (r *ChannelRouter) IsKnownEdge(chanID lnwire.ShortChannelID) bool {
+	_, _, exists, _ := r.cfg.Graph.HasChannelEdge(chanID.ToUint64())
+	return exists
+}
+
+// IsStaleEdgePolicy returns true if the graph soruce has a channel edge for
+// the passed channel ID (and flags) that have a more recent timestamp.
+//
+// NOTE: This method is part of the ChannelGraphSource interface.
+func (r *ChannelRouter) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
+	timestamp time.Time, flags lnwire.ChanUpdateFlag) bool {
+
+	edge1Timestamp, edge2Timestamp, exists, err := r.cfg.Graph.HasChannelEdge(
+		chanID.ToUint64(),
+	)
+	if err != nil {
+		return false
+
+	}
+
+	// If we don't know of the edge, then it means it's fresh (thus not
+	// stale).
+	if !exists {
+		return false
+	}
+
+	// As edges are directional edge node has a unique policy for the
+	// direction of the edge they control. Therefore we first check if we
+	// already have the most up to date information for that edge. If so,
+	// then we can exit early.
+	switch {
+
+	// A flag set of 0 indicates this is an announcement for the "first"
+	// node in the channel.
+	case flags&lnwire.ChanUpdateDirection == 0:
+		return !edge1Timestamp.Before(timestamp)
+
+	// Similarly, a flag set of 1 indicates this is an announcement for the
+	// "second" node in the channel.
+	case flags&lnwire.ChanUpdateDirection == 1:
+		return !edge2Timestamp.Before(timestamp)
+	}
+
+	return false
 }

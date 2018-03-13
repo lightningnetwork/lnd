@@ -19,6 +19,10 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 )
 
+// defaultNumRoutes is the default value for the maximum number of routes to
+// be returned by FindRoutes
+const defaultNumRoutes = 10
+
 type testCtx struct {
 	router *ChannelRouter
 
@@ -42,7 +46,7 @@ func (c *testCtx) RestartRouter() error {
 		Graph:     c.graph,
 		Chain:     c.chain,
 		ChainView: c.chainView,
-		SendToSwitch: func(_ *btcec.PublicKey,
+		SendToSwitch: func(_ [33]byte,
 			_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 			return [32]byte{}, nil
 		},
@@ -117,8 +121,9 @@ func createTestCtx(startingHeight uint32, testGraph ...string) (*testCtx, func()
 		Graph:     graph,
 		Chain:     chain,
 		ChainView: chainView,
-		SendToSwitch: func(_ *btcec.PublicKey,
-			_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
+		SendToSwitch: func(_ [33]byte, _ *lnwire.UpdateAddHTLC,
+			_ *sphinx.Circuit) ([32]byte, error) {
+
 			return [32]byte{}, nil
 		},
 		ChannelPruneExpiry: time.Hour * 24,
@@ -168,7 +173,7 @@ func TestFindRoutesFeeSorting(t *testing.T) {
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := ctx.aliases["luoji"]
 	routes, err := ctx.router.FindRoutes(target, paymentAmt,
-		DefaultFinalCLTVDelta)
+		defaultNumRoutes, DefaultFinalCLTVDelta)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
 	}
@@ -230,12 +235,16 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 	// router's configuration to ignore the path that has luo ji as the
 	// first hop. This should force the router to instead take the
 	// available two hop path (through satoshi).
-	ctx.router.cfg.SendToSwitch = func(n *btcec.PublicKey,
+	ctx.router.cfg.SendToSwitch = func(n [33]byte,
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 
-		if ctx.aliases["luoji"].IsEqual(n) {
+		if bytes.Equal(ctx.aliases["luoji"].SerializeCompressed(), n[:]) {
+			pub, err := sourceNode.PubKey()
+			if err != nil {
+				return preImage, err
+			}
 			return [32]byte{}, &htlcswitch.ForwardingError{
-				ErrorSource: sourceNode.PubKey,
+				ErrorSource: pub,
 				// TODO(roasbeef): temp node failure should be?
 				FailureMessage: &lnwire.FailTemporaryChannelFailure{},
 			}
@@ -301,21 +310,26 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
 
+	sourcePub, err := sourceNode.PubKey()
+	if err != nil {
+		t.Fatalf("unable to fetch source node pub: %v", err)
+	}
+
 	// First, we'll modify the SendToSwitch method to return an error
 	// indicating that the channel from roasbeef to luoji is not operable
 	// with an UnknownNextPeer.
 	//
 	// TODO(roasbeef): filtering should be intelligent enough so just not
 	// go through satoshi at all at this point.
-	ctx.router.cfg.SendToSwitch = func(n *btcec.PublicKey,
+	ctx.router.cfg.SendToSwitch = func(n [33]byte,
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 
-		if ctx.aliases["luoji"].IsEqual(n) {
+		if bytes.Equal(ctx.aliases["luoji"].SerializeCompressed(), n[:]) {
 			// We'll first simulate an error from the first
 			// outgoing link to simulate the channel from luo ji to
 			// roasbeef not having enough capacity.
 			return [32]byte{}, &htlcswitch.ForwardingError{
-				ErrorSource:    sourceNode.PubKey,
+				ErrorSource:    sourcePub,
 				FailureMessage: &lnwire.FailTemporaryChannelFailure{},
 			}
 		}
@@ -323,7 +337,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 		// Next, we'll create an error from satoshi to indicate
 		// that the luoji node is not longer online, which should
 		// prune out the rest of the routes.
-		if ctx.aliases["satoshi"].IsEqual(n) {
+		if bytes.Equal(ctx.aliases["satoshi"].SerializeCompressed(), n[:]) {
 			return [32]byte{}, &htlcswitch.ForwardingError{
 				ErrorSource:    ctx.aliases["satoshi"],
 				FailureMessage: &lnwire.FailUnknownNextPeer{},
@@ -353,12 +367,12 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	// Next, we'll modify the SendToSwitch method to indicate that luo ji
 	// wasn't originally online. This should also halt the send all
 	// together as all paths contain luoji and he can't be reached.
-	ctx.router.cfg.SendToSwitch = func(n *btcec.PublicKey,
+	ctx.router.cfg.SendToSwitch = func(n [33]byte,
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 
-		if ctx.aliases["luoji"].IsEqual(n) {
+		if bytes.Equal(ctx.aliases["luoji"].SerializeCompressed(), n[:]) {
 			return [32]byte{}, &htlcswitch.ForwardingError{
-				ErrorSource:    sourceNode.PubKey,
+				ErrorSource:    sourcePub,
 				FailureMessage: &lnwire.FailUnknownNextPeer{},
 			}
 		}
@@ -380,14 +394,14 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 
 	// Finally, we'll modify the SendToSwitch function to indicate that the
 	// roasbeef -> luoji channel has insufficient capacity.
-	ctx.router.cfg.SendToSwitch = func(n *btcec.PublicKey,
+	ctx.router.cfg.SendToSwitch = func(n [33]byte,
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
-		if ctx.aliases["luoji"].IsEqual(n) {
+		if bytes.Equal(ctx.aliases["luoji"].SerializeCompressed(), n[:]) {
 			// We'll first simulate an error from the first
 			// outgoing link to simulate the channel from luo ji to
 			// roasbeef not having enough capacity.
 			return [32]byte{}, &htlcswitch.ForwardingError{
-				ErrorSource:    sourceNode.PubKey,
+				ErrorSource:    sourcePub,
 				FailureMessage: &lnwire.FailTemporaryChannelFailure{},
 			}
 		}
@@ -457,13 +471,13 @@ func TestAddProof(t *testing.T) {
 
 	// After utxo was recreated adding the edge without the proof.
 	edge := &channeldb.ChannelEdgeInfo{
-		ChannelID:   chanID.ToUint64(),
-		NodeKey1:    copyPubKey(node1.PubKey),
-		NodeKey2:    copyPubKey(node2.PubKey),
-		BitcoinKey1: copyPubKey(bitcoinKey1),
-		BitcoinKey2: copyPubKey(bitcoinKey2),
-		AuthProof:   nil,
+		ChannelID:     chanID.ToUint64(),
+		NodeKey1Bytes: node1.PubKeyBytes,
+		NodeKey2Bytes: node2.PubKeyBytes,
+		AuthProof:     nil,
 	}
+	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
+	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
 
 	if err := ctx.router.AddEdge(edge); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
@@ -495,16 +509,17 @@ func TestIgnoreNodeAnnouncement(t *testing.T) {
 		t.Fatalf("unable to create router: %v", err)
 	}
 
+	pub := priv1.PubKey()
 	node := &channeldb.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Unix(123, 0),
 		Addresses:            testAddrs,
-		PubKey:               copyPubKey(priv1.PubKey()),
 		Color:                color.RGBA{1, 2, 3, 0},
 		Alias:                "node11",
-		AuthSig:              testSig,
+		AuthSigBytes:         testSig.Serialize(),
 		Features:             testFeatures,
 	}
+	copy(node.PubKeyBytes[:], pub.SerializeCompressed())
 
 	err = ctx.router.AddNode(node)
 	if !IsError(err, ErrIgnored) {
@@ -527,15 +542,21 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		t.Fatalf("unable to create router: %v", err)
 	}
 
+	var pub1 [33]byte
+	copy(pub1[:], priv1.PubKey().SerializeCompressed())
+
+	var pub2 [33]byte
+	copy(pub2[:], priv2.PubKey().SerializeCompressed())
+
 	// The two nodes we are about to add should not exist yet.
-	_, exists1, err := ctx.graph.HasLightningNode(priv1.PubKey())
+	_, exists1, err := ctx.graph.HasLightningNode(pub1)
 	if err != nil {
 		t.Fatalf("unable to query graph: %v", err)
 	}
 	if exists1 {
 		t.Fatalf("node already existed")
 	}
-	_, exists2, err := ctx.graph.HasLightningNode(priv2.PubKey())
+	_, exists2, err := ctx.graph.HasLightningNode(pub2)
 	if err != nil {
 		t.Fatalf("unable to query graph: %v", err)
 	}
@@ -558,12 +579,12 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
 
 	edge := &channeldb.ChannelEdgeInfo{
-		ChannelID:   chanID.ToUint64(),
-		NodeKey1:    copyPubKey(priv1.PubKey()),
-		NodeKey2:    copyPubKey(priv2.PubKey()),
-		BitcoinKey1: copyPubKey(bitcoinKey1),
-		BitcoinKey2: copyPubKey(bitcoinKey2),
-		AuthProof:   nil,
+		ChannelID:        chanID.ToUint64(),
+		NodeKey1Bytes:    pub1,
+		NodeKey2Bytes:    pub2,
+		BitcoinKey1Bytes: pub1,
+		BitcoinKey2Bytes: pub2,
+		AuthProof:        nil,
 	}
 	if err := ctx.router.AddEdge(edge); err != nil {
 		t.Fatalf("expected to be able to add edge to the channel graph,"+
@@ -573,7 +594,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// We must add the edge policy to be able to use the edge for route
 	// finding.
 	edgePolicy := &channeldb.ChannelEdgePolicy{
-		Signature:                 testSig,
+		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                time.Now(),
 		TimeLockDelta:             10,
@@ -589,7 +610,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// Create edge in the other direction as well.
 	edgePolicy = &channeldb.ChannelEdgePolicy{
-		Signature:                 testSig,
+		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                time.Now(),
 		TimeLockDelta:             10,
@@ -605,14 +626,14 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// After adding the edge between the two previously unknown nodes, they
 	// should have been added to the graph.
-	_, exists1, err = ctx.graph.HasLightningNode(priv1.PubKey())
+	_, exists1, err = ctx.graph.HasLightningNode(pub1)
 	if err != nil {
 		t.Fatalf("unable to query graph: %v", err)
 	}
 	if !exists1 {
 		t.Fatalf("node1 was not added to the graph")
 	}
-	_, exists2, err = ctx.graph.HasLightningNode(priv2.PubKey())
+	_, exists2, err = ctx.graph.HasLightningNode(pub2)
 	if err != nil {
 		t.Fatalf("unable to query graph: %v", err)
 	}
@@ -656,20 +677,20 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
 
 	edge = &channeldb.ChannelEdgeInfo{
-		ChannelID:   chanID.ToUint64(),
-		NodeKey1:    pubKey1,
-		NodeKey2:    pubKey2,
-		BitcoinKey1: pubKey1,
-		BitcoinKey2: pubKey2,
-		AuthProof:   nil,
+		ChannelID: chanID.ToUint64(),
+		AuthProof: nil,
 	}
+	copy(edge.NodeKey1Bytes[:], node1Bytes)
+	copy(edge.NodeKey2Bytes[:], node2Bytes)
+	copy(edge.BitcoinKey1Bytes[:], node1Bytes)
+	copy(edge.BitcoinKey2Bytes[:], node2Bytes)
 
 	if err := ctx.router.AddEdge(edge); err != nil {
 		t.Fatalf("unable to add edge to the channel graph: %v.", err)
 	}
 
 	edgePolicy = &channeldb.ChannelEdgePolicy{
-		Signature:                 testSig,
+		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                time.Now(),
 		TimeLockDelta:             10,
@@ -684,7 +705,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	}
 
 	edgePolicy = &channeldb.ChannelEdgePolicy{
-		Signature:                 testSig,
+		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                time.Now(),
 		TimeLockDelta:             10,
@@ -702,7 +723,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	targetNode := priv2.PubKey()
 	routes, err := ctx.router.FindRoutes(targetNode, paymentAmt,
-		DefaultFinalCLTVDelta)
+		defaultNumRoutes, DefaultFinalCLTVDelta)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
 	}
@@ -716,12 +737,12 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Unix(123, 0),
 		Addresses:            testAddrs,
-		PubKey:               copyPubKey(priv1.PubKey()),
 		Color:                color.RGBA{1, 2, 3, 0},
 		Alias:                "node11",
-		AuthSig:              testSig,
+		AuthSigBytes:         testSig.Serialize(),
 		Features:             testFeatures,
 	}
+	copy(n1.PubKeyBytes[:], priv1.PubKey().SerializeCompressed())
 
 	if err := ctx.router.AddNode(n1); err != nil {
 		t.Fatalf("could not add node: %v", err)
@@ -731,12 +752,12 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Unix(123, 0),
 		Addresses:            testAddrs,
-		PubKey:               copyPubKey(priv2.PubKey()),
 		Color:                color.RGBA{1, 2, 3, 0},
 		Alias:                "node22",
-		AuthSig:              testSig,
+		AuthSigBytes:         testSig.Serialize(),
 		Features:             testFeatures,
 	}
+	copy(n2.PubKeyBytes[:], priv2.PubKey().SerializeCompressed())
 
 	if err := ctx.router.AddNode(n2); err != nil {
 		t.Fatalf("could not add node: %v", err)
@@ -745,7 +766,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// Should still be able to find the route, and the info should be
 	// updated.
 	routes, err = ctx.router.FindRoutes(targetNode, paymentAmt,
-		DefaultFinalCLTVDelta)
+		defaultNumRoutes, DefaultFinalCLTVDelta)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
 	}
@@ -865,36 +886,36 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 	}
 
 	edge1 := &channeldb.ChannelEdgeInfo{
-		ChannelID:   chanID1,
-		NodeKey1:    copyPubKey(node1.PubKey),
-		NodeKey2:    copyPubKey(node2.PubKey),
-		BitcoinKey1: copyPubKey(bitcoinKey1),
-		BitcoinKey2: copyPubKey(bitcoinKey2),
+		ChannelID:     chanID1,
+		NodeKey1Bytes: node1.PubKeyBytes,
+		NodeKey2Bytes: node2.PubKeyBytes,
 		AuthProof: &channeldb.ChannelAuthProof{
-			NodeSig1:    testSig,
-			NodeSig2:    testSig,
-			BitcoinSig1: testSig,
-			BitcoinSig2: testSig,
+			NodeSig1Bytes:    testSig.Serialize(),
+			NodeSig2Bytes:    testSig.Serialize(),
+			BitcoinSig1Bytes: testSig.Serialize(),
+			BitcoinSig2Bytes: testSig.Serialize(),
 		},
 	}
+	copy(edge1.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
+	copy(edge1.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
 
 	if err := ctx.router.AddEdge(edge1); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
 
 	edge2 := &channeldb.ChannelEdgeInfo{
-		ChannelID:   chanID2,
-		NodeKey1:    copyPubKey(node1.PubKey),
-		NodeKey2:    copyPubKey(node2.PubKey),
-		BitcoinKey1: copyPubKey(bitcoinKey1),
-		BitcoinKey2: copyPubKey(bitcoinKey2),
+		ChannelID:     chanID2,
+		NodeKey1Bytes: node1.PubKeyBytes,
+		NodeKey2Bytes: node2.PubKeyBytes,
 		AuthProof: &channeldb.ChannelAuthProof{
-			NodeSig1:    testSig,
-			NodeSig2:    testSig,
-			BitcoinSig1: testSig,
-			BitcoinSig2: testSig,
+			NodeSig1Bytes:    testSig.Serialize(),
+			NodeSig2Bytes:    testSig.Serialize(),
+			BitcoinSig1Bytes: testSig.Serialize(),
+			BitcoinSig2Bytes: testSig.Serialize(),
 		},
 	}
+	copy(edge2.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
+	copy(edge2.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
 
 	if err := ctx.router.AddEdge(edge2); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
@@ -940,7 +961,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 		Graph:     ctx.graph,
 		Chain:     ctx.chain,
 		ChainView: ctx.chainView,
-		SendToSwitch: func(_ *btcec.PublicKey,
+		SendToSwitch: func(_ [33]byte,
 			_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 			return [32]byte{}, nil
 		},
@@ -1067,36 +1088,40 @@ func TestDisconnectedBlocks(t *testing.T) {
 	}
 
 	edge1 := &channeldb.ChannelEdgeInfo{
-		ChannelID:   chanID1,
-		NodeKey1:    copyPubKey(node1.PubKey),
-		NodeKey2:    copyPubKey(node2.PubKey),
-		BitcoinKey1: copyPubKey(bitcoinKey1),
-		BitcoinKey2: copyPubKey(bitcoinKey2),
+		ChannelID:        chanID1,
+		NodeKey1Bytes:    node1.PubKeyBytes,
+		NodeKey2Bytes:    node2.PubKeyBytes,
+		BitcoinKey1Bytes: node1.PubKeyBytes,
+		BitcoinKey2Bytes: node2.PubKeyBytes,
 		AuthProof: &channeldb.ChannelAuthProof{
-			NodeSig1:    testSig,
-			NodeSig2:    testSig,
-			BitcoinSig1: testSig,
-			BitcoinSig2: testSig,
+			NodeSig1Bytes:    testSig.Serialize(),
+			NodeSig2Bytes:    testSig.Serialize(),
+			BitcoinSig1Bytes: testSig.Serialize(),
+			BitcoinSig2Bytes: testSig.Serialize(),
 		},
 	}
+	copy(edge1.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
+	copy(edge1.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
 
 	if err := ctx.router.AddEdge(edge1); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
 
 	edge2 := &channeldb.ChannelEdgeInfo{
-		ChannelID:   chanID2,
-		NodeKey1:    copyPubKey(node1.PubKey),
-		NodeKey2:    copyPubKey(node2.PubKey),
-		BitcoinKey1: copyPubKey(bitcoinKey1),
-		BitcoinKey2: copyPubKey(bitcoinKey2),
+		ChannelID:        chanID2,
+		NodeKey1Bytes:    node1.PubKeyBytes,
+		NodeKey2Bytes:    node2.PubKeyBytes,
+		BitcoinKey1Bytes: node1.PubKeyBytes,
+		BitcoinKey2Bytes: node2.PubKeyBytes,
 		AuthProof: &channeldb.ChannelAuthProof{
-			NodeSig1:    testSig,
-			NodeSig2:    testSig,
-			BitcoinSig1: testSig,
-			BitcoinSig2: testSig,
+			NodeSig1Bytes:    testSig.Serialize(),
+			NodeSig2Bytes:    testSig.Serialize(),
+			BitcoinSig1Bytes: testSig.Serialize(),
+			BitcoinSig2Bytes: testSig.Serialize(),
 		},
 	}
+	copy(edge2.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
+	copy(edge2.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
 
 	if err := ctx.router.AddEdge(edge2); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
@@ -1207,18 +1232,18 @@ func TestRouterChansClosedOfflinePruneGraph(t *testing.T) {
 		t.Fatalf("unable to create test node: %v", err)
 	}
 	edge1 := &channeldb.ChannelEdgeInfo{
-		ChannelID:   chanID1.ToUint64(),
-		NodeKey1:    copyPubKey(node1.PubKey),
-		NodeKey2:    copyPubKey(node2.PubKey),
-		BitcoinKey1: copyPubKey(bitcoinKey1),
-		BitcoinKey2: copyPubKey(bitcoinKey2),
+		ChannelID:     chanID1.ToUint64(),
+		NodeKey1Bytes: node1.PubKeyBytes,
+		NodeKey2Bytes: node2.PubKeyBytes,
 		AuthProof: &channeldb.ChannelAuthProof{
-			NodeSig1:    testSig,
-			NodeSig2:    testSig,
-			BitcoinSig1: testSig,
-			BitcoinSig2: testSig,
+			NodeSig1Bytes:    testSig.Serialize(),
+			NodeSig2Bytes:    testSig.Serialize(),
+			BitcoinSig1Bytes: testSig.Serialize(),
+			BitcoinSig2Bytes: testSig.Serialize(),
 		},
 	}
+	copy(edge1.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
+	copy(edge1.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
 	if err := ctx.router.AddEdge(edge1); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
@@ -1311,5 +1336,297 @@ func TestRouterChansClosedOfflinePruneGraph(t *testing.T) {
 	}
 	if hasChan {
 		t.Fatalf("channel was found in graph but shouldn't have been")
+	}
+}
+
+// TestFindPathFeeWeighting tests that the findPath method will properly prefer
+// routes with lower fees over routes with lower time lock values. This is
+// meant to exercise the fact that the internal findPath method ranks edges
+// with the square of the total fee in order bias towards lower fees.
+func TestFindPathFeeWeighting(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx, cleanUp, err := createTestCtx(startingBlockHeight, basicGraphFilePath)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	var preImage [32]byte
+	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
+
+	sourceNode, err := ctx.graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+	}
+
+	ignoreVertex := make(map[Vertex]struct{})
+	ignoreEdge := make(map[uint64]struct{})
+
+	amt := lnwire.MilliSatoshi(100)
+
+	target := ctx.aliases["luoji"]
+	if target == nil {
+		t.Fatalf("unable to find target node")
+	}
+
+	// We'll now attempt a path finding attempt using this set up. Due to
+	// the edge weighting, we should select the direct path over the 2 hop
+	// path even though the direct path has a higher potential time lock.
+	path, err := findPath(
+		nil, ctx.graph, sourceNode, target, ignoreVertex, ignoreEdge,
+		amt,
+	)
+	if err != nil {
+		t.Fatalf("unable to find path: %v", err)
+	}
+
+	// The route that was chosen should be exactly one hop, and should be
+	// directly to luoji.
+	if len(path) != 1 {
+		t.Fatalf("expected path length of 1, instead was: %v", len(path))
+	}
+	if path[0].Node.Alias != "luoji" {
+		t.Fatalf("wrong node: %v", path[0].Node.Alias)
+	}
+}
+
+// TestIsStaleNode tests that the IsStaleNode method properly detects stale
+// node announcements.
+func TestIsStaleNode(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	// Before we can insert a node in to the database, we need to create a
+	// channel that it's linked to.
+	var (
+		pub1 [33]byte
+		pub2 [33]byte
+	)
+	copy(pub1[:], priv1.PubKey().SerializeCompressed())
+	copy(pub2[:], priv2.PubKey().SerializeCompressed())
+
+	fundingTx, _, chanID, err := createChannelEdge(ctx,
+		bitcoinKey1.SerializeCompressed(),
+		bitcoinKey2.SerializeCompressed(),
+		10000, 500)
+	if err != nil {
+		t.Fatalf("unable to create channel edge: %v", err)
+	}
+	fundingBlock := &wire.MsgBlock{
+		Transactions: []*wire.MsgTx{fundingTx},
+	}
+	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
+
+	edge := &channeldb.ChannelEdgeInfo{
+		ChannelID:        chanID.ToUint64(),
+		NodeKey1Bytes:    pub1,
+		NodeKey2Bytes:    pub2,
+		BitcoinKey1Bytes: pub1,
+		BitcoinKey2Bytes: pub2,
+		AuthProof:        nil,
+	}
+	if err := ctx.router.AddEdge(edge); err != nil {
+		t.Fatalf("unable to add edge: %v", err)
+	}
+
+	// Before we add the node, if we query for staleness, we should get
+	// false, as we haven't added the full node.
+	updateTimeStamp := time.Unix(123, 0)
+	if ctx.router.IsStaleNode(pub1, updateTimeStamp) {
+		t.Fatalf("incorrectly detected node as stale")
+	}
+
+	// With the node stub in the database, we'll add the fully node
+	// announcement to the database.
+	n1 := &channeldb.LightningNode{
+		HaveNodeAnnouncement: true,
+		LastUpdate:           updateTimeStamp,
+		Addresses:            testAddrs,
+		Color:                color.RGBA{1, 2, 3, 0},
+		Alias:                "node11",
+		AuthSigBytes:         testSig.Serialize(),
+		Features:             testFeatures,
+	}
+	copy(n1.PubKeyBytes[:], priv1.PubKey().SerializeCompressed())
+	if err := ctx.router.AddNode(n1); err != nil {
+		t.Fatalf("could not add node: %v", err)
+	}
+
+	// If we use the same timestamp and query for staleness, we should get
+	// true.
+	if !ctx.router.IsStaleNode(pub1, updateTimeStamp) {
+		t.Fatalf("failure to detect stale node update")
+	}
+
+	// If we update the timestamp and once again query for staleness, it
+	// should report false.
+	newTimeStamp := time.Unix(1234, 0)
+	if ctx.router.IsStaleNode(pub1, newTimeStamp) {
+		t.Fatalf("incorrectly detected node as stale")
+	}
+}
+
+// TestIsKnownEdge tests that the IsKnownEdge method properly detects stale
+// channel announcements.
+func TestIsKnownEdge(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	// First, we'll create a new channel edge (just the info) and insert it
+	// into the database.
+	var (
+		pub1 [33]byte
+		pub2 [33]byte
+	)
+	copy(pub1[:], priv1.PubKey().SerializeCompressed())
+	copy(pub2[:], priv2.PubKey().SerializeCompressed())
+
+	fundingTx, _, chanID, err := createChannelEdge(ctx,
+		bitcoinKey1.SerializeCompressed(),
+		bitcoinKey2.SerializeCompressed(),
+		10000, 500)
+	if err != nil {
+		t.Fatalf("unable to create channel edge: %v", err)
+	}
+	fundingBlock := &wire.MsgBlock{
+		Transactions: []*wire.MsgTx{fundingTx},
+	}
+	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
+
+	edge := &channeldb.ChannelEdgeInfo{
+		ChannelID:        chanID.ToUint64(),
+		NodeKey1Bytes:    pub1,
+		NodeKey2Bytes:    pub2,
+		BitcoinKey1Bytes: pub1,
+		BitcoinKey2Bytes: pub2,
+		AuthProof:        nil,
+	}
+	if err := ctx.router.AddEdge(edge); err != nil {
+		t.Fatalf("unable to add edge: %v", err)
+	}
+
+	// Now that the edge has been inserted, query is the router already
+	// knows of the edge should return true.
+	if !ctx.router.IsKnownEdge(*chanID) {
+		t.Fatalf("router should detect edge as known")
+	}
+}
+
+// TestIsStaleEdgePolicy tests that the IsStaleEdgePolicy properly detects
+// stale channel edge update announcements.
+func TestIsStaleEdgePolicy(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx, cleanUp, err := createTestCtx(startingBlockHeight,
+		basicGraphFilePath)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	// First, we'll create a new channel edge (just the info) and insert it
+	// into the database.
+	var (
+		pub1 [33]byte
+		pub2 [33]byte
+	)
+	copy(pub1[:], priv1.PubKey().SerializeCompressed())
+	copy(pub2[:], priv2.PubKey().SerializeCompressed())
+
+	fundingTx, _, chanID, err := createChannelEdge(ctx,
+		bitcoinKey1.SerializeCompressed(),
+		bitcoinKey2.SerializeCompressed(),
+		10000, 500)
+	if err != nil {
+		t.Fatalf("unable to create channel edge: %v", err)
+	}
+	fundingBlock := &wire.MsgBlock{
+		Transactions: []*wire.MsgTx{fundingTx},
+	}
+	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
+
+	// If we query for staleness before adding the edge, we should get
+	// false.
+	updateTimeStamp := time.Unix(123, 0)
+	if ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 0) {
+		t.Fatalf("router failed to detect fresh edge policy")
+	}
+	if ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 1) {
+		t.Fatalf("router failed to detect fresh edge policy")
+	}
+
+	edge := &channeldb.ChannelEdgeInfo{
+		ChannelID:        chanID.ToUint64(),
+		NodeKey1Bytes:    pub1,
+		NodeKey2Bytes:    pub2,
+		BitcoinKey1Bytes: pub1,
+		BitcoinKey2Bytes: pub2,
+		AuthProof:        nil,
+	}
+	if err := ctx.router.AddEdge(edge); err != nil {
+		t.Fatalf("unable to add edge: %v", err)
+	}
+
+	// We'll also add two edge policies, one for each direction.
+	edgePolicy := &channeldb.ChannelEdgePolicy{
+		SigBytes:                  testSig.Serialize(),
+		ChannelID:                 edge.ChannelID,
+		LastUpdate:                updateTimeStamp,
+		TimeLockDelta:             10,
+		MinHTLC:                   1,
+		FeeBaseMSat:               10,
+		FeeProportionalMillionths: 10000,
+	}
+	edgePolicy.Flags = 0
+	if err := ctx.router.UpdateEdge(edgePolicy); err != nil {
+		t.Fatalf("unable to update edge policy: %v", err)
+	}
+
+	edgePolicy = &channeldb.ChannelEdgePolicy{
+		SigBytes:                  testSig.Serialize(),
+		ChannelID:                 edge.ChannelID,
+		LastUpdate:                updateTimeStamp,
+		TimeLockDelta:             10,
+		MinHTLC:                   1,
+		FeeBaseMSat:               10,
+		FeeProportionalMillionths: 10000,
+	}
+	edgePolicy.Flags = 1
+	if err := ctx.router.UpdateEdge(edgePolicy); err != nil {
+		t.Fatalf("unable to update edge policy: %v", err)
+	}
+
+	// Now that the edges have been added, an identical (chanID, flag,
+	// timestamp) tuple for each edge should be detected as a stale edge.
+	if !ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 0) {
+		t.Fatalf("router failed to detect stale edge policy")
+	}
+	if !ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 1) {
+		t.Fatalf("router failed to detect stale edge policy")
+	}
+
+	// If we now update the timestamp for both edges, the router should
+	// detect that this tuple represents a fresh edge.
+	updateTimeStamp = time.Unix(9999, 0)
+	if ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 0) {
+		t.Fatalf("router failed to detect fresh edge policy")
+	}
+	if ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 1) {
+		t.Fatalf("router failed to detect fresh edge policy")
 	}
 }

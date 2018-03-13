@@ -8,7 +8,8 @@ import (
 	"net"
 	"sync"
 
-	"github.com/boltdb/bolt"
+	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/roasbeef/btcd/btcec"
@@ -33,7 +34,7 @@ var (
 	openChannelBucket = []byte("open-chan-bucket")
 
 	// chanInfoKey can be accessed within the bucket for a channel
-	// (identified by it's chanPoint). This key stores all the static
+	// (identified by its chanPoint). This key stores all the static
 	// information for a channel which is decided at the end of  the
 	// funding flow.
 	chanInfoKey = []byte("chan-info-key")
@@ -65,6 +66,12 @@ var (
 	// channel closure. This key should be accessed from within the
 	// sub-bucket of a target channel, identified by its channel point.
 	revocationLogBucket = []byte("revocation-log-key")
+
+	// fwdPackageLogBucket is a bucket that stores the locked-in htlcs after
+	// having received a revocation from the remote party. The keys in this
+	// bucket represent the remote height at which these htlcs were
+	// accepted.
+	fwdPackageLogBucket = []byte("fwd-package-log-key")
 )
 
 var (
@@ -85,6 +92,11 @@ var (
 	// each time we write a new state in order to be properly fault
 	// tolerant.
 	ErrNoPendingCommit = fmt.Errorf("no pending commits found")
+
+	// ErrInvalidCircuitKeyLen signals that a circuit key could not be
+	// decoded because the byte slice is of an invalid length.
+	ErrInvalidCircuitKeyLen = fmt.Errorf(
+		"length of serialized circuit key must be 16 bytes")
 )
 
 // ChannelType is an enum-like type that describes one of several possible
@@ -109,7 +121,7 @@ const (
 )
 
 // ChannelConstraints represents a set of constraints meant to allow a node to
-// limit their exposure, enact flow control and ensure that all HTLC's are
+// limit their exposure, enact flow control and ensure that all HTLCs are
 // economically relevant This struct will be mirrored for both sides of the
 // channel, as each side will enforce various constraints that MUST be adhered
 // to for the life time of the channel. The parameters for each of these
@@ -121,27 +133,28 @@ type ChannelConstraints struct {
 	// as an actual output, but is instead burned to miner's fees.
 	DustLimit btcutil.Amount
 
-	// MaxPendingAmount is the maximum pending HTLC value that can be
-	// present within the channel at a particular time. This value is set
-	// by the initiator of the channel and must be upheld at all times.
-	MaxPendingAmount lnwire.MilliSatoshi
-
-	// ChanReserve is an absolute reservation on the channel for this
-	// particular node. This means that the current settled balance for
-	// this node CANNOT dip below the reservation amount. This acts as a
-	// defense against costless attacks when either side no longer has any
-	// skin in the game.
+	// ChanReserve is an absolute reservation on the channel for the
+	// owner of this set of constraints. This means that the current
+	// settled balance for this node CANNOT dip below the reservation
+	// amount. This acts as a defense against costless attacks when
+	// either side no longer has any skin in the game.
 	ChanReserve btcutil.Amount
 
-	// MinHTLC is the minimum HTLC accepted for a direction of the channel.
-	// If any HTLC's below this amount are offered, then the HTLC will be
-	// rejected. This, in tandem with the dust limit allows a node to
-	// regulate the smallest HTLC that it deems economically relevant.
+	// MaxPendingAmount is the maximum pending HTLC value that the
+	// owner of these constraints can offer the remote node at a
+	// particular time.
+	MaxPendingAmount lnwire.MilliSatoshi
+
+	// MinHTLC is the minimum HTLC value that the the owner of these
+	// constraints can offer the remote node. If any HTLCs below this
+	// amount are offered, then the HTLC will be rejected. This, in
+	// tandem with the dust limit allows a node to regulate the
+	// smallest HTLC that it deems economically relevant.
 	MinHTLC lnwire.MilliSatoshi
 
-	// MaxAcceptedHtlcs is the maximum amount of HTLC's that are to be
-	// accepted by the owner of this set of constraints. This allows each
-	// node to limit their over all exposure to HTLC's that may need to be
+	// MaxAcceptedHtlcs is the maximum number of HTLCs that the owner of
+	// this set of constraints can offer the remote node. This allows each
+	// node to limit their over all exposure to HTLCs that may need to be
 	// acted upon in the case of a unilateral channel closure or a contract
 	// breach.
 	MaxAcceptedHtlcs uint16
@@ -169,33 +182,33 @@ type ChannelConfig struct {
 
 	// MultiSigKey is the key to be used within the 2-of-2 output script
 	// for the owner of this channel config.
-	MultiSigKey *btcec.PublicKey
+	MultiSigKey keychain.KeyDescriptor
 
 	// RevocationBasePoint is the base public key to be used when deriving
 	// revocation keys for the remote node's commitment transaction. This
 	// will be combined along with a per commitment secret to derive a
 	// unique revocation key for each state.
-	RevocationBasePoint *btcec.PublicKey
+	RevocationBasePoint keychain.KeyDescriptor
 
 	// PaymentBasePoint is the base public key to be used when deriving
 	// the key used within the non-delayed pay-to-self output on the
 	// commitment transaction for a node. This will be combined with a
 	// tweak derived from the per-commitment point to ensure unique keys
 	// for each commitment transaction.
-	PaymentBasePoint *btcec.PublicKey
+	PaymentBasePoint keychain.KeyDescriptor
 
 	// DelayBasePoint is the base public key to be used when deriving the
 	// key used within the delayed pay-to-self output on the commitment
 	// transaction for a node. This will be combined with a tweak derived
 	// from the per-commitment point to ensure unique keys for each
 	// commitment transaction.
-	DelayBasePoint *btcec.PublicKey
+	DelayBasePoint keychain.KeyDescriptor
 
 	// HtlcBasePoint is the base public key to be used when deriving the
 	// local HTLC key. The derived key (combined with the tweak derived
 	// from the per-commitment point) is used within the "to self" clause
 	// within any HTLC output scripts.
-	HtlcBasePoint *btcec.PublicKey
+	HtlcBasePoint keychain.KeyDescriptor
 }
 
 // ChannelCommitment is a snapshot of the commitment state at a particular
@@ -248,6 +261,10 @@ type ChannelCommitment struct {
 	// the commitment transaction for the entire duration of the channel's
 	// lifetime. This field may be updated during normal operation of the
 	// channel as on-chain conditions change.
+	//
+	// TODO(halseth): make this SatPerKWeight. Cannot be done atm because
+	// this will cause the import cycle lnwallet<->channeldb. Fee
+	// estimation stuff should be in its own package.
 	FeePerKw btcutil.Amount
 
 	// CommitTx is the latest version of the commitment state, broadcast
@@ -265,7 +282,7 @@ type ChannelCommitment struct {
 	Htlcs []HTLC
 
 	// TODO(roasbeef): pending commit pointer?
-	//  * lets just walk thru
+	//  * lets just walk through
 }
 
 // OpenChannel encapsulates the persistent and dynamic state of an open channel
@@ -381,6 +398,19 @@ type OpenChannel struct {
 	// implementation of secret store is shachain store.
 	RevocationStore shachain.Store
 
+	// Packager is used to create and update forwarding packages for this
+	// channel, which encodes all necessary information to recover from
+	// failures and reforward HTLCs that were not fully processed.
+	Packager FwdPackager
+
+	// FundingTxn is the transaction containing this channel's funding
+	// outpoint. Upon restarts, this txn will be rebroadcast if the channel
+	// is found to be pending.
+	//
+	// NOTE: This value will only be populated for single-funder channels
+	// for which we are the initiator.
+	FundingTxn *wire.MsgTx
+
 	// TODO(roasbeef): eww
 	Db *DB
 
@@ -399,7 +429,7 @@ func (c *OpenChannel) FullSync() error {
 	return c.Db.Update(c.fullSync)
 }
 
-// updateChanBucket is a helper function that returns a writeable bucket that a
+// updateChanBucket is a helper function that returns a writable bucket that a
 // channel's data resides in given: the public key for the node, the outpoint,
 // and the chainhash that the channel resides on.
 func updateChanBucket(tx *bolt.Tx, nodeKey *btcec.PublicKey,
@@ -474,7 +504,7 @@ func readChanBucket(tx *bolt.Tx, nodeKey *btcec.PublicKey,
 	}
 
 	// With the bucket for the node fetched, we can now go down another
-	// level, for this channel iteslf.
+	// level, for this channel itself.
 	var chanPointBuf bytes.Buffer
 	chanPointBuf.Grow(outPointSize)
 	if err := writeOutpoint(&chanPointBuf, outPoint); err != nil {
@@ -609,6 +639,8 @@ func fetchOpenChannel(chanBucket *bolt.Bucket,
 		return nil, fmt.Errorf("unable to fetch chan revocations: %v", err)
 	}
 
+	channel.Packager = NewChannelPackager(channel.ShortChanID)
+
 	return channel, nil
 }
 
@@ -623,7 +655,7 @@ func fetchOpenChannel(chanBucket *bolt.Bucket,
 //
 // TODO(roasbeef): addr param should eventually be a lnwire.NetAddress type
 // that includes service bits.
-func (c *OpenChannel) SyncPending(addr *net.TCPAddr, pendingHeight uint32) error {
+func (c *OpenChannel) SyncPending(addr net.Addr, pendingHeight uint32) error {
 	c.Lock()
 	defer c.Unlock()
 
@@ -746,7 +778,12 @@ type HTLC struct {
 	LogIndex uint64
 }
 
-func serializeHtlcs(b io.Writer, htlcs []HTLC) error {
+// SerializeHtlcs writes out the passed set of HTLC's into the passed writer
+// using the current default on-disk serialization format.
+//
+// NOTE: This API is NOT stable, the on-disk format will likely change in the
+// future.
+func SerializeHtlcs(b io.Writer, htlcs ...HTLC) error {
 	numHtlcs := uint16(len(htlcs))
 	if err := writeElement(b, numHtlcs); err != nil {
 		return err
@@ -765,7 +802,13 @@ func serializeHtlcs(b io.Writer, htlcs []HTLC) error {
 	return nil
 }
 
-func deserializeHtlcs(r io.Reader) ([]HTLC, error) {
+// DeserializeHtlcs attempts to read out a slice of HTLC's from the passed
+// io.Reader. The bytes within the passed reader MUST have been previously
+// written to using the SerializeHtlcs function.
+//
+// NOTE: This API is NOT stable, the on-disk format will likely change in the
+// future.
+func DeserializeHtlcs(r io.Reader) ([]HTLC, error) {
 	var numHtlcs uint16
 	if err := readElement(r, &numHtlcs); err != nil {
 		return nil, err
@@ -820,6 +863,84 @@ type LogUpdate struct {
 	UpdateMsg lnwire.Message
 }
 
+// Encode writes a log update to the provided io.Writer.
+func (l *LogUpdate) Encode(w io.Writer) error {
+	return writeElements(w, l.LogIndex, l.UpdateMsg)
+}
+
+// Decode reads a log update from the provided io.Reader.
+func (l *LogUpdate) Decode(r io.Reader) error {
+	return readElements(r, &l.LogIndex, &l.UpdateMsg)
+}
+
+// CircuitKey is used by a channel to uniquely identify the HTLCs it receives
+// from the switch, and is used to purge our in-memory state of HTLCs that have
+// already been processed by a link. Two list of CircuitKeys are included in
+// each CommitDiff to allow a link to determine which in-memory htlcs directed
+// the opening and closing of circuits in the switch's circuit map.
+type CircuitKey struct {
+	// ChanID is the short chanid indicating the HTLC's origin.
+	//
+	// NOTE: It is fine for this value to be blank, as this indicates a
+	// locally-sourced payment.
+	ChanID lnwire.ShortChannelID
+
+	// HtlcID is the unique htlc index predominately assigned by links,
+	// though can also be assigned by switch in the case of locally-sourced
+	// payments.
+	HtlcID uint64
+}
+
+// SetBytes deserializes the given bytes into this CircuitKey.
+func (k *CircuitKey) SetBytes(bs []byte) error {
+	if len(bs) != 16 {
+		return ErrInvalidCircuitKeyLen
+	}
+
+	k.ChanID = lnwire.NewShortChanIDFromInt(
+		binary.BigEndian.Uint64(bs[:8]))
+	k.HtlcID = binary.BigEndian.Uint64(bs[8:])
+
+	return nil
+}
+
+// Bytes returns the serialized bytes for this circuit key.
+func (k CircuitKey) Bytes() []byte {
+	var bs = make([]byte, 16)
+	binary.BigEndian.PutUint64(bs[:8], k.ChanID.ToUint64())
+	binary.BigEndian.PutUint64(bs[8:], k.HtlcID)
+	return bs
+}
+
+// Encode writes a CircuitKey to the provided io.Writer.
+func (k *CircuitKey) Encode(w io.Writer) error {
+	var scratch [16]byte
+	binary.BigEndian.PutUint64(scratch[:8], k.ChanID.ToUint64())
+	binary.BigEndian.PutUint64(scratch[8:], k.HtlcID)
+
+	_, err := w.Write(scratch[:])
+	return err
+}
+
+// Decode reads a CircuitKey from the provided io.Reader.
+func (k *CircuitKey) Decode(r io.Reader) error {
+	var scratch [16]byte
+
+	if _, err := io.ReadFull(r, scratch[:]); err != nil {
+		return err
+	}
+	k.ChanID = lnwire.NewShortChanIDFromInt(
+		binary.BigEndian.Uint64(scratch[:8]))
+	k.HtlcID = binary.BigEndian.Uint64(scratch[8:])
+
+	return nil
+}
+
+// String returns a string representation of the CircuitKey.
+func (k CircuitKey) String() string {
+	return fmt.Sprintf("(Chan ID=%s, HTLC ID=%d)", k.ChanID, k.HtlcID)
+}
+
 // CommitDiff represents the delta needed to apply the state transition between
 // two subsequent commitment states. Given state N and state N+1, one is able
 // to apply the set of messages contained within the CommitDiff to N to arrive
@@ -843,6 +964,36 @@ type CommitDiff struct {
 	// within this message should properly cover the new commitment state
 	// and also the HTLC's within the new commitment state.
 	CommitSig *lnwire.CommitSig
+
+	// OpenedCircuitKeys is a set of unique identifiers for any downstream
+	// Add packets included in this commitment txn. After a restart, this
+	// set of htlcs is acked from the link's incoming mailbox to ensure
+	// there isn't an attempt to re-add them to this commitment txn.
+	OpenedCircuitKeys []CircuitKey
+
+	// ClosedCircuitKeys records the unique identifiers for any settle/fail
+	// packets that were resolved by this commitment txn. After a restart,
+	// this is used to ensure those circuits are removed from the circuit
+	// map, and the downstream packets in the link's mailbox are removed.
+	ClosedCircuitKeys []CircuitKey
+
+	// AddAcks specifies the locations (commit height, pkg index) of any
+	// Adds that were failed/settled in this commit diff. This will ack
+	// entries in *this* channel's forwarding packages.
+	//
+	// NOTE: This value is not serialized, it is used to atomically mark the
+	// resolution of adds, such that they will not be reprocessed after a
+	// restart.
+	AddAcks []AddRef
+
+	// SettleFailAcks specifies the locations (chan id, commit height, pkg
+	// index) of any Settles or Fails that were locked into this commit
+	// diff, and originate from *another* channel, i.e. the outgoing link.
+	//
+	// NOTE: This value is not serialized, it is used to atomically acks
+	// settles and fails from the forwarding packages of other channels,
+	// such that they will not be reforwarded internally after a restart.
+	SettleFailAcks []SettleFailRef
 }
 
 func serializeCommitDiff(w io.Writer, diff *CommitDiff) error {
@@ -866,8 +1017,33 @@ func serializeCommitDiff(w io.Writer, diff *CommitDiff) error {
 		}
 	}
 
+	numOpenRefs := uint16(len(diff.OpenedCircuitKeys))
+	if err := binary.Write(w, byteOrder, numOpenRefs); err != nil {
+		return err
+	}
+
+	for _, openRef := range diff.OpenedCircuitKeys {
+		err := writeElements(w, openRef.ChanID, openRef.HtlcID)
+		if err != nil {
+			return err
+		}
+	}
+
+	numClosedRefs := uint16(len(diff.ClosedCircuitKeys))
+	if err := binary.Write(w, byteOrder, numClosedRefs); err != nil {
+		return err
+	}
+
+	for _, closedRef := range diff.ClosedCircuitKeys {
+		err := writeElements(w, closedRef.ChanID, closedRef.HtlcID)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
+
 func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 	var (
 		d   CommitDiff
@@ -899,6 +1075,36 @@ func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 		}
 	}
 
+	var numOpenRefs uint16
+	if err := binary.Read(r, byteOrder, &numOpenRefs); err != nil {
+		return nil, err
+	}
+
+	d.OpenedCircuitKeys = make([]CircuitKey, numOpenRefs)
+	for i := 0; i < int(numOpenRefs); i++ {
+		err := readElements(r,
+			&d.OpenedCircuitKeys[i].ChanID,
+			&d.OpenedCircuitKeys[i].HtlcID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var numClosedRefs uint16
+	if err := binary.Read(r, byteOrder, &numClosedRefs); err != nil {
+		return nil, err
+	}
+
+	d.ClosedCircuitKeys = make([]CircuitKey, numClosedRefs)
+	for i := 0; i < int(numClosedRefs); i++ {
+		err := readElements(r,
+			&d.ClosedCircuitKeys[i].ChanID,
+			&d.ClosedCircuitKeys[i].HtlcID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return &d, nil
 }
 
@@ -913,10 +1119,30 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 	defer c.Unlock()
 
 	return c.Db.Update(func(tx *bolt.Tx) error {
-		// First, we'll grab the writeable bucket where this channel's
+		// First, we'll grab the writable bucket where this channel's
 		// data resides.
 		chanBucket, err := updateChanBucket(tx, c.IdentityPub,
 			&c.FundingOutpoint, c.ChainHash)
+		if err != nil {
+			return err
+		}
+
+		// Any outgoing settles and fails necessarily have a
+		// corresponding adds in this channel's forwarding packages.
+		// Mark all of these as being fully processed in our forwarding
+		// package, which prevents us from reprocessing them after
+		// startup.
+		err = c.Packager.AckAddHtlcs(tx, diff.AddAcks...)
+		if err != nil {
+			return err
+		}
+
+		// Additionally, we ack from any fails or settles that are
+		// persisted in another channel's forwarding package. This
+		// prevents the same fails and settles from being retransmitted
+		// after restarts. The actual fail or settle we need to
+		// propagate to the remote party is now in the commit diff.
+		err = c.Packager.AckSettleFails(tx, diff.SettleFailAcks...)
 		if err != nil {
 			return err
 		}
@@ -1004,15 +1230,15 @@ func (c *OpenChannel) InsertNextRevocation(revKey *btcec.PublicKey) error {
 // this log can be consulted in order to reconstruct the state needed to
 // rectify the situation. This method will add the current commitment for the
 // remote party to the revocation log, and promote the current pending
-// commitment to the current remove commitment.
-func (c *OpenChannel) AdvanceCommitChainTail() error {
+// commitment to the current remote commitment.
+func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg) error {
 	c.Lock()
 	defer c.Unlock()
 
 	var newRemoteCommit *ChannelCommitment
 
 	err := c.Db.Update(func(tx *bolt.Tx) error {
-		chanBucket, err := readChanBucket(tx, c.IdentityPub,
+		chanBucket, err := updateChanBucket(tx, c.IdentityPub,
 			&c.FundingOutpoint, c.ChainHash)
 		if err != nil {
 			return err
@@ -1064,7 +1290,15 @@ func (c *OpenChannel) AdvanceCommitChainTail() error {
 			return err
 		}
 
+		// Lastly, we write the forwarding package to disk so that we
+		// can properly recover from failures and reforward HTLCs that
+		// have not received a corresponding settle/fail.
+		if err := c.Packager.AddFwdPkg(tx, fwdPkg); err != nil {
+			return err
+		}
+
 		newRemoteCommit = &newCommit.Commitment
+
 		return nil
 	})
 	if err != nil {
@@ -1079,6 +1313,40 @@ func (c *OpenChannel) AdvanceCommitChainTail() error {
 	return nil
 }
 
+// LoadFwdPkgs scans the forwarding log for any packages that haven't been
+// processed, and returns their deserialized log updates in map indexed by the
+// remote commitment height at which the updates were locked in.
+func (c *OpenChannel) LoadFwdPkgs() ([]*FwdPkg, error) {
+	var fwdPkgs []*FwdPkg
+	if err := c.Db.View(func(tx *bolt.Tx) error {
+		var err error
+		fwdPkgs, err = c.Packager.LoadFwdPkgs(tx)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+
+	return fwdPkgs, nil
+}
+
+// SetFwdFilter atomically sets the forwarding filter for the forwarding package
+// identified by `height`.
+func (c *OpenChannel) SetFwdFilter(height uint64, fwdFilter *PkgFilter) error {
+	return c.Db.Update(func(tx *bolt.Tx) error {
+		return c.Packager.SetFwdFilter(tx, height, fwdFilter)
+	})
+}
+
+// RemoveFwdPkg atomically removes a forwarding package specified by the remote
+// commitment height.
+//
+// NOTE: This method should only be called on packages marked FwdStateCompleted.
+func (c *OpenChannel) RemoveFwdPkg(height uint64) error {
+	return c.Db.Update(func(tx *bolt.Tx) error {
+		return c.Packager.RemovePkg(tx, height)
+	})
+}
+
 // RevocationLogTail returns the "tail", or the end of the current revocation
 // log. This entry represents the last previous state for the remote node's
 // commitment chain. The ChannelDelta returned by this method will always lag
@@ -1088,7 +1356,7 @@ func (c *OpenChannel) RevocationLogTail() (*ChannelCommitment, error) {
 	c.RLock()
 	defer c.RUnlock()
 
-	// If we haven't created any state updates yet, then we'll exit erly as
+	// If we haven't created any state updates yet, then we'll exit early as
 	// there's nothing to be found on disk in the revocation bucket.
 	if c.RemoteCommitment.CommitHeight == 0 {
 		return nil, nil
@@ -1110,7 +1378,7 @@ func (c *OpenChannel) RevocationLogTail() (*ChannelCommitment, error) {
 		// Once we have the bucket that stores the revocation log from
 		// this channel, we'll jump to the _last_ key in bucket. As we
 		// store the update number on disk in a big-endian format,
-		// this'll retrieve the latest entry.
+		// this will retrieve the latest entry.
 		cursor := logBucket.Cursor()
 		_, tailLogEntry := cursor.Last()
 		logEntryReader := bytes.NewReader(tailLogEntry)
@@ -1238,6 +1506,11 @@ type ChannelCloseSummary struct {
 	// and is used as a unique identifier for the channel.
 	ChanPoint wire.OutPoint
 
+	// ShortChanID encodes the exact location in the chain in which the
+	// channel was initially confirmed. This includes: the block height,
+	// transaction index, and the output within the target transaction.
+	ShortChanID lnwire.ShortChannelID
+
 	// ChainHash is the hash of the genesis block that this channel resides
 	// within.
 	ChainHash chainhash.Hash
@@ -1282,8 +1555,6 @@ type ChannelCloseSummary struct {
 	// closed, they'll stay marked as "pending" until _all_ the pending
 	// funds have been swept.
 	IsPending bool
-
-	// TODO(roasbeef): also store short_chan_id?
 }
 
 // CloseChannel closes a previously active Lightning channel. Closing a channel
@@ -1423,6 +1694,48 @@ func (c *OpenChannel) Snapshot() *ChannelSnapshot {
 	return snapshot
 }
 
+// LatestCommitments returns the two latest commitments for both the local and
+// remote party. These commitments are read from disk to ensure that only the
+// latest fully committed state is returned. The first commitment returned is
+// the local commitment, and the second returned is the remote commitment.
+func (c *OpenChannel) LatestCommitments() (*ChannelCommitment, *ChannelCommitment, error) {
+	err := c.Db.View(func(tx *bolt.Tx) error {
+		chanBucket, err := readChanBucket(tx, c.IdentityPub,
+			&c.FundingOutpoint, c.ChainHash)
+		if err != nil {
+			return err
+		}
+
+		return fetchChanCommitments(chanBucket, c)
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return &c.LocalCommitment, &c.RemoteCommitment, nil
+}
+
+// RemoteRevocationStore returns the most up to date commitment version of the
+// revocation storage tree for the remote party. This method can be used when
+// acting on a possible contract breach to ensure, that the caller has the most
+// up to date information required to deliver justice.
+func (c *OpenChannel) RemoteRevocationStore() (shachain.Store, error) {
+	err := c.Db.View(func(tx *bolt.Tx) error {
+		chanBucket, err := readChanBucket(tx, c.IdentityPub,
+			&c.FundingOutpoint, c.ChainHash)
+		if err != nil {
+			return err
+		}
+
+		return fetchChanRevocationState(chanBucket, c)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return c.RevocationStore, nil
+}
+
 func putChannelCloseSummary(tx *bolt.Tx, chanID []byte,
 	summary *ChannelCloseSummary) error {
 
@@ -1441,8 +1754,8 @@ func putChannelCloseSummary(tx *bolt.Tx, chanID []byte,
 
 func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
 	return writeElements(w,
-		cs.ChanPoint, cs.ChainHash, cs.ClosingTXID, cs.CloseHeight,
-		cs.RemotePub, cs.Capacity, cs.SettledBalance,
+		cs.ChanPoint, cs.ShortChanID, cs.ChainHash, cs.ClosingTXID,
+		cs.CloseHeight, cs.RemotePub, cs.Capacity, cs.SettledBalance,
 		cs.TimeLockedBalance, cs.CloseType, cs.IsPending,
 	)
 }
@@ -1468,8 +1781,8 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 	c := &ChannelCloseSummary{}
 
 	err := readElements(r,
-		&c.ChanPoint, &c.ChainHash, &c.ClosingTXID, &c.CloseHeight,
-		&c.RemotePub, &c.Capacity, &c.SettledBalance,
+		&c.ChanPoint, &c.ShortChanID, &c.ChainHash, &c.ClosingTXID,
+		&c.CloseHeight, &c.RemotePub, &c.Capacity, &c.SettledBalance,
 		&c.TimeLockedBalance, &c.CloseType, &c.IsPending,
 	)
 	if err != nil {
@@ -1490,6 +1803,13 @@ func putChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 		channel.TotalMSatReceived,
 	); err != nil {
 		return err
+	}
+
+	// For single funder channels that we initiated, write the funding txn.
+	if channel.ChanType == SingleFunder && channel.IsInitiator {
+		if err := writeElement(&w, channel.FundingTxn); err != nil {
+			return err
+		}
 	}
 
 	writeChanConfig := func(b io.Writer, c *ChannelConfig) error {
@@ -1520,7 +1840,7 @@ func serializeChanCommit(w io.Writer, c *ChannelCommitment) error {
 		return err
 	}
 
-	return serializeHtlcs(w, c.Htlcs)
+	return SerializeHtlcs(w, c.Htlcs...)
 }
 
 func putChanCommitment(chanBucket *bolt.Bucket, c *ChannelCommitment,
@@ -1593,6 +1913,13 @@ func fetchChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 		return err
 	}
 
+	// For single funder channels that we initiated, read the funding txn.
+	if channel.ChanType == SingleFunder && channel.IsInitiator {
+		if err := readElement(r, &channel.FundingTxn); err != nil {
+			return err
+		}
+	}
+
 	readChanConfig := func(b io.Reader, c *ChannelConfig) error {
 		return readElements(b,
 			&c.DustLimit, &c.MaxPendingAmount, &c.ChanReserve,
@@ -1609,6 +1936,8 @@ func fetchChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 		return err
 	}
 
+	channel.Packager = NewChannelPackager(channel.ShortChanID)
+
 	return nil
 }
 
@@ -1624,7 +1953,7 @@ func deserializeChanCommit(r io.Reader) (ChannelCommitment, error) {
 		return c, err
 	}
 
-	c.Htlcs, err = deserializeHtlcs(r)
+	c.Htlcs, err = DeserializeHtlcs(r)
 	if err != nil {
 		return c, err
 	}

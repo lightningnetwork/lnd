@@ -3,7 +3,6 @@ package channeldb
 import (
 	"bytes"
 	"net"
-	"reflect"
 	"testing"
 	"time"
 
@@ -16,7 +15,7 @@ func TestLinkNodeEncodeDecode(t *testing.T) {
 
 	cdb, cleanUp, err := makeTestDB()
 	if err != nil {
-		t.Fatalf("uanble to make test database: %v", err)
+		t.Fatalf("unable to make test database: %v", err)
 	}
 	defer cleanUp()
 
@@ -67,14 +66,13 @@ func TestLinkNodeEncodeDecode(t *testing.T) {
 			t.Fatalf("last seen timestamps don't match: expected %v got %v",
 				originalNodes[i].LastSeen.Unix(), node.LastSeen.Unix())
 		}
-		if !reflect.DeepEqual(originalNodes[i].Addresses,
-			node.Addresses) {
+		if originalNodes[i].Addresses[0].String() != node.Addresses[0].String() {
 			t.Fatalf("addresses don't match: expected %v, got %v",
 				originalNodes[i].Addresses, node.Addresses)
 		}
 	}
 
-	// Next, we'll excercise the methods to append additionall IP
+	// Next, we'll exercise the methods to append additional IP
 	// addresses, and also to update the last seen time.
 	if err := node1.UpdateLastSeen(time.Now()); err != nil {
 		t.Fatalf("unable to update last seen: %v", err)
@@ -83,7 +81,7 @@ func TestLinkNodeEncodeDecode(t *testing.T) {
 		t.Fatalf("unable to update addr: %v", err)
 	}
 
-	// Fetch the same node from the databse according to its public key.
+	// Fetch the same node from the database according to its public key.
 	node1DB, err := cdb.FetchLinkNode(pub1)
 	if err != nil {
 		t.Fatalf("unable to find node: %v", err)
@@ -96,7 +94,7 @@ func TestLinkNodeEncodeDecode(t *testing.T) {
 			node1.LastSeen.Unix(), node1DB.LastSeen.Unix())
 	}
 	if len(node1DB.Addresses) != 2 {
-		t.Fatalf("wrong length for node1 addrsses: expected %v, got %v",
+		t.Fatalf("wrong length for node1 addresses: expected %v, got %v",
 			2, len(node1DB.Addresses))
 	}
 	if node1DB.Addresses[0].String() != addr1.String() {

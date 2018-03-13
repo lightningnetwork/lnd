@@ -68,6 +68,9 @@ type OpenChannel struct {
 	// FeePerKiloWeight is the initial fee rate that the initiator suggests
 	// for both commitment transaction. This value is expressed in sat per
 	// kilo-weight.
+	//
+	// TODO(halseth): make SatPerKWeight when fee estimation is in own
+	// package. Currently this will cause an import cycle.
 	FeePerKiloWeight uint32
 
 	// CsvDelay is the number of blocks to use for the relative time lock

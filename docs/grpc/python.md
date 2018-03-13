@@ -44,7 +44,7 @@ Python gRPC.
 
 #### Imports and Client
 
-Everytime you use Python gRPC, you will have to import the generated rpc modules
+Every time you use Python gRPC, you will have to import the generated rpc modules
 and set up a channel and stub to your connect to your `lnd` node:
 
 ```python
@@ -86,7 +86,7 @@ for invoice in stub.SubscribeInvoices(request):
 Now, create an invoice for your node at `localhost:10009`and send a payment to
 it from another node.
 ```bash
-$ lncli addinvoice --value=100
+$ lncli addinvoice --amt=100
 {
 	"r_hash": <R_HASH>,
 	"pay_req": <PAY_REQ>

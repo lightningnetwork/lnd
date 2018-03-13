@@ -257,7 +257,7 @@ func TestSpecificationDeriveElement(t *testing.T) {
 					"but it's not", test.name)
 			}
 
-			// Generate element which we should get after deriviation.
+			// Generate element which we should get after derivation.
 			output, err := newElementFromStr(test.output, test.index)
 			if err != nil {
 				t.Fatal(err)

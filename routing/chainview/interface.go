@@ -7,7 +7,7 @@ import (
 
 // FilteredChainView represents a subscription to a certain subset of of the
 // UTXO set for a particular chain. This interface is useful from the point of
-// view of maintaining an up-to-date channel graph for the Lighting Network.
+// view of maintaining an up-to-date channel graph for the Lightning Network.
 // The subset of the UTXO to be subscribed is that of all the currently opened
 // channels. Each time a channel is closed (the output is spent), a
 // notification is to be sent allowing the graph to be pruned.

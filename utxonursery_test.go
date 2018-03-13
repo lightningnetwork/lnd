@@ -319,7 +319,7 @@ func init() {
 		if err != nil {
 			panic(fmt.Sprintf("unable to parse pub key during init: %v", err))
 		}
-		signDescriptors[i].PubKey = pk
+		signDescriptors[i].KeyDesc.PubKey = pk
 
 	}
 	for i := range kidOutputs {

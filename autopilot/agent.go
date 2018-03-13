@@ -10,7 +10,7 @@ import (
 	"github.com/roasbeef/btcutil"
 )
 
-// Config couples all the items that that an autopilot agent needs to function.
+// Config couples all the items that an autopilot agent needs to function.
 // All items within the struct MUST be populated for the Agent to be able to
 // carry out its duties.
 type Config struct {
@@ -40,6 +40,12 @@ type Config struct {
 	// will use to make decisions w.r.t channel allocation and placement
 	// within the graph.
 	Graph ChannelGraph
+
+	// MaxPendingOpens is the maximum number of pending channel
+	// establishment goroutines that can be lingering. We cap this value in
+	// order to control the level of parallelism caused by the autopiloit
+	// agent.
+	MaxPendingOpens uint16
 
 	// TODO(roasbeef): add additional signals from fee rates and revenue of
 	// currently opened channels
@@ -177,13 +183,17 @@ type chanOpenUpdate struct {
 	newChan Channel
 }
 
+// chanOpenFailureUpdate is a type of external state update that indicates
+// a previous channel open failed, and that it might be possible to try again.
+type chanOpenFailureUpdate struct{}
+
 // chanCloseUpdate is a type of external state update that indicates that the
 // backing Lightning Node has closed a previously open channel.
 type chanCloseUpdate struct {
 	closedChans []lnwire.ShortChannelID
 }
 
-// OnBalanceChange is a callback that should be executed each the balance of
+// OnBalanceChange is a callback that should be executed each time the balance of
 // the backing wallet changes.
 func (a *Agent) OnBalanceChange(delta btcutil.Amount) {
 	go func() {
@@ -203,6 +213,15 @@ func (a *Agent) OnChannelOpen(c Channel) {
 	}()
 }
 
+// OnChannelOpenFailure is a callback that should be executed when the
+// autopilot has attempted to open a channel, but failed. In this case we can
+// retry channel creation with a different node.
+func (a *Agent) OnChannelOpenFailure() {
+	go func() {
+		a.stateUpdates <- &chanOpenFailureUpdate{}
+	}()
+}
+
 // OnChannelClose is a callback that should be executed each time a prior
 // channel has been closed for any reason. This includes regular
 // closes, force closes, and channel breaches.
@@ -218,18 +237,21 @@ func (a *Agent) OnChannelClose(closedChans ...lnwire.ShortChannelID) {
 // channels open to, with the set of nodes that are pending new channels. This
 // ensures that the Agent doesn't attempt to open any "duplicate" channels to
 // the same node.
-func mergeNodeMaps(a map[NodeID]struct{},
-	b map[NodeID]Channel) map[NodeID]struct{} {
+func mergeNodeMaps(a map[NodeID]struct{}, b map[NodeID]struct{},
+	c map[NodeID]Channel) map[NodeID]struct{} {
 
-	c := make(map[NodeID]struct{}, len(a)+len(b))
+	res := make(map[NodeID]struct{}, len(a)+len(b)+len(c))
 	for nodeID := range a {
-		c[nodeID] = struct{}{}
+		res[nodeID] = struct{}{}
 	}
 	for nodeID := range b {
-		c[nodeID] = struct{}{}
+		res[nodeID] = struct{}{}
+	}
+	for nodeID := range c {
+		res[nodeID] = struct{}{}
 	}
 
-	return c
+	return res
 }
 
 // mergeChanState merges the Agent's set of active channels, with the set of
@@ -253,7 +275,7 @@ func mergeChanState(pendingChans map[NodeID]Channel,
 
 // controller implements the closed-loop control system of the Agent. The
 // controller will make a decision w.r.t channel placement within the graph
-// based on: it's current internal state of the set of active channels open,
+// based on: its current internal state of the set of active channels open,
 // and external state changes as a result of decisions it  makes w.r.t channel
 // allocation, or attributes affecting its control loop being updated by the
 // backing Lightning Node.
@@ -267,12 +289,26 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 	// TODO(roasbeef): do we in fact need to maintain order?
 	//  * use sync.Cond if so
 
+	// failedNodes lists nodes that we've previously attempted to initiate
+	// channels with, but didn't succeed.
+	failedNodes := make(map[NodeID]struct{})
+
 	// pendingOpens tracks the channels that we've requested to be
 	// initiated, but haven't yet been confirmed as being fully opened.
 	// This state is required as otherwise, we may go over our allotted
 	// channel limit, or open multiple channels to the same node.
 	pendingOpens := make(map[NodeID]Channel)
 	var pendingMtx sync.Mutex
+
+	updateBalance := func() {
+		newBalance, err := a.cfg.WalletBalance()
+		if err != nil {
+			log.Warnf("unable to update wallet balance: %v", err)
+			return
+		}
+
+		a.totalBalance = newBalance
+	}
 
 	// TODO(roasbeef): add 10-minute wake up timer
 	for {
@@ -294,6 +330,13 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 
 				a.totalBalance += update.balanceDelta
 
+			// The channel we tried to open previously failed for
+			// whatever reason.
+			case *chanOpenFailureUpdate:
+				log.Debug("Retrying after previous channel open failure.")
+
+				updateBalance()
+
 			// A new channel has been opened successfully. This was
 			// either opened by the Agent, or an external system
 			// that is able to drive the Lightning Node.
@@ -309,6 +352,8 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 				delete(pendingOpens, newChan.Node)
 				pendingMtx.Unlock()
 
+				updateBalance()
+
 			// A channel has been closed, this may free up an
 			// available slot, triggering a new channel update.
 			case *chanCloseUpdate:
@@ -319,6 +364,8 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 				for _, closedChan := range update.closedChans {
 					delete(a.chanState, closedChan)
 				}
+
+				updateBalance()
 			}
 
 			pendingMtx.Lock()
@@ -337,21 +384,22 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 			// consult our channel attachment heuristic to
 			// determine if we should open up any additional
 			// channels or modify existing channels.
-			availableFunds, needMore := a.cfg.Heuristic.NeedMoreChans(
+			availableFunds, numChans, needMore := a.cfg.Heuristic.NeedMoreChans(
 				totalChans, a.totalBalance,
 			)
 			if !needMore {
 				continue
 			}
 
-			log.Infof("Triggering attachment directive dispatch")
+			log.Infof("Triggering attachment directive dispatch, "+
+				"total_funds=%v", a.totalBalance)
 
 			// We're to attempt an attachment so we'll o obtain the
 			// set of nodes that we currently have channels with so
 			// we avoid duplicate edges.
 			connectedNodes := a.chanState.ConnectedNodes()
 			pendingMtx.Lock()
-			nodesToSkip := mergeNodeMaps(connectedNodes, pendingOpens)
+			nodesToSkip := mergeNodeMaps(connectedNodes, failedNodes, pendingOpens)
 			pendingMtx.Unlock()
 
 			// If we reach this point, then according to our
@@ -362,7 +410,7 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 			// for us to use.
 			chanCandidates, err := a.cfg.Heuristic.Select(
 				a.cfg.Self, a.cfg.Graph, availableFunds,
-				nodesToSkip,
+				numChans, nodesToSkip,
 			)
 			if err != nil {
 				log.Errorf("Unable to select candidates for "+
@@ -385,6 +433,21 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 			// top of our controller loop.
 			pendingMtx.Lock()
 			for _, chanCandidate := range chanCandidates {
+				// Before we proceed, we'll check to see if
+				// this attempt would take us past the total
+				// number of allowed pending opens. If so, then
+				// we'll skip this round and wait for an
+				// attempt to either fail or succeed.
+				if uint16(len(pendingOpens))+1 >
+					a.cfg.MaxPendingOpens {
+
+					log.Debugf("Reached cap of %v pending "+
+						"channel opens, will retry "+
+						"after success/failure",
+						a.cfg.MaxPendingOpens)
+					continue
+				}
+
 				nID := NewNodeID(chanCandidate.PeerKey)
 				pendingOpens[nID] = Channel{
 					Capacity: chanCandidate.ChanAmt,
@@ -392,8 +455,10 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 				}
 
 				go func(directive AttachmentDirective) {
+
 					pub := directive.PeerKey
 					err := a.cfg.ChanController.OpenChannel(
+
 						directive.PeerKey,
 						directive.ChanAmt,
 						directive.Addrs,
@@ -410,8 +475,16 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 						pendingMtx.Lock()
 						nID := NewNodeID(directive.PeerKey)
 						delete(pendingOpens, nID)
+
+						// Mark this node as failed so we don't
+						// attempt it again.
+						failedNodes[nID] = struct{}{}
 						pendingMtx.Unlock()
 
+						// Trigger the autopilot controller to
+						// re-evaluate everything and possibly
+						// retry with a different node.
+						a.OnChannelOpenFailure()
 					}
 
 				}(chanCandidate)

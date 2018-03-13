@@ -219,6 +219,35 @@ const (
 	//      - witness_script (to_local_script)
 	ToLocalPenaltyWitnessSize = 1 + 1 + 73 + 1 + 1 + ToLocalScriptSize
 
+	// SecondLevelHtlcScriptSize 73 bytes
+	//      - OP_IF: 1 byte
+	//          - OP_DATA: 1 byte
+	//          - revoke_key: 33 bytes
+	//      - OP_ELSE: 1 byte
+	//          - csv_delay: 1 byte
+	//          - OP_CHECKSEQUENCEVERIFY: 1 byte
+	//          - OP_DROP: 1 byte
+	//          - delay_key: 33 bytes
+	//      - OP_ENDIF: 1 byte
+	//      - OP_CHECKSIG: 1 byte
+	SecondLevelHtlcScriptSize = 73
+
+	// SecondLevelHtlcPenaltyWitnessSize 149 bytes
+	//  - number_of_witness_elements: 1 byte
+	//  - revoke_sig_length: 1 byte
+	//  - revoke_sig: 73 bytes
+	//  - OP_TRUE: 1 byte
+	//  - witness_script (second_level_script_size)
+	SecondLevelHtlcPenaltyWitnessSize = 1 + 1 + 73 + 1 + SecondLevelHtlcScriptSize
+
+	// SecondLevelHtlcSuccessWitnessSize 149 bytes
+	//  - number_of_witness_elements: 1 byte
+	//  - success_sig_length: 1 byte
+	//  - success_sig: 73 bytes
+	//  - nil_length: 1 byte
+	//  - witness_script (second_level_script_size)
+	SecondLevelHtlcSuccessWitnessSize = 1 + 1 + 73 + 1 + SecondLevelHtlcScriptSize
+
 	// AcceptedHtlcScriptSize 139 bytes
 	//      - OP_DUP: 1 byte
 	//      - OP_HASH160: 1 byte
@@ -256,6 +285,13 @@ const (
 	//      - OP_ENDIF: 1 byte
 	AcceptedHtlcScriptSize = 3*1 + 20 + 5*1 + 33 + 7*1 + 20 + 4*1 +
 		33 + 5*1 + 4 + 5*1
+
+	// AcceptedHtlcTimeoutWitnessSize 214
+	//  - number_of_witness_elements: 1 byte
+	//  - sender_sig: 73 bytes
+	//  - nil_length: 1 byte
+	//  - witness_script: (accepted_htlc_script)
+	AcceptedHtlcTimeoutWitnessSize = 1 + 73 + 1 + AcceptedHtlcScriptSize
 
 	// AcceptedHtlcSuccessWitnessSize 325 bytes
 	//    - number_of_witness_elements: 1 byte
@@ -314,16 +350,6 @@ const (
 	//      - OP_ENDIF: 1 byte
 	OfferedHtlcScriptSize = 3*1 + 20 + 5*1 + 33 + 10*1 + 33 + 5*1 + 20 + 4*1
 
-	// OfferedHtlcWitnessSize 243 bytes
-	//    - number_of_witness_elements: 1 byte
-	//    - revocation_sig_length: 1 byte
-	//    - revocation_sig: 73 bytes
-	//    - revocation_key_length: 1 byte
-	//    - revocation_key: 33 bytes
-	//    - witness_script_length: 1 byte
-	//    - witness_script (offered_htlc_script)
-	OfferedHtlcWitnessSize = 1 + 1 + 73 + 1 + 33 + 1 + OfferedHtlcScriptSize
-
 	// OfferedHtlcTimeoutWitnessSize 285 bytes
 	// - number_of_witness_elements: 1 byte
 	// - nil_length: 1 byte
@@ -335,6 +361,16 @@ const (
 	// - witness_script_length: 1 byte
 	// - witness_script (offered_htlc_script)
 	OfferedHtlcTimeoutWitnessSize = 1 + 1 + 1 + 73 + 1 + 73 + 1 + 1 + OfferedHtlcScriptSize
+
+	// OfferedHtlcSuccessWitnessSize 283 bytes
+	// - number_of_witness_elements: 1 byte
+	// - nil_length: 1 byte
+	// - receiver_sig: 73 bytes
+	// - sender_sigs: 73 bytes
+	// - payment_preimage: 32 bytes
+	// - witness_script_length: 1 byte
+	// - witness_script (offered_htlc_script)
+	OfferedHtlcSuccessWitnessSize = 1 + 1 + 73 + 73 + 73 + 32 + 1 + OfferedHtlcScriptSize
 
 	// OfferedHtlcPenaltyWitnessSize 243 bytes
 	//      - number_of_witness_elements: 1 byte
@@ -366,7 +402,9 @@ func estimateCommitTxWeight(count int, prediction bool) int64 {
 
 // TxWeightEstimator is able to calculate weight estimates for transactions
 // based on the input and output types. For purposes of estimation, all
-// signatures are assumed to be of the maximum possible size, 73 bytes.
+// signatures are assumed to be of the maximum possible size, 73 bytes. Each
+// method of the estimator returns an instance with the estimate applied. This
+// allows callers to chain each of the methods
 type TxWeightEstimator struct {
 	hasWitness       bool
 	inputCount       uint32
@@ -378,72 +416,90 @@ type TxWeightEstimator struct {
 
 // AddP2PKHInput updates the weight estimate to account for an additional input
 // spending a P2PKH output.
-func (twe *TxWeightEstimator) AddP2PKHInput() {
+func (twe *TxWeightEstimator) AddP2PKHInput() *TxWeightEstimator {
 	twe.inputSize += InputSize + P2PKHScriptSigSize
 	twe.inputWitnessSize++
 	twe.inputCount++
+
+	return twe
 }
 
 // AddP2WKHInput updates the weight estimate to account for an additional input
 // spending a native P2PWKH output.
-func (twe *TxWeightEstimator) AddP2WKHInput() {
+func (twe *TxWeightEstimator) AddP2WKHInput() *TxWeightEstimator {
 	twe.AddWitnessInput(P2WKHWitnessSize)
+
+	return twe
 }
 
 // AddWitnessInput updates the weight estimate to account for an additional
 // input spending a native pay-to-witness output. This accepts the total size
 // of the witness as a parameter.
-func (twe *TxWeightEstimator) AddWitnessInput(witnessSize int) {
+func (twe *TxWeightEstimator) AddWitnessInput(witnessSize int) *TxWeightEstimator {
 	twe.inputSize += InputSize
 	twe.inputWitnessSize += witnessSize
 	twe.inputCount++
 	twe.hasWitness = true
+
+	return twe
 }
 
 // AddNestedP2WKHInput updates the weight estimate to account for an additional
 // input spending a P2SH output with a nested P2WKH redeem script.
-func (twe *TxWeightEstimator) AddNestedP2WKHInput() {
+func (twe *TxWeightEstimator) AddNestedP2WKHInput() *TxWeightEstimator {
 	twe.inputSize += InputSize + P2WPKHSize
 	twe.inputWitnessSize += P2WKHWitnessSize
 	twe.inputSize++
 	twe.hasWitness = true
+
+	return twe
 }
 
 // AddNestedP2WSHInput updates the weight estimate to account for an additional
 // input spending a P2SH output with a nested P2WSH redeem script.
-func (twe *TxWeightEstimator) AddNestedP2WSHInput(witnessSize int) {
+func (twe *TxWeightEstimator) AddNestedP2WSHInput(witnessSize int) *TxWeightEstimator {
 	twe.inputSize += InputSize + P2WSHSize
 	twe.inputWitnessSize += witnessSize
 	twe.inputSize++
 	twe.hasWitness = true
+
+	return twe
 }
 
 // AddP2PKHOutput updates the weight estimate to account for an additional P2PKH
 // output.
-func (twe *TxWeightEstimator) AddP2PKHOutput() {
+func (twe *TxWeightEstimator) AddP2PKHOutput() *TxWeightEstimator {
 	twe.outputSize += P2PKHOutputSize
 	twe.outputCount++
+
+	return twe
 }
 
 // AddP2WKHOutput updates the weight estimate to account for an additional
 // native P2WKH output.
-func (twe *TxWeightEstimator) AddP2WKHOutput() {
+func (twe *TxWeightEstimator) AddP2WKHOutput() *TxWeightEstimator {
 	twe.outputSize += P2WKHOutputSize
 	twe.outputCount++
+
+	return twe
 }
 
 // AddP2WSHOutput updates the weight estimate to account for an additional
 // native P2WSH output.
-func (twe *TxWeightEstimator) AddP2WSHOutput() {
+func (twe *TxWeightEstimator) AddP2WSHOutput() *TxWeightEstimator {
 	twe.outputSize += P2WSHOutputSize
 	twe.outputCount++
+
+	return twe
 }
 
 // AddP2SHOutput updates the weight estimate to account for an additional P2SH
 // output.
-func (twe *TxWeightEstimator) AddP2SHOutput() {
+func (twe *TxWeightEstimator) AddP2SHOutput() *TxWeightEstimator {
 	twe.outputSize += P2SHOutputSize
 	twe.outputCount++
+
+	return twe
 }
 
 // Weight gets the estimated weight of the transaction.
@@ -456,4 +512,10 @@ func (twe *TxWeightEstimator) Weight() int {
 		weight += WitnessHeaderSize + twe.inputWitnessSize
 	}
 	return weight
+}
+
+// VSize gets the estimated virtual size of the transactions, in vbytes.
+func (twe *TxWeightEstimator) VSize() int {
+	// A tx's vsize is 1/4 of the weight, rounded up.
+	return (twe.Weight() + witnessScaleFactor - 1) / witnessScaleFactor
 }

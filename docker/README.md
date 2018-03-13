@@ -83,7 +83,7 @@ $ docker-compose run btcctl getblockchaininfo | grep -A 1 segwit
 
 Check `Alice` balance:
 ```
-alice$ lncli walletbalance --witness_only=true
+alice$ lncli walletbalance
 ```
 
 Connect `Bob` node to `Alice` node.
@@ -123,7 +123,6 @@ alice$ lncli listpeers
     "peers": [
         {
             "pub_key": "0343bc80b914aebf8e50eb0b8e445fc79b9e6e8e5e018fa8c5f85c7d429c117b38",
-            "peer_id": 1,
             "address": "172.19.0.4:9735",
             "bytes_sent": "357",
             "bytes_recv": "357",
@@ -141,7 +140,6 @@ bob$ lncli listpeers
     "peers": [
         {
             "pub_key": "03d0cd35b761f789983f3cfe82c68170cd1c3266b39220c24f7dd72ef4be0883eb",
-            "peer_id": 1,
             "address": "172.19.0.3:51932",
             "bytes_sent": "357",
             "bytes_recv": "357",
@@ -192,7 +190,7 @@ alice$ lncli listchannels
 Send the payment from `Alice` to `Bob`.
 ```bash
 # Add invoice on "Bob" side:
-bob$ lncli addinvoice --value=10000
+bob$ lncli addinvoice --amt=10000
 {
         "r_hash": "<your_random_rhash_here>", 
         "pay_req": "<encoded_invoice>", 
@@ -280,7 +278,7 @@ bitcoins. The schema will be following:
                        + --------------- +        
         
         
- (1) You may connect an additinal node "Bob" and make the multihop
+ (1) You may connect an additional node "Bob" and make the multihop
  payment Alice->Faucet->Bob
   
  (2) "Faucet", "Alice" and "Bob" are the lightning network daemons which 

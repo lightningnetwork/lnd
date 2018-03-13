@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
@@ -20,10 +21,11 @@ var (
 // a given output. This struct is used by the Signer interface in order to gain
 // access to critical data needed to generate a valid signature.
 type SignDescriptor struct {
-	// Pubkey is the public key to which the signature should be generated
-	// over. The Signer should then generate a signature with the private
-	// key corresponding to this public key.
-	PubKey *btcec.PublicKey
+	// KeyDesc is a descriptor that precisely describes *which* key to use
+	// for signing. This may provide the raw public key directly, or
+	// require the Signer to re-derive the key according to the populated
+	// derivation path.
+	KeyDesc keychain.KeyDescriptor
 
 	// SingleTweak is a scalar value that will be added to the private key
 	// corresponding to the above public key to obtain the private key to
@@ -78,13 +80,30 @@ type SignDescriptor struct {
 
 // WriteSignDescriptor serializes a SignDescriptor struct into the passed
 // io.Writer stream.
+//
 // NOTE: We assume the SigHashes and InputIndex fields haven't been assigned
 // yet, since that is usually done just before broadcast by the witness
 // generator.
 func WriteSignDescriptor(w io.Writer, sd *SignDescriptor) error {
-	serializedPubKey := sd.PubKey.SerializeCompressed()
-	if err := wire.WriteVarBytes(w, 0, serializedPubKey); err != nil {
+	err := binary.Write(w, binary.BigEndian, sd.KeyDesc.Family)
+	if err != nil {
 		return err
+	}
+	err = binary.Write(w, binary.BigEndian, sd.KeyDesc.Index)
+	if err != nil {
+		return err
+	}
+
+	err = binary.Write(w, binary.BigEndian, sd.KeyDesc.PubKey != nil)
+	if err != nil {
+		return err
+	}
+
+	if sd.KeyDesc.PubKey != nil {
+		serializedPubKey := sd.KeyDesc.PubKey.SerializeCompressed()
+		if err := wire.WriteVarBytes(w, 0, serializedPubKey); err != nil {
+			return err
+		}
 	}
 
 	if err := wire.WriteVarBytes(w, 0, sd.SingleTweak); err != nil {
@@ -119,14 +138,32 @@ func WriteSignDescriptor(w io.Writer, sd *SignDescriptor) error {
 // ReadSignDescriptor deserializes a SignDescriptor struct from the passed
 // io.Reader stream.
 func ReadSignDescriptor(r io.Reader, sd *SignDescriptor) error {
-
-	pubKeyBytes, err := wire.ReadVarBytes(r, 0, 34, "pubkey")
+	err := binary.Read(r, binary.BigEndian, &sd.KeyDesc.Family)
 	if err != nil {
 		return err
 	}
-	sd.PubKey, err = btcec.ParsePubKey(pubKeyBytes, btcec.S256())
+	err = binary.Read(r, binary.BigEndian, &sd.KeyDesc.Index)
 	if err != nil {
 		return err
+	}
+
+	var hasKey bool
+	err = binary.Read(r, binary.BigEndian, &hasKey)
+	if err != nil {
+		return err
+	}
+
+	if hasKey {
+		pubKeyBytes, err := wire.ReadVarBytes(r, 0, 34, "pubkey")
+		if err != nil {
+			return err
+		}
+		sd.KeyDesc.PubKey, err = btcec.ParsePubKey(
+			pubKeyBytes, btcec.S256(),
+		)
+		if err != nil {
+			return err
+		}
 	}
 
 	singleTweak, err := wire.ReadVarBytes(r, 0, 32, "singleTweak")
@@ -134,11 +171,11 @@ func ReadSignDescriptor(r io.Reader, sd *SignDescriptor) error {
 		return err
 	}
 
-	// Serializing a SignDescriptor with a nil-valued SingleTweak results in
-	// deserializing a zero-length slice. Since a nil-valued SingleTweak has
-	// special meaning and a zero-length slice for a SingleTweak is invalid,
-	// we can use the zero-length slice as the flag for a nil-valued
-	// SingleTweak.
+	// Serializing a SignDescriptor with a nil-valued SingleTweak results
+	// in deserializing a zero-length slice. Since a nil-valued SingleTweak
+	// has special meaning and a zero-length slice for a SingleTweak is
+	// invalid, we can use the zero-length slice as the flag for a
+	// nil-valued SingleTweak.
 	if len(singleTweak) == 0 {
 		sd.SingleTweak = nil
 	} else {
@@ -150,11 +187,11 @@ func ReadSignDescriptor(r io.Reader, sd *SignDescriptor) error {
 		return err
 	}
 
-	// Serializing a SignDescriptor with a nil-valued DoubleTweak results in
-	// deserializing a zero-length slice. Since a nil-valued DoubleTweak has
-	// special meaning and a zero-length slice for a DoubleTweak is invalid,
-	// we can use the zero-length slice as the flag for a nil-valued
-	// DoubleTweak.
+	// Serializing a SignDescriptor with a nil-valued DoubleTweak results
+	// in deserializing a zero-length slice. Since a nil-valued DoubleTweak
+	// has special meaning and a zero-length slice for a DoubleTweak is
+	// invalid, we can use the zero-length slice as the flag for a
+	// nil-valued DoubleTweak.
 	if len(doubleTweakBytes) == 0 {
 		sd.DoubleTweak = nil
 	} else {

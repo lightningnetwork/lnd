@@ -7,7 +7,7 @@ import (
 )
 
 // changeBit is a functio that function that flips a bit of the hash at a
-// particluar bit-index. You should be aware that the bit flipping in this
+// particular bit-index. You should be aware that the bit flipping in this
 // function a bit strange, example:
 // hash: [0b00000000, 0b00000000,  ... 0b00000000]
 //	    0		   1       ...      31
@@ -64,7 +64,7 @@ func countTrailingZeros(index index) uint8 {
 	return zeros
 }
 
-// hashFromString takes a hex-encoded string as input and creates an instane of
+// hashFromString takes a hex-encoded string as input and creates an instance of
 // chainhash.Hash. The chainhash.NewHashFromStr function not suitable because
 // it reverse the given hash.
 func hashFromString(s string) (*chainhash.Hash, error) {

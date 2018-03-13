@@ -10,7 +10,7 @@ import (
 // InvoiceDatabase is an interface which represents the persistent subsystem
 // which may search, lookup and settle invoices.
 type InvoiceDatabase interface {
-	// LookupInvoice attempts to look up an invoice according to it's 32
+	// LookupInvoice attempts to look up an invoice according to its 32
 	// byte payment hash.
 	LookupInvoice(chainhash.Hash) (channeldb.Invoice, error)
 
@@ -47,7 +47,7 @@ type ChannelLink interface {
 	//
 	// NOTE: This function MUST be non-blocking (or block as little as
 	// possible).
-	HandleSwitchPacket(*htlcPacket)
+	HandleSwitchPacket(*htlcPacket) error
 
 	// HandleChannelUpdate handles the htlc requests as settle/add/fail
 	// which sent to us from remote peer we have a channel with.
@@ -64,6 +64,12 @@ type ChannelLink interface {
 	// short channel ID encodes the exact location in the main chain that
 	// the original funding output can be found.
 	ShortChanID() lnwire.ShortChannelID
+
+	// UpdateShortChanID updates the short channel ID for a link. This may
+	// be required in the event that a link is created before the short
+	// chan ID for it is known, or a re-org occurs, and the funding
+	// transaction changes location within the chain.
+	UpdateShortChanID(lnwire.ShortChannelID)
 
 	// UpdateForwardingPolicy updates the forwarding policy for the target
 	// ChannelLink. Once updated, the link will use the new forwarding
@@ -92,6 +98,10 @@ type ChannelLink interface {
 	// will use this function in forwarding decisions accordingly.
 	EligibleToForward() bool
 
+	// AttachMailBox delivers an active MailBox to the link. The MailBox may
+	// have buffered messages.
+	AttachMailBox(MailBox)
+
 	// Start/Stop are used to initiate the start/stop of the channel link
 	// functioning.
 	Start() error
@@ -114,4 +124,16 @@ type Peer interface {
 	// Disconnect disconnects with peer if we have error which we can't
 	// properly handle.
 	Disconnect(reason error)
+}
+
+// ForwardingLog is an interface that represents a time series database which
+// keep track of all successfully completed payment circuits. Every few
+// seconds, the switch will collate and flush out all the successful payment
+// circuits during the last interval.
+type ForwardingLog interface {
+	// AddForwardingEvents is a method that should write out the set of
+	// forwarding events in a batch to persistent storage. Outside
+	// sub-systems can then query the contents of the log for analysis,
+	// visualizations, etc.
+	AddForwardingEvents([]channeldb.ForwardingEvent) error
 }

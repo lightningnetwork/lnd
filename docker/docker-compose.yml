@@ -90,17 +90,17 @@ services:
           - "btcd:blockchain"
 
 volumes:
-  # shared volume is need to store the btcd rpc certificates and us it within
+  # shared volume is need to store the btcd rpc certificates and use it within
   # btcctl and lnd containers.
   shared:
     driver: local
 
-  # bitcoin volume is needed for maintaining blockchain persistance
+  # bitcoin volume is needed for maintaining blockchain persistence
   # during btcd container recreation.
   bitcoin:
     driver: local
 
-  # litecoin volume is needed for maintaining blockchain persistance
+  # litecoin volume is needed for maintaining blockchain persistence
   # during ltcd container recreation.
   litecoin:
     driver: local

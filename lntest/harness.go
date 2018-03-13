@@ -53,7 +53,7 @@ type NetworkHarness struct {
 
 // NewNetworkHarness creates a new network test harness.
 // TODO(roasbeef): add option to use golang's build library to a binary of the
-// current repo. This'll save developers from having to manually `go install`
+// current repo. This will save developers from having to manually `go install`
 // within the repo each time before changes
 func NewNetworkHarness(r *rpctest.Harness) (*NetworkHarness, error) {
 	n := NetworkHarness{
@@ -232,7 +232,7 @@ func (n *NetworkHarness) TearDownAll() error {
 	return nil
 }
 
-// NewNode fully initializes a returns a new HarnessNode binded to the
+// NewNode fully initializes a returns a new HarnessNode bound to the
 // current instance of the network harness. The created node is running, but
 // not yet connected to other nodes within the network.
 func (n *NetworkHarness) NewNode(extraArgs []string) (*HarnessNode, error) {
@@ -633,7 +633,11 @@ func (n *NetworkHarness) CloseChannel(ctx context.Context,
 
 	// Create a channel outpoint that we can use to compare to channels
 	// from the ListChannelsResponse.
-	fundingTxID, err := chainhash.NewHash(cp.FundingTxid)
+	txidHash, err := getChanPointFundingTxid(cp)
+	if err != nil {
+		return nil, nil, err
+	}
+	fundingTxID, err := chainhash.NewHash(txidHash)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -677,7 +681,7 @@ func (n *NetworkHarness) CloseChannel(ctx context.Context,
 		}
 
 		// Next, we'll fetch the target channel in order to get the
-		// harness node that'll be receiving the channel close request.
+		// harness node that will be receiving the channel close request.
 		targetChan, err := filterChannel(lnNode, chanPoint)
 		if err != nil {
 			return nil, nil, err

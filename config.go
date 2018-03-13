@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"os/user"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -20,6 +21,7 @@ import (
 	flags "github.com/jessevdk/go-flags"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/torsvc"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcutil"
 )
@@ -27,6 +29,8 @@ import (
 const (
 	defaultConfigFilename     = "lnd.conf"
 	defaultDataDirname        = "data"
+	defaultChainSubDirname    = "chain"
+	defaultGraphSubDirname    = "graph"
 	defaultTLSCertFilename    = "tls.cert"
 	defaultTLSKeyFilename     = "tls.key"
 	defaultAdminMacFilename   = "admin.macaroon"
@@ -42,6 +46,8 @@ const (
 	defaultNoEncryptWallet    = false
 	defaultTrickleDelay       = 30 * 1000
 
+	defaultBroadcastDelta = 10
+
 	// minTimeLockDelta is the minimum timelock we require for incoming
 	// HTLCs on our channels.
 	minTimeLockDelta = 4
@@ -55,26 +61,28 @@ const (
 	defaultLitecoinBaseFeeMSat   = 1000
 	defaultLitecoinFeeRate       = 1
 	defaultLitecoinTimeLockDelta = 576
+
+	defaultAlias = ""
+	defaultColor = "#3399FF"
 )
 
 var (
-	// TODO(roasbeef): base off of datadir instead?
-	lndHomeDir          = btcutil.AppDataDir("lnd", false)
-	defaultConfigFile   = filepath.Join(lndHomeDir, defaultConfigFilename)
-	defaultDataDir      = filepath.Join(lndHomeDir, defaultDataDirname)
-	defaultTLSCertPath  = filepath.Join(lndHomeDir, defaultTLSCertFilename)
-	defaultTLSKeyPath   = filepath.Join(lndHomeDir, defaultTLSKeyFilename)
-	defaultAdminMacPath = filepath.Join(lndHomeDir, defaultAdminMacFilename)
-	defaultReadMacPath  = filepath.Join(lndHomeDir, defaultReadMacFilename)
-	defaultLogDir       = filepath.Join(lndHomeDir, defaultLogDirname)
+	defaultLndDir       = btcutil.AppDataDir("lnd", false)
+	defaultConfigFile   = filepath.Join(defaultLndDir, defaultConfigFilename)
+	defaultDataDir      = filepath.Join(defaultLndDir, defaultDataDirname)
+	defaultTLSCertPath  = filepath.Join(defaultLndDir, defaultTLSCertFilename)
+	defaultTLSKeyPath   = filepath.Join(defaultLndDir, defaultTLSKeyFilename)
+	defaultAdminMacPath = filepath.Join(defaultLndDir, defaultAdminMacFilename)
+	defaultReadMacPath  = filepath.Join(defaultLndDir, defaultReadMacFilename)
+	defaultLogDir       = filepath.Join(defaultLndDir, defaultLogDirname)
 
-	btcdHomeDir            = btcutil.AppDataDir("btcd", false)
-	defaultBtcdRPCCertFile = filepath.Join(btcdHomeDir, "rpc.cert")
+	defaultBtcdDir         = btcutil.AppDataDir("btcd", false)
+	defaultBtcdRPCCertFile = filepath.Join(defaultBtcdDir, "rpc.cert")
 
-	ltcdHomeDir            = btcutil.AppDataDir("ltcd", false)
-	defaultLtcdRPCCertFile = filepath.Join(ltcdHomeDir, "rpc.cert")
+	defaultLtcdDir         = btcutil.AppDataDir("ltcd", false)
+	defaultLtcdRPCCertFile = filepath.Join(defaultLtcdDir, "rpc.cert")
 
-	bitcoindHomeDir = btcutil.AppDataDir("bitcoin", false)
+	defaultBitcoindDir = btcutil.AppDataDir("bitcoin", false)
 )
 
 type chainConfig struct {
@@ -104,6 +112,7 @@ type neutrinoConfig struct {
 }
 
 type btcdConfig struct {
+	Dir        string `long:"dir" description:"The base directory that contains the node's data, logs, configuration file, etc."`
 	RPCHost    string `long:"rpchost" description:"The daemon's rpc listening address. If a port is omitted, then the default port for the selected chain parameters will be used."`
 	RPCUser    string `long:"rpcuser" description:"Username for RPC connections"`
 	RPCPass    string `long:"rpcpass" default-mask:"-" description:"Password for RPC connections"`
@@ -112,6 +121,7 @@ type btcdConfig struct {
 }
 
 type bitcoindConfig struct {
+	Dir     string `long:"dir" description:"The base directory that contains the node's data, logs, configuration file, etc."`
 	RPCHost string `long:"rpchost" description:"The daemon's rpc listening address. If a port is omitted, then the default port for the selected chain parameters will be used."`
 	RPCUser string `long:"rpcuser" description:"Username for RPC connections"`
 	RPCPass string `long:"rpcpass" default-mask:"-" description:"Password for RPC connections"`
@@ -125,6 +135,12 @@ type autoPilotConfig struct {
 	Allocation  float64 `long:"allocation" description:"The percentage of total funds that should be committed to automatic channel establishment"`
 }
 
+type torConfig struct {
+	Socks           string `long:"socks" description:"The port that Tor's exposed SOCKS5 proxy is listening on. Using Tor allows outbound-only connections (listening will be disabled) -- NOTE port must be between 1024 and 65535"`
+	DNS             string `long:"dns" description:"The DNS server as IP:PORT that Tor will use for SRV queries - NOTE must have TCP resolution enabled"`
+	StreamIsolation bool   `long:"streamisolation" description:"Enable Tor stream isolation by randomizing user credentials for each connection."`
+}
+
 // config defines the configuration options for lnd.
 //
 // See loadConfig for further details regarding the configuration
@@ -132,29 +148,33 @@ type autoPilotConfig struct {
 type config struct {
 	ShowVersion bool `short:"V" long:"version" description:"Display version information and exit"`
 
+	LndDir       string `long:"lnddir" description:"The base directory that contains lnd's data, logs, configuration file, etc."`
 	ConfigFile   string `long:"C" long:"configfile" description:"Path to configuration file"`
 	DataDir      string `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
-	TLSCertPath  string `long:"tlscertpath" description:"Path to TLS certificate for lnd's RPC and REST services"`
-	TLSKeyPath   string `long:"tlskeypath" description:"Path to TLS private key for lnd's RPC and REST services"`
+	TLSCertPath  string `long:"tlscertpath" description:"Path to write the TLS certificate for lnd's RPC and REST services"`
+	TLSKeyPath   string `long:"tlskeypath" description:"Path to write the TLS private key for lnd's RPC and REST services"`
+	TLSExtraIP   string `long:"tlsextraip" description:"Adds an extra ip to the generated certificate"`
 	NoMacaroons  bool   `long:"no-macaroons" description:"Disable macaroon authentication"`
 	AdminMacPath string `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
 	ReadMacPath  string `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`
 	LogDir       string `long:"logdir" description:"Directory to log output."`
 
-	Listeners   []string `long:"listen" description:"Add an interface/port to listen for connections (default all interfaces port: 9735)"`
-	ExternalIPs []string `long:"externalip" description:"Add an ip to the list of local addresses we claim to listen on to peers"`
+	RPCListeners  []string `long:"rpclisten" description:"Add an interface/port to listen for RPC connections"`
+	RESTListeners []string `long:"restlisten" description:"Add an interface/port to listen for REST connections"`
+	Listeners     []string `long:"listen" description:"Add an interface/port to listen for peer connections"`
+	DisableListen bool     `long:"nolisten" description:"Disable listening for incoming peer connections"`
+	ExternalIPs   []string `long:"externalip" description:"Add an ip:port to the list of local addresses we claim to listen on to peers. If a port is not specified, the default (9735) will be used regardless of other parameters"`
 
 	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
 
 	CPUProfile string `long:"cpuprofile" description:"Write CPU profile to the specified file"`
 
-	Profile string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65536"`
+	Profile string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65535"`
 
-	PeerPort           int  `long:"peerport" description:"The port to listen on for incoming p2p connections"`
-	RPCPort            int  `long:"rpcport" description:"The port for the rpc server"`
-	RESTPort           int  `long:"restport" description:"The port for the REST server"`
 	DebugHTLC          bool `long:"debughtlc" description:"Activate the debug htlc mode. With the debug HTLC mode, all payments sent use a pre-determined R-Hash. Additionally, all HTLCs sent to a node with the debug HTLC R-Hash are immediately settled in the next available state transition."`
 	HodlHTLC           bool `long:"hodlhtlc" description:"Activate the hodl HTLC mode.  With hodl HTLC mode, all incoming HTLCs will be accepted by the receiving node, but no attempt will be made to settle the payment with the sender."`
+	UnsafeDisconnect   bool `long:"unsafe-disconnect" description:"Allows the rpcserver to intentionally disconnect from peers with open channels. USED FOR TESTING ONLY."`
+	UnsafeReplay       bool `long:"unsafe-replay" description:"Causes a link to replay the adds on its commitment txn after starting up, this enables testing of the sphinx replay logic."`
 	MaxPendingChannels int  `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
 
 	Bitcoin      *chainConfig    `group:"Bitcoin" namespace:"bitcoin"`
@@ -167,11 +187,18 @@ type config struct {
 
 	Autopilot *autoPilotConfig `group:"autopilot" namespace:"autopilot"`
 
+	Tor *torConfig `group:"Tor" namespace:"tor"`
+
 	NoNetBootstrap bool `long:"nobootstrap" description:"If true, then automatic network bootstrapping will not be attempted."`
 
 	NoEncryptWallet bool `long:"noencryptwallet" description:"If set, wallet will be encrypted using the default passphrase."`
 
 	TrickleDelay int `long:"trickledelay" description:"Time in milliseconds between each release of announcements to the network"`
+
+	Alias string `long:"alias" description:"The node alias. Used as a moniker by peers and intelligence services"`
+	Color string `long:"color" description:"The color of the node in hex format (i.e. '#3399FF'). Used to customize node appearance in intelligence services"`
+
+	net torsvc.Net
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -184,6 +211,7 @@ type config struct {
 // 	4) Parse CLI options and overwrite/add any specified options
 func loadConfig() (*config, error) {
 	defaultCfg := config{
+		LndDir:       defaultLndDir,
 		ConfigFile:   defaultConfigFile,
 		DataDir:      defaultDataDir,
 		DebugLevel:   defaultLogLevel,
@@ -192,9 +220,6 @@ func loadConfig() (*config, error) {
 		AdminMacPath: defaultAdminMacPath,
 		ReadMacPath:  defaultReadMacPath,
 		LogDir:       defaultLogDir,
-		PeerPort:     defaultPeerPort,
-		RPCPort:      defaultRPCPort,
-		RESTPort:     defaultRESTPort,
 		Bitcoin: &chainConfig{
 			MinHTLC:       defaultBitcoinMinHTLCMSat,
 			BaseFee:       defaultBitcoinBaseFeeMSat,
@@ -203,10 +228,12 @@ func loadConfig() (*config, error) {
 			Node:          "btcd",
 		},
 		BtcdMode: &btcdConfig{
+			Dir:     defaultBtcdDir,
 			RPCHost: defaultRPCHost,
 			RPCCert: defaultBtcdRPCCertFile,
 		},
 		BitcoindMode: &bitcoindConfig{
+			Dir:     defaultBitcoindDir,
 			RPCHost: defaultRPCHost,
 		},
 		Litecoin: &chainConfig{
@@ -217,6 +244,7 @@ func loadConfig() (*config, error) {
 			Node:          "btcd",
 		},
 		LtcdMode: &btcdConfig{
+			Dir:     defaultLtcdDir,
 			RPCHost: defaultRPCHost,
 			RPCCert: defaultLtcdRPCCertFile,
 		},
@@ -227,6 +255,8 @@ func loadConfig() (*config, error) {
 			Allocation:  0.6,
 		},
 		TrickleDelay: defaultTrickleDelay,
+		Alias:        defaultAlias,
+		Color:        defaultColor,
 	}
 
 	// Pre-parse the command line options to pick up an alternative config
@@ -245,9 +275,22 @@ func loadConfig() (*config, error) {
 		os.Exit(0)
 	}
 
-	// Create the home directory if it doesn't already exist.
+	// If the provided lnd directory is not the default, we'll modify the
+	// path to all of the files and directories that will live within it.
+	lndDir := cleanAndExpandPath(preCfg.LndDir)
+	if lndDir != defaultLndDir {
+		defaultCfg.ConfigFile = filepath.Join(lndDir, defaultConfigFilename)
+		defaultCfg.DataDir = filepath.Join(lndDir, defaultDataDirname)
+		defaultCfg.TLSCertPath = filepath.Join(lndDir, defaultTLSCertFilename)
+		defaultCfg.TLSKeyPath = filepath.Join(lndDir, defaultTLSKeyFilename)
+		defaultCfg.AdminMacPath = filepath.Join(lndDir, defaultAdminMacFilename)
+		defaultCfg.ReadMacPath = filepath.Join(lndDir, defaultReadMacFilename)
+		defaultCfg.LogDir = filepath.Join(lndDir, defaultLogDirname)
+	}
+
+	// Create the lnd directory if it doesn't already exist.
 	funcName := "loadConfig"
-	if err := os.MkdirAll(lndHomeDir, 0700); err != nil {
+	if err := os.MkdirAll(lndDir, 0700); err != nil {
 		// Show a nicer error message if it's because a symlink is
 		// linked to a directory that does not exist (probably because
 		// it's not mounted).
@@ -258,7 +301,7 @@ func loadConfig() (*config, error) {
 			}
 		}
 
-		str := "%s: Failed to create home directory: %v"
+		str := "%s: Failed to create lnd directory: %v"
 		err := fmt.Errorf(str, funcName, err)
 		fmt.Fprintln(os.Stderr, err)
 		return nil, err
@@ -267,13 +310,73 @@ func loadConfig() (*config, error) {
 	// Next, load any additional configuration options from the file.
 	var configFileError error
 	cfg := defaultCfg
-	if err := flags.IniParse(preCfg.ConfigFile, &cfg); err != nil {
+	configFile := cleanAndExpandPath(preCfg.ConfigFile)
+	if err := flags.IniParse(configFile, &cfg); err != nil {
 		configFileError = err
 	}
 
 	// Finally, parse the remaining command line options again to ensure
 	// they take precedence.
 	if _, err := flags.Parse(&cfg); err != nil {
+		return nil, err
+	}
+
+	// As soon as we're done parsing configuration options, ensure all paths
+	// to directories and files are cleaned and expanded before attempting
+	// to use them later on.
+	cfg.DataDir = cleanAndExpandPath(cfg.DataDir)
+	cfg.TLSCertPath = cleanAndExpandPath(cfg.TLSCertPath)
+	cfg.TLSKeyPath = cleanAndExpandPath(cfg.TLSKeyPath)
+	cfg.AdminMacPath = cleanAndExpandPath(cfg.AdminMacPath)
+	cfg.ReadMacPath = cleanAndExpandPath(cfg.ReadMacPath)
+	cfg.LogDir = cleanAndExpandPath(cfg.LogDir)
+	cfg.BtcdMode.Dir = cleanAndExpandPath(cfg.BtcdMode.Dir)
+	cfg.LtcdMode.Dir = cleanAndExpandPath(cfg.LtcdMode.Dir)
+	cfg.BitcoindMode.Dir = cleanAndExpandPath(cfg.BitcoindMode.Dir)
+
+	// Setup dial and DNS resolution functions depending on the specified
+	// options. The default is to use the standard golang "net" package
+	// functions. When Tor's proxy is specified, the dial function is set to
+	// the proxy specific dial function and the DNS resolution functions use
+	// Tor.
+	cfg.net = &torsvc.RegularNet{}
+	if cfg.Tor.Socks != "" && cfg.Tor.DNS != "" {
+		// Validate Tor port number
+		torport, err := strconv.Atoi(cfg.Tor.Socks)
+		if err != nil || torport < 1024 || torport > 65535 {
+			str := "%s: The tor socks5 port must be between 1024 and 65535"
+			err := fmt.Errorf(str, funcName)
+			fmt.Fprintln(os.Stderr, err)
+			fmt.Fprintln(os.Stderr, usageMessage)
+			return nil, err
+		}
+
+		// If ExternalIPs is set, throw an error since we cannot
+		// listen for incoming connections via Tor's SOCKS5 proxy.
+		if len(cfg.ExternalIPs) != 0 {
+			str := "%s: Cannot set externalip flag with proxy flag - " +
+				"cannot listen for incoming connections via Tor's " +
+				"socks5 proxy"
+			err := fmt.Errorf(str, funcName)
+			return nil, err
+		}
+
+		cfg.net = &torsvc.TorProxyNet{
+			TorDNS:          cfg.Tor.DNS,
+			TorSocks:        cfg.Tor.Socks,
+			StreamIsolation: cfg.Tor.StreamIsolation,
+		}
+
+		// If we are using Tor, since we only want connections routed
+		// through Tor, listening is disabled.
+		cfg.DisableListen = true
+
+	} else if cfg.Tor.Socks != "" || cfg.Tor.DNS != "" {
+		// Both TorSocks and TorDNS must be set.
+		str := "%s: Both the tor.socks and the tor.dns flags must be set" +
+			"to properly route connections and avoid DNS leaks while" +
+			"using Tor"
+		err := fmt.Errorf(str, funcName)
 		return nil, err
 	}
 
@@ -321,7 +424,10 @@ func loadConfig() (*config, error) {
 				"ltcd: %v", err)
 			return nil, err
 		}
-		cfg.Litecoin.ChainDir = filepath.Join(cfg.DataDir, litecoinChain.String())
+
+		cfg.Litecoin.ChainDir = filepath.Join(cfg.DataDir,
+			defaultChainSubDirname,
+			litecoinChain.String())
 
 		// Finally we'll register the litecoin chain as our current
 		// primary chain.
@@ -381,7 +487,9 @@ func loadConfig() (*config, error) {
 			// No need to get RPC parameters.
 		}
 
-		cfg.Bitcoin.ChainDir = filepath.Join(cfg.DataDir, bitcoinChain.String())
+		cfg.Bitcoin.ChainDir = filepath.Join(cfg.DataDir,
+			defaultChainSubDirname,
+			bitcoinChain.String())
 
 		// Finally we'll register the bitcoin chain as our current
 		// primary chain.
@@ -415,30 +523,11 @@ func loadConfig() (*config, error) {
 		cfg.ReadMacPath = filepath.Join(cfg.DataDir, defaultReadMacFilename)
 	}
 
-	// Append the network type to the data directory so it is "namespaced"
-	// per network. In addition to the block database, there are other
-	// pieces of data that are saved to disk such as address manager state.
-	// All data is specific to a network, so namespacing the data directory
-	// means each individual piece of serialized data does not have to
-	// worry about changing names per network and such.
-	// TODO(roasbeef): when we go full multi-chain remove the additional
-	// namespacing on the target chain.
-	cfg.DataDir = cleanAndExpandPath(cfg.DataDir)
-	cfg.DataDir = filepath.Join(cfg.DataDir, activeNetParams.Name)
-	cfg.DataDir = filepath.Join(cfg.DataDir,
-		registeredChains.primaryChain.String())
-
 	// Append the network type to the log directory so it is "namespaced"
 	// per network in the same fashion as the data directory.
-	cfg.LogDir = cleanAndExpandPath(cfg.LogDir)
-	cfg.LogDir = filepath.Join(cfg.LogDir, activeNetParams.Name)
 	cfg.LogDir = filepath.Join(cfg.LogDir,
-		registeredChains.primaryChain.String())
-
-	// Ensure that the paths to the TLS key and certificate files are
-	// expanded and cleaned.
-	cfg.TLSCertPath = cleanAndExpandPath(cfg.TLSCertPath)
-	cfg.TLSKeyPath = cleanAndExpandPath(cfg.TLSKeyPath)
+		registeredChains.PrimaryChain().String(),
+		normalizeNetwork(activeNetParams.Name))
 
 	// Initialize logging at the default logging level.
 	initLogRotator(filepath.Join(cfg.LogDir, defaultLogFilename))
@@ -450,6 +539,57 @@ func loadConfig() (*config, error) {
 		fmt.Fprintln(os.Stderr, usageMessage)
 		return nil, err
 	}
+
+	// At least one RPCListener is required.
+	if len(cfg.RPCListeners) == 0 {
+		addr := fmt.Sprintf("localhost:%d", defaultRPCPort)
+		cfg.RPCListeners = append(cfg.RPCListeners, addr)
+	}
+
+	// Listen on the default interface/port if no REST listeners were
+	// specified.
+	if len(cfg.RESTListeners) == 0 {
+		addr := fmt.Sprintf("localhost:%d", defaultRESTPort)
+		cfg.RESTListeners = append(cfg.RESTListeners, addr)
+	}
+
+	// Listen on the default interface/port if no listeners were specified.
+	if len(cfg.Listeners) == 0 {
+		addr := fmt.Sprintf(":%d", defaultPeerPort)
+		cfg.Listeners = append(cfg.Listeners, addr)
+	}
+
+	// For each of the RPC listeners (REST+gRPC), we'll ensure that users
+	// have specified a safe combo for authentication. If not, we'll bail
+	// out with an error.
+	err := enforceSafeAuthentication(cfg.RPCListeners, !cfg.NoMacaroons)
+	if err != nil {
+		return nil, err
+	}
+	err = enforceSafeAuthentication(cfg.RESTListeners, !cfg.NoMacaroons)
+	if err != nil {
+		return nil, err
+	}
+
+	// Remove all Listeners if listening is disabled.
+	if cfg.DisableListen {
+		cfg.Listeners = nil
+	}
+
+	// Add default port to all RPC listener addresses if needed and remove
+	// duplicate addresses.
+	cfg.RPCListeners = normalizeAddresses(cfg.RPCListeners,
+		strconv.Itoa(defaultRPCPort))
+
+	// Add default port to all REST listener addresses if needed and remove
+	// duplicate addresses.
+	cfg.RESTListeners = normalizeAddresses(cfg.RESTListeners,
+		strconv.Itoa(defaultRESTPort))
+
+	// Add default port to all listener addresses if needed and remove
+	// duplicate addresses.
+	cfg.Listeners = normalizeAddresses(cfg.Listeners,
+		strconv.Itoa(defaultPeerPort))
 
 	// Warn about missing config file only after all other configuration is
 	// done.  This prevents the warning on help messages and invalid
@@ -467,7 +607,15 @@ func loadConfig() (*config, error) {
 func cleanAndExpandPath(path string) string {
 	// Expand initial ~ to OS specific home directory.
 	if strings.HasPrefix(path, "~") {
-		homeDir := filepath.Dir(lndHomeDir)
+		var homeDir string
+
+		user, err := user.Current()
+		if err == nil {
+			homeDir = user.HomeDir
+		} else {
+			homeDir = os.Getenv("HOME")
+		}
+
 		path = strings.Replace(path, "~", homeDir, 1)
 	}
 
@@ -511,7 +659,7 @@ func parseAndSetDebugLevels(debugLevel string) error {
 		// Validate subsystem.
 		if _, exists := subsystemLoggers[subsysID]; !exists {
 			str := "The specified subsystem [%v] is invalid -- " +
-				"supported subsytems %v"
+				"supported subsystems %v"
 			return fmt.Errorf(str, subsysID, supportedSubsystems())
 		}
 
@@ -565,24 +713,58 @@ func supportedSubsystems() []string {
 func noiseDial(idPriv *btcec.PrivateKey) func(net.Addr) (net.Conn, error) {
 	return func(a net.Addr) (net.Conn, error) {
 		lnAddr := a.(*lnwire.NetAddress)
-		return brontide.Dial(idPriv, lnAddr)
+		return brontide.Dial(idPriv, lnAddr, cfg.net.Dial)
 	}
 }
 
 func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 	funcName string) error {
-	// If the configuration has already set the RPCUser and RPCPass, and
-	// if we're either not using bitcoind mode or the ZMQ path is already
-	// specified, we can return.
+
+	// First, we'll check our node config to make sure the RPC parameters
+	// were set correctly. We'll also determine the path to the conf file
+	// depending on the backend node.
+	var daemonName, confDir, confFile string
 	switch conf := nodeConfig.(type) {
 	case *btcdConfig:
-		if conf.RPCUser != "" || conf.RPCPass != "" {
+		// If both RPCUser and RPCPass are set, we assume those
+		// credentials are good to use.
+		if conf.RPCUser != "" && conf.RPCPass != "" {
 			return nil
+		}
+		// If only ONE of RPCUser or RPCPass is set, we assume the
+		// user did that unintentionally.
+		if conf.RPCUser != "" || conf.RPCPass != "" {
+			return fmt.Errorf("please set both or neither of " +
+				"btcd.rpcuser and btcd.rpcpass")
+		}
+
+		switch net {
+		case bitcoinChain:
+			daemonName = "btcd"
+			confDir = conf.Dir
+			confFile = "btcd"
+		case litecoinChain:
+			daemonName = "ltcd"
+			confDir = conf.Dir
+			confFile = "ltcd"
 		}
 	case *bitcoindConfig:
-		if conf.RPCUser != "" || conf.RPCPass != "" || conf.ZMQPath != "" {
+		// If all of RPCUser, RPCPass, and ZMQPath are set, we assume
+		// those parameters are good to use.
+		if conf.RPCUser != "" && conf.RPCPass != "" && conf.ZMQPath != "" {
 			return nil
 		}
+		// If only one or two of the parameters are set, we assume the
+		// user did that unintentionally.
+		if conf.RPCUser != "" || conf.RPCPass != "" || conf.ZMQPath != "" {
+			return fmt.Errorf("please set all or none of " +
+				"bitcoind.rpcuser, bitcoind.rpcpass, and " +
+				"bitcoind.zmqpath")
+		}
+
+		daemonName = "bitcoind"
+		confDir = conf.Dir
+		confFile = "bitcoin"
 	}
 
 	// If we're in simnet mode, then the running btcd instance won't read
@@ -594,33 +776,9 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 		return fmt.Errorf(str, funcName)
 	}
 
-	var daemonName, homeDir, confFile string
-	switch net {
-	case bitcoinChain:
-		switch cConfig.Node {
-		case "btcd":
-			daemonName = "btcd"
-			homeDir = btcdHomeDir
-			confFile = "btcd"
-		case "bitcoind":
-			daemonName = "bitcoind"
-			homeDir = bitcoindHomeDir
-			confFile = "bitcoin"
-		}
-	case litecoinChain:
-		switch cConfig.Node {
-		case "btcd":
-			daemonName = "ltcd"
-			homeDir = ltcdHomeDir
-			confFile = "ltcd"
-		case "bitcoind":
-			return fmt.Errorf("bitcoind mode doesn't work with Litecoin yet")
-		}
-	}
-
 	fmt.Println("Attempting automatic RPC configuration to " + daemonName)
 
-	confFile = filepath.Join(homeDir, fmt.Sprintf("%v.conf", confFile))
+	confFile = filepath.Join(confDir, fmt.Sprintf("%v.conf", confFile))
 	switch cConfig.Node {
 	case "btcd":
 		nConf := nodeConfig.(*btcdConfig)
@@ -787,4 +945,67 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 
 	return string(userSubmatches[1]), string(passSubmatches[1]),
 		string(zmqPathSubmatches[1]), nil
+}
+
+// normalizeAddresses returns a new slice with all the passed addresses
+// normalized with the given default port and all duplicates removed.
+func normalizeAddresses(addrs []string, defaultPort string) []string {
+	result := make([]string, 0, len(addrs))
+	seen := map[string]struct{}{}
+	for _, addr := range addrs {
+		if _, _, err := net.SplitHostPort(addr); err != nil {
+			addr = net.JoinHostPort(addr, defaultPort)
+		}
+		if _, ok := seen[addr]; !ok {
+			result = append(result, addr)
+			seen[addr] = struct{}{}
+		}
+	}
+	return result
+}
+
+// enforceSafeAuthentication enforces "safe" authentication taking into account
+// the interfaces that the RPC servers are listening on, and if macaroons are
+// activated or not. To project users from using dangerous config combinations,
+// we'll prevent disabling authentication if the sever is listening on a public
+// interface.
+func enforceSafeAuthentication(addrs []string, macaroonsActive bool) error {
+	isLoopback := func(addr string) bool {
+		loopBackAddrs := []string{"localhost", "127.0.0.1"}
+		for _, loopback := range loopBackAddrs {
+			if strings.Contains(addr, loopback) {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	// We'll now examine all addresses that this RPC server is listening
+	// on. If it's a localhost address, we'll skip it, otherwise, we'll
+	// return an error if macaroons are inactive.
+	for _, addr := range addrs {
+		if isLoopback(addr) {
+			continue
+		}
+
+		if !macaroonsActive {
+			return fmt.Errorf("Detected RPC server listening on "+
+				"publicly reachable interface %v with "+
+				"authentication disabled! Refusing to start with "+
+				"--no-macaroons specified.", addr)
+		}
+	}
+
+	return nil
+}
+
+// normalizeNetwork returns the common name of a network type used to create
+// file paths. This allows differently versioned networks to use the same path.
+func normalizeNetwork(network string) string {
+	if strings.HasPrefix(network, "testnet") {
+		return "testnet"
+	}
+
+	return network
 }

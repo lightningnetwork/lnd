@@ -47,7 +47,7 @@ func establishTestConnection() (net.Conn, net.Conn, func(), error) {
 	conErrChan := make(chan error, 1)
 	connChan := make(chan net.Conn, 1)
 	go func() {
-		conn, err := Dial(remotePriv, netAddr)
+		conn, err := Dial(remotePriv, netAddr, net.Dial)
 
 		conErrChan <- err
 		connChan <- conn
@@ -140,7 +140,7 @@ func TestMaxPayloadLength(t *testing.T) {
 	b := Machine{}
 	b.split()
 
-	// Create a payload that's juust over the maximum allotted payload
+	// Create a payload that's only *slightly* above the maximum allotted payload
 	// length.
 	payloadToReject := make([]byte, math.MaxUint16+1)
 
@@ -162,7 +162,7 @@ func TestMaxPayloadLength(t *testing.T) {
 			"accepted")
 	}
 
-	// Generate a final payload which is juuust over the max payload length
+	// Generate a final payload which is only *slightly* above the max payload length
 	// when the MAC is accounted for.
 	payloadToReject = make([]byte, math.MaxUint16+1)
 
@@ -190,7 +190,7 @@ func TestWriteMessageChunking(t *testing.T) {
 
 	// Launch a new goroutine to write the large message generated above in
 	// chunks. We spawn a new goroutine because otherwise, we may block as
-	// the kernal waits for the buffer to flush.
+	// the kernel waits for the buffer to flush.
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -364,7 +364,13 @@ func TestBolt0008TestVectors(t *testing.T) {
 	recvKey, err := hex.DecodeString("bb9020b8965f4df047e07f955f3c4b884" +
 		"18984aadc5cdb35096b9ea8fa5c3442")
 	if err != nil {
-		t.Fatalf("unable to parse recv'ing key: %v", err)
+		t.Fatalf("unable to parse receiving key: %v", err)
+	}
+
+	chainKey, err := hex.DecodeString("919219dbb2920afa8db80f9a51787a840" +
+		"bcf111ed8d588caf9ab4be716e42b01")
+	if err != nil {
+		t.Fatalf("unable to parse chaining key: %v", err)
 	}
 
 	if !bytes.Equal(initiator.sendCipher.secretKey[:], sendingKey) {
@@ -372,8 +378,12 @@ func TestBolt0008TestVectors(t *testing.T) {
 			initiator.sendCipher.secretKey[:], sendingKey)
 	}
 	if !bytes.Equal(initiator.recvCipher.secretKey[:], recvKey) {
-		t.Fatalf("sending key mismatch: expected %x, got %x",
-			initiator.sendCipher.secretKey[:], recvKey)
+		t.Fatalf("receiving key mismatch: expected %x, got %x",
+			initiator.recvCipher.secretKey[:], recvKey)
+	}
+	if !bytes.Equal(initiator.chainingKey[:], chainKey) {
+		t.Fatalf("chaining key mismatch: expected %x, got %x",
+			initiator.chainingKey[:], chainKey)
 	}
 
 	if !bytes.Equal(responder.sendCipher.secretKey[:], recvKey) {
@@ -381,7 +391,70 @@ func TestBolt0008TestVectors(t *testing.T) {
 			responder.sendCipher.secretKey[:], recvKey)
 	}
 	if !bytes.Equal(responder.recvCipher.secretKey[:], sendingKey) {
-		t.Fatalf("sending key mismatch: expected %x, got %x",
-			responder.sendCipher.secretKey[:], sendingKey)
+		t.Fatalf("receiving key mismatch: expected %x, got %x",
+			responder.recvCipher.secretKey[:], sendingKey)
+	}
+	if !bytes.Equal(responder.chainingKey[:], chainKey) {
+		t.Fatalf("chaining key mismatch: expected %x, got %x",
+			responder.chainingKey[:], chainKey)
+	}
+
+	// Now test as per section "transport-message test" in Test Vectors
+	// (the transportMessageVectors ciphertexts are from this section of BOLT 8);
+	// we do slightly greater than 1000 encryption/decryption operations
+	// to ensure that the key rotation algorithm is operating as expected.
+	// The starting point for enc/decr is already guaranteed correct from the
+	// above tests of sendingKey, receivingKey, chainingKey.
+	transportMessageVectors := map[int]string{
+		0: "cf2b30ddf0cf3f80e7c35a6e6730b59fe802473180f396d88a8fb0db8cb" +
+			"cf25d2f214cf9ea1d95",
+		1: "72887022101f0b6753e0c7de21657d35a4cb2a1f5cde2650528bbc8f837" +
+			"d0f0d7ad833b1a256a1",
+		500: "178cb9d7387190fa34db9c2d50027d21793c9bc2d40b1e14dcf30ebeeeb2" +
+			"20f48364f7a4c68bf8",
+		501: "1b186c57d44eb6de4c057c49940d79bb838a145cb528d6e8fd26dbe50a6" +
+			"0ca2c104b56b60e45bd",
+		1000: "4a2f3cc3b5e78ddb83dcb426d9863d9d9a723b0337c89dd0b005d89f8d3" +
+			"c05c52b76b29b740f09",
+		1001: "2ecd8c8a5629d0d02ab457a0fdd0f7b90a192cd46be5ecb6ca570bfc5e2" +
+			"68338b1a16cf4ef2d36",
+	}
+
+	// Payload for every message is the string "hello".
+	payload := []byte("hello")
+
+	var buf bytes.Buffer
+
+	for i := 0; i < 1002; i++ {
+		err = initiator.WriteMessage(&buf, payload)
+		if err != nil {
+			t.Fatalf("could not write message %s", payload)
+		}
+		if val, ok := transportMessageVectors[i]; ok {
+			binaryVal, err := hex.DecodeString(val)
+			if err != nil {
+				t.Fatalf("Failed to decode hex string %s", val)
+			}
+			if !bytes.Equal(buf.Bytes(), binaryVal) {
+				t.Fatalf("Ciphertext %x was not equal to expected %s",
+					buf.String()[:], val)
+			}
+		}
+
+		// Responder decrypts the bytes, in every iteration, and
+		// should always be able to decrypt the same payload message.
+		plaintext, err := responder.ReadMessage(&buf)
+		if err != nil {
+			t.Fatalf("failed to read message in responder: %v", err)
+		}
+
+		// Ensure decryption succeeded
+		if !bytes.Equal(plaintext, payload) {
+			t.Fatalf("Decryption failed to receive plaintext: %s, got %s",
+				payload, plaintext)
+		}
+
+		// Clear out the buffer for the next iteration
+		buf.Reset()
 	}
 }

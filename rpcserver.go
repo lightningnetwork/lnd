@@ -13,19 +13,18 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/macaroon-bakery.v1/bakery"
+	"gopkg.in/macaroon-bakery.v2/bakery"
 
 	"sync"
 	"sync/atomic"
 
-	"github.com/boltdb/bolt"
+	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/roasbeef/btcd/blockchain"
@@ -43,25 +42,231 @@ import (
 var (
 	defaultAccount uint32 = waddrmgr.DefaultAccountNum
 
-	// roPermissions is a slice of method names that are considered "read-only"
-	// for authorization purposes, all lowercase.
-	roPermissions = []string{
-		"verifymessage",
-		"getinfo",
-		"listpeers",
-		"walletbalance",
-		"channelbalance",
-		"listchannels",
-		"readinvoices",
-		"gettransactions",
-		"describegraph",
-		"getchaninfo",
-		"getnodeinfo",
-		"queryroutes",
-		"getnetworkinfo",
-		"listpayments",
-		"decodepayreq",
-		"feereport",
+	// readPermissions is a slice of all entities that allow read
+	// permissions for authorization purposes, all lowercase.
+	readPermissions = []bakery.Op{
+		{
+			Entity: "onchain",
+			Action: "read",
+		},
+		{
+			Entity: "offchain",
+			Action: "read",
+		},
+		{
+			Entity: "address",
+			Action: "read",
+		},
+		{
+			Entity: "message",
+			Action: "read",
+		},
+		{
+			Entity: "peers",
+			Action: "read",
+		},
+		{
+			Entity: "info",
+			Action: "read",
+		},
+	}
+
+	// writePermissions is a slice of all entities that allow write
+	// permissions for authorization purposes, all lowercase.
+	writePermissions = []bakery.Op{
+		{
+			Entity: "onchain",
+			Action: "write",
+		},
+		{
+			Entity: "offchain",
+			Action: "write",
+		},
+		{
+			Entity: "address",
+			Action: "write",
+		},
+		{
+			Entity: "message",
+			Action: "write",
+		},
+		{
+			Entity: "peers",
+			Action: "write",
+		},
+		{
+			Entity: "info",
+			Action: "write",
+		},
+	}
+
+	// permissions maps RPC calls to the permissions they require.
+	permissions = map[string][]bakery.Op{
+		"/lnrpc.Lightning/SendCoins": {{
+			Entity: "onchain",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/SendMany": {{
+			Entity: "onchain",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/NewAddress": {{
+			Entity: "address",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/NewWitnessAddress": {{
+			Entity: "address",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/SignMessage": {{
+			Entity: "message",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/VerifyMessage": {{
+			Entity: "message",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/ConnectPeer": {{
+			Entity: "peers",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/DisconnectPeer": {{
+			Entity: "peers",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/OpenChannel": {{
+			Entity: "onchain",
+			Action: "write",
+		}, {
+			Entity: "offchain",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/OpenChannelSync": {{
+			Entity: "onchain",
+			Action: "write",
+		}, {
+			Entity: "offchain",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/CloseChannel": {{
+			Entity: "onchain",
+			Action: "write",
+		}, {
+			Entity: "offchain",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/GetInfo": {{
+			Entity: "info",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/ListPeers": {{
+			Entity: "peers",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/WalletBalance": {{
+			Entity: "onchain",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/ChannelBalance": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/PendingChannels": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/ListChannels": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/SendPayment": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/SendPaymentSync": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/AddInvoice": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/LookupInvoice": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/ListInvoices": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/SubscribeInvoices": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/SubscribeTransactions": {{
+			Entity: "onchain",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/GetTransactions": {{
+			Entity: "onchain",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/DescribeGraph": {{
+			Entity: "info",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/GetChanInfo": {{
+			Entity: "info",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/GetNodeInfo": {{
+			Entity: "info",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/QueryRoutes": {{
+			Entity: "info",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/GetNetworkInfo": {{
+			Entity: "info",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/StopDaemon": {{
+			Entity: "info",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/SubscribeChannelGraph": {{
+			Entity: "info",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/ListPayments": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/DeleteAllPayments": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/DebugLevel": {{
+			Entity: "info",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/DecodePayReq": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/FeeReport": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/UpdateChannelPolicy": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/ForwardingHistory": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
 	}
 )
 
@@ -77,10 +282,6 @@ type rpcServer struct {
 	started  int32 // To be used atomically.
 	shutdown int32 // To be used atomically.
 
-	// authSvc is the authentication/authorization service backed by
-	// macaroons.
-	authSvc *bakery.Service
-
 	server *server
 
 	wg sync.WaitGroup
@@ -93,11 +294,10 @@ type rpcServer struct {
 var _ lnrpc.LightningServer = (*rpcServer)(nil)
 
 // newRPCServer creates and returns a new instance of the rpcServer.
-func newRPCServer(s *server, authSvc *bakery.Service) *rpcServer {
+func newRPCServer(s *server) *rpcServer {
 	return &rpcServer{
-		server:  s,
-		authSvc: authSvc,
-		quit:    make(chan struct{}, 1),
+		server: s,
+		quit:   make(chan struct{}, 1),
 	}
 }
 
@@ -148,28 +348,28 @@ func addrPairsToOutputs(addrPairs map[string]int64) ([]*wire.TxOut, error) {
 // more addresses specified in the passed payment map. The payment map maps an
 // address to a specified output value to be sent to that address.
 func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
-	feePerByte btcutil.Amount) (*chainhash.Hash, error) {
+	feeRate lnwallet.SatPerVByte) (*chainhash.Hash, error) {
 
 	outputs, err := addrPairsToOutputs(paymentMap)
 	if err != nil {
 		return nil, err
 	}
 
-	return r.server.cc.wallet.SendOutputs(outputs, feePerByte)
+	return r.server.cc.wallet.SendOutputs(outputs, feeRate)
 }
 
-// determineFeePerByte will determine the fee in sat/byte that should be paid
+// determineFeePerVSize will determine the fee in sat/vbyte that should be paid
 // given an estimator, a confirmation target, and a manual value for sat/byte.
-// A value is chosen based on the two free paramters as one, or both of them
+// A value is chosen based on the two free parameters as one, or both of them
 // can be zero.
-func determineFeePerByte(feeEstimator lnwallet.FeeEstimator, targetConf int32,
-	satPerByte int64) (btcutil.Amount, error) {
+func determineFeePerVSize(feeEstimator lnwallet.FeeEstimator, targetConf int32,
+	feePerByte int64) (lnwallet.SatPerVByte, error) {
 
 	switch {
 	// If the target number of confirmations is set, then we'll use that to
-	// consult our fee estimator for an adquate fee.
+	// consult our fee estimator for an adequate fee.
 	case targetConf != 0:
-		satPerByte, err := feeEstimator.EstimateFeePerByte(
+		feePerVSize, err := feeEstimator.EstimateFeePerVSize(
 			uint32(targetConf),
 		)
 		if err != nil {
@@ -177,22 +377,22 @@ func determineFeePerByte(feeEstimator lnwallet.FeeEstimator, targetConf int32,
 				"estimator: %v", err)
 		}
 
-		return btcutil.Amount(satPerByte), nil
+		return feePerVSize, nil
 
-	// If a manual sat/byte fee rate is set, then we'll use that diretly.
-	case satPerByte != 0:
-		return btcutil.Amount(satPerByte), nil
+	// If a manual sat/byte fee rate is set, then we'll use that directly.
+	case feePerByte != 0:
+		return lnwallet.SatPerVByte(feePerByte), nil
 
 	// Otherwise, we'll attempt a relaxed confirmation target for the
 	// transaction
 	default:
-		satPerByte, err := feeEstimator.EstimateFeePerByte(6)
+		feePerVSize, err := feeEstimator.EstimateFeePerVSize(6)
 		if err != nil {
 			return 0, fmt.Errorf("unable to query fee "+
 				"estimator: %v", err)
 		}
 
-		return satPerByte, nil
+		return feePerVSize, nil
 	}
 }
 
@@ -201,28 +401,20 @@ func determineFeePerByte(feeEstimator lnwallet.FeeEstimator, targetConf int32,
 func (r *rpcServer) SendCoins(ctx context.Context,
 	in *lnrpc.SendCoinsRequest) (*lnrpc.SendCoinsResponse, error) {
 
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "sendcoins",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
-
-	// Based on the passed fee related paramters, we'll determine an
-	// approriate fee rate for this transaction.
-	feePerByte, err := determineFeePerByte(
+	// Based on the passed fee related parameters, we'll determine an
+	// appropriate fee rate for this transaction.
+	feeRate, err := determineFeePerVSize(
 		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	rpcsLog.Infof("[sendcoins] addr=%v, amt=%v, sat/byte=%v",
-		in.Addr, btcutil.Amount(in.Amount), int64(feePerByte))
+	rpcsLog.Infof("[sendcoins] addr=%v, amt=%v, sat/vbyte=%v",
+		in.Addr, btcutil.Amount(in.Amount), int64(feeRate))
 
 	paymentMap := map[string]int64{in.Addr: in.Amount}
-	txid, err := r.sendCoinsOnChain(paymentMap, feePerByte)
+	txid, err := r.sendCoinsOnChain(paymentMap, feeRate)
 	if err != nil {
 		return nil, err
 	}
@@ -237,27 +429,19 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 func (r *rpcServer) SendMany(ctx context.Context,
 	in *lnrpc.SendManyRequest) (*lnrpc.SendManyResponse, error) {
 
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "sendcoins",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
-
-	// Based on the passed fee related paramters, we'll determine an
+	// Based on the passed fee related parameters, we'll determine an
 	// approriate fee rate for this transaction.
-	feePerByte, err := determineFeePerByte(
+	feeRate, err := determineFeePerVSize(
 		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	rpcsLog.Infof("[sendmany] outputs=%v, sat/byte=%v",
-		spew.Sdump(in.AddrToAmount), int64(feePerByte))
+	rpcsLog.Infof("[sendmany] outputs=%v, sat/vbyte=%v",
+		spew.Sdump(in.AddrToAmount), int64(feeRate))
 
-	txid, err := r.sendCoinsOnChain(in.AddrToAmount, feePerByte)
+	txid, err := r.sendCoinsOnChain(in.AddrToAmount, feeRate)
 	if err != nil {
 		return nil, err
 	}
@@ -271,14 +455,6 @@ func (r *rpcServer) SendMany(ctx context.Context,
 func (r *rpcServer) NewAddress(ctx context.Context,
 	in *lnrpc.NewAddressRequest) (*lnrpc.NewAddressResponse, error) {
 
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "newaddress",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
-
 	// Translate the gRPC proto address type to the wallet controller's
 	// available address types.
 	var addrType lnwallet.AddressType
@@ -287,8 +463,6 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 		addrType = lnwallet.WitnessPubKey
 	case lnrpc.NewAddressRequest_NESTED_PUBKEY_HASH:
 		addrType = lnwallet.NestedWitnessPubKey
-	case lnrpc.NewAddressRequest_PUBKEY_HASH:
-		addrType = lnwallet.PubKeyHash
 	}
 
 	addr, err := r.server.cc.wallet.NewAddress(addrType, false)
@@ -304,14 +478,6 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 // the local wallet.
 func (r *rpcServer) NewWitnessAddress(ctx context.Context,
 	in *lnrpc.NewWitnessAddressRequest) (*lnrpc.NewAddressResponse, error) {
-
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "newaddress",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
 
 	addr, err := r.server.cc.wallet.NewAddress(
 		lnwallet.NestedWitnessPubKey, false,
@@ -330,14 +496,6 @@ func (r *rpcServer) NewWitnessAddress(ctx context.Context,
 // verification.
 func (r *rpcServer) SignMessage(ctx context.Context,
 	in *lnrpc.SignMessageRequest) (*lnrpc.SignMessageResponse, error) {
-
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "signmessage",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
 
 	if in.Msg == nil {
 		return nil, fmt.Errorf("need a message to sign")
@@ -359,14 +517,6 @@ func (r *rpcServer) SignMessage(ctx context.Context,
 func (r *rpcServer) VerifyMessage(ctx context.Context,
 	in *lnrpc.VerifyMessageRequest) (*lnrpc.VerifyMessageResponse, error) {
 
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "verifymessage",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
-
 	if in.Msg == nil {
 		return nil, fmt.Errorf("need a message to verify")
 	}
@@ -387,11 +537,14 @@ func (r *rpcServer) VerifyMessage(ctx context.Context,
 	}
 	pubKeyHex := hex.EncodeToString(pubKey.SerializeCompressed())
 
+	var pub [33]byte
+	copy(pub[:], pubKey.SerializeCompressed())
+
 	// Query the channel graph to ensure a node in the network with active
 	// channels signed the message.
 	// TODO(phlip9): Require valid nodes to have capital in active channels.
 	graph := r.server.chanDB.ChannelGraph()
-	_, active, err := graph.HasLightningNode(pubKey)
+	_, active, err := graph.HasLightningNode(pub)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query graph: %v", err)
 	}
@@ -405,14 +558,6 @@ func (r *rpcServer) VerifyMessage(ctx context.Context,
 // ConnectPeer attempts to establish a connection to a remote peer.
 func (r *rpcServer) ConnectPeer(ctx context.Context,
 	in *lnrpc.ConnectPeerRequest) (*lnrpc.ConnectPeerResponse, error) {
-
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "connectpeer",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
 
 	// The server hasn't yet started, so it won't be able to service any of
 	// our requests, so we'll bail early here.
@@ -449,7 +594,8 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 		addr = in.Addr.Host
 	}
 
-	host, err := net.ResolveTCPAddr("tcp", addr)
+	// We use ResolveTCPAddr here in case we wish to resolve hosts over Tor.
+	host, err := cfg.net.ResolveTCPAddr("tcp", addr)
 	if err != nil {
 		return nil, err
 	}
@@ -474,14 +620,6 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 // with the target peer, this action will be disallowed.
 func (r *rpcServer) DisconnectPeer(ctx context.Context,
 	in *lnrpc.DisconnectPeerRequest) (*lnrpc.DisconnectPeerResponse, error) {
-
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "disconnectpeer",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
 
 	rpcsLog.Debugf("[disconnectpeer] from peer(%s)", in.PubKey)
 
@@ -512,7 +650,7 @@ func (r *rpcServer) DisconnectPeer(ctx context.Context,
 	// In order to avoid erroneously disconnecting from a peer that we have
 	// an active channel with, if we have any channels active with this
 	// peer, then we'll disallow disconnecting from them.
-	if len(nodeChannels) > 0 {
+	if len(nodeChannels) > 0 && !cfg.UnsafeDisconnect {
 		return nil, fmt.Errorf("cannot disconnect from peer(%x), "+
 			"all active channels with the peer need to be closed "+
 			"first", pubKeyBytes)
@@ -532,16 +670,8 @@ func (r *rpcServer) DisconnectPeer(ctx context.Context,
 func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	updateStream lnrpc.Lightning_OpenChannelServer) error {
 
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(updateStream.Context(),
-			"openchannel", r.authSvc); err != nil {
-			return err
-		}
-	}
-
-	rpcsLog.Tracef("[openchannel] request to peerid(%v) "+
-		"allocation(us=%v, them=%v)", in.TargetPeerId,
+	rpcsLog.Tracef("[openchannel] request to NodeKey(%v) "+
+		"allocation(us=%v, them=%v)", in.NodePubkeyString,
 		in.LocalFundingAmount, in.PushSat)
 
 	if !r.server.Started() {
@@ -574,9 +704,9 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	const minChannelSize = btcutil.Amount(6000)
 
 	// Restrict the size of the channel we'll actually open. Atm, we
-	// require the amount to be above 6k satoahis s we currently hard-coded
+	// require the amount to be above 6k satoshis we currently hard-coded
 	// a 5k satoshi fee in several areas. As a result 6k sat is the min
-	// channnel size that allows us to safely sit above the dust threshold
+	// channel size that allows us to safely sit above the dust threshold
 	// after fees are applied
 	// TODO(roasbeef): remove after dynamic fees are in
 	if localFundingAmt < minChannelSize {
@@ -592,43 +722,45 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 
 	// TODO(roasbeef): also return channel ID?
 
-	// If the node key is set, then we'll parse the raw bytes into a pubkey
-	// object so we can easily manipulate it. If this isn't set, then we
-	// expected the TargetPeerId to be set accordingly.
-	if len(in.NodePubkey) != 0 {
-		nodePubKey, err = btcec.ParsePubKey(in.NodePubkey, btcec.S256())
-		if err != nil {
-			return err
-		}
-
-		// Making a channel to ourselves wouldn't be of any use, so we
-		// explicitly disallow them.
-		if nodePubKey.IsEqual(r.server.identityPriv.PubKey()) {
-			return fmt.Errorf("cannot open channel to self")
-		}
-
-		nodePubKeyBytes = nodePubKey.SerializeCompressed()
+	// Ensure that the NodePubKey is set before attempting to use it
+	if len(in.NodePubkey) == 0 {
+		return fmt.Errorf("NodePubKey is not set")
 	}
 
-	// Based on the passed fee related paramters, we'll determine an
-	// approriate fee rate for the funding transaction.
-	feePerByte, err := determineFeePerByte(
+	// Parse the raw bytes of the node key into a pubkey object so we
+	// can easily manipulate it.
+	nodePubKey, err = btcec.ParsePubKey(in.NodePubkey, btcec.S256())
+	if err != nil {
+		return err
+	}
+
+	// Making a channel to ourselves wouldn't be of any use, so we
+	// explicitly disallow them.
+	if nodePubKey.IsEqual(r.server.identityPriv.PubKey()) {
+		return fmt.Errorf("cannot open channel to self")
+	}
+
+	nodePubKeyBytes = nodePubKey.SerializeCompressed()
+
+	// Based on the passed fee related parameters, we'll determine an
+	// appropriate fee rate for the funding transaction.
+	feeRate, err := determineFeePerVSize(
 		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
 	)
 	if err != nil {
 		return err
 	}
 
-	rpcsLog.Debugf("[openchannel]: using fee of %v sat/byte for funding "+
-		"tx", int64(feePerByte))
+	rpcsLog.Debugf("[openchannel]: using fee of %v sat/vbyte for funding "+
+		"tx", int64(feeRate))
 
 	// Instruct the server to trigger the necessary events to attempt to
 	// open a new channel. A stream is returned in place, this stream will
 	// be used to consume updates of the state of the pending channel.
 	updateChan, errChan := r.server.OpenChannel(
-		in.TargetPeerId, nodePubKey, localFundingAmt,
+		nodePubKey, localFundingAmt,
 		lnwire.NewMSatFromSatoshis(remoteInitialBalance),
-		minHtlc, feePerByte, in.Private,
+		minHtlc, feeRate, in.Private,
 	)
 
 	var outpoint wire.OutPoint
@@ -636,9 +768,8 @@ out:
 	for {
 		select {
 		case err := <-errChan:
-			rpcsLog.Errorf("unable to open channel to "+
-				"identityPub(%x) nor peerID(%v): %v",
-				nodePubKeyBytes, in.TargetPeerId, err)
+			rpcsLog.Errorf("unable to open channel to NodeKey(%x): %v",
+				nodePubKeyBytes, err)
 			return err
 		case fundingUpdate := <-updateChan:
 			rpcsLog.Tracef("[openchannel] sending update: %v",
@@ -653,7 +784,15 @@ out:
 			switch update := fundingUpdate.Update.(type) {
 			case *lnrpc.OpenStatusUpdate_ChanOpen:
 				chanPoint := update.ChanOpen.ChannelPoint
-				h, _ := chainhash.NewHash(chanPoint.FundingTxid)
+				txidHash, err := getChanPointFundingTxid(chanPoint)
+				if err != nil {
+					return err
+				}
+
+				h, err := chainhash.NewHash(txidHash)
+				if err != nil {
+					return err
+				}
 				outpoint = wire.OutPoint{
 					Hash:  *h,
 					Index: chanPoint.OutputIndex,
@@ -666,8 +805,8 @@ out:
 		}
 	}
 
-	rpcsLog.Tracef("[openchannel] success peerid(%v), ChannelPoint(%v)",
-		in.TargetPeerId, outpoint)
+	rpcsLog.Tracef("[openchannel] success NodeKey(%x), ChannelPoint(%v)",
+		nodePubKeyBytes, outpoint)
 	return nil
 }
 
@@ -678,16 +817,8 @@ out:
 func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	in *lnrpc.OpenChannelRequest) (*lnrpc.ChannelPoint, error) {
 
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "openchannel",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
-
-	rpcsLog.Tracef("[openchannel] request to peerid(%v) "+
-		"allocation(us=%v, them=%v)", in.TargetPeerId,
+	rpcsLog.Tracef("[openchannel] request to NodeKey(%v) "+
+		"allocation(us=%v, them=%v)", in.NodePubkeyString,
 		in.LocalFundingAmount, in.PushSat)
 
 	// We don't allow new channels to be open while the server is still
@@ -700,7 +831,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 
 	// Creation of channels before the wallet syncs up is currently
 	// disallowed.
-	isSynced, err := r.server.cc.wallet.IsSynced()
+	isSynced, _, err := r.server.cc.wallet.IsSynced()
 	if err != nil {
 		return nil, err
 	}
@@ -733,30 +864,29 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 			"initial state must be below the local funding amount")
 	}
 
-	// Based on the passed fee related paramters, we'll determine an
+	// Based on the passed fee related parameters, we'll determine an
 	// appropriate fee rate for the funding transaction.
-	feePerByte, err := determineFeePerByte(
+	feeRate, err := determineFeePerVSize(
 		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	rpcsLog.Tracef("[openchannel] target sat/byte for funding tx: %v",
-		int64(feePerByte))
+	rpcsLog.Tracef("[openchannel] target sat/vbyte for funding tx: %v",
+		int64(feeRate))
 
 	updateChan, errChan := r.server.OpenChannel(
-		in.TargetPeerId, nodepubKey, localFundingAmt,
+		nodepubKey, localFundingAmt,
 		lnwire.NewMSatFromSatoshis(remoteInitialBalance),
-		minHtlc, feePerByte, in.Private,
+		minHtlc, feeRate, in.Private,
 	)
 
 	select {
 	// If an error occurs them immediately return the error to the client.
 	case err := <-errChan:
-		rpcsLog.Errorf("unable to open channel to "+
-			"identityPub(%x) nor peerID(%v): %v",
-			nodepubKey, in.TargetPeerId, err)
+		rpcsLog.Errorf("unable to open channel to NodeKey(%x): %v",
+			nodepubKey, err)
 		return nil, err
 
 	// Otherwise, wait for the first channel update. The first update sent
@@ -772,30 +902,52 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 		chanUpdate := openUpdate.ChanPending
 
 		return &lnrpc.ChannelPoint{
-			FundingTxid: chanUpdate.Txid,
+			FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+				FundingTxidBytes: chanUpdate.Txid,
+			},
 		}, nil
 	case <-r.quit:
 		return nil, nil
 	}
 }
 
-// CloseLink attempts to close an active channel identified by its channel
+// getChanPointFundingTxid returns the given channel point's funding txid in
+// raw bytes.
+func getChanPointFundingTxid(chanPoint *lnrpc.ChannelPoint) ([]byte, error) {
+	var txid []byte
+
+	// A channel point's funding txid can be get/set as a byte slice or a
+	// string. In the case it is a string, decode it.
+	switch chanPoint.GetFundingTxid().(type) {
+	case *lnrpc.ChannelPoint_FundingTxidBytes:
+		txid = chanPoint.GetFundingTxidBytes()
+	case *lnrpc.ChannelPoint_FundingTxidStr:
+		s := chanPoint.GetFundingTxidStr()
+		h, err := chainhash.NewHashFromStr(s)
+		if err != nil {
+			return nil, err
+		}
+
+		txid = h[:]
+	}
+
+	return txid, nil
+}
+
+// CloseChannel attempts to close an active channel identified by its channel
 // point. The actions of this method can additionally be augmented to attempt
 // a force close after a timeout period in the case of an inactive peer.
 func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 	updateStream lnrpc.Lightning_CloseChannelServer) error {
 
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(updateStream.Context(),
-			"closechannel", r.authSvc); err != nil {
-			return err
-		}
-	}
-
 	force := in.Force
 	index := in.ChannelPoint.OutputIndex
-	txid, err := chainhash.NewHash(in.ChannelPoint.FundingTxid)
+	txidHash, err := getChanPointFundingTxid(in.GetChannelPoint())
+	if err != nil {
+		rpcsLog.Errorf("[closechannel] unable to get funding txid: %v", err)
+		return err
+	}
+	txid, err := chainhash.NewHash(txidHash)
 	if err != nil {
 		rpcsLog.Errorf("[closechannel] invalid txid: %v", err)
 		return err
@@ -824,9 +976,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		if err != nil {
 			return err
 		}
-		defer func() {
-			channel.Stop()
-		}()
+		channel.Stop()
 
 		_, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
 		if err != nil {
@@ -849,18 +999,23 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		}
 
 		select {
-		case r.server.breachArbiter.settledContracts <- chanPoint:
+		case r.server.breachArbiter.settledContracts <- *chanPoint:
 		case <-r.quit:
 			return fmt.Errorf("server shutting down")
 		}
 
 		// With the necessary indexes cleaned up, we'll now force close
 		// the channel.
-		closingTxid, closeSummary, err := r.forceCloseChan(channel)
+		chainArbitrator := r.server.chainArb
+		closingTx, err := chainArbitrator.ForceCloseContract(
+			*chanPoint,
+		)
 		if err != nil {
 			rpcsLog.Errorf("unable to force close transaction: %v", err)
 			return err
 		}
+
+		closingTxid := closingTx.TxHash()
 
 		// With the transaction broadcast, we send our first update to
 		// the client.
@@ -873,12 +1028,10 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 			},
 		}
 
-		channel.CancelObserver()
-
 		errChan = make(chan error, 1)
 		notifier := r.server.cc.chainNotifier
 		go waitForChanToClose(uint32(bestHeight), notifier, errChan, chanPoint,
-			closingTxid, func() {
+			&closingTxid, func() {
 				// Respond to the local subsystem which
 				// requested the channel closure.
 				updateChan <- &lnrpc.CloseStatusUpdate{
@@ -889,43 +1042,25 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 						},
 					},
 				}
-
-				// If we didn't have an output active on the
-				// commitment transaction, and had no outgoing
-				// HTLC's then we can mark the channels as
-				// closed as there are no funds to be swept.
-				if closeSummary.SelfOutputSignDesc == nil &&
-					len(closeSummary.HtlcResolutions) == 0 {
-					err := r.server.chanDB.MarkChanFullyClosed(chanPoint)
-					if err != nil {
-						rpcsLog.Errorf("unable to "+
-							"mark channel as closed: %v", err)
-						return
-					}
-				}
 			})
 	} else {
-		// Based on the passed fee related paramters, we'll determine
-		// an approriate fee rate for the cooperative closure
+		// Based on the passed fee related parameters, we'll determine
+		// an appropriate fee rate for the cooperative closure
 		// transaction.
-		feePerByte, err := determineFeePerByte(
+		feeRate, err := determineFeePerVSize(
 			r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
 		)
 		if err != nil {
 			return err
 		}
 
-		rpcsLog.Debugf("Target sat/byte for closing transaction: %v",
-			int64(feePerByte))
+		rpcsLog.Debugf("Target sat/vbyte for closing transaction: %v",
+			int64(feeRate))
 
-		// When crating commitment transaction, or closure
-		// transactions, we typically deal in fees per-kw, so we'll
-		// convert now before passing the close request to the switch.
-		feePerWeight := (feePerByte / blockchain.WitnessScaleFactor)
-		if feePerWeight == 0 {
+		if feeRate == 0 {
 			// If the fee rate returned isn't usable, then we'll
 			// fall back to an lax fee estimate.
-			feePerWeight, err = r.server.cc.feeEstimator.EstimateFeePerWeight(6)
+			feeRate, err = r.server.cc.feeEstimator.EstimateFeePerVSize(6)
 			if err != nil {
 				return err
 			}
@@ -935,7 +1070,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		// cooperative channel closure. So we'll forward the request to
 		// the htlc switch which will handle the negotiation and
 		// broadcast details.
-		feePerKw := feePerWeight * 1000
+		feePerKw := feeRate.FeePerKWeight()
 		updateChan, errChan = r.server.htlcSwitch.CloseLink(chanPoint,
 			htlcswitch.CloseRegular, feePerKw)
 	}
@@ -971,7 +1106,7 @@ out:
 	return nil
 }
 
-// fetchActiveChannel attempts to locate a channel identified by it's channel
+// fetchActiveChannel attempts to locate a channel identified by its channel
 // point from the database's set of all currently opened channels.
 func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (*lnwallet.LightningChannel, error) {
 	dbChannels, err := r.server.chanDB.FetchAllChannels()
@@ -997,92 +1132,16 @@ func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (*lnwallet.Light
 
 	// Otherwise, we create a fully populated channel state machine which
 	// uses the db channel as backing storage.
-	return lnwallet.NewLightningChannel(r.server.cc.wallet.Cfg.Signer, nil,
-		r.server.cc.feeEstimator, dbChan)
-}
-
-// forceCloseChan executes a unilateral close of the target channel by
-// broadcasting the current commitment state directly on-chain. Once the
-// commitment transaction has been broadcast, a struct describing the final
-// state of the channel is sent to the utxoNursery in order to ultimately sweep
-// the immature outputs.
-func (r *rpcServer) forceCloseChan(channel *lnwallet.LightningChannel) (*chainhash.Hash, *lnwallet.ForceCloseSummary, error) {
-
-	// Execute a unilateral close shutting down all further channel
-	// operation.
-	closeSummary, err := channel.ForceClose()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	closeTx := closeSummary.CloseTx
-	txid := closeTx.TxHash()
-
-	// With the close transaction in hand, broadcast the transaction to the
-	// network, thereby entering the postk channel resolution state.
-	rpcsLog.Infof("Broadcasting force close transaction, ChannelPoint(%v): %v",
-		channel.ChannelPoint(), newLogClosure(func() string {
-			return spew.Sdump(closeTx)
-		}))
-	if err := r.server.cc.wallet.PublishTransaction(closeTx); err != nil {
-		return nil, nil, err
-	}
-
-	// Now that the closing transaction has been broadcast successfully,
-	// we'll mark this channel as being in the pending closed state. The
-	// UTXO nursery will mark the channel as fully closed once all the
-	// outputs have been swept.
-	//
-	// TODO(roasbeef): don't set local balance if close summary detects
-	// dust output?
-	chanPoint := channel.ChannelPoint()
-	chanInfo := channel.StateSnapshot()
-	closeInfo := &channeldb.ChannelCloseSummary{
-		ChanPoint:   *chanPoint,
-		ChainHash:   chanInfo.ChainHash,
-		ClosingTXID: closeTx.TxHash(),
-		RemotePub:   &chanInfo.RemoteIdentity,
-		Capacity:    chanInfo.Capacity,
-		CloseType:   channeldb.ForceClose,
-		IsPending:   true,
-	}
-
-	// If our commitment output isn't dust or we have active HTLC's on the
-	// commitment transaction, then we'll populate the balances on the
-	// close channel summary.
-	if closeSummary.SelfOutputSignDesc != nil ||
-		len(closeSummary.HtlcResolutions) == 0 {
-
-		closeInfo.SettledBalance = chanInfo.LocalBalance.ToSatoshis()
-		closeInfo.TimeLockedBalance = chanInfo.LocalBalance.ToSatoshis()
-	}
-
-	if err := channel.DeleteState(closeInfo); err != nil {
-		return nil, nil, err
-	}
-
-	// Send the closed channel summary over to the utxoNursery in order to
-	// have its outputs swept back into the wallet once they're mature.
-	if err := r.server.utxoNursery.IncubateOutputs(closeSummary); err != nil {
-		return nil, nil, err
-	}
-
-	return &txid, closeSummary, nil
+	return lnwallet.NewLightningChannel(
+		r.server.cc.wallet.Cfg.Signer, nil, dbChan,
+	)
 }
 
 // GetInfo returns general information concerning the lightning node including
-// it's identity pubkey, alias, the chains it is connected to, and information
+// its identity pubkey, alias, the chains it is connected to, and information
 // concerning the number of open+pending channels.
 func (r *rpcServer) GetInfo(ctx context.Context,
 	in *lnrpc.GetInfoRequest) (*lnrpc.GetInfoResponse, error) {
-
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "getinfo",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
 
 	var activeChannels uint32
 	serverPeers := r.server.Peers()
@@ -1105,7 +1164,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		return nil, fmt.Errorf("unable to get best block info: %v", err)
 	}
 
-	isSynced, err := r.server.cc.wallet.IsSynced()
+	isSynced, bestHeaderTimestamp, err := r.server.cc.wallet.IsSynced()
 	if err != nil {
 		return nil, fmt.Errorf("unable to sync PoV of the wallet "+
 			"with current best block in the main chain: %v", err)
@@ -1131,30 +1190,24 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 
 	// TODO(roasbeef): add synced height n stuff
 	return &lnrpc.GetInfoResponse{
-		IdentityPubkey:     encodedIDPub,
-		NumPendingChannels: nPendingChannels,
-		NumActiveChannels:  activeChannels,
-		NumPeers:           uint32(len(serverPeers)),
-		BlockHeight:        uint32(bestHeight),
-		BlockHash:          bestHash.String(),
-		SyncedToChain:      isSynced,
-		Testnet:            activeNetParams.Params == &chaincfg.TestNet3Params,
-		Chains:             activeChains,
-		Uris:               uris,
+		IdentityPubkey:      encodedIDPub,
+		NumPendingChannels:  nPendingChannels,
+		NumActiveChannels:   activeChannels,
+		NumPeers:            uint32(len(serverPeers)),
+		BlockHeight:         uint32(bestHeight),
+		BlockHash:           bestHash.String(),
+		SyncedToChain:       isSynced,
+		Testnet:             activeNetParams.Params == &chaincfg.TestNet3Params,
+		Chains:              activeChains,
+		Uris:                uris,
+		Alias:               nodeAnn.Alias.String(),
+		BestHeaderTimestamp: int64(bestHeaderTimestamp),
 	}, nil
 }
 
 // ListPeers returns a verbose listing of all currently active peers.
 func (r *rpcServer) ListPeers(ctx context.Context,
 	in *lnrpc.ListPeersRequest) (*lnrpc.ListPeersResponse, error) {
-
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "listpeers",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
 
 	rpcsLog.Tracef("[listpeers] request")
 
@@ -1183,9 +1236,8 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 		nodePub := serverPeer.addr.IdentityKey.SerializeCompressed()
 		peer := &lnrpc.Peer{
 			PubKey:    hex.EncodeToString(nodePub),
-			PeerId:    serverPeer.id,
 			Address:   serverPeer.conn.RemoteAddr().String(),
-			Inbound:   serverPeer.inbound,
+			Inbound:   !serverPeer.inbound, // Flip for display
 			BytesRecv: atomic.LoadUint64(&serverPeer.bytesReceived),
 			BytesSent: atomic.LoadUint64(&serverPeer.bytesSent),
 			SatSent:   satSent,
@@ -1209,27 +1261,19 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 func (r *rpcServer) WalletBalance(ctx context.Context,
 	in *lnrpc.WalletBalanceRequest) (*lnrpc.WalletBalanceResponse, error) {
 
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "walletbalance",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
-
 	// Get total balance, from txs that have >= 0 confirmations.
-	totalBal, err := r.server.cc.wallet.ConfirmedBalance(0, in.WitnessOnly)
+	totalBal, err := r.server.cc.wallet.ConfirmedBalance(0)
 	if err != nil {
 		return nil, err
 	}
 
 	// Get confirmed balance, from txs that have >= 1 confirmations.
-	confirmedBal, err := r.server.cc.wallet.ConfirmedBalance(1, in.WitnessOnly)
+	confirmedBal, err := r.server.cc.wallet.ConfirmedBalance(1)
 	if err != nil {
 		return nil, err
 	}
 
-	// Get uncomfirmed balance, from txs with 0 confirmations.
+	// Get unconfirmed balance, from txs with 0 confirmations.
 	unconfirmedBal := totalBal - confirmedBal
 
 	rpcsLog.Debugf("[walletbalance] Total balance=%v", totalBal)
@@ -1245,14 +1289,6 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 // channels in satoshis.
 func (r *rpcServer) ChannelBalance(ctx context.Context,
 	in *lnrpc.ChannelBalanceRequest) (*lnrpc.ChannelBalanceResponse, error) {
-
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "channelbalance",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
 
 	channels, err := r.server.chanDB.FetchAllChannels()
 	if err != nil {
@@ -1276,14 +1312,6 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 func (r *rpcServer) PendingChannels(ctx context.Context,
 	in *lnrpc.PendingChannelsRequest) (*lnrpc.PendingChannelsResponse, error) {
 
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "listchannels",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
-
 	rpcsLog.Debugf("[pendingchannels]")
 
 	resp := &lnrpc.PendingChannelsResponse{}
@@ -1293,6 +1321,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 	// and map the db struct to the proto response.
 	pendingOpenChannels, err := r.server.chanDB.FetchPendingChannels()
 	if err != nil {
+		rpcsLog.Errorf("unable to fetch pending channels: %v", err)
 		return nil, err
 	}
 	resp.PendingOpenChannels = make([]*lnrpc.PendingChannelsResponse_PendingOpenChannel,
@@ -1336,6 +1365,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 	// can populate these fields within the response.
 	pendingCloseChannels, err := r.server.chanDB.FetchClosedChannels(true)
 	if err != nil {
+		rpcsLog.Errorf("unable to fetch closed channels: %v", err)
 		return nil, err
 	}
 	for _, pendingClose := range pendingCloseChannels {
@@ -1442,14 +1472,6 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 func (r *rpcServer) ListChannels(ctx context.Context,
 	in *lnrpc.ListChannelsRequest) (*lnrpc.ListChannelsResponse, error) {
 
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "listchannels",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
-
 	resp := &lnrpc.ListChannelsResponse{}
 
 	graph := r.server.chanDB.ChannelGraph()
@@ -1503,7 +1525,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		localBalance := localCommit.LocalBalance
 		remoteBalance := localCommit.RemoteBalance
 
-		// As an artefact of our usage of mSAT internally, either party
+		// As an artifact of our usage of mSAT internally, either party
 		// may end up in a state where they're holding a fractional
 		// amount of satoshis which can't be expressed within the
 		// actual commitment output. Since we round down when going
@@ -1551,12 +1573,12 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 
 // savePayment saves a successfully completed payment to the database for
 // historical record keeping.
-func (r *rpcServer) savePayment(route *routing.Route, amount lnwire.MilliSatoshi, rHash []byte) error {
+func (r *rpcServer) savePayment(route *routing.Route, amount lnwire.MilliSatoshi, preImage []byte) error {
 
 	paymentPath := make([][33]byte, len(route.Hops))
 	for i, hop := range route.Hops {
-		hopPub := hop.Channel.Node.PubKey.SerializeCompressed()
-		copy(paymentPath[i][:], hopPub)
+		hopPub := hop.Channel.Node.PubKeyBytes
+		copy(paymentPath[i][:], hopPub[:])
 	}
 
 	payment := &channeldb.OutgoingPayment{
@@ -1570,7 +1592,7 @@ func (r *rpcServer) savePayment(route *routing.Route, amount lnwire.MilliSatoshi
 		Fee:            route.TotalFees,
 		TimeLockLength: route.TotalTimeLock,
 	}
-	copy(payment.PaymentHash[:], rHash)
+	copy(payment.PaymentPreimage[:], preImage)
 
 	return r.server.chanDB.AddPayment(payment)
 }
@@ -1592,14 +1614,6 @@ func validatePayReqExpiry(payReq *zpay32.Invoice) error {
 // bi-directional stream allowing clients to rapidly send payments through the
 // Lightning Network with a single persistent connection.
 func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer) error {
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(paymentStream.Context(),
-			"sendpayment", r.authSvc); err != nil {
-			return err
-		}
-	}
-
 	// For each payment we need to know the msat amount, the destination
 	// public key, and the payment hash.
 	type payment struct {
@@ -1677,7 +1691,8 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 				// attempt to decode it, populating the
 				// payment accordingly.
 				if nextPayment.PaymentRequest != "" {
-					payReq, err := zpay32.Decode(nextPayment.PaymentRequest)
+					payReq, err := zpay32.Decode(nextPayment.PaymentRequest,
+						activeNetParams.Params)
 					if err != nil {
 						select {
 						case errChan <- err:
@@ -1701,18 +1716,20 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					}
 					p.dest = payReq.Destination.SerializeCompressed()
 
+					// If the amount was not included in the
+					// invoice, then we let the payee
+					// specify the amount of satoshis they
+					// wish to send. We override the amount
+					// to pay with the amount provided from
+					// the payment request.
 					if payReq.MilliSat == nil {
-						err := fmt.Errorf("only payment" +
-							" requests specifying" +
-							" the amount are" +
-							" currently supported")
-						select {
-						case errChan <- err:
-						case <-reqQuit:
-						}
-						return
+						p.msat = lnwire.NewMSatFromSatoshis(
+							btcutil.Amount(nextPayment.Amt),
+						)
+					} else {
+						p.msat = *payReq.MilliSat
 					}
-					p.msat = *payReq.MilliSat
+
 					p.pHash = payReq.PaymentHash[:]
 					p.cltvDelta = uint16(payReq.MinFinalCLTVExpiry())
 				} else {
@@ -1724,6 +1741,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					)
 					p.dest = nextPayment.Dest
 					p.pHash = nextPayment.PaymentHash
+					p.cltvDelta = uint16(nextPayment.FinalCltvDelta)
 				}
 
 				select {
@@ -1817,7 +1835,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 
 				// Save the completed payment to the database
 				// for record keeping purposes.
-				if err := r.savePayment(route, p.msat, rHash[:]); err != nil {
+				if err := r.savePayment(route, p.msat, preImage[:]); err != nil {
 					errChan <- err
 					return
 				}
@@ -1842,14 +1860,6 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	nextPayment *lnrpc.SendRequest) (*lnrpc.SendResponse, error) {
 
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "sendpayment",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
-
 	// TODO(roasbeef): enforce fee limits, pass into router, ditch if exceed limit
 	//  * limit either a %, or absolute, or iff more than sending
 
@@ -1871,7 +1881,8 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	// If the proto request has an encoded payment request, then we we'll
 	// use that solely to dispatch the payment.
 	if nextPayment.PaymentRequest != "" {
-		payReq, err := zpay32.Decode(nextPayment.PaymentRequest)
+		payReq, err := zpay32.Decode(nextPayment.PaymentRequest,
+			activeNetParams.Params)
 		if err != nil {
 			return nil, err
 		}
@@ -1883,11 +1894,18 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 
 		destPub = payReq.Destination
 
+		// If the amount was not included in the invoice, then we let
+		// the payee specify the amount of satoshis they wish to send.
+		// We override the amount to pay with the amount provided from
+		// the payment request.
 		if payReq.MilliSat == nil {
-			return nil, fmt.Errorf("payment requests with no " +
-				"amount specified not currently supported")
+			amtMSat = lnwire.NewMSatFromSatoshis(
+				btcutil.Amount(nextPayment.Amt),
+			)
+		} else {
+			amtMSat = *payReq.MilliSat
 		}
-		amtMSat = *payReq.MilliSat
+
 		rHash = *payReq.PaymentHash
 		cltvDelta = uint16(payReq.MinFinalCLTVExpiry())
 
@@ -1953,7 +1971,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 
 	// With the payment completed successfully, we now ave the details of
 	// the completed payment to the database for historical record keeping.
-	if err := r.savePayment(route, amtMSat, rHash[:]); err != nil {
+	if err := r.savePayment(route, amtMSat, preImage[:]); err != nil {
 		return nil, err
 	}
 
@@ -1968,14 +1986,6 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 // unique payment preimage.
 func (r *rpcServer) AddInvoice(ctx context.Context,
 	invoice *lnrpc.Invoice) (*lnrpc.AddInvoiceResponse, error) {
-
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "addinvoice",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
 
 	var paymentPreimage [32]byte
 
@@ -2016,14 +2026,10 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 
 	amt := btcutil.Amount(invoice.Value)
 	amtMSat := lnwire.NewMSatFromSatoshis(amt)
-	switch {
-	// The value of an invoice MUST NOT be zero.
-	case invoice.Value == 0:
-		return nil, fmt.Errorf("zero value invoices are disallowed")
 
 	// The value of the invoice must also not exceed the current soft-limit
 	// on the largest payment within the network.
-	case amtMSat > maxPaymentMSat:
+	if amtMSat > maxPaymentMSat {
 		return nil, fmt.Errorf("payment of %v is too large, max "+
 			"payment allowed is %v", amt, maxPaymentMSat.ToSatoshis())
 	}
@@ -2039,9 +2045,12 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	// expiry, fallback address, and the amount field.
 	var options []func(*zpay32.Invoice)
 
-	// Add the amount. This field is optional by the BOLT-11 format, but
-	// we require it for now.
-	options = append(options, zpay32.Amount(amtMSat))
+	// We only include the amount in the invoice if it is greater than 0.
+	// By not including the amount, we enable the creation of invoices that
+	// allow the payee to specify the amount of satoshis they wish to send.
+	if amtMSat > 0 {
+		options = append(options, zpay32.Amount(amtMSat))
+	}
 
 	// If specified, add a fallback address to the payment request.
 	if len(invoice.FallbackAddr) > 0 {
@@ -2141,7 +2150,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 // createRPCInvoice creates an *lnrpc.Invoice from the *channeldb.Invoice.
 func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 	paymentRequest := string(invoice.PaymentRequest)
-	decoded, err := zpay32.Decode(paymentRequest)
+	decoded, err := zpay32.Decode(paymentRequest, activeNetParams.Params)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode payment request: %v",
 			err)
@@ -2189,19 +2198,11 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 	}, nil
 }
 
-// LookupInvoice attemps to look up an invoice according to its payment hash.
+// LookupInvoice attempts to look up an invoice according to its payment hash.
 // The passed payment hash *must* be exactly 32 bytes, if not an error is
 // returned.
 func (r *rpcServer) LookupInvoice(ctx context.Context,
 	req *lnrpc.PaymentHash) (*lnrpc.Invoice, error) {
-
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "readinvoices",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
 
 	var (
 		payHash [32]byte
@@ -2252,14 +2253,6 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 func (r *rpcServer) ListInvoices(ctx context.Context,
 	req *lnrpc.ListInvoiceRequest) (*lnrpc.ListInvoiceResponse, error) {
 
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "readinvoices",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
-
 	dbInvoices, err := r.server.chanDB.FetchAllInvoices(req.PendingOnly)
 	if err != nil {
 		return nil, err
@@ -2285,14 +2278,6 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 // notifying the client of newly added/settled invoices.
 func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 	updateStream lnrpc.Lightning_SubscribeInvoicesServer) error {
-
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(updateStream.Context(),
-			"readinvoices", r.authSvc); err != nil {
-			return err
-		}
-	}
 
 	invoiceClient := r.server.invoices.SubscribeNotifications()
 	defer invoiceClient.Cancel()
@@ -2321,14 +2306,6 @@ func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 // over.
 func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 	updateStream lnrpc.Lightning_SubscribeTransactionsServer) error {
-
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(updateStream.Context(),
-			"gettransactions", r.authSvc); err != nil {
-			return err
-		}
-	}
 
 	txClient, err := r.server.cc.wallet.SubscribeTransactions()
 	if err != nil {
@@ -2371,14 +2348,6 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 func (r *rpcServer) GetTransactions(ctx context.Context,
 	_ *lnrpc.GetTransactionsRequest) (*lnrpc.TransactionDetails, error) {
 
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "gettransactions",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
-
 	// TODO(roasbeef): add pagination support
 	transactions, err := r.server.cc.wallet.ListTransactionDetails()
 	if err != nil {
@@ -2418,14 +2387,6 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 func (r *rpcServer) DescribeGraph(ctx context.Context,
 	_ *lnrpc.ChannelGraphRequest) (*lnrpc.ChannelGraph, error) {
 
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "describegraph",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
-
 	resp := &lnrpc.ChannelGraph{}
 
 	// Obtain the pointer to the global singleton channel graph, this will
@@ -2449,7 +2410,7 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 		nodeColor := fmt.Sprintf("#%02x%02x%02x", node.Color.R, node.Color.G, node.Color.B)
 		resp.Nodes = append(resp.Nodes, &lnrpc.LightningNode{
 			LastUpdate: uint32(node.LastUpdate.Unix()),
-			PubKey:     hex.EncodeToString(node.PubKey.SerializeCompressed()),
+			PubKey:     hex.EncodeToString(node.PubKeyBytes[:]),
 			Addresses:  nodeAddrs,
 			Alias:      node.Alias,
 			Color:      nodeColor,
@@ -2497,8 +2458,8 @@ func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 		ChanPoint: edgeInfo.ChannelPoint.String(),
 		// TODO(roasbeef): update should be on edge info itself
 		LastUpdate: uint32(lastUpdate),
-		Node1Pub:   hex.EncodeToString(edgeInfo.NodeKey1.SerializeCompressed()),
-		Node2Pub:   hex.EncodeToString(edgeInfo.NodeKey2.SerializeCompressed()),
+		Node1Pub:   hex.EncodeToString(edgeInfo.NodeKey1Bytes[:]),
+		Node2Pub:   hex.EncodeToString(edgeInfo.NodeKey2Bytes[:]),
 		Capacity:   int64(edgeInfo.Capacity),
 	}
 
@@ -2532,14 +2493,6 @@ func (r *rpcServer) GetChanInfo(ctx context.Context,
 
 	graph := r.server.chanDB.ChannelGraph()
 
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "getchaninfo",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
-
 	edgeInfo, edge1, edge2, err := graph.FetchChannelEdgesByID(in.ChanId)
 	if err != nil {
 		return nil, err
@@ -2557,14 +2510,6 @@ func (r *rpcServer) GetChanInfo(ctx context.Context,
 // channel information for the specified node identified by its public key.
 func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	in *lnrpc.NodeInfoRequest) (*lnrpc.NodeInfo, error) {
-
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "getnodeinfo",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
 
 	graph := r.server.chanDB.ChannelGraph()
 
@@ -2590,14 +2535,14 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	// With the node obtained, we'll now iterate through all its out going
 	// edges to gather some basic statistics about its out going channels.
 	var (
-		numChannels  uint32
-		totalCapcity btcutil.Amount
+		numChannels   uint32
+		totalCapacity btcutil.Amount
 	)
 	if err := node.ForEachChannel(nil, func(_ *bolt.Tx, edge *channeldb.ChannelEdgeInfo,
 		_, _ *channeldb.ChannelEdgePolicy) error {
 
 		numChannels++
-		totalCapcity += edge.Capacity
+		totalCapacity += edge.Capacity
 		return nil
 	}); err != nil {
 		return nil, err
@@ -2623,7 +2568,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 			Color:      nodeColor,
 		},
 		NumChannels:   numChannels,
-		TotalCapacity: int64(totalCapcity),
+		TotalCapacity: int64(totalCapacity),
 	}, nil
 }
 
@@ -2631,7 +2576,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 // route to a target destination capable of carrying a specific amount of
 // satoshis within the route's flow. The retuned route contains the full
 // details required to craft and send an HTLC, also including the necessary
-// information that should be present within the Sphinx packet encapsualted
+// information that should be present within the Sphinx packet encapsulated
 // within the HTLC.
 //
 // TODO(roasbeef): should return a slice of routes in reality
@@ -2639,15 +2584,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 func (r *rpcServer) QueryRoutes(ctx context.Context,
 	in *lnrpc.QueryRoutesRequest) (*lnrpc.QueryRoutesResponse, error) {
 
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "queryroutes",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
-
-	// First parse the hex-encdoed public key into a full public key objet
+	// First parse the hex-encoded public key into a full public key object
 	// we can properly manipulate.
 	pubKeyBytes, err := hex.DecodeString(in.PubKey)
 	if err != nil {
@@ -2671,18 +2608,30 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 	// Query the channel router for a possible path to the destination that
 	// can carry `in.Amt` satoshis _including_ the total fee required on
 	// the route.
-	routes, err := r.server.chanRouter.FindRoutes(pubKey, amtMSat)
+	routes, err := r.server.chanRouter.FindRoutes(
+		pubKey, amtMSat, uint32(in.NumRoutes),
+	)
 	if err != nil {
 		return nil, err
+	}
+
+	// As the number of returned routes can be less than the number of
+	// requested routes, we'll clamp down the length of the response to the
+	// minimum of the two.
+	numRoutes := int32(len(routes))
+	if in.NumRoutes < numRoutes {
+		numRoutes = in.NumRoutes
 	}
 
 	// For each valid route, we'll convert the result into the format
 	// required by the RPC system.
 	routeResp := &lnrpc.QueryRoutesResponse{
-		Routes: make([]*lnrpc.Route, len(routes)),
+		Routes: make([]*lnrpc.Route, 0, in.NumRoutes),
 	}
-	for i, route := range routes {
-		routeResp.Routes[i] = marshallRoute(route)
+	for i := int32(0); i < numRoutes; i++ {
+		routeResp.Routes = append(
+			routeResp.Routes, marshallRoute(routes[i]),
+		)
 	}
 
 	return routeResp, nil
@@ -2712,14 +2661,6 @@ func marshallRoute(route *routing.Route) *lnrpc.Route {
 // the PoV of the node.
 func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 	_ *lnrpc.NetworkInfoRequest) (*lnrpc.NetworkInfo, error) {
-
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "getnetworkinfo",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
 
 	graph := r.server.chanDB.ChannelGraph()
 
@@ -2836,14 +2777,6 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 func (r *rpcServer) StopDaemon(ctx context.Context,
 	_ *lnrpc.StopRequest) (*lnrpc.StopResponse, error) {
 
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "stopdaemon",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
-
 	shutdownRequestChannel <- struct{}{}
 	return &lnrpc.StopResponse{}, nil
 }
@@ -2856,14 +2789,6 @@ func (r *rpcServer) StopDaemon(ctx context.Context,
 // and finally when prior channels are closed on-chain.
 func (r *rpcServer) SubscribeChannelGraph(req *lnrpc.GraphTopologySubscription,
 	updateStream lnrpc.Lightning_SubscribeChannelGraphServer) error {
-
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(updateStream.Context(),
-			"describegraph", r.authSvc); err != nil {
-			return err
-		}
-	}
 
 	// First, we start by subscribing to a new intent to receive
 	// notifications from the channel router.
@@ -2907,7 +2832,7 @@ func (r *rpcServer) SubscribeChannelGraph(req *lnrpc.GraphTopologySubscription,
 	}
 }
 
-// marshallTopologyChange performs a mapping from the topology change sturct
+// marshallTopologyChange performs a mapping from the topology change struct
 // returned by the router to the form of notifications expected by the current
 // gRPC service.
 func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopologyUpdate {
@@ -2939,7 +2864,9 @@ func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopol
 		channelUpdates[i] = &lnrpc.ChannelEdgeUpdate{
 			ChanId: channelUpdate.ChanID,
 			ChanPoint: &lnrpc.ChannelPoint{
-				FundingTxid: channelUpdate.ChanPoint.Hash[:],
+				FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+					FundingTxidBytes: channelUpdate.ChanPoint.Hash[:],
+				},
 				OutputIndex: channelUpdate.ChanPoint.Index,
 			},
 			Capacity: int64(channelUpdate.Capacity),
@@ -2961,7 +2888,9 @@ func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopol
 			Capacity:     int64(closedChan.Capacity),
 			ClosedHeight: closedChan.ClosedHeight,
 			ChanPoint: &lnrpc.ChannelPoint{
-				FundingTxid: closedChan.ChanPoint.Hash[:],
+				FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+					FundingTxidBytes: closedChan.ChanPoint.Hash[:],
+				},
 				OutputIndex: closedChan.ChanPoint.Index,
 			},
 		}
@@ -2977,14 +2906,6 @@ func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopol
 // ListPayments returns a list of all outgoing payments.
 func (r *rpcServer) ListPayments(ctx context.Context,
 	_ *lnrpc.ListPaymentsRequest) (*lnrpc.ListPaymentsResponse, error) {
-
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "listpayments",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
 
 	rpcsLog.Debugf("[ListPayments]")
 
@@ -3002,11 +2923,14 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 			path[i] = hex.EncodeToString(hop[:])
 		}
 
+		paymentHash := sha256.Sum256(payment.PaymentPreimage[:])
 		paymentsResp.Payments[i] = &lnrpc.Payment{
-			PaymentHash:  hex.EncodeToString(payment.PaymentHash[:]),
-			Value:        int64(payment.Terms.Value.ToSatoshis()),
-			CreationDate: payment.CreationDate.Unix(),
-			Path:         path,
+			PaymentHash:     hex.EncodeToString(paymentHash[:]),
+			Value:           int64(payment.Terms.Value.ToSatoshis()),
+			CreationDate:    payment.CreationDate.Unix(),
+			Path:            path,
+			Fee:             int64(payment.Fee.ToSatoshis()),
+			PaymentPreimage: hex.EncodeToString(payment.PaymentPreimage[:]),
 		}
 	}
 
@@ -3016,14 +2940,6 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 // DeleteAllPayments deletes all outgoing payments from DB.
 func (r *rpcServer) DeleteAllPayments(ctx context.Context,
 	_ *lnrpc.DeleteAllPaymentsRequest) (*lnrpc.DeleteAllPaymentsResponse, error) {
-
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "deleteallpayments",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
 
 	rpcsLog.Debugf("[DeleteAllPayments]")
 
@@ -3040,14 +2956,6 @@ func (r *rpcServer) DeleteAllPayments(ctx context.Context,
 // sub-system.
 func (r *rpcServer) DebugLevel(ctx context.Context,
 	req *lnrpc.DebugLevelRequest) (*lnrpc.DebugLevelResponse, error) {
-
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "debuglevel",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
 
 	// If show is set, then we simply print out the list of available
 	// sub-systems.
@@ -3074,20 +2982,12 @@ func (r *rpcServer) DebugLevel(ctx context.Context,
 func (r *rpcServer) DecodePayReq(ctx context.Context,
 	req *lnrpc.PayReqString) (*lnrpc.PayReq, error) {
 
-	// Check macaroon to see if this is allowed.
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "decodepayreq",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
-
 	rpcsLog.Tracef("[decodepayreq] decoding: %v", req.PayReq)
 
 	// Fist we'll attempt to decode the payment request string, if the
 	// request is invalid or the checksum doesn't match, then we'll exit
 	// here with an error.
-	payReq, err := zpay32.Decode(req.PayReq)
+	payReq, err := zpay32.Decode(req.PayReq, activeNetParams.Params)
 	if err != nil {
 		return nil, err
 	}
@@ -3142,14 +3042,9 @@ const feeBase = 1000000
 func (r *rpcServer) FeeReport(ctx context.Context,
 	_ *lnrpc.FeeReportRequest) (*lnrpc.FeeReportResponse, error) {
 
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "feereport",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
-
 	// TODO(roasbeef): use UnaryInterceptor to add automated logging
+
+	rpcsLog.Debugf("[feereport]")
 
 	channelGraph := r.server.chanDB.ChannelGraph()
 	selfNode, err := channelGraph.SourceNode()
@@ -3183,13 +3078,99 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 		return nil, err
 	}
 
+	fwdEventLog := r.server.chanDB.ForwardingLog()
+
+	// computeFeeSum is a helper function that computes the total fees for
+	// a particular time slice described by a forwarding event query.
+	computeFeeSum := func(query channeldb.ForwardingEventQuery) (lnwire.MilliSatoshi, error) {
+
+		var totalFees lnwire.MilliSatoshi
+
+		// We'll continue to fetch the next query and accumulate the
+		// fees until the next query returns no events.
+		for {
+			timeSlice, err := fwdEventLog.Query(query)
+			if err != nil {
+				return 0, nil
+			}
+
+			// If the timeslice is empty, then we'll return as
+			// we've retrieved all the entries in this range.
+			if len(timeSlice.ForwardingEvents) == 0 {
+				break
+			}
+
+			// Otherwise, we'll tally up an accumulate the total
+			// fees for this time slice.
+			for _, event := range timeSlice.ForwardingEvents {
+				fee := event.AmtIn - event.AmtOut
+				totalFees += fee
+			}
+
+			// We'll now take the last offset index returned as
+			// part of this response, and modify our query to start
+			// at this index. This has a pagination effect in the
+			// case that our query bounds has more than 100k
+			// entries.
+			query.IndexOffset = timeSlice.LastIndexOffset
+		}
+
+		return totalFees, nil
+	}
+
+	now := time.Now()
+
+	// Before we perform the queries below, we'll instruct the switch to
+	// flush any pending events to disk. This ensure we get a complete
+	// snapshot at this particular time.
+	if r.server.htlcSwitch.FlushForwardingEvents(); err != nil {
+		return nil, fmt.Errorf("unable to flush forwarding "+
+			"events: %v", err)
+	}
+
+	// In addition to returning the current fee schedule for each channel.
+	// We'll also perform a series of queries to obtain the total fees
+	// earned over the past day, week, and month.
+	dayQuery := channeldb.ForwardingEventQuery{
+		StartTime:    now.Add(-time.Hour * 24),
+		EndTime:      now,
+		NumMaxEvents: 1000,
+	}
+	dayFees, err := computeFeeSum(dayQuery)
+	if err != nil {
+		return nil, fmt.Errorf("unable to retrieve day fees: %v", err)
+	}
+
+	weekQuery := channeldb.ForwardingEventQuery{
+		StartTime:    now.Add(-time.Hour * 24 * 7),
+		EndTime:      now,
+		NumMaxEvents: 1000,
+	}
+	weekFees, err := computeFeeSum(weekQuery)
+	if err != nil {
+		return nil, fmt.Errorf("unable to retrieve day fees: %v", err)
+	}
+
+	monthQuery := channeldb.ForwardingEventQuery{
+		StartTime:    now.Add(-time.Hour * 24 * 30),
+		EndTime:      now,
+		NumMaxEvents: 1000,
+	}
+	monthFees, err := computeFeeSum(monthQuery)
+	if err != nil {
+		return nil, fmt.Errorf("unable to retrieve day fees: %v", err)
+	}
+
 	return &lnrpc.FeeReportResponse{
 		ChannelFees: feeReports,
+		DayFeeSum:   uint64(dayFees.ToSatoshis()),
+		WeekFeeSum:  uint64(weekFees.ToSatoshis()),
+		MonthFeeSum: uint64(monthFees.ToSatoshis()),
 	}, nil
 }
 
 // minFeeRate is the smallest permitted fee rate within the network. This is
-// dervied by the fact that fee rates are computed using a fixed point of
+// derived by the fact that fee rates are computed using a fixed point of
 // 1,000,000. As a result, the smallest representable fee rate is 1e-6, or
 // 0.000001, or 0.0001%.
 const minFeeRate = 1e-6
@@ -3198,13 +3179,6 @@ const minFeeRate = 1e-6
 // for all channels globally, or a particular channel.
 func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 	req *lnrpc.PolicyUpdateRequest) (*lnrpc.PolicyUpdateResponse, error) {
-
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "updatechannelpolicy",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
 
 	var targetChans []wire.OutPoint
 	switch scope := req.Scope.(type) {
@@ -3215,7 +3189,11 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 	// Otherwise, we're targeting an individual channel by its channel
 	// point.
 	case *lnrpc.PolicyUpdateRequest_ChanPoint:
-		txid, err := chainhash.NewHash(scope.ChanPoint.FundingTxid)
+		txidHash, err := getChanPointFundingTxid(scope.ChanPoint)
+		if err != nil {
+			return nil, err
+		}
+		txid, err := chainhash.NewHash(txidHash)
 		if err != nil {
 			return nil, err
 		}
@@ -3292,4 +3270,93 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 	}
 
 	return &lnrpc.PolicyUpdateResponse{}, nil
+}
+
+// ForwardingHistory allows the caller to query the htlcswitch for a record of
+// all HTLC's forwarded within the target time range, and integer offset within
+// that time range. If no time-range is specified, then the first chunk of the
+// past 24 hrs of forwarding history are returned.
+
+// A list of forwarding events are returned. The size of each forwarding event
+// is 40 bytes, and the max message size able to be returned in gRPC is 4 MiB.
+// In order to safely stay under this max limit, we'll return 50k events per
+// response.  Each response has the index offset of the last entry. The index
+// offset can be provided to the request to allow the caller to skip a series
+// of records.
+func (r *rpcServer) ForwardingHistory(ctx context.Context,
+	req *lnrpc.ForwardingHistoryRequest) (*lnrpc.ForwardingHistoryResponse, error) {
+
+	rpcsLog.Debugf("[forwardinghistory]")
+
+	// Before we perform the queries below, we'll instruct the switch to
+	// flush any pending events to disk. This ensure we get a complete
+	// snapshot at this particular time.
+	if err := r.server.htlcSwitch.FlushForwardingEvents(); err != nil {
+		return nil, fmt.Errorf("unable to flush forwarding "+
+			"events: %v", err)
+	}
+
+	var (
+		startTime, endTime time.Time
+
+		numEvents uint32
+	)
+
+	// If the start and end time were not set, then we'll just return the
+	// records over the past 24 hours.
+	if req.StartTime == 0 && req.EndTime == 0 {
+		now := time.Now()
+		startTime = now.Add(-time.Hour * 24)
+		endTime = now
+	} else {
+		startTime = time.Unix(int64(req.StartTime), 0)
+		endTime = time.Unix(int64(req.EndTime), 0)
+	}
+
+	// If the number of events wasn't specified, then we'll default to
+	// returning the last 100 events.
+	numEvents = req.NumMaxEvents
+	if numEvents == 0 {
+		numEvents = 100
+	}
+
+	// Next, we'll map the proto request into a format the is understood by
+	// the forwarding log.
+	eventQuery := channeldb.ForwardingEventQuery{
+		StartTime:    startTime,
+		EndTime:      endTime,
+		IndexOffset:  req.IndexOffset,
+		NumMaxEvents: numEvents,
+	}
+	timeSlice, err := r.server.chanDB.ForwardingLog().Query(eventQuery)
+	if err != nil {
+		return nil, fmt.Errorf("unable to query forwarding log: %v", err)
+	}
+
+	// TODO(roasbeef): add settlement latency?
+	//  * use FPE on all records?
+
+	// With the events retrieved, we'll now map them into the proper proto
+	// response.
+	//
+	// TODO(roasbeef): show in ns for the outside?
+	resp := &lnrpc.ForwardingHistoryResponse{
+		ForwardingEvents: make([]*lnrpc.ForwardingEvent, len(timeSlice.ForwardingEvents)),
+		LastOffsetIndex:  timeSlice.LastIndexOffset,
+	}
+	for i, event := range timeSlice.ForwardingEvents {
+		amtInSat := event.AmtIn.ToSatoshis()
+		amtOutSat := event.AmtOut.ToSatoshis()
+
+		resp.ForwardingEvents[i] = &lnrpc.ForwardingEvent{
+			Timestamp: uint64(event.Timestamp.Unix()),
+			ChanIdIn:  event.IncomingChanID.ToUint64(),
+			ChanIdOut: event.OutgoingChanID.ToUint64(),
+			AmtIn:     uint64(amtInSat),
+			AmtOut:    uint64(amtOutSat),
+			Fee:       uint64(amtInSat - amtOutSat),
+		}
+	}
+
+	return resp, nil
 }

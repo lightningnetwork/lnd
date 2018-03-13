@@ -1139,6 +1139,12 @@ mnemonicCheck:
 
 		fmt.Println()
 
+		if len(cipherSeedMnemonic) != 24 {
+			return fmt.Errorf("wrong cipher seed mnemonic "+
+				"length: got %v words, expecting %v words",
+				len(CipherSeedMnemonic), 24)
+		}
+
 		// Additionally, the user may have a passphrase, that will also
 		// need to be provided so the daemon can properly decipher the
 		// cipher seed.

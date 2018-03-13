@@ -76,7 +76,7 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 
 		macPath := cleanAndExpandPath(ctx.GlobalString("macaroonpath"))
 		if macPath == defaultMacaroonPath {
-			ctx.GlobalSet("no-macaroons",
+			ctx.GlobalSet("macaroonpath",
 				filepath.Join(lndDir, defaultMacaroonFilename))
 		}
 	}

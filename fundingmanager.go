@@ -855,12 +855,15 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 
 	// TODO(roasbeef): modify to only accept a _single_ pending channel per
 	// block unless white listed
+	f.resMtx.RLock()
 	if len(f.activeReservations[peerIDKey]) >= cfg.MaxPendingChannels {
+		f.resMtx.RUnlock()
 		f.failFundingFlow(
 			fmsg.peerAddress.IdentityKey, fmsg.msg.PendingChannelID,
 			lnwire.ErrMaxPendingChannels)
 		return
 	}
+	f.resMtx.RUnlock()
 
 	// We'll also reject any requests to create channels until we're fully
 	// synced to the network as we won't be able to properly validate the
@@ -2654,6 +2657,22 @@ func (f *fundingManager) getReservationCtx(peerKey *btcec.PublicKey,
 	}
 
 	return resCtx, nil
+}
+
+// IsPendingChannel returns a boolean indicating whether the channel identified
+// by the pendingChanID and given peer is pending, meaning it is in the process
+// of being funded. After the funding transaction has been confirmed, the
+// channel will receive a new, permanent channel ID, and will no longer be
+// considered pending.
+func (f *fundingManager) IsPendingChannel(pendingChanID [32]byte,
+	peerAddress *lnwire.NetAddress) bool {
+
+	peerIDKey := newSerializedKey(peerAddress.IdentityKey)
+	f.resMtx.RLock()
+	_, ok := f.activeReservations[peerIDKey][pendingChanID]
+	f.resMtx.RUnlock()
+
+	return ok
 }
 
 func copyPubKey(pub *btcec.PublicKey) *btcec.PublicKey {

@@ -24,6 +24,10 @@ const (
 // ChannelID can be calculated by XOR'ing the big-endian serialization of the
 type ChannelID [32]byte
 
+// ConnectionWideID is an all-zero ChannelID, which is used to represent a
+// message intended for all channels to to specific peer.
+var ConnectionWideID = ChannelID{}
+
 // String returns the string representation of the ChannelID. This is just the
 // hex string encoding of the ChannelID itself.
 func (c ChannelID) String() string {

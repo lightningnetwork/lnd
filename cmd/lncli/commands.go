@@ -818,7 +818,7 @@ func closeAllChannels(ctx *cli.Context) error {
 		return errors.New("no open channels to close")
 	}
 
-	var channelsToClose []*lnrpc.ActiveChannel
+	var channelsToClose []*lnrpc.Channel
 
 	switch {
 	case ctx.Bool("force") && ctx.Bool("inactive_only"):
@@ -904,7 +904,7 @@ func closeAllChannels(ctx *cli.Context) error {
 	// they come.
 	resultChan := make(chan result, len(channelsToClose))
 	for _, channel := range channelsToClose {
-		go func(channel *lnrpc.ActiveChannel) {
+		go func(channel *lnrpc.Channel) {
 			res := result{}
 			res.RemotePubKey = channel.RemotePubkey
 			res.ChannelPoint = channel.ChannelPoint

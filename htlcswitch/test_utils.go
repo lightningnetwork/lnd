@@ -907,7 +907,6 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			Peer:               bobServer,
 			Circuits:           aliceServer.htlcSwitch.CircuitModifier(),
 			ForwardPackets:     aliceServer.htlcSwitch.ForwardPackets,
-			DecodeHopIterator:  aliceDecoder.DecodeHopIterator,
 			DecodeHopIterators: aliceDecoder.DecodeHopIterators,
 			DecodeOnionObfuscator: func(*sphinx.OnionPacket) (
 				ErrorEncrypter, lnwire.FailCode) {
@@ -956,7 +955,6 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			Peer:               aliceServer,
 			Circuits:           bobServer.htlcSwitch.CircuitModifier(),
 			ForwardPackets:     bobServer.htlcSwitch.ForwardPackets,
-			DecodeHopIterator:  bobDecoder.DecodeHopIterator,
 			DecodeHopIterators: bobDecoder.DecodeHopIterators,
 			DecodeOnionObfuscator: func(*sphinx.OnionPacket) (
 				ErrorEncrypter, lnwire.FailCode) {
@@ -1005,7 +1003,6 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			Peer:               carolServer,
 			Circuits:           bobServer.htlcSwitch.CircuitModifier(),
 			ForwardPackets:     bobServer.htlcSwitch.ForwardPackets,
-			DecodeHopIterator:  bobDecoder.DecodeHopIterator,
 			DecodeHopIterators: bobDecoder.DecodeHopIterators,
 			DecodeOnionObfuscator: func(*sphinx.OnionPacket) (
 				ErrorEncrypter, lnwire.FailCode) {
@@ -1054,7 +1051,6 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			Peer:               bobServer,
 			Circuits:           carolServer.htlcSwitch.CircuitModifier(),
 			ForwardPackets:     carolServer.htlcSwitch.ForwardPackets,
-			DecodeHopIterator:  carolDecoder.DecodeHopIterator,
 			DecodeHopIterators: carolDecoder.DecodeHopIterators,
 			DecodeOnionObfuscator: func(*sphinx.OnionPacket) (
 				ErrorEncrypter, lnwire.FailCode) {

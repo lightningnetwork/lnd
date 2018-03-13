@@ -3,7 +3,6 @@ package htlcswitch
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -85,10 +84,11 @@ func ExpectedFee(f ForwardingPolicy, htlcAmt lnwire.MilliSatoshi) lnwire.MilliSa
 	return f.BaseFee + (htlcAmt*f.FeeRate)/1000000
 }
 
-// Ticker is an interface used to wrap a time.Ticker in a struct,
-// making mocking it easier.
+// Ticker is an interface used to wrap a time.Ticker in a struct, making
+// mocking it easier.
 type Ticker interface {
 	Start() <-chan time.Time
+
 	Stop()
 }
 
@@ -97,8 +97,7 @@ type BatchTicker struct {
 	ticker *time.Ticker
 }
 
-// NewBatchTicker returns a new BatchTicker that wraps the passed
-// time.Ticker.
+// NewBatchTicker returns a new BatchTicker that wraps the passed time.Ticker.
 func NewBatchTicker(t *time.Ticker) *BatchTicker {
 	return &BatchTicker{t}
 }
@@ -130,6 +129,7 @@ type ChannelLinkConfig struct {
 	// Switch provides a reference to the HTLC switch, we only use this in
 	// testing to access circuit operations not typically exposed by the
 	// CircuitModifier.
+	//
 	// TODO(conner): remove after refactoring htlcswitch testing framework.
 	Switch *Switch
 
@@ -137,12 +137,6 @@ type ChannelLinkConfig struct {
 	// switch. Any failed packets will be returned to the provided
 	// ChannelLink.
 	ForwardPackets func(...*htlcPacket) chan error
-
-	// DecodeHopIterator function is responsible for decoding HTLC Sphinx
-	// onion blob, and creating hop iterator which will give us next
-	// destination of HTLC.
-	DecodeHopIterator func(r io.Reader, rHash []byte,
-		cltv uint32) (HopIterator, lnwire.FailCode)
 
 	// DecodeHopIterators facilitates batched decoding of HTLC Sphinx onion
 	// blobs, which are then used to inform how to forward an HTLC.

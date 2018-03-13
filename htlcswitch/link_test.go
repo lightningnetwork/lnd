@@ -1471,7 +1471,6 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 		Switch:             aliceSwitch,
 		Circuits:           aliceSwitch.CircuitModifier(),
 		ForwardPackets:     aliceSwitch.ForwardPackets,
-		DecodeHopIterator:  decoder.DecodeHopIterator,
 		DecodeHopIterators: decoder.DecodeHopIterators,
 		DecodeOnionObfuscator: func(*sphinx.OnionPacket) (
 			ErrorEncrypter, lnwire.FailCode) {

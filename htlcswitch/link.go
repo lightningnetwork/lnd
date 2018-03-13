@@ -1812,438 +1812,258 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			continue
 		}
 
-		// TODO(roasbeef): rework log entries to a shared
-		// interface.
-		switch pd.EntryType {
-
 		// An incoming HTLC add has been full-locked in. As a result we
 		// can now examine the forwarding details of the HTLC, and the
 		// HTLC itself to decide if: we should forward it, cancel it,
 		// or are able to settle it (and it adheres to our fee related
 		// constraints).
-		case lnwallet.Add:
-			// Fetch the onion blob that was included within this
-			// processed payment descriptor.
-			var onionBlob [lnwire.OnionPacketSize]byte
-			copy(onionBlob[:], pd.OnionBlob)
 
-			// Before adding the new htlc to the state machine,
-			// parse the onion object in order to obtain the
-			// routing information with DecodeHopIterator function
-			// which process the Sphinx packet.
-			chanIterator, failureCode := decodeResps[i].Result()
-			if failureCode != lnwire.CodeNone {
-				// If we're unable to process the onion blob
-				// than we should send the malformed htlc error
-				// to payment sender.
-				l.sendMalformedHTLCError(pd.HtlcIndex, failureCode,
-					onionBlob[:], pd.SourceRef)
-				needUpdate = true
+		// Fetch the onion blob that was included within this processed
+		// payment descriptor.
+		var onionBlob [lnwire.OnionPacketSize]byte
+		copy(onionBlob[:], pd.OnionBlob)
 
-				log.Errorf("unable to decode onion hop "+
-					"iterator: %v", failureCode)
+		// Before adding the new htlc to the state machine, parse the
+		// onion object in order to obtain the routing information with
+		// DecodeHopIterator function which process the Sphinx packet.
+		chanIterator, failureCode := decodeResps[i].Result()
+		if failureCode != lnwire.CodeNone {
+			// If we're unable to process the onion blob than we
+			// should send the malformed htlc error to payment
+			// sender.
+			l.sendMalformedHTLCError(pd.HtlcIndex, failureCode,
+				onionBlob[:], pd.SourceRef)
+			needUpdate = true
+
+			log.Errorf("unable to decode onion hop "+
+				"iterator: %v", failureCode)
+			continue
+		}
+
+		// Retrieve onion obfuscator from onion blob in order to
+		// produce initial obfuscation of the onion failureCode.
+		obfuscator, failureCode := chanIterator.ExtractErrorEncrypter(
+			l.cfg.DecodeOnionObfuscator,
+		)
+		if failureCode != lnwire.CodeNone {
+			// If we're unable to process the onion blob than we
+			// should send the malformed htlc error to payment
+			// sender.
+			l.sendMalformedHTLCError(pd.HtlcIndex, failureCode,
+				onionBlob[:], pd.SourceRef)
+			needUpdate = true
+
+			log.Errorf("unable to decode onion "+
+				"obfuscator: %v", failureCode)
+			continue
+		}
+
+		heightNow := l.bestHeight
+
+		fwdInfo := chanIterator.ForwardingInstructions()
+		switch fwdInfo.NextHop {
+		case exitHop:
+			if l.cfg.DebugHTLC && l.cfg.HodlHTLC {
+				log.Warnf("hodl HTLC mode enabled, will not " +
+					"attempt to settle HTLC with sender")
 				continue
 			}
 
-			// Retrieve onion obfuscator from onion blob in order
-			// to produce initial obfuscation of the onion
-			// failureCode.
-			obfuscator, failureCode := chanIterator.ExtractErrorEncrypter(
-				l.cfg.DecodeOnionObfuscator,
-			)
-			if failureCode != lnwire.CodeNone {
-				// If we're unable to process the onion blob
-				// than we should send the malformed htlc error
-				// to payment sender.
-				l.sendMalformedHTLCError(pd.HtlcIndex, failureCode,
-					onionBlob[:], pd.SourceRef)
-				needUpdate = true
+			// First, we'll check the expiry of the HTLC itself
+			// against, the current block height. If the timeout is
+			// too soon, then we'll reject the HTLC.
+			if pd.Timeout-expiryGraceDelta <= heightNow {
+				log.Errorf("htlc(%x) has an expiry that's too "+
+					"soon: expiry=%v, best_height=%v",
+					pd.RHash[:], pd.Timeout, heightNow)
 
-				log.Errorf("unable to decode onion "+
-					"obfuscator: %v", failureCode)
+				failure := lnwire.FailFinalIncorrectCltvExpiry{}
+				l.sendHTLCError(
+					pd.HtlcIndex, &failure, obfuscator, pd.SourceRef,
+				)
+				needUpdate = true
 				continue
 			}
 
-			heightNow := l.bestHeight
-
-			fwdInfo := chanIterator.ForwardingInstructions()
-			switch fwdInfo.NextHop {
-			case exitHop:
-
-				if l.cfg.DebugHTLC && l.cfg.HodlHTLC {
-					log.Warnf("hodl HTLC mode enabled, " +
-						"will not attempt to settle " +
-						"HTLC with sender")
-					continue
-				}
-
-				// First, we'll check the expiry of the HTLC
-				// itself against, the current block height. If
-				// the timeout is too soon, then we'll reject
-				// the HTLC.
-				if pd.Timeout-expiryGraceDelta <= heightNow {
-					log.Errorf("htlc(%x) has an expiry "+
-						"that's too soon: expiry=%v, "+
-						"best_height=%v", pd.RHash[:],
-						pd.Timeout, heightNow)
-
-					failure := lnwire.FailFinalIncorrectCltvExpiry{}
-					l.sendHTLCError(pd.HtlcIndex, &failure,
-						obfuscator, pd.SourceRef)
-					needUpdate = true
-					continue
-				}
-
-				// We're the designated payment destination.
-				// Therefore we attempt to see if we have an
-				// invoice locally which'll allow us to settle
-				// this htlc.
-				invoiceHash := chainhash.Hash(pd.RHash)
-				invoice, err := l.cfg.Registry.LookupInvoice(invoiceHash)
-				if err != nil {
-					log.Errorf("unable to query invoice registry: "+
-						" %v", err)
-					failure := lnwire.FailUnknownPaymentHash{}
-					l.sendHTLCError(pd.HtlcIndex, failure,
-						obfuscator, pd.SourceRef)
-					needUpdate = true
-					continue
-				}
-
-				// If the invoice is already settled, we choose
-				// to accept the payment to simplify failure
-				// recovery.
-				//
-				// NOTE: Though our recovery and forwarding logic is
-				// predominately batched, settling invoices
-				// happens iteratively. We may reject one of of
-				// two payments for the same rhash at first, but
-				// then restart and reject both after seeing
-				// that the invoice has been settled. Without
-				// any record of which one settles first, it is
-				// ambiguous as to which one actually settled
-				// the invoice. Thus, by accepting all payments,
-				// we eliminate the race condition that can lead
-				// to this inconsistency.
-				//
-				// TODO(conner): track ownership of settlements
-				// to properly recover from failures? or add
-				// batch invoice settlement
-				if invoice.Terms.Settled {
-					log.Warnf("Accepting duplicate "+
-						"payment for hash=%x", pd.RHash[:])
-				}
-
-				// If we're not currently in debug mode, and
-				// the extended htlc doesn't meet the value
-				// requested, then we'll fail the htlc.
-				// Otherwise, we settle this htlc within our
-				// local state update log, then send the update
-				// entry to the remote party.
-				//
-				// NOTE: We make an exception when the value
-				// requested by the invoice is zero. This means
-				// the invoice allows the payee to specify the
-				// amount of satoshis they wish to send.
-				// So since we expect the htlc to have a
-				// different amount, we should not fail.
-				if !l.cfg.DebugHTLC && invoice.Terms.Value > 0 &&
-					pd.Amount < invoice.Terms.Value {
-					log.Errorf("rejecting htlc due to incorrect "+
-						"amount: expected %v, received %v",
-						invoice.Terms.Value, pd.Amount)
-					failure := lnwire.FailIncorrectPaymentAmount{}
-					l.sendHTLCError(pd.HtlcIndex, failure,
-						obfuscator, pd.SourceRef)
-					needUpdate = true
-					continue
-				}
-
-				// As we're the exit hop, we'll double check
-				// the hop-payload included in the HTLC to
-				// ensure that it was crafted correctly by the
-				// sender and matches the HTLC we were
-				// extended.
-				//
-				// NOTE: We make an exception when the value
-				// requested by the invoice is zero. This means
-				// the invoice allows the payee to specify the
-				// amount of satoshis they wish to send.
-				// So since we expect the htlc to have a
-				// different amount, we should not fail.
-				if !l.cfg.DebugHTLC && invoice.Terms.Value > 0 &&
-					fwdInfo.AmountToForward != invoice.Terms.Value {
-
-					log.Errorf("Onion payload of incoming "+
-						"htlc(%x) has incorrect value: "+
-						"expected %v, got %v", pd.RHash,
-						invoice.Terms.Value,
-						fwdInfo.AmountToForward)
-
-					failure := lnwire.FailIncorrectPaymentAmount{}
-					l.sendHTLCError(pd.HtlcIndex, failure,
-						obfuscator, pd.SourceRef)
-					needUpdate = true
-					continue
-				}
-
-				// We'll also ensure that our time-lock value
-				// has been computed correctly.
-				//
-				// TODO(roasbeef): also accept global default?
-				expectedHeight := heightNow + l.cfg.FwrdingPolicy.TimeLockDelta
-				if !l.cfg.DebugHTLC {
-					switch {
-					case fwdInfo.OutgoingCTLV < expectedHeight:
-						log.Errorf("Onion payload of incoming "+
-							"htlc(%x) has incorrect time-lock: "+
-							"expected %v, got %v",
-							pd.RHash[:], expectedHeight,
-							fwdInfo.OutgoingCTLV)
-
-						failure := lnwire.NewFinalIncorrectCltvExpiry(
-							fwdInfo.OutgoingCTLV,
-						)
-						l.sendHTLCError(pd.HtlcIndex,
-							failure, obfuscator,
-							pd.SourceRef)
-						needUpdate = true
-						continue
-					case pd.Timeout != fwdInfo.OutgoingCTLV:
-						log.Errorf("HTLC(%x) has incorrect "+
-							"time-lock: expected %v, got %v",
-							pd.RHash[:], pd.Timeout,
-							fwdInfo.OutgoingCTLV)
-
-						failure := lnwire.NewFinalIncorrectCltvExpiry(
-							fwdInfo.OutgoingCTLV,
-						)
-						l.sendHTLCError(pd.HtlcIndex,
-							failure, obfuscator,
-							pd.SourceRef)
-						needUpdate = true
-						continue
-					}
-				}
-
-				preimage := invoice.Terms.PaymentPreimage
-				err = l.channel.SettleHTLC(preimage,
-					pd.HtlcIndex, pd.SourceRef, nil, nil)
-				if err != nil {
-					l.fail("unable to settle htlc: %v", err)
-					return false
-				}
-
-				// Notify the invoiceRegistry of the invoices we
-				// just settled with this latest commitment
-				// update.
-				err = l.cfg.Registry.SettleInvoice(invoiceHash)
-				if err != nil {
-					l.fail("unable to settle invoice: %v", err)
-					return false
-				}
-
-				l.infof("Settling %x as exit hop", pd.RHash)
-
-				// HTLC was successfully settled locally send
-				// notification about it remote peer.
-				l.cfg.Peer.SendMessage(&lnwire.UpdateFulfillHTLC{
-					ChanID:          l.ChanID(),
-					ID:              pd.HtlcIndex,
-					PaymentPreimage: preimage,
-				})
-				needUpdate = true
-
-			// There are additional channels left within this
-			// route. So we'll verify that our forwarding
-			// constraints have been properly met by by this
-			// incoming HTLC.
-			default:
-				switch fwdPkg.State {
-				case channeldb.FwdStateProcessed:
-					if !fwdPkg.FwdFilter.Contains(idx) {
-						// This add was not forwarded on
-						// the previous processing
-						// phase, run it through our
-						// validation pipeline to
-						// reproduce an error. This may
-						// trigger a different error due
-						// to expiring timelocks, but we
-						// expect that an error will be
-						// reproduced.
-						break
-					}
-
-					addMsg := &lnwire.UpdateAddHTLC{
-						Expiry:      fwdInfo.OutgoingCTLV,
-						Amount:      fwdInfo.AmountToForward,
-						PaymentHash: pd.RHash,
-					}
-
-					// Finally, we'll encode the onion packet for
-					// the _next_ hop using the hop iterator
-					// decoded for the current hop.
-					buf := bytes.NewBuffer(addMsg.OnionBlob[0:0])
-
-					// We know this cannot fail, as this ADD
-					// was marked forwarded in a previous
-					// round of processing.
-					chanIterator.EncodeNextHop(buf)
-
-					updatePacket := &htlcPacket{
-						incomingChanID: l.ShortChanID(),
-						incomingHTLCID: pd.HtlcIndex,
-						outgoingChanID: fwdInfo.NextHop,
-						sourceRef:      pd.SourceRef,
-						incomingAmount: pd.Amount,
-						amount:         addMsg.Amount,
-						htlc:           addMsg,
-						obfuscator:     obfuscator,
-					}
-					switchPackets = append(switchPackets,
-						updatePacket)
-
-					continue
-				}
-
-				// We want to avoid forwarding an HTLC which
-				// will expire in the near future, so we'll
-				// reject an HTLC if its expiration time is too
-				// close to the current height.
-				timeDelta := l.cfg.FwrdingPolicy.TimeLockDelta
-				if pd.Timeout-timeDelta <= heightNow {
-					log.Errorf("htlc(%x) has an expiry "+
-						"that's too soon: outgoing_expiry=%v, "+
-						"best_height=%v", pd.RHash[:],
-						pd.Timeout-timeDelta, heightNow)
-
-					var failure lnwire.FailureMessage
-					update, err := l.cfg.GetLastChannelUpdate()
-					if err != nil {
-						failure = lnwire.NewTemporaryChannelFailure(nil)
-					} else {
-						failure = lnwire.NewExpiryTooSoon(*update)
-					}
-
-					l.sendHTLCError(pd.HtlcIndex, failure,
-						obfuscator, pd.SourceRef)
-					needUpdate = true
-					continue
-				}
-
-				// As our second sanity check, we'll ensure that
-				// the passed HTLC isn't too small. If so, then
-				// we'll cancel the HTLC directly.
-				if pd.Amount < l.cfg.FwrdingPolicy.MinHTLC {
-					log.Errorf("Incoming htlc(%x) is too "+
-						"small: min_htlc=%v, htlc_value=%v",
-						pd.RHash[:], l.cfg.FwrdingPolicy.MinHTLC,
-						pd.Amount)
-
-					// As part of the returned error, we'll
-					// send our latest routing policy so
-					// the sending node obtains the most up
-					// to date data.
-					var failure lnwire.FailureMessage
-					update, err := l.cfg.GetLastChannelUpdate()
-					if err != nil {
-						failure = lnwire.NewTemporaryChannelFailure(nil)
-					} else {
-						failure = lnwire.NewAmountBelowMinimum(
-							pd.Amount, *update)
-					}
-
-					l.sendHTLCError(pd.HtlcIndex, failure,
-						obfuscator, pd.SourceRef)
-					needUpdate = true
-					continue
-				}
-
-				// Next, using the amount of the incoming HTLC,
-				// we'll calculate the expected fee this
-				// incoming HTLC must carry in order to be
-				// accepted.
-				expectedFee := ExpectedFee(
-					l.cfg.FwrdingPolicy,
-					fwdInfo.AmountToForward,
+			// We're the designated payment destination.  Therefore
+			// we attempt to see if we have an invoice locally
+			// which'll allow us to settle this htlc.
+			invoiceHash := chainhash.Hash(pd.RHash)
+			invoice, err := l.cfg.Registry.LookupInvoice(invoiceHash)
+			if err != nil {
+				log.Errorf("unable to query invoice registry: "+
+					" %v", err)
+				failure := lnwire.FailUnknownPaymentHash{}
+				l.sendHTLCError(
+					pd.HtlcIndex, failure, obfuscator, pd.SourceRef,
 				)
 
-				// If the actual fee is less than our expected
-				// fee, then we'll reject this HTLC as it
-				// didn't provide a sufficient amount of fees,
-				// or the values have been tampered with, or
-				// the send used incorrect/dated information to
-				// construct the forwarding information for
-				// this hop. In any case, we'll cancel this
-				// HTLC.
-				actualFee := pd.Amount - fwdInfo.AmountToForward
-				if pd.Amount < fwdInfo.AmountToForward ||
-					actualFee < expectedFee {
+				needUpdate = true
+				continue
+			}
 
-					log.Errorf("Incoming htlc(%x) has "+
-						"insufficient fee: expected "+
-						"%v, got %v", pd.RHash[:],
-						int64(expectedFee),
-						int64(pd.Amount-fwdInfo.AmountToForward))
+			// If the invoice is already settled, we choose to
+			// accept the payment to simplify failure recovery.
+			//
+			// NOTE: Though our recovery and forwarding logic is
+			// predominately batched, settling invoices happens
+			// iteratively. We may reject one of of two payments
+			// for the same rhash at first, but then restart and
+			// reject both after seeing that the invoice has been
+			// settled. Without any record of which one settles
+			// first, it is ambiguous as to which one actually
+			// settled the invoice. Thus, by accepting all
+			// payments, we eliminate the race condition that can
+			// lead to this inconsistency.
+			//
+			// TODO(conner): track ownership of settlements to
+			// properly recover from failures? or add batch invoice
+			// settlement
+			if invoice.Terms.Settled {
+				log.Warnf("Accepting duplicate payment for "+
+					"hash=%x", pd.RHash[:])
+			}
 
-					// As part of the returned error, we'll
-					// send our latest routing policy so
-					// the sending node obtains the most up
-					// to date data.
-					var failure lnwire.FailureMessage
-					update, err := l.cfg.GetLastChannelUpdate()
-					if err != nil {
-						failure = lnwire.NewTemporaryChannelFailure(nil)
-					} else {
-						failure = lnwire.NewFeeInsufficient(pd.Amount,
-							*update)
-					}
+			// If we're not currently in debug mode, and the
+			// extended htlc doesn't meet the value requested, then
+			// we'll fail the htlc.  Otherwise, we settle this htlc
+			// within our local state update log, then send the
+			// update entry to the remote party.
+			//
+			// NOTE: We make an exception when the value requested
+			// by the invoice is zero. This means the invoice
+			// allows the payee to specify the amount of satoshis
+			// they wish to send.  So since we expect the htlc to
+			// have a different amount, we should not fail.
+			if !l.cfg.DebugHTLC && invoice.Terms.Value > 0 &&
+				pd.Amount < invoice.Terms.Value {
 
-					l.sendHTLCError(pd.HtlcIndex, failure,
-						obfuscator, pd.SourceRef)
-					needUpdate = true
-					continue
+				log.Errorf("rejecting htlc due to incorrect "+
+					"amount: expected %v, received %v",
+					invoice.Terms.Value, pd.Amount)
+
+				failure := lnwire.FailIncorrectPaymentAmount{}
+				l.sendHTLCError(
+					pd.HtlcIndex, failure, obfuscator, pd.SourceRef,
+				)
+
+				needUpdate = true
+				continue
+			}
+
+			// As we're the exit hop, we'll double check the
+			// hop-payload included in the HTLC to ensure that it
+			// was crafted correctly by the sender and matches the
+			// HTLC we were extended.
+			//
+			// NOTE: We make an exception when the value requested
+			// by the invoice is zero. This means the invoice
+			// allows the payee to specify the amount of satoshis
+			// they wish to send.  So since we expect the htlc to
+			// have a different amount, we should not fail.
+			if !l.cfg.DebugHTLC && invoice.Terms.Value > 0 &&
+				fwdInfo.AmountToForward != invoice.Terms.Value {
+
+				log.Errorf("Onion payload of incoming htlc(%x) "+
+					"has incorrect value: expected %v, "+
+					"got %v", pd.RHash, invoice.Terms.Value,
+					fwdInfo.AmountToForward)
+
+				failure := lnwire.FailIncorrectPaymentAmount{}
+				l.sendHTLCError(
+					pd.HtlcIndex, failure, obfuscator, pd.SourceRef,
+				)
+
+				needUpdate = true
+				continue
+			}
+
+			// We'll also ensure that our time-lock value has been
+			// computed correctly.
+			//
+			// TODO(roasbeef): also accept global default?
+			expectedHeight := heightNow + l.cfg.FwrdingPolicy.TimeLockDelta
+			switch {
+
+			case !l.cfg.DebugHTLC && fwdInfo.OutgoingCTLV < expectedHeight:
+				log.Errorf("Onion payload of incoming "+
+					"htlc(%x) has incorrect time-lock: "+
+					"expected %v, got %v",
+					pd.RHash[:], expectedHeight,
+					fwdInfo.OutgoingCTLV)
+
+				failure := lnwire.NewFinalIncorrectCltvExpiry(
+					fwdInfo.OutgoingCTLV,
+				)
+				l.sendHTLCError(
+					pd.HtlcIndex, failure, obfuscator, pd.SourceRef,
+				)
+
+				needUpdate = true
+				continue
+
+			case !l.cfg.DebugHTLC && pd.Timeout != fwdInfo.OutgoingCTLV:
+				log.Errorf("HTLC(%x) has incorrect "+
+					"time-lock: expected %v, got %v",
+					pd.RHash[:], pd.Timeout,
+					fwdInfo.OutgoingCTLV)
+
+				failure := lnwire.NewFinalIncorrectCltvExpiry(
+					fwdInfo.OutgoingCTLV,
+				)
+				l.sendHTLCError(
+					pd.HtlcIndex, failure, obfuscator, pd.SourceRef,
+				)
+
+				needUpdate = true
+				continue
+			}
+
+			preimage := invoice.Terms.PaymentPreimage
+			err = l.channel.SettleHTLC(preimage,
+				pd.HtlcIndex, pd.SourceRef, nil, nil)
+			if err != nil {
+				l.fail("unable to settle htlc: %v", err)
+				return false
+			}
+
+			// Notify the invoiceRegistry of the invoices we just
+			// settled with this latest commitment update.
+			err = l.cfg.Registry.SettleInvoice(invoiceHash)
+			if err != nil {
+				l.fail("unable to settle invoice: %v", err)
+				return false
+			}
+
+			l.infof("settling %x as exit hop", pd.RHash)
+
+			// HTLC was successfully settled locally send
+			// notification about it remote peer.
+			l.cfg.Peer.SendMessage(&lnwire.UpdateFulfillHTLC{
+				ChanID:          l.ChanID(),
+				ID:              pd.HtlcIndex,
+				PaymentPreimage: preimage,
+			})
+			needUpdate = true
+
+		// There are additional channels left within this route. So
+		// we'll verify that our forwarding constraints have been
+		// properly met by by this incoming HTLC.
+		default:
+			switch fwdPkg.State {
+			case channeldb.FwdStateProcessed:
+				// This add was not forwarded on the previous
+				// processing phase, run it through our
+				// validation pipeline to reproduce an error.
+				// This may trigger a different error due to
+				// expiring timelocks, but we expect that an
+				// error will be reproduced.
+				if !fwdPkg.FwdFilter.Contains(idx) {
+					break
 				}
 
-				// Finally, we'll ensure that the time-lock on
-				// the outgoing HTLC meets the following
-				// constraint: the incoming time-lock minus our
-				// time-lock delta should equal the outgoing
-				// time lock. Otherwise, whether the sender
-				// messed up, or an intermediate node tampered
-				// with the HTLC.
-				if pd.Timeout-timeDelta < fwdInfo.OutgoingCTLV {
-					log.Errorf("Incoming htlc(%x) has "+
-						"incorrect time-lock value: "+
-						"expected at least %v block delta, "+
-						"got %v block delta", pd.RHash[:],
-						timeDelta,
-						pd.Timeout-fwdInfo.OutgoingCTLV)
-
-					// Grab the latest routing policy so
-					// the sending node is up to date with
-					// our current policy.
-					update, err := l.cfg.GetLastChannelUpdate()
-					if err != nil {
-						l.fail("unable to create channel update "+
-							"while handling the error: %v", err)
-						return false
-					}
-
-					failure := lnwire.NewIncorrectCltvExpiry(
-						pd.Timeout, *update)
-					l.sendHTLCError(pd.HtlcIndex, failure,
-						obfuscator, pd.SourceRef)
-					needUpdate = true
-					continue
-				}
-
-				// TODO(roasbeef): also add max timeout value
-
-				// With all our forwarding constraints met,
-				// we'll create the outgoing HTLC using the
-				// parameters as specified in the forwarding
-				// info.
+				// Otherwise, it was already processed, we can
+				// can collect it and continue.
 				addMsg := &lnwire.UpdateAddHTLC{
 					Expiry:      fwdInfo.OutgoingCTLV,
 					Amount:      fwdInfo.AmountToForward,
@@ -2254,43 +2074,210 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				// the _next_ hop using the hop iterator
 				// decoded for the current hop.
 				buf := bytes.NewBuffer(addMsg.OnionBlob[0:0])
-				err := chanIterator.EncodeNextHop(buf)
+
+				// We know this cannot fail, as this ADD
+				// was marked forwarded in a previous
+				// round of processing.
+				chanIterator.EncodeNextHop(buf)
+
+				updatePacket := &htlcPacket{
+					incomingChanID: l.ShortChanID(),
+					incomingHTLCID: pd.HtlcIndex,
+					outgoingChanID: fwdInfo.NextHop,
+					sourceRef:      pd.SourceRef,
+					incomingAmount: pd.Amount,
+					amount:         addMsg.Amount,
+					htlc:           addMsg,
+					obfuscator:     obfuscator,
+				}
+				switchPackets = append(switchPackets,
+					updatePacket)
+
+				continue
+			}
+
+			// We want to avoid forwarding an HTLC which will
+			// expire in the near future, so we'll reject an HTLC
+			// if its expiration time is too close to the current
+			// height.
+			timeDelta := l.cfg.FwrdingPolicy.TimeLockDelta
+			if pd.Timeout-timeDelta <= heightNow {
+				log.Errorf("htlc(%x) has an expiry "+
+					"that's too soon: outgoing_expiry=%v, "+
+					"best_height=%v", pd.RHash[:],
+					pd.Timeout-timeDelta, heightNow)
+
+				var failure lnwire.FailureMessage
+				update, err := l.cfg.GetLastChannelUpdate()
 				if err != nil {
-					log.Errorf("unable to encode the "+
-						"remaining route %v", err)
-
-					failure := lnwire.NewTemporaryChannelFailure(nil)
-					l.sendHTLCError(pd.HtlcIndex, failure,
-						obfuscator, pd.SourceRef)
-					needUpdate = true
-					continue
+					failure = lnwire.NewTemporaryChannelFailure(nil)
+				} else {
+					failure = lnwire.NewExpiryTooSoon(*update)
 				}
 
-				// Now that this add has been reprocessed, only
-				// append it to our list of packets to forward
-				// to the switch this is the first time
-				// processing the add. If the fwd pkg has
-				// already been processed, then we entered the
-				// above section to recreate a previous error.
-				// If the packet had previously been forwarded,
-				// it would have been added to switchPackets at
-				// the top of this section.
-				if fwdPkg.State == channeldb.FwdStateLockedIn {
-					updatePacket := &htlcPacket{
-						incomingChanID: l.ShortChanID(),
-						incomingHTLCID: pd.HtlcIndex,
-						outgoingChanID: fwdInfo.NextHop,
-						sourceRef:      pd.SourceRef,
-						incomingAmount: pd.Amount,
-						amount:         addMsg.Amount,
-						htlc:           addMsg,
-						obfuscator:     obfuscator,
-					}
+				l.sendHTLCError(
+					pd.HtlcIndex, failure, obfuscator, pd.SourceRef,
+				)
+				needUpdate = true
+				continue
+			}
 
-					fwdPkg.FwdFilter.Set(idx)
-					switchPackets = append(switchPackets,
-						updatePacket)
+			// As our second sanity check, we'll ensure that the
+			// passed HTLC isn't too small. If so, then
+			// we'll cancel the HTLC directly.
+			if pd.Amount < l.cfg.FwrdingPolicy.MinHTLC {
+				log.Errorf("Incoming htlc(%x) is too "+
+					"small: min_htlc=%v, htlc_value=%v",
+					pd.RHash[:], l.cfg.FwrdingPolicy.MinHTLC,
+					pd.Amount)
+
+				// As part of the returned error, we'll send
+				// our latest routing policy so the sending
+				// node obtains the most up to date data.
+				var failure lnwire.FailureMessage
+				update, err := l.cfg.GetLastChannelUpdate()
+				if err != nil {
+					failure = lnwire.NewTemporaryChannelFailure(nil)
+				} else {
+					failure = lnwire.NewAmountBelowMinimum(
+						pd.Amount, *update)
 				}
+
+				l.sendHTLCError(
+					pd.HtlcIndex, failure, obfuscator, pd.SourceRef,
+				)
+				needUpdate = true
+				continue
+			}
+
+			// Next, using the amount of the incoming HTLC, we'll
+			// calculate the expected fee this incoming HTLC must
+			// carry in order to be accepted.
+			expectedFee := ExpectedFee(
+				l.cfg.FwrdingPolicy,
+				fwdInfo.AmountToForward,
+			)
+
+			// If the actual fee is less than our expected
+			// fee, then we'll reject this HTLC as it didn't
+			// provide a sufficient amount of fees, or the values
+			// have been tampered with, or the send used
+			// incorrect/dated information to construct the
+			// forwarding information for this hop. In any case,
+			// we'll cancel this HTLC.
+			actualFee := pd.Amount - fwdInfo.AmountToForward
+			if pd.Amount < fwdInfo.AmountToForward ||
+				actualFee < expectedFee {
+
+				log.Errorf("Incoming htlc(%x) has insufficient "+
+					"fee: expected %v, got %v", pd.RHash[:],
+					int64(expectedFee),
+					int64(pd.Amount-fwdInfo.AmountToForward))
+
+				// As part of the returned error, we'll send
+				// our latest routing policy so the sending
+				// node obtains the most up to date data.
+				var failure lnwire.FailureMessage
+				update, err := l.cfg.GetLastChannelUpdate()
+				if err != nil {
+					failure = lnwire.NewTemporaryChannelFailure(nil)
+				} else {
+					failure = lnwire.NewFeeInsufficient(pd.Amount,
+						*update)
+				}
+
+				l.sendHTLCError(
+					pd.HtlcIndex, failure, obfuscator, pd.SourceRef,
+				)
+				needUpdate = true
+				continue
+			}
+
+			// Finally, we'll ensure that the time-lock on the
+			// outgoing HTLC meets the following constraint: the
+			// incoming time-lock minus our time-lock delta should
+			// equal the outgoing time lock. Otherwise, whether the
+			// sender messed up, or an intermediate node tampered
+			// with the HTLC.
+			if pd.Timeout-timeDelta < fwdInfo.OutgoingCTLV {
+				log.Errorf("Incoming htlc(%x) has incorrect "+
+					"time-lock value: expected at least "+
+					"%v block delta, got %v block delta",
+					pd.RHash[:], timeDelta,
+					pd.Timeout-fwdInfo.OutgoingCTLV)
+
+				// Grab the latest routing policy so the
+				// sending node is up to date with our current
+				// policy.
+				update, err := l.cfg.GetLastChannelUpdate()
+				if err != nil {
+					l.fail("unable to create channel update "+
+						"while handling the error: %v", err)
+					return false
+				}
+
+				failure := lnwire.NewIncorrectCltvExpiry(
+					pd.Timeout, *update)
+				l.sendHTLCError(
+					pd.HtlcIndex, failure, obfuscator, pd.SourceRef,
+				)
+
+				needUpdate = true
+				continue
+			}
+
+			// TODO(roasbeef): also add max timeout value
+
+			// With all our forwarding constraints met, we'll
+			// create the outgoing HTLC using the parameters as
+			// specified in the forwarding info.
+			addMsg := &lnwire.UpdateAddHTLC{
+				Expiry:      fwdInfo.OutgoingCTLV,
+				Amount:      fwdInfo.AmountToForward,
+				PaymentHash: pd.RHash,
+			}
+
+			// Finally, we'll encode the onion packet for the
+			// _next_ hop using the hop iterator decoded for the
+			// current hop.
+			buf := bytes.NewBuffer(addMsg.OnionBlob[0:0])
+			err := chanIterator.EncodeNextHop(buf)
+			if err != nil {
+				log.Errorf("unable to encode the "+
+					"remaining route %v", err)
+
+				failure := lnwire.NewTemporaryChannelFailure(nil)
+
+				l.sendHTLCError(
+					pd.HtlcIndex, failure, obfuscator, pd.SourceRef,
+				)
+				needUpdate = true
+				continue
+			}
+
+			// Now that this add has been reprocessed, only append
+			// it to our list of packets to forward to the switch
+			// this is the first time processing the add. If the
+			// fwd pkg has already been processed, then we entered
+			// the above section to recreate a previous error.  If
+			// the packet had previously been forwarded, it would
+			// have been added to switchPackets at the top of this
+			// section.
+			if fwdPkg.State == channeldb.FwdStateLockedIn {
+				updatePacket := &htlcPacket{
+					incomingChanID: l.ShortChanID(),
+					incomingHTLCID: pd.HtlcIndex,
+					outgoingChanID: fwdInfo.NextHop,
+					sourceRef:      pd.SourceRef,
+					incomingAmount: pd.Amount,
+					amount:         addMsg.Amount,
+					htlc:           addMsg,
+					obfuscator:     obfuscator,
+				}
+
+				fwdPkg.FwdFilter.Set(idx)
+				switchPackets = append(switchPackets,
+					updatePacket)
 			}
 		}
 	}

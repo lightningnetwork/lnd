@@ -1142,7 +1142,7 @@ mnemonicCheck:
 		if len(cipherSeedMnemonic) != 24 {
 			return fmt.Errorf("wrong cipher seed mnemonic "+
 				"length: got %v words, expecting %v words",
-				len(CipherSeedMnemonic), 24)
+				len(cipherSeedMnemonic), 24)
 		}
 
 		// Additionally, the user may have a passphrase, that will also

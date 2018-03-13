@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btclog"
 	"github.com/jrick/logrotate/rotator"
 	"github.com/lightninglabs/neutrino"
+	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"

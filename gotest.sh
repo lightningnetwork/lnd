@@ -93,7 +93,7 @@ lint_check() {
     gometalinter.v1 --install 1>/dev/null
 
     # Automatic checks
-    linter_targets=$(glide novendor | grep -v lnrpc)
+    linter_targets=$(go list -f '{{.Dir}}' ./... | grep -v lnrpc)
     test -z "$(gometalinter.v1 --disable-all \
     --enable=gofmt \
     --enable=vet \
@@ -134,17 +134,17 @@ while getopts "lrcio" flag; do
 # remove the options from the positional parameters
 shift $(( OPTIND - 1 ))
 
-# Make sure glide is installed and $GOPATH/bin is in your path.
-if [ ! -x "$(type -p glide)" ]; then
-    print "* Install glide"
-    go get -u github.com/Masterminds/glide
+# Make sure dep is installed and $GOPATH/bin is in your path.
+if [ ! -x "$(type -p dep)" ]; then
+    print "* Install dep"
+    go get -u github.com/golang/dep/cmd/dep
 fi
 
 # Install the dependency if vendor directory not exist or if flag have been
 # specified.
 if [ "$NEED_INSTALL" == "true" ] || [ ! -d "./vendor" ]; then
     print "* Install dependencies"
-    glide install
+    dep ensure
 fi
 
 # Required for the integration tests

@@ -1528,11 +1528,6 @@ func (l *channelLink) ChanID() lnwire.ChannelID {
 	return lnwire.NewChanIDFromOutPoint(l.channel.ChannelPoint())
 }
 
-// getBandwidthCmd is a wrapper for get bandwidth handler.
-type getBandwidthCmd struct {
-	resp chan lnwire.MilliSatoshi
-}
-
 // Bandwidth returns the total amount that can flow through the channel link at
 // this given instance. The value returned is expressed in millisatoshi and can
 // be used by callers when making forwarding decisions to determine if a link

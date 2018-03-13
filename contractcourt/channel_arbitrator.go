@@ -1378,17 +1378,6 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 				CommitResolution: uniClosure.CommitResolution,
 				HtlcResolutions:  *uniClosure.HtlcResolutions,
 			}
-			if contractRes.IsEmpty() {
-				log.Infof("ChannelArbitrator(%v): contract "+
-					"resolutions empty, exiting", c.cfg.ChanPoint)
-
-				err := c.cfg.MarkChannelResolved()
-				if err != nil {
-					log.Errorf("unable to resolve "+
-						"contract: %v", err)
-				}
-				return
-			}
 
 			// TODO(roasbeef): modify signal to also detect
 			// cooperative closures?

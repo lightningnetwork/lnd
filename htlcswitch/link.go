@@ -1439,8 +1439,10 @@ func (l *channelLink) updateCommitTx() error {
 
 	theirCommitSig, htlcSigs, err := l.channel.SignNextCommitment()
 	if err == lnwallet.ErrNoWindow {
-		log.Tracef("revocation window exhausted, unable to send %v",
-			l.batchCounter)
+		l.tracef("revocation window exhausted, unable to send: %v, "+
+			"dangling_opens=%v, dangling_closes%v",
+			l.batchCounter, spew.Sdump(l.openedCircuits),
+			spew.Sdump(l.closedCircuits))
 		return nil
 	} else if err != nil {
 		return err

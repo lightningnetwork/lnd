@@ -9,6 +9,7 @@ import (
 
 	"crypto/sha256"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -140,8 +141,9 @@ type ChannelLinkConfig struct {
 
 	// DecodeHopIterators facilitates batched decoding of HTLC Sphinx onion
 	// blobs, which are then used to inform how to forward an HTLC.
-	// NOTE: This function assumes the same set of readers and preimages are
-	// always presented for the same identifier.
+	//
+	// NOTE: This function assumes the same set of readers and preimages
+	// are always presented for the same identifier.
 	DecodeHopIterators func([]byte, []DecodeHopIteratorRequest) (
 		[]DecodeHopIteratorResponse, error)
 
@@ -210,14 +212,15 @@ type ChannelLinkConfig struct {
 
 	// BatchTicker is the ticker that determines the interval that we'll
 	// use to check the batch to see if there're any updates we should
-	// flush out. By batching updates into a single commit, we attempt
-	// to increase throughput by maximizing the number of updates
-	// coalesced into a single commit.
+	// flush out. By batching updates into a single commit, we attempt to
+	// increase throughput by maximizing the number of updates coalesced
+	// into a single commit.
 	BatchTicker Ticker
 
 	// FwdPkgGCTicker is the ticker determining the frequency at which
-	// garbage collection of forwarding packages occurs. We use a time-based
-	// approach, as opposed to block epochs, as to not hinder syncing.
+	// garbage collection of forwarding packages occurs. We use a
+	// time-based approach, as opposed to block epochs, as to not hinder
+	// syncing.
 	FwdPkgGCTicker Ticker
 
 	// BatchSize is the max size of a batch of updates done to the link
@@ -232,8 +235,8 @@ type ChannelLinkConfig struct {
 }
 
 // channelLink is the service which drives a channel's commitment update
-// state-machine. In the event that an htlc needs to be propagated to another
-// link, the forward handler from config is used which sends htlc to the
+// state-machine. In the event that an HTLC needs to be propagated to another
+// link, the forward handler from config is used which sends HTLC to the
 // switch. Additionally, the link encapsulate logic of commitment protocol
 // message ordering and updates.
 type channelLink struct {
@@ -246,8 +249,8 @@ type channelLink struct {
 	// current number of settles that have been sent, but not yet committed
 	// to the commitment.
 	//
-	// TODO(andrew.shvv) remove after we add additional
-	// BatchNumber() method in state machine.
+	// TODO(andrew.shvv) remove after we add additional BatchNumber()
+	// method in state machine.
 	batchCounter uint32
 
 	// bestHeight is the best known height of the main chain. The link will
@@ -255,10 +258,22 @@ type channelLink struct {
 	bestHeight uint32
 
 	// keystoneBatch represents a volatile list of keystones that must be
-	// written before attempting to sign the next commitment txn.
+	// written before attempting to sign the next commitment txn. These
+	// represent all the HTLC's forwarded to the link from the switch. Once
+	// we lock them into our outgoing commitment, then the circuit has a
+	// keystone, and is fully opened.
 	keystoneBatch []Keystone
 
+	// openedCircuits is the set of all payment circuits that will be open
+	// once we make our next commitment. After making the commitment we'll
+	// ACK all these from our mailbox to ensure that they don't get
+	// re-delivered if we reconnect.
 	openedCircuits []CircuitKey
+
+	// closedCircuits is the set of all payment circuits that will be
+	// closed once we make our next commitment. After taking the commitment
+	// we'll ACK all these to ensure that they don't get re-delivered if we
+	// reconnect.
 	closedCircuits []CircuitKey
 
 	// channel is a lightning network channel to which we apply htlc
@@ -526,9 +541,9 @@ func (l *channelLink) syncChanStates() error {
 			closedCircuits []CircuitKey
 		)
 
-		// We've just received a ChnSync message from the remote party,
-		// so we'll process the message  in order to determine if we
-		// need to re-transmit any messages to the remote party.
+		// We've just received a ChanSync message from the remote
+		// party, so we'll process the message  in order to determine
+		// if we need to re-transmit any messages to the remote party.
 		msgsToReSend, openedCircuits, closedCircuits, err =
 			l.channel.ProcessChanSyncMsg(remoteChanSyncMsg)
 		if err != nil {
@@ -539,7 +554,8 @@ func (l *channelLink) syncChanStates() error {
 		}
 
 		// Repopulate any identifiers for circuits that may have been
-		// opened or unclosed.
+		// opened or unclosed. This may happen if we needed to
+		// retransmit a commitment signature message.
 		l.openedCircuits = openedCircuits
 		l.closedCircuits = closedCircuits
 
@@ -574,10 +590,10 @@ func (l *channelLink) syncChanStates() error {
 }
 
 // resolveFwdPkgs loads any forwarding packages for this link from disk, and
-// reprocesses them in order. The primary goal is to make sure that any HTLCs we
-// previously received are reinstated in memory, and forwarded to the switch if
-// necessary. After a restart, this will also delete any previously completed
-// packages.
+// reprocesses them in order. The primary goal is to make sure that any HTLCs
+// we previously received are reinstated in memory, and forwarded to the switch
+// if necessary. After a restart, this will also delete any previously
+// completed packages.
 func (l *channelLink) resolveFwdPkgs() error {
 	fwdPkgs, err := l.channel.LoadFwdPkgs()
 	if err != nil {
@@ -623,10 +639,10 @@ func (l *channelLink) resolveFwdPkg(fwdPkg *channeldb.FwdPkg) (bool, error) {
 	}
 
 	// Otherwise this is either a new package or one has gone through
-	// processing, but contains htlcs that need to be restored in memory. We
-	// replay this forwarding package to make sure our local mem state is
-	// resurrected, we mimic any original responses back to the remote
-	// party, and reforward the relevant HTLCs to the switch.
+	// processing, but contains htlcs that need to be restored in memory.
+	// We replay this forwarding package to make sure our local mem state
+	// is resurrected, we mimic any original responses back to the remote
+	// party, and re-forward the relevant HTLCs to the switch.
 
 	// If the package is fully acked but not completed, it must still have
 	// settles and fails to propagate.
@@ -637,10 +653,10 @@ func (l *channelLink) resolveFwdPkg(fwdPkg *channeldb.FwdPkg) (bool, error) {
 		l.processRemoteSettleFails(fwdPkg, settleFails)
 	}
 
-	// Finally, replay *ALL ADDS* in this forwarding package. The downstream
-	// logic is able to filter out any duplicates, but we must shove the
-	// entire, original set of adds down the pipeline so that the batch of
-	// adds presented to the sphinx router does not ever change.
+	// Finally, replay *ALL ADDS* in this forwarding package. The
+	// downstream logic is able to filter out any duplicates, but we must
+	// shove the entire, original set of adds down the pipeline so that the
+	// batch of adds presented to the sphinx router does not ever change.
 	var needUpdate bool
 	if !fwdPkg.AckFilter.IsFull() {
 		adds := lnwallet.PayDescsFromRemoteLogUpdates(
@@ -717,10 +733,10 @@ func (l *channelLink) htlcManager() {
 	// commitment txn. We use the next local htlc index as the cut off
 	// point, since all indexes below that are committed.
 	//
-	// NOTE: This is automatically done by the switch when it starts up, but
-	// is necessary to prevent inconsistencies in the case that the link
-	// flaps. This is a result of a link's life-cycle being shorter than
-	// that of the switch.
+	// NOTE: This is automatically done by the switch when it starts up,
+	// but is necessary to prevent inconsistencies in the case that the
+	// link flaps. This is a result of a link's life-cycle being shorter
+	// than that of the switch.
 	localHtlcIndex := l.channel.LocalHtlcIndex()
 	err := l.cfg.Circuits.TrimOpenCircuits(l.ShortChanID(), localHtlcIndex)
 	if err != nil {
@@ -737,7 +753,6 @@ func (l *channelLink) htlcManager() {
 	// re-synchronize state with the remote peer. settledHtlcs is a map of
 	// HTLC's that we re-settled as part of the channel state sync.
 	if l.cfg.SyncStates {
-		// TODO(roasbeef): need to ensure haven't already settled?
 		if err := l.syncChanStates(); err != nil {
 			l.errorf("unable to synchronize channel states: %v", err)
 			l.fail(err.Error())
@@ -745,9 +760,9 @@ func (l *channelLink) htlcManager() {
 		}
 	}
 
-	// With the channel states synced, we now reset the mailbox to ensure we
-	// start processing all unacked packets in order. This is done here to
-	// ensure that all acknowledgments that occur during channel
+	// With the channel states synced, we now reset the mailbox to ensure
+	// we start processing all unacked packets in order. This is done here
+	// to ensure that all acknowledgments that occur during channel
 	// resynchronization have taken affect, causing us only to pull unacked
 	// packets after starting to read from the downstream mailbox.
 	l.mailBox.ResetPackets()
@@ -827,7 +842,8 @@ out:
 			// TODO(roasbeef): remove all together
 			go func() {
 				chanPoint := l.channel.ChannelPoint()
-				if err := l.cfg.Peer.WipeChannel(chanPoint); err != nil {
+				err := l.cfg.Peer.WipeChannel(chanPoint)
+				if err != nil {
 					log.Errorf("unable to wipe channel %v", err)
 				}
 			}()
@@ -895,6 +911,7 @@ out:
 				l.overflowQueue.AddPkt(pkt)
 				continue
 			}
+
 			l.handleDownStreamPkt(pkt, false)
 
 		// A message from the connected peer was just received. This
@@ -956,7 +973,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 			// The channels spare bandwidth is fully allocated, so
 			// we'll put this HTLC into the overflow queue.
 			case lnwallet.ErrMaxHTLCNumber:
-				log.Infof("Downstream htlc add update with "+
+				l.infof("Downstream htlc add update with "+
 					"payment hash(%x) have been added to "+
 					"reprocessing queue, batch: %v",
 					htlc.PaymentHash[:],
@@ -969,7 +986,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 			// machine, as a result, we'll signal the switch to
 			// cancel the pending payment.
 			default:
-				log.Warnf("Unable to handle downstream add HTLC: %v", err)
+				l.warnf("Unable to handle downstream add HTLC: %v", err)
 
 				var (
 					localFailure = false
@@ -984,7 +1001,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 					var b bytes.Buffer
 					err := lnwire.EncodeFailure(&b, failure, 0)
 					if err != nil {
-						log.Errorf("unable to encode failure: %v", err)
+						l.errorf("unable to encode failure: %v", err)
 						return
 					}
 					reason = lnwire.OpaqueReason(b.Bytes())
@@ -993,7 +1010,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 					var err error
 					reason, err = pkt.obfuscator.EncryptFirstHop(failure)
 					if err != nil {
-						log.Errorf("unable to obfuscate error: %v", err)
+						l.errorf("unable to obfuscate error: %v", err)
 						return
 					}
 				}
@@ -1027,7 +1044,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 			}
 		}
 
-		log.Tracef("Received downstream htlc: payment_hash=%x, "+
+		l.tracef("Received downstream htlc: payment_hash=%x, "+
 			"local_log_index=%v, batch_size=%v",
 			htlc.PaymentHash[:], index, l.batchCounter+1)
 
@@ -1047,7 +1064,6 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		// An HTLC we forward to the switch has just settled somewhere
 		// upstream. Therefore we settle the HTLC within the our local
 		// state machine.
-
 		closedCircuitRef := pkt.inKey()
 		if err := l.channel.SettleHTLC(
 			htlc.PaymentPreimage,
@@ -1138,7 +1154,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			return
 		}
 
-		log.Tracef("Receive upstream htlc with payment hash(%x), "+
+		l.tracef("Receive upstream htlc with payment hash(%x), "+
 			"assigning index: %v", msg.PaymentHash[:], index)
 
 	case *lnwire.UpdateFulfillHTLC:
@@ -1159,7 +1175,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		go func() {
 			err := l.cfg.PreimageCache.AddPreimage(pre[:])
 			if err != nil {
-				log.Errorf("unable to add preimage=%x to "+
+				l.errorf("unable to add preimage=%x to "+
 					"cache", pre[:])
 			}
 		}()
@@ -1191,7 +1207,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// form.
 		var b bytes.Buffer
 		if err := lnwire.EncodeFailure(&b, failure, 0); err != nil {
-			log.Errorf("unable to encode malformed error: %v", err)
+			l.errorf("unable to encode malformed error: %v", err)
 			return
 		}
 
@@ -1330,12 +1346,12 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 
 }
 
-// ackDownStreamPackets is responsible for removing htlcs from a link's
-// mailbox for packets delivered from server, and cleaning up any circuits
-// closed by signing a previous commitment txn. This method ensures that the
-// circuits are removed from the circuit map before removing them from the
-// link's mailbox, otherwise it could be possible for some circuit to be missed
-// if this link flaps.
+// ackDownStreamPackets is responsible for removing htlcs from a link's mailbox
+// for packets delivered from server, and cleaning up any circuits closed by
+// signing a previous commitment txn. This method ensures that the circuits are
+// removed from the circuit map before removing them from the link's mailbox,
+// otherwise it could be possible for some circuit to be missed if this link
+// flaps.
 //
 // The `forgive` flag allows this method to tolerate restarts, and ignores
 // errors that could be caused by a previous circuit deletion. Under normal
@@ -1346,15 +1362,15 @@ func (l *channelLink) ackDownStreamPackets(forgive bool) error {
 	// previous commitment signature. This will prevent the Adds from being
 	// replayed if this link disconnects.
 	for _, inKey := range l.openedCircuits {
-		// In order to test the sphinx replay logic of the remote party,
-		// unsafe replay does not acknowledge the packets from the
-		// mailbox. We can then force a replay of any Add packets held
-		// in memory by disconnecting and reconnecting the link.
+		// In order to test the sphinx replay logic of the remote
+		// party, unsafe replay does not acknowledge the packets from
+		// the mailbox. We can then force a replay of any Add packets
+		// held in memory by disconnecting and reconnecting the link.
 		if l.cfg.UnsafeReplay {
 			continue
 		}
 
-		l.debugf("Removing Add packet %s from mailbox", inKey)
+		l.debugf("removing Add packet %s from mailbox", inKey)
 		l.mailBox.AckPacket(inKey)
 	}
 
@@ -1370,11 +1386,11 @@ func (l *channelLink) ackDownStreamPackets(forgive bool) error {
 	case ErrUnknownCircuit:
 		if forgive {
 			// After a restart, we may have already removed this
-			// circuit. Since it shouldn't be possible for a circuit
-			// to be closed by different htlcs, we assume this error
-			// signals that the whole batch was successfully
-			// removed.
-			l.warnf("Forgiving unknown circuit error after " +
+			// circuit. Since it shouldn't be possible for a
+			// circuit to be closed by different htlcs, we assume
+			// this error signals that the whole batch was
+			// successfully removed.
+			l.warnf("forgiving unknown circuit error after " +
 				"attempting deletion, circuit was probably " +
 				"removed before shutting down.")
 			break
@@ -1392,9 +1408,9 @@ func (l *channelLink) ackDownStreamPackets(forgive bool) error {
 	// Settle/Fails in the mailbox to ensure they do not get redelivered
 	// after startup. If forgive is enabled and we've reached this point,
 	// the circuits must have been removed at some point, so it is now safe
-	// to unqueue the corresponding Settle/Fails.
+	// to un-queue the corresponding Settle/Fails.
 	for _, inKey := range l.closedCircuits {
-		l.debugf("Removing Fail/Settle packet %s from mailbox", inKey)
+		l.debugf("removing Fail/Settle packet %s from mailbox", inKey)
 		l.mailBox.AckPacket(inKey)
 	}
 
@@ -1526,24 +1542,29 @@ type getBandwidthCmd struct {
 func (l *channelLink) Bandwidth() lnwire.MilliSatoshi {
 	channelBandwidth := l.channel.AvailableBalance()
 	overflowBandwidth := l.overflowQueue.TotalHtlcAmount()
-	linkBandwidth := channelBandwidth - overflowBandwidth
-	reserve := lnwire.NewMSatFromSatoshis(l.channel.LocalChanReserve())
 
-	// If the channel reserve is greater than the total available
-	// balance of the link, just return 0.
+	// To compute the total bandwidth, we'll take the current available
+	// bandwidth, then subtract the overflow bandwidth as we'll eventually
+	// also need to evaluate those HTLC's once space on the commitment
+	// transaction is free.
+	linkBandwidth := channelBandwidth - overflowBandwidth
+
+	// If the channel reserve is greater than the total available balance
+	// of the link, just return 0.
+	reserve := lnwire.NewMSatFromSatoshis(l.channel.LocalChanReserve())
 	if linkBandwidth < reserve {
 		return 0
 	}
 
-	// Else the amount that is available to flow through the link at
-	// this point is the available balance minus the reserve amount
-	// we are required to keep as collateral.
+	// Else the amount that is available to flow through the link at this
+	// point is the available balance minus the reserve amount we are
+	// required to keep as collateral.
 	return linkBandwidth - reserve
 }
 
-// AttachMailBox updates the current mailbox used by this link, and hooks up the
-// mailbox's message and packet outboxes to the link's upstream and downstream
-// chans, respectively.
+// AttachMailBox updates the current mailbox used by this link, and hooks up
+// the mailbox's message and packet outboxes to the link's upstream and
+// downstream chans, respectively.
 func (l *channelLink) AttachMailBox(mailbox MailBox) {
 	l.Lock()
 	l.mailBox = mailbox
@@ -1611,6 +1632,7 @@ func (l *channelLink) String() string {
 func (l *channelLink) HandleSwitchPacket(pkt *htlcPacket) error {
 	l.tracef("received switch packet inkey=%v, outkey=%v",
 		pkt.inKey(), pkt.outKey())
+
 	l.mailBox.AddPacket(pkt)
 	return nil
 }
@@ -1669,11 +1691,15 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 
 	var switchPackets []*htlcPacket
 	for i, pd := range settleFails {
-		// Skip any settles or fails that have already been acknowledged
-		// by the incoming link that originated the forwarded Add.
+		// Skip any settles or fails that have already been
+		// acknowledged by the incoming link that originated the
+		// forwarded Add.
 		if fwdPkg.SettleFailFilter.Contains(uint16(i)) {
 			continue
 		}
+
+		// TODO(roasbeef): rework log entries to a shared
+		// interface.
 
 		switch pd.EntryType {
 
@@ -1759,8 +1785,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 	// Atomically decode the incoming htlcs, simultaneously checking for
 	// replay attempts. A particular index in the returned, spare list of
-	// channel iterators should only be used if the failure code at the same
-	// index is lnwire.FailCodeNone.
+	// channel iterators should only be used if the failure code at the
+	// same index is lnwire.FailCodeNone.
 	decodeResps, sphinxErr := l.cfg.DecodeHopIterators(
 		fwdPkg.ID(), decodeReqs,
 	)
@@ -1781,11 +1807,11 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 		if fwdPkg.State == channeldb.FwdStateProcessed &&
 			fwdPkg.AckFilter.Contains(idx) {
 
-			// If this index is already found in the ack filter, the
-			// response to this forwarding decision has already been
-			// committed by one of our commitment txns. ADDs in this
-			// state are waiting for the rest of the fwding package
-			// to get acked before being garbage collected.
+			// If this index is already found in the ack filter,
+			// the response to this forwarding decision has already
+			// been committed by one of our commitment txns. ADDs
+			// in this state are waiting for the rest of the fwding
+			// package to get acked before being garbage collected.
 			continue
 		}
 
@@ -2313,14 +2339,14 @@ func (l *channelLink) forwardBatch(packets ...*htlcPacket) {
 	l.handleBatchFwdErrs(errChan)
 }
 
-// handleBatchFwdErrs waits on the given errChan until it is closed, logging the
-// errors returned from any unsuccessful forwarding attempts.
+// handleBatchFwdErrs waits on the given errChan until it is closed, logging
+// the errors returned from any unsuccessful forwarding attempts.
 func (l *channelLink) handleBatchFwdErrs(errChan chan error) {
 	for {
 		err, ok := <-errChan
 		if !ok {
-			// Err chan has been drained or switch is shutting down.
-			// Either way, return.
+			// Err chan has been drained or switch is shutting
+			// down.  Either way, return.
 			return
 		}
 
@@ -2335,9 +2361,8 @@ func (l *channelLink) handleBatchFwdErrs(errChan chan error) {
 
 // sendHTLCError functions cancels HTLC and send cancel message back to the
 // peer from which HTLC was received.
-func (l *channelLink) sendHTLCError(htlcIndex uint64,
-	failure lnwire.FailureMessage, e ErrorEncrypter,
-	sourceRef *channeldb.AddRef) {
+func (l *channelLink) sendHTLCError(htlcIndex uint64, failure lnwire.FailureMessage,
+	e ErrorEncrypter, sourceRef *channeldb.AddRef) {
 
 	reason, err := e.EncryptFirstHop(failure)
 	if err != nil {

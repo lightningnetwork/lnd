@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/coreos/bbolt"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -47,7 +48,8 @@ var (
 type CircuitModifier interface {
 	// OpenCircuits preemptively records a batch keystones that will mark
 	// currently pending circuits as open. These changes can be rolled back
-	// on restart if the outgoing Adds do not make it into a commitment txn.
+	// on restart if the outgoing Adds do not make it into a commitment
+	// txn.
 	OpenCircuits(...Keystone) error
 
 	// TrimOpenCircuits removes a channel's open channels with htlc indexes
@@ -60,11 +62,11 @@ type CircuitModifier interface {
 	DeleteCircuits(inKeys ...CircuitKey) error
 }
 
-// CircuitFwdActions represents the forwarding decision made by the circuit map,
-// and is returned from CommitCircuits. The sequence of circuits provided to
-// CommitCircuits is split into three subsequences, allowing the caller to do an
-// in-order scan, comparing the head of each subsequence, to determine the
-// decision made by the circuit map.
+// CircuitFwdActions represents the forwarding decision made by the circuit
+// map, and is returned from CommitCircuits. The sequence of circuits provided
+// to CommitCircuits is split into three sub-sequences, allowing the caller to
+// do an in-order scan, comparing the head of each subsequence, to determine
+// the decision made by the circuit map.
 type CircuitFwdActions struct {
 	// Adds is the subsequence of circuits that were successfully committed
 	// in the circuit map.
@@ -85,10 +87,10 @@ type CircuitMap interface {
 	CircuitModifier
 
 	// CommitCircuits attempts to add the given circuits to the circuit
-	// map. The list of circuits is split into three distinct subsequences,
-	// corresponding to adds, drops, and fails. Adds should be forwarded to
-	// the switch, while fails should be failed back locally within the
-	// calling link.
+	// map. The list of circuits is split into three distinct
+	// sub-sequences, corresponding to adds, drops, and fails. Adds should
+	// be forwarded to the switch, while fails should be failed back
+	// locally within the calling link.
 	CommitCircuits(circuit ...*PaymentCircuit) (*CircuitFwdActions, error)
 
 	// CloseCircuit marks the circuit identified by `outKey` as closing
@@ -105,8 +107,8 @@ type CircuitMap interface {
 	// inKey.
 	LookupCircuit(inKey CircuitKey) *PaymentCircuit
 
-	// LookupOpenCircuit queries the circuit map for a circuit identified by
-	// its outgoing circuit key.
+	// LookupOpenCircuit queries the circuit map for a circuit identified
+	// by its outgoing circuit key.
 	LookupOpenCircuit(outKey CircuitKey) *PaymentCircuit
 
 	// LookupByPaymentHash queries the circuit map and returns all open
@@ -124,15 +126,15 @@ type CircuitMap interface {
 
 var (
 	// circuitAddKey is the key used to retrieve the bucket containing
-	// payment circuits. A circuit records information about how to return a
-	// packet to the source link, potentially including an error encrypter
-	// for applying this hop's encryption to the payload in the reverse
-	// direction.
+	// payment circuits. A circuit records information about how to return
+	// a packet to the source link, potentially including an error
+	// encrypter for applying this hop's encryption to the payload in the
+	// reverse direction.
 	circuitAddKey = []byte("circuit-adds")
 
 	// circuitKeystoneKey is used to retrieve the bucket containing circuit
-	// keystones, which are set in place once a forwarded packet is assigned
-	// an index on an outgoing commitment txn.
+	// keystones, which are set in place once a forwarded packet is
+	// assigned an index on an outgoing commitment txn.
 	circuitKeystoneKey = []byte("circuit-keystones")
 )
 
@@ -143,18 +145,19 @@ var (
 // outgoing CircuitKey if the circuit is fully-opened.
 type circuitMap struct {
 	// db provides the persistent storage engine for the circuit map.
+	//
 	// TODO(conner): create abstraction to allow for the substitution of
 	// other persistence engines.
 	db *channeldb.DB
 
 	mtx sync.RWMutex
 
-	// pending is an in-memory mapping of all half payment circuits, and
-	// is kept in sync with the on-disk contents of the circuit map.
+	// pending is an in-memory mapping of all half payment circuits, and is
+	// kept in sync with the on-disk contents of the circuit map.
 	pending map[CircuitKey]*PaymentCircuit
 
-	// opened is an in-memory mapping of all full payment circuits, which is
-	// also synchronized with the persistent state of the circuit map.
+	// opened is an in-memory mapping of all full payment circuits, which
+	// is also synchronized with the persistent state of the circuit map.
 	opened map[CircuitKey]*PaymentCircuit
 
 	// closed is an in-memory set of circuits for which the switch has
@@ -211,11 +214,12 @@ func (cm *circuitMap) initBuckets() error {
 	})
 }
 
-// restoreMemState loads the contents of the half circuit and full circuit buckets
-// from disk and reconstructs the in-memory representation of the circuit map.
-// Afterwards, the state of the hash index is reconstructed using the recovered
-// set of full circuits.
+// restoreMemState loads the contents of the half circuit and full circuit
+// buckets from disk and reconstructs the in-memory representation of the
+// circuit map.  Afterwards, the state of the hash index is reconstructed using
+// the recovered set of full circuits.
 func (cm *circuitMap) restoreMemState() error {
+	log.Infof("Restoring in-memory circuit state from disk")
 
 	var (
 		opened  = make(map[CircuitKey]*PaymentCircuit)
@@ -286,6 +290,9 @@ func (cm *circuitMap) restoreMemState() error {
 	cm.opened = opened
 	cm.closed = make(map[CircuitKey]struct{})
 
+	log.Infof("Payment circuits loaded: num_pending=%v, num_open=%v",
+		len(pending), len(opened))
+
 	// Finally, reconstruct the hash index by running through our set of
 	// open circuits.
 	cm.hashIndex = make(map[[32]byte]map[CircuitKey]struct{})
@@ -339,18 +346,22 @@ func (cm *circuitMap) trimAllOpenCircuits() error {
 }
 
 // TrimOpenCircuits removes a channel's keystones above the short chan id's
-// highest committed htlc index. This has the effect of returning those circuits
-// to a half-open state. Since opening of circuits is done in advance of
-// actually committing the Add htlcs into a commitment txn, this allows circuits
-// to be opened preemetively, since we can roll them back after any failures.
+// highest committed htlc index. This has the effect of returning those
+// circuits to a half-open state. Since opening of circuits is done in advance
+// of actually committing the Add htlcs into a commitment txn, this allows
+// circuits to be opened preemptively, since we can roll them back after any
+// failures.
 func (cm *circuitMap) TrimOpenCircuits(chanID lnwire.ShortChannelID,
 	start uint64) error {
+
+	log.Infof("Trimming open circuits for chan_id=%v, start_htlc_id=%v",
+		chanID, start)
 
 	var trimmedOutKeys []CircuitKey
 
 	// Scan forward from the last unacked htlc id, stopping as soon as we
-	// don't find any more. Outgoing htlc id's must be assigned in order, so
-	// there should never be disjoint segments of keystones to trim.
+	// don't find any more. Outgoing htlc id's must be assigned in order,
+	// so there should never be disjoint segments of keystones to trim.
 	cm.mtx.Lock()
 	for i := start; ; i++ {
 		outKey := CircuitKey{
@@ -439,6 +450,10 @@ func (cm *circuitMap) LookupByPaymentHash(hash [32]byte) []*PaymentCircuit {
 // be realized if it is called concurrently from separate goroutines.
 func (cm *circuitMap) CommitCircuits(circuits ...*PaymentCircuit) (
 	*CircuitFwdActions, error) {
+
+	log.Tracef("Committing fresh circuits: %v", newLogClosure(func() string {
+		return spew.Sdump(circuits)
+	}))
 
 	actions := &CircuitFwdActions{}
 
@@ -563,7 +578,8 @@ func (cm *circuitMap) CommitCircuits(circuits ...*PaymentCircuit) (
 
 // Keystone is a tuple binding an incoming and outgoing CircuitKey. Keystones
 // are preemptively written by an outgoing link before signing a new commitment
-// state, and cements which HTLCs we are awaiting a response from a remote peer.
+// state, and cements which HTLCs we are awaiting a response from a remote
+// peer.
 type Keystone struct {
 	InKey  CircuitKey
 	OutKey CircuitKey
@@ -582,6 +598,10 @@ func (cm *circuitMap) OpenCircuits(keystones ...Keystone) error {
 	if len(keystones) == 0 {
 		return nil
 	}
+
+	log.Tracef("Opening finalized circuits: %v", newLogClosure(func() string {
+		return spew.Sdump(keystones)
+	}))
 
 	// Check that all keystones correspond to committed-but-unopened
 	// circuits.
@@ -658,8 +678,7 @@ func (cm *circuitMap) addCircuitToHashIndex(c *PaymentCircuit) {
 
 // FailCircuit marks the circuit identified by `inKey` as closing in-memory,
 // which prevents duplicate settles/fails from completing an open circuit twice.
-func (cm *circuitMap) FailCircuit(
-	inKey CircuitKey) (*PaymentCircuit, error) {
+func (cm *circuitMap) FailCircuit(inKey CircuitKey) (*PaymentCircuit, error) {
 
 	cm.mtx.Lock()
 	defer cm.mtx.Unlock()
@@ -679,11 +698,10 @@ func (cm *circuitMap) FailCircuit(
 	return circuit, nil
 }
 
-// CloseCircuit marks the circuit identified by `outKey` as closing
-// in-memory, which prevents duplicate settles/fails from completing an open
+// CloseCircuit marks the circuit identified by `outKey` as closing in-memory,
+// which prevents duplicate settles/fails from completing an open
 // circuit twice.
-func (cm *circuitMap) CloseCircuit(
-	outKey CircuitKey) (*PaymentCircuit, error) {
+func (cm *circuitMap) CloseCircuit(outKey CircuitKey) (*PaymentCircuit, error) {
 
 	cm.mtx.Lock()
 	defer cm.mtx.Unlock()
@@ -708,6 +726,10 @@ func (cm *circuitMap) CloseCircuit(
 // through an outgoing link. The circuit should be identified by its incoming
 // circuit key.
 func (cm *circuitMap) DeleteCircuits(inKeys ...CircuitKey) error {
+
+	log.Tracef("Deleting resolved circuits: %v", newLogClosure(func() string {
+		return spew.Sdump(inKeys)
+	}))
 
 	var (
 		closingCircuits = make(map[CircuitKey]struct{})

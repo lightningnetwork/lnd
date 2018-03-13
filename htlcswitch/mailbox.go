@@ -247,6 +247,7 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 				select {
 				case msgDone := <-m.msgReset:
 					m.wireMessages.Init()
+
 					close(msgDone)
 				case <-m.quit:
 					m.wireCond.L.Unlock()
@@ -261,8 +262,13 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 				m.pktCond.Wait()
 
 				select {
+				// Resetting the packet queue means just moving
+				// our pointer to the front. This ensures that
+				// any un-ACK'd messages are re-delivered upon
+				// reconnect.
 				case pktDone := <-m.pktReset:
 					m.pktHead = m.htlcPkts.Front()
+
 					close(pktDone)
 				case <-m.quit:
 					m.pktCond.L.Unlock()
@@ -272,17 +278,22 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 			}
 		}
 
-		// Grab the datum off the front of the queue, shifting the
-		// slice's reference down one in order to remove the datum from
-		// the queue.
 		var (
 			nextPkt *htlcPacket
 			nextMsg lnwire.Message
 		)
 		switch cType {
+		// Grab the datum off the front of the queue, shifting the
+		// slice's reference down one in order to remove the datum from
+		// the queue.
 		case wireCourier:
 			entry := m.wireMessages.Front()
 			nextMsg = m.wireMessages.Remove(entry).(lnwire.Message)
+
+		// For packets, we actually never remove an item until it has
+		// been ACK'd by the link. This ensures that if a read packet
+		// doesn't make it into a commitment, then it'll be
+		// re-delivered once the link comes back online.
 		case pktCourier:
 			nextPkt = m.pktHead.Value.(*htlcPacket)
 			m.pktHead = m.pktHead.Next()
@@ -297,6 +308,7 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 			m.pktCond.L.Unlock()
 		}
 
+		// With the next message obtained, we'll now select to attempt
 		// to deliver the message. If we receive a kill signal, then
 		// we'll bail out.
 		switch cType {
@@ -307,6 +319,7 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 				m.wireCond.L.Lock()
 				m.wireMessages.Init()
 				m.wireCond.L.Unlock()
+
 				close(msgDone)
 			case <-m.quit:
 				return
@@ -319,6 +332,7 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 				m.pktCond.L.Lock()
 				m.pktHead = m.htlcPkts.Front()
 				m.pktCond.L.Unlock()
+
 				close(pktDone)
 			case <-m.quit:
 				return

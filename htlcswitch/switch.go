@@ -346,8 +346,8 @@ func (s *Switch) SendHTLC(nextNode [33]byte, htlc *lnwire.UpdateAddHTLC,
 			"while waiting for payment result")
 	}
 
-	// Remove circuit since we are about to complete an
-	// add/fail of this HTLC.
+	// Remove circuit since we are about to complete an add/fail of this
+	// HTLC.
 	if teardownErr := s.teardownCircuit(response); teardownErr != nil {
 		log.Warnf("unable to teardown circuit %s: %v",
 			response.inKey(), teardownErr)
@@ -409,7 +409,7 @@ type updatePoliciesCmd struct {
 // updateLinkPolicies attempts to update the forwarding policies for the set of
 // passed links identified by their channel points. If a nil set of channel
 // points is passed, then the forwarding policies for all active links will be
-// updated.k
+// updated.
 func (s *Switch) updateLinkPolicies(c *updatePoliciesCmd) error {
 	log.Debugf("Updating link policies: %v", spew.Sdump(c))
 
@@ -440,9 +440,9 @@ func (s *Switch) updateLinkPolicies(c *updatePoliciesCmd) error {
 	return nil
 }
 
-// forward is used in order to find next channel link and apply htlc
-// update. Also this function is used by channel links itself in order to
-// forward the update after it has been included in the channel.
+// forward is used in order to find next channel link and apply htlc update.
+// Also this function is used by channel links itself in order to forward the
+// update after it has been included in the channel.
 func (s *Switch) forward(packet *htlcPacket) error {
 	switch htlc := packet.htlc.(type) {
 	case *lnwire.UpdateAddHTLC:
@@ -475,10 +475,11 @@ func (s *Switch) forward(packet *htlcPacket) error {
 	return s.route(packet)
 }
 
-// ForwardPackets adds a list of packets to the switch for processing. Fails and
-// settles are added on a first past, simultaneously constructing circuits for
-// any adds. After persisting the circuits, another pass of the adds is given to
-// forward them through the router.
+// ForwardPackets adds a list of packets to the switch for processing. Fails
+// and settles are added on a first past, simultaneously constructing circuits
+// for any adds. After persisting the circuits, another pass of the adds is
+// given to forward them through the router.
+//
 // NOTE: This method guarantees that the returned err chan will eventually be
 // closed. The receiver should read on the channel until receiving such a
 // signal.
@@ -911,7 +912,6 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		return destination.HandleSwitchPacket(packet)
 
 	case *lnwire.UpdateFailHTLC, *lnwire.UpdateFulfillHTLC:
-
 		// If the source of this packet has not been set, use the
 		// circuit map to lookup the origin.
 		circuit, err := s.closeCircuit(packet)
@@ -1032,10 +1032,9 @@ func (s *Switch) failAddPacket(packet *htlcPacket,
 // set the incoming chan and htlc ID of the given packet if the source was
 // found, and will properly [re]encrypt any failure messages.
 func (s *Switch) closeCircuit(pkt *htlcPacket) (*PaymentCircuit, error) {
-
-	// If the packet has its source, that means it was failed locally by the
-	// outgoing link. We fail it here to make sure only one response makes
-	// it through the switch.
+	// If the packet has its source, that means it was failed locally by
+	// the outgoing link. We fail it here to make sure only one response
+	// makes it through the switch.
 	if pkt.hasSource {
 		circuit, err := s.circuits.FailCircuit(pkt.inKey())
 		switch err {
@@ -1044,15 +1043,16 @@ func (s *Switch) closeCircuit(pkt *htlcPacket) (*PaymentCircuit, error) {
 		case nil:
 			return circuit, nil
 
-		// Circuit was previously closed, but has not been deleted. We'll just
-		// drop this response until the circuit has been fully removed.
+		// Circuit was previously closed, but has not been deleted.
+		// We'll just drop this response until the circuit has been
+		// fully removed.
 		case ErrCircuitClosing:
 			return nil, err
 
-		// Failed to close circuit because it does not exist. This is likely
-		// because the circuit was already successfully closed. Since
-		// this packet failed locally, there is no forwarding package
-		// entry to acknowledge.
+		// Failed to close circuit because it does not exist. This is
+		// likely because the circuit was already successfully closed.
+		// Since this packet failed locally, there is no forwarding
+		// package entry to acknowledge.
 		case ErrUnknownCircuit:
 			return nil, err
 
@@ -1062,8 +1062,8 @@ func (s *Switch) closeCircuit(pkt *htlcPacket) (*PaymentCircuit, error) {
 		}
 	}
 
-	// Otherwise, this is packet was received from the remote party.
-	// Use circuit map to find the incoming link to receive the settle/fail.
+	// Otherwise, this is packet was received from the remote party.  Use
+	// circuit map to find the incoming link to receive the settle/fail.
 	circuit, err := s.circuits.CloseCircuit(pkt.outKey())
 	switch err {
 
@@ -1073,6 +1073,16 @@ func (s *Switch) closeCircuit(pkt *htlcPacket) (*PaymentCircuit, error) {
 		pkt.incomingHTLCID = circuit.Incoming.HtlcID
 		pkt.circuit = circuit
 		pkt.sourceRef = &circuit.AddRef
+
+		pktType := "SETTLE"
+		if _, ok := pkt.htlc.(*lnwire.UpdateFailHTLC); ok {
+			pktType = "FAIL"
+		}
+
+		log.Debugf("Closed completed %s circuit for %x: "+
+			"(%s, %d) <-> (%s, %d)", pktType, pkt.circuit.PaymentHash,
+			pkt.incomingChanID, pkt.incomingHTLCID,
+			pkt.outgoingChanID, pkt.outgoingHTLCID)
 
 		return circuit, nil
 
@@ -1105,6 +1115,10 @@ func (s *Switch) closeCircuit(pkt *htlcPacket) (*PaymentCircuit, error) {
 	}
 }
 
+// ackSettleFail is used by the switch to ACK any settle/fail entries in the
+// forwarding package of the outgoing link for a payment circuit. We do this if
+// we're the originator of the payment, so the link stops attempting to
+// re-broadcast.
 func (s *Switch) ackSettleFail(settleFailRef channeldb.SettleFailRef) error {
 	return s.cfg.DB.Update(func(tx *bolt.Tx) error {
 		return s.cfg.SwitchPackager.AckSettleFails(tx, settleFailRef)
@@ -1149,6 +1163,7 @@ func (s *Switch) teardownCircuit(pkt *htlcPacket) error {
 	default:
 		log.Debugf("Tearing down incomplete circuit with %s for inkey=%v",
 			pktType, pkt.inKey())
+
 		err := s.circuits.DeleteCircuits(pkt.inKey())
 		if err != nil {
 			log.Warnf("Failed to tear down pending %s circuit for %x: "+

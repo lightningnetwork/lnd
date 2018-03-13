@@ -161,6 +161,14 @@ type peer struct {
 	// peer during the connection handshake.
 	remoteGlobalFeatures *lnwire.FeatureVector
 
+	// failedChannels is a set that tracks channels we consider `failed`.
+	// This is a temporary measure until we have implemented real failure
+	// handling at the link level, to handle the case where we reconnect to
+	// a peer and try to re-sync a failed channel, triggering a disconnect
+	// loop.
+	// TODO(halseth): remove when link failure is properly handled.
+	failedChannels map[lnwire.ChannelID]struct{}
+
 	queueQuit chan struct{}
 	quit      chan struct{}
 	wg        sync.WaitGroup
@@ -194,6 +202,7 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 		activeChanCloses:   make(map[lnwire.ChannelID]*channelCloser),
 		localCloseChanReqs: make(chan *htlcswitch.ChanClose),
 		chanCloseMsgs:      make(chan *closeMsg),
+		failedChannels:     make(map[lnwire.ChannelID]struct{}),
 
 		queueQuit: make(chan struct{}),
 		quit:      make(chan struct{}),
@@ -308,11 +317,22 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		p.activeChannels[chanID] = lnChan
 		p.activeChanMtx.Unlock()
 
-		peerLog.Infof("NodeKey(%x) loading ChannelPoint(%v)", p.PubKey(), chanPoint)
+		peerLog.Infof("NodeKey(%x) loading ChannelPoint(%v)",
+			p.PubKey(), chanPoint)
 
 		// Skip adding any permanently irreconcilable channels to the
 		// htlcswitch.
 		if dbChan.IsBorked {
+			peerLog.Warnf("ChannelPoint(%v) is borked, won't "+
+				"start.", chanPoint)
+			continue
+		}
+
+		// Also skip adding any channel marked as `failed` for this
+		// session.
+		if _, ok := p.failedChannels[chanID]; ok {
+			peerLog.Warnf("ChannelPoint(%v) is failed, won't "+
+				"start.", chanPoint)
 			continue
 		}
 
@@ -790,8 +810,13 @@ out:
 			// In the case of an all-zero channel ID we want to
 			// forward the error to all channels with this peer.
 			case msg.ChanID == lnwire.ConnectionWideID:
-				for _, chanStream := range chanMsgStreams {
+				for chanID, chanStream := range chanMsgStreams {
 					chanStream.AddMsg(nextMsg)
+
+					// Also marked this channel as failed,
+					// so we won't try to restart it on
+					// reconnect with this peer.
+					p.failedChannels[chanID] = struct{}{}
 				}
 
 			// If the channel ID for the error message corresponds
@@ -805,6 +830,11 @@ out:
 			default:
 				isChanUpdate = true
 				targetChan = msg.ChanID
+
+				// Also marked this channel as failed, so we
+				// won't try to restart it on reconnect with
+				// this peer.
+				p.failedChannels[targetChan] = struct{}{}
 			}
 
 		// TODO(roasbeef): create ChanUpdater interface for the below

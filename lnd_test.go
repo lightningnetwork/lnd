@@ -6797,7 +6797,13 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to send payments: %v", err)
 	}
 
-	time.Sleep(time.Millisecond * 200)
+	// Wait until all nodes in the network have 5 outstanding htlcs.
+	err = lntest.WaitPredicate(func() bool {
+		return assertNumActiveHtlcs(nodes, numPayments)
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf("htlc mismatch: %v", err)
+	}
 
 	// Restart the intermediaries and the sender.
 	if err := net.RestartNode(dave, nil); err != nil {
@@ -6812,6 +6818,27 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("Node restart failed: %v", err)
 	}
 
+	// Ensure all of the intermediate links are reconnected.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = net.EnsureConnected(ctxt, net.Alice, dave)
+	if err != nil {
+		t.Fatalf("unable to reconnect alice and dave: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = net.EnsureConnected(ctxt, net.Bob, net.Alice)
+	if err != nil {
+		t.Fatalf("unable to reconnect bob and alice: %v", err)
+	}
+
+	// Ensure all nodes in the network still have 5 outstanding htlcs.
+	err = lntest.WaitPredicate(func() bool {
+		return assertNumActiveHtlcs(nodes, numPayments)
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf("htlc mismatch: %v", err)
+	}
+
 	// Now restart carol without hodl mode, to settle back the outstanding
 	// payments.
 	carol.SetExtraArgs(nil)
@@ -6819,7 +6846,20 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("Node restart failed: %v", err)
 	}
 
-	time.Sleep(time.Second * 5)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = net.EnsureConnected(ctxt, dave, carol)
+	if err != nil {
+		t.Fatalf("unable to reconnect dave and carol: %v", err)
+	}
+
+	// After the payments settle, there should be no active htlcs on any of
+	// the nodes in the network.
+	err = lntest.WaitPredicate(func() bool {
+		return assertNumActiveHtlcs(nodes, 0)
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf("htlc mismatch: %v", err)
+	}
 
 	// When asserting the amount of satoshis moved, we'll factor in the
 	// default base fee, as we didn't modify the fee structure when
@@ -7075,7 +7115,13 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to send payments: %v", err)
 	}
 
-	time.Sleep(2 * time.Second)
+	// Wait for all of the payments to reach Carol.
+	err = lntest.WaitPredicate(func() bool {
+		return assertNumActiveHtlcs(nodes, numPayments)
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf("htlc mismatch: %v", err)
+	}
 
 	// First, disconnect Dave and Alice so that their link is broken.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
@@ -7087,6 +7133,16 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	if err := net.ConnectNodes(ctxt, dave, net.Alice); err != nil {
 		t.Fatalf("unable to reconnect alice to dave: %v", err)
+	}
+
+	// Wait to ensure that the payment remain are not failed back after
+	// reconnecting. All node should report the number payments initiated
+	// for the duration of the interval.
+	err = lntest.WaitInvariant(func() bool {
+		return assertNumActiveHtlcs(nodes, numPayments)
+	}, time.Second*2)
+	if err != nil {
+		t.Fatalf("htlc change: %v", err)
 	}
 
 	// Now, disconnect Dave from Alice again before settling back the
@@ -7103,14 +7159,29 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("Node restart failed: %v", err)
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	// Wait for Carol to report no outstanding htlcs.
+	carolNode := []*lntest.HarnessNode{carol}
+	err = lntest.WaitPredicate(func() bool {
+		return assertNumActiveHtlcs(carolNode, 0)
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf("htlc mismatch: %v", err)
+	}
 
+	// Now that the settles have reached Dave, reconnect him with Alice,
+	// allowing the settles to return to the sender.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	if err := net.ConnectNodes(ctxt, dave, net.Alice); err != nil {
 		t.Fatalf("unable to reconnect alice to dave: %v", err)
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	// Wait until all outstanding htlcs in the network have been settled.
+	err = lntest.WaitPredicate(func() bool {
+		return assertNumActiveHtlcs(nodes, 0)
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf("htlc mismatch: %v", err)
+	}
 
 	// When asserting the amount of satoshis moved, we'll factor in the
 	// default base fee, as we didn't modify the fee structure when
@@ -7367,8 +7438,6 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 			err)
 	}
 
-	time.Sleep(time.Millisecond * 50)
-
 	// Using Carol as the source, pay to the 5 invoices from Bob created
 	// above.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
@@ -7377,9 +7446,15 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 		t.Fatalf("unable to send payments: %v", err)
 	}
 
-	time.Sleep(2 * time.Second)
+	err = lntest.WaitPredicate(func() bool {
+		return assertNumActiveHtlcs(nodes, numPayments)
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf("htlc mismatch: %v", err)
+	}
 
-	// Restart the intermediaries and the sender.
+	// Disconnect the two intermediaries, Alice and Dave, so that when carol
+	// restarts, the response will be held by Dave.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	if err := net.DisconnectNodes(ctxt, dave, net.Alice); err != nil {
 		t.Fatalf("unable to disconnect alice from dave: %v", err)
@@ -7392,13 +7467,37 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 		t.Fatalf("Node restart failed: %v", err)
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	// Make Carol and Dave are reconnected before waiting for the htlcs to
+	// clear.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = net.EnsureConnected(ctxt, dave, carol)
+	if err != nil {
+		t.Fatalf("unable to reconnect dave and carol: %v", err)
+	}
 
+	// Wait for Carol to report no outstanding htlcs.
+	carolNode := []*lntest.HarnessNode{carol}
+	err = lntest.WaitPredicate(func() bool {
+		return assertNumActiveHtlcs(carolNode, 0)
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf("htlc mismatch: %v", err)
+	}
+
+	// Finally, restart dave who received the settles, but was unable to
+	// deliver them to Alice since they were disconnected.
 	if err := net.RestartNode(dave, nil); err != nil {
 		t.Fatalf("unable to reconnect alice to dave: %v", err)
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	// After Dave reconnects, the settles should be propagated all the way
+	// back to the sender. All nodes should report no active htlcs.
+	err = lntest.WaitPredicate(func() bool {
+		return assertNumActiveHtlcs(nodes, 0)
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf("htlc mismatch: %v", err)
+	}
 
 	// When asserting the amount of satoshis moved, we'll factor in the
 	// default base fee, as we didn't modify the fee structure when
@@ -7657,8 +7756,6 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 			err)
 	}
 
-	time.Sleep(time.Millisecond * 50)
-
 	// Using Carol as the source, pay to the 5 invoices from Bob created
 	// above.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
@@ -7667,9 +7764,16 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 		t.Fatalf("unable to send payments: %v", err)
 	}
 
-	time.Sleep(2 * time.Second)
+	// Wait for all payments to reach Carol.
+	err = lntest.WaitPredicate(func() bool {
+		return assertNumActiveHtlcs(nodes, numPayments)
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf("htlc mismatch: %v", err)
+	}
 
-	// Restart the intermediaries and the sender.
+	// Disconnect the two intermediaries, Alice and Dave, so that when carol
+	// restarts, the response will be held by Dave.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	if err := net.DisconnectNodes(ctxt, dave, net.Alice); err != nil {
 		t.Fatalf("unable to disconnect alice from dave: %v", err)
@@ -7682,35 +7786,65 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 		t.Fatalf("Node restart failed: %v", err)
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	// Wait for Carol to report no outstanding htlcs.
+	carolNode := []*lntest.HarnessNode{carol}
+	err = lntest.WaitPredicate(func() bool {
+		return assertNumActiveHtlcs(carolNode, 0)
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf("htlc mismatch: %v", err)
+	}
 
+	// Now check that the total amount was transferred from Dave to Carol.
+	// The amount transferred should be exactly equal to the invoice total
+	// payment amount, 5k satsohis.
 	const amountPaid = int64(5000)
 	assertAmountPaid(t, ctxb, "Dave(local) => Carol(remote)", carol,
 		carolFundPoint, int64(0), amountPaid)
 	assertAmountPaid(t, ctxb, "Dave(local) => Carol(remote)", dave,
 		carolFundPoint, amountPaid, int64(0))
 
+	// Shutdown carol and leave her offline for the rest of the test. This
+	// is critical, as we wish to see if Dave can propragate settles even if
+	// the outgoing link is never revived.
 	if err := net.ShutdownNode(carol); err != nil {
 		t.Fatalf("unable to shutdown carol: %v", err)
 	}
 
+	// Now restart Dave, ensuring he is both persisting the settles, and is
+	// able to reforward them to Alice after recovering from a restart.
 	if err := net.RestartNode(dave, nil); err != nil {
-		t.Fatalf("unable to reconnect alice to dave: %v", err)
+		t.Fatalf("unable to restart dave: %v", err)
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	// Ensure that Dave is reconnected to Alice before waiting for the htlcs
+	// to clear.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = net.EnsureConnected(ctxt, dave, net.Alice)
+	if err != nil {
+		t.Fatalf("unable to reconnect alice and dave: %v", err)
+	}
+
+	// Since Carol has been shutdown permanently, we will wait until all
+	// other nodes in the network report no active htlcs.
+	nodesMinusCarol := []*lntest.HarnessNode{net.Bob, net.Alice, dave}
+	err = lntest.WaitPredicate(func() bool {
+		return assertNumActiveHtlcs(nodesMinusCarol, 0)
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf("htlc mismatch: %v", err)
+	}
 
 	// When asserting the amount of satoshis moved, we'll factor in the
 	// default base fee, as we didn't modify the fee structure when
 	// creating the seed nodes in the network.
 	const baseFee = 1
 
-	// At this point all the channels within our proto network should be
-	// shifted by 5k satoshis in the direction of Carol, the sink within the
-	// payment flow generated above. The order of asserts corresponds to
-	// increasing of time is needed to embed the HTLC in commitment
-	// transaction, in channel Bob->Alice->David->Carol, order is Carol,
-	// David, Alice, Bob.
+	// At this point, all channels (minus Carol, who is shutdown) should
+	// show a shift of 5k satoshis towards Carol.  The order of asserts
+	// corresponds to increasing of time is needed to embed the HTLC in
+	// commitment transaction, in channel Bob->Alice->David, order is David,
+	// Alice, Bob.
 	assertAmountPaid(t, ctxb, "Alice(local) => Dave(remote)", dave,
 		daveFundPoint, int64(0), amountPaid+(baseFee*numPayments))
 	assertAmountPaid(t, ctxb, "Alice(local) => Dave(remote)", net.Alice,
@@ -7725,9 +7859,9 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, dave, chanPointDave, false)
 
-	// Finally, shutdown the nodes we created for the duration of the tests,
-	// only leaving the two seed nodes (Alice and Bob) within our test
-	// network.
+	// Finally, shutdown Dave, the remaining node we created for the
+	// duration of the tests, only leaving the two seed nodes (Alice and
+	// Bob) within our test network.
 	if err := net.ShutdownNode(dave); err != nil {
 		t.Fatalf("unable to shutdown dave: %v", err)
 	}

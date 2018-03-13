@@ -75,6 +75,9 @@ type Config struct {
 
 	// NetParams is the net parameters for the target chain.
 	NetParams *chaincfg.Params
+
+	// CoinType specifies the BIP 44 coin type to be used for derivation.
+	CoinType uint32
 }
 
 // NetworkDir returns the directory name of a network directory to hold wallet

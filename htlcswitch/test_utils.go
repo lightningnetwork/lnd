@@ -17,7 +17,6 @@ import (
 	"github.com/btcsuite/fastsha256"
 	"github.com/coreos/bbolt"
 	"github.com/go-errors/errors"
-	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -908,7 +907,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			Circuits:           aliceServer.htlcSwitch.CircuitModifier(),
 			ForwardPackets:     aliceServer.htlcSwitch.ForwardPackets,
 			DecodeHopIterators: aliceDecoder.DecodeHopIterators,
-			DecodeOnionObfuscator: func(*sphinx.OnionPacket) (
+			ExtractErrorEncrypter: func(*btcec.PublicKey) (
 				ErrorEncrypter, lnwire.FailCode) {
 				return obfuscator, lnwire.CodeNone
 			},
@@ -956,7 +955,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			Circuits:           bobServer.htlcSwitch.CircuitModifier(),
 			ForwardPackets:     bobServer.htlcSwitch.ForwardPackets,
 			DecodeHopIterators: bobDecoder.DecodeHopIterators,
-			DecodeOnionObfuscator: func(*sphinx.OnionPacket) (
+			ExtractErrorEncrypter: func(*btcec.PublicKey) (
 				ErrorEncrypter, lnwire.FailCode) {
 				return obfuscator, lnwire.CodeNone
 			},
@@ -1004,7 +1003,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			Circuits:           bobServer.htlcSwitch.CircuitModifier(),
 			ForwardPackets:     bobServer.htlcSwitch.ForwardPackets,
 			DecodeHopIterators: bobDecoder.DecodeHopIterators,
-			DecodeOnionObfuscator: func(*sphinx.OnionPacket) (
+			ExtractErrorEncrypter: func(*btcec.PublicKey) (
 				ErrorEncrypter, lnwire.FailCode) {
 				return obfuscator, lnwire.CodeNone
 			},
@@ -1052,7 +1051,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			Circuits:           carolServer.htlcSwitch.CircuitModifier(),
 			ForwardPackets:     carolServer.htlcSwitch.ForwardPackets,
 			DecodeHopIterators: carolDecoder.DecodeHopIterators,
-			DecodeOnionObfuscator: func(*sphinx.OnionPacket) (
+			ExtractErrorEncrypter: func(*btcec.PublicKey) (
 				ErrorEncrypter, lnwire.FailCode) {
 				return obfuscator, lnwire.CodeNone
 			},

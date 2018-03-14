@@ -232,8 +232,9 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 					pubKey[:], err)
 			}
 		},
-		FwdingLog:      chanDB.ForwardingLog(),
-		SwitchPackager: channeldb.NewSwitchPackager(),
+		FwdingLog:             chanDB.ForwardingLog(),
+		SwitchPackager:        channeldb.NewSwitchPackager(),
+		ExtractErrorEncrypter: s.sphinx.ExtractErrorEncrypter,
 	})
 	if err != nil {
 		return nil, err

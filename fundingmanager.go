@@ -70,6 +70,7 @@ type reservationWithCtx struct {
 
 	chanAmt btcutil.Amount
 
+	updateMtx   sync.RWMutex
 	lastUpdated time.Time
 
 	updates chan *lnrpc.OpenStatusUpdate
@@ -78,6 +79,9 @@ type reservationWithCtx struct {
 
 // isLocked checks the reservation's timestamp to determine whether it is locked.
 func (r *reservationWithCtx) isLocked() bool {
+	r.updateMtx.RLock()
+	defer r.updateMtx.RUnlock()
+
 	// The time zero value represents a locked reservation.
 	return r.lastUpdated.IsZero()
 }
@@ -85,11 +89,17 @@ func (r *reservationWithCtx) isLocked() bool {
 // lock locks the reservation from zombie pruning by setting its timestamp to the
 // zero value.
 func (r *reservationWithCtx) lock() {
+	r.updateMtx.Lock()
+	defer r.updateMtx.Unlock()
+
 	r.lastUpdated = time.Time{}
 }
 
 // updateTimestamp updates the reservation's timestamp with the current time.
 func (r *reservationWithCtx) updateTimestamp() {
+	r.updateMtx.Lock()
+	defer r.updateMtx.Unlock()
+
 	r.lastUpdated = time.Now()
 }
 

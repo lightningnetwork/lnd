@@ -1679,6 +1679,8 @@ type openChanReq struct {
 
 	minHtlc lnwire.MilliSatoshi
 
+	remoteCsvDelay uint16
+
 	// TODO(roasbeef): add ability to specify channel constraints as well
 
 	updates chan *lnrpc.OpenStatusUpdate
@@ -1799,10 +1801,9 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 //
 // NOTE: This function is safe for concurrent access.
 func (s *server) OpenChannel(nodeKey *btcec.PublicKey,
-	localAmt btcutil.Amount, pushAmt lnwire.MilliSatoshi,
-	minHtlc lnwire.MilliSatoshi,
-	fundingFeePerVSize lnwallet.SatPerVByte,
-	private bool) (chan *lnrpc.OpenStatusUpdate, chan error) {
+	localAmt btcutil.Amount, pushAmt, minHtlc lnwire.MilliSatoshi,
+	fundingFeePerVSize lnwallet.SatPerVByte, private bool,
+	remoteCsvDelay uint16) (chan *lnrpc.OpenStatusUpdate, chan error) {
 
 	updateChan := make(chan *lnrpc.OpenStatusUpdate, 1)
 	errChan := make(chan error, 1)
@@ -1856,6 +1857,7 @@ func (s *server) OpenChannel(nodeKey *btcec.PublicKey,
 		pushAmt:            pushAmt,
 		private:            private,
 		minHtlc:            minHtlc,
+		remoteCsvDelay:     remoteCsvDelay,
 		updates:            updateChan,
 		err:                errChan,
 	}

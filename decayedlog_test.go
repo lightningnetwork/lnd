@@ -58,7 +58,7 @@ func (m *mockNotifier) Stop() error {
 func startup(notifier bool) (ReplayLog, *mockNotifier, *HashPrefix, error) {
 	var log ReplayLog
 	var chainNotifier *mockNotifier
-	var hashedSecret HashPrefix
+	var hashedSecret *HashPrefix
 	if notifier {
 
 		// Create the MockNotifier which triggers the garbage collector
@@ -96,7 +96,7 @@ func startup(notifier bool) (ReplayLog, *mockNotifier, *HashPrefix, error) {
 	// This is used as a key to retrieve the cltv value.
 	hashedSecret = hashSharedSecret(&secret)
 
-	return log, chainNotifier, &hashedSecret, nil
+	return log, chainNotifier, hashedSecret, nil
 }
 
 // TestDecayedLogGarbageCollector tests the ability of the garbage collector

@@ -700,7 +700,7 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket,
 
 	// Atomically compare this hash prefix with the contents of the on-disk
 	// log, persisting it only if this entry was not detected as a replay.
-	if err := r.log.Put(&hashPrefix, incomingCltv); err != nil {
+	if err := r.log.Put(hashPrefix, incomingCltv); err != nil {
 		return nil, err
 	}
 
@@ -876,7 +876,7 @@ func (t *Tx) ProcessOnionPacket(seqNum uint16, onionPkt *OnionPacket,
 
 	// Add the hash prefix to pending batch of shared secrets that will be
 	// written later via Commit().
-	err = t.batch.Put(seqNum, &hashPrefix, incomingCltv)
+	err = t.batch.Put(seqNum, hashPrefix, incomingCltv)
 	if err != nil {
 		return err
 	}

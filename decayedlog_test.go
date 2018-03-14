@@ -1,7 +1,6 @@
 package sphinx
 
 import (
-	"math"
 	"testing"
 	"time"
 
@@ -56,7 +55,7 @@ func (m *mockNotifier) Stop() error {
 }
 
 // startup sets up the DecayedLog and possibly the garbage collector.
-func startup(notifier bool) (ReplayLog, *mockNotifier, HashPrefix, error) {
+func startup(notifier bool) (ReplayLog, *mockNotifier, *HashPrefix, error) {
 	var log ReplayLog
 	var chainNotifier *mockNotifier
 	var hashedSecret HashPrefix
@@ -77,13 +76,13 @@ func startup(notifier bool) (ReplayLog, *mockNotifier, HashPrefix, error) {
 	// Open the channeldb (start the garbage collector)
 	err := log.Start()
 	if err != nil {
-		return nil, nil, hashedSecret, err
+		return nil, nil, nil, err
 	}
 
 	// Create a new private key on elliptic curve secp256k1
 	priv, err := btcec.NewPrivateKey(btcec.S256())
 	if err != nil {
-		return nil, nil, hashedSecret, err
+		return nil, nil, nil, err
 	}
 
 	// Generate a public key from the key bytes
@@ -97,7 +96,7 @@ func startup(notifier bool) (ReplayLog, *mockNotifier, HashPrefix, error) {
 	// This is used as a key to retrieve the cltv value.
 	hashedSecret = hashSharedSecret(&secret)
 
-	return log, chainNotifier, hashedSecret, nil
+	return log, chainNotifier, &hashedSecret, nil
 }
 
 // TestDecayedLogGarbageCollector tests the ability of the garbage collector
@@ -111,7 +110,7 @@ func TestDecayedLogGarbageCollector(t *testing.T) {
 	defer shutdown("tempdir", d)
 
 	// Store <hashedSecret, cltv> in the sharedHashBucket.
-	err = d.Put(&hashedSecret, cltv)
+	err = d.Put(hashedSecret, cltv)
 	if err != nil {
 		t.Fatalf("Unable to store in channeldb: %v", err)
 	}
@@ -128,7 +127,7 @@ func TestDecayedLogGarbageCollector(t *testing.T) {
 	}
 
 	// Assert that hashedSecret is still in the sharedHashBucket
-	val, err := d.Get(hashedSecret[:])
+	val, err := d.Get(hashedSecret)
 	if err != nil {
 		t.Fatalf("Get failed - received an error upon Get: %v", err)
 	}
@@ -146,13 +145,12 @@ func TestDecayedLogGarbageCollector(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	// Assert that hashedSecret is not in the sharedHashBucket
-	val, err = d.Get(hashedSecret[:])
-	if err != nil {
-		t.Fatalf("Get failed - received an error upon Get: %v", err)
-	}
-
-	if val != math.MaxUint32 {
+	val, err = d.Get(hashedSecret)
+	if err == nil {
 		t.Fatalf("CLTV was not deleted")
+	}
+	if err != ErrLogEntryNotFound {
+		t.Fatalf("Get failed - received unexpected error upon Get: %v", err)
 	}
 }
 
@@ -169,7 +167,7 @@ func TestDecayedLogPersistentGarbageCollector(t *testing.T) {
 	defer shutdown("tempdir", d)
 
 	// Store <hashedSecret, cltv> in the sharedHashBucket
-	if err = d.Put(&hashedSecret, cltv); err != nil {
+	if err = d.Put(hashedSecret, cltv); err != nil {
 		t.Fatalf("Unable to store in channeldb: %v", err)
 	}
 
@@ -195,13 +193,12 @@ func TestDecayedLogPersistentGarbageCollector(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	// Assert that hashedSecret is not in the sharedHashBucket
-	val, err := d2.Get(hashedSecret2[:])
-	if err != nil {
-		t.Fatalf("Delete failed - received an error upon Get: %v", err)
+	_, err = d2.Get(hashedSecret2)
+	if err == nil {
+		t.Fatalf("CLTV was not deleted")
 	}
-
-	if val != math.MaxUint32 {
-		t.Fatalf("cltv was not deleted")
+	if err != ErrLogEntryNotFound {
+		t.Fatalf("Get failed - received unexpected error upon Get: %v", err)
 	}
 }
 
@@ -216,27 +213,25 @@ func TestDecayedLogInsertionAndDeletion(t *testing.T) {
 	defer shutdown("tempdir", d)
 
 	// Store <hashedSecret, cltv> in the sharedHashBucket.
-	err = d.Put(&hashedSecret, cltv)
+	err = d.Put(hashedSecret, cltv)
 	if err != nil {
 		t.Fatalf("Unable to store in channeldb: %v", err)
 	}
 
 	// Delete hashedSecret from the sharedHashBucket.
-	err = d.Delete(hashedSecret[:])
+	err = d.Delete(hashedSecret)
 	if err != nil {
 		t.Fatalf("Unable to delete from channeldb: %v", err)
 	}
 
 	// Assert that hashedSecret is not in the sharedHashBucket
-	val, err := d.Get(hashedSecret[:])
-	if err != nil {
-		t.Fatalf("Delete failed - received the wrong error message: %v", err)
+	_, err = d.Get(hashedSecret)
+	if err == nil {
+		t.Fatalf("CLTV was not deleted")
 	}
-
-	if val != math.MaxUint32 {
-		t.Fatalf("cltv was not deleted")
+	if err != ErrLogEntryNotFound {
+		t.Fatalf("Get failed - received unexpected error upon Get: %v", err)
 	}
-
 }
 
 // TestDecayedLogStartAndStop tests for persistence. The DecayedLog is started,
@@ -252,7 +247,7 @@ func TestDecayedLogStartAndStop(t *testing.T) {
 	defer shutdown("tempdir", d)
 
 	// Store <hashedSecret, cltv> in the sharedHashBucket.
-	err = d.Put(&hashedSecret, cltv)
+	err = d.Put(hashedSecret, cltv)
 	if err != nil {
 		t.Fatalf("Unable to store in channeldb: %v", err)
 	}
@@ -267,7 +262,7 @@ func TestDecayedLogStartAndStop(t *testing.T) {
 	defer shutdown("tempdir", d2)
 
 	// Retrieve the stored cltv value given the hashedSecret key.
-	value, err := d2.Get(hashedSecret[:])
+	value, err := d2.Get(hashedSecret)
 	if err != nil {
 		t.Fatalf("Unable to retrieve from channeldb: %v", err)
 	}
@@ -279,7 +274,7 @@ func TestDecayedLogStartAndStop(t *testing.T) {
 	}
 
 	// Delete hashedSecret from sharedHashBucket
-	err = d2.Delete(hashedSecret2[:])
+	err = d2.Delete(hashedSecret2)
 	if err != nil {
 		t.Fatalf("Unable to delete from channeldb: %v", err)
 	}
@@ -294,15 +289,13 @@ func TestDecayedLogStartAndStop(t *testing.T) {
 	defer shutdown("tempdir", d3)
 
 	// Assert that hashedSecret is not in the sharedHashBucket
-	val, err := d3.Get(hashedSecret3[:])
-	if err != nil {
-		t.Fatalf("Delete failed: %v", err)
+	_, err = d3.Get(hashedSecret3)
+	if err == nil {
+		t.Fatalf("CLTV was not deleted")
 	}
-
-	if val != math.MaxUint32 {
-		t.Fatalf("cltv was not deleted")
+	if err != ErrLogEntryNotFound {
+		t.Fatalf("Get failed - received unexpected error upon Get: %v", err)
 	}
-
 }
 
 // TestDecayedLogStorageAndRetrieval stores a cltv value and then retrieves it
@@ -316,13 +309,13 @@ func TestDecayedLogStorageAndRetrieval(t *testing.T) {
 	defer shutdown("tempdir", d)
 
 	// Store <hashedSecret, cltv> in the sharedHashBucket
-	err = d.Put(&hashedSecret, cltv)
+	err = d.Put(hashedSecret, cltv)
 	if err != nil {
 		t.Fatalf("Unable to store in channeldb: %v", err)
 	}
 
 	// Retrieve the stored cltv value given the hashedSecret key.
-	value, err := d.Get(hashedSecret[:])
+	value, err := d.Get(hashedSecret)
 	if err != nil {
 		t.Fatalf("Unable to retrieve from channeldb: %v", err)
 	}

@@ -138,8 +138,7 @@ func TestBolt4Packet(t *testing.T) {
 	for i, pubKeyHex := range bolt4PubKeys {
 		pubKeyBytes, err := hex.DecodeString(pubKeyHex)
 		if err != nil {
-			t.Fatalf("unable to decode BOLT 4 hex pubkey #%d: %v",
-				i, err)
+			t.Fatalf("unable to decode BOLT 4 hex pubkey #%d: %v", i, err)
 		}
 
 		route[i], err = btcec.ParsePubKey(pubKeyBytes, btcec.S256())

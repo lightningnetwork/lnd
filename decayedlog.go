@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math"
 	"sync"
 	"sync/atomic"
 
@@ -66,9 +65,10 @@ type ReplayLog interface {
 	// Stop safely stops the on-disk persistent log.
 	Stop() error
 
-	// Get retrieves an entry from the persistent log given a []byte. It
-	// returns the value stored and an error if one occurs.
-	Get([]byte) (uint32, error)
+	// Get retrieves an entry from the persistent log given its hash prefix. It
+	// returns the value stored and an error if one occurs. Returns
+	// ErrLogEntryNotFound if hash prefix is not in the log.
+	Get(*HashPrefix) (uint32, error)
 
 	// Put stores an entry into the persistent log given a []byte and an
 	// accompanying purposefully general type. It returns an error if the
@@ -78,8 +78,8 @@ type ReplayLog interface {
 	// PutBatch stores
 	PutBatch(*Batch) (*ReplaySet, error)
 
-	// Delete deletes an entry from the persistent log given []byte
-	Delete([]byte) error
+	// Delete deletes an entry from the persistent log given its hash prefix.
+	Delete(*HashPrefix) error
 }
 
 // DecayedLog implements the PersistLog interface. It stores the first
@@ -298,23 +298,21 @@ func hashSharedSecret(sharedSecret *Hash256) HashPrefix {
 
 // Delete removes a <shared secret hash, CLTV> key-pair from the
 // sharedHashBucket.
-func (d *DecayedLog) Delete(hash []byte) error {
+func (d *DecayedLog) Delete(hash *HashPrefix) error {
 	return d.db.Batch(func(tx *bolt.Tx) error {
 		sharedHashes := tx.Bucket(sharedHashBucket)
 		if sharedHashes == nil {
 			return ErrDecayedLogCorrupted
 		}
 
-		return sharedHashes.Delete(hash)
+		return sharedHashes.Delete(hash[:])
 	})
 }
 
 // Get retrieves the CLTV of a processed HTLC given the first 20 bytes of the
 // Sha-256 hash of the shared secret.
-func (d *DecayedLog) Get(hash []byte) (uint32, error) {
-	// math.MaxUint32 is returned when Get did not retrieve a value.
-	// This was chosen because it's not feasible for a CLTV to be this high.
-	var value uint32 = math.MaxUint32
+func (d *DecayedLog) Get(hash *HashPrefix) (uint32, error) {
+	var value uint32
 
 	err := d.db.View(func(tx *bolt.Tx) error {
 		// Grab the shared hash bucket which stores the mapping from
@@ -326,9 +324,9 @@ func (d *DecayedLog) Get(hash []byte) (uint32, error) {
 		}
 
 		// Retrieve the bytes which represents the CLTV
-		valueBytes := sharedHashes.Get(hash)
+		valueBytes := sharedHashes.Get(hash[:])
 		if valueBytes == nil {
-			return nil
+			return ErrLogEntryNotFound
 		}
 
 		// The first 4 bytes represent the CLTV, store it in value.

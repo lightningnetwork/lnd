@@ -549,7 +549,7 @@ func assertErrorNotSent(t *testing.T, msgChan chan lnwire.Message) {
 	select {
 	case <-msgChan:
 		t.Fatalf("error sent unexpectedly")
-	case <- time.After(100 * time.Millisecond):
+	case <-time.After(100 * time.Millisecond):
 		// Expected, return.
 	}
 }
@@ -579,7 +579,7 @@ func assertFundingMsgSent(t *testing.T, msgChan chan lnwire.Message,
 
 	var (
 		sentMsg lnwire.Message
-		ok bool
+		ok      bool
 	)
 	switch msgType {
 	case "AcceptChannel":

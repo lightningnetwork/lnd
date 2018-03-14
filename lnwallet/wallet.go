@@ -52,9 +52,8 @@ func (e *ErrInsufficientFunds) Error() string {
 // will be created in order to track the lifetime of this pending channel.
 // Outputs selected will be 'locked', making them unavailable, for any other
 // pending reservations. Therefore, all channels in reservation limbo will be
-// periodically after a timeout period in order to avoid "exhaustion" attacks.
-//
-// TODO(roasbeef): zombie reservation sweeper goroutine.
+// periodically timed out after an idle period in order to avoid "exhaustion"
+// attacks.
 type initFundingReserveMsg struct {
 	// chainHash denotes that chain to be used to ultimately open the
 	// target channel.
@@ -261,8 +260,6 @@ type LightningWallet struct {
 	fundingLimbo  map[uint64]*ChannelReservation
 	nextFundingID uint64
 	limboMtx      sync.RWMutex
-	// TODO(roasbeef): zombie garbage collection routine to solve
-	// lost-object/starvation problem/attack.
 
 	// lockedOutPoints is a set of the currently locked outpoint. This
 	// information is kept in order to provide an easy way to unlock all
@@ -366,7 +363,7 @@ func (l *LightningWallet) ActiveReservations() []*ChannelReservation {
 }
 
 // requestHandler is the primary goroutine(s) responsible for handling, and
-// dispatching relies to all messages.
+// dispatching replies to all messages.
 func (l *LightningWallet) requestHandler() {
 out:
 	for {
@@ -403,14 +400,14 @@ out:
 // successful, a ChannelReservation containing our completed contribution is
 // returned. Our contribution contains all the items necessary to allow the
 // counterparty to build the funding transaction, and both versions of the
-// commitment transaction. Otherwise, an error occurred a nil pointer along with
-// an error are returned.
+// commitment transaction. Otherwise, an error occurred and a nil pointer along
+// with an error are returned.
 //
 // Once a ChannelReservation has been obtained, two additional steps must be
 // processed before a payment channel can be considered 'open'. The second step
 // validates, and processes the counterparty's channel contribution. The third,
 // and final step verifies all signatures for the inputs of the funding
-// transaction, and that the signature we records for our version of the
+// transaction, and that the signature we record for our version of the
 // commitment transaction is valid.
 func (l *LightningWallet) InitChannelReservation(
 	capacity, ourFundAmt btcutil.Amount, pushMSat lnwire.MilliSatoshi,
@@ -579,7 +576,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	reservation.partialState.RevocationProducer = producer
 	reservation.ourContribution.ChannelConstraints = l.Cfg.DefaultConstraints
 
-	// TODO(roasbeef): turn above into: initContributio()
+	// TODO(roasbeef): turn above into: initContribution()
 
 	// Create a limbo and record entry for this newly pending funding
 	// request.

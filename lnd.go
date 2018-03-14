@@ -414,6 +414,8 @@ func lndMain() error {
 			// channel bandwidth.
 			return uint16(lnwallet.MaxHTLCNumber / 2)
 		},
+		ZombieSweeperInterval: 1 * time.Minute,
+		ReservationTimeout:    10 * time.Minute,
 	})
 	if err != nil {
 		return err

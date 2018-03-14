@@ -58,8 +58,8 @@ type InputScript struct {
 }
 
 // ChannelReservation represents an intent to open a lightning payment channel
-// a counterparty. The funding processes from reservation to channel opening is
-// a 3-step process. In order to allow for full concurrency during the
+// with a counterparty. The funding processes from reservation to channel opening
+// is a 3-step process. In order to allow for full concurrency during the
 // reservation workflow, resources consumed by a contribution are "locked"
 // themselves. This prevents a number of race conditions such as two funding
 // transactions double-spending the same input. A reservation can also be
@@ -69,12 +69,12 @@ type InputScript struct {
 // The reservation workflow consists of the following three steps:
 //  1. lnwallet.InitChannelReservation
 //     * One requests the wallet to allocate the necessary resources for a
-//      channel reservation. These resources a put in limbo for the lifetime
-//      of a reservation.
-//    * Once completed the reservation will have the wallet's contribution
-//      accessible via the .OurContribution() method. This contribution
-//      contains the necessary items to allow the remote party to build both
-//      the funding, and commitment transactions.
+//       channel reservation. These resources are put in limbo for the lifetime
+//       of a reservation.
+//     * Once completed the reservation will have the wallet's contribution
+//       accessible via the .OurContribution() method. This contribution
+//       contains the necessary items to allow the remote party to build both
+//       the funding, and commitment transactions.
 //  2. ChannelReservation.ProcessContribution/ChannelReservation.ProcessSingleContribution
 //     * The counterparty presents their contribution to the payment channel.
 //       This allows us to build the funding, and commitment transactions

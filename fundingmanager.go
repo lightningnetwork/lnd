@@ -42,12 +42,19 @@ const (
 	// TODO(roasbeef): add command line param to modify
 	maxFundingAmount = btcutil.Amount(1 << 24)
 
-	// minRemoteDelay and maxRemoteDelay is the extremes of the CSV delay
-	// we will require the remote to use for its commitment transaction.
-	// The actual delay we will require will be somewhere between these
-	// values, depending on channel size.
-	minRemoteDelay = 144
-	maxRemoteDelay = 2016
+	// minBtcRemoteDelay and maxBtcRemoteDelay is the extremes of the
+	// Bitcoin CSV delay we will require the remote to use for its
+	// commitment transaction. The actual delay we will require will be
+	// somewhere between these values, depending on channel size.
+	minBtcRemoteDelay uint16 = 144
+	maxBtcRemoteDelay uint16 = 2016
+
+	// minLtcRemoteDelay and maxLtcRemoteDelay is the extremes of the
+	// Litecoin CSV delay we will require the remote to use for its
+	// commitment transaction. The actual delay we will require will be
+	// somewhere between these values, depending on channel size.
+	minLtcRemoteDelay uint16 = 576
+	maxLtcRemoteDelay uint16 = 8064
 
 	// maxWaitNumBlocksFundingConf is the maximum number of blocks to wait
 	// for the funding transaction to be confirmed before forgetting about

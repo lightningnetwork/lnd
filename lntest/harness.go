@@ -3,6 +3,7 @@ package lntest
 import (
 	"fmt"
 	"io/ioutil"
+	"strings"
 	"sync"
 	"time"
 
@@ -262,6 +263,67 @@ func (n *NetworkHarness) NewNode(extraArgs []string) (*HarnessNode, error) {
 	n.mtx.Unlock()
 
 	return node, nil
+}
+
+// EnsureConnected will try to connect to two nodes, returning no error if they
+// are already connected. If the nodes were not connected previously, this will
+// behave the same as ConnectNodes. If a pending connection request has already
+// been made, the method will block until the two nodes appear in each other's
+// peers list, or until the 15s timeout expires.
+func (n *NetworkHarness) EnsureConnected(ctx context.Context, a, b *HarnessNode) error {
+	bobInfo, err := b.GetInfo(ctx, &lnrpc.GetInfoRequest{})
+	if err != nil {
+		return err
+	}
+
+	req := &lnrpc.ConnectPeerRequest{
+		Addr: &lnrpc.LightningAddress{
+			Pubkey: bobInfo.IdentityPubkey,
+			Host:   b.cfg.P2PAddr(),
+		},
+	}
+
+	_, err = a.ConnectPeer(ctx, req)
+	switch {
+
+	// Request was successful, wait for both to display the connection.
+	case err == nil:
+
+	// If we already have pending connection, we will wait until bob appears
+	// in alice's peer list.
+	case strings.Contains(err.Error(), "connection attempt to ") &&
+		strings.Contains(err.Error(), " is pending"):
+
+	// If the two are already connected, we return early with no error.
+	case strings.Contains(err.Error(), "already connected to peer"):
+		return nil
+
+	default:
+		return err
+	}
+
+	err = WaitPredicate(func() bool {
+		// If node B is seen in the ListPeers response from node A,
+		// then we can exit early as the connection has been fully
+		// established.
+		resp, err := a.ListPeers(ctx, &lnrpc.ListPeersRequest{})
+		if err != nil {
+			return false
+		}
+
+		for _, peer := range resp.Peers {
+			if peer.PubKey == b.PubKeyStr {
+				return true
+			}
+		}
+
+		return false
+	}, time.Second*15)
+	if err != nil {
+		return fmt.Errorf("peers not connected within 15 seconds")
+	}
+
+	return nil
 }
 
 // ConnectNodes establishes an encrypted+authenticated p2p connection from node
@@ -842,6 +904,32 @@ func WaitPredicate(pred func() bool, timeout time.Duration) error {
 
 		if pred() {
 			return nil
+		}
+	}
+}
+
+// WaitInvariant is a helper test function that will wait for a timeout period
+// of time, verifying that a statement remains true for the entire duration.
+// This function is helpful as timing doesn't always line up well when running
+// integration tests with several running lnd nodes. This function gives callers
+// a way to assert that some property is maintained over a particular time
+// frame.
+func WaitInvariant(statement func() bool, timeout time.Duration) error {
+	const pollInterval = 20 * time.Millisecond
+
+	exitTimer := time.After(timeout)
+	for {
+		<-time.After(pollInterval)
+
+		// Fail if the invariant is broken while polling.
+		if !statement() {
+			return fmt.Errorf("invariant broken before time out")
+		}
+
+		select {
+		case <-exitTimer:
+			return nil
+		default:
 		}
 	}
 }

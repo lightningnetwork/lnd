@@ -7208,16 +7208,6 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	assertAmountPaid(t, ctxb, "Bob(local) => Alice(remote)", net.Bob,
 		aliceFundPoint, amountPaid+(baseFee*numPayments)*2, int64(0))
 
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	if err := net.DisconnectNodes(ctxt, dave, net.Alice); err != nil {
-		t.Fatalf("unable to disconnect alice from dave: %v", err)
-	}
-
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	if err := net.ConnectNodes(ctxt, dave, net.Alice); err != nil {
-		t.Fatalf("unable to reconnect alice to dave: %v", err)
-	}
-
 	// Lastly, we will send one more payment to ensure all channels are
 	// still functioning properly.
 	finalInvoice := &lnrpc.Invoice{
@@ -7523,16 +7513,6 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 		aliceFundPoint, int64(0), amountPaid+((baseFee*numPayments)*2))
 	assertAmountPaid(t, ctxb, "Bob(local) => Alice(remote)", net.Bob,
 		aliceFundPoint, amountPaid+(baseFee*numPayments)*2, int64(0))
-
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	if err := net.DisconnectNodes(ctxt, dave, net.Alice); err != nil {
-		t.Fatalf("unable to disconnect alice from dave: %v", err)
-	}
-
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	if err := net.ConnectNodes(ctxt, dave, net.Alice); err != nil {
-		t.Fatalf("unable to reconnect alice to dave: %v", err)
-	}
 
 	// Lastly, we will send one more payment to ensure all channels are
 	// still functioning properly.

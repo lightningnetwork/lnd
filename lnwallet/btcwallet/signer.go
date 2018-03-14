@@ -83,7 +83,7 @@ func (b *BtcWallet) fetchPrivKey(keyDesc *keychain.KeyDescriptor) (*btcec.Privat
 	if !keyDesc.KeyLocator.IsEmpty() {
 		// We'll assume the special lightning key scope in this case.
 		scopedMgr, err := b.wallet.Manager.FetchScopedKeyManager(
-			lightningKeyScope,
+			b.chainKeyScope,
 		)
 		if err != nil {
 			return nil, err

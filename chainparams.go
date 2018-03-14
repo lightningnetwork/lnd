@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/lightningnetwork/lnd/keychain"
 	litecoinCfg "github.com/ltcsuite/ltcd/chaincfg"
 	"github.com/roasbeef/btcd/chaincfg"
 	bitcoinCfg "github.com/roasbeef/btcd/chaincfg"
@@ -16,41 +17,47 @@ var activeNetParams = bitcoinTestNetParams
 // corresponding RPC port of a daemon running on the particular network.
 type bitcoinNetParams struct {
 	*bitcoinCfg.Params
-	rpcPort string
+	rpcPort  string
+	CoinType uint32
 }
 
 // litecoinNetParams couples the p2p parameters of a network with the
 // corresponding RPC port of a daemon running on the particular network.
 type litecoinNetParams struct {
 	*litecoinCfg.Params
-	rpcPort string
+	rpcPort  string
+	CoinType uint32
 }
 
 // bitcoinTestNetParams contains parameters specific to the 3rd version of the
 // test network.
 var bitcoinTestNetParams = bitcoinNetParams{
-	Params:  &bitcoinCfg.TestNet3Params,
-	rpcPort: "18334",
+	Params:   &bitcoinCfg.TestNet3Params,
+	rpcPort:  "18334",
+	CoinType: keychain.CoinTypeTestnet,
 }
 
 // bitcoinSimNetParams contains parameters specific to the simulation test
 // network.
 var bitcoinSimNetParams = bitcoinNetParams{
-	Params:  &bitcoinCfg.SimNetParams,
-	rpcPort: "18556",
+	Params:   &bitcoinCfg.SimNetParams,
+	rpcPort:  "18556",
+	CoinType: keychain.CoinTypeTestnet,
 }
 
 // liteTestNetParams contains parameters specific to the 4th version of the
 // test network.
 var liteTestNetParams = litecoinNetParams{
-	Params:  &litecoinCfg.TestNet4Params,
-	rpcPort: "19334",
+	Params:   &litecoinCfg.TestNet4Params,
+	rpcPort:  "19334",
+	CoinType: keychain.CoinTypeTestnet,
 }
 
 // regTestNetParams contains parameters specific to a local regtest network.
 var regTestNetParams = bitcoinNetParams{
-	Params:  &bitcoinCfg.RegressionNetParams,
-	rpcPort: "18334",
+	Params:   &bitcoinCfg.RegressionNetParams,
+	rpcPort:  "18334",
+	CoinType: keychain.CoinTypeTestnet,
 }
 
 // applyLitecoinParams applies the relevant chain configuration parameters that
@@ -91,4 +98,5 @@ func applyLitecoinParams(params *bitcoinNetParams) {
 	params.Checkpoints = checkPoints
 
 	params.rpcPort = liteTestNetParams.rpcPort
+	params.CoinType = liteTestNetParams.CoinType
 }

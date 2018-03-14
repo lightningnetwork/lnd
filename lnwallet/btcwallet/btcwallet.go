@@ -32,14 +32,6 @@ var (
 	// stored within the top-level waleltdb buckets of btcwallet.
 	waddrmgrNamespaceKey = []byte("waddrmgr")
 
-	// lightningKeyScope is the key scope that will be used within the
-	// waddrmgr to create an HD chain for deriving all of our required
-	// keys. We'll ensure this this scope is created upon start.
-	lightningKeyScope = waddrmgr.KeyScope{
-		Purpose: keychain.BIP0043Purpose,
-		Coin:    0,
-	}
-
 	// lightningAddrSchema is the scope addr schema for all keys that we
 	// derive. We'll treat them all as p2wkh addresses, as atm we must
 	// specify a particular type.
@@ -65,6 +57,8 @@ type BtcWallet struct {
 
 	netParams *chaincfg.Params
 
+	chainKeyScope waddrmgr.KeyScope
+
 	// utxoCache is a cache used to speed up repeated calls to
 	// FetchInputInfo.
 	utxoCache map[wire.OutPoint]*wire.TxOut
@@ -80,6 +74,12 @@ var _ lnwallet.WalletController = (*BtcWallet)(nil)
 func New(cfg Config) (*BtcWallet, error) {
 	// Ensure the wallet exists or create it when the create flag is set.
 	netDir := NetworkDir(cfg.DataDir, cfg.NetParams)
+
+	// Create the key scope for the coin type being managed by this wallet.
+	chainKeyScope := waddrmgr.KeyScope{
+		Purpose: keychain.BIP0043Purpose,
+		Coin:    cfg.CoinType,
+	}
 
 	var pubPass []byte
 	if cfg.PublicPass == nil {
@@ -114,12 +114,13 @@ func New(cfg Config) (*BtcWallet, error) {
 	}
 
 	return &BtcWallet{
-		cfg:       &cfg,
-		wallet:    wallet,
-		db:        wallet.Database(),
-		chain:     cfg.ChainSource,
-		netParams: cfg.NetParams,
-		utxoCache: make(map[wire.OutPoint]*wire.TxOut),
+		cfg:           &cfg,
+		wallet:        wallet,
+		db:            wallet.Database(),
+		chain:         cfg.ChainSource,
+		netParams:     cfg.NetParams,
+		chainKeyScope: chainKeyScope,
+		utxoCache:     make(map[wire.OutPoint]*wire.TxOut),
 	}, nil
 }
 
@@ -165,7 +166,7 @@ func (b *BtcWallet) Start() error {
 	// We'll now ensure that the KeyScope: (1017, 1) exists within the
 	// internal waddrmgr. We'll need this in order to properly generate the
 	// keys required for signing various contracts.
-	_, err := b.wallet.Manager.FetchScopedKeyManager(lightningKeyScope)
+	_, err := b.wallet.Manager.FetchScopedKeyManager(b.chainKeyScope)
 	if err != nil {
 		// If the scope hasn't yet been created (it wouldn't been
 		// loaded by default if it was), then we'll manually create the
@@ -174,7 +175,7 @@ func (b *BtcWallet) Start() error {
 			addrmgrNs := tx.ReadWriteBucket(waddrmgrNamespaceKey)
 
 			_, err := b.wallet.Manager.NewScopedKeyManager(
-				addrmgrNs, lightningKeyScope, lightningAddrSchema,
+				addrmgrNs, b.chainKeyScope, lightningAddrSchema,
 			)
 			return err
 		})

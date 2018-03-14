@@ -94,7 +94,7 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 	minHtlc := lnwire.NewMSatFromSatoshis(1)
 
 	updateStream, errChan := c.server.OpenChannel(target, amt, 0,
-		minHtlc, feePerVSize, false)
+		minHtlc, feePerVSize, false, 0)
 
 	select {
 	case err := <-errChan:

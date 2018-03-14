@@ -101,6 +101,11 @@ func (b *BitcoindFilteredChainView) Start() error {
 		return err
 	}
 
+	err = b.chainClient.NotifyBlocks()
+	if err != nil {
+		return err
+	}
+
 	_, bestHeight, err := b.chainClient.GetBestBlock()
 	if err != nil {
 		return err

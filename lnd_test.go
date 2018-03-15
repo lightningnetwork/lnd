@@ -3131,6 +3131,223 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 }
 
+// testMultiHopOverPrivateChannels tests that private channels can be used as
+// intermediate hops in a route for payments.
+func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
+	// We'll test that multi-hop payments over private channels work as
+	// intended. To do so, we'll create the following topology:
+	//         private        public           private
+	// Alice <--100k--> Bob <--100k--> Carol <--100k--> Dave
+
+	ctxb := context.Background()
+	timeout := time.Duration(15 * time.Second)
+	const chanAmt = btcutil.Amount(100000)
+
+	// First, we'll open a private channel between Alice and Bob with Alice
+	// being the funder.
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	chanPointAlice := openChannelAndAssert(
+		ctxt, t, net, net.Alice, net.Bob, chanAmt, 0, true,
+	)
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err := net.Alice.WaitForNetworkChannelOpen(ctxb, chanPointAlice)
+	if err != nil {
+		t.Fatalf("alice didn't see the channel alice <-> bob before "+
+			"timeout: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = net.Bob.WaitForNetworkChannelOpen(ctxb, chanPointAlice)
+	if err != nil {
+		t.Fatalf("bob didn't see the channel alice <-> bob before "+
+			"timeout: %v", err)
+	}
+
+	// Retrieve Alice's funding outpoint.
+	txidHash, err := getChanPointFundingTxid(chanPointAlice)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	aliceChanTXID, err := chainhash.NewHash(txidHash)
+	if err != nil {
+		t.Fatalf("unable to create sha hash: %v", err)
+	}
+	aliceFundPoint := wire.OutPoint{
+		Hash:  *aliceChanTXID,
+		Index: chanPointAlice.OutputIndex,
+	}
+
+	// Next, we'll create Carol's node and open a public channel between
+	// her and Bob with Bob being the funder.
+	carol, err := net.NewNode(nil)
+	if err != nil {
+		t.Fatalf("unable to create carol's node: %v", err)
+	}
+	if err := net.ConnectNodes(ctxb, net.Bob, carol); err != nil {
+		t.Fatalf("unable to connect bob to carol: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPointBob := openChannelAndAssert(
+		ctxt, t, net, net.Bob, carol, chanAmt, 0, false,
+	)
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = net.Bob.WaitForNetworkChannelOpen(ctxb, chanPointBob)
+	if err != nil {
+		t.Fatalf("bob didn't see the channel bob <-> carol before "+
+			"timeout: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = carol.WaitForNetworkChannelOpen(ctxb, chanPointBob)
+	if err != nil {
+		t.Fatalf("carol didn't see the channel bob <-> carol before "+
+			"timeout: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = net.Alice.WaitForNetworkChannelOpen(ctxb, chanPointBob)
+	if err != nil {
+		t.Fatalf("alice didn't see the channel bob <-> carol before "+
+			"timeout: %v", err)
+	}
+
+	// Retrieve Bob's funding outpoint.
+	txidHash, err = getChanPointFundingTxid(chanPointBob)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	bobChanTXID, err := chainhash.NewHash(txidHash)
+	if err != nil {
+		t.Fatalf("unable to create sha hash: %v", err)
+	}
+	bobFundPoint := wire.OutPoint{
+		Hash:  *bobChanTXID,
+		Index: chanPointBob.OutputIndex,
+	}
+
+	// Next, we'll create Dave's node and open a private channel between him
+	// and Carol with Carol being the funder.
+	dave, err := net.NewNode(nil)
+	if err != nil {
+		t.Fatalf("unable to create dave's node: %v", err)
+	}
+	if err := net.ConnectNodes(ctxb, carol, dave); err != nil {
+		t.Fatalf("unable to connect carol to dave: %v", err)
+	}
+	err = net.SendCoins(ctxb, btcutil.SatoshiPerBitcoin, carol)
+	if err != nil {
+		t.Fatalf("unable to send coins to carol: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPointCarol := openChannelAndAssert(
+		ctxt, t, net, carol, dave, chanAmt, 0, true,
+	)
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = carol.WaitForNetworkChannelOpen(ctxb, chanPointCarol)
+	if err != nil {
+		t.Fatalf("carol didn't see the channel carol <-> dave before "+
+			"timeout: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = dave.WaitForNetworkChannelOpen(ctxb, chanPointCarol)
+	if err != nil {
+		t.Fatalf("dave didn't see the channel carol <-> dave before "+
+			"timeout: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = dave.WaitForNetworkChannelOpen(ctxb, chanPointBob)
+	if err != nil {
+		t.Fatalf("dave didn't see the channel bob <-> carol before "+
+			"timeout: %v", err)
+	}
+
+	// Retrieve Carol's funding point.
+	txidHash, err = getChanPointFundingTxid(chanPointCarol)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	carolChanTXID, err := chainhash.NewHash(txidHash)
+	if err != nil {
+		t.Fatalf("unable to create sha hash: %v", err)
+	}
+	carolFundPoint := wire.OutPoint{
+		Hash:  *carolChanTXID,
+		Index: chanPointCarol.OutputIndex,
+	}
+
+	// Now that all the channels are set up according to the topology from
+	// above, we can proceed to test payments. We'll create an invoice for
+	// Dave of 20k satoshis and pay it with Alice. Since there is no public
+	// route from Alice to Dave, we'll need to use the private channel
+	// between Carol and Dave as a routing hint encoded in the invoice.
+	const paymentAmt = 20000
+
+	// Create the invoice for Dave.
+	invoice := &lnrpc.Invoice{
+		Memo:    "two hopz!",
+		Value:   paymentAmt,
+		Private: true,
+	}
+
+	resp, err := dave.AddInvoice(ctxb, invoice)
+	if err != nil {
+		t.Fatalf("unable to add invoice for dave: %v", err)
+	}
+
+	// Let Alice pay the invoice.
+	payReqs := []string{resp.PaymentRequest}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = completePaymentRequests(ctxt, net.Alice, payReqs, true)
+	if err != nil {
+		t.Fatalf("unable to send payments from alice to dave: %v", err)
+	}
+
+	// When asserting the amount of satoshis moved, we'll factor in the
+	// default base fee, as we didn't modify the fee structure when opening
+	// the channels.
+	const baseFee = 1
+
+	// Dave should have received 20k satoshis from Carol.
+	assertAmountPaid(t, ctxb, "Carol(local) [private=>] Dave(remote)",
+		dave, carolFundPoint, 0, paymentAmt)
+
+	// Carol should have sent 20k satoshis to Dave.
+	assertAmountPaid(t, ctxb, "Carol(local) [private=>] Dave(remote)",
+		carol, carolFundPoint, paymentAmt, 0)
+
+	// Carol should have received 20k satoshis + fee for one hop from Bob.
+	assertAmountPaid(t, ctxb, "Bob(local) => Carol(remote)",
+		carol, bobFundPoint, 0, paymentAmt+baseFee)
+
+	// Bob should have sent 20k satoshis + fee for one hop to Carol.
+	assertAmountPaid(t, ctxb, "Bob(local) => Carol(remote)",
+		net.Bob, bobFundPoint, paymentAmt+baseFee, 0)
+
+	// Bob should have received 20k satoshis + fee for two hops from Alice.
+	assertAmountPaid(t, ctxb, "Alice(local) [private=>] Bob(remote)", net.Bob,
+		aliceFundPoint, 0, paymentAmt+baseFee*2)
+
+	// Alice should have sent 20k satoshis + fee for two hops to Bob.
+	assertAmountPaid(t, ctxb, "Alice(local) [private=>] Bob(remote)", net.Alice,
+		aliceFundPoint, paymentAmt+baseFee*2, 0)
+
+	// At this point, the payment was successful. We can now close all the
+	// channels and shutdown the nodes created throughout this test.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPointBob, false)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarol, false)
+
+	if err := net.ShutdownNode(carol); err != nil {
+		t.Fatalf("unable to shutdown carol's node: %v", err)
+	}
+	if err := net.ShutdownNode(dave); err != nil {
+		t.Fatalf("unable to shutdown dave's node: %v", err)
+	}
+}
+
 func testInvoiceSubscriptions(net *lntest.NetworkHarness, t *harnessTest) {
 	const chanAmt = btcutil.Amount(500000)
 	ctxb := context.Background()
@@ -8279,6 +8496,10 @@ var testsCases = []*testCase{
 	{
 		name: "private channels",
 		test: testPrivateChannels,
+	},
+	{
+		name: "multi-hop payments over private channels",
+		test: testMultiHopOverPrivateChannels,
 	},
 	{
 		name: "multiple channel creation",

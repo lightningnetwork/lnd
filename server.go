@@ -366,7 +366,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		return nil, err
 	}
 
-	utxnStore, err := newNurseryStore(&bitcoinGenesis, chanDB)
+	utxnStore, err := newNurseryStore(activeNetParams.GenesisHash, chanDB)
 	if err != nil {
 		srvrLog.Errorf("unable to create nursery store: %v", err)
 		return nil, err
@@ -544,10 +544,12 @@ func (s *server) Start() error {
 	// maintain a set of persistent connections.
 	if !cfg.NoNetBootstrap && !(cfg.Bitcoin.SimNet || cfg.Litecoin.SimNet) &&
 		!(cfg.Bitcoin.RegTest || cfg.Litecoin.RegTest) {
+
 		networkBootStrappers, err := initNetworkBootstrappers(s)
 		if err != nil {
 			return err
 		}
+
 		s.wg.Add(1)
 		go s.peerBootstrapper(3, networkBootStrappers)
 	} else {

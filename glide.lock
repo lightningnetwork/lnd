@@ -11,14 +11,8 @@ imports:
   version: 53f62d9b43e87a6c56975cf862af7edf33a8d0df
   subpackages:
   - ripemd160
-- name: github.com/coreos/bbolt
-  version: 4f5275f4ebbf6fe7cb772de987fa96ee674460a7
 - name: github.com/go-errors/errors
   version: 8fa88b06e5974e97fbf9899a7f86a344bfd1f105
-- name: github.com/lightningnetwork/lnd
-  version: 236d53785d1b7dae39207edb6256a96f5b75e858
-  subpackages:
-  - chainntnfs
 - name: github.com/roasbeef/btcd
   version: e6807bc4dd5ddbb95b4ab163f6dd61e4ad79463a
   subpackages:

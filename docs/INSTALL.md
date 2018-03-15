@@ -178,17 +178,33 @@ installing `lnd` in preparation for the
 lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --btcd.rpcuser=kek --btcd.rpcpass=kek --externalip=X.X.X.X
 ```
 
-#### Running lnd using the bitcoind backend
+#### Running lnd using the bitcoind or litecoind backend
 
-To configure your bitcoind backend for use with lnd, first complete and verify the following:
+The configuration for bitcoind and litecoind are nearly identical, the following
+steps can be mirrored with loss of generality to enable a litecoind backend.
+Setup will be described in regards to `bitciond`, but note that `lnd` uses a
+distinct `litecoin.node=litecoind` argument and analogous subconfigurations
+prefixed by `litecoind`.
 
-- The `bitcoind` instance must
-be configured with `--txindex` just like `btcd` above
-- Additionally, since `lnd` uses [ZeroMQ](https://github.com/bitcoin/bitcoin/blob/master/doc/zmq.md) to interface with `bitcoind`, *your `bitcoind` installation must be compiled with ZMQ*. If you installed it from source, this is likely the case, but if you installed it via Homebrew in the past it may not be included ([this has now been fixed](https://github.com/Homebrew/homebrew-core/pull/23088) in the latest Homebrew recipe for bitcoin)
-- Configure the `bitcoind` instance for ZMQ with `--zmqpubrawblock` and `--zmqpubrawtx`
-(the latter is optional but allows you to see unconfirmed transactions in your
-wallet). They must be combined in the same ZMQ socket address (e.g. `--zmqpubrawblock=tcp://127.0.0.1:28332` and `--zmqpubrawtx=tcp://127.0.0.1:28332`).
-- Start `bitcoind` running against testnet, and let it complete a full sync with the testnet chain (alternatively, use `--bitcoind.regtest` instead).
+To configure your bitcoind backend for use with lnd, first complete and verify
+the following:
+
+- The `bitcoind` instance must be configured with `--txindex` just like `btcd`
+  above
+- Additionally, since `lnd` uses
+  [ZeroMQ](https://github.com/bitcoin/bitcoin/blob/master/doc/zmq.md) to
+  interface with `bitcoind`, *your `bitcoind` installation must be compiled with
+  ZMQ*. If you installed it from source, this is likely the case, but if you
+  installed it via Homebrew in the past it may not be included ([this has now
+  been fixed](https://github.com/Homebrew/homebrew-core/pull/23088) in the
+  latest Homebrew recipe for bitcoin)
+- Configure the `bitcoind` instance for ZMQ with `--zmqpubrawblock` and
+  `--zmqpubrawtx` (the latter is optional but allows you to see unconfirmed
+  transactions in your wallet). They must be combined in the same ZMQ socket
+  address (e.g. `--zmqpubrawblock=tcp://127.0.0.1:28332` and
+  `--zmqpubrawtx=tcp://127.0.0.1:28332`).
+- Start `bitcoind` running against testnet, and let it complete a full sync with
+  the testnet chain (alternatively, use `--bitcoind.regtest` instead).
 
 Here's a sample `bitcoin.conf` for use with lnd:
 ```
@@ -268,8 +284,8 @@ Notice the `[Bitcoin]` section. This section houses the parameters for the
 Bitcoin chain. `lnd` also supports Litecoin testnet4 (but not both BTC and LTC
 at the same time), so when working with Litecoin be sure to set to parameters
 for Litecoin accordingly. For node configuration, the sections are called
-`[Btcd]`, `[Bitcoind]`, `[Neutrino]`, and `[Ltcd]` depending on which chain
-and node type you're using.
+`[Btcd]`, `[Bitcoind]`, `[Neutrino]`, `[Ltcd]`, and `[Litecoind]` depending on
+which chain and node type you're using.
 
 # Accurate as of:
 - _roasbeef/btcd commit:_ `f8c02aff4e7a807ba0c1349e2db03695d8e790e8` 

@@ -560,16 +560,18 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 }
 
 var (
-	// bitcoinGenesis is the genesis hash of Bitcoin's testnet chain.
-	bitcoinGenesis = chainhash.Hash([chainhash.HashSize]byte{
+	// bitcoinTestnetGenesis is the genesis hash of Bitcoin's testnet
+	// chain.
+	bitcoinTestnetGenesis = chainhash.Hash([chainhash.HashSize]byte{
 		0x43, 0x49, 0x7f, 0xd7, 0xf8, 0x26, 0x95, 0x71,
 		0x08, 0xf4, 0xa3, 0x0f, 0xd9, 0xce, 0xc3, 0xae,
 		0xba, 0x79, 0x97, 0x20, 0x84, 0xe9, 0x0e, 0xad,
 		0x01, 0xea, 0x33, 0x09, 0x00, 0x00, 0x00, 0x00,
 	})
 
-	// litecoinGenesis is the genesis hash of Litecoin's testnet4 chain.
-	litecoinGenesis = chainhash.Hash([chainhash.HashSize]byte{
+	// litecoinTestnetGenesis is the genesis hash of Litecoin's testnet4
+	// chain.
+	litecoinTestnetGenesis = chainhash.Hash([chainhash.HashSize]byte{
 		0xa0, 0x29, 0x3e, 0x4e, 0xeb, 0x3d, 0xa6, 0xe6,
 		0xf5, 0x6f, 0x81, 0xed, 0x59, 0x5f, 0x57, 0x88,
 		0x0d, 0x1a, 0x21, 0x56, 0x9e, 0x13, 0xee, 0xfd,
@@ -579,15 +581,15 @@ var (
 	// chainMap is a simple index that maps a chain's genesis hash to the
 	// chainCode enum for that chain.
 	chainMap = map[chainhash.Hash]chainCode{
-		bitcoinGenesis:  bitcoinChain,
-		litecoinGenesis: litecoinChain,
+		bitcoinTestnetGenesis:  bitcoinChain,
+		litecoinTestnetGenesis: litecoinChain,
 	}
 
 	// reverseChainMap is the inverse of the chainMap above: it maps the
 	// chain enum for a chain to its genesis hash.
 	reverseChainMap = map[chainCode]chainhash.Hash{
-		bitcoinChain:  bitcoinGenesis,
-		litecoinChain: litecoinGenesis,
+		bitcoinChain:  bitcoinTestnetGenesis,
+		litecoinChain: litecoinTestnetGenesis,
 	}
 
 	// chainDNSSeeds is a map of a chain's hash to the set of DNS seeds

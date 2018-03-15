@@ -72,7 +72,7 @@
           "200": {
             "description": "",
             "schema": {
-              "$ref": "#/definitions/lnrpcChannelPoint"
+              "$ref": "#/definitions/lnrpcOpenChannelResponse"
             }
           }
         },
@@ -116,7 +116,7 @@
           "200": {
             "description": "",
             "schema": {
-              "$ref": "#/definitions/lnrpcSendResponse"
+              "$ref": "#/definitions/lnrpcSendPaymentResponse"
             }
           }
         },
@@ -126,7 +126,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/lnrpcSendRequest"
+              "$ref": "#/definitions/lnrpcSendPaymentRequest"
             }
           }
         ],
@@ -175,7 +175,7 @@
           "200": {
             "description": "",
             "schema": {
-              "$ref": "#/definitions/lnrpcPolicyUpdateResponse"
+              "$ref": "#/definitions/lnrpcUpdateChannelPolicyResponse"
             }
           }
         },
@@ -185,7 +185,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/lnrpcPolicyUpdateRequest"
+              "$ref": "#/definitions/lnrpcUpdateChannelPolicyRequest"
             }
           }
         ],
@@ -272,7 +272,7 @@
           "200": {
             "description": "",
             "schema": {
-              "$ref": "#/definitions/lnrpcChannelGraph"
+              "$ref": "#/definitions/lnrpcDescribeGraphResponse"
             }
           }
         },
@@ -289,7 +289,7 @@
           "200": {
             "description": "",
             "schema": {
-              "$ref": "#/definitions/lnrpcChannelEdge"
+              "$ref": "#/definitions/lnrpcGetChanInfoResponse"
             }
           }
         },
@@ -315,7 +315,7 @@
           "200": {
             "description": "",
             "schema": {
-              "$ref": "#/definitions/lnrpcNetworkInfo"
+              "$ref": "#/definitions/lnrpcGetNetworkInfoResponse"
             }
           }
         },
@@ -332,7 +332,7 @@
           "200": {
             "description": "",
             "schema": {
-              "$ref": "#/definitions/lnrpcNodeInfo"
+              "$ref": "#/definitions/lnrpcGetNodeInfoResponse"
             }
           }
         },
@@ -425,7 +425,7 @@
           "200": {
             "description": "",
             "schema": {
-              "$ref": "#/definitions/lnrpcInvoice"
+              "$ref": "#/definitions/lnrpcLookupInvoiceResponse"
             }
           }
         },
@@ -458,7 +458,7 @@
           "200": {
             "description": "",
             "schema": {
-              "$ref": "#/definitions/lnrpcListInvoiceResponse"
+              "$ref": "#/definitions/lnrpcListInvoicesResponse"
             }
           }
         },
@@ -493,7 +493,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/lnrpcInvoice"
+              "$ref": "#/definitions/lnrpcAddInvoiceRequest"
             }
           }
         ],
@@ -576,7 +576,7 @@
           "200": {
             "description": "",
             "schema": {
-              "$ref": "#/definitions/lnrpcPayReq"
+              "$ref": "#/definitions/lnrpcDecodePayReqResponse"
             }
           }
         },
@@ -696,7 +696,7 @@
           "200": {
             "description": "",
             "schema": {
-              "$ref": "#/definitions/lnrpcTransactionDetails"
+              "$ref": "#/definitions/lnrpcGetTransactionsResponse"
             }
           }
         },
@@ -759,6 +759,14 @@
     }
   },
   "definitions": {
+    "NewAddressRequestAddressType": {
+      "type": "string",
+      "enum": [
+        "WITNESS_PUBKEY_HASH",
+        "NESTED_PUBKEY_HASH"
+      ],
+      "default": "WITNESS_PUBKEY_HASH"
+    },
     "PendingChannelsResponseClosedChannel": {
       "type": "object",
       "properties": {
@@ -948,6 +956,14 @@
         }
       }
     },
+    "lnrpcAddInvoiceRequest": {
+      "type": "object",
+      "properties": {
+        "invoice": {
+          "$ref": "#/definitions/lnrpcInvoice"
+        }
+      }
+    },
     "lnrpcAddInvoiceResponse": {
       "type": "object",
       "properties": {
@@ -1068,26 +1084,6 @@
         }
       }
     },
-    "lnrpcChannelGraph": {
-      "type": "object",
-      "properties": {
-        "nodes": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/lnrpcLightningNode"
-          },
-          "title": "/ The list of `LightningNode`s in this channel graph"
-        },
-        "edges": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/lnrpcChannelEdge"
-          },
-          "title": "/ The list of `ChannelEdge`s in this channel graph"
-        }
-      },
-      "description": "/ Returns a new instance of the directed channel graph."
-    },
     "lnrpcChannelOpenUpdate": {
       "type": "object",
       "properties": {
@@ -1192,8 +1188,64 @@
         }
       }
     },
+    "lnrpcDecodePayReqResponse": {
+      "type": "object",
+      "properties": {
+        "destination": {
+          "type": "string"
+        },
+        "payment_hash": {
+          "type": "string"
+        },
+        "num_satoshis": {
+          "type": "string",
+          "format": "int64"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "int64"
+        },
+        "expiry": {
+          "type": "string",
+          "format": "int64"
+        },
+        "description": {
+          "type": "string"
+        },
+        "description_hash": {
+          "type": "string"
+        },
+        "fallback_addr": {
+          "type": "string"
+        },
+        "cltv_expiry": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
     "lnrpcDeleteAllPaymentsResponse": {
       "type": "object"
+    },
+    "lnrpcDescribeGraphResponse": {
+      "type": "object",
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcLightningNode"
+          },
+          "title": "/ The list of `LightningNode`s in this channel graph"
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcChannelEdge"
+          },
+          "title": "/ The list of `ChannelEdge`s in this channel graph"
+        }
+      },
+      "description": "/ Returns a new instance of the directed channel graph."
     },
     "lnrpcDisconnectPeerResponse": {
       "type": "object"
@@ -1319,6 +1371,14 @@
         }
       }
     },
+    "lnrpcGetChanInfoResponse": {
+      "type": "object",
+      "properties": {
+        "channel_edge": {
+          "$ref": "#/definitions/lnrpcChannelEdge"
+        }
+      }
+    },
     "lnrpcGetInfoResponse": {
       "type": "object",
       "properties": {
@@ -1382,6 +1442,76 @@
           "type": "string",
           "format": "int64",
           "title": "/ Timestamp of the block best known to the wallet"
+        }
+      }
+    },
+    "lnrpcGetNetworkInfoResponse": {
+      "type": "object",
+      "properties": {
+        "graph_diameter": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "avg_out_degree": {
+          "type": "number",
+          "format": "double"
+        },
+        "max_out_degree": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "num_nodes": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "num_channels": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "total_network_capacity": {
+          "type": "string",
+          "format": "int64"
+        },
+        "avg_channel_size": {
+          "type": "number",
+          "format": "double"
+        },
+        "min_channel_size": {
+          "type": "string",
+          "format": "int64"
+        },
+        "max_channel_size": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "lnrpcGetNodeInfoResponse": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "$ref": "#/definitions/lnrpcLightningNode",
+          "description": "*\nAn individual vertex/node within the channel graph. A node is\nconnected to other nodes by one or more channel edges emanating from it. As\nthe graph is directed, a node will also have an incoming edge attached to\nit for each outgoing edge."
+        },
+        "num_channels": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "total_capacity": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "lnrpcGetTransactionsResponse": {
+      "type": "object",
+      "properties": {
+        "transactions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcTransaction"
+          },
+          "description": "/ The list of transactions relevant to the wallet."
         }
       }
     },
@@ -1597,7 +1727,7 @@
         }
       }
     },
-    "lnrpcListInvoiceResponse": {
+    "lnrpcListInvoicesResponse": {
       "type": "object",
       "properties": {
         "invoices": {
@@ -1632,44 +1762,11 @@
         }
       }
     },
-    "lnrpcNetworkInfo": {
+    "lnrpcLookupInvoiceResponse": {
       "type": "object",
       "properties": {
-        "graph_diameter": {
-          "type": "integer",
-          "format": "int64"
-        },
-        "avg_out_degree": {
-          "type": "number",
-          "format": "double"
-        },
-        "max_out_degree": {
-          "type": "integer",
-          "format": "int64"
-        },
-        "num_nodes": {
-          "type": "integer",
-          "format": "int64"
-        },
-        "num_channels": {
-          "type": "integer",
-          "format": "int64"
-        },
-        "total_network_capacity": {
-          "type": "string",
-          "format": "int64"
-        },
-        "avg_channel_size": {
-          "type": "number",
-          "format": "double"
-        },
-        "min_channel_size": {
-          "type": "string",
-          "format": "int64"
-        },
-        "max_channel_size": {
-          "type": "string",
-          "format": "int64"
+        "invoice": {
+          "$ref": "#/definitions/lnrpcInvoice"
         }
       }
     },
@@ -1690,23 +1787,6 @@
         },
         "addr": {
           "type": "string"
-        }
-      }
-    },
-    "lnrpcNodeInfo": {
-      "type": "object",
-      "properties": {
-        "node": {
-          "$ref": "#/definitions/lnrpcLightningNode",
-          "description": "*\nAn individual vertex/node within the channel graph. A node is\nconnected to other nodes by one or more channel edges emanating from it. As\nthe graph is directed, a node will also have an incoming edge attached to\nit for each outgoing edge."
-        },
-        "num_channels": {
-          "type": "integer",
-          "format": "int64"
-        },
-        "total_capacity": {
-          "type": "string",
-          "format": "int64"
         }
       }
     },
@@ -1775,6 +1855,14 @@
         }
       }
     },
+    "lnrpcOpenChannelResponse": {
+      "type": "object",
+      "properties": {
+        "channel_point": {
+          "$ref": "#/definitions/lnrpcChannelPoint"
+        }
+      }
+    },
     "lnrpcOpenStatusUpdate": {
       "type": "object",
       "properties": {
@@ -1786,42 +1874,6 @@
         },
         "chan_open": {
           "$ref": "#/definitions/lnrpcChannelOpenUpdate"
-        }
-      }
-    },
-    "lnrpcPayReq": {
-      "type": "object",
-      "properties": {
-        "destination": {
-          "type": "string"
-        },
-        "payment_hash": {
-          "type": "string"
-        },
-        "num_satoshis": {
-          "type": "string",
-          "format": "int64"
-        },
-        "timestamp": {
-          "type": "string",
-          "format": "int64"
-        },
-        "expiry": {
-          "type": "string",
-          "format": "int64"
-        },
-        "description": {
-          "type": "string"
-        },
-        "description_hash": {
-          "type": "string"
-        },
-        "fallback_addr": {
-          "type": "string"
-        },
-        "cltv_expiry": {
-          "type": "string",
-          "format": "int64"
         }
       }
     },
@@ -1981,38 +2033,6 @@
         }
       }
     },
-    "lnrpcPolicyUpdateRequest": {
-      "type": "object",
-      "properties": {
-        "global": {
-          "type": "boolean",
-          "format": "boolean",
-          "description": "/ If set, then this update applies to all currently active channels."
-        },
-        "chan_point": {
-          "$ref": "#/definitions/lnrpcChannelPoint",
-          "description": "/ If set, this update will target a specific channel."
-        },
-        "base_fee_msat": {
-          "type": "string",
-          "format": "int64",
-          "description": "/ The base fee charged regardless of the number of milli-satoshis sent."
-        },
-        "fee_rate": {
-          "type": "number",
-          "format": "double",
-          "description": "/ The effective fee rate in milli-satoshis. The precision of this value goes up to 6 decimal places, so 1e-6."
-        },
-        "time_lock_delta": {
-          "type": "integer",
-          "format": "int64",
-          "description": "/ The required timelock delta for HTLCs forwarded over the channel."
-        }
-      }
-    },
-    "lnrpcPolicyUpdateResponse": {
-      "type": "object"
-    },
     "lnrpcQueryRoutesResponse": {
       "type": "object",
       "properties": {
@@ -2115,7 +2135,7 @@
         }
       }
     },
-    "lnrpcSendRequest": {
+    "lnrpcSendPaymentRequest": {
       "type": "object",
       "properties": {
         "dest": {
@@ -2152,7 +2172,7 @@
         }
       }
     },
-    "lnrpcSendResponse": {
+    "lnrpcSendPaymentResponse": {
       "type": "object",
       "properties": {
         "payment_error": {
@@ -2176,7 +2196,7 @@
         }
       }
     },
-    "lnrpcStopResponse": {
+    "lnrpcStopDaemonResponse": {
       "type": "object"
     },
     "lnrpcTransaction": {
@@ -2224,18 +2244,6 @@
         }
       }
     },
-    "lnrpcTransactionDetails": {
-      "type": "object",
-      "properties": {
-        "transactions": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/lnrpcTransaction"
-          },
-          "description": "/ The list of transactions relevant to the wallet."
-        }
-      }
-    },
     "lnrpcUnlockWalletRequest": {
       "type": "object",
       "properties": {
@@ -2247,6 +2255,38 @@
       }
     },
     "lnrpcUnlockWalletResponse": {
+      "type": "object"
+    },
+    "lnrpcUpdateChannelPolicyRequest": {
+      "type": "object",
+      "properties": {
+        "global": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "/ If set, then this update applies to all currently active channels."
+        },
+        "chan_point": {
+          "$ref": "#/definitions/lnrpcChannelPoint",
+          "description": "/ If set, this update will target a specific channel."
+        },
+        "base_fee_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ The base fee charged regardless of the number of milli-satoshis sent."
+        },
+        "fee_rate": {
+          "type": "number",
+          "format": "double",
+          "description": "/ The effective fee rate in milli-satoshis. The precision of this value goes up to 6 decimal places, so 1e-6."
+        },
+        "time_lock_delta": {
+          "type": "integer",
+          "format": "int64",
+          "description": "/ The required timelock delta for HTLCs forwarded over the channel."
+        }
+      }
+    },
+    "lnrpcUpdateChannelPolicyResponse": {
       "type": "object"
     },
     "lnrpcVerifyMessageResponse": {

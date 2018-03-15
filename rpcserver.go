@@ -815,7 +815,7 @@ out:
 // sync calls, all byte slices are instead to be populated as hex encoded
 // strings.
 func (r *rpcServer) OpenChannelSync(ctx context.Context,
-	in *lnrpc.OpenChannelRequest) (*lnrpc.ChannelPoint, error) {
+	in *lnrpc.OpenChannelRequest) (*lnrpc.OpenChannelResponse, error) {
 
 	rpcsLog.Tracef("[openchannel] request to NodeKey(%v) "+
 		"allocation(us=%v, them=%v)", in.NodePubkeyString,
@@ -901,9 +901,11 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 		openUpdate := fundingUpdate.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
 		chanUpdate := openUpdate.ChanPending
 
-		return &lnrpc.ChannelPoint{
-			FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
-				FundingTxidBytes: chanUpdate.Txid,
+		return &lnrpc.OpenChannelResponse{
+			ChannelPoint: &lnrpc.ChannelPoint{
+				FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+					FundingTxidBytes: chanUpdate.Txid,
+				},
 			},
 		}, nil
 	case <-r.quit:
@@ -1769,7 +1771,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					"large, max payment allowed is %v",
 					p.msat, maxPaymentMSat)
 
-				if err := paymentStream.Send(&lnrpc.SendResponse{
+				if err := paymentStream.Send(&lnrpc.SendPaymentResponse{
 					PaymentError: pErr.Error(),
 				}); err != nil {
 					return err
@@ -1824,7 +1826,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					// If we receive payment error than,
 					// instead of terminating the stream,
 					// send error response to the user.
-					err := paymentStream.Send(&lnrpc.SendResponse{
+					err := paymentStream.Send(&lnrpc.SendPaymentResponse{
 						PaymentError: err.Error(),
 					})
 					if err != nil {
@@ -1840,7 +1842,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					return
 				}
 
-				err = paymentStream.Send(&lnrpc.SendResponse{
+				err = paymentStream.Send(&lnrpc.SendPaymentResponse{
 					PaymentPreimage: preImage[:],
 					PaymentRoute:    marshallRoute(route),
 				})
@@ -1858,7 +1860,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 // Additionally, this RPC expects the destination's public key and the payment
 // hash (if any) to be encoded as hex strings.
 func (r *rpcServer) SendPaymentSync(ctx context.Context,
-	nextPayment *lnrpc.SendRequest) (*lnrpc.SendResponse, error) {
+	nextPayment *lnrpc.SendPaymentRequest) (*lnrpc.SendPaymentResponse, error) {
 
 	// TODO(roasbeef): enforce fee limits, pass into router, ditch if exceed limit
 	//  * limit either a %, or absolute, or iff more than sending
@@ -1946,7 +1948,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	if amtMSat > maxPaymentMSat {
 		err := fmt.Errorf("payment of %v is too large, max payment "+
 			"allowed is %v", nextPayment.Amt, maxPaymentMSat.ToSatoshis())
-		return &lnrpc.SendResponse{
+		return &lnrpc.SendPaymentResponse{
 			PaymentError: err.Error(),
 		}, nil
 	}
@@ -1964,7 +1966,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	}
 	preImage, route, err := r.server.chanRouter.SendPayment(payment)
 	if err != nil {
-		return &lnrpc.SendResponse{
+		return &lnrpc.SendPaymentResponse{
 			PaymentError: err.Error(),
 		}, nil
 	}
@@ -1975,7 +1977,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 		return nil, err
 	}
 
-	return &lnrpc.SendResponse{
+	return &lnrpc.SendPaymentResponse{
 		PaymentPreimage: preImage[:],
 		PaymentRoute:    marshallRoute(route),
 	}, nil
@@ -1985,7 +1987,8 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 // duplicated invoices are rejected, therefore all invoices *must* have a
 // unique payment preimage.
 func (r *rpcServer) AddInvoice(ctx context.Context,
-	invoice *lnrpc.Invoice) (*lnrpc.AddInvoiceResponse, error) {
+	req *lnrpc.AddInvoiceRequest) (*lnrpc.AddInvoiceResponse, error) {
+	invoice := req.GetInvoice()
 
 	var paymentPreimage [32]byte
 
@@ -2205,7 +2208,7 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 // The passed payment hash *must* be exactly 32 bytes, if not an error is
 // returned.
 func (r *rpcServer) LookupInvoice(ctx context.Context,
-	req *lnrpc.PaymentHash) (*lnrpc.Invoice, error) {
+	req *lnrpc.LookupInvoiceRequest) (*lnrpc.LookupInvoiceResponse, error) {
 
 	var (
 		payHash [32]byte
@@ -2248,13 +2251,15 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 		return nil, err
 	}
 
-	return rpcInvoice, nil
+	return &lnrpc.LookupInvoiceResponse{
+		Invoice: rpcInvoice,
+	}, nil
 }
 
 // ListInvoices returns a list of all the invoices currently stored within the
 // database. Any active debug invoices are ignored.
 func (r *rpcServer) ListInvoices(ctx context.Context,
-	req *lnrpc.ListInvoiceRequest) (*lnrpc.ListInvoiceResponse, error) {
+	req *lnrpc.ListInvoicesRequest) (*lnrpc.ListInvoicesResponse, error) {
 
 	dbInvoices, err := r.server.chanDB.FetchAllInvoices(req.PendingOnly)
 	if err != nil {
@@ -2272,7 +2277,7 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 		invoices[i] = rpcInvoice
 	}
 
-	return &lnrpc.ListInvoiceResponse{
+	return &lnrpc.ListInvoicesResponse{
 		Invoices: invoices,
 	}, nil
 }
@@ -2349,7 +2354,7 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 // GetTransactions returns a list of describing all the known transactions
 // relevant to the wallet.
 func (r *rpcServer) GetTransactions(ctx context.Context,
-	_ *lnrpc.GetTransactionsRequest) (*lnrpc.TransactionDetails, error) {
+	_ *lnrpc.GetTransactionsRequest) (*lnrpc.GetTransactionsResponse, error) {
 
 	// TODO(roasbeef): add pagination support
 	transactions, err := r.server.cc.wallet.ListTransactionDetails()
@@ -2357,7 +2362,7 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 		return nil, err
 	}
 
-	txDetails := &lnrpc.TransactionDetails{
+	txDetails := &lnrpc.GetTransactionsResponse{
 		Transactions: make([]*lnrpc.Transaction, len(transactions)),
 	}
 	for i, tx := range transactions {
@@ -2388,9 +2393,9 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 // specific routing policy which includes: the time lock delta, fee
 // information, etc.
 func (r *rpcServer) DescribeGraph(ctx context.Context,
-	_ *lnrpc.ChannelGraphRequest) (*lnrpc.ChannelGraph, error) {
+	_ *lnrpc.DescribeGraphRequest) (*lnrpc.DescribeGraphResponse, error) {
 
-	resp := &lnrpc.ChannelGraph{}
+	resp := &lnrpc.DescribeGraphResponse{}
 
 	// Obtain the pointer to the global singleton channel graph, this will
 	// provide a consistent view of the graph due to bolt db's
@@ -2492,7 +2497,7 @@ func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 // identifies the location of transaction's funding output within the block
 // chain.
 func (r *rpcServer) GetChanInfo(ctx context.Context,
-	in *lnrpc.ChanInfoRequest) (*lnrpc.ChannelEdge, error) {
+	in *lnrpc.GetChanInfoRequest) (*lnrpc.GetChanInfoResponse, error) {
 
 	graph := r.server.chanDB.ChannelGraph()
 
@@ -2506,13 +2511,15 @@ func (r *rpcServer) GetChanInfo(ctx context.Context,
 	// routing policies of each node involved within the channel.
 	channelEdge := marshalDbEdge(edgeInfo, edge1, edge2)
 
-	return channelEdge, nil
+	return &lnrpc.GetChanInfoResponse{
+		ChannelEdge: channelEdge,
+	}, nil
 }
 
 // GetNodeInfo returns the latest advertised and aggregate authenticated
 // channel information for the specified node identified by its public key.
 func (r *rpcServer) GetNodeInfo(ctx context.Context,
-	in *lnrpc.NodeInfoRequest) (*lnrpc.NodeInfo, error) {
+	in *lnrpc.GetNodeInfoRequest) (*lnrpc.GetNodeInfoResponse, error) {
 
 	graph := r.server.chanDB.ChannelGraph()
 
@@ -2562,7 +2569,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	// TODO(roasbeef): list channels as well?
 
 	nodeColor := fmt.Sprintf("#%02x%02x%02x", node.Color.R, node.Color.G, node.Color.B)
-	return &lnrpc.NodeInfo{
+	return &lnrpc.GetNodeInfoResponse{
 		Node: &lnrpc.LightningNode{
 			LastUpdate: uint32(node.LastUpdate.Unix()),
 			PubKey:     in.PubKey,
@@ -2663,7 +2670,7 @@ func marshallRoute(route *routing.Route) *lnrpc.Route {
 // GetNetworkInfo returns some basic stats about the known channel graph from
 // the PoV of the node.
 func (r *rpcServer) GetNetworkInfo(ctx context.Context,
-	_ *lnrpc.NetworkInfoRequest) (*lnrpc.NetworkInfo, error) {
+	_ *lnrpc.GetNetworkInfoRequest) (*lnrpc.GetNetworkInfoResponse, error) {
 
 	graph := r.server.chanDB.ChannelGraph()
 
@@ -2753,7 +2760,7 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 
 	// TODO(roasbeef): also add oldest channel?
 	//  * also add median channel size
-	netInfo := &lnrpc.NetworkInfo{
+	netInfo := &lnrpc.GetNetworkInfoResponse{
 		MaxOutDegree:         maxChanOut,
 		AvgOutDegree:         float64(numChannels) / float64(numNodes),
 		NumNodes:             numNodes,
@@ -2778,10 +2785,10 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 // StopDaemon will send a shutdown request to the interrupt handler, triggering
 // a graceful shutdown of the daemon.
 func (r *rpcServer) StopDaemon(ctx context.Context,
-	_ *lnrpc.StopRequest) (*lnrpc.StopResponse, error) {
+	_ *lnrpc.StopDaemonRequest) (*lnrpc.StopDaemonResponse, error) {
 
 	shutdownRequestChannel <- struct{}{}
-	return &lnrpc.StopResponse{}, nil
+	return &lnrpc.StopDaemonResponse{}, nil
 }
 
 // SubscribeChannelGraph launches a streaming RPC that allows the caller to
@@ -2983,7 +2990,7 @@ func (r *rpcServer) DebugLevel(ctx context.Context,
 // it, returning a full description of the conditions encoded within the
 // payment request.
 func (r *rpcServer) DecodePayReq(ctx context.Context,
-	req *lnrpc.PayReqString) (*lnrpc.PayReq, error) {
+	req *lnrpc.DecodePayReqRequest) (*lnrpc.DecodePayReqResponse, error) {
 
 	rpcsLog.Tracef("[decodepayreq] decoding: %v", req.PayReq)
 
@@ -3021,7 +3028,7 @@ func (r *rpcServer) DecodePayReq(ctx context.Context,
 	}
 
 	dest := payReq.Destination.SerializeCompressed()
-	return &lnrpc.PayReq{
+	return &lnrpc.DecodePayReqResponse{
 		Destination:     hex.EncodeToString(dest),
 		PaymentHash:     hex.EncodeToString(payReq.PaymentHash[:]),
 		NumSatoshis:     amt,
@@ -3181,17 +3188,17 @@ const minFeeRate = 1e-6
 // UpdateChannelPolicy allows the caller to update the channel forwarding policy
 // for all channels globally, or a particular channel.
 func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
-	req *lnrpc.PolicyUpdateRequest) (*lnrpc.PolicyUpdateResponse, error) {
+	req *lnrpc.UpdateChannelPolicyRequest) (*lnrpc.UpdateChannelPolicyResponse, error) {
 
 	var targetChans []wire.OutPoint
 	switch scope := req.Scope.(type) {
 	// If the request is targeting all active channels, then we don't need
 	// target any channels by their channel point.
-	case *lnrpc.PolicyUpdateRequest_Global:
+	case *lnrpc.UpdateChannelPolicyRequest_Global:
 
 	// Otherwise, we're targeting an individual channel by its channel
 	// point.
-	case *lnrpc.PolicyUpdateRequest_ChanPoint:
+	case *lnrpc.UpdateChannelPolicyRequest_ChanPoint:
 		txidHash, err := getChanPointFundingTxid(scope.ChanPoint)
 		if err != nil {
 			return nil, err
@@ -3272,7 +3279,7 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 		rpcsLog.Warnf("Unable to update link fees: %v", err)
 	}
 
-	return &lnrpc.PolicyUpdateResponse{}, nil
+	return &lnrpc.UpdateChannelPolicyResponse{}, nil
 }
 
 // ForwardingHistory allows the caller to query the htlcswitch for a record of

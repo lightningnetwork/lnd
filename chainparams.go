@@ -80,40 +80,39 @@ var regTestNetParams = bitcoinNetParams{
 // differ for litecoin to the chain parameters typed for btcsuite derivation.
 // This function is used in place of using something like interface{} to
 // abstract over _which_ chain (or fork) the parameters are for.
-func applyLitecoinParams(params *bitcoinNetParams) {
+func applyLitecoinParams(params *bitcoinNetParams, litecoinParams *litecoinNetParams) {
+	params.Name = litecoinParams.Name
+	params.Net = wire.BitcoinNet(litecoinParams.Net)
+	params.DefaultPort = litecoinParams.DefaultPort
+	params.CoinbaseMaturity = litecoinParams.CoinbaseMaturity
 
-	params.Name = litecoinTestNetParams.Name
-	params.Net = wire.BitcoinNet(litecoinTestNetParams.Net)
-	params.DefaultPort = litecoinTestNetParams.DefaultPort
-	params.CoinbaseMaturity = litecoinTestNetParams.CoinbaseMaturity
-
-	copy(params.GenesisHash[:], litecoinTestNetParams.GenesisHash[:])
+	copy(params.GenesisHash[:], litecoinParams.GenesisHash[:])
 
 	// Address encoding magics
-	params.PubKeyHashAddrID = litecoinTestNetParams.PubKeyHashAddrID
-	params.ScriptHashAddrID = litecoinTestNetParams.ScriptHashAddrID
-	params.PrivateKeyID = litecoinTestNetParams.PrivateKeyID
-	params.WitnessPubKeyHashAddrID = litecoinTestNetParams.WitnessPubKeyHashAddrID
-	params.WitnessScriptHashAddrID = litecoinTestNetParams.WitnessScriptHashAddrID
-	params.Bech32HRPSegwit = litecoinTestNetParams.Bech32HRPSegwit
+	params.PubKeyHashAddrID = litecoinParams.PubKeyHashAddrID
+	params.ScriptHashAddrID = litecoinParams.ScriptHashAddrID
+	params.PrivateKeyID = litecoinParams.PrivateKeyID
+	params.WitnessPubKeyHashAddrID = litecoinParams.WitnessPubKeyHashAddrID
+	params.WitnessScriptHashAddrID = litecoinParams.WitnessScriptHashAddrID
+	params.Bech32HRPSegwit = litecoinParams.Bech32HRPSegwit
 
-	copy(params.HDPrivateKeyID[:], litecoinTestNetParams.HDPrivateKeyID[:])
-	copy(params.HDPublicKeyID[:], litecoinTestNetParams.HDPublicKeyID[:])
+	copy(params.HDPrivateKeyID[:], litecoinParams.HDPrivateKeyID[:])
+	copy(params.HDPublicKeyID[:], litecoinParams.HDPublicKeyID[:])
 
-	params.HDCoinType = litecoinTestNetParams.HDCoinType
+	params.HDCoinType = litecoinParams.HDCoinType
 
-	checkPoints := make([]chaincfg.Checkpoint, len(litecoinTestNetParams.Checkpoints))
-	for i := 0; i < len(litecoinTestNetParams.Checkpoints); i++ {
+	checkPoints := make([]chaincfg.Checkpoint, len(litecoinParams.Checkpoints))
+	for i := 0; i < len(litecoinParams.Checkpoints); i++ {
 		var chainHash chainhash.Hash
-		copy(chainHash[:], litecoinTestNetParams.Checkpoints[i].Hash[:])
+		copy(chainHash[:], litecoinParams.Checkpoints[i].Hash[:])
 
 		checkPoints[i] = chaincfg.Checkpoint{
-			Height: litecoinTestNetParams.Checkpoints[i].Height,
+			Height: litecoinParams.Checkpoints[i].Height,
 			Hash:   &chainHash,
 		}
 	}
 	params.Checkpoints = checkPoints
 
-	params.rpcPort = litecoinTestNetParams.rpcPort
-	params.CoinType = litecoinTestNetParams.CoinType
+	params.rpcPort = litecoinParams.rpcPort
+	params.CoinType = litecoinParams.CoinType
 }

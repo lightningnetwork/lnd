@@ -37,6 +37,14 @@ var bitcoinTestNetParams = bitcoinNetParams{
 	CoinType: keychain.CoinTypeTestnet,
 }
 
+// bitcoinMainNetParams contains parameters specific to the current Bitcoin
+// mainnet.
+var bitcoinMainNetParams = bitcoinNetParams{
+	Params:   &bitcoinCfg.MainNetParams,
+	rpcPort:  "8334",
+	CoinType: keychain.CoinTypeBitcoin,
+}
+
 // bitcoinSimNetParams contains parameters specific to the simulation test
 // network.
 var bitcoinSimNetParams = bitcoinNetParams{
@@ -45,14 +53,20 @@ var bitcoinSimNetParams = bitcoinNetParams{
 	CoinType: keychain.CoinTypeTestnet,
 }
 
-// TODO(roasbeef): blacklist ipv6 local host as well
-
 // litecoinTestNetParams contains parameters specific to the 4th version of the
 // test network.
 var litecoinTestNetParams = litecoinNetParams{
 	Params:   &litecoinCfg.TestNet4Params,
 	rpcPort:  "19334",
 	CoinType: keychain.CoinTypeTestnet,
+}
+
+// litecoinMainNetParams contains the parameters specific to the current
+// Litecoin mainnet.
+var litecoinMainNetParams = litecoinNetParams{
+	Params:   &litecoinCfg.MainNetParams,
+	rpcPort:  "9334",
+	CoinType: keychain.CoinTypeLitecoin,
 }
 
 // regTestNetParams contains parameters specific to a local regtest network.

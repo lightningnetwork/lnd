@@ -1,6 +1,7 @@
 package sphinx
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -97,6 +98,13 @@ func startup(notifier bool) (ReplayLog, *mockNotifier, *HashPrefix, error) {
 	hashedSecret = hashSharedSecret(&secret)
 
 	return log, chainNotifier, hashedSecret, nil
+}
+
+// shutdown deletes the temporary directory that the test database uses
+// and handles closing the database.
+func shutdown(dir string, d ReplayLog) {
+	d.Stop()
+	os.RemoveAll(dir)
 }
 
 // TestDecayedLogGarbageCollector tests the ability of the garbage collector

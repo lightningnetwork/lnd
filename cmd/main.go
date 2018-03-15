@@ -22,12 +22,6 @@ func main() {
 
 	assocData := bytes.Repeat([]byte{'B'}, 32)
 
-	tempDir, err := ioutil.TempDir("", "onion-test")
-	defer os.Remove(tempDir)
-	if err != nil {
-		panic(err)
-	}
-
 	if len(args) == 1 {
 		fmt.Printf("Usage: %s (generate|decode) <private-keys>\n", args[0])
 	} else if args[1] == "generate" {
@@ -85,7 +79,8 @@ func main() {
 		}
 
 		privkey, _ := btcec.PrivKeyFromBytes(btcec.S256(), binKey)
-		s := sphinx.NewRouter(tempDir, privkey, &chaincfg.TestNet3Params, nil)
+		s := sphinx.NewRouter(privkey, &chaincfg.TestNet3Params,
+			sphinx.NewMemoryReplayLog())
 
 		var packet sphinx.OnionPacket
 		err = packet.Decode(bytes.NewBuffer(binMsg))

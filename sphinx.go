@@ -11,7 +11,6 @@ import (
 	"math/big"
 
 	"github.com/aead/chacha20"
-	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcutil"
@@ -631,8 +630,8 @@ type Router struct {
 
 // NewRouter creates a new instance of a Sphinx onion Router given the node's
 // currently advertised onion private key, and the target Bitcoin network.
-func NewRouter(dbPath string, nodeKey *btcec.PrivateKey, net *chaincfg.Params,
-	chainNotifier chainntnfs.ChainNotifier) *Router {
+func NewRouter(nodeKey *btcec.PrivateKey, net *chaincfg.Params, log ReplayLog,
+) *Router {
 	var nodeID [addressSize]byte
 	copy(nodeID[:], btcutil.Hash160(nodeKey.PubKey().SerializeCompressed()))
 
@@ -650,19 +649,17 @@ func NewRouter(dbPath string, nodeKey *btcec.PrivateKey, net *chaincfg.Params,
 			},
 			D: nodeKey.D,
 		},
-		// TODO(roasbeef): replace instead with bloom filter?
-		// * https://moderncrypto.org/mail-archive/messaging/2015/001911.html
-		log: NewDecayedLog(dbPath, chainNotifier),
+		log: log,
 	}
 }
 
-// Start starts / opens the DecayedLog's channeldb and its accompanying
+// Start starts / opens the ReplayLog's channeldb and its accompanying
 // garbage collector goroutine.
 func (r *Router) Start() error {
 	return r.log.Start()
 }
 
-// Stop stops / closes the DecayedLog's channeldb and its accompanying
+// Stop stops / closes the ReplayLog's channeldb and its accompanying
 // garbage collector goroutine.
 func (r *Router) Stop() {
 	r.log.Stop()

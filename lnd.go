@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/pprof"
+	"strings"
 	"sync"
 	"time"
 
@@ -104,6 +105,26 @@ func lndMain() error {
 
 	// Show version at startup.
 	ltndLog.Infof("Version %s", version())
+
+	var network string
+	switch {
+	case cfg.Bitcoin.TestNet3 || cfg.Litecoin.TestNet3:
+		network = "testnet"
+
+	case cfg.Bitcoin.MainNet || cfg.Litecoin.MainNet:
+		network = "mainnet"
+
+	case cfg.Bitcoin.SimNet:
+		network = "simmnet"
+
+	case cfg.Bitcoin.RegTest:
+		network = "regtest"
+	}
+
+	ltndLog.Infof("Active chain: %v (network=%v)",
+		strings.Title(registeredChains.PrimaryChain().String()),
+		network,
+	)
 
 	// Enable http profiling server if requested.
 	if cfg.Profile != "" {

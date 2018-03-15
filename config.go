@@ -82,6 +82,7 @@ type chainConfig struct {
 
 	Node string `long:"node" description:"The blockchain interface to use." choice:"btcd" choice:"bitcoind" choice:"neutrino" choice:"ltcd" choice:"litecoind"`
 
+	MainNet  bool `long:"mainnet" description:"Use the main network"`
 	TestNet3 bool `long:"testnet" description:"Use the test network"`
 	SimNet   bool `long:"simnet" description:"Use the simulation test network"`
 	RegTest  bool `long:"regtest" description:"Use the regression test network"`
@@ -405,13 +406,41 @@ func loadConfig() (*config, error) {
 				minTimeLockDelta)
 		}
 
+		// Multiple networks can't be selected simultaneously.  Count
+		// number of network flags passed; assign active network params
+		// while we're at it.
+		numNets := 0
+		var ltcParams litecoinNetParams
+		if cfg.Litecoin.MainNet {
+			numNets++
+			ltcParams = litecoinMainNetParams
+		}
+		if cfg.Litecoin.TestNet3 {
+			numNets++
+			ltcParams = litecoinTestNetParams
+		}
+		if numNets > 1 {
+			str := "%s: The mainnet, testnet, and simnet params " +
+				"can't be used together -- choose one of the " +
+				"three"
+			err := fmt.Errorf(str, funcName)
+			return nil, err
+		}
+
+		// The target network must be provided, otherwise, we won't
+		// know how to initialize the daemon.
+		if numNets == 0 {
+			str := "%s: either --litecoin.mainnet, or " +
+				"litecoin.testnet must be specified"
+			err := fmt.Errorf(str, funcName)
+			return nil, err
+		}
+
 		// The litecoin chain is the current active chain. However
 		// throughout the codebase we required chaincfg.Params. So as a
 		// temporary hack, we'll mutate the default net params for
 		// bitcoin with the litecoin specific information.
-		paramCopy := bitcoinTestNetParams
-		applyLitecoinParams(&paramCopy)
-		activeNetParams = paramCopy
+		applyLitecoinParams(&activeNetParams, &ltcParams)
 
 		switch cfg.Litecoin.Node {
 		case "ltcd":
@@ -453,6 +482,10 @@ func loadConfig() (*config, error) {
 		// number of network flags passed; assign active network params
 		// while we're at it.
 		numNets := 0
+		if cfg.Bitcoin.MainNet {
+			numNets++
+			activeNetParams = bitcoinMainNetParams
+		}
 		if cfg.Bitcoin.TestNet3 {
 			numNets++
 			activeNetParams = bitcoinTestNetParams
@@ -466,8 +499,26 @@ func loadConfig() (*config, error) {
 			activeNetParams = bitcoinSimNetParams
 		}
 		if numNets > 1 {
-			str := "%s: The testnet, segnet, and simnet params can't be " +
-				"used together -- choose one of the three"
+			str := "%s: The mainnet, testnet, regtest, and " +
+				"simnet params can't be used together -- " +
+				"choose one of the four"
+			err := fmt.Errorf(str, funcName)
+			return nil, err
+		}
+
+		// The target network must be provided, otherwise, we won't
+		// know how to initialize the daemon.
+		if numNets == 0 {
+			str := "%s: either --bitcoin.mainnet, or " +
+				"bitcoin.testnet, bitcoin.simnet, or bitcoin.regtest " +
+				"must be specified"
+			err := fmt.Errorf(str, funcName)
+			return nil, err
+		}
+
+		if cfg.Bitcoin.Node == "neutrino" && cfg.Bitcoin.MainNet {
+			str := "%s: neutrino isn't yet supported for " +
+				"bitcoin's mainnet"
 			err := fmt.Errorf(str, funcName)
 			return nil, err
 		}
@@ -479,8 +530,9 @@ func loadConfig() (*config, error) {
 
 		switch cfg.Bitcoin.Node {
 		case "btcd":
-			err := parseRPCParams(cfg.Bitcoin, cfg.BtcdMode,
-				bitcoinChain, funcName)
+			err := parseRPCParams(
+				cfg.Bitcoin, cfg.BtcdMode, bitcoinChain, funcName,
+			)
 			if err != nil {
 				err := fmt.Errorf("unable to load RPC "+
 					"credentials for btcd: %v", err)
@@ -491,8 +543,10 @@ func loadConfig() (*config, error) {
 				return nil, fmt.Errorf("%s: bitcoind does not "+
 					"support simnet", funcName)
 			}
-			err := parseRPCParams(cfg.Bitcoin, cfg.BitcoindMode,
-				bitcoinChain, funcName)
+
+			err := parseRPCParams(
+				cfg.Bitcoin, cfg.BitcoindMode, bitcoinChain, funcName,
+			)
 			if err != nil {
 				err := fmt.Errorf("unable to load RPC "+
 					"credentials for bitcoind: %v", err)
@@ -997,7 +1051,7 @@ func normalizeAddresses(addrs []string, defaultPort string) []string {
 // interface.
 func enforceSafeAuthentication(addrs []string, macaroonsActive bool) error {
 	isLoopback := func(addr string) bool {
-		loopBackAddrs := []string{"localhost", "127.0.0.1"}
+		loopBackAddrs := []string{"localhost", "127.0.0.1", "[::1]"}
 		for _, loopback := range loopBackAddrs {
 			if strings.Contains(addr, loopback) {
 				return true

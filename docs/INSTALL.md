@@ -16,7 +16,7 @@
     ```
     sudo apt-get install golang-1.10-go
     ```
-    > Note that golang-1.10-go puts binaries in /usr/lib/go-1.8/bin. If you want them on your PATH, you need to make that change yourself.
+    > Note that golang-1.10-go puts binaries in /usr/lib/go-1.10/bin. If you want them on your PATH, you need to make that change yourself.
 
     On Mac OS X
     ```

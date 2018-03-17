@@ -146,6 +146,7 @@ type config struct {
 	TLSCertPath  string `long:"tlscertpath" description:"Path to write the TLS certificate for lnd's RPC and REST services"`
 	TLSKeyPath   string `long:"tlskeypath" description:"Path to write the TLS private key for lnd's RPC and REST services"`
 	TLSExtraIP   string `long:"tlsextraip" description:"Adds an extra ip to the generated certificate"`
+	TLSExtraDomain string `long:"tlsextradomain" description:"Adds an extra domain to the generated certificate"`
 	NoMacaroons  bool   `long:"no-macaroons" description:"Disable macaroon authentication"`
 	AdminMacPath string `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
 	ReadMacPath  string `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`

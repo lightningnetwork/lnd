@@ -701,17 +701,12 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 			"channel size is: %v", maxFundingAmount)
 	}
 
-	const minChannelSize = btcutil.Amount(6000)
-
-	// Restrict the size of the channel we'll actually open. Atm, we
-	// require the amount to be above 6k satoshis we currently hard-coded
-	// a 5k satoshi fee in several areas. As a result 6k sat is the min
-	// channel size that allows us to safely sit above the dust threshold
-	// after fees are applied
-	// TODO(roasbeef): remove after dynamic fees are in
-	if localFundingAmt < minChannelSize {
+	// Restrict the size of the channel we'll actually open. At a later
+	// level, we'll ensure that the output we create after accounting for
+	// fees that a dust output isn't created.
+	if localFundingAmt < minChanFundingSize {
 		return fmt.Errorf("channel is too small, the minimum channel "+
-			"size is: %v (6k sat)", minChannelSize)
+			"size is: %v SAT", int64(minChanFundingSize))
 	}
 
 	var (
@@ -862,6 +857,14 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	if remoteInitialBalance >= localFundingAmt {
 		return nil, fmt.Errorf("amount pushed to remote peer for " +
 			"initial state must be below the local funding amount")
+	}
+
+	// Restrict the size of the channel we'll actually open. At a later
+	// level, we'll ensure that the output we create after accounting for
+	// fees that a dust output isn't created.
+	if localFundingAmt < minChanFundingSize {
+		return nil, fmt.Errorf("channel is too small, the minimum channel "+
+			"size is: %v SAT", int64(minChanFundingSize))
 	}
 
 	// Based on the passed fee related parameters, we'll determine an

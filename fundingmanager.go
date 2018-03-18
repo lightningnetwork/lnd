@@ -60,6 +60,10 @@ const (
 	// for the funding transaction to be confirmed before forgetting about
 	// the channel. 288 blocks is ~48 hrs
 	maxWaitNumBlocksFundingConf = 288
+
+	// minChanFundingSize is the smallest channel that we'll allow to be
+	// created over the RPC interface.
+	minChanFundingSize = btcutil.Amount(20000)
 )
 
 // reservationWithCtx encapsulates a pending channel reservation. This wrapper

@@ -976,7 +976,7 @@ func extractBtcdRPCParams(btcdConfigPath string) (string, string, error) {
 	// Attempt to locate the RPC user using a regular expression. If we
 	// don't have a match for our regular expression then we'll exit with
 	// an error.
-	rpcUserRegexp, err := regexp.Compile(`(?m)^\s*rpcuser=([^\s]+)`)
+	rpcUserRegexp, err := regexp.Compile(`(?m)^\s*rpcuser\s*=\s*([^\s]+)`)
 	if err != nil {
 		return "", "", err
 	}
@@ -988,7 +988,7 @@ func extractBtcdRPCParams(btcdConfigPath string) (string, string, error) {
 	// Similarly, we'll use another regular expression to find the set
 	// rpcpass (if any). If we can't find the pass, then we'll exit with an
 	// error.
-	rpcPassRegexp, err := regexp.Compile(`(?m)^\s*rpcpass=([^\s]+)`)
+	rpcPassRegexp, err := regexp.Compile(`(?m)^\s*rpcpass\s*=\s*([^\s]+)`)
 	if err != nil {
 		return "", "", err
 	}
@@ -1024,7 +1024,7 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 
 	// First, we look for the ZMQ path for raw blocks. If raw transactions
 	// are sent over this interface, we can also get unconfirmed txs.
-	zmqPathRE, err := regexp.Compile(`(?m)^\s*zmqpubrawblock=([^\s]+)`)
+	zmqPathRE, err := regexp.Compile(`(?m)^\s*zmqpubrawblock\s*=\s*([^\s]+)`)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -1036,7 +1036,7 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 	// Next, we'll try to find an auth cookie. We need to detect the chain
 	// by seeing if one is specified in the configuration file.
 	dataDir := path.Dir(bitcoindConfigPath)
-	dataDirRE, err := regexp.Compile(`(?m)^\s*datadir=([^\s]+)`)
+	dataDirRE, err := regexp.Compile(`(?m)^\s*datadir\s*=\s*([^\s]+)`)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -1067,7 +1067,7 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 	// We didn't find a cookie, so we attempt to locate the RPC user using
 	// a regular expression. If we  don't have a match for our regular
 	// expression then we'll exit with an error.
-	rpcUserRegexp, err := regexp.Compile(`(?m)^\s*rpcuser=([^\s]+)`)
+	rpcUserRegexp, err := regexp.Compile(`(?m)^\s*rpcuser\s*=\s*([^\s]+)`)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -1079,7 +1079,7 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 	// Similarly, we'll use another regular expression to find the set
 	// rpcpass (if any). If we can't find the pass, then we'll exit with an
 	// error.
-	rpcPassRegexp, err := regexp.Compile(`(?m)^\s*rpcpassword=([^\s]+)`)
+	rpcPassRegexp, err := regexp.Compile(`(?m)^\s*rpcpassword\s*=\s*([^\s]+)`)
 	if err != nil {
 		return "", "", "", err
 	}

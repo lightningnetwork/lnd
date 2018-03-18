@@ -1099,7 +1099,13 @@ func normalizeAddresses(addrs []string, defaultPort string) []string {
 	seen := map[string]struct{}{}
 	for _, addr := range addrs {
 		if _, _, err := net.SplitHostPort(addr); err != nil {
-			addr = net.JoinHostPort(addr, defaultPort)
+			// If the address is an integer, then we assume it is *only* a
+			// port and default to binding to that port on localhost
+			if _, err := strconv.Atoi(addr); err == nil {
+				addr = net.JoinHostPort("localhost", addr)
+			} else {
+				addr = net.JoinHostPort(addr, defaultPort)
+			}
 		}
 		if _, ok := seen[addr]; !ok {
 			result = append(result, addr)

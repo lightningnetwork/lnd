@@ -1865,7 +1865,7 @@ func (s *Switch) UpdateShortChanID(chanID lnwire.ChannelID,
 func (s *Switch) updateShortChanID(chanID lnwire.ChannelID,
 	shortChanID lnwire.ShortChannelID) error {
 
-	// First, we'll extract the current link as is from the link link
+	// First, we'll extract the current link as is from the link 
 	// index. If the link isn't even in the index, then we'll return an
 	// error.
 	link, ok := s.linkIndex[chanID]

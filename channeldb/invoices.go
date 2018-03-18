@@ -45,7 +45,7 @@ const (
 	// within the database along side incoming/outgoing invoices.
 	MaxReceiptSize = 1024
 
-	// MaxPaymentRequestSize is the max size of a a payment request for
+	// MaxPaymentRequestSize is the max size of a payment request for
 	// this invoice.
 	// TODO(halseth): determine the max length payment request when field
 	// lengths are final.

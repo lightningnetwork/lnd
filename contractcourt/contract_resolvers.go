@@ -719,7 +719,7 @@ var _ ContractResolver = (*htlcSuccessResolver)(nil)
 // htlcOutgoingContestResolver is a ContractResolver that's able to resolve an
 // outgoing HTLC that is still contested. An HTLC is still contested, if at the
 // time that we broadcast the commitment transaction, it isn't able to be fully
-// resolved. This this case, we'll either wait for the HTLC to timeout, or for
+// resolved. In this case, we'll either wait for the HTLC to timeout, or for
 // us to learn of the preimage.
 type htlcOutgoingContestResolver struct {
 	// htlcTimeoutResolver is the inner solver that this resolver may turn

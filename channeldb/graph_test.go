@@ -311,7 +311,7 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 		t.Fatalf("unable to create test node: %v", err)
 	}
 
-	// In in addition to the fake vertexes we create some fake channel
+	// In addition to the fake vertexes we create some fake channel
 	// identifiers.
 	chanID := uint64(prand.Int63())
 	outpoint := wire.OutPoint{
@@ -636,7 +636,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 		secondNode = node1
 	}
 
-	// In in addition to the fake vertexes we create some fake channel
+	// In addition to the fake vertexes we create some fake channel
 	// identifiers.
 	chanID := uint64(prand.Int63())
 	outpoint := wire.OutPoint{
@@ -880,7 +880,7 @@ func TestGraphTraversal(t *testing.T) {
 	}
 
 	// Iterate through all the known channels within the graph DB, once
-	// again if the map is empty that that indicates that all edges have
+	// again if the map is empty that indicates that all edges have
 	// properly been reached.
 	err = graph.ForEachChannel(func(ei *ChannelEdgeInfo, _ *ChannelEdgePolicy,
 		_ *ChannelEdgePolicy) error {
@@ -901,7 +901,7 @@ func TestGraphTraversal(t *testing.T) {
 	err = firstNode.ForEachChannel(nil, func(_ *bolt.Tx, _ *ChannelEdgeInfo,
 		outEdge, inEdge *ChannelEdgePolicy) error {
 
-		// Each each should indicate that it's outgoing (pointed
+		// Each should indicate that it's outgoing (pointed
 		// towards the second node).
 		if !bytes.Equal(outEdge.Node.PubKeyBytes[:], secondNode.PubKeyBytes[:]) {
 			return fmt.Errorf("wrong outgoing edge")

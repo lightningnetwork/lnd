@@ -734,7 +734,7 @@ func TestCircuitMapCommitCircuits(t *testing.T) {
 	// Finally, restart the circuit map, which will cause the added circuit
 	// to be loaded from disk. Since the keystone was never set, subsequent
 	// attempts to commit the circuit should cause the circuit map to
-	// indicate that that the HTLC should be failed back.
+	// indicate that the HTLC should be failed back.
 	cfg, circuitMap = restartCircuitMap(t, cfg)
 
 	actions, err = circuitMap.CommitCircuits(circuit)
@@ -1055,7 +1055,7 @@ func TestCircuitMapTrimOpenCircuits(t *testing.T) {
 		firstTrimIndex,
 	)
 
-	// Restart the circuit map, verify that that the trim is reflected on
+	// Restart the circuit map, verify that the trim is reflected on
 	// startup.
 	cfg, circuitMap = restartCircuitMap(t, cfg)
 

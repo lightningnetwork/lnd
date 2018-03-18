@@ -910,8 +910,8 @@ func (u *utxoNursery) graduateClass(classHeight uint32) error {
 	return u.cfg.Store.GraduateHeight(classHeight)
 }
 
-// craftSweepTx accepts accepts a list of kindergarten outputs, and baby
-// outputs which don't required a second-layer claim, and signs and generates a
+// craftSweepTx accepts a list of kindergarten outputs, and baby
+// outputs which don't require a second-layer claim, and signs and generates a
 // signed txn that spends from them. This method also makes an accurate fee
 // estimate before generating the required witnesses.
 func (u *utxoNursery) createSweepTx(kgtnOutputs []kidOutput,

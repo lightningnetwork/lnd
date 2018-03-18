@@ -175,7 +175,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	}
 
 	// In order to test the final scenario, we modify the TxIn of the sweep
-	// transaction to instead point to to the regular output (non delay)
+	// transaction to instead point to the regular output (non delay)
 	// within the commitment transaction.
 	sweepTx.TxIn[0] = &wire.TxIn{
 		PreviousOutPoint: wire.OutPoint{

@@ -11,7 +11,7 @@ type PongPayload []byte
 // Pong message.
 type Pong struct {
 	// PongBytes is a set of opaque bytes that corresponds to the
-	// NumPongBytes defined in the ping message that this this pong is
+	// NumPongBytes defined in the ping message that this pong is
 	// replying to.
 	PongBytes PongPayload
 }

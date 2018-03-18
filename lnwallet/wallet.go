@@ -1366,7 +1366,7 @@ func initStateHints(commit1, commit2 *wire.MsgTx,
 }
 
 // selectInputs selects a slice of inputs necessary to meet the specified
-// selection amount. If input selection is unable to succeed to to insufficient
+// selection amount. If input selection is unable to succeed due to insufficient
 // funds, a non-nil error is returned. Additionally, the total amount of the
 // selected coins are returned in order for the caller to properly handle
 // change+fees.

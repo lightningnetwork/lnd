@@ -196,7 +196,7 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 		ChanPoint:   chanPoint,
 		ShortChanID: channel.ShortChanID,
 		BlockEpochs: blockEpoch,
-		ForceCloseChan: func() (*lnwallet.ForceCloseSummary, error) {
+		ForceCloseChan: func() (*lnwallet.LocalForceCloseSummary, error) {
 			// With the channels fetched, attempt to locate
 			// the target channel according to its channel
 			// point.

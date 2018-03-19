@@ -167,7 +167,7 @@ service Lightning {
     GetTransactions returns a list describing all the known transactions
     relevant to the wallet.
     */
-    rpc GetTransactions (GetTransactionsRequest) returns (TransactionDetails) {
+    rpc GetTransactions (GetTransactionsRequest) returns (GetTransactionsResponse) {
         option (google.api.http) = {
             get: "/v1/transactions"
         };
@@ -303,7 +303,7 @@ service Lightning {
     other sync calls, all byte slices are intended to be populated as hex
     encoded strings.
     */
-    rpc OpenChannelSync (OpenChannelRequest) returns (ChannelPoint) {
+    rpc OpenChannelSync (OpenChannelRequest) returns (OpenChannelResponse) {
         option (google.api.http) = {
             post: "/v1/channels"
             body: "*"
@@ -340,7 +340,7 @@ service Lightning {
     bi-directional stream allowing clients to rapidly send payments through the
     Lightning Network with a single persistent connection.
     */
-    rpc SendPayment (stream SendRequest) returns (stream SendResponse);
+    rpc SendPayment (stream SendPaymentRequest) returns (stream SendPaymentResponse);
 
     /**
     SendPaymentSync is the synchronous non-streaming version of SendPayment.
@@ -348,7 +348,7 @@ service Lightning {
     Additionally, this RPC expects the destination's public key and the payment
     hash (if any) to be encoded as hex strings.
     */
-    rpc SendPaymentSync (SendRequest) returns (SendResponse) {
+    rpc SendPaymentSync (SendPaymentRequest) returns (SendPaymentResponse) {
         option (google.api.http) = {
             post: "/v1/channels/transactions"
             body: "*"
@@ -360,7 +360,7 @@ service Lightning {
     duplicated invoices are rejected, therefore all invoices *must* have a
     unique payment preimage.
     */
-    rpc AddInvoice (Invoice) returns (AddInvoiceResponse) {
+    rpc AddInvoice (AddInvoiceRequest) returns (AddInvoiceResponse) {
         option (google.api.http) = {
             post: "/v1/invoices"
             body: "*"
@@ -371,7 +371,7 @@ service Lightning {
     ListInvoices returns a list of all the invoices currently stored within the
     database. Any active debug invoices are ignored.
     */
-    rpc ListInvoices (ListInvoiceRequest) returns (ListInvoiceResponse) {
+    rpc ListInvoices (ListInvoicesRequest) returns (ListInvoicesResponse) {
         option (google.api.http) = {
             get: "/v1/invoices"
         };
@@ -382,7 +382,7 @@ service Lightning {
     The passed payment hash *must* be exactly 32 bytes, if not, an error is
     returned.
     */
-    rpc LookupInvoice (PaymentHash) returns (Invoice) {
+    rpc LookupInvoice (LookupInvoiceRequest) returns (LookupInvoiceResponse) {
         option (google.api.http) = {
             get: "/v1/invoice/{r_hash_str}"
         };
@@ -403,7 +403,7 @@ service Lightning {
     it, returning a full description of the conditions encoded within the
     payment request.
     */
-    rpc DecodePayReq (PayReqString) returns (PayReq) {
+    rpc DecodePayReq (DecodePayReqRequest) returns (DecodePayReqResponse) {
         option (google.api.http) = {
             get: "/v1/payreq/{pay_req}"
         };
@@ -435,7 +435,7 @@ service Lightning {
     the node directional specific routing policy which includes: the time lock
     delta, fee information, etc.
     */
-    rpc DescribeGraph (ChannelGraphRequest) returns (ChannelGraph) {
+    rpc DescribeGraph (DescribeGraphRequest) returns (DescribeGraphResponse) {
         option (google.api.http) = {
             get: "/v1/graph"
         };
@@ -447,7 +447,7 @@ service Lightning {
     uniquely identifies the location of transaction's funding output within the
     blockchain.
     */
-    rpc GetChanInfo (ChanInfoRequest) returns (ChannelEdge) {
+    rpc GetChanInfo (GetChanInfoRequest) returns (GetChanInfoResponse) {
         option (google.api.http) = {
             get: "/v1/graph/edge/{chan_id}"
         };
@@ -457,7 +457,7 @@ service Lightning {
     GetNodeInfo returns the latest advertised, aggregated, and authenticated
     channel information for the specified node identified by its public key.
     */
-    rpc GetNodeInfo (NodeInfoRequest) returns (NodeInfo) {
+    rpc GetNodeInfo (GetNodeInfoRequest) returns (GetNodeInfoResponse) {
         option (google.api.http) = {
             get: "/v1/graph/node/{pub_key}"
         };
@@ -480,7 +480,7 @@ service Lightning {
     GetNetworkInfo returns some basic stats about the known channel graph from
     the point of view of the node.
     */
-    rpc GetNetworkInfo (NetworkInfoRequest) returns (NetworkInfo) {
+    rpc GetNetworkInfo (GetNetworkInfoRequest) returns (GetNetworkInfoResponse) {
         option (google.api.http) = {
             get: "/v1/graph/info"
         };
@@ -490,7 +490,7 @@ service Lightning {
     StopDaemon will send a shutdown request to the interrupt handler, triggering
     a graceful shutdown of the daemon.
     */
-    rpc StopDaemon(StopRequest) returns (StopResponse);
+    rpc StopDaemon(StopDaemonRequest) returns (StopDaemonResponse);
 
     /**
     SubscribeChannelGraph launches a streaming RPC that allows the caller to
@@ -524,7 +524,7 @@ service Lightning {
     UpdateChannelPolicy allows the caller to update the fee schedule and
     channel policies for all channels globally, or a particular channel.
     */
-    rpc UpdateChannelPolicy(PolicyUpdateRequest) returns (PolicyUpdateResponse) {
+    rpc UpdateChannelPolicy(UpdateChannelPolicyRequest) returns (UpdateChannelPolicyResponse) {
         option (google.api.http) = {
             post: "/v1/chanpolicy"
             body: "*"
@@ -578,12 +578,12 @@ message Transaction {
 }
 message GetTransactionsRequest {
 }
-message TransactionDetails {
+message GetTransactionsResponse {
     /// The list of transactions relevant to the wallet.
     repeated Transaction transactions = 1 [json_name = "transactions"];
 }
 
-message SendRequest {
+message SendPaymentRequest {
     /// The identity pubkey of the payment recipient
     bytes dest = 1;
 
@@ -609,7 +609,7 @@ message SendRequest {
     /// The CLTV delta from the current height that should be used to set the timelock for the final hop.
     int32 final_cltv_delta = 7;
 }
-message SendResponse {
+message SendPaymentResponse {
     string payment_error = 1 [json_name = "payment_error"];
     bytes payment_preimage = 2 [json_name = "payment_preimage"];
     Route payment_route = 3 [json_name = "payment_route"];
@@ -984,6 +984,9 @@ message OpenStatusUpdate {
         ChannelOpenUpdate chan_open = 3 [json_name = "chan_open"];
     }
 }
+message OpenChannelResponse {
+	ChannelPoint channel_point = 1 [json_name = "channel_point"];
+}
 
 message PendingHTLC {
 
@@ -1182,12 +1185,12 @@ message Route {
     repeated Hop hops = 4 [json_name = "hops"];
 }
 
-message NodeInfoRequest {
+message GetNodeInfoRequest {
     /// The 33-byte hex-encoded compressed public of the target node 
     string pub_key = 1;
 }
 
-message NodeInfo {
+message GetNodeInfoResponse {
 
     /**
     An individual vertex/node within the channel graph. A node is
@@ -1255,11 +1258,11 @@ message ChannelEdge {
     RoutingPolicy node2_policy = 8 [json_name = "node2_policy"];
 }
 
-message ChannelGraphRequest {
+message DescribeGraphRequest {
 }
 
 /// Returns a new instance of the directed channel graph.
-message ChannelGraph {
+message DescribeGraphResponse {
     /// The list of `LightningNode`s in this channel graph
     repeated LightningNode nodes = 1 [json_name = "nodes"];
 
@@ -1267,7 +1270,7 @@ message ChannelGraph {
     repeated ChannelEdge edges = 2 [json_name = "edges"];
 }
 
-message ChanInfoRequest {
+message GetChanInfoRequest {
     /**
     The unique channel ID for the channel. The first 3 bytes are the block
     height, the next 3 the index within the block, and the last 2 bytes are the
@@ -1275,10 +1278,13 @@ message ChanInfoRequest {
     */
     uint64 chan_id = 1;
 }
-
-message NetworkInfoRequest {
+message GetChanInfoResponse {
+	ChannelEdge channel_edge = 1 [json_name = "channel_edge"];
 }
-message NetworkInfo {
+
+message GetNetworkInfoRequest {
+}
+message GetNetworkInfoResponse {
     uint32 graph_diameter = 1 [json_name = "graph_diameter"];
     double avg_out_degree = 2 [json_name = "avg_out_degree"];
     uint32 max_out_degree = 3 [json_name = "max_out_degree"];
@@ -1296,8 +1302,8 @@ message NetworkInfo {
     //  * also additional RPC for tracking fee info once in
 }
 
-message StopRequest{}
-message StopResponse{}
+message StopDaemonRequest{}
+message StopDaemonResponse{}
 
 message GraphTopologySubscription {}
 message GraphTopologyUpdate {
@@ -1396,6 +1402,10 @@ message Invoice {
     /// Delta to use for the time-lock of the CLTV extended to the final hop.
     uint64 cltv_expiry = 13 [json_name = "cltv_expiry"];
 }
+
+message AddInvoiceRequest {
+	Invoice invoice = 1 [json_name = "invoice"];
+}
 message AddInvoiceResponse {
     bytes r_hash = 1 [json_name = "r_hash"];
 
@@ -1406,7 +1416,7 @@ message AddInvoiceResponse {
     */
     string payment_request = 2 [json_name = "payment_request"];
 }
-message PaymentHash {
+message LookupInvoiceRequest {
     /**
     The hex-encoded payment hash of the invoice to be looked up. The passed
     payment hash must be exactly 32 bytes, otherwise an error is returned.
@@ -1416,11 +1426,14 @@ message PaymentHash {
     /// The payment hash of the invoice to be looked up.
     bytes r_hash = 2 [json_name = "r_hash"];
 }
-message ListInvoiceRequest {
+message LookupInvoiceResponse {
+	Invoice invoice = 1 [json_name = "invoice"];
+}
+message ListInvoicesRequest {
     /// Toggles if all invoices should be returned, or only those that are currently unsettled.
     bool pending_only = 1;
 }
-message ListInvoiceResponse {
+message ListInvoicesResponse {
     repeated Invoice invoices = 1 [json_name = "invoices"];
 }
 
@@ -1470,11 +1483,11 @@ message DebugLevelResponse {
     string sub_systems = 1 [json_name = "sub_systems"];
 }
 
-message PayReqString {
+message DecodePayReqRequest {
     /// The payment request string to be decoded
     string pay_req = 1;
 }
-message PayReq {
+message DecodePayReqResponse {
     string destination = 1 [json_name = "destination"];
     string payment_hash = 2 [json_name = "payment_hash"];
     int64 num_satoshis = 3 [json_name = "num_satoshis"];
@@ -1514,7 +1527,7 @@ message FeeReportResponse {
     uint64 month_fee_sum = 4 [json_name = "month_fee_sum"];
 }
 
-message PolicyUpdateRequest {
+message UpdateChannelPolicyRequest {
     oneof scope {
         /// If set, then this update applies to all currently active channels.
         bool global = 1 [json_name = "global"] ;
@@ -1532,7 +1545,7 @@ message PolicyUpdateRequest {
     /// The required timelock delta for HTLCs forwarded over the channel.
     uint32 time_lock_delta = 5 [json_name = "time_lock_delta"];
 }
-message PolicyUpdateResponse {
+message UpdateChannelPolicyResponse {
 }
 
 message ForwardingHistoryRequest {

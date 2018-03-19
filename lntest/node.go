@@ -418,7 +418,7 @@ func (hn *HarnessNode) stop() error {
 	if hn.LightningClient != nil {
 		// Don't watch for error because sometimes the RPC connection gets
 		// closed before a response is returned.
-		req := lnrpc.StopRequest{}
+		req := lnrpc.StopDaemonRequest{}
 		ctx := context.Background()
 		hn.LightningClient.StopDaemon(ctx, &req)
 	}

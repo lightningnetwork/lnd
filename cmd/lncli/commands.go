@@ -1472,9 +1472,9 @@ func sendPayment(ctx *cli.Context) error {
 		return nil
 	}
 
-	var req *lnrpc.SendRequest
+	var req *lnrpc.SendPaymentRequest
 	if ctx.IsSet("pay_req") {
-		req = &lnrpc.SendRequest{
+		req = &lnrpc.SendPaymentRequest{
 			PaymentRequest: ctx.String("pay_req"),
 			Amt:            ctx.Int64("amt"),
 		}
@@ -1515,7 +1515,7 @@ func sendPayment(ctx *cli.Context) error {
 			}
 		}
 
-		req = &lnrpc.SendRequest{
+		req = &lnrpc.SendPaymentRequest{
 			Dest: destNode,
 			Amt:  amount,
 		}
@@ -1559,7 +1559,7 @@ func sendPayment(ctx *cli.Context) error {
 	return sendPaymentRequest(ctx, req)
 }
 
-func sendPaymentRequest(ctx *cli.Context, req *lnrpc.SendRequest) error {
+func sendPaymentRequest(ctx *cli.Context, req *lnrpc.SendPaymentRequest) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -1624,7 +1624,7 @@ func payInvoice(ctx *cli.Context) error {
 		return fmt.Errorf("pay_req argument missing")
 	}
 
-	req := &lnrpc.SendRequest{
+	req := &lnrpc.SendPaymentRequest{
 		PaymentRequest: payReq,
 		Amt:            ctx.Int64("amt"),
 	}
@@ -1732,17 +1732,19 @@ func addInvoice(ctx *cli.Context) error {
 		return fmt.Errorf("unable to parse receipt: %v", err)
 	}
 
-	invoice := &lnrpc.Invoice{
-		Memo:            ctx.String("memo"),
-		Receipt:         receipt,
-		RPreimage:       preimage,
-		Value:           amt,
-		DescriptionHash: descHash,
-		FallbackAddr:    ctx.String("fallback_addr"),
-		Expiry:          ctx.Int64("expiry"),
+	req := &lnrpc.AddInvoiceRequest{
+		Invoice: &lnrpc.Invoice{
+			Memo:            ctx.String("memo"),
+			Receipt:         receipt,
+			RPreimage:       preimage,
+			Value:           amt,
+			DescriptionHash: descHash,
+			FallbackAddr:    ctx.String("fallback_addr"),
+			Expiry:          ctx.Int64("expiry"),
+		},
 	}
 
-	resp, err := client.AddInvoice(context.Background(), invoice)
+	resp, err := client.AddInvoice(context.Background(), req)
 	if err != nil {
 		return err
 	}
@@ -1794,7 +1796,7 @@ func lookupInvoice(ctx *cli.Context) error {
 		return fmt.Errorf("unable to decode rhash argument: %v", err)
 	}
 
-	req := &lnrpc.PaymentHash{
+	req := &lnrpc.LookupInvoiceRequest{
 		RHash: rHash,
 	}
 
@@ -1830,7 +1832,7 @@ func listInvoices(ctx *cli.Context) error {
 		pendingOnly = false
 	}
 
-	req := &lnrpc.ListInvoiceRequest{
+	req := &lnrpc.ListInvoicesRequest{
 		PendingOnly: pendingOnly,
 	}
 
@@ -1862,7 +1864,7 @@ func describeGraph(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	req := &lnrpc.ChannelGraphRequest{}
+	req := &lnrpc.DescribeGraphRequest{}
 
 	graph, err := client.DescribeGraph(context.Background(), req)
 	if err != nil {
@@ -1910,7 +1912,7 @@ func normalizeFunc(edges []*lnrpc.ChannelEdge, scaleFactor float64) func(int64) 
 	}
 }
 
-func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
+func drawChannelGraph(graph *lnrpc.DescribeGraphResponse) error {
 	// First we'll create a temporary file that we'll write the compiled
 	// string that describes our graph in the dot format to.
 	tempDotFile, err := ioutil.TempFile("", "")
@@ -2094,7 +2096,7 @@ func getChanInfo(ctx *cli.Context) error {
 		return fmt.Errorf("chan_id argument missing")
 	}
 
-	req := &lnrpc.ChanInfoRequest{
+	req := &lnrpc.GetChanInfoRequest{
 		ChanId: uint64(chanID),
 	}
 
@@ -2139,7 +2141,7 @@ func getNodeInfo(ctx *cli.Context) error {
 		return fmt.Errorf("pub_key argument missing")
 	}
 
-	req := &lnrpc.NodeInfoRequest{
+	req := &lnrpc.GetNodeInfoRequest{
 		PubKey: pubKey,
 	}
 
@@ -2239,7 +2241,7 @@ func getNetworkInfo(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	req := &lnrpc.NetworkInfoRequest{}
+	req := &lnrpc.GetNetworkInfoRequest{}
 
 	netInfo, err := client.GetNetworkInfo(ctxb, req)
 	if err != nil {
@@ -2318,7 +2320,7 @@ func decodePayReq(ctx *cli.Context) error {
 		return fmt.Errorf("pay_req argument missing")
 	}
 
-	resp, err := client.DecodePayReq(ctxb, &lnrpc.PayReqString{
+	resp, err := client.DecodePayReq(ctxb, &lnrpc.DecodePayReqRequest{
 		PayReq: payreq,
 	})
 	if err != nil {
@@ -2365,7 +2367,7 @@ func stopDaemon(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	_, err := client.StopDaemon(ctxb, &lnrpc.StopRequest{})
+	_, err := client.StopDaemon(ctxb, &lnrpc.StopDaemonRequest{})
 	if err != nil {
 		return err
 	}
@@ -2628,18 +2630,18 @@ func updateChannelPolicy(ctx *cli.Context) error {
 		}
 	}
 
-	req := &lnrpc.PolicyUpdateRequest{
+	req := &lnrpc.UpdateChannelPolicyRequest{
 		BaseFeeMsat:   baseFee,
 		FeeRate:       feeRate,
 		TimeLockDelta: uint32(timeLockDelta),
 	}
 
 	if chanPoint != nil {
-		req.Scope = &lnrpc.PolicyUpdateRequest_ChanPoint{
+		req.Scope = &lnrpc.UpdateChannelPolicyRequest_ChanPoint{
 			ChanPoint: chanPoint,
 		}
 	} else {
-		req.Scope = &lnrpc.PolicyUpdateRequest_Global{
+		req.Scope = &lnrpc.UpdateChannelPolicyRequest_Global{
 			Global: true,
 		}
 	}

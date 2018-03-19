@@ -67,11 +67,11 @@ type TxConfNotifier struct {
 	// hash.
 	confNotifications map[chainhash.Hash][]*ConfNtfn
 
-	// confTxsByInitialHeight is an index of watched transactions by the height
+	// txsByInitialHeight is an index of watched transactions by the height
 	// that they are included at in the blockchain. This is tracked so that
-	// incorrect notifications are not sent if a transaction is reorganized out
-	// of the chain and so that negative confirmations can be recognized.
-	confTxsByInitialHeight map[uint32][]*chainhash.Hash
+	// incorrect notifications are not sent if a transaction is reorganized
+	// out of the chain and so that negative confirmations can be recognized.
+	txsByInitialHeight map[uint32]map[chainhash.Hash]struct{}
 
 	// ntfnsByConfirmHeight is an index of notification requests by the height
 	// at which the transaction will have sufficient confirmations.
@@ -86,12 +86,12 @@ type TxConfNotifier struct {
 // blockchain is accepted as a parameter.
 func NewTxConfNotifier(startHeight uint32, reorgSafetyLimit uint32) *TxConfNotifier {
 	return &TxConfNotifier{
-		currentHeight:          startHeight,
-		reorgSafetyLimit:       reorgSafetyLimit,
-		confNotifications:      make(map[chainhash.Hash][]*ConfNtfn),
-		confTxsByInitialHeight: make(map[uint32][]*chainhash.Hash),
-		ntfnsByConfirmHeight:   make(map[uint32]map[*ConfNtfn]struct{}),
-		quit:                   make(chan struct{}),
+		currentHeight:        startHeight,
+		reorgSafetyLimit:     reorgSafetyLimit,
+		confNotifications:    make(map[chainhash.Hash][]*ConfNtfn),
+		txsByInitialHeight:   make(map[uint32]map[chainhash.Hash]struct{}),
+		ntfnsByConfirmHeight: make(map[uint32]map[*ConfNtfn]struct{}),
+		quit:                 make(chan struct{}),
 	}
 }
 
@@ -138,14 +138,18 @@ func (tcn *TxConfNotifier) Register(ntfn *ConfNtfn, txConf *TxConfirmation) erro
 		ntfnSet[ntfn] = struct{}{}
 	}
 
-	// Unless the transaction is finalized, include transaction information in
-	// confNotifications and confTxsByInitialHeight in case the tx gets
-	// reorganized out of the chain.
+	// As a final check, we'll also watch the transaction if it's still
+	// possible for it to get reorganized out of the chain.
 	if txConf.BlockHeight+tcn.reorgSafetyLimit > tcn.currentHeight {
 		tcn.confNotifications[*ntfn.TxID] =
 			append(tcn.confNotifications[*ntfn.TxID], ntfn)
-		tcn.confTxsByInitialHeight[txConf.BlockHeight] =
-			append(tcn.confTxsByInitialHeight[txConf.BlockHeight], ntfn.TxID)
+
+		txSet, exists := tcn.txsByInitialHeight[txConf.BlockHeight]
+		if !exists {
+			txSet = make(map[chainhash.Hash]struct{})
+			tcn.txsByInitialHeight[txConf.BlockHeight] = txSet
+		}
+		txSet[*ntfn.TxID] = struct{}{}
 	}
 
 	return nil
@@ -194,8 +198,12 @@ func (tcn *TxConfNotifier) ConnectTip(blockHash *chainhash.Hash,
 			}
 			ntfnSet[ntfn] = struct{}{}
 
-			tcn.confTxsByInitialHeight[blockHeight] =
-				append(tcn.confTxsByInitialHeight[blockHeight], tx.Hash())
+			txSet, exists := tcn.txsByInitialHeight[blockHeight]
+			if !exists {
+				txSet = make(map[chainhash.Hash]struct{})
+				tcn.txsByInitialHeight[blockHeight] = txSet
+			}
+			txSet[*txHash] = struct{}{}
 		}
 	}
 
@@ -214,14 +222,14 @@ func (tcn *TxConfNotifier) ConnectTip(blockHash *chainhash.Hash,
 	delete(tcn.ntfnsByConfirmHeight, tcn.currentHeight)
 
 	// Clear entries from confNotifications and confTxsByInitialHeight. We
-	// assume that reorgs deeper than the reorg safety limit do not happen, so
-	// we can clear out entries for the block that is now mature.
+	// assume that reorgs deeper than the reorg safety limit do not happen,
+	// so we can clear out entries for the block that is now mature.
 	if tcn.currentHeight >= tcn.reorgSafetyLimit {
 		matureBlockHeight := tcn.currentHeight - tcn.reorgSafetyLimit
-		for _, txHash := range tcn.confTxsByInitialHeight[matureBlockHeight] {
-			delete(tcn.confNotifications, *txHash)
+		for txHash := range tcn.txsByInitialHeight[matureBlockHeight] {
+			delete(tcn.confNotifications, txHash)
 		}
-		delete(tcn.confTxsByInitialHeight, matureBlockHeight)
+		delete(tcn.txsByInitialHeight, matureBlockHeight)
 	}
 
 	return nil
@@ -273,7 +281,10 @@ func (tcn *TxConfNotifier) DisconnectTip(blockHeight uint32) error {
 			delete(ntfnSet, ntfn)
 		}
 	}
-	delete(tcn.confTxsByInitialHeight, blockHeight)
+
+	// Finally, we can remove the transactions we're currently watching that
+	// were included in this block height.
+	delete(tcn.txsByInitialHeight, blockHeight)
 
 	return nil
 }

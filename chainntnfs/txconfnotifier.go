@@ -1,6 +1,7 @@
 package chainntnfs
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -115,13 +116,21 @@ func (tcn *TxConfNotifier) Register(ntfn *ConfNtfn, txConf *TxConfirmation) erro
 		return nil
 	}
 
-	// If the transaction already has the required confirmations, dispatch
-	// notification immediately, otherwise record along with the height at
-	// which to notify.
+	// If the transaction already has the required confirmations, we'll
+	// dispatch the notification immediately.
 	confHeight := txConf.BlockHeight + ntfn.NumConfirmations - 1
 	if confHeight <= tcn.currentHeight {
 		Log.Infof("Dispatching %v conf notification for %v",
 			ntfn.NumConfirmations, ntfn.TxID)
+
+		// We'll send a 0 value to the Updates channel, indicating that
+		// the transaction has already been confirmed.
+		select {
+		case <-tcn.quit:
+			return fmt.Errorf("TxConfNotifier is exiting")
+		case ntfn.Event.Updates <- 0:
+		}
+
 		select {
 		case <-tcn.quit:
 			return fmt.Errorf("TxConfNotifier is exiting")
@@ -129,6 +138,8 @@ func (tcn *TxConfNotifier) Register(ntfn *ConfNtfn, txConf *TxConfirmation) erro
 			ntfn.dispatched = true
 		}
 	} else {
+		// Otherwise, we'll record the transaction along with the height
+		// at which we should notify the client.
 		ntfn.details = txConf
 		ntfnSet, exists := tcn.ntfnsByConfirmHeight[confHeight]
 		if !exists {
@@ -136,6 +147,15 @@ func (tcn *TxConfNotifier) Register(ntfn *ConfNtfn, txConf *TxConfirmation) erro
 			tcn.ntfnsByConfirmHeight[confHeight] = ntfnSet
 		}
 		ntfnSet[ntfn] = struct{}{}
+
+		// We'll also send an update to the client of how many
+		// confirmations are left for the transaction to be confirmed.
+		numConfsLeft := confHeight - tcn.currentHeight
+		select {
+		case ntfn.Event.Updates <- numConfsLeft:
+		case <-tcn.quit:
+			return errors.New("TxConfNotifier is exiting")
+		}
 	}
 
 	// As a final check, we'll also watch the transaction if it's still
@@ -177,10 +197,11 @@ func (tcn *TxConfNotifier) ConnectTip(blockHash *chainhash.Hash,
 	tcn.currentHeight++
 	tcn.reorgDepth = 0
 
-	// Record any newly confirmed transactions in ntfnsByConfirmHeight so that
-	// notifications get dispatched when the tx gets sufficient confirmations.
-	// Also record txs in confTxsByInitialHeight so reorgs can be handled
-	// correctly.
+	// Record any newly confirmed transactions by their confirmed height so
+	// that notifications get dispatched when the transactions reach their
+	// required number of confirmations. We'll also watch these transactions
+	// at the height they were included in the chain so reorgs can be
+	// handled correctly.
 	for _, tx := range txns {
 		txHash := tx.Hash()
 		for _, ntfn := range tcn.confNotifications[*txHash] {
@@ -207,8 +228,42 @@ func (tcn *TxConfNotifier) ConnectTip(blockHash *chainhash.Hash,
 		}
 	}
 
-	// Dispatch notifications for all transactions that are considered confirmed
-	// at this new block height.
+	// Next, we'll dispatch an update to all of the notification clients for
+	// our watched transactions with the number of confirmations left at
+	// this new height.
+	for _, txHashes := range tcn.txsByInitialHeight {
+		for txHash := range txHashes {
+			for _, ntfn := range tcn.confNotifications[txHash] {
+				// If the transaction still hasn't been included
+				// in a block, we'll skip it.
+				if ntfn.details == nil {
+					continue
+				}
+
+				txConfHeight := ntfn.details.BlockHeight +
+					ntfn.NumConfirmations - 1
+				numConfsLeft := txConfHeight - blockHeight
+
+				// Since we don't clear notifications until
+				// transactions are no longer under the risk of
+				// being reorganized out of the chain, we'll
+				// skip sending updates for transactions that
+				// have already been confirmed.
+				if int32(numConfsLeft) < 0 {
+					continue
+				}
+
+				select {
+				case ntfn.Event.Updates <- numConfsLeft:
+				case <-tcn.quit:
+					return errors.New("TxConfNotifier is exiting")
+				}
+			}
+		}
+	}
+
+	// Then, we'll dispatch notifications for all the transactions that have
+	// become confirmed at this new block height.
 	for ntfn := range tcn.ntfnsByConfirmHeight[tcn.currentHeight] {
 		Log.Infof("Dispatching %v conf notification for %v",
 			ntfn.NumConfirmations, ntfn.TxID)
@@ -254,31 +309,66 @@ func (tcn *TxConfNotifier) DisconnectTip(blockHeight uint32) error {
 	tcn.currentHeight--
 	tcn.reorgDepth++
 
-	for _, txHash := range tcn.confTxsByInitialHeight[blockHeight] {
-		for _, ntfn := range tcn.confNotifications[*txHash] {
-			// If notification has been dispatched with sufficient
-			// confirmations, notify of the reversal.
-			if ntfn.dispatched {
+	// We'll go through all of our watched transactions and attempt to drain
+	// their notification channels to ensure sending notifications to the
+	// clients is always non-blocking.
+	for initialHeight, txHashes := range tcn.txsByInitialHeight {
+		for txHash := range txHashes {
+			for _, ntfn := range tcn.confNotifications[txHash] {
+				// First, we'll attempt to drain an update
+				// from each notification to ensure sends to the
+				// Updates channel are always non-blocking.
 				select {
-				case <-ntfn.Event.Confirmed:
-					// Drain confirmation notification instead of sending
-					// negative conf if the receiver has not processed it yet.
-					// This ensures sends to the Confirmed channel are always
-					// non-blocking.
-				case ntfn.Event.NegativeConf <- int32(tcn.reorgDepth):
+				case <-ntfn.Event.Updates:
 				case <-tcn.quit:
-					return fmt.Errorf("TxConfNotifier is exiting")
+					return errors.New("TxConfNotifier is exiting")
+				default:
 				}
-				ntfn.dispatched = false
-				continue
-			}
 
-			confHeight := blockHeight + ntfn.NumConfirmations - 1
-			ntfnSet, exists := tcn.ntfnsByConfirmHeight[confHeight]
-			if !exists {
-				continue
+				// Then, we'll check if the current transaction
+				// was included in the block currently being
+				// disconnected. If it was, we'll need to take
+				// some necessary precautions.
+				if initialHeight == blockHeight {
+					// If the transaction's confirmation notification
+					// has already been dispatched, we'll attempt to
+					// notify the client it was reorged out of the chain.
+					if ntfn.dispatched {
+						// Attempt to drain the confirmation notification
+						// to ensure sends to the Confirmed channel are
+						// always non-blocking.
+						select {
+						case <-ntfn.Event.Confirmed:
+						case <-tcn.quit:
+							return errors.New("TxConfNotifier is exiting")
+						default:
+						}
+
+						ntfn.dispatched = false
+
+						// Send a negative confirmation notification to the
+						// client indicating how many blocks have been
+						// disconnected successively.
+						select {
+						case ntfn.Event.NegativeConf <- int32(tcn.reorgDepth):
+						case <-tcn.quit:
+							return errors.New("TxConfNotifier is exiting")
+						}
+
+						continue
+					}
+
+					// Otherwise, since the transactions was reorged out
+					// of the chain, we can safely remove its accompanying
+					// confirmation notification.
+					confHeight := blockHeight + ntfn.NumConfirmations - 1
+					ntfnSet, exists := tcn.ntfnsByConfirmHeight[confHeight]
+					if !exists {
+						continue
+					}
+					delete(ntfnSet, ntfn)
+				}
 			}
-			delete(ntfnSet, ntfn)
 		}
 	}
 

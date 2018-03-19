@@ -33,9 +33,10 @@ type ConfNtfn struct {
 
 // NewConfirmationEvent constructs a new ConfirmationEvent with newly opened
 // channels.
-func NewConfirmationEvent() *ConfirmationEvent {
+func NewConfirmationEvent(numConfs uint32) *ConfirmationEvent {
 	return &ConfirmationEvent{
 		Confirmed:    make(chan *TxConfirmation, 1),
+		Updates:      make(chan uint32, numConfs),
 		NegativeConf: make(chan int32, 1),
 	}
 }
@@ -290,6 +291,7 @@ func (tcn *TxConfNotifier) TearDown() {
 			}
 
 			close(ntfn.Event.Confirmed)
+			close(ntfn.Event.Updates)
 			close(ntfn.Event.NegativeConf)
 		}
 	}

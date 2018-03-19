@@ -16,7 +16,10 @@ var zeroHash chainhash.Hash
 func TestTxConfFutureDispatch(t *testing.T) {
 	t.Parallel()
 
-	txConfNotifier := chainntnfs.NewTxConfNotifier(10, 100)
+	const (
+		tx1NumConfs uint32 = 1
+		tx2NumConfs uint32 = 2
+	)
 
 	var (
 		tx1 = wire.MsgTx{Version: 1}
@@ -24,19 +27,21 @@ func TestTxConfFutureDispatch(t *testing.T) {
 		tx3 = wire.MsgTx{Version: 3}
 	)
 
+	txConfNotifier := chainntnfs.NewTxConfNotifier(10, 100)
+
 	tx1Hash := tx1.TxHash()
 	ntfn1 := chainntnfs.ConfNtfn{
 		TxID:             &tx1Hash,
-		NumConfirmations: 1,
-		Event:            chainntnfs.NewConfirmationEvent(),
+		NumConfirmations: tx1NumConfs,
+		Event:            chainntnfs.NewConfirmationEvent(tx1NumConfs),
 	}
 	txConfNotifier.Register(&ntfn1, nil)
 
 	tx2Hash := tx2.TxHash()
 	ntfn2 := chainntnfs.ConfNtfn{
 		TxID:             &tx2Hash,
-		NumConfirmations: 2,
-		Event:            chainntnfs.NewConfirmationEvent(),
+		NumConfirmations: tx2NumConfs,
+		Event:            chainntnfs.NewConfirmationEvent(tx2NumConfs),
 	}
 	txConfNotifier.Register(&ntfn2, nil)
 
@@ -113,7 +118,10 @@ func TestTxConfFutureDispatch(t *testing.T) {
 func TestTxConfHistoricalDispatch(t *testing.T) {
 	t.Parallel()
 
-	txConfNotifier := chainntnfs.NewTxConfNotifier(10, 100)
+	const (
+		tx1NumConfs uint32 = 1
+		tx2NumConfs uint32 = 3
+	)
 
 	var (
 		tx1 = wire.MsgTx{Version: 1}
@@ -121,11 +129,13 @@ func TestTxConfHistoricalDispatch(t *testing.T) {
 		tx3 = wire.MsgTx{Version: 3}
 	)
 
+	txConfNotifier := chainntnfs.NewTxConfNotifier(10, 100)
+
 	tx1Hash := tx1.TxHash()
 	ntfn1 := chainntnfs.ConfNtfn{
 		TxID:             &tx1Hash,
-		NumConfirmations: 1,
-		Event:            chainntnfs.NewConfirmationEvent(),
+		NumConfirmations: tx1NumConfs,
+		Event:            chainntnfs.NewConfirmationEvent(tx1NumConfs),
 	}
 	txConf1 := chainntnfs.TxConfirmation{
 		BlockHash:   &zeroHash,
@@ -142,8 +152,8 @@ func TestTxConfHistoricalDispatch(t *testing.T) {
 	}
 	ntfn2 := chainntnfs.ConfNtfn{
 		TxID:             &tx2Hash,
-		NumConfirmations: 3,
-		Event:            chainntnfs.NewConfirmationEvent(),
+		NumConfirmations: tx2NumConfs,
+		Event:            chainntnfs.NewConfirmationEvent(tx2NumConfs),
 	}
 	txConfNotifier.Register(&ntfn2, &txConf2)
 
@@ -189,7 +199,11 @@ func TestTxConfHistoricalDispatch(t *testing.T) {
 func TestTxConfChainReorg(t *testing.T) {
 	t.Parallel()
 
-	txConfNotifier := chainntnfs.NewTxConfNotifier(8, 100)
+	const (
+		tx1NumConfs uint32 = 2
+		tx2NumConfs uint32 = 1
+		tx3NumConfs uint32 = 2
+	)
 
 	var (
 		tx1 = wire.MsgTx{Version: 1}
@@ -197,12 +211,14 @@ func TestTxConfChainReorg(t *testing.T) {
 		tx3 = wire.MsgTx{Version: 3}
 	)
 
+	txConfNotifier := chainntnfs.NewTxConfNotifier(7, 100)
+
 	// Tx 1 will be confirmed in block 9 and requires 2 confs.
 	tx1Hash := tx1.TxHash()
 	ntfn1 := chainntnfs.ConfNtfn{
 		TxID:             &tx1Hash,
-		NumConfirmations: 2,
-		Event:            chainntnfs.NewConfirmationEvent(),
+		NumConfirmations: tx1NumConfs,
+		Event:            chainntnfs.NewConfirmationEvent(tx1NumConfs),
 	}
 	txConfNotifier.Register(&ntfn1, nil)
 
@@ -210,8 +226,8 @@ func TestTxConfChainReorg(t *testing.T) {
 	tx2Hash := tx2.TxHash()
 	ntfn2 := chainntnfs.ConfNtfn{
 		TxID:             &tx2Hash,
-		NumConfirmations: 1,
-		Event:            chainntnfs.NewConfirmationEvent(),
+		NumConfirmations: tx2NumConfs,
+		Event:            chainntnfs.NewConfirmationEvent(tx2NumConfs),
 	}
 	txConfNotifier.Register(&ntfn2, nil)
 
@@ -219,8 +235,8 @@ func TestTxConfChainReorg(t *testing.T) {
 	tx3Hash := tx3.TxHash()
 	ntfn3 := chainntnfs.ConfNtfn{
 		TxID:             &tx3Hash,
-		NumConfirmations: 2,
-		Event:            chainntnfs.NewConfirmationEvent(),
+		NumConfirmations: tx3NumConfs,
+		Event:            chainntnfs.NewConfirmationEvent(tx3NumConfs),
 	}
 	txConfNotifier.Register(&ntfn3, nil)
 

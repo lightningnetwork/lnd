@@ -280,6 +280,105 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 	}
 }
 
+// TestSendPaymentErrorRepeatedFeeInsufficient tests that if we receive
+// multiple fee related errors from a channel that we're attempting to route
+// through, then we'll prune the channel after the second attempt.
+func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx, cleanUp, err := createTestCtx(startingBlockHeight, basicGraphFilePath)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	// Craft a LightningPayment struct that'll send a payment from roasbeef
+	// to luo ji for 100 satoshis.
+	var payHash [32]byte
+	payment := LightningPayment{
+		Target:      ctx.aliases["luoji"],
+		Amount:      lnwire.NewMSatFromSatoshis(1000),
+		PaymentHash: payHash,
+	}
+
+	var preImage [32]byte
+	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
+
+	// We'll also fetch the first outgoing channel edge from roasbeef to
+	// luo ji. We'll obtain this as we'll need to to generate the
+	// FeeInsufficient error that we'll send back.
+	chanID := uint64(689530843)
+	_, _, edgeUpateToFail, err := ctx.graph.FetchChannelEdgesByID(chanID)
+	if err != nil {
+		t.Fatalf("unable to fetch chan id: %v", err)
+	}
+
+	errChanUpdate := lnwire.ChannelUpdate{
+		ShortChannelID:  lnwire.NewShortChanIDFromInt(chanID),
+		Timestamp:       uint32(edgeUpateToFail.LastUpdate.Unix()),
+		Flags:           edgeUpateToFail.Flags,
+		TimeLockDelta:   edgeUpateToFail.TimeLockDelta,
+		HtlcMinimumMsat: edgeUpateToFail.MinHTLC,
+		BaseFee:         uint32(edgeUpateToFail.FeeBaseMSat),
+		FeeRate:         uint32(edgeUpateToFail.FeeProportionalMillionths),
+	}
+
+	sourceNode := ctx.router.selfNode
+
+	// We'll now modify the SendToSwitch method to return an error for the
+	// outgoing channel to luo ji. This will be a fee related error, so it
+	// should only cause the edge to be pruned after the second attempt.
+	ctx.router.cfg.SendToSwitch = func(n [33]byte,
+		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
+
+		if bytes.Equal(ctx.aliases["luoji"].SerializeCompressed(), n[:]) {
+			pub, err := sourceNode.PubKey()
+			if err != nil {
+				return preImage, err
+			}
+			return [32]byte{}, &htlcswitch.ForwardingError{
+				ErrorSource: pub,
+
+				// Within our error, we'll add a channel update
+				// which is meant to refelct he new fee
+				// schedule for the node/channel.
+				FailureMessage: &lnwire.FailFeeInsufficient{
+					Update: errChanUpdate,
+				},
+			}
+		}
+
+		return preImage, nil
+	}
+
+	// Send off the payment request to the router, route through satoshi
+	// should've been selected as a fall back and succeeded correctly.
+	paymentPreImage, route, err := ctx.router.SendPayment(&payment)
+	if err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+
+	// The route selected should have two hops
+	if len(route.Hops) != 2 {
+		t.Fatalf("incorrect route length: expected %v got %v", 2,
+			len(route.Hops))
+	}
+
+	// The preimage should match up with the once created above.
+	if !bytes.Equal(paymentPreImage[:], preImage[:]) {
+		t.Fatalf("incorrect preimage used: expected %x got %x",
+			preImage[:], paymentPreImage[:])
+	}
+
+	// The route should have satoshi as the first hop.
+	if route.Hops[0].Channel.Node.Alias != "satoshi" {
+		t.Fatalf("route should go through satoshi as first hop, "+
+			"instead passes through: %v",
+			route.Hops[0].Channel.Node.Alias)
+	}
+}
+
 // TestSendPaymentErrorPathPruning tests that the send of candidate routes
 // properly gets pruned in response to ForwardingError response from the
 // underlying SendToSwitch function.

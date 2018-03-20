@@ -31,6 +31,11 @@ const (
 	// DefaultFinalCLTVDelta is the default value to be used as the final
 	// CLTV delta for a route if one is unspecified.
 	DefaultFinalCLTVDelta = 9
+
+	// defaultPayAttemptTimeout is a duration that we'll use to determine
+	// if we should give up on a payment attempt. This will be used if a
+	// value isn't specified in the LightningNode struct.
+	defaultPayAttemptTimeout = time.Duration(time.Second * 60)
 )
 
 // ChannelGraphSource represents the source of information about the topology
@@ -1453,6 +1458,12 @@ type LightningPayment struct {
 	// used.
 	FinalCLTVDelta *uint16
 
+	// PayAttemptTimeout is a timeout value that we'll use to determine
+	// when we should should abandon the payment attempt after consecutive
+	// payment failure. This prevents us from attempting to send a payment
+	// indefinitely.
+	PayAttemptTimeout time.Duration
+
 	// TODO(roasbeef): add e2e message?
 }
 
@@ -1490,6 +1501,15 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 		finalCLTVDelta = *payment.FinalCLTVDelta
 	}
 
+	var payAttemptTimeout time.Duration
+	if payment.PayAttemptTimeout == time.Duration(0) {
+		payAttemptTimeout = defaultPayAttemptTimeout
+	} else {
+		payAttemptTimeout = payment.PayAttemptTimeout
+	}
+
+	timeoutChan := time.After(payAttemptTimeout)
+
 	// Before starting the HTLC routing attempt, we'll create a fresh
 	// payment session which will report our errors back to mission
 	// control.
@@ -1498,6 +1518,27 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 	// We'll continue until either our payment succeeds, or we encounter a
 	// critical error during path finding.
 	for {
+		// Before we attempt this next payment, we'll check to see if
+		// either we've gone past the payment attempt timeout, or the
+		// router is exiting. In either case, we'll stop this payment
+		// attempt short.
+		select {
+		case <-timeoutChan:
+			errStr := fmt.Sprintf("payment attempt not completed "+
+				"before timeout of %v", payAttemptTimeout)
+
+			return preImage, nil, newErr(
+				ErrPaymentAttemptTimeout, errStr,
+			)
+
+		case <-r.quit:
+			return preImage, nil, fmt.Errorf("router shutting down")
+
+		default:
+			// Fall through if we haven't hit our time limit, or
+			// are expiring.
+		}
+
 		// We'll kick things off by requesting a new route from mission
 		// control, which will incorporate the current best known state
 		// of the channel graph and our past HTLC routing

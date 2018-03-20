@@ -45,7 +45,6 @@ DEBUG=$(set_default "$DEBUG" "info")
 NETWORK=$(set_default "$NETWORK" "simnet")
 
 PARAMS=$(echo \
-    "--$NETWORK" \
     "--debuglevel=$DEBUG" \
     "--rpcuser=$RPCUSER" \
     "--rpcpass=$RPCPASS" \
@@ -56,6 +55,11 @@ PARAMS=$(echo \
     "--rpclisten=0.0.0.0" \
     "--txindex"
 )
+
+# No need to specify when it runs on the mainnet.
+if [[ "$NETWORK" != "mainnet" ]]; then
+    PARAMS="--$NETWORK $PARAMS"
+fi
 
 # Set the mining flag only if address is non empty.
 if [[ -n "$MINING_ADDRESS" ]]; then

@@ -69,6 +69,10 @@ var (
 			Entity: "info",
 			Action: "read",
 		},
+		{
+			Entity: "invoices",
+			Action: "read",
+		},
 	}
 
 	// writePermissions is a slice of all entities that allow write
@@ -98,6 +102,12 @@ var (
 			Entity: "info",
 			Action: "write",
 		},
+		{
+			Entity: "invoices",
+			Action: "write",
+		},
+	}
+
 	// invoicePermissions is a slice of all the entities that allows a user
 	// to only access calls that are related to invoices, so: streaming
 	// RPC's, generating, and listening invoices.

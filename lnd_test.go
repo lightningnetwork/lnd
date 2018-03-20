@@ -1471,7 +1471,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// As we'll be querying the state of Carol's channels frequently we'll
 	// create a closure helper function for the purpose.
-	getAliceChanInfo := func() (*lnrpc.ActiveChannel, error) {
+	getAliceChanInfo := func() (*lnrpc.Channel, error) {
 		req := &lnrpc.ListChannelsRequest{}
 		aliceChannelInfo, err := net.Alice.ListChannels(ctxb, req)
 		if err != nil {
@@ -3421,7 +3421,7 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// As we'll be querying the state of bob's channels frequently we'll
 	// create a closure helper function for the purpose.
-	getBobChanInfo := func() (*lnrpc.ActiveChannel, error) {
+	getBobChanInfo := func() (*lnrpc.Channel, error) {
 		req := &lnrpc.ListChannelsRequest{}
 		bobChannelInfo, err := net.Bob.ListChannels(ctxb, req)
 		if err != nil {
@@ -3454,7 +3454,7 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Next query for Bob's channel state, as we sent 3 payments of 10k
 	// satoshis each, Bob should now see his balance as being 30k satoshis.
-	var bobChan *lnrpc.ActiveChannel
+	var bobChan *lnrpc.Channel
 	var predErr error
 	err = lntest.WaitPredicate(func() bool {
 		bChan, err := getBobChanInfo()
@@ -3670,7 +3670,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 
 	// As we'll be querying the state of Carols's channels frequently we'll
 	// create a closure helper function for the purpose.
-	getCarolChanInfo := func() (*lnrpc.ActiveChannel, error) {
+	getCarolChanInfo := func() (*lnrpc.Channel, error) {
 		req := &lnrpc.ListChannelsRequest{}
 		carolChannelInfo, err := carol.ListChannels(ctxb, req)
 		if err != nil {
@@ -3889,7 +3889,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 
 	// As we'll be querying the state of Carol's channels frequently we'll
 	// create a closure helper function for the purpose.
-	getCarolChanInfo := func() (*lnrpc.ActiveChannel, error) {
+	getCarolChanInfo := func() (*lnrpc.Channel, error) {
 		req := &lnrpc.ListChannelsRequest{}
 		carolChannelInfo, err := carol.ListChannels(ctxb, req)
 		if err != nil {
@@ -4829,7 +4829,7 @@ func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// As we'll be querying the channels  state frequently we'll
 	// create a closure helper function for the purpose.
-	getChanInfo := func(node *lntest.HarnessNode) (*lnrpc.ActiveChannel, error) {
+	getChanInfo := func(node *lntest.HarnessNode) (*lnrpc.Channel, error) {
 		req := &lnrpc.ListChannelsRequest{}
 		channelInfo, err := node.ListChannels(ctxb, req)
 		if err != nil {
@@ -5012,7 +5012,7 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 
 	// As we'll be querying the channels  state frequently we'll
 	// create a closure helper function for the purpose.
-	getChanInfo := func(node *lntest.HarnessNode) (*lnrpc.ActiveChannel, error) {
+	getChanInfo := func(node *lntest.HarnessNode) (*lnrpc.Channel, error) {
 		req := &lnrpc.ListChannelsRequest{}
 		channelInfo, err := node.ListChannels(ctxb, req)
 		if err != nil {

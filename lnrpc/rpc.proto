@@ -743,7 +743,7 @@ message HTLC {
     uint32 expiration_height = 4 [json_name = "expiration_height"];
 }
 
-message ActiveChannel {
+message Channel {
     /// Whether this channel is active or not
     bool active = 1 [json_name = "active"];
 
@@ -782,7 +782,7 @@ message ActiveChannel {
     int64 commit_fee = 8 [json_name = "commit_fee"];
 
     /// The weight of the commitment transaction
-    int64 commit_weight = 9 [ json_name = "commit_weight" ];
+    int64 commit_weight = 9 [json_name = "commit_weight"];
 
     /**
     The required number of satoshis per kilo-weight that the requester will pay
@@ -819,14 +819,21 @@ message ActiveChannel {
     closed, we'll need to wait for this many blocks before we can regain our
     funds.
     */
-    uint32 csv_delay = 16 [ json_name = "csv_delay" ];
+    uint32 csv_delay = 16 [json_name = "csv_delay"];
+
+    /// Whether this channel is advertised to the network or not
+    bool private = 17 [json_name = "private"];
 }
 
 message ListChannelsRequest {
+    bool active_only = 1;
+    bool inactive_only = 2;
+    bool public_only = 3;
+    bool private_only = 4;
 }
 message ListChannelsResponse {
     /// The list of active channels
-    repeated ActiveChannel channels = 11 [json_name = "channels"];
+    repeated Channel channels = 11 [json_name = "channels"];
 }
 
 message Peer {

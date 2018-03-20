@@ -1472,6 +1472,16 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 func (r *rpcServer) ListChannels(ctx context.Context,
 	in *lnrpc.ListChannelsRequest) (*lnrpc.ListChannelsResponse, error) {
 
+	if in.ActiveOnly && in.InactiveOnly {
+		return nil, fmt.Errorf("either `active_only` or " +
+			"`inactive_only` can be set, but not both")
+	}
+
+	if in.PublicOnly && in.PrivateOnly {
+		return nil, fmt.Errorf("either `public_only` or " +
+			"`private_only` can be set, but not both")
+	}
+
 	resp := &lnrpc.ListChannelsResponse{}
 
 	graph := r.server.chanDB.ChannelGraph()
@@ -1512,6 +1522,24 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 			linkActive = link.EligibleToForward()
 		}
 
+		// Next, we'll determine whether we should add this channel to
+		// our list depending on the type of channels requested to us.
+		isActive := peerOnline && linkActive
+		isPublic := dbChannel.ChannelFlags&lnwire.FFAnnounceChannel != 0
+
+		// We'll only skip returning this channel if we were requested
+		// for a specific kind and this channel doesn't satisfy it.
+		switch {
+		case in.ActiveOnly && !isActive:
+			continue
+		case in.InactiveOnly && isActive:
+			continue
+		case in.PublicOnly && !isPublic:
+			continue
+		case in.PrivateOnly && isPublic:
+			continue
+		}
+
 		// As this is required for display purposes, we'll calculate
 		// the weight of the commitment transaction. We also add on the
 		// estimated weight of the witness to calculate the weight of
@@ -1538,8 +1566,9 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		}
 		externalCommitFee := dbChannel.Capacity - sumOutputs
 
-		channel := &lnrpc.ActiveChannel{
-			Active:                peerOnline && linkActive,
+		channel := &lnrpc.Channel{
+			Active:                isActive,
+			Private:               !isPublic,
 			RemotePubkey:          nodeID,
 			ChannelPoint:          chanPoint.String(),
 			ChanId:                chanID,

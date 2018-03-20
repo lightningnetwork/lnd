@@ -61,6 +61,36 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "active_only",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
+          },
+          {
+            "name": "inactive_only",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
+          },
+          {
+            "name": "public_only",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
+          },
+          {
+            "name": "private_only",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
+          }
+        ],
         "tags": [
           "Lightning"
         ]
@@ -863,7 +893,20 @@
         }
       }
     },
-    "lnrpcActiveChannel": {
+    "lnrpcAddInvoiceResponse": {
+      "type": "object",
+      "properties": {
+        "r_hash": {
+          "type": "string",
+          "format": "byte"
+        },
+        "payment_request": {
+          "type": "string",
+          "description": "*\nA bare-bones invoice for a payment within the Lightning Network.  With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient."
+        }
+      }
+    },
+    "lnrpcChannel": {
       "type": "object",
       "properties": {
         "active": {
@@ -945,19 +988,11 @@
           "type": "integer",
           "format": "int64",
           "description": "*\nThe CSV delay expressed in relative blocks. If the channel is force\nclosed, we'll need to wait for this many blocks before we can regain our\nfunds."
-        }
-      }
-    },
-    "lnrpcAddInvoiceResponse": {
-      "type": "object",
-      "properties": {
-        "r_hash": {
-          "type": "string",
-          "format": "byte"
         },
-        "payment_request": {
-          "type": "string",
-          "description": "*\nA bare-bones invoice for a payment within the Lightning Network.  With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient."
+        "private": {
+          "type": "boolean",
+          "format": "boolean",
+          "title": "/ Whether this channel is advertised to the network or not"
         }
       }
     },
@@ -1591,7 +1626,7 @@
         "channels": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/lnrpcActiveChannel"
+            "$ref": "#/definitions/lnrpcChannel"
           },
           "title": "/ The list of active channels"
         }

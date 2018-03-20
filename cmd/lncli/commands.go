@@ -818,7 +818,7 @@ func closeAllChannels(ctx *cli.Context) error {
 		return errors.New("no open channels to close")
 	}
 
-	var channelsToClose []*lnrpc.ActiveChannel
+	var channelsToClose []*lnrpc.Channel
 
 	switch {
 	case ctx.Bool("force") && ctx.Bool("inactive_only"):
@@ -904,7 +904,7 @@ func closeAllChannels(ctx *cli.Context) error {
 	// they come.
 	resultChan := make(chan result, len(channelsToClose))
 	for _, channel := range channelsToClose {
-		go func(channel *lnrpc.ActiveChannel) {
+		go func(channel *lnrpc.Channel) {
 			res := result{}
 			res.RemotePubKey = channel.RemotePubkey
 			res.ChannelPoint = channel.ChannelPoint
@@ -1385,8 +1385,20 @@ var listChannelsCommand = cli.Command{
 	Usage: "List all open channels",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
-			Name:  "active_only, a",
+			Name:  "active_only",
 			Usage: "only list channels which are currently active",
+		},
+		cli.BoolFlag{
+			Name:  "inactive_only",
+			Usage: "only list channels which are currently inactive",
+		},
+		cli.BoolFlag{
+			Name:  "public_only",
+			Usage: "only list channels which are currently public",
+		},
+		cli.BoolFlag{
+			Name:  "private_only",
+			Usage: "only list channels which are currently private",
 		},
 	},
 	Action: actionDecorator(listChannels),
@@ -1397,7 +1409,13 @@ func listChannels(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	req := &lnrpc.ListChannelsRequest{}
+	req := &lnrpc.ListChannelsRequest{
+		ActiveOnly:   ctx.Bool("active_only"),
+		InactiveOnly: ctx.Bool("inactive_only"),
+		PublicOnly:   ctx.Bool("public_only"),
+		PrivateOnly:  ctx.Bool("private_only"),
+	}
+
 	resp, err := client.ListChannels(ctxb, req)
 	if err != nil {
 		return err

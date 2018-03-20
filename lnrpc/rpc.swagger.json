@@ -1791,12 +1791,12 @@
         "target_conf": {
           "type": "integer",
           "format": "int32",
-          "description": "/ The target number of blocks that the closure transaction should be confirmed by."
+          "description": "/ The target number of blocks that the funding transaction should be confirmed by."
         },
         "sat_per_byte": {
           "type": "string",
           "format": "int64",
-          "description": "/ A manual fee rate set in sat/byte that should be used when crafting the closure transaction."
+          "description": "/ A manual fee rate set in sat/byte that should be used when crafting the funding transaction."
         },
         "private": {
           "type": "boolean",

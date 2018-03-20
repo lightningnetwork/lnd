@@ -972,10 +972,10 @@ message OpenChannelRequest {
     /// The number of satoshis to push to the remote side as part of the initial commitment state
     int64 push_sat = 5 [json_name = "push_sat"];
 
-    /// The target number of blocks that the closure transaction should be confirmed by.
+    /// The target number of blocks that the funding transaction should be confirmed by.
     int32 target_conf = 6;
 
-    /// A manual fee rate set in sat/byte that should be used when crafting the closure transaction.
+    /// A manual fee rate set in sat/byte that should be used when crafting the funding transaction.
     int64 sat_per_byte = 7;
 
     /// Whether this channel should be private, not announced to the greater network.

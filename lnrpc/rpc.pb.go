@@ -519,9 +519,7 @@ func (m *ChannelPoint) String() string            { return proto.CompactTextStri
 func (*ChannelPoint) ProtoMessage()               {}
 func (*ChannelPoint) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{11} }
 
-type isChannelPoint_FundingTxid interface {
-	isChannelPoint_FundingTxid()
-}
+type isChannelPoint_FundingTxid interface{ isChannelPoint_FundingTxid() }
 
 type ChannelPoint_FundingTxidBytes struct {
 	FundingTxidBytes []byte `protobuf:"bytes,1,opt,name=funding_txid_bytes,proto3,oneof"`
@@ -1599,9 +1597,7 @@ func (m *CloseStatusUpdate) String() string            { return proto.CompactTex
 func (*CloseStatusUpdate) ProtoMessage()               {}
 func (*CloseStatusUpdate) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{41} }
 
-type isCloseStatusUpdate_Update interface {
-	isCloseStatusUpdate_Update()
-}
+type isCloseStatusUpdate_Update interface{ isCloseStatusUpdate_Update() }
 
 type CloseStatusUpdate_ClosePending struct {
 	ClosePending *PendingUpdate `protobuf:"bytes,1,opt,name=close_pending,oneof"`
@@ -1771,9 +1767,9 @@ type OpenChannelRequest struct {
 	LocalFundingAmount int64 `protobuf:"varint,4,opt,name=local_funding_amount" json:"local_funding_amount,omitempty"`
 	// / The number of satoshis to push to the remote side as part of the initial commitment state
 	PushSat int64 `protobuf:"varint,5,opt,name=push_sat" json:"push_sat,omitempty"`
-	// / The target number of blocks that the closure transaction should be confirmed by.
+	// / The target number of blocks that the funding transaction should be confirmed by.
 	TargetConf int32 `protobuf:"varint,6,opt,name=target_conf,json=targetConf" json:"target_conf,omitempty"`
-	// / A manual fee rate set in sat/byte that should be used when crafting the closure transaction.
+	// / A manual fee rate set in sat/byte that should be used when crafting the funding transaction.
 	SatPerByte int64 `protobuf:"varint,7,opt,name=sat_per_byte,json=satPerByte" json:"sat_per_byte,omitempty"`
 	// / Whether this channel should be private, not announced to the greater network.
 	Private bool `protobuf:"varint,8,opt,name=private" json:"private,omitempty"`
@@ -1855,9 +1851,7 @@ func (m *OpenStatusUpdate) String() string            { return proto.CompactText
 func (*OpenStatusUpdate) ProtoMessage()               {}
 func (*OpenStatusUpdate) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{44} }
 
-type isOpenStatusUpdate_Update interface {
-	isOpenStatusUpdate_Update()
-}
+type isOpenStatusUpdate_Update interface{ isOpenStatusUpdate_Update() }
 
 type OpenStatusUpdate_ChanPending struct {
 	ChanPending *PendingUpdate `protobuf:"bytes,1,opt,name=chan_pending,oneof"`
@@ -3755,9 +3749,7 @@ func (m *PolicyUpdateRequest) String() string            { return proto.CompactT
 func (*PolicyUpdateRequest) ProtoMessage()               {}
 func (*PolicyUpdateRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{92} }
 
-type isPolicyUpdateRequest_Scope interface {
-	isPolicyUpdateRequest_Scope()
-}
+type isPolicyUpdateRequest_Scope interface{ isPolicyUpdateRequest_Scope() }
 
 type PolicyUpdateRequest_Global struct {
 	Global bool `protobuf:"varint,1,opt,name=global,oneof"`

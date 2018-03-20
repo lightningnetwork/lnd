@@ -687,6 +687,30 @@ func TestNewInvoice(t *testing.T) {
 			encodedInvoice: "lnbc20m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqsfpp3qjmp7lwpagxun9pygexvgpjdc4jdj85fr9yq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvpeuqafqxu92d8lr6fvg0r5gv0heeeqgcrqlnm6jhphu9y00rrhy4grqszsvpcgpy9qqqqqqgqqqqq7qqzqj9n4evl6mr5aj9f58zp6fyjzup6ywn3x6sk8akg5v4tgn2q8g4fhx05wf6juaxu9760yp46454gpg5mtzgerlzezqcqvjnhjh8z3g2qqdhhwkj",
 		},
 		{
+			// On simnet
+			newInvoice: func() (*Invoice, error) {
+				return NewInvoice(&chaincfg.SimNetParams,
+					testPaymentHash, time.Unix(1496314658, 0),
+					Amount(testMillisat24BTC),
+					Description(testEmptyString),
+					Destination(testPubKey))
+			},
+			valid:          true,
+			encodedInvoice: "lnsb241pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdqqnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66jdgev3gnwg0aul7unhqlqvrkp23f0negjsw8ac9f6wa8w9nvppgp3updmr5znhze6l5zneztc0alknntn0wv8fkkgvjqwp0jss66cngqcj9tj6",
+		},
+		{
+			// On regtest
+			newInvoice: func() (*Invoice, error) {
+				return NewInvoice(&chaincfg.RegressionNetParams,
+					testPaymentHash, time.Unix(1496314658, 0),
+					Amount(testMillisat24BTC),
+					Description(testEmptyString),
+					Destination(testPubKey))
+			},
+			valid:          true,
+			encodedInvoice: "lnbcrt241pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdqqnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66df5c8pqjjt4z4ymmuaxfx8eh5v7hmzs3wrfas8m2sz5qz56rw2lxy8mmgm4xln0ha26qkw6u3vhu22pss2udugr9g74c3x20slpcqjgq0el4h6",
+		},
+		{
 			// Create a litecoin testnet invoice
 			newInvoice: func() (*Invoice, error) {
 				return NewInvoice(&ltcTestNetParams,

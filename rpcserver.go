@@ -218,19 +218,19 @@ var (
 			Action: "write",
 		}},
 		"/lnrpc.Lightning/AddInvoice": {{
-			Entity: "offchain",
+			Entity: "invoices",
 			Action: "write",
 		}},
 		"/lnrpc.Lightning/LookupInvoice": {{
-			Entity: "offchain",
+			Entity: "invoices",
 			Action: "read",
 		}},
 		"/lnrpc.Lightning/ListInvoices": {{
-			Entity: "offchain",
+			Entity: "invoices",
 			Action: "read",
 		}},
 		"/lnrpc.Lightning/SubscribeInvoices": {{
-			Entity: "offchain",
+			Entity: "invoices",
 			Action: "read",
 		}},
 		"/lnrpc.Lightning/SubscribeTransactions": {{

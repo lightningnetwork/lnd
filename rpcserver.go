@@ -98,6 +98,26 @@ var (
 			Entity: "info",
 			Action: "write",
 		},
+	// invoicePermissions is a slice of all the entities that allows a user
+	// to only access calls that are related to invoices, so: streaming
+	// RPC's, generating, and listening invoices.
+	invoicePermissions = []bakery.Op{
+		{
+			Entity: "invoices",
+			Action: "read",
+		},
+		{
+			Entity: "invoices",
+			Action: "write",
+		},
+		{
+			Entity: "address",
+			Action: "read",
+		},
+		{
+			Entity: "address",
+			Action: "write",
+		},
 	}
 
 	// permissions maps RPC calls to the permissions they require.

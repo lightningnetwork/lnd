@@ -55,7 +55,7 @@ import os
 
 # Lnd cert is at ~/.lnd/tls.cert on Linux and
 # ~/Library/Application Support/Lnd/tls.cert on Mac
-cert = open(os.path.expanduser('~/.lnd/tls.cert')).read()
+cert = open(os.path.expanduser('~/.lnd/tls.cert'), 'rb').read()
 creds = grpc.ssl_channel_credentials(cert)
 channel = grpc.secure_channel('localhost:10009', creds)
 stub = lnrpc.LightningStub(channel)
@@ -72,7 +72,7 @@ is at the default `localhost:10009`, with an open channel between the two nodes.
 ```python
 # Retrieve and display the wallet balance
 response = stub.WalletBalance(ln.WalletBalanceRequest(witness_only=True))
-print response.total_balance
+print(response.total_balance)
 ```
 
 #### Response-streaming RPC
@@ -80,7 +80,7 @@ print response.total_balance
 ```python
 request = ln.InvoiceSubscription()
 for invoice in stub.SubscribeInvoices(request):
-    print invoice
+    print(invoice)
 ```
 
 Now, create an invoice for your node at `localhost:10009`and send a payment to
@@ -124,7 +124,7 @@ dest_bytes = codecs.decode(dest_hex, 'hex')
 request_iterable = request_generator(dest=dest_bytes, amt=100)
 
 for payment in stub.SendPayment(request_iterable):
-    print payment
+    print(payment)
 ```
 This example will send a payment of 100 satoshis every 2 seconds.
 

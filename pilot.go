@@ -142,11 +142,9 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 
 	// First, we'll create the preferential attachment heuristic,
 	// initialized with the passed auto pilot configuration parameters.
-	//
-	// TODO(roasbeef): switch here to dispatch specified heuristic
-	minChanSize := svr.cc.wallet.Cfg.DefaultConstraints.DustLimit * 5
 	prefAttachment := autopilot.NewConstrainedPrefAttachment(
-		minChanSize, maxFundingAmount,
+		btcutil.Amount(cfg.MinChannelSize),
+		btcutil.Amount(cfg.MaxChannelSize),
 		uint16(cfg.MaxChannels), cfg.Allocation,
 	)
 

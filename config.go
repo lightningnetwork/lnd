@@ -121,10 +121,11 @@ type bitcoindConfig struct {
 }
 
 type autoPilotConfig struct {
-	// TODO(roasbeef): add
-	Active      bool    `long:"active" description:"If the autopilot agent should be active or not."`
-	MaxChannels int     `long:"maxchannels" description:"The maximum number of channels that should be created"`
-	Allocation  float64 `long:"allocation" description:"The percentage of total funds that should be committed to automatic channel establishment"`
+	Active         bool    `long:"active" description:"If the autopilot agent should be active or not."`
+	MaxChannels    int     `long:"maxchannels" description:"The maximum number of channels that should be created"`
+	Allocation     float64 `long:"allocation" description:"The percentage of total funds that should be committed to automatic channel establishment"`
+	MinChannelSize int64   `long:"minchansize" description:"The smallest channel that the autopilot agent should create"`
+	MaxChannelSize int64   `long:"maxchansize" description:"The larget channel taht the autopilot agent should create"`
 }
 
 type torConfig struct {
@@ -249,8 +250,10 @@ func loadConfig() (*config, error) {
 		MaxPendingChannels: defaultMaxPendingChannels,
 		NoEncryptWallet:    defaultNoEncryptWallet,
 		Autopilot: &autoPilotConfig{
-			MaxChannels: 5,
-			Allocation:  0.6,
+			MaxChannels:    5,
+			Allocation:     0.6,
+			MinChannelSize: int64(minChanFundingSize),
+			MaxChannelSize: int64(maxFundingAmount),
 		},
 		TrickleDelay: defaultTrickleDelay,
 		Alias:        defaultAlias,
@@ -332,6 +335,42 @@ func loadConfig() (*config, error) {
 	cfg.LtcdMode.Dir = cleanAndExpandPath(cfg.LtcdMode.Dir)
 	cfg.BitcoindMode.Dir = cleanAndExpandPath(cfg.BitcoindMode.Dir)
 	cfg.LitecoindMode.Dir = cleanAndExpandPath(cfg.LitecoindMode.Dir)
+
+	// Ensure that the user didn't attempt to specify negative values for
+	// any of the autopilot params.
+	if cfg.Autopilot.MaxChannelSize < 0 {
+		str := "%s: autopilot.maxchansize must be greater than zero"
+		err := fmt.Errorf(str)
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+	if cfg.Autopilot.Allocation < 0 {
+		str := "%s: autopilot.allocation must be greater than zero"
+		err := fmt.Errorf(str)
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+	if cfg.Autopilot.MinChannelSize < 0 {
+		str := "%s: autopilot.minchansize must be greater than zero"
+		err := fmt.Errorf(str)
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+	if cfg.Autopilot.MaxChannelSize < 0 {
+		str := "%s: autopilot.maxchansize must be greater than zero"
+		err := fmt.Errorf(str)
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+
+	// Ensure that the specified values for the min and max channel size
+	// don't are within the bounds of the normal chan size constraints.
+	if cfg.Autopilot.MinChannelSize < int64(minChanFundingSize) {
+		cfg.Autopilot.MinChannelSize = int64(minChanFundingSize)
+	}
+	if cfg.Autopilot.MaxChannelSize > int64(maxFundingAmount) {
+		cfg.Autopilot.MaxChannelSize = int64(maxFundingAmount)
+	}
 
 	// Setup dial and DNS resolution functions depending on the specified
 	// options. The default is to use the standard golang "net" package

@@ -16,7 +16,7 @@
     ```
     sudo apt-get install golang-1.10-go
     ```
-    > Note that golang-1.10-go puts binaries in /usr/lib/go-1.8/bin. If you want them on your PATH, you need to make that change yourself.
+    > Note that golang-1.10-go puts binaries in /usr/lib/go-1.10/bin. If you want them on your PATH, you need to make that change yourself.
 
     On Mac OS X
     ```
@@ -182,7 +182,7 @@ lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --btcd.rpcuser=kek --b
 
 The configuration for bitcoind and litecoind are nearly identical, the following
 steps can be mirrored with loss of generality to enable a litecoind backend.
-Setup will be described in regards to `bitciond`, but note that `lnd` uses a
+Setup will be described in regards to `bitcoind`, but note that `lnd` uses a
 distinct `litecoin.node=litecoind` argument and analogous subconfigurations
 prefixed by `litecoind`.
 
@@ -212,8 +212,8 @@ testnet=1
 txindex=1
 server=1
 daemon=1
-zmqpubrawblock=tcp://127.0.0.1:18501
-zmqpubrawtx=tcp://127.0.0.1:18501
+zmqpubrawblock=tcp://127.0.0.1:28332
+zmqpubrawtx=tcp://127.0.0.1:28332
 ```
 
 Once all of the above is complete, and you've confirmed `bitcoind` is fully updated with the latest blocks on testnet, run the command below to launch `lnd` with `bitcoind` as your backend (as with `bitcoind`, you can create an `lnd.conf` to save these options, more info on that is described further below):

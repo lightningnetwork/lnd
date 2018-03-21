@@ -718,7 +718,7 @@ func (n *NetworkHarness) CloseChannel(ctx context.Context,
 		// channel, and the other to check if a channel is active or
 		// not.
 		filterChannel := func(node *HarnessNode,
-			op wire.OutPoint) (*lnrpc.ActiveChannel, error) {
+			op wire.OutPoint) (*lnrpc.Channel, error) {
 			listResp, err := node.ListChannels(ctx, listReq)
 			if err != nil {
 				return nil, err

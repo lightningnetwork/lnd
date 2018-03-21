@@ -306,6 +306,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			p.server.cc.signer, p.server.witnessBeacon, dbChan,
 		)
 		if err != nil {
+			lnChan.Stop()
 			return err
 		}
 
@@ -325,6 +326,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		if dbChan.IsBorked {
 			peerLog.Warnf("ChannelPoint(%v) is borked, won't "+
 				"start.", chanPoint)
+			lnChan.Stop()
 			continue
 		}
 
@@ -333,15 +335,18 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		if _, ok := p.failedChannels[chanID]; ok {
 			peerLog.Warnf("ChannelPoint(%v) is failed, won't "+
 				"start.", chanPoint)
+			lnChan.Stop()
 			continue
 		}
 
 		blockEpoch, err := p.server.cc.chainNotifier.RegisterBlockEpochNtfn()
 		if err != nil {
+			lnChan.Stop()
 			return err
 		}
 		_, currentHeight, err := p.server.cc.chainIO.GetBestBlock()
 		if err != nil {
+			lnChan.Stop()
 			return err
 		}
 
@@ -351,6 +356,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		graph := p.server.chanDB.ChannelGraph()
 		info, p1, p2, err := graph.FetchChannelEdgesByOutpoint(chanPoint)
 		if err != nil && err != channeldb.ErrEdgeNotFound {
+			lnChan.Stop()
 			return err
 		}
 
@@ -394,6 +400,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			*chanPoint, false,
 		)
 		if err != nil {
+			lnChan.Stop()
 			return err
 		}
 		linkCfg := htlcswitch.ChannelLinkConfig{
@@ -430,6 +437,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			uint32(currentHeight))
 
 		if err := p.server.htlcSwitch.AddLink(link); err != nil {
+			lnChan.Stop()
 			return err
 		}
 	}

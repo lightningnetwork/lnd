@@ -683,6 +683,9 @@ func genCertPair(certFile, keyFile string) error {
 	if host != "localhost" {
 		dnsNames = append(dnsNames, "localhost")
 	}
+	if cfg.TLSExtraDomain != "" {
+		dnsNames = append(dnsNames, cfg.TLSExtraDomain)
+	}
 
 	// Generate a private key for the certificate.
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

@@ -298,7 +298,7 @@ func fallBackSRVLookup(soaShim string, targetEndPoint string) ([]*net.SRV, error
 		return nil, err
 	}
 
-	dnsHost := fmt.Sprintf("_nodes._tcp.%v", targetEndPoint)
+	dnsHost := fmt.Sprintf("_nodes._tcp.%v.", targetEndPoint)
 	dnsConn := &dns.Conn{Conn: conn}
 	defer dnsConn.Close()
 

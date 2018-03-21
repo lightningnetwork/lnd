@@ -35,6 +35,7 @@ const (
 	defaultTLSKeyFilename     = "tls.key"
 	defaultAdminMacFilename   = "admin.macaroon"
 	defaultReadMacFilename    = "readonly.macaroon"
+	defaultInvoiceMacFilename = "invoice.macaroon"
 	defaultLogLevel           = "info"
 	defaultLogDirname         = "logs"
 	defaultLogFilename        = "lnd.log"
@@ -57,14 +58,17 @@ const (
 )
 
 var (
-	defaultLndDir       = btcutil.AppDataDir("lnd", false)
-	defaultConfigFile   = filepath.Join(defaultLndDir, defaultConfigFilename)
-	defaultDataDir      = filepath.Join(defaultLndDir, defaultDataDirname)
-	defaultTLSCertPath  = filepath.Join(defaultLndDir, defaultTLSCertFilename)
-	defaultTLSKeyPath   = filepath.Join(defaultLndDir, defaultTLSKeyFilename)
-	defaultAdminMacPath = filepath.Join(defaultLndDir, defaultAdminMacFilename)
-	defaultReadMacPath  = filepath.Join(defaultLndDir, defaultReadMacFilename)
-	defaultLogDir       = filepath.Join(defaultLndDir, defaultLogDirname)
+	defaultLndDir     = btcutil.AppDataDir("lnd", false)
+	defaultConfigFile = filepath.Join(defaultLndDir, defaultConfigFilename)
+	defaultDataDir    = filepath.Join(defaultLndDir, defaultDataDirname)
+	defaultLogDir     = filepath.Join(defaultLndDir, defaultLogDirname)
+
+	defaultTLSCertPath = filepath.Join(defaultLndDir, defaultTLSCertFilename)
+	defaultTLSKeyPath  = filepath.Join(defaultLndDir, defaultTLSKeyFilename)
+
+	defaultAdminMacPath   = filepath.Join(defaultLndDir, defaultAdminMacFilename)
+	defaultReadMacPath    = filepath.Join(defaultLndDir, defaultReadMacFilename)
+	defaultInvoiceMacPath = filepath.Join(defaultLndDir, defaultInvoiceMacFilename)
 
 	defaultBtcdDir         = btcutil.AppDataDir("btcd", false)
 	defaultBtcdRPCCertFile = filepath.Join(defaultBtcdDir, "rpc.cert")
@@ -151,6 +155,7 @@ type config struct {
 	NoMacaroons    bool   `long:"no-macaroons" description:"Disable macaroon authentication"`
 	AdminMacPath   string `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
 	ReadMacPath    string `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`
+	InvoiceMacPath string `long:"invoicemacaroonpath" description:"Path to the invoice-only macaroon for lnd's RPC and REST services if it doesn't exist"`
 	LogDir         string `long:"logdir" description:"Directory to log output."`
 
 	RPCListeners  []string `long:"rpclisten" description:"Add an interface/port to listen for RPC connections"`
@@ -206,15 +211,16 @@ type config struct {
 // 	4) Parse CLI options and overwrite/add any specified options
 func loadConfig() (*config, error) {
 	defaultCfg := config{
-		LndDir:       defaultLndDir,
-		ConfigFile:   defaultConfigFile,
-		DataDir:      defaultDataDir,
-		DebugLevel:   defaultLogLevel,
-		TLSCertPath:  defaultTLSCertPath,
-		TLSKeyPath:   defaultTLSKeyPath,
-		AdminMacPath: defaultAdminMacPath,
-		ReadMacPath:  defaultReadMacPath,
-		LogDir:       defaultLogDir,
+		LndDir:         defaultLndDir,
+		ConfigFile:     defaultConfigFile,
+		DataDir:        defaultDataDir,
+		DebugLevel:     defaultLogLevel,
+		TLSCertPath:    defaultTLSCertPath,
+		TLSKeyPath:     defaultTLSKeyPath,
+		AdminMacPath:   defaultAdminMacPath,
+		InvoiceMacPath: defaultInvoiceMacPath,
+		ReadMacPath:    defaultReadMacPath,
+		LogDir:         defaultLogDir,
 		Bitcoin: &chainConfig{
 			MinHTLC:       defaultBitcoinMinHTLCMSat,
 			BaseFee:       defaultBitcoinBaseFeeMSat,
@@ -285,6 +291,7 @@ func loadConfig() (*config, error) {
 		defaultCfg.TLSCertPath = filepath.Join(lndDir, defaultTLSCertFilename)
 		defaultCfg.TLSKeyPath = filepath.Join(lndDir, defaultTLSKeyFilename)
 		defaultCfg.AdminMacPath = filepath.Join(lndDir, defaultAdminMacFilename)
+		defaultCfg.InvoiceMacPath = filepath.Join(lndDir, defaultInvoiceMacFilename)
 		defaultCfg.ReadMacPath = filepath.Join(lndDir, defaultReadMacFilename)
 		defaultCfg.LogDir = filepath.Join(lndDir, defaultLogDirname)
 	}
@@ -330,6 +337,7 @@ func loadConfig() (*config, error) {
 	cfg.TLSKeyPath = cleanAndExpandPath(cfg.TLSKeyPath)
 	cfg.AdminMacPath = cleanAndExpandPath(cfg.AdminMacPath)
 	cfg.ReadMacPath = cleanAndExpandPath(cfg.ReadMacPath)
+	cfg.InvoiceMacPath = cleanAndExpandPath(cfg.InvoiceMacPath)
 	cfg.LogDir = cleanAndExpandPath(cfg.LogDir)
 	cfg.BtcdMode.Dir = cleanAndExpandPath(cfg.BtcdMode.Dir)
 	cfg.LtcdMode.Dir = cleanAndExpandPath(cfg.LtcdMode.Dir)
@@ -630,10 +638,19 @@ func loadConfig() (*config, error) {
 	// directory has changed from the default path, then we'll also update
 	// the path for the macaroons to be generated.
 	if cfg.DataDir != defaultDataDir && cfg.AdminMacPath == defaultAdminMacPath {
-		cfg.AdminMacPath = filepath.Join(cfg.DataDir, defaultAdminMacFilename)
+		cfg.AdminMacPath = filepath.Join(
+			cfg.DataDir, defaultAdminMacFilename,
+		)
 	}
 	if cfg.DataDir != defaultDataDir && cfg.ReadMacPath == defaultReadMacPath {
-		cfg.ReadMacPath = filepath.Join(cfg.DataDir, defaultReadMacFilename)
+		cfg.ReadMacPath = filepath.Join(
+			cfg.DataDir, defaultReadMacFilename,
+		)
+	}
+	if cfg.DataDir != defaultDataDir && cfg.InvoiceMacPath == defaultInvoiceMacPath {
+		cfg.InvoiceMacPath = filepath.Join(
+			cfg.DataDir, defaultInvoiceMacPath,
+		)
 	}
 
 	// Append the network type to the log directory so it is "namespaced"

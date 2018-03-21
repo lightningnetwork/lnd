@@ -69,6 +69,10 @@ var (
 			Entity: "info",
 			Action: "read",
 		},
+		{
+			Entity: "invoices",
+			Action: "read",
+		},
 	}
 
 	// writePermissions is a slice of all entities that allow write
@@ -96,6 +100,32 @@ var (
 		},
 		{
 			Entity: "info",
+			Action: "write",
+		},
+		{
+			Entity: "invoices",
+			Action: "write",
+		},
+	}
+
+	// invoicePermissions is a slice of all the entities that allows a user
+	// to only access calls that are related to invoices, so: streaming
+	// RPC's, generating, and listening invoices.
+	invoicePermissions = []bakery.Op{
+		{
+			Entity: "invoices",
+			Action: "read",
+		},
+		{
+			Entity: "invoices",
+			Action: "write",
+		},
+		{
+			Entity: "address",
+			Action: "read",
+		},
+		{
+			Entity: "address",
 			Action: "write",
 		},
 	}
@@ -188,19 +218,19 @@ var (
 			Action: "write",
 		}},
 		"/lnrpc.Lightning/AddInvoice": {{
-			Entity: "offchain",
+			Entity: "invoices",
 			Action: "write",
 		}},
 		"/lnrpc.Lightning/LookupInvoice": {{
-			Entity: "offchain",
+			Entity: "invoices",
 			Action: "read",
 		}},
 		"/lnrpc.Lightning/ListInvoices": {{
-			Entity: "offchain",
+			Entity: "invoices",
 			Action: "read",
 		}},
 		"/lnrpc.Lightning/SubscribeInvoices": {{
-			Entity: "offchain",
+			Entity: "invoices",
 			Action: "read",
 		}},
 		"/lnrpc.Lightning/SubscribeTransactions": {{

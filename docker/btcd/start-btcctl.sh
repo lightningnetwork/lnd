@@ -43,7 +43,7 @@ RPCUSER=$(set_default "$RPCUSER" "devuser")
 RPCPASS=$(set_default "$RPCPASS" "devpass")
 NETWORK=$(set_default "$NETWORK" "simnet")
 
-btcctl \
+exec btcctl \
     "--$NETWORK" \
     --rpccert="/rpc/rpc.cert" \
     --rpcuser="$RPCUSER" \

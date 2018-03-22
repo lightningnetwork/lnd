@@ -1503,6 +1503,7 @@ func TestHTLCSigNumber(t *testing.T) {
 	}
 	feePerKw := feePerVSize.FeePerKWeight()
 
+	belowDust := btcutil.Amount(500) + htlcTimeoutFee(feePerKw)
 	aboveDust := btcutil.Amount(1400) + htlcSuccessFee(feePerKw)
 
 	// ===================================================================
@@ -1552,6 +1553,52 @@ func TestHTLCSigNumber(t *testing.T) {
 	err = bobChannel.ReceiveNewCommitment(aliceSig, []lnwire.Sig{})
 	if err == nil {
 		t.Fatalf("Expected Bob to reject signatures")
+	}
+
+	// ==============================================================
+	// Test that sigs are not returned for HTLCs below dust limit.
+	// ==============================================================
+	aliceChannel, bobChannel, cleanUp = createChanWithHTLC(belowDust)
+	defer cleanUp()
+
+	aliceSig, aliceHtlcSigs, err = aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("Error signing next commitment: %v", err)
+	}
+
+	// Since the HTLC is below Bob's dust limit, Alice won't need to send
+	// any signatures for this HTLC.
+	if len(aliceHtlcSigs) != 0 {
+		t.Fatalf("expected no htlc sigs, instead got %v",
+			len(aliceHtlcSigs))
+	}
+
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	if err != nil {
+		t.Fatalf("Bob failed receiving commitment: %v", err)
+	}
+
+	// ================================================================
+	// Test that sigs are correctly returned for HTLCs above dust limit.
+	// ================================================================
+	aliceChannel, bobChannel, cleanUp = createChanWithHTLC(aboveDust)
+	defer cleanUp()
+
+	aliceSig, aliceHtlcSigs, err = aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("Error signing next commitment: %v", err)
+	}
+
+	// Since the HTLC is above Bob's dust limit, Alice should send a
+	// signature for this HTLC.
+	if len(aliceHtlcSigs) != 1 {
+		t.Fatalf("expected 1 htlc sig, instead got %v",
+			len(aliceHtlcSigs))
+	}
+
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	if err != nil {
+		t.Fatalf("Bob failed receiving commitment: %v", err)
 	}
 
 }

@@ -2540,7 +2540,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 	remoteCommitView *commitment) ([]signJob, chan struct{}, error) {
 
 	txHash := remoteCommitView.txn.TxHash()
-	dustLimit := localChanCfg.DustLimit
+	dustLimit := remoteChanCfg.DustLimit
 	feePerKw := remoteCommitView.feePerKw
 
 	// With the keys generated, we'll make a slice with enough capacity to

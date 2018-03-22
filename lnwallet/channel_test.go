@@ -1530,6 +1530,30 @@ func TestHTLCSigNumber(t *testing.T) {
 		t.Fatalf("Expected Bob to reject signatures")
 	}
 
+	// ===================================================================
+	// Test that Bob will reject a commitment if Alice doesn't send any
+	// HTLC signatures.
+	// ===================================================================
+	aliceChannel, bobChannel, cleanUp = createChanWithHTLC(aboveDust)
+	defer cleanUp()
+
+	aliceSig, aliceHtlcSigs, err = aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("Error signing next commitment: %v", err)
+	}
+
+	if len(aliceHtlcSigs) != 1 {
+		t.Fatalf("expected 1 htlc sig, instead got %v",
+			len(aliceHtlcSigs))
+	}
+
+	// Now just give Bob an empty htlcSig slice. He should reject the
+	// commitment because of this.
+	err = bobChannel.ReceiveNewCommitment(aliceSig, []lnwire.Sig{})
+	if err == nil {
+		t.Fatalf("Expected Bob to reject signatures")
+	}
+
 }
 
 // TestChannelBalanceDustLimit tests the condition when the remaining balance

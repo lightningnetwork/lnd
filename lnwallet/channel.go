@@ -3465,12 +3465,6 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 	keyRing *CommitmentKeyRing, htlcSigs []lnwire.Sig,
 	localChanCfg, remoteChanCfg *channeldb.ChannelConfig) ([]verifyJob, error) {
 
-	// If this new commitment state doesn't have any HTLC's that are to be
-	// signed, then we'll return a nil slice.
-	if len(htlcSigs) == 0 {
-		return nil, nil
-	}
-
 	txHash := localCommitmentView.txn.TxHash()
 	feePerKw := localCommitmentView.feePerKw
 

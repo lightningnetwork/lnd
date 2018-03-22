@@ -3606,6 +3606,13 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 		i++
 	}
 
+	// If we received a number of HTLC signatures that doesn't match our
+	// commitment, we'll return an error now.
+	if len(htlcSigs) != i {
+		return nil, fmt.Errorf("number of htlc sig mismatch. "+
+			"Expected %v sigs, got %v", i, len(htlcSigs))
+	}
+
 	return verifyJobs, nil
 }
 

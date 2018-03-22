@@ -1601,6 +1601,35 @@ func TestHTLCSigNumber(t *testing.T) {
 		t.Fatalf("Bob failed receiving commitment: %v", err)
 	}
 
+	// ====================================================================
+	// Test that Bob will not validate a received commitment if Alice sends
+	// signatures for HTLCs below the dust limit.
+	// ====================================================================
+	aliceChannel, bobChannel, cleanUp = createChanWithHTLC(belowDust,
+		aboveDust)
+	defer cleanUp()
+
+	// Alice should produce only one signature, since one HTLC is below
+	// dust.
+	aliceSig, aliceHtlcSigs, err = aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("Error signing next commitment: %v", err)
+	}
+
+	if len(aliceHtlcSigs) != 1 {
+		t.Fatalf("expected 1 htlc sig, instead got %v",
+			len(aliceHtlcSigs))
+	}
+
+	// Add an extra signature.
+	aliceHtlcSigs = append(aliceHtlcSigs, aliceHtlcSigs[0])
+
+	// Bob should reject these signatures since they don't match the number
+	// of HTLCs above dust.
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	if err == nil {
+		t.Fatalf("Expected Bob to reject signatures")
+	}
 }
 
 // TestChannelBalanceDustLimit tests the condition when the remaining balance

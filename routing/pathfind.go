@@ -543,7 +543,8 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			// amount to our relaxation condition.
 			if tempDist < distance[v].dist &&
 				edgeInfo.Capacity >= amt.ToSatoshis() &&
-				amt >= outEdge.MinHTLC {
+				amt >= outEdge.MinHTLC &&
+				outEdge.TimeLockDelta != 0 {
 
 				distance[v] = nodeWithDist{
 					dist: tempDist,

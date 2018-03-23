@@ -379,6 +379,137 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	}
 }
 
+// TestSendPaymentErrorNonFinalTimeLockErrors tests that if we receive either
+// an ExpiryTooSoon or a IncorrectCltvExpiry error from a node, then we prune
+// that node from the available graph witin a mission control session. This
+// test ensures that we'll route around errors due to nodes not knowing the
+// current block height.
+func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx, cleanUp, err := createTestCtx(startingBlockHeight, basicGraphFilePath)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	// Craft a LightningPayment struct that'll send a payment from roasbeef
+	// to sophon for 1k satoshis.
+	var payHash [32]byte
+	payment := LightningPayment{
+		Target:      ctx.aliases["sophon"],
+		Amount:      lnwire.NewMSatFromSatoshis(1000),
+		PaymentHash: payHash,
+	}
+
+	var preImage [32]byte
+	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
+
+	// We'll also fetch the first outgoing channel edge from roasbeef to
+	// son goku. This edge will be included in the time lock related expiry
+	// errors that we'll get back due to disagrements in what the current
+	// block height is.
+	chanID := uint64(3495345)
+	_, _, edgeUpateToFail, err := ctx.graph.FetchChannelEdgesByID(chanID)
+	if err != nil {
+		t.Fatalf("unable to fetch chan id: %v", err)
+	}
+
+	errChanUpdate := lnwire.ChannelUpdate{
+		ShortChannelID:  lnwire.NewShortChanIDFromInt(chanID),
+		Timestamp:       uint32(edgeUpateToFail.LastUpdate.Unix()),
+		Flags:           edgeUpateToFail.Flags,
+		TimeLockDelta:   edgeUpateToFail.TimeLockDelta,
+		HtlcMinimumMsat: edgeUpateToFail.MinHTLC,
+		BaseFee:         uint32(edgeUpateToFail.FeeBaseMSat),
+		FeeRate:         uint32(edgeUpateToFail.FeeProportionalMillionths),
+	}
+
+	// The error will be returned by Son Goku.
+	sourceNode := ctx.aliases["songoku"]
+
+	// We'll now modify the SendToSwitch method to return an error for the
+	// outgoing channel to son goku. Since this is a time lock related
+	// error, we should fail the payment flow all together, as Goku is the
+	// only channel to Sophon.
+	ctx.router.cfg.SendToSwitch = func(n [33]byte,
+		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
+
+		if bytes.Equal(sourceNode.SerializeCompressed(), n[:]) {
+			return [32]byte{}, &htlcswitch.ForwardingError{
+				ErrorSource: sourceNode,
+				FailureMessage: &lnwire.FailExpiryTooSoon{
+					Update: errChanUpdate,
+				},
+			}
+		}
+
+		return preImage, nil
+	}
+
+	// assertExpectedPath is a helper function that asserts the returned
+	// route properly routes around the failure we've introduced in the
+	// graph.
+	assertExpectedPath := func(retPreImage [32]byte, route *Route) {
+		// The route selected should have two hops
+		if len(route.Hops) != 2 {
+			t.Fatalf("incorrect route length: expected %v got %v", 2,
+				len(route.Hops))
+		}
+
+		// The preimage should match up with the once created above.
+		if !bytes.Equal(retPreImage[:], preImage[:]) {
+			t.Fatalf("incorrect preimage used: expected %x got %x",
+				preImage[:], retPreImage[:])
+		}
+
+		// The route should have satoshi as the first hop.
+		if route.Hops[0].Channel.Node.Alias != "phamnuwen" {
+			t.Fatalf("route should go through phamnuwen as first hop, "+
+				"instead passes through: %v",
+				route.Hops[0].Channel.Node.Alias)
+		}
+	}
+
+	// Send off the payment request to the router, this payment should
+	// suceed as we should actually go through Pham Nuwen in order to get
+	// to Sophon, even though he has higher fees.
+	paymentPreImage, route, err := ctx.router.SendPayment(&payment)
+	if err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+
+	assertExpectedPath(paymentPreImage, route)
+
+	// We'll now modify the error return an IncorrectCltvExpiry error
+	// instead, this should result in the same behavior of roasbeef routing
+	// around the faulty Son Goku node.
+	ctx.router.cfg.SendToSwitch = func(n [33]byte,
+		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
+
+		if bytes.Equal(sourceNode.SerializeCompressed(), n[:]) {
+			return [32]byte{}, &htlcswitch.ForwardingError{
+				ErrorSource: sourceNode,
+				FailureMessage: &lnwire.FailIncorrectCltvExpiry{
+					Update: errChanUpdate,
+				},
+			}
+		}
+
+		return preImage, nil
+	}
+
+	// Once again, Roasbeef should route around Goku since they disagree
+	// w.r.t to the block height, and instead go through Pham Nuwen.
+	paymentPreImage, route, err = ctx.router.SendPayment(&payment)
+	if err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+
+	assertExpectedPath(paymentPreImage, route)
+}
+
 // TestSendPaymentErrorPathPruning tests that the send of candidate routes
 // properly gets pruned in response to ForwardingError response from the
 // underlying SendToSwitch function.

@@ -761,6 +761,14 @@ out:
 				idleTimer.Reset(idleTimeout)
 				continue
 
+			// If they sent us an address type that we don't yet
+			// know of, then this isn't a dire error, so we'll
+			// simply continue parsing the remainder of their
+			// messages.
+			case *lnwire.ErrUnknownAddrType:
+				idleTimer.Reset(idleTimeout)
+				continue
+
 			// If the error we encountered wasn't just a message we
 			// didn't recognize, then we'll stop all processing s
 			// this is a fatal error.

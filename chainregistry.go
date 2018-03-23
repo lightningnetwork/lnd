@@ -246,6 +246,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 		// database.
 		walletConfig.ChainSource = chain.NewNeutrinoClient(svc)
 		cleanUp = func() {
+			svc.Stop()
 			nodeDatabase.Close()
 		}
 	case "bitcoind", "litecoind":

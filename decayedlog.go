@@ -403,7 +403,7 @@ func (d *DecayedLog) PutBatch(b *Batch) (*ReplaySet, error) {
 		// idempotent.
 		replayBytes := batchReplayBkt.Get(b.id)
 		if replayBytes != nil {
-			replays = &ReplaySet{}
+			replays = NewReplaySet()
 			return replays.Decode(bytes.NewReader(replayBytes))
 		}
 

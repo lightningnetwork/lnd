@@ -1670,15 +1670,20 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 				return preImage, nil, sendError
 
 			// If we get a notice that the expiry was too soon for
-			// an intermediate node, then we'll exit early as the
-			// expected block height as shifted from underneath us.
+			// an intermediate node, then we'll prune out the node
+			// that sent us this error, as it doesn't now what the
+			// correct block height is.
 			case *lnwire.FailExpiryTooSoon:
 				update := onionErr.Update
 				if err := r.applyChannelUpdate(&update); err != nil {
 					log.Errorf("unable to apply channel "+
 						"update for onion error: %v", err)
 				}
-				return preImage, nil, sendError
+
+				pruneVertexFailure(
+					paySession, route, errSource, false,
+				)
+				continue
 
 			// If we hit an instance of onion payload corruption or
 			// an invalid version, then we'll exit early as this
@@ -1734,6 +1739,10 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 				errFailedFeeChans[chanID] = struct{}{}
 				continue
 
+			// If we get the failure for an intermediate node that
+			// disagrees with our time lock values, then we'll
+			// prune it out for now, and continue with path
+			// finding.
 			case *lnwire.FailIncorrectCltvExpiry:
 				update := onionErr.Update
 				if err := r.applyChannelUpdate(&update); err != nil {
@@ -1741,7 +1750,10 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 						"update for onion error: %v", err)
 				}
 
-				return preImage, nil, sendError
+				pruneVertexFailure(
+					paySession, route, errSource, false,
+				)
+				continue
 
 			// The outgoing channel that this node was meant to
 			// forward one is currently disabled, so we'll apply

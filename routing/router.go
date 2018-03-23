@@ -957,6 +957,10 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		channelID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
 		fundingPoint, err := r.fetchChanPoint(&channelID)
 		if err != nil {
+			r.rejectMtx.Lock()
+			r.rejectCache[msg.ChannelID] = struct{}{}
+			r.rejectMtx.Unlock()
+
 			return errors.Errorf("unable to fetch chan point for "+
 				"chan_id=%v: %v", msg.ChannelID, err)
 		}
@@ -964,9 +968,14 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		// Now that we have the funding outpoint of the channel, ensure
 		// that it hasn't yet been spent. If so, then this channel has
 		// been closed so we'll ignore it.
-		chanUtxo, err := r.cfg.Chain.GetUtxo(fundingPoint,
-			channelID.BlockHeight)
+		chanUtxo, err := r.cfg.Chain.GetUtxo(
+			fundingPoint, channelID.BlockHeight,
+		)
 		if err != nil {
+			r.rejectMtx.Lock()
+			r.rejectCache[msg.ChannelID] = struct{}{}
+			r.rejectMtx.Unlock()
+
 			return errors.Errorf("unable to fetch utxo for "+
 				"chan_id=%v, chan_point=%v: %v", msg.ChannelID,
 				fundingPoint, err)
@@ -1061,6 +1070,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		case msg.Flags&lnwire.ChanUpdateDirection == 0:
 			if edge1Timestamp.After(msg.LastUpdate) ||
 				edge1Timestamp.Equal(msg.LastUpdate) {
+
 				return newErrf(ErrIgnored, "Ignoring update "+
 					"(flags=%v) for known chan_id=%v", msg.Flags,
 					msg.ChannelID)
@@ -1085,6 +1095,10 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 			// querying the utxo-set for its existence.
 			chanPoint, err := r.fetchChanPoint(&channelID)
 			if err != nil {
+				r.rejectMtx.Lock()
+				r.rejectCache[msg.ChannelID] = struct{}{}
+				r.rejectMtx.Unlock()
+
 				return errors.Errorf("unable to fetch chan "+
 					"point for chan_id=%v: %v",
 					msg.ChannelID, err)
@@ -1093,6 +1107,10 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 				chanPoint, channelID.BlockHeight,
 			)
 			if err != nil {
+				r.rejectMtx.Lock()
+				r.rejectCache[msg.ChannelID] = struct{}{}
+				r.rejectMtx.Unlock()
+
 				return errors.Errorf("unable to fetch utxo for "+
 					"chan_id=%v: %v", msg.ChannelID, err)
 			}

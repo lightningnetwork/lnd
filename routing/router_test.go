@@ -818,7 +818,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		t.Fatalf("unable to update edge policy: %v", err)
 	}
 
-	// We should now be able to find one route to node 2.
+	// We should now be able to find two routes to node 2.
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	targetNode := priv2.PubKey()
 	routes, err := ctx.router.FindRoutes(targetNode, paymentAmt,
@@ -826,8 +826,8 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
 	}
-	if len(routes) != 1 {
-		t.Fatalf("expected to find 1 route, found: %v", len(routes))
+	if len(routes) != 2 {
+		t.Fatalf("expected to find 2 route, found: %v", len(routes))
 	}
 
 	// Now check that we can update the node info for the partial node
@@ -862,15 +862,15 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		t.Fatalf("could not add node: %v", err)
 	}
 
-	// Should still be able to find the route, and the info should be
+	// Should still be able to find the routes, and the info should be
 	// updated.
 	routes, err = ctx.router.FindRoutes(targetNode, paymentAmt,
 		defaultNumRoutes, DefaultFinalCLTVDelta)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
 	}
-	if len(routes) != 1 {
-		t.Fatalf("expected to find 1 route, found: %v", len(routes))
+	if len(routes) != 2 {
+		t.Fatalf("expected to find 2 route, found: %v", len(routes))
 	}
 
 	copy1, err := ctx.graph.FetchLightningNode(priv1.PubKey())

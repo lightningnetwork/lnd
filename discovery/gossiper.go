@@ -1486,11 +1486,12 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 					return anns
 				}
 
-				// Otherwise, this is just a regular rejected edge.
+				// Otherwise, this is just a regular rejected
+				// edge.
 				log.Debugf("Router rejected channel "+
 					"edge: %v", err)
 			} else {
-				log.Errorf("Router rejected channel "+
+				log.Tracef("Router rejected channel "+
 					"edge: %v", err)
 			}
 

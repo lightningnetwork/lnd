@@ -873,7 +873,7 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 		// If only ONE of RPCUser or RPCPass is set, we assume the
 		// user did that unintentionally.
 		if conf.RPCUser != "" || conf.RPCPass != "" {
-			return fmt.Errorf("please set both or neither of " +
+			return fmt.Errorf("please set both or neither of "+
 				"%[1]v.rpcuser, %[1]v.rpcpass", daemonName)
 		}
 
@@ -902,8 +902,8 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 		// If only one or two of the parameters are set, we assume the
 		// user did that unintentionally.
 		if conf.RPCUser != "" || conf.RPCPass != "" || conf.ZMQPath != "" {
-			return fmt.Errorf("please set all or none of " +
-				"%[1]v.rpcuser, %[1]v.rpcpass, " +
+			return fmt.Errorf("please set all or none of "+
+				"%[1]v.rpcuser, %[1]v.rpcpass, "+
 				"and %[1]v.zmqpath", daemonName)
 		}
 

@@ -654,7 +654,7 @@ func TestPathInsufficientCapacity(t *testing.T) {
 	// though we have a 2-hop link.
 	target := aliases["sophon"]
 
-	const payAmt = btcutil.SatoshiPerBitcoin
+	payAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 	_, err = findPath(nil, graph, sourceNode, target, ignoredVertexes,
 		ignoredEdges, payAmt)
 	if !IsError(err, ErrNoPathFound) {

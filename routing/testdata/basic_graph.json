@@ -27,7 +27,8 @@
 "                                    ▼                                           │       ", 
 "                              ┌──────────┐                                      │       ", 
 "                              │ roasbeef │◀─────────────────────────────────────┘       ", 
-"                              └──────────┘               100k satoshis                  "
+"                              └──────────┘               100k satoshis                  ",
+" the graph also includes a channel from roasbeef to sophon via pham nuwen"
     ], 
     "nodes": [
         {
@@ -54,9 +55,62 @@
             "source": false, 
             "pubkey": "036264734b40c9e91d3d990a8cdfbbe23b5b0b7ad3cd0e080a25dcd05d39eeb7eb", 
             "alias": "sophon"
+        },
+        {
+            "source": false,
+            "pubkey": "02a1d2856be336a58af08989aea0d8c41e072ccc392c46f8ce0e6e069f002035f3",
+            "alias": "phamnuwen"
         }
     ], 
     "edges": [
+        {
+            "node_1": "02a1d2856be336a58af08989aea0d8c41e072ccc392c46f8ce0e6e069f002035f3",
+            "node_2": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6",
+            "channel_id": 999991,
+            "channel_point": "48a0e8b856fef01d9feda7d25a4fac6dae48749e28ba356b92d712ab7f5bd2d0:0", 
+            "flags": 1,
+            "expiry": 1,
+            "min_htlc": 1000, 
+            "fee_base_msat": 10000,
+            "fee_rate": 1000000, 
+            "capacity": 100000
+        },
+        {
+            "node_1": "02a1d2856be336a58af08989aea0d8c41e072ccc392c46f8ce0e6e069f002035f3",
+            "node_2": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6",
+            "channel_id": 999991,
+            "channel_point": "48a0e8b856fef01d9feda7d25a4fac6dae48749e28ba356b92d712ab7f5bd2d0:0", 
+            "flags": 0,
+            "expiry": 1,
+            "min_htlc": 1000, 
+            "fee_base_msat": 10000, 
+            "fee_rate": 1000000, 
+            "capacity": 100000
+        },
+        {
+            "node_1": "02a1d2856be336a58af08989aea0d8c41e072ccc392c46f8ce0e6e069f002035f3",
+            "node_2": "036264734b40c9e91d3d990a8cdfbbe23b5b0b7ad3cd0e080a25dcd05d39eeb7eb",
+            "channel_id": 99999,
+            "channel_point": "05ffda8890d0a4fffe0ddca0b1932ba0415b1d5868a99515384a4e7883d96b88:0", 
+            "flags": 1,
+            "expiry": 1,
+            "min_htlc": 1000, 
+            "fee_base_msat": 10000,
+            "fee_rate": 1000000, 
+            "capacity": 100000
+        },
+        {
+            "node_1": "02a1d2856be336a58af08989aea0d8c41e072ccc392c46f8ce0e6e069f002035f3",
+            "node_2": "036264734b40c9e91d3d990a8cdfbbe23b5b0b7ad3cd0e080a25dcd05d39eeb7eb",
+            "channel_id": 99999,
+            "channel_point": "05ffda8890d0a4fffe0ddca0b1932ba0415b1d5868a99515384a4e7883d96b88:0", 
+            "flags": 0,
+            "expiry": 1,
+            "min_htlc": 1000, 
+            "fee_base_msat": 10000, 
+            "fee_rate": 1000000, 
+            "capacity": 100000
+        },
         {
             "node_1": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6",
 	    "node_2": "032b480de5d002f1a8fd1fe1bbf0a0f1b07760f65f052e66d56f15d71097c01add",

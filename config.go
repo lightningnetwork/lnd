@@ -649,7 +649,7 @@ func loadConfig() (*config, error) {
 	}
 	if cfg.DataDir != defaultDataDir && cfg.InvoiceMacPath == defaultInvoiceMacPath {
 		cfg.InvoiceMacPath = filepath.Join(
-			cfg.DataDir, defaultInvoiceMacPath,
+			cfg.DataDir, defaultInvoiceMacFilename,
 		)
 	}
 

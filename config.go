@@ -129,7 +129,7 @@ type autoPilotConfig struct {
 	MaxChannels    int     `long:"maxchannels" description:"The maximum number of channels that should be created"`
 	Allocation     float64 `long:"allocation" description:"The percentage of total funds that should be committed to automatic channel establishment"`
 	MinChannelSize int64   `long:"minchansize" description:"The smallest channel that the autopilot agent should create"`
-	MaxChannelSize int64   `long:"maxchansize" description:"The larget channel taht the autopilot agent should create"`
+	MaxChannelSize int64   `long:"maxchansize" description:"The largest channel that the autopilot agent should create"`
 }
 
 type torConfig struct {
@@ -346,27 +346,27 @@ func loadConfig() (*config, error) {
 
 	// Ensure that the user didn't attempt to specify negative values for
 	// any of the autopilot params.
-	if cfg.Autopilot.MaxChannelSize < 0 {
-		str := "%s: autopilot.maxchansize must be greater than zero"
-		err := fmt.Errorf(str)
+	if cfg.Autopilot.MaxChannels < 0 {
+		str := "%s: autopilot.maxchannels must be non-negative"
+		err := fmt.Errorf(str, funcName)
 		fmt.Fprintln(os.Stderr, err)
 		return nil, err
 	}
 	if cfg.Autopilot.Allocation < 0 {
-		str := "%s: autopilot.allocation must be greater than zero"
-		err := fmt.Errorf(str)
+		str := "%s: autopilot.allocation must be non-negative"
+		err := fmt.Errorf(str, funcName)
 		fmt.Fprintln(os.Stderr, err)
 		return nil, err
 	}
 	if cfg.Autopilot.MinChannelSize < 0 {
-		str := "%s: autopilot.minchansize must be greater than zero"
-		err := fmt.Errorf(str)
+		str := "%s: autopilot.minchansize must be non-negative"
+		err := fmt.Errorf(str, funcName)
 		fmt.Fprintln(os.Stderr, err)
 		return nil, err
 	}
 	if cfg.Autopilot.MaxChannelSize < 0 {
-		str := "%s: autopilot.maxchansize must be greater than zero"
-		err := fmt.Errorf(str)
+		str := "%s: autopilot.maxchansize must be non-negative"
+		err := fmt.Errorf(str, funcName)
 		fmt.Fprintln(os.Stderr, err)
 		return nil, err
 	}

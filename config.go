@@ -861,20 +861,27 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 		if conf.RPCUser != "" && conf.RPCPass != "" {
 			return nil
 		}
+
+		// Get the daemon name for displaying proper errors.
+		switch net {
+		case bitcoinChain:
+			daemonName = "btcd"
+		case litecoinChain:
+			daemonName = "ltcd"
+		}
+
 		// If only ONE of RPCUser or RPCPass is set, we assume the
 		// user did that unintentionally.
 		if conf.RPCUser != "" || conf.RPCPass != "" {
 			return fmt.Errorf("please set both or neither of " +
-				"btcd.rpcuser and btcd.rpcpass")
+				"%[1]v.rpcuser, %[1]v.rpcpass", daemonName)
 		}
 
 		switch net {
 		case bitcoinChain:
-			daemonName = "btcd"
 			confDir = conf.Dir
 			confFile = "btcd"
 		case litecoinChain:
-			daemonName = "ltcd"
 			confDir = conf.Dir
 			confFile = "ltcd"
 		}
@@ -884,21 +891,27 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 		if conf.RPCUser != "" && conf.RPCPass != "" && conf.ZMQPath != "" {
 			return nil
 		}
+
+		// Get the daemon name for displaying proper errors.
+		switch net {
+		case bitcoinChain:
+			daemonName = "bitcoind"
+		case litecoinChain:
+			daemonName = "litecoind"
+		}
 		// If only one or two of the parameters are set, we assume the
 		// user did that unintentionally.
 		if conf.RPCUser != "" || conf.RPCPass != "" || conf.ZMQPath != "" {
 			return fmt.Errorf("please set all or none of " +
-				"bitcoind.rpcuser, bitcoind.rpcpass, and " +
-				"bitcoind.zmqpath")
+				"%[1]v.rpcuser, %[1]v.rpcpass, " +
+				"and %[1]v.zmqpath", daemonName)
 		}
 
 		switch net {
 		case bitcoinChain:
-			daemonName = "bitcoind"
 			confDir = conf.Dir
 			confFile = "bitcoin"
 		case litecoinChain:
-			daemonName = "litecoind"
 			confDir = conf.Dir
 			confFile = "litecoin"
 		}

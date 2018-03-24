@@ -140,7 +140,7 @@
   branch = "master"
   name = "github.com/lightninglabs/gozmq"
   packages = ["."]
-  revision = "0d266ba6d55ea65c18c7a02d8992c89355149e80"
+  revision = "462a8a75388506b68f76661af8d649f0b88e5301"
 
 [[projects]]
   name = "github.com/lightninglabs/neutrino"

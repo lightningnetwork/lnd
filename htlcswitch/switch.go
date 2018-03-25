@@ -1930,7 +1930,7 @@ query:
 func (s *Switch) getLinks(destination [33]byte) ([]ChannelLink, error) {
 	links, ok := s.interfaceIndex[destination]
 	if !ok {
-		return nil, errors.Errorf("unable to locate channel link by"+
+		return nil, errors.Errorf("unable to locate channel link by "+
 			"destination hop id %x", destination)
 	}
 

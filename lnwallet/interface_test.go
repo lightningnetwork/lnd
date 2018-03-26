@@ -2083,7 +2083,9 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			}
 			aliceChain.Start()
 			defer aliceChain.Stop()
-			aliceClient = chain.NewNeutrinoClient(aliceChain)
+			aliceClient = chain.NewNeutrinoClient(
+				netParams, aliceChain,
+			)
 
 			// Start Bob - open a database, start a neutrino
 			// instance, and initialize a btcwallet driver for it.
@@ -2108,7 +2110,9 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			}
 			bobChain.Start()
 			defer bobChain.Stop()
-			bobClient = chain.NewNeutrinoClient(bobChain)
+			bobClient = chain.NewNeutrinoClient(
+				netParams, bobChain,
+			)
 
 		case "bitcoind":
 			feeEstimator, err = lnwallet.NewBitcoindFeeEstimator(

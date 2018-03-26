@@ -33,7 +33,7 @@ var (
 	version0TestVectors = []TestVector{
 		{
 			version:  0,
-			time:     bitcoinGenesisDate,
+			time:     BitcoinGenesisDate,
 			entropy:  testEntropy,
 			salt:     testSalt,
 			password: []byte{},
@@ -466,7 +466,7 @@ func TestSeedEncodeDecode(t *testing.T) {
 		now := time.Unix(nowInt, 0)
 		seed := CipherSeed{
 			InternalVersion: version,
-			Birthday:        uint16(now.Sub(bitcoinGenesisDate) / (time.Hour * 24)),
+			Birthday:        uint16(now.Sub(BitcoinGenesisDate) / (time.Hour * 24)),
 			Entropy:         entropy,
 		}
 

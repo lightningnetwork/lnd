@@ -127,6 +127,15 @@ message InitWalletRequest {
     to encrypt the generated aezeed cipher seed.
     */
     bytes aezeed_passphrase = 3;
+
+    /**
+    recovery_window is an optional argument specifying the address lookahead
+    when restoring a wallet seed. The recovery window applies to each
+    invdividual branch of the BIP44 derivation paths. Supplying a recovery
+    window of zero indicates that no addresses should be recovered, such after
+    the first initialization of the wallet.
+    */
+    int32 recovery_window = 4;
 }
 message InitWalletResponse {
 }
@@ -138,6 +147,15 @@ message UnlockWalletRequest {
     function properly.
     */
     bytes wallet_password = 1;
+
+    /**
+    recovery_window is an optional argument specifying the address lookahead
+    when restoring a wallet seed. The recovery window applies to each
+    invdividual branch of the BIP44 derivation paths. Supplying a recovery
+    window of zero indicates that no addresses should be recovered, such after
+    the first initialization of the wallet.
+    */
+    int32 recovery_window = 2;
 }
 message UnlockWalletResponse {}
 

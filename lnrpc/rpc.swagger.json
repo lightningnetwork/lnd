@@ -1569,6 +1569,11 @@
           "type": "string",
           "format": "byte",
           "description": "*\naezeed_passphrase is an optional user provided passphrase that will be used\nto encrypt the generated aezeed cipher seed."
+        },
+        "recovery_window": {
+          "type": "integer",
+          "format": "int32",
+          "description": "*\nrecovery_window is an optional argument specifying the address lookahead\nwhen restoring a wallet seed. The recovery window applies to each\ninvdividual branch of the BIP44 derivation paths. Supplying a recovery\nwindow of zero indicates that no addresses should be recovered, such after\nthe first initialization of the wallet."
         }
       }
     },
@@ -2390,6 +2395,11 @@
           "type": "string",
           "format": "byte",
           "description": "*\nwallet_password should be the current valid passphrase for the daemon. This\nwill be required to decrypt on-disk material that the daemon requires to\nfunction properly."
+        },
+        "recovery_window": {
+          "type": "integer",
+          "format": "int32",
+          "description": "*\nrecovery_window is an optional argument specifying the address lookahead\nwhen restoring a wallet seed. The recovery window applies to each\ninvdividual branch of the BIP44 derivation paths. Supplying a recovery\nwindow of zero indicates that no addresses should be recovered, such after\nthe first initialization of the wallet."
         }
       }
     },

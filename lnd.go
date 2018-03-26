@@ -207,18 +207,34 @@ func lndMain() error {
 		defer macaroonService.Close()
 	}
 
+	var (
+		privateWalletPw = []byte("hello")
+		publicWalletPw  = []byte("public")
+		birthday        time.Time
+		recoveryWindow  uint32
+	)
+
 	// We wait until the user provides a password over RPC. In case lnd is
 	// started with the --noencryptwallet flag, we use the default password
 	// "hello" for wallet encryption.
-	privateWalletPw := []byte("hello")
-	publicWalletPw := []byte("public")
 	if !cfg.NoEncryptWallet {
-		privateWalletPw, publicWalletPw, err = waitForWalletPassword(
-			cfg.RPCListeners, cfg.RESTListeners, serverOpts, proxyOpts,
-			tlsConf, macaroonService,
+		walletInitParams, err := waitForWalletPassword(
+			cfg.RPCListeners, cfg.RESTListeners, serverOpts,
+			proxyOpts, tlsConf, macaroonService,
 		)
 		if err != nil {
 			return err
+		}
+
+		privateWalletPw = walletInitParams.Password
+		publicWalletPw = walletInitParams.Password
+		birthday = walletInitParams.Birthday
+		recoveryWindow = walletInitParams.RecoveryWindow
+
+		if recoveryWindow > 0 {
+			ltndLog.Infof("Wallet recovery mode enabled with "+
+				"address lookahead of %d addresses",
+				recoveryWindow)
 		}
 	}
 
@@ -251,8 +267,10 @@ func lndMain() error {
 	// With the information parsed from the configuration, create valid
 	// instances of the pertinent interfaces required to operate the
 	// Lightning Network Daemon.
-	activeChainControl, chainCleanUp, err := newChainControlFromConfig(cfg,
-		chanDB, privateWalletPw, publicWalletPw)
+	activeChainControl, chainCleanUp, err := newChainControlFromConfig(
+		cfg, chanDB, privateWalletPw, publicWalletPw, birthday,
+		recoveryWindow,
+	)
 	if err != nil {
 		fmt.Printf("unable to create chain control: %v\n", err)
 		return err
@@ -827,12 +845,30 @@ func genMacaroons(ctx context.Context, svc *macaroons.Service,
 	return nil
 }
 
+// WalletUnlockParams holds the variables used to parameterize the unlocking of
+// lnd's wallet after it has already been created.
+type WalletUnlockParams struct {
+	// Password is the public and private wallet passphrase.
+	Password []byte
+
+	// Birthday specifies the approximate time that this wallet was created.
+	// This is used to bound any rescans on startup.
+	Birthday time.Time
+
+	// RecoveryWindow specifies the address lookahead when entering recovery
+	// mode. A recovery will be attempted if this value is non-zero.
+	RecoveryWindow uint32
+}
+
 // waitForWalletPassword will spin up gRPC and REST endpoints for the
 // WalletUnlocker server, and block until a password is provided by
 // the user to this RPC server.
-func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
-	serverOpts []grpc.ServerOption, proxyOpts []grpc.DialOption,
-	tlsConf *tls.Config, macaroonService *macaroons.Service) ([]byte, []byte, error) {
+func waitForWalletPassword(
+	grpcEndpoints, restEndpoints []string,
+	serverOpts []grpc.ServerOption,
+	proxyOpts []grpc.DialOption,
+	tlsConf *tls.Config,
+	macaroonService *macaroons.Service) (*WalletUnlockParams, error) {
 
 	// Set up a new PasswordService, which will listen
 	// for passwords provided over RPC.
@@ -857,7 +893,7 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 		if err != nil {
 			ltndLog.Errorf("password RPC server unable to listen on %s",
 				grpcEndpoint)
-			return nil, nil, err
+			return nil, err
 		}
 		defer lis.Close()
 
@@ -879,7 +915,7 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 	err := lnrpc.RegisterWalletUnlockerHandlerFromEndpoint(ctx, mux,
 		grpcEndpoints[0], proxyOpts)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	srv := &http.Server{Handler: mux}
@@ -889,7 +925,7 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 		if err != nil {
 			ltndLog.Errorf("password gRPC proxy unable to listen on %s",
 				restEndpoint)
-			return nil, nil, err
+			return nil, err
 		}
 		defer lis.Close()
 
@@ -920,14 +956,15 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 	case initMsg := <-pwService.InitMsgs:
 		password := initMsg.Passphrase
 		cipherSeed := initMsg.WalletSeed
+		recoveryWindow := initMsg.RecoveryWindow
 
 		// Before we proceed, we'll check the internal version of the
 		// seed. If it's greater than the current key derivation
 		// version, then we'll return an error as we don't understand
 		// this.
 		if cipherSeed.InternalVersion != keychain.KeyDerivationVersion {
-			return nil, nil, fmt.Errorf("invalid internal seed "+
-				"version %v, current version is %v",
+			return nil, fmt.Errorf("invalid internal seed version "+
+				"%v, current version is %v",
 				cipherSeed.InternalVersion,
 				keychain.KeyDerivationVersion)
 		}
@@ -935,31 +972,42 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 		netDir := btcwallet.NetworkDir(
 			chainConfig.ChainDir, activeNetParams.Params,
 		)
-		loader := wallet.NewLoader(activeNetParams.Params, netDir)
+		loader := wallet.NewLoader(
+			activeNetParams.Params, netDir, uint32(recoveryWindow),
+		)
 
 		// With the seed, we can now use the wallet loader to create
 		// the wallet, then unload it so it can be opened shortly
-		// after.
-		// TODO(roasbeef): extend loader to also accept birthday
+		birthday := cipherSeed.BirthdayTime()
 		_, err = loader.CreateNewWallet(
-			password, password, cipherSeed.Entropy[:],
+			password, password, cipherSeed.Entropy[:], birthday,
 		)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 
 		if err := loader.UnloadWallet(); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 
-		return password, password, nil
+		walletInitParams := &WalletUnlockParams{
+			Password:       password,
+			Birthday:       birthday,
+			RecoveryWindow: recoveryWindow,
+		}
+
+		return walletInitParams, nil
 
 	// The wallet has already been created in the past, and is simply being
 	// unlocked. So we'll just return these passphrases.
-	case walletPw := <-pwService.UnlockPasswords:
-		return walletPw, walletPw, nil
+	case unlockMsg := <-pwService.UnlockMsgs:
+		walletInitParams := &WalletUnlockParams{
+			Password:       unlockMsg.Passphrase,
+			RecoveryWindow: unlockMsg.RecoveryWindow,
+		}
+		return walletInitParams, nil
 
 	case <-shutdownChannel:
-		return nil, nil, fmt.Errorf("shutting down")
+		return nil, fmt.Errorf("shutting down")
 	}
 }

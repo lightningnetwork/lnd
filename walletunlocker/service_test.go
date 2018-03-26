@@ -37,8 +37,10 @@ var (
 
 func createTestWallet(t *testing.T, dir string, netParams *chaincfg.Params) {
 	netDir := btcwallet.NetworkDir(dir, netParams)
-	loader := wallet.NewLoader(netParams, netDir)
-	_, err := loader.CreateNewWallet(testPassword, testPassword, testSeed)
+	loader := wallet.NewLoader(netParams, netDir, 0)
+	_, err := loader.CreateNewWallet(
+		testPassword, testPassword, testSeed, time.Time{},
+	)
 	if err != nil {
 		t.Fatalf("failed creating wallet: %v", err)
 	}
@@ -340,10 +342,10 @@ func TestUnlockWallet(t *testing.T) {
 
 	// Password should be sent over the channel.
 	select {
-	case pw := <-service.UnlockPasswords:
-		if !bytes.Equal(pw, testPassword) {
+	case unlockMsg := <-service.UnlockMsgs:
+		if !bytes.Equal(unlockMsg.Passphrase, testPassword) {
 			t.Fatalf("expected to receive password %x, got %x",
-				testPassword, pw)
+				testPassword, unlockMsg.Passphrase)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatalf("password not received")

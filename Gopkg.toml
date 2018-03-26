@@ -64,7 +64,7 @@
 
 [[constraint]]
   name = "github.com/roasbeef/btcwallet"
-  revision = "41f0e0145c5a4d1b90105dcccf0cbe5d22372eed"
+  revision = "ccd48bb4720f2baeaa795cac81264f6ced2da4c7"
 
 [[constraint]]
   name = "github.com/tv42/zbase32"

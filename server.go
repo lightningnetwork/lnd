@@ -16,12 +16,14 @@ import (
 	"time"
 
 	"github.com/coreos/bbolt"
+	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -31,9 +33,6 @@ import (
 	"github.com/roasbeef/btcd/connmgr"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
-
-	"github.com/go-errors/errors"
-	"github.com/lightningnetwork/lnd/htlcswitch"
 )
 
 var (
@@ -159,9 +158,8 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	// the same directory as the channel graph database.
 	graphDir := chanDB.Path()
 	sharedSecretPath := filepath.Join(graphDir, "sphinxreplay.db")
-	sphinxRouter := sphinx.NewRouter(
-		sharedSecretPath, privKey, activeNetParams.Params, cc.chainNotifier,
-	)
+	replayLog := htlcswitch.NewDecayedLog(sharedSecretPath, cc.chainNotifier)
+	sphinxRouter := sphinx.NewRouter(privKey, activeNetParams.Params, replayLog)
 
 	s := &server{
 		chanDB: chanDB,

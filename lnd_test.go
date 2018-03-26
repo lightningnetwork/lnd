@@ -1418,7 +1418,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to get carol's balance: %v", err)
 	}
 
-	carolStartingBalance := btcutil.Amount(carolBalResp.ConfirmedBalance * 1e8)
+	carolStartingBalance := carolBalResp.ConfirmedBalance
 
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPoint := openChannelAndAssert(ctxt, t, net, net.Alice, carol,
@@ -1965,11 +1965,11 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to get carol's balance: %v", err)
 	}
-	carolExpectedBalance := carolStartingBalance + pushAmt
-	if btcutil.Amount(carolBalResp.ConfirmedBalance*1e8) < carolExpectedBalance {
+	carolExpectedBalance := btcutil.Amount(carolStartingBalance) + pushAmt
+	if btcutil.Amount(carolBalResp.ConfirmedBalance) < carolExpectedBalance {
 		t.Fatalf("carol's balance is incorrect: expected %v got %v",
 			carolExpectedBalance,
-			btcutil.Amount(carolBalResp.ConfirmedBalance*1e8))
+			carolBalResp.ConfirmedBalance)
 	}
 }
 

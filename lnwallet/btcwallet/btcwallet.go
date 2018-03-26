@@ -330,9 +330,16 @@ func (b *BtcWallet) ListUnspentWitness(minConfs int32) ([]*lnwallet.Utxo, error)
 				return nil, err
 			}
 
+			// We'll ensure we properly convert the amount given in
+			// BTC to satoshis.
+			amt, err := btcutil.NewAmount(output.Amount)
+			if err != nil {
+				return nil, err
+			}
+
 			utxo := &lnwallet.Utxo{
 				AddressType: addressType,
-				Value:       btcutil.Amount(output.Amount * 1e8),
+				Value:       amt,
 				PkScript:    pkScript,
 				OutPoint: wire.OutPoint{
 					Hash:  *txid,

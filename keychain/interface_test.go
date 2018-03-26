@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -42,11 +43,13 @@ func createTestBtcWallet(coinType uint32) (func(), *wallet.Wallet, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	loader := wallet.NewLoader(&chaincfg.SimNetParams, tempDir)
+	loader := wallet.NewLoader(&chaincfg.SimNetParams, tempDir, 0)
 
 	pass := []byte("test")
 
-	baseWallet, err := loader.CreateNewWallet(pass, pass, testHDSeed[:])
+	baseWallet, err := loader.CreateNewWallet(
+		pass, pass, testHDSeed[:], time.Time{},
+	)
 	if err != nil {
 		return nil, nil, err
 	}

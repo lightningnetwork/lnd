@@ -28,23 +28,44 @@ type Conn struct {
 // A compile-time assertion to ensure that Conn meets the net.Conn interface.
 var _ net.Conn = (*Conn)(nil)
 
+// Dialer provides a way to establish an authenticated connection to a
+// remote address.
+type Dialer interface {
+	Dial(address *lnwire.NetAddress) (*Conn, error)
+}
+
+// NewDialer creates a Dialer for a given private key and
+// connection initiator.
+// connInitiator is the function that will be used to establish
+// the initial, not-yet-authenticated connection.
+func NewDialer(
+	localPriv *btcec.PrivateKey,
+	connInitiator func(string, string) (net.Conn, error)) Dialer {
+
+	return &dialer{localPriv, connInitiator}
+}
+
+type dialer struct {
+	localPriv *btcec.PrivateKey
+	connInitiator func(string, string) (net.Conn, error)
+}
+
 // Dial attempts to establish an encrypted+authenticated connection with the
 // remote peer located at address which has remotePub as its long-term static
 // public key. In the case of a handshake failure, the connection is closed and
 // a non-nil error is returned.
-func Dial(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress,
-	dialer func(string, string) (net.Conn, error)) (*Conn, error) {
+func (d *dialer) Dial(netAddr *lnwire.NetAddress) (*Conn, error) {
 	ipAddr := netAddr.Address.String()
 	var conn net.Conn
 	var err error
-	conn, err = dialer("tcp", ipAddr)
+	conn, err = d.connInitiator("tcp", ipAddr)
 	if err != nil {
 		return nil, err
 	}
 
 	b := &Conn{
 		conn:  conn,
-		noise: NewBrontideMachine(true, localPriv, netAddr.IdentityKey),
+		noise: NewBrontideMachine(true, d.localPriv, netAddr.IdentityKey),
 	}
 
 	// Initiate the handshake by sending the first act to the receiver.

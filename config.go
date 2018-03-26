@@ -843,7 +843,8 @@ func supportedSubsystems() []string {
 func noiseDial(idPriv *btcec.PrivateKey) func(net.Addr) (net.Conn, error) {
 	return func(a net.Addr) (net.Conn, error) {
 		lnAddr := a.(*lnwire.NetAddress)
-		return brontide.Dial(idPriv, lnAddr, cfg.net.Dial)
+		dialer := brontide.NewDialer(idPriv, cfg.net.Dial)
+		return dialer.Dial(lnAddr)
 	}
 }
 

@@ -116,6 +116,8 @@ type server struct {
 
 	sphinx *htlcswitch.OnionProcessor
 
+	connDialer brontide.Dialer
+
 	connMgr *connmgr.ConnManager
 
 	// globalFeatures feature vector which affects HTLCs and thus are also
@@ -185,6 +187,8 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		inboundPeers:           make(map[string]*peer),
 		outboundPeers:          make(map[string]*peer),
 		peerConnectedListeners: make(map[string][]chan<- struct{}),
+
+		connDialer: brontide.NewDialer(privKey, cfg.net.Dial),
 
 		globalFeatures: lnwire.NewFeatureVector(globalFeatures,
 			lnwire.GlobalFeatures),
@@ -683,7 +687,7 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 	// below to sample how many of these connections succeeded.
 	for _, addr := range bootStrapAddrs {
 		go func(a *lnwire.NetAddress) {
-			conn, err := brontide.Dial(s.identityPriv, a, cfg.net.Dial)
+			conn, err := s.connDialer.Dial(a)
 			if err != nil {
 				srvrLog.Errorf("unable to connect to %v: %v",
 					a, err)
@@ -796,8 +800,7 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 				go func(a *lnwire.NetAddress) {
 					// TODO(roasbeef): can do AS, subnet,
 					// country diversity, etc
-					conn, err := brontide.Dial(s.identityPriv,
-						a, cfg.net.Dial)
+					conn, err := s.connDialer.Dial(a)
 					if err != nil {
 						srvrLog.Errorf("unable to connect "+
 							"to %v: %v", a, err)
@@ -1745,7 +1748,7 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress, perm bool) error {
 	// connect to the target peer. If the we can't make the connection, or
 	// the crypto negotiation breaks down, then return an error to the
 	// caller.
-	conn, err := brontide.Dial(s.identityPriv, addr, cfg.net.Dial)
+	conn, err := s.connDialer.Dial(addr)
 	if err != nil {
 		return err
 	}

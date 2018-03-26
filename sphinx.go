@@ -889,8 +889,8 @@ func (t *Tx) ProcessOnionPacket(seqNum uint16, onionPkt *OnionPacket,
 // Commit writes this transaction's batch of sphinx packets to the replay log,
 // performing a final check against the log for replays.
 func (t *Tx) Commit() ([]ProcessedPacket, *ReplaySet, error) {
-	if t.batch.isCommitted {
-		return t.packets, t.batch.replaySet, nil
+	if t.batch.IsCommitted {
+		return t.packets, t.batch.ReplaySet, nil
 	}
 
 	rs, err := t.router.log.PutBatch(t.batch)

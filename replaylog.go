@@ -155,30 +155,31 @@ func (rl *MemoryReplayLog) PutBatch(batch *Batch) (*ReplaySet, error) {
 
 	// Return the result when the batch was first processed to provide
 	// idempotence.
-	replays, exists := rl.batches[string(batch.id)]
+	replays, exists := rl.batches[string(batch.ID)]
 
 	if !exists {
 		replays = NewReplaySet()
-		for seqNum, entry := range batch.entries {
-			err := rl.Put(&entry.hashPrefix, entry.cltv)
+		err := batch.ForEach(func(seqNum uint16, hashPrefix *HashPrefix, cltv uint32) error {
+			err := rl.Put(hashPrefix, cltv)
 			if err == ErrReplayedPacket {
 				replays.Add(seqNum)
-				continue
+				return nil
 			}
 
-			// This would be bad because we have already updated the entries
+			// An error would be bad because we have already updated the entries
 			// map, but no errors other than ErrReplayedPacket should occur.
-			if err != nil {
-				return nil, err
-			}
+			return err
+		})
+		if err != nil {
+			return nil, err
 		}
 
-		replays.Merge(batch.replaySet)
-		rl.batches[string(batch.id)] = replays
+		replays.Merge(batch.ReplaySet)
+		rl.batches[string(batch.ID)] = replays
 	}
 
-	batch.replaySet = replays
-	batch.isCommitted = true
+	batch.ReplaySet = replays
+	batch.IsCommitted = true
 
 	return replays, nil
 }

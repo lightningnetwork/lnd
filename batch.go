@@ -10,12 +10,18 @@ var ErrAlreadyCommitted = errors.New("cannot add to batch after committing")
 // the replay log. After construction is completed, it can be added to the log
 // using the PutBatch method.
 type Batch struct {
-	// isCommitted denotes whether or not this batch has been successfully
+	// IsCommitted denotes whether or not this batch has been successfully
 	// written to disk.
-	isCommitted bool
+	IsCommitted bool
 
-	// id is a unique, caller chosen identifier for this batch.
-	id []byte
+	// ID is a unique, caller chosen identifier for this batch.
+	ID []byte
+
+	// ReplaySet contains the sequence numbers of all entries that were
+	// detected as replays. The set is finalized upon writing the batch to
+	// disk, and merges replays detected by the replay cache and on-disk
+	// replay log.
+	ReplaySet *ReplaySet
 
 	// entries stores the set of all potential entries that might get
 	// written to the replay log. Some entries may be skipped after
@@ -26,12 +32,6 @@ type Batch struct {
 	// prefix of entries already added to this batch. This allows a quick
 	// mechanism for intra-batch duplicate detection.
 	replayCache map[HashPrefix]struct{}
-
-	// replaySet contains the sequence numbers of all entries that were
-	// detected as replays. The set is finalized upon writing the batch to
-	// disk, and merges replays detected by the replay cache and on-disk
-	// replay log.
-	replaySet *ReplaySet
 }
 
 // NewBatch initializes an object for constructing a set of entries to
@@ -40,10 +40,10 @@ type Batch struct {
 // idempotent result.
 func NewBatch(id []byte) *Batch {
 	return &Batch{
-		id:          id,
+		ID:          id,
+		ReplaySet:   NewReplaySet(),
 		entries:     make(map[uint16]batchEntry),
 		replayCache: make(map[HashPrefix]struct{}),
-		replaySet:   NewReplaySet(),
 	}
 }
 
@@ -53,14 +53,14 @@ func NewBatch(id []byte) *Batch {
 // is ultimately reported via the batch's ReplaySet after committing to disk.
 func (b *Batch) Put(seqNum uint16, hashPrefix *HashPrefix, cltv uint32) error {
 	// Abort if this batch was already written to disk.
-	if b.isCommitted {
+	if b.IsCommitted {
 		return ErrAlreadyCommitted
 	}
 
 	// Check to see if this hash prefix is already included in this batch.
 	// If so, we will opportunistically mark this index as replayed.
 	if _, ok := b.replayCache[*hashPrefix]; ok {
-		b.replaySet.Add(seqNum)
+		b.ReplaySet.Add(seqNum)
 		return nil
 	}
 
@@ -78,6 +78,17 @@ func (b *Batch) Put(seqNum uint16, hashPrefix *HashPrefix, cltv uint32) error {
 	// same batch.
 	b.replayCache[*hashPrefix] = struct{}{}
 
+	return nil
+}
+
+// ForEach iterates through each entry in the batch and calls the provided
+// function with the sequence number and entry contents as arguments.
+func (b *Batch) ForEach(fn func(seqNum uint16, hashPrefix *HashPrefix, cltv uint32) error) error {
+	for seqNum, entry := range b.entries {
+		if err := fn(seqNum, &entry.hashPrefix, entry.cltv); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

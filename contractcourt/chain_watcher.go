@@ -578,8 +578,20 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 		return fmt.Errorf("unable to create breach retribution: %v", err)
 	}
 
+	// Nil the curve before printing.
+	if retribution.RemoteOutputSignDesc != nil &&
+		retribution.RemoteOutputSignDesc.DoubleTweak != nil {
+		retribution.RemoteOutputSignDesc.DoubleTweak.Curve = nil
+	}
+	if retribution.LocalOutputSignDesc != nil &&
+		retribution.LocalOutputSignDesc.DoubleTweak != nil {
+		retribution.LocalOutputSignDesc.DoubleTweak.Curve = nil
+	}
+
 	log.Debugf("Punishment breach retribution created: %v",
-		spew.Sdump(retribution))
+		newLogClosure(func() string {
+			return spew.Sdump(retribution)
+		}))
 
 	// With the event processed, we'll now notify all subscribers of the
 	// event.

@@ -1482,6 +1482,16 @@ type LightningPayment struct {
 	// indefinitely.
 	PayAttemptTimeout time.Duration
 
+	// RouteHints represents the different routing hints that can be used to
+	// assist a payment in reaching its destination successfully. These
+	// hints will act as intermediate hops along the route.
+	//
+	// NOTE: This is optional unless required by the payment. When providing
+	// multiple routes, ensure the hop hints within each route are chained
+	// together and sorted in forward order in order to reach the
+	// destination successfully.
+	RouteHints [][]HopHint
+
 	// TODO(roasbeef): add e2e message?
 }
 

@@ -190,7 +190,7 @@ func (c *chainWatcher) Start() error {
 	}
 
 	spendNtfn, err := c.notifier.RegisterSpendNtfn(
-		fundingOut, heightHint, true,
+		fundingOut, heightHint, false,
 	)
 	if err != nil {
 		return err
@@ -532,6 +532,38 @@ func (c *chainWatcher) dispatchLocalForceClose(
 	)
 	if err != nil {
 		return err
+	}
+
+	// As we've detected that the channel has been closed, immediately
+	// delete the state from disk, creating a close summary for future
+	// usage by related sub-systems.
+	chanSnapshot := forceClose.ChanSnapshot
+	closeSummary := &channeldb.ChannelCloseSummary{
+		ChanPoint:   chanSnapshot.ChannelPoint,
+		ChainHash:   chanSnapshot.ChainHash,
+		ClosingTXID: forceClose.CloseTx.TxHash(),
+		RemotePub:   &chanSnapshot.RemoteIdentity,
+		Capacity:    chanSnapshot.Capacity,
+		CloseType:   channeldb.LocalForceClose,
+		IsPending:   true,
+		ShortChanID: c.chanState.ShortChanID,
+		CloseHeight: uint32(commitSpend.SpendingHeight),
+	}
+
+	// If our commitment output isn't dust or we have active HTLC's on the
+	// commitment transaction, then we'll populate the balances on the
+	// close channel summary.
+	if forceClose.CommitResolution != nil {
+		closeSummary.SettledBalance = chanSnapshot.LocalBalance.ToSatoshis()
+		closeSummary.TimeLockedBalance = chanSnapshot.LocalBalance.ToSatoshis()
+	}
+	for _, htlc := range forceClose.HtlcResolutions.OutgoingHTLCs {
+		htlcValue := btcutil.Amount(htlc.SweepSignDesc.Output.Value)
+		closeSummary.TimeLockedBalance += htlcValue
+	}
+	err = c.chanState.CloseChannel(closeSummary)
+	if err != nil {
+		return fmt.Errorf("unable to delete channel state: %v", err)
 	}
 
 	// With the event processed, we'll now notify all subscribers of the

@@ -1046,18 +1046,13 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 	}
 
 	chainDir := "/"
-	netRE, err := regexp.Compile(`(?m)^\s*(testnet|regtest)=[\d]+`)
-	if err != nil {
-		return "", "", "", err
-	}
-	netSubmatches := netRE.FindSubmatch(configContents)
-	if netSubmatches != nil {
-		switch string(netSubmatches[1]) {
-		case "testnet":
-			chainDir = "/testnet3/"
-		case "regtest":
-			chainDir = "/regtest/"
-		}
+	switch activeNetParams.Params.Name {
+	case "testnet3":
+		chainDir = "/testnet3/"
+	case "testnet4":
+		chainDir = "/testnet4/"
+	case "regtest":
+		chainDir = "/regtest/"
 	}
 
 	cookie, err := ioutil.ReadFile(dataDir + chainDir + ".cookie")

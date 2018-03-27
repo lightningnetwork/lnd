@@ -1343,18 +1343,24 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 func (r *rpcServer) ChannelBalance(ctx context.Context,
 	in *lnrpc.ChannelBalanceRequest) (*lnrpc.ChannelBalanceResponse, error) {
 
-	channels, err := r.server.chanDB.FetchAllChannels()
+	openChannels, err := r.server.chanDB.FetchAllOpenChannels()
 	if err != nil {
 		return nil, err
 	}
 
-	var pendingOpenBalance, balance btcutil.Amount
-	for _, channel := range channels {
-		if channel.IsPending {
-			pendingOpenBalance += channel.LocalCommitment.LocalBalance.ToSatoshis()
-		} else {
-			balance += channel.LocalCommitment.LocalBalance.ToSatoshis()
-		}
+	var balance btcutil.Amount
+	for _, channel := range openChannels {
+		balance += channel.LocalCommitment.LocalBalance.ToSatoshis()
+	}
+
+	pendingChannels, err := r.server.chanDB.FetchPendingChannels()
+	if err != nil {
+		return nil, err
+	}
+
+	var pendingOpenBalance btcutil.Amount
+	for _, channel := range pendingChannels {
+		pendingOpenBalance += channel.LocalCommitment.LocalBalance.ToSatoshis()
 	}
 
 	return &lnrpc.ChannelBalanceResponse{
@@ -1457,7 +1463,8 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 
 		// If the channel was force closed, then we'll need to query
 		// the utxoNursery for additional information.
-		case channeldb.ForceClose:
+		// TODO(halseth): distinguish remote and local case?
+		case channeldb.LocalForceClose, channeldb.RemoteForceClose:
 			forceClose := &lnrpc.PendingChannelsResponse_ForceClosedChannel{
 				Channel:     channel,
 				ClosingTxid: closeTXID,
@@ -1522,6 +1529,39 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		}
 	}
 
+	// We'll also fetch all channels that are open, but have had their
+	// commitment broadcasted, meaning they are waiting for the closing
+	// transaction to confirm.
+	waitingCloseChans, err := r.server.chanDB.FetchWaitingCloseChannels()
+	if err != nil {
+		rpcsLog.Errorf("unable to fetch channels waiting close: %v",
+			err)
+		return nil, err
+	}
+
+	for _, waitingClose := range waitingCloseChans {
+		pub := waitingClose.IdentityPub.SerializeCompressed()
+		chanPoint := waitingClose.FundingOutpoint
+		channel := &lnrpc.PendingChannelsResponse_PendingChannel{
+			RemoteNodePub: hex.EncodeToString(pub),
+			ChannelPoint:  chanPoint.String(),
+			Capacity:      int64(waitingClose.Capacity),
+			LocalBalance:  int64(waitingClose.LocalCommitment.LocalBalance.ToSatoshis()),
+		}
+
+		// A close tx has been broadcasted, all our balance will be in
+		// limbo until it confirms.
+		resp.WaitingCloseChannels = append(
+			resp.WaitingCloseChannels,
+			&lnrpc.PendingChannelsResponse_WaitingCloseChannel{
+				Channel:      channel,
+				LimboBalance: channel.LocalBalance,
+			},
+		)
+
+		resp.TotalLimboBalance += channel.LocalBalance
+	}
+
 	return resp, nil
 }
 
@@ -1544,7 +1584,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 
 	graph := r.server.chanDB.ChannelGraph()
 
-	dbChannels, err := r.server.chanDB.FetchAllChannels()
+	dbChannels, err := r.server.chanDB.FetchAllOpenChannels()
 	if err != nil {
 		return nil, err
 	}
@@ -1553,10 +1593,6 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		len(dbChannels))
 
 	for _, dbChannel := range dbChannels {
-		if dbChannel.IsPending {
-			continue
-		}
-
 		nodePub := dbChannel.IdentityPub
 		nodeID := hex.EncodeToString(nodePub.SerializeCompressed())
 		chanPoint := dbChannel.FundingOutpoint

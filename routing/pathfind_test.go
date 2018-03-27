@@ -489,6 +489,69 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	}
 }
 
+func TestPathFindingWithAdditionalEdges(t *testing.T) {
+	t.Parallel()
+
+	graph, cleanUp, aliases, err := parseTestGraph(basicGraphFilePath)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+
+	sourceNode, err := graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+	}
+
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+
+	// In this test, we'll test that we're able to find paths through
+	// private channels when providing them as additional edges in our path
+	// finding algorithm. To do so, we'll create a new node, doge, and
+	// create a private channel between it and songoku. We'll then attempt
+	// to find a path from our source node, roasbeef, to doge.
+	dogePubKeyHex := "03dd46ff29a6941b4a2607525b043ec9b020b3f318a1bf281536fd7011ec59c882"
+	dogePubKeyBytes, err := hex.DecodeString(dogePubKeyHex)
+	if err != nil {
+		t.Fatalf("unable to decode public key: %v", err)
+	}
+	dogePubKey, err := btcec.ParsePubKey(dogePubKeyBytes, btcec.S256())
+	if err != nil {
+		t.Fatalf("unable to parse public key from bytes: %v", err)
+	}
+
+	doge := &channeldb.LightningNode{}
+	doge.AddPubKey(dogePubKey)
+	doge.Alias = "doge"
+
+	// Create the channel edge going from songoku to doge and include it in
+	// our map of additional edges.
+	songokuToDoge := &channeldb.ChannelEdgePolicy{
+		Node:                      doge,
+		ChannelID:                 1337,
+		FeeBaseMSat:               1,
+		FeeProportionalMillionths: 1000,
+		TimeLockDelta:             9,
+	}
+
+	additionalEdges := map[Vertex][]*channeldb.ChannelEdgePolicy{
+		NewVertex(aliases["songoku"]): {songokuToDoge},
+	}
+
+	// We should now be able to find a path from roasbeef to doge.
+	path, err := findPath(
+		nil, graph, additionalEdges, sourceNode, dogePubKey, nil, nil,
+		paymentAmt,
+	)
+	if err != nil {
+		t.Fatalf("unable to find private path to doge: %v", err)
+	}
+
+	// The path should represent the following hops:
+	//	roasbeef -> songoku -> doge
+	assertExpectedPath(t, path, "songoku", "doge")
+}
+
 func TestKShortestPathFinding(t *testing.T) {
 	t.Parallel()
 
@@ -533,23 +596,11 @@ func TestKShortestPathFinding(t *testing.T) {
 		t.Fatalf("paths found not ordered properly")
 	}
 
-	// Finally, we'll assert the exact expected ordering of both paths
-	// found.
-	assertExpectedPath := func(path []*ChannelHop, nodeAliases ...string) {
-		for i, hop := range path {
-			if hop.Node.Alias != nodeAliases[i] {
-				t.Fatalf("expected %v to be pos #%v in hop, "+
-					"instead %v was", nodeAliases[i], i,
-					hop.Node.Alias)
-			}
-		}
-	}
-
 	// The first route should be a direct route to luo ji.
-	assertExpectedPath(paths[0], "roasbeef", "luoji")
+	assertExpectedPath(t, paths[0], "roasbeef", "luoji")
 
 	// The second route should be a route to luo ji via satoshi.
-	assertExpectedPath(paths[1], "roasbeef", "satoshi", "luoji")
+	assertExpectedPath(t, paths[1], "roasbeef", "satoshi", "luoji")
 }
 
 func TestNewRoutePathTooLong(t *testing.T) {
@@ -983,5 +1034,18 @@ func TestPathFindSpecExample(t *testing.T) {
 		t.Fatalf("wrong total time lock: got %v, expecting %v",
 			lastHop.OutgoingTimeLock,
 			startingHeight+DefaultFinalCLTVDelta)
+	}
+}
+
+func assertExpectedPath(t *testing.T, path []*ChannelHop, nodeAliases ...string) {
+	if len(path) != len(nodeAliases) {
+		t.Fatal("number of hops and number of aliases do not match")
+	}
+
+	for i, hop := range path {
+		if hop.Node.Alias != nodeAliases[i] {
+			t.Fatalf("expected %v to be pos #%v in hop, instead "+
+				"%v was", nodeAliases[i], i, hop.Node.Alias)
+		}
 	}
 }

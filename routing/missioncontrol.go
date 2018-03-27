@@ -282,8 +282,11 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	// Taking into account this prune view, we'll attempt to locate a path
 	// to our destination, respecting the recommendations from
 	// missionControl.
-	path, err := findPath(nil, p.mc.graph, p.mc.selfNode, payment.Target,
-		pruneView.vertexes, pruneView.edges, payment.Amount)
+	path, err := findPath(
+		nil, p.mc.graph, p.additionalEdges, p.mc.selfNode,
+		payment.Target, pruneView.vertexes, pruneView.edges,
+		payment.Amount,
+	)
 	if err != nil {
 		return nil, err
 	}

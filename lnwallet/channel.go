@@ -5663,6 +5663,13 @@ func CreateCommitTx(fundingOutput wire.TxIn,
 		})
 	}
 
+	// Finally, we'll ensure that we don't accidentally create a commitment
+	// transaction which would be invalid by consensus.
+	uTx := btcutil.NewTx(commitTx)
+	if err := blockchain.CheckTransactionSanity(uTx); err != nil {
+		return nil, err
+	}
+
 	return commitTx, nil
 }
 

@@ -1554,7 +1554,9 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 	// Before starting the HTLC routing attempt, we'll create a fresh
 	// payment session which will report our errors back to mission
 	// control.
-	paySession := r.missionControl.NewPaymentSession()
+	paySession := r.missionControl.NewPaymentSession(
+		payment.RouteHints, payment.Target,
+	)
 
 	// We'll continue until either our payment succeeds, or we encounter a
 	// critical error during path finding.

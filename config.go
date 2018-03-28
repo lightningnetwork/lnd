@@ -46,6 +46,7 @@ const (
 	defaultMaxPendingChannels = 1
 	defaultNoEncryptWallet    = false
 	defaultTrickleDelay       = 30 * 1000
+	defaultMaxLogFiles        = 3
 
 	defaultBroadcastDelta = 10
 
@@ -157,6 +158,7 @@ type config struct {
 	ReadMacPath    string `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`
 	InvoiceMacPath string `long:"invoicemacaroonpath" description:"Path to the invoice-only macaroon for lnd's RPC and REST services if it doesn't exist"`
 	LogDir         string `long:"logdir" description:"Directory to log output."`
+	MaxLogFiles    int64  `long:"maxlogfiles" description:"Maximum logfiles to keep (0 for no rotation)"`
 
 	RPCListeners  []string `long:"rpclisten" description:"Add an interface/port to listen for RPC connections"`
 	RESTListeners []string `long:"restlisten" description:"Add an interface/port to listen for REST connections"`
@@ -221,6 +223,7 @@ func loadConfig() (*config, error) {
 		InvoiceMacPath: defaultInvoiceMacPath,
 		ReadMacPath:    defaultReadMacPath,
 		LogDir:         defaultLogDir,
+		MaxLogFiles:    defaultMaxLogFiles,
 		Bitcoin: &chainConfig{
 			MinHTLC:       defaultBitcoinMinHTLCMSat,
 			BaseFee:       defaultBitcoinBaseFeeMSat,
@@ -660,7 +663,7 @@ func loadConfig() (*config, error) {
 		normalizeNetwork(activeNetParams.Name))
 
 	// Initialize logging at the default logging level.
-	initLogRotator(filepath.Join(cfg.LogDir, defaultLogFilename))
+	initLogRotator(filepath.Join(cfg.LogDir, defaultLogFilename), cfg.MaxLogFiles)
 
 	// Parse, validate, and set debug log level(s).
 	if err := parseAndSetDebugLevels(cfg.DebugLevel); err != nil {

@@ -55,6 +55,9 @@ func version() string {
 		version = fmt.Sprintf("%s+%s", version, build)
 	}
 
+	// Append commit hash of current build to version.
+	version = fmt.Sprintf("%s commit=%s", version, Commit)
+
 	return version
 }
 

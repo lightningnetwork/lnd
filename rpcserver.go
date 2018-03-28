@@ -1704,12 +1704,13 @@ func validatePayReqExpiry(payReq *zpay32.Invoice) error {
 // Lightning Network with a single persistent connection.
 func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer) error {
 	// For each payment we need to know the msat amount, the destination
-	// public key, and the payment hash.
+	// public key, the payment hash, and the optional route hints.
 	type payment struct {
-		msat      lnwire.MilliSatoshi
-		dest      []byte
-		pHash     []byte
-		cltvDelta uint16
+		msat       lnwire.MilliSatoshi
+		dest       []byte
+		pHash      []byte
+		cltvDelta  uint16
+		routeHints [][]routing.HopHint
 	}
 	payChan := make(chan *payment)
 	errChan := make(chan error, 1)
@@ -1821,6 +1822,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 
 					p.pHash = payReq.PaymentHash[:]
 					p.cltvDelta = uint16(payReq.MinFinalCLTVExpiry())
+					p.routeHints = payReq.RouteHints
 				} else {
 					// If the payment request field was not
 					// specified, construct the payment from
@@ -1904,6 +1906,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					Target:      destNode,
 					Amount:      p.msat,
 					PaymentHash: rHash,
+					RouteHints:  p.routeHints,
 				}
 				if p.cltvDelta != 0 {
 					payment.FinalCLTVDelta = &p.cltvDelta
@@ -1961,10 +1964,11 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	}
 
 	var (
-		destPub   *btcec.PublicKey
-		amtMSat   lnwire.MilliSatoshi
-		rHash     [32]byte
-		cltvDelta uint16
+		destPub    *btcec.PublicKey
+		amtMSat    lnwire.MilliSatoshi
+		rHash      [32]byte
+		cltvDelta  uint16
+		routeHints [][]routing.HopHint
 	)
 
 	// If the proto request has an encoded payment request, then we we'll
@@ -1997,6 +2001,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 
 		rHash = *payReq.PaymentHash
 		cltvDelta = uint16(payReq.MinFinalCLTVExpiry())
+		routeHints = payReq.RouteHints
 
 		// Otherwise, the payment conditions have been manually
 		// specified in the proto.
@@ -2047,6 +2052,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 		Target:      destPub,
 		Amount:      amtMSat,
 		PaymentHash: rHash,
+		RouteHints:  routeHints,
 	}
 	if cltvDelta != 0 {
 		payment.FinalCLTVDelta = &cltvDelta

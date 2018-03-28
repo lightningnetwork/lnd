@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -2202,13 +2203,107 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		options = append(options, zpay32.CLTVExpiry(uint64(defaultDelta)))
 	}
 
+	// If we were requested to include routing hints in the invoice, then
+	// we'll fetch all of our available private channels and create routing
+	// hints for them.
+	if invoice.Private {
+		openChannels, err := r.server.chanDB.FetchAllChannels()
+		if err != nil {
+			return nil, fmt.Errorf("could not fetch all channels")
+		}
+
+		graph := r.server.chanDB.ChannelGraph()
+
+		numHints := 0
+		for _, channel := range openChannels {
+			// We'll restrict the number of individual route hints
+			// to 20 to avoid creating overly large invoices.
+			if numHints > 20 {
+				break
+			}
+
+			// Since we're only interested in our private channels,
+			// we'll skip public ones.
+			isPublic := channel.ChannelFlags&lnwire.FFAnnounceChannel != 0
+			if isPublic {
+				continue
+			}
+
+			// Make sure the counterparty has enough balance in the
+			// channel for our amount. We do this in order to reduce
+			// payment errors when attempting to use this channel
+			// as a hint.
+			chanPoint := lnwire.NewChanIDFromOutPoint(
+				&channel.FundingOutpoint,
+			)
+			if amtMSat >= channel.LocalCommitment.RemoteBalance {
+				rpcsLog.Debugf("Skipping channel %v due to "+
+					"not having enough remote balance",
+					chanPoint)
+				continue
+			}
+
+			// Make sure the channel is active.
+			link, err := r.server.htlcSwitch.GetLink(chanPoint)
+			if err != nil {
+				rpcsLog.Errorf("Unable to get link for "+
+					"channel %v: %v", chanPoint, err)
+			}
+
+			if !link.EligibleToForward() {
+				rpcsLog.Debugf("Skipping link %v due to not "+
+					"being eligible to forward payments",
+					chanPoint)
+				continue
+			}
+
+			// Fetch the policies for each end of the channel.
+			chanID := channel.ShortChanID.ToUint64()
+			_, p1, p2, err := graph.FetchChannelEdgesByID(chanID)
+			if err != nil {
+				rpcsLog.Errorf("Unable to fetch the routing "+
+					"policies for the edges of the channel "+
+					"%v: %v", chanPoint, err)
+				continue
+			}
+
+			// Now, we'll need to determine which is the correct
+			// policy for HTLCs being sent from the remote node.
+			var remotePolicy *channeldb.ChannelEdgePolicy
+
+			remotePub := channel.IdentityPub.SerializeCompressed()
+			if bytes.Equal(remotePub, p1.Node.PubKeyBytes[:]) {
+				remotePolicy = p1
+			} else {
+				remotePolicy = p2
+			}
+
+			// Finally, create the routing hint for this channel and
+			// add it to our list of route hints.
+			hint := routing.HopHint{
+				NodeID:      channel.IdentityPub,
+				ChannelID:   chanID,
+				FeeBaseMSat: uint32(remotePolicy.FeeBaseMSat),
+				FeeProportionalMillionths: uint32(
+					remotePolicy.FeeProportionalMillionths,
+				),
+				CLTVExpiryDelta: remotePolicy.TimeLockDelta,
+			}
+
+			// Include the route hint in our set of options that
+			// will be used when creating the invoice.
+			routeHint := []routing.HopHint{hint}
+			options = append(options, zpay32.RouteHint(routeHint))
+
+			numHints++
+		}
+
+	}
+
 	// Create and encode the payment request as a bech32 (zpay32) string.
 	creationDate := time.Now()
 	payReq, err := zpay32.NewInvoice(
-		activeNetParams.Params,
-		rHash,
-		creationDate,
-		options...,
+		activeNetParams.Params, rHash, creationDate, options...,
 	)
 	if err != nil {
 		return nil, err

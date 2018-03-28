@@ -29,7 +29,6 @@ import (
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/roasbeef/btcd/blockchain"
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
@@ -1230,7 +1229,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		BlockHeight:         uint32(bestHeight),
 		BlockHash:           bestHash.String(),
 		SyncedToChain:       isSynced,
-		Testnet:             activeNetParams.Params == &chaincfg.TestNet3Params,
+		Testnet:             isTestnet(&activeNetParams),
 		Chains:              activeChains,
 		Uris:                uris,
 		Alias:               nodeAnn.Alias.String(),

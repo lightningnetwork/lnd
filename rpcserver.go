@@ -2282,6 +2282,9 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 	// The expiry will default to 9 blocks if not specified explicitly.
 	cltvExpiry := decoded.MinFinalCLTVExpiry()
 
+	// Convert between the `lnrpc` and `routing` types.
+	routeHints := createRPCRouteHints(decoded.RouteHints)
+
 	preimage := invoice.Terms.PaymentPreimage
 	satAmt := invoice.Terms.Value.ToSatoshis()
 
@@ -2299,7 +2302,38 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 		Expiry:          expiry,
 		CltvExpiry:      cltvExpiry,
 		FallbackAddr:    fallbackAddr,
+		RouteHints:      routeHints,
 	}, nil
+}
+
+// createRPCRouteHints takes in the decoded form of an invoice's route hints
+// and converts them into the lnrpc type.
+func createRPCRouteHints(routeHints [][]routing.HopHint) []*lnrpc.RouteHint {
+	var res []*lnrpc.RouteHint
+
+	for _, route := range routeHints {
+		hopHints := make([]*lnrpc.HopHint, 0, len(route))
+		for _, hop := range route {
+			pubKey := hex.EncodeToString(
+				hop.NodeID.SerializeCompressed(),
+			)
+
+			hint := &lnrpc.HopHint{
+				NodeId:                    pubKey,
+				ChanId:                    hop.ChannelID,
+				FeeBaseMsat:               hop.FeeBaseMSat,
+				FeeProportionalMillionths: hop.FeeProportionalMillionths,
+				CltvExpiryDelta:           uint32(hop.CLTVExpiryDelta),
+			}
+
+			hopHints = append(hopHints, hint)
+		}
+
+		routeHint := &lnrpc.RouteHint{HopHints: hopHints}
+		res = append(res, routeHint)
+	}
+
+	return res
 }
 
 // LookupInvoice attempts to look up an invoice according to its payment hash.
@@ -3120,6 +3154,9 @@ func (r *rpcServer) DecodePayReq(ctx context.Context,
 	// explicitly.
 	expiry := int64(payReq.Expiry().Seconds())
 
+	// Convert between the `lnrpc` and `routing` types.
+	routeHints := createRPCRouteHints(payReq.RouteHints)
+
 	amt := int64(0)
 	if payReq.MilliSat != nil {
 		amt = int64(payReq.MilliSat.ToSatoshis())
@@ -3136,6 +3173,7 @@ func (r *rpcServer) DecodePayReq(ctx context.Context,
 		FallbackAddr:    fallbackAddr,
 		Expiry:          expiry,
 		CltvExpiry:      int64(payReq.MinFinalCLTVExpiry()),
+		RouteHints:      routeHints,
 	}, nil
 }
 

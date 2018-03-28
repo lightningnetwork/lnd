@@ -1458,6 +1458,9 @@ message Invoice {
     invoice's destination.
     */
     repeated RouteHint route_hints = 14 [json_name = "route_hints"];
+
+    /// Whether this invoice should include routing hints for private channels.
+    bool private = 15 [json_name = "private"];
 }
 message AddInvoiceResponse {
     bytes r_hash = 1 [json_name = "r_hash"];

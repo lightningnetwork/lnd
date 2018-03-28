@@ -1632,6 +1632,11 @@
             "$ref": "#/definitions/lnrpcRouteHint"
           },
           "description": "*\nRoute hints that can each be individually used to assist in reaching the\ninvoice's destination."
+        },
+        "private": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "/ Whether this invoice should include routing hints for private channels."
         }
       }
     },

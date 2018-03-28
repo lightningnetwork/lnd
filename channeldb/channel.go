@@ -538,7 +538,7 @@ func (c *OpenChannel) MarkAsOpen(openLoc lnwire.ShortChannelID) error {
 	c.Lock()
 	defer c.Unlock()
 
-	return c.Db.Update(func(tx *bolt.Tx) error {
+	if err := c.Db.Update(func(tx *bolt.Tx) error {
 		chanBucket, err := updateChanBucket(tx, c.IdentityPub,
 			&c.FundingOutpoint, c.ChainHash)
 		if err != nil {
@@ -554,7 +554,14 @@ func (c *OpenChannel) MarkAsOpen(openLoc lnwire.ShortChannelID) error {
 		channel.ShortChanID = openLoc
 
 		return putOpenChannel(chanBucket, channel)
-	})
+	}); err != nil {
+		return err
+	}
+
+	c.IsPending = false
+	c.ShortChanID = openLoc
+
+	return nil
 }
 
 // MarkBorked marks the event when the channel as reached an irreconcilable

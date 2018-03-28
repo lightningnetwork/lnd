@@ -684,6 +684,16 @@ func TestFetchPendingChannels(t *testing.T) {
 		t.Fatalf("unable to mark channel as open: %v", err)
 	}
 
+	if pendingChannels[0].IsPending {
+		t.Fatalf("channel marked open should no longer be pending")
+	}
+
+	if pendingChannels[0].ShortChanID != chanOpenLoc {
+		t.Fatalf("channel opening height not updated: expected %v, "+
+			"got %v", spew.Sdump(pendingChannels[0].ShortChanID),
+			chanOpenLoc)
+	}
+
 	// Next, we'll re-fetch the channel to ensure that the open height was
 	// properly set.
 	openChans, err := cdb.FetchAllChannels()

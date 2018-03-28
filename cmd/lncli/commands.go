@@ -1713,6 +1713,12 @@ var addInvoiceCommand = cli.Command{
 				"specified an expiry of 3600 seconds (1 hour) " +
 				"is implied.",
 		},
+		cli.BoolTFlag{
+			Name: "private",
+			Usage: "encode routing hints in the invoice with " +
+				"private channels in order to assist the " +
+				"payer in reaching you",
+		},
 	},
 	Action: actionDecorator(addInvoice),
 }
@@ -1771,6 +1777,7 @@ func addInvoice(ctx *cli.Context) error {
 		DescriptionHash: descHash,
 		FallbackAddr:    ctx.String("fallback_addr"),
 		Expiry:          ctx.Int64("expiry"),
+		Private:         ctx.Bool("private"),
 	}
 
 	resp, err := client.AddInvoice(context.Background(), invoice)

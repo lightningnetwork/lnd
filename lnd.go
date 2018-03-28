@@ -57,6 +57,10 @@ const (
 )
 
 var (
+	//Commit stores the current commit hash of this build. This should be
+	//set using -ldflags during compilation.
+	Commit string
+
 	cfg              *config
 	shutdownChannel  = make(chan struct{})
 	registeredChains = newChainRegistry()

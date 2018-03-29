@@ -132,6 +132,7 @@ type autoPilotConfig struct {
 	Allocation     float64 `long:"allocation" description:"The percentage of total funds that should be committed to automatic channel establishment"`
 	MinChannelSize int64   `long:"minchansize" description:"The smallest channel that the autopilot agent should create"`
 	MaxChannelSize int64   `long:"maxchansize" description:"The largest channel that the autopilot agent should create"`
+	ConfTarget     uint32  `long:"conf_target" description:"Targeted number of blocks within which the channel should be confirmed"`
 }
 
 type torConfig struct {
@@ -373,6 +374,12 @@ func loadConfig() (*config, error) {
 	}
 	if cfg.Autopilot.MaxChannelSize < 0 {
 		str := "%s: autopilot.maxchansize must be non-negative"
+		err := fmt.Errorf(str, funcName)
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+	if cfg.Autopilot.ConfTarget < 0 {
+		str := "%s: autopilot.confirm_in must be non-negative"
 		err := fmt.Errorf(str, funcName)
 		fmt.Fprintln(os.Stderr, err)
 		return nil, err

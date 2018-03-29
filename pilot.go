@@ -85,7 +85,14 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 
 	// With the connection established, we'll now establish our connection
 	// to the target peer, waiting for the first update before we exit.
-	feePerVSize, err := c.server.cc.feeEstimator.EstimateFeePerVSize(3)
+	// We target 3 blocks or less in which to establish the connection,
+	// unless the user specified `cfg.Autopilot.ConfTarget`.
+	confTarget := cfg.Autopilot.ConfTarget
+	if confTarget == 0 { // The zero values for integer and floats is 0. nil is not a valid integer or float value.
+		confTarget = 3
+	}
+
+	feePerVSize, err := c.server.cc.feeEstimator.EstimateFeePerVSize(confTarget)
 	if err != nil {
 		return err
 	}

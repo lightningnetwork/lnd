@@ -718,7 +718,7 @@ func closeChannel(ctx *cli.Context) error {
 
 	// After parsing the request, we'll spin up a goroutine that will
 	// retrieve the closing transaction ID when attempting to close the
-	// channel. We do this to because `executeChannelClose` can block, so we
+	// channel. We do this too because `executeChannelClose` can block, so we
 	// would like to present the closing transaction ID to the user as soon
 	// as it is broadcasted.
 	var wg sync.WaitGroup

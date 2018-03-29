@@ -451,7 +451,9 @@ func (c *ChannelArbitrator) stateStep(bestHeight uint32, bestHash *chainhash.Has
 		if err := c.cfg.PublishTx(closeTx); err != nil {
 			log.Errorf("ChannelArbitrator(%v): unable to broadcast "+
 				"close tx: %v", c.cfg.ChanPoint, err)
-			return StateError, closeTx, err
+			if err != lnwallet.ErrDoubleSpend {
+				return StateError, closeTx, err
+			}
 		}
 
 		// As we've have broadcast the commitment transaction, we send

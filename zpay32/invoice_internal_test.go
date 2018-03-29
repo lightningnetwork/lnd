@@ -2,6 +2,7 @@ package zpay32
 
 import (
 	"encoding/binary"
+	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -527,7 +528,11 @@ func TestParseExpiry(t *testing.T) {
 			result: &testExpiry60,
 		},
 		{
-			data:  []byte{0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc},
+			data: []byte{
+				0x0, 0x1, 0x2, 0x3, 0x4, 0x5,
+				0x6, 0x7, 0x8, 0x9, 0xa, 0xb,
+				0xc, 0x3,
+			},
 			valid: false, // data too long
 		},
 	}
@@ -547,7 +552,8 @@ func TestParseExpiry(t *testing.T) {
 	}
 }
 
-// TestParseMinFinalCLTVExpiry checks that the minFinalCLTVExpiry is properly parsed.
+// TestParseMinFinalCLTVExpiry checks that the minFinalCLTVExpiry is properly
+// parsed.
 func TestParseMinFinalCLTVExpiry(t *testing.T) {
 	t.Parallel()
 
@@ -567,12 +573,20 @@ func TestParseMinFinalCLTVExpiry(t *testing.T) {
 			result: 60,
 		},
 		{
-			data:   []byte{0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc},
+			data: []byte{
+				0x1, 0x2, 0x3, 0x4, 0x5,
+				0x6, 0x7, 0x8, 0x9, 0xa,
+				0xb, 0xc,
+			},
 			valid:  true,
 			result: 38390726480144748,
 		},
 		{
-			data:  []byte{0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc},
+			data: []byte{
+				0x0, 0x1, 0x2, 0x3, 0x4, 0x5,
+				0x6, 0x7, 0x8, 0x9, 0xa, 0xb,
+				0xc, 0x94,
+			},
 			valid: false, // data too long
 		},
 	}
@@ -589,6 +603,26 @@ func TestParseMinFinalCLTVExpiry(t *testing.T) {
 				i, test.result, *expiry)
 			return
 		}
+	}
+}
+
+// TestParseMinFinalCLTVExpiry tests that were able to properly encode/decode
+// the math.MaxUint64 integer without panicking.
+func TestParseMaxUint64Expiry(t *testing.T) {
+	t.Parallel()
+
+	expiry := uint64(math.MaxUint64)
+
+	expiryBytes := uint64ToBase32(expiry)
+
+	expiryReParse, err := base32ToUint64(expiryBytes)
+	if err != nil {
+		t.Fatalf("unable to parse uint64: %v", err)
+	}
+
+	if expiryReParse != expiry {
+		t.Fatalf("wrong expiry: expected %v got %v", expiry,
+			expiryReParse)
 	}
 }
 

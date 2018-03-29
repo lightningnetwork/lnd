@@ -477,7 +477,7 @@ func (c *ChainArbitrator) Stop() error {
 // NOTE: This must be launched as a goroutine.
 func (c *ChainArbitrator) watchForChannelClose(closeInfo *channeldb.ChannelCloseSummary) {
 	spendNtfn, err := c.cfg.Notifier.RegisterSpendNtfn(
-		&closeInfo.ChanPoint, closeInfo.CloseHeight,
+		&closeInfo.ChanPoint, closeInfo.CloseHeight, true,
 	)
 	if err != nil {
 		log.Errorf("unable to register for spend: %v", err)

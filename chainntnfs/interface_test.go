@@ -386,7 +386,7 @@ func testSpendNotification(miner *rpctest.Harness,
 	spendClients := make([]*chainntnfs.SpendEvent, numClients)
 	for i := 0; i < numClients; i++ {
 		spentIntent, err := notifier.RegisterSpendNtfn(outpoint,
-			uint32(currentHeight))
+			uint32(currentHeight), false)
 		if err != nil {
 			t.Fatalf("unable to register for spend ntfn: %v", err)
 		}
@@ -408,6 +408,16 @@ func testSpendNotification(miner *rpctest.Harness,
 		t.Fatalf("tx not relayed to miner: %v", err)
 	}
 
+	// Make sure notifications are not yet sent.
+	for _, c := range spendClients {
+		select {
+		case <-c.Spend:
+			t.Fatalf("did not expect to get notification before " +
+				"block was mined")
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+
 	// Now we mine a single block, which should include our spend. The
 	// notification should also be sent off.
 	if _, err := miner.Node.Generate(1); err != nil {
@@ -419,19 +429,9 @@ func testSpendNotification(miner *rpctest.Harness,
 		t.Fatalf("unable to get current height: %v", err)
 	}
 
-	// For each event we registered for above, we create a goroutine which
-	// will listen on the event channel, passing it proxying each
-	// notification into a single which will be examined below.
-	spentNtfn := make(chan *chainntnfs.SpendDetail, numClients)
-	for i := 0; i < numClients; i++ {
-		go func(c *chainntnfs.SpendEvent) {
-			spentNtfn <- <-c.Spend
-		}(spendClients[i])
-	}
-
-	for i := 0; i < numClients; i++ {
+	for _, c := range spendClients {
 		select {
-		case ntfn := <-spentNtfn:
+		case ntfn := <-c.Spend:
 			// We've received the spend nftn. So now verify all the
 			// fields have been set properly.
 			if *ntfn.SpentOutPoint != *outpoint {
@@ -909,7 +909,7 @@ func testSpendBeforeNtfnRegistration(miner *rpctest.Harness,
 	// happened.  The notifier should dispatch a spend notification
 	// immediately.
 	spentIntent, err := notifier.RegisterSpendNtfn(outpoint,
-		uint32(currentHeight))
+		uint32(currentHeight), true)
 	if err != nil {
 		t.Fatalf("unable to register for spend ntfn: %v", err)
 	}
@@ -962,7 +962,7 @@ func testCancelSpendNtfn(node *rpctest.Harness,
 	spendClients := make([]*chainntnfs.SpendEvent, numClients)
 	for i := 0; i < numClients; i++ {
 		spentIntent, err := notifier.RegisterSpendNtfn(outpoint,
-			uint32(currentHeight))
+			uint32(currentHeight), true)
 		if err != nil {
 			t.Fatalf("unable to register for spend ntfn: %v", err)
 		}

@@ -486,7 +486,7 @@ type spendCancel struct {
 // outpoint has been detected, the details of the spending event will be sent
 // across the 'Spend' channel.
 func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	_ uint32) (*chainntnfs.SpendEvent, error) {
+	_ uint32, _ bool) (*chainntnfs.SpendEvent, error) {
 
 	ntfn := &spendNotification{
 		targetOutpoint: outpoint,

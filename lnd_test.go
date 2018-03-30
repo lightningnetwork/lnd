@@ -2129,15 +2129,16 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("received payment error: %v", resp.PaymentError)
 	}
 
-	// Since the payment failed, the balance should still be left unaltered.
+	// Since the payment failed, the balance should still be left
+	// unaltered.
 	assertAmountSent(0)
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(ctxt, t, net, carol, chanPoint, false)
+	closeChannelAndAssert(ctxt, t, net, carol, chanPoint, true)
 
-	// Finally, shutdown the nodes we created for the duration of the tests,
-	// only leaving the two seed nodes (Alice and Bob) within our test
-	// network.
+	// Finally, shutdown the nodes we created for the duration of the
+	// tests, only leaving the two seed nodes (Alice and Bob) within our
+	// test network.
 	if err := net.ShutdownNode(carol); err != nil {
 		t.Fatalf("unable to shutdown carol: %v", err)
 	}

@@ -51,7 +51,7 @@ var (
 
 	// maximumBackoff is the largest backoff we will permit when
 	// reattempting connections to persistent peers.
-	maximumBackoff = time.Minute
+	maximumBackoff = time.Hour
 )
 
 // server is the main server of the Lightning Network Daemon. The server houses
@@ -85,6 +85,7 @@ type server struct {
 	persistentPeers        map[string]struct{}
 	persistentPeersBackoff map[string]time.Duration
 	persistentConnReqs     map[string][]*connmgr.ConnReq
+	persistentRetryCancels map[string]chan struct{}
 
 	// ignorePeerTermination tracks peers for which the server has initiated
 	// a disconnect. Adding a peer to this map causes the peer termination
@@ -179,6 +180,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		persistentPeers:        make(map[string]struct{}),
 		persistentPeersBackoff: make(map[string]time.Duration),
 		persistentConnReqs:     make(map[string][]*connmgr.ConnReq),
+		persistentRetryCancels: make(map[string]chan struct{}),
 		ignorePeerTermination:  make(map[*peer]struct{}),
 
 		peersByPub:             make(map[string]*peer),
@@ -1292,18 +1294,17 @@ func (s *server) peerTerminationWatcher(p *peer) {
 		s.persistentConnReqs[pubStr] = append(
 			s.persistentConnReqs[pubStr], connReq)
 
-		// Now, determine the appropriate backoff to use for the retry.
-		backoff, ok := s.persistentPeersBackoff[pubStr]
-		if !ok {
-			// If an existing backoff was unknown, use the default.
-			backoff = defaultBackoff
-		} else {
-			// Otherwise, use a previous backoff to compute the
-			// subsequent randomized exponential backoff duration.
-			backoff = computeNextBackoff(backoff)
-		}
-
+		// Record the computed backoff in the backoff map.
+		backoff := s.nextPeerBackoff(pubStr)
 		s.persistentPeersBackoff[pubStr] = backoff
+
+		// Initialize a retry canceller for this peer if one does not
+		// exist.
+		cancelChan, ok := s.persistentRetryCancels[pubStr]
+		if !ok {
+			cancelChan = make(chan struct{})
+			s.persistentRetryCancels[pubStr] = cancelChan
+		}
 
 		// We choose not to wait group this go routine since the Connect
 		// call can stall for arbitrarily long if we shutdown while an
@@ -1314,6 +1315,8 @@ func (s *server) peerTerminationWatcher(p *peer) {
 
 			select {
 			case <-time.After(backoff):
+			case <-cancelChan:
+				return
 			case <-s.quit:
 				return
 			}
@@ -1324,6 +1327,22 @@ func (s *server) peerTerminationWatcher(p *peer) {
 			s.connMgr.Connect(connReq)
 		}()
 	}
+}
+
+// nextPeerBackoff computes the next backoff duration for a peer's pubkey using
+// exponential backoff. If no previous backoff was known, the default is
+// returned.
+func (s *server) nextPeerBackoff(pubStr string) time.Duration {
+	// Now, determine the appropriate backoff to use for the retry.
+	backoff, ok := s.persistentPeersBackoff[pubStr]
+	if !ok {
+		// If an existing backoff was unknown, use the default.
+		return defaultBackoff
+	}
+
+	// Otherwise, use a previous backoff to compute the
+	// subsequent randomized exponential backoff duration.
+	return computeNextBackoff(backoff)
 }
 
 // shouldRequestGraphSync returns true if the servers deems it necessary that
@@ -1434,8 +1453,6 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 
 	srvrLog.Infof("New inbound connection from %v", conn.RemoteAddr())
 
-	localPub := s.identityPriv.PubKey()
-
 	// Check to see if we already have a connection with this peer. If so,
 	// we may need to drop our existing connection. This prevents us from
 	// having duplicate connections to the same peer. We forgo adding a
@@ -1452,6 +1469,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		// connection we've already established should be kept, then
 		// we'll close out this connection s.t there's only a single
 		// connection between us.
+		localPub := s.identityPriv.PubKey()
 		if !shouldDropLocalConnection(localPub, nodePub) {
 			srvrLog.Warnf("Received inbound connection from "+
 				"peer %x, but already connected, dropping conn",
@@ -1472,15 +1490,9 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		s.ignorePeerTermination[connectedPeer] = struct{}{}
 	}
 
-	// Next, check to see if we have any outstanding persistent connection
-	// requests to this peer. If so, then we'll remove all of these
-	// connection requests, and also delete the entry from the map.
-	if connReqs, ok := s.persistentConnReqs[pubStr]; ok {
-		for _, connReq := range connReqs {
-			s.connMgr.Remove(connReq.ID())
-		}
-		delete(s.persistentConnReqs, pubStr)
-	}
+	// Lastly, cancel all pending requests. The incoming connection will not
+	// have an associated connection request.
+	s.cancelConnReqs(pubStr, nil)
 
 	s.peerConnected(conn, nil, false)
 }
@@ -1495,7 +1507,6 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		return
 	}
 
-	localPub := s.identityPriv.PubKey()
 	nodePub := conn.(*brontide.Conn).RemotePub()
 	pubStr := string(nodePub.SerializeCompressed())
 
@@ -1506,29 +1517,31 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	// this new connection.
 	if _, ok := s.outboundPeers[pubStr]; ok {
 		srvrLog.Debugf("Ignoring duplicate outbound connection")
+		if connReq != nil {
+			s.connMgr.Remove(connReq.ID())
+		}
 		conn.Close()
 		return
 	}
 	if _, ok := s.persistentConnReqs[pubStr]; !ok && connReq != nil {
 		srvrLog.Debugf("Ignoring cancelled outbound connection")
+		s.connMgr.Remove(connReq.ID())
 		conn.Close()
 		return
 	}
 
 	srvrLog.Infof("Established connection to: %v", conn.RemoteAddr())
 
-	// As we've just established an outbound connection to this peer, we'll
-	// cancel all other persistent connection requests and eliminate the
-	// entry for this peer from the map.
-	if connReqs, ok := s.persistentConnReqs[pubStr]; ok {
-		for _, pConnReq := range connReqs {
-			if connReq != nil &&
-				pConnReq.ID() != connReq.ID() {
-
-				s.connMgr.Remove(pConnReq.ID())
-			}
-		}
-		delete(s.persistentConnReqs, pubStr)
+	if connReq != nil {
+		// A successful connection was returned by the connmgr.
+		// Immediately cancel all pending requests, excluding the
+		// outbound connection we just established.
+		ignore := connReq.ID()
+		s.cancelConnReqs(pubStr, &ignore)
+	} else {
+		// This was a successful connection made by some other
+		// subsystem. Remove all requests being managed by the connmgr.
+		s.cancelConnReqs(pubStr, nil)
 	}
 
 	// If we already have a connection with this peer, decide whether or not
@@ -1546,6 +1559,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		// If our (this) connection should be dropped, then we'll do
 		// so, in order to ensure we don't have any duplicate
 		// connections.
+		localPub := s.identityPriv.PubKey()
 		if shouldDropLocalConnection(localPub, nodePub) {
 			srvrLog.Warnf("Established outbound connection to "+
 				"peer %x, but already connected, dropping conn",
@@ -1571,6 +1585,55 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	}
 
 	s.peerConnected(conn, connReq, true)
+}
+
+// UnassignedConnID is the default connection ID that a request can have before
+// it actually is submitted to the connmgr.
+// TODO(conner): move into connmgr package, or better, add connmgr method for
+// generating atomic IDs
+const UnassignedConnID uint64 = 0
+
+// cancelConnReqs stops all persistent connection requests for a given pubkey.
+// Any attempts initiated by the peerTerminationWatcher are canceled first.
+// Afterwards, each connection request removed from the connmgr. The caller can
+// optionally specify a connection ID to ignore, which prevents us from
+// canceling a successful request. All persistent connreqs for the provided
+// pubkey are discarded after the operationjw.
+func (s *server) cancelConnReqs(pubStr string, skip *uint64) {
+	// First, cancel any lingering persistent retry attempts, which will
+	// prevent retries for any with backoffs that are still maturing.
+	if cancelChan, ok := s.persistentRetryCancels[pubStr]; ok {
+		close(cancelChan)
+		delete(s.persistentRetryCancels, pubStr)
+	}
+
+	// Next, check to see if we have any outstanding persistent connection
+	// requests to this peer. If so, then we'll remove all of these
+	// connection requests, and also delete the entry from the map.
+	connReqs, ok := s.persistentConnReqs[pubStr]
+	if !ok {
+		return
+	}
+
+	for _, connReq := range connReqs {
+		// Atomically capture the current request identifier.
+		connID := connReq.ID()
+
+		// Skip any zero IDs, this indicates the request has not
+		// yet been schedule.
+		if connID == UnassignedConnID {
+			continue
+		}
+
+		// Skip a particular connection ID if instructed.
+		if skip != nil && connID == *skip {
+			continue
+		}
+
+		s.connMgr.Remove(connID)
+	}
+
+	delete(s.persistentConnReqs, pubStr)
 }
 
 // addPeer adds the passed peer to the server's global state of all active
@@ -1710,9 +1773,9 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress, perm bool) error {
 	// If there's already a pending connection request for this pubkey,
 	// then we ignore this request to ensure we don't create a redundant
 	// connection.
-	if _, ok := s.persistentConnReqs[targetPub]; ok {
-		s.mu.Unlock()
-		return fmt.Errorf("connection attempt to %v is pending", addr)
+	if reqs, ok := s.persistentConnReqs[targetPub]; ok {
+		srvrLog.Warnf("Already have %d persistent connection "+
+			"requests for %v, connecting anyway.", len(reqs), addr)
 	}
 
 	// If there's not already a pending or active connection to this node,
@@ -1776,6 +1839,8 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 	}
 
 	srvrLog.Infof("Disconnecting from %v", peer)
+
+	//s.cancelConnReqs(pubStr, nil)
 
 	// If this peer was formerly a persistent connection, then we'll remove
 	// them from this map so we don't attempt to re-connect after we

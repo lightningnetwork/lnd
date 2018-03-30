@@ -1112,7 +1112,8 @@ func (s *server) NotifyWhenOnline(peer *btcec.PublicKey,
 	_, ok := s.peersByPub[pubStr]
 	if ok {
 		// Connected, can return early.
-		srvrLog.Debugf("Notifying that peer %v is online", pubStr)
+		srvrLog.Debugf("Notifying that peer %x is online",
+			peer.SerializeCompressed())
 		close(connectedChan)
 		return
 	}

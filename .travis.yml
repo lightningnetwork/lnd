@@ -1,34 +1,19 @@
 language: go
 go:
-  - 1.9.4
+  - "1.9.4"
   - "1.10"
 sudo: required
 install:
   - sudo add-apt-repository -y ppa:bitcoin/bitcoin -y
   - sudo apt-get update -q
   - sudo apt-get install bitcoind -y
-  - GLIDE_TAG=v0.12.3
-  - GLIDE_DOWNLOAD="https://github.com/Masterminds/glide/releases/download/$GLIDE_TAG/glide-$GLIDE_TAG-linux-amd64.tar.gz"
-  - curl -L $GLIDE_DOWNLOAD | tar -xvz
   - export PATH=$PATH:$PWD/linux-amd64/
-  - BTCD_VERSION=$(cat Gopkg.toml | grep -A1 btcd | tail -n1 | awk '{ print $3 }' | tr -d '"')
-  - mkdir -p $GOPATH/src/github.com/roasbeef/
-  - pushd $GOPATH/src/github.com/roasbeef/
-  - git clone https://github.com/roasbeef/btcd
-  - pushd btcd
-  - git checkout $BTCD_VERSION
-  - glide install
-  - go install . ./cmd/...
-  - popd
-  - popd
 env:
-  global:
-    - LOGS=true
   matrix:
     - RACE=false
     - RACE=true
 script:
-  - export PATH=$PATH:$HOME/gopath/bin
-  - ./gotest.sh
+  - export PATH=$PATH:$GOPATH/bin
+  - make travis
 after_script:
   - find *.log | xargs -I{} sh -c "cat {} | nc termbin.com 9999 | xargs -r0 printf '{} uploaded to %s'"

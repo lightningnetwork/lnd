@@ -1094,8 +1094,8 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		// Before we attempt the cooperative channel closure, we'll
 		// examine the channel to ensure that it doesn't have a
 		// lingering HTLC.
-		if len(channel.localCommit.Htlcs) != 0 {
-			return nil, fmt.Errorf("cannot co-op close channel " +
+		if len(channel.ActiveHtlcs()) != 0 {
+			return fmt.Errorf("cannot co-op close channel " +
 				"with active htlcs")
 		}
 

@@ -996,20 +996,19 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 	// TODO(roasbeef): if force and peer online then don't force?
 
+	// First, we'll fetch the channel as is, as we'll need to examine it
+	// regardless of if this is a force close or not.
+	channel, err := r.fetchActiveChannel(*chanPoint)
+	if err != nil {
+		return err
+	}
+	channel.Stop()
+
 	// If a force closure was requested, then we'll handle all the details
 	// around the creation and broadcast of the unilateral closure
 	// transaction here rather than going to the switch as we don't require
 	// interaction from the peer.
 	if force {
-		// As the first part of the force closure, we first fetch the
-		// channel from the database, then execute a direct force
-		// closure broadcasting our current commitment transaction.
-		channel, err := r.fetchActiveChannel(*chanPoint)
-		if err != nil {
-			return err
-		}
-		channel.Stop()
-
 		_, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
 		if err != nil {
 			return err
@@ -1090,6 +1089,14 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 			if err != nil {
 				return err
 			}
+		}
+
+		// Before we attempt the cooperative channel closure, we'll
+		// examine the channel to ensure that it doesn't have a
+		// lingering HTLC.
+		if len(channel.localCommit.Htlcs) != 0 {
+			return nil, fmt.Errorf("cannot co-op close channel " +
+				"with active htlcs")
 		}
 
 		// Otherwise, the caller has requested a regular interactive

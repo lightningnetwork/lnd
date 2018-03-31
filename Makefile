@@ -130,8 +130,8 @@ build:
 
 install:
 	@$(call print, "Installing lnd and lncli.")
-	$(CP) ./lnd $(LND_BIN)
-	$(CP) ./lncli $(LNCLI_BIN)
+	go install -v $(LDFLAGS) $(PKG)
+	go install -v $(LDFLAGS) $(PKG)/cmd/lncli
 
 scratch: dep build
 

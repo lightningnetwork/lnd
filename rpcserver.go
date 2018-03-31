@@ -711,6 +711,7 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	localFundingAmt := btcutil.Amount(in.LocalFundingAmount)
 	remoteInitialBalance := btcutil.Amount(in.PushSat)
 	minHtlc := lnwire.MilliSatoshi(in.MinHtlcMsat)
+	remoteCsvDelay := uint16(in.RemoteCsvDelay)
 
 	// Ensure that the initial balance of the remote party (if pushing
 	// satoshis) does not exceed the amount the local party has requested
@@ -784,7 +785,7 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	updateChan, errChan := r.server.OpenChannel(
 		nodePubKey, localFundingAmt,
 		lnwire.NewMSatFromSatoshis(remoteInitialBalance),
-		minHtlc, feeRate, in.Private,
+		minHtlc, feeRate, in.Private, remoteCsvDelay,
 	)
 
 	var outpoint wire.OutPoint
@@ -879,6 +880,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	localFundingAmt := btcutil.Amount(in.LocalFundingAmount)
 	remoteInitialBalance := btcutil.Amount(in.PushSat)
 	minHtlc := lnwire.MilliSatoshi(in.MinHtlcMsat)
+	remoteCsvDelay := uint16(in.RemoteCsvDelay)
 
 	// Ensure that the initial balance of the remote party (if pushing
 	// satoshis) does not exceed the amount the local party has requested
@@ -911,7 +913,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	updateChan, errChan := r.server.OpenChannel(
 		nodepubKey, localFundingAmt,
 		lnwire.NewMSatFromSatoshis(remoteInitialBalance),
-		minHtlc, feeRate, in.Private,
+		minHtlc, feeRate, in.Private, remoteCsvDelay,
 	)
 
 	select {

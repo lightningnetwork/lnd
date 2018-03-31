@@ -1076,7 +1076,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		ChannelReserve:       chanReserve,
 		MinAcceptDepth:       uint32(numConfsReq),
 		HtlcMinimum:          ourContribution.MinHTLC,
-		CsvDelay:             uint16(remoteCsvDelay),
+		CsvDelay:             remoteCsvDelay,
 		MaxAcceptedHTLCs:     maxHtlcs,
 		FundingKey:           ourContribution.MultiSigKey.PubKey,
 		RevocationPoint:      ourContribution.RevocationBasePoint.PubKey,
@@ -2465,13 +2465,13 @@ func (f *fundingManager) initFundingWorkflow(peerAddress *lnwire.NetAddress,
 // funding workflow.
 func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	var (
-		// TODO(roasbeef): add delay
-		peerKey      = msg.peerAddress.IdentityKey
-		localAmt     = msg.localFundingAmt
-		remoteAmt    = msg.remoteFundingAmt
-		capacity     = localAmt + remoteAmt
-		ourDustLimit = lnwallet.DefaultDustLimit()
-		minHtlc      = msg.minHtlc
+		peerKey        = msg.peerAddress.IdentityKey
+		localAmt       = msg.localFundingAmt
+		remoteAmt      = msg.remoteFundingAmt
+		capacity       = localAmt + remoteAmt
+		ourDustLimit   = lnwallet.DefaultDustLimit()
+		minHtlc        = msg.minHtlc
+		remoteCsvDelay = msg.remoteCsvDelay
 	)
 
 	fndgLog.Infof("Initiating fundingRequest(localAmt=%v, remoteAmt=%v, "+
@@ -2543,9 +2543,12 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// Update the timestamp once the initFundingMsg has been handled.
 	defer resCtx.updateTimestamp()
 
-	// Using the RequiredRemoteDelay closure, we'll compute the remote CSV
-	// delay we require given the total amount of funds within the channel.
-	remoteCsvDelay := f.cfg.RequiredRemoteDelay(capacity)
+	// If the remote CSV delay was not set in the open channel request,
+	// we'll use the RequiredRemoteDelay closure to compute the delay we
+	// require given the total amount of funds within the channel.
+	if remoteCsvDelay == 0 {
+		remoteCsvDelay = f.cfg.RequiredRemoteDelay(capacity)
+	}
 
 	// If no minimum HTLC value was specified, use the default one.
 	if minHtlc == 0 {
@@ -2577,7 +2580,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		ChannelReserve:       chanReserve,
 		HtlcMinimum:          ourContribution.MinHTLC,
 		FeePerKiloWeight:     uint32(commitFeePerKw),
-		CsvDelay:             uint16(remoteCsvDelay),
+		CsvDelay:             remoteCsvDelay,
 		MaxAcceptedHTLCs:     maxHtlcs,
 		FundingKey:           ourContribution.MultiSigKey.PubKey,
 		RevocationPoint:      ourContribution.RevocationBasePoint.PubKey,

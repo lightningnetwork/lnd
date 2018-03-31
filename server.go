@@ -1842,7 +1842,7 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 
 	srvrLog.Infof("Disconnecting from %v", peer)
 
-	//s.cancelConnReqs(pubStr, nil)
+	s.cancelConnReqs(pubStr, nil)
 
 	// If this peer was formerly a persistent connection, then we'll remove
 	// them from this map so we don't attempt to re-connect after we

@@ -1292,20 +1292,28 @@ func (s *server) peerTerminationWatcher(p *peer) {
 		s.persistentConnReqs[pubStr] = append(
 			s.persistentConnReqs[pubStr], connReq)
 
-		// Compute the subsequent backoff duration.
-		currBackoff := s.persistentPeersBackoff[pubStr]
-		nextBackoff := computeNextBackoff(currBackoff)
-		s.persistentPeersBackoff[pubStr] = nextBackoff
+		// Now, determine the appropriate backoff to use for the retry.
+		backoff, ok := s.persistentPeersBackoff[pubStr]
+		if !ok {
+			// If an existing backoff was unknown, use the default.
+			backoff = defaultBackoff
+		} else {
+			// Otherwise, use a previous backoff to compute the
+			// subsequent randomized exponential backoff duration.
+			backoff = computeNextBackoff(backoff)
+		}
+
+		s.persistentPeersBackoff[pubStr] = backoff
 
 		// We choose not to wait group this go routine since the Connect
 		// call can stall for arbitrarily long if we shutdown while an
 		// outbound connection attempt is being made.
 		go func() {
 			srvrLog.Debugf("Scheduling connection re-establishment to "+
-				"persistent peer %v in %s", p, nextBackoff)
+				"persistent peer %v in %s", p, backoff)
 
 			select {
-			case <-time.After(nextBackoff):
+			case <-time.After(backoff):
 			case <-s.quit:
 				return
 			}

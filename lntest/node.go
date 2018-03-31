@@ -147,6 +147,7 @@ func (cfg nodeConfig) genArgs() []string {
 	args = append(args, fmt.Sprintf("--rpclisten=%v", cfg.RPCAddr()))
 	args = append(args, fmt.Sprintf("--restlisten=%v", cfg.RESTAddr()))
 	args = append(args, fmt.Sprintf("--listen=%v", cfg.P2PAddr()))
+	args = append(args, fmt.Sprintf("--externalip=%v", cfg.P2PAddr()))
 	args = append(args, fmt.Sprintf("--logdir=%v", cfg.LogDir))
 	args = append(args, fmt.Sprintf("--datadir=%v", cfg.DataDir))
 	args = append(args, fmt.Sprintf("--tlscertpath=%v", cfg.TLSCertPath))

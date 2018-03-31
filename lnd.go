@@ -430,7 +430,20 @@ func lndMain() error {
 			}
 			return delay
 		},
-		WatchNewChannel: server.chainArb.WatchNewChannel,
+		WatchNewChannel: func(channel *channeldb.OpenChannel,
+			addr *lnwire.NetAddress) error {
+
+			// First, we'll mark this new peer as a persistent
+			// re-connection purposes.
+			server.mu.Lock()
+			pubStr := string(addr.IdentityKey.SerializeCompressed())
+			server.persistentPeers[pubStr] = struct{}{}
+			server.mu.Unlock()
+
+			// With that taken care of, we'll send this channel to
+			// the chain arb so it can react to on-chain events.
+			return server.chainArb.WatchNewChannel(channel)
+		},
 		ReportShortChanID: func(chanPoint wire.OutPoint,
 			sid lnwire.ShortChannelID) error {
 

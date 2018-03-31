@@ -300,7 +300,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			return uint16(lnwallet.MaxHTLCNumber / 2)
 		},
 		ArbiterChan: arbiterChan,
-		WatchNewChannel: func(*channeldb.OpenChannel) error {
+		WatchNewChannel: func(*channeldb.OpenChannel, *lnwire.NetAddress) error {
 			return nil
 		},
 		ReportShortChanID: func(wire.OutPoint, lnwire.ShortChannelID) error {

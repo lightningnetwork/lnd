@@ -1003,6 +1003,11 @@
           "type": "string",
           "format": "int64",
           "title": "/ Sum of channels balances denominated in satoshis"
+        },
+        "pending_open_balance": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ Sum of channels pending balances denominated in satoshis"
         }
       }
     },

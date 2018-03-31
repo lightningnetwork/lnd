@@ -433,8 +433,8 @@ func lndMain() error {
 		WatchNewChannel: func(channel *channeldb.OpenChannel,
 			addr *lnwire.NetAddress) error {
 
-			// First, we'll mark this new peer as a persistent
-			// re-connection purposes.
+			// First, we'll mark this new peer as a persistent peer
+			// for re-connection purposes.
 			server.mu.Lock()
 			pubStr := string(addr.IdentityKey.SerializeCompressed())
 			server.persistentPeers[pubStr] = struct{}{}

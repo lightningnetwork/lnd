@@ -6837,7 +6837,7 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	err = net.EnsureConnected(ctxt, dave, carol)
+	err = net.EnsureConnected(ctxt, carol, dave)
 	if err != nil {
 		t.Fatalf("unable to reconnect dave and carol: %v", err)
 	}
@@ -7450,7 +7450,7 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	// Make Carol and Dave are reconnected before waiting for the htlcs to
 	// clear.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	err = net.EnsureConnected(ctxt, dave, carol)
+	err = net.EnsureConnected(ctxt, carol, dave)
 	if err != nil {
 		t.Fatalf("unable to reconnect dave and carol: %v", err)
 	}

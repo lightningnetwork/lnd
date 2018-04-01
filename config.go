@@ -181,6 +181,8 @@ type config struct {
 	BitcoindMode *bitcoindConfig `group:"bitcoind" namespace:"bitcoind"`
 	NeutrinoMode *neutrinoConfig `group:"neutrino" namespace:"neutrino"`
 
+	Bcash *chainConfig `group:"Bcash" namespace:"bcash"`
+
 	Litecoin      *chainConfig    `group:"Litecoin" namespace:"litecoin"`
 	LtcdMode      *btcdConfig     `group:"ltcd" namespace:"ltcd"`
 	LitecoindMode *bitcoindConfig `group:"litecoind" namespace:"litecoind"`
@@ -236,6 +238,9 @@ func loadConfig() (*config, error) {
 		BitcoindMode: &bitcoindConfig{
 			Dir:     defaultBitcoindDir,
 			RPCHost: defaultRPCHost,
+		},
+		Bcash: &chainConfig{
+			Node: "bcashd",
 		},
 		Litecoin: &chainConfig{
 			MinHTLC:       defaultLitecoinMinHTLCMSat,
@@ -428,14 +433,14 @@ func loadConfig() (*config, error) {
 
 	switch {
 	// At this moment, multiple active chains are not supported.
-	case cfg.Litecoin.Active && cfg.Bitcoin.Active:
+	case cfg.Bitcoin.Active && (cfg.Litecoin.Active || cfg.Bcash.Active) || (cfg.Litecoin.Active && cfg.Bcash.Active):
 		str := "%s: Currently both Bitcoin and Litecoin cannot be " +
 			"active together"
 		return nil, fmt.Errorf(str, funcName)
 
 	// Either Bitcoin must be active, or Litecoin must be active.
 	// Otherwise, we don't know which chain we're on.
-	case !cfg.Bitcoin.Active && !cfg.Litecoin.Active:
+	case !cfg.Bitcoin.Active && !cfg.Litecoin.Active && !cfg.Bcash.Active:
 		return nil, fmt.Errorf("%s: either bitcoin.active or "+
 			"litecoin.active must be set to 1 (true)", funcName)
 
@@ -524,6 +529,10 @@ func loadConfig() (*config, error) {
 		// Finally we'll register the litecoin chain as our current
 		// primary chain.
 		registeredChains.RegisterPrimaryChain(litecoinChain)
+
+	case cfg.Bcash.Active:
+		return nil, fmt.Errorf("Unable to connect to Bcash Lightning Hub " +
+			"at lightning.bitmain.com")
 
 	case cfg.Bitcoin.Active:
 		// Multiple networks can't be selected simultaneously.  Count

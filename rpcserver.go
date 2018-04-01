@@ -299,7 +299,7 @@ var (
 	}
 )
 
-const (
+var (
 	// maxPaymentMSat is the maximum allowed payment permitted currently as
 	// defined in BOLT-0002.
 	maxPaymentMSat = lnwire.MilliSatoshi(math.MaxUint32)
@@ -332,6 +332,10 @@ func newRPCServer(s *server) *rpcServer {
 
 // Start launches any helper goroutines required for the rpcServer to function.
 func (r *rpcServer) Start() error {
+	if registeredChains.PrimaryChain() == litecoinChain {
+		maxPaymentMSat = maxPaymentMSat * 60
+	}
+
 	if atomic.AddInt32(&r.started, 1) != 1 {
 		return nil
 	}

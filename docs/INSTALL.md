@@ -42,8 +42,11 @@
     you can avoid typing this every time you open a new terminal window.
 
   * **dep:** This project uses `dep` to manage dependencies as well
-    as to provide *reproducible builds*. To install `dep`, execute the
-    following command (assumes you already have Go properly installed):
+    as to provide *reproducible builds*.
+    
+    **Note**: `dep` is automatically installed via the `make`. To fetch `dep`
+    manually, use the following command (assumes you already have Go properly
+    installed):
     ```
     go get -u github.com/golang/dep/cmd/dep
     ```
@@ -53,10 +56,9 @@
 With the preliminary steps completed, to install `lnd`, `lncli`, and all
 related dependencies run the following commands:
 ```
-git clone https://github.com/lightningnetwork/lnd $GOPATH/src/github.com/lightningnetwork/lnd
+go get -d github.com/lightningnetwork/lnd
 cd $GOPATH/src/github.com/lightningnetwork/lnd
-dep ensure
-go install . ./cmd/...
+make && make install
 ```
 
 **Updating**
@@ -64,16 +66,15 @@ go install . ./cmd/...
 To update your version of `lnd` to the latest version run the following
 commands:
 ```
-cd $GOPATH/src/github.com/lightningnetwork/lnd
-git pull && dep ensure
-go install . ./cmd/...
+git pull
+make && make install
 ```
 
 **Tests**
 
 To check that `lnd` was installed properly run the following command:
 ```
-go install; go test -v -p 1 $(go list ./... | grep -v  '/vendor/')
+make check
 ```
 
 ### Installing btcd
@@ -84,11 +85,7 @@ branch. To install, run the following commands:
 
 Install **btcd**: (must be from roasbeef fork, not from btcsuite)
 ```
-go get -u github.com/Masterminds/glide
-git clone https://github.com/roasbeef/btcd $GOPATH/src/github.com/roasbeef/btcd
-cd $GOPATH/src/github.com/roasbeef/btcd
-glide install
-go install . ./cmd/...
+make btcd 
 ```
 
 ### Starting btcd

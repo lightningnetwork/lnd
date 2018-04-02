@@ -3026,4 +3026,87 @@ func TestChannelLinkAcceptDuplicatePayment(t *testing.T) {
 	}
 }
 
-// TODO(roasbeef): add test for re-sending after hodl mode, to settle any lingering
+// TestChannelLinkAcceptOverpay tests that if we create an invoice for sender,
+// and the sender sends *more* than specified in the invoice, then we'll still
+// accept it and settle as normal.
+func TestChannelLinkAcceptOverpay(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll create our traditional three hop network. We'll only be
+	// interacting with and asserting the state of two of the end points
+	// for this test.
+	channels, cleanUp, _, err := createClusterChannels(
+		btcutil.SatoshiPerBitcoin*3,
+		btcutil.SatoshiPerBitcoin*5)
+	if err != nil {
+		t.Fatalf("unable to create channel: %v", err)
+	}
+	defer cleanUp()
+
+	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
+	if err := n.start(); err != nil {
+		t.Fatalf("unable to start three hop network: %v", err)
+	}
+	defer n.stop()
+
+	carolBandwidthBefore := n.carolChannelLink.Bandwidth()
+	firstBobBandwidthBefore := n.firstBobChannelLink.Bandwidth()
+	secondBobBandwidthBefore := n.secondBobChannelLink.Bandwidth()
+	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
+
+	// We'll request a route to send 10k satoshis via Alice -> Bob ->
+	// Carol.
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	htlcAmt, totalTimelock, hops := generateHops(
+		amount, testStartingHeight,
+		n.firstBobChannelLink, n.carolChannelLink,
+	)
+
+	// When we actually go to send the payment, we'll actually create an
+	// invoice at Carol for only half of this amount.
+	receiver := n.carolServer
+	rhash, err := n.makePayment(
+		n.aliceServer, n.carolServer, n.bobServer.PubKey(),
+		hops, amount/2, htlcAmt, totalTimelock,
+	).Wait(30 * time.Second)
+	if err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Even though we sent 2x what was asked for, Carol should still have
+	// accepted the payment and marked it as settled.
+	invoice, err := receiver.registry.LookupInvoice(rhash)
+	if err != nil {
+		t.Fatalf("unable to get invoice: %v", err)
+	}
+	if !invoice.Terms.Settled {
+		t.Fatal("carol invoice haven't been settled")
+	}
+
+	expectedAliceBandwidth := aliceBandwidthBefore - htlcAmt
+	if expectedAliceBandwidth != n.aliceChannelLink.Bandwidth() {
+		t.Fatalf("channel bandwidth incorrect: expected %v, got %v",
+			expectedAliceBandwidth, n.aliceChannelLink.Bandwidth())
+	}
+
+	expectedBobBandwidth1 := firstBobBandwidthBefore + htlcAmt
+	if expectedBobBandwidth1 != n.firstBobChannelLink.Bandwidth() {
+		t.Fatalf("channel bandwidth incorrect: expected %v, got %v",
+			expectedBobBandwidth1, n.firstBobChannelLink.Bandwidth())
+	}
+
+	expectedBobBandwidth2 := secondBobBandwidthBefore - amount
+	if expectedBobBandwidth2 != n.secondBobChannelLink.Bandwidth() {
+		t.Fatalf("channel bandwidth incorrect: expected %v, got %v",
+			expectedBobBandwidth2, n.secondBobChannelLink.Bandwidth())
+	}
+
+	expectedCarolBandwidth := carolBandwidthBefore + amount
+	if expectedCarolBandwidth != n.carolChannelLink.Bandwidth() {
+		t.Fatalf("channel bandwidth incorrect: expected %v, got %v",
+			expectedCarolBandwidth, n.carolChannelLink.Bandwidth())
+	}
+}

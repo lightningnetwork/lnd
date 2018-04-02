@@ -1370,7 +1370,14 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	// address for reconnecting purposes.
 	if tcpAddr, ok := addr.(*net.TCPAddr); ok {
 		targetPort := s.fetchNodeAdvertisedPort(pubKey, tcpAddr)
-		tcpAddr.Port = targetPort
+
+		// Once we have the correct port, we'll make a new copy of the
+		// address so we don't modify the underlying pointer directly.
+		addr = &net.TCPAddr{
+			IP:   tcpAddr.IP,
+			Port: targetPort,
+			Zone: tcpAddr.Zone,
+		}
 	}
 
 	peerAddr := &lnwire.NetAddress{

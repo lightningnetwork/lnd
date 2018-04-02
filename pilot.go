@@ -6,6 +6,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/autopilot"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
@@ -85,14 +86,23 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 
 	// With the connection established, we'll now establish our connection
 	// to the target peer, waiting for the first update before we exit.
-	// We target 3 blocks or less in which to establish the connection,
-	// unless the user specified `cfg.Autopilot.ConfTarget`.
-	confTarget := cfg.Autopilot.ConfTarget
-	if confTarget == 0 { // The zero values for integer and floats is 0. nil is not a valid integer or float value.
-		confTarget = 3
+
+	// If `Autopilot.OpenChanFeeRate` has been specified, we use that.
+	// If not, we check `Autopilot.ConfTarget` next.
+	// Finally if neither of those is configured, we default to a 3 block target.
+	calcFeeRate := func(feeRate lnwire.MilliSatoshi, confTarget uint32) (lnwallet.SatPerVByte, error) {
+		// The zero values for integer and floats is 0. nil is not a valid integer or float value.
+		if feeRate != 0 {
+			return lnwallet.SatPerVByte(feeRate), nil
+		} else if confTarget != 0 {
+			return c.server.cc.feeEstimator.EstimateFeePerVSize(confTarget)
+		} else {
+			return c.server.cc.feeEstimator.EstimateFeePerVSize(3)
+		}
 	}
 
-	feePerVSize, err := c.server.cc.feeEstimator.EstimateFeePerVSize(confTarget)
+	feePerVSize, err := calcFeeRate(cfg.Autopilot.OpenChanFeeRate, cfg.Autopilot.ConfTarget)
+
 	if err != nil {
 		return err
 	}

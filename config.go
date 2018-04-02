@@ -127,12 +127,13 @@ type bitcoindConfig struct {
 }
 
 type autoPilotConfig struct {
-	Active         bool    `long:"active" description:"If the autopilot agent should be active or not."`
-	MaxChannels    int     `long:"maxchannels" description:"The maximum number of channels that should be created"`
-	Allocation     float64 `long:"allocation" description:"The percentage of total funds that should be committed to automatic channel establishment"`
-	MinChannelSize int64   `long:"minchansize" description:"The smallest channel that the autopilot agent should create"`
-	MaxChannelSize int64   `long:"maxchansize" description:"The largest channel that the autopilot agent should create"`
-	ConfTarget     uint32  `long:"conf_target" description:"Targeted number of blocks within which the channel should be confirmed"`
+	Active          bool                `long:"active" description:"If the autopilot agent should be active or not."`
+	MaxChannels     int                 `long:"maxchannels" description:"The maximum number of channels that should be created"`
+	Allocation      float64             `long:"allocation" description:"The percentage of total funds that should be committed to automatic channel establishment"`
+	MinChannelSize  int64               `long:"minchansize" description:"The smallest channel that the autopilot agent should create"`
+	MaxChannelSize  int64               `long:"maxchansize" description:"The largest channel that the autopilot agent should create"`
+	ConfTarget      uint32              `long:"conftarget" description:"Targeted number of blocks within which the channel should be confirmed"`
+	OpenChanFeeRate lnwire.MilliSatoshi `long:"openchanfeerate" description:"The fee in millisatoshi we will charge for forwarding payments on our channels. If set, this value supersedes that of 'conftarget'."`
 }
 
 type torConfig struct {
@@ -356,33 +357,27 @@ func loadConfig() (*config, error) {
 	// any of the autopilot params.
 	if cfg.Autopilot.MaxChannels < 0 {
 		str := "%s: autopilot.maxchannels must be non-negative"
-		err := fmt.Errorf(str, funcName)
-		fmt.Fprintln(os.Stderr, err)
-		return nil, err
+		return nil, fmtAndPrintError(str, funcName)
 	}
 	if cfg.Autopilot.Allocation < 0 {
 		str := "%s: autopilot.allocation must be non-negative"
-		err := fmt.Errorf(str, funcName)
-		fmt.Fprintln(os.Stderr, err)
-		return nil, err
+		return nil, fmtAndPrintError(str, funcName)
 	}
 	if cfg.Autopilot.MinChannelSize < 0 {
 		str := "%s: autopilot.minchansize must be non-negative"
-		err := fmt.Errorf(str, funcName)
-		fmt.Fprintln(os.Stderr, err)
-		return nil, err
+		return nil, fmtAndPrintError(str, funcName)
 	}
 	if cfg.Autopilot.MaxChannelSize < 0 {
 		str := "%s: autopilot.maxchansize must be non-negative"
-		err := fmt.Errorf(str, funcName)
-		fmt.Fprintln(os.Stderr, err)
-		return nil, err
+		return nil, fmtAndPrintError(str, funcName)
 	}
 	if cfg.Autopilot.ConfTarget < 0 {
-		str := "%s: autopilot.confirm_in must be non-negative"
-		err := fmt.Errorf(str, funcName)
-		fmt.Fprintln(os.Stderr, err)
-		return nil, err
+		str := "%s: autopilot.conftarget must be non-negative"
+		return nil, fmtAndPrintError(str, funcName)
+	}
+	if cfg.Autopilot.OpenChanFeeRate < 0 {
+		str := "%s: autopilot.openchanfeerate must be non-negative"
+		return nil, fmtAndPrintError(str, funcName)
 	}
 
 	// Ensure that the specified values for the min and max channel size
@@ -743,6 +738,12 @@ func loadConfig() (*config, error) {
 	}
 
 	return &cfg, nil
+}
+
+func fmtAndPrintError(str string, funcName string) error {
+	err := fmt.Errorf(str, funcName)
+	fmt.Fprintln(os.Stderr, err)
+	return err
 }
 
 // cleanAndExpandPath expands environment variables and leading ~ in the

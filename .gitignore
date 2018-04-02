@@ -24,7 +24,10 @@ _testmain.go
 *.test
 *.prof
 
-/lnd
+lnd
+lncli
+
+output*.log
 
 cmd/cmd
 **.key

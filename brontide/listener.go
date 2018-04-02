@@ -104,9 +104,9 @@ func (l *Listener) doHandshake(conn net.Conn) {
 	}
 
 	// We'll ensure that we get ActOne from the remote peer in a timely
-	// manner. If they don't respond within 15 seconds, then we'll kill the
+	// manner. If they don't respond within 1s, then we'll kill the
 	// connection.
-	conn.SetReadDeadline(time.Now().Add(time.Second * 15))
+	conn.SetReadDeadline(time.Now().Add(handshakeReadTimeout))
 
 	// Attempt to carry out the first act of the handshake protocol. If the
 	// connecting node doesn't know our long-term static public key, then
@@ -144,9 +144,9 @@ func (l *Listener) doHandshake(conn net.Conn) {
 	}
 
 	// We'll ensure that we get ActTwo from the remote peer in a timely
-	// manner. If they don't respond within 15 seconds, then we'll kill the
+	// manner. If they don't respond within 1 second, then we'll kill the
 	// connection.
-	conn.SetReadDeadline(time.Now().Add(time.Second * 15))
+	conn.SetReadDeadline(time.Now().Add(handshakeReadTimeout))
 
 	// Finally, finish the handshake processes by reading and decrypting
 	// the connection peer's static public key. If this succeeds then both

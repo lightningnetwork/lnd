@@ -470,6 +470,7 @@ func lndMain() error {
 		},
 		ZombieSweeperInterval: 1 * time.Minute,
 		ReservationTimeout:    10 * time.Minute,
+		MinChanSize:           btcutil.Amount(cfg.MinChanSize),
 	})
 	if err != nil {
 		return err

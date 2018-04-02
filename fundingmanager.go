@@ -286,14 +286,14 @@ type fundingConfig struct {
 	// times.
 	RequiredRemoteChanReserve func(btcutil.Amount) btcutil.Amount
 
-	// RequiredRemoteMaxValue is a function closure that, given the
-	// channel capacity, returns the amount of MilliSatoshis that our
-	// remote peer can have in total outstanding HTLCs with us.
+	// RequiredRemoteMaxValue is a function closure that, given the channel
+	// capacity, returns the amount of MilliSatoshis that our remote peer
+	// can have in total outstanding HTLCs with us.
 	RequiredRemoteMaxValue func(btcutil.Amount) lnwire.MilliSatoshi
 
-	// RequiredRemoteMaxHTLCs is a function closure that, given the
-	// channel capacity, returns the number of maximum HTLCs the remote
-	// peer can offer us.
+	// RequiredRemoteMaxHTLCs is a function closure that, given the channel
+	// capacity, returns the number of maximum HTLCs the remote peer can
+	// offer us.
 	RequiredRemoteMaxHTLCs func(btcutil.Amount) uint16
 
 	// WatchNewChannel is to be called once a new channel enters the final
@@ -308,13 +308,19 @@ type fundingConfig struct {
 	// sub-systems.
 	ReportShortChanID func(wire.OutPoint, lnwire.ShortChannelID) error
 
-	// ZombieSweeperInterval is the periodic time interval in which the zombie
-	// sweeper is run.
+	// ZombieSweeperInterval is the periodic time interval in which the
+	// zombie sweeper is run.
 	ZombieSweeperInterval time.Duration
 
-	// ReservationTimeout is the length of idle time that must pass before a
-	// reservation is considered a zombie.
+	// ReservationTimeout is the length of idle time that must pass before
+	// a reservation is considered a zombie.
 	ReservationTimeout time.Duration
+
+	// MinChanSize is the smallest channel size that we'll accept as an
+	// inbound channel. We have such a parameter, as otherwise, nodes could
+	// flood us with very small channels that would never really be usable
+	// due to fees.
+	MinChanSize btcutil.Amount
 }
 
 // fundingManager acts as an orchestrator/bridge between the wallet's
@@ -331,8 +337,8 @@ type fundingManager struct {
 	started int32
 	stopped int32
 
-	// cfg is a copy of the configuration struct that the FundingManager was
-	// initialized with.
+	// cfg is a copy of the configuration struct that the FundingManager
+	// was initialized with.
 	cfg *fundingConfig
 
 	// chanIDKey is a cryptographically random key that's used to generate
@@ -939,7 +945,18 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	if msg.FundingAmount > maxFundingAmount {
 		f.failFundingFlow(
 			fmsg.peerAddress.IdentityKey, fmsg.msg.PendingChannelID,
-			lnwire.ErrChanTooLarge)
+			lnwire.ErrChanTooLarge,
+		)
+		return
+	}
+
+	// We'll, also ensure that the remote party isn't attempting to propose
+	// a channel that's below our current min channel size.
+	if amt < f.cfg.MinChanSize {
+		f.failFundingFlow(
+			fmsg.peerAddress.IdentityKey, fmsg.msg.PendingChannelID,
+			lnwallet.ErrChanTooSmall(amt, btcutil.Amount(f.cfg.MinChanSize)),
+		)
 		return
 	}
 

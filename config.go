@@ -195,8 +195,9 @@ type config struct {
 
 	TrickleDelay int `long:"trickledelay" description:"Time in milliseconds between each release of announcements to the network"`
 
-	Alias string `long:"alias" description:"The node alias. Used as a moniker by peers and intelligence services"`
-	Color string `long:"color" description:"The color of the node in hex format (i.e. '#3399FF'). Used to customize node appearance in intelligence services"`
+	Alias       string `long:"alias" description:"The node alias. Used as a moniker by peers and intelligence services"`
+	Color       string `long:"color" description:"The color of the node in hex format (i.e. '#3399FF'). Used to customize node appearance in intelligence services"`
+	MinChanSize int64  `long:"minchansize" description:"The smallest channel size (in satoshis) that we should accept. Incoming channels smaller than this will be rejected"`
 
 	net torsvc.Net
 }
@@ -264,6 +265,7 @@ func loadConfig() (*config, error) {
 		TrickleDelay: defaultTrickleDelay,
 		Alias:        defaultAlias,
 		Color:        defaultColor,
+		MinChanSize:  int64(minChanFundingSize),
 	}
 
 	// Pre-parse the command line options to pick up an alternative config

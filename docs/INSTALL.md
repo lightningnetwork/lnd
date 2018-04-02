@@ -79,9 +79,10 @@ make check
 
 ### Installing btcd
 
-`lnd` currently requires the [roasbeef](https://github.com/roasbeef/btcd) fork
-of `btcd` due to neutrino additions that are not yet available in the master
-branch. To install, run the following commands:
+When using the `btcd` backend, `lnd` currently requires the
+[roasbeef](https://github.com/roasbeef/btcd) fork of `btcd` due to neutrino
+additions that are not yet available in the master branch. To install, run the
+following commands:
 
 Install **btcd**: (must be from roasbeef fork, not from btcsuite)
 ```

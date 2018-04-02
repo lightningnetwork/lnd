@@ -440,6 +440,180 @@ func completePaymentRequests(ctx context.Context, client lnrpc.LightningClient,
 	return nil
 }
 
+const (
+	AddrTypeWitnessPubkeyHash = lnrpc.NewAddressRequest_WITNESS_PUBKEY_HASH
+	AddrTypeNestedPubkeyHash  = lnrpc.NewAddressRequest_NESTED_PUBKEY_HASH
+)
+
+// testOnchainFundRecovery checks lnd's ability to rescan for onchain outputs
+// when providing a valid aezeed that owns outputs on the chain. This test
+// performs multiple restorations using the same seed and various recovery
+// windows to ensure we detect funds properly.
+func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
+	timeout := time.Duration(time.Second * 15)
+	ctxb := context.Background()
+
+	// First, create a new node with strong passphrase and grab the mnemonic
+	// used for key derivation. This will bring up Carol with an empty
+	// wallet, and such that she is synced up.
+	password := []byte("The Magic Words are Squeamish Ossifrage")
+	carol, mnemonic, err := net.NewNodeWithSeed(nil, password)
+	if err != nil {
+		t.Fatalf("unable to create node with seed; %v", err)
+	}
+
+	err = net.ShutdownNode(carol)
+	if err != nil {
+		t.Fatalf("unable to shutdown carol: %v", err)
+	}
+
+	// Create a closure for testing the recovery of Carol's wallet. This
+	// method takes the expected value of Carol's balance when using the
+	// given recovery window. Additionally, the caller can specify an action
+	// to perform on the restored node before the node is shutdown.
+	restoreCheckBalance := func(expAmount int64, recoveryWindow int32,
+		fn func(*lntest.HarnessNode)) {
+
+		// Restore Carol, passing in the password, mnemonic, and
+		// desired recovery window.
+		node, err := net.RestoreNodeWithSeed(
+			nil, password, mnemonic, recoveryWindow,
+		)
+		if err != nil {
+			t.Fatalf("unable to restore node: %v", err)
+		}
+
+		// Query carol for her current wallet balance.
+		var currBalance int64
+		err = lntest.WaitPredicate(func() bool {
+			req := &lnrpc.WalletBalanceRequest{}
+			ctxt, _ := context.WithTimeout(ctxb, timeout)
+			resp, err := node.WalletBalance(ctxt, req)
+			if err != nil {
+				t.Fatalf("unable to query wallet balance: %v",
+					err)
+			}
+
+			// Verify that Carol's balance matches our expected
+			// amount.
+			currBalance = resp.ConfirmedBalance
+			if expAmount != currBalance {
+				return false
+			}
+
+			return true
+		}, 15*time.Second)
+		if err != nil {
+			t.Fatalf("expected restored node to have %d satoshis, "+
+				"instead has %d satoshis", expAmount,
+				currBalance)
+		}
+
+		// If the user provided a callback, execute the commands against
+		// the restored Carol.
+		if fn != nil {
+			fn(node)
+		}
+
+		// Lastly, shutdown this Carol so we can move on to the next
+		// restoration.
+		err = net.ShutdownNode(node)
+		if err != nil {
+			t.Fatalf("unable to shutdown node: %v", err)
+		}
+	}
+
+	// Create a closure-factory for building closures that can generate and
+	// skip a configurable number of addresses, before finally sending coins
+	// to a next generated address. The returned closure will apply the same
+	// behavior to both default P2WKH and NP2WKH scopes.
+	skipAndSend := func(nskip int) func(*lntest.HarnessNode) {
+		return func(node *lntest.HarnessNode) {
+			newP2WKHAddrReq := &lnrpc.NewAddressRequest{
+				Type: AddrTypeWitnessPubkeyHash,
+			}
+
+			newNP2WKHAddrReq := &lnrpc.NewAddressRequest{
+				Type: AddrTypeNestedPubkeyHash,
+			}
+
+			// Generate and skip the number of addresses requested.
+			for i := 0; i < nskip; i++ {
+				ctxt, _ := context.WithTimeout(ctxb, timeout)
+				_, err = node.NewAddress(ctxt, newP2WKHAddrReq)
+				if err != nil {
+					t.Fatalf("unable to generate new "+
+						"p2wkh address: %v", err)
+				}
+
+				ctxt, _ = context.WithTimeout(ctxb, timeout)
+				_, err = node.NewAddress(ctxt, newNP2WKHAddrReq)
+				if err != nil {
+					t.Fatalf("unable to generate new "+
+						"np2wkh address: %v", err)
+				}
+			}
+
+			// Send one BTC to the next P2WKH address.
+			ctxt, _ := context.WithTimeout(ctxb, timeout)
+			err = net.SendCoins(
+				ctxt, btcutil.SatoshiPerBitcoin, node,
+			)
+			if err != nil {
+				t.Fatalf("unable to send coins to node: %v",
+					err)
+			}
+
+			// And another to the next NP2WKH address.
+			ctxt, _ = context.WithTimeout(ctxb, timeout)
+			err = net.SendCoinsNP2WKH(
+				ctxt, btcutil.SatoshiPerBitcoin, node,
+			)
+			if err != nil {
+				t.Fatalf("unable to send coins to node: %v",
+					err)
+			}
+		}
+	}
+
+	// Restore Carol with a recovery window of 0. Since no coins have been
+	// sent, her balance should be zero.
+	//
+	// After, one BTC is sent to both her first external P2WKH and NP2WKH
+	// addresses.
+	restoreCheckBalance(0, 0, skipAndSend(0))
+
+	// Check that restoring without a look-ahead results in having no funds
+	// in the wallet, even though they exist on-chain.
+	restoreCheckBalance(0, 0, nil)
+
+	// Now, check that using a look-ahead of 1 recovers the balance from the
+	// two transactions above.
+	//
+	// After, we will generate and skip 9 P2WKH and NP2WKH addresses, and
+	// send another BTC to the subsequent 10th address in each derivation
+	// path.
+	restoreCheckBalance(2*btcutil.SatoshiPerBitcoin, 1, skipAndSend(9))
+
+	// Check that using a recovery window of 9 does not find the two most
+	// recent txns.
+	restoreCheckBalance(2*btcutil.SatoshiPerBitcoin, 9, nil)
+
+	// Extending our recovery window to 10 should find the most recent
+	// transactions, leaving the wallet with 4 BTC total.
+	//
+	// After, we will skip 19 more addrs, sending to the 20th address past
+	// our last found address, and repeat the same checks.
+	restoreCheckBalance(4*btcutil.SatoshiPerBitcoin, 10, skipAndSend(19))
+
+	// Check that recovering with a recovery window of 19 fails to find the
+	// most recent transactions.
+	restoreCheckBalance(4*btcutil.SatoshiPerBitcoin, 19, nil)
+
+	// Ensure that using a recovery window of 20 succeeds.
+	restoreCheckBalance(6*btcutil.SatoshiPerBitcoin, 20, nil)
+}
+
 // testBasicChannelFunding performs a test exercising expected behavior from a
 // basic funding workflow. The test creates a new channel between Alice and
 // Bob, then immediately closes the channel after asserting some expected post
@@ -8808,6 +8982,10 @@ type testCase struct {
 }
 
 var testsCases = []*testCase{
+	{
+		name: "onchain fund recovery",
+		test: testOnchainFundRecovery,
+	},
 	{
 		name: "basic funding flow",
 		test: testBasicChannelFunding,

@@ -231,6 +231,7 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 
 			return chanMachine.ForceClose()
 		},
+		MarkCommitmentBroadcasted: channel.MarkCommitmentBroadcasted,
 		CloseChannel: func(summary *channeldb.ChannelCloseSummary) error {
 			log.Tracef("ChannelArbitrator(%v): closing "+
 				"channel", chanPoint)

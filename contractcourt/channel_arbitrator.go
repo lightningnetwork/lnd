@@ -1476,6 +1476,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 				log.Infof("ChannelArbitrator(%v): all "+
 					"contracts resolved, exiting",
 					c.cfg.ChanPoint)
+				return
 			}
 
 		case <-c.quit:

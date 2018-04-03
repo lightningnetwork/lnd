@@ -11,7 +11,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 const (
@@ -89,6 +88,10 @@ type ChannelArbitratorConfig struct {
 	// to chain. The returned summary contains all items needed to
 	// eventually resolve all outputs on chain.
 	ForceCloseChan func() (*lnwallet.LocalForceCloseSummary, error)
+
+	// MarkCommitmentBroadcasted should mark the channel as the commitment
+	// being broadcast, and we are waiting for the commitment to confirm.
+	MarkCommitmentBroadcasted func() error
 
 	// CloseChannel is a function closure that marks a channel under watch
 	// as "closing". In this phase, we will no longer accept any updates to
@@ -467,21 +470,10 @@ func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
 			}
 		}
 
-		contractRes := ContractResolutions{
-			CommitHash:       closeTx.TxHash(),
-			CommitResolution: closeSummary.CommitResolution,
-			HtlcResolutions:  *closeSummary.HtlcResolutions,
-		}
-
-		// Now that the transaction has been broadcast, we can mark
-		// that it has been closed to outside sub-systems.
-		err = c.markContractClosed(
-			closeTx, closeSummary.ChanSnapshot, &contractRes,
-			bestHeight,
-		)
-		if err != nil {
-			log.Errorf("unable to close contract: %v", err)
-			return StateError, closeTx, err
+		if err := c.cfg.MarkCommitmentBroadcasted(); err != nil {
+			log.Errorf("ChannelArbitrator(%v): unable to "+
+				"mark commitment broadcasted: %v",
+				c.cfg.ChanPoint, err)
 		}
 
 		// We go to the StateCommitmentBroadcasted state, where we'll
@@ -1554,40 +1546,4 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			return
 		}
 	}
-}
-
-// markContractClosed marks a contract as "pending closed". After this state,
-// upon restart, we'll no longer watch for updates to the set of contracts as
-// the channel cannot be updated any longer.
-func (c *ChannelArbitrator) markContractClosed(closeTx *wire.MsgTx,
-	chanSnapshot channeldb.ChannelSnapshot,
-	contractResolution *ContractResolutions,
-	closeHeight uint32) error {
-
-	// TODO(roasbeef): also need height info?
-	closeInfo := &channeldb.ChannelCloseSummary{
-		ChanPoint:   chanSnapshot.ChannelPoint,
-		ChainHash:   chanSnapshot.ChainHash,
-		ClosingTXID: closeTx.TxHash(),
-		RemotePub:   &chanSnapshot.RemoteIdentity,
-		Capacity:    chanSnapshot.Capacity,
-		CloseType:   channeldb.ForceClose,
-		IsPending:   true,
-		ShortChanID: c.cfg.ShortChanID,
-		CloseHeight: closeHeight,
-	}
-
-	// If our commitment output isn't dust or we have active HTLC's on the
-	// commitment transaction, then we'll populate the balances on the
-	// close channel summary.
-	if contractResolution.CommitResolution != nil {
-		closeInfo.SettledBalance = chanSnapshot.LocalBalance.ToSatoshis()
-		closeInfo.TimeLockedBalance = chanSnapshot.LocalBalance.ToSatoshis()
-	}
-	for _, htlc := range contractResolution.HtlcResolutions.OutgoingHTLCs {
-		htlcValue := btcutil.Amount(htlc.SweepSignDesc.Output.Value)
-		closeInfo.TimeLockedBalance += htlcValue
-	}
-
-	return c.cfg.CloseChannel(closeInfo)
 }

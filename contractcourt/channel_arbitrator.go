@@ -1359,7 +1359,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 		// The remote party has broadcast the commitment on-chain.
 		// We'll examine our state to determine if we need to act at
 		// all.
-		case uniClosure := <-c.cfg.ChainEvents.UnilateralClosure:
+		case uniClosure := <-c.cfg.ChainEvents.RemoteUnilateralClosure:
 			if c.state != StateDefault {
 				continue
 			}

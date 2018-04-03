@@ -66,6 +66,7 @@ make && make install
 To update your version of `lnd` to the latest version run the following
 commands:
 ```
+cd $GOPATH/src/github.com/lightningnetwork/lnd
 git pull
 make && make install
 ```

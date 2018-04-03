@@ -951,11 +951,12 @@ func TestBreachHandoffSuccess(t *testing.T) {
 	// Instantiate a breach arbiter to handle the breach of alice's channel.
 	alicePoint := alice.ChannelPoint()
 	spendEvents := contractcourt.ChainEventSubscription{
-		UnilateralClosure:  make(chan *lnwallet.UnilateralCloseSummary, 1),
-		CooperativeClosure: make(chan struct{}, 1),
-		ContractBreach:     make(chan *lnwallet.BreachRetribution, 1),
-		ProcessACK:         make(chan error, 1),
-		ChanPoint:          *alicePoint,
+		RemoteUnilateralClosure: make(chan *lnwallet.UnilateralCloseSummary, 1),
+		LocalUnilateralClosure:  make(chan *contractcourt.LocalUnilateralCloseInfo, 1),
+		CooperativeClosure:      make(chan struct{}, 1),
+		ContractBreach:          make(chan *lnwallet.BreachRetribution, 1),
+		ProcessACK:              make(chan error, 1),
+		ChanPoint:               *alicePoint,
 		Cancel: func() {
 		},
 	}
@@ -1039,11 +1040,12 @@ func TestBreachHandoffFail(t *testing.T) {
 	// Instantiate a breach arbiter to handle the breach of alice's channel.
 	alicePoint := alice.ChannelPoint()
 	spendEvents := contractcourt.ChainEventSubscription{
-		UnilateralClosure:  make(chan *lnwallet.UnilateralCloseSummary, 1),
-		CooperativeClosure: make(chan struct{}, 1),
-		ContractBreach:     make(chan *lnwallet.BreachRetribution, 1),
-		ProcessACK:         make(chan error, 1),
-		ChanPoint:          *alicePoint,
+		RemoteUnilateralClosure: make(chan *lnwallet.UnilateralCloseSummary, 1),
+		LocalUnilateralClosure:  make(chan *contractcourt.LocalUnilateralCloseInfo, 1),
+		CooperativeClosure:      make(chan struct{}, 1),
+		ContractBreach:          make(chan *lnwallet.BreachRetribution, 1),
+		ProcessACK:              make(chan error, 1),
+		ChanPoint:               *alicePoint,
 		Cancel: func() {
 		},
 	}

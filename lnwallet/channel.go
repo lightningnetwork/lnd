@@ -2540,7 +2540,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 	remoteCommitView *commitment) ([]signJob, chan struct{}, error) {
 
 	txHash := remoteCommitView.txn.TxHash()
-	dustLimit := localChanCfg.DustLimit
+	dustLimit := remoteChanCfg.DustLimit
 	feePerKw := remoteCommitView.feePerKw
 
 	// With the keys generated, we'll make a slice with enough capacity to
@@ -3465,12 +3465,6 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 	keyRing *CommitmentKeyRing, htlcSigs []lnwire.Sig,
 	localChanCfg, remoteChanCfg *channeldb.ChannelConfig) ([]verifyJob, error) {
 
-	// If this new commitment state doesn't have any HTLC's that are to be
-	// signed, then we'll return a nil slice.
-	if len(htlcSigs) == 0 {
-		return nil, nil
-	}
-
 	txHash := localCommitmentView.txn.TxHash()
 	feePerKw := localCommitmentView.feePerKw
 
@@ -3532,6 +3526,12 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 				return sigHash, nil
 			}
 
+			// Make sure there are more signatures left.
+			if i >= len(htlcSigs) {
+				return nil, fmt.Errorf("not enough HTLC " +
+					"signatures.")
+			}
+
 			// With the sighash generated, we'll also store the
 			// signature so it can be written to disk if this state
 			// is valid.
@@ -3578,6 +3578,12 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 				return sigHash, nil
 			}
 
+			// Make sure there are more signatures left.
+			if i >= len(htlcSigs) {
+				return nil, fmt.Errorf("not enough HTLC " +
+					"signatures.")
+			}
+
 			// With the sighash generated, we'll also store the
 			// signature so it can be written to disk if this state
 			// is valid.
@@ -3598,6 +3604,13 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 		})
 
 		i++
+	}
+
+	// If we received a number of HTLC signatures that doesn't match our
+	// commitment, we'll return an error now.
+	if len(htlcSigs) != i {
+		return nil, fmt.Errorf("number of htlc sig mismatch. "+
+			"Expected %v sigs, got %v", i, len(htlcSigs))
 	}
 
 	return verifyJobs, nil
@@ -5648,6 +5661,13 @@ func CreateCommitTx(fundingOutput wire.TxIn,
 			PkScript: theirWitnessKeyHash,
 			Value:    int64(amountToThem),
 		})
+	}
+
+	// Finally, we'll ensure that we don't accidentally create a commitment
+	// transaction which would be invalid by consensus.
+	uTx := btcutil.NewTx(commitTx)
+	if err := blockchain.CheckTransactionSanity(uTx); err != nil {
+		return nil, err
 	}
 
 	return commitTx, nil

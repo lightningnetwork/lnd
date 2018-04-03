@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"time"
 
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/hkdf"
@@ -33,6 +34,12 @@ const (
 	// keyRotationInterval is the number of messages sent on a single
 	// cipher stream before the keys are rotated forwards.
 	keyRotationInterval = 1000
+
+	// handshakeReadTimeout is a read timeout that will be enforced when
+	// waiting for data payloads during the various acts of Brontide. If
+	// the remote party fails to deliver the proper payload within this
+	// time frame, then we'll fail the connection.
+	handshakeReadTimeout = time.Second * 1
 )
 
 var (

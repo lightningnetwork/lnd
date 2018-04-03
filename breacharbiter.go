@@ -490,6 +490,8 @@ func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 	// construct a sweep transaction and write it to disk. This will allow
 	// the breach arbiter to re-register for notifications for the justice
 	// txid.
+	spendNtfns := make(map[wire.OutPoint]*chainntnfs.SpendEvent)
+
 secondLevelCheck:
 	if finalTx == nil {
 		// Before we create the justice tx, we need to check to see if
@@ -510,24 +512,32 @@ secondLevelCheck:
 				breachedOutput.outpoint, breachInfo.chanPoint)
 
 			// Now that we have an HTLC output, we'll quickly check
-			// to see if it has been spent or not.
-			spendNtfn, err := b.cfg.Notifier.RegisterSpendNtfn(
-				&breachedOutput.outpoint, breachInfo.breachHeight,
-			)
-			if err != nil {
-				brarLog.Errorf("unable to check for spentness "+
-					"of out_point=%v: %v",
-					breachedOutput.outpoint, err)
+			// to see if it has been spent or not. If we have
+			// already registered for a notification for this
+			// output, we'll reuse it.
+			spendNtfn, ok := spendNtfns[breachedOutput.outpoint]
+			if !ok {
+				spendNtfn, err = b.cfg.Notifier.RegisterSpendNtfn(
+					&breachedOutput.outpoint,
+					breachInfo.breachHeight,
+				)
+				if err != nil {
+					brarLog.Errorf("unable to check for "+
+						"spentness of out_point=%v: %v",
+						breachedOutput.outpoint, err)
 
-				// Registration may have failed if we've been
-				// instructed to shutdown. If so, return here to
-				// avoid entering an infinite loop.
-				select {
-				case <-b.quit:
-					return
-				default:
-					continue
+					// Registration may have failed if
+					// we've been instructed to shutdown.
+					// If so, return here to avoid entering
+					// an infinite loop.
+					select {
+					case <-b.quit:
+						return
+					default:
+						continue
+					}
 				}
+				spendNtfns[breachedOutput.outpoint] = spendNtfn
 			}
 
 			select {
@@ -536,6 +546,7 @@ secondLevelCheck:
 				if !ok {
 					return
 				}
+				delete(spendNtfns, breachedOutput.outpoint)
 
 				// In this case we'll morph our initial revoke
 				// spend to instead point to the second level

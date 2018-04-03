@@ -488,10 +488,6 @@ type spendCancel struct {
 func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	_ uint32) (*chainntnfs.SpendEvent, error) {
 
-	if err := b.chainConn.NotifySpent([]*wire.OutPoint{outpoint}); err != nil {
-		return nil, err
-	}
-
 	ntfn := &spendNotification{
 		targetOutpoint: outpoint,
 		spendChan:      make(chan *chainntnfs.SpendDetail, 1),
@@ -502,6 +498,10 @@ func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	case <-b.quit:
 		return nil, ErrChainNotifierShuttingDown
 	case b.notificationRegistry <- ntfn:
+	}
+
+	if err := b.chainConn.NotifySpent([]*wire.OutPoint{outpoint}); err != nil {
+		return nil, err
 	}
 
 	// The following conditional checks to ensure that when a spend notification

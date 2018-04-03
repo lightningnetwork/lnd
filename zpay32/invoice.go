@@ -1056,8 +1056,8 @@ func writeTaggedField(bufferBase32 *bytes.Buffer, dataType byte, data []byte) er
 
 // base32ToUint64 converts a base32 encoded number to uint64.
 func base32ToUint64(data []byte) (uint64, error) {
-	// Maximum that fits in uint64 is 64 / 5 = 12 groups.
-	if len(data) > 12 {
+	// Maximum that fits in uint64 is ceil(64 / 5) = 12 groups.
+	if len(data) > 13 {
 		return 0, fmt.Errorf("cannot parse data of length %d as uint64",
 			len(data))
 	}
@@ -1077,9 +1077,9 @@ func uint64ToBase32(num uint64) []byte {
 		return []byte{0}
 	}
 
-	// To fit an uint64, we need at most is 64 / 5 = 12 groups.
-	arr := make([]byte, 12)
-	i := 12
+	// To fit an uint64, we need at most is ceil(64 / 5) = 13 groups.
+	arr := make([]byte, 13)
+	i := 13
 	for num > 0 {
 		i--
 		arr[i] = byte(num & uint64(31)) // 0b11111 in binary

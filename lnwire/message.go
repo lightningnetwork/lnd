@@ -192,7 +192,7 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 	case MsgPong:
 		msg = &Pong{}
 	default:
-		return nil, fmt.Errorf("unknown message type [%d]", msgType)
+		return nil, &UnknownMessage{msgType}
 	}
 
 	return msg, nil

@@ -1147,24 +1147,8 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// The following block ensures that after both nodes have restarted,
 	// they have reconnected before the execution of the next test.
-	peersTimeout := time.After(15 * time.Second)
-	checkPeersTick := time.NewTicker(100 * time.Millisecond)
-	defer checkPeersTick.Stop()
-peersPoll:
-	for {
-		select {
-		case <-peersTimeout:
-			t.Fatalf("peers unable to reconnect after restart")
-		case <-checkPeersTick.C:
-			peers, err := carol.ListPeers(ctxb,
-				&lnrpc.ListPeersRequest{})
-			if err != nil {
-				t.Fatalf("ListPeers error: %v\n", err)
-			}
-			if len(peers.Peers) > 0 {
-				break peersPoll
-			}
-		}
+	if err := net.EnsureConnected(ctxb, net.Alice, carol); err != nil {
+		t.Fatalf("peers unable to reconnect after restart: %v", err)
 	}
 
 	// Next, mine enough blocks s.t the channel will open with a single
@@ -1249,6 +1233,11 @@ func testChannelBalance(net *lntest.NetworkHarness, t *harnessTest) {
 			t.Fatalf("channel balance wrong: %v != %v", balance,
 				amount)
 		}
+	}
+
+	// Before beginning, make sure alice and bob are connected.
+	if err := net.EnsureConnected(ctx, net.Alice, net.Bob); err != nil {
+		t.Fatalf("unable to connect alice and bob: %v", err)
 	}
 
 	chanPoint := openChannelAndAssert(ctx, t, net, net.Alice, net.Bob,
@@ -1418,7 +1407,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to get carol's balance: %v", err)
 	}
 
-	carolStartingBalance := btcutil.Amount(carolBalResp.ConfirmedBalance * 1e8)
+	carolStartingBalance := carolBalResp.ConfirmedBalance
 
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPoint := openChannelAndAssert(ctxt, t, net, net.Alice, carol,
@@ -1965,11 +1954,11 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to get carol's balance: %v", err)
 	}
-	carolExpectedBalance := carolStartingBalance + pushAmt
-	if btcutil.Amount(carolBalResp.ConfirmedBalance*1e8) < carolExpectedBalance {
+	carolExpectedBalance := btcutil.Amount(carolStartingBalance) + pushAmt
+	if btcutil.Amount(carolBalResp.ConfirmedBalance) < carolExpectedBalance {
 		t.Fatalf("carol's balance is incorrect: expected %v got %v",
 			carolExpectedBalance,
-			btcutil.Amount(carolBalResp.ConfirmedBalance*1e8))
+			carolBalResp.ConfirmedBalance)
 	}
 }
 
@@ -2129,15 +2118,16 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("received payment error: %v", resp.PaymentError)
 	}
 
-	// Since the payment failed, the balance should still be left unaltered.
+	// Since the payment failed, the balance should still be left
+	// unaltered.
 	assertAmountSent(0)
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(ctxt, t, net, carol, chanPoint, false)
+	closeChannelAndAssert(ctxt, t, net, carol, chanPoint, true)
 
-	// Finally, shutdown the nodes we created for the duration of the tests,
-	// only leaving the two seed nodes (Alice and Bob) within our test
-	// network.
+	// Finally, shutdown the nodes we created for the duration of the
+	// tests, only leaving the two seed nodes (Alice and Bob) within our
+	// test network.
 	if err := net.ShutdownNode(carol); err != nil {
 		t.Fatalf("unable to shutdown carol: %v", err)
 	}
@@ -4609,7 +4599,7 @@ func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) 
 	// and Carol. Note that we will also receive a node announcement from
 	// Bob, since a node will update its node announcement after a new
 	// channel is opened.
-	if err := net.ConnectNodes(ctxb, net.Alice, net.Bob); err != nil {
+	if err := net.EnsureConnected(ctxb, net.Alice, net.Bob); err != nil {
 		t.Fatalf("unable to connect alice to bob: %v", err)
 	}
 
@@ -7171,7 +7161,7 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	// Now that the settles have reached Dave, reconnect him with Alice,
 	// allowing the settles to return to the sender.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	if err := net.ConnectNodes(ctxt, dave, net.Alice); err != nil {
+	if err := net.EnsureConnected(ctxt, dave, net.Alice); err != nil {
 		t.Fatalf("unable to reconnect alice to dave: %v", err)
 	}
 
@@ -7480,8 +7470,16 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 		t.Fatalf("unable to reconnect alice to dave: %v", err)
 	}
 
-	// After Dave reconnects, the settles should be propagated all the way
-	// back to the sender. All nodes should report no active htlcs.
+	// Force Dave and Alice to reconnect before waiting for the htlcs to
+	// clear.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = net.EnsureConnected(ctxt, dave, net.Alice)
+	if err != nil {
+		t.Fatalf("unable to reconnect dave and carol: %v", err)
+	}
+
+	// After reconnection succeeds, the settles should be propagated all the
+	// way back to the sender. All nodes should report no active htlcs.
 	err = lntest.WaitPredicate(func() bool {
 		return assertNumActiveHtlcs(nodes, 0)
 	}, time.Second*15)
@@ -7526,6 +7524,14 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	}
 
 	payReqs = []string{resp.PaymentRequest}
+
+	// Before completing the final payment request, ensure that the
+	// connection between Dave and Carol has been healed.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = net.EnsureConnected(ctxt, dave, carol)
+	if err != nil {
+		t.Fatalf("unable to reconnect dave and carol: %v", err)
+	}
 
 	// Using Carol as the source, pay to the 5 invoices from Bob created
 	// above.

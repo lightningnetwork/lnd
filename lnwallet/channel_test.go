@@ -163,7 +163,11 @@ func forceStateTransition(chanA, chanB *LightningChannel) error {
 func createTestChannels(revocationWindow int) (*LightningChannel,
 	*LightningChannel, func(), error) {
 
-	channelCapacity := btcutil.Amount(10 * 1e8)
+	channelCapacity, err := btcutil.NewAmount(10)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	channelBal := channelCapacity / 2
 	aliceDustLimit := btcutil.Amount(200)
 	bobDustLimit := btcutil.Amount(1300)
@@ -1458,6 +1462,177 @@ func TestHTLCDustLimit(t *testing.T) {
 	if aliceChannel.channelState.TotalMSatSent != htlcAmount {
 		t.Fatalf("alice satoshis sent incorrect: expected %v, got %v",
 			htlcAmount, aliceChannel.channelState.TotalMSatSent)
+	}
+}
+
+// TestHTLCSigNumber tests that a received commitment is only accepted if it
+// comes with the exact number of valid HTLC signatures.
+func TestHTLCSigNumber(t *testing.T) {
+	t.Parallel()
+
+	// createChanWithHTLC is a helper method that sets ut two channels, and
+	// adds HTLCs with the passed values to the channels.
+	createChanWithHTLC := func(htlcValues ...btcutil.Amount) (
+		*LightningChannel, *LightningChannel, func()) {
+
+		// Create a test channel funded evenly with Alice having 5 BTC,
+		// and Bob having 5 BTC. Alice's dustlimit is 200 sat, while
+		// Bob has 1300 sat.
+		aliceChannel, bobChannel, cleanUp, err := createTestChannels(3)
+		if err != nil {
+			t.Fatalf("unable to create test channels: %v", err)
+		}
+
+		for i, htlcSat := range htlcValues {
+			htlcMsat := lnwire.NewMSatFromSatoshis(htlcSat)
+			htlc, _ := createHTLC(i, htlcMsat)
+			_, err := aliceChannel.AddHTLC(htlc, nil)
+			if err != nil {
+				t.Fatalf("alice unable to add htlc: %v", err)
+			}
+			_, err = bobChannel.ReceiveHTLC(htlc)
+			if err != nil {
+				t.Fatalf("bob unable to receive htlc: %v", err)
+			}
+		}
+
+		return aliceChannel, bobChannel, cleanUp
+	}
+
+	// Calculate two values that will be below and above Bob's dust limit.
+	estimator := &StaticFeeEstimator{24}
+	feePerVSize, err := estimator.EstimateFeePerVSize(1)
+	if err != nil {
+		t.Fatalf("unable to get fee: %v", err)
+	}
+	feePerKw := feePerVSize.FeePerKWeight()
+
+	belowDust := btcutil.Amount(500) + htlcTimeoutFee(feePerKw)
+	aboveDust := btcutil.Amount(1400) + htlcSuccessFee(feePerKw)
+
+	// ===================================================================
+	// Test that Bob will reject a commitment if Alice doesn't send enough
+	// HTLC signatures.
+	// ===================================================================
+	aliceChannel, bobChannel, cleanUp := createChanWithHTLC(aboveDust,
+		aboveDust)
+	defer cleanUp()
+
+	aliceSig, aliceHtlcSigs, err := aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("Error signing next commitment: %v", err)
+	}
+
+	if len(aliceHtlcSigs) != 2 {
+		t.Fatalf("expected 2 htlc sig, instead got %v",
+			len(aliceHtlcSigs))
+	}
+
+	// Now discard one signature from the htlcSig slice. Bob should reject
+	// the commitment because of this.
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs[1:])
+	if err == nil {
+		t.Fatalf("Expected Bob to reject signatures")
+	}
+
+	// ===================================================================
+	// Test that Bob will reject a commitment if Alice doesn't send any
+	// HTLC signatures.
+	// ===================================================================
+	aliceChannel, bobChannel, cleanUp = createChanWithHTLC(aboveDust)
+	defer cleanUp()
+
+	aliceSig, aliceHtlcSigs, err = aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("Error signing next commitment: %v", err)
+	}
+
+	if len(aliceHtlcSigs) != 1 {
+		t.Fatalf("expected 1 htlc sig, instead got %v",
+			len(aliceHtlcSigs))
+	}
+
+	// Now just give Bob an empty htlcSig slice. He should reject the
+	// commitment because of this.
+	err = bobChannel.ReceiveNewCommitment(aliceSig, []lnwire.Sig{})
+	if err == nil {
+		t.Fatalf("Expected Bob to reject signatures")
+	}
+
+	// ==============================================================
+	// Test that sigs are not returned for HTLCs below dust limit.
+	// ==============================================================
+	aliceChannel, bobChannel, cleanUp = createChanWithHTLC(belowDust)
+	defer cleanUp()
+
+	aliceSig, aliceHtlcSigs, err = aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("Error signing next commitment: %v", err)
+	}
+
+	// Since the HTLC is below Bob's dust limit, Alice won't need to send
+	// any signatures for this HTLC.
+	if len(aliceHtlcSigs) != 0 {
+		t.Fatalf("expected no htlc sigs, instead got %v",
+			len(aliceHtlcSigs))
+	}
+
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	if err != nil {
+		t.Fatalf("Bob failed receiving commitment: %v", err)
+	}
+
+	// ================================================================
+	// Test that sigs are correctly returned for HTLCs above dust limit.
+	// ================================================================
+	aliceChannel, bobChannel, cleanUp = createChanWithHTLC(aboveDust)
+	defer cleanUp()
+
+	aliceSig, aliceHtlcSigs, err = aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("Error signing next commitment: %v", err)
+	}
+
+	// Since the HTLC is above Bob's dust limit, Alice should send a
+	// signature for this HTLC.
+	if len(aliceHtlcSigs) != 1 {
+		t.Fatalf("expected 1 htlc sig, instead got %v",
+			len(aliceHtlcSigs))
+	}
+
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	if err != nil {
+		t.Fatalf("Bob failed receiving commitment: %v", err)
+	}
+
+	// ====================================================================
+	// Test that Bob will not validate a received commitment if Alice sends
+	// signatures for HTLCs below the dust limit.
+	// ====================================================================
+	aliceChannel, bobChannel, cleanUp = createChanWithHTLC(belowDust,
+		aboveDust)
+	defer cleanUp()
+
+	// Alice should produce only one signature, since one HTLC is below
+	// dust.
+	aliceSig, aliceHtlcSigs, err = aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("Error signing next commitment: %v", err)
+	}
+
+	if len(aliceHtlcSigs) != 1 {
+		t.Fatalf("expected 1 htlc sig, instead got %v",
+			len(aliceHtlcSigs))
+	}
+
+	// Add an extra signature.
+	aliceHtlcSigs = append(aliceHtlcSigs, aliceHtlcSigs[0])
+
+	// Bob should reject these signatures since they don't match the number
+	// of HTLCs above dust.
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	if err == nil {
+		t.Fatalf("Expected Bob to reject signatures")
 	}
 }
 

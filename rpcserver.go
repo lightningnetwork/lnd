@@ -29,7 +29,6 @@ import (
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/roasbeef/btcd/blockchain"
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
@@ -69,6 +68,10 @@ var (
 			Entity: "info",
 			Action: "read",
 		},
+		{
+			Entity: "invoices",
+			Action: "read",
+		},
 	}
 
 	// writePermissions is a slice of all entities that allow write
@@ -96,6 +99,32 @@ var (
 		},
 		{
 			Entity: "info",
+			Action: "write",
+		},
+		{
+			Entity: "invoices",
+			Action: "write",
+		},
+	}
+
+	// invoicePermissions is a slice of all the entities that allows a user
+	// to only access calls that are related to invoices, so: streaming
+	// RPC's, generating, and listening invoices.
+	invoicePermissions = []bakery.Op{
+		{
+			Entity: "invoices",
+			Action: "read",
+		},
+		{
+			Entity: "invoices",
+			Action: "write",
+		},
+		{
+			Entity: "address",
+			Action: "read",
+		},
+		{
+			Entity: "address",
 			Action: "write",
 		},
 	}
@@ -188,19 +217,19 @@ var (
 			Action: "write",
 		}},
 		"/lnrpc.Lightning/AddInvoice": {{
-			Entity: "offchain",
+			Entity: "invoices",
 			Action: "write",
 		}},
 		"/lnrpc.Lightning/LookupInvoice": {{
-			Entity: "offchain",
+			Entity: "invoices",
 			Action: "read",
 		}},
 		"/lnrpc.Lightning/ListInvoices": {{
-			Entity: "offchain",
+			Entity: "invoices",
 			Action: "read",
 		}},
 		"/lnrpc.Lightning/SubscribeInvoices": {{
-			Entity: "offchain",
+			Entity: "invoices",
 			Action: "read",
 		}},
 		"/lnrpc.Lightning/SubscribeTransactions": {{
@@ -682,6 +711,7 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	localFundingAmt := btcutil.Amount(in.LocalFundingAmount)
 	remoteInitialBalance := btcutil.Amount(in.PushSat)
 	minHtlc := lnwire.MilliSatoshi(in.MinHtlcMsat)
+	remoteCsvDelay := uint16(in.RemoteCsvDelay)
 
 	// Ensure that the initial balance of the remote party (if pushing
 	// satoshis) does not exceed the amount the local party has requested
@@ -701,17 +731,12 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 			"channel size is: %v", maxFundingAmount)
 	}
 
-	const minChannelSize = btcutil.Amount(6000)
-
-	// Restrict the size of the channel we'll actually open. Atm, we
-	// require the amount to be above 6k satoshis we currently hard-coded
-	// a 5k satoshi fee in several areas. As a result 6k sat is the min
-	// channel size that allows us to safely sit above the dust threshold
-	// after fees are applied
-	// TODO(roasbeef): remove after dynamic fees are in
-	if localFundingAmt < minChannelSize {
+	// Restrict the size of the channel we'll actually open. At a later
+	// level, we'll ensure that the output we create after accounting for
+	// fees that a dust output isn't created.
+	if localFundingAmt < minChanFundingSize {
 		return fmt.Errorf("channel is too small, the minimum channel "+
-			"size is: %v (6k sat)", minChannelSize)
+			"size is: %v SAT", int64(minChanFundingSize))
 	}
 
 	var (
@@ -760,7 +785,7 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	updateChan, errChan := r.server.OpenChannel(
 		nodePubKey, localFundingAmt,
 		lnwire.NewMSatFromSatoshis(remoteInitialBalance),
-		minHtlc, feeRate, in.Private,
+		minHtlc, feeRate, in.Private, remoteCsvDelay,
 	)
 
 	var outpoint wire.OutPoint
@@ -855,6 +880,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	localFundingAmt := btcutil.Amount(in.LocalFundingAmount)
 	remoteInitialBalance := btcutil.Amount(in.PushSat)
 	minHtlc := lnwire.MilliSatoshi(in.MinHtlcMsat)
+	remoteCsvDelay := uint16(in.RemoteCsvDelay)
 
 	// Ensure that the initial balance of the remote party (if pushing
 	// satoshis) does not exceed the amount the local party has requested
@@ -862,6 +888,14 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	if remoteInitialBalance >= localFundingAmt {
 		return nil, fmt.Errorf("amount pushed to remote peer for " +
 			"initial state must be below the local funding amount")
+	}
+
+	// Restrict the size of the channel we'll actually open. At a later
+	// level, we'll ensure that the output we create after accounting for
+	// fees that a dust output isn't created.
+	if localFundingAmt < minChanFundingSize {
+		return nil, fmt.Errorf("channel is too small, the minimum channel "+
+			"size is: %v SAT", int64(minChanFundingSize))
 	}
 
 	// Based on the passed fee related parameters, we'll determine an
@@ -879,7 +913,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	updateChan, errChan := r.server.OpenChannel(
 		nodepubKey, localFundingAmt,
 		lnwire.NewMSatFromSatoshis(remoteInitialBalance),
-		minHtlc, feeRate, in.Private,
+		minHtlc, feeRate, in.Private, remoteCsvDelay,
 	)
 
 	select {
@@ -964,20 +998,19 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 	// TODO(roasbeef): if force and peer online then don't force?
 
+	// First, we'll fetch the channel as is, as we'll need to examine it
+	// regardless of if this is a force close or not.
+	channel, err := r.fetchActiveChannel(*chanPoint)
+	if err != nil {
+		return err
+	}
+	channel.Stop()
+
 	// If a force closure was requested, then we'll handle all the details
 	// around the creation and broadcast of the unilateral closure
 	// transaction here rather than going to the switch as we don't require
 	// interaction from the peer.
 	if force {
-		// As the first part of the force closure, we first fetch the
-		// channel from the database, then execute a direct force
-		// closure broadcasting our current commitment transaction.
-		channel, err := r.fetchActiveChannel(*chanPoint)
-		if err != nil {
-			return err
-		}
-		channel.Stop()
-
 		_, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
 		if err != nil {
 			return err
@@ -996,12 +1029,6 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		} else {
 			chanID := lnwire.NewChanIDFromOutPoint(channel.ChannelPoint())
 			r.server.htlcSwitch.RemoveLink(chanID)
-		}
-
-		select {
-		case r.server.breachArbiter.settledContracts <- *chanPoint:
-		case <-r.quit:
-			return fmt.Errorf("server shutting down")
 		}
 
 		// With the necessary indexes cleaned up, we'll now force close
@@ -1064,6 +1091,14 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 			if err != nil {
 				return err
 			}
+		}
+
+		// Before we attempt the cooperative channel closure, we'll
+		// examine the channel to ensure that it doesn't have a
+		// lingering HTLC.
+		if len(channel.ActiveHtlcs()) != 0 {
+			return fmt.Errorf("cannot co-op close channel " +
+				"with active htlcs")
 		}
 
 		// Otherwise, the caller has requested a regular interactive
@@ -1197,7 +1232,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		BlockHeight:         uint32(bestHeight),
 		BlockHash:           bestHash.String(),
 		SyncedToChain:       isSynced,
-		Testnet:             activeNetParams.Params == &chaincfg.TestNet3Params,
+		Testnet:             isTestnet(&activeNetParams),
 		Chains:              activeChains,
 		Uris:                uris,
 		Alias:               nodeAnn.Alias.String(),
@@ -2096,8 +2131,21 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	// will be explicitly added to this payment request, which will imply
 	// the default 3600 seconds.
 	if invoice.Expiry > 0 {
-		exp := time.Duration(invoice.Expiry) * time.Second
-		options = append(options, zpay32.Expiry(exp))
+
+		// We'll ensure that the specified expiry is restricted to sane
+		// number of seconds. As a result, we'll reject an invoice with
+		// an expiry greater than 1 year.
+		maxExpiry := time.Hour * 24 * 365
+		expSeconds := invoice.Expiry
+
+		if float64(expSeconds) > maxExpiry.Seconds() {
+			return nil, fmt.Errorf("expiry of %v seconds "+
+				"greater than max expiry of %v seconds",
+				float64(expSeconds), maxExpiry.Seconds())
+		}
+
+		expiry := time.Duration(invoice.Expiry) * time.Second
+		options = append(options, zpay32.Expiry(expiry))
 	}
 
 	// If the description hash is set, then we add it do the list of options.

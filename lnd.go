@@ -57,6 +57,10 @@ const (
 )
 
 var (
+	//Commit stores the current commit hash of this build. This should be
+	//set using -ldflags during compilation.
+	Commit string
+
 	cfg              *config
 	shutdownChannel  = make(chan struct{})
 	registeredChains = newChainRegistry()
@@ -228,10 +232,15 @@ func lndMain() error {
 			srvrLog.Error(err)
 			return err
 		}
+
 		// Create macaroon files for lncli to use if they don't exist.
-		if !fileExists(cfg.AdminMacPath) && !fileExists(cfg.ReadMacPath) {
-			err = genMacaroons(ctx, macaroonService,
-				cfg.AdminMacPath, cfg.ReadMacPath)
+		if !fileExists(cfg.AdminMacPath) && !fileExists(cfg.ReadMacPath) &&
+			!fileExists(cfg.InvoiceMacPath) {
+
+			err = genMacaroons(
+				ctx, macaroonService, cfg.AdminMacPath,
+				cfg.ReadMacPath, cfg.InvoiceMacPath,
+			)
 			if err != nil {
 				ltndLog.Errorf("unable to create macaroon "+
 					"files: %v", err)
@@ -421,7 +430,20 @@ func lndMain() error {
 			}
 			return delay
 		},
-		WatchNewChannel: server.chainArb.WatchNewChannel,
+		WatchNewChannel: func(channel *channeldb.OpenChannel,
+			addr *lnwire.NetAddress) error {
+
+			// First, we'll mark this new peer as a persistent peer
+			// for re-connection purposes.
+			server.mu.Lock()
+			pubStr := string(addr.IdentityKey.SerializeCompressed())
+			server.persistentPeers[pubStr] = struct{}{}
+			server.mu.Unlock()
+
+			// With that taken care of, we'll send this channel to
+			// the chain arb so it can react to on-chain events.
+			return server.chainArb.WatchNewChannel(channel)
+		},
 		ReportShortChanID: func(chanPoint wire.OutPoint,
 			sid lnwire.ShortChannelID) error {
 
@@ -448,6 +470,7 @@ func lndMain() error {
 		},
 		ZombieSweeperInterval: 1 * time.Minute,
 		ReservationTimeout:    10 * time.Minute,
+		MinChanSize:           btcutil.Amount(cfg.MinChanSize),
 	})
 	if err != nil {
 		return err
@@ -751,12 +774,33 @@ func genCertPair(certFile, keyFile string) error {
 
 // genMacaroons generates a pair of macaroon files; one admin-level and one
 // read-only. These can also be used to generate more granular macaroons.
-func genMacaroons(ctx context.Context, svc *macaroons.Service, admFile,
-	roFile string) error {
+func genMacaroons(ctx context.Context, svc *macaroons.Service,
+	admFile, roFile, invoiceFile string) error {
+
+	// First, we'll generate a macaroon that only allows the caller to
+	// access invoice related calls. This is useful for merchants and other
+	// services to allow an isolated instance that can only query and
+	// modify invoices.
+	invoiceMac, err := svc.Oven.NewMacaroon(
+		ctx, bakery.LatestVersion, nil, invoicePermissions...,
+	)
+	if err != nil {
+		return err
+	}
+	invoiceMacBytes, err := invoiceMac.M().MarshalBinary()
+	if err != nil {
+		return err
+	}
+	err = ioutil.WriteFile(invoiceFile, invoiceMacBytes, 0644)
+	if err != nil {
+		os.Remove(invoiceFile)
+		return err
+	}
 
 	// Generate the read-only macaroon and write it to a file.
-	roMacaroon, err := svc.Oven.NewMacaroon(ctx, bakery.LatestVersion, nil,
-		readPermissions...)
+	roMacaroon, err := svc.Oven.NewMacaroon(
+		ctx, bakery.LatestVersion, nil, readPermissions...,
+	)
 	if err != nil {
 		return err
 	}
@@ -770,8 +814,10 @@ func genMacaroons(ctx context.Context, svc *macaroons.Service, admFile,
 	}
 
 	// Generate the admin macaroon and write it to a file.
-	admMacaroon, err := svc.Oven.NewMacaroon(ctx, bakery.LatestVersion,
-		nil, append(readPermissions, writePermissions...)...)
+	adminPermissions := append(readPermissions, writePermissions...)
+	admMacaroon, err := svc.Oven.NewMacaroon(
+		ctx, bakery.LatestVersion, nil, adminPermissions...,
+	)
 	if err != nil {
 		return err
 	}

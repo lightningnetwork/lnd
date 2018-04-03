@@ -1962,7 +1962,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// they wish to send.  So since we expect the htlc to
 			// have a different amount, we should not fail.
 			if !l.cfg.DebugHTLC && invoice.Terms.Value > 0 &&
-				fwdInfo.AmountToForward != invoice.Terms.Value {
+				fwdInfo.AmountToForward < invoice.Terms.Value {
 
 				log.Errorf("Onion payload of incoming htlc(%x) "+
 					"has incorrect value: expected %v, "+

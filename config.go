@@ -35,6 +35,7 @@ const (
 	defaultTLSKeyFilename     = "tls.key"
 	defaultAdminMacFilename   = "admin.macaroon"
 	defaultReadMacFilename    = "readonly.macaroon"
+	defaultInvoiceMacFilename = "invoice.macaroon"
 	defaultLogLevel           = "info"
 	defaultLogDirname         = "logs"
 	defaultLogFilename        = "lnd.log"
@@ -57,14 +58,17 @@ const (
 )
 
 var (
-	defaultLndDir       = btcutil.AppDataDir("lnd", false)
-	defaultConfigFile   = filepath.Join(defaultLndDir, defaultConfigFilename)
-	defaultDataDir      = filepath.Join(defaultLndDir, defaultDataDirname)
-	defaultTLSCertPath  = filepath.Join(defaultLndDir, defaultTLSCertFilename)
-	defaultTLSKeyPath   = filepath.Join(defaultLndDir, defaultTLSKeyFilename)
-	defaultAdminMacPath = filepath.Join(defaultLndDir, defaultAdminMacFilename)
-	defaultReadMacPath  = filepath.Join(defaultLndDir, defaultReadMacFilename)
-	defaultLogDir       = filepath.Join(defaultLndDir, defaultLogDirname)
+	defaultLndDir     = btcutil.AppDataDir("lnd", false)
+	defaultConfigFile = filepath.Join(defaultLndDir, defaultConfigFilename)
+	defaultDataDir    = filepath.Join(defaultLndDir, defaultDataDirname)
+	defaultLogDir     = filepath.Join(defaultLndDir, defaultLogDirname)
+
+	defaultTLSCertPath = filepath.Join(defaultLndDir, defaultTLSCertFilename)
+	defaultTLSKeyPath  = filepath.Join(defaultLndDir, defaultTLSKeyFilename)
+
+	defaultAdminMacPath   = filepath.Join(defaultLndDir, defaultAdminMacFilename)
+	defaultReadMacPath    = filepath.Join(defaultLndDir, defaultReadMacFilename)
+	defaultInvoiceMacPath = filepath.Join(defaultLndDir, defaultInvoiceMacFilename)
 
 	defaultBtcdDir         = btcutil.AppDataDir("btcd", false)
 	defaultBtcdRPCCertFile = filepath.Join(defaultBtcdDir, "rpc.cert")
@@ -121,10 +125,11 @@ type bitcoindConfig struct {
 }
 
 type autoPilotConfig struct {
-	// TODO(roasbeef): add
-	Active      bool    `long:"active" description:"If the autopilot agent should be active or not."`
-	MaxChannels int     `long:"maxchannels" description:"The maximum number of channels that should be created"`
-	Allocation  float64 `long:"allocation" description:"The percentage of total funds that should be committed to automatic channel establishment"`
+	Active         bool    `long:"active" description:"If the autopilot agent should be active or not."`
+	MaxChannels    int     `long:"maxchannels" description:"The maximum number of channels that should be created"`
+	Allocation     float64 `long:"allocation" description:"The percentage of total funds that should be committed to automatic channel establishment"`
+	MinChannelSize int64   `long:"minchansize" description:"The smallest channel that the autopilot agent should create"`
+	MaxChannelSize int64   `long:"maxchansize" description:"The largest channel that the autopilot agent should create"`
 }
 
 type torConfig struct {
@@ -150,6 +155,7 @@ type config struct {
 	NoMacaroons    bool   `long:"no-macaroons" description:"Disable macaroon authentication"`
 	AdminMacPath   string `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
 	ReadMacPath    string `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`
+	InvoiceMacPath string `long:"invoicemacaroonpath" description:"Path to the invoice-only macaroon for lnd's RPC and REST services if it doesn't exist"`
 	LogDir         string `long:"logdir" description:"Directory to log output."`
 
 	RPCListeners  []string `long:"rpclisten" description:"Add an interface/port to listen for RPC connections"`
@@ -189,8 +195,9 @@ type config struct {
 
 	TrickleDelay int `long:"trickledelay" description:"Time in milliseconds between each release of announcements to the network"`
 
-	Alias string `long:"alias" description:"The node alias. Used as a moniker by peers and intelligence services"`
-	Color string `long:"color" description:"The color of the node in hex format (i.e. '#3399FF'). Used to customize node appearance in intelligence services"`
+	Alias       string `long:"alias" description:"The node alias. Used as a moniker by peers and intelligence services"`
+	Color       string `long:"color" description:"The color of the node in hex format (i.e. '#3399FF'). Used to customize node appearance in intelligence services"`
+	MinChanSize int64  `long:"minchansize" description:"The smallest channel size (in satoshis) that we should accept. Incoming channels smaller than this will be rejected"`
 
 	net torsvc.Net
 }
@@ -205,15 +212,16 @@ type config struct {
 // 	4) Parse CLI options and overwrite/add any specified options
 func loadConfig() (*config, error) {
 	defaultCfg := config{
-		LndDir:       defaultLndDir,
-		ConfigFile:   defaultConfigFile,
-		DataDir:      defaultDataDir,
-		DebugLevel:   defaultLogLevel,
-		TLSCertPath:  defaultTLSCertPath,
-		TLSKeyPath:   defaultTLSKeyPath,
-		AdminMacPath: defaultAdminMacPath,
-		ReadMacPath:  defaultReadMacPath,
-		LogDir:       defaultLogDir,
+		LndDir:         defaultLndDir,
+		ConfigFile:     defaultConfigFile,
+		DataDir:        defaultDataDir,
+		DebugLevel:     defaultLogLevel,
+		TLSCertPath:    defaultTLSCertPath,
+		TLSKeyPath:     defaultTLSKeyPath,
+		AdminMacPath:   defaultAdminMacPath,
+		InvoiceMacPath: defaultInvoiceMacPath,
+		ReadMacPath:    defaultReadMacPath,
+		LogDir:         defaultLogDir,
 		Bitcoin: &chainConfig{
 			MinHTLC:       defaultBitcoinMinHTLCMSat,
 			BaseFee:       defaultBitcoinBaseFeeMSat,
@@ -249,12 +257,15 @@ func loadConfig() (*config, error) {
 		MaxPendingChannels: defaultMaxPendingChannels,
 		NoEncryptWallet:    defaultNoEncryptWallet,
 		Autopilot: &autoPilotConfig{
-			MaxChannels: 5,
-			Allocation:  0.6,
+			MaxChannels:    5,
+			Allocation:     0.6,
+			MinChannelSize: int64(minChanFundingSize),
+			MaxChannelSize: int64(maxFundingAmount),
 		},
 		TrickleDelay: defaultTrickleDelay,
 		Alias:        defaultAlias,
 		Color:        defaultColor,
+		MinChanSize:  int64(minChanFundingSize),
 	}
 
 	// Pre-parse the command line options to pick up an alternative config
@@ -282,6 +293,7 @@ func loadConfig() (*config, error) {
 		defaultCfg.TLSCertPath = filepath.Join(lndDir, defaultTLSCertFilename)
 		defaultCfg.TLSKeyPath = filepath.Join(lndDir, defaultTLSKeyFilename)
 		defaultCfg.AdminMacPath = filepath.Join(lndDir, defaultAdminMacFilename)
+		defaultCfg.InvoiceMacPath = filepath.Join(lndDir, defaultInvoiceMacFilename)
 		defaultCfg.ReadMacPath = filepath.Join(lndDir, defaultReadMacFilename)
 		defaultCfg.LogDir = filepath.Join(lndDir, defaultLogDirname)
 	}
@@ -327,11 +339,48 @@ func loadConfig() (*config, error) {
 	cfg.TLSKeyPath = cleanAndExpandPath(cfg.TLSKeyPath)
 	cfg.AdminMacPath = cleanAndExpandPath(cfg.AdminMacPath)
 	cfg.ReadMacPath = cleanAndExpandPath(cfg.ReadMacPath)
+	cfg.InvoiceMacPath = cleanAndExpandPath(cfg.InvoiceMacPath)
 	cfg.LogDir = cleanAndExpandPath(cfg.LogDir)
 	cfg.BtcdMode.Dir = cleanAndExpandPath(cfg.BtcdMode.Dir)
 	cfg.LtcdMode.Dir = cleanAndExpandPath(cfg.LtcdMode.Dir)
 	cfg.BitcoindMode.Dir = cleanAndExpandPath(cfg.BitcoindMode.Dir)
 	cfg.LitecoindMode.Dir = cleanAndExpandPath(cfg.LitecoindMode.Dir)
+
+	// Ensure that the user didn't attempt to specify negative values for
+	// any of the autopilot params.
+	if cfg.Autopilot.MaxChannels < 0 {
+		str := "%s: autopilot.maxchannels must be non-negative"
+		err := fmt.Errorf(str, funcName)
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+	if cfg.Autopilot.Allocation < 0 {
+		str := "%s: autopilot.allocation must be non-negative"
+		err := fmt.Errorf(str, funcName)
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+	if cfg.Autopilot.MinChannelSize < 0 {
+		str := "%s: autopilot.minchansize must be non-negative"
+		err := fmt.Errorf(str, funcName)
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+	if cfg.Autopilot.MaxChannelSize < 0 {
+		str := "%s: autopilot.maxchansize must be non-negative"
+		err := fmt.Errorf(str, funcName)
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+
+	// Ensure that the specified values for the min and max channel size
+	// don't are within the bounds of the normal chan size constraints.
+	if cfg.Autopilot.MinChannelSize < int64(minChanFundingSize) {
+		cfg.Autopilot.MinChannelSize = int64(minChanFundingSize)
+	}
+	if cfg.Autopilot.MaxChannelSize > int64(maxFundingAmount) {
+		cfg.Autopilot.MaxChannelSize = int64(maxFundingAmount)
+	}
 
 	// Setup dial and DNS resolution functions depending on the specified
 	// options. The default is to use the standard golang "net" package
@@ -591,10 +640,19 @@ func loadConfig() (*config, error) {
 	// directory has changed from the default path, then we'll also update
 	// the path for the macaroons to be generated.
 	if cfg.DataDir != defaultDataDir && cfg.AdminMacPath == defaultAdminMacPath {
-		cfg.AdminMacPath = filepath.Join(cfg.DataDir, defaultAdminMacFilename)
+		cfg.AdminMacPath = filepath.Join(
+			cfg.DataDir, defaultAdminMacFilename,
+		)
 	}
 	if cfg.DataDir != defaultDataDir && cfg.ReadMacPath == defaultReadMacPath {
-		cfg.ReadMacPath = filepath.Join(cfg.DataDir, defaultReadMacFilename)
+		cfg.ReadMacPath = filepath.Join(
+			cfg.DataDir, defaultReadMacFilename,
+		)
+	}
+	if cfg.DataDir != defaultDataDir && cfg.InvoiceMacPath == defaultInvoiceMacPath {
+		cfg.InvoiceMacPath = filepath.Join(
+			cfg.DataDir, defaultInvoiceMacFilename,
+		)
 	}
 
 	// Append the network type to the log directory so it is "namespaced"
@@ -805,20 +863,27 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 		if conf.RPCUser != "" && conf.RPCPass != "" {
 			return nil
 		}
+
+		// Get the daemon name for displaying proper errors.
+		switch net {
+		case bitcoinChain:
+			daemonName = "btcd"
+		case litecoinChain:
+			daemonName = "ltcd"
+		}
+
 		// If only ONE of RPCUser or RPCPass is set, we assume the
 		// user did that unintentionally.
 		if conf.RPCUser != "" || conf.RPCPass != "" {
-			return fmt.Errorf("please set both or neither of " +
-				"btcd.rpcuser and btcd.rpcpass")
+			return fmt.Errorf("please set both or neither of "+
+				"%[1]v.rpcuser, %[1]v.rpcpass", daemonName)
 		}
 
 		switch net {
 		case bitcoinChain:
-			daemonName = "btcd"
 			confDir = conf.Dir
 			confFile = "btcd"
 		case litecoinChain:
-			daemonName = "ltcd"
 			confDir = conf.Dir
 			confFile = "ltcd"
 		}
@@ -828,21 +893,27 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 		if conf.RPCUser != "" && conf.RPCPass != "" && conf.ZMQPath != "" {
 			return nil
 		}
+
+		// Get the daemon name for displaying proper errors.
+		switch net {
+		case bitcoinChain:
+			daemonName = "bitcoind"
+		case litecoinChain:
+			daemonName = "litecoind"
+		}
 		// If only one or two of the parameters are set, we assume the
 		// user did that unintentionally.
 		if conf.RPCUser != "" || conf.RPCPass != "" || conf.ZMQPath != "" {
-			return fmt.Errorf("please set all or none of " +
-				"bitcoind.rpcuser, bitcoind.rpcpass, and " +
-				"bitcoind.zmqpath")
+			return fmt.Errorf("please set all or none of "+
+				"%[1]v.rpcuser, %[1]v.rpcpass, "+
+				"and %[1]v.zmqpath", daemonName)
 		}
 
 		switch net {
 		case bitcoinChain:
-			daemonName = "bitcoind"
 			confDir = conf.Dir
 			confFile = "bitcoin"
 		case litecoinChain:
-			daemonName = "litecoind"
 			confDir = conf.Dir
 			confFile = "litecoin"
 		}
@@ -907,7 +978,7 @@ func extractBtcdRPCParams(btcdConfigPath string) (string, string, error) {
 	// Attempt to locate the RPC user using a regular expression. If we
 	// don't have a match for our regular expression then we'll exit with
 	// an error.
-	rpcUserRegexp, err := regexp.Compile(`(?m)^\s*rpcuser=([^\s]+)`)
+	rpcUserRegexp, err := regexp.Compile(`(?m)^\s*rpcuser\s*=\s*([^\s]+)`)
 	if err != nil {
 		return "", "", err
 	}
@@ -919,7 +990,7 @@ func extractBtcdRPCParams(btcdConfigPath string) (string, string, error) {
 	// Similarly, we'll use another regular expression to find the set
 	// rpcpass (if any). If we can't find the pass, then we'll exit with an
 	// error.
-	rpcPassRegexp, err := regexp.Compile(`(?m)^\s*rpcpass=([^\s]+)`)
+	rpcPassRegexp, err := regexp.Compile(`(?m)^\s*rpcpass\s*=\s*([^\s]+)`)
 	if err != nil {
 		return "", "", err
 	}
@@ -955,7 +1026,7 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 
 	// First, we look for the ZMQ path for raw blocks. If raw transactions
 	// are sent over this interface, we can also get unconfirmed txs.
-	zmqPathRE, err := regexp.Compile(`(?m)^\s*zmqpubrawblock=([^\s]+)`)
+	zmqPathRE, err := regexp.Compile(`(?m)^\s*zmqpubrawblock\s*=\s*([^\s]+)`)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -967,7 +1038,7 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 	// Next, we'll try to find an auth cookie. We need to detect the chain
 	// by seeing if one is specified in the configuration file.
 	dataDir := path.Dir(bitcoindConfigPath)
-	dataDirRE, err := regexp.Compile(`(?m)^\s*datadir=([^\s]+)`)
+	dataDirRE, err := regexp.Compile(`(?m)^\s*datadir\s*=\s*([^\s]+)`)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -977,18 +1048,13 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 	}
 
 	chainDir := "/"
-	netRE, err := regexp.Compile(`(?m)^\s*(testnet|regtest)=[\d]+`)
-	if err != nil {
-		return "", "", "", err
-	}
-	netSubmatches := netRE.FindSubmatch(configContents)
-	if netSubmatches != nil {
-		switch string(netSubmatches[1]) {
-		case "testnet":
-			chainDir = "/testnet3/"
-		case "regtest":
-			chainDir = "/regtest/"
-		}
+	switch activeNetParams.Params.Name {
+	case "testnet3":
+		chainDir = "/testnet3/"
+	case "testnet4":
+		chainDir = "/testnet4/"
+	case "regtest":
+		chainDir = "/regtest/"
 	}
 
 	cookie, err := ioutil.ReadFile(dataDir + chainDir + ".cookie")
@@ -1003,7 +1069,7 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 	// We didn't find a cookie, so we attempt to locate the RPC user using
 	// a regular expression. If we  don't have a match for our regular
 	// expression then we'll exit with an error.
-	rpcUserRegexp, err := regexp.Compile(`(?m)^\s*rpcuser=([^\s]+)`)
+	rpcUserRegexp, err := regexp.Compile(`(?m)^\s*rpcuser\s*=\s*([^\s]+)`)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -1015,7 +1081,7 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 	// Similarly, we'll use another regular expression to find the set
 	// rpcpass (if any). If we can't find the pass, then we'll exit with an
 	// error.
-	rpcPassRegexp, err := regexp.Compile(`(?m)^\s*rpcpassword=([^\s]+)`)
+	rpcPassRegexp, err := regexp.Compile(`(?m)^\s*rpcpassword\s*=\s*([^\s]+)`)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -1035,7 +1101,13 @@ func normalizeAddresses(addrs []string, defaultPort string) []string {
 	seen := map[string]struct{}{}
 	for _, addr := range addrs {
 		if _, _, err := net.SplitHostPort(addr); err != nil {
-			addr = net.JoinHostPort(addr, defaultPort)
+			// If the address is an integer, then we assume it is *only* a
+			// port and default to binding to that port on localhost
+			if _, err := strconv.Atoi(addr); err == nil {
+				addr = net.JoinHostPort("localhost", addr)
+			} else {
+				addr = net.JoinHostPort(addr, defaultPort)
+			}
 		}
 		if _, ok := seen[addr]; !ok {
 			result = append(result, addr)

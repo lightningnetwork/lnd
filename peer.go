@@ -761,6 +761,14 @@ out:
 				idleTimer.Reset(idleTimeout)
 				continue
 
+			// If they sent us an address type that we don't yet
+			// know of, then this isn't a dire error, so we'll
+			// simply continue parsing the remainder of their
+			// messages.
+			case *lnwire.ErrUnknownAddrType:
+				idleTimer.Reset(idleTimeout)
+				continue
+
 			// If the error we encountered wasn't just a message we
 			// didn't recognize, then we'll stop all processing s
 			// this is a fatal error.
@@ -1430,9 +1438,14 @@ out:
 			// closure process.
 			chanCloser, err := p.fetchActiveChanCloser(closeMsg.cid)
 			if err != nil {
-				// TODO(roasbeef): send protocol error?
 				peerLog.Errorf("unable to respond to remote "+
 					"close msg: %v", err)
+
+				errMsg := &lnwire.Error{
+					ChanID: closeMsg.cid,
+					Data:   lnwire.ErrorData(err.Error()),
+				}
+				p.queueMsg(errMsg, nil)
 				continue
 			}
 
@@ -1512,11 +1525,21 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 	// cooperative channel closure.
 	chanCloser, ok := p.activeChanCloses[chanID]
 	if !ok {
+		// If we need to create a chan closer for the first time, then
+		// we'll check to ensure that the channel is even in the proper
+		// state to allow a co-op channel closure.
+		if len(channel.ActiveHtlcs()) != 0 {
+			return nil, fmt.Errorf("cannot co-op close " +
+				"channel w/ active htlcs")
+		}
+
 		// We'll create a valid closing state machine in order to
 		// respond to the initiated cooperative channel closure.
 		deliveryAddr, err := p.genDeliveryScript()
 		if err != nil {
-			return nil, err
+			peerLog.Errorf("unable to gen delivery script: %v", err)
+
+			return nil, fmt.Errorf("close addr unavailable")
 		}
 
 		// In order to begin fee negotiations, we'll first compute our
@@ -1524,8 +1547,9 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 		// we weren't the ones that initiated the channel closure.
 		feePerVSize, err := p.server.cc.feeEstimator.EstimateFeePerVSize(6)
 		if err != nil {
-			return nil, fmt.Errorf("unable to query fee "+
-				"estimator: %v", err)
+			peerLog.Errorf("unable to query fee estimator: %v", err)
+
+			return nil, fmt.Errorf("unable to estimate fee")
 		}
 
 		// We'll then convert the sat per weight to sat per k/w as this
@@ -1535,7 +1559,8 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 
 		_, startingHeight, err := p.server.cc.chainIO.GetBestBlock()
 		if err != nil {
-			return nil, err
+			peerLog.Errorf("unable to obtain best block: %v", err)
+			return nil, fmt.Errorf("cannot obtain best block")
 		}
 
 		// Before we create the chan closer, we'll start a new

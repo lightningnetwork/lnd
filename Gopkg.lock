@@ -140,7 +140,7 @@
   branch = "master"
   name = "github.com/lightninglabs/gozmq"
   packages = ["."]
-  revision = "0d266ba6d55ea65c18c7a02d8992c89355149e80"
+  revision = "462a8a75388506b68f76661af8d649f0b88e5301"
 
 [[projects]]
   name = "github.com/lightninglabs/neutrino"
@@ -154,7 +154,7 @@
 [[projects]]
   name = "github.com/lightningnetwork/lightning-onion"
   packages = ["."]
-  revision = "6d4b1353e2835def84ee240f40499464521c6046"
+  revision = "c86137582e53fe3ba26681a98f911b546970893e"
 
 [[projects]]
   name = "github.com/ltcsuite/ltcd"
@@ -359,6 +359,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "def340dd46b9ae439bf7c1e27155358aba5bb709c613fc1c577dacc4a2d4a1be"
+  inputs-digest = "a50b1b0760073be728b8e541300b3078f2688d20c61bdd7a0d8115ff7064ae52"
   solver-name = "gps-cdcl"
   solver-version = 1

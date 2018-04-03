@@ -329,9 +329,9 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 
 		// Skip adding any permanently irreconcilable channels to the
 		// htlcswitch.
-		if dbChan.IsBorked {
-			peerLog.Warnf("ChannelPoint(%v) is borked, won't "+
-				"start.", chanPoint)
+		if dbChan.ChanStatus != channeldb.Default {
+			peerLog.Warnf("ChannelPoint(%v) has status %v, won't "+
+				"start.", chanPoint, dbChan.ChanStatus)
 			lnChan.Stop()
 			continue
 		}

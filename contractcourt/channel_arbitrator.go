@@ -93,12 +93,6 @@ type ChannelArbitratorConfig struct {
 	// being broadcast, and we are waiting for the commitment to confirm.
 	MarkCommitmentBroadcasted func() error
 
-	// CloseChannel is a function closure that marks a channel under watch
-	// as "closing". In this phase, we will no longer accept any updates to
-	// the channel as the commitment transaction has been broadcast, and
-	// possibly fully confirmed.
-	CloseChannel func(*channeldb.ChannelCloseSummary) error
-
 	// MarkChannelResolved is a function closure that serves to mark a
 	// channel as "fully resolved". A channel itself can be considered
 	// fully resolved once all active contracts have individually been

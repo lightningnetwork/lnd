@@ -893,13 +893,37 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		}
 		interfaceLinks, _ := s.getLinks(targetLink.Peer().PubKey())
 
+		// We'll keep track of any HTLC failures during the link
+		// selection process. This way we can return the error for
+		// precise link that the sender selected, while optimistically
+		// trying all links to utilize our available bandwidth.
+		linkErrs := make(map[lnwire.ShortChannelID]lnwire.FailureMessage)
+
 		// Try to find destination channel link with appropriate
 		// bandwidth.
 		var destination ChannelLink
 		for _, link := range interfaceLinks {
 			// We'll skip any links that aren't yet eligible for
 			// forwarding.
-			if !link.EligibleToForward() {
+			switch {
+			case !link.EligibleToForward():
+				continue
+
+			// If the link doesn't yet have a source chan ID, then
+			// we'll skip it as well.
+			case link.ShortChanID() == sourceHop:
+				continue
+			}
+
+			// Before we check the link's bandwidth, we'll ensure
+			// that the HTLC satisfies the current forwarding
+			// policy of this target link.
+			err := link.HtlcSatifiesPolicy(
+				htlc.PaymentHash, packet.incomingAmount,
+				packet.amount,
+			)
+			if err != nil {
+				linkErrs[link.ShortChanID()] = err
 				continue
 			}
 
@@ -910,10 +934,12 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			}
 		}
 
+		switch {
 		// If the channel link we're attempting to forward the update
-		// over has insufficient capacity, then we'll cancel the htlc
-		// as the payment cannot succeed.
-		if destination == nil {
+		// over has insufficient capacity, and didn't violate any
+		// forwarding policies, then we'll cancel the htlc as the
+		// payment cannot succeed.
+		case destination == nil && len(linkErrs) == 0:
 			// If packet was forwarded from another channel link
 			// than we should notify this link that some error
 			// occurred.
@@ -923,6 +949,34 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 				"%v", htlc.Amount)
 
 			return s.failAddPacket(packet, failure, addErr)
+
+		// If we had a forwarding failure due to the HTLC not
+		// satisfying the current policy, then we'll send back an
+		// error, but ensure we send back the error sourced at the
+		// *target* link.
+		case destination == nil && len(linkErrs) != 0:
+			// At this point, some or all of the links rejected the
+			// HTLC so we couldn't forward it. So we'll try to look
+			// up the error that came from the source.
+			linkErr, ok := linkErrs[packet.outgoingChanID]
+			if !ok {
+				// If we can't find the error of the source,
+				// then we'll return an unknown next peer,
+				// though this should never happen.
+				linkErr = &lnwire.FailUnknownNextPeer{}
+				log.Warnf("unable to find err source for "+
+					"outgoing_link=%v, errors=%v",
+					packet.outgoingChanID, newLogClosure(func() string {
+						return spew.Sdump(linkErrs)
+					}))
+			}
+
+			addErr := fmt.Errorf("incoming HTLC(%x) violated "+
+				"target outgoing link (id=%v) policy: %v",
+				htlc.PaymentHash[:], packet.outgoingChanID,
+				linkErr)
+
+			return s.failAddPacket(packet, linkErr, addErr)
 		}
 
 		// Send the packet to the destination channel link which

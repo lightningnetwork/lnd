@@ -1476,8 +1476,8 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 			ErrorEncrypter, lnwire.FailCode) {
 			return obfuscator, lnwire.CodeNone
 		},
-		GetLastChannelUpdate: mockGetChanUpdateMessage,
-		PreimageCache:        pCache,
+		FetchLastChannelUpdate: mockGetChanUpdateMessage,
+		PreimageCache:          pCache,
 		UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 			return nil
 		},

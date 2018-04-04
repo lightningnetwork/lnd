@@ -116,9 +116,9 @@ func genIDs() (lnwire.ChannelID, lnwire.ChannelID, lnwire.ShortChannelID,
 	return chanID1, chanID2, aliceChanID, bobChanID
 }
 
-// mockGetChanUpdateMessage helper function which returns topology update
-// of the channel
-func mockGetChanUpdateMessage() (*lnwire.ChannelUpdate, error) {
+// mockGetChanUpdateMessage helper function which returns topology update of
+// the channel
+func mockGetChanUpdateMessage(cid lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
 	return &lnwire.ChannelUpdate{
 		Signature: wireSig,
 	}, nil
@@ -902,6 +902,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	aliceTicker := time.NewTicker(50 * time.Millisecond)
 	aliceChannelLink := NewChannelLink(
 		ChannelLinkConfig{
+			Switch:             aliceServer.htlcSwitch,
 			FwrdingPolicy:      globalPolicy,
 			Peer:               bobServer,
 			Circuits:           aliceServer.htlcSwitch.CircuitModifier(),
@@ -911,11 +912,11 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 				ErrorEncrypter, lnwire.FailCode) {
 				return obfuscator, lnwire.CodeNone
 			},
-			GetLastChannelUpdate: mockGetChanUpdateMessage,
-			Registry:             aliceServer.registry,
-			BlockEpochs:          aliceEpoch,
-			FeeEstimator:         feeEstimator,
-			PreimageCache:        pCache,
+			FetchLastChannelUpdate: mockGetChanUpdateMessage,
+			Registry:               aliceServer.registry,
+			BlockEpochs:            aliceEpoch,
+			FeeEstimator:           feeEstimator,
+			PreimageCache:          pCache,
 			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 				return nil
 			},
@@ -928,7 +929,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 		aliceChannel,
 		startingHeight,
 	)
-	if err := aliceServer.htlcSwitch.addLink(aliceChannelLink); err != nil {
+	if err := aliceServer.htlcSwitch.AddLink(aliceChannelLink); err != nil {
 		t.Fatalf("unable to add alice channel link: %v", err)
 	}
 	go func() {
@@ -950,6 +951,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	firstBobTicker := time.NewTicker(50 * time.Millisecond)
 	firstBobChannelLink := NewChannelLink(
 		ChannelLinkConfig{
+			Switch:             bobServer.htlcSwitch,
 			FwrdingPolicy:      globalPolicy,
 			Peer:               aliceServer,
 			Circuits:           bobServer.htlcSwitch.CircuitModifier(),
@@ -959,11 +961,11 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 				ErrorEncrypter, lnwire.FailCode) {
 				return obfuscator, lnwire.CodeNone
 			},
-			GetLastChannelUpdate: mockGetChanUpdateMessage,
-			Registry:             bobServer.registry,
-			BlockEpochs:          bobFirstEpoch,
-			FeeEstimator:         feeEstimator,
-			PreimageCache:        pCache,
+			FetchLastChannelUpdate: mockGetChanUpdateMessage,
+			Registry:               bobServer.registry,
+			BlockEpochs:            bobFirstEpoch,
+			FeeEstimator:           feeEstimator,
+			PreimageCache:          pCache,
 			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 				return nil
 			},
@@ -976,7 +978,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 		firstBobChannel,
 		startingHeight,
 	)
-	if err := bobServer.htlcSwitch.addLink(firstBobChannelLink); err != nil {
+	if err := bobServer.htlcSwitch.AddLink(firstBobChannelLink); err != nil {
 		t.Fatalf("unable to add first bob channel link: %v", err)
 	}
 	go func() {
@@ -998,6 +1000,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	secondBobTicker := time.NewTicker(50 * time.Millisecond)
 	secondBobChannelLink := NewChannelLink(
 		ChannelLinkConfig{
+			Switch:             bobServer.htlcSwitch,
 			FwrdingPolicy:      globalPolicy,
 			Peer:               carolServer,
 			Circuits:           bobServer.htlcSwitch.CircuitModifier(),
@@ -1007,11 +1010,11 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 				ErrorEncrypter, lnwire.FailCode) {
 				return obfuscator, lnwire.CodeNone
 			},
-			GetLastChannelUpdate: mockGetChanUpdateMessage,
-			Registry:             bobServer.registry,
-			BlockEpochs:          bobSecondEpoch,
-			FeeEstimator:         feeEstimator,
-			PreimageCache:        pCache,
+			FetchLastChannelUpdate: mockGetChanUpdateMessage,
+			Registry:               bobServer.registry,
+			BlockEpochs:            bobSecondEpoch,
+			FeeEstimator:           feeEstimator,
+			PreimageCache:          pCache,
 			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 				return nil
 			},
@@ -1024,7 +1027,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 		secondBobChannel,
 		startingHeight,
 	)
-	if err := bobServer.htlcSwitch.addLink(secondBobChannelLink); err != nil {
+	if err := bobServer.htlcSwitch.AddLink(secondBobChannelLink); err != nil {
 		t.Fatalf("unable to add second bob channel link: %v", err)
 	}
 	go func() {
@@ -1046,6 +1049,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	carolTicker := time.NewTicker(50 * time.Millisecond)
 	carolChannelLink := NewChannelLink(
 		ChannelLinkConfig{
+			Switch:             carolServer.htlcSwitch,
 			FwrdingPolicy:      globalPolicy,
 			Peer:               bobServer,
 			Circuits:           carolServer.htlcSwitch.CircuitModifier(),
@@ -1055,11 +1059,11 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 				ErrorEncrypter, lnwire.FailCode) {
 				return obfuscator, lnwire.CodeNone
 			},
-			GetLastChannelUpdate: mockGetChanUpdateMessage,
-			Registry:             carolServer.registry,
-			BlockEpochs:          carolEpoch,
-			FeeEstimator:         feeEstimator,
-			PreimageCache:        pCache,
+			FetchLastChannelUpdate: mockGetChanUpdateMessage,
+			Registry:               carolServer.registry,
+			BlockEpochs:            carolEpoch,
+			FeeEstimator:           feeEstimator,
+			PreimageCache:          pCache,
 			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 				return nil
 			},
@@ -1072,7 +1076,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 		carolChannel,
 		startingHeight,
 	)
-	if err := carolServer.htlcSwitch.addLink(carolChannelLink); err != nil {
+	if err := carolServer.htlcSwitch.AddLink(carolChannelLink); err != nil {
 		t.Fatalf("unable to add carol channel link: %v", err)
 	}
 	go func() {

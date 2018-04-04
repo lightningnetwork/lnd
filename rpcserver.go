@@ -3331,7 +3331,7 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 		TimeLockDelta: req.TimeLockDelta,
 	}
 
-	rpcsLog.Tracef("[updatechanpolicy] updating channel policy base_fee=%v, "+
+	rpcsLog.Debugf("[updatechanpolicy] updating channel policy base_fee=%v, "+
 		"rate_float=%v, rate_fixed=%v, time_lock_delta: %v, targets=%v",
 		req.BaseFeeMsat, req.FeeRate, feeRateFixed, req.TimeLockDelta,
 		spew.Sdump(targetChans))

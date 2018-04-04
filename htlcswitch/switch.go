@@ -393,9 +393,9 @@ func (s *Switch) UpdateForwardingPolicies(newPolicy ForwardingPolicy,
 		return spew.Sdump(newPolicy)
 	}))
 
-	s.indexMtx.RLock()
-
 	var linksToUpdate []ChannelLink
+
+	s.indexMtx.RLock()
 
 	// If no channels have been targeted, then we'll collect all inks to
 	// update their policies.

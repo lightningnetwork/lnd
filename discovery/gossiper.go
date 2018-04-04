@@ -1147,6 +1147,12 @@ func (d *AuthenticatedGossiper) processChanPolicyUpdate(
 	}
 
 	haveChanFilter := len(chansToUpdate) != 0
+	if haveChanFilter {
+		log.Infof("Updating routing policies for chan_points=%v",
+			spew.Sdump(chansToUpdate))
+	} else {
+		log.Infof("Updating routing policies for all chans")
+	}
 
 	type edgeWithInfo struct {
 		info *channeldb.ChannelEdgeInfo
@@ -2145,8 +2151,8 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 
 	var err error
 
-	// Make sure timestamp is always increased, such that our update
-	// gets propagated.
+	// Make sure timestamp is always increased, such that our update gets
+	// propagated.
 	timestamp := time.Now().Unix()
 	if timestamp <= edge.LastUpdate.Unix() {
 		timestamp = edge.LastUpdate.Unix() + 1

@@ -413,8 +413,9 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			Peer:                  p,
 			DecodeHopIterators:    p.server.sphinx.DecodeHopIterators,
 			ExtractErrorEncrypter: p.server.sphinx.ExtractErrorEncrypter,
-			GetLastChannelUpdate: createGetLastUpdate(p.server.chanRouter,
-				p.PubKey(), lnChan.ShortChanID()),
+			FetchLastChannelUpdate: fetchLastChanUpdate(
+				p.server.chanRouter, p.PubKey(),
+			),
 			DebugHTLC:      cfg.DebugHTLC,
 			HodlHTLC:       cfg.HodlHTLC,
 			Registry:       p.server.invoices,
@@ -1389,8 +1390,9 @@ out:
 				Peer:                  p,
 				DecodeHopIterators:    p.server.sphinx.DecodeHopIterators,
 				ExtractErrorEncrypter: p.server.sphinx.ExtractErrorEncrypter,
-				GetLastChannelUpdate: createGetLastUpdate(p.server.chanRouter,
-					p.PubKey(), newChanReq.channel.ShortChanID()),
+				FetchLastChannelUpdate: fetchLastChanUpdate(
+					p.server.chanRouter, p.PubKey(),
+				),
 				DebugHTLC:      cfg.DebugHTLC,
 				HodlHTLC:       cfg.HodlHTLC,
 				Registry:       p.server.invoices,
@@ -1906,21 +1908,20 @@ func (p *peer) PubKey() [33]byte {
 
 // TODO(roasbeef): make all start/stop mutexes a CAS
 
-// createGetLastUpdate returns the handler which serve as a source of the last
-// update of the channel in a form of lnwire update message.
-func createGetLastUpdate(router *routing.ChannelRouter,
-	pubKey [33]byte, chanID lnwire.ShortChannelID) func() (*lnwire.ChannelUpdate,
-	error) {
+// fetchLastChanUpdate returns a function which is able to retrieve the last
+// channel update for a target channel.
+func fetchLastChanUpdate(router *routing.ChannelRouter,
+	pubKey [33]byte) func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
 
-	return func() (*lnwire.ChannelUpdate, error) {
-		info, edge1, edge2, err := router.GetChannelByID(chanID)
+	return func(cid lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
+		info, edge1, edge2, err := router.GetChannelByID(cid)
 		if err != nil {
 			return nil, err
 		}
 
 		if edge1 == nil || edge2 == nil {
 			return nil, errors.Errorf("unable to find "+
-				"channel by ShortChannelID(%v)", chanID)
+				"channel by ShortChannelID(%v)", cid)
 		}
 
 		// If we're the outgoing node on the first edge, then that
@@ -1933,7 +1934,7 @@ func createGetLastUpdate(router *routing.ChannelRouter,
 			local = edge1
 		}
 
-		update := &lnwire.ChannelUpdate{
+		update := lnwire.ChannelUpdate{
 			ChainHash:       info.ChainHash,
 			ShortChannelID:  lnwire.NewShortChanIDFromInt(local.ChannelID),
 			Timestamp:       uint32(local.LastUpdate.Unix()),
@@ -1948,9 +1949,12 @@ func createGetLastUpdate(router *routing.ChannelRouter,
 			return nil, err
 		}
 
-		hswcLog.Debugf("Sending latest channel_update: %v",
-			spew.Sdump(update))
+		hswcLog.Tracef("Sending latest channel_update: %v",
+			newLogClosure(func() string {
+				return spew.Sdump(update)
+			}),
+		)
 
-		return update, nil
+		return &update, nil
 	}
 }

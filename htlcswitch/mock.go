@@ -447,7 +447,7 @@ func (s *mockServer) intersect(f messageInterceptor) {
 	s.interceptorFuncs = append(s.interceptorFuncs, f)
 }
 
-func (s *mockServer) SendMessage(message lnwire.Message) error {
+func (s *mockServer) SendMessage(message lnwire.Message, sync bool) error {
 
 	select {
 	case s.messages <- message:

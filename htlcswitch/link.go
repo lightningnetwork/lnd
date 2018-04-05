@@ -1240,7 +1240,14 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			// direct error.
 			//
 			// TODO(roasbeef): force close chan
-			if _, ok := err.(*lnwallet.InvalidCommitSigError); ok {
+			var sendErr bool
+			switch err.(type) {
+			case *lnwallet.InvalidCommitSigError:
+				sendErr = true
+			case *lnwallet.InvalidHtlcSigError:
+				sendErr = true
+			}
+			if sendErr {
 				err := l.cfg.Peer.SendMessage(&lnwire.Error{
 					ChanID: l.ChanID(),
 					Data:   []byte(err.Error()),

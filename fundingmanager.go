@@ -79,7 +79,8 @@ type reservationWithCtx struct {
 	reservation *lnwallet.ChannelReservation
 	peerAddress *lnwire.NetAddress
 
-	chanAmt btcutil.Amount
+	chanAmt        btcutil.Amount
+	remoteCsvDelay uint16
 
 	updateMtx   sync.RWMutex
 	lastUpdated time.Time
@@ -995,8 +996,8 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// We'll also validate and apply all the constraints the initiating
 	// party is attempting to dictate for our commitment transaction.
 	err = reservation.CommitConstraints(
-		uint16(msg.CsvDelay), msg.MaxAcceptedHTLCs,
-		msg.MaxValueInFlight, msg.HtlcMinimum, msg.ChannelReserve,
+		msg.CsvDelay, msg.MaxAcceptedHTLCs, msg.MaxValueInFlight,
+		msg.HtlcMinimum, msg.ChannelReserve,
 	)
 	if err != nil {
 		fndgLog.Errorf("Unaccaptable channel constraints: %v", err)
@@ -1011,6 +1012,10 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		"amt=%v, push_amt=%v", numConfsReq, fmsg.msg.PendingChannelID,
 		amt, msg.PushAmount)
 
+	// Using the RequiredRemoteDelay closure, we'll compute the remote CSV
+	// delay we require given the total amount of funds within the channel.
+	remoteCsvDelay := f.cfg.RequiredRemoteDelay(amt)
+
 	// Once the reservation has been created successfully, we add it to
 	// this peer's map of pending reservations to track this particular
 	// reservation until either abort or completion.
@@ -1019,20 +1024,17 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		f.activeReservations[peerIDKey] = make(pendingChannels)
 	}
 	resCtx := &reservationWithCtx{
-		reservation: reservation,
-		chanAmt:     amt,
-		err:         make(chan error, 1),
-		peerAddress: fmsg.peerAddress,
+		reservation:    reservation,
+		chanAmt:        amt,
+		remoteCsvDelay: remoteCsvDelay,
+		err:            make(chan error, 1),
+		peerAddress:    fmsg.peerAddress,
 	}
 	f.activeReservations[peerIDKey][msg.PendingChannelID] = resCtx
 	f.resMtx.Unlock()
 
 	// Update the timestamp once the fundingOpenMsg has been handled.
 	defer resCtx.updateTimestamp()
-
-	// Using the RequiredRemoteDelay closure, we'll compute the remote CSV
-	// delay we require given the total amount of funds within the channel.
-	remoteCsvDelay := f.cfg.RequiredRemoteDelay(amt)
 
 	// We'll also generate our required constraints for the remote party,
 	chanReserve := f.cfg.RequiredRemoteChanReserve(amt)
@@ -1148,8 +1150,8 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 	// they've specified for commitment states we can create.
 	resCtx.reservation.SetNumConfsRequired(uint16(msg.MinAcceptDepth))
 	err = resCtx.reservation.CommitConstraints(
-		uint16(msg.CsvDelay), msg.MaxAcceptedHTLCs,
-		msg.MaxValueInFlight, msg.HtlcMinimum, msg.ChannelReserve,
+		msg.CsvDelay, msg.MaxAcceptedHTLCs, msg.MaxValueInFlight,
+		msg.HtlcMinimum, msg.ChannelReserve,
 	)
 	if err != nil {
 		fndgLog.Warnf("Unacceptable channel constraints: %v", err)
@@ -1179,6 +1181,7 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 				MinHTLC:          msg.HtlcMinimum,
 				MaxAcceptedHtlcs: maxHtlcs,
 			},
+			CsvDelay: resCtx.remoteCsvDelay,
 			MultiSigKey: keychain.KeyDescriptor{
 				PubKey: copyPubKey(msg.FundingKey),
 			},
@@ -1196,7 +1199,6 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 			},
 		},
 	}
-	remoteContribution.CsvDelay = f.cfg.RequiredRemoteDelay(resCtx.chanAmt)
 	err = resCtx.reservation.ProcessContribution(remoteContribution)
 	if err != nil {
 		fndgLog.Errorf("Unable to process contribution from %v: %v",
@@ -2538,6 +2540,13 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	fndgLog.Infof("Target commit tx sat/kw for pendingID(%x): %v", chanID,
 		int64(commitFeePerKw))
 
+	// If the remote CSV delay was not set in the open channel request,
+	// we'll use the RequiredRemoteDelay closure to compute the delay we
+	// require given the total amount of funds within the channel.
+	if remoteCsvDelay == 0 {
+		remoteCsvDelay = f.cfg.RequiredRemoteDelay(capacity)
+	}
+
 	// If a pending channel map for this peer isn't already created, then
 	// we create one, ultimately allowing us to track this pending
 	// reservation within the target peer.
@@ -2548,24 +2557,18 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	}
 
 	resCtx := &reservationWithCtx{
-		chanAmt:     capacity,
-		reservation: reservation,
-		peerAddress: msg.peerAddress,
-		updates:     msg.updates,
-		err:         msg.err,
+		chanAmt:        capacity,
+		remoteCsvDelay: remoteCsvDelay,
+		reservation:    reservation,
+		peerAddress:    msg.peerAddress,
+		updates:        msg.updates,
+		err:            msg.err,
 	}
 	f.activeReservations[peerIDKey][chanID] = resCtx
 	f.resMtx.Unlock()
 
 	// Update the timestamp once the initFundingMsg has been handled.
 	defer resCtx.updateTimestamp()
-
-	// If the remote CSV delay was not set in the open channel request,
-	// we'll use the RequiredRemoteDelay closure to compute the delay we
-	// require given the total amount of funds within the channel.
-	if remoteCsvDelay == 0 {
-		remoteCsvDelay = f.cfg.RequiredRemoteDelay(capacity)
-	}
 
 	// If no minimum HTLC value was specified, use the default one.
 	if minHtlc == 0 {

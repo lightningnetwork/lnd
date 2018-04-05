@@ -39,7 +39,7 @@ const (
 	// waiting for data payloads during the various acts of Brontide. If
 	// the remote party fails to deliver the proper payload within this
 	// time frame, then we'll fail the connection.
-	handshakeReadTimeout = time.Second * 1
+	handshakeReadTimeout = time.Second * 5
 )
 
 var (

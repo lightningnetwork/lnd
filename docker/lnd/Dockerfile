@@ -4,6 +4,7 @@ MAINTAINER Olaoluwa Osuntokun <lightning.engineering>
 
 # Expose lnd ports (server, rpc).
 EXPOSE 9735 10009
+VOLUME /rpc
 
 # Force Go to use the cgo based DNS resolver. This is required to ensure DNS
 # queries required to connect to linked containers succeed.
@@ -22,5 +23,5 @@ WORKDIR $GOPATH/src/github.com/lightningnetwork/lnd
 RUN dep ensure
 RUN go install . ./cmd/...
 
-COPY "docker/lnd/start-lnd.sh" .
+COPY "start-lnd.sh" .
 RUN chmod +x start-lnd.sh

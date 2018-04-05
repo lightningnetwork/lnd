@@ -30,7 +30,7 @@ type InvoiceDatabase interface {
 //       |
 //       | (Switch)		     (Switch)		       (Switch)
 //       |  Alice <-- channel link --> Bob <-- channel link --> Carol
-//	 |
+//       |
 //       | - - - - - - - - - - - - - TCP - - - - - - - - - - - - - - -
 //       |
 //       |  (Peer) 		     (Peer)	                (Peer)

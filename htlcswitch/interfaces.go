@@ -111,10 +111,9 @@ type ChannelLink interface {
 // Peer is an interface which represents the remote lightning node inside our
 // system.
 type Peer interface {
-	// SendMessage sends message to remote peer. The second arguments
-	// denote if the method should block until the message has been sent to
-	// the remote peer. If set, this allows the caller to more strongly
-	// synchronize.
+	// SendMessage sends message to remote peer. The second argument
+	// denotes if the method should block until the message has been sent
+	// to the remote peer.
 	SendMessage(msg lnwire.Message, sync bool) error
 
 	// WipeChannel removes the channel uniquely identified by its channel

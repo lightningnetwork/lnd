@@ -1874,10 +1874,23 @@ func (p *peer) sendInitMsg() error {
 	return p.writeMessage(msg)
 }
 
-// SendMessage queues a message for sending to the target peer.
-func (p *peer) SendMessage(msg lnwire.Message) error {
-	p.queueMsg(msg, nil)
-	return nil
+// SendMessage sends message to remote peer. The second argument denotes if the
+// method should block until the message has been sent to the remote peer.
+func (p *peer) SendMessage(msg lnwire.Message, sync bool) error {
+	if !sync {
+		p.queueMsg(msg, nil)
+		return nil
+	}
+
+	errChan := make(chan error, 1)
+	p.queueMsg(msg, errChan)
+
+	select {
+	case err := <-errChan:
+		return err
+	case <-p.quit:
+		return fmt.Errorf("peer shutting down")
+	}
 }
 
 // PubKey returns the pubkey of the peer in compressed serialized format.

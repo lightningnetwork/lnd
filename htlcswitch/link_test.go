@@ -1392,7 +1392,7 @@ type mockPeer struct {
 	quit     chan struct{}
 }
 
-func (m *mockPeer) SendMessage(msg lnwire.Message) error {
+func (m *mockPeer) SendMessage(msg lnwire.Message, sync bool) error {
 	select {
 	case m.sentMsgs <- msg:
 	case <-m.quit:

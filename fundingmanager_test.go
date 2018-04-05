@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -281,6 +282,12 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			}
 
 			return nil, fmt.Errorf("unable to find channel")
+		},
+		DefaultRoutingPolicy: htlcswitch.ForwardingPolicy{
+			MinHTLC:       5,
+			BaseFee:       100,
+			FeeRate:       1000,
+			TimeLockDelta: 10,
 		},
 		NumRequiredConfs: func(chanAmt btcutil.Amount,
 			pushAmt lnwire.MilliSatoshi) uint16 {
@@ -1941,8 +1948,9 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	alice, bob := setupFundingManagers(t)
 	defer tearDownFundingManagers(t, alice, bob)
 
-	// This is the custom CSV delay we'll use.
+	// This is the custom parameters we'll use.
 	const csvDelay = 67
+	const minHtlc = 1234
 
 	// We will consume the channel updates as we go, so no buffering is
 	// needed.
@@ -1957,6 +1965,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 		localFundingAmt: 5000000,
 		pushAmt:         lnwire.NewMSatFromSatoshis(0),
 		private:         false,
+		minHtlc:         minHtlc,
 		remoteCsvDelay:  csvDelay,
 		updates:         updateChan,
 		err:             errChan,
@@ -1992,6 +2001,12 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 			csvDelay, openChannelReq.CsvDelay)
 	}
 
+	// Check that the custom minHTLC value is sent.
+	if openChannelReq.HtlcMinimum != minHtlc {
+		t.Fatalf("expected OpenChannel to have minHtlc %v, got %v",
+			minHtlc, openChannelReq.HtlcMinimum)
+	}
+
 	chanID := openChannelReq.PendingChannelID
 
 	// Let Bob handle the init message.
@@ -2006,6 +2021,12 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	if acceptChannelResponse.CsvDelay != 4 {
 		t.Fatalf("expected AcceptChannel to have CSV delay %v, got %v",
 			4, acceptChannelResponse.CsvDelay)
+	}
+
+	// And the default MinHTLC value of 5.
+	if acceptChannelResponse.HtlcMinimum != 5 {
+		t.Fatalf("expected AcceptChannel to have minHtlc %v, got %v",
+			5, acceptChannelResponse.HtlcMinimum)
 	}
 
 	// Forward the response to Alice.
@@ -2067,6 +2088,25 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 		return nil
 	}
 
+	// Helper method for checking the MinHtlc value stored for a
+	// reservation.
+	assertMinHtlc := func(resCtx *reservationWithCtx,
+		expOurMinHtlc, expTheirMinHtlc lnwire.MilliSatoshi) error {
+
+		ourMinHtlc := resCtx.reservation.OurContribution().MinHTLC
+		if ourMinHtlc != expOurMinHtlc {
+			return fmt.Errorf("expected our minHtlc to be %v, "+
+				"was %v", expOurMinHtlc, ourMinHtlc)
+		}
+
+		theirMinHtlc := resCtx.reservation.TheirContribution().MinHTLC
+		if theirMinHtlc != expTheirMinHtlc {
+			return fmt.Errorf("expected their minHtlc to be %v, "+
+				"was %v", expTheirMinHtlc, theirMinHtlc)
+		}
+		return nil
+	}
+
 	// Check that the custom channel parameters were properly set in the
 	// channel reservation.
 	resCtx, err := alice.fundingMgr.getReservationCtx(bobPubKey, chanID)
@@ -2080,6 +2120,12 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The minimum HTLC value Alice can offer should be 5, and the minimum
+	// Bob can offer should be 1234.
+	if err := assertMinHtlc(resCtx, 5, minHtlc); err != nil {
+		t.Fatal(err)
+	}
+
 	// Also make sure the parameters are properly set on Bob's end.
 	resCtx, err = bob.fundingMgr.getReservationCtx(alicePubKey, chanID)
 	if err != nil {
@@ -2087,6 +2133,10 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	}
 
 	if err := assertDelay(resCtx, csvDelay, 4); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := assertMinHtlc(resCtx, minHtlc, 5); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -1976,6 +1976,16 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 			err        error
 		)
 
+		// If the HTLC is dust, then we'll skip it as it doesn't have
+		// an output on the commitment transaction.
+		if htlcIsDust(
+			htlc.Incoming, false,
+			SatPerKWeight(revokedSnapshot.FeePerKw),
+			htlc.Amt.ToSatoshis(), chanState.RemoteChanCfg.DustLimit,
+		) {
+			continue
+		}
+
 		// We'll generate the original second level witness script now,
 		// as we'll need it if we're revoking an HTLC output on the
 		// remote commitment transaction, and *they* go to the second

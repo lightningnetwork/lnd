@@ -41,6 +41,10 @@ type verifyJob struct {
 	// passed signature is known to have signed.
 	sigHash func() ([]byte, error)
 
+	// htlcIndex is the index of the HTLC from the PoV of the remote
+	// party's update log.
+	htlcIndex uint64
+
 	// cancel is a channel that should be closed if the caller wishes to
 	// cancel all pending verification jobs part of a single batch. This
 	// channel is to be closed in the case that a single signature in a
@@ -52,7 +56,16 @@ type verifyJob struct {
 	// is to be sent over. In the see that the signature is valid, a nil
 	// error will be passed. Otherwise, a concrete error detailing the
 	// issue will be passed.
-	errResp chan error
+	errResp chan *htlcIndexErr
+}
+
+// verifyJobErr is a special type of error that also includes a pointer to the
+// original validation job. Ths error message allows us to craft more detailed
+// errors at upper layers.
+type htlcIndexErr struct {
+	error
+
+	*verifyJob
 }
 
 // signJob is a job sent to the sigPool to generate a valid signature according
@@ -69,7 +82,8 @@ type signJob struct {
 	// proper sighash for the input to be signed.
 	tx *wire.MsgTx
 
-	// outputIndex...
+	// outputIndex is the output index of the HTLC on the commitment
+	// transaction being signed.
 	outputIndex int32
 
 	// cancel is a channel that should be closed if the caller wishes to
@@ -216,7 +230,10 @@ func (s *sigPool) poolWorker() {
 			sigHash, err := verifyMsg.sigHash()
 			if err != nil {
 				select {
-				case verifyMsg.errResp <- err:
+				case verifyMsg.errResp <- &htlcIndexErr{
+					error:     err,
+					verifyJob: &verifyMsg,
+				}:
 					continue
 				case <-verifyMsg.cancel:
 					continue
@@ -229,7 +246,10 @@ func (s *sigPool) poolWorker() {
 				err := fmt.Errorf("invalid signature "+
 					"sighash: %x, sig: %x", sigHash, rawSig.Serialize())
 				select {
-				case verifyMsg.errResp <- err:
+				case verifyMsg.errResp <- &htlcIndexErr{
+					error:     err,
+					verifyJob: &verifyMsg,
+				}:
 				case <-verifyMsg.cancel:
 				case <-s.quit:
 					return
@@ -272,9 +292,9 @@ func (s *sigPool) SubmitSignBatch(signJobs []signJob) {
 // allows the caller to cancel all pending jobs in the case that they wish to
 // bail early.
 func (s *sigPool) SubmitVerifyBatch(verifyJobs []verifyJob,
-	cancelChan chan struct{}) <-chan error {
+	cancelChan chan struct{}) <-chan *htlcIndexErr {
 
-	errChan := make(chan error, len(verifyJobs))
+	errChan := make(chan *htlcIndexErr, len(verifyJobs))
 
 	for _, job := range verifyJobs {
 		job.cancel = cancelChan

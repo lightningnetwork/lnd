@@ -483,7 +483,7 @@ func (l *channelLink) syncChanStates() error {
 		return fmt.Errorf("unable to generate chan sync message for "+
 			"ChannelPoint(%v)", l.channel.ChannelPoint())
 	}
-	if err := l.cfg.Peer.SendMessage(localChanSyncMsg); err != nil {
+	if err := l.cfg.Peer.SendMessage(localChanSyncMsg, false); err != nil {
 		return fmt.Errorf("Unable to send chan sync message for "+
 			"ChannelPoint(%v)", l.channel.ChannelPoint())
 	}
@@ -525,7 +525,7 @@ func (l *channelLink) syncChanStates() error {
 			fundingLockedMsg := lnwire.NewFundingLocked(
 				l.ChanID(), nextRevocation,
 			)
-			err = l.cfg.Peer.SendMessage(fundingLockedMsg)
+			err = l.cfg.Peer.SendMessage(fundingLockedMsg, false)
 			if err != nil {
 				return fmt.Errorf("unable to re-send "+
 					"FundingLocked: %v", err)
@@ -575,7 +575,7 @@ func (l *channelLink) syncChanStates() error {
 		// immediately so we return to a synchronized state as soon as
 		// possible.
 		for _, msg := range msgsToReSend {
-			l.cfg.Peer.SendMessage(msg)
+			l.cfg.Peer.SendMessage(msg, false)
 		}
 
 	case <-l.quit:
@@ -1058,7 +1058,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		l.openedCircuits = append(l.openedCircuits, pkt.inKey())
 		l.keystoneBatch = append(l.keystoneBatch, pkt.keystone())
 
-		l.cfg.Peer.SendMessage(htlc)
+		l.cfg.Peer.SendMessage(htlc, false)
 
 	case *lnwire.UpdateFulfillHTLC:
 		// An HTLC we forward to the switch has just settled somewhere
@@ -1090,7 +1090,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 
 		// Then we send the HTLC settle message to the connected peer
 		// so we can continue the propagation of the settle message.
-		l.cfg.Peer.SendMessage(htlc)
+		l.cfg.Peer.SendMessage(htlc, false)
 		isSettle = true
 
 	case *lnwire.UpdateFailHTLC:
@@ -1122,7 +1122,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 
 		// Finally, we send the HTLC message to the peer which
 		// initially created the HTLC.
-		l.cfg.Peer.SendMessage(htlc)
+		l.cfg.Peer.SendMessage(htlc, false)
 		isSettle = true
 	}
 
@@ -1241,10 +1241,14 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			//
 			// TODO(roasbeef): force close chan
 			if _, ok := err.(*lnwallet.InvalidCommitSigError); ok {
-				l.cfg.Peer.SendMessage(&lnwire.Error{
+				err := l.cfg.Peer.SendMessage(&lnwire.Error{
 					ChanID: l.ChanID(),
 					Data:   []byte(err.Error()),
-				})
+				}, true)
+				if err != nil {
+					l.errorf("unable to send msg to "+
+						"remote peer: %v", err)
+				}
 			}
 
 			l.fail("ChannelPoint(%v): unable to accept new "+
@@ -1260,7 +1264,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			log.Errorf("unable to revoke commitment: %v", err)
 			return
 		}
-		l.cfg.Peer.SendMessage(nextRevocation)
+		l.cfg.Peer.SendMessage(nextRevocation, false)
 
 		// Since we just revoked our commitment, we may have a new set
 		// of HTLC's on our commitment, so we'll send them over our
@@ -1288,7 +1292,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 
 		// If both commitment chains are fully synced from our PoV,
 		// then we don't need to reply with a signature as both sides
-		// already have a commitment with the latest accepted l.
+		// already have a commitment with the latest accepted.
 		if l.channel.FullySynced() {
 			return
 		}
@@ -1457,7 +1461,7 @@ func (l *channelLink) updateCommitTx() error {
 		CommitSig: theirCommitSig,
 		HtlcSigs:  htlcSigs,
 	}
-	l.cfg.Peer.SendMessage(commitSig)
+	l.cfg.Peer.SendMessage(commitSig, false)
 
 	// We've just initiated a state transition, attempt to stop the
 	// logCommitTimer. If the timer already ticked, then we'll consume the
@@ -1665,7 +1669,7 @@ func (l *channelLink) updateChannelFee(feePerKw lnwallet.SatPerKWeight) error {
 	// We'll then attempt to send a new UpdateFee message, and also lock it
 	// in immediately by triggering a commitment update.
 	msg := lnwire.NewUpdateFee(l.ChanID(), uint32(feePerKw))
-	if err := l.cfg.Peer.SendMessage(msg); err != nil {
+	if err := l.cfg.Peer.SendMessage(msg, false); err != nil {
 		return err
 	}
 	return l.updateCommitTx()
@@ -2043,7 +2047,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				ChanID:          l.ChanID(),
 				ID:              pd.HtlcIndex,
 				PaymentPreimage: preimage,
-			})
+			}, false)
 			needUpdate = true
 
 		// There are additional channels left within this route. So
@@ -2364,7 +2368,7 @@ func (l *channelLink) sendHTLCError(htlcIndex uint64, failure lnwire.FailureMess
 		ChanID: l.ChanID(),
 		ID:     htlcIndex,
 		Reason: reason,
-	})
+	}, false)
 }
 
 // sendMalformedHTLCError helper function which sends the malformed HTLC update
@@ -2384,7 +2388,7 @@ func (l *channelLink) sendMalformedHTLCError(htlcIndex uint64,
 		ID:           htlcIndex,
 		ShaOnionBlob: shaOnionBlob,
 		FailureCode:  code,
-	})
+	}, false)
 }
 
 // fail helper function which is used to encapsulate the action necessary for

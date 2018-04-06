@@ -225,7 +225,7 @@
     "walletdb/bdb",
     "wtxmgr"
   ]
-  revision = "45445d1b09670109410174cb01fab0b133e3a904"
+  revision = "257011e9f113aeea4720f03f732a19753a4599e1"
 
 [[projects]]
   branch = "master"
@@ -359,6 +359,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "a50b1b0760073be728b8e541300b3078f2688d20c61bdd7a0d8115ff7064ae52"
+  inputs-digest = "d6da8b3b3ad910ad0ee8a9a0ebb52a6897a542866dfea8e4d9b02940e7a46ebc"
   solver-name = "gps-cdcl"
   solver-version = 1

@@ -169,6 +169,12 @@ type peer struct {
 	// TODO(halseth): remove when link failure is properly handled.
 	failedChannels map[lnwire.ChannelID]struct{}
 
+	// writeBuf is a buffer that we'll re-use in order to encode wire
+	// messages to write out directly on the socket. By re-using this
+	// buffer, we avoid needing to allocate more memory each time a new
+	// message is to be sent to a peer.
+	writeBuf [lnwire.MaxMessagePayload]byte
+
 	queueQuit chan struct{}
 	quit      chan struct{}
 	wg        sync.WaitGroup
@@ -1103,11 +1109,11 @@ func (p *peer) writeMessage(msg lnwire.Message) error {
 	// TODO(roasbeef): add message summaries
 	p.logWireMessage(msg, false)
 
-	// As the Lightning wire protocol is fully message oriented, we only
-	// allows one wire message per outer encapsulated crypto message. So
-	// we'll create a temporary buffer to write the message directly to.
-	var msgPayload [lnwire.MaxMessagePayload]byte
-	b := bytes.NewBuffer(msgPayload[0:0:len(msgPayload)])
+	// We'll re-slice of static write buffer to allow this new message to
+	// utilize all available space. We also ensure we cap the capacity of
+	// this new buffer to the static buffer which is sized for the largest
+	// possible protocol message.
+	b := bytes.NewBuffer(p.writeBuf[0:0:len(p.writeBuf)])
 
 	// With the temp buffer created and sliced properly (length zero, full
 	// capacity), we'll now encode the message directly into this buffer.

@@ -180,7 +180,7 @@ func (c *chainWatcher) Start() error {
 	}
 
 	spendNtfn, err := c.notifier.RegisterSpendNtfn(
-		fundingOut, heightHint,
+		fundingOut, heightHint, true,
 	)
 	if err != nil {
 		return err

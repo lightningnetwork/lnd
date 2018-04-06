@@ -15,6 +15,9 @@ import (
 
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainntnfs/bitcoindnotify"
+	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
+	"github.com/lightningnetwork/lnd/chainntnfs/neutrinonotify"
 	"github.com/ltcsuite/ltcd/btcjson"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcwallet/walletdb"
@@ -26,18 +29,6 @@ import (
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
-
-	// Required to auto-register the bitcoind backed ChainNotifier
-	// implementation.
-	_ "github.com/lightningnetwork/lnd/chainntnfs/bitcoindnotify"
-
-	// Required to auto-register the btcd backed ChainNotifier
-	// implementation.
-	_ "github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
-
-	// Required to auto-register the neutrino backed ChainNotifier
-	// implementation.
-	_ "github.com/lightningnetwork/lnd/chainntnfs/neutrinonotify"
 
 	// Required to register the boltdb walletdb implementation.
 	_ "github.com/roasbeef/btcwallet/walletdb/bdb"
@@ -386,7 +377,7 @@ func testSpendNotification(miner *rpctest.Harness,
 	spendClients := make([]*chainntnfs.SpendEvent, numClients)
 	for i := 0; i < numClients; i++ {
 		spentIntent, err := notifier.RegisterSpendNtfn(outpoint,
-			uint32(currentHeight))
+			uint32(currentHeight), false)
 		if err != nil {
 			t.Fatalf("unable to register for spend ntfn: %v", err)
 		}
@@ -408,6 +399,16 @@ func testSpendNotification(miner *rpctest.Harness,
 		t.Fatalf("tx not relayed to miner: %v", err)
 	}
 
+	// Make sure notifications are not yet sent.
+	for _, c := range spendClients {
+		select {
+		case <-c.Spend:
+			t.Fatalf("did not expect to get notification before " +
+				"block was mined")
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+
 	// Now we mine a single block, which should include our spend. The
 	// notification should also be sent off.
 	if _, err := miner.Node.Generate(1); err != nil {
@@ -419,19 +420,9 @@ func testSpendNotification(miner *rpctest.Harness,
 		t.Fatalf("unable to get current height: %v", err)
 	}
 
-	// For each event we registered for above, we create a goroutine which
-	// will listen on the event channel, passing it proxying each
-	// notification into a single which will be examined below.
-	spentNtfn := make(chan *chainntnfs.SpendDetail, numClients)
-	for i := 0; i < numClients; i++ {
-		go func(c *chainntnfs.SpendEvent) {
-			spentNtfn <- <-c.Spend
-		}(spendClients[i])
-	}
-
-	for i := 0; i < numClients; i++ {
+	for _, c := range spendClients {
 		select {
-		case ntfn := <-spentNtfn:
+		case ntfn := <-c.Spend:
 			// We've received the spend nftn. So now verify all the
 			// fields have been set properly.
 			if *ntfn.SpentOutPoint != *outpoint {
@@ -456,6 +447,120 @@ func testSpendNotification(miner *rpctest.Harness,
 			}
 		case <-time.After(30 * time.Second):
 			t.Fatalf("spend ntfn never received")
+		}
+	}
+}
+
+func testSpendNotificationMempoolSpends(miner *rpctest.Harness,
+	notifier chainntnfs.ChainNotifier, t *testing.T) {
+
+	// Skip this test for neutrino and bitcoind backends, as they currently
+	// don't support notifying about mempool spends.
+	switch notifier.(type) {
+	case *neutrinonotify.NeutrinoNotifier:
+		return
+	case *bitcoindnotify.BitcoindNotifier:
+		return
+	case *btcdnotify.BtcdNotifier:
+		// Go on to test this implementation.
+	default:
+		t.Fatalf("unknown notifier type: %T", notifier)
+	}
+
+	// We first create a new output to our test target address.
+	outpoint, pkScript := createSpendableOutput(miner, t)
+
+	_, currentHeight, err := miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current height: %v", err)
+	}
+
+	// Now that we have a output index and the pkScript, register for a
+	// spentness notification for the newly created output with multiple
+	// clients in order to ensure the implementation can support
+	// multi-client spend notifications.
+
+	// We first create a list of clients that will be notified on mempool
+	// spends.
+	const numClients = 5
+	spendClientsMempool := make([]*chainntnfs.SpendEvent, numClients)
+	for i := 0; i < numClients; i++ {
+		spentIntent, err := notifier.RegisterSpendNtfn(outpoint,
+			uint32(currentHeight), true)
+		if err != nil {
+			t.Fatalf("unable to register for spend ntfn: %v", err)
+		}
+
+		spendClientsMempool[i] = spentIntent
+	}
+
+	// Next, create a new transaction spending that output.
+	spendingTx := createSpendTx(outpoint, pkScript, t)
+
+	// Broadcast our spending transaction.
+	spenderSha, err := miner.Node.SendRawTransaction(spendingTx, true)
+	if err != nil {
+		t.Fatalf("unable to broadcast tx: %v", err)
+	}
+
+	err = waitForMempoolTx(miner, spenderSha)
+	if err != nil {
+		t.Fatalf("tx not relayed to miner: %v", err)
+	}
+
+	// Make sure the mempool spend clients are correctly notified.
+	for _, client := range spendClientsMempool {
+		select {
+		case ntfn, ok := <-client.Spend:
+			if !ok {
+				t.Fatalf("channel closed unexpectedly")
+			}
+
+			if *ntfn.SpentOutPoint != *outpoint {
+				t.Fatalf("ntfn includes wrong output, reports "+
+					"%v instead of %v",
+					ntfn.SpentOutPoint, outpoint)
+			}
+			if !bytes.Equal(ntfn.SpenderTxHash[:], spenderSha[:]) {
+				t.Fatalf("ntfn includes wrong spender tx sha, "+
+					"reports %v instead of %v",
+					ntfn.SpenderTxHash[:], spenderSha[:])
+			}
+			if ntfn.SpenderInputIndex != 0 {
+				t.Fatalf("ntfn includes wrong spending input "+
+					"index, reports %v, should be %v",
+					ntfn.SpenderInputIndex, 0)
+			}
+			if ntfn.SpendingHeight != currentHeight+1 {
+				t.Fatalf("ntfn has wrong spending height: "+
+					"expected %v, got %v", currentHeight,
+					ntfn.SpendingHeight)
+			}
+
+		case <-time.After(5 * time.Second):
+			t.Fatalf("did not receive notification")
+		}
+	}
+
+	// TODO(halseth): create new clients that should be registered after tx
+	// is in the mempool already, when btcd supports notifying on these.
+
+	// Now we mine a single block, which should include our spend. The
+	// notification should not be sent off again.
+	if _, err := miner.Node.Generate(1); err != nil {
+		t.Fatalf("unable to generate single block: %v", err)
+	}
+
+	// When a block is mined, the mempool notifications we registered should
+	// not be sent off again, and the channel should be closed.
+	for _, c := range spendClientsMempool {
+		select {
+		case _, ok := <-c.Spend:
+			if ok {
+				t.Fatalf("channel should have been closed")
+			}
+		case <-time.After(30 * time.Second):
+			t.Fatalf("expected clients to be closed.")
 		}
 	}
 }
@@ -909,7 +1014,7 @@ func testSpendBeforeNtfnRegistration(miner *rpctest.Harness,
 	// happened.  The notifier should dispatch a spend notification
 	// immediately.
 	spentIntent, err := notifier.RegisterSpendNtfn(outpoint,
-		uint32(currentHeight))
+		uint32(currentHeight), true)
 	if err != nil {
 		t.Fatalf("unable to register for spend ntfn: %v", err)
 	}
@@ -962,7 +1067,7 @@ func testCancelSpendNtfn(node *rpctest.Harness,
 	spendClients := make([]*chainntnfs.SpendEvent, numClients)
 	for i := 0; i < numClients; i++ {
 		spentIntent, err := notifier.RegisterSpendNtfn(outpoint,
-			uint32(currentHeight))
+			uint32(currentHeight), true)
 		if err != nil {
 			t.Fatalf("unable to register for spend ntfn: %v", err)
 		}
@@ -1258,6 +1363,10 @@ var ntfnTests = []testCase{
 	{
 		name: "spend ntfn",
 		test: testSpendNotification,
+	},
+	{
+		name: "spend ntfn mempool",
+		test: testSpendNotificationMempoolSpends,
 	},
 	{
 		name: "block epoch",

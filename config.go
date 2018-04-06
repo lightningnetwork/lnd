@@ -46,6 +46,8 @@ const (
 	defaultMaxPendingChannels = 1
 	defaultNoEncryptWallet    = false
 	defaultTrickleDelay       = 30 * 1000
+	defaultMaxLogFiles        = 3
+	defaultMaxLogFileSize     = 10
 
 	defaultBroadcastDelta = 10
 
@@ -145,24 +147,25 @@ type torConfig struct {
 type config struct {
 	ShowVersion bool `short:"V" long:"version" description:"Display version information and exit"`
 
-	LndDir         string `long:"lnddir" description:"The base directory that contains lnd's data, logs, configuration file, etc."`
-	ConfigFile     string `long:"C" long:"configfile" description:"Path to configuration file"`
-	DataDir        string `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
-	TLSCertPath    string `long:"tlscertpath" description:"Path to write the TLS certificate for lnd's RPC and REST services"`
-	TLSKeyPath     string `long:"tlskeypath" description:"Path to write the TLS private key for lnd's RPC and REST services"`
-	TLSExtraIP     string `long:"tlsextraip" description:"Adds an extra ip to the generated certificate"`
-	TLSExtraDomain string `long:"tlsextradomain" description:"Adds an extra domain to the generated certificate"`
-	NoMacaroons    bool   `long:"no-macaroons" description:"Disable macaroon authentication"`
-	AdminMacPath   string `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
-	ReadMacPath    string `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`
-	InvoiceMacPath string `long:"invoicemacaroonpath" description:"Path to the invoice-only macaroon for lnd's RPC and REST services if it doesn't exist"`
-	LogDir         string `long:"logdir" description:"Directory to log output."`
-
-	RPCListeners  []string `long:"rpclisten" description:"Add an interface/port to listen for RPC connections"`
-	RESTListeners []string `long:"restlisten" description:"Add an interface/port to listen for REST connections"`
-	Listeners     []string `long:"listen" description:"Add an interface/port to listen for peer connections"`
-	DisableListen bool     `long:"nolisten" description:"Disable listening for incoming peer connections"`
-	ExternalIPs   []string `long:"externalip" description:"Add an ip:port to the list of local addresses we claim to listen on to peers. If a port is not specified, the default (9735) will be used regardless of other parameters"`
+	LndDir         string   `long:"lnddir" description:"The base directory that contains lnd's data, logs, configuration file, etc."`
+	ConfigFile     string   `long:"C" long:"configfile" description:"Path to configuration file"`
+	DataDir        string   `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
+	TLSCertPath    string   `long:"tlscertpath" description:"Path to write the TLS certificate for lnd's RPC and REST services"`
+	TLSKeyPath     string   `long:"tlskeypath" description:"Path to write the TLS private key for lnd's RPC and REST services"`
+	TLSExtraIP     string   `long:"tlsextraip" description:"Adds an extra ip to the generated certificate"`
+	TLSExtraDomain string   `long:"tlsextradomain" description:"Adds an extra domain to the generated certificate"`
+	NoMacaroons    bool     `long:"no-macaroons" description:"Disable macaroon authentication"`
+	AdminMacPath   string   `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
+	ReadMacPath    string   `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`
+	InvoiceMacPath string   `long:"invoicemacaroonpath" description:"Path to the invoice-only macaroon for lnd's RPC and REST services if it doesn't exist"`
+	LogDir         string   `long:"logdir" description:"Directory to log output."`
+	MaxLogFiles    int      `long:"maxlogfiles" description:"Maximum logfiles to keep (0 for no rotation)"`
+	MaxLogFileSize int      `long:"maxlogfilesize" description:"Maximum logfile size in MB"`
+	RPCListeners   []string `long:"rpclisten" description:"Add an interface/port to listen for RPC connections"`
+	RESTListeners  []string `long:"restlisten" description:"Add an interface/port to listen for REST connections"`
+	Listeners      []string `long:"listen" description:"Add an interface/port to listen for peer connections"`
+	DisableListen  bool     `long:"nolisten" description:"Disable listening for incoming peer connections"`
+	ExternalIPs    []string `long:"externalip" description:"Add an ip:port to the list of local addresses we claim to listen on to peers. If a port is not specified, the default (9735) will be used regardless of other parameters"`
 
 	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
 
@@ -222,6 +225,8 @@ func loadConfig() (*config, error) {
 		InvoiceMacPath: defaultInvoiceMacPath,
 		ReadMacPath:    defaultReadMacPath,
 		LogDir:         defaultLogDir,
+		MaxLogFiles:    defaultMaxLogFiles,
+		MaxLogFileSize: defaultMaxLogFileSize,
 		Bitcoin: &chainConfig{
 			MinHTLC:       defaultBitcoinMinHTLCMSat,
 			BaseFee:       defaultBitcoinBaseFeeMSat,
@@ -662,7 +667,7 @@ func loadConfig() (*config, error) {
 		normalizeNetwork(activeNetParams.Name))
 
 	// Initialize logging at the default logging level.
-	initLogRotator(filepath.Join(cfg.LogDir, defaultLogFilename))
+	initLogRotator(filepath.Join(cfg.LogDir, defaultLogFilename), cfg.MaxLogFileSize, cfg.MaxLogFiles)
 
 	// Parse, validate, and set debug log level(s).
 	if err := parseAndSetDebugLevels(cfg.DebugLevel); err != nil {

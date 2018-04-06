@@ -191,7 +191,7 @@
     "txscript",
     "wire"
   ]
-  revision = "e6807bc4dd5ddbb95b4ab163f6dd61e4ad79463a"
+  revision = "3b7cd0380ae14f7ae01703f04b5120bf688f5dcd"
 
 [[projects]]
   name = "github.com/roasbeef/btcutil"
@@ -359,6 +359,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "d6da8b3b3ad910ad0ee8a9a0ebb52a6897a542866dfea8e4d9b02940e7a46ebc"
+  inputs-digest = "c82fd993f0ec739a63997a3cbb286b2400309f7ce0eb084197daccdce0b5a324"
   solver-name = "gps-cdcl"
   solver-version = 1

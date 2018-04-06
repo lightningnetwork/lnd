@@ -60,7 +60,7 @@
 
 [[constraint]]
   name = "github.com/roasbeef/btcd"
-  revision = "e6807bc4dd5ddbb95b4ab163f6dd61e4ad79463a"
+  revision = "3b7cd0380ae14f7ae01703f04b5120bf688f5dcd"
 
 [[constraint]]
   name = "github.com/roasbeef/btcwallet"

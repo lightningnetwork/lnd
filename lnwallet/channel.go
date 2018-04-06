@@ -1971,12 +1971,22 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	// With the commitment outputs located, we'll now generate all the
 	// retribution structs for each of the HTLC transactions active on the
 	// remote commitment transaction.
-	htlcRetributions := make([]HtlcRetribution, len(revokedSnapshot.Htlcs))
-	for i, htlc := range revokedSnapshot.Htlcs {
+	htlcRetributions := make([]HtlcRetribution, 0, len(revokedSnapshot.Htlcs))
+	for _, htlc := range revokedSnapshot.Htlcs {
 		var (
 			htlcScript []byte
 			err        error
 		)
+
+		// If the HTLC is dust, then we'll skip it as it doesn't have
+		// an output on the commitment transaction.
+		if htlcIsDust(
+			htlc.Incoming, false,
+			SatPerKWeight(revokedSnapshot.FeePerKw),
+			htlc.Amt.ToSatoshis(), chanState.RemoteChanCfg.DustLimit,
+		) {
+			continue
+		}
 
 		// We'll generate the original second level witness script now,
 		// as we'll need it if we're revoking an HTLC output on the
@@ -1994,7 +2004,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		// re-generate the sender HTLC script.
 		if htlc.Incoming {
 			htlcScript, err = senderHTLCScript(
-				keyRing.LocalHtlcKey, keyRing.RemoteHtlcKey,
+				keyRing.RemoteHtlcKey, keyRing.LocalHtlcKey,
 				keyRing.RevocationKey, htlc.RHash[:],
 			)
 			if err != nil {
@@ -2015,7 +2025,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 			}
 		}
 
-		htlcRetributions[i] = HtlcRetribution{
+		htlcRetributions = append(htlcRetributions, HtlcRetribution{
 			SignDesc: SignDescriptor{
 				KeyDesc:       chanState.LocalChanCfg.RevocationBasePoint,
 				DoubleTweak:   commitmentSecret,
@@ -2031,7 +2041,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 			},
 			SecondLevelWitnessScript: secondLevelWitnessScript,
 			IsIncoming:               htlc.Incoming,
-		}
+		})
 	}
 
 	// Finally, with all the necessary data constructed, we can create the

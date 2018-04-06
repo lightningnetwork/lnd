@@ -3824,7 +3824,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 	assertNodeNumChannels(t, ctxb, net.Alice, 0)
 }
 
-// testRevokedCloseRetributionRemoteHodl tests that Alice properly responds to a
+// testRevokedCloseRetributionRemoteHodl tests that Dave properly responds to a
 // channel breach made by the remote party, specifically in the case that the
 // remote party breaches before settling extended HTLCs.
 func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
@@ -3834,33 +3834,50 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	const (
 		timeout     = time.Duration(time.Second * 10)
 		chanAmt     = maxFundingAmount
-		pushAmt     = 20000
+		pushAmt     = 200000
 		paymentAmt  = 10000
 		numInvoices = 6
 	)
 
-	// Since this test will result in the counterparty being left in a weird
-	// state, we will introduce another node into our test network: Carol.
+	// Since this test will result in the counterparty being left in a
+	// weird state, we will introduce another node into our test network:
+	// Carol.
 	carol, err := net.NewNode([]string{"--debughtlc", "--hodlhtlc"})
 	if err != nil {
 		t.Fatalf("unable to create new nodes: %v", err)
 	}
 
-	// We must let Alice communicate with Carol before they are able to
-	// open channel, so we connect Alice and Carol,
-	if err := net.ConnectNodes(ctxb, net.Alice, carol); err != nil {
-		t.Fatalf("unable to connect alice to carol: %v", err)
+	// We'll also create a new node Dave, who will have a channel with
+	// Carol, and also use similar settings so we can broadcast a commit
+	// with active HTLCs.
+	dave, err := net.NewNode([]string{"--debughtlc", "--hodlhtlc"})
+	if err != nil {
+		t.Fatalf("unable to create new dave node: %v", err)
 	}
 
-	// In order to test Alice's response to an uncooperative channel
-	// closure by Carol, we'll first open up a channel between them with a
+	// We must let Dave communicate with Carol before they are able to open
+	// channel, so we connect Dave and Carol,
+	if err := net.ConnectNodes(ctxb, dave, carol); err != nil {
+		t.Fatalf("unable to connect dave to carol: %v", err)
+	}
+
+	// Before we make a channel, we'll load up Dave with some coins sent
+	// directly from the miner.
+	err = net.SendCoins(ctxb, btcutil.SatoshiPerBitcoin, dave)
+	if err != nil {
+		t.Fatalf("unable to send coins to dave: %v", err)
+	}
+
+	// In order to test Dave's response to an uncooperative channel closure
+	// by Carol, we'll first open up a channel between them with a
 	// maxFundingAmount (2^24) satoshis value.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
-	chanPoint := openChannelAndAssert(ctxt, t, net, net.Alice, carol,
-		chanAmt, pushAmt)
+	chanPoint := openChannelAndAssert(
+		ctxt, t, net, dave, carol, chanAmt, pushAmt,
+	)
 
 	// With the channel open, we'll create a few invoices for Carol that
-	// Alice will pay to in order to advance the state of the channel.
+	// Dave will pay to in order to advance the state of the channel.
 	carolPayReqs := make([]string, numInvoices)
 	for i := 0; i < numInvoices; i++ {
 		preimage := bytes.Repeat([]byte{byte(192 - i)}, 32)
@@ -3892,6 +3909,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 
 		return carolChannelInfo.Channels[0], nil
 	}
+
 	// We'll introduce a closure to validate that Carol's current balance
 	// matches the given expected amount.
 	checkCarolBalance := func(expectedAmt int64) {
@@ -3905,6 +3923,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 				expectedAmt)
 		}
 	}
+
 	// We'll introduce another closure to validate that Carol's current
 	// number of updates is at least as large as the provided minimum
 	// number.
@@ -3920,21 +3939,50 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 		}
 	}
 
-	// Wait for Alice to receive the channel edge from the funding manager.
+	// Wait for Dave to receive the channel edge from the funding manager.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = dave.WaitForNetworkChannelOpen(ctxt, chanPoint)
 	if err != nil {
-		t.Fatalf("alice didn't see the alice->carol channel before "+
+		t.Fatalf("dave didn't see the dave->carol channel before "+
 			"timeout: %v", err)
 	}
 
 	// Ensure that carol's balance starts with the amount we pushed to her.
 	checkCarolBalance(pushAmt)
 
-	// Send payments from Alice to Carol using 3 of Carol's payment hashes
+	// Send payments from Dave to Carol using 3 of Carol's payment hashes
 	// generated above.
-	err = completePaymentRequests(ctxb, net.Alice, carolPayReqs[:numInvoices/2],
-		false)
+	err = completePaymentRequests(
+		ctxb, dave, carolPayReqs[:numInvoices/2], false,
+	)
+	if err != nil {
+		t.Fatalf("unable to send payments: %v", err)
+	}
+
+	// At this point, we'll also send over a set of HTLC's from Carol to
+	// Dave. This ensures that the final revoked transaction has HTLC's in
+	// both directions.
+	davePayReqs := make([]string, numInvoices)
+	for i := 0; i < numInvoices; i++ {
+		preimage := bytes.Repeat([]byte{byte(199 - i)}, 32)
+		invoice := &lnrpc.Invoice{
+			Memo:      "testing",
+			RPreimage: preimage,
+			Value:     paymentAmt,
+		}
+		resp, err := dave.AddInvoice(ctxb, invoice)
+		if err != nil {
+			t.Fatalf("unable to add invoice: %v", err)
+		}
+
+		davePayReqs[i] = resp.PaymentRequest
+	}
+
+	// Send payments from Carol to Dave using 3 of Dave's payment hashes
+	// generated above.
+	err = completePaymentRequests(
+		ctxb, carol, davePayReqs[:numInvoices/2], false,
+	)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)
 	}
@@ -3946,14 +3994,16 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	if err != nil {
 		t.Fatalf("unable to get carol's channel info: %v", err)
 	}
+
 	// Grab Carol's current commitment height (update number), we'll later
 	// revert her to this state after additional updates to force her to
 	// broadcast this soon to be revoked state.
 	carolStateNumPreCopy := carolChan.NumUpdates
 
 	// Ensure that carol's balance still reflects the original amount we
-	// pushed to her.
-	checkCarolBalance(pushAmt)
+	// pushed to her, minus the HTLCs she just sent to Dave.
+	checkCarolBalance(pushAmt - 3*paymentAmt)
+
 	// Since Carol has not settled, she should only see at least one update
 	// to her channel.
 	checkCarolNumUpdatesAtLeast(1)
@@ -3974,18 +4024,20 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 		t.Fatalf("unable to copy database files: %v", err)
 	}
 
-	// Finally, send payments from Alice to Carol, consuming Carol's remaining
-	// payment hashes.
-	err = completePaymentRequests(ctxb, net.Alice, carolPayReqs[numInvoices/2:],
-		false)
+	// Finally, send payments from Dave to Carol, consuming Carol's
+	// remaining payment hashes.
+	err = completePaymentRequests(
+		ctxb, dave, carolPayReqs[numInvoices/2:], false,
+	)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)
 	}
 
 	// Ensure that carol's balance still shows the amount we originally
-	// pushed to her, and that at least one more update has occurred.
+	// pushed to her (minus the HTLCs she sent to Bob), and that at least
+	// one more update has occurred.
 	time.Sleep(500 * time.Millisecond)
-	checkCarolBalance(pushAmt)
+	checkCarolBalance(pushAmt - 3*paymentAmt)
 	checkCarolNumUpdatesAtLeast(carolStateNumPreCopy + 1)
 
 	// Now we shutdown Carol, copying over the her temporary database state
@@ -4000,9 +4052,9 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 
 	time.Sleep(200 * time.Millisecond)
 
-	// Ensure that Carol's view of the channel is consistent with the
-	// state of the channel just before it was snapshotted.
-	checkCarolBalance(pushAmt)
+	// Ensure that Carol's view of the channel is consistent with the state
+	// of the channel just before it was snapshotted.
+	checkCarolBalance(pushAmt - 3*paymentAmt)
 	checkCarolNumUpdatesAtLeast(1)
 
 	// Now query for Carol's channel state, it should show that she's at a
@@ -4018,69 +4070,69 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	// Now force Carol to execute a *force* channel closure by unilaterally
 	// broadcasting her current channel state. This is actually the
 	// commitment transaction of a prior *revoked* state, so she'll soon
-	// feel the wrath of Alice's retribution.
+	// feel the wrath of Dave's retribution.
 	force := true
 	closeUpdates, _, err := net.CloseChannel(ctxb, carol, chanPoint, force)
 	if err != nil {
 		t.Fatalf("unable to close channel: %v", err)
 	}
 
-	// Query the mempool for Alice's justice transaction, this should be
+	// Query the mempool for Dave's justice transaction, this should be
 	// broadcast as Carol's contract breaching transaction gets confirmed
 	// above.
 	_, err = waitForTxInMempool(net.Miner.Node, 5*time.Second)
 	if err != nil {
-		t.Fatalf("unable to find Alice's justice tx in mempool: %v", err)
+		t.Fatalf("unable to find Dave's justice tx in mempool: %v", err)
 	}
 	time.Sleep(200 * time.Millisecond)
 
 	// Generate a single block to mine the breach transaction.
 	block := mineBlocks(t, net, 1)[0]
 
-	// Wait so Alice receives a confirmation of Carol's breach transaction.
+	// Wait so Dave receives a confirmation of Carol's breach transaction.
 	time.Sleep(200 * time.Millisecond)
 
-	// We restart Alice to ensure that she is persisting her retribution
+	// We restart Dave to ensure that he is persisting his retribution
 	// state and continues exacting justice after her node restarts.
-	if err := net.RestartNode(net.Alice, nil); err != nil {
-		t.Fatalf("unable to stop Alice's node: %v", err)
+	if err := net.RestartNode(dave, nil); err != nil {
+		t.Fatalf("unable to stop Dave's node: %v", err)
 	}
 
-	// Finally, Wait for the final close status update, then ensure that the
-	// closing transaction was included in the block.
+	// Finally, wait for the final close status update, then ensure that
+	// the closing transaction was included in the block.
 	breachTXID, err := net.WaitForChannelClose(ctxb, closeUpdates)
 	if err != nil {
 		t.Fatalf("error while waiting for channel close: %v", err)
 	}
 	assertTxInBlock(t, block, breachTXID)
 
-	// Query the mempool for Alice's justice transaction, this should be
+	// Query the mempool for Dave's justice transaction, this should be
 	// broadcast as Carol's contract breaching transaction gets confirmed
 	// above.
 	justiceTXID, err := waitForTxInMempool(net.Miner.Node, 5*time.Second)
 	if err != nil {
-		t.Fatalf("unable to find Alice's justice tx in mempool: %v", err)
+		t.Fatalf("unable to find Dave's justice tx in mempool: %v", err)
 	}
 	time.Sleep(100 * time.Millisecond)
 
-	// We restart Alice here to ensure that she persists her retribution state
+	// We restart Dave here to ensure that he persists he retribution state
 	// and successfully continues exacting retribution after restarting. At
-	// this point, Alice has broadcast the justice transaction, but it hasn't
-	// been confirmed yet; when Alice restarts, she should start waiting for
-	// the justice transaction to confirm again.
-	if err := net.RestartNode(net.Alice, nil); err != nil {
-		t.Fatalf("unable to restart Alice's node: %v", err)
+	// this point, Dave has broadcast the justice transaction, but it
+	// hasn't been confirmed yet; when Dave restarts, he should start
+	// waiting for the justice transaction to confirm again.
+	if err := net.RestartNode(dave, nil); err != nil {
+		t.Fatalf("unable to restart Dave's node: %v", err)
 	}
 
 	// Query for the mempool transaction found above. Then assert that (1)
-	// the justice tx has the appropriate number of inputs, and (2) all
-	// the inputs of this transaction are spending outputs generated by
-	// Carol's breach transaction above.
+	// the justice tx has the appropriate number of inputs, and (2) all the
+	// inputs of this transaction are spending outputs generated by Carol's
+	// breach transaction above, and also the HTLCs from Carol to Dave.
 	justiceTx, err := net.Miner.Node.GetRawTransaction(justiceTXID)
 	if err != nil {
 		t.Fatalf("unable to query for justice tx: %v", err)
 	}
-	exNumInputs := 2 + numInvoices/2
+	exNumInputs := 2 + numInvoices
 	if len(justiceTx.MsgTx().TxIn) != exNumInputs {
 		t.Fatalf("justice tx should have exactly 2 commitment inputs"+
 			"and %v htlc inputs, expected %v in total, got %v",
@@ -4088,7 +4140,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 			len(justiceTx.MsgTx().TxIn))
 	}
 
-	// Now mine a block, this transaction should include Alice's justice
+	// Now mine a block, this transaction should include Dave's justice
 	// transaction which was just accepted into the mempool.
 	block = mineBlocks(t, net, 1)[0]
 
@@ -4102,7 +4154,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 		t.Fatalf("justice tx wasn't mined")
 	}
 
-	assertNodeNumChannels(t, ctxb, net.Alice, 0)
+	assertNodeNumChannels(t, ctxb, dave, 0)
 }
 
 // assertNodeNumChannels polls the provided node's list channels rpc until it

@@ -1284,8 +1284,8 @@ func (s *Switch) htlcForwarder() {
 			chanID := lnwire.NewChanIDFromOutPoint(req.ChanPoint)
 			link, ok := s.linkIndex[chanID]
 			if !ok {
-				req.Err <- errors.Errorf("channel with "+
-					"chan_id=%x not found", chanID[:])
+				req.Err <- errors.Errorf("no peer for channel with "+
+					"chan_id=%x", chanID[:])
 				continue
 			}
 

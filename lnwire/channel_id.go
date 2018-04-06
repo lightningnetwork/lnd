@@ -22,6 +22,8 @@ const (
 // within the network. The ChannelID is computed using the outpoint of the
 // funding transaction (the txid, and output index). Given a funding output the
 // ChannelID can be calculated by XOR'ing the big-endian serialization of the
+// txid and the big-endian serialization of the output index, truncated to
+// 2 bytes.
 type ChannelID [32]byte
 
 // ConnectionWideID is an all-zero ChannelID, which is used to represent a

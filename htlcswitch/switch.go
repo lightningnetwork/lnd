@@ -1402,11 +1402,22 @@ func (s *Switch) htlcForwarder() {
 				continue
 			}
 
+			// If the diff of num updates is negative, then some
+			// links may have been unregistered from the switch, so
+			// we'll update our stats to only include our registered
+			// links.
+			if int64(diffNumUpdates) < 0 {
+				totalNumUpdates = newNumUpdates
+				totalSatSent = newSatSent
+				totalSatRecv = newSatRecv
+				continue
+			}
+
 			// Otherwise, we'll log this diff, then accumulate the
 			// new stats into the running total.
-			log.Infof("Sent %v satoshis received %v satoshis "+
-				"in the last 10 seconds (%v tx/sec)",
-				int64(diffSatSent), int64(diffSatRecv),
+			log.Infof("Sent %d satoshis and received %d satoshis "+
+				"in the last 10 seconds (%f tx/sec)",
+				diffSatSent, diffSatRecv,
 				float64(diffNumUpdates)/10)
 
 			totalNumUpdates += diffNumUpdates

@@ -1330,14 +1330,19 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 		return nil, err
 	}
 
-	var balance btcutil.Amount
+	var pendingOpenBalance, balance btcutil.Amount
 	for _, channel := range channels {
-		if !channel.IsPending {
+		if channel.IsPending {
+			pendingOpenBalance += channel.LocalCommitment.LocalBalance.ToSatoshis()
+		} else {
 			balance += channel.LocalCommitment.LocalBalance.ToSatoshis()
 		}
 	}
 
-	return &lnrpc.ChannelBalanceResponse{Balance: int64(balance)}, nil
+	return &lnrpc.ChannelBalanceResponse{
+		Balance:            int64(balance),
+		PendingOpenBalance: int64(pendingOpenBalance),
+	}, nil
 }
 
 // PendingChannels returns a list of all the channels that are currently

@@ -1124,6 +1124,9 @@ message ChannelBalanceRequest {
 message ChannelBalanceResponse {
     /// Sum of channels balances denominated in satoshis
     int64 balance = 1 [json_name = "balance"];
+
+    /// Sum of channels pending balances denominated in satoshis
+    int64 pending_open_balance = 2 [json_name = "pending_open_balance"];
 }
 
 message QueryRoutesRequest {

@@ -149,7 +149,7 @@
     "filterdb",
     "headerfs"
   ]
-  revision = "601b7eda6e5c9e8ca91c097f0bb7be2664802ab3"
+  revision = "36d9a509ff4ea1e916a73c6f1c2b784c1faf11ed"
 
 [[projects]]
   name = "github.com/lightningnetwork/lightning-onion"
@@ -204,7 +204,7 @@
     "hdkeychain",
     "txsort"
   ]
-  revision = "c3ff179366044979fb9856c2feb79bd4c2184c7a"
+  revision = "dfb640c57141f1c2113b92b4b16d2a89c30dd258"
 
 [[projects]]
   name = "github.com/roasbeef/btcwallet"
@@ -359,6 +359,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "c82fd993f0ec739a63997a3cbb286b2400309f7ce0eb084197daccdce0b5a324"
+  inputs-digest = "1b075083f0d9636bbbb051345f1973e27f15c53855a109b983849971ba5073f1"
   solver-name = "gps-cdcl"
   solver-version = 1

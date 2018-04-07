@@ -479,8 +479,8 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
 	// Launch notification clients for all nodes, such that we can
-	// get notified when they discover new channels and updates
-	// in the graph.
+	// get notified when they discover new channels and updates in the
+	// graph.
 	aliceUpdates, aQuit := subscribeGraphNotifications(t, ctxb, net.Alice)
 	defer close(aQuit)
 	bobUpdates, bQuit := subscribeGraphNotifications(t, ctxb, net.Bob)
@@ -530,8 +530,9 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("carol didn't report channel: %v", err)
 	}
 
-	// Update the fees for the channel Alice->Bob, and make sure
-	// all nodes learn about it.
+	// With our little cluster set up, we'll update the fees for the
+	// channel Bob side of the Alice->Bob channel, and make sure all nodes
+	// learn about it.
 	const feeBase = 1000000
 	baseFee := int64(1500)
 	feeRate := int64(12)
@@ -546,7 +547,7 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 		ChanPoint: chanPoint,
 	}
 
-	_, err = net.Alice.UpdateChannelPolicy(ctxb, req)
+	_, err = net.Bob.UpdateChannelPolicy(ctxb, req)
 	if err != nil {
 		t.Fatalf("unable to get alice's balance: %v", err)
 	}
@@ -572,7 +573,8 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	// A closure that is used to wait for a channel updates that matches
 	// the channel policy update done by Alice.
 	waitForChannelUpdate := func(graphUpdates chan *lnrpc.GraphTopologyUpdate,
-		chanPoints ...*lnrpc.ChannelPoint) {
+		advertisingNode string, chanPoints ...*lnrpc.ChannelPoint) {
+
 		// Create a map containing all the channel points we are
 		// waiting for updates for.
 		cps := make(map[string]bool)
@@ -592,7 +594,7 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 					continue
 				}
 
-				if chanUpdate.AdvertisingNode != net.Alice.PubKeyStr {
+				if chanUpdate.AdvertisingNode != advertisingNode {
 					continue
 				}
 
@@ -623,16 +625,17 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 	}
 
-	// Wait for all nodes to have seen the policy update done by Alice.
-	waitForChannelUpdate(aliceUpdates, chanPoint)
-	waitForChannelUpdate(bobUpdates, chanPoint)
-	waitForChannelUpdate(carolUpdates, chanPoint)
+	// Wait for all nodes to have seen the policy update done by Bob.
+	waitForChannelUpdate(aliceUpdates, net.Bob.PubKeyStr, chanPoint)
+	waitForChannelUpdate(bobUpdates, net.Bob.PubKeyStr, chanPoint)
+	waitForChannelUpdate(carolUpdates, net.Bob.PubKeyStr, chanPoint)
 
 	// assertChannelPolicy asserts that the passed node's known channel
-	// policy for the passed chanPoint is consistent with Alice's current
+	// policy for the passed chanPoint is consistent with Bob's current
 	// expected policy values.
 	assertChannelPolicy := func(node *lntest.HarnessNode,
-		chanPoint *lnrpc.ChannelPoint) {
+		advertisingNode string, chanPoint *lnrpc.ChannelPoint) {
+
 		// Get a DescribeGraph from the node.
 		descReq := &lnrpc.ChannelGraphRequest{}
 		chanGraph, err := node.DescribeGraph(ctxb, descReq)
@@ -645,7 +648,7 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 		for _, e := range chanGraph.Edges {
 			if e.ChanPoint == txStr(chanPoint) {
 				edgeFound = true
-				if e.Node1Pub == net.Alice.PubKeyStr {
+				if e.Node1Pub == advertisingNode {
 					if e.Node1Policy.FeeBaseMsat != baseFee {
 						t.Fatalf("expected base fee "+
 							"%v, got %v", baseFee,
@@ -689,18 +692,42 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 
 	}
 
-	// Check that all nodes now know about Alice's updated policy.
-	assertChannelPolicy(net.Alice, chanPoint)
-	assertChannelPolicy(net.Bob, chanPoint)
-	assertChannelPolicy(carol, chanPoint)
+	// Check that all nodes now know about Bob's updated policy.
+	assertChannelPolicy(net.Alice, net.Bob.PubKeyStr, chanPoint)
+	assertChannelPolicy(net.Bob, net.Bob.PubKeyStr, chanPoint)
+	assertChannelPolicy(carol, net.Bob.PubKeyStr, chanPoint)
 
-	// Open channel to Carol.
+	// Now that all nodes have received the new channel update, we'll try
+	// to send a payment from Alice to Carol to ensure that Alice has
+	// internalized this fee update. This shouldn't affect the route that
+	// Alice takes though: we updated the Alice -> Bob channel and she
+	// doesn't pay for transit over that channel as it's direct.
+	payAmt := lnwire.MilliSatoshi(2000)
+	invoice := &lnrpc.Invoice{
+		Memo:  "testing",
+		Value: int64(payAmt),
+	}
+	resp, err := carol.AddInvoice(ctxb, invoice)
+	if err != nil {
+		t.Fatalf("unable to add invoice: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = completePaymentRequests(
+		ctxt, net.Alice, []string{resp.PaymentRequest}, true,
+	)
+	if err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+
+	// We'll now open a channel from Alice directly to Carol.
 	if err := net.ConnectNodes(ctxb, net.Alice, carol); err != nil {
 		t.Fatalf("unable to connect dave to alice: %v", err)
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	chanPoint3 := openChannelAndAssert(ctxt, t, net, net.Alice, carol,
-		chanAmt, pushAmt)
+	chanPoint3 := openChannelAndAssert(
+		ctxt, t, net, net.Alice, carol, chanAmt, pushAmt,
+	)
 
 	ctxt, _ = context.WithTimeout(ctxb, time.Second*15)
 	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint3)
@@ -712,8 +739,8 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("bob didn't report channel: %v", err)
 	}
 
-	// Make a global update, and check that both channels'
-	// new policies get propagated.
+	// Make a global update, and check that both channels' new policies get
+	// propagated.
 	baseFee = int64(800)
 	feeRate = int64(123)
 	timeLockDelta = uint32(22)
@@ -730,21 +757,21 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to get alice's balance: %v", err)
 	}
 
-	// Wait for all nodes to have seen the policy updates
-	// for both of Alice's channels.
-	waitForChannelUpdate(aliceUpdates, chanPoint, chanPoint3)
-	waitForChannelUpdate(bobUpdates, chanPoint, chanPoint3)
-	waitForChannelUpdate(carolUpdates, chanPoint, chanPoint3)
+	// Wait for all nodes to have seen the policy updates for both of
+	// Alice's channels.
+	waitForChannelUpdate(aliceUpdates, net.Alice.PubKeyStr, chanPoint3)
+	waitForChannelUpdate(bobUpdates, net.Alice.PubKeyStr, chanPoint3)
+	waitForChannelUpdate(carolUpdates, net.Alice.PubKeyStr, chanPoint3)
 
-	// And finally check that all nodes remembers the policy
-	// update they received.
-	assertChannelPolicy(net.Alice, chanPoint)
-	assertChannelPolicy(net.Bob, chanPoint)
-	assertChannelPolicy(carol, chanPoint)
+	// And finally check that all nodes remembers the policy update they
+	// received.
+	assertChannelPolicy(net.Alice, net.Alice.PubKeyStr, chanPoint)
+	assertChannelPolicy(net.Bob, net.Alice.PubKeyStr, chanPoint)
+	assertChannelPolicy(carol, net.Alice.PubKeyStr, chanPoint)
 
-	assertChannelPolicy(net.Alice, chanPoint3)
-	assertChannelPolicy(net.Bob, chanPoint3)
-	assertChannelPolicy(carol, chanPoint3)
+	assertChannelPolicy(net.Alice, net.Alice.PubKeyStr, chanPoint3)
+	assertChannelPolicy(net.Bob, net.Alice.PubKeyStr, chanPoint3)
+	assertChannelPolicy(carol, net.Alice.PubKeyStr, chanPoint3)
 
 	// Close the channels.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)

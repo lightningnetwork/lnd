@@ -76,6 +76,14 @@ type ChannelLink interface {
 	// policy to govern if it an incoming HTLC should be forwarded or not.
 	UpdateForwardingPolicy(ForwardingPolicy)
 
+	// HtlcSatifiesPolicy should return a nil error if the passed HTLC
+	// details satisfy the current forwarding policy fo the target link.
+	// Otherwise, a valid protocol failure message should be returned in
+	// order to signal to the source of the HTLC, the policy consistency
+	// issue.
+	HtlcSatifiesPolicy(payHash [32]byte,
+		incomingAmt, amtToForward lnwire.MilliSatoshi) lnwire.FailureMessage
+
 	// Bandwidth returns the amount of milli-satoshis which current link
 	// might pass through channel link. The value returned from this method
 	// represents the up to date available flow through the channel. This

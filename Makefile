@@ -106,7 +106,7 @@ $(LINT_BIN):
 
 dep: $(DEP_BIN)
 	@$(call print, "Compiling dependencies.")
-	dep ensure -v
+	${DEP_BIN} ensure -v
 
 $(BTCD_DIR):
 	@$(call print, "Fetching btcd.")

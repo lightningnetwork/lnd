@@ -196,8 +196,8 @@ func lndMain() error {
 	proxyOpts := []grpc.DialOption{grpc.WithTransportCredentials(cCreds)}
 
 	var (
-		privateWalletPw = []byte("hello")
-		publicWalletPw  = []byte("public")
+		privateWalletPw = lnwallet.DefaultPrivatePassphrase
+		publicWalletPw  = lnwallet.DefaultPublicPassphrase
 		birthday        time.Time
 		recoveryWindow  uint32
 	)

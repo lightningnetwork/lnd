@@ -75,6 +75,17 @@ service WalletUnlocker {
             body: "*"
         };
     }
+
+    /** lncli: `changepassword`
+    ChangePassword changes the password of the encrypted wallet. This will
+    automatically unlock the wallet database if successful.
+    */
+    rpc ChangePassword (ChangePasswordRequest) returns (ChangePasswordResponse) {
+        option (google.api.http) = {
+            post: "/v1/changepassword"
+            body: "*"
+        };
+    }
 }
 
 message GenSeedRequest {
@@ -158,6 +169,21 @@ message UnlockWalletRequest {
     int32 recovery_window = 2;
 }
 message UnlockWalletResponse {}
+
+message ChangePasswordRequest {
+    /**
+    current_password should be the current valid passphrase used to unlock the
+    daemon.
+    */
+    bytes current_password = 1;
+
+    /**
+    new_password should be the new passphrase that will be needed to unlock the
+    daemon.
+    */
+    bytes new_password = 2;
+}
+message ChangePasswordResponse {}
 
 service Lightning {
     /** lncli: `walletbalance`

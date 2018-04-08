@@ -76,7 +76,7 @@ is at the default `localhost:10009`, with an open channel between the two nodes.
 
 ```python
 # Retrieve and display the wallet balance
-response = stub.WalletBalance(ln.WalletBalanceRequest(witness_only=True))
+response = stub.WalletBalance(ln.WalletBalanceRequest())
 print(response.total_balance)
 ```
 

@@ -89,7 +89,7 @@ type ChannelArbitratorConfig struct {
 	// is watching over. We'll use this when we decide that we need to go
 	// to chain. The returned summary contains all items needed to
 	// eventually resolve all outputs on chain.
-	ForceCloseChan func() (*lnwallet.ForceCloseSummary, error)
+	ForceCloseChan func() (*lnwallet.LocalForceCloseSummary, error)
 
 	// CloseChannel is a function closure that marks a channel under watch
 	// as "closing". In this phase, we will no longer accept any updates to

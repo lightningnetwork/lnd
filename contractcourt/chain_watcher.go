@@ -747,8 +747,8 @@ func (c *CooperativeCloseCtx) LogPotentialClose(potentialClose *channeldb.Channe
 			err := c.watcher.chanState.CloseChannel(potentialClose)
 			if err != nil {
 				log.Warnf("unable to update latest close for "+
-					"ChannelPoint(%v)",
-					c.watcher.chanState.FundingOutpoint)
+					"ChannelPoint(%v): %v",
+					c.watcher.chanState.FundingOutpoint, err)
 			}
 
 			err = c.watcher.markChanClosed()

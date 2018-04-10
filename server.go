@@ -1368,7 +1368,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 
 	// We'll ensure that we locate the proper port to use within the peer's
 	// address for reconnecting purposes.
-	if tcpAddr, ok := addr.(*net.TCPAddr); ok {
+	if tcpAddr, ok := addr.(*net.TCPAddr); ok && !inbound {
 		targetPort := s.fetchNodeAdvertisedPort(pubKey, tcpAddr)
 
 		// Once we have the correct port, we'll make a new copy of the

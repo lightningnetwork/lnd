@@ -487,6 +487,7 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 		select {
 		case sub.CooperativeClosure <- struct{}{}:
 		case <-c.quit:
+			c.Unlock()
 			return fmt.Errorf("exiting")
 		}
 	}
@@ -536,6 +537,7 @@ func (c *chainWatcher) dispatchRemoteClose(commitSpend *chainntnfs.SpendDetail,
 		select {
 		case sub.UnilateralClosure <- uniClose:
 		case <-c.quit:
+			c.Unlock()
 			return fmt.Errorf("exiting")
 		}
 	}
@@ -600,6 +602,7 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 		select {
 		case sub.ContractBreach <- retribution:
 		case <-c.quit:
+			c.Unlock()
 			return fmt.Errorf("quitting")
 		}
 
@@ -611,11 +614,13 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 			case err := <-sub.ProcessACK:
 				// Bail if the handoff failed.
 				if err != nil {
+					c.Unlock()
 					return fmt.Errorf("unable to handoff "+
 						"retribution info: %v", err)
 				}
 
 			case <-c.quit:
+				c.Unlock()
 				return fmt.Errorf("quitting")
 			}
 		}

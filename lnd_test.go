@@ -7983,6 +7983,198 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	}
 }
 
+// computeFee calculates the payment fee as specified in BOLT07
+func computeFee(baseFee, feeRate, amt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+	return baseFee + amt*feeRate/1000000
+}
+
+// testQueryRoutes checks the response of queryroutes.
+// We'll create the following network topology:
+//      Alice --> Bob --> Carol --> Dave
+// and query the daemon for routes from Alice to Dave.
+func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
+	const chanAmt = btcutil.Amount(100000)
+	ctxb := context.Background()
+	timeout := time.Duration(time.Second * 5)
+	var networkChans []*lnrpc.ChannelPoint
+
+	// Open a channel between Alice and Bob.
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	chanPointAlice := openChannelAndAssert(ctxt, t, net, net.Alice,
+		net.Bob, chanAmt, 0)
+	networkChans = append(networkChans, chanPointAlice)
+
+	// Create Carol and establish a channel from Bob.
+	carol, err := net.NewNode(nil)
+	if err != nil {
+		t.Fatalf("unable to create new nodes: %v", err)
+	}
+	if err := net.ConnectNodes(ctxb, carol, net.Bob); err != nil {
+		t.Fatalf("unable to connect carol to bob: %v", err)
+	}
+	err = net.SendCoins(ctxb, btcutil.SatoshiPerBitcoin, net.Bob)
+	if err != nil {
+		t.Fatalf("unable to send coins to bob: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPointBob := openChannelAndAssert(ctxt, t, net, net.Bob,
+		carol, chanAmt, 0)
+	networkChans = append(networkChans, chanPointBob)
+
+	// Create Dave and establish a channel from Carol.
+	dave, err := net.NewNode(nil)
+	if err != nil {
+		t.Fatalf("unable to create new nodes: %v", err)
+	}
+	if err := net.ConnectNodes(ctxb, dave, carol); err != nil {
+		t.Fatalf("unable to connect dave to carol: %v", err)
+	}
+	err = net.SendCoins(ctxb, btcutil.SatoshiPerBitcoin, carol)
+	if err != nil {
+		t.Fatalf("unable to send coins to carol: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPointCarol := openChannelAndAssert(ctxt, t, net, carol,
+		dave, chanAmt, 0)
+	networkChans = append(networkChans, chanPointCarol)
+
+	// Wait for all nodes to have seen all channels.
+	nodes := []*lntest.HarnessNode{net.Alice, net.Bob, carol, dave}
+	nodeNames := []string{"Alice", "Bob", "Carol", "Dave"}
+	for _, chanPoint := range networkChans {
+		for i, node := range nodes {
+			txidHash, err := getChanPointFundingTxid(chanPoint)
+			if err != nil {
+				t.Fatalf("unable to get txid: %v", err)
+			}
+			txid, e := chainhash.NewHash(txidHash)
+			if e != nil {
+				t.Fatalf("unable to create sha hash: %v", e)
+			}
+			point := wire.OutPoint{
+				Hash:  *txid,
+				Index: chanPoint.OutputIndex,
+			}
+
+			ctxt, _ = context.WithTimeout(ctxb, timeout)
+			err = node.WaitForNetworkChannelOpen(ctxt, chanPoint)
+			if err != nil {
+				t.Fatalf("%s(%d): timeout waiting for "+
+					"channel(%s) open: %v", nodeNames[i],
+					node.NodeID, point, err)
+			}
+		}
+	}
+
+	// Query for routes to pay from Alice to Dave.
+	const paymentAmt = 1000
+	routesReq := &lnrpc.QueryRoutesRequest{
+		PubKey:    dave.PubKeyStr,
+		Amt:       paymentAmt,
+		NumRoutes: 1,
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	routesRes, err := net.Alice.QueryRoutes(ctxt, routesReq)
+	if err != nil {
+		t.Fatalf("unable to get route: %v", err)
+	}
+
+	const mSat = 1000
+	feePerHopMSat := computeFee(1000, 1, paymentAmt*mSat)
+
+	for i, route := range routesRes.Routes {
+		expectedTotalFeesMSat :=
+			lnwire.MilliSatoshi(len(route.Hops)-1) * feePerHopMSat
+		expectedTotalAmtMSat := (paymentAmt * mSat) + expectedTotalFeesMSat
+
+		if route.TotalFees != route.TotalFeesMsat/mSat {
+			t.Fatalf("route %v: total fees %v (msat) does not "+
+				"round down to %v (sat)",
+				i, route.TotalFeesMsat, route.TotalFees)
+		}
+		if route.TotalFeesMsat != int64(expectedTotalFeesMSat) {
+			t.Fatalf("route %v: total fees in msat expected %v got %v",
+				i, expectedTotalFeesMSat, route.TotalFeesMsat)
+		}
+
+		if route.TotalAmt != route.TotalAmtMsat/mSat {
+			t.Fatalf("route %v: total amt %v (msat) does not "+
+				"round down to %v (sat)",
+				i, route.TotalAmtMsat, route.TotalAmt)
+		}
+		if route.TotalAmtMsat != int64(expectedTotalAmtMSat) {
+			t.Fatalf("route %v: total amt in msat expected %v got %v",
+				i, expectedTotalAmtMSat, route.TotalAmtMsat)
+		}
+
+		// For all hops except the last, we check that fee equals feePerHop
+		// and amount to foward deducts feePerHop on each hop.
+		expectedAmtToForwardMSat := expectedTotalAmtMSat
+		for j, hop := range route.Hops[:len(route.Hops)-1] {
+			expectedAmtToForwardMSat -= feePerHopMSat
+
+			if hop.Fee != hop.FeeMsat/mSat {
+				t.Fatalf("route %v hop %v: fee %v (msat) does not "+
+					"round down to %v (sat)",
+					i, j, hop.FeeMsat, hop.Fee)
+			}
+			if hop.FeeMsat != int64(feePerHopMSat) {
+				t.Fatalf("route %v hop %v: fee in msat expected %v got %v",
+					i, j, feePerHopMSat, hop.FeeMsat)
+			}
+
+			if hop.AmtToForward != hop.AmtToForwardMsat/mSat {
+				t.Fatalf("route %v hop %v: amt to forward %v (msat) does not "+
+					"round down to %v (sat)",
+					i, j, hop.AmtToForwardMsat, hop.AmtToForward)
+			}
+			if hop.AmtToForwardMsat != int64(expectedAmtToForwardMSat) {
+				t.Fatalf("route %v hop %v: amt to forward in msat "+
+					"expected %v got %v",
+					i, j, expectedAmtToForwardMSat, hop.AmtToForwardMsat)
+			}
+		}
+		// Last hop should have zero fee and amount to foward should equal
+		// payment amount.
+		hop := route.Hops[len(route.Hops)-1]
+
+		if hop.Fee != 0 || hop.FeeMsat != 0 {
+			t.Fatalf("route %v hop %v: fee expected 0 got %v (sat) %v (msat)",
+				i, len(route.Hops)-1, hop.Fee, hop.FeeMsat)
+		}
+
+		if hop.AmtToForward != hop.AmtToForwardMsat/mSat {
+			t.Fatalf("route %v hop %v: amt to forward %v (msat) does not "+
+				"round down to %v (sat)",
+				i, len(route.Hops)-1, hop.AmtToForwardMsat, hop.AmtToForward)
+		}
+		if hop.AmtToForwardMsat != paymentAmt*mSat {
+			t.Fatalf("route %v hop %v: amt to forward in msat "+
+				"expected %v got %v",
+				i, len(route.Hops)-1, paymentAmt*mSat, hop.AmtToForwardMsat)
+		}
+	}
+
+	// We clean up the test case by closing channels that were created for
+	// the duration of the tests.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPointBob, false)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarol, false)
+
+	// Finally, shutdown Carol and Dave, the remaining node we created for the
+	// duration of the tests, only leaving the two seed nodes (Alice and
+	// Bob) within our test network.
+	if err := net.ShutdownNode(carol); err != nil {
+		t.Fatalf("unable to shutdown carol: %v", err)
+	}
+	if err := net.ShutdownNode(dave); err != nil {
+		t.Fatalf("unable to shutdown dave: %v", err)
+	}
+}
+
 type testCase struct {
 	name string
 	test func(net *lntest.NetworkHarness, t *harnessTest)
@@ -8141,6 +8333,10 @@ var testsCases = []*testCase{
 	{
 		name: "revoked uncooperative close retribution remote hodl",
 		test: testRevokedCloseRetributionRemoteHodl,
+	},
+	{
+		name: "query routes",
+		test: testQueryRoutes,
 	},
 }
 

@@ -10,7 +10,6 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 )
@@ -239,7 +238,7 @@ func (c *ChannelArbitrator) Start() error {
 	log.Infof("ChannelArbitrator(%v): starting state=%v", c.cfg.ChanPoint,
 		c.state)
 
-	bestHash, bestHeight, err := c.cfg.ChainIO.GetBestBlock()
+	_, bestHeight, err := c.cfg.ChainIO.GetBestBlock()
 	if err != nil {
 		return err
 	}
@@ -248,7 +247,7 @@ func (c *ChannelArbitrator) Start() error {
 	// on-chain state, and our set of active contracts.
 	startingState := c.state
 	nextState, _, err := c.advanceState(
-		uint32(bestHeight), bestHash, chainTrigger, nil,
+		uint32(bestHeight), chainTrigger, nil,
 	)
 	if err != nil {
 		return err
@@ -280,7 +279,7 @@ func (c *ChannelArbitrator) Start() error {
 	// TODO(roasbeef): cancel if breached
 
 	c.wg.Add(1)
-	go c.channelAttendant(bestHeight, bestHash)
+	go c.channelAttendant(bestHeight)
 	return nil
 }
 
@@ -352,7 +351,7 @@ func (t transitionTrigger) String() string {
 // the appropriate state transition if necessary. The next state we transition
 // to is returned, Additionally, if the next transition results in a commitment
 // broadcast, the commitment transaction itself is returned.
-func (c *ChannelArbitrator) stateStep(bestHeight uint32, bestHash *chainhash.Hash,
+func (c *ChannelArbitrator) stateStep(bestHeight uint32,
 	trigger transitionTrigger) (ArbitratorState, *wire.MsgTx, error) {
 
 	var (
@@ -364,9 +363,9 @@ func (c *ChannelArbitrator) stateStep(bestHeight uint32, bestHash *chainhash.Has
 	// If we're in the default state, then we'll check our set of actions
 	// to see if while we were down, conditions have changed.
 	case StateDefault:
-		log.Debugf("ChannelArbitrator(%v): new block (height=%v, "+
-			"hash=%v) examining active HTLC's",
-			c.cfg.ChanPoint, bestHeight, bestHash)
+		log.Debugf("ChannelArbitrator(%v): new block (height=%v) "+
+			"examining active HTLC's", c.cfg.ChanPoint,
+			bestHeight)
 
 		// As a new block has been connected to the end of the main
 		// chain, we'll check to see if we need to make any on-chain
@@ -623,8 +622,8 @@ func (c *ChannelArbitrator) stateStep(bestHeight uint32, bestHash *chainhash.Has
 // param is a callback that allows the caller to execute an arbitrary action
 // after each state transition.
 func (c *ChannelArbitrator) advanceState(currentHeight uint32,
-	bestHash *chainhash.Hash, trigger transitionTrigger,
-	stateCallback func(ArbitratorState) error) (ArbitratorState, *wire.MsgTx, error) {
+	trigger transitionTrigger, stateCallback func(ArbitratorState) error) (
+	ArbitratorState, *wire.MsgTx, error) {
 
 	var (
 		priorState   ArbitratorState
@@ -640,7 +639,7 @@ func (c *ChannelArbitrator) advanceState(currentHeight uint32,
 		priorState = c.state
 
 		nextState, closeTx, err := c.stateStep(
-			currentHeight, bestHash, trigger,
+			currentHeight, trigger,
 		)
 		if err != nil {
 			log.Errorf("unable to advance state: %v", err)
@@ -1278,8 +1277,7 @@ func (c *ChannelArbitrator) UpdateContractSignals(newSignals *ContractSignals) {
 // Nursery for incubation, and ultimate sweeping.
 //
 // NOTE: This MUST be run as a goroutine.
-func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
-	bestHash *chainhash.Hash) {
+func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 
 	// TODO(roasbeef): tell top chain arb we're done
 	defer c.wg.Done()
@@ -1295,7 +1293,6 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 				return
 			}
 			bestHeight = blockEpoch.Height
-			bestHash = blockEpoch.Hash
 
 			// If we're not in the default state, then we can
 			// ignore this signal as we're waiting for contract
@@ -1307,7 +1304,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 			// Now that a new block has arrived, we'll attempt to
 			// advance our state forward.
 			nextState, _, err := c.advanceState(
-				uint32(bestHeight), bestHash, chainTrigger, nil,
+				uint32(bestHeight), chainTrigger, nil,
 			)
 			if err != nil {
 				log.Errorf("unable to advance state: %v", err)
@@ -1409,7 +1406,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 			// We'll now advance our state machine until it reaches
 			// a terminal state.
 			_, _, err := c.advanceState(
-				uint32(bestHeight), bestHash,
+				uint32(bestHeight),
 				remotePeerTrigger, stateCb,
 			)
 			if err != nil {
@@ -1455,7 +1452,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 			}
 
 			nextState, closeTx, err := c.advanceState(
-				uint32(bestHeight), bestHash, userTrigger, nil,
+				uint32(bestHeight), userTrigger, nil,
 			)
 			if err != nil {
 				log.Errorf("unable to advance state: %v", err)

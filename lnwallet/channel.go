@@ -4650,7 +4650,7 @@ type CommitOutputResolution struct {
 // had any outgoing HTLC's within the commitment transaction, then an
 // OutgoingHtlcResolution for each output will included.
 type UnilateralCloseSummary struct {
-	// SpendDetail is a struct that describes how and when the commitment
+	// SpendDetail is a struct that describes how and when the funding
 	// output was spent.
 	*chainntnfs.SpendDetail
 

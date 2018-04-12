@@ -148,10 +148,16 @@ func writeElement(w io.Writer, element interface{}) error {
 			return err
 		}
 
+	case ChannelStatus:
+		if err := binary.Write(w, byteOrder, e); err != nil {
+			return err
+		}
+
 	case ClosureType:
 		if err := binary.Write(w, byteOrder, e); err != nil {
 			return err
 		}
+
 	case lnwire.FundingFlag:
 		if err := binary.Write(w, byteOrder, e); err != nil {
 			return err
@@ -321,10 +327,16 @@ func readElement(r io.Reader, element interface{}) error {
 
 		*e = msg
 
+	case *ChannelStatus:
+		if err := binary.Read(r, byteOrder, e); err != nil {
+			return err
+		}
+
 	case *ClosureType:
 		if err := binary.Read(r, byteOrder, e); err != nil {
 			return err
 		}
+
 	case *lnwire.FundingFlag:
 		if err := binary.Read(r, byteOrder, e); err != nil {
 			return err

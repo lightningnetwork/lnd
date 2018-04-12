@@ -893,6 +893,20 @@
         }
       }
     },
+    "PendingChannelsResponseWaitingCloseChannel": {
+      "type": "object",
+      "properties": {
+        "channel": {
+          "$ref": "#/definitions/PendingChannelsResponsePendingChannel",
+          "title": "/ The pending channel waiting for closing tx to confirm"
+        },
+        "limbo_balance": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ The balance in satoshis encumbered in this channel"
+        }
+      }
+    },
     "lnrpcAddInvoiceResponse": {
       "type": "object",
       "properties": {
@@ -2035,6 +2049,13 @@
             "$ref": "#/definitions/PendingChannelsResponseForceClosedChannel"
           },
           "title": "/ Channels pending force closing"
+        },
+        "waiting_close_channels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PendingChannelsResponseWaitingCloseChannel"
+          },
+          "title": "/ Channels waiting for closing tx to confirm"
         }
       }
     },

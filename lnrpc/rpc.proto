@@ -1155,9 +1155,11 @@ message Hop {
     */
     uint64 chan_id = 1 [json_name = "chan_id"];
     int64 chan_capacity = 2 [json_name = "chan_capacity"];
-    int64 amt_to_forward = 3 [json_name = "amt_to_forward"];
-    int64 fee = 4 [json_name = "fee"];
+    int64 amt_to_forward = 3 [json_name = "amt_to_forward", deprecated = true];
+    int64 fee = 4 [json_name = "fee", deprecated = true];
     uint32 expiry = 5 [json_name = "expiry"];
+    int64 amt_to_forward_msat = 6 [json_name = "amt_to_forward_msat"];
+    int64 fee_msat = 7 [json_name = "fee_msat"];
 }
 
 /**
@@ -1182,7 +1184,7 @@ message Route {
     of a one-hop payment, this value will be zero as we don't need to pay a fee
     it ourself.
     */
-    int64 total_fees = 2 [json_name = "total_fees"];
+    int64 total_fees = 2 [json_name = "total_fees", deprecated = true];
 
     /**
     The total amount of funds required to complete a payment over this route.
@@ -1191,12 +1193,22 @@ message Route {
     satoshis, otherwise the route will fail at an intermediate node due to an
     insufficient amount of fees.
     */
-    int64 total_amt = 3 [json_name = "total_amt"];
+    int64 total_amt = 3 [json_name = "total_amt", deprecated = true];
 
     /**
     Contains details concerning the specific forwarding details at each hop.
     */
     repeated Hop hops = 4 [json_name = "hops"];
+    
+    /**
+    The total fees in millisatoshis.
+    */
+    int64 total_fees_msat = 5 [json_name = "total_fees_msat"];
+    
+    /**
+    The total amount in millisatoshis.
+    */
+    int64 total_amt_msat = 6 [json_name = "total_amt_msat"];
 }
 
 message NodeInfoRequest {

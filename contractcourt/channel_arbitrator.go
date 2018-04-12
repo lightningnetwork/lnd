@@ -351,7 +351,7 @@ func (t transitionTrigger) String() string {
 // the appropriate state transition if necessary. The next state we transition
 // to is returned, Additionally, if the next transition results in a commitment
 // broadcast, the commitment transaction itself is returned.
-func (c *ChannelArbitrator) stateStep(bestHeight uint32,
+func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
 	trigger transitionTrigger) (ArbitratorState, *wire.MsgTx, error) {
 
 	var (
@@ -365,14 +365,13 @@ func (c *ChannelArbitrator) stateStep(bestHeight uint32,
 	case StateDefault:
 		log.Debugf("ChannelArbitrator(%v): new block (height=%v) "+
 			"examining active HTLC's", c.cfg.ChanPoint,
-			bestHeight)
+			triggerHeight)
 
 		// As a new block has been connected to the end of the main
 		// chain, we'll check to see if we need to make any on-chain
 		// claims on behalf of the channel contract that we're
 		// arbitrating for.
-		chainActions := c.checkChainActions(uint32(bestHeight),
-			trigger)
+		chainActions := c.checkChainActions(triggerHeight, trigger)
 
 		// If there are no actions to be made, then we'll remain in the
 		// default state. If this isn't a self initiated event (we're
@@ -542,7 +541,7 @@ func (c *ChannelArbitrator) stateStep(bestHeight uint32,
 		// actions, wen create the structures we need to resolve all
 		// outstanding contracts.
 		htlcResolvers, pktsToSend, err := c.prepContractResolutions(
-			chainActions, contractResolutions, uint32(bestHeight),
+			chainActions, contractResolutions, triggerHeight,
 			trigger,
 		)
 		if err != nil {
@@ -600,7 +599,7 @@ func (c *ChannelArbitrator) stateStep(bestHeight uint32,
 		nextState = StateFullyResolved
 
 		log.Infof("ChannelPoint(%v) has been fully resolved "+
-			"on-chain at height=%v", c.cfg.ChanPoint, bestHeight)
+			"on-chain at height=%v", c.cfg.ChanPoint, triggerHeight)
 		return nextState, closeTx, c.cfg.MarkChannelResolved()
 	}
 
@@ -621,7 +620,7 @@ func (c *ChannelArbitrator) stateStep(bestHeight uint32,
 // redundant transition, meaning that the state transition is a noop. The final
 // param is a callback that allows the caller to execute an arbitrary action
 // after each state transition.
-func (c *ChannelArbitrator) advanceState(currentHeight uint32,
+func (c *ChannelArbitrator) advanceState(triggerHeight uint32,
 	trigger transitionTrigger, stateCallback func(ArbitratorState) error) (
 	ArbitratorState, *wire.MsgTx, error) {
 
@@ -639,7 +638,7 @@ func (c *ChannelArbitrator) advanceState(currentHeight uint32,
 		priorState = c.state
 
 		nextState, closeTx, err := c.stateStep(
-			currentHeight, trigger,
+			triggerHeight, trigger,
 		)
 		if err != nil {
 			log.Errorf("unable to advance state: %v", err)
@@ -1406,7 +1405,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			// We'll now advance our state machine until it reaches
 			// a terminal state.
 			_, _, err := c.advanceState(
-				uint32(bestHeight),
+				uint32(uniClosure.SpendingHeight),
 				remotePeerTrigger, stateCb,
 			)
 			if err != nil {

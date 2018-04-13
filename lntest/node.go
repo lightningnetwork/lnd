@@ -429,7 +429,12 @@ func (hn *HarnessNode) stop() error {
 	}
 
 	// Wait for lnd process and other goroutines to exit.
-	<-hn.processExit
+	select {
+	case <-hn.processExit:
+	case <-time.After(60 * time.Second):
+		return fmt.Errorf("process did not exit")
+	}
+
 	close(hn.quit)
 	hn.wg.Wait()
 

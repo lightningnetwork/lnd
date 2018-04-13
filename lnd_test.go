@@ -6252,9 +6252,9 @@ func testMultHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 
 	// Bob's sweeping transaction should now be found in the mempool at
 	// this point.
-	_, err = waitForTxInMempool(net.Miner.Node, time.Second*10)
+	_, err = waitForTxInMempool(net.Miner.Node, time.Second*20)
 	if err != nil {
-		t.Fatalf("unable to find bob's sweeping transaction")
+		t.Fatalf("unable to find bob's sweeping transaction: %v", err)
 	}
 
 	// If we mine an additional block, then this should confirm Bob's

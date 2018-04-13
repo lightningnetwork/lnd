@@ -327,19 +327,22 @@ func (c *ChainArbitrator) Start() error {
 	// For each open channel, we'll configure then launch a corresponding
 	// ChannelArbitrator.
 	for _, channel := range openChannels {
+		chanPoint := channel.FundingOutpoint
+
 		// First, we'll create an active chainWatcher for this channel
 		// to ensure that we detect any relevant on chain events.
 		chainWatcher, err := newChainWatcher(
 			channel, c.cfg.Notifier, c.cfg.PreimageDB, c.cfg.Signer,
 			c.cfg.IsOurAddress, func() error {
-				return c.resolveContract(channel.FundingOutpoint, nil)
+				// TODO(roasbeef): also need to pass in log?
+				return c.resolveContract(chanPoint, nil)
 			},
 		)
 		if err != nil {
 			return err
 		}
 
-		c.activeWatchers[channel.FundingOutpoint] = chainWatcher
+		c.activeWatchers[chanPoint] = chainWatcher
 		channelArb, err := newActiveChannelArbitrator(
 			channel, c, chainWatcher.SubscribeChannelEvents(false),
 		)
@@ -347,7 +350,7 @@ func (c *ChainArbitrator) Start() error {
 			return err
 		}
 
-		c.activeChannels[channel.FundingOutpoint] = channelArb
+		c.activeChannels[chanPoint] = channelArb
 	}
 
 	// In addition to the channels that we know to be open, we'll also

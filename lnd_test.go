@@ -5341,6 +5341,8 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 }
 
+// assertActiveHtlcs makes sure all the passed nodes have the _exact_ HTLCs
+// matching payHashes on _all_ their channels.
 func assertActiveHtlcs(nodes []*lntest.HarnessNode, payHashes ...[]byte) error {
 	req := &lnrpc.ListChannelsRequest{}
 	ctxb := context.Background()
@@ -5351,27 +5353,31 @@ func assertActiveHtlcs(nodes []*lntest.HarnessNode, payHashes ...[]byte) error {
 		}
 
 		for _, channel := range nodeChans.Channels {
-			if len(channel.PendingHtlcs) == 0 {
-				return fmt.Errorf("node %x has no htlcs: %v",
-					node.PubKey[:], spew.Sdump(channel))
+			// Record all payment hashes active for this channel.
+			htlcHashes := make(map[string]struct{})
+			for _, htlc := range channel.PendingHtlcs {
+				_, ok := htlcHashes[string(htlc.HashLock)]
+				if ok {
+					return fmt.Errorf("duplicate HashLock")
+				}
+				htlcHashes[string(htlc.HashLock)] = struct{}{}
 			}
 
-			for _, htlc := range channel.PendingHtlcs {
+			// Channel should have exactly the payHashes active.
+			if len(payHashes) != len(htlcHashes) {
+				return fmt.Errorf("node %x had %v htlcs active, "+
+					"expected %v", node.PubKey[:],
+					len(htlcHashes), len(payHashes))
+			}
 
-				var htlcIsMatch bool
-				for _, payHash := range payHashes {
-					if bytes.Equal(htlc.HashLock, payHash) {
-						htlcIsMatch = true
-					}
-				}
-
-				if htlcIsMatch {
+			// Make sure all the payHashes are active.
+			for _, payHash := range payHashes {
+				if _, ok := htlcHashes[string(payHash)]; ok {
 					continue
 				}
-
-				return fmt.Errorf("node %x doesn't have expected "+
-					"payment hashes: %v", node.PubKey[:],
-					spew.Sdump(channel.PendingHtlcs))
+				return fmt.Errorf("node %x didn't have the "+
+					"payHash %v active", node.PubKey[:],
+					payHash)
 			}
 		}
 	}

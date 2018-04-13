@@ -1162,11 +1162,14 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
 	// Until the contract is fully resolved, we'll continue to iteratively
 	// resolve the contract one step at a time.
 	for !currentContract.IsResolved() {
+		log.Debugf("ChannelArbitrator(%v): contract %T not yet resolved",
+			c.cfg.ChanPoint, currentContract)
 
 		select {
 
 		// If we've been signalled to quit, then we'll exit early.
 		case <-c.quit:
+			return
 
 		default:
 			// Otherwise, we'll attempt to resolve the current
@@ -1174,7 +1177,8 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
 			nextContract, err := currentContract.Resolve()
 			if err != nil {
 				log.Errorf("ChannelArbitrator(%v): unable to "+
-					"progress resolver: %v", c.cfg.ChanPoint, err)
+					"progress resolver: %v",
+					c.cfg.ChanPoint, err)
 				return
 			}
 
@@ -1185,7 +1189,7 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
 			// within our logs: the new contract will take the
 			// place of the old one.
 			case nextContract != nil:
-				log.Tracef("ChannelArbitrator(%v): swapping "+
+				log.Debugf("ChannelArbitrator(%v): swapping "+
 					"out contract %T for %T ",
 					c.cfg.ChanPoint, currentContract,
 					nextContract)
@@ -1206,7 +1210,7 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
 			// If this contract is actually fully resolved, then
 			// we'll mark it as such within the database.
 			case currentContract.IsResolved():
-				log.Tracef("ChannelArbitrator(%v): marking "+
+				log.Debugf("ChannelArbitrator(%v): marking "+
 					"contract %T fully resolved",
 					c.cfg.ChanPoint, currentContract)
 

@@ -112,7 +112,7 @@ func assertTxInBlock(t *harnessTest, block *wire.MsgBlock, txid *chainhash.Hash)
 		}
 	}
 
-	t.Fatalf("funding tx was not included in block")
+	t.Fatalf("tx was not included in block")
 }
 
 // mineBlocks mine 'num' of blocks and check that blocks are present in
@@ -3828,7 +3828,7 @@ func waitForNTxsInMempool(miner *rpcclient.Client, n int,
 	for {
 		select {
 		case <-breakTimeout:
-			return nil, fmt.Errorf("wanted %v, only found %v txs "+
+			return nil, fmt.Errorf("wanted %v, found %v txs "+
 				"in mempool", n, len(mempool))
 		case <-ticker.C:
 			mempool, err = miner.GetRawMempool()
@@ -4649,7 +4649,13 @@ func assertNodeNumChannels(t *harnessTest, ctxb context.Context,
 
 		// Return true if the query returned the expected number of
 		// channels.
-		return len(chanInfo.Channels) == numChannels
+		num := len(chanInfo.Channels)
+		if num != numChannels {
+			predErr = fmt.Errorf("expected %v channels, got %v",
+				numChannels, num)
+			return false
+		}
+		return true
 	}
 
 	if err := lntest.WaitPredicate(pred, time.Second*15); err != nil {
@@ -6033,7 +6039,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 		return true
 	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("htlc mismatch: %v", err)
+		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
 	// TODO(roasbeef): need to fix utxn so it can accept incubation for
@@ -6226,7 +6232,12 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
+
 	bobFundingTxid, err := chainhash.NewHash(txidHash)
+	if err != nil {
+		t.Fatalf("unable to create sha hash: %v", err)
+	}
+
 	carolFundingPoint := wire.OutPoint{
 		Hash:  *bobFundingTxid,
 		Index: bobChanPoint.OutputIndex,
@@ -6642,7 +6653,7 @@ func testMultHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 		return true
 	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("htlc mismatch: %v", err)
+		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
 	// At this point, we'll now instruct Carol to force close the
@@ -6929,9 +6940,11 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 					"but doesn't")
 				return false
 			}
-			if forceCloseChan.PendingHtlcs[0].Stage != 1 {
+			stage := forceCloseChan.PendingHtlcs[0].Stage
+			if stage != 1 {
 				predErr = fmt.Errorf("bob's htlc should have "+
-					"advanced to the first stage: %v", err)
+					"advanced to the first stage but was "+
+					"stage: %v", stage)
 				return false
 			}
 		}

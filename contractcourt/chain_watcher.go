@@ -782,11 +782,14 @@ func (c *CooperativeCloseCtx) LogPotentialClose(potentialClose *channeldb.Channe
 // pending closed in the database, then launch a goroutine to mark the channel
 // fully closed upon confirmation.
 func (c *CooperativeCloseCtx) Finalize(preferredClose *channeldb.ChannelCloseSummary) error {
-	log.Infof("Finalizing chan close for ChannelPoint(%v)",
-		c.watcher.chanState.FundingOutpoint)
+	chanPoint := c.watcher.chanState.FundingOutpoint
+
+	log.Infof("Finalizing chan close for ChannelPoint(%v)", chanPoint)
 
 	err := c.watcher.chanState.CloseChannel(preferredClose)
 	if err != nil {
+		log.Errorf("closeCtx: unable to close ChannelPoint(%v): %v",
+			chanPoint, err)
 		return err
 	}
 

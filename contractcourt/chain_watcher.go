@@ -457,8 +457,9 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 			return
 		}
 
-		log.Infof("Waiting for txid=%v to close ChannelPoint(%v) on chain",
-			commitSpend.SpenderTxHash, c.chanState.FundingOutpoint)
+		log.Infof("closeObserver: waiting for txid=%v to close "+
+			"ChannelPoint(%v) on chain", commitSpend.SpenderTxHash,
+			c.chanState.FundingOutpoint)
 
 		select {
 		case confInfo, ok := <-confNtfn.Confirmed:
@@ -467,8 +468,9 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 				return
 			}
 
-			log.Infof("ChannelPoint(%v) is fully closed, at height: %v",
-				c.chanState.FundingOutpoint, confInfo.BlockHeight)
+			log.Infof("closeObserver: ChannelPoint(%v) is fully "+
+				"closed, at height: %v", c.chanState.FundingOutpoint,
+				confInfo.BlockHeight)
 
 			err := c.markChanClosed()
 			if err != nil {
@@ -724,8 +726,9 @@ func (c *CooperativeCloseCtx) LogPotentialClose(potentialClose *channeldb.Channe
 			return
 		}
 
-		log.Infof("Waiting for txid=%v to close ChannelPoint(%v) on chain",
-			potentialClose.ClosingTXID, c.watcher.chanState.FundingOutpoint)
+		log.Infof("closeCtx: waiting for txid=%v to close "+
+			"ChannelPoint(%v) on chain", potentialClose.ClosingTXID,
+			c.watcher.chanState.FundingOutpoint)
 
 		select {
 		case confInfo, ok := <-confNtfn.Confirmed:
@@ -734,7 +737,7 @@ func (c *CooperativeCloseCtx) LogPotentialClose(potentialClose *channeldb.Channe
 				return
 			}
 
-			log.Infof("ChannelPoint(%v) is fully closed, at "+
+			log.Infof("closeCtx: ChannelPoint(%v) is fully closed, at "+
 				"height: %v", c.watcher.chanState.FundingOutpoint,
 				confInfo.BlockHeight)
 
@@ -751,14 +754,14 @@ func (c *CooperativeCloseCtx) LogPotentialClose(potentialClose *channeldb.Channe
 
 			err := c.watcher.chanState.CloseChannel(potentialClose)
 			if err != nil {
-				log.Warnf("unable to update latest close for "+
-					"ChannelPoint(%v): %v",
+				log.Warnf("closeCtx: unable to update latest "+
+					"close for ChannelPoint(%v): %v",
 					c.watcher.chanState.FundingOutpoint, err)
 			}
 
 			err = c.watcher.markChanClosed()
 			if err != nil {
-				log.Errorf("unable to mark chan fully "+
+				log.Errorf("closeCtx: unable to mark chan fully "+
 					"closed: %v", err)
 				return
 			}

@@ -34,12 +34,18 @@ import (
 
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"io"
 )
 
 var (
 	// ErrPeerNotFound signals that the server has no connection to the
 	// given peer.
 	ErrPeerNotFound = errors.New("unable to find peer")
+
+	// ErrFriendlyEOF provides a user-friendly error message instead of
+	// the text "EOF"
+	ErrFriendlyEOF = errors.New(
+		"remote host is unavailable or rejected the connection")
 
 	// ErrServerShuttingDown indicates that the server is in the process of
 	// gracefully exiting.
@@ -1753,7 +1759,9 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress, perm bool) error {
 	// the crypto negotiation breaks down, then return an error to the
 	// caller.
 	conn, err := s.connDialer.Dial(addr)
-	if err != nil {
+	if err == io.EOF {
+		return ErrFriendlyEOF
+	} else if err != nil {
 		return err
 	}
 

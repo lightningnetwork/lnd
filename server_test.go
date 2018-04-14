@@ -96,7 +96,7 @@ func TestConnectToPeer_DialFailed(t *testing.T) {
 }
 
 func TestConnectToPeer_DialFailedEOF(t *testing.T) {
-	testConnectToPeerFailedDial(t, io.EOF, io.EOF)
+	testConnectToPeerFailedDial(t, io.EOF, ErrFriendlyEOF)
 }
 
 func testConnectToPeerFailedDial(t *testing.T, dialErr error, expectedErr error) {

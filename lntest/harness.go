@@ -1,6 +1,7 @@
 package lntest
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"strings"
@@ -271,53 +272,86 @@ func (n *NetworkHarness) NewNode(extraArgs []string) (*HarnessNode, error) {
 // been made, the method will block until the two nodes appear in each other's
 // peers list, or until the 15s timeout expires.
 func (n *NetworkHarness) EnsureConnected(ctx context.Context, a, b *HarnessNode) error {
-	bobInfo, err := b.GetInfo(ctx, &lnrpc.GetInfoRequest{})
-	if err != nil {
-		return err
+	// errConnectionRequested is used to signal that a connection was
+	// requested successfully, which is distinct from already being
+	// connected to the peer.
+	errConnectionRequested := errors.New("connection request in progress")
+
+	tryConnect := func(a, b *HarnessNode) error {
+		ctxt, _ := context.WithTimeout(ctx, 15*time.Second)
+		bInfo, err := b.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
+		if err != nil {
+			return err
+		}
+
+		req := &lnrpc.ConnectPeerRequest{
+			Addr: &lnrpc.LightningAddress{
+				Pubkey: bInfo.IdentityPubkey,
+				Host:   b.cfg.P2PAddr(),
+			},
+		}
+
+		ctxt, _ = context.WithTimeout(ctx, 15*time.Second)
+		_, err = a.ConnectPeer(ctxt, req)
+		switch {
+
+		// Request was successful, wait for both to display the
+		// connection.
+		case err == nil:
+			return errConnectionRequested
+
+		// If the two are already connected, we return early with no
+		// error.
+		case strings.Contains(err.Error(), "already connected to peer"):
+			return nil
+
+		default:
+			return err
+		}
 	}
 
-	req := &lnrpc.ConnectPeerRequest{
-		Addr: &lnrpc.LightningAddress{
-			Pubkey: bobInfo.IdentityPubkey,
-			Host:   b.cfg.P2PAddr(),
-		},
-	}
-
-	_, err = a.ConnectPeer(ctx, req)
+	aErr := tryConnect(a, b)
+	bErr := tryConnect(b, a)
 	switch {
-
-	// Request was successful, wait for both to display the connection.
-	case err == nil:
-
-	// If we already have pending connection, we will wait until bob appears
-	// in alice's peer list.
-	case strings.Contains(err.Error(), "connection attempt to ") &&
-		strings.Contains(err.Error(), " is pending"):
-
-	// If the two are already connected, we return early with no error.
-	case strings.Contains(err.Error(), "already connected to peer"):
+	case aErr == nil && bErr == nil:
+		// If both reported already being connected to each other, we
+		// can exit early.
 		return nil
 
+	case aErr != errConnectionRequested:
+		// Return any critical errors returned by either alice.
+		return aErr
+
+	case bErr != errConnectionRequested:
+		// Return any critical errors returned by either bob.
+		return bErr
+
 	default:
-		return err
+		// Otherwise one or both requested a connection, so we wait for
+		// the peers lists to reflect the connection.
 	}
 
-	err = WaitPredicate(func() bool {
+	findSelfInPeerList := func(a, b *HarnessNode) bool {
 		// If node B is seen in the ListPeers response from node A,
 		// then we can exit early as the connection has been fully
 		// established.
-		resp, err := a.ListPeers(ctx, &lnrpc.ListPeersRequest{})
+		ctxt, _ := context.WithTimeout(ctx, 15*time.Second)
+		resp, err := b.ListPeers(ctxt, &lnrpc.ListPeersRequest{})
 		if err != nil {
 			return false
 		}
 
 		for _, peer := range resp.Peers {
-			if peer.PubKey == b.PubKeyStr {
+			if peer.PubKey == a.PubKeyStr {
 				return true
 			}
 		}
 
 		return false
+	}
+
+	err := WaitPredicate(func() bool {
+		return findSelfInPeerList(a, b) && findSelfInPeerList(b, a)
 	}, time.Second*15)
 	if err != nil {
 		return fmt.Errorf("peers not connected within 15 seconds")

@@ -43,7 +43,7 @@ const (
 	defaultLitecoinFeeRate       = lnwire.MilliSatoshi(1)
 	defaultLitecoinTimeLockDelta = 576
 	defaultLitecoinStaticFeeRate = lnwallet.SatPerVByte(200)
-	defaultLitecoinMinRelayFee   = btcutil.Amount(1000)
+	defaultLitecoinDustLimit     = btcutil.Amount(54600)
 )
 
 // defaultBtcChannelConstraints is the default set of channel constraints that are
@@ -58,7 +58,7 @@ var defaultBtcChannelConstraints = channeldb.ChannelConstraints{
 // defaultLtcChannelConstraints is the default set of channel constraints that are
 // meant to be used when initially funding a Litecoin channel.
 var defaultLtcChannelConstraints = channeldb.ChannelConstraints{
-	DustLimit:        defaultLitecoinMinRelayFee,
+	DustLimit:        defaultLitecoinDustLimit,
 	MaxAcceptedHtlcs: lnwallet.MaxHTLCNumber / 2,
 }
 
@@ -246,6 +246,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 		// database.
 		walletConfig.ChainSource = chain.NewNeutrinoClient(svc)
 		cleanUp = func() {
+			svc.Stop()
 			nodeDatabase.Close()
 		}
 	case "bitcoind", "litecoind":

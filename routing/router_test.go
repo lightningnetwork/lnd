@@ -297,7 +297,7 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	// to luo ji for 100 satoshis.
 	var payHash [32]byte
 	payment := LightningPayment{
-		Target:      ctx.aliases["luoji"],
+		Target:      ctx.aliases["sophon"],
 		Amount:      lnwire.NewMSatFromSatoshis(1000),
 		PaymentHash: payHash,
 	}
@@ -306,9 +306,9 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
 
 	// We'll also fetch the first outgoing channel edge from roasbeef to
-	// luo ji. We'll obtain this as we'll need to to generate the
+	// son goku. We'll obtain this as we'll need to to generate the
 	// FeeInsufficient error that we'll send back.
-	chanID := uint64(689530843)
+	chanID := uint64(3495345)
 	_, _, edgeUpateToFail, err := ctx.graph.FetchChannelEdgesByID(chanID)
 	if err != nil {
 		t.Fatalf("unable to fetch chan id: %v", err)
@@ -324,24 +324,21 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 		FeeRate:         uint32(edgeUpateToFail.FeeProportionalMillionths),
 	}
 
-	sourceNode := ctx.router.selfNode
+	// The error will be returned by Son Goku.
+	sourceNode := ctx.aliases["songoku"]
 
 	// We'll now modify the SendToSwitch method to return an error for the
-	// outgoing channel to luo ji. This will be a fee related error, so it
-	// should only cause the edge to be pruned after the second attempt.
+	// outgoing channel to Son goku. This will be a fee related error, so
+	// it should only cause the edge to be pruned after the second attempt.
 	ctx.router.cfg.SendToSwitch = func(n [33]byte,
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 
-		if bytes.Equal(ctx.aliases["luoji"].SerializeCompressed(), n[:]) {
-			pub, err := sourceNode.PubKey()
-			if err != nil {
-				return preImage, err
-			}
+		if bytes.Equal(sourceNode.SerializeCompressed(), n[:]) {
 			return [32]byte{}, &htlcswitch.ForwardingError{
-				ErrorSource: pub,
+				ErrorSource: sourceNode,
 
 				// Within our error, we'll add a channel update
-				// which is meant to refelct he new fee
+				// which is meant to reflect he new fee
 				// schedule for the node/channel.
 				FailureMessage: &lnwire.FailFeeInsufficient{
 					Update: errChanUpdate,
@@ -371,8 +368,8 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 			preImage[:], paymentPreImage[:])
 	}
 
-	// The route should have satoshi as the first hop.
-	if route.Hops[0].Channel.Node.Alias != "satoshi" {
+	// The route should have pham nuwen as the first hop.
+	if route.Hops[0].Channel.Node.Alias != "phamnuwen" {
 		t.Fatalf("route should go through satoshi as first hop, "+
 			"instead passes through: %v",
 			route.Hops[0].Channel.Node.Alias)

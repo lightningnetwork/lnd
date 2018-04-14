@@ -1003,6 +1003,11 @@
           "type": "string",
           "format": "int64",
           "title": "/ Sum of channels balances denominated in satoshis"
+        },
+        "pending_open_balance": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ Sum of channels pending balances denominated in satoshis"
         }
       }
     },
@@ -1807,6 +1812,11 @@
           "type": "string",
           "format": "int64",
           "description": "/ The minimum value in millisatoshi we will require for incoming HTLCs on the channel."
+        },
+        "remote_csv_delay": {
+          "type": "integer",
+          "format": "int64",
+          "description": "/ The delay we require on the remote's commitment transaction. If this is not set, it will be scaled automatically with the channel size."
         }
       }
     },

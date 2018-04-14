@@ -1724,12 +1724,12 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 				// We'll now check to see if we've already
 				// reported a fee related failure for this
 				// node. If so, then we'll actually prune out
-				// the edge for now.
+				// the vertex for now.
 				chanID := update.ShortChannelID
 				_, ok := errFailedFeeChans[chanID]
 				if ok {
-					pruneEdgeFailure(
-						paySession, route, errSource,
+					pruneVertexFailure(
+						paySession, route, errSource, false,
 					)
 					continue
 				}

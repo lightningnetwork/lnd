@@ -76,7 +76,7 @@ is at the default `localhost:10009`, with an open channel between the two nodes.
 
 ```python
 # Retrieve and display the wallet balance
-response = stub.WalletBalance(ln.WalletBalanceRequest(witness_only=True))
+response = stub.WalletBalance(ln.WalletBalanceRequest())
 print(response.total_balance)
 ```
 
@@ -138,11 +138,13 @@ This example will send a payment of 100 satoshis every 2 seconds.
 To authenticate using macaroons you need to include the macaroon in the metadata of the request.
 
 ```python
+import codecs
+
 # Lnd admin macaroon is at ~/.lnd/admin.macaroon on Linux and
 # ~/Library/Application Support/Lnd/admin.macaroon on Mac
-with open('~/.lnd/admin.macaroon', 'rb') as f:
+with open(os.path.expanduser('~/.lnd/admin.macaroon'), 'rb') as f:
     macaroon_bytes = f.read()
-    macaroon = codecs.decode(macaroon_bytes, 'hex')
+    macaroon = codecs.encode(macaroon_bytes, 'hex')
 ```
 
 The simplest approach to use the macaroon is to include the metadata in each request as shown below.
@@ -156,7 +158,7 @@ However, this can get tiresome to do for each request, so to avoid explicitly in
 ```python
 def metadata_callback(context, callback):
     # for more info see grpc docs
-    callback([('macaroon', self.macaroon)], None)
+    callback([('macaroon', macaroon)], None)
 
 
 # build ssl credentials using the cert the same as before

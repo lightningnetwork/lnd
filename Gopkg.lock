@@ -149,12 +149,12 @@
     "filterdb",
     "headerfs"
   ]
-  revision = "601b7eda6e5c9e8ca91c097f0bb7be2664802ab3"
+  revision = "36d9a509ff4ea1e916a73c6f1c2b784c1faf11ed"
 
 [[projects]]
   name = "github.com/lightningnetwork/lightning-onion"
   packages = ["."]
-  revision = "6d4b1353e2835def84ee240f40499464521c6046"
+  revision = "c86137582e53fe3ba26681a98f911b546970893e"
 
 [[projects]]
   name = "github.com/ltcsuite/ltcd"
@@ -191,7 +191,7 @@
     "txscript",
     "wire"
   ]
-  revision = "e6807bc4dd5ddbb95b4ab163f6dd61e4ad79463a"
+  revision = "3b7cd0380ae14f7ae01703f04b5120bf688f5dcd"
 
 [[projects]]
   name = "github.com/roasbeef/btcutil"
@@ -204,7 +204,7 @@
     "hdkeychain",
     "txsort"
   ]
-  revision = "c3ff179366044979fb9856c2feb79bd4c2184c7a"
+  revision = "dfb640c57141f1c2113b92b4b16d2a89c30dd258"
 
 [[projects]]
   name = "github.com/roasbeef/btcwallet"
@@ -225,7 +225,7 @@
     "walletdb/bdb",
     "wtxmgr"
   ]
-  revision = "45445d1b09670109410174cb01fab0b133e3a904"
+  revision = "257011e9f113aeea4720f03f732a19753a4599e1"
 
 [[projects]]
   branch = "master"
@@ -359,6 +359,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "def340dd46b9ae439bf7c1e27155358aba5bb709c613fc1c577dacc4a2d4a1be"
+  inputs-digest = "1b075083f0d9636bbbb051345f1973e27f15c53855a109b983849971ba5073f1"
   solver-name = "gps-cdcl"
   solver-version = 1

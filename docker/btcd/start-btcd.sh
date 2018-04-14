@@ -67,5 +67,5 @@ PARAMS="$PARAMS $@"
 
 # Print command and start bitcoin node.
 echo "Command: btcd $PARAMS"
-btcd $PARAMS
+exec btcd $PARAMS
 

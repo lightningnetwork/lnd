@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -124,7 +125,7 @@ func (m *mockNotifier) Stop() error {
 }
 
 func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	heightHint uint32) (*chainntnfs.SpendEvent, error) {
+	heightHint uint32, _ bool) (*chainntnfs.SpendEvent, error) {
 	return &chainntnfs.SpendEvent{
 		Spend:  make(chan *chainntnfs.SpendDetail),
 		Cancel: func() {},
@@ -282,6 +283,12 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 
 			return nil, fmt.Errorf("unable to find channel")
 		},
+		DefaultRoutingPolicy: htlcswitch.ForwardingPolicy{
+			MinHTLC:       5,
+			BaseFee:       100,
+			FeeRate:       1000,
+			TimeLockDelta: 10,
+		},
 		NumRequiredConfs: func(chanAmt btcutil.Amount,
 			pushAmt lnwire.MilliSatoshi) uint16 {
 			return 3
@@ -300,7 +307,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			return uint16(lnwallet.MaxHTLCNumber / 2)
 		},
 		ArbiterChan: arbiterChan,
-		WatchNewChannel: func(*channeldb.OpenChannel) error {
+		WatchNewChannel: func(*channeldb.OpenChannel, *lnwire.NetAddress) error {
 			return nil
 		},
 		ReportShortChanID: func(wire.OutPoint, lnwire.ShortChannelID) error {
@@ -1933,4 +1940,203 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 	// The internal state-machine should now have deleted the channelStates
 	// from the database, as the channel is announced.
 	assertNoChannelState(t, alice, bob, fundingOutPoint)
+}
+
+// TestFundingManagerCustomChannelParameters checks that custom requirements we
+// specify during the channel funding flow is preserved correcly on both sides.
+func TestFundingManagerCustomChannelParameters(t *testing.T) {
+	alice, bob := setupFundingManagers(t)
+	defer tearDownFundingManagers(t, alice, bob)
+
+	// This is the custom parameters we'll use.
+	const csvDelay = 67
+	const minHtlc = 1234
+
+	// We will consume the channel updates as we go, so no buffering is
+	// needed.
+	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+
+	// Create a funding request with the custom parameters and start the
+	// workflow.
+	errChan := make(chan error, 1)
+	initReq := &openChanReq{
+		targetPubkey:    bob.privKey.PubKey(),
+		chainHash:       *activeNetParams.GenesisHash,
+		localFundingAmt: 5000000,
+		pushAmt:         lnwire.NewMSatFromSatoshis(0),
+		private:         false,
+		minHtlc:         minHtlc,
+		remoteCsvDelay:  csvDelay,
+		updates:         updateChan,
+		err:             errChan,
+	}
+
+	alice.fundingMgr.initFundingWorkflow(bobAddr, initReq)
+
+	// Alice should have sent the OpenChannel message to Bob.
+	var aliceMsg lnwire.Message
+	select {
+	case aliceMsg = <-alice.msgChan:
+	case err := <-initReq.err:
+		t.Fatalf("error init funding workflow: %v", err)
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice did not send OpenChannel message")
+	}
+
+	openChannelReq, ok := aliceMsg.(*lnwire.OpenChannel)
+	if !ok {
+		errorMsg, gotError := aliceMsg.(*lnwire.Error)
+		if gotError {
+			t.Fatalf("expected OpenChannel to be sent "+
+				"from bob, instead got error: %v",
+				lnwire.ErrorCode(errorMsg.Data[0]))
+		}
+		t.Fatalf("expected OpenChannel to be sent from "+
+			"alice, instead got %T", aliceMsg)
+	}
+
+	// Check that the custom CSV delay is sent as part of OpenChannel.
+	if openChannelReq.CsvDelay != csvDelay {
+		t.Fatalf("expected OpenChannel to have CSV delay %v, got %v",
+			csvDelay, openChannelReq.CsvDelay)
+	}
+
+	// Check that the custom minHTLC value is sent.
+	if openChannelReq.HtlcMinimum != minHtlc {
+		t.Fatalf("expected OpenChannel to have minHtlc %v, got %v",
+			minHtlc, openChannelReq.HtlcMinimum)
+	}
+
+	chanID := openChannelReq.PendingChannelID
+
+	// Let Bob handle the init message.
+	bob.fundingMgr.processFundingOpen(openChannelReq, aliceAddr)
+
+	// Bob should answer with an AcceptChannel message.
+	acceptChannelResponse := assertFundingMsgSent(
+		t, bob.msgChan, "AcceptChannel",
+	).(*lnwire.AcceptChannel)
+
+	// Bob should require the default delay of 4.
+	if acceptChannelResponse.CsvDelay != 4 {
+		t.Fatalf("expected AcceptChannel to have CSV delay %v, got %v",
+			4, acceptChannelResponse.CsvDelay)
+	}
+
+	// And the default MinHTLC value of 5.
+	if acceptChannelResponse.HtlcMinimum != 5 {
+		t.Fatalf("expected AcceptChannel to have minHtlc %v, got %v",
+			5, acceptChannelResponse.HtlcMinimum)
+	}
+
+	// Forward the response to Alice.
+	alice.fundingMgr.processFundingAccept(acceptChannelResponse, bobAddr)
+
+	// Alice responds with a FundingCreated message.
+	fundingCreated := assertFundingMsgSent(
+		t, alice.msgChan, "FundingCreated",
+	).(*lnwire.FundingCreated)
+
+	// Give the message to Bob.
+	bob.fundingMgr.processFundingCreated(fundingCreated, aliceAddr)
+
+	// Finally, Bob should send the FundingSigned message.
+	fundingSigned := assertFundingMsgSent(
+		t, bob.msgChan, "FundingSigned",
+	).(*lnwire.FundingSigned)
+
+	// Forward the signature to Alice.
+	alice.fundingMgr.processFundingSigned(fundingSigned, bobAddr)
+
+	// After Alice processes the singleFundingSignComplete message, she will
+	// broadcast the funding transaction to the network. We expect to get a
+	// channel update saying the channel is pending.
+	var pendingUpdate *lnrpc.OpenStatusUpdate
+	select {
+	case pendingUpdate = <-updateChan:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice did not send OpenStatusUpdate_ChanPending")
+	}
+
+	_, ok = pendingUpdate.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
+	if !ok {
+		t.Fatal("OpenStatusUpdate was not OpenStatusUpdate_ChanPending")
+	}
+
+	// Wait for Alice to published the funding tx to the network.
+	select {
+	case <-alice.publTxChan:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice did not publish funding tx")
+	}
+
+	// Helper method for checking the CSV delay stored for a reservation.
+	assertDelay := func(resCtx *reservationWithCtx,
+		ourDelay, theirDelay uint16) error {
+
+		ourCsvDelay := resCtx.reservation.OurContribution().CsvDelay
+		if ourCsvDelay != ourDelay {
+			return fmt.Errorf("expected our CSV delay to be %v, "+
+				"was %v", ourDelay, ourCsvDelay)
+		}
+
+		theirCsvDelay := resCtx.reservation.TheirContribution().CsvDelay
+		if theirCsvDelay != theirDelay {
+			return fmt.Errorf("expected their CSV delay to be %v, "+
+				"was %v", theirDelay, theirCsvDelay)
+		}
+		return nil
+	}
+
+	// Helper method for checking the MinHtlc value stored for a
+	// reservation.
+	assertMinHtlc := func(resCtx *reservationWithCtx,
+		expOurMinHtlc, expTheirMinHtlc lnwire.MilliSatoshi) error {
+
+		ourMinHtlc := resCtx.reservation.OurContribution().MinHTLC
+		if ourMinHtlc != expOurMinHtlc {
+			return fmt.Errorf("expected our minHtlc to be %v, "+
+				"was %v", expOurMinHtlc, ourMinHtlc)
+		}
+
+		theirMinHtlc := resCtx.reservation.TheirContribution().MinHTLC
+		if theirMinHtlc != expTheirMinHtlc {
+			return fmt.Errorf("expected their minHtlc to be %v, "+
+				"was %v", expTheirMinHtlc, theirMinHtlc)
+		}
+		return nil
+	}
+
+	// Check that the custom channel parameters were properly set in the
+	// channel reservation.
+	resCtx, err := alice.fundingMgr.getReservationCtx(bobPubKey, chanID)
+	if err != nil {
+		t.Fatalf("unable to find ctx: %v", err)
+	}
+
+	// Alice's CSV delay should be 4 since Bob sent the fedault value, and
+	// Bob's should be 67 since Alice sent the custom value.
+	if err := assertDelay(resCtx, 4, csvDelay); err != nil {
+		t.Fatal(err)
+	}
+
+	// The minimum HTLC value Alice can offer should be 5, and the minimum
+	// Bob can offer should be 1234.
+	if err := assertMinHtlc(resCtx, 5, minHtlc); err != nil {
+		t.Fatal(err)
+	}
+
+	// Also make sure the parameters are properly set on Bob's end.
+	resCtx, err = bob.fundingMgr.getReservationCtx(alicePubKey, chanID)
+	if err != nil {
+		t.Fatalf("unable to find ctx: %v", err)
+	}
+
+	if err := assertDelay(resCtx, csvDelay, 4); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := assertMinHtlc(resCtx, minHtlc, 5); err != nil {
+		t.Fatal(err)
+	}
 }

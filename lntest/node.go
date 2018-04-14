@@ -147,6 +147,7 @@ func (cfg nodeConfig) genArgs() []string {
 	args = append(args, fmt.Sprintf("--rpclisten=%v", cfg.RPCAddr()))
 	args = append(args, fmt.Sprintf("--restlisten=%v", cfg.RESTAddr()))
 	args = append(args, fmt.Sprintf("--listen=%v", cfg.P2PAddr()))
+	args = append(args, fmt.Sprintf("--externalip=%v", cfg.P2PAddr()))
 	args = append(args, fmt.Sprintf("--logdir=%v", cfg.LogDir))
 	args = append(args, fmt.Sprintf("--datadir=%v", cfg.DataDir))
 	args = append(args, fmt.Sprintf("--tlscertpath=%v", cfg.TLSCertPath))
@@ -244,7 +245,7 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 
 	args := hn.cfg.genArgs()
 	args = append(args, fmt.Sprintf("--profile=%d", 9000+hn.NodeID))
-	hn.cmd = exec.Command("lnd", args...)
+	hn.cmd = exec.Command("./lnd", args...)
 
 	// Redirect stderr output to buffer
 	var errb bytes.Buffer
@@ -428,7 +429,12 @@ func (hn *HarnessNode) stop() error {
 	}
 
 	// Wait for lnd process and other goroutines to exit.
-	<-hn.processExit
+	select {
+	case <-hn.processExit:
+	case <-time.After(60 * time.Second):
+		return fmt.Errorf("process did not exit")
+	}
+
 	close(hn.quit)
 	hn.wg.Wait()
 

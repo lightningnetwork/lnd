@@ -196,7 +196,7 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 		ChanPoint:   chanPoint,
 		ShortChanID: channel.ShortChanID,
 		BlockEpochs: blockEpoch,
-		ForceCloseChan: func() (*lnwallet.ForceCloseSummary, error) {
+		ForceCloseChan: func() (*lnwallet.LocalForceCloseSummary, error) {
 			// With the channels fetched, attempt to locate
 			// the target channel according to its channel
 			// point.
@@ -276,6 +276,8 @@ func (c *ChainArbitrator) resolveContract(chanPoint wire.OutPoint,
 	// the channel source.
 	err := c.chanSource.MarkChanFullyClosed(&chanPoint)
 	if err != nil {
+		log.Errorf("ChainArbitrator: unable to mark ChannelPoint(%v) "+
+			"fully closed: %v", chanPoint, err)
 		return err
 	}
 
@@ -325,19 +327,22 @@ func (c *ChainArbitrator) Start() error {
 	// For each open channel, we'll configure then launch a corresponding
 	// ChannelArbitrator.
 	for _, channel := range openChannels {
+		chanPoint := channel.FundingOutpoint
+
 		// First, we'll create an active chainWatcher for this channel
 		// to ensure that we detect any relevant on chain events.
 		chainWatcher, err := newChainWatcher(
 			channel, c.cfg.Notifier, c.cfg.PreimageDB, c.cfg.Signer,
 			c.cfg.IsOurAddress, func() error {
-				return c.resolveContract(channel.FundingOutpoint, nil)
+				// TODO(roasbeef): also need to pass in log?
+				return c.resolveContract(chanPoint, nil)
 			},
 		)
 		if err != nil {
 			return err
 		}
 
-		c.activeWatchers[channel.FundingOutpoint] = chainWatcher
+		c.activeWatchers[chanPoint] = chainWatcher
 		channelArb, err := newActiveChannelArbitrator(
 			channel, c, chainWatcher.SubscribeChannelEvents(false),
 		)
@@ -345,7 +350,7 @@ func (c *ChainArbitrator) Start() error {
 			return err
 		}
 
-		c.activeChannels[channel.FundingOutpoint] = channelArb
+		c.activeChannels[chanPoint] = channelArb
 	}
 
 	// In addition to the channels that we know to be open, we'll also
@@ -477,7 +482,7 @@ func (c *ChainArbitrator) Stop() error {
 // NOTE: This must be launched as a goroutine.
 func (c *ChainArbitrator) watchForChannelClose(closeInfo *channeldb.ChannelCloseSummary) {
 	spendNtfn, err := c.cfg.Notifier.RegisterSpendNtfn(
-		&closeInfo.ChanPoint, closeInfo.CloseHeight,
+		&closeInfo.ChanPoint, closeInfo.CloseHeight, true,
 	)
 	if err != nil {
 		log.Errorf("unable to register for spend: %v", err)

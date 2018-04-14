@@ -528,24 +528,14 @@ func (n *NeutrinoNotifier) notifyBlockEpochs(newHeight int32, newSha *chainhash.
 	}
 
 	for _, epochClient := range n.blockEpochClients {
-		n.wg.Add(1)
-		epochClient.wg.Add(1)
-		go func(ntfnChan chan *chainntnfs.BlockEpoch, cancelChan chan struct{},
-			clientWg *sync.WaitGroup) {
+		select {
 
-			defer clientWg.Done()
-			defer n.wg.Done()
+		case epochClient.epochQueue.ChanIn() <- epoch:
 
-			select {
-			case ntfnChan <- epoch:
+		case <-epochClient.cancelChan:
 
-			case <-cancelChan:
-				return
-
-			case <-n.quit:
-				return
-			}
-		}(epochClient.epochChan, epochClient.cancelChan, &epochClient.wg)
+		case <-n.quit:
+		}
 	}
 }
 
@@ -576,7 +566,7 @@ type spendCancel struct {
 // target outpoint has been detected, the details of the spending event will be
 // sent across the 'Spend' channel.
 func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	heightHint uint32) (*chainntnfs.SpendEvent, error) {
+	heightHint uint32, _ bool) (*chainntnfs.SpendEvent, error) {
 
 	n.heightMtx.RLock()
 	currentHeight := n.bestHeight
@@ -708,7 +698,7 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 		ConfNtfn: chainntnfs.ConfNtfn{
 			TxID:             txid,
 			NumConfirmations: numConfs,
-			Event:            chainntnfs.NewConfirmationEvent(),
+			Event:            chainntnfs.NewConfirmationEvent(numConfs),
 		},
 		heightHint: heightHint,
 	}

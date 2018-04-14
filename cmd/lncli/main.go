@@ -29,6 +29,10 @@ const (
 )
 
 var (
+	//Commit stores the current commit hash of this build. This should be
+	//set using -ldflags during compilation.
+	Commit string
+
 	defaultLndDir       = btcutil.AppDataDir("lnd", false)
 	defaultTLSCertPath  = filepath.Join(defaultLndDir, defaultTLSCertFilename)
 	defaultMacaroonPath = filepath.Join(defaultLndDir, defaultMacaroonFilename)
@@ -150,7 +154,7 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 func main() {
 	app := cli.NewApp()
 	app.Name = "lncli"
-	app.Version = "0.4"
+	app.Version = fmt.Sprintf("%s commit=%s", "0.4.1", Commit)
 	app.Usage = "control plane for your Lightning Network Daemon (lnd)"
 	app.Flags = []cli.Flag{
 		cli.StringFlag{

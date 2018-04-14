@@ -29,7 +29,6 @@ import (
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/roasbeef/btcd/blockchain"
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
@@ -712,6 +711,7 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	localFundingAmt := btcutil.Amount(in.LocalFundingAmount)
 	remoteInitialBalance := btcutil.Amount(in.PushSat)
 	minHtlc := lnwire.MilliSatoshi(in.MinHtlcMsat)
+	remoteCsvDelay := uint16(in.RemoteCsvDelay)
 
 	// Ensure that the initial balance of the remote party (if pushing
 	// satoshis) does not exceed the amount the local party has requested
@@ -785,7 +785,7 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	updateChan, errChan := r.server.OpenChannel(
 		nodePubKey, localFundingAmt,
 		lnwire.NewMSatFromSatoshis(remoteInitialBalance),
-		minHtlc, feeRate, in.Private,
+		minHtlc, feeRate, in.Private, remoteCsvDelay,
 	)
 
 	var outpoint wire.OutPoint
@@ -880,6 +880,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	localFundingAmt := btcutil.Amount(in.LocalFundingAmount)
 	remoteInitialBalance := btcutil.Amount(in.PushSat)
 	minHtlc := lnwire.MilliSatoshi(in.MinHtlcMsat)
+	remoteCsvDelay := uint16(in.RemoteCsvDelay)
 
 	// Ensure that the initial balance of the remote party (if pushing
 	// satoshis) does not exceed the amount the local party has requested
@@ -912,7 +913,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	updateChan, errChan := r.server.OpenChannel(
 		nodepubKey, localFundingAmt,
 		lnwire.NewMSatFromSatoshis(remoteInitialBalance),
-		minHtlc, feeRate, in.Private,
+		minHtlc, feeRate, in.Private, remoteCsvDelay,
 	)
 
 	select {
@@ -997,20 +998,19 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 	// TODO(roasbeef): if force and peer online then don't force?
 
+	// First, we'll fetch the channel as is, as we'll need to examine it
+	// regardless of if this is a force close or not.
+	channel, err := r.fetchActiveChannel(*chanPoint)
+	if err != nil {
+		return err
+	}
+	channel.Stop()
+
 	// If a force closure was requested, then we'll handle all the details
 	// around the creation and broadcast of the unilateral closure
 	// transaction here rather than going to the switch as we don't require
 	// interaction from the peer.
 	if force {
-		// As the first part of the force closure, we first fetch the
-		// channel from the database, then execute a direct force
-		// closure broadcasting our current commitment transaction.
-		channel, err := r.fetchActiveChannel(*chanPoint)
-		if err != nil {
-			return err
-		}
-		channel.Stop()
-
 		_, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
 		if err != nil {
 			return err
@@ -1029,12 +1029,6 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		} else {
 			chanID := lnwire.NewChanIDFromOutPoint(channel.ChannelPoint())
 			r.server.htlcSwitch.RemoveLink(chanID)
-		}
-
-		select {
-		case r.server.breachArbiter.settledContracts <- *chanPoint:
-		case <-r.quit:
-			return fmt.Errorf("server shutting down")
 		}
 
 		// With the necessary indexes cleaned up, we'll now force close
@@ -1077,6 +1071,16 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 				}
 			})
 	} else {
+		// If the link is not known by the switch, we cannot gracefully close
+		// the channel.
+		channelID := lnwire.NewChanIDFromOutPoint(chanPoint)
+		if _, err := r.server.htlcSwitch.GetLink(channelID); err != nil {
+			rpcsLog.Debugf("Trying to non-force close offline channel with "+
+				"chan_point=%v", chanPoint)
+			return fmt.Errorf("unable to gracefully close channel while peer "+
+				"is offline (try force closing it instead): %v", err)
+		}
+
 		// Based on the passed fee related parameters, we'll determine
 		// an appropriate fee rate for the cooperative closure
 		// transaction.
@@ -1097,6 +1101,14 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 			if err != nil {
 				return err
 			}
+		}
+
+		// Before we attempt the cooperative channel closure, we'll
+		// examine the channel to ensure that it doesn't have a
+		// lingering HTLC.
+		if len(channel.ActiveHtlcs()) != 0 {
+			return fmt.Errorf("cannot co-op close channel " +
+				"with active htlcs")
 		}
 
 		// Otherwise, the caller has requested a regular interactive
@@ -1230,7 +1242,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		BlockHeight:         uint32(bestHeight),
 		BlockHash:           bestHash.String(),
 		SyncedToChain:       isSynced,
-		Testnet:             activeNetParams.Params == &chaincfg.TestNet3Params,
+		Testnet:             isTestnet(&activeNetParams),
 		Chains:              activeChains,
 		Uris:                uris,
 		Alias:               nodeAnn.Alias.String(),
@@ -1328,14 +1340,19 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 		return nil, err
 	}
 
-	var balance btcutil.Amount
+	var pendingOpenBalance, balance btcutil.Amount
 	for _, channel := range channels {
-		if !channel.IsPending {
+		if channel.IsPending {
+			pendingOpenBalance += channel.LocalCommitment.LocalBalance.ToSatoshis()
+		} else {
 			balance += channel.LocalCommitment.LocalBalance.ToSatoshis()
 		}
 	}
 
-	return &lnrpc.ChannelBalanceResponse{Balance: int64(balance)}, nil
+	return &lnrpc.ChannelBalanceResponse{
+		Balance:            int64(balance),
+		PendingOpenBalance: int64(pendingOpenBalance),
+	}, nil
 }
 
 // PendingChannels returns a list of all the channels that are currently
@@ -2129,8 +2146,21 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	// will be explicitly added to this payment request, which will imply
 	// the default 3600 seconds.
 	if invoice.Expiry > 0 {
-		exp := time.Duration(invoice.Expiry) * time.Second
-		options = append(options, zpay32.Expiry(exp))
+
+		// We'll ensure that the specified expiry is restricted to sane
+		// number of seconds. As a result, we'll reject an invoice with
+		// an expiry greater than 1 year.
+		maxExpiry := time.Hour * 24 * 365
+		expSeconds := invoice.Expiry
+
+		if float64(expSeconds) > maxExpiry.Seconds() {
+			return nil, fmt.Errorf("expiry of %v seconds "+
+				"greater than max expiry of %v seconds",
+				float64(expSeconds), maxExpiry.Seconds())
+		}
+
+		expiry := time.Duration(invoice.Expiry) * time.Second
+		options = append(options, zpay32.Expiry(expiry))
 	}
 
 	// If the description hash is set, then we add it do the list of options.
@@ -3301,7 +3331,7 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 		TimeLockDelta: req.TimeLockDelta,
 	}
 
-	rpcsLog.Tracef("[updatechanpolicy] updating channel policy base_fee=%v, "+
+	rpcsLog.Debugf("[updatechanpolicy] updating channel policy base_fee=%v, "+
 		"rate_float=%v, rate_fixed=%v, time_lock_delta: %v, targets=%v",
 		req.BaseFeeMsat, req.FeeRate, feeRateFixed, req.TimeLockDelta,
 		spew.Sdump(targetChans))

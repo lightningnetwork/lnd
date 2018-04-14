@@ -81,6 +81,10 @@ type reservationWithCtx struct {
 
 	chanAmt btcutil.Amount
 
+	// Constraints we require for the remote.
+	remoteCsvDelay uint16
+	remoteMinHtlc  lnwire.MilliSatoshi
+
 	updateMtx   sync.RWMutex
 	lastUpdated time.Time
 
@@ -286,34 +290,41 @@ type fundingConfig struct {
 	// times.
 	RequiredRemoteChanReserve func(btcutil.Amount) btcutil.Amount
 
-	// RequiredRemoteMaxValue is a function closure that, given the
-	// channel capacity, returns the amount of MilliSatoshis that our
-	// remote peer can have in total outstanding HTLCs with us.
+	// RequiredRemoteMaxValue is a function closure that, given the channel
+	// capacity, returns the amount of MilliSatoshis that our remote peer
+	// can have in total outstanding HTLCs with us.
 	RequiredRemoteMaxValue func(btcutil.Amount) lnwire.MilliSatoshi
 
-	// RequiredRemoteMaxHTLCs is a function closure that, given the
-	// channel capacity, returns the number of maximum HTLCs the remote
-	// peer can offer us.
+	// RequiredRemoteMaxHTLCs is a function closure that, given the channel
+	// capacity, returns the number of maximum HTLCs the remote peer can
+	// offer us.
 	RequiredRemoteMaxHTLCs func(btcutil.Amount) uint16
 
 	// WatchNewChannel is to be called once a new channel enters the final
 	// funding stage: waiting for on-chain confirmation. This method sends
 	// the channel to the ChainArbitrator so it can watch for any on-chain
-	// events related to the channel.
-	WatchNewChannel func(*channeldb.OpenChannel) error
+	// events related to the channel. We also provide the address of the
+	// node we're establishing a channel with for reconnection purposes.
+	WatchNewChannel func(*channeldb.OpenChannel, *lnwire.NetAddress) error
 
 	// ReportShortChanID allows the funding manager to report the newly
 	// discovered short channel ID of a formerly pending channel to outside
 	// sub-systems.
 	ReportShortChanID func(wire.OutPoint, lnwire.ShortChannelID) error
 
-	// ZombieSweeperInterval is the periodic time interval in which the zombie
-	// sweeper is run.
+	// ZombieSweeperInterval is the periodic time interval in which the
+	// zombie sweeper is run.
 	ZombieSweeperInterval time.Duration
 
-	// ReservationTimeout is the length of idle time that must pass before a
-	// reservation is considered a zombie.
+	// ReservationTimeout is the length of idle time that must pass before
+	// a reservation is considered a zombie.
 	ReservationTimeout time.Duration
+
+	// MinChanSize is the smallest channel size that we'll accept as an
+	// inbound channel. We have such a parameter, as otherwise, nodes could
+	// flood us with very small channels that would never really be usable
+	// due to fees.
+	MinChanSize btcutil.Amount
 }
 
 // fundingManager acts as an orchestrator/bridge between the wallet's
@@ -330,8 +341,8 @@ type fundingManager struct {
 	started int32
 	stopped int32
 
-	// cfg is a copy of the configuration struct that the FundingManager was
-	// initialized with.
+	// cfg is a copy of the configuration struct that the FundingManager
+	// was initialized with.
 	cfg *fundingConfig
 
 	// chanIDKey is a cryptographically random key that's used to generate
@@ -629,7 +640,7 @@ func (f *fundingManager) Start() error {
 			go func(dbChan *channeldb.OpenChannel) {
 				defer f.wg.Done()
 
-				err = f.annAfterSixConfs(channel, shortChanID)
+				err = f.annAfterSixConfs(dbChan, shortChanID)
 				if err != nil {
 					fndgLog.Errorf("error sending channel "+
 						"announcement: %v", err)
@@ -938,11 +949,21 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	if msg.FundingAmount > maxFundingAmount {
 		f.failFundingFlow(
 			fmsg.peerAddress.IdentityKey, fmsg.msg.PendingChannelID,
-			lnwire.ErrChanTooLarge)
+			lnwire.ErrChanTooLarge,
+		)
 		return
 	}
 
-	// TODO(roasbeef): error if funding flow already ongoing
+	// We'll, also ensure that the remote party isn't attempting to propose
+	// a channel that's below our current min channel size.
+	if amt < f.cfg.MinChanSize {
+		f.failFundingFlow(
+			fmsg.peerAddress.IdentityKey, fmsg.msg.PendingChannelID,
+			lnwallet.ErrChanTooSmall(amt, btcutil.Amount(f.cfg.MinChanSize)),
+		)
+		return
+	}
+
 	fndgLog.Infof("Recv'd fundingRequest(amt=%v, push=%v, delay=%v, "+
 		"pendingId=%x) from peer(%x)", amt, msg.PushAmount,
 		msg.CsvDelay, msg.PendingChannelID,
@@ -953,9 +974,6 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// reservation attempt may be rejected. Note that since we're on the
 	// responding side of a single funder workflow, we don't commit any
 	// funds to the channel ourselves.
-	//
-	// TODO(roasbeef): assuming this was an inbound connection, replace
-	// port with default advertised port
 	chainHash := chainhash.Hash(msg.ChainHash)
 	reservation, err := f.cfg.Wallet.InitChannelReservation(
 		amt, 0, msg.PushAmount,
@@ -981,8 +999,8 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// We'll also validate and apply all the constraints the initiating
 	// party is attempting to dictate for our commitment transaction.
 	err = reservation.CommitConstraints(
-		uint16(msg.CsvDelay), msg.MaxAcceptedHTLCs,
-		msg.MaxValueInFlight, msg.HtlcMinimum, msg.ChannelReserve,
+		msg.CsvDelay, msg.MaxAcceptedHTLCs, msg.MaxValueInFlight,
+		msg.HtlcMinimum, msg.ChannelReserve,
 	)
 	if err != nil {
 		fndgLog.Errorf("Unaccaptable channel constraints: %v", err)
@@ -991,30 +1009,10 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		)
 		return
 	}
-	reservation.RegisterMinHTLC(f.cfg.DefaultRoutingPolicy.MinHTLC)
 
 	fndgLog.Infof("Requiring %v confirmations for pendingChan(%x): "+
 		"amt=%v, push_amt=%v", numConfsReq, fmsg.msg.PendingChannelID,
 		amt, msg.PushAmount)
-
-	// Once the reservation has been created successfully, we add it to
-	// this peer's map of pending reservations to track this particular
-	// reservation until either abort or completion.
-	f.resMtx.Lock()
-	if _, ok := f.activeReservations[peerIDKey]; !ok {
-		f.activeReservations[peerIDKey] = make(pendingChannels)
-	}
-	resCtx := &reservationWithCtx{
-		reservation: reservation,
-		chanAmt:     amt,
-		err:         make(chan error, 1),
-		peerAddress: fmsg.peerAddress,
-	}
-	f.activeReservations[peerIDKey][msg.PendingChannelID] = resCtx
-	f.resMtx.Unlock()
-
-	// Update the timestamp once the fundingOpenMsg has been handled.
-	defer resCtx.updateTimestamp()
 
 	// Using the RequiredRemoteDelay closure, we'll compute the remote CSV
 	// delay we require given the total amount of funds within the channel.
@@ -1024,6 +1022,28 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	chanReserve := f.cfg.RequiredRemoteChanReserve(amt)
 	maxValue := f.cfg.RequiredRemoteMaxValue(amt)
 	maxHtlcs := f.cfg.RequiredRemoteMaxHTLCs(amt)
+	minHtlc := f.cfg.DefaultRoutingPolicy.MinHTLC
+
+	// Once the reservation has been created successfully, we add it to
+	// this peer's map of pending reservations to track this particular
+	// reservation until either abort or completion.
+	f.resMtx.Lock()
+	if _, ok := f.activeReservations[peerIDKey]; !ok {
+		f.activeReservations[peerIDKey] = make(pendingChannels)
+	}
+	resCtx := &reservationWithCtx{
+		reservation:    reservation,
+		chanAmt:        amt,
+		remoteCsvDelay: remoteCsvDelay,
+		remoteMinHtlc:  minHtlc,
+		err:            make(chan error, 1),
+		peerAddress:    fmsg.peerAddress,
+	}
+	f.activeReservations[peerIDKey][msg.PendingChannelID] = resCtx
+	f.resMtx.Unlock()
+
+	// Update the timestamp once the fundingOpenMsg has been handled.
+	defer resCtx.updateTimestamp()
 
 	// With our parameters set, we'll now process their contribution so we
 	// can move the funding workflow ahead.
@@ -1035,7 +1055,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 				DustLimit:        msg.DustLimit,
 				MaxPendingAmount: maxValue,
 				ChanReserve:      chanReserve,
-				MinHTLC:          msg.HtlcMinimum,
+				MinHTLC:          minHtlc,
 				MaxAcceptedHtlcs: maxHtlcs,
 			},
 			CsvDelay: remoteCsvDelay,
@@ -1078,8 +1098,8 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		MaxValueInFlight:     maxValue,
 		ChannelReserve:       chanReserve,
 		MinAcceptDepth:       uint32(numConfsReq),
-		HtlcMinimum:          ourContribution.MinHTLC,
-		CsvDelay:             uint16(remoteCsvDelay),
+		HtlcMinimum:          minHtlc,
+		CsvDelay:             remoteCsvDelay,
 		MaxAcceptedHTLCs:     maxHtlcs,
 		FundingKey:           ourContribution.MultiSigKey.PubKey,
 		RevocationPoint:      ourContribution.RevocationBasePoint.PubKey,
@@ -1134,8 +1154,8 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 	// they've specified for commitment states we can create.
 	resCtx.reservation.SetNumConfsRequired(uint16(msg.MinAcceptDepth))
 	err = resCtx.reservation.CommitConstraints(
-		uint16(msg.CsvDelay), msg.MaxAcceptedHTLCs,
-		msg.MaxValueInFlight, msg.HtlcMinimum, msg.ChannelReserve,
+		msg.CsvDelay, msg.MaxAcceptedHTLCs, msg.MaxValueInFlight,
+		msg.HtlcMinimum, msg.ChannelReserve,
 	)
 	if err != nil {
 		fndgLog.Warnf("Unacceptable channel constraints: %v", err)
@@ -1162,9 +1182,10 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 				DustLimit:        msg.DustLimit,
 				MaxPendingAmount: maxValue,
 				ChanReserve:      chanReserve,
-				MinHTLC:          msg.HtlcMinimum,
+				MinHTLC:          resCtx.remoteMinHtlc,
 				MaxAcceptedHtlcs: maxHtlcs,
 			},
+			CsvDelay: resCtx.remoteCsvDelay,
 			MultiSigKey: keychain.KeyDescriptor{
 				PubKey: copyPubKey(msg.FundingKey),
 			},
@@ -1182,7 +1203,6 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 			},
 		},
 	}
-	remoteContribution.CsvDelay = f.cfg.RequiredRemoteDelay(resCtx.chanAmt)
 	err = resCtx.reservation.ProcessContribution(remoteContribution)
 	if err != nil {
 		fndgLog.Errorf("Unable to process contribution from %v: %v",
@@ -1356,7 +1376,8 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 	// Now that we've sent over our final signature for this channel, we'll
 	// send it to the ChainArbitrator so it can watch for any on-chain
 	// actions during this final confirmation stage.
-	if err := f.cfg.WatchNewChannel(completeChan); err != nil {
+	peerAddr := resCtx.peerAddress
+	if err := f.cfg.WatchNewChannel(completeChan, peerAddr); err != nil {
 		fndgLog.Errorf("Unable to send new ChannelPoint(%v) for "+
 			"arbitration: %v", fundingOut, err)
 	}
@@ -1504,7 +1525,8 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	// we'll send the to be active channel to the ChainArbitrator so it can
 	// watch for any on-chin actions before the channel has fully
 	// confirmed.
-	if err := f.cfg.WatchNewChannel(completeChan); err != nil {
+	peerAddr := resCtx.peerAddress
+	if err := f.cfg.WatchNewChannel(completeChan, peerAddr); err != nil {
 		fndgLog.Errorf("Unable to send new ChannelPoint(%v) for "+
 			"arbitration: %v", fundingPoint, err)
 	}
@@ -2466,13 +2488,13 @@ func (f *fundingManager) initFundingWorkflow(peerAddress *lnwire.NetAddress,
 // funding workflow.
 func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	var (
-		// TODO(roasbeef): add delay
-		peerKey      = msg.peerAddress.IdentityKey
-		localAmt     = msg.localFundingAmt
-		remoteAmt    = msg.remoteFundingAmt
-		capacity     = localAmt + remoteAmt
-		ourDustLimit = lnwallet.DefaultDustLimit()
-		minHtlc      = msg.minHtlc
+		peerKey        = msg.peerAddress.IdentityKey
+		localAmt       = msg.localFundingAmt
+		remoteAmt      = msg.remoteFundingAmt
+		capacity       = localAmt + remoteAmt
+		ourDustLimit   = lnwallet.DefaultDustLimit()
+		minHtlc        = msg.minHtlc
+		remoteCsvDelay = msg.remoteCsvDelay
 	)
 
 	fndgLog.Infof("Initiating fundingRequest(localAmt=%v, remoteAmt=%v, "+
@@ -2522,6 +2544,18 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	fndgLog.Infof("Target commit tx sat/kw for pendingID(%x): %v", chanID,
 		int64(commitFeePerKw))
 
+	// If the remote CSV delay was not set in the open channel request,
+	// we'll use the RequiredRemoteDelay closure to compute the delay we
+	// require given the total amount of funds within the channel.
+	if remoteCsvDelay == 0 {
+		remoteCsvDelay = f.cfg.RequiredRemoteDelay(capacity)
+	}
+
+	// If no minimum HTLC value was specified, use the default one.
+	if minHtlc == 0 {
+		minHtlc = f.cfg.DefaultRoutingPolicy.MinHTLC
+	}
+
 	// If a pending channel map for this peer isn't already created, then
 	// we create one, ultimately allowing us to track this pending
 	// reservation within the target peer.
@@ -2532,11 +2566,13 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	}
 
 	resCtx := &reservationWithCtx{
-		chanAmt:     capacity,
-		reservation: reservation,
-		peerAddress: msg.peerAddress,
-		updates:     msg.updates,
-		err:         msg.err,
+		chanAmt:        capacity,
+		remoteCsvDelay: remoteCsvDelay,
+		remoteMinHtlc:  minHtlc,
+		reservation:    reservation,
+		peerAddress:    msg.peerAddress,
+		updates:        msg.updates,
+		err:            msg.err,
 	}
 	f.activeReservations[peerIDKey][chanID] = resCtx
 	f.resMtx.Unlock()
@@ -2544,18 +2580,8 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// Update the timestamp once the initFundingMsg has been handled.
 	defer resCtx.updateTimestamp()
 
-	// Using the RequiredRemoteDelay closure, we'll compute the remote CSV
-	// delay we require given the total amount of funds within the channel.
-	remoteCsvDelay := f.cfg.RequiredRemoteDelay(capacity)
-
-	// If no minimum HTLC value was specified, use the default one.
-	if minHtlc == 0 {
-		minHtlc = f.cfg.DefaultRoutingPolicy.MinHTLC
-	}
-
 	// Once the reservation has been created, and indexed, queue a funding
 	// request to the remote peer, kicking off the funding workflow.
-	reservation.RegisterMinHTLC(minHtlc)
 	ourContribution := reservation.OurContribution()
 
 	// Finally, we'll use the current value of the channels and our default
@@ -2576,9 +2602,9 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		DustLimit:            ourContribution.DustLimit,
 		MaxValueInFlight:     maxValue,
 		ChannelReserve:       chanReserve,
-		HtlcMinimum:          ourContribution.MinHTLC,
+		HtlcMinimum:          minHtlc,
 		FeePerKiloWeight:     uint32(commitFeePerKw),
-		CsvDelay:             uint16(remoteCsvDelay),
+		CsvDelay:             remoteCsvDelay,
 		MaxAcceptedHTLCs:     maxHtlcs,
 		FundingKey:           ourContribution.MultiSigKey.PubKey,
 		RevocationPoint:      ourContribution.RevocationBasePoint.PubKey,

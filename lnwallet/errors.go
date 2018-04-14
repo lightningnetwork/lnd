@@ -106,3 +106,13 @@ func ErrMaxValueInFlightTooSmall(maxValInFlight,
 			maxValInFlight, minMaxValInFlight),
 	}
 }
+
+// ErrChanTooSmall returns an error indicating that an incoming channel request
+// was too small. We'll reject any incoming channels if they're below our
+// configured value for the min channel size we'll accept.
+func ErrChanTooSmall(chanSize, minChanSize btcutil.Amount) ReservationError {
+	return ReservationError{
+		fmt.Errorf("chan size of %v is below min chan size of %v",
+			chanSize, minChanSize),
+	}
+}

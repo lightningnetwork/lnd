@@ -19,7 +19,7 @@ const semanticAlphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqr
 const (
 	appMajor uint = 0
 	appMinor uint = 4
-	appPatch uint = 0
+	appPatch uint = 1
 
 	// appPreRelease MUST only contain characters from semanticAlphabet
 	// per the semantic versioning spec.
@@ -54,6 +54,9 @@ func version() string {
 	if build != "" {
 		version = fmt.Sprintf("%s+%s", version, build)
 	}
+
+	// Append commit hash of current build to version.
+	version = fmt.Sprintf("%s commit=%s", version, Commit)
 
 	return version
 }

@@ -438,6 +438,14 @@ var openChannelCommand = cli.Command{
 			Usage: "(optional) the minimum value we will require " +
 				"for incoming HTLCs on the channel",
 		},
+		cli.Uint64Flag{
+			Name: "remote_csv_delay",
+			Usage: "(optional) the number of blocks we will require " +
+				"our channel counterparty to wait before accessing " +
+				"its funds in case of unilateral close. If this is " +
+				"not set, we will scale the value according to the " +
+				"channel size",
+		},
 	},
 	Action: actionDecorator(openChannel),
 }
@@ -458,9 +466,10 @@ func openChannel(ctx *cli.Context) error {
 	}
 
 	req := &lnrpc.OpenChannelRequest{
-		TargetConf:  int32(ctx.Int64("conf_target")),
-		SatPerByte:  ctx.Int64("sat_per_byte"),
-		MinHtlcMsat: ctx.Int64("min_htlc_msat"),
+		TargetConf:     int32(ctx.Int64("conf_target")),
+		SatPerByte:     ctx.Int64("sat_per_byte"),
+		MinHtlcMsat:    ctx.Int64("min_htlc_msat"),
+		RemoteCsvDelay: uint32(ctx.Uint64("remote_csv_delay")),
 	}
 
 	switch {

@@ -106,7 +106,7 @@ func (m *mockNotfier) Stop() error {
 	return nil
 }
 func (m *mockNotfier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	heightHint uint32) (*chainntnfs.SpendEvent, error) {
+	heightHint uint32, _ bool) (*chainntnfs.SpendEvent, error) {
 	return &chainntnfs.SpendEvent{
 		Spend:  make(chan *chainntnfs.SpendDetail),
 		Cancel: func() {},
@@ -130,7 +130,7 @@ func makeMockSpendNotifier() *mockSpendNotifier {
 }
 
 func (m *mockSpendNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	heightHint uint32) (*chainntnfs.SpendEvent, error) {
+	heightHint uint32, _ bool) (*chainntnfs.SpendEvent, error) {
 
 	spendChan := make(chan *chainntnfs.SpendDetail)
 	m.spendMap[*outpoint] = append(m.spendMap[*outpoint], spendChan)

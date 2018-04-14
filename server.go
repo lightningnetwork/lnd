@@ -118,6 +118,8 @@ type server struct {
 
 	connDialer brontide.Dialer
 
+	peerCreator PeerCreator
+
 	connMgr *connmgr.ConnManager
 
 	// globalFeatures feature vector which affects HTLCs and thus are also
@@ -189,6 +191,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		peerConnectedListeners: make(map[string][]chan<- struct{}),
 
 		connDialer: brontide.NewDialer(privKey, cfg.net.Dial),
+		peerCreator: &peerCreator{},
 
 		globalFeatures: lnwire.NewFeatureVector(globalFeatures,
 			lnwire.GlobalFeatures),
@@ -1375,9 +1378,10 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		localFeatures.Set(lnwire.InitialRoutingSync)
 	}
 
-	// Now that we've established a connection, create a peer, and it to
+	// Now that we've established a connection, create a peer, and add it to
 	// the set of currently active peers.
-	p, err := newPeer(conn, connReq, s, peerAddr, inbound, localFeatures)
+	p, err := s.peerCreator.newPeer(
+		conn, connReq, s, peerAddr, inbound, localFeatures)
 	if err != nil {
 		srvrLog.Errorf("unable to create peer %v", err)
 		return
@@ -1755,7 +1759,7 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress, perm bool) error {
 
 	// Once the connection has been made, we can notify the server of the
 	// new connection via our public endpoint, which will require the lock
-	// an add the peer to the server's internal state.
+	// and add the peer to the server's internal state.
 	s.OutboundPeerConnected(nil, conn)
 
 	return nil

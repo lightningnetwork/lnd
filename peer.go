@@ -174,9 +174,20 @@ type peer struct {
 	wg        sync.WaitGroup
 }
 
+type PeerCreator interface {
+	newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
+		addr *lnwire.NetAddress, inbound bool,
+		localFeatures *lnwire.RawFeatureVector) (*peer, error)
+}
+
+type peerCreator struct {
+
+}
+
 // newPeer creates a new peer from an establish connection object, and a
 // pointer to the main server.
-func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
+func (pc *peerCreator) newPeer(
+	conn net.Conn, connReq *connmgr.ConnReq, server *server,
 	addr *lnwire.NetAddress, inbound bool,
 	localFeatures *lnwire.RawFeatureVector) (*peer, error) {
 

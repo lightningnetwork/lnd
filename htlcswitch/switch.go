@@ -716,7 +716,9 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 		s.indexMtx.RUnlock()
 
 		// Try to find destination channel link with appropriate
-		// bandwidth.
+		// bandwidth. Select the link having the highest bandwidth out of all eligible links.
+		// intentionally, don't check the bandwidth vs. the htlc.Amount as this will be checked more precisely
+		// at the link level and will be cancelled there if needed.
 		var (
 			destination      ChannelLink
 			largestBandwidth lnwire.MilliSatoshi
@@ -730,23 +732,16 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 
 			bandwidth := link.Bandwidth()
 			if bandwidth > largestBandwidth {
-
+				destination = link
 				largestBandwidth = bandwidth
 			}
 
-			if bandwidth >= htlc.Amount {
-				destination = link
-				break
-			}
 		}
 
-		// If the channel link we're attempting to forward the update
-		// over has insufficient capacity, then we'll cancel the HTLC
+		// In case no eligible channel found, then we'll cancel the HTLC
 		// as the payment cannot succeed.
 		if destination == nil {
-			err := fmt.Errorf("insufficient capacity in available "+
-				"outgoing links: need %v, max available is %v",
-				htlc.Amount, largestBandwidth)
+			err := fmt.Errorf("no eligible outgoing link found")
 			log.Error(err)
 
 			htlcErr := lnwire.NewTemporaryChannelFailure(nil)

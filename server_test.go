@@ -86,11 +86,13 @@ func TestConnectToPeer_PendingConnectionAttempt(t *testing.T) {
 	srv.persistentConnReqs[compressedPubKey] = nil
 	err := srv.ConnectToPeer(&address, false)
 
-	require.Error(t, err)
+	require.NoError(t, err)
 
-	require.Equal(t,
-		err.Error(),
-		"connection attempt to 028dfe1c8b9bfd7a7f8627a39a3b7b3a13d878a8b65dd26b17ca4f70a112a6dd54@173.249.37.208:9735 is pending")
+	require.NotNil(t, srv.peersByPub[compressedPubKey], "Peer not added")
+	require.NotNil(t, srv.inboundPeers[compressedPubKey], "Peer not added")
+
+	require.Equal(t, 0, len(srv.persistentPeers),
+		"No persistent peers should be present.")
 }
 
 func TestConnectToPeer_DialFailed(t *testing.T) {

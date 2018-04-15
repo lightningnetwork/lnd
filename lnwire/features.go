@@ -21,6 +21,11 @@ const (
 	// connection is established.
 	InitialRoutingSync FeatureBit = 3
 
+	// Largerpayment is a local feature bit meaning that the local node
+	// support opening a channel with funding_satoshis larger than defined
+	// in BOLT-02
+	LargerPayment FeatureBit = 7
+
 	// maxAllowedSize is a maximum allowed size of feature vector.
 	//
 	// NOTE: Within the protocol, the maximum allowed message size is 65535
@@ -43,6 +48,7 @@ const (
 // bits is provided in the BOLT-09 specification.
 var LocalFeatures = map[FeatureBit]string{
 	InitialRoutingSync: "initial-routing-sync",
+	LargerPayment: "larger-payment",
 }
 
 // GlobalFeatures is a mapping of known global feature bits to a descriptive

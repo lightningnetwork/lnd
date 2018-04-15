@@ -299,10 +299,14 @@ var (
 	}
 )
 
-var (
+const (
 	// maxPaymentMSat is the maximum allowed payment permitted currently as
 	// defined in BOLT-0002.
 	maxPaymentMSat = lnwire.MilliSatoshi(math.MaxUint32)
+
+	// maxLargerPaymentMSat is the maximum allowed payment permitted
+	// when local feature "LargerPayment" is supported
+	maxLargerPaymentMSat = lnwire.MilliSatoshi(100000000 * 1000)
 )
 
 // rpcServer is a gRPC, RPC front end to the lnd daemon.
@@ -332,10 +336,6 @@ func newRPCServer(s *server) *rpcServer {
 
 // Start launches any helper goroutines required for the rpcServer to function.
 func (r *rpcServer) Start() error {
-	if registeredChains.PrimaryChain() == litecoinChain {
-		maxPaymentMSat = maxPaymentMSat * 60
-	}
-
 	if atomic.AddInt32(&r.started, 1) != 1 {
 		return nil
 	}
@@ -727,14 +727,6 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 			"state must be below the local funding amount")
 	}
 
-	// Ensure that the user doesn't exceed the current soft-limit for
-	// channel size. If the funding amount is above the soft-limit, then
-	// we'll reject the request.
-	if localFundingAmt > maxFundingAmount {
-		return fmt.Errorf("funding amount is too large, the max "+
-			"channel size is: %v", maxFundingAmount)
-	}
-
 	// Restrict the size of the channel we'll actually open. At a later
 	// level, we'll ensure that the output we create after accounting for
 	// fees that a dust output isn't created.
@@ -770,6 +762,24 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	}
 
 	nodePubKeyBytes = nodePubKey.SerializeCompressed()
+
+	// localFundingAmt must be less than the funding limit specified in
+	// BOLT-02. Funding limit is set to maxFundingAmount if feature
+	// "LargerPayment" is enabled in both local and target node,
+	// otherwise, it is set to 2^24 satoshis.
+	fundingLimit := maxFundingAmount
+	if cfg.LargerPayment {
+		// get target peer and check if it supports feautre "LargerPayment"
+		if targetPeer, ok := r.server.peersByPub[string(nodePubKeyBytes)]; ok {
+			if targetPeer.remoteLocalFeatures.HasFeature(lnwire.LargerPayment) {
+				fundingLimit = maxLargerFundingAmount
+			}
+		}
+	}
+	if localFundingAmt > fundingLimit {
+		return fmt.Errorf("funding amount is too large, the max "+
+			"channel size is: %v", fundingLimit)
+	}
 
 	// Based on the passed fee related parameters, we'll determine an
 	// appropriate fee rate for the funding transaction.
@@ -1826,16 +1836,20 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 		case err := <-errChan:
 			return err
 		case p := <-payChan:
-			// Currently, within the bootstrap phase of the
-			// network, we limit the largest payment size allotted
-			// to (2^32) - 1 mSAT or 4.29 million satoshis.
-			if p.msat > maxPaymentMSat {
+			// The max value of the invoice depends on feature "LargerPayment".
+			// If "LargerPayment" is enabled, the max value is 1 BTC.
+			// If "LargerPayment" is disabled, the max value is 2^24 satoshi.
+			paymentLimitMSat := maxPaymentMSat
+			if cfg.LargerPayment {
+				paymentLimitMSat = maxLargerPaymentMSat
+			}
+			if p.msat > paymentLimitMSat {
 				// In this case, we'll send an error to the
 				// caller, but continue our loop for the next
 				// payment.
 				pErr := fmt.Errorf("payment of %v is too "+
 					"large, max payment allowed is %v",
-					p.msat, maxPaymentMSat)
+					p.msat, paymentLimitMSat)
 
 				if err := paymentStream.Send(&lnrpc.SendResponse{
 					PaymentError: pErr.Error(),
@@ -2008,12 +2022,16 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 		)
 	}
 
-	// Currently, within the bootstrap phase of the network, we limit the
-	// largest payment size allotted to (2^32) - 1 mSAT or 4.29 million
-	// satoshis.
-	if amtMSat > maxPaymentMSat {
+	// The max value of the invoice depends on feature "LargerPayment".
+	// If "LargerPayment" is enabled, the max value is 1 BTC.
+	// If "LargerPayment" is disabled, the max value is 2^24 satoshi.
+	paymentLimitMSat := maxPaymentMSat
+	if cfg.LargerPayment {
+		paymentLimitMSat = maxLargerPaymentMSat
+	}
+	if amtMSat > paymentLimitMSat {
 		err := fmt.Errorf("payment of %v is too large, max payment "+
-			"allowed is %v", nextPayment.Amt, maxPaymentMSat.ToSatoshis())
+			"allowed is %v", nextPayment.Amt, paymentLimitMSat.ToSatoshis())
 		return &lnrpc.SendResponse{
 			PaymentError: err.Error(),
 		}, nil
@@ -2095,11 +2113,16 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	amt := btcutil.Amount(invoice.Value)
 	amtMSat := lnwire.NewMSatFromSatoshis(amt)
 
-	// The value of the invoice must also not exceed the current soft-limit
-	// on the largest payment within the network.
-	if amtMSat > maxPaymentMSat {
+	// The max value of the invoice depends on feature "LargerPayment".
+	// If "LargerPayment" is enabled, the max value is 1 BTC.
+	// If "LargerPayment" is disabled, the max value is 2^24 satoshi.
+	paymentLimitMSat := maxPaymentMSat
+	if cfg.LargerPayment {
+		paymentLimitMSat = maxLargerPaymentMSat
+	}
+	if amtMSat > paymentLimitMSat {
 		return nil, fmt.Errorf("payment of %v is too large, max "+
-			"payment allowed is %v", amt, maxPaymentMSat.ToSatoshis())
+			"payment allowed is %v", amt, paymentLimitMSat.ToSatoshis())
 	}
 
 	// Next, generate the payment hash itself from the preimage. This will
@@ -2679,14 +2702,18 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 		return nil, err
 	}
 
-	// Currently, within the bootstrap phase of the network, we limit the
-	// largest payment size allotted to (2^32) - 1 mSAT or 4.29 million
-	// satoshis.
+	// The max value of the invoice depends on feature "LargerPayment".
+	// If "LargerPayment" is enabled, the max value is 1 BTC.
+	// If "LargerPayment" is disabled, the max value is 2^24 satoshi.
 	amt := btcutil.Amount(in.Amt)
 	amtMSat := lnwire.NewMSatFromSatoshis(amt)
-	if amtMSat > maxPaymentMSat {
+	paymentLimitMSat := maxPaymentMSat
+	if cfg.LargerPayment {
+		paymentLimitMSat = maxLargerPaymentMSat
+	}
+	if amtMSat > paymentLimitMSat {
 		return nil, fmt.Errorf("payment of %v is too large, max payment "+
-			"allowed is %v", amt, maxPaymentMSat.ToSatoshis())
+			"allowed is %v", amt, paymentLimitMSat.ToSatoshis())
 	}
 
 	// Query the channel router for a possible path to the destination that

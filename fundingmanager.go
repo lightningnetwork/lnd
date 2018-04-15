@@ -42,6 +42,10 @@ const (
 	// TODO(roasbeef): add command line param to modify
 	maxFundingAmount = btcutil.Amount(1 << 24)
 
+	// maxLargerFundingAmount is a limit of maximum channel size when
+	// feature "LargerPayment" is supported.
+	maxLargerFundingAmount = btcutil.Amount(100000000)
+
 	// minBtcRemoteDelay and maxBtcRemoteDelay is the extremes of the
 	// Bitcoin CSV delay we will require the remote to use for its
 	// commitment transaction. The actual delay we will require will be
@@ -934,9 +938,15 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		return
 	}
 
-	// We'll reject any request to create a channel that's above the
-	// current soft-limit for channel size.
-	if msg.FundingAmount > maxFundingAmount {
+	// We'll reject any request to create a channel that's above the funding
+	// limit. Funding limit is set to maxLargerFundingAmount(1 BTC) if feature
+	// "LargerPayment" is enabled. Otherwise, it is set to 2^24 satoshis as
+	// specified in BOLT-02.
+	fundingLimit := maxFundingAmount
+	if cfg.LargerPayment {
+		fundingLimit = maxLargerFundingAmount
+	}
+	if msg.FundingAmount > fundingLimit {
 		f.failFundingFlow(
 			fmsg.peerAddress.IdentityKey, fmsg.msg.PendingChannelID,
 			lnwire.ErrChanTooLarge)

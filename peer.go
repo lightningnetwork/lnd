@@ -180,12 +180,17 @@ type peer struct {
 	wg        sync.WaitGroup
 }
 
+// PeerCreator represents a method for creating new peers on demand.
 type PeerCreator interface {
-	newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
+	// newPeer creates a peer given the the specified server
+	// and connection information.
+	newPeer(
+		conn net.Conn, connReq *connmgr.ConnReq, server *server,
 		addr *lnwire.NetAddress, inbound bool,
 		localFeatures *lnwire.RawFeatureVector) (*peer, error)
 }
 
+// peerCreator is the standard way for creating new peers.
 type peerCreator struct {
 
 }

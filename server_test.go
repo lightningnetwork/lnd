@@ -24,6 +24,8 @@ var (
 	address = lnwire.NetAddress{IdentityKey: pubKey, Address: &StubAddress{}}
 )
 
+// Non-permanent connects should result in the peer being added to
+// peersByPub and inboundPeers.
 func TestConnectToPeer_NonPerm(t *testing.T) {
 	srv := createServer()
 	err := srv.ConnectToPeer(&address, false)
@@ -37,6 +39,8 @@ func TestConnectToPeer_NonPerm(t *testing.T) {
 		"No persistent peers should be present.")
 }
 
+// Permanent connects should result in additions to
+// persistentPeers, persistentPeersBackoff, and persistentConnReqs.
 func TestConnectToPeer_Perm(t *testing.T) {
 	srv := createServer()
 	err := srv.ConnectToPeer(&address, true)
@@ -54,6 +58,10 @@ func TestConnectToPeer_Perm(t *testing.T) {
 	require.NotNil(t, srv.persistentConnReqs[compressedPubKey], "ConnReq not added")
 }
 
+// Permanent connects should result in additions to
+// persistentPeers, persistentPeersBackoff, and persistentConnReqs.
+// The persistentPeerBackoff entry should not be the default, but rather the
+// value that was explicitly set.
 func TestConnectToPeer_PermOverrideBackoff(t *testing.T) {
 	srv := createServer()
 	srv.persistentPeersBackoff[compressedPubKey] = 5
@@ -67,11 +75,15 @@ func TestConnectToPeer_PermOverrideBackoff(t *testing.T) {
 	require.Nil(t, srv.peersByPub[compressedPubKey])
 	require.Nil(t, srv.inboundPeers[compressedPubKey])
 
-	require.NotNil(t, srv.persistentPeers[compressedPubKey], "Peer not added")
-	require.Equal(t, time.Duration(5), srv.persistentPeersBackoff[compressedPubKey], "Peer backoff not added")
-	require.NotNil(t, srv.persistentConnReqs[compressedPubKey], "ConnReq not added")
+	require.NotNil(t, srv.persistentPeers[compressedPubKey],
+		"Peer not added")
+	require.Equal(t, time.Duration(5), srv.persistentPeersBackoff[compressedPubKey],
+		"Peer backoff not added")
+	require.NotNil(t, srv.persistentConnReqs[compressedPubKey],
+		"ConnReq not added")
 }
 
+// An error should occur if a peer is already connected.
 func TestConnectToPeer_AlreadyConnected(t *testing.T) {
 	srv := createServer()
 	srv.peersByPub[compressedPubKey] = &peer{}
@@ -81,6 +93,8 @@ func TestConnectToPeer_AlreadyConnected(t *testing.T) {
 	require.True(t, strings.Contains(err.Error(), "already connected"))
 }
 
+// Attempting to connect again while there is already a pending attempt
+// should not cause an error.
 func TestConnectToPeer_PendingConnectionAttempt(t *testing.T) {
 	srv := createServer()
 	srv.persistentConnReqs[compressedPubKey] = nil
@@ -95,10 +109,12 @@ func TestConnectToPeer_PendingConnectionAttempt(t *testing.T) {
 		"No persistent peers should be present.")
 }
 
+// If the Dial fails, the error should be propagated up.
 func TestConnectToPeer_DialFailed(t *testing.T) {
 	testConnectToPeerFailedDial(t, io.ErrClosedPipe, io.ErrClosedPipe)
 }
 
+// If the Dial fails with an EOF, it should be replaced with a friendly message.
 func TestConnectToPeer_DialFailedEOF(t *testing.T) {
 	testConnectToPeerFailedDial(t, io.EOF, ErrFriendlyEOF)
 }
@@ -143,7 +159,8 @@ func TestParseHexColor(t *testing.T) {
 	}
 }
 
-
+// createServer makes a server that performs no IO nor concurrent operations,
+// making unit testing possible, unlike a standard server.
 func createServer() *server {
 	srv := server{}
 	var err error
@@ -189,7 +206,7 @@ func createPrivateKey() *btcec.PrivateKey {
 	return privKey
 }
 
-
+// StubAddress is a minimal Address to be used for testing purposes.
 type StubAddress struct {
 
 }
@@ -202,6 +219,7 @@ func (a *StubAddress) String() string {
 	return "173.249.37.208:9735"
 }
 
+// StubDialer is a minimal Dialer to be used for testing purposes.
 type StubDialer struct {
 
 }
@@ -210,6 +228,7 @@ func (d *StubDialer) Dial(addressess *lnwire.NetAddress) (*brontide.Conn, error)
 	return brontide.CreateTestConn(), nil
 }
 
+// FailingStubDialer is a Dialer that always fails with the specified error.
 type FailingStubDialer struct {
 	err error
 }
@@ -218,6 +237,8 @@ func (d *FailingStubDialer) Dial(addressess *lnwire.NetAddress) (*brontide.Conn,
 	return nil, d.err
 }
 
+// StubPeerCreator is a PeerCreator that avoids creating Peers
+// that use concurrency/IO, to make unit testing more sane.
 type StubPeerCreator struct {
 
 }

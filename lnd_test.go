@@ -3063,21 +3063,36 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 		return len(chanGraph.Edges)
 	}
 
-	aliceChans := numChannels(net.Alice)
-	if aliceChans != 4 {
-		t.Fatalf("expected Alice to know 4 edges, had %v", aliceChans)
-	}
-	bobChans := numChannels(net.Bob)
-	if bobChans != 3 {
-		t.Fatalf("expected Bob to know 3 edges, had %v", bobChans)
-	}
-	carolChans := numChannels(carol)
-	if carolChans != 4 {
-		t.Fatalf("expected Carol to know 4 edges, had %v", carolChans)
-	}
-	daveChans := numChannels(dave)
-	if daveChans != 3 {
-		t.Fatalf("expected Dave to know 3 edges, had %v", daveChans)
+	var predErr error
+	err = lntest.WaitPredicate(func() bool {
+		aliceChans := numChannels(net.Alice)
+		if aliceChans != 4 {
+			predErr = fmt.Errorf("expected Alice to know 4 edges, "+
+				"had %v", aliceChans)
+			return false
+		}
+		bobChans := numChannels(net.Bob)
+		if bobChans != 3 {
+			predErr = fmt.Errorf("expected Bob to know 3 edges, "+
+				"had %v", bobChans)
+			return false
+		}
+		carolChans := numChannels(carol)
+		if carolChans != 4 {
+			predErr = fmt.Errorf("expected Carol to know 4 edges, "+
+				"had %v", carolChans)
+			return false
+		}
+		daveChans := numChannels(dave)
+		if daveChans != 3 {
+			predErr = fmt.Errorf("expected Dave to know 3 edges, "+
+				"had %v", daveChans)
+			return false
+		}
+		return true
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf("%v", predErr)
 	}
 
 	// Close all channels.

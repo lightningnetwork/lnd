@@ -621,7 +621,11 @@ var closeChannelCommand = cli.Command{
 	In the case of a cooperative closure, One can manually set the fee to
 	be used for the closing transaction via either the --conf_target or
 	--sat_per_byte arguments. This will be the starting value used during
-	fee negotiation. This is optional.`,
+	fee negotiation. This is optional.
+
+	To view which funding_txids/output_indexes can be used for a channel close,
+	see the channel_point values within the listchannels command output.
+	The format for a channel_point is 'funding_txid:output_index'.`,
 	ArgsUsage: "funding_txid [output_index [time_limit]]",
 	Flags: []cli.Flag{
 		cli.StringFlag{

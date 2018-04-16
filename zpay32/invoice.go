@@ -290,7 +290,8 @@ func Decode(invoice string, net *chaincfg.Params) (*Invoice, error) {
 	// The next characters should be a valid prefix for a segwit BIP173
 	// address that match the active network.
 	if !strings.HasPrefix(hrp[2:], net.Bech32HRPSegwit) {
-		return nil, fmt.Errorf("unknown network")
+		return nil, fmt.Errorf(
+			"invoice not for current active network '%s'", net.Name)
 	}
 	decodedInvoice.Net = net
 

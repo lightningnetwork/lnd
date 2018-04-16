@@ -251,6 +251,30 @@ func (c *chainWatcher) SubscribeChannelEvents(syncDispatch bool) *ChainEventSubs
 
 	if syncDispatch {
 		sub.ProcessACK = make(chan error, 1)
+
+		// If this client is syncDispatch, we cannot safely delete it
+		// from our list of clients. This is because of a potential
+		// race at shutdown, where the client shuts down and calls
+		// Cancel(). In this case we must make sure the ChainWatcher
+		// doesn't think it has successfully handed off a contract
+		// breach to the client. We start a goroutine that will send an
+		// error on the ProcessACK channel until the ChainWatcher is
+		// shutdown.
+		sub.Cancel = func() {
+			c.wg.Add(1)
+			go func() {
+				defer c.wg.Done()
+
+				err := fmt.Errorf("cancelled")
+				for {
+					select {
+					case sub.ProcessACK <- err:
+					case <-c.quit:
+						return
+					}
+				}
+			}()
+		}
 	}
 
 	c.Lock()

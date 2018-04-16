@@ -754,10 +754,14 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 		ShortChanID:    c.chanState.ShortChanID,
 	}
 
+	if err := c.chanState.CloseChannel(&closeSummary); err != nil {
+		return err
+	}
+
 	log.Infof("Breached channel=%v marked pending-closed",
 		c.chanState.FundingOutpoint)
 
-	return c.chanState.CloseChannel(&closeSummary)
+	return nil
 }
 
 // CooperativeCloseCtx is a transactional object that's used by external

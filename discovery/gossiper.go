@@ -1009,6 +1009,20 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			// If we have new things to announce then broadcast
 			// them to all our immediately connected peers.
 			for _, msgChunk := range announcementBatch {
+				// We'll first attempt to filter out this new
+				// message for all peers that have active
+				// gossip syncers active.
+				d.syncerMtx.RLock()
+				for _, syncer := range d.peerSyncers {
+					syncer.FilterGossipMsgs(msgChunk)
+				}
+				d.syncerMtx.RUnlock()
+
+				// With the syncers taken care of, we'll merge
+				// the sender map with the set of syncers, so
+				// we don't send out duplicate messages.
+				msgChunk.mergeSyncerMap(syncerPeers)
+
 				err := d.cfg.Broadcast(
 					msgChunk.senders, msgChunk.msg,
 				)

@@ -1466,9 +1466,16 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	// feature vector to advertise to the remote node.
 	localFeatures := lnwire.NewRawFeatureVector()
 
-	// We'll only request a full channel graph sync if we detect that
+	// We'll signal that we understand the data loss protection feature,
+	// and also that we support the new gossip query features.
+	localFeatures.Set(lnwire.DataLossProtectOptional)
+	localFeatures.Set(lnwire.GossipQueriesOptional)
+
+	// We'll only request a full channel graph sync if we detect that that
 	// we aren't fully synced yet.
 	if s.shouldRequestGraphSync() {
+		// TODO(roasbeef): only do so if gossiper doesn't have active
+		// peers?
 		localFeatures.Set(lnwire.InitialRoutingSync)
 	}
 

@@ -16,6 +16,20 @@ import (
 type FeatureBit uint16
 
 const (
+	// DataLossProtectRequired is a feature bit that indicates that a peer
+	// *requires* the other party know about the data-loss-protect optional
+	// feature. If the remote peer does not know of such a feature, then
+	// the sending peer SHOLUD disconnect them. The data-loss-protect
+	// feature allows a peer that's lost partial data to recover their
+	// settled funds of the latest commitment state.
+	DataLossProtectRequired FeatureBit = 0
+
+	// DataLossProtectOptional is an optional feature bit that indicates
+	// that the sending peer knows of this new feature and can activate it
+	// it. The data-loss-protect feature allows a peer that's lost partial
+	// data to recover their settled funds of the latest commitment state.
+	DataLossProtectOptional FeatureBit = 1
+
 	// InitialRoutingSync is a local feature bit meaning that the receiving
 	// node should send a complete dump of routing information when a new
 	// connection is established.
@@ -42,7 +56,7 @@ const (
 // not advertised to the entire network. A full description of these feature
 // bits is provided in the BOLT-09 specification.
 var LocalFeatures = map[FeatureBit]string{
-	InitialRoutingSync: "initial-routing-sync",
+	DataLossProtectOptional: "data-loss-protect-optional",
 }
 
 // GlobalFeatures is a mapping of known global feature bits to a descriptive

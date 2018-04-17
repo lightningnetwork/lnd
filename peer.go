@@ -995,7 +995,12 @@ out:
 		case *lnwire.ChannelUpdate,
 			*lnwire.ChannelAnnouncement,
 			*lnwire.NodeAnnouncement,
-			*lnwire.AnnounceSignatures:
+			*lnwire.AnnounceSignatures,
+			*lnwire.GossipTimestampRange,
+			*lnwire.QueryShortChanIDs,
+			*lnwire.QueryChannelRange,
+			*lnwire.ReplyChannelRange,
+			*lnwire.ReplyShortChanIDsEnd:
 
 			discStream.AddMsg(msg)
 

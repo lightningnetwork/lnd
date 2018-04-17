@@ -1390,6 +1390,11 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	// feature vector to advertise to the remote node.
 	localFeatures := lnwire.NewRawFeatureVector()
 
+	// Signal that we support larger payment if the feautre is enabled.
+	if cfg.LargerPayment {
+		localFeatures.Set(lnwire.LargerPayment)
+	}
+
 	// We'll only request a full channel graph sync if we detect that that
 	// we aren't fully synced yet.
 	if s.shouldRequestGraphSync() {

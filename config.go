@@ -178,6 +178,7 @@ type config struct {
 	UnsafeDisconnect   bool `long:"unsafe-disconnect" description:"Allows the rpcserver to intentionally disconnect from peers with open channels. USED FOR TESTING ONLY."`
 	UnsafeReplay       bool `long:"unsafe-replay" description:"Causes a link to replay the adds on its commitment txn after starting up, this enables testing of the sphinx replay logic."`
 	MaxPendingChannels int  `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
+	LargerPayment      bool `long:"largerpayment" description:"Support local feature LargerPayment which has a higher channel capacity and payment limit."`
 
 	Bitcoin      *chainConfig    `group:"Bitcoin" namespace:"bitcoin"`
 	BtcdMode     *btcdConfig     `group:"btcd" namespace:"btcd"`

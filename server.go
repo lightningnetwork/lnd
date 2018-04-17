@@ -1305,6 +1305,10 @@ func (s *server) peerTerminationWatcher(p *peer) {
 	// available for use.
 	s.fundingMgr.CancelPeerReservations(p.PubKey())
 
+	// We'll also inform the gossiper that this peer is no longer active,
+	// so we don't need to maintain sync state for it any longer.
+	s.authGossiper.PruneSyncState(p.addr.IdentityKey)
+
 	// Tell the switch to remove all links associated with this peer.
 	// Passing nil as the target link indicates that all links associated
 	// with this interface should be closed.

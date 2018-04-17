@@ -1000,6 +1000,13 @@ func testSpendBeforeNtfnRegistration(miner *rpctest.Harness,
 		t.Fatalf("tx not relayed to miner: %v", err)
 	}
 
+	// We create an epoch client we can use to make sure the notifier is
+	// caught up to the mining node's chain.
+	epochClient, err := notifier.RegisterBlockEpochNtfn()
+	if err != nil {
+		t.Fatalf("unable to register for block epoch: %v", err)
+	}
+
 	// Now we mine an additional block, which should include our spend.
 	if _, err := miner.Node.Generate(1); err != nil {
 		t.Fatalf("unable to generate single block: %v", err)
@@ -1010,39 +1017,91 @@ func testSpendBeforeNtfnRegistration(miner *rpctest.Harness,
 		t.Fatalf("unable to get current height: %v", err)
 	}
 
-	// Now, we register to be notified of a spend that has already
-	// happened.  The notifier should dispatch a spend notification
-	// immediately.
-	spentIntent, err := notifier.RegisterSpendNtfn(outpoint,
-		uint32(currentHeight), true)
-	if err != nil {
-		t.Fatalf("unable to register for spend ntfn: %v", err)
+	// checkSpends registers two clients to be notified of a spend that has
+	// already happened. The notifier should dispatch a spend notification
+	// immediately. We register one that also listen for mempool spends,
+	// both should be notified the same way, as the spend is already mined.
+	checkSpends := func() {
+		const numClients = 2
+		spendClients := make([]*chainntnfs.SpendEvent, numClients)
+		for i := 0; i < numClients; i++ {
+			spentIntent, err := notifier.RegisterSpendNtfn(outpoint,
+				uint32(currentHeight), i%2 == 0)
+			if err != nil {
+				t.Fatalf("unable to register for spend ntfn: %v",
+					err)
+			}
+
+			spendClients[i] = spentIntent
+		}
+
+		for _, client := range spendClients {
+			select {
+			case ntfn := <-client.Spend:
+				// We've received the spend nftn. So now verify
+				// all the fields have been set properly.
+				if *ntfn.SpentOutPoint != *outpoint {
+					t.Fatalf("ntfn includes wrong output, "+
+						"reports %v instead of %v",
+						ntfn.SpentOutPoint, outpoint)
+				}
+				if !bytes.Equal(ntfn.SpenderTxHash[:], spenderSha[:]) {
+					t.Fatalf("ntfn includes wrong spender "+
+						"tx sha, reports %v instead of %v",
+						ntfn.SpenderTxHash[:], spenderSha[:])
+				}
+				if ntfn.SpenderInputIndex != 0 {
+					t.Fatalf("ntfn includes wrong spending "+
+						"input index, reports %v, "+
+						"should be %v",
+						ntfn.SpenderInputIndex, 0)
+				}
+				if ntfn.SpendingHeight != currentHeight {
+					t.Fatalf("ntfn has wrong spending "+
+						"height: expected %v, got %v",
+						currentHeight,
+						ntfn.SpendingHeight)
+				}
+			case <-time.After(30 * time.Second):
+				t.Fatalf("spend ntfn never received")
+			}
+		}
 	}
 
-	spentNtfn := make(chan *chainntnfs.SpendDetail)
-	go func() {
-		spentNtfn <- <-spentIntent.Spend
-	}()
-
+	// Wait for the notifier to have caught up to the mined block.
 	select {
-	case ntfn := <-spentNtfn:
-		// We've received the spend nftn. So now verify all the fields
-		// have been set properly.
-		if *ntfn.SpentOutPoint != *outpoint {
-			t.Fatalf("ntfn includes wrong output, reports %v instead of %v",
-				ntfn.SpentOutPoint, outpoint)
+	case _, ok := <-epochClient.Epochs:
+		if !ok {
+			t.Fatalf("epoch channel was closed")
 		}
-		if !bytes.Equal(ntfn.SpenderTxHash[:], spenderSha[:]) {
-			t.Fatalf("ntfn includes wrong spender tx sha, reports %v instead of %v",
-				ntfn.SpenderTxHash[:], spenderSha[:])
-		}
-		if ntfn.SpenderInputIndex != 0 {
-			t.Fatalf("ntfn includes wrong spending input index, reports %v, should be %v",
-				ntfn.SpenderInputIndex, 0)
-		}
-	case <-time.After(30 * time.Second):
-		t.Fatalf("spend ntfn never received")
+	case <-time.After(15 * time.Second):
+		t.Fatalf("did not receive block epoch")
 	}
+
+	// Check that the spend clients gets immediately notified for the spend
+	// in the previous block.
+	checkSpends()
+
+	// Bury the spend even deeper, and do the same check.
+	const numBlocks = 10
+	if _, err := miner.Node.Generate(numBlocks); err != nil {
+		t.Fatalf("unable to generate single block: %v", err)
+	}
+
+	// Wait for the notifier to have caught up with the new blocks.
+	for i := 0; i < numBlocks; i++ {
+		select {
+		case _, ok := <-epochClient.Epochs:
+			if !ok {
+				t.Fatalf("epoch channel was closed")
+			}
+		case <-time.After(15 * time.Second):
+			t.Fatalf("did not receive block epoch")
+		}
+	}
+
+	// The clients should still be notified immediately.
+	checkSpends()
 }
 
 func testCancelSpendNtfn(node *rpctest.Harness,

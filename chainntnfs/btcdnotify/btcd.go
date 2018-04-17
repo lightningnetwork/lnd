@@ -370,8 +370,8 @@ out:
 				chainntnfs.Log.Error(err)
 			}
 
-		// NOTE: we currently only use txUpdates for mempool spends. It
-		// might get removed entirely in the future.
+		// NOTE: we currently only use txUpdates for mempool spends and
+		// rescan spends. It might get removed entirely in the future.
 		case item := <-b.txUpdates.ChanOut():
 			newSpend := item.(*txUpdate)
 			spendingTx := newSpend.tx
@@ -397,7 +397,10 @@ out:
 					// TODO(roasbeef): after change to
 					// loadfilter, only notify on block
 					// inclusion?
+
+					confirmedSpend := false
 					if newSpend.details != nil {
+						confirmedSpend = true
 						spendDetails.SpendingHeight = newSpend.details.Height
 					} else {
 						spendDetails.SpendingHeight = currentHeight + 1
@@ -409,17 +412,25 @@ out:
 					// the spend within a block.
 					rem := make(map[uint64]*spendNotification)
 					for c, ntfn := range clients {
-						// If this client didn't want
+						// If this is a mempool spend,
+						// and this client didn't want
 						// to be notified on mempool
 						// spends, store it for later.
-						if !ntfn.mempool {
+						if !confirmedSpend && !ntfn.mempool {
 							rem[c] = ntfn
 							continue
 						}
 
-						chainntnfs.Log.Infof("Dispatching "+
+						confStr := "unconfirmed"
+						if confirmedSpend {
+							confStr = "confirmed"
+						}
+
+						chainntnfs.Log.Infof("Dispatching %s "+
 							"spend notification for "+
-							"outpoint=%v", ntfn.targetOutpoint)
+							"outpoint=%v at height %v",
+							confStr, ntfn.targetOutpoint,
+							spendDetails.SpendingHeight)
 						ntfn.spendChan <- spendDetails
 
 						// Close spendChan to ensure that any calls to Cancel will not
@@ -709,7 +720,7 @@ func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 		chainntnfs.ConfNtfn{
 			TxID:             txid,
 			NumConfirmations: numConfs,
-			Event:            chainntnfs.NewConfirmationEvent(),
+			Event:            chainntnfs.NewConfirmationEvent(numConfs),
 		},
 	}
 

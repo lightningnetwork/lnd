@@ -88,8 +88,10 @@ type TxConfirmation struct {
 
 // ConfirmationEvent encapsulates a confirmation notification. With this struct,
 // callers can be notified of: the instance the target txid reaches the targeted
-// number of confirmations, and also in the event that the original txid becomes
-// disconnected from the blockchain as a result of a re-org.
+// number of confirmations, how many confirmations are left for the target txid
+// to be fully confirmed at every new block height, and also in the event that
+// the original txid becomes disconnected from the blockchain as a result of a
+// re-org.
 //
 // Once the txid reaches the specified number of confirmations, the 'Confirmed'
 // channel will be sent upon fulfilling the notification.
@@ -102,6 +104,11 @@ type ConfirmationEvent struct {
 	// has been fully confirmed. The struct sent will contain all the
 	// details of the channel's confirmation.
 	Confirmed chan *TxConfirmation // MUST be buffered.
+
+	// Updates is a channel that will sent upon, at every incremental
+	// confirmation, how many confirmations are left to declare the
+	// transaction as fully confirmed.
+	Updates chan uint32 // MUST be buffered.
 
 	// TODO(roasbeef): all goroutines on ln channel updates should also
 	// have a struct chan that's closed if funding gets re-org out. Need

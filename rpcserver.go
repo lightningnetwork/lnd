@@ -1636,10 +1636,12 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		}
 
 		for i, htlc := range localCommit.Htlcs {
+			var rHash [32]byte
+			copy(rHash[:], htlc.RHash[:])
 			channel.PendingHtlcs[i] = &lnrpc.HTLC{
 				Incoming:         htlc.Incoming,
 				Amount:           int64(htlc.Amt.ToSatoshis()),
-				HashLock:         htlc.RHash[:],
+				HashLock:         rHash[:],
 				ExpirationHeight: htlc.RefundTimeout,
 			}
 		}

@@ -35,6 +35,17 @@ const (
 	// connection is established.
 	InitialRoutingSync FeatureBit = 3
 
+	// GossipQueriesRequired is a feature bit that indicates that the
+	// receiving peer MUST know of the set of features that allows nodes to
+	// more efficiently query the network view of peers on the network for
+	// reconciliation purposes.
+	GossipQueriesRequired FeatureBit = 6
+
+	// GossipQueriesOptional is an optional feature bit that signals that
+	// the setting peer knows of the set of features that allows more
+	// efficient network view reconciliation.
+	GossipQueriesOptional FeatureBit = 7
+
 	// maxAllowedSize is a maximum allowed size of feature vector.
 	//
 	// NOTE: Within the protocol, the maximum allowed message size is 65535
@@ -57,6 +68,8 @@ const (
 // bits is provided in the BOLT-09 specification.
 var LocalFeatures = map[FeatureBit]string{
 	DataLossProtectOptional: "data-loss-protect-optional",
+	InitialRoutingSync:      "initial-routing-sync",
+	GossipQueriesOptional:   "gossip-queries-optional",
 }
 
 // GlobalFeatures is a mapping of known global feature bits to a descriptive

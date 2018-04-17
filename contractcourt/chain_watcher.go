@@ -295,136 +295,134 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 	log.Infof("Close observer for ChannelPoint(%v) active",
 		c.chanState.FundingOutpoint)
 
-	for {
-		select {
-		// We've detected a spend of the channel onchain! Depending on
-		// the type of spend, we'll act accordingly , so we'll examine
-		// the spending transaction to determine what we should do.
-		//
-		// TODO(Roasbeef): need to be able to ensure this only triggers
-		// on confirmation, to ensure if multiple txns are broadcast, we
-		// act on the one that's timestamped
-		case commitSpend, ok := <-spendNtfn.Spend:
-			// If the channel was closed, then this means that the
-			// notifier exited, so we will as well.
-			if !ok {
-				return
-			}
-
-			// Otherwise, the remote party might have broadcast a
-			// prior revoked state...!!!
-			commitTxBroadcast := commitSpend.SpendingTx
-
-			localCommit, remoteCommit, err := c.chanState.LatestCommitments()
-			if err != nil {
-				log.Errorf("Unable to fetch channel state for "+
-					"chan_point=%v", c.chanState.FundingOutpoint)
-				return
-			}
-
-			// We'll not retrieve the latest sate of the revocation
-			// store so we can populate the information within the
-			// channel state object that we have.
-			//
-			// TODO(roasbeef): mutation is bad mkay
-			_, err = c.chanState.RemoteRevocationStore()
-			if err != nil {
-				log.Errorf("Unable to fetch revocation state for "+
-					"chan_point=%v", c.chanState.FundingOutpoint)
-				return
-			}
-
-			// If this is our commitment transaction, then we can
-			// exit here as we don't have any further processing we
-			// need to do (we can't cheat ourselves :p).
-			commitmentHash := localCommit.CommitTx.TxHash()
-			isOurCommitment := commitSpend.SpenderTxHash.IsEqual(
-				&commitmentHash,
-			)
-			if isOurCommitment {
-				if err := c.dispatchLocalForceClose(
-					commitSpend, *localCommit,
-				); err != nil {
-					log.Errorf("unable to handle local"+
-						"close for chan_point=%v: %v",
-						c.chanState.FundingOutpoint, err)
-				}
-				return
-			}
-
-			// Next, we'll check to see if this is a cooperative
-			// channel closure or not. This is characterized by
-			// having an input sequence number that's finalized.
-			// This won't happen with regular commitment
-			// transactions due to the state hint encoding scheme.
-			if commitTxBroadcast.TxIn[0].Sequence == wire.MaxTxInSequenceNum {
-				err := c.dispatchCooperativeClose(commitSpend)
-				if err != nil {
-					log.Errorf("unable to handle co op close: %v", err)
-				}
-				return
-			}
-
-			log.Warnf("Unprompted commitment broadcast for "+
-				"ChannelPoint(%v) ", c.chanState.FundingOutpoint)
-
-			// Decode the state hint encoded within the commitment
-			// transaction to determine if this is a revoked state
-			// or not.
-			obfuscator := c.stateHintObfuscator
-			broadcastStateNum := lnwallet.GetStateNumHint(
-				commitTxBroadcast, obfuscator,
-			)
-			remoteStateNum := remoteCommit.CommitHeight
-
-			switch {
-			// If state number spending transaction matches the
-			// current latest state, then they've initiated a
-			// unilateral close. So we'll trigger the unilateral
-			// close signal so subscribers can clean up the state
-			// as necessary.
-			//
-			// We'll also handle the case of the remote party
-			// broadcasting their commitment transaction which is
-			// one height above ours. This case can arise when we
-			// initiate a state transition, but the remote party
-			// has a fail crash _after_ accepting the new state,
-			// but _before_ sending their signature to us.
-			case broadcastStateNum >= remoteStateNum:
-				if err := c.dispatchRemoteForceClose(
-					commitSpend, *remoteCommit,
-				); err != nil {
-					log.Errorf("unable to handle remote "+
-						"close for chan_point=%v: %v",
-						c.chanState.FundingOutpoint, err)
-				}
-
-			// If the state number broadcast is lower than the
-			// remote node's current un-revoked height, then
-			// THEY'RE ATTEMPTING TO VIOLATE THE CONTRACT LAID OUT
-			// WITHIN THE PAYMENT CHANNEL.  Therefore we close the
-			// signal indicating a revoked broadcast to allow
-			// subscribers to
-			// swiftly dispatch justice!!!
-			case broadcastStateNum < remoteStateNum:
-				if err := c.dispatchContractBreach(
-					commitSpend, remoteCommit,
-					broadcastStateNum,
-				); err != nil {
-					log.Errorf("unable to handle channel "+
-						"breach for chan_point=%v: %v",
-						c.chanState.FundingOutpoint, err)
-				}
-			}
-
-			// Now that a spend has been detected, we've done our
-			// job, so we'll exit immediately.
-			return
-
-		// The chainWatcher has been signalled to exit, so we'll do so now.
-		case <-c.quit:
+	select {
+	// We've detected a spend of the channel onchain! Depending on
+	// the type of spend, we'll act accordingly , so we'll examine
+	// the spending transaction to determine what we should do.
+	//
+	// TODO(Roasbeef): need to be able to ensure this only triggers
+	// on confirmation, to ensure if multiple txns are broadcast, we
+	// act on the one that's timestamped
+	case commitSpend, ok := <-spendNtfn.Spend:
+		// If the channel was closed, then this means that the
+		// notifier exited, so we will as well.
+		if !ok {
 			return
 		}
+
+		// Otherwise, the remote party might have broadcast a
+		// prior revoked state...!!!
+		commitTxBroadcast := commitSpend.SpendingTx
+
+		localCommit, remoteCommit, err := c.chanState.LatestCommitments()
+		if err != nil {
+			log.Errorf("Unable to fetch channel state for "+
+				"chan_point=%v", c.chanState.FundingOutpoint)
+			return
+		}
+
+		// We'll not retrieve the latest sate of the revocation
+		// store so we can populate the information within the
+		// channel state object that we have.
+		//
+		// TODO(roasbeef): mutation is bad mkay
+		_, err = c.chanState.RemoteRevocationStore()
+		if err != nil {
+			log.Errorf("Unable to fetch revocation state for "+
+				"chan_point=%v", c.chanState.FundingOutpoint)
+			return
+		}
+
+		// If this is our commitment transaction, then we can
+		// exit here as we don't have any further processing we
+		// need to do (we can't cheat ourselves :p).
+		commitmentHash := localCommit.CommitTx.TxHash()
+		isOurCommitment := commitSpend.SpenderTxHash.IsEqual(
+			&commitmentHash,
+		)
+		if isOurCommitment {
+			if err := c.dispatchLocalForceClose(
+				commitSpend, *localCommit,
+			); err != nil {
+				log.Errorf("unable to handle local"+
+					"close for chan_point=%v: %v",
+					c.chanState.FundingOutpoint, err)
+			}
+			return
+		}
+
+		// Next, we'll check to see if this is a cooperative
+		// channel closure or not. This is characterized by
+		// having an input sequence number that's finalized.
+		// This won't happen with regular commitment
+		// transactions due to the state hint encoding scheme.
+		if commitTxBroadcast.TxIn[0].Sequence == wire.MaxTxInSequenceNum {
+			err := c.dispatchCooperativeClose(commitSpend)
+			if err != nil {
+				log.Errorf("unable to handle co op close: %v", err)
+			}
+			return
+		}
+
+		log.Warnf("Unprompted commitment broadcast for "+
+			"ChannelPoint(%v) ", c.chanState.FundingOutpoint)
+
+		// Decode the state hint encoded within the commitment
+		// transaction to determine if this is a revoked state
+		// or not.
+		obfuscator := c.stateHintObfuscator
+		broadcastStateNum := lnwallet.GetStateNumHint(
+			commitTxBroadcast, obfuscator,
+		)
+		remoteStateNum := remoteCommit.CommitHeight
+
+		switch {
+		// If state number spending transaction matches the
+		// current latest state, then they've initiated a
+		// unilateral close. So we'll trigger the unilateral
+		// close signal so subscribers can clean up the state
+		// as necessary.
+		//
+		// We'll also handle the case of the remote party
+		// broadcasting their commitment transaction which is
+		// one height above ours. This case can arise when we
+		// initiate a state transition, but the remote party
+		// has a fail crash _after_ accepting the new state,
+		// but _before_ sending their signature to us.
+		case broadcastStateNum >= remoteStateNum:
+			if err := c.dispatchRemoteForceClose(
+				commitSpend, *remoteCommit,
+			); err != nil {
+				log.Errorf("unable to handle remote "+
+					"close for chan_point=%v: %v",
+					c.chanState.FundingOutpoint, err)
+			}
+
+		// If the state number broadcast is lower than the
+		// remote node's current un-revoked height, then
+		// THEY'RE ATTEMPTING TO VIOLATE THE CONTRACT LAID OUT
+		// WITHIN THE PAYMENT CHANNEL.  Therefore we close the
+		// signal indicating a revoked broadcast to allow
+		// subscribers to
+		// swiftly dispatch justice!!!
+		case broadcastStateNum < remoteStateNum:
+			if err := c.dispatchContractBreach(
+				commitSpend, remoteCommit,
+				broadcastStateNum,
+			); err != nil {
+				log.Errorf("unable to handle channel "+
+					"breach for chan_point=%v: %v",
+					c.chanState.FundingOutpoint, err)
+			}
+		}
+
+		// Now that a spend has been detected, we've done our
+		// job, so we'll exit immediately.
+		return
+
+	// The chainWatcher has been signalled to exit, so we'll do so now.
+	case <-c.quit:
+		return
 	}
 }
 

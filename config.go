@@ -826,6 +826,8 @@ func validLogLevel(logLevel string) bool {
 	case "error":
 		fallthrough
 	case "critical":
+		fallthrough
+	case "off":
 		return true
 	}
 	return false

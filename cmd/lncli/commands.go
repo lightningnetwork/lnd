@@ -2280,7 +2280,7 @@ func getNetworkInfo(ctx *cli.Context) error {
 var debugLevelCommand = cli.Command{
 	Name:  "debuglevel",
 	Usage: "Set the debug level.",
-	Description: `Logging level for all subsystems {trace, debug, info, warn, error, critical}
+	Description: `Logging level for all subsystems {trace, debug, info, warn, error, critical, off}
 	You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems
 	
 	Use show to list available subsystems`,

@@ -286,7 +286,7 @@ func (d *AuthenticatedGossiper) SynchronizeNode(pub *btcec.PublicKey) error {
 		// also has known validated nodes, then we'll send that as
 		// well.
 		if chanInfo.AuthProof != nil {
-			chanAnn, e1Ann, e2Ann, err := createChanAnnouncement(
+			chanAnn, e1Ann, e2Ann, err := CreateChanAnnouncement(
 				chanInfo.AuthProof, chanInfo, e1, e2,
 			)
 			if err != nil {
@@ -424,6 +424,9 @@ func (d *AuthenticatedGossiper) Stop() {
 	close(d.quit)
 	d.wg.Wait()
 }
+
+// TODO(roasbeef): need method to get current gossip timestamp?
+//  * using mtx, check time rotate forward is needed?
 
 // ProcessRemoteAnnouncement sends a new remote announcement message along with
 // the peer that sent the routing message. The announcement will be processed
@@ -1432,7 +1435,7 @@ func (d *AuthenticatedGossiper) processRejectedEdge(chanAnnMsg *lnwire.ChannelAn
 
 	// We'll then create then validate the new fully assembled
 	// announcement.
-	chanAnn, e1Ann, e2Ann, err := createChanAnnouncement(
+	chanAnn, e1Ann, e2Ann, err := CreateChanAnnouncement(
 		proof, chanInfo, e1, e2,
 	)
 	if err != nil {
@@ -2088,7 +2091,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 						msg.ChannelID,
 						peerID)
 
-					chanAnn, _, _, err := createChanAnnouncement(
+					chanAnn, _, _, err := CreateChanAnnouncement(
 						chanInfo.AuthProof, chanInfo, e1, e2,
 					)
 					if err != nil {
@@ -2163,7 +2166,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 			dbProof.BitcoinSig1Bytes = oppositeProof.BitcoinSignature.ToSignatureBytes()
 			dbProof.BitcoinSig2Bytes = msg.BitcoinSignature.ToSignatureBytes()
 		}
-		chanAnn, e1Ann, e2Ann, err := createChanAnnouncement(&dbProof, chanInfo, e1, e2)
+		chanAnn, e1Ann, e2Ann, err := CreateChanAnnouncement(&dbProof, chanInfo, e1, e2)
 		if err != nil {
 			log.Error(err)
 			nMsg.err <- err

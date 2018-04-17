@@ -1787,10 +1787,30 @@ func (s *server) addPeer(p *peer) {
 	s.wg.Add(1)
 	go s.peerTerminationWatcher(p)
 
+	switch {
+	// If the remote peer knows of the new gossip queries feature, then
+	// we'll create a new gossipSyncer in the AuthenticatedGossiper for it.
+	case p.remoteLocalFeatures.HasFeature(lnwire.GossipQueriesOptional):
+		srvrLog.Infof("Negotiated chan series queries with %x",
+			p.pubKeyBytes[:])
+
+		// We'll only request channel updates from the remote peer if
+		// its enabled in the config, or we're already getting updates
+		// from enough peers.
+		//
+		// TODO(roasbeef): craft s.t. we only get updates from a few
+		// peers
+		recvUpdates := !cfg.NoChanUpdates
+		go s.authGossiper.InitSyncState(p.addr.IdentityKey, recvUpdates)
+
 	// If the remote peer has the initial sync feature bit set, then we'll
 	// being the synchronization protocol to exchange authenticated channel
-	// graph edges/vertexes
-	if p.remoteLocalFeatures.HasFeature(lnwire.InitialRoutingSync) {
+	// graph edges/vertexes, but only if they don't know of the new gossip
+	// queries.
+	case p.remoteLocalFeatures.HasFeature(lnwire.InitialRoutingSync):
+		srvrLog.Infof("Requesting full table sync with %x",
+			p.pubKeyBytes[:])
+
 		go s.authGossiper.SynchronizeNode(p.addr.IdentityKey)
 	}
 

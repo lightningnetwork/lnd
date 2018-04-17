@@ -381,6 +381,7 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 
 		// The chainWatcher has been signalled to exit, so we'll do so now.
 		case <-c.quit:
+			return
 		}
 	}
 }

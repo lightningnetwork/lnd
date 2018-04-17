@@ -132,8 +132,8 @@ type autoPilotConfig struct {
 	Allocation      float64             `long:"allocation" description:"The percentage of total funds that should be committed to automatic channel establishment"`
 	MinChannelSize  int64               `long:"minchansize" description:"The smallest channel that the autopilot agent should create"`
 	MaxChannelSize  int64               `long:"maxchansize" description:"The largest channel that the autopilot agent should create"`
-	ConfTarget      uint32              `long:"conftarget" description:"Targeted number of blocks within which the channel should be confirmed"`
-	OpenChanFeeRate lnwire.MilliSatoshi `long:"openchanfeerate" description:"The fee in millisatoshi we will charge for forwarding payments on our channels. If set, this value supersedes that of 'conftarget'."`
+	ConfTarget      uint32              `long:"conftarget" description:"Targeted number of blocks within which the channel should be confirmed; used to set a transaction fee target"`
+	OpenChanFeeRate lnwire.MilliSatoshi `long:"openchanfeerate" description:"The fee in millisatoshi we will target for channel commitment transactions. If set, this value supersedes that of 'conftarget'."`
 }
 
 type torConfig struct {

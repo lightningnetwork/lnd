@@ -107,8 +107,8 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 		return err
 	}
 
-	// TODO(halseth): make configurable?
-	minHtlc := lnwire.NewMSatFromSatoshis(1)
+	// Use chainConfig.MinHTLC for autopilot-opened channels
+	minHtlc := cfg.Bitcoin.MinHTLC
 
 	updateStream, errChan := c.server.OpenChannel(target, amt, 0,
 		minHtlc, feePerVSize, false, 0)

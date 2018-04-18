@@ -770,6 +770,7 @@ func (n *NetworkHarness) CloseChannel(ctx context.Context,
 			return func() bool {
 				channel, err := filterChannel(node, chanPoint)
 				if err != nil {
+					return false
 				}
 
 				return channel.Active

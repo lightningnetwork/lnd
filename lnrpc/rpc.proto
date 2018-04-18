@@ -646,6 +646,16 @@ message TransactionDetails {
     repeated Transaction transactions = 1 [json_name = "transactions"];
 }
 
+message FeeLimit {
+    oneof limit {
+        /// The fee limit expressed as a fixed amount of satoshis.
+        int64 fixed = 1;
+
+        /// The fee limit expressed as a percentage of the payment amount.
+        int64 percent = 2;
+    }
+}
+
 message SendRequest {
     /// The identity pubkey of the payment recipient
     bytes dest = 1;
@@ -653,7 +663,7 @@ message SendRequest {
     /// The hex-encoded identity pubkey of the payment recipient
     string dest_string = 2;
 
-    /// Number of satoshis to send. 
+    /// Number of satoshis to send.
     int64 amt = 3;
 
     /// The hash to use within the payment's HTLC
@@ -669,12 +679,19 @@ message SendRequest {
     */
     string payment_request = 6;
 
-    /// The CLTV delta from the current height that should be used to set the timelock for the final hop.
+    /**
+    The CLTV delta from the current height that should be used to set the
+    timelock for the final hop.
+    */
     int32 final_cltv_delta = 7;
 
-    /// The maximum total fees for the payment in satoshis.
-    int64 fee_limit = 8 [json_name = "fee_limit"];
-
+    /**
+    The maximum number of satoshis that will be paid as a fee of the payment.
+    This value can be represented either as a percentage of the amount being
+    sent, or as a fixed amount of the maximum fee the user is willing the pay to
+    send the payment.
+    */
+    FeeLimit fee_limit = 8;
 }
 message SendResponse {
     string payment_error = 1 [json_name = "payment_error"];
@@ -1235,11 +1252,16 @@ message QueryRoutesRequest {
     /// An optional CLTV delta from the current height that should be used for the timelock of the final hop
     int32 final_cltv_delta = 4;
 
-    /// The maximum total fees for the route in satoshis.
-    int64 fee_limit = 5;
+    /**
+    The maximum number of satoshis that will be paid as a fee of the payment.
+    This value can be represented either as a percentage of the amount being
+    sent, or as a fixed amount of the maximum fee the user is willing the pay to
+    send the payment.
+    */
+    FeeLimit fee_limit = 5;
 }
 message QueryRoutesResponse {
-    repeated Route routes = 1 [ json_name = "routes"];
+    repeated Route routes = 1 [json_name = "routes"];
 }
 
 message Hop {

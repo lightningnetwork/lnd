@@ -476,8 +476,16 @@
             "format": "int32"
           },
           {
-            "name": "fee_limit",
-            "description": "/ The maximum total fees for the route in satoshis.",
+            "name": "fee_limit.fixed",
+            "description": "/ The fee limit expressed as a fixed amount of satoshis.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
+          },
+          {
+            "name": "fee_limit.percent",
+            "description": "/ The fee limit expressed as a percentage of the payment amount.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -1339,6 +1347,21 @@
     },
     "lnrpcDisconnectPeerResponse": {
       "type": "object"
+    },
+    "lnrpcFeeLimit": {
+      "type": "object",
+      "properties": {
+        "fixed": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ The fee limit expressed as a fixed amount of satoshis."
+        },
+        "percent": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ The fee limit expressed as a percentage of the payment amount."
+        }
+      }
     },
     "lnrpcFeeReportResponse": {
       "type": "object",
@@ -2388,12 +2411,11 @@
         "final_cltv_delta": {
           "type": "integer",
           "format": "int32",
-          "description": "/ The CLTV delta from the current height that should be used to set the timelock for the final hop."
+          "description": "*\nThe CLTV delta from the current height that should be used to set the\ntimelock for the final hop."
         },
         "fee_limit": {
-          "type": "string",
-          "format": "int64",
-          "description": "/ The maximum total fees for the payment in satoshis."
+          "$ref": "#/definitions/lnrpcFeeLimit",
+          "description": "*\nThe maximum number of satoshis that will be paid as a fee of the payment.\nThis value can be represented either as a percentage of the amount being\nsent, or as a fixed amount of the maximum fee the user is willing the pay to\nsend the payment."
         }
       }
     },

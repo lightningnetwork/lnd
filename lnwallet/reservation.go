@@ -1,7 +1,6 @@
 package lnwallet
 
 import (
-	"fmt"
 	"net"
 	"sync"
 
@@ -59,8 +58,8 @@ type InputScript struct {
 }
 
 // ChannelReservation represents an intent to open a lightning payment channel
-// a counterparty. The funding processes from reservation to channel opening is
-// a 3-step process. In order to allow for full concurrency during the
+// with a counterparty. The funding processes from reservation to channel opening
+// is a 3-step process. In order to allow for full concurrency during the
 // reservation workflow, resources consumed by a contribution are "locked"
 // themselves. This prevents a number of race conditions such as two funding
 // transactions double-spending the same input. A reservation can also be
@@ -70,12 +69,12 @@ type InputScript struct {
 // The reservation workflow consists of the following three steps:
 //  1. lnwallet.InitChannelReservation
 //     * One requests the wallet to allocate the necessary resources for a
-//      channel reservation. These resources a put in limbo for the lifetime
-//      of a reservation.
-//    * Once completed the reservation will have the wallet's contribution
-//      accessible via the .OurContribution() method. This contribution
-//      contains the necessary items to allow the remote party to build both
-//      the funding, and commitment transactions.
+//       channel reservation. These resources are put in limbo for the lifetime
+//       of a reservation.
+//     * Once completed the reservation will have the wallet's contribution
+//       accessible via the .OurContribution() method. This contribution
+//       contains the necessary items to allow the remote party to build both
+//       the funding, and commitment transactions.
 //  2. ChannelReservation.ProcessContribution/ChannelReservation.ProcessSingleContribution
 //     * The counterparty presents their contribution to the payment channel.
 //       This allows us to build the funding, and commitment transactions
@@ -135,9 +134,9 @@ type ChannelReservation struct {
 // used only internally by lnwallet. In order to concurrent safety, the
 // creation of all channel reservations should be carried out via the
 // lnwallet.InitChannelReservation interface.
-func NewChannelReservation(capacity, fundingAmt, commitFeePerKw btcutil.Amount,
-	wallet *LightningWallet, id uint64, pushMSat lnwire.MilliSatoshi,
-	chainHash *chainhash.Hash,
+func NewChannelReservation(capacity, fundingAmt btcutil.Amount,
+	commitFeePerKw SatPerKWeight, wallet *LightningWallet,
+	id uint64, pushMSat lnwire.MilliSatoshi, chainHash *chainhash.Hash,
 	flags lnwire.FundingFlag) (*ChannelReservation, error) {
 
 	var (
@@ -146,10 +145,7 @@ func NewChannelReservation(capacity, fundingAmt, commitFeePerKw btcutil.Amount,
 		initiator    bool
 	)
 
-	commitFee := btcutil.Amount(
-		(int64(commitFeePerKw) * CommitWeight) / 1000,
-	)
-
+	commitFee := commitFeePerKw.FeeForWeight(CommitWeight)
 	fundingMSat := lnwire.NewMSatFromSatoshis(fundingAmt)
 	capacityMSat := lnwire.NewMSatFromSatoshis(capacity)
 	feeMSat := lnwire.NewMSatFromSatoshis(commitFee)
@@ -161,6 +157,15 @@ func NewChannelReservation(capacity, fundingAmt, commitFeePerKw btcutil.Amount,
 		ourBalance = pushMSat
 		theirBalance = capacityMSat - feeMSat - pushMSat
 		initiator = false
+
+		// If the responder doesn't have enough funds to actually pay
+		// the fees, then we'll bail our early.
+		if int64(theirBalance) < 0 {
+			return nil, ErrFunderBalanceDust(
+				int64(commitFee), int64(theirBalance.ToSatoshis()),
+				int64(2*DefaultDustLimit()),
+			)
+		}
 	} else {
 		// TODO(roasbeef): need to rework fee structure in general and
 		// also when we "unlock" dual funder within the daemon
@@ -181,6 +186,15 @@ func NewChannelReservation(capacity, fundingAmt, commitFeePerKw btcutil.Amount,
 		}
 
 		initiator = true
+
+		// If we, the initiator don't have enough funds to actually pay
+		// the fees, then we'll exit with an error.
+		if int64(ourBalance) < 0 {
+			return nil, ErrFunderBalanceDust(
+				int64(commitFee), int64(ourBalance),
+				int64(2*DefaultDustLimit()),
+			)
+		}
 	}
 
 	// If we're the initiator and our starting balance within the channel
@@ -189,9 +203,11 @@ func NewChannelReservation(capacity, fundingAmt, commitFeePerKw btcutil.Amount,
 	//
 	// TODO(roasbeef): reject if 30% goes to fees? dust channel
 	if initiator && ourBalance.ToSatoshis() <= 2*DefaultDustLimit() {
-		return nil, fmt.Errorf("unable to init reservation, with "+
-			"fee=%v sat/kw, local output is too small: %v sat",
-			int64(commitFee), int64(ourBalance.ToSatoshis()))
+		return nil, ErrFunderBalanceDust(
+			int64(commitFee),
+			int64(ourBalance.ToSatoshis()),
+			int64(2*DefaultDustLimit()),
+		)
 	}
 
 	// Next we'll set the channel type based on what we can ascertain about
@@ -229,13 +245,13 @@ func NewChannelReservation(capacity, fundingAmt, commitFeePerKw btcutil.Amount,
 			LocalCommitment: channeldb.ChannelCommitment{
 				LocalBalance:  ourBalance,
 				RemoteBalance: theirBalance,
-				FeePerKw:      commitFeePerKw,
+				FeePerKw:      btcutil.Amount(commitFeePerKw),
 				CommitFee:     commitFee,
 			},
 			RemoteCommitment: channeldb.ChannelCommitment{
 				LocalBalance:  ourBalance,
 				RemoteBalance: theirBalance,
-				FeePerKw:      commitFeePerKw,
+				FeePerKw:      btcutil.Amount(commitFeePerKw),
 				CommitFee:     commitFee,
 			},
 			Db: wallet.Cfg.Database,
@@ -260,16 +276,6 @@ func (r *ChannelReservation) SetNumConfsRequired(numConfs uint16) {
 	r.partialState.NumConfsRequired = numConfs
 }
 
-// RegisterMinHTLC registers our desired amount for the smallest acceptable
-// HTLC we'll accept within this channel. Any HTLC's that are extended which
-// are below this value will SHOULD be rejected.
-func (r *ChannelReservation) RegisterMinHTLC(minHTLC lnwire.MilliSatoshi) {
-	r.Lock()
-	defer r.Unlock()
-
-	r.ourContribution.MinHTLC = minHTLC
-}
-
 // CommitConstraints takes the constraints that the remote party specifies for
 // the type of commitments that we can generate for them. These constraints
 // include several parameters that serve as flow control restricting the amount
@@ -285,49 +291,44 @@ func (r *ChannelReservation) CommitConstraints(csvDelay, maxHtlcs uint16,
 
 	// Fail if we consider csvDelay excessively large.
 	// TODO(halseth): find a more scientific choice of value.
-	if csvDelay > 10000 {
-		return fmt.Errorf("csvDelay is too large: %d", csvDelay)
+	const maxDelay = 10000
+	if csvDelay > maxDelay {
+		return ErrCsvDelayTooLarge(csvDelay, maxDelay)
 	}
 
-	// Fail if we consider the channel reserve to be too large.
-	// We currently fail if it is greater than 20% of the
-	// channel capacity.
+	// Fail if we consider the channel reserve to be too large.  We
+	// currently fail if it is greater than 20% of the channel capacity.
 	maxChanReserve := r.partialState.Capacity / 5
 	if chanReserve > maxChanReserve {
-		return fmt.Errorf("chanReserve is too large: %g",
-			chanReserve.ToBTC())
+		return ErrChanReserveTooLarge(chanReserve, maxChanReserve)
 	}
 
-	// Fail if the minimum HTLC value is too large. If this is
-	// too large, the channel won't be useful for sending small
-	// payments. This limit is currently set to maxValueInFlight,
-	// effictively letting the remote setting this as large as
-	// it wants.
-	// TODO(halseth): set a reasonable/dynamic value.
+	// Fail if the minimum HTLC value is too large. If this is too large,
+	// the channel won't be useful for sending small payments. This limit
+	// is currently set to maxValueInFlight, effectively letting the remote
+	// setting this as large as it wants.
 	if minHtlc > maxValueInFlight {
-		return fmt.Errorf("minimum HTLC value is too large: %g",
-			r.ourContribution.MinHTLC.ToBTC())
+		return ErrMinHtlcTooLarge(minHtlc, maxValueInFlight)
 	}
 
-	// Fail if maxHtlcs is above the maximum allowed number of 483.
-	// This number is specified in BOLT-02.
+	// Fail if maxHtlcs is above the maximum allowed number of 483.  This
+	// number is specified in BOLT-02.
 	if maxHtlcs > uint16(MaxHTLCNumber/2) {
-		return fmt.Errorf("maxHtlcs is too large: %d", maxHtlcs)
+		return ErrMaxHtlcNumTooLarge(maxHtlcs, uint16(MaxHTLCNumber/2))
 	}
 
-	// Fail if we consider maxHtlcs too small. If this is too small
-	// we cannot offer many HTLCs to the remote.
+	// Fail if we consider maxHtlcs too small. If this is too small we
+	// cannot offer many HTLCs to the remote.
 	const minNumHtlc = 5
 	if maxHtlcs < minNumHtlc {
-		return fmt.Errorf("maxHtlcs is too small: %d", maxHtlcs)
+		return ErrMaxHtlcNumTooSmall(maxHtlcs, minNumHtlc)
 	}
 
-	// Fail if we consider maxValueInFlight too small. We currently
-	// require the remote to at least allow minNumHtlc * minHtlc
-	// in flight.
+	// Fail if we consider maxValueInFlight too small. We currently require
+	// the remote to at least allow minNumHtlc * minHtlc in flight.
 	if maxValueInFlight < minNumHtlc*minHtlc {
-		return fmt.Errorf("maxValueInFlight is too small: %g",
-			maxValueInFlight.ToBTC())
+		return ErrMaxValueInFlightTooSmall(maxValueInFlight,
+			minNumHtlc*minHtlc)
 	}
 
 	r.ourContribution.ChannelConfig.CsvDelay = csvDelay

@@ -351,7 +351,7 @@ func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 
 		// Kid outputs can be swept after an initial confirmation
 		// followed by a maturity period.Baby outputs are two stage and
-		// will need to wait for a absolute time out to reach a
+		// will need to wait for an absolute time out to reach a
 		// confirmation, then require a relative confirmation delay.
 		kidOutputs  = make([]kidOutput, 0, 1+len(incomingHtlcs))
 		babyOutputs = make([]babyOutput, 0, len(outgoingHtlcs))
@@ -910,15 +910,15 @@ func (u *utxoNursery) graduateClass(classHeight uint32) error {
 	return u.cfg.Store.GraduateHeight(classHeight)
 }
 
-// craftSweepTx accepts accepts a list of kindergarten outputs, and baby
-// outputs which don't required a second-layer claim, and signs and generates a
+// craftSweepTx accepts a list of kindergarten outputs, and baby
+// outputs which don't require a second-layer claim, and signs and generates a
 // signed txn that spends from them. This method also makes an accurate fee
 // estimate before generating the required witnesses.
 func (u *utxoNursery) createSweepTx(kgtnOutputs []kidOutput,
 	classHeight uint32) (*wire.MsgTx, error) {
 
 	// Create a transaction which sweeps all the newly mature outputs into
-	// a output controlled by the wallet.
+	// an output controlled by the wallet.
 
 	// TODO(roasbeef): can be more intelligent about buffering outputs to
 	// be more efficient on-chain.
@@ -994,15 +994,15 @@ func (u *utxoNursery) createSweepTx(kgtnOutputs []kidOutput,
 	utxnLog.Infof("Creating sweep transaction for %v CSV inputs, %v CLTV "+
 		"inputs", len(csvOutputs), len(cltvOutputs))
 
-	txWeight := uint64(weightEstimate.Weight())
-	return u.populateSweepTx(txWeight, classHeight, csvOutputs, cltvOutputs)
+	txVSize := int64(weightEstimate.VSize())
+	return u.populateSweepTx(txVSize, classHeight, csvOutputs, cltvOutputs)
 }
 
 // populateSweepTx populate the final sweeping transaction with all witnesses
 // in place for all inputs using the provided txn fee. The created transaction
 // has a single output sending all the funds back to the source wallet, after
 // accounting for the fee estimate.
-func (u *utxoNursery) populateSweepTx(txWeight uint64, classHeight uint32,
+func (u *utxoNursery) populateSweepTx(txVSize int64, classHeight uint32,
 	csvInputs []CsvSpendableOutput,
 	cltvInputs []SpendableOutput) (*wire.MsgTx, error) {
 
@@ -1022,11 +1022,11 @@ func (u *utxoNursery) populateSweepTx(txWeight uint64, classHeight uint32,
 	}
 
 	// Using the txn weight estimate, compute the required txn fee.
-	feePerWeight, err := u.cfg.Estimator.EstimateFeePerWeight(6)
+	feePerVSize, err := u.cfg.Estimator.EstimateFeePerVSize(6)
 	if err != nil {
 		return nil, err
 	}
-	txFee := btcutil.Amount(txWeight) * feePerWeight
+	txFee := feePerVSize.FeeForVSize(txVSize)
 
 	// Sweep as much possible, after subtracting txn fees.
 	sweepAmt := int64(totalSum - txFee)
@@ -1541,7 +1541,7 @@ func (c *contractMaturityReport) AddLimboStage2Htlc(kid *kidOutput) {
 	c.htlcs = append(c.htlcs, htlcReport)
 }
 
-// AddRecoveredHtlc adds an graduate output to the maturity report's htlcs, and
+// AddRecoveredHtlc adds a graduate output to the maturity report's htlcs, and
 // contributes its amount to the recovered balance.
 func (c *contractMaturityReport) AddRecoveredHtlc(kid *kidOutput) {
 	c.recoveredBalance += kid.Amount()

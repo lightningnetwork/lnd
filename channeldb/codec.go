@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/roasbeef/btcd/btcec"
@@ -48,6 +49,22 @@ func readOutpoint(r io.Reader, o *wire.OutPoint) error {
 // to dynamically expand to accommodate additional data.
 func writeElement(w io.Writer, element interface{}) error {
 	switch e := element.(type) {
+	case keychain.KeyDescriptor:
+		if err := binary.Write(w, byteOrder, e.Family); err != nil {
+			return err
+		}
+		if err := binary.Write(w, byteOrder, e.Index); err != nil {
+			return err
+		}
+
+		if e.PubKey != nil {
+			if err := binary.Write(w, byteOrder, true); err != nil {
+			}
+
+			return writeElement(w, e.PubKey)
+		}
+
+		return binary.Write(w, byteOrder, false)
 	case ChannelType:
 		if err := binary.Write(w, byteOrder, e); err != nil {
 			return err
@@ -163,6 +180,23 @@ func writeElements(w io.Writer, elements ...interface{}) error {
 // encoded using the serialization format of the database.
 func readElement(r io.Reader, element interface{}) error {
 	switch e := element.(type) {
+	case *keychain.KeyDescriptor:
+		if err := binary.Read(r, byteOrder, &e.Family); err != nil {
+			return err
+		}
+		if err := binary.Read(r, byteOrder, &e.Index); err != nil {
+			return err
+		}
+
+		var hasPubKey bool
+		if err := binary.Read(r, byteOrder, &hasPubKey); err != nil {
+			return err
+		}
+
+		if hasPubKey {
+			return readElement(r, &e.PubKey)
+		}
+
 	case *ChannelType:
 		if err := binary.Read(r, byteOrder, e); err != nil {
 			return err

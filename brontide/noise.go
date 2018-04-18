@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"time"
 
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/hkdf"
@@ -33,6 +34,12 @@ const (
 	// keyRotationInterval is the number of messages sent on a single
 	// cipher stream before the keys are rotated forwards.
 	keyRotationInterval = 1000
+
+	// handshakeReadTimeout is a read timeout that will be enforced when
+	// waiting for data payloads during the various acts of Brontide. If
+	// the remote party fails to deliver the proper payload within this
+	// time frame, then we'll fail the connection.
+	handshakeReadTimeout = time.Second * 5
 )
 
 var (
@@ -345,6 +352,20 @@ type Machine struct {
 	ephemeralGen func() (*btcec.PrivateKey, error)
 
 	handshakeState
+
+	// nextCipherHeader is a static buffer that we'll use to read in the
+	// next ciphertext header from the wire. The header is a 2 byte length
+	// (of the next ciphertext), followed by a 16 byte MAC.
+	nextCipherHeader [lengthHeaderSize + macSize]byte
+
+	// nextCipherText is a static buffer that we'll use to read in the
+	// bytes of the next cipher text message. As all messages in the
+	// protocol MUST be below 65KB plus our macSize, this will be
+	// sufficient to buffer all messages from the socket when we need to
+	// read the next one. Having a fixed buffer that's re-used also means
+	// that we save on allocations as we don't need to create a new one
+	// each time.
+	nextCipherText [math.MaxUint16 + macSize]byte
 }
 
 // NewBrontideMachine creates a new instance of the brontide state-machine. If
@@ -443,7 +464,7 @@ func (b *Machine) GenActOne() ([ActOneSize]byte, error) {
 
 // RecvActOne processes the act one packet sent by the initiator. The responder
 // executes the mirrored actions to that of the initiator extending the
-// handshake digest and deriving a new shared secret based on a ECDH with the
+// handshake digest and deriving a new shared secret based on an ECDH with the
 // initiator's ephemeral key and responder's static key.
 func (b *Machine) RecvActOne(actOne [ActOneSize]byte) error {
 	var (
@@ -698,25 +719,25 @@ func (b *Machine) WriteMessage(w io.Writer, p []byte) error {
 // ReadMessage attempts to read the next message from the passed io.Reader. In
 // the case of an authentication error, a non-nil error is returned.
 func (b *Machine) ReadMessage(r io.Reader) ([]byte, error) {
-	var cipherLen [lengthHeaderSize + macSize]byte
-	if _, err := io.ReadFull(r, cipherLen[:]); err != nil {
+	if _, err := io.ReadFull(r, b.nextCipherHeader[:]); err != nil {
 		return nil, err
 	}
 
 	// Attempt to decrypt+auth the packet length present in the stream.
-	pktLenBytes, err := b.recvCipher.Decrypt(nil, nil, cipherLen[:])
+	pktLenBytes, err := b.recvCipher.Decrypt(
+		nil, nil, b.nextCipherHeader[:],
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	// Next, using the length read from the packet header, read the
 	// encrypted packet itself.
-	var cipherText [math.MaxUint16 + macSize]byte
 	pktLen := uint32(binary.BigEndian.Uint16(pktLenBytes)) + macSize
-	if _, err := io.ReadFull(r, cipherText[:pktLen]); err != nil {
+	if _, err := io.ReadFull(r, b.nextCipherText[:pktLen]); err != nil {
 		return nil, err
 	}
 
 	// TODO(roasbeef): modify to let pass in slice
-	return b.recvCipher.Decrypt(nil, nil, cipherText[:pktLen])
+	return b.recvCipher.Decrypt(nil, nil, b.nextCipherText[:pktLen])
 }

@@ -8,7 +8,7 @@ import (
 
 	"container/heap"
 
-	"github.com/boltdb/bolt"
+	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -471,7 +471,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	//  * similar to route caching, but doesn't factor in the amount
 
 	// To start, we add the source of our path finding attempt to the
-	// distance map with with a distance of 0. This indicates our starting
+	// distance map with a distance of 0. This indicates our starting
 	// point in the graph traversal.
 	sourceVertex := Vertex(sourceNode.PubKeyBytes)
 	distance[sourceVertex] = nodeWithDist{
@@ -543,7 +543,8 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			// amount to our relaxation condition.
 			if tempDist < distance[v].dist &&
 				edgeInfo.Capacity >= amt.ToSatoshis() &&
-				amt >= outEdge.MinHTLC {
+				amt >= outEdge.MinHTLC &&
+				outEdge.TimeLockDelta != 0 {
 
 				distance[v] = nodeWithDist{
 					dist: tempDist,

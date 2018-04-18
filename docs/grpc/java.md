@@ -62,6 +62,11 @@ The following dependencies are required.
         <artifactId>netty-tcnative-boringssl-static</artifactId>
         <version>2.0.7.Final</version>
     </dependency>
+    <dependency>
+        <groupId>commons-codec</groupId>
+        <artifactId>commons-codec</artifactId>
+        <version>1.11</version>
+    </dependency>
 </dependencies>
 ```
 In the build section,  we'll need to configure the following things :
@@ -98,32 +103,83 @@ In the build section,  we'll need to configure the following things :
 ```
 #### Main.java
 ```java
+import io.grpc.Attributes;
+import io.grpc.CallCredentials;
 import io.grpc.ManagedChannel;
+import io.grpc.Metadata;
+import io.grpc.MethodDescriptor;
+import io.grpc.Status;
 import io.grpc.netty.GrpcSslContexts;
 import io.grpc.netty.NettyChannelBuilder;
 import io.netty.handler.ssl.SslContext;
 import lnrpc.LightningGrpc;
 import lnrpc.LightningGrpc.LightningBlockingStub;
-import lnrpc.Rpc.*;
+import lnrpc.Rpc.GetInfoRequest;
+import lnrpc.Rpc.GetInfoResponse;
+import org.apache.commons.codec.binary.Hex;
 
-import javax.net.ssl.SSLException;
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.concurrent.Executor;
 
 public class Main {
+  static class MacaroonCallCredential implements CallCredentials {
+    private final String macaroon;
 
-    private static final String CERT_PATH = "/Users/user/Library/Application Support/Lnd/tls.cert";
-    private static final String HOST = "localhost";
-    private static final int PORT = 10009;
-
-    public static void main(String... args) throws SSLException {
-        SslContext sslContext = GrpcSslContexts.forClient().trustManager(new File(CERT_PATH)).build();
-        NettyChannelBuilder channelBuilder = NettyChannelBuilder.forAddress(HOST, PORT);
-        ManagedChannel channel = channelBuilder.sslContext(sslContext).build();
-        LightningBlockingStub stub = LightningGrpc.newBlockingStub(channel);
-
-        GetInfoResponse response =  stub.getInfo(GetInfoRequest.getDefaultInstance());
-        System.out.println(response.getIdentityPubkey());
+    MacaroonCallCredential(String macaroon) {
+      this.macaroon = macaroon;
     }
+
+    public void thisUsesUnstableApi() {}
+
+    public void applyRequestMetadata(
+        MethodDescriptor < ? , ? > methodDescriptor,
+        Attributes attributes,
+        Executor executor,
+        final MetadataApplier metadataApplier
+    ) {
+      String authority = attributes.get(ATTR_AUTHORITY);
+      System.out.println(authority);
+      executor.execute(new Runnable() {
+        public void run() {
+          try {
+            Metadata headers = new Metadata();
+            Metadata.Key < String > macaroonKey = Metadata.Key.of("macaroon", Metadata.ASCII_STRING_MARSHALLER);
+            headers.put(macaroonKey, macaroon);
+            metadataApplier.apply(headers);
+          } catch (Throwable e) {
+            metadataApplier.fail(Status.UNAUTHENTICATED.withCause(e));
+          }
+        }
+      });
+    }
+  }
+
+  private static final String CERT_PATH = "/Users/user/Library/Application Support/Lnd/tls.cert";
+  private static final String MACAROON_PATH = "/Users/user/Library/Application Support/Lnd/admin.macaroon";
+  private static final String HOST = "localhost";
+  private static final int PORT = 10009;
+
+  public static void main(String...args) throws IOException {
+    SslContext sslContext = GrpcSslContexts.forClient().trustManager(new File(CERT_PATH)).build();
+    NettyChannelBuilder channelBuilder = NettyChannelBuilder.forAddress(HOST, PORT);
+    ManagedChannel channel = channelBuilder.sslContext(sslContext).build();
+
+    String macaroon =
+        Hex.encodeHexString(
+            Files.readAllBytes(Paths.get(MACAROON_PATH))
+        );
+
+    LightningBlockingStub stub = LightningGrpc
+        .newBlockingStub(channel)
+        .withCallCredentials(new MacaroonCallCredential(macaroon));
+
+
+    GetInfoResponse response = stub.getInfo(GetInfoRequest.getDefaultInstance());
+    System.out.println(response.getIdentityPubkey());
+  }
 }
 ```
 #### Running the example
@@ -143,27 +199,27 @@ mvn compile exec:java -Dexec.mainClass="Main" -Dexec.cleanupDaemonThreads=false
 [INFO] os.detected.version.major: 10
 [INFO] os.detected.version.minor: 13
 [INFO] os.detected.classifier: osx-x86_64
-[INFO] 
+[INFO]
 [INFO] ------------------------------------------------------------------------
 [INFO] Building lightning-client 0.0.1-SNAPSHOT
 [INFO] ------------------------------------------------------------------------
-[INFO] 
+[INFO]
 [INFO] --- protobuf-maven-plugin:0.5.0:compile (default) @ lightning-client ---
 [INFO] Compiling 3 proto file(s) to /Users/user/Documents/Projects/lightningclient/target/generated-sources/protobuf/java
-[INFO] 
+[INFO]
 [INFO] --- protobuf-maven-plugin:0.5.0:compile-custom (default) @ lightning-client ---
 [INFO] Compiling 3 proto file(s) to /Users/user/Documents/Projects/lightningclient/target/generated-sources/protobuf/grpc-java
-[INFO] 
+[INFO]
 [INFO] --- maven-resources-plugin:2.6:resources (default-resources) @ lightning-client ---
 [INFO] Using 'UTF-8' encoding to copy filtered resources.
 [INFO] Copying 0 resource
 [INFO] Copying 3 resources
 [INFO] Copying 3 resources
-[INFO] 
+[INFO]
 [INFO] --- maven-compiler-plugin:3.1:compile (default-compile) @ lightning-client ---
 [INFO] Changes detected - recompiling the module!
 [INFO] Compiling 12 source files to /Users/user/Documents/Projects/lightningclient/target/classes
-[INFO] 
+[INFO]
 [INFO] --- exec-maven-plugin:1.6.0:java (default-cli) @ lightning-client ---
 032562215c38dede6f1f2f262ff4c8db58a38ecf889e8e907eee8e4c320e0b5e81
 [INFO] ------------------------------------------------------------------------

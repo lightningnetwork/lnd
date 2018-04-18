@@ -58,7 +58,7 @@ func (msg *Init) MsgType() MessageType {
 	return MsgInit
 }
 
-// MaxPayloadLength returns the maximum allowed payload size for a Init
+// MaxPayloadLength returns the maximum allowed payload size for an Init
 // complete message observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.

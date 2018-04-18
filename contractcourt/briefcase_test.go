@@ -10,7 +10,7 @@ import (
 
 	prand "math/rand"
 
-	"github.com/boltdb/bolt"
+	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -796,7 +796,7 @@ func TestScopeIsolation(t *testing.T) {
 }
 
 func init() {
-	testSignDesc.PubKey, _ = btcec.ParsePubKey(key1, btcec.S256())
+	testSignDesc.KeyDesc.PubKey, _ = btcec.ParsePubKey(key1, btcec.S256())
 
 	prand.Seed(time.Now().Unix())
 }

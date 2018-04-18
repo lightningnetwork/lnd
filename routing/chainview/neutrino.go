@@ -55,7 +55,7 @@ var _ FilteredChainView = (*CfFilteredChainView)(nil)
 // NewCfFilteredChainView creates a new instance of the CfFilteredChainView
 // which is connected to an active neutrino node.
 //
-// NOTE: The node should already be running an syncing before being passed into
+// NOTE: The node should already be running and syncing before being passed into
 // this function.
 func NewCfFilteredChainView(node *neutrino.ChainService) (*CfFilteredChainView, error) {
 	return &CfFilteredChainView{
@@ -93,7 +93,7 @@ func (c *CfFilteredChainView) Start() error {
 	}
 
 	// Next, we'll create our set of rescan options. Currently it's
-	// required that a user MUST set a addr/outpoint/txid when creating a
+	// required that an user MUST set a addr/outpoint/txid when creating a
 	// rescan. To get around this, we'll add a "zero" outpoint, that won't
 	// actually be matched.
 	var zeroPoint wire.OutPoint

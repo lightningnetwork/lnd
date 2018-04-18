@@ -10,7 +10,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/boltdb/bolt"
+	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -65,8 +65,8 @@ var (
 	// in the bucket, grouping them according to their in/out nodes.
 	// Additionally, the items in this bucket also contain the complete
 	// edge information for a channel. The edge information includes the
-	// capacity of the channel, the nodes that made the channel, etc.  This
-	// bucket resides within the edgeBucket above.  Creation of a edge
+	// capacity of the channel, the nodes that made the channel, etc. This
+	// bucket resides within the edgeBucket above. Creation of an edge
 	// proceeds in two phases: first the edge is added to the edge index,
 	// afterwards the edgeBucket can be updated with the latest details of
 	// the edge as they are announced on the network.
@@ -1244,7 +1244,7 @@ func (l *LightningNode) ForEachChannel(tx *bolt.Tx,
 
 // ChannelEdgeInfo represents a fully authenticated channel along with all its
 // unique attributes. Once an authenticated channel announcement has been
-// processed on the network, then a instance of ChannelEdgeInfo encapsulating
+// processed on the network, then an instance of ChannelEdgeInfo encapsulating
 // the channels attributes is stored. The other portions relevant to routing
 // policy of a channel are stored within a ChannelEdgePolicy for each direction
 // of the channel.

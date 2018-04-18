@@ -59,9 +59,9 @@ func Dial(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress,
 	}
 
 	// We'll ensure that we get ActTwo from the remote peer in a timely
-	// manner. If they don't respond within 15 seconds, then we'll kill the
+	// manner. If they don't respond within 1s, then we'll kill the
 	// connection.
-	conn.SetReadDeadline(time.Now().Add(time.Second * 15))
+	conn.SetReadDeadline(time.Now().Add(handshakeReadTimeout))
 
 	// If the first act was successful (we know that address is actually
 	// remotePub), then read the second act after which we'll be able to
@@ -104,7 +104,7 @@ func (c *Conn) ReadNextMessage() ([]byte, error) {
 }
 
 // Read reads data from the connection.  Read can be made to time out and
-// return a Error with Timeout() == true after a fixed time limit; see
+// return an Error with Timeout() == true after a fixed time limit; see
 // SetDeadline and SetReadDeadline.
 //
 // Part of the net.Conn interface.
@@ -129,7 +129,7 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 }
 
 // Write writes data to the connection.  Write can be made to time out and
-// return a Error with Timeout() == true after a fixed time limit; see
+// return an Error with Timeout() == true after a fixed time limit; see
 // SetDeadline and SetWriteDeadline.
 //
 // Part of the net.Conn interface.

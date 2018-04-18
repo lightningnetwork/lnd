@@ -41,6 +41,12 @@ type Config struct {
 	// within the graph.
 	Graph ChannelGraph
 
+	// MaxPendingOpens is the maximum number of pending channel
+	// establishment goroutines that can be lingering. We cap this value in
+	// order to control the level of parallelism caused by the autopiloit
+	// agent.
+	MaxPendingOpens uint16
+
 	// TODO(roasbeef): add additional signals from fee rates and revenue of
 	// currently opened channels
 }
@@ -294,6 +300,16 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 	pendingOpens := make(map[NodeID]Channel)
 	var pendingMtx sync.Mutex
 
+	updateBalance := func() {
+		newBalance, err := a.cfg.WalletBalance()
+		if err != nil {
+			log.Warnf("unable to update wallet balance: %v", err)
+			return
+		}
+
+		a.totalBalance = newBalance
+	}
+
 	// TODO(roasbeef): add 10-minute wake up timer
 	for {
 		select {
@@ -319,6 +335,8 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 			case *chanOpenFailureUpdate:
 				log.Debug("Retrying after previous channel open failure.")
 
+				updateBalance()
+
 			// A new channel has been opened successfully. This was
 			// either opened by the Agent, or an external system
 			// that is able to drive the Lightning Node.
@@ -334,6 +352,8 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 				delete(pendingOpens, newChan.Node)
 				pendingMtx.Unlock()
 
+				updateBalance()
+
 			// A channel has been closed, this may free up an
 			// available slot, triggering a new channel update.
 			case *chanCloseUpdate:
@@ -344,6 +364,8 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 				for _, closedChan := range update.closedChans {
 					delete(a.chanState, closedChan)
 				}
+
+				updateBalance()
 			}
 
 			pendingMtx.Lock()
@@ -369,7 +391,8 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 				continue
 			}
 
-			log.Infof("Triggering attachment directive dispatch")
+			log.Infof("Triggering attachment directive dispatch, "+
+				"total_funds=%v", a.totalBalance)
 
 			// We're to attempt an attachment so we'll o obtain the
 			// set of nodes that we currently have channels with so
@@ -410,6 +433,21 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 			// top of our controller loop.
 			pendingMtx.Lock()
 			for _, chanCandidate := range chanCandidates {
+				// Before we proceed, we'll check to see if
+				// this attempt would take us past the total
+				// number of allowed pending opens. If so, then
+				// we'll skip this round and wait for an
+				// attempt to either fail or succeed.
+				if uint16(len(pendingOpens))+1 >
+					a.cfg.MaxPendingOpens {
+
+					log.Debugf("Reached cap of %v pending "+
+						"channel opens, will retry "+
+						"after success/failure",
+						a.cfg.MaxPendingOpens)
+					continue
+				}
+
 				nID := NewNodeID(chanCandidate.PeerKey)
 				pendingOpens[nID] = Channel{
 					Capacity: chanCandidate.ChanAmt,
@@ -417,6 +455,7 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 				}
 
 				go func(directive AttachmentDirective) {
+
 					pub := directive.PeerKey
 					err := a.cfg.ChanController.OpenChannel(
 

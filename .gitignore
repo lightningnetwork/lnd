@@ -24,16 +24,19 @@ _testmain.go
 *.test
 *.prof
 
-/lnd
+lnd
+lncli
+
+output*.log
 
 cmd/cmd
-**.key
-**.hex
+*.key
+*.hex
 
 cmd/lncli/lncli
 
 # vim
-**.swp
+*.swp
 
 *.hex
 *.db
@@ -41,6 +44,7 @@ cmd/lncli/lncli
 
 vendor
 *.idea
+*.iml
 profile.cov
 profile.tmp
 

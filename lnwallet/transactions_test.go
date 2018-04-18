@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/roasbeef/btcd/btcec"
@@ -186,7 +188,7 @@ func newTestContext() (tc *testContext, err error) {
 		return
 	}
 
-	const fundingChangeAddressStr = "tb1q8j3nctjygm62xp0j8jqdlzk34lw0v5hes3jhvy"
+	const fundingChangeAddressStr = "bcrt1qgyeqfmptyh780dsk32qawsvdffc2g5q5sxamg0"
 	tc.fundingChangeAddress, err = btcutil.DecodeAddress(
 		fundingChangeAddressStr, tc.netParams)
 	if err != nil {
@@ -325,7 +327,7 @@ func (tc *testContext) extractFundingInput() (*Utxo, *wire.TxOut, error) {
 	}
 
 	block1Utxo := Utxo{
-		AddressType: PubKeyHash,
+		AddressType: WitnessPubKey,
 		Value:       btcutil.Amount(txout.Value),
 		OutPoint: wire.OutPoint{
 			Hash:  *tx.Hash(),
@@ -378,16 +380,30 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 				MaxPendingAmount: lnwire.NewMSatFromSatoshis(tc.fundingAmount),
 				MaxAcceptedHtlcs: MaxHTLCNumber,
 			},
-			CsvDelay:         tc.localCsvDelay,
-			MultiSigKey:      tc.localFundingPubKey,
-			PaymentBasePoint: tc.localPaymentBasePoint,
-			HtlcBasePoint:    tc.localPaymentBasePoint,
-			DelayBasePoint:   localDelayBasePoint,
+			CsvDelay: tc.localCsvDelay,
+			MultiSigKey: keychain.KeyDescriptor{
+				PubKey: tc.localFundingPubKey,
+			},
+			PaymentBasePoint: keychain.KeyDescriptor{
+				PubKey: tc.localPaymentBasePoint,
+			},
+			HtlcBasePoint: keychain.KeyDescriptor{
+				PubKey: tc.localPaymentBasePoint,
+			},
+			DelayBasePoint: keychain.KeyDescriptor{
+				PubKey: localDelayBasePoint,
+			},
 		},
 		RemoteChanCfg: channeldb.ChannelConfig{
-			MultiSigKey:      tc.remoteFundingPubKey,
-			PaymentBasePoint: tc.remotePaymentBasePoint,
-			HtlcBasePoint:    tc.remotePaymentBasePoint,
+			MultiSigKey: keychain.KeyDescriptor{
+				PubKey: tc.remoteFundingPubKey,
+			},
+			PaymentBasePoint: keychain.KeyDescriptor{
+				PubKey: tc.remotePaymentBasePoint,
+			},
+			HtlcBasePoint: keychain.KeyDescriptor{
+				PubKey: tc.remotePaymentBasePoint,
+			},
 		},
 		Capacity:           tc.fundingAmount,
 		RevocationProducer: shachain.NewRevocationProducer(zeroHash),
@@ -787,12 +803,13 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 			height:       test.commitment.CommitHeight,
 			ourBalance:   test.commitment.LocalBalance,
 			theirBalance: test.commitment.RemoteBalance,
-			feePerKw:     test.commitment.FeePerKw,
+			feePerKw:     SatPerKWeight(test.commitment.FeePerKw),
 			dustLimit:    tc.dustLimit,
 			isOurs:       true,
 		}
-		err = channel.createCommitmentTx(commitmentView, theHTLCView,
-			keys)
+		err = channel.createCommitmentTx(
+			commitmentView, theHTLCView, keys,
+		)
 		if err != nil {
 			t.Errorf("Case %d: Failed to create new commitment tx: %v", i, err)
 			continue
@@ -821,16 +838,16 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 		// Check that commitment transaction was created correctly.
 		if commitTx.WitnessHash() != *expectedCommitmentTx.WitnessHash() {
 			t.Errorf("Case %d: Generated unexpected commitment tx: "+
-				"expected %s, got %s", i, expectedCommitmentTx.WitnessHash(),
-				commitTx.WitnessHash())
+				"expected %s, got %s", i, spew.Sdump(expectedCommitmentTx),
+				spew.Sdump(commitTx))
 			continue
 		}
 
 		// Generate second-level HTLC transactions for HTLCs in
 		// commitment tx.
 		htlcResolutions, err := extractHtlcResolutions(
-			test.commitment.FeePerKw, true, signer, htlcs, keys,
-			channel.localChanCfg, channel.remoteChanCfg,
+			SatPerKWeight(test.commitment.FeePerKw), true, signer,
+			htlcs, keys, channel.localChanCfg, channel.remoteChanCfg,
 			commitTx.TxHash(), pCache,
 		)
 		if err != nil {

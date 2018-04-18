@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/boltdb/bolt"
+	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
@@ -311,7 +311,7 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 		t.Fatalf("unable to create test node: %v", err)
 	}
 
-	// In in addition to the fake vertexes we create some fake channel
+	// In addition to the fake vertexes we create some fake channel
 	// identifiers.
 	chanID := uint64(prand.Int63())
 	outpoint := wire.OutPoint{
@@ -482,7 +482,7 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 	}
 
 	// Call DisconnectBlockAtHeight, which should prune every channel
-	// that has an funding height of 'height' or greater.
+	// that has a funding height of 'height' or greater.
 	removed, err := graph.DisconnectBlockAtHeight(uint32(height))
 	if err != nil {
 		t.Fatalf("unable to prune %v", err)
@@ -636,7 +636,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 		secondNode = node1
 	}
 
-	// In in addition to the fake vertexes we create some fake channel
+	// In addition to the fake vertexes we create some fake channel
 	// identifiers.
 	chanID := uint64(prand.Int63())
 	outpoint := wire.OutPoint{
@@ -880,7 +880,7 @@ func TestGraphTraversal(t *testing.T) {
 	}
 
 	// Iterate through all the known channels within the graph DB, once
-	// again if the map is empty that that indicates that all edges have
+	// again if the map is empty that indicates that all edges have
 	// properly been reached.
 	err = graph.ForEachChannel(func(ei *ChannelEdgeInfo, _ *ChannelEdgePolicy,
 		_ *ChannelEdgePolicy) error {
@@ -901,7 +901,7 @@ func TestGraphTraversal(t *testing.T) {
 	err = firstNode.ForEachChannel(nil, func(_ *bolt.Tx, _ *ChannelEdgeInfo,
 		outEdge, inEdge *ChannelEdgePolicy) error {
 
-		// Each each should indicate that it's outgoing (pointed
+		// Each should indicate that it's outgoing (pointed
 		// towards the second node).
 		if !bytes.Equal(outEdge.Node.PubKeyBytes[:], secondNode.PubKeyBytes[:]) {
 			return fmt.Errorf("wrong outgoing edge")

@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
@@ -99,7 +100,13 @@ func TestSignDescriptorSerialization(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unable to parse pubkey: %v", err)
 		}
-		sd.PubKey = pubkey
+		sd.KeyDesc = keychain.KeyDescriptor{
+			KeyLocator: keychain.KeyLocator{
+				Family: 50,
+				Index:  99,
+			},
+			PubKey: pubkey,
+		}
 
 		// Test that serialize -> deserialize yields same result as original.
 		var buf bytes.Buffer

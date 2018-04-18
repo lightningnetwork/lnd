@@ -90,15 +90,17 @@ type nodeConfig struct {
 	BaseDir   string
 	ExtraArgs []string
 
-	DataDir      string
-	LogDir       string
-	TLSCertPath  string
-	TLSKeyPath   string
-	AdminMacPath string
-	ReadMacPath  string
-	P2PPort      int
-	RPCPort      int
-	RESTPort     int
+	DataDir        string
+	LogDir         string
+	TLSCertPath    string
+	TLSKeyPath     string
+	AdminMacPath   string
+	ReadMacPath    string
+	InvoiceMacPath string
+
+	P2PPort  int
+	RPCPort  int
+	RESTPort int
 }
 
 func (cfg nodeConfig) P2PAddr() string {
@@ -145,6 +147,7 @@ func (cfg nodeConfig) genArgs() []string {
 	args = append(args, fmt.Sprintf("--rpclisten=%v", cfg.RPCAddr()))
 	args = append(args, fmt.Sprintf("--restlisten=%v", cfg.RESTAddr()))
 	args = append(args, fmt.Sprintf("--listen=%v", cfg.P2PAddr()))
+	args = append(args, fmt.Sprintf("--externalip=%v", cfg.P2PAddr()))
 	args = append(args, fmt.Sprintf("--logdir=%v", cfg.LogDir))
 	args = append(args, fmt.Sprintf("--datadir=%v", cfg.DataDir))
 	args = append(args, fmt.Sprintf("--tlscertpath=%v", cfg.TLSCertPath))
@@ -152,6 +155,7 @@ func (cfg nodeConfig) genArgs() []string {
 	args = append(args, fmt.Sprintf("--configfile=%v", cfg.DataDir))
 	args = append(args, fmt.Sprintf("--adminmacaroonpath=%v", cfg.AdminMacPath))
 	args = append(args, fmt.Sprintf("--readonlymacaroonpath=%v", cfg.ReadMacPath))
+	args = append(args, fmt.Sprintf("--invoicemacaroonpath=%v", cfg.InvoiceMacPath))
 	args = append(args, fmt.Sprintf("--externalip=%s", cfg.P2PAddr()))
 	args = append(args, fmt.Sprintf("--trickledelay=%v", trickleDelay))
 
@@ -211,6 +215,7 @@ func newNode(cfg nodeConfig) (*HarnessNode, error) {
 	cfg.TLSKeyPath = filepath.Join(cfg.DataDir, "tls.key")
 	cfg.AdminMacPath = filepath.Join(cfg.DataDir, "admin.macaroon")
 	cfg.ReadMacPath = filepath.Join(cfg.DataDir, "readonly.macaroon")
+	cfg.InvoiceMacPath = filepath.Join(cfg.DataDir, "invoice.macaroon")
 
 	cfg.P2PPort, cfg.RPCPort, cfg.RESTPort = generateListeningPorts()
 
@@ -239,7 +244,8 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 	hn.quit = make(chan struct{})
 
 	args := hn.cfg.genArgs()
-	hn.cmd = exec.Command("lnd", args...)
+	args = append(args, fmt.Sprintf("--profile=%d", 9000+hn.NodeID))
+	hn.cmd = exec.Command("./lnd", args...)
 
 	// Redirect stderr output to buffer
 	var errb bytes.Buffer
@@ -394,6 +400,12 @@ func (hn *HarnessNode) connectRPC() (*grpc.ClientConn, error) {
 	return grpc.Dial(hn.cfg.RPCAddr(), opts...)
 }
 
+// SetExtraArgs assigns the ExtraArgs field for the node's configuration. The
+// changes will take effect on restart.
+func (hn *HarnessNode) SetExtraArgs(extraArgs []string) {
+	hn.cfg.ExtraArgs = extraArgs
+}
+
 // cleanup cleans up all the temporary files created by the node's process.
 func (hn *HarnessNode) cleanup() error {
 	return os.RemoveAll(hn.cfg.BaseDir)
@@ -417,7 +429,12 @@ func (hn *HarnessNode) stop() error {
 	}
 
 	// Wait for lnd process and other goroutines to exit.
-	<-hn.processExit
+	select {
+	case <-hn.processExit:
+	case <-time.After(60 * time.Second):
+		return fmt.Errorf("process did not exit")
+	}
+
 	close(hn.quit)
 	hn.wg.Wait()
 
@@ -585,7 +602,7 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 			// TODO(roasbeef): add update type also, checks for
 			// multiple of 2
 			if watchRequest.chanOpen {
-				// If this is a open request, then it can be
+				// If this is an open request, then it can be
 				// dispatched if the number of edges seen for
 				// the channel is at least two.
 				if numEdges := openChans[targetChan]; numEdges >= 2 {

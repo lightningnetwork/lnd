@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/boltdb/bolt"
+	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
@@ -37,7 +37,7 @@ type databaseChannelGraph struct {
 // autopilot.ChannelGraph interface.
 var _ ChannelGraph = (*databaseChannelGraph)(nil)
 
-// ChannelGraphFromDatabase returns a instance of the autopilot.ChannelGraph
+// ChannelGraphFromDatabase returns an instance of the autopilot.ChannelGraph
 // backed by a live, open channeldb instance.
 func ChannelGraphFromDatabase(db *channeldb.ChannelGraph) ChannelGraph {
 	return &databaseChannelGraph{
@@ -260,7 +260,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		nil
 }
 
-// memChannelGraph is a implementation of the autopilot.ChannelGraph backed by
+// memChannelGraph is an implementation of the autopilot.ChannelGraph backed by
 // an in-memory graph.
 type memChannelGraph struct {
 	graph map[NodeID]memNode

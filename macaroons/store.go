@@ -7,7 +7,7 @@ import (
 
 	"golang.org/x/net/context"
 
-	"github.com/boltdb/bolt"
+	"github.com/coreos/bbolt"
 
 	"github.com/roasbeef/btcwallet/snacl"
 )
@@ -196,6 +196,8 @@ func (r *RootKeyStorage) RootKey(_ context.Context) ([]byte, []byte, error) {
 // Close closes the underlying database and zeroes the encryption key stored
 // in memory.
 func (r *RootKeyStorage) Close() error {
-	r.encKey.Zero()
+	if r.encKey != nil {
+		r.encKey.Zero()
+	}
 	return r.DB.Close()
 }

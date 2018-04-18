@@ -677,7 +677,7 @@ func readElement(r io.Reader, element interface{}) error {
 				continue
 
 			default:
-				return fmt.Errorf("unknown address type: %v", aType)
+				return &ErrUnknownAddrType{aType}
 			}
 
 			addresses = append(addresses, address)

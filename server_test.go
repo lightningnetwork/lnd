@@ -1,3 +1,5 @@
+// +build !rpctest
+
 package main
 
 import "testing"

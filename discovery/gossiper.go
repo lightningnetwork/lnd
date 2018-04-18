@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/boltdb/bolt"
+	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -148,7 +148,7 @@ type AuthenticatedGossiper struct {
 	newBlocks <-chan *chainntnfs.BlockEpoch
 
 	// prematureAnnouncements maps a block height to a set of network
-	// messages which are "premature" from our PoV. An message is premature
+	// messages which are "premature" from our PoV. A message is premature
 	// if it claims to be anchored in a block which is beyond the current
 	// main chain tip as we know it. Premature network messages will be
 	// processed once the chain tip as we know it extends to/past the
@@ -168,7 +168,7 @@ type AuthenticatedGossiper struct {
 	// announcement messages. We use it to buffer half of the material
 	// needed to reconstruct a full authenticated channel announcement.
 	// Once we receive the other half the channel proof, we'll be able to
-	// properly validate it an re-broadcast it out to the network.
+	// properly validate it and re-broadcast it out to the network.
 	waitingProofs *channeldb.WaitingProofStore
 
 	// networkMsgs is a channel that carries new network broadcasted
@@ -1097,8 +1097,9 @@ func (d *AuthenticatedGossiper) retransmitStaleChannels() error {
 	for _, chanToUpdate := range edgesToUpdate {
 		// Re-sign and update the channel on disk and retrieve our
 		// ChannelUpdate to broadcast.
-		chanAnn, chanUpdate, err := d.updateChannel(chanToUpdate.info,
-			chanToUpdate.edge)
+		chanAnn, chanUpdate, err := d.updateChannel(
+			chanToUpdate.info, chanToUpdate.edge,
+		)
 		if err != nil {
 			return fmt.Errorf("unable to update channel: %v", err)
 		}
@@ -1131,8 +1132,8 @@ func (d *AuthenticatedGossiper) retransmitStaleChannels() error {
 
 // processChanPolicyUpdate generates a new set of channel updates with the new
 // channel policy applied for each specified channel identified by its channel
-// point. In the case that no channel points are specified, then the update will
-// be applied to all channels. Finally, the backing ChannelGraphSource is
+// point. In the case that no channel points are specified, then the update
+// will be applied to all channels. Finally, the backing ChannelGraphSource is
 // updated with the latest information reflecting the applied updates.
 //
 // TODO(roasbeef): generalize into generic for any channel update
@@ -1146,13 +1147,24 @@ func (d *AuthenticatedGossiper) processChanPolicyUpdate(
 	}
 
 	haveChanFilter := len(chansToUpdate) != 0
+	if haveChanFilter {
+		log.Infof("Updating routing policies for chan_points=%v",
+			spew.Sdump(chansToUpdate))
+	} else {
+		log.Infof("Updating routing policies for all chans")
+	}
 
-	var chanUpdates []networkMsg
+	type edgeWithInfo struct {
+		info *channeldb.ChannelEdgeInfo
+		edge *channeldb.ChannelEdgePolicy
+	}
+	var edgesToUpdate []edgeWithInfo
 
 	// Next, we'll loop over all the outgoing channels the router knows of.
 	// If we have a filter then we'll only collected those channels,
 	// otherwise we'll collect them all.
-	err := d.cfg.Router.ForAllOutgoingChannels(func(info *channeldb.ChannelEdgeInfo,
+	err := d.cfg.Router.ForAllOutgoingChannels(func(
+		info *channeldb.ChannelEdgeInfo,
 		edge *channeldb.ChannelEdgePolicy) error {
 
 		// If we have a channel filter, and this channel isn't a part
@@ -1161,20 +1173,37 @@ func (d *AuthenticatedGossiper) processChanPolicyUpdate(
 			return nil
 		}
 
-		// Apply the new fee schema to the edge.
+		// Now that we know we should update this channel, we'll update
+		// its set of policies.
 		edge.FeeBaseMSat = policyUpdate.newSchema.BaseFee
 		edge.FeeProportionalMillionths = lnwire.MilliSatoshi(
 			policyUpdate.newSchema.FeeRate,
 		)
-
-		// Apply the new TimeLockDelta.
 		edge.TimeLockDelta = uint16(policyUpdate.newSchema.TimeLockDelta)
 
-		// Re-sign and update the backing ChannelGraphSource, and
+		edgesToUpdate = append(edgesToUpdate, edgeWithInfo{
+			info: info,
+			edge: edge,
+		})
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// With the set of edges we need to update retrieved, we'll now re-sign
+	// them, and insert them into the database.
+	var chanUpdates []networkMsg
+	for _, edgeInfo := range edgesToUpdate {
+		// Now that we've collected all the channels we need to update,
+		// we'll Re-sign and update the backing ChannelGraphSource, and
 		// retrieve our ChannelUpdate to broadcast.
-		_, chanUpdate, err := d.updateChannel(info, edge)
+		_, chanUpdate, err := d.updateChannel(
+			edgeInfo.info, edgeInfo.edge,
+		)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		// We set ourselves as the source of this message to indicate
@@ -1183,11 +1212,6 @@ func (d *AuthenticatedGossiper) processChanPolicyUpdate(
 			peer: d.selfKey,
 			msg:  chanUpdate,
 		})
-
-		return nil
-	})
-	if err != nil {
-		return nil, err
 	}
 
 	return chanUpdates, nil
@@ -1299,7 +1323,17 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 	// information about a node in one of the channels we know about, or a
 	// updating previously advertised information.
 	case *lnwire.NodeAnnouncement:
+		timestamp := time.Unix(int64(msg.Timestamp), 0)
+
 		if nMsg.isRemote {
+			// We'll quickly ask the router if it already has a
+			// newer update for this node so we can skip validating
+			// signatures if not required.
+			if d.cfg.Router.IsStaleNode(msg.NodeID, timestamp) {
+				nMsg.err <- nil
+				return nil
+			}
+
 			if err := ValidateNodeAnn(msg); err != nil {
 				err := errors.Errorf("unable to validate "+
 					"node announcement: %v", err)
@@ -1312,7 +1346,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		features := lnwire.NewFeatureVector(msg.Features, lnwire.GlobalFeatures)
 		node := &channeldb.LightningNode{
 			HaveNodeAnnouncement: true,
-			LastUpdate:           time.Unix(int64(msg.Timestamp), 0),
+			LastUpdate:           timestamp,
 			Addresses:            msg.Addresses,
 			PubKeyBytes:          msg.NodeID,
 			Alias:                msg.Alias.String(),
@@ -1353,7 +1387,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		// We'll ignore any channel announcements that target any chain
 		// other than the set of chains we know of.
 		if !bytes.Equal(msg.ChainHash[:], d.cfg.ChainHash[:]) {
-			log.Error("Ignoring ChannelAnnouncement from "+
+			log.Errorf("Ignoring ChannelAnnouncement from "+
 				"chain=%v, gossiper on chain=%v", msg.ChainHash,
 				d.cfg.ChainHash)
 			d.rejectMtx.Lock()
@@ -1379,6 +1413,13 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 				nMsg,
 			)
 			d.Unlock()
+			return nil
+		}
+
+		// At this point, we'll now ask the router if this is a stale
+		// update. If so we can skip all the processing below.
+		if d.cfg.Router.IsKnownEdge(msg.ShortChannelID) {
+			nMsg.err <- nil
 			return nil
 		}
 
@@ -1445,7 +1486,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		if err := d.cfg.Router.AddEdge(edge); err != nil {
 			// If the edge was rejected due to already being known,
 			// then it may be that case that this new message has a
-			// fresh channel proof, so we'll cechk.
+			// fresh channel proof, so we'll check.
 			if routing.IsError(err, routing.ErrOutdated,
 				routing.ErrIgnored) {
 
@@ -1469,11 +1510,12 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 					return anns
 				}
 
-				// Otherwise, this is just a regular rejected edge.
+				// Otherwise, this is just a regular rejected
+				// edge.
 				log.Debugf("Router rejected channel "+
 					"edge: %v", err)
 			} else {
-				log.Errorf("Router rejected channel "+
+				log.Tracef("Router rejected channel "+
 					"edge: %v", err)
 			}
 
@@ -1554,7 +1596,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		// We'll ignore any channel announcements that target any chain
 		// other than the set of chains we know of.
 		if !bytes.Equal(msg.ChainHash[:], d.cfg.ChainHash[:]) {
-			log.Error("Ignoring ChannelUpdate from "+
+			log.Errorf("Ignoring ChannelUpdate from "+
 				"chain=%v, gossiper on chain=%v", msg.ChainHash,
 				d.cfg.ChainHash)
 			d.rejectMtx.Lock()
@@ -1582,6 +1624,18 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 				nMsg,
 			)
 			d.Unlock()
+			return nil
+		}
+
+		// Before we perform any of the expensive checks below, we'll
+		// make sure that the router doesn't already have a fresher
+		// announcement for this edge.
+		timestamp := time.Unix(int64(msg.Timestamp), 0)
+		if d.cfg.Router.IsStaleEdgePolicy(
+			msg.ShortChannelID, timestamp, msg.Flags,
+		) {
+
+			nMsg.err <- nil
 			return nil
 		}
 
@@ -1668,7 +1722,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		update := &channeldb.ChannelEdgePolicy{
 			SigBytes:                  msg.Signature.ToSignatureBytes(),
 			ChannelID:                 shortChanID,
-			LastUpdate:                time.Unix(int64(msg.Timestamp), 0),
+			LastUpdate:                timestamp,
 			Flags:                     msg.Flags,
 			TimeLockDelta:             msg.TimeLockDelta,
 			MinHTLC:                   msg.HtlcMinimumMsat,
@@ -2097,8 +2151,8 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 
 	var err error
 
-	// Make sure timestamp is always increased, such that our update
-	// gets propagated.
+	// Make sure timestamp is always increased, such that our update gets
+	// propagated.
 	timestamp := time.Now().Unix()
 	if timestamp <= edge.LastUpdate.Unix() {
 		timestamp = edge.LastUpdate.Unix() + 1

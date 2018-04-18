@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"os/user"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -34,6 +35,7 @@ const (
 	defaultTLSKeyFilename     = "tls.key"
 	defaultAdminMacFilename   = "admin.macaroon"
 	defaultReadMacFilename    = "readonly.macaroon"
+	defaultInvoiceMacFilename = "invoice.macaroon"
 	defaultLogLevel           = "info"
 	defaultLogDirname         = "logs"
 	defaultLogFilename        = "lnd.log"
@@ -44,6 +46,8 @@ const (
 	defaultMaxPendingChannels = 1
 	defaultNoEncryptWallet    = false
 	defaultTrickleDelay       = 30 * 1000
+	defaultMaxLogFiles        = 3
+	defaultMaxLogFileSize     = 10
 
 	defaultBroadcastDelta = 10
 
@@ -51,46 +55,40 @@ const (
 	// HTLCs on our channels.
 	minTimeLockDelta = 4
 
-	defaultBitcoinMinHTLCMSat   = 1000
-	defaultBitcoinBaseFeeMSat   = 1000
-	defaultBitcoinFeeRate       = 1
-	defaultBitcoinTimeLockDelta = 144
-
-	defaultLitecoinMinHTLCMSat   = 1000
-	defaultLitecoinBaseFeeMSat   = 1000
-	defaultLitecoinFeeRate       = 1
-	defaultLitecoinTimeLockDelta = 576
-
 	defaultAlias = ""
 	defaultColor = "#3399FF"
 )
 
 var (
-	// TODO(roasbeef): base off of datadir instead?
-	lndHomeDir          = btcutil.AppDataDir("lnd", false)
-	defaultConfigFile   = filepath.Join(lndHomeDir, defaultConfigFilename)
-	defaultDataDir      = filepath.Join(lndHomeDir, defaultDataDirname)
-	defaultTLSCertPath  = filepath.Join(lndHomeDir, defaultTLSCertFilename)
-	defaultTLSKeyPath   = filepath.Join(lndHomeDir, defaultTLSKeyFilename)
-	defaultAdminMacPath = filepath.Join(lndHomeDir, defaultAdminMacFilename)
-	defaultReadMacPath  = filepath.Join(lndHomeDir, defaultReadMacFilename)
-	defaultLogDir       = filepath.Join(lndHomeDir, defaultLogDirname)
+	defaultLndDir     = btcutil.AppDataDir("lnd", false)
+	defaultConfigFile = filepath.Join(defaultLndDir, defaultConfigFilename)
+	defaultDataDir    = filepath.Join(defaultLndDir, defaultDataDirname)
+	defaultLogDir     = filepath.Join(defaultLndDir, defaultLogDirname)
 
-	btcdHomeDir            = btcutil.AppDataDir("btcd", false)
-	defaultBtcdRPCCertFile = filepath.Join(btcdHomeDir, "rpc.cert")
+	defaultTLSCertPath = filepath.Join(defaultLndDir, defaultTLSCertFilename)
+	defaultTLSKeyPath  = filepath.Join(defaultLndDir, defaultTLSKeyFilename)
 
-	ltcdHomeDir            = btcutil.AppDataDir("ltcd", false)
-	defaultLtcdRPCCertFile = filepath.Join(ltcdHomeDir, "rpc.cert")
+	defaultAdminMacPath   = filepath.Join(defaultLndDir, defaultAdminMacFilename)
+	defaultReadMacPath    = filepath.Join(defaultLndDir, defaultReadMacFilename)
+	defaultInvoiceMacPath = filepath.Join(defaultLndDir, defaultInvoiceMacFilename)
 
-	bitcoindHomeDir = btcutil.AppDataDir("bitcoin", false)
+	defaultBtcdDir         = btcutil.AppDataDir("btcd", false)
+	defaultBtcdRPCCertFile = filepath.Join(defaultBtcdDir, "rpc.cert")
+
+	defaultLtcdDir         = btcutil.AppDataDir("ltcd", false)
+	defaultLtcdRPCCertFile = filepath.Join(defaultLtcdDir, "rpc.cert")
+
+	defaultBitcoindDir  = btcutil.AppDataDir("bitcoin", false)
+	defaultLitecoindDir = btcutil.AppDataDir("litecoin", false)
 )
 
 type chainConfig struct {
 	Active   bool   `long:"active" description:"If the chain should be active or not."`
 	ChainDir string `long:"chaindir" description:"The directory to store the chain's data within."`
 
-	Node string `long:"node" description:"The blockchain interface to use." choice:"btcd" choice:"bitcoind" choice:"neutrino"`
+	Node string `long:"node" description:"The blockchain interface to use." choice:"btcd" choice:"bitcoind" choice:"neutrino" choice:"ltcd" choice:"litecoind"`
 
+	MainNet  bool `long:"mainnet" description:"Use the main network"`
 	TestNet3 bool `long:"testnet" description:"Use the test network"`
 	SimNet   bool `long:"simnet" description:"Use the simulation test network"`
 	RegTest  bool `long:"regtest" description:"Use the regression test network"`
@@ -112,6 +110,7 @@ type neutrinoConfig struct {
 }
 
 type btcdConfig struct {
+	Dir        string `long:"dir" description:"The base directory that contains the node's data, logs, configuration file, etc."`
 	RPCHost    string `long:"rpchost" description:"The daemon's rpc listening address. If a port is omitted, then the default port for the selected chain parameters will be used."`
 	RPCUser    string `long:"rpcuser" description:"Username for RPC connections"`
 	RPCPass    string `long:"rpcpass" default-mask:"-" description:"Password for RPC connections"`
@@ -120,6 +119,7 @@ type btcdConfig struct {
 }
 
 type bitcoindConfig struct {
+	Dir     string `long:"dir" description:"The base directory that contains the node's data, logs, configuration file, etc."`
 	RPCHost string `long:"rpchost" description:"The daemon's rpc listening address. If a port is omitted, then the default port for the selected chain parameters will be used."`
 	RPCUser string `long:"rpcuser" description:"Username for RPC connections"`
 	RPCPass string `long:"rpcpass" default-mask:"-" description:"Password for RPC connections"`
@@ -127,10 +127,11 @@ type bitcoindConfig struct {
 }
 
 type autoPilotConfig struct {
-	// TODO(roasbeef): add
-	Active      bool    `long:"active" description:"If the autopilot agent should be active or not."`
-	MaxChannels int     `long:"maxchannels" description:"The maximum number of channels that should be created"`
-	Allocation  float64 `long:"allocation" description:"The percentage of total funds that should be committed to automatic channel establishment"`
+	Active         bool    `long:"active" description:"If the autopilot agent should be active or not."`
+	MaxChannels    int     `long:"maxchannels" description:"The maximum number of channels that should be created"`
+	Allocation     float64 `long:"allocation" description:"The percentage of total funds that should be committed to automatic channel establishment"`
+	MinChannelSize int64   `long:"minchansize" description:"The smallest channel that the autopilot agent should create"`
+	MaxChannelSize int64   `long:"maxchansize" description:"The largest channel that the autopilot agent should create"`
 }
 
 type torConfig struct {
@@ -146,21 +147,25 @@ type torConfig struct {
 type config struct {
 	ShowVersion bool `short:"V" long:"version" description:"Display version information and exit"`
 
-	ConfigFile   string `long:"C" long:"configfile" description:"Path to configuration file"`
-	DataDir      string `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
-	TLSCertPath  string `long:"tlscertpath" description:"Path to TLS certificate for lnd's RPC and REST services"`
-	TLSKeyPath   string `long:"tlskeypath" description:"Path to TLS private key for lnd's RPC and REST services"`
-	TLSExtraIP   string `long:"tlsextraip" description:"Adds an extra ip to the generated certificate"`
-	NoMacaroons  bool   `long:"no-macaroons" description:"Disable macaroon authentication"`
-	AdminMacPath string `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
-	ReadMacPath  string `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`
-	LogDir       string `long:"logdir" description:"Directory to log output."`
-
-	RPCListeners  []string `long:"rpclisten" description:"Add an interface/port to listen for RPC connections"`
-	RESTListeners []string `long:"restlisten" description:"Add an interface/port to listen for REST connections"`
-	Listeners     []string `long:"listen" description:"Add an interface/port to listen for peer connections"`
-	DisableListen bool     `long:"nolisten" description:"Disable listening for incoming peer connections"`
-	ExternalIPs   []string `long:"externalip" description:"Add an ip:port to the list of local addresses we claim to listen on to peers. If a port is not specified, the default (9735) will be used regardless of other parameters"`
+	LndDir         string   `long:"lnddir" description:"The base directory that contains lnd's data, logs, configuration file, etc."`
+	ConfigFile     string   `long:"C" long:"configfile" description:"Path to configuration file"`
+	DataDir        string   `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
+	TLSCertPath    string   `long:"tlscertpath" description:"Path to write the TLS certificate for lnd's RPC and REST services"`
+	TLSKeyPath     string   `long:"tlskeypath" description:"Path to write the TLS private key for lnd's RPC and REST services"`
+	TLSExtraIP     string   `long:"tlsextraip" description:"Adds an extra ip to the generated certificate"`
+	TLSExtraDomain string   `long:"tlsextradomain" description:"Adds an extra domain to the generated certificate"`
+	NoMacaroons    bool     `long:"no-macaroons" description:"Disable macaroon authentication"`
+	AdminMacPath   string   `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
+	ReadMacPath    string   `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`
+	InvoiceMacPath string   `long:"invoicemacaroonpath" description:"Path to the invoice-only macaroon for lnd's RPC and REST services if it doesn't exist"`
+	LogDir         string   `long:"logdir" description:"Directory to log output."`
+	MaxLogFiles    int      `long:"maxlogfiles" description:"Maximum logfiles to keep (0 for no rotation)"`
+	MaxLogFileSize int      `long:"maxlogfilesize" description:"Maximum logfile size in MB"`
+	RPCListeners   []string `long:"rpclisten" description:"Add an interface/port to listen for RPC connections"`
+	RESTListeners  []string `long:"restlisten" description:"Add an interface/port to listen for REST connections"`
+	Listeners      []string `long:"listen" description:"Add an interface/port to listen for peer connections"`
+	DisableListen  bool     `long:"nolisten" description:"Disable listening for incoming peer connections"`
+	ExternalIPs    []string `long:"externalip" description:"Add an ip:port to the list of local addresses we claim to listen on to peers. If a port is not specified, the default (9735) will be used regardless of other parameters"`
 
 	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
 
@@ -170,6 +175,8 @@ type config struct {
 
 	DebugHTLC          bool `long:"debughtlc" description:"Activate the debug htlc mode. With the debug HTLC mode, all payments sent use a pre-determined R-Hash. Additionally, all HTLCs sent to a node with the debug HTLC R-Hash are immediately settled in the next available state transition."`
 	HodlHTLC           bool `long:"hodlhtlc" description:"Activate the hodl HTLC mode.  With hodl HTLC mode, all incoming HTLCs will be accepted by the receiving node, but no attempt will be made to settle the payment with the sender."`
+	UnsafeDisconnect   bool `long:"unsafe-disconnect" description:"Allows the rpcserver to intentionally disconnect from peers with open channels. USED FOR TESTING ONLY."`
+	UnsafeReplay       bool `long:"unsafe-replay" description:"Causes a link to replay the adds on its commitment txn after starting up, this enables testing of the sphinx replay logic."`
 	MaxPendingChannels int  `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
 
 	Bitcoin      *chainConfig    `group:"Bitcoin" namespace:"bitcoin"`
@@ -177,8 +184,9 @@ type config struct {
 	BitcoindMode *bitcoindConfig `group:"bitcoind" namespace:"bitcoind"`
 	NeutrinoMode *neutrinoConfig `group:"neutrino" namespace:"neutrino"`
 
-	Litecoin *chainConfig `group:"Litecoin" namespace:"litecoin"`
-	LtcdMode *btcdConfig  `group:"ltcd" namespace:"ltcd"`
+	Litecoin      *chainConfig    `group:"Litecoin" namespace:"litecoin"`
+	LtcdMode      *btcdConfig     `group:"ltcd" namespace:"ltcd"`
+	LitecoindMode *bitcoindConfig `group:"litecoind" namespace:"litecoind"`
 
 	Autopilot *autoPilotConfig `group:"autopilot" namespace:"autopilot"`
 
@@ -190,8 +198,9 @@ type config struct {
 
 	TrickleDelay int `long:"trickledelay" description:"Time in milliseconds between each release of announcements to the network"`
 
-	Alias string `long:"alias" description:"The node alias. Used as a moniker by peers and intelligence services"`
-	Color string `long:"color" description:"The color of the node in hex format (i.e. '#3399FF'). Used to customize node appearance in intelligence services"`
+	Alias       string `long:"alias" description:"The node alias. Used as a moniker by peers and intelligence services"`
+	Color       string `long:"color" description:"The color of the node in hex format (i.e. '#3399FF'). Used to customize node appearance in intelligence services"`
+	MinChanSize int64  `long:"minchansize" description:"The smallest channel size (in satoshis) that we should accept. Incoming channels smaller than this will be rejected"`
 
 	net torsvc.Net
 }
@@ -206,14 +215,18 @@ type config struct {
 // 	4) Parse CLI options and overwrite/add any specified options
 func loadConfig() (*config, error) {
 	defaultCfg := config{
-		ConfigFile:   defaultConfigFile,
-		DataDir:      defaultDataDir,
-		DebugLevel:   defaultLogLevel,
-		TLSCertPath:  defaultTLSCertPath,
-		TLSKeyPath:   defaultTLSKeyPath,
-		AdminMacPath: defaultAdminMacPath,
-		ReadMacPath:  defaultReadMacPath,
-		LogDir:       defaultLogDir,
+		LndDir:         defaultLndDir,
+		ConfigFile:     defaultConfigFile,
+		DataDir:        defaultDataDir,
+		DebugLevel:     defaultLogLevel,
+		TLSCertPath:    defaultTLSCertPath,
+		TLSKeyPath:     defaultTLSKeyPath,
+		AdminMacPath:   defaultAdminMacPath,
+		InvoiceMacPath: defaultInvoiceMacPath,
+		ReadMacPath:    defaultReadMacPath,
+		LogDir:         defaultLogDir,
+		MaxLogFiles:    defaultMaxLogFiles,
+		MaxLogFileSize: defaultMaxLogFileSize,
 		Bitcoin: &chainConfig{
 			MinHTLC:       defaultBitcoinMinHTLCMSat,
 			BaseFee:       defaultBitcoinBaseFeeMSat,
@@ -222,10 +235,12 @@ func loadConfig() (*config, error) {
 			Node:          "btcd",
 		},
 		BtcdMode: &btcdConfig{
+			Dir:     defaultBtcdDir,
 			RPCHost: defaultRPCHost,
 			RPCCert: defaultBtcdRPCCertFile,
 		},
 		BitcoindMode: &bitcoindConfig{
+			Dir:     defaultBitcoindDir,
 			RPCHost: defaultRPCHost,
 		},
 		Litecoin: &chainConfig{
@@ -233,21 +248,29 @@ func loadConfig() (*config, error) {
 			BaseFee:       defaultLitecoinBaseFeeMSat,
 			FeeRate:       defaultLitecoinFeeRate,
 			TimeLockDelta: defaultLitecoinTimeLockDelta,
-			Node:          "btcd",
+			Node:          "ltcd",
 		},
 		LtcdMode: &btcdConfig{
+			Dir:     defaultLtcdDir,
 			RPCHost: defaultRPCHost,
 			RPCCert: defaultLtcdRPCCertFile,
+		},
+		LitecoindMode: &bitcoindConfig{
+			Dir:     defaultLitecoindDir,
+			RPCHost: defaultRPCHost,
 		},
 		MaxPendingChannels: defaultMaxPendingChannels,
 		NoEncryptWallet:    defaultNoEncryptWallet,
 		Autopilot: &autoPilotConfig{
-			MaxChannels: 5,
-			Allocation:  0.6,
+			MaxChannels:    5,
+			Allocation:     0.6,
+			MinChannelSize: int64(minChanFundingSize),
+			MaxChannelSize: int64(maxFundingAmount),
 		},
 		TrickleDelay: defaultTrickleDelay,
 		Alias:        defaultAlias,
 		Color:        defaultColor,
+		MinChanSize:  int64(minChanFundingSize),
 	}
 
 	// Pre-parse the command line options to pick up an alternative config
@@ -266,9 +289,23 @@ func loadConfig() (*config, error) {
 		os.Exit(0)
 	}
 
-	// Create the home directory if it doesn't already exist.
+	// If the provided lnd directory is not the default, we'll modify the
+	// path to all of the files and directories that will live within it.
+	lndDir := cleanAndExpandPath(preCfg.LndDir)
+	if lndDir != defaultLndDir {
+		defaultCfg.ConfigFile = filepath.Join(lndDir, defaultConfigFilename)
+		defaultCfg.DataDir = filepath.Join(lndDir, defaultDataDirname)
+		defaultCfg.TLSCertPath = filepath.Join(lndDir, defaultTLSCertFilename)
+		defaultCfg.TLSKeyPath = filepath.Join(lndDir, defaultTLSKeyFilename)
+		defaultCfg.AdminMacPath = filepath.Join(lndDir, defaultAdminMacFilename)
+		defaultCfg.InvoiceMacPath = filepath.Join(lndDir, defaultInvoiceMacFilename)
+		defaultCfg.ReadMacPath = filepath.Join(lndDir, defaultReadMacFilename)
+		defaultCfg.LogDir = filepath.Join(lndDir, defaultLogDirname)
+	}
+
+	// Create the lnd directory if it doesn't already exist.
 	funcName := "loadConfig"
-	if err := os.MkdirAll(lndHomeDir, 0700); err != nil {
+	if err := os.MkdirAll(lndDir, 0700); err != nil {
 		// Show a nicer error message if it's because a symlink is
 		// linked to a directory that does not exist (probably because
 		// it's not mounted).
@@ -279,7 +316,7 @@ func loadConfig() (*config, error) {
 			}
 		}
 
-		str := "%s: Failed to create home directory: %v"
+		str := "%s: Failed to create lnd directory: %v"
 		err := fmt.Errorf(str, funcName, err)
 		fmt.Fprintln(os.Stderr, err)
 		return nil, err
@@ -288,7 +325,8 @@ func loadConfig() (*config, error) {
 	// Next, load any additional configuration options from the file.
 	var configFileError error
 	cfg := defaultCfg
-	if err := flags.IniParse(preCfg.ConfigFile, &cfg); err != nil {
+	configFile := cleanAndExpandPath(preCfg.ConfigFile)
+	if err := flags.IniParse(configFile, &cfg); err != nil {
 		configFileError = err
 	}
 
@@ -296,6 +334,57 @@ func loadConfig() (*config, error) {
 	// they take precedence.
 	if _, err := flags.Parse(&cfg); err != nil {
 		return nil, err
+	}
+
+	// As soon as we're done parsing configuration options, ensure all paths
+	// to directories and files are cleaned and expanded before attempting
+	// to use them later on.
+	cfg.DataDir = cleanAndExpandPath(cfg.DataDir)
+	cfg.TLSCertPath = cleanAndExpandPath(cfg.TLSCertPath)
+	cfg.TLSKeyPath = cleanAndExpandPath(cfg.TLSKeyPath)
+	cfg.AdminMacPath = cleanAndExpandPath(cfg.AdminMacPath)
+	cfg.ReadMacPath = cleanAndExpandPath(cfg.ReadMacPath)
+	cfg.InvoiceMacPath = cleanAndExpandPath(cfg.InvoiceMacPath)
+	cfg.LogDir = cleanAndExpandPath(cfg.LogDir)
+	cfg.BtcdMode.Dir = cleanAndExpandPath(cfg.BtcdMode.Dir)
+	cfg.LtcdMode.Dir = cleanAndExpandPath(cfg.LtcdMode.Dir)
+	cfg.BitcoindMode.Dir = cleanAndExpandPath(cfg.BitcoindMode.Dir)
+	cfg.LitecoindMode.Dir = cleanAndExpandPath(cfg.LitecoindMode.Dir)
+
+	// Ensure that the user didn't attempt to specify negative values for
+	// any of the autopilot params.
+	if cfg.Autopilot.MaxChannels < 0 {
+		str := "%s: autopilot.maxchannels must be non-negative"
+		err := fmt.Errorf(str, funcName)
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+	if cfg.Autopilot.Allocation < 0 {
+		str := "%s: autopilot.allocation must be non-negative"
+		err := fmt.Errorf(str, funcName)
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+	if cfg.Autopilot.MinChannelSize < 0 {
+		str := "%s: autopilot.minchansize must be non-negative"
+		err := fmt.Errorf(str, funcName)
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+	if cfg.Autopilot.MaxChannelSize < 0 {
+		str := "%s: autopilot.maxchansize must be non-negative"
+		err := fmt.Errorf(str, funcName)
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+
+	// Ensure that the specified values for the min and max channel size
+	// don't are within the bounds of the normal chan size constraints.
+	if cfg.Autopilot.MinChannelSize < int64(minChanFundingSize) {
+		cfg.Autopilot.MinChannelSize = int64(minChanFundingSize)
+	}
+	if cfg.Autopilot.MaxChannelSize > int64(maxFundingAmount) {
+		cfg.Autopilot.MaxChannelSize = int64(maxFundingAmount)
 	}
 
 	// Setup dial and DNS resolution functions depending on the specified
@@ -362,31 +451,77 @@ func loadConfig() (*config, error) {
 			str := "%s: simnet mode for litecoin not currently supported"
 			return nil, fmt.Errorf(str, funcName)
 		}
+		if cfg.Litecoin.RegTest {
+			str := "%s: regnet mode for litecoin not currently supported"
+			return nil, fmt.Errorf(str, funcName)
+		}
 
 		if cfg.Litecoin.TimeLockDelta < minTimeLockDelta {
 			return nil, fmt.Errorf("timelockdelta must be at least %v",
 				minTimeLockDelta)
 		}
 
-		if cfg.Litecoin.Node != "btcd" {
-			str := "%s: only ltcd (`btcd`) mode supported for litecoin at this time"
-			return nil, fmt.Errorf(str, funcName)
+		// Multiple networks can't be selected simultaneously.  Count
+		// number of network flags passed; assign active network params
+		// while we're at it.
+		numNets := 0
+		var ltcParams litecoinNetParams
+		if cfg.Litecoin.MainNet {
+			numNets++
+			ltcParams = litecoinMainNetParams
+		}
+		if cfg.Litecoin.TestNet3 {
+			numNets++
+			ltcParams = litecoinTestNetParams
+		}
+		if numNets > 1 {
+			str := "%s: The mainnet, testnet, and simnet params " +
+				"can't be used together -- choose one of the " +
+				"three"
+			err := fmt.Errorf(str, funcName)
+			return nil, err
+		}
+
+		// The target network must be provided, otherwise, we won't
+		// know how to initialize the daemon.
+		if numNets == 0 {
+			str := "%s: either --litecoin.mainnet, or " +
+				"litecoin.testnet must be specified"
+			err := fmt.Errorf(str, funcName)
+			return nil, err
 		}
 
 		// The litecoin chain is the current active chain. However
 		// throughout the codebase we required chaincfg.Params. So as a
 		// temporary hack, we'll mutate the default net params for
 		// bitcoin with the litecoin specific information.
-		paramCopy := bitcoinTestNetParams
-		applyLitecoinParams(&paramCopy)
-		activeNetParams = paramCopy
+		applyLitecoinParams(&activeNetParams, &ltcParams)
 
-		err := parseRPCParams(cfg.Litecoin, cfg.LtcdMode, litecoinChain,
-			funcName)
-		if err != nil {
-			err := fmt.Errorf("unable to load RPC credentials for "+
-				"ltcd: %v", err)
-			return nil, err
+		switch cfg.Litecoin.Node {
+		case "ltcd":
+			err := parseRPCParams(cfg.Litecoin, cfg.LtcdMode,
+				litecoinChain, funcName)
+			if err != nil {
+				err := fmt.Errorf("unable to load RPC "+
+					"credentials for ltcd: %v", err)
+				return nil, err
+			}
+		case "litecoind":
+			if cfg.Litecoin.SimNet {
+				return nil, fmt.Errorf("%s: litecoind does not "+
+					"support simnet", funcName)
+			}
+			err := parseRPCParams(cfg.Litecoin, cfg.LitecoindMode,
+				litecoinChain, funcName)
+			if err != nil {
+				err := fmt.Errorf("unable to load RPC "+
+					"credentials for litecoind: %v", err)
+				return nil, err
+			}
+		default:
+			str := "%s: only ltcd and litecoind mode supported for " +
+				"litecoin at this time"
+			return nil, fmt.Errorf(str, funcName)
 		}
 
 		cfg.Litecoin.ChainDir = filepath.Join(cfg.DataDir,
@@ -402,6 +537,10 @@ func loadConfig() (*config, error) {
 		// number of network flags passed; assign active network params
 		// while we're at it.
 		numNets := 0
+		if cfg.Bitcoin.MainNet {
+			numNets++
+			activeNetParams = bitcoinMainNetParams
+		}
 		if cfg.Bitcoin.TestNet3 {
 			numNets++
 			activeNetParams = bitcoinTestNetParams
@@ -415,8 +554,26 @@ func loadConfig() (*config, error) {
 			activeNetParams = bitcoinSimNetParams
 		}
 		if numNets > 1 {
-			str := "%s: The testnet, segnet, and simnet params can't be " +
-				"used together -- choose one of the three"
+			str := "%s: The mainnet, testnet, regtest, and " +
+				"simnet params can't be used together -- " +
+				"choose one of the four"
+			err := fmt.Errorf(str, funcName)
+			return nil, err
+		}
+
+		// The target network must be provided, otherwise, we won't
+		// know how to initialize the daemon.
+		if numNets == 0 {
+			str := "%s: either --bitcoin.mainnet, or " +
+				"bitcoin.testnet, bitcoin.simnet, or bitcoin.regtest " +
+				"must be specified"
+			err := fmt.Errorf(str, funcName)
+			return nil, err
+		}
+
+		if cfg.Bitcoin.Node == "neutrino" && cfg.Bitcoin.MainNet {
+			str := "%s: neutrino isn't yet supported for " +
+				"bitcoin's mainnet"
 			err := fmt.Errorf(str, funcName)
 			return nil, err
 		}
@@ -428,8 +585,9 @@ func loadConfig() (*config, error) {
 
 		switch cfg.Bitcoin.Node {
 		case "btcd":
-			err := parseRPCParams(cfg.Bitcoin, cfg.BtcdMode,
-				bitcoinChain, funcName)
+			err := parseRPCParams(
+				cfg.Bitcoin, cfg.BtcdMode, bitcoinChain, funcName,
+			)
 			if err != nil {
 				err := fmt.Errorf("unable to load RPC "+
 					"credentials for btcd: %v", err)
@@ -440,8 +598,10 @@ func loadConfig() (*config, error) {
 				return nil, fmt.Errorf("%s: bitcoind does not "+
 					"support simnet", funcName)
 			}
-			err := parseRPCParams(cfg.Bitcoin, cfg.BitcoindMode,
-				bitcoinChain, funcName)
+
+			err := parseRPCParams(
+				cfg.Bitcoin, cfg.BitcoindMode, bitcoinChain, funcName,
+			)
 			if err != nil {
 				err := fmt.Errorf("unable to load RPC "+
 					"credentials for bitcoind: %v", err)
@@ -449,6 +609,10 @@ func loadConfig() (*config, error) {
 			}
 		case "neutrino":
 			// No need to get RPC parameters.
+		default:
+			str := "%s: only btcd, bitcoind, and neutrino mode " +
+				"supported for bitcoin at this time"
+			return nil, fmt.Errorf(str, funcName)
 		}
 
 		cfg.Bitcoin.ChainDir = filepath.Join(cfg.DataDir,
@@ -481,36 +645,29 @@ func loadConfig() (*config, error) {
 	// directory has changed from the default path, then we'll also update
 	// the path for the macaroons to be generated.
 	if cfg.DataDir != defaultDataDir && cfg.AdminMacPath == defaultAdminMacPath {
-		cfg.AdminMacPath = filepath.Join(cfg.DataDir, defaultAdminMacFilename)
+		cfg.AdminMacPath = filepath.Join(
+			cfg.DataDir, defaultAdminMacFilename,
+		)
 	}
 	if cfg.DataDir != defaultDataDir && cfg.ReadMacPath == defaultReadMacPath {
-		cfg.ReadMacPath = filepath.Join(cfg.DataDir, defaultReadMacFilename)
+		cfg.ReadMacPath = filepath.Join(
+			cfg.DataDir, defaultReadMacFilename,
+		)
 	}
-
-	// Append the network type to the data directory so it is "namespaced"
-	// per network. In addition to the block database, there are other
-	// pieces of data that are saved to disk such as address manager state.
-	// All data is specific to a network, so namespacing the data directory
-	// means each individual piece of serialized data does not have to
-	// worry about changing names per network and such.
-	// TODO(roasbeef): when we go full multi-chain remove the additional
-	// namespacing on the target chain.
-	cfg.DataDir = cleanAndExpandPath(cfg.DataDir)
+	if cfg.DataDir != defaultDataDir && cfg.InvoiceMacPath == defaultInvoiceMacPath {
+		cfg.InvoiceMacPath = filepath.Join(
+			cfg.DataDir, defaultInvoiceMacFilename,
+		)
+	}
 
 	// Append the network type to the log directory so it is "namespaced"
 	// per network in the same fashion as the data directory.
-	cfg.LogDir = cleanAndExpandPath(cfg.LogDir)
 	cfg.LogDir = filepath.Join(cfg.LogDir,
 		registeredChains.PrimaryChain().String(),
 		normalizeNetwork(activeNetParams.Name))
 
-	// Ensure that the paths to the TLS key and certificate files are
-	// expanded and cleaned.
-	cfg.TLSCertPath = cleanAndExpandPath(cfg.TLSCertPath)
-	cfg.TLSKeyPath = cleanAndExpandPath(cfg.TLSKeyPath)
-
 	// Initialize logging at the default logging level.
-	initLogRotator(filepath.Join(cfg.LogDir, defaultLogFilename))
+	initLogRotator(filepath.Join(cfg.LogDir, defaultLogFilename), cfg.MaxLogFileSize, cfg.MaxLogFiles)
 
 	// Parse, validate, and set debug log level(s).
 	if err := parseAndSetDebugLevels(cfg.DebugLevel); err != nil {
@@ -587,7 +744,15 @@ func loadConfig() (*config, error) {
 func cleanAndExpandPath(path string) string {
 	// Expand initial ~ to OS specific home directory.
 	if strings.HasPrefix(path, "~") {
-		homeDir := filepath.Dir(lndHomeDir)
+		var homeDir string
+
+		user, err := user.Current()
+		if err == nil {
+			homeDir = user.HomeDir
+		} else {
+			homeDir = os.Getenv("HOME")
+		}
+
 		path = strings.Replace(path, "~", homeDir, 1)
 	}
 
@@ -661,6 +826,8 @@ func validLogLevel(logLevel string) bool {
 	case "error":
 		fallthrough
 	case "critical":
+		fallthrough
+	case "off":
 		return true
 	}
 	return false
@@ -691,9 +858,11 @@ func noiseDial(idPriv *btcec.PrivateKey) func(net.Addr) (net.Conn, error) {
 
 func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 	funcName string) error {
-	// If the configuration has already set the RPCUser and RPCPass, and
-	// if we're either not using bitcoind mode or the ZMQ path is already
-	// specified, we can return.
+
+	// First, we'll check our node config to make sure the RPC parameters
+	// were set correctly. We'll also determine the path to the conf file
+	// depending on the backend node.
+	var daemonName, confDir, confFile string
 	switch conf := nodeConfig.(type) {
 	case *btcdConfig:
 		// If both RPCUser and RPCPass are set, we assume those
@@ -701,11 +870,29 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 		if conf.RPCUser != "" && conf.RPCPass != "" {
 			return nil
 		}
+
+		// Get the daemon name for displaying proper errors.
+		switch net {
+		case bitcoinChain:
+			daemonName = "btcd"
+		case litecoinChain:
+			daemonName = "ltcd"
+		}
+
 		// If only ONE of RPCUser or RPCPass is set, we assume the
 		// user did that unintentionally.
 		if conf.RPCUser != "" || conf.RPCPass != "" {
-			return fmt.Errorf("please set both or neither of " +
-				"btcd.rpcuser and btcd.rpcpass")
+			return fmt.Errorf("please set both or neither of "+
+				"%[1]v.rpcuser, %[1]v.rpcpass", daemonName)
+		}
+
+		switch net {
+		case bitcoinChain:
+			confDir = conf.Dir
+			confFile = "btcd"
+		case litecoinChain:
+			confDir = conf.Dir
+			confFile = "ltcd"
 		}
 	case *bitcoindConfig:
 		// If all of RPCUser, RPCPass, and ZMQPath are set, we assume
@@ -713,12 +900,29 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 		if conf.RPCUser != "" && conf.RPCPass != "" && conf.ZMQPath != "" {
 			return nil
 		}
+
+		// Get the daemon name for displaying proper errors.
+		switch net {
+		case bitcoinChain:
+			daemonName = "bitcoind"
+		case litecoinChain:
+			daemonName = "litecoind"
+		}
 		// If only one or two of the parameters are set, we assume the
 		// user did that unintentionally.
 		if conf.RPCUser != "" || conf.RPCPass != "" || conf.ZMQPath != "" {
-			return fmt.Errorf("please set all or none of " +
-				"bitcoind.rpcuser, bitcoind.rpcpass, and " +
-				"bitcoind.zmqpath")
+			return fmt.Errorf("please set all or none of "+
+				"%[1]v.rpcuser, %[1]v.rpcpass, "+
+				"and %[1]v.zmqpath", daemonName)
+		}
+
+		switch net {
+		case bitcoinChain:
+			confDir = conf.Dir
+			confFile = "bitcoin"
+		case litecoinChain:
+			confDir = conf.Dir
+			confFile = "litecoin"
 		}
 	}
 
@@ -731,35 +935,11 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 		return fmt.Errorf(str, funcName)
 	}
 
-	var daemonName, homeDir, confFile string
-	switch net {
-	case bitcoinChain:
-		switch cConfig.Node {
-		case "btcd":
-			daemonName = "btcd"
-			homeDir = btcdHomeDir
-			confFile = "btcd"
-		case "bitcoind":
-			daemonName = "bitcoind"
-			homeDir = bitcoindHomeDir
-			confFile = "bitcoin"
-		}
-	case litecoinChain:
-		switch cConfig.Node {
-		case "btcd":
-			daemonName = "ltcd"
-			homeDir = ltcdHomeDir
-			confFile = "ltcd"
-		case "bitcoind":
-			return fmt.Errorf("bitcoind mode doesn't work with Litecoin yet")
-		}
-	}
-
 	fmt.Println("Attempting automatic RPC configuration to " + daemonName)
 
-	confFile = filepath.Join(homeDir, fmt.Sprintf("%v.conf", confFile))
+	confFile = filepath.Join(confDir, fmt.Sprintf("%v.conf", confFile))
 	switch cConfig.Node {
-	case "btcd":
+	case "btcd", "ltcd":
 		nConf := nodeConfig.(*btcdConfig)
 		rpcUser, rpcPass, err := extractBtcdRPCParams(confFile)
 		if err != nil {
@@ -768,7 +948,7 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 				err)
 		}
 		nConf.RPCUser, nConf.RPCPass = rpcUser, rpcPass
-	case "bitcoind":
+	case "bitcoind", "litecoind":
 		nConf := nodeConfig.(*bitcoindConfig)
 		rpcUser, rpcPass, zmqPath, err := extractBitcoindRPCParams(confFile)
 		if err != nil {
@@ -805,7 +985,7 @@ func extractBtcdRPCParams(btcdConfigPath string) (string, string, error) {
 	// Attempt to locate the RPC user using a regular expression. If we
 	// don't have a match for our regular expression then we'll exit with
 	// an error.
-	rpcUserRegexp, err := regexp.Compile(`(?m)^\s*rpcuser=([^\s]+)`)
+	rpcUserRegexp, err := regexp.Compile(`(?m)^\s*rpcuser\s*=\s*([^\s]+)`)
 	if err != nil {
 		return "", "", err
 	}
@@ -817,7 +997,7 @@ func extractBtcdRPCParams(btcdConfigPath string) (string, string, error) {
 	// Similarly, we'll use another regular expression to find the set
 	// rpcpass (if any). If we can't find the pass, then we'll exit with an
 	// error.
-	rpcPassRegexp, err := regexp.Compile(`(?m)^\s*rpcpass=([^\s]+)`)
+	rpcPassRegexp, err := regexp.Compile(`(?m)^\s*rpcpass\s*=\s*([^\s]+)`)
 	if err != nil {
 		return "", "", err
 	}
@@ -853,7 +1033,7 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 
 	// First, we look for the ZMQ path for raw blocks. If raw transactions
 	// are sent over this interface, we can also get unconfirmed txs.
-	zmqPathRE, err := regexp.Compile(`(?m)^\s*zmqpubrawblock=([^\s]+)`)
+	zmqPathRE, err := regexp.Compile(`(?m)^\s*zmqpubrawblock\s*=\s*([^\s]+)`)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -865,7 +1045,7 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 	// Next, we'll try to find an auth cookie. We need to detect the chain
 	// by seeing if one is specified in the configuration file.
 	dataDir := path.Dir(bitcoindConfigPath)
-	dataDirRE, err := regexp.Compile(`(?m)^\s*datadir=([^\s]+)`)
+	dataDirRE, err := regexp.Compile(`(?m)^\s*datadir\s*=\s*([^\s]+)`)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -875,18 +1055,13 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 	}
 
 	chainDir := "/"
-	netRE, err := regexp.Compile(`(?m)^\s*(testnet|regtest)=[\d]+`)
-	if err != nil {
-		return "", "", "", err
-	}
-	netSubmatches := netRE.FindSubmatch(configContents)
-	if netSubmatches != nil {
-		switch string(netSubmatches[1]) {
-		case "testnet":
-			chainDir = "/testnet3/"
-		case "regtest":
-			chainDir = "/regtest/"
-		}
+	switch activeNetParams.Params.Name {
+	case "testnet3":
+		chainDir = "/testnet3/"
+	case "testnet4":
+		chainDir = "/testnet4/"
+	case "regtest":
+		chainDir = "/regtest/"
 	}
 
 	cookie, err := ioutil.ReadFile(dataDir + chainDir + ".cookie")
@@ -901,7 +1076,7 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 	// We didn't find a cookie, so we attempt to locate the RPC user using
 	// a regular expression. If we  don't have a match for our regular
 	// expression then we'll exit with an error.
-	rpcUserRegexp, err := regexp.Compile(`(?m)^\s*rpcuser=([^\s]+)`)
+	rpcUserRegexp, err := regexp.Compile(`(?m)^\s*rpcuser\s*=\s*([^\s]+)`)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -913,7 +1088,7 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 	// Similarly, we'll use another regular expression to find the set
 	// rpcpass (if any). If we can't find the pass, then we'll exit with an
 	// error.
-	rpcPassRegexp, err := regexp.Compile(`(?m)^\s*rpcpassword=([^\s]+)`)
+	rpcPassRegexp, err := regexp.Compile(`(?m)^\s*rpcpassword\s*=\s*([^\s]+)`)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -933,7 +1108,13 @@ func normalizeAddresses(addrs []string, defaultPort string) []string {
 	seen := map[string]struct{}{}
 	for _, addr := range addrs {
 		if _, _, err := net.SplitHostPort(addr); err != nil {
-			addr = net.JoinHostPort(addr, defaultPort)
+			// If the address is an integer, then we assume it is *only* a
+			// port and default to binding to that port on localhost
+			if _, err := strconv.Atoi(addr); err == nil {
+				addr = net.JoinHostPort("localhost", addr)
+			} else {
+				addr = net.JoinHostPort(addr, defaultPort)
+			}
 		}
 		if _, ok := seen[addr]; !ok {
 			result = append(result, addr)
@@ -950,7 +1131,7 @@ func normalizeAddresses(addrs []string, defaultPort string) []string {
 // interface.
 func enforceSafeAuthentication(addrs []string, macaroonsActive bool) error {
 	isLoopback := func(addr string) bool {
-		loopBackAddrs := []string{"localhost", "127.0.0.1"}
+		loopBackAddrs := []string{"localhost", "127.0.0.1", "[::1]"}
 		for _, loopback := range loopBackAddrs {
 			if strings.Contains(addr, loopback) {
 				return true

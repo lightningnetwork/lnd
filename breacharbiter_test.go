@@ -4,8 +4,11 @@ package main
 
 import (
 	"bytes"
+	crand "crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"math/rand"
 	"net"
@@ -20,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -405,7 +409,7 @@ func initBreachedOutputs() error {
 			return fmt.Errorf("unable to parse pubkey: %v",
 				breachKeys[i])
 		}
-		bo.signDesc.PubKey = pubkey
+		bo.signDesc.KeyDesc.PubKey = pubkey
 	}
 
 	return nil
@@ -966,7 +970,7 @@ func TestBreachHandoffSuccess(t *testing.T) {
 	// Send one HTLC to Bob and perform a state transition to lock it in.
 	htlcAmount := lnwire.NewMSatFromSatoshis(20000)
 	htlc, _ := createHTLC(0, htlcAmount)
-	if _, err := alice.AddHTLC(htlc); err != nil {
+	if _, err := alice.AddHTLC(htlc, nil); err != nil {
 		t.Fatalf("alice unable to add htlc: %v", err)
 	}
 	if _, err := bob.ReceiveHTLC(htlc); err != nil {
@@ -986,7 +990,7 @@ func TestBreachHandoffSuccess(t *testing.T) {
 	// Now send another HTLC and perform a state transition, this ensures
 	// Alice is ahead of the state Bob will broadcast.
 	htlc2, _ := createHTLC(1, htlcAmount)
-	if _, err := alice.AddHTLC(htlc2); err != nil {
+	if _, err := alice.AddHTLC(htlc2, nil); err != nil {
 		t.Fatalf("alice unable to add htlc: %v", err)
 	}
 	if _, err := bob.ReceiveHTLC(htlc2); err != nil {
@@ -1054,7 +1058,7 @@ func TestBreachHandoffFail(t *testing.T) {
 	// Send one HTLC to Bob and perform a state transition to lock it in.
 	htlcAmount := lnwire.NewMSatFromSatoshis(20000)
 	htlc, _ := createHTLC(0, htlcAmount)
-	if _, err := alice.AddHTLC(htlc); err != nil {
+	if _, err := alice.AddHTLC(htlc, nil); err != nil {
 		t.Fatalf("alice unable to add htlc: %v", err)
 	}
 	if _, err := bob.ReceiveHTLC(htlc); err != nil {
@@ -1074,7 +1078,7 @@ func TestBreachHandoffFail(t *testing.T) {
 	// Now send another HTLC and perform a state transition, this ensures
 	// Alice is ahead of the state Bob will broadcast.
 	htlc2, _ := createHTLC(1, htlcAmount)
-	if _, err := alice.AddHTLC(htlc2); err != nil {
+	if _, err := alice.AddHTLC(htlc2, nil); err != nil {
 		t.Fatalf("alice unable to add htlc: %v", err)
 	}
 	if _, err := bob.ReceiveHTLC(htlc2); err != nil {
@@ -1251,7 +1255,11 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
 		bobsPrivKey)
 
-	channelCapacity := btcutil.Amount(10 * 1e8)
+	channelCapacity, err := btcutil.NewAmount(10)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	channelBal := channelCapacity / 2
 	aliceDustLimit := btcutil.Amount(200)
 	bobDustLimit := btcutil.Amount(1300)
@@ -1272,12 +1280,22 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 			MinHTLC:          0,
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
 		},
-		CsvDelay:            uint16(csvTimeoutAlice),
-		MultiSigKey:         aliceKeyPub,
-		RevocationBasePoint: aliceKeyPub,
-		PaymentBasePoint:    aliceKeyPub,
-		DelayBasePoint:      aliceKeyPub,
-		HtlcBasePoint:       aliceKeyPub,
+		CsvDelay: uint16(csvTimeoutAlice),
+		MultiSigKey: keychain.KeyDescriptor{
+			PubKey: aliceKeyPub,
+		},
+		RevocationBasePoint: keychain.KeyDescriptor{
+			PubKey: aliceKeyPub,
+		},
+		PaymentBasePoint: keychain.KeyDescriptor{
+			PubKey: aliceKeyPub,
+		},
+		DelayBasePoint: keychain.KeyDescriptor{
+			PubKey: aliceKeyPub,
+		},
+		HtlcBasePoint: keychain.KeyDescriptor{
+			PubKey: aliceKeyPub,
+		},
 	}
 	bobCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
@@ -1287,24 +1305,40 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 			MinHTLC:          0,
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
 		},
-		CsvDelay:            uint16(csvTimeoutBob),
-		MultiSigKey:         bobKeyPub,
-		RevocationBasePoint: bobKeyPub,
-		PaymentBasePoint:    bobKeyPub,
-		DelayBasePoint:      bobKeyPub,
-		HtlcBasePoint:       bobKeyPub,
+		CsvDelay: uint16(csvTimeoutBob),
+		MultiSigKey: keychain.KeyDescriptor{
+			PubKey: bobKeyPub,
+		},
+		RevocationBasePoint: keychain.KeyDescriptor{
+			PubKey: bobKeyPub,
+		},
+		PaymentBasePoint: keychain.KeyDescriptor{
+			PubKey: bobKeyPub,
+		},
+		DelayBasePoint: keychain.KeyDescriptor{
+			PubKey: bobKeyPub,
+		},
+		HtlcBasePoint: keychain.KeyDescriptor{
+			PubKey: bobKeyPub,
+		},
 	}
 
-	bobRoot := lnwallet.DeriveRevocationRoot(bobKeyPriv, testHdSeed, aliceKeyPub)
-	bobPreimageProducer := shachain.NewRevocationProducer(bobRoot)
+	bobRoot, err := chainhash.NewHash(bobKeyPriv.Serialize())
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	bobPreimageProducer := shachain.NewRevocationProducer(*bobRoot)
 	bobFirstRevoke, err := bobPreimageProducer.AtIndex(0)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	bobCommitPoint := lnwallet.ComputeCommitmentPoint(bobFirstRevoke[:])
 
-	aliceRoot := lnwallet.DeriveRevocationRoot(aliceKeyPriv, testHdSeed, bobKeyPub)
-	alicePreimageProducer := shachain.NewRevocationProducer(aliceRoot)
+	aliceRoot, err := chainhash.NewHash(aliceKeyPriv.Serialize())
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	alicePreimageProducer := shachain.NewRevocationProducer(*aliceRoot)
 	aliceFirstRevoke, err := alicePreimageProducer.AtIndex(0)
 	if err != nil {
 		return nil, nil, nil, err
@@ -1331,18 +1365,18 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 	}
 
 	estimator := &lnwallet.StaticFeeEstimator{FeeRate: 50}
-	feePerWeight, err := estimator.EstimateFeePerWeight(1)
+	feePerVSize, err := estimator.EstimateFeePerVSize(1)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	feePerKw := feePerWeight * 1000
+	feePerKw := feePerVSize.FeePerKWeight()
 
 	// TODO(roasbeef): need to factor in commit fee?
 	aliceCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
 		LocalBalance:  lnwire.NewMSatFromSatoshis(channelBal),
 		RemoteBalance: lnwire.NewMSatFromSatoshis(channelBal),
-		FeePerKw:      feePerKw,
+		FeePerKw:      btcutil.Amount(feePerKw),
 		CommitFee:     8688,
 		CommitTx:      aliceCommitTx,
 		CommitSig:     bytes.Repeat([]byte{1}, 71),
@@ -1351,17 +1385,27 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 		CommitHeight:  0,
 		LocalBalance:  lnwire.NewMSatFromSatoshis(channelBal),
 		RemoteBalance: lnwire.NewMSatFromSatoshis(channelBal),
-		FeePerKw:      feePerKw,
+		FeePerKw:      btcutil.Amount(feePerKw),
 		CommitFee:     8688,
 		CommitTx:      bobCommitTx,
 		CommitSig:     bytes.Repeat([]byte{1}, 71),
 	}
+
+	var chanIDBytes [8]byte
+	if _, err := io.ReadFull(crand.Reader, chanIDBytes[:]); err != nil {
+		return nil, nil, nil, err
+	}
+
+	shortChanID := lnwire.NewShortChanIDFromInt(
+		binary.BigEndian.Uint64(chanIDBytes[:]),
+	)
 
 	aliceChannelState := &channeldb.OpenChannel{
 		LocalChanCfg:            aliceCfg,
 		RemoteChanCfg:           bobCfg,
 		IdentityPub:             aliceKeyPub,
 		FundingOutpoint:         *prevOut,
+		ShortChanID:             shortChanID,
 		ChanType:                channeldb.SingleFunder,
 		IsInitiator:             true,
 		Capacity:                channelCapacity,
@@ -1371,12 +1415,15 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 		LocalCommitment:         aliceCommit,
 		RemoteCommitment:        aliceCommit,
 		Db:                      dbAlice,
+		Packager:                channeldb.NewChannelPackager(shortChanID),
+		FundingTxn:              testTx,
 	}
 	bobChannelState := &channeldb.OpenChannel{
 		LocalChanCfg:            bobCfg,
 		RemoteChanCfg:           aliceCfg,
 		IdentityPub:             bobKeyPub,
 		FundingOutpoint:         *prevOut,
+		ShortChanID:             shortChanID,
 		ChanType:                channeldb.SingleFunder,
 		IsInitiator:             false,
 		Capacity:                channelCapacity,
@@ -1386,6 +1433,7 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 		LocalCommitment:         bobCommit,
 		RemoteCommitment:        bobCommit,
 		Db:                      dbBob,
+		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 
 	pCache := &mockPreimageCache{
@@ -1513,7 +1561,7 @@ func forceStateTransition(chanA, chanB *lnwallet.LightningChannel) error {
 		return err
 	}
 
-	if _, err := chanA.ReceiveRevocation(bobRevocation); err != nil {
+	if _, _, _, err := chanA.ReceiveRevocation(bobRevocation); err != nil {
 		return err
 	}
 	if err := chanA.ReceiveNewCommitment(bobSig, bobHtlcSigs); err != nil {
@@ -1524,7 +1572,7 @@ func forceStateTransition(chanA, chanB *lnwallet.LightningChannel) error {
 	if err != nil {
 		return err
 	}
-	if _, err := chanB.ReceiveRevocation(aliceRevocation); err != nil {
+	if _, _, _, err := chanB.ReceiveRevocation(aliceRevocation); err != nil {
 		return err
 	}
 

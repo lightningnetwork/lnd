@@ -173,7 +173,7 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 		// to confirm.
 		spendNtfn, err := h.Notifier.RegisterSpendNtfn(
 			&h.htlcResolution.ClaimOutpoint,
-			h.broadcastHeight,
+			h.broadcastHeight, true,
 		)
 		if err != nil {
 			return err
@@ -482,23 +482,24 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 			//
 			// TODO(roasbeef): signal up if fee would be too large
 			// to sweep singly, need to batch
-			satWeight, err := h.FeeEstimator.EstimateFeePerWeight(6)
+			feePerVSize, err := h.FeeEstimator.EstimateFeePerVSize(6)
 			if err != nil {
 				return nil, err
 			}
 
-			log.Debugf("%T(%x): using %v sat/weight to sweep htlc"+
+			log.Debugf("%T(%x): using %v sat/vbyte to sweep htlc"+
 				"incoming+remote htlc confirmed", h,
-				h.payHash[:], int64(satWeight))
+				h.payHash[:], int64(feePerVSize))
 
 			// Using a weight estimator, we'll compute the total
 			// fee required, and from that the value we'll end up
 			// with.
-			totalWeight := (&lnwallet.TxWeightEstimator{}).
+			totalVSize := (&lnwallet.TxWeightEstimator{}).
 				AddWitnessInput(lnwallet.OfferedHtlcSuccessWitnessSize).
-				AddP2WKHOutput().Weight()
-			totalFees := int64(totalWeight) * int64(satWeight)
-			sweepAmt := h.htlcResolution.SweepSignDesc.Output.Value - totalFees
+				AddP2WKHOutput().VSize()
+			totalFees := feePerVSize.FeeForVSize(int64(totalVSize))
+			sweepAmt := h.htlcResolution.SweepSignDesc.Output.Value -
+				int64(totalFees)
 
 			// With the fee computation finished, we'll now
 			// construct the sweep transaction.
@@ -607,7 +608,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	// To wrap this up, we'll wait until the second-level transaction has
 	// been spent, then fully resolve the contract.
 	spendNtfn, err := h.Notifier.RegisterSpendNtfn(
-		&h.htlcResolution.ClaimOutpoint, h.broadcastHeight,
+		&h.htlcResolution.ClaimOutpoint, h.broadcastHeight, true,
 	)
 	if err != nil {
 		return nil, err
@@ -718,7 +719,7 @@ var _ ContractResolver = (*htlcSuccessResolver)(nil)
 // htlcOutgoingContestResolver is a ContractResolver that's able to resolve an
 // outgoing HTLC that is still contested. An HTLC is still contested, if at the
 // time that we broadcast the commitment transaction, it isn't able to be fully
-// resolved. This this case, we'll either wait for the HTLC to timeout, or for
+// resolved. In this case, we'll either wait for the HTLC to timeout, or for
 // us to learn of the preimage.
 type htlcOutgoingContestResolver struct {
 	// htlcTimeoutResolver is the inner solver that this resolver may turn
@@ -819,7 +820,7 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 	// the remote party sweeps with the pre-image, we'll  be notified.
 	spendNtfn, err := h.Notifier.RegisterSpendNtfn(
 		&outPointToWatch,
-		h.broadcastHeight,
+		h.broadcastHeight, true,
 	)
 	if err != nil {
 		return nil, err
@@ -1252,19 +1253,19 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		// First, we'll estimate the total weight so we can compute
 		// fees properly. We'll use a lax estimate, as this output is
 		// in no immediate danger.
-		satWeight, err := c.FeeEstimator.EstimateFeePerWeight(6)
+		feePerVSize, err := c.FeeEstimator.EstimateFeePerVSize(6)
 		if err != nil {
 			return nil, err
 		}
 
-		log.Debugf("%T(%v): using %v sat/weight for sweep tx", c,
-			c.chanPoint, int64(satWeight))
+		log.Debugf("%T(%v): using %v sat/vsize for sweep tx", c,
+			c.chanPoint, int64(feePerVSize))
 
-		totalWeight := (&lnwallet.TxWeightEstimator{}).
+		totalVSize := (&lnwallet.TxWeightEstimator{}).
 			AddP2PKHInput().
-			AddP2WKHOutput().Weight()
-		totalFees := int64(totalWeight) * int64(satWeight)
-		sweepAmt := signDesc.Output.Value - totalFees
+			AddP2WKHOutput().VSize()
+		totalFees := feePerVSize.FeeForVSize(int64(totalVSize))
+		sweepAmt := signDesc.Output.Value - int64(totalFees)
 
 		c.sweepTx = wire.NewMsgTx(2)
 		c.sweepTx.AddTxIn(&wire.TxIn{
@@ -1315,7 +1316,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		// until the commitment output has been spent.
 		spendNtfn, err := c.Notifier.RegisterSpendNtfn(
 			&c.commitResolution.SelfOutPoint,
-			c.broadcastHeight,
+			c.broadcastHeight, true,
 		)
 		if err != nil {
 			return nil, err

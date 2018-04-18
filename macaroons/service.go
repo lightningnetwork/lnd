@@ -14,7 +14,7 @@ import (
 
 	"golang.org/x/net/context"
 
-	"github.com/boltdb/bolt"
+	"github.com/coreos/bbolt"
 )
 
 var (

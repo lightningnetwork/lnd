@@ -1,8 +1,10 @@
 package lntest
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
+	"strings"
 	"sync"
 	"time"
 
@@ -262,6 +264,100 @@ func (n *NetworkHarness) NewNode(extraArgs []string) (*HarnessNode, error) {
 	n.mtx.Unlock()
 
 	return node, nil
+}
+
+// EnsureConnected will try to connect to two nodes, returning no error if they
+// are already connected. If the nodes were not connected previously, this will
+// behave the same as ConnectNodes. If a pending connection request has already
+// been made, the method will block until the two nodes appear in each other's
+// peers list, or until the 15s timeout expires.
+func (n *NetworkHarness) EnsureConnected(ctx context.Context, a, b *HarnessNode) error {
+	// errConnectionRequested is used to signal that a connection was
+	// requested successfully, which is distinct from already being
+	// connected to the peer.
+	errConnectionRequested := errors.New("connection request in progress")
+
+	tryConnect := func(a, b *HarnessNode) error {
+		ctxt, _ := context.WithTimeout(ctx, 15*time.Second)
+		bInfo, err := b.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
+		if err != nil {
+			return err
+		}
+
+		req := &lnrpc.ConnectPeerRequest{
+			Addr: &lnrpc.LightningAddress{
+				Pubkey: bInfo.IdentityPubkey,
+				Host:   b.cfg.P2PAddr(),
+			},
+		}
+
+		ctxt, _ = context.WithTimeout(ctx, 15*time.Second)
+		_, err = a.ConnectPeer(ctxt, req)
+		switch {
+
+		// Request was successful, wait for both to display the
+		// connection.
+		case err == nil:
+			return errConnectionRequested
+
+		// If the two are already connected, we return early with no
+		// error.
+		case strings.Contains(err.Error(), "already connected to peer"):
+			return nil
+
+		default:
+			return err
+		}
+	}
+
+	aErr := tryConnect(a, b)
+	bErr := tryConnect(b, a)
+	switch {
+	case aErr == nil && bErr == nil:
+		// If both reported already being connected to each other, we
+		// can exit early.
+		return nil
+
+	case aErr != errConnectionRequested:
+		// Return any critical errors returned by either alice.
+		return aErr
+
+	case bErr != errConnectionRequested:
+		// Return any critical errors returned by either bob.
+		return bErr
+
+	default:
+		// Otherwise one or both requested a connection, so we wait for
+		// the peers lists to reflect the connection.
+	}
+
+	findSelfInPeerList := func(a, b *HarnessNode) bool {
+		// If node B is seen in the ListPeers response from node A,
+		// then we can exit early as the connection has been fully
+		// established.
+		ctxt, _ := context.WithTimeout(ctx, 15*time.Second)
+		resp, err := b.ListPeers(ctxt, &lnrpc.ListPeersRequest{})
+		if err != nil {
+			return false
+		}
+
+		for _, peer := range resp.Peers {
+			if peer.PubKey == a.PubKeyStr {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	err := WaitPredicate(func() bool {
+		return findSelfInPeerList(a, b) && findSelfInPeerList(b, a)
+	}, time.Second*15)
+	if err != nil {
+		return fmt.Errorf("peers not connected within 15 seconds")
+	}
+
+	return nil
 }
 
 // ConnectNodes establishes an encrypted+authenticated p2p connection from node
@@ -656,7 +752,7 @@ func (n *NetworkHarness) CloseChannel(ctx context.Context,
 		// channel, and the other to check if a channel is active or
 		// not.
 		filterChannel := func(node *HarnessNode,
-			op wire.OutPoint) (*lnrpc.ActiveChannel, error) {
+			op wire.OutPoint) (*lnrpc.Channel, error) {
 			listResp, err := node.ListChannels(ctx, listReq)
 			if err != nil {
 				return nil, err
@@ -842,6 +938,32 @@ func WaitPredicate(pred func() bool, timeout time.Duration) error {
 
 		if pred() {
 			return nil
+		}
+	}
+}
+
+// WaitInvariant is a helper test function that will wait for a timeout period
+// of time, verifying that a statement remains true for the entire duration.
+// This function is helpful as timing doesn't always line up well when running
+// integration tests with several running lnd nodes. This function gives callers
+// a way to assert that some property is maintained over a particular time
+// frame.
+func WaitInvariant(statement func() bool, timeout time.Duration) error {
+	const pollInterval = 20 * time.Millisecond
+
+	exitTimer := time.After(timeout)
+	for {
+		<-time.After(pollInterval)
+
+		// Fail if the invariant is broken while polling.
+		if !statement() {
+			return fmt.Errorf("invariant broken before time out")
+		}
+
+		select {
+		case <-exitTimer:
+			return nil
+		default:
 		}
 	}
 }

@@ -513,3 +513,9 @@ func (twe *TxWeightEstimator) Weight() int {
 	}
 	return weight
 }
+
+// VSize gets the estimated virtual size of the transactions, in vbytes.
+func (twe *TxWeightEstimator) VSize() int {
+	// A tx's vsize is 1/4 of the weight, rounded up.
+	return (twe.Weight() + witnessScaleFactor - 1) / witnessScaleFactor
+}

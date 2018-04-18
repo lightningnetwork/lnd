@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/boltdb/bolt"
+	"github.com/coreos/bbolt"
 	"github.com/go-errors/errors"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
@@ -493,8 +493,8 @@ func (d *DB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
 
 		chanSummaryBytes := closedChanBucket.Get(chanID)
 		if chanSummaryBytes == nil {
-			return fmt.Errorf("no closed channel by that chanID " +
-				"found")
+			return fmt.Errorf("no closed channel for "+
+				"chan_point=%v found", chanPoint)
 		}
 
 		chanSummaryReader := bytes.NewReader(chanSummaryBytes)

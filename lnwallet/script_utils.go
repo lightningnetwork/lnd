@@ -7,11 +7,9 @@ import (
 	"fmt"
 	"math/big"
 
-	"golang.org/x/crypto/hkdf"
 	"golang.org/x/crypto/ripemd160"
 
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -312,10 +310,17 @@ func senderHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 func SenderHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
+	if signDesc.KeyDesc.PubKey == nil {
+		return nil, fmt.Errorf("cannot generate witness with nil " +
+			"KeyDesc pubkey")
+	}
+
 	// Derive the revocation key using the local revocation base point and
 	// commitment point.
-	revokeKey := DeriveRevocationPubkey(signDesc.PubKey,
-		signDesc.DoubleTweak.PubKey())
+	revokeKey := DeriveRevocationPubkey(
+		signDesc.KeyDesc.PubKey,
+		signDesc.DoubleTweak.PubKey(),
+	)
 
 	return senderHtlcSpendRevoke(signer, signDesc, revokeKey, sweepTx)
 }
@@ -562,10 +567,17 @@ func receiverHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 func ReceiverHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
+	if signDesc.KeyDesc.PubKey == nil {
+		return nil, fmt.Errorf("cannot generate witness with nil " +
+			"KeyDesc pubkey")
+	}
+
 	// Derive the revocation key using the local revocation base point and
 	// commitment point.
-	revokeKey := DeriveRevocationPubkey(signDesc.PubKey,
-		signDesc.DoubleTweak.PubKey())
+	revokeKey := DeriveRevocationPubkey(
+		signDesc.KeyDesc.PubKey,
+		signDesc.DoubleTweak.PubKey(),
+	)
 
 	return receiverHtlcSpendRevoke(signer, signDesc, revokeKey, sweepTx)
 }
@@ -714,7 +726,7 @@ func createHtlcSuccessTx(htlcOutput wire.OutPoint, htlcAmt btcutil.Amount,
 
 // secondLevelHtlcScript is the uniform script that's used as the output for
 // the second-level HTLC transactions. The second level transaction act as a
-// sort of covenant, ensuring that an 2-of-2 multi-sig output can only be
+// sort of covenant, ensuring that a 2-of-2 multi-sig output can only be
 // spent in a particular way, and to a particular output.
 //
 // Possible Input Scripts:
@@ -797,7 +809,7 @@ func htlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
 	// this instance.
 	signDesc.SigHashes = txscript.NewTxSigHashes(sweepTx)
 
-	// With the proper sequence an version set, we'll now sign the timeout
+	// With the proper sequence and version set, we'll now sign the timeout
 	// transaction using the passed signed descriptor. In order to generate
 	// a valid signature, then signDesc should be using the base delay
 	// public key, and the proper single tweak bytes.
@@ -853,7 +865,7 @@ func htlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 func HtlcSecondLevelSpend(signer Signer, signDesc *SignDescriptor,
 	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
-	// With the proper sequence an version set, we'll now sign the timeout
+	// With the proper sequence and version set, we'll now sign the timeout
 	// transaction using the passed signed descriptor. In order to generate
 	// a valid signature, then signDesc should be using the base delay
 	// public key, and the proper single tweak bytes.
@@ -1023,6 +1035,11 @@ func CommitSpendRevoke(signer Signer, signDesc *SignDescriptor,
 func CommitSpendNoDelay(signer Signer, signDesc *SignDescriptor,
 	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
+	if signDesc.KeyDesc.PubKey == nil {
+		return nil, fmt.Errorf("cannot generate witness with nil " +
+			"KeyDesc pubkey")
+	}
+
 	// This is just a regular p2wkh spend which looks something like:
 	//  * witness: <sig> <pubkey>
 	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
@@ -1037,7 +1054,7 @@ func CommitSpendNoDelay(signer Signer, signDesc *SignDescriptor,
 	witness := make([][]byte, 2)
 	witness[0] = append(sweepSig, byte(signDesc.HashType))
 	witness[1] = TweakPubKeyWithTweak(
-		signDesc.PubKey, signDesc.SingleTweak,
+		signDesc.KeyDesc.PubKey, signDesc.SingleTweak,
 	).SerializeCompressed()
 
 	return witness, nil
@@ -1218,33 +1235,6 @@ func DeriveRevocationPrivKey(revokeBasePriv *btcec.PrivateKey,
 	return priv
 }
 
-// DeriveRevocationRoot derives an root unique to a channel given the
-// derivation root, and the blockhash that the funding process began at and the
-// remote node's identity public key. The seed is derived using the HKDF[1][2]
-// instantiated with sha-256. With this schema, once we know the block hash of
-// the funding transaction, and who we funded the channel with, we can
-// reconstruct all of our revocation state.
-//
-// [1]: https://eprint.iacr.org/2010/264.pdf
-// [2]: https://tools.ietf.org/html/rfc5869
-func DeriveRevocationRoot(derivationRoot *btcec.PrivateKey,
-	blockSalt chainhash.Hash, nodePubKey *btcec.PublicKey) chainhash.Hash {
-
-	secret := derivationRoot.Serialize()
-	salt := blockSalt[:]
-	info := nodePubKey.SerializeCompressed()
-
-	seedReader := hkdf.New(sha256.New, secret, salt, info)
-
-	// It's safe to ignore the error her as we know for sure that we won't
-	// be draining the HKDF past its available entropy horizon.
-	// TODO(roasbeef): revisit...
-	var root chainhash.Hash
-	seedReader.Read(root[:])
-
-	return root
-}
-
 // SetStateNumHint encodes the current state number within the passed
 // commitment transaction by re-purposing the locktime and sequence fields in
 // the commitment transaction to encode the obfuscated state number.  The state
@@ -1256,7 +1246,7 @@ func DeriveRevocationRoot(derivationRoot *btcec.PrivateKey,
 func SetStateNumHint(commitTx *wire.MsgTx, stateNum uint64,
 	obfuscator [StateHintSize]byte) error {
 
-	// With the current schema we are only able able to encode state num
+	// With the current schema we are only able to encode state num
 	// hints up to 2^48. Therefore if the passed height is greater than our
 	// state hint ceiling, then exit early.
 	if stateNum > maxStateHint {

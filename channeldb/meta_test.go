@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/boltdb/bolt"
+	"github.com/coreos/bbolt"
 	"github.com/go-errors/errors"
 )
 

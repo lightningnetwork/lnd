@@ -278,8 +278,9 @@ func NewDNSSeedBootstrapper(seeds [][2]string, lookupHost func(string) ([]string
 // address of the authoritative DNS server. Once we have this IP address, we'll
 // connect manually over TCP to request the SRV record. This is necessary as
 // the records we return are currently too large for a class of resolvers,
-// causing them to be filtered out.
-func fallBackSRVLookup(soaShim string) ([]*net.SRV, error) {
+// causing them to be filtered out. The targetEndPoint is the original end
+// point that was meant to be hit.
+func fallBackSRVLookup(soaShim string, targetEndPoint string) ([]*net.SRV, error) {
 	log.Tracef("Attempting to query fallback DNS seed")
 
 	// First, we'll lookup the IP address of the server that will act as
@@ -297,7 +298,7 @@ func fallBackSRVLookup(soaShim string) ([]*net.SRV, error) {
 		return nil, err
 	}
 
-	dnsHost := "_nodes._tcp.nodes.lightning.directory."
+	dnsHost := fmt.Sprintf("_nodes._tcp.%v.", targetEndPoint)
 	dnsConn := &dns.Conn{Conn: conn}
 	defer dnsConn.Close()
 
@@ -369,8 +370,10 @@ search:
 				// If we get an error when trying to query via
 				// the primary seed, we'll fallback to the
 				// secondary seed before concluding failure.
-				secondarySeed := dnsSeedTuple[1]
-				addrs, err = fallBackSRVLookup(secondarySeed)
+				soaShim := dnsSeedTuple[1]
+				addrs, err = fallBackSRVLookup(
+					soaShim, primarySeed,
+				)
 				if err != nil {
 					return nil, err
 				}

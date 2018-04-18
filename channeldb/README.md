@@ -8,7 +8,7 @@ channeldb
 The channeldb implements the persistent storage engine for `lnd` and
 generically a data storage layer for the required state within the Lightning
 Network. The backing storage engine is
-[boltdb](https://github.com/boltdb/bolt), an embedded pure-go key-value store
+[boltdb](https://github.com/coreos/bbolt), an embedded pure-go key-value store
 based off of LMDB.
 
 The package implements an object-oriented storage model with queries and

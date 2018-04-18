@@ -62,7 +62,7 @@ func (c *UpdateFailHTLC) MsgType() MessageType {
 	return MsgUpdateFailHTLC
 }
 
-// MaxPayloadLength returns the maximum allowed payload size for a UpdateFailHTLC
+// MaxPayloadLength returns the maximum allowed payload size for an UpdateFailHTLC
 // complete message observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.

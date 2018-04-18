@@ -4,7 +4,6 @@
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/lightningnetwork/lnd/blob/master/LICENSE) 
 [![Irc](https://img.shields.io/badge/chat-on%20freenode-brightgreen.svg)](https://webchat.freenode.net/?channels=lnd) 
 [![Godoc](https://godoc.org/github.com/lightningnetwork/lnd?status.svg)](https://godoc.org/github.com/lightningnetwork/lnd)
-[![Coverage Status](https://coveralls.io/repos/github/lightningnetwork/lnd/badge.svg?branch=master)](https://coveralls.io/github/lightningnetwork/lnd?branch=master)
 
 <img src="logo.png">
 
@@ -12,8 +11,8 @@ The Lightning Network Daemon (`lnd`) - is a complete implementation of a
 [Lightning Network](https://lightning.network) node and currently deployed on
 `testnet3` - the Bitcoin Test Network.  `lnd` has several pluggable back-end
 chain services including [`btcd`](https://github.com/btcsuite/btcd) (a
-full-node) and [`neutrino`](https://github.com/lightninglabs/neutrino) (a new
-experimental light client). The project's codebase uses the
+full-node), [`bitcoind`](https://github.com/bitcoin/bitcoin), and
+[`neutrino`](https://github.com/lightninglabs/neutrino) (a new experimental light client). The project's codebase uses the
 [btcsuite](https://github.com/btcsuite/) set of Bitcoin libraries, and also
 exports a large set of isolated re-usable Lightning Network related libraries
 within it.  In the current state `lnd` is capable of: 
@@ -61,8 +60,7 @@ resources including talks, articles, and example applications can be found at:
 [dev.lightning.community](http://dev.lightning.community).
 
 Finally, we also have an active
-[Slack](https://lightningcommunity.slack.com/join/shared_invite/enQtMjk0OTYxNzI4NzExLTFhZDA5YTYxZDU2YWQyOTQzN2ZkMzk3ZGUwNGM0NjE2NzQyNjAyZTkwOTFkZjJmMmMyNzlmNmE5YTRmMGFhM2Q)
-where protocol developers, application developers, testers and users gather to
+[Slack](https://join.slack.com/t/lightningcommunity/shared_invite/enQtMzQ0OTQyNjE5NjU1LWRiMGNmOTZiNzU0MTVmYzc1ZGFkZTUyNzUwOGJjMjYwNWRkNWQzZWE3MTkwZjdjZGE5ZGNiNGVkMzI2MDU4ZTE) where protocol developers, application developers, testers and users gather to
 discuss various aspects of `lnd` and also Lightning in general.
 
 ## Installation

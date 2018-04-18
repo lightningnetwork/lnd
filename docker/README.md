@@ -83,7 +83,7 @@ $ docker-compose run btcctl getblockchaininfo | grep -A 1 segwit
 
 Check `Alice` balance:
 ```
-alice$ lncli walletbalance --witness_only=true
+alice$ lncli walletbalance
 ```
 
 Connect `Bob` node to `Alice` node.

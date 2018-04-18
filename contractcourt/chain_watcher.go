@@ -133,13 +133,13 @@ func newChainWatcher(chanState *channeldb.OpenChannel,
 	var stateHint [lnwallet.StateHintSize]byte
 	if chanState.IsInitiator {
 		stateHint = lnwallet.DeriveStateHintObfuscator(
-			chanState.LocalChanCfg.PaymentBasePoint,
-			chanState.RemoteChanCfg.PaymentBasePoint,
+			chanState.LocalChanCfg.PaymentBasePoint.PubKey,
+			chanState.RemoteChanCfg.PaymentBasePoint.PubKey,
 		)
 	} else {
 		stateHint = lnwallet.DeriveStateHintObfuscator(
-			chanState.RemoteChanCfg.PaymentBasePoint,
-			chanState.LocalChanCfg.PaymentBasePoint,
+			chanState.RemoteChanCfg.PaymentBasePoint.PubKey,
+			chanState.LocalChanCfg.PaymentBasePoint.PubKey,
 		)
 	}
 
@@ -180,7 +180,7 @@ func (c *chainWatcher) Start() error {
 	}
 
 	spendNtfn, err := c.notifier.RegisterSpendNtfn(
-		fundingOut, heightHint,
+		fundingOut, heightHint, true,
 	)
 	if err != nil {
 		return err
@@ -207,7 +207,7 @@ func (c *chainWatcher) Stop() error {
 	return nil
 }
 
-// SubscribeChannelEvents returns a n active subscription to the set of channel
+// SubscribeChannelEvents returns an active subscription to the set of channel
 // events for the channel watched by this chain watcher. Once clients no longer
 // require the subscription, they should call the Cancel() method to allow the
 // watcher to regain those committed resources. The syncDispatch bool indicates
@@ -381,6 +381,7 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 
 		// The chainWatcher has been signalled to exit, so we'll do so now.
 		case <-c.quit:
+			return
 		}
 	}
 }
@@ -457,8 +458,9 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 			return
 		}
 
-		log.Infof("Waiting for txid=%v to close ChannelPoint(%v) on chain",
-			commitSpend.SpenderTxHash, c.chanState.FundingOutpoint)
+		log.Infof("closeObserver: waiting for txid=%v to close "+
+			"ChannelPoint(%v) on chain", commitSpend.SpenderTxHash,
+			c.chanState.FundingOutpoint)
 
 		select {
 		case confInfo, ok := <-confNtfn.Confirmed:
@@ -467,8 +469,9 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 				return
 			}
 
-			log.Infof("ChannelPoint(%v) is fully closed, at height: %v",
-				c.chanState.FundingOutpoint, confInfo.BlockHeight)
+			log.Infof("closeObserver: ChannelPoint(%v) is fully "+
+				"closed, at height: %v", c.chanState.FundingOutpoint,
+				confInfo.BlockHeight)
 
 			err := c.markChanClosed()
 			if err != nil {
@@ -487,6 +490,7 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 		select {
 		case sub.CooperativeClosure <- struct{}{}:
 		case <-c.quit:
+			c.Unlock()
 			return fmt.Errorf("exiting")
 		}
 	}
@@ -536,6 +540,7 @@ func (c *chainWatcher) dispatchRemoteClose(commitSpend *chainntnfs.SpendDetail,
 		select {
 		case sub.UnilateralClosure <- uniClose:
 		case <-c.quit:
+			c.Unlock()
 			return fmt.Errorf("exiting")
 		}
 	}
@@ -578,8 +583,20 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 		return fmt.Errorf("unable to create breach retribution: %v", err)
 	}
 
+	// Nil the curve before printing.
+	if retribution.RemoteOutputSignDesc != nil &&
+		retribution.RemoteOutputSignDesc.DoubleTweak != nil {
+		retribution.RemoteOutputSignDesc.DoubleTweak.Curve = nil
+	}
+	if retribution.LocalOutputSignDesc != nil &&
+		retribution.LocalOutputSignDesc.DoubleTweak != nil {
+		retribution.LocalOutputSignDesc.DoubleTweak.Curve = nil
+	}
+
 	log.Debugf("Punishment breach retribution created: %v",
-		spew.Sdump(retribution))
+		newLogClosure(func() string {
+			return spew.Sdump(retribution)
+		}))
 
 	// With the event processed, we'll now notify all subscribers of the
 	// event.
@@ -588,6 +605,7 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 		select {
 		case sub.ContractBreach <- retribution:
 		case <-c.quit:
+			c.Unlock()
 			return fmt.Errorf("quitting")
 		}
 
@@ -599,11 +617,13 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 			case err := <-sub.ProcessACK:
 				// Bail if the handoff failed.
 				if err != nil {
+					c.Unlock()
 					return fmt.Errorf("unable to handoff "+
 						"retribution info: %v", err)
 				}
 
 			case <-c.quit:
+				c.Unlock()
 				return fmt.Errorf("quitting")
 			}
 		}
@@ -707,8 +727,9 @@ func (c *CooperativeCloseCtx) LogPotentialClose(potentialClose *channeldb.Channe
 			return
 		}
 
-		log.Infof("Waiting for txid=%v to close ChannelPoint(%v) on chain",
-			potentialClose.ClosingTXID, c.watcher.chanState.FundingOutpoint)
+		log.Infof("closeCtx: waiting for txid=%v to close "+
+			"ChannelPoint(%v) on chain", potentialClose.ClosingTXID,
+			c.watcher.chanState.FundingOutpoint)
 
 		select {
 		case confInfo, ok := <-confNtfn.Confirmed:
@@ -717,7 +738,7 @@ func (c *CooperativeCloseCtx) LogPotentialClose(potentialClose *channeldb.Channe
 				return
 			}
 
-			log.Infof("ChannelPoint(%v) is fully closed, at "+
+			log.Infof("closeCtx: ChannelPoint(%v) is fully closed, at "+
 				"height: %v", c.watcher.chanState.FundingOutpoint,
 				confInfo.BlockHeight)
 
@@ -734,14 +755,14 @@ func (c *CooperativeCloseCtx) LogPotentialClose(potentialClose *channeldb.Channe
 
 			err := c.watcher.chanState.CloseChannel(potentialClose)
 			if err != nil {
-				log.Warnf("unable to update latest close for "+
-					"ChannelPoint(%v)",
-					c.watcher.chanState.FundingOutpoint)
+				log.Warnf("closeCtx: unable to update latest "+
+					"close for ChannelPoint(%v): %v",
+					c.watcher.chanState.FundingOutpoint, err)
 			}
 
 			err = c.watcher.markChanClosed()
 			if err != nil {
-				log.Errorf("unable to mark chan fully "+
+				log.Errorf("closeCtx: unable to mark chan fully "+
 					"closed: %v", err)
 				return
 			}
@@ -762,11 +783,14 @@ func (c *CooperativeCloseCtx) LogPotentialClose(potentialClose *channeldb.Channe
 // pending closed in the database, then launch a goroutine to mark the channel
 // fully closed upon confirmation.
 func (c *CooperativeCloseCtx) Finalize(preferredClose *channeldb.ChannelCloseSummary) error {
-	log.Infof("Finalizing chan close for ChannelPoint(%v)",
-		c.watcher.chanState.FundingOutpoint)
+	chanPoint := c.watcher.chanState.FundingOutpoint
+
+	log.Infof("Finalizing chan close for ChannelPoint(%v)", chanPoint)
 
 	err := c.watcher.chanState.CloseChannel(preferredClose)
 	if err != nil {
+		log.Errorf("closeCtx: unable to close ChannelPoint(%v): %v",
+			chanPoint, err)
 		return err
 	}
 

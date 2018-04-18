@@ -14,6 +14,19 @@ var (
 	endPort   uint16 = 49151
 )
 
+// ErrUnknownAddrType is an error returned if we encounter an unknown address type
+// when parsing addresses.
+type ErrUnknownAddrType struct {
+	addrType addressType
+}
+
+// Error returns a human readable string describing the error.
+//
+// NOTE: implements the error interface.
+func (e ErrUnknownAddrType) Error() string {
+	return fmt.Sprintf("unknown address type: %v", e.addrType)
+}
+
 // NodeAlias a hex encoded UTF-8 string that may be displayed as an alternative
 // to the node's ID. Notice that aliases are not unique and may be freely
 // chosen by the node operators.

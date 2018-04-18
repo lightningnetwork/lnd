@@ -5,7 +5,7 @@ import (
 	"github.com/roasbeef/btcd/wire"
 )
 
-// FilteredChainView represents a subscription to a certain subset of of the
+// FilteredChainView represents a subscription to a certain subset of the
 // UTXO set for a particular chain. This interface is useful from the point of
 // view of maintaining an up-to-date channel graph for the Lightning Network.
 // The subset of the UTXO to be subscribed is that of all the currently opened
@@ -19,7 +19,7 @@ type FilteredChainView interface {
 	// sent over. Each time a block is connected to the end of a main
 	// chain, and appropriate FilteredBlock which contains the transactions
 	// which mutate our watched UTXO set is to be returned. In case of a
-	// UpdateFilter call with a updateHeight lower than the current best
+	// UpdateFilter call with an updateHeight lower than the current best
 	// height, blocks with the updated filter will be resent, and must be
 	// handled by the receiver as an update to an already known block, NOT
 	// as a new block being connected to the chain.

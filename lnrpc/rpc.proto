@@ -908,6 +908,10 @@ message GetInfoResponse {
 
     /// Timestamp of the block best known to the wallet
     int64 best_header_timestamp = 13 [ json_name = "best_header_timestamp" ];
+
+    /// The version of the LND software that the node is running.
+    string version = 14 [ json_name = "version" ];
+
 }
 
 message ConfirmationUpdate {

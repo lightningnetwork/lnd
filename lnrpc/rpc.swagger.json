@@ -1422,6 +1422,10 @@
           "type": "string",
           "format": "int64",
           "title": "/ Timestamp of the block best known to the wallet"
+        },
+        "version": {
+          "type": "string",
+          "description": "/ The version of the LND software that the node is running."
         }
       }
     },

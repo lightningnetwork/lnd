@@ -660,7 +660,7 @@ func fetchOpenChannel(chanBucket *bolt.Bucket,
 // channels in the database globally, or according to the LinkNode they were
 // created with.
 //
-// TODO(roasbeef): addr param should eventually be a lnwire.NetAddress type
+// TODO(roasbeef): addr param should eventually be an lnwire.NetAddress type
 // that includes service bits.
 func (c *OpenChannel) SyncPending(addr net.Addr, pendingHeight uint32) error {
 	c.Lock()

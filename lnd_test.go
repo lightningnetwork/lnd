@@ -1784,7 +1784,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	time.Sleep(duration)
 
 	// We now restart Alice, to ensure that she will broadcast the presigned
-	// htlc timeout txns after the delay expires after experiencing an while
+	// htlc timeout txns after the delay expires after experiencing a while
 	// waiting for the htlc outputs to incubate.
 	if err := net.RestartNode(net.Alice, nil); err != nil {
 		t.Fatalf("Node restart failed: %v", err)
@@ -4991,7 +4991,7 @@ func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// Initialize seed random in order to generate invoices.
 	prand.Seed(time.Now().UnixNano())
 
-	// With the channel open, we'll create a invoices for Bob that Alice
+	// With the channel open, we'll create invoices for Bob that Alice
 	// will pay to in order to advance the state of the channel.
 	bobPayReqs := make([]string, numInvoices)
 	for i := 0; i < numInvoices; i++ {
@@ -5169,7 +5169,7 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 	// Initialize seed random in order to generate invoices.
 	prand.Seed(time.Now().UnixNano())
 
-	// With the channel open, we'll create a invoices for Bob that Alice
+	// With the channel open, we'll create invoices for Bob that Alice
 	// will pay to in order to advance the state of the channel.
 	bobPayReqs := make([]string, numInvoices)
 	for i := 0; i < numInvoices; i++ {
@@ -5192,7 +5192,7 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 		bobPayReqs[i] = resp.PaymentRequest
 	}
 
-	// With the channel open, we'll create a invoices for Alice that Bob
+	// With the channel open, we'll create invoices for Alice that Bob
 	// will pay to in order to advance the state of the channel.
 	alicePayReqs := make([]string, numInvoices)
 	for i := 0; i < numInvoices; i++ {

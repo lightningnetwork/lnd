@@ -207,7 +207,7 @@ func (c *chainWatcher) Stop() error {
 	return nil
 }
 
-// SubscribeChannelEvents returns a n active subscription to the set of channel
+// SubscribeChannelEvents returns an active subscription to the set of channel
 // events for the channel watched by this chain watcher. Once clients no longer
 // require the subscription, they should call the Cancel() method to allow the
 // watcher to regain those committed resources. The syncDispatch bool indicates

@@ -482,7 +482,7 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 	}
 
 	// Call DisconnectBlockAtHeight, which should prune every channel
-	// that has an funding height of 'height' or greater.
+	// that has a funding height of 'height' or greater.
 	removed, err := graph.DisconnectBlockAtHeight(uint32(height))
 	if err != nil {
 		t.Fatalf("unable to prune %v", err)

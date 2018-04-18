@@ -591,7 +591,7 @@ type threeHopNetwork struct {
 }
 
 // generateHops creates the per hop payload, the total amount to be sent, and
-// also the time lock value needed to route a HTLC with the target amount over
+// also the time lock value needed to route an HTLC with the target amount over
 // the specified path.
 func generateHops(payAmt lnwire.MilliSatoshi, startingHeight uint32,
 	path ...*channelLink) (lnwire.MilliSatoshi, uint32, []ForwardingInfo) {

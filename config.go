@@ -47,7 +47,6 @@ const (
 	defaultRPCHost            = "localhost"
 	defaultMaxPendingChannels = 1
 	defaultNoEncryptWallet    = false
-	defaultUpnpSupport        = false
 	defaultTrickleDelay       = 30 * 1000
 	defaultMaxLogFiles        = 3
 	defaultMaxLogFileSize     = 10
@@ -185,6 +184,7 @@ type config struct {
 	Listeners      []string `long:"listen" description:"Add an interface/port to listen for peer connections"`
 	DisableListen  bool     `long:"nolisten" description:"Disable listening for incoming peer connections"`
 	ExternalIPs    []string `long:"externalip" description:"Add an ip:port to the list of local addresses we claim to listen on to peers. If a port is not specified, the default (9735) will be used regardless of other parameters"`
+	NAT            bool     `long:"nat" description:"Toggle NAT traversal support (using either UPnP or NAT-PMP) to automatically advertise your external IP address to the network -- NOTE this does not support devices behind multiple NATs"`
 
 	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
 
@@ -196,8 +196,6 @@ type config struct {
 	UnsafeDisconnect   bool `long:"unsafe-disconnect" description:"Allows the rpcserver to intentionally disconnect from peers with open channels. USED FOR TESTING ONLY."`
 	UnsafeReplay       bool `long:"unsafe-replay" description:"Causes a link to replay the adds on its commitment txn after starting up, this enables testing of the sphinx replay logic."`
 	MaxPendingChannels int  `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
-	UpnpSupport        bool `long:"upnp" description:"Toggle Upnp support for auto network discovery"`
-	NatPmp             bool `long:"natpmp" description:"Toggle Nat Pmp support for auto network discovery"`
 
 	Bitcoin      *chainConfig    `group:"Bitcoin" namespace:"bitcoin"`
 	BtcdMode     *btcdConfig     `group:"btcd" namespace:"btcd"`
@@ -251,7 +249,6 @@ func loadConfig() (*config, error) {
 		LogDir:         defaultLogDir,
 		MaxLogFiles:    defaultMaxLogFiles,
 		MaxLogFileSize: defaultMaxLogFileSize,
-		UpnpSupport:    defaultUpnpSupport,
 		Bitcoin: &chainConfig{
 			MinHTLC:       defaultBitcoinMinHTLCMSat,
 			BaseFee:       defaultBitcoinBaseFeeMSat,
@@ -457,6 +454,11 @@ func loadConfig() (*config, error) {
 			DNS:             cfg.Tor.DNS,
 			StreamIsolation: cfg.Tor.StreamIsolation,
 		}
+	}
+
+	if cfg.DisableListen && cfg.NAT {
+		return nil, errors.New("NAT traversal cannot be used when " +
+			"listening is disabled")
 	}
 
 	// Determine the active chain configuration and its parameters.
@@ -725,12 +727,6 @@ func loadConfig() (*config, error) {
 		)
 	}
 
-	if cfg.UpnpSupport && cfg.NatPmp {
-		str := "%s: Currently both Upnp and NAT-PMP cannot be " +
-			"enabled together"
-		return nil, fmt.Errorf(str, funcName)
-	}
-
 	// Append the network type to the log directory so it is "namespaced"
 	// per network in the same fashion as the data directory.
 	cfg.LogDir = filepath.Join(cfg.LogDir,
@@ -782,10 +778,11 @@ func loadConfig() (*config, error) {
 		return nil, err
 	}
 
-	// Remove all Listeners if listening is disabled.
+	// Remove the listening addresses specified if listening is disabled.
 	if cfg.DisableListen {
 		ltndLog.Infof("Listening on the p2p interface is disabled!")
 		cfg.Listeners = nil
+		cfg.ExternalIPs = nil
 	}
 
 	// Add default port to all RPC listener addresses if needed and remove

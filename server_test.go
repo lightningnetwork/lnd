@@ -3,29 +3,31 @@
 package main
 
 import (
-	"testing"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/lightningnetwork/lnd/lnwire"
-	"net"
-	"time"
-	"github.com/stretchr/testify/require"
 	"encoding/hex"
-	"github.com/lightningnetwork/lnd/brontide"
-	"github.com/roasbeef/btcd/connmgr"
 	"fmt"
-	"strings"
+	"github.com/lightningnetwork/lnd/brontide"
+	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/connmgr"
+	"github.com/stretchr/testify/require"
 	"io"
+	"net"
+	"strings"
+	"testing"
+	"time"
 )
 
 var (
-	privKey = createPrivateKey()
-	pubKey = createPubKey()
+	privKey          = createPrivateKey()
+	pubKey           = createPubKey()
 	compressedPubKey = string(pubKey.SerializeCompressed())
-	address = lnwire.NetAddress{IdentityKey: pubKey, Address: &StubAddress{}}
+	address          = lnwire.NetAddress{IdentityKey: pubKey, Address: &StubAddress{}}
 )
 
-// Non-permanent connects should result in the peer being added to
-// peersByPub and inboundPeers.
+// TestConnectToPeer_NonPerm verifies that non-permanent connects result in
+// the peer being added to peersByPub and inboundPeers.
 func TestConnectToPeer_NonPerm(t *testing.T) {
 	srv := createServer()
 	err := srv.ConnectToPeer(&address, false)
@@ -39,27 +41,32 @@ func TestConnectToPeer_NonPerm(t *testing.T) {
 		"No persistent peers should be present.")
 }
 
-// Permanent connects should result in additions to
-// persistentPeers, persistentPeersBackoff, and persistentConnReqs.
+// TestConnectToPeer_Perm verifies that permanent connects result in
+// additions to persistentPeers, persistentPeersBackoff, and persistentConnReqs.
 func TestConnectToPeer_Perm(t *testing.T) {
 	srv := createServer()
 	err := srv.ConnectToPeer(&address, true)
 
 	require.NoError(t, err)
 
-	// Interestingly, when perm is specified, the peer does NOT
-	// end up in peersByPub nor inboundPeers, which seems likely to be a bug
-	// since it is inconsistent with non-perm scenarios.
+	// Peers are populated asynchronously, so should not be present yet.
 	require.Nil(t, srv.peersByPub[compressedPubKey])
 	require.Nil(t, srv.inboundPeers[compressedPubKey])
 
-	require.NotNil(t, srv.persistentPeers[compressedPubKey], "Peer not added")
-	require.Equal(t, time.Duration(1000000000) , srv.persistentPeersBackoff[compressedPubKey], "Peer backoff not added")
-	require.NotNil(t, srv.persistentConnReqs[compressedPubKey], "ConnReq not added")
+	require.NotNil(t,
+		srv.persistentPeers[compressedPubKey], "Peer not added")
+	require.Equal(t,
+		time.Duration(1000000000),
+		srv.persistentPeersBackoff[compressedPubKey],
+		"Peer backoff not added")
+	require.NotNil(t,
+		srv.persistentConnReqs[compressedPubKey],
+		"ConnReq not added")
 }
 
-// Permanent connects should result in additions to
-// persistentPeers, persistentPeersBackoff, and persistentConnReqs.
+// TestConnectToPeer_PermOverrideBackoff verifies that permanent connects
+// result in additions to persistentPeers, persistentPeersBackoff,
+// and persistentConnReqs.
 // The persistentPeerBackoff entry should not be the default, but rather the
 // value that was explicitly set.
 func TestConnectToPeer_PermOverrideBackoff(t *testing.T) {
@@ -69,9 +76,7 @@ func TestConnectToPeer_PermOverrideBackoff(t *testing.T) {
 
 	require.NoError(t, err)
 
-	// Interestingly, when perm is specified, the peer does NOT
-	// end up in peersByPub nor inboundPeers, which seems likely to be a bug
-	// since it is inconsistent with non-perm scenarios.
+	// Peers are populated asynchronously, so should not be present yet.
 	require.Nil(t, srv.peersByPub[compressedPubKey])
 	require.Nil(t, srv.inboundPeers[compressedPubKey])
 
@@ -83,7 +88,8 @@ func TestConnectToPeer_PermOverrideBackoff(t *testing.T) {
 		"ConnReq not added")
 }
 
-// An error should occur if a peer is already connected.
+// TestConnectToPeer_AlreadyConnected verifies that an error occurs
+// if a peer is already connected.
 func TestConnectToPeer_AlreadyConnected(t *testing.T) {
 	srv := createServer()
 	srv.peersByPub[compressedPubKey] = &peer{}
@@ -93,8 +99,9 @@ func TestConnectToPeer_AlreadyConnected(t *testing.T) {
 	require.True(t, strings.Contains(err.Error(), "already connected"))
 }
 
-// Attempting to connect again while there is already a pending attempt
-// should not cause an error.
+// TestConnectToPeer_PendingConnectionAttempt verifies that attempting
+// to connect again while there is already a pending attempt should not
+// cause an error.
 func TestConnectToPeer_PendingConnectionAttempt(t *testing.T) {
 	srv := createServer()
 	srv.persistentConnReqs[compressedPubKey] = nil
@@ -109,12 +116,14 @@ func TestConnectToPeer_PendingConnectionAttempt(t *testing.T) {
 		"No persistent peers should be present.")
 }
 
-// If the Dial fails, the error should be propagated up.
+// TestConnectToPeer_DialFailed verifies that if the Dial fails,
+// the error should be propagated up.
 func TestConnectToPeer_DialFailed(t *testing.T) {
 	testConnectToPeerFailedDial(t, io.ErrClosedPipe, io.ErrClosedPipe)
 }
 
-// If the Dial fails with an EOF, it should be replaced with a friendly message.
+// TestConnectToPeer_DialFailedEOF verifies that if the Dial fails with an EOF,
+// it should be replaced with a friendly message.
 func TestConnectToPeer_DialFailedEOF(t *testing.T) {
 	testConnectToPeerFailedDial(t, io.EOF, ErrFriendlyEOF)
 }
@@ -182,15 +191,28 @@ func createServer() *server {
 	srv.persistentConnReqs = make(map[string][]*connmgr.ConnReq)
 	srv.identityPriv = privKey
 	srv.connDialer = &StubDialer{}
-	srv.peerCreator = &StubPeerCreator{}
 	srv.globalFeatures = lnwire.NewFeatureVector(
 		lnwire.NewRawFeatureVector(),
 		lnwire.GlobalFeatures)
+
+	srv.fundingMgr = createFundingManager()
+	srv.htlcSwitch = htlcswitch.CreateHtlcSwitch()
+
+	srv.fetchOpenChannels =
+		func(nodeID *btcec.PublicKey) ([]*channeldb.OpenChannel, error) {
+			return []*channeldb.OpenChannel{}, nil
+		}
+
+	srv.synchronizePeer = func(*btcec.PublicKey) error {
+		return nil
+	}
+
 	return &srv
 }
 
 func createPubKey() *btcec.PublicKey {
-	pubkeyHex,_ := hex.DecodeString("028dfe1c8b9bfd7a7f8627a39a3b7b3a13d878a8b65dd26b17ca4f70a112a6dd54")
+	pubkeyHex, _ := hex.DecodeString(
+		"028dfe1c8b9bfd7a7f8627a39a3b7b3a13d878a8b65dd26b17ca4f70a112a6dd54")
 	pubKey, _ := btcec.ParsePubKey(pubkeyHex, btcec.S256())
 	pubKey.Curve = nil
 	return pubKey
@@ -206,9 +228,24 @@ func createPrivateKey() *btcec.PrivateKey {
 	return privKey
 }
 
+func createFundingManager() *fundingManager {
+	return &fundingManager{
+		cfg:                         &fundingConfig{},
+		chanIDKey:                   [32]byte{},
+		activeReservations:          make(map[serializedPubKey]pendingChannels),
+		signedReservations:          make(map[lnwire.ChannelID][32]byte),
+		newChanBarriers:             make(map[lnwire.ChannelID]chan struct{}),
+		fundingMsgs:                 make(chan interface{}, msgBufferSize),
+		fundingRequests:             make(chan *initFundingMsg, msgBufferSize),
+		localDiscoverySignals:       make(map[lnwire.ChannelID]chan struct{}),
+		handleFundingLockedBarriers: make(map[lnwire.ChannelID]struct{}),
+		queries:                     make(chan interface{}, 1),
+		quit:                        make(chan struct{}),
+	}
+}
+
 // StubAddress is a minimal Address to be used for testing purposes.
 type StubAddress struct {
-
 }
 
 func (a *StubAddress) Network() string {
@@ -221,7 +258,6 @@ func (a *StubAddress) String() string {
 
 // StubDialer is a minimal Dialer to be used for testing purposes.
 type StubDialer struct {
-
 }
 
 func (d *StubDialer) Dial(addressess *lnwire.NetAddress) (*brontide.Conn, error) {
@@ -235,31 +271,4 @@ type FailingStubDialer struct {
 
 func (d *FailingStubDialer) Dial(addressess *lnwire.NetAddress) (*brontide.Conn, error) {
 	return nil, d.err
-}
-
-// StubPeerCreator is a PeerCreator that avoids creating Peers
-// that use concurrency/IO, to make unit testing more sane.
-type StubPeerCreator struct {
-
-}
-
-func (pc *StubPeerCreator) newPeer(
-	conn net.Conn, connReq *connmgr.ConnReq, server *server,
-	address *lnwire.NetAddress, inbound bool,
-	localFeatures *lnwire.RawFeatureVector) (*peer, error) {
-
-	// Use the standard newPeer function to bootstrap this one.
-	peerCreator := peerCreator{}
-	peer, err := peerCreator.newPeer(
-			conn, connReq, server, address, inbound, localFeatures)
-
-	peer.remoteLocalFeatures = lnwire.NewFeatureVector(
-		nil,
-		lnwire.LocalFeatures)
-
-	// Mark the peer as started so we don't have to go through the peer
-	// initialization process, making unit testing much easier.
-	peer.started = 1
-
-	return peer, err
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/connmgr"
 	"github.com/roasbeef/btcd/txscript"
@@ -73,6 +74,31 @@ type closeMsg struct {
 // to gain a snapshot of the peer's currently active channels.
 type chanSnapshotReq struct {
 	resp chan []*channeldb.ChannelSnapshot
+}
+
+// FetchOpenChannels retrieves the open channels currently available to
+// this peer.
+type FetchOpenChannels func(nodeID *btcec.PublicKey) (
+	[]*channeldb.OpenChannel, error)
+
+// Config contains all variables needed to initialize a Peer.
+type Config struct {
+	// Conn is the connection to the network used by the peer.
+	Conn net.Conn
+	// ConnReq is the connection request to a network address.
+	ConnReq *connmgr.ConnReq
+	// Addr is the network address of the peer.
+	Addr *lnwire.NetAddress
+	// Inbound indicates if the peer connected to us, or vice versa.
+	Inbound bool
+	// LocalFeatures are the BOLT-09 features associated with this peer.
+	LocalFeatures *lnwire.RawFeatureVector
+	// FetchOpenChannels is the method with which open channels can be
+	// retrieved for this peer.
+	FetchOpenChannels FetchOpenChannels
+	// Server is the local server used for managing resources.
+	// TODO: Remove all direct dependency on Server.
+	Server *server
 }
 
 // peer is an active peer on the Lightning Network. This struct is responsible
@@ -178,42 +204,23 @@ type peer struct {
 	queueQuit chan struct{}
 	quit      chan struct{}
 	wg        sync.WaitGroup
+
+	fetchOpenChannels FetchOpenChannels
 }
 
-// PeerCreator represents a method for creating new peers on demand.
-type PeerCreator interface {
-	// newPeer creates a peer given the the specified server
-	// and connection information.
-	newPeer(
-		conn net.Conn, connReq *connmgr.ConnReq, server *server,
-		addr *lnwire.NetAddress, inbound bool,
-		localFeatures *lnwire.RawFeatureVector) (*peer, error)
-}
-
-// peerCreator is the standard way for creating new peers.
-type peerCreator struct {
-
-}
-
-// newPeer creates a new peer from an establish connection object, and a
-// pointer to the main server.
-func (pc *peerCreator) newPeer(
-	conn net.Conn, connReq *connmgr.ConnReq, server *server,
-	addr *lnwire.NetAddress, inbound bool,
-	localFeatures *lnwire.RawFeatureVector) (*peer, error) {
-
-	nodePub := addr.IdentityKey
+// New creates a new peer with the specified config and default state.
+func newPeer(config Config) (*peer, error) {
 
 	p := &peer{
-		conn: conn,
-		addr: addr,
+		conn: config.Conn,
+		addr: config.Addr,
 
-		inbound: inbound,
-		connReq: connReq,
+		inbound: config.Inbound,
+		connReq: config.ConnReq,
 
-		server: server,
+		server: config.Server,
 
-		localFeatures: localFeatures,
+		localFeatures: config.LocalFeatures,
 
 		sendQueue:     make(chan outgoingMsg),
 		outgoingQueue: make(chan outgoingMsg),
@@ -228,7 +235,11 @@ func (pc *peerCreator) newPeer(
 
 		queueQuit: make(chan struct{}),
 		quit:      make(chan struct{}),
+
+		fetchOpenChannels: config.FetchOpenChannels,
 	}
+
+	nodePub := config.Addr.IdentityKey
 	copy(p.pubKeyBytes[:], nodePub.SerializeCompressed())
 
 	return p, nil
@@ -294,7 +305,7 @@ func (p *peer) Start() error {
 
 	// Fetch and then load all the active channels we have with this remote
 	// peer from the database.
-	activeChans, err := p.server.chanDB.FetchOpenChannels(p.addr.IdentityKey)
+	activeChans, err := p.fetchOpenChannels(p.addr.IdentityKey)
 	if err != nil {
 		peerLog.Errorf("unable to fetch active chans "+
 			"for peer %v: %v", p, err)

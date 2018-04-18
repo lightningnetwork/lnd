@@ -60,6 +60,11 @@ var (
 	maximumBackoff = time.Hour
 )
 
+// SynchronizePeer updates all information associated with the specified
+// pubkey.
+// TODO(merehap): Remove this once channeldb is made abstract.
+type SynchronizePeer func(pub *btcec.PublicKey) error
+
 // server is the main server of the Lightning Network Daemon. The server houses
 // global state pertaining to the wallet, database, and the rpcserver.
 // Additionally, the server is also used as a central messaging bus to interact
@@ -125,8 +130,6 @@ type server struct {
 
 	connDialer brontide.Dialer
 
-	peerCreator PeerCreator
-
 	connMgr *connmgr.ConnManager
 
 	// globalFeatures feature vector which affects HTLCs and thus are also
@@ -141,6 +144,10 @@ type server struct {
 	quit chan struct{}
 
 	wg sync.WaitGroup
+
+	// TODO(merehap): Remove these fields after making chanDB an interface.
+	fetchOpenChannels FetchOpenChannels
+	synchronizePeer SynchronizePeer
 }
 
 // newServer creates a new instance of the server which is to listen using the
@@ -199,11 +206,13 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		peerConnectedListeners: make(map[string][]chan<- struct{}),
 
 		connDialer: brontide.NewDialer(privKey, cfg.net.Dial),
-		peerCreator: &peerCreator{},
 
 		globalFeatures: lnwire.NewFeatureVector(globalFeatures,
 			lnwire.GlobalFeatures),
 		quit: make(chan struct{}),
+
+		// TODO(merehap): Remove these once chanDB is abstracted.
+		fetchOpenChannels: chanDB.FetchOpenChannels,
 	}
 
 	s.witnessBeacon = &preimageBeacon{
@@ -380,6 +389,9 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	if err != nil {
 		return nil, err
 	}
+
+	// TODO(merehap): Remove this once gossiper's db access has been abstracted.
+	s.synchronizePeer = s.authGossiper.SynchronizeNode
 
 	utxnStore, err := newNurseryStore(activeNetParams.GenesisHash, chanDB)
 	if err != nil {
@@ -1410,8 +1422,14 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 
 	// Now that we've established a connection, create a peer, and add it to
 	// the set of currently active peers.
-	p, err := s.peerCreator.newPeer(
-		conn, connReq, s, peerAddr, inbound, localFeatures)
+	peer, err := newPeer(Config{
+		Conn:              conn,
+		ConnReq:           connReq,
+		Addr:              peerAddr,
+		Inbound:           inbound,
+		LocalFeatures:     localFeatures,
+		FetchOpenChannels: s.fetchOpenChannels,
+		Server:            s})
 	if err != nil {
 		srvrLog.Errorf("unable to create peer %v", err)
 		return
@@ -1422,12 +1440,12 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 
 	// Attempt to start the peer, if we're unable to do so, then disconnect
 	// this peer.
-	if err := p.Start(); err != nil {
-		p.Disconnect(errors.Errorf("unable to start peer: %v", err))
+	if err := peer.Start(); err != nil {
+		peer.Disconnect(errors.Errorf("unable to start peer: %v", err))
 		return
 	}
 
-	s.addPeer(p)
+	s.addPeer(peer)
 }
 
 // shouldDropConnection determines if our local connection to a remote peer
@@ -1697,7 +1715,7 @@ func (s *server) addPeer(p *peer) {
 	// being the synchronization protocol to exchange authenticated channel
 	// graph edges/vertexes
 	if p.remoteLocalFeatures.HasFeature(lnwire.InitialRoutingSync) {
-		go s.authGossiper.SynchronizeNode(p.addr.IdentityKey)
+		go s.synchronizePeer(p.addr.IdentityKey)
 	}
 
 	// Check if there are listeners waiting for this peer to come online.

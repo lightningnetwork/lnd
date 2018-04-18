@@ -31,11 +31,11 @@ var _ net.Conn = (*Conn)(nil)
 // Dialer provides a way to establish an authenticated connection to a
 // remote address.
 type Dialer interface {
+	// Dial attempts to establish a connection with the specified address.
 	Dial(address *lnwire.NetAddress) (*Conn, error)
 }
 
-// NewDialer creates a Dialer for a given private key and
-// connection initiator.
+// NewDialer creates a Dialer for a given private key and connection initiator.
 // connInitiator is the function that will be used to establish
 // the initial, not-yet-authenticated connection.
 func NewDialer(

@@ -234,6 +234,15 @@
   revision = "6724a57986aff9bff1a1770e9347036def7c89f6"
 
 [[projects]]
+  name = "github.com/stretchr/testify"
+  packages = [
+    "assert",
+    "require"
+  ]
+  revision = "69483b4bd14f5845b5a1e55bca19e954e827f1d0"
+  version = "v1.1.4"
+
+[[projects]]
   name = "github.com/tv42/zbase32"
   packages = ["."]
   revision = "501572607d0273fc75b3b261fa4904d63f6ffa0e"
@@ -359,6 +368,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "1b075083f0d9636bbbb051345f1973e27f15c53855a109b983849971ba5073f1"
+  inputs-digest = "1d4fe45833d9d5cb6173909ea7eb33501e625dfbdb6728c047d9ad7f66ed04cd"
   solver-name = "gps-cdcl"
   solver-version = 1

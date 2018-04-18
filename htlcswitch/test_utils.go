@@ -1113,3 +1113,21 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 		globalPolicy: globalPolicy,
 	}
 }
+
+// CreateHtlcSwitch makes an HtlcSwitch that is suitable for unit testing.
+func CreateHtlcSwitch() *Switch {
+	return &Switch{
+		cfg:               nil,
+		circuits:          nil,
+		paymentSequencer:  nil,
+		linkIndex:         make(map[lnwire.ChannelID]ChannelLink),
+		mailboxes:         make(map[lnwire.ShortChannelID]MailBox),
+		forwardingIndex:   make(map[lnwire.ShortChannelID]ChannelLink),
+		interfaceIndex:    make(map[[33]byte]map[ChannelLink]struct{}),
+		pendingPayments:   make(map[uint64]*pendingPayment),
+		htlcPlex:          make(chan *plexPacket),
+		chanCloseRequests: make(chan *ChanClose),
+		resolutionMsgs:    make(chan *resolutionMsg),
+		quit:              make(chan struct{}),
+	}
+}

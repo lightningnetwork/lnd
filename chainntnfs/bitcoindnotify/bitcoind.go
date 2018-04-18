@@ -616,13 +616,10 @@ func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		// of a race condition, wherein the output itself is unspent,
 		// and only arrives in the mempool after the getxout call.
 		if blockHash != nil {
-			startHash, err := chainhash.NewHashFromStr(tx.BlockHash)
-			if err != nil {
-				return nil, err
-			}
-
 			// Rescan all the blocks until the current one.
-			startHeight, err := b.chainConn.GetBlockHeight(startHash)
+			startHeight, err := b.chainConn.GetBlockHeight(
+				blockHash,
+			)
 			if err != nil {
 				return nil, err
 			}

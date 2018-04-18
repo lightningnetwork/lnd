@@ -43,7 +43,7 @@ type WitnessSubscription struct {
 
 // WitnessBeacon is a global beacon of witnesses. Contract resolvers will use
 // this interface to lookup witnesses (preimages typically) of contracts
-// they're trying to resolver, add new preimages they resolver, and finally
+// they're trying to resolve, add new preimages they resolve, and finally
 // receive new updates each new time a preimage is discovered.
 //
 // TODO(roasbeef): need to delete the pre-images once we've used them
@@ -671,7 +671,7 @@ func (c *ChannelArbitrator) advanceState(currentHeight uint32,
 	}
 }
 
-// ChainAction is an enum that that encompasses all possible on-chain actions
+// ChainAction is an enum that encompasses all possible on-chain actions
 // we'll take for a set of HTLC's.
 type ChainAction uint8
 
@@ -833,7 +833,7 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 	// Now that we know we'll need to go on-chain, we'll examine all of our
 	// active outgoing HTLC's to see if we either need to: sweep them after
 	// a timeout (then cancel backwards), cancel them backwards
-	// immediately, or or watch them as they're still active contracts.
+	// immediately, or watch them as they're still active contracts.
 	for _, htlc := range c.activeHTLCs.outgoingHTLCs {
 		switch {
 		// If the HTLC is dust, then we can cancel it backwards
@@ -1035,7 +1035,7 @@ func (c *ChannelArbitrator) prepContractResolutions(htlcActions ChainActionMap,
 			}
 
 		// If we can timeout the HTLC directly, then we'll create the
-		// proper resolver to to so, who will then cancel the packet
+		// proper resolver to do so, who will then cancel the packet
 		// backwards.
 		case HtlcTimeoutAction:
 			for _, htlc := range htlcs {

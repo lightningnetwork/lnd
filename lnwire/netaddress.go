@@ -22,7 +22,7 @@ type NetAddress struct {
 	// the node.
 	IdentityKey *btcec.PublicKey
 
-	// Address is is the IP address and port of the node. This is left
+	// Address is the IP address and port of the node. This is left
 	// general so that multiple implementations can be used.
 	Address net.Addr
 

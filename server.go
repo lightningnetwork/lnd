@@ -1390,7 +1390,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	// feature vector to advertise to the remote node.
 	localFeatures := lnwire.NewRawFeatureVector()
 
-	// We'll only request a full channel graph sync if we detect that that
+	// We'll only request a full channel graph sync if we detect that
 	// we aren't fully synced yet.
 	if s.shouldRequestGraphSync() {
 		localFeatures.Set(lnwire.InitialRoutingSync)

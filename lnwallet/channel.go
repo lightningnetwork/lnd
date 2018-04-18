@@ -913,7 +913,7 @@ type CommitmentKeyRing struct {
 	// TODO(roasbeef): need delay tweak as well?
 
 	// LocalHtlcKeyTweak is the teak used to derive the local HTLC key from
-	// the local HTLC base point point. This value is needed in order to
+	// the local HTLC base point. This value is needed in order to
 	// derive the final key used within the HTLC scripts in the commitment
 	// transaction.
 	LocalHtlcKeyTweak []byte
@@ -1520,7 +1520,7 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 			pd.theirWitnessScript = theirWitnessScript
 		}
 
-	// For HTLC's we we're offered we'll fetch the original offered HTLc
+	// For HTLC's we're offered we'll fetch the original offered HTLC
 	// from the remote party's update log so we can retrieve the same
 	// PaymentDescriptor that SettleHTLC would produce.
 	case *lnwire.UpdateFulfillHTLC:
@@ -1787,7 +1787,7 @@ type HtlcRetribution struct {
 	// SecondLevelWitnessScript is the witness script that will be created
 	// if the second level HTLC transaction for this output is
 	// broadcast/confirmed. We provide this as if the remote party attempts
-	// to to go the second level to claim the HTLC then we'll need to
+	// to go to the second level to claim the HTLC then we'll need to
 	// update the SignDesc above accordingly to sweep properly.
 	SecondLevelWitnessScript []byte
 
@@ -3187,7 +3187,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 //   3. We didn't get the last RevokeAndAck message they sent, so they'll
 //      re-send it.
 func (lc *LightningChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
-	// The remote commitment height that we we'll send in the
+	// The remote commitment height that we'll send in the
 	// ChannelReestablish message is our current commitment height plus
 	// one. If the receiver thinks that our commitment height is actually
 	// *equal* to this value, then they'll re-send the last commitment that
@@ -4176,7 +4176,7 @@ func (lc *LightningChannel) RemoveFwdPkg(height uint64) error {
 
 // NextRevocationKey returns the commitment point for the _next_ commitment
 // height. The pubkey returned by this function is required by the remote party
-// along with their revocation base to to extend our commitment chain with a
+// along with their revocation base to extend our commitment chain with a
 // new commitment.
 func (lc *LightningChannel) NextRevocationKey() (*btcec.PublicKey, error) {
 	lc.RLock()

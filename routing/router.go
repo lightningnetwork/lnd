@@ -1228,8 +1228,8 @@ func pruneChannelFromRoutes(routes []*Route, skipChan uint64) []*Route {
 }
 
 // pathsToFeeSortedRoutes takes a set of paths, and returns a corresponding set
-// of of routes. A route differs from a path in that it has full time-lock and
-// fee information attached. The set of routes return ed may be less than the
+// of routes. A route differs from a path in that it has full time-lock and
+// fee information attached. The set of routes returned may be less than the
 // initial set of paths as it's possible we drop a route if it can't handle the
 // total payment flow after fees are calculated.
 func pathsToFeeSortedRoutes(source Vertex, paths [][]*ChannelHop, finalCLTVDelta uint16,
@@ -1283,7 +1283,7 @@ func pathsToFeeSortedRoutes(source Vertex, paths [][]*ChannelHop, finalCLTVDelta
 // FindRoutes attempts to query the ChannelRouter for a bounded number
 // available paths to a particular target destination which is able to send
 // `amt` after factoring in channel capacities and cumulative fees along each
-// route route.  To `numPaths eligible paths, we use a modified version of
+// route.  To `numPaths eligible paths, we use a modified version of
 // Yen's algorithm which itself uses a modified version of Dijkstra's algorithm
 // within its inner loop.  Once we have a set of candidate routes, we calculate
 // the required fee and time lock values running backwards along the route. The

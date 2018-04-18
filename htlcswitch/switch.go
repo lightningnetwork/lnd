@@ -1803,7 +1803,7 @@ func (s *Switch) UpdateShortChanID(chanID lnwire.ChannelID,
 
 	s.indexMtx.Lock()
 
-	// First, we'll extract the current link as is from the link link
+	// First, we'll extract the current link as is from the link 
 	// index. If the link isn't even in the index, then we'll return an
 	// error.
 	link, ok := s.linkIndex[chanID]

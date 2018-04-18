@@ -122,11 +122,11 @@ const (
 
 // ChannelConstraints represents a set of constraints meant to allow a node to
 // limit their exposure, enact flow control and ensure that all HTLCs are
-// economically relevant This struct will be mirrored for both sides of the
+// economically relevant. This struct will be mirrored for both sides of the
 // channel, as each side will enforce various constraints that MUST be adhered
 // to for the life time of the channel. The parameters for each of these
-// constraints is static for the duration of the channel, meaning the channel
-// must be teared down for them to change.
+// constraints are static for the duration of the channel, meaning the channel
+// must be torn down for them to change.
 type ChannelConstraints struct {
 	// DustLimit is the threshold (in satoshis) below which any outputs
 	// should be trimmed. When an output is trimmed, it isn't materialized
@@ -145,7 +145,7 @@ type ChannelConstraints struct {
 	// particular time.
 	MaxPendingAmount lnwire.MilliSatoshi
 
-	// MinHTLC is the minimum HTLC value that the the owner of these
+	// MinHTLC is the minimum HTLC value that the owner of these
 	// constraints can offer the remote node. If any HTLCs below this
 	// amount are offered, then the HTLC will be rejected. This, in
 	// tandem with the dust limit allows a node to regulate the
@@ -364,13 +364,13 @@ type OpenChannel struct {
 	RemoteChanCfg ChannelConfig
 
 	// LocalCommitment is the current local commitment state for the local
-	// party. This is stored distinct from the state of of the remote party
+	// party. This is stored distinct from the state of the remote party
 	// as there are certain asymmetric parameters which affect the
 	// structure of each commitment.
 	LocalCommitment ChannelCommitment
 
 	// RemoteCommitment is the current remote commitment state for the
-	// remote party. This is stored distinct from the state of of the local
+	// remote party. This is stored distinct from the state of the local
 	// party as there are certain asymmetric parameters which affect the
 	// structure of each commitment.
 	RemoteCommitment ChannelCommitment
@@ -779,7 +779,7 @@ type HTLC struct {
 	// incremented for each update (includes settle+fail).
 	HtlcIndex uint64
 
-	// LogIndex is the cumulative log index of this this HTLC. This differs
+	// LogIndex is the cumulative log index of this HTLC. This differs
 	// from the HtlcIndex as this will be incremented for each new log
 	// update added.
 	LogIndex uint64

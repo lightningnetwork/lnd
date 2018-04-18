@@ -1907,7 +1907,7 @@ func describeGraph(ctx *cli.Context) error {
 }
 
 // normalizeFunc is a factory function which returns a function that normalizes
-// the capacity of of edges within the graph. The value of the returned
+// the capacity of edges within the graph. The value of the returned
 // function can be used to either plot the capacities, or to use a weight in a
 // rendering of the graph.
 func normalizeFunc(edges []*lnrpc.ChannelEdge, scaleFactor float64) func(int64) float64 {

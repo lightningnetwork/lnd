@@ -5341,7 +5341,7 @@ type LightningClient interface {
 	// returned.
 	LookupInvoice(ctx context.Context, in *PaymentHash, opts ...grpc.CallOption) (*Invoice, error)
 	// *
-	// SubscribeInvoices returns a uni-directional stream (sever -> client) for
+	// SubscribeInvoices returns a uni-directional stream (server -> client) for
 	// notifying the client of newly added/settled invoices. The caller can
 	// optionally specify the add_index and/or the settle_index. If the add_index
 	// is specified, then we'll first start by sending add invoice events for all
@@ -6125,7 +6125,7 @@ type LightningServer interface {
 	// returned.
 	LookupInvoice(context.Context, *PaymentHash) (*Invoice, error)
 	// *
-	// SubscribeInvoices returns a uni-directional stream (sever -> client) for
+	// SubscribeInvoices returns a uni-directional stream (server -> client) for
 	// notifying the client of newly added/settled invoices. The caller can
 	// optionally specify the add_index and/or the settle_index. If the add_index
 	// is specified, then we'll first start by sending add invoice events for all

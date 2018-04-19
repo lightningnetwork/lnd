@@ -327,10 +327,16 @@ func (c *ChainArbitrator) Start() error {
 		// First, we'll create an active chainWatcher for this channel
 		// to ensure that we detect any relevant on chain events.
 		chainWatcher, err := newChainWatcher(
-			channel, c.cfg.Notifier, c.cfg.PreimageDB, c.cfg.Signer,
-			c.cfg.IsOurAddress, func() error {
-				// TODO(roasbeef): also need to pass in log?
-				return c.resolveContract(chanPoint, nil)
+			chainWatcherConfig{
+				chanState: channel,
+				notifier:  c.cfg.Notifier,
+				pCache:    c.cfg.PreimageDB,
+				signer:    c.cfg.Signer,
+				isOurAddr: c.cfg.IsOurAddress,
+				markChanClosed: func() error {
+					// TODO(roasbeef): also need to pass in log?
+					return c.resolveContract(chanPoint, nil)
+				},
 			},
 		)
 		if err != nil {
@@ -654,9 +660,15 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 	// First, also create an active chainWatcher for this channel to ensure
 	// that we detect any relevant on chain events.
 	chainWatcher, err := newChainWatcher(
-		newChan, c.cfg.Notifier, c.cfg.PreimageDB, c.cfg.Signer,
-		c.cfg.IsOurAddress, func() error {
-			return c.resolveContract(chanPoint, nil)
+		chainWatcherConfig{
+			chanState: newChan,
+			notifier:  c.cfg.Notifier,
+			pCache:    c.cfg.PreimageDB,
+			signer:    c.cfg.Signer,
+			isOurAddr: c.cfg.IsOurAddress,
+			markChanClosed: func() error {
+				return c.resolveContract(chanPoint, nil)
+			},
 		},
 	)
 	if err != nil {

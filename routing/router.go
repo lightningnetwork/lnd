@@ -1505,8 +1505,10 @@ type LightningPayment struct {
 	// milli-satoshis.
 	Amount lnwire.MilliSatoshi
 
-	// FeeLimit is a user-specified maximum fee for this payment in satoshis.
-	FeeLimit btcutil.Amount
+	// FeeLimit is the maximum fee in millisatoshis that the payment should
+	// accept when sending it through the network. The payment will fail
+	// if there isn't a route with lower fees than this limit.
+	FeeLimit lnwire.MilliSatoshi
 
 	// PaymentHash is the r-hash value to use within the HTLC extended to
 	// the first hop.

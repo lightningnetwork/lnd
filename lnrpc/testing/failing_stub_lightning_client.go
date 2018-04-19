@@ -166,3 +166,7 @@ func (c *FailingStubLightningClient) FeeReport(ctx context.Context, in *lnrpc.Fe
 func (c *FailingStubLightningClient) UpdateChannelPolicy(ctx context.Context, in *lnrpc.PolicyUpdateRequest, opts ...grpc.CallOption) (*lnrpc.PolicyUpdateResponse, error) {
 	return nil, c.err
 }
+
+func (c *FailingStubLightningClient) ForwardingHistory(ctx context.Context, in *lnrpc.ForwardingHistoryRequest, opts ...grpc.CallOption) (*lnrpc.ForwardingHistoryResponse, error) {
+	return nil, c.err
+}

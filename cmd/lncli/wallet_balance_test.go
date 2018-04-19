@@ -18,13 +18,6 @@ func TestWalletBalance(t *testing.T) {
 		expectedWalletBalanceResponse)
 }
 
-func TestWalletBalance_WitnessOnly(t *testing.T) {
-	TestCommandNoError(t, runWalletBalance,
-		[]string{"--witness_only"},
-		&lnrpc.WalletBalanceRequest{WitnessOnly: true},
-		expectedWalletBalanceResponse)
-}
-
 func TestWalletBalance_RPCError(t *testing.T) {
 	TestCommandRPCError(t, runWalletBalance,
 		[]string{},

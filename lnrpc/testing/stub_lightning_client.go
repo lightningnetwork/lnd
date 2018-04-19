@@ -126,13 +126,13 @@ func (c *StubLightningClient) PendingChannels(ctx context.Context, in *lnrpc.Pen
 func (c *StubLightningClient) ListChannels(ctx context.Context, in *lnrpc.ListChannelsRequest, opts ...grpc.CallOption) (*lnrpc.ListChannelsResponse, error) {
 	c.CapturedRequest = in
 
-	channel := lnrpc.ActiveChannel{
+	channel := lnrpc.Channel{
 		Active:        true,
 		RemotePubkey:  "RemotePubkey",
 		LocalBalance:  1234,
 		RemoteBalance: 5678}
 
-	return &lnrpc.ListChannelsResponse{[]*lnrpc.ActiveChannel{&channel}}, nil
+	return &lnrpc.ListChannelsResponse{[]*lnrpc.Channel{&channel}}, nil
 }
 
 func (c *StubLightningClient) OpenChannelSync(ctx context.Context, in *lnrpc.OpenChannelRequest, opts ...grpc.CallOption) (*lnrpc.ChannelPoint, error) {
@@ -257,12 +257,21 @@ func (c *StubLightningClient) FeeReport(ctx context.Context, in *lnrpc.FeeReport
 		FeePerMil:   456,
 		FeeRate:     123}
 
-	return &lnrpc.FeeReportResponse{[]*lnrpc.ChannelFeeReport{&channelFeeReport}}, nil
+	return &lnrpc.FeeReportResponse{
+		[]*lnrpc.ChannelFeeReport{&channelFeeReport},
+		0,
+		0,
+		0}, nil
 }
 
 func (c *StubLightningClient) UpdateChannelPolicy(ctx context.Context, in *lnrpc.PolicyUpdateRequest, opts ...grpc.CallOption) (*lnrpc.PolicyUpdateResponse, error) {
 	c.CapturedRequest = in
 	return new(lnrpc.PolicyUpdateResponse), nil
+}
+
+func (c *StubLightningClient) ForwardingHistory(ctx context.Context, in *lnrpc.ForwardingHistoryRequest, opts ...grpc.CallOption) (*lnrpc.ForwardingHistoryResponse, error) {
+	c.CapturedRequest = in
+	return new(lnrpc.ForwardingHistoryResponse), nil
 }
 
 // A duplicate of lightningSendPaymentClient, but that is private so it

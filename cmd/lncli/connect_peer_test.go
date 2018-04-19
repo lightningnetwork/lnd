@@ -9,7 +9,8 @@ import (
 
 var expectedConnectPeerResponse = "{\n\n}\n"
 
-// connectPeer returns the correct output if no errors occurred.
+// TestConnectPeer verifies that connectPeer returns the correct output
+// if no errors occurred.
 func TestConnectPeer(t *testing.T) {
 	TestCommandNoError(t, runConnectPeer,
 		[]string{GoodAddress},
@@ -17,7 +18,8 @@ func TestConnectPeer(t *testing.T) {
 		expectedConnectPeerResponse)
 }
 
-// connectPeer doesn't require a port in order to successfully connect.
+// TestConnectPeer_NoPort verifies that connectPeer doesn't require
+// a port in order to successfully connect.
 func TestConnectPeer_NoPort(t *testing.T) {
 	TestCommandNoError(t, runConnectPeer,
 		[]string{GoodAddressWithoutPort},
@@ -25,7 +27,7 @@ func TestConnectPeer_NoPort(t *testing.T) {
 		expectedConnectPeerResponse)
 }
 
-// connectPeer passes "perm" to the RPC.
+// TestConnectPeer_Perm verifies that connectPeer passes "perm" to the RPC.
 func TestConnectPeer_Perm(t *testing.T) {
 	TestCommandNoError(t, runConnectPeer,
 		[]string{"--perm", GoodAddress},
@@ -33,14 +35,16 @@ func TestConnectPeer_Perm(t *testing.T) {
 		expectedConnectPeerResponse)
 }
 
-// connectPeer returns the correct error if an invalid address was specified.
+// TestConnectPeer_BadAddressFormat verifies that connectPeer returns the
+// correct error if an invalid address was specified.
 func TestConnectPeer_BadAddressFormat(t *testing.T) {
 	TestCommandValidationError(t, runConnectPeer,
 		[]string{BadAddress},
 		ErrBadAddressFormat)
 }
 
-// connectPeer bubbles up the error if the LightningClient fails to connect.
+// TestConnectPeer_FailedConnecting verifies that connectPeer bubbles up
+// the error if the LightningClient fails to connect.
 func TestConnectPeer_FailedConnecting(t *testing.T) {
 	TestCommandRPCError(t, runConnectPeer,
 		[]string{GoodAddress},

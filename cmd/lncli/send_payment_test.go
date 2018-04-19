@@ -8,28 +8,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Passing no arguments results in help/usage text.
+// TestSendPayment_Usage verifies that passing no arguments results
+// in help/usage text.
 func TestSendPayment_Usage(t *testing.T) {
 	TestCommandTextInResponse(t, runSendPayment,
 		[]string{},
 		"sendpayment - Send a payment over lightning")
 }
 
-// sendPayment can be used with a PayReq, just like payInvoice.
+// TestSendPayment_PayReqFlag verifies that sendPayment can be used
+// with a PayReq, just like payInvoice.
 func TestSendPayment_PayReqFlag(t *testing.T) {
 	testErrorlessSendPayment(t,
 		[]string{"--pay_req", PayReq},
 		&lnrpc.SendRequest{PaymentRequest: PayReq})
 }
 
-// An amount can be included with a PayReq.
+// TestSendPayment_Amt verifies that an amount can be included with a PayReq.
 func TestSendPayment_Amt(t *testing.T) {
 	testErrorlessSendPayment(t,
 		[]string{"--pay_req", PayReq, "--amt", "12000"},
 		&lnrpc.SendRequest{PaymentRequest: PayReq, Amt: 12000})
 }
 
-// Errors on initiating a PayReq payment should be propagated up.
+// TestSendPayment_SendPaymentError verifies that errors on initiating
+// a PayReq payment should be propagated up.
 func TestSendPayment_SendPaymentError(t *testing.T) {
 	TestCommandRPCError(t, runSendPayment,
 		[]string{"--pay_req", PayReq},
@@ -37,7 +40,8 @@ func TestSendPayment_SendPaymentError(t *testing.T) {
 		io.ErrClosedPipe)
 }
 
-// Errors on sending a PayReq payment should be propagated up.
+// TestSendPayment_StreamSendError verifies that errors on sending a PayReq
+// payment should be propagated up.
 func TestSendPayment_StreamSendError(t *testing.T) {
 	stream := NewSendPaymentStream(io.ErrClosedPipe, nil)
 	client := NewSendPaymentLightningClient(&stream)
@@ -45,7 +49,8 @@ func TestSendPayment_StreamSendError(t *testing.T) {
 	require.Equal(t, io.ErrClosedPipe, err)
 }
 
-// Errors on receiving confirmation of a PayReq payment should be propagated up.
+// TestSendPayment_StreamRecvError verifies that errors on receiving
+// confirmation of a PayReq payment should be propagated up.
 func TestSendPayment_StreamRecvError(t *testing.T) {
 	stream := NewSendPaymentStream(nil, io.ErrClosedPipe)
 	client := NewSendPaymentLightningClient(&stream)
@@ -53,6 +58,7 @@ func TestSendPayment_StreamRecvError(t *testing.T) {
 	require.Equal(t, io.ErrClosedPipe, err)
 }
 
+// TestSendPayment_Dest_Amt_PaymentHash verifies that
 // Dest, Amt, and PaymentHash can be specified as non-flag args.
 func TestSendPayment_Dest_Amt_PaymentHash(t *testing.T) {
 	stream := NewSendPaymentStream(nil, nil)
@@ -71,6 +77,7 @@ func TestSendPayment_Dest_Amt_PaymentHash(t *testing.T) {
 	//require.Equal(t, expectedPaymentSendRequest(), stream.CapturedSendRequest)
 }
 
+// TestSendPayment_Dest_Amt_PaymentHash_FinalCltvDelta verifies that
 // Dest, Amt, PaymentHash, and FinalCltvDelta can be specified as non-flag args.
 func TestSendPayment_Dest_Amt_PaymentHash_FinalCltvDelta(t *testing.T) {
 	stream := NewSendPaymentStream(nil, nil)
@@ -85,7 +92,8 @@ func TestSendPayment_Dest_Amt_PaymentHash_FinalCltvDelta(t *testing.T) {
 	//require.Equal(t, expectedPaymentSendRequest(), stream.CapturedSendRequest)
 }
 
-// FinalCltvDelta can be specified as a stand-alone non-flag arg.
+// TestSendPayment_FinalCltvDelta verifies that FinalCltvDelta can be specified
+// as a stand-alone non-flag arg.
 func TestSendPayment_FinalCltvDelta(t *testing.T) {
 	testErrorlessSendPayment(t,
 		[]string{
@@ -100,7 +108,7 @@ func TestSendPayment_FinalCltvDelta(t *testing.T) {
 			FinalCltvDelta: FinalCltvDeltaInt})
 }
 
-// Dest can be specified as a flag.
+// TestSendPayment_DestFlag verifies that Dest can be specified as a flag.
 func TestSendPayment_DestFlag(t *testing.T) {
 	testErrorlessSendPayment(t,
 		[]string{
@@ -113,7 +121,7 @@ func TestSendPayment_DestFlag(t *testing.T) {
 			Amt:         PushAmountInt})
 }
 
-// Amt can be specified as a flag.
+// TestSendPayment_AmtFlag verifies that Amt can be specified as a flag.
 func TestSendPayment_AmtFlag(t *testing.T) {
 	testErrorlessSendPayment(t,
 		[]string{
@@ -126,7 +134,8 @@ func TestSendPayment_AmtFlag(t *testing.T) {
 			Amt:         PushAmountInt})
 }
 
-// PaymentHash can be specified as a flag.
+// TestSendPayment_PaymentHashFlag verifies that PaymentHash can be
+// specified as a flag.
 func TestSendPayment_PaymentHashFlag(t *testing.T) {
 	testErrorlessSendPayment(t,
 		[]string{
@@ -137,7 +146,8 @@ func TestSendPayment_PaymentHashFlag(t *testing.T) {
 			PaymentHash: PaymentHashBytes})
 }
 
-// FinalCltvDelta can be specified as a flag.
+// TestSendPayment_FinalCltvDeltaFlag verifies that FinalCltvDelta can be
+// specified as a flag.
 func TestSendPayment_FinalCltvDeltaFlag(t *testing.T) {
 	testErrorlessSendPayment(t,
 		[]string{
@@ -150,7 +160,8 @@ func TestSendPayment_FinalCltvDeltaFlag(t *testing.T) {
 			FinalCltvDelta: FinalCltvDeltaInt})
 }
 
-// Passing all arguments as flags should be accepted.
+// TestSendPayment_AllFlags verifies that passing all arguments as flags
+// should be accepted.
 func TestSendPayment_AllFlags(t *testing.T) {
 	testErrorlessSendPayment(t,
 		[]string{
@@ -165,70 +176,77 @@ func TestSendPayment_AllFlags(t *testing.T) {
 			FinalCltvDelta: FinalCltvDeltaInt})
 }
 
-// Dest must be specified if PayReq isn't.
+// TestSendPayment_NoDest verifies that Dest must be specified if PayReq isn't.
 func TestSendPayment_NoDest(t *testing.T) {
 	TestCommandValidationError(t, runSendPayment,
 		[]string{"--payment_hash", PaymentHash},
 		ErrMissingDestinationTxid)
 }
 
-// PaymentHash must be specified if PayReq isn't.
+// TestSendPayment_NoPaymentHash verifies that PaymentHash must be specified
+// if PayReq isn't.
 func TestSendPayment_NoPaymentHash(t *testing.T) {
 	TestCommandValidationError(t, runSendPayment,
 		[]string{"--dest", Dest},
 		ErrMissingPaymentHash)
 }
 
-// Dest must be specified in a hexadecimal format.
+// TestSendPayment_NonHexDest verifiest that Dest must be specified
+// in a hexadecimal format.
 func TestSendPayment_NonHexDest(t *testing.T) {
 	TestCommandTextInValidationError(t, runSendPayment,
 		[]string{"ABC"},
 		"encoding/hex: odd length hex string")
 }
 
-// Dest must be the correct length.
+// TestSendPayment_BadHexLengthDest verifies that Dest must be the
+// correct length.
 func TestSendPayment_BadHexLengthDest(t *testing.T) {
 	TestCommandTextInValidationError(t, runSendPayment,
 		[]string{"ABCD"},
 		"dest node pubkey must be exactly 33 bytes, is instead:")
 }
 
-// Amts must be numbers.
+// TestSendPayment_BadAmt verifies that Amts must be numbers.
 func TestSendPayment_BadAmt(t *testing.T) {
 	TestCommandTextInValidationError(t, runSendPayment,
 		[]string{Dest, "BadAmount", "--payment_hash", PaymentHash},
 		"unable to decode payment amount")
 }
 
-// Amts must be numbers.
+// TestSendPayment_BadAmtFlag verifies that Amts must be numbers.
 func TestSendPayment_BadAmtFlag(t *testing.T) {
 	TestCommandTextInResponse(t, runSendPayment,
 		[]string{Dest, "--amt", "BadAmount", "--payment_hash", PaymentHash},
 		"Incorrect Usage: invalid value")
 }
 
-// PaymentHashes must be hexadecimal.
+// TestSendPayment_NonHexPaymentHash verifies that PaymentHashes
+// must be hexadecimal.
 func TestSendPayment_NonHexPaymentHash(t *testing.T) {
 	TestCommandTextInValidationError(t, runSendPayment,
 		[]string{Dest, PushAmount, "ABC"},
 		"encoding/hex: odd length hex string")
 }
 
-// PaymentHashes must have the correct length.
+// TestSendPayment_BadHexLengthPaymentHash verifies that PaymentHashes
+// must have the correct length.
 func TestSendPayment_BadHexLengthPaymentHash(t *testing.T) {
 	TestCommandTextInValidationError(t, runSendPayment,
 		[]string{Dest, PushAmount, "ABCD"},
 		"payment hash must be exactly 32 bytes, is instead")
 }
 
-// PaymentHashes must be hexadecimal.
+// TestSendPayment_NonHexPaymentHashFlag verifies that PaymentHashes
+// must be hexadecimal.
 func TestSendPayment_NonHexPaymentHashFlag(t *testing.T) {
 	TestCommandTextInValidationError(t, runSendPayment,
 		[]string{Dest, "--payment_hash", "ABC"},
 		"encoding/hex: odd length hex string")
 }
 
-// FinalCltvDeltas must be integers.
+// TestSendPaymentBadFinalCltvDelta verifies that FinalCltvDeltas
+// must be integers.
 func TestSendPaymentBadFinalCltvDelta(t *testing.T) {
 	TestCommandTextInValidationError(t, runSendPayment,
 		[]string{
@@ -239,7 +257,8 @@ func TestSendPaymentBadFinalCltvDelta(t *testing.T) {
 		"invalid syntax")
 }
 
-// FinalCltvDeltas must be integers.
+// TestSendPaymentBadFinalCltvDeltaFlag verifies that FinalCltvDeltas
+// must be integers.
 func TestSendPaymentBadFinalCltvDeltaFlag(t *testing.T) {
 	TestCommandTextInResponse(t, runSendPayment,
 		[]string{
@@ -249,14 +268,16 @@ func TestSendPaymentBadFinalCltvDeltaFlag(t *testing.T) {
 		"Incorrect Usage: invalid value")
 }
 
-// Payments can be test-sent with no PaymentHash.
+// TestSendPayment_DebugSend verifies that payments can be test-sent
+// with no PaymentHash.
 func TestSendPayment_DebugSend(t *testing.T) {
 	testErrorlessSendPayment(t,
 		[]string{Dest, PushAmount, "--debug_send"},
 		&lnrpc.SendRequest{Dest: DestBytes, Amt: PushAmountInt})
 }
 
-// PaymentHash is pointless for debug sends.
+// TestSendPayment_DebugSendWithPaymentHash verifies that PaymentHash is
+// pointless for debug sends.
 func TestSendPayment_DebugSendWithPaymentHash(t *testing.T) {
 	stream := NewSendPaymentStream(nil, nil)
 	client := NewSendPaymentLightningClient(&stream)
@@ -267,7 +288,8 @@ func TestSendPayment_DebugSendWithPaymentHash(t *testing.T) {
 	require.Equal(t, ErrUnnecessaryArgumentForDebugSend, err)
 }
 
-// Specifying additional arguments is pointless for debug sends.
+// TestSendPayment_DebugSendWithArgs verifies that specifying
+// additional arguments is pointless for debug sends.
 func TestSendPayment_DebugSendWithArgs(t *testing.T) {
 	stream := NewSendPaymentStream(nil, nil)
 	client := NewSendPaymentLightningClient(&stream)

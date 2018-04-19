@@ -14,8 +14,8 @@ import (
 	"google.golang.org/grpc"
 )
 
-// closeChannel should print the correct closing_txid when the bare minimum
-// arguments are passed.
+// TestCloseChannel verifies that closeChannel prints the correct
+// closing_txid when the bare minimum arguments are passed.
 func TestCloseChannel(t *testing.T) {
 	expectedReq := expectedCloseChannelRequest()
 	expectedReq.ChannelPoint.OutputIndex = 0
@@ -26,7 +26,8 @@ func TestCloseChannel(t *testing.T) {
 		"{\n\t\"closing_txid\": \"0000000000000000000000000000000089000000000000000000000000000000\"\n}\n")
 }
 
-// FundingTxid can be passed as a flag rather than argument.
+// TestCloseChannel_FundingTxidFlag verifies that FundingTxid can be passed
+// as a flag rather than argument.
 func TestCloseChannel_FundingTxidFlag(t *testing.T) {
 	expectedReq := expectedCloseChannelRequest()
 	expectedReq.ChannelPoint.OutputIndex = 0
@@ -37,7 +38,8 @@ func TestCloseChannel_FundingTxidFlag(t *testing.T) {
 		"{\n\t\"closing_txid\": \"0000000000000000000000000000000089000000000000000000000000000000\"\n}\n")
 }
 
-// OutputIndex can be passed as an argument rather than defaulted
+// TestCloseChannel_OutputIndexArg verified that outputIndex can be passed
+// as an argument rather than defaulted
 func TestCloseChannel_OutputIndexArg(t *testing.T) {
 	expectedReq := expectedCloseChannelRequest()
 	expectedReq.ChannelPoint.OutputIndex = OutputIndexInt
@@ -48,7 +50,8 @@ func TestCloseChannel_OutputIndexArg(t *testing.T) {
 		"{\n\t\"closing_txid\": \"0000000000000000000000000000000089000000000000000000000000000000\"\n}\n")
 }
 
-// OutputIndex can be passed as a flag rather than defaulted
+// TestCloseChannel_OutputIndexFlag verifies that OutputIndex can be passed
+// as a flag rather than defaulted
 func TestCloseChannel_OutputIndexFlag(t *testing.T) {
 	expectedReq := expectedCloseChannelRequest()
 	expectedReq.ChannelPoint.OutputIndex = OutputIndexInt
@@ -59,7 +62,8 @@ func TestCloseChannel_OutputIndexFlag(t *testing.T) {
 		"{\n\t\"closing_txid\": \"0000000000000000000000000000000089000000000000000000000000000000\"\n}\n")
 }
 
-// TimeLimit can be passed as an argument, but currently does nothing.
+// TestCloseChannel_TimeLimitArg verifies that TimeLimit can be passed
+// as an argument, but currently does nothing.
 func TestCloseChannel_TimeLimitArg(t *testing.T) {
 	expectedReq := expectedCloseChannelRequest()
 	expectedReq.ChannelPoint.OutputIndex = OutputIndexInt
@@ -70,7 +74,8 @@ func TestCloseChannel_TimeLimitArg(t *testing.T) {
 		"{\n\t\"closing_txid\": \"0000000000000000000000000000000089000000000000000000000000000000\"\n}\n")
 }
 
-// TimeLimit can be passed as a flag, but currently does nothing.
+// TestCloseChannel_TimeLimitFlag verifies that TimeLimit can be passed
+// as a flag, but currently does nothing.
 func TestCloseChannel_TimeLimitFlag(t *testing.T) {
 	expectedReq := expectedCloseChannelRequest()
 	expectedReq.ChannelPoint.OutputIndex = OutputIndexInt
@@ -81,7 +86,7 @@ func TestCloseChannel_TimeLimitFlag(t *testing.T) {
 		"{\n\t\"closing_txid\": \"0000000000000000000000000000000089000000000000000000000000000000\"\n}\n")
 }
 
-// FundingTxid must be specified.
+// TestCloseChannel_NoFundingTxid verifies that FundingTxid must be specified.
 func TestCloseChannel_NoFundingTxid(t *testing.T) {
 	client := NewStubCloseClient([]lnrpc.CloseStatusUpdate{}, io.EOF)
 	_, err := runCloseChannel(&client, []string{"--output_index", OutputIndex})
@@ -89,7 +94,7 @@ func TestCloseChannel_NoFundingTxid(t *testing.T) {
 	require.Equal(t, ErrMissingFundingTxid, err, "Incorrect error returned.")
 }
 
-// OutputIndex must be an integer.
+// TestCloseChannel_BadOutputIndex verifies that outputIndex must be an integer.
 func TestCloseChannel_BadOutputIndex(t *testing.T) {
 	client := NewStubCloseClient([]lnrpc.CloseStatusUpdate{}, io.EOF)
 	_, err := runCloseChannel(&client, []string{FundingTxidString, "BadOutputIndex"})
@@ -99,8 +104,9 @@ func TestCloseChannel_BadOutputIndex(t *testing.T) {
 		"Incorrect error message returned.")
 }
 
-// Specifying that a call should block has no effect if the first update
-// that is received back confirms channel closure.
+// TestCloseChannel_UnnecessaryBlock verifies that specifying that a call should
+// block has no effect if the first update that is received back confirms
+// channel closure.
 func TestCloseChannel_UnnecessaryBlock(t *testing.T) {
 	testErrorlessCloseChannel(t,
 		[]lnrpc.CloseStatusUpdate{chanCloseUpdate()},
@@ -109,7 +115,8 @@ func TestCloseChannel_UnnecessaryBlock(t *testing.T) {
 		"{\n\t\"closing_txid\": \"0000000000000000000000000000000089000000000000000000000000000000\"\n}\n")
 }
 
-// Verify that all pass through flags are passed through to the RPC call.
+// TestCloseChannel_OverrideDefaults verifiest that all pass through flags
+// are passed through to the RPC call.
 func TestCloseChannel_OverrideDefaults(t *testing.T) {
 	expectedReq := expectedCloseChannelRequest()
 	expectedReq.Force = true
@@ -126,16 +133,18 @@ func TestCloseChannel_OverrideDefaults(t *testing.T) {
 		"{\n\t\"closing_txid\": \"0000000000000000000000000000000089000000000000000000000000000000\"\n}\n")
 }
 
-// closeChannel endlessly loops if unrecognized or nil CloseStatusUpdates are returned.
-// This probably isn't the correct behavior. This also happens with any infinitely
-// repeating sequence of valid CloseStatusUpdates.
+// TestCloseChannel_NoTerminationIfUnrecognizedUpdate verifies that
+// closeChannel endlessly loops if unrecognized or nil CloseStatusUpdates
+// are returned. This probably isn't the correct behavior. This also
+// happens with any infinitely repeating sequence of valid CloseStatusUpdates.
 func TestCloseChannel_NoTerminationIfUnrecognizedUpdate(t *testing.T) {
 	client := lnrpctesting.NewStubLightningClient()
 	_, err := runCloseChannel(&client, []string{FundingTxidString})
 	require.Equal(t, ErrTimeout, err)
 }
 
-// Help text should be printed if no arguments are passed.
+// TestCloseChannel_Help verifies that help text should be printed
+// if no arguments are passed.
 func TestCloseChannel_Help(t *testing.T) {
 	client := lnrpctesting.NewStubLightningClient()
 	resp, _ := runCloseChannel(&client, []string{})
@@ -146,7 +155,8 @@ func TestCloseChannel_Help(t *testing.T) {
 		"Expected usage text to be printed but something else was.")
 }
 
-// Most errors that occur during closing a channel should be propagated up unmodified.
+// TestCloseChannel_Failed verifies that most errors that occur during closing
+// a channel should be propagated up unmodified.
 func TestCloseChannel_Failed(t *testing.T) {
 	client := lnrpctesting.NewFailingStubLightningClient(io.ErrClosedPipe)
 	_, err := runCloseChannel(&client, []string{FundingTxidString})
@@ -154,9 +164,10 @@ func TestCloseChannel_Failed(t *testing.T) {
 	require.Equal(t, io.ErrClosedPipe, err, "Incorrect error returned.")
 }
 
-// Errors when receiving updates are propagated up unmodified.
-// it's likely that these errors should be distinguished from errors in the
-// initial connection, but they currently are represented identically.
+// TestCloseChannel_RecvFailed verifies that errors when receiving updates are
+// propagated up unmodified. It's likely that these errors should be
+// distinguished from errors in the initial connection, but they currently are
+// represented identically.
 func TestCloseChannel_RecvFailed(t *testing.T) {
 	client := NewStubCloseClient([]lnrpc.CloseStatusUpdate{}, io.ErrClosedPipe)
 	_, err := runCloseChannel(&client, []string{FundingTxidString})
@@ -164,7 +175,8 @@ func TestCloseChannel_RecvFailed(t *testing.T) {
 	require.Equal(t, io.ErrClosedPipe, err, "Incorrect error returned.")
 }
 
-// Non-blocking calls that retrieve a ChanPending are successes.
+// TestCloseChannel_NonBlockingChanClose verifies that non-blocking calls that
+// retrieve a ChanPending are successes.
 func TestCloseChannel_NonBlockingChanClose(t *testing.T) {
 	client := NewStubCloseClient(
 		[]lnrpc.CloseStatusUpdate{chanPendingCloseUpdate()}, io.EOF)
@@ -176,7 +188,8 @@ func TestCloseChannel_NonBlockingChanClose(t *testing.T) {
 		"Incorrect response from closeChannel.")
 }
 
-// A terminated connection after a ChanPending currently does not result in an error.
+// TestCloseChannel_ChanPendingThenEOF verifies that a terminated connection
+// after a ChanPending currently does not result in an error.
 func TestCloseChannel_ChanPendingThenEOF(t *testing.T) {
 	testErrorlessCloseChannel(t,
 		[]lnrpc.CloseStatusUpdate{chanPendingCloseUpdate()},
@@ -185,7 +198,8 @@ func TestCloseChannel_ChanPendingThenEOF(t *testing.T) {
 		"{\n\t\"closing_txid\": \"0000000000000000000000000000000089000000000000000000000000000000\"\n}\n")
 }
 
-// A ChanPending followed by a ChanClose should print the same txid twice.
+// TestCloseChannel_ChanPendingThenChanClose verifies that a ChanPending
+// followed by a ChanClose should print the same txid twice.
 func TestCloseChannel_ChanPendingThenChanClose(t *testing.T) {
 	testErrorlessCloseChannel(t,
 		[]lnrpc.CloseStatusUpdate{chanPendingCloseUpdate(), chanCloseUpdate()},
@@ -195,8 +209,9 @@ func TestCloseChannel_ChanPendingThenChanClose(t *testing.T) {
 			"{\n\t\"closing_txid\": \"0000000000000000000000000000000089000000000000000000000000000000\"\n}\n")
 }
 
-// A ChanClose followed by a ChanPending prints the txid twice.
-// It's not clear that this order of events is valid.
+// TestCloseChannel_ChanCloseThenChanPending verifies that a ChanClose
+// followed by a ChanPending prints the txid twice. It's not clear that this
+// order of events is valid.
 func TestCloseChannel_ChanCloseThenChanPending(t *testing.T) {
 	testErrorlessCloseChannel(t,
 		[]lnrpc.CloseStatusUpdate{chanCloseUpdate(), chanPendingCloseUpdate()},
@@ -206,7 +221,8 @@ func TestCloseChannel_ChanCloseThenChanPending(t *testing.T) {
 			"{\n\t\"closing_txid\": \"0000000000000000000000000000000089000000000000000000000000000000\"\n}\n")
 }
 
-// A bad tx hash should result in an error being propagated up.
+// TestCloseChannel_ChanPendingBadTxHash verifies that a bad tx hash should
+// result in an error being propagated up.
 func TestCloseChannel_ChanPendingBadTxHash(t *testing.T) {
 	bytes := make([]byte, chainhash.HashSize-1)
 	client := NewStubCloseClient(
@@ -218,7 +234,8 @@ func TestCloseChannel_ChanPendingBadTxHash(t *testing.T) {
 		"invalid hash length of 31, want 32", err.Error(), "Incorrect error returned.")
 }
 
-// A bad tx hash should result in an error being propagated up.
+// TestCloseChannel_ChanCloseBadTxHash verifies that a bad tx hash should
+// result in an error being propagated up.
 func TestCloseChannel_ChanCloseBadTxHash(t *testing.T) {
 	client := NewStubCloseClient([]lnrpc.CloseStatusUpdate{chanCloseUpdateBadTxid()}, io.EOF)
 	_, err := runCloseChannel(&client, []string{FundingTxidString})
@@ -227,7 +244,8 @@ func TestCloseChannel_ChanCloseBadTxHash(t *testing.T) {
 		"invalid hash length of 31, want 32", err.Error(), "Incorrect error returned.")
 }
 
-// Regardless of how many ChanPendings are received, a ChanClose at the end should succeed.
+// TestCloseChannel_MultipleChanPendingThenChanClose verifies that regardless
+// of how many ChanPendings are received, a ChanClose at the end should succeed.
 func TestCloseChannel_MultipleChanPendingThenChanClose(t *testing.T) {
 	testErrorlessCloseChannel(t,
 		[]lnrpc.CloseStatusUpdate{
@@ -240,7 +258,8 @@ func TestCloseChannel_MultipleChanPendingThenChanClose(t *testing.T) {
 			"{\n\t\"closing_txid\": \"0000000000000000000000000000000089000000000000000000000000000000\"\n}\n")
 }
 
-// Currently it doesn't matter if multiple ChanCloses are received.
+// TestCloseChannel_MultipleChanClose verifies that currently it doesn't
+// matter if multiple ChanCloses are received.
 func TestCloseChannel_MultipleChanClose(t *testing.T) {
 	testErrorlessCloseChannel(t,
 		[]lnrpc.CloseStatusUpdate{
@@ -253,7 +272,8 @@ func TestCloseChannel_MultipleChanClose(t *testing.T) {
 			"{\n\t\"closing_txid\": \"0000000000000000000000000000000089000000000000000000000000000000\"\n}\n")
 }
 
-// Currently it doesn't matter what sequence of ChanPendings and ChanCloses are received.
+// TestCloseChannel_MultipleAlternatingChanPendingAndChanClose verifies that
+// currently it doesn't matter what sequence of ChanPendings and ChanCloses are received.
 func TestCloseChannel_MultipleAlternatingChanPendingAndChanClose(t *testing.T) {
 	testErrorlessCloseChannel(t,
 		[]lnrpc.CloseStatusUpdate{

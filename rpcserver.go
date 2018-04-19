@@ -1043,12 +1043,6 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 			r.server.htlcSwitch.RemoveLink(chanID)
 		}
 
-		select {
-		case r.server.breachArbiter.settledContracts <- *chanPoint:
-		case <-r.quit:
-			return fmt.Errorf("server shutting down")
-		}
-
 		// With the necessary indexes cleaned up, we'll now force close
 		// the channel.
 		chainArbitrator := r.server.chainArb

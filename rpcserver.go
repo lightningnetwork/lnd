@@ -2745,16 +2745,20 @@ func marshallRoute(route *routing.Route) *lnrpc.Route {
 	resp := &lnrpc.Route{
 		TotalTimeLock: route.TotalTimeLock,
 		TotalFees:     int64(route.TotalFees.ToSatoshis()),
+		TotalFeesMsat: int64(route.TotalFees),
 		TotalAmt:      int64(route.TotalAmount.ToSatoshis()),
+		TotalAmtMsat:  int64(route.TotalAmount),
 		Hops:          make([]*lnrpc.Hop, len(route.Hops)),
 	}
 	for i, hop := range route.Hops {
 		resp.Hops[i] = &lnrpc.Hop{
-			ChanId:       hop.Channel.ChannelID,
-			ChanCapacity: int64(hop.Channel.Capacity),
-			AmtToForward: int64(hop.AmtToForward.ToSatoshis()),
-			Fee:          int64(hop.Fee.ToSatoshis()),
-			Expiry:       uint32(hop.OutgoingTimeLock),
+			ChanId:           hop.Channel.ChannelID,
+			ChanCapacity:     int64(hop.Channel.Capacity),
+			AmtToForward:     int64(hop.AmtToForward.ToSatoshis()),
+			AmtToForwardMsat: int64(hop.AmtToForward),
+			Fee:              int64(hop.Fee.ToSatoshis()),
+			FeeMsat:          int64(hop.Fee),
+			Expiry:           uint32(hop.OutgoingTimeLock),
 		}
 	}
 

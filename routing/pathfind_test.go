@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/ioutil"
+	"math"
 	"math/big"
 	"net"
 	"os"
@@ -40,6 +41,11 @@ const (
 	// implementations will use in order to ensure that they're calculating
 	// the payload for each hop in path properly.
 	specExampleFilePath = "testdata/spec_example.json"
+
+	// noFeeLimit is the maximum value of a payment through Lightning. We
+	// can use this value to signal there is no fee limit since payments
+	// should never be larger than this.
+	noFeeLimit = lnwire.MilliSatoshi(math.MaxUint32)
 )
 
 var (
@@ -310,7 +316,6 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	)
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
-	feeLimit := paymentAmt.ToSatoshis()
 	target := aliases["sophon"]
 	path, err := findPath(
 		nil, graph, nil, sourceNode, target, ignoredVertexes,
@@ -320,8 +325,10 @@ func TestBasicGraphPathFinding(t *testing.T) {
 		t.Fatalf("unable to find path: %v", err)
 	}
 
-	route, err := newRoute(paymentAmt, sourceVertex, path, startingHeight,
-		finalHopCLTV, feeLimit)
+	route, err := newRoute(
+		paymentAmt, noFeeLimit, sourceVertex, path, startingHeight,
+		finalHopCLTV,
+	)
 	if err != nil {
 		t.Fatalf("unable to create path: %v", err)
 	}
@@ -463,8 +470,10 @@ func TestBasicGraphPathFinding(t *testing.T) {
 		t.Fatalf("unable to find route: %v", err)
 	}
 
-	route, err = newRoute(paymentAmt, sourceVertex, path, startingHeight,
-		finalHopCLTV, feeLimit)
+	route, err = newRoute(
+		paymentAmt, noFeeLimit, sourceVertex, path, startingHeight,
+		finalHopCLTV,
+	)
 	if err != nil {
 		t.Fatalf("unable to create path: %v", err)
 	}
@@ -732,6 +741,8 @@ func TestPathInsufficientCapacity(t *testing.T) {
 // TestRouteFailMinHTLC tests that if we attempt to route an HTLC which is
 // smaller than the advertised minHTLC of an edge, then path finding fails.
 func TestRouteFailMinHTLC(t *testing.T) {
+	t.Parallel()
+
 	graph, cleanUp, aliases, err := parseTestGraph(basicGraphFilePath)
 	defer cleanUp()
 	if err != nil {
@@ -763,6 +774,8 @@ func TestRouteFailMinHTLC(t *testing.T) {
 // that's disabled, then that edge is disqualified, and the routing attempt
 // will fail.
 func TestRouteFailDisabledEdge(t *testing.T) {
+	t.Parallel()
+
 	graph, cleanUp, aliases, err := parseTestGraph(basicGraphFilePath)
 	defer cleanUp()
 	if err != nil {
@@ -807,6 +820,48 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
+	}
+}
+
+// TestRouteExceededFeeLimit tests that routes respect the fee limit imposed.
+func TestRouteExceededFeeLimit(t *testing.T) {
+	t.Parallel()
+
+	graph, cleanUp, aliases, err := parseTestGraph(basicGraphFilePath)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+
+	sourceNode, err := graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+	}
+	sourceVertex := Vertex(sourceNode.PubKeyBytes)
+
+	ignoredVertices := make(map[Vertex]struct{})
+	ignoredEdges := make(map[uint64]struct{})
+
+	// Find a path to send 100 satoshis from roasbeef to sophon.
+	target := aliases["sophon"]
+	amt := lnwire.NewMSatFromSatoshis(100)
+	path, err := findPath(
+		nil, graph, nil, sourceNode, target, ignoredVertices,
+		ignoredEdges, amt, nil,
+	)
+	if err != nil {
+		t.Fatalf("unable to find path from roasbeef to phamnuwen for "+
+			"100 satoshis: %v", err)
+	}
+
+	// We'll now purposefully set a fee limit of 0 to trigger the exceeded
+	// fee limit error. This should work since the path retrieved spans
+	// multiple hops incurring a fee.
+	feeLimit := lnwire.NewMSatFromSatoshis(0)
+
+	_, err = newRoute(amt, feeLimit, sourceVertex, path, 100, 1)
+	if !IsError(err, ErrFeeLimitExceeded) {
+		t.Fatalf("route should've exceeded fee limit: %v", err)
 	}
 }
 
@@ -855,8 +910,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	// Query for a route of 4,999,999 mSAT to carol.
 	carol := ctx.aliases["C"]
 	const amt lnwire.MilliSatoshi = 4999999
-	feeLimit := amt.ToSatoshis()
-	routes, err := ctx.router.FindRoutes(carol, amt, feeLimit, 100)
+	routes, err := ctx.router.FindRoutes(carol, amt, noFeeLimit, 100)
 	if err != nil {
 		t.Fatalf("unable to find route: %v", err)
 	}
@@ -916,7 +970,7 @@ func TestPathFindSpecExample(t *testing.T) {
 
 	// We'll now request a route from A -> B -> C.
 	ctx.router.routeCache = make(map[routeTuple][]*Route)
-	routes, err = ctx.router.FindRoutes(carol, amt, feeLimit, 100)
+	routes, err = ctx.router.FindRoutes(carol, amt, noFeeLimit, 100)
 	if err != nil {
 		t.Fatalf("unable to find routes: %v", err)
 	}

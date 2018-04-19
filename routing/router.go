@@ -1258,8 +1258,8 @@ func pruneChannelFromRoutes(routes []*Route, skipChan uint64) []*Route {
 // fee information attached. The set of routes returned may be less than the
 // initial set of paths as it's possible we drop a route if it can't handle the
 // total payment flow after fees are calculated.
-func pathsToFeeSortedRoutes(source Vertex, paths [][]*ChannelHop, finalCLTVDelta uint16,
-	amt lnwire.MilliSatoshi, feeLimit btcutil.Amount,
+func pathsToFeeSortedRoutes(source Vertex, paths [][]*ChannelHop,
+	finalCLTVDelta uint16, amt, feeLimit lnwire.MilliSatoshi,
 	currentHeight uint32) ([]*Route, error) {
 
 	validRoutes := make([]*Route, 0, len(paths))
@@ -1268,8 +1268,8 @@ func pathsToFeeSortedRoutes(source Vertex, paths [][]*ChannelHop, finalCLTVDelta
 		// hop in the path as it contains a "self-hop" that is inserted
 		// by our KSP algorithm.
 		route, err := newRoute(
-			amt, source, path[1:], currentHeight, finalCLTVDelta,
-			feeLimit,
+			amt, feeLimit, source, path[1:], currentHeight,
+			finalCLTVDelta,
 		)
 		if err != nil {
 			// TODO(roasbeef): report straw breaking edge?
@@ -1318,7 +1318,7 @@ func pathsToFeeSortedRoutes(source Vertex, paths [][]*ChannelHop, finalCLTVDelta
 // route that will be ranked the highest is the one with the lowest cumulative
 // fee along the route.
 func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
-	amt lnwire.MilliSatoshi, feeLimit btcutil.Amount, numPaths uint32,
+	amt, feeLimit lnwire.MilliSatoshi, numPaths uint32,
 	finalExpiry ...uint16) ([]*Route, error) {
 
 	var finalCLTVDelta uint16

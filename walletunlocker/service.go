@@ -8,7 +8,6 @@ import (
 	"github.com/lightningnetwork/lnd/aezeed"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
-	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcwallet/wallet"
 	"golang.org/x/net/context"
@@ -67,13 +66,10 @@ type UnlockerService struct {
 
 	chainDir  string
 	netParams *chaincfg.Params
-	authSvc   *macaroons.Service
 }
 
 // New creates and returns a new UnlockerService.
-func New(authSvc *macaroons.Service, chainDir string,
-	params *chaincfg.Params) *UnlockerService {
-
+func New(chainDir string, params *chaincfg.Params) *UnlockerService {
 	return &UnlockerService{
 		InitMsgs:   make(chan *WalletInitMsg, 1),
 		UnlockMsgs: make(chan *WalletUnlockMsg, 1),
@@ -216,15 +212,6 @@ func (u *UnlockerService) InitWallet(ctx context.Context,
 		return nil, err
 	}
 
-	// Attempt to create a password for the macaroon service.
-	if u.authSvc != nil {
-		err = u.authSvc.CreateUnlock(&password)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create/unlock "+
-				"macaroon store: %v", err)
-		}
-	}
-
 	// With the cipher seed deciphered, and the auth service created, we'll
 	// now send over the wallet password and the seed. This will allow the
 	// daemon to initialize itself and startup.
@@ -275,15 +262,6 @@ func (u *UnlockerService) UnlockWallet(ctx context.Context,
 	if err := loader.UnloadWallet(); err != nil {
 		// TODO: not return error here?
 		return nil, err
-	}
-
-	// Attempt to create a password for the macaroon service.
-	if u.authSvc != nil {
-		err = u.authSvc.CreateUnlock(&password)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create/unlock "+
-				"macaroon store: %v", err)
-		}
 	}
 
 	walletUnlockMsg := &WalletUnlockMsg{

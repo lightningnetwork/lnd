@@ -195,18 +195,6 @@ func lndMain() error {
 	}
 	proxyOpts := []grpc.DialOption{grpc.WithTransportCredentials(cCreds)}
 
-	var macaroonService *macaroons.Service
-	if !cfg.NoMacaroons {
-		// Create the macaroon authentication/authorization service.
-		macaroonService, err = macaroons.NewService(macaroonDatabaseDir,
-			macaroons.IPLockChecker)
-		if err != nil {
-			srvrLog.Errorf("unable to create macaroon service: %v", err)
-			return err
-		}
-		defer macaroonService.Close()
-	}
-
 	var (
 		privateWalletPw = []byte("hello")
 		publicWalletPw  = []byte("public")
@@ -216,11 +204,11 @@ func lndMain() error {
 
 	// We wait until the user provides a password over RPC. In case lnd is
 	// started with the --noencryptwallet flag, we use the default password
-	// "hello" for wallet encryption.
+	// for wallet encryption.
 	if !cfg.NoEncryptWallet {
 		walletInitParams, err := waitForWalletPassword(
 			cfg.RPCListeners, cfg.RESTListeners, serverOpts,
-			proxyOpts, tlsConf, macaroonService,
+			proxyOpts, tlsConf,
 		)
 		if err != nil {
 			return err
@@ -238,12 +226,20 @@ func lndMain() error {
 		}
 	}
 
+	var macaroonService *macaroons.Service
 	if !cfg.NoMacaroons {
+		// Create the macaroon authentication/authorization service.
+		macaroonService, err = macaroons.NewService(macaroonDatabaseDir,
+			macaroons.IPLockChecker)
+		if err != nil {
+			srvrLog.Errorf("unable to create macaroon service: %v", err)
+			return err
+		}
+		defer macaroonService.Close()
+
 		// Try to unlock the macaroon store with the private password.
-		// Ignore ErrAlreadyUnlocked since it could be unlocked by the
-		// wallet unlocker.
 		err = macaroonService.CreateUnlock(&privateWalletPw)
-		if err != nil && err != macaroons.ErrAlreadyUnlocked {
+		if err != nil {
 			srvrLog.Error(err)
 			return err
 		}
@@ -879,12 +875,9 @@ type WalletUnlockParams struct {
 // waitForWalletPassword will spin up gRPC and REST endpoints for the
 // WalletUnlocker server, and block until a password is provided by
 // the user to this RPC server.
-func waitForWalletPassword(
-	grpcEndpoints, restEndpoints []string,
-	serverOpts []grpc.ServerOption,
-	proxyOpts []grpc.DialOption,
-	tlsConf *tls.Config,
-	macaroonService *macaroons.Service) (*WalletUnlockParams, error) {
+func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
+	serverOpts []grpc.ServerOption, proxyOpts []grpc.DialOption,
+	tlsConf *tls.Config) (*WalletUnlockParams, error) {
 
 	// Set up a new PasswordService, which will listen
 	// for passwords provided over RPC.
@@ -894,8 +887,9 @@ func waitForWalletPassword(
 	if registeredChains.PrimaryChain() == litecoinChain {
 		chainConfig = cfg.Litecoin
 	}
-	pwService := walletunlocker.New(macaroonService,
-		chainConfig.ChainDir, activeNetParams.Params)
+	pwService := walletunlocker.New(
+		chainConfig.ChainDir, activeNetParams.Params,
+	)
 	lnrpc.RegisterWalletUnlockerServer(grpcServer, pwService)
 
 	// Use a WaitGroup so we can be sure the instructions on how to input the

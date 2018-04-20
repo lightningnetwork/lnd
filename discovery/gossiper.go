@@ -269,6 +269,11 @@ func (d *AuthenticatedGossiper) SynchronizeNode(pub *btcec.PublicKey) error {
 		}, nil
 	}
 
+	// We'll use this map to ensure we don't send the same node
+	// announcement more than one time as one node may have many channel
+	// anns we'll need to send.
+	nodePubsSent := make(map[routing.Vertex]struct{})
+
 	// As peers are expecting channel announcements before node
 	// announcements, we first retrieve the initial announcement, as well as
 	// the latest channel update announcement for both of the directed edges
@@ -298,15 +303,21 @@ func (d *AuthenticatedGossiper) SynchronizeNode(pub *btcec.PublicKey) error {
 				announceMessages = append(announceMessages, e1Ann)
 
 				// If this edge has a validated node
-				// announcement, then we'll send that as well.
-				if e1.Node.HaveNodeAnnouncement {
+				// announcement, that we haven't yet sent, then
+				// we'll send that as well.
+				nodePub := e1.Node.PubKeyBytes
+				hasNodeAnn := e1.Node.HaveNodeAnnouncement
+				if _, ok := nodePubsSent[nodePub]; !ok && hasNodeAnn {
 					nodeAnn, err := makeNodeAnn(e1.Node)
 					if err != nil {
 						return err
 					}
+
 					announceMessages = append(
 						announceMessages, nodeAnn,
 					)
+					nodePubsSent[nodePub] = struct{}{}
+
 					numNodes++
 				}
 			}
@@ -314,15 +325,21 @@ func (d *AuthenticatedGossiper) SynchronizeNode(pub *btcec.PublicKey) error {
 				announceMessages = append(announceMessages, e2Ann)
 
 				// If this edge has a validated node
-				// announcement, then we'll send that as well.
-				if e2.Node.HaveNodeAnnouncement {
+				// announcement, that we haven't yet sent, then
+				// we'll send that as well.
+				nodePub := e2.Node.PubKeyBytes
+				hasNodeAnn := e2.Node.HaveNodeAnnouncement
+				if _, ok := nodePubsSent[nodePub]; !ok && hasNodeAnn {
 					nodeAnn, err := makeNodeAnn(e2.Node)
 					if err != nil {
 						return err
 					}
+
 					announceMessages = append(
 						announceMessages, nodeAnn,
 					)
+					nodePubsSent[nodePub] = struct{}{}
+
 					numNodes++
 				}
 			}

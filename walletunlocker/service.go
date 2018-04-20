@@ -2,11 +2,14 @@ package walletunlocker
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/lightningnetwork/lnd/aezeed"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcwallet/wallet"
@@ -64,17 +67,21 @@ type UnlockerService struct {
 	// sent.
 	UnlockMsgs chan *WalletUnlockMsg
 
-	chainDir  string
-	netParams *chaincfg.Params
+	chainDir      string
+	netParams     *chaincfg.Params
+	macaroonFiles []string
 }
 
 // New creates and returns a new UnlockerService.
-func New(chainDir string, params *chaincfg.Params) *UnlockerService {
+func New(chainDir string, params *chaincfg.Params,
+	macaroonFiles []string) *UnlockerService {
+
 	return &UnlockerService{
-		InitMsgs:   make(chan *WalletInitMsg, 1),
-		UnlockMsgs: make(chan *WalletUnlockMsg, 1),
-		chainDir:   chainDir,
-		netParams:  params,
+		InitMsgs:      make(chan *WalletInitMsg, 1),
+		UnlockMsgs:    make(chan *WalletUnlockMsg, 1),
+		chainDir:      chainDir,
+		netParams:     params,
+		macaroonFiles: macaroonFiles,
 	}
 }
 
@@ -168,12 +175,10 @@ func (u *UnlockerService) GenSeed(ctx context.Context,
 func (u *UnlockerService) InitWallet(ctx context.Context,
 	in *lnrpc.InitWalletRequest) (*lnrpc.InitWalletResponse, error) {
 
-	// Require the provided password to have a length of at least 8
-	// characters.
+	// Make sure the password meets our constraints.
 	password := in.WalletPassword
-	if len(password) < 8 {
-		return nil, fmt.Errorf("password must have " +
-			"at least 8 characters")
+	if err := validatePassword(password); err != nil {
+		return nil, err
 	}
 
 	// Require that the recovery window be non-negative.
@@ -275,4 +280,86 @@ func (u *UnlockerService) UnlockWallet(ctx context.Context,
 	u.UnlockMsgs <- walletUnlockMsg
 
 	return &lnrpc.UnlockWalletResponse{}, nil
+}
+
+// ChangePassword changes the password of the wallet and sends the new password
+// across the UnlockPasswords channel to automatically unlock the wallet if
+// successful.
+func (u *UnlockerService) ChangePassword(ctx context.Context,
+	in *lnrpc.ChangePasswordRequest) (*lnrpc.ChangePasswordResponse, error) {
+
+	netDir := btcwallet.NetworkDir(u.chainDir, u.netParams)
+	loader := wallet.NewLoader(u.netParams, netDir, 0)
+
+	// First, we'll make sure the wallet exists for the specific chain and
+	// network.
+	walletExists, err := loader.WalletExists()
+	if err != nil {
+		return nil, err
+	}
+
+	if !walletExists {
+		return nil, errors.New("wallet not found")
+	}
+
+	publicPw := in.CurrentPassword
+	privatePw := in.CurrentPassword
+
+	// If the current password is blank, we'll assume the user is coming
+	// from a --noencryptwallet state, so we'll use the default passwords.
+	if len(in.CurrentPassword) == 0 {
+		publicPw = lnwallet.DefaultPublicPassphrase
+		privatePw = lnwallet.DefaultPrivatePassphrase
+	}
+
+	// Make sure the new password meets our constraints.
+	if err := validatePassword(in.NewPassword); err != nil {
+		return nil, err
+	}
+
+	// Load the existing wallet in order to proceed with the password change.
+	w, err := loader.OpenExistingWallet(publicPw, false)
+	if err != nil {
+		return nil, err
+	}
+	// Unload the wallet to allow lnd to open it later on.
+	defer loader.UnloadWallet()
+
+	// Since the macaroon database is also encrypted with the wallet's
+	// password, we'll remove all of the macaroon files so that they're
+	// re-generated at startup using the new password. We'll make sure to do
+	// this after unlocking the wallet to ensure macaroon files don't get
+	// deleted with incorrect password attempts.
+	for _, file := range u.macaroonFiles {
+		if err := os.Remove(file); err != nil {
+			return nil, err
+		}
+	}
+
+	// Attempt to change both the public and private passphrases for the
+	// wallet. This will be done atomically in order to prevent one
+	// passphrase change from being successful and not the other.
+	err = w.ChangePassphrases(
+		publicPw, in.NewPassword, privatePw, in.NewPassword,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to change wallet passphrase: "+
+			"%v", err)
+	}
+
+	// Finally, send the new password across the UnlockPasswords channel to
+	// automatically unlock the wallet.
+	u.UnlockMsgs <- &WalletUnlockMsg{Passphrase: in.NewPassword}
+
+	return &lnrpc.ChangePasswordResponse{}, nil
+}
+
+// validatePassword assures the password meets all of our constraints.
+func validatePassword(password []byte) error {
+	// Passwords should have a length of at least 8 characters.
+	if len(password) < 8 {
+		return errors.New("password must have at least 8 characters")
+	}
+
+	return nil
 }

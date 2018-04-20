@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/nat"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/roasbeef/btcd/btcec"
@@ -35,6 +36,7 @@ import (
 	"github.com/roasbeef/btcd/connmgr"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
+	"golang.org/x/net/context"
 )
 
 var (
@@ -84,6 +86,16 @@ type server struct {
 	// authenticating the connection to the Tor server, automatically
 	// creating and setting up onion services, etc.
 	torController *tor.Controller
+
+	// natTraversal is the specific NAT traversal technique used to
+	// automatically set up port forwarding rules in order to advertise to
+	// the network that the node is accepting inbound connections.
+	natTraversal nat.Traversal
+
+	// lastDetectedIP is the last IP detected by the NAT traversal technique
+	// above. This IP will be watched periodically in a goroutine in order
+	// to handle dynamic IP changes.
+	lastDetectedIP net.IP
 
 	mu         sync.RWMutex
 	peersByPub map[string]*peer
@@ -300,32 +312,77 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		return nil, err
 	}
 
-	// Gather external IPs from config
-	externalIPs := cfg.ExternalIPs
-
 	// If enabled, use either UPnP or NAT-PMP to automatically configure
-	// port forwarding for users behind a NAT
-	if cfg.UpnpSupport {
+	// port forwarding for users behind a NAT.
+	if cfg.NAT {
+		srvrLog.Info("Scanning local network for a UPnP enabled device")
 
-		externalIP, err := configureUpnp()
+		discoveryTimeout := time.Duration(10 * time.Second)
+
+		ctx, cancel := context.WithTimeout(
+			context.Background(), discoveryTimeout,
+		)
+		defer cancel()
+		upnp, err := nat.DiscoverUPnP(ctx)
 		if err == nil {
-			externalIPs = append(externalIPs, externalIP)
-		}
+			s.natTraversal = upnp
+		} else {
+			// If we were not able to discover a UPnP enabled device
+			// on the local network, we'll fall back to attempting
+			// to discover a NAT-PMP enabled device.
+			srvrLog.Errorf("Unable to discover a UPnP enabled "+
+				"device on the local network: %v", err)
 
+			srvrLog.Info("Scanning local network for a NAT-PMP " +
+				"enabled device")
+
+			pmp, err := nat.DiscoverPMP(discoveryTimeout)
+			if err != nil {
+				err := fmt.Errorf("Unable to discover a "+
+					"NAT-PMP enabled device on the local "+
+					"network: %v", err)
+				srvrLog.Error(err)
+				return nil, err
+			}
+
+			s.natTraversal = pmp
+		}
 	}
 
-	if cfg.NatPmp {
+	// If we were requested to automatically configure port forwarding,
+	// we'll use the ports that the server will be listening on.
+	externalIPs := cfg.ExternalIPs
+	if s.natTraversal != nil {
+		listenPorts := make([]uint16, 0, len(listenAddrs))
+		for _, listenAddr := range listenAddrs {
+			// At this point, the listen addresses should have
+			// already been normalized, so it's safe to ignore the
+			// errors.
+			_, portStr, _ := net.SplitHostPort(listenAddr)
+			port, _ := strconv.Atoi(portStr)
 
-		externalIP, err := configureNatPmp()
-		if err == nil {
-			externalIPs = append(externalIPs, externalIP)
+			listenPorts = append(listenPorts, uint16(port))
 		}
 
+		ips, err := s.configurePortForwarding(listenPorts...)
+		if err != nil {
+			srvrLog.Errorf("Unable to automatically set up port "+
+				"forwarding using %s: %v",
+				s.natTraversal.Name(), err)
+		} else {
+			srvrLog.Infof("Automatically set up port forwarding "+
+				"using %s to advertise external IP",
+				s.natTraversal.Name())
+			externalIPs = append(externalIPs, ips...)
+		}
 	}
 
 	// If external IP addresses have been specified, add those to the list
 	// of this server's addresses.
-	selfAddrs := make([]net.Addr, 0, len(cfg.ExternalIPs))
+	externalIPs = normalizeAddresses(
+		externalIPs, strconv.Itoa(defaultPeerPort),
+	)
+	selfAddrs := make([]net.Addr, 0, len(externalIPs))
 	for _, ip := range cfg.ExternalIPs {
 		addr, err := parseAddr(ip)
 		if err != nil {
@@ -643,6 +700,11 @@ func (s *server) Start() error {
 		}
 	}
 
+	if s.natTraversal != nil {
+		s.wg.Add(1)
+		go s.watchExternalIP()
+	}
+
 	// Start the notification server. This is used so channel management
 	// goroutines can be notified when a funding transaction reaches a
 	// sufficient number of confirmations, or when the input for the
@@ -748,6 +810,172 @@ func (s *server) Stop() error {
 // NOTE: This function is safe for concurrent access.
 func (s *server) Stopped() bool {
 	return atomic.LoadInt32(&s.shutdown) != 0
+}
+
+// configurePortForwarding attempts to set up port forwarding for the diffrent
+// ports that the server will be listening on.
+//
+// NOTE: This should only be used when using some kind of NAT traversal to
+// automatically set up forwarding rules.
+func (s *server) configurePortForwarding(ports ...uint16) ([]string, error) {
+	ip, err := s.natTraversal.ExternalIP()
+	if err != nil {
+		return nil, err
+	}
+	s.lastDetectedIP = ip
+
+	externalIPs := make([]string, 0, len(ports))
+	for _, port := range ports {
+		if err := s.natTraversal.AddPortMapping(port); err != nil {
+			srvrLog.Debugf("Unable to forward port %d: %v", port, err)
+			continue
+		}
+
+		hostIP := fmt.Sprintf("%v:%d", ip, port)
+		externalIPs = append(externalIPs, hostIP)
+	}
+
+	return externalIPs, nil
+}
+
+// removePortForwarding attempts to clear the forwarding rules for the different
+// ports the server is currently listening on.
+//
+// NOTE: This should only be used when using some kind of NAT traversal to
+// automatically set up forwarding rules.
+func (s *server) removePortForwarding() {
+	forwardedPorts := s.natTraversal.ForwardedPorts()
+	for _, port := range forwardedPorts {
+		if err := s.natTraversal.DeletePortMapping(port); err != nil {
+			srvrLog.Errorf("Unable to remove forwarding rules for "+
+				"port %d: %v", port, err)
+		}
+	}
+}
+
+// watchExternalIP continously checks for an updated external IP address every
+// 15 minutes. Once a new IP address has been detected, it will automatically
+// handle port forwarding rules and send updated node announcements to the
+// currently connected peers.
+//
+// NOTE: This MUST be run as a goroutine.
+func (s *server) watchExternalIP() {
+	defer s.wg.Done()
+
+	// Before exiting, we'll make sure to remove the forwarding rules set
+	// up by the server.
+	defer s.removePortForwarding()
+
+	// Keep track of the external IPs set by the user to avoid replacing
+	// them when detecting a new IP.
+	ipsSetByUser := make(map[string]struct{})
+	for _, ip := range cfg.ExternalIPs {
+		ipsSetByUser[ip] = struct{}{}
+	}
+
+	forwardedPorts := s.natTraversal.ForwardedPorts()
+
+	ticker := time.NewTicker(15 * time.Minute)
+	defer ticker.Stop()
+out:
+	for {
+		select {
+		case <-ticker.C:
+			// We'll start off by making sure a new IP address has
+			// been detected.
+			ip, err := s.natTraversal.ExternalIP()
+			if err != nil {
+				srvrLog.Debugf("Unable to retrieve the "+
+					"external IP address: %v", err)
+				continue
+			}
+
+			if ip.Equal(s.lastDetectedIP) {
+				continue
+			}
+
+			srvrLog.Infof("Detected new external IP address %s", ip)
+
+			// Next, we'll craft the new addresses that will be
+			// included in the new node announcement and advertised
+			// to the network. Each address will consist of the new
+			// IP detected and one of the currently advertised
+			// ports.
+			var newAddrs []net.Addr
+			for _, port := range forwardedPorts {
+				hostIP := fmt.Sprintf("%v:%d", ip, port)
+				addr, err := net.ResolveTCPAddr("tcp", hostIP)
+				if err != nil {
+					srvrLog.Debugf("Unable to resolve "+
+						"host %v: %v", addr, err)
+					continue
+				}
+
+				newAddrs = append(newAddrs, addr)
+			}
+
+			// Skip the update if we weren't able to resolve any of
+			// the new addresses.
+			if len(newAddrs) == 0 {
+				srvrLog.Debug("Skipping node announcement " +
+					"update due to not being able to " +
+					"resolve any new addresses")
+				continue
+			}
+
+			// Now, we'll need to update the addresses in our node's
+			// announcement in order to propogate the update
+			// throughout the network. We'll only include addresses
+			// that have a different IP from the previous one, as
+			// the previous IP is no longer valid.
+			currentNodeAnn, err := s.genNodeAnnouncement(false)
+			if err != nil {
+				srvrLog.Debugf("Unable to retrieve current "+
+					"node announcement: %v", err)
+				continue
+			}
+			for _, addr := range currentNodeAnn.Addresses {
+				host, _, err := net.SplitHostPort(addr.String())
+				if err != nil {
+					srvrLog.Debugf("Unable to determine "+
+						"host from address %v: %v",
+						addr, err)
+					continue
+				}
+
+				// We'll also make sure to include external IPs
+				// set manually by the user.
+				_, setByUser := ipsSetByUser[addr.String()]
+				if setByUser || host != s.lastDetectedIP.String() {
+					newAddrs = append(newAddrs, addr)
+				}
+			}
+
+			// Then, we'll generate a new timestamped node
+			// announcement with the updated addresses and broadcast
+			// it to our peers.
+			newNodeAnn, err := s.genNodeAnnouncement(
+				true, lnwire.UpdateNodeAnnAddrs(newAddrs),
+			)
+			if err != nil {
+				srvrLog.Debugf("Unable to generate new node "+
+					"announcement: %v", err)
+				continue
+			}
+
+			err = s.BroadcastMessage(nil, &newNodeAnn)
+			if err != nil {
+				srvrLog.Debugf("Unable to broadcast new node "+
+					"announcement to peers: %v", err)
+				continue
+			}
+
+			// Finally, update the last IP seen to the current one.
+			s.lastDetectedIP = ip
+		case <-s.quit:
+			break out
+		}
+	}
 }
 
 // initNetworkBootstrappers initializes a set of network peer bootstrappers

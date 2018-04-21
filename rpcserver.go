@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -1703,12 +1704,13 @@ func validatePayReqExpiry(payReq *zpay32.Invoice) error {
 // Lightning Network with a single persistent connection.
 func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer) error {
 	// For each payment we need to know the msat amount, the destination
-	// public key, and the payment hash.
+	// public key, the payment hash, and the optional route hints.
 	type payment struct {
-		msat      lnwire.MilliSatoshi
-		dest      []byte
-		pHash     []byte
-		cltvDelta uint16
+		msat       lnwire.MilliSatoshi
+		dest       []byte
+		pHash      []byte
+		cltvDelta  uint16
+		routeHints [][]routing.HopHint
 	}
 	payChan := make(chan *payment)
 	errChan := make(chan error, 1)
@@ -1820,6 +1822,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 
 					p.pHash = payReq.PaymentHash[:]
 					p.cltvDelta = uint16(payReq.MinFinalCLTVExpiry())
+					p.routeHints = payReq.RouteHints
 				} else {
 					// If the payment request field was not
 					// specified, construct the payment from
@@ -1903,6 +1906,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					Target:      destNode,
 					Amount:      p.msat,
 					PaymentHash: rHash,
+					RouteHints:  p.routeHints,
 				}
 				if p.cltvDelta != 0 {
 					payment.FinalCLTVDelta = &p.cltvDelta
@@ -1960,10 +1964,11 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	}
 
 	var (
-		destPub   *btcec.PublicKey
-		amtMSat   lnwire.MilliSatoshi
-		rHash     [32]byte
-		cltvDelta uint16
+		destPub    *btcec.PublicKey
+		amtMSat    lnwire.MilliSatoshi
+		rHash      [32]byte
+		cltvDelta  uint16
+		routeHints [][]routing.HopHint
 	)
 
 	// If the proto request has an encoded payment request, then we we'll
@@ -1996,6 +2001,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 
 		rHash = *payReq.PaymentHash
 		cltvDelta = uint16(payReq.MinFinalCLTVExpiry())
+		routeHints = payReq.RouteHints
 
 		// Otherwise, the payment conditions have been manually
 		// specified in the proto.
@@ -2046,6 +2052,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 		Target:      destPub,
 		Amount:      amtMSat,
 		PaymentHash: rHash,
+		RouteHints:  routeHints,
 	}
 	if cltvDelta != 0 {
 		payment.FinalCLTVDelta = &cltvDelta
@@ -2202,13 +2209,107 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		options = append(options, zpay32.CLTVExpiry(uint64(defaultDelta)))
 	}
 
+	// If we were requested to include routing hints in the invoice, then
+	// we'll fetch all of our available private channels and create routing
+	// hints for them.
+	if invoice.Private {
+		openChannels, err := r.server.chanDB.FetchAllChannels()
+		if err != nil {
+			return nil, fmt.Errorf("could not fetch all channels")
+		}
+
+		graph := r.server.chanDB.ChannelGraph()
+
+		numHints := 0
+		for _, channel := range openChannels {
+			// We'll restrict the number of individual route hints
+			// to 20 to avoid creating overly large invoices.
+			if numHints > 20 {
+				break
+			}
+
+			// Since we're only interested in our private channels,
+			// we'll skip public ones.
+			isPublic := channel.ChannelFlags&lnwire.FFAnnounceChannel != 0
+			if isPublic {
+				continue
+			}
+
+			// Make sure the counterparty has enough balance in the
+			// channel for our amount. We do this in order to reduce
+			// payment errors when attempting to use this channel
+			// as a hint.
+			chanPoint := lnwire.NewChanIDFromOutPoint(
+				&channel.FundingOutpoint,
+			)
+			if amtMSat >= channel.LocalCommitment.RemoteBalance {
+				rpcsLog.Debugf("Skipping channel %v due to "+
+					"not having enough remote balance",
+					chanPoint)
+				continue
+			}
+
+			// Make sure the channel is active.
+			link, err := r.server.htlcSwitch.GetLink(chanPoint)
+			if err != nil {
+				rpcsLog.Errorf("Unable to get link for "+
+					"channel %v: %v", chanPoint, err)
+			}
+
+			if !link.EligibleToForward() {
+				rpcsLog.Debugf("Skipping link %v due to not "+
+					"being eligible to forward payments",
+					chanPoint)
+				continue
+			}
+
+			// Fetch the policies for each end of the channel.
+			chanID := channel.ShortChanID.ToUint64()
+			_, p1, p2, err := graph.FetchChannelEdgesByID(chanID)
+			if err != nil {
+				rpcsLog.Errorf("Unable to fetch the routing "+
+					"policies for the edges of the channel "+
+					"%v: %v", chanPoint, err)
+				continue
+			}
+
+			// Now, we'll need to determine which is the correct
+			// policy for HTLCs being sent from the remote node.
+			var remotePolicy *channeldb.ChannelEdgePolicy
+
+			remotePub := channel.IdentityPub.SerializeCompressed()
+			if bytes.Equal(remotePub, p1.Node.PubKeyBytes[:]) {
+				remotePolicy = p1
+			} else {
+				remotePolicy = p2
+			}
+
+			// Finally, create the routing hint for this channel and
+			// add it to our list of route hints.
+			hint := routing.HopHint{
+				NodeID:      channel.IdentityPub,
+				ChannelID:   chanID,
+				FeeBaseMSat: uint32(remotePolicy.FeeBaseMSat),
+				FeeProportionalMillionths: uint32(
+					remotePolicy.FeeProportionalMillionths,
+				),
+				CLTVExpiryDelta: remotePolicy.TimeLockDelta,
+			}
+
+			// Include the route hint in our set of options that
+			// will be used when creating the invoice.
+			routeHint := []routing.HopHint{hint}
+			options = append(options, zpay32.RouteHint(routeHint))
+
+			numHints++
+		}
+
+	}
+
 	// Create and encode the payment request as a bech32 (zpay32) string.
 	creationDate := time.Now()
 	payReq, err := zpay32.NewInvoice(
-		activeNetParams.Params,
-		rHash,
-		creationDate,
-		options...,
+		activeNetParams.Params, rHash, creationDate, options...,
 	)
 	if err != nil {
 		return nil, err
@@ -2282,6 +2383,9 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 	// The expiry will default to 9 blocks if not specified explicitly.
 	cltvExpiry := decoded.MinFinalCLTVExpiry()
 
+	// Convert between the `lnrpc` and `routing` types.
+	routeHints := createRPCRouteHints(decoded.RouteHints)
+
 	preimage := invoice.Terms.PaymentPreimage
 	satAmt := invoice.Terms.Value.ToSatoshis()
 
@@ -2299,7 +2403,38 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 		Expiry:          expiry,
 		CltvExpiry:      cltvExpiry,
 		FallbackAddr:    fallbackAddr,
+		RouteHints:      routeHints,
 	}, nil
+}
+
+// createRPCRouteHints takes in the decoded form of an invoice's route hints
+// and converts them into the lnrpc type.
+func createRPCRouteHints(routeHints [][]routing.HopHint) []*lnrpc.RouteHint {
+	var res []*lnrpc.RouteHint
+
+	for _, route := range routeHints {
+		hopHints := make([]*lnrpc.HopHint, 0, len(route))
+		for _, hop := range route {
+			pubKey := hex.EncodeToString(
+				hop.NodeID.SerializeCompressed(),
+			)
+
+			hint := &lnrpc.HopHint{
+				NodeId:                    pubKey,
+				ChanId:                    hop.ChannelID,
+				FeeBaseMsat:               hop.FeeBaseMSat,
+				FeeProportionalMillionths: hop.FeeProportionalMillionths,
+				CltvExpiryDelta:           uint32(hop.CLTVExpiryDelta),
+			}
+
+			hopHints = append(hopHints, hint)
+		}
+
+		routeHint := &lnrpc.RouteHint{HopHints: hopHints}
+		res = append(res, routeHint)
+	}
+
+	return res
 }
 
 // LookupInvoice attempts to look up an invoice according to its payment hash.
@@ -3120,6 +3255,9 @@ func (r *rpcServer) DecodePayReq(ctx context.Context,
 	// explicitly.
 	expiry := int64(payReq.Expiry().Seconds())
 
+	// Convert between the `lnrpc` and `routing` types.
+	routeHints := createRPCRouteHints(payReq.RouteHints)
+
 	amt := int64(0)
 	if payReq.MilliSat != nil {
 		amt = int64(payReq.MilliSat.ToSatoshis())
@@ -3136,6 +3274,7 @@ func (r *rpcServer) DecodePayReq(ctx context.Context,
 		FallbackAddr:    fallbackAddr,
 		Expiry:          expiry,
 		CltvExpiry:      int64(payReq.MinFinalCLTVExpiry()),
+		RouteHints:      routeHints,
 	}, nil
 }
 

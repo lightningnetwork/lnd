@@ -1369,6 +1369,34 @@ message ClosedChannelUpdate {
     ChannelPoint chan_point = 4;
 }
 
+message HopHint {
+    /// The public key of the node at the start of the channel.
+    string node_id = 1 [json_name = "node_id"];
+
+    /// The unique identifier of the channel.
+    uint64 chan_id = 2 [json_name = "chan_id"];
+
+    /// The base fee of the channel denominated in millisatoshis.
+    uint32 fee_base_msat = 3 [json_name = "fee_base_msat"];
+
+    /**
+    The fee rate of the channel for sending one satoshi across it denominated in
+    millionths of a satoshi.
+    */
+    uint32 fee_proportional_millionths = 4 [json_name = "fee_proportional_millionths"];
+
+    /// The time-lock delta of the channel.
+    uint32 cltv_expiry_delta = 5 [json_name = "cltv_expiry_delta"];
+}
+
+message RouteHint {
+    /**
+    A list of hop hints that when chained together can assist in reaching a
+    specific destination.
+    */
+    repeated HopHint hop_hints = 1 [json_name = "hop_hints"];
+}
+
 message Invoice {
     /**
     An optional memo to attach along with the invoice. Used for record keeping
@@ -1424,6 +1452,15 @@ message Invoice {
 
     /// Delta to use for the time-lock of the CLTV extended to the final hop.
     uint64 cltv_expiry = 13 [json_name = "cltv_expiry"];
+
+    /**
+    Route hints that can each be individually used to assist in reaching the
+    invoice's destination.
+    */
+    repeated RouteHint route_hints = 14 [json_name = "route_hints"];
+
+    /// Whether this invoice should include routing hints for private channels.
+    bool private = 15 [json_name = "private"];
 }
 message AddInvoiceResponse {
     bytes r_hash = 1 [json_name = "r_hash"];
@@ -1513,6 +1550,7 @@ message PayReq {
     string description_hash = 7 [json_name = "description_hash"];
     string fallback_addr = 8 [json_name = "fallback_addr"];
     int64 cltv_expiry = 9 [json_name = "cltv_expiry"];
+    repeated RouteHint route_hints = 10 [json_name = "route_hints"];
 }
 
 message FeeReportRequest {}

@@ -789,14 +789,6 @@
     }
   },
   "definitions": {
-    "NewAddressRequestAddressType": {
-      "type": "string",
-      "enum": [
-        "WITNESS_PUBKEY_HASH",
-        "NESTED_PUBKEY_HASH"
-      ],
-      "default": "WITNESS_PUBKEY_HASH"
-    },
     "PendingChannelsResponseClosedChannel": {
       "type": "object",
       "properties": {
@@ -1515,6 +1507,35 @@
         }
       }
     },
+    "lnrpcHopHint": {
+      "type": "object",
+      "properties": {
+        "node_id": {
+          "type": "string",
+          "description": "/ The public key of the node at the start of the channel."
+        },
+        "chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The unique identifier of the channel."
+        },
+        "fee_base_msat": {
+          "type": "integer",
+          "format": "int64",
+          "description": "/ The base fee of the channel denominated in millisatoshis."
+        },
+        "fee_proportional_millionths": {
+          "type": "integer",
+          "format": "int64",
+          "description": "*\nThe fee rate of the channel for sending one satoshi across it denominated in\nmillionths of a satoshi."
+        },
+        "cltv_expiry_delta": {
+          "type": "integer",
+          "format": "int64",
+          "description": "/ The time-lock delta of the channel."
+        }
+      }
+    },
     "lnrpcInitWalletRequest": {
       "type": "object",
       "properties": {
@@ -1604,6 +1625,18 @@
           "type": "string",
           "format": "uint64",
           "description": "/ Delta to use for the time-lock of the CLTV extended to the final hop."
+        },
+        "route_hints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcRouteHint"
+          },
+          "description": "*\nRoute hints that can each be individually used to assist in reaching the\ninvoice's destination."
+        },
+        "private": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "/ Whether this invoice should include routing hints for private channels."
         }
       }
     },
@@ -1887,6 +1920,12 @@
         "cltv_expiry": {
           "type": "string",
           "format": "int64"
+        },
+        "route_hints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcRouteHint"
+          }
         }
       }
     },
@@ -2126,6 +2165,18 @@
         }
       },
       "description": "*\nA path through the channel graph which runs over one or more channels in\nsuccession. This struct carries all the information required to craft the\nSphinx onion packet, and send the payment along the first hop in the path. A\nroute is only selected as valid if all the channels have sufficient capacity to\ncarry the initial payment amount after fees are accounted for."
+    },
+    "lnrpcRouteHint": {
+      "type": "object",
+      "properties": {
+        "hop_hints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcHopHint"
+          },
+          "description": "*\nA list of hop hints that when chained together can assist in reaching a\nspecific destination."
+        }
+      }
     },
     "lnrpcRoutingPolicy": {
       "type": "object",

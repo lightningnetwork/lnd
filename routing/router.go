@@ -1482,6 +1482,16 @@ type LightningPayment struct {
 	// indefinitely.
 	PayAttemptTimeout time.Duration
 
+	// RouteHints represents the different routing hints that can be used to
+	// assist a payment in reaching its destination successfully. These
+	// hints will act as intermediate hops along the route.
+	//
+	// NOTE: This is optional unless required by the payment. When providing
+	// multiple routes, ensure the hop hints within each route are chained
+	// together and sorted in forward order in order to reach the
+	// destination successfully.
+	RouteHints [][]HopHint
+
 	// TODO(roasbeef): add e2e message?
 }
 
@@ -1495,7 +1505,14 @@ type LightningPayment struct {
 func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route, error) {
 	log.Tracef("Dispatching route for lightning payment: %v",
 		newLogClosure(func() string {
+			// Remove the public key curve parameters when logging
+			// the route to prevent spamming the logs.
 			payment.Target.Curve = nil
+			for _, routeHint := range payment.RouteHints {
+				for _, hopHint := range routeHint {
+					hopHint.NodeID.Curve = nil
+				}
+			}
 			return spew.Sdump(payment)
 		}),
 	)
@@ -1537,7 +1554,9 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 	// Before starting the HTLC routing attempt, we'll create a fresh
 	// payment session which will report our errors back to mission
 	// control.
-	paySession := r.missionControl.NewPaymentSession()
+	paySession := r.missionControl.NewPaymentSession(
+		payment.RouteHints, payment.Target,
+	)
 
 	// We'll continue until either our payment succeeds, or we encounter a
 	// critical error during path finding.

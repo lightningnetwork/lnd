@@ -2254,6 +2254,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 			if err != nil {
 				rpcsLog.Errorf("Unable to get link for "+
 					"channel %v: %v", chanPoint, err)
+				continue
 			}
 
 			if !link.EligibleToForward() {

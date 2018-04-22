@@ -3131,6 +3131,171 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 }
 
+// testInvoiceRoutingHints tests that the routing hints for an invoice are
+// created properly.
+func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
+	ctxb := context.Background()
+	timeout := time.Duration(15 * time.Second)
+	const chanAmt = btcutil.Amount(100000)
+
+	// Throughout this test, we'll be opening a channel betwen Alice and
+	// several other parties.
+	//
+	// First, we'll create a private channel between Alice and Bob. This
+	// will be the only channel that will be considered as a routing hint
+	// throughout this test. We'll include a push amount since we currently
+	// require channels to have enough remote balance to cover the invoice's
+	// payment.
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	chanPointBob := openChannelAndAssert(
+		ctxt, t, net, net.Alice, net.Bob, chanAmt, chanAmt/2, true,
+	)
+
+	// Then, we'll create Carol's node and open a public channel between her
+	// and Alice. This channel will not be considered as a routing hint due
+	// to it being public.
+	carol, err := net.NewNode(nil)
+	if err != nil {
+		t.Fatalf("unable to create carol's node: %v", err)
+	}
+	if err := net.ConnectNodes(ctxb, net.Alice, carol); err != nil {
+		t.Fatalf("unable to connect alice to carol: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPointCarol := openChannelAndAssert(
+		ctxt, t, net, net.Alice, carol, chanAmt, chanAmt/2, false,
+	)
+
+	// Then, we'll create Dave's node and open a private channel between him
+	// and Alice. We will not include a push amount in order to not consider
+	// this channel as a routing hint as it will not have enough remote
+	// balance for the invoice's amount.
+	dave, err := net.NewNode(nil)
+	if err != nil {
+		t.Fatalf("unable to create dave's node: %v", err)
+	}
+	if err := net.ConnectNodes(ctxb, net.Alice, dave); err != nil {
+		t.Fatalf("unable to connect alice to dave: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPointDave := openChannelAndAssert(
+		ctxt, t, net, net.Alice, dave, chanAmt, 0, true,
+	)
+
+	// Finally, we'll create Eve's node and open a private channel between
+	// her and Alice. This time though, we'll take Eve's node down after the
+	// channel has been created to avoid populating routing hints for
+	// inactive channels.
+	eve, err := net.NewNode(nil)
+	if err != nil {
+		t.Fatalf("unable to create eve's node: %v", err)
+	}
+	if err := net.ConnectNodes(ctxb, net.Alice, eve); err != nil {
+		t.Fatalf("unable to connect alice to eve: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPointEve := openChannelAndAssert(
+		ctxt, t, net, net.Alice, eve, chanAmt, chanAmt/2, true,
+	)
+
+	// Make sure all the channels have been opened.
+	nodeNames := []string{"bob", "carol", "dave", "eve"}
+	aliceChans := []*lnrpc.ChannelPoint{
+		chanPointBob, chanPointCarol, chanPointDave, chanPointEve,
+	}
+	for i, chanPoint := range aliceChans {
+		ctxt, _ := context.WithTimeout(ctxb, timeout)
+		err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+		if err != nil {
+			t.Fatalf("timed out waiting for channel open between "+
+				"alice and %s: %v", nodeNames[i], err)
+		}
+	}
+
+	// Now that the channels are open, we'll take down Eve's node.
+	if err := net.ShutdownNode(eve); err != nil {
+		t.Fatalf("unable to shutdown eve: %v", err)
+	}
+
+	// Create an invoice for Alice that will populate the routing hints.
+	invoice := &lnrpc.Invoice{
+		Memo:    "routing hints",
+		Value:   int64(chanAmt / 4),
+		Private: true,
+	}
+
+	resp, err := net.Alice.AddInvoice(ctxb, invoice)
+	if err != nil {
+		t.Fatalf("unable to add invoice: %v", err)
+	}
+
+	// We'll decode the invoice's payment request to determine which
+	// channels were used as routing hints.
+	payReq := &lnrpc.PayReqString{resp.PaymentRequest}
+	decoded, err := net.Alice.DecodePayReq(ctxb, payReq)
+	if err != nil {
+		t.Fatalf("unable to decode payment request: %v", err)
+	}
+
+	// Due to the way the channels were set up above, the channel between
+	// Alice and Bob should be the only channel used as a routing hint.
+	if len(decoded.RouteHints) != 1 {
+		t.Fatalf("expected one route hint, got %d",
+			len(decoded.RouteHints))
+	}
+
+	hops := decoded.RouteHints[0].HopHints
+	if len(hops) != 1 {
+		t.Fatalf("expected one hop in route hint, got %d", len(hops))
+	}
+	chanID := hops[0].ChanId
+
+	// We'll need the short channel ID of the channel between Alice and Bob
+	// to make sure the routing hint is for this channel.
+	listReq := &lnrpc.ListChannelsRequest{}
+	listResp, err := net.Alice.ListChannels(ctxb, listReq)
+	if err != nil {
+		t.Fatalf("unable to retrieve alice's channels: %v", err)
+	}
+
+	var aliceBobChanID uint64
+	for _, channel := range listResp.Channels {
+		if channel.RemotePubkey == net.Bob.PubKeyStr {
+			aliceBobChanID = channel.ChanId
+		}
+	}
+
+	if aliceBobChanID == 0 {
+		t.Fatalf("channel between alice and bob not found")
+	}
+
+	if chanID != aliceBobChanID {
+		t.Fatalf("expected channel ID %d, got %d", aliceBobChanID,
+			chanID)
+	}
+
+	// Now that we've confirmed the routing hints were added correctly, we
+	// can close all the channels and shut down all the nodes created.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointBob, false)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointCarol, false)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointDave, false)
+
+	// The channel between Alice and Eve should be force closed since Eve
+	// is offline.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointEve, true)
+
+	if err := net.ShutdownNode(carol); err != nil {
+		t.Fatalf("unable to shutdown carol's node: %v", err)
+	}
+	if err := net.ShutdownNode(dave); err != nil {
+		t.Fatalf("unable to shutdown dave's node: %v", err)
+	}
+}
+
 // testMultiHopOverPrivateChannels tests that private channels can be used as
 // intermediate hops in a route for payments.
 func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
@@ -8496,6 +8661,10 @@ var testsCases = []*testCase{
 	{
 		name: "private channels",
 		test: testPrivateChannels,
+	},
+	{
+		name: "invoice routing hints",
+		test: testInvoiceRoutingHints,
 	},
 	{
 		name: "multi-hop payments over private channels",

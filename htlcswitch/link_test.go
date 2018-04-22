@@ -826,7 +826,7 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 	// update logic
 	newPolicy := n.globalPolicy
 	newPolicy.BaseFee = lnwire.NewMSatFromSatoshis(1000)
-	n.firstBobChannelLink.UpdateForwardingPolicy(newPolicy)
+	n.secondBobChannelLink.UpdateForwardingPolicy(newPolicy)
 
 	// Next, we'll send the payment again, using the exact same per-hop
 	// payload for each node. This payment should fail as it won't factor
@@ -1392,7 +1392,7 @@ type mockPeer struct {
 	quit     chan struct{}
 }
 
-func (m *mockPeer) SendMessage(msg lnwire.Message) error {
+func (m *mockPeer) SendMessage(msg lnwire.Message, sync bool) error {
 	select {
 	case m.sentMsgs <- msg:
 	case <-m.quit:
@@ -1476,8 +1476,8 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 			ErrorEncrypter, lnwire.FailCode) {
 			return obfuscator, lnwire.CodeNone
 		},
-		GetLastChannelUpdate: mockGetChanUpdateMessage,
-		PreimageCache:        pCache,
+		FetchLastChannelUpdate: mockGetChanUpdateMessage,
+		PreimageCache:          pCache,
 		UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 			return nil
 		},

@@ -1003,6 +1003,11 @@
           "type": "string",
           "format": "int64",
           "title": "/ Sum of channels balances denominated in satoshis"
+        },
+        "pending_open_balance": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ Sum of channels pending balances denominated in satoshis"
         }
       }
     },
@@ -1051,7 +1056,7 @@
           "$ref": "#/definitions/lnrpcRoutingPolicy"
         }
       },
-      "description": "*\nA fully authenticated channel along with all its unique attributes.\nOnce an authenticated channel announcement has been processed on the network,\nthen a instance of ChannelEdgeInfo encapsulating the channels attributes is\nstored. The other portions relevant to routing policy of a channel are stored\nwithin a ChannelEdgePolicy for each direction of the channel."
+      "description": "*\nA fully authenticated channel along with all its unique attributes.\nOnce an authenticated channel announcement has been processed on the network,\nthen an instance of ChannelEdgeInfo encapsulating the channels attributes is\nstored. The other portions relevant to routing policy of a channel are stored\nwithin a ChannelEdgePolicy for each direction of the channel."
     },
     "lnrpcChannelEdgeUpdate": {
       "type": "object",
@@ -1417,6 +1422,10 @@
           "type": "string",
           "format": "int64",
           "title": "/ Timestamp of the block best known to the wallet"
+        },
+        "version": {
+          "type": "string",
+          "description": "/ The version of the LND software that the node is running."
         }
       }
     },
@@ -1487,6 +1496,43 @@
         "expiry": {
           "type": "integer",
           "format": "int64"
+        },
+        "amt_to_forward_msat": {
+          "type": "string",
+          "format": "int64"
+        },
+        "fee_msat": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "lnrpcHopHint": {
+      "type": "object",
+      "properties": {
+        "node_id": {
+          "type": "string",
+          "description": "/ The public key of the node at the start of the channel."
+        },
+        "chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The unique identifier of the channel."
+        },
+        "fee_base_msat": {
+          "type": "integer",
+          "format": "int64",
+          "description": "/ The base fee of the channel denominated in millisatoshis."
+        },
+        "fee_proportional_millionths": {
+          "type": "integer",
+          "format": "int64",
+          "description": "*\nThe fee rate of the channel for sending one satoshi across it denominated in\nmillionths of a satoshi."
+        },
+        "cltv_expiry_delta": {
+          "type": "integer",
+          "format": "int64",
+          "description": "/ The time-lock delta of the channel."
         }
       }
     },
@@ -1579,6 +1625,18 @@
           "type": "string",
           "format": "uint64",
           "description": "/ Delta to use for the time-lock of the CLTV extended to the final hop."
+        },
+        "route_hints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcRouteHint"
+          },
+          "description": "*\nRoute hints that can each be individually used to assist in reaching the\ninvoice's destination."
+        },
+        "private": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "/ Whether this invoice should include routing hints for private channels."
         }
       }
     },
@@ -1862,6 +1920,12 @@
         "cltv_expiry": {
           "type": "string",
           "format": "int64"
+        },
+        "route_hints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcRouteHint"
+          }
         }
       }
     },
@@ -2088,9 +2152,31 @@
             "$ref": "#/definitions/lnrpcHop"
           },
           "description": "*\nContains details concerning the specific forwarding details at each hop."
+        },
+        "total_fees_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "*\nThe total fees in millisatoshis."
+        },
+        "total_amt_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "*\nThe total amount in millisatoshis."
         }
       },
       "description": "*\nA path through the channel graph which runs over one or more channels in\nsuccession. This struct carries all the information required to craft the\nSphinx onion packet, and send the payment along the first hop in the path. A\nroute is only selected as valid if all the channels have sufficient capacity to\ncarry the initial payment amount after fees are accounted for."
+    },
+    "lnrpcRouteHint": {
+      "type": "object",
+      "properties": {
+        "hop_hints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcHopHint"
+          },
+          "description": "*\nA list of hop hints that when chained together can assist in reaching a\nspecific destination."
+        }
+      }
     },
     "lnrpcRoutingPolicy": {
       "type": "object",

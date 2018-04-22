@@ -21,7 +21,6 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"path/filepath"
-	"runtime"
 	"runtime/pprof"
 	"strings"
 	"sync"
@@ -614,10 +613,6 @@ func lndMain() error {
 }
 
 func main() {
-	// Use all processor cores.
-	// TODO(roasbeef): remove this if required version # is > 1.6?
-	runtime.GOMAXPROCS(runtime.NumCPU())
-
 	// Call the "real" main in a nested manner so the defers will properly
 	// be executed in the case of a graceful shutdown.
 	if err := lndMain(); err != nil {

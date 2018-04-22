@@ -163,7 +163,7 @@ func (b *BtcdFeeEstimator) EstimateFeePerVSize(numBlocks uint32) (SatPerVByte, e
 	return feeEstimate, nil
 }
 
-// fetchEstimate returns a fee estimate for a transaction be be confirmed in
+// fetchEstimate returns a fee estimate for a transaction to be confirmed in
 // confTarget blocks. The estimate is returned in sat/vbyte.
 func (b *BtcdFeeEstimator) fetchEstimatePerVSize(
 	confTarget uint32) (SatPerVByte, error) {
@@ -268,7 +268,7 @@ func (b *BitcoindFeeEstimator) EstimateFeePerVSize(numBlocks uint32) (SatPerVByt
 	return feeEstimate, nil
 }
 
-// fetchEstimatePerVSize returns a fee estimate for a transaction be be confirmed in
+// fetchEstimatePerVSize returns a fee estimate for a transaction to be confirmed in
 // confTarget blocks. The estimate is returned in sat/vbyte.
 func (b *BitcoindFeeEstimator) fetchEstimatePerVSize(
 	confTarget uint32) (SatPerVByte, error) {

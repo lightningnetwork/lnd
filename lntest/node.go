@@ -429,7 +429,12 @@ func (hn *HarnessNode) stop() error {
 	}
 
 	// Wait for lnd process and other goroutines to exit.
-	<-hn.processExit
+	select {
+	case <-hn.processExit:
+	case <-time.After(60 * time.Second):
+		return fmt.Errorf("process did not exit")
+	}
+
 	close(hn.quit)
 	hn.wg.Wait()
 
@@ -597,7 +602,7 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 			// TODO(roasbeef): add update type also, checks for
 			// multiple of 2
 			if watchRequest.chanOpen {
-				// If this is a open request, then it can be
+				// If this is an open request, then it can be
 				// dispatched if the number of edges seen for
 				// the channel is at least two.
 				if numEdges := openChans[targetChan]; numEdges >= 2 {

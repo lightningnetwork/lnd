@@ -519,7 +519,7 @@ secondLevelCheck:
 			if !ok {
 				spendNtfn, err = b.cfg.Notifier.RegisterSpendNtfn(
 					&breachedOutput.outpoint,
-					breachInfo.breachHeight,
+					breachInfo.breachHeight, true,
 				)
 				if err != nil {
 					brarLog.Errorf("unable to check for "+

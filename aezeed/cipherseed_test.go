@@ -8,12 +8,57 @@ import (
 	"time"
 )
 
+// TestVector defines the values that are used to create a fully initialized
+// aezeed mnemonic seed and the expected values that should be calculated.
+type TestVector struct {
+	version          uint8
+	time             time.Time
+	entropy          [EntropySize]byte
+	salt             [saltSize]byte
+	password         []byte
+	expectedMnemonic [NummnemonicWords]string
+	expectedBirthday uint16
+}
+
 var (
 	testEntropy = [EntropySize]byte{
 		0x81, 0xb6, 0x37, 0xd8,
 		0x63, 0x59, 0xe6, 0x96,
 		0x0d, 0xe7, 0x95, 0xe4,
 		0x1e, 0x0b, 0x4c, 0xfd,
+	}
+	testSalt = [saltSize]byte{
+		0x73, 0x61, 0x6c, 0x74, 0x31, // equal to "salt1"
+	}
+	version0TestVectors = []TestVector{
+		{
+			version:  0,
+			time:     bitcoinGenesisDate,
+			entropy:  testEntropy,
+			salt:     testSalt,
+			password: []byte{},
+			expectedMnemonic: [NummnemonicWords]string{
+				"ability", "liquid", "travel", "stem", "barely", "drastic",
+				"pact", "cupboard", "apple", "thrive", "morning", "oak",
+				"feature", "tissue", "couch", "old", "math", "inform",
+				"success", "suggest", "drink", "motion", "know", "royal",
+			},
+			expectedBirthday: 0,
+		},
+		{
+			version:  0,
+			time:     time.Unix(1521799345, 0), // 03/23/2018 @ 10:02am (UTC)
+			entropy:  testEntropy,
+			salt:     testSalt,
+			password: []byte("!very_safe_55345_password*"),
+			expectedMnemonic: [NummnemonicWords]string{
+				"able", "tree", "stool", "crush", "transfer", "cloud",
+				"cross", "three", "profit", "outside", "hen", "citizen",
+				"plate", "ride", "require", "leg", "siren", "drum",
+				"success", "suggest", "drink", "require", "fiscal", "upgrade",
+			},
+			expectedBirthday: 3365,
+		},
 	}
 )
 
@@ -34,10 +79,44 @@ func assertCipherSeedEqual(t *testing.T, cipherSeed *CipherSeed,
 	}
 }
 
+// TestAezeedVersion0TestVectors tests some fixed test vector values against
+// the expected mnemonic words.
 func TestAezeedVersion0TestVectors(t *testing.T) {
 	t.Parallel()
 
-	// TODO(roasbeef):
+	// To minimize the number of tests that need to be run,
+	// go through all test vectors in the same test and also check
+	// the birthday calculation while we're at it.
+	for _, v := range version0TestVectors {
+		// First, we create new cipher seed with the given values
+		// from the test vector.
+		cipherSeed, err := New(v.version, &v.entropy, v.time)
+		if err != nil {
+			t.Fatalf("unable to create seed: %v", err)
+		}
+
+		// Then we need to set the salt to the pre-defined value, otherwise
+		// we'll end up with randomness in our mnemonics.
+		cipherSeed.salt = testSalt
+
+		// Now that the seed has been created, we'll attempt to convert it to a
+		// valid mnemonic.
+		mnemonic, err := cipherSeed.ToMnemonic(v.password)
+		if err != nil {
+			t.Fatalf("unable to create mnemonic: %v", err)
+		}
+
+		// Finally we compare the generated mnemonic and birthday to the
+		// expected value.
+		if mnemonic != v.expectedMnemonic {
+			t.Fatalf("mismatched mnemonic: expected %s, got %s",
+				v.expectedMnemonic, mnemonic)
+		}
+		if cipherSeed.Birthday != v.expectedBirthday {
+			t.Fatalf("mismatched birthday: expected %v, got %v",
+				v.expectedBirthday, cipherSeed.Birthday)
+		}
+	}
 }
 
 // TestEmptyPassphraseDerivation tests that the aezeed scheme is able to derive

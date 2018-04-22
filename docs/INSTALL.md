@@ -16,7 +16,10 @@
     ```
     sudo apt-get install golang-1.10-go
     ```
-    > Note that golang-1.10-go puts binaries in /usr/lib/go-1.10/bin. If you want them on your PATH, you need to make that change yourself.
+    > Note that golang-1.10-go puts binaries in /usr/lib/go-1.10/bin. If you want them on your PATH, you need to make that change yourself. Alternatively, you can run:
+    ```
+    sudo ln -s /usr/lib/go-1.10/bin/go /usr/local/bin/go
+    ```
 
     On Mac OS X
     ```
@@ -66,6 +69,7 @@ make && make install
 To update your version of `lnd` to the latest version run the following
 commands:
 ```
+cd $GOPATH/src/github.com/lightningnetwork/lnd
 git pull
 make && make install
 ```

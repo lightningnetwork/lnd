@@ -129,7 +129,7 @@ func (n *NeutrinoNotifier) Start() error {
 	n.bestHeight = bestHeight
 
 	// Next, we'll create our set of rescan options. Currently it's
-	// required that a user MUST set a addr/outpoint/txid when creating a
+	// required that a user MUST set an addr/outpoint/txid when creating a
 	// rescan. To get around this, we'll add a "zero" outpoint, that won't
 	// actually be matched.
 	var zeroHash chainhash.Hash
@@ -566,7 +566,7 @@ type spendCancel struct {
 // target outpoint has been detected, the details of the spending event will be
 // sent across the 'Spend' channel.
 func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	heightHint uint32) (*chainntnfs.SpendEvent, error) {
+	heightHint uint32, _ bool) (*chainntnfs.SpendEvent, error) {
 
 	n.heightMtx.RLock()
 	currentHeight := n.bestHeight
@@ -698,7 +698,7 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 		ConfNtfn: chainntnfs.ConfNtfn{
 			TxID:             txid,
 			NumConfirmations: numConfs,
-			Event:            chainntnfs.NewConfirmationEvent(),
+			Event:            chainntnfs.NewConfirmationEvent(numConfs),
 		},
 		heightHint: heightHint,
 	}

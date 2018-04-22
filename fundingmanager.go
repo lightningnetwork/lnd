@@ -81,6 +81,10 @@ type reservationWithCtx struct {
 
 	chanAmt btcutil.Amount
 
+	// Constraints we require for the remote.
+	remoteCsvDelay uint16
+	remoteMinHtlc  lnwire.MilliSatoshi
+
 	updateMtx   sync.RWMutex
 	lastUpdated time.Time
 
@@ -636,7 +640,7 @@ func (f *fundingManager) Start() error {
 			go func(dbChan *channeldb.OpenChannel) {
 				defer f.wg.Done()
 
-				err = f.annAfterSixConfs(channel, shortChanID)
+				err = f.annAfterSixConfs(dbChan, shortChanID)
 				if err != nil {
 					fndgLog.Errorf("error sending channel "+
 						"announcement: %v", err)
@@ -995,8 +999,8 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// We'll also validate and apply all the constraints the initiating
 	// party is attempting to dictate for our commitment transaction.
 	err = reservation.CommitConstraints(
-		uint16(msg.CsvDelay), msg.MaxAcceptedHTLCs,
-		msg.MaxValueInFlight, msg.HtlcMinimum, msg.ChannelReserve,
+		msg.CsvDelay, msg.MaxAcceptedHTLCs, msg.MaxValueInFlight,
+		msg.HtlcMinimum, msg.ChannelReserve,
 	)
 	if err != nil {
 		fndgLog.Errorf("Unaccaptable channel constraints: %v", err)
@@ -1005,30 +1009,10 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		)
 		return
 	}
-	reservation.RegisterMinHTLC(f.cfg.DefaultRoutingPolicy.MinHTLC)
 
 	fndgLog.Infof("Requiring %v confirmations for pendingChan(%x): "+
 		"amt=%v, push_amt=%v", numConfsReq, fmsg.msg.PendingChannelID,
 		amt, msg.PushAmount)
-
-	// Once the reservation has been created successfully, we add it to
-	// this peer's map of pending reservations to track this particular
-	// reservation until either abort or completion.
-	f.resMtx.Lock()
-	if _, ok := f.activeReservations[peerIDKey]; !ok {
-		f.activeReservations[peerIDKey] = make(pendingChannels)
-	}
-	resCtx := &reservationWithCtx{
-		reservation: reservation,
-		chanAmt:     amt,
-		err:         make(chan error, 1),
-		peerAddress: fmsg.peerAddress,
-	}
-	f.activeReservations[peerIDKey][msg.PendingChannelID] = resCtx
-	f.resMtx.Unlock()
-
-	// Update the timestamp once the fundingOpenMsg has been handled.
-	defer resCtx.updateTimestamp()
 
 	// Using the RequiredRemoteDelay closure, we'll compute the remote CSV
 	// delay we require given the total amount of funds within the channel.
@@ -1038,6 +1022,28 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	chanReserve := f.cfg.RequiredRemoteChanReserve(amt)
 	maxValue := f.cfg.RequiredRemoteMaxValue(amt)
 	maxHtlcs := f.cfg.RequiredRemoteMaxHTLCs(amt)
+	minHtlc := f.cfg.DefaultRoutingPolicy.MinHTLC
+
+	// Once the reservation has been created successfully, we add it to
+	// this peer's map of pending reservations to track this particular
+	// reservation until either abort or completion.
+	f.resMtx.Lock()
+	if _, ok := f.activeReservations[peerIDKey]; !ok {
+		f.activeReservations[peerIDKey] = make(pendingChannels)
+	}
+	resCtx := &reservationWithCtx{
+		reservation:    reservation,
+		chanAmt:        amt,
+		remoteCsvDelay: remoteCsvDelay,
+		remoteMinHtlc:  minHtlc,
+		err:            make(chan error, 1),
+		peerAddress:    fmsg.peerAddress,
+	}
+	f.activeReservations[peerIDKey][msg.PendingChannelID] = resCtx
+	f.resMtx.Unlock()
+
+	// Update the timestamp once the fundingOpenMsg has been handled.
+	defer resCtx.updateTimestamp()
 
 	// With our parameters set, we'll now process their contribution so we
 	// can move the funding workflow ahead.
@@ -1049,7 +1055,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 				DustLimit:        msg.DustLimit,
 				MaxPendingAmount: maxValue,
 				ChanReserve:      chanReserve,
-				MinHTLC:          msg.HtlcMinimum,
+				MinHTLC:          minHtlc,
 				MaxAcceptedHtlcs: maxHtlcs,
 			},
 			CsvDelay: remoteCsvDelay,
@@ -1092,7 +1098,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		MaxValueInFlight:     maxValue,
 		ChannelReserve:       chanReserve,
 		MinAcceptDepth:       uint32(numConfsReq),
-		HtlcMinimum:          ourContribution.MinHTLC,
+		HtlcMinimum:          minHtlc,
 		CsvDelay:             remoteCsvDelay,
 		MaxAcceptedHTLCs:     maxHtlcs,
 		FundingKey:           ourContribution.MultiSigKey.PubKey,
@@ -1148,8 +1154,8 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 	// they've specified for commitment states we can create.
 	resCtx.reservation.SetNumConfsRequired(uint16(msg.MinAcceptDepth))
 	err = resCtx.reservation.CommitConstraints(
-		uint16(msg.CsvDelay), msg.MaxAcceptedHTLCs,
-		msg.MaxValueInFlight, msg.HtlcMinimum, msg.ChannelReserve,
+		msg.CsvDelay, msg.MaxAcceptedHTLCs, msg.MaxValueInFlight,
+		msg.HtlcMinimum, msg.ChannelReserve,
 	)
 	if err != nil {
 		fndgLog.Warnf("Unacceptable channel constraints: %v", err)
@@ -1176,9 +1182,10 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 				DustLimit:        msg.DustLimit,
 				MaxPendingAmount: maxValue,
 				ChanReserve:      chanReserve,
-				MinHTLC:          msg.HtlcMinimum,
+				MinHTLC:          resCtx.remoteMinHtlc,
 				MaxAcceptedHtlcs: maxHtlcs,
 			},
+			CsvDelay: resCtx.remoteCsvDelay,
 			MultiSigKey: keychain.KeyDescriptor{
 				PubKey: copyPubKey(msg.FundingKey),
 			},
@@ -1196,7 +1203,6 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 			},
 		},
 	}
-	remoteContribution.CsvDelay = f.cfg.RequiredRemoteDelay(resCtx.chanAmt)
 	err = resCtx.reservation.ProcessContribution(remoteContribution)
 	if err != nil {
 		fndgLog.Errorf("Unable to process contribution from %v: %v",
@@ -2538,28 +2544,6 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	fndgLog.Infof("Target commit tx sat/kw for pendingID(%x): %v", chanID,
 		int64(commitFeePerKw))
 
-	// If a pending channel map for this peer isn't already created, then
-	// we create one, ultimately allowing us to track this pending
-	// reservation within the target peer.
-	peerIDKey := newSerializedKey(peerKey)
-	f.resMtx.Lock()
-	if _, ok := f.activeReservations[peerIDKey]; !ok {
-		f.activeReservations[peerIDKey] = make(pendingChannels)
-	}
-
-	resCtx := &reservationWithCtx{
-		chanAmt:     capacity,
-		reservation: reservation,
-		peerAddress: msg.peerAddress,
-		updates:     msg.updates,
-		err:         msg.err,
-	}
-	f.activeReservations[peerIDKey][chanID] = resCtx
-	f.resMtx.Unlock()
-
-	// Update the timestamp once the initFundingMsg has been handled.
-	defer resCtx.updateTimestamp()
-
 	// If the remote CSV delay was not set in the open channel request,
 	// we'll use the RequiredRemoteDelay closure to compute the delay we
 	// require given the total amount of funds within the channel.
@@ -2572,9 +2556,32 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		minHtlc = f.cfg.DefaultRoutingPolicy.MinHTLC
 	}
 
+	// If a pending channel map for this peer isn't already created, then
+	// we create one, ultimately allowing us to track this pending
+	// reservation within the target peer.
+	peerIDKey := newSerializedKey(peerKey)
+	f.resMtx.Lock()
+	if _, ok := f.activeReservations[peerIDKey]; !ok {
+		f.activeReservations[peerIDKey] = make(pendingChannels)
+	}
+
+	resCtx := &reservationWithCtx{
+		chanAmt:        capacity,
+		remoteCsvDelay: remoteCsvDelay,
+		remoteMinHtlc:  minHtlc,
+		reservation:    reservation,
+		peerAddress:    msg.peerAddress,
+		updates:        msg.updates,
+		err:            msg.err,
+	}
+	f.activeReservations[peerIDKey][chanID] = resCtx
+	f.resMtx.Unlock()
+
+	// Update the timestamp once the initFundingMsg has been handled.
+	defer resCtx.updateTimestamp()
+
 	// Once the reservation has been created, and indexed, queue a funding
 	// request to the remote peer, kicking off the funding workflow.
-	reservation.RegisterMinHTLC(minHtlc)
 	ourContribution := reservation.OurContribution()
 
 	// Finally, we'll use the current value of the channels and our default
@@ -2595,7 +2602,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		DustLimit:            ourContribution.DustLimit,
 		MaxValueInFlight:     maxValue,
 		ChannelReserve:       chanReserve,
-		HtlcMinimum:          ourContribution.MinHTLC,
+		HtlcMinimum:          minHtlc,
 		FeePerKiloWeight:     uint32(commitFeePerKw),
 		CsvDelay:             remoteCsvDelay,
 		MaxAcceptedHTLCs:     maxHtlcs,

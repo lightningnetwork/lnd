@@ -621,7 +621,11 @@ var closeChannelCommand = cli.Command{
 	In the case of a cooperative closure, One can manually set the fee to
 	be used for the closing transaction via either the --conf_target or
 	--sat_per_byte arguments. This will be the starting value used during
-	fee negotiation. This is optional.`,
+	fee negotiation. This is optional.
+
+	To view which funding_txids/output_indexes can be used for a channel close,
+	see the channel_point values within the listchannels command output.
+	The format for a channel_point is 'funding_txid:output_index'.`,
 	ArgsUsage: "funding_txid [output_index [time_limit]]",
 	Flags: []cli.Flag{
 		cli.StringFlag{
@@ -1709,6 +1713,12 @@ var addInvoiceCommand = cli.Command{
 				"specified an expiry of 3600 seconds (1 hour) " +
 				"is implied.",
 		},
+		cli.BoolTFlag{
+			Name: "private",
+			Usage: "encode routing hints in the invoice with " +
+				"private channels in order to assist the " +
+				"payer in reaching you",
+		},
 	},
 	Action: actionDecorator(addInvoice),
 }
@@ -1767,6 +1777,7 @@ func addInvoice(ctx *cli.Context) error {
 		DescriptionHash: descHash,
 		FallbackAddr:    ctx.String("fallback_addr"),
 		Expiry:          ctx.Int64("expiry"),
+		Private:         ctx.Bool("private"),
 	}
 
 	resp, err := client.AddInvoice(context.Background(), invoice)
@@ -1907,7 +1918,7 @@ func describeGraph(ctx *cli.Context) error {
 }
 
 // normalizeFunc is a factory function which returns a function that normalizes
-// the capacity of of edges within the graph. The value of the returned
+// the capacity of edges within the graph. The value of the returned
 // function can be used to either plot the capacities, or to use a weight in a
 // rendering of the graph.
 func normalizeFunc(edges []*lnrpc.ChannelEdge, scaleFactor float64) func(int64) float64 {
@@ -2280,7 +2291,7 @@ func getNetworkInfo(ctx *cli.Context) error {
 var debugLevelCommand = cli.Command{
 	Name:  "debuglevel",
 	Usage: "Set the debug level.",
-	Description: `Logging level for all subsystems {trace, debug, info, warn, error, critical}
+	Description: `Logging level for all subsystems {trace, debug, info, warn, error, critical, off}
 	You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems
 	
 	Use show to list available subsystems`,

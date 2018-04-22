@@ -260,7 +260,7 @@ func (b *BtcWallet) GetPrivKey(a btcutil.Address) (*btcec.PrivateKey, error) {
 
 // SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying out to
 // the specified outputs. In the case the wallet has insufficient funds, or the
-// outputs are non-standard, a non-nil error will be be returned.
+// outputs are non-standard, a non-nil error will be returned.
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
@@ -283,7 +283,7 @@ func (b *BtcWallet) LockOutpoint(o wire.OutPoint) {
 	b.wallet.LockOutpoint(o)
 }
 
-// UnlockOutpoint unlocks an previously locked output, marking it eligible for
+// UnlockOutpoint unlocks a previously locked output, marking it eligible for
 // coin selection.
 //
 // This is a part of the WalletController interface.
@@ -515,7 +515,7 @@ func minedTransactionsToDetails(
 }
 
 // unminedTransactionsToDetail is a helper function which converts a summary
-// for a unconfirmed transaction to a transaction detail.
+// for an unconfirmed transaction to a transaction detail.
 func unminedTransactionsToDetail(
 	summary base.TransactionSummary,
 ) (*lnwallet.TransactionDetail, error) {

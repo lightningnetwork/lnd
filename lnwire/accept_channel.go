@@ -8,7 +8,7 @@ import (
 )
 
 // AcceptChannel is the message Bob sends to Alice after she initiates the
-// single funder channel workflow via a AcceptChannel message. Once Alice
+// single funder channel workflow via an AcceptChannel message. Once Alice
 // receives Bob's response, then she has all the items necessary to construct
 // the funding transaction, and both commitment transactions.
 type AcceptChannel struct {
@@ -141,7 +141,7 @@ func (a *AcceptChannel) Decode(r io.Reader, pver uint32) error {
 }
 
 // MsgType returns the MessageType code which uniquely identifies this message
-// as a AcceptChannel on the wire.
+// as an AcceptChannel on the wire.
 //
 // This is part of the lnwire.Message interface.
 func (a *AcceptChannel) MsgType() MessageType {

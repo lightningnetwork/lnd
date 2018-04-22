@@ -98,7 +98,7 @@ type ArbitratorLog interface {
 	WipeHistory() error
 }
 
-// ArbitratorState is a enum that details the current state of the
+// ArbitratorState is an enum that details the current state of the
 // ChannelArbitrator's state machine.
 type ArbitratorState uint8
 
@@ -166,7 +166,7 @@ type resolverType uint8
 
 const (
 	// resolverTimeout is the type of a resolver that's tasked with
-	// resolving a outgoing HTLC that is very close to timing out.
+	// resolving an outgoing HTLC that is very close to timing out.
 	resolverTimeout = 0
 
 	// resolverSuccess is the type of a resolver that's tasked with

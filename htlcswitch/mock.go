@@ -447,7 +447,7 @@ func (s *mockServer) intersect(f messageInterceptor) {
 	s.interceptorFuncs = append(s.interceptorFuncs, f)
 }
 
-func (s *mockServer) SendMessage(message lnwire.Message) error {
+func (s *mockServer) SendMessage(message lnwire.Message, sync bool) error {
 
 	select {
 	case s.messages <- message:
@@ -603,6 +603,10 @@ func (f *mockChannelLink) HandleChannelUpdate(lnwire.Message) {
 }
 
 func (f *mockChannelLink) UpdateForwardingPolicy(_ ForwardingPolicy) {
+}
+func (f *mockChannelLink) HtlcSatifiesPolicy([32]byte, lnwire.MilliSatoshi,
+	lnwire.MilliSatoshi) lnwire.FailureMessage {
+	return nil
 }
 
 func (f *mockChannelLink) Stats() (uint64, lnwire.MilliSatoshi, lnwire.MilliSatoshi) {

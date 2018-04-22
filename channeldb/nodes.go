@@ -147,7 +147,7 @@ func (db *DB) FetchLinkNode(identity *btcec.PublicKey) (*LinkNode, error) {
 		}
 
 		// If a link node for that particular public key cannot be
-		// located, then exit early with a ErrNodeNotFound.
+		// located, then exit early with an ErrNodeNotFound.
 		pubKey := identity.SerializeCompressed()
 		nodeBytes := nodeMetaBucket.Get(pubKey)
 		if nodeBytes == nil {

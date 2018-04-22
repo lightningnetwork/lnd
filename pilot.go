@@ -276,7 +276,7 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 					pilot.OnChannelOpen(edge)
 				}
 
-				// For each closed closed channel, we'll obtain
+				// For each closed channel, we'll obtain
 				// the chanID of the closed channel and send it
 				// to the pilot.
 				for _, chanClose := range topChange.ClosedChannels {

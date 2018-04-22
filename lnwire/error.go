@@ -117,7 +117,7 @@ func (c *Error) MsgType() MessageType {
 	return MsgError
 }
 
-// MaxPayloadLength returns the maximum allowed payload size for a Error
+// MaxPayloadLength returns the maximum allowed payload size for an Error
 // complete message observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.

@@ -1228,8 +1228,8 @@ func pruneChannelFromRoutes(routes []*Route, skipChan uint64) []*Route {
 }
 
 // pathsToFeeSortedRoutes takes a set of paths, and returns a corresponding set
-// of of routes. A route differs from a path in that it has full time-lock and
-// fee information attached. The set of routes return ed may be less than the
+// of routes. A route differs from a path in that it has full time-lock and
+// fee information attached. The set of routes returned may be less than the
 // initial set of paths as it's possible we drop a route if it can't handle the
 // total payment flow after fees are calculated.
 func pathsToFeeSortedRoutes(source Vertex, paths [][]*ChannelHop, finalCLTVDelta uint16,
@@ -1283,7 +1283,7 @@ func pathsToFeeSortedRoutes(source Vertex, paths [][]*ChannelHop, finalCLTVDelta
 // FindRoutes attempts to query the ChannelRouter for a bounded number
 // available paths to a particular target destination which is able to send
 // `amt` after factoring in channel capacities and cumulative fees along each
-// route route.  To `numPaths eligible paths, we use a modified version of
+// route.  To `numPaths eligible paths, we use a modified version of
 // Yen's algorithm which itself uses a modified version of Dijkstra's algorithm
 // within its inner loop.  Once we have a set of candidate routes, we calculate
 // the required fee and time lock values running backwards along the route. The
@@ -1482,6 +1482,16 @@ type LightningPayment struct {
 	// indefinitely.
 	PayAttemptTimeout time.Duration
 
+	// RouteHints represents the different routing hints that can be used to
+	// assist a payment in reaching its destination successfully. These
+	// hints will act as intermediate hops along the route.
+	//
+	// NOTE: This is optional unless required by the payment. When providing
+	// multiple routes, ensure the hop hints within each route are chained
+	// together and sorted in forward order in order to reach the
+	// destination successfully.
+	RouteHints [][]HopHint
+
 	// TODO(roasbeef): add e2e message?
 }
 
@@ -1495,7 +1505,14 @@ type LightningPayment struct {
 func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route, error) {
 	log.Tracef("Dispatching route for lightning payment: %v",
 		newLogClosure(func() string {
+			// Remove the public key curve parameters when logging
+			// the route to prevent spamming the logs.
 			payment.Target.Curve = nil
+			for _, routeHint := range payment.RouteHints {
+				for _, hopHint := range routeHint {
+					hopHint.NodeID.Curve = nil
+				}
+			}
 			return spew.Sdump(payment)
 		}),
 	)
@@ -1537,7 +1554,9 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 	// Before starting the HTLC routing attempt, we'll create a fresh
 	// payment session which will report our errors back to mission
 	// control.
-	paySession := r.missionControl.NewPaymentSession()
+	paySession := r.missionControl.NewPaymentSession(
+		payment.RouteHints, payment.Target,
+	)
 
 	// We'll continue until either our payment succeeds, or we encounter a
 	// critical error during path finding.
@@ -1697,7 +1716,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 
 			// If the onion error includes a channel update, and
 			// isn't necessarily fatal, then we'll apply the update
-			// an continue with the rest of the routes.
+			// and continue with the rest of the routes.
 			case *lnwire.FailAmountBelowMinimum:
 				update := onionErr.Update
 				if err := r.applyChannelUpdate(&update); err != nil {
@@ -1724,12 +1743,12 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 				// We'll now check to see if we've already
 				// reported a fee related failure for this
 				// node. If so, then we'll actually prune out
-				// the edge for now.
+				// the vertex for now.
 				chanID := update.ShortChannelID
 				_, ok := errFailedFeeChans[chanID]
 				if ok {
-					pruneEdgeFailure(
-						paySession, route, errSource,
+					pruneVertexFailure(
+						paySession, route, errSource, false,
 					)
 					continue
 				}

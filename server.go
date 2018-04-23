@@ -290,9 +290,9 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	if err != nil {
 		return nil, err
 	}
+
 	selfNode := &channeldb.LightningNode{
 		HaveNodeAnnouncement: true,
-		LastUpdate:           time.Now(),
 		Addresses:            selfAddrs,
 		Alias:                nodeAlias.String(),
 		Features:             s.globalFeatures,
@@ -300,72 +300,67 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	}
 	copy(selfNode.PubKeyBytes[:], privKey.PubKey().SerializeCompressed())
 
-	timeStamp := time.Now()
-	nodeAnn := &lnwire.NodeAnnouncement{
-		Timestamp: uint32(timeStamp.Unix()),
-		Addresses: selfAddrs,
-		NodeID:    privKey.PubKey(),
-		Alias:     alias,
-		Features:  globalFeatures,
+	// Retrieve the unsigned node announcement from our node.
+	nodeAnn, err := selfNode.NodeAnnouncement(false)
+	if err != nil {
+		return nil, fmt.Errorf("could not retrieve node announcement: "+
+			"%v", err)
 	}
 
-	// Try to retrieve the old source node from disk. During startup it
-	// is possible for there to be no source node, and this should not be
-	// treated as an error.
-	chanGraph := chanDB.ChannelGraph()
+	// Before signing our node announcement, we'll first check if we have
+	// stored a previous one to check if any changes were made.
 	oldNode, err := chanGraph.SourceNode()
 	if err != nil && err != channeldb.ErrSourceNodeNotSet {
-		return nil, fmt.Errorf("unable to read old source node from disk")
+		return nil, fmt.Errorf("unable to read old source node from "+
+			"disk :%v", err)
 	}
 
-	updateNodeAnn := true
+	var oldNodeAnn *lnwire.NodeAnnouncement
 	if oldNode != nil {
-		oldAlias, err := lnwire.NewNodeAlias(oldNode.Alias)
+		oldNodeAnn, err = oldNode.NodeAnnouncement(true)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("could not retrieve old node "+
+				"announcement: %v", err)
 		}
-
-		oldNodeAnn := &lnwire.NodeAnnouncement{
-			Timestamp: uint32(oldNode.LastUpdate.Unix()),
-			Addresses: oldNode.Addresses,
-			NodeID:    oldNode.PubKey,
-			Alias:     oldAlias,
-			Features:  oldNode.Features,
-		}
-
-		// If the nodes are not equal than there have been config changes
-		// and we should propagate the updated node.
-		updateNodeAnn = !nodeAnn.IsEqual(oldNodeAnn)
 	}
 
-	// If our information has changed since our last boot, then we'll
-	// re-sign our node announcement so a fresh authenticated version of it
-	// can be propagated throughout the network upon startup.
-	if updateNodeAnn {
-		selfNode := &channeldb.LightningNode{
-			HaveNodeAnnouncement: true,
-			LastUpdate:           timeStamp,
-			Addresses:            selfAddrs,
-			PubKey:               privKey.PubKey(),
-			Alias:                alias.String(),
-			Features:             globalFeatures,
-		}
-		selfNode.AuthSig, err = discovery.SignAnnouncement(s.nodeSigner,
-			s.identityPriv.PubKey(), nodeAnn,
+	// If we did not have an old node announcement that matches our current
+	// one, then we'll sign the current one so it can be propogated through
+	// the network.
+	if oldNodeAnn == nil || !oldNodeAnn.IsEqual(nodeAnn) {
+		now := time.Now()
+		nodeAnn.Timestamp = uint32(now.Unix())
+
+		authSig, err := discovery.SignAnnouncement(
+			s.nodeSigner, s.identityPriv.PubKey(), nodeAnn,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to generate signature for "+
-				"self node announcement: %v", err)
+			return nil, fmt.Errorf("unable to generate signature "+
+				"for self node announcement: %v", err)
 		}
+
+		selfNode.AuthSigBytes = authSig.Serialize()
+		selfNode.LastUpdate = now
 
 		if err := chanGraph.SetSourceNode(selfNode); err != nil {
 			return nil, fmt.Errorf("can't set self node: %v", err)
 		}
 
-		nodeAnn.Signature = selfNode.AuthSig
-	}
+		nodeAnn.Signature, err = lnwire.NewSigFromRawSignature(
+			selfNode.AuthSigBytes,
+		)
+		if err != nil {
+			return nil, err
+		}
+		s.currentNodeAnn = nodeAnn
+	} else {
+		// Otherwise, we'll store the signature and timestamp of the
+		// old node announcement and apply it to our node.
+		selfNode.AuthSigBytes = oldNodeAnn.Signature.ToSignatureBytes()
+		selfNode.LastUpdate = time.Unix(int64(oldNodeAnn.Timestamp), 0)
 
-	s.currentNodeAnn = nodeAnn
+		s.currentNodeAnn = oldNodeAnn
+	}
 
 	s.chanRouter, err = routing.New(routing.Config{
 		Graph:     chanGraph,

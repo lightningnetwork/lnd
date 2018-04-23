@@ -790,18 +790,27 @@ func loadConfig() (*config, error) {
 
 	// Add default port to all RPC listener addresses if needed and remove
 	// duplicate addresses.
-	cfg.RPCListeners = normalizeAddresses(cfg.RPCListeners,
-		strconv.Itoa(defaultRPCPort))
+	cfg.RPCListeners = normalizeAddresses(
+		cfg.RPCListeners, strconv.Itoa(defaultRPCPort),
+	)
 
 	// Add default port to all REST listener addresses if needed and remove
 	// duplicate addresses.
-	cfg.RESTListeners = normalizeAddresses(cfg.RESTListeners,
-		strconv.Itoa(defaultRESTPort))
+	cfg.RESTListeners = normalizeAddresses(
+		cfg.RESTListeners, strconv.Itoa(defaultRESTPort),
+	)
 
 	// Add default port to all listener addresses if needed and remove
 	// duplicate addresses.
-	cfg.Listeners = normalizeAddresses(cfg.Listeners,
-		strconv.Itoa(defaultPeerPort))
+	cfg.Listeners = normalizeAddresses(
+		cfg.Listeners, strconv.Itoa(defaultPeerPort),
+	)
+
+	// Add default port to all external IP addresses if needed and remove
+	// duplicate addresses.
+	cfg.ExternalIPs = normalizeAddresses(
+		cfg.ExternalIPs, strconv.Itoa(defaultPeerPort),
+	)
 
 	// Finally, ensure that we are only listening on localhost if Tor
 	// inbound support is enabled.

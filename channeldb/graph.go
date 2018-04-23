@@ -1767,6 +1767,43 @@ func (l *LightningNode) AddPubKey(key *btcec.PublicKey) {
 	copy(l.PubKeyBytes[:], key.SerializeCompressed())
 }
 
+// NodeAnnouncement retrieves the latest node announcement of the node.
+func (l *LightningNode) NodeAnnouncement(signed bool) (*lnwire.NodeAnnouncement,
+	error) {
+
+	if !l.HaveNodeAnnouncement {
+		return nil, fmt.Errorf("node does not have node announcement")
+	}
+
+	alias, err := lnwire.NewNodeAlias(l.Alias)
+	if err != nil {
+		return nil, err
+	}
+
+	nodeAnn := &lnwire.NodeAnnouncement{
+		Features:        l.Features.RawFeatureVector,
+		NodeID:          l.PubKeyBytes,
+		RGBColor:        l.Color,
+		Alias:           alias,
+		Addresses:       l.Addresses,
+		Timestamp:       uint32(l.LastUpdate.Unix()),
+		ExtraOpaqueData: l.ExtraOpaqueData,
+	}
+
+	if !signed {
+		return nodeAnn, nil
+	}
+
+	sig, err := lnwire.NewSigFromRawSignature(l.AuthSigBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	nodeAnn.Signature = sig
+
+	return nodeAnn, nil
+}
+
 // FetchLightningNode attempts to look up a target node by its identity public
 // key. If the node isn't found in the database, then ErrGraphNodeNotFound is
 // returned.

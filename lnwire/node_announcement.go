@@ -159,38 +159,49 @@ func (a *NodeAnnouncement) DataToSign() ([]byte, error) {
 }
 
 // IsEqual compares the configurable fields within two NodeAnnouncement
-// objects, and returns whether they are equal or not.
+// objects, and returns whether they are equal or not. The signature is not
+// compared.
 func (a *NodeAnnouncement) IsEqual(b *NodeAnnouncement) bool {
-	if !a.NodeID.IsEqual(b.NodeID) {
+	// We can exit early if both pointers point to the same node
+	// announcement.
+	if a == b {
+		return true
+	}
+
+	if !bytes.Equal(a.NodeID[:], b.NodeID[:]) {
 		return false
 	}
-	if a.Alias != b.Alias {
-		return false
-	}
+
 	if a.RGBColor != b.RGBColor {
 		return false
 	}
 
+	if !bytes.Equal(a.Alias[:], b.Alias[:]) {
+		return false
+	}
+
+	// Compare the addresses within the node announcements. The order should
+	// not matter.
 	if len(a.Addresses) != len(b.Addresses) {
 		return false
 	}
-	// When comparing Address arrays the order does not matter.
-	m := make(map[net.Addr]bool)
 
+	addrs := make(map[string]struct{})
 	for _, addr := range a.Addresses {
-		m[addr] = true
+		addrs[addr.String()] = struct{}{}
 	}
 	for _, addr := range b.Addresses {
-		if _, eq := m[addr]; !eq {
+		if _, exists := addrs[addr.String()]; !exists {
 			return false
 		}
 	}
 
-	if len(a.Features.flags) != len(b.Features.flags) {
+	// Compare the feature bits set.
+	if len(a.Features.features) != len(b.Features.features) {
 		return false
 	}
-	for index, aFlag := range a.Features.flags {
-		if bFlag, exist := b.Features.flags[index]; !exist || aFlag != bFlag {
+	for bit := range a.Features.features {
+		if a.Features.IsSet(bit) != b.Features.IsSet(bit) {
 			return false
 		}
 	}

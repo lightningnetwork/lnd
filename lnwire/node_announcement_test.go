@@ -1,10 +1,9 @@
 package lnwire
 
 import (
-	prand "math/rand"
+	"image/color"
 	"net"
 	"testing"
-	"time"
 
 	"github.com/roasbeef/btcd/btcec"
 )
@@ -12,81 +11,94 @@ import (
 func TestCompareNodeAnnouncements(t *testing.T) {
 	t.Parallel()
 
-	randSource := prand.NewSource(time.Now().Unix())
-	priv, _ := btcec.NewPrivateKey(btcec.S256())
-	alias, _ := NewNodeAlias("kek")
-	rgb := RGB{
-		red:   uint8(prand.Int31()),
-		green: uint8(prand.Int31()),
-		blue:  uint8(prand.Int31()),
-	}
-	a1, _ := net.ResolveTCPAddr("tcp", "127.0.0.1:9735")
-	a2, _ := net.ResolveTCPAddr("tcp", "10.0.0.1:9000")
-
-	// Create a node announcement with the dummy data above
-	node1 := &NodeAnnouncement{
-		Features:  randFeatureVector(prand.New(randSource)),
-		Alias:     alias,
-		RGBColor:  rgb,
-		Addresses: []net.Addr{a2, a1},
-		NodeID:    priv.PubKey(),
+	// Two pointers that point to the same node announcement should be
+	// equal.
+	a := &NodeAnnouncement{}
+	b := a
+	if !a.IsEqual(b) {
+		t.Fatal("expected node announcement comparison to return true")
 	}
 
-	// Create a copy of node1, but switch the order of the
-	// addresses array. Compare nodes should still return
-	// true because the order of the addresses don't matter
-	node2 := new(NodeAnnouncement)
+	// Two node announcements with different node public keys should not be
+	// equal.
+	privateKey1, err := btcec.NewPrivateKey(btcec.S256())
+	if err != nil {
+		t.Fatalf("unable to create private key: %v", err)
+	}
+	var compressedPubKey1 [33]byte
+	copy(compressedPubKey1[:], privateKey1.PubKey().SerializeCompressed())
 
-	*node2 = *node1
-	node2.Addresses = []net.Addr{a1, a2}
-	if !node1.IsEqual(node2) {
-		t.Fatalf("expected node comparison to return true")
+	privateKey2, err := btcec.NewPrivateKey(btcec.S256())
+	if err != nil {
+		t.Fatalf("unable to create private key: %v", err)
+	}
+	var compressedPubKey2 [33]byte
+	copy(compressedPubKey2[:], privateKey2.PubKey().SerializeCompressed())
+
+	a = &NodeAnnouncement{NodeID: compressedPubKey1}
+	b = &NodeAnnouncement{NodeID: compressedPubKey2}
+	if a.IsEqual(b) {
+		t.Fatal("expected node announcement comparison to return false")
 	}
 
-	// Ensure IsEqual returns false when the nodes' feature
-	// vectors are not equal.
-	*node2 = *node1
-	node2.Features = randFeatureVector(prand.New(randSource))
-	if node1.IsEqual(node2) {
-		t.Fatalf("expected node comparison to return false")
+	// Two node announcements with different colors should not be equal.
+	color1 := color.RGBA{1, 2, 3, 4}
+	color2 := color.RGBA{2, 3, 4, 5}
+
+	a = &NodeAnnouncement{RGBColor: color1}
+	b = &NodeAnnouncement{RGBColor: color2}
+	if a.IsEqual(b) {
+		t.Fatal("expected node announcement comparison to return false")
 	}
 
-	// Ensure IsEqual returns false when the nodes'
-	// aliases are not equal.
-	*node2 = *node1
-	alias2, _ := NewNodeAlias("kek2")
-	node2.Alias = alias2
-	if node1.IsEqual(node2) {
-		t.Fatalf("expected node comparison to return false")
+	// Two node announcements with different aliases should not be equal.
+	alias1, _ := NewNodeAlias("lol")
+	alias2, _ := NewNodeAlias("kek")
+
+	a = &NodeAnnouncement{Alias: alias1}
+	b = &NodeAnnouncement{Alias: alias2}
+	if a.IsEqual(b) {
+		t.Fatal("expected node announcement comparison to return false")
 	}
 
-	// Ensure IsEqual returns false when the nodes'
-	// RGBColors are not equal.
-	*node2 = *node1
-	node2.RGBColor = RGB{
-		red:   uint8(prand.Int31()),
-		green: uint8(prand.Int31()),
-		blue:  uint8(prand.Int31()),
-	}
-	if node1.IsEqual(node2) {
-		t.Fatalf("expected node comparison to return false")
+	// Two node announcements with different addresses should not be equal.
+	addr1, _ := net.ResolveTCPAddr("tcp", "127.0.0.1:9735")
+	addr2, _ := net.ResolveTCPAddr("tcp", "10.0.0.1:9000")
+
+	a = &NodeAnnouncement{Addresses: []net.Addr{addr1}}
+	b = &NodeAnnouncement{Addresses: []net.Addr{addr1, addr2}}
+	if a.IsEqual(b) {
+		t.Fatal("expected node announcement comparison to return false")
 	}
 
-	// Ensure IsEqual returns false when the nodes'
-	// address arrays are not fully equal.
-	*node2 = *node1
-	a3, _ := net.ResolveTCPAddr("tcp", "10.0.0.1:9001")
-	node2.Addresses = []net.Addr{a2, a3}
-	if node1.IsEqual(node2) {
-		t.Fatalf("expected node comparison to return false")
+	// Two node announcements with different feature bits set should not be
+	// equal.
+	features1 := NewRawFeatureVector(InitialRoutingSync)
+	features2 := NewRawFeatureVector()
+
+	a = &NodeAnnouncement{Features: features1}
+	b = &NodeAnnouncement{Features: features2}
+	if a.IsEqual(b) {
+		t.Fatal("expected node announcement comparison to return false")
 	}
 
-	// Ensure IsEqual returns false when the nodes'
-	// public keys are not equal.
-	*node2 = *node1
-	priv2, _ := btcec.NewPrivateKey(btcec.S256())
-	node2.NodeID = priv2.PubKey()
-	if node1.IsEqual(node2) {
-		t.Fatalf("expected node comparison to return false")
+	// Two node announcements that contain the same information should be
+	// equal.
+	a = &NodeAnnouncement{
+		NodeID:    compressedPubKey1,
+		RGBColor:  color1,
+		Alias:     alias1,
+		Addresses: []net.Addr{addr1},
+		Features:  features1,
+	}
+	b = &NodeAnnouncement{
+		NodeID:    compressedPubKey1,
+		RGBColor:  color1,
+		Alias:     alias1,
+		Addresses: []net.Addr{addr1},
+		Features:  features1,
+	}
+	if !a.IsEqual(b) {
+		t.Fatal("expected node announcement comparison to return true")
 	}
 }

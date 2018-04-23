@@ -987,8 +987,8 @@ func (s *server) initTorController() error {
 // genNodeAnnouncement generates and returns the current fully signed node
 // announcement. If refresh is true, then the time stamp of the announcement
 // will be updated in order to ensure it propagates through the network.
-func (s *server) genNodeAnnouncement(
-	refresh bool) (lnwire.NodeAnnouncement, error) {
+func (s *server) genNodeAnnouncement(refresh bool,
+	updates ...func(*lnwire.NodeAnnouncement)) (lnwire.NodeAnnouncement, error) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -997,7 +997,9 @@ func (s *server) genNodeAnnouncement(
 		return *s.currentNodeAnn, nil
 	}
 
-	var err error
+	for _, update := range updates {
+		update(s.currentNodeAnn)
+	}
 
 	newStamp := uint32(time.Now().Unix())
 	if newStamp <= s.currentNodeAnn.Timestamp {

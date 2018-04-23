@@ -23,5 +23,5 @@ WORKDIR $GOPATH/src/github.com/lightningnetwork/lnd
 RUN dep ensure
 RUN go install . ./cmd/...
 
-COPY "start-lnd.sh" .
+COPY "docker/lnd/start-lnd.sh" .
 RUN chmod +x start-lnd.sh

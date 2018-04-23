@@ -50,7 +50,7 @@ func getPrefix(index index, position uint8) uint64 {
 	return (uint64(index) & mask)
 }
 
-// countTrailingZeros count number of of trailing zero bits, this function is
+// countTrailingZeros counts number of trailing zero bits, this function is
 // used to determine the number of element bucket.
 func countTrailingZeros(index index) uint8 {
 	var zeros uint8

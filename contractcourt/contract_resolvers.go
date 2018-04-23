@@ -173,7 +173,7 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 		// to confirm.
 		spendNtfn, err := h.Notifier.RegisterSpendNtfn(
 			&h.htlcResolution.ClaimOutpoint,
-			h.broadcastHeight,
+			h.broadcastHeight, true,
 		)
 		if err != nil {
 			return err
@@ -608,7 +608,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	// To wrap this up, we'll wait until the second-level transaction has
 	// been spent, then fully resolve the contract.
 	spendNtfn, err := h.Notifier.RegisterSpendNtfn(
-		&h.htlcResolution.ClaimOutpoint, h.broadcastHeight,
+		&h.htlcResolution.ClaimOutpoint, h.broadcastHeight, true,
 	)
 	if err != nil {
 		return nil, err
@@ -719,7 +719,7 @@ var _ ContractResolver = (*htlcSuccessResolver)(nil)
 // htlcOutgoingContestResolver is a ContractResolver that's able to resolve an
 // outgoing HTLC that is still contested. An HTLC is still contested, if at the
 // time that we broadcast the commitment transaction, it isn't able to be fully
-// resolved. This this case, we'll either wait for the HTLC to timeout, or for
+// resolved. In this case, we'll either wait for the HTLC to timeout, or for
 // us to learn of the preimage.
 type htlcOutgoingContestResolver struct {
 	// htlcTimeoutResolver is the inner solver that this resolver may turn
@@ -820,7 +820,7 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 	// the remote party sweeps with the pre-image, we'll  be notified.
 	spendNtfn, err := h.Notifier.RegisterSpendNtfn(
 		&outPointToWatch,
-		h.broadcastHeight,
+		h.broadcastHeight, true,
 	)
 	if err != nil {
 		return nil, err
@@ -1316,7 +1316,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		// until the commitment output has been spent.
 		spendNtfn, err := c.Notifier.RegisterSpendNtfn(
 			&c.commitResolution.SelfOutPoint,
-			c.broadcastHeight,
+			c.broadcastHeight, true,
 		)
 		if err != nil {
 			return nil, err

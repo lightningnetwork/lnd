@@ -36,19 +36,22 @@ type ChainNotifier interface {
 		heightHint uint32) (*ConfirmationEvent, error)
 
 	// RegisterSpendNtfn registers an intent to be notified once the target
-	// outpoint is successfully spent within a confirmed transaction. The
-	// returned SpendEvent will receive a send on the 'Spend' transaction
-	// once a transaction spending the input is detected on the blockchain.
-	// The heightHint parameter is provided as a convenience to light
-	// clients. The heightHint denotes the earliest height in the blockchain
-	// in which the target output could have been created.
+	// outpoint is successfully spent within a transaction. The returned
+	// SpendEvent will receive a send on the 'Spend' transaction once a
+	// transaction spending the input is detected on the blockchain.  The
+	// heightHint parameter is provided as a convenience to light clients.
+	// The heightHint denotes the earliest height in the blockchain in
+	// which the target output could have been created.
 	//
-	// NOTE: This notifications should be triggered once the transaction is
-	// *seen* on the network, not when it has received a single confirmation.
+	// NOTE: If mempool=true is set, then this notification should be
+	// triggered on a best-effort basis once the transaction is *seen* on
+	// the network. If mempool=false, it should only be triggered when the
+	// spending transaction receives a single confirmation.
 	//
 	// NOTE: Dispatching notifications to multiple clients subscribed to a
 	// spend of the same outpoint MUST be supported.
-	RegisterSpendNtfn(outpoint *wire.OutPoint, heightHint uint32) (*SpendEvent, error)
+	RegisterSpendNtfn(outpoint *wire.OutPoint, heightHint uint32,
+		mempool bool) (*SpendEvent, error)
 
 	// RegisterBlockEpochNtfn registers an intent to be notified of each
 	// new block connected to the tip of the main chain. The returned
@@ -85,8 +88,10 @@ type TxConfirmation struct {
 
 // ConfirmationEvent encapsulates a confirmation notification. With this struct,
 // callers can be notified of: the instance the target txid reaches the targeted
-// number of confirmations, and also in the event that the original txid becomes
-// disconnected from the blockchain as a result of a re-org.
+// number of confirmations, how many confirmations are left for the target txid
+// to be fully confirmed at every new block height, and also in the event that
+// the original txid becomes disconnected from the blockchain as a result of a
+// re-org.
 //
 // Once the txid reaches the specified number of confirmations, the 'Confirmed'
 // channel will be sent upon fulfilling the notification.
@@ -99,6 +104,11 @@ type ConfirmationEvent struct {
 	// has been fully confirmed. The struct sent will contain all the
 	// details of the channel's confirmation.
 	Confirmed chan *TxConfirmation // MUST be buffered.
+
+	// Updates is a channel that will sent upon, at every incremental
+	// confirmation, how many confirmations are left to declare the
+	// transaction as fully confirmed.
+	Updates chan uint32 // MUST be buffered.
 
 	// TODO(roasbeef): all goroutines on ln channel updates should also
 	// have a struct chan that's closed if funding gets re-org out. Need

@@ -60,7 +60,7 @@ func (c *UpdateFee) MsgType() MessageType {
 	return MsgUpdateFee
 }
 
-// MaxPayloadLength returns the maximum allowed payload size for a UpdateFee
+// MaxPayloadLength returns the maximum allowed payload size for an UpdateFee
 // complete message observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.

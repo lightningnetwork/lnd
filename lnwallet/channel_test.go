@@ -704,7 +704,7 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	// At this point, Bob should have 6 BTC settled, with Alice still having
 	// 4 BTC. Alice's channel should show 1 BTC sent and Bob's channel
 	// should show 1 BTC received. They should also be at commitment height
-	// two, with the revocation window extended by by 1 (5).
+	// two, with the revocation window extended by 1 (5).
 	mSatTransferred := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 	if aliceChannel.channelState.TotalMSatSent != mSatTransferred {
 		t.Fatalf("alice satoshis sent incorrect %v vs %v expected",
@@ -3026,7 +3026,7 @@ func TestChanSyncOweCommitment(t *testing.T) {
 		for i := 0; i < 3; i++ {
 			settleMsg, ok := aliceMsgsToSend[i].(*lnwire.UpdateFulfillHTLC)
 			if !ok {
-				t.Fatalf("expected a htlc settle message, "+
+				t.Fatalf("expected an HTLC settle message, "+
 					"instead have %v", spew.Sdump(settleMsg))
 			}
 			if settleMsg.ID != uint64(i) {
@@ -3045,7 +3045,7 @@ func TestChanSyncOweCommitment(t *testing.T) {
 
 		// The HTLC add message should be identical.
 		if _, ok := aliceMsgsToSend[3].(*lnwire.UpdateAddHTLC); !ok {
-			t.Fatalf("expected a htlc add message, instead have %v",
+			t.Fatalf("expected an HTLC add message, instead have %v",
 				spew.Sdump(aliceMsgsToSend[3]))
 		}
 		if !reflect.DeepEqual(aliceHtlc, aliceMsgsToSend[3]) {
@@ -3777,7 +3777,7 @@ func TestFeeUpdateRejectInsaneFee(t *testing.T) {
 	startingFeeRate := SatPerKWeight(aliceChannel.channelState.LocalCommitment.FeePerKw)
 	newFeeRate := startingFeeRate * 1000000
 
-	// Both Alice and Bob should reject this new fee rate as it it far too
+	// Both Alice and Bob should reject this new fee rate as it is far too
 	// large.
 	if err := aliceChannel.UpdateFee(newFeeRate); err == nil {
 		t.Fatalf("alice should have rejected fee update")
@@ -4620,7 +4620,7 @@ func TestDesyncHTLCs(t *testing.T) {
 		t.Fatalf("unable to complete state update: %v", err)
 	}
 
-	// Now let let Bob fail this HTLC.
+	// Now let Bob fail this HTLC.
 	err = bobChannel.FailHTLC(bobIndex, []byte("failreason"), nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unable to cancel HTLC: %v", err)
@@ -5010,5 +5010,100 @@ func TestMinHTLC(t *testing.T) {
 	err = forceStateTransition(aliceChannel, bobChannel)
 	if err != ErrBelowMinHTLC {
 		t.Fatalf("expected ErrBelowMinHTLC, instead received: %v", err)
+	}
+}
+
+// TestNewBreachRetributionSkipsDustHtlcs ensures that in the case of a
+// contract breach, all dust HTLCs are ignored and not reflected in the
+// produced BreachRetribution struct. We ignore these HTLCs as they aren't
+// actually manifested on the commitment transaction, as a result we can't
+// actually revoked them.
+func TestNewBreachRetributionSkipsDustHtlcs(t *testing.T) {
+	t.Parallel()
+
+	// We'll kick off the test by creating our channels which both are
+	// loaded with 5 BTC each.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	var fakeOnionBlob [lnwire.OnionPacketSize]byte
+	copy(fakeOnionBlob[:], bytes.Repeat([]byte{0x05}, lnwire.OnionPacketSize))
+
+	// We'll modify the dust settings on both channels to be a predictable
+	// value for the prurpose of the test.
+	dustValue := btcutil.Amount(200)
+	aliceChannel.channelState.LocalChanCfg.DustLimit = dustValue
+	aliceChannel.channelState.RemoteChanCfg.DustLimit = dustValue
+	bobChannel.channelState.LocalChanCfg.DustLimit = dustValue
+	bobChannel.channelState.RemoteChanCfg.DustLimit = dustValue
+
+	// We'll now create a series of dust HTLC's, and send then from Alice
+	// to Bob, finally locking both of them in.
+	var bobPreimage [32]byte
+	copy(bobPreimage[:], bytes.Repeat([]byte{0xbb}, 32))
+	for i := 0; i < 3; i++ {
+		rHash := sha256.Sum256(bobPreimage[:])
+		h := &lnwire.UpdateAddHTLC{
+			PaymentHash: rHash,
+			Amount:      lnwire.NewMSatFromSatoshis(dustValue),
+			Expiry:      uint32(10),
+			OnionBlob:   fakeOnionBlob,
+		}
+
+		htlcIndex, err := aliceChannel.AddHTLC(h, nil)
+		if err != nil {
+			t.Fatalf("unable to add bob's htlc: %v", err)
+		}
+
+		h.ID = htlcIndex
+		if _, err := bobChannel.ReceiveHTLC(h); err != nil {
+			t.Fatalf("unable to recv bob's htlc: %v", err)
+		}
+	}
+
+	// With the HTLC's applied to both update logs, we'll initiate a state
+	// transition from Alice.
+	if err := forceStateTransition(bobChannel, aliceChannel); err != nil {
+		t.Fatalf("unable to complete bob's state transition: %v", err)
+	}
+
+	// At this point, we'll capture the current state number, as well as
+	// the current commitment.
+	revokedCommit := bobChannel.channelState.LocalCommitment.CommitTx
+	revokedStateNum := aliceChannel.channelState.LocalCommitment.CommitHeight
+
+	// We'll now have Bob settle those HTLC's to Alice and then advance
+	// forward to a new state.
+	for i := 0; i < 3; i++ {
+		err := bobChannel.SettleHTLC(bobPreimage, uint64(i), nil, nil, nil)
+		if err != nil {
+			t.Fatalf("unable to settle htlc: %v", err)
+		}
+		err = aliceChannel.ReceiveHTLCSettle(bobPreimage, uint64(i))
+		if err != nil {
+			t.Fatalf("unable to settle htlc: %v", err)
+		}
+	}
+	if err := forceStateTransition(bobChannel, aliceChannel); err != nil {
+		t.Fatalf("unable to complete bob's state transition: %v", err)
+	}
+
+	// At this point, we'll now simulate a contract breach by Bob using the
+	// NewBreachRetribution method.
+	breachRet, err := NewBreachRetribution(
+		aliceChannel.channelState, revokedStateNum, revokedCommit, 100,
+	)
+	if err != nil {
+		t.Fatalf("unable to create breach retribution: %v", err)
+	}
+
+	// The retribution shouldn't have any HTLCs set as they were all below
+	// dust for both parties.
+	if len(breachRet.HtlcRetributions) != 0 {
+		t.Fatalf("zero HTLC retributions should have been created, "+
+			"instead %v were", len(breachRet.HtlcRetributions))
 	}
 }

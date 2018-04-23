@@ -726,7 +726,7 @@ func createHtlcSuccessTx(htlcOutput wire.OutPoint, htlcAmt btcutil.Amount,
 
 // secondLevelHtlcScript is the uniform script that's used as the output for
 // the second-level HTLC transactions. The second level transaction act as a
-// sort of covenant, ensuring that an 2-of-2 multi-sig output can only be
+// sort of covenant, ensuring that a 2-of-2 multi-sig output can only be
 // spent in a particular way, and to a particular output.
 //
 // Possible Input Scripts:
@@ -809,7 +809,7 @@ func htlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
 	// this instance.
 	signDesc.SigHashes = txscript.NewTxSigHashes(sweepTx)
 
-	// With the proper sequence an version set, we'll now sign the timeout
+	// With the proper sequence and version set, we'll now sign the timeout
 	// transaction using the passed signed descriptor. In order to generate
 	// a valid signature, then signDesc should be using the base delay
 	// public key, and the proper single tweak bytes.
@@ -865,7 +865,7 @@ func htlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 func HtlcSecondLevelSpend(signer Signer, signDesc *SignDescriptor,
 	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
-	// With the proper sequence an version set, we'll now sign the timeout
+	// With the proper sequence and version set, we'll now sign the timeout
 	// transaction using the passed signed descriptor. In order to generate
 	// a valid signature, then signDesc should be using the base delay
 	// public key, and the proper single tweak bytes.
@@ -1246,7 +1246,7 @@ func DeriveRevocationPrivKey(revokeBasePriv *btcec.PrivateKey,
 func SetStateNumHint(commitTx *wire.MsgTx, stateNum uint64,
 	obfuscator [StateHintSize]byte) error {
 
-	// With the current schema we are only able able to encode state num
+	// With the current schema we are only able to encode state num
 	// hints up to 2^48. Therefore if the passed height is greater than our
 	// state hint ceiling, then exit early.
 	if stateNum > maxStateHint {

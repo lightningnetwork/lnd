@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/roasbeef/btcd/btcec"
 )
 
 const (
@@ -148,20 +150,69 @@ func (m *missionControl) GraphPruneView() graphPruneView {
 // and will now be pruned after a decay like the main view within mission
 // control. We do this as we want to avoid the case where we continually try a
 // bad edge or route multiple times in a session. This can lead to an infinite
-// loop if payment attempts take long enough.
+// loop if payment attempts take long enough. An additional set of edges can
+// also be provided to assist in reaching the payment's destination.
 type paymentSession struct {
 	pruneViewSnapshot graphPruneView
+
+	additionalEdges map[Vertex][]*channeldb.ChannelEdgePolicy
 
 	mc *missionControl
 }
 
 // NewPaymentSession creates a new payment session backed by the latest prune
-// view from Mission Control.
-func (m *missionControl) NewPaymentSession() *paymentSession {
+// view from Mission Control. An optional set of routing hints can be provided
+// in order to populate additional edges to explore when finding a path to the
+// payment's destination.
+func (m *missionControl) NewPaymentSession(routeHints [][]HopHint,
+	target *btcec.PublicKey) *paymentSession {
+
 	viewSnapshot := m.GraphPruneView()
+
+	edges := make(map[Vertex][]*channeldb.ChannelEdgePolicy)
+
+	// Traverse through all of the available hop hints and include them in
+	// our edges map, indexed by the public key of the channel's starting
+	// node.
+	for _, routeHint := range routeHints {
+		// If multiple hop hints are provided within a single route
+		// hint, we'll assume they must be chained together and sorted
+		// in forward order in order to reach the target successfully.
+		for i, hopHint := range routeHint {
+			// In order to determine the end node of this hint,
+			// we'll need to look at the next hint's start node. If
+			// we've reached the end of the hints list, we can
+			// assume we've reached the destination.
+			endNode := &channeldb.LightningNode{}
+			if i != len(routeHint)-1 {
+				endNode.AddPubKey(routeHint[i+1].NodeID)
+			} else {
+				endNode.AddPubKey(target)
+			}
+
+			// Finally, create the channel edge from the hop hint
+			// and add it to list of edges corresponding to the node
+			// at the start of the channel.
+			edge := &channeldb.ChannelEdgePolicy{
+				Node:      endNode,
+				ChannelID: hopHint.ChannelID,
+				FeeBaseMSat: lnwire.MilliSatoshi(
+					hopHint.FeeBaseMSat,
+				),
+				FeeProportionalMillionths: lnwire.MilliSatoshi(
+					hopHint.FeeProportionalMillionths,
+				),
+				TimeLockDelta: hopHint.CLTVExpiryDelta,
+			}
+
+			v := NewVertex(hopHint.NodeID)
+			edges[v] = append(edges[v], edge)
+		}
+	}
 
 	return &paymentSession{
 		pruneViewSnapshot: viewSnapshot,
+		additionalEdges:   edges,
 		mc:                m,
 	}
 }
@@ -231,8 +282,11 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	// Taking into account this prune view, we'll attempt to locate a path
 	// to our destination, respecting the recommendations from
 	// missionControl.
-	path, err := findPath(nil, p.mc.graph, p.mc.selfNode, payment.Target,
-		pruneView.vertexes, pruneView.edges, payment.Amount)
+	path, err := findPath(
+		nil, p.mc.graph, p.additionalEdges, p.mc.selfNode,
+		payment.Target, pruneView.vertexes, pruneView.edges,
+		payment.Amount,
+	)
 	if err != nil {
 		return nil, err
 	}

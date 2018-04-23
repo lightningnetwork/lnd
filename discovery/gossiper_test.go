@@ -261,7 +261,8 @@ func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	return nil, nil
 }
 
-func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ uint32) (*chainntnfs.SpendEvent, error) {
+func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ uint32,
+	_ bool) (*chainntnfs.SpendEvent, error) {
 	return nil, nil
 }
 
@@ -582,7 +583,7 @@ func TestProcessAnnouncement(t *testing.T) {
 		}
 	}
 
-	// Create node valid, signed announcement, process it with with
+	// Create node valid, signed announcement, process it with 
 	// gossiper service, check that valid announcement have been
 	// propagated farther into the lightning network, and check that we
 	// added new node into router.

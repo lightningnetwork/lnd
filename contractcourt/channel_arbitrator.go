@@ -43,7 +43,7 @@ type WitnessSubscription struct {
 
 // WitnessBeacon is a global beacon of witnesses. Contract resolvers will use
 // this interface to lookup witnesses (preimages typically) of contracts
-// they're trying to resolver, add new preimages they resolver, and finally
+// they're trying to resolve, add new preimages they resolve, and finally
 // receive new updates each new time a preimage is discovered.
 //
 // TODO(roasbeef): need to delete the pre-images once we've used them
@@ -89,7 +89,7 @@ type ChannelArbitratorConfig struct {
 	// is watching over. We'll use this when we decide that we need to go
 	// to chain. The returned summary contains all items needed to
 	// eventually resolve all outputs on chain.
-	ForceCloseChan func() (*lnwallet.ForceCloseSummary, error)
+	ForceCloseChan func() (*lnwallet.LocalForceCloseSummary, error)
 
 	// CloseChannel is a function closure that marks a channel under watch
 	// as "closing". In this phase, we will no longer accept any updates to
@@ -671,7 +671,7 @@ func (c *ChannelArbitrator) advanceState(currentHeight uint32,
 	}
 }
 
-// ChainAction is an enum that that encompasses all possible on-chain actions
+// ChainAction is an enum that encompasses all possible on-chain actions
 // we'll take for a set of HTLC's.
 type ChainAction uint8
 
@@ -833,7 +833,7 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 	// Now that we know we'll need to go on-chain, we'll examine all of our
 	// active outgoing HTLC's to see if we either need to: sweep them after
 	// a timeout (then cancel backwards), cancel them backwards
-	// immediately, or or watch them as they're still active contracts.
+	// immediately, or watch them as they're still active contracts.
 	for _, htlc := range c.activeHTLCs.outgoingHTLCs {
 		switch {
 		// If the HTLC is dust, then we can cancel it backwards
@@ -1035,7 +1035,7 @@ func (c *ChannelArbitrator) prepContractResolutions(htlcActions ChainActionMap,
 			}
 
 		// If we can timeout the HTLC directly, then we'll create the
-		// proper resolver to to so, who will then cancel the packet
+		// proper resolver to do so, who will then cancel the packet
 		// backwards.
 		case HtlcTimeoutAction:
 			for _, htlc := range htlcs {
@@ -1162,11 +1162,14 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
 	// Until the contract is fully resolved, we'll continue to iteratively
 	// resolve the contract one step at a time.
 	for !currentContract.IsResolved() {
+		log.Debugf("ChannelArbitrator(%v): contract %T not yet resolved",
+			c.cfg.ChanPoint, currentContract)
 
 		select {
 
 		// If we've been signalled to quit, then we'll exit early.
 		case <-c.quit:
+			return
 
 		default:
 			// Otherwise, we'll attempt to resolve the current
@@ -1174,7 +1177,8 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
 			nextContract, err := currentContract.Resolve()
 			if err != nil {
 				log.Errorf("ChannelArbitrator(%v): unable to "+
-					"progress resolver: %v", c.cfg.ChanPoint, err)
+					"progress resolver: %v",
+					c.cfg.ChanPoint, err)
 				return
 			}
 
@@ -1185,7 +1189,7 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
 			// within our logs: the new contract will take the
 			// place of the old one.
 			case nextContract != nil:
-				log.Tracef("ChannelArbitrator(%v): swapping "+
+				log.Debugf("ChannelArbitrator(%v): swapping "+
 					"out contract %T for %T ",
 					c.cfg.ChanPoint, currentContract,
 					nextContract)
@@ -1206,7 +1210,7 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
 			// If this contract is actually fully resolved, then
 			// we'll mark it as such within the database.
 			case currentContract.IsResolved():
-				log.Tracef("ChannelArbitrator(%v): marking "+
+				log.Debugf("ChannelArbitrator(%v): marking "+
 					"contract %T fully resolved",
 					c.cfg.ChanPoint, currentContract)
 

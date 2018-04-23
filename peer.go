@@ -53,7 +53,7 @@ type outgoingMsg struct {
 	errChan chan error // MUST be buffered.
 }
 
-// newChannelMsg packages a lnwallet.LightningChannel with a channel that
+// newChannelMsg packages an lnwallet.LightningChannel with a channel that
 // allows the receiver of the request to report when the funding transaction
 // has been confirmed and the channel creation process completed.
 type newChannelMsg struct {
@@ -168,6 +168,12 @@ type peer struct {
 	// loop.
 	// TODO(halseth): remove when link failure is properly handled.
 	failedChannels map[lnwire.ChannelID]struct{}
+
+	// writeBuf is a buffer that we'll re-use in order to encode wire
+	// messages to write out directly on the socket. By re-using this
+	// buffer, we avoid needing to allocate more memory each time a new
+	// message is to be sent to a peer.
+	writeBuf [lnwire.MaxMessagePayload]byte
 
 	queueQuit chan struct{}
 	quit      chan struct{}
@@ -407,8 +413,9 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			Peer:                  p,
 			DecodeHopIterators:    p.server.sphinx.DecodeHopIterators,
 			ExtractErrorEncrypter: p.server.sphinx.ExtractErrorEncrypter,
-			GetLastChannelUpdate: createGetLastUpdate(p.server.chanRouter,
-				p.PubKey(), lnChan.ShortChanID()),
+			FetchLastChannelUpdate: fetchLastChanUpdate(
+				p.server.chanRouter, p.PubKey(),
+			),
 			DebugHTLC:      cfg.DebugHTLC,
 			HodlHTLC:       cfg.HodlHTLC,
 			Registry:       p.server.invoices,
@@ -1103,11 +1110,11 @@ func (p *peer) writeMessage(msg lnwire.Message) error {
 	// TODO(roasbeef): add message summaries
 	p.logWireMessage(msg, false)
 
-	// As the Lightning wire protocol is fully message oriented, we only
-	// allows one wire message per outer encapsulated crypto message. So
-	// we'll create a temporary buffer to write the message directly to.
-	var msgPayload [lnwire.MaxMessagePayload]byte
-	b := bytes.NewBuffer(msgPayload[0:0:len(msgPayload)])
+	// We'll re-slice of static write buffer to allow this new message to
+	// utilize all available space. We also ensure we cap the capacity of
+	// this new buffer to the static buffer which is sized for the largest
+	// possible protocol message.
+	b := bytes.NewBuffer(p.writeBuf[0:0:len(p.writeBuf)])
 
 	// With the temp buffer created and sliced properly (length zero, full
 	// capacity), we'll now encode the message directly into this buffer.
@@ -1383,8 +1390,9 @@ out:
 				Peer:                  p,
 				DecodeHopIterators:    p.server.sphinx.DecodeHopIterators,
 				ExtractErrorEncrypter: p.server.sphinx.ExtractErrorEncrypter,
-				GetLastChannelUpdate: createGetLastUpdate(p.server.chanRouter,
-					p.PubKey(), newChanReq.channel.ShortChanID()),
+				FetchLastChannelUpdate: fetchLastChanUpdate(
+					p.server.chanRouter, p.PubKey(),
+				),
 				DebugHTLC:      cfg.DebugHTLC,
 				HodlHTLC:       cfg.HodlHTLC,
 				Registry:       p.server.invoices,
@@ -1874,10 +1882,23 @@ func (p *peer) sendInitMsg() error {
 	return p.writeMessage(msg)
 }
 
-// SendMessage queues a message for sending to the target peer.
-func (p *peer) SendMessage(msg lnwire.Message) error {
-	p.queueMsg(msg, nil)
-	return nil
+// SendMessage sends message to remote peer. The second argument denotes if the
+// method should block until the message has been sent to the remote peer.
+func (p *peer) SendMessage(msg lnwire.Message, sync bool) error {
+	if !sync {
+		p.queueMsg(msg, nil)
+		return nil
+	}
+
+	errChan := make(chan error, 1)
+	p.queueMsg(msg, errChan)
+
+	select {
+	case err := <-errChan:
+		return err
+	case <-p.quit:
+		return fmt.Errorf("peer shutting down")
+	}
 }
 
 // PubKey returns the pubkey of the peer in compressed serialized format.
@@ -1887,21 +1908,20 @@ func (p *peer) PubKey() [33]byte {
 
 // TODO(roasbeef): make all start/stop mutexes a CAS
 
-// createGetLastUpdate returns the handler which serve as a source of the last
-// update of the channel in a form of lnwire update message.
-func createGetLastUpdate(router *routing.ChannelRouter,
-	pubKey [33]byte, chanID lnwire.ShortChannelID) func() (*lnwire.ChannelUpdate,
-	error) {
+// fetchLastChanUpdate returns a function which is able to retrieve the last
+// channel update for a target channel.
+func fetchLastChanUpdate(router *routing.ChannelRouter,
+	pubKey [33]byte) func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
 
-	return func() (*lnwire.ChannelUpdate, error) {
-		info, edge1, edge2, err := router.GetChannelByID(chanID)
+	return func(cid lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
+		info, edge1, edge2, err := router.GetChannelByID(cid)
 		if err != nil {
 			return nil, err
 		}
 
 		if edge1 == nil || edge2 == nil {
 			return nil, errors.Errorf("unable to find "+
-				"channel by ShortChannelID(%v)", chanID)
+				"channel by ShortChannelID(%v)", cid)
 		}
 
 		// If we're the outgoing node on the first edge, then that
@@ -1914,7 +1934,7 @@ func createGetLastUpdate(router *routing.ChannelRouter,
 			local = edge1
 		}
 
-		update := &lnwire.ChannelUpdate{
+		update := lnwire.ChannelUpdate{
 			ChainHash:       info.ChainHash,
 			ShortChannelID:  lnwire.NewShortChanIDFromInt(local.ChannelID),
 			Timestamp:       uint32(local.LastUpdate.Unix()),
@@ -1929,9 +1949,12 @@ func createGetLastUpdate(router *routing.ChannelRouter,
 			return nil, err
 		}
 
-		hswcLog.Debugf("Sending latest channel_update: %v",
-			spew.Sdump(update))
+		hswcLog.Tracef("Sending latest channel_update: %v",
+			newLogClosure(func() string {
+				return spew.Sdump(update)
+			}),
+		)
 
-		return update, nil
+		return &update, nil
 	}
 }

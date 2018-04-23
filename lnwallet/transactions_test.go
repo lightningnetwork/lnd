@@ -188,7 +188,7 @@ func newTestContext() (tc *testContext, err error) {
 		return
 	}
 
-	const fundingChangeAddressStr = "tb1q8j3nctjygm62xp0j8jqdlzk34lw0v5hes3jhvy"
+	const fundingChangeAddressStr = "bcrt1qgyeqfmptyh780dsk32qawsvdffc2g5q5sxamg0"
 	tc.fundingChangeAddress, err = btcutil.DecodeAddress(
 		fundingChangeAddressStr, tc.netParams)
 	if err != nil {

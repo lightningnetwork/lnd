@@ -1488,9 +1488,8 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 		err := fmt.Errorf("Unable to find signed reservation for "+
 			"chan_id=%x", fmsg.msg.ChanID)
 		fndgLog.Warnf(err.Error())
-		// TODO: add ErrChanNotFound?
 		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
-			pendingChanID, err)
+			fmsg.msg.ChanID, err)
 		return
 	}
 

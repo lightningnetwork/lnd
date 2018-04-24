@@ -5774,6 +5774,120 @@ func testNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 }
 
+// testNodeAnnouncementOnStartup tests that node announcements are only
+// broadcast if there has been a change since the last node announcement.
+func testNodeAnnouncementOnStartup(net *lntest.NetworkHarness, t *harnessTest) {
+	ctxb := context.Background()
+	timeout := time.Duration(15 * time.Second)
+
+	// Subscribe to Alice's graph for updates. This will be used later to
+	// retrieve node announcement updates.
+	aliceUpdates, aQuit := subscribeGraphNotifications(t, ctxb, net.Alice)
+	defer close(aQuit)
+
+	// waitForAddrInUpdate is a helper closure that receives node
+	// announcement updates and checks that the target address is found
+	// within one of them.
+	waitForAddrInUpdate := func(graphUpdates chan *lnrpc.GraphTopologyUpdate,
+		nodePubKey string, targetAddr string) {
+	out:
+		for {
+			select {
+			case graphUpdate := <-graphUpdates:
+				for _, update := range graphUpdate.NodeUpdates {
+					if update.IdentityKey == nodePubKey {
+						for _, addr := range update.Addresses {
+							if addr == targetAddr {
+								break out
+							}
+						}
+					}
+				}
+			case <-time.After(20 * time.Second):
+				t.Fatalf("did not receive node ann update")
+			}
+		}
+	}
+
+	// This test will ensure that node announcements are only broadcast if
+	// there has been a change since the last node announcement. To achieve
+	// this, we'll create a new node that only advertises the address it's
+	// listening on. We will then restart the node, but this time we will
+	// advertise another address, 1.1.1.1:9735, which should trigger a
+	// node announcement update. Finally, we'll restart the node again to
+	// ensure another node announcement isn't sent.
+	//
+	// First, create Carol's node and open a channel between her and Alice.
+	// This is needed in order to propagate the node announcement from Carol
+	// to Alice.
+	carol, err := net.NewNode("Carol", nil)
+	if err != nil {
+		t.Fatalf("unable to create carol's node: %v", err)
+	}
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	if err := net.ConnectNodes(ctxt, net.Alice, carol); err != nil {
+		t.Fatalf("unable to connect bob to carol: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPoint := openChannelAndAssert(
+		ctxt, t, net, net.Alice, carol, 100000, 0, false,
+	)
+
+	// Drain the updates channel as we are not interested in retrieving any
+	// of them yet.
+out:
+	for {
+		select {
+		case <-aliceUpdates:
+		case <-time.After(20 * time.Second):
+			break out
+		}
+	}
+
+	// Now, we'll restart Carol's node and advertise the additional address.
+	externalIP := "1.1.1.1:9735"
+	extraArgs := []string{"--externalip=" + externalIP}
+	carol.SetExtraArgs(extraArgs)
+	if err := net.RestartNode(carol, nil); err != nil {
+		t.Fatalf("unable to restart carol's node: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	if err := net.EnsureConnected(ctxt, net.Alice, carol); err != nil {
+		t.Fatalf("unable to reconnect alice and carol: %v", err)
+	}
+
+	// Now, we'll wait for Alice to receive a new node announcement from
+	// Carol containing the additional address advertised above.
+	waitForAddrInUpdate(aliceUpdates, carol.PubKeyStr, externalIP)
+
+	// We'll restart Carol's node one last time to ensure that when she
+	// comes back up, a new node announcement isn't sent to Alice.
+	if err := net.RestartNode(carol, nil); err != nil {
+		t.Fatalf("unable to restart carol's node: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	if err := net.EnsureConnected(ctxt, net.Alice, carol); err != nil {
+		t.Fatalf("unable to reconnect alice and carol: %v", err)
+	}
+
+	select {
+	case <-aliceUpdates:
+		t.Fatalf("alice should not have received a new node " +
+			"ann from carol")
+	case <-time.After(time.Second):
+	}
+
+	// Close the channel and delete the node used throughout the test.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+
+	if err := net.ShutdownNode(carol); err != nil {
+		t.Fatalf("unable to shut down carol's node: %v", err)
+	}
+}
+
 func testNodeSignVerify(net *lntest.NetworkHarness, t *harnessTest) {
 	timeout := time.Duration(time.Second * 15)
 	ctxb := context.Background()
@@ -9318,6 +9432,10 @@ var testsCases = []*testCase{
 	{
 		name: "node announcement",
 		test: testNodeAnnouncement,
+	},
+	{
+		name: "node announcement on startup",
+		test: testNodeAnnouncementOnStartup,
 	},
 	{
 		name: "node sign verify",

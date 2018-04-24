@@ -135,7 +135,7 @@ sevennodes() {
   color "sleeping 5 to let containers start" && sleep 5
   color "sending alice's funds to nodes that need them"
   # give all the nodes that need funds funds
-  for i in {2,3,4,6,8}; do
+  for i in {2,3,4,6}; do
     address=$(newaddress ${nodenames[$i]})
     sendcoins ${nodenames[0]} $address 10000000
     genblocks 1

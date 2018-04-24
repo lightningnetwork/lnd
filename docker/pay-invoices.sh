@@ -35,7 +35,7 @@ if [[ -z $1 ]]; then
     let i=i+1
   done
 
-  echo "To transact, pick two numbers and concactenate them."
+  echo "To transact, pick two numbers and concatenate them."
   echo "example: for alice to pay bob, enter 01"
   read -p "Pick nodes to transact: " t
   simpayment $t

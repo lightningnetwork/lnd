@@ -4,7 +4,7 @@ export NETWORK="simnet"
 topologies=(
 "twonodes"
 "threenodes"
-"ninenodes"
+"sevennodes"
 )
 
 nodenames=(
@@ -15,8 +15,6 @@ nodenames=(
 "emily"
 "frank"
 "gina"
-"heather"
-"irene"
 )
 
 # generate blocks, arg is number of blocks
@@ -48,30 +46,30 @@ openchannel() {
   docker exec -t $1 lncli openchannel --node_key=$2 --local_amt=$3
 }
 color() {
-  echo -e "\e[36m$1\e[0m"
+  echo -e "\e[36m$1\e[0m\n"
 }
 
 
 # cleanup old stuff
 cleanup() {
-  color "Attempting to remove all previous containers\n"
-  docker stop btcd
+  color "Attempting to remove all previous containers"
+  docker stop -t 0 btcd
   for node in ${nodenames[@]}; do
-    docker stop $node
+    docker stop -t 0 $node
   done
-  color "Removing all containers and volumes, respond with Y at the next two prompts\n"
+  color "Removing all containers and volumes, respond with Y at the next two prompts"
   docker container prune
   docker volume prune
 }
 
 twonodes() {
-  color "Creating this configuration: [Alice]->[Bob]"
   cleanup
+  color "Creating this configuration: [Alice]->[Bob]"
   i=0; while [ $i -lt 2 ]; do
     docker-compose run -d --name ${nodenames[$i]} lnd_btc
     let i=i+1
   done
-  color "sleeping to let container start" && sleep 5
+  color "sleeping 5 to let containers start" && sleep 5
   address=$(newaddress ${nodenames[0]})
 
   # bring up btcd and give alice some coins
@@ -88,7 +86,7 @@ twonodes() {
   connectnode ${nodenames[0]} $secondpubkey $secondip
   openchannel ${nodenames[0]} $secondpubkey 1000000
 
-  genblocks 6
+  genblocks 10
   color "Completed, ${nodenames[0]} opened a channel to ${nodenames[1]} for 1,000,000 satoshis and the channel is now active."
 }
 
@@ -117,22 +115,25 @@ threenodes() {
   color "Completed, ${nodenames[1]} opened a channel to ${nodenames[2]} for 1,000,000 satoshis and the channel is now active."
 }
 
-ninenodes() {
+sevennodes() {
   threenodes
-  color '''Creating this configuration: \n
+  color '''Creating this configuration:
+
 [Alice]->[Bob]->[Charlie]
-   V ^`-._______-^  V
+   V ^--._______-^  V
 [Derek]-`[Emily]  [Frank]
-      .-`^    ^`-.__
-[Gina]  [Heather] [Irene]
-(see: https://i.imgur.com/kdvru7h.png)
+           ^
+         [Gina]
+
+(see: https://i.imgur.com/PwRux76.png)
 '''
-  i=3; while [ $i -lt 9 ]; do
+  i=3; while [ $i -lt 7 ]; do
     docker-compose run -d --name ${nodenames[$i]} lnd_btc
     let i=i+1
   done
 
-  color "sleeping to let containers start" && sleep 5
+  color "sleeping 5 to let containers start" && sleep 5
+  color "sending alice's funds to nodes that need them"
   # give all the nodes that need funds funds
   for i in {2,3,4,6,8}; do
     address=$(newaddress ${nodenames[$i]})
@@ -153,32 +154,32 @@ ninenodes() {
   color "connecting ${nodenames[0]} and ${nodenames[3]}"
   connectnode ${nodenames[0]} $fourthpubkey $fourthip
   openchannel ${nodenames[0]} $fourthpubkey 1000000
-  genblocks 1
+  genblocks 6
   # connect charlie and frank
   color "connecting ${nodenames[2]} and ${nodenames[5]}"
   connectnode ${nodenames[2]} $sixthpubkey $sixthip
   openchannel ${nodenames[2]} $sixthpubkey 1000000
-  genblocks 1
+  genblocks 6
   # connect derek and charlie
   color "connecting ${nodenames[3]} and ${nodenames[2]}"
   connectnode ${nodenames[3]} $thirdpubkey $thirdip
   openchannel ${nodenames[3]} $thirdpubkey 1000000
-  genblocks 1
+  genblocks 6
   # connect emily and alice
   color "connecting ${nodenames[4]} and ${nodenames[0]}"
   connectnode ${nodenames[4]} $firstpubkey $firstip
   openchannel ${nodenames[4]} $firstpubkey 1000000
-  genblocks 1
+  genblocks 6
   # connect gina and emily
   color "connecting ${nodenames[6]} and ${nodenames[4]}"
   connectnode ${nodenames[6]} $fifthpubkey $fifthip
   openchannel ${nodenames[6]} $fifthpubkey 1000000
-  genblocks 1
-  # connect irene and emily
-  color "connecting ${nodenames[8]} and ${nodenames[4]}"
-  connectnode ${nodenames[8]} $fifthpubkey $fifthip
-  openchannel ${nodenames[8]} $fifthpubkey 1000000
   genblocks 6
+  # connect irene and emily
+  # color "connecting ${nodenames[8]} and ${nodenames[4]}"
+  # connectnode ${nodenames[8]} $fifthpubkey $fifthip
+  # openchannel ${nodenames[8]} $fifthpubkey 1000000
+  genblocks 10
 
   color "Completed, configuration is now complex with 9 nodes."
 }

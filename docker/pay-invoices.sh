@@ -8,8 +8,6 @@ nodenames=(
 "emily"
 "frank"
 "gina"
-"heather"
-"irene"
 )
 
 # generate an invoice, takes node name and amt

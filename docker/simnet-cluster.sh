@@ -121,14 +121,15 @@ sevennodes() {
   threenodes
   color '''Creating this configuration:
 
-[${nodenames[0]}]->[${nodenames[1]}]->[${nodenames[2]}]
+[Alice]->[Bob]->[Charlie]
    V ^--._______-^  V
-[${nodenames[3]}]-`[${nodenames[4]}]  [${nodenames[5]}]
+[Derek]-`[Emily]  [Frank]
            ^
-         [${nodenames[6]}]
+         [Gina]
 
 (see: https://i.imgur.com/PwRux76.png)
 '''
+
   i=3; while [ $i -lt 7 ]; do
     docker-compose run -d --name ${nodenames[$i]} lnd_btc
     let i=i+1

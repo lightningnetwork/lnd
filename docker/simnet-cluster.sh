@@ -179,7 +179,7 @@ sevennodes() {
   openchannel ${nodenames[6]} $fifthpubkey 1000000
   genblocks 10
 
-  color "Completed, configuration is now complex with 9 nodes."
+  color "Completed, configuration is now complex with 7 nodes."
 }
 
 if [[ -z $1 ]]; then

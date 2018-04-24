@@ -1819,12 +1819,14 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 				continue
 
 			// If the next hop in the route wasn't known or
-			// offline, we'll prune the _next_ hop from the set of
-			// routes and retry.
+			// offline, we'll only the channel which we attempted
+			// to route over. This is conservative, and it can
+			// handle faulty channels between nodes properly.
+			// Additionally, this guards against routing nodes
+			// returning errors in order to attempt to black list
+			// another node.
 			case *lnwire.FailUnknownNextPeer:
-				pruneVertexFailure(
-					paySession, route, errSource, true,
-				)
+				pruneEdgeFailure(paySession, route, errSource)
 				continue
 
 			// If the node wasn't able to forward for which ever

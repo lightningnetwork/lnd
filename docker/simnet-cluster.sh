@@ -64,7 +64,11 @@ cleanup() {
 
 twonodes() {
   cleanup
-  color "Creating this configuration: [${nodenames[0]}]->[${nodenames[1]}]"
+  color '''Creating this configuration:
+  +-------+     +-------+
+  | Alice +---->+  Bob  |
+  +-------+     +-------+
+'''
   i=0; while [ $i -lt 2 ]; do
     docker-compose run -d --name ${nodenames[$i]} lnd_btc
     let i=i+1
@@ -93,7 +97,11 @@ twonodes() {
 threenodes() {
   # initialize two node setup
   twonodes
-  color "Creating this configuration: [${nodenames[0]}]->[${nodenames[1]}]->[${nodenames[2]}]"
+  color '''Creating this configuration:
++-------+     +-------+     +-------+
+| Alice +---->+  Bob  +---->+Charlie|
++-------+     +-------+     +-------+
+'''
   # get a new address for second node
   address=$(newaddress ${nodenames[1]})
   # send coins from first to second node
@@ -120,12 +128,25 @@ threenodes() {
 sevennodes() {
   threenodes
   color '''Creating this configuration:
-
-[Alice]->[Bob]->[Charlie]
-   V ^--._______-^  V
-[Derek]-`[Emily]  [Frank]
-           ^
-         [Gina]
+  +-------+     +-------+     +-------+
+  | Alice +---->+  Bob  +---->+Charlie|
+  +-+----++     +-------+     ++--+---+
+    |    ^                     ^  |
+    |    +--------+            |  |
+    |     +--------------------+  |
+    |     |       |               |
+    V     |       |               V
+  +-------+     +-+-----+     +-------+
+  | Derek |     | Emily |     | Frank |
+  +-------+     +---+---+     +-------+
+                    ^
+                    |
+                    |
+                    |
+                    |
+                +---+---+
+                | Gina  |
+                +-------+
 
 (see: https://i.imgur.com/PwRux76.png)
 '''

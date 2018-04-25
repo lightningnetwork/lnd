@@ -2854,14 +2854,24 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 	updateStream lnrpc.Lightning_SubscribeInvoicesServer) error {
 
-	invoiceClient := r.server.invoices.SubscribeNotifications()
+	invoiceClient := r.server.invoices.SubscribeNotifications(
+		req.AddIndex, req.SettleIndex,
+	)
 	defer invoiceClient.Cancel()
 
 	for {
 		select {
-		// TODO(roasbeef): include newly added invoices?
-		case settledInvoice := <-invoiceClient.SettledInvoices:
+		case newInvoice := <-invoiceClient.NewInvoices:
+			rpcInvoice, err := createRPCInvoice(newInvoice)
+			if err != nil {
+				return err
+			}
 
+			if err := updateStream.Send(rpcInvoice); err != nil {
+				return err
+			}
+
+		case settledInvoice := <-invoiceClient.SettledInvoices:
 			rpcInvoice, err := createRPCInvoice(settledInvoice)
 			if err != nil {
 				return err

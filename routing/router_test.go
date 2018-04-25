@@ -607,20 +607,34 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 		return preImage, nil
 	}
 
-	// The final error returned should also indicate that the peer wasn't
-	// online (the last error we returned).
-	_, _, err = ctx.router.SendPayment(&payment)
-	if err == nil {
-		t.Fatalf("payment didn't return error")
+	// This shouldn't return an error, as we'll make a payment attempt via
+	// the satoshi channel based on the assumption that there might be an
+	// intermittent issue with the roasbeef <-> lioji channel.
+	paymentPreImage, route, err := ctx.router.SendPayment(&payment)
+	if err != nil {
+		t.Fatalf("unable send payment: %v", err)
 	}
-	if !strings.Contains(err.Error(), "UnknownNextPeer") {
-		t.Fatalf("expected UnknownNextPeer instead got: %v", err)
+
+	// This path should go: roasbeef -> satoshi -> luoji
+	if len(route.Hops) != 2 {
+		t.Fatalf("incorrect route length: expected %v got %v", 2,
+			len(route.Hops))
+	}
+	if !bytes.Equal(paymentPreImage[:], preImage[:]) {
+		t.Fatalf("incorrect preimage used: expected %x got %x",
+			preImage[:], paymentPreImage[:])
+	}
+	if route.Hops[0].Channel.Node.Alias != "satoshi" {
+		t.Fatalf("route should go through satoshi as first hop, "+
+			"instead passes through: %v",
+			route.Hops[0].Channel.Node.Alias)
 	}
 
 	ctx.router.missionControl.ResetHistory()
 
 	// Finally, we'll modify the SendToSwitch function to indicate that the
-	// roasbeef -> luoji channel has insufficient capacity.
+	// roasbeef -> luoji channel has insufficient capacity. This should
+	// again cause us to instead go via the satoshi route.
 	ctx.router.cfg.SendToSwitch = func(n [33]byte,
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 		if bytes.Equal(ctx.aliases["luoji"].SerializeCompressed(), n[:]) {
@@ -635,7 +649,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 		return preImage, nil
 	}
 
-	paymentPreImage, route, err := ctx.router.SendPayment(&payment)
+	paymentPreImage, route, err = ctx.router.SendPayment(&payment)
 	if err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}

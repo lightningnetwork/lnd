@@ -201,7 +201,8 @@ var m = fs.readFileSync('~/.lnd/admin.macaroon');
 var macaroon = m.toString('hex');
 
 // build meta data credentials
-var metadata = new grpc.Metadata().add('macaroon', macaroon)
+var metadata = new grpc.Metadata()
+metadata.add('macaroon', macaroon)
 var macaroonCreds = grpc.credentials.createFromMetadataGenerator((_args, callback) => {
   callback(null, metadata);
 });

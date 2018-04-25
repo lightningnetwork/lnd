@@ -3657,6 +3657,13 @@ func TestChannelLinkAcceptOverpay(t *testing.T) {
 		t.Fatalf("channel bandwidth incorrect: expected %v, got %v",
 			expectedCarolBandwidth, n.carolChannelLink.Bandwidth())
 	}
+
+	// Finally, we'll ensure that the amount we paid is properly reflected
+	// in the stored invoice.
+	if invoice.AmtPaid != amount {
+		t.Fatalf("expected amt paid to be %v, is instead %v", amount,
+			invoice.AmtPaid)
+	}
 }
 
 // chanRestoreFunc is a method signature for functions that can reload both

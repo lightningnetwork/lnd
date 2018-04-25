@@ -112,3 +112,99 @@ func migrateNodeAndEdgeUpdateIndex(tx *bolt.Tx) error {
 
 	return nil
 }
+
+// migrateInvoiceTimeSeries is a database migration that assigns all existing
+// invoices an index in the add and/or the settle index. Additionally, all
+// existing invoices will have their bytes padded out in order to encode the
+// add+settle index as well as the amount paid.
+func migrateInvoiceTimeSeries(tx *bolt.Tx) error {
+	invoices, err := tx.CreateBucketIfNotExists(invoiceBucket)
+	if err != nil {
+		return err
+	}
+
+	addIndex, err := invoices.CreateBucketIfNotExists(
+		addIndexBucket,
+	)
+	if err != nil {
+		return err
+	}
+	settleIndex, err := invoices.CreateBucketIfNotExists(
+		settleIndexBucket,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Now that we have all the buckets we need, we'll run through each
+	// invoice in the database, and update it to reflect the new format
+	// expected post migration.
+	return invoices.ForEach(func(invoiceNum, invoiceBytes []byte) error {
+		// First, we'll make a copy of the encoded invoice bytes.
+		invoiceBytesCopy := make([]byte, len(invoiceBytes))
+		copy(invoiceBytesCopy, invoiceBytes)
+
+		// With the bytes copied over, we'll append 24 additional
+		// bytes. We do this so we can decode the invoice under the new
+		// serialization format.
+		padding := bytes.Repeat([]byte{0}, 24)
+		invoiceBytesCopy = append(invoiceBytesCopy, padding...)
+
+		invoiceReader := bytes.NewReader(invoiceBytesCopy)
+		invoice, err := deserializeInvoice(invoiceReader)
+		if err != nil {
+			return err
+		}
+
+		// Now that we have the fully decoded invoice, we can update
+		// the various indexes that we're added, and finally the
+		// invoice itself before re-inserting it.
+
+		// First, we'll get the new sequence in the addIndex in order
+		// to create the proper mapping.
+		nextAddSeqNo, err := addIndex.NextSequence()
+		if err != nil {
+			return err
+		}
+		var seqNoBytes [8]byte
+		byteOrder.PutUint64(seqNoBytes[:], nextAddSeqNo)
+		err = addIndex.Put(seqNoBytes[:], invoiceNum[:])
+		if err != nil {
+			return err
+		}
+
+		// Next, we'll check if the invoice has been settled or not. If
+		// so, then we'll also add it to the settle index.
+		var nextSettleSeqNo uint64
+		if invoice.Terms.Settled {
+			nextSettleSeqNo, err = settleIndex.NextSequence()
+			if err != nil {
+				return err
+			}
+
+			var seqNoBytes [8]byte
+			byteOrder.PutUint64(seqNoBytes[:], nextSettleSeqNo)
+			err := settleIndex.Put(seqNoBytes[:], invoiceNum)
+			if err != nil {
+				return err
+			}
+
+			invoice.AmtPaid = invoice.Terms.Value
+		}
+
+		// Finally, we'll update the invoice itself with the new
+		// indexing information as well as the amount paid if it has
+		// been settled or not.
+		invoice.AddIndex = nextAddSeqNo
+		invoice.SettleIndex = nextSettleSeqNo
+
+		// We've fully migrated an invoice, so we'll now update the
+		// invoice in-place.
+		var b bytes.Buffer
+		if err := serializeInvoice(&b, &invoice); err != nil {
+			return err
+		}
+
+		return invoices.Put(invoiceNum, b.Bytes())
+	})
+}

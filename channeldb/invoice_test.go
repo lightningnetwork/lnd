@@ -82,15 +82,24 @@ func TestInvoiceWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to find invoice: %v", err)
 	}
-	if !reflect.DeepEqual(fakeInvoice, dbInvoice) {
+	if !reflect.DeepEqual(*fakeInvoice, dbInvoice) {
 		t.Fatalf("invoice fetched from db doesn't match original %v vs %v",
 			spew.Sdump(fakeInvoice), spew.Sdump(dbInvoice))
+	}
+
+	// The add index of the invoice retrieved from the database should now
+	// be fully populated. As this is the first index written to the DB,
+	// the addIndex should be 1.
+	if dbInvoice.AddIndex != 1 {
+		t.Fatalf("wrong add index: expected %v, got %v", 1,
+			dbInvoice.AddIndex)
 	}
 
 	// Settle the invoice, the version retrieved from the database should
 	// now have the settled bit toggle to true and a non-default
 	// SettledDate
-	if err := db.SettleInvoice(paymentHash); err != nil {
+	payAmt := fakeInvoice.Terms.Value * 2
+	if err := db.SettleInvoice(paymentHash, payAmt); err != nil {
 		t.Fatalf("unable to settle invoice: %v", err)
 	}
 	dbInvoice2, err := db.LookupInvoice(paymentHash)
@@ -100,9 +109,19 @@ func TestInvoiceWorkflow(t *testing.T) {
 	if !dbInvoice2.Terms.Settled {
 		t.Fatalf("invoice should now be settled but isn't")
 	}
-
 	if dbInvoice2.SettleDate.IsZero() {
 		t.Fatalf("invoice should have non-zero SettledDate but isn't")
+	}
+
+	// Our 2x payment should be reflected, and also the settle index of 1
+	// should also have been committed for this index.
+	if dbInvoice2.AmtPaid != payAmt {
+		t.Fatalf("wrong amt paid: expected %v, got %v", payAmt,
+			dbInvoice2.AmtPaid)
+	}
+	if dbInvoice2.SettleIndex != 1 {
+		t.Fatalf("wrong settle index: expected %v, got %v", 1,
+			dbInvoice2.SettleIndex)
 	}
 
 	// Attempt to insert generated above again, this should fail as
@@ -119,11 +138,11 @@ func TestInvoiceWorkflow(t *testing.T) {
 		t.Fatalf("lookup should have failed, instead %v", err)
 	}
 
-	// Add 100 random invoices.
+	// Add 10 random invoices.
 	const numInvoices = 10
 	amt := lnwire.NewMSatFromSatoshis(1000)
 	invoices := make([]*Invoice, numInvoices+1)
-	invoices[0] = dbInvoice2
+	invoices[0] = &dbInvoice2
 	for i := 1; i < len(invoices)-1; i++ {
 		invoice, err := randInvoice(amt)
 		if err != nil {
@@ -148,7 +167,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 	// order (and the primary key should be incremented with each
 	// insertion).
 	for i := 0; i < len(invoices)-1; i++ {
-		if !reflect.DeepEqual(invoices[i], dbInvoices[i]) {
+		if !reflect.DeepEqual(*invoices[i], dbInvoices[i]) {
 			t.Fatalf("retrieved invoices don't match %v vs %v",
 				spew.Sdump(invoices[i]),
 				spew.Sdump(dbInvoices[i]))

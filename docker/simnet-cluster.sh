@@ -1,4 +1,12 @@
 #!/bin/bash
+
+###
+### simnet-cluster.sh
+### Create a simnet cluster using Docker Compose
+### Usage: ./simnet-cluster.sh
+### Alternatively: ./simnet-cluster.sh [topology]
+###
+
 export NETWORK="simnet"
 
 topologies=(

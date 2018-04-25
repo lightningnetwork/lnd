@@ -1,5 +1,12 @@
 #!/bin/bash
 
+###
+### pay-invoices
+### Simulate payments beteen nodes spun up via simnet-cluster.sh
+### Usage: ./pay-invoices.sh
+### Alternatively: ./pay-invoices.sh [payment scenario]
+###
+
 nodenames=(
 "alice"
 "bob"

@@ -177,7 +177,7 @@ func deserializeOutgoingPayment(r io.Reader) (*OutgoingPayment, error) {
 	if err != nil {
 		return nil, err
 	}
-	p.Invoice = *inv
+	p.Invoice = inv
 
 	if _, err := r.Read(scratch[:]); err != nil {
 		return nil, err

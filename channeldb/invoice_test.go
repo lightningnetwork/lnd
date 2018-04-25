@@ -174,3 +174,143 @@ func TestInvoiceWorkflow(t *testing.T) {
 		}
 	}
 }
+
+// TestInvoiceTimeSeries tests that newly added invoices invoices, as well as
+// settled invoices are added to the database are properly placed in the add
+// add or settle index which serves as an event time series.
+func TestInvoiceAddTimeSeries(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test db: %v", err)
+	}
+
+	// We'll start off by creating 20 random invoices, and inserting them
+	// into the database.
+	const numInvoices = 20
+	amt := lnwire.NewMSatFromSatoshis(1000)
+	invoices := make([]Invoice, numInvoices)
+	for i := 0; i < len(invoices); i++ {
+		invoice, err := randInvoice(amt)
+		if err != nil {
+			t.Fatalf("unable to create invoice: %v", err)
+		}
+
+		if err := db.AddInvoice(invoice); err != nil {
+			t.Fatalf("unable to add invoice %v", err)
+		}
+
+		invoices[i] = *invoice
+	}
+
+	// With the invoices constructed, we'll now create a series of queries
+	// that we'll use to assert expected return values of
+	// InvoicesAddedSince.
+	addQueries := []struct {
+		sinceAddIndex uint64
+
+		resp []Invoice
+	}{
+		// If we specify a value of zero, we shouldn't get any invoices
+		// back.
+		{
+			sinceAddIndex: 0,
+		},
+
+		// If we specify a value well beyond the number of inserted
+		// invoices, we shouldn't get any invoices back.
+		{
+			sinceAddIndex: 99999999,
+		},
+
+		// Using an index of 1 should result in all values, but the
+		// first one being returned.
+		{
+			sinceAddIndex: 1,
+			resp:          invoices[1:],
+		},
+
+		// If we use an index of 10, then we should retrieve the
+		// reaming 10 invoices.
+		{
+			sinceAddIndex: 10,
+			resp:          invoices[10:],
+		},
+	}
+
+	for i, query := range addQueries {
+		resp, err := db.InvoicesAddedSince(query.sinceAddIndex)
+		if err != nil {
+			t.Fatalf("unable to query: %v", err)
+		}
+
+		if !reflect.DeepEqual(query.resp, resp) {
+			t.Fatalf("test #%v: expected %v, got %v", i,
+				spew.Sdump(query.resp), spew.Sdump(resp))
+		}
+	}
+
+	// We'll now only settle the latter half of each of those invoices.
+	for i := 10; i < len(invoices); i++ {
+		invoice := &invoices[i]
+
+		paymentHash := sha256.Sum256(
+			invoice.Terms.PaymentPreimage[:],
+		)
+
+		err := db.SettleInvoice(paymentHash, 0)
+		if err != nil {
+			t.Fatalf("unable to settle invoice: %v", err)
+		}
+	}
+
+	invoices, err = db.FetchAllInvoices(false)
+	if err != nil {
+		t.Fatalf("unable to fetch invoices: %v", err)
+	}
+
+	// We'll slice off the first 10 invoices, as we only settled the last
+	// 10.
+	invoices = invoices[10:]
+
+	// We'll now prepare an additional set of queries to ensure the settle
+	// time series has properly been maintained in the database.
+	settleQueries := []struct {
+		sinceSettleIndex uint64
+
+		resp []Invoice
+	}{
+		// If we specify a value of zero, we shouldn't get any settled
+		// invoices back.
+		{
+			sinceSettleIndex: 0,
+		},
+
+		// If we specify a value well beyond the number of settled
+		// invoices, we shouldn't get any invoices back.
+		{
+			sinceSettleIndex: 99999999,
+		},
+
+		// Using an index of 1 should result in the final 10 invoices
+		// being returned, as we only settled those.
+		{
+			sinceSettleIndex: 1,
+			resp:             invoices[1:],
+		},
+	}
+
+	for i, query := range settleQueries {
+		resp, err := db.InvoicesSettledSince(query.sinceSettleIndex)
+		if err != nil {
+			t.Fatalf("unable to query: %v", err)
+		}
+
+		if !reflect.DeepEqual(query.resp, resp) {
+			t.Fatalf("test #%v: expected %v, got %v", i,
+				spew.Sdump(query.resp), spew.Sdump(resp))
+		}
+	}
+}

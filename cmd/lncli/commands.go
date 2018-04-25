@@ -1357,23 +1357,8 @@ func getInfo(ctx *cli.Context) error {
 }
 
 var pendingChannelsCommand = cli.Command{
-	Name:  "pendingchannels",
-	Usage: "Display information pertaining to pending channels",
-	Flags: []cli.Flag{
-		cli.BoolFlag{
-			Name:  "open, o",
-			Usage: "display the status of new pending channels",
-		},
-		cli.BoolFlag{
-			Name:  "close, c",
-			Usage: "display the status of channels being closed",
-		},
-		cli.BoolFlag{
-			Name: "all, a",
-			Usage: "display the status of channels in the " +
-				"process of being opened or closed",
-		},
-	},
+	Name:   "pendingchannels",
+	Usage:  "Display information pertaining to pending channels",
 	Action: actionDecorator(pendingChannels),
 }
 

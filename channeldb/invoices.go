@@ -237,7 +237,72 @@ func (d *DB) AddInvoice(newInvoice *Invoice) error {
 
 	return err
 }
+
+// InvoicesAddedSince can be used by callers to seek into the event time series
+// of all the invoices added in the database. The specified sinceAddIndex
+// should be the highest add index that the caller knows of. This method will
+// return all invoices with an add index greater than the specified
+// sinceAddIndex.
+//
+// NOTE: The index starts from 1, as a result. We enforce that specifying a
+// value below the starting index value is a noop.
+func (d *DB) InvoicesAddedSince(sinceAddIndex uint64) ([]Invoice, error) {
+	var newInvoices []Invoice
+
+	// If an index of zero was specified, then in order to maintain
+	// backwards compat, we won't send out any new invoices.
+	if sinceAddIndex == 0 {
+		return newInvoices, nil
+	}
+
+	var startIndex [8]byte
+	byteOrder.PutUint64(startIndex[:], sinceAddIndex)
+
+	err := d.DB.View(func(tx *bolt.Tx) error {
+		invoices := tx.Bucket(invoiceBucket)
+		if invoices == nil {
+			return ErrNoInvoicesCreated
+		}
+
+		addIndex := invoices.Bucket(addIndexBucket)
+		if addIndex == nil {
+			return ErrNoInvoicesCreated
+		}
+
+		// We'll now run through each entry in the add index starting
+		// at our starting index. We'll continue until we reach the
+		// very end of the current key space.
+		invoiceCursor := addIndex.Cursor()
+
+		// We'll seek to the starting index, then manually advance the
+		// cursor in order to skip the entry with the since add index.
+		invoiceCursor.Seek(startIndex[:])
+		addSeqNo, invoiceKey := invoiceCursor.Next()
+
+		for ; addSeqNo != nil && bytes.Compare(addSeqNo, startIndex[:]) > 0; addSeqNo, invoiceKey = invoiceCursor.Next() {
+
+			// For each key found, we'll look up the actual
+			// invoice, then accumulate it into our return value.
+			invoice, err := fetchInvoice(invoiceKey, invoices)
+			if err != nil {
+				return err
+			}
+
+			newInvoices = append(newInvoices, invoice)
+		}
+
+		return nil
 	})
+	switch {
+	// If no invoices have been created, then we'll return the empty set of
+	// invoices.
+	case err == ErrNoInvoicesCreated:
+
+	case err != nil:
+		return nil, err
+	}
+
+	return newInvoices, nil
 }
 
 // LookupInvoice attempts to look up an invoice according to its 32 byte
@@ -361,6 +426,68 @@ func (d *DB) SettleInvoice(paymentHash [32]byte, amtPaid lnwire.MilliSatoshi) er
 	})
 }
 
+// InvoicesSettledSince can be used by callers to catch up any settled invoices
+// they missed within the settled invoice time series. We'll return all known
+// settled invoice that have a settle index higher than the passed
+// sinceSettleIndex.
+//
+// NOTE: The index starts from 1, as a result. We enforce that specifying a
+// value below the starting index value is a noop.
+func (d *DB) InvoicesSettledSince(sinceSettleIndex uint64) ([]Invoice, error) {
+	var settledInvoices []Invoice
+
+	// If an index of zero was specified, then in order to maintain
+	// backwards compat, we won't send out any new invoices.
+	if sinceSettleIndex == 0 {
+		return settledInvoices, nil
+	}
+
+	var startIndex [8]byte
+	byteOrder.PutUint64(startIndex[:], sinceSettleIndex)
+
+	err := d.DB.View(func(tx *bolt.Tx) error {
+		invoices := tx.Bucket(invoiceBucket)
+		if invoices == nil {
+			return ErrNoInvoicesCreated
+		}
+
+		settleIndex := invoices.Bucket(settleIndexBucket)
+		if settleIndex == nil {
+			return ErrNoInvoicesCreated
+		}
+
+		// We'll now run through each entry in the add index starting
+		// at our starting index. We'll continue until we reach the
+		// very end of the current key space.
+		invoiceCursor := settleIndex.Cursor()
+
+		// We'll seek to the starting index, then manually advance the
+		// cursor in order to skip the entry with the since add index.
+		invoiceCursor.Seek(startIndex[:])
+		seqNo, invoiceKey := invoiceCursor.Next()
+
+		for ; seqNo != nil && bytes.Compare(seqNo, startIndex[:]) > 0; seqNo, invoiceKey = invoiceCursor.Next() {
+
+			// For each key found, we'll look up the actual
+			// invoice, then accumulate it into our return value.
+			invoice, err := fetchInvoice(invoiceKey, invoices)
+			if err != nil {
+				return err
+			}
+
+			settledInvoices = append(settledInvoices, invoice)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return settledInvoices, nil
+}
+
+func putInvoice(invoices, invoiceIndex, addIndex *bolt.Bucket,
 	i *Invoice, invoiceNum uint32) error {
 
 	// Create the invoice key which is just the big-endian representation

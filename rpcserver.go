@@ -2737,6 +2737,9 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 		CltvExpiry:      cltvExpiry,
 		FallbackAddr:    fallbackAddr,
 		RouteHints:      routeHints,
+		AddIndex:        invoice.AddIndex,
+		SettleIndex:     invoice.SettleIndex,
+		AmtPaid:         int64(invoice.AmtPaid),
 	}, nil
 }
 
@@ -2833,7 +2836,7 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 	invoices := make([]*lnrpc.Invoice, len(dbInvoices))
 	for i, dbInvoice := range dbInvoices {
 
-		rpcInvoice, err := createRPCInvoice(dbInvoice)
+		rpcInvoice, err := createRPCInvoice(&dbInvoice)
 		if err != nil {
 			return nil, err
 		}
@@ -2867,6 +2870,7 @@ func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 			if err := updateStream.Send(rpcInvoice); err != nil {
 				return err
 			}
+
 		case <-r.quit:
 			return nil
 		}
@@ -2899,6 +2903,7 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 			if err := updateStream.Send(detail); err != nil {
 				return err
 			}
+
 		case tx := <-txClient.UnconfirmedTransactions():
 			detail := &lnrpc.Transaction{
 				TxHash:    tx.Hash.String(),
@@ -2909,6 +2914,7 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 			if err := updateStream.Send(detail); err != nil {
 				return err
 			}
+
 		case <-r.quit:
 			return nil
 		}

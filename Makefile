@@ -125,12 +125,12 @@ btcd: $(GLIDE_BIN) $(BTCD_DIR)
 
 build:
 	@$(call print, "Building lnd and lncli.")
-	$(GOBUILD) -o lnd $(LDFLAGS) $(PKG)
-	$(GOBUILD) -o lncli $(LDFLAGS) $(PKG)/cmd/lncli
+	$(GOBUILD) -o cmd/lnd/lnd $(LDFLAGS) $(PKG)/cmd/lnd
+	$(GOBUILD) -o cmd/lncli/lncli $(LDFLAGS) $(PKG)/cmd/lncli
 
 install:
 	@$(call print, "Installing lnd and lncli.")
-	go install -v $(LDFLAGS) $(PKG)
+	go install -v $(LDFLAGS) $(PKG)/cmd/lnd
 	go install -v $(LDFLAGS) $(PKG)/cmd/lncli
 
 scratch: dep build
@@ -215,7 +215,7 @@ rpc:
 
 clean:
 	@$(call print, "Cleaning source.$(NC)")
-	$(RM) ./lnd ./lncli
+	$(RM) ./cmd/lnd/lnd ./cmd/lncli/lncli
 	$(RM) -r ./vendor
 
 

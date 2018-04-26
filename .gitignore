@@ -24,9 +24,6 @@ _testmain.go
 *.test
 *.prof
 
-lnd
-lncli
-
 output*.log
 
 cmd/cmd

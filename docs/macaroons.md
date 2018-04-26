@@ -36,7 +36,8 @@ legitimate user.
 A macaroon is delegated by adding restrictions (called caveats) and an
 authentication code similar to a signature (technically an HMAC) to it. The
 technical method of doing this is outside the scope of this overview
-documentation, but the macaroon paper linked above describes it quite well. The
+documentation, but the [README in the macaroons package](../macaroons/README.md)
+or the macaroon paper linked above describe it in more detail. The
 user must remember several things:
 
 * Sharing a macaroon allows anyone in possession of that macaroon to use it to

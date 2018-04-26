@@ -791,8 +791,9 @@ func genCertPair(certFile, keyFile string) error {
 	return nil
 }
 
-// genMacaroons generates a pair of macaroon files; one admin-level and one
-// read-only. These can also be used to generate more granular macaroons.
+// genMacaroons generates three macaroon files; one admin-level, one
+// for invoice access and one read-only. These can also be used
+// to generate more granular macaroons.
 func genMacaroons(ctx context.Context, svc *macaroons.Service,
 	admFile, roFile, invoiceFile string) error {
 

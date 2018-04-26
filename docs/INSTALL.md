@@ -33,7 +33,7 @@
     
     Set $GOPATH:
     ```bash
-    export GOPATH=~/gocode
+    export GOPATH=~/go
     export PATH=$PATH:$GOPATH/bin
     ```
     On both Linux and macOS you should set your `$GOPATH` environment variable, which

@@ -832,7 +832,7 @@ out:
 		// the contract as fully settled. Afterwards we can exit.
 		//
 		// TODO(roasbeef): add force closure? also breach?
-		case <-l.cfg.ChainEvents.UnilateralClosure:
+		case <-l.cfg.ChainEvents.RemoteUnilateralClosure:
 			log.Warnf("Remote peer has closed ChannelPoint(%v) on-chain",
 				l.channel.ChannelPoint())
 

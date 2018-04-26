@@ -231,14 +231,9 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 
 			return chanMachine.ForceClose()
 		},
-		CloseChannel: func(summary *channeldb.ChannelCloseSummary) error {
-			log.Tracef("ChannelArbitrator(%v): closing "+
-				"channel", chanPoint)
-
-			return channel.CloseChannel(summary)
-		},
-		ChainArbitratorConfig: c.cfg,
-		ChainEvents:           chanEvents,
+		MarkCommitmentBroadcasted: channel.MarkCommitmentBroadcasted,
+		ChainArbitratorConfig:     c.cfg,
+		ChainEvents:               chanEvents,
 	}
 
 	// The final component needed is an arbitrator log that the arbitrator

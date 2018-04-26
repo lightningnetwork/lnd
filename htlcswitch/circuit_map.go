@@ -350,16 +350,12 @@ func (cm *circuitMap) decodeCircuit(v []byte) (*PaymentCircuit, error) {
 // channels. Therefore, it must be called before any links are created to avoid
 // interfering with normal operation.
 func (cm *circuitMap) trimAllOpenCircuits() error {
-	activeChannels, err := cm.cfg.DB.FetchAllChannels()
+	activeChannels, err := cm.cfg.DB.FetchAllOpenChannels()
 	if err != nil {
 		return err
 	}
 
 	for _, activeChannel := range activeChannels {
-		if activeChannel.IsPending {
-			continue
-		}
-
 		chanID := activeChannel.ShortChanID
 		start := activeChannel.LocalCommitment.LocalHtlcIndex
 		if err := cm.TrimOpenCircuits(chanID, start); err != nil {

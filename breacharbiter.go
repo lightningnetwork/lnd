@@ -696,6 +696,22 @@ func (b *breachArbiter) breachObserver(
 	brarLog.Debugf("Breach observer for ChannelPoint(%v) started ",
 		chanPoint)
 
+	gracefullyExit := func() {
+		// Launch a goroutine to cancel out this contract within the
+		// breachArbiter's main goroutine.
+		b.wg.Add(1)
+		go func() {
+			defer b.wg.Done()
+
+			select {
+			case b.settledContracts <- chanPoint:
+			case <-b.quit:
+			}
+		}()
+
+		b.cfg.CloseLink(&chanPoint, htlcswitch.CloseBreach)
+	}
+
 	select {
 	// A read from this channel indicates that the contract has been
 	// settled cooperatively so we exit as our duties are no longer needed.
@@ -704,36 +720,14 @@ func (b *breachArbiter) breachObserver(
 
 	// The channel has been closed cooperatively, so we're done here.
 	case <-chainEvents.CooperativeClosure:
-		// Launch a goroutine to cancel out this contract within the
-		// breachArbiter's main goroutine.
-		b.wg.Add(1)
-		go func() {
-			defer b.wg.Done()
-
-			select {
-			case b.settledContracts <- chanPoint:
-			case <-b.quit:
-			}
-		}()
-
-		b.cfg.CloseLink(&chanPoint, htlcswitch.CloseBreach)
+		gracefullyExit()
 
 	// The channel has been closed by a normal means: force closing with
 	// the latest commitment transaction.
-	case <-chainEvents.UnilateralClosure:
-		// Launch a goroutine to cancel out this contract within the
-		// breachArbiter's main goroutine.
-		b.wg.Add(1)
-		go func() {
-			defer b.wg.Done()
-
-			select {
-			case b.settledContracts <- chanPoint:
-			case <-b.quit:
-			}
-		}()
-
-		b.cfg.CloseLink(&chanPoint, htlcswitch.CloseBreach)
+	case <-chainEvents.LocalUnilateralClosure:
+		gracefullyExit()
+	case <-chainEvents.RemoteUnilateralClosure:
+		gracefullyExit()
 
 	// A read from this channel indicates that a channel breach has been
 	// detected! So we notify the main coordination goroutine with the

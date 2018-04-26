@@ -1513,16 +1513,12 @@ func (s *Switch) Start() error {
 // forwarding packages and reforwards any Settle or Fail HTLCs found. This is
 // used to resurrect the switch's mailboxes after a restart.
 func (s *Switch) reforwardResponses() error {
-	activeChannels, err := s.cfg.DB.FetchAllChannels()
+	activeChannels, err := s.cfg.DB.FetchAllOpenChannels()
 	if err != nil {
 		return err
 	}
 
 	for _, activeChannel := range activeChannels {
-		if activeChannel.IsPending {
-			continue
-		}
-
 		shortChanID := activeChannel.ShortChanID
 		fwdPkgs, err := s.loadChannelFwdPkgs(shortChanID)
 		if err != nil {

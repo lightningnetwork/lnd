@@ -16,6 +16,13 @@ import (
 	"github.com/roasbeef/btcutil"
 )
 
+// LocalUnilateralCloseInfo encapsulates all the informnation we need to act
+// on a local force close that gets confirmed.
+type LocalUnilateralCloseInfo struct {
+	*chainntnfs.SpendDetail
+	*lnwallet.LocalForceCloseSummary
+}
+
 // ChainEventSubscription is a struct that houses a subscription to be notified
 // for any on-chain events related to a channel. There are three types of
 // possible on-chain events: a cooperative channel closure, a unilateral
@@ -25,13 +32,16 @@ type ChainEventSubscription struct {
 	// ChanPoint is that channel that chain events will be dispatched for.
 	ChanPoint wire.OutPoint
 
-	// UnilateralClosure is a channel that will be sent upon in the event that
-	// the remote party broadcasts their latest version of the commitment
-	// transaction.
-	UnilateralClosure chan *lnwallet.UnilateralCloseSummary
+	// RemoteUnilateralClosure is a channel that will be sent upon in the
+	// event that the remote party's commitment transaction is confirmed.
+	RemoteUnilateralClosure chan *lnwallet.UnilateralCloseSummary
 
-	// CooperativeClosure is a signal that will be sent upon once a cooperative
-	// channel closure has been detected.
+	// LocalUnilateralClosure is a channel that will be sent upon in the
+	// event that our commitment transaction is confirmed.
+	LocalUnilateralClosure chan *LocalUnilateralCloseInfo
+
+	// CooperativeClosure is a signal that will be sent upon once a
+	// cooperative channel closure has been detected confirmed.
 	//
 	// TODO(roasbeef): or something else
 	CooperativeClosure chan struct{}
@@ -180,7 +190,7 @@ func (c *chainWatcher) Start() error {
 	}
 
 	spendNtfn, err := c.notifier.RegisterSpendNtfn(
-		fundingOut, heightHint, true,
+		fundingOut, heightHint, false,
 	)
 	if err != nil {
 		return err
@@ -226,10 +236,11 @@ func (c *chainWatcher) SubscribeChannelEvents(syncDispatch bool) *ChainEventSubs
 		clientID, c.chanState.FundingOutpoint)
 
 	sub := &ChainEventSubscription{
-		ChanPoint:          c.chanState.FundingOutpoint,
-		UnilateralClosure:  make(chan *lnwallet.UnilateralCloseSummary, 1),
-		CooperativeClosure: make(chan struct{}, 1),
-		ContractBreach:     make(chan *lnwallet.BreachRetribution, 1),
+		ChanPoint:               c.chanState.FundingOutpoint,
+		RemoteUnilateralClosure: make(chan *lnwallet.UnilateralCloseSummary, 1),
+		LocalUnilateralClosure:  make(chan *LocalUnilateralCloseInfo, 1),
+		CooperativeClosure:      make(chan struct{}, 1),
+		ContractBreach:          make(chan *lnwallet.BreachRetribution, 1),
 		Cancel: func() {
 			c.Lock()
 			delete(c.clientSubscriptions, clientID)
@@ -240,6 +251,30 @@ func (c *chainWatcher) SubscribeChannelEvents(syncDispatch bool) *ChainEventSubs
 
 	if syncDispatch {
 		sub.ProcessACK = make(chan error, 1)
+
+		// If this client is syncDispatch, we cannot safely delete it
+		// from our list of clients. This is because of a potential
+		// race at shutdown, where the client shuts down and calls
+		// Cancel(). In this case we must make sure the ChainWatcher
+		// doesn't think it has successfully handed off a contract
+		// breach to the client. We start a goroutine that will send an
+		// error on the ProcessACK channel until the ChainWatcher is
+		// shutdown.
+		sub.Cancel = func() {
+			c.wg.Add(1)
+			go func() {
+				defer c.wg.Done()
+
+				err := fmt.Errorf("cancelled")
+				for {
+					select {
+					case sub.ProcessACK <- err:
+					case <-c.quit:
+						return
+					}
+				}
+			}()
+		}
 	}
 
 	c.Lock()
@@ -307,6 +342,13 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 				&commitmentHash,
 			)
 			if isOurCommitment {
+				if err := c.dispatchLocalForceClose(
+					commitSpend, *localCommit,
+				); err != nil {
+					log.Errorf("unable to handle local"+
+						"close for chan_point=%v: %v",
+						c.chanState.FundingOutpoint, err)
+				}
 				return
 			}
 
@@ -349,7 +391,7 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 			// has a fail crash _after_ accepting the new state,
 			// but _before_ sending their signature to us.
 			case broadcastStateNum >= remoteStateNum:
-				if err := c.dispatchRemoteClose(
+				if err := c.dispatchRemoteForceClose(
 					commitSpend, *remoteCommit,
 				); err != nil {
 					log.Errorf("unable to handle remote "+
@@ -500,12 +542,77 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 
 }
 
-// dispatchRemoteClose processes a detected unilateral channel closure by the
+// dispatchLocalForceClose processes a unilateral close by us being confirmed.
+func (c *chainWatcher) dispatchLocalForceClose(
+	commitSpend *chainntnfs.SpendDetail,
+	localCommit channeldb.ChannelCommitment) error {
+
+	log.Infof("Local unilateral close of ChannelPoint(%v) "+
+		"detected", c.chanState.FundingOutpoint)
+
+	forceClose, err := lnwallet.NewLocalForceCloseSummary(
+		c.chanState, c.signer, c.pCache, commitSpend.SpendingTx,
+		localCommit,
+	)
+	if err != nil {
+		return err
+	}
+
+	// As we've detected that the channel has been closed, immediately
+	// delete the state from disk, creating a close summary for future
+	// usage by related sub-systems.
+	chanSnapshot := forceClose.ChanSnapshot
+	closeSummary := &channeldb.ChannelCloseSummary{
+		ChanPoint:   chanSnapshot.ChannelPoint,
+		ChainHash:   chanSnapshot.ChainHash,
+		ClosingTXID: forceClose.CloseTx.TxHash(),
+		RemotePub:   &chanSnapshot.RemoteIdentity,
+		Capacity:    chanSnapshot.Capacity,
+		CloseType:   channeldb.LocalForceClose,
+		IsPending:   true,
+		ShortChanID: c.chanState.ShortChanID,
+		CloseHeight: uint32(commitSpend.SpendingHeight),
+	}
+
+	// If our commitment output isn't dust or we have active HTLC's on the
+	// commitment transaction, then we'll populate the balances on the
+	// close channel summary.
+	if forceClose.CommitResolution != nil {
+		closeSummary.SettledBalance = chanSnapshot.LocalBalance.ToSatoshis()
+		closeSummary.TimeLockedBalance = chanSnapshot.LocalBalance.ToSatoshis()
+	}
+	for _, htlc := range forceClose.HtlcResolutions.OutgoingHTLCs {
+		htlcValue := btcutil.Amount(htlc.SweepSignDesc.Output.Value)
+		closeSummary.TimeLockedBalance += htlcValue
+	}
+	err = c.chanState.CloseChannel(closeSummary)
+	if err != nil {
+		return fmt.Errorf("unable to delete channel state: %v", err)
+	}
+
+	// With the event processed, we'll now notify all subscribers of the
+	// event.
+	closeInfo := &LocalUnilateralCloseInfo{commitSpend, forceClose}
+	c.Lock()
+	for _, sub := range c.clientSubscriptions {
+		select {
+		case sub.LocalUnilateralClosure <- closeInfo:
+		case <-c.quit:
+			c.Unlock()
+			return fmt.Errorf("exiting")
+		}
+	}
+	c.Unlock()
+
+	return nil
+}
+
+// dispatchRemoteForceClose processes a detected unilateral channel closure by the
 // remote party. This function will prepare a UnilateralCloseSummary which will
 // then be sent to any subscribers allowing them to resolve all our funds in
 // the channel on chain. Once this close summary is prepared, all registered
 // subscribers will receive a notification of this event.
-func (c *chainWatcher) dispatchRemoteClose(commitSpend *chainntnfs.SpendDetail,
+func (c *chainWatcher) dispatchRemoteForceClose(commitSpend *chainntnfs.SpendDetail,
 	remoteCommit channeldb.ChannelCommitment) error {
 
 	log.Infof("Unilateral close of ChannelPoint(%v) "+
@@ -538,7 +645,7 @@ func (c *chainWatcher) dispatchRemoteClose(commitSpend *chainntnfs.SpendDetail,
 		//  * get ACK from the consumer of the ntfn before writing to disk?
 		//  * no harm in repeated ntfns: at least once semantics
 		select {
-		case sub.UnilateralClosure <- uniClose:
+		case sub.RemoteUnilateralClosure <- uniClose:
 		case <-c.quit:
 			c.Unlock()
 			return fmt.Errorf("exiting")

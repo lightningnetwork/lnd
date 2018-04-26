@@ -1063,6 +1063,14 @@ message PendingChannelsResponse {
         int64 fee_per_kw = 6 [ json_name = "fee_per_kw" ];
     }
 
+    message WaitingCloseChannel {
+        /// The pending channel waiting for closing tx to confirm
+        PendingChannel channel = 1;
+
+        /// The balance in satoshis encumbered in this channel
+        int64 limbo_balance = 2 [ json_name = "limbo_balance" ];
+    }
+
     message ClosedChannel {
         /// The pending channel to be closed
         PendingChannel channel = 1;
@@ -1108,6 +1116,9 @@ message PendingChannelsResponse {
 
     /// Channels pending force closing
     repeated ForceClosedChannel pending_force_closing_channels =  4 [ json_name = "pending_force_closing_channels" ];
+
+    /// Channels waiting for closing tx to confirm
+    repeated WaitingCloseChannel waiting_close_channels = 5 [ json_name = "waiting_close_channels" ];
 }
 
 message WalletBalanceRequest {

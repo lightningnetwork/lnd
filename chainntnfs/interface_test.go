@@ -355,6 +355,32 @@ func createSpendTx(outpoint *wire.OutPoint, pkScript []byte,
 	return spendingTx
 }
 
+func checkNotificationFields(ntfn *chainntnfs.SpendDetail,
+	outpoint *wire.OutPoint, spenderSha *chainhash.Hash,
+	height int32, t *testing.T) {
+
+	if *ntfn.SpentOutPoint != *outpoint {
+		t.Fatalf("ntfn includes wrong output, reports "+
+			"%v instead of %v",
+			ntfn.SpentOutPoint, outpoint)
+	}
+	if !bytes.Equal(ntfn.SpenderTxHash[:], spenderSha[:]) {
+		t.Fatalf("ntfn includes wrong spender tx sha, "+
+			"reports %v instead of %v",
+			ntfn.SpenderTxHash[:], spenderSha[:])
+	}
+	if ntfn.SpenderInputIndex != 0 {
+		t.Fatalf("ntfn includes wrong spending input "+
+			"index, reports %v, should be %v",
+			ntfn.SpenderInputIndex, 0)
+	}
+	if ntfn.SpendingHeight != height {
+		t.Fatalf("ntfn has wrong spending height: "+
+			"expected %v, got %v", height,
+			ntfn.SpendingHeight)
+	}
+}
+
 func testSpendNotification(miner *rpctest.Harness,
 	notifier chainntnfs.ChainNotifier, t *testing.T) {
 
@@ -425,26 +451,8 @@ func testSpendNotification(miner *rpctest.Harness,
 		case ntfn := <-c.Spend:
 			// We've received the spend nftn. So now verify all the
 			// fields have been set properly.
-			if *ntfn.SpentOutPoint != *outpoint {
-				t.Fatalf("ntfn includes wrong output, reports "+
-					"%v instead of %v",
-					ntfn.SpentOutPoint, outpoint)
-			}
-			if !bytes.Equal(ntfn.SpenderTxHash[:], spenderSha[:]) {
-				t.Fatalf("ntfn includes wrong spender tx sha, "+
-					"reports %v instead of %v",
-					ntfn.SpenderTxHash[:], spenderSha[:])
-			}
-			if ntfn.SpenderInputIndex != 0 {
-				t.Fatalf("ntfn includes wrong spending input "+
-					"index, reports %v, should be %v",
-					ntfn.SpenderInputIndex, 0)
-			}
-			if ntfn.SpendingHeight != currentHeight {
-				t.Fatalf("ntfn has wrong spending height: "+
-					"expected %v, got %v", currentHeight,
-					ntfn.SpendingHeight)
-			}
+			checkNotificationFields(ntfn, outpoint, spenderSha,
+				currentHeight, t)
 		case <-time.After(30 * time.Second):
 			t.Fatalf("spend ntfn never received")
 		}
@@ -516,34 +524,42 @@ func testSpendNotificationMempoolSpends(miner *rpctest.Harness,
 				t.Fatalf("channel closed unexpectedly")
 			}
 
-			if *ntfn.SpentOutPoint != *outpoint {
-				t.Fatalf("ntfn includes wrong output, reports "+
-					"%v instead of %v",
-					ntfn.SpentOutPoint, outpoint)
-			}
-			if !bytes.Equal(ntfn.SpenderTxHash[:], spenderSha[:]) {
-				t.Fatalf("ntfn includes wrong spender tx sha, "+
-					"reports %v instead of %v",
-					ntfn.SpenderTxHash[:], spenderSha[:])
-			}
-			if ntfn.SpenderInputIndex != 0 {
-				t.Fatalf("ntfn includes wrong spending input "+
-					"index, reports %v, should be %v",
-					ntfn.SpenderInputIndex, 0)
-			}
-			if ntfn.SpendingHeight != currentHeight+1 {
-				t.Fatalf("ntfn has wrong spending height: "+
-					"expected %v, got %v", currentHeight,
-					ntfn.SpendingHeight)
-			}
+			checkNotificationFields(ntfn, outpoint, spenderSha,
+				currentHeight+1, t)
 
 		case <-time.After(5 * time.Second):
 			t.Fatalf("did not receive notification")
 		}
 	}
 
-	// TODO(halseth): create new clients that should be registered after tx
-	// is in the mempool already, when btcd supports notifying on these.
+	// Create new clients that register after the tx is in the mempool
+	// already, but should still be notified.
+	newSpendClientsMempool := make([]*chainntnfs.SpendEvent, numClients)
+	for i := 0; i < numClients; i++ {
+		spentIntent, err := notifier.RegisterSpendNtfn(outpoint,
+			uint32(currentHeight), true)
+		if err != nil {
+			t.Fatalf("unable to register for spend ntfn: %v", err)
+		}
+
+		newSpendClientsMempool[i] = spentIntent
+	}
+
+	// Make sure the new mempool spend clients are correctly notified.
+	for _, client := range newSpendClientsMempool {
+		select {
+		case ntfn, ok := <-client.Spend:
+			if !ok {
+				t.Fatalf("channel closed unexpectedly")
+			}
+
+			checkNotificationFields(ntfn, outpoint, spenderSha,
+				currentHeight+1, t)
+
+		case <-time.After(5 * time.Second):
+			t.Fatalf("did not receive notification")
+		}
+	}
 
 	// Now we mine a single block, which should include our spend. The
 	// notification should not be sent off again.
@@ -563,6 +579,17 @@ func testSpendNotificationMempoolSpends(miner *rpctest.Harness,
 			t.Fatalf("expected clients to be closed.")
 		}
 	}
+	for _, c := range newSpendClientsMempool {
+		select {
+		case _, ok := <-c.Spend:
+			if ok {
+				t.Fatalf("channel should have been closed")
+			}
+		case <-time.After(30 * time.Second):
+			t.Fatalf("expected clients to be closed.")
+		}
+	}
+
 }
 
 func testBlockEpochNotification(miner *rpctest.Harness,
@@ -1040,28 +1067,8 @@ func testSpendBeforeNtfnRegistration(miner *rpctest.Harness,
 			case ntfn := <-client.Spend:
 				// We've received the spend nftn. So now verify
 				// all the fields have been set properly.
-				if *ntfn.SpentOutPoint != *outpoint {
-					t.Fatalf("ntfn includes wrong output, "+
-						"reports %v instead of %v",
-						ntfn.SpentOutPoint, outpoint)
-				}
-				if !bytes.Equal(ntfn.SpenderTxHash[:], spenderSha[:]) {
-					t.Fatalf("ntfn includes wrong spender "+
-						"tx sha, reports %v instead of %v",
-						ntfn.SpenderTxHash[:], spenderSha[:])
-				}
-				if ntfn.SpenderInputIndex != 0 {
-					t.Fatalf("ntfn includes wrong spending "+
-						"input index, reports %v, "+
-						"should be %v",
-						ntfn.SpenderInputIndex, 0)
-				}
-				if ntfn.SpendingHeight != currentHeight {
-					t.Fatalf("ntfn has wrong spending "+
-						"height: expected %v, got %v",
-						currentHeight,
-						ntfn.SpendingHeight)
-				}
+				checkNotificationFields(ntfn, outpoint, spenderSha,
+					currentHeight, t)
 			case <-time.After(30 * time.Second):
 				t.Fatalf("spend ntfn never received")
 			}

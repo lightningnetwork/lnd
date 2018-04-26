@@ -97,7 +97,7 @@ func TestNewService(t *testing.T) {
 // TestValidateMacaroon tests the validation of a macaroon that is in an
 // incoming context.
 func TestValidateMacaroon(t *testing.T) {
-	// First, initialize the service and unlock it
+	// First, initialize the service and unlock it.
 	tempDir := setupTestRootKeyStorage(t)
 	defer os.RemoveAll(tempDir)
 	service, err := macaroons.NewService(tempDir, macaroons.IPLockChecker)
@@ -123,7 +123,9 @@ func TestValidateMacaroon(t *testing.T) {
 
 	// Because the macaroons are always passed in a context, we need to
 	// mock one that has just the serialized macaroon as a value.
-	md := metadata.New(map[string]string{"macaroon": hex.EncodeToString(macaroonBinary)})
+	md := metadata.New(map[string]string{
+		"macaroon": hex.EncodeToString(macaroonBinary),
+	})
 	mockContext := metadata.NewIncomingContext(context.Background(), md)
 
 	// Finally, validate the macaroon against the required permissions.

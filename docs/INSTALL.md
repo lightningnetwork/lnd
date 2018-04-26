@@ -21,7 +21,7 @@
     sudo ln -s /usr/lib/go-1.10/bin/go /usr/local/bin/go
     ```
 
-    On Mac OS X
+    On macOS:
     ```
     brew install go
     ```
@@ -29,21 +29,21 @@
     Alternatively, one can download the pre-compiled binaries hosted on the
     [golang download page](https://golang.org/dl/). If one seeks to install
     from source, then more detailed installation instructions can be found
-    [here](http://golang.org/doc/install). 
-
-    At this point, you should set your `$GOPATH` environment variable, which
-    represents the path to your workspace. By default, `$GOPATH` is set to
-    `~/go`. You will also need to add `$GOPATH/bin` to your `PATH`. This ensures
-    that your shell will be able to detect the binaries you install.
-
+    [here](http://golang.org/doc/install).  
+    
+    Set $GOPATH:
     ```bash
     export GOPATH=~/gocode
     export PATH=$PATH:$GOPATH/bin
     ```
+    On both Linux and macOS you should set your `$GOPATH` environment variable, which
+    represents the path to your workspace. By default, `$GOPATH` is set to
+    `~/go`. You will also need to add `$GOPATH/bin` to your `PATH`. This ensures
+    that your shell will be able to detect the binaries you install.  
 
     We recommend placing the above in your .bashrc or in a setup script so that
-    you can avoid typing this every time you open a new terminal window.
-
+    you can avoid typing this every time you open a new terminal window.  
+    
   * **dep:** This project uses `dep` to manage dependencies as well
     as to provide *reproducible builds*.
     

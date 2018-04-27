@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -201,12 +202,12 @@ type ChannelLinkConfig struct {
 	// available state transition.
 	DebugHTLC bool
 
-	// HodlHTLC should be active if you want this node to refrain from
-	// settling all incoming HTLCs with the sender if it finds itself to be
-	// the exit node.
+	// hodl.Mask is a bitvector composed of hodl.Flags, specifying breakpoints
+	// for HTLC forwarding internal to the switch.
 	//
-	// NOTE: HodlHTLC should be active in conjunction with DebugHTLC.
-	HodlHTLC bool
+	// NOTE: This should only be used for testing, and should only be used
+	// simultaneously with DebugHTLC.
+	HodlMask hodl.Mask
 
 	// SyncStates is used to indicate that we need send the channel
 	// reestablishment message to the remote peer. It should be done if our
@@ -933,6 +934,13 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 	var isSettle bool
 	switch htlc := pkt.htlc.(type) {
 	case *lnwire.UpdateAddHTLC:
+		// If hodl.AddOutgoing mode is active, we exit early to simulate
+		// arbitrary delays between the switch adding an ADD to the
+		// mailbox, and the HTLC being added to the commitment state.
+		if l.cfg.DebugHTLC && l.cfg.HodlMask.Active(hodl.AddOutgoing) {
+			l.warnf(hodl.AddOutgoing.Warning())
+			return
+		}
 
 		// A new payment has been initiated via the downstream channel,
 		// so we add the new HTLC to our local log, then update the
@@ -1034,6 +1042,15 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		l.cfg.Peer.SendMessage(htlc, false)
 
 	case *lnwire.UpdateFulfillHTLC:
+		// If hodl.SettleOutgoing mode is active, we exit early to
+		// simulate arbitrary delays between the switch adding the
+		// SETTLE to the mailbox, and the HTLC being added to the
+		// commitment state.
+		if l.cfg.DebugHTLC && l.cfg.HodlMask.Active(hodl.SettleOutgoing) {
+			l.warnf(hodl.SettleOutgoing.Warning())
+			return
+		}
+
 		// An HTLC we forward to the switch has just settled somewhere
 		// upstream. Therefore we settle the HTLC within the our local
 		// state machine.
@@ -1067,6 +1084,15 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		isSettle = true
 
 	case *lnwire.UpdateFailHTLC:
+		// If hodl.FailOutgoing mode is active, we exit early to
+		// simulate arbitrary delays between the switch adding a FAIL to
+		// the mailbox, and the HTLC being added to the commitment
+		// state.
+		if l.cfg.DebugHTLC && l.cfg.HodlMask.Active(hodl.FailOutgoing) {
+			l.warnf(hodl.FailOutgoing.Warning())
+			return
+		}
+
 		// An HTLC cancellation has been triggered somewhere upstream,
 		// we'll remove then HTLC from our local state machine.
 		closedCircuitRef := pkt.inKey()
@@ -1421,6 +1447,15 @@ func (l *channelLink) updateCommitTx() error {
 	// Reset the batch, but keep the backing buffer to avoid reallocating.
 	l.keystoneBatch = l.keystoneBatch[:0]
 
+	// If hodl.Commit mode is active, we will refrain from attempting to
+	// commit any in-memory modifications to the channel state. Exiting here
+	// permits testing of either the switch or link's ability to trim
+	// circuits that have been opened, but unsuccessfully committed.
+	if l.cfg.DebugHTLC && l.cfg.HodlMask.Active(hodl.Commit) {
+		l.warnf(hodl.Commit.Warning())
+		return nil
+	}
+
 	theirCommitSig, htlcSigs, err := l.channel.SignNextCommitment()
 	if err == lnwallet.ErrNoWindow {
 		l.tracef("revocation window exhausted, unable to send: %v, "+
@@ -1761,6 +1796,14 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 		// received. So we'll forward the HTLC to the switch which will
 		// handle propagating the settle to the prior hop.
 		case lnwallet.Settle:
+			// If hodl.SettleIncoming is requested, we will not
+			// forward the SETTLE to the switch and will not signal
+			// a free slot on the commitment transaction.
+			if l.cfg.DebugHTLC && l.cfg.HodlMask.Active(hodl.SettleIncoming) {
+				l.warnf(hodl.SettleIncoming.Warning())
+				continue
+			}
+
 			settlePacket := &htlcPacket{
 				outgoingChanID: l.ShortChanID(),
 				outgoingHTLCID: pd.ParentIndex,
@@ -1781,6 +1824,14 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 		// our commitment state, so we'll forward this to the switch so
 		// the backwards undo can continue.
 		case lnwallet.Fail:
+			// If hodl.SettleIncoming is requested, we will not
+			// forward the FAIL to the switch and will not signal a
+			// free slot on the commitment transaction.
+			if l.cfg.DebugHTLC && l.cfg.HodlMask.Active(hodl.FailIncoming) {
+				l.warnf(hodl.FailIncoming.Warning())
+				continue
+			}
+
 			// Fetch the reason the HTLC was cancelled so we can
 			// continue to propagate it.
 			failPacket := &htlcPacket{
@@ -1920,9 +1971,12 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 		fwdInfo := chanIterator.ForwardingInstructions()
 		switch fwdInfo.NextHop {
 		case exitHop:
-			if l.cfg.DebugHTLC && l.cfg.HodlHTLC {
-				log.Warnf("hodl HTLC mode enabled, will not " +
-					"attempt to settle HTLC with sender")
+			// If hodl.ExitSettle is requested, we will not validate
+			// the final hop's ADD, nor will we settle the
+			// corresponding invoice or respond with the preimage.
+			if l.cfg.DebugHTLC &&
+				l.cfg.HodlMask.Active(hodl.ExitSettle) {
+				l.warnf(hodl.ExitSettle.Warning())
 				continue
 			}
 
@@ -2107,6 +2161,15 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 		// we'll verify that our forwarding constraints have been
 		// properly met by this incoming HTLC.
 		default:
+			// If hodl.AddIncoming is requested, we will not
+			// validate the forwarded ADD, nor will we send the
+			// packet to the htlc switch.
+			if l.cfg.DebugHTLC &&
+				l.cfg.HodlMask.Active(hodl.AddIncoming) {
+				l.warnf(hodl.AddIncoming.Warning())
+				continue
+			}
+
 			switch fwdPkg.State {
 			case channeldb.FwdStateProcessed:
 				// This add was not forwarded on the previous

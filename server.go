@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/tor"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/connmgr"
@@ -137,6 +138,42 @@ type server struct {
 	quit chan struct{}
 
 	wg sync.WaitGroup
+}
+
+// parseAddr parses an address from its string format to a net.Addr.
+func parseAddr(address string) (net.Addr, error) {
+	var (
+		host string
+		port int
+	)
+
+	// Split the address into its host and port components.
+	h, p, err := net.SplitHostPort(address)
+	if err != nil {
+		// If a port wasn't specified, we'll assume the address only
+		// contains the host so we'll use the default port.
+		host = address
+		port = defaultPeerPort
+	} else {
+		// Otherwise, we'll note both the host and ports.
+		host = h
+		portNum, err := strconv.Atoi(p)
+		if err != nil {
+			return nil, err
+		}
+		port = portNum
+	}
+
+	if tor.IsOnionHost(host) {
+		return &tor.OnionAddr{OnionService: host, Port: port}, nil
+	}
+
+	// If the host is part of a TCP address, we'll use the network
+	// specific ResolveTCPAddr function in order to resolve these
+	// addresses over Tor in order to prevent leaking your real IP
+	// address.
+	hostPort := net.JoinHostPort(host, strconv.Itoa(port))
+	return cfg.net.ResolveTCPAddr("tcp", hostPort)
 }
 
 // newServer creates a new instance of the server which is to listen using the
@@ -251,25 +288,15 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	}
 
 	// If external IP addresses have been specified, add those to the list
-	// of this server's addresses. We need to use the cfg.net.ResolveTCPAddr
-	// function in case we wish to resolve hosts over Tor since domains
-	// CAN be passed into the ExternalIPs configuration option.
+	// of this server's addresses.
 	selfAddrs := make([]net.Addr, 0, len(cfg.ExternalIPs))
 	for _, ip := range cfg.ExternalIPs {
-		var addr string
-		_, _, err = net.SplitHostPort(ip)
-		if err != nil {
-			addr = net.JoinHostPort(ip, strconv.Itoa(defaultPeerPort))
-		} else {
-			addr = ip
-		}
-
-		lnAddr, err := cfg.net.ResolveTCPAddr("tcp", addr)
+		addr, err := parseAddr(ip)
 		if err != nil {
 			return nil, err
 		}
 
-		selfAddrs = append(selfAddrs, lnAddr)
+		selfAddrs = append(selfAddrs, addr)
 	}
 
 	chanGraph := chanDB.ChannelGraph()

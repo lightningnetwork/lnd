@@ -834,7 +834,7 @@ func TestGossipSyncerProcessChanRangeReply(t *testing.T) {
 		t.Fatalf("unable to process reply: %v", err)
 	}
 
-	if syncer.state != queryNewChannels {
+	if syncer.SyncState() != queryNewChannels {
 		t.Fatalf("wrong state: expected %v instead got %v",
 			queryNewChannels, syncer.state)
 	}
@@ -867,7 +867,7 @@ func TestGossipSyncerProcessChanRangeReply(t *testing.T) {
 		t.Fatalf("unable to process reply: %v", err)
 	}
 
-	if syncer.state != chansSynced {
+	if syncer.SyncState() != chansSynced {
 		t.Fatalf("wrong state: expected %v instead got %v",
 			chansSynced, syncer.state)
 	}

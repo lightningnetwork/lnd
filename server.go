@@ -74,6 +74,16 @@ type server struct {
 	// long-term identity private key.
 	lightningID [32]byte
 
+	// listenAddrs is the list of addresses the server is currently
+	// listening on.
+	listenAddrs []string
+
+	// torController is a client that will communicate with a locally
+	// running Tor server. This client will handle initiating and
+	// authenticating the connection to the Tor server, automatically
+	// creating and setting up onion services, etc.
+	torController *tor.Controller
+
 	mu         sync.RWMutex
 	peersByPub map[string]*peer
 
@@ -215,6 +225,8 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		identityPriv: privKey,
 		nodeSigner:   newNodeSigner(privKey),
 
+		listenAddrs: listenAddrs,
+
 		// TODO(roasbeef): derive proper onion key based on rotation
 		// schedule
 		sphinx:      htlcswitch.NewOnionProcessor(sphinxRouter),
@@ -297,6 +309,16 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		}
 
 		selfAddrs = append(selfAddrs, addr)
+	}
+
+	// If we were requested to route connections through Tor and to
+	// automatically create an onion service, we'll initiate our Tor
+	// controller and establish a connection to the Tor server.
+	//
+	// NOTE: v3 onion services cannot be created automatically yet. In the
+	// future, this will be expanded to do so.
+	if cfg.Tor.Active && cfg.Tor.V2 {
+		s.torController = tor.NewController(cfg.Tor.Control)
 	}
 
 	chanGraph := chanDB.ChannelGraph()
@@ -588,6 +610,12 @@ func (s *server) Start() error {
 		return nil
 	}
 
+	if s.torController != nil {
+		if err := s.initTorController(); err != nil {
+			return err
+		}
+	}
+
 	// Start the notification server. This is used so channel management
 	// goroutines can be notified when a funding transaction reaches a
 	// sufficient number of confirmations, or when the input for the
@@ -658,6 +686,10 @@ func (s *server) Stop() error {
 	}
 
 	close(s.quit)
+
+	if s.torController != nil {
+		s.torController.Stop()
+	}
 
 	// Shutdown the wallet, funding manager, and the rpc server.
 	s.cc.chainNotifier.Stop()
@@ -879,6 +911,49 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 			return
 		}
 	}
+}
+
+// initTorController initiliazes the Tor controller backed by lnd and
+// automatically sets up a v2 onion service in order to listen for inbound
+// connections over Tor.
+func (s *server) initTorController() error {
+	if err := s.torController.Start(); err != nil {
+		return err
+	}
+
+	// Determine the different ports the server is listening on. The onion
+	// service's virtual port will map to these ports and one will be picked
+	// at random when the onion service is being accessed.
+	listenPorts := make(map[int]struct{})
+	for _, listenAddr := range s.listenAddrs {
+		// At this point, the listen addresses should have already been
+		// normalized, so it's safe to ignore the errors.
+		_, portStr, _ := net.SplitHostPort(listenAddr)
+		port, _ := strconv.Atoi(portStr)
+		listenPorts[port] = struct{}{}
+	}
+
+	// Once the port mapping has been set, we can go ahead and automatically
+	// create our onion service. The service's private key will be saved to
+	// disk in order to regain access to this service when restarting `lnd`.
+	virtToTargPorts := tor.VirtToTargPorts{defaultPeerPort: listenPorts}
+	onionServiceAddrs, err := s.torController.AddOnionV2(
+		cfg.Tor.V2PrivateKeyPath, virtToTargPorts,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Now that the onion service has been created, we'll add the different
+	// onion addresses it can be reached at to our list of advertised
+	// addresses.
+	for _, addr := range onionServiceAddrs {
+		s.currentNodeAnn.Addresses = append(
+			s.currentNodeAnn.Addresses, addr,
+		)
+	}
+
+	return nil
 }
 
 // genNodeAnnouncement generates and returns the current fully signed node

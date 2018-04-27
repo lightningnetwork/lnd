@@ -147,7 +147,7 @@ type server struct {
 
 	// TODO(merehap): Remove these fields after making chanDB an interface.
 	fetchOpenChannels FetchOpenChannels
-	synchronizePeer SynchronizePeer
+	synchronizePeer   SynchronizePeer
 }
 
 // newServer creates a new instance of the server which is to listen using the
@@ -1420,16 +1420,24 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		localFeatures.Set(lnwire.InitialRoutingSync)
 	}
 
+	fetchChannelEdgesByOutpoint := func(op *wire.OutPoint) (
+		*channeldb.ChannelEdgeInfo, *channeldb.ChannelEdgePolicy,
+		*channeldb.ChannelEdgePolicy, error) {
+		graph := s.chanDB.ChannelGraph()
+		return graph.FetchChannelEdgesByOutpoint(op)
+	}
+
 	// Now that we've established a connection, create a peer, and add it to
 	// the set of currently active peers.
 	peer, err := newPeer(Config{
-		Conn:              conn,
-		ConnReq:           connReq,
-		Addr:              peerAddr,
-		Inbound:           inbound,
-		LocalFeatures:     localFeatures,
-		FetchOpenChannels: s.fetchOpenChannels,
-		Server:            s})
+		Conn:                        conn,
+		ConnReq:                     connReq,
+		Addr:                        peerAddr,
+		Inbound:                     inbound,
+		LocalFeatures:               localFeatures,
+		FetchOpenChannels:           s.fetchOpenChannels,
+		FetchChannelEdgesByOutpoint: fetchChannelEdgesByOutpoint,
+		Server: s})
 	if err != nil {
 		srvrLog.Errorf("unable to create peer %v", err)
 		return

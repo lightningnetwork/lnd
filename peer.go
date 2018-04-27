@@ -76,10 +76,18 @@ type chanSnapshotReq struct {
 	resp chan []*channeldb.ChannelSnapshot
 }
 
-// FetchOpenChannels retrieves the open channels currently available to
-// this peer.
+// FetchOpenChannels retrieves the open channels that exist
+// between the current node and the specified peer.
 type FetchOpenChannels func(nodeID *btcec.PublicKey) (
 	[]*channeldb.OpenChannel, error)
+
+// FetchChannelEdgesByOutpoint retrieves the channel edge information for the
+// given channel point.
+type FetchChannelEdgesByOutpoint func(op *wire.OutPoint) (
+	*channeldb.ChannelEdgeInfo,
+	*channeldb.ChannelEdgePolicy,
+	*channeldb.ChannelEdgePolicy,
+	error)
 
 // Config contains all variables needed to initialize a Peer.
 type Config struct {
@@ -93,9 +101,12 @@ type Config struct {
 	Inbound bool
 	// LocalFeatures are the BOLT-09 features associated with this peer.
 	LocalFeatures *lnwire.RawFeatureVector
-	// FetchOpenChannels is the method with which open channels can be
-	// retrieved for this peer.
+	// FetchOpenChannels is the method with which open channels between
+	// this peer and a target node can be retrieved.
 	FetchOpenChannels FetchOpenChannels
+	// FetchChannelEdgesByOutpoint is the method with which channel
+	// can be retrieved.
+	FetchChannelEdgesByOutpoint FetchChannelEdgesByOutpoint
 	// Server is the local server used for managing resources.
 	// TODO: Remove all direct dependency on Server.
 	Server *server
@@ -206,10 +217,20 @@ type peer struct {
 	wg        sync.WaitGroup
 
 	fetchOpenChannels FetchOpenChannels
+	fetchChannelEdgesByOutpoint FetchChannelEdgesByOutpoint
 }
 
 // New creates a new peer with the specified config and default state.
 func newPeer(config Config) (*peer, error) {
+
+	if config.Conn == nil ||
+			config.Addr == nil ||
+			config.Server == nil ||
+			config.LocalFeatures == nil ||
+			config.FetchOpenChannels == nil ||
+			config.FetchChannelEdgesByOutpoint == nil {
+		return nil, errors.New("All peer config values must be non-nil.")
+	}
 
 	p := &peer{
 		conn: config.Conn,
@@ -221,6 +242,9 @@ func newPeer(config Config) (*peer, error) {
 		server: config.Server,
 
 		localFeatures: config.LocalFeatures,
+
+		fetchOpenChannels: config.FetchOpenChannels,
+		fetchChannelEdgesByOutpoint: config.FetchChannelEdgesByOutpoint,
 
 		sendQueue:     make(chan outgoingMsg),
 		outgoingQueue: make(chan outgoingMsg),
@@ -235,8 +259,6 @@ func newPeer(config Config) (*peer, error) {
 
 		queueQuit: make(chan struct{}),
 		quit:      make(chan struct{}),
-
-		fetchOpenChannels: config.FetchOpenChannels,
 	}
 
 	nodePub := config.Addr.IdentityKey

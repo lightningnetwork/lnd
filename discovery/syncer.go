@@ -256,7 +256,8 @@ func (g *gossipSyncer) channelGraphSyncer() {
 
 	for {
 		state := atomic.LoadUint32(&g.state)
-		log.Debugf("gossipSyncer(%x): state=%v", g.peerPub[:], state)
+		log.Debugf("gossipSyncer(%x): state=%v", g.peerPub[:],
+			syncerState(state))
 
 		switch syncerState(state) {
 		// When we're in this state, we're trying to synchronize our

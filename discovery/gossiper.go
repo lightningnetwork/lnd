@@ -1873,12 +1873,28 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 				d.pChanUpdMtx.Lock()
 				d.prematureChannelUpdates[shortChanID] = append(
 					d.prematureChannelUpdates[shortChanID],
-					nMsg)
+					nMsg,
+				)
 				d.pChanUpdMtx.Unlock()
+
 				log.Debugf("Got ChannelUpdate for edge not "+
 					"found in graph(shortChanID=%v), "+
 					"saving for reprocessing later",
 					shortChanID)
+
+				// If the node supports it, we may try to
+				// request the chan ann from it.
+				go func() {
+					reqErr := d.maybeRequestChanAnn(
+						msg.ShortChannelID,
+					)
+					if reqErr != nil {
+						log.Errorf("unable to request ann "+
+							"for chan_id=%v: %v", shortChanID,
+							reqErr)
+					}
+				}()
+
 				nMsg.err <- nil
 				return nil
 			default:
@@ -2444,4 +2460,37 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 	}
 
 	return chanAnn, chanUpdate, err
+}
+
+// maybeRequestChanAnn will attempt to request the full channel announcement
+// for a particular short chan ID. We do this in the case that we get a channel
+// update, yet don't already have a channel announcement for it.
+func (d *AuthenticatedGossiper) maybeRequestChanAnn(cid lnwire.ShortChannelID) error {
+	d.syncerMtx.Lock()
+	defer d.syncerMtx.Unlock()
+
+	for nodeID, syncer := range d.peerSyncers {
+		// If this syncer is already at the terminal state, then we'll
+		// chose it to request the fully channel update.
+		if syncer.SyncState() == chansSynced {
+			pub, err := btcec.ParsePubKey(nodeID[:], btcec.S256())
+			if err != nil {
+				return err
+			}
+
+			log.Debugf("attempting to request chan ann for "+
+				"chan_id=%v from node=%x", cid, nodeID[:])
+
+			return d.cfg.SendToPeer(pub, &lnwire.QueryShortChanIDs{
+				ChainHash:    d.cfg.ChainHash,
+				EncodingType: lnwire.EncodingSortedPlain,
+				ShortChanIDs: []lnwire.ShortChannelID{cid},
+			})
+		}
+	}
+
+	log.Debugf("unable to find peer to request chan ann for chan_id=%v "+
+		"from", cid)
+
+	return nil
 }

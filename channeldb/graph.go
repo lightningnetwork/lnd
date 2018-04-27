@@ -586,6 +586,10 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 		if err != nil {
 			return err
 		}
+		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
+		if err != nil {
+			return err
+		}
 
 		// For each of the outpoints that have been spent within the
 		// block, we attempt to delete them from the graph as if that
@@ -619,8 +623,9 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 			// will be returned if that outpoint isn't known to be
 			// a channel. If no error is returned, then a channel
 			// was successfully pruned.
-			err = delChannelByEdge(edges, edgeIndex, chanIndex,
-				chanPoint)
+			err = delChannelByEdge(
+				edges, edgeIndex, chanIndex, nodes, chanPoint,
+			)
 			if err != nil && err != ErrEdgeNotFound {
 				return err
 			}
@@ -690,13 +695,15 @@ func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) ([]*ChannelEdgeInf
 		if err != nil {
 			return err
 		}
-
 		edgeIndex, err := edges.CreateBucketIfNotExists(edgeIndexBucket)
 		if err != nil {
 			return err
 		}
-
 		chanIndex, err := edges.CreateBucketIfNotExists(channelPointBucket)
+		if err != nil {
+			return err
+		}
+		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
 		if err != nil {
 			return err
 		}
@@ -713,7 +720,7 @@ func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) ([]*ChannelEdgeInf
 				return err
 			}
 			err = delChannelByEdge(
-				edges, edgeIndex, chanIndex, &edgeInfo.ChannelPoint,
+				edges, edgeIndex, chanIndex, nodes, &edgeInfo.ChannelPoint,
 			)
 			if err != nil && err != ErrEdgeNotFound {
 				return err
@@ -823,8 +830,12 @@ func (c *ChannelGraph) DeleteChannelEdge(chanPoint *wire.OutPoint) error {
 		if err != nil {
 			return err
 		}
+		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
+		if err != nil {
+			return err
+		}
 
-		return delChannelByEdge(edges, edgeIndex, chanIndex, chanPoint)
+		return delChannelByEdge(edges, edgeIndex, chanIndex, nodes, chanPoint)
 	})
 }
 
@@ -1236,38 +1247,76 @@ func (c *ChannelGraph) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
 	return chanEdges, nil
 }
 
+func delEdgeUpdateIndexEntry(edgesBucket *bolt.Bucket, chanID uint64,
+	edge1, edge2 *ChannelEdgePolicy) error {
+
+	// First, we'll fetch the edge update index bucket which currently
+	// stores an entry for the channel we're about to delete.
+	updateIndex, err := edgesBucket.CreateBucketIfNotExists(
+		edgeUpdateIndexBucket,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Now that we have the bucket, we'll attempt to construct a template
+	// for the index key: updateTime || chanid.
+	var indexKey [8 + 8]byte
+	byteOrder.PutUint64(indexKey[8:], chanID)
+
+	// With the template constructed, we'll attempt to delete an entry that
+	// would have been created by both edges: we'll alternate the update
+	// times, as one may had overridden the other.
+	if edge1 != nil {
+		byteOrder.PutUint64(indexKey[:8], uint64(edge1.LastUpdate.Unix()))
+		if err := updateIndex.Delete(indexKey[:]); err != nil {
+			return err
+		}
+	}
+
+	// We'll also attempt to delete the entry that may have been created by
+	// the second edge.
+	if edge2 != nil {
+		byteOrder.PutUint64(indexKey[:8], uint64(edge2.LastUpdate.Unix()))
+		if err := updateIndex.Delete(indexKey[:]); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func delChannelByEdge(edges *bolt.Bucket, edgeIndex *bolt.Bucket,
-	chanIndex *bolt.Bucket, chanPoint *wire.OutPoint) error {
+	chanIndex *bolt.Bucket, nodes *bolt.Bucket, chanPoint *wire.OutPoint) error {
 	var b bytes.Buffer
 	if err := writeOutpoint(&b, chanPoint); err != nil {
 		return err
 	}
 
-	// If the channel's outpoint doesn't exist within the outpoint
-	// index, then the edge does not exist.
+	// If the channel's outpoint doesn't exist within the outpoint index,
+	// then the edge does not exist.
 	chanID := chanIndex.Get(b.Bytes())
 	if chanID == nil {
 		return ErrEdgeNotFound
 	}
 
-	// Otherwise we obtain the two public keys from the mapping:
-	// chanID -> pubKey1 || pubKey2. With this, we can construct
-	// the keys which house both of the directed edges for this
-	// channel.
+	// Otherwise we obtain the two public keys from the mapping: chanID ->
+	// pubKey1 || pubKey2. With this, we can construct the keys which house
+	// both of the directed edges for this channel.
 	nodeKeys := edgeIndex.Get(chanID)
 	if nodeKeys == nil {
 		return fmt.Errorf("could not find nodekeys for chanID %v",
 			chanID)
 	}
 
-	// The edge key is of the format pubKey || chanID. First we
-	// construct the latter half, populating the channel ID.
+	// The edge key is of the format pubKey || chanID. First we construct
+	// the latter half, populating the channel ID.
 	var edgeKey [33 + 8]byte
 	copy(edgeKey[33:], chanID)
 
-	// With the latter half constructed, copy over the first public
-	// key to delete the edge in this direction, then the second to
-	// delete the edge in the opposite direction.
+	// With the latter half constructed, copy over the first public key to
+	// delete the edge in this direction, then the second to delete the
+	// edge in the opposite direction.
 	copy(edgeKey[:33], nodeKeys[:33])
 	if edges.Get(edgeKey[:]) != nil {
 		if err := edges.Delete(edgeKey[:]); err != nil {
@@ -1281,8 +1330,21 @@ func delChannelByEdge(edges *bolt.Bucket, edgeIndex *bolt.Bucket,
 		}
 	}
 
-	// Finally, with the edge data deleted, we can purge the
-	// information from the two edge indexes.
+	// We'll also remove the entry in the edge update index bucket.
+	cid := byteOrder.Uint64(chanID)
+	edge1, edge2, err := fetchChanEdgePolicies(
+		edgeIndex, edges, nodes, chanID, nil,
+	)
+	if err != nil {
+		return err
+	}
+	err = delEdgeUpdateIndexEntry(edges, cid, edge1, edge2)
+	if err != nil {
+		return err
+	}
+
+	// Finally, with the edge data deleted, we can purge the information
+	// from the two edge indexes.
 	if err := edgeIndex.Delete(chanID); err != nil {
 		return err
 	}

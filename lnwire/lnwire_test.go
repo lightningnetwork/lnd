@@ -2,6 +2,7 @@ package lnwire
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"image/color"
 	"math"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/tor"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
@@ -37,11 +39,6 @@ var (
 	}
 	_, _ = testSig.R.SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
 	_, _ = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
-
-	// TODO(roasbeef): randomly generate from three types of addrs
-	a1        = &net.TCPAddr{IP: (net.IP)([]byte{0x7f, 0x0, 0x0, 0x1}), Port: 8333}
-	a2, _     = net.ResolveTCPAddr("tcp", "[2001:db8:85a3:0:0:8a2e:370:7334]:80")
-	testAddrs = []net.Addr{a1, a2}
 )
 
 func randPubKey() (*btcec.PublicKey, error) {
@@ -74,6 +71,100 @@ func randRawFeatureVector(r *rand.Rand) *RawFeatureVector {
 		}
 	}
 	return featureVec
+}
+
+func randTCP4Addr(r *rand.Rand) (*net.TCPAddr, error) {
+	var ip [4]byte
+	if _, err := r.Read(ip[:]); err != nil {
+		return nil, err
+	}
+
+	var port [2]byte
+	if _, err := r.Read(port[:]); err != nil {
+		return nil, err
+	}
+
+	addrIP := net.IP(ip[:])
+	addrPort := int(binary.BigEndian.Uint16(port[:]))
+
+	return &net.TCPAddr{IP: addrIP, Port: addrPort}, nil
+}
+
+func randTCP6Addr(r *rand.Rand) (*net.TCPAddr, error) {
+	var ip [16]byte
+	if _, err := r.Read(ip[:]); err != nil {
+		return nil, err
+	}
+
+	var port [2]byte
+	if _, err := r.Read(port[:]); err != nil {
+		return nil, err
+	}
+
+	addrIP := net.IP(ip[:])
+	addrPort := int(binary.BigEndian.Uint16(port[:]))
+
+	return &net.TCPAddr{IP: addrIP, Port: addrPort}, nil
+}
+
+func randV2OnionAddr(r *rand.Rand) (*tor.OnionAddr, error) {
+	var serviceID [tor.V2DecodedLen]byte
+	if _, err := r.Read(serviceID[:]); err != nil {
+		return nil, err
+	}
+
+	var port [2]byte
+	if _, err := r.Read(port[:]); err != nil {
+		return nil, err
+	}
+
+	onionService := tor.Base32Encoding.EncodeToString(serviceID[:])
+	onionService += tor.OnionSuffix
+	addrPort := int(binary.BigEndian.Uint16(port[:]))
+
+	return &tor.OnionAddr{OnionService: onionService, Port: addrPort}, nil
+}
+
+func randV3OnionAddr(r *rand.Rand) (*tor.OnionAddr, error) {
+	var serviceID [tor.V3DecodedLen]byte
+	if _, err := r.Read(serviceID[:]); err != nil {
+		return nil, err
+	}
+
+	var port [2]byte
+	if _, err := r.Read(port[:]); err != nil {
+		return nil, err
+	}
+
+	onionService := tor.Base32Encoding.EncodeToString(serviceID[:])
+	onionService += tor.OnionSuffix
+	addrPort := int(binary.BigEndian.Uint16(port[:]))
+
+	return &tor.OnionAddr{OnionService: onionService, Port: addrPort}, nil
+}
+
+func randAddrs(r *rand.Rand) ([]net.Addr, error) {
+	tcp4Addr, err := randTCP4Addr(r)
+	if err != nil {
+		return nil, err
+	}
+
+	tcp6Addr, err := randTCP6Addr(r)
+	if err != nil {
+		return nil, err
+	}
+
+	v2OnionAddr, err := randV2OnionAddr(r)
+	if err != nil {
+		return nil, err
+	}
+
+	v3OnionAddr, err := randV3OnionAddr(r)
+	if err != nil {
+		return nil, err
+	}
+
+	return []net.Addr{tcp4Addr, tcp6Addr, v2OnionAddr, v3OnionAddr}, nil
 }
 
 func TestMaxOutPointIndex(t *testing.T) {
@@ -465,8 +556,6 @@ func TestLightningWireProtocol(t *testing.T) {
 					G: uint8(r.Int31()),
 					B: uint8(r.Int31()),
 				},
-				// TODO(roasbeef): proper gen rand addrs
-				Addresses: testAddrs,
 			}
 			req.Signature, err = NewSigFromSignature(testSig)
 			if err != nil {
@@ -478,6 +567,11 @@ func TestLightningWireProtocol(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unable to generate key: %v", err)
 				return
+			}
+
+			req.Addresses, err = randAddrs(r)
+			if err != nil {
+				t.Fatalf("unable to generate addresses: %v", err)
 			}
 
 			v[0] = reflect.ValueOf(req)

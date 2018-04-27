@@ -729,19 +729,31 @@ func (l *channelLink) htlcManager() {
 	// Before handling any messages, revert any circuits that were marked
 	// open in the switch's circuit map, but did not make it into a
 	// commitment txn. We use the next local htlc index as the cut off
-	// point, since all indexes below that are committed.
-	//
-	// NOTE: This is automatically done by the switch when it starts up,
-	// but is necessary to prevent inconsistencies in the case that the
-	// link flaps. This is a result of a link's life-cycle being shorter
-	// than that of the switch.
-	localHtlcIndex := l.channel.LocalHtlcIndex()
-	err := l.cfg.Circuits.TrimOpenCircuits(l.ShortChanID(), localHtlcIndex)
-	if err != nil {
-		l.errorf("unable to trim circuits above local htlc index %d: %v",
-			localHtlcIndex, err)
-		l.fail(ErrInternalLinkFailure.Error())
-		return
+	// point, since all indexes below that are committed. This action is
+	// only performed if the link's final short channel ID has been
+	// assigned, otherwise we would try to trim the htlcs belonging to the
+	// all-zero, sourceHop ID.
+	if l.ShortChanID() != sourceHop {
+		localHtlcIndex, err := l.channel.NextLocalHtlcIndex()
+		if err != nil {
+			l.errorf("unable to retrieve next local htlc index: %v",
+				err)
+			l.fail(ErrInternalLinkFailure.Error())
+			return
+		}
+
+		// NOTE: This is automatically done by the switch when it starts
+		// up, but is necessary to prevent inconsistencies in the case
+		// that the link flaps. This is a result of a link's life-cycle
+		// being shorter than that of the switch.
+		chanID := l.ShortChanID()
+		err = l.cfg.Circuits.TrimOpenCircuits(chanID, localHtlcIndex)
+		if err != nil {
+			l.errorf("unable to trim circuits above local htlc "+
+				"index %d: %v", localHtlcIndex, err)
+			l.fail(ErrInternalLinkFailure.Error())
+			return
+		}
 	}
 
 	// TODO(roasbeef): need to call wipe chan whenever D/C?

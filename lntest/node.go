@@ -59,6 +59,12 @@ var (
 	logOutput = flag.Bool("logoutput", false,
 		"log output from node n to file outputn.log")
 
+	// logPubKeyBytes is the number of bytes of the node's PubKey that
+	// will be appended to the log file name. The whole PubKey is too
+	// long and not really necessary to quickly identify what node
+	// produced which log file.
+	logPubKeyBytes = 4
+
 	// trickleDelay is the amount of time in milliseconds between each
 	// release of announcements by AuthenticatedGossiper to the network.
 	trickleDelay = 50
@@ -85,6 +91,7 @@ func generateListeningPorts() (int, int, int) {
 }
 
 type nodeConfig struct {
+	Name      string
 	RPCConfig *rpcclient.ConnConfig
 	NetParams *chaincfg.Params
 	BaseDir   string
@@ -262,7 +269,8 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 	// If the logoutput flag is passed, redirect output from the nodes to
 	// log files.
 	if *logOutput {
-		fileName := fmt.Sprintf("output%d.log", hn.NodeID)
+		fileName := fmt.Sprintf("output-%d-%s-%s.log", hn.NodeID,
+			hn.cfg.Name, hex.EncodeToString(hn.PubKey[:logPubKeyBytes]))
 
 		// Create file if not exists, otherwise append.
 		file, err := os.OpenFile(fileName,

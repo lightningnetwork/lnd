@@ -123,7 +123,7 @@ func (n *NetworkHarness) SetUp(lndArgs []string) error {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		node, err := n.NewNode(lndArgs)
+		node, err := n.NewNode("Alice", lndArgs)
 		if err != nil {
 			errChan <- err
 			return
@@ -132,7 +132,7 @@ func (n *NetworkHarness) SetUp(lndArgs []string) error {
 	}()
 	go func() {
 		defer wg.Done()
-		node, err := n.NewNode(lndArgs)
+		node, err := n.NewNode("Bob", lndArgs)
 		if err != nil {
 			errChan <- err
 			return
@@ -237,18 +237,18 @@ func (n *NetworkHarness) TearDownAll() error {
 // NewNode fully initializes a returns a new HarnessNode bound to the
 // current instance of the network harness. The created node is running, but
 // not yet connected to other nodes within the network.
-func (n *NetworkHarness) NewNode(extraArgs []string) (*HarnessNode, error) {
-	return n.newNode(extraArgs, false)
+func (n *NetworkHarness) NewNode(name string, extraArgs []string) (*HarnessNode, error) {
+	return n.newNode(name, extraArgs, false)
 }
 
 // NewNodeWithSeed fully initializes a new HarnessNode after creating a fresh
 // aezeed. The provided password is used as both the aezeed password and the
 // wallet password. The generated mnemonic is returned along with the
 // initialized harness node.
-func (n *NetworkHarness) NewNodeWithSeed(extraArgs []string,
+func (n *NetworkHarness) NewNodeWithSeed(name string, extraArgs []string,
 	password []byte) (*HarnessNode, []string, error) {
 
-	node, err := n.newNode(extraArgs, true)
+	node, err := n.newNode(name, extraArgs, true)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -294,11 +294,11 @@ func (n *NetworkHarness) NewNodeWithSeed(extraArgs []string,
 // password, and recovery window. After providing the initialization request to
 // unlock the node, this method will finish initializing the LightningClient
 // such that the HarnessNode can be used for regular rpc operations.
-func (n *NetworkHarness) RestoreNodeWithSeed(extraArgs []string,
+func (n *NetworkHarness) RestoreNodeWithSeed(name string, extraArgs []string,
 	password []byte, mnemonic []string,
 	recoveryWindow int32) (*HarnessNode, error) {
 
-	node, err := n.newNode(extraArgs, true)
+	node, err := n.newNode(name, extraArgs, true)
 	if err != nil {
 		return nil, err
 	}
@@ -326,8 +326,9 @@ func (n *NetworkHarness) RestoreNodeWithSeed(extraArgs []string,
 // wallet with or without a seed. If hasSeed is false, the returned harness node
 // can be used immediately. Otherwise, the node will require an additional
 // initialization phase where the wallet is either created or restored.
-func (n *NetworkHarness) newNode(extraArgs []string, hasSeed bool) (*HarnessNode, error) {
+func (n *NetworkHarness) newNode(name string, extraArgs []string, hasSeed bool) (*HarnessNode, error) {
 	node, err := newNode(nodeConfig{
+		Name:      name,
 		HasSeed:   hasSeed,
 		RPCConfig: &n.rpcConfig,
 		NetParams: n.netParams,

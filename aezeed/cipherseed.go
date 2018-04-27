@@ -126,12 +126,12 @@ var (
 )
 
 var (
-	// bitcoinGenesisDate is the timestamp of Bitcoin's genesis block.
+	// BitcoinGenesisDate is the timestamp of Bitcoin's genesis block.
 	// We'll use this value in order to create a compact birthday for the
 	// seed. The birthday will be interested as the number of days since
 	// the genesis date. We refer to this time period as ABE (after Bitcoin
 	// era).
-	bitcoinGenesisDate = time.Unix(1231006505, 0)
+	BitcoinGenesisDate = time.Unix(1231006505, 0)
 )
 
 // CipherSeed is a fully decoded instance of the aezeed scheme. At a high
@@ -201,7 +201,7 @@ func New(internalVersion uint8, entropy *[EntropySize]byte,
 	// To compute our "birthday", we'll first use the current time, then
 	// subtract that from the Bitcoin Genesis Date. We'll then convert that
 	// value to days.
-	birthday := uint16(now.Sub(bitcoinGenesisDate) / (time.Hour * 24))
+	birthday := uint16(now.Sub(BitcoinGenesisDate) / (time.Hour * 24))
 
 	c := &CipherSeed{
 		InternalVersion: internalVersion,
@@ -382,6 +382,13 @@ func (c *CipherSeed) ToMnemonic(pass []byte) (Mnemonic, error) {
 // passphrase.
 func (c *CipherSeed) Encipher(pass []byte) ([EncipheredCipherSeedSize]byte, error) {
 	return c.encipher(pass)
+}
+
+// BirthdayTime returns the cipher seed's internal birthday format as a native
+// golang Time struct.
+func (c *CipherSeed) BirthdayTime() time.Time {
+	offset := time.Duration(c.Birthday) * 24 * time.Hour
+	return BitcoinGenesisDate.Add(offset)
 }
 
 // Mnemonic is a 24-word passphrase as of CipherSeedVersion zero. This

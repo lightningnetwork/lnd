@@ -88,7 +88,7 @@ func New(cfg Config) (*BtcWallet, error) {
 		pubPass = cfg.PublicPass
 	}
 
-	loader := base.NewLoader(cfg.NetParams, netDir)
+	loader := base.NewLoader(cfg.NetParams, netDir, cfg.RecoveryWindow)
 	walletExists, err := loader.WalletExists()
 	if err != nil {
 		return nil, err
@@ -98,7 +98,7 @@ func New(cfg Config) (*BtcWallet, error) {
 	if !walletExists {
 		// Wallet has never been created, perform initial set up.
 		wallet, err = loader.CreateNewWallet(
-			pubPass, cfg.PrivatePass, cfg.HdSeed,
+			pubPass, cfg.PrivatePass, cfg.HdSeed, cfg.Birthday,
 		)
 		if err != nil {
 			return nil, err

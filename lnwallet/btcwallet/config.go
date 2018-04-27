@@ -2,6 +2,7 @@ package btcwallet
 
 import (
 	"path/filepath"
+	"time"
 
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/roasbeef/btcd/chaincfg"
@@ -62,6 +63,15 @@ type Config struct {
 	// HdSeed is an optional seed to feed into the wallet. If this is
 	// unspecified, a new seed will be generated.
 	HdSeed []byte
+
+	// Birthday specifies the time at which this wallet was initially
+	// created. It is used to bound rescans for used addresses.
+	Birthday time.Time
+
+	// RecoveryWindow specifies the address look-ahead for which to scan
+	// when restoring a wallet. The recovery window will apply to all
+	// default BIP44 derivation paths.
+	RecoveryWindow uint32
 
 	// ChainSource is the primary chain interface. This is used to operate
 	// the wallet and do things such as rescanning, sending transactions,

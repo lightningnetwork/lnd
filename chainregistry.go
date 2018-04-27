@@ -112,7 +112,8 @@ type chainControl struct {
 // branches of chainControl instances exist: one backed by a running btcd
 // full-node, and the other backed by a running neutrino light client instance.
 func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
-	privateWalletPw, publicWalletPw []byte) (*chainControl, func(), error) {
+	privateWalletPw, publicWalletPw []byte, birthday time.Time,
+	recoveryWindow uint32) (*chainControl, func(), error) {
 
 	// Set the RPC config from the "home" chain. Multi-chain isn't yet
 	// active, so we'll restrict usage to a particular chain for now.
@@ -152,12 +153,14 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 	}
 
 	walletConfig := &btcwallet.Config{
-		PrivatePass:  privateWalletPw,
-		PublicPass:   publicWalletPw,
-		DataDir:      homeChainConfig.ChainDir,
-		NetParams:    activeNetParams.Params,
-		FeeEstimator: cc.feeEstimator,
-		CoinType:     activeNetParams.CoinType,
+		PrivatePass:    privateWalletPw,
+		PublicPass:     publicWalletPw,
+		Birthday:       birthday,
+		RecoveryWindow: recoveryWindow,
+		DataDir:        homeChainConfig.ChainDir,
+		NetParams:      activeNetParams.Params,
+		FeeEstimator:   cc.feeEstimator,
+		CoinType:       activeNetParams.CoinType,
 	}
 
 	var (
@@ -243,7 +246,9 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 		// Finally, we'll set the chain source for btcwallet, and
 		// create our clean up function which simply closes the
 		// database.
-		walletConfig.ChainSource = chain.NewNeutrinoClient(svc)
+		walletConfig.ChainSource = chain.NewNeutrinoClient(
+			activeNetParams.Params, svc,
+		)
 		cleanUp = func() {
 			svc.Stop()
 			nodeDatabase.Close()

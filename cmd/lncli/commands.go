@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/ioutil"
 	"math"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -22,12 +23,14 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/urfave/cli"
 	"golang.org/x/crypto/ssh/terminal"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"gopkg.in/macaroon.v2"
 )
 
 // TODO(roasbeef): cli logic for supporting both positional and unix style
@@ -57,7 +60,7 @@ func printRespJSON(resp proto.Message) {
 
 	jsonStr, err := jsonMarshaler.MarshalToString(resp)
 	if err != nil {
-		fmt.Println("unable to decode response: ", err)
+		fmt.Println("unable to encode response: ", err)
 		return
 	}
 
@@ -4010,5 +4013,195 @@ func restoreChanBackup(ctx *cli.Context) error {
 		return fmt.Errorf("unable to restore chan backups: %v", err)
 	}
 
+	return nil
+}
+
+var delegateMacaroonCommand = cli.Command{
+	Name:     "delegatemacaroon",
+	Category: "Macaroons",
+	Usage: "Delegates a macaroon by adding restrictions to an " +
+		"existing one",
+	ArgsUsage: "[format | save_to] [timeout] [ip_address]",
+	Description: `
+	Take an existing macaroon (use --macaroonpath) as a template and add
+	restrictions to it.
+	The resulting macaroon can be shown on command line either in JSON
+	(--format=json) or hex (--format=hex) serialized format.
+	Or it can be saved directly to a file using the --save_to argument.
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "format",
+			Usage: "the format to serialize and display the " +
+				"macaroon in on the command line, must be " +
+				"either 'json' or 'hex' (default 'json')",
+		},
+		cli.StringFlag{
+			Name: "save_to",
+			Usage: "save the delegated macaroon to this file " +
+				"using the ",
+		},
+		cli.Uint64Flag{
+			Name: "timeout",
+			Usage: "the number of seconds the macaroon will be " +
+				"valid before it times out",
+		},
+		cli.StringFlag{
+			Name:  "ip_address",
+			Usage: "the IP address the macaroon will be bound to",
+		},
+	},
+	Action: actionDecorator(delegateMacaroon),
+}
+
+func delegateMacaroon(ctx *cli.Context) error {
+	var (
+		format, macPath string
+		savePath        string
+		timeout         int64
+		ipAddress       net.IP
+		err             error
+	)
+	args := ctx.Args()
+	_, macPath, err = extractPathArgs(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to parse path argumens: %v", err)
+	}
+
+	switch {
+	case ctx.IsSet("format") || ctx.String("format") != "":
+		format = ctx.String("format")
+	case args.Present():
+		format = args.First()
+
+		// If the first positional argument is not 'json' or 'hex', we
+		// assume it's a file name meant for the save_to option.
+		if format != "json" && format != "hex" {
+			savePath = format
+			format = ""
+		}
+		args = args.Tail()
+	}
+	if format != "" && format != "json" && format != "hex" {
+		return fmt.Errorf("format must be either 'json' or " +
+			"'hex'")
+	}
+
+	switch {
+	case ctx.IsSet("save_to") || ctx.String("save_to") != "":
+		savePath = cleanAndExpandPath(ctx.String("save_to"))
+	case format == "" && savePath == "" && args.Present():
+		savePath = cleanAndExpandPath(args.First())
+		args = args.Tail()
+	}
+
+	switch {
+	case ctx.IsSet("timeout"):
+		timeout = ctx.Int64("timeout")
+		if timeout <= 0 {
+			return fmt.Errorf("timeout must be greater than 0")
+		}
+	case args.Present():
+		timeout, err = strconv.ParseInt(args.First(), 10, 64)
+		if err != nil {
+			return fmt.Errorf("unable to decode timeout: %v", err)
+		}
+		if timeout <= 0 {
+			return fmt.Errorf("timeout must be greater than 0")
+		}
+		args = args.Tail()
+	}
+
+	switch {
+	case ctx.IsSet("ip_address"):
+		ipAddress = net.ParseIP(ctx.String("ip_address"))
+		if ipAddress == nil {
+			return fmt.Errorf("unable to parse ip_address: %s",
+				ctx.String("ip_address"))
+		}
+	case args.Present():
+		ipString := args.First()
+		ipAddress = net.ParseIP(ipString)
+		if ipAddress == nil {
+			return fmt.Errorf("unable to parse ip_address: %s",
+				ipString)
+		}
+		args = args.Tail()
+	}
+
+	// The arguments --format and --save_to cannot be used at the same time
+	// since --save_to always saves the file in the default binary
+	// serialized format that LND can read.
+	if format != "" && savePath != "" {
+		return fmt.Errorf("cannot use --format and --save_to at the " +
+			"same time")
+	}
+
+	// Read existing macaroon from file provided by --macaroonpath.
+	macBytes, err := ioutil.ReadFile(macPath)
+	if err != nil {
+		fatal(err)
+	}
+	mac := &macaroon.Macaroon{}
+	if err = mac.UnmarshalBinary(macBytes); err != nil {
+		fatal(err)
+	}
+
+	// Now apply the desired constraints to the macaroon.
+	// This will always create a new macaroon object, even if no constraints
+	// are added.
+	macConstraints := []macaroons.Constraint{}
+	if timeout > 0 {
+		macConstraints = append(
+			macConstraints, macaroons.TimeoutConstraint(timeout),
+		)
+	}
+	if ipAddress != nil {
+		macConstraints = append(
+			macConstraints,
+			macaroons.IPLockConstraint(ipAddress.String()),
+		)
+	}
+	constrainedMac, err := macaroons.AddConstraints(mac, macConstraints...)
+	if err != nil {
+		fatal(err)
+	}
+	binaryString, err := constrainedMac.MarshalBinary()
+	if err != nil {
+		fatal(err)
+	}
+
+	// If a file path was specified, write the macaroon to that file.
+	if savePath != "" {
+		err = ioutil.WriteFile(
+			savePath, binaryString, 0644,
+		)
+		if err != nil {
+			os.Remove(savePath)
+			return err
+		}
+		fmt.Printf("Macaroon saved to %s\n", savePath)
+		return nil
+	}
+
+	// Otherwise serialize the macaroon using the requested format and then
+	// print it to standard output. Both formats produce JSON as an output:
+	//  - 'hex':  prints a JSON object with one single string
+	//            property 'macaroon'
+	//  - 'json': directly prints the JSON serialized macaroon
+	if format == "hex" {
+		printJSON(map[string]string{
+			"macaroon": hex.EncodeToString(binaryString),
+		})
+	} else {
+		jsonBytes, err := constrainedMac.MarshalJSON()
+		if err != nil {
+			fatal(err)
+		}
+		var out bytes.Buffer
+		json.Indent(&out, jsonBytes, "", "\t")
+		out.WriteString("\n")
+		out.WriteTo(os.Stdout)
+	}
 	return nil
 }

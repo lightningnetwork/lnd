@@ -298,6 +298,7 @@ func main() {
 		exportChanBackupCommand,
 		verifyChanBackupCommand,
 		restoreChanBackupCommand,
+		delegateMacaroonCommand,
 	}
 
 	// Add any extra commands determined by build flags.

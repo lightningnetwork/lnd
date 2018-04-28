@@ -21,9 +21,14 @@
     sudo ln -s /usr/lib/go-1.10/bin/go /usr/local/bin/go
     ```
 
-    On Mac OS X
+    On Mac OS X:
     ```
     brew install go
+    ```
+
+    On FreeBSD:
+    ```
+    pkg install go
     ```
 
     Alternatively, one can download the pre-compiled binaries hosted on the
@@ -64,6 +69,8 @@ cd $GOPATH/src/github.com/lightningnetwork/lnd
 make && make install
 ```
 
+On FreeBSD, use gmake instead of make.
+
 **Updating**
 
 To update your version of `lnd` to the latest version run the following
@@ -74,12 +81,16 @@ git pull
 make && make install
 ```
 
+On FreeBSD, use gmake instead of make.
+
 **Tests**
 
 To check that `lnd` was installed properly run the following command:
 ```
 make check
 ```
+
+On FreeBSD, use gmake instead of make.
 
 ### Installing btcd
 

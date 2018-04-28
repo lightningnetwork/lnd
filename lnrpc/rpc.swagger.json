@@ -1603,7 +1603,7 @@
           "title": "/ The hash of the preimage"
         },
         "value": {
-          "type": "string",
+          "type": "integer",
           "format": "int64",
           "title": "/ The value of this invoice in satoshis"
         },
@@ -1613,12 +1613,12 @@
           "title": "/ Whether this invoice has been fulfilled"
         },
         "creation_date": {
-          "type": "string",
+          "type": "integer",
           "format": "int64",
           "title": "/ When this invoice was created"
         },
         "settle_date": {
-          "type": "string",
+          "type": "integer",
           "format": "int64",
           "title": "/ When this invoice was settled"
         },
@@ -1632,7 +1632,7 @@
           "description": "*\nHash (SHA-256) of a description of the payment. Used if the description of\npayment (memo) is too long to naturally fit within the description field\nof an encoded payment request."
         },
         "expiry": {
-          "type": "string",
+          "type": "integer",
           "format": "int64",
           "description": "/ Payment request expiry time in seconds. Default is 3600 (1 hour)."
         },
@@ -1641,7 +1641,7 @@
           "description": "/ Fallback on-chain address."
         },
         "cltv_expiry": {
-          "type": "string",
+          "type": "integer",
           "format": "uint64",
           "description": "/ Delta to use for the time-lock of the CLTV extended to the final hop."
         },

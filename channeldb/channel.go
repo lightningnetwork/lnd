@@ -1578,9 +1578,9 @@ const (
 )
 
 // ChannelCloseSummary contains the final state of a channel at the point it
-// was closed. Once a channel is closed, all the information pertaining to
-// that channel within the openChannelBucket is deleted, and a compact
-// summary is put in place instead.
+// was closed. Once a channel is closed, all the information pertaining to that
+// channel within the openChannelBucket is deleted, and a compact summary is
+// put in place instead.
 type ChannelCloseSummary struct {
 	// ChanPoint is the outpoint for this channel's funding transaction,
 	// and is used as a unique identifier for the channel.
@@ -1606,7 +1606,8 @@ type ChannelCloseSummary struct {
 	// Capacity was the total capacity of the channel.
 	Capacity btcutil.Amount
 
-	// CloseHeight is the height at which the funding transaction was spent.
+	// CloseHeight is the height at which the funding transaction was
+	// spent.
 	CloseHeight uint32
 
 	// SettledBalance is our total balance settled balance at the time of
@@ -1636,6 +1637,21 @@ type ChannelCloseSummary struct {
 	// closed, they'll stay marked as "pending" until _all_ the pending
 	// funds have been swept.
 	IsPending bool
+
+	// RemoteCurrentRevocation is the current revocation for their
+	// commitment transaction. However, since this the derived public key,
+	// we don't yet have the private key so we aren't yet able to verify
+	// that it's actually in the hash chain.
+	RemoteCurrentRevocation *btcec.PublicKey
+
+	// RemoteNextRevocation is the revocation key to be used for the *next*
+	// commitment transaction we create for the local node. Within the
+	// specification, this value is referred to as the
+	// per-commitment-point.
+	RemoteNextRevocation *btcec.PublicKey
+
+	// LocalChanCfg is the channel configuration for the local node.
+	LocalChanConfig ChannelConfig
 }
 
 // CloseChannel closes a previously active Lightning channel. Closing a channel
@@ -1675,6 +1691,16 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary) error {
 			return ErrNoActiveChannels
 		}
 
+		// Before we delete the channel state, we'll read out the full
+		// details, as we'll also store portions of this information
+		// for record keeping.
+		chanState, err := fetchOpenChannel(
+			chanBucket, &c.FundingOutpoint,
+		)
+		if err != nil {
+			return err
+		}
+
 		// Now that the index to this channel has been deleted, purge
 		// the remaining channel metadata from the database.
 		err = deleteOpenChannel(chanBucket, chanPointBuf.Bytes())
@@ -1703,7 +1729,9 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary) error {
 
 		// Finally, create a summary of this channel in the closed
 		// channel bucket for this node.
-		return putChannelCloseSummary(tx, chanPointBuf.Bytes(), summary)
+		return putChannelCloseSummary(
+			tx, chanPointBuf.Bytes(), summary, chanState,
+		)
 	})
 }
 
@@ -1818,12 +1846,16 @@ func (c *OpenChannel) RemoteRevocationStore() (shachain.Store, error) {
 }
 
 func putChannelCloseSummary(tx *bolt.Tx, chanID []byte,
-	summary *ChannelCloseSummary) error {
+	summary *ChannelCloseSummary, lastChanState *OpenChannel) error {
 
 	closedChanBucket, err := tx.CreateBucketIfNotExists(closedChannelBucket)
 	if err != nil {
 		return err
 	}
+
+	summary.RemoteCurrentRevocation = lastChanState.RemoteCurrentRevocation
+	summary.RemoteNextRevocation = lastChanState.RemoteNextRevocation
+	summary.LocalChanConfig = lastChanState.LocalChanCfg
 
 	var b bytes.Buffer
 	if err := serializeChannelCloseSummary(&b, summary); err != nil {
@@ -1834,11 +1866,37 @@ func putChannelCloseSummary(tx *bolt.Tx, chanID []byte,
 }
 
 func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
-	return writeElements(w,
+	err := writeElements(w,
 		cs.ChanPoint, cs.ShortChanID, cs.ChainHash, cs.ClosingTXID,
 		cs.CloseHeight, cs.RemotePub, cs.Capacity, cs.SettledBalance,
 		cs.TimeLockedBalance, cs.CloseType, cs.IsPending,
 	)
+	if err != nil {
+		return err
+	}
+
+	// If this is a close channel summary created before the addition of
+	// the new fields, then we can exit here.
+	if cs.RemoteCurrentRevocation == nil {
+		return nil
+	}
+
+	if err := writeElements(w, cs.RemoteCurrentRevocation); err != nil {
+		return err
+	}
+
+	if err := writeChanConfig(w, &cs.LocalChanConfig); err != nil {
+		return err
+	}
+
+	// We'll write this field last, as it's possible for a channel to be
+	// closed before we learn of the next unrevoked revocation point for
+	// the remote party.
+	if cs.RemoteNextRevocation == nil {
+		return nil
+	}
+
+	return writeElements(w, cs.RemoteNextRevocation)
 }
 
 func fetchChannelCloseSummary(tx *bolt.Tx,
@@ -1870,7 +1928,47 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 		return nil, err
 	}
 
+	// We'll now check to see if the channel close summary was encoded with
+	// any of the additional optional fields.
+	err = readElements(r, &c.RemoteCurrentRevocation)
+	switch {
+	case err == io.EOF:
+		return c, nil
+
+	// If we got a non-eof error, then we know there's an actually issue.
+	// Otherwise, it may have been the case that this summary didn't have
+	// the set of optional fields.
+	case err != nil:
+		return nil, err
+	}
+
+	if err := readChanConfig(r, &c.LocalChanConfig); err != nil {
+		return nil, err
+	}
+
+	// Finally, we'll attempt to read the next unrevoked commitment point
+	// for the remote party. If we closed the channel before receiving a
+	// funding locked message, then this can be nil. As a result, we'll use
+	// the same technique to read the field, only if there's still data
+	// left in the buffer.
+	err = readElements(r, &c.RemoteNextRevocation)
+	if err != nil && err != io.EOF {
+		// If we got a non-eof error, then we know there's an actually
+		// issue. Otherwise, it may have been the case that this
+		// summary didn't have the set of optional fields.
+		return nil, err
+	}
+
 	return c, nil
+}
+
+func writeChanConfig(b io.Writer, c *ChannelConfig) error {
+	return writeElements(b,
+		c.DustLimit, c.MaxPendingAmount, c.ChanReserve, c.MinHTLC,
+		c.MaxAcceptedHtlcs, c.CsvDelay, c.MultiSigKey,
+		c.RevocationBasePoint, c.PaymentBasePoint, c.DelayBasePoint,
+		c.HtlcBasePoint,
+	)
 }
 
 func putChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
@@ -1893,14 +1991,6 @@ func putChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 		}
 	}
 
-	writeChanConfig := func(b io.Writer, c *ChannelConfig) error {
-		return writeElements(b,
-			c.DustLimit, c.MaxPendingAmount, c.ChanReserve, c.MinHTLC,
-			c.MaxAcceptedHtlcs, c.CsvDelay, c.MultiSigKey,
-			c.RevocationBasePoint, c.PaymentBasePoint, c.DelayBasePoint,
-			c.HtlcBasePoint,
-		)
-	}
 	if err := writeChanConfig(&w, &channel.LocalChanCfg); err != nil {
 		return err
 	}
@@ -1976,6 +2066,16 @@ func putChanRevocationState(chanBucket *bolt.Bucket, channel *OpenChannel) error
 	return chanBucket.Put(revocationStateKey, b.Bytes())
 }
 
+func readChanConfig(b io.Reader, c *ChannelConfig) error {
+	return readElements(b,
+		&c.DustLimit, &c.MaxPendingAmount, &c.ChanReserve,
+		&c.MinHTLC, &c.MaxAcceptedHtlcs, &c.CsvDelay,
+		&c.MultiSigKey, &c.RevocationBasePoint,
+		&c.PaymentBasePoint, &c.DelayBasePoint,
+		&c.HtlcBasePoint,
+	)
+}
+
 func fetchChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 	infoBytes := chanBucket.Get(chanInfoKey)
 	if infoBytes == nil {
@@ -2001,15 +2101,6 @@ func fetchChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 		}
 	}
 
-	readChanConfig := func(b io.Reader, c *ChannelConfig) error {
-		return readElements(b,
-			&c.DustLimit, &c.MaxPendingAmount, &c.ChanReserve,
-			&c.MinHTLC, &c.MaxAcceptedHtlcs, &c.CsvDelay,
-			&c.MultiSigKey, &c.RevocationBasePoint,
-			&c.PaymentBasePoint, &c.DelayBasePoint,
-			&c.HtlcBasePoint,
-		)
-	}
 	if err := readChanConfig(r, &channel.LocalChanCfg); err != nil {
 		return err
 	}

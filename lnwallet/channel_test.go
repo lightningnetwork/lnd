@@ -4273,6 +4273,121 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 	}
 }
 
+// TestChannelUnilateralClosePendingCommit tests that if the remote party
+// broadcasts their pending commit (hasn't yet revoked the lower one), then
+// we'll create a proper unilateral channel clsoure that can sweep the created
+// outputs.
+func TestChannelUnilateralClosePendingCommit(t *testing.T) {
+	t.Parallel()
+
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	aliceChannel, bobChannel, cleanUp, err := CreateTestChannels()
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// First, we'll add an HTLC from Alice to Bob, just to be be able to
+	// create a new state transition.
+	htlcAmount := lnwire.NewMSatFromSatoshis(20000)
+	htlcAlice, _ := createHTLC(0, htlcAmount)
+	if _, err := aliceChannel.AddHTLC(htlcAlice, nil); err != nil {
+		t.Fatalf("alice unable to add htlc: %v", err)
+	}
+	if _, err := bobChannel.ReceiveHTLC(htlcAlice); err != nil {
+		t.Fatalf("bob unable to recv add htlc: %v", err)
+	}
+
+	// With the HTLC added, we'll now manually initiate a state transition
+	// from Alice to Bob.
+	_, _, err = aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// At this point, Alice's commitment chain should have a new pending
+	// commit for Bob. We'll extract it so we can simulate Bob broadcasting
+	// the commitment due to an issue.
+	bobCommit := aliceChannel.remoteCommitChain.tip().txn
+	bobTxHash := bobCommit.TxHash()
+	spendDetail := &chainntnfs.SpendDetail{
+		SpenderTxHash: &bobTxHash,
+		SpendingTx:    bobCommit,
+	}
+
+	// At this point, if we attempt to create a unilateral close summary
+	// using this commitment, but with the wrong state, we should find that
+	// our output wasn't picked up.
+	aliceWrongCloseSummary, err := NewUnilateralCloseSummary(
+		aliceChannel.channelState, aliceChannel.Signer, aliceChannel.pCache,
+		spendDetail, aliceChannel.channelState.RemoteCommitment, false,
+	)
+	if err != nil {
+		t.Fatalf("unable to create alice close summary: %v", err)
+	}
+
+	if aliceWrongCloseSummary.CommitResolution != nil {
+		t.Fatalf("alice shouldn't have found self output")
+	}
+
+	// If we create the close summary again, but this time use Alice's
+	// pending commit to Bob, then the unilateral close summary should be
+	// properly populated.
+	aliceRemoteChainTip, err := aliceChannel.channelState.RemoteCommitChainTip()
+	if err != nil {
+		t.Fatalf("unable to fetch remote chain tip: %v", err)
+	}
+	aliceCloseSummary, err := NewUnilateralCloseSummary(
+		aliceChannel.channelState, aliceChannel.Signer, aliceChannel.pCache,
+		spendDetail, aliceRemoteChainTip.Commitment, true,
+	)
+	if err != nil {
+		t.Fatalf("unable to create alice close summary: %v", err)
+	}
+
+	// With this proper version, Alice's commit resolution should have been
+	// properly located.
+	if aliceCloseSummary.CommitResolution == nil {
+		t.Fatalf("unable to find alice's commit resolution")
+	}
+
+	aliceSignDesc := aliceCloseSummary.CommitResolution.SelfOutputSignDesc
+
+	// Finally, we'll ensure that we're able to properly sweep our output
+	// from using the materials within the unilateral close summary.
+	sweepTx := wire.NewMsgTx(2)
+	sweepTx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: aliceCloseSummary.CommitResolution.SelfOutPoint,
+	})
+	sweepTx.AddTxOut(&wire.TxOut{
+		PkScript: testHdSeed[:],
+		Value:    aliceSignDesc.Output.Value,
+	})
+	aliceSignDesc.SigHashes = txscript.NewTxSigHashes(sweepTx)
+	sweepTx.TxIn[0].Witness, err = CommitSpendNoDelay(
+		aliceChannel.Signer, &aliceSignDesc, sweepTx,
+	)
+	if err != nil {
+		t.Fatalf("unable to generate sweep witness: %v", err)
+	}
+
+	// If we validate the signature on the new sweep transaction, it should
+	// be fully valid.
+	vm, err := txscript.NewEngine(
+		aliceSignDesc.Output.PkScript,
+		sweepTx, 0, txscript.StandardVerifyFlags, nil,
+		nil, aliceSignDesc.Output.Value,
+	)
+	if err != nil {
+		t.Fatalf("unable to create engine: %v", err)
+	}
+	if err := vm.Execute(); err != nil {
+		t.Fatalf("htlc timeout spend is invalid: %v", err)
+	}
+}
+
 // TestDesyncHTLCs checks that we cannot add HTLCs that would make the
 // balance negative, when the remote and local update logs are desynced.
 func TestDesyncHTLCs(t *testing.T) {

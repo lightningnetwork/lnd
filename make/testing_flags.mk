@@ -1,3 +1,4 @@
+TEST_TAGS = debug
 TEST_FLAGS =
 
 # If specific package is being unit tested, construct the full name of the
@@ -31,15 +32,16 @@ UNIT_TARGETED ?= no
 # If a specific package/test case was requested, run the unit test for the
 # targeted case. Otherwise, default to running all tests.
 ifeq ($(UNIT_TARGETED), yes)
-UNIT := $(GOTEST) $(TEST_FLAGS) $(UNITPKG)
-UNIT_RACE := $(GOTEST) $(TEST_FLAGS) -race $(UNITPKG)
+UNIT := $(GOTEST) -tags="$(TEST_TAGS)" $(TEST_FLAGS) $(UNITPKG)
+UNIT_RACE := $(GOTEST) -tags="$(TEST_TAGS)" $(TEST_FLAGS) -race $(UNITPKG)
 endif
 
 ifeq ($(UNIT_TARGETED), no)
-UNIT := $(GOLIST) | $(XARGS) $(GOTEST) $(TEST_FLAGS) 
-UNIT_RACE := $(UNIT) -race 
+UNIT := $(GOLIST) | $(XARGS) $(GOTEST) -tags="$(TEST_TAGS)" $(TEST_FLAGS)
+UNIT_RACE := $(UNIT) -race
 endif
 
 
 # Construct the integration test command with the added build flags.
-ITEST := $(GOTEST) $(TEST_FLAGS) -tags rpctest -logoutput
+ITEST_TAGS := $(TEST_TAGS) rpctest
+ITEST := $(GOTEST) -tags="$(ITEST_TAGS)" $(TEST_FLAGS) -logoutput

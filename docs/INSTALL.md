@@ -54,6 +54,11 @@
     go get -u github.com/golang/dep/cmd/dep
     ```
 
+  * **Bitcoin:** 
+
+    **Note**: lnd needs a bitcoin client to work. Severl options are given below. Please note that although below we describe running lnd on the bitcoin testnet, this is no longer a requirement. lnd can now also be run on mainnet. See [here](https://github.com/lightningnetwork/lnd/releases/tag/v0.4-beta) for details.
+
+
 ### Installing lnd
 
 With the preliminary steps completed, to install `lnd`, `lncli`, and all

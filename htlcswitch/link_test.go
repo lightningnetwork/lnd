@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
@@ -1704,9 +1705,9 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		aliceMsgs              = coreLink.cfg.Peer.(*mockPeer).sentMsgs
 	)
 
-	// We put Alice into HodlHTLC mode, such that she won't settle
+	// We put Alice into hodl.ExitSettle mode, such that she won't settle
 	// incoming HTLCs automatically.
-	coreLink.cfg.HodlHTLC = true
+	coreLink.cfg.HodlMask = hodl.MaskFromFlags(hodl.ExitSettle)
 	coreLink.cfg.DebugHTLC = true
 
 	estimator := &lnwallet.StaticFeeEstimator{

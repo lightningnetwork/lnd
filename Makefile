@@ -124,9 +124,9 @@ btcd: $(GLIDE_BIN) $(BTCD_DIR)
 # ============
 
 build:
-	@$(call print, "Building lnd and lncli.")
-	$(GOBUILD) -o lnd $(LDFLAGS) $(PKG)
-	$(GOBUILD) -o lncli $(LDFLAGS) $(PKG)/cmd/lncli
+	@$(call print, "Building debug lnd and lncli.")
+	$(GOBUILD) -tags=$(TEST_TAGS) -o lnd-debug $(LDFLAGS) $(PKG)
+	$(GOBUILD) -tags=$(TEST_TAGS) -o lncli-debug $(LDFLAGS) $(PKG)/cmd/lncli
 
 install:
 	@$(call print, "Installing lnd and lncli.")

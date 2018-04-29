@@ -720,15 +720,9 @@ func initNetworkBootstrappers(s *server) ([]discovery.NetworkPeerBootstrapper, e
 			srvrLog.Infof("Creating DNS peer bootstrapper with "+
 				"seeds: %v", dnsSeeds)
 
-			dnsBootStrapper, err := discovery.NewDNSSeedBootstrapper(
-				dnsSeeds,
-				cfg.net.LookupHost,
-				cfg.net.LookupSRV,
+			dnsBootStrapper := discovery.NewDNSSeedBootstrapper(
+				dnsSeeds, cfg.net,
 			)
-			if err != nil {
-				return nil, err
-			}
-
 			bootStrappers = append(bootStrappers, dnsBootStrapper)
 		}
 	}

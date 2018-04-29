@@ -5583,6 +5583,7 @@ func (lc *LightningChannel) validateFeeRate(feePerKw SatPerKWeight) error {
 	// be above our reserve balance. Otherwise, we'll reject the fee
 	// update.
 	availableBalance, txWeight := lc.availableBalance()
+	oldFee := lnwire.NewMSatFromSatoshis(lc.CalcFee(SatPerKWeight(lc.channelState.LocalCommitment.FeePerKw)))
 
 	// Using the weight of the commitment transaction if we were to create
 	// a commitment now, we'll compute our remaining balance if we apply
@@ -5593,20 +5594,20 @@ func (lc *LightningChannel) validateFeeRate(feePerKw SatPerKWeight) error {
 
 	// If the total fee exceeds our available balance, then we'll reject
 	// this update as it would mean we need to trim our entire output.
-	if newFee > availableBalance {
+	if newFee > availableBalance+oldFee {
 		return fmt.Errorf("cannot apply fee_update=%v sat/kw, new fee "+
 			"of %v is greater than balance of %v", int64(feePerKw),
-			newFee, availableBalance)
+			newFee, availableBalance+oldFee)
 	}
 
 	// If this new balance is below our reserve, then we can't accommodate
 	// the fee change, so we'll reject it.
-	balanceAfterFee := availableBalance - newFee
+	balanceAfterFee := availableBalance + oldFee - newFee
 	if balanceAfterFee.ToSatoshis() < lc.channelState.LocalChanCfg.ChanReserve {
 		return fmt.Errorf("cannot apply fee_update=%v sat/kw, "+
-			"insufficient balance: start=%v, end=%v",
+			"new balance=%v would dip below channel reserve=%v",
 			int64(feePerKw),
-			availableBalance, balanceAfterFee)
+			balanceAfterFee.ToSatoshis(), lc.channelState.LocalChanCfg.ChanReserve)
 	}
 
 	// TODO(halseth): should fail if fee update is unreasonable,

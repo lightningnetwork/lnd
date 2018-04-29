@@ -1443,13 +1443,13 @@ func TestStateUpdatePersistence(t *testing.T) {
 		t.Fatalf("unable to fetch channel: %v", err)
 	}
 	aliceChannelNew, err := NewLightningChannel(
-		aliceChannel.signer, nil, aliceChannels[0],
+		aliceChannel.Signer, nil, aliceChannels[0],
 	)
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
 	}
 	bobChannelNew, err := NewLightningChannel(
-		bobChannel.signer, nil, bobChannels[0],
+		bobChannel.Signer, nil, bobChannels[0],
 	)
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
@@ -2543,14 +2543,14 @@ func TestChanSyncFullySynced(t *testing.T) {
 		t.Fatalf("unable to fetch channel: %v", err)
 	}
 	aliceChannelNew, err := NewLightningChannel(
-		aliceChannel.signer, nil, aliceChannels[0],
+		aliceChannel.Signer, nil, aliceChannels[0],
 	)
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
 	}
 	defer aliceChannelNew.Stop()
 	bobChannelNew, err := NewLightningChannel(
-		bobChannel.signer, nil, bobChannels[0],
+		bobChannel.Signer, nil, bobChannels[0],
 	)
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
@@ -2573,7 +2573,7 @@ func restartChannel(channelOld *LightningChannel) (*LightningChannel, error) {
 	}
 
 	channelNew, err := NewLightningChannel(
-		channelOld.signer, channelOld.pCache, nodeChannels[0],
+		channelOld.Signer, channelOld.pCache, nodeChannels[0],
 	)
 	if err != nil {
 		return nil, err
@@ -4173,8 +4173,8 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 		SpenderTxHash: &commitTxHash,
 	}
 	aliceCloseSummary, err := NewUnilateralCloseSummary(
-		aliceChannel.channelState, aliceChannel.signer, aliceChannel.pCache,
-		spendDetail, aliceChannel.channelState.RemoteCommitment,
+		aliceChannel.channelState, aliceChannel.Signer, aliceChannel.pCache,
+		spendDetail, aliceChannel.channelState.RemoteCommitment, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to create alice close summary: %v", err)
@@ -4216,7 +4216,7 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 	// With the transaction constructed, we'll generate a witness that
 	// should be valid for it, and verify using an instance of Script.
 	sweepTx.TxIn[0].Witness, err = receiverHtlcSpendTimeout(
-		aliceChannel.signer, &outHtlcResolution.SweepSignDesc,
+		aliceChannel.Signer, &outHtlcResolution.SweepSignDesc,
 		sweepTx, int32(outHtlcResolution.Expiry),
 	)
 	if err != nil {
@@ -4250,7 +4250,7 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 		sweepTx,
 	)
 	sweepTx.TxIn[0].Witness, err = SenderHtlcSpendRedeem(
-		aliceChannel.signer, &inHtlcResolution.SweepSignDesc,
+		aliceChannel.Signer, &inHtlcResolution.SweepSignDesc,
 		sweepTx, preimageBob[:],
 	)
 	if err != nil {

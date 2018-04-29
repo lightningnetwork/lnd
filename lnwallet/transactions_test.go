@@ -419,7 +419,7 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 	// of the dependencies.
 	channel := LightningChannel{
 		channelState:  &channelState,
-		signer:        signer,
+		Signer:        signer,
 		localChanCfg:  &channelState.LocalChanCfg,
 		remoteChanCfg: &channelState.RemoteChanCfg,
 	}

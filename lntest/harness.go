@@ -326,7 +326,8 @@ func (n *NetworkHarness) RestoreNodeWithSeed(name string, extraArgs []string,
 // wallet with or without a seed. If hasSeed is false, the returned harness node
 // can be used immediately. Otherwise, the node will require an additional
 // initialization phase where the wallet is either created or restored.
-func (n *NetworkHarness) newNode(name string, extraArgs []string, hasSeed bool) (*HarnessNode, error) {
+func (n *NetworkHarness) newNode(name string, extraArgs []string,
+	hasSeed bool) (*HarnessNode, error) {
 	node, err := newNode(nodeConfig{
 		Name:      name,
 		HasSeed:   hasSeed,

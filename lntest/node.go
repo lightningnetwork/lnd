@@ -266,11 +266,43 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 	var errb bytes.Buffer
 	hn.cmd.Stderr = &errb
 
+	// Make sure the log file cleanup function is initialized, even
+	// if no log file is created.
+	var finalizeLogfile = func() {
+		if hn.logFile != nil {
+			hn.logFile.Close()
+		}
+	}
+
 	// If the logoutput flag is passed, redirect output from the nodes to
 	// log files.
 	if *logOutput {
 		fileName := fmt.Sprintf("output-%d-%s-%s.log", hn.NodeID,
 			hn.cfg.Name, hex.EncodeToString(hn.PubKey[:logPubKeyBytes]))
+
+		// If the node's PubKey is not yet initialized, create a temporary
+		// file name. Later, after the PubKey has been initialized, the
+		// file can be moved to its final name with the PubKey included.
+		if bytes.Equal(hn.PubKey[:4], []byte{0, 0, 0, 0}) {
+			fileName = fmt.Sprintf("output-%d-%s-tmp__.log", hn.NodeID,
+				hn.cfg.Name)
+
+			// Once the node has done its work, the log file can be renamed.
+			finalizeLogfile = func() {
+				if hn.logFile != nil {
+					hn.logFile.Close()
+
+					newFileName := fmt.Sprintf("output-%d-%s-%s.log",
+						hn.NodeID, hn.cfg.Name,
+						hex.EncodeToString(hn.PubKey[:logPubKeyBytes]))
+					err := os.Rename(fileName, newFileName)
+					if err != nil {
+						fmt.Errorf("could not rename %s to %s: %v",
+							fileName, newFileName, err)
+					}
+				}
+			}
+		}
 
 		// Create file if not exists, otherwise append.
 		file, err := os.OpenFile(fileName,
@@ -307,6 +339,9 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 
 		// Signal any onlookers that this process has exited.
 		close(hn.processExit)
+
+		// Make sure log file is closed and renamed if necessary.
+		finalizeLogfile()
 	}()
 
 	// Write process ID to a file.

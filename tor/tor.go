@@ -40,12 +40,46 @@ var (
 	}
 )
 
-// Dial establishes a connection to the address via Tor's SOCKS proxy. Only TCP
+// proxyConn is a wrapper around net.Conn that allows us to expose the actual
+// remote address we're dialing, rather than the proxy's address.
+type proxyConn struct {
+	net.Conn
+	remoteAddr net.Addr
+}
+
+func (c *proxyConn) RemoteAddr() net.Addr {
+	return c.remoteAddr
+}
+
+// Dial is a wrapper over the non-exported dial function that returns a wrapper
+// around net.Conn in order to expose the actual remote address we're dialing,
+// rather than the proxy's address.
+func Dial(address, socksAddr string, streamIsolation bool) (net.Conn, error) {
+	conn, err := dial(address, socksAddr, streamIsolation)
+	if err != nil {
+		return nil, err
+	}
+
+	// Now that the connection is established, we'll create our internal
+	// proxyConn that will serve in populating the correct remote address
+	// of the connection, rather than using the proxy's address.
+	remoteAddr, err := ParseAddr(address, socksAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	return &proxyConn{
+		Conn:       conn,
+		remoteAddr: remoteAddr,
+	}, nil
+}
+
+// dial establishes a connection to the address via Tor's SOCKS proxy. Only TCP
 // is supported over Tor. The final argument determines if we should force
 // stream isolation for this new connection. If we do, then this means this new
 // connection will use a fresh circuit, rather than possibly re-using an
 // existing circuit.
-func Dial(address, socksAddr string, streamIsolation bool) (net.Conn, error) {
+func dial(address, socksAddr string, streamIsolation bool) (net.Conn, error) {
 	// If we were requested to force stream isolation for this connection,
 	// we'll populate the authentication credentials with random data as
 	// Tor will create a new circuit for each set of credentials.
@@ -91,7 +125,7 @@ func LookupSRV(service, proto, name, socksAddr, dnsServer string,
 	streamIsolation bool) (string, []*net.SRV, error) {
 
 	// Connect to the DNS server we'll be using to query SRV records.
-	conn, err := Dial(dnsServer, socksAddr, streamIsolation)
+	conn, err := dial(dnsServer, socksAddr, streamIsolation)
 	if err != nil {
 		return "", nil, err
 	}
@@ -157,4 +191,53 @@ func ResolveTCPAddr(address, socksAddr string) (*net.TCPAddr, error) {
 		IP:   net.ParseIP(ip[0]),
 		Port: p,
 	}, nil
+}
+
+// ParseAddr parses an address from its string format to a net.Addr.
+func ParseAddr(address, socksAddr string) (net.Addr, error) {
+	host, portStr, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return nil, err
+	}
+
+	if IsOnionHost(host) {
+		return &OnionAddr{OnionService: host, Port: port}, nil
+	}
+
+	return ResolveTCPAddr(address, socksAddr)
+}
+
+// IsOnionHost determines whether a host is part of an onion address.
+func IsOnionHost(host string) bool {
+	// Note the starting index of the onion suffix in the host depending
+	// on its length.
+	var suffixIndex int
+	switch len(host) {
+	case V2Len:
+		suffixIndex = V2Len - OnionSuffixLen
+	case V3Len:
+		suffixIndex = V3Len - OnionSuffixLen
+	default:
+		return false
+	}
+
+	// Make sure the host ends with the ".onion" suffix.
+	if host[suffixIndex:] != OnionSuffix {
+		return false
+	}
+
+	// We'll now attempt to decode the host without its suffix, as the
+	// suffix includes invalid characters. This will tell us if the host is
+	// actually valid if succesful.
+	host = host[:suffixIndex]
+	if _, err := Base32Encoding.DecodeString(host); err != nil {
+		return false
+	}
+
+	return true
 }

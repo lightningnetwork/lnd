@@ -217,6 +217,14 @@ var (
 			Entity: "offchain",
 			Action: "write",
 		}},
+		"/lnrpc.Lightning/SendToRoute": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/SendToRouteSync": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
 		"/lnrpc.Lightning/AddInvoice": {{
 			Entity: "invoices",
 			Action: "write",
@@ -1739,11 +1747,82 @@ func validatePayReqExpiry(payReq *zpay32.Invoice) error {
 	return nil
 }
 
+// paymentStream enables different types of payment stream, such as:
+// 		lnrpc.Lightning_SendPaymentServer
+// 		lnrpc.Lightning_SendToRouteServer
+// to execute sendPayment.
+type paymentStream struct {
+	recv func() (*paymentRequest, error)
+	send func(*lnrpc.SendResponse) error
+}
+
+// paymentRequest wraps lnrpc.SendRequest so that routes from
+// lnrpc.SendToRouteRequest can be passed to sendPayment
+type paymentRequest struct {
+	*lnrpc.SendRequest
+	routes []*routing.Route
+}
+
 // SendPayment dispatches a bi-directional streaming RPC for sending payments
 // through the Lightning Network. A single RPC invocation creates a persistent
 // bi-directional stream allowing clients to rapidly send payments through the
 // Lightning Network with a single persistent connection.
-func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer) error {
+func (r *rpcServer) SendPayment(stream lnrpc.Lightning_SendPaymentServer) error {
+	return r.sendPayment(&paymentStream{
+		recv: func() (*paymentRequest, error) {
+			req, err := stream.Recv()
+			if err != nil {
+				return nil, err
+			}
+
+			return &paymentRequest{
+				SendRequest: req,
+			}, nil
+		},
+		send: stream.Send,
+	})
+}
+
+// SendToRoute dispatches a bi-directional streaming RPC for sending payments
+// through the Lightning Network via predefined routes passed in. A single RPC
+// invocation creates a persistent bi-directional stream allowing clients to
+// rapidly send payments through the Lightning Network with a single
+// persistent connection.
+func (r *rpcServer) SendToRoute(stream lnrpc.Lightning_SendToRouteServer) error {
+	return r.sendPayment(&paymentStream{
+		recv: func() (*paymentRequest, error) {
+			req, err := stream.Recv()
+			if err != nil {
+				return nil, err
+			}
+
+			graph := r.server.chanDB.ChannelGraph()
+
+			if len(req.Routes) == 0 {
+				return nil, fmt.Errorf("unable to send, no routes provided")
+			}
+
+			routes := make([]*routing.Route, len(req.Routes))
+			for i, rpcroute := range req.Routes {
+				route, err := unmarshallRoute(rpcroute, graph)
+				if err != nil {
+					return nil, err
+				}
+				routes[i] = route
+			}
+
+			return &paymentRequest{
+				SendRequest: &lnrpc.SendRequest{
+					PaymentHash: req.PaymentHash,
+				},
+				routes: routes,
+			}, nil
+		},
+		send: stream.Send,
+	})
+}
+
+func (r *rpcServer) sendPayment(stream *paymentStream) error {
 	// For each payment we need to know the msat amount, the destination
 	// public key, the payment hash, and the optional route hints.
 	type payment struct {
@@ -1752,6 +1831,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 		pHash      []byte
 		cltvDelta  uint16
 		routeHints [][]routing.HopHint
+		routes     []*routing.Route
 	}
 	payChan := make(chan *payment)
 	errChan := make(chan error, 1)
@@ -1798,7 +1878,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 				// stream sent by the client. If we read the
 				// EOF sentinel, then the client has closed the
 				// stream, and we can exit normally.
-				nextPayment, err := paymentStream.Recv()
+				nextPayment, err := stream.recv()
 				if err == io.EOF {
 					errChan <- nil
 					return
@@ -1816,64 +1896,69 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 				// fields.
 				p := &payment{}
 
-				// If the payment request field isn't blank,
-				// then the details of the invoice are encoded
-				// entirely within the encoded payReq. So we'll
-				// attempt to decode it, populating the
-				// payment accordingly.
-				if nextPayment.PaymentRequest != "" {
-					payReq, err := zpay32.Decode(nextPayment.PaymentRequest,
-						activeNetParams.Params)
-					if err != nil {
-						select {
-						case errChan <- err:
-						case <-reqQuit:
+				if len(nextPayment.routes) == 0 {
+					// If the payment request field isn't blank,
+					// then the details of the invoice are encoded
+					// entirely within the encoded payReq. So we'll
+					// attempt to decode it, populating the
+					// payment accordingly.
+					if nextPayment.PaymentRequest != "" {
+						payReq, err := zpay32.Decode(nextPayment.PaymentRequest,
+							activeNetParams.Params)
+						if err != nil {
+							select {
+							case errChan <- err:
+							case <-reqQuit:
+							}
+							return
 						}
-						return
-					}
 
-					// TODO(roasbeef): eliminate necessary
-					// encode/decode
+						// TODO(roasbeef): eliminate necessary
+						// encode/decode
 
-					// We first check that this payment
-					// request has not expired.
-					err = validatePayReqExpiry(payReq)
-					if err != nil {
-						select {
-						case errChan <- err:
-						case <-reqQuit:
+						// We first check that this payment
+						// request has not expired.
+						err = validatePayReqExpiry(payReq)
+						if err != nil {
+							select {
+							case errChan <- err:
+							case <-reqQuit:
+							}
+							return
 						}
-						return
-					}
-					p.dest = payReq.Destination.SerializeCompressed()
+						p.dest = payReq.Destination.SerializeCompressed()
 
-					// If the amount was not included in the
-					// invoice, then we let the payee
-					// specify the amount of satoshis they
-					// wish to send. We override the amount
-					// to pay with the amount provided from
-					// the payment request.
-					if payReq.MilliSat == nil {
+						// If the amount was not included in the
+						// invoice, then we let the payee
+						// specify the amount of satoshis they
+						// wish to send. We override the amount
+						// to pay with the amount provided from
+						// the payment request.
+						if payReq.MilliSat == nil {
+							p.msat = lnwire.NewMSatFromSatoshis(
+								btcutil.Amount(nextPayment.Amt),
+							)
+						} else {
+							p.msat = *payReq.MilliSat
+						}
+
+						p.pHash = payReq.PaymentHash[:]
+						p.cltvDelta = uint16(payReq.MinFinalCLTVExpiry())
+						p.routeHints = payReq.RouteHints
+					} else {
+						// If the payment request field was not
+						// specified, construct the payment from
+						// the other fields.
 						p.msat = lnwire.NewMSatFromSatoshis(
 							btcutil.Amount(nextPayment.Amt),
 						)
-					} else {
-						p.msat = *payReq.MilliSat
+						p.dest = nextPayment.Dest
+						p.pHash = nextPayment.PaymentHash
+						p.cltvDelta = uint16(nextPayment.FinalCltvDelta)
 					}
-
-					p.pHash = payReq.PaymentHash[:]
-					p.cltvDelta = uint16(payReq.MinFinalCLTVExpiry())
-					p.routeHints = payReq.RouteHints
 				} else {
-					// If the payment request field was not
-					// specified, construct the payment from
-					// the other fields.
-					p.msat = lnwire.NewMSatFromSatoshis(
-						btcutil.Amount(nextPayment.Amt),
-					)
-					p.dest = nextPayment.Dest
 					p.pHash = nextPayment.PaymentHash
-					p.cltvDelta = uint16(nextPayment.FinalCltvDelta)
+					p.routes = nextPayment.routes
 				}
 
 				select {
@@ -1901,7 +1986,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					"large, max payment allowed is %v",
 					p.msat, maxPaymentMSat)
 
-				if err := paymentStream.Send(&lnrpc.SendResponse{
+				if err := stream.send(&lnrpc.SendResponse{
 					PaymentError: pErr.Error(),
 				}); err != nil {
 					return err
@@ -1911,9 +1996,13 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 
 			// Parse the details of the payment which include the
 			// pubkey of the destination and the payment amount.
-			destNode, err := btcec.ParsePubKey(p.dest, btcec.S256())
-			if err != nil {
-				return err
+			var destNode *btcec.PublicKey
+			var pubKeyErr error
+			if len(p.routes) == 0 {
+				destNode, pubKeyErr = btcec.ParsePubKey(p.dest, btcec.S256())
+				if pubKeyErr != nil {
+					return pubKeyErr
+				}
 			}
 
 			// If we're in debug HTLC mode, then all outgoing HTLCs
@@ -1943,22 +2032,37 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 				// successful, the route chosen will be
 				// returned. Otherwise, we'll get a non-nil
 				// error.
-				payment := &routing.LightningPayment{
-					Target:      destNode,
-					Amount:      p.msat,
-					PaymentHash: rHash,
-					RouteHints:  p.routeHints,
+				var (
+					preImage  [32]byte
+					route     *routing.Route
+					routerErr error
+				)
+
+				if len(p.routes) == 0 {
+					payment := &routing.LightningPayment{
+						Target:      destNode,
+						Amount:      p.msat,
+						PaymentHash: rHash,
+						RouteHints:  p.routeHints,
+					}
+					if p.cltvDelta != 0 {
+						payment.FinalCLTVDelta = &p.cltvDelta
+					}
+					preImage, route, routerErr = r.server.chanRouter.SendPayment(payment)
+				} else {
+					payment := &routing.LightningPayment{
+						PaymentHash: rHash,
+					}
+
+					preImage, route, routerErr = r.server.chanRouter.SendToRoute(p.routes, payment)
 				}
-				if p.cltvDelta != 0 {
-					payment.FinalCLTVDelta = &p.cltvDelta
-				}
-				preImage, route, err := r.server.chanRouter.SendPayment(payment)
-				if err != nil {
+
+				if routerErr != nil {
 					// If we receive payment error than,
 					// instead of terminating the stream,
 					// send error response to the user.
-					err := paymentStream.Send(&lnrpc.SendResponse{
-						PaymentError: err.Error(),
+					err := stream.send(&lnrpc.SendResponse{
+						PaymentError: routerErr.Error(),
 					})
 					if err != nil {
 						errChan <- err
@@ -1966,14 +2070,23 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					return
 				}
 
+				// Calculate the original amount of funds which was sent through routes
+				// without total fee.
+				var amt lnwire.MilliSatoshi
+				if len(p.routes) > 0 {
+					amt = route.TotalAmount - route.TotalFees
+				} else {
+					amt = p.msat
+				}
+
 				// Save the completed payment to the database
 				// for record keeping purposes.
-				if err := r.savePayment(route, p.msat, preImage[:]); err != nil {
+				if err := r.savePayment(route, amt, preImage[:]); err != nil {
 					errChan <- err
 					return
 				}
 
-				err = paymentStream.Send(&lnrpc.SendResponse{
+				err := stream.send(&lnrpc.SendResponse{
 					PaymentPreimage: preImage[:],
 					PaymentRoute:    marshallRoute(route),
 				})
@@ -1992,6 +2105,44 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 // hash (if any) to be encoded as hex strings.
 func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	nextPayment *lnrpc.SendRequest) (*lnrpc.SendResponse, error) {
+
+	return r.sendPaymentSync(ctx, &paymentRequest{
+		SendRequest: nextPayment,
+	})
+}
+
+// SendToRouteSync is the synchronous non-streaming version of SendToRoute.
+// This RPC is intended to be consumed by clients of the REST proxy.
+// Additionally, this RPC expects the payment hash (if any) to be encoded
+// as hex strings.
+func (r *rpcServer) SendToRouteSync(ctx context.Context,
+	req *lnrpc.SendToRouteRequest) (*lnrpc.SendResponse, error) {
+
+	if len(req.Routes) == 0 {
+		return nil, fmt.Errorf("unable to send, no routes provided")
+	}
+
+	graph := r.server.chanDB.ChannelGraph()
+
+	routes := make([]*routing.Route, len(req.Routes))
+	for i, route := range req.Routes {
+		route, err := unmarshallRoute(route, graph)
+		if err != nil {
+			return nil, err
+		}
+		routes[i] = route
+	}
+
+	return r.sendPaymentSync(ctx, &paymentRequest{
+		SendRequest: &lnrpc.SendRequest{
+			PaymentHashString: req.PaymentHashString,
+		},
+		routes: routes,
+	})
+}
+
+func (r *rpcServer) sendPaymentSync(ctx context.Context,
+	nextPayment *paymentRequest) (*lnrpc.SendResponse, error) {
 
 	// TODO(roasbeef): enforce fee limits, pass into router, ditch if exceed limit
 	//  * limit either a %, or absolute, or iff more than sending
@@ -2012,40 +2163,69 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 		routeHints [][]routing.HopHint
 	)
 
-	// If the proto request has an encoded payment request, then we we'll
-	// use that solely to dispatch the payment.
-	if nextPayment.PaymentRequest != "" {
-		payReq, err := zpay32.Decode(nextPayment.PaymentRequest,
-			activeNetParams.Params)
-		if err != nil {
-			return nil, err
-		}
+	if len(nextPayment.routes) == 0 {
+		// If the proto request has an encoded payment request, then we we'll
+		// use that solely to dispatch the payment.
+		if nextPayment.PaymentRequest != "" {
+			payReq, err := zpay32.Decode(nextPayment.PaymentRequest,
+				activeNetParams.Params)
+			if err != nil {
+				return nil, err
+			}
 
-		// We first check that this payment request has not expired.
-		if err := validatePayReqExpiry(payReq); err != nil {
-			return nil, err
-		}
+			// We first check that this payment request has not expired.
+			if err := validatePayReqExpiry(payReq); err != nil {
+				return nil, err
+			}
 
-		destPub = payReq.Destination
+			destPub = payReq.Destination
 
-		// If the amount was not included in the invoice, then we let
-		// the payee specify the amount of satoshis they wish to send.
-		// We override the amount to pay with the amount provided from
-		// the payment request.
-		if payReq.MilliSat == nil {
+			// If the amount was not included in the invoice, then we let
+			// the payee specify the amount of satoshis they wish to send.
+			// We override the amount to pay with the amount provided from
+			// the payment request.
+			if payReq.MilliSat == nil {
+				amtMSat = lnwire.NewMSatFromSatoshis(
+					btcutil.Amount(nextPayment.Amt),
+				)
+			} else {
+				amtMSat = *payReq.MilliSat
+			}
+
+			rHash = *payReq.PaymentHash
+			cltvDelta = uint16(payReq.MinFinalCLTVExpiry())
+			routeHints = payReq.RouteHints
+
+			// Otherwise, the payment conditions have been manually
+			// specified in the proto.
+		} else {
+			// If we're in debug HTLC mode, then all outgoing HTLCs will
+			// pay to the same debug rHash. Otherwise, we pay to the rHash
+			// specified within the RPC request.
+			if cfg.DebugHTLC && nextPayment.PaymentHashString == "" {
+				rHash = debugHash
+			} else {
+				paymentHash, err := hex.DecodeString(nextPayment.PaymentHashString)
+				if err != nil {
+					return nil, err
+				}
+
+				copy(rHash[:], paymentHash)
+			}
+
+			pubBytes, err := hex.DecodeString(nextPayment.DestString)
+			if err != nil {
+				return nil, err
+			}
+			destPub, err = btcec.ParsePubKey(pubBytes, btcec.S256())
+			if err != nil {
+				return nil, err
+			}
+
 			amtMSat = lnwire.NewMSatFromSatoshis(
 				btcutil.Amount(nextPayment.Amt),
 			)
-		} else {
-			amtMSat = *payReq.MilliSat
 		}
-
-		rHash = *payReq.PaymentHash
-		cltvDelta = uint16(payReq.MinFinalCLTVExpiry())
-		routeHints = payReq.RouteHints
-
-		// Otherwise, the payment conditions have been manually
-		// specified in the proto.
 	} else {
 		// If we're in debug HTLC mode, then all outgoing HTLCs will
 		// pay to the same debug rHash. Otherwise, we pay to the rHash
@@ -2060,19 +2240,6 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 
 			copy(rHash[:], paymentHash)
 		}
-
-		pubBytes, err := hex.DecodeString(nextPayment.DestString)
-		if err != nil {
-			return nil, err
-		}
-		destPub, err = btcec.ParsePubKey(pubBytes, btcec.S256())
-		if err != nil {
-			return nil, err
-		}
-
-		amtMSat = lnwire.NewMSatFromSatoshis(
-			btcutil.Amount(nextPayment.Amt),
-		)
 	}
 
 	// Currently, within the bootstrap phase of the network, we limit the
@@ -2089,25 +2256,49 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	// Finally, send a payment request to the channel router. If the
 	// payment succeeds, then the returned route will be that was used
 	// successfully within the payment.
-	payment := &routing.LightningPayment{
-		Target:      destPub,
-		Amount:      amtMSat,
-		PaymentHash: rHash,
-		RouteHints:  routeHints,
+	var (
+		preImage  [32]byte
+		route     *routing.Route
+		routerErr error
+	)
+
+	if len(nextPayment.routes) == 0 {
+		payment := &routing.LightningPayment{
+			Target:      destPub,
+			Amount:      amtMSat,
+			PaymentHash: rHash,
+			RouteHints:  routeHints,
+		}
+		if cltvDelta != 0 {
+			payment.FinalCLTVDelta = &cltvDelta
+		}
+		preImage, route, routerErr = r.server.chanRouter.SendPayment(payment)
+	} else {
+		payment := &routing.LightningPayment{
+			PaymentHash: rHash,
+		}
+		preImage, route, routerErr = r.server.chanRouter.SendToRoute(
+			nextPayment.routes, payment)
 	}
-	if cltvDelta != 0 {
-		payment.FinalCLTVDelta = &cltvDelta
-	}
-	preImage, route, err := r.server.chanRouter.SendPayment(payment)
-	if err != nil {
+
+	if routerErr != nil {
 		return &lnrpc.SendResponse{
-			PaymentError: err.Error(),
+			PaymentError: routerErr.Error(),
 		}, nil
+	}
+
+	// Calculate the original amount of funds which was sent through routes
+	// without total fee.
+	var amt lnwire.MilliSatoshi
+	if len(nextPayment.routes) > 0 {
+		amt = route.TotalAmount - route.TotalFees
+	} else {
+		amt = amtMSat
 	}
 
 	// With the payment completed successfully, we now ave the details of
 	// the completed payment to the database for historical record keeping.
-	if err := r.savePayment(route, amtMSat, preImage[:]); err != nil {
+	if err := r.savePayment(route, amt, preImage[:]); err != nil {
 		return nil, err
 	}
 
@@ -2940,6 +3131,61 @@ func marshallRoute(route *routing.Route) *lnrpc.Route {
 	}
 
 	return resp
+}
+
+func unmarshallRoute(rpcroute *lnrpc.Route,
+	graph *channeldb.ChannelGraph) (*routing.Route, error) {
+
+	rpcsLog.Infof("rpcroute: %v", spew.Sdump(rpcroute))
+
+	route := &routing.Route{
+		TotalTimeLock: rpcroute.TotalTimeLock,
+		TotalFees:     lnwire.MilliSatoshi(rpcroute.TotalFeesMsat),
+		TotalAmount:   lnwire.MilliSatoshi(rpcroute.TotalAmtMsat),
+		Hops:          make([]*routing.Hop, len(rpcroute.Hops)),
+	}
+
+	node, err := graph.SourceNode()
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch source node from graph "+
+			"while unmarshaling route. %v", err)
+	}
+
+	for i, hop := range rpcroute.Hops {
+		edgeInfo, c1, c2, err := graph.FetchChannelEdgesByID(hop.ChanId)
+		if err != nil {
+			return nil, fmt.Errorf("unable to fetch channel edges by "+
+				"channel ID for hop (%d): %v", i, err)
+		}
+
+		var channelEdgePolicy *channeldb.ChannelEdgePolicy
+
+		switch {
+		case bytes.Equal(node.PubKeyBytes[:], c1.Node.PubKeyBytes[:]):
+			channelEdgePolicy = c2
+			node = c2.Node
+		case bytes.Equal(node.PubKeyBytes[:], c2.Node.PubKeyBytes[:]):
+			channelEdgePolicy = c1
+			node = c1.Node
+		default:
+			return nil, fmt.Errorf("could not find channel edge for hop=%d", i)
+		}
+
+		routingHop := &routing.ChannelHop{
+			ChannelEdgePolicy: channelEdgePolicy,
+			Capacity:          btcutil.Amount(hop.ChanCapacity),
+			Chain:             edgeInfo.ChainHash,
+		}
+
+		route.Hops[i] = &routing.Hop{
+			Channel:          routingHop,
+			OutgoingTimeLock: hop.Expiry,
+			AmtToForward:     lnwire.MilliSatoshi(hop.AmtToForwardMsat),
+			Fee:              lnwire.MilliSatoshi(hop.FeeMsat),
+		}
+	}
+
+	return route, nil
 }
 
 // GetNetworkInfo returns some basic stats about the known channel graph from

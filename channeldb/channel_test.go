@@ -830,3 +830,85 @@ func TestFetchClosedChannels(t *testing.T) {
 			"got %v", 0, len(closed))
 	}
 }
+
+// TestRefreshShortChanID asserts that RefreshShortChanID updates the in-memory
+// short channel ID of another OpenChannel to reflect a preceding call to
+// MarkOpen on a different OpenChannel.
+func TestRefreshShortChanID(t *testing.T) {
+	t.Parallel()
+
+	cdb, cleanUp, err := makeTestDB()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+	defer cleanUp()
+
+	// First create a test channel.
+	state, err := createTestChannelState(cdb)
+	if err != nil {
+		t.Fatalf("unable to create channel state: %v", err)
+	}
+
+	addr := &net.TCPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 18555,
+	}
+
+	// Mark the channel as pending within the channeldb.
+	const broadcastHeight = 99
+	if err := state.SyncPending(addr, broadcastHeight); err != nil {
+		t.Fatalf("unable to save and serialize channel state: %v", err)
+	}
+
+	// Next, locate the pending channel with the database.
+	pendingChannels, err := cdb.FetchPendingChannels()
+	if err != nil {
+		t.Fatalf("unable to load pending channels; %v", err)
+	}
+
+	var pendingChannel *OpenChannel
+	for _, channel := range pendingChannels {
+		if channel.FundingOutpoint == state.FundingOutpoint {
+			pendingChannel = channel
+			break
+		}
+	}
+	if pendingChannel == nil {
+		t.Fatalf("unable to find pending channel with funding "+
+			"outpoint=%v: %v", state.FundingOutpoint, err)
+	}
+
+	// Next, simulate the confirmation of the channel by marking it as
+	// pending within the database.
+	chanOpenLoc := lnwire.ShortChannelID{
+		BlockHeight: 105,
+		TxIndex:     10,
+		TxPosition:  15,
+	}
+
+	err = state.MarkAsOpen(chanOpenLoc)
+	if err != nil {
+		t.Fatalf("unable to mark channel open: %v", err)
+	}
+
+	// The short_chan_id of the receiver to MarkAsOpen should reflect the
+	// open location, but the other pending channel should remain unchanged.
+	if state.ShortChanID() == pendingChannel.ShortChanID() {
+		t.Fatalf("pending channel short_chan_ID should not have been " +
+			"updated before refreshing short_chan_id")
+	}
+
+	// Now, refresh the short channel ID of the pending channel.
+	err = pendingChannel.RefreshShortChanID()
+	if err != nil {
+		t.Fatalf("unable to refresh short_chan_id: %v", err)
+	}
+
+	// This should result in both OpenChannel's now having the same
+	// ShortChanID.
+	if state.ShortChanID() != pendingChannel.ShortChanID() {
+		t.Fatalf("expected pending channel short_chan_id to be "+
+			"refreshed: want %v, got %v", state.ShortChanID(),
+			pendingChannel.ShortChanID())
+	}
+}

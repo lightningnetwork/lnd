@@ -1560,7 +1560,7 @@ func (s *Switch) reforwardResponses() error {
 	}
 
 	for _, activeChannel := range activeChannels {
-		shortChanID := activeChannel.ShortChanID
+		shortChanID := activeChannel.ShortChanID()
 		fwdPkgs, err := s.loadChannelFwdPkgs(shortChanID)
 		if err != nil {
 			return err

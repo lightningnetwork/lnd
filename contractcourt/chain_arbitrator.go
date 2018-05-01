@@ -201,7 +201,7 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 	// all interfaces and methods the arbitrator needs to do its job.
 	arbCfg := ChannelArbitratorConfig{
 		ChanPoint:   chanPoint,
-		ShortChanID: channel.ShortChanID,
+		ShortChanID: channel.ShortChanID(),
 		BlockEpochs: blockEpoch,
 		ForceCloseChan: func() (*lnwallet.LocalForceCloseSummary, error) {
 			// With the channels fetched, attempt to locate

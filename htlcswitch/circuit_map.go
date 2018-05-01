@@ -364,7 +364,7 @@ func (cm *circuitMap) trimAllOpenCircuits() error {
 		// First, skip any channels that have not been assigned their
 		// final channel identifier, otherwise we would try to trim
 		// htlcs belonging to the all-zero, sourceHop ID.
-		chanID := activeChannel.ShortChanID
+		chanID := activeChannel.ShortChanID()
 		if chanID == sourceHop {
 			continue
 		}

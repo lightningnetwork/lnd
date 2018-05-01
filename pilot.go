@@ -171,7 +171,7 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 	initialChanState := make([]autopilot.Channel, len(activeChannels))
 	for i, channel := range activeChannels {
 		initialChanState[i] = autopilot.Channel{
-			ChanID:   channel.ShortChanID,
+			ChanID:   channel.ShortChanID(),
 			Capacity: channel.Capacity,
 			Node:     autopilot.NewNodeID(channel.IdentityPub),
 		}

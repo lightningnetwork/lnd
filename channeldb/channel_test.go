@@ -186,7 +186,7 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 		ChanType:          SingleFunder,
 		ChainHash:         key,
 		FundingOutpoint:   *testOutpoint,
-		ShortChanID:       chanID,
+		ShortChannelID:    chanID,
 		IsInitiator:       true,
 		IsPending:         true,
 		IdentityPub:       pubKey,
@@ -514,7 +514,7 @@ func TestChannelStateTransition(t *testing.T) {
 	}
 	channel.RemoteNextRevocation = newPriv.PubKey()
 
-	fwdPkg := NewFwdPkg(channel.ShortChanID, oldRemoteCommit.CommitHeight,
+	fwdPkg := NewFwdPkg(channel.ShortChanID(), oldRemoteCommit.CommitHeight,
 		diskCommitDiff.LogUpdates, nil)
 
 	err = channel.AdvanceCommitChainTail(fwdPkg)
@@ -563,7 +563,7 @@ func TestChannelStateTransition(t *testing.T) {
 		t.Fatalf("unable to add to commit chain: %v", err)
 	}
 
-	fwdPkg = NewFwdPkg(channel.ShortChanID, oldRemoteCommit.CommitHeight, nil, nil)
+	fwdPkg = NewFwdPkg(channel.ShortChanID(), oldRemoteCommit.CommitHeight, nil, nil)
 
 	err = channel.AdvanceCommitChainTail(fwdPkg)
 	if err != nil {
@@ -688,9 +688,9 @@ func TestFetchPendingChannels(t *testing.T) {
 		t.Fatalf("channel marked open should no longer be pending")
 	}
 
-	if pendingChannels[0].ShortChanID != chanOpenLoc {
+	if pendingChannels[0].ShortChanID() != chanOpenLoc {
 		t.Fatalf("channel opening height not updated: expected %v, "+
-			"got %v", spew.Sdump(pendingChannels[0].ShortChanID),
+			"got %v", spew.Sdump(pendingChannels[0].ShortChanID()),
 			chanOpenLoc)
 	}
 
@@ -700,9 +700,9 @@ func TestFetchPendingChannels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch channels: %v", err)
 	}
-	if openChans[0].ShortChanID != chanOpenLoc {
+	if openChans[0].ShortChanID() != chanOpenLoc {
 		t.Fatalf("channel opening heights don't match: expected %v, "+
-			"got %v", spew.Sdump(openChans[0].ShortChanID),
+			"got %v", spew.Sdump(openChans[0].ShortChanID()),
 			chanOpenLoc)
 	}
 	if openChans[0].FundingBroadcastHeight != broadcastHeight {

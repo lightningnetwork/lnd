@@ -180,7 +180,7 @@ func (c *chainWatcher) Start() error {
 	// As a height hint, we'll try to use the opening height, but if the
 	// channel isn't yet open, then we'll use the height it was broadcast
 	// at.
-	heightHint := chanState.ShortChanID.BlockHeight
+	heightHint := c.cfg.chanState.ShortChanID().BlockHeight
 	if heightHint == 0 {
 		heightHint = chanState.FundingBroadcastHeight
 	}
@@ -472,7 +472,7 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 		CloseHeight:    uint32(commitSpend.SpendingHeight),
 		SettledBalance: localAmt,
 		CloseType:      channeldb.CooperativeClose,
-		ShortChanID:    c.cfg.chanState.ShortChanID,
+		ShortChanID:    c.cfg.chanState.ShortChanID(),
 		IsPending:      true,
 	}
 	err := c.cfg.chanState.CloseChannel(closeSummary)
@@ -564,7 +564,7 @@ func (c *chainWatcher) dispatchLocalForceClose(
 		Capacity:    chanSnapshot.Capacity,
 		CloseType:   channeldb.LocalForceClose,
 		IsPending:   true,
-		ShortChanID: c.cfg.chanState.ShortChanID,
+		ShortChanID: c.cfg.chanState.ShortChanID(),
 		CloseHeight: uint32(commitSpend.SpendingHeight),
 	}
 
@@ -739,7 +739,7 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 		SettledBalance: settledBalance,
 		CloseType:      channeldb.BreachClose,
 		IsPending:      true,
-		ShortChanID:    c.cfg.chanState.ShortChanID,
+		ShortChanID:    c.cfg.chanState.ShortChanID(),
 	}
 
 	if err := c.cfg.chanState.CloseChannel(&closeSummary); err != nil {

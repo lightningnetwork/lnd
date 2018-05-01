@@ -1702,6 +1702,8 @@ func (s *Switch) Stop() error {
 	for _, mailBox := range s.mailboxes {
 		mailBox.Stop()
 	}
+	for _, mailBox := range s.pendingMailboxes {
+		mailBox.Stop()
 
 	return nil
 }

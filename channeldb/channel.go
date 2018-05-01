@@ -340,10 +340,10 @@ type OpenChannel struct {
 	// target blockchain as specified by the chain hash parameter.
 	FundingOutpoint wire.OutPoint
 
-	// ShortChanID encodes the exact location in the chain in which the
+	// ShortChannelID encodes the exact location in the chain in which the
 	// channel was initially confirmed. This includes: the block height,
 	// transaction index, and the output within the target transaction.
-	ShortChanID lnwire.ShortChannelID
+	ShortChannelID lnwire.ShortChannelID
 
 	// IsPending indicates whether a channel's funding transaction has been
 	// confirmed.
@@ -458,6 +458,47 @@ func (c *OpenChannel) FullSync() error {
 	defer c.Unlock()
 
 	return c.Db.Update(c.fullSync)
+}
+
+// ShortChanID returns the current ShortChannelID of this channel.
+func (c *OpenChannel) ShortChanID() lnwire.ShortChannelID {
+	c.RLock()
+	defer c.RUnlock()
+
+	return c.ShortChannelID
+}
+
+// RefreshShortChanID updates the in-memory short channel ID using the latest
+// value observed on disk.
+func (c *OpenChannel) RefreshShortChanID() error {
+	c.Lock()
+	defer c.Unlock()
+
+	var sid lnwire.ShortChannelID
+	err := c.Db.View(func(tx *bolt.Tx) error {
+		chanBucket, err := readChanBucket(
+			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		channel, err := fetchOpenChannel(chanBucket, &c.FundingOutpoint)
+		if err != nil {
+			return err
+		}
+
+		sid = channel.ShortChannelID
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	c.ShortChannelID = sid
+
+	return nil
 }
 
 // updateChanBucket is a helper function that returns a writable bucket that a
@@ -582,7 +623,7 @@ func (c *OpenChannel) MarkAsOpen(openLoc lnwire.ShortChannelID) error {
 		}
 
 		channel.IsPending = false
-		channel.ShortChanID = openLoc
+		channel.ShortChannelID = openLoc
 
 		return putOpenChannel(chanBucket, channel)
 	}); err != nil {
@@ -590,7 +631,7 @@ func (c *OpenChannel) MarkAsOpen(openLoc lnwire.ShortChannelID) error {
 	}
 
 	c.IsPending = false
-	c.ShortChanID = openLoc
+	c.ShortChannelID = openLoc
 
 	return nil
 }
@@ -692,7 +733,7 @@ func fetchOpenChannel(chanBucket *bolt.Bucket,
 		return nil, fmt.Errorf("unable to fetch chan revocations: %v", err)
 	}
 
-	channel.Packager = NewChannelPackager(channel.ShortChanID)
+	channel.Packager = NewChannelPackager(channel.ShortChannelID)
 
 	return channel, nil
 }
@@ -1977,7 +2018,7 @@ func putChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 	var w bytes.Buffer
 	if err := writeElements(&w,
 		channel.ChanType, channel.ChainHash, channel.FundingOutpoint,
-		channel.ShortChanID, channel.IsPending, channel.IsInitiator,
+		channel.ShortChannelID, channel.IsPending, channel.IsInitiator,
 		channel.ChanStatus, channel.FundingBroadcastHeight,
 		channel.NumConfsRequired, channel.ChannelFlags,
 		channel.IdentityPub, channel.Capacity, channel.TotalMSatSent,
@@ -2087,7 +2128,7 @@ func fetchChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 
 	if err := readElements(r,
 		&channel.ChanType, &channel.ChainHash, &channel.FundingOutpoint,
-		&channel.ShortChanID, &channel.IsPending, &channel.IsInitiator,
+		&channel.ShortChannelID, &channel.IsPending, &channel.IsInitiator,
 		&channel.ChanStatus, &channel.FundingBroadcastHeight,
 		&channel.NumConfsRequired, &channel.ChannelFlags,
 		&channel.IdentityPub, &channel.Capacity, &channel.TotalMSatSent,
@@ -2110,7 +2151,7 @@ func fetchChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 		return err
 	}
 
-	channel.Packager = NewChannelPackager(channel.ShortChanID)
+	channel.Packager = NewChannelPackager(channel.ShortChannelID)
 
 	return nil
 }

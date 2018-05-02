@@ -913,7 +913,7 @@ type CommitmentKeyRing struct {
 	// TODO(roasbeef): need delay tweak as well?
 
 	// LocalHtlcKeyTweak is the teak used to derive the local HTLC key from
-	// the local HTLC base point point. This value is needed in order to
+	// the local HTLC base point. This value is needed in order to
 	// derive the final key used within the HTLC scripts in the commitment
 	// transaction.
 	LocalHtlcKeyTweak []byte
@@ -1520,7 +1520,7 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 			pd.theirWitnessScript = theirWitnessScript
 		}
 
-	// For HTLC's we we're offered we'll fetch the original offered HTLc
+	// For HTLC's we're offered we'll fetch the original offered HTLC
 	// from the remote party's update log so we can retrieve the same
 	// PaymentDescriptor that SettleHTLC would produce.
 	case *lnwire.UpdateFulfillHTLC:
@@ -1787,7 +1787,7 @@ type HtlcRetribution struct {
 	// SecondLevelWitnessScript is the witness script that will be created
 	// if the second level HTLC transaction for this output is
 	// broadcast/confirmed. We provide this as if the remote party attempts
-	// to to go the second level to claim the HTLC then we'll need to
+	// to go to the second level to claim the HTLC then we'll need to
 	// update the SignDesc above accordingly to sweep properly.
 	SecondLevelWitnessScript []byte
 
@@ -2556,8 +2556,8 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 	feePerKw := remoteCommitView.feePerKw
 
 	// With the keys generated, we'll make a slice with enough capacity to
-	// hold potentially all the HTLC's. The actual slice may be a bit
-	// smaller (than its total capacity) an some HTLC's may be dust.
+	// hold potentially all the HTLCs. The actual slice may be a bit
+	// smaller (than its total capacity) and some HTLCs may be dust.
 	numSigs := (len(remoteCommitView.incomingHTLCs) +
 		len(remoteCommitView.outgoingHTLCs))
 	sigBatch := make([]signJob, 0, numSigs)
@@ -2565,7 +2565,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 	var err error
 	cancelChan := make(chan struct{})
 
-	// For ech outgoing and incoming HTLC, if the HTLC isn't considered a
+	// For each outgoing and incoming HTLC, if the HTLC isn't considered a
 	// dust output after taking into account second-level HTLC fees, then a
 	// sigJob will be generated and appended to the current batch.
 	for _, htlc := range remoteCommitView.incomingHTLCs {
@@ -3187,7 +3187,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 //   3. We didn't get the last RevokeAndAck message they sent, so they'll
 //      re-send it.
 func (lc *LightningChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
-	// The remote commitment height that we we'll send in the
+	// The remote commitment height that we'll send in the
 	// ChannelReestablish message is our current commitment height plus
 	// one. If the receiver thinks that our commitment height is actually
 	// *equal* to this value, then they'll re-send the last commitment that
@@ -4176,7 +4176,7 @@ func (lc *LightningChannel) RemoveFwdPkg(height uint64) error {
 
 // NextRevocationKey returns the commitment point for the _next_ commitment
 // height. The pubkey returned by this function is required by the remote party
-// along with their revocation base to to extend our commitment chain with a
+// along with their revocation base to extend our commitment chain with a
 // new commitment.
 func (lc *LightningChannel) NextRevocationKey() (*btcec.PublicKey, error) {
 	lc.RLock()
@@ -4650,7 +4650,7 @@ type CommitOutputResolution struct {
 // had any outgoing HTLC's within the commitment transaction, then an
 // OutgoingHtlcResolution for each output will included.
 type UnilateralCloseSummary struct {
-	// SpendDetail is a struct that describes how and when the commitment
+	// SpendDetail is a struct that describes how and when the funding
 	// output was spent.
 	*chainntnfs.SpendDetail
 
@@ -4754,7 +4754,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer Signer,
 		RemotePub:      chanState.IdentityPub,
 		Capacity:       chanState.Capacity,
 		SettledBalance: localBalance,
-		CloseType:      channeldb.ForceClose,
+		CloseType:      channeldb.RemoteForceClose,
 		IsPending:      true,
 	}
 
@@ -5583,6 +5583,11 @@ func (lc *LightningChannel) validateFeeRate(feePerKw SatPerKWeight) error {
 	// be above our reserve balance. Otherwise, we'll reject the fee
 	// update.
 	availableBalance, txWeight := lc.availableBalance()
+	oldFee := lnwire.NewMSatFromSatoshis(lc.localCommitChain.tip().fee)
+
+	// Our base balance is the total amount of satoshis we can commit
+	// towards fees before factoring in the channel reserve.
+	baseBalance := availableBalance + oldFee
 
 	// Using the weight of the commitment transaction if we were to create
 	// a commitment now, we'll compute our remaining balance if we apply
@@ -5591,22 +5596,24 @@ func (lc *LightningChannel) validateFeeRate(feePerKw SatPerKWeight) error {
 		feePerKw.FeeForWeight(txWeight),
 	)
 
-	// If the total fee exceeds our available balance, then we'll reject
-	// this update as it would mean we need to trim our entire output.
-	if newFee > availableBalance {
+	// If the total fee exceeds our available balance (taking into account
+	// the fee from the last state), then we'll reject this update as it
+	// would mean we need to trim our entire output.
+	if newFee > baseBalance {
 		return fmt.Errorf("cannot apply fee_update=%v sat/kw, new fee "+
 			"of %v is greater than balance of %v", int64(feePerKw),
-			newFee, availableBalance)
+			newFee, baseBalance)
 	}
 
 	// If this new balance is below our reserve, then we can't accommodate
 	// the fee change, so we'll reject it.
-	balanceAfterFee := availableBalance - newFee
+	balanceAfterFee := baseBalance - newFee
 	if balanceAfterFee.ToSatoshis() < lc.channelState.LocalChanCfg.ChanReserve {
 		return fmt.Errorf("cannot apply fee_update=%v sat/kw, "+
-			"insufficient balance: start=%v, end=%v",
+			"new balance=%v would dip below channel reserve=%v",
 			int64(feePerKw),
-			availableBalance, balanceAfterFee)
+			balanceAfterFee.ToSatoshis(),
+			lc.channelState.LocalChanCfg.ChanReserve)
 	}
 
 	// TODO(halseth): should fail if fee update is unreasonable,

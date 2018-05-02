@@ -148,7 +148,7 @@ type AuthenticatedGossiper struct {
 	newBlocks <-chan *chainntnfs.BlockEpoch
 
 	// prematureAnnouncements maps a block height to a set of network
-	// messages which are "premature" from our PoV. An message is premature
+	// messages which are "premature" from our PoV. A message is premature
 	// if it claims to be anchored in a block which is beyond the current
 	// main chain tip as we know it. Premature network messages will be
 	// processed once the chain tip as we know it extends to/past the
@@ -168,7 +168,7 @@ type AuthenticatedGossiper struct {
 	// announcement messages. We use it to buffer half of the material
 	// needed to reconstruct a full authenticated channel announcement.
 	// Once we receive the other half the channel proof, we'll be able to
-	// properly validate it an re-broadcast it out to the network.
+	// properly validate it and re-broadcast it out to the network.
 	waitingProofs *channeldb.WaitingProofStore
 
 	// networkMsgs is a channel that carries new network broadcasted

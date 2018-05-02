@@ -704,7 +704,7 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	// At this point, Bob should have 6 BTC settled, with Alice still having
 	// 4 BTC. Alice's channel should show 1 BTC sent and Bob's channel
 	// should show 1 BTC received. They should also be at commitment height
-	// two, with the revocation window extended by by 1 (5).
+	// two, with the revocation window extended by 1 (5).
 	mSatTransferred := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 	if aliceChannel.channelState.TotalMSatSent != mSatTransferred {
 		t.Fatalf("alice satoshis sent incorrect %v vs %v expected",
@@ -2278,6 +2278,61 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 	}
 }
 
+// TestUpdateFeeAdjustments tests that the state machine is able to properly
+// accept valid fee changes, as well as reject any invalid fee updates.
+func TestUpdateFeeAdjustments(t *testing.T) {
+	t.Parallel()
+
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// First, we'll grab the current base fee rate as we'll be using this
+	// to make relative adjustments int he fee rate.
+	baseFeeRate := aliceChannel.channelState.LocalCommitment.FeePerKw
+
+	// We'll first try to increase the fee rate 5x, this should be able to
+	// be committed without any issue.
+	newFee := SatPerKWeight(baseFeeRate * 5)
+
+	if err := aliceChannel.UpdateFee(newFee); err != nil {
+		t.Fatalf("unable to alice update fee: %v", err)
+	}
+	if err := bobChannel.ReceiveUpdateFee(newFee); err != nil {
+		t.Fatalf("unable to bob update fee: %v", err)
+	}
+
+	// With the fee updates applied, we'll now initiate a state transition
+	// to ensure the fee update is locked in.
+	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("unable to create new commitment: %v", err)
+	}
+
+	// We'll now attempt to increase the fee rate 1,000,000x of the base
+	// fee.  This should result in an error as Alice won't be able to pay
+	// this new fee rate.
+	newFee = SatPerKWeight(baseFeeRate * 1000000)
+	if err := aliceChannel.UpdateFee(newFee); err == nil {
+		t.Fatalf("alice should reject the fee rate")
+	}
+
+	// Finally, we'll attempt to adjust the fee down and use a fee which is
+	// smaller than the initial base fee rate. The fee application and
+	// state transition should proceed without issue.
+	newFee = SatPerKWeight(baseFeeRate / 100)
+	if err := aliceChannel.UpdateFee(newFee); err != nil {
+		t.Fatalf("unable to alice update fee: %v", err)
+	}
+	if err := bobChannel.ReceiveUpdateFee(newFee); err != nil {
+		t.Fatalf("unable to bob update fee: %v", err)
+	}
+	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("unable to create new commitment: %v", err)
+	}
+}
+
 // TestUpdateFeeFail tests that the signature verification will fail if they
 // fee updates are out of sync.
 func TestUpdateFeeFail(t *testing.T) {
@@ -3026,7 +3081,7 @@ func TestChanSyncOweCommitment(t *testing.T) {
 		for i := 0; i < 3; i++ {
 			settleMsg, ok := aliceMsgsToSend[i].(*lnwire.UpdateFulfillHTLC)
 			if !ok {
-				t.Fatalf("expected a htlc settle message, "+
+				t.Fatalf("expected an HTLC settle message, "+
 					"instead have %v", spew.Sdump(settleMsg))
 			}
 			if settleMsg.ID != uint64(i) {
@@ -3045,7 +3100,7 @@ func TestChanSyncOweCommitment(t *testing.T) {
 
 		// The HTLC add message should be identical.
 		if _, ok := aliceMsgsToSend[3].(*lnwire.UpdateAddHTLC); !ok {
-			t.Fatalf("expected a htlc add message, instead have %v",
+			t.Fatalf("expected an HTLC add message, instead have %v",
 				spew.Sdump(aliceMsgsToSend[3]))
 		}
 		if !reflect.DeepEqual(aliceHtlc, aliceMsgsToSend[3]) {
@@ -3777,7 +3832,7 @@ func TestFeeUpdateRejectInsaneFee(t *testing.T) {
 	startingFeeRate := SatPerKWeight(aliceChannel.channelState.LocalCommitment.FeePerKw)
 	newFeeRate := startingFeeRate * 1000000
 
-	// Both Alice and Bob should reject this new fee rate as it it far too
+	// Both Alice and Bob should reject this new fee rate as it is far too
 	// large.
 	if err := aliceChannel.UpdateFee(newFeeRate); err == nil {
 		t.Fatalf("alice should have rejected fee update")
@@ -4620,7 +4675,7 @@ func TestDesyncHTLCs(t *testing.T) {
 		t.Fatalf("unable to complete state update: %v", err)
 	}
 
-	// Now let let Bob fail this HTLC.
+	// Now let Bob fail this HTLC.
 	err = bobChannel.FailHTLC(bobIndex, []byte("failreason"), nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unable to cancel HTLC: %v", err)
@@ -4776,36 +4831,38 @@ func TestMaxPendingAmount(t *testing.T) {
 	}
 }
 
-// TestChanReserve tests that the ErrBelowChanReserve error is thrown when
-// an HTLC is added that causes a node's balance to dip below its channel
-// reserve limit.
+// TestChanReserve tests that the ErrBelowChanReserve error is thrown when an
+// HTLC is added that causes a node's balance to dip below its channel reserve
+// limit.
 func TestChanReserve(t *testing.T) {
 	t.Parallel()
 
 	setupChannels := func() (*LightningChannel, *LightningChannel, func()) {
-		// We'll kick off the test by creating our channels which both are
-		// loaded with 5 BTC each.
+		// We'll kick off the test by creating our channels which both
+		// are loaded with 5 BTC each.
 		aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
 		if err != nil {
 			t.Fatalf("unable to create test channels: %v", err)
 		}
 
 		// We set the remote required ChanReserve to 0.5 BTC. We will
-		// attempt to cause Alice's balance to dip below this amount and test
-		// whether it triggers the ErrBelowChanReserve error.
-		aliceMinReserve := btcutil.Amount(0.5 * btcutil.SatoshiPerBitcoin)
+		// attempt to cause Alice's balance to dip below this amount
+		// and test whether it triggers the ErrBelowChanReserve error.
+		aliceMinReserve := btcutil.Amount(0.5 *
+			btcutil.SatoshiPerBitcoin)
 
-		// Alice will need to keep her reserve above aliceMinReserve, so
-		// set this limit to here local config.
+		// Alice will need to keep her reserve above aliceMinReserve,
+		// so set this limit to here local config.
 		aliceChannel.localChanCfg.ChanReserve = aliceMinReserve
 
-		// During channel opening Bob will also get to know Alice's minimum
-		// reserve, and this will be found in his remote config.
+		// During channel opening Bob will also get to know Alice's
+		// minimum reserve, and this will be found in his remote
+		// config.
 		bobChannel.remoteChanCfg.ChanReserve = aliceMinReserve
 
-		// We set Bob's channel reserve to a value that is larger than his
-		// current balance in the channel. This will ensure that after a
-		// channel is first opened, Bob can still receive HTLCs
+		// We set Bob's channel reserve to a value that is larger than
+		// his current balance in the channel. This will ensure that
+		// after a channel is first opened, Bob can still receive HTLCs
 		// even though his balance is less than his channel reserve.
 		bobMinReserve := btcutil.Amount(6 * btcutil.SatoshiPerBitcoin)
 		bobChannel.localChanCfg.ChanReserve = bobMinReserve
@@ -4819,10 +4876,9 @@ func TestChanReserve(t *testing.T) {
 	aliceIndex := 0
 	bobIndex := 0
 
-	// Add an HTLC that will increase Bob's balance. This should
-	// succeed, since Alice stays above her channel reserve, and
-	// Bob increases his balance (while still being below his
-	// channel reserve).
+	// Add an HTLC that will increase Bob's balance. This should succeed,
+	// since Alice stays above her channel reserve, and Bob increases his
+	// balance (while still being below his channel reserve).
 	// Resulting balances:
 	//	Alice:	4.5
 	//	Bob:	5.5
@@ -4836,15 +4892,14 @@ func TestChanReserve(t *testing.T) {
 		t.Fatalf("unable to recv htlc: %v", err)
 	}
 
-	// Force a state transation, making sure this HTLC is considered
-	// valid even though the channel reserves are not met.
+	// Force a state transition, making sure this HTLC is considered valid
+	// even though the channel reserves are not met.
 	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
 		t.Fatalf("unable to complete state update: %v", err)
 	}
 
-	// Now let Bob try to add an HTLC. This should fail, since it
-	// will decrease his balance, which is already below the channel
-	// reserve.
+	// Now let Bob try to add an HTLC. This should fail, since it will
+	// decrease his balance, which is already below the channel reserve.
 	// Resulting balances:
 	//	Alice:	4.5
 	//	Bob:	5.5
@@ -4872,8 +4927,8 @@ func TestChanReserve(t *testing.T) {
 	aliceIndex = 0
 	bobIndex = 0
 
-	// Now we'll add HTLC of 3.5 BTC to Alice's commitment, this should
-	// put Alice's balance at 1.5 BTC.
+	// Now we'll add HTLC of 3.5 BTC to Alice's commitment, this should put
+	// Alice's balance at 1.5 BTC.
 	// Resulting balances:
 	//	Alice:	1.5
 	//	Bob:	9.5
@@ -4890,9 +4945,9 @@ func TestChanReserve(t *testing.T) {
 	}
 
 	// Add a second HTLC of 1 BTC. This should fail because it will take
-	// Alice's balance all the way down to her channel reserve, but
-	// since she is the initiator the additional transaction fee makes
-	// her balance dip below.
+	// Alice's balance all the way down to her channel reserve, but since
+	// she is the initiator the additional transaction fee makes her
+	// balance dip below.
 	htlcAmt = lnwire.NewMSatFromSatoshis(1 * btcutil.SatoshiPerBitcoin)
 	htlc, _ = createHTLC(aliceIndex, htlcAmt)
 	aliceIndex++
@@ -4942,8 +4997,8 @@ func TestChanReserve(t *testing.T) {
 	}
 
 	// And now let Bob add an HTLC of 1 BTC. This will take Bob's balance
-	// all the way down to his channel reserve, but since he is not paying the
-	// fee this is okay.
+	// all the way down to his channel reserve, but since he is not paying
+	// the fee this is okay.
 	htlcAmt = lnwire.NewMSatFromSatoshis(1 * btcutil.SatoshiPerBitcoin)
 	htlc, _ = createHTLC(bobIndex, htlcAmt)
 	bobIndex++
@@ -4953,6 +5008,7 @@ func TestChanReserve(t *testing.T) {
 	if _, err := aliceChannel.ReceiveHTLC(htlc); err != nil {
 		t.Fatalf("unable to recv htlc: %v", err)
 	}
+
 	// Do a last state transition, which should succeed.
 	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
 		t.Fatalf("unable to complete state update: %v", err)

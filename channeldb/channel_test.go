@@ -488,7 +488,7 @@ func TestChannelStateTransition(t *testing.T) {
 		t.Fatalf("unable to add to commit chain: %v", err)
 	}
 
-	// The commitment tip should now match the the commitment that we just
+	// The commitment tip should now match the commitment that we just
 	// inserted.
 	diskCommitDiff, err := channel.RemoteCommitChainTip()
 	if err != nil {
@@ -606,7 +606,7 @@ func TestChannelStateTransition(t *testing.T) {
 		SettledBalance:    btcutil.Amount(500),
 		TimeLockedBalance: btcutil.Amount(10000),
 		IsPending:         false,
-		CloseType:         ForceClose,
+		CloseType:         RemoteForceClose,
 	}
 	if err := updatedChannel[0].CloseChannel(closeSummary); err != nil {
 		t.Fatalf("unable to delete updated channel: %v", err)
@@ -770,7 +770,7 @@ func TestFetchClosedChannels(t *testing.T) {
 		Capacity:          state.Capacity,
 		SettledBalance:    state.LocalCommitment.LocalBalance.ToSatoshis(),
 		TimeLockedBalance: state.RemoteCommitment.LocalBalance.ToSatoshis() + 10000,
-		CloseType:         ForceClose,
+		CloseType:         RemoteForceClose,
 		IsPending:         true,
 	}
 	if err := state.CloseChannel(summary); err != nil {

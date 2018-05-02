@@ -52,7 +52,7 @@ type pendingPayment struct {
 	response chan *htlcPacket
 	err      chan error
 
-	// deobfuscator is an serializable entity which is used if we received
+	// deobfuscator is a serializable entity which is used if we received
 	// an error, it deobfuscates the onion failure blob, and extracts the
 	// exact error from it.
 	deobfuscator ErrorDecrypter
@@ -65,7 +65,7 @@ type plexPacket struct {
 	err chan error
 }
 
-// ChannelCloseType is a enum which signals the type of channel closure the
+// ChannelCloseType is an enum which signals the type of channel closure the
 // peer should execute.
 type ChannelCloseType uint8
 
@@ -1508,16 +1508,12 @@ func (s *Switch) Start() error {
 // forwarding packages and reforwards any Settle or Fail HTLCs found. This is
 // used to resurrect the switch's mailboxes after a restart.
 func (s *Switch) reforwardResponses() error {
-	activeChannels, err := s.cfg.DB.FetchAllChannels()
+	activeChannels, err := s.cfg.DB.FetchAllOpenChannels()
 	if err != nil {
 		return err
 	}
 
 	for _, activeChannel := range activeChannels {
-		if activeChannel.IsPending {
-			continue
-		}
-
 		shortChanID := activeChannel.ShortChanID
 		fwdPkgs, err := s.loadChannelFwdPkgs(shortChanID)
 		if err != nil {
@@ -1798,7 +1794,7 @@ func (s *Switch) UpdateShortChanID(chanID lnwire.ChannelID,
 
 	s.indexMtx.Lock()
 
-	// First, we'll extract the current link as is from the link link
+	// First, we'll extract the current link as is from the link 
 	// index. If the link isn't even in the index, then we'll return an
 	// error.
 	link, ok := s.linkIndex[chanID]

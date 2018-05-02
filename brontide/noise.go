@@ -464,7 +464,7 @@ func (b *Machine) GenActOne() ([ActOneSize]byte, error) {
 
 // RecvActOne processes the act one packet sent by the initiator. The responder
 // executes the mirrored actions to that of the initiator extending the
-// handshake digest and deriving a new shared secret based on a ECDH with the
+// handshake digest and deriving a new shared secret based on an ECDH with the
 // initiator's ephemeral key and responder's static key.
 func (b *Machine) RecvActOne(actOne [ActOneSize]byte) error {
 	var (

@@ -27,7 +27,7 @@ const (
 type ChannelID [32]byte
 
 // ConnectionWideID is an all-zero ChannelID, which is used to represent a
-// message intended for all channels to to specific peer.
+// message intended for all channels to specific peer.
 var ConnectionWideID = ChannelID{}
 
 // String returns the string representation of the ChannelID. This is just the

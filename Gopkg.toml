@@ -60,11 +60,11 @@
 
 [[constraint]]
   name = "github.com/roasbeef/btcd"
-  revision = "3b7cd0380ae14f7ae01703f04b5120bf688f5dcd"
+  revision = "a03db407e40d3b66ea29984263bbc8bf4d2f04c4"
 
 [[constraint]]
   name = "github.com/roasbeef/btcwallet"
-  revision = "257011e9f113aeea4720f03f732a19753a4599e1"
+  revision = "ccd48bb4720f2baeaa795cac81264f6ced2da4c7"
 
 [[constraint]]
   name = "github.com/tv42/zbase32"

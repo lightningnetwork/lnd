@@ -53,7 +53,7 @@ type outgoingMsg struct {
 	errChan chan error // MUST be buffered.
 }
 
-// newChannelMsg packages a lnwallet.LightningChannel with a channel that
+// newChannelMsg packages an lnwallet.LightningChannel with a channel that
 // allows the receiver of the request to report when the funding transaction
 // has been confirmed and the channel creation process completed.
 type newChannelMsg struct {
@@ -329,9 +329,9 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 
 		// Skip adding any permanently irreconcilable channels to the
 		// htlcswitch.
-		if dbChan.IsBorked {
-			peerLog.Warnf("ChannelPoint(%v) is borked, won't "+
-				"start.", chanPoint)
+		if dbChan.ChanStatus != channeldb.Default {
+			peerLog.Warnf("ChannelPoint(%v) has status %v, won't "+
+				"start.", chanPoint, dbChan.ChanStatus)
 			lnChan.Stop()
 			continue
 		}

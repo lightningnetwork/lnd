@@ -10,9 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 const (
@@ -43,7 +41,7 @@ type WitnessSubscription struct {
 
 // WitnessBeacon is a global beacon of witnesses. Contract resolvers will use
 // this interface to lookup witnesses (preimages typically) of contracts
-// they're trying to resolver, add new preimages they resolver, and finally
+// they're trying to resolve, add new preimages they resolve, and finally
 // receive new updates each new time a preimage is discovered.
 //
 // TODO(roasbeef): need to delete the pre-images once we've used them
@@ -91,11 +89,9 @@ type ChannelArbitratorConfig struct {
 	// eventually resolve all outputs on chain.
 	ForceCloseChan func() (*lnwallet.LocalForceCloseSummary, error)
 
-	// CloseChannel is a function closure that marks a channel under watch
-	// as "closing". In this phase, we will no longer accept any updates to
-	// the channel as the commitment transaction has been broadcast, and
-	// possibly fully confirmed.
-	CloseChannel func(*channeldb.ChannelCloseSummary) error
+	// MarkCommitmentBroadcasted should mark the channel as the commitment
+	// being broadcast, and we are waiting for the commitment to confirm.
+	MarkCommitmentBroadcasted func() error
 
 	// MarkChannelResolved is a function closure that serves to mark a
 	// channel as "fully resolved". A channel itself can be considered
@@ -239,7 +235,7 @@ func (c *ChannelArbitrator) Start() error {
 	log.Infof("ChannelArbitrator(%v): starting state=%v", c.cfg.ChanPoint,
 		c.state)
 
-	bestHash, bestHeight, err := c.cfg.ChainIO.GetBestBlock()
+	_, bestHeight, err := c.cfg.ChainIO.GetBestBlock()
 	if err != nil {
 		return err
 	}
@@ -248,7 +244,7 @@ func (c *ChannelArbitrator) Start() error {
 	// on-chain state, and our set of active contracts.
 	startingState := c.state
 	nextState, _, err := c.advanceState(
-		uint32(bestHeight), bestHash, chainTrigger, nil,
+		uint32(bestHeight), chainTrigger, nil,
 	)
 	if err != nil {
 		return err
@@ -280,7 +276,7 @@ func (c *ChannelArbitrator) Start() error {
 	// TODO(roasbeef): cancel if breached
 
 	c.wg.Add(1)
-	go c.channelAttendant(bestHeight, bestHash)
+	go c.channelAttendant(bestHeight)
 	return nil
 }
 
@@ -320,14 +316,18 @@ const (
 	// being attached.
 	chainTrigger transitionTrigger = iota
 
-	// remotePeerTrigger is a transition trigger driven by actions of the
-	// remote peer.
-	remotePeerTrigger
-
 	// userTrigger is a transition trigger driven by user action. Examples
-	// of such a trigger include a user requesting a forgive closure of the
+	// of such a trigger include a user requesting a force closure of the
 	// channel.
 	userTrigger
+
+	// remoteCloseTrigger is a transition trigger driven by the remote
+	// peer's commitment being confirmed.
+	remoteCloseTrigger
+
+	// localCloseTrigger is a transition trigger driven by our commitment
+	// being confirmed.
+	localCloseTrigger
 )
 
 // String returns a human readable string describing the passed
@@ -337,11 +337,14 @@ func (t transitionTrigger) String() string {
 	case chainTrigger:
 		return "chainTrigger"
 
-	case remotePeerTrigger:
-		return "remotePeerTrigger"
+	case remoteCloseTrigger:
+		return "remoteCloseTrigger"
 
 	case userTrigger:
 		return "userTrigger"
+
+	case localCloseTrigger:
+		return "localCloseTrigger"
 
 	default:
 		return "unknown trigger"
@@ -352,7 +355,7 @@ func (t transitionTrigger) String() string {
 // the appropriate state transition if necessary. The next state we transition
 // to is returned, Additionally, if the next transition results in a commitment
 // broadcast, the commitment transaction itself is returned.
-func (c *ChannelArbitrator) stateStep(bestHeight uint32, bestHash *chainhash.Hash,
+func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
 	trigger transitionTrigger) (ArbitratorState, *wire.MsgTx, error) {
 
 	var (
@@ -364,16 +367,15 @@ func (c *ChannelArbitrator) stateStep(bestHeight uint32, bestHash *chainhash.Has
 	// If we're in the default state, then we'll check our set of actions
 	// to see if while we were down, conditions have changed.
 	case StateDefault:
-		log.Debugf("ChannelArbitrator(%v): new block (height=%v, "+
-			"hash=%v) examining active HTLC's",
-			c.cfg.ChanPoint, bestHeight, bestHash)
+		log.Debugf("ChannelArbitrator(%v): new block (height=%v) "+
+			"examining active HTLC's", c.cfg.ChanPoint,
+			triggerHeight)
 
 		// As a new block has been connected to the end of the main
 		// chain, we'll check to see if we need to make any on-chain
 		// claims on behalf of the channel contract that we're
 		// arbitrating for.
-		chainActions := c.checkChainActions(uint32(bestHeight),
-			trigger)
+		chainActions := c.checkChainActions(triggerHeight, trigger)
 
 		// If there are no actions to be made, then we'll remain in the
 		// default state. If this isn't a self initiated event (we're
@@ -409,10 +411,16 @@ func (c *ChannelArbitrator) stateStep(bestHeight uint32, bestHash *chainhash.Has
 		case userTrigger:
 			nextState = StateBroadcastCommit
 
-		// Otherwise, if this state advance was triggered by the remote
-		// peer, then we'll jump straight to the state where the
-		// contract has already been closed.
-		case remotePeerTrigger:
+		// Otherwise, if this state advance was triggered by a
+		// commitment being confirmed on chain, then we'll jump
+		// straight to the state where the contract has already been
+		// closed.
+		case localCloseTrigger:
+			log.Errorf("ChannelArbitrator(%v): unexpected local "+
+				"commitment confirmed while in StateDefault",
+				c.cfg.ChanPoint)
+			fallthrough
+		case remoteCloseTrigger:
 			nextState = StateContractClosed
 		}
 
@@ -456,59 +464,37 @@ func (c *ChannelArbitrator) stateStep(bestHeight uint32, bestHash *chainhash.Has
 			}
 		}
 
-		// As we've have broadcast the commitment transaction, we send
-		// out commitment output for incubation, but only if it wasn't
-		// trimmed.  We'll need to wait for a CSV timeout before we can
-		// reclaim the funds.
-		if closeSummary.CommitResolution != nil {
-			log.Infof("ChannelArbitrator(%v): sending commit "+
-				"output for incubation", c.cfg.ChanPoint)
-
-			err = c.cfg.IncubateOutputs(
-				c.cfg.ChanPoint, closeSummary.CommitResolution,
-				nil, nil,
-			)
-			if err != nil {
-				// TODO(roasbeef): check for AlreadyExists errors
-				log.Errorf("unable to incubate commitment "+
-					"output: %v", err)
-				return StateError, closeTx, err
-			}
+		if err := c.cfg.MarkCommitmentBroadcasted(); err != nil {
+			log.Errorf("ChannelArbitrator(%v): unable to "+
+				"mark commitment broadcasted: %v",
+				c.cfg.ChanPoint, err)
 		}
 
-		contractRes := ContractResolutions{
-			CommitHash:       closeTx.TxHash(),
-			CommitResolution: closeSummary.CommitResolution,
-			HtlcResolutions:  *closeSummary.HtlcResolutions,
+		// We go to the StateCommitmentBroadcasted state, where we'll
+		// be waiting for the commitment to be confirmed.
+		nextState = StateCommitmentBroadcasted
+
+	// In this state we have broadcasted our own commitment, and will need
+	// to wait for a commitment (not necessarily the one we broadcasted!)
+	// to be confirmed.
+	case StateCommitmentBroadcasted:
+		switch trigger {
+		// We are waiting for a commitment to be confirmed, so any
+		// other trigger will be ignored.
+		case chainTrigger, userTrigger:
+			log.Infof("ChannelArbitrator(%v): noop state %v",
+				c.cfg.ChanPoint, trigger)
+			nextState = StateCommitmentBroadcasted
+
+		// If this state advance was triggered by any of the
+		// commitments being confirmed, then we'll jump to the state
+		// where the contract has been closed.
+		case localCloseTrigger, remoteCloseTrigger:
+			log.Infof("ChannelArbitrator(%v): state %v, "+
+				" going to StateContractClosed",
+				c.cfg.ChanPoint, trigger)
+			nextState = StateContractClosed
 		}
-
-		// Now that the transaction has been broadcast, we can mark
-		// that it has been closed to outside sub-systems.
-		err = c.markContractClosed(
-			closeTx, closeSummary.ChanSnapshot, &contractRes,
-			bestHeight,
-		)
-		if err != nil {
-			log.Errorf("unable to close contract: %v", err)
-			return StateError, closeTx, err
-		}
-
-		// With the channel force closed, we'll now log our
-		// resolutions, then advance our state forward.
-		log.Infof("ChannelArbitrator(%v): logging contract "+
-			"resolutions: commit=%v, num_htlcs=%v",
-			c.cfg.ChanPoint,
-			closeSummary.CommitResolution != nil,
-			len(closeSummary.HtlcResolutions.IncomingHTLCs)+
-				len(closeSummary.HtlcResolutions.OutgoingHTLCs))
-
-		err = c.log.LogContractResolutions(&contractRes)
-		if err != nil {
-			log.Errorf("unable to write resolutions: %v", err)
-			return StateError, closeTx, err
-		}
-
-		nextState = StateContractClosed
 
 	// If we're in this state, then the contract has been fully closed to
 	// outside sub-systems, so we'll process the prior set of on-chain
@@ -539,12 +525,32 @@ func (c *ChannelArbitrator) stateStep(bestHeight uint32, bestHash *chainhash.Has
 			break
 		}
 
+		// If we've have broadcast the commitment transaction, we send
+		// our commitment output for incubation, but only if it wasn't
+		// trimmed.  We'll need to wait for a CSV timeout before we can
+		// reclaim the funds.
+		commitRes := contractResolutions.CommitResolution
+		if commitRes != nil && commitRes.MaturityDelay > 0 {
+			log.Infof("ChannelArbitrator(%v): sending commit "+
+				"output for incubation", c.cfg.ChanPoint)
+
+			err = c.cfg.IncubateOutputs(
+				c.cfg.ChanPoint, commitRes,
+				nil, nil,
+			)
+			if err != nil {
+				// TODO(roasbeef): check for AlreadyExists errors
+				log.Errorf("unable to incubate commitment "+
+					"output: %v", err)
+				return StateError, closeTx, err
+			}
+		}
+
 		// Now that we know we'll need to act, we'll process the htlc
 		// actions, wen create the structures we need to resolve all
 		// outstanding contracts.
 		htlcResolvers, pktsToSend, err := c.prepContractResolutions(
-			chainActions, contractResolutions, uint32(bestHeight),
-			trigger,
+			chainActions, contractResolutions, triggerHeight,
 		)
 		if err != nil {
 			log.Errorf("ChannelArbitrator(%v): unable to "+
@@ -601,7 +607,7 @@ func (c *ChannelArbitrator) stateStep(bestHeight uint32, bestHash *chainhash.Has
 		nextState = StateFullyResolved
 
 		log.Infof("ChannelPoint(%v) has been fully resolved "+
-			"on-chain at height=%v", c.cfg.ChanPoint, bestHeight)
+			"on-chain at height=%v", c.cfg.ChanPoint, triggerHeight)
 		return nextState, closeTx, c.cfg.MarkChannelResolved()
 	}
 
@@ -622,25 +628,25 @@ func (c *ChannelArbitrator) stateStep(bestHeight uint32, bestHash *chainhash.Has
 // redundant transition, meaning that the state transition is a noop. The final
 // param is a callback that allows the caller to execute an arbitrary action
 // after each state transition.
-func (c *ChannelArbitrator) advanceState(currentHeight uint32,
-	bestHash *chainhash.Hash, trigger transitionTrigger,
-	stateCallback func(ArbitratorState) error) (ArbitratorState, *wire.MsgTx, error) {
+func (c *ChannelArbitrator) advanceState(triggerHeight uint32,
+	trigger transitionTrigger, stateCallback func(ArbitratorState) error) (
+	ArbitratorState, *wire.MsgTx, error) {
 
 	var (
 		priorState   ArbitratorState
 		forceCloseTx *wire.MsgTx
 	)
 
-	log.Tracef("ChannelArbitrator(%v): attempting state step with "+
-		"trigger=%v", c.cfg.ChanPoint, trigger)
-
 	// We'll continue to advance our state forward until the state we
 	// transition to is that same state that we started at.
 	for {
 		priorState = c.state
+		log.Tracef("ChannelArbitrator(%v): attempting state step with "+
+			"trigger=%v from state=%v", c.cfg.ChanPoint, trigger,
+			priorState)
 
 		nextState, closeTx, err := c.stateStep(
-			currentHeight, bestHash, trigger,
+			triggerHeight, trigger,
 		)
 		if err != nil {
 			log.Errorf("unable to advance state: %v", err)
@@ -671,7 +677,7 @@ func (c *ChannelArbitrator) advanceState(currentHeight uint32,
 	}
 }
 
-// ChainAction is an enum that that encompasses all possible on-chain actions
+// ChainAction is an enum that encompasses all possible on-chain actions
 // we'll take for a set of HTLC's.
 type ChainAction uint8
 
@@ -833,7 +839,7 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 	// Now that we know we'll need to go on-chain, we'll examine all of our
 	// active outgoing HTLC's to see if we either need to: sweep them after
 	// a timeout (then cancel backwards), cancel them backwards
-	// immediately, or or watch them as they're still active contracts.
+	// immediately, or watch them as they're still active contracts.
 	for _, htlc := range c.activeHTLCs.outgoingHTLCs {
 		switch {
 		// If the HTLC is dust, then we can cancel it backwards
@@ -926,7 +932,6 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 // are properly resolved.
 func (c *ChannelArbitrator) prepContractResolutions(htlcActions ChainActionMap,
 	contractResolutions *ContractResolutions, height uint32,
-	trigger transitionTrigger,
 ) ([]ContractResolver, []ResolutionMsg, error) {
 
 	// There may be a class of HTLC's which we can fail back immediately,
@@ -1035,7 +1040,7 @@ func (c *ChannelArbitrator) prepContractResolutions(htlcActions ChainActionMap,
 			}
 
 		// If we can timeout the HTLC directly, then we'll create the
-		// proper resolver to to so, who will then cancel the packet
+		// proper resolver to do so, who will then cancel the packet
 		// backwards.
 		case HtlcTimeoutAction:
 			for _, htlc := range htlcs {
@@ -1278,8 +1283,7 @@ func (c *ChannelArbitrator) UpdateContractSignals(newSignals *ContractSignals) {
 // Nursery for incubation, and ultimate sweeping.
 //
 // NOTE: This MUST be run as a goroutine.
-func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
-	bestHash *chainhash.Hash) {
+func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 
 	// TODO(roasbeef): tell top chain arb we're done
 	defer c.wg.Done()
@@ -1295,7 +1299,6 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 				return
 			}
 			bestHeight = blockEpoch.Height
-			bestHash = blockEpoch.Hash
 
 			// If we're not in the default state, then we can
 			// ignore this signal as we're waiting for contract
@@ -1307,7 +1310,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 			// Now that a new block has arrived, we'll attempt to
 			// advance our state forward.
 			nextState, _, err := c.advanceState(
-				uint32(bestHeight), bestHash, chainTrigger, nil,
+				uint32(bestHeight), chainTrigger, nil,
 			)
 			if err != nil {
 				log.Errorf("unable to advance state: %v", err)
@@ -1352,20 +1355,67 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 				}),
 			)
 
-			// We've cooperatively closed the channel, so we're no longer
-			// needed.
+		// We've cooperatively closed the channel, so we're no longer
+		// needed.
 		case <-c.cfg.ChainEvents.CooperativeClosure:
 			log.Infof("ChannelArbitrator(%v) closing due to co-op "+
 				"closure", c.cfg.ChanPoint)
 			return
 
+		// We have broadcasted our commitment, and it is now confirmed
+		// on-chain.
+		case closeInfo := <-c.cfg.ChainEvents.LocalUnilateralClosure:
+			log.Infof("ChannelArbitrator(%v): local on-chain "+
+				"channel close", c.cfg.ChanPoint)
+
+			if c.state != StateCommitmentBroadcasted {
+				log.Errorf("ChannelArbitrator(%v): unexpected "+
+					"local on-chain channel close",
+					c.cfg.ChanPoint)
+			}
+			closeTx := closeInfo.CloseTx
+
+			contractRes := &ContractResolutions{
+				CommitHash:       closeTx.TxHash(),
+				CommitResolution: closeInfo.CommitResolution,
+				HtlcResolutions:  *closeInfo.HtlcResolutions,
+			}
+
+			// When processing a unilateral close event, we'll
+			// transition directly to the ContractClosed state.
+			// When the state machine reaches that state, we'll log
+			// out the set of resolutions.
+			stateCb := func(nextState ArbitratorState) error {
+				if nextState != StateContractClosed {
+					return nil
+				}
+
+				err := c.log.LogContractResolutions(
+					contractRes,
+				)
+				if err != nil {
+					return fmt.Errorf("unable to "+
+						"write resolutions: %v",
+						err)
+				}
+
+				return nil
+			}
+
+			// We'll now advance our state machine until it reaches
+			// a terminal state.
+			_, _, err := c.advanceState(
+				uint32(closeInfo.SpendingHeight),
+				localCloseTrigger, stateCb,
+			)
+			if err != nil {
+				log.Errorf("unable to advance state: %v", err)
+			}
+
 		// The remote party has broadcast the commitment on-chain.
 		// We'll examine our state to determine if we need to act at
 		// all.
-		case uniClosure := <-c.cfg.ChainEvents.UnilateralClosure:
-			if c.state != StateDefault {
-				continue
-			}
+		case uniClosure := <-c.cfg.ChainEvents.RemoteUnilateralClosure:
 
 			log.Infof("ChannelArbitrator(%v): remote party has "+
 				"closed channel out on-chain", c.cfg.ChanPoint)
@@ -1378,17 +1428,6 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 				CommitResolution: uniClosure.CommitResolution,
 				HtlcResolutions:  *uniClosure.HtlcResolutions,
 			}
-			if contractRes.IsEmpty() {
-				log.Infof("ChannelArbitrator(%v): contract "+
-					"resolutions empty, exiting", c.cfg.ChanPoint)
-
-				err := c.cfg.MarkChannelResolved()
-				if err != nil {
-					log.Errorf("unable to resolve "+
-						"contract: %v", err)
-				}
-				return
-			}
 
 			// TODO(roasbeef): modify signal to also detect
 			// cooperative closures?
@@ -1399,19 +1438,21 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 			// present on their commitment.
 			c.activeHTLCs = newHtlcSet(uniClosure.RemoteCommit.Htlcs)
 
-			// When processing a remote party initiated event,
-			// we'll skip the BroadcastCommit state, and transition
-			// directly to the ContractClosed state. As a result,
-			// we'll now manually log out set of resolutions.
+			// When processing a unilateral close event, we'll
+			// transition directly to the ContractClosed state.
+			// When the state machine reaches that state, we'll log
+			// out the set of resolutions.
 			stateCb := func(nextState ArbitratorState) error {
-				if nextState == StateContractClosed {
-					err := c.log.LogContractResolutions(
-						contractRes,
-					)
-					if err != nil {
-						return fmt.Errorf("unable to write "+
-							"resolutions: %v", err)
-					}
+				if nextState != StateContractClosed {
+					return nil
+				}
+
+				err := c.log.LogContractResolutions(
+					contractRes,
+				)
+				if err != nil {
+					return fmt.Errorf("unable to write "+
+						"resolutions: %v", err)
 				}
 
 				return nil
@@ -1420,8 +1461,8 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 			// We'll now advance our state machine until it reaches
 			// a terminal state.
 			_, _, err := c.advanceState(
-				uint32(bestHeight), bestHash,
-				remotePeerTrigger, stateCb,
+				uint32(uniClosure.SpendingHeight),
+				remoteCloseTrigger, stateCb,
 			)
 			if err != nil {
 				log.Errorf("unable to advance state: %v", err)
@@ -1466,7 +1507,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 			}
 
 			nextState, closeTx, err := c.advanceState(
-				uint32(bestHeight), bestHash, userTrigger, nil,
+				uint32(bestHeight), userTrigger, nil,
 			)
 			if err != nil {
 				log.Errorf("unable to advance state: %v", err)
@@ -1490,46 +1531,11 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 				log.Infof("ChannelArbitrator(%v): all "+
 					"contracts resolved, exiting",
 					c.cfg.ChanPoint)
+				return
 			}
 
 		case <-c.quit:
 			return
 		}
 	}
-}
-
-// markContractClosed marks a contract as "pending closed". After this state,
-// upon restart, we'll no longer watch for updates to the set of contracts as
-// the channel cannot be updated any longer.
-func (c *ChannelArbitrator) markContractClosed(closeTx *wire.MsgTx,
-	chanSnapshot channeldb.ChannelSnapshot,
-	contractResolution *ContractResolutions,
-	closeHeight uint32) error {
-
-	// TODO(roasbeef): also need height info?
-	closeInfo := &channeldb.ChannelCloseSummary{
-		ChanPoint:   chanSnapshot.ChannelPoint,
-		ChainHash:   chanSnapshot.ChainHash,
-		ClosingTXID: closeTx.TxHash(),
-		RemotePub:   &chanSnapshot.RemoteIdentity,
-		Capacity:    chanSnapshot.Capacity,
-		CloseType:   channeldb.ForceClose,
-		IsPending:   true,
-		ShortChanID: c.cfg.ShortChanID,
-		CloseHeight: closeHeight,
-	}
-
-	// If our commitment output isn't dust or we have active HTLC's on the
-	// commitment transaction, then we'll populate the balances on the
-	// close channel summary.
-	if contractResolution.CommitResolution != nil {
-		closeInfo.SettledBalance = chanSnapshot.LocalBalance.ToSatoshis()
-		closeInfo.TimeLockedBalance = chanSnapshot.LocalBalance.ToSatoshis()
-	}
-	for _, htlc := range contractResolution.HtlcResolutions.OutgoingHTLCs {
-		htlcValue := btcutil.Amount(htlc.SweepSignDesc.Output.Value)
-		closeInfo.TimeLockedBalance += htlcValue
-	}
-
-	return c.cfg.CloseChannel(closeInfo)
 }

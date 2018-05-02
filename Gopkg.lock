@@ -191,7 +191,7 @@
     "txscript",
     "wire"
   ]
-  revision = "3b7cd0380ae14f7ae01703f04b5120bf688f5dcd"
+  revision = "a03db407e40d3b66ea29984263bbc8bf4d2f04c4"
 
 [[projects]]
   name = "github.com/roasbeef/btcutil"
@@ -225,7 +225,7 @@
     "walletdb/bdb",
     "wtxmgr"
   ]
-  revision = "257011e9f113aeea4720f03f732a19753a4599e1"
+  revision = "ccd48bb4720f2baeaa795cac81264f6ced2da4c7"
 
 [[projects]]
   branch = "master"
@@ -359,6 +359,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "1b075083f0d9636bbbb051345f1973e27f15c53855a109b983849971ba5073f1"
+  inputs-digest = "7edcc418d8e2f483001838e05dc77e3fe613273418f8ddf7efd5cee6df68c6a8"
   solver-name = "gps-cdcl"
   solver-version = 1

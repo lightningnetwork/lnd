@@ -33,12 +33,16 @@ var (
 	}
 
 	testNetParams = &chaincfg.MainNetParams
+
+	testRecoveryWindow uint32 = 150
 )
 
 func createTestWallet(t *testing.T, dir string, netParams *chaincfg.Params) {
 	netDir := btcwallet.NetworkDir(dir, netParams)
-	loader := wallet.NewLoader(netParams, netDir)
-	_, err := loader.CreateNewWallet(testPassword, testPassword, testSeed)
+	loader := wallet.NewLoader(netParams, netDir, 0)
+	_, err := loader.CreateNewWallet(
+		testPassword, testPassword, testSeed, time.Time{},
+	)
 	if err != nil {
 		t.Fatalf("failed creating wallet: %v", err)
 	}
@@ -207,6 +211,7 @@ func TestInitWallet(t *testing.T) {
 		WalletPassword:     testPassword,
 		CipherSeedMnemonic: []string(mnemonic[:]),
 		AezeedPassphrase:   pass,
+		RecoveryWindow:     int32(testRecoveryWindow),
 	}
 	_, err = service.InitWallet(ctx, req)
 	if err != nil {
@@ -235,6 +240,11 @@ func TestInitWallet(t *testing.T) {
 			t.Fatalf("mismatched versions: expected %x, "+
 				"got %x", cipherSeed.Entropy[:],
 				msg.WalletSeed.Entropy[:])
+		}
+		if msg.RecoveryWindow != testRecoveryWindow {
+			t.Fatalf("mismatched recovery window: expected %v,"+
+				"got %v", testRecoveryWindow,
+				msg.RecoveryWindow)
 		}
 
 	case <-time.After(3 * time.Second):
@@ -312,6 +322,7 @@ func TestUnlockWallet(t *testing.T) {
 	ctx := context.Background()
 	req := &lnrpc.UnlockWalletRequest{
 		WalletPassword: testPassword,
+		RecoveryWindow: int32(testRecoveryWindow),
 	}
 
 	// Should fail to unlock non-existing wallet.
@@ -338,12 +349,17 @@ func TestUnlockWallet(t *testing.T) {
 		t.Fatalf("unable to unlock wallet: %v", err)
 	}
 
-	// Password should be sent over the channel.
+	// Password and recovery window should be sent over the channel.
 	select {
-	case pw := <-service.UnlockPasswords:
-		if !bytes.Equal(pw, testPassword) {
+	case unlockMsg := <-service.UnlockMsgs:
+		if !bytes.Equal(unlockMsg.Passphrase, testPassword) {
 			t.Fatalf("expected to receive password %x, got %x",
-				testPassword, pw)
+				testPassword, unlockMsg.Passphrase)
+		}
+		if unlockMsg.RecoveryWindow != testRecoveryWindow {
+			t.Fatalf("expected to receive recovery window %d, "+
+				"got %d", testRecoveryWindow,
+				unlockMsg.RecoveryWindow)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatalf("password not received")

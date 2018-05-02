@@ -112,7 +112,8 @@ type chainControl struct {
 // branches of chainControl instances exist: one backed by a running btcd
 // full-node, and the other backed by a running neutrino light client instance.
 func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
-	privateWalletPw, publicWalletPw []byte) (*chainControl, func(), error) {
+	privateWalletPw, publicWalletPw []byte, birthday time.Time,
+	recoveryWindow uint32) (*chainControl, func(), error) {
 
 	// Set the RPC config from the "home" chain. Multi-chain isn't yet
 	// active, so we'll restrict usage to a particular chain for now.
@@ -152,18 +153,19 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 	}
 
 	walletConfig := &btcwallet.Config{
-		PrivatePass:  privateWalletPw,
-		PublicPass:   publicWalletPw,
-		DataDir:      homeChainConfig.ChainDir,
-		NetParams:    activeNetParams.Params,
-		FeeEstimator: cc.feeEstimator,
-		CoinType:     activeNetParams.CoinType,
+		PrivatePass:    privateWalletPw,
+		PublicPass:     publicWalletPw,
+		Birthday:       birthday,
+		RecoveryWindow: recoveryWindow,
+		DataDir:        homeChainConfig.ChainDir,
+		NetParams:      activeNetParams.Params,
+		FeeEstimator:   cc.feeEstimator,
+		CoinType:       activeNetParams.CoinType,
 	}
 
 	var (
 		err          error
 		cleanUp      func()
-		btcdConn     *chain.RPCClient
 		bitcoindConn *chain.BitcoindClient
 	)
 
@@ -244,7 +246,9 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 		// Finally, we'll set the chain source for btcwallet, and
 		// create our clean up function which simply closes the
 		// database.
-		walletConfig.ChainSource = chain.NewNeutrinoClient(svc)
+		walletConfig.ChainSource = chain.NewNeutrinoClient(
+			activeNetParams.Params, svc,
+		)
 		cleanUp = func() {
 			svc.Stop()
 			nodeDatabase.Close()
@@ -446,7 +450,6 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 		}
 
 		walletConfig.ChainSource = chainRPC
-		btcdConn = chainRPC
 
 		// If we're not in simnet or regtest mode, then we'll attempt
 		// to use a proper fee estimator for testnet.
@@ -521,41 +524,6 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 	ltndLog.Info("LightningWallet opened")
 
 	cc.wallet = wallet
-
-	// As a final check, if we're using the RPC backend, we'll ensure that
-	// the btcd node has the txindex set. Atm, this is required in order to
-	// properly perform historical confirmation+spend dispatches.
-	if homeChainConfig.Node != "neutrino" {
-		// In order to check to see if we have the txindex up to date
-		// and active, we'll try to fetch the first transaction in the
-		// latest block via the index. If this doesn't succeed, then we
-		// know it isn't active (or just not yet up to date).
-		bestHash, _, err := cc.chainIO.GetBestBlock()
-		if err != nil {
-			return nil, nil, fmt.Errorf("unable to get current "+
-				"best hash: %v", err)
-		}
-		bestBlock, err := cc.chainIO.GetBlock(bestHash)
-		if err != nil {
-			return nil, nil, fmt.Errorf("unable to get current "+
-				"block hash: %v", err)
-		}
-
-		firstTxHash := bestBlock.Transactions[0].TxHash()
-		switch homeChainConfig.Node {
-		case "btcd":
-			_, err = btcdConn.GetRawTransaction(&firstTxHash)
-		case "bitcoind":
-			_, err = bitcoindConn.GetRawTransactionVerbose(&firstTxHash)
-		}
-		if err != nil {
-			// If the node doesn't have the txindex set, then we'll
-			// halt startup, as we can't proceed in this state.
-			return nil, nil, fmt.Errorf("%s detected to not "+
-				"have --txindex active, cannot proceed",
-				homeChainConfig.Node)
-		}
-	}
 
 	return cc, cleanUp, nil
 }

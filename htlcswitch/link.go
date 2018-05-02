@@ -832,7 +832,7 @@ out:
 		// the contract as fully settled. Afterwards we can exit.
 		//
 		// TODO(roasbeef): add force closure? also breach?
-		case <-l.cfg.ChainEvents.UnilateralClosure:
+		case <-l.cfg.ChainEvents.RemoteUnilateralClosure:
 			log.Warnf("Remote peer has closed ChannelPoint(%v) on-chain",
 				l.channel.ChannelPoint())
 
@@ -1142,7 +1142,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// TODO(roasbeef): pipeline to switch
 
 		// As we've learned of a new preimage for the first time, we'll
-		// add it to to our preimage cache. By doing this, we ensure
+		// add it to our preimage cache. By doing this, we ensure
 		// any contested contracts watched by any on-chain arbitrators
 		// can now sweep this HTLC on-chain.
 		go func() {
@@ -1236,7 +1236,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			return
 		}
 
-		// As we've just just accepted a new state, we'll now
+		// As we've just accepted a new state, we'll now
 		// immediately send the remote peer a revocation for our prior
 		// state.
 		nextRevocation, currentHtlcs, err := l.channel.RevokeCurrentCommitment()
@@ -1964,7 +1964,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			//
 			// NOTE: Though our recovery and forwarding logic is
 			// predominately batched, settling invoices happens
-			// iteratively. We may reject one of of two payments
+			// iteratively. We may reject one of two payments
 			// for the same rhash at first, but then restart and
 			// reject both after seeing that the invoice has been
 			// settled. Without any record of which one settles
@@ -2105,7 +2105,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 		// There are additional channels left within this route. So
 		// we'll verify that our forwarding constraints have been
-		// properly met by by this incoming HTLC.
+		// properly met by this incoming HTLC.
 		default:
 			switch fwdPkg.State {
 			case channeldb.FwdStateProcessed:

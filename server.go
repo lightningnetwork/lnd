@@ -37,9 +37,9 @@ import (
 )
 
 var (
-	// ErrPeerNotFound signals that the server has no connection to the
+	// ErrPeerNotConnected signals that the server has no connection to the
 	// given peer.
-	ErrPeerNotFound = errors.New("unable to find peer")
+	ErrPeerNotConnected = errors.New("peer is not connected")
 
 	// ErrServerShuttingDown indicates that the server is in the process of
 	// gracefully exiting.
@@ -1124,9 +1124,9 @@ func (s *server) sendToPeer(target *btcec.PublicKey,
 	// here to ensure we consider the exact set of peers present at the
 	// time of invocation.
 	targetPeer, err := s.findPeerByPubStr(string(targetPubBytes))
-	if err == ErrPeerNotFound {
+	if err == ErrPeerNotConnected {
 		srvrLog.Errorf("unable to send message to %x, "+
-			"peer not found", targetPubBytes)
+			"peer is not connected", targetPubBytes)
 		return nil, nil, err
 	}
 
@@ -1210,7 +1210,7 @@ func (s *server) FindPeerByPubStr(pubStr string) (*peer, error) {
 func (s *server) findPeerByPubStr(pubStr string) (*peer, error) {
 	peer, ok := s.peersByPub[pubStr]
 	if !ok {
-		return nil, ErrPeerNotFound
+		return nil, ErrPeerNotConnected
 	}
 
 	return peer, nil
@@ -1390,7 +1390,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	// feature vector to advertise to the remote node.
 	localFeatures := lnwire.NewRawFeatureVector()
 
-	// We'll only request a full channel graph sync if we detect that that
+	// We'll only request a full channel graph sync if we detect that
 	// we aren't fully synced yet.
 	if s.shouldRequestGraphSync() {
 		localFeatures.Set(lnwire.InitialRoutingSync)
@@ -1467,7 +1467,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 	// from findPeerByPubStr.
 	connectedPeer, err := s.findPeerByPubStr(pubStr)
 	switch err {
-	case ErrPeerNotFound:
+	case ErrPeerNotConnected:
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
 
@@ -1557,7 +1557,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	// findPeerByPubStr.
 	connectedPeer, err := s.findPeerByPubStr(pubStr)
 	switch err {
-	case ErrPeerNotFound:
+	case ErrPeerNotConnected:
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
 
@@ -1843,8 +1843,8 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 	// exit in an error as we can't disconnect from a peer that we're not
 	// currently connected to.
 	peer, err := s.findPeerByPubStr(pubStr)
-	if err == ErrPeerNotFound {
-		return fmt.Errorf("unable to find peer %x", pubBytes)
+	if err == ErrPeerNotConnected {
+		return fmt.Errorf("peer %x is not connected", pubBytes)
 	}
 
 	srvrLog.Infof("Disconnecting from %v", peer)
@@ -1900,7 +1900,7 @@ func (s *server) OpenChannel(nodeKey *btcec.PublicKey,
 	s.mu.RUnlock()
 
 	if targetPeer == nil {
-		errChan <- fmt.Errorf("unable to find peer NodeKey(%x)", pubKeyBytes)
+		errChan <- fmt.Errorf("peer is not connected NodeKey(%x)", pubKeyBytes)
 		return updateChan, errChan
 	}
 

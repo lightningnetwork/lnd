@@ -185,7 +185,7 @@ func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
 }
 
 // MsgType returns the MessageType code which uniquely identifies this message
-// as a OpenChannel on the wire.
+// as an OpenChannel on the wire.
 //
 // This is part of the lnwire.Message interface.
 func (o *OpenChannel) MsgType() MessageType {

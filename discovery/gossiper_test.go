@@ -583,7 +583,7 @@ func TestProcessAnnouncement(t *testing.T) {
 		}
 	}
 
-	// Create node valid, signed announcement, process it with with
+	// Create node valid, signed announcement, process it with 
 	// gossiper service, check that valid announcement have been
 	// propagated farther into the lightning network, and check that we
 	// added new node into router.

@@ -122,11 +122,11 @@ const (
 
 // ChannelConstraints represents a set of constraints meant to allow a node to
 // limit their exposure, enact flow control and ensure that all HTLCs are
-// economically relevant This struct will be mirrored for both sides of the
+// economically relevant. This struct will be mirrored for both sides of the
 // channel, as each side will enforce various constraints that MUST be adhered
 // to for the life time of the channel. The parameters for each of these
-// constraints is static for the duration of the channel, meaning the channel
-// must be teared down for them to change.
+// constraints are static for the duration of the channel, meaning the channel
+// must be torn down for them to change.
 type ChannelConstraints struct {
 	// DustLimit is the threshold (in satoshis) below which any outputs
 	// should be trimmed. When an output is trimmed, it isn't materialized
@@ -145,7 +145,7 @@ type ChannelConstraints struct {
 	// particular time.
 	MaxPendingAmount lnwire.MilliSatoshi
 
-	// MinHTLC is the minimum HTLC value that the the owner of these
+	// MinHTLC is the minimum HTLC value that the owner of these
 	// constraints can offer the remote node. If any HTLCs below this
 	// amount are offered, then the HTLC will be rejected. This, in
 	// tandem with the dust limit allows a node to regulate the
@@ -285,6 +285,38 @@ type ChannelCommitment struct {
 	//  * lets just walk through
 }
 
+// ChannelStatus is used to indicate whether an OpenChannel is in the default
+// usable state, or a state where it shouldn't be used.
+type ChannelStatus uint8
+
+var (
+	// Default is the normal state of an open channel.
+	Default ChannelStatus = 0
+
+	// Borked indicates that the channel has entered an irreconcilable
+	// state, triggered by a state desynchronization or channel breach.
+	// Channels in this state should never be added to the htlc switch.
+	Borked ChannelStatus = 1
+
+	// CommitmentBroadcasted indicates that a commitment for this channel
+	// has been broadcasted.
+	CommitmentBroadcasted ChannelStatus = 2
+)
+
+// String returns a human-readable representation of the ChannelStatus.
+func (c ChannelStatus) String() string {
+	switch c {
+	case Default:
+		return "Default"
+	case Borked:
+		return "Borked"
+	case CommitmentBroadcasted:
+		return "CommitmentBroadcasted"
+	default:
+		return "Unknown"
+	}
+}
+
 // OpenChannel encapsulates the persistent and dynamic state of an open channel
 // with a remote node. An open channel supports several options for on-disk
 // serialization depending on the exact context. Full (upon channel creation)
@@ -322,10 +354,9 @@ type OpenChannel struct {
 	// negotiate fees, or close the channel.
 	IsInitiator bool
 
-	// IsBorked indicates that the channel has entered an irreconcilable
-	// state, triggered by a state desynchronization or channel breach.
-	// Channels in this state should never be added to the htlc switch.
-	IsBorked bool
+	// ChanStatus is the current status of this channel. If it is not in
+	// the state Default, it should not be used for forwarding payments.
+	ChanStatus ChannelStatus
 
 	// FundingBroadcastHeight is the height in which the funding
 	// transaction was broadcast. This value can be used by higher level
@@ -364,13 +395,13 @@ type OpenChannel struct {
 	RemoteChanCfg ChannelConfig
 
 	// LocalCommitment is the current local commitment state for the local
-	// party. This is stored distinct from the state of of the remote party
+	// party. This is stored distinct from the state of the remote party
 	// as there are certain asymmetric parameters which affect the
 	// structure of each commitment.
 	LocalCommitment ChannelCommitment
 
 	// RemoteCommitment is the current remote commitment state for the
-	// remote party. This is stored distinct from the state of of the local
+	// remote party. This is stored distinct from the state of the local
 	// party as there are certain asymmetric parameters which affect the
 	// structure of each commitment.
 	RemoteCommitment ChannelCommitment
@@ -571,6 +602,20 @@ func (c *OpenChannel) MarkBorked() error {
 	c.Lock()
 	defer c.Unlock()
 
+	return c.putChanStatus(Borked)
+}
+
+// MarkCommitmentBroadcasted marks the channel as a commitment transaction has
+// been broadcast, either our own or the remote, and we should watch the chain
+// for it to confirm before taking any further action.
+func (c *OpenChannel) MarkCommitmentBroadcasted() error {
+	c.Lock()
+	defer c.Unlock()
+
+	return c.putChanStatus(CommitmentBroadcasted)
+}
+
+func (c *OpenChannel) putChanStatus(status ChannelStatus) error {
 	if err := c.Db.Update(func(tx *bolt.Tx) error {
 		chanBucket, err := updateChanBucket(tx, c.IdentityPub,
 			&c.FundingOutpoint, c.ChainHash)
@@ -583,14 +628,15 @@ func (c *OpenChannel) MarkBorked() error {
 			return err
 		}
 
-		channel.IsBorked = true
+		channel.ChanStatus = status
 
 		return putOpenChannel(chanBucket, channel)
 	}); err != nil {
 		return err
 	}
 
-	c.IsBorked = true
+	// Update the in-memory representation to keep it in sync with the DB.
+	c.ChanStatus = status
 
 	return nil
 }
@@ -660,7 +706,7 @@ func fetchOpenChannel(chanBucket *bolt.Bucket,
 // channels in the database globally, or according to the LinkNode they were
 // created with.
 //
-// TODO(roasbeef): addr param should eventually be a lnwire.NetAddress type
+// TODO(roasbeef): addr param should eventually be an lnwire.NetAddress type
 // that includes service bits.
 func (c *OpenChannel) SyncPending(addr net.Addr, pendingHeight uint32) error {
 	c.Lock()
@@ -779,7 +825,7 @@ type HTLC struct {
 	// incremented for each update (includes settle+fail).
 	HtlcIndex uint64
 
-	// LogIndex is the cumulative log index of this this HTLC. This differs
+	// LogIndex is the cumulative log index of this HTLC. This differs
 	// from the HtlcIndex as this will be incremented for each new log
 	// update added.
 	LogIndex uint64
@@ -1478,8 +1524,8 @@ func (c *OpenChannel) FindPreviousState(updateNum uint64) (*ChannelCommitment, e
 }
 
 // ClosureType is an enum like structure that details exactly _how_ a channel
-// was closed. Three closure types are currently possible: cooperative, force,
-// and breach.
+// was closed. Three closure types are currently possible: none, cooperative,
+// local force close, remote force close, and (remote) breach.
 type ClosureType uint8
 
 const (
@@ -1487,21 +1533,25 @@ const (
 	// cooperatively.  This means that both channel peers were online and
 	// signed a new transaction paying out the settled balance of the
 	// contract.
-	CooperativeClose ClosureType = iota
+	CooperativeClose ClosureType = 0
 
-	// ForceClose indicates that one peer unilaterally broadcast their
+	// LocalForceClose indicates that we have unilaterally broadcast our
 	// current commitment state on-chain.
-	ForceClose
+	LocalForceClose ClosureType = 1
 
-	// BreachClose indicates that one peer attempted to broadcast a prior
-	// _revoked_ channel state.
-	BreachClose
+	// RemoteForceClose indicates that the remote peer has unilaterally
+	// broadcast their current commitment state on-chain.
+	RemoteForceClose ClosureType = 4
+
+	// BreachClose indicates that the remote peer attempted to broadcast a
+	// prior _revoked_ channel state.
+	BreachClose ClosureType = 2
 
 	// FundingCanceled indicates that the channel never was fully opened
 	// before it was marked as closed in the database. This can happen if
 	// we or the remote fail at some point during the opening workflow, or
 	// we timeout waiting for the funding transaction to be confirmed.
-	FundingCanceled
+	FundingCanceled ClosureType = 3
 )
 
 // ChannelCloseSummary contains the final state of a channel at the point it
@@ -1549,8 +1599,9 @@ type ChannelCloseSummary struct {
 	// outstanding outgoing HTLC's at the time of channel closure.
 	TimeLockedBalance btcutil.Amount
 
-	// CloseType details exactly _how_ the channel was closed. Three
-	// closure types are possible: cooperative, force, and breach.
+	// CloseType details exactly _how_ the channel was closed. Five closure
+	// types are possible: cooperative, local force, remote force, breach
+	// and funding canceled.
 	CloseType ClosureType
 
 	// IsPending indicates whether this channel is in the 'pending close'
@@ -1804,7 +1855,7 @@ func putChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 	if err := writeElements(&w,
 		channel.ChanType, channel.ChainHash, channel.FundingOutpoint,
 		channel.ShortChanID, channel.IsPending, channel.IsInitiator,
-		channel.IsBorked, channel.FundingBroadcastHeight,
+		channel.ChanStatus, channel.FundingBroadcastHeight,
 		channel.NumConfsRequired, channel.ChannelFlags,
 		channel.IdentityPub, channel.Capacity, channel.TotalMSatSent,
 		channel.TotalMSatReceived,
@@ -1912,7 +1963,7 @@ func fetchChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 	if err := readElements(r,
 		&channel.ChanType, &channel.ChainHash, &channel.FundingOutpoint,
 		&channel.ShortChanID, &channel.IsPending, &channel.IsInitiator,
-		&channel.IsBorked, &channel.FundingBroadcastHeight,
+		&channel.ChanStatus, &channel.FundingBroadcastHeight,
 		&channel.NumConfsRequired, &channel.ChannelFlags,
 		&channel.IdentityPub, &channel.Capacity, &channel.TotalMSatSent,
 		&channel.TotalMSatReceived,

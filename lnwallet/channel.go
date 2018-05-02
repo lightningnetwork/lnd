@@ -5583,7 +5583,11 @@ func (lc *LightningChannel) validateFeeRate(feePerKw SatPerKWeight) error {
 	// be above our reserve balance. Otherwise, we'll reject the fee
 	// update.
 	availableBalance, txWeight := lc.availableBalance()
-	oldFee := lnwire.NewMSatFromSatoshis(lc.CalcFee(SatPerKWeight(lc.channelState.LocalCommitment.FeePerKw)))
+	oldFee := lnwire.NewMSatFromSatoshis(lc.localCommitChain.tip().fee)
+
+	// Our base balance is the total amount of satoshis we can commit
+	// towards fees before factoring in the channel reserve.
+	baseBalance := availableBalance + oldFee
 
 	// Using the weight of the commitment transaction if we were to create
 	// a commitment now, we'll compute our remaining balance if we apply
@@ -5592,22 +5596,24 @@ func (lc *LightningChannel) validateFeeRate(feePerKw SatPerKWeight) error {
 		feePerKw.FeeForWeight(txWeight),
 	)
 
-	// If the total fee exceeds our available balance, then we'll reject
-	// this update as it would mean we need to trim our entire output.
-	if newFee > availableBalance+oldFee {
+	// If the total fee exceeds our available balance (taking into account
+	// the fee from the last state), then we'll reject this update as it
+	// would mean we need to trim our entire output.
+	if newFee > baseBalance {
 		return fmt.Errorf("cannot apply fee_update=%v sat/kw, new fee "+
 			"of %v is greater than balance of %v", int64(feePerKw),
-			newFee, availableBalance+oldFee)
+			newFee, baseBalance)
 	}
 
 	// If this new balance is below our reserve, then we can't accommodate
 	// the fee change, so we'll reject it.
-	balanceAfterFee := availableBalance + oldFee - newFee
+	balanceAfterFee := baseBalance - newFee
 	if balanceAfterFee.ToSatoshis() < lc.channelState.LocalChanCfg.ChanReserve {
 		return fmt.Errorf("cannot apply fee_update=%v sat/kw, "+
 			"new balance=%v would dip below channel reserve=%v",
 			int64(feePerKw),
-			balanceAfterFee.ToSatoshis(), lc.channelState.LocalChanCfg.ChanReserve)
+			balanceAfterFee.ToSatoshis(),
+			lc.channelState.LocalChanCfg.ChanReserve)
 	}
 
 	// TODO(halseth): should fail if fee update is unreasonable,

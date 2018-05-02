@@ -154,7 +154,7 @@
 [[projects]]
   name = "github.com/lightningnetwork/lightning-onion"
   packages = ["."]
-  revision = "c86137582e53fe3ba26681a98f911b546970893e"
+  revision = "e5ab5d7396020384f864452ec3c69b56264f1092"
 
 [[projects]]
   name = "github.com/ltcsuite/ltcd"
@@ -359,6 +359,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "7edcc418d8e2f483001838e05dc77e3fe613273418f8ddf7efd5cee6df68c6a8"
+  inputs-digest = "3e7512c1772a70c004d9557850137e4dd82545ec2e16381b4694ff4a0c5a6819"
   solver-name = "gps-cdcl"
   solver-version = 1

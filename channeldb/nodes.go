@@ -54,8 +54,6 @@ type LinkNode struct {
 	// Addresses is a list of IP address in which either we were able to
 	// reach the node over in the past, OR we received an incoming
 	// authenticated connection for the stored identity public key.
-	//
-	// TODO(roasbeef): also need to support hidden service addrs
 	Addresses []net.Addr
 
 	db *DB
@@ -85,7 +83,7 @@ func (l *LinkNode) UpdateLastSeen(lastSeen time.Time) error {
 
 // AddAddress appends the specified TCP address to the list of known addresses
 // this node is/was known to be reachable at.
-func (l *LinkNode) AddAddress(addr *net.TCPAddr) error {
+func (l *LinkNode) AddAddress(addr net.Addr) error {
 	for _, a := range l.Addresses {
 		if a.String() == addr.String() {
 			return nil

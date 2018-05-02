@@ -165,12 +165,12 @@ func (c *ChannelGraphBootstrapper) SampleNodeAddrs(numAddrs uint32,
 				// If we haven't yet reached our limit, then
 				// we'll copy over the details of this node
 				// into the set of addresses to be returned.
-				tcpAddr, ok := nodeAddr.(*net.TCPAddr)
-				if !ok {
-					// If this isn't a valid TCP address,
-					// then we'll ignore it as currently
-					// we'll only attempt to connect out to
-					// TCP peers.
+				switch nodeAddr.(type) {
+				case *net.TCPAddr, *tor.OnionAddr:
+				default:
+					// If this isn't a valid address
+					// supported by the protocol, then we'll
+					// skip this node.
 					return nil
 				}
 
@@ -179,7 +179,7 @@ func (c *ChannelGraphBootstrapper) SampleNodeAddrs(numAddrs uint32,
 				// error.
 				a = append(a, &lnwire.NetAddress{
 					IdentityKey: node.PubKey(),
-					Address:     tcpAddr,
+					Address:     nodeAddr,
 				})
 			}
 

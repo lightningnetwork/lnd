@@ -1016,17 +1016,7 @@ func (s *server) establishPersistentConnections() error {
 		return err
 	}
 	for _, node := range linkNodes {
-		for _, address := range node.Addresses {
-			switch addr := address.(type) {
-			case *net.TCPAddr:
-				if addr.Port == 0 {
-					addr.Port = defaultPeerPort
-				}
-			}
-
-		}
 		pubStr := string(node.IdentityPub.SerializeCompressed())
-
 		nodeAddrs := &nodeAddresses{
 			pubKey:    node.IdentityPub,
 			addresses: node.Addresses,
@@ -1059,17 +1049,29 @@ func (s *server) establishPersistentConnections() error {
 		linkNodeAddrs, ok := nodeAddrsMap[pubStr]
 		if ok {
 			for _, lnAddress := range linkNodeAddrs.addresses {
-				lnAddrTCP, ok := lnAddress.(*net.TCPAddr)
-				if !ok {
+				var addrHost string
+				switch addr := lnAddress.(type) {
+				case *net.TCPAddr:
+					addrHost = addr.IP.String()
+				case *tor.OnionAddr:
+					addrHost = addr.OnionService
+				default:
 					continue
 				}
 
 				var addrMatched bool
 				for _, polAddress := range policy.Node.Addresses {
-					polTCPAddr, ok := polAddress.(*net.TCPAddr)
-					if ok && polTCPAddr.IP.Equal(lnAddrTCP.IP) {
-						addrMatched = true
-						addrs = append(addrs, polTCPAddr)
+					switch addr := polAddress.(type) {
+					case *net.TCPAddr:
+						if addr.IP.String() == addrHost {
+							addrMatched = true
+							addrs = append(addrs, addr)
+						}
+					case *tor.OnionAddr:
+						if addr.OnionService == addrHost {
+							addrMatched = true
+							addrs = append(addrs, addr)
+						}
 					}
 				}
 				if !addrMatched {
@@ -1078,9 +1080,9 @@ func (s *server) establishPersistentConnections() error {
 			}
 		} else {
 			for _, addr := range policy.Node.Addresses {
-				polTCPAddr, ok := addr.(*net.TCPAddr)
-				if ok {
-					addrs = append(addrs, polTCPAddr)
+				switch addr.(type) {
+				case *net.TCPAddr, *tor.OnionAddr:
+					addrs = append(addrs, addr)
 				}
 			}
 		}

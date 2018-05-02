@@ -243,7 +243,7 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 	// TODO(roasbeef); abstraction leak...
 	//  * rework: adaptor method to set log scope w/ factory func
 	chanLog, err := newBoltArbitratorLog(
-		c.chanSource.DB, arbCfg, c.cfg.ChainHash, chanPoint,
+		c.chanSource, arbCfg, c.cfg.ChainHash, chanPoint,
 	)
 	if err != nil {
 		blockEpoch.Cancel()
@@ -392,7 +392,7 @@ func (c *ChainArbitrator) Start() error {
 			ChainEvents:           &ChainEventSubscription{},
 		}
 		chanLog, err := newBoltArbitratorLog(
-			c.chanSource.DB, arbCfg, c.cfg.ChainHash, chanPoint,
+			c.chanSource, arbCfg, c.cfg.ChainHash, chanPoint,
 		)
 		if err != nil {
 			blockEpoch.Cancel()

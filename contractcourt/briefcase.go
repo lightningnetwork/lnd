@@ -281,7 +281,7 @@ var (
 // boltArbitratorLog is an implementation of the ArbitratorLog interface backed
 // by a bolt DB instance.
 type boltArbitratorLog struct {
-	db *bolt.DB
+	db *channeldb.DB
 
 	cfg ChannelArbitratorConfig
 
@@ -290,7 +290,7 @@ type boltArbitratorLog struct {
 
 // newBoltArbitratorLog returns a new instance of the boltArbitratorLog given
 // an arbitrator config, and the items needed to create its log scope.
-func newBoltArbitratorLog(db *bolt.DB, cfg ChannelArbitratorConfig,
+func newBoltArbitratorLog(db *channeldb.DB, cfg ChannelArbitratorConfig,
 	chainHash chainhash.Hash, chanPoint wire.OutPoint) (*boltArbitratorLog, error) {
 
 	scope, err := newLogScope(chainHash, chanPoint)

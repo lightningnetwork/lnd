@@ -51,11 +51,31 @@ var bufPool = &sync.Pool{
 	New: func() interface{} { return new(bytes.Buffer) },
 }
 
+// DBStore is the backing store for a DB and it replicates the bolt.DB
+// signature.
+type DBStore interface {
+	// Begin starts a new transaction.
+	Begin(writable bool) (*bolt.Tx, error)
+	// Close releases all database resources.
+	Close() error
+	// View executes a function within the context of a managed read-only
+	// transaction.
+	View(func(tx *bolt.Tx) error) error
+	// Update executes a function within the context of a read-write
+	// managed transaction.
+	Update(func(tx *bolt.Tx) error) error
+	// Batch calls fn as part of a batch.
+	Batch(func(tx *bolt.Tx) error) error
+}
+
+// A compile time check to ensure that bolt.DB implements DBStore.
+var _ DBStore = (*bolt.DB)(nil)
+
 // DB is the primary datastore for the lnd daemon. The database stores
 // information related to nodes, routing data, open/closed channels, fee
 // schedules, and reputation data.
 type DB struct {
-	*bolt.DB
+	DBStore
 	dbPath string
 }
 
@@ -76,7 +96,7 @@ func Open(dbPath string) (*DB, error) {
 	}
 
 	chanDB := &DB{
-		DB:     bdb,
+		DBStore: bdb,
 		dbPath: dbPath,
 	}
 

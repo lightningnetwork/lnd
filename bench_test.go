@@ -61,7 +61,7 @@ func BenchmarkProcessPacket(b *testing.B) {
 	}
 	b.ReportAllocs()
 	path[0].log.Start()
-	defer shutdown("0", path[0].log)
+	defer path[0].log.Stop()
 	b.StartTimer()
 
 	var (
@@ -75,12 +75,12 @@ func BenchmarkProcessPacket(b *testing.B) {
 
 		b.StopTimer()
 		router := path[0]
-		shutdown("0", router.log)
+		router.log.Stop()
 		path[0] = &Router{
 			nodeID:   router.nodeID,
 			nodeAddr: router.nodeAddr,
 			onionKey: router.onionKey,
-			log:      NewDecayedLog("0", nil),
+			log:      NewMemoryReplayLog(),
 		}
 		path[0].log.Start()
 		b.StartTimer()

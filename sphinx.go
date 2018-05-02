@@ -11,7 +11,6 @@ import (
 	"math/big"
 
 	"github.com/aead/chacha20"
-	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcutil"
@@ -631,8 +630,8 @@ type Router struct {
 
 // NewRouter creates a new instance of a Sphinx onion Router given the node's
 // currently advertised onion private key, and the target Bitcoin network.
-func NewRouter(dbPath string, nodeKey *btcec.PrivateKey, net *chaincfg.Params,
-	chainNotifier chainntnfs.ChainNotifier) *Router {
+func NewRouter(nodeKey *btcec.PrivateKey, net *chaincfg.Params, log ReplayLog,
+) *Router {
 	var nodeID [addressSize]byte
 	copy(nodeID[:], btcutil.Hash160(nodeKey.PubKey().SerializeCompressed()))
 
@@ -650,19 +649,17 @@ func NewRouter(dbPath string, nodeKey *btcec.PrivateKey, net *chaincfg.Params,
 			},
 			D: nodeKey.D,
 		},
-		// TODO(roasbeef): replace instead with bloom filter?
-		// * https://moderncrypto.org/mail-archive/messaging/2015/001911.html
-		log: NewDecayedLog(dbPath, chainNotifier),
+		log: log,
 	}
 }
 
-// Start starts / opens the DecayedLog's channeldb and its accompanying
+// Start starts / opens the ReplayLog's channeldb and its accompanying
 // garbage collector goroutine.
 func (r *Router) Start() error {
 	return r.log.Start()
 }
 
-// Stop stops / closes the DecayedLog's channeldb and its accompanying
+// Stop stops / closes the ReplayLog's channeldb and its accompanying
 // garbage collector goroutine.
 func (r *Router) Stop() {
 	r.log.Stop()
@@ -700,7 +697,7 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket,
 
 	// Atomically compare this hash prefix with the contents of the on-disk
 	// log, persisting it only if this entry was not detected as a replay.
-	if err := r.log.Put(&hashPrefix, incomingCltv); err != nil {
+	if err := r.log.Put(hashPrefix, incomingCltv); err != nil {
 		return nil, err
 	}
 
@@ -876,7 +873,7 @@ func (t *Tx) ProcessOnionPacket(seqNum uint16, onionPkt *OnionPacket,
 
 	// Add the hash prefix to pending batch of shared secrets that will be
 	// written later via Commit().
-	err = t.batch.Put(seqNum, &hashPrefix, incomingCltv)
+	err = t.batch.Put(seqNum, hashPrefix, incomingCltv)
 	if err != nil {
 		return err
 	}
@@ -892,8 +889,8 @@ func (t *Tx) ProcessOnionPacket(seqNum uint16, onionPkt *OnionPacket,
 // Commit writes this transaction's batch of sphinx packets to the replay log,
 // performing a final check against the log for replays.
 func (t *Tx) Commit() ([]ProcessedPacket, *ReplaySet, error) {
-	if t.batch.isCommitted {
-		return t.packets, t.batch.replaySet, nil
+	if t.batch.IsCommitted {
+		return t.packets, t.batch.ReplaySet, nil
 	}
 
 	rs, err := t.router.log.PutBatch(t.batch)

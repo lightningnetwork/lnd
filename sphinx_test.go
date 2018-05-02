@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"reflect"
-	"strconv"
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
@@ -99,9 +97,8 @@ func newTestRoute(numHops int) ([]*Router, *[]HopData, *OnionPacket, error) {
 				" random key for sphinx node: %v", err)
 		}
 
-		dbPath := strconv.Itoa(i)
-
-		nodes[i] = NewRouter(dbPath, privKey, &chaincfg.MainNetParams, nil)
+		nodes[i] = NewRouter(privKey, &chaincfg.MainNetParams,
+			NewMemoryReplayLog())
 	}
 
 	// Gather all the pub keys in the path.
@@ -138,8 +135,7 @@ func TestBolt4Packet(t *testing.T) {
 	for i, pubKeyHex := range bolt4PubKeys {
 		pubKeyBytes, err := hex.DecodeString(pubKeyHex)
 		if err != nil {
-			t.Fatalf("unable to decode BOLT 4 hex pubkey #%d: %v",
-				i, err)
+			t.Fatalf("unable to decode BOLT 4 hex pubkey #%d: %v", i, err)
 		}
 
 		route[i], err = btcec.ParsePubKey(pubKeyBytes, btcec.S256())
@@ -182,13 +178,6 @@ func TestBolt4Packet(t *testing.T) {
 	}
 }
 
-// shutdown deletes the temporary directory that the test database uses
-// and handles closing the database.
-func shutdown(dir string, d ReplayLog) {
-	d.Stop()
-	os.RemoveAll(dir)
-}
-
 func TestSphinxCorrectness(t *testing.T) {
 	nodes, hopDatas, fwdMsg, err := newTestRoute(NumMaxHops)
 	if err != nil {
@@ -198,10 +187,9 @@ func TestSphinxCorrectness(t *testing.T) {
 	// Now simulate the message propagating through the mix net eventually
 	// reaching the final destination.
 	for i := 0; i < len(nodes); i++ {
-		// Start each node's DecayedLog and defer shutdown
-		tempDir := strconv.Itoa(i)
+		// Start each node's ReplayLog and defer shutdown
 		nodes[i].log.Start()
-		defer shutdown(tempDir, nodes[i].log)
+		defer nodes[i].log.Stop()
 
 		hop := nodes[i]
 
@@ -263,9 +251,9 @@ func TestSphinxSingleHop(t *testing.T) {
 		t.Fatalf("unable to create test route: %v", err)
 	}
 
-	// Start the DecayedLog and defer shutdown
+	// Start the ReplayLog and defer shutdown
 	nodes[0].log.Start()
-	defer shutdown("0", nodes[0].log)
+	defer nodes[0].log.Stop()
 
 	// Simulating a direct single-hop payment, send the sphinx packet to
 	// the destination node, making it process the packet fully.
@@ -290,9 +278,9 @@ func TestSphinxNodeRelpay(t *testing.T) {
 		t.Fatalf("unable to create test route: %v", err)
 	}
 
-	// Start the DecayedLog and defer shutdown
+	// Start the ReplayLog and defer shutdown
 	nodes[0].log.Start()
-	defer shutdown("0", nodes[0].log)
+	defer nodes[0].log.Stop()
 
 	// Allow the node to process the initial packet, this should proceed
 	// without any failures.
@@ -315,9 +303,9 @@ func TestSphinxNodeRelpaySameBatch(t *testing.T) {
 		t.Fatalf("unable to create test route: %v", err)
 	}
 
-	// Start the DecayedLog and defer shutdown
+	// Start the ReplayLog and defer shutdown
 	nodes[0].log.Start()
-	defer shutdown("0", nodes[0].log)
+	defer nodes[0].log.Stop()
 
 	tx := nodes[0].BeginTxn([]byte("0"), 2)
 
@@ -361,9 +349,9 @@ func TestSphinxNodeRelpayLaterBatch(t *testing.T) {
 		t.Fatalf("unable to create test route: %v", err)
 	}
 
-	// Start the DecayedLog and defer shutdown
+	// Start the ReplayLog and defer shutdown
 	nodes[0].log.Start()
-	defer shutdown("0", nodes[0].log)
+	defer nodes[0].log.Stop()
 
 	tx := nodes[0].BeginTxn([]byte("0"), 1)
 
@@ -398,7 +386,7 @@ func TestSphinxNodeRelpayLaterBatch(t *testing.T) {
 	}
 }
 
-func TestSphinxNodeRelpayBatchIdempotency(t *testing.T) {
+func TestSphinxNodeReplayBatchIdempotency(t *testing.T) {
 	// We'd like to ensure that the sphinx node itself rejects all replayed
 	// packets which share the same shared secret.
 	nodes, _, fwdMsg, err := newTestRoute(NumMaxHops)
@@ -406,9 +394,9 @@ func TestSphinxNodeRelpayBatchIdempotency(t *testing.T) {
 		t.Fatalf("unable to create test route: %v", err)
 	}
 
-	// Start the DecayedLog and defer shutdown
+	// Start the ReplayLog and defer shutdown
 	nodes[0].log.Start()
-	defer shutdown("0", nodes[0].log)
+	defer nodes[0].log.Stop()
 
 	tx := nodes[0].BeginTxn([]byte("0"), 1)
 
@@ -457,9 +445,9 @@ func TestSphinxAssocData(t *testing.T) {
 		t.Fatalf("unable to create random onion packet: %v", err)
 	}
 
-	// Start the DecayedLog and defer shutdown
+	// Start the ReplayLog and defer shutdown
 	nodes[0].log.Start()
-	defer shutdown("0", nodes[0].log)
+	defer nodes[0].log.Stop()
 
 	_, err = nodes[0].ProcessOnionPacket(fwdMsg, []byte("somethingelse"), 1)
 	if err == nil {

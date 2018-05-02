@@ -1542,17 +1542,18 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	addr := conn.RemoteAddr()
 	pubKey := brontideConn.RemotePub()
 
-	// We'll ensure that we locate the proper port to use within the peer's
-	// address for reconnecting purposes.
-	if tcpAddr, ok := addr.(*net.TCPAddr); ok && !inbound {
-		targetPort := s.fetchNodeAdvertisedPort(pubKey, tcpAddr)
-
-		// Once we have the correct port, we'll make a new copy of the
-		// address so we don't modify the underlying pointer directly.
-		addr = &net.TCPAddr{
-			IP:   tcpAddr.IP,
-			Port: targetPort,
-			Zone: tcpAddr.Zone,
+	// We'll ensure that we locate an advertised address to use within the
+	// peer's address for reconnection purposes.
+	//
+	// TODO: leave the address field empty if there aren't any?
+	if !inbound {
+		advertisedAddr, err := s.fetchNodeAdvertisedAddr(pubKey)
+		if err != nil {
+			srvrLog.Errorf("Unable to retrieve advertised address "+
+				"for node %x: %v", pubKey.SerializeCompressed(),
+				err)
+		} else {
+			addr = advertisedAddr
 		}
 	}
 
@@ -2231,42 +2232,16 @@ func computeNextBackoff(currBackoff time.Duration) time.Duration {
 	return nextBackoff + (time.Duration(wiggle.Uint64()) - margin/2)
 }
 
-// fetchNodeAdvertisedPort attempts to fetch the advertised port of the target
-// node. If a port isn't found, then the default port will be used.
-func (s *server) fetchNodeAdvertisedPort(pub *btcec.PublicKey,
-	targetAddr *net.TCPAddr) int {
-
-	// If the target port is already the default peer port, then we'll
-	// return that.
-	if targetAddr.Port == defaultPeerPort {
-		return defaultPeerPort
-	}
-
+// fetchNodeAdvertisedAddr attempts to fetch an advertised address of a node.
+func (s *server) fetchNodeAdvertisedAddr(pub *btcec.PublicKey) (net.Addr, error) {
 	node, err := s.chanDB.ChannelGraph().FetchLightningNode(pub)
-
-	// If the node wasn't found, then we'll just return the current default
-	// port.
 	if err != nil {
-		return defaultPeerPort
+		return nil, err
 	}
 
-	// Otherwise, we'll attempt to find a matching advertised IP, and will
-	// then use the port for that.
-	for _, addr := range node.Addresses {
-		// We'll only examine an address if it's a TCP address.
-		tcpAddr, ok := addr.(*net.TCPAddr)
-		if !ok {
-			continue
-		}
-
-		// If this is the matching IP, then we'll return the port that
-		// it has been advertised with.
-		if tcpAddr.IP.Equal(targetAddr.IP) {
-			return tcpAddr.Port
-		}
+	if len(node.Addresses) == 0 {
+		return nil, errors.New("no advertised addresses found")
 	}
 
-	// If we couldn't find a matching IP, then we'll just return the
-	// default port.
-	return defaultPeerPort
+	return node.Addresses[0], nil
 }

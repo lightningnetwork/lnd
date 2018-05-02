@@ -1,6 +1,8 @@
 package macaroons
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"time"
@@ -13,6 +15,18 @@ import (
 	"golang.org/x/net/context"
 )
 
+// contextKey is the type for our context keys. It needs to be a separate type
+// to avoid collisions with other packages.
+type contextKey int
+
+// Constants for all the custom caveat conditions.
+// Only first-party caveat conditions are currently supported.
+const (
+	CondIPAddress              = "ipaddr"
+	CondRequestHash            = "request-hash"
+	KeyRequestHash  contextKey = iota
+)
+
 // Constraint type adds a layer of indirection over macaroon caveats.
 type Constraint func(*macaroon.Macaroon) error
 
@@ -23,7 +37,8 @@ type Checker func() (string, checkers.Func)
 
 // AddConstraints returns new derived macaroon by applying every passed
 // constraint and tightening its restrictions.
-func AddConstraints(mac *macaroon.Macaroon, cs ...Constraint) (*macaroon.Macaroon, error) {
+func AddConstraints(mac *macaroon.Macaroon,
+	cs ...Constraint) (*macaroon.Macaroon, error) {
 	newMac := mac.Clone()
 	for _, constraint := range cs {
 		if err := constraint(newMac); err != nil {
@@ -56,10 +71,13 @@ func IPLockConstraint(ipAddr string) func(*macaroon.Macaroon) error {
 		if ipAddr != "" {
 			macaroonIPAddr := net.ParseIP(ipAddr)
 			if macaroonIPAddr == nil {
-				return fmt.Errorf("incorrect macaroon IP-lock address")
+				return fmt.Errorf(
+					"incorrect macaroon IP-lock address",
+				)
 			}
-			caveat := checkers.Condition("ipaddr",
-				macaroonIPAddr.String())
+			caveat := checkers.Condition(
+				CondIPAddress, macaroonIPAddr.String(),
+			)
 			return mac.AddFirstPartyCaveat([]byte(caveat))
 		}
 		return nil
@@ -69,12 +87,15 @@ func IPLockConstraint(ipAddr string) func(*macaroon.Macaroon) error {
 // IPLockChecker accepts client IP from the validation context and compares it
 // with IP locked in the macaroon. It is of the `Checker` type.
 func IPLockChecker() (string, checkers.Func) {
-	return "ipaddr", func(ctx context.Context, cond, arg string) error {
+	return CondIPAddress, func(ctx context.Context, cond,
+		arg string) error {
 		// Get peer info and extract IP address from it for macaroon
 		// check.
 		pr, ok := peer.FromContext(ctx)
 		if !ok {
-			return fmt.Errorf("unable to get peer info from context")
+			return fmt.Errorf(
+				"unable to get peer info from context",
+			)
 		}
 		peerAddr, _, err := net.SplitHostPort(pr.Addr.String())
 		if err != nil {
@@ -84,6 +105,54 @@ func IPLockChecker() (string, checkers.Func) {
 		if !net.ParseIP(arg).Equal(net.ParseIP(peerAddr)) {
 			msg := "macaroon locked to different IP address"
 			return fmt.Errorf(msg)
+		}
+		return nil
+	}
+}
+
+// RequestHashConstraint locks macaroon to a specific request by hashing
+// the request option.
+// If the request hash is an empty string, this constraint does nothing to
+// accommodate default value's desired behavior.
+// If the request hash does not appear to be a SHA256 hash, an error is
+// returned.
+func RequestHashConstraint(reqHash string) func(*macaroon.Macaroon) error {
+	return func(mac *macaroon.Macaroon) error {
+		if reqHash != "" {
+			// Make sure it's at least plausible to be a SHA256 hash
+			// by hex decoding it and checking the length.
+			hashHex, err := hex.DecodeString(reqHash)
+			if err != nil {
+				return fmt.Errorf(
+					"unable to decode request hash: %v",
+					err,
+				)
+			}
+			if len(hashHex) != sha256.Size {
+				return fmt.Errorf(
+					"incorrect request hash length. "+
+						"expected %d got %d",
+					sha256.Size, len(hashHex),
+				)
+			}
+			caveat := checkers.Condition(CondRequestHash, reqHash)
+			return mac.AddFirstPartyCaveat([]byte(caveat))
+		}
+		return nil
+	}
+}
+
+// RequestHashChecker accepts a request from the context that should have the
+// hash of the request set as a value. That hash is then compared to the hash
+// locked in the macaroon. It is of the `Checker` type.
+func RequestHashChecker() (string, checkers.Func) {
+	return CondRequestHash, func(ctx context.Context, cond,
+		arg string) error {
+		contextValue := ctx.Value(KeyRequestHash)
+		if arg != contextValue {
+			return fmt.Errorf(
+				"macaroon locked to different request hash",
+			)
 		}
 		return nil
 	}

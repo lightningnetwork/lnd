@@ -338,11 +338,12 @@ func Main(lisCfg ListenerCfg) error {
 		// Create the macaroon authentication/authorization service.
 		macaroonService, err = macaroons.NewService(
 			networkDir, macaroons.IPLockChecker,
+			macaroons.RequestHashChecker,
 		)
 		if err != nil {
-			err := fmt.Errorf("Unable to set up macaroon "+
+			err := fmt.Errorf("unable to set up macaroon "+
 				"authentication: %v", err)
-			ltndLog.Error(err)
+			srvrLog.Error(err)
 			return err
 		}
 		defer macaroonService.Close()

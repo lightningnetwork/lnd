@@ -128,9 +128,29 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 			fatal(err)
 		}
 
-		// Now we append the macaroon credentials to the dial options.
-		cred := macaroons.NewMacaroonCredential(constrainedMac)
-		opts = append(opts, grpc.WithPerRPCCredentials(cred))
+		if !ctx.GlobalBool("no-macaroon-request-hash") {
+			// Add client interceptors that calculate the hash of
+			// the request object (for synchronous calls) or request
+			// method (for streaming calls) and add it as a
+			// first-party caveat to the macaroon.
+			// The interceptors will add the macaroon to the gRPC
+			// calls so we don't need to explicitly add them now.
+			opts = append(
+				opts, grpc.WithUnaryInterceptor(
+					macaroons.UnaryClientInterceptor(constrainedMac),
+				),
+			)
+			opts = append(
+				opts, grpc.WithStreamInterceptor(
+					macaroons.StreamClientInterceptor(constrainedMac),
+				),
+			)
+		} else {
+			// We won't use the request interceptors, so append the
+			// macaroon credentials to the dial options directly.
+			cred := macaroons.NewMacaroonCredential(constrainedMac)
+			opts = append(opts, grpc.WithPerRPCCredentials(cred))
+		}
 	}
 
 	// We need to use a custom dialer so we can also connect to unix sockets
@@ -250,6 +270,11 @@ func main() {
 		cli.StringFlag{
 			Name:  "macaroonip",
 			Usage: "if set, lock macaroon to specific IP address",
+		},
+		cli.BoolFlag{
+			Name: "no-macaroon-request-hash",
+			Usage: "disable macaroon replay protection of " +
+				"hashing the request",
 		},
 	}
 	app.Commands = []cli.Command{

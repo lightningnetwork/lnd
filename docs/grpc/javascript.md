@@ -185,7 +185,7 @@ var lnrpcDescriptor = grpc.load("rpc.proto");
 var lnrpc = lnrpcDescriptor.lnrpc;
 var client = new lnrpc.Lightning('some.address:10009', grpc.credentials.createInsecure());
 
-client.getInfo({}, meta);
+client.getInfo({}, meta, (err, res) => { ... });
 ```
 
 However, this can get tiresome to do for each request, so to avoid explicitly including the macaroon we can update the credentials to include it automatically.

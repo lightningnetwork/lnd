@@ -5885,12 +5885,15 @@ func (lc *LightningChannel) LocalChanReserve() btcutil.Amount {
 	return lc.localChanCfg.ChanReserve
 }
 
-// LocalHtlcIndex returns the next local htlc index to be allocated.
-func (lc *LightningChannel) LocalHtlcIndex() uint64 {
+// NextLocalHtlcIndex returns the next unallocated local htlc index. To ensure
+// this always returns the next index that has been not been allocated, this
+// will first try to examine any pending commitments, before falling back to the
+// last locked-in local commitment.
+func (lc *LightningChannel) NextLocalHtlcIndex() (uint64, error) {
 	lc.RLock()
 	defer lc.RUnlock()
 
-	return lc.channelState.LocalCommitment.LocalHtlcIndex
+	return lc.channelState.NextLocalHtlcIndex()
 }
 
 // RemoteCommitHeight returns the commitment height of the remote chain.

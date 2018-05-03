@@ -64,6 +64,13 @@ cd $GOPATH/src/github.com/lightningnetwork/lnd
 make && make install
 ```
 
+Alternatively, if one doesn't wish to use `make`, then the `go` commands can be
+used directly:
+```
+dep ensure -v
+go install -v
+```
+
 **Updating**
 
 To update your version of `lnd` to the latest version run the following
@@ -72,6 +79,15 @@ commands:
 cd $GOPATH/src/github.com/lightningnetwork/lnd
 git pull
 make && make install
+```
+
+Alternatively, if one doesn't wish to use `make`, then the `go` commands can be
+used directly:
+```
+cd $GOPATH/src/github.com/lightningnetwork/lnd
+git pull
+dep ensure -v
+go install -v
 ```
 
 **Tests**

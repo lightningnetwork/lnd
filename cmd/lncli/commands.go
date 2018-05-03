@@ -135,7 +135,7 @@ func newAddress(ctx *cli.Context) error {
 var sendCoinsCommand = cli.Command{
 	Name:      "sendcoins",
 	Category:  "On-chain",
-	Usage:     "Send bitcoin on-chain to an address",
+	Usage:     "Send bitcoin on-chain to an address.",
 	ArgsUsage: "addr amt",
 	Description: `
 	Send amt coins in satoshis to the BASE58 encoded bitcoin address addr.
@@ -292,7 +292,7 @@ func sendMany(ctx *cli.Context) error {
 var connectCommand = cli.Command{
 	Name:      "connect",
 	Category:  "Peers",
-	Usage:     "Connect to a remote lnd peer",
+	Usage:     "Connect to a remote lnd peer.",
 	ArgsUsage: "<pubkey>@host",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
@@ -338,7 +338,7 @@ func connectPeer(ctx *cli.Context) error {
 var disconnectCommand = cli.Command{
 	Name:      "disconnect",
 	Category:  "Peers",
-	Usage:     "Disconnect a remote lnd peer identified by public key",
+	Usage:     "Disconnect a remote lnd peer identified by public key.",
 	ArgsUsage: "<pubkey>",
 	Flags: []cli.Flag{
 		cli.StringFlag{
@@ -1030,7 +1030,8 @@ func listPeers(ctx *cli.Context) error {
 
 var createCommand = cli.Command{
 	Name:     "create",
-	Category: "Wallet",
+	Category: "Startup",
+	Usage:    "Initialize a wallet when starting lnd for the first time.",
 	Description: `
 	The create command is used to initialize an lnd wallet from scratch for
 	the very first time. This is interactive command with one required
@@ -1303,7 +1304,8 @@ mnemonicCheck:
 
 var unlockCommand = cli.Command{
 	Name:     "unlock",
-	Category: "Wallet",
+	Category: "Startup",
+	Usage:    "Unlock an encrypted wallet at startup.",
 	Description: `
 	The unlock command is used to decrypt lnd's wallet state in order to
 	start up. This command MUST be run after booting up lnd before it's
@@ -1369,7 +1371,7 @@ func unlock(ctx *cli.Context) error {
 var walletBalanceCommand = cli.Command{
 	Name:     "walletbalance",
 	Category: "Wallet",
-	Usage:    "Compute and display the wallet's current balance",
+	Usage:    "Compute and display the wallet's current balance.",
 	Action:   actionDecorator(walletBalance),
 }
 
@@ -1391,7 +1393,8 @@ func walletBalance(ctx *cli.Context) error {
 var channelBalanceCommand = cli.Command{
 	Name:     "channelbalance",
 	Category: "Channels",
-	Usage:    "Returns the sum of the total available channel balance across all open channels",
+	Usage:    "Returns the sum of the total available channel balance across " +
+		"all open channels.",
 	Action:   actionDecorator(channelBalance),
 }
 
@@ -1412,7 +1415,7 @@ func channelBalance(ctx *cli.Context) error {
 
 var getInfoCommand = cli.Command{
 	Name:   "getinfo",
-	Usage:  "Returns basic information related to the active daemon",
+	Usage:  "Returns basic information related to the active daemon.",
 	Action: actionDecorator(getInfo),
 }
 
@@ -1434,7 +1437,7 @@ func getInfo(ctx *cli.Context) error {
 var pendingChannelsCommand = cli.Command{
 	Name:     "pendingchannels",
 	Category: "Channels",
-	Usage:    "Display information pertaining to pending channels",
+	Usage:    "Display information pertaining to pending channels.",
 	Action:   actionDecorator(pendingChannels),
 }
 
@@ -1457,7 +1460,7 @@ func pendingChannels(ctx *cli.Context) error {
 var listChannelsCommand = cli.Command{
 	Name:     "listchannels",
 	Category: "Channels",
-	Usage:    "List all open channels",
+	Usage:    "List all open channels.",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name:  "active_only",
@@ -1506,7 +1509,7 @@ func listChannels(ctx *cli.Context) error {
 var sendPaymentCommand = cli.Command{
 	Name:     "sendpayment",
 	Category: "Payments",
-	Usage:    "Send a payment over lightning",
+	Usage:    "Send a payment over lightning.",
 	Description: `
 	Send a payment over Lightning. One can either specify the full
 	parameters of the payment, or just use a payment request which encodes
@@ -1689,7 +1692,7 @@ func sendPaymentRequest(ctx *cli.Context, req *lnrpc.SendRequest) error {
 var payInvoiceCommand = cli.Command{
 	Name:      "payinvoice",
 	Category:  "Payments",
-	Usage:     "Pay an invoice over lightning",
+	Usage:     "Pay an invoice over lightning.",
 	ArgsUsage: "pay_req",
 	Flags: []cli.Flag{
 		cli.StringFlag{
@@ -1954,7 +1957,7 @@ var describeGraphCommand = cli.Command{
 	Category: "Peers",
 	Description: "Prints a human readable version of the known channel " +
 		"graph from the PoV of the node",
-	Usage: "Describe the network graph",
+	Usage: "Describe the network graph.",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name:  "render",
@@ -2148,7 +2151,7 @@ func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
 var listPaymentsCommand = cli.Command{
 	Name:     "listpayments",
 	Category: "Payments",
-	Usage:    "List all outgoing payments",
+	Usage:    "List all outgoing payments.",
 	Action:   actionDecorator(listPayments),
 }
 
@@ -2170,7 +2173,7 @@ func listPayments(ctx *cli.Context) error {
 var getChanInfoCommand = cli.Command{
 	Name:     "getchaninfo",
 	Category: "Channels",
-	Usage:    "Get the state of a channel",
+	Usage:    "Get the state of a channel.",
 	Description: "Prints out the latest authenticated state for a " +
 		"particular channel",
 	ArgsUsage: "chan_id",
@@ -2339,9 +2342,10 @@ func queryRoutes(ctx *cli.Context) error {
 var getNetworkInfoCommand = cli.Command{
 	Name:     "getnetworkinfo",
 	Category: "Channels",
-	Usage:    "Getnetworkinfo",
-	Description: "Returns a set of statistics pertaining to the known channel " +
-		"graph",
+	Usage:    "Get statistical information about the current " +
+		"state of the network.",
+	Description: "Returns a set of statistics pertaining to the known " +
+		"channel graph",
 	Action: actionDecorator(getNetworkInfo),
 }
 
@@ -2489,7 +2493,7 @@ func stopDaemon(ctx *cli.Context) error {
 var signMessageCommand = cli.Command{
 	Name:      "signmessage",
 	Category:  "Wallet",
-	Usage:     "Sign a message with the node's private key",
+	Usage:     "Sign a message with the node's private key.",
 	ArgsUsage: "msg",
 	Description: `
 	Sign msg with the resident node's private key. 
@@ -2533,7 +2537,7 @@ func signMessage(ctx *cli.Context) error {
 var verifyMessageCommand = cli.Command{
 	Name:      "verifymessage",
 	Category:  "Wallet",
-	Usage:     "Verify a message signed with the signature",
+	Usage:     "Verify a message signed with the signature.",
 	ArgsUsage: "msg signature",
 	Description: `
 	Verify that the message was signed with a properly-formed signature
@@ -2598,7 +2602,7 @@ func verifyMessage(ctx *cli.Context) error {
 var feeReportCommand = cli.Command{
 	Name:     "feereport",
 	Category: "Channels",
-	Usage:    "Display the current fee policies of all active channels",
+	Usage:    "Display the current fee policies of all active channels.",
 	Description: ` 
 	Returns the current fee policies of all active channels.
 	Fee policies can be updated using the updatechanpolicy command.`,
@@ -2623,7 +2627,8 @@ func feeReport(ctx *cli.Context) error {
 var updateChannelPolicyCommand = cli.Command{
 	Name:      "updatechanpolicy",
 	Category:  "Channels",
-	Usage:     "Update the channel policy for all channels, or a single channel",
+	Usage:     "Update the channel policy for all channels, or a single " +
+		"channel.",
 	ArgsUsage: "base_fee_msat fee_rate time_lock_delta [channel_point]",
 	Description: `
 	Updates the channel policy for all channels, or just a particular channel
@@ -2773,10 +2778,10 @@ func updateChannelPolicy(ctx *cli.Context) error {
 var forwardingHistoryCommand = cli.Command{
 	Name:      "fwdinghistory",
 	Category:  "Payments",
-	Usage:     "Query the history of all forwarded htlcs",
+	Usage:     "Query the history of all forwarded HTLCs.",
 	ArgsUsage: "start_time [end_time] [index_offset] [max_events]",
 	Description: `
-	Query the htlc switch's internal forwarding log for all completed
+	Query the HTLC switch's internal forwarding log for all completed
 	payment circuits (HTLCs) over a particular time range (--start_time and
 	--end_time). The start and end times are meant to be expressed in
 	seconds since the Unix epoch. If a start and end time aren't provided,

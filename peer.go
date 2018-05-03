@@ -637,6 +637,7 @@ func (ms *msgStream) msgConsumer() {
 		select {
 		case ms.producerSema <- struct{}{}:
 		case <-ms.quit:
+			atomic.StoreInt32(&ms.streamShutdown, 1)
 			return
 		}
 	}

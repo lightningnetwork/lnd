@@ -241,6 +241,10 @@ func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredB
 		return nil, err
 	}
 
+	if filter == nil {
+		return nil, fmt.Errorf("Unable to fetch filter")
+	}
+
 	// Before we can match the filter, we'll need to map each item in our
 	// chain filter to the representation that included in the compact
 	// filters.

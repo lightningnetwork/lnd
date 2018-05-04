@@ -7079,9 +7079,20 @@ func testMultHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	nodes = []*lntest.HarnessNode{net.Alice}
 	err = lntest.WaitPredicate(func() bool {
 		return assertNumActiveHtlcs(nodes, 0)
-	}, time.Second*15)
+	}, time.Second*8)
 	if err != nil {
-		t.Fatalf("alice's channel still has active htlc's")
+		// It may be the case that due to a race, Bob's sweeping
+		// transaction hasn't yet been confirmed, so we'll mine another
+		// block to nudge it in. If after this it still Alice will has
+		// an HTLC, then it's actually a test failure.
+		if _, err := net.Miner.Node.Generate(1); err != nil {
+			t.Fatalf("unable to generate block: %v", err)
+		}
+		if err = lntest.WaitPredicate(func() bool {
+			return assertNumActiveHtlcs(nodes, 0)
+		}, time.Second*8); err != nil {
+			t.Fatalf("alice's channel still has active htlc's")
+		}
 	}
 
 	// Now we'll check Bob's pending channel report. Since this was Carol's

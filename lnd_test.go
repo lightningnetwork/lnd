@@ -4205,10 +4205,19 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 	// broadcasting his current channel state. This is actually the
 	// commitment transaction of a prior *revoked* state, so he'll soon
 	// feel the wrath of Alice's retribution.
+	var closeUpdates lnrpc.Lightning_CloseChannelClient
 	force := true
-	closeUpdates, _, err := net.CloseChannel(ctxb, net.Bob, chanPoint, force)
+	err = lntest.WaitPredicate(func() bool {
+		closeUpdates, _, err = net.CloseChannel(ctxb, net.Bob, chanPoint, force)
+		if err != nil {
+			predErr = err
+			return false
+		}
+
+		return true
+	}, time.Second*10)
 	if err != nil {
-		t.Fatalf("unable to close channel: %v", err)
+		t.Fatalf("unable to close channel: %v", predErr)
 	}
 
 	// Wait for Bob's breach transaction to show up in the mempool to ensure

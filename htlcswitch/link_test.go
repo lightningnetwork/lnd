@@ -2528,7 +2528,7 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 	cleanUp = alice.restart(false)
 	defer cleanUp()
 
-	alice.assertNumPendingNumOpenCircuits(4, 4)
+	alice.assertNumPendingNumOpenCircuits(4, 2)
 
 	// Again, try to recommit all of our circuits.
 	fwdActions = alice.commitCircuits(circuits)
@@ -2715,7 +2715,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	cleanUp = alice.restart(false, hodl.Commit)
 	defer cleanUp()
 
-	alice.assertNumPendingNumOpenCircuits(2, 2)
+	alice.assertNumPendingNumOpenCircuits(2, 0)
 
 	// The first two HTLCs should have been reset in Alice's mailbox since
 	// the switch was not shutdown. Knowing this the switch should drop the
@@ -2735,6 +2735,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	assertLinkBandwidth(t, alice.link,
 		aliceStartingBandwidth-halfHtlcs*(htlcAmt+htlcFee),
 	)
+
 	// Again, initiate another state transition by Alice to try and commit
 	// the HTLCs.  Since she is in hodl.Commit mode, this will fail, but the
 	// circuits will be opened persistently.
@@ -2805,7 +2806,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	cleanUp = alice.restart(false, hodl.Commit)
 	defer cleanUp()
 
-	alice.assertNumPendingNumOpenCircuits(4, 2)
+	alice.assertNumPendingNumOpenCircuits(4, 0)
 
 	// Now, try to commit all of known circuits.
 	fwdActions = alice.commitCircuits(circuits)
@@ -2815,6 +2816,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	if len(fwdActions.Fails) != halfHtlcs {
 		t.Fatalf("expected %d packet to be failed", halfHtlcs)
 	}
+
 	// The last two HTLCs will be dropped, as thought the circuits are
 	// trimmed, the switch is aware that the HTLCs are still in Alice's
 	// mailbox.

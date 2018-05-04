@@ -396,6 +396,10 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		s.htlcSwitch.CloseLink(chanPoint, closureType, 0)
 	}
 
+	// We will use the following channel to reliably hand off contract
+	// breach events from the ChannelArbitrator to the breachArbiter,
+	contractBreaches := make(chan *ContractBreachEvent, 1)
+
 	s.chainArb = contractcourt.NewChainArbitrator(contractcourt.ChainArbitratorConfig{
 		ChainHash: *activeNetParams.GenesisHash,
 		// TODO(roasbeef): properly configure
@@ -447,6 +451,29 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 			_, err := cc.wallet.GetPrivKey(addr)
 			return err == nil
 		},
+		ContractBreach: func(chanPoint wire.OutPoint,
+			breachRet *lnwallet.BreachRetribution) error {
+			event := &ContractBreachEvent{
+				ChanPoint:         chanPoint,
+				ProcessACK:        make(chan error, 1),
+				BreachRetribution: breachRet,
+			}
+
+			// Send the contract breach event to the breachArbiter.
+			select {
+			case contractBreaches <- event:
+			case <-s.quit:
+				return ErrServerShuttingDown
+			}
+
+			// Wait for the breachArbiter to ACK the event.
+			select {
+			case err := <-event.ProcessACK:
+				return err
+			case <-s.quit:
+				return ErrServerShuttingDown
+			}
+		},
 	}, chanDB)
 
 	s.breachArbiter = newBreachArbiter(&BreachConfig{
@@ -458,14 +485,9 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		},
 		Notifier:           cc.chainNotifier,
 		PublishTransaction: cc.wallet.PublishTransaction,
-		SubscribeChannelEvents: func(chanPoint wire.OutPoint) (*contractcourt.ChainEventSubscription, error) {
-			// We'll request a sync dispatch to ensure that the channel
-			// is only marked as closed *after* we update our internal
-			// state.
-			return s.chainArb.SubscribeChannelEvents(chanPoint, true)
-		},
-		Signer: cc.wallet.Cfg.Signer,
-		Store:  newRetributionStore(chanDB),
+		ContractBreaches:   contractBreaches,
+		Signer:             cc.wallet.Cfg.Signer,
+		Store:              newRetributionStore(chanDB),
 	})
 
 	// Create the connection manager which will be responsible for

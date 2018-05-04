@@ -403,7 +403,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		// necessary to properly route multi-hop payments, and forward
 		// new payments triggered by RPC clients.
 		chainEvents, err := p.server.chainArb.SubscribeChannelEvents(
-			*chanPoint, false,
+			*chanPoint,
 		)
 		if err != nil {
 			lnChan.Stop()
@@ -1380,7 +1380,7 @@ out:
 				continue
 			}
 			chainEvents, err := p.server.chainArb.SubscribeChannelEvents(
-				*chanPoint, false,
+				*chanPoint,
 			)
 			if err != nil {
 				peerLog.Errorf("unable to subscribe to chain "+

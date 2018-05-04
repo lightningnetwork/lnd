@@ -81,6 +81,13 @@ type ChainArbitratorConfig struct {
 	// TODO(roasbeef): rename, routing based
 	MarkLinkInactive func(wire.OutPoint) error
 
+	// ContractBreach is a function closure that the ChainArbitrator will
+	// use to notify the breachArbiter about a contract breach. It should
+	// only return a non-nil error when the breachArbiter has preserved the
+	// necessary breach info for this channel point, and it is safe to mark
+	// the channel as pending close in the database.
+	ContractBreach func(wire.OutPoint, *lnwallet.BreachRetribution) error
+
 	// IsOurAddress is a function that returns true if the passed address
 	// is known to the underlying wallet. Otherwise, false should be
 	// returned.
@@ -327,10 +334,19 @@ func (c *ChainArbitrator) Start() error {
 		// First, we'll create an active chainWatcher for this channel
 		// to ensure that we detect any relevant on chain events.
 		chainWatcher, err := newChainWatcher(
-			channel, c.cfg.Notifier, c.cfg.PreimageDB, c.cfg.Signer,
-			c.cfg.IsOurAddress, func() error {
-				// TODO(roasbeef): also need to pass in log?
-				return c.resolveContract(chanPoint, nil)
+			chainWatcherConfig{
+				chanState: channel,
+				notifier:  c.cfg.Notifier,
+				pCache:    c.cfg.PreimageDB,
+				signer:    c.cfg.Signer,
+				isOurAddr: c.cfg.IsOurAddress,
+				markChanClosed: func() error {
+					// TODO(roasbeef): also need to pass in log?
+					return c.resolveContract(chanPoint, nil)
+				},
+				contractBreach: func(retInfo *lnwallet.BreachRetribution) error {
+					return c.cfg.ContractBreach(chanPoint, retInfo)
+				},
 			},
 		)
 		if err != nil {
@@ -339,7 +355,7 @@ func (c *ChainArbitrator) Start() error {
 
 		c.activeWatchers[chanPoint] = chainWatcher
 		channelArb, err := newActiveChannelArbitrator(
-			channel, c, chainWatcher.SubscribeChannelEvents(false),
+			channel, c, chainWatcher.SubscribeChannelEvents(),
 		)
 		if err != nil {
 			return err
@@ -654,9 +670,18 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 	// First, also create an active chainWatcher for this channel to ensure
 	// that we detect any relevant on chain events.
 	chainWatcher, err := newChainWatcher(
-		newChan, c.cfg.Notifier, c.cfg.PreimageDB, c.cfg.Signer,
-		c.cfg.IsOurAddress, func() error {
-			return c.resolveContract(chanPoint, nil)
+		chainWatcherConfig{
+			chanState: newChan,
+			notifier:  c.cfg.Notifier,
+			pCache:    c.cfg.PreimageDB,
+			signer:    c.cfg.Signer,
+			isOurAddr: c.cfg.IsOurAddress,
+			markChanClosed: func() error {
+				return c.resolveContract(chanPoint, nil)
+			},
+			contractBreach: func(retInfo *lnwallet.BreachRetribution) error {
+				return c.cfg.ContractBreach(chanPoint, retInfo)
+			},
 		},
 	)
 	if err != nil {
@@ -668,7 +693,7 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 	// We'll also create a new channel arbitrator instance using this new
 	// channel, and our internal state.
 	channelArb, err := newActiveChannelArbitrator(
-		newChan, c, chainWatcher.SubscribeChannelEvents(false),
+		newChan, c, chainWatcher.SubscribeChannelEvents(),
 	)
 	if err != nil {
 		return err
@@ -696,7 +721,7 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 // TODO(roasbeef): can be used later to provide RPC hook for all channel
 // lifetimes
 func (c *ChainArbitrator) SubscribeChannelEvents(
-	chanPoint wire.OutPoint, syncDispatch bool) (*ChainEventSubscription, error) {
+	chanPoint wire.OutPoint) (*ChainEventSubscription, error) {
 
 	// First, we'll attempt to look up the active watcher for this channel.
 	// If we can't find it, then we'll return an error back to the caller.
@@ -708,7 +733,7 @@ func (c *ChainArbitrator) SubscribeChannelEvents(
 
 	// With the watcher located, we'll request for it to create a new chain
 	// event subscription client.
-	return watcher.SubscribeChannelEvents(syncDispatch), nil
+	return watcher.SubscribeChannelEvents(), nil
 }
 
 // BeginCoopChanClose allows the initiator or responder to a cooperative

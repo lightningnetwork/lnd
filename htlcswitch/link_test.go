@@ -3912,3 +3912,240 @@ func restartLink(aliceChannel *lnwallet.LightningChannel, aliceSwitch *Switch,
 
 	return aliceLink, t, cleanUp, nil
 }
+
+// gnerateHtlc generates a simple payment from Bob to Alice.
+func generateHtlc(t *testing.T, coreLink *channelLink,
+	bobChannel *lnwallet.LightningChannel, id uint64) *lnwire.UpdateAddHTLC {
+	htlcAmt := lnwire.NewMSatFromSatoshis(10000)
+	hops := []ForwardingInfo{
+		{
+			Network:         BitcoinHop,
+			NextHop:         exitHop,
+			AmountToForward: htlcAmt,
+			OutgoingCTLV:    144,
+		},
+	}
+	blob, err := generateRoute(hops...)
+	invoice, htlc, err := generatePayment(htlcAmt, htlcAmt, 144,
+		blob)
+	if err != nil {
+		t.Fatalf("unable to create payment: %v", err)
+	}
+
+	// We must add the invoice to the registry, such that Alice
+	// expects this payment.
+	err = coreLink.cfg.Registry.(*mockInvoiceRegistry).AddInvoice(
+		*invoice)
+	if err != nil {
+		t.Fatalf("unable to add invoice to registry: %v", err)
+	}
+	htlc.ID = id
+	return htlc
+}
+
+// sendHtlcBobToAlice sends an HTLC from Bob to Alice, that pays to a preimage
+// already in Alice's registry.
+func sendHtlcBobToAlice(t *testing.T, aliceLink ChannelLink,
+	bobChannel *lnwallet.LightningChannel, htlc *lnwire.UpdateAddHTLC) {
+	_, err := bobChannel.AddHTLC(htlc, nil)
+	if err != nil {
+		t.Fatalf("bob failed adding htlc: %v", err)
+	}
+
+	aliceLink.HandleChannelUpdate(htlc)
+}
+
+// sendCommitSigBobToAlice makes Bob sign a new commitment and send it to
+// Alice, asserting that it signs expHtlcs number of HTLCs.
+func sendCommitSigBobToAlice(t *testing.T, aliceLink ChannelLink,
+	bobChannel *lnwallet.LightningChannel, expHtlcs int) {
+	sig, htlcSigs, err := bobChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("error signing commitment: %v", err)
+	}
+
+	commitSig := &lnwire.CommitSig{
+		CommitSig: sig,
+		HtlcSigs:  htlcSigs,
+	}
+
+	if len(commitSig.HtlcSigs) != expHtlcs {
+		t.Fatalf("Expected %d htlc sigs, got %d", expHtlcs,
+			len(commitSig.HtlcSigs))
+	}
+
+	aliceLink.HandleChannelUpdate(commitSig)
+}
+
+// receiveRevAndAckAliceToBob waits for Alice to send a RevAndAck to Bob, then
+// hands this to Bob.
+func receiveRevAndAckAliceToBob(t *testing.T, aliceMsgs chan lnwire.Message,
+	aliceLink ChannelLink,
+	bobChannel *lnwallet.LightningChannel) {
+	var msg lnwire.Message
+	select {
+	case msg = <-aliceMsgs:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("did not receive message")
+	}
+
+	rev, ok := msg.(*lnwire.RevokeAndAck)
+	if !ok {
+		t.Fatalf("expected RevokeAndAck, got %T", msg)
+	}
+
+	_, _, _, err := bobChannel.ReceiveRevocation(rev)
+	if err != nil {
+		t.Fatalf("bob failed receiving revocation: %v", err)
+	}
+}
+
+// receiveCommitSigAliceToBob waits for Alice to send a CommitSig to Bob,
+// signing expHtlcs numbers of HTLCs, then hands this to Bob.
+func receiveCommitSigAliceToBob(t *testing.T, aliceMsgs chan lnwire.Message,
+	aliceLink ChannelLink, bobChannel *lnwallet.LightningChannel,
+	expHtlcs int) {
+	var msg lnwire.Message
+	select {
+	case msg = <-aliceMsgs:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("did not receive message")
+	}
+
+	comSig, ok := msg.(*lnwire.CommitSig)
+	if !ok {
+		t.Fatalf("expected CommitSig, got %T", msg)
+	}
+
+	if len(comSig.HtlcSigs) != expHtlcs {
+		t.Fatalf("expected %d htlc sigs, got %d", expHtlcs,
+			len(comSig.HtlcSigs))
+	}
+	err := bobChannel.ReceiveNewCommitment(comSig.CommitSig,
+		comSig.HtlcSigs)
+	if err != nil {
+		t.Fatalf("bob failed receiving commitment: %v", err)
+	}
+}
+
+// sendRevAndAckBobToAlice make Bob revoke his current commitment, then hand
+// the RevokeAndAck to Alice.
+func sendRevAndAckBobToAlice(t *testing.T, aliceLink ChannelLink,
+	bobChannel *lnwallet.LightningChannel) {
+	rev, _, err := bobChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatalf("unable to revoke commitment: %v", err)
+	}
+
+	aliceLink.HandleChannelUpdate(rev)
+}
+
+// receiveSettleAliceToBob waits for Alice to send a HTLC settle message to
+// Bob, then hands this to Bob.
+func receiveSettleAliceToBob(t *testing.T, aliceMsgs chan lnwire.Message,
+	aliceLink ChannelLink, bobChannel *lnwallet.LightningChannel) {
+	var msg lnwire.Message
+	select {
+	case msg = <-aliceMsgs:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("did not receive message")
+	}
+
+	settleMsg, ok := msg.(*lnwire.UpdateFulfillHTLC)
+	if !ok {
+		t.Fatalf("expected UpdateFulfillHTLC, got %T", msg)
+	}
+
+	err := bobChannel.ReceiveHTLCSettle(settleMsg.PaymentPreimage,
+		settleMsg.ID)
+	if err != nil {
+		t.Fatalf("failed settling htlc: %v", err)
+	}
+}
+
+// TestChannelLinkNoMoreUpdates tests that we won't send a new commitment
+// when there are no new updates to sign.
+func TestChannelLinkNoMoreUpdates(t *testing.T) {
+	t.Parallel()
+
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	const chanReserve = btcutil.SatoshiPerBitcoin * 1
+	aliceLink, bobChannel, _, cleanUp, _, err :=
+		newSingleLinkTestHarness(chanAmt, chanReserve)
+	if err != nil {
+		t.Fatalf("unable to create link: %v", err)
+	}
+	defer cleanUp()
+
+	var (
+		coreLink  = aliceLink.(*channelLink)
+		aliceMsgs = coreLink.cfg.Peer.(*mockPeer).sentMsgs
+	)
+
+	// Add two HTLCs to Alice's registry, that Bob can pay.
+	htlc1 := generateHtlc(t, coreLink, bobChannel, 0)
+	htlc2 := generateHtlc(t, coreLink, bobChannel, 1)
+
+	// We now play out the following scanario:
+	//
+	// (1) Alice receives htlc1 from Bob.
+	// (2) Bob sends signature covering htlc1.
+	// (3) Alice receives htlc2 from Bob.
+	// (4) Since Bob has sent a new commitment signature, Alice should
+	// first respond with a revocation.
+	// (5) Alice should also send a commitment signature for the new state,
+	// covering htlc1.
+	// (6) Bob sends a new commitment signature, covering htlc2 that he sent
+	// earlier. This signature should cover hltc1 + htlc2.
+	// (7) Alice should revoke the old commitment. This ACKs htlc2.
+	// (8) Bob can now revoke his old commitment in response to the
+	// signature Alice sent covering htlc1.
+	// (9) htlc1 is now locked in on Bob's commitment, and we expect Alice
+	// to settle it.
+	// (10) Alice should send a signature covering this settle to Bob. Only
+	// htlc2 should now be covered by this signature.
+	// (11) Bob can revoke his last state, which will also ACK the settle
+	// of htlc1.
+	// (12) Bob sends a new commitment signature. This signature should
+	// cover htlc2.
+	// (13) Alice will send a settle for htlc2.
+	// (14) Alice will also send a signature covering the settle.
+	// (15) Alice should send a revocation in response to the signature Bob
+	// sent earlier.
+	// (16) Bob will revoke his commitment in response to the commitment
+	// Alice sent.
+	// (17) Send a signature for the empty state. No HTLCs are left.
+	// (18) Alice will revoke her previous state.
+	//								      Alice		   Bob
+	//									|                   |
+	//									|        ...        |
+	//									|                   | <--- idle (no htlc on either side)
+	//									|                   |
+	sendHtlcBobToAlice(t, aliceLink, bobChannel, htlc1)                //   |<----- add-1 ------| (1)
+	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 1)               //   |<------ sig -------| (2)
+	sendHtlcBobToAlice(t, aliceLink, bobChannel, htlc2)                //   |<----- add-2 ------| (3)
+	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)    //   |------- rev ------>| (4) <--- Alice acks add-1
+	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 1) //   |------- sig ------>| (5) <--- Alice signs add-1
+	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 2)               //   |<------ sig -------| (6)
+	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)    //   |------- rev ------>| (7) <--- Alice acks add-2
+	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)                  //   |<------ rev -------| (8)
+	receiveSettleAliceToBob(t, aliceMsgs, aliceLink, bobChannel)       //   |------ ful-1 ----->| (9)
+	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 1) //   |------- sig ------>| (10) <--- Alice signs add-1 + add-2 + ful-1 = add-2
+	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)                  //   |<------ rev -------| (11)
+	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 1)               //   |<------ sig -------| (12)
+	receiveSettleAliceToBob(t, aliceMsgs, aliceLink, bobChannel)       //   |------ ful-2 ----->| (13)
+	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 0) //   |------- sig ------>| (14) <--- Alice signs add-2 + ful-2 = no htlcs
+	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)    //   |------- rev ------>| (15)
+	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)                  //   |<------ rev -------| (16) <--- Bob acks that there are no more htlcs
+	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 0)               //   |<------ sig -------| (17)
+	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)    //   |------- rev ------>| (18) <--- Alice acks that there are no htlcs on Alice's side
+
+	// No there are no more changes to ACK or sign, make sure Alice doesn't
+	// attempt to send any more messages.
+	var msg lnwire.Message
+	select {
+	case msg = <-aliceMsgs:
+		t.Fatalf("did not expect message %T", msg)
+	case <-time.After(100 * time.Millisecond):
+	}
+}

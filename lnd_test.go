@@ -3448,9 +3448,17 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Due to the way the channels were set up above, the channel between
 	// Alice and Bob should be the only channel used as a routing hint.
-	if len(decoded.RouteHints) != 1 {
-		t.Fatalf("expected one route hint, got %d",
-			len(decoded.RouteHints))
+	var predErr error
+	err = lntest.WaitPredicate(func() bool {
+		if len(decoded.RouteHints) != 1 {
+			predErr = fmt.Errorf("expected one route hint, got %d",
+				len(decoded.RouteHints))
+			return false
+		}
+		return true
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf(predErr.Error())
 	}
 
 	hops := decoded.RouteHints[0].HopHints

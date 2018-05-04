@@ -1765,6 +1765,16 @@ func (lc *LightningChannel) restoreStateLogs(
 		}
 
 		if payDesc.EntryType == Add {
+			// The HtlcIndex of the added HTLC _must_ be equal to
+			// the log's htlcCounter at this point. If it is not we
+			// panic to catch this.
+			// TODO(halseth): remove when cause of htlc entry bug
+			// is found.
+			if payDesc.HtlcIndex != lc.localUpdateLog.htlcCounter {
+				panic(fmt.Sprintf("htlc index mismatch: "+
+					"%v vs %v", payDesc.HtlcIndex,
+					lc.localUpdateLog.htlcCounter))
+			}
 			lc.localUpdateLog.appendHtlc(payDesc)
 		} else {
 			lc.localUpdateLog.appendUpdate(payDesc)

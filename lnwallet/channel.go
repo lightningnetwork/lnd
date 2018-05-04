@@ -1658,6 +1658,13 @@ func (lc *LightningChannel) restoreCommitState(
 		}
 		lc.remoteCommitChain.addCommitment(pendingRemoteCommit)
 
+		walletLog.Debugf("ChannelPoint(%v), pending remote "+
+			"commitment: %v", lc.channelState.FundingOutpoint,
+			newLogClosure(func() string {
+				return spew.Sdump(lc.remoteCommitChain.tip())
+			}),
+		)
+
 		// We'll also re-create the set of commitment keys needed to
 		// fully re-derive the state.
 		pendingRemoteKeyChain = deriveCommitmentKeys(

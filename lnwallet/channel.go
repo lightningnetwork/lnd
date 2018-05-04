@@ -138,8 +138,7 @@ const (
 	// from the log. Adding a MalformedFail entry to ones log will modify
 	// the _remote_ parties update log once a new commitment view has been
 	// evaluated which contains the MalformedFail entry. The difference
-	// from Fail type lie in
-	// the different data we have to store.
+	// from Fail type lie in the different data we have to store.
 	MalformedFail
 
 	// Settle is an update type which settles a prior HTLC crediting the
@@ -623,13 +622,13 @@ func (c *commitment) populateHtlcIndexes() error {
 	for i := 0; i < len(c.outgoingHTLCs); i++ {
 		htlc := &c.outgoingHTLCs[i]
 		if err := populateIndex(htlc, false); err != nil {
-			return nil
+			return err
 		}
 	}
 	for i := 0; i < len(c.incomingHTLCs); i++ {
 		htlc := &c.incomingHTLCs[i]
 		if err := populateIndex(htlc, true); err != nil {
-			return nil
+			return err
 		}
 	}
 
@@ -1640,7 +1639,7 @@ func (lc *LightningChannel) restoreCommitState(
 	// extended to the remote party but which was never ACK'd.
 	pendingRemoteCommitDiff, err = lc.channelState.RemoteCommitChainTip()
 	if err != nil && err != channeldb.ErrNoPendingCommit {
-		return nil
+		return err
 	}
 
 	if pendingRemoteCommitDiff != nil {

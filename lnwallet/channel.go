@@ -1368,9 +1368,7 @@ func NewLightningChannel(signer Signer, pCache PreimageCache,
 
 	// With the main channel struct reconstructed, we'll now restore the
 	// commitment state in memory and also the update logs themselves.
-	err := lc.restoreCommitState(
-		&localCommit, &remoteCommit, localUpdateLog, remoteUpdateLog,
-	)
+	err := lc.restoreCommitState(&localCommit, &remoteCommit)
 	if err != nil {
 		return nil, err
 	}
@@ -1579,8 +1577,7 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 // to re-sync states with the remote party, and also verify/extend new proposed
 // commitment states.
 func (lc *LightningChannel) restoreCommitState(
-	localCommitState, remoteCommitState *channeldb.ChannelCommitment,
-	localUpdateLog, remoteUpdateLog *updateLog) error {
+	localCommitState, remoteCommitState *channeldb.ChannelCommitment) error {
 
 	// In order to reconstruct the pkScripts on each of the pending HTLC
 	// outputs (if any) we'll need to regenerate the current revocation for

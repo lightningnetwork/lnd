@@ -62,10 +62,11 @@ func TestChainWatcherRemoteUnilateralClose(t *testing.T) {
 	aliceNotifier := &mockNotifier{
 		spendChan: make(chan *chainntnfs.SpendDetail),
 	}
-	aliceChainWatcher, err := newChainWatcher(
-		aliceChannel.State(), aliceNotifier, nil, aliceChannel.Signer,
-		nil, nil,
-	)
+	aliceChainWatcher, err := newChainWatcher(chainWatcherConfig{
+		chanState: aliceChannel.State(),
+		notifier:  aliceNotifier,
+		signer:    aliceChannel.Signer,
+	})
 	if err != nil {
 		t.Fatalf("unable to create chain watcher: %v", err)
 	}
@@ -77,7 +78,7 @@ func TestChainWatcherRemoteUnilateralClose(t *testing.T) {
 
 	// We'll request a new channel event subscription from Alice's chain
 	// watcher.
-	chanEvents := aliceChainWatcher.SubscribeChannelEvents(false)
+	chanEvents := aliceChainWatcher.SubscribeChannelEvents()
 
 	// If we simulate an immediate broadcast of the current commitment by
 	// Bob, then the chain watcher should detect this case.
@@ -125,10 +126,11 @@ func TestChainWatcherRemoteUnilateralClosePendingCommit(t *testing.T) {
 	aliceNotifier := &mockNotifier{
 		spendChan: make(chan *chainntnfs.SpendDetail),
 	}
-	aliceChainWatcher, err := newChainWatcher(
-		aliceChannel.State(), aliceNotifier, nil, aliceChannel.Signer,
-		nil, nil,
-	)
+	aliceChainWatcher, err := newChainWatcher(chainWatcherConfig{
+		chanState: aliceChannel.State(),
+		notifier:  aliceNotifier,
+		signer:    aliceChannel.Signer,
+	})
 	if err != nil {
 		t.Fatalf("unable to create chain watcher: %v", err)
 	}
@@ -139,7 +141,7 @@ func TestChainWatcherRemoteUnilateralClosePendingCommit(t *testing.T) {
 
 	// We'll request a new channel event subscription from Alice's chain
 	// watcher.
-	chanEvents := aliceChainWatcher.SubscribeChannelEvents(false)
+	chanEvents := aliceChainWatcher.SubscribeChannelEvents()
 
 	// Next, we'll create a fake HTLC just so we can advance Alice's
 	// channel state to a new pending commitment on her remote commit chain

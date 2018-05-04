@@ -2407,6 +2407,21 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 
 		addEntry := lc.remoteUpdateLog.lookupHtlc(entry.ParentIndex)
 
+		// We check if the parent entry is not found at this point. We
+		// have seen this happening a few times and panic with some
+		// addtitional info to figure out why.
+		// TODO(halseth): remove when bug is fixed.
+		if addEntry == nil {
+			panic(fmt.Sprintf("unable to find parent entry %d "+
+				"in remote update log: %v\nUpdatelog: %v",
+				entry.ParentIndex, newLogClosure(func() string {
+					return spew.Sdump(entry)
+				}), newLogClosure(func() string {
+					return spew.Sdump(lc.remoteUpdateLog)
+				}),
+			))
+		}
+
 		skipThem[addEntry.HtlcIndex] = struct{}{}
 		processRemoveEntry(entry, ourBalance, theirBalance,
 			nextHeight, remoteChain, true, mutateState)
@@ -2426,6 +2441,21 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		}
 
 		addEntry := lc.localUpdateLog.lookupHtlc(entry.ParentIndex)
+
+		// We check if the parent entry is not found at this point. We
+		// have seen this happening a few times and panic with some
+		// addtitional info to figure out why.
+		// TODO(halseth): remove when bug is fixed.
+		if addEntry == nil {
+			panic(fmt.Sprintf("unable to find parent entry %d "+
+				"in local update log: %v\nUpdatelog: %v",
+				entry.ParentIndex, newLogClosure(func() string {
+					return spew.Sdump(entry)
+				}), newLogClosure(func() string {
+					return spew.Sdump(lc.localUpdateLog)
+				}),
+			))
+		}
 
 		skipUs[addEntry.HtlcIndex] = struct{}{}
 		processRemoveEntry(entry, ourBalance, theirBalance,

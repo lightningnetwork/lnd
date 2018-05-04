@@ -4149,3 +4149,110 @@ func TestChannelLinkNoMoreUpdates(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 }
+
+// TestChannelLinkWaitForRevocation tests that we will keep accepting updates
+// to our commitment transaction, even when we are waiting for a revocation
+// from the remote node.
+func TestChannelLinkWaitForRevocation(t *testing.T) {
+	t.Parallel()
+
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	const chanReserve = btcutil.SatoshiPerBitcoin * 1
+	aliceLink, bobChannel, _, cleanUp, _, err :=
+		newSingleLinkTestHarness(chanAmt, chanReserve)
+	if err != nil {
+		t.Fatalf("unable to create link: %v", err)
+	}
+	defer cleanUp()
+
+	var (
+		coreLink  = aliceLink.(*channelLink)
+		aliceMsgs = coreLink.cfg.Peer.(*mockPeer).sentMsgs
+	)
+
+	// We will send 10 HTLCs in total, from Bob to Alice.
+	numHtlcs := 10
+	var htlcs []*lnwire.UpdateAddHTLC
+	for i := 0; i < numHtlcs; i++ {
+		htlc := generateHtlc(t, coreLink, bobChannel, uint64(i))
+		htlcs = append(htlcs, htlc)
+	}
+
+	// We play out the following scenario:
+	//
+	// (1) Add the first HTLC.
+	// (2) Bob sends signature covering the htlc.
+	// (3) Since Bob has sent a new commitment signature, Alice should first
+	// respond with a revocation. This revocation will ACK the first htlc.
+	// (4) Alice should also send a commitment signature for the new state,
+	// locking in the HTLC on Bob's commitment. Note that we don't
+	// immediately let Bob respond with a revocation in this case.
+	// (5.i) Now we send the rest of the HTLCs from Bob to Alice.
+	// (6.i) Bob sends a new commitment signature, covering all HTLCs up
+	// to this point.
+	// (7.i) Alice should respond to Bob's state updates with revocations,
+	// but cannot send any new signatures for Bob's state because her
+	// revocation window is exhausted.
+	// (8) Now let Bob finally send his revocation.
+	// (9) We expect Alice to settle her first HTLC, since it was already
+	// locked in.
+	// (10) Now Alice should send a signature covering this settle + lock
+	// in the rest of the HTLCs on Bob's commitment.
+	// (11) Bob receives the new signature for his commitment, and can
+	// revoke his old state, ACKing the settle.
+	// (12.i) Now Alice can settle all the HTLCs, since they are locked in
+	// on both parties' commitments.
+	// (13) Bob can send a signature covering the first settle Alice sent.
+	// Bob's signature should cover all the remaining HTLCs as well, since
+	// he hasn't ACKed the last settles yet. Alice receives the signature
+	// from Bob. Alice's commitment now has the first HTLC settled, and all
+	// the other HTLCs locked in.
+	// (14) Alice will send a signature for all the settles she just sent.
+	// (15) Bob can revoke his previous state, in response to Alice's
+	// signature.
+	// (16) In response to the signature Bob sent, Alice can
+	// revoke her previous state.
+	// (17) Bob still hasn't sent a commitment covering all settles, so do
+	// that now. Since Bob ACKed all settles, no HTLCs should be left on
+	// the commitment.
+	// (18) Alice will revoke her previous state.
+	//									       Alice		    Bob
+	//									         |                   |
+	//									         |        ...        |
+	//									         |                   | <--- idle (no htlc on either side)
+	//									         |                   |
+	sendHtlcBobToAlice(t, aliceLink, bobChannel, htlcs[0])             //	         |<----- add-1 ------| (1)
+	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 1)               //  	         |<------ sig -------| (2)
+	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)    //  	         |------- rev ------>| (3) <--- Alice acks add-1
+	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 1) //  	         |------- sig ------>| (4) <--- Alice signs add-1
+	for i := 1; i < numHtlcs; i++ {                                    //		 |		     |
+		sendHtlcBobToAlice(t, aliceLink, bobChannel, htlcs[i])          //       |<----- add-i ------| (5.i)
+		sendCommitSigBobToAlice(t, aliceLink, bobChannel, i+1)          //       |<------ sig -------| (6.i)
+		receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel) //       |------- rev ------>| (7.i) <--- Alice acks add-i
+		select {                                                        //	 |		     |
+		case <-aliceMsgs: //						         |		     | Alice should not send a sig for
+			t.Fatalf("unexpectedly received msg from Alice") //	         |		     | Bob's last state, since she is
+		default: //							         |		     | still waiting for a revocation
+		} //								         |		     | for the previous one.
+	} //									         |		     |
+	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)                           //   |<------ rev -------| (8) Finally let Bob send rev
+	receiveSettleAliceToBob(t, aliceMsgs, aliceLink, bobChannel)                //   |------ ful-1 ----->| (9)
+	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, numHtlcs-1) //   |------- sig ------>| (10) <--- Alice signs add-i
+	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)                           //   |<------ rev -------| (11)
+	for i := 1; i < numHtlcs; i++ {                                             //	 |		     |
+		receiveSettleAliceToBob(t, aliceMsgs, aliceLink, bobChannel) //		 |------ ful-1 ----->| (12.i)
+	} //										 |		     |
+	sendCommitSigBobToAlice(t, aliceLink, bobChannel, numHtlcs-1)      //		 |<------ sig -------| (13)
+	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 0) //   	 |------- sig ------>| (14)
+	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)                  //   	 |<------ rev -------| (15)
+	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)    //   	 |------- rev ------>| (16)
+	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 0)               //   	 |<------ sig -------| (17)
+	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)    //   	 |------- rev ------>| (18)
+
+	// Both side's state is now updated, no more messages should be sent.
+	select {
+	case <-aliceMsgs:
+		t.Fatalf("did not expect message from Alice")
+	case <-time.After(50 * time.Millisecond):
+	}
+}

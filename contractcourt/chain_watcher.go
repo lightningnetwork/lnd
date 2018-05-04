@@ -340,40 +340,71 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 		)
 		remoteStateNum := remoteCommit.CommitHeight
 
+		remoteChainTip, err := c.cfg.chanState.RemoteCommitChainTip()
+		if err != nil && err != channeldb.ErrNoPendingCommit {
+			log.Errorf("unable to obtain chain tip for "+
+				"ChannelPoint(%v): %v",
+				c.cfg.chanState.FundingOutpoint, err)
+			return
+		}
+
 		switch {
 		// If state number spending transaction matches the
 		// current latest state, then they've initiated a
 		// unilateral close. So we'll trigger the unilateral
 		// close signal so subscribers can clean up the state
 		// as necessary.
-		//
+		case broadcastStateNum == remoteStateNum:
+			err := c.dispatchRemoteForceClose(
+				commitSpend, *remoteCommit, false,
+			)
+			if err != nil {
+				log.Errorf("unable to handle remote "+
+					"close for chan_point=%v: %v",
+					c.cfg.chanState.FundingOutpoint, err)
+			}
+
 		// We'll also handle the case of the remote party
 		// broadcasting their commitment transaction which is
 		// one height above ours. This case can arise when we
 		// initiate a state transition, but the remote party
 		// has a fail crash _after_ accepting the new state,
 		// but _before_ sending their signature to us.
-		case broadcastStateNum >= remoteStateNum:
-			if err := c.dispatchRemoteForceClose(
-				commitSpend, *remoteCommit,
-			); err != nil {
+		case broadcastStateNum == remoteStateNum+1 &&
+			remoteChainTip != nil:
+
+			err := c.dispatchRemoteForceClose(
+				commitSpend, remoteChainTip.Commitment,
+				true,
+			)
+			if err != nil {
 				log.Errorf("unable to handle remote "+
 					"close for chan_point=%v: %v",
 					c.cfg.chanState.FundingOutpoint, err)
 			}
+
+		// This is the case that somehow the commitment
+		// broadcast is actually greater than even one beyond
+		// our best known state number. This should NEVER
+		// happen, but we'll log it in any case.
+		case broadcastStateNum > remoteStateNum+1:
+			log.Errorf("Remote node broadcast state #%v, "+
+				"which is more than 1 beyond best known "+
+				"state #%v!!!", broadcastStateNum,
+				remoteStateNum)
 
 		// If the state number broadcast is lower than the
 		// remote node's current un-revoked height, then
 		// THEY'RE ATTEMPTING TO VIOLATE THE CONTRACT LAID OUT
 		// WITHIN THE PAYMENT CHANNEL.  Therefore we close the
 		// signal indicating a revoked broadcast to allow
-		// subscribers to
-		// swiftly dispatch justice!!!
+		// subscribers to swiftly dispatch justice!!!
 		case broadcastStateNum < remoteStateNum:
-			if err := c.dispatchContractBreach(
+			err := c.dispatchContractBreach(
 				commitSpend, remoteCommit,
 				broadcastStateNum,
-			); err != nil {
+			)
+			if err != nil {
 				log.Errorf("unable to handle channel "+
 					"breach for chan_point=%v: %v",
 					c.cfg.chanState.FundingOutpoint, err)
@@ -570,13 +601,16 @@ func (c *chainWatcher) dispatchLocalForceClose(
 	return nil
 }
 
-// dispatchRemoteForceClose processes a detected unilateral channel closure by the
-// remote party. This function will prepare a UnilateralCloseSummary which will
-// then be sent to any subscribers allowing them to resolve all our funds in
-// the channel on chain. Once this close summary is prepared, all registered
-// subscribers will receive a notification of this event.
+// dispatchRemoteForceClose processes a detected unilateral channel closure by
+// the remote party. This function will prepare a UnilateralCloseSummary which
+// will then be sent to any subscribers allowing them to resolve all our funds
+// in the channel on chain. Once this close summary is prepared, all registered
+// subscribers will receive a notification of this event. The
+// isRemotePendingCommit argument should be set to true if the remote node
+// broadcast their pending commitment (w/o revoking their current settled
+// commitment).
 func (c *chainWatcher) dispatchRemoteForceClose(commitSpend *chainntnfs.SpendDetail,
-	remoteCommit channeldb.ChannelCommitment) error {
+	remoteCommit channeldb.ChannelCommitment, isRemotePendingCommit bool) error {
 
 	log.Infof("Unilateral close of ChannelPoint(%v) "+
 		"detected", c.cfg.chanState.FundingOutpoint)
@@ -584,8 +618,9 @@ func (c *chainWatcher) dispatchRemoteForceClose(commitSpend *chainntnfs.SpendDet
 	// First, we'll create a closure summary that contains all the
 	// materials required to let each subscriber sweep the funds in the
 	// channel on-chain.
-	uniClose, err := lnwallet.NewUnilateralCloseSummary(c.cfg.chanState,
-		c.cfg.signer, c.cfg.pCache, commitSpend, remoteCommit,
+	uniClose, err := lnwallet.NewUnilateralCloseSummary(
+		c.cfg.chanState, c.cfg.signer, c.cfg.pCache, commitSpend,
+		remoteCommit, isRemotePendingCommit,
 	)
 	if err != nil {
 		return err

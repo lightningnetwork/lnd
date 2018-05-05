@@ -1355,7 +1355,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		if isASCII(msg.Data) {
 			errMsg = string(msg.Data)
 		}
-		l.fail("ChannelPoint(%v): recieved error from peer: %v",
+		l.fail("ChannelPoint(%v): received error from peer: %v",
 			l.channel.ChannelPoint(), errMsg)
 	default:
 		log.Warnf("ChannelPoint(%v): received unknown message of type %T",

@@ -524,7 +524,7 @@ type msgStream struct {
 
 	peer *peer
 
-	apply func(lnwire.Message)
+	apply func(lnwire.Message, chan struct{})
 
 	startMsg string
 	stopMsg  string
@@ -547,7 +547,7 @@ type msgStream struct {
 // sane value that avoids blocking unnecessarily, but doesn't allow an
 // unbounded amount of memory to be allocated to buffer incoming messages.
 func newMsgStream(p *peer, startMsg, stopMsg string, bufSize uint32,
-	apply func(lnwire.Message)) *msgStream {
+	apply func(lnwire.Message, chan struct{})) *msgStream {
 
 	stream := &msgStream{
 		peer:         p,
@@ -628,7 +628,7 @@ func (ms *msgStream) msgConsumer() {
 
 		ms.msgCond.L.Unlock()
 
-		ms.apply(msg)
+		ms.apply(msg, ms.quit)
 
 		// We've just successfully processed an item, so we'll signal
 		// to the producer that a new slot in the buffer. We'll use
@@ -682,7 +682,7 @@ func newChanMsgStream(p *peer, cid lnwire.ChannelID) *msgStream {
 		fmt.Sprintf("Update stream for ChannelID(%x) created", cid[:]),
 		fmt.Sprintf("Update stream for ChannelID(%x) exiting", cid[:]),
 		1000,
-		func(msg lnwire.Message) {
+		func(msg lnwire.Message, quitChan chan struct{}) {
 			_, isChanSycMsg := msg.(*lnwire.ChannelReestablish)
 
 			// If this is the chanSync message, then we'll deliver
@@ -699,10 +699,8 @@ func newChanMsgStream(p *peer, cid lnwire.ChannelID) *msgStream {
 				p.server.fundingMgr.waitUntilChannelOpen(cid)
 			}
 
-			// TODO(roasbeef): only wait if not chan sync
-
-			// Dispatch the commitment update message to the proper active
-			// goroutine dedicated to this channel.
+			// Dispatch the commitment update message to the proper
+			// active goroutine dedicated to this channel.
 			if chanLink == nil {
 				link, err := p.server.htlcSwitch.GetLink(cid)
 				if err != nil {
@@ -726,9 +724,21 @@ func newDiscMsgStream(p *peer) *msgStream {
 		"Update stream for gossiper created",
 		"Update stream for gossiper exited",
 		1000,
-		func(msg lnwire.Message) {
-			p.server.authGossiper.ProcessRemoteAnnouncement(msg,
-				p.addr.IdentityKey)
+		func(msg lnwire.Message, quitChan chan struct{}) {
+			errChan := p.server.authGossiper.ProcessRemoteAnnouncement(
+				msg, p.addr.IdentityKey,
+			)
+
+			select {
+			case <-quitChan:
+				return
+			case err := <-errChan:
+				if err != nil {
+					peerLog.Errorf("gossiper unable to "+
+						"process msg: %v", err)
+				}
+				return
+			}
 		},
 	)
 }

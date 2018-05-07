@@ -461,6 +461,9 @@ Rejoice as you will now be listed as a [contributor](https://github.com/lightnin
 - [&nbsp;&nbsp;] Any new logging statements use an appropriate subsystem and
   logging level
 - [&nbsp;&nbsp;] Code has been formatted with `go fmt`
+- [&nbsp;&nbsp;] For code and documentation: lines are wrapped at 80 characters
+  (the tab character should be counted as 8 characters, not 4, as some IDEs do
+  per default)
 - [&nbsp;&nbsp;] Running `go test` does not fail any tests
 - [&nbsp;&nbsp;] Running `go vet` does not report any issues
 - [&nbsp;&nbsp;] Running [golint](https://github.com/golang/lint) does not

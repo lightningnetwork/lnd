@@ -637,31 +637,43 @@ func (r *ChannelRouter) networkHandler() {
 		// A new fully validated network update has just arrived. As a
 		// result we'll modify the channel graph accordingly depending
 		// on the exact type of the message.
-		case updateMsg := <-r.networkUpdates:
+		case update := <-r.networkUpdates:
 			// We'll set up any dependants, and wait until a free
 			// slot for this job opens up, this allow us to not
 			// have thousands of goroutines active.
-			validationBarrier.InitJobDependencies(updateMsg.msg)
+			validationBarrier.InitJobDependencies(update.msg)
 
+			r.wg.Add(1)
 			go func() {
+				defer r.wg.Done()
 				defer validationBarrier.CompleteJob()
 
 				// If this message has an existing dependency,
 				// then we'll wait until that has been fully
 				// validated before we proceed.
-				validationBarrier.WaitForDependants(updateMsg.msg)
+				err := validationBarrier.WaitForDependants(
+					update.msg,
+				)
+				if err != nil {
+					if err != ErrVBarrierShuttingDown {
+						log.Warnf("unexpected error "+
+							"during validation "+
+							"barrier shutdown: %v",
+							err)
+					}
+					return
+				}
 
 				// Process the routing update to determine if
 				// this is either a new update from our PoV or
 				// an update to a prior vertex/edge we
 				// previously accepted.
-				err := r.processUpdate(updateMsg.msg)
-				updateMsg.err <- err
+				err = r.processUpdate(update.msg)
+				update.err <- err
 
 				// If this message had any dependencies, then
 				// we can now signal them to continue.
-				validationBarrier.SignalDependants(updateMsg.msg)
-
+				validationBarrier.SignalDependants(update.msg)
 				if err != nil {
 					return
 				}
@@ -669,8 +681,9 @@ func (r *ChannelRouter) networkHandler() {
 				// Send off a new notification for the newly
 				// accepted update.
 				topChange := &TopologyChange{}
-				err = addToTopologyChange(r.cfg.Graph, topChange,
-					updateMsg.msg)
+				err = addToTopologyChange(
+					r.cfg.Graph, topChange, update.msg,
+				)
 				if err != nil {
 					log.Errorf("unable to update topology "+
 						"change notification: %v", err)

@@ -244,6 +244,7 @@ lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --bitcoin.node=bitcoin
 - The auth parameters `rpcuser` and `rpcpass` parameters can typically be determined by `lnd` for a `bitcoind` instance running under the same user, including when using cookie auth. In this case, you can exclude them from the `lnd` options entirely.
 - If you DO choose to explicitly pass the auth parameters in your `lnd.conf` or command line options for `lnd` (`bitcoind.rpcuser` and `bitcoind.rpcpass` as shown in example command above), you must also specify the `bitcoind.zmqpath` option. Otherwise, `lnd` will attempt to get the configuration from your `bitcoin.conf`.
 - You must ensure the same address (including port) is used for the `bitcoind.zmqpath` option passed to `lnd` as for the `zmqpubrawblock` and `zmqpubrawtx` passed in the `bitcoind` options.
+- When running lnd and bitcoind on the same Windows machine, ensure you use 127.0.0.1, not localhost, for all configuration options that require a TCP/IP host address.  If you use "localhost" as the host name, you may see extremely slow inter-process-communication between lnd and the bitcoind backend.  If lnd is experiencing this issue, you'll see "Waiting for chain backend to finish sync, start_height=XXXXXX" as the last entry in the console or log output, and lnd will appear to hang.  Normal lnd output will quickly show multiple messages like this as lnd consumes blocks from bitcoind.
 
 #### Disabling Wallet Encryption
 

@@ -307,7 +307,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		WatchNewChannel: func(*channeldb.OpenChannel, *lnwire.NetAddress) error {
 			return nil
 		},
-		ReportShortChanID: func(wire.OutPoint, lnwire.ShortChannelID) error {
+		ReportShortChanID: func(wire.OutPoint) error {
 			return nil
 		},
 		ZombieSweeperInterval: 1 * time.Hour,

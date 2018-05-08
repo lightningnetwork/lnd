@@ -30,6 +30,9 @@ import (
 
 var (
 	numNodes int32
+
+	// ErrPeerExiting signals that the peer received a disconnect request.
+	ErrPeerExiting = errors.Errorf("peer exiting")
 )
 
 const (
@@ -1105,7 +1108,7 @@ func (p *peer) logWireMessage(msg lnwire.Message, read bool) {
 func (p *peer) writeMessage(msg lnwire.Message) error {
 	// Simply exit if we're shutting down.
 	if atomic.LoadInt32(&p.disconnect) != 0 {
-		return nil
+		return ErrPeerExiting
 	}
 
 	// TODO(roasbeef): add message summaries
@@ -1154,8 +1157,8 @@ out:
 				atomic.StoreInt64(&p.pingLastSend, now)
 			}
 
-			// Write out the message to the socket, closing the
-			// 'sentChan' if it's non-nil, The 'sentChan' allows
+			// Write out the message to the socket, responding with
+			// error if `errChan` is non-nil. The `errChan` allows
 			// callers to optionally synchronize sends with the
 			// writeHandler.
 			err := p.writeMessage(outMsg.msg)
@@ -1169,7 +1172,7 @@ out:
 			}
 
 		case <-p.quit:
-			exitErr = errors.Errorf("peer exiting")
+			exitErr = ErrPeerExiting
 			break out
 		}
 	}
@@ -1263,7 +1266,7 @@ func (p *peer) queueMsg(msg lnwire.Message, errChan chan error) {
 	case <-p.quit:
 		peerLog.Tracef("Peer shutting down, could not enqueue msg.")
 		if errChan != nil {
-			errChan <- fmt.Errorf("peer shutting down")
+			errChan <- ErrPeerExiting
 		}
 	}
 }

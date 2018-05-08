@@ -982,10 +982,15 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 					reason       lnwire.OpaqueReason
 				)
 
-				failure := lnwire.NewTemporaryChannelFailure(nil)
+				update, _ := l.cfg.FetchLastChannelUpdate(
+					l.shortChanID,
+				)
+				failure := lnwire.NewTemporaryChannelFailure(
+					update,
+				)
 
-				// Encrypt the error back to the source unless the payment was
-				// generated locally.
+				// Encrypt the error back to the source unless
+				// the payment was generated locally.
 				if pkt.obfuscator == nil {
 					var b bytes.Buffer
 					err := lnwire.EncodeFailure(&b, failure, 0)
@@ -1656,7 +1661,7 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 			l.shortChanID,
 		)
 		if err != nil {
-			failure = lnwire.NewTemporaryChannelFailure(nil)
+			failure = lnwire.NewTemporaryChannelFailure(update)
 		} else {
 			failure = lnwire.NewAmountBelowMinimum(
 				amtToForward, *update,
@@ -1690,7 +1695,7 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 			l.shortChanID,
 		)
 		if err != nil {
-			failure = lnwire.NewTemporaryChannelFailure(nil)
+			failure = lnwire.NewTemporaryChannelFailure(update)
 		} else {
 			failure = lnwire.NewFeeInsufficient(
 				amtToForward, *update,
@@ -2245,7 +2250,9 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					l.shortChanID,
 				)
 				if err != nil {
-					failure = lnwire.NewTemporaryChannelFailure(nil)
+					failure = lnwire.NewTemporaryChannelFailure(
+						update,
+					)
 				} else {
 					failure = lnwire.NewExpiryTooSoon(*update)
 				}
@@ -2313,7 +2320,16 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				log.Errorf("unable to encode the "+
 					"remaining route %v", err)
 
-				failure := lnwire.NewTemporaryChannelFailure(nil)
+				update, _ := l.cfg.FetchLastChannelUpdate(
+					l.shortChanID,
+				)
+
+				// Note that if the above returns a nil update,
+				// then this function will treat it as if no
+				// update were specified at all.
+				failure := lnwire.NewTemporaryChannelFailure(
+					update,
+				)
 
 				l.sendHTLCError(
 					pd.HtlcIndex, failure, obfuscator, pd.SourceRef,

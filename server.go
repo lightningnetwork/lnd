@@ -1091,7 +1091,7 @@ func (s *server) SendToPeer(target *btcec.PublicKey,
 		case err := <-errChan:
 			return err
 		case <-targetPeer.quit:
-			return fmt.Errorf("peer shutting down")
+			return ErrPeerExiting
 		case <-s.quit:
 			return ErrServerShuttingDown
 		}
@@ -1183,7 +1183,8 @@ func (s *server) sendPeerMessages(
 	// event, we defer a call to Done on both WaitGroups to 1) ensure that
 	// server will be able to shutdown after its go routines exit, and 2)
 	// so the server can return to the caller of BroadcastMessage.
-	if wg != nil {
+	isBroadcast := wg != nil
+	if isBroadcast {
 		defer s.wg.Done()
 		defer wg.Done()
 	}
@@ -1193,9 +1194,16 @@ func (s *server) sendPeerMessages(
 	// the queue.
 	var errChans []chan error
 	for _, msg := range msgs {
-		errChan := make(chan error, 1)
+		// If this is not broadcast, create error channels to provide
+		// synchronous feedback regarding the delivery of the message to
+		// a specific peer.
+		var errChan chan error
+		if !isBroadcast {
+			errChan = make(chan error, 1)
+			errChans = append(errChans, errChan)
+		}
+
 		targetPeer.queueMsg(msg, errChan)
-		errChans = append(errChans, errChan)
 	}
 
 	return errChans

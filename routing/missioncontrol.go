@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
@@ -57,6 +58,8 @@ type missionControl struct {
 
 	selfNode *channeldb.LightningNode
 
+	queryBandwidth func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi
+
 	sync.Mutex
 
 	// TODO(roasbeef): further counters, if vertex continually unavailable,
@@ -68,13 +71,15 @@ type missionControl struct {
 // newMissionControl returns a new instance of missionControl.
 //
 // TODO(roasbeef): persist memory
-func newMissionControl(g *channeldb.ChannelGraph,
-	selfNode *channeldb.LightningNode) *missionControl {
+func newMissionControl(
+	g *channeldb.ChannelGraph, selfNode *channeldb.LightningNode,
+	qb func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi) *missionControl {
 
 	return &missionControl{
 		failedEdges:    make(map[uint64]time.Time),
 		failedVertexes: make(map[Vertex]time.Time),
 		selfNode:       selfNode,
+		queryBandwidth: qb,
 		graph:          g,
 	}
 }
@@ -157,6 +162,8 @@ type paymentSession struct {
 
 	additionalEdges map[Vertex][]*channeldb.ChannelEdgePolicy
 
+	bandwidthHints map[uint64]lnwire.MilliSatoshi
+
 	mc *missionControl
 }
 
@@ -165,7 +172,7 @@ type paymentSession struct {
 // in order to populate additional edges to explore when finding a path to the
 // payment's destination.
 func (m *missionControl) NewPaymentSession(routeHints [][]HopHint,
-	target *btcec.PublicKey) *paymentSession {
+	target *btcec.PublicKey) (*paymentSession, error) {
 
 	viewSnapshot := m.GraphPruneView()
 
@@ -210,11 +217,62 @@ func (m *missionControl) NewPaymentSession(routeHints [][]HopHint,
 		}
 	}
 
+	// We'll also obtain a set of bandwidthHints from the lower layer for
+	// each of our outbound channels. This will allow the path finding to
+	// skip any links that aren't active or just don't have enough
+	// bandwidth to carry the payment.
+	sourceNode, err := m.graph.SourceNode()
+	if err != nil {
+		return nil, err
+	}
+	bandwidthHints, err := generateBandwidthHints(
+		sourceNode, m.queryBandwidth,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &paymentSession{
 		pruneViewSnapshot: viewSnapshot,
 		additionalEdges:   edges,
+		bandwidthHints:    bandwidthHints,
 		mc:                m,
+	}, nil
+}
+
+// generateBandwidthHints is a helper function that's utilized the main
+// findPath function in order to obtain hints from the lower layer w.r.t to the
+// available bandwidth of edges on the network. Currently, we'll only obtain
+// bandwidth hints for the edges we directly have open ourselves. Obtaining
+// these hints allows us to reduce the number of extraneous attempts as we can
+// skip channels that are inactive, or just don't have enough bandwidth to
+// carry the payment.
+func generateBandwidthHints(sourceNode *channeldb.LightningNode,
+	queryBandwidth func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi) (map[uint64]lnwire.MilliSatoshi, error) {
+
+	// First, we'll collect the set of outbound edges from the target
+	// source node.
+	var localChans []*channeldb.ChannelEdgeInfo
+	err := sourceNode.ForEachChannel(nil, func(tx *bolt.Tx,
+		edgeInfo *channeldb.ChannelEdgeInfo,
+		_, _ *channeldb.ChannelEdgePolicy) error {
+
+		localChans = append(localChans, edgeInfo)
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
+
+	// Now that we have all of our outbound edges, we'll populate the set
+	// of bandwidth hints, querying the lower switch layer for the most up
+	// to date values.
+	bandwidthHints := make(map[uint64]lnwire.MilliSatoshi)
+	for _, localChan := range localChans {
+		bandwidthHints[localChan.ChannelID] = queryBandwidth(localChan)
+	}
+
+	return bandwidthHints, nil
 }
 
 // ReportVertexFailure adds a vertex to the graph prune view after a client
@@ -285,7 +343,7 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	path, err := findPath(
 		nil, p.mc.graph, p.additionalEdges, p.mc.selfNode,
 		payment.Target, pruneView.vertexes, pruneView.edges,
-		payment.Amount,
+		payment.Amount, p.bandwidthHints,
 	)
 	if err != nil {
 		return nil, err

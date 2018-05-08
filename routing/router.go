@@ -163,6 +163,14 @@ type Config struct {
 	// GraphPruneInterval is used as an interval to determine how often we
 	// should examine the channel graph to garbage collect zombie channels.
 	GraphPruneInterval time.Duration
+
+	// QueryBandwidth is a method that allows the router to query the lower
+	// link layer to determine the up to date available bandwidth at a
+	// prospective link to be traversed. If the  link isn't available, then
+	// a value of zero should be returned. Otherwise, the current up to
+	// date knowledge of the available bandwidth of the link should be
+	// returned.
+	QueryBandwidth func(edge *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi
 }
 
 // routeTuple is an entry within the ChannelRouter's route cache. We cache
@@ -283,18 +291,23 @@ func New(cfg Config) (*ChannelRouter, error) {
 		return nil, err
 	}
 
-	return &ChannelRouter{
+	r := &ChannelRouter{
 		cfg:               &cfg,
 		networkUpdates:    make(chan *routingMsg),
 		topologyClients:   make(map[uint64]*topologyClient),
 		ntfnClientUpdates: make(chan *topologyClientUpdate),
-		missionControl:    newMissionControl(cfg.Graph, selfNode),
 		channelEdgeMtx:    multimutex.NewMutex(),
 		selfNode:          selfNode,
 		routeCache:        make(map[routeTuple][]*Route),
 		rejectCache:       make(map[uint64]struct{}),
 		quit:              make(chan struct{}),
-	}, nil
+	}
+
+	r.missionControl = newMissionControl(
+		cfg.Graph, selfNode, cfg.QueryBandwidth,
+	)
+
+	return r, nil
 }
 
 // Start launches all the goroutines the ChannelRouter requires to carry out
@@ -1352,6 +1365,16 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 		return nil, err
 	}
 
+	// Before we open the db transaction below, we'll attempt to obtain a
+	// set of bandwidth hints that can help us eliminate certain routes
+	// early on in the path finding process.
+	bandwidthHints, err := generateBandwidthHints(
+		r.selfNode, r.cfg.QueryBandwidth,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	tx, err := r.cfg.Graph.Database().Begin(false)
 	if err != nil {
 		tx.Rollback()
@@ -1363,6 +1386,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	// our source to the destination.
 	shortestPaths, err := findPaths(
 		tx, r.cfg.Graph, r.selfNode, target, amt, numPaths,
+		bandwidthHints,
 	)
 	if err != nil {
 		tx.Rollback()
@@ -1567,9 +1591,13 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 	// Before starting the HTLC routing attempt, we'll create a fresh
 	// payment session which will report our errors back to mission
 	// control.
-	paySession := r.missionControl.NewPaymentSession(
+	paySession, err := r.missionControl.NewPaymentSession(
 		payment.RouteHints, payment.Target,
 	)
+	if err != nil {
+		return preImage, nil, fmt.Errorf("unable to create payment "+
+			"session: %v", err)
+	}
 
 	// We'll continue until either our payment succeeds, or we encounter a
 	// critical error during path finding.

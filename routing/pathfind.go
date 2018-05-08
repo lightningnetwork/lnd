@@ -458,7 +458,8 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	additionalEdges map[Vertex][]*channeldb.ChannelEdgePolicy,
 	sourceNode *channeldb.LightningNode, target *btcec.PublicKey,
 	ignoredNodes map[Vertex]struct{}, ignoredEdges map[uint64]struct{},
-	amt lnwire.MilliSatoshi) ([]*ChannelHop, error) {
+	amt lnwire.MilliSatoshi,
+	bandwidthHints map[uint64]lnwire.MilliSatoshi) ([]*ChannelHop, error) {
 
 	var err error
 	if tx == nil {
@@ -516,7 +517,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	// processEdge is a helper closure that will be used to make sure edges
 	// satisfy our specific requirements.
 	processEdge := func(edge *channeldb.ChannelEdgePolicy,
-		capacity btcutil.Amount, pivot Vertex) {
+		bandwidth lnwire.MilliSatoshi, pivot Vertex) {
 
 		v := Vertex(edge.Node.PubKeyBytes)
 
@@ -547,7 +548,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		// this edge. We'll also shave off irrelevant edges by adding
 		// the sufficient capacity of an edge and clearing their
 		// min-htlc amount to our relaxation condition.
-		if tempDist < distance[v].dist && capacity >= amt.ToSatoshis() &&
+		if tempDist < distance[v].dist && bandwidth >= amt &&
 			amt >= edge.MinHTLC && edge.TimeLockDelta != 0 {
 
 			distance[v] = nodeWithDist{
@@ -558,7 +559,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			prev[v] = edgeWithPrev{
 				edge: &ChannelHop{
 					ChannelEdgePolicy: edge,
-					Capacity:          capacity,
+					Capacity:          bandwidth.ToSatoshis(),
 				},
 				prevNode: pivot,
 			}
@@ -606,7 +607,20 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			edgeInfo *channeldb.ChannelEdgeInfo,
 			outEdge, _ *channeldb.ChannelEdgePolicy) error {
 
-			processEdge(outEdge, edgeInfo.Capacity, pivot)
+			// We'll query the lower layer to see if we can obtain
+			// any more up to date information concerning the
+			// bandwidth of this edge.
+			edgeBandwidth, ok := bandwidthHints[edgeInfo.ChannelID]
+			if !ok {
+				// If we don't have a hint for this edge, then
+				// we'll just use the known Capacity as the
+				// available bandwidth.
+				edgeBandwidth = lnwire.NewMSatFromSatoshis(
+					edgeInfo.Capacity,
+				)
+			}
+
+			processEdge(outEdge, edgeBandwidth, pivot)
 
 			// TODO(roasbeef): return min HTLC as error in end?
 
@@ -622,7 +636,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		// routing hint due to having enough capacity for the payment
 		// and use the payment amount as its capacity.
 		for _, edge := range additionalEdges[bestNode.PubKeyBytes] {
-			processEdge(edge, amt.ToSatoshis(), pivot)
+			processEdge(edge, amt, pivot)
 		}
 	}
 
@@ -681,7 +695,8 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 // algorithm in a block box manner.
 func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	source *channeldb.LightningNode, target *btcec.PublicKey,
-	amt lnwire.MilliSatoshi, numPaths uint32) ([][]*ChannelHop, error) {
+	amt lnwire.MilliSatoshi, numPaths uint32,
+	bandwidthHints map[uint64]lnwire.MilliSatoshi) ([][]*ChannelHop, error) {
 
 	ignoredEdges := make(map[uint64]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
@@ -698,7 +713,7 @@ func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	// satoshis along the path before fees are calculated.
 	startingPath, err := findPath(
 		tx, graph, nil, source, target, ignoredVertexes, ignoredEdges,
-		amt,
+		amt, bandwidthHints,
 	)
 	if err != nil {
 		log.Errorf("Unable to find path: %v", err)
@@ -773,6 +788,7 @@ func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			spurPath, err := findPath(
 				tx, graph, nil, spurNode, target,
 				ignoredVertexes, ignoredEdges, amt,
+				bandwidthHints,
 			)
 
 			// If we weren't able to find a path, we'll continue to

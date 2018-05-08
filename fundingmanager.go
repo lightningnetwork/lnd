@@ -304,7 +304,7 @@ type fundingConfig struct {
 	// ReportShortChanID allows the funding manager to report the newly
 	// discovered short channel ID of a formerly pending channel to outside
 	// sub-systems.
-	ReportShortChanID func(wire.OutPoint, lnwire.ShortChannelID) error
+	ReportShortChanID func(wire.OutPoint) error
 
 	// ZombieSweeperInterval is the periodic time interval in which the
 	// zombie sweeper is run.
@@ -1814,8 +1814,9 @@ func (f *fundingManager) waitForFundingConfirmation(completeChan *channeldb.Open
 	}
 
 	// As there might already be an active link in the switch with an
-	// outdated short chan ID, we'll update it now.
-	err = f.cfg.ReportShortChanID(fundingPoint, shortChanID)
+	// outdated short chan ID, we'll instruct the switch to load the updated
+	// short chan id from disk.
+	err = f.cfg.ReportShortChanID(fundingPoint)
 	if err != nil {
 		fndgLog.Errorf("unable to report short chan id: %v", err)
 	}

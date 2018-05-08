@@ -1460,7 +1460,12 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 
 	aliceDb := aliceChannel.State().Db
 
-	aliceSwitch, err := New(Config{DB: aliceDb})
+	aliceSwitch, err := New(Config{
+		DB: aliceDb,
+		FetchLastChannelUpdate: func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
+			return nil, nil
+		},
+	})
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
 	}
@@ -3854,7 +3859,12 @@ func restartLink(aliceChannel *lnwallet.LightningChannel, aliceSwitch *Switch,
 
 	if aliceSwitch == nil {
 		var err error
-		aliceSwitch, err = New(Config{DB: aliceDb})
+		aliceSwitch, err = New(Config{
+			DB: aliceDb,
+			FetchLastChannelUpdate: func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
+				return nil, nil
+			},
+		})
 		if err != nil {
 			return nil, nil, nil, err
 		}

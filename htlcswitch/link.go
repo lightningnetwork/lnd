@@ -982,10 +982,20 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 					reason       lnwire.OpaqueReason
 				)
 
-				failure := lnwire.NewTemporaryChannelFailure(nil)
+				var failure lnwire.FailureMessage
+				update, err := l.cfg.FetchLastChannelUpdate(
+					l.ShortChanID(),
+				)
+				if err != nil {
+					failure = &lnwire.FailTemporaryNodeFailure{}
+				} else {
+					failure = lnwire.NewTemporaryChannelFailure(
+						update,
+					)
+				}
 
-				// Encrypt the error back to the source unless the payment was
-				// generated locally.
+				// Encrypt the error back to the source unless
+				// the payment was generated locally.
 				if pkt.obfuscator == nil {
 					var b bytes.Buffer
 					err := lnwire.EncodeFailure(&b, failure, 0)
@@ -1652,11 +1662,9 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 		// As part of the returned error, we'll send our latest routing
 		// policy so the sending node obtains the most up to date data.
 		var failure lnwire.FailureMessage
-		update, err := l.cfg.FetchLastChannelUpdate(
-			l.shortChanID,
-		)
+		update, err := l.cfg.FetchLastChannelUpdate(l.ShortChanID())
 		if err != nil {
-			failure = lnwire.NewTemporaryChannelFailure(nil)
+			failure = &lnwire.FailTemporaryNodeFailure{}
 		} else {
 			failure = lnwire.NewAmountBelowMinimum(
 				amtToForward, *update,
@@ -1686,11 +1694,9 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 		// As part of the returned error, we'll send our latest routing
 		// policy so the sending node obtains the most up to date data.
 		var failure lnwire.FailureMessage
-		update, err := l.cfg.FetchLastChannelUpdate(
-			l.shortChanID,
-		)
+		update, err := l.cfg.FetchLastChannelUpdate(l.ShortChanID())
 		if err != nil {
-			failure = lnwire.NewTemporaryChannelFailure(nil)
+			failure = &lnwire.FailTemporaryNodeFailure{}
 		} else {
 			failure = lnwire.NewFeeInsufficient(
 				amtToForward, *update,
@@ -2242,10 +2248,12 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 				var failure lnwire.FailureMessage
 				update, err := l.cfg.FetchLastChannelUpdate(
-					l.shortChanID,
+					l.ShortChanID(),
 				)
 				if err != nil {
-					failure = lnwire.NewTemporaryChannelFailure(nil)
+					failure = lnwire.NewTemporaryChannelFailure(
+						update,
+					)
 				} else {
 					failure = lnwire.NewExpiryTooSoon(*update)
 				}
@@ -2275,7 +2283,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				// sending node is up to date with our current
 				// policy.
 				update, err := l.cfg.FetchLastChannelUpdate(
-					l.shortChanID,
+					l.ShortChanID(),
 				)
 				if err != nil {
 					l.fail("unable to create channel update "+
@@ -2313,7 +2321,17 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				log.Errorf("unable to encode the "+
 					"remaining route %v", err)
 
-				failure := lnwire.NewTemporaryChannelFailure(nil)
+				var failure lnwire.FailureMessage
+				update, err := l.cfg.FetchLastChannelUpdate(
+					l.ShortChanID(),
+				)
+				if err != nil {
+					failure = &lnwire.FailTemporaryNodeFailure{}
+				} else {
+					failure = lnwire.NewTemporaryChannelFailure(
+						update,
+					)
+				}
 
 				l.sendHTLCError(
 					pd.HtlcIndex, failure, obfuscator, pd.SourceRef,

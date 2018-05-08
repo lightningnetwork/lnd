@@ -135,6 +135,13 @@ type Config struct {
 	// error encrypters stored in the circuit map on restarts, since they
 	// are not stored directly within the database.
 	ExtractErrorEncrypter ErrorEncrypterExtracter
+
+	// FetchLastChannelUpdate retrieves the latest routing policy for a
+	// target channel. This channel will typically be the outgoing channel
+	// specified when we receive an incoming HTLC.  This will be used to
+	// provide payment senders our latest policy when sending encrypted
+	// error messages.
+	FetchLastChannelUpdate func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error)
 }
 
 // Switch is the central messaging bus for all incoming/outgoing HTLCs.
@@ -458,7 +465,15 @@ func (s *Switch) forward(packet *htlcPacket) error {
 				return err
 			}
 
-			failure := lnwire.NewTemporaryChannelFailure(nil)
+			var failure lnwire.FailureMessage
+			update, err := s.cfg.FetchLastChannelUpdate(
+				packet.incomingChanID,
+			)
+			if err != nil {
+				failure = &lnwire.FailTemporaryNodeFailure{}
+			} else {
+				failure = lnwire.NewTemporaryChannelFailure(update)
+			}
 			addErr := ErrIncompleteForward
 
 			return s.failAddPacket(packet, failure, addErr)
@@ -588,14 +603,25 @@ func (s *Switch) ForwardPackets(packets ...*htlcPacket) chan error {
 	// Lastly, for any packets that failed, this implies that they were
 	// left in a half added state, which can happen when recovering from
 	// failures.
-	for _, packet := range failedPackets {
-		failure := lnwire.NewTemporaryChannelFailure(nil)
-		addErr := errors.Errorf("failing packet after detecting " +
-			"incomplete forward")
+	if len(failedPackets) > 0 {
+		var failure lnwire.FailureMessage
+		update, err := s.cfg.FetchLastChannelUpdate(
+			failedPackets[0].incomingChanID,
+		)
+		if err != nil {
+			failure = &lnwire.FailTemporaryNodeFailure{}
+		} else {
+			failure = lnwire.NewTemporaryChannelFailure(update)
+		}
 
-		// We don't handle the error here since this method always
-		// returns an error.
-		s.failAddPacket(packet, failure, addErr)
+		for _, packet := range failedPackets {
+			addErr := errors.Errorf("failing packet after " +
+				"detecting incomplete forward")
+
+			// We don't handle the error here since this method
+			// always returns an error.
+			s.failAddPacket(packet, failure, addErr)
+		}
 	}
 
 	return errChan
@@ -749,6 +775,8 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 				htlc.Amount, largestBandwidth)
 			log.Error(err)
 
+			// Note that we don't need to populate an update here,
+			// as this will go directly back to the router.
 			htlcErr := lnwire.NewTemporaryChannelFailure(nil)
 			return &ForwardingError{
 				ErrorSource:    s.cfg.SelfKey,
@@ -812,6 +840,10 @@ func (s *Switch) parseFailedPayment(payment *pendingPayment, pkt *htlcPacket,
 			userErr = fmt.Sprintf("unable to decode onion failure, "+
 				"htlc with hash(%x): %v", payment.paymentHash[:], err)
 			log.Error(userErr)
+
+			// As this didn't even clear the link, we don't need to
+			// apply an update here since it goes directly to the
+			// router.
 			failureMsg = lnwire.NewTemporaryChannelFailure(nil)
 		}
 		failure = &ForwardingError{
@@ -938,7 +970,16 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			// If packet was forwarded from another channel link
 			// than we should notify this link that some error
 			// occurred.
-			failure := lnwire.NewTemporaryChannelFailure(nil)
+			var failure lnwire.FailureMessage
+			update, err := s.cfg.FetchLastChannelUpdate(
+				packet.outgoingChanID,
+			)
+			if err != nil {
+				failure = &lnwire.FailTemporaryNodeFailure{}
+			} else {
+				failure = lnwire.NewTemporaryChannelFailure(update)
+			}
+
 			addErr := errors.Errorf("unable to find appropriate "+
 				"channel link insufficient capacity, need "+
 				"%v", htlc.Amount)
@@ -1799,7 +1840,7 @@ func (s *Switch) UpdateShortChanID(chanID lnwire.ChannelID,
 
 	s.indexMtx.Lock()
 
-	// First, we'll extract the current link as is from the link 
+	// First, we'll extract the current link as is from the link
 	// index. If the link isn't even in the index, then we'll return an
 	// error.
 	link, ok := s.linkIndex[chanID]

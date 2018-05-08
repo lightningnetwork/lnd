@@ -906,13 +906,26 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			// have thousands of goroutines active.
 			validationBarrier.InitJobDependencies(announcement.msg)
 
+			d.wg.Add(1)
 			go func() {
+				defer d.wg.Done()
 				defer validationBarrier.CompleteJob()
 
 				// If this message has an existing dependency,
 				// then we'll wait until that has been fully
 				// validated before we proceed.
-				validationBarrier.WaitForDependants(announcement.msg)
+				err := validationBarrier.WaitForDependants(
+					announcement.msg,
+				)
+				if err != nil {
+					if err != routing.ErrVBarrierShuttingDown {
+						log.Warnf("unexpected error "+
+							"during validation "+
+							"barrier shutdown: %v",
+							err)
+					}
+					return
+				}
 
 				// Process the network announcement to determine if
 				// this is either a new announcement from our PoV

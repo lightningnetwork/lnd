@@ -7,7 +7,7 @@ import (
 )
 
 // changeBit is a functio that function that flips a bit of the hash at a
-// particluar bit-index. You should be aware that the bit flipping in this
+// particular bit-index. You should be aware that the bit flipping in this
 // function a bit strange, example:
 // hash: [0b00000000, 0b00000000,  ... 0b00000000]
 //	    0		   1       ...      31
@@ -50,7 +50,7 @@ func getPrefix(index index, position uint8) uint64 {
 	return (uint64(index) & mask)
 }
 
-// countTrailingZeros count number of of trailing zero bits, this function is
+// countTrailingZeros counts number of trailing zero bits, this function is
 // used to determine the number of element bucket.
 func countTrailingZeros(index index) uint8 {
 	var zeros uint8
@@ -64,7 +64,7 @@ func countTrailingZeros(index index) uint8 {
 	return zeros
 }
 
-// hashFromString takes a hex-encoded string as input and creates an instane of
+// hashFromString takes a hex-encoded string as input and creates an instance of
 // chainhash.Hash. The chainhash.NewHashFromStr function not suitable because
 // it reverse the given hash.
 func hashFromString(s string) (*chainhash.Hash, error) {

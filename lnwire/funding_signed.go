@@ -1,10 +1,6 @@
 package lnwire
 
-import (
-	"io"
-
-	"github.com/roasbeef/btcd/btcec"
-)
+import "io"
 
 // FundingSigned is sent from Bob (the responder) to Alice (the initiator)
 // after receiving the funding outpoint and her signature for Bob's version of
@@ -16,7 +12,7 @@ type FundingSigned struct {
 
 	// CommitSig is Bob's signature for Alice's version of the commitment
 	// transaction.
-	CommitSig *btcec.Signature
+	CommitSig Sig
 }
 
 // A compile time check to ensure FundingSigned implements the lnwire.Message

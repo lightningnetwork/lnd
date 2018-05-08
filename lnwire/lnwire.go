@@ -31,13 +31,13 @@ type addressType uint8
 
 const (
 	// noAddr denotes a blank address. An address of this type indicates
-	// that a node doesn't have any advertise d addresses.
+	// that a node doesn't have any advertised addresses.
 	noAddr addressType = 0
 
 	// tcp4Addr denotes an IPv4 TCP address.
 	tcp4Addr addressType = 1
 
-	// tcp4Addr denotes an IPv6 TCP address.
+	// tcp6Addr denotes an IPv6 TCP address.
 	tcp6Addr addressType = 2
 
 	// v2OnionAddr denotes a version 2 Tor onion service address.
@@ -146,7 +146,7 @@ func writeElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
-	case []*btcec.Signature:
+	case []Sig:
 		var b [2]byte
 		numSigs := uint16(len(e))
 		binary.BigEndian.PutUint16(b[:], numSigs)
@@ -159,18 +159,9 @@ func writeElement(w io.Writer, element interface{}) error {
 				return err
 			}
 		}
-	case *btcec.Signature:
-		if e == nil {
-			return fmt.Errorf("cannot write nil signature")
-		}
-
-		var b [64]byte
-		err := SerializeSigToWire(&b, e)
-		if err != nil {
-			return err
-		}
+	case Sig:
 		// Write buffer
-		if _, err = w.Write(b[:]); err != nil {
+		if _, err := w.Write(e[:]); err != nil {
 			return err
 		}
 	case PingPayload:
@@ -210,6 +201,10 @@ func writeElement(w io.Writer, element interface{}) error {
 			return err
 		}
 
+		if _, err := w.Write(e[:]); err != nil {
+			return err
+		}
+	case [33]byte:
 		if _, err := w.Write(e[:]); err != nil {
 			return err
 		}
@@ -469,16 +464,16 @@ func readElement(r io.Reader, element interface{}) error {
 
 		*e = f
 
-	case *[]*btcec.Signature:
+	case *[]Sig:
 		var l [2]byte
 		if _, err := io.ReadFull(r, l[:]); err != nil {
 			return err
 		}
 		numSigs := binary.BigEndian.Uint16(l[:])
 
-		var sigs []*btcec.Signature
+		var sigs []Sig
 		if numSigs > 0 {
-			sigs = make([]*btcec.Signature, numSigs)
+			sigs = make([]Sig, numSigs)
 			for i := 0; i < int(numSigs); i++ {
 				if err := readElement(r, &sigs[i]); err != nil {
 					return err
@@ -488,13 +483,8 @@ func readElement(r io.Reader, element interface{}) error {
 
 		*e = sigs
 
-	case **btcec.Signature:
-		var b [64]byte
-		if _, err := io.ReadFull(r, b[:]); err != nil {
-			return err
-		}
-		err = DeserializeSigFromWire(e, b)
-		if err != nil {
+	case *Sig:
+		if _, err := io.ReadFull(r, e[:]); err != nil {
 			return err
 		}
 	case *OpaqueReason:
@@ -539,6 +529,10 @@ func readElement(r io.Reader, element interface{}) error {
 
 		*e = PongPayload(make([]byte, pongLen))
 		if _, err := io.ReadFull(r, *e); err != nil {
+			return err
+		}
+	case *[33]byte:
+		if _, err := io.ReadFull(r, e[:]); err != nil {
 			return err
 		}
 	case []byte:
@@ -683,7 +677,7 @@ func readElement(r io.Reader, element interface{}) error {
 				continue
 
 			default:
-				return fmt.Errorf("unknown address type: %v", aType)
+				return &ErrUnknownAddrType{aType}
 			}
 
 			addresses = append(addresses, address)

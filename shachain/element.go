@@ -30,7 +30,7 @@ func newElementFromStr(s string, index index) (*element, error) {
 }
 
 // derive computes one shachain element from another by applying a series of
-// bit flips and hasing operations based on the starting and ending index.
+// bit flips and hashing operations based on the starting and ending index.
 func (e *element) derive(toIndex index) (*element, error) {
 	fromIndex := e.index
 
@@ -71,7 +71,7 @@ func (e *element) isEqual(e2 *element) bool {
 const (
 	// maxHeight is used to determine the maximum allowable index and the
 	// length of the array required to order to derive all previous hashes
-	// by index. The entries of this array as also knowns as buckets.
+	// by index. The entries of this array as also known as buckets.
 	maxHeight uint8 = 48
 
 	// rootIndex is an index which corresponds to the root hash.

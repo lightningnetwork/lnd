@@ -7,14 +7,25 @@ import (
 	"io"
 	"net"
 	"unicode/utf8"
-
-	"github.com/roasbeef/btcd/btcec"
 )
 
 var (
 	startPort uint16 = 1024
 	endPort   uint16 = 49151
 )
+
+// ErrUnknownAddrType is an error returned if we encounter an unknown address type
+// when parsing addresses.
+type ErrUnknownAddrType struct {
+	addrType addressType
+}
+
+// Error returns a human readable string describing the error.
+//
+// NOTE: implements the error interface.
+func (e ErrUnknownAddrType) Error() string {
+	return fmt.Sprintf("unknown address type: %v", e.addrType)
+}
 
 // NodeAlias a hex encoded UTF-8 string that may be displayed as an alternative
 // to the node's ID. Notice that aliases are not unique and may be freely
@@ -40,7 +51,8 @@ func NewNodeAlias(s string) (NodeAlias, error) {
 
 // String returns a utf8 string representation of the alias bytes.
 func (n NodeAlias) String() string {
-	return string(n[:])
+	// Trim trailing zero-bytes for presentation
+	return string(bytes.Trim(n[:], "\x00"))
 }
 
 // NodeAnnouncement message is used to announce the presence of a Lightning
@@ -49,7 +61,7 @@ func (n NodeAlias) String() string {
 // announcement via a signature using the advertised node pubkey.
 type NodeAnnouncement struct {
 	// Signature is used to prove the ownership of node id.
-	Signature *btcec.Signature
+	Signature Sig
 
 	// Features is the list of protocol features this node supports.
 	Features *RawFeatureVector
@@ -58,7 +70,7 @@ type NodeAnnouncement struct {
 	Timestamp uint32
 
 	// NodeID is a public key which is used as node identification.
-	NodeID *btcec.PublicKey
+	NodeID [33]byte
 
 	// RGBColor is used to customize their node's appearance in maps and
 	// graphs

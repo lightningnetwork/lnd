@@ -11,8 +11,9 @@ var (
 	testAmount        = MilliSatoshi(1)
 	testCtlvExpiry    = uint32(2)
 	testFlags         = uint16(2)
+	sig, _            = NewSigFromSignature(testSig)
 	testChannelUpdate = ChannelUpdate{
-		Signature:      testSig,
+		Signature:      sig,
 		ShortChannelID: NewShortChanIDFromInt(1),
 		Timestamp:      1,
 		Flags:          1,

@@ -1,7 +1,12 @@
 package main
 
 import (
+	"crypto/sha256"
+	"fmt"
+	"sync"
+
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
@@ -24,6 +29,19 @@ func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx,
 	witnessScript := signDesc.WitnessScript
 	privKey := m.key
 
+	if !privKey.PubKey().IsEqual(signDesc.KeyDesc.PubKey) {
+		return nil, fmt.Errorf("incorrect key passed")
+	}
+
+	switch {
+	case signDesc.SingleTweak != nil:
+		privKey = lnwallet.TweakPrivKey(privKey,
+			signDesc.SingleTweak)
+	case signDesc.DoubleTweak != nil:
+		privKey = lnwallet.DeriveRevocationPrivKey(privKey,
+			signDesc.DoubleTweak)
+	}
+
 	sig, err := txscript.RawTxInWitnessSignature(tx, signDesc.SigHashes,
 		signDesc.InputIndex, amt, witnessScript, signDesc.HashType,
 		privKey)
@@ -36,9 +54,24 @@ func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx,
 
 func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx,
 	signDesc *lnwallet.SignDescriptor) (*lnwallet.InputScript, error) {
+
+	// TODO(roasbeef): expose tweaked signer from lnwallet so don't need to
+	// duplicate this code?
+
+	privKey := m.key
+
+	switch {
+	case signDesc.SingleTweak != nil:
+		privKey = lnwallet.TweakPrivKey(privKey,
+			signDesc.SingleTweak)
+	case signDesc.DoubleTweak != nil:
+		privKey = lnwallet.DeriveRevocationPrivKey(privKey,
+			signDesc.DoubleTweak)
+	}
+
 	witnessScript, err := txscript.WitnessSignature(tx, signDesc.SigHashes,
-		signDesc.InputIndex, signDesc.Output.Value,
-		signDesc.Output.PkScript, signDesc.HashType, m.key, true)
+		signDesc.InputIndex, signDesc.Output.Value, signDesc.Output.PkScript,
+		signDesc.HashType, privKey, true)
 	if err != nil {
 		return nil, err
 	}
@@ -58,9 +91,11 @@ func (m *mockNotfier) RegisterConfirmationsNtfn(txid *chainhash.Hash, numConfs,
 		Confirmed: m.confChannel,
 	}, nil
 }
-func (m *mockNotfier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent,
-	error) {
-	return nil, nil
+func (m *mockNotfier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent, error) {
+	return &chainntnfs.BlockEpochEvent{
+		Epochs: make(chan *chainntnfs.BlockEpoch),
+		Cancel: func() {},
+	}, nil
 }
 
 func (m *mockNotfier) Start() error {
@@ -71,11 +106,59 @@ func (m *mockNotfier) Stop() error {
 	return nil
 }
 func (m *mockNotfier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	heightHint uint32) (*chainntnfs.SpendEvent, error) {
+	heightHint uint32, _ bool) (*chainntnfs.SpendEvent, error) {
 	return &chainntnfs.SpendEvent{
 		Spend:  make(chan *chainntnfs.SpendDetail),
 		Cancel: func() {},
 	}, nil
+}
+
+// mockSpendNotifier extends the mockNotifier so that spend notifications can be
+// triggered and delivered to subscribers.
+type mockSpendNotifier struct {
+	*mockNotfier
+	spendMap map[wire.OutPoint][]chan *chainntnfs.SpendDetail
+}
+
+func makeMockSpendNotifier() *mockSpendNotifier {
+	return &mockSpendNotifier{
+		mockNotfier: &mockNotfier{
+			confChannel: make(chan *chainntnfs.TxConfirmation),
+		},
+		spendMap: make(map[wire.OutPoint][]chan *chainntnfs.SpendDetail),
+	}
+}
+
+func (m *mockSpendNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
+	heightHint uint32, _ bool) (*chainntnfs.SpendEvent, error) {
+
+	spendChan := make(chan *chainntnfs.SpendDetail)
+	m.spendMap[*outpoint] = append(m.spendMap[*outpoint], spendChan)
+	return &chainntnfs.SpendEvent{
+		Spend: spendChan,
+		Cancel: func() {
+		},
+	}, nil
+}
+
+// Spend dispatches SpendDetails to all subscribers of the outpoint. The details
+// will include the transaction and height provided by the caller.
+func (m *mockSpendNotifier) Spend(outpoint *wire.OutPoint, height int32,
+	txn *wire.MsgTx) {
+
+	if spendChans, ok := m.spendMap[*outpoint]; ok {
+		delete(m.spendMap, *outpoint)
+		for _, spendChan := range spendChans {
+			txnHash := txn.TxHash()
+			spendChan <- &chainntnfs.SpendDetail{
+				SpentOutPoint:     outpoint,
+				SpendingHeight:    height,
+				SpendingTx:        txn,
+				SpenderTxHash:     &txnHash,
+				SpenderInputIndex: outpoint.Index,
+			}
+		}
+	}
 }
 
 type mockChainIO struct{}
@@ -105,6 +188,11 @@ type mockWalletController struct {
 	publishedTransactions chan *wire.MsgTx
 }
 
+// BackEnd returns "mock" to signify a mock wallet controller.
+func (*mockWalletController) BackEnd() string {
+	return "mock"
+}
+
 // FetchInputInfo will be called to get info about the inputs to the funding
 // transaction.
 func (*mockWalletController) FetchInputInfo(
@@ -115,8 +203,7 @@ func (*mockWalletController) FetchInputInfo(
 	}
 	return txOut, nil
 }
-func (*mockWalletController) ConfirmedBalance(confs int32,
-	witness bool) (btcutil.Amount, error) {
+func (*mockWalletController) ConfirmedBalance(confs int32) (btcutil.Amount, error) {
 	return 0, nil
 }
 
@@ -131,18 +218,8 @@ func (*mockWalletController) GetPrivKey(a btcutil.Address) (*btcec.PrivateKey, e
 	return nil, nil
 }
 
-// NewRawKey will be called to get keys to be used for the funding tx and the
-// commitment tx.
-func (m *mockWalletController) NewRawKey() (*btcec.PublicKey, error) {
-	return m.rootKey.PubKey(), nil
-}
-
-// FetchRootKey will be called to provide the wallet with a root key.
-func (m *mockWalletController) FetchRootKey() (*btcec.PrivateKey, error) {
-	return m.rootKey, nil
-}
 func (*mockWalletController) SendOutputs(outputs []*wire.TxOut,
-	_ btcutil.Amount) (*chainhash.Hash, error) {
+	_ lnwallet.SatPerVByte) (*chainhash.Hash, error) {
 
 	return nil, nil
 }
@@ -175,12 +252,62 @@ func (m *mockWalletController) PublishTransaction(tx *wire.MsgTx) error {
 func (*mockWalletController) SubscribeTransactions() (lnwallet.TransactionSubscription, error) {
 	return nil, nil
 }
-func (*mockWalletController) IsSynced() (bool, error) {
-	return true, nil
+func (*mockWalletController) IsSynced() (bool, int64, error) {
+	return true, int64(0), nil
 }
 func (*mockWalletController) Start() error {
 	return nil
 }
 func (*mockWalletController) Stop() error {
+	return nil
+}
+
+type mockSecretKeyRing struct {
+	rootKey *btcec.PrivateKey
+}
+
+func (m *mockSecretKeyRing) DeriveNextKey(keyFam keychain.KeyFamily) (keychain.KeyDescriptor, error) {
+	return keychain.KeyDescriptor{
+		PubKey: m.rootKey.PubKey(),
+	}, nil
+}
+
+func (m *mockSecretKeyRing) DeriveKey(keyLoc keychain.KeyLocator) (keychain.KeyDescriptor, error) {
+	return keychain.KeyDescriptor{
+		PubKey: m.rootKey.PubKey(),
+	}, nil
+}
+
+func (m *mockSecretKeyRing) DerivePrivKey(keyDesc keychain.KeyDescriptor) (*btcec.PrivateKey, error) {
+	return m.rootKey, nil
+}
+
+func (m *mockSecretKeyRing) ScalarMult(keyDesc keychain.KeyDescriptor,
+	pubKey *btcec.PublicKey) ([]byte, error) {
+	return nil, nil
+}
+
+type mockPreimageCache struct {
+	sync.Mutex
+	preimageMap map[[32]byte][]byte
+}
+
+func (m *mockPreimageCache) LookupPreimage(hash []byte) ([]byte, bool) {
+	m.Lock()
+	defer m.Unlock()
+
+	var h [32]byte
+	copy(h[:], hash)
+
+	p, ok := m.preimageMap[h]
+	return p, ok
+}
+
+func (m *mockPreimageCache) AddPreimage(preimage []byte) error {
+	m.Lock()
+	defer m.Unlock()
+
+	m.preimageMap[sha256.Sum256(preimage[:])] = preimage
+
 	return nil
 }

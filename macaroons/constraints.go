@@ -5,13 +5,21 @@ import (
 	"net"
 	"time"
 
-	"gopkg.in/macaroon-bakery.v1/bakery/checkers"
-	macaroon "gopkg.in/macaroon.v1"
+	"google.golang.org/grpc/peer"
+
+	"gopkg.in/macaroon-bakery.v2/bakery/checkers"
+	macaroon "gopkg.in/macaroon.v2"
+
+	"golang.org/x/net/context"
 )
 
-// Constraint type adds a layer of indirection over macaroon caveats and
-// checkers.
+// Constraint type adds a layer of indirection over macaroon caveats.
 type Constraint func(*macaroon.Macaroon) error
+
+// Checker type adds a layer of indirection over macaroon checkers. A Checker
+// returns the name of the checker and the checker function; these are used to
+// register the function with the bakery service's compound checker.
+type Checker func() (string, checkers.Func)
 
 // AddConstraints returns new derived macaroon by applying every passed
 // constraint and tightening its restrictions.
@@ -27,21 +35,7 @@ func AddConstraints(mac *macaroon.Macaroon, cs ...Constraint) (*macaroon.Macaroo
 
 // Each *Constraint function is a functional option, which takes a pointer
 // to the macaroon and adds another restriction to it. For each *Constraint,
-// the corresponding *Checker is provided.
-
-// AllowConstraint restricts allowed operations set to the ones
-// passed to it.
-func AllowConstraint(ops ...string) func(*macaroon.Macaroon) error {
-	return func(mac *macaroon.Macaroon) error {
-		caveat := checkers.AllowCaveat(ops...)
-		return mac.AddFirstPartyCaveat(caveat.Condition)
-	}
-}
-
-// AllowChecker wraps default checkers.OperationChecker.
-func AllowChecker(method string) checkers.Checker {
-	return checkers.OperationChecker(method)
-}
+// the corresponding *Checker is provided if not provided by default.
 
 // TimeoutConstraint restricts the lifetime of the macaroon
 // to the amount of seconds given.
@@ -50,13 +44,8 @@ func TimeoutConstraint(seconds int64) func(*macaroon.Macaroon) error {
 		macaroonTimeout := time.Duration(seconds)
 		requestTimeout := time.Now().Add(time.Second * macaroonTimeout)
 		caveat := checkers.TimeBeforeCaveat(requestTimeout)
-		return mac.AddFirstPartyCaveat(caveat.Condition)
+		return mac.AddFirstPartyCaveat([]byte(caveat.Condition))
 	}
-}
-
-// TimeoutChecker wraps default checkers.TimeBefore checker.
-func TimeoutChecker() checkers.Checker {
-	return checkers.TimeBefore
 }
 
 // IPLockConstraint locks macaroon to a specific IP address.
@@ -69,24 +58,33 @@ func IPLockConstraint(ipAddr string) func(*macaroon.Macaroon) error {
 			if macaroonIPAddr == nil {
 				return fmt.Errorf("incorrect macaroon IP-lock address")
 			}
-			caveat := checkers.ClientIPAddrCaveat(macaroonIPAddr)
-			return mac.AddFirstPartyCaveat(caveat.Condition)
+			caveat := checkers.Condition("ipaddr",
+				macaroonIPAddr.String())
+			return mac.AddFirstPartyCaveat([]byte(caveat))
 		}
 		return nil
 	}
 }
 
 // IPLockChecker accepts client IP from the validation context and compares it
-// with IP locked in the macaroon.
-func IPLockChecker(clientIP string) checkers.Checker {
-	return checkers.CheckerFunc{
-		Condition_: checkers.CondClientIPAddr,
-		Check_: func(_, cav string) error {
-			if !net.ParseIP(cav).Equal(net.ParseIP(clientIP)) {
-				msg := "macaroon locked to different IP address"
-				return fmt.Errorf(msg)
-			}
-			return nil
-		},
+// with IP locked in the macaroon. It is of the `Checker` type.
+func IPLockChecker() (string, checkers.Func) {
+	return "ipaddr", func(ctx context.Context, cond, arg string) error {
+		// Get peer info and extract IP address from it for macaroon
+		// check.
+		pr, ok := peer.FromContext(ctx)
+		if !ok {
+			return fmt.Errorf("unable to get peer info from context")
+		}
+		peerAddr, _, err := net.SplitHostPort(pr.Addr.String())
+		if err != nil {
+			return fmt.Errorf("unable to parse peer address")
+		}
+
+		if !net.ParseIP(arg).Equal(net.ParseIP(peerAddr)) {
+			msg := "macaroon locked to different IP address"
+			return fmt.Errorf(msg)
+		}
+		return nil
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"io"
 
-	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
@@ -32,7 +31,7 @@ const (
 type ChannelUpdate struct {
 	// Signature is used to validate the announced data and prove the
 	// ownership of node id.
-	Signature *btcec.Signature
+	Signature Sig
 
 	// ChainHash denotes the target chain that this channel was opened
 	// within. This value should be the genesis hash of the target chain.

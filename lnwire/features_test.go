@@ -84,7 +84,7 @@ func TestFeatureVectorSetUnset(t *testing.T) {
 
 		for j, expectedSet := range test.expectedFeatures {
 			if fv.HasFeature(FeatureBit(j)) != expectedSet {
-				t.Errorf("Expection failed in case %d, bit %d", i, j)
+				t.Errorf("Expectation failed in case %d, bit %d", i, j)
 				break
 			}
 		}

@@ -22,8 +22,9 @@ type NetAddress struct {
 	// the node.
 	IdentityKey *btcec.PublicKey
 
-	// Address is is the IP address and port of the node.
-	Address *net.TCPAddr
+	// Address is the IP address and port of the node. This is left
+	// general so that multiple implementations can be used.
+	Address net.Addr
 
 	// ChainNet is the Bitcoin network this node is associated with.
 	// TODO(roasbeef): make a slice in the future for multi-chain
@@ -45,7 +46,7 @@ func (n *NetAddress) String() string {
 	return fmt.Sprintf("%x@%v", pubkey, n.Address)
 }
 
-// Network returns the name of the network this address is binded to.
+// Network returns the name of the network this address is bound to.
 //
 // This part of the net.Addr interface.
 func (n *NetAddress) Network() string {

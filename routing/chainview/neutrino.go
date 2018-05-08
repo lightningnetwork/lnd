@@ -17,7 +17,7 @@ import (
 // CfFilteredChainView is an implementation of the FilteredChainView interface
 // which is supported by an underlying Bitcoin light client which supports
 // client side filtering of Golomb Coded Sets. Rather than fetching all the
-// blocks, the light client is able to query fitlers locally, to test if an
+// blocks, the light client is able to query filters locally, to test if an
 // item in a block modifies any of our watched set of UTXOs.
 type CfFilteredChainView struct {
 	started int32
@@ -55,7 +55,7 @@ var _ FilteredChainView = (*CfFilteredChainView)(nil)
 // NewCfFilteredChainView creates a new instance of the CfFilteredChainView
 // which is connected to an active neutrino node.
 //
-// NOTE: The node should already be running an syncing before being passed into
+// NOTE: The node should already be running and syncing before being passed into
 // this function.
 func NewCfFilteredChainView(node *neutrino.ChainService) (*CfFilteredChainView, error) {
 	return &CfFilteredChainView{
@@ -93,7 +93,7 @@ func (c *CfFilteredChainView) Start() error {
 	}
 
 	// Next, we'll create our set of rescan options. Currently it's
-	// required that a user MUST set a addr/outpoint/txid when creating a
+	// required that an user MUST set a addr/outpoint/txid when creating a
 	// rescan. To get around this, we'll add a "zero" outpoint, that won't
 	// actually be matched.
 	var zeroPoint wire.OutPoint
@@ -239,6 +239,10 @@ func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredB
 	filter, err := c.p2pNode.GetCFilter(*blockHash, wire.GCSFilterRegular)
 	if err != nil {
 		return nil, err
+	}
+
+	if filter == nil {
+		return nil, fmt.Errorf("Unable to fetch filter")
 	}
 
 	// Before we can match the filter, we'll need to map each item in our

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/boltdb/bolt"
+	"github.com/coreos/bbolt"
 	"github.com/go-errors/errors"
 )
 
@@ -192,7 +192,7 @@ func TestMigrationWithPanic(t *testing.T) {
 		})
 	}
 
-	// Create migration function which changes the initialy created data and
+	// Create migration function which changes the initially created data and
 	// throw the panic, in this case we pretending that something goes.
 	migrationWithPanic := func(tx *bolt.Tx) error {
 		bucket, err := tx.CreateBucketIfNotExists(bucketPrefix)
@@ -212,7 +212,7 @@ func TestMigrationWithPanic(t *testing.T) {
 		}
 
 		if meta.DbVersionNumber != 0 {
-			t.Fatal("migration paniced but version is changed")
+			t.Fatal("migration panicked but version is changed")
 		}
 
 		err = d.Update(func(tx *bolt.Tx) error {
@@ -261,8 +261,8 @@ func TestMigrationWithFatal(t *testing.T) {
 		})
 	}
 
-	// Create migration function which changes the initialy created data and
-	// return the error, in this case we pretending that somthing goes
+	// Create migration function which changes the initially created data and
+	// return the error, in this case we pretending that something goes
 	// wrong.
 	migrationWithFatal := func(tx *bolt.Tx) error {
 		bucket, err := tx.CreateBucketIfNotExists(bucketPrefix)
@@ -332,7 +332,7 @@ func TestMigrationWithoutErrors(t *testing.T) {
 		})
 	}
 
-	// Create migration function which changes the initialy created data.
+	// Create migration function which changes the initially created data.
 	migrationWithoutErrors := func(tx *bolt.Tx) error {
 		bucket, err := tx.CreateBucketIfNotExists(bucketPrefix)
 		if err != nil {
@@ -352,7 +352,7 @@ func TestMigrationWithoutErrors(t *testing.T) {
 
 		if meta.DbVersionNumber != 1 {
 			t.Fatal("version number isn't changed after " +
-				"succesfully aplied migration")
+				"successfully applied migration")
 		}
 
 		err = d.Update(func(tx *bolt.Tx) error {
@@ -363,7 +363,7 @@ func TestMigrationWithoutErrors(t *testing.T) {
 
 			value := bucket.Get(keyPrefix)
 			if !bytes.Equal(value, afterMigration) {
-				return errors.New("migration wasn't applyied " +
+				return errors.New("migration wasn't applied " +
 					"properly")
 			}
 

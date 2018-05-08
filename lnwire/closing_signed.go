@@ -3,7 +3,6 @@ package lnwire
 import (
 	"io"
 
-	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcutil"
 )
 
@@ -27,12 +26,12 @@ type ClosingSigned struct {
 	FeeSatoshis btcutil.Amount
 
 	// Signature is for the proposed channel close transaction.
-	Signature *btcec.Signature
+	Signature Sig
 }
 
 // NewClosingSigned creates a new empty ClosingSigned message.
 func NewClosingSigned(cid ChannelID, fs btcutil.Amount,
-	sig *btcec.Signature) *ClosingSigned {
+	sig Sig) *ClosingSigned {
 
 	return &ClosingSigned{
 		ChannelID:   cid,

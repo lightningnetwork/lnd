@@ -2,6 +2,7 @@ package btcwallet
 
 import (
 	"path/filepath"
+	"time"
 
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/roasbeef/btcd/chaincfg"
@@ -63,6 +64,15 @@ type Config struct {
 	// unspecified, a new seed will be generated.
 	HdSeed []byte
 
+	// Birthday specifies the time at which this wallet was initially
+	// created. It is used to bound rescans for used addresses.
+	Birthday time.Time
+
+	// RecoveryWindow specifies the address look-ahead for which to scan
+	// when restoring a wallet. The recovery window will apply to all
+	// default BIP44 derivation paths.
+	RecoveryWindow uint32
+
 	// ChainSource is the primary chain interface. This is used to operate
 	// the wallet and do things such as rescanning, sending transactions,
 	// notifications for received funds, etc.
@@ -75,6 +85,9 @@ type Config struct {
 
 	// NetParams is the net parameters for the target chain.
 	NetParams *chaincfg.Params
+
+	// CoinType specifies the BIP 44 coin type to be used for derivation.
+	CoinType uint32
 }
 
 // NetworkDir returns the directory name of a network directory to hold wallet

@@ -7,7 +7,7 @@ the `lnd` wire protocol.
 
 Lnd uses its own wire protocol to send and receive messages of all types. There
 are 22 different message types, each with their own specific format. If a
-message is not in the correct format, lnd should logically reject the message
+message is not in the correct format, `lnd` should logically reject the message
 and throw an error. But what if it doesn't? What if we could sneakily craft a
 custom message that could pass all the necessary checks and cause an error to
 go undetected? Chaos would ensue. However, crafting such a message would require

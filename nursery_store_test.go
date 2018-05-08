@@ -88,7 +88,7 @@ func TestNurseryStoreInit(t *testing.T) {
 	}
 	defer cleanUp()
 
-	ns, err := newNurseryStore(&bitcoinGenesis, cdb)
+	ns, err := newNurseryStore(&bitcoinTestnetGenesis, cdb)
 	if err != nil {
 		t.Fatalf("unable to open nursery store: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestNurseryStoreIncubate(t *testing.T) {
 	}
 	defer cleanUp()
 
-	ns, err := newNurseryStore(&bitcoinGenesis, cdb)
+	ns, err := newNurseryStore(&bitcoinTestnetGenesis, cdb)
 	if err != nil {
 		t.Fatalf("unable to open nursery store: %v", err)
 	}
@@ -127,7 +127,11 @@ func TestNurseryStoreIncubate(t *testing.T) {
 
 		// Begin incubating all of the outputs provided in this test
 		// vector.
-		err = ns.Incubate(test.commOutput, test.htlcOutputs)
+		var kids []kidOutput
+		if test.commOutput != nil {
+			kids = append(kids, *test.commOutput)
+		}
+		err = ns.Incubate(kids, test.htlcOutputs)
 		if err != nil {
 			t.Fatalf("unable to incubate outputs"+
 				"on test #%d: %v", i, err)
@@ -183,7 +187,7 @@ func TestNurseryStoreIncubate(t *testing.T) {
 
 			// The total number of outputs for this channel should
 			// not have changed, and the kindergarten output should
-			// reside at it's maturity height.
+			// reside at its maturity height.
 			assertNumChanOutputs(t, ns, test.chanPoint, test.nOutputs)
 			assertKndrAtMaturityHeight(t, ns, test.commOutput)
 
@@ -223,7 +227,7 @@ func TestNurseryStoreIncubate(t *testing.T) {
 
 			// The total number of outputs for this channel should
 			// not have changed, but the kindergarten output should
-			// have been removed from it's maturity height.
+			// have been removed from its maturity height.
 			assertNumChanOutputs(t, ns, test.chanPoint, test.nOutputs)
 			assertKndrNotAtMaturityHeight(t, ns, test.commOutput)
 
@@ -254,7 +258,7 @@ func TestNurseryStoreIncubate(t *testing.T) {
 					test.nOutputs)
 
 				// If the output hasn't moved to kndr, it should
-				// be at it's crib expiry height, otherwise is
+				// be at its crib expiry height, otherwise is
 				// should have been removed.
 				for j := range test.htlcOutputs {
 					if j > i {
@@ -337,7 +341,7 @@ func TestNurseryStoreIncubate(t *testing.T) {
 }
 
 // TestNurseryStoreFinalize tests that kindergarten sweep transactions are
-// properly persistted, and that the last finalized height is being set
+// properly persisted, and that the last finalized height is being set
 // accordingly.
 func TestNurseryStoreFinalize(t *testing.T) {
 	cdb, cleanUp, err := makeTestDB()
@@ -346,7 +350,7 @@ func TestNurseryStoreFinalize(t *testing.T) {
 	}
 	defer cleanUp()
 
-	ns, err := newNurseryStore(&bitcoinGenesis, cdb)
+	ns, err := newNurseryStore(&bitcoinTestnetGenesis, cdb)
 	if err != nil {
 		t.Fatalf("unable to open nursery store: %v", err)
 	}
@@ -362,7 +366,7 @@ func TestNurseryStoreFinalize(t *testing.T) {
 
 	// Begin incubating the commitment output, which will be placed in the
 	// preschool bucket.
-	err = ns.Incubate(kid, nil)
+	err = ns.Incubate([]kidOutput{*kid}, nil)
 	if err != nil {
 		t.Fatalf("unable to incubate commitment output: %v", err)
 	}
@@ -433,7 +437,7 @@ func TestNurseryStoreGraduate(t *testing.T) {
 	}
 	defer cleanUp()
 
-	ns, err := newNurseryStore(&bitcoinGenesis, cdb)
+	ns, err := newNurseryStore(&bitcoinTestnetGenesis, cdb)
 	if err != nil {
 		t.Fatalf("unable to open nursery store: %v", err)
 	}
@@ -449,13 +453,13 @@ func TestNurseryStoreGraduate(t *testing.T) {
 
 	// First, add a commitment output to the nursery store, which is
 	// initially inserted in the preschool bucket.
-	err = ns.Incubate(kid, nil)
+	err = ns.Incubate([]kidOutput{*kid}, nil)
 	if err != nil {
 		t.Fatalf("unable to incubate commitment output: %v", err)
 	}
 
 	// Then, move the commitment output to the kindergarten bucket, such
-	// that it resides in the height index at it's maturity height.
+	// that it resides in the height index at its maturity height.
 	err = ns.PreschoolToKinder(kid)
 	if err != nil {
 		t.Fatalf("unable to move pscl output to kndr: %v", err)
@@ -474,7 +478,7 @@ func TestNurseryStoreGraduate(t *testing.T) {
 		assertHeightIsPurged(t, ns, uint32(i))
 	}
 
-	// Check that the commitment output currently exists at it's maturity
+	// Check that the commitment output currently exists at its maturity
 	// height.
 	assertKndrAtMaturityHeight(t, ns, kid)
 

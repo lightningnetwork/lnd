@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"io"
 
-	"github.com/boltdb/bolt"
+	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -37,11 +37,9 @@ type OutgoingPayment struct {
 	// compressed public key of each of the nodes involved in the payment.
 	Path [][33]byte
 
-	// PaymentHash is the payment hash (r-hash) used to send the payment.
-	//
-	// TODO(roasbeef): weave through preimage on payment success to can
-	// store only supplemental info the embedded Invoice
-	PaymentHash [32]byte
+	// PaymentPreimage is the preImage of a successful payment. This is used
+	// to calculate the PaymentHash as well as serve as a proof of payment.
+	PaymentPreimage [32]byte
 }
 
 // AddPayment saves a successful payment to the database. It is assumed that
@@ -163,7 +161,7 @@ func serializeOutgoingPayment(w io.Writer, p *OutgoingPayment) error {
 		return err
 	}
 
-	if _, err := w.Write(p.PaymentHash[:]); err != nil {
+	if _, err := w.Write(p.PaymentPreimage[:]); err != nil {
 		return err
 	}
 
@@ -204,7 +202,7 @@ func deserializeOutgoingPayment(r io.Reader) (*OutgoingPayment, error) {
 	}
 	p.TimeLockLength = byteOrder.Uint32(scratch[:4])
 
-	if _, err := r.Read(p.PaymentHash[:]); err != nil {
+	if _, err := r.Read(p.PaymentPreimage[:]); err != nil {
 		return nil, err
 	}
 

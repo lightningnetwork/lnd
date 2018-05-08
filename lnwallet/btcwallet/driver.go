@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/roasbeef/btcwallet/chain"
 )
 
 const (
@@ -36,6 +37,7 @@ func init() {
 	driver := &lnwallet.WalletDriver{
 		WalletType: walletType,
 		New:        createNewWallet,
+		BackEnds:   chain.BackEnds,
 	}
 
 	if err := lnwallet.RegisterWallet(driver); err != nil {

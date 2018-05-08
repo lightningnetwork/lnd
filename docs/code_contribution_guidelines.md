@@ -38,7 +38,7 @@ represent real money and introducing bugs and security vulnerabilities can have
 far more dire consequences than in typical projects where having a small bug is
 minimal by comparison.  In the world of cryptocurrencies, even the smallest bug
 in the wrong area can cost people a significant amount of money.  For this
-reason, the Lightning Network Daemon (lnd) has a formalized and rigorous
+reason, the Lightning Network Daemon (`lnd`) has a formalized and rigorous
 development process (heavily inspired by
 [btcsuite](https://github.com/btcsuite)) which is outlined on this page.
 
@@ -78,7 +78,7 @@ security and performance implications.
 
 ### 3. Required Reading
 
-- [Effective Go](http://golang.org/doc/effective_go.html) - The entire lnd 
+- [Effective Go](http://golang.org/doc/effective_go.html) - The entire `lnd` 
   project follows the guidelines in this document.  For your code to be accepted,
   it must follow the guidelines therein.
 - [Original Satoshi Whitepaper](https://bitcoin.org/bitcoin.pdf) - This is the white paper that started it all.  Having a solid
@@ -132,7 +132,7 @@ This approach has several benefits:
 
 #### 4.2. Testing
 
-One of the major design goals of all of lnd's packages and the daemon itself is
+One of the major design goals of all of `lnd`'s packages and the daemon itself is
 to aim for a high degree of test coverage.  This is financial software so bugs
 and regressions in the core logic can cost people real money.  For this reason
 every effort must be taken to ensure the code is as accurate and bug-free as
@@ -160,7 +160,7 @@ A quick summary of test practices follows:
   be accompanied by unit tests exercising the new or changed behavior.
 - Changes to behavior within the daemon's interaction with the P2P protocol,
   or RPC's will need to be accompanied by integration tests which use the
-  [`networkHarness`framework](https://github.com/lightningnetwork/lnd/blob/master/networktest.go)
+  [`networkHarness`framework](https://github.com/lightningnetwork/lnd/blob/master/lntest/harness.go)
   contained within `lnd`. For example integration tests, see
   [`lnd_test.go`](https://github.com/lightningnetwork/lnd/blob/master/lnd_test.go#L181). 
 
@@ -271,7 +271,7 @@ Further paragraphs come after blank lines.
 Here are some of the reasons why wrapping your commit messages to 72 columns is
 a good thing.
 
-- git log doesn’t do any special wrapping of the commit messages. With
+- git log doesn't do any special wrapping of the commit messages. With
   the default pager of less -S, this means your paragraphs flow far off the edge
   of the screen, making them difficult to read. On an 80 column terminal, if we
   subtract 4 columns for the indent on the left and 4 more for symmetry on the
@@ -294,11 +294,11 @@ commit which introduced a bug or regression.
 
 #### 4.5. Code Spacing 
 
-Blocks of code within lnd should be segmented into logical stanzas of
+Blocks of code within `lnd` should be segmented into logical stanzas of
 operation. Such spacing makes the code easier to follow at a skim, and reduces
 unnecessary line noise. Coupled with the commenting scheme specified above,
 proper spacing allows readers to quickly scan code, extracting semantics quickly.
-Functions should _not_ just be layed out as a bare contiguous block of code. 
+Functions should _not_ just be laid out as a bare contiguous block of code. 
 
 **WRONG**   
 ```go
@@ -353,8 +353,11 @@ of `protoc`.
 
 The following commit hashes of related projects are also required in order to
 generate identical compiled protos and related files:
-   * grpc-ecosystem/grpc-gateway: f2862b476edcef83412c7af8687c9cd8e4097c0f
-   * golang/protobuf: ab9f9a6dab164b7d1246e0e688b0ab7b94d8553e
+   * grpc-ecosystem/grpc-gateway: `f2862b476edcef83412c7af8687c9cd8e4097c0f`
+   * golang/protobuf: `ab9f9a6dab164b7d1246e0e688b0ab7b94d8553e`
+
+For detailed instructions on how to compile modifications to `lnd`'s `protobuf`
+definitions, check out the [lnrpc README](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/README.md).
 
 Additionally, in order to maintain a uniform display of the RPC responses
 rendered by `lncli`, all added or modified `protof` definitions, _must_ attach
@@ -377,7 +380,7 @@ itself, and uses a `snake_case` style of name formatting. All added or modified
 ### 5. Code Approval Process
 
 This section describes the code approval process that is used for code
-contributions.  This is how to get your changes into lnd.
+contributions.  This is how to get your changes into `lnd`.
 
 <a name="CodeReview" />
 
@@ -448,7 +451,7 @@ Rejoice as you will now be listed as a [contributor](https://github.com/lightnin
 
 #### 6.1. Contribution Checklist
 
-- [&nbsp;&nbsp;] All changes are Go version 1.5 compliant
+- [&nbsp;&nbsp;] All changes are Go version 1.9 compliant
 - [&nbsp;&nbsp;] The code being submitted is commented according to the
   [Code Documentation and Commenting](#CodeDocumentation) section
 - [&nbsp;&nbsp;] For new code: Code is accompanied by tests which exercise both

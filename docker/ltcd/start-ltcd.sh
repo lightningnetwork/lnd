@@ -53,7 +53,8 @@ PARAMS=$(echo \
     "--logdir=/data" \
     "--rpccert=/rpc/rpc.cert" \
     "--rpckey=/rpc/rpc.key" \
-    "--rpclisten=0.0.0.0"
+    "--rpclisten=0.0.0.0" \
+    "--txindex"
 )
 
 # Set the mining flag only if address is non empty.
@@ -66,5 +67,5 @@ PARAMS="$PARAMS $@"
 
 # Print command and start bitcoin node.
 echo "Command: ltcd $PARAMS"
-ltcd $PARAMS
+exec ltcd $PARAMS
 

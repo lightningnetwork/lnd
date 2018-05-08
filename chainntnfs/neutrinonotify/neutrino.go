@@ -3,6 +3,7 @@ package neutrinonotify
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -128,7 +129,7 @@ func (n *NeutrinoNotifier) Start() error {
 	n.bestHeight = bestHeight
 
 	// Next, we'll create our set of rescan options. Currently it's
-	// required that a user MUST set a addr/outpoint/txid when creating a
+	// required that a user MUST set an addr/outpoint/txid when creating a
 	// rescan. To get around this, we'll add a "zero" outpoint, that won't
 	// actually be matched.
 	var zeroHash chainhash.Hash
@@ -180,6 +181,9 @@ func (n *NeutrinoNotifier) Stop() error {
 		}
 	}
 	for _, epochClient := range n.blockEpochClients {
+		close(epochClient.cancelChan)
+		epochClient.wg.Wait()
+
 		close(epochClient.epochChan)
 	}
 	n.txConfNotifier.TearDown()
@@ -256,7 +260,13 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 				chainntnfs.Log.Infof("Cancelling epoch "+
 					"notification, epoch_id=%v", msg.epochID)
 
-				// First, close the cancel channel for this
+				// First, we'll lookup the original
+				// registration in order to stop the active
+				// queue goroutine.
+				reg := n.blockEpochClients[msg.epochID]
+				reg.epochQueue.Stop()
+
+				// Next, close the cancel channel for this
 				// specific client, and wait for the client to
 				// exit.
 				close(n.blockEpochClients[msg.epochID].cancelChan)
@@ -275,7 +285,8 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 			switch msg := registerMsg.(type) {
 			case *spendNotification:
 				chainntnfs.Log.Infof("New spend subscription: "+
-					"utxo=%v", msg.targetOutpoint)
+					"utxo=%v, height_hint=%v",
+					msg.targetOutpoint, msg.heightHint)
 				op := *msg.targetOutpoint
 
 				if _, ok := n.spendNotifications[op]; !ok {
@@ -517,24 +528,14 @@ func (n *NeutrinoNotifier) notifyBlockEpochs(newHeight int32, newSha *chainhash.
 	}
 
 	for _, epochClient := range n.blockEpochClients {
-		n.wg.Add(1)
-		epochClient.wg.Add(1)
-		go func(ntfnChan chan *chainntnfs.BlockEpoch, cancelChan chan struct{},
-			clientWg *sync.WaitGroup) {
+		select {
 
-			defer clientWg.Done()
-			defer n.wg.Done()
+		case epochClient.epochQueue.ChanIn() <- epoch:
 
-			select {
-			case ntfnChan <- epoch:
+		case <-epochClient.cancelChan:
 
-			case <-cancelChan:
-				return
-
-			case <-n.quit:
-				return
-			}
-		}(epochClient.epochChan, epochClient.cancelChan, &epochClient.wg)
+		case <-n.quit:
+		}
 	}
 }
 
@@ -546,6 +547,8 @@ type spendNotification struct {
 	spendChan chan *chainntnfs.SpendDetail
 
 	spendID uint64
+
+	heightHint uint32
 }
 
 // spendCancel is a message sent to the NeutrinoNotifier when a client wishes
@@ -563,7 +566,7 @@ type spendCancel struct {
 // target outpoint has been detected, the details of the spending event will be
 // sent across the 'Spend' channel.
 func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	heightHint uint32) (*chainntnfs.SpendEvent, error) {
+	heightHint uint32, _ bool) (*chainntnfs.SpendEvent, error) {
 
 	n.heightMtx.RLock()
 	currentHeight := n.bestHeight
@@ -576,6 +579,7 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		targetOutpoint: outpoint,
 		spendChan:      make(chan *chainntnfs.SpendDetail, 1),
 		spendID:        atomic.AddUint64(&n.spendClientCounter, 1),
+		heightHint:     heightHint,
 	}
 	spendEvent := &chainntnfs.SpendEvent{
 		Spend: ntfn.spendChan,
@@ -629,7 +633,7 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 			Height: int32(heightHint),
 		}),
 	)
-	if err != nil {
+	if err != nil && !strings.Contains(err.Error(), "not found") {
 		return nil, err
 	}
 
@@ -694,7 +698,7 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 		ConfNtfn: chainntnfs.ConfNtfn{
 			TxID:             txid,
 			NumConfirmations: numConfs,
-			Event:            chainntnfs.NewConfirmationEvent(),
+			Event:            chainntnfs.NewConfirmationEvent(numConfs),
 		},
 		heightHint: heightHint,
 	}
@@ -714,6 +718,8 @@ type blockEpochRegistration struct {
 
 	epochChan chan *chainntnfs.BlockEpoch
 
+	epochQueue *chainntnfs.ConcurrentQueue
+
 	cancelChan chan struct{}
 
 	wg sync.WaitGroup
@@ -728,22 +734,58 @@ type epochCancel struct {
 // RegisterBlockEpochNtfn returns a BlockEpochEvent which subscribes the caller
 // to receive notifications, of each new block connected to the main chain.
 func (n *NeutrinoNotifier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent, error) {
-	registration := &blockEpochRegistration{
+	reg := &blockEpochRegistration{
+		epochQueue: chainntnfs.NewConcurrentQueue(20),
 		epochChan:  make(chan *chainntnfs.BlockEpoch, 20),
 		cancelChan: make(chan struct{}),
 		epochID:    atomic.AddUint64(&n.epochClientCounter, 1),
 	}
+	reg.epochQueue.Start()
+
+	// Before we send the request to the main goroutine, we'll launch a new
+	// goroutine to proxy items added to our queue to the client itself.
+	// This ensures that all notifications are received *in order*.
+	reg.wg.Add(1)
+	go func() {
+		defer reg.wg.Done()
+
+		for {
+			select {
+			case ntfn := <-reg.epochQueue.ChanOut():
+				blockNtfn := ntfn.(*chainntnfs.BlockEpoch)
+				select {
+				case reg.epochChan <- blockNtfn:
+
+				case <-reg.cancelChan:
+					return
+
+				case <-n.quit:
+					return
+				}
+
+			case <-reg.cancelChan:
+				return
+
+			case <-n.quit:
+				return
+			}
+		}
+	}()
 
 	select {
 	case <-n.quit:
+		// As we're exiting before the registration could be sent,
+		// we'll stop the queue now ourselves.
+		reg.epochQueue.Stop()
+
 		return nil, errors.New("chainntnfs: system interrupt while " +
 			"attempting to register for block epoch notification.")
-	case n.notificationRegistry <- registration:
+	case n.notificationRegistry <- reg:
 		return &chainntnfs.BlockEpochEvent{
-			Epochs: registration.epochChan,
+			Epochs: reg.epochChan,
 			Cancel: func() {
 				cancel := &epochCancel{
-					epochID: registration.epochID,
+					epochID: reg.epochID,
 				}
 
 				// Submit epoch cancellation to notification dispatcher.
@@ -753,7 +795,7 @@ func (n *NeutrinoNotifier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent
 					// closed before yielding to caller.
 					for {
 						select {
-						case _, ok := <-registration.epochChan:
+						case _, ok := <-reg.epochChan:
 							if !ok {
 								return
 							}

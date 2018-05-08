@@ -26,11 +26,11 @@ type FailureMessage interface {
 }
 
 // failureMessageLength is the size of the failure message plus the size of
-// padding. The FailureMessage message should always be EXACLTY this size.
+// padding. The FailureMessage message should always be EXACTLY this size.
 const failureMessageLength = 256
 
 const (
-	// FlagBadOnion error flag describes an unparseable, encrypted by
+	// FlagBadOnion error flag describes an unparsable, encrypted by
 	// previous node.
 	FlagBadOnion FailCode = 0x8000
 

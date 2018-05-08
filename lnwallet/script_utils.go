@@ -7,11 +7,9 @@ import (
 	"fmt"
 	"math/big"
 
-	"golang.org/x/crypto/hkdf"
 	"golang.org/x/crypto/ripemd160"
 
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -312,20 +310,27 @@ func senderHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 func SenderHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
+	if signDesc.KeyDesc.PubKey == nil {
+		return nil, fmt.Errorf("cannot generate witness with nil " +
+			"KeyDesc pubkey")
+	}
+
 	// Derive the revocation key using the local revocation base point and
 	// commitment point.
-	revokeKey := DeriveRevocationPubkey(signDesc.PubKey,
-		signDesc.DoubleTweak.PubKey())
+	revokeKey := DeriveRevocationPubkey(
+		signDesc.KeyDesc.PubKey,
+		signDesc.DoubleTweak.PubKey(),
+	)
 
 	return senderHtlcSpendRevoke(signer, signDesc, revokeKey, sweepTx)
 }
 
-// senderHtlcSpendRedeem constructs a valid witness allowing the receiver of an
+// SenderHtlcSpendRedeem constructs a valid witness allowing the receiver of an
 // HTLC to redeem the pending output in the scenario that the sender broadcasts
 // their version of the commitment transaction. A valid spend requires
 // knowledge of the payment preimage, and a valid signature under the receivers
 // public key.
-func senderHtlcSpendRedeem(signer Signer, signDesc *SignDescriptor,
+func SenderHtlcSpendRedeem(signer Signer, signDesc *SignDescriptor,
 	sweepTx *wire.MsgTx, paymentPreimage []byte) (wire.TxWitness, error) {
 
 	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
@@ -373,7 +378,7 @@ func senderHtlcSpendTimeout(receiverSig []byte, signer Signer,
 // receiverHTLCScript constructs the public key script for an incoming HTLC
 // output payment for the receiver's version of the commitment transaction. The
 // possible execution paths from this script include:
-//   * The receiver of the HTLC uses it's second level HTLC transaction to
+//   * The receiver of the HTLC uses its second level HTLC transaction to
 //     advance the state of the HTLC into the delay+claim state.
 //   * The sender of the HTLC sweeps all the funds of the HTLC as a breached
 //     commitment was broadcast.
@@ -400,7 +405,7 @@ func senderHtlcSpendTimeout(receiverSig []byte, signer Signer,
 //         OP_CHECKSIG
 //     OP_ENDIF
 // OP_ENDIF
-func receiverHTLCScript(cltvExipiry uint32, senderHtlcKey,
+func receiverHTLCScript(cltvExpiry uint32, senderHtlcKey,
 	receiverHtlcKey, revocationKey *btcec.PublicKey,
 	paymentHash []byte) ([]byte, error) {
 
@@ -477,7 +482,7 @@ func receiverHTLCScript(cltvExipiry uint32, senderHtlcKey,
 	// lock-time required to timeout the HTLC. If the time has passed, then
 	// we'll proceed with a checksig to ensure that this is actually the
 	// sender of he original HTLC.
-	builder.AddInt64(int64(cltvExipiry))
+	builder.AddInt64(int64(cltvExpiry))
 	builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
 	builder.AddOp(txscript.OP_DROP)
 	builder.AddOp(txscript.OP_CHECKSIG)
@@ -562,10 +567,17 @@ func receiverHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 func ReceiverHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
+	if signDesc.KeyDesc.PubKey == nil {
+		return nil, fmt.Errorf("cannot generate witness with nil " +
+			"KeyDesc pubkey")
+	}
+
 	// Derive the revocation key using the local revocation base point and
 	// commitment point.
-	revokeKey := DeriveRevocationPubkey(signDesc.PubKey,
-		signDesc.DoubleTweak.PubKey())
+	revokeKey := DeriveRevocationPubkey(
+		signDesc.KeyDesc.PubKey,
+		signDesc.DoubleTweak.PubKey(),
+	)
 
 	return receiverHtlcSpendRevoke(signer, signDesc, revokeKey, sweepTx)
 }
@@ -573,17 +585,24 @@ func ReceiverHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 // receiverHtlcSpendTimeout constructs a valid witness allowing the sender of
 // an HTLC to recover the pending funds after an absolute timeout in the
 // scenario that the receiver of the HTLC broadcasts their version of the
-// commitment transaction.
+// commitment transaction. If the caller has already set the lock time on the
+// spending transaction, than a value of -1 can be passed for the cltvExpiry
+// value.
 //
 // NOTE: The target input of the passed transaction MUST NOT have a final
 // sequence number. Otherwise, the OP_CHECKLOCKTIMEVERIFY check will fail.
 func receiverHtlcSpendTimeout(signer Signer, signDesc *SignDescriptor,
-	sweepTx *wire.MsgTx, cltvExpiry uint32) (wire.TxWitness, error) {
+	sweepTx *wire.MsgTx, cltvExpiry int32) (wire.TxWitness, error) {
 
-	// The HTLC output has an absolute time period before we are permitted
-	// to recover the pending funds. Therefore we need to set the locktime
-	// on this sweeping transaction in order to pass Script verification.
-	sweepTx.LockTime = cltvExpiry
+	// If the caller set a proper timeout value, then we'll apply it
+	// directly to the transaction.
+	if cltvExpiry != -1 {
+		// The HTLC output has an absolute time period before we are
+		// permitted to recover the pending funds. Therefore we need to
+		// set the locktime on this sweeping transaction in order to
+		// pass Script verification.
+		sweepTx.LockTime = uint32(cltvExpiry)
+	}
 
 	// With the lock time on the transaction set, we'll not generate a
 	// signature for the sweep transaction. The passed sign descriptor
@@ -658,7 +677,7 @@ func createHtlcTimeoutTx(htlcOutput wire.OutPoint, htlcAmt btcutil.Amount,
 	return timeoutTx, nil
 }
 
-// createHtlcSuccessTx creats a transaction that spends the output on the
+// createHtlcSuccessTx creates a transaction that spends the output on the
 // commitment transaction of the peer that receives an HTLC. This transaction
 // essentially acts as an off-chain covenant as it's only permitted to spend
 // the designated HTLC output, and also that spend can _only_ be used as a
@@ -707,7 +726,7 @@ func createHtlcSuccessTx(htlcOutput wire.OutPoint, htlcAmt btcutil.Amount,
 
 // secondLevelHtlcScript is the uniform script that's used as the output for
 // the second-level HTLC transactions. The second level transaction act as a
-// sort of covenant, ensuring that an 2-of-2 multi-sig output can only be
+// sort of covenant, ensuring that a 2-of-2 multi-sig output can only be
 // spent in a particular way, and to a particular output.
 //
 // Possible Input Scripts:
@@ -790,7 +809,7 @@ func htlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
 	// this instance.
 	signDesc.SigHashes = txscript.NewTxSigHashes(sweepTx)
 
-	// With the proper sequence an version set, we'll now sign the timeout
+	// With the proper sequence and version set, we'll now sign the timeout
 	// transaction using the passed signed descriptor. In order to generate
 	// a valid signature, then signDesc should be using the base delay
 	// public key, and the proper single tweak bytes.
@@ -810,35 +829,7 @@ func htlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
 	return witnessStack, nil
 }
 
-// HtlcSpendSuccess exposes the public witness generation function for spending
-// an HTLC success transaction, either due to an expiring time lock or having
-// had the payment preimage.
-// NOTE: The caller MUST set the txn version, sequence number, and sign
-// descriptor's sig hash cache before invocation.
-func HtlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
-	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
-
-	// With the proper sequence an version set, we'll now sign the timeout
-	// transaction using the passed signed descriptor. In order to generate
-	// a valid signature, then signDesc should be using the base delay
-	// public key, and the proper single tweak bytes.
-	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
-	if err != nil {
-		return nil, err
-	}
-
-	// We set a zero as the first element the witness stack (ignoring the
-	// witness script), in order to force execution to the second portion
-	// of the if clause.
-	witnessStack := wire.TxWitness(make([][]byte, 3))
-	witnessStack[0] = append(sweepSig, byte(txscript.SigHashAll))
-	witnessStack[1] = nil
-	witnessStack[2] = signDesc.WitnessScript
-
-	return witnessStack, nil
-}
-
-// htlcTimeoutRevoke spends a second-level HTLC output. This function is to be
+// htlcSpendRevoke spends a second-level HTLC output. This function is to be
 // used by the sender or receiver of an HTLC to claim the HTLC after a revoked
 // commitment transaction was broadcast.
 func htlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
@@ -858,6 +849,37 @@ func htlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 	witnessStack := wire.TxWitness(make([][]byte, 3))
 	witnessStack[0] = append(sweepSig, byte(signDesc.HashType))
 	witnessStack[1] = []byte{1}
+	witnessStack[2] = signDesc.WitnessScript
+
+	return witnessStack, nil
+}
+
+// HtlcSecondLevelSpend exposes the public witness generation function for
+// spending an HTLC success transaction, either due to an expiring time lock or
+// having had the payment preimage. This method is able to spend any
+// second-level HTLC transaction, assuming the caller sets the locktime or
+// seqno properly.
+//
+// NOTE: The caller MUST set the txn version, sequence number, and sign
+// descriptor's sig hash cache before invocation.
+func HtlcSecondLevelSpend(signer Signer, signDesc *SignDescriptor,
+	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
+
+	// With the proper sequence and version set, we'll now sign the timeout
+	// transaction using the passed signed descriptor. In order to generate
+	// a valid signature, then signDesc should be using the base delay
+	// public key, and the proper single tweak bytes.
+	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	// We set a zero as the first element the witness stack (ignoring the
+	// witness script), in order to force execution to the second portion
+	// of the if clause.
+	witnessStack := wire.TxWitness(make([][]byte, 3))
+	witnessStack[0] = append(sweepSig, byte(txscript.SigHashAll))
+	witnessStack[1] = nil
 	witnessStack[2] = signDesc.WitnessScript
 
 	return witnessStack, nil
@@ -1013,6 +1035,11 @@ func CommitSpendRevoke(signer Signer, signDesc *SignDescriptor,
 func CommitSpendNoDelay(signer Signer, signDesc *SignDescriptor,
 	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
+	if signDesc.KeyDesc.PubKey == nil {
+		return nil, fmt.Errorf("cannot generate witness with nil " +
+			"KeyDesc pubkey")
+	}
+
 	// This is just a regular p2wkh spend which looks something like:
 	//  * witness: <sig> <pubkey>
 	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
@@ -1027,7 +1054,7 @@ func CommitSpendNoDelay(signer Signer, signDesc *SignDescriptor,
 	witness := make([][]byte, 2)
 	witness[0] = append(sweepSig, byte(signDesc.HashType))
 	witness[1] = TweakPubKeyWithTweak(
-		signDesc.PubKey, signDesc.SingleTweak,
+		signDesc.KeyDesc.PubKey, signDesc.SingleTweak,
 	).SerializeCompressed()
 
 	return witness, nil
@@ -1208,33 +1235,6 @@ func DeriveRevocationPrivKey(revokeBasePriv *btcec.PrivateKey,
 	return priv
 }
 
-// DeriveRevocationRoot derives an root unique to a channel given the
-// derivation root, and the blockhash that the funding process began at and the
-// remote node's identity public key. The seed is derived using the HKDF[1][2]
-// instantiated with sha-256. With this schema, once we know the block hash of
-// the funding transaction, and who we funded the channel with, we can
-// reconstruct all of our revocation state.
-//
-// [1]: https://eprint.iacr.org/2010/264.pdf
-// [2]: https://tools.ietf.org/html/rfc5869
-func DeriveRevocationRoot(derivationRoot *btcec.PrivateKey,
-	blockSalt chainhash.Hash, nodePubKey *btcec.PublicKey) chainhash.Hash {
-
-	secret := derivationRoot.Serialize()
-	salt := blockSalt[:]
-	info := nodePubKey.SerializeCompressed()
-
-	seedReader := hkdf.New(sha256.New, secret, salt, info)
-
-	// It's safe to ignore the error her as we know for sure that we won't
-	// be draining the HKDF past its available entropy horizon.
-	// TODO(roasbeef): revisit...
-	var root chainhash.Hash
-	seedReader.Read(root[:])
-
-	return root
-}
-
 // SetStateNumHint encodes the current state number within the passed
 // commitment transaction by re-purposing the locktime and sequence fields in
 // the commitment transaction to encode the obfuscated state number.  The state
@@ -1246,7 +1246,7 @@ func DeriveRevocationRoot(derivationRoot *btcec.PrivateKey,
 func SetStateNumHint(commitTx *wire.MsgTx, stateNum uint64,
 	obfuscator [StateHintSize]byte) error {
 
-	// With the current schema we are only able able to encode state num
+	// With the current schema we are only able to encode state num
 	// hints up to 2^48. Therefore if the passed height is greater than our
 	// state hint ceiling, then exit early.
 	if stateNum > maxStateHint {
@@ -1295,7 +1295,7 @@ func GetStateNumHint(commitTx *wire.MsgTx, obfuscator [StateHintSize]byte) uint6
 	stateNumXor := uint64(commitTx.TxIn[0].Sequence&0xFFFFFF) << 24
 	stateNumXor |= uint64(commitTx.LockTime & 0xFFFFFF)
 
-	// Finally, to obtain the final state number, we XOR by the obfuscater
+	// Finally, to obtain the final state number, we XOR by the obfuscator
 	// value to de-obfuscate the state number.
 	return stateNumXor ^ xorInt
 }

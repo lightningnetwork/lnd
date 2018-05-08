@@ -85,4 +85,8 @@ var (
 	// ErrNoClosedChannels is returned when a node is queries for all the
 	// channels it has closed, but it hasn't yet closed any channels.
 	ErrNoClosedChannels = fmt.Errorf("no channel have been closed yet")
+
+	// ErrNoForwardingEvents is returned in the case that a query fails due
+	// to the log not having any recorded events.
+	ErrNoForwardingEvents = fmt.Errorf("no recorded forwarding events")
 )

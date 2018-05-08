@@ -1,7 +1,7 @@
 package channeldb
 
 import (
-	"github.com/boltdb/bolt"
+	"github.com/coreos/bbolt"
 )
 
 var (

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/roasbeef/btcd/btcec"
@@ -81,6 +82,8 @@ var (
 		Index: 0,
 	}
 	privKey, pubKey = btcec.PrivKeyFromBytes(btcec.S256(), key[:])
+
+	wireSig, _ = lnwire.NewSigFromSignature(testSig)
 )
 
 // makeTestDB creates a new instance of the ChannelDB for testing purposes. A
@@ -134,12 +137,22 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
 		},
-		CsvDelay:            uint16(rand.Int31()),
-		MultiSigKey:         privKey.PubKey(),
-		RevocationBasePoint: privKey.PubKey(),
-		PaymentBasePoint:    privKey.PubKey(),
-		DelayBasePoint:      privKey.PubKey(),
-		HtlcBasePoint:       privKey.PubKey(),
+		CsvDelay: uint16(rand.Int31()),
+		MultiSigKey: keychain.KeyDescriptor{
+			PubKey: privKey.PubKey(),
+		},
+		RevocationBasePoint: keychain.KeyDescriptor{
+			PubKey: privKey.PubKey(),
+		},
+		PaymentBasePoint: keychain.KeyDescriptor{
+			PubKey: privKey.PubKey(),
+		},
+		DelayBasePoint: keychain.KeyDescriptor{
+			PubKey: privKey.PubKey(),
+		},
+		HtlcBasePoint: keychain.KeyDescriptor{
+			PubKey: privKey.PubKey(),
+		},
 	}
 	remoteCfg := ChannelConfig{
 		ChannelConstraints: ChannelConstraints{
@@ -149,12 +162,22 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
 		},
-		CsvDelay:            uint16(rand.Int31()),
-		MultiSigKey:         privKey.PubKey(),
-		RevocationBasePoint: privKey.PubKey(),
-		PaymentBasePoint:    privKey.PubKey(),
-		DelayBasePoint:      privKey.PubKey(),
-		HtlcBasePoint:       privKey.PubKey(),
+		CsvDelay: uint16(rand.Int31()),
+		MultiSigKey: keychain.KeyDescriptor{
+			PubKey: privKey.PubKey(),
+		},
+		RevocationBasePoint: keychain.KeyDescriptor{
+			PubKey: privKey.PubKey(),
+		},
+		PaymentBasePoint: keychain.KeyDescriptor{
+			PubKey: privKey.PubKey(),
+		},
+		DelayBasePoint: keychain.KeyDescriptor{
+			PubKey: privKey.PubKey(),
+		},
+		HtlcBasePoint: keychain.KeyDescriptor{
+			PubKey: privKey.PubKey(),
+		},
 	}
 
 	chanID := lnwire.NewShortChanIDFromInt(uint64(rand.Int63()))
@@ -196,6 +219,8 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 		RevocationProducer:      producer,
 		RevocationStore:         store,
 		Db:                      cdb,
+		Packager:                NewChannelPackager(chanID),
+		FundingTxn:              testTx,
 	}, nil
 }
 
@@ -428,10 +453,10 @@ func TestChannelStateTransition(t *testing.T) {
 		Commitment: remoteCommit,
 		CommitSig: &lnwire.CommitSig{
 			ChanID:    lnwire.ChannelID(key),
-			CommitSig: testSig,
-			HtlcSigs: []*btcec.Signature{
-				testSig,
-				testSig,
+			CommitSig: wireSig,
+			HtlcSigs: []lnwire.Sig{
+				wireSig,
+				wireSig,
 			},
 		},
 		LogUpdates: []LogUpdate{
@@ -452,6 +477,8 @@ func TestChannelStateTransition(t *testing.T) {
 				},
 			},
 		},
+		OpenedCircuitKeys: []CircuitKey{},
+		ClosedCircuitKeys: []CircuitKey{},
 	}
 	copy(commitDiff.LogUpdates[0].UpdateMsg.(*lnwire.UpdateAddHTLC).PaymentHash[:],
 		bytes.Repeat([]byte{1}, 32))
@@ -461,7 +488,7 @@ func TestChannelStateTransition(t *testing.T) {
 		t.Fatalf("unable to add to commit chain: %v", err)
 	}
 
-	// The commitment tip should now match the the commitment that we just
+	// The commitment tip should now match the commitment that we just
 	// inserted.
 	diskCommitDiff, err := channel.RemoteCommitChainTip()
 	if err != nil {
@@ -486,17 +513,22 @@ func TestChannelStateTransition(t *testing.T) {
 		t.Fatalf("unable to generate key: %v", err)
 	}
 	channel.RemoteNextRevocation = newPriv.PubKey()
-	if err := channel.AdvanceCommitChainTail(); err != nil {
+
+	fwdPkg := NewFwdPkg(channel.ShortChanID, oldRemoteCommit.CommitHeight,
+		diskCommitDiff.LogUpdates, nil)
+
+	err = channel.AdvanceCommitChainTail(fwdPkg)
+	if err != nil {
 		t.Fatalf("unable to append to revocation log: %v", err)
 	}
 
-	// At this point, the remote commit chain shuold be nil, and the posted
+	// At this point, the remote commit chain should be nil, and the posted
 	// remote commitment should match the one we added as a diff above.
 	if _, err := channel.RemoteCommitChainTip(); err != ErrNoPendingCommit {
 		t.Fatalf("expected ErrNoPendingCommit, instead got %v", err)
 	}
 
-	// We should be able to fetch the channel delta created above by it's
+	// We should be able to fetch the channel delta created above by its
 	// update number with all the state properly reconstructed.
 	diskPrevCommit, err := channel.FindPreviousState(
 		oldRemoteCommit.CommitHeight,
@@ -530,7 +562,11 @@ func TestChannelStateTransition(t *testing.T) {
 	if err := channel.AppendRemoteCommitChain(commitDiff); err != nil {
 		t.Fatalf("unable to add to commit chain: %v", err)
 	}
-	if err := channel.AdvanceCommitChainTail(); err != nil {
+
+	fwdPkg = NewFwdPkg(channel.ShortChanID, oldRemoteCommit.CommitHeight, nil, nil)
+
+	err = channel.AdvanceCommitChainTail(fwdPkg)
+	if err != nil {
 		t.Fatalf("unable to append to revocation log: %v", err)
 	}
 
@@ -570,7 +606,7 @@ func TestChannelStateTransition(t *testing.T) {
 		SettledBalance:    btcutil.Amount(500),
 		TimeLockedBalance: btcutil.Amount(10000),
 		IsPending:         false,
-		CloseType:         ForceClose,
+		CloseType:         RemoteForceClose,
 	}
 	if err := updatedChannel[0].CloseChannel(closeSummary); err != nil {
 		t.Fatalf("unable to delete updated channel: %v", err)
@@ -591,7 +627,7 @@ func TestChannelStateTransition(t *testing.T) {
 	// revocation log has been deleted.
 	_, err = updatedChannel[0].FindPreviousState(oldRemoteCommit.CommitHeight)
 	if err == nil {
-		t.Fatal("revocation log search should've failed")
+		t.Fatal("revocation log search should have failed")
 	}
 }
 
@@ -600,7 +636,7 @@ func TestFetchPendingChannels(t *testing.T) {
 
 	cdb, cleanUp, err := makeTestDB()
 	if err != nil {
-		t.Fatalf("uanble to make test database: %v", err)
+		t.Fatalf("unable to make test database: %v", err)
 	}
 	defer cleanUp()
 
@@ -630,7 +666,7 @@ func TestFetchPendingChannels(t *testing.T) {
 			"got %v", 1, len(pendingChannels))
 	}
 
-	// The broadcast height of the pending channel should've been set
+	// The broadcast height of the pending channel should have been set
 	// properly.
 	if pendingChannels[0].FundingBroadcastHeight != broadcastHeight {
 		t.Fatalf("broadcast height mismatch: expected %v, got %v",
@@ -646,6 +682,16 @@ func TestFetchPendingChannels(t *testing.T) {
 	err = pendingChannels[0].MarkAsOpen(chanOpenLoc)
 	if err != nil {
 		t.Fatalf("unable to mark channel as open: %v", err)
+	}
+
+	if pendingChannels[0].IsPending {
+		t.Fatalf("channel marked open should no longer be pending")
+	}
+
+	if pendingChannels[0].ShortChanID != chanOpenLoc {
+		t.Fatalf("channel opening height not updated: expected %v, "+
+			"got %v", spew.Sdump(pendingChannels[0].ShortChanID),
+			chanOpenLoc)
 	}
 
 	// Next, we'll re-fetch the channel to ensure that the open height was
@@ -724,7 +770,7 @@ func TestFetchClosedChannels(t *testing.T) {
 		Capacity:          state.Capacity,
 		SettledBalance:    state.LocalCommitment.LocalBalance.ToSatoshis(),
 		TimeLockedBalance: state.RemoteCommitment.LocalBalance.ToSatoshis() + 10000,
-		CloseType:         ForceClose,
+		CloseType:         RemoteForceClose,
 		IsPending:         true,
 	}
 	if err := state.CloseChannel(summary); err != nil {
@@ -736,7 +782,7 @@ func TestFetchClosedChannels(t *testing.T) {
 	// channels only, or not.
 	pendingClosed, err := cdb.FetchClosedChannels(true)
 	if err != nil {
-		t.Fatalf("failed fetcing closed channels: %v", err)
+		t.Fatalf("failed fetching closed channels: %v", err)
 	}
 	if len(pendingClosed) != 1 {
 		t.Fatalf("incorrect number of pending closed channels: expecting %v,"+
@@ -769,7 +815,7 @@ func TestFetchClosedChannels(t *testing.T) {
 	// be retrieved when fetching all the closed channels.
 	closed, err = cdb.FetchClosedChannels(false)
 	if err != nil {
-		t.Fatalf("failed fetcing closed channels: %v", err)
+		t.Fatalf("failed fetching closed channels: %v", err)
 	}
 	if len(closed) != 1 {
 		t.Fatalf("incorrect number of closed channels: expecting %v, "+

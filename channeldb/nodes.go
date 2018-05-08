@@ -6,7 +6,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/boltdb/bolt"
+	"github.com/coreos/bbolt"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
 )
@@ -23,7 +23,7 @@ var (
 // channel open with. Information such as the Bitcoin network the node
 // advertised, and its identity public key are also stored. Additionally, this
 // struct and the bucket its stored within have store data similar to that of
-// Bitcion's addrmanager. The TCP address information stored within the struct
+// Bitcoin's addrmanager. The TCP address information stored within the struct
 // can be used to establish persistent connections will all channel
 // counterparties on daemon startup.
 //
@@ -56,7 +56,7 @@ type LinkNode struct {
 	// authenticated connection for the stored identity public key.
 	//
 	// TODO(roasbeef): also need to support hidden service addrs
-	Addresses []*net.TCPAddr
+	Addresses []net.Addr
 
 	db *DB
 }
@@ -64,13 +64,13 @@ type LinkNode struct {
 // NewLinkNode creates a new LinkNode from the provided parameters, which is
 // backed by an instance of channeldb.
 func (db *DB) NewLinkNode(bitNet wire.BitcoinNet, pub *btcec.PublicKey,
-	addr *net.TCPAddr) *LinkNode {
+	addr net.Addr) *LinkNode {
 
 	return &LinkNode{
 		Network:     bitNet,
 		IdentityPub: pub,
 		LastSeen:    time.Now(),
-		Addresses:   []*net.TCPAddr{addr},
+		Addresses:   []net.Addr{addr},
 		db:          db,
 	}
 }
@@ -147,7 +147,7 @@ func (db *DB) FetchLinkNode(identity *btcec.PublicKey) (*LinkNode, error) {
 		}
 
 		// If a link node for that particular public key cannot be
-		// located, then exit early with a ErrNodeNotFound.
+		// located, then exit early with an ErrNodeNotFound.
 		pubKey := identity.SerializeCompressed()
 		nodeBytes := nodeMetaBucket.Get(pubKey)
 		if nodeBytes == nil {
@@ -227,8 +227,7 @@ func serializeLinkNode(w io.Writer, l *LinkNode) error {
 	}
 
 	for _, addr := range l.Addresses {
-		addrString := addr.String()
-		if err := wire.WriteVarString(w, 0, addrString); err != nil {
+		if err := serializeAddr(w, addr); err != nil {
 			return err
 		}
 	}
@@ -268,14 +267,9 @@ func deserializeLinkNode(r io.Reader) (*LinkNode, error) {
 	}
 	numAddrs := byteOrder.Uint32(buf[:4])
 
-	node.Addresses = make([]*net.TCPAddr, numAddrs)
+	node.Addresses = make([]net.Addr, numAddrs)
 	for i := uint32(0); i < numAddrs; i++ {
-		addrString, err := wire.ReadVarString(r, 0)
-		if err != nil {
-			return nil, err
-		}
-
-		addr, err := net.ResolveTCPAddr("tcp", addrString)
+		addr, err := deserializeAddr(r)
 		if err != nil {
 			return nil, err
 		}

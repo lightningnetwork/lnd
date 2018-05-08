@@ -8,10 +8,11 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 
-	"gopkg.in/macaroon.v1"
+	macaroon "gopkg.in/macaroon.v2"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
@@ -28,9 +29,13 @@ const (
 )
 
 var (
-	lndHomeDir          = btcutil.AppDataDir("lnd", false)
-	defaultTLSCertPath  = filepath.Join(lndHomeDir, defaultTLSCertFilename)
-	defaultMacaroonPath = filepath.Join(lndHomeDir, defaultMacaroonFilename)
+	//Commit stores the current commit hash of this build. This should be
+	//set using -ldflags during compilation.
+	Commit string
+
+	defaultLndDir       = btcutil.AppDataDir("lnd", false)
+	defaultTLSCertPath  = filepath.Join(defaultLndDir, defaultTLSCertFilename)
+	defaultMacaroonPath = filepath.Join(defaultLndDir, defaultMacaroonFilename)
 )
 
 func fatal(err error) {
@@ -39,7 +44,7 @@ func fatal(err error) {
 }
 
 func getWalletUnlockerClient(ctx *cli.Context) (lnrpc.WalletUnlockerClient, func()) {
-	conn := getClientConn(ctx)
+	conn := getClientConn(ctx, true)
 
 	cleanUp := func() {
 		conn.Close()
@@ -49,7 +54,7 @@ func getWalletUnlockerClient(ctx *cli.Context) (lnrpc.WalletUnlockerClient, func
 }
 
 func getClient(ctx *cli.Context) (lnrpc.LightningClient, func()) {
-	conn := getClientConn(ctx)
+	conn := getClientConn(ctx, false)
 
 	cleanUp := func() {
 		conn.Close()
@@ -58,7 +63,28 @@ func getClient(ctx *cli.Context) (lnrpc.LightningClient, func()) {
 	return lnrpc.NewLightningClient(conn), cleanUp
 }
 
-func getClientConn(ctx *cli.Context) *grpc.ClientConn {
+func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
+	lndDir := cleanAndExpandPath(ctx.GlobalString("lnddir"))
+	if lndDir != defaultLndDir {
+		// If a custom lnd directory was set, we'll also check if custom
+		// paths for the TLS cert and macaroon file were set as well. If
+		// not, we'll override their paths so they can be found within
+		// the custom lnd directory set. This allows us to set a custom
+		// lnd directory, along with custom paths to the TLS cert and
+		// macaroon file.
+		tlsCertPath := cleanAndExpandPath(ctx.GlobalString("tlscertpath"))
+		if tlsCertPath == defaultTLSCertPath {
+			ctx.GlobalSet("tlscertpath",
+				filepath.Join(lndDir, defaultTLSCertFilename))
+		}
+
+		macPath := cleanAndExpandPath(ctx.GlobalString("macaroonpath"))
+		if macPath == defaultMacaroonPath {
+			ctx.GlobalSet("macaroonpath",
+				filepath.Join(lndDir, defaultMacaroonFilename))
+		}
+	}
+
 	// Load the specified TLS certificate and build transport credentials
 	// with it.
 	tlsCertPath := cleanAndExpandPath(ctx.GlobalString("tlscertpath"))
@@ -72,8 +98,9 @@ func getClientConn(ctx *cli.Context) *grpc.ClientConn {
 		grpc.WithTransportCredentials(creds),
 	}
 
-	// Only process macaroon credentials if --no-macaroons isn't set.
-	if !ctx.GlobalBool("no-macaroons") {
+	// Only process macaroon credentials if --no-macaroons isn't set and
+	// if we're not skipping macaroon processing.
+	if !ctx.GlobalBool("no-macaroons") && !skipMacaroons {
 		// Load the specified macaroon file.
 		macPath := cleanAndExpandPath(ctx.GlobalString("macaroonpath"))
 		macBytes, err := ioutil.ReadFile(macPath)
@@ -127,13 +154,18 @@ func getClientConn(ctx *cli.Context) *grpc.ClientConn {
 func main() {
 	app := cli.NewApp()
 	app.Name = "lncli"
-	app.Version = "0.3"
+	app.Version = fmt.Sprintf("%s commit=%s", "0.4.1", Commit)
 	app.Usage = "control plane for your Lightning Network Daemon (lnd)"
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:  "rpcserver",
 			Value: "localhost:10009",
 			Usage: "host:port of ln daemon",
+		},
+		cli.StringFlag{
+			Name:  "lnddir",
+			Value: defaultLndDir,
+			Usage: "path to lnd's base directory",
 		},
 		cli.StringFlag{
 			Name:  "tlscertpath",
@@ -169,6 +201,7 @@ func main() {
 		disconnectCommand,
 		openChannelCommand,
 		closeChannelCommand,
+		closeAllChannelsCommand,
 		listPeersCommand,
 		walletBalanceCommand,
 		channelBalanceCommand,
@@ -187,13 +220,14 @@ func main() {
 		queryRoutesCommand,
 		getNetworkInfoCommand,
 		debugLevelCommand,
-		decodePayReqComamnd,
+		decodePayReqCommand,
 		listChainTxnsCommand,
 		stopCommand,
 		signMessageCommand,
 		verifyMessageCommand,
 		feeReportCommand,
-		updateFeesCommand,
+		updateChannelPolicyCommand,
+		forwardingHistoryCommand,
 	}
 
 	if err := app.Run(os.Args); err != nil {
@@ -207,7 +241,15 @@ func main() {
 func cleanAndExpandPath(path string) string {
 	// Expand initial ~ to OS specific home directory.
 	if strings.HasPrefix(path, "~") {
-		homeDir := filepath.Dir(lndHomeDir)
+		var homeDir string
+
+		user, err := user.Current()
+		if err == nil {
+			homeDir = user.HomeDir
+		} else {
+			homeDir = os.Getenv("HOME")
+		}
+
 		path = strings.Replace(path, "~", homeDir, 1)
 	}
 

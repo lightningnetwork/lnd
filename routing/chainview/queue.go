@@ -39,7 +39,7 @@ type blockEventQueue struct {
 	// will receive connected/new blocks from the FilteredChainView.
 	newBlocks chan *FilteredBlock
 
-	// stleBlocks is the channel where the consumer of the queue will
+	// staleBlocks is the channel where the consumer of the queue will
 	// receive disconnected/stale blocks from the FilteredChainView.
 	staleBlocks chan *FilteredBlock
 

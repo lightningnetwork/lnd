@@ -19,7 +19,7 @@ const MaxMessagePayload = 65535 // 65KB
 // MessageType is the unique 2 byte big-endian integer that indicates the type
 // of message on the wire. All messages have a very simple header which
 // consists simply of 2-byte message type. We omit a length field, and checksum
-// as the Lighting Protocol is intended to be encapsulated within a
+// as the Lightning Protocol is intended to be encapsulated within a
 // confidential+authenticated cryptographic messaging protocol.
 type MessageType uint16
 
@@ -38,7 +38,7 @@ const (
 	MsgShutdown                            = 38
 	MsgClosingSigned                       = 39
 	MsgUpdateAddHTLC                       = 128
-	MsgUpdateFufillHTLC                    = 130
+	MsgUpdateFulfillHTLC                   = 130
 	MsgUpdateFailHTLC                      = 131
 	MsgCommitSig                           = 132
 	MsgRevokeAndAck                        = 133
@@ -74,8 +74,8 @@ func (t MessageType) String() string {
 		return "UpdateAddHTLC"
 	case MsgUpdateFailHTLC:
 		return "UpdateFailHTLC"
-	case MsgUpdateFufillHTLC:
-		return "UpdateFufillHTLC"
+	case MsgUpdateFulfillHTLC:
+		return "UpdateFulfillHTLC"
 	case MsgCommitSig:
 		return "CommitSig"
 	case MsgRevokeAndAck:
@@ -165,8 +165,8 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 		msg = &UpdateAddHTLC{}
 	case MsgUpdateFailHTLC:
 		msg = &UpdateFailHTLC{}
-	case MsgUpdateFufillHTLC:
-		msg = &UpdateFufillHTLC{}
+	case MsgUpdateFulfillHTLC:
+		msg = &UpdateFulfillHTLC{}
 	case MsgCommitSig:
 		msg = &CommitSig{}
 	case MsgRevokeAndAck:
@@ -192,7 +192,7 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 	case MsgPong:
 		msg = &Pong{}
 	default:
-		return nil, fmt.Errorf("unknown message type [%d]", msgType)
+		return nil, &UnknownMessage{msgType}
 	}
 
 	return msg, nil

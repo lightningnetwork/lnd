@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/boltdb/bolt"
+	"golang.org/x/net/context"
+
+	"github.com/coreos/bbolt"
+
+	"github.com/roasbeef/btcwallet/snacl"
 )
 
 const (
@@ -21,15 +25,30 @@ var (
 	// just 0, to emulate the memory storage that comes with bakery.
 	//
 	// TODO(aakselrod): Add support for key rotation.
-	defaultRootKeyID = "0"
+	defaultRootKeyID = []byte("0")
 
-	// macaroonBucketName is the name of the macaroon store bucket.
-	macaroonBucketName = []byte("macaroons")
+	// encryptedKeyID is the name of the database key that stores the
+	// encryption key, encrypted with a salted + hashed password. The
+	// format is 32 bytes of salt, and the rest is encrypted key.
+	encryptedKeyID = []byte("enckey")
+
+	// ErrAlreadyUnlocked specifies that the store has already been
+	// unlocked.
+	ErrAlreadyUnlocked = fmt.Errorf("macaroon store already unlocked")
+
+	// ErrStoreLocked specifies that the store needs to be unlocked with
+	// a password.
+	ErrStoreLocked = fmt.Errorf("macaroon store is locked")
+
+	// ErrPasswordRequired specifies that a nil password has been passed.
+	ErrPasswordRequired = fmt.Errorf("a non-nil password is required")
 )
 
 // RootKeyStorage implements the bakery.RootKeyStorage interface.
 type RootKeyStorage struct {
 	*bolt.DB
+
+	encKey *snacl.SecretKey
 }
 
 // NewRootKeyStorage creates a RootKeyStorage instance.
@@ -45,21 +64,80 @@ func NewRootKeyStorage(db *bolt.DB) (*RootKeyStorage, error) {
 	}
 
 	// Return the DB wrapped in a RootKeyStorage object.
-	return &RootKeyStorage{db}, nil
+	return &RootKeyStorage{db, nil}, nil
+}
+
+// CreateUnlock sets an encryption key if one is not already set, otherwise it
+// checks if the password is correct for the stored encryption key.
+func (r *RootKeyStorage) CreateUnlock(password *[]byte) error {
+	// Check if we've already unlocked the store; return an error if so.
+	if r.encKey != nil {
+		return ErrAlreadyUnlocked
+	}
+
+	// Check if a nil password has been passed; return an error if so.
+	if password == nil {
+		return ErrPasswordRequired
+	}
+
+	return r.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(rootKeyBucketName)
+		dbKey := bucket.Get(encryptedKeyID)
+		if len(dbKey) > 0 {
+			// We've already stored a key, so try to unlock with
+			// the password.
+			encKey := &snacl.SecretKey{}
+			err := encKey.Unmarshal(dbKey)
+			if err != nil {
+				return err
+			}
+
+			err = encKey.DeriveKey(password)
+			if err != nil {
+				return err
+			}
+
+			r.encKey = encKey
+			return nil
+		}
+
+		// We haven't yet stored a key, so create a new one.
+		encKey, err := snacl.NewSecretKey(password, snacl.DefaultN,
+			snacl.DefaultR, snacl.DefaultP)
+		if err != nil {
+			return err
+		}
+
+		err = bucket.Put(encryptedKeyID, encKey.Marshal())
+		if err != nil {
+			return err
+		}
+
+		r.encKey = encKey
+		return nil
+	})
 }
 
 // Get implements the Get method for the bakery.RootKeyStorage interface.
-func (r *RootKeyStorage) Get(id string) ([]byte, error) {
+func (r *RootKeyStorage) Get(_ context.Context, id []byte) ([]byte, error) {
+	if r.encKey == nil {
+		return nil, ErrStoreLocked
+	}
 	var rootKey []byte
 	err := r.View(func(tx *bolt.Tx) error {
-		dbKey := tx.Bucket(rootKeyBucketName).Get([]byte(id))
+		dbKey := tx.Bucket(rootKeyBucketName).Get(id)
 		if len(dbKey) == 0 {
 			return fmt.Errorf("root key with id %s doesn't exist",
-				id)
+				string(id))
 		}
 
-		rootKey = make([]byte, len(dbKey))
-		copy(rootKey[:], dbKey)
+		decKey, err := r.encKey.Decrypt(dbKey)
+		if err != nil {
+			return err
+		}
+
+		rootKey = make([]byte, len(decKey))
+		copy(rootKey[:], decKey)
 		return nil
 	})
 	if err != nil {
@@ -72,86 +150,54 @@ func (r *RootKeyStorage) Get(id string) ([]byte, error) {
 // RootKey implements the RootKey method for the bakery.RootKeyStorage
 // interface.
 // TODO(aakselrod): Add support for key rotation.
-func (r *RootKeyStorage) RootKey() ([]byte, string, error) {
+func (r *RootKeyStorage) RootKey(_ context.Context) ([]byte, []byte, error) {
+	if r.encKey == nil {
+		return nil, nil, ErrStoreLocked
+	}
 	var rootKey []byte
 	id := defaultRootKeyID
 	err := r.Update(func(tx *bolt.Tx) error {
 		ns := tx.Bucket(rootKeyBucketName)
-		rootKey = ns.Get([]byte(id))
+		dbKey := ns.Get(id)
 
-		// If there's no root key stored in the bucket yet, create one.
-		if len(rootKey) != 0 {
+		// If there's a root key stored in the bucket, decrypt it and
+		// return it.
+		if len(dbKey) != 0 {
+			decKey, err := r.encKey.Decrypt(dbKey)
+			if err != nil {
+				return err
+			}
+
+			rootKey = make([]byte, len(decKey))
+			copy(rootKey[:], decKey[:])
 			return nil
 		}
 
-		// Create a RootKeyLen-byte root key.
+		// Otherwise, create a RootKeyLen-byte root key, encrypt it,
+		// and store it in the bucket.
 		rootKey = make([]byte, RootKeyLen)
 		if _, err := io.ReadFull(rand.Reader, rootKey[:]); err != nil {
 			return err
 		}
-		return ns.Put([]byte(id), rootKey)
+
+		encKey, err := r.encKey.Encrypt(rootKey)
+		if err != nil {
+			return err
+		}
+		return ns.Put(id, encKey)
 	})
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 
 	return rootKey, id, nil
 }
 
-// Storage implements the bakery.Storage interface.
-type Storage struct {
-	*bolt.DB
-}
-
-// NewStorage creates a Storage instance.
-//
-// TODO(aakselrod): Add support for encryption of data with passphrase.
-func NewStorage(db *bolt.DB) (*Storage, error) {
-	// If the store's bucket doesn't exist, create it.
-	err := db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(macaroonBucketName)
-		return err
-	})
-	if err != nil {
-		return nil, err
+// Close closes the underlying database and zeroes the encryption key stored
+// in memory.
+func (r *RootKeyStorage) Close() error {
+	if r.encKey != nil {
+		r.encKey.Zero()
 	}
-
-	// Return the DB wrapped in a Storage object.
-	return &Storage{db}, nil
-}
-
-// Put implements the Put method for the bakery.Storage interface.
-func (s *Storage) Put(location string, item string) error {
-	return s.Update(func(tx *bolt.Tx) error {
-		return tx.Bucket(macaroonBucketName).Put([]byte(location),
-			[]byte(item))
-	})
-}
-
-// Get implements the Get method for the bakery.Storage interface.
-func (s *Storage) Get(location string) (string, error) {
-	var item []byte
-	err := s.View(func(tx *bolt.Tx) error {
-		itemBytes := tx.Bucket(macaroonBucketName).Get([]byte(location))
-		if len(itemBytes) == 0 {
-			return fmt.Errorf("couldn't get item for location %s",
-				location)
-		}
-
-		item = make([]byte, len(itemBytes))
-		copy(item, itemBytes)
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-
-	return string(item), nil
-}
-
-// Del implements the Del method for the bakery.Storage interface.
-func (s *Storage) Del(location string) error {
-	return s.Update(func(tx *bolt.Tx) error {
-		return tx.Bucket(macaroonBucketName).Delete([]byte(location))
-	})
+	return r.DB.Close()
 }

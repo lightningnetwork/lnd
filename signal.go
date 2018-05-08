@@ -14,7 +14,7 @@ import (
 var interruptChannel chan os.Signal
 
 // shutdownRequestChannel is used to request the daemon to shutdown gracefully,
-// similar to when receiveing SIGINT.
+// similar to when receiving SIGINT.
 var shutdownRequestChannel = make(chan struct{})
 
 // addHandlerChannel is used to add an interrupt handler to the list of handlers

@@ -35,7 +35,7 @@ type Store interface {
 }
 
 // RevocationStore is a concrete implementation of the Store interface. The
-// revocation store is able to efficiently store N derived shahain elements in
+// revocation store is able to efficiently store N derived shachain elements in
 // a space efficient manner with a space complexity of O(log N). The original
 // description of the storage methodology can be found here:
 // https://github.com/lightningnetwork/lightning-rfc/blob/master/03-transactions.md#efficient-per-commitment-secret-storage
@@ -142,7 +142,7 @@ func (store *RevocationStore) AddNextEntry(hash *chainhash.Hash) error {
 		}
 
 		if !e.isEqual(&store.buckets[i]) {
-			return errors.New("hash isn't deriavable from " +
+			return errors.New("hash isn't derivable from " +
 				"previous ones")
 		}
 	}

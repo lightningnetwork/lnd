@@ -32,9 +32,12 @@ var _ net.Conn = (*Conn)(nil)
 // remote peer located at address which has remotePub as its long-term static
 // public key. In the case of a handshake failure, the connection is closed and
 // a non-nil error is returned.
-func Dial(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress) (*Conn, error) {
+func Dial(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress,
+	dialer func(string, string) (net.Conn, error)) (*Conn, error) {
 	ipAddr := netAddr.Address.String()
-	conn, err := net.Dial("tcp", ipAddr)
+	var conn net.Conn
+	var err error
+	conn, err = dialer("tcp", ipAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -56,9 +59,9 @@ func Dial(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress) (*Conn, error
 	}
 
 	// We'll ensure that we get ActTwo from the remote peer in a timely
-	// manner. If they don't respond within 15 seconds, then we'll kill the
+	// manner. If they don't respond within 1s, then we'll kill the
 	// connection.
-	conn.SetReadDeadline(time.Now().Add(time.Second * 15))
+	conn.SetReadDeadline(time.Now().Add(handshakeReadTimeout))
 
 	// If the first act was successful (we know that address is actually
 	// remotePub), then read the second act after which we'll be able to
@@ -101,7 +104,7 @@ func (c *Conn) ReadNextMessage() ([]byte, error) {
 }
 
 // Read reads data from the connection.  Read can be made to time out and
-// return a Error with Timeout() == true after a fixed time limit; see
+// return an Error with Timeout() == true after a fixed time limit; see
 // SetDeadline and SetReadDeadline.
 //
 // Part of the net.Conn interface.
@@ -109,7 +112,7 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 	// In order to reconcile the differences between the record abstraction
 	// of our AEAD connection, and the stream abstraction of TCP, we
 	// maintain an intermediate read buffer. If this buffer becomes
-	// depleated, then we read the next record, and feed it into the
+	// depleted, then we read the next record, and feed it into the
 	// buffer. Otherwise, we read directly from the buffer.
 	if c.readBuf.Len() == 0 {
 		plaintext, err := c.noise.ReadMessage(c.conn)
@@ -126,7 +129,7 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 }
 
 // Write writes data to the connection.  Write can be made to time out and
-// return a Error with Timeout() == true after a fixed time limit; see
+// return an Error with Timeout() == true after a fixed time limit; see
 // SetDeadline and SetWriteDeadline.
 //
 // Part of the net.Conn interface.

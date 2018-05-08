@@ -28,7 +28,7 @@ func TestOpenWithCreate(t *testing.T) {
 		t.Fatalf("unable to close channeldb: %v", err)
 	}
 
-	// The path should have been succesfully created.
+	// The path should have been successfully created.
 	if !fileExists(dbPath) {
 		t.Fatalf("channeldb failed to create data directory")
 	}

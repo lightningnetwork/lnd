@@ -9,7 +9,7 @@ protoc -I/usr/local/include -I. \
 
 
 
-# Generate the REST reverse prozxy.
+# Generate the REST reverse proxy.
 protoc -I/usr/local/include -I. \
        -I$GOPATH/src \
        -I$GOPATH/src/github.com/grpc-ecosystem/grpc-gateway/third_party/googleapis \

@@ -34,7 +34,7 @@ RUN "/go/bin/gencerts" --host="*" --directory="/rpc" --force
 # shared with any lnd, btcctl containers so they can securely query btcd's RPC
 # server.
 # You should NOT do this before certificate generation!
-# Otherwise manually generated certificate will be overriden with shared
+# Otherwise manually generated certificate will be overridden with shared
 # mounted volume! For more info read dockerfile "VOLUME" documentation.
 VOLUME ["/rpc"]
 

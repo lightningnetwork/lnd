@@ -3,7 +3,6 @@ package lnwire
 import (
 	"io"
 
-	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
 )
 
@@ -24,7 +23,7 @@ type FundingCreated struct {
 
 	// CommitSig is Alice's signature from Bob's version of the commitment
 	// transaction.
-	CommitSig *btcec.Signature
+	CommitSig Sig
 }
 
 // A compile time check to ensure FundingCreated implements the lnwire.Message

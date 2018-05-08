@@ -2,14 +2,16 @@ package htlcswitch
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/binary"
 	"fmt"
+	"io"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"io"
 
 	"math"
 
@@ -17,8 +19,11 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -56,13 +61,6 @@ func messageToString(msg lnwire.Message) string {
 	switch m := msg.(type) {
 	case *lnwire.RevokeAndAck:
 		m.NextRevocationKey.Curve = nil
-	case *lnwire.NodeAnnouncement:
-		m.NodeID.Curve = nil
-	case *lnwire.ChannelAnnouncement:
-		m.NodeID1.Curve = nil
-		m.NodeID2.Curve = nil
-		m.BitcoinKey1.Curve = nil
-		m.BitcoinKey2.Curve = nil
 	case *lnwire.AcceptChannel:
 		m.FundingKey.Curve = nil
 		m.RevocationPoint.Curve = nil
@@ -224,7 +222,7 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 
 	// Wait for Bob to receive the revocation.
 	//
-	// TODO(roasbef); replace with select over returned err chan
+	// TODO(roasbeef); replace with select over returned err chan
 	time.Sleep(100 * time.Millisecond)
 
 	// Check that alice invoice was settled and bandwidth of HTLC
@@ -456,7 +454,7 @@ func TestChannelLinkMultiHopPayment(t *testing.T) {
 	// links were changed.
 	invoice, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
-		t.Fatalf("unable to get inveoice: %v", err)
+		t.Fatalf("unable to get invoice: %v", err)
 	}
 	if !invoice.Terms.Settled {
 		t.Fatal("carol invoice haven't been settled")
@@ -783,7 +781,7 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 		testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
 
-	// First, send this 1 BTC payment over the three hops, the payment
+	// First, send this 10 mSAT payment over the three hops, the payment
 	// should succeed, and all balances should be updated accordingly.
 	payResp, err := n.makePayment(n.aliceServer, n.carolServer,
 		n.bobServer.PubKey(), hops, amountNoFee, htlcAmt,
@@ -830,10 +828,10 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 	// update logic
 	newPolicy := n.globalPolicy
 	newPolicy.BaseFee = lnwire.NewMSatFromSatoshis(1000)
-	n.firstBobChannelLink.UpdateForwardingPolicy(newPolicy)
+	n.secondBobChannelLink.UpdateForwardingPolicy(newPolicy)
 
 	// Next, we'll send the payment again, using the exact same per-hop
-	// payload for each node. This payment should fail as it wont' factor
+	// payload for each node. This payment should fail as it won't factor
 	// in Bob's new fee policy.
 	_, err = n.makePayment(n.aliceServer, n.carolServer,
 		n.bobServer.PubKey(), hops, amountNoFee, htlcAmt,
@@ -844,7 +842,7 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 
 	ferr, ok := err.(*ForwardingError)
 	if !ok {
-		t.Fatalf("expected a ForwardingError, instead got: %T", err)
+		t.Fatalf("expected a ForwardingError, instead got (%T): %v", err, err)
 	}
 	switch ferr.FailureMessage.(type) {
 	case *lnwire.FailFeeInsufficient:
@@ -912,7 +910,7 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 	// links hasn't been changed.
 	invoice, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
-		t.Fatalf("unable to get inveoice: %v", err)
+		t.Fatalf("unable to get invoice: %v", err)
 	}
 	if invoice.Terms.Settled {
 		t.Fatal("carol invoice have been settled")
@@ -1057,7 +1055,11 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
 
-	davePub := newMockServer(t, "dave").PubKey()
+	daveServer, err := newMockServer(t, "dave", nil)
+	if err != nil {
+		t.Fatalf("unable to init dave's server: %v", err)
+	}
+	davePub := daveServer.PubKey()
 	receiver := n.bobServer
 	rhash, err := n.makePayment(n.aliceServer, n.bobServer, davePub, hops,
 		amount, htlcAmt, totalTimelock).Wait(30 * time.Second)
@@ -1076,7 +1078,7 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	// links hasn't been changed.
 	invoice, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
-		t.Fatalf("unable to get inveoice: %v", err)
+		t.Fatalf("unable to get invoice: %v", err)
 	}
 	if invoice.Terms.Settled {
 		t.Fatal("carol invoice have been settled")
@@ -1124,8 +1126,8 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 	defer n.stop()
 
 	// Replace decode function with another which throws an error.
-	n.carolChannelLink.cfg.DecodeOnionObfuscator = func(
-		r io.Reader) (ErrorEncrypter, lnwire.FailCode) {
+	n.carolChannelLink.cfg.ExtractErrorEncrypter = func(
+		*btcec.PublicKey) (ErrorEncrypter, lnwire.FailCode) {
 		return nil, lnwire.CodeInvalidOnionVersion
 	}
 
@@ -1164,7 +1166,7 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 	// links hasn't been changed.
 	invoice, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
-		t.Fatalf("unable to get inveoice: %v", err)
+		t.Fatalf("unable to get invoice: %v", err)
 	}
 	if invoice.Terms.Settled {
 		t.Fatal("carol invoice have been settled")
@@ -1337,7 +1339,7 @@ func TestChannelLinkSingleHopMessageOrdering(t *testing.T) {
 		{"bob", "alice", &lnwire.CommitSig{}, false},
 		{"alice", "bob", &lnwire.RevokeAndAck{}, false},
 
-		{"bob", "alice", &lnwire.UpdateFufillHTLC{}, false},
+		{"bob", "alice", &lnwire.UpdateFulfillHTLC{}, false},
 		{"bob", "alice", &lnwire.CommitSig{}, false},
 		{"alice", "bob", &lnwire.RevokeAndAck{}, false},
 		{"alice", "bob", &lnwire.CommitSig{}, false},
@@ -1388,13 +1390,16 @@ func TestChannelLinkSingleHopMessageOrdering(t *testing.T) {
 
 type mockPeer struct {
 	sync.Mutex
-	sentMsgs []lnwire.Message
+	sentMsgs chan lnwire.Message
+	quit     chan struct{}
 }
 
-func (m *mockPeer) SendMessage(msg lnwire.Message) error {
-	m.Lock()
-	m.sentMsgs = append(m.sentMsgs, msg)
-	m.Unlock()
+func (m *mockPeer) SendMessage(msg lnwire.Message, sync bool) error {
+	select {
+	case m.sentMsgs <- msg:
+	case <-m.quit:
+		return fmt.Errorf("mockPeer shutting down")
+	}
 	return nil
 }
 func (m *mockPeer) WipeChannel(*wire.OutPoint) error {
@@ -1405,39 +1410,42 @@ func (m *mockPeer) PubKey() [33]byte {
 }
 func (m *mockPeer) Disconnect(reason error) {
 }
-func (m *mockPeer) popSentMsg() lnwire.Message {
-	m.Lock()
-	msg := m.sentMsgs[0]
-	m.sentMsgs[0] = nil
-	m.sentMsgs = m.sentMsgs[1:]
-	m.Unlock()
-
-	return msg
-}
 
 var _ Peer = (*mockPeer)(nil)
 
-func newSingleLinkTestHarness(chanAmt btcutil.Amount) (ChannelLink, func(), error) {
-	globalEpoch := &chainntnfs.BlockEpochEvent{
-		Epochs: make(chan *chainntnfs.BlockEpoch),
-		Cancel: func() {
-		},
+func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
+	ChannelLink, *lnwallet.LightningChannel, chan time.Time, func(),
+	chanRestoreFunc, error) {
+
+	var chanIDBytes [8]byte
+	if _, err := io.ReadFull(rand.Reader, chanIDBytes[:]); err != nil {
+		return nil, nil, nil, nil, nil, err
 	}
 
-	chanID := lnwire.NewShortChanIDFromInt(4)
-	aliceChannel, _, fCleanUp, _, err := createTestChannel(
-		alicePrivKey, bobPrivKey, chanAmt, chanAmt, chanID,
+	chanID := lnwire.NewShortChanIDFromInt(
+		binary.BigEndian.Uint64(chanIDBytes[:]))
+
+	aliceChannel, bobChannel, fCleanUp, restore, err := createTestChannel(
+		alicePrivKey, bobPrivKey, chanAmt, chanAmt,
+		chanReserve, chanReserve, chanID,
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
 	var (
-		invoiveRegistry = newMockRegistry()
-		decoder         = &mockIteratorDecoder{}
-		obfuscator      = newMockObfuscator()
-		alicePeer       mockPeer
-
+		globalEpoch = &chainntnfs.BlockEpochEvent{
+			Epochs: make(chan *chainntnfs.BlockEpoch),
+			Cancel: func() {
+			},
+		}
+		invoiceRegistry = newMockRegistry()
+		decoder         = newMockIteratorDecoder()
+		obfuscator      = NewMockObfuscator()
+		alicePeer       = &mockPeer{
+			sentMsgs: make(chan lnwire.Message, 2000),
+			quit:     make(chan struct{}),
+		}
 		globalPolicy = ForwardingPolicy{
 			MinHTLC:       lnwire.NewMSatFromSatoshis(5),
 			BaseFee:       lnwire.NewMSatFromSatoshis(1),
@@ -1445,31 +1453,69 @@ func newSingleLinkTestHarness(chanAmt btcutil.Amount) (ChannelLink, func(), erro
 		}
 	)
 
+	pCache := &mockPreimageCache{
+		// hash -> preimage
+		preimageMap: make(map[[32]byte][]byte),
+	}
+
+	aliceDb := aliceChannel.State().Db
+
+	aliceSwitch, err := New(Config{DB: aliceDb})
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+
+	t := make(chan time.Time)
+	ticker := &mockTicker{t}
 	aliceCfg := ChannelLinkConfig{
-		FwrdingPolicy:     globalPolicy,
-		Peer:              &alicePeer,
-		Switch:            New(Config{}),
-		DecodeHopIterator: decoder.DecodeHopIterator,
-		DecodeOnionObfuscator: func(io.Reader) (ErrorEncrypter, lnwire.FailCode) {
+		FwrdingPolicy:      globalPolicy,
+		Peer:               alicePeer,
+		Switch:             aliceSwitch,
+		Circuits:           aliceSwitch.CircuitModifier(),
+		ForwardPackets:     aliceSwitch.ForwardPackets,
+		DecodeHopIterators: decoder.DecodeHopIterators,
+		ExtractErrorEncrypter: func(*btcec.PublicKey) (
+			ErrorEncrypter, lnwire.FailCode) {
 			return obfuscator, lnwire.CodeNone
 		},
-		GetLastChannelUpdate: mockGetChanUpdateMessage,
-		Registry:             invoiveRegistry,
-		BlockEpochs:          globalEpoch,
+		FetchLastChannelUpdate: mockGetChanUpdateMessage,
+		PreimageCache:          pCache,
+		UpdateContractSignals: func(*contractcourt.ContractSignals) error {
+			return nil
+		},
+		Registry:       invoiceRegistry,
+		ChainEvents:    &contractcourt.ChainEventSubscription{},
+		BlockEpochs:    globalEpoch,
+		BatchTicker:    ticker,
+		FwdPkgGCTicker: NewBatchTicker(time.NewTicker(5 * time.Second)),
+		// Make the BatchSize large enough to not
+		// trigger commit update automatically during tests.
+		BatchSize: 10000,
 	}
 
 	const startingHeight = 100
 	aliceLink := NewChannelLink(aliceCfg, aliceChannel, startingHeight)
-	if err := aliceLink.Start(); err != nil {
-		return nil, nil, err
+	if err := aliceSwitch.AddLink(aliceLink); err != nil {
+		return nil, nil, nil, nil, nil, err
 	}
+	go func() {
+		for {
+			select {
+			case <-aliceLink.(*channelLink).htlcUpdates:
+			case <-aliceLink.(*channelLink).quit:
+				return
+			}
+		}
+	}()
 
 	cleanUp := func() {
+		close(alicePeer.quit)
 		defer fCleanUp()
 		defer aliceLink.Stop()
+		defer bobChannel.Stop()
 	}
 
-	return aliceLink, cleanUp, nil
+	return aliceLink, bobChannel, t, cleanUp, restore, nil
 }
 
 func assertLinkBandwidth(t *testing.T, link ChannelLink,
@@ -1481,6 +1527,148 @@ func assertLinkBandwidth(t *testing.T, link ChannelLink,
 		t.Fatalf("line %v: alice's link bandwidth is incorrect: "+
 			"expected %v, got %v", line, expected, currentBandwidth)
 	}
+}
+
+// handleStateUpdate handles the messages sent from the link after
+// the batch ticker has triggered a state update.
+func handleStateUpdate(link *channelLink,
+	remoteChannel *lnwallet.LightningChannel) error {
+	sentMsgs := link.cfg.Peer.(*mockPeer).sentMsgs
+	var msg lnwire.Message
+	select {
+	case msg = <-sentMsgs:
+	case <-time.After(60 * time.Second):
+		return fmt.Errorf("did not receive CommitSig from Alice")
+	}
+
+	// The link should be sending a commit sig at this point.
+	commitSig, ok := msg.(*lnwire.CommitSig)
+	if !ok {
+		return fmt.Errorf("expected CommitSig, got %T", msg)
+	}
+
+	// Let the remote channel receive the commit sig, and
+	// respond with a revocation + commitsig.
+	err := remoteChannel.ReceiveNewCommitment(
+		commitSig.CommitSig, commitSig.HtlcSigs)
+	if err != nil {
+		return err
+	}
+
+	remoteRev, _, err := remoteChannel.RevokeCurrentCommitment()
+	if err != nil {
+		return err
+	}
+	link.HandleChannelUpdate(remoteRev)
+
+	remoteSig, remoteHtlcSigs, err := remoteChannel.SignNextCommitment()
+	if err != nil {
+		return err
+	}
+	commitSig = &lnwire.CommitSig{
+		CommitSig: remoteSig,
+		HtlcSigs:  remoteHtlcSigs,
+	}
+	link.HandleChannelUpdate(commitSig)
+
+	// This should make the link respond with a revocation.
+	select {
+	case msg = <-sentMsgs:
+	case <-time.After(60 * time.Second):
+		return fmt.Errorf("did not receive RevokeAndAck from Alice")
+	}
+
+	revoke, ok := msg.(*lnwire.RevokeAndAck)
+	if !ok {
+		return fmt.Errorf("expected RevokeAndAck got %T", msg)
+	}
+	_, _, _, err = remoteChannel.ReceiveRevocation(revoke)
+	if err != nil {
+		return fmt.Errorf("unable to receive "+
+			"revocation: %v", err)
+	}
+
+	return nil
+}
+
+// updateState is used exchange the messages necessary to do a full state
+// transition. If initiateUpdate=true, then this call will make the link
+// trigger an update by sending on the batchTick channel, if not, it will
+// make the remoteChannel initiate the state update.
+func updateState(batchTick chan time.Time, link *channelLink,
+	remoteChannel *lnwallet.LightningChannel,
+	initiateUpdate bool) error {
+	sentMsgs := link.cfg.Peer.(*mockPeer).sentMsgs
+
+	if initiateUpdate {
+		// Trigger update by ticking the batchTicker.
+		select {
+		case batchTick <- time.Now():
+		case <-link.quit:
+			return fmt.Errorf("link shutting down")
+		}
+		return handleStateUpdate(link, remoteChannel)
+	}
+
+	// The remote is triggering the state update, emulate this by
+	// signing and sending CommitSig to the link.
+	remoteSig, remoteHtlcSigs, err := remoteChannel.SignNextCommitment()
+	if err != nil {
+		return err
+	}
+
+	commitSig := &lnwire.CommitSig{
+		CommitSig: remoteSig,
+		HtlcSigs:  remoteHtlcSigs,
+	}
+	link.HandleChannelUpdate(commitSig)
+
+	// The link should respond with a revocation + commit sig.
+	var msg lnwire.Message
+	select {
+	case msg = <-sentMsgs:
+	case <-time.After(60 * time.Second):
+		return fmt.Errorf("did not receive RevokeAndAck from Alice")
+	}
+
+	revoke, ok := msg.(*lnwire.RevokeAndAck)
+	if !ok {
+		return fmt.Errorf("expected RevokeAndAck got %T",
+			msg)
+	}
+	_, _, _, err = remoteChannel.ReceiveRevocation(revoke)
+	if err != nil {
+		return fmt.Errorf("unable to receive "+
+			"revocation: %v", err)
+	}
+	select {
+	case msg = <-sentMsgs:
+	case <-time.After(60 * time.Second):
+		return fmt.Errorf("did not receive CommitSig from Alice")
+	}
+
+	commitSig, ok = msg.(*lnwire.CommitSig)
+	if !ok {
+		return fmt.Errorf("expected CommitSig, got %T", msg)
+	}
+
+	err = remoteChannel.ReceiveNewCommitment(
+		commitSig.CommitSig, commitSig.HtlcSigs)
+	if err != nil {
+		return err
+	}
+
+	// Lastly, send a revocation back to the link.
+	remoteRev, _, err := remoteChannel.RevokeCurrentCommitment()
+	if err != nil {
+		return err
+	}
+	link.HandleChannelUpdate(remoteRev)
+
+	// Sleep to make sure Alice has handled the remote revocation.
+	time.Sleep(500 * time.Millisecond)
+
+	return nil
 }
 
 // TestChannelLinkBandwidthConsistency ensures that the reported bandwidth of a
@@ -1498,29 +1686,39 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 
 	// We'll start the test by creating a single instance of
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
-	aliceLink, cleanUp, err := newSingleLinkTestHarness(chanAmt)
+
+	aliceLink, bobChannel, tmr, cleanUp, _, err :=
+		newSingleLinkTestHarness(chanAmt, 0)
 	if err != nil {
 		t.Fatalf("unable to create link: %v", err)
 	}
 	defer cleanUp()
 
 	var (
+		carolChanID            = lnwire.NewShortChanIDFromInt(3)
 		mockBlob               [lnwire.OnionPacketSize]byte
 		coreChan               = aliceLink.(*channelLink).channel
+		coreLink               = aliceLink.(*channelLink)
 		defaultCommitFee       = coreChan.StateSnapshot().CommitFee
 		aliceStartingBandwidth = aliceLink.Bandwidth()
+		aliceMsgs              = coreLink.cfg.Peer.(*mockPeer).sentMsgs
 	)
+
+	// We put Alice into hodl.ExitSettle mode, such that she won't settle
+	// incoming HTLCs automatically.
+	coreLink.cfg.HodlMask = hodl.MaskFromFlags(hodl.ExitSettle)
+	coreLink.cfg.DebugHTLC = true
 
 	estimator := &lnwallet.StaticFeeEstimator{
 		FeeRate: 24,
 	}
-	feePerWeight, err := estimator.EstimateFeePerWeight(1)
+	feeRate, err := estimator.EstimateFeePerVSize(1)
 	if err != nil {
 		t.Fatalf("unable to query fee estimator: %v", err)
 	}
-	feePerKw := feePerWeight * 1000
+	feePerKw := feeRate.FeePerKWeight()
 	htlcFee := lnwire.NewMSatFromSatoshis(
-		btcutil.Amount((int64(feePerKw) * lnwallet.HtlcWeight) / 1000),
+		feePerKw.FeeForWeight(lnwallet.HtlcWeight),
 	)
 
 	// The starting bandwidth of the channel should be exactly the amount
@@ -1537,21 +1735,77 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		t.Fatalf("unable to create payment: %v", err)
 	}
 	addPkt := htlcPacket{
-		htlc: htlc,
+		htlc:           htlc,
+		incomingChanID: sourceHop,
+		incomingHTLCID: 0,
+		obfuscator:     NewMockObfuscator(),
 	}
-	aliceLink.HandleSwitchPacket(&addPkt)
+
+	circuit := makePaymentCircuit(&htlc.PaymentHash, &addPkt)
+	_, err = coreLink.cfg.Switch.commitCircuits(&circuit)
+	if err != nil {
+		t.Fatalf("unable to commit circuit: %v", err)
+	}
+
+	addPkt.circuit = &circuit
+	if err := aliceLink.HandleSwitchPacket(&addPkt); err != nil {
+		t.Fatalf("unable to handle switch packet: %v", err)
+	}
 	time.Sleep(time.Millisecond * 500)
+
+	// The resulting bandwidth should reflect that Alice is paying the
+	// htlc amount in addition to the htlc fee.
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt-htlcFee)
+
+	// Alice should send the HTLC to Bob.
+	var msg lnwire.Message
+	select {
+	case msg = <-aliceMsgs:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("did not receive message")
+	}
+
+	addHtlc, ok := msg.(*lnwire.UpdateAddHTLC)
+	if !ok {
+		t.Fatalf("expected UpdateAddHTLC, got %T", msg)
+	}
+
+	bobIndex, err := bobChannel.ReceiveHTLC(addHtlc)
+	if err != nil {
+		t.Fatalf("bob failed receiving htlc: %v", err)
+	}
+
+	// Lock in the HTLC.
+	if err := updateState(tmr, coreLink, bobChannel, true); err != nil {
+		t.Fatalf("unable to update state: %v", err)
+	}
+	// Locking in the HTLC should not change Alice's bandwidth.
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt-htlcFee)
 
 	// If we now send in a valid HTLC settle for the prior HTLC we added,
 	// then the bandwidth should remain unchanged as the remote party will
 	// gain additional channel balance.
-	htlcSettle := &lnwire.UpdateFufillHTLC{
+	err = bobChannel.SettleHTLC(invoice.Terms.PaymentPreimage, bobIndex, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("unable to settle htlc: %v", err)
+	}
+	htlcSettle := &lnwire.UpdateFulfillHTLC{
 		ID:              0,
 		PaymentPreimage: invoice.Terms.PaymentPreimage,
 	}
 	aliceLink.HandleChannelUpdate(htlcSettle)
 	time.Sleep(time.Millisecond * 500)
+
+	// Since the settle is not locked in yet, Alice's bandwidth should still
+	// reflect that she has to pay the fee.
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt-htlcFee)
+
+	// Lock in the settle.
+	if err := updateState(tmr, coreLink, bobChannel, false); err != nil {
+		t.Fatalf("unable to update state: %v", err)
+	}
+
+	// Now that it is settled, Alice should have gotten the htlc fee back.
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt)
 
 	// Next, we'll add another HTLC initiated by the switch (of the same
@@ -1561,68 +1815,284 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		t.Fatalf("unable to create payment: %v", err)
 	}
 	addPkt = htlcPacket{
-		htlc: htlc,
+		htlc:           htlc,
+		incomingChanID: sourceHop,
+		incomingHTLCID: 1,
+		obfuscator:     NewMockObfuscator(),
 	}
-	aliceLink.HandleSwitchPacket(&addPkt)
+
+	circuit = makePaymentCircuit(&htlc.PaymentHash, &addPkt)
+	_, err = coreLink.cfg.Switch.commitCircuits(&circuit)
+	if err != nil {
+		t.Fatalf("unable to commit circuit: %v", err)
+	}
+
+	addPkt.circuit = &circuit
+	if err := aliceLink.HandleSwitchPacket(&addPkt); err != nil {
+		t.Fatalf("unable to handle switch packet: %v", err)
+	}
 	time.Sleep(time.Millisecond * 500)
+
+	// Again, Alice's bandwidth decreases by htlcAmt+htlcFee.
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-2*htlcAmt-htlcFee)
+
+	// Alice will send the HTLC to Bob.
+	select {
+	case msg = <-aliceMsgs:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("did not receive message")
+	}
+
+	addHtlc, ok = msg.(*lnwire.UpdateAddHTLC)
+	if !ok {
+		t.Fatalf("expected UpdateAddHTLC, got %T", msg)
+	}
+
+	bobIndex, err = bobChannel.ReceiveHTLC(addHtlc)
+	if err != nil {
+		t.Fatalf("bob failed receiving htlc: %v", err)
+	}
+
+	// Lock in the HTLC, which should not affect the bandwidth.
+	if err := updateState(tmr, coreLink, bobChannel, true); err != nil {
+		t.Fatalf("unable to update state: %v", err)
+	}
+
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt*2-htlcFee)
 
 	// With that processed, we'll now generate an HTLC fail (sent by the
 	// remote peer) to cancel the HTLC we just added. This should return us
 	// back to the bandwidth of the link right before the HTLC was sent.
+	err = bobChannel.FailHTLC(bobIndex, []byte("nop"), nil, nil, nil)
+	if err != nil {
+		t.Fatalf("unable to fail htlc: %v", err)
+	}
 	failMsg := &lnwire.UpdateFailHTLC{
-		ID:     1, // As this is the second HTLC.
+		ID:     1,
 		Reason: lnwire.OpaqueReason([]byte("nop")),
 	}
+
 	aliceLink.HandleChannelUpdate(failMsg)
 	time.Sleep(time.Millisecond * 500)
+
+	// Before the Fail gets locked in, the bandwidth should remain unchanged.
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt*2-htlcFee)
+
+	// Lock in the Fail.
+	if err := updateState(tmr, coreLink, bobChannel, false); err != nil {
+		t.Fatalf("unable to update state: %v", err)
+	}
+
+	// Now the bandwidth should reflect the failed HTLC.
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt)
 
 	// Moving along, we'll now receive a new HTLC from the remote peer,
 	// with an ID of 0 as this is their first HTLC. The bandwidth should
 	// remain unchanged (but Alice will need to pay the fee for the extra
 	// HTLC).
-	updateMsg := &lnwire.UpdateAddHTLC{
-		ID:          0,
-		Amount:      htlcAmt,
-		Expiry:      9,
-		PaymentHash: htlc.PaymentHash, // Re-using the same payment hash.
+	htlcAmt, totalTimelock, hops := generateHops(htlcAmt, testStartingHeight,
+		coreLink)
+	blob, err := generateRoute(hops...)
+	if err != nil {
+		t.Fatalf("unable to gen route: %v", err)
 	}
-	aliceLink.HandleChannelUpdate(updateMsg)
-	time.Sleep(time.Millisecond * 500)
+	invoice, htlc, err = generatePayment(htlcAmt, htlcAmt,
+		totalTimelock, blob)
+	if err != nil {
+		t.Fatalf("unable to create payment: %v", err)
+	}
+
+	// We must add the invoice to the registry, such that Alice expects
+	// this payment.
+	err = coreLink.cfg.Registry.(*mockInvoiceRegistry).AddInvoice(*invoice)
+	if err != nil {
+		t.Fatalf("unable to add invoice to registry: %v", err)
+	}
+
+	htlc.ID = 0
+	bobIndex, err = bobChannel.AddHTLC(htlc, nil)
+	if err != nil {
+		t.Fatalf("unable to add htlc: %v", err)
+	}
+	aliceLink.HandleChannelUpdate(htlc)
+
+	// Alice's balance remains unchanged until this HTLC is locked in.
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt)
+
+	// Lock in the HTLC.
+	if err := updateState(tmr, coreLink, bobChannel, false); err != nil {
+		t.Fatalf("unable to update state: %v", err)
+	}
+
+	// Since Bob is adding this HTLC, Alice only needs to pay the fee.
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt-htlcFee)
+	time.Sleep(time.Millisecond * 500)
+
+	addPkt = htlcPacket{
+		htlc:           htlc,
+		incomingChanID: aliceLink.ShortChanID(),
+		incomingHTLCID: 0,
+		obfuscator:     NewMockObfuscator(),
+	}
+
+	circuit = makePaymentCircuit(&htlc.PaymentHash, &addPkt)
+	_, err = coreLink.cfg.Switch.commitCircuits(&circuit)
+	if err != nil {
+		t.Fatalf("unable to commit circuit: %v", err)
+	}
+
+	addPkt.outgoingChanID = carolChanID
+	addPkt.outgoingHTLCID = 0
+
+	err = coreLink.cfg.Switch.openCircuits(addPkt.keystone())
+	if err != nil {
+		t.Fatalf("unable to set keystone: %v", err)
+	}
 
 	// Next, we'll settle the HTLC with our knowledge of the pre-image that
 	// we eventually learn (simulating a multi-hop payment). The bandwidth
 	// of the channel should now be re-balanced to the starting point.
 	settlePkt := htlcPacket{
-		htlc: &lnwire.UpdateFufillHTLC{
-			ID:              2,
+		incomingChanID: aliceLink.ShortChanID(),
+		incomingHTLCID: 0,
+		circuit:        &circuit,
+		outgoingChanID: addPkt.outgoingChanID,
+		outgoingHTLCID: addPkt.outgoingHTLCID,
+		htlc: &lnwire.UpdateFulfillHTLC{
+			ID:              0,
 			PaymentPreimage: invoice.Terms.PaymentPreimage,
 		},
+		obfuscator: NewMockObfuscator(),
 	}
-	aliceLink.HandleSwitchPacket(&settlePkt)
+
+	if err := aliceLink.HandleSwitchPacket(&settlePkt); err != nil {
+		t.Fatalf("unable to handle switch packet: %v", err)
+	}
 	time.Sleep(time.Millisecond * 500)
+
+	// Settling this HTLC gives Alice all her original bandwidth back.
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth)
+
+	select {
+	case msg = <-aliceMsgs:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("did not receive message")
+	}
+
+	settleMsg, ok := msg.(*lnwire.UpdateFulfillHTLC)
+	if !ok {
+		t.Fatalf("expected UpdateFulfillHTLC, got %T", msg)
+	}
+	err = bobChannel.ReceiveHTLCSettle(settleMsg.PaymentPreimage, settleMsg.ID)
+	if err != nil {
+		t.Fatalf("failed receiving fail htlc: %v", err)
+	}
+
+	// After failing an HTLC, the link will automatically trigger
+	// a state update.
+	if err := handleStateUpdate(coreLink, bobChannel); err != nil {
+		t.Fatalf("unable to update state: %v", err)
+	}
 
 	// Finally, we'll test the scenario of failing an HTLC received by the
 	// remote node. This should result in no perceived bandwidth changes.
-	htlcAdd := &lnwire.UpdateAddHTLC{
-		ID:          1,
-		Amount:      htlcAmt,
-		Expiry:      9,
-		PaymentHash: htlc.PaymentHash,
+	htlcAmt, totalTimelock, hops = generateHops(htlcAmt, testStartingHeight,
+		coreLink)
+	blob, err = generateRoute(hops...)
+	if err != nil {
+		t.Fatalf("unable to gen route: %v", err)
 	}
-	aliceLink.HandleChannelUpdate(htlcAdd)
+	invoice, htlc, err = generatePayment(htlcAmt, htlcAmt, totalTimelock, blob)
+	if err != nil {
+		t.Fatalf("unable to create payment: %v", err)
+	}
+	err = coreLink.cfg.Registry.(*mockInvoiceRegistry).AddInvoice(*invoice)
+	if err != nil {
+		t.Fatalf("unable to add invoice to registry: %v", err)
+	}
+
+	// Since we are not using the link to handle HTLC IDs for the
+	// remote channel, we must set this manually. This is the second
+	// HTLC we add, hence it should have an ID of 1 (Alice's channel
+	// link will set this automatically for her side).
+	htlc.ID = 1
+	bobIndex, err = bobChannel.AddHTLC(htlc, nil)
+	if err != nil {
+		t.Fatalf("unable to add htlc: %v", err)
+	}
+	aliceLink.HandleChannelUpdate(htlc)
 	time.Sleep(time.Millisecond * 500)
+
+	// No changes before the HTLC is locked in.
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth)
+	if err := updateState(tmr, coreLink, bobChannel, false); err != nil {
+		t.Fatalf("unable to update state: %v", err)
+	}
+
+	// After lock-in, Alice will have to pay the htlc fee.
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcFee)
-	failPkt := htlcPacket{
-		htlc: &lnwire.UpdateFailHTLC{
-			ID: 3,
-		},
+
+	addPkt = htlcPacket{
+		htlc:           htlc,
+		incomingChanID: aliceLink.ShortChanID(),
+		incomingHTLCID: 1,
+		obfuscator:     NewMockObfuscator(),
 	}
-	aliceLink.HandleSwitchPacket(&failPkt)
+
+	circuit = makePaymentCircuit(&htlc.PaymentHash, &addPkt)
+	_, err = coreLink.cfg.Switch.commitCircuits(&circuit)
+	if err != nil {
+		t.Fatalf("unable to commit circuit: %v", err)
+	}
+
+	addPkt.outgoingChanID = carolChanID
+	addPkt.outgoingHTLCID = 1
+
+	err = coreLink.cfg.Switch.openCircuits(addPkt.keystone())
+	if err != nil {
+		t.Fatalf("unable to set keystone: %v", err)
+	}
+
+	failPkt := htlcPacket{
+		incomingChanID: aliceLink.ShortChanID(),
+		incomingHTLCID: 1,
+		circuit:        &circuit,
+		outgoingChanID: addPkt.outgoingChanID,
+		outgoingHTLCID: addPkt.outgoingHTLCID,
+		htlc: &lnwire.UpdateFailHTLC{
+			ID: 1,
+		},
+		obfuscator: NewMockObfuscator(),
+	}
+
+	if err := aliceLink.HandleSwitchPacket(&failPkt); err != nil {
+		t.Fatalf("unable to handle switch packet: %v", err)
+	}
 	time.Sleep(time.Millisecond * 500)
+
+	// Alice should get all her bandwidth back.
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth)
+
+	// Message should be sent to Bob.
+	select {
+	case msg = <-aliceMsgs:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("did not receive message")
+	}
+	failMsg, ok = msg.(*lnwire.UpdateFailHTLC)
+	if !ok {
+		t.Fatalf("expected UpdateFailHTLC, got %T", msg)
+	}
+	err = bobChannel.ReceiveFailHTLC(failMsg.ID, []byte("fail"))
+	if err != nil {
+		t.Fatalf("failed receiving fail htlc: %v", err)
+	}
+
+	// After failing an HTLC, the link will automatically trigger
+	// a state update.
+	if err := handleStateUpdate(coreLink, bobChannel); err != nil {
+		t.Fatalf("unable to update state: %v", err)
+	}
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth)
 }
 
@@ -1635,7 +2105,8 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 	var mockBlob [lnwire.OnionPacketSize]byte
 
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
-	aliceLink, cleanUp, err := newSingleLinkTestHarness(chanAmt)
+	aliceLink, bobChannel, batchTick, cleanUp, _, err :=
+		newSingleLinkTestHarness(chanAmt, 0)
 	if err != nil {
 		t.Fatalf("unable to create link: %v", err)
 	}
@@ -1645,27 +2116,39 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 		coreLink               = aliceLink.(*channelLink)
 		defaultCommitFee       = coreLink.channel.StateSnapshot().CommitFee
 		aliceStartingBandwidth = aliceLink.Bandwidth()
+		aliceMsgs              = coreLink.cfg.Peer.(*mockPeer).sentMsgs
 	)
 
 	estimator := &lnwallet.StaticFeeEstimator{
 		FeeRate: 24,
 	}
-	feePerWeight, err := estimator.EstimateFeePerWeight(1)
+	feeRate, err := estimator.EstimateFeePerVSize(1)
 	if err != nil {
 		t.Fatalf("unable to query fee estimator: %v", err)
 	}
-	feePerKw := feePerWeight * 1000
+	feePerKw := feeRate.FeePerKWeight()
 
-	addLinkHTLC := func(amt lnwire.MilliSatoshi) [32]byte {
+	var htlcID uint64
+	addLinkHTLC := func(id uint64, amt lnwire.MilliSatoshi) [32]byte {
 		invoice, htlc, err := generatePayment(amt, amt, 5, mockBlob)
 		if err != nil {
 			t.Fatalf("unable to create payment: %v", err)
 		}
-		aliceLink.HandleSwitchPacket(&htlcPacket{
-			htlc:   htlc,
-			amount: amt,
-		})
 
+		addPkt := &htlcPacket{
+			htlc:           htlc,
+			incomingHTLCID: id,
+			amount:         amt,
+			obfuscator:     NewMockObfuscator(),
+		}
+		circuit := makePaymentCircuit(&htlc.PaymentHash, addPkt)
+		_, err = coreLink.cfg.Switch.commitCircuits(&circuit)
+		if err != nil {
+			t.Fatalf("unable to commit circuit: %v", err)
+		}
+
+		addPkt.circuit = &circuit
+		aliceLink.HandleSwitchPacket(addPkt)
 		return invoice.Terms.PaymentPreimage
 	}
 
@@ -1677,17 +2160,44 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 	const numHTLCs = lnwallet.MaxHTLCNumber / 2
 	var preImages [][32]byte
 	for i := 0; i < numHTLCs; i++ {
-		preImage := addLinkHTLC(htlcAmt)
+		preImage := addLinkHTLC(htlcID, htlcAmt)
 		preImages = append(preImages, preImage)
 
 		totalHtlcAmt += htlcAmt
+		htlcID++
+	}
+
+	// The HTLCs should all be sent to the remote.
+	var msg lnwire.Message
+	for i := 0; i < numHTLCs; i++ {
+		select {
+		case msg = <-aliceMsgs:
+		case <-time.After(15 * time.Second):
+			t.Fatalf("did not receive message %d", i)
+		}
+
+		addHtlc, ok := msg.(*lnwire.UpdateAddHTLC)
+		if !ok {
+			t.Fatalf("expected UpdateAddHTLC, got %T", msg)
+		}
+
+		_, err := bobChannel.ReceiveHTLC(addHtlc)
+		if err != nil {
+			t.Fatalf("bob failed receiving htlc: %v", err)
+		}
+	}
+
+	select {
+	case msg = <-aliceMsgs:
+		t.Fatalf("unexpected message: %T", msg)
+	case <-time.After(20 * time.Millisecond):
 	}
 
 	// TODO(roasbeef): increase sleep
 	time.Sleep(time.Second * 1)
 	commitWeight := lnwallet.CommitWeight + lnwallet.HtlcWeight*numHTLCs
 	htlcFee := lnwire.NewMSatFromSatoshis(
-		btcutil.Amount((int64(feePerKw) * commitWeight) / 1000),
+		feePerKw.FeeForWeight(commitWeight),
 	)
 	expectedBandwidth := aliceStartingBandwidth - totalHtlcAmt - htlcFee
 	expectedBandwidth += lnwire.NewMSatFromSatoshis(defaultCommitFee)
@@ -1705,10 +2215,18 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 	// bandwidth accounting is done properly.
 	const numOverFlowHTLCs = 20
 	for i := 0; i < numOverFlowHTLCs; i++ {
-		preImage := addLinkHTLC(htlcAmt)
+		preImage := addLinkHTLC(htlcID, htlcAmt)
 		preImages = append(preImages, preImage)
 
 		totalHtlcAmt += htlcAmt
+		htlcID++
+	}
+
+	// No messages should be sent to the remote at this point.
+	select {
+	case msg = <-aliceMsgs:
+		t.Fatalf("unexpected message: %T", msg)
+	case <-time.After(20 * time.Millisecond):
 	}
 
 	time.Sleep(time.Second * 2)
@@ -1716,42 +2234,773 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 	assertLinkBandwidth(t, aliceLink, expectedBandwidth)
 
 	// With the extra HTLC's added, the overflow queue should now be
-	// populated with our 10 additional HTLC's.
+	// populated with our 20 additional HTLC's.
 	if coreLink.overflowQueue.Length() != numOverFlowHTLCs {
 		t.Fatalf("wrong overflow queue length: expected %v, got %v",
 			numOverFlowHTLCs,
 			coreLink.overflowQueue.Length())
 	}
 
-	// At this point, we'll now settle one of the HTLC's that were added.
-	// The resulting bandwidth change should be non-existent as this will
-	// simply transfer over funds to the remote party. However, the size of
-	// the overflow queue should be decreasing
+	// We trigger a state update to lock in the HTLCs. This should
+	// not change Alice's bandwidth.
+	if err := updateState(batchTick, coreLink, bobChannel, true); err != nil {
+		t.Fatalf("unable to update state: %v", err)
+	}
+	time.Sleep(time.Millisecond * 500)
+	assertLinkBandwidth(t, aliceLink, expectedBandwidth)
+
+	// At this point, we'll now settle enough HTLCs to empty the overflow
+	// queue. The resulting bandwidth change should be non-existent as this
+	// will simply transfer over funds to the remote party. However, the
+	// size of the overflow queue should be decreasing
 	for i := 0; i < numOverFlowHTLCs; i++ {
-		htlcSettle := &lnwire.UpdateFufillHTLC{
+		err = bobChannel.SettleHTLC(preImages[i], uint64(i), nil, nil, nil)
+		if err != nil {
+			t.Fatalf("unable to settle htlc: %v", err)
+		}
+
+		htlcSettle := &lnwire.UpdateFulfillHTLC{
 			ID:              uint64(i),
 			PaymentPreimage: preImages[i],
 		}
 
 		aliceLink.HandleChannelUpdate(htlcSettle)
 		time.Sleep(time.Millisecond * 50)
+	}
+	time.Sleep(time.Millisecond * 500)
+	assertLinkBandwidth(t, aliceLink, expectedBandwidth)
 
-		// As we're not actually initiating a full state update, we'll
-		// trigger a free-slot signal manually here.
-		coreLink.overflowQueue.SignalFreeSlot()
+	// We trigger a state update to lock in the Settles.
+	if err := updateState(batchTick, coreLink, bobChannel, false); err != nil {
+		t.Fatalf("unable to update state: %v", err)
 	}
 
-	time.Sleep(time.Millisecond * 500)
+	// After the state update is done, Alice should start sending
+	// HTLCs from the overflow queue.
+	for i := 0; i < numOverFlowHTLCs; i++ {
+		var msg lnwire.Message
+		select {
+		case msg = <-aliceMsgs:
+		case <-time.After(15 * time.Second):
+			t.Fatalf("did not receive message")
+		}
+
+		addHtlc, ok := msg.(*lnwire.UpdateAddHTLC)
+		if !ok {
+			t.Fatalf("expected UpdateAddHTLC, got %T", msg)
+		}
+
+		_, err := bobChannel.ReceiveHTLC(addHtlc)
+		if err != nil {
+			t.Fatalf("bob failed receiving htlc: %v", err)
+		}
+	}
+
+	select {
+	case msg = <-aliceMsgs:
+		t.Fatalf("unexpected message: %T", msg)
+	case <-time.After(20 * time.Millisecond):
+	}
+
 	assertLinkBandwidth(t, aliceLink, expectedBandwidth)
 
 	// Finally, at this point, the queue itself should be fully empty. As
 	// enough slots have been drained from the commitment transaction to
 	// allocate the queue items to.
-	time.Sleep(time.Millisecond * 100)
+	time.Sleep(time.Millisecond * 500)
 	if coreLink.overflowQueue.Length() != 0 {
 		t.Fatalf("wrong overflow queue length: expected %v, got %v", 0,
 			coreLink.overflowQueue.Length())
 	}
+}
+
+// genAddsAndCircuits creates `numHtlcs` sequential ADD packets and there
+// corresponding circuits. The provided `htlc` is used in all test packets.
+func genAddsAndCircuits(numHtlcs int, htlc *lnwire.UpdateAddHTLC) (
+	[]*htlcPacket, []*PaymentCircuit) {
+
+	addPkts := make([]*htlcPacket, 0, numHtlcs)
+	circuits := make([]*PaymentCircuit, 0, numHtlcs)
+	for i := 0; i < numHtlcs; i++ {
+		addPkt := htlcPacket{
+			htlc:           htlc,
+			incomingChanID: sourceHop,
+			incomingHTLCID: uint64(i),
+			obfuscator:     NewMockObfuscator(),
+		}
+
+		circuit := makePaymentCircuit(&htlc.PaymentHash, &addPkt)
+		addPkt.circuit = &circuit
+
+		addPkts = append(addPkts, &addPkt)
+		circuits = append(circuits, &circuit)
+	}
+
+	return addPkts, circuits
+}
+
+// TestChannelLinkTrimCircuitsPending checks that the switch and link properly
+// trim circuits if there are open circuits corresponding to ADDs on a pending
+// commmitment transaction.
+func TestChannelLinkTrimCircuitsPending(t *testing.T) {
+	t.Parallel()
+
+	const (
+		chanAmt   = btcutil.SatoshiPerBitcoin * 5
+		numHtlcs  = 4
+		halfHtlcs = numHtlcs / 2
+	)
+
+	// We'll start by creating a new link with our chanAmt (5 BTC). We will
+	// only be testing Alice's behavior, so the reference to Bob's channel
+	// state is unnecessary.
+	aliceLink, _, batchTicker, cleanUp, restore, err :=
+		newSingleLinkTestHarness(chanAmt, 0)
+	if err != nil {
+		t.Fatalf("unable to create link: %v", err)
+	}
+	defer cleanUp()
+
+	alice := newPersistentLinkHarness(t, aliceLink, batchTicker, restore)
+
+	// Compute the static fees that will be used to determine the
+	// correctness of Alice's bandwidth when forwarding HTLCs.
+	estimator := &lnwallet.StaticFeeEstimator{
+		FeeRate: 24,
+	}
+	feeRate, err := estimator.EstimateFeePerVSize(1)
+	if err != nil {
+		t.Fatalf("unable to query fee estimator: %v", err)
+	}
+
+	defaultCommitFee := alice.channel.StateSnapshot().CommitFee
+	htlcFee := lnwire.NewMSatFromSatoshis(
+		feeRate.FeePerKWeight().FeeForWeight(lnwallet.HtlcWeight),
+	)
+
+	// The starting bandwidth of the channel should be exactly the amount
+	// that we created the channel between her and Bob, minus the commitment
+	// fee.
+	expectedBandwidth := lnwire.NewMSatFromSatoshis(chanAmt - defaultCommitFee)
+	assertLinkBandwidth(t, alice.link, expectedBandwidth)
+
+	// Capture Alice's starting bandwidth to perform later, relative
+	// bandwidth assertions.
+	aliceStartingBandwidth := alice.link.Bandwidth()
+
+	// Next, we'll create an HTLC worth 1 BTC that will be used as a dummy
+	// message for the test.
+	var mockBlob [lnwire.OnionPacketSize]byte
+	htlcAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	_, htlc, err := generatePayment(htlcAmt, htlcAmt, 5, mockBlob)
+	if err != nil {
+		t.Fatalf("unable to create payment: %v", err)
+	}
+
+	// Create `numHtlc` htlcPackets and payment circuits that will be used
+	// to drive the test. All of the packets will use the same dummy HTLC.
+	addPkts, circuits := genAddsAndCircuits(numHtlcs, htlc)
+
+	// To begin the test, start by committing the circuits belong to our
+	// first two HTLCs.
+	fwdActions := alice.commitCircuits(circuits[:halfHtlcs])
+
+	// Both of these circuits should have successfully added, as this is the
+	// first attempt to send them.
+	if len(fwdActions.Adds) != halfHtlcs {
+		t.Fatalf("expected %d circuits to be added", halfHtlcs)
+	}
+	alice.assertNumPendingNumOpenCircuits(2, 0)
+
+	// Since both were committed successfully, we will now deliver them to
+	// Alice's link.
+	for _, addPkt := range addPkts[:halfHtlcs] {
+		if err := alice.link.HandleSwitchPacket(addPkt); err != nil {
+			t.Fatalf("unable to handle switch packet: %v", err)
+		}
+	}
+
+	// Wait until Alice's link has sent both HTLCs via the peer.
+	alice.checkSent(addPkts[:halfHtlcs])
+
+	// The resulting bandwidth should reflect that Alice is paying both
+	// htlc amounts, in addition to both htlc fees.
+	assertLinkBandwidth(t, alice.link,
+		aliceStartingBandwidth-halfHtlcs*(htlcAmt+htlcFee),
+	)
+
+	// Now, initiate a state transition by Alice so that the pending HTLCs
+	// are locked in. This will *not* involve any participation by Bob,
+	// which ensures the commitment will remain in a pending state.
+	alice.trySignNextCommitment()
+	alice.assertNumPendingNumOpenCircuits(2, 2)
+
+	// Restart Alice's link, which simulates a disconnection with the remote
+	// peer.
+	cleanUp = alice.restart(false)
+	defer cleanUp()
+
+	alice.assertNumPendingNumOpenCircuits(2, 2)
+
+	// Make a second attempt to commit the first two circuits. This can
+	// happen if the incoming link flaps, but also allows us to verify that
+	// the circuits were trimmed properly.
+	fwdActions = alice.commitCircuits(circuits[:halfHtlcs])
+
+	// Since Alice has a pending commitment with the first two HTLCs, the
+	// restart should not have trimmed them from the circuit map.
+	// Therefore, we expect both of these circuits to be dropped by the
+	// switch, as keystones should still be set.
+	if len(fwdActions.Drops) != halfHtlcs {
+		t.Fatalf("expected %d packets to be dropped", halfHtlcs)
+	}
+
+	// The resulting bandwidth should remain unchanged from before,
+	// reflecting that Alice is paying both htlc amounts, in addition to
+	// both htlc fees.
+	assertLinkBandwidth(t, alice.link,
+		aliceStartingBandwidth-halfHtlcs*(htlcAmt+htlcFee),
+	)
+
+	// Now, restart Alice's link *and* the entire switch. This will ensure
+	// that entire circuit map is reloaded from disk, and we can now test
+	// against the behavioral differences of committing circuits that
+	// conflict with duplicate circuits after a restart.
+	cleanUp = alice.restart(true)
+	defer cleanUp()
+
+	alice.assertNumPendingNumOpenCircuits(2, 2)
+
+	// Alice should not send out any messages. Even though Alice has a
+	// pending commitment transaction, channel reestablishment is not
+	// enabled in this test.
+	select {
+	case <-alice.msgs:
+		t.Fatalf("message should not have been sent by Alice")
+	case <-time.After(time.Second):
+	}
+
+	// We will now try to commit the circuits for all of our HTLCs. The
+	// first two are already on the pending commitment transaction, the
+	// latter two are new HTLCs.
+	fwdActions = alice.commitCircuits(circuits)
+
+	// The first two circuits should have been dropped, as they are still on
+	// the pending commitment transaction, and the restart should not have
+	// trimmed the circuits for these valid HTLCs.
+	if len(fwdActions.Drops) != halfHtlcs {
+		t.Fatalf("expected %d packets to be dropped", halfHtlcs)
+	}
+	// The latter two circuits are unknown the circuit map, and should
+	// report being added.
+	if len(fwdActions.Adds) != halfHtlcs {
+		t.Fatalf("expected %d packets to be added", halfHtlcs)
+	}
+
+	// Deliver the latter two HTLCs to Alice's links so that they can be
+	// processed and added to the in-memory commitment state.
+	for _, addPkt := range addPkts[halfHtlcs:] {
+		if err := alice.link.HandleSwitchPacket(addPkt); err != nil {
+			t.Fatalf("unable to handle switch packet: %v", err)
+		}
+	}
+
+	// Wait for Alice to send the two latter HTLCs via the peer.
+	alice.checkSent(addPkts[halfHtlcs:])
+
+	// With two HTLCs on the pending commit, and two added to the in-memory
+	// commitment state, the resulting bandwidth should reflect that Alice
+	// is paying the all htlc amounts in addition to all htlc fees.
+	assertLinkBandwidth(t, alice.link,
+		aliceStartingBandwidth-numHtlcs*(htlcAmt+htlcFee),
+	)
+
+	// We will try to initiate a state transition for Alice, which will
+	// ensure the circuits for the two in-memory HTLCs are opened. However,
+	// since we have a pending commitment, these HTLCs will not actually be
+	// included in a commitment.
+	alice.trySignNextCommitment()
+	alice.assertNumPendingNumOpenCircuits(4, 4)
+
+	// Restart Alice's link to simulate a disconnect. Since the switch
+	// remains up throughout, the two latter HTLCs will remain in the link's
+	// mailbox, and will reprocessed upon being reattached to the link.
+	cleanUp = alice.restart(false)
+	defer cleanUp()
+
+	alice.assertNumPendingNumOpenCircuits(4, 2)
+
+	// Again, try to recommit all of our circuits.
+	fwdActions = alice.commitCircuits(circuits)
+
+	// It is expected that all of these will get dropped by the switch.
+	// The first two circuits are still open as a result of being on the
+	// commitment transaction. The latter two should have had their open
+	// circuits trimmed, *but* since the HTLCs are still in Alice's mailbox,
+	// the switch knows not to fail them as a result of the latter two
+	// circuits never having been loaded from disk.
+	if len(fwdActions.Drops) != numHtlcs {
+		t.Fatalf("expected %d packets to be dropped", numHtlcs)
+	}
+
+	// Wait for the latter two htlcs to be pulled from the mailbox, added to
+	// the in-memory channel state, and sent out via the peer.
+	alice.checkSent(addPkts[halfHtlcs:])
+
+	// This should result in reconstructing the same bandwidth as our last
+	// assertion. There are two HTLCs on the pending commit, and two added
+	// to the in-memory commitment state, the resulting bandwidth should
+	// reflect that Alice is paying the all htlc amounts in addition to all
+	// htlc fees.
+	assertLinkBandwidth(t, alice.link,
+		aliceStartingBandwidth-numHtlcs*(htlcAmt+htlcFee),
+	)
+
+	// Again, we will try to initiate a state transition for Alice, which
+	// will ensure the circuits for the two in-memory HTLCs are opened.
+	// As before, these HTLCs will not actually be included in a commitment
+	// since we have a pending commitment.
+	alice.trySignNextCommitment()
+	alice.assertNumPendingNumOpenCircuits(4, 4)
+
+	// As a final persistence check, we will restart the link and switch,
+	// wiping the latter two HTLCs from memory, and forcing their circuits
+	// to be reloaded from disk.
+	cleanUp = alice.restart(true)
+	defer cleanUp()
+
+	alice.assertNumPendingNumOpenCircuits(4, 2)
+
+	// Alice's mailbox will be empty after the restart, and no channel
+	// reestablishment is configured, so no messages will be sent upon
+	// restart.
+	select {
+	case <-alice.msgs:
+		t.Fatalf("message should not have been sent by Alice")
+	case <-time.After(time.Second):
+	}
+
+	// Finally, make one last attempt to commit all circuits.
+	fwdActions = alice.commitCircuits(circuits)
+
+	// The first two HTLCs should still be dropped by the htlcswitch. Their
+	// existence on the pending commitment transaction should prevent their
+	// open circuits from being trimmed.
+	if len(fwdActions.Drops) != halfHtlcs {
+		t.Fatalf("expected %d packets to be dropped", halfHtlcs)
+	}
+	// The latter two HTLCs should now be failed by the switch. These will
+	// have been trimmed by the link or switch restarting, and since the
+	// HTLCs are known to be lost from memory (since their circuits were
+	// loaded from disk), it is safe fail them back as they won't ever be
+	// delivered to the outgoing link.
+	if len(fwdActions.Fails) != halfHtlcs {
+		t.Fatalf("expected %d packets to be dropped", halfHtlcs)
+	}
+
+	// Since the latter two HTLCs have been completely dropped from memory,
+	// only the first two HTLCs we added should still be reflected in the
+	// channel bandwidth.
+	assertLinkBandwidth(t, alice.link,
+		aliceStartingBandwidth-halfHtlcs*(htlcAmt+htlcFee),
+	)
+}
+
+// TestChannelLinkTrimCircuitsNoCommit checks that the switch and link properly trim
+// circuits if the ADDs corresponding to open circuits are never committed.
+func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
+	t.Parallel()
+
+	const (
+		chanAmt   = btcutil.SatoshiPerBitcoin * 5
+		numHtlcs  = 4
+		halfHtlcs = numHtlcs / 2
+	)
+
+	// We'll start by creating a new link with our chanAmt (5 BTC). We will
+	// only be testing Alice's behavior, so the reference to Bob's channel
+	// state is unnecessary.
+	aliceLink, _, batchTicker, cleanUp, restore, err :=
+		newSingleLinkTestHarness(chanAmt, 0)
+	if err != nil {
+		t.Fatalf("unable to create link: %v", err)
+	}
+	defer cleanUp()
+
+	alice := newPersistentLinkHarness(t, aliceLink, batchTicker, restore)
+
+	// We'll put Alice into hodl.Commit mode, such that the circuits for any
+	// outgoing ADDs are opened, but the changes are not committed in the
+	// channel state.
+	alice.coreLink.cfg.HodlMask = hodl.Commit.Mask()
+	alice.coreLink.cfg.DebugHTLC = true
+
+	// Compute the static fees that will be used to determine the
+	// correctness of Alice's bandwidth when forwarding HTLCs.
+	estimator := &lnwallet.StaticFeeEstimator{
+		FeeRate: 24,
+	}
+	feeRate, err := estimator.EstimateFeePerVSize(1)
+	if err != nil {
+		t.Fatalf("unable to query fee estimator: %v", err)
+	}
+
+	defaultCommitFee := alice.channel.StateSnapshot().CommitFee
+	htlcFee := lnwire.NewMSatFromSatoshis(
+		feeRate.FeePerKWeight().FeeForWeight(lnwallet.HtlcWeight),
+	)
+
+	// The starting bandwidth of the channel should be exactly the amount
+	// that we created the channel between her and Bob, minus the commitment
+	// fee.
+	expectedBandwidth := lnwire.NewMSatFromSatoshis(chanAmt - defaultCommitFee)
+	assertLinkBandwidth(t, alice.link, expectedBandwidth)
+
+	// Capture Alice's starting bandwidth to perform later, relative
+	// bandwidth assertions.
+	aliceStartingBandwidth := alice.link.Bandwidth()
+
+	// Next, we'll create an HTLC worth 1 BTC that will be used as a dummy
+	// message for the test.
+	var mockBlob [lnwire.OnionPacketSize]byte
+	htlcAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	_, htlc, err := generatePayment(htlcAmt, htlcAmt, 5, mockBlob)
+	if err != nil {
+		t.Fatalf("unable to create payment: %v", err)
+	}
+
+	// Create `numHtlc` htlcPackets and payment circuits that will be used
+	// to drive the test. All of the packets will use the same dummy HTLC.
+	addPkts, circuits := genAddsAndCircuits(numHtlcs, htlc)
+
+	// To begin the test, start by committing the circuits belong to our
+	// first two HTLCs.
+	fwdActions := alice.commitCircuits(circuits[:halfHtlcs])
+
+	// Both of these circuits should have successfully added, as this is the
+	// first attempt to send them.
+	if len(fwdActions.Adds) != halfHtlcs {
+		t.Fatalf("expected %d circuits to be added", halfHtlcs)
+	}
+
+	// Since both were committed successfully, we will now deliver them to
+	// Alice's link.
+	for _, addPkt := range addPkts[:halfHtlcs] {
+		if err := alice.link.HandleSwitchPacket(addPkt); err != nil {
+			t.Fatalf("unable to handle switch packet: %v", err)
+		}
+	}
+
+	// Wait until Alice's link has sent both HTLCs via the peer.
+	alice.checkSent(addPkts[:halfHtlcs])
+
+	// The resulting bandwidth should reflect that Alice is paying both
+	// htlc amounts, in addition to both htlc fees.
+	assertLinkBandwidth(t, alice.link,
+		aliceStartingBandwidth-halfHtlcs*(htlcAmt+htlcFee),
+	)
+
+	alice.assertNumPendingNumOpenCircuits(2, 0)
+
+	// Now, init a state transition by Alice to try and commit the HTLCs.
+	// Since she is in hodl.Commit mode, this will fail, but the circuits
+	// will be opened persistently.
+	alice.trySignNextCommitment()
+
+	alice.assertNumPendingNumOpenCircuits(2, 2)
+
+	// Restart Alice's link, which simulates a disconnection with the remote
+	// peer. Alice's link and switch should trim the circuits that were
+	// opened but not committed.
+	cleanUp = alice.restart(false, hodl.Commit)
+	defer cleanUp()
+
+	alice.assertNumPendingNumOpenCircuits(2, 0)
+
+	// The first two HTLCs should have been reset in Alice's mailbox since
+	// the switch was not shutdown. Knowing this the switch should drop the
+	// two circuits, even if the circuits were trimmed.
+	fwdActions = alice.commitCircuits(circuits[:halfHtlcs])
+	if len(fwdActions.Drops) != halfHtlcs {
+		t.Fatalf("expected %d packets to be dropped since "+
+			"the switch has not been restarted", halfHtlcs)
+	}
+
+	// Wait for alice to process the first two HTLCs resend them via the
+	// peer.
+	alice.checkSent(addPkts[:halfHtlcs])
+
+	// The resulting bandwidth should reflect that Alice is paying both htlc
+	// amounts, in addition to both htlc fees.
+	assertLinkBandwidth(t, alice.link,
+		aliceStartingBandwidth-halfHtlcs*(htlcAmt+htlcFee),
+	)
+
+	// Again, initiate another state transition by Alice to try and commit
+	// the HTLCs.  Since she is in hodl.Commit mode, this will fail, but the
+	// circuits will be opened persistently.
+	alice.trySignNextCommitment()
+	alice.assertNumPendingNumOpenCircuits(2, 2)
+
+	// Now, we we will do a full restart of the link and switch, configuring
+	// Alice again in hodl.Commit mode. Since none of the HTLCs were
+	// actually committed, the previously opened circuits should be trimmed
+	// by both the link and switch.
+	cleanUp = alice.restart(true, hodl.Commit)
+	defer cleanUp()
+
+	alice.assertNumPendingNumOpenCircuits(2, 0)
+
+	// Attempt another commit of our first two circuits. Both should fail,
+	// as the opened circuits should have been trimmed, and circuit map
+	// recognizes that these HTLCs were lost during the restart.
+	fwdActions = alice.commitCircuits(circuits[:halfHtlcs])
+	if len(fwdActions.Fails) != halfHtlcs {
+		t.Fatalf("expected %d packets to be failed", halfHtlcs)
+	}
+
+	// Bob should not receive any HTLCs from Alice, since Alice's mailbox is
+	// empty and there is no pending commitment.
+	select {
+	case <-alice.msgs:
+		t.Fatalf("received unexpected message from Alice")
+	case <-time.After(time.Second):
+	}
+
+	// Alice's bandwidth should have reverted back to her starting value.
+	assertLinkBandwidth(t, alice.link, aliceStartingBandwidth)
+
+	// Now, try to commit the last two payment circuits, which are unused
+	// thus far. These should succeed without hestiation.
+	fwdActions = alice.commitCircuits(circuits[halfHtlcs:])
+	if len(fwdActions.Adds) != halfHtlcs {
+		t.Fatalf("expected %d packets to be added", halfHtlcs)
+	}
+
+	// Deliver the last two HTLCs to the link via Alice's mailbox.
+	for _, addPkt := range addPkts[halfHtlcs:] {
+		if err := alice.link.HandleSwitchPacket(addPkt); err != nil {
+			t.Fatalf("unable to handle switch packet: %v", err)
+		}
+	}
+
+	// Verify that Alice processed and sent out the ADD packets via the
+	// peer.
+	alice.checkSent(addPkts[halfHtlcs:])
+
+	// The resulting bandwidth should reflect that Alice is paying both htlc
+	// amounts, in addition to both htlc fees.
+	assertLinkBandwidth(t, alice.link,
+		aliceStartingBandwidth-halfHtlcs*(htlcAmt+htlcFee),
+	)
+
+	// Now, initiate a state transition for Alice. Since we are hodl.Commit
+	// mode, this will only open the circuits that were added to the
+	// in-memory channel state.
+	alice.trySignNextCommitment()
+	alice.assertNumPendingNumOpenCircuits(4, 2)
+
+	// Restart Alice's link, and place her back in hodl.Commit mode. On
+	// restart, all previously opened circuits should be trimmed by both the
+	// link and the switch.
+	cleanUp = alice.restart(false, hodl.Commit)
+	defer cleanUp()
+
+	alice.assertNumPendingNumOpenCircuits(4, 0)
+
+	// Now, try to commit all of known circuits.
+	fwdActions = alice.commitCircuits(circuits)
+
+	// The first two HTLCs will fail to commit for the same reason as
+	// before, the circuits have been trimmed.
+	if len(fwdActions.Fails) != halfHtlcs {
+		t.Fatalf("expected %d packet to be failed", halfHtlcs)
+	}
+
+	// The last two HTLCs will be dropped, as thought the circuits are
+	// trimmed, the switch is aware that the HTLCs are still in Alice's
+	// mailbox.
+	if len(fwdActions.Drops) != halfHtlcs {
+		t.Fatalf("expected %d packet to be dropped", halfHtlcs)
+	}
+
+	// Wait until Alice reprocesses the last two HTLCs and sends them via
+	// the peer.
+	alice.checkSent(addPkts[halfHtlcs:])
+
+	// Her bandwidth should now reflect having sent only those two HTLCs.
+	assertLinkBandwidth(t, alice.link,
+		aliceStartingBandwidth-halfHtlcs*(htlcAmt+htlcFee),
+	)
+
+	// Now, initiate a state transition for Alice. Since we are hodl.Commit
+	// mode, this will only open the circuits that were added to the
+	// in-memory channel state.
+	alice.trySignNextCommitment()
+	alice.assertNumPendingNumOpenCircuits(4, 2)
+
+	// Finally, do one last restart of both the link and switch. This will
+	// flush the HTLCs from the mailbox. The circuits should now be trimmed
+	// for all of the HTLCs.
+	cleanUp = alice.restart(true, hodl.Commit)
+	defer cleanUp()
+
+	alice.assertNumPendingNumOpenCircuits(4, 0)
+
+	// Bob should not receive any HTLCs from Alice, as none of the HTLCs are
+	// in Alice's mailbox, and channel reestablishment is disabled.
+	select {
+	case <-alice.msgs:
+		t.Fatalf("received unexpected message from Alice")
+	case <-time.After(time.Second):
+	}
+
+	// Attempt to commit the last two circuits, both should now fail since
+	// though they were opened before shutting down, the circuits have been
+	// properly trimmed.
+	fwdActions = alice.commitCircuits(circuits[halfHtlcs:])
+	if len(fwdActions.Fails) != halfHtlcs {
+		t.Fatalf("expected %d packet to be failed", halfHtlcs)
+	}
+
+	// Alice balance should not have changed since the start.
+	assertLinkBandwidth(t, alice.link, aliceStartingBandwidth)
+}
+
+// TestChannelLinkBandwidthChanReserve checks that the bandwidth available
+// on the channel link reflects the channel reserve that must be kept
+// at all times.
+func TestChannelLinkBandwidthChanReserve(t *testing.T) {
+	t.Parallel()
+
+	// First start a link that has a balance greater than it's
+	// channel reserve.
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	const chanReserve = btcutil.SatoshiPerBitcoin * 1
+	aliceLink, bobChannel, batchTimer, cleanUp, _, err :=
+		newSingleLinkTestHarness(chanAmt, chanReserve)
+	if err != nil {
+		t.Fatalf("unable to create link: %v", err)
+	}
+	defer cleanUp()
+
+	var (
+		mockBlob               [lnwire.OnionPacketSize]byte
+		coreLink               = aliceLink.(*channelLink)
+		coreChan               = coreLink.channel
+		defaultCommitFee       = coreChan.StateSnapshot().CommitFee
+		aliceStartingBandwidth = aliceLink.Bandwidth()
+		aliceMsgs              = coreLink.cfg.Peer.(*mockPeer).sentMsgs
+	)
+
+	estimator := &lnwallet.StaticFeeEstimator{
+		FeeRate: 24,
+	}
+	feeRate, err := estimator.EstimateFeePerVSize(1)
+	if err != nil {
+		t.Fatalf("unable to query fee estimator: %v", err)
+	}
+	feePerKw := feeRate.FeePerKWeight()
+	htlcFee := lnwire.NewMSatFromSatoshis(
+		feePerKw.FeeForWeight(lnwallet.HtlcWeight),
+	)
+
+	// The starting bandwidth of the channel should be exactly the amount
+	// that we created the channel between her and Bob, minus the channel
+	// reserve.
+	expectedBandwidth := lnwire.NewMSatFromSatoshis(
+		chanAmt - defaultCommitFee - chanReserve)
+	assertLinkBandwidth(t, aliceLink, expectedBandwidth)
+
+	// Next, we'll create an HTLC worth 3 BTC, and send it into the link as
+	// a switch initiated payment.  The resulting bandwidth should
+	// now be decremented to reflect the new HTLC.
+	htlcAmt := lnwire.NewMSatFromSatoshis(3 * btcutil.SatoshiPerBitcoin)
+	invoice, htlc, err := generatePayment(htlcAmt, htlcAmt, 5, mockBlob)
+	if err != nil {
+		t.Fatalf("unable to create payment: %v", err)
+	}
+
+	addPkt := &htlcPacket{
+		htlc:       htlc,
+		obfuscator: NewMockObfuscator(),
+	}
+	circuit := makePaymentCircuit(&htlc.PaymentHash, addPkt)
+	_, err = coreLink.cfg.Switch.commitCircuits(&circuit)
+	if err != nil {
+		t.Fatalf("unable to commit circuit: %v", err)
+	}
+
+	aliceLink.HandleSwitchPacket(addPkt)
+	time.Sleep(time.Millisecond * 100)
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt-htlcFee)
+
+	// Alice should send the HTLC to Bob.
+	var msg lnwire.Message
+	select {
+	case msg = <-aliceMsgs:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("did not receive message")
+	}
+
+	addHtlc, ok := msg.(*lnwire.UpdateAddHTLC)
+	if !ok {
+		t.Fatalf("expected UpdateAddHTLC, got %T", msg)
+	}
+
+	bobIndex, err := bobChannel.ReceiveHTLC(addHtlc)
+	if err != nil {
+		t.Fatalf("bob failed receiving htlc: %v", err)
+	}
+
+	// Lock in the HTLC.
+	if err := updateState(batchTimer, coreLink, bobChannel, true); err != nil {
+		t.Fatalf("unable to update state: %v", err)
+	}
+
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt-htlcFee)
+
+	// If we now send in a valid HTLC settle for the prior HTLC we added,
+	// then the bandwidth should remain unchanged as the remote party will
+	// gain additional channel balance.
+	err = bobChannel.SettleHTLC(invoice.Terms.PaymentPreimage, bobIndex, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("unable to settle htlc: %v", err)
+	}
+	htlcSettle := &lnwire.UpdateFulfillHTLC{
+		ID:              bobIndex,
+		PaymentPreimage: invoice.Terms.PaymentPreimage,
+	}
+	aliceLink.HandleChannelUpdate(htlcSettle)
+	time.Sleep(time.Millisecond * 500)
+
+	// Since the settle is not locked in yet, Alice's bandwidth should still
+	// reflect that she has to pay the fee.
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt-htlcFee)
+
+	// Lock in the settle.
+	if err := updateState(batchTimer, coreLink, bobChannel, false); err != nil {
+		t.Fatalf("unable to update state: %v", err)
+	}
+
+	time.Sleep(time.Millisecond * 100)
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt)
+
+	// Now we create a channel that has a channel reserve that is
+	// greater than it's balance. In these case only payments can
+	// be received on this channel, not sent. The available bandwidth
+	// should therefore be 0.
+	const bobChanAmt = btcutil.SatoshiPerBitcoin * 1
+	const bobChanReserve = btcutil.SatoshiPerBitcoin * 1.5
+	bobLink, _, _, bobCleanUp, _, err :=
+		newSingleLinkTestHarness(bobChanAmt, bobChanReserve)
+	if err != nil {
+		t.Fatalf("unable to create link: %v", err)
+	}
+	defer bobCleanUp()
+
+	// Make sure bandwidth is reported as 0.
+	assertLinkBandwidth(t, bobLink, 0)
 }
 
 // TestChannelRetransmission tests the ability of the channel links to
@@ -1791,13 +3040,13 @@ func TestChannelRetransmission(t *testing.T) {
 
 				// Alice should resend the revoke_and_ack
 				// message to Bob because Bob claimed it in the
-				// reestbalish message.
+				// re-establish message.
 				{"alice", "bob", &lnwire.RevokeAndAck{}, false},
 
 				// Proceed the payment farther by sending the
 				// fulfilment message and trigger the state
 				// update.
-				{"bob", "alice", &lnwire.UpdateFufillHTLC{}, false},
+				{"bob", "alice", &lnwire.UpdateFulfillHTLC{}, false},
 				{"bob", "alice", &lnwire.CommitSig{}, false},
 				{"alice", "bob", &lnwire.RevokeAndAck{}, false},
 				{"alice", "bob", &lnwire.CommitSig{}, false},
@@ -1839,7 +3088,7 @@ func TestChannelRetransmission(t *testing.T) {
 				// fulfilment message and trigger the state
 				// update.
 				{"alice", "bob", &lnwire.RevokeAndAck{}, false},
-				{"bob", "alice", &lnwire.UpdateFufillHTLC{}, false},
+				{"bob", "alice", &lnwire.UpdateFulfillHTLC{}, false},
 				{"bob", "alice", &lnwire.CommitSig{}, false},
 				{"alice", "bob", &lnwire.RevokeAndAck{}, false},
 				{"alice", "bob", &lnwire.CommitSig{}, false},
@@ -1881,7 +3130,7 @@ func TestChannelRetransmission(t *testing.T) {
 				{"bob", "alice", &lnwire.CommitSig{}, false},
 				{"alice", "bob", &lnwire.RevokeAndAck{}, false},
 
-				{"bob", "alice", &lnwire.UpdateFufillHTLC{}, false},
+				{"bob", "alice", &lnwire.UpdateFulfillHTLC{}, false},
 				{"bob", "alice", &lnwire.CommitSig{}, false},
 				{"alice", "bob", &lnwire.RevokeAndAck{}, false},
 				{"alice", "bob", &lnwire.CommitSig{}, false},
@@ -2028,8 +3277,8 @@ func TestChannelRetransmission(t *testing.T) {
 // deviates from our current fee by more 10% or more.
 func TestShouldAdjustCommitFee(t *testing.T) {
 	tests := []struct {
-		netFee       btcutil.Amount
-		chanFee      btcutil.Amount
+		netFee       lnwallet.SatPerKWeight
+		chanFee      lnwallet.SatPerKWeight
 		shouldAdjust bool
 	}{
 
@@ -2187,9 +3436,15 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 
 	startingFeeRate := channels.aliceToBob.CommitFeeRate()
 
+	// Convert starting fee rate to sat/vbyte. This is usually a
+	// lossy conversion, but since the startingFeeRate is
+	// 6000 sat/kw in this case, we won't lose precision.
+	startingFeeRateSatPerVByte := lnwallet.SatPerVByte(
+		startingFeeRate * 4 / 1000)
+
 	// Next, we'll send the first fee rate response to Alice.
 	select {
-	case n.feeEstimator.weightFeeIn <- startingFeeRate / 1000:
+	case n.feeEstimator.byteFeeIn <- startingFeeRateSatPerVByte:
 	case <-time.After(time.Second * 5):
 		t.Fatalf("alice didn't query for the new " +
 			"network fee")
@@ -2236,7 +3491,7 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 	// fee update.
 	newFeeRate := startingFeeRate * 3
 	select {
-	case n.feeEstimator.weightFeeIn <- newFeeRate:
+	case n.feeEstimator.byteFeeIn <- startingFeeRateSatPerVByte * 3:
 	case <-time.After(time.Second * 5):
 		t.Fatalf("alice didn't query for the new " +
 			"network fee")
@@ -2246,22 +3501,415 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 
 	// At this point, Alice should've triggered a new fee update that
 	// increased the fee rate to match the new rate.
-	//
-	// We'll scale the new fee rate by 100 as we deal with units of fee
-	// per-kw.
-	expectedFeeRate := newFeeRate * 1000
 	aliceFeeRate = channels.aliceToBob.CommitFeeRate()
 	bobFeeRate = channels.bobToAlice.CommitFeeRate()
-	if aliceFeeRate != expectedFeeRate {
+	if aliceFeeRate != newFeeRate {
 		t.Fatalf("alice's fee rate didn't change: expected %v, got %v",
-			expectedFeeRate, aliceFeeRate)
+			newFeeRate, aliceFeeRate)
 	}
-	if bobFeeRate != expectedFeeRate {
+	if bobFeeRate != newFeeRate {
 		t.Fatalf("bob's fee rate didn't change: expected %v, got %v",
-			expectedFeeRate, aliceFeeRate)
+			newFeeRate, aliceFeeRate)
 	}
 	if aliceFeeRate != bobFeeRate {
 		t.Fatalf("fee rates don't match: expected %v got %v",
 			aliceFeeRate, bobFeeRate)
 	}
+}
+
+// TestChannelLinkAcceptDuplicatePayment tests that if a link receives an
+// incoming HTLC for a payment we have already settled, then it accepts the
+// HTLC. We do this to simplify the processing of settles after restarts or
+// failures, reducing ambiguity when a batch is only partially processed.
+func TestChannelLinkAcceptDuplicatePayment(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll create our traditional three hop network. We'll only be
+	// interacting with and asserting the state of two of the end points
+	// for this test.
+	channels, cleanUp, _, err := createClusterChannels(
+		btcutil.SatoshiPerBitcoin*3,
+		btcutil.SatoshiPerBitcoin*5)
+	if err != nil {
+		t.Fatalf("unable to create channel: %v", err)
+	}
+	defer cleanUp()
+
+	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
+	if err := n.start(); err != nil {
+		t.Fatalf("unable to start three hop network: %v", err)
+	}
+	defer n.stop()
+
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+
+	// We'll start off by making a payment from Alice to Carol. We'll
+	// manually generate this request so we can control all the parameters.
+	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
+		n.firstBobChannelLink, n.carolChannelLink)
+	blob, err := generateRoute(hops...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invoice, htlc, err := generatePayment(amount, htlcAmt, totalTimelock,
+		blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := n.carolServer.registry.AddInvoice(*invoice); err != nil {
+		t.Fatalf("unable to add invoice in carol registry: %v", err)
+	}
+
+	// With the invoice now added to Carol's registry, we'll send the
+	// payment. It should succeed w/o any issues as it has been crafted
+	// properly.
+	_, err = n.aliceServer.htlcSwitch.SendHTLC(n.bobServer.PubKey(), htlc,
+		newMockDeobfuscator())
+	if err != nil {
+		t.Fatalf("unable to send payment to carol: %v", err)
+	}
+
+	// Now, if we attempt to send the payment *again* it should be rejected
+	// as it's a duplicate request.
+	_, err = n.aliceServer.htlcSwitch.SendHTLC(n.bobServer.PubKey(), htlc,
+		newMockDeobfuscator())
+	if err != nil {
+		t.Fatalf("error shouldn't have been received got: %v", err)
+	}
+}
+
+// TestChannelLinkAcceptOverpay tests that if we create an invoice for sender,
+// and the sender sends *more* than specified in the invoice, then we'll still
+// accept it and settle as normal.
+func TestChannelLinkAcceptOverpay(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll create our traditional three hop network. We'll only be
+	// interacting with and asserting the state of two of the end points
+	// for this test.
+	channels, cleanUp, _, err := createClusterChannels(
+		btcutil.SatoshiPerBitcoin*3,
+		btcutil.SatoshiPerBitcoin*5)
+	if err != nil {
+		t.Fatalf("unable to create channel: %v", err)
+	}
+	defer cleanUp()
+
+	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
+	if err := n.start(); err != nil {
+		t.Fatalf("unable to start three hop network: %v", err)
+	}
+	defer n.stop()
+
+	carolBandwidthBefore := n.carolChannelLink.Bandwidth()
+	firstBobBandwidthBefore := n.firstBobChannelLink.Bandwidth()
+	secondBobBandwidthBefore := n.secondBobChannelLink.Bandwidth()
+	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
+
+	// We'll request a route to send 10k satoshis via Alice -> Bob ->
+	// Carol.
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	htlcAmt, totalTimelock, hops := generateHops(
+		amount, testStartingHeight,
+		n.firstBobChannelLink, n.carolChannelLink,
+	)
+
+	// When we actually go to send the payment, we'll actually create an
+	// invoice at Carol for only half of this amount.
+	receiver := n.carolServer
+	rhash, err := n.makePayment(
+		n.aliceServer, n.carolServer, n.bobServer.PubKey(),
+		hops, amount/2, htlcAmt, totalTimelock,
+	).Wait(30 * time.Second)
+	if err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Even though we sent 2x what was asked for, Carol should still have
+	// accepted the payment and marked it as settled.
+	invoice, err := receiver.registry.LookupInvoice(rhash)
+	if err != nil {
+		t.Fatalf("unable to get invoice: %v", err)
+	}
+	if !invoice.Terms.Settled {
+		t.Fatal("carol invoice haven't been settled")
+	}
+
+	expectedAliceBandwidth := aliceBandwidthBefore - htlcAmt
+	if expectedAliceBandwidth != n.aliceChannelLink.Bandwidth() {
+		t.Fatalf("channel bandwidth incorrect: expected %v, got %v",
+			expectedAliceBandwidth, n.aliceChannelLink.Bandwidth())
+	}
+
+	expectedBobBandwidth1 := firstBobBandwidthBefore + htlcAmt
+	if expectedBobBandwidth1 != n.firstBobChannelLink.Bandwidth() {
+		t.Fatalf("channel bandwidth incorrect: expected %v, got %v",
+			expectedBobBandwidth1, n.firstBobChannelLink.Bandwidth())
+	}
+
+	expectedBobBandwidth2 := secondBobBandwidthBefore - amount
+	if expectedBobBandwidth2 != n.secondBobChannelLink.Bandwidth() {
+		t.Fatalf("channel bandwidth incorrect: expected %v, got %v",
+			expectedBobBandwidth2, n.secondBobChannelLink.Bandwidth())
+	}
+
+	expectedCarolBandwidth := carolBandwidthBefore + amount
+	if expectedCarolBandwidth != n.carolChannelLink.Bandwidth() {
+		t.Fatalf("channel bandwidth incorrect: expected %v, got %v",
+			expectedCarolBandwidth, n.carolChannelLink.Bandwidth())
+	}
+}
+
+// chanRestoreFunc is a method signature for functions that can reload both
+// endpoints of a link from their persistent storage engines.
+type chanRestoreFunc func() (*lnwallet.LightningChannel, *lnwallet.LightningChannel, error)
+
+// persistentLinkHarness is used to control the lifecylce of a link and the
+// switch that operates it. It supports the ability to restart either the link
+// or both the link and the switch.
+type persistentLinkHarness struct {
+	t *testing.T
+
+	link     ChannelLink
+	coreLink *channelLink
+	channel  *lnwallet.LightningChannel
+
+	batchTicker chan time.Time
+	msgs        chan lnwire.Message
+
+	restoreChan chanRestoreFunc
+}
+
+// newPersistentLinkHarness initializes a new persistentLinkHarness and derives
+// the supporting references from the active link.
+func newPersistentLinkHarness(t *testing.T, link ChannelLink,
+	batchTicker chan time.Time,
+	restore chanRestoreFunc) *persistentLinkHarness {
+
+	coreLink := link.(*channelLink)
+
+	return &persistentLinkHarness{
+		t:           t,
+		link:        link,
+		coreLink:    coreLink,
+		channel:     coreLink.channel,
+		batchTicker: batchTicker,
+		msgs:        coreLink.cfg.Peer.(*mockPeer).sentMsgs,
+		restoreChan: restore,
+	}
+}
+
+// restart facilitates a shutdown and restart of the link maintained by the
+// harness. The primary purpose of this method is to ensure the consistency of
+// the supporting references is maintained across restarts.
+//
+// If `restartSwitch` is set, the entire switch will also be restarted,
+// and will be reinitialized with the contents of the channeldb backing Alice's
+// channel.
+//
+// Any number of hodl flags can be passed as additional arguments to this
+// method. If none are provided, the mask will be extracted as hodl.MaskNone.
+func (h *persistentLinkHarness) restart(restartSwitch bool,
+	hodlFlags ...hodl.Flag) func() {
+
+	// First, remove the link from the switch.
+	h.coreLink.cfg.Switch.RemoveLink(h.link.ChanID())
+
+	var htlcSwitch *Switch
+	if restartSwitch {
+		// If a switch restart is requested, we will stop it and
+		// leave htlcSwitch nil, which will trigger the creation
+		// of a fresh instance in restartLink.
+		h.coreLink.cfg.Switch.Stop()
+	} else {
+		// Otherwise, we capture the switch's reference so that
+		// it can be carried over to the restarted link.
+		htlcSwitch = h.coreLink.cfg.Switch
+	}
+
+	// Since our in-memory state may have diverged from our persistent
+	// state, we will restore the persisted state to ensure we always start
+	// the link in a consistent state.
+	var err error
+	h.channel, _, err = h.restoreChan()
+	if err != nil {
+		h.t.Fatalf("unable to restore channels: %v", err)
+	}
+
+	// Now, restart the link using the channel state. This will take care of
+	// adding the link to an existing switch, or creating a new one using
+	// the database owned by the link.
+	var cleanUp func()
+	h.link, h.batchTicker, cleanUp, err = restartLink(
+		h.channel, htlcSwitch, hodlFlags,
+	)
+	if err != nil {
+		h.t.Fatalf("unable to restart alicelink: %v", err)
+	}
+
+	// Repopulate the remaining fields in the harness.
+	h.coreLink = h.link.(*channelLink)
+	h.msgs = h.coreLink.cfg.Peer.(*mockPeer).sentMsgs
+
+	return cleanUp
+}
+
+// checkSent reads the links message stream and verify that the messages are
+// dequeued in the same order as provided by `pkts`.
+func (h *persistentLinkHarness) checkSent(pkts []*htlcPacket) {
+	for _, pkt := range pkts {
+		var msg lnwire.Message
+		select {
+		case msg = <-h.msgs:
+		case <-time.After(15 * time.Second):
+			h.t.Fatalf("did not receive message")
+		}
+
+		if !reflect.DeepEqual(msg, pkt.htlc) {
+			h.t.Fatalf("unexpected packet, want %v, got %v",
+				pkt.htlc, msg)
+		}
+	}
+}
+
+// commitCircuits accepts a list of circuits and tries to commit them to the
+// switch's circuit map. The forwarding actions are returned if there was no
+// failure.
+func (h *persistentLinkHarness) commitCircuits(circuits []*PaymentCircuit) *CircuitFwdActions {
+	fwdActions, err := h.coreLink.cfg.Switch.commitCircuits(circuits...)
+	if err != nil {
+		h.t.Fatalf("unable to commit circuit: %v", err)
+	}
+
+	return fwdActions
+}
+
+func (h *persistentLinkHarness) assertNumPendingNumOpenCircuits(
+	wantPending, wantOpen int) {
+
+	_, _, line, _ := runtime.Caller(1)
+
+	numPending := h.coreLink.cfg.Switch.circuits.NumPending()
+	if numPending != wantPending {
+		h.t.Fatalf("line: %d: wrong number of pending circuits: "+
+			"want %d, got %d", line, wantPending, numPending)
+	}
+	numOpen := h.coreLink.cfg.Switch.circuits.NumOpen()
+	if numOpen != wantOpen {
+		h.t.Fatalf("line: %d: wrong number of open circuits: "+
+			"want %d, got %d", line, wantOpen, numOpen)
+	}
+}
+
+// trySignNextCommitment signals the batch ticker so that the link will try to
+// update its commitment transaction.
+func (h *persistentLinkHarness) trySignNextCommitment() {
+	select {
+	case h.batchTicker <- time.Now():
+		// Give the link enough time to process the request.
+		time.Sleep(time.Millisecond * 500)
+
+	case <-time.After(15 * time.Second):
+		h.t.Fatalf("did not initiate state transition")
+	}
+}
+
+// restartLink creates a new channel link from the given channel state, and adds
+// to an htlcswitch. If none is provided by the caller, a new one will be
+// created using Alice's database.
+func restartLink(aliceChannel *lnwallet.LightningChannel, aliceSwitch *Switch,
+	hodlFlags []hodl.Flag) (ChannelLink, chan time.Time, func(), error) {
+
+	var (
+		globalEpoch = &chainntnfs.BlockEpochEvent{
+			Epochs: make(chan *chainntnfs.BlockEpoch),
+			Cancel: func() {
+			},
+		}
+		invoiceRegistry = newMockRegistry()
+		decoder         = newMockIteratorDecoder()
+		obfuscator      = NewMockObfuscator()
+		alicePeer       = &mockPeer{
+			sentMsgs: make(chan lnwire.Message, 2000),
+			quit:     make(chan struct{}),
+		}
+
+		globalPolicy = ForwardingPolicy{
+			MinHTLC:       lnwire.NewMSatFromSatoshis(5),
+			BaseFee:       lnwire.NewMSatFromSatoshis(1),
+			TimeLockDelta: 6,
+		}
+
+		pCache = &mockPreimageCache{
+			// hash -> preimage
+			preimageMap: make(map[[32]byte][]byte),
+		}
+	)
+
+	aliceDb := aliceChannel.State().Db
+
+	if aliceSwitch == nil {
+		var err error
+		aliceSwitch, err = New(Config{DB: aliceDb})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+	}
+
+	t := make(chan time.Time)
+	ticker := &mockTicker{t}
+	aliceCfg := ChannelLinkConfig{
+		FwrdingPolicy:      globalPolicy,
+		Peer:               alicePeer,
+		Switch:             aliceSwitch,
+		Circuits:           aliceSwitch.CircuitModifier(),
+		ForwardPackets:     aliceSwitch.ForwardPackets,
+		DecodeHopIterators: decoder.DecodeHopIterators,
+		ExtractErrorEncrypter: func(*btcec.PublicKey) (
+			ErrorEncrypter, lnwire.FailCode) {
+			return obfuscator, lnwire.CodeNone
+		},
+		FetchLastChannelUpdate: mockGetChanUpdateMessage,
+		PreimageCache:          pCache,
+		UpdateContractSignals: func(*contractcourt.ContractSignals) error {
+			return nil
+		},
+		Registry:       invoiceRegistry,
+		ChainEvents:    &contractcourt.ChainEventSubscription{},
+		BlockEpochs:    globalEpoch,
+		BatchTicker:    ticker,
+		FwdPkgGCTicker: NewBatchTicker(time.NewTicker(5 * time.Second)),
+		// Make the BatchSize large enough to not
+		// trigger commit update automatically during tests.
+		BatchSize: 10000,
+		// Set any hodl flags requested for the new link.
+		HodlMask:  hodl.MaskFromFlags(hodlFlags...),
+		DebugHTLC: len(hodlFlags) > 0,
+	}
+
+	const startingHeight = 100
+	aliceLink := NewChannelLink(aliceCfg, aliceChannel, startingHeight)
+	if err := aliceSwitch.AddLink(aliceLink); err != nil {
+		return nil, nil, nil, err
+	}
+	go func() {
+		for {
+			select {
+			case <-aliceLink.(*channelLink).htlcUpdates:
+			case <-aliceLink.(*channelLink).quit:
+				return
+			}
+		}
+	}()
+
+	cleanUp := func() {
+		close(alicePeer.quit)
+		defer aliceLink.Stop()
+	}
+
+	return aliceLink, t, cleanUp, nil
 }

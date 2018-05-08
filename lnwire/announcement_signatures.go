@@ -1,10 +1,6 @@
 package lnwire
 
-import (
-	"io"
-
-	"github.com/roasbeef/btcd/btcec"
-)
+import "io"
 
 // AnnounceSignatures this is a direct message between two endpoints of a
 // channel and serves as an opt-in mechanism to allow the announcement of
@@ -27,13 +23,13 @@ type AnnounceSignatures struct {
 	// NodeSignature is the signature which contains the signed announce
 	// channel message, by this signature we proof that we possess of the
 	// node pub key and creating the reference node_key -> bitcoin_key.
-	NodeSignature *btcec.Signature
+	NodeSignature Sig
 
 	// BitcoinSignature is the signature which contains the signed node
 	// public key, by this signature we proof that we possess of the
 	// bitcoin key and and creating the reverse reference bitcoin_key ->
 	// node_key.
-	BitcoinSignature *btcec.Signature
+	BitcoinSignature Sig
 }
 
 // A compile time check to ensure AnnounceSignatures implements the

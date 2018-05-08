@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/boltdb/bolt"
+	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
@@ -95,22 +95,25 @@ import (
 // constraints have fully matured. The store exposes methods for enumerating its
 // contents, and persisting state transitions detected by the utxo nursery.
 type NurseryStore interface {
-
-	// Incubate registers a commitment output and a slice of htlc outputs to
-	// be swept back into the user's wallet. The event is persisted to disk,
-	// such that the nursery can resume the incubation process after a
-	// potential crash.
-	Incubate(*kidOutput, []babyOutput) error
+	// Incubate registers a set of CSV delayed outputs (incoming HTLC's on
+	// our commitment transaction, or a commitment output), and a slice of
+	// outgoing htlc outputs to be swept back into the user's wallet. The
+	// event is persisted to disk, such that the nursery can resume the
+	// incubation process after a potential crash.
+	Incubate([]kidOutput, []babyOutput) error
 
 	// CribToKinder atomically moves a babyOutput in the crib bucket to the
-	// kindergarten bucket. The now mature kidOutput contained in the
-	// babyOutput will be stored as it waits out the kidOutput's CSV delay.
+	// kindergarten bucket. Baby outputs are outgoing HTLC's which require
+	// us to go to the second-layer to claim. The now mature kidOutput
+	// contained in the babyOutput will be stored as it waits out the
+	// kidOutput's CSV delay.
 	CribToKinder(*babyOutput) error
 
 	// PreschoolToKinder atomically moves a kidOutput from the preschool
-	// bucket to the kindergarten bucket. This transition should be executed
-	// after receiving confirmation of the preschool output's commitment
-	// transaction.
+	// bucket to the kindergarten bucket. This transition should be
+	// executed after receiving confirmation of the preschool output.
+	// Incoming HTLC's we need to go to the second-layer to claim, and also
+	// our commitment outputs fall into this class.
 	PreschoolToKinder(*kidOutput) error
 
 	// GraduateKinder atomically moves the kindergarten class at the
@@ -121,8 +124,8 @@ type NurseryStore interface {
 	// removed.
 	GraduateKinder(height uint32) error
 
-	// FetchPreschools returns a list of all outputs currently stored in the
-	// preschool bucket.
+	// FetchPreschools returns a list of all outputs currently stored in
+	// the preschool bucket.
 	FetchPreschools() ([]kidOutput, error)
 
 	// FetchClass returns a list of kindergarten and crib outputs whose
@@ -218,7 +221,7 @@ var (
 	// kndrPrefix is the state prefix given to all CSV delayed outputs,
 	// either from the commitment transaction, or a stage-one htlc
 	// transaction, whose maturity height has solidified. Outputs marked in
-	// this state are in their final stage of incubation withn the nursery,
+	// this state are in their final stage of incubation within the nursery,
 	// and will be swept into the wallet after waiting out the relative
 	// timelock.
 	kndrPrefix = []byte("kndr")
@@ -300,18 +303,23 @@ func newNurseryStore(chainHash *chainhash.Hash,
 	}, nil
 }
 
-// Incubate persists the beginning of the incubation process for the CSV-delayed
-// commitment output and a list of two-stage htlc outputs.
-func (ns *nurseryStore) Incubate(kid *kidOutput, babies []babyOutput) error {
+// Incubate persists the beginning of the incubation process for the
+// CSV-delayed outputs (commitment and incoming HTLC's), commitment output and
+// a list of outgoing two-stage htlc outputs.
+func (ns *nurseryStore) Incubate(kids []kidOutput, babies []babyOutput) error {
 	return ns.db.Update(func(tx *bolt.Tx) error {
-		// Store commitment output in preschool bucket if not nil.
-		if kid != nil {
-			if err := ns.enterPreschool(tx, kid); err != nil {
+		// If we have any kid outputs to incubate, then we'll attempt
+		// to add each of them to the nursery store. Any duplicate
+		// outputs will be ignored.
+		for _, kid := range kids {
+			if err := ns.enterPreschool(tx, &kid); err != nil {
 				return err
 			}
 		}
 
-		// Add all htlc outputs to the crib bucket.
+		// Next, we'll Add all htlc outputs to the crib bucket.
+		// Similarly, we'll ignore any outputs that have already been
+		// inserted.
 		for _, baby := range babies {
 			if err := ns.enterCrib(tx, &baby); err != nil {
 				return err
@@ -384,13 +392,17 @@ func (ns *nurseryStore) CribToKinder(bby *babyOutput) error {
 		// the block height at which the output was confirmed.
 		maturityHeight := bby.ConfHeight() + bby.BlocksToMaturity()
 
-		// Retrive or create a height-channel bucket corresponding to
+		// Retrieve or create a height-channel bucket corresponding to
 		// the kidOutput's maturity height.
 		hghtChanBucketCsv, err := ns.createHeightChanBucket(tx,
 			maturityHeight, chanPoint)
 		if err != nil {
 			return err
 		}
+
+		utxnLog.Tracef("Transitioning (crib -> baby) output for "+
+			"chan_point=%v at height_index=%v", chanPoint,
+			maturityHeight)
 
 		// Register the kindergarten output's prefixed output key in the
 		// height-channel bucket corresponding to its maturity height.
@@ -405,7 +417,6 @@ func (ns *nurseryStore) CribToKinder(bby *babyOutput) error {
 // confirmation of the preschool output's commitment transaction.
 func (ns *nurseryStore) PreschoolToKinder(kid *kidOutput) error {
 	return ns.db.Update(func(tx *bolt.Tx) error {
-
 		// Create or retrieve the channel bucket corresponding to the
 		// kid output's origin channel point.
 		chanPoint := kid.OriginChanPoint()
@@ -451,13 +462,41 @@ func (ns *nurseryStore) PreschoolToKinder(kid *kidOutput) error {
 			return err
 		}
 
-		// Since the CSV delay on the kid output has now begun ticking,
-		// we must insert a record of in the height index to remind us
-		// to revisit this output once it has fully matured.
+		// If this output has an absolute time lock, then we'll set the
+		// maturity height directly.
+		var maturityHeight uint32
+		if kid.BlocksToMaturity() == 0 {
+			maturityHeight = kid.absoluteMaturity
+		} else {
+			// Otherwise, since the CSV delay on the kid output has
+			// now begun ticking, we must insert a record of in the
+			// height index to remind us to revisit this output
+			// once it has fully matured.
+			//
+			// Compute the maturity height, by adding the output's
+			// CSV delay to its confirmation height.
+			maturityHeight = kid.ConfHeight() + kid.BlocksToMaturity()
+		}
 
-		// Compute the maturity height, by adding the output's CSV delay
-		// to its confirmation height.
-		maturityHeight := kid.ConfHeight() + kid.BlocksToMaturity()
+		// In the case of a Late Registration, we've already graduated
+		// the class that this kid is destined for. So we'll bump its
+		// height by one to ensure we don't forget to graduate it.
+		lastGradHeight, err := ns.getLastGraduatedHeight(tx)
+		if err != nil {
+			return err
+		}
+		if maturityHeight <= lastGradHeight {
+			utxnLog.Debugf("Late Registration for kid output=%v "+
+				"detected: class_height=%v, "+
+				"last_graduated_height=%v", kid.OutPoint(),
+				maturityHeight, lastGradHeight)
+
+			maturityHeight = lastGradHeight + 1
+		}
+
+		utxnLog.Infof("Transitioning (crib -> kid) output for "+
+			"chan_point=%v at height_index=%v", chanPoint,
+			maturityHeight)
 
 		// Create or retrieve the height-channel bucket for this
 		// channel. This method will first create a height bucket for
@@ -940,6 +979,19 @@ func (ns *nurseryStore) enterCrib(tx *bolt.Tx, baby *babyOutput) error {
 		return err
 	}
 
+	// Since we are inserting this output into the crib bucket, we create a
+	// key that prefixes the baby output's outpoint with the crib prefix.
+	pfxOutputKey, err := prefixOutputKey(cribPrefix, baby.OutPoint())
+	if err != nil {
+		return err
+	}
+
+	// We'll first check that we don't already have an entry for this
+	// output. If we do, then we can exit early.
+	if rawBytes := chanBucket.Get(pfxOutputKey); rawBytes != nil {
+		return nil
+	}
+
 	// Next, retrieve or create the height-channel bucket located in the
 	// height bucket corresponding to the baby output's CLTV expiry height.
 	hghtChanBucket, err := ns.createHeightChanBucket(tx,
@@ -948,15 +1000,8 @@ func (ns *nurseryStore) enterCrib(tx *bolt.Tx, baby *babyOutput) error {
 		return err
 	}
 
-	// Since we are inserting this output into the crib bucket, we create a
-	// key that prefixes the baby output's outpoint with the crib prefix.
-	pfxOutputKey, err := prefixOutputKey(cribPrefix, baby.OutPoint())
-	if err != nil {
-		return err
-	}
-
-	// Serialize the baby output so that it can be written to the underlying
-	// key-value store.
+	// Serialize the baby output so that it can be written to the
+	// underlying key-value store.
 	var babyBuffer bytes.Buffer
 	if err := baby.Encode(&babyBuffer); err != nil {
 		return err
@@ -970,9 +1015,9 @@ func (ns *nurseryStore) enterCrib(tx *bolt.Tx, baby *babyOutput) error {
 	}
 
 	// Finally, create a corresponding bucket in the height-channel bucket
-	// for this crib output. The existence of this bucket indicates that the
-	// serialized output can be retrieved from the channel bucket using the
-	// same prefix key.
+	// for this crib output. The existence of this bucket indicates that
+	// the serialized output can be retrieved from the channel bucket using
+	// the same prefix key.
 	return hghtChanBucket.Put(pfxOutputKey, []byte{})
 }
 
@@ -994,6 +1039,12 @@ func (ns *nurseryStore) enterPreschool(tx *bolt.Tx, kid *kidOutput) error {
 	pfxOutputKey, err := prefixOutputKey(psclPrefix, kid.OutPoint())
 	if err != nil {
 		return err
+	}
+
+	// We'll first check if an entry for this key is already stored. If so,
+	// then we'll ignore this request, and return a nil error.
+	if rawBytes := chanBucket.Get(pfxOutputKey); rawBytes != nil {
+		return nil
 	}
 
 	// Serialize the kidOutput and insert it into the channel bucket.
@@ -1304,7 +1355,7 @@ func (ns *nurseryStore) getLastFinalizedHeight(tx *bolt.Tx) (uint32, error) {
 	return byteOrder.Uint32(heightBytes), nil
 }
 
-// finalizeKinder records a finalized kingergarten sweep txn to the given height
+// finalizeKinder records a finalized kindergarten sweep txn to the given height
 // bucket. It also updates the nursery store's last finalized height, so that we
 // do not finalize the same height twice. If the finalized txn is nil, i.e. if
 // the height has no kindergarten outputs, the height will be marked as
@@ -1412,7 +1463,7 @@ func (ns *nurseryStore) putLastGraduatedHeight(tx *bolt.Tx, height uint32) error
 		return err
 	}
 
-	// Serialize the provided last-gradauted height, and store it in the
+	// Serialize the provided last-graduated height, and store it in the
 	// top-level chain bucket for this nursery store.
 	var lastHeightBytes [4]byte
 	byteOrder.PutUint32(lastHeightBytes[:], height)

@@ -456,7 +456,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 // disconnected if the local or remote side terminating the connection, or an
 // irrecoverable protocol error has been encountered.
 func (p *peer) WaitForDisconnect() {
-	<-p.quit
+	p.wg.Wait()
 }
 
 // Disconnect terminates the connection with the remote peer. Additionally, a
@@ -473,8 +473,6 @@ func (p *peer) Disconnect(reason error) {
 	p.conn.Close()
 
 	close(p.quit)
-
-	p.wg.Wait()
 }
 
 // String returns the string representation of this peer.

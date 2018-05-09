@@ -3433,23 +3433,27 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 		Private: true,
 	}
 
-	resp, err := net.Alice.AddInvoice(ctxb, invoice)
-	if err != nil {
-		t.Fatalf("unable to add invoice: %v", err)
-	}
-
-	// We'll decode the invoice's payment request to determine which
-	// channels were used as routing hints.
-	payReq := &lnrpc.PayReqString{resp.PaymentRequest}
-	decoded, err := net.Alice.DecodePayReq(ctxb, payReq)
-	if err != nil {
-		t.Fatalf("unable to decode payment request: %v", err)
-	}
-
 	// Due to the way the channels were set up above, the channel between
 	// Alice and Bob should be the only channel used as a routing hint.
 	var predErr error
+	var decoded *lnrpc.PayReq
 	err = lntest.WaitPredicate(func() bool {
+		resp, err := net.Alice.AddInvoice(ctxb, invoice)
+		if err != nil {
+			predErr = fmt.Errorf("unable to add invoice: %v", err)
+			return false
+		}
+
+		// We'll decode the invoice's payment request to determine which
+		// channels were used as routing hints.
+		payReq := &lnrpc.PayReqString{resp.PaymentRequest}
+		decoded, err = net.Alice.DecodePayReq(ctxb, payReq)
+		if err != nil {
+			predErr = fmt.Errorf("unable to decode payment "+
+				"request: %v", err)
+			return false
+		}
+
 		if len(decoded.RouteHints) != 1 {
 			predErr = fmt.Errorf("expected one route hint, got %d",
 				len(decoded.RouteHints))
@@ -6518,7 +6522,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 		return true
 	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("htlc mismatch: %v", err)
+		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
 	// Now we'll mine enough blocks to prompt carol to actually go to the

@@ -1414,12 +1414,12 @@ func (m *mockPeer) Disconnect(reason error) {
 var _ Peer = (*mockPeer)(nil)
 
 func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
-	ChannelLink, *lnwallet.LightningChannel, chan time.Time, func(),
-	chanRestoreFunc, error) {
+	ChannelLink, *lnwallet.LightningChannel, chan time.Time, func() error,
+	func(), chanRestoreFunc, error) {
 
 	var chanIDBytes [8]byte
 	if _, err := io.ReadFull(rand.Reader, chanIDBytes[:]); err != nil {
-		return nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, err
 	}
 
 	chanID := lnwire.NewShortChanIDFromInt(
@@ -1430,7 +1430,7 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 		chanReserve, chanReserve, chanID,
 	)
 	if err != nil {
-		return nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, err
 	}
 
 	var (
@@ -1461,7 +1461,7 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 	aliceDb := aliceChannel.State().Db
 	aliceSwitch, err := initSwitchWithDB(aliceDb)
 	if err != nil {
-		return nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, err
 	}
 
 	t := make(chan time.Time)
@@ -1494,8 +1494,8 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 
 	const startingHeight = 100
 	aliceLink := NewChannelLink(aliceCfg, aliceChannel, startingHeight)
-	if err := aliceSwitch.AddLink(aliceLink); err != nil {
-		return nil, nil, nil, nil, nil, err
+	start := func() error {
+		return aliceSwitch.AddLink(aliceLink)
 	}
 	go func() {
 		for {
@@ -1514,7 +1514,7 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 		defer bobChannel.Stop()
 	}
 
-	return aliceLink, bobChannel, t, cleanUp, restore, nil
+	return aliceLink, bobChannel, t, start, cleanUp, restore, nil
 }
 
 func assertLinkBandwidth(t *testing.T, link ChannelLink,
@@ -1686,12 +1686,16 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	// We'll start the test by creating a single instance of
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
 
-	aliceLink, bobChannel, tmr, cleanUp, _, err :=
+	aliceLink, bobChannel, tmr, start, cleanUp, _, err :=
 		newSingleLinkTestHarness(chanAmt, 0)
 	if err != nil {
 		t.Fatalf("unable to create link: %v", err)
 	}
 	defer cleanUp()
+
+	if err := start(); err != nil {
+		t.Fatalf("unable to start test harness: %v", err)
+	}
 
 	var (
 		carolChanID            = lnwire.NewShortChanIDFromInt(3)
@@ -2104,12 +2108,16 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 	var mockBlob [lnwire.OnionPacketSize]byte
 
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
-	aliceLink, bobChannel, batchTick, cleanUp, _, err :=
+	aliceLink, bobChannel, batchTick, start, cleanUp, _, err :=
 		newSingleLinkTestHarness(chanAmt, 0)
 	if err != nil {
 		t.Fatalf("unable to create link: %v", err)
 	}
 	defer cleanUp()
+
+	if err := start(); err != nil {
+		t.Fatalf("unable to start test harness: %v", err)
+	}
 
 	var (
 		coreLink               = aliceLink.(*channelLink)
@@ -2353,12 +2361,16 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 	// We'll start by creating a new link with our chanAmt (5 BTC). We will
 	// only be testing Alice's behavior, so the reference to Bob's channel
 	// state is unnecessary.
-	aliceLink, _, batchTicker, cleanUp, restore, err :=
+	aliceLink, _, batchTicker, start, cleanUp, restore, err :=
 		newSingleLinkTestHarness(chanAmt, 0)
 	if err != nil {
 		t.Fatalf("unable to create link: %v", err)
 	}
 	defer cleanUp()
+
+	if err := start(); err != nil {
+		t.Fatalf("unable to start test harness: %v", err)
+	}
 
 	alice := newPersistentLinkHarness(t, aliceLink, batchTicker, restore)
 
@@ -2619,12 +2631,16 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	// We'll start by creating a new link with our chanAmt (5 BTC). We will
 	// only be testing Alice's behavior, so the reference to Bob's channel
 	// state is unnecessary.
-	aliceLink, _, batchTicker, cleanUp, restore, err :=
+	aliceLink, _, batchTicker, start, cleanUp, restore, err :=
 		newSingleLinkTestHarness(chanAmt, 0)
 	if err != nil {
 		t.Fatalf("unable to create link: %v", err)
 	}
 	defer cleanUp()
+
+	if err := start(); err != nil {
+		t.Fatalf("unable to start test harness: %v", err)
+	}
 
 	alice := newPersistentLinkHarness(t, aliceLink, batchTicker, restore)
 
@@ -2876,12 +2892,16 @@ func TestChannelLinkBandwidthChanReserve(t *testing.T) {
 	// channel reserve.
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
 	const chanReserve = btcutil.SatoshiPerBitcoin * 1
-	aliceLink, bobChannel, batchTimer, cleanUp, _, err :=
+	aliceLink, bobChannel, batchTimer, start, cleanUp, _, err :=
 		newSingleLinkTestHarness(chanAmt, chanReserve)
 	if err != nil {
 		t.Fatalf("unable to create link: %v", err)
 	}
 	defer cleanUp()
+
+	if err := start(); err != nil {
+		t.Fatalf("unable to start test harness: %v", err)
+	}
 
 	var (
 		mockBlob               [lnwire.OnionPacketSize]byte
@@ -2991,12 +3011,16 @@ func TestChannelLinkBandwidthChanReserve(t *testing.T) {
 	// should therefore be 0.
 	const bobChanAmt = btcutil.SatoshiPerBitcoin * 1
 	const bobChanReserve = btcutil.SatoshiPerBitcoin * 1.5
-	bobLink, _, _, bobCleanUp, _, err :=
+	bobLink, _, _, start, bobCleanUp, _, err :=
 		newSingleLinkTestHarness(bobChanAmt, bobChanReserve)
 	if err != nil {
 		t.Fatalf("unable to create link: %v", err)
 	}
 	defer bobCleanUp()
+
+	if err := start(); err != nil {
+		t.Fatalf("unable to start test harness: %v", err)
+	}
 
 	// Make sure bandwidth is reported as 0.
 	assertLinkBandwidth(t, bobLink, 0)
@@ -4070,12 +4094,16 @@ func TestChannelLinkNoMoreUpdates(t *testing.T) {
 
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
 	const chanReserve = btcutil.SatoshiPerBitcoin * 1
-	aliceLink, bobChannel, _, cleanUp, _, err :=
+	aliceLink, bobChannel, _, start, cleanUp, _, err :=
 		newSingleLinkTestHarness(chanAmt, chanReserve)
 	if err != nil {
 		t.Fatalf("unable to create link: %v", err)
 	}
 	defer cleanUp()
+
+	if err := start(); err != nil {
+		t.Fatalf("unable to start test harness: %v", err)
+	}
 
 	var (
 		coreLink  = aliceLink.(*channelLink)
@@ -4158,12 +4186,16 @@ func TestChannelLinkWaitForRevocation(t *testing.T) {
 
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
 	const chanReserve = btcutil.SatoshiPerBitcoin * 1
-	aliceLink, bobChannel, _, cleanUp, _, err :=
+	aliceLink, bobChannel, _, start, cleanUp, _, err :=
 		newSingleLinkTestHarness(chanAmt, chanReserve)
 	if err != nil {
 		t.Fatalf("unable to create link: %v", err)
 	}
 	defer cleanUp()
+
+	if err := start(); err != nil {
+		t.Fatalf("unable to start test harness: %v", err)
+	}
 
 	var (
 		coreLink  = aliceLink.(*channelLink)

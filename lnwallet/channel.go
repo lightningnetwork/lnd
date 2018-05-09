@@ -138,8 +138,7 @@ const (
 	// from the log. Adding a MalformedFail entry to ones log will modify
 	// the _remote_ parties update log once a new commitment view has been
 	// evaluated which contains the MalformedFail entry. The difference
-	// from Fail type lie in
-	// the different data we have to store.
+	// from Fail type lie in the different data we have to store.
 	MalformedFail
 
 	// Settle is an update type which settles a prior HTLC crediting the
@@ -623,13 +622,13 @@ func (c *commitment) populateHtlcIndexes() error {
 	for i := 0; i < len(c.outgoingHTLCs); i++ {
 		htlc := &c.outgoingHTLCs[i]
 		if err := populateIndex(htlc, false); err != nil {
-			return nil
+			return err
 		}
 	}
 	for i := 0; i < len(c.incomingHTLCs); i++ {
 		htlc := &c.incomingHTLCs[i]
 		if err := populateIndex(htlc, true); err != nil {
-			return nil
+			return err
 		}
 	}
 
@@ -1369,9 +1368,7 @@ func NewLightningChannel(signer Signer, pCache PreimageCache,
 
 	// With the main channel struct reconstructed, we'll now restore the
 	// commitment state in memory and also the update logs themselves.
-	err := lc.restoreCommitState(
-		&localCommit, &remoteCommit, localUpdateLog, remoteUpdateLog,
-	)
+	err := lc.restoreCommitState(&localCommit, &remoteCommit)
 	if err != nil {
 		return nil, err
 	}
@@ -1580,8 +1577,7 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 // to re-sync states with the remote party, and also verify/extend new proposed
 // commitment states.
 func (lc *LightningChannel) restoreCommitState(
-	localCommitState, remoteCommitState *channeldb.ChannelCommitment,
-	localUpdateLog, remoteUpdateLog *updateLog) error {
+	localCommitState, remoteCommitState *channeldb.ChannelCommitment) error {
 
 	// In order to reconstruct the pkScripts on each of the pending HTLC
 	// outputs (if any) we'll need to regenerate the current revocation for
@@ -1640,7 +1636,7 @@ func (lc *LightningChannel) restoreCommitState(
 	// extended to the remote party but which was never ACK'd.
 	pendingRemoteCommitDiff, err = lc.channelState.RemoteCommitChainTip()
 	if err != nil && err != channeldb.ErrNoPendingCommit {
-		return nil
+		return err
 	}
 
 	if pendingRemoteCommitDiff != nil {
@@ -1658,6 +1654,13 @@ func (lc *LightningChannel) restoreCommitState(
 			return err
 		}
 		lc.remoteCommitChain.addCommitment(pendingRemoteCommit)
+
+		walletLog.Debugf("ChannelPoint(%v), pending remote "+
+			"commitment: %v", lc.channelState.FundingOutpoint,
+			newLogClosure(func() string {
+				return spew.Sdump(lc.remoteCommitChain.tip())
+			}),
+		)
 
 		// We'll also re-create the set of commitment keys needed to
 		// fully re-derive the state.
@@ -1762,6 +1765,16 @@ func (lc *LightningChannel) restoreStateLogs(
 		}
 
 		if payDesc.EntryType == Add {
+			// The HtlcIndex of the added HTLC _must_ be equal to
+			// the log's htlcCounter at this point. If it is not we
+			// panic to catch this.
+			// TODO(halseth): remove when cause of htlc entry bug
+			// is found.
+			if payDesc.HtlcIndex != lc.localUpdateLog.htlcCounter {
+				panic(fmt.Sprintf("htlc index mismatch: "+
+					"%v vs %v", payDesc.HtlcIndex,
+					lc.localUpdateLog.htlcCounter))
+			}
 			lc.localUpdateLog.appendHtlc(payDesc)
 		} else {
 			lc.localUpdateLog.appendUpdate(payDesc)
@@ -2401,6 +2414,21 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 
 		addEntry := lc.remoteUpdateLog.lookupHtlc(entry.ParentIndex)
 
+		// We check if the parent entry is not found at this point. We
+		// have seen this happening a few times and panic with some
+		// addtitional info to figure out why.
+		// TODO(halseth): remove when bug is fixed.
+		if addEntry == nil {
+			panic(fmt.Sprintf("unable to find parent entry %d "+
+				"in remote update log: %v\nUpdatelog: %v",
+				entry.ParentIndex, newLogClosure(func() string {
+					return spew.Sdump(entry)
+				}), newLogClosure(func() string {
+					return spew.Sdump(lc.remoteUpdateLog)
+				}),
+			))
+		}
+
 		skipThem[addEntry.HtlcIndex] = struct{}{}
 		processRemoveEntry(entry, ourBalance, theirBalance,
 			nextHeight, remoteChain, true, mutateState)
@@ -2420,6 +2448,21 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		}
 
 		addEntry := lc.localUpdateLog.lookupHtlc(entry.ParentIndex)
+
+		// We check if the parent entry is not found at this point. We
+		// have seen this happening a few times and panic with some
+		// addtitional info to figure out why.
+		// TODO(halseth): remove when bug is fixed.
+		if addEntry == nil {
+			panic(fmt.Sprintf("unable to find parent entry %d "+
+				"in local update log: %v\nUpdatelog: %v",
+				entry.ParentIndex, newLogClosure(func() string {
+					return spew.Sdump(entry)
+				}), newLogClosure(func() string {
+					return spew.Sdump(lc.localUpdateLog)
+				}),
+			))
+		}
 
 		skipUs[addEntry.HtlcIndex] = struct{}{}
 		processRemoveEntry(entry, ourBalance, theirBalance,

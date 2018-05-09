@@ -1223,7 +1223,9 @@ func (c *OpenChannel) RemoteCommitChainTip() (*CommitDiff, error) {
 	err := c.Db.View(func(tx *bolt.Tx) error {
 		chanBucket, err := readChanBucket(tx, c.IdentityPub,
 			&c.FundingOutpoint, c.ChainHash)
-		if err != nil {
+		if err == ErrNoActiveChannels || err == ErrNoChanDBExists {
+			return ErrNoPendingCommit
+		} else if err != nil {
 			return err
 		}
 

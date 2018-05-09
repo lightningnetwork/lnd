@@ -153,7 +153,8 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 
 	globalFeatures := lnwire.NewRawFeatureVector()
 
-	serializedPubKey := privKey.PubKey().SerializeCompressed()
+	var serializedPubKey [33]byte
+	copy(serializedPubKey[:], privKey.PubKey().SerializeCompressed())
 
 	// Initialize the sphinx router, placing it's persistent replay log in
 	// the same directory as the channel graph database.
@@ -175,7 +176,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		// TODO(roasbeef): derive proper onion key based on rotation
 		// schedule
 		sphinx:      htlcswitch.NewOnionProcessor(sphinxRouter),
-		lightningID: sha256.Sum256(serializedPubKey),
+		lightningID: sha256.Sum256(serializedPubKey[:]),
 
 		persistentPeers:        make(map[string]struct{}),
 		persistentPeersBackoff: make(map[string]time.Duration),
@@ -209,7 +210,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 			debugPre[:], debugHash[:])
 	}
 
-	htlcSwitch, err := htlcswitch.New(htlcswitch.Config{
+	s.htlcSwitch, err = htlcswitch.New(htlcswitch.Config{
 		DB:      chanDB,
 		SelfKey: s.identityPriv.PubKey(),
 		LocalChannelClose: func(pubKey []byte,
@@ -234,14 +235,14 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 					pubKey[:], err)
 			}
 		},
-		FwdingLog:             chanDB.ForwardingLog(),
-		SwitchPackager:        channeldb.NewSwitchPackager(),
-		ExtractErrorEncrypter: s.sphinx.ExtractErrorEncrypter,
+		FwdingLog:              chanDB.ForwardingLog(),
+		SwitchPackager:         channeldb.NewSwitchPackager(),
+		ExtractErrorEncrypter:  s.sphinx.ExtractErrorEncrypter,
+		FetchLastChannelUpdate: fetchLastChanUpdate(s, serializedPubKey),
 	})
 	if err != nil {
 		return nil, err
 	}
-	s.htlcSwitch = htlcSwitch
 
 	// If external IP addresses have been specified, add those to the list
 	// of this server's addresses. We need to use the cfg.net.ResolveTCPAddr

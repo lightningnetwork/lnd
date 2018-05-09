@@ -140,6 +140,9 @@ func initSwitchWithDB(db *channeldb.DB) (*Switch, error) {
 		FwdingLog: &mockForwardingLog{
 			events: make(map[time.Time]channeldb.ForwardingEvent),
 		},
+		FetchLastChannelUpdate: func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
+			return nil, nil
+		},
 	})
 }
 

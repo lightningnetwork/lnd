@@ -21,7 +21,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/connmgr"
 	"github.com/roasbeef/btcd/txscript"
@@ -414,7 +413,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			DecodeHopIterators:    p.server.sphinx.DecodeHopIterators,
 			ExtractErrorEncrypter: p.server.sphinx.ExtractErrorEncrypter,
 			FetchLastChannelUpdate: fetchLastChanUpdate(
-				p.server.chanRouter, p.PubKey(),
+				p.server, p.PubKey(),
 			),
 			DebugHTLC:      cfg.DebugHTLC,
 			HodlMask:       cfg.Hodl.Mask(),
@@ -1392,7 +1391,7 @@ out:
 				DecodeHopIterators:    p.server.sphinx.DecodeHopIterators,
 				ExtractErrorEncrypter: p.server.sphinx.ExtractErrorEncrypter,
 				FetchLastChannelUpdate: fetchLastChanUpdate(
-					p.server.chanRouter, p.PubKey(),
+					p.server, p.PubKey(),
 				),
 				DebugHTLC:      cfg.DebugHTLC,
 				HodlMask:       cfg.Hodl.Mask(),
@@ -1911,11 +1910,11 @@ func (p *peer) PubKey() [33]byte {
 
 // fetchLastChanUpdate returns a function which is able to retrieve the last
 // channel update for a target channel.
-func fetchLastChanUpdate(router *routing.ChannelRouter,
+func fetchLastChanUpdate(s *server,
 	pubKey [33]byte) func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
 
 	return func(cid lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
-		info, edge1, edge2, err := router.GetChannelByID(cid)
+		info, edge1, edge2, err := s.chanRouter.GetChannelByID(cid)
 		if err != nil {
 			return nil, err
 		}

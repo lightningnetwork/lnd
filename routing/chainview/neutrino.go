@@ -42,7 +42,7 @@ type CfFilteredChainView struct {
 
 	// chainFilter is the
 	filterMtx   sync.RWMutex
-	chainFilter map[wire.OutPoint]struct{}
+	chainFilter map[wire.OutPoint][]byte
 
 	quit chan struct{}
 	wg   sync.WaitGroup
@@ -62,7 +62,7 @@ func NewCfFilteredChainView(node *neutrino.ChainService) (*CfFilteredChainView, 
 		blockQueue:    newBlockEventQueue(),
 		quit:          make(chan struct{}),
 		rescanErrChan: make(chan error),
-		chainFilter:   make(map[wire.OutPoint]struct{}),
+		chainFilter:   make(map[wire.OutPoint][]byte),
 		p2pNode:       node,
 	}, nil
 }
@@ -250,9 +250,8 @@ func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredB
 	// filters.
 	c.filterMtx.RLock()
 	relevantPoints := make([][]byte, 0, len(c.chainFilter))
-	for op := range c.chainFilter {
-		opBytes := builder.OutPointToFilterEntry(op)
-		relevantPoints = append(relevantPoints, opBytes)
+	for _, filterEntry := range c.chainFilter {
+		relevantPoints = append(relevantPoints, filterEntry)
 	}
 	c.filterMtx.RUnlock()
 
@@ -324,7 +323,7 @@ func (c *CfFilteredChainView) UpdateFilter(ops []wire.OutPoint,
 	// UTXO's, ignoring duplicates in the process.
 	c.filterMtx.Lock()
 	for _, op := range ops {
-		c.chainFilter[op] = struct{}{}
+		c.chainFilter[op] = builder.OutPointToFilterEntry(op)
 	}
 	c.filterMtx.Unlock()
 

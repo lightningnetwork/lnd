@@ -4178,7 +4178,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 		}
 	}
 
-	source := lc.channelState.ShortChanID
+	source := lc.ShortChanID()
 
 	// Now that we have gathered the set of HTLCs to forward, separated by
 	// type, construct a forwarding package using the height that the remote
@@ -4356,7 +4356,7 @@ func (lc *LightningChannel) SettleHTLC(preimage [32]byte,
 	htlc := lc.remoteUpdateLog.lookupHtlc(htlcIndex)
 	if htlc == nil {
 		return fmt.Errorf("No HTLC with ID %d in channel %v", htlcIndex,
-			lc.channelState.ShortChanID)
+			lc.ShortChanID())
 	}
 
 	if htlc.RHash != sha256.Sum256(preimage[:]) {
@@ -4391,7 +4391,7 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, htlcIndex uint6
 	htlc := lc.localUpdateLog.lookupHtlc(htlcIndex)
 	if htlc == nil {
 		return fmt.Errorf("No HTLC with ID %d in channel %v", htlcIndex,
-			lc.channelState.ShortChanID)
+			lc.ShortChanID())
 	}
 
 	if htlc.RHash != sha256.Sum256(preimage[:]) {
@@ -4445,7 +4445,7 @@ func (lc *LightningChannel) FailHTLC(htlcIndex uint64, reason []byte,
 	htlc := lc.remoteUpdateLog.lookupHtlc(htlcIndex)
 	if htlc == nil {
 		return fmt.Errorf("No HTLC with ID %d in channel %v", htlcIndex,
-			lc.channelState.ShortChanID)
+			lc.ShortChanID())
 	}
 
 	pd := &PaymentDescriptor{
@@ -4485,7 +4485,7 @@ func (lc *LightningChannel) MalformedFailHTLC(htlcIndex uint64,
 	htlc := lc.remoteUpdateLog.lookupHtlc(htlcIndex)
 	if htlc == nil {
 		return fmt.Errorf("No HTLC with ID %d in channel %v", htlcIndex,
-			lc.channelState.ShortChanID)
+			lc.ShortChanID())
 	}
 
 	pd := &PaymentDescriptor{
@@ -4518,7 +4518,7 @@ func (lc *LightningChannel) ReceiveFailHTLC(htlcIndex uint64, reason []byte,
 	htlc := lc.localUpdateLog.lookupHtlc(htlcIndex)
 	if htlc == nil {
 		return fmt.Errorf("No HTLC with ID %d in channel %v", htlcIndex,
-			lc.channelState.ShortChanID)
+			lc.ShortChanID())
 	}
 
 	pd := &PaymentDescriptor{
@@ -4546,7 +4546,7 @@ func (lc *LightningChannel) ChannelPoint() *wire.OutPoint {
 // ID encodes the exact location in the main chain that the original
 // funding output can be found.
 func (lc *LightningChannel) ShortChanID() lnwire.ShortChannelID {
-	return lc.channelState.ShortChanID
+	return lc.channelState.ShortChanID()
 }
 
 // genHtlcScript generates the proper P2WSH public key scripts for the HTLC

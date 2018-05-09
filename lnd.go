@@ -460,11 +460,9 @@ func lndMain() error {
 			// the chain arb so it can react to on-chain events.
 			return server.chainArb.WatchNewChannel(channel)
 		},
-		ReportShortChanID: func(chanPoint wire.OutPoint,
-			sid lnwire.ShortChannelID) error {
-
+		ReportShortChanID: func(chanPoint wire.OutPoint) error {
 			cid := lnwire.NewChanIDFromOutPoint(&chanPoint)
-			return server.htlcSwitch.UpdateShortChanID(cid, sid)
+			return server.htlcSwitch.UpdateShortChanID(cid)
 		},
 		RequiredRemoteChanReserve: func(chanAmt btcutil.Amount) btcutil.Amount {
 			// By default, we'll require the remote peer to maintain

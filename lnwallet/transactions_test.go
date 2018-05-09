@@ -371,7 +371,7 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 		ChanType:        channeldb.SingleFunder,
 		ChainHash:       *tc.netParams.GenesisHash,
 		FundingOutpoint: tc.fundingOutpoint,
-		ShortChanID:     tc.shortChanID,
+		ShortChannelID:  tc.shortChanID,
 		IsInitiator:     true,
 		IdentityPub:     identityKey,
 		LocalChanCfg: channeldb.ChannelConfig{

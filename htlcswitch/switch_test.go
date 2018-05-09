@@ -3,6 +3,7 @@ package htlcswitch
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"testing"
@@ -22,6 +23,101 @@ func genPreimage() ([32]byte, error) {
 		return preimage, err
 	}
 	return preimage, nil
+}
+
+// TestSwitchSendPending checks the inability of htlc switch to forward adds
+// over pending links, and the UpdateShortChanID makes a pending link live.
+func TestSwitchSendPending(t *testing.T) {
+	t.Parallel()
+
+	alicePeer, err := newMockServer(t, "alice", nil)
+	if err != nil {
+		t.Fatalf("unable to create alice server: %v", err)
+	}
+
+	s, err := initSwitchWithDB(nil)
+	if err != nil {
+		t.Fatalf("unable to init switch: %v", err)
+	}
+	if err := s.Start(); err != nil {
+		t.Fatalf("unable to start switch: %v", err)
+	}
+	defer s.Stop()
+
+	chanID1, _, aliceChanID, bobChanID := genIDs()
+
+	pendingChanID := lnwire.ShortChannelID{}
+
+	aliceChannelLink := newMockChannelLink(
+		s, chanID1, pendingChanID, alicePeer, false,
+	)
+	if err := s.AddLink(aliceChannelLink); err != nil {
+		t.Fatalf("unable to add alice link: %v", err)
+	}
+
+	// Create request which should is being forwarded from Bob channel
+	// link to Alice channel link.
+	preimage, err := genPreimage()
+	if err != nil {
+		t.Fatalf("unable to generate preimage: %v", err)
+	}
+	rhash := fastsha256.Sum256(preimage[:])
+	packet := &htlcPacket{
+		incomingChanID: bobChanID,
+		incomingHTLCID: 0,
+		outgoingChanID: aliceChanID,
+		obfuscator:     NewMockObfuscator(),
+		htlc: &lnwire.UpdateAddHTLC{
+			PaymentHash: rhash,
+			Amount:      1,
+		},
+	}
+
+	// Send the ADD packet, this should not be forwarded out to the link
+	// since there are no eligible links.
+	err = s.forward(packet)
+	expErr := fmt.Sprintf("unable to find link with destination %v",
+		aliceChanID)
+	if err != nil && err.Error() != expErr {
+		t.Fatalf("expected forward failure: %v", err)
+	}
+
+	// No message should be sent, since the packet was failed.
+	select {
+	case <-aliceChannelLink.packets:
+		t.Fatal("expected not to receive message")
+	case <-time.After(time.Second):
+	}
+
+	// Since the packet should have been failed, there should be no active
+	// circuits.
+	if s.circuits.NumOpen() != 0 {
+		t.Fatal("wrong amount of circuits")
+	}
+
+	// Now, update Alice's link with her final short channel id. This should
+	// move the link to the live state.
+	aliceChannelLink.setLiveShortChanID(aliceChanID)
+	err = s.UpdateShortChanID(chanID1)
+	if err != nil {
+		t.Fatalf("unable to update alice short_chan_id: %v", err)
+	}
+
+	// Increment the packet's HTLC index, so that it does not collide with
+	// the prior attempt.
+	packet.incomingHTLCID++
+
+	// Handle the request and checks that bob channel link received it.
+	if err := s.forward(packet); err != nil {
+		t.Fatalf("unexpected forward failure: %v", err)
+	}
+
+	// Since Alice's link is now active, this packet should succeed.
+	select {
+	case <-aliceChannelLink.packets:
+	case <-time.After(time.Second):
+		t.Fatal("request was not propagated to alice")
+	}
 }
 
 // TestSwitchForward checks the ability of htlc switch to forward add/settle

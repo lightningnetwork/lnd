@@ -2306,7 +2306,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 			}
 
 			// Fetch the policies for each end of the channel.
-			chanID := channel.ShortChanID.ToUint64()
+			chanID := channel.ShortChanID().ToUint64()
 			_, p1, p2, err := graph.FetchChannelEdgesByID(chanID)
 			if err != nil {
 				rpcsLog.Errorf("Unable to fetch the routing "+

@@ -1,8 +1,7 @@
 # aezeed
 
-[https://github.com/lightningnetwork/lnd/pull/773](In this PR),
-we add a new package implementing the aezeed cipher
-seed scheme (based on [http://web.cs.ucdavis.edu/~rogaway/aez/](aez) ).
+[In this PR](https://github.com/lightningnetwork/lnd/pull/773) we add a new package implementing the aezeed cipher
+seed scheme (based on [aez](http://web.cs.ucdavis.edu/~rogaway/aez/) ).
 
 This is a new scheme developed that aims to overcome the
 two major short comings of BIP39: a lack of a version, and a lack of a

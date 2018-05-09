@@ -3924,15 +3924,27 @@ func (lc *LightningChannel) FullySynced() bool {
 	lastLocalCommit := lc.localCommitChain.tip()
 	lastRemoteCommit := lc.remoteCommitChain.tip()
 
-	oweCommitment := lastLocalCommit.height > lastRemoteCommit.height
-
 	localUpdatesSynced := (lastLocalCommit.ourMessageIndex ==
 		lastRemoteCommit.ourMessageIndex)
 
 	remoteUpdatesSynced := (lastLocalCommit.theirMessageIndex ==
 		lastRemoteCommit.theirMessageIndex)
 
-	return !oweCommitment && localUpdatesSynced && remoteUpdatesSynced
+	pendingFeeAck := false
+
+	// If we have received a fee update which we haven't yet ACKed, then
+	// we owe a commitment.
+	if !lc.channelState.IsInitiator {
+		pendingFeeAck = lc.pendingAckFeeUpdate != nil
+	}
+
+	// If we have sent a fee update which we haven't yet signed, then
+	// we owe a commitment.
+	if lc.channelState.IsInitiator {
+		pendingFeeAck = lc.pendingFeeUpdate != nil
+	}
+
+	return localUpdatesSynced && remoteUpdatesSynced && !pendingFeeAck
 }
 
 // RevokeCurrentCommitment revokes the next lowest unrevoked commitment

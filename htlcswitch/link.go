@@ -1859,7 +1859,10 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 		}
 	}
 
-	go l.forwardBatch(switchPackets...)
+	// Only spawn the task forward packets we have a non-zero number.
+	if len(switchPackets) > 0 {
+		go l.forwardBatch(switchPackets...)
+	}
 }
 
 // processRemoteAdds serially processes each of the Add payment descriptors
@@ -2365,7 +2368,12 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 	l.debugf("forwarding %d packets to switch", len(switchPackets))
 
-	go l.forwardBatch(switchPackets...)
+	// NOTE: This call is made synchronous so that we ensure all circuits
+	// are committed in the exact order that they are processed in the link.
+	// Failing to do this could cause reorderings/gaps in the range of
+	// opened circuits, which violates assumptions made by the circuit
+	// trimming.
+	l.forwardBatch(switchPackets...)
 
 	return needUpdate
 }
@@ -2387,7 +2395,7 @@ func (l *channelLink) forwardBatch(packets ...*htlcPacket) {
 	}
 
 	errChan := l.cfg.ForwardPackets(filteredPkts...)
-	l.handleBatchFwdErrs(errChan)
+	go l.handleBatchFwdErrs(errChan)
 }
 
 // handleBatchFwdErrs waits on the given errChan until it is closed, logging

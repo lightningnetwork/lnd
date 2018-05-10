@@ -297,6 +297,10 @@ var (
 			Entity: "offchain",
 			Action: "read",
 		}},
+		"/lnrpc.Lightning/SnapshotChannels": {{
+			Entity: "info",
+			Action: "read",
+		}},
 	}
 )
 
@@ -3652,6 +3656,22 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 			Fee:       uint64(amtInSat - amtOutSat),
 		}
 	}
+
+	return resp, nil
+}
+
+// Write a snapshot of the channels database to disk
+func (r *rpcServer) SnapshotChannels(ctx context.Context,
+	req *lnrpc.SnapshotChannelsRequest) (*lnrpc.SnapshotChannelsResponse, error) {
+
+	rpcsLog.Debugf("[snapshotchannels]")
+
+	_, err := r.server.chanDB.SnapshotChannels()
+	if err != nil {
+		return nil, fmt.Errorf("unable to take a snapshot of the channels database: %v", err)
+	}
+
+	resp := &lnrpc.SnapshotChannelsResponse{}
 
 	return resp, nil
 }

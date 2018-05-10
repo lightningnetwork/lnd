@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/coreos/bbolt"
 	"github.com/go-errors/errors"
@@ -56,12 +57,13 @@ var bufPool = &sync.Pool{
 // schedules, and reputation data.
 type DB struct {
 	*bolt.DB
-	dbPath string
+	dbPath       string
+	snapshotPath string
 }
 
 // Open opens an existing channeldb. Any necessary schemas migrations due to
 // updates will take place as necessary.
-func Open(dbPath string) (*DB, error) {
+func Open(dbPath string, otherPaths ...string) (*DB, error) {
 	path := filepath.Join(dbPath, dbName)
 
 	if !fileExists(path) {
@@ -78,6 +80,9 @@ func Open(dbPath string) (*DB, error) {
 	chanDB := &DB{
 		DB:     bdb,
 		dbPath: dbPath,
+	}
+	if len(otherPaths) > 0 {
+		chanDB.snapshotPath = otherPaths[0]
 	}
 
 	// Synchronize the version of database and apply migrations if needed.
@@ -639,4 +644,15 @@ func getMigrationsToApply(versions []version, version uint32) ([]migration, []ui
 	}
 
 	return migrations, migrationVersions
+}
+
+func (d *DB) SnapshotChannels() (uint32, error) {
+	path := filepath.Join(d.snapshotPath, dbName)
+	unix := uint32(time.Now().Unix())
+
+	err := d.View(func(tx *bolt.Tx) error {
+		return tx.CopyFile(path, os.ModeDevice)
+	})
+
+	return unix, err
 }

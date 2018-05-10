@@ -138,9 +138,9 @@ var sendCoinsCommand = cli.Command{
 	Description: `
 	Send amt coins in satoshis to the BASE58 encoded bitcoin address addr.
 
-	Fees used when sending the transaction can be specified via the --conf_target, or 
+	Fees used when sending the transaction can be specified via the --conf_target, or
 	--sat_per_byte optional flags.
-	
+
 	Positional arguments and flags can be used interchangeably but not at the same time!
 	`,
 	Flags: []cli.Flag{
@@ -236,7 +236,7 @@ var sendManyCommand = cli.Command{
 	Description: `
 	Create and broadcast a transaction paying the specified amount(s) to the passed address(es).
 
-	The send-json-string' param decodes addresses and the amount to send 
+	The send-json-string' param decodes addresses and the amount to send
 	respectively in the following format:
 
 	    '{"ExampleAddr": NumCoinsInSatoshis, "SecondAddr": NumCoins}'
@@ -1025,7 +1025,7 @@ var createCommand = cli.Command{
 	The create command is used to initialize an lnd wallet from scratch for
 	the very first time. This is interactive command with one required
 	argument (the password), and one optional argument (the mnemonic
-	passphrase).  
+	passphrase).
 
 	The first argument (the password) is required and MUST be greater than
 	8 characters. This will be used to encrypt the wallet within lnd. This
@@ -2340,7 +2340,7 @@ var debugLevelCommand = cli.Command{
 	Usage: "Set the debug level.",
 	Description: `Logging level for all subsystems {trace, debug, info, warn, error, critical, off}
 	You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems
-	
+
 	Use show to list available subsystems`,
 	Flags: []cli.Flag{
 		cli.BoolFlag{
@@ -2440,7 +2440,7 @@ var stopCommand = cli.Command{
 	Name:  "stop",
 	Usage: "Stop and shutdown the daemon.",
 	Description: `
-	Gracefully stop all daemon subsystems before stopping the daemon itself. 
+	Gracefully stop all daemon subsystems before stopping the daemon itself.
 	This is equivalent to stopping it using CTRL-C.`,
 	Action: actionDecorator(stopDaemon),
 }
@@ -2463,9 +2463,9 @@ var signMessageCommand = cli.Command{
 	Usage:     "Sign a message with the node's private key",
 	ArgsUsage: "msg",
 	Description: `
-	Sign msg with the resident node's private key. 
-	Returns the signature as a zbase32 string. 
-	
+	Sign msg with the resident node's private key.
+	Returns the signature as a zbase32 string.
+
 	Positional arguments and flags can be used interchangeably but not at the same time!`,
 	Flags: []cli.Flag{
 		cli.StringFlag{
@@ -2568,7 +2568,7 @@ func verifyMessage(ctx *cli.Context) error {
 var feeReportCommand = cli.Command{
 	Name:  "feereport",
 	Usage: "Display the current fee policies of all active channels",
-	Description: ` 
+	Description: `
 	Returns the current fee policies of all active channels.
 	Fee policies can be updated using the updatechanpolicy command.`,
 	Action: actionDecorator(feeReport),
@@ -2844,6 +2844,37 @@ func forwardingHistory(ctx *cli.Context) error {
 		NumMaxEvents: maxEvents,
 	}
 	resp, err := client.ForwardingHistory(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var snapshotChannelsCommand = cli.Command{
+	Name:      "snapshotchannels",
+	Usage:     "Create a snapshot of the channels database",
+	ArgsUsage: "",
+	Description: `
+	Create a snapshot of the channels database. The snapshot files is kept
+	in the snapshot directory parallel to the data directory.
+	`,
+	Flags:  []cli.Flag{},
+	Action: actionDecorator(snapshotChannels),
+}
+
+func snapshotChannels(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	var (
+		err error
+	)
+
+	req := &lnrpc.SnapshotChannelsRequest{}
+	resp, err := client.SnapshotChannels(ctxb, req)
 	if err != nil {
 		return err
 	}

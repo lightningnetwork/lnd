@@ -29,6 +29,7 @@ import (
 const (
 	defaultConfigFilename     = "lnd.conf"
 	defaultDataDirname        = "data"
+	defaultSnapshotDirname    = "snapshot"
 	defaultChainSubDirname    = "chain"
 	defaultGraphSubDirname    = "graph"
 	defaultTLSCertFilename    = "tls.cert"
@@ -60,10 +61,11 @@ const (
 )
 
 var (
-	defaultLndDir     = btcutil.AppDataDir("lnd", false)
-	defaultConfigFile = filepath.Join(defaultLndDir, defaultConfigFilename)
-	defaultDataDir    = filepath.Join(defaultLndDir, defaultDataDirname)
-	defaultLogDir     = filepath.Join(defaultLndDir, defaultLogDirname)
+	defaultLndDir      = btcutil.AppDataDir("lnd", false)
+	defaultConfigFile  = filepath.Join(defaultLndDir, defaultConfigFilename)
+	defaultDataDir     = filepath.Join(defaultLndDir, defaultDataDirname)
+	defaultSnapshotDir = filepath.Join(defaultLndDir, defaultSnapshotDirname)
+	defaultLogDir      = filepath.Join(defaultLndDir, defaultLogDirname)
 
 	defaultTLSCertPath = filepath.Join(defaultLndDir, defaultTLSCertFilename)
 	defaultTLSKeyPath  = filepath.Join(defaultLndDir, defaultTLSKeyFilename)
@@ -150,6 +152,7 @@ type config struct {
 	LndDir         string   `long:"lnddir" description:"The base directory that contains lnd's data, logs, configuration file, etc."`
 	ConfigFile     string   `long:"C" long:"configfile" description:"Path to configuration file"`
 	DataDir        string   `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
+	SnapshotDir    string   `long:"snapshotdir" description:"The directory to store lnd's snapshots within"`
 	TLSCertPath    string   `long:"tlscertpath" description:"Path to write the TLS certificate for lnd's RPC and REST services"`
 	TLSKeyPath     string   `long:"tlskeypath" description:"Path to write the TLS private key for lnd's RPC and REST services"`
 	TLSExtraIP     string   `long:"tlsextraip" description:"Adds an extra ip to the generated certificate"`
@@ -218,6 +221,7 @@ func loadConfig() (*config, error) {
 		LndDir:         defaultLndDir,
 		ConfigFile:     defaultConfigFile,
 		DataDir:        defaultDataDir,
+		SnapshotDir:    defaultSnapshotDir,
 		DebugLevel:     defaultLogLevel,
 		TLSCertPath:    defaultTLSCertPath,
 		TLSKeyPath:     defaultTLSKeyPath,
@@ -295,6 +299,7 @@ func loadConfig() (*config, error) {
 	if lndDir != defaultLndDir {
 		defaultCfg.ConfigFile = filepath.Join(lndDir, defaultConfigFilename)
 		defaultCfg.DataDir = filepath.Join(lndDir, defaultDataDirname)
+		defaultCfg.SnapshotDir = filepath.Join(lndDir, defaultSnapshotDirname)
 		defaultCfg.TLSCertPath = filepath.Join(lndDir, defaultTLSCertFilename)
 		defaultCfg.TLSKeyPath = filepath.Join(lndDir, defaultTLSKeyFilename)
 		defaultCfg.AdminMacPath = filepath.Join(lndDir, defaultAdminMacFilename)
@@ -340,6 +345,7 @@ func loadConfig() (*config, error) {
 	// to directories and files are cleaned and expanded before attempting
 	// to use them later on.
 	cfg.DataDir = cleanAndExpandPath(cfg.DataDir)
+	cfg.SnapshotDir = cleanAndExpandPath(cfg.SnapshotDir)
 	cfg.TLSCertPath = cleanAndExpandPath(cfg.TLSCertPath)
 	cfg.TLSKeyPath = cleanAndExpandPath(cfg.TLSKeyPath)
 	cfg.AdminMacPath = cleanAndExpandPath(cfg.AdminMacPath)

@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/torsvc"
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/roasbeef/btcd/blockchain"
 	"github.com/roasbeef/btcd/btcec"
@@ -625,20 +626,48 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 		return nil, fmt.Errorf("cannot make connection to self")
 	}
 
-	// If the address doesn't already have a port, we'll assume the current
-	// default port.
-	var addr string
-	_, _, err = net.SplitHostPort(in.Addr.Host)
+	var host net.Addr
+	addrLen := len(in.Addr.Host)
+	h, p, err := net.SplitHostPort(in.Addr.Host)
 	if err != nil {
-		addr = net.JoinHostPort(in.Addr.Host, strconv.Itoa(defaultPeerPort))
-	} else {
-		addr = in.Addr.Host
-	}
+		if (addrLen == 22 || addrLen == 62) && in.Addr.Host[addrLen-6:] == ".onion" {
+			// hidden service without a port
+			host = &torsvc.OnionAddress{
+				HiddenService: in.Addr.Host,
+				Port:          defaultOnionPort,
+			}
+		} else {
+			// ipv4/6 address without a port
+			addr := net.JoinHostPort(in.Addr.Host, strconv.Itoa(defaultPeerPort))
 
-	// We use ResolveTCPAddr here in case we wish to resolve hosts over Tor.
-	host, err := cfg.net.ResolveTCPAddr("tcp", addr)
-	if err != nil {
-		return nil, err
+			// We use ResolveTCPAddr here in case we wish to resolve hosts over Tor.
+			host, err = cfg.net.ResolveTCPAddr("tcp", addr)
+			if err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		hostLen := len(h)
+		if (hostLen == 22 || hostLen == 62) && h[hostLen-6:] == ".onion" {
+			// hidden service with port
+			port, err := strconv.Atoi(p)
+			if err != nil {
+				return nil, err
+			}
+
+			host = &torsvc.OnionAddress{
+				HiddenService: h,
+				Port:          port,
+			}
+		} else {
+			// ipv4/6 address with port
+
+			// We use ResolveTCPAddr here in case we wish to resolve hosts over Tor.
+			host, err = cfg.net.ResolveTCPAddr("tcp", in.Addr.Host)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	peerAddr := &lnwire.NetAddress{

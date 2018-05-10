@@ -1,11 +1,21 @@
 package channeldb
 
 import (
+	"encoding/base32"
 	"io"
 	"net"
 
 	"github.com/btcsuite/go-socks/socks"
+	"github.com/lightningnetwork/lnd/torsvc"
 )
+
+// alphabet is the alphabet that the base32 library will use for encoding
+// and decoding v2 and v3 onion addresses.
+const alphabet = "abcdefghijklmnopqrstuvwxyz234567"
+
+// encoding represents a base32 encoding compliant with Tor's base32 encoding
+// scheme for v2 and v3 hidden services.
+var encoding = base32.NewEncoding(alphabet)
 
 // addressType specifies the network protocol and version that should be used
 // when connecting to a node at a particular address.
@@ -59,6 +69,56 @@ func encodeTCPAddr(w io.Writer, addr *net.TCPAddr) error {
 	return nil
 }
 
+func encodeOnionAddr(w io.Writer, addr *torsvc.OnionAddress) error {
+	var scratch [2]byte
+
+	if len(addr.HiddenService) == 22 {
+		// v2 hidden service
+		scratch[0] = uint8(v2OnionAddr)
+		if _, err := w.Write(scratch[:1]); err != nil {
+			return err
+		}
+
+		// Write raw bytes of unbase32 hidden service string
+		data, err := encoding.DecodeString(addr.String()[:16])
+		if err != nil {
+			return err
+		}
+		if _, err := w.Write(data); err != nil {
+			return err
+		}
+
+		// Write port
+		byteOrder.PutUint16(scratch[:2], uint16(addr.Port))
+		if _, err := w.Write(scratch[:2]); err != nil {
+			return err
+		}
+	} else {
+		// v3 hidden service
+		scratch[0] = uint8(v3OnionAddr)
+		if _, err := w.Write(scratch[:1]); err != nil {
+			return err
+		}
+
+		// Write raw bytes of unbase32 hidden service string
+		data, err := encoding.DecodeString(addr.String()[:56])
+		if err != nil {
+			return err
+		}
+		if _, err := w.Write(data); err != nil {
+			return err
+		}
+
+		// Write port
+		byteOrder.PutUint16(scratch[:2], uint16(addr.Port))
+		if _, err := w.Write(scratch[:2]); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // deserializeAddr reads the serialized raw representation of an address and
 // deserializes it into the actual address, to avoid performing address
 // resolution in the database module
@@ -70,7 +130,6 @@ func deserializeAddr(r io.Reader) (net.Addr, error) {
 		return nil, err
 	}
 
-	// TODO(roasbeef): also add onion addrs
 	switch addressType(scratch[0]) {
 	case tcp4Addr:
 		addr := &net.TCPAddr{}
@@ -96,6 +155,32 @@ func deserializeAddr(r io.Reader) (net.Addr, error) {
 		}
 		addr.Port = int(byteOrder.Uint16(scratch[:2]))
 		address = addr
+	case v2OnionAddr:
+		addr := &torsvc.OnionAddress{}
+		var hs [10]byte
+		if _, err := r.Read(hs[:]); err != nil {
+			return nil, err
+		}
+		onionString := encoding.EncodeToString(hs[:]) + ".onion"
+		addr.HiddenService = onionString
+		if _, err := r.Read(scratch[:2]); err != nil {
+			return nil, err
+		}
+		addr.Port = int(byteOrder.Uint16(scratch[:2]))
+		address = addr
+	case v3OnionAddr:
+		addr := &torsvc.OnionAddress{}
+		var hs [35]byte
+		if _, err := r.Read(hs[:]); err != nil {
+			return nil, err
+		}
+		onionString := encoding.EncodeToString(hs[:]) + ".onion"
+		addr.HiddenService = onionString
+		if _, err := r.Read(scratch[:2]); err != nil {
+			return nil, err
+		}
+		addr.Port = int(byteOrder.Uint16(scratch[:2]))
+		address = addr
 	default:
 		return nil, ErrUnknownAddressType
 	}
@@ -110,6 +195,9 @@ func serializeAddr(w io.Writer, address net.Addr) error {
 	switch addr := address.(type) {
 	case *net.TCPAddr:
 		return encodeTCPAddr(w, addr)
+
+	case *torsvc.OnionAddress:
+		return encodeOnionAddr(w, addr)
 
 	// If this is a proxied address (due to the connection being
 	// established over a SOCKs proxy, then we'll convert it into its

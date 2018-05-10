@@ -34,6 +34,7 @@ import (
 
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/torsvc"
 )
 
 var (
@@ -118,6 +119,8 @@ type server struct {
 	sphinx *htlcswitch.OnionProcessor
 
 	connMgr *connmgr.ConnManager
+
+	torCtrl *torsvc.TorControl
 
 	// globalFeatures feature vector which affects HTLCs and thus are also
 	// advertised to other nodes.
@@ -250,20 +253,93 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	// CAN be passed into the ExternalIPs configuration option.
 	selfAddrs := make([]net.Addr, 0, len(cfg.ExternalIPs))
 	for _, ip := range cfg.ExternalIPs {
-		var addr string
-		_, _, err = net.SplitHostPort(ip)
+		ipLen := len(ip)
+		host, port, err := net.SplitHostPort(ip)
 		if err != nil {
-			addr = net.JoinHostPort(ip, strconv.Itoa(defaultPeerPort))
+			if (ipLen == 22 || ipLen == 62) && ip[ipLen-6:] == ".onion" {
+				// hidden service without a port
+				onionAddr := &torsvc.OnionAddress{
+					HiddenService: ip,
+					Port:          defaultOnionPort,
+				}
+				selfAddrs = append(selfAddrs, onionAddr)
+			} else {
+				// ipv4/6 address without a port
+				addr := net.JoinHostPort(ip, strconv.Itoa(defaultPeerPort))
+				lnAddr, err := cfg.net.ResolveTCPAddr("tcp", addr)
+				if err != nil {
+					return nil, err
+				}
+				selfAddrs = append(selfAddrs, lnAddr)
+			}
 		} else {
-			addr = ip
+			hostLen := len(host)
+			if (hostLen == 22 || hostLen == 62) && host[hostLen-6:] == ".onion" {
+				// hidden service with port
+				p, err := strconv.Atoi(port)
+				if err != nil {
+					return nil, err
+				}
+
+				onionAddr := &torsvc.OnionAddress{
+					HiddenService: host,
+					Port:          p,
+				}
+				selfAddrs = append(selfAddrs, onionAddr)
+			} else {
+				// ipv4/6 address with port
+				lnAddr, err := cfg.net.ResolveTCPAddr("tcp", ip)
+				if err != nil {
+					return nil, err
+				}
+				selfAddrs = append(selfAddrs, lnAddr)
+			}
+		}
+	}
+
+	// This code handles authenticating and dynamically creating v2 hidden
+	// services via Tor's ControlPort. The created v2 hidden service will
+	// be added to selfAddrs and used in the NodeAnnouncement message.
+	if cfg.torCtrl != nil {
+		// Set the server's TorControl struct. We will use the TorControl
+		// struct to dynamically create v2 hidden services.
+		s.torCtrl = cfg.torCtrl
+
+		// Open the connection to Tor's ControlPort.
+		if err := s.torCtrl.Open(); err != nil {
+			return nil, err
 		}
 
-		lnAddr, err := cfg.net.ResolveTCPAddr("tcp", addr)
+		// Authenticate to Tor's ControlPort.
+		if err := s.torCtrl.AuthWithPass(); err != nil {
+			return nil, err
+		}
+
+		// Create v2 hidden service via Tor's ControlPort.
+		hs, err := s.torCtrl.AddOnion()
 		if err != nil {
 			return nil, err
 		}
 
-		selfAddrs = append(selfAddrs, lnAddr)
+		// Add the .onion suffix
+		hs += ".onion"
+
+		// We have successfully created a v2 hidden service via the
+		// ControlPort and will now add it to the list of addresses
+		// we listen on.
+		p, err := strconv.Atoi(s.torCtrl.VirtPort)
+		if err != nil {
+			return nil, err
+		}
+
+		onionAddr := &torsvc.OnionAddress{
+			HiddenService: hs,
+			Port:          p,
+		}
+
+		selfAddrs = append(selfAddrs, onionAddr)
+
+		srvrLog.Infof("Listening on %s:%d", onionAddr.HiddenService, onionAddr.Port)
 	}
 
 	chanGraph := chanDB.ChannelGraph()
@@ -610,6 +686,11 @@ func (s *server) Stop() error {
 	s.connMgr.Stop()
 	s.cc.feeEstimator.Stop()
 
+	// Disconnect from Tor's ControlPort.
+	if s.torCtrl != nil {
+		s.torCtrl.Close()
+	}
+
 	// Disconnect from each active peers to ensure that
 	// peerTerminationWatchers signal completion to each peer.
 	for _, peer := range s.Peers() {
@@ -888,6 +969,7 @@ func (s *server) establishPersistentConnections() error {
 	if err != nil && err != channeldb.ErrLinkNodesNotFound {
 		return err
 	}
+
 	for _, node := range linkNodes {
 		for _, address := range node.Addresses {
 			switch addr := address.(type) {
@@ -895,8 +977,12 @@ func (s *server) establishPersistentConnections() error {
 				if addr.Port == 0 {
 					addr.Port = defaultPeerPort
 				}
-			}
 
+			case *torsvc.OnionAddress:
+				if addr.Port == 0 {
+					addr.Port = defaultOnionPort
+				}
+			}
 		}
 		pubStr := string(node.IdentityPub.SerializeCompressed())
 

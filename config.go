@@ -43,6 +43,7 @@ const (
 	defaultRPCPort            = 10009
 	defaultRESTPort           = 8080
 	defaultPeerPort           = 9735
+	defaultOnionPort          = 80
 	defaultRPCHost            = "localhost"
 	defaultMaxPendingChannels = 1
 	defaultNoEncryptWallet    = false
@@ -137,6 +138,12 @@ type autoPilotConfig struct {
 
 type torConfig struct {
 	Socks           string `long:"socks" description:"The port that Tor's exposed SOCKS5 proxy is listening on. Using Tor allows outbound-only connections (listening will be disabled) -- NOTE port must be between 1024 and 65535"`
+	Control         string `long:"control" description:"The port that Tor's ControlPort is listening on -- NOTE port must be between 1024 and 65535"`
+	ControlPassword string `long:"controlpass" description:"The password to be used for authenticating to Tor's ControlPort."`
+	VirtPort        string `long:"virtport" description:"The virtual port as described in Tor's control-spec to be used when creating hidden services -- NOTE port can be below 1024"`
+	TargPort        string `long:"targport" description:"The target port as described in Tor's control-spec to be used when creating hidden services -- NOTE port must be between 1024 and 65535"`
+	PrivKey         string `long:"privkey" description:"The private key used to create a hidden service."`
+	Save            bool   `long:"save" description:"Save private keys to file when dealing with dynamically created hidden services."`
 	DNS             string `long:"dns" description:"The DNS server as IP:PORT that Tor will use for SRV queries - NOTE must have TCP resolution enabled"`
 	StreamIsolation bool   `long:"streamisolation" description:"Enable Tor stream isolation by randomizing user credentials for each connection."`
 }
@@ -205,6 +212,8 @@ type config struct {
 	MinChanSize int64  `long:"minchansize" description:"The smallest channel size (in satoshis) that we should accept. Incoming channels smaller than this will be rejected"`
 
 	net torsvc.Net
+
+	torCtrl *torsvc.TorControl
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -433,6 +442,50 @@ func loadConfig() (*config, error) {
 			"using Tor"
 		err := fmt.Errorf(str, funcName)
 		return nil, err
+	}
+
+	// Handle Tor's ControlPort options. The password and port are used
+	// when connecting to Tor's ControlPort in the process of automatically
+	// creating v2 hidden services.
+	if cfg.Tor.Control != "" && cfg.Tor.TargPort != "" && cfg.Tor.VirtPort != "" {
+		// Validate ControlPort port number
+		torport, err := strconv.Atoi(cfg.Tor.Control)
+		if err != nil || torport < 1024 || torport > 65535 {
+			str := "%s: The tor controlport must be between 1024 and 65535"
+			err := fmt.Errorf(str, funcName)
+			fmt.Fprintln(os.Stderr, err)
+			fmt.Fprintln(os.Stderr, usageMessage)
+			return nil, err
+		}
+
+		// Validate targport
+		torport, err = strconv.Atoi(cfg.Tor.TargPort)
+		if err != nil || torport < 1024 || torport > 65535 {
+			str := "%s: The tor target port must be between 1024 and 65535"
+			err := fmt.Errorf(str, funcName)
+			fmt.Fprintln(os.Stderr, err)
+			fmt.Fprintln(os.Stderr, usageMessage)
+			return nil, err
+		}
+
+		if cfg.Tor.PrivKey != "" && cfg.Tor.Save {
+			str := "%s: Cannot have a private key and save option set"
+			err := fmt.Errorf(str, funcName)
+			fmt.Fprintln(os.Stderr, err)
+			fmt.Fprintln(os.Stderr, usageMessage)
+			return nil, err
+		}
+
+		// Note: Tor.ControlPassword, Tor.PrivKey, & Tor.Save can be
+		// default values.
+		cfg.torCtrl = &torsvc.TorControl{
+			Password: cfg.Tor.ControlPassword,
+			Port:     cfg.Tor.Control,
+			TargPort: cfg.Tor.TargPort,
+			VirtPort: cfg.Tor.VirtPort,
+			PrivKey:  cfg.Tor.PrivKey,
+			Save:     cfg.Tor.Save,
+		}
 	}
 
 	switch {

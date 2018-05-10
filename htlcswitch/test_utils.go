@@ -882,6 +882,12 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 		quit:      make(chan struct{}),
 	}
 
+	const (
+		batchTimeout     = 50 * time.Millisecond
+		fwdPkgTimeout    = 5 * time.Second
+		feeUpdateTimeout = 30 * time.Minute
+	)
+
 	pCache := &mockPreimageCache{
 		// hash -> preimage
 		preimageMap: make(map[[32]byte][]byte),
@@ -921,11 +927,14 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 				return nil
 			},
-			ChainEvents:    &contractcourt.ChainEventSubscription{},
-			SyncStates:     true,
-			BatchTicker:    &mockTicker{aliceTicker.C},
-			FwdPkgGCTicker: &mockTicker{time.NewTicker(5 * time.Second).C},
-			BatchSize:      10,
+			ChainEvents:         &contractcourt.ChainEventSubscription{},
+			SyncStates:          true,
+			BatchSize:           10,
+			BatchTicker:         &mockTicker{time.NewTicker(batchTimeout).C},
+			FwdPkgGCTicker:      &mockTicker{time.NewTicker(fwdPkgTimeout).C},
+			MinFeeUpdateTimeout: feeUpdateTimeout,
+			MaxFeeUpdateTimeout: feeUpdateTimeout,
+			OnChannelFailure:    func(lnwire.ChannelID, lnwire.ShortChannelID, LinkFailureError) {},
 		},
 		aliceChannel,
 		startingHeight,
@@ -970,11 +979,14 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 				return nil
 			},
-			ChainEvents:    &contractcourt.ChainEventSubscription{},
-			SyncStates:     true,
-			BatchTicker:    &mockTicker{firstBobTicker.C},
-			FwdPkgGCTicker: &mockTicker{time.NewTicker(5 * time.Second).C},
-			BatchSize:      10,
+			ChainEvents:         &contractcourt.ChainEventSubscription{},
+			SyncStates:          true,
+			BatchSize:           10,
+			BatchTicker:         &mockTicker{time.NewTicker(batchTimeout).C},
+			FwdPkgGCTicker:      &mockTicker{time.NewTicker(fwdPkgTimeout).C},
+			MinFeeUpdateTimeout: feeUpdateTimeout,
+			MaxFeeUpdateTimeout: feeUpdateTimeout,
+			OnChannelFailure:    func(lnwire.ChannelID, lnwire.ShortChannelID, LinkFailureError) {},
 		},
 		firstBobChannel,
 		startingHeight,
@@ -1019,11 +1031,14 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 				return nil
 			},
-			ChainEvents:    &contractcourt.ChainEventSubscription{},
-			SyncStates:     true,
-			BatchTicker:    &mockTicker{secondBobTicker.C},
-			FwdPkgGCTicker: &mockTicker{time.NewTicker(5 * time.Second).C},
-			BatchSize:      10,
+			ChainEvents:         &contractcourt.ChainEventSubscription{},
+			SyncStates:          true,
+			BatchSize:           10,
+			BatchTicker:         &mockTicker{time.NewTicker(batchTimeout).C},
+			FwdPkgGCTicker:      &mockTicker{time.NewTicker(fwdPkgTimeout).C},
+			MinFeeUpdateTimeout: feeUpdateTimeout,
+			MaxFeeUpdateTimeout: feeUpdateTimeout,
+			OnChannelFailure:    func(lnwire.ChannelID, lnwire.ShortChannelID, LinkFailureError) {},
 		},
 		secondBobChannel,
 		startingHeight,
@@ -1068,11 +1083,14 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 				return nil
 			},
-			ChainEvents:    &contractcourt.ChainEventSubscription{},
-			SyncStates:     true,
-			BatchTicker:    &mockTicker{carolTicker.C},
-			FwdPkgGCTicker: &mockTicker{time.NewTicker(5 * time.Second).C},
-			BatchSize:      10,
+			ChainEvents:         &contractcourt.ChainEventSubscription{},
+			SyncStates:          true,
+			BatchSize:           10,
+			BatchTicker:         &mockTicker{time.NewTicker(batchTimeout).C},
+			FwdPkgGCTicker:      &mockTicker{time.NewTicker(fwdPkgTimeout).C},
+			MinFeeUpdateTimeout: feeUpdateTimeout,
+			MaxFeeUpdateTimeout: feeUpdateTimeout,
+			OnChannelFailure:    func(lnwire.ChannelID, lnwire.ShortChannelID, LinkFailureError) {},
 		},
 		carolChannel,
 		startingHeight,

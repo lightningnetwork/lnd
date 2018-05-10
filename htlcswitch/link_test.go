@@ -1498,9 +1498,11 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 		BlockEpochs:    globalEpoch,
 		BatchTicker:    ticker,
 		FwdPkgGCTicker: NewBatchTicker(time.NewTicker(5 * time.Second)),
-		// Make the BatchSize large enough to not
-		// trigger commit update automatically during tests.
-		BatchSize: 10000,
+		// Make the BatchSize and Min/MaxFeeUpdateTimeout large enough
+		// to not trigger commit updates automatically during tests.
+		BatchSize:           10000,
+		MinFeeUpdateTimeout: 30 * time.Minute,
+		MaxFeeUpdateTimeout: 30 * time.Minute,
 	}
 
 	const startingHeight = 100
@@ -3451,22 +3453,9 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 	defer n.stop()
 	defer n.feeEstimator.Stop()
 
-	// First, we'll start off all channels at "height" 9000 by sending a
-	// new epoch to all the clients.
-	select {
-	case n.aliceBlockEpoch <- &chainntnfs.BlockEpoch{
-		Height: 9000,
-	}:
-	case <-time.After(time.Second * 5):
-		t.Fatalf("link didn't read block epoch")
-	}
-	select {
-	case n.bobFirstBlockEpoch <- &chainntnfs.BlockEpoch{
-		Height: 9000,
-	}:
-	case <-time.After(time.Second * 5):
-		t.Fatalf("link didn't read block epoch")
-	}
+	// For the sake of this test, we'll reset the timer to fire in a second
+	// so that Alice's link queries for a new network fee.
+	n.aliceChannelLink.updateFeeTimer.Reset(time.Millisecond)
 
 	startingFeeRate := channels.aliceToBob.CommitFeeRate()
 
@@ -3480,20 +3469,15 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 	select {
 	case n.feeEstimator.byteFeeIn <- startingFeeRateSatPerVByte:
 	case <-time.After(time.Second * 5):
-		t.Fatalf("alice didn't query for the new " +
-			"network fee")
+		t.Fatalf("alice didn't query for the new network fee")
 	}
 
-	time.Sleep(time.Millisecond * 500)
+	time.Sleep(time.Second)
 
 	// The fee rate on the alice <-> bob channel should still be the same
 	// on both sides.
 	aliceFeeRate := channels.aliceToBob.CommitFeeRate()
 	bobFeeRate := channels.bobToAlice.CommitFeeRate()
-	if aliceFeeRate != bobFeeRate {
-		t.Fatalf("fee rates don't match: expected %v got %v",
-			aliceFeeRate, bobFeeRate)
-	}
 	if aliceFeeRate != startingFeeRate {
 		t.Fatalf("alice's fee rate shouldn't have changed: "+
 			"expected %v, got %v", aliceFeeRate, startingFeeRate)
@@ -3503,22 +3487,9 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 			"expected %v, got %v", bobFeeRate, startingFeeRate)
 	}
 
-	// Now we'll send a new block update to all end points, with a new
-	// height THAT'S OVER 9000!!!
-	select {
-	case n.aliceBlockEpoch <- &chainntnfs.BlockEpoch{
-		Height: 9001,
-	}:
-	case <-time.After(time.Second * 5):
-		t.Fatalf("link didn't read block epoch")
-	}
-	select {
-	case n.bobFirstBlockEpoch <- &chainntnfs.BlockEpoch{
-		Height: 9001,
-	}:
-	case <-time.After(time.Second * 5):
-		t.Fatalf("link didn't read block epoch")
-	}
+	// We'll reset the timer once again to ensure Alice's link queries for a
+	// new network fee.
+	n.aliceChannelLink.updateFeeTimer.Reset(time.Millisecond)
 
 	// Next, we'll set up a deliver a fee rate that's triple the current
 	// fee rate. This should cause the Alice (the initiator) to trigger a
@@ -3527,11 +3498,10 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 	select {
 	case n.feeEstimator.byteFeeIn <- startingFeeRateSatPerVByte * 3:
 	case <-time.After(time.Second * 5):
-		t.Fatalf("alice didn't query for the new " +
-			"network fee")
+		t.Fatalf("alice didn't query for the new network fee")
 	}
 
-	time.Sleep(time.Second * 2)
+	time.Sleep(time.Second)
 
 	// At this point, Alice should've triggered a new fee update that
 	// increased the fee rate to match the new rate.
@@ -3544,10 +3514,6 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 	if bobFeeRate != newFeeRate {
 		t.Fatalf("bob's fee rate didn't change: expected %v, got %v",
 			newFeeRate, aliceFeeRate)
-	}
-	if aliceFeeRate != bobFeeRate {
-		t.Fatalf("fee rates don't match: expected %v got %v",
-			aliceFeeRate, bobFeeRate)
 	}
 }
 
@@ -3917,9 +3883,11 @@ func restartLink(aliceChannel *lnwallet.LightningChannel, aliceSwitch *Switch,
 		BlockEpochs:    globalEpoch,
 		BatchTicker:    ticker,
 		FwdPkgGCTicker: NewBatchTicker(time.NewTicker(5 * time.Second)),
-		// Make the BatchSize large enough to not
-		// trigger commit update automatically during tests.
-		BatchSize: 10000,
+		// Make the BatchSize and Min/MaxFeeUpdateTimeout large enough
+		// to not trigger commit updates automatically during tests.
+		BatchSize:           10000,
+		MinFeeUpdateTimeout: 30 * time.Minute,
+		MaxFeeUpdateTimeout: 30 * time.Minute,
 		// Set any hodl flags requested for the new link.
 		HodlMask:  hodl.MaskFromFlags(hodlFlags...),
 		DebugHTLC: len(hodlFlags) > 0,

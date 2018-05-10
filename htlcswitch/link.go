@@ -3,6 +3,7 @@ package htlcswitch
 import (
 	"bytes"
 	"fmt"
+	prand "math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -21,6 +22,10 @@ import (
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
+func init() {
+	prand.Seed(time.Now().UnixNano())
+}
+
 const (
 	// expiryGraceDelta is a grace period that the timeout of incoming
 	// HTLC's that pay directly to us (i.e we're the "exit node") must up
@@ -36,6 +41,12 @@ const (
 	// for a new fee update. We'll use this as a fee floor when proposing
 	// and accepting updates.
 	minCommitFeePerKw = 253
+
+	// DefaultMinLinkFeeUpdateTimeout and DefaultMaxLinkFeeUpdateTimeout
+	// represent the default timeout bounds in which a link should propose
+	// to update its commitment fee rate.
+	DefaultMinLinkFeeUpdateTimeout = 10 * time.Minute
+	DefaultMaxLinkFeeUpdateTimeout = 60 * time.Minute
 )
 
 // ForwardingPolicy describes the set of constraints that a given ChannelLink
@@ -248,6 +259,12 @@ type ChannelLinkConfig struct {
 	// in testing, it is here to ensure the sphinx replay detection on the
 	// receiving node is persistent.
 	UnsafeReplay bool
+
+	// MinFeeUpdateTimeout and MaxFeeUpdateTimeout represent the timeout
+	// interval bounds in which a link will propose to update its commitment
+	// fee rate. A random timeout will be selected between these values.
+	MinFeeUpdateTimeout time.Duration
+	MaxFeeUpdateTimeout time.Duration
 }
 
 // channelLink is the service which drives a channel's commitment update
@@ -342,6 +359,10 @@ type channelLink struct {
 	logCommitTimer *time.Timer
 	logCommitTick  <-chan time.Time
 
+	// updateFeeTimer is the timer responsible for updating the link's
+	// commitment fee every time it fires.
+	updateFeeTimer *time.Timer
+
 	sync.RWMutex
 
 	wg   sync.WaitGroup
@@ -427,6 +448,8 @@ func (l *channelLink) Start() error {
 		}
 	}
 
+	l.updateFeeTimer = time.NewTimer(l.randomFeeUpdateTimeout())
+
 	l.wg.Add(1)
 	go l.htlcManager()
 
@@ -449,8 +472,8 @@ func (l *channelLink) Stop() {
 		l.cfg.ChainEvents.Cancel()
 	}
 
+	l.updateFeeTimer.Stop()
 	l.channel.Stop()
-
 	l.overflowQueue.Stop()
 
 	close(l.quit)
@@ -835,7 +858,6 @@ func (l *channelLink) htlcManager() {
 
 out:
 	for {
-
 		// We must always check if we failed at some point processing
 		// the last update before processing the next.
 		if l.failed {
@@ -844,16 +866,10 @@ out:
 		}
 
 		select {
-
-		// A new block has arrived, we'll check the network fee to see
-		// if we should adjust our commitment fee, and also update our
-		// track of the best current height.
-		case blockEpoch, ok := <-l.cfg.BlockEpochs.Epochs:
-			if !ok {
-				break out
-			}
-
-			l.bestHeight = uint32(blockEpoch.Height)
+		// Our update fee timer has fired, so we'll check the network
+		// fee to see if we should adjust our commitment fee.
+		case <-l.updateFeeTimer.C:
+			l.updateFeeTimer.Reset(l.randomFeeUpdateTimeout())
 
 			// If we're not the initiator of the channel, don't we
 			// don't control the fees, so we can ignore this.
@@ -981,6 +997,20 @@ out:
 			break out
 		}
 	}
+}
+
+// randomFeeUpdateTimeout returns a random timeout between the bounds defined
+// within the link's configuration that will be used to determine when the link
+// should propose an update to its commitment fee rate.
+func (l *channelLink) randomFeeUpdateTimeout() time.Duration {
+	lower := int64(l.cfg.MinFeeUpdateTimeout)
+	upper := int64(l.cfg.MaxFeeUpdateTimeout)
+	rand := prand.Int63n(upper)
+	if rand < lower {
+		rand = lower
+	}
+
+	return time.Duration(rand)
 }
 
 // handleDownStreamPkt processes an HTLC packet sent from the downstream HTLC

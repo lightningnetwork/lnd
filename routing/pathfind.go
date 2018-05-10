@@ -396,23 +396,6 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex Vertex,
 	return route, nil
 }
 
-// Vertex is a simple alias for the serialization of a compressed Bitcoin
-// public key.
-type Vertex [33]byte
-
-// NewVertex returns a new Vertex given a public key.
-func NewVertex(pub *btcec.PublicKey) Vertex {
-	var v Vertex
-	copy(v[:], pub.SerializeCompressed())
-	return v
-}
-
-// String returns a human readable version of the Vertex which is the
-// hex-encoding of the serialized compressed public key.
-func (v Vertex) String() string {
-	return fmt.Sprintf("%x", v[:])
-}
-
 // edgeWithPrev is a helper struct used in path finding that couples an
 // directional edge with the node's ID in the opposite direction.
 type edgeWithPrev struct {

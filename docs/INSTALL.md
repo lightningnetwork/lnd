@@ -213,8 +213,8 @@ the following:
   [ZeroMQ](https://github.com/bitcoin/bitcoin/blob/master/doc/zmq.md) to
   interface with `bitcoind`, *your `bitcoind` installation must be compiled with
   ZMQ*. Note that if you installed bitcoind from source and ZMQ was not present, 
-  then ZMQ support will be quietly disabled, and lnd will be unable to connect to 
-  bitcoind. If you installed bitcoind via Homebrew in the past ZMQ may not be included 
+  then ZMQ support will be disabled, and lnd will quit on a `connection refused` error. 
+  If you installed bitcoind via Homebrew in the past ZMQ may not be included 
   ([this has now been fixed](https://github.com/Homebrew/homebrew-core/pull/23088) 
   in the latest Homebrew recipe for bitcoin)
 - Configure the `bitcoind` instance for ZMQ with `--zmqpubrawblock` and

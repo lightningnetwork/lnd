@@ -1,7 +1,5 @@
 package routing
 
-import "github.com/lightningnetwork/lnd/channeldb"
-
 // nodeWithDist is a helper struct that couples the distance from the current
 // source to a node with a pointer to the node itself.
 type nodeWithDist struct {
@@ -11,7 +9,7 @@ type nodeWithDist struct {
 
 	// node is the vertex itself. This pointer can be used to explore all
 	// the outgoing edges (channels) emanating from a node.
-	node *channeldb.LightningNode
+	node Vertex
 }
 
 // distanceHeap is a min-distance heap that's used within our path finding

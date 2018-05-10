@@ -265,7 +265,7 @@ func (p *paymentSession) ReportChannelFailure(e uint64) {
 // will be explored, which feeds into the recommendations made for routing.
 //
 // NOTE: This function is safe for concurrent access.
-func (p *paymentSession) RequestRoute(payment *LightningPayment,
+func (p *paymentSession) RequestRoute(graph graphSource, payment *LightningPayment,
 	height uint32, finalCltvDelta uint16) (*Route, error) {
 
 	// First, we'll obtain our current prune view snapshot. This view will
@@ -279,12 +279,14 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 
 	// TODO(roasbeef): sync logic amongst dist sys
 
+	sourceVertex := Vertex(p.mc.selfNode.PubKeyBytes)
+
 	// Taking into account this prune view, we'll attempt to locate a path
 	// to our destination, respecting the recommendations from
 	// missionControl.
 	path, err := findPath(
-		nil, p.mc.graph, p.additionalEdges, p.mc.selfNode,
-		payment.Target, pruneView.vertexes, pruneView.edges,
+		graph, p.additionalEdges, sourceVertex, NewVertex(payment.Target),
+		pruneView.vertexes, pruneView.edges,
 		payment.Amount,
 	)
 	if err != nil {
@@ -293,7 +295,6 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 
 	// With the next candidate path found, we'll attempt to turn this into
 	// a route by applying the time-lock and fee requirements.
-	sourceVertex := Vertex(p.mc.selfNode.PubKeyBytes)
 	route, err := newRoute(payment.Amount, sourceVertex, path, height,
 		finalCltvDelta)
 	if err != nil {

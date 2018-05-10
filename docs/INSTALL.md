@@ -212,10 +212,11 @@ the following:
 - Additionally, since `lnd` uses
   [ZeroMQ](https://github.com/bitcoin/bitcoin/blob/master/doc/zmq.md) to
   interface with `bitcoind`, *your `bitcoind` installation must be compiled with
-  ZMQ*. If you installed it from source, this is likely the case, but if you
-  installed it via Homebrew in the past it may not be included ([this has now
-  been fixed](https://github.com/Homebrew/homebrew-core/pull/23088) in the
-  latest Homebrew recipe for bitcoin)
+  ZMQ*. Note that if you installed bitcoind from source and ZMQ was not present, 
+  then ZMQ support will be quietly disabled, and lnd will be unable to connect to 
+  bitcoind. If you installed bitcoind via Homebrew in the past ZMQ may not be included 
+  ([this has now been fixed](https://github.com/Homebrew/homebrew-core/pull/23088) 
+  in the latest Homebrew recipe for bitcoin)
 - Configure the `bitcoind` instance for ZMQ with `--zmqpubrawblock` and
   `--zmqpubrawtx` (the latter is optional but allows you to see unconfirmed
   transactions in your wallet). They must be combined in the same ZMQ socket

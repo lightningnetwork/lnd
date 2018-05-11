@@ -69,6 +69,7 @@ used directly:
 ```
 dep ensure -v
 go install -v
+go install github.com/lightningnetwork/lnd/cmd/lncli
 ```
 
 **Updating**

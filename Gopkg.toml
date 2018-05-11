@@ -44,7 +44,7 @@
 
 [[constraint]]
   name = "github.com/lightningnetwork/lightning-onion"
-  revision = "c86137582e53fe3ba26681a98f911b546970893e"
+  revision = "e5ab5d7396020384f864452ec3c69b56264f1092"
 
 [[constraint]]
   name = "github.com/ltcsuite/ltcd"

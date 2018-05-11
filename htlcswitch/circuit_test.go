@@ -82,15 +82,8 @@ func initTestExtracter() {
 // newOnionProcessor creates starts a new htlcswitch.OnionProcessor using a temp
 // db and no garbage collection.
 func newOnionProcessor(t *testing.T) *htlcswitch.OnionProcessor {
-	sharedSecretFile, err := ioutil.TempFile("", "sphinxreplay.db")
-	if err != nil {
-		t.Fatalf("unable to create temp path: %v", err)
-	}
-
-	sharedSecretPath := sharedSecretFile.Name()
-
 	sphinxRouter := sphinx.NewRouter(
-		sharedSecretPath, sphinxPrivKey, &bitcoinCfg.SimNetParams, nil,
+		sphinxPrivKey, &bitcoinCfg.SimNetParams, sphinx.NewMemoryReplayLog(),
 	)
 
 	if err := sphinxRouter.Start(); err != nil {

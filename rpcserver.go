@@ -2945,7 +2945,7 @@ func marshallRoute(route *routing.Route) *lnrpc.Route {
 // GetNetworkInfo returns some basic stats about the known channel graph from
 // the PoV of the node.
 func (r *rpcServer) GetNetworkInfo(ctx context.Context,
-	_ *lnrpc.NetworkInfoRequest) (*lnrpc.NetworkInfo, error) {
+	in *lnrpc.NetworkInfoRequest) (*lnrpc.NetworkInfo, error) {
 
 	graph := r.server.chanDB.ChannelGraph()
 
@@ -2965,8 +2965,7 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 
 	// We'll run through all the known nodes in the within our view of the
 	// network, tallying up the total number of nodes, and also gathering
-	// each node so we can measure the graph diameter and degree stats
-	// below.
+	// each node so we can measure the degree stats below.
 	if err := graph.ForEachNode(nil, func(tx *bolt.Tx, node *channeldb.LightningNode) error {
 		// Increment the total number of nodes with each iteration.
 		numNodes++
@@ -3031,11 +3030,20 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 		minChannelSize = 0
 	}
 
-	// TODO(roasbeef): graph diameter
+	diam := int32(-1)
+	// If flag is set, find the diameter using FindDiam.
+	if in.Diameter {
+		var err error
+		diam, err = r.server.chanRouter.FindDiam()
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	// TODO(roasbeef): also add oldest channel?
 	//  * also add median channel size
 	netInfo := &lnrpc.NetworkInfo{
+		GraphDiameter:        diam,
 		MaxOutDegree:         maxChanOut,
 		AvgOutDegree:         float64(numChannels) / float64(numNodes),
 		NumNodes:             numNodes,

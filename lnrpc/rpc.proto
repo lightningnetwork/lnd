@@ -1335,9 +1335,11 @@ message ChanInfoRequest {
 }
 
 message NetworkInfoRequest {
+    // If diameter should be calculated or not.
+    bool diameter = 1;
 }
 message NetworkInfo {
-    uint32 graph_diameter = 1 [json_name = "graph_diameter"];
+    int32 graph_diameter = 1 [json_name = "graph_diameter"];
     double avg_out_degree = 2 [json_name = "avg_out_degree"];
     uint32 max_out_degree = 3 [json_name = "max_out_degree"];
 

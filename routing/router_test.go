@@ -1601,6 +1601,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
+	sourceVertex := Vertex(sourceNode.PubKeyBytes)
 
 	ignoreVertex := make(map[Vertex]struct{})
 	ignoreEdge := make(map[uint64]struct{})
@@ -1611,26 +1612,41 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	if target == nil {
 		t.Fatalf("unable to find target node")
 	}
+	targetVertex := NewVertex(target)
 
-	// We'll now attempt a path finding attempt using this set up. Due to
-	// the edge weighting, we should select the direct path over the 2 hop
-	// path even though the direct path has a higher potential time lock.
-	path, err := findPath(
-		nil, ctx.graph, nil, sourceNode, target, ignoreVertex,
-		ignoreEdge, amt,
-	)
+	testgraphSource := func(g graphSource) {
+		// We'll now attempt a path finding attempt using this set up. Due to
+		// the edge weighting, we should select the direct path over the 2 hop
+		// path even though the direct path has a higher potential time lock.
+		path, err := findPath(
+			g, nil, sourceVertex, targetVertex, ignoreVertex,
+			ignoreEdge, amt,
+		)
+		if err != nil {
+			t.Fatalf("unable to find path: %v", err)
+		}
+
+		// The route that was chosen should be exactly one hop, and should be
+		// directly to luoji.
+		if len(path) != 1 {
+			t.Fatalf("expected path length of 1, instead was: %v", len(path))
+		}
+		if path[0].Node.Alias != "luoji" {
+			t.Fatalf("wrong node: %v", path[0].Node.Alias)
+		}
+	}
+
+	g, err := newMemChannelGraphFromDatabase(ctx.graph)
 	if err != nil {
-		t.Fatalf("unable to find path: %v", err)
+		t.Fatalf("unable to create memChannelGraph: %v", err)
 	}
+	testgraphSource(g)
 
-	// The route that was chosen should be exactly one hop, and should be
-	// directly to luoji.
-	if len(path) != 1 {
-		t.Fatalf("expected path length of 1, instead was: %v", len(path))
+	d, err := newDbChannelGraphFromDatabase(ctx.graph)
+	if err != nil {
+		t.Fatalf("unable to create dbChannelGraph: %v", err)
 	}
-	if path[0].Node.Alias != "luoji" {
-		t.Fatalf("wrong node: %v", path[0].Node.Alias)
-	}
+	testgraphSource(d)
 }
 
 // TestIsStaleNode tests that the IsStaleNode method properly detects stale

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"math/big"
 	"net"
@@ -14,7 +15,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/protobuf/jsonpb"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -40,6 +43,11 @@ const (
 	// implementations will use in order to ensure that they're calculating
 	// the payload for each hop in path properly.
 	specExampleFilePath = "testdata/spec_example.json"
+
+	// testNetGraphFilePath is file storing the JSON dump from
+	// 'lncli describegraph' on 2017-10-13. This is used for benchmarking
+	// findPaths scenario on a graph with nodes having high in-degree.
+	testNetGraphFilePath = "testdata/testnet.json"
 )
 
 var (
@@ -117,6 +125,178 @@ func makeTestGraph() (*channeldb.ChannelGraph, func(), error) {
 	}
 
 	return cdb.ChannelGraph(), cleanUp, nil
+}
+
+// parseDescribeGraph parses a JSON file created by using 'lncli describegraph',
+// and populates a ChannelGraph with this graph info.
+func parseDescribeGraph(path string, sourceNodeAlias string) (
+	*channeldb.ChannelGraph, func(), aliasMap, error) {
+	graphJSON, err := os.Open(path)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	topObj := lnrpc.ChannelGraph{}
+
+	if err := jsonpb.Unmarshal(graphJSON, &topObj); err != nil {
+		return nil, nil, nil, err
+	}
+
+	// We'll use this fake address for the IP address of all the nodes in
+	// our tests. This value isn't needed for path finding so it doesn't
+	// need to be unique.
+	var testAddrs []net.Addr
+	testAddr, err := net.ResolveTCPAddr("tcp", "192.0.0.1:8888")
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	testAddrs = append(testAddrs, testAddr)
+
+	// Next, create a temporary graph database for usage within the test.
+	graph, cleanUp, err := makeTestGraph()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	aliasMap := make(map[string]*btcec.PublicKey)
+	var source *channeldb.LightningNode
+
+	// First we insert all the nodes within the graph as vertexes.
+	for _, node := range topObj.Nodes {
+		pubKey := node.PubKey
+		pubBytes, err := hex.DecodeString(pubKey)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		pub, err := btcec.ParsePubKey(pubBytes, btcec.S256())
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		alias := hex.EncodeToString(pubBytes[:10])
+		dbNode := &channeldb.LightningNode{
+			HaveNodeAnnouncement: true,
+			AuthSigBytes:         testSig.Serialize(),
+			LastUpdate:           time.Now(),
+			Addresses:            testAddrs,
+			Alias:                alias,
+			Features:             testFeatures,
+		}
+		copy(dbNode.PubKeyBytes[:], pub.SerializeCompressed())
+
+		// We require all aliases within the graph to be unique for our
+		// tests.
+		if _, ok := aliasMap[alias]; ok {
+			return nil, nil, nil, errors.New("aliases for nodes " +
+				"must be unique! " + alias)
+		}
+
+		// If the alias is unique, then add the node to the
+		// alias map for easy lookup.
+		aliasMap[alias] = pub
+
+		// If this node's alias is set as the source's alias,
+		// then we create a pointer to is so we can mark the
+		// source in the graph properly.
+		if alias == sourceNodeAlias {
+			source = dbNode
+		}
+
+		// With the node fully parsed, add it as a vertex within the
+		// graph.
+		if err := graph.AddLightningNode(dbNode); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+
+	// Set the selected source node
+	if err := graph.SetSourceNode(source); err != nil {
+		return nil, nil, nil, err
+	}
+
+	// With all the vertexes inserted, we can now insert the edges into the
+	// test graph.
+	for _, edge := range topObj.Edges {
+		node1Bytes, err := hex.DecodeString(edge.Node1Pub)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		node1Pub, err := btcec.ParsePubKey(node1Bytes, btcec.S256())
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		node2Bytes, err := hex.DecodeString(edge.Node2Pub)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		node2Pub, err := btcec.ParsePubKey(node2Bytes, btcec.S256())
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		fundingTXID := strings.Split(edge.ChanPoint, ":")[0]
+		txidBytes, err := chainhash.NewHashFromStr(fundingTXID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		fundingPoint := wire.OutPoint{
+			Hash:  *txidBytes,
+			Index: 0,
+		}
+
+		edgeInfo := channeldb.ChannelEdgeInfo{
+			ChannelID:    edge.ChannelId,
+			AuthProof:    &testAuthProof,
+			ChannelPoint: fundingPoint,
+			Capacity:     btcutil.Amount(edge.Capacity),
+		}
+		edgeInfo.AddNodeKeys(node1Pub, node2Pub, node1Pub, node2Pub)
+		if err := graph.AddChannelEdge(&edgeInfo); err != nil {
+			return nil, nil, nil, err
+		}
+
+		// As the graph itself is directed, we need to insert two edges
+		// into the graph: one from node1->node2 and one from
+		// node2->node1. A flag of 0 indicates this is the routing
+		// policy for the first node, and a flag of 1 indicates its the
+		// information for the second node.
+		c1Policy := edge.Node1Policy
+		if c1Policy != nil {
+			node1Policy := &channeldb.ChannelEdgePolicy{
+				SigBytes:                  testSig.Serialize(),
+				ChannelID:                 edge.ChannelId,
+				LastUpdate:                time.Unix(int64(edge.LastUpdate), 0),
+				TimeLockDelta:             uint16(c1Policy.TimeLockDelta),
+				MinHTLC:                   lnwire.MilliSatoshi(c1Policy.MinHtlc),
+				FeeBaseMSat:               lnwire.MilliSatoshi(c1Policy.FeeBaseMsat),
+				FeeProportionalMillionths: lnwire.MilliSatoshi(c1Policy.FeeRateMilliMsat),
+			}
+			node1Policy.Flags = 0
+			if err := graph.UpdateEdgePolicy(node1Policy); err != nil {
+				return nil, nil, nil, err
+			}
+		}
+
+		c2Policy := edge.Node2Policy
+		if c2Policy != nil {
+			node2Policy := &channeldb.ChannelEdgePolicy{
+				SigBytes:                  testSig.Serialize(),
+				ChannelID:                 edge.ChannelId,
+				LastUpdate:                time.Unix(int64(edge.LastUpdate), 0),
+				TimeLockDelta:             uint16(c2Policy.TimeLockDelta),
+				MinHTLC:                   lnwire.MilliSatoshi(c2Policy.MinHtlc),
+				FeeBaseMSat:               lnwire.MilliSatoshi(c2Policy.FeeBaseMsat),
+				FeeProportionalMillionths: lnwire.MilliSatoshi(c2Policy.FeeRateMilliMsat),
+			}
+			node2Policy.Flags = 1
+			if err := graph.UpdateEdgePolicy(node2Policy); err != nil {
+				return nil, nil, nil, err
+			}
+		}
+	}
+
+	return graph, cleanUp, aliasMap, nil
 }
 
 // aliasMap is a map from a node's alias to its public key. This type is
@@ -308,185 +488,196 @@ func TestBasicGraphPathFinding(t *testing.T) {
 		startingHeight = 100
 		finalHopCLTV   = 1
 	)
+	
+	testgraphSource := func(g graphSource) {
+		paymentAmt := lnwire.NewMSatFromSatoshis(100)
+		target := NewVertex(aliases["sophon"])
+		
+		path, err := findPath(g, nil, sourceVertex, target, ignoredVertexes,
+			ignoredEdges, paymentAmt)
+		if err != nil {
+			t.Fatalf("unable to find path: %v", err)
+		}
+		route, err := newRoute(paymentAmt, sourceVertex, path, startingHeight,
+			finalHopCLTV)
+		if err != nil {
+			t.Fatalf("unable to create path: %v", err)
+		}
 
-	paymentAmt := lnwire.NewMSatFromSatoshis(100)
-	target := aliases["sophon"]
-	path, err := findPath(
-		nil, graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, paymentAmt,
-	)
+		// The length of the route selected should be of exactly length two.
+		if len(route.Hops) != 2 {
+			t.Fatalf("route is of incorrect length, expected %v got %v", 2,
+				len(route.Hops))
+		}
+
+		// As each hop only decrements a single block from the time-lock, the
+		// total time lock value should two more than our starting block
+		// height.
+		if route.TotalTimeLock != 102 {
+			t.Fatalf("expected time lock of %v, instead have %v", 2,
+				route.TotalTimeLock)
+		}
+
+		// The first hop in the path should be an edge from roasbeef to goku.
+		if !bytes.Equal(route.Hops[0].Channel.Node.PubKeyBytes[:],
+			aliases["songoku"].SerializeCompressed()) {
+
+			t.Fatalf("first hop should be goku, is instead: %v",
+				route.Hops[0].Channel.Node.Alias)
+		}
+
+		// The second hop should be from goku to sophon.
+		if !bytes.Equal(route.Hops[1].Channel.Node.PubKeyBytes[:],
+			aliases["sophon"].SerializeCompressed()) {
+
+			t.Fatalf("second hop should be sophon, is instead: %v",
+				route.Hops[0].Channel.Node.Alias)
+		}
+
+		// Next, we'll assert that the "next hop" field in each route payload
+		// properly points to the channel ID that the HTLC should be forwarded
+		// along.
+		hopPayloads := route.ToHopPayloads()
+		if len(hopPayloads) != 2 {
+			t.Fatalf("incorrect number of hop payloads: expected %v, got %v",
+				2, len(hopPayloads))
+		}
+
+		// The first hop should point to the second hop.
+		var expectedHop [8]byte
+		binary.BigEndian.PutUint64(expectedHop[:], route.Hops[1].Channel.ChannelID)
+		if !bytes.Equal(hopPayloads[0].NextAddress[:], expectedHop[:]) {
+			t.Fatalf("first hop has incorrect next hop: expected %x, got %x",
+				expectedHop[:], hopPayloads[0].NextAddress)
+		}
+
+		// The second hop should have a next hop value of all zeroes in order
+		// to indicate it's the exit hop.
+		var exitHop [8]byte
+		if !bytes.Equal(hopPayloads[1].NextAddress[:], exitHop[:]) {
+			t.Fatalf("first hop has incorrect next hop: expected %x, got %x",
+				exitHop[:], hopPayloads[0].NextAddress)
+		}
+
+		// We'll also assert that the outgoing CLTV value for each hop was set
+		// accordingly.
+		if route.Hops[0].OutgoingTimeLock != 101 {
+			t.Fatalf("expected outgoing time-lock of %v, instead have %v",
+				1, route.Hops[0].OutgoingTimeLock)
+		}
+		if route.Hops[1].OutgoingTimeLock != 101 {
+			t.Fatalf("outgoing time-lock for final hop is incorrect: "+
+				"expected %v, got %v", 1, route.Hops[1].OutgoingTimeLock)
+		}
+
+		// Additionally, we'll ensure that the amount to forward, and fees
+		// computed for each hop are correct.
+		firstHopFee := computeFee(
+			paymentAmt, route.Hops[1].Channel.ChannelEdgePolicy,
+		)
+		if route.Hops[0].Fee != firstHopFee {
+			t.Fatalf("first hop fee incorrect: expected %v, got %v",
+				firstHopFee, route.Hops[0].Fee)
+		}
+
+		if route.TotalAmount != paymentAmt+firstHopFee {
+			t.Fatalf("first hop forwarding amount incorrect: expected %v, got %v",
+				paymentAmt+firstHopFee, route.TotalAmount)
+		}
+		if route.Hops[1].Fee != 0 {
+			t.Fatalf("first hop fee incorrect: expected %v, got %v",
+				firstHopFee, 0)
+		}
+
+		if route.Hops[1].AmtToForward != paymentAmt {
+			t.Fatalf("second hop forwarding amount incorrect: expected %v, got %v",
+				paymentAmt+firstHopFee, route.Hops[1].AmtToForward)
+		}
+
+		// Finally, the next and prev hop maps should be properly set.
+		//
+		// The previous hop from goku should be the channel from roasbeef, and
+		// the next hop should be the channel to sophon.
+		gokuPrevChan, ok := route.prevHopChannel(aliases["songoku"])
+		if !ok {
+			t.Fatalf("goku didn't have next chan but should have")
+		}
+		if gokuPrevChan.ChannelID != route.Hops[0].Channel.ChannelID {
+			t.Fatalf("incorrect prev chan: expected %v, got %v",
+				gokuPrevChan.ChannelID, route.Hops[0].Channel.ChannelID)
+		}
+		gokuNextChan, ok := route.nextHopChannel(aliases["songoku"])
+		if !ok {
+			t.Fatalf("goku didn't have prev chan but should have")
+		}
+		if gokuNextChan.ChannelID != route.Hops[1].Channel.ChannelID {
+			t.Fatalf("incorrect prev chan: expected %v, got %v",
+				gokuNextChan.ChannelID, route.Hops[1].Channel.ChannelID)
+		}
+
+		// Sophon shouldn't have a next chan, but she should have a prev chan.
+		if _, ok := route.nextHopChannel(aliases["sophon"]); ok {
+			t.Fatalf("incorrect next hop map, no vertexes should " +
+				"be after sophon")
+		}
+		sophonPrevEdge, ok := route.prevHopChannel(aliases["sophon"])
+		if !ok {
+			t.Fatalf("sophon didn't have prev chan but should have")
+		}
+		if sophonPrevEdge.ChannelID != route.Hops[1].Channel.ChannelID {
+			t.Fatalf("incorrect prev chan: expected %v, got %v",
+				sophonPrevEdge.ChannelID, route.Hops[1].Channel.ChannelID)
+		}
+
+		// Next, attempt to query for a path to Luo Ji for 100 satoshis, there
+		// exist two possible paths in the graph, but the shorter (1 hop) path
+		// should be selected.
+		target = NewVertex(aliases["luoji"])
+		path, err = findPath(g, nil, sourceVertex, target, ignoredVertexes,
+			ignoredEdges, paymentAmt)
+		if err != nil {
+			t.Fatalf("unable to find route: %v", err)
+		}
+		route, err = newRoute(paymentAmt, sourceVertex, path, startingHeight,
+			finalHopCLTV)
+		if err != nil {
+			t.Fatalf("unable to create path: %v", err)
+		}
+
+		// The length of the path should be exactly one hop as it's the
+		// "shortest" known path in the graph.
+		if len(route.Hops) != 1 {
+			t.Fatalf("shortest path not selected, should be of length 1, "+
+				"is instead: %v", len(route.Hops))
+		}
+
+		// As we have a direct path, the total time lock value should be
+		// exactly the current block height plus one.
+		if route.TotalTimeLock != 101 {
+			t.Fatalf("expected time lock of %v, instead have %v", 1,
+				route.TotalTimeLock)
+		}
+
+		// Additionally, since this is a single-hop payment, we shouldn't have
+		// to pay any fees in total, so the total amount should be the payment
+		// amount.
+		if route.TotalAmount != paymentAmt {
+			t.Fatalf("incorrect total amount, expected %v got %v",
+				paymentAmt, route.TotalAmount)
+		}
+	}
+
+	g, err := newMemChannelGraphFromDatabase(graph)
 	if err != nil {
-		t.Fatalf("unable to find path: %v", err)
+		t.Fatalf("unable to create memChannelGraph: %v", err)
 	}
-	route, err := newRoute(paymentAmt, sourceVertex, path, startingHeight,
-		finalHopCLTV)
+	testgraphSource(g)
+
+	d, err := newDbChannelGraphFromDatabase(graph)
 	if err != nil {
-		t.Fatalf("unable to create path: %v", err)
+		t.Fatalf("unable to create dbChannelGraph: %v", err)
 	}
-
-	// The length of the route selected should be of exactly length two.
-	if len(route.Hops) != 2 {
-		t.Fatalf("route is of incorrect length, expected %v got %v", 2,
-			len(route.Hops))
-	}
-
-	// As each hop only decrements a single block from the time-lock, the
-	// total time lock value should two more than our starting block
-	// height.
-	if route.TotalTimeLock != 102 {
-		t.Fatalf("expected time lock of %v, instead have %v", 2,
-			route.TotalTimeLock)
-	}
-
-	// The first hop in the path should be an edge from roasbeef to goku.
-	if !bytes.Equal(route.Hops[0].Channel.Node.PubKeyBytes[:],
-		aliases["songoku"].SerializeCompressed()) {
-
-		t.Fatalf("first hop should be goku, is instead: %v",
-			route.Hops[0].Channel.Node.Alias)
-	}
-
-	// The second hop should be from goku to sophon.
-	if !bytes.Equal(route.Hops[1].Channel.Node.PubKeyBytes[:],
-		aliases["sophon"].SerializeCompressed()) {
-
-		t.Fatalf("second hop should be sophon, is instead: %v",
-			route.Hops[0].Channel.Node.Alias)
-	}
-
-	// Next, we'll assert that the "next hop" field in each route payload
-	// properly points to the channel ID that the HTLC should be forwarded
-	// along.
-	hopPayloads := route.ToHopPayloads()
-	if len(hopPayloads) != 2 {
-		t.Fatalf("incorrect number of hop payloads: expected %v, got %v",
-			2, len(hopPayloads))
-	}
-
-	// The first hop should point to the second hop.
-	var expectedHop [8]byte
-	binary.BigEndian.PutUint64(expectedHop[:], route.Hops[1].Channel.ChannelID)
-	if !bytes.Equal(hopPayloads[0].NextAddress[:], expectedHop[:]) {
-		t.Fatalf("first hop has incorrect next hop: expected %x, got %x",
-			expectedHop[:], hopPayloads[0].NextAddress)
-	}
-
-	// The second hop should have a next hop value of all zeroes in order
-	// to indicate it's the exit hop.
-	var exitHop [8]byte
-	if !bytes.Equal(hopPayloads[1].NextAddress[:], exitHop[:]) {
-		t.Fatalf("first hop has incorrect next hop: expected %x, got %x",
-			exitHop[:], hopPayloads[0].NextAddress)
-	}
-
-	// We'll also assert that the outgoing CLTV value for each hop was set
-	// accordingly.
-	if route.Hops[0].OutgoingTimeLock != 101 {
-		t.Fatalf("expected outgoing time-lock of %v, instead have %v",
-			1, route.Hops[0].OutgoingTimeLock)
-	}
-	if route.Hops[1].OutgoingTimeLock != 101 {
-		t.Fatalf("outgoing time-lock for final hop is incorrect: "+
-			"expected %v, got %v", 1, route.Hops[1].OutgoingTimeLock)
-	}
-
-	// Additionally, we'll ensure that the amount to forward, and fees
-	// computed for each hop are correct.
-	firstHopFee := computeFee(
-		paymentAmt, route.Hops[1].Channel.ChannelEdgePolicy,
-	)
-	if route.Hops[0].Fee != firstHopFee {
-		t.Fatalf("first hop fee incorrect: expected %v, got %v",
-			firstHopFee, route.Hops[0].Fee)
-	}
-
-	if route.TotalAmount != paymentAmt+firstHopFee {
-		t.Fatalf("first hop forwarding amount incorrect: expected %v, got %v",
-			paymentAmt+firstHopFee, route.TotalAmount)
-	}
-	if route.Hops[1].Fee != 0 {
-		t.Fatalf("first hop fee incorrect: expected %v, got %v",
-			firstHopFee, 0)
-	}
-
-	if route.Hops[1].AmtToForward != paymentAmt {
-		t.Fatalf("second hop forwarding amount incorrect: expected %v, got %v",
-			paymentAmt+firstHopFee, route.Hops[1].AmtToForward)
-	}
-
-	// Finally, the next and prev hop maps should be properly set.
-	//
-	// The previous hop from goku should be the channel from roasbeef, and
-	// the next hop should be the channel to sophon.
-	gokuPrevChan, ok := route.prevHopChannel(aliases["songoku"])
-	if !ok {
-		t.Fatalf("goku didn't have next chan but should have")
-	}
-	if gokuPrevChan.ChannelID != route.Hops[0].Channel.ChannelID {
-		t.Fatalf("incorrect prev chan: expected %v, got %v",
-			gokuPrevChan.ChannelID, route.Hops[0].Channel.ChannelID)
-	}
-	gokuNextChan, ok := route.nextHopChannel(aliases["songoku"])
-	if !ok {
-		t.Fatalf("goku didn't have prev chan but should have")
-	}
-	if gokuNextChan.ChannelID != route.Hops[1].Channel.ChannelID {
-		t.Fatalf("incorrect prev chan: expected %v, got %v",
-			gokuNextChan.ChannelID, route.Hops[1].Channel.ChannelID)
-	}
-
-	// Sophon shouldn't have a next chan, but she should have a prev chan.
-	if _, ok := route.nextHopChannel(aliases["sophon"]); ok {
-		t.Fatalf("incorrect next hop map, no vertexes should " +
-			"be after sophon")
-	}
-	sophonPrevEdge, ok := route.prevHopChannel(aliases["sophon"])
-	if !ok {
-		t.Fatalf("sophon didn't have prev chan but should have")
-	}
-	if sophonPrevEdge.ChannelID != route.Hops[1].Channel.ChannelID {
-		t.Fatalf("incorrect prev chan: expected %v, got %v",
-			sophonPrevEdge.ChannelID, route.Hops[1].Channel.ChannelID)
-	}
-
-	// Next, attempt to query for a path to Luo Ji for 100 satoshis, there
-	// exist two possible paths in the graph, but the shorter (1 hop) path
-	// should be selected.
-	target = aliases["luoji"]
-	path, err = findPath(
-		nil, graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, paymentAmt,
-	)
-	if err != nil {
-		t.Fatalf("unable to find route: %v", err)
-	}
-	route, err = newRoute(paymentAmt, sourceVertex, path, startingHeight,
-		finalHopCLTV)
-	if err != nil {
-		t.Fatalf("unable to create path: %v", err)
-	}
-
-	// The length of the path should be exactly one hop as it's the
-	// "shortest" known path in the graph.
-	if len(route.Hops) != 1 {
-		t.Fatalf("shortest path not selected, should be of length 1, "+
-			"is instead: %v", len(route.Hops))
-	}
-
-	// As we have a direct path, the total time lock value should be
-	// exactly the current block height plus one.
-	if route.TotalTimeLock != 101 {
-		t.Fatalf("expected time lock of %v, instead have %v", 1,
-			route.TotalTimeLock)
-	}
-
-	// Additionally, since this is a single-hop payment, we shouldn't have
-	// to pay any fees in total, so the total amount should be the payment
-	// amount.
-	if route.TotalAmount != paymentAmt {
-		t.Fatalf("incorrect total amount, expected %v got %v",
-			paymentAmt, route.TotalAmount)
-	}
+	testgraphSource(d)
 }
 
 func TestPathFindingWithAdditionalEdges(t *testing.T) {
@@ -502,6 +693,7 @@ func TestPathFindingWithAdditionalEdges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
+	sourceVertex := Vertex(sourceNode.PubKeyBytes)
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 
@@ -538,18 +730,32 @@ func TestPathFindingWithAdditionalEdges(t *testing.T) {
 		NewVertex(aliases["songoku"]): {songokuToDoge},
 	}
 
-	// We should now be able to find a path from roasbeef to doge.
-	path, err := findPath(
-		nil, graph, additionalEdges, sourceNode, dogePubKey, nil, nil,
-		paymentAmt,
-	)
-	if err != nil {
-		t.Fatalf("unable to find private path to doge: %v", err)
+	testgraphSource := func(g graphSource) {
+		// We should now be able to find a path from roasbeef to doge.
+		path, err := findPath(
+			g, additionalEdges, sourceVertex, NewVertex(dogePubKey), nil, nil,
+			paymentAmt,
+		)
+		if err != nil {
+			t.Fatalf("unable to find private path to doge: %v", err)
+		}
+
+		// The path should represent the following hops:
+		//	roasbeef -> songoku -> doge
+		assertExpectedPath(t, path, "songoku", "doge")
 	}
 
-	// The path should represent the following hops:
-	//	roasbeef -> songoku -> doge
-	assertExpectedPath(t, path, "songoku", "doge")
+	g, err := newMemChannelGraphFromDatabase(graph)
+	if err != nil {
+		t.Fatalf("unable to create memChannelGraph: %v", err)
+	}
+	testgraphSource(g)
+
+	d, err := newDbChannelGraphFromDatabase(graph)
+	if err != nil {
+		t.Fatalf("unable to create dbChannelGraph: %v", err)
+	}
+	testgraphSource(d)
 }
 
 func TestKShortestPathFinding(t *testing.T) {
@@ -566,41 +772,55 @@ func TestKShortestPathFinding(t *testing.T) {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
 
-	// In this test we'd like to ensure that our algorithm to find the
-	// k-shortest paths from a given source node to any destination node
-	// works as expected.
+	testgraphSource := func(g graphSource) {
+		// In this test we'd like to ensure that our algorithm to find the
+		// k-shortest paths from a given source node to any destination node
+		// works as expected.
 
-	// In our basic_graph.json, there exist two paths from roasbeef to luo
-	// ji. Our algorithm should properly find both paths, and also rank
-	// them in order of their total "distance".
+		// In our basic_graph.json, there exist two paths from roasbeef to luo
+		// ji. Our algorithm should properly find both paths, and also rank
+		// them in order of their total "distance".
 
-	paymentAmt := lnwire.NewMSatFromSatoshis(100)
-	target := aliases["luoji"]
-	paths, err := findPaths(
-		nil, graph, sourceNode, target, paymentAmt, 100,
-	)
+		paymentAmt := lnwire.NewMSatFromSatoshis(100)
+		target := aliases["luoji"]
+		paths, err := findPaths(
+			g, sourceNode, NewVertex(target), paymentAmt, 100,
+		)
+		if err != nil {
+			t.Fatalf("unable to find paths between roasbeef and "+
+				"luo ji: %v", err)
+		}
+
+		// The algorithm should have found two paths from roasbeef to luo ji.
+		if len(paths) != 2 {
+			t.Fatalf("two path shouldn't been found, instead %v were",
+				len(paths))
+		}
+
+		// Additionally, the total hop length of the first path returned should
+		// be _less_ than that of the second path returned.
+		if len(paths[0]) > len(paths[1]) {
+			t.Fatalf("paths found not ordered properly")
+		}
+
+		// The first route should be a direct route to luo ji.
+		assertExpectedPath(t, paths[0], "roasbeef", "luoji")
+
+		// The second route should be a route to luo ji via satoshi.
+		assertExpectedPath(t, paths[1], "roasbeef", "satoshi", "luoji")
+	}
+
+	g, err := newMemChannelGraphFromDatabase(graph)
 	if err != nil {
-		t.Fatalf("unable to find paths between roasbeef and "+
-			"luo ji: %v", err)
+		t.Fatalf("unable to create memChannelGraph: %v", err)
 	}
+	testgraphSource(g)
 
-	// The algorithm should have found two paths from roasbeef to luo ji.
-	if len(paths) != 2 {
-		t.Fatalf("two path shouldn't been found, instead %v were",
-			len(paths))
+	d, err := newDbChannelGraphFromDatabase(graph)
+	if err != nil {
+		t.Fatalf("unable to create dbChannelGraph: %v", err)
 	}
-
-	// Additionally, the total hop length of the first path returned should
-	// be _less_ than that of the second path returned.
-	if len(paths[0]) > len(paths[1]) {
-		t.Fatalf("paths found not ordered properly")
-	}
-
-	// The first route should be a direct route to luo ji.
-	assertExpectedPath(t, paths[0], "roasbeef", "luoji")
-
-	// The second route should be a route to luo ji via satoshi.
-	assertExpectedPath(t, paths[1], "roasbeef", "satoshi", "luoji")
+	testgraphSource(d)
 }
 
 func TestNewRoutePathTooLong(t *testing.T) {
@@ -614,10 +834,16 @@ func TestNewRoutePathTooLong(t *testing.T) {
 		t.Fatalf("unable to create graph: %v", err)
 	}
 
+	g, err := newMemChannelGraphFromDatabase(graph)
+	if err != nil {
+		t.Fatalf("unable to create memChannelGraph: %v", err)
+	}
+
 	sourceNode, err := graph.SourceNode()
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
+	sourceVertex := Vertex(sourceNode.PubKeyBytes)
 
 	ignoredEdges := make(map[uint64]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
@@ -626,22 +852,18 @@ func TestNewRoutePathTooLong(t *testing.T) {
 
 	// We start by confirming that routing a payment 20 hops away is possible.
 	// Alice should be able to find a valid route to ursula.
-	target := aliases["ursula"]
-	_, err = findPath(
-		nil, graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, paymentAmt,
-	)
+	target := NewVertex(aliases["ursula"])
+	_, err = findPath(g, nil, sourceVertex, target, ignoredVertexes,
+		ignoredEdges, paymentAmt)
 	if err != nil {
 		t.Fatalf("path should have been found")
 	}
 
 	// Vincent is 21 hops away from Alice, and thus no valid route should be
 	// presented to Alice.
-	target = aliases["vincent"]
-	path, err := findPath(
-		nil, graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, paymentAmt,
-	)
+	target = NewVertex(aliases["vincent"])
+	path, err := findPath(g, nil, sourceVertex, target, ignoredVertexes,
+		ignoredEdges, paymentAmt)
 	if err == nil {
 		t.Fatalf("should not have been able to find path, supposed to be "+
 			"greater than 20 hops, found route with %v hops",
@@ -663,6 +885,7 @@ func TestPathNotAvailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
+	sourceVertex := Vertex(sourceNode.PubKeyBytes)
 
 	ignoredEdges := make(map[uint64]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
@@ -675,18 +898,28 @@ func TestPathNotAvailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to parse bytes: %v", err)
 	}
-	unknownNode, err := btcec.ParsePubKey(unknownNodeBytes, btcec.S256())
-	if err != nil {
-		t.Fatalf("unable to parse pubkey: %v", err)
+	var unknownNodeVertex Vertex
+	copy(unknownNodeVertex[:], unknownNodeBytes)
+
+	testgraphSource := func(g graphSource) {
+		_, err = findPath(g, nil, sourceVertex, unknownNodeVertex, ignoredVertexes,
+			ignoredEdges, 100)
+		if !IsError(err, ErrNoPathFound) {
+			t.Fatalf("path shouldn't have been found: %v", err)
+		}
 	}
 
-	_, err = findPath(
-		nil, graph, nil, sourceNode, unknownNode, ignoredVertexes,
-		ignoredEdges, 100,
-	)
-	if !IsError(err, ErrNoPathFound) {
-		t.Fatalf("path shouldn't have been found: %v", err)
+	g, err := newMemChannelGraphFromDatabase(graph)
+	if err != nil {
+		t.Fatalf("unable to create memChannelGraph: %v", err)
 	}
+	testgraphSource(g)
+
+	d, err := newDbChannelGraphFromDatabase(graph)
+	if err != nil {
+		t.Fatalf("unable to create dbChannelGraph: %v", err)
+	}
+	testgraphSource(d)
 }
 
 func TestPathInsufficientCapacity(t *testing.T) {
@@ -702,6 +935,8 @@ func TestPathInsufficientCapacity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
+	sourceVertex := Vertex(sourceNode.PubKeyBytes)
+
 	ignoredEdges := make(map[uint64]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
@@ -713,16 +948,29 @@ func TestPathInsufficientCapacity(t *testing.T) {
 	// satoshis. The largest channel in the basic graph is of size 100k
 	// satoshis, so we shouldn't be able to find a path to sophon even
 	// though we have a 2-hop link.
-	target := aliases["sophon"]
+	target := NewVertex(aliases["sophon"])
 
 	payAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
-	_, err = findPath(
-		nil, graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, payAmt,
-	)
-	if !IsError(err, ErrNoPathFound) {
-		t.Fatalf("graph shouldn't be able to support payment: %v", err)
+
+	testgraphSource := func(g graphSource) {
+		_, err = findPath(g, nil, sourceVertex, target, ignoredVertexes,
+			ignoredEdges, payAmt)
+		if !IsError(err, ErrNoPathFound) {
+			t.Fatalf("graph shouldn't be able to support payment: %v", err)
+		}
 	}
+
+	g, err := newMemChannelGraphFromDatabase(graph)
+	if err != nil {
+		t.Fatalf("unable to create memChannelGraph: %v", err)
+	}
+	testgraphSource(g)
+
+	d, err := newDbChannelGraphFromDatabase(graph)
+	if err != nil {
+		t.Fatalf("unable to create dbChannelGraph: %v", err)
+	}
+	testgraphSource(d)
 }
 
 // TestRouteFailMinHTLC tests that if we attempt to route an HTLC which is
@@ -738,21 +986,36 @@ func TestRouteFailMinHTLC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
+	sourceVertex := Vertex(sourceNode.PubKeyBytes)
+
 	ignoredEdges := make(map[uint64]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	// We'll not attempt to route an HTLC of 10 SAT from roasbeef to Son
 	// Goku. However, the min HTLC of Son Goku is 1k SAT, as a result, this
 	// attempt should fail.
-	target := aliases["songoku"]
+	target := NewVertex(aliases["songoku"])
 	payAmt := lnwire.MilliSatoshi(10)
-	_, err = findPath(
-		nil, graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, payAmt,
-	)
-	if !IsError(err, ErrNoPathFound) {
-		t.Fatalf("graph shouldn't be able to support payment: %v", err)
+
+	testgraphSource := func(g graphSource) {
+		_, err = findPath(g, nil, sourceVertex, target, ignoredVertexes,
+			ignoredEdges, payAmt)
+		if !IsError(err, ErrNoPathFound) {
+			t.Fatalf("graph shouldn't be able to support payment: %v", err)
+		}
 	}
+
+	g, err := newMemChannelGraphFromDatabase(graph)
+	if err != nil {
+		t.Fatalf("unable to create memChannelGraph: %v", err)
+	}
+	testgraphSource(g)
+
+	d, err := newDbChannelGraphFromDatabase(graph)
+	if err != nil {
+		t.Fatalf("unable to create dbChannelGraph: %v", err)
+	}
+	testgraphSource(d)
 }
 
 // TestRouteFailDisabledEdge tests that if we attempt to route to an edge
@@ -769,20 +1032,35 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
+	sourceVertex := Vertex(sourceNode.PubKeyBytes)
+
 	ignoredEdges := make(map[uint64]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	// First, we'll try to route from roasbeef -> songoku. This should
 	// succeed without issue, and return a single path.
-	target := aliases["songoku"]
+	target := NewVertex(aliases["songoku"])
 	payAmt := lnwire.NewMSatFromSatoshis(10000)
-	_, err = findPath(
-		nil, graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, payAmt,
-	)
-	if err != nil {
-		t.Fatalf("unable to find path: %v", err)
+
+	testgraphSourceSuccess := func(g graphSource) {
+		_, err = findPath(g, nil, sourceVertex, target, ignoredVertexes,
+			ignoredEdges, payAmt)
+		if err != nil {
+			t.Fatalf("unable to find path: %v", err)
+		}
 	}
+
+	g, err := newMemChannelGraphFromDatabase(graph)
+	if err != nil {
+		t.Fatalf("unable to create memChannelGraph: %v", err)
+	}
+	testgraphSourceSuccess(g)
+
+	d, err := newDbChannelGraphFromDatabase(graph)
+	if err != nil {
+		t.Fatalf("unable to create dbChannelGraph: %v", err)
+	}
+	testgraphSourceSuccess(d)
 
 	// First, we'll modify the edge from roasbeef -> songoku, to read that
 	// it's disabled.
@@ -795,15 +1073,27 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 
-	// Now, if we attempt to route through that edge, we should get a
-	// failure as it is no longer eligible.
-	_, err = findPath(
-		nil, graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, payAmt,
-	)
-	if !IsError(err, ErrNoPathFound) {
-		t.Fatalf("graph shouldn't be able to support payment: %v", err)
+	testgraphSourceFailure := func(g graphSource) {
+		// Now, if we attempt to route through that edge, we should get a
+		// failure as it is no longer eligible.
+		_, err = findPath(g, nil, sourceVertex, target, ignoredVertexes,
+			ignoredEdges, payAmt)
+		if !IsError(err, ErrNoPathFound) {
+			t.Fatalf("graph shouldn't be able to support payment: %v", err)
+		}
 	}
+
+	g, err = newMemChannelGraphFromDatabase(graph)
+	if err != nil {
+		t.Fatalf("unable to create memChannelGraph: %v", err)
+	}
+	testgraphSourceFailure(g)
+
+	d, err = newDbChannelGraphFromDatabase(graph)
+	if err != nil {
+		t.Fatalf("unable to create dbChannelGraph: %v", err)
+	}
+	testgraphSourceFailure(d)
 }
 
 func TestPathInsufficientCapacityWithFee(t *testing.T) {
@@ -1034,6 +1324,61 @@ func TestPathFindSpecExample(t *testing.T) {
 		t.Fatalf("wrong total time lock: got %v, expecting %v",
 			lastHop.OutgoingTimeLock,
 			startingHeight+DefaultFinalCLTVDelta)
+	}
+}
+
+// TestBenchmarkPathFinding makes sure a call to findPaths on the testnet graph
+// does not take longer than we expect. This is only run on memChannelGraph
+// since dbChannelGraph is known to be slow.
+//
+// TODO(nalinbhardwaj): Add similar benchmarking for findDiam.
+func TestBenchmarkPathFinding(t *testing.T) {
+	t.Parallel()
+
+	sourceNodeAlias := "0249d462ab448027d51a"
+	targetNodeAlias := "0228f9e8a63bfe260934"
+	const maxDurationMs = 250
+
+	graph, cleanUp, aliases, err := parseDescribeGraph(
+		testNetGraphFilePath, sourceNodeAlias)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+	g, err := newMemChannelGraphFromDatabase(graph)
+	if err != nil {
+		t.Fatalf("unable to create memChannelGraph: %v", err)
+	}
+
+	sourceNode, err := graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+	}
+
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+	target, ok := aliases[targetNodeAlias]
+	if !ok {
+		t.Fatalf("target %s not found in graph", targetNodeAlias)
+	}
+
+	start := time.Now()
+	paths, err := findPaths(g, sourceNode, NewVertex(target), paymentAmt, 100)
+	if err != nil {
+		t.Fatalf("unable to find paths between roasbeef and "+
+			"luo ji: %v", err)
+	}
+	dur := time.Since(start)
+	fmt.Println("TestBenchMarkPathFinding duration:", dur)
+	if dur > maxDurationMs*time.Millisecond {
+		t.Fatalf("expected findPaths to use less than %d ms",
+			maxDurationMs)
+	}
+
+	// This graph contains thousands of unique paths from the source to
+	// the target, but is currently capped at returning 100.
+	if len(paths) != 100 {
+		t.Fatalf("100 paths should be found, instead %v were",
+			len(paths))
 	}
 }
 

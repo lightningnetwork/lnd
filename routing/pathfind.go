@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"sync"
 
 	"container/heap"
 
@@ -25,6 +26,9 @@ const (
 
 	// infinity is used as a starting distance in our shortest path search.
 	infinity = math.MaxInt64
+
+	// maxGoRoutines is the number of concurrent threads to allow usage of.
+	maxGoRoutines = 20
 )
 
 // HopHint is a routing hint that contains the minimum information of a channel
@@ -781,4 +785,110 @@ func findPaths(graph graphSource,
 	}
 
 	return shortestPaths, nil
+}
+
+// FindDiam computes the diameter of the known graph using breadth first search
+// in O(N*(N+M)) time, where N = number of known nodes in graph, and M = number of
+// known channels. Graph Diameter = maximum length of shortest path in graph
+// between two nodes.
+//
+// TODO(nalinbhardwaj): Use faster average-time algorithm? Or an approximate algorithm.
+func (r *ChannelRouter) FindDiam() (int32, error) {
+	// Before attempting to perform a series of graph traversals to find
+	// the diameter of the graph, we'll first consult our diameter cache
+	r.graphInfoCacheMtx.RLock()
+	diam := r.diamCache
+	r.graphInfoCacheMtx.RUnlock()
+
+	// If we already have cached diameter, then we'll return it directly as
+	// there's no need to repeat the computation.
+	if diam != -1 {
+		return diam, nil
+	}
+
+	// Mutex to use to prevent data races.
+	var diamMutex = &sync.Mutex{}
+
+	graph, err := newMemChannelGraphFromDatabase(r.cfg.Graph)
+	if err != nil {
+		return -1, err
+	}
+
+	// We'll run through all the nodes in graph, find farthest node from
+	// each, and take the maximum of that distance.
+	findFarthestNode := func(sourceNode Vertex) (int32, error) {
+
+		// This will store the farthest node distance.
+		maxDist := int32(0)
+		queue := []Vertex{sourceNode}
+		distance := make(map[Vertex]int)
+		distance[sourceNode] = 0
+
+		for len(queue) > 0 {
+			top := queue[0]
+			queue = queue[1:]
+
+			// Run through all channels to find neighbours.
+			if err := graph.ForEachChannel(top, func(e *Edge) error {
+
+				// Get a neighbour.
+				neighbour := Vertex(e.outEdge.Node.PubKeyBytes)
+
+				if _, ok := distance[neighbour]; !ok {
+					// Put this node in distance (so we don't process it again).
+					distance[neighbour] = distance[top] + 1
+
+					// This has to be the farthest node visited yet, so update maxDist.
+					maxDist = int32(distance[neighbour])
+					queue = append(queue, neighbour)
+				}
+
+				return nil
+			}); err != nil {
+				return -1, err
+			}
+		}
+
+		return maxDist, nil
+	}
+
+	vertices := make(chan Vertex)
+	done := make(chan bool)
+	for i := 0; i < maxGoRoutines; i++ {
+	   go func() {
+		  for {
+				vertex, ok := <- vertices
+				if !ok {
+					done <- true
+					return
+				}
+				res, _ := findFarthestNode(vertex)
+				diamMutex.Lock()
+				if res > diam {
+					diam = res
+				}
+				diamMutex.Unlock()
+			}
+		}()
+	}
+
+	err = graph.ForEachNode(func(v Vertex) error {
+		vertices <- v
+		return nil
+	})
+	if err != nil {
+		return -1, err
+	}
+	close(vertices)
+	for i := 0; i < maxGoRoutines; i++ {
+		<- done
+	}
+
+	// Populate the cache with this fresh diameter so we can
+	// reuse it in the future.
+	r.graphInfoCacheMtx.RLock()
+	r.diamCache = diam
+	r.graphInfoCacheMtx.RUnlock()
+
+	return diam, nil
 }

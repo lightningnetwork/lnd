@@ -1327,6 +1327,30 @@ func TestPathFindSpecExample(t *testing.T) {
 	}
 }
 
+// TestBasicGraphDiameterFinding asserts that diameter found by the
+// FindDiam method is correct.
+func TestBasicGraphDiameterFinding(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx, cleanUp, err := createTestCtx(startingBlockHeight, basicGraphFilePath)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	diam, err := ctx.router.FindDiam()
+	if err != nil {
+		t.Fatalf("unable to find diameter: %v", err)
+	}
+
+	// Diameter of the graph is 3, the distance between sophon and satoshi
+	// or luo ji.
+	if diam != 3 {
+		t.Fatalf("incorrect diameter, expected 3 got: %v", diam)
+	}
+}
+
 // TestBenchmarkPathFinding makes sure a call to findPaths on the testnet graph
 // does not take longer than we expect. This is only run on memChannelGraph
 // since dbChannelGraph is known to be slow.

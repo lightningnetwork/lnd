@@ -208,6 +208,8 @@ type ChannelRouter struct {
 	// when doing any path finding.
 	selfNode *channeldb.LightningNode
 
+	graphInfoCacheMtx sync.RWMutex
+
 	// routeCache is a map that caches the k-shortest paths from ourselves
 	// to a given target destination for a particular payment amount. This
 	// map is used as an optimization to speed up subsequent payments to a
@@ -216,8 +218,14 @@ type ChannelRouter struct {
 	// results in channels being closed.
 	//
 	// TODO(roasbeef): make LRU
-	routeCacheMtx sync.RWMutex
-	routeCache    map[routeTuple][]*Route
+	routeCache map[routeTuple][]*Route
+
+	// diamCache is a int that caches the diameter of the known graph. This
+	// is used as an optimization to speed up subsequent FindDiam() calls.
+	// This int will be set to -1 each time a new channel announcement
+	// is accepted, or a new block arrives that results in channels
+	// being closed.
+	diamCache int32
 
 	// newBlocks is a channel in which new blocks connected to the end of
 	// the main chain are sent over, and blocks updated after a call to
@@ -292,6 +300,7 @@ func New(cfg Config) (*ChannelRouter, error) {
 		channelEdgeMtx:    multimutex.NewMutex(),
 		selfNode:          selfNode,
 		routeCache:        make(map[routeTuple][]*Route),
+		diamCache:         -1,
 		rejectCache:       make(map[uint64]struct{}),
 		quit:              make(chan struct{}),
 	}, nil
@@ -720,11 +729,12 @@ func (r *ChannelRouter) networkHandler() {
 				continue
 			}
 
-			// Invalidate the route cache, as some channels might
-			// not be confirmed anymore.
-			r.routeCacheMtx.Lock()
+			// Invalidate the graph information cache, as some channels
+			// might not be confirmed anymore.
+			r.graphInfoCacheMtx.Lock()
 			r.routeCache = make(map[routeTuple][]*Route)
-			r.routeCacheMtx.Unlock()
+			r.diamCache = -1
+			r.graphInfoCacheMtx.Unlock()
 
 			// TODO(halseth): notify client about the reorg?
 
@@ -783,17 +793,19 @@ func (r *ChannelRouter) networkHandler() {
 			log.Infof("Block %v (height=%v) closed %v channels",
 				chainUpdate.Hash, blockHeight, len(chansClosed))
 
-			// Invalidate the route cache as the block height has
-			// changed which will invalidate the HTLC timeouts we
-			// have crafted within each of the pre-computed routes.
+			// Invalidate the graph information cache as the block
+			// height has changed which will invalidate the HTLC
+			// timeouts we have crafted within each of the
+			// pre-computed routes.
 			//
 			// TODO(roasbeef): need to invalidate after each
 			// chan ann update?
 			//  * can have map of chanID to routes involved, avoids
 			//    full invalidation
-			r.routeCacheMtx.Lock()
+			r.graphInfoCacheMtx.Lock()
 			r.routeCache = make(map[routeTuple][]*Route)
-			r.routeCacheMtx.Unlock()
+			r.diamCache = -1
+			r.graphInfoCacheMtx.Unlock()
 
 			if len(chansClosed) == 0 {
 				continue
@@ -1145,13 +1157,14 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		return errors.Errorf("wrong routing update message type")
 	}
 
-	// If we've received a channel update, then invalidate the route cache
-	// as channels within the graph have closed, which may affect our
-	// choice of the KSP's for a particular routeTuple.
+	// If we've received a channel update, then invalidate the graph
+	// information cache as channels within the graph have closed, which
+	// may affect our choice of the KSP's for a particular routeTuple.
 	if invalidateCache {
-		r.routeCacheMtx.Lock()
+		r.graphInfoCacheMtx.Lock()
 		r.routeCache = make(map[routeTuple][]*Route)
-		r.routeCacheMtx.Unlock()
+		r.diamCache = -1
+		r.graphInfoCacheMtx.Unlock()
 	}
 
 	return nil
@@ -1319,9 +1332,9 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	// the k-shortest paths to the destination, we'll first consult our
 	// path cache
 	rt := newRouteTuple(amt, dest)
-	r.routeCacheMtx.RLock()
+	r.graphInfoCacheMtx.RLock()
 	routes, ok := r.routeCache[rt]
-	r.routeCacheMtx.RUnlock()
+	r.graphInfoCacheMtx.RUnlock()
 
 	// If we already have a cached route, and it contains at least the
 	// number of paths requested, then we'll return it directly as there's
@@ -1387,11 +1400,11 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 		}),
 	)
 
-	// Populate the cache with this set of fresh routes so we can reuse
-	// them in the future.
-	r.routeCacheMtx.Lock()
+	// Populate the cache with this set of fresh routes so we can
+	// reuse them in the future.
+	r.graphInfoCacheMtx.Lock()
 	r.routeCache[rt] = validRoutes
-	r.routeCacheMtx.Unlock()
+	r.graphInfoCacheMtx.Unlock()
 
 	return validRoutes, nil
 }

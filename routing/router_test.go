@@ -102,10 +102,17 @@ func createTestCtx(startingHeight uint32, testGraph ...string) (*testCtx, func()
 		if err = graph.SetSourceNode(sourceNode); err != nil {
 			return nil, nil, fmt.Errorf("unable to set source node: %v", err)
 		}
-	} else {
+	} else if len(testGraph) == 1 {
 		// Otherwise, we'll attempt to locate and parse out the file
 		// that encodes the graph that our tests should be run against.
 		graph, cleanup, aliasMap, err = parseTestGraph(testGraph[0])
+		if err != nil {
+			return nil, nil, fmt.Errorf("unable to create test graph: %v", err)
+		}
+	} else {
+		// Otherwise, we'll attempt to locate and parse out the file
+		// that encodes the graph that our tests should be run against.
+		graph, cleanup, aliasMap, err = parseDescribeGraph(testGraph[0], testGraph[1])
 		if err != nil {
 			return nil, nil, fmt.Errorf("unable to create test graph: %v", err)
 		}
@@ -1885,5 +1892,67 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 	}
 	if ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 1) {
 		t.Fatalf("router failed to detect fresh edge policy")
+	}
+}
+
+// TestBenchmarkSendPayment makes sure a call to SendPayment on the testnet graph
+// does not take longer than we expect.
+func TestBenchmarkSendPayment(t *testing.T) {
+	t.Parallel()
+
+	sourceNodeAlias := "0249d462ab448027d51a"
+	targetNodeAlias := "0228f9e8a63bfe260934"
+	const maxDurationMs = 500
+	const startingBlockHeight = 101
+	ctx, cleanUp, err := createTestCtx(startingBlockHeight, testNetGraphFilePath, sourceNodeAlias)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	// Craft a LightningPayment struct that'll send a payment.
+	var payHash [32]byte
+	payment := LightningPayment{
+		Target:      ctx.aliases[targetNodeAlias],
+		Amount:      lnwire.NewMSatFromSatoshis(1000),
+		PaymentHash: payHash,
+	}
+
+	var preImage [32]byte
+	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
+
+	sourceNode := ctx.router.selfNode
+
+	// We'll modify the SendToSwitch method that's been set within the
+	// router's configuration to ignore the path that has luo ji as the
+	// first hop. This should force the router to instead take the
+	// available two hop path (through satoshi).
+	ctx.router.cfg.SendToSwitch = func(n [33]byte,
+		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
+
+		if int(n[32])%5 == 4 {
+			pub, err := sourceNode.PubKey()
+			if err != nil {
+				return preImage, err
+			}
+			return [32]byte{}, &htlcswitch.ForwardingError{
+				ErrorSource: pub,
+				// TODO(roasbeef): temp node failure should be?
+				FailureMessage: &lnwire.FailTemporaryChannelFailure{},
+			}
+		}
+
+		return preImage, nil
+	}
+
+	start := time.Now()
+	// Send off the payment request to the router, route through satoshi
+	// should've been selected as a fall back and succeeded correctly.
+	ctx.router.SendPayment(&payment)
+	dur := time.Since(start)
+	fmt.Println("TestBenchmarkSendPayment duration:", dur)
+	if dur > maxDurationMs*time.Millisecond {
+		t.Fatalf("expected SendPayment to use less than %d ms",
+			maxDurationMs)
 	}
 }

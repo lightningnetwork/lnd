@@ -66,6 +66,10 @@ const (
 
 	defaultAlias = ""
 	defaultColor = "#3399FF"
+
+	// minChanFundingSize is the smallest channel that we consider sensible and
+	// thus allow. It is used as default.
+	minChanFundingSize = int64(20000)
 )
 
 var (
@@ -398,6 +402,14 @@ func loadConfig() (*config, error) {
 	cfg.LitecoindMode.Dir = cleanAndExpandPath(cfg.LitecoindMode.Dir)
 	cfg.Tor.V2PrivateKeyPath = cleanAndExpandPath(cfg.Tor.V2PrivateKeyPath)
 
+	// Ensure that minimal channel size is not below the sensible minimum.
+	if cfg.MinChanSize < minChanFundingSize {
+		str := "%s: minchansize must be greater than or equal to %v"
+		err := fmt.Errorf(str, funcName, minChanFundingSize)
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+
 	// Ensure that the user didn't attempt to specify negative values for
 	// any of the autopilot params.
 	if cfg.Autopilot.MaxChannels < 0 {
@@ -426,9 +438,9 @@ func loadConfig() (*config, error) {
 	}
 
 	// Ensure that the specified values for the min and max channel size
-	// don't are within the bounds of the normal chan size constraints.
-	if cfg.Autopilot.MinChannelSize < int64(minChanFundingSize) {
-		cfg.Autopilot.MinChannelSize = int64(minChanFundingSize)
+	// are within the bounds of the normal chan size constraints.
+	if cfg.Autopilot.MinChannelSize < int64(cfg.MinChanSize) {
+		cfg.Autopilot.MinChannelSize = int64(cfg.MinChanSize)
 	}
 	if cfg.Autopilot.MaxChannelSize > int64(maxFundingAmount) {
 		cfg.Autopilot.MaxChannelSize = int64(maxFundingAmount)

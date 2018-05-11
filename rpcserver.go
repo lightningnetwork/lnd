@@ -759,9 +759,9 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	// Restrict the size of the channel we'll actually open. At a later
 	// level, we'll ensure that the output we create after accounting for
 	// fees that a dust output isn't created.
-	if localFundingAmt < minChanFundingSize {
+	if localFundingAmt < btcutil.Amount(cfg.MinChanSize) {
 		return fmt.Errorf("channel is too small, the minimum channel "+
-			"size is: %v SAT", int64(minChanFundingSize))
+			"size is: %v SAT", cfg.MinChanSize)
 	}
 
 	var (
@@ -918,9 +918,9 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	// Restrict the size of the channel we'll actually open. At a later
 	// level, we'll ensure that the output we create after accounting for
 	// fees that a dust output isn't created.
-	if localFundingAmt < minChanFundingSize {
+	if localFundingAmt < btcutil.Amount(cfg.MinChanSize) {
 		return nil, fmt.Errorf("channel is too small, the minimum channel "+
-			"size is: %v SAT", int64(minChanFundingSize))
+			"size is: %v SAT", cfg.MinChanSize)
 	}
 
 	// Based on the passed fee related parameters, we'll determine an

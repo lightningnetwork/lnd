@@ -793,39 +793,37 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 		for {
 			select {
 			case graphUpdate := <-graphUpdates:
-				if len(graphUpdate.ChannelUpdates) == 0 {
-					continue
-				}
-				chanUpdate := graphUpdate.ChannelUpdates[0]
-				fundingTxStr := txStr(chanUpdate.ChanPoint)
-				if _, ok := cps[fundingTxStr]; !ok {
-					continue
-				}
+				for _, update := range graphUpdate.ChannelUpdates {
+					fundingTxStr := txStr(update.ChanPoint)
+					if _, ok := cps[fundingTxStr]; !ok {
+						continue
+					}
 
-				if chanUpdate.AdvertisingNode != advertisingNode {
-					continue
-				}
+					if update.AdvertisingNode != advertisingNode {
+						continue
+					}
 
-				policy := chanUpdate.RoutingPolicy
-				if policy.FeeBaseMsat != baseFee {
-					continue
-				}
-				if policy.FeeRateMilliMsat != feeRate*feeBase {
-					continue
-				}
-				if policy.TimeLockDelta != timeLockDelta {
-					continue
-				}
+					policy := update.RoutingPolicy
+					if policy.FeeBaseMsat != baseFee {
+						continue
+					}
+					if policy.FeeRateMilliMsat != feeRate*feeBase {
+						continue
+					}
+					if policy.TimeLockDelta != timeLockDelta {
+						continue
+					}
 
-				// We got a policy update that matched the
-				// values and channel point of what we
-				// expected, delete it from the map.
-				delete(cps, fundingTxStr)
+					// We got a policy update that matched the
+					// values and channel point of what we
+					// expected, delete it from the map.
+					delete(cps, fundingTxStr)
 
-				// If we have no more channel points we are
-				// waiting for, break out of the loop.
-				if len(cps) == 0 {
-					break Loop
+					// If we have no more channel points we are
+					// waiting for, break out of the loop.
+					if len(cps) == 0 {
+						break Loop
+					}
 				}
 			case <-time.After(20 * time.Second):
 				t.Fatalf("did not receive channel update")
@@ -967,9 +965,15 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Wait for all nodes to have seen the policy updates for both of
 	// Alice's channels.
-	waitForChannelUpdate(aliceUpdates, net.Alice.PubKeyStr, chanPoint3)
-	waitForChannelUpdate(bobUpdates, net.Alice.PubKeyStr, chanPoint3)
-	waitForChannelUpdate(carolUpdates, net.Alice.PubKeyStr, chanPoint3)
+	waitForChannelUpdate(
+		aliceUpdates, net.Alice.PubKeyStr, chanPoint, chanPoint3,
+	)
+	waitForChannelUpdate(
+		bobUpdates, net.Alice.PubKeyStr, chanPoint, chanPoint3,
+	)
+	waitForChannelUpdate(
+		carolUpdates, net.Alice.PubKeyStr, chanPoint, chanPoint3,
+	)
 
 	// And finally check that all nodes remembers the policy update they
 	// received.

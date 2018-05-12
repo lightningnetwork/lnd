@@ -68,8 +68,7 @@ Alternatively, if one doesn't wish to use `make`, then the `go` commands can be
 used directly:
 ```
 dep ensure -v
-go install -v
-go install github.com/lightningnetwork/lnd/cmd/lncli
+go install -v ./...
 ```
 
 **Updating**
@@ -88,7 +87,7 @@ used directly:
 cd $GOPATH/src/github.com/lightningnetwork/lnd
 git pull
 dep ensure -v
-go install -v
+go install -v ./...
 ```
 
 **Tests**

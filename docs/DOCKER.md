@@ -26,8 +26,15 @@ docker start lnd
 Here is an example testnet `lnd` that uses Neutrino:
 
 ```
-docker create -e BITCOIN_ACTIVE=1 -e BITCOIN_TESTNET=1 -e BITCOIN_NODE=neutrino -e NEUTRINO_CONNECT=faucet.lightning.community --name=lnd lightningnetwork/lnd
+docker create --name testnet-neutrino lightningnetwork/lnd --bitcoin.active --bitcoin.testnet --bitcoin.node=neutrino --neutrino.connect=faucet.lightning.community
 ```
+
+Alternatively, you can specify options via environment variables:
+
+```
+docker create --name=testnet-neutrino -e BITCOIN_ACTIVE=1 -e BITCOIN_TESTNET=1 -e BITCOIN_NODE=neutrino -e NEUTRINO_CONNECT=faucet.lightning.community lightningnetwork/lnd
+```
+
 
 Start the container:
 
@@ -38,7 +45,7 @@ docker start lnd
 Create a wallet (and write down the seed):
 
 ```
-$ docker exec -it lnd lncli create
+$ docker exec -it testnet-neutrino lncli create
 ```
 
 Confirm `lnd` has begun to synchronize:
@@ -53,5 +60,5 @@ $ docker logs lnd
 2018-05-01 02:28:09.872 [INF] BTCN: Processed 10547 blocks in the last 10.23s (height 10547, 2012-05-28 05:02:32 +0000 UTC)
 ```
 
-This is a very simple example, more interesting examples will use the environment
-variable options to expose RPC ports, add additional chains, and more.
+This is a simple example, it is possible to use environment
+variables or commandline options to expose RPC ports, add additional chains, and more.

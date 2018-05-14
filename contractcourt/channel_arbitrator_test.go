@@ -339,3 +339,91 @@ func TestChannelArbitratorLocalForceCloseRemoteConfirmed(t *testing.T) {
 	// TODO: intermediate states as well.
 	assertState(t, chanArb, StateFullyResolved)
 }
+
+// TestChannelArbitratorLocalForceCloseDoubleSpend tests that the
+// ChannelArbitrator behaves as expected in the case where we request a local
+// force close, but we fail broadcasting our commitment because a remote
+// commitment has already been published.
+func TestChannelArbitratorLocalForceDoubleSpend(t *testing.T) {
+	chanArb, resolved, cleanUp, err := createTestChannelArbitrator()
+	if err != nil {
+		t.Fatalf("unable to create ChannelArbitrator: %v", err)
+	}
+	defer cleanUp()
+
+	if err := chanArb.Start(); err != nil {
+		t.Fatalf("unable to start ChannelArbitrator: %v", err)
+	}
+	defer chanArb.Stop()
+
+	// It should start out in the default state.
+	assertState(t, chanArb, StateDefault)
+
+	// Return ErrDoubleSpend when attempting to publish the tx.
+	stateChan := make(chan ArbitratorState)
+	chanArb.cfg.PublishTx = func(*wire.MsgTx) error {
+		// When the force close tx is being broadcasted, check that the
+		// state is correct at that point.
+		select {
+		case stateChan <- chanArb.state:
+		case <-chanArb.quit:
+			return fmt.Errorf("exiting")
+		}
+		return lnwallet.ErrDoubleSpend
+	}
+
+	errChan := make(chan error, 1)
+	respChan := make(chan *wire.MsgTx, 1)
+
+	// With the channel found, and the request crafted, we'll send over a
+	// force close request to the arbitrator that watches this channel.
+	chanArb.forceCloseReqs <- &forceCloseReq{
+		errResp: errChan,
+		closeTx: respChan,
+	}
+
+	// We expect it to be in state StateBroadcastCommit when publishing
+	// the force close.
+	select {
+	case state := <-stateChan:
+		if state != StateBroadcastCommit {
+			t.Fatalf("state during PublishTx was %v", state)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatalf("no state update received")
+	}
+
+	// Wait for a response to the force close.
+	select {
+	case <-respChan:
+	case err := <-errChan:
+		t.Fatalf("error force closing channel: %v", err)
+	case <-time.After(15 * time.Second):
+		t.Fatalf("no response received")
+	}
+
+	// The state should be StateCommitmentBroadcasted.
+	assertState(t, chanArb, StateCommitmentBroadcasted)
+
+	// Now notify about the _REMOTE_ commitment getting confirmed.
+	commitSpend := &chainntnfs.SpendDetail{
+		SpenderTxHash: &chainhash.Hash{},
+	}
+	uniClose := &lnwallet.UnilateralCloseSummary{
+		SpendDetail:     commitSpend,
+		HtlcResolutions: &lnwallet.HtlcResolutions{},
+	}
+	chanArb.cfg.ChainEvents.RemoteUnilateralClosure <- uniClose
+
+	// It should resolve.
+	select {
+	case <-resolved:
+		// Expected.
+	case <-time.After(15 * time.Second):
+		t.Fatalf("contract was not resolved")
+	}
+
+	// And we expect it to end up in StateFullyResolved.
+	// TODO: intermediate states as well.
+	assertState(t, chanArb, StateFullyResolved)
+}

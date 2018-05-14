@@ -284,7 +284,7 @@ func (r *ChannelReservation) SetNumConfsRequired(numConfs uint16) {
 // if the parameters are seemed unsound.
 func (r *ChannelReservation) CommitConstraints(csvDelay, maxHtlcs uint16,
 	maxValueInFlight, minHtlc lnwire.MilliSatoshi,
-	chanReserve btcutil.Amount) error {
+	chanReserve, dustLimit btcutil.Amount) error {
 
 	r.Lock()
 	defer r.Unlock()
@@ -294,6 +294,12 @@ func (r *ChannelReservation) CommitConstraints(csvDelay, maxHtlcs uint16,
 	const maxDelay = 10000
 	if csvDelay > maxDelay {
 		return ErrCsvDelayTooLarge(csvDelay, maxDelay)
+	}
+
+	// The dust limit should always be greater or equal to the channel
+	// reserve. The reservation request should be denied if otherwise.
+	if dustLimit > chanReserve {
+		return ErrChanReserveTooSmall(chanReserve, dustLimit)
 	}
 
 	// Fail if we consider the channel reserve to be too large.  We
@@ -329,6 +335,12 @@ func (r *ChannelReservation) CommitConstraints(csvDelay, maxHtlcs uint16,
 	if maxValueInFlight < minNumHtlc*minHtlc {
 		return ErrMaxValueInFlightTooSmall(maxValueInFlight,
 			minNumHtlc*minHtlc)
+	}
+
+	// Our dust limit should always be less than or equal our proposed
+	// channel reserve.
+	if r.ourContribution.DustLimit > chanReserve {
+		r.ourContribution.DustLimit = chanReserve
 	}
 
 	r.ourContribution.ChannelConfig.CsvDelay = csvDelay

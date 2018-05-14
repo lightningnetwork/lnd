@@ -994,10 +994,10 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// party is attempting to dictate for our commitment transaction.
 	err = reservation.CommitConstraints(
 		msg.CsvDelay, msg.MaxAcceptedHTLCs, msg.MaxValueInFlight,
-		msg.HtlcMinimum, msg.ChannelReserve,
+		msg.HtlcMinimum, msg.ChannelReserve, msg.DustLimit,
 	)
 	if err != nil {
-		fndgLog.Errorf("Unaccaptable channel constraints: %v", err)
+		fndgLog.Errorf("Unacceptable channel constraints: %v", err)
 		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
 			fmsg.msg.PendingChannelID, err,
 		)
@@ -1146,7 +1146,7 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 	resCtx.reservation.SetNumConfsRequired(uint16(msg.MinAcceptDepth))
 	err = resCtx.reservation.CommitConstraints(
 		msg.CsvDelay, msg.MaxAcceptedHTLCs, msg.MaxValueInFlight,
-		msg.HtlcMinimum, msg.ChannelReserve,
+		msg.HtlcMinimum, msg.ChannelReserve, msg.DustLimit,
 	)
 	if err != nil {
 		fndgLog.Warnf("Unacceptable channel constraints: %v", err)

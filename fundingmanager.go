@@ -279,10 +279,10 @@ type fundingConfig struct {
 	RequiredRemoteDelay func(btcutil.Amount) uint16
 
 	// RequiredRemoteChanReserve is a function closure that, given the
-	// channel capacity, will return an appropriate amount for the remote
-	// peer's required channel reserve that is to be adhered to at all
-	// times.
-	RequiredRemoteChanReserve func(btcutil.Amount) btcutil.Amount
+	// channel capacity and dust limit, will return an appropriate amount
+	// for the remote peer's required channel reserve that is to be adhered
+	// to at all times.
+	RequiredRemoteChanReserve func(capacity, dustLimit btcutil.Amount) btcutil.Amount
 
 	// RequiredRemoteMaxValue is a function closure that, given the channel
 	// capacity, returns the amount of MilliSatoshis that our remote peer
@@ -1008,12 +1008,9 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		"amt=%v, push_amt=%v", numConfsReq, fmsg.msg.PendingChannelID,
 		amt, msg.PushAmount)
 
-	// Using the RequiredRemoteDelay closure, we'll compute the remote CSV
-	// delay we require given the total amount of funds within the channel.
+	// Generate our required constraints for the remote party.
 	remoteCsvDelay := f.cfg.RequiredRemoteDelay(amt)
-
-	// We'll also generate our required constraints for the remote party,
-	chanReserve := f.cfg.RequiredRemoteChanReserve(amt)
+	chanReserve := f.cfg.RequiredRemoteChanReserve(amt, msg.DustLimit)
 	maxValue := f.cfg.RequiredRemoteMaxValue(amt)
 	maxHtlcs := f.cfg.RequiredRemoteMaxHTLCs(amt)
 	minHtlc := f.cfg.DefaultRoutingPolicy.MinHTLC
@@ -1161,7 +1158,7 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 	// As they've accepted our channel constraints, we'll regenerate them
 	// here so we can properly commit their accepted constraints to the
 	// reservation.
-	chanReserve := f.cfg.RequiredRemoteChanReserve(resCtx.chanAmt)
+	chanReserve := f.cfg.RequiredRemoteChanReserve(resCtx.chanAmt, msg.DustLimit)
 	maxValue := f.cfg.RequiredRemoteMaxValue(resCtx.chanAmt)
 	maxHtlcs := f.cfg.RequiredRemoteMaxHTLCs(resCtx.chanAmt)
 
@@ -2573,7 +2570,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// Finally, we'll use the current value of the channels and our default
 	// policy to determine of required commitment constraints for the
 	// remote party.
-	chanReserve := f.cfg.RequiredRemoteChanReserve(capacity)
+	chanReserve := f.cfg.RequiredRemoteChanReserve(capacity, ourDustLimit)
 	maxValue := f.cfg.RequiredRemoteMaxValue(capacity)
 	maxHtlcs := f.cfg.RequiredRemoteMaxHTLCs(capacity)
 

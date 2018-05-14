@@ -464,11 +464,20 @@ func lndMain() error {
 			cid := lnwire.NewChanIDFromOutPoint(&chanPoint)
 			return server.htlcSwitch.UpdateShortChanID(cid)
 		},
-		RequiredRemoteChanReserve: func(chanAmt btcutil.Amount) btcutil.Amount {
+		RequiredRemoteChanReserve: func(chanAmt,
+			dustLimit btcutil.Amount) btcutil.Amount {
+
 			// By default, we'll require the remote peer to maintain
 			// at least 1% of the total channel capacity at all
-			// times.
-			return chanAmt / 100
+			// times. If this value ends up dipping below the dust
+			// limit, then we'll use the dust limit itself as the
+			// reserve as required by BOLT #2.
+			reserve := chanAmt / 100
+			if reserve < dustLimit {
+				reserve = dustLimit
+			}
+
+			return reserve
 		},
 		RequiredRemoteMaxValue: func(chanAmt btcutil.Amount) lnwire.MilliSatoshi {
 			// By default, we'll allow the remote peer to fully

@@ -31,4 +31,4 @@ COPY "docker-entrypoint.sh" .
 
 # Use the script to automatically start lnd
 ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["lncli"]
+CMD ["lnd"]

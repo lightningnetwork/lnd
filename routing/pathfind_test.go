@@ -313,7 +313,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	target := aliases["sophon"]
 	path, err := findPath(
 		nil, graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, paymentAmt,
+		ignoredEdges, paymentAmt, nil,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -455,7 +455,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	target = aliases["luoji"]
 	path, err = findPath(
 		nil, graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, paymentAmt,
+		ignoredEdges, paymentAmt, nil,
 	)
 	if err != nil {
 		t.Fatalf("unable to find route: %v", err)
@@ -541,7 +541,7 @@ func TestPathFindingWithAdditionalEdges(t *testing.T) {
 	// We should now be able to find a path from roasbeef to doge.
 	path, err := findPath(
 		nil, graph, additionalEdges, sourceNode, dogePubKey, nil, nil,
-		paymentAmt,
+		paymentAmt, nil,
 	)
 	if err != nil {
 		t.Fatalf("unable to find private path to doge: %v", err)
@@ -578,6 +578,7 @@ func TestKShortestPathFinding(t *testing.T) {
 	target := aliases["luoji"]
 	paths, err := findPaths(
 		nil, graph, sourceNode, target, paymentAmt, 100,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("unable to find paths between roasbeef and "+
@@ -629,7 +630,7 @@ func TestNewRoutePathTooLong(t *testing.T) {
 	target := aliases["ursula"]
 	_, err = findPath(
 		nil, graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, paymentAmt,
+		ignoredEdges, paymentAmt, nil,
 	)
 	if err != nil {
 		t.Fatalf("path should have been found")
@@ -640,7 +641,7 @@ func TestNewRoutePathTooLong(t *testing.T) {
 	target = aliases["vincent"]
 	path, err := findPath(
 		nil, graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, paymentAmt,
+		ignoredEdges, paymentAmt, nil,
 	)
 	if err == nil {
 		t.Fatalf("should not have been able to find path, supposed to be "+
@@ -682,7 +683,7 @@ func TestPathNotAvailable(t *testing.T) {
 
 	_, err = findPath(
 		nil, graph, nil, sourceNode, unknownNode, ignoredVertexes,
-		ignoredEdges, 100,
+		ignoredEdges, 100, nil,
 	)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("path shouldn't have been found: %v", err)
@@ -718,7 +719,7 @@ func TestPathInsufficientCapacity(t *testing.T) {
 	payAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 	_, err = findPath(
 		nil, graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, payAmt,
+		ignoredEdges, payAmt, nil,
 	)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
@@ -748,7 +749,7 @@ func TestRouteFailMinHTLC(t *testing.T) {
 	payAmt := lnwire.MilliSatoshi(10)
 	_, err = findPath(
 		nil, graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, payAmt,
+		ignoredEdges, payAmt, nil,
 	)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
@@ -778,7 +779,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	payAmt := lnwire.NewMSatFromSatoshis(10000)
 	_, err = findPath(
 		nil, graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, payAmt,
+		ignoredEdges, payAmt, nil,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -799,7 +800,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	// failure as it is no longer eligible.
 	_, err = findPath(
 		nil, graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, payAmt,
+		ignoredEdges, payAmt, nil,
 	)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)

@@ -5580,13 +5580,6 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig []byte,
 	return closeTx, ourBalance, nil
 }
 
-// DeleteState deletes all state concerning the channel from the underlying
-// database, only leaving a small summary describing metadata of the
-// channel's lifetime.
-func (lc *LightningChannel) DeleteState(c *channeldb.ChannelCloseSummary) error {
-	return lc.channelState.CloseChannel(c)
-}
-
 // AvailableBalance returns the current available balance within the channel.
 // By available balance, we mean that if at this very instance s new commitment
 // were to be created which evals all the log entries, what would our available

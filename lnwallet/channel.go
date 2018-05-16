@@ -1340,10 +1340,10 @@ func NewLightningChannel(signer Signer, pCache PreimageCache,
 	// First, initialize the update logs with their current counter values
 	// from the local and remote commitments.
 	localUpdateLog := newUpdateLog(
-		localCommit.LocalLogIndex, localCommit.LocalHtlcIndex,
+		remoteCommit.LocalLogIndex, remoteCommit.LocalHtlcIndex,
 	)
 	remoteUpdateLog := newUpdateLog(
-		remoteCommit.RemoteLogIndex, remoteCommit.RemoteHtlcIndex,
+		localCommit.RemoteLogIndex, localCommit.RemoteHtlcIndex,
 	)
 
 	lc := &LightningChannel{

@@ -5108,3 +5108,175 @@ func TestChannelRestoreUpdateLogs(t *testing.T) {
 		t.Fatalf("bob remote log not restored: %v", err)
 	}
 }
+
+// fetchNumUpdates counts the number of updateType in the log.
+func fetchNumUpdates(t updateType, log *updateLog) int {
+	num := 0
+	for e := log.Front(); e != nil; e = e.Next() {
+		htlc := e.Value.(*PaymentDescriptor)
+		if htlc.EntryType == t {
+			num++
+		}
+	}
+	return num
+}
+
+// assertInLog checks that the given log contains the expected number of Adds
+// and Fails.
+func assertInLog(t *testing.T, log *updateLog, numAdds, numFails int) {
+	adds := fetchNumUpdates(Add, log)
+	if adds != numAdds {
+		t.Fatalf("expected %d adds, found %d", numAdds, adds)
+	}
+	fails := fetchNumUpdates(Fail, log)
+	if fails != numFails {
+		t.Fatalf("expected %d fails, found %d", numFails, fails)
+	}
+}
+
+// assertInLogs asserts that the expected number of Adds and Fails occurs in
+// the local and remote update log of the given channel.
+func assertInLogs(t *testing.T, channel *LightningChannel, numAddsLocal,
+	numFailsLocal, numAddsRemote, numFailsRemote int) {
+	assertInLog(t, channel.localUpdateLog, numAddsLocal, numFailsLocal)
+	assertInLog(t, channel.remoteUpdateLog, numAddsRemote, numFailsRemote)
+}
+
+// restoreAndAssert creates a new LightningChannel from the given channel's
+// state, and asserts that the new channel has had its logs restored to the
+// expected state.
+func restoreAndAssert(t *testing.T, channel *LightningChannel, numAddsLocal,
+	numFailsLocal, numAddsRemote, numFailsRemote int) {
+	newChannel, err := NewLightningChannel(
+		channel.Signer, nil, channel.channelState,
+	)
+	if err != nil {
+		t.Fatalf("unable to create new channel: %v", err)
+	}
+	defer newChannel.Stop()
+
+	assertInLog(t, newChannel.localUpdateLog, numAddsLocal, numFailsLocal)
+	assertInLog(t, newChannel.remoteUpdateLog, numAddsRemote, numFailsRemote)
+}
+
+// TesstChannelRestoreUpdateLogsFailedHTLC runs through a scenario where an
+// HTLC is added and failed, and asserts along the way that we would restore
+// the update logs of the channel to the expected state at any point.
+func TestChannelRestoreUpdateLogsFailedHTLC(t *testing.T) {
+	t.Parallel()
+
+	aliceChannel, bobChannel, cleanUp, err := CreateTestChannels()
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// First, we'll add an HTLC from Alice to Bob, and lock it in for both.
+	htlcAmount := lnwire.NewMSatFromSatoshis(20000)
+	htlcAlice, _ := createHTLC(0, htlcAmount)
+	if _, err := aliceChannel.AddHTLC(htlcAlice, nil); err != nil {
+		t.Fatalf("alice unable to add htlc: %v", err)
+	}
+	// The htlc Alice sent should be in her local update log.
+	assertInLogs(t, aliceChannel, 1, 0, 0, 0)
+
+	// A restore at this point should NOT restore this update, as it is not
+	// locked in anywhere yet.
+	restoreAndAssert(t, aliceChannel, 0, 0, 0, 0)
+
+	if _, err := bobChannel.ReceiveHTLC(htlcAlice); err != nil {
+		t.Fatalf("bob unable to recv add htlc: %v", err)
+	}
+
+	// Lock in the Add on both sides.
+	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("unable to complete state update: %v", err)
+	}
+
+	// Since it is locked in, Alice should have the Add in the local log,
+	// and it should be restored during restoration.
+	assertInLogs(t, aliceChannel, 1, 0, 0, 0)
+	restoreAndAssert(t, aliceChannel, 1, 0, 0, 0)
+
+	// Now we make Bob fail this HTLC.
+	err = bobChannel.FailHTLC(0, []byte("failreason"), nil, nil, nil)
+	if err != nil {
+		t.Fatalf("unable to cancel HTLC: %v", err)
+	}
+
+	err = aliceChannel.ReceiveFailHTLC(0, []byte("failreason"))
+	if err != nil {
+		t.Fatalf("unable to recv htlc cancel: %v", err)
+	}
+
+	// This Fail update should have been added to Alice's remote update log.
+	assertInLogs(t, aliceChannel, 1, 0, 0, 1)
+
+	// Restoring should restore the HTLC added to Alice's local log, but
+	// NOT the Fail sent by Bob, since it is not locked in.
+	restoreAndAssert(t, aliceChannel, 1, 0, 0, 0)
+
+	// Bob sends a signature.
+	bobSig, bobHtlcSigs, err := bobChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("unable to sign commitment: %v", err)
+	}
+	err = aliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
+	if err != nil {
+		t.Fatalf("unable to receive commitment: %v", err)
+	}
+
+	// When Alice receives Bob's new commitment, the logs will stay the
+	// same until she revokes her old state. The Fail will still not be
+	// restored during a restoration.
+	assertInLogs(t, aliceChannel, 1, 0, 0, 1)
+	restoreAndAssert(t, aliceChannel, 1, 0, 0, 0)
+
+	aliceRevocation, _, err := aliceChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatalf("unable to revoke commitment: %v", err)
+	}
+	_, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	if err != nil {
+		t.Fatalf("bob unable to process alice's revocation: %v", err)
+	}
+
+	// At this point Alice has advanced her local commitment chain to a
+	// commitment with no HTLCs left. The current state on her remote
+	// commitment chain, however, still has the HTLC active, as she hasn't
+	// sent a new signature yet.
+	assertInLogs(t, aliceChannel, 1, 0, 0, 1)
+	restoreAndAssert(t, aliceChannel, 1, 0, 0, 0)
+
+	// Now send a signature from Alice. This will give Bob a new commitment
+	// where the HTLC is removed.
+	aliceSig, aliceHtlcSigs, err := aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("unable to sign commitment: %v", err)
+	}
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	if err != nil {
+		t.Fatalf("unable to receive commitment: %v", err)
+	}
+
+	// When sending a new commitment, Alice will add a pending commit to
+	// here remote chain. In this case it doesn't contain any new updates,
+	// so it won't affect the restoration.
+	assertInLogs(t, aliceChannel, 1, 0, 0, 1)
+	restoreAndAssert(t, aliceChannel, 1, 0, 0, 0)
+
+	// When Alice receives Bob's revocation, the Fail is irrovacably locked
+	// in on both sides. She should compact the logs, removing the HTLC
+	// and the corresponding Fail from the local update log.
+	bobRevocation, _, err := bobChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatalf("unable to revoke commitment: %v", err)
+	}
+	_, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	if err != nil {
+		t.Fatalf("unable to recive revocation: %v", err)
+	}
+
+	assertInLogs(t, aliceChannel, 0, 0, 0, 0)
+	restoreAndAssert(t, aliceChannel, 0, 0, 0, 0)
+}

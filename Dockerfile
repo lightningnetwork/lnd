@@ -28,5 +28,6 @@ RUN apk --no-cache add \
 COPY --from=builder /go/bin/lncli /bin/
 COPY --from=builder /go/bin/lnd /bin/
 
-# Specify the start command as the lnd daemon.
+# Specify the start command and entrypoint as the lnd daemon.
+ENTRYPOINT ["lnd"]
 CMD ["lnd"]

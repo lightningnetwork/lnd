@@ -11,13 +11,13 @@ To use Docker in a production environment, you can run `lnd` by first creating
 a Docker container, adding the appropriate command-line options as parameters.
 
 ```
-docker create --name=lnd lightningnetwork/lnd [command-line options]
+$ docker create --name=lnd lightninglabs/lnd [command-line options]
 ```
 
 Then, just start the container:
 
 ```
-docker start lnd
+$ docker start lnd
 ```
 
 ## Volumes
@@ -28,7 +28,7 @@ persist through container restarts.
 You can also optionally manually specify a local folder to be used as a volume:
 
 ```
-docker create --name=lnd -v /media/lnd-docker/:/root/.lnd lightningnetwork/lnd [command-line options]
+$ docker create --name=lnd -v /media/lnd-docker/:/root/.lnd lightninglabs/lnd [command-line options]
 ```
 
 ## Example
@@ -36,13 +36,13 @@ docker create --name=lnd -v /media/lnd-docker/:/root/.lnd lightningnetwork/lnd [
 Here is an example testnet `lnd` that uses Neutrino:
 
 ```
-docker create --name lnd-testnet lightningnetwork/lnd --bitcoin.active --bitcoin.testnet --bitcoin.node=neutrino --neutrino.connect=faucet.lightning.community
+$ docker create --name lnd-testnet lightninglabs/lnd --bitcoin.active --bitcoin.testnet --bitcoin.node=neutrino --neutrino.connect=faucet.lightning.community
 ```
 
 Start the container:
 
 ```
-docker start lnd-testnet
+$ docker start lnd-testnet
 ```
 
 Create a wallet (and write down the seed):

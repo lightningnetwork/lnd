@@ -123,7 +123,7 @@ btcd: $(GLIDE_BIN) $(BTCD_DIR)
 # INSTALLATION
 # ============
 
-build:
+build: dep
 	@$(call print, "Building debug lnd and lncli.")
 	$(GOBUILD) -tags=$(TEST_TAGS) -o lnd-debug $(LDFLAGS) $(PKG)
 	$(GOBUILD) -tags=$(TEST_TAGS) -o lncli-debug $(LDFLAGS) $(PKG)/cmd/lncli
@@ -133,7 +133,7 @@ install:
 	go install -v $(LDFLAGS) $(PKG)
 	go install -v $(LDFLAGS) $(PKG)/cmd/lncli
 
-scratch: dep build
+scratch: build
 
 
 # =======

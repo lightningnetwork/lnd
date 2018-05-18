@@ -1575,7 +1575,7 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 		}
 
 		fndgLog.Debugf("Channel with ShortChanID %v now confirmed",
-			shortChanID.ToUint64())
+			shortChanID)
 
 		// Go on adding the channel to the channel graph, and crafting
 		// channel announcements.
@@ -1596,7 +1596,7 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 			return
 		}
 		fndgLog.Debugf("FundingLocked for channel with ShortChanID "+
-			"%v sent", shortChanID.ToUint64())
+			"%v sent", shortChanID)
 
 		err = f.addToRouterGraph(completeChan, shortChanID)
 		if err != nil {
@@ -1604,7 +1604,7 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 			return
 		}
 		fndgLog.Debugf("Channel with ShortChanID %v added to "+
-			"router graph", shortChanID.ToUint64())
+			"router graph", shortChanID)
 
 		// Give the caller a final update notifying them that
 		// the channel is now open.
@@ -2025,7 +2025,7 @@ func (f *fundingManager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 	announceChan := completeChan.ChannelFlags&lnwire.FFAnnounceChannel != 0
 	if !announceChan {
 		fndgLog.Debugf("Will not announce private channel %v.",
-			shortChanID.ToUint64())
+			shortChanID)
 	} else {
 		// Register with the ChainNotifier for a notification once the
 		// funding transaction reaches at least 6 confirmations.
@@ -2036,7 +2036,7 @@ func (f *fundingManager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 		txid := completeChan.FundingOutpoint.Hash
 		fndgLog.Debugf("Will announce channel %v after ChannelPoint"+
 			"(%v) has gotten %d confirmations",
-			shortChanID.ToUint64(), completeChan.FundingOutpoint,
+			shortChanID, completeChan.FundingOutpoint,
 			numConfs)
 
 		confNtfn, err := f.cfg.Notifier.RegisterConfirmationsNtfn(&txid,

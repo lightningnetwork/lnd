@@ -1416,7 +1416,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 			blockHeight := msg.ShortChannelID.BlockHeight
 			log.Infof("Announcement for chan_id=(%v), is premature: "+
 				"advertises height %v, only height %v is known",
-				msg.ShortChannelID.ToUint64(),
+				msg.ShortChannelID,
 				msg.ShortChannelID.BlockHeight,
 				atomic.LoadUint32(&d.bestHeight))
 
@@ -1575,7 +1575,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 						log.Errorf("Failed reprocessing"+
 							" ChannelUpdate for "+
 							"shortChanID=%v: %v",
-							msg.ShortChannelID.ToUint64(),
+							msg.ShortChannelID,
 							err)
 						return
 					}

@@ -415,7 +415,7 @@ func TestEdgeUpdateNotification(t *testing.T) {
 		edgeAnn *channeldb.ChannelEdgePolicy) {
 		if edgeUpdate.ChanID != edgeAnn.ChannelID {
 			t.Fatalf("channel ID of edge doesn't match: "+
-				"expected %v, got %v", chanID.ToUint64(), edgeUpdate.ChanID)
+				"expected %v, got %v", chanID, edgeUpdate.ChanID)
 		}
 		if edgeUpdate.ChanPoint != *chanPoint {
 			t.Fatalf("channel don't match: expected %v, got %v",
@@ -894,7 +894,7 @@ func TestChannelCloseNotification(t *testing.T) {
 		closedChan := closedChans[0]
 		if closedChan.ChanID != chanID.ToUint64() {
 			t.Fatalf("channel ID of closed channel doesn't match: "+
-				"expected %v, got %v", chanID.ToUint64(), closedChan.ChanID)
+				"expected %v, got %v", chanID, closedChan.ChanID)
 		}
 		// TODO(roasbeef): this is a hack, needs to be removed
 		// after commitment fees are dynamic.

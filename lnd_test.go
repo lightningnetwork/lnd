@@ -216,7 +216,7 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest,
 	chanPointStr := fmt.Sprintf("%v:%v", txid, fundingChanPoint.OutputIndex)
 
 	// If we didn't force close the transaction, at this point, the channel
-	// should now be marked as being in the state of "pending close".
+	// should now be marked as being in the state of "waiting close".
 	if !force {
 		pendingChansRequest := &lnrpc.PendingChannelsRequest{}
 		pendingChanResp, err := node.PendingChannels(ctx, pendingChansRequest)
@@ -224,14 +224,14 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest,
 			t.Fatalf("unable to query for pending channels: %v", err)
 		}
 		var found bool
-		for _, pendingClose := range pendingChanResp.PendingClosingChannels {
+		for _, pendingClose := range pendingChanResp.WaitingCloseChannels {
 			if pendingClose.Channel.ChannelPoint == chanPointStr {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Fatalf("channel not marked as pending close")
+			t.Fatalf("channel not marked as waiting close")
 		}
 	}
 
@@ -247,7 +247,7 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest,
 
 	assertTxInBlock(t, block, closingTxid)
 
-	// Finally, the transaction should no longer be in the pending close
+	// Finally, the transaction should no longer be in the waiting close
 	// state as we've just mined a block that should include the closing
 	// transaction. This only applies for co-op close channels though.
 	if !force {
@@ -260,7 +260,7 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest,
 				return false
 			}
 
-			for _, pendingClose := range pendingChanResp.PendingClosingChannels {
+			for _, pendingClose := range pendingChanResp.WaitingCloseChannels {
 				if pendingClose.Channel.ChannelPoint == chanPointStr {
 					return false
 				}

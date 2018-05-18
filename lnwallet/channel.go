@@ -1340,10 +1340,10 @@ func NewLightningChannel(signer Signer, pCache PreimageCache,
 	// First, initialize the update logs with their current counter values
 	// from the local and remote commitments.
 	localUpdateLog := newUpdateLog(
-		localCommit.LocalLogIndex, localCommit.LocalHtlcIndex,
+		remoteCommit.LocalLogIndex, remoteCommit.LocalHtlcIndex,
 	)
 	remoteUpdateLog := newUpdateLog(
-		remoteCommit.RemoteLogIndex, remoteCommit.RemoteHtlcIndex,
+		localCommit.RemoteLogIndex, localCommit.RemoteHtlcIndex,
 	)
 
 	lc := &LightningChannel{
@@ -1692,27 +1692,17 @@ func (lc *LightningChannel) restoreStateLogs(
 	pendingRemoteCommitDiff *channeldb.CommitDiff,
 	pendingRemoteKeys *CommitmentKeyRing) error {
 
-	// For each HTLC within the local commitment, we add it to the relevant
-	// update logc based on if it's incoming vs outgoing. For any incoming
-	// HTLC's, we also re-add it to the rHashMap so we can quickly look it
-	// up.
+	// For each incoming HTLC within the local commitment, we add it to the
+	// remote update log. Since HTLCs are added first to the receiver's
+	// commitment, we don't have to restore outgoing HTLCs, as they will be
+	// restored from the remote commitment below.
 	for i := range localCommitment.incomingHTLCs {
 		htlc := localCommitment.incomingHTLCs[i]
 		lc.remoteUpdateLog.restoreHtlc(&htlc)
 	}
-	for i := range localCommitment.outgoingHTLCs {
-		htlc := localCommitment.outgoingHTLCs[i]
-		lc.localUpdateLog.restoreHtlc(&htlc)
-	}
 
-	// We'll also do the same for the HTLC"s within the remote commitment
-	// party. We also insert these HTLC's as it's possible our state has
-	// diverged slightly in the case of a congruent update from both sides.
-	// The restoreHtlc method will de-dup the HTLC's to handle this case.
-	for i := range remoteCommitment.incomingHTLCs {
-		htlc := remoteCommitment.incomingHTLCs[i]
-		lc.remoteUpdateLog.restoreHtlc(&htlc)
-	}
+	// Similarly, we'll do the same for the outgoing HTLCs within the
+	// remote commitment, adding them to the local update log.
 	for i := range remoteCommitment.outgoingHTLCs {
 		htlc := remoteCommitment.outgoingHTLCs[i]
 		lc.localUpdateLog.restoreHtlc(&htlc)
@@ -1723,22 +1713,6 @@ func (lc *LightningChannel) restoreStateLogs(
 	if pendingRemoteCommit == nil {
 		return nil
 	}
-
-	// If we do have a dangling commitment for the remote party, then we'll
-	// also restore into the log any incoming HTLC's offered by them. Any
-	// outgoing HTLC's that were initially committed in this new state will
-	// be restored below.
-	for i := range pendingRemoteCommit.incomingHTLCs {
-		htlc := pendingRemoteCommit.incomingHTLCs[i]
-		lc.remoteUpdateLog.restoreHtlc(&htlc)
-	}
-
-	// We'll also update the log counters to match the latest known
-	// counters in this dangling commitment. Otherwise, our updateLog would
-	// have dated counters as it was initially created using their lowest
-	// unrevoked commitment.
-	lc.remoteUpdateLog.logIndex = pendingRemoteCommit.theirMessageIndex
-	lc.remoteUpdateLog.htlcCounter = pendingRemoteCommit.theirHtlcIndex
 
 	pendingCommit := pendingRemoteCommitDiff.Commitment
 	pendingHeight := pendingCommit.CommitHeight

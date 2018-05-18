@@ -2206,6 +2206,16 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 			l.infof("settling %x as exit hop", pd.RHash)
 
+			// If the link is in hodl.BogusSettle mode, replace the
+			// preimage with a fake one before sending it to the
+			// peer.
+			if l.cfg.DebugHTLC &&
+				l.cfg.HodlMask.Active(hodl.BogusSettle) {
+				l.warnf(hodl.BogusSettle.Warning())
+				preimage = [32]byte{}
+				copy(preimage[:], bytes.Repeat([]byte{2}, 32))
+			}
+
 			// HTLC was successfully settled locally send
 			// notification about it remote peer.
 			l.cfg.Peer.SendMessage(&lnwire.UpdateFulfillHTLC{

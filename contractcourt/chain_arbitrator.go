@@ -330,6 +330,7 @@ func (c *ChainArbitrator) Start() error {
 	// ChannelArbitrator.
 	for _, channel := range openChannels {
 		chanPoint := channel.FundingOutpoint
+		channel := channel
 
 		// First, we'll create an active chainWatcher for this channel
 		// to ensure that we detect any relevant on chain events.

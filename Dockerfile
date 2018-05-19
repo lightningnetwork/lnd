@@ -4,11 +4,13 @@ FROM golang:alpine as builder
 # queries required to connect to linked containers succeed.
 ENV GODEBUG netdns=cgo
 
+# Copy in the local repository to build from.
+COPY . /go/src/github.com/lightningnetwork/lnd
+
 # Install dependencies and build the binaries.
 RUN apk add --no-cache \
     git \
     make \
-&&  git clone https://github.com/lightningnetwork/lnd /go/src/github.com/lightningnetwork/lnd \
 &&  cd /go/src/github.com/lightningnetwork/lnd \
 &&  make \
 &&  make install

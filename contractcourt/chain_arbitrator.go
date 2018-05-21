@@ -737,20 +737,5 @@ func (c *ChainArbitrator) SubscribeChannelEvents(
 	return watcher.SubscribeChannelEvents(), nil
 }
 
-// BeginCoopChanClose allows the initiator or responder to a cooperative
-// channel closure to signal to the ChainArbitrator that we're starting close
-// negotiation. The caller can use this context to allow the underlying chain
-// watcher to be prepared to act if *any* of the transactions that may
-// potentially be signed off on during fee negotiation are confirmed.
-func (c *ChainArbitrator) BeginCoopChanClose(chanPoint wire.OutPoint) (*CooperativeCloseCtx, error) {
-	watcher, ok := c.activeWatchers[chanPoint]
-	if !ok {
-		return nil, fmt.Errorf("unable to find watcher for: %v",
-			chanPoint)
-	}
-
-	return watcher.BeginCooperativeClose(), nil
-}
-
 // TODO(roasbeef): arbitration reports
 //  * types: contested, waiting for success conf, etc

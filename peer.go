@@ -511,6 +511,9 @@ func (p *peer) readNextMessage() (lnwire.Message, error) {
 	// TODO(roasbeef): add message summaries
 	p.logWireMessage(nextMsg, true)
 
+	// Track the message
+	p.trackWireMessage(nextMsg, true)
+
 	return nextMsg, nil
 }
 
@@ -1101,6 +1104,95 @@ func (p *peer) logWireMessage(msg lnwire.Message, read bool) {
 	}))
 }
 
+// messageStat returns a statsd, and human, readable string that describes an
+// incoming/outgoing message.
+func messageStat(msg lnwire.Message) string {
+	switch msg.(type) {
+	case *lnwire.Init:
+		return "init"
+
+	case *lnwire.OpenChannel:
+		return "open_channel"
+
+	case *lnwire.AcceptChannel:
+		return "accept_channel"
+
+	case *lnwire.FundingCreated:
+		return "funding_created"
+
+	case *lnwire.FundingSigned:
+		return "funding_signed"
+
+	case *lnwire.FundingLocked:
+		return "funding_locked"
+
+	case *lnwire.Shutdown:
+		return "shutdown"
+
+	case *lnwire.ClosingSigned:
+		return "closing_signed"
+
+	case *lnwire.UpdateAddHTLC:
+		return "update_add_htlc"
+
+	case *lnwire.UpdateFailHTLC:
+		return "update_fail_htlc"
+
+	case *lnwire.UpdateFulfillHTLC:
+		return "update_fulfill_htlc"
+
+	case *lnwire.CommitSig:
+		return "commit_sig"
+
+	case *lnwire.RevokeAndAck:
+		return "revoke_and_ack"
+
+	case *lnwire.UpdateFailMalformedHTLC:
+		return "update_fail_malformed_htlc"
+
+	case *lnwire.Error:
+		return "error"
+
+	case *lnwire.AnnounceSignatures:
+		return "announce_signatures"
+
+	case *lnwire.ChannelAnnouncement:
+		return "channel_announcement"
+
+	case *lnwire.ChannelUpdate:
+		return "channel_update"
+
+	case *lnwire.NodeAnnouncement:
+		return "node_announcement"
+
+	case *lnwire.Ping:
+		return "ping"
+
+	case *lnwire.Pong:
+		return "pong"
+
+	case *lnwire.UpdateFee:
+		return "update_fee"
+
+	case *lnwire.ChannelReestablish:
+		return "channel_reestablish"
+	}
+
+	return ""
+}
+
+// trackWireMessage tracks the receipt or sending of particular wire message.
+func (p *peer) trackWireMessage(msg lnwire.Message, read bool) {
+	prefix := "peer.received"
+	if !read {
+		prefix = "peer.sending"
+	}
+
+	stat := fmt.Sprintf("%v.%v", prefix, messageStat(msg))
+
+	p.server.statsd.Increment(stat, 1)
+}
+
 // writeMessage writes the target lnwire.Message to the remote peer.
 func (p *peer) writeMessage(msg lnwire.Message) error {
 	// Simply exit if we're shutting down.
@@ -1110,6 +1202,9 @@ func (p *peer) writeMessage(msg lnwire.Message) error {
 
 	// TODO(roasbeef): add message summaries
 	p.logWireMessage(msg, false)
+
+	// Track the message
+	p.trackWireMessage(msg, false)
 
 	// We'll re-slice of static write buffer to allow this new message to
 	// utilize all available space. We also ensure we cap the capacity of

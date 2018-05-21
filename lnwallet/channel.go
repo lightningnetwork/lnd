@@ -2344,6 +2344,20 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 	if err := blockchain.CheckTransactionSanity(uTx); err != nil {
 		return err
 	}
+
+	// Finally, we'll assert that were not attempting to draw more out of
+	// the channel that was originally placed within it.
+	var totalOut btcutil.Amount
+	for _, txOut := range commitTx.TxOut {
+		totalOut += btcutil.Amount(txOut.Value)
+	}
+	if totalOut > lc.channelState.Capacity {
+		return fmt.Errorf("height=%v, for ChannelPoint(%v) attempts "+
+			"to consume %v while channel capacity is %v",
+			c.height, lc.channelState.FundingOutpoint,
+			totalOut, lc.channelState.Capacity)
+	}
+
 	c.txn = commitTx
 	c.fee = commitFee
 	c.ourBalance = ourBalance

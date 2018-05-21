@@ -4576,6 +4576,34 @@ func TestMaxPendingAmount(t *testing.T) {
 	}
 }
 
+func assertChannelBalances(t *testing.T, alice, bob *LightningChannel,
+	aliceBalance, bobBalance btcutil.Amount) {
+
+	_, _, line, _ := runtime.Caller(1)
+
+	aliceSelfBalance := alice.channelState.LocalCommitment.LocalBalance.ToSatoshis()
+	aliceBobBalance := alice.channelState.LocalCommitment.RemoteBalance.ToSatoshis()
+	if aliceSelfBalance != aliceBalance {
+		t.Fatalf("line #%v: wrong alice self balance: expected %v, got %v",
+			line, aliceBalance, aliceSelfBalance)
+	}
+	if aliceBobBalance != bobBalance {
+		t.Fatalf("line #%v: wrong alice bob's balance: expected %v, got %v",
+			line, bobBalance, aliceBobBalance)
+	}
+
+	bobSelfBalance := bob.channelState.LocalCommitment.LocalBalance.ToSatoshis()
+	bobAliceBalance := bob.channelState.LocalCommitment.RemoteBalance.ToSatoshis()
+	if bobSelfBalance != bobBalance {
+		t.Fatalf("line #%v: wrong bob self balance: expected %v, got %v",
+			line, bobBalance, bobSelfBalance)
+	}
+	if bobAliceBalance != aliceBalance {
+		t.Fatalf("line #%v: wrong alice bob's balance: expected %v, got %v",
+			line, aliceBalance, bobAliceBalance)
+	}
+}
+
 // TestChanReserve tests that the ErrBelowChanReserve error is thrown when an
 // HTLC is added that causes a node's balance to dip below its channel reserve
 // limit.
@@ -4583,8 +4611,8 @@ func TestChanReserve(t *testing.T) {
 	t.Parallel()
 
 	setupChannels := func() (*LightningChannel, *LightningChannel, func()) {
-		// We'll kick off the test by creating our channels which both are
-		// loaded with 5 BTC each.
+		// We'll kick off the test by creating our channels which both
+		// are loaded with 5 BTC each.
 		aliceChannel, bobChannel, cleanUp, err := CreateTestChannels()
 		if err != nil {
 			t.Fatalf("unable to create test channels: %v", err)
@@ -4624,9 +4652,10 @@ func TestChanReserve(t *testing.T) {
 	// Add an HTLC that will increase Bob's balance. This should succeed,
 	// since Alice stays above her channel reserve, and Bob increases his
 	// balance (while still being below his channel reserve).
+	//
 	// Resulting balances:
 	//	Alice:	4.5
-	//	Bob:	5.5
+	//	Bob:	5.0
 	htlcAmt := lnwire.NewMSatFromSatoshis(0.5 * btcutil.SatoshiPerBitcoin)
 	htlc, _ := createHTLC(aliceIndex, htlcAmt)
 	aliceIndex++
@@ -4643,11 +4672,18 @@ func TestChanReserve(t *testing.T) {
 		t.Fatalf("unable to complete state update: %v", err)
 	}
 
+	commitFee := aliceChannel.channelState.LocalCommitment.CommitFee
+	assertChannelBalances(
+		t, aliceChannel, bobChannel,
+		btcutil.SatoshiPerBitcoin*4.5-commitFee, btcutil.SatoshiPerBitcoin*5,
+	)
+
 	// Now let Bob try to add an HTLC. This should fail, since it will
 	// decrease his balance, which is already below the channel reserve.
+	//
 	// Resulting balances:
 	//	Alice:	4.5
-	//	Bob:	5.5
+	//	Bob:	5.0
 	htlc, _ = createHTLC(bobIndex, htlcAmt)
 	bobIndex++
 	_, err := bobChannel.AddHTLC(htlc, nil)
@@ -4674,6 +4710,7 @@ func TestChanReserve(t *testing.T) {
 
 	// Now we'll add HTLC of 3.5 BTC to Alice's commitment, this should put
 	// Alice's balance at 1.5 BTC.
+	//
 	// Resulting balances:
 	//	Alice:	1.5
 	//	Bob:	9.5
@@ -4734,12 +4771,31 @@ func TestChanReserve(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to recv htlc: %v", err)
 	}
+	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("unable to complete state update: %v", err)
+	}
+
+	commitFee = aliceChannel.channelState.LocalCommitment.CommitFee
+	assertChannelBalances(
+		t, aliceChannel, bobChannel,
+		btcutil.SatoshiPerBitcoin*3-commitFee, btcutil.SatoshiPerBitcoin*5,
+	)
+
 	if err := bobChannel.SettleHTLC(preimage, bobHtlcIndex, nil, nil, nil); err != nil {
 		t.Fatalf("bob unable to settle inbound htlc: %v", err)
 	}
 	if err := aliceChannel.ReceiveHTLCSettle(preimage, aliceHtlcIndex); err != nil {
 		t.Fatalf("alice unable to accept settle of outbound htlc: %v", err)
 	}
+	if err := forceStateTransition(bobChannel, aliceChannel); err != nil {
+		t.Fatalf("unable to complete state update: %v", err)
+	}
+
+	commitFee = aliceChannel.channelState.LocalCommitment.CommitFee
+	assertChannelBalances(
+		t, aliceChannel, bobChannel,
+		btcutil.SatoshiPerBitcoin*3-commitFee, btcutil.SatoshiPerBitcoin*7,
+	)
 
 	// And now let Bob add an HTLC of 1 BTC. This will take Bob's balance
 	// all the way down to his channel reserve, but since he is not paying
@@ -4755,9 +4811,15 @@ func TestChanReserve(t *testing.T) {
 	}
 
 	// Do a last state transition, which should succeed.
-	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
+	if err := forceStateTransition(bobChannel, aliceChannel); err != nil {
 		t.Fatalf("unable to complete state update: %v", err)
 	}
+
+	commitFee = aliceChannel.channelState.LocalCommitment.CommitFee
+	assertChannelBalances(
+		t, aliceChannel, bobChannel,
+		btcutil.SatoshiPerBitcoin*3-commitFee, btcutil.SatoshiPerBitcoin*6,
+	)
 }
 
 // TestMinHTLC tests that the ErrBelowMinHTLC error is thrown if an HTLC is added
@@ -5265,16 +5327,16 @@ func TestChannelRestoreUpdateLogsFailedHTLC(t *testing.T) {
 	assertInLogs(t, aliceChannel, 1, 0, 0, 1)
 	restoreAndAssert(t, aliceChannel, 1, 0, 0, 0)
 
-	// When Alice receives Bob's revocation, the Fail is irrovacably locked
-	// in on both sides. She should compact the logs, removing the HTLC
-	// and the corresponding Fail from the local update log.
+	// When Alice receives Bob's revocation, the Fail is irrevocably locked
+	// in on both sides. She should compact the logs, removing the HTLC and
+	// the corresponding Fail from the local update log.
 	bobRevocation, _, err := bobChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("unable to revoke commitment: %v", err)
 	}
 	_, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	if err != nil {
-		t.Fatalf("unable to recive revocation: %v", err)
+		t.Fatalf("unable to receive revocation: %v", err)
 	}
 
 	assertInLogs(t, aliceChannel, 0, 0, 0, 0)

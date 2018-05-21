@@ -2338,6 +2338,12 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 	// instead we'll just send signatures.
 	txsort.InPlaceSort(commitTx)
 
+	// Next, we'll ensure that we don't accidentally create a commitment
+	// transaction which would be invalid by consensus.
+	uTx := btcutil.NewTx(commitTx)
+	if err := blockchain.CheckTransactionSanity(uTx); err != nil {
+		return err
+	}
 	c.txn = commitTx
 	c.fee = commitFee
 	c.ourBalance = ourBalance
@@ -5793,13 +5799,6 @@ func CreateCommitTx(fundingOutput wire.TxIn,
 			PkScript: theirWitnessKeyHash,
 			Value:    int64(amountToThem),
 		})
-	}
-
-	// Finally, we'll ensure that we don't accidentally create a commitment
-	// transaction which would be invalid by consensus.
-	uTx := btcutil.NewTx(commitTx)
-	if err := blockchain.CheckTransactionSanity(uTx); err != nil {
-		return nil, err
 	}
 
 	return commitTx, nil

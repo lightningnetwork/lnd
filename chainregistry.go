@@ -29,6 +29,7 @@ import (
 	"github.com/roasbeef/btcutil"
 	"github.com/roasbeef/btcwallet/chain"
 	"github.com/roasbeef/btcwallet/walletdb"
+	"github.com/roasbeef/btcwallet/wallet"
 )
 
 const (
@@ -117,7 +118,8 @@ type chainControl struct {
 // full-node, and the other backed by a running neutrino light client instance.
 func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 	privateWalletPw, publicWalletPw []byte, birthday time.Time,
-	recoveryWindow uint32) (*chainControl, func(), error) {
+	recoveryWindow uint32,
+	wallet *wallet.Wallet) (*chainControl, func(), error) {
 
 	// Set the RPC config from the "home" chain. Multi-chain isn't yet
 	// active, so we'll restrict usage to a particular chain for now.
@@ -165,6 +167,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 		NetParams:      activeNetParams.Params,
 		FeeEstimator:   cc.feeEstimator,
 		CoinType:       activeNetParams.CoinType,
+		Wallet:         wallet,
 	}
 
 	var (
@@ -515,19 +518,19 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 		DefaultConstraints: channelConstraints,
 		NetParams:          *activeNetParams.Params,
 	}
-	wallet, err := lnwallet.NewLightningWallet(walletCfg)
+	lnWallet, err := lnwallet.NewLightningWallet(walletCfg)
 	if err != nil {
 		fmt.Printf("unable to create wallet: %v\n", err)
 		return nil, nil, err
 	}
-	if err := wallet.Startup(); err != nil {
+	if err := lnWallet.Startup(); err != nil {
 		fmt.Printf("unable to start wallet: %v\n", err)
 		return nil, nil, err
 	}
 
 	ltndLog.Info("LightningWallet opened")
 
-	cc.wallet = wallet
+	cc.wallet = lnWallet
 
 	return cc, cleanUp, nil
 }

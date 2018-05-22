@@ -78,10 +78,12 @@ type chainWatcherConfig struct {
 	// machine.
 	signer lnwallet.Signer
 
-	// markChanClosed is a method that will be called by the watcher if it
-	// detects that a cooperative closure transaction has successfully been
-	// confirmed.
-	markChanClosed func() error
+	// notifyChanClosed is a method that will be called by the watcher when
+	// it has detected a close on-chain and performed all necessary
+	// actions, like marking the channel closed in the database and
+	// notified all its subcribers. It lets the chain arbitrator know that
+	// the chain watcher chan be stopped.
+	notifyChanClosed func() error
 
 	// contractBreach is a method that will be called by the watcher if it
 	// detects that a contract breach transaction has been confirmed. Only
@@ -453,8 +455,9 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 	// ours.
 	localAmt := c.toSelfAmount(broadcastTx)
 
-	// Once this is known, we'll mark the state as pending close in the
-	// database.
+	// Once this is known, we'll mark the state as fully closed in the
+	// database. We can do this as a cooperatively closed channel has all
+	// its outputs resolved after only one confirmation.
 	closeSummary := &channeldb.ChannelCloseSummary{
 		ChanPoint:      c.cfg.chanState.FundingOutpoint,
 		ChainHash:      c.cfg.chanState.ChainHash,
@@ -465,7 +468,7 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 		SettledBalance: localAmt,
 		CloseType:      channeldb.CooperativeClose,
 		ShortChanID:    c.cfg.chanState.ShortChanID(),
-		IsPending:      true,
+		IsPending:      false,
 	}
 	err := c.cfg.chanState.CloseChannel(closeSummary)
 	if err != nil && err != channeldb.ErrNoActiveChannels &&
@@ -473,45 +476,10 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 		return fmt.Errorf("unable to close chan state: %v", err)
 	}
 
-	// Finally, we'll launch a goroutine to mark the channel as fully
-	// closed once the transaction confirmed.
-	go func() {
-		confNtfn, err := c.cfg.notifier.RegisterConfirmationsNtfn(
-			commitSpend.SpenderTxHash, 1,
-			uint32(commitSpend.SpendingHeight),
-		)
-		if err != nil {
-			log.Errorf("unable to register for conf: %v", err)
-			return
-		}
-
-		log.Infof("closeObserver: waiting for txid=%v to close "+
-			"ChannelPoint(%v) on chain", commitSpend.SpenderTxHash,
-			c.cfg.chanState.FundingOutpoint)
-
-		select {
-		case confInfo, ok := <-confNtfn.Confirmed:
-			if !ok {
-				log.Errorf("notifier exiting")
-				return
-			}
-
-			log.Infof("closeObserver: ChannelPoint(%v) is fully "+
-				"closed, at height: %v",
-				c.cfg.chanState.FundingOutpoint,
-				confInfo.BlockHeight)
-
-			err := c.cfg.markChanClosed()
-			if err != nil {
-				log.Errorf("unable to mark chan fully "+
-					"closed: %v", err)
-				return
-			}
-
-		case <-c.quit:
-			return
-		}
-	}()
+	log.Infof("closeObserver: ChannelPoint(%v) is fully "+
+		"closed, at height: %v",
+		c.cfg.chanState.FundingOutpoint,
+		commitSpend.SpendingHeight)
 
 	c.Lock()
 	for _, sub := range c.clientSubscriptions {
@@ -523,6 +491,14 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 		}
 	}
 	c.Unlock()
+
+	// Now notify the ChainArbitrator that the watcher's job is done, such
+	// that it can shut it down and clean up.
+	if err := c.cfg.notifyChanClosed(); err != nil {
+		log.Errorf("unable to notify channel closed for "+
+			"ChannelPoint(%v): %v",
+			c.cfg.chanState.FundingOutpoint, err)
+	}
 
 	return nil
 

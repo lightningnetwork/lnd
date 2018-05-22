@@ -2105,14 +2105,10 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			}
 			defer aliceDB.Close()
 			aliceChain, err := neutrino.NewChainService(
-				neutrino.Config{
-					DataDir:     tempTestDirAlice,
-					Database:    aliceDB,
-					ChainParams: *netParams,
-					ConnectPeers: []string{
-						miningNode.P2PAddress(),
-					},
-				},
+				neutrino.DataDir(tempTestDirAlice),
+				neutrino.Database(aliceDB),
+				neutrino.ChainParams(*netParams),
+				neutrino.ConnectPeers([]string{miningNode.P2PAddress()}),
 			)
 			if err != nil {
 				t.Fatalf("unable to make neutrino: %v", err)
@@ -2132,14 +2128,10 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			}
 			defer bobDB.Close()
 			bobChain, err := neutrino.NewChainService(
-				neutrino.Config{
-					DataDir:     tempTestDirBob,
-					Database:    bobDB,
-					ChainParams: *netParams,
-					ConnectPeers: []string{
-						miningNode.P2PAddress(),
-					},
-				},
+				neutrino.DataDir(tempTestDirBob),
+				neutrino.Database(bobDB),
+				neutrino.ChainParams(*netParams),
+				neutrino.ConnectPeers([]string{miningNode.P2PAddress()}),
 			)
 			if err != nil {
 				t.Fatalf("unable to make neutrino: %v", err)

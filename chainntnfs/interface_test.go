@@ -1458,13 +1458,13 @@ func TestInterfaces(t *testing.T) {
 
 			// Create an instance of neutrino connected to the
 			// running btcd instance.
-			spvConfig := neutrino.Config{
-				DataDir:      spvDir,
-				Database:     spvDatabase,
-				ChainParams:  *netParams,
-				ConnectPeers: []string{p2pAddr},
-			}
-			spvNode, err := neutrino.NewChainService(spvConfig)
+			neutrino.WaitForMoreCFHeaders = 250 * time.Millisecond
+			spvNode, err := neutrino.NewChainService(
+				neutrino.DataDir(spvDir),
+				neutrino.Database(spvDatabase),
+				neutrino.ChainParams(*netParams),
+				neutrino.ConnectPeers([]string{p2pAddr}),
+			)
 			if err != nil {
 				t.Fatalf("unable to create neutrino: %v", err)
 			}

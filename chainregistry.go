@@ -203,19 +203,19 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			return nil, nil, err
 		}
 
-		// With the database open, we can now create an instance of the
-		// neutrino light client. We pass in relevant configuration
-		// parameters required.
-		config := neutrino.Config{
-			DataDir:      neutrinoDbPath,
-			Database:     nodeDatabase,
-			ChainParams:  *activeNetParams.Params,
-			AddPeers:     cfg.NeutrinoMode.AddPeers,
-			ConnectPeers: cfg.NeutrinoMode.ConnectPeers,
-			Dialer: func(addr net.Addr) (net.Conn, error) {
+		neutrino.WaitForMoreCFHeaders = time.Second * 1
+		neutrino.MaxPeers = 8
+		neutrino.BanDuration = 5 * time.Second
+		svc, err := neutrino.NewChainService(
+			neutrino.DataDir(neutrinoDbPath),
+			neutrino.Database(nodeDatabase),
+			neutrino.ChainParams(*activeNetParams.Params),
+			neutrino.AddPeers(cfg.NeutrinoMode.AddPeers),
+			neutrino.ConnectPeers(cfg.NeutrinoMode.ConnectPeers),
+			neutrino.Dialer(func(addr net.Addr) (net.Conn, error) {
 				return cfg.net.Dial(addr.Network(), addr.String())
-			},
-			NameResolver: func(host string) ([]net.IP, error) {
+			}),
+			neutrino.NameResolver(func(host string) ([]net.IP, error) {
 				addrs, err := cfg.net.LookupHost(host)
 				if err != nil {
 					return nil, err
@@ -232,11 +232,8 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 				}
 
 				return ips, nil
-			},
-		}
-		neutrino.MaxPeers = 8
-		neutrino.BanDuration = 5 * time.Second
-		svc, err := neutrino.NewChainService(config)
+			}),
+		)
 		if err != nil {
 			return nil, nil, fmt.Errorf("unable to create neutrino: %v", err)
 		}

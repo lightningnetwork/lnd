@@ -27,6 +27,18 @@ import (
 
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/ltcsuite/ltcd/btcjson"
+	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/roasbeef/btcd/integration/rpctest"
+	"github.com/roasbeef/btcd/rpcclient"
+	"github.com/roasbeef/btcd/txscript"
+	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcutil"
+
+	"github.com/roasbeef/btcwallet/walletdb"
+	_ "github.com/roasbeef/btcwallet/walletdb/bdb" // Required to register the boltdb walletdb implementation.
 )
 
 var (
@@ -851,14 +863,12 @@ var interfaceImpls = []struct {
 				return nil, nil, err
 			}
 
-			spvConfig := neutrino.Config{
-				DataDir:      spvDir,
-				Database:     spvDatabase,
-				ChainParams:  *netParams,
-				ConnectPeers: []string{p2pAddr},
-			}
-
-			spvNode, err := neutrino.NewChainService(spvConfig)
+			spvNode, err := neutrino.NewChainService(
+				neutrino.DataDir(spvDir),
+				neutrino.Database(spvDatabase),
+				neutrino.ChainParams(*netParams),
+				neutrino.ConnectPeers([]string{p2pAddr}),
+			)
 			if err != nil {
 				return nil, nil, err
 			}

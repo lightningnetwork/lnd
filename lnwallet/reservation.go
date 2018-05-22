@@ -105,6 +105,10 @@ type ChannelReservation struct {
 	ourCommitmentSig   []byte
 	theirCommitmentSig []byte
 
+	// 如果是rebalance，那么需要对旧FundingTx签名然后交换
+	ourOldFundingTxSig   []byte
+	theirOldFundingTxSig []byte
+
 	ourContribution   *ChannelContribution
 	theirContribution *ChannelContribution
 
@@ -372,12 +376,15 @@ func (r *ChannelReservation) OurContribution() *ChannelContribution {
 // transaction belonging to the wallet are available. Additionally, the wallet
 // will generate a signature to the counterparty's version of the commitment
 // transaction.
-func (r *ChannelReservation) ProcessContribution(theirContribution *ChannelContribution) error {
+func (r *ChannelReservation) ProcessContribution(theirContribution *ChannelContribution,
+	openType lnwire.OpenType, oldChannelID lnwire.ChannelID) error {
 	errChan := make(chan error, 1)
 
 	r.wallet.msgChan <- &addContributionMsg{
 		pendingFundingID: r.reservationID,
 		contribution:     theirContribution,
+		openType:         openType,
+		oldChannelID:     oldChannelID,
 		err:              errChan,
 	}
 
@@ -426,6 +433,12 @@ func (r *ChannelReservation) OurSignatures() ([]*InputScript, []byte) {
 	return r.ourFundingInputScripts, r.ourCommitmentSig
 }
 
+func (r *ChannelReservation) OurOldFundingTxSignature() []byte {
+	r.RLock()
+	defer r.RUnlock()
+	return r.ourOldFundingTxSig
+}
+
 // CompleteReservation finalizes the pending channel reservation, transitioning
 // from a pending payment channel, to an open payment channel. All passed
 // signatures to the counterparty's inputs to the funding transaction will be
@@ -439,8 +452,10 @@ func (r *ChannelReservation) OurSignatures() ([]*InputScript, []byte) {
 // the configured number of confirmations. Once the method unblocks, a
 // LightningChannel instance is returned, marking the channel available for
 // updates.
-func (r *ChannelReservation) CompleteReservation(fundingInputScripts []*InputScript,
-	commitmentSig []byte) (*channeldb.OpenChannel, error) {
+func (r *ChannelReservation) CompleteReservation(
+	fundingInputScripts []*InputScript,
+	commitmentSig, oldFundingTxSig []byte, openType lnwire.OpenType,
+	oldChannelID lnwire.ChannelID) (*channeldb.OpenChannel, error) {
 
 	// TODO(roasbeef): add flag for watch or not?
 	errChan := make(chan error, 1)
@@ -450,6 +465,9 @@ func (r *ChannelReservation) CompleteReservation(fundingInputScripts []*InputScr
 		pendingFundingID:         r.reservationID,
 		theirFundingInputScripts: fundingInputScripts,
 		theirCommitmentSig:       commitmentSig,
+		theirOldFundingTxSig:     oldFundingTxSig,
+		opentype:                 openType,
+		oldChannelID:             oldChannelID,
 		completeChan:             completeChan,
 		err:                      errChan,
 	}
@@ -466,8 +484,9 @@ func (r *ChannelReservation) CompleteReservation(fundingInputScripts []*InputScr
 // available via the .OurSignatures() method. As this method should only be
 // called as a response to a single funder channel, only a commitment signature
 // will be populated.
-func (r *ChannelReservation) CompleteReservationSingle(fundingPoint *wire.OutPoint,
-	commitSig []byte) (*channeldb.OpenChannel, error) {
+func (r *ChannelReservation) CompleteReservationSingle(
+	fundingPoint *wire.OutPoint, commitSig []byte, remoteChangeOutput *wire.TxOut,
+	oldChannelID lnwire.ChannelID, openType lnwire.OpenType) (*channeldb.OpenChannel, error) {
 
 	errChan := make(chan error, 1)
 	completeChan := make(chan *channeldb.OpenChannel, 1)
@@ -476,6 +495,9 @@ func (r *ChannelReservation) CompleteReservationSingle(fundingPoint *wire.OutPoi
 		pendingFundingID:   r.reservationID,
 		fundingOutpoint:    fundingPoint,
 		theirCommitmentSig: commitSig,
+		oldChannelID:       oldChannelID,
+		remoteChangeOutPut: remoteChangeOutput,
+		openType:           openType,
 		completeChan:       completeChan,
 		err:                errChan,
 	}

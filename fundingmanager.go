@@ -85,11 +85,12 @@ type reservationWithCtx struct {
 	remoteCsvDelay uint16
 	remoteMinHtlc  lnwire.MilliSatoshi
 
-	updateMtx   sync.RWMutex
-	lastUpdated time.Time
-
-	updates chan *lnrpc.OpenStatusUpdate
-	err     chan error
+	updateMtx    sync.RWMutex
+	lastUpdated  time.Time
+	openType     lnwire.OpenType
+	oldChannelID lnwire.ChannelID
+	updates      chan *lnrpc.OpenStatusUpdate
+	err          chan error
 }
 
 // isLocked checks the reservation's timestamp to determine whether it is locked.
@@ -794,6 +795,21 @@ func (f *fundingManager) failFundingFlow(peer *btcec.PublicKey,
 		Data:   msg,
 	}
 
+	// when do splice-in, we need to recover the old channel if error occur.
+	resCtx, err := f.getReservationCtx(peer, tempChanID)
+	if err != nil {
+		fndgLog.Errorf("Can not get reservation context %v", err)
+	} else {
+		if resCtx.openType == lnwire.OpenRebalanceChannel {
+			oldChannel, err := f.cfg.FindChannel(resCtx.oldChannelID)
+			if err != nil {
+				fndgLog.Errorf("can not find the old channel : %v", err)
+			} else {
+				oldChannel.ResetState()
+			}
+		}
+	}
+
 	fndgLog.Errorf("Failing funding flow: %v (%v)", fundingErr,
 		spew.Sdump(errMsg))
 
@@ -801,7 +817,7 @@ func (f *fundingManager) failFundingFlow(peer *btcec.PublicKey,
 		fndgLog.Errorf("unable to cancel reservation: %v", err)
 	}
 
-	err := f.cfg.SendToPeer(peer, errMsg)
+	err = f.cfg.SendToPeer(peer, errMsg)
 	if err != nil {
 		fndgLog.Errorf("unable to send error message to peer %v", err)
 		return
@@ -911,6 +927,12 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 
 	msg := fmsg.msg
 	amt := msg.FundingAmount
+	openType := msg.Opentype
+	oldChannelID := msg.OldChannelID
+	isRebalance := openType == lnwire.OpenRebalanceChannel
+	var channel *lnwallet.LightningChannel
+	var err error
+	// 判断是否为新开channel，如果是rebalance，那么需要先停止之前的Channel
 
 	// TODO(roasbeef): modify to only accept a _single_ pending channel per
 	// block unless white listed
@@ -969,8 +991,9 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// responding side of a single funder workflow, we don't commit any
 	// funds to the channel ourselves.
 	chainHash := chainhash.Hash(msg.ChainHash)
+
 	reservation, err := f.cfg.Wallet.InitChannelReservation(
-		amt, 0, msg.PushAmount,
+		amt, 0, 0, msg.Opentype, msg.OldChannelID, msg.PushAmount,
 		lnwallet.SatPerKWeight(msg.FeePerKiloWeight), 0,
 		fmsg.peerAddress.IdentityKey, fmsg.peerAddress.Address,
 		&chainHash, msg.ChannelFlags,
@@ -1001,6 +1024,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
 			fmsg.msg.PendingChannelID, err,
 		)
+
 		return
 	}
 
@@ -1029,10 +1053,21 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		remoteMinHtlc:  minHtlc,
 		err:            make(chan error, 1),
 		peerAddress:    fmsg.peerAddress,
+		openType:       msg.Opentype,
+		oldChannelID:   msg.OldChannelID,
 	}
 	f.activeReservations[peerIDKey][msg.PendingChannelID] = resCtx
 	f.resMtx.Unlock()
 
+	// when the open type is rebalance, we should find the active channel
+	// and make it to stop processing incoming htlcs.
+	if isRebalance {
+		channel, err = f.cfg.FindChannel(oldChannelID)
+		if err != nil {
+			return
+		}
+		channel.Stop()
+	}
 	// Update the timestamp once the fundingOpenMsg has been handled.
 	defer resCtx.updateTimestamp()
 
@@ -1194,7 +1229,11 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 			},
 		},
 	}
-	err = resCtx.reservation.ProcessContribution(remoteContribution)
+	err = resCtx.reservation.ProcessContribution(
+		remoteContribution,
+		resCtx.openType,
+		resCtx.oldChannelID,
+	)
 	if err != nil {
 		fndgLog.Errorf("Unable to process contribution from %v: %v",
 			fmsg.peerAddress.IdentityKey, err)
@@ -1239,6 +1278,10 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 	fundingCreated := &lnwire.FundingCreated{
 		PendingChannelID: pendingChanID,
 		FundingPoint:     *outPoint,
+		ChangeOutputValue: resCtx.reservation.OurContribution().
+			ChangeOutputs[0].Value,
+		ChangeOutputScript: resCtx.reservation.OurContribution().
+			ChangeOutputs[0].PkScript,
 	}
 	fundingCreated.CommitSig, err = lnwire.NewSigFromRawSignature(sig)
 	if err != nil {
@@ -1300,8 +1343,12 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 	// CompleteReservationSingle will also mark the channel as 'IsPending'
 	// in the database.
 	commitSig := fmsg.msg.CommitSig.ToSignatureBytes()
-	completeChan, err := resCtx.reservation.CompleteReservationSingle(
-		&fundingOut, commitSig)
+	changeOutput := &wire.TxOut{
+		Value:    fmsg.msg.ChangeOutputValue,
+		PkScript: fmsg.msg.ChangeOutputScript,
+	}
+	completeChan, err := resCtx.reservation.CompleteReservationSingle(&fundingOut,
+		commitSig, changeOutput, resCtx.oldChannelID, resCtx.openType)
 	if err != nil {
 		// TODO(roasbeef): better error logging: peerID, channelID, etc.
 		fndgLog.Errorf("unable to complete single reservation: %v", err)
@@ -1344,6 +1391,15 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 	// verified, we can now send over our signature to the remote peer.
 	_, sig := resCtx.reservation.OurSignatures()
 	ourCommitSig, err := lnwire.NewSigFromRawSignature(sig)
+
+	// when the open type is rebalancechannel, the signature of the old funding
+	// tx should be sent to the initiator.
+	var ourOldFundingTxSig lnwire.Sig
+	if resCtx.openType == lnwire.OpenRebalanceChannel {
+		ourOldFundingTxSig, err = lnwire.NewSigFromRawSignature(
+			resCtx.reservation.OurOldFundingTxSignature())
+	}
+
 	if err != nil {
 		fndgLog.Errorf("unable to parse signature: %v", err)
 		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
@@ -1353,8 +1409,9 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 	}
 
 	fundingSigned := &lnwire.FundingSigned{
-		ChanID:    channelID,
-		CommitSig: ourCommitSig,
+		ChanID:        channelID,
+		CommitSig:     ourCommitSig,
+		OldFundingSig: ourOldFundingTxSig,
 	}
 	if err := f.cfg.SendToPeer(peerKey, fundingSigned); err != nil {
 		fndgLog.Errorf("unable to send FundingSigned message: %v", err)
@@ -1500,10 +1557,13 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	f.localDiscoveryMtx.Unlock()
 
 	// The remote peer has responded with a signature for our commitment
-	// transaction. We'll verify the signature for validity, then commit
-	// the state to disk as we can now open the channel.
+	// transaction and a signature of old funding tx. We'll verify these
+	// signature for validity, then commit the state to disk as we can now
+	// open the channel.
 	commitSig := fmsg.msg.CommitSig.ToSignatureBytes()
-	completeChan, err := resCtx.reservation.CompleteReservation(nil, commitSig)
+	oldFundingTxSig := fmsg.msg.OldFundingSig.ToSignatureBytes()
+	completeChan, err := resCtx.reservation.CompleteReservation(nil,
+		commitSig, oldFundingTxSig, resCtx.openType, resCtx.oldChannelID)
 	if err != nil {
 		fndgLog.Errorf("Unable to complete reservation sign complete: %v", err)
 		resCtx.err <- err
@@ -2473,6 +2533,9 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	var (
 		peerKey        = msg.peerAddress.IdentityKey
 		localAmt       = msg.localFundingAmt
+		localAddAmt    = msg.localAddAmt
+		openType       = msg.openType
+		oldChannelId   = msg.oldChannelID
 		remoteAmt      = msg.remoteFundingAmt
 		capacity       = localAmt + remoteAmt
 		ourDustLimit   = lnwallet.DefaultDustLimit()
@@ -2511,7 +2574,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// wallet doesn't have enough funds to commit to this channel, then the
 	// request will fail, and be aborted.
 	reservation, err := f.cfg.Wallet.InitChannelReservation(
-		capacity, localAmt, msg.pushAmt, commitFeePerKw,
+		capacity, localAmt, localAddAmt, openType, msg.oldChannelID, msg.pushAmt, commitFeePerKw,
 		msg.fundingFeePerVSize, peerKey, msg.peerAddress.Address,
 		&msg.chainHash, channelFlags,
 	)
@@ -2553,6 +2616,8 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		remoteCsvDelay: remoteCsvDelay,
 		remoteMinHtlc:  minHtlc,
 		reservation:    reservation,
+		openType:       openType,
+		oldChannelID:   oldChannelId,
 		peerAddress:    msg.peerAddress,
 		updates:        msg.updates,
 		err:            msg.err,
@@ -2577,6 +2642,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	fndgLog.Infof("Starting funding workflow with %v for pendingID(%x)",
 		msg.peerAddress.Address, chanID)
 
+	//reservation.OurContribution().ChangeOutputs[0].Value
 	fundingOpen := lnwire.OpenChannel{
 		ChainHash:            *f.cfg.Wallet.Cfg.NetParams.GenesisHash,
 		PendingChannelID:     chanID,
@@ -2596,6 +2662,8 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		DelayedPaymentPoint:  ourContribution.DelayBasePoint.PubKey,
 		FirstCommitmentPoint: ourContribution.FirstCommitmentPoint,
 		ChannelFlags:         channelFlags,
+		Opentype:             openType,
+		OldChannelID:         oldChannelId,
 	}
 	if err := f.cfg.SendToPeer(peerKey, &fundingOpen); err != nil {
 		e := fmt.Errorf("Unable to send funding request message: %v",
@@ -2690,6 +2758,14 @@ func (f *fundingManager) handleErrorMsg(fmsg *fundingErrorMsg) {
 		fndgLog.Warnf("unable to delete reservation: %v", err)
 		return
 	}
+	//
+	if resCtx.openType == lnwire.OpenRebalanceChannel {
+		oldChannel, err := f.cfg.FindChannel(resCtx.oldChannelID)
+		if err != nil {
+			oldChannel.ResetState()
+		}
+	}
+
 }
 
 // pruneZombieReservations loops through all pending reservations and fails the

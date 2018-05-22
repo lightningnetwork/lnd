@@ -554,6 +554,113 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	return fundingOutPoint
 }
 
+// addFund takes the adding funding process to the point where the funding
+// transaction is confirmed on-chain. Returns the funding out point.
+func addFund(t *testing.T, alice, bob *testNode,
+	addAmt btcutil.Amount, oldOutPoint *wire.OutPoint,
+	updateChan chan *lnrpc.OpenStatusUpdate, announceChan bool) *wire.OutPoint {
+	// Create a funding request and start the workflow.
+	errChan := make(chan error, 1)
+
+	oldChannelID := lnwire.NewChanIDFromOutPoint(oldOutPoint)
+	oldChannel, err := alice.fundingMgr.cfg.FindChannel(oldChannelID)
+	if err != nil {
+		t.Fatal("alice cann't find the old channel")
+	}
+	initReq := &openChanReq{
+		targetPubkey:    bob.privKey.PubKey(),
+		chainHash:       *activeNetParams.GenesisHash,
+		localFundingAmt: oldChannel.Capacity,
+		openType:        lnwire.OpenRebalanceChannel,
+		oldChannelID:    oldChannelID,
+		localAddAmt:     addAmt,
+		pushAmt:         oldChannel.State().LocalCommitment.RemoteBalance,
+		private:         !announceChan,
+		updates:         updateChan,
+		err:             errChan,
+	}
+
+	alice.fundingMgr.initFundingWorkflow(bobAddr, initReq)
+
+	// Alice should have sent the OpenChannel message to Bob.
+	var aliceMsg lnwire.Message
+	select {
+	case aliceMsg = <-alice.msgChan:
+	case err := <-initReq.err:
+		t.Fatalf("error init funding workflow: %v", err)
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice did not send OpenChannel message")
+	}
+
+	openChannelReq, ok := aliceMsg.(*lnwire.OpenChannel)
+	if !ok {
+		errorMsg, gotError := aliceMsg.(*lnwire.Error)
+		if gotError {
+			t.Fatalf("expected OpenChannel to be sent "+
+				"from bob, instead got error: %v",
+				lnwire.ErrorCode(errorMsg.Data[0]))
+		}
+		t.Fatalf("expected OpenChannel to be sent from "+
+			"alice, instead got %T", aliceMsg)
+	}
+
+	// Let Bob handle the init message.
+	bob.fundingMgr.processFundingOpen(openChannelReq, aliceAddr)
+
+	// Bob should answer with an AcceptChannel message.
+	acceptChannelResponse := assertFundingMsgSent(
+		t, bob.msgChan, "AcceptChannel",
+	).(*lnwire.AcceptChannel)
+
+	// Forward the response to Alice.
+	alice.fundingMgr.processFundingAccept(acceptChannelResponse, bobAddr)
+
+	// Alice responds with a FundingCreated message.
+	fundingCreated := assertFundingMsgSent(
+		t, alice.msgChan, "FundingCreated",
+	).(*lnwire.FundingCreated)
+
+	// Give the message to Bob.
+	bob.fundingMgr.processFundingCreated(fundingCreated, aliceAddr)
+
+	// Finally, Bob should send the FundingSigned message.
+	fundingSigned := assertFundingMsgSent(
+		t, bob.msgChan, "FundingSigned",
+	).(*lnwire.FundingSigned)
+
+	// Forward the signature to Alice.
+	alice.fundingMgr.processFundingSigned(fundingSigned, bobAddr)
+
+	// After Alice processes the singleFundingSignComplete message, she will
+	// broadcast the funding transaction to the network. We expect to get a
+	// channel update saying the channel is pending.
+	var pendingUpdate *lnrpc.OpenStatusUpdate
+	select {
+	case pendingUpdate = <-updateChan:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice did not send OpenStatusUpdate_ChanPending")
+	}
+
+	_, ok = pendingUpdate.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
+	if !ok {
+		t.Fatal("OpenStatusUpdate was not OpenStatusUpdate_ChanPending")
+	}
+
+	// Get and return the transaction Alice published to the network.
+	var publ *wire.MsgTx
+	select {
+	case publ = <-alice.publTxChan:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice did not publish funding tx")
+	}
+
+	fundingOutPoint := &wire.OutPoint{
+		Hash:  publ.TxHash(),
+		Index: 0,
+	}
+	return fundingOutPoint
+}
+
 func assertErrorNotSent(t *testing.T, msgChan chan lnwire.Message) {
 	select {
 	case <-msgChan:
@@ -858,6 +965,8 @@ func assertErrChannelNotFound(t *testing.T, node *testNode,
 	t.Fatalf("expected to not find state, found state %v", state)
 }
 
+
+
 func assertHandleFundingLocked(t *testing.T, alice, bob *testNode) {
 	// They should both send the new channel state to their peer.
 	select {
@@ -952,6 +1061,167 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 	// The internal state-machine should now have deleted the channelStates
 	// from the database, as the channel is announced.
 	assertNoChannelState(t, alice, bob, fundingOutPoint)
+}
+
+func TestFundingManagerAddFund(t *testing.T) {
+	alice, bob := setupFundingManagers(t)
+	defer tearDownFundingManagers(t, alice, bob)
+
+	// We will consume the channel updates as we go, so no buffering is needed.
+	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+
+	// Run through the process of opening the channel, up until the funding
+	// transaction is broadcasted.
+	fundingOutPoint := openChannel(t, alice, bob, 500000, 0, 1, updateChan,
+		true)
+
+	// Make sure both reservations time out and then run both zombie sweepers.
+	time.Sleep(1 * time.Millisecond)
+	go alice.fundingMgr.pruneZombieReservations()
+	go bob.fundingMgr.pruneZombieReservations()
+
+	// Check that neither Alice nor Bob sent an error message.
+	assertErrorNotSent(t, alice.msgChan)
+	assertErrorNotSent(t, bob.msgChan)
+
+	// Check that neither reservation has been pruned.
+	assertNumPendingReservations(t, alice, bobPubKey, 1)
+	assertNumPendingReservations(t, bob, alicePubKey, 1)
+
+	// Notify that transaction was mined.
+	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{}
+	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{}
+
+	// The funding transaction was mined, so assert that both funding
+	// managers now have the state of this channel 'markedOpen' in their
+	// internal state machine.
+	assertMarkedOpen(t, alice, bob, fundingOutPoint)
+
+	// After the funding transaction is mined, Alice will send
+	// fundingLocked to Bob.
+	fundingLockedAlice := assertFundingMsgSent(
+		t, alice.msgChan, "FundingLocked",
+	).(*lnwire.FundingLocked)
+
+	// And similarly Bob will send funding locked to Alice.
+	fundingLockedBob := assertFundingMsgSent(
+		t, bob.msgChan, "FundingLocked",
+	).(*lnwire.FundingLocked)
+
+	// Check that the state machine is updated accordingly
+	assertFundingLockedSent(t, alice, bob, fundingOutPoint)
+
+	// Make sure both fundingManagers send the expected channel
+	// announcements.
+	assertChannelAnnouncements(t, alice, bob)
+
+	// Check that the state machine is updated accordingly
+	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
+
+	// The funding transaction is now confirmed, wait for the
+	// OpenStatusUpdate_ChanOpen update
+	waitForOpenUpdate(t, updateChan)
+
+	// Exchange the fundingLocked messages.
+	alice.fundingMgr.processFundingLocked(fundingLockedBob, bobAddr)
+	bob.fundingMgr.processFundingLocked(fundingLockedAlice, aliceAddr)
+
+	// Check that they notify the breach arbiter and peer about the new
+	// channel.
+	assertHandleFundingLocked(t, alice, bob)
+
+	// Notify that six confirmations has been reached on funding transaction.
+	alice.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{}
+	bob.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{}
+
+	// Make sure the fundingManagers exchange announcement signatures.
+	assertAnnouncementSignatures(t, alice, bob)
+
+	// The internal state-machine should now have deleted the channelStates
+	// from the database, as the channel is announced.
+	assertNoChannelState(t, alice, bob, fundingOutPoint)
+
+
+	// From here, we begin the addFund test.
+
+	// We will consume the channel updates as we go, so no buffering is needed.
+	updateChanOfAdd := make(chan *lnrpc.OpenStatusUpdate)
+
+	// Run through the process of opening the channel, up until the funding
+	// transaction is broadcasted.
+	fundingOutPointOfAdd := addFund(t, alice, bob, 100000, fundingOutPoint,
+		updateChanOfAdd, true)
+
+
+
+	// Make sure both reservations time out and then run both zombie sweepers.
+	time.Sleep(1 * time.Millisecond)
+	go alice.fundingMgr.pruneZombieReservations()
+	go bob.fundingMgr.pruneZombieReservations()
+
+	// Check that neither Alice nor Bob sent an error message.
+	assertErrorNotSent(t, alice.msgChan)
+	assertErrorNotSent(t, bob.msgChan)
+
+	// Check that neither reservation has been pruned.
+	assertNumPendingReservations(t, alice, bobPubKey, 1)
+	assertNumPendingReservations(t, bob, alicePubKey, 1)
+
+	// Notify that transaction was mined.
+	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{}
+	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{}
+
+	// The funding transaction was mined, so assert that both funding
+	// managers now have the state of this channel 'markedOpen' in their
+	// internal state machine.
+	assertMarkedOpen(t, alice, bob, fundingOutPointOfAdd)
+
+	// After the funding transaction is mined, Alice will send
+	// fundingLocked to Bob.
+	fundingLockedAliceOfAdd := assertFundingMsgSent(
+		t, alice.msgChan, "FundingLocked",
+	).(*lnwire.FundingLocked)
+
+	// And similarly Bob will send funding locked to Alice.
+	fundingLockedBobOfAdd := assertFundingMsgSent(
+		t, bob.msgChan, "FundingLocked",
+	).(*lnwire.FundingLocked)
+
+	// Check that the state machine is updated accordingly
+	assertFundingLockedSent(t, alice, bob, fundingOutPointOfAdd)
+
+	// Make sure both fundingManagers send the expected channel
+	// announcements.
+	assertChannelAnnouncements(t, alice, bob)
+
+	// Check that the state machine is updated accordingly
+	assertAddedToRouterGraph(t, alice, bob, fundingOutPointOfAdd)
+
+
+	// The funding transaction is now confirmed, wait for the
+	// OpenStatusUpdate_ChanOpen update
+	waitForOpenUpdate(t, updateChanOfAdd)
+
+	// Exchange the fundingLocked messages.
+	alice.fundingMgr.processFundingLocked(fundingLockedBobOfAdd, bobAddr)
+	bob.fundingMgr.processFundingLocked(fundingLockedAliceOfAdd, aliceAddr)
+
+	// Check that they notify the breach arbiter and peer about the new
+	// channel.
+	assertHandleFundingLocked(t, alice, bob)
+
+
+
+	// Notify that six confirmations has been reached on funding transaction.
+	alice.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{}
+	bob.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{}
+
+	// Make sure the fundingManagers exchange announcement signatures.
+	assertAnnouncementSignatures(t, alice, bob)
+
+	// The internal state-machine should now have deleted the channelStates
+	// from the database, as the channel is announced.
+	assertNoChannelState(t, alice, bob, fundingOutPointOfAdd)
 }
 
 func TestFundingManagerRestartBehavior(t *testing.T) {

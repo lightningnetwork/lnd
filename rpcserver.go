@@ -185,6 +185,15 @@ var (
 			Entity: "offchain",
 			Action: "write",
 		}},
+
+		"/lnrpc.Lightning/AddFund": {{
+			Entity: "onchain",
+			Action: "write",
+		}, {
+			Entity: "offchain",
+			Action: "write",
+		}},
+
 		"/lnrpc.Lightning/GetInfo": {{
 			Entity: "info",
 			Action: "read",
@@ -1160,6 +1169,119 @@ out:
 		}
 	}
 
+	return nil
+}
+
+// AddFund attempts to add additional fund to an active channel identified by its channel point.
+// Actually this function is to implement the splice-in.
+func (r *rpcServer) AddFund(in *lnrpc.AddFundRequest,
+	updateStream lnrpc.Lightning_AddFundServer) error {
+
+	index := in.ChannelPoint.OutputIndex
+	txidHash, err := getChanPointFundingTxid(in.GetChannelPoint())
+	if err != nil {
+		rpcsLog.Errorf("[addfund] unable to get funding txid: %v", err)
+		return err
+	}
+	txid, err := chainhash.NewHash(txidHash)
+	if err != nil {
+		rpcsLog.Errorf("[addfund] invalid txid: %v", err)
+		return err
+	}
+	chanPoint := wire.NewOutPoint(txid, index)
+
+	// First, we'll fetch the channel as is, as we'll need to examine it
+	channel, err := r.fetchActiveChannel(*chanPoint)
+	if err != nil {
+		return err
+	}
+
+	// We need to stop the channel to block all incoming htlcs
+	channel.Stop()
+
+	// If the link is not known by the switch, we cannot gracefully add fund to
+	// the channel.
+	channelID := lnwire.NewChanIDFromOutPoint(chanPoint)
+	if _, err := r.server.htlcSwitch.GetLink(channelID); err != nil {
+		rpcsLog.Debugf("Trying to add fund to offline channel with "+
+			"chan_point=%v", chanPoint)
+		return fmt.Errorf("unable to gracefully add fund to channel while peer "+
+			"is offline: %v", err)
+	}
+	if len(channel.ActiveHtlcs()) != 0 {
+		return fmt.Errorf("cannot add fund to channel " +
+			"with active htlcs")
+	}
+
+	// Based on the passed fee related parameters, we'll determine
+	// an appropriate fee rate for the splice-in
+	// transaction.
+	feeRate, err := determineFeePerVSize(
+		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
+	)
+	if err != nil {
+		return err
+	}
+
+	rpcsLog.Debugf("Target sat/vbyte for splice-in transaction: %v",
+		int64(feeRate))
+
+	if feeRate == 0 {
+		// If the fee rate returned isn't usable, then we'll
+		// fall back to a lax fee estimate.
+		feeRate, err = r.server.cc.feeEstimator.EstimateFeePerVSize(6)
+		if err != nil {
+			return err
+		}
+	}
+	updateChan, errChan := r.server.RebalanceChannel(channelID, btcutil.Amount(in.AddFundingAmount),
+		feeRate, false)
+	var outpoint wire.OutPoint
+out:
+	for {
+		select {
+		case err := <-errChan:
+			rpcsLog.Errorf("unable to add fund to channel : %v",
+				err)
+
+			channel.ResetState()
+			return err
+		case fundingUpdate := <-updateChan:
+			rpcsLog.Tracef("[addfund] sending update: %v",
+				fundingUpdate)
+			if err := updateStream.Send(fundingUpdate); err != nil {
+				return err
+			}
+
+			// If a final channel open update is being sent, then
+			// we can break out of our recv loop as we no longer
+			// need to process any further updates.
+			switch update := fundingUpdate.Update.(type) {
+			case *lnrpc.OpenStatusUpdate_ChanOpen:
+				chanPoint := update.ChanOpen.ChannelPoint
+				txidHash, err := getChanPointFundingTxid(chanPoint)
+				if err != nil {
+					return err
+				}
+
+				h, err := chainhash.NewHash(txidHash)
+				if err != nil {
+					return err
+				}
+				outpoint = wire.OutPoint{
+					Hash:  *h,
+					Index: chanPoint.OutputIndex,
+				}
+
+				break out
+			}
+		case <-r.quit:
+			return nil
+		}
+	}
+
+	rpcsLog.Tracef("[addfund] success ChannelPoint(%v)",
+		outpoint)
 	return nil
 }
 

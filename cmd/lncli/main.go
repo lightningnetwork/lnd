@@ -201,6 +201,7 @@ func main() {
 		disconnectCommand,
 		openChannelCommand,
 		closeChannelCommand,
+		addFundCommand,
 		closeAllChannelsCommand,
 		listPeersCommand,
 		walletBalanceCommand,

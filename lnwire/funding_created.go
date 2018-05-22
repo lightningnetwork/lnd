@@ -24,6 +24,12 @@ type FundingCreated struct {
 	// CommitSig is Alice's signature from Bob's version of the commitment
 	// transaction.
 	CommitSig Sig
+
+	// ChangeOutputValue is the satoshis of change output of the funding tx
+	ChangeOutputValue int64
+
+	// ChangeOutputScript is the lock script of change output of the funding tx
+	ChangeOutputScript DeliveryAddress
 }
 
 // A compile time check to ensure FundingCreated implements the lnwire.Message
@@ -36,7 +42,13 @@ var _ Message = (*FundingCreated)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (f *FundingCreated) Encode(w io.Writer, pver uint32) error {
-	return writeElements(w, f.PendingChannelID[:], f.FundingPoint, f.CommitSig)
+	return writeElements(w,
+		f.PendingChannelID[:],
+		f.FundingPoint,
+		f.CommitSig,
+		f.ChangeOutputValue,
+		f.ChangeOutputScript)
+	//		f.ChangeOutPut)
 }
 
 // Decode deserializes the serialized FundingCreated stored in the passed
@@ -45,7 +57,13 @@ func (f *FundingCreated) Encode(w io.Writer, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (f *FundingCreated) Decode(r io.Reader, pver uint32) error {
-	return readElements(r, f.PendingChannelID[:], &f.FundingPoint, &f.CommitSig)
+	return readElements(r,
+		f.PendingChannelID[:],
+		&f.FundingPoint,
+		&f.CommitSig,
+		&f.ChangeOutputValue,
+		&f.ChangeOutputScript)
+	//		&f.ChangeOutPut)
 }
 
 // MsgType returns the uint32 code which uniquely identifies this message as a
@@ -61,6 +79,6 @@ func (f *FundingCreated) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (f *FundingCreated) MaxPayloadLength(uint32) uint32 {
-	// 32 + 32 + 2 + 64
-	return 130
+	// 32 + 32 + 2 + 64 + //8 + 2 + 34
+	return 130 + 44
 }

@@ -86,6 +86,10 @@ type AcceptChannel struct {
 	// base point in order to derive the revocation keys that are placed
 	// within the commitment transaction of the sender.
 	FirstCommitmentPoint *btcec.PublicKey
+
+	OpenType OpenType
+
+	OldChannelID ChannelID
 }
 
 // A compile time check to ensure AcceptChannel implements the lnwire.Message
@@ -113,6 +117,8 @@ func (a *AcceptChannel) Encode(w io.Writer, pver uint32) error {
 		a.DelayedPaymentPoint,
 		a.HtlcPoint,
 		a.FirstCommitmentPoint,
+		a.OpenType,
+		a.OldChannelID,
 	)
 }
 
@@ -137,6 +143,8 @@ func (a *AcceptChannel) Decode(r io.Reader, pver uint32) error {
 		&a.DelayedPaymentPoint,
 		&a.HtlcPoint,
 		&a.FirstCommitmentPoint,
+		&a.OpenType,
+		&a.OldChannelID,
 	)
 }
 
@@ -153,6 +161,6 @@ func (a *AcceptChannel) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (a *AcceptChannel) MaxPayloadLength(uint32) uint32 {
-	// 32 + (8 * 4) + (4 * 1) + (2 * 2) + (33 * 6)
-	return 270
+	// 32 + (8 * 4) + (4 * 1) + (2 * 2) + (33 * 6) + 1 + 32
+	return 303
 }

@@ -77,6 +77,7 @@ const (
 	// CloseBreach indicates that a channel breach has been detected, and
 	// the link should immediately be marked as unavailable.
 	CloseBreach
+
 )
 
 // ChanClose represents a request which close a particular channel specified by
@@ -94,6 +95,12 @@ type ChanClose struct {
 	// This will be the starting offered fee when the fee negotiation
 	// process for the cooperative closure transaction kicks off.
 	TargetFeePerKw lnwallet.SatPerKWeight
+
+	// AddFound will be used when the switch handles rebalance channel request.
+	AddFoud btcutil.Amount
+
+	// NewFundingKey is the new fundingTx's pubKey provided by the adder.
+	NewFundingKey *btcec.PublicKey
 
 	// Updates is used by request creator to receive the notifications about
 	// execution of the close channel request.
@@ -1305,13 +1312,14 @@ func (s *Switch) CloseLink(chanPoint *wire.OutPoint, closeType ChannelCloseType,
 	// TODO(roasbeef) abstract out the close updates.
 	updateChan := make(chan *lnrpc.CloseStatusUpdate, 2)
 	errChan := make(chan error, 1)
-
+	// TODO(xuehan): 加上nextfundingpubkey
 	command := &ChanClose{
 		CloseType:      closeType,
 		ChanPoint:      chanPoint,
 		Updates:        updateChan,
 		TargetFeePerKw: targetFeePerKw,
 		Err:            errChan,
+		//	NewFundingKey:  btcec.PublicKey()
 	}
 
 	select {
@@ -1855,9 +1863,16 @@ func (s *Switch) UpdateShortChanID(chanID lnwire.ChannelID) error {
 	s.indexMtx.Lock()
 	defer s.indexMtx.Unlock()
 
-	// Locate the target link in the pending link index. If no such link
-	// exists, then we will ignore the request.
-	link, ok := s.pendingLinkIndex[chanID]
+//<<<<<<< HEAD
+//	// Locate the target link in the pending link index. If no such link
+//	// exists, then we will ignore the request.
+//	link, ok := s.pendingLinkIndex[chanID]
+//=======
+	// First, we'll extract the current link as is from the link
+	// index. If the link isn't even in the index, then we'll return an
+	// error.
+	link, ok := s.linkIndex[chanID]
+//>>>>>>> channel/add-funding
 	if !ok {
 		return fmt.Errorf("link %v not found", chanID)
 	}

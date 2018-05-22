@@ -25,6 +25,14 @@ const MaxSliceLength = 65535
 // key script.
 type PkScript []byte
 
+// OpenType 表示打开类型，openchannel时可能是新打开，也可能是rebalance
+type OpenType uint8
+
+const (
+	OpenNewChannel OpenType = iota
+	OpenRebalanceChannel
+)
+
 // addressType specifies the network protocol and version that should be used
 // when connecting to a node at a particular address.
 type addressType uint8
@@ -93,6 +101,12 @@ func writeElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
+	case OpenType:
+		var b [1]byte
+		b[0] = uint8(e)
+		if _, err := w.Write(b[:]); err != nil {
+			return err
+		}
 	case uint16:
 		var b [2]byte
 		binary.BigEndian.PutUint16(b[:], e)
@@ -118,6 +132,12 @@ func writeElement(w io.Writer, element interface{}) error {
 			return err
 		}
 	case btcutil.Amount:
+		var b [8]byte
+		binary.BigEndian.PutUint64(b[:], uint64(e))
+		if _, err := w.Write(b[:]); err != nil {
+			return err
+		}
+	case int64:
 		var b [8]byte
 		binary.BigEndian.PutUint64(b[:], uint64(e))
 		if _, err := w.Write(b[:]); err != nil {
@@ -402,6 +422,12 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = FundingFlag(b[0])
+	case *OpenType:
+		var b [1]uint8
+		if _, err := r.Read(b[:]); err != nil {
+			return err
+		}
+		*e = OpenType(b[0])
 	case *uint16:
 		var b [2]byte
 		if _, err := io.ReadFull(r, b[:]); err != nil {
@@ -444,6 +470,12 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = btcutil.Amount(int64(binary.BigEndian.Uint64(b[:])))
+	case *int64:
+		var b [8]byte
+		if _, err := io.ReadFull(r, b[:]); err != nil {
+			return err
+		}
+		*e = (int64(binary.BigEndian.Uint64(b[:])))
 	case **btcec.PublicKey:
 		var b [btcec.PubKeyBytesLenCompressed]byte
 		if _, err = io.ReadFull(r, b[:]); err != nil {

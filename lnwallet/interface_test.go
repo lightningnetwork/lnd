@@ -298,9 +298,12 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 		t.Fatalf("unable to query fee estimator: %v", err)
 	}
 	feePerKw := feeRate.FeePerKWeight()
+	var oldChannelID lnwire.ChannelID
+
 	aliceChanReservation, err := alice.InitChannelReservation(
-		fundingAmount*2, fundingAmount, 0, feePerKw, feeRate,
+		fundingAmount*2, fundingAmount, 0, lnwire.OpenNewChannel, oldChannelID, 0, feePerKw, feeRate,
 		bobPub, bobAddr, chainHash, lnwire.FFAnnounceChannel)
+
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation: %v", err)
 	}
@@ -329,7 +332,7 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	// receives' Alice's contribution, and consumes that so we can continue
 	// the funding process.
 	bobChanReservation, err := bob.InitChannelReservation(fundingAmount*2,
-		fundingAmount, 0, feePerKw, feeRate, alicePub, aliceAddr,
+		fundingAmount, 0, lnwire.OpenNewChannel, oldChannelID, 0, feePerKw, feeRate, alicePub, aliceAddr,
 		chainHash, lnwire.FFAnnounceChannel)
 	if err != nil {
 		t.Fatalf("bob unable to init channel reservation: %v", err)
@@ -346,7 +349,7 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 
 	assertContributionInitPopulated(t, bobChanReservation.OurContribution())
 
-	err = bobChanReservation.ProcessContribution(aliceContribution)
+	err = bobChanReservation.ProcessContribution(aliceContribution, lnwire.OpenNewChannel, oldChannelID)
 	if err != nil {
 		t.Fatalf("bob unable to process alice's contribution: %v", err)
 	}
@@ -358,7 +361,7 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	// Alice. After this phase, Alice should have all the necessary
 	// material required to craft the funding transaction and commitment
 	// transactions.
-	err = aliceChanReservation.ProcessContribution(bobContribution)
+	err = aliceChanReservation.ProcessContribution(bobContribution, lnwire.OpenNewChannel, oldChannelID)
 	if err != nil {
 		t.Fatalf("alice unable to process bob's contribution: %v", err)
 	}
@@ -385,8 +388,7 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	// To conclude, we'll consume first Alice's signatures with Bob, and
 	// then the other way around.
 	_, err = aliceChanReservation.CompleteReservation(
-		bobFundingSigs, bobCommitSig,
-	)
+		bobFundingSigs, bobCommitSig, nil, lnwire.OpenNewChannel, oldChannelID)
 	if err != nil {
 		for _, in := range aliceChanReservation.FinalFundingTx().TxIn {
 			fmt.Println(in.PreviousOutPoint.String())
@@ -394,8 +396,7 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 		t.Fatalf("unable to consume alice's sigs: %v", err)
 	}
 	_, err = bobChanReservation.CompleteReservation(
-		aliceFundingSigs, aliceCommitSig,
-	)
+		aliceFundingSigs, aliceCommitSig, nil, lnwire.OpenNewChannel, oldChannelID)
 	if err != nil {
 		t.Fatalf("unable to consume bob's sigs: %v", err)
 	}
@@ -479,8 +480,10 @@ func testFundingTransactionLockedOutputs(miner *rpctest.Harness,
 		t.Fatalf("unable to query fee estimator: %v", err)
 	}
 	feePerKw := feeRate.FeePerKWeight()
+
+	var oldChannelID lnwire.ChannelID
 	_, err = alice.InitChannelReservation(fundingAmount,
-		fundingAmount, 0, feePerKw, feeRate, bobPub, bobAddr, chainHash,
+		fundingAmount, 0, lnwire.OpenNewChannel, oldChannelID, 0, feePerKw, feeRate, bobPub, bobAddr, chainHash,
 		lnwire.FFAnnounceChannel,
 	)
 	if err != nil {
@@ -494,7 +497,7 @@ func testFundingTransactionLockedOutputs(miner *rpctest.Harness,
 	if err != nil {
 		t.Fatalf("unable to create amt: %v", err)
 	}
-	failedReservation, err := alice.InitChannelReservation(amt, amt, 0,
+	failedReservation, err := alice.InitChannelReservation(amt, amt, 0, lnwire.OpenNewChannel, oldChannelID, 0,
 		feePerKw, feeRate, bobPub, bobAddr, chainHash,
 		lnwire.FFAnnounceChannel)
 	if err == nil {
@@ -522,8 +525,9 @@ func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness,
 	if err != nil {
 		t.Fatalf("unable to create amt: %v", err)
 	}
+	var oldChannelID lnwire.ChannelID
 	chanReservation, err := alice.InitChannelReservation(fundingAmount,
-		fundingAmount, 0, feePerKw, feeRate, bobPub, bobAddr, chainHash,
+		fundingAmount, 0, lnwire.OpenNewChannel, oldChannelID, 0, feePerKw, feeRate, bobPub, bobAddr, chainHash,
 		lnwire.FFAnnounceChannel)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation: %v", err)
@@ -531,7 +535,7 @@ func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness,
 
 	// Attempt to create another channel with 44 BTC, this should fail.
 	_, err = alice.InitChannelReservation(fundingAmount,
-		fundingAmount, 0, feePerKw, feeRate, bobPub, bobAddr, chainHash,
+		fundingAmount, 0, lnwire.OpenNewChannel, oldChannelID, 0, feePerKw, feeRate, bobPub, bobAddr, chainHash,
 		lnwire.FFAnnounceChannel,
 	)
 	if _, ok := err.(*lnwallet.ErrInsufficientFunds); !ok {
@@ -563,7 +567,7 @@ func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness,
 
 	// Request to fund a new channel should now succeed.
 	_, err = alice.InitChannelReservation(fundingAmount, fundingAmount,
-		0, feePerKw, feeRate, bobPub, bobAddr, chainHash,
+		0, lnwire.OpenNewChannel, oldChannelID, 0, feePerKw, feeRate, bobPub, bobAddr, chainHash,
 		lnwire.FFAnnounceChannel)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation: %v", err)
@@ -606,8 +610,9 @@ func testReservationInitiatorBalanceBelowDustCancel(miner *rpctest.Harness,
 	}
 	feePerVSize := lnwallet.SatPerVByte(btcutil.SatoshiPerBitcoin * 4 / 100)
 	feePerKw := feePerVSize.FeePerKWeight()
+	var oldChannelID lnwire.ChannelID
 	_, err = alice.InitChannelReservation(
-		fundingAmount, fundingAmount, 0, feePerKw, feePerVSize, bobPub,
+		fundingAmount, fundingAmount, 0, lnwire.OpenNewChannel, oldChannelID, 0, feePerKw, feePerVSize, bobPub,
 		bobAddr, chainHash, lnwire.FFAnnounceChannel,
 	)
 	switch {
@@ -680,8 +685,9 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 		t.Fatalf("unable to query fee estimator: %v", err)
 	}
 	feePerKw := feeRate.FeePerKWeight()
+	var oldChannelID lnwire.ChannelID
 	aliceChanReservation, err := alice.InitChannelReservation(fundingAmt,
-		fundingAmt, pushAmt, feePerKw, feeRate, bobPub, bobAddr, chainHash,
+		fundingAmt, 0, lnwire.OpenNewChannel, oldChannelID, pushAmt, feePerKw, feeRate, bobPub, bobAddr, chainHash,
 		lnwire.FFAnnounceChannel)
 	if err != nil {
 		t.Fatalf("unable to init channel reservation: %v", err)
@@ -710,7 +716,7 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 
 	// Next, Bob receives the initial request, generates a corresponding
 	// reservation initiation, then consume Alice's contribution.
-	bobChanReservation, err := bob.InitChannelReservation(fundingAmt, 0,
+	bobChanReservation, err := bob.InitChannelReservation(fundingAmt, 0, 0, lnwire.OpenNewChannel, oldChannelID,
 		pushAmt, feePerKw, feeRate, alicePub, aliceAddr, chainHash,
 		lnwire.FFAnnounceChannel)
 	if err != nil {
@@ -740,7 +746,7 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 
 	// Bob will next send over his contribution to Alice, we simulate this
 	// by having Alice immediately process his contribution.
-	err = aliceChanReservation.ProcessContribution(bobContribution)
+	err = aliceChanReservation.ProcessContribution(bobContribution, lnwire.OpenNewChannel, oldChannelID)
 	if err != nil {
 		t.Fatalf("alice unable to process bob's contribution")
 	}
@@ -782,7 +788,7 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	// transaction, as well as the funding outpoint.
 	fundingPoint := aliceChanReservation.FundingOutpoint()
 	_, err = bobChanReservation.CompleteReservationSingle(
-		fundingPoint, aliceCommitSig,
+		fundingPoint, aliceCommitSig, nil, oldChannelID, lnwire.OpenNewChannel,
 	)
 	if err != nil {
 		t.Fatalf("bob unable to consume single reservation: %v", err)
@@ -796,7 +802,7 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 		t.Fatalf("bob failed to generate commitment signature: %v", err)
 	}
 	_, err = aliceChanReservation.CompleteReservation(
-		nil, bobCommitSig,
+		nil, bobCommitSig, nil, lnwire.OpenNewChannel, oldChannelID,
 	)
 	if err != nil {
 		t.Fatalf("alice unable to complete reservation: %v", err)
@@ -2036,6 +2042,8 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 
 		feeEstimator lnwallet.FeeEstimator
 	)
+
+	//fmt.Print("start to run test")
 
 	tempTestDirAlice, err := ioutil.TempDir("", "lnwallet")
 	if err != nil {

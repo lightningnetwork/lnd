@@ -122,6 +122,14 @@ type OpenChannel struct {
 	// Currently, the least significant bit of this bit field indicates the
 	// initiator of the channel wishes to advertise this channel publicly.
 	ChannelFlags FundingFlag
+
+	// Opentype is a bit-filed which allows the initiator of the channel to
+	// specify which type he would like to operator the channel: open a new
+	// channel or add fund to an active channel.
+	Opentype OpenType
+
+	// OldChannelID is id of the active channel which will be add fund to
+	OldChannelID ChannelID
 }
 
 // A compile time check to ensure OpenChannel implements the lnwire.Message
@@ -153,6 +161,8 @@ func (o *OpenChannel) Encode(w io.Writer, pver uint32) error {
 		o.HtlcPoint,
 		o.FirstCommitmentPoint,
 		o.ChannelFlags,
+		o.Opentype,
+		o.OldChannelID,
 	)
 }
 
@@ -181,6 +191,8 @@ func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
 		&o.HtlcPoint,
 		&o.FirstCommitmentPoint,
 		&o.ChannelFlags,
+		&o.Opentype,
+		&o.OldChannelID,
 	)
 }
 
@@ -198,5 +210,6 @@ func (o *OpenChannel) MsgType() MessageType {
 // This is part of the lnwire.Message interface.
 func (o *OpenChannel) MaxPayloadLength(uint32) uint32 {
 	// (32 * 2) + (8 * 6) + (4 * 1) + (2 * 2) + (33 * 6) + 1
-	return 319
+	// + 1 + 32
+	return 352
 }

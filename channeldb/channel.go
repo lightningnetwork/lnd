@@ -1673,12 +1673,12 @@ type ChannelCloseSummary struct {
 
 	// IsPending indicates whether this channel is in the 'pending close'
 	// state, which means the channel closing transaction has been
-	// broadcast, but not confirmed yet or has not yet been fully resolved.
-	// In the case of a channel that has been cooperatively closed, it will
-	// no longer be considered pending as soon as the closing transaction
-	// has been confirmed. However, for channel that have been force
-	// closed, they'll stay marked as "pending" until _all_ the pending
-	// funds have been swept.
+	// confirmed, but not yet been fully resolved. In the case of a channel
+	// that has been cooperatively closed, it will go straight into the
+	// fully resolved state as soon as the closing transaction has been
+	// confirmed. However, for channel that have been force closed, they'll
+	// stay marked as "pending" until _all_ the pending funds have been
+	// swept.
 	IsPending bool
 
 	// RemoteCurrentRevocation is the current revocation for their

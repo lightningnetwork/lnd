@@ -5955,3 +5955,9 @@ func (lc *LightningChannel) RemoteCommitHeight() uint64 {
 
 	return lc.channelState.RemoteCommitment.CommitHeight
 }
+func (lc *LightningChannel) IsOpen() bool {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	return lc.status == channelOpen
+}

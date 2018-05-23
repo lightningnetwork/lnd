@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"crypto/tls"
 
 	flags "github.com/jessevdk/go-flags"
 	"github.com/lightningnetwork/lnd/brontide"
@@ -88,6 +89,8 @@ var (
 
 	defaultBitcoindDir  = btcutil.AppDataDir("bitcoin", false)
 	defaultLitecoindDir = btcutil.AppDataDir("litecoin", false)
+
+	loopBackAddrs = []string{"localhost", "127.0.0.1", "[::1]"}
 
 	defaultTorSOCKS            = net.JoinHostPort("localhost", strconv.Itoa(defaultTorSOCKSPort))
 	defaultTorDNS              = net.JoinHostPort(defaultTorDNSHost, strconv.Itoa(defaultTorDNSPort))
@@ -165,26 +168,35 @@ type torConfig struct {
 type config struct {
 	ShowVersion bool `short:"V" long:"version" description:"Display version information and exit"`
 
-	LndDir         string   `long:"lnddir" description:"The base directory that contains lnd's data, logs, configuration file, etc."`
-	ConfigFile     string   `long:"C" long:"configfile" description:"Path to configuration file"`
-	DataDir        string   `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
-	TLSCertPath    string   `long:"tlscertpath" description:"Path to write the TLS certificate for lnd's RPC and REST services"`
-	TLSKeyPath     string   `long:"tlskeypath" description:"Path to write the TLS private key for lnd's RPC and REST services"`
-	TLSExtraIP     string   `long:"tlsextraip" description:"Adds an extra ip to the generated certificate"`
-	TLSExtraDomain string   `long:"tlsextradomain" description:"Adds an extra domain to the generated certificate"`
-	NoMacaroons    bool     `long:"no-macaroons" description:"Disable macaroon authentication"`
-	AdminMacPath   string   `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
-	ReadMacPath    string   `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`
-	InvoiceMacPath string   `long:"invoicemacaroonpath" description:"Path to the invoice-only macaroon for lnd's RPC and REST services if it doesn't exist"`
-	LogDir         string   `long:"logdir" description:"Directory to log output."`
-	MaxLogFiles    int      `long:"maxlogfiles" description:"Maximum logfiles to keep (0 for no rotation)"`
-	MaxLogFileSize int      `long:"maxlogfilesize" description:"Maximum logfile size in MB"`
-	RPCListeners   []string `long:"rpclisten" description:"Add an interface/port to listen for RPC connections"`
-	RESTListeners  []string `long:"restlisten" description:"Add an interface/port to listen for REST connections"`
-	Listeners      []string `long:"listen" description:"Add an interface/port to listen for peer connections"`
-	DisableListen  bool     `long:"nolisten" description:"Disable listening for incoming peer connections"`
-	ExternalIPs    []string `long:"externalip" description:"Add an ip:port to the list of local addresses we claim to listen on to peers. If a port is not specified, the default (9735) will be used regardless of other parameters"`
-	NAT            bool     `long:"nat" description:"Toggle NAT traversal support (using either UPnP or NAT-PMP) to automatically advertise your external IP address to the network -- NOTE this does not support devices behind multiple NATs"`
+	LndDir           string   `long:"lnddir" description:"The base directory that contains lnd's data, logs, configuration file, etc."`
+	ConfigFile       string   `long:"C" long:"configfile" description:"Path to configuration file"`
+	DataDir          string   `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
+	TLSCertPath      string   `long:"tlscertpath" description:"Path to write the TLS certificate for lnd's RPC and REST services"`
+	TLSKeyPath       string   `long:"tlskeypath" description:"Path to write the TLS private key for lnd's RPC and REST services"`
+	TLSExtraIP       string   `long:"tlsextraip" description:"Adds an extra ip to the generated certificate"`
+	TLSExtraDomain   string   `long:"tlsextradomain" description:"Adds an extra domain to the generated certificate"`
+	NoMacaroons      bool     `long:"no-macaroons" description:"Disable macaroon authentication"`
+	AdminMacPath     string   `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
+	ReadMacPath      string   `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`
+	InvoiceMacPath   string   `long:"invoicemacaroonpath" description:"Path to the invoice-only macaroon for lnd's RPC and REST services if it doesn't exist"`
+	LogDir           string   `long:"logdir" description:"Directory to log output."`
+	MaxLogFiles      int      `long:"maxlogfiles" description:"Maximum logfiles to keep (0 for no rotation)"`
+	MaxLogFileSize   int      `long:"maxlogfilesize" description:"Maximum logfile size in MB"`
+
+	// We'll parse these 'raw' string arguments into real net.Addrs in the
+	// loadConfig function. We need to expose the 'raw' strings so the
+	// command line library can access them.
+	// Only the parsed net.Addrs should be used!
+	RawRPCListeners  []string `long:"rpclisten" description:"Add an interface/port/socket to listen for RPC connections"`
+	RawRESTListeners []string `long:"restlisten" description:"Add an interface/port/socket to listen for REST connections"`
+	RawListeners     []string `long:"listen" description:"Add an interface/port to listen for peer connections"`
+	RawExternalIPs   []string `long:"externalip" description:"Add an ip:port to the list of local addresses we claim to listen on to peers. If a port is not specified, the default (9735) will be used regardless of other parameters"`
+	RPCListeners     []net.Addr
+	RESTListeners    []net.Addr
+	Listeners        []net.Addr
+	ExternalIPs      []net.Addr
+	DisableListen    bool     `long:"nolisten" description:"Disable listening for incoming peer connections"`
+	NAT              bool     `long:"nat" description:"Toggle NAT traversal support (using either UPnP or NAT-PMP) to automatically advertise your external IP address to the network -- NOTE this does not support devices behind multiple NATs"`
 
 	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
 
@@ -735,8 +747,8 @@ func loadConfig() (*config, error) {
 
 	// Initialize logging at the default logging level.
 	initLogRotator(
-		filepath.Join(cfg.LogDir, defaultLogFilename), cfg.MaxLogFileSize,
-		cfg.MaxLogFiles,
+		filepath.Join(cfg.LogDir, defaultLogFilename),
+		cfg.MaxLogFileSize, cfg.MaxLogFiles,
 	)
 
 	// Parse, validate, and set debug log level(s).
@@ -747,33 +759,39 @@ func loadConfig() (*config, error) {
 		return nil, err
 	}
 
-	// At least one RPCListener is required.
-	if len(cfg.RPCListeners) == 0 {
+	// At least one RPCListener is required. So listen on localhost per
+	// default.
+	if len(cfg.RawRPCListeners) == 0 {
 		addr := fmt.Sprintf("localhost:%d", defaultRPCPort)
-		cfg.RPCListeners = append(cfg.RPCListeners, addr)
+		cfg.RawRPCListeners = append(cfg.RawRPCListeners, addr)
 	}
 
-	// Listen on the default interface/port if no REST listeners were
-	// specified.
-	if len(cfg.RESTListeners) == 0 {
+	// Listen on localhost if no REST listeners were specified.
+	if len(cfg.RawRESTListeners) == 0 {
 		addr := fmt.Sprintf("localhost:%d", defaultRESTPort)
-		cfg.RESTListeners = append(cfg.RESTListeners, addr)
+		cfg.RawRESTListeners = append(cfg.RawRESTListeners, addr)
 	}
 
 	// Listen on the default interface/port if no listeners were specified.
-	if len(cfg.Listeners) == 0 {
+	// An empty address string means default interface/address, which on
+	// most unix systems is the same as 0.0.0.0.
+	if len(cfg.RawListeners) == 0 {
 		addr := fmt.Sprintf(":%d", defaultPeerPort)
-		cfg.Listeners = append(cfg.Listeners, addr)
+		cfg.RawListeners = append(cfg.RawListeners, addr)
 	}
 
 	// For each of the RPC listeners (REST+gRPC), we'll ensure that users
 	// have specified a safe combo for authentication. If not, we'll bail
 	// out with an error.
-	err := enforceSafeAuthentication(cfg.RPCListeners, !cfg.NoMacaroons)
+	err := enforceSafeAuthentication(
+		cfg.RPCListeners, !cfg.NoMacaroons,
+	)
 	if err != nil {
 		return nil, err
 	}
-	err = enforceSafeAuthentication(cfg.RESTListeners, !cfg.NoMacaroons)
+	err = enforceSafeAuthentication(
+		cfg.RESTListeners, !cfg.NoMacaroons,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -787,27 +805,51 @@ func loadConfig() (*config, error) {
 
 	// Add default port to all RPC listener addresses if needed and remove
 	// duplicate addresses.
-	cfg.RPCListeners = normalizeAddresses(
-		cfg.RPCListeners, strconv.Itoa(defaultRPCPort),
+	cfg.RPCListeners, err = normalizeAddresses(
+		cfg.RawRPCListeners, strconv.Itoa(defaultRPCPort),
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	// Add default port to all REST listener addresses if needed and remove
 	// duplicate addresses.
-	cfg.RESTListeners = normalizeAddresses(
-		cfg.RESTListeners, strconv.Itoa(defaultRESTPort),
+	cfg.RESTListeners, err = normalizeAddresses(
+		cfg.RawRESTListeners, strconv.Itoa(defaultRESTPort),
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	// Add default port to all listener addresses if needed and remove
 	// duplicate addresses.
-	cfg.Listeners = normalizeAddresses(
-		cfg.Listeners, strconv.Itoa(defaultPeerPort),
+	cfg.Listeners, err = normalizeAddresses(
+		cfg.RawListeners, strconv.Itoa(defaultPeerPort),
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	// Add default port to all external IP addresses if needed and remove
 	// duplicate addresses.
-	cfg.ExternalIPs = normalizeAddresses(
-		cfg.ExternalIPs, strconv.Itoa(defaultPeerPort),
+	cfg.ExternalIPs, err = normalizeAddresses(
+		cfg.RawExternalIPs, strconv.Itoa(defaultPeerPort),
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	// For the p2p port it makes no sense to listen to an Unix socket.
+	// Also, we would need to refactor the brontide listener to support
+	// that.
+	for _, p2pListener := range cfg.Listeners {
+		if isUnix(p2pListener) {
+			err := fmt.Errorf("unix socket addresses cannot be " +
+				"used for the p2p connection listener: %s",
+				p2pListener)
+			return nil, err
+		}
+	}
 
 	// Finally, ensure that we are only listening on localhost if Tor
 	// inbound support is enabled.
@@ -815,7 +857,7 @@ func loadConfig() (*config, error) {
 		for _, addr := range cfg.Listeners {
 			// Due to the addresses being normalized above, we can
 			// skip checking the error.
-			host, _, _ := net.SplitHostPort(addr)
+			host, _, _ := net.SplitHostPort(addr.String())
 			if host == "localhost" || host == "127.0.0.1" {
 				continue
 			}
@@ -1201,71 +1243,136 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 
 // normalizeAddresses returns a new slice with all the passed addresses
 // normalized with the given default port and all duplicates removed.
-func normalizeAddresses(addrs []string, defaultPort string) []string {
-	result := make([]string, 0, len(addrs))
+func normalizeAddresses(addrs []string,
+	defaultPort string) ([]net.Addr, error) {
+	result := make([]net.Addr, 0, len(addrs))
 	seen := map[string]struct{}{}
-	for _, addr := range addrs {
-		addr = normalizeAddress(addr, defaultPort)
-		if _, ok := seen[addr]; !ok {
+	for _, strAddr := range addrs {
+		addr, err := parseAddressString(strAddr, defaultPort)
+		if err != nil {
+			return nil, err
+		}
+
+		if _, ok := seen[addr.String()]; !ok {
 			result = append(result, addr)
-			seen[addr] = struct{}{}
+			seen[addr.String()] = struct{}{}
 		}
 	}
-	return result
-}
-
-// normalizeAddress normalizes an address by either setting a missing host to
-// localhost or missing port to the default port.
-func normalizeAddress(addr, defaultPort string) string {
-	if _, _, err := net.SplitHostPort(addr); err != nil {
-		// If the address is an integer, then we assume it is *only* a
-		// port and default to binding to that port on localhost.
-		if _, err := strconv.Atoi(addr); err == nil {
-			return net.JoinHostPort("localhost", addr)
-		}
-
-		// Otherwise, the address only contains the host so we'll use
-		// the default port.
-		return net.JoinHostPort(addr, defaultPort)
-	}
-
-	return addr
+	return result, nil
 }
 
 // enforceSafeAuthentication enforces "safe" authentication taking into account
 // the interfaces that the RPC servers are listening on, and if macaroons are
-// activated or not. To project users from using dangerous config combinations,
+// activated or not. To protect users from using dangerous config combinations,
 // we'll prevent disabling authentication if the sever is listening on a public
 // interface.
-func enforceSafeAuthentication(addrs []string, macaroonsActive bool) error {
-	isLoopback := func(addr string) bool {
-		loopBackAddrs := []string{"localhost", "127.0.0.1", "[::1]"}
-		for _, loopback := range loopBackAddrs {
-			if strings.Contains(addr, loopback) {
-				return true
-			}
-		}
-
-		return false
-	}
-
+func enforceSafeAuthentication(addrs []net.Addr, macaroonsActive bool) error {
 	// We'll now examine all addresses that this RPC server is listening
 	// on. If it's a localhost address, we'll skip it, otherwise, we'll
 	// return an error if macaroons are inactive.
 	for _, addr := range addrs {
-		if isLoopback(addr) {
+		if isLoopback(addr) || isUnix(addr) {
 			continue
 		}
 
 		if !macaroonsActive {
 			return fmt.Errorf("Detected RPC server listening on "+
 				"publicly reachable interface %v with "+
-				"authentication disabled! Refusing to start with "+
-				"--no-macaroons specified.", addr)
+				"authentication disabled! Refusing to start "+
+				"with --no-macaroons specified.", addr)
 		}
 	}
 
 	return nil
+}
+
+// listenOnAddress creates a listener that listens on the given
+// address.
+func listenOnAddress(addr net.Addr) (net.Listener, error) {
+	return net.Listen(addr.Network(), addr.String())
+}
+
+// tlsListenOnAddress creates a TLS listener that listens on the given
+// address.
+func tlsListenOnAddress(addr net.Addr,
+	config *tls.Config) (net.Listener, error) {
+	return tls.Listen(addr.Network(), addr.String(), config)
+}
+
+// isLoopback returns true if an address describes a loopback interface.
+func isLoopback(addr net.Addr) bool {
+	for _, loopback := range loopBackAddrs {
+		if strings.Contains(addr.String(), loopback) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// isUnix returns true if an address describes an Unix socket address.
+func isUnix(addr net.Addr) bool {
+	return strings.HasPrefix(addr.Network(), "unix")
+}
+
+// parseAddressString converts an address in string format to a net.Addr that is
+// compatible with lnd. UDP is not supported because lnd needs reliable
+// connections.
+func parseAddressString(strAddress string,
+	defaultPort string) (net.Addr, error) {
+	var parsedNetwork, parsedAddr string
+
+	// Addresses can either be in network://address:port format or only
+	// address:port. We want to support both.
+	if strings.Contains(strAddress, "://") {
+		parts := strings.Split(strAddress, "://")
+		parsedNetwork, parsedAddr = parts[0], parts[1]
+	} else if strings.Contains(strAddress, ":") {
+		parts := strings.Split(strAddress, ":")
+		parsedNetwork = parts[0]
+		parsedAddr = strings.Join(parts[1:], ":")
+	}
+
+	// Only TCP and Unix socket addresses are valid. We can't use IP or
+	// UDP only connections for anything we do in lnd.
+	switch parsedNetwork {
+	case "unix", "unixpacket":
+		return net.ResolveUnixAddr(parsedNetwork, parsedAddr)
+	case "tcp", "tcp4", "tcp6":
+		return net.ResolveTCPAddr(parsedNetwork,
+			verifyPort(parsedAddr, defaultPort))
+	case "ip", "ip4", "ip6", "udp", "udp4", "udp6", "unixgram":
+		return nil, fmt.Errorf("only TCP or unix socket "+
+			"addresses are supported: %s", parsedAddr)
+	default:
+		// There was no network specified, just try to parse as host
+		// and port.
+		return net.ResolveTCPAddr(
+			"tcp", verifyPort(strAddress, defaultPort),
+		)
+	}
+}
+
+// verifyPort makes sure that an address string has both a host and a port.
+// If there is no port found, the default port is appended.
+func verifyPort(strAddress string, defaultPort string) string {
+	host, port, err := net.SplitHostPort(strAddress)
+	if err != nil {
+		// If we already have an IPv6 address with brackets, don't use
+		// the JoinHostPort function, since it will always add a pair
+		// of brackets too.
+		if strings.HasPrefix(strAddress, "[") {
+			strAddress = strAddress + ":" + defaultPort
+		} else {
+			strAddress = net.JoinHostPort(strAddress, defaultPort)
+		}
+	} else if host == "" && port == "" {
+		// The string ':' is parsed as valid empty host and empty port.
+		// But in that case, we want the default port to be applied too.
+		strAddress = ":" + defaultPort
+	}
+
+	return strAddress
 }
 
 // normalizeNetwork returns the common name of a network type used to create

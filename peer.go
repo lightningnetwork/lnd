@@ -411,47 +411,65 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			lnChan.Stop()
 			return err
 		}
-		linkCfg := htlcswitch.ChannelLinkConfig{
-			Peer:                  p,
-			DecodeHopIterators:    p.server.sphinx.DecodeHopIterators,
-			ExtractErrorEncrypter: p.server.sphinx.ExtractErrorEncrypter,
-			FetchLastChannelUpdate: fetchLastChanUpdate(
-				p.server, p.PubKey(),
-			),
-			DebugHTLC:      cfg.DebugHTLC,
-			HodlMask:       cfg.Hodl.Mask(),
-			Registry:       p.server.invoices,
-			Switch:         p.server.htlcSwitch,
-			Circuits:       p.server.htlcSwitch.CircuitModifier(),
-			ForwardPackets: p.server.htlcSwitch.ForwardPackets,
-			FwrdingPolicy:  *forwardingPolicy,
-			FeeEstimator:   p.server.cc.feeEstimator,
-			BlockEpochs:    blockEpoch,
-			PreimageCache:  p.server.witnessBeacon,
-			ChainEvents:    chainEvents,
-			UpdateContractSignals: func(signals *contractcourt.ContractSignals) error {
-				return p.server.chainArb.UpdateContractSignals(
-					*chanPoint, signals,
-				)
-			},
-			SyncStates: true,
-			BatchTicker: htlcswitch.NewBatchTicker(
-				time.NewTicker(50 * time.Millisecond)),
-			FwdPkgGCTicker: htlcswitch.NewBatchTicker(
-				time.NewTicker(time.Minute)),
-			BatchSize:    10,
-			UnsafeReplay: cfg.UnsafeReplay,
-		}
-		link := htlcswitch.NewChannelLink(linkCfg, lnChan,
-			uint32(currentHeight))
 
-		if err := p.server.htlcSwitch.AddLink(link); err != nil {
+		// Create the link and add it to the switch.
+		err = p.addLink(chanPoint, lnChan, forwardingPolicy, blockEpoch,
+			chainEvents, currentHeight, true)
+		if err != nil {
 			lnChan.Stop()
 			return err
 		}
 	}
 
 	return nil
+}
+
+// addLink creates and adds a new link from the specified channel.
+func (p *peer) addLink(chanPoint *wire.OutPoint,
+	lnChan *lnwallet.LightningChannel,
+	forwardingPolicy *htlcswitch.ForwardingPolicy,
+	blockEpoch *chainntnfs.BlockEpochEvent,
+	chainEvents *contractcourt.ChainEventSubscription,
+	currentHeight int32, syncStates bool) error {
+
+	linkCfg := htlcswitch.ChannelLinkConfig{
+		Peer:                  p,
+		DecodeHopIterators:    p.server.sphinx.DecodeHopIterators,
+		ExtractErrorEncrypter: p.server.sphinx.ExtractErrorEncrypter,
+		FetchLastChannelUpdate: fetchLastChanUpdate(
+			p.server, p.PubKey(),
+		),
+		DebugHTLC:      cfg.DebugHTLC,
+		HodlMask:       cfg.Hodl.Mask(),
+		Registry:       p.server.invoices,
+		Switch:         p.server.htlcSwitch,
+		Circuits:       p.server.htlcSwitch.CircuitModifier(),
+		ForwardPackets: p.server.htlcSwitch.ForwardPackets,
+		FwrdingPolicy:  *forwardingPolicy,
+		FeeEstimator:   p.server.cc.feeEstimator,
+		BlockEpochs:    blockEpoch,
+		PreimageCache:  p.server.witnessBeacon,
+		ChainEvents:    chainEvents,
+		UpdateContractSignals: func(signals *contractcourt.ContractSignals) error {
+			return p.server.chainArb.UpdateContractSignals(
+				*chanPoint, signals,
+			)
+		},
+		SyncStates: syncStates,
+		BatchTicker: htlcswitch.NewBatchTicker(
+			time.NewTicker(50 * time.Millisecond)),
+		FwdPkgGCTicker: htlcswitch.NewBatchTicker(
+			time.NewTicker(time.Minute)),
+		BatchSize:    10,
+		UnsafeReplay: cfg.UnsafeReplay,
+	}
+	link := htlcswitch.NewChannelLink(linkCfg, lnChan,
+		uint32(currentHeight))
+
+	// With the channel link created, we'll now notify the htlc switch so
+	// this channel can be used to dispatch local payments and also
+	// passively forward payments.
+	return p.server.htlcSwitch.AddLink(link)
 }
 
 // WaitForDisconnect waits until the peer has disconnected. A peer may be
@@ -1387,46 +1405,15 @@ out:
 					"events: %v", err)
 				continue
 			}
-			linkConfig := htlcswitch.ChannelLinkConfig{
-				Peer:                  p,
-				DecodeHopIterators:    p.server.sphinx.DecodeHopIterators,
-				ExtractErrorEncrypter: p.server.sphinx.ExtractErrorEncrypter,
-				FetchLastChannelUpdate: fetchLastChanUpdate(
-					p.server, p.PubKey(),
-				),
-				DebugHTLC:      cfg.DebugHTLC,
-				HodlMask:       cfg.Hodl.Mask(),
-				Registry:       p.server.invoices,
-				Switch:         p.server.htlcSwitch,
-				Circuits:       p.server.htlcSwitch.CircuitModifier(),
-				ForwardPackets: p.server.htlcSwitch.ForwardPackets,
-				FwrdingPolicy:  p.server.cc.routingPolicy,
-				FeeEstimator:   p.server.cc.feeEstimator,
-				BlockEpochs:    blockEpoch,
-				PreimageCache:  p.server.witnessBeacon,
-				ChainEvents:    chainEvents,
-				UpdateContractSignals: func(signals *contractcourt.ContractSignals) error {
-					return p.server.chainArb.UpdateContractSignals(
-						*chanPoint, signals,
-					)
-				},
-				SyncStates: false,
-				BatchTicker: htlcswitch.NewBatchTicker(
-					time.NewTicker(50 * time.Millisecond)),
-				FwdPkgGCTicker: htlcswitch.NewBatchTicker(
-					time.NewTicker(time.Minute)),
-				BatchSize:    10,
-				UnsafeReplay: cfg.UnsafeReplay,
-			}
-			link := htlcswitch.NewChannelLink(linkConfig, newChan,
-				uint32(currentHeight))
 
-			// With the channel link created, we'll now notify the
-			// htlc switch so this channel can be used to dispatch
-			// local payments and also passively forward payments.
-			if err := p.server.htlcSwitch.AddLink(link); err != nil {
+			// Create the link and add it to the switch.
+			err = p.addLink(chanPoint, newChan,
+				&p.server.cc.routingPolicy, blockEpoch,
+				chainEvents, currentHeight, false)
+			if err != nil {
 				peerLog.Errorf("can't register new channel "+
-					"link(%v) with NodeKey(%x)", chanPoint, p.PubKey())
+					"link(%v) with NodeKey(%x)", chanPoint,
+					p.PubKey())
 			}
 
 			close(newChanReq.done)

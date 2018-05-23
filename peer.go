@@ -432,6 +432,83 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 	chainEvents *contractcourt.ChainEventSubscription,
 	currentHeight int32, syncStates bool) error {
 
+	// onChannelFailure will be called by the link in case the channel
+	// fails for some reason.
+	onChannelFailure := func(chanID lnwire.ChannelID,
+		shortChanID lnwire.ShortChannelID,
+		linkErr htlcswitch.LinkFailureError) {
+
+		// The link has notified us about a failure. We launch a go
+		// routine to stop the link, disconnect the peer and optionally
+		// force close the channel. We must launch a goroutine since we
+		// must let OnChannelFailure return in order for the link to
+		// completely stop in the call to RemoveLink.
+		p.wg.Add(1)
+		go func() {
+			defer p.wg.Done()
+
+			// We begin by removing the link from the switch, such
+			// that it won't be attempted used for any more
+			// updates.
+			// TODO(halseth): should introduce a way to atomically
+			// stop/pause the link and cancel back any adds in its
+			// mailboxes such that we can safely force close
+			// without the link being added again and updates being
+			// applied.
+			err := p.server.htlcSwitch.RemoveLink(chanID)
+			if err != nil {
+				peerLog.Errorf("unable to stop link(%v): %v",
+					shortChanID, err)
+			}
+
+			// If the error encountered was severe enough, we'll
+			// now force close the channel.
+			if linkErr.ForceClose {
+				peerLog.Warnf("Force closing link(%v)",
+					shortChanID)
+
+				closeTx, err := p.server.chainArb.ForceCloseContract(*chanPoint)
+				if err != nil {
+					peerLog.Errorf("unable to force close "+
+						"link(%v): %v", shortChanID,
+						err)
+				} else {
+					peerLog.Infof("channel(%v) force "+
+						"closed with txid %v",
+						shortChanID, closeTx.TxHash())
+				}
+			}
+
+			// Send an error to the peer, why we failed the
+			// channel.
+			if linkErr.ShouldSendToPeer() {
+				// If SendData is set, send it to the peer. If
+				// not, we'll use the standard error messages
+				// in the payload. We only include sendData in
+				// the cases where the error data does not
+				// contain sensitive information.
+				data := []byte(linkErr.Error())
+				if linkErr.SendData != nil {
+					data = linkErr.SendData
+				}
+				err := p.SendMessage(&lnwire.Error{
+					ChanID: chanID,
+					Data:   data,
+				}, true)
+				if err != nil {
+					peerLog.Errorf("unable to send msg to "+
+						"remote peer: %v", err)
+				}
+			}
+
+			// Initiate disconnection.
+			// TODO(halseth): consider not disconnecting the peer,
+			// as we might still have other active channels with
+			// the same peer.
+			p.Disconnect(linkErr)
+		}()
+	}
+
 	linkCfg := htlcswitch.ChannelLinkConfig{
 		Peer:                  p,
 		DecodeHopIterators:    p.server.sphinx.DecodeHopIterators,
@@ -455,7 +532,8 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 				*chanPoint, signals,
 			)
 		},
-		SyncStates: syncStates,
+		OnChannelFailure: onChannelFailure,
+		SyncStates:       syncStates,
 		BatchTicker: htlcswitch.NewBatchTicker(
 			time.NewTicker(50 * time.Millisecond)),
 		FwdPkgGCTicker: htlcswitch.NewBatchTicker(

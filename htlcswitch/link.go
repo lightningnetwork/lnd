@@ -254,6 +254,10 @@ type channelLink struct {
 	started  int32
 	shutdown int32
 
+	// failed should be set to true in case a link error happens, making
+	// sure we don't process any more updates.
+	failed bool
+
 	// batchCounter is the number of updates which we received from remote
 	// side, but not include in commitment transaction yet and plus the
 	// current number of settles that have been sent, but not yet committed
@@ -695,6 +699,14 @@ func (l *channelLink) resolveFwdPkg(fwdPkg *channeldb.FwdPkg) (bool, error) {
 			fwdPkg.Source, fwdPkg.Height, fwdPkg.Adds,
 		)
 		needUpdate = l.processRemoteAdds(fwdPkg, adds)
+
+		// If the link failed during processing the adds, we must
+		// return to ensure we won't attempted to update the state
+		// further.
+		if l.failed {
+			return false, fmt.Errorf("link failed while " +
+				"processing remote adds")
+		}
 	}
 
 	return needUpdate, nil
@@ -805,9 +817,16 @@ func (l *channelLink) htlcManager() {
 	batchTick := l.cfg.BatchTicker.Start()
 	defer l.cfg.BatchTicker.Stop()
 
-	// TODO(roasbeef): fail chan in case of protocol violation
 out:
 	for {
+
+		// We must always check if we failed at some point processing
+		// the last update before processing the next.
+		if l.failed {
+			l.errorf("link failed, exiting htlcManager")
+			break out
+		}
+
 		select {
 
 		// A new block has arrived, we'll check the network fee to see
@@ -1363,8 +1382,15 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		}
 
 		l.processRemoteSettleFails(fwdPkg, settleFails)
-
 		needUpdate := l.processRemoteAdds(fwdPkg, adds)
+
+		// If the link failed during processing the adds, we must
+		// return to ensure we won't attempted to update the state
+		// further.
+		if l.failed {
+			return
+		}
+
 		if needUpdate {
 			if err := l.updateCommitTx(); err != nil {
 				l.fail(LinkFailureError{code: ErrInternalError},
@@ -2543,7 +2569,19 @@ func (l *channelLink) sendMalformedHTLCError(htlcIndex uint64,
 func (l *channelLink) fail(linkErr LinkFailureError,
 	format string, a ...interface{}) {
 	reason := errors.Errorf(format, a...)
+
+	// Return if we have already notified about a failure.
+	if l.failed {
+		l.warnf("Ignoring link failure (%v), as link already failed",
+			reason)
+		return
+	}
+
 	l.errorf("Failing link: %s", reason)
+
+	// Set failed, such that we won't process any more updates, and notify
+	// the peer about the failure.
+	l.failed = true
 	l.cfg.OnChannelFailure(l.ChanID(), l.ShortChanID(), linkErr)
 }
 

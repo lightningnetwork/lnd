@@ -63,6 +63,8 @@ func shutdown(dir string, d sphinx.ReplayLog) {
 // to delete expired cltv values every time a block is received. Expired cltv
 // values are cltv values that are < current block height.
 func TestDecayedLogGarbageCollector(t *testing.T) {
+	t.Parallel()
+
 	d, notifier, hashedSecret, err := startup(true)
 	if err != nil {
 		t.Fatalf("Unable to start up DecayedLog: %v", err)
@@ -120,6 +122,8 @@ func TestDecayedLogGarbageCollector(t *testing.T) {
 // We test that this causes the <hashedSecret, CLTV> pair to be deleted even
 // on GC restarts.
 func TestDecayedLogPersistentGarbageCollector(t *testing.T) {
+	t.Parallel()
+
 	d, _, hashedSecret, err := startup(true)
 	if err != nil {
 		t.Fatalf("Unable to start up DecayedLog: %v", err)
@@ -166,6 +170,8 @@ func TestDecayedLogPersistentGarbageCollector(t *testing.T) {
 // sharedHashBucket and then deletes it and finally asserts that we can no
 // longer retrieve it.
 func TestDecayedLogInsertionAndDeletion(t *testing.T) {
+	t.Parallel()
+
 	d, _, hashedSecret, err := startup(false)
 	if err != nil {
 		t.Fatalf("Unable to start up DecayedLog: %v", err)
@@ -200,6 +206,8 @@ func TestDecayedLogInsertionAndDeletion(t *testing.T) {
 // cltv value is indeed still stored in the sharedHashBucket. We then delete
 // the cltv value and check that it persists upon startup.
 func TestDecayedLogStartAndStop(t *testing.T) {
+	t.Parallel()
+
 	d, _, hashedSecret, err := startup(false)
 	if err != nil {
 		t.Fatalf("Unable to start up DecayedLog: %v", err)
@@ -262,6 +270,8 @@ func TestDecayedLogStartAndStop(t *testing.T) {
 // via the nested sharedHashBucket and finally asserts that the original stored
 // and retrieved cltv values are equal.
 func TestDecayedLogStorageAndRetrieval(t *testing.T) {
+	t.Parallel()
+
 	d, _, hashedSecret, err := startup(false)
 	if err != nil {
 		t.Fatalf("Unable to start up DecayedLog: %v", err)

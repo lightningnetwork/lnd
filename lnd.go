@@ -38,6 +38,7 @@ import (
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
@@ -522,7 +523,7 @@ func lndMain() error {
 
 	// Next, Start the gRPC server listening for HTTP/2 connections.
 	for _, listener := range cfg.RPCListeners {
-		lis, err := listenOnAddress(listener)
+		lis, err := lncfg.ListenOnAddress(listener)
 		if err != nil {
 			ltndLog.Errorf(
 				"RPC server unable to listen on %s", listener,
@@ -545,7 +546,7 @@ func lndMain() error {
 		return err
 	}
 	for _, restEndpoint := range cfg.RESTListeners {
-		lis, err := tlsListenOnAddress(restEndpoint, tlsConf)
+		lis, err := lncfg.TlsListenOnAddress(restEndpoint, tlsConf)
 		if err != nil {
 			ltndLog.Errorf(
 				"gRPC proxy unable to listen on %s",
@@ -926,7 +927,7 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []net.Addr,
 	for _, grpcEndpoint := range grpcEndpoints {
 		// Start a gRPC server listening for HTTP/2 connections, solely
 		// used for getting the encryption password from the client.
-		lis, err := listenOnAddress(grpcEndpoint)
+		lis, err := lncfg.ListenOnAddress(grpcEndpoint)
 		if err != nil {
 			ltndLog.Errorf(
 				"password RPC server unable to listen on %s",
@@ -964,7 +965,7 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []net.Addr,
 	srv := &http.Server{Handler: mux}
 
 	for _, restEndpoint := range restEndpoints {
-		lis, err := tlsListenOnAddress(restEndpoint, tlsConf)
+		lis, err := lncfg.TlsListenOnAddress(restEndpoint, tlsConf)
 		if err != nil {
 			ltndLog.Errorf(
 				"password gRPC proxy unable to listen on %s",

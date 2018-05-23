@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -396,7 +397,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 
 	// If external IP addresses have been specified, add those to the list
 	// of this server's addresses.
-	externalIPs, err := normalizeAddresses(
+	externalIPs, err := lncfg.NormalizeAddresses(
 		externalIpStrings, strconv.Itoa(defaultPeerPort),
 	)
 	if err != nil {

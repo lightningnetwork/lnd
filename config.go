@@ -18,11 +18,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"crypto/tls"
 
 	flags "github.com/jessevdk/go-flags"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/roasbeef/btcd/btcec"
@@ -89,8 +89,6 @@ var (
 
 	defaultBitcoindDir  = btcutil.AppDataDir("bitcoin", false)
 	defaultLitecoindDir = btcutil.AppDataDir("litecoin", false)
-
-	loopBackAddrs = []string{"localhost", "127.0.0.1", "[::1]"}
 
 	defaultTorSOCKS            = net.JoinHostPort("localhost", strconv.Itoa(defaultTorSOCKSPort))
 	defaultTorDNS              = net.JoinHostPort(defaultTorDNSHost, strconv.Itoa(defaultTorDNSPort))
@@ -431,15 +429,27 @@ func loadConfig() (*config, error) {
 	}
 
 	// Validate the Tor config parameters.
-	cfg.Tor.SOCKS = normalizeAddress(
+	socks, err := lncfg.ParseAddressString(
 		cfg.Tor.SOCKS, strconv.Itoa(defaultTorSOCKSPort),
 	)
-	cfg.Tor.DNS = normalizeAddress(
+	if err != nil {
+		return nil, err
+	}
+	cfg.Tor.SOCKS = socks.String()
+	dns, err := lncfg.ParseAddressString(
 		cfg.Tor.DNS, strconv.Itoa(defaultTorDNSPort),
 	)
-	cfg.Tor.Control = normalizeAddress(
+	if err != nil {
+		return nil, err
+	}
+	cfg.Tor.DNS = dns.String()
+	control, err := lncfg.ParseAddressString(
 		cfg.Tor.Control, strconv.Itoa(defaultTorControlPort),
 	)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Tor.Control = control.String()
 	switch {
 	case cfg.Tor.V2 && cfg.Tor.V3:
 		return nil, errors.New("either tor.v2 or tor.v3 can be set, " +
@@ -783,13 +793,13 @@ func loadConfig() (*config, error) {
 	// For each of the RPC listeners (REST+gRPC), we'll ensure that users
 	// have specified a safe combo for authentication. If not, we'll bail
 	// out with an error.
-	err := enforceSafeAuthentication(
+	err = lncfg.EnforceSafeAuthentication(
 		cfg.RPCListeners, !cfg.NoMacaroons,
 	)
 	if err != nil {
 		return nil, err
 	}
-	err = enforceSafeAuthentication(
+	err = lncfg.EnforceSafeAuthentication(
 		cfg.RESTListeners, !cfg.NoMacaroons,
 	)
 	if err != nil {
@@ -805,7 +815,7 @@ func loadConfig() (*config, error) {
 
 	// Add default port to all RPC listener addresses if needed and remove
 	// duplicate addresses.
-	cfg.RPCListeners, err = normalizeAddresses(
+	cfg.RPCListeners, err = lncfg.NormalizeAddresses(
 		cfg.RawRPCListeners, strconv.Itoa(defaultRPCPort),
 	)
 	if err != nil {
@@ -814,7 +824,7 @@ func loadConfig() (*config, error) {
 
 	// Add default port to all REST listener addresses if needed and remove
 	// duplicate addresses.
-	cfg.RESTListeners, err = normalizeAddresses(
+	cfg.RESTListeners, err = lncfg.NormalizeAddresses(
 		cfg.RawRESTListeners, strconv.Itoa(defaultRESTPort),
 	)
 	if err != nil {
@@ -823,7 +833,7 @@ func loadConfig() (*config, error) {
 
 	// Add default port to all listener addresses if needed and remove
 	// duplicate addresses.
-	cfg.Listeners, err = normalizeAddresses(
+	cfg.Listeners, err = lncfg.NormalizeAddresses(
 		cfg.RawListeners, strconv.Itoa(defaultPeerPort),
 	)
 	if err != nil {
@@ -832,7 +842,7 @@ func loadConfig() (*config, error) {
 
 	// Add default port to all external IP addresses if needed and remove
 	// duplicate addresses.
-	cfg.ExternalIPs, err = normalizeAddresses(
+	cfg.ExternalIPs, err = lncfg.NormalizeAddresses(
 		cfg.RawExternalIPs, strconv.Itoa(defaultPeerPort),
 	)
 	if err != nil {
@@ -843,7 +853,7 @@ func loadConfig() (*config, error) {
 	// Also, we would need to refactor the brontide listener to support
 	// that.
 	for _, p2pListener := range cfg.Listeners {
-		if isUnix(p2pListener) {
+		if lncfg.IsUnix(p2pListener) {
 			err := fmt.Errorf("unix socket addresses cannot be " +
 				"used for the p2p connection listener: %s",
 				p2pListener)
@@ -1239,140 +1249,6 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 
 	return string(userSubmatches[1]), string(passSubmatches[1]),
 		string(zmqPathSubmatches[1]), nil
-}
-
-// normalizeAddresses returns a new slice with all the passed addresses
-// normalized with the given default port and all duplicates removed.
-func normalizeAddresses(addrs []string,
-	defaultPort string) ([]net.Addr, error) {
-	result := make([]net.Addr, 0, len(addrs))
-	seen := map[string]struct{}{}
-	for _, strAddr := range addrs {
-		addr, err := parseAddressString(strAddr, defaultPort)
-		if err != nil {
-			return nil, err
-		}
-
-		if _, ok := seen[addr.String()]; !ok {
-			result = append(result, addr)
-			seen[addr.String()] = struct{}{}
-		}
-	}
-	return result, nil
-}
-
-// enforceSafeAuthentication enforces "safe" authentication taking into account
-// the interfaces that the RPC servers are listening on, and if macaroons are
-// activated or not. To protect users from using dangerous config combinations,
-// we'll prevent disabling authentication if the sever is listening on a public
-// interface.
-func enforceSafeAuthentication(addrs []net.Addr, macaroonsActive bool) error {
-	// We'll now examine all addresses that this RPC server is listening
-	// on. If it's a localhost address, we'll skip it, otherwise, we'll
-	// return an error if macaroons are inactive.
-	for _, addr := range addrs {
-		if isLoopback(addr) || isUnix(addr) {
-			continue
-		}
-
-		if !macaroonsActive {
-			return fmt.Errorf("Detected RPC server listening on "+
-				"publicly reachable interface %v with "+
-				"authentication disabled! Refusing to start "+
-				"with --no-macaroons specified.", addr)
-		}
-	}
-
-	return nil
-}
-
-// listenOnAddress creates a listener that listens on the given
-// address.
-func listenOnAddress(addr net.Addr) (net.Listener, error) {
-	return net.Listen(addr.Network(), addr.String())
-}
-
-// tlsListenOnAddress creates a TLS listener that listens on the given
-// address.
-func tlsListenOnAddress(addr net.Addr,
-	config *tls.Config) (net.Listener, error) {
-	return tls.Listen(addr.Network(), addr.String(), config)
-}
-
-// isLoopback returns true if an address describes a loopback interface.
-func isLoopback(addr net.Addr) bool {
-	for _, loopback := range loopBackAddrs {
-		if strings.Contains(addr.String(), loopback) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// isUnix returns true if an address describes an Unix socket address.
-func isUnix(addr net.Addr) bool {
-	return strings.HasPrefix(addr.Network(), "unix")
-}
-
-// parseAddressString converts an address in string format to a net.Addr that is
-// compatible with lnd. UDP is not supported because lnd needs reliable
-// connections.
-func parseAddressString(strAddress string,
-	defaultPort string) (net.Addr, error) {
-	var parsedNetwork, parsedAddr string
-
-	// Addresses can either be in network://address:port format or only
-	// address:port. We want to support both.
-	if strings.Contains(strAddress, "://") {
-		parts := strings.Split(strAddress, "://")
-		parsedNetwork, parsedAddr = parts[0], parts[1]
-	} else if strings.Contains(strAddress, ":") {
-		parts := strings.Split(strAddress, ":")
-		parsedNetwork = parts[0]
-		parsedAddr = strings.Join(parts[1:], ":")
-	}
-
-	// Only TCP and Unix socket addresses are valid. We can't use IP or
-	// UDP only connections for anything we do in lnd.
-	switch parsedNetwork {
-	case "unix", "unixpacket":
-		return net.ResolveUnixAddr(parsedNetwork, parsedAddr)
-	case "tcp", "tcp4", "tcp6":
-		return net.ResolveTCPAddr(parsedNetwork,
-			verifyPort(parsedAddr, defaultPort))
-	case "ip", "ip4", "ip6", "udp", "udp4", "udp6", "unixgram":
-		return nil, fmt.Errorf("only TCP or unix socket "+
-			"addresses are supported: %s", parsedAddr)
-	default:
-		// There was no network specified, just try to parse as host
-		// and port.
-		return net.ResolveTCPAddr(
-			"tcp", verifyPort(strAddress, defaultPort),
-		)
-	}
-}
-
-// verifyPort makes sure that an address string has both a host and a port.
-// If there is no port found, the default port is appended.
-func verifyPort(strAddress string, defaultPort string) string {
-	host, port, err := net.SplitHostPort(strAddress)
-	if err != nil {
-		// If we already have an IPv6 address with brackets, don't use
-		// the JoinHostPort function, since it will always add a pair
-		// of brackets too.
-		if strings.HasPrefix(strAddress, "[") {
-			strAddress = strAddress + ":" + defaultPort
-		} else {
-			strAddress = net.JoinHostPort(strAddress, defaultPort)
-		}
-	} else if host == "" && port == "" {
-		// The string ':' is parsed as valid empty host and empty port.
-		// But in that case, we want the default port to be applied too.
-		strAddress = ":" + defaultPort
-	}
-
-	return strAddress
 }
 
 // normalizeNetwork returns the common name of a network type used to create

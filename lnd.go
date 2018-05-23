@@ -162,12 +162,6 @@ func lndMain() error {
 		defaultGraphSubDirname,
 		normalizeNetwork(activeNetParams.Name))
 
-	if !fileExists(snapshotGraphDir) {
-		if err := os.MkdirAll(snapshotGraphDir, 0700); err != nil {
-			return err
-		}
-	}
-
 	// Open the channeldb, which is dedicated to storing channel, and
 	// network related metadata.
 	chanDB, err := channeldb.Open(graphDir, snapshotGraphDir)

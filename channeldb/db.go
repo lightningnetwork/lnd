@@ -647,12 +647,25 @@ func getMigrationsToApply(versions []version, version uint32) ([]migration, []ui
 }
 
 func (d *DB) SnapshotChannels() (uint32, error) {
-	path := filepath.Join(d.snapshotPath, dbName)
+	var err error
+	filename := filepath.Join(d.snapshotPath, dbName)
 	unix := uint32(time.Now().Unix())
 
-	err := d.View(func(tx *bolt.Tx) error {
-		return tx.CopyFile(path, os.ModeDevice)
+	// create the directory if not already there
+	if !fileExists(d.snapshotPath) {
+		if err = os.MkdirAll(d.snapshotPath, 0700); err != nil {
+			return unix, err
+		}
+	}
+
+	err = d.View(func(tx *bolt.Tx) error {
+		return tx.CopyFile(filename, os.ModeDevice)
 	})
+
+	// for some reason the file is created with no permissions set
+	if err != nil {
+		err = os.Chmod(filename, 0644)
+	}
 
 	return unix, err
 }

@@ -536,7 +536,6 @@ func updateChanBucket(tx *bolt.Tx, nodeKey *btcec.PublicKey,
 	// level, creating the bucket (if it doesn't exist), for this channel
 	// itself.
 	var chanPointBuf bytes.Buffer
-	chanPointBuf.Grow(outPointSize)
 	if err := writeOutpoint(&chanPointBuf, outPoint); err != nil {
 		return nil, fmt.Errorf("unable to write outpoint: %v", err)
 	}
@@ -582,7 +581,6 @@ func readChanBucket(tx *bolt.Tx, nodeKey *btcec.PublicKey,
 	// With the bucket for the node fetched, we can now go down another
 	// level, for this channel itself.
 	var chanPointBuf bytes.Buffer
-	chanPointBuf.Grow(outPointSize)
 	if err := writeOutpoint(&chanPointBuf, outPoint); err != nil {
 		return nil, err
 	}
@@ -625,7 +623,6 @@ func (c *OpenChannel) fullSync(tx *bolt.Tx) error {
 	// level, creating the bucket (if it doesn't exist), for this channel
 	// itself.
 	var chanPointBuf bytes.Buffer
-	chanPointBuf.Grow(outPointSize)
 	if err := writeOutpoint(&chanPointBuf, &c.FundingOutpoint); err != nil {
 		return err
 	}
@@ -1765,7 +1762,6 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary) error {
 		}
 
 		var chanPointBuf bytes.Buffer
-		chanPointBuf.Grow(outPointSize)
 		err := writeOutpoint(&chanPointBuf, &c.FundingOutpoint)
 		if err != nil {
 			return err

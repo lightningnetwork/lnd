@@ -165,6 +165,8 @@ func (b *breachArbiter) Start() error {
 	// finished our responsibilities. If the removal is successful, we also
 	// remove the entry from our in-memory map, to avoid any further action
 	// for this channel.
+	// TODO(halseth): no need continue on IsPending once closed channels
+	// actually means close transaction is confirmed.
 	for _, chanSummary := range closedChans {
 		if chanSummary.IsPending {
 			continue

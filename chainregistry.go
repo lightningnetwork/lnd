@@ -684,7 +684,7 @@ func (c *chainRegistry) PrimaryChain() chainCode {
 	return c.primaryChain
 }
 
-// ActiveChains returns the total number of active chains.
+// ActiveChains returns a slice containing the active chains.
 func (c *chainRegistry) ActiveChains() []chainCode {
 	c.RLock()
 	defer c.RUnlock()

@@ -392,11 +392,17 @@ func (c *ChainArbitrator) Start() error {
 	}
 
 	// Next, for each channel is the closing state, we'll launch a
-	// corresponding more restricted resolver.
+	// corresponding more restricted resolver, as we don't have to watch
+	// the chain any longer, only resolve the contracts on the confirmed
+	// commitment.
 	for _, closeChanInfo := range closingChannels {
 		// If this is a pending cooperative close channel then we'll
 		// simply launch a goroutine to wait until the closing
 		// transaction has been confirmed.
+		// TODO(halseth): can remove this since no coop close channels
+		// should be "pending close" after the recent changes. Keeping
+		// it for a bit in case someone with a coop close channel in
+		// the pending close state upgrades to the new commit.
 		if closeChanInfo.CloseType == channeldb.CooperativeClose {
 			go c.watchForChannelClose(closeChanInfo)
 

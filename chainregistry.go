@@ -26,7 +26,6 @@ import (
 	"github.com/lightningnetwork/lnd/routing/chainview"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/rpcclient"
-	"github.com/roasbeef/btcutil"
 	"github.com/roasbeef/btcwallet/chain"
 	"github.com/roasbeef/btcwallet/walletdb"
 )
@@ -37,13 +36,6 @@ const (
 	defaultBitcoinFeeRate       = lnwire.MilliSatoshi(1)
 	defaultBitcoinTimeLockDelta = 144
 	defaultBitcoinStaticFeeRate = lnwallet.SatPerVByte(50)
-
-	defaultLitecoinMinHTLCMSat   = lnwire.MilliSatoshi(1000)
-	defaultLitecoinBaseFeeMSat   = lnwire.MilliSatoshi(1000)
-	defaultLitecoinFeeRate       = lnwire.MilliSatoshi(1)
-	defaultLitecoinTimeLockDelta = 576
-	defaultLitecoinStaticFeeRate = lnwallet.SatPerVByte(200)
-	defaultLitecoinDustLimit     = btcutil.Amount(54600)
 )
 
 // defaultBtcChannelConstraints is the default set of channel constraints that are
@@ -52,13 +44,6 @@ const (
 // TODO(halseth): make configurable at startup?
 var defaultBtcChannelConstraints = channeldb.ChannelConstraints{
 	DustLimit:        lnwallet.DefaultDustLimit(),
-	MaxAcceptedHtlcs: lnwallet.MaxHTLCNumber / 2,
-}
-
-// defaultLtcChannelConstraints is the default set of channel constraints that are
-// meant to be used when initially funding a Litecoin channel.
-var defaultLtcChannelConstraints = channeldb.ChannelConstraints{
-	DustLimit:        defaultLitecoinDustLimit,
 	MaxAcceptedHtlcs: lnwallet.MaxHTLCNumber / 2,
 }
 
@@ -107,49 +92,27 @@ type chainControl struct {
 	routingPolicy htlcswitch.ForwardingPolicy
 }
 
-// newChainControlFromConfig attempts to create a chainControl instance
-// according to the parameters in the passed lnd configuration. Currently two
-// branches of chainControl instances exist: one backed by a running btcd
-// full-node, and the other backed by a running neutrino light client instance.
-func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
+func newBitcoinChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 	privateWalletPw, publicWalletPw []byte, birthday time.Time,
 	recoveryWindow uint32) (*chainControl, func(), error) {
 
 	// Set the RPC config from the "home" chain. Multi-chain isn't yet
 	// active, so we'll restrict usage to a particular chain for now.
 	homeChainConfig := cfg.Bitcoin
-	if registeredChains.PrimaryChain() == litecoinChain {
-		homeChainConfig = cfg.Litecoin
-	}
+
 	ltndLog.Infof("Primary chain is set to: %v",
 		registeredChains.PrimaryChain())
 
 	cc := &chainControl{}
 
-	switch registeredChains.PrimaryChain() {
-	case bitcoinChain:
-		cc.routingPolicy = htlcswitch.ForwardingPolicy{
-			MinHTLC:       cfg.Bitcoin.MinHTLC,
-			BaseFee:       cfg.Bitcoin.BaseFee,
-			FeeRate:       cfg.Bitcoin.FeeRate,
-			TimeLockDelta: cfg.Bitcoin.TimeLockDelta,
-		}
-		cc.feeEstimator = lnwallet.StaticFeeEstimator{
-			FeeRate: defaultBitcoinStaticFeeRate,
-		}
-	case litecoinChain:
-		cc.routingPolicy = htlcswitch.ForwardingPolicy{
-			MinHTLC:       cfg.Litecoin.MinHTLC,
-			BaseFee:       cfg.Litecoin.BaseFee,
-			FeeRate:       cfg.Litecoin.FeeRate,
-			TimeLockDelta: cfg.Litecoin.TimeLockDelta,
-		}
-		cc.feeEstimator = lnwallet.StaticFeeEstimator{
-			FeeRate: defaultLitecoinStaticFeeRate,
-		}
-	default:
-		return nil, nil, fmt.Errorf("Default routing policy for "+
-			"chain %v is unknown", registeredChains.PrimaryChain())
+	cc.routingPolicy = htlcswitch.ForwardingPolicy{
+		MinHTLC:       cfg.Bitcoin.MinHTLC,
+		BaseFee:       cfg.Bitcoin.BaseFee,
+		FeeRate:       cfg.Bitcoin.FeeRate,
+		TimeLockDelta: cfg.Bitcoin.TimeLockDelta,
+	}
+	cc.feeEstimator = lnwallet.StaticFeeEstimator{
+		FeeRate: defaultBitcoinStaticFeeRate,
 	}
 
 	walletConfig := &btcwallet.Config{
@@ -253,20 +216,16 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			svc.Stop()
 			nodeDatabase.Close()
 		}
-	case "bitcoind", "litecoind":
-		var bitcoindMode *bitcoindConfig
-		switch {
-		case cfg.Bitcoin.Active:
-			bitcoindMode = cfg.BitcoindMode
-		case cfg.Litecoin.Active:
-			bitcoindMode = cfg.LitecoindMode
-		}
+	case "bitcoind":
+		bitcoindMode := cfg.BitcoindMode
+
 		// Otherwise, we'll be speaking directly via RPC and ZMQ to a
-		// bitcoind node. If the specified host for the btcd/ltcd RPC
+		// bitcoind node. If the specified host for the btcd RPC
 		// server already has a port specified, then we use that
 		// directly. Otherwise, we assume the default port according to
 		// the selected chain parameters.
 		var bitcoindHost string
+
 		if strings.Contains(bitcoindMode.RPCHost, ":") {
 			bitcoindHost = bitcoindMode.RPCHost
 		} else {
@@ -296,6 +255,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 
 		bitcoindUser := bitcoindMode.RPCUser
 		bitcoindPass := bitcoindMode.RPCPass
+
 		rpcConfig := &rpcclient.ConnConfig{
 			Host:                 bitcoindHost,
 			User:                 bitcoindUser,
@@ -335,55 +295,32 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 
 		// If we're not in regtest mode, then we'll attempt to use a
 		// proper fee estimator for testnet.
-		if cfg.Bitcoin.Active && !cfg.Bitcoin.RegTest {
-			ltndLog.Infof("Initializing bitcoind backed fee estimator")
+		ltndLog.Infof("Initializing bitcoind backed fee estimator")
 
-			// Finally, we'll re-initialize the fee estimator, as
-			// if we're using bitcoind as a backend, then we can
-			// use live fee estimates, rather than a statically
-			// coded value.
-			fallBackFeeRate := lnwallet.SatPerVByte(25)
-			cc.feeEstimator, err = lnwallet.NewBitcoindFeeEstimator(
-				*rpcConfig, fallBackFeeRate,
-			)
-			if err != nil {
-				return nil, nil, err
-			}
-			if err := cc.feeEstimator.Start(); err != nil {
-				return nil, nil, err
-			}
-		} else if cfg.Litecoin.Active {
-			ltndLog.Infof("Initializing litecoind backed fee estimator")
-
-			// Finally, we'll re-initialize the fee estimator, as
-			// if we're using litecoind as a backend, then we can
-			// use live fee estimates, rather than a statically
-			// coded value.
-			fallBackFeeRate := lnwallet.SatPerVByte(25)
-			cc.feeEstimator, err = lnwallet.NewBitcoindFeeEstimator(
-				*rpcConfig, fallBackFeeRate,
-			)
-			if err != nil {
-				return nil, nil, err
-			}
-			if err := cc.feeEstimator.Start(); err != nil {
-				return nil, nil, err
-			}
+		// Finally, we'll re-initialize the fee estimator, as
+		// if we're using bitcoind as a backend, then we can
+		// use live fee estimates, rather than a statically
+		// coded value.
+		fallBackFeeRate := lnwallet.SatPerVByte(25)
+		cc.feeEstimator, err = lnwallet.NewBitcoindFeeEstimator(
+			*rpcConfig, fallBackFeeRate,
+		)
+		if err != nil {
+			return nil, nil, err
 		}
-	case "btcd", "ltcd":
+		if err := cc.feeEstimator.Start(); err != nil {
+			return nil, nil, err
+		}
+
+	case "btcd":
 		// Otherwise, we'll be speaking directly via RPC to a node.
 		//
-		// So first we'll load btcd/ltcd's TLS cert for the RPC
+		// So first we'll load btcd's TLS cert for the RPC
 		// connection. If a raw cert was specified in the config, then
 		// we'll set that directly. Otherwise, we attempt to read the
 		// cert from the path specified in the config.
-		var btcdMode *btcdConfig
-		switch {
-		case cfg.Bitcoin.Active:
-			btcdMode = cfg.BtcdMode
-		case cfg.Litecoin.Active:
-			btcdMode = cfg.LtcdMode
-		}
+		btcdMode := cfg.BtcdMode
+
 		var rpcCert []byte
 		if btcdMode.RawRPCCert != "" {
 			rpcCert, err = hex.DecodeString(btcdMode.RawRPCCert)
@@ -404,7 +341,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			}
 		}
 
-		// If the specified host for the btcd/ltcd RPC server already
+		// If the specified host for the btcd RPC server already
 		// has a port specified, then we use that directly. Otherwise,
 		// we assume the default port according to the selected chain
 		// parameters.
@@ -453,9 +390,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 
 		// If we're not in simnet or regtest mode, then we'll attempt
 		// to use a proper fee estimator for testnet.
-		if !cfg.Bitcoin.SimNet && !cfg.Litecoin.SimNet &&
-			!cfg.Bitcoin.RegTest && !cfg.Litecoin.RegTest {
-
+		if !cfg.Bitcoin.SimNet && !cfg.Bitcoin.RegTest {
 			ltndLog.Infof("Initializing btcd backed fee estimator")
 
 			// Finally, we'll re-initialize the fee estimator, as
@@ -473,9 +408,6 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 				return nil, nil, err
 			}
 		}
-	default:
-		return nil, nil, fmt.Errorf("unknown node type: %s",
-			homeChainConfig.Node)
 	}
 
 	wc, err := btcwallet.New(*walletConfig)
@@ -490,9 +422,6 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 
 	// Select the default channel constraints for the primary chain.
 	channelConstraints := defaultBtcChannelConstraints
-	if registeredChains.PrimaryChain() == litecoinChain {
-		channelConstraints = defaultLtcChannelConstraints
-	}
 
 	keyRing := keychain.NewBtcWalletKeyRing(
 		wc.InternalWallet(), activeNetParams.CoinType,
@@ -528,6 +457,36 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 	return cc, cleanUp, nil
 }
 
+// newChainControlFromConfig attempts to create a chainControl instance
+// according to the parameters in the passed lnd configuration. Currently two
+// branches of chainControl instances exist: one backed by a running btcd
+// full-node, and the other backed by a running neutrino light client instance.
+func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
+	privateWalletPw, publicWalletPw []byte, birthday time.Time,
+	recoveryWindow uint32) (*chainControl, func(), error) {
+
+	if registeredChains.PrimaryChain() == bitcoinChain {
+		return newBitcoinChainControlFromConfig(cfg, chanDB, privateWalletPw,
+			publicWalletPw, birthday, recoveryWindow)
+	}
+
+	err := fmt.Errorf("Default routing policy for "+
+		"chain %v is unknown", registeredChains.PrimaryChain())
+
+	if registeredCoins.Any() {
+		cc, cleanup, err := registeredCoins.ChainControlFromConfig(cfg, chanDB,
+			privateWalletPw, publicWalletPw, birthday, recoveryWindow)
+		if cc == nil {
+			return nil, nil, err
+		}
+
+		// XXX(maurycy): just return, we do not support many coins atm
+		return cc, cleanup, err
+	}
+
+	return nil, nil, err
+}
+
 var (
 	// bitcoinTestnetGenesis is the genesis hash of Bitcoin's testnet
 	// chain.
@@ -545,32 +504,14 @@ var (
 		0x93, 0x1e, 0x83, 0x65, 0xe1, 0x5a, 0x08, 0x9c,
 		0x68, 0xd6, 0x19, 0x00, 0x00, 0x00, 0x00, 0x00,
 	})
+)
 
-	// litecoinTestnetGenesis is the genesis hash of Litecoin's testnet4
-	// chain.
-	litecoinTestnetGenesis = chainhash.Hash([chainhash.HashSize]byte{
-		0xa0, 0x29, 0x3e, 0x4e, 0xeb, 0x3d, 0xa6, 0xe6,
-		0xf5, 0x6f, 0x81, 0xed, 0x59, 0x5f, 0x57, 0x88,
-		0x0d, 0x1a, 0x21, 0x56, 0x9e, 0x13, 0xee, 0xfd,
-		0xd9, 0x51, 0x28, 0x4b, 0x5a, 0x62, 0x66, 0x49,
-	})
-
-	// litecoinMainnetGenesis is the genesis hash of Litecoin's main chain.
-	litecoinMainnetGenesis = chainhash.Hash([chainhash.HashSize]byte{
-		0xe2, 0xbf, 0x04, 0x7e, 0x7e, 0x5a, 0x19, 0x1a,
-		0xa4, 0xef, 0x34, 0xd3, 0x14, 0x97, 0x9d, 0xc9,
-		0x98, 0x6e, 0x0f, 0x19, 0x25, 0x1e, 0xda, 0xba,
-		0x59, 0x40, 0xfd, 0x1f, 0xe3, 0x65, 0xa7, 0x12,
-	})
-
+var (
 	// chainMap is a simple index that maps a chain's genesis hash to the
 	// chainCode enum for that chain.
 	chainMap = map[chainhash.Hash]chainCode{
-		bitcoinTestnetGenesis:  bitcoinChain,
-		litecoinTestnetGenesis: litecoinChain,
-
-		bitcoinMainnetGenesis:  bitcoinChain,
-		litecoinMainnetGenesis: litecoinChain,
+		bitcoinTestnetGenesis: bitcoinChain,
+		bitcoinMainnetGenesis: bitcoinChain,
 	}
 
 	// chainDNSSeeds is a map of a chain's hash to the set of DNS seeds
@@ -596,13 +537,6 @@ var (
 		bitcoinTestnetGenesis: {
 			{
 				"test.nodes.lightning.directory",
-				"soa.nodes.lightning.directory",
-			},
-		},
-
-		litecoinMainnetGenesis: {
-			{
-				"ltc.nodes.lightning.directory",
 				"soa.nodes.lightning.directory",
 			},
 		},

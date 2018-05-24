@@ -72,15 +72,13 @@ var (
 	defaultAdminMacPath   = filepath.Join(defaultLndDir, defaultAdminMacFilename)
 	defaultReadMacPath    = filepath.Join(defaultLndDir, defaultReadMacFilename)
 	defaultInvoiceMacPath = filepath.Join(defaultLndDir, defaultInvoiceMacFilename)
+)
 
+var (
 	defaultBtcdDir         = btcutil.AppDataDir("btcd", false)
 	defaultBtcdRPCCertFile = filepath.Join(defaultBtcdDir, "rpc.cert")
 
-	defaultLtcdDir         = btcutil.AppDataDir("ltcd", false)
-	defaultLtcdRPCCertFile = filepath.Join(defaultLtcdDir, "rpc.cert")
-
 	defaultBitcoindDir  = btcutil.AppDataDir("bitcoin", false)
-	defaultLitecoindDir = btcutil.AppDataDir("litecoin", false)
 )
 
 type chainConfig struct {
@@ -117,14 +115,24 @@ type btcdConfig struct {
 	RPCPass    string `long:"rpcpass" default-mask:"-" description:"Password for RPC connections"`
 	RPCCert    string `long:"rpccert" description:"File containing the daemon's certificate file"`
 	RawRPCCert string `long:"rawrpccert" description:"The raw bytes of the daemon's PEM-encoded certificate chain which will be used to authenticate the RPC connection."`
+	DaemonName string `long:"daemonname" description:"The daemon's name"`
+	File       string `long:"file" description:"The file"`
 }
 
 type bitcoindConfig struct {
-	Dir     string `long:"dir" description:"The base directory that contains the node's data, logs, configuration file, etc."`
-	RPCHost string `long:"rpchost" description:"The daemon's rpc listening address. If a port is omitted, then the default port for the selected chain parameters will be used."`
-	RPCUser string `long:"rpcuser" description:"Username for RPC connections"`
-	RPCPass string `long:"rpcpass" default-mask:"-" description:"Password for RPC connections"`
-	ZMQPath string `long:"zmqpath" description:"The path to the ZMQ socket providing at least raw blocks. Raw transactions can be handled as well."`
+	Dir        string `long:"dir" description:"The base directory that contains the node's data, logs, configuration file, etc."`
+	RPCHost    string `long:"rpchost" description:"The daemon's rpc listening address. If a port is omitted, then the default port for the selected chain parameters will be used."`
+	RPCUser    string `long:"rpcuser" description:"Username for RPC connections"`
+	RPCPass    string `long:"rpcpass" default-mask:"-" description:"Password for RPC connections"`
+	ZMQPath    string `long:"zmqpath" description:"The path to the ZMQ socket providing at least raw blocks. Raw transactions can be handled as well."`
+	DaemonName string `long:"daemonname" description:"The daemon's name"`
+	File       string `long:"file" description:"The file"`
+}
+
+type nodeConfig struct {
+	Dir        string
+	DaemonName string
+	File       string
 }
 
 type autoPilotConfig struct {
@@ -237,29 +245,17 @@ func loadConfig() (*config, error) {
 			Node:          "btcd",
 		},
 		BtcdMode: &btcdConfig{
-			Dir:     defaultBtcdDir,
-			RPCHost: defaultRPCHost,
-			RPCCert: defaultBtcdRPCCertFile,
+			Dir:        defaultBtcdDir,
+			RPCHost:    defaultRPCHost,
+			RPCCert:    defaultBtcdRPCCertFile,
+			DaemonName: "btcd",
+			File:       "btcd",
 		},
 		BitcoindMode: &bitcoindConfig{
-			Dir:     defaultBitcoindDir,
-			RPCHost: defaultRPCHost,
-		},
-		Litecoin: &chainConfig{
-			MinHTLC:       defaultLitecoinMinHTLCMSat,
-			BaseFee:       defaultLitecoinBaseFeeMSat,
-			FeeRate:       defaultLitecoinFeeRate,
-			TimeLockDelta: defaultLitecoinTimeLockDelta,
-			Node:          "ltcd",
-		},
-		LtcdMode: &btcdConfig{
-			Dir:     defaultLtcdDir,
-			RPCHost: defaultRPCHost,
-			RPCCert: defaultLtcdRPCCertFile,
-		},
-		LitecoindMode: &bitcoindConfig{
-			Dir:     defaultLitecoindDir,
-			RPCHost: defaultRPCHost,
+			Dir:        defaultBitcoindDir,
+			RPCHost:    defaultRPCHost,
+			DaemonName: "bitcoind",
+			File:       "bitcoin",
 		},
 		MaxPendingChannels: defaultMaxPendingChannels,
 		NoEncryptWallet:    defaultNoEncryptWallet,
@@ -273,6 +269,11 @@ func loadConfig() (*config, error) {
 		Alias:        defaultAlias,
 		Color:        defaultColor,
 		MinChanSize:  int64(minChanFundingSize),
+	}
+
+	// Embedd other coin defaults into the default config.
+	if err := registeredCoins.DefaultConfig(&defaultCfg); err != nil {
+		return nil, err
 	}
 
 	// Pre-parse the command line options to pick up an alternative config
@@ -437,102 +438,21 @@ func loadConfig() (*config, error) {
 
 	switch {
 	// At this moment, multiple active chains are not supported.
-	case cfg.Litecoin.Active && cfg.Bitcoin.Active:
-		str := "%s: Currently both Bitcoin and Litecoin cannot be " +
-			"active together"
+	case cfg.Bitcoin.Active && registeredCoins.Any():
+		str := "%s: Currently more than one coin cannot be active together"
 		return nil, fmt.Errorf(str, funcName)
 
 	// Either Bitcoin must be active, or Litecoin must be active.
 	// Otherwise, we don't know which chain we're on.
-	case !cfg.Bitcoin.Active && !cfg.Litecoin.Active:
-		return nil, fmt.Errorf("%s: either bitcoin.active or "+
-			"litecoin.active must be set to 1 (true)", funcName)
+	case !cfg.Bitcoin.Active && registeredCoins.None():
+		return nil, fmt.Errorf("%s: either bitcoin or "+
+			"other coin must be set active to 1 (true)", funcName)
 
 	case cfg.Litecoin.Active:
-		if cfg.Litecoin.SimNet {
-			str := "%s: simnet mode for litecoin not currently supported"
-			return nil, fmt.Errorf(str, funcName)
-		}
-		if cfg.Litecoin.RegTest {
-			str := "%s: regnet mode for litecoin not currently supported"
-			return nil, fmt.Errorf(str, funcName)
-		}
 
-		if cfg.Litecoin.TimeLockDelta < minTimeLockDelta {
-			return nil, fmt.Errorf("timelockdelta must be at least %v",
-				minTimeLockDelta)
+		if control, ok := registeredCoins.LookupCoin(litecoinChain); ok {
+			control.RegisterChain(&cfg, funcName)
 		}
-
-		// Multiple networks can't be selected simultaneously.  Count
-		// number of network flags passed; assign active network params
-		// while we're at it.
-		numNets := 0
-		var ltcParams litecoinNetParams
-		if cfg.Litecoin.MainNet {
-			numNets++
-			ltcParams = litecoinMainNetParams
-		}
-		if cfg.Litecoin.TestNet3 {
-			numNets++
-			ltcParams = litecoinTestNetParams
-		}
-		if numNets > 1 {
-			str := "%s: The mainnet, testnet, and simnet params " +
-				"can't be used together -- choose one of the " +
-				"three"
-			err := fmt.Errorf(str, funcName)
-			return nil, err
-		}
-
-		// The target network must be provided, otherwise, we won't
-		// know how to initialize the daemon.
-		if numNets == 0 {
-			str := "%s: either --litecoin.mainnet, or " +
-				"litecoin.testnet must be specified"
-			err := fmt.Errorf(str, funcName)
-			return nil, err
-		}
-
-		// The litecoin chain is the current active chain. However
-		// throughout the codebase we required chaincfg.Params. So as a
-		// temporary hack, we'll mutate the default net params for
-		// bitcoin with the litecoin specific information.
-		applyLitecoinParams(&activeNetParams, &ltcParams)
-
-		switch cfg.Litecoin.Node {
-		case "ltcd":
-			err := parseRPCParams(cfg.Litecoin, cfg.LtcdMode,
-				litecoinChain, funcName)
-			if err != nil {
-				err := fmt.Errorf("unable to load RPC "+
-					"credentials for ltcd: %v", err)
-				return nil, err
-			}
-		case "litecoind":
-			if cfg.Litecoin.SimNet {
-				return nil, fmt.Errorf("%s: litecoind does not "+
-					"support simnet", funcName)
-			}
-			err := parseRPCParams(cfg.Litecoin, cfg.LitecoindMode,
-				litecoinChain, funcName)
-			if err != nil {
-				err := fmt.Errorf("unable to load RPC "+
-					"credentials for litecoind: %v", err)
-				return nil, err
-			}
-		default:
-			str := "%s: only ltcd and litecoind mode supported for " +
-				"litecoin at this time"
-			return nil, fmt.Errorf(str, funcName)
-		}
-
-		cfg.Litecoin.ChainDir = filepath.Join(cfg.DataDir,
-			defaultChainSubDirname,
-			litecoinChain.String())
-
-		// Finally we'll register the litecoin chain as our current
-		// primary chain.
-		registeredChains.RegisterPrimaryChain(litecoinChain)
 
 	case cfg.Bitcoin.Active:
 		// Multiple networks can't be selected simultaneously.  Count
@@ -858,14 +778,14 @@ func noiseDial(idPriv *btcec.PrivateKey) func(net.Addr) (net.Conn, error) {
 	}
 }
 
-func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
+func parseRPCParams(cConfig *chainConfig, nConfig interface{}, net chainCode,
 	funcName string) error {
 
 	// First, we'll check our node config to make sure the RPC parameters
 	// were set correctly. We'll also determine the path to the conf file
 	// depending on the backend node.
-	var daemonName, confDir, confFile string
-	switch conf := nodeConfig.(type) {
+
+	switch conf := nConfig.(type) {
 	case *btcdConfig:
 		// If both RPCUser and RPCPass are set, we assume those
 		// credentials are good to use.
@@ -873,29 +793,13 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 			return nil
 		}
 
-		// Get the daemon name for displaying proper errors.
-		switch net {
-		case bitcoinChain:
-			daemonName = "btcd"
-		case litecoinChain:
-			daemonName = "ltcd"
-		}
-
 		// If only ONE of RPCUser or RPCPass is set, we assume the
 		// user did that unintentionally.
 		if conf.RPCUser != "" || conf.RPCPass != "" {
 			return fmt.Errorf("please set both or neither of "+
-				"%[1]v.rpcuser, %[1]v.rpcpass", daemonName)
+				"%[1]v.rpcuser, %[1]v.rpcpass", conf.DaemonName)
 		}
 
-		switch net {
-		case bitcoinChain:
-			confDir = conf.Dir
-			confFile = "btcd"
-		case litecoinChain:
-			confDir = conf.Dir
-			confFile = "ltcd"
-		}
 	case *bitcoindConfig:
 		// If all of RPCUser, RPCPass, and ZMQPath are set, we assume
 		// those parameters are good to use.
@@ -903,30 +807,16 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 			return nil
 		}
 
-		// Get the daemon name for displaying proper errors.
-		switch net {
-		case bitcoinChain:
-			daemonName = "bitcoind"
-		case litecoinChain:
-			daemonName = "litecoind"
-		}
 		// If only one or two of the parameters are set, we assume the
 		// user did that unintentionally.
 		if conf.RPCUser != "" || conf.RPCPass != "" || conf.ZMQPath != "" {
 			return fmt.Errorf("please set all or none of "+
 				"%[1]v.rpcuser, %[1]v.rpcpass, "+
-				"and %[1]v.zmqpath", daemonName)
-		}
-
-		switch net {
-		case bitcoinChain:
-			confDir = conf.Dir
-			confFile = "bitcoin"
-		case litecoinChain:
-			confDir = conf.Dir
-			confFile = "litecoin"
+				"and %[1]v.zmqpath", conf.DaemonName)
 		}
 	}
+
+	conf := nConfig.(nodeConfig)
 
 	// If we're in simnet mode, then the running btcd instance won't read
 	// the RPC credentials from the configuration. So if lnd wasn't
@@ -937,12 +827,12 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 		return fmt.Errorf(str, funcName)
 	}
 
-	fmt.Println("Attempting automatic RPC configuration to " + daemonName)
+	fmt.Println("Attempting automatic RPC configuration to " + conf.DaemonName)
 
-	confFile = filepath.Join(confDir, fmt.Sprintf("%v.conf", confFile))
-	switch cConfig.Node {
-	case "btcd", "ltcd":
-		nConf := nodeConfig.(*btcdConfig)
+	confFile := filepath.Join(conf.Dir, fmt.Sprintf("%v.conf", conf.File))
+	switch nConfig.(type) {
+	case *btcdConfig:
+		nConf := nConfig.(*btcdConfig)
 		rpcUser, rpcPass, err := extractBtcdRPCParams(confFile)
 		if err != nil {
 			return fmt.Errorf("unable to extract RPC credentials:"+
@@ -950,8 +840,8 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 				err)
 		}
 		nConf.RPCUser, nConf.RPCPass = rpcUser, rpcPass
-	case "bitcoind", "litecoind":
-		nConf := nodeConfig.(*bitcoindConfig)
+	case *bitcoindConfig:
+		nConf := nConfig.(*bitcoindConfig)
 		rpcUser, rpcPass, zmqPath, err := extractBitcoindRPCParams(confFile)
 		if err != nil {
 			return fmt.Errorf("unable to extract RPC credentials:"+
@@ -961,7 +851,7 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 		nConf.RPCUser, nConf.RPCPass, nConf.ZMQPath = rpcUser, rpcPass, zmqPath
 	}
 
-	fmt.Printf("Automatically obtained %v's RPC credentials\n", daemonName)
+	fmt.Printf("Automatically obtained %v's RPC credentials\n", conf.DaemonName)
 	return nil
 }
 
@@ -1170,4 +1060,61 @@ func normalizeNetwork(network string) string {
 	}
 
 	return network
+}
+
+func (cfg *config) IsMainNet() bool {
+
+	return cfg.Bitcoin.MainNet || cfg.Litecoin.MainNet
+}
+
+func (cfg *config) IsTestNet() bool {
+
+	return cfg.Bitcoin.MainNet || cfg.Litecoin.MainNet
+}
+
+func (cfg *config) IsSimNet() bool {
+
+	return (cfg.Bitcoin.SimNet || cfg.Litecoin.SimNet)
+}
+
+func (cfg *config) IsRegTest() bool {
+
+	return (cfg.Bitcoin.RegTest || cfg.Litecoin.RegTest)
+}
+
+func (cfg *config) PrimaryChain() *chainConfig {
+
+	if registeredChains.PrimaryChain() == litecoinChain {
+		return cfg.Litecoin
+	} else {
+		return cfg.Bitcoin
+	}
+}
+
+func (cfg *config) TimeLockDelta() uint32 {
+
+	// TODO(roasbeef): assumes set delta between versions
+
+	if registeredChains.PrimaryChain() == litecoinChain {
+		return cfg.Litecoin.TimeLockDelta
+	} else {
+		return cfg.Bitcoin.TimeLockDelta
+	}
+}
+
+func (cfg *config) MinRemoteDelay() uint16 {
+
+	if registeredChains.PrimaryChain() == litecoinChain {
+		return minLtcRemoteDelay
+	} else {
+		return minBtcRemoteDelay
+	}
+}
+
+func (cfg *config) MaxRemoteDelay() uint16 {
+	if registeredChains.PrimaryChain() == litecoinChain {
+		return minLtcRemoteDelay
+	} else {
+		return minBtcRemoteDelay
+	}
 }

@@ -53,6 +53,7 @@ const (
 	// Litecoin CSV delay we will require the remote to use for its
 	// commitment transaction. The actual delay we will require will be
 	// somewhere between these values, depending on channel size.
+	// TODO(maurycy): _ltc.go
 	minLtcRemoteDelay uint16 = 576
 	maxLtcRemoteDelay uint16 = 8064
 

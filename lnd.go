@@ -63,6 +63,7 @@ var (
 	cfg              *config
 	shutdownChannel  = make(chan struct{})
 	registeredChains = newChainRegistry()
+	registeredCoins  = newCoinRegistry()
 
 	macaroonDatabaseDir string
 
@@ -111,16 +112,16 @@ func lndMain() error {
 
 	var network string
 	switch {
-	case cfg.Bitcoin.TestNet3 || cfg.Litecoin.TestNet3:
+	case cfg.IsTestNet():
 		network = "testnet"
 
-	case cfg.Bitcoin.MainNet || cfg.Litecoin.MainNet:
+	case cfg.IsMainNet():
 		network = "mainnet"
 
 	case cfg.Bitcoin.SimNet:
 		network = "simnet"
 
-	case cfg.Bitcoin.RegTest:
+	case cfg.IsRegTest():
 		network = "regtest"
 	}
 
@@ -285,16 +286,11 @@ func lndMain() error {
 	primaryChain := registeredChains.PrimaryChain()
 	registeredChains.RegisterChain(primaryChain, activeChainControl)
 
-	// Select the configuration and furnding parameters for Bitcoin or
-	// Litecoin, depending on the primary registered chain.
-	chainCfg := cfg.Bitcoin
-	minRemoteDelay := minBtcRemoteDelay
-	maxRemoteDelay := maxBtcRemoteDelay
-	if primaryChain == litecoinChain {
-		chainCfg = cfg.Litecoin
-		minRemoteDelay = minLtcRemoteDelay
-		maxRemoteDelay = maxLtcRemoteDelay
-	}
+	// Select the configuration and funding parameters, depending on the
+	// primary registered chain.
+	chainCfg := cfg.PrimaryChain()
+	minRemoteDelay := cfg.MinRemoteDelay()
+	maxRemoteDelay := cfg.MaxRemoteDelay()
 
 	// TODO(roasbeef): add rotation
 	idPrivKey, err := activeChainControl.wallet.DerivePrivKey(keychain.KeyDescriptor{
@@ -561,7 +557,7 @@ func lndMain() error {
 	// continue the start up of the remainder of the daemon. This ensures
 	// that we don't accept any possibly invalid state transitions, or
 	// accept channels with spent funds.
-	if !(cfg.Bitcoin.SimNet || cfg.Litecoin.SimNet) {
+	if !cfg.IsSimNet() {
 		_, bestHeight, err := activeChainControl.chainIO.GetBestBlock()
 		if err != nil {
 			return err
@@ -890,10 +886,8 @@ func waitForWalletPassword(
 	// for passwords provided over RPC.
 	grpcServer := grpc.NewServer(serverOpts...)
 
-	chainConfig := cfg.Bitcoin
-	if registeredChains.PrimaryChain() == litecoinChain {
-		chainConfig = cfg.Litecoin
-	}
+	chainConfig := cfg.PrimaryChain()
+
 	pwService := walletunlocker.New(macaroonService,
 		chainConfig.ChainDir, activeNetParams.Params)
 	lnrpc.RegisterWalletUnlockerServer(grpcServer, pwService)

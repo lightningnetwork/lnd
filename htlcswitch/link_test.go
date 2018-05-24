@@ -1396,6 +1396,8 @@ type mockPeer struct {
 	quit         chan struct{}
 }
 
+var _ Peer = (*mockPeer)(nil)
+
 func (m *mockPeer) SendMessage(msg lnwire.Message, sync bool) error {
 	if m.disconnected {
 		return fmt.Errorf("disconnected")
@@ -1412,8 +1414,6 @@ func (m *mockPeer) WipeChannel(*wire.OutPoint) error {
 }
 func (m *mockPeer) PubKey() [33]byte {
 	return [33]byte{}
-}
-func (m *mockPeer) Disconnect(reason error) {
 }
 
 var _ Peer = (*mockPeer)(nil)

@@ -5513,15 +5513,17 @@ func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) 
 // announced to the network and reported in the network graph.
 func testNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
+	aliceUpdates, quit := subscribeGraphNotifications(t, ctxb, net.Alice)
+	defer close(quit)
 
-	ipAddresses := map[string]bool{
-		"192.168.1.1:8333":                            true,
-		"[2001:db8:85a3:8d3:1319:8a2e:370:7348]:8337": true,
+	advertisedAddrs := []string{
+		"192.168.1.1:8333",
+		"[2001:db8:85a3:8d3:1319:8a2e:370:7348]:8337",
 	}
 
 	var lndArgs []string
-	for address := range ipAddresses {
-		lndArgs = append(lndArgs, "--externalip="+address)
+	for _, addr := range advertisedAddrs {
+		lndArgs = append(lndArgs, "--externalip="+addr)
 	}
 
 	dave, err := net.NewNode("Dave", lndArgs)
@@ -5541,42 +5543,48 @@ func testNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 		ctxt, t, net, net.Bob, dave, 1000000, 0, false,
 	)
 
-	// When Alice now connects with Dave, Alice will get his node announcement.
+	// When Alice now connects with Dave, Alice will get his node
+	// announcement.
 	if err := net.ConnectNodes(ctxb, net.Alice, dave); err != nil {
 		t.Fatalf("unable to connect bob to carol: %v", err)
 	}
 
-	time.Sleep(time.Second * 1)
-	req := &lnrpc.ChannelGraphRequest{}
-	chanGraph, err := net.Alice.DescribeGraph(ctxb, req)
-	if err != nil {
-		t.Fatalf("unable to query for alice's routing table: %v", err)
-	}
+	assertAddrs := func(addrsFound []string, targetAddrs ...string) {
+		addrs := make(map[string]struct{}, len(addrsFound))
+		for _, addr := range addrsFound {
+			addrs[addr] = struct{}{}
+		}
 
-	for _, node := range chanGraph.Nodes {
-		if node.PubKey == dave.PubKeyStr {
-			for _, address := range node.Addresses {
-				addrStr := address.String()
-
-				// parse the IP address from the string
-				// representation of the TCPAddr
-				parts := strings.Split(addrStr, "\"")
-				if ipAddresses[parts[3]] {
-					delete(ipAddresses, parts[3])
-				} else {
-					if !strings.HasPrefix(parts[3],
-						"127.0.0.1:") {
-						t.Fatalf("unexpected IP: %v",
-							parts[3])
-					}
-				}
+		for _, addr := range targetAddrs {
+			if _, ok := addrs[addr]; !ok {
+				t.Fatalf("address %v not found in node "+
+					"announcement", addr)
 			}
 		}
 	}
-	if len(ipAddresses) != 0 {
-		t.Fatalf("expected IP addresses not in channel "+
-			"graph: %v", ipAddresses)
+
+	waitForAddrsInUpdate := func(graphUpdates <-chan *lnrpc.GraphTopologyUpdate,
+		nodePubKey string, targetAddrs ...string) {
+
+		for {
+			select {
+			case graphUpdate := <-graphUpdates:
+				for _, update := range graphUpdate.NodeUpdates {
+					if update.IdentityKey == nodePubKey {
+						assertAddrs(
+							update.Addresses,
+							targetAddrs...,
+						)
+						return
+					}
+				}
+			case <-time.After(20 * time.Second):
+				t.Fatalf("did not receive node ann update")
+			}
+		}
 	}
+
+	waitForAddrsInUpdate(aliceUpdates, dave.PubKeyStr, advertisedAddrs...)
 
 	// Close the channel between Bob and Dave.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)

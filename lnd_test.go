@@ -4009,38 +4009,23 @@ func copyFile(dest, src string) error {
 	return d.Close()
 }
 
+// waitForTxInMempool polls until finding one transaction in the provided
+// miner's mempool. An error is returned if *one* transaction isn't found within
+// the given timeout.
 func waitForTxInMempool(miner *rpcclient.Client,
 	timeout time.Duration) (*chainhash.Hash, error) {
 
-	var txid *chainhash.Hash
-	breakTimeout := time.After(timeout)
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-poll:
-	for {
-		select {
-		case <-breakTimeout:
-			return nil, errors.New("no tx found in mempool")
-		case <-ticker.C:
-			mempool, err := miner.GetRawMempool()
-			if err != nil {
-				return nil, err
-			}
-
-			if len(mempool) == 0 {
-				continue
-			}
-
-			txid = mempool[0]
-			break poll
-		}
+	txs, err := waitForNTxsInMempool(miner, 1, timeout)
+	if err != nil {
+		return nil, err
 	}
-	return txid, nil
+
+	return txs[0], err
 }
 
 // waitForNTxsInMempool polls until finding the desired number of transactions
-// in the provided miner's mempool. An error is returned if the this number is
-// not met after the given timeout.
+// in the provided miner's mempool. An error is returned if this number is not
+// met after the given timeout.
 func waitForNTxsInMempool(miner *rpcclient.Client, n int,
 	timeout time.Duration) ([]*chainhash.Hash, error) {
 
@@ -4054,7 +4039,7 @@ func waitForNTxsInMempool(miner *rpcclient.Client, n int,
 		select {
 		case <-breakTimeout:
 			return nil, fmt.Errorf("wanted %v, found %v txs "+
-				"in mempool", n, len(mempool))
+				"in mempool: %v", n, len(mempool), mempool)
 		case <-ticker.C:
 			mempool, err = miner.GetRawMempool()
 			if err != nil {
@@ -6441,7 +6426,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	_, err = waitForTxInMempool(net.Miner.Node, time.Second*10)
 	if err != nil {
-		t.Fatalf("unable to find bob's sweeping transaction")
+		t.Fatalf("unable to find bob's sweeping transaction: %v", err)
 	}
 
 	// Next, we'll mine a final block that should confirm the second-layer
@@ -6669,7 +6654,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	// We should have a new transaction in the mempool.
 	_, err = waitForTxInMempool(net.Miner.Node, time.Second*10)
 	if err != nil {
-		t.Fatalf("unable to find bob's sweeping transaction")
+		t.Fatalf("unable to find bob's sweeping transaction: %v", err)
 	}
 
 	// Finally, if we mine an additional block to confirm these two sweep
@@ -7355,7 +7340,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 
 	_, err = waitForTxInMempool(net.Miner.Node, time.Second*10)
 	if err != nil {
-		t.Fatalf("unable to find bob's sweeping transaction")
+		t.Fatalf("unable to find bob's sweeping transaction: %v", err)
 	}
 
 	// At this point, Bob should detect that he has no pending channels
@@ -7542,7 +7527,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 
 	_, err = waitForNTxsInMempool(net.Miner.Node, 1, time.Second*15)
 	if err != nil {
-		t.Fatalf("unable to find bob's sweeping transaction")
+		t.Fatalf("unable to find bob's sweeping transaction: %v", err)
 	}
 
 	// We'll now mine another block, this should confirm the sweep

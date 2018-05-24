@@ -1487,6 +1487,17 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 			// Fallthrough.
 		}
 
+		// when do splice-in success, the old channelLink should be removed from htlcswitch
+		if resCtx.openType == lnwire.OpenRebalanceChannel {
+			peer, err := f.cfg.FindPeer(peerKey)
+			if err != nil {
+				fndgLog.Errorf("can not find the old channel : %v", err)
+			}
+			if peer.server != nil && peer.server.htlcSwitch != nil {
+				peer.server.htlcSwitch.RemoveLink(resCtx.oldChannelID)
+			}
+		}
+
 		// Success, funding transaction was confirmed.
 		f.deleteReservationCtx(peerKey, fmsg.msg.PendingChannelID)
 
@@ -1636,6 +1647,17 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 
 		fndgLog.Debugf("Channel with ShortChanID %v now confirmed",
 			shortChanID.ToUint64())
+
+		// when do splice-in success, the old channelLink should be removed from htlcswitch
+		if resCtx.openType == lnwire.OpenRebalanceChannel {
+			peer, err := f.cfg.FindPeer(peerKey)
+			if err != nil {
+				fndgLog.Errorf("can not find the old channel : %v", err)
+			}
+			if peer.server != nil && peer.server.htlcSwitch != nil {
+				peer.server.htlcSwitch.RemoveLink(resCtx.oldChannelID)
+			}
+		}
 
 		// Go on adding the channel to the channel graph, and crafting
 		// channel announcements.

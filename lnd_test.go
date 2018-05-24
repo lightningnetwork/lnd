@@ -190,7 +190,6 @@ func openChannelAndAssert(ctx context.Context, t *harnessTest,
 	return fundingChanPoint
 }
 
-
 // addFundAndAssert attempts to add fund to an exist channel with the specified
 // parameters extended from Alice to Bob. Additionally, two items are asserted
 // after the fund is considered added: the funding transaction should be
@@ -210,7 +209,6 @@ func addFundAndAssert(ctx context.Context, t *harnessTest,
 	// within the first newly mined block. We mine 6 blocks so that in the
 	// case that the channel is public, it is announced to the network.
 	block := mineBlocks(t, net, 6)[0]
-
 
 	newFundingChanPoint, err := net.WaitForChannelAddFund(ctx, addFundUpdates)
 	if err != nil {
@@ -242,8 +240,6 @@ func addFundAndAssert(ctx context.Context, t *harnessTest,
 	return newFundingChanPoint
 
 }
-
-
 
 // closeChannelAndAssert attempts to close a channel identified by the passed
 // channel point owned by the passed Lightning node. A fully blocking channel
@@ -3924,13 +3920,13 @@ func testBasicChannelCreation(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 }
 
-func testBasicChannelAddFund(net *lntest.NetworkHarness, t *harnessTest){
+func testBasicChannelAddFund(net *lntest.NetworkHarness, t *harnessTest) {
 
 	const (
 		numChannels = 2
 		timeout     = time.Duration(time.Second * 5)
-		amount      = maxFundingAmount/2
-		addAmount   = maxFundingAmount/2
+		amount      = maxFundingAmount / 2
+		addAmount   = maxFundingAmount / 2
 	)
 
 	// Open the channel between Alice and Bob, asserting that the
@@ -3943,7 +3939,6 @@ func testBasicChannelAddFund(net *lntest.NetworkHarness, t *harnessTest){
 		)
 	}
 
-
 	newChanPoints := make([]*lnrpc.ChannelPoint, numChannels)
 
 	for i := 0; i < numChannels; i++ {
@@ -3953,7 +3948,6 @@ func testBasicChannelAddFund(net *lntest.NetworkHarness, t *harnessTest){
 		)
 	}
 
-
 	// Close the channel between Alice and Bob, asserting that the
 	// channel has been properly closed on-chain.
 	for _, chanPoint := range newChanPoints {
@@ -3961,12 +3955,7 @@ func testBasicChannelAddFund(net *lntest.NetworkHarness, t *harnessTest){
 		closeChannelAndAssert(ctx, t, net, net.Alice, chanPoint, false)
 	}
 
-
-
-
-
 }
-
 
 // testChannelAddFundBalance creates add fund to a exist channel between Alice and  Bob, then
 // checks channel balance to be equal amount specified while creation of channel.
@@ -3975,8 +3964,8 @@ func testChannelAddFundBalance(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Open a channel with 0.16 BTC between Alice and Bob, ensuring the
 	// channel has been opened properly.
-	amount := maxFundingAmount/2
-	addAmount := maxFundingAmount/4
+	amount := maxFundingAmount / 2
+	addAmount := maxFundingAmount / 4
 
 	ctx, _ := context.WithTimeout(context.Background(), timeout)
 
@@ -4027,8 +4016,6 @@ func testChannelAddFundBalance(net *lntest.NetworkHarness, t *harnessTest) {
 	// Ensure Bob currently has no available balance within the channel.
 	checkChannelBalance(net.Bob, 0)
 
-
-
 	newChanPoint := addFundAndAssert(ctx, t, net, net.Alice, net.Bob, addAmount, chanPoint)
 
 	ctxt, _ = context.WithTimeout(context.Background(), timeout)
@@ -4044,21 +4031,18 @@ func testChannelAddFundBalance(net *lntest.NetworkHarness, t *harnessTest) {
 			"timeout: %v", err)
 	}
 
-
 	// As this is a single funder channel, Alice's balance should be
 	// exactly 0.5 BTC since now state transitions have taken place yet.
-	checkChannelBalance(net.Alice, amount-calcStaticFee(0) + addAmount)
+	checkChannelBalance(net.Alice, amount-calcStaticFee(0)+addAmount)
 
 	// Ensure Bob currently has no available balance within the channel.
 	checkChannelBalance(net.Bob, 0)
-
 
 	// Finally close the channel between Alice and Bob, asserting that the
 	// channel has been properly closed on-chain.
 	ctx, _ = context.WithTimeout(context.Background(), timeout)
 	closeChannelAndAssert(ctx, t, net, net.Alice, newChanPoint, false)
 }
-
 
 func testSingleHopInvoiceForAddFund(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
@@ -4107,7 +4091,11 @@ func testSingleHopInvoiceForAddFund(net *lntest.NetworkHarness, t *harnessTest) 
 	// expects a payment of 1000 satoshis from Alice paid via a particular
 	// preimage.
 	const paymentAmt = 1000
-	preimage := bytes.Repeat([]byte("A"), 32)
+	preimage := make([]byte, 32)
+	_, err := rand.Read(preimage)
+	if err != nil {
+		t.Fatalf("unable to generate preimage: %v", err)
+	}
 	invoice := &lnrpc.Invoice{
 		Memo:      "testing",
 		RPreimage: preimage,
@@ -4169,9 +4157,8 @@ func testSingleHopInvoiceForAddFund(net *lntest.NetworkHarness, t *harnessTest) 
 	time.Sleep(time.Millisecond * 200)
 	assertAmountSent(paymentAmt)
 
-
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	newChanPoint := addFundAndAssert(ctxt, t, net, net.Alice, net.Bob, addAmt, chanPoint )
+	newChanPoint := addFundAndAssert(ctxt, t, net, net.Alice, net.Bob, addAmt, chanPoint)
 	// Wait for Alice to recognize and advertise the new channel generated
 	// above.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
@@ -4185,7 +4172,6 @@ func testSingleHopInvoiceForAddFund(net *lntest.NetworkHarness, t *harnessTest) 
 		t.Fatalf("bob didn't advertise channel before "+
 			"timeout: %v", err)
 	}
-
 
 	// Create another invoice for Bob, this time leaving off the preimage
 	// to one will be randomly generated. We'll test the proper
@@ -4221,7 +4207,6 @@ func testSingleHopInvoiceForAddFund(net *lntest.NetworkHarness, t *harnessTest) 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, newChanPoint, false)
 }
-
 
 func testMultiHopPaymentsForAddFund(net *lntest.NetworkHarness, t *harnessTest) {
 	const chanAmt = btcutil.Amount(100000)
@@ -4458,12 +4443,11 @@ func testMultiHopPaymentsForAddFund(net *lntest.NetworkHarness, t *harnessTest) 
 		}
 	}
 
-
 	// ********** AddFund to the channel between Dave and Alice.
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	addAmt := btcutil.Amount(100000)
-	newChanPointDave := addFundAndAssert(ctxb, t, net, net.Alice, dave,  addAmt, chanPointDave)
+	newChanPointDave := addFundAndAssert(ctxb, t, net, net.Alice, dave, addAmt, chanPointDave)
 	networkChans[1] = newChanPointDave
 
 	txidHash, err = getChanPointFundingTxid(newChanPointDave)
@@ -4501,8 +4485,6 @@ func testMultiHopPaymentsForAddFund(net *lntest.NetworkHarness, t *harnessTest) 
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)
 	}
-
-
 
 	// At this point all the channels within our proto network should be
 	// shifted by 10k satoshis in the direction of Bob, the sink within the
@@ -4568,8 +4550,6 @@ func testMultiHopPaymentsForAddFund(net *lntest.NetworkHarness, t *harnessTest) 
 		}
 	}
 
-
-
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
@@ -4587,7 +4567,6 @@ func testMultiHopPaymentsForAddFund(net *lntest.NetworkHarness, t *harnessTest) 
 		t.Fatalf("unable to shutdown dave: %v", err)
 	}
 }
-
 
 // testMaxPendingChannels checks that error is returned from remote peer if
 // max pending channel number was exceeded and that '--maxpendingchannels' flag
@@ -9835,7 +9814,6 @@ var testsCases = []*testCase{
 		name: "multiple hop payment for add fund",
 		test: testMultiHopPaymentsForAddFund,
 	},
-
 
 	{
 		name: "invoice update subscription",

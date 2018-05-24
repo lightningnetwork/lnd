@@ -965,8 +965,6 @@ func assertErrChannelNotFound(t *testing.T, node *testNode,
 	t.Fatalf("expected to not find state, found state %v", state)
 }
 
-
-
 func assertHandleFundingLocked(t *testing.T, alice, bob *testNode) {
 	// They should both send the new channel state to their peer.
 	select {
@@ -1141,7 +1139,6 @@ func TestFundingManagerAddFund(t *testing.T) {
 	// from the database, as the channel is announced.
 	assertNoChannelState(t, alice, bob, fundingOutPoint)
 
-
 	// From here, we begin the addFund test.
 
 	// We will consume the channel updates as we go, so no buffering is needed.
@@ -1151,8 +1148,6 @@ func TestFundingManagerAddFund(t *testing.T) {
 	// transaction is broadcasted.
 	fundingOutPointOfAdd := addFund(t, alice, bob, 100000, fundingOutPoint,
 		updateChanOfAdd, true)
-
-
 
 	// Make sure both reservations time out and then run both zombie sweepers.
 	time.Sleep(1 * time.Millisecond)
@@ -1197,7 +1192,6 @@ func TestFundingManagerAddFund(t *testing.T) {
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPointOfAdd)
 
-
 	// The funding transaction is now confirmed, wait for the
 	// OpenStatusUpdate_ChanOpen update
 	waitForOpenUpdate(t, updateChanOfAdd)
@@ -1209,8 +1203,6 @@ func TestFundingManagerAddFund(t *testing.T) {
 	// Check that they notify the breach arbiter and peer about the new
 	// channel.
 	assertHandleFundingLocked(t, alice, bob)
-
-
 
 	// Notify that six confirmations has been reached on funding transaction.
 	alice.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{}
@@ -1224,7 +1216,7 @@ func TestFundingManagerAddFund(t *testing.T) {
 	assertNoChannelState(t, alice, bob, fundingOutPointOfAdd)
 }
 
-func TestFundingManagerAddingTimeOut(t *testing.T)  {
+func TestFundingManagerAddingTimeOut(t *testing.T) {
 	alice, bob := setupFundingManagers(t)
 	defer tearDownFundingManagers(t, alice, bob)
 
@@ -1257,7 +1249,6 @@ func TestFundingManagerAddingTimeOut(t *testing.T)  {
 	// managers now have the state of this channel 'markedOpen' in their
 	// internal state machine.
 	assertMarkedOpen(t, alice, bob, fundingOutPoint)
-
 
 	// After the funding transaction is mined, Alice will send
 	// fundingLocked to Bob.
@@ -1367,7 +1358,7 @@ func TestFundingManagerAddingTimeOut(t *testing.T)  {
 	// Alice's zombie reservation should have been pruned.
 	assertNumPendingReservations(t, alice, bobPubKey, 0)
 
-	if !oldChannel.IsOpen(){
+	if !oldChannel.IsOpen() {
 		t.Fatalf("Channel is not open")
 	}
 }

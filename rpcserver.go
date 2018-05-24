@@ -223,6 +223,10 @@ var (
 			Entity: "offchain",
 			Action: "read",
 		}},
+		"/lnrpc.Lightning/ClosedChannels": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
 		"/lnrpc.Lightning/SendPayment": {{
 			Entity: "offchain",
 			Action: "write",
@@ -1574,6 +1578,79 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		)
 
 		resp.TotalLimboBalance += channel.LocalBalance
+	}
+
+	return resp, nil
+}
+
+// ClosedChannels returns a list of all the channels have been closed. 
+// This does not include channels that are still in the process of closing.
+func (r *rpcServer) ClosedChannels(ctx context.Context,
+	in *lnrpc.ClosedChannelsRequest) (*lnrpc.ClosedChannelsResponse, 
+	error) {
+
+	// Show all channels when no filter flags are set.
+	filterResults := in.Cooperative || in.LocalForce || 
+		in.RemoteForce || in.Breach || in.FundingCanceled
+
+	resp := &lnrpc.ClosedChannelsResponse{}
+
+	dbChannels, err := r.server.chanDB.FetchClosedChannels(false)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, dbChannel := range dbChannels {
+		if dbChannel.IsPending {
+			continue
+		}
+
+		nodePub := dbChannel.RemotePub
+		nodeID := hex.EncodeToString(nodePub.SerializeCompressed())
+
+		var closeType lnrpc.ChannelCloseSummary_ClosureType
+		switch dbChannel.CloseType {
+		case channeldb.CooperativeClose:
+			if filterResults && !in.Cooperative {
+				continue
+			}
+			closeType = lnrpc.ChannelCloseSummary_COOPERATIVE_CLOSE
+		case channeldb.LocalForceClose:
+			if filterResults && !in.LocalForce {
+				continue
+			}
+			closeType = lnrpc.ChannelCloseSummary_LOCAL_FORCE_CLOSE
+		case channeldb.RemoteForceClose:
+			if filterResults && !in.RemoteForce {
+				continue
+			}
+			closeType = lnrpc.ChannelCloseSummary_REMOTE_FORCE_CLOSE
+		case channeldb.BreachClose:
+			if filterResults && !in.Breach {
+				continue
+			}
+			closeType = lnrpc.ChannelCloseSummary_BREACH_CLOSE
+		case channeldb.FundingCanceled:
+			if filterResults && !in.FundingCanceled {
+				continue
+			}
+			closeType = lnrpc.ChannelCloseSummary_FUNDING_CANCELED
+		}
+
+		channel := &lnrpc.ChannelCloseSummary{
+			Capacity:          int64(dbChannel.Capacity),
+			RemotePubkey:      nodeID,
+			CloseHeight:       dbChannel.CloseHeight,
+			CloseType:         closeType,
+			ChannelPoint:      dbChannel.ChanPoint.String(),
+			ChanId:            dbChannel.ShortChanID.ToUint64(),
+			SettledBalance:    int64(dbChannel.SettledBalance),
+			TimeLockedBalance: int64(dbChannel.TimeLockedBalance),
+			ChainHash:         dbChannel.ChainHash.String(),
+			ClosingTxHash:     dbChannel.ClosingTXID.String(),
+		}
+
+		resp.Channels = append(resp.Channels, channel)
 	}
 
 	return resp, nil

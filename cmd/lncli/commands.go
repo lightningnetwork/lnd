@@ -1581,6 +1581,62 @@ func listChannels(ctx *cli.Context) error {
 	return nil
 }
 
+var closedChannelsCommand = cli.Command{
+	Name:     "closedchannels",
+	Category: "Channels",
+	Usage:    "List all closed channels.",
+	Flags:    []cli.Flag{
+		cli.BoolFlag{
+			Name:  "cooperative",
+			Usage: "list channels that were closed cooperatively",
+		},
+		cli.BoolFlag{
+			Name:  "local_force",
+			Usage: "list channels that were force-closed " +
+			       "by the local node",
+		},
+		cli.BoolFlag{
+			Name:  "remote_force",
+			Usage: "list channels that were force-closed " +
+			       "by the remote node",
+		},
+		cli.BoolFlag{
+			Name:  "breach",
+			Usage: "list channels for which the remote node " +
+			       "attempted to broadcast a prior " + 
+			       "revoked channel state",
+		},
+		cli.BoolFlag{
+			Name:  "funding_canceled",
+			Usage: "list channels that were never fully opened",
+		},
+	},
+	Action:   actionDecorator(closedChannels),
+}
+
+func closedChannels(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	req := &lnrpc.ClosedChannelsRequest{
+		Cooperative:     ctx.Bool("cooperative"),
+		LocalForce:      ctx.Bool("local_force"),
+		RemoteForce:     ctx.Bool("remote_force"),
+		Breach:          ctx.Bool("breach"),
+		FundingCanceled: ctx.Bool("funding_cancelled"),		
+	}
+
+	resp, err := client.ClosedChannels(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+
+	return nil
+}
+
 var sendPaymentCommand = cli.Command{
 	Name:     "sendpayment",
 	Category: "Payments",

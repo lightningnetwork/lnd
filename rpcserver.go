@@ -1455,6 +1455,10 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 
 		// If the channel was closed cooperatively, then we'll only
 		// need to tack on the closing txid.
+		// TODO(halseth): remove. After recent changes, a coop closed
+		// channel should never be in the "pending close" state.
+		// Keeping for now to let someone that upgraded in the middle
+		// of a close let their closing tx confirm.
 		case channeldb.CooperativeClose:
 			resp.PendingClosingChannels = append(
 				resp.PendingClosingChannels,

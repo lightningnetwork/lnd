@@ -14,7 +14,8 @@ RUN apk add --no-cache \
     git \
     make \
 &&  cd /go/src/github.com/lightningnetwork/lnd \
-&&  make
+&&  make \
+&&  make install
 
 # Start a new, final image to reduce size.
 FROM alpine as final
@@ -23,8 +24,8 @@ FROM alpine as final
 EXPOSE 9735 10009
 
 # Copy the binaries and entrypoint from the builder image.
-COPY --from=builder /go/src/github.com/lightningnetwork/lnd/lncli /bin/
-COPY --from=builder /go/src/github.com/lightningnetwork/lnd/lnd /bin/
+COPY --from=builder /go/bin/lncli /bin/
+COPY --from=builder /go/bin/lnd /bin/
 
 # Add bash.
 RUN apk add --no-cache \

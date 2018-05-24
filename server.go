@@ -663,11 +663,6 @@ func (s *server) Stopped() bool {
 	return atomic.LoadInt32(&s.shutdown) != 0
 }
 
-// WaitForShutdown blocks until all goroutines have been stopped.
-func (s *server) WaitForShutdown() {
-	s.wg.Wait()
-}
-
 // initNetworkBootstrappers initializes a set of network peer bootstrappers
 // based on the server, and currently active bootstrap mechanisms as defined
 // within the current configuration.

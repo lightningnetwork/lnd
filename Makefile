@@ -36,6 +36,7 @@ GOBUILD := go build -v
 GOINSTALL := go install -v
 GOTEST := go test -v
 
+GO_TAGS := ${TEST_TAGS}
 GOLIST := go list $(PKG)/... | grep -v '/vendor/'
 GOLISTCOVER := $(shell go list -f '{{.ImportPath}}' ./... | sed -e 's/^$(ESCPKG)/./')
 GOLISTLINT := $(shell go list -f '{{.Dir}}' ./... | grep -v 'lnrpc')
@@ -125,8 +126,8 @@ btcd: $(GLIDE_BIN) $(BTCD_DIR)
 
 build:
 	@$(call print, "Building debug lnd and lncli.")
-	$(GOBUILD) -tags=$(TEST_TAGS) -o lnd-debug $(LDFLAGS) $(PKG)
-	$(GOBUILD) -tags=$(TEST_TAGS) -o lncli-debug $(LDFLAGS) $(PKG)/cmd/lncli
+	$(GOBUILD) -tags=$(GO_TAGS) -o lnd-debug $(LDFLAGS) $(PKG)
+	$(GOBUILD) -tags=$(GO_TAGS) -o lncli-debug $(LDFLAGS) $(PKG)/cmd/lncli
 
 install:
 	@$(call print, "Installing lnd and lncli.")

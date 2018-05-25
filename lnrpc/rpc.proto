@@ -359,7 +359,14 @@ service Lightning {
     Lightning Network with a single persistent connection.
     */
     rpc SendPayment (stream SendRequest) returns (stream SendResponse);
-
+    
+    /** lncli: `addfund`
+    AddFund attempts to add funds to the existsting channel, of which balance is
+    not balance.
+    */
+    // TODO(xuehan): change AddFundResponse to a stream statusUpdate.
+    //rpc AddFund (AddFundRequest) returns (AddFundResponse);
+    rpc AddFund (AddFundRequest) returns (stream OpenStatusUpdate);
     /**
     SendPaymentSync is the synchronous non-streaming version of SendPayment.
     This RPC is intended to be consumed by clients of the REST proxy.
@@ -1017,6 +1024,35 @@ message OpenStatusUpdate {
     }
 }
 
+message RebalanceStatusUpdate {
+    oneof update {
+        PendingUpdate chan_pending = 1 [json_name = "chan_pending"];
+        ConfirmationUpdate confirmation = 2 [json_name = "confirmation"];
+        ChannelOpenUpdate chan_resume = 3 [json_name = "chan_resume"];
+    }
+}
+
+message AddFundRequest {
+
+    /// channel id of which channel we want add fund to.
+    ChannelPoint channel_point = 1;
+
+    /// The value we want to add.
+    int64 add_funding_amount = 2;
+
+    /// The target number of blocks that the closure transaction should be confirmed by.
+    int32 target_conf = 3;
+
+    /// A manual fee rate set in sat/byte that should be used when crafting the closure transaction.
+    int64 sat_per_byte = 4;
+}
+
+message AddFundResponse {
+
+    /// If add funding was success.
+    bool success = 1;
+
+}
 message PendingHTLC {
 
     /// The direction within the channel that the htlc was sent
@@ -1674,3 +1710,6 @@ message ForwardingHistoryResponse {
    /// The index of the last time in the set of returned forwarding events. Can be used to seek further, pagination style.
    uint32 last_offset_index = 2 [json_name = "last_offset_index"];
 }
+
+// TODO(xuehan): 添加一个changeUpdateStatus消息类型，作为给rpc客户端的反馈
+

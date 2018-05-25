@@ -821,6 +821,7 @@ out:
 			case <-p.quit:
 				break out
 			}
+
 		case *lnwire.ClosingSigned:
 			select {
 			case p.chanCloseMsgs <- &closeMsg{msg.ChannelID, msg}:
@@ -1618,6 +1619,7 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 		// First, we'll fetch a fresh delivery address that we'll use
 		// to send the funds to in the case of a successful
 		// negotiation.
+
 		deliveryAddr, err := p.genDeliveryScript()
 		if err != nil {
 			peerLog.Errorf(err.Error())

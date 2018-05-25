@@ -71,6 +71,12 @@ type initFundingReserveMsg struct {
 	// fundingAmount is the amount of funds requested for this channel.
 	fundingAmount btcutil.Amount
 
+	// addAmout is the amount adder add to the new channel to rebalance channel.
+	addAmount btcutil.Amount
+
+	openType lnwire.OpenType
+
+	oldChannelID lnwire.ChannelID
 	// capacity is the total capacity of the channel which includes the
 	// amount of funds the remote party contributes (if any).
 	capacity btcutil.Amount
@@ -131,8 +137,11 @@ type addContributionMsg struct {
 	// TODO(roasbeef): Should also carry SPV proofs in we're in SPV mode
 	contribution *ChannelContribution
 
+	openType lnwire.OpenType
 	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
-	err chan error
+
+	oldChannelID lnwire.ChannelID
+	err          chan error
 }
 
 // addSingleContributionMsg represents a message executing the second phase of
@@ -169,10 +178,17 @@ type addCounterPartySigsMsg struct {
 	// version of the commitment transaction.
 	theirCommitmentSig []byte
 
+	theirOldFundingTxSig []byte
+
 	// This channel is used to return the completed channel after the wallet
 	// has completed all of its stages in the funding process.
 	completeChan chan *channeldb.OpenChannel
 
+	// opentype is the type of the initiator would like to open the channel.
+	opentype lnwire.OpenType
+
+	// oldChannelID is the channel id which will be add fund to.
+	oldChannelID lnwire.ChannelID
 	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
 	err chan error
 }
@@ -198,6 +214,11 @@ type addSingleFunderSigsMsg struct {
 	// has completed all of its stages in the funding process.
 	completeChan chan *channeldb.OpenChannel
 
+	remoteChangeOutPut *wire.TxOut
+
+	oldChannelID lnwire.ChannelID
+
+	openType lnwire.OpenType
 	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
 	err chan error
 }
@@ -410,9 +431,9 @@ out:
 // transaction, and that the signature we record for our version of the
 // commitment transaction is valid.
 func (l *LightningWallet) InitChannelReservation(
-	capacity, ourFundAmt btcutil.Amount, pushMSat lnwire.MilliSatoshi,
-	commitFeePerKw SatPerKWeight, fundingFeePerVSize SatPerVByte,
-	theirID *btcec.PublicKey, theirAddr net.Addr,
+	capacity, ourFundAmt btcutil.Amount, ourAddAmt btcutil.Amount, openType lnwire.OpenType,
+	oldChannelID lnwire.ChannelID, pushMSat lnwire.MilliSatoshi, commitFeePerKw SatPerKWeight,
+	fundingFeePerVSize SatPerVByte, theirID *btcec.PublicKey, theirAddr net.Addr,
 	chainHash *chainhash.Hash, flags lnwire.FundingFlag) (*ChannelReservation, error) {
 
 	errChan := make(chan error, 1)
@@ -423,6 +444,9 @@ func (l *LightningWallet) InitChannelReservation(
 		nodeID:             theirID,
 		nodeAddr:           theirAddr,
 		fundingAmount:      ourFundAmt,
+		addAmount:          ourAddAmt,
+		openType:           openType,
+		oldChannelID:       oldChannelID,
 		capacity:           capacity,
 		commitFeePerKw:     commitFeePerKw,
 		fundingFeePerVSize: fundingFeePerVSize,
@@ -479,15 +503,30 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	if req.fundingAmount != 0 {
 		// Coin selection is done on the basis of sat-per-vbyte, we'll
 		// use the passed sat/vbyte passed in to perform coin selection.
-		err := l.selectCoinsAndChange(
-			req.fundingFeePerVSize, req.fundingAmount,
-			reservation.ourContribution,
-		)
-		if err != nil {
-			req.err <- err
-			req.resp <- nil
-			return
+		// 判断是rebalance还是open，如果是open那么需要选出满足fundingAmount
+		// 如果是rabalance，那么只需要满足addAmount
+		if req.openType == lnwire.OpenRebalanceChannel {
+			err := l.selectCoinsAndChange(
+				req.fundingFeePerVSize, req.addAmount,
+				reservation.ourContribution, req.openType, req.oldChannelID,
+			)
+			if err != nil {
+				req.err <- err
+				req.resp <- nil
+				return
+			}
+		} else {
+			err := l.selectCoinsAndChange(
+				req.fundingFeePerVSize, req.fundingAmount,
+				reservation.ourContribution, req.openType, req.oldChannelID,
+			)
+			if err != nil {
+				req.err <- err
+				req.resp <- nil
+				return
+			}
 		}
+
 	}
 
 	// Next, we'll grab a series of keys from the wallet which will be used
@@ -624,7 +663,6 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 	// available?
 
 	delete(l.fundingLimbo, req.pendingFundingID)
-
 	req.err <- nil
 }
 
@@ -668,6 +706,39 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 	}
 
 	return ourCommitTx, theirCommitTx, nil
+}
+
+// Rebalance channel时接收方需要创建newFundingTx，这个Tx和发起方创建的Tx的Vin有不同的地方
+// 发起方：发起方创建的fundingTx包含完整Vin和Vout，而该函数创建的Tx的输出和前者的输出是相同的
+// 然而并没有包含发起者往里面放的addFund部分的Vin，这不影响接收方为newFundingTx创建签名
+func (l *LightningWallet) genNewFundingTxForReceiver(remoteChangeOutput,
+	newFundingTxOut *wire.TxOut, channelID lnwire.ChannelID) (*wire.MsgTx,
+	*channeldb.OpenChannel, error) {
+
+	dbChannels, err := l.Cfg.Database.FetchAllChannels()
+	var oldChannel *channeldb.OpenChannel
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, channel := range dbChannels {
+		if channelID.IsChanPoint(&channel.FundingOutpoint) {
+			// TODO(roasbeef): populate beacon
+			oldChannel = channel
+			break
+		}
+	}
+	if oldChannel == nil {
+		return nil, nil, fmt.Errorf("can not find the old channelID")
+	}
+	newFundingTx := wire.NewMsgTx(1)
+	newFundingTx.AddTxOut(remoteChangeOutput)
+	newFundingTx.AddTxOut(newFundingTxOut)
+	newFundingTx.AddTxIn(wire.NewTxIn(&oldChannel.FundingOutpoint, nil, nil))
+	//oldFundingTxOutPut, err := l.Cfg.ChainIO.GetUtxo(&oldChannel.FundingOutpoint, 0)
+
+	txsort.InPlaceSort(newFundingTx)
+
+	return newFundingTx, oldChannel, nil
 }
 
 // handleContributionMsg processes the second workflow step for the lifetime of
@@ -742,7 +813,14 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		HashType:  txscript.SigHashAll,
 		SigHashes: txscript.NewTxSigHashes(fundingTx),
 	}
+
+	//Need change HashType to SigHashAll|AnyOneCanPay if openType == lnwire.OpenRebalanceChannel
+	if req.openType == lnwire.OpenRebalanceChannel {
+		signDesc.HashType |= txscript.SigHashAnyOneCanPay
+	}
+
 	for i, txIn := range fundingTx.TxIn {
+
 		info, err := l.FetchInputInfo(&txIn.PreviousOutPoint)
 		if err == ErrNotMine {
 			continue
@@ -767,6 +845,29 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 			pendingReservation.ourFundingInputScripts,
 			inputScript,
 		)
+	}
+
+	// 我们在这里为新的fundingTx的Vin添加上oldFundingTx的Vout
+	if req.openType == lnwire.OpenRebalanceChannel {
+		dbChannels, err := l.Cfg.Database.FetchAllChannels()
+		var oldChannel *channeldb.OpenChannel
+		if err != nil {
+			req.err <- err
+			return
+		}
+		for _, channel := range dbChannels {
+			if req.oldChannelID.IsChanPoint(&channel.FundingOutpoint) {
+				// TODO(roasbeef): populate beacon
+				oldChannel = channel
+				break
+			}
+		}
+		if oldChannel == nil {
+			req.err <- fmt.Errorf("can not find the old channelID")
+			return
+		}
+		//inputLen := len(contribution.Inputs)
+		fundingTx.AddTxIn(wire.NewTxIn(&oldChannel.FundingOutpoint, nil, nil))
 	}
 
 	// Locate the index of the multi-sig outpoint in order to record it
@@ -961,7 +1062,90 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	fundingTx := res.fundingTx
 	sigIndex := 0
 	fundingHashCache := txscript.NewTxSigHashes(fundingTx)
-	for i, txin := range fundingTx.TxIn {
+
+	var txInLen int
+
+	// when we do splice-in, we need to build the new funding tx and validate
+	// the counterparty's signature of the old funding tx.
+	if msg.opentype == lnwire.OpenRebalanceChannel {
+
+		txInLen = len(fundingTx.TxIn) - 1
+
+		dbChannels, err := l.Cfg.Database.FetchAllChannels()
+		var oldChannel *channeldb.OpenChannel
+		if err != nil {
+			msg.err <- err
+			return
+		}
+		for _, channel := range dbChannels {
+			if msg.oldChannelID.IsChanPoint(&channel.FundingOutpoint) {
+				oldChannel = channel
+				break
+			}
+		}
+		if oldChannel == nil {
+			msg.err <- fmt.Errorf("can not find the old channel in the db")
+			return
+		}
+
+		// build the witness script hash old funding input
+		oldOurKey := oldChannel.LocalChanCfg.MultiSigKey
+		oldTheirKey := oldChannel.RemoteChanCfg.MultiSigKey
+		witnessScript, _, err := GenFundingPkScript(
+			oldOurKey.PubKey.SerializeCompressed(),
+			oldTheirKey.PubKey.SerializeCompressed(),
+			int64(oldChannel.Capacity),
+		)
+		p2wsh, err := witnessScriptHash(witnessScript)
+		if err != nil {
+			msg.err <- err
+			return
+		}
+
+		signDesc := SignDescriptor{
+			WitnessScript: witnessScript,
+			KeyDesc:       oldOurKey,
+			Output: &wire.TxOut{
+				PkScript: p2wsh,
+				Value:    int64(oldChannel.Capacity),
+			},
+			HashType:   txscript.SigHashAll | txscript.SigHashAnyOneCanPay,
+			SigHashes:  txscript.NewTxSigHashes(fundingTx),
+			InputIndex: txInLen,
+		}
+		sigOldFundingTx, err := l.Cfg.Signer.SignOutputRaw(fundingTx, &signDesc)
+		res.ourOldFundingTxSig = sigOldFundingTx
+
+		localSig := append(sigOldFundingTx, byte(txscript.SigHashAll|txscript.SigHashAnyOneCanPay))
+		remoteSig := append(msg.theirOldFundingTxSig, byte(txscript.SigHashAll|txscript.SigHashAnyOneCanPay))
+		witness := SpendMultiSig(witnessScript,
+			oldOurKey.PubKey.SerializeCompressed(), localSig,
+			oldTheirKey.PubKey.SerializeCompressed(), remoteSig,
+		)
+		fundingTx.TxIn[txInLen].Witness = witness
+
+		walletLog.Debugf("handleFundingCounterPartySigs funding TX is : %v",
+			spew.Sdump(fundingTx))
+
+		// validate the signature of the old funding tx
+		vm, err := txscript.NewEngine(p2wsh, fundingTx, txInLen,
+			txscript.StandardVerifyFlags, nil,
+			txscript.NewTxSigHashes(fundingTx), int64(oldChannel.Capacity),
+		)
+		if err != nil {
+			msg.err <- err
+			return
+		}
+		if err := vm.Execute(); err != nil {
+			msg.err <- err
+			return
+		}
+	} else {
+		txInLen = len(fundingTx.TxIn)
+	}
+
+	for i := 0; i < txInLen; i++ {
+		txin := fundingTx.TxIn[i]
 		if len(inputScripts) != 0 && len(txin.Witness) == 0 {
 			// Attach the input scripts so we can verify it below.
 			txin.Witness = inputScripts[sigIndex].Witness
@@ -1140,6 +1324,67 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		return
 	}
 
+	// For splice-in transaction, we need build the splice-in transaction and
+	// Sign the vin from old funding for the transaction.
+	if req.openType == lnwire.OpenRebalanceChannel {
+		ourKey := pendingReservation.ourContribution.MultiSigKey
+		theirKey := pendingReservation.theirContribution.MultiSigKey
+
+		// Generate the multi-signature output of the splice-in transaction
+		_, multiSigOut, err := GenFundingPkScript(
+			ourKey.PubKey.SerializeCompressed(),
+			theirKey.PubKey.SerializeCompressed(), int64(pendingReservation.partialState.Capacity),
+		)
+		if err != nil {
+			req.err <- err
+			req.completeChan <- nil
+		}
+
+		// Here we generate a funding tx with only one input and all output.
+		fundingTx, oldChannel, err := l.genNewFundingTxForReceiver(req.remoteChangeOutPut,
+			multiSigOut, req.oldChannelID)
+		if err != nil {
+			req.err <- err
+			req.completeChan <- nil
+		}
+
+		oldOurKey := oldChannel.LocalChanCfg.MultiSigKey
+		oldTheirKey := oldChannel.RemoteChanCfg.MultiSigKey
+		// TODO(xuehan): check the capacity
+		witnessScript, _, err := GenFundingPkScript(
+			oldOurKey.PubKey.SerializeCompressed(),
+			oldTheirKey.PubKey.SerializeCompressed(), int64(oldChannel.Capacity),
+		)
+
+		p2wsh, err := witnessScriptHash(witnessScript)
+		if err != nil {
+			req.err <- err
+			req.completeChan <- nil
+		}
+
+		// For the old funding output we choose the all|anyonecanpay type of
+		// signature to sign. Use this type, we can sign the transcation
+		// without other input of the splice-in transaction
+		signDesc := SignDescriptor{
+			WitnessScript: witnessScript,
+			KeyDesc:       oldOurKey,
+			Output: &wire.TxOut{
+				PkScript: p2wsh,
+				Value:    int64(oldChannel.Capacity),
+			},
+			HashType:   txscript.SigHashAll | txscript.SigHashAnyOneCanPay,
+			SigHashes:  txscript.NewTxSigHashes(fundingTx),
+			InputIndex: 0,
+		}
+
+		sigOldFundingTx, err := l.Cfg.Signer.SignOutputRaw(fundingTx, &signDesc)
+		pendingReservation.ourOldFundingTxSig = sigOldFundingTx
+		pendingReservation.fundingTx = fundingTx
+
+		walletLog.Debugf("handleSingleFunderSigs funding TX is : %v",
+			spew.Sdump(fundingTx))
+
+	}
 	// With both commitment transactions constructed, we can now use the
 	// generator state obfuscator to encode the current state number within
 	// both commitment transactions.
@@ -1265,7 +1510,8 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 // also be generated.
 // TODO(roasbeef): remove hardcoded fees and req'd confs for outputs.
 func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerVByte,
-	amt btcutil.Amount, contribution *ChannelContribution) error {
+	amt btcutil.Amount, contribution *ChannelContribution,
+	openType lnwire.OpenType, oldChannelID lnwire.ChannelID) error {
 
 	// We hold the coin select mutex while querying for outputs, and
 	// performing coin selection in order to avoid inadvertent double
@@ -1287,7 +1533,7 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerVByte,
 	// Perform coin selection over our available, unlocked unspent outputs
 	// in order to find enough coins to meet the funding amount
 	// requirements.
-	selectedCoins, changeAmt, err := coinSelect(feeRate, amt, coins)
+	selectedCoins, changeAmt, err := coinSelect(feeRate, amt, coins, openType)
 	if err != nil {
 		return err
 	}
@@ -1386,7 +1632,7 @@ func selectInputs(amt btcutil.Amount, coins []*Utxo) (btcutil.Amount, []*Utxo, e
 // specified fee rate should be expressed in sat/vbyte for coin selection to
 // function properly.
 func coinSelect(feeRate SatPerVByte, amt btcutil.Amount,
-	coins []*Utxo) ([]*Utxo, btcutil.Amount, error) {
+	coins []*Utxo, openType lnwire.OpenType) ([]*Utxo, btcutil.Amount, error) {
 
 	amtNeeded := amt
 	for {
@@ -1410,7 +1656,12 @@ func coinSelect(feeRate SatPerVByte, amt btcutil.Amount,
 					utxo.AddressType)
 			}
 		}
-
+		// TODO(xuehan):
+		// If this work is a step of rebalance channel, we need to add the weight of
+		// oldFundingTx
+		if openType == lnwire.OpenRebalanceChannel {
+			weightEstimate.AddNestedP2WSHInput(WitnessSize)
+		}
 		// Channel funding multisig output is P2WSH.
 		weightEstimate.AddP2WSHOutput()
 

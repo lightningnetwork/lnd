@@ -1,0 +1,6 @@
+2018-05-15 10:11:15.280 [INF] LTND: Version 0.4.1-beta commit=1a61eaa46ab83c8d033b0c8efddffe81429b3e19
+2018-05-15 10:11:15.280 [INF] LTND: Active chain: Bitcoin (network=simmnet)
+2018-05-15 10:11:15.283 [INF] CHDB: Checking for schema update: latest_version=0, db_version=0
+2018-05-15 10:11:15.299 [INF] RPCS: password RPC server listening on 127.0.0.1:10009
+2018-05-15 10:11:15.300 [INF] RPCS: password gRPC proxy started at 127.0.0.1:8080
+2018-05-15 10:11:15.300 [INF] LTND: Waiting for wallet encryption password. Use `lncli create` to create wallet, or `lncli unlock` to unlock already created wallet.

@@ -266,7 +266,10 @@ func TestLightningWireProtocol(t *testing.T) {
 			v[0] = reflect.ValueOf(req)
 		},
 		MsgFundingCreated: func(v []reflect.Value, r *rand.Rand) {
-			req := FundingCreated{}
+
+			req := FundingCreated{
+				ChangeOutputScript: make([]byte, 34),
+			}
 
 			if _, err := r.Read(req.PendingChannelID[:]); err != nil {
 				t.Fatalf("unable to generate pending chan id: %v", err)
@@ -283,6 +286,12 @@ func TestLightningWireProtocol(t *testing.T) {
 			req.CommitSig, err = NewSigFromSignature(testSig)
 			if err != nil {
 				t.Fatalf("unable to parse sig: %v", err)
+				return
+			}
+
+			req.ChangeOutputValue = int64(r.Int63())
+			if _, err := r.Read(req.ChangeOutputScript[:]); err != nil {
+				t.Fatalf("unable to generate change output srcipt: %v", err)
 				return
 			}
 

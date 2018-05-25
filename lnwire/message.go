@@ -49,6 +49,9 @@ const (
 	MsgNodeAnnouncement                    = 257
 	MsgChannelUpdate                       = 258
 	MsgAnnounceSignatures                  = 259
+
+	MsgRebalanceChannel = 512
+	MsgAcceptRebalance  = 523
 )
 
 // String return the string representation of message type.

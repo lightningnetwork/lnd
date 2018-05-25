@@ -6264,6 +6264,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 		dustHtlcAmt    = btcutil.Amount(100)
 		htlcAmt        = btcutil.Amount(30000)
 		finalCltvDelta = 40
+		csvDelay       = 4
 	)
 	alicePayStream, err := net.Alice.SendPayment(ctxb)
 	if err != nil {
@@ -6353,15 +6354,20 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
-	// TODO(roasbeef): need to fix utxn so it can accept incubation for
-	// timeout that has already past
-	//
-	//  * remove after solved
-	time.Sleep(time.Second * 5)
+	// We'll mine csvDelay blocks in order to generate the sweep transaction
+	// of Bob's funding output.
+	if _, err := net.Miner.Node.Generate(csvDelay); err != nil {
+		t.Fatalf("unable to generate blocks: %v", err)
+	}
+
+	_, err = waitForTxInMempool(net.Miner.Node, 10*time.Second)
+	if err != nil {
+		t.Fatalf("unable to find bob's funding output sweep tx: %v", err)
+	}
 
 	// We'll now mine the remaining blocks to cause the HTLC itself to
 	// timeout.
-	if _, err := net.Miner.Node.Generate(defaultBroadcastDelta); err != nil {
+	if _, err := net.Miner.Node.Generate(defaultBroadcastDelta - csvDelay); err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
 
@@ -6712,6 +6718,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// to Carol. As Carol is in hodl mode, she won't settle this HTLC which
 	// opens up the base for out tests.
 	const (
+		csvDelay       = 4
 		finalCltvDelta = 40
 		htlcAmt        = btcutil.Amount(30000)
 	)
@@ -6786,9 +6793,20 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 		t.Fatalf(predErr.Error())
 	}
 
+	// We'll mine csvDelay blocks in order to generate the sweep transaction
+	// of Bob's funding output.
+	if _, err := net.Miner.Node.Generate(csvDelay); err != nil {
+		t.Fatalf("unable to generate blocks: %v", err)
+	}
+
+	_, err = waitForTxInMempool(net.Miner.Node, 10*time.Second)
+	if err != nil {
+		t.Fatalf("unable to find bob's funding output sweep tx: %v", err)
+	}
+
 	// We'll now mine enough blocks for the HTLC to expire. After this, Bob
 	// should hand off the now expired HTLC output to the utxo nursery.
-	if _, err := net.Miner.Node.Generate(finalCltvDelta); err != nil {
+	if _, err := net.Miner.Node.Generate(finalCltvDelta - csvDelay - 1); err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
 
@@ -6830,16 +6848,15 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 
 	// We should also now find a transaction in the mempool, as Bob should
 	// have broadcast his second layer timeout transaction.
-	_, err = waitForTxInMempool(net.Miner.Node, time.Second*10)
+	timeoutTx, err := waitForTxInMempool(net.Miner.Node, 10*time.Second)
 	if err != nil {
-		t.Fatalf("unable to find bob's sweeping transaction")
+		t.Fatalf("unable to find bob's htlc timeout tx: %v", err)
 	}
 
 	// Next, we'll mine an additional block. This should serve to confirm
 	// the second layer timeout transaction.
-	if _, err := net.Miner.Node.Generate(1); err != nil {
-		t.Fatalf("unable to generate block: %v", err)
-	}
+	block := mineBlocks(t, net, 1)[0]
+	assertTxInBlock(t, block, timeoutTx)
 
 	// With the second layer timeout transaction confirmed, Bob should have
 	// cancelled backwards the HTLC that carol sent.
@@ -6888,19 +6905,21 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	}
 
 	// We'll now mine 4 additional blocks. This should be enough for Bob's
-	// CSV timelock to expire, and the sweeping transaction to be
-	// confirmed.
-	if _, err := net.Miner.Node.Generate(4); err != nil {
+	// CSV timelock to expire and the sweeping transaction of the HTLC to be
+	// broadcast.
+	if _, err := net.Miner.Node.Generate(csvDelay); err != nil {
 		t.Fatalf("unable to mine blocks: %v", err)
 	}
 
-	time.Sleep(time.Second * 3)
+	sweepTx, err := waitForTxInMempool(net.Miner.Node, 10*time.Second)
+	if err != nil {
+		t.Fatalf("unable to find bob's htlc sweep tx: %v", err)
+	}
 
 	// We'll then mine a final block which should confirm this second layer
 	// sweep transaction.
-	if _, err := net.Miner.Node.Generate(1); err != nil {
-		t.Fatalf("unable to mine blocks: %v", err)
-	}
+	block = mineBlocks(t, net, 1)[0]
+	assertTxInBlock(t, block, sweepTx)
 
 	// At this point, Bob should no longer show any channels as pending
 	// close.
@@ -6939,7 +6958,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 // channel, then we properly timeout the HTLC on *their* commitment transaction
 // once the timeout has expired. Once we sweep the transaction, we should also
 // cancel back the initial HTLC.
-func testMultHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
+func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	t *harnessTest) {
 
 	timeout := time.Duration(time.Second * 15)
@@ -6954,6 +6973,7 @@ func testMultHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// to Carol. As Carol is in hodl mode, she won't settle this HTLC which
 	// opens up the base for out tests.
 	const (
+		csvDelay       = 4
 		finalCltvDelta = 40
 		htlcAmt        = btcutil.Amount(30000)
 	)
@@ -7021,10 +7041,21 @@ func testMultHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 		t.Fatalf(predErr.Error())
 	}
 
+	// We'll mine csvDelay blocks in order to generate the sweep transaction
+	// of Bob's funding output.
+	if _, err := net.Miner.Node.Generate(csvDelay); err != nil {
+		t.Fatalf("unable to generate blocks: %v", err)
+	}
+
+	_, err = waitForTxInMempool(net.Miner.Node, 10*time.Second)
+	if err != nil {
+		t.Fatalf("unable to find bob's funding output sweep tx: %v", err)
+	}
+
 	// Next, we'll mine enough blocks for the HTLC to expire. At this
 	// point, Bob should hand off the output to his internal utxo nursery,
 	// which will broadcast a sweep transaction.
-	if _, err := net.Miner.Node.Generate(finalCltvDelta - 1); err != nil {
+	if _, err := net.Miner.Node.Generate(finalCltvDelta - csvDelay - 1); err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
 
@@ -7067,7 +7098,7 @@ func testMultHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 
 	// Bob's sweeping transaction should now be found in the mempool at
 	// this point.
-	_, err = waitForTxInMempool(net.Miner.Node, time.Second*10)
+	sweepTx, err := waitForTxInMempool(net.Miner.Node, time.Second*10)
 	if err != nil {
 		// If Bob's transaction isn't yet in the mempool, then due to
 		// internal message passing and the low period between blocks
@@ -7078,18 +7109,17 @@ func testMultHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 		if _, err := net.Miner.Node.Generate(1); err != nil {
 			t.Fatalf("unable to generate block: %v", err)
 		}
-		_, err = waitForTxInMempool(net.Miner.Node, time.Second*10)
+		sweepTx, err = waitForTxInMempool(net.Miner.Node, time.Second*10)
 		if err != nil {
-			t.Fatalf("unable to find bob's sweeping "+
-				"transaction: %v", err)
+			t.Fatalf("unable to find bob's sweeping transaction: "+
+				"%v", err)
 		}
 	}
 
 	// If we mine an additional block, then this should confirm Bob's
 	// transaction which sweeps the direct HTLC output.
-	if _, err := net.Miner.Node.Generate(1); err != nil {
-		t.Fatalf("unable to generate block: %v", err)
-	}
+	block := mineBlocks(t, net, 1)[0]
+	assertTxInBlock(t, block, sweepTx)
 
 	// Now that the sweeping transaction has been confirmed, Bob should
 	// cancel back that HTLC. As a result, Alice should not know of any
@@ -9140,7 +9170,7 @@ var testsCases = []*testCase{
 		// bob: outgoing their commit watch and see timeout
 		// carol: incoming our commit watch and see timeout
 		name: "test multi-hop remote force close on-chain htlc timeout",
-		test: testMultHopRemoteForceCloseOnChainHtlcTimeout,
+		test: testMultiHopRemoteForceCloseOnChainHtlcTimeout,
 	},
 	{
 		// bob: outgoing our commit watch and see, they sweep on chain

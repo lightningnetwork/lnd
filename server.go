@@ -125,6 +125,8 @@ type server struct {
 
 	connMgr *connmgr.ConnManager
 
+	statsd *statsdConnection
+
 	// globalFeatures feature vector which affects HTLCs and thus are also
 	// advertised to other nodes.
 	globalFeatures *lnwire.FeatureVector
@@ -541,6 +543,12 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		return nil, err
 	}
 	s.connMgr = cmgr
+
+	statsd, err := NewStatsdConnection()
+	if err != nil {
+		return nil, err
+	}
+	s.statsd = statsd
 
 	return s, nil
 }

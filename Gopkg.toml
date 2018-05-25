@@ -102,6 +102,10 @@
   name = "gopkg.in/macaroon.v2"
   revision = "bed2a428da6e56d950bed5b41fcbae3141e5b0d0"
 
+[[constraint]]
+  name = "github.com/quipo/statsd"
+  revision = "3d6a5565f3141ac42f8353d97b2c016da2752006"
+
 [prune]
   go-tests = true
   unused-packages = true

@@ -7332,23 +7332,25 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	}
 	assertTxInBlock(t, block, secondLevelHash)
 
-	// If we then mine 4 additional blocks, Bob should pull the output
-	// destined for him.
+	// If we then mine 4 additional blocks, Bob and Carol should sweep the
+	// outputs destined for them.
 	if _, err := net.Miner.Node.Generate(defaultCSV); err != nil {
 		t.Fatalf("unable to generate block: %v", err)
 	}
 
-	_, err = waitForTxInMempool(net.Miner.Node, time.Second*10)
+	sweepTxs, err := waitForNTxsInMempool(net.Miner.Node, 2, time.Second*10)
 	if err != nil {
-		t.Fatalf("unable to find bob's sweeping transaction: %v", err)
+		t.Fatalf("unable to find sweeping transactions: %v", err)
 	}
 
 	// At this point, Bob should detect that he has no pending channels
 	// anymore, as this just resolved it by the confirmation of the sweep
 	// transaction we detected above.
-	if _, err := net.Miner.Node.Generate(1); err != nil {
-		t.Fatalf("unable to generate block: %v", err)
+	block = mineBlocks(t, net, 1)[0]
+	for _, sweepTx := range sweepTxs {
+		assertTxInBlock(t, block, sweepTx)
 	}
+
 	err = lntest.WaitPredicate(func() bool {
 		pendingChanResp, err := net.Bob.PendingChannels(
 			ctxb, pendingChansRequest,

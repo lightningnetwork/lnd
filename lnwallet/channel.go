@@ -1773,9 +1773,12 @@ func (lc *LightningChannel) restoreStateLogs(
 					"%v vs %v", payDesc.HtlcIndex,
 					lc.localUpdateLog.htlcCounter))
 			}
+
 			lc.localUpdateLog.appendHtlc(payDesc)
 		} else {
 			lc.localUpdateLog.appendUpdate(payDesc)
+
+			lc.remoteUpdateLog.markHtlcModified(payDesc.ParentIndex)
 		}
 	}
 

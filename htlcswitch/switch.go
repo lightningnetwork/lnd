@@ -1061,7 +1061,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 					fail.Reason,
 				)
 			}
-		} else {
+		} else if !isFail && circuit.Outgoing != nil {
 			// If this is an HTLC settle, and it wasn't from a
 			// locally initiated HTLC, then we'll log a forwarding
 			// event so we can flush it to disk later.

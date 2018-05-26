@@ -330,6 +330,7 @@ func (c *ChainArbitrator) Start() error {
 	// ChannelArbitrator.
 	for _, channel := range openChannels {
 		chanPoint := channel.FundingOutpoint
+		channel := channel
 
 		// First, we'll create an active chainWatcher for this channel
 		// to ensure that we detect any relevant on chain events.
@@ -340,9 +341,22 @@ func (c *ChainArbitrator) Start() error {
 				pCache:    c.cfg.PreimageDB,
 				signer:    c.cfg.Signer,
 				isOurAddr: c.cfg.IsOurAddress,
-				markChanClosed: func() error {
-					// TODO(roasbeef): also need to pass in log?
-					return c.resolveContract(chanPoint, nil)
+				notifyChanClosed: func() error {
+					c.Lock()
+					delete(c.activeChannels, chanPoint)
+
+					chainWatcher, ok := c.activeWatchers[chanPoint]
+					if ok {
+						// Since the chainWatcher is
+						// calling notifyChanClosed, we
+						// must stop it in a goroutine
+						// to not deadlock.
+						go chainWatcher.Stop()
+					}
+					delete(c.activeWatchers, chanPoint)
+					c.Unlock()
+
+					return nil
 				},
 				contractBreach: func(retInfo *lnwallet.BreachRetribution) error {
 					return c.cfg.ContractBreach(chanPoint, retInfo)
@@ -378,11 +392,17 @@ func (c *ChainArbitrator) Start() error {
 	}
 
 	// Next, for each channel is the closing state, we'll launch a
-	// corresponding more restricted resolver.
+	// corresponding more restricted resolver, as we don't have to watch
+	// the chain any longer, only resolve the contracts on the confirmed
+	// commitment.
 	for _, closeChanInfo := range closingChannels {
 		// If this is a pending cooperative close channel then we'll
 		// simply launch a goroutine to wait until the closing
 		// transaction has been confirmed.
+		// TODO(halseth): can remove this since no coop close channels
+		// should be "pending close" after the recent changes. Keeping
+		// it for a bit in case someone with a coop close channel in
+		// the pending close state upgrades to the new commit.
 		if closeChanInfo.CloseType == channeldb.CooperativeClose {
 			go c.watchForChannelClose(closeChanInfo)
 
@@ -676,8 +696,21 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 			pCache:    c.cfg.PreimageDB,
 			signer:    c.cfg.Signer,
 			isOurAddr: c.cfg.IsOurAddress,
-			markChanClosed: func() error {
-				return c.resolveContract(chanPoint, nil)
+			notifyChanClosed: func() error {
+				c.Lock()
+				delete(c.activeChannels, chanPoint)
+
+				chainWatcher, ok := c.activeWatchers[chanPoint]
+				if ok {
+					// Since the chainWatcher is calling
+					// notifyChanClosed, we must stop it in
+					// a goroutine to not deadlock.
+					go chainWatcher.Stop()
+				}
+				delete(c.activeWatchers, chanPoint)
+				c.Unlock()
+
+				return nil
 			},
 			contractBreach: func(retInfo *lnwallet.BreachRetribution) error {
 				return c.cfg.ContractBreach(chanPoint, retInfo)
@@ -734,21 +767,6 @@ func (c *ChainArbitrator) SubscribeChannelEvents(
 	// With the watcher located, we'll request for it to create a new chain
 	// event subscription client.
 	return watcher.SubscribeChannelEvents(), nil
-}
-
-// BeginCoopChanClose allows the initiator or responder to a cooperative
-// channel closure to signal to the ChainArbitrator that we're starting close
-// negotiation. The caller can use this context to allow the underlying chain
-// watcher to be prepared to act if *any* of the transactions that may
-// potentially be signed off on during fee negotiation are confirmed.
-func (c *ChainArbitrator) BeginCoopChanClose(chanPoint wire.OutPoint) (*CooperativeCloseCtx, error) {
-	watcher, ok := c.activeWatchers[chanPoint]
-	if !ok {
-		return nil, fmt.Errorf("unable to find watcher for: %v",
-			chanPoint)
-	}
-
-	return watcher.BeginCooperativeClose(), nil
 }
 
 // TODO(roasbeef): arbitration reports

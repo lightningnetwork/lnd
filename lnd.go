@@ -118,7 +118,7 @@ func lndMain() error {
 		network = "mainnet"
 
 	case cfg.Bitcoin.SimNet:
-		network = "simmnet"
+		network = "simnet"
 
 	case cfg.Bitcoin.RegTest:
 		network = "regtest"
@@ -570,7 +570,20 @@ func lndMain() error {
 		ltndLog.Infof("Waiting for chain backend to finish sync, "+
 			"start_height=%v", bestHeight)
 
+		// We'll add an interrupt handler in order to process shutdown
+		// requests while the chain backend syncs.
+		addInterruptHandler(func() {
+			rpcServer.Stop()
+			fundingMgr.Stop()
+		})
+
 		for {
+			select {
+			case <-shutdownChannel:
+				return nil
+			default:
+			}
+
 			synced, _, err := activeChainControl.wallet.IsSynced()
 			if err != nil {
 				return err
@@ -617,16 +630,12 @@ func lndMain() error {
 	}
 
 	addInterruptHandler(func() {
-		ltndLog.Infof("Gracefully shutting down the server...")
 		rpcServer.Stop()
 		fundingMgr.Stop()
-		server.Stop()
-
 		if pilot != nil {
 			pilot.Stop()
 		}
-
-		server.WaitForShutdown()
+		server.Stop()
 	})
 
 	// Wait for shutdown signal from either a graceful server stop or from
@@ -791,8 +800,9 @@ func genCertPair(certFile, keyFile string) error {
 	return nil
 }
 
-// genMacaroons generates a pair of macaroon files; one admin-level and one
-// read-only. These can also be used to generate more granular macaroons.
+// genMacaroons generates three macaroon files; one admin-level, one
+// for invoice access and one read-only. These can also be used
+// to generate more granular macaroons.
 func genMacaroons(ctx context.Context, svc *macaroons.Service,
 	admFile, roFile, invoiceFile string) error {
 

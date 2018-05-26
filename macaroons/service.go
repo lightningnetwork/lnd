@@ -85,7 +85,9 @@ func isRegistered(c *checkers.Checker, name string) bool {
 	}
 
 	for _, info := range c.Info() {
-		if info.Name == name && info.Prefix == "std" {
+		if info.Name == name &&
+			info.Prefix == "" &&
+			info.Namespace == "std" {
 			return true
 		}
 	}

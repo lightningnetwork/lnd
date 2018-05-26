@@ -1340,10 +1340,10 @@ func NewLightningChannel(signer Signer, pCache PreimageCache,
 	// First, initialize the update logs with their current counter values
 	// from the local and remote commitments.
 	localUpdateLog := newUpdateLog(
-		localCommit.LocalLogIndex, localCommit.LocalHtlcIndex,
+		remoteCommit.LocalLogIndex, remoteCommit.LocalHtlcIndex,
 	)
 	remoteUpdateLog := newUpdateLog(
-		remoteCommit.RemoteLogIndex, remoteCommit.RemoteHtlcIndex,
+		localCommit.RemoteLogIndex, localCommit.RemoteHtlcIndex,
 	)
 
 	lc := &LightningChannel{
@@ -1692,27 +1692,17 @@ func (lc *LightningChannel) restoreStateLogs(
 	pendingRemoteCommitDiff *channeldb.CommitDiff,
 	pendingRemoteKeys *CommitmentKeyRing) error {
 
-	// For each HTLC within the local commitment, we add it to the relevant
-	// update logc based on if it's incoming vs outgoing. For any incoming
-	// HTLC's, we also re-add it to the rHashMap so we can quickly look it
-	// up.
+	// For each incoming HTLC within the local commitment, we add it to the
+	// remote update log. Since HTLCs are added first to the receiver's
+	// commitment, we don't have to restore outgoing HTLCs, as they will be
+	// restored from the remote commitment below.
 	for i := range localCommitment.incomingHTLCs {
 		htlc := localCommitment.incomingHTLCs[i]
 		lc.remoteUpdateLog.restoreHtlc(&htlc)
 	}
-	for i := range localCommitment.outgoingHTLCs {
-		htlc := localCommitment.outgoingHTLCs[i]
-		lc.localUpdateLog.restoreHtlc(&htlc)
-	}
 
-	// We'll also do the same for the HTLC"s within the remote commitment
-	// party. We also insert these HTLC's as it's possible our state has
-	// diverged slightly in the case of a congruent update from both sides.
-	// The restoreHtlc method will de-dup the HTLC's to handle this case.
-	for i := range remoteCommitment.incomingHTLCs {
-		htlc := remoteCommitment.incomingHTLCs[i]
-		lc.remoteUpdateLog.restoreHtlc(&htlc)
-	}
+	// Similarly, we'll do the same for the outgoing HTLCs within the
+	// remote commitment, adding them to the local update log.
 	for i := range remoteCommitment.outgoingHTLCs {
 		htlc := remoteCommitment.outgoingHTLCs[i]
 		lc.localUpdateLog.restoreHtlc(&htlc)
@@ -1723,22 +1713,6 @@ func (lc *LightningChannel) restoreStateLogs(
 	if pendingRemoteCommit == nil {
 		return nil
 	}
-
-	// If we do have a dangling commitment for the remote party, then we'll
-	// also restore into the log any incoming HTLC's offered by them. Any
-	// outgoing HTLC's that were initially committed in this new state will
-	// be restored below.
-	for i := range pendingRemoteCommit.incomingHTLCs {
-		htlc := pendingRemoteCommit.incomingHTLCs[i]
-		lc.remoteUpdateLog.restoreHtlc(&htlc)
-	}
-
-	// We'll also update the log counters to match the latest known
-	// counters in this dangling commitment. Otherwise, our updateLog would
-	// have dated counters as it was initially created using their lowest
-	// unrevoked commitment.
-	lc.remoteUpdateLog.logIndex = pendingRemoteCommit.theirMessageIndex
-	lc.remoteUpdateLog.htlcCounter = pendingRemoteCommit.theirHtlcIndex
 
 	pendingCommit := pendingRemoteCommitDiff.Commitment
 	pendingHeight := pendingCommit.CommitHeight
@@ -2363,6 +2337,26 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 	// ordering. This lets us skip sending the entire transaction over,
 	// instead we'll just send signatures.
 	txsort.InPlaceSort(commitTx)
+
+	// Next, we'll ensure that we don't accidentally create a commitment
+	// transaction which would be invalid by consensus.
+	uTx := btcutil.NewTx(commitTx)
+	if err := blockchain.CheckTransactionSanity(uTx); err != nil {
+		return err
+	}
+
+	// Finally, we'll assert that were not attempting to draw more out of
+	// the channel that was originally placed within it.
+	var totalOut btcutil.Amount
+	for _, txOut := range commitTx.TxOut {
+		totalOut += btcutil.Amount(txOut.Value)
+	}
+	if totalOut > lc.channelState.Capacity {
+		return fmt.Errorf("height=%v, for ChannelPoint(%v) attempts "+
+			"to consume %v while channel capacity is %v",
+			c.height, lc.channelState.FundingOutpoint,
+			totalOut, lc.channelState.Capacity)
+	}
 
 	c.txn = commitTx
 	c.fee = commitFee
@@ -5586,13 +5580,6 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig []byte,
 	return closeTx, ourBalance, nil
 }
 
-// DeleteState deletes all state concerning the channel from the underlying
-// database, only leaving a small summary describing metadata of the
-// channel's lifetime.
-func (lc *LightningChannel) DeleteState(c *channeldb.ChannelCloseSummary) error {
-	return lc.channelState.CloseChannel(c)
-}
-
 // AvailableBalance returns the current available balance within the channel.
 // By available balance, we mean that if at this very instance s new commitment
 // were to be created which evals all the log entries, what would our available
@@ -5821,13 +5808,6 @@ func CreateCommitTx(fundingOutput wire.TxIn,
 		})
 	}
 
-	// Finally, we'll ensure that we don't accidentally create a commitment
-	// transaction which would be invalid by consensus.
-	uTx := btcutil.NewTx(commitTx)
-	if err := blockchain.CheckTransactionSanity(uTx); err != nil {
-		return nil, err
-	}
-
 	return commitTx, nil
 }
 
@@ -5914,6 +5894,16 @@ func (lc *LightningChannel) IsPending() bool {
 // State provides access to the channel's internal state for testing.
 func (lc *LightningChannel) State() *channeldb.OpenChannel {
 	return lc.channelState
+}
+
+// MarkCommitmentBroadcasted marks the channel as a commitment transaction has
+// been broadcast, either our own or the remote, and we should watch the chain
+// for it to confirm before taking any further action.
+func (lc *LightningChannel) MarkCommitmentBroadcasted() error {
+	lc.Lock()
+	defer lc.Unlock()
+
+	return lc.channelState.MarkCommitmentBroadcasted()
 }
 
 // ActiveHtlcs returns a slice of HTLC's which are currently active on *both*

@@ -216,7 +216,7 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest,
 	chanPointStr := fmt.Sprintf("%v:%v", txid, fundingChanPoint.OutputIndex)
 
 	// If we didn't force close the transaction, at this point, the channel
-	// should now be marked as being in the state of "pending close".
+	// should now be marked as being in the state of "waiting close".
 	if !force {
 		pendingChansRequest := &lnrpc.PendingChannelsRequest{}
 		pendingChanResp, err := node.PendingChannels(ctx, pendingChansRequest)
@@ -224,14 +224,14 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest,
 			t.Fatalf("unable to query for pending channels: %v", err)
 		}
 		var found bool
-		for _, pendingClose := range pendingChanResp.PendingClosingChannels {
+		for _, pendingClose := range pendingChanResp.WaitingCloseChannels {
 			if pendingClose.Channel.ChannelPoint == chanPointStr {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Fatalf("channel not marked as pending close")
+			t.Fatalf("channel not marked as waiting close")
 		}
 	}
 
@@ -247,7 +247,7 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest,
 
 	assertTxInBlock(t, block, closingTxid)
 
-	// Finally, the transaction should no longer be in the pending close
+	// Finally, the transaction should no longer be in the waiting close
 	// state as we've just mined a block that should include the closing
 	// transaction. This only applies for co-op close channels though.
 	if !force {
@@ -260,7 +260,7 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest,
 				return false
 			}
 
-			for _, pendingClose := range pendingChanResp.PendingClosingChannels {
+			for _, pendingClose := range pendingChanResp.WaitingCloseChannels {
 				if pendingClose.Channel.ChannelPoint == chanPointStr {
 					return false
 				}
@@ -623,7 +623,7 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	timeout := time.Duration(time.Second * 5)
 	ctxb := context.Background()
 
-	chanAmt := maxFundingAmount
+	chanAmt := maxBtcFundingAmount
 	pushAmt := btcutil.Amount(100000)
 
 	// First establish a channel with a capacity of 0.5 BTC between Alice
@@ -688,7 +688,7 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	bobUpdates, bQuit := subscribeGraphNotifications(t, ctxb, net.Bob)
 	defer close(bQuit)
 
-	chanAmt := maxFundingAmount
+	chanAmt := maxBtcFundingAmount
 	pushAmt := btcutil.Amount(100000)
 
 	// Create a channel Alice->Bob.
@@ -1057,7 +1057,7 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Create a new channel that requires 1 confs before it's considered
 	// open, then broadcast the funding transaction
-	chanAmt := maxFundingAmount
+	chanAmt := maxBtcFundingAmount
 	pushAmt := btcutil.Amount(0)
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	pendingUpdate, err := net.OpenPendingChannel(ctxt, net.Alice, net.Bob,
@@ -1193,7 +1193,7 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 	// Check existing connection.
 	assertNumConnections(ctxb, t, net.Alice, net.Bob, 1)
 
-	chanAmt := maxFundingAmount
+	chanAmt := maxBtcFundingAmount
 	pushAmt := btcutil.Amount(0)
 
 	timeout := time.Duration(time.Second * 10)
@@ -1329,7 +1329,7 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
-	chanAmt := maxFundingAmount
+	chanAmt := maxBtcFundingAmount
 	pushAmt := btcutil.Amount(0)
 
 	timeout := time.Duration(time.Second * 10)
@@ -1463,7 +1463,7 @@ func testChannelBalance(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Open a channel with 0.16 BTC between Alice and Bob, ensuring the
 	// channel has been opened properly.
-	amount := maxFundingAmount
+	amount := maxBtcFundingAmount
 	ctx, _ := context.WithTimeout(context.Background(), timeout)
 
 	// Creates a helper closure to be used below which asserts the proper
@@ -3848,7 +3848,7 @@ func testBasicChannelCreation(net *lntest.NetworkHarness, t *harnessTest) {
 	const (
 		numChannels = 2
 		timeout     = time.Duration(time.Second * 5)
-		amount      = maxFundingAmount
+		amount      = maxBtcFundingAmount
 	)
 
 	// Open the channel between Alice and Bob, asserting that the
@@ -3874,7 +3874,7 @@ func testBasicChannelCreation(net *lntest.NetworkHarness, t *harnessTest) {
 // exists and works properly.
 func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	maxPendingChannels := defaultMaxPendingChannels + 1
-	amount := maxFundingAmount
+	amount := maxBtcFundingAmount
 
 	timeout := time.Duration(time.Second * 10)
 	ctx, _ := context.WithTimeout(context.Background(), timeout)
@@ -4009,38 +4009,23 @@ func copyFile(dest, src string) error {
 	return d.Close()
 }
 
+// waitForTxInMempool polls until finding one transaction in the provided
+// miner's mempool. An error is returned if *one* transaction isn't found within
+// the given timeout.
 func waitForTxInMempool(miner *rpcclient.Client,
 	timeout time.Duration) (*chainhash.Hash, error) {
 
-	var txid *chainhash.Hash
-	breakTimeout := time.After(timeout)
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-poll:
-	for {
-		select {
-		case <-breakTimeout:
-			return nil, errors.New("no tx found in mempool")
-		case <-ticker.C:
-			mempool, err := miner.GetRawMempool()
-			if err != nil {
-				return nil, err
-			}
-
-			if len(mempool) == 0 {
-				continue
-			}
-
-			txid = mempool[0]
-			break poll
-		}
+	txs, err := waitForNTxsInMempool(miner, 1, timeout)
+	if err != nil {
+		return nil, err
 	}
-	return txid, nil
+
+	return txs[0], err
 }
 
 // waitForNTxsInMempool polls until finding the desired number of transactions
-// in the provided miner's mempool. An error is returned if the this number is
-// not met after the given timeout.
+// in the provided miner's mempool. An error is returned if this number is not
+// met after the given timeout.
 func waitForNTxsInMempool(miner *rpcclient.Client, n int,
 	timeout time.Duration) ([]*chainhash.Hash, error) {
 
@@ -4054,7 +4039,7 @@ func waitForNTxsInMempool(miner *rpcclient.Client, n int,
 		select {
 		case <-breakTimeout:
 			return nil, fmt.Errorf("wanted %v, found %v txs "+
-				"in mempool", n, len(mempool))
+				"in mempool: %v", n, len(mempool), mempool)
 		case <-ticker.C:
 			mempool, err = miner.GetRawMempool()
 			if err != nil {
@@ -4068,6 +4053,200 @@ func waitForNTxsInMempool(miner *rpcclient.Client, n int,
 	}
 }
 
+// testFailingChannel tests that we will fail the channel by force closing ii
+// in the case where a counterparty tries to settle an HTLC with the wrong
+// preimage.
+func testFailingChannel(net *lntest.NetworkHarness, t *harnessTest) {
+	ctxb := context.Background()
+	const (
+		timeout    = time.Duration(time.Second * 10)
+		paymentAmt = 10000
+		defaultCSV = 4
+	)
+
+	chanAmt := maxFundingAmount
+
+	// We'll introduce Carol, which will settle any incoming invoice with a
+	// totally unrelated preimage.
+	carol, err := net.NewNode("Carol",
+		[]string{"--debughtlc", "--hodl.bogus-settle"})
+	if err != nil {
+		t.Fatalf("unable to create new nodes: %v", err)
+	}
+
+	// Let Alice connect and open a channel to Carol,
+	if err := net.ConnectNodes(ctxb, net.Alice, carol); err != nil {
+		t.Fatalf("unable to connect alice to carol: %v", err)
+	}
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	chanPoint := openChannelAndAssert(
+		ctxt, t, net, net.Alice, carol, chanAmt, 0, false,
+	)
+
+	// With the channel open, we'll create a invoice for Carol that Alice
+	// will attempt to pay.
+	preimage := bytes.Repeat([]byte{byte(192)}, 32)
+	invoice := &lnrpc.Invoice{
+		Memo:      "testing",
+		RPreimage: preimage,
+		Value:     paymentAmt,
+	}
+	resp, err := carol.AddInvoice(ctxb, invoice)
+	if err != nil {
+		t.Fatalf("unable to add invoice: %v", err)
+	}
+	carolPayReqs := []string{resp.PaymentRequest}
+
+	// Wait for Alice to receive the channel edge from the funding manager.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	if err != nil {
+		t.Fatalf("alice didn't see the alice->carol channel before "+
+			"timeout: %v", err)
+	}
+
+	// Send the payment from Alice to Carol. We expect Carol to attempt to
+	// settle this payment with the wrong preimage.
+	err = completePaymentRequests(ctxb, net.Alice, carolPayReqs, false)
+	if err != nil {
+		t.Fatalf("unable to send payments: %v", err)
+	}
+
+	// Since Alice detects that Carol is trying to trick her by providing a
+	// fake preimage, she should fail and force close the channel.
+	var predErr error
+	err = lntest.WaitPredicate(func() bool {
+		pendingChansRequest := &lnrpc.PendingChannelsRequest{}
+		pendingChanResp, err := net.Alice.PendingChannels(ctxb,
+			pendingChansRequest)
+		if err != nil {
+			predErr = fmt.Errorf("unable to query for pending "+
+				"channels: %v", err)
+			return false
+		}
+		n := len(pendingChanResp.WaitingCloseChannels)
+		if n != 1 {
+			predErr = fmt.Errorf("Expected to find %d channels "+
+				"waiting close, found %d", 1, n)
+			return false
+		}
+		return true
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf("%v", predErr)
+	}
+
+	// Mine a block to confirm the broadcasted commitment.
+	block := mineBlocks(t, net, 1)[0]
+	if len(block.Transactions) != 2 {
+		t.Fatalf("transaction wasn't mined")
+	}
+
+	// The channel should now show up as force closed both for Alice and
+	// Carol.
+	err = lntest.WaitPredicate(func() bool {
+		pendingChansRequest := &lnrpc.PendingChannelsRequest{}
+		pendingChanResp, err := net.Alice.PendingChannels(ctxb,
+			pendingChansRequest)
+		if err != nil {
+			predErr = fmt.Errorf("unable to query for pending "+
+				"channels: %v", err)
+			return false
+		}
+		n := len(pendingChanResp.WaitingCloseChannels)
+		if n != 0 {
+			predErr = fmt.Errorf("Expected to find %d channels "+
+				"waiting close, found %d", 0, n)
+			return false
+		}
+		n = len(pendingChanResp.PendingForceClosingChannels)
+		if n != 1 {
+			predErr = fmt.Errorf("expected to find %d channel "+
+				"pending force close, found %d", 1, n)
+			return false
+		}
+		return true
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf("%v", predErr)
+	}
+
+	err = lntest.WaitPredicate(func() bool {
+		pendingChansRequest := &lnrpc.PendingChannelsRequest{}
+		pendingChanResp, err := carol.PendingChannels(ctxb,
+			pendingChansRequest)
+		if err != nil {
+			predErr = fmt.Errorf("unable to query for pending "+
+				"channels: %v", err)
+			return false
+		}
+		n := len(pendingChanResp.PendingForceClosingChannels)
+		if n != 1 {
+			predErr = fmt.Errorf("expected to find %d channel "+
+				"pending force close, found %d", 1, n)
+			return false
+		}
+		return true
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf("%v", predErr)
+	}
+
+	// Carol will use the correct preimage to resolve the HTLC on-chain.
+	_, err = waitForTxInMempool(net.Miner.Node, 5*time.Second)
+	if err != nil {
+		t.Fatalf("unable to find Bob's breach tx in mempool: %v", err)
+	}
+
+	// Mine enough blocks for Alice to sweep her funds from the force
+	// closed channel.
+	_, err = net.Miner.Node.Generate(defaultCSV)
+	if err != nil {
+		t.Fatalf("unable to generate blocks: %v", err)
+	}
+
+	// Wait for the sweeping tx to be broadcast.
+	_, err = waitForTxInMempool(net.Miner.Node, 5*time.Second)
+	if err != nil {
+		t.Fatalf("unable to find Bob's breach tx in mempool: %v", err)
+	}
+
+	// Mine the sweep.
+	_, err = net.Miner.Node.Generate(1)
+	if err != nil {
+		t.Fatalf("unable to generate blocks: %v", err)
+	}
+
+	// No pending channels should be left.
+	err = lntest.WaitPredicate(func() bool {
+		pendingChansRequest := &lnrpc.PendingChannelsRequest{}
+		pendingChanResp, err := net.Alice.PendingChannels(ctxb,
+			pendingChansRequest)
+		if err != nil {
+			predErr = fmt.Errorf("unable to query for pending "+
+				"channels: %v", err)
+			return false
+		}
+		n := len(pendingChanResp.PendingForceClosingChannels)
+		if n != 0 {
+			predErr = fmt.Errorf("expected to find %d channel "+
+				"pending force close, found %d", 0, n)
+			return false
+		}
+		return true
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf("%v", predErr)
+	}
+
+	// Finally, shutdown the node we created for the duration of the tests,
+	// only leaving the two seed nodes (Alice and Bob) within our test
+	// network.
+	if err := net.ShutdownNode(carol); err != nil {
+		t.Fatalf("unable to shutdown carol: %v", err)
+	}
+}
+
 // testRevokedCloseRetribution tests that Alice is able carry out
 // retribution in the event that she fails immediately after detecting Bob's
 // breach txn in the mempool.
@@ -4075,7 +4254,7 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 	const (
 		timeout     = time.Duration(time.Second * 10)
-		chanAmt     = maxFundingAmount
+		chanAmt     = maxBtcFundingAmount
 		paymentAmt  = 10000
 		numInvoices = 6
 	)
@@ -4321,7 +4500,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 	ctxb := context.Background()
 	const (
 		timeout     = time.Duration(time.Second * 10)
-		chanAmt     = maxFundingAmount
+		chanAmt     = maxBtcFundingAmount
 		paymentAmt  = 10000
 		numInvoices = 6
 	)
@@ -4553,7 +4732,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	ctxb := context.Background()
 	const (
 		timeout     = time.Duration(time.Second * 10)
-		chanAmt     = maxFundingAmount
+		chanAmt     = maxBtcFundingAmount
 		pushAmt     = 200000
 		paymentAmt  = 10000
 		numInvoices = 6
@@ -4590,7 +4769,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 
 	// In order to test Dave's response to an uncooperative channel closure
 	// by Carol, we'll first open up a channel between them with a
-	// maxFundingAmount (2^24) satoshis value.
+	// maxBtcFundingAmount (2^24) satoshis value.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPoint := openChannelAndAssert(
 		ctxt, t, net, dave, carol, chanAmt, pushAmt, false,
@@ -4985,7 +5164,7 @@ func testHtlcErrorPropagation(net *lntest.NetworkHarness, t *harnessTest) {
 	timeout := time.Duration(time.Second * 15)
 	ctxb := context.Background()
 
-	const chanAmt = maxFundingAmount
+	const chanAmt = maxBtcFundingAmount
 
 	// First establish a channel with a capacity of 0.5 BTC between Alice
 	// and Bob.
@@ -5034,7 +5213,7 @@ func testHtlcErrorPropagation(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to connect bob to carol: %v", err)
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	const bobChanAmt = maxFundingAmount
+	const bobChanAmt = maxBtcFundingAmount
 	chanPointBob := openChannelAndAssert(
 		ctxt, t, net, net.Bob, carol, chanAmt, 0, false,
 	)
@@ -5315,7 +5494,7 @@ func subscribeGraphNotifications(t *harnessTest, ctxb context.Context,
 }
 
 func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) {
-	const chanAmt = maxFundingAmount
+	const chanAmt = maxBtcFundingAmount
 	timeout := time.Duration(time.Second * 5)
 	ctxb := context.Background()
 
@@ -5513,15 +5692,17 @@ func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) 
 // announced to the network and reported in the network graph.
 func testNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
+	aliceUpdates, quit := subscribeGraphNotifications(t, ctxb, net.Alice)
+	defer close(quit)
 
-	ipAddresses := map[string]bool{
-		"192.168.1.1:8333":                            true,
-		"[2001:db8:85a3:8d3:1319:8a2e:370:7348]:8337": true,
+	advertisedAddrs := []string{
+		"192.168.1.1:8333",
+		"[2001:db8:85a3:8d3:1319:8a2e:370:7348]:8337",
 	}
 
 	var lndArgs []string
-	for address := range ipAddresses {
-		lndArgs = append(lndArgs, "--externalip="+address)
+	for _, addr := range advertisedAddrs {
+		lndArgs = append(lndArgs, "--externalip="+addr)
 	}
 
 	dave, err := net.NewNode("Dave", lndArgs)
@@ -5541,42 +5722,48 @@ func testNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 		ctxt, t, net, net.Bob, dave, 1000000, 0, false,
 	)
 
-	// When Alice now connects with Dave, Alice will get his node announcement.
+	// When Alice now connects with Dave, Alice will get his node
+	// announcement.
 	if err := net.ConnectNodes(ctxb, net.Alice, dave); err != nil {
 		t.Fatalf("unable to connect bob to carol: %v", err)
 	}
 
-	time.Sleep(time.Second * 1)
-	req := &lnrpc.ChannelGraphRequest{}
-	chanGraph, err := net.Alice.DescribeGraph(ctxb, req)
-	if err != nil {
-		t.Fatalf("unable to query for alice's routing table: %v", err)
-	}
+	assertAddrs := func(addrsFound []string, targetAddrs ...string) {
+		addrs := make(map[string]struct{}, len(addrsFound))
+		for _, addr := range addrsFound {
+			addrs[addr] = struct{}{}
+		}
 
-	for _, node := range chanGraph.Nodes {
-		if node.PubKey == dave.PubKeyStr {
-			for _, address := range node.Addresses {
-				addrStr := address.String()
-
-				// parse the IP address from the string
-				// representation of the TCPAddr
-				parts := strings.Split(addrStr, "\"")
-				if ipAddresses[parts[3]] {
-					delete(ipAddresses, parts[3])
-				} else {
-					if !strings.HasPrefix(parts[3],
-						"127.0.0.1:") {
-						t.Fatalf("unexpected IP: %v",
-							parts[3])
-					}
-				}
+		for _, addr := range targetAddrs {
+			if _, ok := addrs[addr]; !ok {
+				t.Fatalf("address %v not found in node "+
+					"announcement", addr)
 			}
 		}
 	}
-	if len(ipAddresses) != 0 {
-		t.Fatalf("expected IP addresses not in channel "+
-			"graph: %v", ipAddresses)
+
+	waitForAddrsInUpdate := func(graphUpdates <-chan *lnrpc.GraphTopologyUpdate,
+		nodePubKey string, targetAddrs ...string) {
+
+		for {
+			select {
+			case graphUpdate := <-graphUpdates:
+				for _, update := range graphUpdate.NodeUpdates {
+					if update.IdentityKey == nodePubKey {
+						assertAddrs(
+							update.Addresses,
+							targetAddrs...,
+						)
+						return
+					}
+				}
+			case <-time.After(20 * time.Second):
+				t.Fatalf("did not receive node ann update")
+			}
+		}
 	}
+
+	waitForAddrsInUpdate(aliceUpdates, dave.PubKeyStr, advertisedAddrs...)
 
 	// Close the channel between Bob and Dave.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
@@ -5591,7 +5778,7 @@ func testNodeSignVerify(net *lntest.NetworkHarness, t *harnessTest) {
 	timeout := time.Duration(time.Second * 15)
 	ctxb := context.Background()
 
-	chanAmt := maxFundingAmount
+	chanAmt := maxBtcFundingAmount
 	pushAmt := btcutil.Amount(100000)
 
 	// Create a channel between alice and bob.
@@ -6271,6 +6458,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 		dustHtlcAmt    = btcutil.Amount(100)
 		htlcAmt        = btcutil.Amount(30000)
 		finalCltvDelta = 40
+		csvDelay       = 4
 	)
 	alicePayStream, err := net.Alice.SendPayment(ctxb)
 	if err != nil {
@@ -6360,15 +6548,20 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
-	// TODO(roasbeef): need to fix utxn so it can accept incubation for
-	// timeout that has already past
-	//
-	//  * remove after solved
-	time.Sleep(time.Second * 5)
+	// We'll mine csvDelay blocks in order to generate the sweep transaction
+	// of Bob's funding output.
+	if _, err := net.Miner.Node.Generate(csvDelay); err != nil {
+		t.Fatalf("unable to generate blocks: %v", err)
+	}
+
+	_, err = waitForTxInMempool(net.Miner.Node, 10*time.Second)
+	if err != nil {
+		t.Fatalf("unable to find bob's funding output sweep tx: %v", err)
+	}
 
 	// We'll now mine the remaining blocks to cause the HTLC itself to
 	// timeout.
-	if _, err := net.Miner.Node.Generate(defaultBroadcastDelta); err != nil {
+	if _, err := net.Miner.Node.Generate(defaultBroadcastDelta - csvDelay); err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
 
@@ -6433,7 +6626,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	_, err = waitForTxInMempool(net.Miner.Node, time.Second*10)
 	if err != nil {
-		t.Fatalf("unable to find bob's sweeping transaction")
+		t.Fatalf("unable to find bob's sweeping transaction: %v", err)
 	}
 
 	// Next, we'll mine a final block that should confirm the second-layer
@@ -6661,7 +6854,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	// We should have a new transaction in the mempool.
 	_, err = waitForTxInMempool(net.Miner.Node, time.Second*10)
 	if err != nil {
-		t.Fatalf("unable to find bob's sweeping transaction")
+		t.Fatalf("unable to find bob's sweeping transaction: %v", err)
 	}
 
 	// Finally, if we mine an additional block to confirm these two sweep
@@ -6719,6 +6912,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// to Carol. As Carol is in hodl mode, she won't settle this HTLC which
 	// opens up the base for out tests.
 	const (
+		csvDelay       = 4
 		finalCltvDelta = 40
 		htlcAmt        = btcutil.Amount(30000)
 	)
@@ -6793,9 +6987,20 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 		t.Fatalf(predErr.Error())
 	}
 
+	// We'll mine csvDelay blocks in order to generate the sweep transaction
+	// of Bob's funding output.
+	if _, err := net.Miner.Node.Generate(csvDelay); err != nil {
+		t.Fatalf("unable to generate blocks: %v", err)
+	}
+
+	_, err = waitForTxInMempool(net.Miner.Node, 10*time.Second)
+	if err != nil {
+		t.Fatalf("unable to find bob's funding output sweep tx: %v", err)
+	}
+
 	// We'll now mine enough blocks for the HTLC to expire. After this, Bob
 	// should hand off the now expired HTLC output to the utxo nursery.
-	if _, err := net.Miner.Node.Generate(finalCltvDelta); err != nil {
+	if _, err := net.Miner.Node.Generate(finalCltvDelta - csvDelay - 1); err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
 
@@ -6837,16 +7042,15 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 
 	// We should also now find a transaction in the mempool, as Bob should
 	// have broadcast his second layer timeout transaction.
-	_, err = waitForTxInMempool(net.Miner.Node, time.Second*10)
+	timeoutTx, err := waitForTxInMempool(net.Miner.Node, 10*time.Second)
 	if err != nil {
-		t.Fatalf("unable to find bob's sweeping transaction")
+		t.Fatalf("unable to find bob's htlc timeout tx: %v", err)
 	}
 
 	// Next, we'll mine an additional block. This should serve to confirm
 	// the second layer timeout transaction.
-	if _, err := net.Miner.Node.Generate(1); err != nil {
-		t.Fatalf("unable to generate block: %v", err)
-	}
+	block := mineBlocks(t, net, 1)[0]
+	assertTxInBlock(t, block, timeoutTx)
 
 	// With the second layer timeout transaction confirmed, Bob should have
 	// cancelled backwards the HTLC that carol sent.
@@ -6895,19 +7099,21 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	}
 
 	// We'll now mine 4 additional blocks. This should be enough for Bob's
-	// CSV timelock to expire, and the sweeping transaction to be
-	// confirmed.
-	if _, err := net.Miner.Node.Generate(4); err != nil {
+	// CSV timelock to expire and the sweeping transaction of the HTLC to be
+	// broadcast.
+	if _, err := net.Miner.Node.Generate(csvDelay); err != nil {
 		t.Fatalf("unable to mine blocks: %v", err)
 	}
 
-	time.Sleep(time.Second * 3)
+	sweepTx, err := waitForTxInMempool(net.Miner.Node, 10*time.Second)
+	if err != nil {
+		t.Fatalf("unable to find bob's htlc sweep tx: %v", err)
+	}
 
 	// We'll then mine a final block which should confirm this second layer
 	// sweep transaction.
-	if _, err := net.Miner.Node.Generate(1); err != nil {
-		t.Fatalf("unable to mine blocks: %v", err)
-	}
+	block = mineBlocks(t, net, 1)[0]
+	assertTxInBlock(t, block, sweepTx)
 
 	// At this point, Bob should no longer show any channels as pending
 	// close.
@@ -6946,7 +7152,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 // channel, then we properly timeout the HTLC on *their* commitment transaction
 // once the timeout has expired. Once we sweep the transaction, we should also
 // cancel back the initial HTLC.
-func testMultHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
+func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	t *harnessTest) {
 
 	timeout := time.Duration(time.Second * 15)
@@ -6961,6 +7167,7 @@ func testMultHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// to Carol. As Carol is in hodl mode, she won't settle this HTLC which
 	// opens up the base for out tests.
 	const (
+		csvDelay       = 4
 		finalCltvDelta = 40
 		htlcAmt        = btcutil.Amount(30000)
 	)
@@ -7028,10 +7235,21 @@ func testMultHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 		t.Fatalf(predErr.Error())
 	}
 
+	// We'll mine csvDelay blocks in order to generate the sweep transaction
+	// of Bob's funding output.
+	if _, err := net.Miner.Node.Generate(csvDelay); err != nil {
+		t.Fatalf("unable to generate blocks: %v", err)
+	}
+
+	_, err = waitForTxInMempool(net.Miner.Node, 10*time.Second)
+	if err != nil {
+		t.Fatalf("unable to find bob's funding output sweep tx: %v", err)
+	}
+
 	// Next, we'll mine enough blocks for the HTLC to expire. At this
 	// point, Bob should hand off the output to his internal utxo nursery,
 	// which will broadcast a sweep transaction.
-	if _, err := net.Miner.Node.Generate(finalCltvDelta - 1); err != nil {
+	if _, err := net.Miner.Node.Generate(finalCltvDelta - csvDelay - 1); err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
 
@@ -7074,7 +7292,7 @@ func testMultHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 
 	// Bob's sweeping transaction should now be found in the mempool at
 	// this point.
-	_, err = waitForTxInMempool(net.Miner.Node, time.Second*10)
+	sweepTx, err := waitForTxInMempool(net.Miner.Node, time.Second*10)
 	if err != nil {
 		// If Bob's transaction isn't yet in the mempool, then due to
 		// internal message passing and the low period between blocks
@@ -7085,18 +7303,17 @@ func testMultHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 		if _, err := net.Miner.Node.Generate(1); err != nil {
 			t.Fatalf("unable to generate block: %v", err)
 		}
-		_, err = waitForTxInMempool(net.Miner.Node, time.Second*10)
+		sweepTx, err = waitForTxInMempool(net.Miner.Node, time.Second*10)
 		if err != nil {
-			t.Fatalf("unable to find bob's sweeping "+
-				"transaction: %v", err)
+			t.Fatalf("unable to find bob's sweeping transaction: "+
+				"%v", err)
 		}
 	}
 
 	// If we mine an additional block, then this should confirm Bob's
 	// transaction which sweeps the direct HTLC output.
-	if _, err := net.Miner.Node.Generate(1); err != nil {
-		t.Fatalf("unable to generate block: %v", err)
-	}
+	block := mineBlocks(t, net, 1)[0]
+	assertTxInBlock(t, block, sweepTx)
 
 	// Now that the sweeping transaction has been confirmed, Bob should
 	// cancel back that HTLC. As a result, Alice should not know of any
@@ -7104,20 +7321,9 @@ func testMultHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	nodes = []*lntest.HarnessNode{net.Alice}
 	err = lntest.WaitPredicate(func() bool {
 		return assertNumActiveHtlcs(nodes, 0)
-	}, time.Second*8)
+	}, time.Second*15)
 	if err != nil {
-		// It may be the case that due to a race, Bob's sweeping
-		// transaction hasn't yet been confirmed, so we'll mine another
-		// block to nudge it in. If after this it still Alice will has
-		// an HTLC, then it's actually a test failure.
-		if _, err := net.Miner.Node.Generate(1); err != nil {
-			t.Fatalf("unable to generate block: %v", err)
-		}
-		if err = lntest.WaitPredicate(func() bool {
-			return assertNumActiveHtlcs(nodes, 0)
-		}, time.Second*8); err != nil {
-			t.Fatalf("alice's channel still has active htlc's")
-		}
+		t.Fatalf("alice's channel still has active htlc's")
 	}
 
 	// Now we'll check Bob's pending channel report. Since this was Carol's
@@ -7339,23 +7545,25 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	}
 	assertTxInBlock(t, block, secondLevelHash)
 
-	// If we then mine 4 additional blocks, Bob should pull the output
-	// destined for him.
+	// If we then mine 4 additional blocks, Bob and Carol should sweep the
+	// outputs destined for them.
 	if _, err := net.Miner.Node.Generate(defaultCSV); err != nil {
 		t.Fatalf("unable to generate block: %v", err)
 	}
 
-	_, err = waitForTxInMempool(net.Miner.Node, time.Second*10)
+	sweepTxs, err := waitForNTxsInMempool(net.Miner.Node, 2, time.Second*10)
 	if err != nil {
-		t.Fatalf("unable to find bob's sweeping transaction")
+		t.Fatalf("unable to find sweeping transactions: %v", err)
 	}
 
 	// At this point, Bob should detect that he has no pending channels
 	// anymore, as this just resolved it by the confirmation of the sweep
 	// transaction we detected above.
-	if _, err := net.Miner.Node.Generate(1); err != nil {
-		t.Fatalf("unable to generate block: %v", err)
+	block = mineBlocks(t, net, 1)[0]
+	for _, sweepTx := range sweepTxs {
+		assertTxInBlock(t, block, sweepTx)
 	}
+
 	err = lntest.WaitPredicate(func() bool {
 		pendingChanResp, err := net.Bob.PendingChannels(
 			ctxb, pendingChansRequest,
@@ -7534,7 +7742,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 
 	_, err = waitForNTxsInMempool(net.Miner.Node, 1, time.Second*15)
 	if err != nil {
-		t.Fatalf("unable to find bob's sweeping transaction")
+		t.Fatalf("unable to find bob's sweeping transaction: %v", err)
 	}
 
 	// We'll now mine another block, this should confirm the sweep
@@ -9145,7 +9353,7 @@ var testsCases = []*testCase{
 		// bob: outgoing their commit watch and see timeout
 		// carol: incoming our commit watch and see timeout
 		name: "test multi-hop remote force close on-chain htlc timeout",
-		test: testMultHopRemoteForceCloseOnChainHtlcTimeout,
+		test: testMultiHopRemoteForceCloseOnChainHtlcTimeout,
 	},
 	{
 		// bob: outgoing our commit watch and see, they sweep on chain
@@ -9182,6 +9390,10 @@ var testsCases = []*testCase{
 		// is borked since we trick him into attempting to cheat Alice?
 		name: "revoked uncooperative close retribution",
 		test: testRevokedCloseRetribution,
+	},
+	{
+		name: "failing link",
+		test: testFailingChannel,
 	},
 	{
 		name: "revoked uncooperative close retribution zero value remote output",

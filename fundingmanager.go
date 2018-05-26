@@ -33,15 +33,6 @@ const (
 	// TODO(roasbeef): tune
 	msgBufferSize = 50
 
-	// maxFundingAmount is a soft-limit of the maximum channel size
-	// accepted within the Lightning Protocol Currently. This limit is
-	// currently defined in BOLT-0002, and serves as an initial
-	// precautionary limit while implementations are battle tested in the
-	// real world.
-	//
-	// TODO(roasbeef): add command line param to modify
-	maxFundingAmount = btcutil.Amount(1 << 24)
-
 	// minBtcRemoteDelay and maxBtcRemoteDelay is the extremes of the
 	// Bitcoin CSV delay we will require the remote to use for its
 	// commitment transaction. The actual delay we will require will be
@@ -64,6 +55,31 @@ const (
 	// minChanFundingSize is the smallest channel that we'll allow to be
 	// created over the RPC interface.
 	minChanFundingSize = btcutil.Amount(20000)
+
+	// maxBtcFundingAmount is a soft-limit of the maximum channel size
+	// currently accepted on the Bitcoin chain within the Lightning
+	// Protocol. This limit is defined in BOLT-0002, and serves as an
+	// initial precautionary limit while implementations are battle tested
+	// in the real world.
+	maxBtcFundingAmount = btcutil.Amount(1<<24) - 1
+
+	// maxLtcFundingAmount is a soft-limit of the maximum channel size
+	// currently accepted on the Litecoin chain within the Lightning
+	// Protocol.
+	maxLtcFundingAmount = maxBtcFundingAmount * btcToLtcConversionRate
+)
+
+var (
+	// maxFundingAmount is a soft-limit of the maximum channel size
+	// currently accepted within the Lightning Protocol. This limit is
+	// defined in BOLT-0002, and serves as an initial precautionary limit
+	// while implementations are battle tested in the real world.
+	//
+	// At the moment, this value depends on which chain is active. It is set
+	// to the value under the Bitcoin chain as default.
+	//
+	// TODO(roasbeef): add command line param to modify
+	maxFundingAmount = maxBtcFundingAmount
 )
 
 // reservationWithCtx encapsulates a pending channel reservation. This wrapper

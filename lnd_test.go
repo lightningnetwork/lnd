@@ -4068,6 +4068,199 @@ func waitForNTxsInMempool(miner *rpcclient.Client, n int,
 	}
 }
 
+// testFailingChannel tests that we will fail the channel by force closing ii
+// in the case where a counterparty tries to settle an HTLC with the wrong
+// preimage.
+func testFailingChannel(net *lntest.NetworkHarness, t *harnessTest) {
+	ctxb := context.Background()
+	const (
+		timeout    = time.Duration(time.Second * 10)
+		chanAmt    = maxFundingAmount
+		paymentAmt = 10000
+		defaultCSV = 4
+	)
+
+	// We'll introduce Carol, which will settle any incoming invoice with a
+	// totally unrelated preimage.
+	carol, err := net.NewNode("Carol",
+		[]string{"--debughtlc", "--hodl.bogus-settle"})
+	if err != nil {
+		t.Fatalf("unable to create new nodes: %v", err)
+	}
+
+	// Let Alice connect and open a channel to Carol,
+	if err := net.ConnectNodes(ctxb, net.Alice, carol); err != nil {
+		t.Fatalf("unable to connect alice to carol: %v", err)
+	}
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	chanPoint := openChannelAndAssert(
+		ctxt, t, net, net.Alice, carol, chanAmt, 0, false,
+	)
+
+	// With the channel open, we'll create a invoice for Carol that Alice
+	// will attempt to pay.
+	preimage := bytes.Repeat([]byte{byte(192)}, 32)
+	invoice := &lnrpc.Invoice{
+		Memo:      "testing",
+		RPreimage: preimage,
+		Value:     paymentAmt,
+	}
+	resp, err := carol.AddInvoice(ctxb, invoice)
+	if err != nil {
+		t.Fatalf("unable to add invoice: %v", err)
+	}
+	carolPayReqs := []string{resp.PaymentRequest}
+
+	// Wait for Alice to receive the channel edge from the funding manager.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	if err != nil {
+		t.Fatalf("alice didn't see the alice->carol channel before "+
+			"timeout: %v", err)
+	}
+
+	// Send the payment from Alice to Carol. We expect Carol to attempt to
+	// settle this payment with the wrong preimage.
+	err = completePaymentRequests(ctxb, net.Alice, carolPayReqs, false)
+	if err != nil {
+		t.Fatalf("unable to send payments: %v", err)
+	}
+
+	// Since Alice detects that Carol is trying to trick her by providing a
+	// fake preimage, she should fail and force close the channel.
+	var predErr error
+	err = lntest.WaitPredicate(func() bool {
+		pendingChansRequest := &lnrpc.PendingChannelsRequest{}
+		pendingChanResp, err := net.Alice.PendingChannels(ctxb,
+			pendingChansRequest)
+		if err != nil {
+			predErr = fmt.Errorf("unable to query for pending "+
+				"channels: %v", err)
+			return false
+		}
+		n := len(pendingChanResp.WaitingCloseChannels)
+		if n != 1 {
+			predErr = fmt.Errorf("Expected to find %d channels "+
+				"waiting close, found %d", 1, n)
+			return false
+		}
+		return true
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf("%v", predErr)
+	}
+
+	// Mine a block to confirm the broadcasted commitment.
+	block := mineBlocks(t, net, 1)[0]
+	if len(block.Transactions) != 2 {
+		t.Fatalf("transaction wasn't mined")
+	}
+
+	// The channel should now show up as force closed both for Alice and
+	// Carol.
+	err = lntest.WaitPredicate(func() bool {
+		pendingChansRequest := &lnrpc.PendingChannelsRequest{}
+		pendingChanResp, err := net.Alice.PendingChannels(ctxb,
+			pendingChansRequest)
+		if err != nil {
+			predErr = fmt.Errorf("unable to query for pending "+
+				"channels: %v", err)
+			return false
+		}
+		n := len(pendingChanResp.WaitingCloseChannels)
+		if n != 0 {
+			predErr = fmt.Errorf("Expected to find %d channels "+
+				"waiting close, found %d", 0, n)
+			return false
+		}
+		n = len(pendingChanResp.PendingForceClosingChannels)
+		if n != 1 {
+			predErr = fmt.Errorf("expected to find %d channel "+
+				"pending force close, found %d", 1, n)
+			return false
+		}
+		return true
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf("%v", predErr)
+	}
+
+	err = lntest.WaitPredicate(func() bool {
+		pendingChansRequest := &lnrpc.PendingChannelsRequest{}
+		pendingChanResp, err := carol.PendingChannels(ctxb,
+			pendingChansRequest)
+		if err != nil {
+			predErr = fmt.Errorf("unable to query for pending "+
+				"channels: %v", err)
+			return false
+		}
+		n := len(pendingChanResp.PendingForceClosingChannels)
+		if n != 1 {
+			predErr = fmt.Errorf("expected to find %d channel "+
+				"pending force close, found %d", 1, n)
+			return false
+		}
+		return true
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf("%v", predErr)
+	}
+
+	// Carol will use the correct preimage to resolve the HTLC on-chain.
+	_, err = waitForTxInMempool(net.Miner.Node, 5*time.Second)
+	if err != nil {
+		t.Fatalf("unable to find Bob's breach tx in mempool: %v", err)
+	}
+
+	// Mine enough blocks for Alice to sweep her funds from the force
+	// closed channel.
+	_, err = net.Miner.Node.Generate(defaultCSV)
+	if err != nil {
+		t.Fatalf("unable to generate blocks: %v", err)
+	}
+
+	// Wait for the sweeping tx to be broadcast.
+	_, err = waitForTxInMempool(net.Miner.Node, 5*time.Second)
+	if err != nil {
+		t.Fatalf("unable to find Bob's breach tx in mempool: %v", err)
+	}
+
+	// Mine the sweep.
+	_, err = net.Miner.Node.Generate(1)
+	if err != nil {
+		t.Fatalf("unable to generate blocks: %v", err)
+	}
+
+	// No pending channels should be left.
+	err = lntest.WaitPredicate(func() bool {
+		pendingChansRequest := &lnrpc.PendingChannelsRequest{}
+		pendingChanResp, err := net.Alice.PendingChannels(ctxb,
+			pendingChansRequest)
+		if err != nil {
+			predErr = fmt.Errorf("unable to query for pending "+
+				"channels: %v", err)
+			return false
+		}
+		n := len(pendingChanResp.PendingForceClosingChannels)
+		if n != 0 {
+			predErr = fmt.Errorf("expected to find %d channel "+
+				"pending force close, found %d", 0, n)
+			return false
+		}
+		return true
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf("%v", predErr)
+	}
+
+	// Finally, shutdown the node we created for the duration of the tests,
+	// only leaving the two seed nodes (Alice and Bob) within our test
+	// network.
+	if err := net.ShutdownNode(carol); err != nil {
+		t.Fatalf("unable to shutdown carol: %v", err)
+	}
+}
+
 // testRevokedCloseRetribution tests that Alice is able carry out
 // retribution in the event that she fails immediately after detecting Bob's
 // breach txn in the mempool.
@@ -9182,6 +9375,10 @@ var testsCases = []*testCase{
 		// is borked since we trick him into attempting to cheat Alice?
 		name: "revoked uncooperative close retribution",
 		test: testRevokedCloseRetribution,
+	},
+	{
+		name: "failing link",
+		test: testFailingChannel,
 	},
 	{
 		name: "revoked uncooperative close retribution zero value remote output",

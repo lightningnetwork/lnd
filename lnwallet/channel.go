@@ -4496,6 +4496,13 @@ func (lc *LightningChannel) FailHTLC(htlcIndex uint64, reason []byte,
 			lc.ShortChanID())
 	}
 
+	// Now that we know the HTLC exists, we'll ensure that we haven't
+	// already attempted to fail the HTLC.
+	if lc.remoteUpdateLog.htlcHasModification(htlcIndex) {
+		return fmt.Errorf("HTLC with ID %d has already been failed",
+			htlcIndex)
+	}
+
 	pd := &PaymentDescriptor{
 		Amount:           htlc.Amount,
 		RHash:            htlc.RHash,
@@ -4509,6 +4516,11 @@ func (lc *LightningChannel) FailHTLC(htlcIndex uint64, reason []byte,
 	}
 
 	lc.localUpdateLog.appendUpdate(pd)
+
+	// With the fail added to the remote log, we'll now mark the HTLC as
+	// modified to prevent ourselves from accidentally attempting a
+	// duplicate fail.
+	lc.remoteUpdateLog.markHtlcModified(htlcIndex)
 
 	return nil
 }
@@ -4536,6 +4548,13 @@ func (lc *LightningChannel) MalformedFailHTLC(htlcIndex uint64,
 			lc.ShortChanID())
 	}
 
+	// Now that we know the HTLC exists, we'll ensure that we haven't
+	// already attempted to fail the HTLC.
+	if lc.remoteUpdateLog.htlcHasModification(htlcIndex) {
+		return fmt.Errorf("HTLC with ID %d has already been failed",
+			htlcIndex)
+	}
+
 	pd := &PaymentDescriptor{
 		Amount:       htlc.Amount,
 		RHash:        htlc.RHash,
@@ -4548,6 +4567,11 @@ func (lc *LightningChannel) MalformedFailHTLC(htlcIndex uint64,
 	}
 
 	lc.localUpdateLog.appendUpdate(pd)
+
+	// With the fail added to the remote log, we'll now mark the HTLC as
+	// modified to prevent ourselves from accidentally attempting a
+	// duplicate fail.
+	lc.remoteUpdateLog.markHtlcModified(htlcIndex)
 
 	return nil
 }
@@ -4569,6 +4593,13 @@ func (lc *LightningChannel) ReceiveFailHTLC(htlcIndex uint64, reason []byte,
 			lc.ShortChanID())
 	}
 
+	// Now that we know the HTLC exists, we'll ensure that they haven't
+	// already attempted to fail the HTLC.
+	if lc.localUpdateLog.htlcHasModification(htlcIndex) {
+		return fmt.Errorf("HTLC with ID %d has already been failed",
+			htlcIndex)
+	}
+
 	pd := &PaymentDescriptor{
 		Amount:      htlc.Amount,
 		RHash:       htlc.RHash,
@@ -4579,6 +4610,11 @@ func (lc *LightningChannel) ReceiveFailHTLC(htlcIndex uint64, reason []byte,
 	}
 
 	lc.remoteUpdateLog.appendUpdate(pd)
+
+	// With the fail added to the remote log, we'll now mark the HTLC as
+	// modified to prevent ourselves from accidentally attempting a
+	// duplicate fail.
+	lc.localUpdateLog.markHtlcModified(htlcIndex)
 
 	return nil
 }

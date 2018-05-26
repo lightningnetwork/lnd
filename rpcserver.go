@@ -39,7 +39,23 @@ import (
 	"golang.org/x/net/context"
 )
 
+const (
+	// maxBtcPaymentMSat is the maximum allowed Bitcoin payment currently
+	// permitted as defined in BOLT-0002.
+	maxBtcPaymentMSat = lnwire.MilliSatoshi(math.MaxUint32)
+
+	// maxLtcPaymentMSat is the maximum allowed Litecoin payment currently
+	// permitted.
+	maxLtcPaymentMSat = lnwire.MilliSatoshi(math.MaxUint32) *
+		btcToLtcConversionRate
+)
+
 var (
+	// maxPaymentMSat is the maximum allowed payment currently permitted as
+	// defined in BOLT-002. This value depends on which chain is active.
+	// It is set to the value under the Bitcoin chain as default.
+	maxPaymentMSat = maxBtcPaymentMSat
+
 	defaultAccount uint32 = waddrmgr.DefaultAccountNum
 
 	// readPermissions is a slice of all entities that allow read
@@ -298,12 +314,6 @@ var (
 			Action: "read",
 		}},
 	}
-)
-
-const (
-	// maxPaymentMSat is the maximum allowed payment permitted currently as
-	// defined in BOLT-0002.
-	maxPaymentMSat = lnwire.MilliSatoshi(math.MaxUint32)
 )
 
 // rpcServer is a gRPC, RPC front end to the lnd daemon.

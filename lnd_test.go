@@ -623,7 +623,7 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	timeout := time.Duration(time.Second * 5)
 	ctxb := context.Background()
 
-	chanAmt := maxFundingAmount
+	chanAmt := maxBtcFundingAmount
 	pushAmt := btcutil.Amount(100000)
 
 	// First establish a channel with a capacity of 0.5 BTC between Alice
@@ -688,7 +688,7 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	bobUpdates, bQuit := subscribeGraphNotifications(t, ctxb, net.Bob)
 	defer close(bQuit)
 
-	chanAmt := maxFundingAmount
+	chanAmt := maxBtcFundingAmount
 	pushAmt := btcutil.Amount(100000)
 
 	// Create a channel Alice->Bob.
@@ -1057,7 +1057,7 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Create a new channel that requires 1 confs before it's considered
 	// open, then broadcast the funding transaction
-	chanAmt := maxFundingAmount
+	chanAmt := maxBtcFundingAmount
 	pushAmt := btcutil.Amount(0)
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	pendingUpdate, err := net.OpenPendingChannel(ctxt, net.Alice, net.Bob,
@@ -1193,7 +1193,7 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 	// Check existing connection.
 	assertNumConnections(ctxb, t, net.Alice, net.Bob, 1)
 
-	chanAmt := maxFundingAmount
+	chanAmt := maxBtcFundingAmount
 	pushAmt := btcutil.Amount(0)
 
 	timeout := time.Duration(time.Second * 10)
@@ -1329,7 +1329,7 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
-	chanAmt := maxFundingAmount
+	chanAmt := maxBtcFundingAmount
 	pushAmt := btcutil.Amount(0)
 
 	timeout := time.Duration(time.Second * 10)
@@ -1463,7 +1463,7 @@ func testChannelBalance(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Open a channel with 0.16 BTC between Alice and Bob, ensuring the
 	// channel has been opened properly.
-	amount := maxFundingAmount
+	amount := maxBtcFundingAmount
 	ctx, _ := context.WithTimeout(context.Background(), timeout)
 
 	// Creates a helper closure to be used below which asserts the proper
@@ -3848,7 +3848,7 @@ func testBasicChannelCreation(net *lntest.NetworkHarness, t *harnessTest) {
 	const (
 		numChannels = 2
 		timeout     = time.Duration(time.Second * 5)
-		amount      = maxFundingAmount
+		amount      = maxBtcFundingAmount
 	)
 
 	// Open the channel between Alice and Bob, asserting that the
@@ -3874,7 +3874,7 @@ func testBasicChannelCreation(net *lntest.NetworkHarness, t *harnessTest) {
 // exists and works properly.
 func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	maxPendingChannels := defaultMaxPendingChannels + 1
-	amount := maxFundingAmount
+	amount := maxBtcFundingAmount
 
 	timeout := time.Duration(time.Second * 10)
 	ctx, _ := context.WithTimeout(context.Background(), timeout)
@@ -4253,7 +4253,7 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 	const (
 		timeout     = time.Duration(time.Second * 10)
-		chanAmt     = maxFundingAmount
+		chanAmt     = maxBtcFundingAmount
 		paymentAmt  = 10000
 		numInvoices = 6
 	)
@@ -4499,7 +4499,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 	ctxb := context.Background()
 	const (
 		timeout     = time.Duration(time.Second * 10)
-		chanAmt     = maxFundingAmount
+		chanAmt     = maxBtcFundingAmount
 		paymentAmt  = 10000
 		numInvoices = 6
 	)
@@ -4731,7 +4731,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	ctxb := context.Background()
 	const (
 		timeout     = time.Duration(time.Second * 10)
-		chanAmt     = maxFundingAmount
+		chanAmt     = maxBtcFundingAmount
 		pushAmt     = 200000
 		paymentAmt  = 10000
 		numInvoices = 6
@@ -4768,7 +4768,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 
 	// In order to test Dave's response to an uncooperative channel closure
 	// by Carol, we'll first open up a channel between them with a
-	// maxFundingAmount (2^24) satoshis value.
+	// maxBtcFundingAmount (2^24) satoshis value.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPoint := openChannelAndAssert(
 		ctxt, t, net, dave, carol, chanAmt, pushAmt, false,
@@ -5163,7 +5163,7 @@ func testHtlcErrorPropagation(net *lntest.NetworkHarness, t *harnessTest) {
 	timeout := time.Duration(time.Second * 15)
 	ctxb := context.Background()
 
-	const chanAmt = maxFundingAmount
+	const chanAmt = maxBtcFundingAmount
 
 	// First establish a channel with a capacity of 0.5 BTC between Alice
 	// and Bob.
@@ -5212,7 +5212,7 @@ func testHtlcErrorPropagation(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to connect bob to carol: %v", err)
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	const bobChanAmt = maxFundingAmount
+	const bobChanAmt = maxBtcFundingAmount
 	chanPointBob := openChannelAndAssert(
 		ctxt, t, net, net.Bob, carol, chanAmt, 0, false,
 	)
@@ -5493,7 +5493,7 @@ func subscribeGraphNotifications(t *harnessTest, ctxb context.Context,
 }
 
 func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) {
-	const chanAmt = maxFundingAmount
+	const chanAmt = maxBtcFundingAmount
 	timeout := time.Duration(time.Second * 5)
 	ctxb := context.Background()
 
@@ -5777,7 +5777,7 @@ func testNodeSignVerify(net *lntest.NetworkHarness, t *harnessTest) {
 	timeout := time.Duration(time.Second * 15)
 	ctxb := context.Background()
 
-	chanAmt := maxFundingAmount
+	chanAmt := maxBtcFundingAmount
 	pushAmt := btcutil.Amount(100000)
 
 	// Create a channel between alice and bob.

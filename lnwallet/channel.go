@@ -4380,6 +4380,14 @@ func (lc *LightningChannel) SettleHTLC(preimage [32]byte,
 			lc.ShortChanID())
 	}
 
+	// Now that we know the HTLC exists, before checking to see if the
+	// preimage matches, we'll ensure that we haven't already attempted to
+	// modify the HTLC.
+	if lc.remoteUpdateLog.htlcHasModification(htlcIndex) {
+		return fmt.Errorf("HTLC with ID %d has already been settled",
+			htlcIndex)
+	}
+
 	if htlc.RHash != sha256.Sum256(preimage[:]) {
 		return fmt.Errorf("Invalid payment preimage %x for hash %x",
 			preimage[:], htlc.RHash[:])
@@ -4398,6 +4406,11 @@ func (lc *LightningChannel) SettleHTLC(preimage [32]byte,
 
 	lc.localUpdateLog.appendUpdate(pd)
 
+	// With the settle added to our local log, we'll now mark the HTLC as
+	// modified to prevent ourselves from accidentally attempting a
+	// duplicate settle.
+	lc.remoteUpdateLog.markHtlcModified(htlcIndex)
+
 	return nil
 }
 
@@ -4415,6 +4428,14 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, htlcIndex uint6
 			lc.ShortChanID())
 	}
 
+	// Now that we know the HTLC exists, before checking to see if the
+	// preimage matches, we'll ensure that they haven't already attempted
+	// to modify the HTLC.
+	if lc.localUpdateLog.htlcHasModification(htlcIndex) {
+		return fmt.Errorf("HTLC with ID %d has already been settled",
+			htlcIndex)
+	}
+
 	if htlc.RHash != sha256.Sum256(preimage[:]) {
 		return fmt.Errorf("Invalid payment preimage %x for hash %x",
 			preimage[:], htlc.RHash[:])
@@ -4430,6 +4451,12 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, htlcIndex uint6
 	}
 
 	lc.remoteUpdateLog.appendUpdate(pd)
+
+	// With the settle added to the remote log, we'll now mark the HTLC as
+	// modified to prevent the remote party from accidentally attempting a
+	// duplicate settle.
+	lc.localUpdateLog.markHtlcModified(htlcIndex)
+
 	return nil
 }
 

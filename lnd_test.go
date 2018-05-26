@@ -4060,10 +4060,11 @@ func testFailingChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 	const (
 		timeout    = time.Duration(time.Second * 10)
-		chanAmt    = maxFundingAmount
 		paymentAmt = 10000
 		defaultCSV = 4
 	)
+
+	chanAmt := maxFundingAmount
 
 	// We'll introduce Carol, which will settle any incoming invoice with a
 	// totally unrelated preimage.

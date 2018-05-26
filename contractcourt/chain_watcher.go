@@ -10,7 +10,6 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -79,10 +78,12 @@ type chainWatcherConfig struct {
 	// machine.
 	signer lnwallet.Signer
 
-	// markChanClosed is a method that will be called by the watcher if it
-	// detects that a cooperative closure transaction has successfully been
-	// confirmed.
-	markChanClosed func() error
+	// notifyChanClosed is a method that will be called by the watcher when
+	// it has detected a close on-chain and performed all necessary
+	// actions, like marking the channel closed in the database and
+	// notified all its subcribers. It lets the chain arbitrator know that
+	// the chain watcher chan be stopped.
+	notifyChanClosed func() error
 
 	// contractBreach is a method that will be called by the watcher if it
 	// detects that a contract breach transaction has been confirmed. Only
@@ -123,12 +124,6 @@ type chainWatcher struct {
 	// clientSubscriptions is a map that keeps track of all the active
 	// client subscriptions for events related to this channel.
 	clientSubscriptions map[uint64]*ChainEventSubscription
-
-	// possibleCloses is a map from cooperative closing transaction txid to
-	// a close summary that describes the nature of the channel closure.
-	// We'll use this map to keep track of all possible channel closures to
-	// ensure out db state is correct in the end.
-	possibleCloses map[chainhash.Hash]*channeldb.ChannelCloseSummary
 }
 
 // newChainWatcher returns a new instance of a chainWatcher for a channel given
@@ -158,7 +153,6 @@ func newChainWatcher(cfg chainWatcherConfig) (*chainWatcher, error) {
 		stateHintObfuscator: stateHint,
 		quit:                make(chan struct{}),
 		clientSubscriptions: make(map[uint64]*ChainEventSubscription),
-		possibleCloses:      make(map[chainhash.Hash]*channeldb.ChannelCloseSummary),
 	}, nil
 }
 
@@ -461,8 +455,9 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 	// ours.
 	localAmt := c.toSelfAmount(broadcastTx)
 
-	// Once this is known, we'll mark the state as pending close in the
-	// database.
+	// Once this is known, we'll mark the state as fully closed in the
+	// database. We can do this as a cooperatively closed channel has all
+	// its outputs resolved after only one confirmation.
 	closeSummary := &channeldb.ChannelCloseSummary{
 		ChanPoint:      c.cfg.chanState.FundingOutpoint,
 		ChainHash:      c.cfg.chanState.ChainHash,
@@ -473,7 +468,7 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 		SettledBalance: localAmt,
 		CloseType:      channeldb.CooperativeClose,
 		ShortChanID:    c.cfg.chanState.ShortChanID(),
-		IsPending:      true,
+		IsPending:      false,
 	}
 	err := c.cfg.chanState.CloseChannel(closeSummary)
 	if err != nil && err != channeldb.ErrNoActiveChannels &&
@@ -481,45 +476,10 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 		return fmt.Errorf("unable to close chan state: %v", err)
 	}
 
-	// Finally, we'll launch a goroutine to mark the channel as fully
-	// closed once the transaction confirmed.
-	go func() {
-		confNtfn, err := c.cfg.notifier.RegisterConfirmationsNtfn(
-			commitSpend.SpenderTxHash, 1,
-			uint32(commitSpend.SpendingHeight),
-		)
-		if err != nil {
-			log.Errorf("unable to register for conf: %v", err)
-			return
-		}
-
-		log.Infof("closeObserver: waiting for txid=%v to close "+
-			"ChannelPoint(%v) on chain", commitSpend.SpenderTxHash,
-			c.cfg.chanState.FundingOutpoint)
-
-		select {
-		case confInfo, ok := <-confNtfn.Confirmed:
-			if !ok {
-				log.Errorf("notifier exiting")
-				return
-			}
-
-			log.Infof("closeObserver: ChannelPoint(%v) is fully "+
-				"closed, at height: %v",
-				c.cfg.chanState.FundingOutpoint,
-				confInfo.BlockHeight)
-
-			err := c.cfg.markChanClosed()
-			if err != nil {
-				log.Errorf("unable to mark chan fully "+
-					"closed: %v", err)
-				return
-			}
-
-		case <-c.quit:
-			return
-		}
-	}()
+	log.Infof("closeObserver: ChannelPoint(%v) is fully "+
+		"closed, at height: %v",
+		c.cfg.chanState.FundingOutpoint,
+		commitSpend.SpendingHeight)
 
 	c.Lock()
 	for _, sub := range c.clientSubscriptions {
@@ -531,6 +491,14 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 		}
 	}
 	c.Unlock()
+
+	// Now notify the ChainArbitrator that the watcher's job is done, such
+	// that it can shut it down and clean up.
+	if err := c.cfg.notifyChanClosed(); err != nil {
+		log.Errorf("unable to notify channel closed for "+
+			"ChannelPoint(%v): %v",
+			c.cfg.chanState.FundingOutpoint, err)
+	}
 
 	return nil
 
@@ -748,150 +716,6 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 
 	log.Infof("Breached channel=%v marked pending-closed",
 		c.cfg.chanState.FundingOutpoint)
-
-	return nil
-}
-
-// CooperativeCloseCtx is a transactional object that's used by external
-// parties to initiate a cooperative closure negotiation. During the
-// negotiation, we sign multiple versions of a closing transaction, either of
-// which may be counter signed and broadcast by the remote party at any time.
-// As a result, we'll need to watch the chain to see if any of these confirm,
-// only afterwards will we mark the channel as fully closed.
-type CooperativeCloseCtx struct {
-	// potentialCloses is a channel will be used by the party negotiating
-	// the cooperative closure to send possible closing states to the chain
-	// watcher to ensure we detect all on-chain spends.
-	potentialCloses chan *channeldb.ChannelCloseSummary
-
-	// activeCloses keeps track of all the txid's that we're currently
-	// watching for.
-	activeCloses map[chainhash.Hash]struct{}
-
-	// watchCancel will be closed once *one* of the txid's in the map above
-	// is confirmed. This will cause all the lingering goroutines to exit.
-	watchCancel chan struct{}
-
-	watcher *chainWatcher
-
-	sync.Mutex
-}
-
-// BeginCooperativeClose should be called by the party negotiating the
-// cooperative closure before the first signature is sent to the remote party.
-// This will return a context that should be used to communicate possible
-// closing states so we can act on them.
-func (c *chainWatcher) BeginCooperativeClose() *CooperativeCloseCtx {
-	// We'll simply return a new close context that will be used be the
-	// caller to notify us of potential closes.
-	return &CooperativeCloseCtx{
-		potentialCloses: make(chan *channeldb.ChannelCloseSummary),
-		watchCancel:     make(chan struct{}),
-		activeCloses:    make(map[chainhash.Hash]struct{}),
-		watcher:         c,
-	}
-}
-
-// LogPotentialClose should be called by the party negotiating the cooperative
-// closure once they signed a new state, but *before* they transmit it to the
-// remote party. This will ensure that the chain watcher is able to log the new
-// state it should watch the chain for.
-func (c *CooperativeCloseCtx) LogPotentialClose(potentialClose *channeldb.ChannelCloseSummary) {
-	c.Lock()
-	defer c.Unlock()
-
-	// We'll check to see if we're already watching for a close of this
-	// channel, if so, then we'll exit early to avoid launching a duplicate
-	// goroutine.
-	if _, ok := c.activeCloses[potentialClose.ClosingTXID]; ok {
-		return
-	}
-
-	// Otherwise, we'll mark this txid as currently being watched.
-	c.activeCloses[potentialClose.ClosingTXID] = struct{}{}
-
-	// We'll take this potential close, and launch a goroutine which will
-	// wait until it's confirmed, then update the database state. When a
-	// potential close gets confirmed, we'll cancel out all other launched
-	// goroutines.
-	go func() {
-		confNtfn, err := c.watcher.cfg.notifier.RegisterConfirmationsNtfn(
-			&potentialClose.ClosingTXID, 1,
-			uint32(potentialClose.CloseHeight),
-		)
-		if err != nil {
-			log.Errorf("unable to register for conf: %v", err)
-			return
-		}
-
-		log.Infof("closeCtx: waiting for txid=%v to close "+
-			"ChannelPoint(%v) on chain", potentialClose.ClosingTXID,
-			c.watcher.cfg.chanState.FundingOutpoint)
-
-		select {
-		case confInfo, ok := <-confNtfn.Confirmed:
-			if !ok {
-				log.Errorf("notifier exiting")
-				return
-			}
-
-			log.Infof("closeCtx: ChannelPoint(%v) is fully closed, at "+
-				"height: %v", c.watcher.cfg.chanState.FundingOutpoint,
-				confInfo.BlockHeight)
-
-			close(c.watchCancel)
-
-			c.watcher.Lock()
-			for _, sub := range c.watcher.clientSubscriptions {
-				select {
-				case sub.CooperativeClosure <- struct{}{}:
-				case <-c.watcher.quit:
-				}
-			}
-			c.watcher.Unlock()
-
-			err := c.watcher.cfg.chanState.CloseChannel(potentialClose)
-			if err != nil {
-				log.Warnf("closeCtx: unable to update latest "+
-					"close for ChannelPoint(%v): %v",
-					c.watcher.cfg.chanState.FundingOutpoint, err)
-			}
-
-			err = c.watcher.cfg.markChanClosed()
-			if err != nil {
-				log.Errorf("closeCtx: unable to mark chan fully "+
-					"closed: %v", err)
-				return
-			}
-
-		case <-c.watchCancel:
-			log.Debugf("Exiting watch for close of txid=%v for "+
-				"ChannelPoint(%v)", potentialClose.ClosingTXID,
-				c.watcher.cfg.chanState.FundingOutpoint)
-
-		case <-c.watcher.quit:
-			return
-		}
-	}()
-}
-
-// Finalize should be called once both parties agree on a final transaction to
-// close out the channel. This method will immediately mark the channel as
-// pending closed in the database, then launch a goroutine to mark the channel
-// fully closed upon confirmation.
-func (c *CooperativeCloseCtx) Finalize(preferredClose *channeldb.ChannelCloseSummary) error {
-	chanPoint := c.watcher.cfg.chanState.FundingOutpoint
-
-	log.Infof("Finalizing chan close for ChannelPoint(%v)", chanPoint)
-
-	err := c.watcher.cfg.chanState.CloseChannel(preferredClose)
-	if err != nil {
-		log.Errorf("closeCtx: unable to close ChannelPoint(%v): %v",
-			chanPoint, err)
-		return err
-	}
-
-	go c.LogPotentialClose(preferredClose)
 
 	return nil
 }

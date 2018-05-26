@@ -44,6 +44,10 @@ const (
 	defaultLitecoinTimeLockDelta = 576
 	defaultLitecoinStaticFeeRate = lnwallet.SatPerVByte(200)
 	defaultLitecoinDustLimit     = btcutil.Amount(54600)
+
+	// btcToLtcConversionRate is a fixed ratio used in order to scale up
+	// payments when running on the Litecoin chain.
+	btcToLtcConversionRate = 60
 )
 
 // defaultBtcChannelConstraints is the default set of channel constraints that are

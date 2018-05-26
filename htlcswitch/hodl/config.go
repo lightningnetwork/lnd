@@ -21,6 +21,8 @@ type Config struct {
 	FailOutgoing bool `long:"fail-outgoing" description:"Instructs the node to drop outgoing FAILs before applying them to the channel state"`
 
 	Commit bool `long:"commit" description:"Instructs the node to add HTLCs to its local commitment state and to open circuits for any ADDs, but abort before committing the changes"`
+
+	BogusSettle bool `long:"bogus-settle" description:"Instructs the node to settle back any incoming HTLC with a bogus preimage"`
 }
 
 // Mask extracts the flags specified in the configuration, composing a Mask from
@@ -51,6 +53,9 @@ func (c *Config) Mask() Mask {
 	}
 	if c.Commit {
 		flags = append(flags, Commit)
+	}
+	if c.BogusSettle {
+		flags = append(flags, BogusSettle)
 	}
 
 	// NOTE: The value returned here will only honor the configuration if

@@ -1165,6 +1165,9 @@ func (u *updateLog) removeHtlc(i uint64) {
 	u.Remove(entry)
 	delete(u.htlcIndex, i)
 
+	delete(u.modifiedHtlcs, i)
+}
+
 // htlcHasModification returns true if the HTLC identified by the passed index
 // has a pending modification within the log.
 func (u *updateLog) htlcHasModification(i uint64) bool {

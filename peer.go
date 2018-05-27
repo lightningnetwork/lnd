@@ -438,14 +438,23 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 		shortChanID lnwire.ShortChannelID,
 		linkErr htlcswitch.LinkFailureError) {
 
+		select {
+		// If the server is already exiting, then none of the actions
+		// below can finish exiting, so we'll exit early as well.
+		case <-p.server.quit:
+			return
+
+		default:
+		}
+
 		// The link has notified us about a failure. We launch a go
 		// routine to stop the link, disconnect the peer and optionally
 		// force close the channel. We must launch a goroutine since we
 		// must let OnChannelFailure return in order for the link to
 		// completely stop in the call to RemoveLink.
-		p.wg.Add(1)
+		p.server.wg.Add(1)
 		go func() {
-			defer p.wg.Done()
+			defer p.server.wg.Done()
 
 			// We begin by removing the link from the switch, such
 			// that it won't be attempted used for any more

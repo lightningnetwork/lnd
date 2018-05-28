@@ -1,0 +1,20 @@
+<%#encoding:UTF-8%><div<%= @id && %( id="#{@id}") %> class="<%= ['quoteblock',role].compact * ' ' %>"><%
+if title? %>
+<div class="title"><%= title %></div><%
+end %>
+<blockquote>
+<%= content %>
+</blockquote><%
+if (attr? :attribution) or (attr? :citetitle) %>
+<div class="attribution"><%
+  if attr? :citetitle %>
+<cite><%= attr :citetitle %></cite><%
+  end
+  if attr? :attribution
+    if attr? :citetitle %><br><%
+    end %>
+<%= "&#8212; #{attr :attribution}" %><%
+  end %>
+</div><%
+end %>
+</div>

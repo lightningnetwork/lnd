@@ -1,0 +1,60 @@
+= Lightning Network
+
+== Introduction and Setup
+
+The Lightning Network is a "second layer" payment protocol that operates on top of a blockchain. The network is composed of nodes connnected to each other by channels.
+
+This tutorial demonstrates a number of Cypher queries that can be run against a snapshot of the Lighting Network. It is assumed that the database is already populated with a snapshot of the network.
+
+To populate the database first take a snapshot of the channels database of a synchronized https://github.com/lightningnetwork/lnd[Lightning Network Daemon (LND)]. You'll need the neo4j branch available https://github.com/Bluetegu/lnd[here].
+Use the LND command line tool:
+
+ lncli --snapshotchannels
+
+Then run the neo4j import tool to import the newly created snapshot to your neo4js instance, e.g.:
+
+ lnneo4j -neopass <neo4j user password>
+
+The import command line tool supports options for setting up all the various  neo4js connection parameters. To get a list of all supported parameters run:
+
+ lnneo4j --help
+
+The implementation and this tutorial are in development stage. Please report errors, suggest improvements and contribute. Thanks!
+
+== Neighbours connected by 'fat' channels
+
+Find all neighbours of the 'FederalReserve' node connected with channels of capacity equal or larger than 0.1BTC. We limit the query to make sure the graph will render quickly.
+
+[source,cypher]
+----
+MATCH (s:LNNode)-[c:CHANNEL]-(n:LNNode) WHERE s.alias = "FederalReserve" AND c.capacity > 10000000 RETURN DISTINCT n, s LIMIT 20
+----
+
+Find all nodes connected to 'FederalReserve' up to 3 hops with paths of capacity of 0.1BTC or higher.
+
+[source,cypher]
+----
+MATCH p = (s:LNNode)-[*1..3]-(n:LNNode) WHERE s.alias = "FederalReserve" AND ALL (c IN relationships(p) WHERE c.capacity > 10000000) RETURN DISTINCT n, s LIMIT 20
+----
+
+== Shortest path
+
+Find the shortest path between the 'LN.BLUTEGU.CC' node and the Blockstream shop. The alias of the shop can be found through https://1ml.com/[1ML the LN search and analysis tool].
+
+[source,cypher]
+----
+MATCH (s:LNNode { alias: 'SLEEPYARK-6-11-21-2612-gf083a699' }),(t:LNNode { alias: 'LN.BLUETEGU.CC' }), p = shortestPath((s)-[:CHANNEL*]-(t))
+WHERE ALL (c IN relationships(p) WHERE c.disabled = false)
+RETURN p
+----
+
+Find all the shortest paths between the two.
+
+[source,cypher]
+----
+MATCH (s:LNNode { alias: 'SLEEPYARK-6-11-21-2612-gf083a699' }),(t:LNNode { alias: 'LN.BLUETEGU.CC' }), p = allShortestPaths((s)-[:CHANNEL*]-(t))
+WHERE ALL (c IN relationships(p) WHERE c.disabled = false)
+RETURN p
+----
+
+

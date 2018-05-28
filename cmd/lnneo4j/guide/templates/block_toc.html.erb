@@ -1,0 +1,17 @@
+<%#encoding:UTF-8%><%
+if @document.attr? :toc
+  toc_id = @id
+  toc_role = (attr :role, (@document.attr 'toc-class', 'toc'))
+  toc_title_id = nil
+  toc_title = title? ? title : (@document.attr 'toc-title')
+  toc_levels = (attr? :levels) ? (attr :levels).to_i : (@document.attr :toclevels, 2).to_i
+  if !toc_id && (@document.embedded? || !(@document.attr? 'toc-placement'))
+    toc_id = 'toc'
+    toc_title_id = 'toctitle'
+  end
+%><div<%= toc_id && %( id="#{toc_id}") %> class="<%= toc_role %>"><%
+  if toc_title %>
+<div class="title"<%= toc_title_id && %( id="#{toc_title_id}") %>><%= toc_title %></div><%
+  end %>
+<%= converter.convert_with_options @document, 'outline', :toclevels => toc_levels %><%
+end %>

@@ -1,0 +1,12 @@
+<%#encoding:UTF-8%><%
+menu = attr 'menu'
+submenus = attr 'submenus'
+menuitem = attr 'menuitem'
+if !submenus.empty?
+  submenu_path = submenus.map {|submenu| %(<span class="submenu">#{submenu}</span>&#160;&#9656; ) }.join.chop
+  %><span class="menuseq"><span class="menu"><%= menu %></span>&#160;&#9656; <%= submenu_path %> <span class="menuitem"><%= menuitem %></span></span><%
+elsif !menuitem.nil?
+  %><span class="menuseq"><span class="menu"><%= menu %></span>&#160;&#9656; <span class="menuitem"><%= menuitem %></span></span><%
+else
+  %><span class="menu"><%= menu %></span><%
+end %>

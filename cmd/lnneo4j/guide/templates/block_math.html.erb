@@ -1,0 +1,17 @@
+<%#encoding:UTF-8%><div<%= @id && %( id="#{@id}") %> class="<%= ['mathblock',role].compact * ' ' %>"><%
+if title? %>
+<div class="title"><%= title %></div><%
+end %>
+<div class="content"><%
+open, close = Asciidoctor::BLOCK_MATH_DELIMITERS[@style.to_sym]
+equation = content.strip
+if (@subs.nil? || @subs.empty?) && !(attr? 'subs')
+  equation = sub_specialcharacters equation
+end
+unless (equation.start_with? open) && (equation.end_with? close)
+  equation = %(#{open}#{equation}#{close})
+end
+%>
+<%= %(#{equation}\n) %>
+</div>
+</div>

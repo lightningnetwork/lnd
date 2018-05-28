@@ -1,0 +1,13 @@
+<%#encoding:UTF-8%><div<%= @id && %( id="#{@id}") %> class="<%= ['audioblock',@style,role].compact * ' ' %>"><%
+if title? %>
+<div class="title"><%= captioned_title %></div><%
+end %>
+<div class="content">
+<audio src="<%= media_uri(attr :target) %>"<%
+if option? :autoplay %> autoplay<% end
+unless option? :nocontrols %> controls<% end
+if option? :loop %> loop<% end %>>
+Your browser does not support the audio tag.
+</audio>
+</div>
+</div>

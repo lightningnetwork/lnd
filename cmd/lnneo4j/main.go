@@ -101,6 +101,7 @@ func main() {
 
 		// clean previous import
 		neo4jClean(conn)
+		neo4jPrepare(conn)
 		// import new data
 		graph := chanDB.ChannelGraph()
 		neo4jSync(conn, graph)
@@ -133,6 +134,15 @@ func neo4jClean(conn neobolt.Conn) {
 	numResult, _ := result.RowsAffected()
 	if numResult > 0 {
 		fmt.Printf("[lnneo4j] %d nodes and channels deleted.\n", numResult)
+	}
+}
+
+// Add constraints and indices
+func neo4jPrepare(conn neobolt.Conn) {
+	// Use public key as index to node
+	_, err := conn.ExecNeo(`CREATE INDEX ON :LNNode(pubKey)`, nil)
+	if err != nil {
+		fatal(err)
 	}
 }
 

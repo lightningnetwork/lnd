@@ -1,0 +1,15 @@
+<%#encoding:UTF-8%><div<%= @id && %( id="#{@id}") %> class="<%= ['olist',@style,role].compact * ' ' %>"><%
+if title? %>
+<div class="title"><%= title %></div><%
+end %>
+<ol class="<%= @style %>"<%= (attr? :start) ? %( start="#{attr :start}") : nil %><%= (keyword = list_marker_keyword) && %( type="#{keyword}") %>><%
+items.each do |item| %>
+<li>
+<p><%= item.text %></p><%
+  if item.blocks? %>
+<%= item.content %><%
+  end %>
+</li><%
+end %>
+</ol>
+</div>

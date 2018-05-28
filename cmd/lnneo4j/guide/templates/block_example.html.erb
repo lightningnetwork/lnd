@@ -1,0 +1,8 @@
+<%#encoding:UTF-8%><div<%= @id && %( id="#{@id}") %> class="<%= ['exampleblock',role].compact * ' ' %>"><%
+if title? %>
+<div class="title"><%= captioned_title %></div><%
+end %>
+<div class="content">
+<%= content %>
+</div>
+</div>

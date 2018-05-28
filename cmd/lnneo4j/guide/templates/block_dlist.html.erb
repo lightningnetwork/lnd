@@ -1,0 +1,87 @@
+<%#encoding:UTF-8%><%
+case @style
+when 'qanda'
+%><div<%= @id && %( id="#{@id}") %> class="<%= ['qlist','qanda',role].compact * ' ' %>"><%
+  if title? %>
+<div class="title"><%= title %></div><%
+  end %>
+<ol><%
+  items.each do |questions, answer| %>
+<li><%
+    [*questions].each do |question| %>
+<p><em><%= question.text %></em></p><%
+    end
+    unless answer.nil?
+      if answer.text? %>
+<p><%= answer.text %></p><%
+      end
+      if answer.blocks? %>
+<%= answer.content %><%
+      end
+    end %>
+</li><%
+  end %>
+</ol>
+</div><%
+when 'horizontal'
+%><div<%= @id && %( id="#{@id}") %> class="<%= ['hdlist',role].compact * ' ' %>"><%
+  if title? %>
+<div class="title"><%= title %></div><%
+  end %>
+<table><%
+  if (attr? :labelwidth) || (attr? :itemwidth) %>
+<colgroup>
+<col<%= (attr? :labelwidth) ? %( style="width: #{(attr :labelwidth).chomp '%'}%;") : nil %>>
+<col<%= (attr? :itemwidth) ? %( style="width: #{(attr :itemwidth).chomp '%'}%;") : nil %>>
+</colgroup><%
+  end
+  items.each do |terms, dd| %>
+<tr>
+<td class="hdlist1<%= (option? :strong) ? ' strong' : nil %>"><%
+    terms = [*terms]
+    last_term = terms.last
+    terms.each do |dt| %>
+<%= dt.text %><%
+      if dt != last_term %>
+<br><%
+      end
+    end %>
+</td>
+<td class="hdlist2"><%
+    unless dd.nil?
+      if dd.text? %>
+<p><%= dd.text %></p><%
+      end
+      if dd.blocks? %>
+<%= dd.content %><%
+      end
+    end %>
+</td>
+</tr><%
+  end %>
+</table>
+</div><%
+else
+%><div<%= @id && %( id="#{@id}") %> class="<%= ['dlist',@style,role].compact * ' ' %>"><%
+  if title? %>
+<div class="title"><%= title %></div><%
+  end %>
+<dl><%
+  items.each do |terms, dd|
+    [*terms].each do |dt| %>
+<dt<%= !@style ? ' class="hdlist1"' : nil %>><%= dt.text %></dt><%
+    end
+    unless dd.nil? %>
+<dd><%
+      if dd.text? %>
+<p><%= dd.text %></p><%
+      end
+      if dd.blocks? %>
+<%= dd.content %><%
+      end %>
+</dd><%
+    end
+  end %>
+</dl>
+</div><%
+end %>

@@ -1,0 +1,41 @@
+<%#encoding:UTF-8%><div<%= @id && %( id="#{@id}") %> class="<%= ['listingblock',role].compact * ' ' %>"><%
+if title? %>
+<div class="title"><%= captioned_title %></div><%
+end %>
+<div class="content"><%
+nowrap = !(@document.attr? :prewrap) || (option? :nowrap)
+if @style == 'source'
+  language = attr :language
+  code_class = language ? [language, %(language-#{language})] : []
+  pre_class = ['highlight']
+  pre_lang = language
+  case attr 'source-highlighter'
+  when 'coderay'
+    pre_class = ['CodeRay']
+  when 'pygments'
+    pre_class = ['pygments','highlight']
+  when 'prettify'
+    pre_class = ['prettyprint']
+    pre_class << 'linenums' if attr? :linenums
+    pre_class << language if language
+    pre_class << %(language-#{language}) if language
+    code_class = []
+  when 'html-pipeline'
+    pre_lang = language
+    pre_class = code_class = []
+    nowrap = false
+  end
+  pre_class << "pre-scrollable"
+  pre_class << "programlisting"
+  pre_class << "cm-s-neo"
+  pre_class << "code"
+  pre_class << "runnable"
+  pre_class << "standalone-example"
+  pre_class << "ng-binding" 
+  pre_class << 'nowrap' if nowrap %>
+<pre mode="cypher" <%= pre_class.empty? ? nil : %( class="#{pre_class * ' '}") %><%= pre_lang && %( data-lang="#{pre_lang}") %><%= pre_lang && %( lang="#{pre_lang}") %>><!--code<%= code_class.empty? ? nil : %( class="#{code_class * ' '}") %>--><%= content %><!--/code--></pre><%
+else %>
+<pre<%= nowrap ? ' class="nowrap"' : nil %>><%= content %></pre><%
+end %>
+</div>
+</div>

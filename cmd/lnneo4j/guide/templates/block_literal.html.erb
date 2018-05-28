@@ -1,0 +1,8 @@
+<%#encoding:UTF-8%><div<%= @id && %( id="#{@id}") %> class="<%= ['literalblock',role].compact * ' ' %>"><%
+if title? %>
+<div class="title"><%= title %></div><%
+end %>
+<div class="content">
+<pre<%= !(@document.attr? :prewrap) || (option? :nowrap) ? ' class="nowrap"' : nil %>><%= content %></pre>
+</div>
+</div>

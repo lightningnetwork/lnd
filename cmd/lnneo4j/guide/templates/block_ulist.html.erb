@@ -1,0 +1,32 @@
+<%#encoding:UTF-8%><%
+if (checklist = (option? :checklist) ? 'checklist' : nil)
+  if option? :interactive
+    marker_checked = '<input type="checkbox" data-item-complete="1" checked>'
+    marker_unchecked = '<input type="checkbox" data-item-complete="0">'
+  else
+    if @document.attr? :icons, 'font'
+      marker_checked = '<i class="icon-check"></i>'
+      marker_unchecked = '<i class="icon-check-empty"></i>'
+    else 
+      marker_checked = '&#10003;'
+      marker_unchecked = '&#10063;'
+    end
+  end
+end %><div<%= @id && %( id="#{@id}") %> class="<%= ['ulist',checklist,@style,role].compact * ' ' %>"><%
+if title? %>
+<div class="title"><%= title %></div><%
+end %>
+<ul<%= (style_class = checklist || @style) ? %( class="#{style_class}") : nil %>><%
+items.each do |item| %>
+<li>
+<p><%
+  if checklist && (item.attr? :checkbox) %><%= %(#{(item.attr? :checked) ? marker_checked : marker_unchecked} #{item.text}) %><%
+  else %><%= item.text %><%
+  end %></p><%
+  if item.blocks? %>
+<%= item.content %><%
+  end %>
+</li><%
+end %>
+</ul>
+</div>

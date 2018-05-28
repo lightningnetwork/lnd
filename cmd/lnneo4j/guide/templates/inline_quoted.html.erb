@@ -1,0 +1,14 @@
+<%#encoding:UTF-8%><%= @id && %(<a id="#{@id}"></a>) %><%
+class_attr = (style_class = role) ? %( class="#{style_class}") : nil
+case @type
+when :emphasis %><%= %(<em#{class_attr}>#{@text}</em>) %><%
+when :strong %><%= %(<strong#{class_attr}>#{@text}</strong>) %><%
+when :monospaced %><%= %(<code#{class_attr}>#{@text}</code>) %><%
+when :superscript %><%= %(<sup#{class_attr}>#{@text}</sup>) %><%
+when :subscript %><%= %(<sub#{class_attr}>#{@text}</sub>) %><%
+when :double %><%= class_attr ? %(<span#{class_attr}>&#8220;#{@text}&#8221;</span>) : %(&#8220;#{@text}&#8221;) %><%
+when :single %><%= class_attr ? %(<span#{class_attr}>&#8216;#{@text}&#8217;</span>) : %(&#8216;#{@text}&#8217;) %><%
+when :asciimath, :latexmath
+  open, close = Asciidoctor::INLINE_MATH_DELIMITERS[@type] %><%= %(#{open}#{@text}#{close}) %><%
+else %><%= class_attr ? %(<span#{class_attr}>#{@text}</span>) : @text %><%
+end %>

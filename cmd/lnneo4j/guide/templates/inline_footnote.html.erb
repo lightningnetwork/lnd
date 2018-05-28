@@ -1,0 +1,7 @@
+<%#encoding:UTF-8%><%
+idx = attr :index
+if @type == :xref
+%><%= %(<span class="footnoteref">[<a class="footnote" href="#_footnote_#{idx}" title="View footnote.">#{idx}</a>]</span>) %><%
+else
+%><%= %(<span class="footnote"#{@id && " id=\"_footnote_#{@id}\""}>[<a id="_footnoteref_#{idx}" class="footnote" href="#_footnote_#{idx}" title="View footnote.">#{idx}</a>]</span>) %><%
+end %>

@@ -825,7 +825,7 @@ func (lc *LightningChannel) extractPayDescs(commitHeight uint64,
 	return incomingHtlcs, outgoingHtlcs, nil
 }
 
-// diskCommitToMemCommit converts tthe on-disk commitment format to our
+// diskCommitToMemCommit converts the on-disk commitment format to our
 // in-memory commitment format which is needed in order to properly resume
 // channel operations after a restart.
 func (lc *LightningChannel) diskCommitToMemCommit(isLocal, isPendingCommit bool,
@@ -1090,16 +1090,22 @@ type updateLog struct {
 	// offerIndex is an index that maps the counter for offered HTLC's to
 	// their list element within the main list.List.
 	htlcIndex map[uint64]*list.Element
+
+	// modifiedHtlcs is a set that keeps track of all the current modified
+	// htlcs. A modified HTLC is one that's present in the log, and has as
+	// a pending fail or settle that's attempting to consume it.
+	modifiedHtlcs map[uint64]struct{}
 }
 
 // newUpdateLog creates a new updateLog instance.
 func newUpdateLog(logIndex, htlcCounter uint64) *updateLog {
 	return &updateLog{
-		List:        list.New(),
-		updateIndex: make(map[uint64]*list.Element),
-		htlcIndex:   make(map[uint64]*list.Element),
-		logIndex:    logIndex,
-		htlcCounter: htlcCounter,
+		List:          list.New(),
+		updateIndex:   make(map[uint64]*list.Element),
+		htlcIndex:     make(map[uint64]*list.Element),
+		logIndex:      logIndex,
+		htlcCounter:   htlcCounter,
+		modifiedHtlcs: make(map[uint64]struct{}),
 	}
 }
 
@@ -1158,6 +1164,22 @@ func (u *updateLog) removeHtlc(i uint64) {
 	entry := u.htlcIndex[i]
 	u.Remove(entry)
 	delete(u.htlcIndex, i)
+
+	delete(u.modifiedHtlcs, i)
+}
+
+// htlcHasModification returns true if the HTLC identified by the passed index
+// has a pending modification within the log.
+func (u *updateLog) htlcHasModification(i uint64) bool {
+	_, o := u.modifiedHtlcs[i]
+	return o
+}
+
+// markHtlcModified marks an HTLC as modified based on its HTLC index. After a
+// call to this method, htlcHasModification will return true until the HTLC is
+// removed.
+func (u *updateLog) markHtlcModified(i uint64) {
+	u.modifiedHtlcs[i] = struct{}{}
 }
 
 // compactLogs performs garbage collection within the log removing HTLCs which
@@ -1509,10 +1531,12 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 		if !isDustRemote {
 			theirP2WSH, theirWitnessScript, err := genHtlcScript(
 				false, false, wireMsg.Expiry, wireMsg.PaymentHash,
-				remoteCommitKeys)
+				remoteCommitKeys,
+			)
 			if err != nil {
 				return nil, err
 			}
+
 			pd.theirPkScript = theirP2WSH
 			pd.theirWitnessScript = theirWitnessScript
 		}
@@ -1571,7 +1595,7 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 }
 
 // restoreCommitState will restore the local commitment chain and updateLog
-// state to a consistent in-memory representation of the passed dis commitment.
+// state to a consistent in-memory representation of the passed disk commitment.
 // This method is to be used upon reconnection to our channel counter party.
 // Once the connection has been established, we'll prepare our in memory state
 // to re-sync states with the remote party, and also verify/extend new proposed
@@ -1749,9 +1773,12 @@ func (lc *LightningChannel) restoreStateLogs(
 					"%v vs %v", payDesc.HtlcIndex,
 					lc.localUpdateLog.htlcCounter))
 			}
+
 			lc.localUpdateLog.appendHtlc(payDesc)
 		} else {
 			lc.localUpdateLog.appendUpdate(payDesc)
+
+			lc.remoteUpdateLog.markHtlcModified(payDesc.ParentIndex)
 		}
 	}
 
@@ -4353,6 +4380,14 @@ func (lc *LightningChannel) SettleHTLC(preimage [32]byte,
 			lc.ShortChanID())
 	}
 
+	// Now that we know the HTLC exists, before checking to see if the
+	// preimage matches, we'll ensure that we haven't already attempted to
+	// modify the HTLC.
+	if lc.remoteUpdateLog.htlcHasModification(htlcIndex) {
+		return fmt.Errorf("HTLC with ID %d has already been settled",
+			htlcIndex)
+	}
+
 	if htlc.RHash != sha256.Sum256(preimage[:]) {
 		return fmt.Errorf("Invalid payment preimage %x for hash %x",
 			preimage[:], htlc.RHash[:])
@@ -4371,6 +4406,11 @@ func (lc *LightningChannel) SettleHTLC(preimage [32]byte,
 
 	lc.localUpdateLog.appendUpdate(pd)
 
+	// With the settle added to our local log, we'll now mark the HTLC as
+	// modified to prevent ourselves from accidentally attempting a
+	// duplicate settle.
+	lc.remoteUpdateLog.markHtlcModified(htlcIndex)
+
 	return nil
 }
 
@@ -4388,6 +4428,14 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, htlcIndex uint6
 			lc.ShortChanID())
 	}
 
+	// Now that we know the HTLC exists, before checking to see if the
+	// preimage matches, we'll ensure that they haven't already attempted
+	// to modify the HTLC.
+	if lc.localUpdateLog.htlcHasModification(htlcIndex) {
+		return fmt.Errorf("HTLC with ID %d has already been settled",
+			htlcIndex)
+	}
+
 	if htlc.RHash != sha256.Sum256(preimage[:]) {
 		return fmt.Errorf("Invalid payment preimage %x for hash %x",
 			preimage[:], htlc.RHash[:])
@@ -4403,6 +4451,12 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, htlcIndex uint6
 	}
 
 	lc.remoteUpdateLog.appendUpdate(pd)
+
+	// With the settle added to the remote log, we'll now mark the HTLC as
+	// modified to prevent the remote party from accidentally attempting a
+	// duplicate settle.
+	lc.localUpdateLog.markHtlcModified(htlcIndex)
+
 	return nil
 }
 
@@ -4442,6 +4496,13 @@ func (lc *LightningChannel) FailHTLC(htlcIndex uint64, reason []byte,
 			lc.ShortChanID())
 	}
 
+	// Now that we know the HTLC exists, we'll ensure that we haven't
+	// already attempted to fail the HTLC.
+	if lc.remoteUpdateLog.htlcHasModification(htlcIndex) {
+		return fmt.Errorf("HTLC with ID %d has already been failed",
+			htlcIndex)
+	}
+
 	pd := &PaymentDescriptor{
 		Amount:           htlc.Amount,
 		RHash:            htlc.RHash,
@@ -4455,6 +4516,11 @@ func (lc *LightningChannel) FailHTLC(htlcIndex uint64, reason []byte,
 	}
 
 	lc.localUpdateLog.appendUpdate(pd)
+
+	// With the fail added to the remote log, we'll now mark the HTLC as
+	// modified to prevent ourselves from accidentally attempting a
+	// duplicate fail.
+	lc.remoteUpdateLog.markHtlcModified(htlcIndex)
 
 	return nil
 }
@@ -4482,6 +4548,13 @@ func (lc *LightningChannel) MalformedFailHTLC(htlcIndex uint64,
 			lc.ShortChanID())
 	}
 
+	// Now that we know the HTLC exists, we'll ensure that we haven't
+	// already attempted to fail the HTLC.
+	if lc.remoteUpdateLog.htlcHasModification(htlcIndex) {
+		return fmt.Errorf("HTLC with ID %d has already been failed",
+			htlcIndex)
+	}
+
 	pd := &PaymentDescriptor{
 		Amount:       htlc.Amount,
 		RHash:        htlc.RHash,
@@ -4494,6 +4567,11 @@ func (lc *LightningChannel) MalformedFailHTLC(htlcIndex uint64,
 	}
 
 	lc.localUpdateLog.appendUpdate(pd)
+
+	// With the fail added to the remote log, we'll now mark the HTLC as
+	// modified to prevent ourselves from accidentally attempting a
+	// duplicate fail.
+	lc.remoteUpdateLog.markHtlcModified(htlcIndex)
 
 	return nil
 }
@@ -4515,6 +4593,13 @@ func (lc *LightningChannel) ReceiveFailHTLC(htlcIndex uint64, reason []byte,
 			lc.ShortChanID())
 	}
 
+	// Now that we know the HTLC exists, we'll ensure that they haven't
+	// already attempted to fail the HTLC.
+	if lc.localUpdateLog.htlcHasModification(htlcIndex) {
+		return fmt.Errorf("HTLC with ID %d has already been failed",
+			htlcIndex)
+	}
+
 	pd := &PaymentDescriptor{
 		Amount:      htlc.Amount,
 		RHash:       htlc.RHash,
@@ -4525,6 +4610,11 @@ func (lc *LightningChannel) ReceiveFailHTLC(htlcIndex uint64, reason []byte,
 	}
 
 	lc.remoteUpdateLog.appendUpdate(pd)
+
+	// With the fail added to the remote log, we'll now mark the HTLC as
+	// modified to prevent ourselves from accidentally attempting a
+	// duplicate fail.
+	lc.localUpdateLog.markHtlcModified(htlcIndex)
 
 	return nil
 }

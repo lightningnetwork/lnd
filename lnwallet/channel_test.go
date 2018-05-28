@@ -5342,3 +5342,166 @@ func TestChannelRestoreUpdateLogsFailedHTLC(t *testing.T) {
 	assertInLogs(t, aliceChannel, 0, 0, 0, 0)
 	restoreAndAssert(t, aliceChannel, 0, 0, 0, 0)
 }
+
+// TestDuplicateFailRejection tests that if either party attempts to fail an
+// HTLC twice, then we'll reject the second fail attempt.
+func TestDuplicateFailRejection(t *testing.T) {
+	t.Parallel()
+
+	aliceChannel, bobChannel, cleanUp, err := CreateTestChannels()
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// First, we'll add an HTLC from Alice to Bob, and lock it in for both
+	// parties.
+	htlcAmount := lnwire.NewMSatFromSatoshis(20000)
+	htlcAlice, _ := createHTLC(0, htlcAmount)
+	if _, err := aliceChannel.AddHTLC(htlcAlice, nil); err != nil {
+		t.Fatalf("alice unable to add htlc: %v", err)
+	}
+	_, err = bobChannel.ReceiveHTLC(htlcAlice)
+	if err != nil {
+		t.Fatalf("unable to recv htlc: %v", err)
+	}
+
+	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("unable to complete state update: %v", err)
+	}
+
+	// With the HTLC locked in, we'll now have Bob fail the HTLC back to
+	// Alice.
+	err = bobChannel.FailHTLC(0, []byte("failreason"), nil, nil, nil)
+	if err != nil {
+		t.Fatalf("unable to cancel HTLC: %v", err)
+	}
+	if err := aliceChannel.ReceiveFailHTLC(0, []byte("bad")); err != nil {
+		t.Fatalf("unable to recv htlc cancel: %v", err)
+	}
+
+	// If we attempt to fail it AGAIN, then both sides should reject this
+	// second failure attempt.
+	err = bobChannel.FailHTLC(0, []byte("failreason"), nil, nil, nil)
+	if err == nil {
+		t.Fatalf("duplicate HTLC failure attempt should have failed")
+	}
+	if err := aliceChannel.ReceiveFailHTLC(0, []byte("bad")); err == nil {
+		t.Fatalf("duplicate HTLC failure attempt should have failed")
+	}
+
+	// We'll now have Bob sign a new commitment to lock in the HTLC fail
+	// for Alice.
+	_, _, err = bobChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("unable to sign commit: %v", err)
+	}
+
+	// We'll now force a restart for Bob and Alice, so we can test the
+	// persistence related portion of this assertion.
+	bobChannel, err = restartChannel(bobChannel)
+	if err != nil {
+		t.Fatalf("unable to restart channel: %v", err)
+	}
+	defer bobChannel.Stop()
+	aliceChannel, err = restartChannel(aliceChannel)
+	if err != nil {
+		t.Fatalf("unable to restart channel: %v", err)
+	}
+	defer aliceChannel.Stop()
+
+	// If we try to fail the same HTLC again, then we should get an error.
+	err = bobChannel.FailHTLC(0, []byte("failreason"), nil, nil, nil)
+	if err == nil {
+		t.Fatalf("duplicate HTLC failure attempt should have failed")
+	}
+
+	// Alice on the other hand should accept the failure again, as she
+	// dropped all items in the logs which weren't committed.
+	if err := aliceChannel.ReceiveFailHTLC(0, []byte("bad")); err != nil {
+		t.Fatalf("unable to recv htlc cancel: %v", err)
+	}
+}
+
+// TestDuplicateSettleRejection tests that if either party attempts to settle
+// an HTLC twice, then we'll reject the second settle attempt.
+func TestDuplicateSettleRejection(t *testing.T) {
+	t.Parallel()
+
+	aliceChannel, bobChannel, cleanUp, err := CreateTestChannels()
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// First, we'll add an HTLC from Alice to Bob, and lock it in for both
+	// parties.
+	htlcAmount := lnwire.NewMSatFromSatoshis(20000)
+	htlcAlice, alicePreimage := createHTLC(0, htlcAmount)
+	if _, err := aliceChannel.AddHTLC(htlcAlice, nil); err != nil {
+		t.Fatalf("alice unable to add htlc: %v", err)
+	}
+	_, err = bobChannel.ReceiveHTLC(htlcAlice)
+	if err != nil {
+		t.Fatalf("unable to recv htlc: %v", err)
+	}
+
+	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("unable to complete state update: %v", err)
+	}
+
+	// With the HTLC locked in, we'll now have Bob settle the HTLC back to
+	// Alice.
+	err = bobChannel.SettleHTLC(alicePreimage, uint64(0), nil, nil, nil)
+	if err != nil {
+		t.Fatalf("unable to cancel HTLC: %v", err)
+	}
+	err = aliceChannel.ReceiveHTLCSettle(alicePreimage, uint64(0))
+	if err != nil {
+		t.Fatalf("unable to recv htlc cancel: %v", err)
+	}
+
+	// If we attempt to fail it AGAIN, then both sides should reject this
+	// second failure attempt.
+	err = bobChannel.SettleHTLC(alicePreimage, uint64(0), nil, nil, nil)
+	if err == nil {
+		t.Fatalf("duplicate HTLC failure attempt should have failed")
+	}
+	err = aliceChannel.ReceiveHTLCSettle(alicePreimage, uint64(0))
+	if err == nil {
+		t.Fatalf("duplicate HTLC failure attempt should have failed")
+	}
+
+	// We'll now have Bob sign a new commitment to lock in the HTLC fail
+	// for Alice.
+	_, _, err = bobChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("unable to sign commit: %v", err)
+	}
+
+	// We'll now force a restart for Bob and Alice, so we can test the
+	// persistence related portion of this assertion.
+	bobChannel, err = restartChannel(bobChannel)
+	if err != nil {
+		t.Fatalf("unable to restart channel: %v", err)
+	}
+	defer bobChannel.Stop()
+	aliceChannel, err = restartChannel(aliceChannel)
+	if err != nil {
+		t.Fatalf("unable to restart channel: %v", err)
+	}
+	defer aliceChannel.Stop()
+
+	// If we try to fail the same HTLC again, then we should get an error.
+	err = bobChannel.SettleHTLC(alicePreimage, uint64(0), nil, nil, nil)
+	if err == nil {
+		t.Fatalf("duplicate HTLC failure attempt should have failed")
+	}
+
+	// Alice on the other hand should accept the failure again, as she
+	// dropped all items in the logs which weren't committed.
+	err = aliceChannel.ReceiveHTLCSettle(alicePreimage, uint64(0))
+	if err != nil {
+		t.Fatalf("unable to recv htlc cancel: %v", err)
+	}
+}

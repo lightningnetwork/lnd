@@ -3943,8 +3943,8 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 	}
 	defer cleanUp()
 
-	// We'll now add two HTLC's from Bob to Alice, then Bob will initiate a
-	// state transition.
+	// We'll now add two HTLC's from Alice to Bob, then Alice will initiate
+	// a state transition.
 	var htlcAmt lnwire.MilliSatoshi = 100000
 	htlc, _ := createHTLC(0, htlcAmt)
 	if _, err := aliceChannel.AddHTLC(htlc, nil); err != nil {
@@ -3975,21 +3975,26 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	// Alice should detect that she doesn't need to forward any HTLC's.
+	fwdPkg, _, _, err := aliceChannel.ReceiveRevocation(bobRevocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fwdPkg.Adds) != 0 {
+		t.Fatalf("alice shouldn't forward any HTLC's, instead wants to "+
+			"forward %v htlcs", len(fwdPkg.Adds))
+	}
+	if len(fwdPkg.SettleFails) != 0 {
+		t.Fatalf("alice shouldn't forward any HTLC's, instead wants to "+
+			"forward %v htlcs", len(fwdPkg.SettleFails))
+	}
+
+	// Now, have Bob initiate a transition to lock in the Adds sent by
+	// Alice.
 	bobSig, bobHtlcSigs, err := bobChannel.SignNextCommitment()
 	if err != nil {
 		t.Fatal(err)
-	}
-
-	// Alice should detect that she doesn't need to forward any HTLC's.
-	_, aliceHtlcsToForward, _, err := aliceChannel.ReceiveRevocation(
-		bobRevocation,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(aliceHtlcsToForward) != 0 {
-		t.Fatalf("alice shouldn't forward any HTLC's, instead wants to "+
-			"forward %v htlcs", len(aliceHtlcsToForward))
 	}
 
 	err = aliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
@@ -4001,15 +4006,19 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Bob on the other hand, should detect that he now has 2 incoming
-	// HTLC's that he can forward along.
-	_, bobHtlcsToForward, _, err := bobChannel.ReceiveRevocation(aliceRevocation)
+	// Bob should now detect that he now has 2 incoming HTLC's that he can
+	// forward along.
+	fwdPkg, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(bobHtlcsToForward) != 2 {
+	if len(fwdPkg.Adds) != 2 {
 		t.Fatalf("bob should forward 2 hltcs, instead has %v",
-			len(bobHtlcsToForward))
+			len(fwdPkg.Adds))
+	}
+	if len(fwdPkg.SettleFails) != 0 {
+		t.Fatalf("bob should forward 0 hltcs, instead has %v",
+			len(fwdPkg.SettleFails))
 	}
 
 	// We'll now restart both Alice and Bob. This emulates a reconnection
@@ -4018,18 +4027,20 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to restart alice: %v", err)
 	}
+	defer aliceChannel.Stop()
 	bobChannel, err = restartChannel(bobChannel)
 	if err != nil {
 		t.Fatalf("unable to restart bob: %v", err)
 	}
+	defer bobChannel.Stop()
 
 	// With both nodes restarted, Bob will now attempt to cancel one of
 	// Alice's HTLC's.
-	err = bobChannel.FailHTLC(htlc2.ID, []byte("failreason"), nil, nil, nil)
+	err = bobChannel.FailHTLC(htlc.ID, []byte("failreason"), nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unable to cancel HTLC: %v", err)
 	}
-	err = aliceChannel.ReceiveFailHTLC(htlc2.ID, []byte("bad"))
+	err = aliceChannel.ReceiveFailHTLC(htlc.ID, []byte("bad"))
 	if err != nil {
 		t.Fatalf("unable to recv htlc cancel: %v", err)
 	}
@@ -4048,15 +4059,11 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	aliceSig, aliceHtlcSigs, err = aliceChannel.SignNextCommitment()
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	// At this point, Bob receives the revocation from Alice, which is now
 	// his signal to examine all the HTLC's that have been locked in to
 	// process.
-	_, bobHtlcsToForward, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	fwdPkg, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4064,9 +4071,180 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 	// Bob should detect that he doesn't need to forward *any* HTLC's, as
 	// he was the one that initiated extending the commitment chain of
 	// Alice.
-	if len(bobHtlcsToForward) != 0 {
-		t.Fatalf("bob shouldn't forward any htlcs, but has: %v",
-			spew.Sdump(bobHtlcsToForward))
+	if len(fwdPkg.Adds) != 0 {
+		t.Fatalf("alice shouldn't forward any HTLC's, instead wants to "+
+			"forward %v htlcs", len(fwdPkg.Adds))
+	}
+	if len(fwdPkg.SettleFails) != 0 {
+		t.Fatalf("alice shouldn't forward any HTLC's, instead wants to "+
+			"forward %v htlcs", len(fwdPkg.SettleFails))
+	}
+
+	// Now, begin another state transition led by Alice, and fail the second
+	// HTLC part-way through the dance.
+	aliceSig, aliceHtlcSigs, err = aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Failing the HTLC here will cause the update to be included in Alice's
+	// remote log, but it should not be committed by this transition.
+	err = bobChannel.FailHTLC(htlc2.ID, []byte("failreason"), nil, nil, nil)
+	if err != nil {
+		t.Fatalf("unable to cancel HTLC: %v", err)
+	}
+	err = aliceChannel.ReceiveFailHTLC(htlc2.ID, []byte("bad"))
+	if err != nil {
+		t.Fatalf("unable to recv htlc cancel: %v", err)
+	}
+
+	bobRevocation, _, err = bobChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Alice should detect that she doesn't need to forward any Adds's, but
+	// that the Fail has been locked in an can be forwarded.
+	_, adds, settleFails, err := aliceChannel.ReceiveRevocation(bobRevocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(adds) != 0 {
+		t.Fatalf("alice shouldn't forward any HTLC's, instead wants to "+
+			"forward %v htlcs", len(adds))
+	}
+	if len(settleFails) != 1 {
+		t.Fatalf("alice should only forward %d HTLC's, instead wants to "+
+			"forward %v htlcs", 1, len(settleFails))
+	}
+	if settleFails[0].ParentIndex != htlc.ID {
+		t.Fatalf("alice should forward fail for htlcid=%d, instead "+
+			"forwarding id=%d", htlc.ID,
+			settleFails[0].ParentIndex)
+	}
+
+	// We'll now restart both Alice and Bob. This emulates a reconnection
+	// between the two peers.
+	aliceChannel, err = restartChannel(aliceChannel)
+	if err != nil {
+		t.Fatalf("unable to restart alice: %v", err)
+	}
+	defer aliceChannel.Stop()
+	bobChannel, err = restartChannel(bobChannel)
+	if err != nil {
+		t.Fatalf("unable to restart bob: %v", err)
+	}
+	defer bobChannel.Stop()
+
+	// Readd the Fail to both Alice and Bob's channels, as the non-committed
+	// update will not have survived the restart.
+	err = bobChannel.FailHTLC(htlc2.ID, []byte("failreason"), nil, nil, nil)
+	if err != nil {
+		t.Fatalf("unable to cancel HTLC: %v", err)
+	}
+	err = aliceChannel.ReceiveFailHTLC(htlc2.ID, []byte("bad"))
+	if err != nil {
+		t.Fatalf("unable to recv htlc cancel: %v", err)
+	}
+
+	// Have Alice initiate a state transition, which does not include the
+	// HTLCs just readded to the channel state.
+	aliceSig, aliceHtlcSigs, err = aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobRevocation, _, err = bobChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Alice should detect that she doesn't need to forward any HTLC's, as
+	// the updates haven't been committed by Bob yet.
+	fwdPkg, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fwdPkg.Adds) != 0 {
+		t.Fatalf("alice shouldn't forward any HTLC's, instead wants to "+
+			"forward %v htlcs", len(fwdPkg.Adds))
+	}
+	if len(fwdPkg.SettleFails) != 0 {
+		t.Fatalf("alice shouldn't forward any HTLC's, instead wants to "+
+			"forward %v htlcs", len(fwdPkg.SettleFails))
+	}
+
+	// Now initiate a final update from Bob to lock in the final Fail.
+	bobSig, bobHtlcSigs, err = bobChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = aliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	aliceRevocation, _, err = aliceChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Bob should detect that he has nothing to forward, as he hasn't
+	// received any HTLCs.
+	fwdPkg, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fwdPkg.Adds) != 0 {
+		t.Fatalf("bob should forward 4 hltcs, instead has %v",
+			len(fwdPkg.Adds))
+	}
+	if len(fwdPkg.SettleFails) != 0 {
+		t.Fatalf("bob should forward 0 hltcs, instead has %v",
+			len(fwdPkg.SettleFails))
+	}
+
+	// Finally, have Bob initiate a state transition that locks in the Fail
+	// added after the restart.
+	aliceSig, aliceHtlcSigs, err = aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobRevocation, _, err = bobChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// When Alice receives the revocation, she should detect that she
+	// can now forward the freshly locked-in Fail.
+	_, adds, settleFails, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(adds) != 0 {
+		t.Fatalf("alice shouldn't forward any HTLC's, instead wants to "+
+			"forward %v htlcs", len(adds))
+	}
+	if len(settleFails) != 1 {
+		t.Fatalf("alice should only forward one HTLC, instead wants to "+
+			"forward %v htlcs", len(settleFails))
+	}
+	if settleFails[0].ParentIndex != htlc2.ID {
+		t.Fatalf("alice should forward fail for htlcid=%d, instead "+
+			"forwarding id=%d", htlc2.ID,
+			settleFails[0].ParentIndex)
 	}
 }
 

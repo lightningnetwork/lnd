@@ -201,6 +201,10 @@ var (
 			Entity: "offchain",
 			Action: "write",
 		}},
+		"/lnrpc.Lightning/AbandonChannel": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
 		"/lnrpc.Lightning/GetInfo": {{
 			Entity: "info",
 			Action: "read",
@@ -1200,9 +1204,56 @@ out:
 	return nil
 }
 
-// fetchActiveChannel attempts to locate a channel identified by its channel
+// AbandonChannel removes all channel state from the database except for a
+// close summary. This method can be used to get rid of permanently unusable
+// channels due to bugs fixed in newer versions of lnd.
+func (r *rpcServer) AbandonChannel(ctx context.Context,
+	in *lnrpc.AbandonChannelRequest) (*lnrpc.AbandonChannelResponse, error) {
+
+	if !DebugBuild {
+		return nil, fmt.Errorf("AbandonChannel RPC call only " +
+			"available in debug builds")
+	}
+
+	index := in.ChannelPoint.OutputIndex
+	txidHash, err := getChanPointFundingTxid(in.GetChannelPoint())
+	if err != nil {
+		return nil, err
+	}
+	txid, err := chainhash.NewHash(txidHash)
+	if err != nil {
+		return nil, err
+	}
+	chanPoint := wire.NewOutPoint(txid, index)
+
+	dbChan, err := r.fetchOpenDbChannel(*chanPoint)
+	if err != nil {
+		return nil, err
+	}
+
+	summary := &channeldb.ChannelCloseSummary{
+		ChanPoint:   *chanPoint,
+		ChainHash:   dbChan.ChainHash,
+		RemotePub:   dbChan.IdentityPub,
+		Capacity:    dbChan.Capacity,
+		CloseType:   channeldb.Abandoned,
+		ShortChanID: dbChan.ShortChannelID,
+		IsPending:   false,
+	}
+
+	err = dbChan.CloseChannel(summary)
+	if err != nil {
+		return nil, err
+	}
+
+	return &lnrpc.AbandonChannelResponse{}, nil
+}
+
+// fetchOpenDbChannel attempts to locate a channel identified by its channel
 // point from the database's set of all currently opened channels.
-func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (*lnwallet.LightningChannel, error) {
+func (r *rpcServer) fetchOpenDbChannel(chanPoint wire.OutPoint) (
+	*channeldb.OpenChannel, error) {
+
 	dbChannels, err := r.server.chanDB.FetchAllChannels()
 	if err != nil {
 		return nil, err
@@ -1224,7 +1275,22 @@ func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (*lnwallet.Light
 		return nil, fmt.Errorf("unable to find channel")
 	}
 
-	// Otherwise, we create a fully populated channel state machine which
+	return dbChan, nil
+}
+
+// fetchActiveChannel attempts to locate a channel identified by its channel
+// point from the database's set of all currently opened channels and
+// return it as a fully popuplated state machine
+func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (
+	*lnwallet.LightningChannel, error) {
+
+	dbChan, err := r.fetchOpenDbChannel(chanPoint)
+	if err != nil {
+		return nil, err
+	}
+
+	// If the channel is successfully fetched from the database,
+	// we create a fully populated channel state machine which
 	// uses the db channel as backing storage.
 	return lnwallet.NewLightningChannel(
 		r.server.cc.wallet.Cfg.Signer, nil, dbChan,
@@ -1619,7 +1685,8 @@ func (r *rpcServer) ClosedChannels(ctx context.Context,
 
 	// Show all channels when no filter flags are set.
 	filterResults := in.Cooperative || in.LocalForce ||
-		in.RemoteForce || in.Breach || in.FundingCanceled
+		in.RemoteForce || in.Breach || in.FundingCanceled ||
+		in.Abandoned
 
 	resp := &lnrpc.ClosedChannelsResponse{}
 
@@ -1670,6 +1737,11 @@ func (r *rpcServer) ClosedChannels(ctx context.Context,
 				continue
 			}
 			closeType = lnrpc.ChannelCloseSummary_FUNDING_CANCELED
+		case channeldb.Abandoned:
+			if filterResults && !in.Abandoned {
+				continue
+			}
+			closeType = lnrpc.ChannelCloseSummary_ABANDONED
 		}
 
 		channel := &lnrpc.ChannelCloseSummary{

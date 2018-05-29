@@ -389,6 +389,19 @@ service Lightning {
         };
     }
 
+    /** lncli: `abandonchannel`
+    AbandonChannel removes all channel state from the database except for a
+    close summary. This method can be used to get rid of permanently unusable
+    channels due to bugs fixed in newer versions of lnd. Only available
+    when in debug builds of lnd.
+    */
+    rpc AbandonChannel (AbandonChannelRequest) returns (AbandonChannelResponse) {
+        option (google.api.http) = {
+            post: "/v1/channels/{channel_point.funding_txid_str}/{channel_point.output_index}/abandon"
+        };
+    }
+
+
     /** lncli: `sendpayment`
     SendPayment dispatches a bi-directional streaming RPC for sending payments
     through the Lightning Network. A single RPC invocation creates a persistent
@@ -984,6 +997,7 @@ message ChannelCloseSummary {
         REMOTE_FORCE_CLOSE = 2;
         BREACH_CLOSE = 3;
         FUNDING_CANCELED = 4;
+        ABANDONED = 5;
     }
 
     /// Details on how the channel was closed.
@@ -996,6 +1010,7 @@ message ClosedChannelsRequest {
     bool remote_force = 3;
     bool breach = 4;
     bool funding_canceled = 5;
+    bool abandoned = 6;
 }
 
 message ClosedChannelsResponse { 
@@ -1788,6 +1803,14 @@ message DeleteAllPaymentsRequest {
 
 message DeleteAllPaymentsResponse {
 }
+
+message AbandonChannelRequest {
+    ChannelPoint channel_point = 1;
+}
+
+message AbandonChannelResponse {
+}
+
 
 message DebugLevelRequest {
     bool show = 1;

@@ -4071,6 +4071,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	remoteChainTail := lc.remoteCommitChain.tail().height + 1
 	localChainTail := lc.localCommitChain.tail().height
 
+	source := lc.ShortChanID()
 	chanID := lnwire.NewChanIDFromOutPoint(&lc.channelState.FundingOutpoint)
 
 	// Determine the set of htlcs that can be forwarded as a result of
@@ -4093,11 +4094,14 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 			continue
 		}
 
-		uncommitted := (pd.addCommitHeightRemote == 0 ||
-			pd.addCommitHeightLocal == 0)
-		if pd.EntryType == Add && uncommitted {
-			continue
-		}
+		// For each type of HTLC, we will only consider forwarding it if
+		// both of the remote and local heights are non-zero. If either
+		// of these values is zero, it has yet to be committed in both
+		// the local and remote chains.
+		committedAdd := pd.addCommitHeightRemote > 0 &&
+			pd.addCommitHeightLocal > 0
+		committedRmv := pd.removeCommitHeightRemote > 0 &&
+			pd.removeCommitHeightLocal > 0
 
 		// Using the height of the remote and local commitments,
 		// preemptively compute whether or not to forward this HTLC for
@@ -4105,7 +4109,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 		// Settle, Fail, or MalformedFail.
 		shouldFwdAdd := remoteChainTail == pd.addCommitHeightRemote &&
 			localChainTail >= pd.addCommitHeightLocal
-		shouldFwdRmv := remoteChainTail >= pd.removeCommitHeightRemote &&
+		shouldFwdRmv := remoteChainTail == pd.removeCommitHeightRemote &&
 			localChainTail >= pd.removeCommitHeightLocal
 
 		// We'll only forward any new HTLC additions iff, it's "freshly
@@ -4114,8 +4118,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 		// don't re-forward any already processed HTLC's after a
 		// restart.
 		switch {
-		case pd.EntryType == Add && shouldFwdAdd:
-
+		case pd.EntryType == Add && committedAdd && shouldFwdAdd:
 			// Construct a reference specifying the location that
 			// this forwarded Add will be written in the forwarding
 			// package constructed at this remote height.
@@ -4128,13 +4131,12 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 			pd.isForwarded = true
 			addsToForward = append(addsToForward, pd)
 
-		case pd.EntryType != Add && shouldFwdRmv:
-
+		case pd.EntryType != Add && committedRmv && shouldFwdRmv:
 			// Construct a reference specifying the location that
 			// this forwarded Settle/Fail will be written in the
 			// forwarding package constructed at this remote height.
 			pd.DestRef = &channeldb.SettleFailRef{
-				Source: lc.ShortChanID(),
+				Source: source,
 				Height: remoteChainTail,
 				Index:  settleFailIndex,
 			}
@@ -4198,8 +4200,6 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 			settleFailUpdates = append(settleFailUpdates, logUpdate)
 		}
 	}
-
-	source := lc.ShortChanID()
 
 	// Now that we have gathered the set of HTLCs to forward, separated by
 	// type, construct a forwarding package using the height that the remote

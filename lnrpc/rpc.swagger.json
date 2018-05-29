@@ -195,6 +195,13 @@
             "required": false,
             "type": "boolean",
             "format": "boolean"
+          },
+          {
+            "name": "abandoned",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
           }
         ],
         "tags": [
@@ -275,13 +282,13 @@
     },
     "/v1/channels/{channel_point.funding_txid_str}/{channel_point.output_index}": {
       "delete": {
-        "summary": "* lncli: `closechannel`\nCloseChannel attempts to close an active channel identified by its channel\noutpoint (ChannelPoint). The actions of this method can additionally be\naugmented to attempt a force close after a timeout period in the case of an\ninactive peer. If a non-force close (cooperative closure) is requested,\nthen the user can specify either a target number of blocks until the\nclosure transaction is confirmed, or a manual fee rate. If neither are\nspecified, then a default lax, block confirmation target is used.",
-        "operationId": "CloseChannel",
+        "summary": "* lncli: `abandonchannel`\nAbandonChannel removes all channel state from the database except for a\nclose summary. This method can be used to get rid of permanently unusable\nchannels due to bugs fixed in newer versions of lnd. Only available\nwhen in debug builds of lnd.",
+        "operationId": "AbandonChannel",
         "responses": {
           "200": {
-            "description": "(streaming responses)",
+            "description": "",
             "schema": {
-              "$ref": "#/definitions/lnrpcCloseStatusUpdate"
+              "$ref": "#/definitions/lnrpcAbandonChannelResponse"
             }
           }
         },
@@ -970,7 +977,8 @@
         "LOCAL_FORCE_CLOSE",
         "REMOTE_FORCE_CLOSE",
         "BREACH_CLOSE",
-        "FUNDING_CANCELED"
+        "FUNDING_CANCELED",
+        "ABANDONED"
       ],
       "default": "COOPERATIVE_CLOSE"
     },
@@ -1091,6 +1099,9 @@
           "title": "/ The balance in satoshis encumbered in this channel"
         }
       }
+    },
+    "lnrpcAbandonChannelResponse": {
+      "type": "object"
     },
     "lnrpcAddInvoiceResponse": {
       "type": "object",

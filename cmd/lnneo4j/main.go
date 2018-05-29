@@ -37,7 +37,7 @@ func main() {
 	app := cli.NewApp()
 	app.Name = "lnneo4j"
 	app.Version = fmt.Sprintf("%s commit=%s", "0.1.1", Commit)
-	app.Usage = "import a snapshot of your channel databse to neo4js"
+	app.Usage = "import a snapshot of your channel databse to neo4j"
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:  "lnddir",

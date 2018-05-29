@@ -92,7 +92,7 @@ $(DEP_BIN):
 $(GLIDE_BIN):
 	@$(call print, "Fetching glide.")
 	go get -d $(GLIDE_PKG)
-	cd ${GOPATH}/src/$(GLIDE_PKG) && git checkout $(GLIDE_COMMIT) 
+	cd ${GOPATH}/src/$(GLIDE_PKG) && git checkout $(GLIDE_COMMIT)
 	$(GOINSTALL) $(GLIDE_PKG)
 
 $(GOVERALLS_BIN):
@@ -124,14 +124,16 @@ btcd: $(GLIDE_BIN) $(BTCD_DIR)
 # ============
 
 build:
-	@$(call print, "Building lnd and lncli.")
+	@$(call print, "Building lnd, lncli and lnneo4j.")
 	$(GOBUILD) -o lnd $(LDFLAGS) $(PKG)
 	$(GOBUILD) -o lncli $(LDFLAGS) $(PKG)/cmd/lncli
+	$(GOBUILD) -o lnneo4j $(LDFLAGS) $(PKG)/cmd/lnneo4j
 
 install:
-	@$(call print, "Installing lnd and lncli.")
+	@$(call print, "Installing lnd, lncli and lnneo4j.")
 	go install -v $(LDFLAGS) $(PKG)
 	go install -v $(LDFLAGS) $(PKG)/cmd/lncli
+	go install -v $(LDFLAGS) $(PKG)/cmd/lnneo4j
 
 scratch: dep build
 
@@ -154,7 +156,7 @@ unit-cover:
 	@$(call print, "Running unit coverage tests.")
 	echo "mode: count" > profile.cov
 	$(COVER)
-		
+
 unit-race:
 	@$(call print, "Running unit race tests.")
 	export CGO_ENABLED=1; env GORACE="history_size=7 halt_on_errors=1" $(UNIT_RACE)

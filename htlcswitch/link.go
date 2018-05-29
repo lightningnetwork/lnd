@@ -94,7 +94,6 @@ type ForwardingPolicy struct {
 func ExpectedFee(f ForwardingPolicy,
 	htlcAmt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
 
-	// TODO(roasbeef): write some basic table driven tests
 	return f.BaseFee + (htlcAmt*f.FeeRate)/1000000
 }
 

@@ -714,8 +714,8 @@ func (c *commitment) toDiskCommit(ourCommit bool) *channeldb.ChannelCommitment {
 // restore commitment state written do disk back into memory once we need to
 // restart a channel session.
 func (lc *LightningChannel) diskHtlcToPayDesc(feeRate SatPerKWeight,
-	commitHeight uint64, isPendingCommit bool, htlc *channeldb.HTLC,
-	localCommitKeys, remoteCommitKeys *CommitmentKeyRing) (PaymentDescriptor, error) {
+	commitHeight uint64, htlc *channeldb.HTLC, localCommitKeys,
+	remoteCommitKeys *CommitmentKeyRing) (PaymentDescriptor, error) {
 
 	// The proper pkScripts for this PaymentDescriptor must be
 	// generated so we can easily locate them within the commitment
@@ -770,18 +770,6 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate SatPerKWeight,
 		theirWitnessScript: theirWitnessScript,
 	}
 
-	// If this is a pending commit, then the HTLC was only included in the
-	// commitment of the remote party, so we only set that commit height.
-	// Otherwise, we'll set the commit height for both chains as the HTLC
-	// was written to disk after it was fully locked in.
-	if isPendingCommit {
-		pd.addCommitHeightRemote = commitHeight
-	} else {
-		pd.addCommitHeightRemote = commitHeight
-		pd.addCommitHeightLocal = commitHeight
-
-	}
-
 	return pd, nil
 }
 
@@ -790,8 +778,7 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate SatPerKWeight,
 // these payment descriptors can be re-inserted into the in-memory updateLog
 // for each side.
 func (lc *LightningChannel) extractPayDescs(commitHeight uint64,
-	isPendingCommit bool, feeRate SatPerKWeight,
-	htlcs []channeldb.HTLC, localCommitKeys *CommitmentKeyRing,
+	feeRate SatPerKWeight, htlcs []channeldb.HTLC, localCommitKeys,
 	remoteCommitKeys *CommitmentKeyRing) ([]PaymentDescriptor, []PaymentDescriptor, error) {
 
 	var (
@@ -808,7 +795,7 @@ func (lc *LightningChannel) extractPayDescs(commitHeight uint64,
 		// inadvertently trigger replays
 
 		payDesc, err := lc.diskHtlcToPayDesc(
-			feeRate, commitHeight, isPendingCommit, &htlc,
+			feeRate, commitHeight, &htlc,
 			localCommitKeys, remoteCommitKeys,
 		)
 		if err != nil {
@@ -828,9 +815,9 @@ func (lc *LightningChannel) extractPayDescs(commitHeight uint64,
 // diskCommitToMemCommit converts the on-disk commitment format to our
 // in-memory commitment format which is needed in order to properly resume
 // channel operations after a restart.
-func (lc *LightningChannel) diskCommitToMemCommit(isLocal, isPendingCommit bool,
-	diskCommit *channeldb.ChannelCommitment,
-	localCommitPoint, remoteCommitPoint *btcec.PublicKey) (*commitment, error) {
+func (lc *LightningChannel) diskCommitToMemCommit(isLocal bool,
+	diskCommit *channeldb.ChannelCommitment, localCommitPoint,
+	remoteCommitPoint *btcec.PublicKey) (*commitment, error) {
 
 	// First, we'll need to re-derive the commitment key ring for each
 	// party used within this particular state. If this is a pending commit
@@ -851,9 +838,8 @@ func (lc *LightningChannel) diskCommitToMemCommit(isLocal, isPendingCommit bool,
 	// HTLC"s into PaymentDescriptor's so we can re-insert them into our
 	// update log.
 	incomingHtlcs, outgoingHtlcs, err := lc.extractPayDescs(
-		diskCommit.CommitHeight, isPendingCommit,
-		SatPerKWeight(diskCommit.FeePerKw), diskCommit.Htlcs,
-		localCommitKeys, remoteCommitKeys,
+		diskCommit.CommitHeight, SatPerKWeight(diskCommit.FeePerKw),
+		diskCommit.Htlcs, localCommitKeys, remoteCommitKeys,
 	)
 	if err != nil {
 		return nil, err
@@ -1620,7 +1606,7 @@ func (lc *LightningChannel) restoreCommitState(
 	// commitment into our in-memory commitment format, inserting it into
 	// the local commitment chain.
 	localCommit, err := lc.diskCommitToMemCommit(
-		true, false, localCommitState, localCommitPoint,
+		true, localCommitState, localCommitPoint,
 		remoteCommitPoint,
 	)
 	if err != nil {
@@ -1636,7 +1622,7 @@ func (lc *LightningChannel) restoreCommitState(
 
 	// We'll also do the same for the remote commitment chain.
 	remoteCommit, err := lc.diskCommitToMemCommit(
-		false, false, remoteCommitState, localCommitPoint,
+		false, remoteCommitState, localCommitPoint,
 		remoteCommitPoint,
 	)
 	if err != nil {
@@ -1671,7 +1657,7 @@ func (lc *LightningChannel) restoreCommitState(
 		// corresponding state for the local commitment chain.
 		pendingCommitPoint := lc.channelState.RemoteNextRevocation
 		pendingRemoteCommit, err = lc.diskCommitToMemCommit(
-			false, true, &pendingRemoteCommitDiff.Commitment,
+			false, &pendingRemoteCommitDiff.Commitment,
 			nil, pendingCommitPoint,
 		)
 		if err != nil {
@@ -1716,12 +1702,52 @@ func (lc *LightningChannel) restoreStateLogs(
 	pendingRemoteCommitDiff *channeldb.CommitDiff,
 	pendingRemoteKeys *CommitmentKeyRing) error {
 
+	// We make a map of incoming HTLCs to the height of the remote
+	// commitment they were first added, and outgoing HTLCs to the height
+	// of the local commit they were first added. This will be used when we
+	// restore the update logs below.
+	incomingRemoteAddHeights := make(map[uint64]uint64)
+	outgoingLocalAddHeights := make(map[uint64]uint64)
+
+	// We start by setting the height of the incoming HTLCs on the pending
+	// remote commitment. We set these heights first since if there are
+	// duplicates, these will be overwritten by the lower height of the
+	// remoteCommitment below.
+	if pendingRemoteCommit != nil {
+		for _, r := range pendingRemoteCommit.incomingHTLCs {
+			incomingRemoteAddHeights[r.HtlcIndex] =
+				pendingRemoteCommit.height
+		}
+	}
+
+	// Now set the remote commit height of all incoming HTLCs found on the
+	// remote commitment.
+	for _, r := range remoteCommitment.incomingHTLCs {
+		incomingRemoteAddHeights[r.HtlcIndex] = remoteCommitment.height
+	}
+
+	// And finally we can do the same for the outgoing HTLCs.
+	for _, l := range localCommitment.outgoingHTLCs {
+		outgoingLocalAddHeights[l.HtlcIndex] = localCommitment.height
+	}
+
 	// For each incoming HTLC within the local commitment, we add it to the
 	// remote update log. Since HTLCs are added first to the receiver's
 	// commitment, we don't have to restore outgoing HTLCs, as they will be
 	// restored from the remote commitment below.
 	for i := range localCommitment.incomingHTLCs {
 		htlc := localCommitment.incomingHTLCs[i]
+
+		// We'll need to set the add height of the HTLC. Since it is on
+		// this local commit, we can use its height as local add
+		// height. As remote add height we consult the incoming HTLC
+		// map we created earlier. Note that if this HTLC is not in
+		// incomingRemoteAddHeights, the remote add height will be set
+		// to zero, which indicates that it is not added yet.
+		htlc.addCommitHeightLocal = localCommitment.height
+		htlc.addCommitHeightRemote = incomingRemoteAddHeights[htlc.HtlcIndex]
+
+		// Restore the htlc back to the remote log.
 		lc.remoteUpdateLog.restoreHtlc(&htlc)
 	}
 
@@ -1729,6 +1755,14 @@ func (lc *LightningChannel) restoreStateLogs(
 	// remote commitment, adding them to the local update log.
 	for i := range remoteCommitment.outgoingHTLCs {
 		htlc := remoteCommitment.outgoingHTLCs[i]
+
+		// As for the incoming HTLCs, we'll use the current remote
+		// commit height as remote add height, and consult the map
+		// created above for the local add height.
+		htlc.addCommitHeightRemote = remoteCommitment.height
+		htlc.addCommitHeightLocal = outgoingLocalAddHeights[htlc.HtlcIndex]
+
+		// Restore the htlc back to the local log.
 		lc.localUpdateLog.restoreHtlc(&htlc)
 	}
 

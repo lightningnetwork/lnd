@@ -5683,3 +5683,194 @@ func TestDuplicateSettleRejection(t *testing.T) {
 		t.Fatalf("unable to recv htlc cancel: %v", err)
 	}
 }
+
+// TestChannelRestoreCommitHeight tests that the local and remote commit
+// heights of HTLCs are set correctly across restores.
+func TestChannelRestoreCommitHeight(t *testing.T) {
+	t.Parallel()
+
+	aliceChannel, bobChannel, cleanUp, err := CreateTestChannels()
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// helper method to check add heights of the htlcs found in the given
+	// log after a restore.
+	restoreAndAssertCommitHeights := func(t *testing.T,
+		channel *LightningChannel, remoteLog bool, htlcIndex uint64,
+		expLocal, expRemote uint64) *LightningChannel {
+
+		channel.Stop()
+		newChannel, err := NewLightningChannel(
+			channel.Signer, nil, channel.channelState,
+		)
+		if err != nil {
+			t.Fatalf("unable to create new channel: %v", err)
+		}
+
+		var pd *PaymentDescriptor
+		if remoteLog {
+			if newChannel.localUpdateLog.lookupHtlc(htlcIndex) != nil {
+				t.Fatalf("htlc found in wrong log")
+			}
+			pd = newChannel.remoteUpdateLog.lookupHtlc(htlcIndex)
+
+		} else {
+			if newChannel.remoteUpdateLog.lookupHtlc(htlcIndex) != nil {
+				t.Fatalf("htlc found in wrong log")
+			}
+			pd = newChannel.localUpdateLog.lookupHtlc(htlcIndex)
+		}
+		if pd == nil {
+			t.Fatalf("htlc not found in log")
+		}
+
+		if pd.addCommitHeightLocal != expLocal {
+			t.Fatalf("expected local add height to be %d, was %d",
+				expLocal, pd.addCommitHeightLocal)
+		}
+		if pd.addCommitHeightRemote != expRemote {
+			t.Fatalf("expected remote add height to be %d, was %d",
+				expRemote, pd.addCommitHeightRemote)
+		}
+		return newChannel
+	}
+
+	// We'll send an HtLC from Alice to Bob.
+	htlcAmount := lnwire.NewMSatFromSatoshis(100000000)
+	htlcAlice, _ := createHTLC(0, htlcAmount)
+	if _, err := aliceChannel.AddHTLC(htlcAlice, nil); err != nil {
+		t.Fatalf("alice unable to add htlc: %v", err)
+	}
+	if _, err := bobChannel.ReceiveHTLC(htlcAlice); err != nil {
+		t.Fatalf("bob unable to recv add htlc: %v", err)
+	}
+
+	// Let Alice sign a new state, which will include the HTLC just sent.
+	aliceSig, aliceHtlcSigs, err := aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("unable to sign commitment: %v", err)
+	}
+
+	// The HTLC should only be on the pending remote commitment, so the
+	// only the remote add height should be set during a restore.
+	aliceChannel = restoreAndAssertCommitHeights(t, aliceChannel, false,
+		0, 0, 1)
+
+	// Bob receives this commitment signature, and revokes his old state.
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	if err != nil {
+		t.Fatalf("unable to receive commitment: %v", err)
+	}
+	bobRevocation, _, err := bobChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatalf("unable to revoke commitment: %v", err)
+	}
+
+	// Now the HTLC is locked into Bob's commitment, a restoration should
+	// set only the local commit height, as it is not locked into Alice's
+	// yet.
+	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 0, 1, 0)
+
+	// Alice receives the revocation, ACKing her pending commitment.
+	_, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	if err != nil {
+		t.Fatalf("unable to recive revocation: %v", err)
+	}
+
+	// However, the HTLC is still not locked into her local commitment, so
+	// the local add height should still be 0 after a restoration.
+	aliceChannel = restoreAndAssertCommitHeights(t, aliceChannel, false,
+		0, 0, 1)
+
+	// Now let Bob send the commitment signature making the HTLC lock in on
+	// Alice's commitment.
+	bobSig, bobHtlcSigs, err := bobChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("unable to sign commitment: %v", err)
+	}
+
+	// At this stage Bob has a pending remote commitment. Make sure
+	// restoring at this stage correcly restores the HTLC add commit
+	// heights.
+	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 0, 1, 1)
+
+	err = aliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
+	if err != nil {
+		t.Fatalf("unable to receive commitment: %v", err)
+	}
+	aliceRevocation, _, err := aliceChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatalf("unable to revoke commitment: %v", err)
+	}
+
+	// Now both the local and remote add heights should be properly set.
+	aliceChannel = restoreAndAssertCommitHeights(t, aliceChannel, false,
+		0, 1, 1)
+
+	_, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	if err != nil {
+		t.Fatalf("unable to recive revocation: %v", err)
+	}
+
+	// Alice ACKing Bob's pending commitment shouldn't change the heights
+	// restored.
+	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 0, 1, 1)
+
+	// Send andother HTLC from Alice to Bob, to test whether already
+	// existing HTLCs (the HTLC with index 0) keep getting the add heights
+	// restored properly.
+	htlcAlice, _ = createHTLC(1, htlcAmount)
+	if _, err := aliceChannel.AddHTLC(htlcAlice, nil); err != nil {
+		t.Fatalf("alice unable to add htlc: %v", err)
+	}
+	if _, err := bobChannel.ReceiveHTLC(htlcAlice); err != nil {
+		t.Fatalf("bob unable to recv add htlc: %v", err)
+	}
+
+	// Send a new signature from Alice to Bob, making Alice have a pending
+	// remote commitment.
+	aliceSig, aliceHtlcSigs, err = aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("unable to sign commitment: %v", err)
+	}
+
+	// A restoration should keep the add heights iof the first HTLC, and
+	// the new HTLC should have a remote add height 2.
+	aliceChannel = restoreAndAssertCommitHeights(t, aliceChannel, false,
+		0, 1, 1)
+	aliceChannel = restoreAndAssertCommitHeights(t, aliceChannel, false,
+		1, 0, 2)
+
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	if err != nil {
+		t.Fatalf("unable to receive commitment: %v", err)
+	}
+	bobRevocation, _, err = bobChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatalf("unable to revoke commitment: %v", err)
+	}
+
+	// Since Bob just revoked another commitment, a restoration should
+	// increase the add height of the firt HTLC to 2, as we only keep the
+	// last unrevoked commitment. The new HTLC will also have a local add
+	// height of 2.
+	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 0, 2, 1)
+	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 1, 2, 0)
+
+	// Sign a new state for Alice, making Bob have a pending remote
+	// commitment.
+	bobSig, bobHtlcSigs, err = bobChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("unable to sign commitment: %v", err)
+	}
+
+	// The signing of a new commitment for Alice should have given the new
+	// HTLC an add height.
+	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 0, 2, 1)
+	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 1, 2, 2)
+
+	aliceChannel.Stop()
+	bobChannel.Stop()
+}

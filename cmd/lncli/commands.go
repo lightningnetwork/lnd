@@ -709,41 +709,17 @@ func closeChannel(ctx *cli.Context) error {
 		return nil
 	}
 
+	channelPoint, err := parseChannelPoint(ctx)
+	if err != nil {
+		return err
+	}
+
 	// TODO(roasbeef): implement time deadline within server
 	req := &lnrpc.CloseChannelRequest{
-		ChannelPoint: &lnrpc.ChannelPoint{},
+		ChannelPoint: channelPoint,
 		Force:        ctx.Bool("force"),
 		TargetConf:   int32(ctx.Int64("conf_target")),
 		SatPerByte:   ctx.Int64("sat_per_byte"),
-	}
-
-	args := ctx.Args()
-
-	switch {
-	case ctx.IsSet("funding_txid"):
-		req.ChannelPoint.FundingTxid = &lnrpc.ChannelPoint_FundingTxidStr{
-			FundingTxidStr: ctx.String("funding_txid"),
-		}
-	case args.Present():
-		req.ChannelPoint.FundingTxid = &lnrpc.ChannelPoint_FundingTxidStr{
-			FundingTxidStr: args.First(),
-		}
-		args = args.Tail()
-	default:
-		return fmt.Errorf("funding txid argument missing")
-	}
-
-	switch {
-	case ctx.IsSet("output_index"):
-		req.ChannelPoint.OutputIndex = uint32(ctx.Int("output_index"))
-	case args.Present():
-		index, err := strconv.ParseUint(args.First(), 10, 32)
-		if err != nil {
-			return fmt.Errorf("unable to decode output index: %v", err)
-		}
-		req.ChannelPoint.OutputIndex = uint32(index)
-	default:
-		req.ChannelPoint.OutputIndex = 0
 	}
 
 	// After parsing the request, we'll spin up a goroutine that will
@@ -765,7 +741,7 @@ func closeChannel(ctx *cli.Context) error {
 		})
 	}()
 
-	err := executeChannelClose(client, req, txidChan, ctx.Bool("block"))
+	err = executeChannelClose(client, req, txidChan, ctx.Bool("block"))
 	if err != nil {
 		return err
 	}
@@ -1027,6 +1003,102 @@ func promptForConfirmation(msg string) bool {
 			continue
 		}
 	}
+}
+
+var abandonChannelCommand = cli.Command{
+	Name:     "abandonchannel",
+	Category: "Channels",
+	Usage:    "Abandons an existing channel.",
+	Description: `
+	Removes all channel state from the database except for a close 
+	summary. This method can be used to get rid of permanently unusable
+	channels due to bugs fixed in newer versions of lnd. 
+	
+	Only available when lnd is built in debug mode.
+
+	To view which funding_txids/output_indexes can be used for this command,
+	see the channel_point values within the listchannels command output.
+	The format for a channel_point is 'funding_txid:output_index'.`,
+	ArgsUsage: "funding_txid [output_index]",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "funding_txid",
+			Usage: "the txid of the channel's funding transaction",
+		},
+		cli.IntFlag{
+			Name: "output_index",
+			Usage: "the output index for the funding output of the funding " +
+				"transaction",
+		},
+	},
+	Action: actionDecorator(abandonChannel),
+}
+
+func abandonChannel(ctx *cli.Context) error {
+	ctxb := context.Background()
+
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	// Show command help if no arguments and flags were provided.
+	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
+		cli.ShowCommandHelp(ctx, "abandonchannel")
+		return nil
+	}
+
+	channelPoint, err := parseChannelPoint(ctx)
+	if err != nil {
+		return err
+	}
+
+	req := &lnrpc.AbandonChannelRequest{
+		ChannelPoint: channelPoint,
+	}
+
+	resp, err := client.AbandonChannel(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+// parseChannelPoint parses a funding txid and output index from the command
+// line. Both named options as well as unnamed parameters are supported.
+func parseChannelPoint(ctx *cli.Context) (*lnrpc.ChannelPoint, error) {
+	channelPoint := &lnrpc.ChannelPoint{}
+
+	args := ctx.Args()
+
+	switch {
+	case ctx.IsSet("funding_txid"):
+		channelPoint.FundingTxid = &lnrpc.ChannelPoint_FundingTxidStr{
+			FundingTxidStr: ctx.String("funding_txid"),
+		}
+	case args.Present():
+		channelPoint.FundingTxid = &lnrpc.ChannelPoint_FundingTxidStr{
+			FundingTxidStr: args.First(),
+		}
+		args = args.Tail()
+	default:
+		return nil, fmt.Errorf("funding txid argument missing")
+	}
+
+	switch {
+	case ctx.IsSet("output_index"):
+		channelPoint.OutputIndex = uint32(ctx.Int("output_index"))
+	case args.Present():
+		index, err := strconv.ParseUint(args.First(), 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode output index: %v", err)
+		}
+		channelPoint.OutputIndex = uint32(index)
+	default:
+		channelPoint.OutputIndex = 0
+	}
+
+	return channelPoint, nil
 }
 
 var listPeersCommand = cli.Command{
@@ -1618,6 +1690,11 @@ var closedChannelsCommand = cli.Command{
 			Name:  "funding_canceled",
 			Usage: "list channels that were never fully opened",
 		},
+		cli.BoolFlag{
+			Name: "abandoned",
+			Usage: "list channels that were abandoned by " +
+				"the local node",
+		},
 	},
 	Action: actionDecorator(closedChannels),
 }
@@ -1633,6 +1710,7 @@ func closedChannels(ctx *cli.Context) error {
 		RemoteForce:     ctx.Bool("remote_force"),
 		Breach:          ctx.Bool("breach"),
 		FundingCanceled: ctx.Bool("funding_cancelled"),
+		Abandoned:       ctx.Bool("abandoned"),
 	}
 
 	resp, err := client.ClosedChannels(ctxb, req)

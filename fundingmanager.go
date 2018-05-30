@@ -793,6 +793,20 @@ func (f *fundingManager) CancelPeerReservations(nodePub [33]byte) {
 func (f *fundingManager) failFundingFlow(peer *btcec.PublicKey,
 	tempChanID [32]byte, fundingErr error) {
 
+	fndgLog.Debugf("Failing funding flow for pendingID=%x: %v",
+		tempChanID, fundingErr)
+
+	ctx, err := f.cancelReservationCtx(peer, tempChanID)
+	if err != nil {
+		fndgLog.Errorf("unable to cancel reservation: %v", err)
+	}
+
+	// In case the case where the reservation existed, send the funding
+	// error on the error channel.
+	if ctx != nil {
+		ctx.err <- fundingErr
+	}
+
 	// We only send the exact error if it is part of out whitelisted set of
 	// errors (lnwire.ErrorCode or lnwallet.ReservationError).
 	var msg lnwire.ErrorData
@@ -816,20 +830,11 @@ func (f *fundingManager) failFundingFlow(peer *btcec.PublicKey,
 		Data:   msg,
 	}
 
-	fndgLog.Errorf("Failing funding flow: %v (%v)", fundingErr,
-		spew.Sdump(errMsg))
-
-	if _, err := f.cancelReservationCtx(peer, tempChanID); err != nil {
-		fndgLog.Errorf("unable to cancel reservation: %v", err)
-	}
-
-	err := f.cfg.SendToPeer(peer, errMsg)
-	if err != nil {
+	fndgLog.Debugf("Sending funding error to peer (%x): %v",
+		peer.SerializeCompressed(), spew.Sdump(errMsg))
+	if err := f.cfg.SendToPeer(peer, errMsg); err != nil {
 		fndgLog.Errorf("unable to send error message to peer %v", err)
-		return
 	}
-
-	return
 }
 
 // reservationCoordinator is the primary goroutine tasked with progressing the
@@ -1220,7 +1225,6 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 			fmsg.peerAddress.IdentityKey, err)
 		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
 			msg.PendingChannelID, err)
-		resCtx.err <- err
 		return
 	}
 
@@ -1265,7 +1269,6 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 		fndgLog.Errorf("Unable to parse signature: %v", err)
 		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
 			msg.PendingChannelID, err)
-		resCtx.err <- err
 		return
 	}
 	err = f.cfg.SendToPeer(fmsg.peerAddress.IdentityKey, fundingCreated)
@@ -1273,7 +1276,6 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 		fndgLog.Errorf("Unable to send funding complete message: %v", err)
 		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
 			msg.PendingChannelID, err)
-		resCtx.err <- err
 		return
 	}
 }
@@ -1530,7 +1532,6 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	completeChan, err := resCtx.reservation.CompleteReservation(nil, commitSig)
 	if err != nil {
 		fndgLog.Errorf("Unable to complete reservation sign complete: %v", err)
-		resCtx.err <- err
 		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
 			pendingChanID, err)
 		return

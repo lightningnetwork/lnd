@@ -74,6 +74,7 @@ var (
 	atplLog = backendLog.Logger("ATPL")
 	cnctLog = backendLog.Logger("CNCT")
 	sphxLog = backendLog.Logger("SPHX")
+	tlmrLog = backendLog.Logger("TLMR")
 )
 
 // Initialize package-global logger variables.
@@ -111,6 +112,7 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"ATPL": atplLog,
 	"CNCT": cnctLog,
 	"SPHX": sphxLog,
+	"TLMR": tlmrLog,
 }
 
 // initLogRotator initializes the logging rotator to write logs to logFile and

@@ -44,10 +44,6 @@ type telemetryClient struct {
 	wg          sync.WaitGroup
 }
 
-var (
-	tlmrLog = backendLog.Logger("TLMR")
-)
-
 func NewTelemeter() (*telemeter, error) {
 
 	return &telemeter{

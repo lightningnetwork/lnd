@@ -775,13 +775,7 @@ func (f *fundingManager) CancelPeerReservations(nodePub [33]byte) {
 				"node=%x: %v", nodePub[:], err)
 		}
 
-		if resCtx.err != nil {
-			select {
-			case resCtx.err <- fmt.Errorf("peer disconnected"):
-			default:
-			}
-		}
-
+		resCtx.err <- fmt.Errorf("peer disconnected")
 		delete(nodeReservations, pendingID)
 	}
 

@@ -2679,13 +2679,13 @@ func (f *fundingManager) handleErrorMsg(fmsg *fundingErrorMsg) {
 	peerKey := fmsg.peerAddress.IdentityKey
 	chanID := fmsg.err.ChanID
 
-	// First, we'll attempt to retrieve the funding workflow that this
-	// error was tied to. If we're unable to do so, then we'll exit early
-	// as this was an unwarranted error.
-	resCtx, err := f.getReservationCtx(peerKey, chanID)
+	// First, we'll attempt to retrieve and cancel the funding workflow
+	// that this error was tied to. If we're unable to do so, then we'll
+	// exit early as this was an unwarranted error.
+	resCtx, err := f.cancelReservationCtx(peerKey, chanID)
 	if err != nil {
 		fndgLog.Warnf("Received error for non-existent funding "+
-			"flow: %v", spew.Sdump(protocolErr))
+			"flow: %v (%v)", err, spew.Sdump(protocolErr))
 		return
 	}
 
@@ -2699,21 +2699,17 @@ func (f *fundingManager) handleErrorMsg(fmsg *fundingErrorMsg) {
 	// If this isn't a simple error code, then we'll display the entire
 	// thing.
 	if len(protocolErr.Data) > 1 {
-		resCtx.err <- grpc.Errorf(
+		err = grpc.Errorf(
 			lnErr.ToGrpcCode(), string(protocolErr.Data),
 		)
 	} else {
 		// Otherwise, we'll attempt to display just the error code
 		// itself.
-		resCtx.err <- grpc.Errorf(
+		err = grpc.Errorf(
 			lnErr.ToGrpcCode(), lnErr.String(),
 		)
 	}
-
-	if _, err := f.cancelReservationCtx(peerKey, chanID); err != nil {
-		fndgLog.Warnf("unable to delete reservation: %v", err)
-		return
-	}
+	resCtx.err <- err
 }
 
 // pruneZombieReservations loops through all pending reservations and fails the

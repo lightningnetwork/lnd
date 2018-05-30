@@ -659,13 +659,8 @@ func (d *DB) SnapshotChannels() (uint32, error) {
 	}
 
 	err = d.View(func(tx *bolt.Tx) error {
-		return tx.CopyFile(filename, os.ModeDevice)
+		return tx.CopyFile(filename, 0660)
 	})
-
-	// for some reason the file is created with no permissions set
-	if err != nil {
-		err = os.Chmod(filename, 0644)
-	}
 
 	return unix, err
 }

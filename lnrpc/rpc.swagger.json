@@ -190,6 +190,38 @@
             "required": true,
             "type": "integer",
             "format": "int64"
+          },
+          {
+            "name": "channel_point.funding_txid_bytes",
+            "description": "/ Txid of the funding transaction.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "force",
+            "description": "/ If true, then the channel will be closed forcibly. This means the current commitment transaction will be signed and broadcast.",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
+          },
+          {
+            "name": "target_conf",
+            "description": "/ The target number of blocks that the closure transaction should be confirmed by.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "sat_per_byte",
+            "description": "/ A manual fee rate set in sat/byte that should be used when crafting the closure transaction.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
           }
         ],
         "tags": [
@@ -421,7 +453,7 @@
     },
     "/v1/initwallet": {
       "post": {
-        "summary": "* \nInitWallet is used when lnd is starting up for the first time to fully\ninitialize the daemon and its internal wallet. At the very least a wallet\npassword must be provided. This will be used to encrypt sensitive material\non disk.",
+        "summary": "*\nInitWallet is used when lnd is starting up for the first time to fully\ninitialize the daemon and its internal wallet. At the very least a wallet\npassword must be provided. This will be used to encrypt sensitive material\non disk.",
         "description": "In the case of a recovery scenario, the user can also specify their aezeed\nmnemonic and passphrase. If set, then the daemon will use this prior state\nto initialize its internal wallet.\n\nAlternatively, this can be used along with the GenSeed RPC to obtain a\nseed, then present it to the user. Once it has been verified by the user,\nthe seed can be fed into this RPC in order to commit the new wallet.",
         "operationId": "InitWallet",
         "responses": {
@@ -718,6 +750,32 @@
         ]
       }
     },
+    "/v1/telemetry": {
+      "post": {
+        "operationId": "Telemetry",
+        "responses": {
+          "200": {
+            "description": "(streaming responses)",
+            "schema": {
+              "$ref": "#/definitions/lnrpcTelemetryUpdate"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcTelemetrySubscription"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/transactions": {
       "get": {
         "summary": "* lncli: `listchaintxns`\nGetTransactions returns a list describing all the known transactions\nrelevant to the wallet.",
@@ -789,6 +847,14 @@
     }
   },
   "definitions": {
+    "NewAddressRequestAddressType": {
+      "type": "string",
+      "enum": [
+        "WITNESS_PUBKEY_HASH",
+        "NESTED_PUBKEY_HASH"
+      ],
+      "default": "WITNESS_PUBKEY_HASH"
+    },
     "PendingChannelsResponseClosedChannel": {
       "type": "object",
       "properties": {
@@ -2330,6 +2396,21 @@
     },
     "lnrpcStopResponse": {
       "type": "object"
+    },
+    "lnrpcTelemetrySubscription": {
+      "type": "object"
+    },
+    "lnrpcTelemetryUpdate": {
+      "type": "object",
+      "properties": {
+        "metric_name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "uint64"
+        }
+      }
     },
     "lnrpcTransaction": {
       "type": "object",

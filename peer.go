@@ -616,6 +616,8 @@ func (p *peer) readNextMessage() (lnwire.Message, error) {
 	// TODO(roasbeef): add message summaries
 	p.logWireMessage(nextMsg, true)
 
+	p.telemetryWireMessage(nextMsg, true)
+
 	return nextMsg, nil
 }
 
@@ -1206,6 +1208,16 @@ func (p *peer) logWireMessage(msg lnwire.Message, read bool) {
 	}))
 }
 
+func (p *peer) telemetryWireMessage(msg lnwire.Message, read bool) {
+
+	// TODO(maurycy): differentiate
+
+	p.server.telemeter.Update(&TelemetryUpdate{
+		MetricName: "wire_message",
+		Value: 1,
+	})
+}
+
 // writeMessage writes the target lnwire.Message to the remote peer.
 func (p *peer) writeMessage(msg lnwire.Message) error {
 	// Simply exit if we're shutting down.
@@ -1215,6 +1227,8 @@ func (p *peer) writeMessage(msg lnwire.Message) error {
 
 	// TODO(roasbeef): add message summaries
 	p.logWireMessage(msg, false)
+
+	p.telemetryWireMessage(msg, false)
 
 	// We'll re-slice of static write buffer to allow this new message to
 	// utilize all available space. We also ensure we cap the capacity of
@@ -1227,7 +1241,7 @@ func (p *peer) writeMessage(msg lnwire.Message) error {
 	n, err := lnwire.WriteMessage(b, msg, 0)
 	atomic.AddUint64(&p.bytesSent, uint64(n))
 
-	// TODO(roasbeef): add write deadline?
+	// TODO(roasbeef): add write deadline?ep
 
 	// Finally, write the message itself in a single swoop.
 	_, err = p.conn.Write(b.Bytes())

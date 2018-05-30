@@ -195,6 +195,7 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 	if err != nil {
 		return nil, err
 	}
+	// TODO(maurycy): telemetry
 
 	// We'll launch a goroutine to provide the agent with notifications
 	// whenever the balance of the wallet changes.

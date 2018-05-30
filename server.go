@@ -134,6 +134,8 @@ type server struct {
 	// changed since last start.
 	currentNodeAnn *lnwire.NodeAnnouncement
 
+	telemeter *telemeter
+
 	quit chan struct{}
 
 	wg sync.WaitGroup
@@ -198,6 +200,11 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		globalFeatures: lnwire.NewFeatureVector(globalFeatures,
 			lnwire.GlobalFeatures),
 		quit: make(chan struct{}),
+	}
+
+	s.telemeter, err = NewTelemeter()
+	if err != nil {
+		return nil, err
 	}
 
 	s.witnessBeacon = &preimageBeacon{
@@ -589,6 +596,9 @@ func (s *server) Start() error {
 	if err := s.chanRouter.Start(); err != nil {
 		return err
 	}
+	if err := s.telemeter.Start(); err != nil {
+		return err
+	}
 
 	// With all the relevant sub-systems started, we'll now attempt to
 	// establish persistent connections to our direct channel collaborators
@@ -644,6 +654,7 @@ func (s *server) Stop() error {
 	s.cc.chainView.Stop()
 	s.connMgr.Stop()
 	s.cc.feeEstimator.Stop()
+	s.telemeter.Stop()
 
 	// Disconnect from each active peers to ensure that
 	// peerTerminationWatchers signal completion to each peer.
@@ -1069,6 +1080,11 @@ func (s *server) broadcastMessages(
 	msgs []lnwire.Message) error {
 
 	srvrLog.Debugf("Broadcasting %v messages", len(msgs))
+
+	s.telemeter.Update(&TelemetryUpdate{
+		MetricName: "broadcast",
+		Value:      1,
+	})
 
 	// Iterate over all known peers, dispatching a go routine to enqueue
 	// all messages to each of peers.  We synchronize access to peersByPub

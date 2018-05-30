@@ -313,6 +313,10 @@ var (
 			Entity: "offchain",
 			Action: "read",
 		}},
+		"/lnrpc.Lightning/Telemetry": {{
+			Entity: "info",
+			Action: "read",
+		}},
 	}
 )
 
@@ -3662,4 +3666,41 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 	}
 
 	return resp, nil
+}
+
+func (r *rpcServer) Telemetry(req *lnrpc.TelemetrySubscription,
+	updateStream lnrpc.Lightning_TelemetryServer) error {
+
+	client, err := r.server.telemeter.Subscribe()
+	if err != nil {
+		return err
+	}
+
+	defer client.Cancel()
+
+	for {
+		select {
+
+		case telUpdate, ok := <-client.TelemetryUpdates:
+			if !ok {
+				return errors.New("server shutting down")
+			}
+
+			update := marshallTelemetryUpdate(telUpdate)
+			if err := updateStream.Send(update); err != nil {
+				return err
+			}
+
+		case <-r.quit:
+			return nil
+		}
+	}
+}
+
+func marshallTelemetryUpdate(telUpdate *TelemetryUpdate) *lnrpc.TelemetryUpdate {
+
+	return &lnrpc.TelemetryUpdate{
+		MetricName: telUpdate.MetricName,
+		Value: telUpdate.Value,
+	}
 }

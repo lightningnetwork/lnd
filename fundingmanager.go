@@ -2777,8 +2777,20 @@ func (f *fundingManager) deleteReservationCtx(peerKey *btcec.PublicKey,
 	// channelManager?
 	peerIDKey := newSerializedKey(peerKey)
 	f.resMtx.Lock()
-	delete(f.activeReservations[peerIDKey], pendingChanID)
-	f.resMtx.Unlock()
+	defer f.resMtx.Unlock()
+
+	nodeReservations, ok := f.activeReservations[peerIDKey]
+	if !ok {
+		// No reservations for this node.
+		return
+	}
+	delete(nodeReservations, pendingChanID)
+
+	// If this was the last active reservation for this peer, delete the
+	// peer's entry altogether.
+	if len(nodeReservations) == 0 {
+		delete(f.activeReservations, peerIDKey)
+	}
 }
 
 // getReservationCtx returns the reservation context for a particular pending

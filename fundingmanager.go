@@ -724,15 +724,27 @@ type pendingChansReq struct {
 // currently pending at the last state of the funding workflow.
 func (f *fundingManager) PendingChannels() ([]*pendingChannel, error) {
 	respChan := make(chan []*pendingChannel, 1)
-	errChan := make(chan error)
+	errChan := make(chan error, 1)
 
 	req := &pendingChansReq{
 		resp: respChan,
 		err:  errChan,
 	}
-	f.queries <- req
 
-	return <-respChan, <-errChan
+	select {
+	case f.queries <- req:
+	case <-f.quit:
+		return nil, fmt.Errorf("fundingmanager shutting down")
+	}
+
+	select {
+	case resp := <-respChan:
+		return resp, nil
+	case err := <-errChan:
+		return nil, err
+	case <-f.quit:
+		return nil, fmt.Errorf("fundingmanager shutting down")
+	}
 }
 
 // CancelPeerReservations cancels all active reservations associated with the
@@ -880,7 +892,6 @@ func (f *fundingManager) handlePendingChannels(msg *pendingChansReq) {
 
 	dbPendingChannels, err := f.cfg.Wallet.Cfg.Database.FetchPendingChannels()
 	if err != nil {
-		msg.resp <- nil
 		msg.err <- err
 		return
 	}
@@ -898,7 +909,6 @@ func (f *fundingManager) handlePendingChannels(msg *pendingChansReq) {
 	}
 
 	msg.resp <- pendingChannels
-	msg.err <- nil
 }
 
 // processFundingOpen sends a message to the fundingManager allowing it to

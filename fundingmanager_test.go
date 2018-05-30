@@ -136,7 +136,6 @@ type testNode struct {
 	privKey         *btcec.PrivateKey
 	msgChan         chan lnwire.Message
 	announceChan    chan lnwire.Message
-	arbiterChan     chan wire.OutPoint
 	publTxChan      chan *wire.MsgTx
 	fundingMgr      *fundingManager
 	peer            *peer
@@ -200,7 +199,6 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	sentMessages := make(chan lnwire.Message)
 	sentAnnouncements := make(chan lnwire.Message)
 	publTxChan := make(chan *wire.MsgTx, 1)
-	arbiterChan := make(chan wire.OutPoint)
 	shutdownChan := make(chan struct{})
 
 	wc := &mockWalletController{
@@ -296,8 +294,15 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		RequiredRemoteDelay: func(amt btcutil.Amount) uint16 {
 			return 4
 		},
-		RequiredRemoteChanReserve: func(chanAmt btcutil.Amount) btcutil.Amount {
-			return chanAmt / 100
+		RequiredRemoteChanReserve: func(chanAmt,
+			dustLimit btcutil.Amount) btcutil.Amount {
+
+			reserve := chanAmt / 100
+			if reserve < dustLimit {
+				reserve = dustLimit
+			}
+
+			return reserve
 		},
 		RequiredRemoteMaxValue: func(chanAmt btcutil.Amount) lnwire.MilliSatoshi {
 			reserve := lnwire.NewMSatFromSatoshis(chanAmt / 100)
@@ -306,11 +311,10 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		RequiredRemoteMaxHTLCs: func(chanAmt btcutil.Amount) uint16 {
 			return uint16(lnwallet.MaxHTLCNumber / 2)
 		},
-		ArbiterChan: arbiterChan,
 		WatchNewChannel: func(*channeldb.OpenChannel, *lnwire.NetAddress) error {
 			return nil
 		},
-		ReportShortChanID: func(wire.OutPoint, lnwire.ShortChannelID) error {
+		ReportShortChanID: func(wire.OutPoint) error {
 			return nil
 		},
 		ZombieSweeperInterval: 1 * time.Hour,
@@ -328,7 +332,6 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		privKey:         privKey,
 		msgChan:         sentMessages,
 		announceChan:    sentAnnouncements,
-		arbiterChan:     arbiterChan,
 		publTxChan:      publTxChan,
 		fundingMgr:      f,
 		peer:            p,
@@ -386,7 +389,6 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		},
 		FindPeer:       oldCfg.FindPeer,
 		TempChanIDSeed: oldCfg.TempChanIDSeed,
-		ArbiterChan:    alice.arbiterChan,
 		FindChannel:    oldCfg.FindChannel,
 		PublishTransaction: func(txn *wire.MsgTx) error {
 			publishChan <- txn
@@ -857,20 +859,7 @@ func assertErrChannelNotFound(t *testing.T, node *testNode,
 }
 
 func assertHandleFundingLocked(t *testing.T, alice, bob *testNode) {
-	// They should both send the new channel to the breach arbiter.
-	select {
-	case <-alice.arbiterChan:
-	case <-time.After(time.Second * 15):
-		t.Fatalf("alice did not send channel to breach arbiter")
-	}
-
-	select {
-	case <-bob.arbiterChan:
-	case <-time.After(time.Second * 15):
-		t.Fatalf("bob did not send channel to breach arbiter")
-	}
-
-	// And send the new channel state to their peer.
+	// They should both send the new channel state to their peer.
 	select {
 	case c := <-alice.peer.newChannels:
 		close(c.done)
@@ -1587,12 +1576,6 @@ func TestFundingManagerReceiveFundingLockedTwice(t *testing.T) {
 	// Alice should not send the channel state the second time, as the
 	// second funding locked should just be ignored.
 	select {
-	case <-alice.arbiterChan:
-		t.Fatalf("alice sent channel to breach arbiter a second time")
-	case <-time.After(time.Millisecond * 300):
-		// Expected
-	}
-	select {
 	case <-alice.peer.newChannels:
 		t.Fatalf("alice sent new channel to peer a second time")
 	case <-time.After(time.Millisecond * 300):
@@ -1602,12 +1585,6 @@ func TestFundingManagerReceiveFundingLockedTwice(t *testing.T) {
 	// Another fundingLocked should also be ignored, since Alice should
 	// have updated her database at this point.
 	alice.fundingMgr.processFundingLocked(fundingLockedBob, bobAddr)
-	select {
-	case <-alice.arbiterChan:
-		t.Fatalf("alice sent channel to breach arbiter a second time")
-	case <-time.After(time.Millisecond * 300):
-		// Expected
-	}
 	select {
 	case <-alice.peer.newChannels:
 		t.Fatalf("alice sent new channel to peer a second time")

@@ -26,6 +26,7 @@ SYS="windows-386 windows-amd64 openbsd-386 openbsd-amd64 linux-386 linux-amd64 l
 # Use the first element of $GOPATH in the case where GOPATH is a list
 # (something that is totally allowed).
 GPATH=$(echo $GOPATH | cut -f1 -d:)
+COMMITFLAGS="-X main.Commit=$(git rev-parse HEAD)"
 
 for i in $SYS; do
     OS=$(echo $i | cut -f1 -d-)
@@ -33,9 +34,9 @@ for i in $SYS; do
     mkdir $PACKAGE-$i-$TAG
     cd $PACKAGE-$i-$TAG
     echo "Building:" $OS $ARCH
-    env GOOS=$OS GOARCH=$ARCH go build -v github.com/lightningnetwork/lnd
-    env GOOS=$OS GOARCH=$ARCH go build -v github.com/lightningnetwork/lnd/cmd/lncli
-    env GOOS=$OS GOARCH=$ARCH go build -v github.com/lightningnetwork/lnd/cmd/lnneo4j
+    env GOOS=$OS GOARCH=$ARCH go build -v -ldflags "$COMMITFLAGS" github.com/lightningnetwork/lnd
+    env GOOS=$OS GOARCH=$ARCH go build -v -ldflags "$COMMITFLAGS" github.com/lightningnetwork/lnd/cmd/lncli
+    env GOOS=$OS GOARCH=$ARCH go build -v -ldflags "$COMMITFLAGS" github.com/lightningnetwork/lnd/cmd/lnneo4j
     cd ..
     if [[ $OS = "windows" ]]; then
 	zip -r $PACKAGE-$i-$TAG.zip $PACKAGE-$i-$TAG

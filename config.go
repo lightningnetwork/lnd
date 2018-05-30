@@ -20,6 +20,7 @@ import (
 
 	flags "github.com/jessevdk/go-flags"
 	"github.com/lightningnetwork/lnd/brontide"
+	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/torsvc"
 	"github.com/roasbeef/btcd/btcec"
@@ -177,7 +178,6 @@ type config struct {
 	Profile string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65535"`
 
 	DebugHTLC          bool `long:"debughtlc" description:"Activate the debug htlc mode. With the debug HTLC mode, all payments sent use a pre-determined R-Hash. Additionally, all HTLCs sent to a node with the debug HTLC R-Hash are immediately settled in the next available state transition."`
-	HodlHTLC           bool `long:"hodlhtlc" description:"Activate the hodl HTLC mode.  With hodl HTLC mode, all incoming HTLCs will be accepted by the receiving node, but no attempt will be made to settle the payment with the sender."`
 	UnsafeDisconnect   bool `long:"unsafe-disconnect" description:"Allows the rpcserver to intentionally disconnect from peers with open channels. USED FOR TESTING ONLY."`
 	UnsafeReplay       bool `long:"unsafe-replay" description:"Causes a link to replay the adds on its commitment txn after starting up, this enables testing of the sphinx replay logic."`
 	MaxPendingChannels int  `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
@@ -194,6 +194,8 @@ type config struct {
 	Autopilot *autoPilotConfig `group:"autopilot" namespace:"autopilot"`
 
 	Tor *torConfig `group:"Tor" namespace:"tor"`
+
+	Hodl *hodl.Config `group:"hodl" namespace:"hodl"`
 
 	NoNetBootstrap bool `long:"nobootstrap" description:"If true, then automatic network bootstrapping will not be attempted."`
 
@@ -357,42 +359,6 @@ func loadConfig() (*config, error) {
 	cfg.BitcoindMode.Dir = cleanAndExpandPath(cfg.BitcoindMode.Dir)
 	cfg.LitecoindMode.Dir = cleanAndExpandPath(cfg.LitecoindMode.Dir)
 
-	// Ensure that the user didn't attempt to specify negative values for
-	// any of the autopilot params.
-	if cfg.Autopilot.MaxChannels < 0 {
-		str := "%s: autopilot.maxchannels must be non-negative"
-		err := fmt.Errorf(str, funcName)
-		fmt.Fprintln(os.Stderr, err)
-		return nil, err
-	}
-	if cfg.Autopilot.Allocation < 0 {
-		str := "%s: autopilot.allocation must be non-negative"
-		err := fmt.Errorf(str, funcName)
-		fmt.Fprintln(os.Stderr, err)
-		return nil, err
-	}
-	if cfg.Autopilot.MinChannelSize < 0 {
-		str := "%s: autopilot.minchansize must be non-negative"
-		err := fmt.Errorf(str, funcName)
-		fmt.Fprintln(os.Stderr, err)
-		return nil, err
-	}
-	if cfg.Autopilot.MaxChannelSize < 0 {
-		str := "%s: autopilot.maxchansize must be non-negative"
-		err := fmt.Errorf(str, funcName)
-		fmt.Fprintln(os.Stderr, err)
-		return nil, err
-	}
-
-	// Ensure that the specified values for the min and max channel size
-	// don't are within the bounds of the normal chan size constraints.
-	if cfg.Autopilot.MinChannelSize < int64(minChanFundingSize) {
-		cfg.Autopilot.MinChannelSize = int64(minChanFundingSize)
-	}
-	if cfg.Autopilot.MaxChannelSize > int64(maxFundingAmount) {
-		cfg.Autopilot.MaxChannelSize = int64(maxFundingAmount)
-	}
-
 	// Setup dial and DNS resolution functions depending on the specified
 	// options. The default is to use the standard golang "net" package
 	// functions. When Tor's proxy is specified, the dial function is set to
@@ -537,6 +503,8 @@ func loadConfig() (*config, error) {
 		// Finally we'll register the litecoin chain as our current
 		// primary chain.
 		registeredChains.RegisterPrimaryChain(litecoinChain)
+		maxFundingAmount = maxLtcFundingAmount
+		maxPaymentMSat = maxLtcPaymentMSat
 
 	case cfg.Bitcoin.Active:
 		// Multiple networks can't be selected simultaneously.  Count
@@ -628,6 +596,42 @@ func loadConfig() (*config, error) {
 		// Finally we'll register the bitcoin chain as our current
 		// primary chain.
 		registeredChains.RegisterPrimaryChain(bitcoinChain)
+	}
+
+	// Ensure that the user didn't attempt to specify negative values for
+	// any of the autopilot params.
+	if cfg.Autopilot.MaxChannels < 0 {
+		str := "%s: autopilot.maxchannels must be non-negative"
+		err := fmt.Errorf(str, funcName)
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+	if cfg.Autopilot.Allocation < 0 {
+		str := "%s: autopilot.allocation must be non-negative"
+		err := fmt.Errorf(str, funcName)
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+	if cfg.Autopilot.MinChannelSize < 0 {
+		str := "%s: autopilot.minchansize must be non-negative"
+		err := fmt.Errorf(str, funcName)
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+	if cfg.Autopilot.MaxChannelSize < 0 {
+		str := "%s: autopilot.maxchansize must be non-negative"
+		err := fmt.Errorf(str, funcName)
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+
+	// Ensure that the specified values for the min and max channel size
+	// don't are within the bounds of the normal chan size constraints.
+	if cfg.Autopilot.MinChannelSize < int64(minChanFundingSize) {
+		cfg.Autopilot.MinChannelSize = int64(minChanFundingSize)
+	}
+	if cfg.Autopilot.MaxChannelSize > int64(maxFundingAmount) {
+		cfg.Autopilot.MaxChannelSize = int64(maxFundingAmount)
 	}
 
 	// Validate profile port number.

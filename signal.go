@@ -48,10 +48,8 @@ func mainInterruptHandler() {
 		isShutdown = true
 		ltndLog.Infof("Shutting down...")
 
-		// Run handlers in LIFO order.
-		for i := range interruptCallbacks {
-			idx := len(interruptCallbacks) - 1 - i
-			callback := interruptCallbacks[idx]
+		// Execute the interrupt callbacks in FIFO order.
+		for _, callback := range interruptCallbacks {
 			callback()
 		}
 

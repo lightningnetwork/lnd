@@ -118,7 +118,7 @@ func lndMain() error {
 		network = "mainnet"
 
 	case cfg.Bitcoin.SimNet:
-		network = "simmnet"
+		network = "simnet"
 
 	case cfg.Bitcoin.RegTest:
 		network = "regtest"
@@ -362,7 +362,6 @@ func lndMain() error {
 				idPrivKey.PubKey())
 			return <-errChan
 		},
-		ArbiterChan:      server.breachArbiter.newContracts,
 		SendToPeer:       server.SendToPeer,
 		NotifyWhenOnline: server.NotifyWhenOnline,
 		FindPeer:         server.FindPeer,
@@ -466,17 +465,24 @@ func lndMain() error {
 			// the chain arb so it can react to on-chain events.
 			return server.chainArb.WatchNewChannel(channel)
 		},
-		ReportShortChanID: func(chanPoint wire.OutPoint,
-			sid lnwire.ShortChannelID) error {
-
+		ReportShortChanID: func(chanPoint wire.OutPoint) error {
 			cid := lnwire.NewChanIDFromOutPoint(&chanPoint)
-			return server.htlcSwitch.UpdateShortChanID(cid, sid)
+			return server.htlcSwitch.UpdateShortChanID(cid)
 		},
-		RequiredRemoteChanReserve: func(chanAmt btcutil.Amount) btcutil.Amount {
+		RequiredRemoteChanReserve: func(chanAmt,
+			dustLimit btcutil.Amount) btcutil.Amount {
+
 			// By default, we'll require the remote peer to maintain
 			// at least 1% of the total channel capacity at all
-			// times.
-			return chanAmt / 100
+			// times. If this value ends up dipping below the dust
+			// limit, then we'll use the dust limit itself as the
+			// reserve as required by BOLT #2.
+			reserve := chanAmt / 100
+			if reserve < dustLimit {
+				reserve = dustLimit
+			}
+
+			return reserve
 		},
 		RequiredRemoteMaxValue: func(chanAmt btcutil.Amount) lnwire.MilliSatoshi {
 			// By default, we'll allow the remote peer to fully
@@ -569,7 +575,20 @@ func lndMain() error {
 		ltndLog.Infof("Waiting for chain backend to finish sync, "+
 			"start_height=%v", bestHeight)
 
+		// We'll add an interrupt handler in order to process shutdown
+		// requests while the chain backend syncs.
+		addInterruptHandler(func() {
+			rpcServer.Stop()
+			fundingMgr.Stop()
+		})
+
 		for {
+			select {
+			case <-shutdownChannel:
+				return nil
+			default:
+			}
+
 			synced, _, err := activeChainControl.wallet.IsSynced()
 			if err != nil {
 				return err
@@ -616,16 +635,12 @@ func lndMain() error {
 	}
 
 	addInterruptHandler(func() {
-		ltndLog.Infof("Gracefully shutting down the server...")
 		rpcServer.Stop()
 		fundingMgr.Stop()
-		server.Stop()
-
 		if pilot != nil {
 			pilot.Stop()
 		}
-
-		server.WaitForShutdown()
+		server.Stop()
 	})
 
 	// Wait for shutdown signal from either a graceful server stop or from
@@ -790,8 +805,9 @@ func genCertPair(certFile, keyFile string) error {
 	return nil
 }
 
-// genMacaroons generates a pair of macaroon files; one admin-level and one
-// read-only. These can also be used to generate more granular macaroons.
+// genMacaroons generates three macaroon files; one admin-level, one
+// for invoice access and one read-only. These can also be used
+// to generate more granular macaroons.
 func genMacaroons(ctx context.Context, svc *macaroons.Service,
 	admFile, roFile, invoiceFile string) error {
 

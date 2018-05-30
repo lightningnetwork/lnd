@@ -305,8 +305,14 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 		t.Fatalf("unable to initialize funding reservation: %v", err)
 	}
 	aliceChanReservation.SetNumConfsRequired(numReqConfs)
-	aliceChanReservation.CommitConstraints(csvDelay, lnwallet.MaxHTLCNumber/2,
-		lnwire.NewMSatFromSatoshis(fundingAmount), 1, 10)
+	err = aliceChanReservation.CommitConstraints(
+		csvDelay, lnwallet.MaxHTLCNumber/2,
+		lnwire.NewMSatFromSatoshis(fundingAmount), 1, fundingAmount/100,
+		lnwallet.DefaultDustLimit(),
+	)
+	if err != nil {
+		t.Fatalf("unable to verify constraints: %v", err)
+	}
 
 	// The channel reservation should now be populated with a multi-sig key
 	// from our HD chain, a change output with 3 BTC, and 2 outputs
@@ -328,8 +334,14 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	if err != nil {
 		t.Fatalf("bob unable to init channel reservation: %v", err)
 	}
-	bobChanReservation.CommitConstraints(csvDelay, lnwallet.MaxHTLCNumber/2,
-		lnwire.NewMSatFromSatoshis(fundingAmount), 1, 10)
+	err = bobChanReservation.CommitConstraints(
+		csvDelay, lnwallet.MaxHTLCNumber/2,
+		lnwire.NewMSatFromSatoshis(fundingAmount), 1, fundingAmount/100,
+		lnwallet.DefaultDustLimit(),
+	)
+	if err != nil {
+		t.Fatalf("unable to verify constraints: %v", err)
+	}
 	bobChanReservation.SetNumConfsRequired(numReqConfs)
 
 	assertContributionInitPopulated(t, bobChanReservation.OurContribution())
@@ -675,8 +687,14 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 		t.Fatalf("unable to init channel reservation: %v", err)
 	}
 	aliceChanReservation.SetNumConfsRequired(numReqConfs)
-	aliceChanReservation.CommitConstraints(csvDelay, lnwallet.MaxHTLCNumber/2,
-		lnwire.NewMSatFromSatoshis(fundingAmt), 1, 10)
+	err = aliceChanReservation.CommitConstraints(
+		csvDelay, lnwallet.MaxHTLCNumber/2,
+		lnwire.NewMSatFromSatoshis(fundingAmt), 1, fundingAmt/100,
+		lnwallet.DefaultDustLimit(),
+	)
+	if err != nil {
+		t.Fatalf("unable to verify constraints: %v", err)
+	}
 
 	// Verify all contribution fields have been set properly.
 	aliceContribution := aliceChanReservation.OurContribution()
@@ -698,8 +716,14 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	if err != nil {
 		t.Fatalf("unable to create bob reservation: %v", err)
 	}
-	bobChanReservation.CommitConstraints(csvDelay, lnwallet.MaxHTLCNumber/2,
-		lnwire.NewMSatFromSatoshis(fundingAmt), 1, 10)
+	err = bobChanReservation.CommitConstraints(
+		csvDelay, lnwallet.MaxHTLCNumber/2,
+		lnwire.NewMSatFromSatoshis(fundingAmt), 1, fundingAmt/100,
+		lnwallet.DefaultDustLimit(),
+	)
+	if err != nil {
+		t.Fatalf("unable to verify constraints: %v", err)
+	}
 	bobChanReservation.SetNumConfsRequired(numReqConfs)
 
 	// We'll ensure that Bob's contribution also gets generated properly.

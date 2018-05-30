@@ -21,7 +21,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/connmgr"
 	"github.com/roasbeef/btcd/txscript"
@@ -30,6 +29,9 @@ import (
 
 var (
 	numNodes int32
+
+	// ErrPeerExiting signals that the peer received a disconnect request.
+	ErrPeerExiting = errors.Errorf("peer exiting")
 )
 
 const (
@@ -403,47 +405,17 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		// necessary to properly route multi-hop payments, and forward
 		// new payments triggered by RPC clients.
 		chainEvents, err := p.server.chainArb.SubscribeChannelEvents(
-			*chanPoint, false,
+			*chanPoint,
 		)
 		if err != nil {
 			lnChan.Stop()
 			return err
 		}
-		linkCfg := htlcswitch.ChannelLinkConfig{
-			Peer:                  p,
-			DecodeHopIterators:    p.server.sphinx.DecodeHopIterators,
-			ExtractErrorEncrypter: p.server.sphinx.ExtractErrorEncrypter,
-			FetchLastChannelUpdate: fetchLastChanUpdate(
-				p.server.chanRouter, p.PubKey(),
-			),
-			DebugHTLC:      cfg.DebugHTLC,
-			HodlHTLC:       cfg.HodlHTLC,
-			Registry:       p.server.invoices,
-			Switch:         p.server.htlcSwitch,
-			Circuits:       p.server.htlcSwitch.CircuitModifier(),
-			ForwardPackets: p.server.htlcSwitch.ForwardPackets,
-			FwrdingPolicy:  *forwardingPolicy,
-			FeeEstimator:   p.server.cc.feeEstimator,
-			BlockEpochs:    blockEpoch,
-			PreimageCache:  p.server.witnessBeacon,
-			ChainEvents:    chainEvents,
-			UpdateContractSignals: func(signals *contractcourt.ContractSignals) error {
-				return p.server.chainArb.UpdateContractSignals(
-					*chanPoint, signals,
-				)
-			},
-			SyncStates: true,
-			BatchTicker: htlcswitch.NewBatchTicker(
-				time.NewTicker(50 * time.Millisecond)),
-			FwdPkgGCTicker: htlcswitch.NewBatchTicker(
-				time.NewTicker(time.Minute)),
-			BatchSize:    10,
-			UnsafeReplay: cfg.UnsafeReplay,
-		}
-		link := htlcswitch.NewChannelLink(linkCfg, lnChan,
-			uint32(currentHeight))
 
-		if err := p.server.htlcSwitch.AddLink(link); err != nil {
+		// Create the link and add it to the switch.
+		err = p.addLink(chanPoint, lnChan, forwardingPolicy, blockEpoch,
+			chainEvents, currentHeight, true)
+		if err != nil {
 			lnChan.Stop()
 			return err
 		}
@@ -452,11 +424,146 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 	return nil
 }
 
+// addLink creates and adds a new link from the specified channel.
+func (p *peer) addLink(chanPoint *wire.OutPoint,
+	lnChan *lnwallet.LightningChannel,
+	forwardingPolicy *htlcswitch.ForwardingPolicy,
+	blockEpoch *chainntnfs.BlockEpochEvent,
+	chainEvents *contractcourt.ChainEventSubscription,
+	currentHeight int32, syncStates bool) error {
+
+	// onChannelFailure will be called by the link in case the channel
+	// fails for some reason.
+	onChannelFailure := func(chanID lnwire.ChannelID,
+		shortChanID lnwire.ShortChannelID,
+		linkErr htlcswitch.LinkFailureError) {
+
+		select {
+		// If the server is already exiting, then none of the actions
+		// below can finish exiting, so we'll exit early as well.
+		case <-p.server.quit:
+			return
+
+		default:
+		}
+
+		// The link has notified us about a failure. We launch a go
+		// routine to stop the link, disconnect the peer and optionally
+		// force close the channel. We must launch a goroutine since we
+		// must let OnChannelFailure return in order for the link to
+		// completely stop in the call to RemoveLink.
+		p.server.wg.Add(1)
+		go func() {
+			defer p.server.wg.Done()
+
+			// We begin by removing the link from the switch, such
+			// that it won't be attempted used for any more
+			// updates.
+			// TODO(halseth): should introduce a way to atomically
+			// stop/pause the link and cancel back any adds in its
+			// mailboxes such that we can safely force close
+			// without the link being added again and updates being
+			// applied.
+			err := p.server.htlcSwitch.RemoveLink(chanID)
+			if err != nil {
+				peerLog.Errorf("unable to stop link(%v): %v",
+					shortChanID, err)
+			}
+
+			// If the error encountered was severe enough, we'll
+			// now force close the channel.
+			if linkErr.ForceClose {
+				peerLog.Warnf("Force closing link(%v)",
+					shortChanID)
+
+				closeTx, err := p.server.chainArb.ForceCloseContract(*chanPoint)
+				if err != nil {
+					peerLog.Errorf("unable to force close "+
+						"link(%v): %v", shortChanID,
+						err)
+				} else {
+					peerLog.Infof("channel(%v) force "+
+						"closed with txid %v",
+						shortChanID, closeTx.TxHash())
+				}
+			}
+
+			// Send an error to the peer, why we failed the
+			// channel.
+			if linkErr.ShouldSendToPeer() {
+				// If SendData is set, send it to the peer. If
+				// not, we'll use the standard error messages
+				// in the payload. We only include sendData in
+				// the cases where the error data does not
+				// contain sensitive information.
+				data := []byte(linkErr.Error())
+				if linkErr.SendData != nil {
+					data = linkErr.SendData
+				}
+				err := p.SendMessage(&lnwire.Error{
+					ChanID: chanID,
+					Data:   data,
+				}, true)
+				if err != nil {
+					peerLog.Errorf("unable to send msg to "+
+						"remote peer: %v", err)
+				}
+			}
+
+			// Initiate disconnection.
+			// TODO(halseth): consider not disconnecting the peer,
+			// as we might still have other active channels with
+			// the same peer.
+			p.Disconnect(linkErr)
+		}()
+	}
+
+	linkCfg := htlcswitch.ChannelLinkConfig{
+		Peer:                  p,
+		DecodeHopIterators:    p.server.sphinx.DecodeHopIterators,
+		ExtractErrorEncrypter: p.server.sphinx.ExtractErrorEncrypter,
+		FetchLastChannelUpdate: fetchLastChanUpdate(
+			p.server, p.PubKey(),
+		),
+		DebugHTLC:      cfg.DebugHTLC,
+		HodlMask:       cfg.Hodl.Mask(),
+		Registry:       p.server.invoices,
+		Switch:         p.server.htlcSwitch,
+		Circuits:       p.server.htlcSwitch.CircuitModifier(),
+		ForwardPackets: p.server.htlcSwitch.ForwardPackets,
+		FwrdingPolicy:  *forwardingPolicy,
+		FeeEstimator:   p.server.cc.feeEstimator,
+		BlockEpochs:    blockEpoch,
+		PreimageCache:  p.server.witnessBeacon,
+		ChainEvents:    chainEvents,
+		UpdateContractSignals: func(signals *contractcourt.ContractSignals) error {
+			return p.server.chainArb.UpdateContractSignals(
+				*chanPoint, signals,
+			)
+		},
+		OnChannelFailure: onChannelFailure,
+		SyncStates:       syncStates,
+		BatchTicker: htlcswitch.NewBatchTicker(
+			time.NewTicker(50 * time.Millisecond)),
+		FwdPkgGCTicker: htlcswitch.NewBatchTicker(
+			time.NewTicker(time.Minute)),
+		BatchSize:    10,
+		UnsafeReplay: cfg.UnsafeReplay,
+	}
+	link := htlcswitch.NewChannelLink(linkCfg, lnChan,
+		uint32(currentHeight))
+
+	// With the channel link created, we'll now notify the htlc switch so
+	// this channel can be used to dispatch local payments and also
+	// passively forward payments.
+	return p.server.htlcSwitch.AddLink(link)
+}
+
 // WaitForDisconnect waits until the peer has disconnected. A peer may be
 // disconnected if the local or remote side terminating the connection, or an
 // irrecoverable protocol error has been encountered.
 func (p *peer) WaitForDisconnect() {
-	<-p.quit
+	p.wg.Wait()
 }
 
 // Disconnect terminates the connection with the remote peer. Additionally, a
@@ -473,8 +580,6 @@ func (p *peer) Disconnect(reason error) {
 	p.conn.Close()
 
 	close(p.quit)
-
-	p.wg.Wait()
 }
 
 // String returns the string representation of this peer.
@@ -637,6 +742,7 @@ func (ms *msgStream) msgConsumer() {
 		select {
 		case ms.producerSema <- struct{}{}:
 		case <-ms.quit:
+			atomic.StoreInt32(&ms.streamShutdown, 1)
 			return
 		}
 	}
@@ -1104,7 +1210,7 @@ func (p *peer) logWireMessage(msg lnwire.Message, read bool) {
 func (p *peer) writeMessage(msg lnwire.Message) error {
 	// Simply exit if we're shutting down.
 	if atomic.LoadInt32(&p.disconnect) != 0 {
-		return nil
+		return ErrPeerExiting
 	}
 
 	// TODO(roasbeef): add message summaries
@@ -1153,8 +1259,8 @@ out:
 				atomic.StoreInt64(&p.pingLastSend, now)
 			}
 
-			// Write out the message to the socket, closing the
-			// 'sentChan' if it's non-nil, The 'sentChan' allows
+			// Write out the message to the socket, responding with
+			// error if `errChan` is non-nil. The `errChan` allows
 			// callers to optionally synchronize sends with the
 			// writeHandler.
 			err := p.writeMessage(outMsg.msg)
@@ -1168,7 +1274,7 @@ out:
 			}
 
 		case <-p.quit:
-			exitErr = errors.Errorf("peer exiting")
+			exitErr = ErrPeerExiting
 			break out
 		}
 	}
@@ -1262,7 +1368,7 @@ func (p *peer) queueMsg(msg lnwire.Message, errChan chan error) {
 	case <-p.quit:
 		peerLog.Tracef("Peer shutting down, could not enqueue msg.")
 		if errChan != nil {
-			errChan <- fmt.Errorf("peer shutting down")
+			errChan <- ErrPeerExiting
 		}
 	}
 }
@@ -1379,53 +1485,22 @@ out:
 				continue
 			}
 			chainEvents, err := p.server.chainArb.SubscribeChannelEvents(
-				*chanPoint, false,
+				*chanPoint,
 			)
 			if err != nil {
 				peerLog.Errorf("unable to subscribe to chain "+
 					"events: %v", err)
 				continue
 			}
-			linkConfig := htlcswitch.ChannelLinkConfig{
-				Peer:                  p,
-				DecodeHopIterators:    p.server.sphinx.DecodeHopIterators,
-				ExtractErrorEncrypter: p.server.sphinx.ExtractErrorEncrypter,
-				FetchLastChannelUpdate: fetchLastChanUpdate(
-					p.server.chanRouter, p.PubKey(),
-				),
-				DebugHTLC:      cfg.DebugHTLC,
-				HodlHTLC:       cfg.HodlHTLC,
-				Registry:       p.server.invoices,
-				Switch:         p.server.htlcSwitch,
-				Circuits:       p.server.htlcSwitch.CircuitModifier(),
-				ForwardPackets: p.server.htlcSwitch.ForwardPackets,
-				FwrdingPolicy:  p.server.cc.routingPolicy,
-				FeeEstimator:   p.server.cc.feeEstimator,
-				BlockEpochs:    blockEpoch,
-				PreimageCache:  p.server.witnessBeacon,
-				ChainEvents:    chainEvents,
-				UpdateContractSignals: func(signals *contractcourt.ContractSignals) error {
-					return p.server.chainArb.UpdateContractSignals(
-						*chanPoint, signals,
-					)
-				},
-				SyncStates: false,
-				BatchTicker: htlcswitch.NewBatchTicker(
-					time.NewTicker(50 * time.Millisecond)),
-				FwdPkgGCTicker: htlcswitch.NewBatchTicker(
-					time.NewTicker(time.Minute)),
-				BatchSize:    10,
-				UnsafeReplay: cfg.UnsafeReplay,
-			}
-			link := htlcswitch.NewChannelLink(linkConfig, newChan,
-				uint32(currentHeight))
 
-			// With the channel link created, we'll now notify the
-			// htlc switch so this channel can be used to dispatch
-			// local payments and also passively forward payments.
-			if err := p.server.htlcSwitch.AddLink(link); err != nil {
+			// Create the link and add it to the switch.
+			err = p.addLink(chanPoint, newChan,
+				&p.server.cc.routingPolicy, blockEpoch,
+				chainEvents, currentHeight, false)
+			if err != nil {
 				peerLog.Errorf("can't register new channel "+
-					"link(%v) with NodeKey(%x)", chanPoint, p.PubKey())
+					"link(%v) with NodeKey(%x)", chanPoint,
+					p.PubKey())
 			}
 
 			close(newChanReq.done)
@@ -1571,18 +1646,6 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 			return nil, fmt.Errorf("cannot obtain best block")
 		}
 
-		// Before we create the chan closer, we'll start a new
-		// cooperative channel closure transaction from the chain arb.
-		// With this context, we'll ensure that we're able to respond
-		// if *any* of the transactions we sign off on are ever
-		// broadcast.
-		closeCtx, err := p.server.chainArb.BeginCoopChanClose(
-			*channel.ChannelPoint(),
-		)
-		if err != nil {
-			return nil, err
-		}
-
 		chanCloser = newChannelCloser(
 			chanCloseCfg{
 				channel:           channel,
@@ -1594,7 +1657,6 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 			targetFeePerKw,
 			uint32(startingHeight),
 			nil,
-			closeCtx,
 		)
 		p.activeChanCloses[chanID] = chanCloser
 	}
@@ -1637,20 +1699,6 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 			return
 		}
 
-		// Before we create the chan closer, we'll start a new
-		// cooperative channel closure transaction from the chain arb.
-		// With this context, we'll ensure that we're able to respond
-		// if *any* of the transactions we sign off on are ever
-		// broadcast.
-		closeCtx, err := p.server.chainArb.BeginCoopChanClose(
-			*channel.ChannelPoint(),
-		)
-		if err != nil {
-			peerLog.Errorf(err.Error())
-			req.Err <- err
-			return
-		}
-
 		// Next, we'll create a new channel closer state machine to
 		// handle the close negotiation.
 		_, startingHeight, err := p.server.cc.chainIO.GetBestBlock()
@@ -1670,7 +1718,6 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 			req.TargetFeePerKw,
 			uint32(startingHeight),
 			req,
-			closeCtx,
 		)
 		p.activeChanCloses[chanID] = chanCloser
 
@@ -1910,11 +1957,11 @@ func (p *peer) PubKey() [33]byte {
 
 // fetchLastChanUpdate returns a function which is able to retrieve the last
 // channel update for a target channel.
-func fetchLastChanUpdate(router *routing.ChannelRouter,
+func fetchLastChanUpdate(s *server,
 	pubKey [33]byte) func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
 
 	return func(cid lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
-		info, edge1, edge2, err := router.GetChannelByID(cid)
+		info, edge1, edge2, err := s.chanRouter.GetChannelByID(cid)
 		if err != nil {
 			return nil, err
 		}

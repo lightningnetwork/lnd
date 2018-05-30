@@ -685,7 +685,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		return
 	}
 
-	// Grab the mutex on the ChannelReservation to ensure thead-safety
+	// Grab the mutex on the ChannelReservation to ensure thread-safety
 	pendingReservation.Lock()
 	defer pendingReservation.Unlock()
 

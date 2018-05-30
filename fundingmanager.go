@@ -33,15 +33,6 @@ const (
 	// TODO(roasbeef): tune
 	msgBufferSize = 50
 
-	// maxFundingAmount is a soft-limit of the maximum channel size
-	// accepted within the Lightning Protocol Currently. This limit is
-	// currently defined in BOLT-0002, and serves as an initial
-	// precautionary limit while implementations are battle tested in the
-	// real world.
-	//
-	// TODO(roasbeef): add command line param to modify
-	maxFundingAmount = btcutil.Amount(1 << 24)
-
 	// minBtcRemoteDelay and maxBtcRemoteDelay is the extremes of the
 	// Bitcoin CSV delay we will require the remote to use for its
 	// commitment transaction. The actual delay we will require will be
@@ -64,6 +55,31 @@ const (
 	// minChanFundingSize is the smallest channel that we'll allow to be
 	// created over the RPC interface.
 	minChanFundingSize = btcutil.Amount(20000)
+
+	// maxBtcFundingAmount is a soft-limit of the maximum channel size
+	// currently accepted on the Bitcoin chain within the Lightning
+	// Protocol. This limit is defined in BOLT-0002, and serves as an
+	// initial precautionary limit while implementations are battle tested
+	// in the real world.
+	maxBtcFundingAmount = btcutil.Amount(1<<24) - 1
+
+	// maxLtcFundingAmount is a soft-limit of the maximum channel size
+	// currently accepted on the Litecoin chain within the Lightning
+	// Protocol.
+	maxLtcFundingAmount = maxBtcFundingAmount * btcToLtcConversionRate
+)
+
+var (
+	// maxFundingAmount is a soft-limit of the maximum channel size
+	// currently accepted within the Lightning Protocol. This limit is
+	// defined in BOLT-0002, and serves as an initial precautionary limit
+	// while implementations are battle tested in the real world.
+	//
+	// At the moment, this value depends on which chain is active. It is set
+	// to the value under the Bitcoin chain as default.
+	//
+	// TODO(roasbeef): add command line param to modify
+	maxFundingAmount = maxBtcFundingAmount
 )
 
 // reservationWithCtx encapsulates a pending channel reservation. This wrapper
@@ -218,12 +234,6 @@ type fundingConfig struct {
 	// so that the channel creation process can be completed.
 	Notifier chainntnfs.ChainNotifier
 
-	// ArbiterChan allows the FundingManager to notify the BreachArbiter
-	// that a new channel has been created that should be observed to
-	// ensure that the channel counterparty hasn't broadcast an invalid
-	// commitment transaction.
-	ArbiterChan chan<- wire.OutPoint
-
 	// SignMessage signs an arbitrary method with a given public key. The
 	// actual digest signed is the double sha-256 of the message. In the
 	// case that the private key corresponding to the passed public key
@@ -285,10 +295,10 @@ type fundingConfig struct {
 	RequiredRemoteDelay func(btcutil.Amount) uint16
 
 	// RequiredRemoteChanReserve is a function closure that, given the
-	// channel capacity, will return an appropriate amount for the remote
-	// peer's required channel reserve that is to be adhered to at all
-	// times.
-	RequiredRemoteChanReserve func(btcutil.Amount) btcutil.Amount
+	// channel capacity and dust limit, will return an appropriate amount
+	// for the remote peer's required channel reserve that is to be adhered
+	// to at all times.
+	RequiredRemoteChanReserve func(capacity, dustLimit btcutil.Amount) btcutil.Amount
 
 	// RequiredRemoteMaxValue is a function closure that, given the channel
 	// capacity, returns the amount of MilliSatoshis that our remote peer
@@ -310,7 +320,7 @@ type fundingConfig struct {
 	// ReportShortChanID allows the funding manager to report the newly
 	// discovered short channel ID of a formerly pending channel to outside
 	// sub-systems.
-	ReportShortChanID func(wire.OutPoint, lnwire.ShortChannelID) error
+	ReportShortChanID func(wire.OutPoint) error
 
 	// ZombieSweeperInterval is the periodic time interval in which the
 	// zombie sweeper is run.
@@ -1000,10 +1010,10 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// party is attempting to dictate for our commitment transaction.
 	err = reservation.CommitConstraints(
 		msg.CsvDelay, msg.MaxAcceptedHTLCs, msg.MaxValueInFlight,
-		msg.HtlcMinimum, msg.ChannelReserve,
+		msg.HtlcMinimum, msg.ChannelReserve, msg.DustLimit,
 	)
 	if err != nil {
-		fndgLog.Errorf("Unaccaptable channel constraints: %v", err)
+		fndgLog.Errorf("Unacceptable channel constraints: %v", err)
 		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
 			fmsg.msg.PendingChannelID, err,
 		)
@@ -1014,12 +1024,9 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		"amt=%v, push_amt=%v", numConfsReq, fmsg.msg.PendingChannelID,
 		amt, msg.PushAmount)
 
-	// Using the RequiredRemoteDelay closure, we'll compute the remote CSV
-	// delay we require given the total amount of funds within the channel.
+	// Generate our required constraints for the remote party.
 	remoteCsvDelay := f.cfg.RequiredRemoteDelay(amt)
-
-	// We'll also generate our required constraints for the remote party,
-	chanReserve := f.cfg.RequiredRemoteChanReserve(amt)
+	chanReserve := f.cfg.RequiredRemoteChanReserve(amt, msg.DustLimit)
 	maxValue := f.cfg.RequiredRemoteMaxValue(amt)
 	maxHtlcs := f.cfg.RequiredRemoteMaxHTLCs(amt)
 	minHtlc := f.cfg.DefaultRoutingPolicy.MinHTLC
@@ -1155,7 +1162,7 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 	resCtx.reservation.SetNumConfsRequired(uint16(msg.MinAcceptDepth))
 	err = resCtx.reservation.CommitConstraints(
 		msg.CsvDelay, msg.MaxAcceptedHTLCs, msg.MaxValueInFlight,
-		msg.HtlcMinimum, msg.ChannelReserve,
+		msg.HtlcMinimum, msg.ChannelReserve, msg.DustLimit,
 	)
 	if err != nil {
 		fndgLog.Warnf("Unacceptable channel constraints: %v", err)
@@ -1167,7 +1174,7 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 	// As they've accepted our channel constraints, we'll regenerate them
 	// here so we can properly commit their accepted constraints to the
 	// reservation.
-	chanReserve := f.cfg.RequiredRemoteChanReserve(resCtx.chanAmt)
+	chanReserve := f.cfg.RequiredRemoteChanReserve(resCtx.chanAmt, msg.DustLimit)
 	maxValue := f.cfg.RequiredRemoteMaxValue(resCtx.chanAmt)
 	maxHtlcs := f.cfg.RequiredRemoteMaxHTLCs(resCtx.chanAmt)
 
@@ -1820,8 +1827,9 @@ func (f *fundingManager) waitForFundingConfirmation(completeChan *channeldb.Open
 	}
 
 	// As there might already be an active link in the switch with an
-	// outdated short chan ID, we'll update it now.
-	err = f.cfg.ReportShortChanID(fundingPoint, shortChanID)
+	// outdated short chan ID, we'll instruct the switch to load the updated
+	// short chan id from disk.
+	err = f.cfg.ReportShortChanID(fundingPoint)
 	if err != nil {
 		fndgLog.Errorf("unable to report short chan id: %v", err)
 	}
@@ -2192,15 +2200,6 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 		fndgLog.Infof("Received duplicate fundingLocked for "+
 			"ChannelID(%v), ignoring.", chanID)
 		channel.Stop()
-		return
-	}
-
-	// With the channel retrieved, we'll send the breach arbiter the new
-	// channel so it can watch for attempts to breach the channel's
-	// contract by the remote party.
-	select {
-	case f.cfg.ArbiterChan <- *channel.ChanPoint:
-	case <-f.quit:
 		return
 	}
 
@@ -2587,7 +2586,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// Finally, we'll use the current value of the channels and our default
 	// policy to determine of required commitment constraints for the
 	// remote party.
-	chanReserve := f.cfg.RequiredRemoteChanReserve(capacity)
+	chanReserve := f.cfg.RequiredRemoteChanReserve(capacity, ourDustLimit)
 	maxValue := f.cfg.RequiredRemoteMaxValue(capacity)
 	maxHtlcs := f.cfg.RequiredRemoteMaxHTLCs(capacity)
 

@@ -12,6 +12,7 @@ import (
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcwallet/wallet"
 	"golang.org/x/net/context"
+	"github.com/lightningnetwork/lnd/keychain"
 )
 
 // WalletInitMsg is a message sent by the UnlockerService when a user wishes to
@@ -129,8 +130,9 @@ func (u *UnlockerService) GenSeed(ctx context.Context,
 	// Now that we have our set of entropy, we'll create a new cipher seed
 	// instance.
 	//
-	// TODO(roasbeef): should use current keychain version here
-	cipherSeed, err := aezeed.New(0, &entropy, time.Now())
+	cipherSeed, err := aezeed.New(
+		keychain.KeyDerivationVersion, &entropy, time.Now(),
+	)
 	if err != nil {
 		return nil, err
 	}

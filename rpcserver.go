@@ -39,7 +39,23 @@ import (
 	"golang.org/x/net/context"
 )
 
+const (
+	// maxBtcPaymentMSat is the maximum allowed Bitcoin payment currently
+	// permitted as defined in BOLT-0002.
+	maxBtcPaymentMSat = lnwire.MilliSatoshi(math.MaxUint32)
+
+	// maxLtcPaymentMSat is the maximum allowed Litecoin payment currently
+	// permitted.
+	maxLtcPaymentMSat = lnwire.MilliSatoshi(math.MaxUint32) *
+		btcToLtcConversionRate
+)
+
 var (
+	// maxPaymentMSat is the maximum allowed payment currently permitted as
+	// defined in BOLT-002. This value depends on which chain is active.
+	// It is set to the value under the Bitcoin chain as default.
+	maxPaymentMSat = maxBtcPaymentMSat
+
 	defaultAccount uint32 = waddrmgr.DefaultAccountNum
 
 	// readPermissions is a slice of all entities that allow read
@@ -110,7 +126,7 @@ var (
 
 	// invoicePermissions is a slice of all the entities that allows a user
 	// to only access calls that are related to invoices, so: streaming
-	// RPC's, generating, and listening invoices.
+	// RPCs, generating, and listening invoices.
 	invoicePermissions = []bakery.Op{
 		{
 			Entity: "invoices",
@@ -302,12 +318,6 @@ var (
 			Action: "read",
 		}},
 	}
-)
-
-const (
-	// maxPaymentMSat is the maximum allowed payment permitted currently as
-	// defined in BOLT-0002.
-	maxPaymentMSat = lnwire.MilliSatoshi(math.MaxUint32)
 )
 
 // rpcServer is a gRPC, RPC front end to the lnd daemon.
@@ -1047,12 +1057,6 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 			r.server.htlcSwitch.RemoveLink(chanID)
 		}
 
-		select {
-		case r.server.breachArbiter.settledContracts <- *chanPoint:
-		case <-r.quit:
-			return fmt.Errorf("server shutting down")
-		}
-
 		// With the necessary indexes cleaned up, we'll now force close
 		// the channel.
 		chainArbitrator := r.server.chainArb
@@ -1465,6 +1469,10 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 
 		// If the channel was closed cooperatively, then we'll only
 		// need to tack on the closing txid.
+		// TODO(halseth): remove. After recent changes, a coop closed
+		// channel should never be in the "pending close" state.
+		// Keeping for now to let someone that upgraded in the middle
+		// of a close let their closing tx confirm.
 		case channeldb.CooperativeClose:
 			resp.PendingClosingChannels = append(
 				resp.PendingClosingChannels,
@@ -2316,7 +2324,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 			}
 
 			// Fetch the policies for each end of the channel.
-			chanID := channel.ShortChanID.ToUint64()
+			chanID := channel.ShortChanID().ToUint64()
 			_, p1, p2, err := graph.FetchChannelEdgesByID(chanID)
 			if err != nil {
 				rpcsLog.Errorf("Unable to fetch the routing "+

@@ -1,8 +1,8 @@
 ## Lightning Network Daemon
 
-[![Build Status](http://img.shields.io/travis/lightningnetwork/lnd.svg)](https://travis-ci.org/lightningnetwork/lnd) 
-[![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/lightningnetwork/lnd/blob/master/LICENSE) 
-[![Irc](https://img.shields.io/badge/chat-on%20freenode-brightgreen.svg)](https://webchat.freenode.net/?channels=lnd) 
+[![Build Status](http://img.shields.io/travis/lightningnetwork/lnd.svg)](https://travis-ci.org/lightningnetwork/lnd)
+[![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/lightningnetwork/lnd/blob/master/LICENSE)
+[![Irc](https://img.shields.io/badge/chat-on%20freenode-brightgreen.svg)](https://webchat.freenode.net/?channels=lnd)
 [![Godoc](https://godoc.org/github.com/lightningnetwork/lnd?status.svg)](https://godoc.org/github.com/lightningnetwork/lnd)
 
 <img src="logo.png">
@@ -15,13 +15,13 @@ full-node), [`bitcoind`](https://github.com/bitcoin/bitcoin), and
 [`neutrino`](https://github.com/lightninglabs/neutrino) (a new experimental light client). The project's codebase uses the
 [btcsuite](https://github.com/btcsuite/) set of Bitcoin libraries, and also
 exports a large set of isolated re-usable Lightning Network related libraries
-within it.  In the current state `lnd` is capable of: 
+within it.  In the current state `lnd` is capable of:
 * Creating channels.
 * Closing channels.
 * Completely managing all channel states (including the exceptional ones!).
 * Maintaining a fully authenticated+validated channel graph.
 * Performing path finding within the network, passively forwarding incoming payments.
-* Sending outgoing [onion-encrypted payments](https://github.com/lightningnetwork/lightning-onion) 
+* Sending outgoing [onion-encrypted payments](https://github.com/lightningnetwork/lightning-onion)
 through the network.
 * Updating advertised fee schedules.
 * Automatic channel management ([`autopilot`](https://github.com/lightningnetwork/lnd/tree/master/autopilot)).
@@ -66,6 +66,9 @@ discuss various aspects of `lnd` and also Lightning in general.
 ## Installation
   In order to build from source, please see [the installation
   instructions](docs/INSTALL.md).
+
+## Docker
+  To run lnd from Docker, please see the main [Docker instructions](docs/DOCKER.md)
   
 ## IRC
   * irc.freenode.net

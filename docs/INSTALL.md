@@ -3,15 +3,15 @@
 ### Preliminaries
   In order to work with [`lnd`](https://github.com/lightningnetwork/lnd), the
   following build dependencies are required:
-  
+
   * **Go:** `lnd` is written in Go. To install, run one of the following commands:
 
-  
+
     **Note**: The minimum version of Go supported is Go 1.9. We recommend that
     users use the latest version of Go, which at the time of writing is
     [`1.10`](https://blog.golang.org/go1.10).
 
-    
+
     On Linux:
     ```
     sudo apt-get install golang-1.10-go
@@ -29,7 +29,7 @@
     Alternatively, one can download the pre-compiled binaries hosted on the
     [golang download page](https://golang.org/dl/). If one seeks to install
     from source, then more detailed installation instructions can be found
-    [here](http://golang.org/doc/install). 
+    [here](http://golang.org/doc/install).
 
     At this point, you should set your `$GOPATH` environment variable, which
     represents the path to your workspace. By default, `$GOPATH` is set to
@@ -46,7 +46,7 @@
 
   * **dep:** This project uses `dep` to manage dependencies as well
     as to provide *reproducible builds*.
-    
+
     **Note**: `dep` is automatically installed via the `make`. To fetch `dep`
     manually, use the following command (assumes you already have Go properly
     installed):
@@ -64,6 +64,13 @@ cd $GOPATH/src/github.com/lightningnetwork/lnd
 make && make install
 ```
 
+Alternatively, if one doesn't wish to use `make`, then the `go` commands can be
+used directly:
+```
+dep ensure -v
+go install -v ./...
+```
+
 **Updating**
 
 To update your version of `lnd` to the latest version run the following
@@ -72,6 +79,15 @@ commands:
 cd $GOPATH/src/github.com/lightningnetwork/lnd
 git pull
 make && make install
+```
+
+Alternatively, if one doesn't wish to use `make`, then the `go` commands can be
+used directly:
+```
+cd $GOPATH/src/github.com/lightningnetwork/lnd
+git pull
+dep ensure -v
+go install -v ./...
 ```
 
 **Tests**
@@ -90,7 +106,7 @@ following commands:
 
 Install **btcd**: (must be from roasbeef fork, not from btcsuite)
 ```
-make btcd 
+make btcd
 ```
 
 ### Starting btcd
@@ -113,7 +129,7 @@ btcctl --testnet --rpcuser=REPLACEME --rpcpass=REPLACEME getinfo
 {
   "version": 120000,
   "protocolversion": 70002,
-  "blocks": 1114996, 
+  "blocks": 1114996,
   "timeoffset": 0,
   "connections": 7,
   "proxy": "",
@@ -125,7 +141,7 @@ btcctl --testnet --rpcuser=REPLACEME --rpcpass=REPLACEME getinfo
 ```
 
 Additionally, you can monitor btcd's logs to track its syncing progress in real
-time. 
+time.
 
 You can test your `btcd` node's connectivity using the `getpeerinfo` command:
 ```
@@ -196,10 +212,11 @@ the following:
 - Additionally, since `lnd` uses
   [ZeroMQ](https://github.com/bitcoin/bitcoin/blob/master/doc/zmq.md) to
   interface with `bitcoind`, *your `bitcoind` installation must be compiled with
-  ZMQ*. If you installed it from source, this is likely the case, but if you
-  installed it via Homebrew in the past it may not be included ([this has now
-  been fixed](https://github.com/Homebrew/homebrew-core/pull/23088) in the
-  latest Homebrew recipe for bitcoin)
+  ZMQ*. Note that if you installed `bitcoind` from source and ZMQ was not present, 
+  then ZMQ support will be disabled, and `lnd` will quit on a `connection refused` error. 
+  If you installed `bitcoind` via Homebrew in the past ZMQ may not be included 
+  ([this has now been fixed](https://github.com/Homebrew/homebrew-core/pull/23088) 
+  in the latest Homebrew recipe for bitcoin)
 - Configure the `bitcoind` instance for ZMQ with `--zmqpubrawblock` and
   `--zmqpubrawtx` (the latter is optional but allows you to see unconfirmed
   transactions in your wallet). They must be combined in the same ZMQ socket
@@ -224,10 +241,12 @@ Once all of the above is complete, and you've confirmed `bitcoind` is fully upda
 lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --bitcoin.node=bitcoind --bitcoind.rpcuser=REPLACEME --bitcoind.rpcpass=REPLACEME --bitcoind.zmqpath=tcp://127.0.0.1:28332 --externalip=X.X.X.X
 ```
 
-*NOTE:* 
+*NOTE:*
 - The auth parameters `rpcuser` and `rpcpass` parameters can typically be determined by `lnd` for a `bitcoind` instance running under the same user, including when using cookie auth. In this case, you can exclude them from the `lnd` options entirely.
 - If you DO choose to explicitly pass the auth parameters in your `lnd.conf` or command line options for `lnd` (`bitcoind.rpcuser` and `bitcoind.rpcpass` as shown in example command above), you must also specify the `bitcoind.zmqpath` option. Otherwise, `lnd` will attempt to get the configuration from your `bitcoin.conf`.
 - You must ensure the same address (including port) is used for the `bitcoind.zmqpath` option passed to `lnd` as for the `zmqpubrawblock` and `zmqpubrawtx` passed in the `bitcoind` options.
+- When running lnd and bitcoind on the same Windows machine, ensure you use 127.0.0.1, not localhost, for all configuration options that require a TCP/IP host address.  If you use "localhost" as the host name, you may see extremely slow inter-process-communication between lnd and the bitcoind backend.  If lnd is experiencing this issue, you'll see "Waiting for chain backend to finish sync, start_height=XXXXXX" as the last entry in the console or log output, and lnd will appear to hang.  Normal lnd output will quickly show multiple messages like this as lnd consumes blocks from bitcoind.
+- Don't connect more than one instance of `lnd` to `bitcoind`.  With the default `bitcoind` settings, having more than one instance of `lnd`, or `lnd` plus any application that consumes the RPC could cause `lnd` to miss crucial updates from the backend.
 
 #### Disabling Wallet Encryption
 
@@ -252,7 +271,7 @@ file into `lncli` using the `--macaroonpath` argument.
 To disable macaroons for testing, pass the `--no-macaroons` flag into *both*
 `lnd` and `lncli`.
 
-#### Network Reachability 
+#### Network Reachability
 
 If you'd like to signal to other nodes on the network that you'll accept
 incoming channels (as peers need to connect inbound to initiate a channel
@@ -263,7 +282,7 @@ reachable IP address.
 
 Optionally, if you'd like to have a persistent configuration between `lnd`
 launches, allowing you to simply type `lnd --bitcoin.testnet --bitcoin.active`
-at the command line, you can create an `lnd.conf`. 
+at the command line, you can create an `lnd.conf`.
 
 **On MacOS, located at:**
 `/Users/[username]/Library/Application Support/Lnd/lnd.conf`
@@ -290,6 +309,6 @@ for Litecoin accordingly. For node configuration, the sections are called
 which chain and node type you're using.
 
 # Accurate as of:
-- _roasbeef/btcd commit:_ `f8c02aff4e7a807ba0c1349e2db03695d8e790e8` 
-- _roasbeef/btcutil commit:_ `a259eaf2ec1b54653cdd67848a41867f280797ee` 
+- _roasbeef/btcd commit:_ `f8c02aff4e7a807ba0c1349e2db03695d8e790e8`
+- _roasbeef/btcutil commit:_ `a259eaf2ec1b54653cdd67848a41867f280797ee`
 - _lightningnetwork/lnd commit:_ `08de2becf8d77fae192205172c4fb17bb09bd0dbf49e64aa323b2fcbf9fe2a35`

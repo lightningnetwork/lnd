@@ -121,6 +121,20 @@
   revision = "f88afde2fa19a30cf50ba4b05b3d13bc6bae3079"
 
 [[projects]]
+  name = "github.com/johnnadratowski/golang-neo4j-bolt-driver"
+  packages = [
+    ".",
+    "encoding",
+    "errors",
+    "log",
+    "structures",
+    "structures/graph",
+    "structures/messages"
+  ]
+  revision = "2387cc1f01254d3a0055e034f5716278a1f420c7"
+  version = "v0.1"
+
+[[projects]]
   name = "github.com/jrick/logrotate"
   packages = ["rotator"]
   revision = "a93b200c26cbae3bb09dd0dc2c7c7fe1468a034a"
@@ -154,7 +168,7 @@
 [[projects]]
   name = "github.com/lightningnetwork/lightning-onion"
   packages = ["."]
-  revision = "c86137582e53fe3ba26681a98f911b546970893e"
+  revision = "e5ab5d7396020384f864452ec3c69b56264f1092"
 
 [[projects]]
   name = "github.com/ltcsuite/ltcd"
@@ -359,6 +373,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "7edcc418d8e2f483001838e05dc77e3fe613273418f8ddf7efd5cee6df68c6a8"
+  inputs-digest = "fee9247ba9d0eaea030a7d4d76ad3a9b82ab125b6d249401aabccd1d26973a30"
   solver-name = "gps-cdcl"
   solver-version = 1

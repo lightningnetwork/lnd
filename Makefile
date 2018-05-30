@@ -124,10 +124,10 @@ btcd: $(GLIDE_BIN) $(BTCD_DIR)
 # ============
 
 build:
-	@$(call print, "Building lnd, lncli and lnneo4j.")
-	$(GOBUILD) -o lnd $(LDFLAGS) $(PKG)
-	$(GOBUILD) -o lncli $(LDFLAGS) $(PKG)/cmd/lncli
-	$(GOBUILD) -o lnneo4j $(LDFLAGS) $(PKG)/cmd/lnneo4j
+	@$(call print, "Building debug lnd, lncli and lnneo4j.")
+	$(GOBUILD) -tags=$(TEST_TAGS) -o lnd-debug $(LDFLAGS) $(PKG)
+	$(GOBUILD) -tags=$(TEST_TAGS) -o lncli-debug $(LDFLAGS) $(PKG)/cmd/lncli
+	$(GOBUILD) -tags=$(TEST_TAGS) -o lnneo4j-debug $(LDFLAGS) $(PKG)/cmd/lnneo4j
 
 install:
 	@$(call print, "Installing lnd, lncli and lnneo4j.")

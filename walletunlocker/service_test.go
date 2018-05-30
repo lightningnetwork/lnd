@@ -15,6 +15,7 @@ import (
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcwallet/wallet"
 	"golang.org/x/net/context"
+	"github.com/lightningnetwork/lnd/keychain"
 )
 
 const (
@@ -189,7 +190,9 @@ func TestInitWallet(t *testing.T) {
 
 	// Once we have the unlocker service created, we'll now instantiate a
 	// new cipher seed instance.
-	cipherSeed, err := aezeed.New(0, &testEntropy, time.Now())
+	cipherSeed, err := aezeed.New(
+		keychain.KeyDerivationVersion, &testEntropy, time.Now(),
+	)
 	if err != nil {
 		t.Fatalf("unable to create seed: %v", err)
 	}

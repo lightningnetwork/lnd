@@ -371,7 +371,7 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 		ChanType:        channeldb.SingleFunder,
 		ChainHash:       *tc.netParams.GenesisHash,
 		FundingOutpoint: tc.fundingOutpoint,
-		ShortChanID:     tc.shortChanID,
+		ShortChannelID:  tc.shortChanID,
 		IsInitiator:     true,
 		IdentityPub:     identityKey,
 		LocalChanCfg: channeldb.ChannelConfig{
@@ -419,7 +419,7 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 	// of the dependencies.
 	channel := LightningChannel{
 		channelState:  &channelState,
-		signer:        signer,
+		Signer:        signer,
 		localChanCfg:  &channelState.LocalChanCfg,
 		remoteChanCfg: &channelState.RemoteChanCfg,
 	}

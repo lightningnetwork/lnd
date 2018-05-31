@@ -20,6 +20,7 @@ import (
 
 	"github.com/btcsuite/btclog"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -1147,6 +1148,117 @@ func TestBreachHandoffFail(t *testing.T) {
 	// and that the close observer marked the channel as pending closed
 	// before exiting.
 	assertArbiterBreach(t, brar, chanPoint)
+}
+
+// TestBreachSecondLevelTransfer tests that sweep of a HTLC output on a
+// breached commitment is transferred to a second level spend if the output is
+// already spent.
+func TestBreachSecondLevelTransfer(t *testing.T) {
+	brar, alice, _, bobClose, contractBreaches,
+		cleanUpChans, cleanUpArb := initBreachedState(t)
+	defer cleanUpChans()
+	defer cleanUpArb()
+
+	var (
+		height       = bobClose.ChanSnapshot.CommitHeight
+		forceCloseTx = bobClose.CloseTx
+		chanPoint    = alice.ChanPoint
+		publTx       = make(chan *wire.MsgTx)
+		publErr      error
+	)
+
+	// Make PublishTransaction always return ErrDoubleSpend to begin with.
+	publErr = lnwallet.ErrDoubleSpend
+	brar.cfg.PublishTransaction = func(tx *wire.MsgTx) error {
+		publTx <- tx
+		return publErr
+	}
+
+	// Notify the breach arbiter about the breach.
+	retribution, err := lnwallet.NewBreachRetribution(
+		alice.State(), height, forceCloseTx, 1)
+	if err != nil {
+		t.Fatalf("unable to create breach retribution: %v", err)
+	}
+
+	breach := &ContractBreachEvent{
+		ChanPoint:         *chanPoint,
+		ProcessACK:        make(chan error, 1),
+		BreachRetribution: retribution,
+	}
+	contractBreaches <- breach
+
+	// We'll also wait to consume the ACK back from the breach arbiter.
+	select {
+	case err := <-breach.ProcessACK:
+		if err != nil {
+			t.Fatalf("handoff failed: %v", err)
+		}
+	case <-time.After(time.Second * 15):
+		t.Fatalf("breach arbiter didn't send ack back")
+	}
+
+	// After exiting, the breach arbiter should have persisted the
+	// retribution information and the channel should be shown as pending
+	// force closed.
+	assertArbiterBreach(t, brar, chanPoint)
+
+	// Notify that the breaching transaction is confirmed, to trigger the
+	// retribution logic.
+	notifier := brar.cfg.Notifier.(*mockSpendNotifier)
+	notifier.confChannel <- &chainntnfs.TxConfirmation{}
+
+	// The breach arbiter should attempt to sweep all outputs on the
+	// breached commitment. We'll pretend that the HTLC output has been
+	// spent by the channel counter party's second level tx already.
+	var tx *wire.MsgTx
+	select {
+	case tx = <-publTx:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("tx was not published")
+	}
+
+	if tx.TxIn[0].PreviousOutPoint.Hash != forceCloseTx.TxHash() {
+		t.Fatalf("tx not attempting to spend commitment")
+	}
+
+	// Find the index of the TxIn spending the HTLC output.
+	htlcOutpoint := &retribution.HtlcRetributions[0].OutPoint
+	htlcIn := -1
+	for i, txIn := range tx.TxIn {
+		if txIn.PreviousOutPoint == *htlcOutpoint {
+			htlcIn = i
+		}
+	}
+	if htlcIn == -1 {
+		t.Fatalf("htlc in not found")
+	}
+
+	// Since publishing the transaction failed above, the breach arbiter
+	// will attempt another second level check. Now notify that the htlc
+	// output is spent by a second level tx.
+	secondLvlTx := &wire.MsgTx{
+		TxOut: []*wire.TxOut{
+			&wire.TxOut{Value: 1},
+		},
+	}
+	notifier.Spend(htlcOutpoint, 2, secondLvlTx)
+
+	// Now a transaction attempting to spend from the second level tx
+	// should be published instead. Let this publish succeed by setting the
+	// publishing error to nil.
+	publErr = nil
+	select {
+	case tx = <-publTx:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("tx was not published")
+	}
+
+	// The TxIn previously attempting to spend the HTLC outpoint should now
+	// be spending from the second level tx.
+	if tx.TxIn[htlcIn].PreviousOutPoint.Hash != secondLvlTx.TxHash() {
+		t.Fatalf("tx not attempting to spend second level tx, %v", tx.TxIn[0])
+	}
 }
 
 // assertArbiterBreach checks that the breach arbiter has persisted the breach

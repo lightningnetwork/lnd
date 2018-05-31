@@ -822,7 +822,7 @@ type confirmationNotification struct {
 // RegisterConfirmationsNtfn registers a notification with BtcdNotifier
 // which will be triggered once the txid reaches numConfs number of
 // confirmations.
-func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
+func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash, _ []byte,
 	numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
 
 	ntfn := &confirmationNotification{

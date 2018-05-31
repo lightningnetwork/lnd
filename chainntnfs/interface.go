@@ -20,19 +20,21 @@ import (
 // resource
 type ChainNotifier interface {
 	// RegisterConfirmationsNtfn registers an intent to be notified once
-	// txid reaches numConfs confirmations. The returned ConfirmationEvent
-	// should properly notify the client once the specified number of
-	// confirmations has been reached for the txid, as well as if the
-	// original tx gets re-org'd out of the mainchain.  The heightHint
-	// parameter is provided as a convenience to light clients. The
-	// heightHint denotes the earliest height in the blockchain in which the
-	// target txid _could_ have been included in the chain.  This can be
-	// used to bound the search space when checking to see if a
-	// notification can immediately be dispatched due to historical data.
+	// txid reaches numConfs confirmations. We also pass in the pkScript as
+	// the default light client instead needs to match on scripts created
+	// in the block. The returned ConfirmationEvent should properly notify
+	// the client once the specified number of confirmations has been
+	// reached for the txid, as well as if the original tx gets re-org'd
+	// out of the mainchain.  The heightHint parameter is provided as a
+	// convenience to light clients. The heightHint denotes the earliest
+	// height in the blockchain in which the target txid _could_ have been
+	// included in the chain.  This can be used to bound the search space
+	// when checking to see if a notification can immediately be dispatched
+	// due to historical data.
 	//
 	// NOTE: Dispatching notifications to multiple clients subscribed to
 	// the same (txid, numConfs) tuple MUST be supported.
-	RegisterConfirmationsNtfn(txid *chainhash.Hash, numConfs,
+	RegisterConfirmationsNtfn(txid *chainhash.Hash, pkScript []byte, numConfs,
 		heightHint uint32) (*ConfirmationEvent, error)
 
 	// RegisterSpendNtfn registers an intent to be notified once the target

@@ -784,7 +784,7 @@ type confirmationNotification struct {
 // which will be triggered once the txid reaches numConfs number of
 // confirmations.
 func (b *BitcoindNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
-	numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
+	_ []byte, numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
 
 	ntfn := &confirmationNotification{
 		ConfNtfn: chainntnfs.ConfNtfn{

@@ -762,7 +762,8 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 
 	// We'll use the number of attempts and errors to determine if we need
 	// to increase the time between discovery epochs.
-	var epochErrors, epochAttempts uint32
+	var epochErrors uint32 // To be used atomically.
+	var epochAttempts uint32
 
 	for {
 		select {

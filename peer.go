@@ -84,22 +84,24 @@ type chanSnapshotReq struct {
 // channels.
 // TODO(roasbeef): proper reconnection logic
 type peer struct {
+	// MUST be used atomically.
+	started    int32
+	disconnect int32
+
 	// The following fields are only meant to be used *atomically*
 	bytesReceived uint64
 	bytesSent     uint64
 
+
 	// pingTime is a rough estimate of the RTT (round-trip-time) between us
 	// and the connected peer. This time is expressed in micro seconds.
+	// To be used atomically.
 	// TODO(roasbeef): also use a WMA or EMA?
 	pingTime int64
 
 	// pingLastSend is the Unix time expressed in nanoseconds when we sent
-	// our last ping message.
+	// our last ping message.  To be used atomically.
 	pingLastSend int64
-
-	// MUST be used atomically.
-	started    int32
-	disconnect int32
 
 	connReq *connmgr.ConnReq
 	conn    net.Conn
@@ -624,7 +626,7 @@ func (p *peer) readNextMessage() (lnwire.Message, error) {
 // TODO(conner): use stream handler interface to abstract out stream
 // state/logging
 type msgStream struct {
-	streamShutdown int32
+	streamShutdown int32 // To be used atomically.
 
 	peer *peer
 

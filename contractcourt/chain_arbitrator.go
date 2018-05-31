@@ -134,8 +134,8 @@ type ChainArbitratorConfig struct {
 // forcibly exit a contract, update the set of live signals for each contract,
 // and to receive reports on the state of contract resolution.
 type ChainArbitrator struct {
-	started int32
-	stopped int32
+	started int32 // To be used atomically.
+	stopped int32 // To be used atomically.
 
 	sync.Mutex
 

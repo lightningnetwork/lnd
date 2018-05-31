@@ -102,8 +102,8 @@ type chainWatcherConfig struct {
 // that the channel has been closed, and also give them the materials necessary
 // to sweep the funds of the channel on chain eventually.
 type chainWatcher struct {
-	started int32
-	stopped int32
+	started int32 // To be used atomically.
+	stopped int32 // To be used atomically.
 
 	quit chan struct{}
 	wg   sync.WaitGroup

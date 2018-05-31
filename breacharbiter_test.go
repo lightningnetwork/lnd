@@ -933,11 +933,10 @@ restartCheck:
 	}
 }
 
-// TestBreachHandoffSuccess tests that a channel's close observer properly
-// delivers retribution information to the breach arbiter in response to a
-// breach close. This test verifies correctness in the event that the handoff
-// experiences no interruptions.
-func TestBreachHandoffSuccess(t *testing.T) {
+func initBreachedState(t *testing.T) (*breachArbiter,
+	*lnwallet.LightningChannel, *lnwallet.LightningChannel,
+	*lnwallet.LocalForceCloseSummary, chan *ContractBreachEvent,
+	func(), func()) {
 	// Create a pair of channels using a notifier that allows us to signal
 	// a spend of the funding transaction. Alice's channel will be the on
 	// observing a breach.
@@ -945,7 +944,6 @@ func TestBreachHandoffSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
-	defer cleanUpChans()
 
 	// Instantiate a breach arbiter to handle the breach of alice's channel.
 	contractBreaches := make(chan *ContractBreachEvent)
@@ -956,7 +954,6 @@ func TestBreachHandoffSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to initialize test breach arbiter: %v", err)
 	}
-	defer cleanUpArb()
 
 	// Send one HTLC to Bob and perform a state transition to lock it in.
 	htlcAmount := lnwire.NewMSatFromSatoshis(20000)
@@ -990,6 +987,20 @@ func TestBreachHandoffSuccess(t *testing.T) {
 	if err := forceStateTransition(alice, bob); err != nil {
 		t.Fatalf("Can't update the channel state: %v", err)
 	}
+
+	return brar, alice, bob, bobClose, contractBreaches, cleanUpChans,
+		cleanUpArb
+}
+
+// TestBreachHandoffSuccess tests that a channel's close observer properly
+// delivers retribution information to the breach arbiter in response to a
+// breach close. This test verifies correctness in the event that the handoff
+// experiences no interruptions.
+func TestBreachHandoffSuccess(t *testing.T) {
+	brar, alice, _, bobClose, contractBreaches,
+		cleanUpChans, cleanUpArb := initBreachedState(t)
+	defer cleanUpChans()
+	defer cleanUpArb()
 
 	chanPoint := alice.ChanPoint
 
@@ -1052,58 +1063,10 @@ func TestBreachHandoffSuccess(t *testing.T) {
 // arbiter fails to write the information to disk, and that a subsequent attempt
 // at the handoff succeeds.
 func TestBreachHandoffFail(t *testing.T) {
-	// Create a pair of channels using a notifier that allows us to signal
-	// a spend of the funding transaction. Alice's channel will be the on
-	// observing a breach.
-	alice, bob, cleanUpChans, err := createInitChannels(1)
-	if err != nil {
-		t.Fatalf("unable to create test channels: %v", err)
-	}
+	brar, alice, _, bobClose, contractBreaches,
+		cleanUpChans, cleanUpArb := initBreachedState(t)
 	defer cleanUpChans()
-
-	// Instantiate a breach arbiter to handle the breach of alice's channel.
-	contractBreaches := make(chan *ContractBreachEvent)
-
-	brar, cleanUpArb, err := createTestArbiter(
-		t, contractBreaches, alice.State().Db,
-	)
-	if err != nil {
-		t.Fatalf("unable to initialize test breach arbiter: %v", err)
-	}
 	defer cleanUpArb()
-
-	// Send one HTLC to Bob and perform a state transition to lock it in.
-	htlcAmount := lnwire.NewMSatFromSatoshis(20000)
-	htlc, _ := createHTLC(0, htlcAmount)
-	if _, err := alice.AddHTLC(htlc, nil); err != nil {
-		t.Fatalf("alice unable to add htlc: %v", err)
-	}
-	if _, err := bob.ReceiveHTLC(htlc); err != nil {
-		t.Fatalf("bob unable to recv add htlc: %v", err)
-	}
-	if err := forceStateTransition(alice, bob); err != nil {
-		t.Fatalf("Can't update the channel state: %v", err)
-	}
-
-	// Generate the force close summary at this point in time, this will
-	// serve as the old state bob will broadcast.
-	bobClose, err := bob.ForceClose()
-	if err != nil {
-		t.Fatalf("unable to force close bob's channel: %v", err)
-	}
-
-	// Now send another HTLC and perform a state transition, this ensures
-	// Alice is ahead of the state Bob will broadcast.
-	htlc2, _ := createHTLC(1, htlcAmount)
-	if _, err := alice.AddHTLC(htlc2, nil); err != nil {
-		t.Fatalf("alice unable to add htlc: %v", err)
-	}
-	if _, err := bob.ReceiveHTLC(htlc2); err != nil {
-		t.Fatalf("bob unable to recv add htlc: %v", err)
-	}
-	if err := forceStateTransition(alice, bob); err != nil {
-		t.Fatalf("Can't update the channel state: %v", err)
-	}
 
 	// Before alerting Alice of the breach, instruct our failing retribution
 	// store to fail the next database operation, which we expect to write
@@ -1139,7 +1102,7 @@ func TestBreachHandoffFail(t *testing.T) {
 	assertNoArbiterBreach(t, brar, chanPoint)
 	assertNotPendingClosed(t, alice)
 
-	brar, cleanUpArb, err = createTestArbiter(
+	brar, cleanUpArb, err := createTestArbiter(
 		t, contractBreaches, alice.State().Db,
 	)
 	if err != nil {

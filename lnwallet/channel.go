@@ -1427,7 +1427,7 @@ func (lc *LightningChannel) createSignDesc() error {
 	localKey := lc.localChanCfg.MultiSigKey.PubKey.SerializeCompressed()
 	remoteKey := lc.remoteChanCfg.MultiSigKey.PubKey.SerializeCompressed()
 
-	multiSigScript, err := genMultiSigScript(localKey, remoteKey)
+	multiSigScript, err := GenMultiSigScript(localKey, remoteKey)
 	if err != nil {
 		return err
 	}

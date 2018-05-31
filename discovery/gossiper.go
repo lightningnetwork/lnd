@@ -133,9 +133,14 @@ type Config struct {
 // will be rejected by this struct.
 type AuthenticatedGossiper struct {
 	// Parameters which are needed to properly handle the start and stop of
-	// the service.
+	// the service. To be used atomically.
 	started uint32
 	stopped uint32
+
+	// bestHeight is the height of the block at the tip of the main chain
+	// as we know it. To be used atomically.
+	bestHeight uint32
+
 	quit    chan struct{}
 	wg      sync.WaitGroup
 
@@ -179,10 +184,6 @@ type AuthenticatedGossiper struct {
 	// chanPolicyUpdates is a channel that requests to update the
 	// forwarding policy of a set of channels is sent over.
 	chanPolicyUpdates chan *chanPolicyUpdateRequest
-
-	// bestHeight is the height of the block at the tip of the main chain
-	// as we know it.
-	bestHeight uint32
 
 	// selfKey is the identity public key of the backing Lightning node.
 	selfKey *btcec.PublicKey

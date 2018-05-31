@@ -100,8 +100,8 @@ func (m *mockForwardingLog) AddForwardingEvents(events []channeldb.ForwardingEve
 }
 
 type mockServer struct {
-	started  int32
-	shutdown int32
+	started  int32 // To be used atomically.
+	shutdown int32 // To be used atomically.
 	wg       sync.WaitGroup
 	quit     chan struct{}
 

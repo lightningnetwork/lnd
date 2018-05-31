@@ -200,12 +200,12 @@ func newRouteTuple(amt lnwire.MilliSatoshi, dest []byte) routeTuple {
 // automatically as new blocks are discovered which spend certain known funding
 // outpoints, thereby closing their respective channels.
 type ChannelRouter struct {
-	ntfnClientCounter uint64
+	ntfnClientCounter uint64 // To be used atomically.
 
-	started uint32
-	stopped uint32
+	started uint32 // To be used atomically.
+	stopped uint32 // To be used atomically.
 
-	bestHeight uint32
+	bestHeight uint32 // To be used atomically.
 
 	// cfg is a copy of the configuration struct that the ChannelRouter was
 	// initialized with.

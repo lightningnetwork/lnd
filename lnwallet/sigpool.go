@@ -125,8 +125,8 @@ type signJobResp struct {
 // TODO(roasbeef): rename?
 //  * ecdsaPool?
 type sigPool struct {
-	started uint32
-	stopped uint32
+	started uint32 // To be used atomically.
+	stopped uint32 // To be used atomically.
 
 	signer Signer
 

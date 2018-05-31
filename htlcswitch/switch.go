@@ -153,8 +153,8 @@ type Config struct {
 // HTLCs, forwarding HTLCs initiated from within the daemon, and finally
 // notifies users local-systems concerning their outstanding payment requests.
 type Switch struct {
-	started  int32
-	shutdown int32
+	started  int32 // To be used atomically.
+	shutdown int32 // To be used atomically.
 	wg       sync.WaitGroup
 	quit     chan struct{}
 

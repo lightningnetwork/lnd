@@ -21,8 +21,8 @@ import (
 // BitcoindFilteredChainView is an implementation of the FilteredChainView
 // interface which is backed by bitcoind.
 type BitcoindFilteredChainView struct {
-	started int32
-	stopped int32
+	started int32 // To be used atomically.
+	stopped int32 // To be used atomically.
 
 	// bestHeight is the height of the latest block added to the
 	// blockQueue from the onFilteredConnectedMethod. It is used to

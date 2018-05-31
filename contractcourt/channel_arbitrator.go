@@ -148,8 +148,8 @@ func newHtlcSet(htlcs []channeldb.HTLC) htlcSet {
 // broadcasting to ensure that we avoid any possibility of race conditions, and
 // sweep the output(s) without contest.
 type ChannelArbitrator struct {
-	started int32
-	stopped int32
+	started int32 // To be used atomically.
+	stopped int32 // To be used atomically.
 
 	// log is a persistent log that the attendant will use to checkpoint
 	// its next action, and the state of any unresolved contracts.

@@ -220,8 +220,8 @@ type NurseryConfig struct {
 // the source wallet, returning the outputs so they can be used within future
 // channels, or regular Bitcoin transactions.
 type utxoNursery struct {
-	started uint32
-	stopped uint32
+	started uint32 // To be used atomically.
+	stopped uint32 // To be used atomically.
 
 	cfg *NurseryConfig
 

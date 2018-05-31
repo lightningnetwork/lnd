@@ -211,8 +211,9 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 		// Otherwise, this is our commitment, so we'll watch for the
 		// second-level transaction to be sufficiently confirmed.
 		secondLevelTXID := h.htlcResolution.SignedTimeoutTx.TxHash()
+		sweepScript := h.htlcResolution.SignedTimeoutTx.TxOut[0].PkScript
 		confNtfn, err := h.Notifier.RegisterConfirmationsNtfn(
-			&secondLevelTXID, 1, h.broadcastHeight,
+			&secondLevelTXID, sweepScript, 1, h.broadcastHeight,
 		)
 		if err != nil {
 			return nil, err
@@ -521,8 +522,9 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 		// With the sweep transaction broadcast, we'll wait for its
 		// confirmation.
 		sweepTXID := h.sweepTx.TxHash()
+		sweepScript := h.sweepTx.TxOut[0].PkScript
 		confNtfn, err := h.Notifier.RegisterConfirmationsNtfn(
-			&sweepTXID, 1, h.broadcastHeight,
+			&sweepTXID, sweepScript, 1, h.broadcastHeight,
 		)
 		if err != nil {
 			return nil, err
@@ -1193,8 +1195,9 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	//
 	// TODO(roasbeef): instead sweep asap if remote commit? yeh
 	commitTXID := c.commitResolution.SelfOutPoint.Hash
+	sweepScript := c.commitResolution.SelfOutputSignDesc.Output.PkScript
 	confNtfn, err := c.Notifier.RegisterConfirmationsNtfn(
-		&commitTXID, 1, c.broadcastHeight,
+		&commitTXID, sweepScript, 1, c.broadcastHeight,
 	)
 	if err != nil {
 		return nil, err
@@ -1329,8 +1332,9 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	// Now we'll wait until the sweeping transaction has been fully
 	// confirmed.  Once it's confirmed, we can mark this contract resolved.
 	sweepTXID := c.sweepTx.TxHash()
+	sweepingScript := c.sweepTx.TxOut[0].PkScript
 	confNtfn, err = c.Notifier.RegisterConfirmationsNtfn(
-		&sweepTXID, 1, c.broadcastHeight,
+		&sweepTXID, sweepingScript, 1, c.broadcastHeight,
 	)
 	if err != nil {
 		return nil, err

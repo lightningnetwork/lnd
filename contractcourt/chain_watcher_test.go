@@ -17,7 +17,7 @@ type mockNotifier struct {
 	spendChan chan *chainntnfs.SpendDetail
 }
 
-func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash, numConfs,
+func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash, _ []byte, numConfs,
 	heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
 	return nil, nil
 }

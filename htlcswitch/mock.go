@@ -781,7 +781,7 @@ type mockNotifier struct {
 	epochChan chan *chainntnfs.BlockEpoch
 }
 
-func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
+func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash, _ []byte,
 	numConfs uint32, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
 	return nil, nil
 }

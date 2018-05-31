@@ -1145,7 +1145,9 @@ func (u *utxoNursery) registerSweepConf(finalTx *wire.MsgTx,
 	finalTxID := finalTx.TxHash()
 
 	confChan, err := u.cfg.Notifier.RegisterConfirmationsNtfn(
-		&finalTxID, u.cfg.ConfDepth, heightHint)
+		&finalTxID, finalTx.TxOut[0].PkScript, u.cfg.ConfDepth,
+		heightHint,
+	)
 	if err != nil {
 		utxnLog.Errorf("unable to register notification for "+
 			"sweep confirmation: %v", finalTxID)
@@ -1251,7 +1253,9 @@ func (u *utxoNursery) registerTimeoutConf(baby *babyOutput, heightHint uint32) e
 
 	// Register for the confirmation of presigned htlc txn.
 	confChan, err := u.cfg.Notifier.RegisterConfirmationsNtfn(
-		&birthTxID, u.cfg.ConfDepth, heightHint)
+		&birthTxID, baby.timeoutTx.TxOut[0].PkScript, u.cfg.ConfDepth,
+		heightHint,
+	)
 	if err != nil {
 		return err
 	}
@@ -1316,8 +1320,10 @@ func (u *utxoNursery) registerPreschoolConf(kid *kidOutput, heightHint uint32) e
 	// de-duplicate
 	//  * need to do above?
 
-	confChan, err := u.cfg.Notifier.RegisterConfirmationsNtfn(&txID,
-		u.cfg.ConfDepth, heightHint)
+	pkScript := kid.signDesc.Output.PkScript
+	confChan, err := u.cfg.Notifier.RegisterConfirmationsNtfn(
+		&txID, pkScript, u.cfg.ConfDepth, heightHint,
+	)
 	if err != nil {
 		return err
 	}

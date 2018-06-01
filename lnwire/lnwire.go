@@ -78,9 +78,14 @@ func (a addressType) AddrLen() uint16 {
 //
 // TODO(roasbeef): this should eventually draw from a buffer pool for
 // serialization.
-// TODO(roasbeef): switch to var-ints for all?
 func writeElement(w io.Writer, element interface{}) error {
 	switch e := element.(type) {
+	case ShortChanIDEncoding:
+		var b [1]byte
+		b[0] = uint8(e)
+		if _, err := w.Write(b[:]); err != nil {
+			return err
+		}
 	case uint8:
 		var b [1]byte
 		b[0] = e
@@ -390,6 +395,12 @@ func writeElements(w io.Writer, elements ...interface{}) error {
 func readElement(r io.Reader, element interface{}) error {
 	var err error
 	switch e := element.(type) {
+	case *ShortChanIDEncoding:
+		var b [1]uint8
+		if _, err := r.Read(b[:]); err != nil {
+			return err
+		}
+		*e = ShortChanIDEncoding(b[0])
 	case *uint8:
 		var b [1]uint8
 		if _, err := r.Read(b[:]); err != nil {

@@ -33,6 +33,14 @@ var (
 	// maps: source -> selfPubKey
 	nodeBucket = []byte("graph-node")
 
+	// nodeUpdateIndexBucket is a sub-bucket of the nodeBucket. This bucket
+	// will be used to quickly look up the "freshness" of a node's last
+	// update to the network. The bucket only contains keys, and no values,
+	// it's mapping:
+	//
+	// maps: updateTime || nodeID -> nil
+	nodeUpdateIndexBucket = []byte("graph-node-update-index")
+
 	// sourceKey is a special key that resides within the nodeBucket. The
 	// sourceKey maps a key to the public key of the "self node".
 	sourceKey = []byte("source")
@@ -73,6 +81,13 @@ var (
 	//
 	// maps: chanID -> pubKey1 || pubKey2 || restofEdgeInfo
 	edgeIndexBucket = []byte("edge-index")
+
+	// edgeUpdateIndexBucket is a sub-bucket of the main edgeBucket. This
+	// bucket contains an index which allows us to gauge the "freshness" of
+	// a channel's last updates.
+	//
+	// maps: updateTime || chanID -> nil
+	edgeUpdateIndexBucket = []byte("edge-update-index")
 
 	// channelPointBucket maps a channel's full outpoint (txid:index) to
 	// its short 8-byte channel ID. This bucket resides within the
@@ -169,42 +184,11 @@ func (c *ChannelGraph) ForEachChannel(cb func(*ChannelEdgeInfo, *ChannelEdgePoli
 				return err
 			}
 
-			// The first node is contained within the first half of
-			// the edge information.
-			node1Pub := edgeInfoBytes[:33]
-			edge1, err := fetchChanEdgePolicy(edges, chanID, node1Pub, nodes)
-			if err != nil && err != ErrEdgeNotFound &&
-				err != ErrGraphNodeNotFound {
+			edge1, edge2, err := fetchChanEdgePolicies(
+				edgeIndex, edges, nodes, chanID, c.db,
+			)
+			if err != nil {
 				return err
-			}
-
-			// The targeted edge may have not been advertised
-			// within the network, so we ensure it's non-nil before
-			// dereferencing its attributes.
-			if edge1 != nil {
-				edge1.db = c.db
-				if edge1.Node != nil {
-					edge1.Node.db = c.db
-				}
-			}
-
-			// Similarly, the second node is contained within the
-			// latter half of the edge information.
-			node2Pub := edgeInfoBytes[33:]
-			edge2, err := fetchChanEdgePolicy(edges, chanID, node2Pub, nodes)
-			if err != nil && err != ErrEdgeNotFound &&
-				err != ErrGraphNodeNotFound {
-				return err
-			}
-
-			// The targeted edge may have not been advertised
-			// within the network, so we ensure it's non-nil before
-			// dereferencing its attributes.
-			if edge2 != nil {
-				edge2.db = c.db
-				if edge2.Node != nil {
-					edge2.Node.db = c.db
-				}
 			}
 
 			// With both edges read, execute the call back. IF this
@@ -356,7 +340,14 @@ func addLightningNode(tx *bolt.Tx, node *LightningNode) error {
 		return err
 	}
 
-	return putLightningNode(nodes, aliases, node)
+	updateIndex, err := nodes.CreateBucketIfNotExists(
+		nodeUpdateIndexBucket,
+	)
+	if err != nil {
+		return err
+	}
+
+	return putLightningNode(nodes, aliases, updateIndex, node)
 }
 
 // LookupAlias attempts to return the alias as advertised by the target node.
@@ -595,6 +586,10 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 		if err != nil {
 			return err
 		}
+		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
+		if err != nil {
+			return err
+		}
 
 		// For each of the outpoints that have been spent within the
 		// block, we attempt to delete them from the graph as if that
@@ -628,8 +623,9 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 			// will be returned if that outpoint isn't known to be
 			// a channel. If no error is returned, then a channel
 			// was successfully pruned.
-			err = delChannelByEdge(edges, edgeIndex, chanIndex,
-				chanPoint)
+			err = delChannelByEdge(
+				edges, edgeIndex, chanIndex, nodes, chanPoint,
+			)
 			if err != nil && err != ErrEdgeNotFound {
 				return err
 			}
@@ -699,13 +695,15 @@ func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) ([]*ChannelEdgeInf
 		if err != nil {
 			return err
 		}
-
 		edgeIndex, err := edges.CreateBucketIfNotExists(edgeIndexBucket)
 		if err != nil {
 			return err
 		}
-
 		chanIndex, err := edges.CreateBucketIfNotExists(channelPointBucket)
+		if err != nil {
+			return err
+		}
+		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
 		if err != nil {
 			return err
 		}
@@ -721,8 +719,9 @@ func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) ([]*ChannelEdgeInf
 			if err != nil {
 				return err
 			}
-			err = delChannelByEdge(edges, edgeIndex, chanIndex,
-				&edgeInfo.ChannelPoint)
+			err = delChannelByEdge(
+				edges, edgeIndex, chanIndex, nodes, &edgeInfo.ChannelPoint,
+			)
 			if err != nil && err != ErrEdgeNotFound {
 				return err
 			}
@@ -831,8 +830,12 @@ func (c *ChannelGraph) DeleteChannelEdge(chanPoint *wire.OutPoint) error {
 		if err != nil {
 			return err
 		}
+		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
+		if err != nil {
+			return err
+		}
 
-		return delChannelByEdge(edges, edgeIndex, chanIndex, chanPoint)
+		return delChannelByEdge(edges, edgeIndex, chanIndex, nodes, chanPoint)
 	})
 }
 
@@ -872,38 +875,448 @@ func (c *ChannelGraph) ChannelID(chanPoint *wire.OutPoint) (uint64, error) {
 	return chanID, nil
 }
 
+// TODO(roasbeef): allow updates to use Batch?
+
+// HighestChanID returns the "highest" known channel ID in the channel graph.
+// This represents the "newest" channel from the PoV of the chain. This method
+// can be used by peers to quickly determine if they're graphs are in sync.
+func (c *ChannelGraph) HighestChanID() (uint64, error) {
+	var cid uint64
+
+	err := c.db.View(func(tx *bolt.Tx) error {
+		edges := tx.Bucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNoEdgesFound
+		}
+		edgeIndex := edges.Bucket(edgeIndexBucket)
+		if edgeIndex == nil {
+			return ErrGraphNoEdgesFound
+		}
+
+		// In order to find the highest chan ID, we'll fetch a cursor
+		// and use that to seek to the "end" of our known rage.
+		cidCursor := edgeIndex.Cursor()
+
+		lastChanID, _ := cidCursor.Last()
+
+		// If there's no key, then this means that we don't actually
+		// know of any channels, so we'll return a predicable error.
+		if lastChanID == nil {
+			return ErrGraphNoEdgesFound
+		}
+
+		// Otherwise, we'll de serialize the channel ID and return it
+		// to the caller.
+		cid = byteOrder.Uint64(lastChanID)
+		return nil
+	})
+	if err != nil && err != ErrGraphNoEdgesFound {
+		return 0, err
+	}
+
+	return cid, nil
+}
+
+// ChannelEdge represents the complete set of information for a channel edge in
+// the known channel graph. This struct couples the core information of the
+// edge as well as each of the known advertised edge policies.
+type ChannelEdge struct {
+	// Info contains all the static information describing the channel.
+	Info *ChannelEdgeInfo
+
+	// Policy1 points to the "first" edge policy of the channel containing
+	// the dynamic information required to properly route through the edge.
+	Policy1 *ChannelEdgePolicy
+
+	// Policy2 points to the "second" edge policy of the channel containing
+	// the dynamic information required to properly route through the edge.
+	Policy2 *ChannelEdgePolicy
+}
+
+// ChanUpdatesInHorizon returns all the known channel edges which have at least
+// one edge that has an update timestamp within the specified horizon.
+func (c *ChannelGraph) ChanUpdatesInHorizon(startTime, endTime time.Time) ([]ChannelEdge, error) {
+	var edgesInHorizon []ChannelEdge
+
+	err := c.db.View(func(tx *bolt.Tx) error {
+		edges := tx.Bucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNoEdgesFound
+		}
+		edgeIndex := edges.Bucket(edgeIndexBucket)
+		if edgeIndex == nil {
+			return ErrGraphNoEdgesFound
+		}
+		edgeUpdateIndex := edges.Bucket(edgeUpdateIndexBucket)
+		if edgeUpdateIndex == nil {
+			return ErrGraphNoEdgesFound
+		}
+
+		nodes := tx.Bucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNodesNotFound
+		}
+
+		// We'll now obtain a cursor to perform a range query within
+		// the index to find all channels within the horizon.
+		updateCursor := edgeUpdateIndex.Cursor()
+
+		var startTimeBytes, endTimeBytes [8 + 8]byte
+		byteOrder.PutUint64(
+			startTimeBytes[:8], uint64(startTime.Unix()),
+		)
+		byteOrder.PutUint64(
+			endTimeBytes[:8], uint64(endTime.Unix()),
+		)
+
+		// With our start and end times constructed, we'll step through
+		// the index collecting the info and policy of each update of
+		// each channel that has a last update within the time range.
+		for indexKey, _ := updateCursor.Seek(startTimeBytes[:]); indexKey != nil &&
+			bytes.Compare(indexKey, endTimeBytes[:]) <= 0; indexKey, _ = updateCursor.Next() {
+
+			// We have a new eligible entry, so we'll slice of the
+			// chan ID so we can query it in the DB.
+			chanID := indexKey[8:]
+
+			// First, we'll fetch the static edge information.
+			edgeInfo, err := fetchChanEdgeInfo(edgeIndex, chanID)
+			if err != nil {
+				return err
+			}
+
+			// With the static information obtained, we'll now
+			// fetch the dynamic policy info.
+			edge1, edge2, err := fetchChanEdgePolicies(
+				edgeIndex, edges, nodes, chanID, c.db,
+			)
+			if err != nil {
+				return err
+			}
+
+			// Finally, we'll collate this edge with the rest of
+			// edges to be returned.
+			edgesInHorizon = append(edgesInHorizon, ChannelEdge{
+				Info:    &edgeInfo,
+				Policy1: edge1,
+				Policy2: edge2,
+			})
+		}
+
+		return nil
+	})
+	switch {
+	case err == ErrGraphNoEdgesFound:
+		fallthrough
+	case err == ErrGraphNodesNotFound:
+		break
+
+	case err != nil:
+		return nil, err
+	}
+
+	return edgesInHorizon, nil
+}
+
+// NodeUpdatesInHorizon returns all the known lightning node which have an
+// update timestamp within the passed range. This method can be used by two
+// nodes to quickly determine if they have the same set of up to date node
+// announcements.
+func (c *ChannelGraph) NodeUpdatesInHorizon(startTime, endTime time.Time) ([]LightningNode, error) {
+	var nodesInHorizon []LightningNode
+
+	err := c.db.View(func(tx *bolt.Tx) error {
+		nodes := tx.Bucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNodesNotFound
+		}
+
+		nodeUpdateIndex := nodes.Bucket(nodeUpdateIndexBucket)
+		if nodeUpdateIndex == nil {
+			return ErrGraphNodesNotFound
+		}
+
+		// We'll now obtain a cursor to perform a range query within
+		// the index to find all node announcements within the horizon.
+		updateCursor := nodeUpdateIndex.Cursor()
+
+		var startTimeBytes, endTimeBytes [8 + 33]byte
+		byteOrder.PutUint64(
+			startTimeBytes[:8], uint64(startTime.Unix()),
+		)
+		byteOrder.PutUint64(
+			endTimeBytes[:8], uint64(endTime.Unix()),
+		)
+
+		// With our start and end times constructed, we'll step through
+		// the index collecting info for each node within the time
+		// range.
+		for indexKey, _ := updateCursor.Seek(startTimeBytes[:]); indexKey != nil &&
+			bytes.Compare(indexKey, endTimeBytes[:]) <= 0; indexKey, _ = updateCursor.Next() {
+
+			nodePub := indexKey[8:]
+			node, err := fetchLightningNode(nodes, nodePub)
+			if err != nil {
+				return err
+			}
+			node.db = c.db
+
+			nodesInHorizon = append(nodesInHorizon, node)
+		}
+
+		return nil
+	})
+	switch {
+	case err == ErrGraphNoEdgesFound:
+		fallthrough
+	case err == ErrGraphNodesNotFound:
+		break
+
+	case err != nil:
+		return nil, err
+	}
+
+	return nodesInHorizon, nil
+}
+
+// FilterKnownChanIDs takes a set of channel IDs and return the subset of chan
+// ID's that we don't know of in the passed set. In other words, we perform a
+// set difference of our set of chan ID's and the ones passed in. This method
+// can be used by callers to determine the set of channels ta peer knows of
+// that we don't.
+func (c *ChannelGraph) FilterKnownChanIDs(chanIDs []uint64) ([]uint64, error) {
+	var newChanIDs []uint64
+
+	err := c.db.View(func(tx *bolt.Tx) error {
+		edges := tx.Bucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNoEdgesFound
+		}
+		edgeIndex := edges.Bucket(edgeIndexBucket)
+		if edgeIndex == nil {
+			return ErrGraphNoEdgesFound
+		}
+
+		// We'll run through the set of chanIDs and collate only the
+		// set of channel that are unable to be found within our db.
+		var cidBytes [8]byte
+		for _, cid := range chanIDs {
+			byteOrder.PutUint64(cidBytes[:], cid)
+
+			if v := edgeIndex.Get(cidBytes[:]); v == nil {
+				newChanIDs = append(newChanIDs, cid)
+			}
+		}
+
+		return nil
+	})
+	switch {
+	// If we don't know of any edges yet, then we'll return the entire set
+	// of chan IDs specified.
+	case err == ErrGraphNoEdgesFound:
+		return chanIDs, nil
+
+	case err != nil:
+		return nil, err
+	}
+
+	return newChanIDs, nil
+}
+
+// FilterChannelRange returns the channel ID's of all known channels which were
+// mined in a block height within the passed range. This method can be used to
+// quickly share with a peer the set of channels we know of within a particular
+// range to catch them up after a period of time offline.
+func (c *ChannelGraph) FilterChannelRange(startHeight, endHeight uint32) ([]uint64, error) {
+	var chanIDs []uint64
+
+	startChanID := &lnwire.ShortChannelID{
+		BlockHeight: startHeight,
+	}
+
+	endChanID := lnwire.ShortChannelID{
+		BlockHeight: endHeight,
+		TxIndex:     math.MaxUint32 & 0x00ffffff,
+		TxPosition:  math.MaxUint16,
+	}
+
+	// As we need to perform a range scan, we'll convert the starting and
+	// ending height to their corresponding values when encoded using short
+	// channel ID's.
+	var chanIDStart, chanIDEnd [8]byte
+	byteOrder.PutUint64(chanIDStart[:], startChanID.ToUint64())
+	byteOrder.PutUint64(chanIDEnd[:], endChanID.ToUint64())
+
+	err := c.db.View(func(tx *bolt.Tx) error {
+		edges := tx.Bucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNoEdgesFound
+		}
+		edgeIndex := edges.Bucket(edgeIndexBucket)
+		if edgeIndex == nil {
+			return ErrGraphNoEdgesFound
+		}
+
+		cursor := edgeIndex.Cursor()
+
+		// We'll now iterate through the database, and find each
+		// channel ID that resides within the specified range.
+		var cid uint64
+		for k, _ := cursor.Seek(chanIDStart[:]); k != nil &&
+			bytes.Compare(k, chanIDEnd[:]) <= 0; k, _ = cursor.Next() {
+
+			// This channel ID rests within the target range, so
+			// we'll convert it into an integer and add it to our
+			// returned set.
+			cid = byteOrder.Uint64(k)
+			chanIDs = append(chanIDs, cid)
+		}
+
+		return nil
+	})
+	switch {
+	// If we don't know of any channels yet, then there's nothing to
+	// filter, so we'll return an empty slice.
+	case err == ErrGraphNoEdgesFound:
+		return chanIDs, nil
+
+	case err != nil:
+		return nil, err
+	}
+
+	return chanIDs, nil
+}
+
+// FetchChanInfos returns the set of channel edges that correspond to the
+// passed channel ID's. This can be used to respond to peer queries that are
+// seeking to fill in gaps in their view of the channel graph.
+func (c *ChannelGraph) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
+	// TODO(roasbeef): sort cids?
+
+	var (
+		chanEdges []ChannelEdge
+		cidBytes  [8]byte
+	)
+
+	err := c.db.View(func(tx *bolt.Tx) error {
+		edges := tx.Bucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNoEdgesFound
+		}
+		edgeIndex := edges.Bucket(edgeIndexBucket)
+		if edgeIndex == nil {
+			return ErrGraphNoEdgesFound
+		}
+		nodes := tx.Bucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNotFound
+		}
+
+		for _, cid := range chanIDs {
+			byteOrder.PutUint64(cidBytes[:], cid)
+
+			// First, we'll fetch the static edge information.
+			edgeInfo, err := fetchChanEdgeInfo(
+				edgeIndex, cidBytes[:],
+			)
+			if err != nil {
+				return err
+			}
+
+			// With the static information obtained, we'll now
+			// fetch the dynamic policy info.
+			edge1, edge2, err := fetchChanEdgePolicies(
+				edgeIndex, edges, nodes, cidBytes[:], c.db,
+			)
+			if err != nil {
+				return err
+			}
+
+			chanEdges = append(chanEdges, ChannelEdge{
+				Info:    &edgeInfo,
+				Policy1: edge1,
+				Policy2: edge2,
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return chanEdges, nil
+}
+
+func delEdgeUpdateIndexEntry(edgesBucket *bolt.Bucket, chanID uint64,
+	edge1, edge2 *ChannelEdgePolicy) error {
+
+	// First, we'll fetch the edge update index bucket which currently
+	// stores an entry for the channel we're about to delete.
+	updateIndex, err := edgesBucket.CreateBucketIfNotExists(
+		edgeUpdateIndexBucket,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Now that we have the bucket, we'll attempt to construct a template
+	// for the index key: updateTime || chanid.
+	var indexKey [8 + 8]byte
+	byteOrder.PutUint64(indexKey[8:], chanID)
+
+	// With the template constructed, we'll attempt to delete an entry that
+	// would have been created by both edges: we'll alternate the update
+	// times, as one may had overridden the other.
+	if edge1 != nil {
+		byteOrder.PutUint64(indexKey[:8], uint64(edge1.LastUpdate.Unix()))
+		if err := updateIndex.Delete(indexKey[:]); err != nil {
+			return err
+		}
+	}
+
+	// We'll also attempt to delete the entry that may have been created by
+	// the second edge.
+	if edge2 != nil {
+		byteOrder.PutUint64(indexKey[:8], uint64(edge2.LastUpdate.Unix()))
+		if err := updateIndex.Delete(indexKey[:]); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func delChannelByEdge(edges *bolt.Bucket, edgeIndex *bolt.Bucket,
-	chanIndex *bolt.Bucket, chanPoint *wire.OutPoint) error {
+	chanIndex *bolt.Bucket, nodes *bolt.Bucket, chanPoint *wire.OutPoint) error {
 	var b bytes.Buffer
 	if err := writeOutpoint(&b, chanPoint); err != nil {
 		return err
 	}
 
-	// If the channel's outpoint doesn't exist within the outpoint
-	// index, then the edge does not exist.
+	// If the channel's outpoint doesn't exist within the outpoint index,
+	// then the edge does not exist.
 	chanID := chanIndex.Get(b.Bytes())
 	if chanID == nil {
 		return ErrEdgeNotFound
 	}
 
-	// Otherwise we obtain the two public keys from the mapping:
-	// chanID -> pubKey1 || pubKey2. With this, we can construct
-	// the keys which house both of the directed edges for this
-	// channel.
+	// Otherwise we obtain the two public keys from the mapping: chanID ->
+	// pubKey1 || pubKey2. With this, we can construct the keys which house
+	// both of the directed edges for this channel.
 	nodeKeys := edgeIndex.Get(chanID)
 	if nodeKeys == nil {
 		return fmt.Errorf("could not find nodekeys for chanID %v",
 			chanID)
 	}
 
-	// The edge key is of the format pubKey || chanID. First we
-	// construct the latter half, populating the channel ID.
+	// The edge key is of the format pubKey || chanID. First we construct
+	// the latter half, populating the channel ID.
 	var edgeKey [33 + 8]byte
 	copy(edgeKey[33:], chanID)
 
-	// With the latter half constructed, copy over the first public
-	// key to delete the edge in this direction, then the second to
-	// delete the edge in the opposite direction.
+	// With the latter half constructed, copy over the first public key to
+	// delete the edge in this direction, then the second to delete the
+	// edge in the opposite direction.
 	copy(edgeKey[:33], nodeKeys[:33])
 	if edges.Get(edgeKey[:]) != nil {
 		if err := edges.Delete(edgeKey[:]); err != nil {
@@ -917,8 +1330,21 @@ func delChannelByEdge(edges *bolt.Bucket, edgeIndex *bolt.Bucket,
 		}
 	}
 
-	// Finally, with the edge data deleted, we can purge the
-	// information from the two edge indexes.
+	// We'll also remove the entry in the edge update index bucket.
+	cid := byteOrder.Uint64(chanID)
+	edge1, edge2, err := fetchChanEdgePolicies(
+		edgeIndex, edges, nodes, chanID, nil,
+	)
+	if err != nil {
+		return err
+	}
+	err = delEdgeUpdateIndexEntry(edges, cid, edge1, edge2)
+	if err != nil {
+		return err
+	}
+
+	// Finally, with the edge data deleted, we can purge the information
+	// from the two edge indexes.
 	if err := edgeIndex.Delete(chanID); err != nil {
 		return err
 	}
@@ -1776,7 +2202,9 @@ func (c *ChannelGraph) NewChannelEdgePolicy() *ChannelEdgePolicy {
 	return &ChannelEdgePolicy{db: c.db}
 }
 
-func putLightningNode(nodeBucket *bolt.Bucket, aliasBucket *bolt.Bucket, node *LightningNode) error {
+func putLightningNode(nodeBucket *bolt.Bucket, aliasBucket *bolt.Bucket,
+	updateIndex *bolt.Bucket, node *LightningNode) error {
+
 	var (
 		scratch [16]byte
 		b       bytes.Buffer
@@ -1803,8 +2231,8 @@ func putLightningNode(nodeBucket *bolt.Bucket, aliasBucket *bolt.Bucket, node *L
 		return err
 	}
 
-	// If we got a node announcement for this node, we will have the rest of
-	// the data available. If not we don't have more data to write.
+	// If we got a node announcement for this node, we will have the rest
+	// of the data available. If not we don't have more data to write.
 	if !node.HaveNodeAnnouncement {
 		// Write HaveNodeAnnouncement=0.
 		byteOrder.PutUint16(scratch[:2], 0)
@@ -1860,8 +2288,33 @@ func putLightningNode(nodeBucket *bolt.Bucket, aliasBucket *bolt.Bucket, node *L
 		return err
 	}
 
-	return nodeBucket.Put(nodePub, b.Bytes())
+	// With the alias bucket updated, we'll now update the index that
+	// tracks the time series of node updates.
+	var indexKey [8 + 33]byte
+	byteOrder.PutUint64(indexKey[:8], updateUnix)
+	copy(indexKey[8:], nodePub)
 
+	// If there was already an old index entry for this node, then we'll
+	// delete the old one before we write the new entry.
+	if nodeBytes := nodeBucket.Get(nodePub); nodeBytes != nil {
+		// Extract out the old update time to we can reconstruct the
+		// prior index key to delete it from the index.
+		oldUpdateTime := nodeBytes[:8]
+
+		var oldIndexKey [8 + 33]byte
+		copy(oldIndexKey[:8], oldUpdateTime)
+		copy(oldIndexKey[8:], nodePub)
+
+		if err := updateIndex.Delete(oldIndexKey[:]); err != nil {
+			return err
+		}
+	}
+
+	if err := updateIndex.Put(indexKey[:], nil); err != nil {
+		return err
+	}
+
+	return nodeBucket.Put(nodePub, b.Bytes())
 }
 
 func fetchLightningNode(nodeBucket *bolt.Bucket,
@@ -2133,6 +2586,44 @@ func putChanEdgePolicy(edges *bolt.Bucket, edge *ChannelEdgePolicy, from, to []b
 	}
 
 	if _, err := b.Write(to); err != nil {
+		return err
+	}
+
+	// Before we write out the new edge, we'll create a new entry in the
+	// update index in order to keep it fresh.
+	var indexKey [8 + 8]byte
+	copy(indexKey[:], scratch[:])
+	byteOrder.PutUint64(indexKey[8:], edge.ChannelID)
+
+	updateIndex, err := edges.CreateBucketIfNotExists(edgeUpdateIndexBucket)
+	if err != nil {
+		return err
+	}
+
+	// If there was already an entry for this edge, then we'll need to
+	// delete the old one to ensure we don't leave around any after-images.
+	if edgeBytes := edges.Get(edgeKey[:]); edgeBytes != nil {
+		// In order to delete the old entry, we'll need to obtain the
+		// *prior* update time in order to delete it. To do this, we'll
+		// create an offset to slice in. Starting backwards, we'll
+		// create an offset than puts us right after the flags
+		// variable:
+		//
+		//  * pubkeySize + fee+policySize + timelockSize + flagSize
+		updateEnd := 33 + (8 * 3) + 2 + 1
+		updateStart := updateEnd - 8
+		oldUpdateTime := edgeBytes[updateStart:updateEnd]
+
+		var oldIndexKey [8 + 8]byte
+		copy(oldIndexKey[:], oldUpdateTime)
+		byteOrder.PutUint64(oldIndexKey[8:], edge.ChannelID)
+
+		if err := updateIndex.Delete(oldIndexKey[:]); err != nil {
+			return err
+		}
+	}
+
+	if err := updateIndex.Put(indexKey[:], nil); err != nil {
 		return err
 	}
 

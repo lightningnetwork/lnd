@@ -613,7 +613,6 @@ func (p *peer) readNextMessage() (lnwire.Message, error) {
 		return nil, err
 	}
 
-	// TODO(roasbeef): add message summaries
 	p.logWireMessage(nextMsg, true)
 
 	return nextMsg, nil
@@ -995,7 +994,12 @@ out:
 		case *lnwire.ChannelUpdate,
 			*lnwire.ChannelAnnouncement,
 			*lnwire.NodeAnnouncement,
-			*lnwire.AnnounceSignatures:
+			*lnwire.AnnounceSignatures,
+			*lnwire.GossipTimestampRange,
+			*lnwire.QueryShortChanIDs,
+			*lnwire.QueryChannelRange,
+			*lnwire.ReplyChannelRange,
+			*lnwire.ReplyShortChanIDsEnd:
 
 			discStream.AddMsg(msg)
 
@@ -1139,6 +1143,30 @@ func messageSummary(msg lnwire.Message) string {
 	case *lnwire.ChannelReestablish:
 		return fmt.Sprintf("next_local_height=%v, remote_tail_height=%v",
 			msg.NextLocalCommitHeight, msg.RemoteCommitTailHeight)
+
+	case *lnwire.ReplyShortChanIDsEnd:
+		return fmt.Sprintf("chain_hash=%v, complete=%v", msg.ChainHash,
+			msg.Complete)
+
+	case *lnwire.ReplyChannelRange:
+		return fmt.Sprintf("complete=%v, encoding=%v, num_chans=%v",
+			msg.Complete, msg.EncodingType, len(msg.ShortChanIDs))
+
+	case *lnwire.QueryShortChanIDs:
+		return fmt.Sprintf("chain_hash=%v, encoding=%v, num_chans=%v",
+			msg.ChainHash, msg.EncodingType, len(msg.ShortChanIDs))
+
+	case *lnwire.QueryChannelRange:
+		return fmt.Sprintf("chain_hash=%v, start_height=%v, "+
+			"num_blocks=%v", msg.ChainHash, msg.FirstBlockHeight,
+			msg.NumBlocks)
+
+	case *lnwire.GossipTimestampRange:
+		return fmt.Sprintf("chain_hash=%v, first_stamp=%v, "+
+			"stamp_range=%v", msg.ChainHash,
+			time.Unix(int64(msg.FirstTimestamp), 0),
+			msg.TimestampRange)
+
 	}
 
 	return ""
@@ -1213,7 +1241,6 @@ func (p *peer) writeMessage(msg lnwire.Message) error {
 		return ErrPeerExiting
 	}
 
-	// TODO(roasbeef): add message summaries
 	p.logWireMessage(msg, false)
 
 	// We'll re-slice of static write buffer to allow this new message to

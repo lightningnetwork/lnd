@@ -2749,10 +2749,21 @@ func (f *fundingManager) cancelReservationCtx(peerKey *btcec.PublicKey,
 	fndgLog.Infof("Cancelling funding reservation for node_key=%x, "+
 		"chan_id=%x", peerKey.SerializeCompressed(), pendingChanID[:])
 
-	ctx, err := f.getReservationCtx(peerKey, pendingChanID)
-	if err != nil {
-		return nil, errors.Errorf("unable to find reservation: %v",
-			err)
+	peerIDKey := newSerializedKey(peerKey)
+	f.resMtx.Lock()
+	defer f.resMtx.Unlock()
+
+	nodeReservations, ok := f.activeReservations[peerIDKey]
+	if !ok {
+		// No reservations for this node.
+		return nil, errors.Errorf("no active reservations for peer(%x)",
+			peerIDKey[:])
+	}
+
+	ctx, ok := nodeReservations[pendingChanID]
+	if !ok {
+		return nil, errors.Errorf("unknown channel (id: %x) for "+
+			"peer(%x)", pendingChanID[:], peerIDKey[:])
 	}
 
 	if err := ctx.reservation.Cancel(); err != nil {
@@ -2760,7 +2771,13 @@ func (f *fundingManager) cancelReservationCtx(peerKey *btcec.PublicKey,
 			err)
 	}
 
-	f.deleteReservationCtx(peerKey, pendingChanID)
+	delete(nodeReservations, pendingChanID)
+
+	// If this was the last active reservation for this peer, delete the
+	// peer's entry altogether.
+	if len(nodeReservations) == 0 {
+		delete(f.activeReservations, peerIDKey)
+	}
 	return ctx, nil
 }
 
@@ -2800,8 +2817,8 @@ func (f *fundingManager) getReservationCtx(peerKey *btcec.PublicKey,
 	f.resMtx.RUnlock()
 
 	if !ok {
-		return nil, errors.Errorf("unknown channel (id: %x)",
-			pendingChanID[:])
+		return nil, errors.Errorf("unknown channel (id: %x) for "+
+			"peer(%x)", pendingChanID[:], peerIDKey[:])
 	}
 
 	return resCtx, nil

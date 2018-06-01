@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"reflect"
 	"runtime"
 	"strings"
@@ -13,12 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"math"
-
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
-	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
@@ -1057,7 +1055,7 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
 
-	daveServer, err := newMockServer(t, "dave", nil)
+	daveServer, err := newMockServer(t, "dave", testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to init dave's server: %v", err)
 	}
@@ -1443,11 +1441,6 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 	}
 
 	var (
-		globalEpoch = &chainntnfs.BlockEpochEvent{
-			Epochs: make(chan *chainntnfs.BlockEpoch),
-			Cancel: func() {
-			},
-		}
 		invoiceRegistry = newMockRegistry()
 		decoder         = newMockIteratorDecoder()
 		obfuscator      = NewMockObfuscator()
@@ -1468,7 +1461,7 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 	}
 
 	aliceDb := aliceChannel.State().Db
-	aliceSwitch, err := initSwitchWithDB(aliceDb)
+	aliceSwitch, err := initSwitchWithDB(testStartingHeight, aliceDb)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, err
 	}
@@ -1495,7 +1488,6 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 		},
 		Registry:       invoiceRegistry,
 		ChainEvents:    &contractcourt.ChainEventSubscription{},
-		BlockEpochs:    globalEpoch,
 		BatchTicker:    ticker,
 		FwdPkgGCTicker: NewBatchTicker(time.NewTicker(5 * time.Second)),
 		// Make the BatchSize and Min/MaxFeeUpdateTimeout large enough
@@ -1506,7 +1498,7 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 	}
 
 	const startingHeight = 100
-	aliceLink := NewChannelLink(aliceCfg, aliceChannel, startingHeight)
+	aliceLink := NewChannelLink(aliceCfg, aliceChannel)
 	start := func() error {
 		return aliceSwitch.AddLink(aliceLink)
 	}
@@ -3825,11 +3817,6 @@ func restartLink(aliceChannel *lnwallet.LightningChannel, aliceSwitch *Switch,
 	hodlFlags []hodl.Flag) (ChannelLink, chan time.Time, func(), error) {
 
 	var (
-		globalEpoch = &chainntnfs.BlockEpochEvent{
-			Epochs: make(chan *chainntnfs.BlockEpoch),
-			Cancel: func() {
-			},
-		}
 		invoiceRegistry = newMockRegistry()
 		decoder         = newMockIteratorDecoder()
 		obfuscator      = NewMockObfuscator()
@@ -3854,7 +3841,7 @@ func restartLink(aliceChannel *lnwallet.LightningChannel, aliceSwitch *Switch,
 
 	if aliceSwitch == nil {
 		var err error
-		aliceSwitch, err = initSwitchWithDB(aliceDb)
+		aliceSwitch, err = initSwitchWithDB(testStartingHeight, aliceDb)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -3880,7 +3867,6 @@ func restartLink(aliceChannel *lnwallet.LightningChannel, aliceSwitch *Switch,
 		},
 		Registry:       invoiceRegistry,
 		ChainEvents:    &contractcourt.ChainEventSubscription{},
-		BlockEpochs:    globalEpoch,
 		BatchTicker:    ticker,
 		FwdPkgGCTicker: NewBatchTicker(time.NewTicker(5 * time.Second)),
 		// Make the BatchSize and Min/MaxFeeUpdateTimeout large enough
@@ -3894,7 +3880,7 @@ func restartLink(aliceChannel *lnwallet.LightningChannel, aliceSwitch *Switch,
 	}
 
 	const startingHeight = 100
-	aliceLink := NewChannelLink(aliceCfg, aliceChannel, startingHeight)
+	aliceLink := NewChannelLink(aliceCfg, aliceChannel)
 	if err := aliceSwitch.AddLink(aliceLink); err != nil {
 		return nil, nil, nil, err
 	}

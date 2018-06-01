@@ -284,6 +284,11 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 			debugPre[:], debugHash[:])
 	}
 
+	_, currentHeight, err := s.cc.chainIO.GetBestBlock()
+	if err != nil {
+		return nil, err
+	}
+
 	s.htlcSwitch, err = htlcswitch.New(htlcswitch.Config{
 		DB:      chanDB,
 		SelfKey: s.identityPriv.PubKey(),
@@ -313,7 +318,8 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		SwitchPackager:         channeldb.NewSwitchPackager(),
 		ExtractErrorEncrypter:  s.sphinx.ExtractErrorEncrypter,
 		FetchLastChannelUpdate: fetchLastChanUpdate(s, serializedPubKey),
-	})
+		Notifier:               s.cc.chainNotifier,
+	}, uint32(currentHeight))
 	if err != nil {
 		return nil, err
 	}

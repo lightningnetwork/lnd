@@ -1,18 +1,16 @@
 package htlcswitch
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
-
-	"io"
-	"sync/atomic"
-
-	"bytes"
 
 	"github.com/btcsuite/fastsha256"
 	"github.com/go-errors/errors"
@@ -122,7 +120,7 @@ type mockServer struct {
 
 var _ lnpeer.Peer = (*mockServer)(nil)
 
-func initSwitchWithDB(db *channeldb.DB) (*Switch, error) {
+func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) {
 	if db == nil {
 		tempPath, err := ioutil.TempDir("", "switchdb")
 		if err != nil {
@@ -135,7 +133,7 @@ func initSwitchWithDB(db *channeldb.DB) (*Switch, error) {
 		}
 	}
 
-	return New(Config{
+	cfg := Config{
 		DB:             db,
 		SwitchPackager: channeldb.NewSwitchPackager(),
 		FwdingLog: &mockForwardingLog{
@@ -144,15 +142,20 @@ func initSwitchWithDB(db *channeldb.DB) (*Switch, error) {
 		FetchLastChannelUpdate: func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
 			return nil, nil
 		},
-	})
+		Notifier: &mockNotifier{},
+	}
+
+	return New(cfg, startingHeight)
 }
 
-func newMockServer(t testing.TB, name string, db *channeldb.DB) (*mockServer, error) {
+func newMockServer(t testing.TB, name string, startingHeight uint32,
+	db *channeldb.DB) (*mockServer, error) {
+
 	var id [33]byte
 	h := sha256.Sum256([]byte(name))
 	copy(id[:], h[:])
 
-	htlcSwitch, err := initSwitchWithDB(db)
+	htlcSwitch, err := initSwitchWithDB(startingHeight, db)
 	if err != nil {
 		return nil, err
 	}

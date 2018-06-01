@@ -2,17 +2,15 @@ package htlcswitch
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	prand "math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"crypto/sha256"
-
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
-	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
@@ -213,13 +211,6 @@ type ChannelLinkConfig struct {
 	// transaction to ensure timely confirmation.
 	FeeEstimator lnwallet.FeeEstimator
 
-	// BlockEpochs is an active block epoch event stream backed by an
-	// active ChainNotifier instance. The ChannelLink will use new block
-	// notifications sent over this channel to decide when a _new_ HTLC is
-	// too close to expiry, and also when any active HTLC's have expired
-	// (or are close to expiry).
-	BlockEpochs *chainntnfs.BlockEpochEvent
-
 	// DebugHTLC should be turned on if you want all HTLCs sent to a node
 	// with the debug htlc R-Hash are immediately settled in the next
 	// available state transition.
@@ -289,10 +280,6 @@ type channelLink struct {
 	// TODO(andrew.shvv) remove after we add additional BatchNumber()
 	// method in state machine.
 	batchCounter uint32
-
-	// bestHeight is the best known height of the main chain. The link will
-	// use this information to govern decisions based on HTLC timeouts.
-	bestHeight uint32
 
 	// keystoneBatch represents a volatile list of keystones that must be
 	// written before attempting to sign the next commitment txn. These
@@ -371,8 +358,8 @@ type channelLink struct {
 
 // NewChannelLink creates a new instance of a ChannelLink given a configuration
 // and active channel that will be used to verify/apply updates to.
-func NewChannelLink(cfg ChannelLinkConfig, channel *lnwallet.LightningChannel,
-	currentHeight uint32) ChannelLink {
+func NewChannelLink(cfg ChannelLinkConfig,
+	channel *lnwallet.LightningChannel) ChannelLink {
 
 	return &channelLink{
 		cfg:         cfg,
@@ -381,7 +368,6 @@ func NewChannelLink(cfg ChannelLinkConfig, channel *lnwallet.LightningChannel,
 		// TODO(roasbeef): just do reserve here?
 		logCommitTimer: time.NewTimer(300 * time.Millisecond),
 		overflowQueue:  newPacketQueue(lnwallet.MaxHTLCNumber / 2),
-		bestHeight:     currentHeight,
 		htlcUpdates:    make(chan []channeldb.HTLC),
 		quit:           make(chan struct{}),
 	}
@@ -804,7 +790,6 @@ func (l *channelLink) fwdPkgGarbager() {
 func (l *channelLink) htlcManager() {
 	defer func() {
 		l.wg.Done()
-		l.cfg.BlockEpochs.Cancel()
 		log.Infof("ChannelLink(%v) has exited", l)
 	}()
 
@@ -2095,7 +2080,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			continue
 		}
 
-		heightNow := l.bestHeight
+		heightNow := l.cfg.Switch.BestHeight()
 
 		fwdInfo := chanIterator.ForwardingInstructions()
 		switch fwdInfo.NextHop {

@@ -30,12 +30,12 @@ func genPreimage() ([32]byte, error) {
 func TestSwitchSendPending(t *testing.T) {
 	t.Parallel()
 
-	alicePeer, err := newMockServer(t, "alice", nil)
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
 
-	s, err := initSwitchWithDB(nil)
+	s, err := initSwitchWithDB(testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -125,16 +125,16 @@ func TestSwitchSendPending(t *testing.T) {
 func TestSwitchForward(t *testing.T) {
 	t.Parallel()
 
-	alicePeer, err := newMockServer(t, "alice", nil)
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
-	bobPeer, err := newMockServer(t, "bob", nil)
+	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to create bob server: %v", err)
 	}
 
-	s, err := initSwitchWithDB(nil)
+	s, err := initSwitchWithDB(testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -230,11 +230,11 @@ func TestSwitchForwardFailAfterFullAdd(t *testing.T) {
 
 	chanID1, chanID2, aliceChanID, bobChanID := genIDs()
 
-	alicePeer, err := newMockServer(t, "alice", nil)
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
-	bobPeer, err := newMockServer(t, "bob", nil)
+	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to create bob server: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestSwitchForwardFailAfterFullAdd(t *testing.T) {
 		t.Fatalf("unable to open channeldb: %v", err)
 	}
 
-	s, err := initSwitchWithDB(cdb)
+	s, err := initSwitchWithDB(testStartingHeight, cdb)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -344,7 +344,7 @@ func TestSwitchForwardFailAfterFullAdd(t *testing.T) {
 		t.Fatalf("unable to reopen channeldb: %v", err)
 	}
 
-	s2, err := initSwitchWithDB(cdb2)
+	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
 	if err != nil {
 		t.Fatalf("unable reinit switch: %v", err)
 	}
@@ -421,11 +421,11 @@ func TestSwitchForwardSettleAfterFullAdd(t *testing.T) {
 
 	chanID1, chanID2, aliceChanID, bobChanID := genIDs()
 
-	alicePeer, err := newMockServer(t, "alice", nil)
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
-	bobPeer, err := newMockServer(t, "bob", nil)
+	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to create bob server: %v", err)
 	}
@@ -440,7 +440,7 @@ func TestSwitchForwardSettleAfterFullAdd(t *testing.T) {
 		t.Fatalf("unable to open channeldb: %v", err)
 	}
 
-	s, err := initSwitchWithDB(cdb)
+	s, err := initSwitchWithDB(testStartingHeight, cdb)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -535,7 +535,7 @@ func TestSwitchForwardSettleAfterFullAdd(t *testing.T) {
 		t.Fatalf("unable to reopen channeldb: %v", err)
 	}
 
-	s2, err := initSwitchWithDB(cdb2)
+	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
 	if err != nil {
 		t.Fatalf("unable reinit switch: %v", err)
 	}
@@ -615,11 +615,11 @@ func TestSwitchForwardDropAfterFullAdd(t *testing.T) {
 
 	chanID1, chanID2, aliceChanID, bobChanID := genIDs()
 
-	alicePeer, err := newMockServer(t, "alice", nil)
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
-	bobPeer, err := newMockServer(t, "bob", nil)
+	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to create bob server: %v", err)
 	}
@@ -634,7 +634,7 @@ func TestSwitchForwardDropAfterFullAdd(t *testing.T) {
 		t.Fatalf("unable to open channeldb: %v", err)
 	}
 
-	s, err := initSwitchWithDB(cdb)
+	s, err := initSwitchWithDB(testStartingHeight, cdb)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -721,7 +721,7 @@ func TestSwitchForwardDropAfterFullAdd(t *testing.T) {
 		t.Fatalf("unable to reopen channeldb: %v", err)
 	}
 
-	s2, err := initSwitchWithDB(cdb2)
+	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
 	if err != nil {
 		t.Fatalf("unable reinit switch: %v", err)
 	}
@@ -778,11 +778,11 @@ func TestSwitchForwardFailAfterHalfAdd(t *testing.T) {
 
 	chanID1, chanID2, aliceChanID, bobChanID := genIDs()
 
-	alicePeer, err := newMockServer(t, "alice", nil)
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
-	bobPeer, err := newMockServer(t, "bob", nil)
+	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to create bob server: %v", err)
 	}
@@ -797,7 +797,7 @@ func TestSwitchForwardFailAfterHalfAdd(t *testing.T) {
 		t.Fatalf("unable to open channeldb: %v", err)
 	}
 
-	s, err := initSwitchWithDB(cdb)
+	s, err := initSwitchWithDB(testStartingHeight, cdb)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -879,7 +879,7 @@ func TestSwitchForwardFailAfterHalfAdd(t *testing.T) {
 		t.Fatalf("unable to reopen channeldb: %v", err)
 	}
 
-	s2, err := initSwitchWithDB(cdb2)
+	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
 	if err != nil {
 		t.Fatalf("unable reinit switch: %v", err)
 	}
@@ -936,11 +936,11 @@ func TestSwitchForwardCircuitPersistence(t *testing.T) {
 
 	chanID1, chanID2, aliceChanID, bobChanID := genIDs()
 
-	alicePeer, err := newMockServer(t, "alice", nil)
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
-	bobPeer, err := newMockServer(t, "bob", nil)
+	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to create bob server: %v", err)
 	}
@@ -955,7 +955,7 @@ func TestSwitchForwardCircuitPersistence(t *testing.T) {
 		t.Fatalf("unable to open channeldb: %v", err)
 	}
 
-	s, err := initSwitchWithDB(cdb)
+	s, err := initSwitchWithDB(testStartingHeight, cdb)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -1036,7 +1036,7 @@ func TestSwitchForwardCircuitPersistence(t *testing.T) {
 		t.Fatalf("unable to reopen channeldb: %v", err)
 	}
 
-	s2, err := initSwitchWithDB(cdb2)
+	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
 	if err != nil {
 		t.Fatalf("unable reinit switch: %v", err)
 	}
@@ -1129,7 +1129,7 @@ func TestSwitchForwardCircuitPersistence(t *testing.T) {
 		t.Fatalf("unable to reopen channeldb: %v", err)
 	}
 
-	s3, err := initSwitchWithDB(cdb3)
+	s3, err := initSwitchWithDB(testStartingHeight, cdb3)
 	if err != nil {
 		t.Fatalf("unable reinit switch: %v", err)
 	}
@@ -1167,16 +1167,16 @@ func TestSkipIneligibleLinksMultiHopForward(t *testing.T) {
 
 	var packet *htlcPacket
 
-	alicePeer, err := newMockServer(t, "alice", nil)
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
-	bobPeer, err := newMockServer(t, "bob", nil)
+	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to create bob server: %v", err)
 	}
 
-	s, err := initSwitchWithDB(nil)
+	s, err := initSwitchWithDB(testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -1237,12 +1237,12 @@ func TestSkipIneligibleLinksLocalForward(t *testing.T) {
 
 	// We'll create a single link for this test, marking it as being unable
 	// to forward form the get go.
-	alicePeer, err := newMockServer(t, "alice", nil)
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
 
-	s, err := initSwitchWithDB(nil)
+	s, err := initSwitchWithDB(testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -1289,16 +1289,16 @@ func TestSkipIneligibleLinksLocalForward(t *testing.T) {
 func TestSwitchCancel(t *testing.T) {
 	t.Parallel()
 
-	alicePeer, err := newMockServer(t, "alice", nil)
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
-	bobPeer, err := newMockServer(t, "bob", nil)
+	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to create bob server: %v", err)
 	}
 
-	s, err := initSwitchWithDB(nil)
+	s, err := initSwitchWithDB(testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -1402,16 +1402,16 @@ func TestSwitchAddSamePayment(t *testing.T) {
 
 	chanID1, chanID2, aliceChanID, bobChanID := genIDs()
 
-	alicePeer, err := newMockServer(t, "alice", nil)
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
-	bobPeer, err := newMockServer(t, "bob", nil)
+	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to create bob server: %v", err)
 	}
 
-	s, err := initSwitchWithDB(nil)
+	s, err := initSwitchWithDB(testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -1561,12 +1561,12 @@ func TestSwitchAddSamePayment(t *testing.T) {
 func TestSwitchSendPayment(t *testing.T) {
 	t.Parallel()
 
-	alicePeer, err := newMockServer(t, "alice", nil)
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
 
-	s, err := initSwitchWithDB(nil)
+	s, err := initSwitchWithDB(testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -1804,8 +1804,6 @@ func TestMultiHopPaymentForwardingEvents(t *testing.T) {
 			t.Fatalf("unable to send payment: %v", err)
 		}
 	}
-
-	time.Sleep(time.Millisecond * 200)
 
 	// With all 10 payments sent. We'll now manually stop each of the
 	// switches so we can examine their end state.

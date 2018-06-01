@@ -1,0 +1,34 @@
+<%#encoding:UTF-8%><div<%= @id && %( id="#{@id}") %> class="<%= ['videoblock',@style,role].compact * ' ' %>"><%
+if title? %>
+<div class="title"><%= captioned_title %></div><%
+end %>
+<div class="content"><%
+case attr :poster
+when 'vimeo'
+  start_anchor = (attr? :start) ? %(#at=#{attr :start}) : nil
+  delimiter = '?'
+  autoplay_param = (option? :autoplay) ? %(#{delimiter}autoplay=1) : nil
+  delimiter = '&amp;' if autoplay_param
+  loop_param = (option? :loop) ? %(#{delimiter}loop=1) : nil
+  src = %(//player.vimeo.com/video/#{attr :target}#{start_anchor}#{autoplay_param}#{loop_param}) %>
+<iframe<%= (attr? :width) ? %( width="#{attr :width}") : nil %><%= (attr? :height) ? %( height="#{attr :height}") : nil %> src="<%= src %>" frameborder="0" webkitAllowFullScreen mozallowfullscreen allowFullScreen></iframe><%
+when 'youtube'
+  params = ['rel=0']
+  params << %(start=#{attr :start}) if attr? :start
+  params << %(end=#{attr :end}) if attr? :end
+  params << 'autoplay=1' if option? :autoplay
+  params << 'loop=1' if option? :loop
+  params << 'controls=0' if option? :nocontrols
+  src = %(//www.youtube.com/embed/#{attr :target}?#{params * '&amp;'}) %>
+<iframe<%= (attr? :width) ? %( width="#{attr :width}") : nil %><%= (attr? :height) ? %( height="#{attr :height}") : nil %> src="<%= src %>" frameborder="0"<%= (option? :nofullscreen) ? nil : ' allowfullscreen' %>></iframe><%
+else %>
+<video src="<%= media_uri(attr :target) %>"<%= (attr? :width) ? %( width="#{attr :width}") : nil %><%= (attr? :height) ? %( height="#{attr :height}") : nil %><%
+  if attr? :poster %> poster="<%= media_uri(attr :poster) %>"<% end
+  if option? :autoplay %> autoplay<% end
+  unless option? :nocontrols %> controls<% end
+  if option? :loop %> loop<% end %>>
+Your browser does not support the video tag.
+</video><%
+end %>
+</div>
+</div>

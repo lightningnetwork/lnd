@@ -1,0 +1,21 @@
+<%#encoding:UTF-8%><div<%= @id && %( id="#{@id}") %> class="<%= ['admonitionblock',(attr :name),role].compact * ' ' %>">
+<table>
+<tr>
+<td class="icon"><%
+if @document.attr? :icons, 'font' %>
+<i class="fa icon-<%= attr 'name' %>" title="<%= @caption %>"></i><%
+elsif @document.attr? :icons %>
+<img src="<%= icon_uri(attr :name) %>" alt="<%= @caption %>"><%
+else %>
+<div class="title label"><%= @caption %></div><%
+end %>
+</td>
+<td class="content"><%
+if title? %>
+<div class="title label"><%= title %></div><%
+end %>
+<%= content %>
+</td>
+</tr>
+</table>
+</div>

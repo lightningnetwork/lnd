@@ -157,9 +157,14 @@ func lndMain() error {
 		defaultGraphSubDirname,
 		normalizeNetwork(activeNetParams.Name))
 
+	// Create the snapshot network-segmented directory for the channel database.
+	snapshotGraphDir := filepath.Join(cfg.SnapshotDir,
+		defaultGraphSubDirname,
+		normalizeNetwork(activeNetParams.Name))
+
 	// Open the channeldb, which is dedicated to storing channel, and
 	// network related metadata.
-	chanDB, err := channeldb.Open(graphDir)
+	chanDB, err := channeldb.Open(graphDir, snapshotGraphDir)
 	if err != nil {
 		ltndLog.Errorf("unable to open channeldb: %v", err)
 		return err

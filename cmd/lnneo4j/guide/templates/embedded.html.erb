@@ -1,0 +1,14 @@
+<%#encoding:UTF-8%><%
+if !notitle && has_header?
+  %><h1<%= @id && %( id="#{@id}") %>><%= @header.title %></h1><%
+end %><%= content %><%
+if footnotes? && !(attr? :nofootnotes) %>
+<div id="footnotes">
+<hr><%
+  footnotes.each do |fn| %><%= %(
+<div class="footnote" id="_footnote_#{fn.index}">
+<a href="#_footnoteref_#{fn.index}">#{fn.index}</a>. #{fn.text}
+</div>) %><%
+  end %>
+</div><%
+end %>

@@ -1,0 +1,11 @@
+<%#encoding:UTF-8%><%
+keys = attr 'keys'
+if keys.size == 1
+  %><kbd><%= keys.first %></kbd><%
+else
+  %><kbd class="keyseq"><%
+  idx = 0
+  keys.map do |key|
+    %><%= (idx += 1) == 1 ? nil : '+' %><kbd><%= key %></kbd><%
+  end %></kbd><%
+end %>

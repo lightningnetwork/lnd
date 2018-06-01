@@ -1,0 +1,18 @@
+<%#encoding:UTF-8%><span class="<%= [@type,role].compact * ' ' %>"<%= (attr? :float) ? %( style="float: #{attr :float};") : nil %>><%
+if @type == 'icon' && (@document.attr? :icons, 'font')
+  style_class = [%(icon-#{@target})]
+  style_class << %(icon-#{attr :size}) if attr? :size
+  style_class << %(icon-rotate-#{attr :rotate}) if attr? :rotate
+  style_class << %(icon-flip-#{attr :flip}) if attr? :flip
+  title_attr = (attr? :title) ? %( title="#{attr :title}") : nil
+  img = %(<i class="#{style_class * ' '}"#{title_attr}></i>)
+elsif @type == 'icon' && !(@document.attr? :icons)
+  img = %([#{attr :alt}])
+else
+  img_src = (@type == 'icon' ? (icon_uri @target) : (image_uri @target))
+  img_attrs = [:alt, :width, :height, :title].map {|name| (attr? name) ? %( #{name}="#{attr name}") : nil }.join
+  img = %(<img src="#{img_src}"#{img_attrs}>)
+end
+if attr? :link %><a class="image" href="<%= attr :link %>"<%= (attr? :window) ? %( target="#{attr :window}") : nil %>><%= img %></a><%
+else %><%= img %><%
+end %></span>

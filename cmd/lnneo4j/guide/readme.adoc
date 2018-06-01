@@ -1,0 +1,68 @@
+== Lightning network's Neo4j guide
+
+This directory includes files required for generating and presenting the Neo4j guide for the Lighting network that can be run on the Neo4j browser.
+
+It is a copy of https://github.com/neo4j-contrib/neo4j-guides[neo4j-guides] with all files not strictly required removed. Please see the neo4j-guides repository for examples, clarifications etc.
+
+See https://neo4j.com/developer/guide-create-neo4j-browser-guide[Create a Custom Neo4j Browser Guide] for an A-Z explanation on guides and how to build them.
+
+The guide is written in Asciidoc and compiled to html.
+
+=== Edit the guide
+
+Edit the guide available at adoc/ln.adoc
+
+=== Convert to html
+
+Run the following command to compile to html
+
+----
+./run.sh adoc/ln.adoc html/ln.html
+----
+
+You should see something similar to the following output:
+
+----
+:!./run.sh adoc/ln.adoc html/ln.html
+
+Asciidoctor 1.5.7.1 [https://asciidoctor.org]
+Runtime Environment (ruby 2.5.1p57 (2018-03-29 revision 63029) [x86_64-linux]) (lc:UTF-8 fs:UTF-8 in:UTF-8 ex:UTF-8)
+Usage ./run.sh OR ./run.sh path/to/a_guide.adoc [guide.html] [+1 (header-offset)] [http://guide-host:port]
+rendering adoc/ln.adoc to html/ln.html
+asciidoctor adoc/ln.adoc -T ./templates -a allow-uri-read -a experimental -a guides=http://guides.neo4j.com/intro -a current=http://guides.neo4j.com/intro -a img=http://guides
+asciidoctor: WARNING: gem 'thread_safe' is not installed. This gem is recommended when using the built-in template cache.
+1 Lightning Network
+2 Introduction and Setup
+2 Neighbours connected by 'fat' channels
+2 Shortest path
+----
+
+=== Host the guide
+
+The current guide assumes that the Neo4j database is already populated with a snapshot of the
+channel database. Hence the guide should be hosted (served) from the same local machine. Only
+the ln.html file should be accessible. A minimal http server (with CORS headers support) is
+available to serve the file. For `neo4j-community` (e.g. the free open source version) run
+the server on port 80 as follows:
+
+----
+sudo python http-server.py
+----
+
+In order to serve the guide to arbitrary client the following configuration should be set in
+the neo4j.conf file (under /etc/neo4j for unix):
+
+----
+browser.remote_content_hostname_whitelist=*
+----
+
+And restart the Neo4j server.
+
+=== View the guide
+
+The view the guide in the Neo4j Browser, run:
+
+----
+:play http://<server-hostname>:80/html/ln.html
+----
+

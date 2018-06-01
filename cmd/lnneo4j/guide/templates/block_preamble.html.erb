@@ -1,0 +1,11 @@
+<%#encoding:UTF-8%><div id="preamble">
+<div class="sectionbody">
+<%= content %>
+</div><%
+if (attr? :toc) && (attr? 'toc-placement', 'preamble') %>
+<div id="toc" class="<%= attr 'toc-class', 'toc' %>">
+<div id="toctitle"><%= attr 'toc-title' %></div>
+<%= converter.convert @document, 'outline' %>
+</div><%
+end %>
+</div>

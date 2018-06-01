@@ -1,0 +1,5 @@
+<%#encoding:UTF-8%><%
+if @document.attr? :icons, 'font' %><i class="conum" data-value="<%= @text %>"></i><b>(<%= @text %>)</b><%
+elsif @document.attr? :icons %><img src="<%= icon_uri("callouts/#{@text}") %>" alt="<%= @text %>"><%
+else %><b>(<%= @text %>)</b><%
+end %>

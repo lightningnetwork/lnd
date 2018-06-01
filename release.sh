@@ -36,6 +36,7 @@ for i in $SYS; do
     echo "Building:" $OS $ARCH
     env GOOS=$OS GOARCH=$ARCH go build -v -ldflags "$COMMITFLAGS" github.com/lightningnetwork/lnd
     env GOOS=$OS GOARCH=$ARCH go build -v -ldflags "$COMMITFLAGS" github.com/lightningnetwork/lnd/cmd/lncli
+    env GOOS=$OS GOARCH=$ARCH go build -v -ldflags "$COMMITFLAGS" github.com/lightningnetwork/lnd/cmd/lnneo4j
     cd ..
     if [[ $OS = "windows" ]]; then
 	zip -r $PACKAGE-$i-$TAG.zip $PACKAGE-$i-$TAG

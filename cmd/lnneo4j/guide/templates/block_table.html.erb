@@ -1,0 +1,55 @@
+<%#encoding:UTF-8%><table<%= @id && %( id="#{@id}") %> class="table <%=
+['tableblock',"frame-#{attr :frame, 'all'}","grid-#{attr :grid, 'all'}",role].compact * ' ' %>"<%
+if (attr? :float) || !(option? :autowidth) %> style="<%=
+[("width: #{attr :tablepcwidth}%;" unless option? :autowidth),("float: #{attr :float};" if attr? :float)].compact * ' ' %>"<%
+end %>><%
+if title? %>
+<caption class="title"><%= captioned_title %></caption><%
+end
+unless (attr :rowcount).zero? %>
+<colgroup><%
+  if option? :autowidth
+    @columns.size.times do %>
+<col><%
+    end
+  else
+    @columns.each do |col| %>
+<col style="width: <%= col.attr :colpcwidth %>%;"><%
+    end
+  end %>
+</colgroup><%
+  [:head, :foot, :body].select {|tsec| !@rows[tsec].empty? }.each do |tsec| %>
+<t<%= tsec %>><%
+    @rows[tsec].each do |row| %>
+<tr><%
+      row.each do |cell|
+        # store reference of content in advance to resolve attribute assignments in cells
+        if tsec == :head
+          cell_content = cell.text
+        else
+          case cell.style
+          when :verse, :literal
+            cell_content = cell.text
+          else
+            cell_content = cell.content
+          end
+        end
+        cell_css_style = (@document.attr? :cellbgcolor) ? %(background-color: #{@document.attr :cellbgcolor};) : nil %>
+<<%= (cell_tag_name = (tsec == :head || cell.style == :header ? 'th' : 'td')) %> class="<%= ['tableblock',"halign-#{cell.attr :halign}","valign-#{cell.attr :valign}"] * ' ' %>"<%= cell.colspan ? %( colspan="#{cell.colspan}") : nil %><%= cell.rowspan ? %( rowspan="#{cell.rowspan}") : nil %><%= cell_css_style ? %( style="#{cell_css_style}") : nil %>><%
+        if tsec == :head %><%= cell_content %><%
+        else
+          case cell.style
+          when :asciidoc %><div><%= cell_content %></div><%
+          when :verse %><div class="verse"><%= cell_content %></div><%
+          when :literal %><div class="literal"><pre><%= cell_content %></pre></div><%
+          else
+            cell_content.each do |text| %><p class="tableblock"><%= text %></p><% end
+          end
+        end %></<%= cell_tag_name %>><%
+      end %>
+</tr><%
+    end %>
+</t<%= tsec %>><%
+  end
+end %>
+</table>

@@ -49,6 +49,33 @@
         ]
       }
     },
+    "/v1/changepassword": {
+      "post": {
+        "summary": "* lncli: `changepassword`\nChangePassword changes the password of the encrypted wallet. This will\nautomatically unlock the wallet database if successful.",
+        "operationId": "ChangePassword",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcChangePasswordResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcChangePasswordRequest"
+            }
+          }
+        ],
+        "tags": [
+          "WalletUnlocker"
+        ]
+      }
+    },
     "/v1/channels": {
       "get": {
         "summary": "* lncli: `listchannels`\nListChannels returns a description of all the open channels that this node\nis a participant in.",
@@ -919,6 +946,24 @@
           "description": "*\nA bare-bones invoice for a payment within the Lightning Network.  With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient."
         }
       }
+    },
+    "lnrpcChangePasswordRequest": {
+      "type": "object",
+      "properties": {
+        "current_password": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\ncurrent_password should be the current valid passphrase used to unlock the\ndaemon."
+        },
+        "new_password": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\nnew_password should be the new passphrase that will be needed to unlock the\ndaemon."
+        }
+      }
+    },
+    "lnrpcChangePasswordResponse": {
+      "type": "object"
     },
     "lnrpcChannel": {
       "type": "object",

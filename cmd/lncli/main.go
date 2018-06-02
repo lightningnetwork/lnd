@@ -194,6 +194,7 @@ func main() {
 	app.Commands = []cli.Command{
 		createCommand,
 		unlockCommand,
+		changePasswordCommand,
 		newAddressCommand,
 		sendManyCommand,
 		sendCoinsCommand,

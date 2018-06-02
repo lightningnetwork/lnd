@@ -166,8 +166,7 @@ unit-race:
 
 flakehunter: build
 	@$(call print, "Flake hunting integration tests.")
-	$(ITEST)
-	while [ $$? -eq 0 ]; do /bin/sh -c "$(ITEST)"; done
+	while [ $$? -eq 0 ]; do $(ITEST); done
 
 flake-unit:
 	@$(call print, "Flake hunting unit tests.")

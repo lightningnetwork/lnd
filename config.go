@@ -765,10 +765,13 @@ func loadConfig() (*config, error) {
 		}
 	}
 
-	// At this point, we'll save the base data directory in order to ensure
-	// we don't store the macaroon database within any of the chain
-	// namespaced directories.
-	macaroonDatabaseDir = cfg.DataDir
+	// Store the macaroon database within the network level
+	// so it is possible to use a distinct password for testnet,
+	// simnet, mainnet etc.
+	macaroonDatabaseDir = filepath.Join(cfg.DataDir,
+		defaultChainSubDirname,
+		registeredChains.PrimaryChain().String(),
+		normalizeNetwork(activeNetParams.Name))
 
 	// If a custom macaroon directory wasn't specified and the data
 	// directory has changed from the default path, then we'll also update

@@ -2006,7 +2006,11 @@ func (s *server) OpenChannel(nodeKey *btcec.PublicKey,
 	fundingFeePerVSize lnwallet.SatPerVByte, private bool,
 	remoteCsvDelay uint16) (chan *lnrpc.OpenStatusUpdate, chan error) {
 
-	updateChan := make(chan *lnrpc.OpenStatusUpdate, 1)
+	// The updateChan will have a buffer of 2, since we expect a
+	// ChanPending + a ChanOpen update, and we want to make sure the
+	// funding process is not blocked if the caller is not reading the
+	// updates.
+	updateChan := make(chan *lnrpc.OpenStatusUpdate, 2)
 	errChan := make(chan error, 1)
 
 	var (

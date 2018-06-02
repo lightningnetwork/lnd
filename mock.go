@@ -118,6 +118,7 @@ func (m *mockNotfier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 type mockSpendNotifier struct {
 	*mockNotfier
 	spendMap map[wire.OutPoint][]chan *chainntnfs.SpendDetail
+	mtx      sync.Mutex
 }
 
 func makeMockSpendNotifier() *mockSpendNotifier {
@@ -131,6 +132,8 @@ func makeMockSpendNotifier() *mockSpendNotifier {
 
 func (m *mockSpendNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	heightHint uint32, _ bool) (*chainntnfs.SpendEvent, error) {
+	m.mtx.Lock()
+	defer m.mtx.Unlock()
 
 	spendChan := make(chan *chainntnfs.SpendDetail)
 	m.spendMap[*outpoint] = append(m.spendMap[*outpoint], spendChan)
@@ -145,6 +148,8 @@ func (m *mockSpendNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 // will include the transaction and height provided by the caller.
 func (m *mockSpendNotifier) Spend(outpoint *wire.OutPoint, height int32,
 	txn *wire.MsgTx) {
+	m.mtx.Lock()
+	defer m.mtx.Unlock()
 
 	if spendChans, ok := m.spendMap[*outpoint]; ok {
 		delete(m.spendMap, *outpoint)

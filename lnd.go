@@ -61,7 +61,7 @@ var (
 	cfg              *config
 	registeredChains = newChainRegistry()
 
-	macaroonDatabaseDir string
+	networkDir string
 
 	// End of ASN.1 time.
 	endOfTime = time.Date(2049, 12, 31, 23, 59, 59, 0, time.UTC)
@@ -234,7 +234,7 @@ func lndMain() error {
 	var macaroonService *macaroons.Service
 	if !cfg.NoMacaroons {
 		// Create the macaroon authentication/authorization service.
-		macaroonService, err = macaroons.NewService(macaroonDatabaseDir,
+		macaroonService, err = macaroons.NewService(networkDir,
 			macaroons.IPLockChecker)
 		if err != nil {
 			srvrLog.Errorf("unable to create macaroon service: %v", err)
@@ -708,7 +708,7 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []net.Addr,
 	// deleted within it and recreated when successfully changing the
 	// wallet's password.
 	macaroonFiles := []string{
-		filepath.Join(macaroonDatabaseDir, macaroons.DBFilename),
+		filepath.Join(networkDir, macaroons.DBFilename),
 		cfg.AdminMacPath, cfg.ReadMacPath, cfg.InvoiceMacPath,
 	}
 	pwService := walletunlocker.New(

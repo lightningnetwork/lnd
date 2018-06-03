@@ -765,10 +765,9 @@ func loadConfig() (*config, error) {
 		}
 	}
 
-	// Store the macaroon database within the network level
-	// so it is possible to use a distinct password for testnet,
-	// simnet, mainnet etc.
-	macaroonDatabaseDir = filepath.Join(cfg.DataDir,
+	// Compute network directory to store network specific
+	// files such as macaroon database, macaroons etc.
+	networkDir = filepath.Join(cfg.DataDir,
 		defaultChainSubDirname,
 		registeredChains.PrimaryChain().String(),
 		normalizeNetwork(activeNetParams.Name))
@@ -777,17 +776,17 @@ func loadConfig() (*config, error) {
 	// store the macaroons within the network level.
 	if cfg.AdminMacPath == defaultAdminMacPath {
 		cfg.AdminMacPath = filepath.Join(
-			macaroonDatabaseDir, defaultAdminMacFilename,
+			networkDir, defaultAdminMacFilename,
 		)
 	}
 	if cfg.ReadMacPath == defaultReadMacPath {
 		cfg.ReadMacPath = filepath.Join(
-			macaroonDatabaseDir, defaultReadMacFilename,
+			networkDir, defaultReadMacFilename,
 		)
 	}
 	if cfg.InvoiceMacPath == defaultInvoiceMacPath {
 		cfg.InvoiceMacPath = filepath.Join(
-			macaroonDatabaseDir, defaultInvoiceMacFilename,
+			networkDir, defaultInvoiceMacFilename,
 		)
 	}
 

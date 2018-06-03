@@ -40,6 +40,13 @@ var (
 			number:    0,
 			migration: nil,
 		},
+		{
+			// The version of the database where two new indexes
+			// for the update time of node and channel updates were
+			// added.
+			number:    1,
+			migration: migrateNodeAndEdgeUpdateIndex,
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over
@@ -523,8 +530,9 @@ func (d *DB) FetchClosedChannel(chanID *wire.OutPoint) (*ChannelCloseSummary, er
 
 // MarkChanFullyClosed marks a channel as fully closed within the database. A
 // channel should be marked as fully closed if the channel was initially
-// cooperatively closed and it's reached a single confirmation, or after all the
-// pending funds in a channel that has been forcibly closed have been swept.
+// cooperatively closed and it's reached a single confirmation, or after all
+// the pending funds in a channel that has been forcibly closed have been
+// swept.
 func (d *DB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
 	return d.Update(func(tx *bolt.Tx) error {
 		var b bytes.Buffer
@@ -594,8 +602,9 @@ func (d *DB) syncVersions(versions []version) error {
 	// Otherwise, we fetch the migrations which need to applied, and
 	// execute them serially within a single database transaction to ensure
 	// the migration is atomic.
-	migrations, migrationVersions := getMigrationsToApply(versions,
-		meta.DbVersionNumber)
+	migrations, migrationVersions := getMigrationsToApply(
+		versions, meta.DbVersionNumber,
+	)
 	return d.Update(func(tx *bolt.Tx) error {
 		for i, migration := range migrations {
 			if migration == nil {

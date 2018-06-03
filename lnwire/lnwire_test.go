@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"testing"
 	"testing/quick"
+	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/roasbeef/btcd/btcec"
@@ -555,6 +556,57 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			v[0] = reflect.ValueOf(req)
 		},
+		MsgQueryShortChanIDs: func(v []reflect.Value, r *rand.Rand) {
+			req := QueryShortChanIDs{
+				// TODO(roasbeef): later alternate encoding types
+				EncodingType: EncodingSortedPlain,
+			}
+
+			if _, err := rand.Read(req.ChainHash[:]); err != nil {
+				t.Fatalf("unable to read chain hash: %v", err)
+				return
+			}
+
+			numChanIDs := rand.Int31n(5000)
+
+			req.ShortChanIDs = make([]ShortChannelID, numChanIDs)
+			for i := int32(0); i < numChanIDs; i++ {
+				req.ShortChanIDs[i] = NewShortChanIDFromInt(
+					uint64(r.Int63()),
+				)
+			}
+
+			v[0] = reflect.ValueOf(req)
+		},
+		MsgReplyChannelRange: func(v []reflect.Value, r *rand.Rand) {
+			req := ReplyChannelRange{
+				QueryChannelRange: QueryChannelRange{
+					FirstBlockHeight: uint32(r.Int31()),
+					NumBlocks:        uint32(r.Int31()),
+				},
+			}
+
+			if _, err := rand.Read(req.ChainHash[:]); err != nil {
+				t.Fatalf("unable to read chain hash: %v", err)
+				return
+			}
+
+			req.Complete = uint8(r.Int31n(2))
+
+			// TODO(roasbeef): later alternate encoding types
+			req.EncodingType = EncodingSortedPlain
+
+			numChanIDs := rand.Int31n(5000)
+
+			req.ShortChanIDs = make([]ShortChannelID, numChanIDs)
+			for i := int32(0); i < numChanIDs; i++ {
+				req.ShortChanIDs[i] = NewShortChanIDFromInt(
+					uint64(r.Int63()),
+				)
+			}
+
+			v[0] = reflect.ValueOf(req)
+		},
 	}
 
 	// With the above types defined, we'll now generate a slice of
@@ -705,6 +757,36 @@ func TestLightningWireProtocol(t *testing.T) {
 				return mainScenario(&m)
 			},
 		},
+		{
+			msgType: MsgGossipTimestampRange,
+			scenario: func(m GossipTimestampRange) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
+			msgType: MsgQueryShortChanIDs,
+			scenario: func(m QueryShortChanIDs) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
+			msgType: MsgReplyShortChanIDsEnd,
+			scenario: func(m ReplyShortChanIDsEnd) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
+			msgType: MsgQueryChannelRange,
+			scenario: func(m QueryChannelRange) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
+			msgType: MsgReplyChannelRange,
+			scenario: func(m ReplyChannelRange) bool {
+				return mainScenario(&m)
+			},
+		},
 	}
 	for _, test := range tests {
 		var config *quick.Config
@@ -725,4 +807,8 @@ func TestLightningWireProtocol(t *testing.T) {
 		}
 	}
 
+}
+
+func init() {
+	rand.Seed(time.Now().Unix())
 }

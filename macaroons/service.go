@@ -18,9 +18,9 @@ import (
 )
 
 var (
-	// dbFileName is the filename within the data directory which contains
+	// DBFilename is the filename within the data directory which contains
 	// the macaroon stores.
-	dbFilename = "macaroons.db"
+	DBFilename = "macaroons.db"
 )
 
 // Service encapsulates bakery.Bakery and adds a Close() method that zeroes the
@@ -42,7 +42,7 @@ type Service struct {
 func NewService(dir string, checks ...Checker) (*Service, error) {
 	// Open the database that we'll use to store the primary macaroon key,
 	// and all generated macaroons+caveats.
-	macaroonDB, err := bolt.Open(path.Join(dir, dbFilename), 0600,
+	macaroonDB, err := bolt.Open(path.Join(dir, DBFilename), 0600,
 		bolt.DefaultOptions)
 	if err != nil {
 		return nil, err

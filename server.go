@@ -390,6 +390,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		Notifier:         s.cc.chainNotifier,
 		ChainHash:        *activeNetParams.GenesisHash,
 		Broadcast:        s.BroadcastMessage,
+		ChanSeries:       &chanSeries{s.chanDB.ChannelGraph()},
 		SendToPeer:       s.SendToPeer,
 		NotifyWhenOnline: s.NotifyWhenOnline,
 		ProofMatureDelta: 0,
@@ -1304,6 +1305,10 @@ func (s *server) peerTerminationWatcher(p *peer) {
 	// available for use.
 	s.fundingMgr.CancelPeerReservations(p.PubKey())
 
+	// We'll also inform the gossiper that this peer is no longer active,
+	// so we don't need to maintain sync state for it any longer.
+	s.authGossiper.PruneSyncState(p.addr.IdentityKey)
+
 	// Tell the switch to remove all links associated with this peer.
 	// Passing nil as the target link indicates that all links associated
 	// with this interface should be closed.
@@ -1465,9 +1470,16 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	// feature vector to advertise to the remote node.
 	localFeatures := lnwire.NewRawFeatureVector()
 
-	// We'll only request a full channel graph sync if we detect that
+	// We'll signal that we understand the data loss protection feature,
+	// and also that we support the new gossip query features.
+	localFeatures.Set(lnwire.DataLossProtectOptional)
+	localFeatures.Set(lnwire.GossipQueriesOptional)
+
+	// We'll only request a full channel graph sync if we detect that that
 	// we aren't fully synced yet.
 	if s.shouldRequestGraphSync() {
+		// TODO(roasbeef): only do so if gossiper doesn't have active
+		// peers?
 		localFeatures.Set(lnwire.InitialRoutingSync)
 	}
 
@@ -1779,10 +1791,30 @@ func (s *server) addPeer(p *peer) {
 	s.wg.Add(1)
 	go s.peerTerminationWatcher(p)
 
+	switch {
+	// If the remote peer knows of the new gossip queries feature, then
+	// we'll create a new gossipSyncer in the AuthenticatedGossiper for it.
+	case p.remoteLocalFeatures.HasFeature(lnwire.GossipQueriesOptional):
+		srvrLog.Infof("Negotiated chan series queries with %x",
+			p.pubKeyBytes[:])
+
+		// We'll only request channel updates from the remote peer if
+		// its enabled in the config, or we're already getting updates
+		// from enough peers.
+		//
+		// TODO(roasbeef): craft s.t. we only get updates from a few
+		// peers
+		recvUpdates := !cfg.NoChanUpdates
+		go s.authGossiper.InitSyncState(p.addr.IdentityKey, recvUpdates)
+
 	// If the remote peer has the initial sync feature bit set, then we'll
 	// being the synchronization protocol to exchange authenticated channel
-	// graph edges/vertexes
-	if p.remoteLocalFeatures.HasFeature(lnwire.InitialRoutingSync) {
+	// graph edges/vertexes, but only if they don't know of the new gossip
+	// queries.
+	case p.remoteLocalFeatures.HasFeature(lnwire.InitialRoutingSync):
+		srvrLog.Infof("Requesting full table sync with %x",
+			p.pubKeyBytes[:])
+
 		go s.authGossiper.SynchronizeNode(p.addr.IdentityKey)
 	}
 
@@ -1974,7 +2006,11 @@ func (s *server) OpenChannel(nodeKey *btcec.PublicKey,
 	fundingFeePerVSize lnwallet.SatPerVByte, private bool,
 	remoteCsvDelay uint16) (chan *lnrpc.OpenStatusUpdate, chan error) {
 
-	updateChan := make(chan *lnrpc.OpenStatusUpdate, 1)
+	// The updateChan will have a buffer of 2, since we expect a
+	// ChanPending + a ChanOpen update, and we want to make sure the
+	// funding process is not blocked if the caller is not reading the
+	// updates.
+	updateChan := make(chan *lnrpc.OpenStatusUpdate, 2)
 	errChan := make(chan error, 1)
 
 	var (

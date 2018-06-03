@@ -1382,6 +1382,66 @@ func unlock(ctx *cli.Context) error {
 	return nil
 }
 
+var changePasswordCommand = cli.Command{
+	Name:     "changepassword",
+	Category: "Startup",
+	Usage:    "Change an encrypted wallet's password at startup.",
+	Description: `
+	The changepassword command is used to Change lnd's encrypted wallet's
+	password. It will automatically unlock the daemon if the password change
+	is successful.
+
+	If one did not specify a password for their wallet (running lnd with
+	--noencryptwallet), one must restart their daemon without
+	--noencryptwallet and use this command. The "current password" field
+	should be left empty.
+	`,
+	Action: actionDecorator(changePassword),
+}
+
+func changePassword(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client, cleanUp := getWalletUnlockerClient(ctx)
+	defer cleanUp()
+
+	fmt.Printf("Input current wallet password: ")
+	currentPw, err := terminal.ReadPassword(int(syscall.Stdin))
+	if err != nil {
+		return err
+	}
+	fmt.Println()
+
+	fmt.Printf("Input new wallet password: ")
+	newPw, err := terminal.ReadPassword(int(syscall.Stdin))
+	if err != nil {
+		return err
+	}
+	fmt.Println()
+
+	fmt.Printf("Confirm new wallet password: ")
+	confirmPw, err := terminal.ReadPassword(int(syscall.Stdin))
+	if err != nil {
+		return err
+	}
+	fmt.Println()
+
+	if !bytes.Equal(newPw, confirmPw) {
+		return fmt.Errorf("passwords don't match")
+	}
+
+	req := &lnrpc.ChangePasswordRequest{
+		CurrentPassword: currentPw,
+		NewPassword:     newPw,
+	}
+
+	_, err = client.ChangePassword(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 var walletBalanceCommand = cli.Command{
 	Name:     "walletbalance",
 	Category: "Wallet",
@@ -1407,9 +1467,9 @@ func walletBalance(ctx *cli.Context) error {
 var channelBalanceCommand = cli.Command{
 	Name:     "channelbalance",
 	Category: "Channels",
-	Usage:    "Returns the sum of the total available channel balance across " +
+	Usage: "Returns the sum of the total available channel balance across " +
 		"all open channels.",
-	Action:   actionDecorator(channelBalance),
+	Action: actionDecorator(channelBalance),
 }
 
 func channelBalance(ctx *cli.Context) error {
@@ -2356,7 +2416,7 @@ func queryRoutes(ctx *cli.Context) error {
 var getNetworkInfoCommand = cli.Command{
 	Name:     "getnetworkinfo",
 	Category: "Channels",
-	Usage:    "Get statistical information about the current " +
+	Usage: "Get statistical information about the current " +
 		"state of the network.",
 	Description: "Returns a set of statistics pertaining to the known " +
 		"channel graph",
@@ -2639,9 +2699,9 @@ func feeReport(ctx *cli.Context) error {
 }
 
 var updateChannelPolicyCommand = cli.Command{
-	Name:      "updatechanpolicy",
-	Category:  "Channels",
-	Usage:     "Update the channel policy for all channels, or a single " +
+	Name:     "updatechanpolicy",
+	Category: "Channels",
+	Usage: "Update the channel policy for all channels, or a single " +
 		"channel.",
 	ArgsUsage: "base_fee_msat fee_rate time_lock_delta [channel_point]",
 	Description: `

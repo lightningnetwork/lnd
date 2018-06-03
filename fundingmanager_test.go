@@ -1447,6 +1447,9 @@ func TestFundingManagerFundingTimeout(t *testing.T) {
 		Height: fundingBroadcastHeight + 288,
 	}
 
+	// Bob should have sent an Error message to Alice.
+	assertErrorSent(t, bob.msgChan)
+
 	// Should not be pending anymore.
 	assertNumPendingChannelsBecomes(t, bob, 0)
 }
@@ -1510,6 +1513,9 @@ func TestFundingManagerFundingNotTimeoutInitiator(t *testing.T) {
 
 	// Since Alice was the initiator, the channel should not have timed out
 	assertNumPendingChannelsRemains(t, alice, 1)
+
+	// Bob should have sent an Error message to Alice.
+	assertErrorSent(t, bob.msgChan)
 
 	// Since Bob was not the initiator, the channel should timeout
 	assertNumPendingChannelsBecomes(t, bob, 0)

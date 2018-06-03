@@ -195,32 +195,20 @@ func lndMain() error {
 	}
 	proxyOpts := []grpc.DialOption{grpc.WithTransportCredentials(cCreds)}
 
-	var macaroonService *macaroons.Service
-	if !cfg.NoMacaroons {
-		// Create the macaroon authentication/authorization service.
-		macaroonService, err = macaroons.NewService(macaroonDatabaseDir,
-			macaroons.IPLockChecker)
-		if err != nil {
-			srvrLog.Errorf("unable to create macaroon service: %v", err)
-			return err
-		}
-		defer macaroonService.Close()
-	}
-
 	var (
-		privateWalletPw = []byte("hello")
-		publicWalletPw  = []byte("public")
+		privateWalletPw = lnwallet.DefaultPrivatePassphrase
+		publicWalletPw  = lnwallet.DefaultPublicPassphrase
 		birthday        time.Time
 		recoveryWindow  uint32
 	)
 
 	// We wait until the user provides a password over RPC. In case lnd is
 	// started with the --noencryptwallet flag, we use the default password
-	// "hello" for wallet encryption.
+	// for wallet encryption.
 	if !cfg.NoEncryptWallet {
 		walletInitParams, err := waitForWalletPassword(
 			cfg.RPCListeners, cfg.RESTListeners, serverOpts,
-			proxyOpts, tlsConf, macaroonService,
+			proxyOpts, tlsConf,
 		)
 		if err != nil {
 			return err
@@ -238,12 +226,20 @@ func lndMain() error {
 		}
 	}
 
+	var macaroonService *macaroons.Service
 	if !cfg.NoMacaroons {
+		// Create the macaroon authentication/authorization service.
+		macaroonService, err = macaroons.NewService(macaroonDatabaseDir,
+			macaroons.IPLockChecker)
+		if err != nil {
+			srvrLog.Errorf("unable to create macaroon service: %v", err)
+			return err
+		}
+		defer macaroonService.Close()
+
 		// Try to unlock the macaroon store with the private password.
-		// Ignore ErrAlreadyUnlocked since it could be unlocked by the
-		// wallet unlocker.
 		err = macaroonService.CreateUnlock(&privateWalletPw)
-		if err != nil && err != macaroons.ErrAlreadyUnlocked {
+		if err != nil {
 			srvrLog.Error(err)
 			return err
 		}
@@ -879,23 +875,30 @@ type WalletUnlockParams struct {
 // waitForWalletPassword will spin up gRPC and REST endpoints for the
 // WalletUnlocker server, and block until a password is provided by
 // the user to this RPC server.
-func waitForWalletPassword(
-	grpcEndpoints, restEndpoints []string,
-	serverOpts []grpc.ServerOption,
-	proxyOpts []grpc.DialOption,
-	tlsConf *tls.Config,
-	macaroonService *macaroons.Service) (*WalletUnlockParams, error) {
+func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
+	serverOpts []grpc.ServerOption, proxyOpts []grpc.DialOption,
+	tlsConf *tls.Config) (*WalletUnlockParams, error) {
 
-	// Set up a new PasswordService, which will listen
-	// for passwords provided over RPC.
+	// Set up a new PasswordService, which will listen for passwords
+	// provided over RPC.
 	grpcServer := grpc.NewServer(serverOpts...)
 
 	chainConfig := cfg.Bitcoin
 	if registeredChains.PrimaryChain() == litecoinChain {
 		chainConfig = cfg.Litecoin
 	}
-	pwService := walletunlocker.New(macaroonService,
-		chainConfig.ChainDir, activeNetParams.Params)
+
+	// The macaroon files are passed to the wallet unlocker since they are
+	// also encrypted with the wallet's password. These files will be
+	// deleted within it and recreated when successfully changing the
+	// wallet's password.
+	macaroonFiles := []string{
+		filepath.Join(macaroonDatabaseDir, macaroons.DBFilename),
+		cfg.AdminMacPath, cfg.ReadMacPath, cfg.InvoiceMacPath,
+	}
+	pwService := walletunlocker.New(
+		chainConfig.ChainDir, activeNetParams.Params, macaroonFiles,
+	)
 	lnrpc.RegisterWalletUnlockerServer(grpcServer, pwService)
 
 	// Use a WaitGroup so we can be sure the instructions on how to input the
@@ -957,9 +960,10 @@ func waitForWalletPassword(
 	wg.Wait()
 
 	// Wait for user to provide the password.
-	ltndLog.Infof("Waiting for wallet encryption password. " +
-		"Use `lncli create` to create wallet, or " +
-		"`lncli unlock` to unlock already created wallet.")
+	ltndLog.Infof("Waiting for wallet encryption password. Use `lncli " +
+		"create` to create a wallet, `lncli unlock` to unlock an " +
+		"existing wallet, or `lncli changepassword` to change the " +
+		"password of an existing wallet and unlock it.")
 
 	// We currently don't distinguish between getting a password to be used
 	// for creation or unlocking, as a new wallet db will be created if

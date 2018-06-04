@@ -3182,8 +3182,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		// but died before the signature was sent. We re-transmit our
 		// revocation, but also initiate a state transition to re-sync
 		// them.
-		if lc.localCommitChain.tip().height >
-			lc.remoteCommitChain.tip().height {
+		if !lc.FullySynced() {
 
 			commitSig, htlcSigs, err := lc.SignNextCommitment()
 			switch {

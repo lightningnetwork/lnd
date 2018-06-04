@@ -175,6 +175,9 @@ type gossipSyncerCfg struct {
 //
 // TODO(roasbeef): modify to only sync from one peer at a time?
 type gossipSyncer struct {
+	started uint32
+	stopped uint32
+
 	// remoteUpdateHorizon is the update horizon of the remote peer. We'll
 	// use this to properly filter out any messages.
 	remoteUpdateHorizon *lnwire.GossipTimestampRange
@@ -226,6 +229,10 @@ func newGossiperSyncer(cfg gossipSyncerCfg) *gossipSyncer {
 // Start starts the gossipSyncer and any goroutines that it needs to carry out
 // its duties.
 func (g *gossipSyncer) Start() error {
+	if !atomic.CompareAndSwapUint32(&g.started, 0, 1) {
+		return nil
+	}
+
 	log.Debugf("Starting gossipSyncer(%x)", g.peerPub[:])
 
 	g.wg.Add(1)
@@ -237,6 +244,10 @@ func (g *gossipSyncer) Start() error {
 // Stop signals the gossipSyncer for a graceful exit, then waits until it has
 // exited.
 func (g *gossipSyncer) Stop() error {
+	if !atomic.CompareAndSwapUint32(&g.stopped, 0, 1) {
+		return nil
+	}
+
 	close(g.quit)
 
 	g.wg.Wait()

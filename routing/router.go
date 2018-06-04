@@ -1384,7 +1384,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	// we'll execute our KSP algorithm to find the k-shortest paths from
 	// our source to the destination.
 	shortestPaths, err := findPaths(
-		tx, r.cfg.Graph, r.selfNode, target, amt, numPaths,
+		tx, r.cfg.Graph, r.selfNode, target, amt, feeLimit, numPaths,
 		bandwidthHints,
 	)
 	if err != nil {

@@ -1170,7 +1170,7 @@ func (s *server) sendToPeer(target *btcec.PublicKey,
 	// Compute the target peer's identifier.
 	targetPubBytes := target.SerializeCompressed()
 
-	srvrLog.Infof("Attempting to send msgs %v to: %x",
+	srvrLog.Tracef("Attempting to send msgs %v to: %x",
 		len(msgs), targetPubBytes)
 
 	// Lookup intended target in peersByPub, returning an error to the

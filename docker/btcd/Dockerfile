@@ -7,11 +7,10 @@ RUN apk add --no-cache \
     git \
 &&  go get -u github.com/Masterminds/glide
 
-WORKDIR $GOPATH/src/github.com/roasbeef/btcd
+WORKDIR $GOPATH/src/github.com/btcsuite/btcd
 
-# Grab and install the latest version of roasbeef's fork of btcd and all
-# related dependencies.
-RUN git clone https://github.com/roasbeef/btcd . \
+# Grab and install the latest version of of btcd and all related dependencies.
+RUN git clone https://github.com/btcsuite/btcd . \
 &&  glide install \
 &&  go install . ./cmd/...
 

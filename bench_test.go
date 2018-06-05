@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/roasbeef/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec"
 )
 
 var (

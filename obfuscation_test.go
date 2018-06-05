@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/roasbeef/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec"
 )
 
 // TestOnionFailure checks the ability of sender of payment to decode the

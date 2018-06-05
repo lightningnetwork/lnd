@@ -17,6 +17,11 @@ import (
 // to signal the number of slots available, and a condition variable to allow
 // the packetQueue to know when new items have been added to the queue.
 type packetQueue struct {
+	// totalHtlcAmt is the sum of the value of all pending HTLC's currently
+	// residing within the overflow queue. This value should only read or
+	// modified *atomically*.
+	totalHtlcAmt int64
+
 	// queueLen is an internal counter that reflects the size of the queue
 	// at any given instance. This value is intended to be use atomically
 	// as this value is used by internal methods to obtain the length of
@@ -24,11 +29,6 @@ type packetQueue struct {
 	// deadlock situation where the main goroutine is attempting a send
 	// with the lock held.
 	queueLen int32
-
-	// totalHtlcAmt is the sum of the value of all pending HTLC's currently
-	// residing within the overflow queue. This value should only read or
-	// modified *atomically*.
-	totalHtlcAmt int64
 
 	queue []*htlcPacket
 

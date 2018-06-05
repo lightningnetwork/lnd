@@ -1857,6 +1857,10 @@ type openChanReq struct {
 
 	// localAddAmt is the amount of satoshis will be added to the active channel when openType is OpenSpliceInChannel
 	localAddAmt btcutil.Amount
+
+	// localExtractAmt is the amount of satoshis, which will be extracted from the old active channel when
+	// openType is OpenSpliceOutChannel
+	localExtractAmt btcutil.Amount
 	// TODO(roasbeef): add ability to specify channel constraints as well
 
 	updates chan *lnrpc.OpenStatusUpdate

@@ -30,7 +30,6 @@ type OpenType uint8
 
 const (
 	OpenNewChannel OpenType = iota
-//	OpenSpliceInChannel
 	OpenSpliceInChannel
 	OpenSpliceOutChannel
 )

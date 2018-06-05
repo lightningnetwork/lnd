@@ -194,6 +194,14 @@ var (
 			Action: "write",
 		}},
 
+		"/lnrpc.Lightning/ExtractFund": {{
+			Entity: "onchain",
+			Action: "write",
+		}, {
+			Entity: "offchain",
+			Action: "write",
+		}},
+
 		"/lnrpc.Lightning/GetInfo": {{
 			Entity: "info",
 			Action: "read",

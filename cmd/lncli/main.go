@@ -29,6 +29,10 @@ const (
 	defaultMacaroonFilename = "admin.macaroon"
 	defaultRPCPort          = "10009"
 	defaultRPCHostPort      = "localhost:" + defaultRPCPort
+	defaultDataDirname      = "data"
+	defaultChainSubDirname  = "chain"
+	defaultChain            = "bitcoin"
+	defaultNetwork          = "mainnet"
 )
 
 var (
@@ -37,6 +41,7 @@ var (
 	Commit string
 
 	defaultLndDir       = btcutil.AppDataDir("lnd", false)
+	defaultDataDir      = filepath.Join(defaultLndDir, defaultDataDirname)
 	defaultTLSCertPath  = filepath.Join(defaultLndDir, defaultTLSCertFilename)
 	defaultMacaroonPath = filepath.Join(defaultLndDir, defaultMacaroonFilename)
 )
@@ -176,6 +181,21 @@ func main() {
 			Name:  "lnddir",
 			Value: defaultLndDir,
 			Usage: "path to lnd's base directory",
+		},
+		cli.StringFlag{
+			Name:  "datadir",
+			Value: defaultDataDir,
+			Usage: "path to lnd's data directory",
+		},
+		cli.StringFlag{
+			Name:  "chain",
+			Value: defaultChain,
+			Usage: "chain to use",
+		},
+		cli.StringFlag{
+			Name:  "network",
+			Value: defaultNetwork,
+			Usage: "network to use",
 		},
 		cli.StringFlag{
 			Name:  "tlscertpath",

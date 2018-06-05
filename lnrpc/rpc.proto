@@ -367,6 +367,12 @@ service Lightning {
     // TODO(xuehan): change AddFundResponse to a stream statusUpdate.
     //rpc AddFund (AddFundRequest) returns (AddFundResponse);
     rpc AddFund (AddFundRequest) returns (stream OpenStatusUpdate);
+
+    /** lncli： `extractfund`
+    ExtractFund attempts to extract some fund from an existring channel.
+    */
+    rpc ExtractFund (ExtractFundRequest) returns (stream OpenStatusUpdate);
+
     /**
     SendPaymentSync is the synchronous non-streaming version of SendPayment.
     This RPC is intended to be consumed by clients of the REST proxy.
@@ -1045,6 +1051,17 @@ message AddFundRequest {
 
     /// A manual fee rate set in sat/byte that should be used when crafting the closure transaction.
     int64 sat_per_byte = 4;
+}
+
+message ExtractFundRequest {
+    /// channel id of which channel we want extract fund from.
+    ChannelPoint channel_point = 1;
+
+    /// The value we want to extract.
+    int64 extract_funding_amount = 2;
+
+    /// A manual fee rate set in sat/byte that should be used when crafting the closure transaction.
+    int64 sat_per_byte = 3;
 }
 
 message AddFundResponse {

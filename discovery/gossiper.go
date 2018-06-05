@@ -525,7 +525,7 @@ type msgWithSenders struct {
 // with peers that we have an active gossipSyncer with. We do this to ensure
 // that we don't broadcast messages to any peers that we have active gossip
 // syncers for.
-func (m *msgWithSenders) mergeSyncerMap(syncers map[routing.Vertex]struct{}) {
+func (m *msgWithSenders) mergeSyncerMap(syncers map[routing.Vertex]*gossipSyncer) {
 	for peerPub := range syncers {
 		m.senders[peerPub] = struct{}{}
 	}
@@ -1130,9 +1130,9 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			// syncers, we'll collect their pubkeys so we can avoid
 			// sending them the full message blast below.
 			d.syncerMtx.RLock()
-			syncerPeers := map[routing.Vertex]struct{}{}
-			for peerPub := range d.peerSyncers {
-				syncerPeers[peerPub] = struct{}{}
+			syncerPeers := make(map[routing.Vertex]*gossipSyncer)
+			for peerPub, syncer := range d.peerSyncers {
+				syncerPeers[peerPub] = syncer
 			}
 			d.syncerMtx.RUnlock()
 
@@ -1142,11 +1142,9 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			// We'll first attempt to filter out this new message
 			// for all peers that have active gossip syncers
 			// active.
-			d.syncerMtx.RLock()
-			for _, syncer := range d.peerSyncers {
+			for _, syncer := range syncerPeers {
 				syncer.FilterGossipMsgs(announcementBatch...)
 			}
-			d.syncerMtx.RUnlock()
 
 			// Next, If we have new things to announce then
 			// broadcast them to all our immediately connected
@@ -1234,8 +1232,7 @@ func (d *AuthenticatedGossiper) PruneSyncState(peer *btcec.PublicKey) {
 		peer.SerializeCompressed())
 
 	vertex := routing.NewVertex(peer)
-
-	syncer, ok := d.peerSyncers[routing.NewVertex(peer)]
+	syncer, ok := d.peerSyncers[vertex]
 	if !ok {
 		return
 	}

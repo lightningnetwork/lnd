@@ -30,7 +30,9 @@ type OpenType uint8
 
 const (
 	OpenNewChannel OpenType = iota
-	OpenRebalanceChannel
+//	OpenSpliceInChannel
+	OpenSpliceInChannel
+	OpenSpliceOutChannel
 )
 
 // addressType specifies the network protocol and version that should be used

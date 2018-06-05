@@ -505,7 +505,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 		// use the passed sat/vbyte passed in to perform coin selection.
 		// 判断是rebalance还是open，如果是open那么需要选出满足fundingAmount
 		// 如果是rabalance，那么只需要满足addAmount
-		if req.openType == lnwire.OpenRebalanceChannel {
+		if req.openType == lnwire.OpenSpliceInChannel {
 			err := l.selectCoinsAndChange(
 				req.fundingFeePerVSize, req.addAmount,
 				reservation.ourContribution, req.openType, req.oldChannelID,
@@ -814,8 +814,8 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		SigHashes: txscript.NewTxSigHashes(fundingTx),
 	}
 
-	//Need change HashType to SigHashAll|AnyOneCanPay if openType == lnwire.OpenRebalanceChannel
-	if req.openType == lnwire.OpenRebalanceChannel {
+	//Need change HashType to SigHashAll|AnyOneCanPay if openType == lnwire.OpenSpliceInChannel
+	if req.openType == lnwire.OpenSpliceInChannel {
 		signDesc.HashType |= txscript.SigHashAnyOneCanPay
 	}
 
@@ -848,7 +848,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	}
 
 	// 我们在这里为新的fundingTx的Vin添加上oldFundingTx的Vout
-	if req.openType == lnwire.OpenRebalanceChannel {
+	if req.openType == lnwire.OpenSpliceInChannel {
 		dbChannels, err := l.Cfg.Database.FetchAllChannels()
 		var oldChannel *channeldb.OpenChannel
 		if err != nil {
@@ -1067,7 +1067,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 
 	// when we do splice-in, we need to build the new funding tx and validate
 	// the counterparty's signature of the old funding tx.
-	if msg.opentype == lnwire.OpenRebalanceChannel {
+	if msg.opentype == lnwire.OpenSpliceInChannel {
 
 		txInLen = len(fundingTx.TxIn) - 1
 
@@ -1326,7 +1326,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 
 	// For splice-in transaction, we need build the splice-in transaction and
 	// Sign the vin from old funding for the transaction.
-	if req.openType == lnwire.OpenRebalanceChannel {
+	if req.openType == lnwire.OpenSpliceInChannel {
 		ourKey := pendingReservation.ourContribution.MultiSigKey
 		theirKey := pendingReservation.theirContribution.MultiSigKey
 
@@ -1659,7 +1659,7 @@ func coinSelect(feeRate SatPerVByte, amt btcutil.Amount,
 		// TODO(xuehan):
 		// If this work is a step of rebalance channel, we need to add the weight of
 		// oldFundingTx
-		if openType == lnwire.OpenRebalanceChannel {
+		if openType == lnwire.OpenSpliceInChannel {
 			weightEstimate.AddNestedP2WSHInput(WitnessSize)
 		}
 		// Channel funding multisig output is P2WSH.

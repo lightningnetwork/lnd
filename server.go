@@ -1852,10 +1852,10 @@ type openChanReq struct {
 	// rebalance an active channel
 	openType lnwire.OpenType
 
-	// oldChannelID is the active channel ID when openType is OpenRebalanceChannel
+	// oldChannelID is the active channel ID when openType is OpenSpliceInChannel
 	oldChannelID lnwire.ChannelID
 
-	// localAddAmt is the amount of satoshis will be added to the active channel when openType is OpenRebalanceChannel
+	// localAddAmt is the amount of satoshis will be added to the active channel when openType is OpenSpliceInChannel
 	localAddAmt btcutil.Amount
 	// TODO(roasbeef): add ability to specify channel constraints as well
 
@@ -2029,7 +2029,7 @@ func (s *server) RebalanceChannel(channelID lnwire.ChannelID,
 		private:            private,
 		minHtlc:            dbChan.LocalChanCfg.MinHTLC,
 		remoteCsvDelay:     dbChan.LocalChanCfg.CsvDelay,
-		openType:           lnwire.OpenRebalanceChannel,
+		openType:           lnwire.OpenSpliceInChannel,
 		localAddAmt:        addfund,
 		oldChannelID:       channelID,
 		updates:            updateChan,

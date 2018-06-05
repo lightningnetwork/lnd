@@ -800,7 +800,7 @@ func (f *fundingManager) failFundingFlow(peer *btcec.PublicKey,
 	if err != nil {
 		fndgLog.Errorf("Can not get reservation context %v", err)
 	} else {
-		if resCtx.openType == lnwire.OpenRebalanceChannel {
+		if resCtx.openType == lnwire.OpenSpliceInChannel {
 			oldChannel, err := f.cfg.FindChannel(resCtx.oldChannelID)
 			if err != nil {
 				fndgLog.Errorf("can not find the old channel : %v", err)
@@ -929,7 +929,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	amt := msg.FundingAmount
 	openType := msg.Opentype
 	oldChannelID := msg.OldChannelID
-	isRebalance := openType == lnwire.OpenRebalanceChannel
+	isRebalance := openType == lnwire.OpenSpliceInChannel
 	var channel *lnwallet.LightningChannel
 	var err error
 	// 判断是否为新开channel，如果是rebalance，那么需要先停止之前的Channel
@@ -1395,7 +1395,7 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 	// when the open type is rebalancechannel, the signature of the old funding
 	// tx should be sent to the initiator.
 	var ourOldFundingTxSig lnwire.Sig
-	if resCtx.openType == lnwire.OpenRebalanceChannel {
+	if resCtx.openType == lnwire.OpenSpliceInChannel {
 		ourOldFundingTxSig, err = lnwire.NewSigFromRawSignature(
 			resCtx.reservation.OurOldFundingTxSignature())
 	}
@@ -1488,7 +1488,7 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 		}
 
 		// when do splice-in success, the old channelLink should be removed from htlcswitch
-		if resCtx.openType == lnwire.OpenRebalanceChannel {
+		if resCtx.openType == lnwire.OpenSpliceInChannel {
 			peer, err := f.cfg.FindPeer(peerKey)
 			if err != nil {
 				fndgLog.Errorf("can not find the old channel : %v", err)
@@ -1649,7 +1649,7 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 			shortChanID.ToUint64())
 
 		// when do splice-in success, the old channelLink should be removed from htlcswitch
-		if resCtx.openType == lnwire.OpenRebalanceChannel {
+		if resCtx.openType == lnwire.OpenSpliceInChannel {
 			peer, err := f.cfg.FindPeer(peerKey)
 			if err != nil {
 				fndgLog.Errorf("can not find the old channel : %v", err)
@@ -2781,7 +2781,7 @@ func (f *fundingManager) handleErrorMsg(fmsg *fundingErrorMsg) {
 		return
 	}
 	//
-	if resCtx.openType == lnwire.OpenRebalanceChannel {
+	if resCtx.openType == lnwire.OpenSpliceInChannel {
 		oldChannel, err := f.cfg.FindChannel(resCtx.oldChannelID)
 		if err != nil {
 			oldChannel.ResetState()

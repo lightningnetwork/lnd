@@ -2321,7 +2321,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 
 			// Fetch the policies for each end of the channel.
 			chanID := channel.ShortChanID().ToUint64()
-			_, p1, p2, err := graph.FetchChannelEdgesByID(chanID)
+			info, p1, p2, err := graph.FetchChannelEdgesByID(chanID)
 			if err != nil {
 				rpcsLog.Errorf("Unable to fetch the routing "+
 					"policies for the edges of the channel "+
@@ -2332,12 +2332,18 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 			// Now, we'll need to determine which is the correct
 			// policy for HTLCs being sent from the remote node.
 			var remotePolicy *channeldb.ChannelEdgePolicy
-
 			remotePub := channel.IdentityPub.SerializeCompressed()
-			if bytes.Equal(remotePub, p1.Node.PubKeyBytes[:]) {
+			if bytes.Equal(remotePub, info.NodeKey1Bytes[:]) {
 				remotePolicy = p1
 			} else {
 				remotePolicy = p2
+			}
+
+			// If for some reason we don't yet have the edge for
+			// the remote party, then we'll just skip adding this
+			// channel as a routing hint.
+			if remotePolicy == nil {
+				continue
 			}
 
 			// Finally, create the routing hint for this channel and

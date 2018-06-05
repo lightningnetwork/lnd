@@ -805,6 +805,12 @@ func (g *gossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
 		return
 	}
 
+	// If we've been signalled to exit, or are exiting, then we'll stop
+	// short.
+	if atomic.LoadUint32(&g.stopped) == 1 {
+		return
+	}
+
 	// TODO(roasbeef): need to ensure that peer still online...send msg to
 	// gossiper on peer termination to signal peer disconnect?
 

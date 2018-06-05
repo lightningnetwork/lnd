@@ -1,38 +1,36 @@
-hash: b61312a18f7859413a3b184845b0d6e3fb27f1c5373b1ba0854dc1c6a133f7d0
-updated: 2018-03-10T18:56:07.245500445-08:00
+hash: 94bc8281a1d817d7c505aaa58fc35f5c85d1b0f329a18c98018b8c1a4ffc0722
+updated: 2018-06-04T18:21:36.547164977-07:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
   subpackages:
   - chacha
-- name: github.com/btcsuite/btclog
-  version: 84c8d2346e9fc8c7b947e243b9c24e6df9fd206a
-- name: github.com/btcsuite/golangcrypto
-  version: 53f62d9b43e87a6c56975cf862af7edf33a8d0df
-  subpackages:
-  - ripemd160
-- name: github.com/go-errors/errors
-  version: 8fa88b06e5974e97fbf9899a7f86a344bfd1f105
-- name: github.com/roasbeef/btcd
-  version: e6807bc4dd5ddbb95b4ab163f6dd61e4ad79463a
+- name: github.com/btcsuite/btcd
+  version: bc0944904505aab55e089371a892be2f87883161
   subpackages:
   - btcec
   - chaincfg
   - chaincfg/chainhash
   - wire
-- name: github.com/roasbeef/btcutil
-  version: c3ff179366044979fb9856c2feb79bd4c2184c7a
+- name: github.com/btcsuite/btclog
+  version: 84c8d2346e9fc8c7b947e243b9c24e6df9fd206a
+- name: github.com/btcsuite/btcutil
+  version: d4cc87b860166d00d6b5b9e0d3b3d71d6088d4d4
   subpackages:
   - base58
   - bech32
+- name: github.com/coreos/bbolt
+  version: 4f5275f4ebbf6fe7cb772de987fa96ee674460a7
+- name: github.com/go-errors/errors
+  version: a6af135bd4e28680facf08a3d206b454abc877a4
+- name: github.com/lightningnetwork/lnd
+  version: 7cf5ebe2650b6798182e10be198c7ffc1f1d6e19
+  subpackages:
+  - chainntnfs
 - name: golang.org/x/crypto
-  version: 49796115aa4b964c318aad4f3084fdb41e9aa067
+  version: 9419663f5a44be8b34ca85f08abc5fe1be11f8a3
   subpackages:
   - ripemd160
-- name: golang.org/x/sys
-  version: ab9e364efd8b52800ff7ee48a9ffba4e0ed78dfb
-  subpackages:
-  - unix
 testImports:
 - name: github.com/davecgh/go-spew
   version: 346938d642f2ec3594ed81d874461961cd0faa76

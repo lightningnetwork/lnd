@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/tor"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/connmgr"
@@ -72,6 +73,16 @@ type server struct {
 	// lightningID is the sha256 of the public key corresponding to our
 	// long-term identity private key.
 	lightningID [32]byte
+
+	// listenAddrs is the list of addresses the server is currently
+	// listening on.
+	listenAddrs []string
+
+	// torController is a client that will communicate with a locally
+	// running Tor server. This client will handle initiating and
+	// authenticating the connection to the Tor server, automatically
+	// creating and setting up onion services, etc.
+	torController *tor.Controller
 
 	mu         sync.RWMutex
 	peersByPub map[string]*peer
@@ -139,6 +150,42 @@ type server struct {
 	wg sync.WaitGroup
 }
 
+// parseAddr parses an address from its string format to a net.Addr.
+func parseAddr(address string) (net.Addr, error) {
+	var (
+		host string
+		port int
+	)
+
+	// Split the address into its host and port components.
+	h, p, err := net.SplitHostPort(address)
+	if err != nil {
+		// If a port wasn't specified, we'll assume the address only
+		// contains the host so we'll use the default port.
+		host = address
+		port = defaultPeerPort
+	} else {
+		// Otherwise, we'll note both the host and ports.
+		host = h
+		portNum, err := strconv.Atoi(p)
+		if err != nil {
+			return nil, err
+		}
+		port = portNum
+	}
+
+	if tor.IsOnionHost(host) {
+		return &tor.OnionAddr{OnionService: host, Port: port}, nil
+	}
+
+	// If the host is part of a TCP address, we'll use the network
+	// specific ResolveTCPAddr function in order to resolve these
+	// addresses over Tor in order to prevent leaking your real IP
+	// address.
+	hostPort := net.JoinHostPort(host, strconv.Itoa(port))
+	return cfg.net.ResolveTCPAddr("tcp", hostPort)
+}
+
 // newServer creates a new instance of the server which is to listen using the
 // passed listener address.
 func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
@@ -177,6 +224,8 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 
 		identityPriv: privKey,
 		nodeSigner:   newNodeSigner(privKey),
+
+		listenAddrs: listenAddrs,
 
 		// TODO(roasbeef): derive proper onion key based on rotation
 		// schedule
@@ -251,25 +300,25 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	}
 
 	// If external IP addresses have been specified, add those to the list
-	// of this server's addresses. We need to use the cfg.net.ResolveTCPAddr
-	// function in case we wish to resolve hosts over Tor since domains
-	// CAN be passed into the ExternalIPs configuration option.
+	// of this server's addresses.
 	selfAddrs := make([]net.Addr, 0, len(cfg.ExternalIPs))
 	for _, ip := range cfg.ExternalIPs {
-		var addr string
-		_, _, err = net.SplitHostPort(ip)
-		if err != nil {
-			addr = net.JoinHostPort(ip, strconv.Itoa(defaultPeerPort))
-		} else {
-			addr = ip
-		}
-
-		lnAddr, err := cfg.net.ResolveTCPAddr("tcp", addr)
+		addr, err := parseAddr(ip)
 		if err != nil {
 			return nil, err
 		}
 
-		selfAddrs = append(selfAddrs, lnAddr)
+		selfAddrs = append(selfAddrs, addr)
+	}
+
+	// If we were requested to route connections through Tor and to
+	// automatically create an onion service, we'll initiate our Tor
+	// controller and establish a connection to the Tor server.
+	//
+	// NOTE: v3 onion services cannot be created automatically yet. In the
+	// future, this will be expanded to do so.
+	if cfg.Tor.Active && cfg.Tor.V2 {
+		s.torController = tor.NewController(cfg.Tor.Control)
 	}
 
 	chanGraph := chanDB.ChannelGraph()
@@ -561,6 +610,12 @@ func (s *server) Start() error {
 		return nil
 	}
 
+	if s.torController != nil {
+		if err := s.initTorController(); err != nil {
+			return err
+		}
+	}
+
 	// Start the notification server. This is used so channel management
 	// goroutines can be notified when a funding transaction reaches a
 	// sufficient number of confirmations, or when the input for the
@@ -632,6 +687,10 @@ func (s *server) Stop() error {
 
 	close(s.quit)
 
+	if s.torController != nil {
+		s.torController.Stop()
+	}
+
 	// Shutdown the wallet, funding manager, and the rpc server.
 	s.cc.chainNotifier.Stop()
 	s.chanRouter.Stop()
@@ -693,15 +752,9 @@ func initNetworkBootstrappers(s *server) ([]discovery.NetworkPeerBootstrapper, e
 			srvrLog.Infof("Creating DNS peer bootstrapper with "+
 				"seeds: %v", dnsSeeds)
 
-			dnsBootStrapper, err := discovery.NewDNSSeedBootstrapper(
-				dnsSeeds,
-				cfg.net.LookupHost,
-				cfg.net.LookupSRV,
+			dnsBootStrapper := discovery.NewDNSSeedBootstrapper(
+				dnsSeeds, cfg.net,
 			)
-			if err != nil {
-				return nil, err
-			}
-
 			bootStrappers = append(bootStrappers, dnsBootStrapper)
 		}
 	}
@@ -861,6 +914,49 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 	}
 }
 
+// initTorController initiliazes the Tor controller backed by lnd and
+// automatically sets up a v2 onion service in order to listen for inbound
+// connections over Tor.
+func (s *server) initTorController() error {
+	if err := s.torController.Start(); err != nil {
+		return err
+	}
+
+	// Determine the different ports the server is listening on. The onion
+	// service's virtual port will map to these ports and one will be picked
+	// at random when the onion service is being accessed.
+	listenPorts := make(map[int]struct{})
+	for _, listenAddr := range s.listenAddrs {
+		// At this point, the listen addresses should have already been
+		// normalized, so it's safe to ignore the errors.
+		_, portStr, _ := net.SplitHostPort(listenAddr)
+		port, _ := strconv.Atoi(portStr)
+		listenPorts[port] = struct{}{}
+	}
+
+	// Once the port mapping has been set, we can go ahead and automatically
+	// create our onion service. The service's private key will be saved to
+	// disk in order to regain access to this service when restarting `lnd`.
+	virtToTargPorts := tor.VirtToTargPorts{defaultPeerPort: listenPorts}
+	onionServiceAddrs, err := s.torController.AddOnionV2(
+		cfg.Tor.V2PrivateKeyPath, virtToTargPorts,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Now that the onion service has been created, we'll add the different
+	// onion addresses it can be reached at to our list of advertised
+	// addresses.
+	for _, addr := range onionServiceAddrs {
+		s.currentNodeAnn.Addresses = append(
+			s.currentNodeAnn.Addresses, addr,
+		)
+	}
+
+	return nil
+}
+
 // genNodeAnnouncement generates and returns the current fully signed node
 // announcement. If refresh is true, then the time stamp of the announcement
 // will be updated in order to ensure it propagates through the network.
@@ -921,17 +1017,7 @@ func (s *server) establishPersistentConnections() error {
 		return err
 	}
 	for _, node := range linkNodes {
-		for _, address := range node.Addresses {
-			switch addr := address.(type) {
-			case *net.TCPAddr:
-				if addr.Port == 0 {
-					addr.Port = defaultPeerPort
-				}
-			}
-
-		}
 		pubStr := string(node.IdentityPub.SerializeCompressed())
-
 		nodeAddrs := &nodeAddresses{
 			pubKey:    node.IdentityPub,
 			addresses: node.Addresses,
@@ -964,17 +1050,29 @@ func (s *server) establishPersistentConnections() error {
 		linkNodeAddrs, ok := nodeAddrsMap[pubStr]
 		if ok {
 			for _, lnAddress := range linkNodeAddrs.addresses {
-				lnAddrTCP, ok := lnAddress.(*net.TCPAddr)
-				if !ok {
+				var addrHost string
+				switch addr := lnAddress.(type) {
+				case *net.TCPAddr:
+					addrHost = addr.IP.String()
+				case *tor.OnionAddr:
+					addrHost = addr.OnionService
+				default:
 					continue
 				}
 
 				var addrMatched bool
 				for _, polAddress := range policy.Node.Addresses {
-					polTCPAddr, ok := polAddress.(*net.TCPAddr)
-					if ok && polTCPAddr.IP.Equal(lnAddrTCP.IP) {
-						addrMatched = true
-						addrs = append(addrs, polTCPAddr)
+					switch addr := polAddress.(type) {
+					case *net.TCPAddr:
+						if addr.IP.String() == addrHost {
+							addrMatched = true
+							addrs = append(addrs, addr)
+						}
+					case *tor.OnionAddr:
+						if addr.OnionService == addrHost {
+							addrMatched = true
+							addrs = append(addrs, addr)
+						}
 					}
 				}
 				if !addrMatched {
@@ -983,9 +1081,9 @@ func (s *server) establishPersistentConnections() error {
 			}
 		} else {
 			for _, addr := range policy.Node.Addresses {
-				polTCPAddr, ok := addr.(*net.TCPAddr)
-				if ok {
-					addrs = append(addrs, polTCPAddr)
+				switch addr.(type) {
+				case *net.TCPAddr, *tor.OnionAddr:
+					addrs = append(addrs, addr)
 				}
 			}
 		}
@@ -1447,17 +1545,18 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	addr := conn.RemoteAddr()
 	pubKey := brontideConn.RemotePub()
 
-	// We'll ensure that we locate the proper port to use within the peer's
-	// address for reconnecting purposes.
-	if tcpAddr, ok := addr.(*net.TCPAddr); ok && !inbound {
-		targetPort := s.fetchNodeAdvertisedPort(pubKey, tcpAddr)
-
-		// Once we have the correct port, we'll make a new copy of the
-		// address so we don't modify the underlying pointer directly.
-		addr = &net.TCPAddr{
-			IP:   tcpAddr.IP,
-			Port: targetPort,
-			Zone: tcpAddr.Zone,
+	// We'll ensure that we locate an advertised address to use within the
+	// peer's address for reconnection purposes.
+	//
+	// TODO: leave the address field empty if there aren't any?
+	if !inbound {
+		advertisedAddr, err := s.fetchNodeAdvertisedAddr(pubKey)
+		if err != nil {
+			srvrLog.Errorf("Unable to retrieve advertised address "+
+				"for node %x: %v", pubKey.SerializeCompressed(),
+				err)
+		} else {
+			addr = advertisedAddr
 		}
 	}
 
@@ -2136,42 +2235,16 @@ func computeNextBackoff(currBackoff time.Duration) time.Duration {
 	return nextBackoff + (time.Duration(wiggle.Uint64()) - margin/2)
 }
 
-// fetchNodeAdvertisedPort attempts to fetch the advertised port of the target
-// node. If a port isn't found, then the default port will be used.
-func (s *server) fetchNodeAdvertisedPort(pub *btcec.PublicKey,
-	targetAddr *net.TCPAddr) int {
-
-	// If the target port is already the default peer port, then we'll
-	// return that.
-	if targetAddr.Port == defaultPeerPort {
-		return defaultPeerPort
-	}
-
+// fetchNodeAdvertisedAddr attempts to fetch an advertised address of a node.
+func (s *server) fetchNodeAdvertisedAddr(pub *btcec.PublicKey) (net.Addr, error) {
 	node, err := s.chanDB.ChannelGraph().FetchLightningNode(pub)
-
-	// If the node wasn't found, then we'll just return the current default
-	// port.
 	if err != nil {
-		return defaultPeerPort
+		return nil, err
 	}
 
-	// Otherwise, we'll attempt to find a matching advertised IP, and will
-	// then use the port for that.
-	for _, addr := range node.Addresses {
-		// We'll only examine an address if it's a TCP address.
-		tcpAddr, ok := addr.(*net.TCPAddr)
-		if !ok {
-			continue
-		}
-
-		// If this is the matching IP, then we'll return the port that
-		// it has been advertised with.
-		if tcpAddr.IP.Equal(targetAddr.IP) {
-			return tcpAddr.Port
-		}
+	if len(node.Addresses) == 0 {
+		return nil, errors.New("no advertised addresses found")
 	}
 
-	// If we couldn't find a matching IP, then we'll just return the
-	// default port.
-	return defaultPeerPort
+	return node.Addresses[0], nil
 }

@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"net"
-	"strconv"
 	"strings"
 	"time"
 
@@ -635,25 +633,14 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 		return nil, fmt.Errorf("cannot make connection to self")
 	}
 
-	// If the address doesn't already have a port, we'll assume the current
-	// default port.
-	var addr string
-	_, _, err = net.SplitHostPort(in.Addr.Host)
-	if err != nil {
-		addr = net.JoinHostPort(in.Addr.Host, strconv.Itoa(defaultPeerPort))
-	} else {
-		addr = in.Addr.Host
-	}
-
-	// We use ResolveTCPAddr here in case we wish to resolve hosts over Tor.
-	host, err := cfg.net.ResolveTCPAddr("tcp", addr)
+	addr, err := parseAddr(in.Addr.Host)
 	if err != nil {
 		return nil, err
 	}
 
 	peerAddr := &lnwire.NetAddress{
 		IdentityKey: pubKey,
-		Address:     host,
+		Address:     addr,
 		ChainNet:    activeNetParams.Net,
 	}
 

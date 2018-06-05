@@ -304,11 +304,10 @@ func lndMain() error {
 	}
 	idPrivKey.Curve = btcec.S256()
 
-	if cfg.Tor.Socks != "" && cfg.Tor.DNS != "" {
+	if cfg.Tor.Active {
 		srvrLog.Infof("Proxying all network traffic via Tor "+
-			"(stream_isolation=%v)! NOTE: If running with a full-node "+
-			"backend, ensure that is proxying over Tor as well",
-			cfg.Tor.StreamIsolation)
+			"(stream_isolation=%v)! NOTE: Ensure the backend node "+
+			"is proxying over Tor as well", cfg.Tor.StreamIsolation)
 	}
 
 	// Set up the core server which will listen for incoming peer

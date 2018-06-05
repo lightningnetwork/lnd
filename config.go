@@ -19,14 +19,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcutil"
 	flags "github.com/jessevdk/go-flags"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcutil"
 )
 
 const (

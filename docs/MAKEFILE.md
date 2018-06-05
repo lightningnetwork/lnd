@@ -53,9 +53,9 @@ Compiles, tests, and installs `lnd` and `lncli`. Equivalent to
 `btcd`
 ------
 Ensures that [`github.com/Masterminds/glide`][glide] is installed, and
-that the [`github.com/roasbeef/btcd`][btcd] repository is checked out
+that the [`github.com/btcsuite/btcd`][btcd] repository is checked out
 locally. Lastly, installs the version of 
-[`github.com/roasbeef/btcd`][btcd] specified in `Gopkg.toml`
+[`github.com/btcsuite/btcd`][btcd] specified in `Gopkg.toml`
 
 `build`
 -------
@@ -64,7 +64,7 @@ Compiles the current source and vendor trees, creating `./lnd` and
 
 `check`
 -------
-Installs the version of [`github.com/roasbeef/btcd`][btcd] specified
+Installs the version of [`github.com/btcsuite/btcd`][btcd] specified
 in `Gopkg.toml`, then runs the unit tests followed by the integration
 tests.
 
@@ -115,7 +115,7 @@ Copies the compiled `lnd` and `lncli` binaries into `$GOPATH/bin`.
 
 `itest`
 -------
-Installs the version of [`github.com/roasbeef/btcd`][btcd] specified in
+Installs the version of [`github.com/btcsuite/btcd`][btcd] specified in
 `Gopkg.toml`, builds the `./lnd` and `./lncli` binaries, then runs the
 integration test suite.
 
@@ -184,7 +184,7 @@ Arguments:
 
 Related: [`unit`](#unit)
 
-[btcd]: https://github.com/roasbeef/btcd (github.com/roasbeef/btcd")
+[btcd]: https://github.com/btcsuite/btcd (github.com/btcsuite/btcd")
 [glide]: https://github.com/Masterminds/glide (github.com/Masterminds/glide)
 [gometalinter]: https://gopkg.in/alecthomas/gometalinter.v1 (gopkg.in/alecthomas/gometalinter.v1)
 [dep]: https://github.com/golang/dep/cmd/dep (github.com/golang/dep/cmd/dep)

@@ -17,7 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
 func init() {

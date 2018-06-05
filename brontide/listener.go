@@ -7,7 +7,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/roasbeef/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec"
 )
 
 // defaultHandshakes is the maximum number of handshakes that can be done in

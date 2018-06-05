@@ -118,8 +118,8 @@ On FreeBSD, use gmake instead of make.
 
 ### Installing btcd
 
-If one wishes to use the `btcd` backend, `lnd` currently requires the
-[roasbeef](https://github.com/roasbeef/btcd) fork of `btcd` due to neutrino
+When using the `btcd` backend, `lnd` currently requires the
+[roasbeef](https://github.com/btcsuite/btcd) fork of `btcd` due to neutrino
 additions that are not yet available in the master branch. To install, run the
 following commands:
 
@@ -330,6 +330,6 @@ for Litecoin accordingly. For node configuration, the sections are called
 which chain and node type you're using.
 
 # Accurate as of:
-- _roasbeef/btcd commit:_ `f8c02aff4e7a807ba0c1349e2db03695d8e790e8`
-- _roasbeef/btcutil commit:_ `a259eaf2ec1b54653cdd67848a41867f280797ee`
+- _btcsuite/btcd commit:_ `f8c02aff4e7a807ba0c1349e2db03695d8e790e8`
+- _btcsuite/btcutil commit:_ `a259eaf2ec1b54653cdd67848a41867f280797ee`
 - _lightningnetwork/lnd commit:_ `08de2becf8d77fae192205172c4fb17bb09bd0dbf49e64aa323b2fcbf9fe2a35`

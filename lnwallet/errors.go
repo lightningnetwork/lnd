@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcutil"
 )
 
 // ReservationError wraps certain errors returned during channel reservation

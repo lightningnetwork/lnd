@@ -1,10 +1,10 @@
 package htlcswitch
 
 import (
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
 // InvoiceDatabase is an interface which represents the persistent subsystem

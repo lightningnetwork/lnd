@@ -8,7 +8,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
 // ShortChanIDEncoding is an enum-like type that represents exactly how a set

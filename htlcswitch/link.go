@@ -30,6 +30,11 @@ const (
 	//
 	// TODO(roasbeef): must be < default delta
 	expiryGraceDelta = 2
+
+	// minCommitFeePerKw is the smallest fee rate that we should propose
+	// for a new fee update. We'll use this as a fee floor when proposing
+	// and accepting updates.
+	minCommitFeePerKw = 253
 )
 
 // ForwardingPolicy describes the set of constraints that a given ChannelLink
@@ -475,6 +480,16 @@ func (l *channelLink) sampleNetworkFee() (lnwallet.SatPerKWeight, error) {
 
 	// Once we have this fee rate, we'll convert to sat-per-kw.
 	feePerKw := feePerVSize.FeePerKWeight()
+
+	// If the returned feePerKw is less than the current widely used
+	// policy, then we'll use that instead as a floor.
+	if feePerKw < minCommitFeePerKw {
+		log.Debugf("Proposed fee rate of %v sat/kw is below min "+
+			"of %v sat/kw, using fee floor", int64(feePerKw),
+			int64(minCommitFeePerKw))
+
+		feePerKw = minCommitFeePerKw
+	}
 
 	log.Debugf("ChannelLink(%v): sampled fee rate for 3 block conf: %v "+
 		"sat/kw", l, int64(feePerKw))

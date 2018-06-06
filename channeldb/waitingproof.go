@@ -56,10 +56,6 @@ func NewWaitingProofStore(db *DB) (*WaitingProofStore, error) {
 
 // Add adds new waiting proof in the storage.
 func (s *WaitingProofStore) Add(proof *WaitingProof) error {
-	if _, ok := s.cache[proof.Key()]; ok {
-		return ErrWaitingProofAlreadyExist
-	}
-
 	return s.db.Batch(func(tx *bolt.Tx) error {
 		var err error
 		var b bytes.Buffer
@@ -81,6 +77,7 @@ func (s *WaitingProofStore) Add(proof *WaitingProof) error {
 		}
 
 		s.cache[proof.Key()] = struct{}{}
+
 		return nil
 	})
 }

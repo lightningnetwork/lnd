@@ -2043,6 +2043,71 @@ func (s *server) RebalanceChannel(channelID lnwire.ChannelID,
 	return updateChan, errChan
 }
 
+func (s *server) SpliceOut(channelID lnwire.ChannelID,
+	extractAmt btcutil.Amount, feePerVSize lnwallet.SatPerVByte,
+	private bool, ) (chan *lnrpc.OpenStatusUpdate, chan error)  {
+
+	updateChan := make(chan *lnrpc.OpenStatusUpdate, 1)
+	errChan := make(chan error, 1)
+
+	dbChannels, err := s.chanDB.FetchAllChannels()
+	if err != nil {
+		errChan <- err
+		return nil, errChan
+	}
+
+	var dbChan *channeldb.OpenChannel
+	for _, dbChannel := range dbChannels {
+		if lnwire.NewChanIDFromOutPoint(&dbChannel.FundingOutpoint) == channelID {
+			dbChan = dbChannel
+			break
+		}
+	}
+	// If the channel cannot be located, then we exit with an error to the
+	// caller.
+	if dbChan == nil {
+		errChan <- fmt.Errorf("unable to find channel")
+		return nil, errChan
+	}
+
+	pubKeyBytes := dbChan.IdentityPub.SerializeCompressed()
+	var targetPeer *peer
+	// First attempt to locate the target peer, if
+	// we're unable to locate the peer then this request will fail.
+	s.mu.RLock()
+	if peer, ok := s.peersByPub[string(pubKeyBytes)]; ok {
+		targetPeer = peer
+	}
+	s.mu.RUnlock()
+
+	if targetPeer == nil {
+		errChan <- fmt.Errorf("peer is not connected NodeKey(%x)", pubKeyBytes)
+		return updateChan, errChan
+	}
+
+	// build a open channel request to init funding workflow.
+	req := &openChanReq{
+		targetPubkey:       dbChan.IdentityPub,
+		chainHash:          *activeNetParams.GenesisHash,
+		localFundingAmt:    dbChan.Capacity - extractAmt,
+		fundingFeePerVSize: feePerVSize,
+		pushAmt:            dbChan.LocalCommitment.RemoteBalance,
+		private:            private,
+		minHtlc:            dbChan.LocalChanCfg.MinHTLC,
+		remoteCsvDelay:     dbChan.LocalChanCfg.CsvDelay,
+		openType:           lnwire.OpenSpliceOutChannel,
+		localExtractAmt:	extractAmt,
+		oldChannelID:       channelID,
+		updates:            updateChan,
+		err:                errChan,
+	}
+	go s.fundingMgr.initFundingWorkflow(targetPeer.addr, req)
+	return updateChan, errChan
+
+	return nil, nil
+}
+
+
 // OpenChannel sends a request to the server to open a channel to the specified
 // peer identified by nodeKey with the passed channel funding parameters.
 //

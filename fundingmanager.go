@@ -993,7 +993,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	chainHash := chainhash.Hash(msg.ChainHash)
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(
-		amt, 0, 0, msg.Opentype, msg.OldChannelID, msg.PushAmount,
+		amt, 0, 0, 0,msg.Opentype, msg.OldChannelID, msg.PushAmount,
 		lnwallet.SatPerKWeight(msg.FeePerKiloWeight), 0,
 		fmsg.peerAddress.IdentityKey, fmsg.peerAddress.Address,
 		&chainHash, msg.ChannelFlags,
@@ -2556,6 +2556,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		peerKey        = msg.peerAddress.IdentityKey
 		localAmt       = msg.localFundingAmt
 		localAddAmt    = msg.localAddAmt
+		localExtractAmt= msg.localExtractAmt
 		openType       = msg.openType
 		oldChannelId   = msg.oldChannelID
 		remoteAmt      = msg.remoteFundingAmt
@@ -2596,9 +2597,9 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// wallet doesn't have enough funds to commit to this channel, then the
 	// request will fail, and be aborted.
 	reservation, err := f.cfg.Wallet.InitChannelReservation(
-		capacity, localAmt, localAddAmt, openType, msg.oldChannelID, msg.pushAmt, commitFeePerKw,
-		msg.fundingFeePerVSize, peerKey, msg.peerAddress.Address,
-		&msg.chainHash, channelFlags,
+		capacity, localAmt, localAddAmt, localExtractAmt,openType,
+		msg.oldChannelID, msg.pushAmt, commitFeePerKw, msg.fundingFeePerVSize,
+		peerKey, msg.peerAddress.Address, &msg.chainHash, channelFlags,
 	)
 	if err != nil {
 		msg.err <- err

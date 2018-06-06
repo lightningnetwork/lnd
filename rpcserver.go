@@ -1293,6 +1293,49 @@ out:
 	return nil
 }
 
+func (r *rpcServer) ExtractFund(in *lnrpc.ExtractFundRequest,
+	updateStream lnrpc.Lightning_ExtractFundServer) error {
+	index := in.ChannelPoint.OutputIndex
+	txidHash, err := getChanPointFundingTxid(in.GetChannelPoint())
+	if err != nil {
+		rpcsLog.Errorf("[addfund] unable to get funding txid: %v", err)
+		return err
+	}
+	txid, err := chainhash.NewHash(txidHash)
+	if err != nil {
+		rpcsLog.Errorf("[addfund] invalid txid: %v", err)
+		return err
+	}
+	chanPoint := wire.NewOutPoint(txid, index)
+
+	// First, we'll fetch the channel as is, as we'll need to examine it
+	channel, err := r.fetchActiveChannel(*chanPoint)
+	if err != nil {
+		return err
+	}
+
+	// We need to stop the channel to block all incoming htlcs
+	channel.Stop()
+
+	// If the link is not known by the switch, we cannot gracefully add fund to
+	// the channel.
+	channelID := lnwire.NewChanIDFromOutPoint(chanPoint)
+	if _, err := r.server.htlcSwitch.GetLink(channelID); err != nil {
+		rpcsLog.Debugf("Trying to add fund to offline channel with "+
+			"chan_point=%v", chanPoint)
+		return fmt.Errorf("unable to gracefully add fund to channel while peer "+
+			"is offline: %v", err)
+	}
+	if len(channel.ActiveHtlcs()) != 0 {
+		return fmt.Errorf("cannot add fund to channel " +
+			"with active htlcs")
+	}
+
+
+
+	return nil
+}
+
 // fetchActiveChannel attempts to locate a channel identified by its channel
 // point from the database's set of all currently opened channels.
 func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (*lnwallet.LightningChannel, error) {

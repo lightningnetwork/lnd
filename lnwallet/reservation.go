@@ -31,6 +31,10 @@ type ChannelContribution struct {
 	// channel capacity.
 	ChangeOutputs []*wire.TxOut
 
+	// ExtractOutputs are the Outputs to be used in the case when we want to
+	// splice out some coins from the old channel
+	ExtractOutputs []*wire.TxOut
+
 	// FirstCommitmentPoint is the first commitment point that will be used
 	// to create the revocation key in the first commitment transaction we
 	// send to the remote party.

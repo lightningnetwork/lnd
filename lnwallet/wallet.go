@@ -74,6 +74,9 @@ type initFundingReserveMsg struct {
 	// addAmout is the amount adder add to the new channel to rebalance channel.
 	addAmount btcutil.Amount
 
+	// extractAmount is the amount user want to extract from the old channel.
+	extractAmount btcutil.Amount
+
 	openType lnwire.OpenType
 
 	oldChannelID lnwire.ChannelID
@@ -431,7 +434,7 @@ out:
 // transaction, and that the signature we record for our version of the
 // commitment transaction is valid.
 func (l *LightningWallet) InitChannelReservation(
-	capacity, ourFundAmt btcutil.Amount, ourAddAmt btcutil.Amount, openType lnwire.OpenType,
+	capacity, ourFundAmt, ourAddAmt, ourExtractAmt btcutil.Amount, openType lnwire.OpenType,
 	oldChannelID lnwire.ChannelID, pushMSat lnwire.MilliSatoshi, commitFeePerKw SatPerKWeight,
 	fundingFeePerVSize SatPerVByte, theirID *btcec.PublicKey, theirAddr net.Addr,
 	chainHash *chainhash.Hash, flags lnwire.FundingFlag) (*ChannelReservation, error) {
@@ -445,6 +448,7 @@ func (l *LightningWallet) InitChannelReservation(
 		nodeAddr:           theirAddr,
 		fundingAmount:      ourFundAmt,
 		addAmount:          ourAddAmt,
+		extractAmount:      ourExtractAmt,
 		openType:           openType,
 		oldChannelID:       oldChannelID,
 		capacity:           capacity,
@@ -515,6 +519,42 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 				req.resp <- nil
 				return
 			}
+		} else if req.openType == lnwire.OpenSpliceOutChannel{
+			var weightEstimate TxWeightEstimator
+			// weight of old fundingTx vin
+			weightEstimate.AddNestedP2WSHInput(WitnessSize)
+			// weight of extract vout
+			weightEstimate.AddP2WKHOutput()
+			// add weight of new funding Vout
+			weightEstimate.AddP2WSHOutput()
+
+			feeRate := req.fundingFeePerVSize
+			requiredFee := feeRate.FeeForVSize(int64(weightEstimate.VSize()))
+			finalExtractAmout := req.extractAmount - requiredFee
+			if  requiredFee > req.extractAmount && finalExtractAmout > DefaultDustLimit() {
+				changeAddr, err := l.NewAddress(WitnessPubKey, true)
+				if err != nil {
+					req.err <- err
+					req.resp <- nil
+					return
+				}
+				changeScript, err := txscript.PayToAddrScript(changeAddr)
+				if err != nil {
+					req.err <- err
+					req.resp <- nil
+					return
+				}
+				reservation.ourContribution.ExtractOutputs = make([]*wire.TxOut, 1)
+				reservation.ourContribution.ExtractOutputs[0] = &wire.TxOut{
+					Value:    int64(finalExtractAmout),
+					PkScript: changeScript,
+				}
+			} else {
+				req.err <- fmt.Errorf("the fee required: %d is more than the " +
+					"amount to be extract: %d", requiredFee, req.extractAmount)
+				req.resp <- nil
+				return
+			}
 		} else {
 			err := l.selectCoinsAndChange(
 				req.fundingFeePerVSize, req.fundingAmount,
@@ -526,7 +566,6 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 				return
 			}
 		}
-
 	}
 
 	// Next, we'll grab a series of keys from the wallet which will be used

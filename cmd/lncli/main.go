@@ -40,10 +40,8 @@ var (
 	//set using -ldflags during compilation.
 	Commit string
 
-	defaultLndDir       = btcutil.AppDataDir("lnd", false)
-	defaultDataDir      = filepath.Join(defaultLndDir, defaultDataDirname)
-	defaultTLSCertPath  = filepath.Join(defaultLndDir, defaultTLSCertFilename)
-	defaultMacaroonPath = filepath.Join(defaultLndDir, defaultMacaroonFilename)
+	defaultLndDir      = btcutil.AppDataDir("lnd", false)
+	defaultTLSCertPath = filepath.Join(defaultLndDir, defaultTLSCertFilename)
 )
 
 func fatal(err error) {
@@ -73,23 +71,40 @@ func getClient(ctx *cli.Context) (lnrpc.LightningClient, func()) {
 
 func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 	lndDir := cleanAndExpandPath(ctx.GlobalString("lnddir"))
+	dataDir := cleanAndExpandPath(ctx.GlobalString("datadir"))
+	chain := ctx.GlobalString("chain")
+	network := ctx.GlobalString("network")
+
+	// Compute networkDir base path based on dataDir
+	// or fallback to lndDir.
+	networkDirBase := filepath.Join(lndDir, defaultDataDirname)
+	if len(ctx.GlobalString("datadir")) != 0 {
+		networkDirBase = dataDir
+	}
+	networkDir := filepath.Join(
+		networkDirBase,
+		defaultChainSubDirname,
+		chain, network,
+	)
+
+	// If a custom macaroonpath is not set, we'll use the default path.
+	if len(ctx.GlobalString("macaroonpath")) == 0 {
+		ctx.GlobalSet(
+			"macaroonpath",
+			filepath.Join(networkDir, defaultMacaroonFilename),
+		)
+	}
+
 	if lndDir != defaultLndDir {
 		// If a custom lnd directory was set, we'll also check if custom
-		// paths for the TLS cert and macaroon file were set as well. If
-		// not, we'll override their paths so they can be found within
+		// path for the TLS cert file was set as well.
+		// If not, we'll override its path so it can be found within
 		// the custom lnd directory set. This allows us to set a custom
-		// lnd directory, along with custom paths to the TLS cert and
-		// macaroon file.
+		// lnd directory, along with custom path to the TLS cert.
 		tlsCertPath := cleanAndExpandPath(ctx.GlobalString("tlscertpath"))
 		if tlsCertPath == defaultTLSCertPath {
 			ctx.GlobalSet("tlscertpath",
 				filepath.Join(lndDir, defaultTLSCertFilename))
-		}
-
-		macPath := cleanAndExpandPath(ctx.GlobalString("macaroonpath"))
-		if macPath == defaultMacaroonPath {
-			ctx.GlobalSet("macaroonpath",
-				filepath.Join(lndDir, defaultMacaroonFilename))
 		}
 	}
 
@@ -184,8 +199,7 @@ func main() {
 		},
 		cli.StringFlag{
 			Name:  "datadir",
-			Value: defaultDataDir,
-			Usage: "path to lnd's data directory",
+			Usage: "if set, assign a custom path to lnd's data directory",
 		},
 		cli.StringFlag{
 			Name:  "chain",
@@ -208,8 +222,7 @@ func main() {
 		},
 		cli.StringFlag{
 			Name:  "macaroonpath",
-			Value: defaultMacaroonPath,
-			Usage: "path to macaroon file",
+			Usage: "if set, assign a custom macaroon path",
 		},
 		cli.Int64Flag{
 			Name:  "macaroontimeout",

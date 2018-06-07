@@ -1714,14 +1714,15 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 	incomingHtlcAmt, amtToForward lnwire.MilliSatoshi) lnwire.FailureMessage {
 
 	l.RLock()
-	defer l.RUnlock()
+	policy := l.cfg.FwrdingPolicy
+	l.RUnlock()
 
 	// As our first sanity check, we'll ensure that the passed HTLC isn't
 	// too small for the next hop. If so, then we'll cancel the HTLC
 	// directly.
-	if amtToForward < l.cfg.FwrdingPolicy.MinHTLC {
+	if amtToForward < policy.MinHTLC {
 		l.errorf("outgoing htlc(%x) is too small: min_htlc=%v, "+
-			"htlc_value=%v", payHash[:], l.cfg.FwrdingPolicy.MinHTLC,
+			"htlc_value=%v", payHash[:], policy.MinHTLC,
 			amtToForward)
 
 		// As part of the returned error, we'll send our latest routing
@@ -1742,7 +1743,7 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 	// Next, using the amount of the incoming HTLC, we'll calculate the
 	// expected fee this incoming HTLC must carry in order to satisfy the
 	// constraints of the outgoing link.
-	expectedFee := ExpectedFee(l.cfg.FwrdingPolicy, amtToForward)
+	expectedFee := ExpectedFee(policy, amtToForward)
 
 	// If the actual fee is less than our expected fee, then we'll reject
 	// this HTLC as it didn't provide a sufficient amount of fees, or the

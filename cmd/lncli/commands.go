@@ -1809,31 +1809,43 @@ var sendToRouteCommand = cli.Command{
 	Usage: "send a payment over a predefined route",
 	Description: `
 	Send a payment over Lightning using a specific route. One must specify
-	a list of routes to attempt and the payment hash.
+	a list of routes to attempt and the payment hash. This command can even
+	be chained with the response to queryroutes. This command can be used
+	to implement channel rebalancing by crafting a self-route, or even
+	atomic swaps using a self-route that crosses multiple chains.
 
-	The --debug_send flag is provided for usage *purely* in test
-	environments. If specified, then the payment hash isn't required, as
-	it'll use the hash of all zeroes. This mode allows one to quickly test
-	payment connectivity without having to create an invoice at the
-	destination.
+	There are three ways to specify routes:
+	   * using the --routes parameter to manually specify a JSON encoded
+	     set of routes in the format of the return value of queryroutes:
+	         (lncli sendtoroute --payment_hash=<pay_hash> --routes=<route>)
+
+	   * passing the routes as a positional argument:
+	         (lncli sendtoroute --payment_hash=pay_hash <route>)
+
+	   * or reading in the routes from stdin, which can allow chaining the
+	     response from queryroutes, or even read in a file with a set of
+	     pre-computed routes:
+	         (lncli queryroutes --args.. | lncli sendtoroute --payment_hash= -
+
+	     notice the '-' at the end, which signals that lncli should read
+	     the route in from stdin
 	`,
-	ArgsUsage: "(lncli queryroutes --dest=<pubkey> --amt=<amt> " +
-		"| lncli sendtoroute --payment_hash=<payment_hash>)",
 	Flags: []cli.Flag{
 		cli.StringFlag{
-			Name:  "payment_hash, r",
+			Name:  "payment_hash, pay_hash",
 			Usage: "the hash to use within the payment's HTLC",
 		},
-		cli.BoolFlag{
-			Name:  "debug_send",
-			Usage: "use the debug rHash when sending the HTLC",
+		cli.StringFlag{
+			Name: "routes, r",
+			Usage: "a json array string in the format of the response " +
+				"of queryroutes that denotes which routes to use",
 		},
 	},
 	Action: sendToRoute,
 }
 
 func sendToRoute(ctx *cli.Context) error {
-	// Show command help if no arguments provieded
+	// Show command help if no arguments provided.
 	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
 		cli.ShowCommandHelp(ctx, "sendtoroute")
 		return nil
@@ -1841,48 +1853,65 @@ func sendToRoute(ctx *cli.Context) error {
 
 	args := ctx.Args()
 
-	b, err := ioutil.ReadAll(os.Stdin)
+	var (
+		rHash []byte
+		err   error
+	)
+	switch {
+	case ctx.IsSet("payment_hash"):
+		rHash, err = hex.DecodeString(ctx.String("payment_hash"))
+	case args.Present():
+		rHash, err = hex.DecodeString(args.First())
+
+		args = args.Tail()
+	default:
+		return fmt.Errorf("payment hash argument missing")
+	}
+
 	if err != nil {
 		return err
 	}
-	if len(b) == 0 {
-		return fmt.Errorf("queryroutes output is empty")
+
+	if len(rHash) != 32 {
+		return fmt.Errorf("payment hash must be exactly 32 "+
+			"bytes, is instead %d", len(rHash))
 	}
 
-	qroutes := &lnrpc.QueryRoutesResponse{}
-	err = jsonpb.UnmarshalString(string(b), qroutes)
-	if err != nil {
-		return fmt.Errorf("unable to unmarshal json string from "+
-			"incoming array of routes: %v", err)
-	}
+	var jsonRoutes string
+	switch {
+	// The user is specifying the routes explicitly via the key word
+	// argument.
+	case ctx.IsSet("routes"):
+		jsonRoutes = ctx.String("routes")
 
-	var rHash []byte
-	if ctx.Bool("debug_send") &&
-		(ctx.IsSet("payment_hash") || args.Present()) {
-		return fmt.Errorf("do not provide a payment hash with debug send")
-	} else if !ctx.Bool("debug_send") {
-		switch {
-		case ctx.IsSet("payment_hash"):
-			rHash, err = hex.DecodeString(ctx.String("payment_hash"))
-		case args.Present():
-			rHash, err = hex.DecodeString(args.First())
-		default:
-			return fmt.Errorf("payment hash argument missing")
-		}
+	// The user is specifying the routes as a positional argument.
+	case args.Present() && args.First() != "-":
+		jsonRoutes = args.First()
 
+	// The user is signalling that we should read stdin in order to parse
+	// the set of target routes.
+	case args.Present() && args.First() == "-":
+		b, err := ioutil.ReadAll(os.Stdin)
 		if err != nil {
 			return err
 		}
-
-		if len(rHash) != 32 {
-			return fmt.Errorf("payment hash must be exactly 32 "+
-				"bytes, is instead %d", len(rHash))
+		if len(b) == 0 {
+			return fmt.Errorf("queryroutes output is empty")
 		}
+
+		jsonRoutes = string(b)
+	}
+
+	routes := &lnrpc.QueryRoutesResponse{}
+	err = jsonpb.UnmarshalString(jsonRoutes, routes)
+	if err != nil {
+		return fmt.Errorf("unable to unmarshal json string "+
+			"from incoming array of routes: %v", err)
 	}
 
 	req := &lnrpc.SendToRouteRequest{
 		PaymentHash: rHash,
-		Routes:      qroutes.Routes,
+		Routes:      routes.Routes,
 	}
 
 	return sendToRouteRequest(ctx, req)
@@ -1905,8 +1934,6 @@ func sendToRouteRequest(ctx *cli.Context, req *lnrpc.SendToRouteRequest) error {
 	if err != nil {
 		return err
 	}
-
-	paymentStream.CloseSend()
 
 	printJSON(struct {
 		E string       `json:"payment_error"`

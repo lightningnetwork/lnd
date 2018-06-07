@@ -192,9 +192,9 @@
         ]
       }
     },
-    "/v1/channels/transactions/sendtoroute": {
+    "/v1/channels/transactions/route": {
       "post": {
-        "summary": "*\nSendToRouteSync is the synchronous non-streaming version of SendToRoute.\nThis RPC is intended to be consumed by clients of the REST proxy.\nAdditionally, this RPC expects the payment hash to be encoded\nas hex strings.",
+        "summary": "*\nSendToRouteSync is a synchronous version of SendToRoute. It Will block\nuntil the payment either fails or succeeds.",
         "operationId": "SendToRouteSync",
         "responses": {
           "200": {
@@ -2405,18 +2405,18 @@
         "payment_hash": {
           "type": "string",
           "format": "byte",
-          "title": "/ The hash to use within the payment's HTLC"
+          "description": "/ The payment hash to use for the HTLC."
         },
         "payment_hash_string": {
           "type": "string",
-          "title": "/ The hex-encoded hash to use within the payment's HTLC"
+          "description": "/ An optional hex-encoded payment hash to be used for the HTLC."
         },
         "routes": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/lnrpcRoute"
           },
-          "description": "/ The routes that should be tried in sending the payment."
+          "description": "/ The set of routes that should be used to attempt to complete the payment."
         }
       }
     },

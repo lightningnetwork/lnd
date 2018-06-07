@@ -400,23 +400,20 @@ service Lightning {
     }
 
     /** lncli: `sendtoroute`
-    SendToRoute dispatches a bi-directional streaming RPC for sending payments
-    through the Lightning Network via predefined routes passed in. A single RPC
-    invocation creates a persistent bi-directional stream allowing clients to
-    rapidly send payments through the Lightning Network with a single
-    persistent connection.
+    SendToRoute is a bi-directional streaming RPC for sending payment through
+    the Lightning Network. This method differs from SendPayment in that it
+    allows users to specify a full route manually. This can be used for things
+    like rebalancing, and atomic swaps.
     */
     rpc SendToRoute(stream SendToRouteRequest) returns (stream SendResponse);
 
     /**
-    SendToRouteSync is the synchronous non-streaming version of SendToRoute.
-    This RPC is intended to be consumed by clients of the REST proxy.
-    Additionally, this RPC expects the payment hash to be encoded
-    as hex strings.
+    SendToRouteSync is a synchronous version of SendToRoute. It Will block
+    until the payment either fails or succeeds.
     */
     rpc SendToRouteSync (SendToRouteRequest) returns (SendResponse) {
         option (google.api.http) = {
-            post: "/v1/channels/transactions/sendtoroute"
+            post: "/v1/channels/transactions/route"
             body: "*"
         };
     }
@@ -682,14 +679,14 @@ message SendResponse {
 }
 
 message SendToRouteRequest {
-    /// The hash to use within the payment's HTLC
+    /// The payment hash to use for the HTLC.
     bytes payment_hash = 1;
 
-    /// The hex-encoded hash to use within the payment's HTLC
+    /// An optional hex-encoded payment hash to be used for the HTLC.
     string payment_hash_string = 2;
 
-    /// The routes that should be tried in sending the payment.
-    repeated Route routes = 3 [json_name = "routes"];
+    /// The set of routes that should be used to attempt to complete the payment.
+    repeated Route routes = 3;
 }
 
 message ChannelPoint {

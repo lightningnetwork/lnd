@@ -558,6 +558,53 @@ func TestFindLowestFeePath(t *testing.T) {
 	}
 }
 
+type expectedHop struct {
+	alias     string
+	fee       lnwire.MilliSatoshi
+	fwdAmount lnwire.MilliSatoshi
+	timeLock  uint32
+}
+
+type basicGraphPathFindingTestCase struct {
+	target        string
+	paymentAmt    btcutil.Amount
+	totalAmt      lnwire.MilliSatoshi
+	totalTimeLock uint32
+	expectedHops  []expectedHop
+}
+
+var basicGraphPathFindingTests = []basicGraphPathFindingTestCase{
+	// Basic route with one intermediate hop
+	{target: "sophon", paymentAmt: 100, totalTimeLock: 102, totalAmt: 100110,
+		expectedHops: []expectedHop{
+			{alias: "songoku", fwdAmount: 100000, fee: 110, timeLock: 101},
+			{alias: "sophon", fwdAmount: 100000, fee: 0, timeLock: 101},
+		}},
+	// Basic direct (one hop) route
+	{target: "luoji", paymentAmt: 100, totalTimeLock: 101, totalAmt: 100000,
+		expectedHops: []expectedHop{
+			{alias: "luoji", fwdAmount: 100000, fee: 0, timeLock: 101},
+		}},
+	// Three hop route where fees need to be added in to the forwarding amount.
+	// The high fee hop phamnewun should be avoided
+	{target: "elst", paymentAmt: 50000, totalTimeLock: 103, totalAmt: 50050210,
+		expectedHops: []expectedHop{
+			{alias: "songoku", fwdAmount: 50000200, fee: 50010, timeLock: 102},
+			{alias: "sophon", fwdAmount: 50000000, fee: 200, timeLock: 101},
+			{alias: "elst", fwdAmount: 50000000, fee: 0, timeLock: 101},
+		}},
+	// Three hop route where fees need to be added in to the forwarding amount.
+	// However this time the fwdAmount becomes too large for the roasbeef <->
+	// songoku channel. Then there is no other option than to choose the
+	// expensive phamnuwen channel. This test case was failing before
+	// the route search was executed backwards.
+	{target: "elst", paymentAmt: 100000, totalTimeLock: 103, totalAmt: 110010220,
+		expectedHops: []expectedHop{
+			{alias: "phamnuwen", fwdAmount: 100000200, fee: 10010020, timeLock: 102},
+			{alias: "sophon", fwdAmount: 100000000, fee: 200, timeLock: 101},
+			{alias: "elst", fwdAmount: 100000000, fee: 0, timeLock: 101},
+		}}}
+
 func TestBasicGraphPathFinding(t *testing.T) {
 	t.Parallel()
 
@@ -566,6 +613,24 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
+
+	// With the test graph loaded, we'll test some basic path finding using
+	// the pre-generated graph. Consult the testdata/basic_graph.json file
+	// to follow along with the assumptions we'll use to test the path
+	// finding.
+
+	for _, testCase := range basicGraphPathFindingTests {
+		t.Run(testCase.target, func(subT *testing.T) {
+			testBasicGraphPathFindingCase(subT, graph, aliases, &testCase)
+		})
+	}
+}
+
+func testBasicGraphPathFindingCase(t *testing.T, graph *channeldb.ChannelGraph,
+	aliases aliasMap, test *basicGraphPathFindingTestCase) {
+
+	expectedHops := test.expectedHops
+	expectedHopCount := len(expectedHops)
 
 	sourceNode, err := graph.SourceNode()
 	if err != nil {
@@ -576,17 +641,13 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	ignoredEdges := make(map[uint64]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
-	// With the test graph loaded, we'll test some basic path finding using
-	// the pre-generated graph. Consult the testdata/basic_graph.json file
-	// to follow along with the assumptions we'll use to test the path
-	// finding.
 	const (
 		startingHeight = 100
 		finalHopCLTV   = 1
 	)
 
-	paymentAmt := lnwire.NewMSatFromSatoshis(100)
-	target := aliases["sophon"]
+	paymentAmt := lnwire.NewMSatFromSatoshis(test.paymentAmt)
+	target := aliases[test.target]
 	path, err := findPath(
 		nil, graph, nil, sourceNode, target, ignoredVertexes,
 		ignoredEdges, paymentAmt, nil,
@@ -603,171 +664,116 @@ func TestBasicGraphPathFinding(t *testing.T) {
 		t.Fatalf("unable to create path: %v", err)
 	}
 
-	// The length of the route selected should be of exactly length two.
-	if len(route.Hops) != 2 {
-		t.Fatalf("route is of incorrect length, expected %v got %v", 2,
-			len(route.Hops))
+	if len(route.Hops) != len(expectedHops) {
+		t.Fatalf("route is of incorrect length, expected %v got %v",
+			expectedHopCount, len(route.Hops))
 	}
 
-	// As each hop only decrements a single block from the time-lock, the
-	// total time lock value should two more than our starting block
-	// height.
-	if route.TotalTimeLock != 102 {
-		t.Fatalf("expected time lock of %v, instead have %v", 2,
-			route.TotalTimeLock)
-	}
+	// Check hop nodes
+	for i := 0; i < len(expectedHops); i++ {
+		if !bytes.Equal(route.Hops[i].Channel.Node.PubKeyBytes[:],
+			aliases[expectedHops[i].alias].SerializeCompressed()) {
 
-	// The first hop in the path should be an edge from roasbeef to goku.
-	if !bytes.Equal(route.Hops[0].Channel.Node.PubKeyBytes[:],
-		aliases["songoku"].SerializeCompressed()) {
-
-		t.Fatalf("first hop should be goku, is instead: %v",
-			route.Hops[0].Channel.Node.Alias)
-	}
-
-	// The second hop should be from goku to sophon.
-	if !bytes.Equal(route.Hops[1].Channel.Node.PubKeyBytes[:],
-		aliases["sophon"].SerializeCompressed()) {
-
-		t.Fatalf("second hop should be sophon, is instead: %v",
-			route.Hops[0].Channel.Node.Alias)
+			t.Fatalf("%v-th hop should be %v, is instead: %v",
+				i, expectedHops[i], route.Hops[i].Channel.Node.Alias)
+		}
 	}
 
 	// Next, we'll assert that the "next hop" field in each route payload
 	// properly points to the channel ID that the HTLC should be forwarded
 	// along.
 	hopPayloads := route.ToHopPayloads()
-	if len(hopPayloads) != 2 {
+	if len(hopPayloads) != expectedHopCount {
 		t.Fatalf("incorrect number of hop payloads: expected %v, got %v",
-			2, len(hopPayloads))
+			expectedHopCount, len(hopPayloads))
 	}
 
-	// The first hop should point to the second hop.
-	var expectedHop [8]byte
-	binary.BigEndian.PutUint64(expectedHop[:], route.Hops[1].Channel.ChannelID)
-	if !bytes.Equal(hopPayloads[0].NextAddress[:], expectedHop[:]) {
-		t.Fatalf("first hop has incorrect next hop: expected %x, got %x",
-			expectedHop[:], hopPayloads[0].NextAddress)
+	// Hops should point to the next hop
+	for i := 0; i < len(expectedHops)-1; i++ {
+		var expectedHop [8]byte
+		binary.BigEndian.PutUint64(expectedHop[:], route.Hops[i+1].Channel.ChannelID)
+		if !bytes.Equal(hopPayloads[i].NextAddress[:], expectedHop[:]) {
+			t.Fatalf("first hop has incorrect next hop: expected %x, got %x",
+				expectedHop[:], hopPayloads[i].NextAddress)
+		}
 	}
 
-	// The second hop should have a next hop value of all zeroes in order
+	// The final hop should have a next hop value of all zeroes in order
 	// to indicate it's the exit hop.
 	var exitHop [8]byte
-	if !bytes.Equal(hopPayloads[1].NextAddress[:], exitHop[:]) {
+	lastHopIndex := len(expectedHops) - 1
+	if !bytes.Equal(hopPayloads[lastHopIndex].NextAddress[:], exitHop[:]) {
 		t.Fatalf("first hop has incorrect next hop: expected %x, got %x",
-			exitHop[:], hopPayloads[0].NextAddress)
+			exitHop[:], hopPayloads[lastHopIndex].NextAddress)
 	}
 
-	// We'll also assert that the outgoing CLTV value for each hop was set
-	// accordingly.
-	if route.Hops[0].OutgoingTimeLock != 101 {
-		t.Fatalf("expected outgoing time-lock of %v, instead have %v",
-			1, route.Hops[0].OutgoingTimeLock)
-	}
-	if route.Hops[1].OutgoingTimeLock != 101 {
-		t.Fatalf("outgoing time-lock for final hop is incorrect: "+
-			"expected %v, got %v", 1, route.Hops[1].OutgoingTimeLock)
+	var expectedTotalFee lnwire.MilliSatoshi = 0
+	for i := 0; i < expectedHopCount; i++ {
+		// We'll ensure that the amount to forward, and fees
+		// computed for each hop are correct.
+
+		if route.Hops[i].Fee != expectedHops[i].fee {
+			t.Fatalf("fee incorrect for hop %v: expected %v, got %v",
+				i, expectedHops[i].fee, route.Hops[i].Fee)
+		}
+
+		if route.Hops[i].AmtToForward != expectedHops[i].fwdAmount {
+			t.Fatalf("forwarding amount for hop %v incorrect: "+
+				"expected %v, got %v",
+				i, expectedHops[i].fwdAmount,
+				route.Hops[i].AmtToForward)
+		}
+
+		// We'll also assert that the outgoing CLTV value for each
+		// hop was set accordingly.
+		if route.Hops[i].OutgoingTimeLock != expectedHops[i].timeLock {
+			t.Fatalf("outgoing time-lock for hop %v is incorrect: "+
+				"expected %v, got %v", i,
+				expectedHops[i].timeLock,
+				route.Hops[i].OutgoingTimeLock)
+		}
+
+		expectedTotalFee += expectedHops[i].fee
 	}
 
-	// Additionally, we'll ensure that the amount to forward, and fees
-	// computed for each hop are correct.
-	firstHopFee := computeFee(
-		paymentAmt, route.Hops[1].Channel.ChannelEdgePolicy,
-	)
-	if route.Hops[0].Fee != firstHopFee {
-		t.Fatalf("first hop fee incorrect: expected %v, got %v",
-			firstHopFee, route.Hops[0].Fee)
+	if route.TotalAmount != test.totalAmt {
+		t.Fatalf("total amount incorrect: "+
+			"expected %v, got %v",
+			test.totalAmt, route.TotalAmount)
 	}
 
-	if route.TotalAmount != paymentAmt+firstHopFee {
-		t.Fatalf("first hop forwarding amount incorrect: expected %v, got %v",
-			paymentAmt+firstHopFee, route.TotalAmount)
-	}
-	if route.Hops[1].Fee != 0 {
-		t.Fatalf("first hop fee incorrect: expected %v, got %v",
-			firstHopFee, 0)
-	}
-
-	if route.Hops[1].AmtToForward != paymentAmt {
-		t.Fatalf("second hop forwarding amount incorrect: expected %v, got %v",
-			paymentAmt+firstHopFee, route.Hops[1].AmtToForward)
-	}
-
-	// Finally, the next and prev hop maps should be properly set.
-	//
-	// The previous hop from goku should be the channel from roasbeef, and
-	// the next hop should be the channel to sophon.
-	gokuPrevChan, ok := route.prevHopChannel(aliases["songoku"])
-	if !ok {
-		t.Fatalf("goku didn't have next chan but should have")
-	}
-	if gokuPrevChan.ChannelID != route.Hops[0].Channel.ChannelID {
-		t.Fatalf("incorrect prev chan: expected %v, got %v",
-			gokuPrevChan.ChannelID, route.Hops[0].Channel.ChannelID)
-	}
-	gokuNextChan, ok := route.nextHopChannel(aliases["songoku"])
-	if !ok {
-		t.Fatalf("goku didn't have prev chan but should have")
-	}
-	if gokuNextChan.ChannelID != route.Hops[1].Channel.ChannelID {
-		t.Fatalf("incorrect prev chan: expected %v, got %v",
-			gokuNextChan.ChannelID, route.Hops[1].Channel.ChannelID)
-	}
-
-	// Sophon shouldn't have a next chan, but she should have a prev chan.
-	if _, ok := route.nextHopChannel(aliases["sophon"]); ok {
-		t.Fatalf("incorrect next hop map, no vertexes should " +
-			"be after sophon")
-	}
-	sophonPrevEdge, ok := route.prevHopChannel(aliases["sophon"])
-	if !ok {
-		t.Fatalf("sophon didn't have prev chan but should have")
-	}
-	if sophonPrevEdge.ChannelID != route.Hops[1].Channel.ChannelID {
-		t.Fatalf("incorrect prev chan: expected %v, got %v",
-			sophonPrevEdge.ChannelID, route.Hops[1].Channel.ChannelID)
-	}
-
-	// Next, attempt to query for a path to Luo Ji for 100 satoshis, there
-	// exist two possible paths in the graph, but the shorter (1 hop) path
-	// should be selected.
-	target = aliases["luoji"]
-	path, err = findPath(
-		nil, graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, paymentAmt, nil,
-	)
-	if err != nil {
-		t.Fatalf("unable to find route: %v", err)
-	}
-
-	route, err = newRoute(
-		paymentAmt, noFeeLimit, sourceVertex, path, startingHeight,
-		finalHopCLTV,
-	)
-	if err != nil {
-		t.Fatalf("unable to create path: %v", err)
-	}
-
-	// The length of the path should be exactly one hop as it's the
-	// "shortest" known path in the graph.
-	if len(route.Hops) != 1 {
-		t.Fatalf("shortest path not selected, should be of length 1, "+
-			"is instead: %v", len(route.Hops))
-	}
-
-	// As we have a direct path, the total time lock value should be
-	// exactly the current block height plus one.
-	if route.TotalTimeLock != 101 {
-		t.Fatalf("expected time lock of %v, instead have %v", 1,
+	if route.TotalTimeLock != test.totalTimeLock {
+		t.Fatalf("expected time lock of %v, instead have %v", 2,
 			route.TotalTimeLock)
 	}
 
-	// Additionally, since this is a single-hop payment, we shouldn't have
-	// to pay any fees in total, so the total amount should be the payment
-	// amount.
-	if route.TotalAmount != paymentAmt {
-		t.Fatalf("incorrect total amount, expected %v got %v",
-			paymentAmt, route.TotalAmount)
+	// The next and prev hop maps should be properly set.
+	for i := 0; i < expectedHopCount; i++ {
+		prevChan, ok := route.prevHopChannel(aliases[expectedHops[i].alias])
+		if !ok {
+			t.Fatalf("hop didn't have prev chan but should have")
+		}
+		if prevChan.ChannelID != route.Hops[i].Channel.ChannelID {
+			t.Fatalf("incorrect prev chan: expected %v, got %v",
+				prevChan.ChannelID, route.Hops[i].Channel.ChannelID)
+		}
+	}
+
+	for i := 0; i < expectedHopCount-1; i++ {
+		nextChan, ok := route.nextHopChannel(aliases[expectedHops[i].alias])
+		if !ok {
+			t.Fatalf("hop didn't have prev chan but should have")
+		}
+		if nextChan.ChannelID != route.Hops[i+1].Channel.ChannelID {
+			t.Fatalf("incorrect prev chan: expected %v, got %v",
+				nextChan.ChannelID, route.Hops[i+1].Channel.ChannelID)
+		}
+	}
+
+	// Final hop shouldn't have a next chan
+	if _, ok := route.nextHopChannel(aliases[expectedHops[lastHopIndex].alias]); ok {
+		t.Fatalf("incorrect next hop map, no vertexes should " +
+			"be after sophon")
 	}
 }
 
@@ -1289,10 +1295,10 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	ignoredEdges := make(map[uint64]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
-	// First, we'll try to route from roasbeef -> songoku. This should
-	// succeed without issue, and return a single path.
-	target := aliases["songoku"]
-	payAmt := lnwire.NewMSatFromSatoshis(10000)
+	// First, we'll try to route from roasbeef -> sophon. This should
+	// succeed without issue, and return a single path via phamnuwen
+	target := aliases["sophon"]
+	payAmt := lnwire.NewMSatFromSatoshis(120000)
 	_, err = findPath(
 		nil, graph, nil, sourceNode, target, ignoredVertexes,
 		ignoredEdges, payAmt, nil,
@@ -1301,14 +1307,14 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 		t.Fatalf("unable to find path: %v", err)
 	}
 
-	// First, we'll modify the edge from roasbeef -> songoku, to read that
+	// First, we'll modify the edge from roasbeef -> phamnuwen, to read that
 	// it's disabled.
-	_, gokuEdge, _, err := graph.FetchChannelEdgesByID(12345)
+	_, _, phamnuwenEdge, err := graph.FetchChannelEdgesByID(999991)
 	if err != nil {
 		t.Fatalf("unable to fetch goku's edge: %v", err)
 	}
-	gokuEdge.Flags = lnwire.ChanUpdateDisabled
-	if err := graph.UpdateEdgePolicy(gokuEdge); err != nil {
+	phamnuwenEdge.Flags = lnwire.ChanUpdateDisabled | lnwire.ChanUpdateDirection
+	if err := graph.UpdateEdgePolicy(phamnuwenEdge); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 

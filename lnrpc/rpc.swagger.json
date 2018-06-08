@@ -2060,6 +2060,22 @@
         }
       }
     },
+    "lnrpcNodeChainInfo": {
+      "type": "object",
+      "properties": {
+        "chain": {
+          "type": "string"
+        },
+        "num_channels": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "total_capacity": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
     "lnrpcNodeInfo": {
       "type": "object",
       "properties": {
@@ -2074,6 +2090,12 @@
         "total_capacity": {
           "type": "string",
           "format": "int64"
+        },
+        "chains": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcNodeChainInfo"
+          }
         }
       }
     },

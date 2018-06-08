@@ -1313,6 +1313,26 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 	}, nil
 }
 
+func FindPeerChain (chains *[]*lnrpc.PeerChain, chain chainCode ) (*lnrpc.PeerChain){
+	// search for chainInfo
+	var chainInfo *lnrpc.PeerChain
+
+	for _, chainInfo = range *chains{
+		if chainInfo.Chain == chain.String(){
+			break
+		}
+
+	}
+	if (chainInfo == nil){
+		chainInfo = &lnrpc.PeerChain{
+			Chain: 	chain.String(),
+		}
+		*chains = append(*chains, chainInfo)
+	}
+
+	return chainInfo
+}
+
 // ListPeers returns a verbose listing of all currently active peers.
 func (r *rpcServer) ListPeers(ctx context.Context,
 	in *lnrpc.ListPeersRequest) (*lnrpc.ListPeersResponse, error) {
@@ -1340,6 +1360,10 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 		for _, c := range chans {
 			satSent += int64(c.TotalMSatSent.ToSatoshis())
 			satRecv += int64(c.TotalMSatReceived.ToSatoshis())
+			chain := chainMap[c.ChainHash]
+			peerChain := FindPeerChain(&chains,chain)
+			peerChain.SatSent += int64(c.TotalMSatSent.ToSatoshis())
+			peerChain.SatRecv += int64(c.TotalMSatReceived.ToSatoshis())
 		}
 
 		nodePub := serverPeer.addr.IdentityKey.SerializeCompressed()
@@ -3091,6 +3115,27 @@ func (r *rpcServer) GetChanInfo(ctx context.Context,
 	return channelEdge, nil
 }
 
+func FindNodeChainInfo (chains *[]*lnrpc.NodeChainInfo, chain chainCode ) (*lnrpc.NodeChainInfo){
+	// search for chainInfo
+	var chainInfo *lnrpc.NodeChainInfo
+
+	for _, chainInfo = range *chains{
+		if chainInfo.Chain == chain.String(){
+			break
+		}
+
+	}
+	if (chainInfo == nil){
+		chainInfo = &lnrpc.NodeChainInfo{
+			Chain: 	chain.String(),
+		}
+		*chains = append(*chains, chainInfo)
+	}
+
+	return chainInfo
+}
+
+
 // GetNodeInfo returns the latest advertised and aggregate authenticated
 // channel information for the specified node identified by its public key.
 func (r *rpcServer) GetNodeInfo(ctx context.Context,
@@ -3122,12 +3167,17 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	var (
 		numChannels   uint32
 		totalCapacity btcutil.Amount
+		chains []*lnrpc.NodeChainInfo
 	)
 	if err := node.ForEachChannel(nil, func(_ *bolt.Tx, edge *channeldb.ChannelEdgeInfo,
 		_, _ *channeldb.ChannelEdgePolicy) error {
 
+		chain := chainMap[edge.ChainHash]
+		nodeChainInfo := FindNodeChainInfo(&chains,chain)
 		numChannels++
+		nodeChainInfo.NumChannels++
 		totalCapacity += edge.Capacity
+		nodeChainInfo.TotalCapacity += int64(edge.Capacity)
 		return nil
 	}); err != nil {
 		return nil, err
@@ -3154,6 +3204,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 		},
 		NumChannels:   numChannels,
 		TotalCapacity: int64(totalCapacity),
+		Chains:   		chains,
 	}, nil
 }
 

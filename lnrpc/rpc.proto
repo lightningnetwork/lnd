@@ -1384,6 +1384,12 @@ message NodeInfoRequest {
     string pub_key = 1;
 }
 
+message NodeChainInfo {
+    string chain = 1 [json_name = "chain"];
+    uint32 num_channels = 2 [json_name = "num_channels"];
+    int64 total_capacity = 3 [json_name = "total_capacity"];
+}
+
 message NodeInfo {
 
     /**
@@ -1396,6 +1402,7 @@ message NodeInfo {
 
     uint32 num_channels = 2 [json_name = "num_channels"];
     int64 total_capacity = 3 [json_name = "total_capacity"];
+    repeated NodeChainInfo chains =4 [json_name = "chains"];
 }
 
 /**

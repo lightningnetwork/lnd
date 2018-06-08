@@ -17,6 +17,10 @@ type Sig [64]byte
 func NewSigFromRawSignature(sig []byte) (Sig, error) {
 	var b Sig
 
+	if len(sig) == 0 {
+		return b, fmt.Errorf("cannot decode empty signature")
+	}
+
 	// Extract lengths of R and S. The DER representation is laid out as
 	// 0x30 <length> 0x02 <length r> r 0x02 <length s> s
 	// which means the length of R is the 4th byte and the length of S
@@ -61,6 +65,10 @@ func NewSigFromRawSignature(sig []byte) (Sig, error) {
 // NewSigFromSignature creates a new signature as used on the wire, from an
 // existing btcec.Signature.
 func NewSigFromSignature(e *btcec.Signature) (Sig, error) {
+	if e == nil {
+		return Sig{}, fmt.Errorf("cannot decode empty signature")
+	}
+
 	// Serialize the signature with all the checks that entails.
 	return NewSigFromRawSignature(e.Serialize())
 }

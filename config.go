@@ -434,7 +434,7 @@ func loadConfig() (*config, error) {
 	case cfg.DisableListen && (cfg.Tor.V2 || cfg.Tor.V3):
 		return nil, errors.New("listening must be enabled when " +
 			"enabling inbound connections over Tor")
-	case cfg.Tor.Active && (!cfg.Tor.V2 || !cfg.Tor.V3):
+	case cfg.Tor.Active && (!cfg.Tor.V2 && !cfg.Tor.V3):
 		// If an onion service version wasn't selected, we'll assume the
 		// user is only interested in outbound connections over Tor.
 		// Therefore, we'll disable listening in order to avoid
@@ -728,7 +728,10 @@ func loadConfig() (*config, error) {
 		normalizeNetwork(activeNetParams.Name))
 
 	// Initialize logging at the default logging level.
-	initLogRotator(filepath.Join(cfg.LogDir, defaultLogFilename), cfg.MaxLogFileSize, cfg.MaxLogFiles)
+	initLogRotator(
+		filepath.Join(cfg.LogDir, defaultLogFilename), cfg.MaxLogFileSize,
+		cfg.MaxLogFiles,
+	)
 
 	// Parse, validate, and set debug log level(s).
 	if err := parseAndSetDebugLevels(cfg.DebugLevel); err != nil {
@@ -771,6 +774,7 @@ func loadConfig() (*config, error) {
 
 	// Remove all Listeners if listening is disabled.
 	if cfg.DisableListen {
+		ltndLog.Infof("Listening on the p2p interface is disabled!")
 		cfg.Listeners = nil
 	}
 

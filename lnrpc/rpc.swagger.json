@@ -192,6 +192,33 @@
         ]
       }
     },
+    "/v1/channels/transactions/route": {
+      "post": {
+        "summary": "*\nSendToRouteSync is a synchronous version of SendToRoute. It Will block\nuntil the payment either fails or succeeds.",
+        "operationId": "SendToRouteSync",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcSendResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcSendToRouteRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/channels/{channel_point.funding_txid_str}/{channel_point.output_index}": {
       "delete": {
         "summary": "* lncli: `closechannel`\nCloseChannel attempts to close an active channel identified by its channel\noutpoint (ChannelPoint). The actions of this method can additionally be\naugmented to attempt a force close after a timeout period in the case of an\ninactive peer. If a non-force close (cooperative closure) is requested,\nthen the user can specify either a target number of blocks until the\nclosure transaction is confirmed, or a manual fee rate. If neither are\nspecified, then a default lax, block confirmation target is used.",
@@ -435,6 +462,14 @@
           {
             "name": "num_routes",
             "description": "/ The max number of routes to return.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "final_cltv_delta",
+            "description": "/ An optional CLTV delta from the current height that should be used for the timelock of the final hop.",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -2569,6 +2604,27 @@
         },
         "payment_route": {
           "$ref": "#/definitions/lnrpcRoute"
+        }
+      }
+    },
+    "lnrpcSendToRouteRequest": {
+      "type": "object",
+      "properties": {
+        "payment_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "/ The payment hash to use for the HTLC."
+        },
+        "payment_hash_string": {
+          "type": "string",
+          "description": "/ An optional hex-encoded payment hash to be used for the HTLC."
+        },
+        "routes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcRoute"
+          },
+          "description": "/ The set of routes that should be used to attempt to complete the payment."
         }
       }
     },

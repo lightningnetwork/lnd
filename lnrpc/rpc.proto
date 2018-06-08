@@ -619,6 +619,8 @@ message Transaction {
 
     /// Addresses that received funds for this transaction
     repeated string dest_addresses = 8 [ json_name = "dest_addresses" ];
+
+    string chain = 9 [json_name = "chain"];
 }
 message GetTransactionsRequest {
 }
@@ -736,6 +738,7 @@ message NewWitnessAddressRequest {
 message NewAddressResponse {
     /// The newly generated wallet address
     string address = 1 [json_name = "address"];
+    string chain = 2 [json_name = "chain"];
 }
 
 message SignMessageRequest {
@@ -867,6 +870,8 @@ message Channel {
 
     /// Whether this channel is advertised to the network or not
     bool private = 17 [json_name = "private"];
+
+    string Chain = 18 [json_name = "chain"];
 }
 
 message ListChannelsRequest {
@@ -879,7 +884,17 @@ message ListChannelsResponse {
     /// The list of active channels
     repeated Channel channels = 11 [json_name = "channels"];
 }
+message PeerChain {
 
+    string chain = 1 [json_name = "chain"];
+
+    /// Satoshis sent to this peer
+    int64 sat_sent = 2 [json_name = "sat_sent"];
+
+    /// Satoshis received from this peer
+    int64 sat_recv = 3 [json_name = "sat_recv"];
+
+}
 message Peer {
     /// The identity pubkey of the peer
     string pub_key = 1 [json_name = "pub_key"];
@@ -904,6 +919,8 @@ message Peer {
 
     /// Ping time to this peer
     int64 ping_time = 9 [json_name = "ping_time"];
+
+    repeated PeerChain chains = 10 [json_name = "chains"];
 }
 
 message ListPeersRequest {
@@ -911,6 +928,35 @@ message ListPeersRequest {
 message ListPeersResponse {
     /// The list of currently connected peers
     repeated Peer peers = 1 [json_name = "peers"];
+}
+
+message ChainInfo {
+
+    /// Name of chain
+    string chain = 1 [json_name = "chain"];
+
+    /// Number of pending channels
+    uint32 num_pending_channels = 2 [json_name = "num_pending_channels"];
+
+    /// Number of active channels
+    uint32 num_active_channels = 3 [json_name = "num_active_channels"];
+
+    /// The node's current view of the height of the best chain's block
+    uint32 block_height = 4 [json_name = "block_height"];
+
+    /// The node's current view of the hash of the best chain's block
+    string block_hash = 5 [json_name = "block_hash"];
+
+    /// Whether the wallet's view is synced to the chain
+    bool synced_to_chain = 6 [json_name = "synced_to_chain"];
+
+    /// Whether the current node is connected to testnet
+    bool testnet = 7 [json_name = "testnet"];
+
+    /// Timestamp of the chain's block best known to the wallet
+    int64 best_header_timestamp = 8 [ json_name = "best_header_timestamp" ];
+
+
 }
 
 message GetInfoRequest {
@@ -945,7 +991,7 @@ message GetInfoResponse {
     bool testnet = 10 [json_name = "testnet"];
 
     /// A list of active chains the node is connected to
-    repeated string chains = 11 [json_name = "chains"];
+    repeated ChainInfo chains = 11 [json_name = "chains"];
 
     /// The URIs of the current node.
     repeated string uris = 12 [json_name = "uris"];
@@ -1078,6 +1124,8 @@ message PendingChannelsResponse {
 
         int64 local_balance = 4 [ json_name = "local_balance" ];
         int64 remote_balance = 5 [ json_name = "remote_balance" ];
+        string chain = 6 [json_name = "chain"];
+
     }
 
     message PendingOpenChannel {
@@ -1167,6 +1215,19 @@ message PendingChannelsResponse {
 
 message WalletBalanceRequest {
 }
+message ChainWalletBalance{
+
+    string chain = 1 [json_name = "chain"];
+    /// The balance of the wallet
+    int64 total_balance = 2 [json_name = "total_balance"];
+
+    /// The confirmed balance of a wallet(with >= 1 confirmations)
+    int64 confirmed_balance = 3 [json_name = "confirmed_balance"];
+
+    /// The unconfirmed balance of a wallet(with 0 confirmations)
+    int64 unconfirmed_balance = 4 [json_name = "unconfirmed_balance"];
+
+}
 message WalletBalanceResponse {
     /// The balance of the wallet
     int64 total_balance = 1 [json_name = "total_balance"];
@@ -1176,6 +1237,21 @@ message WalletBalanceResponse {
 
     /// The unconfirmed balance of a wallet(with 0 confirmations)
     int64 unconfirmed_balance = 3 [json_name = "unconfirmed_balance"];
+
+    repeated ChainWalletBalance chains = 4 [json_name = "chains"];
+}
+
+message ChainBalanceInfo{
+
+    /// Name of chain
+    string chain = 1 [json_name = "chain"];
+
+    /// Sum of channels balances denominated in satoshis
+    int64 balance = 2 [json_name = "balance"];
+
+    /// Sum of channels pending balances denominated in satoshis
+    int64 pending_open_balance = 3 [json_name = "pending_open_balance"];
+
 }
 
 message ChannelBalanceRequest {
@@ -1186,6 +1262,8 @@ message ChannelBalanceResponse {
 
     /// Sum of channels pending balances denominated in satoshis
     int64 pending_open_balance = 2 [json_name = "pending_open_balance"];
+
+    repeated ChainBalanceInfo chains =  3 [json_name = "chains"];
 }
 
 message QueryRoutesRequest {
@@ -1200,6 +1278,8 @@ message QueryRoutesRequest {
 }
 message QueryRoutesResponse {
     repeated Route routes = 1 [ json_name = "routes"];
+
+    string chain =2 [json_name = "chain"];
 }
 
 message Hop {
@@ -1337,6 +1417,8 @@ message ChannelEdge {
 
     RoutingPolicy node1_policy = 7 [json_name = "node1_policy"];
     RoutingPolicy node2_policy = 8 [json_name = "node2_policy"];
+
+    string chain = 9 [json_name = "chain"];
 }
 
 message ChannelGraphRequest {
@@ -1360,6 +1442,19 @@ message ChanInfoRequest {
     uint64 chan_id = 1;
 }
 
+message ChainNetworkInfo{
+    string chain = 1 [json_name = "chain"];
+
+    uint32 num_channels = 2 [json_name = "num_channels"];
+
+    int64 total_network_capacity = 3 [json_name = "total_network_capacity"];
+
+    double avg_channel_size = 4 [json_name = "avg_channel_size"];
+    int64 min_channel_size = 5 [json_name = "min_channel_size"];
+    int64 max_channel_size = 6 [json_name = "max_channel_size"];
+
+}
+
 message NetworkInfoRequest {
 }
 message NetworkInfo {
@@ -1378,6 +1473,8 @@ message NetworkInfo {
 
     // TODO(roasbeef): fee rate info, expiry
     //  * also additional RPC for tracking fee info once in
+
+    repeated ChainNetworkInfo chains = 10 [json_name = "chains"];
 }
 
 message StopRequest{}
@@ -1516,6 +1613,8 @@ message Invoice {
 
     /// Whether this invoice should include routing hints for private channels.
     bool private = 15 [json_name = "private"];
+
+    string chain = 16 [json_name = "chain"];
 }
 message AddInvoiceResponse {
     bytes r_hash = 1 [json_name = "r_hash"];
@@ -1526,6 +1625,8 @@ message AddInvoiceResponse {
     payment to the recipient.
     */
     string payment_request = 2 [json_name = "payment_request"];
+
+    string chain = 3 [json_name = "chain"];
 }
 message PaymentHash {
     /**
@@ -1567,6 +1668,8 @@ message Payment {
 
     /// The payment preimage
     string payment_preimage = 6 [json_name = "payment_preimage"];
+
+    string chain = 7 [json_name = "chain"];
 }
 
 message ListPaymentsRequest {
@@ -1606,9 +1709,23 @@ message PayReq {
     string fallback_addr = 8 [json_name = "fallback_addr"];
     int64 cltv_expiry = 9 [json_name = "cltv_expiry"];
     repeated RouteHint route_hints = 10 [json_name = "route_hints"];
+    string chain = 11 [json_name = "chain"];
 }
 
 message FeeReportRequest {}
+message ChainFeeReport {
+    string chain = 1 [json_name = "chain"];
+
+    /// The total amount of fee revenue (in satoshis) the switch has collected over the past 24 hrs.
+    uint64 day_fee_sum = 2 [json_name = "day_fee_sum"];
+
+    /// The total amount of fee revenue (in satoshis) the switch has collected over the past 1 week.
+    uint64 week_fee_sum = 3 [json_name = "week_fee_sum"];
+
+    /// The total amount of fee revenue (in satoshis) the switch has collected over the past 1 month.
+    uint64 month_fee_sum = 4 [json_name = "month_fee_sum"];
+
+}
 message ChannelFeeReport {
     /// The channel that this fee report belongs to.
     string chan_point = 1 [json_name = "channel_point"];
@@ -1621,6 +1738,8 @@ message ChannelFeeReport {
 
     /// The effective fee rate in milli-satoshis. Computed by dividing the fee_per_mil value by 1 million.
     double fee_rate = 4 [json_name = "fee_rate"];
+
+    string chain = 5 [json_name = "chain"];
 }
 message FeeReportResponse {
     /// An array of channel fee reports which describes the current fee schedule for each channel.
@@ -1634,6 +1753,8 @@ message FeeReportResponse {
 
     /// The total amount of fee revenue (in satoshis) the switch has collected over the past 1 month.
     uint64 month_fee_sum = 4 [json_name = "month_fee_sum"];
+
+    repeated ChainFeeReport chains = 5 [json_name = "chains"];
 }
 
 message PolicyUpdateRequest {

@@ -509,7 +509,10 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 	}
 
 	rpcsLog.Infof("[newaddress] addr=%v", addr.String())
-	return &lnrpc.NewAddressResponse{Address: addr.String()}, nil
+	return &lnrpc.NewAddressResponse{
+				Address: addr.String(),
+				Chain: registeredChains.primaryChain.String(),
+			}, nil
 }
 
 // NewWitnessAddress returns a new native witness address under the control of
@@ -1224,9 +1227,51 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 			"with current best block in the main chain: %v", err)
 	}
 
-	activeChains := make([]string, registeredChains.NumActiveChains())
-	for i, chain := range registeredChains.ActiveChains() {
-		activeChains[i] = chain.String()
+	var chains []*lnrpc.ChainInfo
+
+	for _ , chain := range registeredChains.ActiveChains() {
+		var activeChannels,pendingChannels uint32
+
+		cc,ok := registeredChains.LookupChain(chain)
+		if !ok {
+			return nil, fmt.Errorf("unable to get chain control for: %v", chain.String())
+		}
+
+		serverPeers := r.server.Peers()
+		for _, serverPeer := range serverPeers {
+			activeChannels += serverPeer.ActiveChannelsCount(*cc.wallet.Cfg.NetParams.GenesisHash)
+		}
+
+		pendingChannels, err := r.server.chanDB.PendingChannelsCount(*cc.wallet.Cfg.NetParams.GenesisHash)
+		if err != nil {
+			return nil, fmt.Errorf("unable to get retrieve pending "+
+				"channels: %v", err)
+		}
+
+		bestHash, bestHeight, err := cc.chainIO.GetBestBlock()
+		if err != nil {
+			return nil, fmt.Errorf("unable to get best block info: %v", err)
+		}
+
+		isSynced, bestHeaderTimestamp, err := cc.wallet.IsSynced()
+		if err != nil {
+			return nil, fmt.Errorf("unable to sync PoV of the wallet "+
+				"with current best block in %v chain: %v", chain.String(), err)
+		}
+
+		// TODO(offer): get rid of activeNetParams
+		ci := &lnrpc.ChainInfo{
+			Chain: chain.String(),
+			NumActiveChannels:activeChannels,
+			NumPendingChannels:pendingChannels,
+			BlockHash: bestHash.String(),
+			BlockHeight: uint32(bestHeight),
+			SyncedToChain:isSynced,
+			Testnet:isTestnet(&activeNetParams),
+			BestHeaderTimestamp:int64(bestHeaderTimestamp),
+		}
+		chains = append(chains, ci)
+
 	}
 
 	// Check if external IP addresses were provided to lnd and use them
@@ -1252,7 +1297,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		BlockHash:           bestHash.String(),
 		SyncedToChain:       isSynced,
 		Testnet:             isTestnet(&activeNetParams),
-		Chains:              activeChains,
+		Chains:              chains,
 		Uris:                uris,
 		Alias:               nodeAnn.Alias.String(),
 		BestHeaderTimestamp: int64(bestHeaderTimestamp),
@@ -1282,6 +1327,7 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 		// transported through this peer, we'll sum up the sent/recv'd
 		// values for each of the active channels we have with the
 		// peer.
+		var chains []*lnrpc.PeerChain
 		chans := serverPeer.ChannelSnapshots()
 		for _, c := range chans {
 			satSent += int64(c.TotalMSatSent.ToSatoshis())
@@ -1298,6 +1344,7 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 			SatSent:   satSent,
 			SatRecv:   satRecv,
 			PingTime:  serverPeer.PingTime(),
+			Chains:		chains,
 		}
 
 		resp.Peers = append(resp.Peers, peer)
@@ -1333,10 +1380,48 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 
 	rpcsLog.Debugf("[walletbalance] Total balance=%v", totalBal)
 
+	var chains []*lnrpc.ChainWalletBalance
+
+	for _ , chain := range registeredChains.ActiveChains() {
+
+		cc,ok := registeredChains.LookupChain(chain)
+		if !ok {
+			return nil, fmt.Errorf("unable to get chain control for: %v", chain.String())
+		}
+
+		// Get total balance, from txs that have >= 0 confirmations.
+		totalBal, err := cc.wallet.ConfirmedBalance(0)
+		if err != nil {
+			return nil, err
+		}
+
+		// Get confirmed balance, from txs that have >= 1 confirmations.
+		confirmedBal, err := cc.wallet.ConfirmedBalance(1)
+		if err != nil {
+			return nil, err
+		}
+
+		// Get unconfirmed balance, from txs with 0 confirmations.
+		unconfirmedBal := totalBal - confirmedBal
+
+
+		ci := &lnrpc.ChainWalletBalance{
+			Chain: chain.String(),
+			TotalBalance:       int64(totalBal),
+			ConfirmedBalance:   int64(confirmedBal),
+			UnconfirmedBalance: int64(unconfirmedBal),
+		}
+
+		chains = append(chains, ci)
+
+	}
+
+
 	return &lnrpc.WalletBalanceResponse{
 		TotalBalance:       int64(totalBal),
 		ConfirmedBalance:   int64(confirmedBal),
 		UnconfirmedBalance: int64(unconfirmedBal),
+		Chains:				chains,
 	}, nil
 }
 
@@ -1406,6 +1491,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		utx := btcutil.NewTx(localCommitment.CommitTx)
 		commitBaseWeight := blockchain.GetTransactionWeight(utx)
 		commitWeight := commitBaseWeight + lnwallet.WitnessCommitmentTxWeight
+		chain := chainMap[pendingChan.ChainHash]
 
 		resp.PendingOpenChannels[i] = &lnrpc.PendingChannelsResponse_PendingOpenChannel{
 			Channel: &lnrpc.PendingChannelsResponse_PendingChannel{
@@ -1414,6 +1500,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 				Capacity:      int64(pendingChan.Capacity),
 				LocalBalance:  int64(localCommitment.LocalBalance.ToSatoshis()),
 				RemoteBalance: int64(localCommitment.RemoteBalance.ToSatoshis()),
+				Chain:		   chain.String(),
 			},
 			CommitWeight: commitWeight,
 			CommitFee:    int64(localCommitment.CommitFee),
@@ -1439,11 +1526,13 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		// needed regardless of how this channel was closed.
 		pub := pendingClose.RemotePub.SerializeCompressed()
 		chanPoint := pendingClose.ChanPoint
+		chain := chainMap[pendingClose.ChainHash]
 		channel := &lnrpc.PendingChannelsResponse_PendingChannel{
 			RemoteNodePub: hex.EncodeToString(pub),
 			ChannelPoint:  chanPoint.String(),
 			Capacity:      int64(pendingClose.Capacity),
 			LocalBalance:  int64(pendingClose.SettledBalance),
+			Chain:			chain.String(),
 		}
 
 		closeTXID := pendingClose.ClosingTXID.String()
@@ -1548,11 +1637,13 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 	for _, waitingClose := range waitingCloseChans {
 		pub := waitingClose.IdentityPub.SerializeCompressed()
 		chanPoint := waitingClose.FundingOutpoint
+		chain := chainMap[waitingClose.ChainHash]
 		channel := &lnrpc.PendingChannelsResponse_PendingChannel{
 			RemoteNodePub: hex.EncodeToString(pub),
 			ChannelPoint:  chanPoint.String(),
 			Capacity:      int64(waitingClose.Capacity),
 			LocalBalance:  int64(waitingClose.LocalCommitment.LocalBalance.ToSatoshis()),
+			Chain: 		   chain.String(),
 		}
 
 		// A close tx has been broadcasted, all our balance will be in
@@ -1666,6 +1757,8 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		}
 		externalCommitFee := dbChannel.Capacity - sumOutputs
 
+		chain := chainMap[dbChannel.ChainHash]
+
 		channel := &lnrpc.Channel{
 			Active:                isActive,
 			Private:               !isPublic,
@@ -1683,6 +1776,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 			NumUpdates:            localCommit.CommitHeight,
 			PendingHtlcs:          make([]*lnrpc.HTLC, len(localCommit.Htlcs)),
 			CsvDelay:              uint32(dbChannel.LocalChanCfg.CsvDelay),
+			Chain:					chain.String(),
 		}
 
 		for i, htlc := range localCommit.Htlcs {
@@ -2438,6 +2532,8 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 	preimage := invoice.Terms.PaymentPreimage
 	satAmt := invoice.Terms.Value.ToSatoshis()
 
+	chain := chainMap[*decoded.Net.GenesisHash]
+
 	return &lnrpc.Invoice{
 		Memo:            string(invoice.Memo[:]),
 		Receipt:         invoice.Receipt[:],
@@ -2453,6 +2549,7 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 		CltvExpiry:      cltvExpiry,
 		FallbackAddr:    fallbackAddr,
 		RouteHints:      routeHints,
+		Chain:			 chain.String(),
 	}, nil
 }
 
@@ -2650,6 +2747,7 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 		for _, destAddress := range tx.DestAddresses {
 			destAddresses = append(destAddresses, destAddress.EncodeAddress())
 		}
+		chain := chainMap[tx.Hash]
 
 		txDetails.Transactions[i] = &lnrpc.Transaction{
 			TxHash:           tx.Hash.String(),
@@ -2660,6 +2758,7 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 			TimeStamp:        tx.Timestamp,
 			TotalFees:        tx.TotalFees,
 			DestAddresses:    destAddresses,
+			Chain:			  chain.String(),
 		}
 	}
 
@@ -2741,6 +2840,8 @@ func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 		lastUpdate = c1.LastUpdate.Unix()
 	}
 
+	chain := chainMap[edgeInfo.ChainHash]
+
 	edge := &lnrpc.ChannelEdge{
 		ChannelId: edgeInfo.ChannelID,
 		ChanPoint: edgeInfo.ChannelPoint.String(),
@@ -2749,6 +2850,7 @@ func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 		Node1Pub:   hex.EncodeToString(edgeInfo.NodeKey1Bytes[:]),
 		Node2Pub:   hex.EncodeToString(edgeInfo.NodeKey2Bytes[:]),
 		Capacity:   int64(edgeInfo.Capacity),
+		Chain:		chain.String(),
 	}
 
 	if c1 != nil {
@@ -2911,10 +3013,12 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 		numRoutes = in.NumRoutes
 	}
 
+	chain := chainMap[*r.server.cc.wallet.Cfg.NetParams.GenesisHash]
 	// For each valid route, we'll convert the result into the format
 	// required by the RPC system.
 	routeResp := &lnrpc.QueryRoutesResponse{
 		Routes: make([]*lnrpc.Route, 0, in.NumRoutes),
+		Chain:	chain.String(),
 	}
 	for i := int32(0); i < numRoutes; i++ {
 		routeResp.Routes = append(

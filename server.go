@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -435,12 +436,15 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	}
 
 	s.authGossiper, err = discovery.New(discovery.Config{
-		Router:           s.chanRouter,
-		Notifier:         s.cc.chainNotifier,
-		ChainHash:        *activeNetParams.GenesisHash,
-		Broadcast:        s.BroadcastMessage,
-		ChanSeries:       &chanSeries{s.chanDB.ChannelGraph()},
-		SendToPeer:       s.SendToPeer,
+		Router:     s.chanRouter,
+		Notifier:   s.cc.chainNotifier,
+		ChainHash:  *activeNetParams.GenesisHash,
+		Broadcast:  s.BroadcastMessage,
+		ChanSeries: &chanSeries{s.chanDB.ChannelGraph()},
+		SendToPeer: s.SendToPeer,
+		FindPeer: func(pub *btcec.PublicKey) (lnpeer.Peer, error) {
+			return s.FindPeer(pub)
+		},
 		NotifyWhenOnline: s.NotifyWhenOnline,
 		ProofMatureDelta: 0,
 		TrickleDelay:     time.Millisecond * time.Duration(cfg.TrickleDelay),
@@ -1882,7 +1886,7 @@ func (s *server) addPeer(p *peer) {
 		// TODO(roasbeef): craft s.t. we only get updates from a few
 		// peers
 		recvUpdates := !cfg.NoChanUpdates
-		go s.authGossiper.InitSyncState(p.addr.IdentityKey, recvUpdates)
+		go s.authGossiper.InitSyncState(p, recvUpdates)
 
 	// If the remote peer has the initial sync feature bit set, then we'll
 	// being the synchronization protocol to exchange authenticated channel
@@ -1892,7 +1896,7 @@ func (s *server) addPeer(p *peer) {
 		srvrLog.Infof("Requesting full table sync with %x",
 			p.pubKeyBytes[:])
 
-		go s.authGossiper.SynchronizeNode(p.addr.IdentityKey)
+		go s.authGossiper.SynchronizeNode(p)
 	}
 
 	// Check if there are listeners waiting for this peer to come online.

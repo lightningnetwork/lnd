@@ -489,7 +489,7 @@ func (r *ChannelReservation) CompleteReservation(
 // called as a response to a single funder channel, only a commitment signature
 // will be populated.
 func (r *ChannelReservation) CompleteReservationSingle(
-	fundingPoint *wire.OutPoint, commitSig []byte, remoteChangeOutput *wire.TxOut,
+	fundingPoint *wire.OutPoint, commitSig []byte, remoteExtractOutput, remoteChangeOutput *wire.TxOut,
 	oldChannelID lnwire.ChannelID, openType lnwire.OpenType) (*channeldb.OpenChannel, error) {
 
 	errChan := make(chan error, 1)
@@ -501,6 +501,7 @@ func (r *ChannelReservation) CompleteReservationSingle(
 		theirCommitmentSig: commitSig,
 		oldChannelID:       oldChannelID,
 		remoteChangeOutPut: remoteChangeOutput,
+		remoteExtractOutPut:remoteExtractOutput,
 		openType:           openType,
 		completeChan:       completeChan,
 		err:                errChan,

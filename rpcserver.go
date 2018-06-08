@@ -1298,12 +1298,12 @@ func (r *rpcServer) ExtractFund(in *lnrpc.ExtractFundRequest,
 	index := in.ChannelPoint.OutputIndex
 	txidHash, err := getChanPointFundingTxid(in.GetChannelPoint())
 	if err != nil {
-		rpcsLog.Errorf("[addfund] unable to get funding txid: %v", err)
+		rpcsLog.Errorf("[extractfund] unable to get funding txid: %v", err)
 		return err
 	}
 	txid, err := chainhash.NewHash(txidHash)
 	if err != nil {
-		rpcsLog.Errorf("[addfund] invalid txid: %v", err)
+		rpcsLog.Errorf("[extractfund] invalid txid: %v", err)
 		return err
 	}
 	chanPoint := wire.NewOutPoint(txid, index)
@@ -1330,9 +1330,58 @@ func (r *rpcServer) ExtractFund(in *lnrpc.ExtractFundRequest,
 		return fmt.Errorf("cannot add fund to channel " +
 			"with active htlcs")
 	}
+	feeRate, err := r.server.cc.feeEstimator.EstimateFeePerVSize(6)
+	if err != nil {
+		return err
+	}
+	updateChan, errChan := r.server.SpliceOut(channelID, btcutil.Amount(in.ExtractFundingAmount),
+		feeRate, false)
+	var outpoint wire.OutPoint
+out:
+	for {
+		select {
+		case err := <-errChan:
+			rpcsLog.Errorf("unable to add fund to channel : %v",
+				err)
 
+			channel.ResetState()
+			return err
+		case fundingUpdate := <-updateChan:
+			rpcsLog.Tracef("[extractfund] sending update: %v",
+				fundingUpdate)
+			if err := updateStream.Send(fundingUpdate); err != nil {
+				return err
+			}
 
+			// If a final channel open update is being sent, then
+			// we can break out of our recv loop as we no longer
+			// need to process any further updates.
+			switch update := fundingUpdate.Update.(type) {
+			case *lnrpc.OpenStatusUpdate_ChanOpen:
+				chanPoint := update.ChanOpen.ChannelPoint
+				txidHash, err := getChanPointFundingTxid(chanPoint)
+				if err != nil {
+					return err
+				}
 
+				h, err := chainhash.NewHash(txidHash)
+				if err != nil {
+					return err
+				}
+				outpoint = wire.OutPoint{
+					Hash:  *h,
+					Index: chanPoint.OutputIndex,
+				}
+
+				break out
+			}
+		case <-r.quit:
+			return nil
+		}
+	}
+
+	rpcsLog.Tracef("[extractfund] success ChannelPoint(%v)",
+		outpoint)
 	return nil
 }
 

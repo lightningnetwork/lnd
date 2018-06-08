@@ -202,6 +202,7 @@ func main() {
 		openChannelCommand,
 		closeChannelCommand,
 		addFundCommand,
+		extractFundCommand,
 		closeAllChannelsCommand,
 		listPeersCommand,
 		walletBalanceCommand,

@@ -30,6 +30,10 @@ type FundingCreated struct {
 
 	// ChangeOutputScript is the lock script of change output of the funding tx
 	ChangeOutputScript DeliveryAddress
+
+	ExtractOutputValue int64
+
+	ExtractOutputScript DeliveryAddress
 }
 
 // A compile time check to ensure FundingCreated implements the lnwire.Message
@@ -47,8 +51,9 @@ func (f *FundingCreated) Encode(w io.Writer, pver uint32) error {
 		f.FundingPoint,
 		f.CommitSig,
 		f.ChangeOutputValue,
-		f.ChangeOutputScript)
-	//		f.ChangeOutPut)
+		f.ChangeOutputScript,
+		f.ExtractOutputValue,
+		f.ExtractOutputScript)
 }
 
 // Decode deserializes the serialized FundingCreated stored in the passed
@@ -62,8 +67,9 @@ func (f *FundingCreated) Decode(r io.Reader, pver uint32) error {
 		&f.FundingPoint,
 		&f.CommitSig,
 		&f.ChangeOutputValue,
-		&f.ChangeOutputScript)
-	//		&f.ChangeOutPut)
+		&f.ChangeOutputScript,
+		&f.ExtractOutputValue,
+		&f.ExtractOutputScript)
 }
 
 // MsgType returns the uint32 code which uniquely identifies this message as a
@@ -79,6 +85,6 @@ func (f *FundingCreated) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (f *FundingCreated) MaxPayloadLength(uint32) uint32 {
-	// 32 + 32 + 2 + 64 + //8 + 2 + 34
-	return 130 + 44
+	// 32 + 32 + 2 + 64 + //8 + 2 + 34 + // 8 + 2 + 34
+	return 130 + 44 + 44
 }

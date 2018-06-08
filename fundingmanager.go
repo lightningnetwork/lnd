@@ -1274,14 +1274,29 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 
 	fndgLog.Infof("Generated ChannelPoint(%v) for pendingID(%x)", outPoint,
 		pendingChanID[:])
+	var fundingCreated *lnwire.FundingCreated
 
-	fundingCreated := &lnwire.FundingCreated{
+	// If this open work is Splice-out, we need add the outPut of extraction to
+	// the fundingCreated object.
+	if resCtx.openType == lnwire.OpenSpliceOutChannel {
+		fundingCreated = &lnwire.FundingCreated{
 		PendingChannelID: pendingChanID,
 		FundingPoint:     *outPoint,
-		ChangeOutputValue: resCtx.reservation.OurContribution().
-			ChangeOutputs[0].Value,
-		ChangeOutputScript: resCtx.reservation.OurContribution().
-			ChangeOutputs[0].PkScript,
+		ExtractOutputValue: resCtx.reservation.OurContribution().
+			ExtractOutputs[0].Value,
+		ExtractOutputScript: resCtx.reservation.OurContribution().
+			ExtractOutputs[0].PkScript,
+		}
+	} else {
+	// If not, their is changeOutput we need to add to the fundingCreated.
+		fundingCreated = &lnwire.FundingCreated{
+			PendingChannelID: pendingChanID,
+			FundingPoint:     *outPoint,
+			ChangeOutputValue: resCtx.reservation.OurContribution().
+				ChangeOutputs[0].Value,
+			ChangeOutputScript: resCtx.reservation.OurContribution().
+				ChangeOutputs[0].PkScript,
+		}
 	}
 	fundingCreated.CommitSig, err = lnwire.NewSigFromRawSignature(sig)
 	if err != nil {
@@ -1347,8 +1362,13 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 		Value:    fmsg.msg.ChangeOutputValue,
 		PkScript: fmsg.msg.ChangeOutputScript,
 	}
-	completeChan, err := resCtx.reservation.CompleteReservationSingle(&fundingOut,
-		commitSig, changeOutput, resCtx.oldChannelID, resCtx.openType)
+	extractOuput := &wire.TxOut{
+		Value: 	fmsg.msg.ExtractOutputValue,
+		PkScript:fmsg.msg.ExtractOutputScript,
+	}
+	completeChan, err := resCtx.reservation.CompleteReservationSingle(
+		&fundingOut, commitSig, extractOuput, changeOutput,
+		resCtx.oldChannelID, resCtx.openType)
 	if err != nil {
 		// TODO(roasbeef): better error logging: peerID, channelID, etc.
 		fndgLog.Errorf("unable to complete single reservation: %v", err)
@@ -1395,7 +1415,8 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 	// when the open type is rebalancechannel, the signature of the old funding
 	// tx should be sent to the initiator.
 	var ourOldFundingTxSig lnwire.Sig
-	if resCtx.openType == lnwire.OpenSpliceInChannel {
+	if resCtx.openType == lnwire.OpenSpliceInChannel ||
+		resCtx.openType == lnwire.OpenSpliceOutChannel {
 		ourOldFundingTxSig, err = lnwire.NewSigFromRawSignature(
 			resCtx.reservation.OurOldFundingTxSignature())
 	}

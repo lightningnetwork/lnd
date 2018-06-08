@@ -219,6 +219,8 @@ type addSingleFunderSigsMsg struct {
 
 	remoteChangeOutPut *wire.TxOut
 
+	remoteExtractOutPut *wire.TxOut
+
 	oldChannelID lnwire.ChannelID
 
 	openType lnwire.OpenType
@@ -748,9 +750,10 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 }
 
 // Rebalance channel时接收方需要创建newFundingTx，这个Tx和发起方创建的Tx的Vin有不同的地方
-// 发起方：发起方创建的fundingTx包含完整Vin和Vout，而该函数创建的Tx的输出和前者的输出是相同的
+// 发起方：splice-in时发起方创建的fundingTx包含完整Vin和Vout，而该函数创建的Tx的输出和前者的输出是相同的
 // 然而并没有包含发起者往里面放的addFund部分的Vin，这不影响接收方为newFundingTx创建签名
-func (l *LightningWallet) genNewFundingTxForReceiver(remoteChangeOutput,
+// splice-out时一个Vin两个Vout，这在发起方和接收方是相同的。
+func (l *LightningWallet) genNewFundingTxForReceiver(remoteOutput,
 	newFundingTxOut *wire.TxOut, channelID lnwire.ChannelID) (*wire.MsgTx,
 	*channeldb.OpenChannel, error) {
 
@@ -770,7 +773,7 @@ func (l *LightningWallet) genNewFundingTxForReceiver(remoteChangeOutput,
 		return nil, nil, fmt.Errorf("can not find the old channelID")
 	}
 	newFundingTx := wire.NewMsgTx(1)
-	newFundingTx.AddTxOut(remoteChangeOutput)
+	newFundingTx.AddTxOut(remoteOutput)
 	newFundingTx.AddTxOut(newFundingTxOut)
 	newFundingTx.AddTxIn(wire.NewTxIn(&oldChannel.FundingOutpoint, nil, nil))
 	//oldFundingTxOutPut, err := l.Cfg.ChainIO.GetUtxo(&oldChannel.FundingOutpoint, 0)
@@ -887,7 +890,8 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	}
 
 	// 我们在这里为新的fundingTx的Vin添加上oldFundingTx的Vout
-	if req.openType == lnwire.OpenSpliceInChannel {
+	if req.openType == lnwire.OpenSpliceInChannel ||
+		req.openType == lnwire.OpenSpliceOutChannel {
 		dbChannels, err := l.Cfg.Database.FetchAllChannels()
 		var oldChannel *channeldb.OpenChannel
 		if err != nil {
@@ -1104,9 +1108,10 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 
 	var txInLen int
 
-	// when we do splice-in, we need to build the new funding tx and validate
+	// when we do splice-in/out, we need to build the new funding tx and validate
 	// the counterparty's signature of the old funding tx.
-	if msg.opentype == lnwire.OpenSpliceInChannel {
+	if msg.opentype == lnwire.OpenSpliceInChannel ||
+		msg.opentype == lnwire.OpenSpliceOutChannel {
 
 		txInLen = len(fundingTx.TxIn) - 1
 
@@ -1365,7 +1370,8 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 
 	// For splice-in transaction, we need build the splice-in transaction and
 	// Sign the vin from old funding for the transaction.
-	if req.openType == lnwire.OpenSpliceInChannel {
+	if req.openType == lnwire.OpenSpliceInChannel ||
+		req.openType == lnwire.OpenSpliceOutChannel {
 		ourKey := pendingReservation.ourContribution.MultiSigKey
 		theirKey := pendingReservation.theirContribution.MultiSigKey
 
@@ -1380,8 +1386,15 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		}
 
 		// Here we generate a funding tx with only one input and all output.
-		fundingTx, oldChannel, err := l.genNewFundingTxForReceiver(req.remoteChangeOutPut,
-			multiSigOut, req.oldChannelID)
+		var fundingTx *wire.MsgTx
+		var oldChannel *channeldb.OpenChannel
+		if req.openType == lnwire.OpenSpliceInChannel {
+			fundingTx, oldChannel, err = l.genNewFundingTxForReceiver(req.remoteChangeOutPut,
+				multiSigOut, req.oldChannelID)
+		} else {
+			fundingTx, oldChannel, err = l.genNewFundingTxForReceiver(req.remoteExtractOutPut,
+				multiSigOut, req.oldChannelID)
+		}
 		if err != nil {
 			req.err <- err
 			req.completeChan <- nil

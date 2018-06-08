@@ -666,6 +666,7 @@ var addFundCommand = cli.Command{
 	Action: actionDecorator(addFund),
 }
 
+
 func addFund(ctx *cli.Context) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
@@ -728,6 +729,161 @@ func addFund(ctx *cli.Context) error {
 	}
 
 	stream, err := client.AddFund(ctxb, req)
+	if err != nil {
+		return nil
+	}
+	for {
+		resp, err := stream.Recv()
+		if err == io.EOF {
+			return nil
+		} else if err != nil {
+			return err
+		}
+
+		switch update := resp.Update.(type) {
+		case *lnrpc.OpenStatusUpdate_ChanPending:
+			txid, err := chainhash.NewHash(update.ChanPending.Txid)
+			if err != nil {
+				return err
+			}
+
+			printJSON(struct {
+				FundingTxid string `json:"funding_txid"`
+			}{
+				FundingTxid: txid.String(),
+			},
+			)
+
+			if !ctx.Bool("block") {
+				return nil
+			}
+
+		case *lnrpc.OpenStatusUpdate_ChanOpen:
+			channelPoint := update.ChanOpen.ChannelPoint
+
+			// A channel point's funding txid can be get/set as a
+			// byte slice or a string. In the case it is a string,
+			// decode it.
+			var txidHash []byte
+			switch channelPoint.GetFundingTxid().(type) {
+			case *lnrpc.ChannelPoint_FundingTxidBytes:
+				txidHash = channelPoint.GetFundingTxidBytes()
+			case *lnrpc.ChannelPoint_FundingTxidStr:
+				s := channelPoint.GetFundingTxidStr()
+				h, err := chainhash.NewHashFromStr(s)
+				if err != nil {
+					return err
+				}
+
+				txidHash = h[:]
+			}
+
+			txid, err := chainhash.NewHash(txidHash)
+			if err != nil {
+				return err
+			}
+
+			index := channelPoint.OutputIndex
+			printJSON(struct {
+				ChannelPoint string `json:"channel_point"`
+			}{
+				ChannelPoint: fmt.Sprintf("%v:%v", txid, index),
+			},
+			)
+		}
+	}
+	return nil
+}
+
+var extractFundCommand = cli.Command{
+	Name:  "extractfund",
+	Usage: "extract fund from an existing channel",
+	Description: `
+	Attempt to extract some fund from an existing channel. This will make the old funding tx
+	as a Vin, which will be added to the new funding tx and will create a new channel 
+	and remove the old one.
+	`,
+	ArgsUsage: "funding_txid output_index extract_amt",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "funding_txid",
+			Usage: "the txid of the channel's funding transaction",
+		},
+		cli.IntFlag{
+			Name: "output_index",
+			Usage: "the output index for the funding output of the funding " +
+				"transaction",
+		},
+		cli.IntFlag{
+			Name:  "extract_amt",
+			Usage: "the amount you will add to the channel",
+		},
+	},
+	Action: actionDecorator(extractFund),
+}
+
+func extractFund(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	args := ctx.Args()
+
+	// Show command help if no arguments provided
+	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
+		cli.ShowCommandHelp(ctx, "extractfund")
+		return nil
+	}
+
+	req := &lnrpc.ExtractFundRequest {
+		ChannelPoint: &lnrpc.ChannelPoint{},
+		//TargetConf:   int32(ctx.Int64("conf_target")),
+		//SatPerByte:   ctx.Int64("sat_per_byte"),
+		//AddFundingAmount: ctx.Int64("add_funding_amount"),
+	}
+
+	switch {
+	case ctx.IsSet("funding_txid"):
+		req.ChannelPoint.FundingTxid = &lnrpc.ChannelPoint_FundingTxidStr{
+			FundingTxidStr: ctx.String("funding_txid"),
+		}
+	case args.Present():
+		req.ChannelPoint.FundingTxid = &lnrpc.ChannelPoint_FundingTxidStr{
+			FundingTxidStr: args.First(),
+		}
+		args = args.Tail()
+	default:
+		return fmt.Errorf("funding txid argument missing")
+	}
+
+	switch {
+	case ctx.IsSet("output_index"):
+		req.ChannelPoint.OutputIndex = uint32(ctx.Int("output_index"))
+	case args.Present():
+		index, err := strconv.ParseUint(args.First(), 10, 32)
+		if err != nil {
+			return fmt.Errorf("unable to decode output index: %v", err)
+		}
+		req.ChannelPoint.OutputIndex = uint32(index)
+	default:
+		req.ChannelPoint.OutputIndex = 0
+	}
+
+	switch {
+	case ctx.IsSet("extract_amt"):
+		req.ExtractFundingAmount = ctx.Int64("extract_amt")
+	case args.Present():
+		extractFundingAmount, err := strconv.ParseInt(args.First(), 10, 64)
+		if err != nil {
+			return fmt.Errorf("unable to decode add amount: %v", err)
+		}
+		req.ExtractFundingAmount = extractFundingAmount
+		args = args.Tail()
+	default:
+		req.ChannelPoint.OutputIndex = 0
+	}
+
+	stream, err := client.ExtractFund(ctxb, req)
 	if err != nil {
 		return nil
 	}

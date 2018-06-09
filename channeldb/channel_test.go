@@ -640,6 +640,21 @@ func TestFetchPendingChannels(t *testing.T) {
 	}
 	defer cleanUp()
 
+	// Close database to see how PendingChannelsCount handles error
+	cleanUp()
+	hash, err := chainhash.NewHash(key[:])
+	pendingChannelsCount, err :=  cdb.PendingChannelsCount(*hash)
+
+	if err == nil{
+		t.Fatalf("Got no error from PendingChannelsCount on close database")
+	}
+
+	// Recreate the database to continue the texts
+	cdb, cleanUp, err = makeTestDB()
+	if err != nil {
+		t.Fatalf("unable to make second test database : %v", err)
+	}
+
 	// Create first test channel state
 	state, err := createTestChannelState(cdb)
 	if err != nil {
@@ -665,6 +680,17 @@ func TestFetchPendingChannels(t *testing.T) {
 		t.Fatalf("incorrect number of pending channels: expecting %v,"+
 			"got %v", 1, len(pendingChannels))
 	}
+
+	pendingChannelsCount, err =  cdb.PendingChannelsCount(pendingChannels[0].ChainHash)
+
+	if err != nil{
+		t.Fatalf("unable to fetch pending channels count")
+	}
+	if  pendingChannelsCount != 1{
+		t.Fatalf("incorrect number of pending channels: expecting %v,"+
+			"got %v", 1, pendingChannelsCount)
+	}
+
 
 	// The broadcast height of the pending channel should have been set
 	// properly.

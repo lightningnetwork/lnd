@@ -12,6 +12,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
 const (
@@ -351,6 +352,28 @@ func (d *DB) FetchAllChannels() ([]*OpenChannel, error) {
 // confirmed.
 func (d *DB) FetchAllOpenChannels() ([]*OpenChannel, error) {
 	return fetchChannels(d, false, false)
+}
+
+// PendingChannelsCount will return the number of channels that have completed the process of
+// generating and broadcasting funding transactions, but whose funding
+// transactions have yet to be confirmed on the blockchain.
+func (d *DB) PendingChannelsCount(chainHash chainhash.Hash) (uint32, error) {
+	pendingChannels, err := fetchChannels(d, true, false)
+	if err != nil {
+		return 0, err
+	}
+
+	var count uint32
+
+	for _, pendingChan := range pendingChannels {
+
+		if bytes.Equal(pendingChan.ChainHash[:], chainHash[:]){
+			count++
+		}
+
+	}
+
+	return count,nil
 }
 
 // FetchPendingChannels will return channels that have completed the process of

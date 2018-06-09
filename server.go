@@ -1545,6 +1545,9 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	addr := conn.RemoteAddr()
 	pubKey := brontideConn.RemotePub()
 
+	srvrLog.Infof("finalizing connection to %x, inbound=%v",
+		pubKey.SerializeCompressed(), inbound)
+
 	peerAddr := &lnwire.NetAddress{
 		IdentityKey: pubKey,
 		Address:     addr,
@@ -1641,12 +1644,6 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 
 	srvrLog.Infof("New inbound connection from %v", conn.RemoteAddr())
 
-	// Cancel all pending connection requests, we either already have an
-	// outbound connection, or this incoming connection will become our
-	// primary connection. The incoming connection will not have an
-	// associated connection request, so we pass nil.
-	s.cancelConnReqs(pubStr, nil)
-
 	// Check to see if we already have a connection with this peer. If so,
 	// we may need to drop our existing connection. This prevents us from
 	// having duplicate connections to the same peer. We forgo adding a
@@ -1657,6 +1654,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 	case ErrPeerNotConnected:
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
+		s.cancelConnReqs(pubStr, nil)
 		s.peerConnected(conn, nil, true)
 
 	case nil:
@@ -1677,6 +1675,8 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		// disconnect our already connected peer.
 		srvrLog.Debugf("Disconnecting stale connection to %v",
 			connectedPeer)
+
+		s.cancelConnReqs(pubStr, nil)
 
 		// Remove the current peer from the server's internal state and
 		// signal that the peer termination watcher does not need to

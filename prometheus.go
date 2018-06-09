@@ -64,7 +64,6 @@ func exportPrometheusStats(server *server) {
 			Help: "Is LND synced?",
 		},
 		func() float64 {
-			// or synced=true/false label.
 			isSynced, _ /*bestHeaderTimestamp*/, err := server.cc.wallet.IsSynced()
 			if err != nil {
 				return math.NaN()
@@ -81,7 +80,6 @@ func exportPrometheusStats(server *server) {
 			Help: "What is the header timestamp of the best synced block in a chain.",
 		},
 		func() float64 {
-			// or synced=true/false label.
 			_ /*isSynced*/, bestHeaderTimestamp, err := server.cc.wallet.IsSynced()
 			if err != nil {
 				return math.NaN()
@@ -149,7 +147,7 @@ func exportPrometheusStats(server *server) {
 	prometheus.MustRegister(prometheus.NewGaugeFunc(
 		prometheus.GaugeOpts{
 			Name: "lnd_wallet_total_balance",
-			Help: "Total balance, from txs that have >= 0 confirmations.",
+			Help: "Total balance in satoshis, from txs that have >= 0 confirmations.",
 		},
 		func() float64 {
 			totalBal, err := server.cc.wallet.ConfirmedBalance(0)
@@ -161,7 +159,7 @@ func exportPrometheusStats(server *server) {
 	prometheus.MustRegister(prometheus.NewGaugeFunc(
 		prometheus.GaugeOpts{
 			Name: "lnd_wallet_confirmed_balance",
-			Help: "Total balance, from txs that have >= 1 confirmations.",
+			Help: "Total balance in satoshis, from txs that have >= 1 confirmations.",
 		},
 		func() float64 {
 			confirmedBal, err := server.cc.wallet.ConfirmedBalance(1)
@@ -206,7 +204,7 @@ func exportPrometheusStats(server *server) {
 	prometheus.MustRegister(prometheus.NewGaugeFunc(
 		prometheus.GaugeOpts{
 			Name: "lnd_channel_balance_total",
-			Help: "Total .",
+			Help: "Total balance in satoshis across all channels.",
 		},
 		func() float64 {
 			openChannels, err := server.chanDB.FetchAllOpenChannels()
@@ -223,7 +221,7 @@ func exportPrometheusStats(server *server) {
 	prometheus.MustRegister(prometheus.NewGaugeFunc(
 		prometheus.GaugeOpts{
 			Name: "lnd_channel_pending_open_balance_total",
-			Help: "Total .",
+			Help: "Total balance in satoshis across all pending open channels.",
 		},
 		func() float64 {
 			pendingChannels, err := server.chanDB.FetchPendingChannels()
@@ -260,7 +258,7 @@ func newPeerCollector(server *server) prometheus.Collector {
 		server: server,
 		pingDesc: prometheus.NewDesc(
 			"lnd_peer_ping_by_peer",
-			"Ping to peer by peer.",
+			"Ping to peer in microseconds by peer.",
 			labels,
 			nil),
 		satSentDesc: prometheus.NewDesc(
@@ -270,17 +268,17 @@ func newPeerCollector(server *server) prometheus.Collector {
 			nil),
 		satRecvDesc: prometheus.NewDesc(
 			"lnd_peer_sat_recv_by_peer",
-			"Satosish sent to peer by peer.",
+			"Satosish received from peer by peer.",
 			labels,
 			nil),
 		bytesSentDesc: prometheus.NewDesc(
 			"lnd_peer_bytes_sent_by_peer",
-			"Satosish sent to peer by peer.",
+			"Bytes sent to peer by peer.",
 			labels,
 			nil),
 		bytesRecvDesc: prometheus.NewDesc(
 			"lnd_peer_bytes_recv_by_peer",
-			"Bytes sent to peer by peer.",
+			"Bytes received from peer by peer.",
 			labels,
 			nil),
 	}
@@ -318,8 +316,6 @@ func (c *peerCollector) Collect(ch chan<- prometheus.Metric) {
 
 		nodePub := serverPeer.addr.IdentityKey.SerializeCompressed()
 		pubKey := hex.EncodeToString(nodePub)
-		//	Address:   serverPeer.conn.RemoteAddr().String(),
-		//	Inbound:   !serverPeer.inbound, // Flip for display
 
 		labelValues := []string{pubKey}
 		ch <- prometheus.MustNewConstMetric(c.pingDesc, prometheus.GaugeValue, float64(serverPeer.PingTime()), labelValues...)
@@ -349,15 +345,15 @@ func newTransactionCollector(server *server) prometheus.Collector {
 			nil, nil),
 		feeTotalDesc: prometheus.NewDesc(
 			"lnd_chain_transaction_fee_total",
-			"Total of all fees across all transactions on chain.",
+			"Total of all fees in satoshis across all transactions on chain.",
 			nil, nil),
 		receivedAmountTotalDesc: prometheus.NewDesc(
 			"lnd_chain_transaction_received_amount_total",
-			"Total amount of coins in all transactions with positive amounts.",
+			"Total amount of coins in satoshis in all transactions with positive amounts.",
 			nil, nil),
 		sentAmountTotalDesc: prometheus.NewDesc(
 			"lnd_chain_transaction_sent_amount_total",
-			"Total amount of coins in all transactions with negative amounts.",
+			"Total amount of coins in satoshis in all transactions with negative amounts.",
 			nil, nil),
 	}
 }
@@ -469,47 +465,47 @@ func newChannelsCollector(server *server) prometheus.Collector {
 		server: server,
 		localBalanceDesc: prometheus.NewDesc(
 			"lnd_channel_local_balance_by_channel",
-			"Local balance of a channel by channel",
+			"Local balance of a channel in satoshis by channel",
 			channel_labels, nil),
 		remoteBalanceDesc: prometheus.NewDesc(
 			"lnd_channel_remote_balance_by_channel",
-			"Remote balance of a channel by channel",
+			"Remote balance of a channel in satoshis by channel",
 			channel_labels, nil),
 		commitWeightDesc: prometheus.NewDesc(
 			"lnd_channel_commit_weight_by_channel",
-			"L...",
+			"Commit weight by channel.",
 			channel_labels, nil),
 		externalCommitFeeDesc: prometheus.NewDesc(
 			"lnd_channel_external_commit_fee_by_channel",
-			"L...",
+			"External commit fee in satoshis by channel.",
 			channel_labels, nil),
 		capacityDesc: prometheus.NewDesc(
 			"lnd_channel_capacity_by_channel",
-			"L...",
+			"Capacity of the the channel in satoshis by channel",
 			channel_labels, nil),
 		feePerKwDesc: prometheus.NewDesc(
 			"lnd_channel_fee_per_kw_by_channel",
-			"L...",
+			"Fee per kw in satoshis by channel",
 			channel_labels, nil),
 		totalSatoshisSentDesc: prometheus.NewDesc(
 			"lnd_channel_satoshis_sent_by_channel",
-			"L...",
+			"Total sent in satoshis over channel by channel",
 			channel_labels, nil),
 		totalSatoshisReceivedDesc: prometheus.NewDesc(
 			"lnd_channel_satoshis_received_by_channel",
-			"L...",
+			"Total received in satoshis over channel by channel",
 			channel_labels, nil),
 		updatesCountDesc: prometheus.NewDesc(
 			"lnd_channel_updates_count_by_channel",
-			"Local commit height",
+			"Local commit height by channel.",
 			channel_labels, nil),
 		pendingHtlcsCountDesc: prometheus.NewDesc(
 			"lnd_channel_pending_htlcs_count_by_channel",
-			"Local commit HTLCs count",
+			"Local commit HTLCs count by channel.",
 			channel_labels, nil),
 		csvDelayDesc: prometheus.NewDesc(
 			"lnd_channel_csv_delay_by_channel",
-			"Local channel config CSV delay",
+			"Local channel config CSV delay by channel.",
 			channel_labels, nil),
 	}
 }

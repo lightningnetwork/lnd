@@ -6787,6 +6787,27 @@ func assertActiveHtlcs(nodes []*lntest.HarnessNode, payHashes ...[]byte) error {
 	return nil
 }
 
+func assertNumActiveHtlcsChanPoint(node *lntest.HarnessNode,
+	chanPoint wire.OutPoint, numHtlcs int) bool {
+
+	req := &lnrpc.ListChannelsRequest{}
+	ctxb := context.Background()
+	nodeChans, err := node.ListChannels(ctxb, req)
+	if err != nil {
+		return false
+	}
+
+	for _, channel := range nodeChans.Channels {
+		if channel.ChannelPoint != chanPoint.String() {
+			continue
+		}
+
+		return len(channel.PendingHtlcs) == numHtlcs
+	}
+
+	return false
+}
+
 func assertNumActiveHtlcs(nodes []*lntest.HarnessNode, numHtlcs int) bool {
 	req := &lnrpc.ListChannelsRequest{}
 	ctxb := context.Background()
@@ -9079,11 +9100,11 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 		t.Fatalf("htlc mismatch: %v", err)
 	}
 
-	// Disconnect the two intermediaries, Alice and Dave, so that when carol
-	// restarts, the response will be held by Dave.
+	// Disconnect the two intermediaries, Alice and Dave, by shutting down
+	// Alice.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	if err := net.DisconnectNodes(ctxt, dave, net.Alice); err != nil {
-		t.Fatalf("unable to disconnect alice from dave: %v", err)
+	if err := net.StopNode(net.Alice); err != nil {
+		t.Fatalf("unable to shutdown alice: %v", err)
 	}
 
 	// Now restart carol without hodl mode, to settle back the outstanding
@@ -9101,10 +9122,12 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 		t.Fatalf("unable to reconnect dave and carol: %v", err)
 	}
 
-	// Wait for Carol to report no outstanding htlcs.
+	// Wait for Carol to report no outstanding htlcs, and also for Dav to
+	// receive all the settles from Carol.
 	carolNode := []*lntest.HarnessNode{carol}
 	err = lntest.WaitPredicate(func() bool {
-		return assertNumActiveHtlcs(carolNode, 0)
+		return assertNumActiveHtlcs(carolNode, 0) &&
+			assertNumActiveHtlcsChanPoint(dave, carolFundPoint, 0)
 	}, time.Second*15)
 	if err != nil {
 		t.Fatalf("htlc mismatch: %v", err)
@@ -9113,7 +9136,10 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	// Finally, restart dave who received the settles, but was unable to
 	// deliver them to Alice since they were disconnected.
 	if err := net.RestartNode(dave, nil); err != nil {
-		t.Fatalf("unable to reconnect alice to dave: %v", err)
+		t.Fatalf("unable to restart dave: %v", err)
+	}
+	if err = net.RestartNode(net.Alice, nil); err != nil {
+		t.Fatalf("unable to restart alice: %v", err)
 	}
 
 	// Force Dave and Alice to reconnect before waiting for the htlcs to
@@ -9124,8 +9150,8 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 		t.Fatalf("unable to reconnect dave and carol: %v", err)
 	}
 
-	// After reconnection succeeds, the settles should be propagated all the
-	// way back to the sender. All nodes should report no active htlcs.
+	// After reconnection succeeds, the settles should be propagated all
+	// the way back to the sender. All nodes should report no active htlcs.
 	err = lntest.WaitPredicate(func() bool {
 		return assertNumActiveHtlcs(nodes, 0)
 	}, time.Second*15)
@@ -9410,8 +9436,8 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	// Disconnect the two intermediaries, Alice and Dave, so that when carol
 	// restarts, the response will be held by Dave.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	if err := net.DisconnectNodes(ctxt, dave, net.Alice); err != nil {
-		t.Fatalf("unable to disconnect alice from dave: %v", err)
+	if err := net.StopNode(net.Alice); err != nil {
+		t.Fatalf("unable to shutdown alice: %v", err)
 	}
 
 	// Now restart carol without hodl mode, to settle back the outstanding
@@ -9424,7 +9450,8 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	// Wait for Carol to report no outstanding htlcs.
 	carolNode := []*lntest.HarnessNode{carol}
 	err = lntest.WaitPredicate(func() bool {
-		return assertNumActiveHtlcs(carolNode, 0)
+		return assertNumActiveHtlcs(carolNode, 0) &&
+			assertNumActiveHtlcsChanPoint(dave, carolFundPoint, 0)
 	}, time.Second*15)
 	if err != nil {
 		t.Fatalf("htlc mismatch: %v", err)
@@ -9450,6 +9477,9 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	// able to reforward them to Alice after recovering from a restart.
 	if err := net.RestartNode(dave, nil); err != nil {
 		t.Fatalf("unable to restart dave: %v", err)
+	}
+	if err = net.RestartNode(net.Alice, nil); err != nil {
+		t.Fatalf("unable to restart alice: %v", err)
 	}
 
 	// Ensure that Dave is reconnected to Alice before waiting for the htlcs

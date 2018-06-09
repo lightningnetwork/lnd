@@ -1384,9 +1384,11 @@ func (s *server) peerTerminationWatcher(p *peer) {
 	// available for use.
 	s.fundingMgr.CancelPeerReservations(p.PubKey())
 
+	pubKey := p.addr.IdentityKey
+
 	// We'll also inform the gossiper that this peer is no longer active,
 	// so we don't need to maintain sync state for it any longer.
-	s.authGossiper.PruneSyncState(p.addr.IdentityKey)
+	s.authGossiper.PruneSyncState(pubKey)
 
 	// Tell the switch to remove all links associated with this peer.
 	// Passing nil as the target link indicates that all links associated
@@ -1435,13 +1437,30 @@ func (s *server) peerTerminationWatcher(p *peer) {
 	s.removePeer(p)
 
 	// Next, check to see if this is a persistent peer or not.
-	pubStr := string(p.addr.IdentityKey.SerializeCompressed())
+	pubStr := string(pubKey.SerializeCompressed())
 	_, ok := s.persistentPeers[pubStr]
 	if ok {
 		// We'll only need to re-launch a connection request if one
 		// isn't already currently pending.
 		if _, ok := s.persistentConnReqs[pubStr]; ok {
 			return
+		}
+
+		// We'll ensure that we locate an advertised address to use
+		// within the peer's address for reconnection purposes.
+		//
+		// TODO(roasbeef): use them all?
+		if p.inbound {
+			advertisedAddr, err := s.fetchNodeAdvertisedAddr(
+				pubKey,
+			)
+			if err != nil {
+				srvrLog.Errorf("Unable to retrieve advertised "+
+					"address for node %x: %v",
+					pubKey.SerializeCompressed(), err)
+			} else {
+				p.addr.Address = advertisedAddr
+			}
 		}
 
 		// Otherwise, we'll launch a new connection request in order to
@@ -1525,21 +1544,6 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	brontideConn := conn.(*brontide.Conn)
 	addr := conn.RemoteAddr()
 	pubKey := brontideConn.RemotePub()
-
-	// We'll ensure that we locate an advertised address to use within the
-	// peer's address for reconnection purposes.
-	//
-	// TODO: leave the address field empty if there aren't any?
-	if inbound {
-		advertisedAddr, err := s.fetchNodeAdvertisedAddr(pubKey)
-		if err != nil {
-			srvrLog.Errorf("Unable to retrieve advertised address "+
-				"for node %x: %v", pubKey.SerializeCompressed(),
-				err)
-		} else {
-			addr = advertisedAddr
-		}
-	}
 
 	peerAddr := &lnwire.NetAddress{
 		IdentityKey: pubKey,

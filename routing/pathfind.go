@@ -26,6 +26,19 @@ const (
 
 	// infinity is used as a starting distance in our shortest path search.
 	infinity = math.MaxInt64
+
+	// RiskFactorBillionths controls the influence of time lock delta
+	// of a channel on route selection. It is expressed as billionths
+	// of msat per msat sent through the channel per time lock delta
+	// block. See edgeWeight function below for more details.
+	// The chosen value is based on the previous incorrect weight function
+	// 1 + timelock + fee * fee. In this function, the fee penalty
+	// diminishes the time lock penalty for all but the smallest amounts.
+	// To not change the behaviour of path finding too drastically, a
+	// relatively small value is chosen which is still big enough to give
+	// some effect with smaller time lock values. The value may need
+	// tweaking and/or be made configurable in the future.
+	RiskFactorBillionths = 15
 )
 
 // HopHint is a routing hint that contains the minimum information of a channel
@@ -425,29 +438,24 @@ type edgeWithPrev struct {
 }
 
 // edgeWeight computes the weight of an edge. This value is used when searching
-// for the shortest path within the channel graph between two nodes. Currently
-// a component is just 1 + the cltv delta value required at this hop, this
-// value should be tuned with experimental and empirical data. We'll also
-// factor in the "pure fee" through this hop, using the square of this fee as
-// part of the weighting. The goal here is to bias more heavily towards fee
-// ranking, and fallback to a time-lock based value in the case of a fee tie.
-//
-// TODO(roasbeef): compute robust weight metric
+// for the shortest path within the channel graph between two nodes. Weight is
+// is the fee itself plus a time lock penalty added to it. This benefits 
+// channels with shorter time lock deltas and shorter (hops) routes in general. 
+// RiskFactor controls the influence of time lock on route selection. This is 
+// currently a fixed value, but might be configurable in the future.
 func edgeWeight(amt lnwire.MilliSatoshi, e *channeldb.ChannelEdgePolicy) int64 {
 	// First, we'll compute the "pure" fee through this hop. We say pure,
 	// as this may not be what's ultimately paid as fees are properly
 	// calculated backwards, while we're going in the reverse direction.
-	pureFee := computeFee(amt, e)
+	pureFee := int64(computeFee(amt, e))
 
-	// We'll then square the fee itself in order to more heavily weight our
-	// edge selection to bias towards lower fees.
-	feeWeight := int64(pureFee * pureFee)
+	// timeLockPenalty is the penalty for the time lock delta of this channel.
+	// It is controlled by RiskFactorBillionths and scales proportional
+	// to the amount that will pass through channel. Rationale is that it if
+	// a twice as large amount gets locked up, it is twice as bad.
+	timeLockPenalty := int64(amt) * int64(e.TimeLockDelta) * RiskFactorBillionths / 1000000000
 
-	// The final component is then 1 plus the timelock delta.
-	timeWeight := int64(1 + e.TimeLockDelta)
-
-	// The final weighting is: fee^2 + time_lock_delta.
-	return feeWeight + timeWeight
+	return pureFee + timeLockPenalty
 }
 
 // findPath attempts to find a path from the source node within the

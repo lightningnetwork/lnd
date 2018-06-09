@@ -26,13 +26,13 @@
   name = "github.com/grpc-ecosystem/grpc-gateway"
   revision = "f2862b476edcef83412c7af8687c9cd8e4097c0f"
 
-#[[constraint]]
-#  name = "github.com/grpc-ecosystem/go-grpc-middleware"
-#  revision = "c250d6563d4d4c20252cd865923440e829844f4e"
-#
-#[[constraint]]
-#  name = "github.com/grpc-ecosystem/go-grpc-prometheus"
-#  revision = "39de4380c2e0353a115b80b1c730719c79bfb771"
+[[constraint]]
+  name = "github.com/grpc-ecosystem/go-grpc-middleware"
+  revision = "c250d6563d4d4c20252cd865923440e829844f4e"
+
+[[constraint]]
+  name = "github.com/grpc-ecosystem/go-grpc-prometheus"
+  revision = "39de4380c2e0353a115b80b1c730719c79bfb771"
 
 [[constraint]]
   name = "github.com/jessevdk/go-flags"
@@ -96,7 +96,6 @@
   revision = "49796115aa4b964c318aad4f3084fdb41e9aa067"
 
 [[override]]
-  # branch = "master"
   name = "golang.org/x/net"
   revision = "ae89d30ce0c63142b652837da33d782e2b0a9b25"
 
@@ -107,8 +106,6 @@
 [[override]]
   name = "google.golang.org/grpc"
   revision = "b3ddf786825de56a4178401b7e174ee332173b66"
-  # version = "1.8.0"
-  # version = "1.12.0"
 
 [[constraint]]
   name = "gopkg.in/macaroon-bakery.v2"

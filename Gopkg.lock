@@ -116,13 +116,11 @@
   name = "github.com/grpc-ecosystem/go-grpc-middleware"
   packages = ["."]
   revision = "c250d6563d4d4c20252cd865923440e829844f4e"
-  version = "v1.0.0"
 
 [[projects]]
   name = "github.com/grpc-ecosystem/go-grpc-prometheus"
   packages = ["."]
-  revision = "6b7015e65d366bf3f19b2b2a000a831940f0f7e0"
-  version = "v1.1"
+  revision = "39de4380c2e0353a115b80b1c730719c79bfb771"
 
 [[projects]]
   name = "github.com/grpc-ecosystem/grpc-gateway"
@@ -420,6 +418,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "7fe0d72b7d876b1706f3e901873805495166682b2d9e95978a9f701aecd93e13"
+  inputs-digest = "59a2864061195e45bd256e72784fe9546c8cd1ff465aed22f41c458fd3cd3648"
   solver-name = "gps-cdcl"
   solver-version = 1

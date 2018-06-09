@@ -496,7 +496,7 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 
 			// Verify that Carol's balance matches our expected
 			// amount.
-			currBalance = resp.ConfirmedBalance
+			currBalance = resp.Chains[0].ConfirmedBalance
 			if expAmount != currBalance {
 				return false
 			}
@@ -1689,7 +1689,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to get carol's balance: %v", err)
 	}
 
-	carolStartingBalance := carolBalResp.ConfirmedBalance
+	carolStartingBalance := carolBalResp.Chains[0].ConfirmedBalance
 
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPoint := openChannelAndAssert(
@@ -2231,10 +2231,10 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to get carol's balance: %v", err)
 	}
 	carolExpectedBalance := btcutil.Amount(carolStartingBalance) + pushAmt
-	if btcutil.Amount(carolBalResp.ConfirmedBalance) < carolExpectedBalance {
+	if btcutil.Amount(carolBalResp.Chains[0].ConfirmedBalance) < carolExpectedBalance {
 		t.Fatalf("carol's balance is incorrect: expected %v got %v",
 			carolExpectedBalance,
-			carolBalResp.ConfirmedBalance)
+			carolBalResp.Chains[0].ConfirmedBalance)
 	}
 }
 

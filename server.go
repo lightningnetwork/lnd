@@ -1727,6 +1727,11 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	// ignore this connection.
 	if _, ok := s.scheduledPeerConnection[pubStr]; ok {
 		srvrLog.Debugf("Ignoring connection, peer already scheduled")
+
+		if connReq != nil {
+			s.connMgr.Remove(connReq.ID())
+		}
+
 		conn.Close()
 		return
 	}

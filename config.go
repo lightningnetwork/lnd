@@ -42,6 +42,7 @@ const (
 	defaultLogFilename        = "lnd.log"
 	defaultRPCPort            = 10009
 	defaultRESTPort           = 8080
+	defaultPrometheusPort     = 8081
 	defaultPeerPort           = 9735
 	defaultRPCHost            = "localhost"
 	defaultMaxPendingChannels = 1
@@ -173,6 +174,8 @@ type config struct {
 	CPUProfile string `long:"cpuprofile" description:"Write CPU profile to the specified file"`
 
 	Profile string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65535"`
+
+	PrometheusIPs []string `long:"prometheusip" description:"Add an ip:port to the list of local addresses we claim to listen for Prometheus monitoring. If a port is not specified, the default (8081) will be used. If not specified exports are disabled, but metrics are still collected internally"`
 
 	DebugHTLC          bool `long:"debughtlc" description:"Activate the debug htlc mode. With the debug HTLC mode, all payments sent use a pre-determined R-Hash. Additionally, all HTLCs sent to a node with the debug HTLC R-Hash are immediately settled in the next available state transition."`
 	UnsafeDisconnect   bool `long:"unsafe-disconnect" description:"Allows the rpcserver to intentionally disconnect from peers with open channels. USED FOR TESTING ONLY."`
@@ -636,6 +639,12 @@ func loadConfig() (*config, error) {
 			fmt.Fprintln(os.Stderr, usageMessage)
 			return nil, err
 		}
+	}
+
+	// Validate IP address/ports for Prometheus.
+	if len(cfg.PrometheusIPs) != 0 {
+		cfg.PrometheusIPs = normalizeAddresses(cfg.PrometheusIPs,
+			strconv.Itoa(defaultPrometheusPort))
 	}
 
 	// At this point, we'll save the base data directory in order to ensure

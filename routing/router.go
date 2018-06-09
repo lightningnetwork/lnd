@@ -17,6 +17,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
 	"github.com/lightningnetwork/lnd/routing/chainview"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -866,6 +868,14 @@ func (r *ChannelRouter) networkHandler() {
 	}
 }
 
+var (
+	new_channel_discovered_counter = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "lnd_new_channels_discovered_count",
+			Help: "Number of new channels discovered.",
+		})
+)
+
 // assertNodeAnnFreshness returns a non-nil error if we have an announcement in
 // the database for the passed node with a timestamp newer than the passed
 // timestamp. ErrIgnored will be returned if we already have the node, and
@@ -1038,6 +1048,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		}
 
 		invalidateCache = true
+		new_channel_discovered_counter.Inc()
 		log.Infof("New channel discovered! Link "+
 			"connects %x and %x with ChannelPoint(%v): "+
 			"chan_id=%v, capacity=%v",

@@ -18,6 +18,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
@@ -823,6 +825,19 @@ func (d *AuthenticatedGossiper) resendAnnounceSignatures() error {
 	return nil
 }
 
+var (
+	announcement_batch_counter = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "lnd_announcement_batch_count",
+			Help: "Number of processed (broadcasted) batches with announcements.",
+		})
+	announcement_bath_size_total = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "lnd_announcement_batch_size_total",
+			Help: "Total number of all announcements in all processed (broadcasted) batches.",
+		})
+)
+
 // networkHandler is the primary goroutine that drives this service. The roles
 // of this goroutine includes answering queries related to the state of the
 // network, syncing up newly connected peers, and also periodically
@@ -996,6 +1011,9 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			// Emit the current batch of announcements from
 			// deDupedAnnouncements.
 			announcementBatch := announcements.Emit()
+
+			announcement_batch_counter.Inc()
+			announcement_bath_size_total.Add(float64(len(announcementBatch)))
 
 			// If the current announcements batch is nil, then we
 			// have no further work here.

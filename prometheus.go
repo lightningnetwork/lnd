@@ -6,6 +6,7 @@ import (
 	"math"
 	"strconv"
 	"sync/atomic"
+	"time"
 
 	"github.com/coreos/bbolt"
 
@@ -30,6 +31,16 @@ func exportPrometheusStats(server *server) {
 	versionSimple := fmt.Sprintf("%d.%d.%d", appMajor, appMinor, appPatch)
 	versionGauge.WithLabelValues(versionSimple, Commit).Set(1)
 	prometheus.Register(versionGauge)
+
+	startTime := time.Now()
+	prometheus.MustRegister(prometheus.NewGaugeFunc(
+		prometheus.GaugeOpts{
+			Name: "lnd_uptime",
+			Help: "Uptime of LND in seconds.",
+		},
+		func() float64 {
+			return time.Now().Sub(startTime).Seconds()
+		}))
 
 	prometheus.MustRegister(newPeerCollector(server))
 

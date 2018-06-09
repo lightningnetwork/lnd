@@ -206,6 +206,13 @@ func lndMain() error {
 		unlockedWallet  *wallet.Wallet
 	)
 
+	// Ensure network directory exists.
+	if !fileExists(networkDir) {
+		if err := os.MkdirAll(networkDir, 0700); err != nil {
+			return err
+		}
+	}
+
 	// We wait until the user provides a password over RPC. In case lnd is
 	// started with the --noencryptwallet flag, we use the default password
 	// for wallet encryption.

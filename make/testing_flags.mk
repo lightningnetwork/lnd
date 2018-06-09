@@ -44,4 +44,4 @@ endif
 
 # Construct the integration test command with the added build flags.
 ITEST_TAGS := $(TEST_TAGS) rpctest
-ITEST := $(GOTEST) -tags="$(ITEST_TAGS)" $(TEST_FLAGS) -logoutput
+ITEST := rm output*.log; date; $(GOTEST) -tags="$(ITEST_TAGS)" $(TEST_FLAGS) -logoutput

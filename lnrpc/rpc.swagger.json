@@ -49,6 +49,33 @@
         ]
       }
     },
+    "/v1/changepassword": {
+      "post": {
+        "summary": "* lncli: `changepassword`\nChangePassword changes the password of the encrypted wallet. This will\nautomatically unlock the wallet database if successful.",
+        "operationId": "ChangePassword",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcChangePasswordResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcChangePasswordRequest"
+            }
+          }
+        ],
+        "tags": [
+          "WalletUnlocker"
+        ]
+      }
+    },
     "/v1/channels": {
       "get": {
         "summary": "* lncli: `listchannels`\nListChannels returns a description of all the open channels that this node\nis a participant in.",
@@ -157,6 +184,33 @@
             "required": true,
             "schema": {
               "$ref": "#/definitions/lnrpcSendRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/channels/transactions/route": {
+      "post": {
+        "summary": "*\nSendToRouteSync is a synchronous version of SendToRoute. It Will block\nuntil the payment either fails or succeeds.",
+        "operationId": "SendToRouteSync",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcSendResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcSendToRouteRequest"
             }
           }
         ],
@@ -408,6 +462,14 @@
           {
             "name": "num_routes",
             "description": "/ The max number of routes to return.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "final_cltv_delta",
+            "description": "/ An optional CLTV delta from the current height that should be used for the timelock of the final hop.",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -919,6 +981,24 @@
           "description": "*\nA bare-bones invoice for a payment within the Lightning Network.  With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient."
         }
       }
+    },
+    "lnrpcChangePasswordRequest": {
+      "type": "object",
+      "properties": {
+        "current_password": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\ncurrent_password should be the current valid passphrase used to unlock the\ndaemon."
+        },
+        "new_password": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\nnew_password should be the new passphrase that will be needed to unlock the\ndaemon."
+        }
+      }
+    },
+    "lnrpcChangePasswordResponse": {
+      "type": "object"
     },
     "lnrpcChannel": {
       "type": "object",
@@ -2316,6 +2396,27 @@
         },
         "payment_route": {
           "$ref": "#/definitions/lnrpcRoute"
+        }
+      }
+    },
+    "lnrpcSendToRouteRequest": {
+      "type": "object",
+      "properties": {
+        "payment_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "/ The payment hash to use for the HTLC."
+        },
+        "payment_hash_string": {
+          "type": "string",
+          "description": "/ An optional hex-encoded payment hash to be used for the HTLC."
+        },
+        "routes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcRoute"
+          },
+          "description": "/ The set of routes that should be used to attempt to complete the payment."
         }
       }
     },

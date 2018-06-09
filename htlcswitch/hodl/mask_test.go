@@ -67,6 +67,7 @@ var hodlMaskTests = []struct {
 			hodl.SettleOutgoing,
 			hodl.FailOutgoing,
 			hodl.Commit,
+			hodl.BogusSettle,
 		),
 		flags: map[hodl.Flag]struct{}{
 			hodl.ExitSettle:     {},
@@ -77,6 +78,7 @@ var hodlMaskTests = []struct {
 			hodl.SettleOutgoing: {},
 			hodl.FailOutgoing:   {},
 			hodl.Commit:         {},
+			hodl.BogusSettle:    {},
 		},
 	},
 }

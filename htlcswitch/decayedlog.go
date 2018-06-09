@@ -51,8 +51,8 @@ var (
 // and the current block height. DecayedLog wraps boltdb for simplicity and
 // batches writes to the database to decrease write contention.
 type DecayedLog struct {
-	started int32
-	stopped int32
+	started int32 // To be used atomically.
+	stopped int32 // To be used atomically.
 
 	dbPath string
 

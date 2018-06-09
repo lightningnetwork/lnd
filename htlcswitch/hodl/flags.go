@@ -51,6 +51,10 @@ const (
 	// Commit drops all HTLC after any outgoing circuits have been
 	// opened, but before the in-memory commitment state is persisted.
 	Commit
+
+	// BogusSettle attempts to settle back any incoming HTLC for which we
+	// are the exit node with a bogus preimage.
+	BogusSettle
 )
 
 // String returns a human-readable identifier for a given Flag.
@@ -72,6 +76,8 @@ func (f Flag) String() string {
 		return "FailOutgoing"
 	case Commit:
 		return "Commit"
+	case BogusSettle:
+		return "BogusSettle"
 	default:
 		return "UnknownHodlFlag"
 	}
@@ -98,6 +104,8 @@ func (f Flag) Warning() string {
 		msg = "will not update channel state with downstream FAIL"
 	case Commit:
 		msg = "will not commit pending channel updates"
+	case BogusSettle:
+		msg = "will settle HTLC with bogus preimage"
 	default:
 		msg = "incorrect hodl flag usage"
 	}

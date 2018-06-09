@@ -33,15 +33,6 @@ const (
 	// TODO(roasbeef): tune
 	msgBufferSize = 50
 
-	// maxFundingAmount is a soft-limit of the maximum channel size
-	// accepted within the Lightning Protocol Currently. This limit is
-	// currently defined in BOLT-0002, and serves as an initial
-	// precautionary limit while implementations are battle tested in the
-	// real world.
-	//
-	// TODO(roasbeef): add command line param to modify
-	maxFundingAmount = btcutil.Amount(1 << 24)
-
 	// minBtcRemoteDelay and maxBtcRemoteDelay is the extremes of the
 	// Bitcoin CSV delay we will require the remote to use for its
 	// commitment transaction. The actual delay we will require will be
@@ -64,6 +55,36 @@ const (
 	// minChanFundingSize is the smallest channel that we'll allow to be
 	// created over the RPC interface.
 	minChanFundingSize = btcutil.Amount(20000)
+
+	// maxBtcFundingAmount is a soft-limit of the maximum channel size
+	// currently accepted on the Bitcoin chain within the Lightning
+	// Protocol. This limit is defined in BOLT-0002, and serves as an
+	// initial precautionary limit while implementations are battle tested
+	// in the real world.
+	maxBtcFundingAmount = btcutil.Amount(1<<24) - 1
+
+	// maxLtcFundingAmount is a soft-limit of the maximum channel size
+	// currently accepted on the Litecoin chain within the Lightning
+	// Protocol.
+	maxLtcFundingAmount = maxBtcFundingAmount * btcToLtcConversionRate
+
+	// minCommitFeePerKw is the smallest fee rate that we should propose
+	// for a new fee update. We'll use this as a fee floor when proposing
+	// and accepting updates.
+	minCommitFeePerKw = 253
+)
+
+var (
+	// maxFundingAmount is a soft-limit of the maximum channel size
+	// currently accepted within the Lightning Protocol. This limit is
+	// defined in BOLT-0002, and serves as an initial precautionary limit
+	// while implementations are battle tested in the real world.
+	//
+	// At the moment, this value depends on which chain is active. It is set
+	// to the value under the Bitcoin chain as default.
+	//
+	// TODO(roasbeef): add command line param to modify
+	maxFundingAmount = maxBtcFundingAmount
 )
 
 // reservationWithCtx encapsulates a pending channel reservation. This wrapper
@@ -708,15 +729,27 @@ type pendingChansReq struct {
 // currently pending at the last state of the funding workflow.
 func (f *fundingManager) PendingChannels() ([]*pendingChannel, error) {
 	respChan := make(chan []*pendingChannel, 1)
-	errChan := make(chan error)
+	errChan := make(chan error, 1)
 
 	req := &pendingChansReq{
 		resp: respChan,
 		err:  errChan,
 	}
-	f.queries <- req
 
-	return <-respChan, <-errChan
+	select {
+	case f.queries <- req:
+	case <-f.quit:
+		return nil, fmt.Errorf("fundingmanager shutting down")
+	}
+
+	select {
+	case resp := <-respChan:
+		return resp, nil
+	case err := <-errChan:
+		return nil, err
+	case <-f.quit:
+		return nil, fmt.Errorf("fundingmanager shutting down")
+	}
 }
 
 // CancelPeerReservations cancels all active reservations associated with the
@@ -747,13 +780,7 @@ func (f *fundingManager) CancelPeerReservations(nodePub [33]byte) {
 				"node=%x: %v", nodePub[:], err)
 		}
 
-		if resCtx.err != nil {
-			select {
-			case resCtx.err <- fmt.Errorf("peer disconnected"):
-			default:
-			}
-		}
-
+		resCtx.err <- fmt.Errorf("peer disconnected")
 		delete(nodeReservations, pendingID)
 	}
 
@@ -770,6 +797,20 @@ func (f *fundingManager) CancelPeerReservations(nodePub [33]byte) {
 // transaction, then all reservations should be cleared.
 func (f *fundingManager) failFundingFlow(peer *btcec.PublicKey,
 	tempChanID [32]byte, fundingErr error) {
+
+	fndgLog.Debugf("Failing funding flow for pendingID=%x: %v",
+		tempChanID, fundingErr)
+
+	ctx, err := f.cancelReservationCtx(peer, tempChanID)
+	if err != nil {
+		fndgLog.Errorf("unable to cancel reservation: %v", err)
+	}
+
+	// In case the case where the reservation existed, send the funding
+	// error on the error channel.
+	if ctx != nil {
+		ctx.err <- fundingErr
+	}
 
 	// We only send the exact error if it is part of out whitelisted set of
 	// errors (lnwire.ErrorCode or lnwallet.ReservationError).
@@ -794,20 +835,11 @@ func (f *fundingManager) failFundingFlow(peer *btcec.PublicKey,
 		Data:   msg,
 	}
 
-	fndgLog.Errorf("Failing funding flow: %v (%v)", fundingErr,
-		spew.Sdump(errMsg))
-
-	if _, err := f.cancelReservationCtx(peer, tempChanID); err != nil {
-		fndgLog.Errorf("unable to cancel reservation: %v", err)
-	}
-
-	err := f.cfg.SendToPeer(peer, errMsg)
-	if err != nil {
+	fndgLog.Debugf("Sending funding error to peer (%x): %v",
+		peer.SerializeCompressed(), spew.Sdump(errMsg))
+	if err := f.cfg.SendToPeer(peer, errMsg); err != nil {
 		fndgLog.Errorf("unable to send error message to peer %v", err)
-		return
 	}
-
-	return
 }
 
 // reservationCoordinator is the primary goroutine tasked with progressing the
@@ -864,7 +896,6 @@ func (f *fundingManager) handlePendingChannels(msg *pendingChansReq) {
 
 	dbPendingChannels, err := f.cfg.Wallet.Cfg.Database.FetchPendingChannels()
 	if err != nil {
-		msg.resp <- nil
 		msg.err <- err
 		return
 	}
@@ -882,7 +913,6 @@ func (f *fundingManager) handlePendingChannels(msg *pendingChansReq) {
 	}
 
 	msg.resp <- pendingChannels
-	msg.err <- nil
 }
 
 // processFundingOpen sends a message to the fundingManager allowing it to
@@ -1200,7 +1230,6 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 			fmsg.peerAddress.IdentityKey, err)
 		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
 			msg.PendingChannelID, err)
-		resCtx.err <- err
 		return
 	}
 
@@ -1245,7 +1274,6 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 		fndgLog.Errorf("Unable to parse signature: %v", err)
 		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
 			msg.PendingChannelID, err)
-		resCtx.err <- err
 		return
 	}
 	err = f.cfg.SendToPeer(fmsg.peerAddress.IdentityKey, fundingCreated)
@@ -1253,7 +1281,6 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 		fndgLog.Errorf("Unable to send funding complete message: %v", err)
 		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
 			msg.PendingChannelID, err)
-		resCtx.err <- err
 		return
 	}
 }
@@ -1415,6 +1442,11 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 		case <-timeoutChan:
 			// We did not see the funding confirmation before
 			// timeout, so we forget the channel.
+			err := fmt.Errorf("timeout waiting for funding tx "+
+				"(%v) to confirm", completeChan.FundingOutpoint)
+			fndgLog.Warnf(err.Error())
+			f.failFundingFlow(fmsg.peerAddress.IdentityKey,
+				pendingChanID, err)
 			deleteFromDatabase()
 			return
 		case <-f.quit:
@@ -1472,9 +1504,8 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 		err := fmt.Errorf("Unable to find signed reservation for "+
 			"chan_id=%x", fmsg.msg.ChanID)
 		fndgLog.Warnf(err.Error())
-		// TODO: add ErrChanNotFound?
 		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
-			pendingChanID, err)
+			fmsg.msg.ChanID, err)
 		return
 	}
 
@@ -1506,7 +1537,6 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	completeChan, err := resCtx.reservation.CompleteReservation(nil, commitSig)
 	if err != nil {
 		fndgLog.Errorf("Unable to complete reservation sign complete: %v", err)
-		resCtx.err <- err
 		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
 			pendingChanID, err)
 		return
@@ -2495,12 +2525,19 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		return
 	}
 
-	// The protocol currently operates on the basis of fee-per-kw, so we'll
-	// multiply the computed sat/weight by 1000 to arrive at fee-per-kw.
+	// If the converted fee-per-kw is below the current widely used policy
+	// floor, then we'll use the floor instead.
 	commitFeePerKw := feePerVSize.FeePerKWeight()
+	if commitFeePerKw < minCommitFeePerKw {
+		fndgLog.Infof("Proposed fee rate of %v sat/kw is below min "+
+			"of %v sat/kw, using fee floor", int64(commitFeePerKw),
+			int64(minCommitFeePerKw))
 
-	// We set the channel flags to indicate whether we want this channel
-	// to be announced to the network.
+		commitFeePerKw = minCommitFeePerKw
+	}
+
+	// We set the channel flags to indicate whether we want this channel to
+	// be announced to the network.
 	var channelFlags lnwire.FundingFlag
 	if !msg.openChanReq.private {
 		// This channel will be announced.
@@ -2655,13 +2692,13 @@ func (f *fundingManager) handleErrorMsg(fmsg *fundingErrorMsg) {
 	peerKey := fmsg.peerAddress.IdentityKey
 	chanID := fmsg.err.ChanID
 
-	// First, we'll attempt to retrieve the funding workflow that this
-	// error was tied to. If we're unable to do so, then we'll exit early
-	// as this was an unwarranted error.
-	resCtx, err := f.getReservationCtx(peerKey, chanID)
+	// First, we'll attempt to retrieve and cancel the funding workflow
+	// that this error was tied to. If we're unable to do so, then we'll
+	// exit early as this was an unwarranted error.
+	resCtx, err := f.cancelReservationCtx(peerKey, chanID)
 	if err != nil {
 		fndgLog.Warnf("Received error for non-existent funding "+
-			"flow: %v", spew.Sdump(protocolErr))
+			"flow: %v (%v)", err, spew.Sdump(protocolErr))
 		return
 	}
 
@@ -2675,21 +2712,17 @@ func (f *fundingManager) handleErrorMsg(fmsg *fundingErrorMsg) {
 	// If this isn't a simple error code, then we'll display the entire
 	// thing.
 	if len(protocolErr.Data) > 1 {
-		resCtx.err <- grpc.Errorf(
+		err = grpc.Errorf(
 			lnErr.ToGrpcCode(), string(protocolErr.Data),
 		)
 	} else {
 		// Otherwise, we'll attempt to display just the error code
 		// itself.
-		resCtx.err <- grpc.Errorf(
+		err = grpc.Errorf(
 			lnErr.ToGrpcCode(), lnErr.String(),
 		)
 	}
-
-	if _, err := f.cancelReservationCtx(peerKey, chanID); err != nil {
-		fndgLog.Warnf("unable to delete reservation: %v", err)
-		return
-	}
+	resCtx.err <- err
 }
 
 // pruneZombieReservations loops through all pending reservations and fails the
@@ -2728,10 +2761,21 @@ func (f *fundingManager) cancelReservationCtx(peerKey *btcec.PublicKey,
 	fndgLog.Infof("Cancelling funding reservation for node_key=%x, "+
 		"chan_id=%x", peerKey.SerializeCompressed(), pendingChanID[:])
 
-	ctx, err := f.getReservationCtx(peerKey, pendingChanID)
-	if err != nil {
-		return nil, errors.Errorf("unable to find reservation: %v",
-			err)
+	peerIDKey := newSerializedKey(peerKey)
+	f.resMtx.Lock()
+	defer f.resMtx.Unlock()
+
+	nodeReservations, ok := f.activeReservations[peerIDKey]
+	if !ok {
+		// No reservations for this node.
+		return nil, errors.Errorf("no active reservations for peer(%x)",
+			peerIDKey[:])
+	}
+
+	ctx, ok := nodeReservations[pendingChanID]
+	if !ok {
+		return nil, errors.Errorf("unknown channel (id: %x) for "+
+			"peer(%x)", pendingChanID[:], peerIDKey[:])
 	}
 
 	if err := ctx.reservation.Cancel(); err != nil {
@@ -2739,7 +2783,13 @@ func (f *fundingManager) cancelReservationCtx(peerKey *btcec.PublicKey,
 			err)
 	}
 
-	f.deleteReservationCtx(peerKey, pendingChanID)
+	delete(nodeReservations, pendingChanID)
+
+	// If this was the last active reservation for this peer, delete the
+	// peer's entry altogether.
+	if len(nodeReservations) == 0 {
+		delete(f.activeReservations, peerIDKey)
+	}
 	return ctx, nil
 }
 
@@ -2752,8 +2802,20 @@ func (f *fundingManager) deleteReservationCtx(peerKey *btcec.PublicKey,
 	// channelManager?
 	peerIDKey := newSerializedKey(peerKey)
 	f.resMtx.Lock()
-	delete(f.activeReservations[peerIDKey], pendingChanID)
-	f.resMtx.Unlock()
+	defer f.resMtx.Unlock()
+
+	nodeReservations, ok := f.activeReservations[peerIDKey]
+	if !ok {
+		// No reservations for this node.
+		return
+	}
+	delete(nodeReservations, pendingChanID)
+
+	// If this was the last active reservation for this peer, delete the
+	// peer's entry altogether.
+	if len(nodeReservations) == 0 {
+		delete(f.activeReservations, peerIDKey)
+	}
 }
 
 // getReservationCtx returns the reservation context for a particular pending
@@ -2767,8 +2829,8 @@ func (f *fundingManager) getReservationCtx(peerKey *btcec.PublicKey,
 	f.resMtx.RUnlock()
 
 	if !ok {
-		return nil, errors.Errorf("unknown channel (id: %x)",
-			pendingChanID[:])
+		return nil, errors.Errorf("unknown channel (id: %x) for "+
+			"peer(%x)", pendingChanID[:], peerIDKey[:])
 	}
 
 	return resCtx, nil

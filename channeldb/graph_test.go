@@ -373,6 +373,42 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 	}
 }
 
+func createEdge(height, txIndex uint32, txPosition uint16, outPointIndex uint32,
+	node1, node2 *LightningNode) (ChannelEdgeInfo, lnwire.ShortChannelID) {
+
+	shortChanID := lnwire.ShortChannelID{
+		BlockHeight: height,
+		TxIndex:     txIndex,
+		TxPosition:  txPosition,
+	}
+	outpoint := wire.OutPoint{
+		Hash:  rev,
+		Index: outPointIndex,
+	}
+
+	node1Pub, _ := node1.PubKey()
+	node2Pub, _ := node2.PubKey()
+	edgeInfo := ChannelEdgeInfo{
+		ChannelID: shortChanID.ToUint64(),
+		ChainHash: key,
+		AuthProof: &ChannelAuthProof{
+			NodeSig1Bytes:    testSig.Serialize(),
+			NodeSig2Bytes:    testSig.Serialize(),
+			BitcoinSig1Bytes: testSig.Serialize(),
+			BitcoinSig2Bytes: testSig.Serialize(),
+		},
+		ChannelPoint: outpoint,
+		Capacity:     9000,
+	}
+
+	copy(edgeInfo.NodeKey1Bytes[:], node1Pub.SerializeCompressed())
+	copy(edgeInfo.NodeKey2Bytes[:], node2Pub.SerializeCompressed())
+	copy(edgeInfo.BitcoinKey1Bytes[:], node1Pub.SerializeCompressed())
+	copy(edgeInfo.BitcoinKey2Bytes[:], node2Pub.SerializeCompressed())
+
+	return edgeInfo, shortChanID
+}
+
 // TestDisconnectBlockAtHeight checks that the pruned state of the channel
 // database is what we expect after calling DisconnectBlockAtHeight.
 func TestDisconnectBlockAtHeight(t *testing.T) {
@@ -419,54 +455,22 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 
 	// We'll create 3 almost identical edges, so first create a helper
 	// method containing all logic for doing so.
-	createEdge := func(height uint32, txIndex uint32, txPosition uint16,
-		outPointIndex uint32) ChannelEdgeInfo {
-		shortChanID := lnwire.ShortChannelID{
-			BlockHeight: height,
-			TxIndex:     txIndex,
-			TxPosition:  txPosition,
-		}
-		outpoint := wire.OutPoint{
-			Hash:  rev,
-			Index: outPointIndex,
-		}
-
-		node1Pub, _ := node1.PubKey()
-		node2Pub, _ := node2.PubKey()
-		edgeInfo := ChannelEdgeInfo{
-			ChannelID: shortChanID.ToUint64(),
-			ChainHash: key,
-			AuthProof: &ChannelAuthProof{
-				NodeSig1Bytes:    testSig.Serialize(),
-				NodeSig2Bytes:    testSig.Serialize(),
-				BitcoinSig1Bytes: testSig.Serialize(),
-				BitcoinSig2Bytes: testSig.Serialize(),
-			},
-			ChannelPoint: outpoint,
-			Capacity:     9000,
-		}
-
-		copy(edgeInfo.NodeKey1Bytes[:], node1Pub.SerializeCompressed())
-		copy(edgeInfo.NodeKey2Bytes[:], node2Pub.SerializeCompressed())
-		copy(edgeInfo.BitcoinKey1Bytes[:], node1Pub.SerializeCompressed())
-		copy(edgeInfo.BitcoinKey2Bytes[:], node2Pub.SerializeCompressed())
-
-		return edgeInfo
-	}
 
 	// Create an edge which has its block height at 156.
 	height := uint32(156)
-	edgeInfo := createEdge(height, 0, 0, 0)
+	edgeInfo, _ := createEdge(height, 0, 0, 0, node1, node2)
 
 	// Create an edge with block height 157. We give it
 	// maximum values for tx index and position, to make
 	// sure our database range scan get edges from the
 	// entire range.
-	edgeInfo2 := createEdge(height+1, math.MaxUint32&0x00ffffff,
-		math.MaxUint16, 1)
+	edgeInfo2, _ := createEdge(
+		height+1, math.MaxUint32&0x00ffffff, math.MaxUint16, 1,
+		node1, node2,
+	)
 
 	// Create a third edge, this with a block height of 155.
-	edgeInfo3 := createEdge(height-1, 0, 0, 2)
+	edgeInfo3, _ := createEdge(height-1, 0, 0, 2, node1, node2)
 
 	// Now add all these new edges to the database.
 	if err := graph.AddChannelEdge(&edgeInfo); err != nil {
@@ -754,9 +758,15 @@ func TestEdgeInfoUpdates(t *testing.T) {
 func randEdgePolicy(chanID uint64, op wire.OutPoint, db *DB) *ChannelEdgePolicy {
 	update := prand.Int63()
 
+	return newEdgePolicy(chanID, op, db, update)
+}
+
+func newEdgePolicy(chanID uint64, op wire.OutPoint, db *DB,
+	updateTime int64) *ChannelEdgePolicy {
+
 	return &ChannelEdgePolicy{
 		ChannelID:                 chanID,
-		LastUpdate:                time.Unix(update, 0),
+		LastUpdate:                time.Unix(updateTime, 0),
 		TimeLockDelta:             uint16(prand.Int63()),
 		MinHTLC:                   lnwire.MilliSatoshi(prand.Int63()),
 		FeeBaseMSat:               lnwire.MilliSatoshi(prand.Int63()),
@@ -1088,8 +1098,8 @@ func TestGraphPruning(t *testing.T) {
 		t.Fatalf("unable to prune graph: %v", err)
 	}
 	if len(prunedChans) != 2 {
-		t.Fatalf("incorrect number of channels pruned: expected %v, got %v",
-			2, prunedChans)
+		t.Fatalf("incorrect number of channels pruned: "+
+			"expected %v, got %v", 2, prunedChans)
 	}
 
 	// Now ensure that the prune tip has been updated.
@@ -1115,8 +1125,9 @@ func TestGraphPruning(t *testing.T) {
 	}
 	blockHash = sha256.Sum256(blockHash[:])
 	blockHeight = 2
-	prunedChans, err = graph.PruneGraph([]*wire.OutPoint{nonChannel},
-		&blockHash, blockHeight)
+	prunedChans, err = graph.PruneGraph(
+		[]*wire.OutPoint{nonChannel}, &blockHash, blockHeight,
+	)
 	if err != nil {
 		t.Fatalf("unable to prune graph: %v", err)
 	}
@@ -1134,16 +1145,18 @@ func TestGraphPruning(t *testing.T) {
 	// from the graph.
 	blockHash = sha256.Sum256(blockHash[:])
 	blockHeight = 3
-	prunedChans, err = graph.PruneGraph(channelPoints[2:], &blockHash,
-		blockHeight)
+	prunedChans, err = graph.PruneGraph(
+		channelPoints[2:], &blockHash, blockHeight,
+	)
 	if err != nil {
 		t.Fatalf("unable to prune graph: %v", err)
 	}
 
-	// The remainder of the channels should have been pruned from the graph.
+	// The remainder of the channels should have been pruned from the
+	// graph.
 	if len(prunedChans) != 2 {
-		t.Fatalf("incorrect number of channels pruned: expected %v, got %v",
-			2, len(prunedChans))
+		t.Fatalf("incorrect number of channels pruned: "+
+			"expected %v, got %v", 2, len(prunedChans))
 	}
 
 	// The prune tip should be updated, and no channels should be found
@@ -1152,8 +1165,8 @@ func TestGraphPruning(t *testing.T) {
 	assertNumChans(t, graph, 0)
 
 	// Finally, the channel view at this point in the graph should now be
-	// completely empty.
-	// Those channels should also be missing from the channel view.
+	// completely empty.  Those channels should also be missing from the
+	// channel view.
 	channelView, err = graph.ChannelView()
 	if err != nil {
 		t.Fatalf("unable to get graph channel view: %v", err)
@@ -1164,13 +1177,853 @@ func TestGraphPruning(t *testing.T) {
 	}
 }
 
+// TestHighestChanID tests that we're able to properly retrieve the highest
+// known channel ID in the database.
+func TestHighestChanID(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+
+	graph := db.ChannelGraph()
+
+	// If we don't yet have any channels in the database, then we should
+	// get a channel ID of zero if we ask for the highest channel ID.
+	bestID, err := graph.HighestChanID()
+	if err != nil {
+		t.Fatalf("unable to get highest ID: %v", err)
+	}
+	if bestID != 0 {
+		t.Fatalf("best ID w/ no chan should be zero, is instead: %v",
+			bestID)
+	}
+
+	// Next, we'll insert two channels into the database, with each channel
+	// connecting the same two nodes.
+	node1, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	node2, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+
+	// The first channel with be at height 10, while the other will be at
+	// height 100.
+	edge1, _ := createEdge(10, 0, 0, 0, node1, node2)
+	edge2, chanID2 := createEdge(100, 0, 0, 0, node1, node2)
+
+	if err := graph.AddChannelEdge(&edge1); err != nil {
+		t.Fatalf("unable to create channel edge: %v", err)
+	}
+	if err := graph.AddChannelEdge(&edge2); err != nil {
+		t.Fatalf("unable to create channel edge: %v", err)
+	}
+
+	// Now that the edges has been inserted, we'll query for the highest
+	// known channel ID in the database.
+	bestID, err = graph.HighestChanID()
+	if err != nil {
+		t.Fatalf("unable to get highest ID: %v", err)
+	}
+
+	if bestID != chanID2.ToUint64() {
+		t.Fatalf("expected %v got %v for best chan ID: ",
+			chanID2.ToUint64(), bestID)
+	}
+
+	// If we add another edge, then the current best chan ID should be
+	// updated as well.
+	edge3, chanID3 := createEdge(1000, 0, 0, 0, node1, node2)
+	if err := graph.AddChannelEdge(&edge3); err != nil {
+		t.Fatalf("unable to create channel edge: %v", err)
+	}
+	bestID, err = graph.HighestChanID()
+	if err != nil {
+		t.Fatalf("unable to get highest ID: %v", err)
+	}
+
+	if bestID != chanID3.ToUint64() {
+		t.Fatalf("expected %v got %v for best chan ID: ",
+			chanID3.ToUint64(), bestID)
+	}
+}
+
+// TestChanUpdatesInHorizon tests the we're able to properly retrieve all known
+// channel updates within a specific time horizon. It also tests that upon
+// insertion of a new edge, the edge update index is updated properly.
+func TestChanUpdatesInHorizon(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+
+	graph := db.ChannelGraph()
+
+	// If we issue an arbitrary query before any channel updates are
+	// inserted in the database, we should get zero results.
+	chanUpdates, err := graph.ChanUpdatesInHorizon(
+		time.Unix(999, 0), time.Unix(9999, 0),
+	)
+	if err != nil {
+		t.Fatalf("unable to updates for updates: %v", err)
+	}
+	if len(chanUpdates) != 0 {
+		t.Fatalf("expected 0 chan updates, instead got %v",
+			len(chanUpdates))
+	}
+
+	// We'll start by creating two nodes which will seed our test graph.
+	node1, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	if err := graph.AddLightningNode(node1); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
+	node2, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	if err := graph.AddLightningNode(node2); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
+
+	// We'll now create 10 channels between the two nodes, with update
+	// times 10 seconds after each other.
+	const numChans = 10
+	startTime := time.Unix(1234, 0)
+	endTime := startTime
+	edges := make([]ChannelEdge, 0, numChans)
+	for i := 0; i < numChans; i++ {
+		txHash := sha256.Sum256([]byte{byte(i)})
+		op := wire.OutPoint{
+			Hash:  txHash,
+			Index: 0,
+		}
+
+		channel, chanID := createEdge(
+			uint32(i*10), 0, 0, 0, node1, node2,
+		)
+
+		if err := graph.AddChannelEdge(&channel); err != nil {
+			t.Fatalf("unable to create channel edge: %v", err)
+		}
+
+		updateTime := endTime
+		endTime = updateTime.Add(time.Second * 10)
+
+		edge1 := newEdgePolicy(
+			chanID.ToUint64(), op, db, updateTime.Unix(),
+		)
+		edge1.Flags = 0
+		edge1.Node = node2
+		edge1.SigBytes = testSig.Serialize()
+		if err := graph.UpdateEdgePolicy(edge1); err != nil {
+			t.Fatalf("unable to update edge: %v", err)
+		}
+
+		edge2 := newEdgePolicy(
+			chanID.ToUint64(), op, db, updateTime.Unix(),
+		)
+		edge2.Flags = 1
+		edge2.Node = node1
+		edge2.SigBytes = testSig.Serialize()
+		if err := graph.UpdateEdgePolicy(edge2); err != nil {
+			t.Fatalf("unable to update edge: %v", err)
+		}
+
+		edges = append(edges, ChannelEdge{
+			Info:    &channel,
+			Policy1: edge1,
+			Policy2: edge2,
+		})
+	}
+
+	// With our channels loaded, we'll now start our series of queries.
+	queryCases := []struct {
+		start time.Time
+		end   time.Time
+
+		resp []ChannelEdge
+	}{
+		// If we query for a time range that's strictly below our set
+		// of updates, then we'll get an empty result back.
+		{
+			start: time.Unix(100, 0),
+			end:   time.Unix(200, 0),
+		},
+
+		// If we query for a time range that's well beyond our set of
+		// updates, we should get an empty set of results back.
+		{
+			start: time.Unix(99999, 0),
+			end:   time.Unix(999999, 0),
+		},
+
+		// If we query for the start time, and 10 seconds directly
+		// after it, we should only get a single update, that first
+		// one.
+		{
+			start: time.Unix(1234, 0),
+			end:   startTime.Add(time.Second * 10),
+
+			resp: []ChannelEdge{edges[0]},
+		},
+
+		// If we add 10 seconds past the first update, and then
+		// subtract 10 from the last update, then we should only get
+		// the 8 edges in the middle.
+		{
+			start: startTime.Add(time.Second * 10),
+			end:   endTime.Add(-time.Second * 10),
+
+			resp: edges[1:9],
+		},
+
+		// If we use the start and end time as is, we should get the
+		// entire range.
+		{
+			start: startTime,
+			end:   endTime,
+
+			resp: edges,
+		},
+	}
+	for _, queryCase := range queryCases {
+		resp, err := graph.ChanUpdatesInHorizon(
+			queryCase.start, queryCase.end,
+		)
+		if err != nil {
+			t.Fatalf("unable to query for updates: %v", err)
+		}
+
+		if len(resp) != len(queryCase.resp) {
+			t.Fatalf("expected %v chans, got %v chans",
+				len(queryCase.resp), len(resp))
+
+		}
+
+		for i := 0; i < len(resp); i++ {
+			chanExp := queryCase.resp[i]
+			chanRet := resp[i]
+
+			assertEdgeInfoEqual(t, chanExp.Info, chanRet.Info)
+
+			err := compareEdgePolicies(chanExp.Policy1, chanRet.Policy1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			compareEdgePolicies(chanExp.Policy2, chanRet.Policy2)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}
+
+// TestNodeUpdatesInHorizon tests that we're able to properly scan and retrieve
+// the most recent node updates within a particular time horizon.
+func TestNodeUpdatesInHorizon(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+
+	graph := db.ChannelGraph()
+
+	startTime := time.Unix(1234, 0)
+	endTime := startTime
+
+	// If we issue an arbitrary query before we insert any nodes into the
+	// database, then we shouldn't get any results back.
+	nodeUpdates, err := graph.NodeUpdatesInHorizon(
+		time.Unix(999, 0), time.Unix(9999, 0),
+	)
+	if err != nil {
+		t.Fatalf("unable to query for node updates: %v", err)
+	}
+	if len(nodeUpdates) != 0 {
+		t.Fatalf("expected 0 node updates, instead got %v",
+			len(nodeUpdates))
+	}
+
+	// We'll create 10 node announcements, each with an update timestmap 10
+	// seconds after the other.
+	const numNodes = 10
+	nodeAnns := make([]LightningNode, 0, numNodes)
+	for i := 0; i < numNodes; i++ {
+		nodeAnn, err := createTestVertex(db)
+		if err != nil {
+			t.Fatalf("unable to create test vertex: %v", err)
+		}
+
+		// The node ann will use the current end time as its last
+		// update them, then we'll add 10 seconds in order to create
+		// the proper update time for the next node announcement.
+		updateTime := endTime
+		endTime = updateTime.Add(time.Second * 10)
+
+		nodeAnn.LastUpdate = updateTime
+
+		nodeAnns = append(nodeAnns, *nodeAnn)
+
+		if err := graph.AddLightningNode(nodeAnn); err != nil {
+			t.Fatalf("unable to add lightning node: %v", err)
+		}
+	}
+
+	queryCases := []struct {
+		start time.Time
+		end   time.Time
+
+		resp []LightningNode
+	}{
+		// If we query for a time range that's strictly below our set
+		// of updates, then we'll get an empty result back.
+		{
+			start: time.Unix(100, 0),
+			end:   time.Unix(200, 0),
+		},
+
+		// If we query for a time range that's well beyond our set of
+		// updates, we should get an empty set of results back.
+		{
+			start: time.Unix(99999, 0),
+			end:   time.Unix(999999, 0),
+		},
+
+		// If we skip he first time epoch with out start time, then we
+		// should get back every now but the first.
+		{
+			start: startTime.Add(time.Second * 10),
+			end:   endTime,
+
+			resp: nodeAnns[1:],
+		},
+
+		// If we query for the range as is, we should get all 10
+		// announcements back.
+		{
+			start: startTime,
+			end:   endTime,
+
+			resp: nodeAnns,
+		},
+
+		// If we reduce the ending time by 10 seconds, then we should
+		// get all but the last node we inserted.
+		{
+			start: startTime,
+			end:   endTime.Add(-time.Second * 10),
+
+			resp: nodeAnns[:9],
+		},
+	}
+	for _, queryCase := range queryCases {
+		resp, err := graph.NodeUpdatesInHorizon(queryCase.start, queryCase.end)
+		if err != nil {
+			t.Fatalf("unable to query for nodes: %v", err)
+		}
+
+		if len(resp) != len(queryCase.resp) {
+			t.Fatalf("expected %v nodes, got %v nodes",
+				len(queryCase.resp), len(resp))
+
+		}
+
+		for i := 0; i < len(resp); i++ {
+			err := compareNodes(&queryCase.resp[i], &resp[i])
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}
+
+// TestFilterKnownChanIDs tests that we're able to properly perform the set
+// differences of an incoming set of channel ID's, and those that we already
+// know of on disk.
+func TestFilterKnownChanIDs(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+
+	graph := db.ChannelGraph()
+
+	// If we try to filter out a set of channel ID's before we even know of
+	// any channels, then we should get the entire set back.
+	preChanIDs := []uint64{1, 2, 3, 4}
+	filteredIDs, err := graph.FilterKnownChanIDs(preChanIDs)
+	if err != nil {
+		t.Fatalf("unable to filter chan IDs: %v", err)
+	}
+	if !reflect.DeepEqual(preChanIDs, filteredIDs) {
+		t.Fatalf("chan IDs shouldn't have been filtered!")
+	}
+
+	// We'll start by creating two nodes which will seed our test graph.
+	node1, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	if err := graph.AddLightningNode(node1); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
+	node2, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	if err := graph.AddLightningNode(node2); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
+
+	// Next, we'll add 5 channel ID's to the graph, each of them having a
+	// block height 10 blocks after the previous.
+	const numChans = 5
+	chanIDs := make([]uint64, 0, numChans)
+	for i := 0; i < numChans; i++ {
+		channel, chanID := createEdge(
+			uint32(i*10), 0, 0, 0, node1, node2,
+		)
+
+		if err := graph.AddChannelEdge(&channel); err != nil {
+			t.Fatalf("unable to create channel edge: %v", err)
+		}
+
+		chanIDs = append(chanIDs, chanID.ToUint64())
+	}
+
+	queryCases := []struct {
+		queryIDs []uint64
+
+		resp []uint64
+	}{
+		// If we attempt to filter out all chanIDs we know of, the
+		// response should be the empty set.
+		{
+			queryIDs: chanIDs,
+		},
+
+		// If we query for a set of ID's that we didn't insert, we
+		// should get the same set back.
+		{
+			queryIDs: []uint64{99, 100},
+			resp:     []uint64{99, 100},
+		},
+
+		// If we query for a super-set of our the chan ID's inserted,
+		// we should only get those new chanIDs back.
+		{
+			queryIDs: append(chanIDs, []uint64{99, 101}...),
+			resp:     []uint64{99, 101},
+		},
+	}
+
+	for _, queryCase := range queryCases {
+		resp, err := graph.FilterKnownChanIDs(queryCase.queryIDs)
+		if err != nil {
+			t.Fatalf("unable to filter chan IDs: %v", err)
+		}
+
+		if !reflect.DeepEqual(resp, queryCase.resp) {
+			t.Fatalf("expected %v, got %v", spew.Sdump(queryCase.resp),
+				spew.Sdump(resp))
+		}
+	}
+}
+
+// TestFilterChannelRange tests that we're able to properly retrieve the full
+// set of short channel ID's for a given block range.
+func TestFilterChannelRange(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+
+	graph := db.ChannelGraph()
+
+	// We'll first populate our graph with two nodes. All channels created
+	// below will be made between these two nodes.
+	node1, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	if err := graph.AddLightningNode(node1); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
+	node2, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	if err := graph.AddLightningNode(node2); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
+
+	// If we try to filter a channel range before we have any channels
+	// inserted, we should get an empty slice of results.
+	resp, err := graph.FilterChannelRange(10, 100)
+	if err != nil {
+		t.Fatalf("unable to filter channels: %v", err)
+	}
+	if len(resp) != 0 {
+		t.Fatalf("expected zero chans, instead got %v", len(resp))
+	}
+
+	// To start, we'll create a set of channels, each mined in a block 10
+	// blocks after the prior one.
+	startHeight := uint32(100)
+	endHeight := startHeight
+	const numChans = 10
+	chanIDs := make([]uint64, 0, numChans)
+	for i := 0; i < numChans; i++ {
+		chanHeight := endHeight
+		channel, chanID := createEdge(
+			uint32(chanHeight), uint32(i+1), 0, 0, node1, node2,
+		)
+
+		if err := graph.AddChannelEdge(&channel); err != nil {
+			t.Fatalf("unable to create channel edge: %v", err)
+		}
+
+		chanIDs = append(chanIDs, chanID.ToUint64())
+
+		endHeight += 10
+	}
+
+	// With our channels inserted, we'll construct a series of queries that
+	// we'll execute below in order to exercise the features of the
+	// FilterKnownChanIDs method.
+	queryCases := []struct {
+		startHeight uint32
+		endHeight   uint32
+
+		resp []uint64
+	}{
+		// If we query for the entire range, then we should get the same
+		// set of short channel IDs back.
+		{
+			startHeight: startHeight,
+			endHeight:   endHeight,
+
+			resp: chanIDs,
+		},
+
+		// If we query for a range of channels right before our range, we
+		// shouldn't get any results back.
+		{
+			startHeight: 0,
+			endHeight:   10,
+		},
+
+		// If we only query for the last height (range wise), we should
+		// only get that last channel.
+		{
+			startHeight: endHeight - 10,
+			endHeight:   endHeight - 10,
+
+			resp: chanIDs[9:],
+		},
+
+		// If we query for just the first height, we should only get a
+		// single channel back (the first one).
+		{
+			startHeight: startHeight,
+			endHeight:   startHeight,
+
+			resp: chanIDs[:1],
+		},
+	}
+	for i, queryCase := range queryCases {
+		resp, err := graph.FilterChannelRange(
+			queryCase.startHeight, queryCase.endHeight,
+		)
+		if err != nil {
+			t.Fatalf("unable to issue range query: %v", err)
+		}
+
+		if !reflect.DeepEqual(resp, queryCase.resp) {
+			t.Fatalf("case #%v: expected %v, got %v", i,
+				queryCase.resp, resp)
+		}
+	}
+}
+
+// TestFetchChanInfos tests that we're able to properly retrieve the full set
+// of ChannelEdge structs for a given set of short channel ID's.
+func TestFetchChanInfos(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+
+	graph := db.ChannelGraph()
+
+	// We'll first populate our graph with two nodes. All channels created
+	// below will be made between these two nodes.
+	node1, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	if err := graph.AddLightningNode(node1); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
+	node2, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	if err := graph.AddLightningNode(node2); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
+
+	// We'll make 5 test channels, ensuring we keep track of which channel
+	// ID corresponds to a particular ChannelEdge.
+	const numChans = 5
+	startTime := time.Unix(1234, 0)
+	endTime := startTime
+	edges := make([]ChannelEdge, 0, numChans)
+	edgeQuery := make([]uint64, 0, numChans)
+	for i := 0; i < numChans; i++ {
+		txHash := sha256.Sum256([]byte{byte(i)})
+		op := wire.OutPoint{
+			Hash:  txHash,
+			Index: 0,
+		}
+
+		channel, chanID := createEdge(
+			uint32(i*10), 0, 0, 0, node1, node2,
+		)
+
+		if err := graph.AddChannelEdge(&channel); err != nil {
+			t.Fatalf("unable to create channel edge: %v", err)
+		}
+
+		updateTime := endTime
+		endTime = updateTime.Add(time.Second * 10)
+
+		edge1 := newEdgePolicy(
+			chanID.ToUint64(), op, db, updateTime.Unix(),
+		)
+		edge1.Flags = 0
+		edge1.Node = node2
+		edge1.SigBytes = testSig.Serialize()
+		if err := graph.UpdateEdgePolicy(edge1); err != nil {
+			t.Fatalf("unable to update edge: %v", err)
+		}
+
+		edge2 := newEdgePolicy(
+			chanID.ToUint64(), op, db, updateTime.Unix(),
+		)
+		edge2.Flags = 1
+		edge2.Node = node1
+		edge2.SigBytes = testSig.Serialize()
+		if err := graph.UpdateEdgePolicy(edge2); err != nil {
+			t.Fatalf("unable to update edge: %v", err)
+		}
+
+		edges = append(edges, ChannelEdge{
+			Info:    &channel,
+			Policy1: edge1,
+			Policy2: edge2,
+		})
+
+		edgeQuery = append(edgeQuery, chanID.ToUint64())
+	}
+
+	// We'll now attempt to query for the range of channel ID's we just
+	// inserted into the database. We should get the exact same set of
+	// edges back.
+	resp, err := graph.FetchChanInfos(edgeQuery)
+	if err != nil {
+		t.Fatalf("unable to fetch chan edges: %v", err)
+	}
+	if len(resp) != len(edges) {
+		t.Fatalf("expected %v edges, instead got %v", len(edges),
+			len(resp))
+	}
+
+	for i := 0; i < len(resp); i++ {
+		err := compareEdgePolicies(resp[i].Policy1, edges[i].Policy1)
+		if err != nil {
+			t.Fatalf("edge doesn't match: %v", err)
+		}
+		err = compareEdgePolicies(resp[i].Policy2, edges[i].Policy2)
+		if err != nil {
+			t.Fatalf("edge doesn't match: %v", err)
+		}
+		assertEdgeInfoEqual(t, resp[i].Info, edges[i].Info)
+	}
+}
+
+// TestChannelEdgePruningUpdateIndexDeletion tests that once edges are deleted
+// from the graph, then their entries within the update index are also cleaned
+// up.
+func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+
+	graph := db.ChannelGraph()
+
+	// We'll first populate our graph with two nodes. All channels created
+	// below will be made between these two nodes.
+	node1, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	if err := graph.AddLightningNode(node1); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
+	node2, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	if err := graph.AddLightningNode(node2); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
+
+	// With the two nodes created, we'll now create a random channel, as
+	// well as two edges in the database with distinct update times.
+	edgeInfo, chanID := createEdge(100, 0, 0, 0, node1, node2)
+	if err := graph.AddChannelEdge(&edgeInfo); err != nil {
+		t.Fatalf("unable to add edge: %v", err)
+	}
+
+	edge1 := randEdgePolicy(chanID.ToUint64(), edgeInfo.ChannelPoint, db)
+	edge1.Flags = 0
+	edge1.Node = node1
+	edge1.SigBytes = testSig.Serialize()
+	if err := graph.UpdateEdgePolicy(edge1); err != nil {
+		t.Fatalf("unable to update edge: %v", err)
+	}
+
+	edge2 := randEdgePolicy(chanID.ToUint64(), edgeInfo.ChannelPoint, db)
+	edge2.Flags = 1
+	edge2.Node = node2
+	edge2.SigBytes = testSig.Serialize()
+	if err := graph.UpdateEdgePolicy(edge2); err != nil {
+		t.Fatalf("unable to update edge: %v", err)
+	}
+
+	// Now that both edges have been updated, if we manually check the
+	// update index, we should have an entry for both edges.
+	if err := db.View(func(tx *bolt.Tx) error {
+		edges := tx.Bucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNoEdgesFound
+		}
+		edgeIndex := edges.Bucket(edgeIndexBucket)
+		if edgeIndex == nil {
+			return ErrGraphNoEdgesFound
+		}
+		edgeUpdateIndex := edges.Bucket(edgeUpdateIndexBucket)
+		if edgeUpdateIndex == nil {
+			return ErrGraphNoEdgesFound
+		}
+
+		var edgeKey [8 + 8]byte
+
+		byteOrder.PutUint64(edgeKey[:8], uint64(edge1.LastUpdate.Unix()))
+		byteOrder.PutUint64(edgeKey[8:], edge1.ChannelID)
+
+		if edgeUpdateIndex.Get(edgeKey[:]) == nil {
+			return fmt.Errorf("first edge not found in update " +
+				"index")
+		}
+
+		byteOrder.PutUint64(edgeKey[:8], uint64(edge2.LastUpdate.Unix()))
+		byteOrder.PutUint64(edgeKey[8:], edge2.ChannelID)
+		if edgeUpdateIndex.Get(edgeKey[:]) == nil {
+			return fmt.Errorf("second edge not found in update " +
+				"index")
+		}
+
+		return nil
+	}); err != nil {
+		t.Fatalf("unable to read update index: %v", err)
+	}
+
+	// Now we'll prune the graph, removing the edges, and also the update
+	// index entries from the database all together.
+	var blockHash chainhash.Hash
+	copy(blockHash[:], bytes.Repeat([]byte{2}, 32))
+	_, err = graph.PruneGraph(
+		[]*wire.OutPoint{&edgeInfo.ChannelPoint}, &blockHash, 101,
+	)
+	if err != nil {
+		t.Fatalf("unable to prune graph: %v", err)
+	}
+
+	// We'll now check the database state again, at this point, we should
+	// no longer be able to locate the entries within the edge update
+	// index.
+	if err := db.View(func(tx *bolt.Tx) error {
+		edges := tx.Bucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNoEdgesFound
+		}
+		edgeIndex := edges.Bucket(edgeIndexBucket)
+		if edgeIndex == nil {
+			return ErrGraphNoEdgesFound
+		}
+		edgeUpdateIndex := edges.Bucket(edgeUpdateIndexBucket)
+		if edgeUpdateIndex == nil {
+			return ErrGraphNoEdgesFound
+		}
+
+		var edgeKey [8 + 8]byte
+
+		byteOrder.PutUint64(edgeKey[:8], uint64(edge1.LastUpdate.Unix()))
+		byteOrder.PutUint64(edgeKey[8:], edge1.ChannelID)
+		if edgeUpdateIndex.Get(edgeKey[:]) != nil {
+			return fmt.Errorf("first edge still found in update " +
+				"index")
+		}
+
+		byteOrder.PutUint64(edgeKey[:8], uint64(edge2.LastUpdate.Unix()))
+		byteOrder.PutUint64(edgeKey[8:], edge2.ChannelID)
+		if edgeUpdateIndex.Get(edgeKey[:]) != nil {
+			return fmt.Errorf("second edge still found in update " +
+				"index")
+		}
+
+		return nil
+	}); err != nil {
+		t.Fatalf("unable to read update index: %v", err)
+	}
+}
+
 // compareNodes is used to compare two LightningNodes while excluding the
 // Features struct, which cannot be compared as the semantics for reserializing
 // the featuresMap have not been defined.
 func compareNodes(a, b *LightningNode) error {
-	if !reflect.DeepEqual(a.LastUpdate, b.LastUpdate) {
-		return fmt.Errorf("LastUpdate doesn't match: expected %#v, \n"+
-			"got %#v", a.LastUpdate, b.LastUpdate)
+	if a.LastUpdate != b.LastUpdate {
+		return fmt.Errorf("node LastUpdate doesn't match: expected %v, \n"+
+			"got %v", a.LastUpdate, b.LastUpdate)
 	}
 	if !reflect.DeepEqual(a.Addresses, b.Addresses) {
 		return fmt.Errorf("Addresses doesn't match: expected %#v, \n "+
@@ -1208,7 +2061,7 @@ func compareEdgePolicies(a, b *ChannelEdgePolicy) error {
 			"got %v", a.ChannelID, b.ChannelID)
 	}
 	if !reflect.DeepEqual(a.LastUpdate, b.LastUpdate) {
-		return fmt.Errorf("LastUpdate doesn't match: expected %#v, \n "+
+		return fmt.Errorf("edge LastUpdate doesn't match: expected %#v, \n "+
 			"got %#v", a.LastUpdate, b.LastUpdate)
 	}
 	if a.Flags != b.Flags {

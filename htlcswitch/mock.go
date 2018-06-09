@@ -100,8 +100,8 @@ func (m *mockForwardingLog) AddForwardingEvents(events []channeldb.ForwardingEve
 }
 
 type mockServer struct {
-	started  int32
-	shutdown int32
+	started  int32 // To be used atomically.
+	shutdown int32 // To be used atomically.
 	wg       sync.WaitGroup
 	quit     chan struct{}
 
@@ -504,12 +504,6 @@ func (s *mockServer) readHandler(message lnwire.Message) error {
 
 func (s *mockServer) PubKey() [33]byte {
 	return s.id
-}
-
-func (s *mockServer) Disconnect(reason error) {
-	fmt.Printf("server %v disconnected due to %v\n", s.name, reason)
-
-	s.t.Fatalf("server %v was disconnected: %v", s.name, reason)
 }
 
 func (s *mockServer) WipeChannel(*wire.OutPoint) error {

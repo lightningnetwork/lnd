@@ -202,12 +202,12 @@ func newRouteTuple(amt lnwire.MilliSatoshi, dest []byte) routeTuple {
 // automatically as new blocks are discovered which spend certain known funding
 // outpoints, thereby closing their respective channels.
 type ChannelRouter struct {
-	ntfnClientCounter uint64
+	ntfnClientCounter uint64 // To be used atomically.
 
-	started uint32
-	stopped uint32
+	started uint32 // To be used atomically.
+	stopped uint32 // To be used atomically.
 
-	bestHeight uint32
+	bestHeight uint32 // To be used atomically.
 
 	// cfg is a copy of the configuration struct that the ChannelRouter was
 	// initialized with.
@@ -1551,11 +1551,54 @@ type LightningPayment struct {
 // within the network to reach the destination. Additionally, the payment
 // preimage will also be returned.
 func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route, error) {
+	// Before starting the HTLC routing attempt, we'll create a fresh
+	// payment session which will report our errors back to mission
+	// control.
+	paySession, err := r.missionControl.NewPaymentSession(
+		payment.RouteHints, payment.Target,
+	)
+	if err != nil {
+		return [32]byte{}, nil, err
+	}
+
+	return r.sendPayment(payment, paySession)
+}
+
+// SendToRoute attempts to send a payment as described within the passed
+// LightningPayment through the provided routes. This function is blocking
+// and will return either: when the payment is successful, or all routes
+// have been attempted and resulted in a failed payment. If the payment
+// succeeds, then a non-nil Route will be returned which describes the
+// path the successful payment traversed within the network to reach the
+// destination. Additionally, the payment preimage will also be returned.
+func (r *ChannelRouter) SendToRoute(routes []*Route,
+	payment *LightningPayment) ([32]byte, *Route, error) {
+
+	paySession := r.missionControl.NewPaymentSessionFromRoutes(
+		routes,
+	)
+
+	return r.sendPayment(payment, paySession)
+}
+
+// sendPayment attempts to send a payment as described within the passed
+// LightningPayment. This function is blocking and will return either: when the
+// payment is successful, or all candidates routes have been attempted and
+// resulted in a failed payment. If the payment succeeds, then a non-nil Route
+// will be returned which describes the path the successful payment traversed
+// within the network to reach the destination. Additionally, the payment
+// preimage will also be returned.
+func (r *ChannelRouter) sendPayment(payment *LightningPayment,
+	paySession *paymentSession) ([32]byte, *Route, error) {
+
 	log.Tracef("Dispatching route for lightning payment: %v",
 		newLogClosure(func() string {
 			// Remove the public key curve parameters when logging
 			// the route to prevent spamming the logs.
-			payment.Target.Curve = nil
+			if payment.Target != nil {
+				payment.Target.Curve = nil
+			}
+
 			for _, routeHint := range payment.RouteHints {
 				for _, hopHint := range routeHint {
 					hopHint.NodeID.Curve = nil
@@ -1580,7 +1623,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 	// calculate the required HTLC time locks within the route.
 	_, currentHeight, err := r.cfg.Chain.GetBestBlock()
 	if err != nil {
-		return preImage, nil, err
+		return [32]byte{}, nil, err
 	}
 
 	var finalCLTVDelta uint16
@@ -1598,17 +1641,6 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 	}
 
 	timeoutChan := time.After(payAttemptTimeout)
-
-	// Before starting the HTLC routing attempt, we'll create a fresh
-	// payment session which will report our errors back to mission
-	// control.
-	paySession, err := r.missionControl.NewPaymentSession(
-		payment.RouteHints, payment.Target,
-	)
-	if err != nil {
-		return preImage, nil, fmt.Errorf("unable to create payment "+
-			"session: %v", err)
-	}
 
 	// We'll continue until either our payment succeeds, or we encounter a
 	// critical error during path finding.
@@ -1634,10 +1666,6 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 			// are expiring.
 		}
 
-		// We'll kick things off by requesting a new route from mission
-		// control, which will incorporate the current best known state
-		// of the channel graph and our past HTLC routing
-		// successes/failures.
 		route, err := paySession.RequestRoute(
 			payment, uint32(currentHeight), finalCLTVDelta,
 		)

@@ -130,10 +130,6 @@ type Peer interface {
 
 	// PubKey returns the serialize public key of the source peer.
 	PubKey() [33]byte
-
-	// Disconnect disconnects with peer if we have error which we can't
-	// properly handle.
-	Disconnect(reason error)
 }
 
 // ForwardingLog is an interface that represents a time series database which

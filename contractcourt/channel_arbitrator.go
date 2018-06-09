@@ -85,8 +85,10 @@ type ChannelArbitratorConfig struct {
 
 	// ForceCloseChan should force close the contract that this attendant
 	// is watching over. We'll use this when we decide that we need to go
-	// to chain. The returned summary contains all items needed to
-	// eventually resolve all outputs on chain.
+	// to chain. It should in addition tell the switch to remove the
+	// corresponding link, such that we won't accept any new updates. The
+	// returned summary contains all items needed to eventually resolve all
+	// outputs on chain.
 	ForceCloseChan func() (*lnwallet.LocalForceCloseSummary, error)
 
 	// MarkCommitmentBroadcasted should mark the channel as the commitment
@@ -146,8 +148,8 @@ func newHtlcSet(htlcs []channeldb.HTLC) htlcSet {
 // broadcasting to ensure that we avoid any possibility of race conditions, and
 // sweep the output(s) without contest.
 type ChannelArbitrator struct {
-	started int32
-	stopped int32
+	started int32 // To be used atomically.
+	stopped int32 // To be used atomically.
 
 	// log is a persistent log that the attendant will use to checkpoint
 	// its next action, and the state of any unresolved contracts.
@@ -434,9 +436,10 @@ func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
 		// Now that we have all the actions decided for the set of
 		// HTLC's, we'll broadcast the commitment transaction, and
 		// signal the link to exit.
-		//
-		// TODO(roasbeef): need to report to switch that channel is
-		// inactive, should close link
+
+		// We'll tell the switch that it should remove the link for
+		// this channel, in addition to fetching the force close
+		// summary needed to close this channel on chain.
 		closeSummary, err := c.cfg.ForceCloseChan()
 		if err != nil {
 			log.Errorf("ChannelArbitrator(%v): unable to "+

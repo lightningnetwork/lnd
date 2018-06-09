@@ -2334,7 +2334,6 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 					PaymentRoute:    marshallRoute(route),
 				})
 				if err != nil {
-					rpcsLog.Infof("sender rrrrr: ", err)
 					errChan <- err
 					return
 				}

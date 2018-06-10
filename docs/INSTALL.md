@@ -306,7 +306,7 @@ Github](https://github.com/lightningnetwork/lnd/issues/20).
 
 Running `lnd` for the first time will by default generate the `admin.macaroon`,
 `read_only.macaroon`, and `macaroons.db` files that are used to authenticate
-into `lnd`. They will be stored in the network directory (default: `lndDir/data/chain/bitcoin/testnet`)
+into `lnd`. They will be stored in the network directory (default: `lndDir/data/chain/bitcoin/simnet`)
 so that it's possible to use a distinct password for testnet, simnet, regest, mainnet, etc.
 Note that if you specified an alternative data directory (via the `--datadir` argument),
 you will have to additionally pass the updated location of the `admin.macaroon`

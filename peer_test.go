@@ -60,6 +60,13 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 
 	}
 
+	channelSnapshots := responder.ChannelSnapshots()
+	if len(channelSnapshots) != 0 {
+		t.Fatalf("expected channelSnapshots size to be %v instead got %v",
+			0, len(channelSnapshots))
+
+	}
+
 	// We send a shutdown request to Alice. She will now be the responding
 	// node in this shutdown procedure. We first expect Alice to answer
 	// this shutdown request with a Shutdown message.

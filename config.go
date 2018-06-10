@@ -76,10 +76,6 @@ var (
 	defaultTLSCertPath = filepath.Join(defaultLndDir, defaultTLSCertFilename)
 	defaultTLSKeyPath  = filepath.Join(defaultLndDir, defaultTLSKeyFilename)
 
-	defaultAdminMacPath   = filepath.Join(defaultLndDir, defaultAdminMacFilename)
-	defaultReadMacPath    = filepath.Join(defaultLndDir, defaultReadMacFilename)
-	defaultInvoiceMacPath = filepath.Join(defaultLndDir, defaultInvoiceMacFilename)
-
 	defaultBtcdDir         = btcutil.AppDataDir("btcd", false)
 	defaultBtcdRPCCertFile = filepath.Join(defaultBtcdDir, "rpc.cert")
 
@@ -256,9 +252,6 @@ func loadConfig() (*config, error) {
 		DebugLevel:     defaultLogLevel,
 		TLSCertPath:    defaultTLSCertPath,
 		TLSKeyPath:     defaultTLSKeyPath,
-		AdminMacPath:   defaultAdminMacPath,
-		InvoiceMacPath: defaultInvoiceMacPath,
-		ReadMacPath:    defaultReadMacPath,
 		LogDir:         defaultLogDir,
 		MaxLogFiles:    defaultMaxLogFiles,
 		MaxLogFileSize: defaultMaxLogFileSize,
@@ -774,17 +767,17 @@ func loadConfig() (*config, error) {
 
 	// If a custom macaroon path wasn't specified we'll
 	// store the macaroons within the network level.
-	if cfg.AdminMacPath == defaultAdminMacPath {
+	if cfg.AdminMacPath == "." {
 		cfg.AdminMacPath = filepath.Join(
 			networkDir, defaultAdminMacFilename,
 		)
 	}
-	if cfg.ReadMacPath == defaultReadMacPath {
+	if cfg.ReadMacPath == "." {
 		cfg.ReadMacPath = filepath.Join(
 			networkDir, defaultReadMacFilename,
 		)
 	}
-	if cfg.InvoiceMacPath == defaultInvoiceMacPath {
+	if cfg.InvoiceMacPath == "." {
 		cfg.InvoiceMacPath = filepath.Join(
 			networkDir, defaultInvoiceMacFilename,
 		)

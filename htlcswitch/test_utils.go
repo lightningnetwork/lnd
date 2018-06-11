@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -672,7 +673,7 @@ func (r *paymentResponse) Wait(d time.Duration) (chainhash.Hash, error) {
 // * from Alice to Bob
 // * from Alice to Carol through the Bob
 // * from Alice to some another peer through the Bob
-func (n *threeHopNetwork) makePayment(sendingPeer, receivingPeer Peer,
+func (n *threeHopNetwork) makePayment(sendingPeer, receivingPeer lnpeer.Peer,
 	firstHopPub [33]byte, hops []ForwardingInfo,
 	invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 	timelock uint32) *paymentResponse {

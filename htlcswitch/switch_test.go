@@ -25,6 +25,65 @@ func genPreimage() ([32]byte, error) {
 	return preimage, nil
 }
 
+// TestSwitchAddDuplicateLink tests that the switch will reject duplicate links
+// for both pending and live links. It also tests that we can successfully
+// add a link after having removed it.
+func TestSwitchAddDuplicateLink(t *testing.T) {
+	t.Parallel()
+
+	alicePeer, err := newMockServer(t, "alice", nil)
+	if err != nil {
+		t.Fatalf("unable to create alice server: %v", err)
+	}
+
+	s, err := initSwitchWithDB(nil)
+	if err != nil {
+		t.Fatalf("unable to init switch: %v", err)
+	}
+	if err := s.Start(); err != nil {
+		t.Fatalf("unable to start switch: %v", err)
+	}
+	defer s.Stop()
+
+	chanID1, _, aliceChanID, _ := genIDs()
+
+	pendingChanID := lnwire.ShortChannelID{}
+
+	aliceChannelLink := newMockChannelLink(
+		s, chanID1, pendingChanID, alicePeer, false,
+	)
+	if err := s.AddLink(aliceChannelLink); err != nil {
+		t.Fatalf("unable to add alice link: %v", err)
+	}
+
+	// Alice should have a pending link, adding again should fail.
+	if err := s.AddLink(aliceChannelLink); err == nil {
+		t.Fatalf("adding duplicate link should have failed")
+	}
+
+	// Update the short chan id of the channel, so that the link goes live.
+	aliceChannelLink.setLiveShortChanID(aliceChanID)
+	err = s.UpdateShortChanID(chanID1)
+	if err != nil {
+		t.Fatalf("unable to update alice short_chan_id: %v", err)
+	}
+
+	// Alice should have a live link, adding again should fail.
+	if err := s.AddLink(aliceChannelLink); err == nil {
+		t.Fatalf("adding duplicate link should have failed")
+	}
+
+	// Remove the live link to ensure the indexes are cleared.
+	if err := s.RemoveLink(chanID1); err != nil {
+		t.Fatalf("unable to remove alice link: %v", err)
+	}
+
+	// Alice has no links, adding should succeed.
+	if err := s.AddLink(aliceChannelLink); err != nil {
+		t.Fatalf("unable to add alice link: %v", err)
+	}
+}
+
 // TestSwitchSendPending checks the inability of htlc switch to forward adds
 // over pending links, and the UpdateShortChanID makes a pending link live.
 func TestSwitchSendPending(t *testing.T) {

@@ -399,6 +399,25 @@ service Lightning {
         };
     }
 
+    /** lncli: `sendtoroute`
+    SendToRoute is a bi-directional streaming RPC for sending payment through
+    the Lightning Network. This method differs from SendPayment in that it
+    allows users to specify a full route manually. This can be used for things
+    like rebalancing, and atomic swaps.
+    */
+    rpc SendToRoute(stream SendToRouteRequest) returns (stream SendResponse);
+
+    /**
+    SendToRouteSync is a synchronous version of SendToRoute. It Will block
+    until the payment either fails or succeeds.
+    */
+    rpc SendToRouteSync (SendToRouteRequest) returns (SendResponse) {
+        option (google.api.http) = {
+            post: "/v1/channels/transactions/route"
+            body: "*"
+        };
+    }
+
     /** lncli: `addinvoice`
     AddInvoice attempts to add a new invoice to the invoice database. Any
     duplicated invoices are rejected, therefore all invoices *must* have a
@@ -657,6 +676,17 @@ message SendResponse {
     string payment_error = 1 [json_name = "payment_error"];
     bytes payment_preimage = 2 [json_name = "payment_preimage"];
     Route payment_route = 3 [json_name = "payment_route"];
+}
+
+message SendToRouteRequest {
+    /// The payment hash to use for the HTLC.
+    bytes payment_hash = 1;
+
+    /// An optional hex-encoded payment hash to be used for the HTLC.
+    string payment_hash_string = 2;
+
+    /// The set of routes that should be used to attempt to complete the payment.
+    repeated Route routes = 3;
 }
 
 message ChannelPoint {
@@ -1197,6 +1227,9 @@ message QueryRoutesRequest {
 
     /// The max number of routes to return.
     int32 num_routes = 3;
+
+    /// An optional CLTV delta from the current height that should be used for the timelock of the final hop
+    int32 final_cltv_delta = 4;
 }
 message QueryRoutesResponse {
     repeated Route routes = 1 [ json_name = "routes"];

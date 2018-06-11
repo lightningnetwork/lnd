@@ -1309,6 +1309,21 @@ func delChannelByEdge(edges *bolt.Bucket, edgeIndex *bolt.Bucket,
 			chanID)
 	}
 
+	// We'll also remove the entry in the edge update index bucket before
+	// we delete the edges themselves so we can access their last update
+	// times.
+	cid := byteOrder.Uint64(chanID)
+	edge1, edge2, err := fetchChanEdgePolicies(
+		edgeIndex, edges, nodes, chanID, nil,
+	)
+	if err != nil {
+		return err
+	}
+	err = delEdgeUpdateIndexEntry(edges, cid, edge1, edge2)
+	if err != nil {
+		return err
+	}
+
 	// The edge key is of the format pubKey || chanID. First we construct
 	// the latter half, populating the channel ID.
 	var edgeKey [33 + 8]byte
@@ -1328,19 +1343,6 @@ func delChannelByEdge(edges *bolt.Bucket, edgeIndex *bolt.Bucket,
 		if err := edges.Delete(edgeKey[:]); err != nil {
 			return err
 		}
-	}
-
-	// We'll also remove the entry in the edge update index bucket.
-	cid := byteOrder.Uint64(chanID)
-	edge1, edge2, err := fetchChanEdgePolicies(
-		edgeIndex, edges, nodes, chanID, nil,
-	)
-	if err != nil {
-		return err
-	}
-	err = delEdgeUpdateIndexEntry(edges, cid, edge1, edge2)
-	if err != nil {
-		return err
 	}
 
 	// Finally, with the edge data deleted, we can purge the information

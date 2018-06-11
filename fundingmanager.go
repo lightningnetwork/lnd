@@ -67,6 +67,11 @@ const (
 	// currently accepted on the Litecoin chain within the Lightning
 	// Protocol.
 	maxLtcFundingAmount = maxBtcFundingAmount * btcToLtcConversionRate
+
+	// minCommitFeePerKw is the smallest fee rate that we should propose
+	// for a new fee update. We'll use this as a fee floor when proposing
+	// and accepting updates.
+	minCommitFeePerKw = 253
 )
 
 var (
@@ -2520,12 +2525,19 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		return
 	}
 
-	// The protocol currently operates on the basis of fee-per-kw, so we'll
-	// multiply the computed sat/weight by 1000 to arrive at fee-per-kw.
+	// If the converted fee-per-kw is below the current widely used policy
+	// floor, then we'll use the floor instead.
 	commitFeePerKw := feePerVSize.FeePerKWeight()
+	if commitFeePerKw < minCommitFeePerKw {
+		fndgLog.Infof("Proposed fee rate of %v sat/kw is below min "+
+			"of %v sat/kw, using fee floor", int64(commitFeePerKw),
+			int64(minCommitFeePerKw))
 
-	// We set the channel flags to indicate whether we want this channel
-	// to be announced to the network.
+		commitFeePerKw = minCommitFeePerKw
+	}
+
+	// We set the channel flags to indicate whether we want this channel to
+	// be announced to the network.
 	var channelFlags lnwire.FundingFlag
 	if !msg.openChanReq.private {
 		// This channel will be announced.

@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
+	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
@@ -1396,14 +1397,14 @@ type mockPeer struct {
 	quit         chan struct{}
 }
 
-var _ Peer = (*mockPeer)(nil)
+var _ lnpeer.Peer = (*mockPeer)(nil)
 
-func (m *mockPeer) SendMessage(msg lnwire.Message, sync bool) error {
+func (m *mockPeer) SendMessage(sync bool, msgs ...lnwire.Message) error {
 	if m.disconnected {
 		return fmt.Errorf("disconnected")
 	}
 	select {
-	case m.sentMsgs <- msg:
+	case m.sentMsgs <- msgs[0]:
 	case <-m.quit:
 		return fmt.Errorf("mockPeer shutting down")
 	}
@@ -1415,8 +1416,11 @@ func (m *mockPeer) WipeChannel(*wire.OutPoint) error {
 func (m *mockPeer) PubKey() [33]byte {
 	return [33]byte{}
 }
+func (m *mockPeer) IdentityKey() *btcec.PublicKey {
+	return nil
+}
 
-var _ Peer = (*mockPeer)(nil)
+var _ lnpeer.Peer = (*mockPeer)(nil)
 
 func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 	ChannelLink, *lnwallet.LightningChannel, chan time.Time, func() error,

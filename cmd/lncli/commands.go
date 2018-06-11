@@ -1804,6 +1804,150 @@ func payInvoice(ctx *cli.Context) error {
 	return sendPaymentRequest(ctx, req)
 }
 
+var sendToRouteCommand = cli.Command{
+	Name:  "sendtoroute",
+	Usage: "send a payment over a predefined route",
+	Description: `
+	Send a payment over Lightning using a specific route. One must specify
+	a list of routes to attempt and the payment hash. This command can even
+	be chained with the response to queryroutes. This command can be used
+	to implement channel rebalancing by crafting a self-route, or even
+	atomic swaps using a self-route that crosses multiple chains.
+
+	There are three ways to specify routes:
+	   * using the --routes parameter to manually specify a JSON encoded
+	     set of routes in the format of the return value of queryroutes:
+	         (lncli sendtoroute --payment_hash=<pay_hash> --routes=<route>)
+
+	   * passing the routes as a positional argument:
+	         (lncli sendtoroute --payment_hash=pay_hash <route>)
+
+	   * or reading in the routes from stdin, which can allow chaining the
+	     response from queryroutes, or even read in a file with a set of
+	     pre-computed routes:
+	         (lncli queryroutes --args.. | lncli sendtoroute --payment_hash= -
+
+	     notice the '-' at the end, which signals that lncli should read
+	     the route in from stdin
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "payment_hash, pay_hash",
+			Usage: "the hash to use within the payment's HTLC",
+		},
+		cli.StringFlag{
+			Name: "routes, r",
+			Usage: "a json array string in the format of the response " +
+				"of queryroutes that denotes which routes to use",
+		},
+	},
+	Action: sendToRoute,
+}
+
+func sendToRoute(ctx *cli.Context) error {
+	// Show command help if no arguments provided.
+	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
+		cli.ShowCommandHelp(ctx, "sendtoroute")
+		return nil
+	}
+
+	args := ctx.Args()
+
+	var (
+		rHash []byte
+		err   error
+	)
+	switch {
+	case ctx.IsSet("payment_hash"):
+		rHash, err = hex.DecodeString(ctx.String("payment_hash"))
+	case args.Present():
+		rHash, err = hex.DecodeString(args.First())
+
+		args = args.Tail()
+	default:
+		return fmt.Errorf("payment hash argument missing")
+	}
+
+	if err != nil {
+		return err
+	}
+
+	if len(rHash) != 32 {
+		return fmt.Errorf("payment hash must be exactly 32 "+
+			"bytes, is instead %d", len(rHash))
+	}
+
+	var jsonRoutes string
+	switch {
+	// The user is specifying the routes explicitly via the key word
+	// argument.
+	case ctx.IsSet("routes"):
+		jsonRoutes = ctx.String("routes")
+
+	// The user is specifying the routes as a positional argument.
+	case args.Present() && args.First() != "-":
+		jsonRoutes = args.First()
+
+	// The user is signalling that we should read stdin in order to parse
+	// the set of target routes.
+	case args.Present() && args.First() == "-":
+		b, err := ioutil.ReadAll(os.Stdin)
+		if err != nil {
+			return err
+		}
+		if len(b) == 0 {
+			return fmt.Errorf("queryroutes output is empty")
+		}
+
+		jsonRoutes = string(b)
+	}
+
+	routes := &lnrpc.QueryRoutesResponse{}
+	err = jsonpb.UnmarshalString(jsonRoutes, routes)
+	if err != nil {
+		return fmt.Errorf("unable to unmarshal json string "+
+			"from incoming array of routes: %v", err)
+	}
+
+	req := &lnrpc.SendToRouteRequest{
+		PaymentHash: rHash,
+		Routes:      routes.Routes,
+	}
+
+	return sendToRouteRequest(ctx, req)
+}
+
+func sendToRouteRequest(ctx *cli.Context, req *lnrpc.SendToRouteRequest) error {
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	paymentStream, err := client.SendToRoute(context.Background())
+	if err != nil {
+		return err
+	}
+
+	if err := paymentStream.Send(req); err != nil {
+		return err
+	}
+
+	resp, err := paymentStream.Recv()
+	if err != nil {
+		return err
+	}
+
+	printJSON(struct {
+		E string       `json:"payment_error"`
+		P string       `json:"payment_preimage"`
+		R *lnrpc.Route `json:"payment_route"`
+	}{
+		E: resp.PaymentError,
+		P: hex.EncodeToString(resp.PaymentPreimage),
+		R: resp.PaymentRoute,
+	})
+
+	return nil
+}
+
 var addInvoiceCommand = cli.Command{
 	Name:     "addinvoice",
 	Category: "Payments",
@@ -2359,6 +2503,11 @@ var queryRoutesCommand = cli.Command{
 			Usage: "the max number of routes to be returned (default: 10)",
 			Value: 10,
 		},
+		cli.Int64Flag{
+			Name: "final_cltv_delta",
+			Usage: "(optional) number of blocks the last hop has to reveal " +
+				"the preimage",
+		},
 	},
 	Action: actionDecorator(queryRoutes),
 }
@@ -2399,9 +2548,10 @@ func queryRoutes(ctx *cli.Context) error {
 	}
 
 	req := &lnrpc.QueryRoutesRequest{
-		PubKey:    dest,
-		Amt:       amt,
-		NumRoutes: int32(ctx.Int("num_max_routes")),
+		PubKey:         dest,
+		Amt:            amt,
+		NumRoutes:      int32(ctx.Int("num_max_routes")),
+		FinalCltvDelta: int32(ctx.Int("final_cltv_delta")),
 	}
 
 	route, err := client.QueryRoutes(ctxb, req)

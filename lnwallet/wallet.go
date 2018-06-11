@@ -825,6 +825,10 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	for _, theirChangeOutput := range theirContribution.ChangeOutputs {
 		fundingTx.AddTxOut(theirChangeOutput)
 	}
+	// If the openType is splice-out, we need to add extract output.
+	if req.openType == lnwire.OpenSpliceOutChannel {
+		fundingTx.AddTxOut(ourContribution.ExtractOutputs[0])
+	}
 
 	ourKey := pendingReservation.ourContribution.MultiSigKey
 	theirKey := theirContribution.MultiSigKey

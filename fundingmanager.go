@@ -1509,7 +1509,8 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 		}
 
 		// when do splice-in success, the old channelLink should be removed from htlcswitch
-		if resCtx.openType == lnwire.OpenSpliceInChannel {
+		if resCtx.openType == lnwire.OpenSpliceInChannel ||
+			resCtx.openType == lnwire.OpenSpliceOutChannel {
 			peer, err := f.cfg.FindPeer(peerKey)
 			if err != nil {
 				fndgLog.Errorf("can not find the old channel : %v", err)
@@ -1670,7 +1671,8 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 			shortChanID.ToUint64())
 
 		// when do splice-in success, the old channelLink should be removed from htlcswitch
-		if resCtx.openType == lnwire.OpenSpliceInChannel {
+		if resCtx.openType == lnwire.OpenSpliceInChannel ||
+			resCtx.openType == lnwire.OpenSpliceOutChannel {
 			peer, err := f.cfg.FindPeer(peerKey)
 			if err != nil {
 				fndgLog.Errorf("can not find the old channel : %v", err)
@@ -1932,6 +1934,8 @@ func (f *fundingManager) waitForFundingConfirmation(completeChan *channeldb.Open
 	// and that it is acceptable to process funding locked messages
 	// from the peer.
 	f.localDiscoveryMtx.Lock()
+	state, _, _ := f.getChannelOpeningState(&completeChan.FundingOutpoint)
+	fmt.Printf("%v", state)
 	if discoverySignal, ok := f.localDiscoverySignals[chanID]; ok {
 		close(discoverySignal)
 	}

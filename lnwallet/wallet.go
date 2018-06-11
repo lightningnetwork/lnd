@@ -533,7 +533,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 			feeRate := req.fundingFeePerVSize
 			requiredFee := feeRate.FeeForVSize(int64(weightEstimate.VSize()))
 			finalExtractAmout := req.extractAmount - requiredFee
-			if  requiredFee > req.extractAmount && finalExtractAmout > DefaultDustLimit() {
+			if  requiredFee < req.extractAmount && finalExtractAmout > DefaultDustLimit() {
 				changeAddr, err := l.NewAddress(WitnessPubKey, true)
 				if err != nil {
 					req.err <- err

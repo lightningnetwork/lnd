@@ -939,10 +939,10 @@ message Peer {
     uint64 bytes_recv = 5 [json_name = "bytes_recv"];
 
     /// Satoshis sent to this peer
-    int64 sat_sent = 6 [json_name = "sat_sent"];
+    int64 sat_sent = 6 [json_name = "sat_sent", deprecated = true];
 
     /// Satoshis received from this peer
-    int64 sat_recv = 7 [json_name = "sat_recv"];
+    int64 sat_recv = 7 [json_name = "sat_recv", deprecated = true];
 
     /// A channel is inbound if the counterparty initiated the channel
     bool inbound = 8 [json_name = "inbound"];
@@ -1009,16 +1009,16 @@ message GetInfoResponse {
     uint32 num_peers = 5 [json_name = "num_peers"];
 
     /// The node's current view of the height of the best block
-    uint32 block_height = 6 [json_name = "block_height"];
+    uint32 block_height = 6 [json_name = "block_height", deprecated = true];
 
     /// The node's current view of the hash of the best block
-    string block_hash = 8 [json_name = "block_hash"];
+    string block_hash = 8 [json_name = "block_hash", deprecated = true];
 
     /// Whether the wallet's view is synced to the main chain
-    bool synced_to_chain = 9 [json_name = "synced_to_chain"];
+    bool synced_to_chain = 9 [json_name = "synced_to_chain", deprecated = true];
 
     /// Whether the current node is connected to testnet
-    bool testnet = 10 [json_name = "testnet"];
+    bool testnet = 10 [json_name = "testnet", deprecated = true];
 
     /// A list of active chains the node is connected to
     repeated ChainInfo chains = 11 [json_name = "chains"];
@@ -1027,7 +1027,7 @@ message GetInfoResponse {
     repeated string uris = 12 [json_name = "uris"];
 
     /// Timestamp of the block best known to the wallet
-    int64 best_header_timestamp = 13 [ json_name = "best_header_timestamp" ];
+    int64 best_header_timestamp = 13 [ json_name = "best_header_timestamp" , deprecated = true];
 
     /// The version of the LND software that the node is running.
     string version = 14 [ json_name = "version" ];
@@ -1260,13 +1260,13 @@ message ChainWalletBalance{
 }
 message WalletBalanceResponse {
     /// The balance of the wallet
-    int64 total_balance = 1 [json_name = "total_balance"];
+    int64 total_balance = 1 [json_name = "total_balance", deprecated = true];
 
     /// The confirmed balance of a wallet(with >= 1 confirmations)
-    int64 confirmed_balance = 2 [json_name = "confirmed_balance"];
+    int64 confirmed_balance = 2 [json_name = "confirmed_balance", deprecated = true];
 
     /// The unconfirmed balance of a wallet(with 0 confirmations)
-    int64 unconfirmed_balance = 3 [json_name = "unconfirmed_balance"];
+    int64 unconfirmed_balance = 3 [json_name = "unconfirmed_balance", deprecated = true ];
 
     repeated ChainWalletBalance chains = 4 [json_name = "chains"];
 }
@@ -1401,7 +1401,7 @@ message NodeInfo {
     LightningNode node = 1 [json_name = "node"];
 
     uint32 num_channels = 2 [json_name = "num_channels"];
-    int64 total_capacity = 3 [json_name = "total_capacity"];
+    int64 total_capacity = 3 [json_name = "total_capacity", deprecated = true];
     repeated NodeChainInfo chains =4 [json_name = "chains"];
 }
 
@@ -1505,11 +1505,11 @@ message NetworkInfo {
     uint32 num_nodes = 4 [json_name = "num_nodes"];
     uint32 num_channels = 5 [json_name = "num_channels"];
 
-    int64 total_network_capacity = 6 [json_name = "total_network_capacity"];
+    int64 total_network_capacity = 6 [json_name = "total_network_capacity", deprecated = true];
 
-    double avg_channel_size = 7 [json_name = "avg_channel_size"];
-    int64 min_channel_size = 8 [json_name = "min_channel_size"];
-    int64 max_channel_size = 9 [json_name = "max_channel_size"];
+    double avg_channel_size = 7 [json_name = "avg_channel_size", deprecated = true];
+    int64 min_channel_size = 8 [json_name = "min_channel_size", deprecated = true];
+    int64 max_channel_size = 9 [json_name = "max_channel_size", deprecated = true];
 
     // TODO(roasbeef): fee rate info, expiry
     //  * also additional RPC for tracking fee info once in

@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/connmgr"
 	"github.com/roasbeef/btcd/txscript"
@@ -93,7 +94,6 @@ type peer struct {
 	// The following fields are only meant to be used *atomically*
 	bytesReceived uint64
 	bytesSent     uint64
-
 
 	// pingTime is a rough estimate of the RTT (round-trip-time) between us
 	// and the connected peer. This time is expressed in micro seconds.
@@ -504,10 +504,10 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 				if linkErr.SendData != nil {
 					data = linkErr.SendData
 				}
-				err := p.SendMessage(&lnwire.Error{
+				err := p.SendMessage(true, &lnwire.Error{
 					ChanID: chanID,
 					Data:   data,
-				}, true)
+				})
 				if err != nil {
 					peerLog.Errorf("unable to send msg to "+
 						"remote peer: %v", err)
@@ -837,8 +837,7 @@ func newDiscMsgStream(p *peer) *msgStream {
 		"Update stream for gossiper exited",
 		1000,
 		func(msg lnwire.Message) {
-			p.server.authGossiper.ProcessRemoteAnnouncement(msg,
-				p.addr.IdentityKey)
+			p.server.authGossiper.ProcessRemoteAnnouncement(msg, p)
 		},
 	)
 }
@@ -1981,28 +1980,48 @@ func (p *peer) sendInitMsg() error {
 	return p.writeMessage(msg)
 }
 
-// SendMessage sends message to remote peer. The second argument denotes if the
-// method should block until the message has been sent to the remote peer.
-func (p *peer) SendMessage(msg lnwire.Message, sync bool) error {
-	if !sync {
-		p.queueMsg(msg, nil)
-		return nil
+// SendMessage sends a variadic number of message to remote peer. The first
+// argument denotes if the method should block until the message has been sent
+// to the remote peer.
+func (p *peer) SendMessage(sync bool, msgs ...lnwire.Message) error {
+	// Add all incoming messages to the outgoing queue. A list of error
+	// chans is populated for each message if the caller requested a sync
+	// send.
+	var errChans []chan error
+	for _, msg := range msgs {
+		// If a sync send was requested, create an error chan to listen
+		// for an ack from the writeHandler.
+		var errChan chan error
+		if sync {
+			errChan = make(chan error, 1)
+			errChans = append(errChans, errChan)
+		}
+
+		p.queueMsg(msg, errChan)
 	}
 
-	errChan := make(chan error, 1)
-	p.queueMsg(msg, errChan)
-
-	select {
-	case err := <-errChan:
-		return err
-	case <-p.quit:
-		return fmt.Errorf("peer shutting down")
+	// Wait for all replies from the writeHandler. For async sends, this
+	// will be a NOP as the list of error chans is nil.
+	for _, errChan := range errChans {
+		select {
+		case err := <-errChan:
+			return err
+		case <-p.quit:
+			return ErrPeerExiting
+		}
 	}
+
+	return nil
 }
 
 // PubKey returns the pubkey of the peer in compressed serialized format.
 func (p *peer) PubKey() [33]byte {
 	return p.pubKeyBytes
+}
+
+// IdentityKey returns the public key of the remote peer.
+func (p *peer) IdentityKey() *btcec.PublicKey {
+	return p.addr.IdentityKey
 }
 
 // TODO(roasbeef): make all start/stop mutexes a CAS

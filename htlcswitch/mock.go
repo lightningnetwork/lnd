@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
@@ -119,7 +120,7 @@ type mockServer struct {
 	interceptorFuncs []messageInterceptor
 }
 
-var _ Peer = (*mockServer)(nil)
+var _ lnpeer.Peer = (*mockServer)(nil)
 
 func initSwitchWithDB(db *channeldb.DB) (*Switch, error) {
 	if db == nil {
@@ -450,12 +451,14 @@ func (s *mockServer) intersect(f messageInterceptor) {
 	s.interceptorFuncs = append(s.interceptorFuncs, f)
 }
 
-func (s *mockServer) SendMessage(message lnwire.Message, sync bool) error {
+func (s *mockServer) SendMessage(sync bool, msgs ...lnwire.Message) error {
 
-	select {
-	case s.messages <- message:
-	case <-s.quit:
-		return errors.New("server is stopped")
+	for _, msg := range msgs {
+		select {
+		case s.messages <- msg:
+		case <-s.quit:
+			return errors.New("server is stopped")
+		}
 	}
 
 	return nil
@@ -506,6 +509,11 @@ func (s *mockServer) PubKey() [33]byte {
 	return s.id
 }
 
+func (s *mockServer) IdentityKey() *btcec.PublicKey {
+	pubkey, _ := btcec.ParsePubKey(s.id[:], btcec.S256())
+	return pubkey
+}
+
 func (s *mockServer) WipeChannel(*wire.OutPoint) error {
 	return nil
 }
@@ -532,7 +540,7 @@ type mockChannelLink struct {
 
 	chanID lnwire.ChannelID
 
-	peer Peer
+	peer lnpeer.Peer
 
 	startMailBox bool
 
@@ -579,7 +587,7 @@ func (f *mockChannelLink) deleteCircuit(pkt *htlcPacket) error {
 }
 
 func newMockChannelLink(htlcSwitch *Switch, chanID lnwire.ChannelID,
-	shortChanID lnwire.ShortChannelID, peer Peer, eligible bool,
+	shortChanID lnwire.ShortChannelID, peer lnpeer.Peer, eligible bool,
 ) *mockChannelLink {
 
 	return &mockChannelLink{
@@ -624,7 +632,7 @@ func (f *mockChannelLink) Start() error {
 func (f *mockChannelLink) ChanID() lnwire.ChannelID                     { return f.chanID }
 func (f *mockChannelLink) ShortChanID() lnwire.ShortChannelID           { return f.shortChanID }
 func (f *mockChannelLink) Bandwidth() lnwire.MilliSatoshi               { return 99999999 }
-func (f *mockChannelLink) Peer() Peer                                   { return f.peer }
+func (f *mockChannelLink) Peer() lnpeer.Peer                            { return f.peer }
 func (f *mockChannelLink) Stop()                                        {}
 func (f *mockChannelLink) EligibleToForward() bool                      { return f.eligible }
 func (f *mockChannelLink) setLiveShortChanID(sid lnwire.ShortChannelID) { f.shortChanID = sid }

@@ -861,7 +861,7 @@ func (hn *HarnessNode) WaitForBlockchainSync(ctx context.Context) error {
 				errChan <- err
 				return
 			}
-			if getInfoResp.SyncedToChain {
+			if getInfoResp.Chains[0].SyncedToChain {
 				errChan <- nil
 				return
 			}

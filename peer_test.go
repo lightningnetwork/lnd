@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
 func init() {
@@ -45,6 +46,26 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 	defer cleanUp()
 
 	chanID := lnwire.NewChanIDFromOutPoint(responderChan.ChannelPoint())
+
+	hash, err := chainhash.NewHash(testHdSeed[:])
+	if err != nil {
+		t.Fatalf("unable to create a hash: %v", err)
+	}
+
+	// See how many active channels we have
+	activeChannelsCount := responder.ActiveChannelsCount(*hash)
+	if activeChannelsCount != 0 {
+		t.Fatalf("expected active channel count to be %v instead got %v",
+			0, activeChannelsCount)
+
+	}
+
+	channelSnapshots := responder.ChannelSnapshots()
+	if len(channelSnapshots) != 0 {
+		t.Fatalf("expected channelSnapshots size to be %v instead got %v",
+			0, len(channelSnapshots))
+
+	}
 
 	// We send a shutdown request to Alice. She will now be the responding
 	// node in this shutdown procedure. We first expect Alice to answer

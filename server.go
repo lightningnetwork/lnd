@@ -1517,8 +1517,7 @@ func (s *server) shouldRequestGraphSync() bool {
 
 // peerConnected is a function that handles initialization a newly connected
 // peer by adding it to the server's global list of all active peers, and
-// starting all the goroutines the peer needs to function properly. The inbound
-// boolean should be true if the peer initiated the connection to us.
+// starting all the goroutines the peer needs to function properly.
 func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	inbound bool) {
 
@@ -1530,7 +1529,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	// peer's address for reconnection purposes.
 	//
 	// TODO: leave the address field empty if there aren't any?
-	if inbound {
+	if !inbound {
 		advertisedAddr, err := s.fetchNodeAdvertisedAddr(pubKey)
 		if err != nil {
 			srvrLog.Errorf("Unable to retrieve advertised address "+
@@ -1653,7 +1652,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 	case ErrPeerNotConnected:
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
-		s.peerConnected(conn, nil, true)
+		s.peerConnected(conn, nil, false)
 
 	case nil:
 		// We already have a connection with the incoming peer. If the
@@ -1680,7 +1679,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		s.removePeer(connectedPeer)
 		s.ignorePeerTermination[connectedPeer] = struct{}{}
 		s.scheduledPeerConnection[pubStr] = func() {
-			s.peerConnected(conn, nil, true)
+			s.peerConnected(conn, nil, false)
 		}
 	}
 }
@@ -1750,7 +1749,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	case ErrPeerNotConnected:
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
-		s.peerConnected(conn, connReq, false)
+		s.peerConnected(conn, connReq, true)
 
 	case nil:
 		// We already have a connection open with the target peer.
@@ -1781,7 +1780,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		s.removePeer(connectedPeer)
 		s.ignorePeerTermination[connectedPeer] = struct{}{}
 		s.scheduledPeerConnection[pubStr] = func() {
-			s.peerConnected(conn, connReq, false)
+			s.peerConnected(conn, connReq, true)
 		}
 	}
 }

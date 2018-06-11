@@ -1300,7 +1300,7 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 		peer := &lnrpc.Peer{
 			PubKey:    hex.EncodeToString(nodePub),
 			Address:   serverPeer.conn.RemoteAddr().String(),
-			Inbound:   serverPeer.inbound,
+			Inbound:   !serverPeer.inbound, // Flip for display
 			BytesRecv: atomic.LoadUint64(&serverPeer.bytesReceived),
 			BytesSent: atomic.LoadUint64(&serverPeer.bytesSent),
 			SatSent:   satSent,

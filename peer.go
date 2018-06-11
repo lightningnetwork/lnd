@@ -1243,78 +1243,7 @@ func (p *peer) logWireMessage(msg lnwire.Message, read bool) {
 // messageTypeString returns a human and monitoring-readable string that describes an
 // incoming/outgoing message type.
 func messageTypeString(msg lnwire.Message) string {
-	switch msg.(type) {
-	case *lnwire.Init:
-		return "init"
-
-	case *lnwire.OpenChannel:
-		return "open_channel"
-
-	case *lnwire.AcceptChannel:
-		return "accept_channel"
-
-	case *lnwire.FundingCreated:
-		return "funding_created"
-
-	case *lnwire.FundingSigned:
-		return "funding_signed"
-
-	case *lnwire.FundingLocked:
-		return "funding_locked"
-
-	case *lnwire.Shutdown:
-		return "shutdown"
-
-	case *lnwire.ClosingSigned:
-		return "closing_signed"
-
-	case *lnwire.UpdateAddHTLC:
-		return "update_add_htlc"
-
-	case *lnwire.UpdateFailHTLC:
-		return "update_fail_htlc"
-
-	case *lnwire.UpdateFulfillHTLC:
-		return "update_fulfill_htlc"
-
-	case *lnwire.CommitSig:
-		return "commit_sig"
-
-	case *lnwire.RevokeAndAck:
-		return "revoke_and_ack"
-
-	case *lnwire.UpdateFailMalformedHTLC:
-		return "update_fail_malformed_htlc"
-
-	case *lnwire.Error:
-		return "error"
-
-	case *lnwire.AnnounceSignatures:
-		return "announce_signatures"
-
-	case *lnwire.ChannelAnnouncement:
-		return "channel_announcement"
-
-	case *lnwire.ChannelUpdate:
-		return "channel_update"
-
-	case *lnwire.NodeAnnouncement:
-		return "node_announcement"
-
-	case *lnwire.Ping:
-		return "ping"
-
-	case *lnwire.Pong:
-		return "pong"
-
-	case *lnwire.UpdateFee:
-		return "update_fee"
-
-	case *lnwire.ChannelReestablish:
-		return "channel_reestablish"
-	}
-
-	return ""
+	return msg.MsgType().String()
 }
 
 var (

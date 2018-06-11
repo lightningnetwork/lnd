@@ -1642,6 +1642,25 @@
           "format": "int64",
           "title": "/ Number of peers"
         },
+        "block_height": {
+          "type": "integer",
+          "format": "int64",
+          "title": "/ The node's current view of the height of the best block"
+        },
+        "block_hash": {
+          "type": "string",
+          "title": "/ The node's current view of the hash of the best block"
+        },
+        "synced_to_chain": {
+          "type": "boolean",
+          "format": "boolean",
+          "title": "/ Whether the wallet's view is synced to the main chain"
+        },
+        "testnet": {
+          "type": "boolean",
+          "format": "boolean",
+          "title": "/ Whether the current node is connected to testnet"
+        },
         "chains": {
           "type": "array",
           "items": {
@@ -1655,6 +1674,11 @@
             "type": "string"
           },
           "description": "/ The URIs of the current node."
+        },
+        "best_header_timestamp": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ Timestamp of the block best known to the wallet"
         },
         "version": {
           "type": "string",
@@ -1989,6 +2013,22 @@
           "type": "integer",
           "format": "int64"
         },
+        "total_network_capacity": {
+          "type": "string",
+          "format": "int64"
+        },
+        "avg_channel_size": {
+          "type": "number",
+          "format": "double"
+        },
+        "min_channel_size": {
+          "type": "string",
+          "format": "int64"
+        },
+        "max_channel_size": {
+          "type": "string",
+          "format": "int64"
+        },
         "chains": {
           "type": "array",
           "items": {
@@ -2045,6 +2085,10 @@
         },
         "num_channels": {
           "type": "integer",
+          "format": "int64"
+        },
+        "total_capacity": {
+          "type": "string",
           "format": "int64"
         },
         "chains": {
@@ -2242,6 +2286,16 @@
           "type": "string",
           "format": "uint64",
           "title": "/ Bytes of data transmitted from this peer"
+        },
+        "sat_sent": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ Satoshis sent to this peer"
+        },
+        "sat_recv": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ Satoshis received from this peer"
         },
         "inbound": {
           "type": "boolean",
@@ -2703,6 +2757,21 @@
     "lnrpcWalletBalanceResponse": {
       "type": "object",
       "properties": {
+        "total_balance": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ The balance of the wallet"
+        },
+        "confirmed_balance": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ The confirmed balance of a wallet(with \u003e= 1 confirmations)"
+        },
+        "unconfirmed_balance": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ The unconfirmed balance of a wallet(with 0 confirmations)"
+        },
         "chains": {
           "type": "array",
           "items": {

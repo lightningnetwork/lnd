@@ -1224,6 +1224,17 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 	idPub := r.server.identityPriv.PubKey().SerializeCompressed()
 	encodedIDPub := hex.EncodeToString(idPub)
 
+	bestHash, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
+	if err != nil {
+		return nil, fmt.Errorf("unable to get best block info: %v", err)
+	}
+
+	isSynced, bestHeaderTimestamp, err := r.server.cc.wallet.IsSynced()
+	if err != nil {
+		return nil, fmt.Errorf("unable to sync PoV of the wallet "+
+			"with current best block in the main chain: %v", err)
+	}
+
 	var chains []*lnrpc.ChainInfo
 
 	for _ , chain := range registeredChains.ActiveChains() {
@@ -1290,9 +1301,14 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		NumPendingChannels:  nPendingChannels,
 		NumActiveChannels:   activeChannels,
 		NumPeers:            uint32(len(serverPeers)),
+		BlockHeight:         uint32(bestHeight),
+		BlockHash:           bestHash.String(),
+		SyncedToChain:       isSynced,
+		Testnet:             isTestnet(&activeNetParams),
 		Chains:              chains,
 		Uris:                uris,
 		Alias:               nodeAnn.Alias.String(),
+		BestHeaderTimestamp: int64(bestHeaderTimestamp),
 		Version:             version(),
 	}, nil
 }
@@ -1329,6 +1345,10 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 	}
 
 	for _, serverPeer := range serverPeers {
+		var (
+			satSent int64
+			satRecv int64
+		)
 
 		// In order to display the total number of satoshis of outbound
 		// (sent) and inbound (recv'd) satoshis that have been
@@ -1338,6 +1358,8 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 		var chains []*lnrpc.PeerChain
 		chans := serverPeer.ChannelSnapshots()
 		for _, c := range chans {
+			satSent += int64(c.TotalMSatSent.ToSatoshis())
+			satRecv += int64(c.TotalMSatReceived.ToSatoshis())
 			chain := chainMap[c.ChainHash]
 			peerChain := FindPeerChain(&chains,chain)
 			peerChain.SatSent += int64(c.TotalMSatSent.ToSatoshis())
@@ -1351,6 +1373,8 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 			Inbound:   serverPeer.inbound,
 			BytesRecv: atomic.LoadUint64(&serverPeer.bytesReceived),
 			BytesSent: atomic.LoadUint64(&serverPeer.bytesSent),
+			SatSent:   satSent,
+			SatRecv:   satRecv,
 			PingTime:  serverPeer.PingTime(),
 			Chains:		chains,
 		}
@@ -1370,6 +1394,23 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 // TODO(roasbeef): add async hooks into wallet balance changes
 func (r *rpcServer) WalletBalance(ctx context.Context,
 	in *lnrpc.WalletBalanceRequest) (*lnrpc.WalletBalanceResponse, error) {
+
+	// Get total balance, from txs that have >= 0 confirmations.
+	totalBal, err := r.server.cc.wallet.ConfirmedBalance(0)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get confirmed balance, from txs that have >= 1 confirmations.
+	confirmedBal, err := r.server.cc.wallet.ConfirmedBalance(1)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get unconfirmed balance, from txs with 0 confirmations.
+	unconfirmedBal := totalBal - confirmedBal
+
+	rpcsLog.Debugf("[walletbalance] Total balance=%v", totalBal)
 
 	var chains []*lnrpc.ChainWalletBalance
 
@@ -1409,6 +1450,9 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 
 
 	return &lnrpc.WalletBalanceResponse{
+		TotalBalance:       int64(totalBal),
+		ConfirmedBalance:   int64(confirmedBal),
+		UnconfirmedBalance: int64(unconfirmedBal),
 		Chains:				chains,
 	}, nil
 }
@@ -3121,6 +3165,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	// edges to gather some basic statistics about its out going channels.
 	var (
 		numChannels   uint32
+		totalCapacity btcutil.Amount
 		chains []*lnrpc.NodeChainInfo
 	)
 	if err := node.ForEachChannel(nil, func(_ *bolt.Tx, edge *channeldb.ChannelEdgeInfo,
@@ -3130,6 +3175,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 		nodeChainInfo := FindNodeChainInfo(&chains,chain)
 		numChannels++
 		nodeChainInfo.NumChannels++
+		totalCapacity += edge.Capacity
 		nodeChainInfo.TotalCapacity += int64(edge.Capacity)
 		return nil
 	}); err != nil {
@@ -3156,6 +3202,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 			Color:      nodeColor,
 		},
 		NumChannels:   numChannels,
+		TotalCapacity: int64(totalCapacity),
 		Chains:   		chains,
 	}, nil
 }
@@ -3452,7 +3499,19 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 		AvgOutDegree:         float64(numChannels) / float64(numNodes),
 		NumNodes:             numNodes,
 		NumChannels:          numChannels,
+		TotalNetworkCapacity: int64(totalNetworkCapacity),
+		AvgChannelSize:       float64(totalNetworkCapacity) / float64(numChannels),
+
+		MinChannelSize: int64(minChannelSize),
+		MaxChannelSize: int64(maxChannelSize),
 		Chains:			chains,
+	}
+
+	// Similarly, if we don't have any channels, then we'll also set the
+	// average channel size to zero in order to avoid weird JSON encoding
+	// outputs.
+	if numChannels == 0 {
+		netInfo.AvgChannelSize = 0
 	}
 
 	return netInfo, nil

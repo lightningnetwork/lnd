@@ -1890,6 +1890,12 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 		// We override the amount to pay with the amount provided from
 		// the payment request.
 		if payReq.MilliSat == nil {
+			if rpcPayReq.Amt == 0 {
+				return payIntent, errors.New("amount must be " +
+					"specified when paying a zero amount " +
+					"invoice")
+			}
+
 			payIntent.msat = lnwire.NewMSatFromSatoshis(
 				btcutil.Amount(rpcPayReq.Amt),
 			)

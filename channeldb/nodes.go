@@ -127,6 +127,24 @@ func putLinkNode(nodeMetaBucket *bolt.Bucket, l *LinkNode) error {
 	return nodeMetaBucket.Put(nodePub, b.Bytes())
 }
 
+// DeleteLinkNode removes the link node with the given identity from the
+// database.
+func (d *DB) DeleteLinkNode(identity *btcec.PublicKey) error {
+	return d.Update(func(tx *bolt.Tx) error {
+		return d.deleteLinkNode(tx, identity)
+	})
+}
+
+func (d *DB) deleteLinkNode(tx *bolt.Tx, identity *btcec.PublicKey) error {
+	nodeMetaBucket := tx.Bucket(nodeInfoBucket)
+	if nodeMetaBucket == nil {
+		return ErrLinkNodesNotFound
+	}
+
+	pubKey := identity.SerializeCompressed()
+	return nodeMetaBucket.Delete(pubKey)
+}
+
 // FetchLinkNode attempts to lookup the data for a LinkNode based on a target
 // identity public key. If a particular LinkNode for the passed identity public
 // key cannot be found, then ErrNodeNotFound if returned.

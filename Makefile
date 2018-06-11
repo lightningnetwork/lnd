@@ -41,7 +41,7 @@ GOLISTCOVER := $(shell go list -f '{{.ImportPath}}' ./... | sed -e 's/^$(ESCPKG)
 GOLISTLINT := $(shell go list -f '{{.Dir}}' ./... | grep -v 'lnrpc')
 
 COVER = for dir in $(GOLISTCOVER); do \
-		$(GOTEST) $(TEST_FLAGS) \
+		$(GOTEST) -tags="$(ITEST_TAGS)" $(TEST_FLAGS) \
 			-covermode=count \
 			-coverprofile=$$dir/profile.tmp $$dir; \
 		\
@@ -150,7 +150,7 @@ unit: btcd
 	@$(call print, "Running unit tests.")
 	$(UNIT)
 
-unit-cover:
+unit-cover: btcd build
 	@$(call print, "Running unit coverage tests.")
 	echo "mode: count" > profile.cov
 	$(COVER)

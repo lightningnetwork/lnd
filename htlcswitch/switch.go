@@ -202,8 +202,8 @@ type Switch struct {
 	forwardingIndex map[lnwire.ShortChannelID]ChannelLink
 
 	// interfaceIndex maps the compressed public key of a peer to all the
-	// channels that the switch maintains iwht that peer.
-	interfaceIndex map[[33]byte]map[ChannelLink]struct{}
+	// channels that the switch maintains with that peer.
+	interfaceIndex map[[33]byte]map[lnwire.ChannelID]ChannelLink
 
 	// htlcPlex is the channel which all connected links use to coordinate
 	// the setup/teardown of Sphinx (onion routing) payment circuits.
@@ -253,7 +253,7 @@ func New(cfg Config) (*Switch, error) {
 		linkIndex:         make(map[lnwire.ChannelID]ChannelLink),
 		mailOrchestrator:  newMailOrchestrator(),
 		forwardingIndex:   make(map[lnwire.ShortChannelID]ChannelLink),
-		interfaceIndex:    make(map[[33]byte]map[ChannelLink]struct{}),
+		interfaceIndex:    make(map[[33]byte]map[lnwire.ChannelID]ChannelLink),
 		pendingLinkIndex:  make(map[lnwire.ChannelID]ChannelLink),
 		pendingPayments:   make(map[uint64]*pendingPayment),
 		htlcPlex:          make(chan *plexPacket),
@@ -1723,11 +1723,11 @@ func (s *Switch) AddLink(link ChannelLink) error {
 
 	chanID := link.ChanID()
 
-	// First, ensure that this link is not already active in the switch.
+	// If a link already exists, then remove the prior one so we can
+	// replace it with this fresh instance.
 	_, err := s.getLink(chanID)
 	if err == nil {
-		return fmt.Errorf("unable to add ChannelLink(%v), already "+
-			"active", chanID)
+		s.removeLink(chanID)
 	}
 
 	// Get and attach the mailbox for this link, which buffers packets in
@@ -1774,9 +1774,9 @@ func (s *Switch) addLiveLink(link ChannelLink) {
 	// quickly look up all the channels for a particular node.
 	peerPub := link.Peer().PubKey()
 	if _, ok := s.interfaceIndex[peerPub]; !ok {
-		s.interfaceIndex[peerPub] = make(map[ChannelLink]struct{})
+		s.interfaceIndex[peerPub] = make(map[lnwire.ChannelID]ChannelLink)
 	}
-	s.interfaceIndex[peerPub][link] = struct{}{}
+	s.interfaceIndex[peerPub][link.ChanID()] = link
 }
 
 // GetLink is used to initiate the handling of the get link command. The
@@ -1840,9 +1840,18 @@ func (s *Switch) removeLink(chanID lnwire.ChannelID) error {
 	delete(s.linkIndex, link.ChanID())
 	delete(s.forwardingIndex, link.ShortChanID())
 
-	// Remove the channel from channel index.
+	// If the link has been added to the peer index, then we'll move to
+	// delete the entry within the index.
 	peerPub := link.Peer().PubKey()
-	delete(s.interfaceIndex, peerPub)
+	if peerIndex, ok := s.interfaceIndex[peerPub]; ok {
+		delete(peerIndex, link.ChanID())
+
+		// If after deletion, there are no longer any links, then we'll
+		// remove the interface map all together.
+		if len(peerIndex) == 0 {
+			delete(s.interfaceIndex, peerPub)
+		}
+	}
 
 	link.Stop()
 
@@ -1918,7 +1927,7 @@ func (s *Switch) getLinks(destination [33]byte) ([]ChannelLink, error) {
 	}
 
 	channelLinks := make([]ChannelLink, 0, len(links))
-	for link := range links {
+	for _, link := range links {
 		channelLinks = append(channelLinks, link)
 	}
 

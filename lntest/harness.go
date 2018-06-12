@@ -566,6 +566,13 @@ func (n *NetworkHarness) ShutdownNode(node *HarnessNode) error {
 	return nil
 }
 
+// StopNode stops the target node, but doesn't yet clean up its directories.
+// This can be used to temporarily bring a node down during a test, to be later
+// started up again.
+func (n *NetworkHarness) StopNode(node *HarnessNode) error {
+	return node.stop()
+}
+
 // TODO(roasbeef): add a WithChannel higher-order function?
 //  * python-like context manager w.r.t using a channel within a test
 //  * possibly  adds more funds to the target wallet if the funds are not

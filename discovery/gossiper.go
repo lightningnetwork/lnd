@@ -1233,7 +1233,7 @@ func (d *AuthenticatedGossiper) InitSyncState(syncPeer lnpeer.Peer, recvUpdates 
 	}
 
 	log.Infof("Creating new gossipSyncer for peer=%x",
-		nodeID)
+		nodeID[:])
 
 	syncer := newGossiperSyncer(gossipSyncerCfg{
 		chainHash:       d.cfg.ChainHash,

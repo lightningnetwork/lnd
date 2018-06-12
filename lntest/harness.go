@@ -912,6 +912,120 @@ func (n *NetworkHarness) AddFund(ctx context.Context,
 
 }
 
+// ExtractFun attempts to extract fund from a exist active channel between srcNode
+// and destNode. If the passwd context has a timeout, then if the timeout is
+// reached before the channel pending notification is received, an error is returned.
+func (n *NetworkHarness) ExtractFund(ctx context.Context,
+	srcNode, destNode *HarnessNode, extractAmt btcutil.Amount,
+	cp *lnrpc.ChannelPoint) (lnrpc.Lightning_ExtractFundClient, error){
+
+	// Create a channel outpoint that we can use to compare to channels
+	// from the ListChannelsResponse.
+	txidHash, err := getChanPointFundingTxid(cp)
+	if err != nil {
+		return nil, err
+	}
+	fundingTxID, err := chainhash.NewHash(txidHash)
+	if err != nil {
+		return nil, err
+	}
+	chanPoint := wire.OutPoint{
+		Hash:  *fundingTxID,
+		Index: cp.OutputIndex,
+	}
+
+	timeout := time.Second * 15
+	listReq := &lnrpc.ListChannelsRequest{}
+	// We define two helper functions, one two locate a particular
+	// channel, and the other to check if a channel is active or
+	// not.
+	filterChannel := func(node *HarnessNode,
+		op wire.OutPoint) (*lnrpc.Channel, error) {
+		listResp, err := node.ListChannels(ctx, listReq)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, c := range listResp.Channels {
+			if c.ChannelPoint == op.String() {
+				return c, nil
+			}
+		}
+		return nil, fmt.Errorf("unable to find channel")
+	}
+	activeChanPredicate := func(node *HarnessNode) func() bool {
+		return func() bool {
+			channel, err := filterChannel(node, chanPoint)
+			if err != nil {
+				return false
+			}
+			return channel.Active
+		}
+	}
+
+	// Next, we'll fetch the target channel in order to get the
+	// harness node that will be receiving the channel close request.
+	targetChan, err := filterChannel(srcNode, chanPoint)
+	if err != nil {
+		return nil, err
+	}
+	receivingNode, err := n.LookUpNodeByPub(targetChan.RemotePubkey)
+	if err != nil {
+		return nil, err
+	}
+
+	// Before proceeding, we'll ensure that the channel is active
+	// for both nodes.
+	err = WaitPredicate(activeChanPredicate(srcNode), timeout)
+	if err != nil {
+		return nil, fmt.Errorf("channel of adding fund " +
+			"node not active in time")
+	}
+	err = WaitPredicate(activeChanPredicate(receivingNode), timeout)
+	if err != nil {
+		return nil, fmt.Errorf("channel of receiving " +
+			"node not active in time")
+	}
+
+	extractFundReq := &lnrpc.ExtractFundRequest{
+		ChannelPoint:cp,
+		ExtractFundingAmount: int64(extractAmt),
+	}
+	extractRespStream, err := srcNode.ExtractFund(ctx, extractFundReq)
+	if err != nil {
+		return nil, fmt.Errorf("unable to add fund to channel between "+
+			"alice and bob: %v", err)
+	}
+
+	chanOpen := make(chan struct{})
+	errChan := make(chan error)
+	go func() {
+		// Consume the "channel pending" update. This waits until the node
+		// notifies us that the final message in the channel funding workflow
+		// has been sent to the remote node.
+		resp, err := extractRespStream.Recv()
+		if err != nil {
+			errChan <- err
+			return
+		}
+		if _, ok := resp.Update.(*lnrpc.OpenStatusUpdate_ChanPending); !ok {
+			errChan <- fmt.Errorf("expected channel pending update, "+
+				"instead got %v", resp)
+			return
+		}
+		close(chanOpen)
+	}()
+
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("timeout reached before chan pending "+
+			"update sent: %v", err)
+	case err := <-errChan:
+		return nil, err
+	case <-chanOpen:
+		return extractRespStream, nil
+	}
+}
 
 // WaitForChannelAddFund waits for a notification that a channel is open by
 // consuming a message from the past open channel stream. If the passed context
@@ -949,7 +1063,41 @@ func (n *NetworkHarness) WaitForChannelAddFund(ctx context.Context,
 	}
 }
 
+// WaitForChannelExtractFund waits for a notification that a channel is open by
+// consuming a message from the past open channel stream. If the passed context
+// has a timeout, then if the timeout is reached before the channel has been
+// opened, then an error is returned.
+func (n *NetworkHarness) WaitForChannelExtractFund(ctx context.Context,
+	extractFundStream lnrpc.Lightning_ExtractFundClient) (*lnrpc.ChannelPoint, error) {
 
+	errChan := make(chan error)
+	respChan := make(chan *lnrpc.ChannelPoint)
+	go func() {
+		resp, err := extractFundStream.Recv()
+		if err != nil {
+			errChan <- fmt.Errorf("unable to read rpc resp: %v", err)
+			return
+		}
+		fundingResp, ok := resp.Update.(*lnrpc.OpenStatusUpdate_ChanOpen)
+		if !ok {
+			errChan <- fmt.Errorf("expected channel extract fund update, "+
+				"instead got %v", resp)
+			return
+		}
+
+		respChan <- fundingResp.ChanOpen.ChannelPoint
+	}()
+
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("timeout reached while waiting for " +
+			"channel extract fund")
+	case err := <-errChan:
+		return nil, err
+	case chanPoint := <-respChan:
+		return chanPoint, nil
+	}
+}
 
 // WaitForChannelOpen waits for a notification that a channel is open by
 // consuming a message from the past open channel stream. If the passed context

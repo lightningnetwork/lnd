@@ -1384,9 +1384,11 @@ func (s *server) peerTerminationWatcher(p *peer) {
 	// available for use.
 	s.fundingMgr.CancelPeerReservations(p.PubKey())
 
+	pubKey := p.addr.IdentityKey
+
 	// We'll also inform the gossiper that this peer is no longer active,
 	// so we don't need to maintain sync state for it any longer.
-	s.authGossiper.PruneSyncState(p.addr.IdentityKey)
+	s.authGossiper.PruneSyncState(pubKey)
 
 	// Tell the switch to remove all links associated with this peer.
 	// Passing nil as the target link indicates that all links associated
@@ -1435,13 +1437,30 @@ func (s *server) peerTerminationWatcher(p *peer) {
 	s.removePeer(p)
 
 	// Next, check to see if this is a persistent peer or not.
-	pubStr := string(p.addr.IdentityKey.SerializeCompressed())
+	pubStr := string(pubKey.SerializeCompressed())
 	_, ok := s.persistentPeers[pubStr]
 	if ok {
 		// We'll only need to re-launch a connection request if one
 		// isn't already currently pending.
 		if _, ok := s.persistentConnReqs[pubStr]; ok {
 			return
+		}
+
+		// We'll ensure that we locate an advertised address to use
+		// within the peer's address for reconnection purposes.
+		//
+		// TODO(roasbeef): use them all?
+		if p.inbound {
+			advertisedAddr, err := s.fetchNodeAdvertisedAddr(
+				pubKey,
+			)
+			if err != nil {
+				srvrLog.Errorf("Unable to retrieve advertised "+
+					"address for node %x: %v",
+					pubKey.SerializeCompressed(), err)
+			} else {
+				p.addr.Address = advertisedAddr
+			}
 		}
 
 		// Otherwise, we'll launch a new connection request in order to
@@ -1526,20 +1545,8 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	addr := conn.RemoteAddr()
 	pubKey := brontideConn.RemotePub()
 
-	// We'll ensure that we locate an advertised address to use within the
-	// peer's address for reconnection purposes.
-	//
-	// TODO: leave the address field empty if there aren't any?
-	if inbound {
-		advertisedAddr, err := s.fetchNodeAdvertisedAddr(pubKey)
-		if err != nil {
-			srvrLog.Errorf("Unable to retrieve advertised address "+
-				"for node %x: %v", pubKey.SerializeCompressed(),
-				err)
-		} else {
-			addr = advertisedAddr
-		}
-	}
+	srvrLog.Infof("finalizing connection to %x, inbound=%v",
+		pubKey.SerializeCompressed(), inbound)
 
 	peerAddr := &lnwire.NetAddress{
 		IdentityKey: pubKey,
@@ -1618,10 +1625,12 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// If we already have an inbound connection to this peer, then ignore
+	// If we already have an outbound connection to this peer, then ignore
 	// this new connection.
-	if _, ok := s.inboundPeers[pubStr]; ok {
-		srvrLog.Debugf("Ignoring duplicate inbound connection")
+	if _, ok := s.outboundPeers[pubStr]; ok {
+		srvrLog.Debugf("Already have outbound connection for %v, "+
+			"ignoring inbound connection", nodePub.SerializeCompressed())
+
 		conn.Close()
 		return
 	}
@@ -1637,12 +1646,6 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 
 	srvrLog.Infof("New inbound connection from %v", conn.RemoteAddr())
 
-	// Cancel all pending connection requests, we either already have an
-	// outbound connection, or this incoming connection will become our
-	// primary connection. The incoming connection will not have an
-	// associated connection request, so we pass nil.
-	s.cancelConnReqs(pubStr, nil)
-
 	// Check to see if we already have a connection with this peer. If so,
 	// we may need to drop our existing connection. This prevents us from
 	// having duplicate connections to the same peer. We forgo adding a
@@ -1653,6 +1656,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 	case ErrPeerNotConnected:
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
+		s.cancelConnReqs(pubStr, nil)
 		s.peerConnected(conn, nil, true)
 
 	case nil:
@@ -1673,6 +1677,8 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		// disconnect our already connected peer.
 		srvrLog.Debugf("Disconnecting stale connection to %v",
 			connectedPeer)
+
+		s.cancelConnReqs(pubStr, nil)
 
 		// Remove the current peer from the server's internal state and
 		// signal that the peer termination watcher does not need to
@@ -1701,10 +1707,13 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// If we already have an outbound connection to this peer, then ignore
+	// If we already have an inbound connection to this peer, then ignore
 	// this new connection.
-	if _, ok := s.outboundPeers[pubStr]; ok {
-		srvrLog.Debugf("Ignoring duplicate outbound connection")
+	if _, ok := s.inboundPeers[pubStr]; ok {
+		srvrLog.Debugf("Already have inbound connection for %v, "+
+			"ignoring outbound connection",
+			nodePub.SerializeCompressed())
+
 		if connReq != nil {
 			s.connMgr.Remove(connReq.ID())
 		}
@@ -1723,6 +1732,11 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	// ignore this connection.
 	if _, ok := s.scheduledPeerConnection[pubStr]; ok {
 		srvrLog.Debugf("Ignoring connection, peer already scheduled")
+
+		if connReq != nil {
+			s.connMgr.Remove(connReq.ID())
+		}
+
 		conn.Close()
 		return
 	}

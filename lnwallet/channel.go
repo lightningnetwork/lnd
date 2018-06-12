@@ -1332,7 +1332,7 @@ type LightningChannel struct {
 	cowg sync.WaitGroup
 	wg   sync.WaitGroup
 
-	quit     chan struct{}
+	quit chan struct{}
 }
 
 // NewLightningChannel creates a new, active payment channel given an
@@ -3184,7 +3184,6 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		// revocation, but also initiate a state transition to re-sync
 		// them.
 		if !lc.FullySynced() {
-
 			commitSig, htlcSigs, err := lc.SignNextCommitment()
 			switch {
 

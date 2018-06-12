@@ -929,7 +929,9 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	amt := msg.FundingAmount
 	openType := msg.Opentype
 	oldChannelID := msg.OldChannelID
-	isRebalance := openType == lnwire.OpenSpliceInChannel
+	isRebalance := openType == lnwire.OpenSpliceInChannel ||
+		openType == lnwire.OpenSpliceOutChannel
+
 	var channel *lnwallet.LightningChannel
 	var err error
 	// 判断是否为新开channel，如果是rebalance，那么需要先停止之前的Channel
@@ -1934,8 +1936,8 @@ func (f *fundingManager) waitForFundingConfirmation(completeChan *channeldb.Open
 	// and that it is acceptable to process funding locked messages
 	// from the peer.
 	f.localDiscoveryMtx.Lock()
-	state, _, _ := f.getChannelOpeningState(&completeChan.FundingOutpoint)
-	fmt.Printf("%v", state)
+//	state, _, _ := f.getChannelOpeningState(&completeChan.FundingOutpoint)
+//	fmt.Printf("%v", state)
 	if discoverySignal, ok := f.localDiscoverySignals[chanID]; ok {
 		close(discoverySignal)
 	}

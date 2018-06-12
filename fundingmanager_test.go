@@ -760,7 +760,7 @@ func extractFund(t *testing.T, alice, bob *testNode,
 
 	fundingOutPoint := &wire.OutPoint{
 		Hash:  publ.TxHash(),
-		Index: 0,
+		Index: 1,
 	}
 	return fundingOutPoint
 }
@@ -907,6 +907,7 @@ func assertDatabaseState(t *testing.T, node *testNode,
 			// Got expected state, return with success.
 			return
 		}
+		fmt.Printf("%d\n",i)
 	}
 
 	// 10 tries without success.
@@ -1028,7 +1029,7 @@ func waitForOpenUpdate(t *testing.T, updateChan chan *lnrpc.OpenStatusUpdate) {
 	var openUpdate *lnrpc.OpenStatusUpdate
 	select {
 	case openUpdate = <-updateChan:
-	case <-time.After(time.Second * 5):
+	case <-time.After(time.Second * 15):
 		t.Fatalf("alice did not send OpenStatusUpdate")
 	}
 
@@ -1552,7 +1553,7 @@ func TestFundingManagerExtractFund(t *testing.T) {
 
 	// Run through the process of opening the channel, up until the funding
 	// transaction is broadcasted.
-	fundingOutPointOfExtract := extractFund(t, alice, bob, 100000, fundingOutPoint,
+	fundingOutPointOfExtract := extractFund(t, alice, bob, 300000, fundingOutPoint,
 		updateChanOfExtract, true)
 
 	// Make sure both reservations time out and then run both zombie sweepers.

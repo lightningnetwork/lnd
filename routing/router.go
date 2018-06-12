@@ -726,6 +726,10 @@ func (r *ChannelRouter) networkHandler() {
 			r.routeCache = make(map[routeTuple][]*Route)
 			r.routeCacheMtx.Unlock()
 
+			// Invalidate the describe graph cache, as some channels
+			// might not be confirmed anymore.
+			channeldb.InvalidateDescribeGraphCache()
+
 			// TODO(halseth): notify client about the reorg?
 
 		// A new block has arrived, so we can prune the channel graph
@@ -794,6 +798,10 @@ func (r *ChannelRouter) networkHandler() {
 			r.routeCacheMtx.Lock()
 			r.routeCache = make(map[routeTuple][]*Route)
 			r.routeCacheMtx.Unlock()
+
+			// Invalidate the describe graph cache, as graph may
+			// have been pruned
+			channeldb.InvalidateDescribeGraphCache()
 
 			if len(chansClosed) == 0 {
 				continue
@@ -1152,6 +1160,9 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		r.routeCacheMtx.Lock()
 		r.routeCache = make(map[routeTuple][]*Route)
 		r.routeCacheMtx.Unlock()
+
+		// Invalidate the describe graph cache as channels were updated/closed
+		channeldb.InvalidateDescribeGraphCache()
 	}
 
 	return nil

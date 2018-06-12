@@ -10,6 +10,7 @@ import (
 
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/roasbeef/btcd/btcec"
@@ -2303,4 +2304,37 @@ func wipeChannelLogEntries(log *bolt.Bucket) error {
 	}
 
 	return nil
+}
+
+var (
+	// DescribeGraph RPC responses are cached. The cache is invalidated whenever
+	// a new channel is opened, a channel is closed, etc., similar to the
+	// queryRoutes cache in the routing package
+	// The cache is included here and not in rpcserver.go to avoid circular
+	// dependency for the routing package
+	describeGraphCache    *lnrpc.ChannelGraph
+	describeGraphCacheMtx sync.RWMutex
+)
+
+// Invalidates the DescribeGraph cache upon relevant changes in channel or node
+// states. Called from the routing package in parallel to invalidation of the
+// router cache.
+func InvalidateDescribeGraphCache() {
+	describeGraphCacheMtx.Lock()
+	describeGraphCache = nil
+	describeGraphCacheMtx.Unlock()
+}
+
+// Get DescribeGraph cashed response
+func GetDescribeGraphCache() *lnrpc.ChannelGraph {
+	describeGraphCacheMtx.RLock()
+	defer describeGraphCacheMtx.RUnlock()
+	return describeGraphCache
+}
+
+// Sets DescribeGraph cache with latest response
+func SetDescribeGraphCache(resp *lnrpc.ChannelGraph) {
+	describeGraphCacheMtx.Lock()
+	describeGraphCache = resp
+	describeGraphCacheMtx.Unlock()
 }

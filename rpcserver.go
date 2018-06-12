@@ -2668,7 +2668,14 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 func (r *rpcServer) DescribeGraph(ctx context.Context,
 	_ *lnrpc.ChannelGraphRequest) (*lnrpc.ChannelGraph, error) {
 
-	resp := &lnrpc.ChannelGraph{}
+	// Check cache first
+	resp := channeldb.GetDescribeGraphCache()
+	if resp != nil {
+		rpcsLog.Debugf("[describegraph] cached response returned.")
+		return resp, nil
+	}
+
+	resp = &lnrpc.ChannelGraph{}
 
 	// Obtain the pointer to the global singleton channel graph, this will
 	// provide a consistent view of the graph due to bolt db's
@@ -2716,6 +2723,9 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 	if err != nil && err != channeldb.ErrGraphNoEdgesFound {
 		return nil, err
 	}
+
+	// Cache the response
+	channeldb.SetDescribeGraphCache(resp)
 
 	return resp, nil
 }

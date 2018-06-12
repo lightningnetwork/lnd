@@ -324,10 +324,6 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 
 		chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
-		p.activeChanMtx.Lock()
-		p.activeChannels[chanID] = lnChan
-		p.activeChanMtx.Unlock()
-
 		peerLog.Infof("NodeKey(%x) loading ChannelPoint(%v)",
 			p.PubKey(), chanPoint)
 
@@ -415,12 +411,18 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		}
 
 		// Create the link and add it to the switch.
-		err = p.addLink(chanPoint, lnChan, forwardingPolicy, blockEpoch,
-			chainEvents, currentHeight, true)
+		err = p.addLink(
+			chanPoint, lnChan, forwardingPolicy, blockEpoch,
+			chainEvents, currentHeight, true,
+		)
 		if err != nil {
 			lnChan.Stop()
 			return err
 		}
+
+		p.activeChanMtx.Lock()
+		p.activeChannels[chanID] = lnChan
+		p.activeChanMtx.Unlock()
 	}
 
 	return nil

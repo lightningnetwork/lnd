@@ -1840,9 +1840,18 @@ func (s *Switch) removeLink(chanID lnwire.ChannelID) error {
 	delete(s.linkIndex, link.ChanID())
 	delete(s.forwardingIndex, link.ShortChanID())
 
-	// Remove the channel from channel index.
+	// If the link has been added to the peer index, then we'll move to
+	// delete the entry within the index.
 	peerPub := link.Peer().PubKey()
-	delete(s.interfaceIndex, peerPub)
+	if peerIndex, ok := s.interfaceIndex[peerPub]; ok {
+		delete(peerIndex, link.ChanID())
+
+		// If after deletion, there are no longer any links, then we'll
+		// remove the interface map all together.
+		if len(peerIndex) == 0 {
+			delete(s.interfaceIndex, peerPub)
+		}
+	}
 
 	link.Stop()
 

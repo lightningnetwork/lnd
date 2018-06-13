@@ -248,7 +248,7 @@ func (r *Route) ToHopPayloads() []sphinx.HopData {
 //
 // NOTE: The passed slice of ChannelHops MUST be sorted in forward order: from
 // the source to the target node of the path finding attempt.
-func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex Vertex,
+func newRoute(amtToSend, feeLimit lnwire.MilliSatoshi, sourceVertex Vertex,
 	pathEdges []*ChannelHop, currentHeight uint32,
 	finalCLTVDelta uint16) (*Route, error) {
 
@@ -264,9 +264,6 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex Vertex,
 		nextHopMap:    make(map[Vertex]*ChannelHop),
 		prevHopMap:    make(map[Vertex]*ChannelHop),
 	}
-
-	// TODO(roasbeef): need to do sanity check to ensure we don't make a
-	// "dust" payment: over x% of money sending to fees
 
 	// We'll populate the next hop map for the _source_ node with the
 	// information for the first hop so the mapping is sound.
@@ -341,6 +338,13 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex Vertex,
 		}
 
 		route.TotalFees += nextHop.Fee
+
+		// Invalidate this route if its total fees exceed our fee limit.
+		if route.TotalFees > feeLimit {
+			err := fmt.Sprintf("total route fees exceeded fee "+
+				"limit of %v", feeLimit)
+			return nil, newErrf(ErrFeeLimitExceeded, err)
+		}
 
 		// As a sanity check, we ensure that the selected channel has
 		// enough capacity to forward the required amount which

@@ -674,6 +674,135 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 }
 
+// txStr returns the string representation of the channel's funding transaction.
+func txStr(chanPoint *lnrpc.ChannelPoint) string {
+	txidHash, err := getChanPointFundingTxid(chanPoint)
+	if err != nil {
+		return ""
+	}
+	fundingTxID, err := chainhash.NewHash(txidHash)
+	if err != nil {
+		return ""
+	}
+	cp := wire.OutPoint{
+		Hash:  *fundingTxID,
+		Index: chanPoint.OutputIndex,
+	}
+	return cp.String()
+}
+
+// waitForChannelUpdate waits for a node to receive updates from the advertising
+// node for the specified channels.
+func waitForChannelUpdate(t *harnessTest, graphUpdates chan *lnrpc.GraphTopologyUpdate,
+	advertisingNode string, expectedPolicy *lnrpc.RoutingPolicy,
+	chanPoints ...*lnrpc.ChannelPoint) {
+
+	// Create a set containing all the channel points we are awaiting
+	// updates for.
+	cps := make(map[string]struct{})
+	for _, chanPoint := range chanPoints {
+		cps[txStr(chanPoint)] = struct{}{}
+	}
+out:
+	for {
+		select {
+		case graphUpdate := <-graphUpdates:
+			for _, update := range graphUpdate.ChannelUpdates {
+				fundingTxStr := txStr(update.ChanPoint)
+				if _, ok := cps[fundingTxStr]; !ok {
+					continue
+				}
+
+				if update.AdvertisingNode != advertisingNode {
+					continue
+				}
+
+				err := checkChannelPolicy(
+					update.RoutingPolicy, expectedPolicy,
+				)
+				if err != nil {
+					continue
+				}
+
+				// We got a policy update that matched the
+				// values and channel point of what we
+				// expected, delete it from the map.
+				delete(cps, fundingTxStr)
+
+				// If we have no more channel points we are
+				// waiting for, break out of the loop.
+				if len(cps) == 0 {
+					break out
+				}
+			}
+		case <-time.After(20 * time.Second):
+			t.Fatalf("did not receive channel update")
+		}
+	}
+}
+
+// assertChannelPolicy asserts that the passed node's known channel policy for
+// the passed chanPoint is consistent with the expected policy values.
+func assertChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
+	advertisingNode string, expectedPolicy *lnrpc.RoutingPolicy,
+	chanPoints ...*lnrpc.ChannelPoint) {
+
+	descReq := &lnrpc.ChannelGraphRequest{}
+	chanGraph, err := node.DescribeGraph(context.Background(), descReq)
+	if err != nil {
+		t.Fatalf("unable to query for alice's graph: %v", err)
+	}
+
+out:
+	for _, chanPoint := range chanPoints {
+		for _, e := range chanGraph.Edges {
+			if e.ChanPoint != txStr(chanPoint) {
+				continue
+			}
+
+			var err error
+			if e.Node1Pub == advertisingNode {
+				err = checkChannelPolicy(
+					e.Node1Policy, expectedPolicy,
+				)
+			} else {
+				err = checkChannelPolicy(
+					e.Node2Policy, expectedPolicy,
+				)
+			}
+			if err != nil {
+				t.Fatalf(err.Error())
+			}
+
+			continue out
+		}
+
+		// If we've iterated over all the known edges and we weren't
+		// able to find this specific one, then we'll fail.
+		t.Fatalf("did not find edge %v", txStr(chanPoint))
+	}
+}
+
+// checkChannelPolicy checks that the policy matches the expected one.
+func checkChannelPolicy(policy, expectedPolicy *lnrpc.RoutingPolicy) error {
+	if policy.FeeBaseMsat != expectedPolicy.FeeBaseMsat {
+		return fmt.Errorf("expected base fee %v, got %v",
+			expectedPolicy.FeeBaseMsat, policy.FeeBaseMsat)
+	}
+	if policy.FeeRateMilliMsat != expectedPolicy.FeeRateMilliMsat {
+		return fmt.Errorf("expected fee rate %v, got %v",
+			expectedPolicy.FeeRateMilliMsat,
+			policy.FeeRateMilliMsat)
+	}
+	if policy.TimeLockDelta != expectedPolicy.TimeLockDelta {
+		return fmt.Errorf("expected time lock delta %v, got %v",
+			expectedPolicy.TimeLockDelta,
+			policy.TimeLockDelta)
+	}
+
+	return nil
+}
+
 // testUpdateChannelPolicy tests that policy updates made to a channel
 // gets propagated to other nodes in the network.
 func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
@@ -746,162 +875,46 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	feeRate := int64(12)
 	timeLockDelta := uint32(66)
 
+	expectedPolicy := &lnrpc.RoutingPolicy{
+		FeeBaseMsat:      baseFee,
+		FeeRateMilliMsat: feeBase * feeRate,
+		TimeLockDelta:    timeLockDelta,
+	}
+
 	req := &lnrpc.PolicyUpdateRequest{
 		BaseFeeMsat:   baseFee,
 		FeeRate:       float64(feeRate),
 		TimeLockDelta: timeLockDelta,
-	}
-	req.Scope = &lnrpc.PolicyUpdateRequest_ChanPoint{
-		ChanPoint: chanPoint,
+		Scope: &lnrpc.PolicyUpdateRequest_ChanPoint{
+			ChanPoint: chanPoint,
+		},
 	}
 
-	_, err = net.Bob.UpdateChannelPolicy(ctxb, req)
-	if err != nil {
+	if _, err := net.Bob.UpdateChannelPolicy(ctxb, req); err != nil {
 		t.Fatalf("unable to get alice's balance: %v", err)
 	}
 
-	// txStr returns the string representation of the channel's
-	// funding tx.
-	txStr := func(chanPoint *lnrpc.ChannelPoint) string {
-		txidHash, err := getChanPointFundingTxid(chanPoint)
-		if err != nil {
-			return ""
-		}
-		fundingTxID, err := chainhash.NewHash(txidHash)
-		if err != nil {
-			return ""
-		}
-		cp := wire.OutPoint{
-			Hash:  *fundingTxID,
-			Index: chanPoint.OutputIndex,
-		}
-		return cp.String()
-	}
-
-	// A closure that is used to wait for a channel updates that matches
-	// the channel policy update done by Alice.
-	waitForChannelUpdate := func(graphUpdates chan *lnrpc.GraphTopologyUpdate,
-		advertisingNode string, chanPoints ...*lnrpc.ChannelPoint) {
-
-		// Create a map containing all the channel points we are
-		// waiting for updates for.
-		cps := make(map[string]bool)
-		for _, chanPoint := range chanPoints {
-			cps[txStr(chanPoint)] = true
-		}
-	Loop:
-		for {
-			select {
-			case graphUpdate := <-graphUpdates:
-				for _, update := range graphUpdate.ChannelUpdates {
-					fundingTxStr := txStr(update.ChanPoint)
-					if _, ok := cps[fundingTxStr]; !ok {
-						continue
-					}
-
-					if update.AdvertisingNode != advertisingNode {
-						continue
-					}
-
-					policy := update.RoutingPolicy
-					if policy.FeeBaseMsat != baseFee {
-						continue
-					}
-					if policy.FeeRateMilliMsat != feeRate*feeBase {
-						continue
-					}
-					if policy.TimeLockDelta != timeLockDelta {
-						continue
-					}
-
-					// We got a policy update that matched the
-					// values and channel point of what we
-					// expected, delete it from the map.
-					delete(cps, fundingTxStr)
-
-					// If we have no more channel points we are
-					// waiting for, break out of the loop.
-					if len(cps) == 0 {
-						break Loop
-					}
-				}
-			case <-time.After(20 * time.Second):
-				t.Fatalf("did not receive channel update")
-			}
-		}
-	}
-
 	// Wait for all nodes to have seen the policy update done by Bob.
-	waitForChannelUpdate(aliceUpdates, net.Bob.PubKeyStr, chanPoint)
-	waitForChannelUpdate(bobUpdates, net.Bob.PubKeyStr, chanPoint)
-	waitForChannelUpdate(carolUpdates, net.Bob.PubKeyStr, chanPoint)
-
-	// assertChannelPolicy asserts that the passed node's known channel
-	// policy for the passed chanPoint is consistent with Bob's current
-	// expected policy values.
-	assertChannelPolicy := func(node *lntest.HarnessNode,
-		advertisingNode string, chanPoint *lnrpc.ChannelPoint) {
-
-		// Get a DescribeGraph from the node.
-		descReq := &lnrpc.ChannelGraphRequest{}
-		chanGraph, err := node.DescribeGraph(ctxb, descReq)
-		if err != nil {
-			t.Fatalf("unable to query for alice's routing table: %v",
-				err)
-		}
-
-		edgeFound := false
-		for _, e := range chanGraph.Edges {
-			if e.ChanPoint == txStr(chanPoint) {
-				edgeFound = true
-				if e.Node1Pub == advertisingNode {
-					if e.Node1Policy.FeeBaseMsat != baseFee {
-						t.Fatalf("expected base fee "+
-							"%v, got %v", baseFee,
-							e.Node1Policy.FeeBaseMsat)
-					}
-					if e.Node1Policy.FeeRateMilliMsat != feeRate*feeBase {
-						t.Fatalf("expected fee rate "+
-							"%v, got %v", feeRate*feeBase,
-							e.Node1Policy.FeeRateMilliMsat)
-					}
-					if e.Node1Policy.TimeLockDelta != timeLockDelta {
-						t.Fatalf("expected time lock "+
-							"delta %v, got %v",
-							timeLockDelta,
-							e.Node1Policy.TimeLockDelta)
-					}
-				} else {
-					if e.Node2Policy.FeeBaseMsat != baseFee {
-						t.Fatalf("expected base fee "+
-							"%v, got %v", baseFee,
-							e.Node2Policy.FeeBaseMsat)
-					}
-					if e.Node2Policy.FeeRateMilliMsat != feeRate*feeBase {
-						t.Fatalf("expected fee rate "+
-							"%v, got %v", feeRate*feeBase,
-							e.Node2Policy.FeeRateMilliMsat)
-					}
-					if e.Node2Policy.TimeLockDelta != timeLockDelta {
-						t.Fatalf("expected time lock "+
-							"delta %v, got %v",
-							timeLockDelta,
-							e.Node2Policy.TimeLockDelta)
-					}
-				}
-			}
-		}
-
-		if !edgeFound {
-			t.Fatalf("did not find edge")
-		}
-
-	}
+	waitForChannelUpdate(
+		t, aliceUpdates, net.Bob.PubKeyStr, expectedPolicy, chanPoint,
+	)
+	waitForChannelUpdate(
+		t, bobUpdates, net.Bob.PubKeyStr, expectedPolicy, chanPoint,
+	)
+	waitForChannelUpdate(
+		t, carolUpdates, net.Bob.PubKeyStr, expectedPolicy, chanPoint,
+	)
 
 	// Check that all nodes now know about Bob's updated policy.
-	assertChannelPolicy(net.Alice, net.Bob.PubKeyStr, chanPoint)
-	assertChannelPolicy(net.Bob, net.Bob.PubKeyStr, chanPoint)
-	assertChannelPolicy(carol, net.Bob.PubKeyStr, chanPoint)
+	assertChannelPolicy(
+		t, net.Alice, net.Bob.PubKeyStr, expectedPolicy, chanPoint,
+	)
+	assertChannelPolicy(
+		t, net.Bob, net.Bob.PubKeyStr, expectedPolicy, chanPoint,
+	)
+	assertChannelPolicy(
+		t, carol, net.Bob.PubKeyStr, expectedPolicy, chanPoint,
+	)
 
 	// Now that all nodes have received the new channel update, we'll try
 	// to send a payment from Alice to Carol to ensure that Alice has
@@ -951,6 +964,10 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	feeRate = int64(123)
 	timeLockDelta = uint32(22)
 
+	expectedPolicy.FeeBaseMsat = baseFee
+	expectedPolicy.FeeRateMilliMsat = feeBase * feeRate
+	expectedPolicy.TimeLockDelta = timeLockDelta
+
 	req = &lnrpc.PolicyUpdateRequest{
 		BaseFeeMsat:   baseFee,
 		FeeRate:       float64(feeRate),
@@ -966,24 +983,32 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	// Wait for all nodes to have seen the policy updates for both of
 	// Alice's channels.
 	waitForChannelUpdate(
-		aliceUpdates, net.Alice.PubKeyStr, chanPoint, chanPoint3,
+		t, aliceUpdates, net.Alice.PubKeyStr, expectedPolicy, chanPoint,
+		chanPoint3,
 	)
 	waitForChannelUpdate(
-		bobUpdates, net.Alice.PubKeyStr, chanPoint, chanPoint3,
+		t, bobUpdates, net.Alice.PubKeyStr, expectedPolicy, chanPoint,
+		chanPoint3,
 	)
 	waitForChannelUpdate(
-		carolUpdates, net.Alice.PubKeyStr, chanPoint, chanPoint3,
+		t, carolUpdates, net.Alice.PubKeyStr, expectedPolicy, chanPoint,
+		chanPoint3,
 	)
 
 	// And finally check that all nodes remembers the policy update they
 	// received.
-	assertChannelPolicy(net.Alice, net.Alice.PubKeyStr, chanPoint)
-	assertChannelPolicy(net.Bob, net.Alice.PubKeyStr, chanPoint)
-	assertChannelPolicy(carol, net.Alice.PubKeyStr, chanPoint)
-
-	assertChannelPolicy(net.Alice, net.Alice.PubKeyStr, chanPoint3)
-	assertChannelPolicy(net.Bob, net.Alice.PubKeyStr, chanPoint3)
-	assertChannelPolicy(carol, net.Alice.PubKeyStr, chanPoint3)
+	assertChannelPolicy(
+		t, net.Alice, net.Alice.PubKeyStr, expectedPolicy, chanPoint,
+		chanPoint3,
+	)
+	assertChannelPolicy(
+		t, net.Bob, net.Alice.PubKeyStr, expectedPolicy, chanPoint,
+		chanPoint3,
+	)
+	assertChannelPolicy(
+		t, carol, net.Alice.PubKeyStr, expectedPolicy, chanPoint,
+		chanPoint3,
+	)
 
 	// Close the channels.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
@@ -9736,6 +9761,278 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 }
 
+// testRouteFeeCutoff tests that we are able to prevent querying routes and
+// sending payments that incur a fee higher than the fee limit.
+func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
+	// For this test, we'll create the following topology:
+	//
+	//              --- Bob ---
+	//            /             \
+	// Alice ----                 ---- Dave
+	//            \             /
+	//              -- Carol --
+	//
+	// Alice will attempt to send payments to Dave that should not incur a
+	// fee greater than the fee limit expressed as a percentage of the
+	// amount and as a fixed amount of satoshis.
+
+	ctxb := context.Background()
+	timeout := time.Duration(time.Second * 15)
+
+	const chanAmt = btcutil.Amount(100000)
+
+	// Open a channel between Alice and Bob.
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	chanPointAliceBob := openChannelAndAssert(
+		ctxt, t, net, net.Alice, net.Bob, chanAmt, 0, false,
+	)
+
+	// Create Carol's node and open a channel between her and Alice with
+	// Alice being the funder.
+	carol, err := net.NewNode("Carol", nil)
+	if err != nil {
+		t.Fatalf("unable to create carol's node: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	if err := net.ConnectNodes(ctxt, carol, net.Alice); err != nil {
+		t.Fatalf("unable to connect carol to alice: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
+	if err != nil {
+		t.Fatalf("unable to send coins to carol: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPointAliceCarol := openChannelAndAssert(
+		ctxt, t, net, net.Alice, carol, chanAmt, 0, false,
+	)
+
+	// Create Dave's node and open a channel between him and Bob with Bob
+	// being the funder.
+	dave, err := net.NewNode("Dave", nil)
+	if err != nil {
+		t.Fatalf("unable to create dave's node: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	if err := net.ConnectNodes(ctxt, dave, net.Bob); err != nil {
+		t.Fatalf("unable to connect dave to bob: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPointBobDave := openChannelAndAssert(
+		ctxt, t, net, net.Bob, dave, chanAmt, 0, false,
+	)
+
+	// Open a channel between Carol and Dave.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	if err := net.ConnectNodes(ctxt, carol, dave); err != nil {
+		t.Fatalf("unable to connect carol to dave: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPointCarolDave := openChannelAndAssert(
+		ctxt, t, net, carol, dave, chanAmt, 0, false,
+	)
+
+	// Now that all the channels were set up, we'll wait for all the nodes
+	// to have seen all the channels.
+	nodes := []*lntest.HarnessNode{net.Alice, net.Bob, carol, dave}
+	nodeNames := []string{"alice", "bob", "carol", "dave"}
+	networkChans := []*lnrpc.ChannelPoint{
+		chanPointAliceBob, chanPointAliceCarol, chanPointBobDave,
+		chanPointCarolDave,
+	}
+	for _, chanPoint := range networkChans {
+		for i, node := range nodes {
+			txidHash, err := getChanPointFundingTxid(chanPoint)
+			if err != nil {
+				t.Fatalf("unable to get txid: %v", err)
+			}
+			txid, e := chainhash.NewHash(txidHash)
+			if e != nil {
+				t.Fatalf("unable to create sha hash: %v", e)
+			}
+			outpoint := wire.OutPoint{
+				Hash:  *txid,
+				Index: chanPoint.OutputIndex,
+			}
+
+			ctxt, _ := context.WithTimeout(ctxb, timeout)
+			err = node.WaitForNetworkChannelOpen(ctxt, chanPoint)
+			if err != nil {
+				t.Fatalf("%s(%d) timed out waiting for "+
+					"channel(%s) open: %v", nodeNames[i],
+					node.NodeID, outpoint, err)
+			}
+		}
+	}
+
+	// The payments should only be succesful across the route:
+	//	Alice -> Bob -> Dave
+	// Therefore, we'll update the fee policy on Carol's side for the
+	// channel between her and Dave to invalidate the route:
+	//	Alice -> Carol -> Dave
+	const feeBase = 1e+6
+	baseFee := int64(10000)
+	feeRate := int64(5)
+	timeLockDelta := uint32(144)
+
+	expectedPolicy := &lnrpc.RoutingPolicy{
+		FeeBaseMsat:      baseFee,
+		FeeRateMilliMsat: feeBase * feeRate,
+		TimeLockDelta:    timeLockDelta,
+	}
+
+	updateFeeReq := &lnrpc.PolicyUpdateRequest{
+		BaseFeeMsat:   baseFee,
+		FeeRate:       float64(feeRate),
+		TimeLockDelta: timeLockDelta,
+		Scope: &lnrpc.PolicyUpdateRequest_ChanPoint{
+			ChanPoint: chanPointCarolDave,
+		},
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	if _, err := carol.UpdateChannelPolicy(ctxt, updateFeeReq); err != nil {
+		t.Fatalf("unable to update chan policy: %v", err)
+	}
+
+	// Wait for Alice to receive the channel update from Carol.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	aliceUpdates, aQuit := subscribeGraphNotifications(t, ctxt, net.Alice)
+	defer close(aQuit)
+	waitForChannelUpdate(
+		t, aliceUpdates, carol.PubKeyStr, expectedPolicy,
+		chanPointCarolDave,
+	)
+
+	// We'll also need the channel IDs for Bob's channels in order to
+	// confirm the route of the payments.
+	listReq := &lnrpc.ListChannelsRequest{}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	listResp, err := net.Bob.ListChannels(ctxt, listReq)
+	if err != nil {
+		t.Fatalf("unable to retrieve bob's channels: %v", err)
+	}
+
+	var aliceBobChanID, bobDaveChanID uint64
+	for _, channel := range listResp.Channels {
+		switch channel.RemotePubkey {
+		case net.Alice.PubKeyStr:
+			aliceBobChanID = channel.ChanId
+		case dave.PubKeyStr:
+			bobDaveChanID = channel.ChanId
+		}
+	}
+
+	if aliceBobChanID == 0 {
+		t.Fatalf("channel between alice and bob not found")
+	}
+	if bobDaveChanID == 0 {
+		t.Fatalf("channel between bob and dave not found")
+	}
+	hopChanIDs := []uint64{aliceBobChanID, bobDaveChanID}
+
+	// checkRoute is a helper closure to ensure the route contains the
+	// correct intermediate hops.
+	checkRoute := func(route *lnrpc.Route) {
+		if len(route.Hops) != 2 {
+			t.Fatalf("expected two hops, got %d", len(route.Hops))
+		}
+
+		for i, hop := range route.Hops {
+			if hop.ChanId != hopChanIDs[i] {
+				t.Fatalf("expected chan id %d, got %d",
+					hop.ChanId)
+			}
+		}
+	}
+
+	// We'll be attempting to send two payments from Alice to Dave. One will
+	// have a fee cutoff expressed as a percentage of the amount and the
+	// other will have it expressed as a fixed amount of satoshis.
+	const paymentAmt = 100
+	carolFee := computeFee(lnwire.MilliSatoshi(baseFee), 1, paymentAmt)
+
+	// testFeeCutoff is a helper closure that will ensure the different
+	// types of fee limits work as intended when querying routes and sending
+	// payments.
+	testFeeCutoff := func(feeLimit *lnrpc.FeeLimit) {
+		queryRoutesReq := &lnrpc.QueryRoutesRequest{
+			PubKey:    dave.PubKeyStr,
+			Amt:       paymentAmt,
+			FeeLimit:  feeLimit,
+			NumRoutes: 2,
+		}
+		ctxt, _ = context.WithTimeout(ctxb, timeout)
+		routesResp, err := net.Alice.QueryRoutes(ctxt, queryRoutesReq)
+		if err != nil {
+			t.Fatalf("unable to get routes: %v", err)
+		}
+
+		if len(routesResp.Routes) != 1 {
+			t.Fatalf("expected one route, got %d",
+				len(routesResp.Routes))
+		}
+
+		checkRoute(routesResp.Routes[0])
+
+		invoice := &lnrpc.Invoice{Value: paymentAmt}
+		ctxt, _ = context.WithTimeout(ctxb, timeout)
+		invoiceResp, err := dave.AddInvoice(ctxt, invoice)
+		if err != nil {
+			t.Fatalf("unable to create invoice: %v", err)
+		}
+
+		sendReq := &lnrpc.SendRequest{
+			PaymentRequest: invoiceResp.PaymentRequest,
+			FeeLimit:       feeLimit,
+		}
+		ctxt, _ = context.WithTimeout(ctxb, timeout)
+		paymentResp, err := net.Alice.SendPaymentSync(ctxt, sendReq)
+		if err != nil {
+			t.Fatalf("unable to send payment: %v", err)
+		}
+		if paymentResp.PaymentError != "" {
+			t.Fatalf("unable to send payment: %v",
+				paymentResp.PaymentError)
+		}
+
+		checkRoute(paymentResp.PaymentRoute)
+	}
+
+	// We'll start off using percentages first. Since the fee along the
+	// route using Carol as an intermediate hop is 10% of the payment's
+	// amount, we'll use a lower percentage in order to invalid that route.
+	feeLimitPercent := &lnrpc.FeeLimit{
+		&lnrpc.FeeLimit_Percent{baseFee/1000 - 1},
+	}
+	testFeeCutoff(feeLimitPercent)
+
+	// Now we'll test using fixed fee limit amounts. Since we computed the
+	// fee for the route using Carol as an intermediate hop earlier, we can
+	// use a smaller value in order to invalidate that route.
+	feeLimitFixed := &lnrpc.FeeLimit{
+		&lnrpc.FeeLimit_Fixed{int64(carolFee.ToSatoshis()) - 1},
+	}
+	testFeeCutoff(feeLimitFixed)
+
+	// Once we're done, close the channels and shut down the nodes created
+	// throughout this test.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAliceBob, false)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAliceCarol, false)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPointBobDave, false)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarolDave, false)
+
+	if err := net.ShutdownNode(carol); err != nil {
+		t.Fatalf("unable to shut down carol: %v", err)
+	}
+	if err := net.ShutdownNode(dave); err != nil {
+		t.Fatalf("unable to shut down dave: %v", err)
+	}
+}
+
 type testCase struct {
 	name string
 	test func(net *lntest.NetworkHarness, t *harnessTest)
@@ -9926,6 +10223,10 @@ var testsCases = []*testCase{
 	{
 		name: "query routes",
 		test: testQueryRoutes,
+	},
+	{
+		name: "route fee cutoff",
+		test: testRouteFeeCutoff,
 	},
 }
 

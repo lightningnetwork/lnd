@@ -1617,6 +1617,16 @@ var sendPaymentCommand = cli.Command{
 			Name:  "amt, a",
 			Usage: "number of satoshis to send",
 		},
+		cli.Int64Flag{
+			Name: "fee_limit",
+			Usage: "maximum fee allowed in satoshis when sending" +
+				"the payment",
+		},
+		cli.Int64Flag{
+			Name: "fee_limit_percent",
+			Usage: "percentage of the payment's amount used as the" +
+				"maximum fee allowed when sending the payment",
+		},
 		cli.StringFlag{
 			Name:  "payment_hash, r",
 			Usage: "the hash to use within the payment's HTLC",
@@ -1637,6 +1647,32 @@ var sendPaymentCommand = cli.Command{
 	Action: sendPayment,
 }
 
+// retrieveFeeLimit retrieves the fee limit based on the different fee limit
+// flags passed.
+func retrieveFeeLimit(ctx *cli.Context) (*lnrpc.FeeLimit, error) {
+	switch {
+	case ctx.IsSet("fee_limit") && ctx.IsSet("fee_limit_percent"):
+		return nil, fmt.Errorf("either fee_limit or fee_limit_percent " +
+			"can be set, but not both")
+	case ctx.IsSet("fee_limit"):
+		return &lnrpc.FeeLimit{
+			Limit: &lnrpc.FeeLimit_Fixed{
+				Fixed: ctx.Int64("fee_limit"),
+			},
+		}, nil
+	case ctx.IsSet("fee_limit_percent"):
+		return &lnrpc.FeeLimit{
+			Limit: &lnrpc.FeeLimit_Percent{
+				Percent: ctx.Int64("fee_limit_percent"),
+			},
+		}, nil
+	}
+
+	// Since the fee limit flags aren't required, we don't return an error
+	// if they're not set.
+	return nil, nil
+}
+
 func sendPayment(ctx *cli.Context) error {
 	// Show command help if no arguments provided
 	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
@@ -1644,87 +1680,99 @@ func sendPayment(ctx *cli.Context) error {
 		return nil
 	}
 
-	var req *lnrpc.SendRequest
+	// First, we'll retrieve the fee limit value passed since it can apply
+	// to both ways of sending payments (with the payment request or
+	// providing the details manually).
+	feeLimit, err := retrieveFeeLimit(ctx)
+	if err != nil {
+		return err
+	}
+
+	// If a payment request was provided, we can exit early since all of the
+	// details of the payment are encoded within the request.
 	if ctx.IsSet("pay_req") {
-		req = &lnrpc.SendRequest{
+		req := &lnrpc.SendRequest{
 			PaymentRequest: ctx.String("pay_req"),
 			Amt:            ctx.Int64("amt"),
+			FeeLimit:       feeLimit,
 		}
-	} else {
-		args := ctx.Args()
 
-		var (
-			destNode []byte
-			err      error
-			amount   int64
-		)
+		return sendPaymentRequest(ctx, req)
+	}
+
+	var (
+		destNode []byte
+		amount   int64
+	)
+
+	args := ctx.Args()
+
+	switch {
+	case ctx.IsSet("dest"):
+		destNode, err = hex.DecodeString(ctx.String("dest"))
+	case args.Present():
+		destNode, err = hex.DecodeString(args.First())
+		args = args.Tail()
+	default:
+		return fmt.Errorf("destination txid argument missing")
+	}
+	if err != nil {
+		return err
+	}
+
+	if len(destNode) != 33 {
+		return fmt.Errorf("dest node pubkey must be exactly 33 bytes, is "+
+			"instead: %v", len(destNode))
+	}
+
+	if ctx.IsSet("amt") {
+		amount = ctx.Int64("amt")
+	} else if args.Present() {
+		amount, err = strconv.ParseInt(args.First(), 10, 64)
+		args = args.Tail()
+		if err != nil {
+			return fmt.Errorf("unable to decode payment amount: %v", err)
+		}
+	}
+
+	req := &lnrpc.SendRequest{
+		Dest:     destNode,
+		Amt:      amount,
+		FeeLimit: feeLimit,
+	}
+
+	if ctx.Bool("debug_send") && (ctx.IsSet("payment_hash") || args.Present()) {
+		return fmt.Errorf("do not provide a payment hash with debug send")
+	} else if !ctx.Bool("debug_send") {
+		var rHash []byte
 
 		switch {
-		case ctx.IsSet("dest"):
-			destNode, err = hex.DecodeString(ctx.String("dest"))
+		case ctx.IsSet("payment_hash"):
+			rHash, err = hex.DecodeString(ctx.String("payment_hash"))
 		case args.Present():
-			destNode, err = hex.DecodeString(args.First())
-			args = args.Tail()
+			rHash, err = hex.DecodeString(args.First())
 		default:
-			return fmt.Errorf("destination txid argument missing")
+			return fmt.Errorf("payment hash argument missing")
 		}
+
 		if err != nil {
 			return err
 		}
-
-		if len(destNode) != 33 {
-			return fmt.Errorf("dest node pubkey must be exactly 33 bytes, is "+
-				"instead: %v", len(destNode))
+		if len(rHash) != 32 {
+			return fmt.Errorf("payment hash must be exactly 32 "+
+				"bytes, is instead %v", len(rHash))
 		}
+		req.PaymentHash = rHash
 
-		if ctx.IsSet("amt") {
-			amount = ctx.Int64("amt")
-		} else if args.Present() {
-			amount, err = strconv.ParseInt(args.First(), 10, 64)
-			args = args.Tail()
-			if err != nil {
-				return fmt.Errorf("unable to decode payment amount: %v", err)
-			}
-		}
-
-		req = &lnrpc.SendRequest{
-			Dest: destNode,
-			Amt:  amount,
-		}
-
-		if ctx.Bool("debug_send") && (ctx.IsSet("payment_hash") || args.Present()) {
-			return fmt.Errorf("do not provide a payment hash with debug send")
-		} else if !ctx.Bool("debug_send") {
-			var rHash []byte
-
-			switch {
-			case ctx.IsSet("payment_hash"):
-				rHash, err = hex.DecodeString(ctx.String("payment_hash"))
-			case args.Present():
-				rHash, err = hex.DecodeString(args.First())
-			default:
-				return fmt.Errorf("payment hash argument missing")
-			}
-
+		switch {
+		case ctx.IsSet("final_cltv_delta"):
+			req.FinalCltvDelta = int32(ctx.Int64("final_cltv_delta"))
+		case args.Present():
+			delta, err := strconv.ParseInt(args.First(), 10, 64)
 			if err != nil {
 				return err
 			}
-			if len(rHash) != 32 {
-				return fmt.Errorf("payment hash must be exactly 32 "+
-					"bytes, is instead %v", len(rHash))
-			}
-			req.PaymentHash = rHash
-
-			switch {
-			case ctx.IsSet("final_cltv_delta"):
-				req.FinalCltvDelta = int32(ctx.Int64("final_cltv_delta"))
-			case args.Present():
-				delta, err := strconv.ParseInt(args.First(), 10, 64)
-				if err != nil {
-					return err
-				}
-				req.FinalCltvDelta = int32(delta)
-			}
+			req.FinalCltvDelta = int32(delta)
 		}
 	}
 
@@ -1779,6 +1827,16 @@ var payInvoiceCommand = cli.Command{
 			Usage: "(optional) number of satoshis to fulfill the " +
 				"invoice",
 		},
+		cli.Int64Flag{
+			Name: "fee_limit",
+			Usage: "maximum fee allowed in satoshis when sending" +
+				"the payment",
+		},
+		cli.Int64Flag{
+			Name: "fee_limit_percent",
+			Usage: "percentage of the payment's amount used as the" +
+				"maximum fee allowed when sending the payment",
+		},
 	},
 	Action: actionDecorator(payInvoice),
 }
@@ -1787,7 +1845,6 @@ func payInvoice(ctx *cli.Context) error {
 	args := ctx.Args()
 
 	var payReq string
-
 	switch {
 	case ctx.IsSet("pay_req"):
 		payReq = ctx.String("pay_req")
@@ -1797,9 +1854,15 @@ func payInvoice(ctx *cli.Context) error {
 		return fmt.Errorf("pay_req argument missing")
 	}
 
+	feeLimit, err := retrieveFeeLimit(ctx)
+	if err != nil {
+		return err
+	}
+
 	req := &lnrpc.SendRequest{
 		PaymentRequest: payReq,
 		Amt:            ctx.Int64("amt"),
+		FeeLimit:       feeLimit,
 	}
 
 	return sendPaymentRequest(ctx, req)
@@ -2500,6 +2563,16 @@ var queryRoutesCommand = cli.Command{
 			Usage: "the amount to send expressed in satoshis",
 		},
 		cli.Int64Flag{
+			Name: "fee_limit",
+			Usage: "maximum fee allowed in satoshis when sending" +
+				"the payment",
+		},
+		cli.Int64Flag{
+			Name: "fee_limit_percent",
+			Usage: "percentage of the payment's amount used as the" +
+				"maximum fee allowed when sending the payment",
+		},
+		cli.Int64Flag{
 			Name:  "num_max_routes",
 			Usage: "the max number of routes to be returned (default: 10)",
 			Value: 10,
@@ -2548,9 +2621,15 @@ func queryRoutes(ctx *cli.Context) error {
 		return fmt.Errorf("amt argument missing")
 	}
 
+	feeLimit, err := retrieveFeeLimit(ctx)
+	if err != nil {
+		return err
+	}
+
 	req := &lnrpc.QueryRoutesRequest{
 		PubKey:         dest,
 		Amt:            amt,
+		FeeLimit:       feeLimit,
 		NumRoutes:      int32(ctx.Int("num_max_routes")),
 		FinalCltvDelta: int32(ctx.Int("final_cltv_delta")),
 	}

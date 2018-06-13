@@ -241,6 +241,56 @@ func addFundAndAssert(ctx context.Context, t *harnessTest,
 
 }
 
+// extractFundAndAssert attempts to extract fund from an exist channel with the specified
+// parameters extended from Alice to Bob. Additionally, two items are asserted
+// after the fund is considered added: the funding transaction should be
+// found within a block, and that Alice can report the status of the new
+// channel.
+func extractFundAndAssert(ctx context.Context, t *harnessTest,
+	net *lntest.NetworkHarness, alice, bob *lntest.HarnessNode,
+	extractAmt btcutil.Amount, fundingChanPoint *lnrpc.ChannelPoint) *lnrpc.ChannelPoint {
+
+	extractFundUpdates, err := net.ExtractFund(ctx, alice, bob, extractAmt, fundingChanPoint)
+	if err != nil {
+		t.Fatalf("unable to extract fund from channel", err)
+	}
+
+	// Mine 6 blocks, then wait for Alice's node to notify us that the
+	// channel has been opened. The funding transaction should be found
+	// within the first newly mined block. We mine 6 blocks so that in the
+	// case that the channel is public, it is announced to the network.
+	block := mineBlocks(t, net, 6)[0]
+
+	newFundingChanPoint, err := net.WaitForChannelExtractFund(ctx, extractFundUpdates)
+	if err != nil {
+		t.Fatalf("error while waiting for channel extract fund: %v", err)
+	}
+	txidHash, err := getChanPointFundingTxid(newFundingChanPoint)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	fundingTxID, err := chainhash.NewHash(txidHash)
+	if err != nil {
+		t.Fatalf("unable to create sha hash: %v", err)
+	}
+	assertTxInBlock(t, block, fundingTxID)
+
+	// The channel should be listed in the peer information returned by
+	// both peers.
+	chanPoint := wire.OutPoint{
+		Hash:  *fundingTxID,
+		Index: newFundingChanPoint.OutputIndex,
+	}
+	if err := net.AssertChannelExists(ctx, alice, &chanPoint); err != nil {
+		t.Fatalf("unable to assert channel existence: %v", err)
+	}
+	if err := net.AssertChannelExists(ctx, bob, &chanPoint); err != nil {
+		t.Fatalf("unable to assert channel existence: %v", err)
+	}
+
+	return newFundingChanPoint
+}
+
 // closeChannelAndAssert attempts to close a channel identified by the passed
 // channel point owned by the passed Lightning node. A fully blocking channel
 // closure is attempted, therefore the passed context should be a child derived
@@ -3002,16 +3052,16 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to query for fee report: %v", err)
 	}
-	const exectedFees = 5
-	if feeReport.DayFeeSum != exectedFees {
+	const expectedFees = 5
+	if feeReport.DayFeeSum != expectedFees {
 		t.Fatalf("fee mismatch: expected %v, got %v", 5,
 			feeReport.DayFeeSum)
 	}
-	if feeReport.WeekFeeSum != exectedFees {
+	if feeReport.WeekFeeSum != expectedFees {
 		t.Fatalf("fee mismatch: expected %v, got %v", 5,
 			feeReport.WeekFeeSum)
 	}
-	if feeReport.MonthFeeSum != exectedFees {
+	if feeReport.MonthFeeSum != expectedFees {
 		t.Fatalf("fee mismatch: expected %v, got %v", 5,
 			feeReport.MonthFeeSum)
 	}
@@ -3957,6 +4007,37 @@ func testBasicChannelAddFund(net *lntest.NetworkHarness, t *harnessTest) {
 
 }
 
+func testBasicChannelExtractFund(net *lntest.NetworkHarness, t *harnessTest) {
+	const (
+		numChannels = 2
+		timeout     = time.Duration(time.Second * 5)
+		amount      = maxFundingAmount / 2
+		extractAmount   = maxFundingAmount / 8
+	)
+	// Open the channel between Alice and Bob, asserting that the
+	// channel has been properly open on-chain.
+	chanPoints := make([]*lnrpc.ChannelPoint, numChannels)
+	for i := 0; i < numChannels; i++ {
+		ctx, _ := context.WithTimeout(context.Background(), timeout)
+		chanPoints[i] = openChannelAndAssert(
+			ctx, t, net, net.Alice, net.Bob, amount, 0, false,
+		)
+	}
+	newChanPoints := make([]*lnrpc.ChannelPoint, numChannels)
+	for i := 0; i < numChannels; i++ {
+		ctx, _ := context.WithTimeout(context.Background(), timeout)
+		newChanPoints[i] = extractFundAndAssert(
+			ctx, t, net, net.Alice, net.Bob, extractAmount, chanPoints[i],
+		)
+	}
+	// Close the channel between Alice and Bob, asserting that the
+	// channel has been properly closed on-chain.
+	for _, chanPoint := range newChanPoints {
+		ctx, _ := context.WithTimeout(context.Background(), timeout)
+		closeChannelAndAssert(ctx, t, net, net.Alice, chanPoint, false)
+	}
+}
+
 // testChannelAddFundBalance creates add fund to a exist channel between Alice and  Bob, then
 // checks channel balance to be equal amount specified while creation of channel.
 func testChannelAddFundBalance(net *lntest.NetworkHarness, t *harnessTest) {
@@ -3966,7 +4047,6 @@ func testChannelAddFundBalance(net *lntest.NetworkHarness, t *harnessTest) {
 	// channel has been opened properly.
 	amount := maxFundingAmount / 2
 	addAmount := maxFundingAmount / 4
-
 	ctx, _ := context.WithTimeout(context.Background(), timeout)
 
 	// Creates a helper closure to be used below which asserts the proper
@@ -4044,6 +4124,89 @@ func testChannelAddFundBalance(net *lntest.NetworkHarness, t *harnessTest) {
 	closeChannelAndAssert(ctx, t, net, net.Alice, newChanPoint, false)
 }
 
+// testChannelExtractFundBalance extract fund from an exist channel between Alice and  Bob,
+// and checks channel balance to be equal amount specified while creation of channel.
+func testChannelExtractFundBalance(net *lntest.NetworkHarness, t *harnessTest) {
+	timeout := time.Duration(time.Second * 5)
+
+	// Open a channel with 0.16 BTC between Alice and Bob, ensuring the
+	// channel has been opened properly.
+	amount := maxFundingAmount / 2
+	extractAmount := maxFundingAmount / 4
+	ctx, _ := context.WithTimeout(context.Background(), timeout)
+
+	// Creates a helper closure to be used below which asserts the proper
+	// response to a channel balance RPC.
+	checkChannelBalance := func(node lnrpc.LightningClient,
+		amount btcutil.Amount) {
+		response, err := node.ChannelBalance(ctx, &lnrpc.ChannelBalanceRequest{})
+		if err != nil {
+			t.Fatalf("unable to get channel balance: %v", err)
+		}
+		balance := btcutil.Amount(response.Balance)
+		if balance != amount {
+			t.Fatalf("channel balance wrong: %v != %v", balance,
+				amount)
+		}
+	}
+
+	// Before beginning, make sure alice and bob are connected.
+	if err := net.EnsureConnected(ctx, net.Alice, net.Bob); err != nil {
+		t.Fatalf("unable to connect alice and bob: %v", err)
+	}
+
+	chanPoint := openChannelAndAssert(
+		ctx, t, net, net.Alice, net.Bob, amount, 0, false,
+	)
+
+	// Wait for both Alice and Bob to recognize this new channel.
+	ctxt, _ := context.WithTimeout(context.Background(), timeout)
+	err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	if err != nil {
+		t.Fatalf("alice didn't advertise channel before "+
+			"timeout: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(context.Background(), timeout)
+	err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	if err != nil {
+		t.Fatalf("bob didn't advertise channel before "+
+			"timeout: %v", err)
+	}
+
+	// As this is a single funder channel, Alice's balance should be
+	// exactly 0.5 BTC since now state transitions have taken place yet.
+	checkChannelBalance(net.Alice, amount-calcStaticFee(0))
+
+	// Ensure Bob currently has no available balance within the channel.
+	checkChannelBalance(net.Bob, 0)
+
+	newChanPoint := extractFundAndAssert(ctx, t, net, net.Alice, net.Bob, extractAmount, chanPoint)
+	ctxt, _ = context.WithTimeout(context.Background(), timeout)
+	err = net.Alice.WaitForNetworkChannelOpen(ctxt, newChanPoint)
+	if err != nil {
+		t.Fatalf("alice didn't advertise channel before "+
+			"timeout: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(context.Background(), timeout)
+	err = net.Bob.WaitForNetworkChannelOpen(ctxt, newChanPoint)
+	if err != nil {
+		t.Fatalf("bob didn't advertise channel before "+
+			"timeout: %v", err)
+	}
+
+	// As this is a single funder channel, Alice's balance should be
+	// exactly 0.5 BTC since now state transitions have taken place yet.
+	checkChannelBalance(net.Alice, amount-calcStaticFee(0) - extractAmount)
+
+	// Ensure Bob currently has no available balance within the channel.
+	checkChannelBalance(net.Bob, 0)
+
+	// Finally close the channel between Alice and Bob, asserting that the
+	// channel has been properly closed on-chain.
+	ctx, _ = context.WithTimeout(context.Background(), timeout)
+	closeChannelAndAssert(ctx, t, net, net.Alice, newChanPoint, false)
+}
+
 func testSingleHopInvoiceForAddFund(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 	timeout := time.Duration(time.Second * 5)
@@ -4052,9 +4215,7 @@ func testSingleHopInvoiceForAddFund(net *lntest.NetworkHarness, t *harnessTest) 
 	// the sole funder of the channel.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanAmt := btcutil.Amount(100000)
-
 	addAmt := btcutil.Amount(100000)
-
 	chanPoint := openChannelAndAssert(
 		ctxt, t, net, net.Alice, net.Bob, chanAmt, 0, false,
 	)
@@ -4159,6 +4320,168 @@ func testSingleHopInvoiceForAddFund(net *lntest.NetworkHarness, t *harnessTest) 
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	newChanPoint := addFundAndAssert(ctxt, t, net, net.Alice, net.Bob, addAmt, chanPoint)
+	// Wait for Alice to recognize and advertise the new channel generated
+	// above.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = net.Alice.WaitForNetworkChannelOpen(ctxt, newChanPoint)
+	if err != nil {
+		t.Fatalf("alice didn't advertise channel before "+
+			"timeout: %v", err)
+	}
+	err = net.Bob.WaitForNetworkChannelOpen(ctxt, newChanPoint)
+	if err != nil {
+		t.Fatalf("bob didn't advertise channel before "+
+			"timeout: %v", err)
+	}
+
+	// Create another invoice for Bob, this time leaving off the preimage
+	// to one will be randomly generated. We'll test the proper
+	// encoding/decoding of the zpay32 payment requests.
+	invoice = &lnrpc.Invoice{
+		Memo:  "test3",
+		Value: paymentAmt,
+	}
+	invoiceResp, err = net.Bob.AddInvoice(ctxb, invoice)
+	if err != nil {
+		t.Fatalf("unable to add invoice: %v", err)
+	}
+
+	// Next send another payment, but this time using a zpay32 encoded
+	// invoice rather than manually specifying the payment details.
+	sendReq = &lnrpc.SendRequest{
+		PaymentRequest: invoiceResp.PaymentRequest,
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	resp, err = net.Alice.SendPaymentSync(ctxt, sendReq)
+	if err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+	if resp.PaymentError != "" {
+		t.Fatalf("error when attempting recv: %v", resp.PaymentError)
+	}
+
+	// The second payment should also have succeeded, with the balances
+	// being update accordingly.
+	time.Sleep(time.Millisecond * 200)
+	assertAmountSent(paymentAmt * 1)
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, newChanPoint, false)
+}
+
+func testSingleHopInvoiceForExtractFund(net *lntest.NetworkHarness, t *harnessTest) {
+	ctxb := context.Background()
+	timeout := time.Duration(time.Second * 5)
+
+	// Open a channel with 100k satoshis between Alice and Bob with Alice being
+	// the sole funder of the channel.
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	chanAmt := btcutil.Amount(500000)
+	extractAmt := btcutil.Amount(100000)
+	chanPoint := openChannelAndAssert(
+		ctxt, t, net, net.Alice, net.Bob, chanAmt, 0, false,
+	)
+
+	assertAmountSent := func(amt btcutil.Amount) {
+		// Both channels should also have properly accounted from the
+		// amount that has been sent/received over the channel.
+
+		//t.Fatalf("unable to query for alice's channel list")
+
+		listReq := &lnrpc.ListChannelsRequest{}
+		aliceListChannels, err := net.Alice.ListChannels(ctxb, listReq)
+		if err != nil {
+			t.Fatalf("unable to query for alice's channel list: %v", err)
+		}
+		aliceSatoshisSent := aliceListChannels.Channels[0].TotalSatoshisSent
+		if aliceSatoshisSent != int64(amt) {
+			t.Fatalf("Alice's satoshis sent is incorrect got %v, expected %v",
+				aliceSatoshisSent, amt)
+		}
+
+		bobListChannels, err := net.Bob.ListChannels(ctxb, listReq)
+		if err != nil {
+			t.Fatalf("unable to query for bob's channel list: %v", err)
+		}
+		bobSatoshisReceived := bobListChannels.Channels[0].TotalSatoshisReceived
+		if bobSatoshisReceived != int64(amt) {
+			t.Fatalf("Bob's satoshis received is incorrect got %v, expected %v",
+				bobSatoshisReceived, amt)
+		}
+	}
+
+	// Now that the channel is open, create an invoice for Bob which
+	// expects a payment of 1000 satoshis from Alice paid via a particular
+	// preimage.
+	const paymentAmt = 1000
+	preimage := make([]byte, 32)
+	_, err := rand.Read(preimage)
+	if err != nil {
+		t.Fatalf("unable to generate preimage: %v", err)
+	}
+	invoice := &lnrpc.Invoice{
+		Memo:      "testing",
+		RPreimage: preimage,
+		Value:     paymentAmt,
+	}
+	invoiceResp, err := net.Bob.AddInvoice(ctxb, invoice)
+	if err != nil {
+		t.Fatalf("unable to add invoice: %v", err)
+	}
+
+	// Wait for Alice to recognize and advertise the new channel generated
+	// above.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	if err != nil {
+		t.Fatalf("alice didn't advertise channel before "+
+			"timeout: %v", err)
+	}
+	err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	if err != nil {
+		t.Fatalf("bob didn't advertise channel before "+
+			"timeout: %v", err)
+	}
+
+	// With the invoice for Bob added, send a payment towards Alice paying
+	// to the above generated invoice.
+	sendReq := &lnrpc.SendRequest{
+		PaymentRequest: invoiceResp.PaymentRequest,
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	resp, err := net.Alice.SendPaymentSync(ctxt, sendReq)
+	if err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+
+	// Ensure we obtain the proper preimage in the response.
+	if resp.PaymentError != "" {
+		t.Fatalf("error when attempting recv: %v", resp.PaymentError)
+	} else if !bytes.Equal(preimage, resp.PaymentPreimage) {
+		t.Fatalf("preimage mismatch: expected %v, got %v", preimage,
+			resp.GetPaymentPreimage())
+	}
+
+	// Bob's invoice should now be found and marked as settled.
+	payHash := &lnrpc.PaymentHash{
+		RHash: invoiceResp.RHash,
+	}
+	dbInvoice, err := net.Bob.LookupInvoice(ctxb, payHash)
+	if err != nil {
+		t.Fatalf("unable to lookup invoice: %v", err)
+	}
+	if !dbInvoice.Settled {
+		t.Fatalf("bob's invoice should be marked as settled: %v",
+			spew.Sdump(dbInvoice))
+	}
+
+	// With the payment completed all balance related stats should be
+	// properly updated.
+	time.Sleep(time.Millisecond * 200)
+	assertAmountSent(paymentAmt)
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	newChanPoint := extractFundAndAssert(ctxt, t, net, net.Alice, net.Bob, extractAmt, chanPoint)
 	// Wait for Alice to recognize and advertise the new channel generated
 	// above.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
@@ -4409,16 +4732,16 @@ func testMultiHopPaymentsForAddFund(net *lntest.NetworkHarness, t *harnessTest) 
 	if err != nil {
 		t.Fatalf("unable to query for fee report: %v", err)
 	}
-	const exectedFees = 5
-	if feeReport.DayFeeSum != exectedFees {
+	const expectedFees = 5
+	if feeReport.DayFeeSum != expectedFees {
 		t.Fatalf("fee mismatch: expected %v, got %v", 5,
 			feeReport.DayFeeSum)
 	}
-	if feeReport.WeekFeeSum != exectedFees {
+	if feeReport.WeekFeeSum != expectedFees {
 		t.Fatalf("fee mismatch: expected %v, got %v", 5,
 			feeReport.WeekFeeSum)
 	}
-	if feeReport.MonthFeeSum != exectedFees {
+	if feeReport.MonthFeeSum != expectedFees {
 		t.Fatalf("fee mismatch: expected %v, got %v", 5,
 			feeReport.MonthFeeSum)
 	}
@@ -4517,15 +4840,375 @@ func testMultiHopPaymentsForAddFund(net *lntest.NetworkHarness, t *harnessTest) 
 		t.Fatalf("unable to query for fee report: %v", err)
 	}
 	//const exectedFees = 5
-	if feeReport.DayFeeSum != exectedFees*2 {
+	if feeReport.DayFeeSum != expectedFees*2 {
 		t.Fatalf("fee mismatch: expected %v, got %v", 10,
 			feeReport.DayFeeSum)
 	}
-	if feeReport.WeekFeeSum != exectedFees*2 {
+	if feeReport.WeekFeeSum != expectedFees*2 {
 		t.Fatalf("fee mismatch: expected %v, got %v", 10,
 			feeReport.WeekFeeSum)
 	}
-	if feeReport.MonthFeeSum != exectedFees*2 {
+	if feeReport.MonthFeeSum != expectedFees*2 {
+		t.Fatalf("fee mismatch: expected %v, got %v", 10,
+			feeReport.MonthFeeSum)
+	}
+
+	// Next, ensure that if we issue the vanilla query for the forwarding
+	// history, it returns 5 values, and each entry is formatted properly.
+	fwdingHistory, err = dave.ForwardingHistory(
+		ctxb, &lnrpc.ForwardingHistoryRequest{},
+	)
+	if err != nil {
+		t.Fatalf("unable to query for fee report: %v", err)
+	}
+	if len(fwdingHistory.ForwardingEvents) != 10 {
+		t.Fatalf("wrong number of forwarding event: expected %v, "+
+			"got %v", 5, len(fwdingHistory.ForwardingEvents))
+	}
+	for _, event := range fwdingHistory.ForwardingEvents {
+		// Each event should show a fee of 1 satoshi.
+		if event.Fee != 1 {
+			t.Fatalf("fee mismatch: expected %v, got %v", 1,
+				event.Fee)
+		}
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, dave, newChanPointDave, false)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarol, false)
+
+	// Finally, shutdown the nodes we created for the duration of the
+	// tests, only leaving the two seed nodes (Alice and Bob) within our
+	// test network.
+	if err := net.ShutdownNode(carol); err != nil {
+		t.Fatalf("unable to shutdown carol: %v", err)
+	}
+	if err := net.ShutdownNode(dave); err != nil {
+		t.Fatalf("unable to shutdown dave: %v", err)
+	}
+}
+
+func testMultiHopPaymentsForExtractFund(net *lntest.NetworkHarness, t *harnessTest) {
+	const chanAmt = btcutil.Amount(500000)
+	ctxb := context.Background()
+	timeout := time.Duration(time.Second * 15)
+	var networkChans []*lnrpc.ChannelPoint
+
+	// Open a channel with 100k satoshis between Alice and Bob with Alice
+	// being the sole funder of the channel.
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	chanPointAlice := openChannelAndAssert(
+		ctxt, t, net, net.Alice, net.Bob, chanAmt, 0, false,
+	)
+	networkChans = append(networkChans, chanPointAlice)
+
+	txidHash, err := getChanPointFundingTxid(chanPointAlice)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	aliceChanTXID, err := chainhash.NewHash(txidHash)
+	if err != nil {
+		t.Fatalf("unable to create sha hash: %v", err)
+	}
+	aliceFundPoint := wire.OutPoint{
+		Hash:  *aliceChanTXID,
+		Index: chanPointAlice.OutputIndex,
+	}
+
+	// As preliminary setup, we'll create two new nodes: Carol and Dave,
+	// such that we now have a 4 ndoe, 3 channel topology. Dave will make
+	// a channel with Alice, and Carol with Dave. After this setup, the
+	// network topology should now look like:
+	//     Carol -> Dave -> Alice -> Bob
+	//
+	// First, we'll create Dave and establish a channel to Alice.
+	dave, err := net.NewNode("Dave", nil)
+	if err != nil {
+		t.Fatalf("unable to create new nodes: %v", err)
+	}
+	if err := net.ConnectNodes(ctxb, dave, net.Alice); err != nil {
+		t.Fatalf("unable to connect dave to alice: %v", err)
+	}
+	err = net.SendCoins(ctxb, btcutil.SatoshiPerBitcoin, dave)
+	if err != nil {
+		t.Fatalf("unable to send coins to dave: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPointDave := openChannelAndAssert(
+		ctxt, t, net, dave, net.Alice, chanAmt, 0, false,
+	)
+	networkChans = append(networkChans, chanPointDave)
+	txidHash, err = getChanPointFundingTxid(chanPointDave)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	daveChanTXID, err := chainhash.NewHash(txidHash)
+	if err != nil {
+		t.Fatalf("unable to create sha hash: %v", err)
+	}
+	daveFundPoint := wire.OutPoint{
+		Hash:  *daveChanTXID,
+		Index: chanPointDave.OutputIndex,
+	}
+
+	// Next, we'll create Carol and establish a channel to from her to
+	// Dave.
+	carol, err := net.NewNode("Carol", nil)
+	if err != nil {
+		t.Fatalf("unable to create new nodes: %v", err)
+	}
+	if err := net.ConnectNodes(ctxb, carol, dave); err != nil {
+		t.Fatalf("unable to connect carol to dave: %v", err)
+	}
+	err = net.SendCoins(ctxb, btcutil.SatoshiPerBitcoin, carol)
+	if err != nil {
+		t.Fatalf("unable to send coins to carol: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPointCarol := openChannelAndAssert(
+		ctxt, t, net, carol, dave, chanAmt, 0, false,
+	)
+	networkChans = append(networkChans, chanPointCarol)
+
+	txidHash, err = getChanPointFundingTxid(chanPointCarol)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	carolChanTXID, err := chainhash.NewHash(txidHash)
+	if err != nil {
+		t.Fatalf("unable to create sha hash: %v", err)
+	}
+	carolFundPoint := wire.OutPoint{
+		Hash:  *carolChanTXID,
+		Index: chanPointCarol.OutputIndex,
+	}
+
+	// Wait for all nodes to have seen all channels.
+	nodes := []*lntest.HarnessNode{net.Alice, net.Bob, carol, dave}
+	nodeNames := []string{"Alice", "Bob", "Carol", "Dave"}
+	for _, chanPoint := range networkChans {
+		for i, node := range nodes {
+			txidHash, err := getChanPointFundingTxid(chanPoint)
+			if err != nil {
+				t.Fatalf("unable to get txid: %v", err)
+			}
+			txid, e := chainhash.NewHash(txidHash)
+			if e != nil {
+				t.Fatalf("unable to create sha hash: %v", e)
+			}
+			point := wire.OutPoint{
+				Hash:  *txid,
+				Index: chanPoint.OutputIndex,
+			}
+
+			ctxt, _ = context.WithTimeout(ctxb, timeout)
+			err = node.WaitForNetworkChannelOpen(ctxt, chanPoint)
+			if err != nil {
+				t.Fatalf("%s(%d): timeout waiting for "+
+					"channel(%s) open: %v", nodeNames[i],
+					node.NodeID, point, err)
+			}
+		}
+	}
+
+	// Create 5 invoices for Bob, which expect a payment from Carol for 1k
+	// satoshis with a different preimage each time.
+	const numPayments = 5
+	const paymentAmt = 1000
+	payReqs := make([]string, numPayments)
+	for i := 0; i < numPayments; i++ {
+		invoice := &lnrpc.Invoice{
+			Memo:  "testing",
+			Value: paymentAmt,
+		}
+		resp, err := net.Bob.AddInvoice(ctxb, invoice)
+		if err != nil {
+			t.Fatalf("unable to add invoice: %v", err)
+		}
+
+		payReqs[i] = resp.PaymentRequest
+	}
+
+	// We'll wait for all parties to recognize the new channels within the
+	// network.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = dave.WaitForNetworkChannelOpen(ctxt, chanPointDave)
+	if err != nil {
+		t.Fatalf("dave didn't advertise his channel: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = carol.WaitForNetworkChannelOpen(ctxt, chanPointCarol)
+	if err != nil {
+		t.Fatalf("carol didn't advertise her channel in time: %v",
+			err)
+	}
+
+	time.Sleep(time.Millisecond * 50)
+
+	// Using Carol as the source, pay to the 5 invoices from Bob created
+	// above.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = completePaymentRequests(ctxt, carol, payReqs, true)
+	if err != nil {
+		t.Fatalf("unable to send payments: %v", err)
+	}
+
+	// When asserting the amount of satoshis moved, we'll factor in the
+	// default base fee, as we didn't modify the fee structure when
+	// creating the seed nodes in the network.
+	const baseFee = 1
+
+	// At this point all the channels within our proto network should be
+	// shifted by 5k satoshis in the direction of Bob, the sink within the
+	// payment flow generated above. The order of asserts corresponds to
+	// increasing of time is needed to embed the HTLC in commitment
+	// transaction, in channel Carol->David->Alice->Bob, order is Bob,
+	// Alice, David, Carol.
+	const amountPaid = int64(5000)
+	assertAmountPaid(t, ctxb, "Alice(local) => Bob(remote)", net.Bob,
+		aliceFundPoint, int64(0), amountPaid)
+	assertAmountPaid(t, ctxb, "Alice(local) => Bob(remote)", net.Alice,
+		aliceFundPoint, amountPaid, int64(0))
+	assertAmountPaid(t, ctxb, "Dave(local) => Alice(remote)", net.Alice,
+		daveFundPoint, int64(0), amountPaid+(baseFee*numPayments))
+	assertAmountPaid(t, ctxb, "Dave(local) => Alice(remote)", dave,
+		daveFundPoint, amountPaid+(baseFee*numPayments), int64(0))
+	assertAmountPaid(t, ctxb, "Carol(local) => Dave(remote)", dave,
+		carolFundPoint, int64(0), amountPaid+((baseFee*numPayments)*2))
+	assertAmountPaid(t, ctxb, "Carol(local) => Dave(remote)", carol,
+		carolFundPoint, amountPaid+(baseFee*numPayments)*2, int64(0))
+
+	// Now that we know all the balances have been settled out properly,
+	// we'll ensure that our internal record keeping for completed circuits
+	// was properly updated.
+
+	// First, check that the FeeReport response shows the proper fees
+	// accrued over each time range. Dave should've earned 1 satoshi for
+	// each of the forwarded payments.
+	feeReport, err := dave.FeeReport(ctxb, &lnrpc.FeeReportRequest{})
+	if err != nil {
+		t.Fatalf("unable to query for fee report: %v", err)
+	}
+	const expectedFees = 5
+	if feeReport.DayFeeSum != expectedFees {
+		t.Fatalf("fee mismatch: expected %v, got %v", 5,
+			feeReport.DayFeeSum)
+	}
+	if feeReport.WeekFeeSum != expectedFees {
+		t.Fatalf("fee mismatch: expected %v, got %v", 5,
+			feeReport.WeekFeeSum)
+	}
+	if feeReport.MonthFeeSum != expectedFees {
+		t.Fatalf("fee mismatch: expected %v, got %v", 5,
+			feeReport.MonthFeeSum)
+	}
+
+	// Next, ensure that if we issue the vanilla query for the forwarding
+	// history, it returns 5 values, and each entry is formatted properly.
+	fwdingHistory, err := dave.ForwardingHistory(
+		ctxb, &lnrpc.ForwardingHistoryRequest{},
+	)
+	if err != nil {
+		t.Fatalf("unable to query for fee report: %v", err)
+	}
+	if len(fwdingHistory.ForwardingEvents) != 5 {
+		t.Fatalf("wrong number of forwarding event: expected %v, "+
+			"got %v", 5, len(fwdingHistory.ForwardingEvents))
+	}
+	for _, event := range fwdingHistory.ForwardingEvents {
+		// Each event should show a fee of 1 satoshi.
+		if event.Fee != 1 {
+			t.Fatalf("fee mismatch: expected %v, got %v", 1,
+				event.Fee)
+		}
+	}
+
+	// ********** AddFund to the channel between Dave and Alice.
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	extractAmt := btcutil.Amount(10000)
+	newChanPointDave := extractFundAndAssert(ctxb, t, net, net.Alice, dave, extractAmt, chanPointDave)
+	networkChans[1] = newChanPointDave
+
+	txidHash, err = getChanPointFundingTxid(newChanPointDave)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	daveChanTXID, err = chainhash.NewHash(txidHash)
+	if err != nil {
+		t.Fatalf("unable to create sha hash: %v", err)
+	}
+	daveFundPoint = wire.OutPoint{
+		Hash:  *daveChanTXID,
+		Index: newChanPointDave.OutputIndex,
+	}
+	// We'll wait for all parties to recognize the new channels within the
+	// network.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = net.Alice.WaitForNetworkChannelOpen(ctxt, newChanPointDave)
+	if err != nil {
+		t.Fatalf("alice didn't advertise his channel: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = dave.WaitForNetworkChannelOpen(ctxt, newChanPointDave)
+	if err != nil {
+		t.Fatalf("dave didn't advertise her channel in time: %v",
+			err)
+	}
+
+	time.Sleep(time.Millisecond * 50)
+
+	// Using Carol as the source, pay to the 5 invoices from Bob created
+	// above.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = completePaymentRequests(ctxt, carol, payReqs, true)
+	if err != nil {
+		t.Fatalf("unable to send payments: %v", err)
+	}
+
+	// At this point all the channels within our proto network should be
+	// shifted by 10k satoshis in the direction of Bob, the sink within the
+	// payment flow generated above. The order of asserts corresponds to
+	// increasing of time is needed to embed the HTLC in commitment
+	// transaction, in channel Carol->David->Alice->Bob, order is Bob,
+	// Alice, David, Carol.
+	assertAmountPaid(t, ctxb, "Alice(local) => Bob(remote)", net.Bob,
+		aliceFundPoint, int64(0), amountPaid*2)
+	assertAmountPaid(t, ctxb, "Alice(local) => Bob(remote)", net.Alice,
+		aliceFundPoint, amountPaid*2, int64(0))
+	assertAmountPaid(t, ctxb, "Dave(local) => Alice(remote)", net.Alice,
+		daveFundPoint, int64(0), amountPaid+(baseFee*numPayments))
+	assertAmountPaid(t, ctxb, "Dave(local) => Alice(remote)", dave,
+		daveFundPoint, amountPaid+(baseFee*numPayments), int64(0))
+	assertAmountPaid(t, ctxb, "Carol(local) => Dave(remote)", dave,
+		carolFundPoint, int64(0), (amountPaid+((baseFee*numPayments)*2))*2)
+	assertAmountPaid(t, ctxb, "Carol(local) => Dave(remote)", carol,
+		carolFundPoint, (amountPaid+(baseFee*numPayments)*2)*2, int64(0))
+
+	// Now that we know all the balances have been settled out properly,
+	// we'll ensure that our internal record keeping for completed circuits
+	// was properly updated.
+
+	// First, check that the FeeReport response shows the proper fees
+	// accrued over each time range. Dave should've earned 1 satoshi for
+	// each of the forwarded payments.
+	feeReport, err = dave.FeeReport(ctxb, &lnrpc.FeeReportRequest{})
+	if err != nil {
+		t.Fatalf("unable to query for fee report: %v", err)
+	}
+	//const exectedFees = 5
+	if feeReport.DayFeeSum != expectedFees*2 {
+		t.Fatalf("fee mismatch: expected %v, got %v", 10,
+			feeReport.DayFeeSum)
+	}
+	if feeReport.WeekFeeSum != expectedFees*2 {
+		t.Fatalf("fee mismatch: expected %v, got %v", 10,
+			feeReport.WeekFeeSum)
+	}
+	if feeReport.MonthFeeSum != expectedFees*2 {
 		t.Fatalf("fee mismatch: expected %v, got %v", 10,
 			feeReport.MonthFeeSum)
 	}
@@ -9814,7 +10497,22 @@ var testsCases = []*testCase{
 		name: "multiple hop payment for add fund",
 		test: testMultiHopPaymentsForAddFund,
 	},
-
+	{
+		name: "multiple channel extract fund",
+		test: testBasicChannelExtractFund,
+	},
+	{
+		name: "channel exctract fund balance",
+		test: testChannelExtractFundBalance,
+	},
+	{
+		name: "single hop invoice for extract fund",
+		test: testSingleHopInvoiceForExtractFund,
+	},
+	{
+		name: "multiple hop payment for extract fund",
+		test: testMultiHopPaymentsForExtractFund,
+	},
 	{
 		name: "invoice update subscription",
 		test: testInvoiceSubscriptions,

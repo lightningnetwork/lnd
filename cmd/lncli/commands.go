@@ -406,8 +406,9 @@ var openChannelCommand = cli.Command{
 	the node_key must be provided, rather than the peer_id. This is optional.
 
 	The channel will be initialized with local-amt satoshis local and push-amt
-	satoshis for the remote node. Once the channel is open, a channelPoint (txid:vout)
-	of the funding output is returned.
+	satoshis for the remote node. Note that specifying push-amt means you give that
+	amount to the remote node as part of the channel opening. Once the channel is open,
+	a channelPoint (txid:vout) of the funding output is returned.
 
 	One can manually set the fee to be used for the funding transaction via either
 	the --conf_target or --sat_per_byte arguments. This is optional.`,

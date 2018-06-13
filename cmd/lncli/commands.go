@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/awalterschulze/gographviz"
 	"github.com/golang/protobuf/jsonpb"
@@ -3155,6 +3156,7 @@ func forwardingHistory(ctx *cli.Context) error {
 	var (
 		startTime, endTime     uint64
 		indexOffset, maxEvents uint32
+		since                  int64
 		err                    error
 	)
 	args := ctx.Args()

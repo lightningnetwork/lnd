@@ -930,7 +930,7 @@ func TestNewRoute(t *testing.T) {
 
 	createHop := func(baseFee lnwire.MilliSatoshi,
 		feeRate lnwire.MilliSatoshi,
-		capacity btcutil.Amount,
+		bandwidth lnwire.MilliSatoshi,
 		timeLockDelta uint16) *ChannelHop {
 
 		return &ChannelHop{
@@ -940,7 +940,7 @@ func TestNewRoute(t *testing.T) {
 				FeeBaseMSat:               baseFee,
 				TimeLockDelta:             timeLockDelta,
 			},
-			Bandwidth: lnwire.NewMSatFromSatoshis(capacity),
+			Bandwidth: bandwidth,
 		}
 	}
 
@@ -984,18 +984,21 @@ func TestNewRoute(t *testing.T) {
 		// expectedErrorCode indicates the expected error code when
 		// expectError is true.
 		expectedErrorCode errorCode
+
+		feeLimit lnwire.MilliSatoshi
 	}{
 		{
 			// For a single hop payment, no fees are expected to be paid.
 			name:          "single hop",
 			paymentAmount: 100000,
 			hops: []*ChannelHop{
-				createHop(100, 1000, 1000, 10),
+				createHop(100, 1000, 1000000, 10),
 			},
 			expectedFees:          []lnwire.MilliSatoshi{0},
 			expectedTimeLocks:     []uint32{1},
 			expectedTotalAmount:   100000,
 			expectedTotalTimeLock: 1,
+			feeLimit:              noFeeLimit,
 		}, {
 			// For a two hop payment, only the fee for the first hop
 			// needs to be paid. The destination hop does not require
@@ -1003,21 +1006,23 @@ func TestNewRoute(t *testing.T) {
 			name:          "two hop",
 			paymentAmount: 100000,
 			hops: []*ChannelHop{
-				createHop(0, 1000, 1000, 10),
-				createHop(30, 1000, 1000, 5),
+				createHop(0, 1000, 1000000, 10),
+				createHop(30, 1000, 1000000, 5),
 			},
 			expectedFees:          []lnwire.MilliSatoshi{130, 0},
 			expectedTimeLocks:     []uint32{1, 1},
 			expectedTotalAmount:   100130,
 			expectedTotalTimeLock: 6,
+			feeLimit:              noFeeLimit,
 		}, {
 			// Insufficient capacity in first channel when fees are added.
 			name:          "two hop insufficient",
 			paymentAmount: 100000,
 			hops: []*ChannelHop{
-				createHop(0, 1000, 100, 10),
-				createHop(0, 1000, 1000, 5),
+				createHop(0, 1000, 100000, 10),
+				createHop(0, 1000, 1000000, 5),
 			},
+			feeLimit:          noFeeLimit,
 			expectError:       true,
 			expectedErrorCode: ErrInsufficientCapacity,
 		}, {
@@ -1029,14 +1034,15 @@ func TestNewRoute(t *testing.T) {
 			name:          "three hop",
 			paymentAmount: 100000,
 			hops: []*ChannelHop{
-				createHop(0, 10, 1000, 10),
-				createHop(0, 10, 1000, 5),
-				createHop(0, 10, 1000, 3),
+				createHop(0, 10, 1000000, 10),
+				createHop(0, 10, 1000000, 5),
+				createHop(0, 10, 1000000, 3),
 			},
 			expectedFees:          []lnwire.MilliSatoshi{1, 1, 0},
 			expectedTotalAmount:   100002,
 			expectedTimeLocks:     []uint32{4, 1, 1},
 			expectedTotalTimeLock: 9,
+			feeLimit:              noFeeLimit,
 		}, {
 			// A three hop payment where the fee of the first hop
 			// is slightly higher (11) than the fee at the second hop,
@@ -1044,14 +1050,15 @@ func TestNewRoute(t *testing.T) {
 			name:          "three hop with fee carry over",
 			paymentAmount: 100000,
 			hops: []*ChannelHop{
-				createHop(0, 10000, 1000, 10),
-				createHop(0, 10000, 1000, 5),
-				createHop(0, 10000, 1000, 3),
+				createHop(0, 10000, 1000000, 10),
+				createHop(0, 10000, 1000000, 5),
+				createHop(0, 10000, 1000000, 3),
 			},
 			expectedFees:          []lnwire.MilliSatoshi{1010, 1000, 0},
 			expectedTotalAmount:   102010,
 			expectedTimeLocks:     []uint32{4, 1, 1},
 			expectedTotalTimeLock: 9,
+			feeLimit:              noFeeLimit,
 		}, {
 			// A three hop payment where the fee policies of the first and
 			// second hop are just high enough to show the fee carry over
@@ -1059,20 +1066,67 @@ func TestNewRoute(t *testing.T) {
 			name:          "three hop with minimal fees for carry over",
 			paymentAmount: 100000,
 			hops: []*ChannelHop{
-				createHop(0, 10000, 1000, 10),
+				createHop(0, 10000, 1000000, 10),
 
 				// First hop charges 0.1% so the second hop fee
 				// should show up in the first hop fee as 1 msat
 				// extra.
-				createHop(0, 1000, 1000, 5),
+				createHop(0, 1000, 1000000, 5),
 
 				// Second hop charges a fixed 1000 msat.
-				createHop(1000, 0, 1000, 3),
+				createHop(1000, 0, 1000000, 3),
 			},
 			expectedFees:          []lnwire.MilliSatoshi{101, 1000, 0},
 			expectedTotalAmount:   101101,
 			expectedTimeLocks:     []uint32{4, 1, 1},
 			expectedTotalTimeLock: 9,
+			feeLimit:              noFeeLimit,
+		},
+		// Check fee limit behaviour
+		{
+			name:          "two hop success with fee limit (greater)",
+			paymentAmount: 100000,
+			hops: []*ChannelHop{
+				createHop(0, 1000, 1000000, 144),
+				createHop(0, 1000, 1000000, 144),
+			},
+			expectedTotalAmount:   100100,
+			expectedFees:          []lnwire.MilliSatoshi{100, 0},
+			expectedTimeLocks:     []uint32{1, 1},
+			expectedTotalTimeLock: 145,
+			feeLimit:              150,
+		}, {
+			name:          "two hop success with fee limit (equal)",
+			paymentAmount: 100000,
+			hops: []*ChannelHop{
+				createHop(0, 1000, 1000000, 144),
+				createHop(0, 1000, 1000000, 144),
+			},
+			expectedTotalAmount:   100100,
+			expectedFees:          []lnwire.MilliSatoshi{100, 0},
+			expectedTimeLocks:     []uint32{1, 1},
+			expectedTotalTimeLock: 145,
+			feeLimit:              100,
+		}, {
+			name:          "two hop failure with fee limit (smaller)",
+			paymentAmount: 100000,
+			hops: []*ChannelHop{
+				createHop(0, 1000, 1000000, 144),
+				createHop(0, 1000, 1000000, 144),
+			},
+			feeLimit:          50,
+			expectError:       true,
+			expectedErrorCode: ErrFeeLimitExceeded,
+		}, {
+			name:          "two hop failure with fee limit (zero)",
+			paymentAmount: 100000,
+			hops: []*ChannelHop{
+				createHop(0, 1000, 1000000, 144),
+				createHop(0, 1000, 1000000, 144),
+			},
+			feeLimit:          0,
+			expectError:       true,
+			expectedErrorCode: ErrFeeLimitExceeded,
 		}}
 
 	for _, testCase := range testCases {
@@ -1123,21 +1177,22 @@ func TestNewRoute(t *testing.T) {
 
 		t.Run(testCase.name, func(t *testing.T) {
 			route, err := newRoute(testCase.paymentAmount,
-				noFeeLimit,
+				testCase.feeLimit,
 				sourceVertex, testCase.hops, startingHeight,
 				finalHopCLTV)
 
 			if testCase.expectError {
 				expectedCode := testCase.expectedErrorCode
 				if err == nil || !IsError(err, expectedCode) {
-					t.Errorf("expected newRoute to fail "+
-						"with error code %v, but got"+
+					t.Fatalf("expected newRoute to fail "+
+						"with error code %v but got "+
 						"%v instead",
 						expectedCode, err)
 				}
 			} else {
 				if err != nil {
 					t.Errorf("unable to create path: %v", err)
+					return
 				}
 
 				assertRoute(t, route)
@@ -1350,48 +1405,6 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
-	}
-}
-
-// TestRouteExceededFeeLimit tests that routes respect the fee limit imposed.
-func TestRouteExceededFeeLimit(t *testing.T) {
-	t.Parallel()
-
-	graph, cleanUp, aliases, err := parseTestGraph(basicGraphFilePath)
-	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to create graph: %v", err)
-	}
-
-	sourceNode, err := graph.SourceNode()
-	if err != nil {
-		t.Fatalf("unable to fetch source node: %v", err)
-	}
-	sourceVertex := Vertex(sourceNode.PubKeyBytes)
-
-	ignoredVertices := make(map[Vertex]struct{})
-	ignoredEdges := make(map[uint64]struct{})
-
-	// Find a path to send 100 satoshis from roasbeef to sophon.
-	target := aliases["sophon"]
-	amt := lnwire.NewMSatFromSatoshis(100)
-	path, err := findPath(
-		nil, graph, nil, sourceNode, target, ignoredVertices,
-		ignoredEdges, amt, noFeeLimit, nil,
-	)
-	if err != nil {
-		t.Fatalf("unable to find path from roasbeef to phamnuwen for "+
-			"100 satoshis: %v", err)
-	}
-
-	// We'll now purposefully set a fee limit of 0 to trigger the exceeded
-	// fee limit error. This should work since the path retrieved spans
-	// multiple hops incurring a fee.
-	feeLimit := lnwire.NewMSatFromSatoshis(0)
-
-	_, err = newRoute(amt, feeLimit, sourceVertex, path, 100, 1)
-	if !IsError(err, ErrFeeLimitExceeded) {
-		t.Fatalf("route should've exceeded fee limit: %v", err)
 	}
 }
 

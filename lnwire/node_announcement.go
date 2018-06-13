@@ -85,6 +85,14 @@ type NodeAnnouncement struct {
 	Addresses []net.Addr
 }
 
+// UpdateNodeAnnAddrs is a functional option that allows updating the addresses
+// of the given node announcement.
+func UpdateNodeAnnAddrs(addrs []net.Addr) func(*NodeAnnouncement) {
+	return func(nodeAnn *NodeAnnouncement) {
+		nodeAnn.Addresses = addrs
+	}
+}
+
 // A compile time check to ensure NodeAnnouncement implements the
 // lnwire.Message interface.
 var _ Message = (*NodeAnnouncement)(nil)

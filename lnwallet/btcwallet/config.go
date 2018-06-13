@@ -10,6 +10,7 @@ import (
 	"github.com/roasbeef/btcutil"
 
 	"github.com/roasbeef/btcwallet/chain"
+	"github.com/roasbeef/btcwallet/wallet"
 
 	// This is required to register bdb as a valid walletdb driver. In the
 	// init function of the package, it registers itself. The import is used
@@ -88,6 +89,13 @@ type Config struct {
 
 	// CoinType specifies the BIP 44 coin type to be used for derivation.
 	CoinType uint32
+
+	// Wallet is an unlocked wallet instance that is set if the
+	// UnlockerService has already opened and unlocked the wallet. If this
+	// is nil, then a wallet might have just been created or is simply not
+	// encrypted at all, in which case it should be attempted to be loaded
+	// normally when creating the BtcWallet.
+	Wallet *wallet.Wallet
 }
 
 // NetworkDir returns the directory name of a network directory to hold wallet

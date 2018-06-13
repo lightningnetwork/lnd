@@ -4892,7 +4892,7 @@ func testMultiHopPaymentsForAddFund(net *lntest.NetworkHarness, t *harnessTest) 
 }
 
 func testMultiHopPaymentsForExtractFund(net *lntest.NetworkHarness, t *harnessTest) {
-	const chanAmt = btcutil.Amount(500000)
+	const chanAmt = btcutil.Amount(1000000)
 	ctxb := context.Background()
 	timeout := time.Duration(time.Second * 15)
 	var networkChans []*lnrpc.ChannelPoint
@@ -5129,8 +5129,10 @@ func testMultiHopPaymentsForExtractFund(net *lntest.NetworkHarness, t *harnessTe
 	// ********** AddFund to the channel between Dave and Alice.
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	extractAmt := btcutil.Amount(10000)
-	newChanPointDave := extractFundAndAssert(ctxb, t, net, net.Alice, dave, extractAmt, chanPointDave)
+	fmt.Printf("%v\n",chanPointDave)
+
+	extractAmt := btcutil.Amount(100000)
+	newChanPointDave := extractFundAndAssert(ctxb, t, net,dave, net.Alice, extractAmt, chanPointDave)
 	networkChans[1] = newChanPointDave
 
 	txidHash, err = getChanPointFundingTxid(newChanPointDave)
@@ -10408,7 +10410,7 @@ type testCase struct {
 }
 
 var testsCases = []*testCase{
-	{
+/*	{
 		name: "onchain fund recovery",
 		test: testOnchainFundRecovery,
 	},
@@ -10509,7 +10511,7 @@ var testsCases = []*testCase{
 		name: "single hop invoice for extract fund",
 		test: testSingleHopInvoiceForExtractFund,
 	},
-	{
+*/	{
 		name: "multiple hop payment for extract fund",
 		test: testMultiHopPaymentsForExtractFund,
 	},

@@ -25,7 +25,9 @@ _testmain.go
 *.prof
 
 lnd
+lnd-debug
 lncli
+lncli-debug
 
 output*.log
 

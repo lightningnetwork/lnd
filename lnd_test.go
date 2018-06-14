@@ -806,6 +806,9 @@ func checkChannelPolicy(policy, expectedPolicy *lnrpc.RoutingPolicy) error {
 			expectedPolicy.TimeLockDelta,
 			policy.TimeLockDelta)
 	}
+	if policy.Disabled != expectedPolicy.Disabled {
+		return errors.New("edge should be disabled but isn't")
+	}
 
 	return nil
 }
@@ -2809,7 +2812,7 @@ func updateChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
 
 	// Wait for listener node to receive the channel update from node.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	listenerUpdates, aQuit := subscribeGraphNotifications(t, ctxt, 
+	listenerUpdates, aQuit := subscribeGraphNotifications(t, ctxt,
 		listenerNode)
 	defer close(aQuit)
 
@@ -2980,8 +2983,8 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 
 	time.Sleep(time.Millisecond * 50)
 
-	// Set the fee policies of the Alice -> Bob and the Dave -> Alice 
-	// channel edges to relatively large non default values. This makes it 
+	// Set the fee policies of the Alice -> Bob and the Dave -> Alice
+	// channel edges to relatively large non default values. This makes it
 	// possible to pick up more subtle fee calculation errors.
 	updateChannelPolicy(t, net.Alice, chanPointAlice, 1000, 100000,
 		144, carol)
@@ -3017,10 +3020,10 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	assertAmountPaid(t, ctxb, "Alice(local) => Bob(remote)", net.Alice,
 		aliceFundPoint, expectedAmountPaidAtoB, int64(0))
 
-	// To forward a payment of 1000 sat, Alice is charging a fee of 
+	// To forward a payment of 1000 sat, Alice is charging a fee of
 	// 1 sat + 10% = 101 sat.
 	const expectedFeeAlice = 5 * 101
-	
+
 	// Dave needs to pay what Alice pays plus Alice's fee.
 	expectedAmountPaidDtoA := expectedAmountPaidAtoB + expectedFeeAlice
 
@@ -3029,7 +3032,7 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	assertAmountPaid(t, ctxb, "Dave(local) => Alice(remote)", dave,
 		daveFundPoint, expectedAmountPaidDtoA, int64(0))
 
-	// To forward a payment of 1101 sat, Dave is charging a fee of 
+	// To forward a payment of 1101 sat, Dave is charging a fee of
 	// 5 sat + 15% = 170.15 sat. This is rounded down in rpcserver to 170.
 	const expectedFeeDave = 5 * 170
 
@@ -10145,6 +10148,76 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 }
 
+// testSendUpdateDisableChannel ensures that a channel update with the disable
+// flag set is sent once a channel has been either unilaterally or cooperatively
+// closed.
+func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
+	const (
+		chanAmt = 100000
+		timeout = 10 * time.Second
+	)
+
+	// Open a channel between Alice and Bob and Alice and Carol. These will
+	// be closed later on in order to trigger channel update messages
+	// marking the channels as disabled.
+	ctxb := context.Background()
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	chanPointAliceBob := openChannelAndAssert(
+		ctxt, t, net, net.Alice, net.Bob, chanAmt, 0, false,
+	)
+
+	carol, err := net.NewNode("Carol", nil)
+	if err != nil {
+		t.Fatalf("unable to create carol's node: %v", err)
+	}
+	defer shutdownAndAssert(net, t, carol)
+	if err := net.ConnectNodes(ctxb, net.Alice, carol); err != nil {
+		t.Fatalf("unable to connect alice to carol: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPointAliceCarol := openChannelAndAssert(
+		ctxt, t, net, net.Alice, carol, chanAmt, 0, false,
+	)
+
+	// Launch a node for Dave which will connect to Bob in order to receive
+	// graph updates from. This will ensure that the channel updates are
+	// propagated throughout the network.
+	dave, err := net.NewNode("Dave", nil)
+	if err != nil {
+		t.Fatalf("unable to create dave's node: %v", err)
+	}
+	defer shutdownAndAssert(net, t, dave)
+	if err := net.ConnectNodes(ctxb, net.Bob, dave); err != nil {
+		t.Fatalf("unable to connect bob to dave: %v", err)
+	}
+
+	daveUpdates, quit := subscribeGraphNotifications(t, ctxb, net.Alice)
+	defer close(quit)
+
+	// We should expect to see a channel update with the default routing
+	// policy, except that it should indicate the channel is disabled.
+	expectedPolicy := &lnrpc.RoutingPolicy{
+		FeeBaseMsat:      int64(defaultBitcoinBaseFeeMSat),
+		FeeRateMilliMsat: int64(defaultBitcoinFeeRate),
+		TimeLockDelta:    defaultBitcoinTimeLockDelta,
+		Disabled:         true,
+	}
+
+	// Close Alice's channels with Bob and Carol cooperatively and
+	// unilaterally respectively.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAliceBob, false)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAliceCarol, true)
+
+	// Now that the channels have been closed, we should receive an update
+	// marking each as disabled.
+	waitForChannelUpdate(
+		t, daveUpdates, net.Alice.PubKeyStr, expectedPolicy,
+		chanPointAliceBob, chanPointAliceCarol,
+	)
+}
+
 type testCase struct {
 	name string
 	test func(net *lntest.NetworkHarness, t *harnessTest)
@@ -10339,6 +10412,10 @@ var testsCases = []*testCase{
 	{
 		name: "route fee cutoff",
 		test: testRouteFeeCutoff,
+	},
+	{
+		name: "send update disable channel",
+		test: testSendUpdateDisableChannel,
 	},
 }
 

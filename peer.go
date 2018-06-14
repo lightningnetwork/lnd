@@ -343,11 +343,6 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			continue
 		}
 
-		blockEpoch, err := p.server.cc.chainNotifier.RegisterBlockEpochNtfn()
-		if err != nil {
-			lnChan.Stop()
-			return err
-		}
 		_, currentHeight, err := p.server.cc.chainIO.GetBestBlock()
 		if err != nil {
 			lnChan.Stop()
@@ -410,8 +405,8 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 
 		// Create the link and add it to the switch.
 		err = p.addLink(
-			chanPoint, lnChan, forwardingPolicy, blockEpoch,
-			chainEvents, currentHeight, true,
+			chanPoint, lnChan, forwardingPolicy, chainEvents,
+			currentHeight, true,
 		)
 		if err != nil {
 			lnChan.Stop()
@@ -430,7 +425,6 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 func (p *peer) addLink(chanPoint *wire.OutPoint,
 	lnChan *lnwallet.LightningChannel,
 	forwardingPolicy *htlcswitch.ForwardingPolicy,
-	blockEpoch *chainntnfs.BlockEpochEvent,
 	chainEvents *contractcourt.ChainEventSubscription,
 	currentHeight int32, syncStates bool) error {
 
@@ -1503,11 +1497,6 @@ out:
 			// necessary items it needs to function.
 			//
 			// TODO(roasbeef): panic on below?
-			blockEpoch, err := p.server.cc.chainNotifier.RegisterBlockEpochNtfn()
-			if err != nil {
-				peerLog.Errorf("unable to register for block epoch: %v", err)
-				continue
-			}
 			_, currentHeight, err := p.server.cc.chainIO.GetBestBlock()
 			if err != nil {
 				peerLog.Errorf("unable to get best block: %v", err)
@@ -1523,9 +1512,10 @@ out:
 			}
 
 			// Create the link and add it to the switch.
-			err = p.addLink(chanPoint, newChan,
-				&p.server.cc.routingPolicy, blockEpoch,
-				chainEvents, currentHeight, false)
+			err = p.addLink(
+				chanPoint, newChan, &p.server.cc.routingPolicy,
+				chainEvents, currentHeight, false,
+			)
 			if err != nil {
 				peerLog.Errorf("can't register new channel "+
 					"link(%v) with NodeKey(%x): %v", chanPoint,

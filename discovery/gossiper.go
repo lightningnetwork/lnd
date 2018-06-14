@@ -161,9 +161,9 @@ type AuthenticatedGossiper struct {
 	// was initialized with.
 	cfg *Config
 
-	// newBlocks is a channel in which new blocks connected to the end of
-	// the main chain are sent over.
-	newBlocks <-chan *chainntnfs.BlockEpoch
+	// blockEpochs encapsulates a stream of block epochs that are sent at
+	// every new block height.
+	blockEpochs *chainntnfs.BlockEpochEvent
 
 	// prematureAnnouncements maps a block height to a set of network
 	// messages which are "premature" from our PoV. A message is premature
@@ -410,7 +410,7 @@ func (d *AuthenticatedGossiper) Start() error {
 	if err != nil {
 		return err
 	}
-	d.newBlocks = blockEpochs.Epochs
+	d.blockEpochs = blockEpochs
 
 	height, err := d.cfg.Router.CurrentBlockHeight()
 	if err != nil {
@@ -439,6 +439,8 @@ func (d *AuthenticatedGossiper) Stop() {
 	}
 
 	log.Info("Authenticated Gossiper is stopping")
+
+	d.blockEpochs.Cancel()
 
 	d.syncerMtx.RLock()
 	for _, syncer := range d.peerSyncers {
@@ -1105,7 +1107,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 
 		// A new block has arrived, so we can re-process the previously
 		// premature announcements.
-		case newBlock, ok := <-d.newBlocks:
+		case newBlock, ok := <-d.blockEpochs.Epochs:
 			// If the channel has been closed, then this indicates
 			// the daemon is shutting down, so we exit ourselves.
 			if !ok {

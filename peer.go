@@ -1677,6 +1677,7 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 				channel:           channel,
 				unregisterChannel: p.server.htlcSwitch.RemoveLink,
 				broadcastTx:       p.server.cc.wallet.PublishTransaction,
+				disableChannel:    p.server.disableChannel,
 				quit:              p.quit,
 			},
 			deliveryAddr,
@@ -1733,11 +1734,13 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 			req.Err <- err
 			return
 		}
+
 		chanCloser := newChannelCloser(
 			chanCloseCfg{
 				channel:           channel,
 				unregisterChannel: p.server.htlcSwitch.RemoveLink,
 				broadcastTx:       p.server.cc.wallet.PublishTransaction,
+				disableChannel:    p.server.disableChannel,
 				quit:              p.quit,
 			},
 			deliveryAddr,
@@ -2013,8 +2016,8 @@ func fetchLastChanUpdate(s *server,
 		}
 
 		if edge1 == nil || edge2 == nil {
-			return nil, errors.Errorf("unable to find "+
-				"channel by ShortChannelID(%v)", cid)
+			return nil, fmt.Errorf("unable to find channel by "+
+				"ShortChannelID(%v)", cid)
 		}
 
 		// If we're the outgoing node on the first edge, then that
@@ -2027,27 +2030,6 @@ func fetchLastChanUpdate(s *server,
 			local = edge1
 		}
 
-		update := lnwire.ChannelUpdate{
-			ChainHash:       info.ChainHash,
-			ShortChannelID:  lnwire.NewShortChanIDFromInt(local.ChannelID),
-			Timestamp:       uint32(local.LastUpdate.Unix()),
-			Flags:           local.Flags,
-			TimeLockDelta:   local.TimeLockDelta,
-			HtlcMinimumMsat: local.MinHTLC,
-			BaseFee:         uint32(local.FeeBaseMSat),
-			FeeRate:         uint32(local.FeeProportionalMillionths),
-		}
-		update.Signature, err = lnwire.NewSigFromRawSignature(local.SigBytes)
-		if err != nil {
-			return nil, err
-		}
-
-		hswcLog.Tracef("Sending latest channel_update: %v",
-			newLogClosure(func() string {
-				return spew.Sdump(update)
-			}),
-		)
-
-		return &update, nil
+		return extractChannelUpdate(info, local)
 	}
 }

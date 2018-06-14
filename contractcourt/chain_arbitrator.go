@@ -122,6 +122,10 @@ type ChainArbitratorConfig struct {
 
 	// ChainIO allows us to query the state of the current main chain.
 	ChainIO lnwallet.BlockChainIO
+
+	// DisableChannel disables a channel, resulting in it not being able to
+	// forward payments.
+	DisableChannel func(wire.OutPoint) error
 }
 
 // ChainArbitrator is a sub-system that oversees the on-chain resolution of all
@@ -666,6 +670,16 @@ func (c *ChainArbitrator) ForceCloseContract(chanPoint wire.OutPoint) (*wire.Msg
 	case <-c.quit:
 		return nil, fmt.Errorf("ChainArbitrator shutting down")
 	}
+
+	// We'll attempt to disable the channel in the background to
+	// avoid blocking due to sending the update message to all
+	// active peers.
+	go func() {
+		if err := c.cfg.DisableChannel(chanPoint); err != nil {
+			log.Errorf("Unable to disable channel %v on "+
+				"close: %v", chanPoint, err)
+		}
+	}()
 
 	return closeTx, nil
 }

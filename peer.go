@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"container/list"
 	"fmt"
 	"net"
@@ -9,14 +10,11 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/brontide"
-	"github.com/lightningnetwork/lnd/contractcourt"
-
-	"bytes"
-
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -537,7 +535,6 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 		ForwardPackets: p.server.htlcSwitch.ForwardPackets,
 		FwrdingPolicy:  *forwardingPolicy,
 		FeeEstimator:   p.server.cc.feeEstimator,
-		BlockEpochs:    blockEpoch,
 		PreimageCache:  p.server.witnessBeacon,
 		ChainEvents:    chainEvents,
 		UpdateContractSignals: func(signals *contractcourt.ContractSignals) error {
@@ -551,11 +548,13 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 			time.NewTicker(50 * time.Millisecond)),
 		FwdPkgGCTicker: htlcswitch.NewBatchTicker(
 			time.NewTicker(time.Minute)),
-		BatchSize:    10,
-		UnsafeReplay: cfg.UnsafeReplay,
+		BatchSize:           10,
+		UnsafeReplay:        cfg.UnsafeReplay,
+		MinFeeUpdateTimeout: htlcswitch.DefaultMinLinkFeeUpdateTimeout,
+		MaxFeeUpdateTimeout: htlcswitch.DefaultMaxLinkFeeUpdateTimeout,
 	}
-	link := htlcswitch.NewChannelLink(linkCfg, lnChan,
-		uint32(currentHeight))
+
+	link := htlcswitch.NewChannelLink(linkCfg, lnChan)
 
 	// With the channel link created, we'll now notify the htlc switch so
 	// this channel can be used to dispatch local payments and also

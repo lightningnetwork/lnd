@@ -715,6 +715,12 @@ func (g *gossipSyncer) replyShortChanIDs(query *lnwire.QueryShortChanIDs) error 
 		})
 	}
 
+	if len(query.ShortChanIDs) == 0 {
+		log.Infof("gossipSyncer(%x): ignoring query for blank short chan ID's",
+			g.peerPub[:])
+		return nil
+	}
+
 	log.Infof("gossipSyncer(%x): fetching chan anns for %v chans",
 		g.peerPub[:], len(query.ShortChanIDs))
 
@@ -726,7 +732,8 @@ func (g *gossipSyncer) replyShortChanIDs(query *lnwire.QueryShortChanIDs) error 
 		query.ChainHash, query.ShortChanIDs,
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to fetch chan anns for %v..., %v",
+			query.ShortChanIDs[0].ToUint64(), err)
 	}
 
 	// If we didn't find any messages related to those channel ID's, then

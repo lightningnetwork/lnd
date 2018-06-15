@@ -1364,10 +1364,16 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			)
 
 		// We've cooperatively closed the channel, so we're no longer
-		// needed.
+		// needed. We'll mark the channel as resolved and exit.
 		case <-c.cfg.ChainEvents.CooperativeClosure:
 			log.Infof("ChannelArbitrator(%v) closing due to co-op "+
 				"closure", c.cfg.ChanPoint)
+
+			if err := c.cfg.MarkChannelResolved(); err != nil {
+				log.Errorf("Unable to mark contract "+
+					"resolved: %v", err)
+			}
+
 			return
 
 		// We have broadcasted our commitment, and it is now confirmed

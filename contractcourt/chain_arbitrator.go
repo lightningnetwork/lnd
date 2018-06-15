@@ -342,23 +342,6 @@ func (c *ChainArbitrator) Start() error {
 				pCache:    c.cfg.PreimageDB,
 				signer:    c.cfg.Signer,
 				isOurAddr: c.cfg.IsOurAddress,
-				notifyChanClosed: func() error {
-					c.Lock()
-					delete(c.activeChannels, chanPoint)
-
-					chainWatcher, ok := c.activeWatchers[chanPoint]
-					if ok {
-						// Since the chainWatcher is
-						// calling notifyChanClosed, we
-						// must stop it in a goroutine
-						// to not deadlock.
-						go chainWatcher.Stop()
-					}
-					delete(c.activeWatchers, chanPoint)
-					c.Unlock()
-
-					return nil
-				},
 				contractBreach: func(retInfo *lnwallet.BreachRetribution) error {
 					return c.cfg.ContractBreach(chanPoint, retInfo)
 				},
@@ -697,22 +680,6 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 			pCache:    c.cfg.PreimageDB,
 			signer:    c.cfg.Signer,
 			isOurAddr: c.cfg.IsOurAddress,
-			notifyChanClosed: func() error {
-				c.Lock()
-				delete(c.activeChannels, chanPoint)
-
-				chainWatcher, ok := c.activeWatchers[chanPoint]
-				if ok {
-					// Since the chainWatcher is calling
-					// notifyChanClosed, we must stop it in
-					// a goroutine to not deadlock.
-					go chainWatcher.Stop()
-				}
-				delete(c.activeWatchers, chanPoint)
-				c.Unlock()
-
-				return nil
-			},
 			contractBreach: func(retInfo *lnwallet.BreachRetribution) error {
 				return c.cfg.ContractBreach(chanPoint, retInfo)
 			},

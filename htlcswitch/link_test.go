@@ -4473,3 +4473,57 @@ func TestChannelLinkFail(t *testing.T) {
 		cleanUp()
 	}
 }
+
+// TestExpectedFee tests calculation of ExpectedFee returns expected fee, given
+// a baseFee, a feeRate, and an htlc amount.
+func TestExpectedFee(t *testing.T) {
+	testCases := []struct {
+		baseFee  lnwire.MilliSatoshi
+		feeRate  lnwire.MilliSatoshi
+		htlcAmt  lnwire.MilliSatoshi
+		expected lnwire.MilliSatoshi
+	}{
+		{
+			lnwire.MilliSatoshi(0),
+			lnwire.MilliSatoshi(0),
+			lnwire.MilliSatoshi(0),
+			lnwire.MilliSatoshi(0),
+		},
+		{
+			lnwire.MilliSatoshi(0),
+			lnwire.MilliSatoshi(1),
+			lnwire.MilliSatoshi(999999),
+			lnwire.MilliSatoshi(0),
+		},
+		{
+			lnwire.MilliSatoshi(0),
+			lnwire.MilliSatoshi(1),
+			lnwire.MilliSatoshi(1000000),
+			lnwire.MilliSatoshi(1),
+		},
+		{
+			lnwire.MilliSatoshi(0),
+			lnwire.MilliSatoshi(1),
+			lnwire.MilliSatoshi(1000001),
+			lnwire.MilliSatoshi(1),
+		},
+		{
+			lnwire.MilliSatoshi(1),
+			lnwire.MilliSatoshi(1),
+			lnwire.MilliSatoshi(1000000),
+			lnwire.MilliSatoshi(2),
+		},
+	}
+
+	for _, test := range testCases {
+		f := ForwardingPolicy{
+			BaseFee: test.baseFee,
+			FeeRate: test.feeRate,
+		}
+		fee := ExpectedFee(f, test.htlcAmt)
+		if fee != test.expected {
+			t.Errorf("expected fee to be (%v), instead got (%v)", test.expected,
+				fee)
+		}
+	}
+}

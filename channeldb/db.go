@@ -233,56 +233,70 @@ func fileExists(path string) bool {
 	return true
 }
 
-// FetchOpenChannels returns all stored currently active/open channels
-// associated with the target nodeID. In the case that no active channels are
-// known to have been created with this node, then a zero-length slice is
-// returned.
+// FetchOpenChannels starts a new database transaction and returns all stored
+// currently active/open channels associated with the target nodeID. In the case
+// that no active channels are known to have been created with this node, then a
+// zero-length slice is returned.
 func (d *DB) FetchOpenChannels(nodeID *btcec.PublicKey) ([]*OpenChannel, error) {
 	var channels []*OpenChannel
 	err := d.View(func(tx *bolt.Tx) error {
-		// Get the bucket dedicated to storing the metadata for open
-		// channels.
-		openChanBucket := tx.Bucket(openChannelBucket)
-		if openChanBucket == nil {
+		var err error
+		channels, err = d.fetchOpenChannels(tx, nodeID)
+		return err
+	})
+
+	return channels, err
+}
+
+// fetchOpenChannels uses and existing database transaction and returns all
+// stored currently active/open channels associated with the target nodeID. In
+// the case that no active channels are known to have been created with this
+// node, then a zero-length slice is returned.
+func (d *DB) fetchOpenChannels(tx *bolt.Tx,
+	nodeID *btcec.PublicKey) ([]*OpenChannel, error) {
+
+	// Get the bucket dedicated to storing the metadata for open channels.
+	openChanBucket := tx.Bucket(openChannelBucket)
+	if openChanBucket == nil {
+		return nil, nil
+	}
+
+	// Within this top level bucket, fetch the bucket dedicated to storing
+	// open channel data specific to the remote node.
+	pub := nodeID.SerializeCompressed()
+	nodeChanBucket := openChanBucket.Bucket(pub)
+	if nodeChanBucket == nil {
+		return nil, nil
+	}
+
+	// Next, we'll need to go down an additional layer in order to retrieve
+	// the channels for each chain the node knows of.
+	var channels []*OpenChannel
+	err := nodeChanBucket.ForEach(func(chainHash, v []byte) error {
+		// If there's a value, it's not a bucket so ignore it.
+		if v != nil {
 			return nil
 		}
 
-		// Within this top level bucket, fetch the bucket dedicated to
-		// storing open channel data specific to the remote node.
-		pub := nodeID.SerializeCompressed()
-		nodeChanBucket := openChanBucket.Bucket(pub)
-		if nodeChanBucket == nil {
-			return nil
+		// If we've found a valid chainhash bucket, then we'll retrieve
+		// that so we can extract all the channels.
+		chainBucket := nodeChanBucket.Bucket(chainHash)
+		if chainBucket == nil {
+			return fmt.Errorf("unable to read bucket for chain=%x",
+				chainHash[:])
 		}
 
-		// Next, we'll need to go down an additional layer in order to
-		// retrieve the channels for each chain the node knows of.
-		return nodeChanBucket.ForEach(func(chainHash, v []byte) error {
-			// If there's a value, it's not a bucket so ignore it.
-			if v != nil {
-				return nil
-			}
+		// Finally, we both of the necessary buckets retrieved, fetch
+		// all the active channels related to this node.
+		nodeChannels, err := d.fetchNodeChannels(chainBucket)
+		if err != nil {
+			return fmt.Errorf("unable to read channel for "+
+				"chain_hash=%x, node_key=%x: %v",
+				chainHash[:], pub, err)
+		}
 
-			// If we've found a valid chainhash bucket, then we'll
-			// retrieve that so we can extract all the channels.
-			chainBucket := nodeChanBucket.Bucket(chainHash)
-			if chainBucket == nil {
-				return fmt.Errorf("unable to read bucket for "+
-					"chain=%x", chainHash[:])
-			}
-
-			// Finally, we both of the necessary buckets retrieved,
-			// fetch all the active channels related to this node.
-			nodeChannels, err := d.fetchNodeChannels(chainBucket)
-			if err != nil {
-				return fmt.Errorf("unable to read channel for "+
-					"chain_hash=%x, node_key=%x: %v",
-					chainHash[:], pub, err)
-			}
-
-			channels = nodeChannels
-			return nil
-		})
+		channels = nodeChannels
+		return nil
 	})
 
 	return channels, err

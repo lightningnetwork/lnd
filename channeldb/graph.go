@@ -259,27 +259,12 @@ func (c *ChannelGraph) ForEachNode(tx *bolt.Tx, cb func(*bolt.Tx, *LightningNode
 func (c *ChannelGraph) SourceNode() (*LightningNode, error) {
 	var source *LightningNode
 	err := c.db.View(func(tx *bolt.Tx) error {
-		// First grab the nodes bucket which stores the mapping from
-		// pubKey to node information.
-		nodes := tx.Bucket(nodeBucket)
-		if nodes == nil {
-			return ErrGraphNotFound
-		}
-
-		selfPub := nodes.Get(sourceKey)
-		if selfPub == nil {
-			return ErrSourceNodeNotSet
-		}
-
-		// With the pubKey of the source node retrieved, we're able to
-		// fetch the full node information.
-		node, err := fetchLightningNode(nodes, selfPub)
+		node, err := c.sourceNode(tx)
 		if err != nil {
 			return err
 		}
+		source = node
 
-		source = &node
-		source.db = c.db
 		return nil
 	})
 	if err != nil {
@@ -287,6 +272,34 @@ func (c *ChannelGraph) SourceNode() (*LightningNode, error) {
 	}
 
 	return source, nil
+}
+
+// sourceNode uses an existing database transaction and returns the source node
+// of the graph. The source node is treated as the center node within a
+// star-graph. This method may be used to kick off a path finding algorithm in
+// order to explore the reachability of another node based off the source node.
+func (c *ChannelGraph) sourceNode(tx *bolt.Tx) (*LightningNode, error) {
+	// First grab the nodes bucket which stores the mapping from
+	// pubKey to node information.
+	nodes := tx.Bucket(nodeBucket)
+	if nodes == nil {
+		return nil, ErrGraphNotFound
+	}
+
+	selfPub := nodes.Get(sourceKey)
+	if selfPub == nil {
+		return nil, ErrSourceNodeNotSet
+	}
+
+	// With the pubKey of the source node retrieved, we're able to
+	// fetch the full node information.
+	node, err := fetchLightningNode(nodes, selfPub)
+	if err != nil {
+		return nil, err
+	}
+	node.db = c.db
+
+	return &node, nil
 }
 
 // SetSourceNode sets the source node within the graph database. The source
@@ -384,28 +397,34 @@ func (c *ChannelGraph) LookupAlias(pub *btcec.PublicKey) (string, error) {
 	return alias, nil
 }
 
-// DeleteLightningNode removes a vertex/node from the database according to the
-// node's public key.
+// DeleteLightningNode starts a new database transaction to remove a vertex/node
+// from the database according to the node's public key.
 func (c *ChannelGraph) DeleteLightningNode(nodePub *btcec.PublicKey) error {
-	pub := nodePub.SerializeCompressed()
-
 	// TODO(roasbeef): ensure dangling edges are removed...
 	return c.db.Update(func(tx *bolt.Tx) error {
-		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
-		if err != nil {
-			return err
-		}
-
-		aliases, err := tx.CreateBucketIfNotExists(aliasIndexBucket)
-		if err != nil {
-			return err
-		}
-
-		if err := aliases.Delete(pub); err != nil {
-			return err
-		}
-		return nodes.Delete(pub)
+		return c.deleteLightningNode(tx, nodePub.SerializeCompressed())
 	})
+}
+
+// deleteLightningNode uses an existing database transaction to remove a
+// vertex/node from the database according to the node's public key.
+func (c *ChannelGraph) deleteLightningNode(tx *bolt.Tx,
+	compressedPubKey []byte) error {
+
+	nodes := tx.Bucket(nodeBucket)
+	if nodes == nil {
+		return ErrGraphNodesNotFound
+	}
+
+	aliases := nodes.Bucket(aliasIndexBucket)
+	if aliases == nil {
+		return ErrGraphNodesNotFound
+	}
+
+	if err := aliases.Delete(compressedPubKey); err != nil {
+		return err
+	}
+	return nodes.Delete(compressedPubKey)
 }
 
 // AddChannelEdge adds a new (undirected, blank) edge to the graph database. An

@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/coreos/bbolt"
-	"github.com/go-errors/errors"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/coreos/bbolt"
+	"github.com/go-errors/errors"
 )
 
 const (
@@ -597,8 +597,37 @@ func (d *DB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
 			return err
 		}
 
-		return closedChanBucket.Put(chanID, newSummary.Bytes())
+		err = closedChanBucket.Put(chanID, newSummary.Bytes())
+		if err != nil {
+			return err
+		}
+
+		// Now that the channel is closed, we'll check if we have any
+		// other open channels with this peer. If we don't we'll
+		// garbage collect it to ensure we don't establish persistent
+		// connections to peers without open channels.
+		return d.pruneLinkNode(tx, chanSummary.RemotePub)
 	})
+}
+
+// pruneLinkNode determines whether we should garbage collect a link node from
+// the database due to no longer having any open channels with it. If there are
+// any left, then this acts as a no-op.
+func (db *DB) pruneLinkNode(tx *bolt.Tx, remotePub *btcec.PublicKey) error {
+	openChannels, err := db.fetchOpenChannels(tx, remotePub)
+	if err != nil {
+		return fmt.Errorf("unable to fetch open channels for peer %x: "+
+			"%v", remotePub.SerializeCompressed(), err)
+	}
+
+	if len(openChannels) > 0 {
+		return nil
+	}
+
+	log.Infof("Pruning link node %x with zero open channels from database",
+		remotePub.SerializeCompressed())
+
+	return db.deleteLinkNode(tx, remotePub)
 }
 
 // syncVersions function is used for safe db version synchronization. It

@@ -6235,39 +6235,48 @@ func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) 
 	ctxt, _ = context.WithTimeout(context.Background(), timeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 
-	// Similar to the case above, we should receive another notification
-	// detailing the channel closure.
-	select {
-	case graphUpdate := <-graphUpdates:
-		if len(graphUpdate.ClosedChans) != 1 {
-			t.Fatalf("expected a single update, instead "+
-				"have %v", len(graphUpdate.ClosedChans))
-		}
+	// Now that the channel has been closed, we should receive a
+	// notification indicating so.
+out:
+	for {
+		select {
+		case graphUpdate := <-graphUpdates:
+			if len(graphUpdate.ClosedChans) != 1 {
+				continue
+			}
 
-		closedChan := graphUpdate.ClosedChans[0]
-		if closedChan.ClosedHeight != uint32(blockHeight+1) {
-			t.Fatalf("close heights of channel mismatch: expected "+
-				"%v, got %v", blockHeight+1, closedChan.ClosedHeight)
+			closedChan := graphUpdate.ClosedChans[0]
+			if closedChan.ClosedHeight != uint32(blockHeight+1) {
+				t.Fatalf("close heights of channel mismatch: "+
+					"expected %v, got %v", blockHeight+1,
+					closedChan.ClosedHeight)
+			}
+			chanPointTxid, err := getChanPointFundingTxid(chanPoint)
+			if err != nil {
+				t.Fatalf("unable to get txid: %v", err)
+			}
+			closedChanTxid, err := getChanPointFundingTxid(
+				closedChan.ChanPoint,
+			)
+			if err != nil {
+				t.Fatalf("unable to get txid: %v", err)
+			}
+			if !bytes.Equal(closedChanTxid, chanPointTxid) {
+				t.Fatalf("channel point hash mismatch: "+
+					"expected %v, got %v", chanPointTxid,
+					closedChanTxid)
+			}
+			if closedChan.ChanPoint.OutputIndex != chanPoint.OutputIndex {
+				t.Fatalf("output index mismatch: expected %v, "+
+					"got %v", chanPoint.OutputIndex,
+					closedChan.ChanPoint)
+			}
+
+			break out
+		case <-time.After(time.Second * 10):
+			t.Fatalf("notification for channel closure not " +
+				"sent")
 		}
-		chanPointTxid, err := getChanPointFundingTxid(chanPoint)
-		if err != nil {
-			t.Fatalf("unable to get txid: %v", err)
-		}
-		closedChanTxid, err := getChanPointFundingTxid(closedChan.ChanPoint)
-		if err != nil {
-			t.Fatalf("unable to get txid: %v", err)
-		}
-		if !bytes.Equal(closedChanTxid, chanPointTxid) {
-			t.Fatalf("channel point hash mismatch: expected %v, "+
-				"got %v", chanPointTxid, closedChanTxid)
-		}
-		if closedChan.ChanPoint.OutputIndex != chanPoint.OutputIndex {
-			t.Fatalf("output index mismatch: expected %v, got %v",
-				chanPoint.OutputIndex, closedChan.ChanPoint)
-		}
-	case <-time.After(time.Second * 10):
-		t.Fatalf("notification for channel closure not " +
-			"sent")
 	}
 
 	// For the final portion of the test, we'll ensure that once a new node

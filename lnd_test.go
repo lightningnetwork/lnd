@@ -653,7 +653,7 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("bob didn't report channel: %v", err)
 	}
 
-	// With then channel open, ensure that the amount specified above has
+	// With the channel open, ensure that the amount specified above has
 	// properly been pushed to Bob.
 	balReq := &lnrpc.ChannelBalanceRequest{}
 	aliceBal, err := net.Alice.ChannelBalance(ctxb, balReq)

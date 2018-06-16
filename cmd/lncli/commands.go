@@ -398,12 +398,9 @@ var openChannelCommand = cli.Command{
 	Category: "Channels",
 	Usage:    "Open a channel to a node or an existing peer.",
 	Description: `
-	Attempt to open a new channel to an existing peer with the key node-key
-	optionally blocking until the channel is 'open'.
-
-	One can also connect to a node before opening a new channel to it by
-	setting its host:port via the --connect argument. For this to work,
-	the node_key must be provided, rather than the peer_id. This is optional.
+	Attempt to open a new channel to an existing peer with the node key or
+	URI, optionally blocking until the channel is 'open'. If a URI is passed,
+	we attempt to connect to the node before opening the new channel.
 
 	The channel will be initialized with local-amt satoshis local and push-amt
 	satoshis for the remote node. Note that specifying push-amt means you give that
@@ -412,16 +409,13 @@ var openChannelCommand = cli.Command{
 
 	One can manually set the fee to be used for the funding transaction via either
 	the --conf_target or --sat_per_byte arguments. This is optional.`,
-	ArgsUsage: "node-key local-amt push-amt",
+	ArgsUsage: "node-key-or-uri local-amt push-amt",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name: "node_key",
 			Usage: "the identity public key of the target node/peer " +
-				"serialized in compressed format",
-		},
-		cli.StringFlag{
-			Name:  "connect",
-			Usage: "(optional) the host:port of the target node",
+				"serialized in compressed format, or a URI of the format " +
+				"pubkey@host:port",
 		},
 		cli.IntFlag{
 			Name:  "local_amt",
@@ -495,32 +489,35 @@ func openChannel(ctx *cli.Context) error {
 		RemoteCsvDelay: uint32(ctx.Uint64("remote_csv_delay")),
 	}
 
+	var connectVal string
+	var nodePubHex []byte
+
 	switch {
 	case ctx.IsSet("node_key"):
-		nodePubHex, err := hex.DecodeString(ctx.String("node_key"))
-		if err != nil {
-			return fmt.Errorf("unable to decode node public key: %v", err)
-		}
-		req.NodePubkey = nodePubHex
+		nodePubHex, connectVal, err = decodeNodePubkeyOrURI(
+			ctx.String("node_key"))
 
 	case args.Present():
-		nodePubHex, err := hex.DecodeString(args.First())
-		if err != nil {
-			return fmt.Errorf("unable to decode node public key: %v", err)
-		}
+		nodePubHex, connectVal, err = decodeNodePubkeyOrURI(
+			args.First())
 		args = args.Tail()
-		req.NodePubkey = nodePubHex
 	default:
 		return fmt.Errorf("node id argument missing")
 	}
 
-	// As soon as we can confirm that the node's node_key was set, rather
-	// than the peer_id, we can check if the host:port was also set to
+	req.NodePubkey = nodePubHex
+
+	if err != nil {
+		return fmt.Errorf("unable to decode node public key: %v", err)
+	}
+
+	// As soon as we can confirm that the node's pubkey was set,
+	// we can check if the host:port was also set to
 	// connect to it before opening the channel.
-	if req.NodePubkey != nil && ctx.IsSet("connect") {
+	if req.NodePubkey != nil && len(connectVal) > 0 {
 		addr := &lnrpc.LightningAddress{
 			Pubkey: hex.EncodeToString(req.NodePubkey),
-			Host:   ctx.String("connect"),
+			Host:   connectVal,
 		}
 
 		req := &lnrpc.ConnectPeerRequest{
@@ -626,6 +623,21 @@ func openChannel(ctx *cli.Context) error {
 			)
 		}
 	}
+}
+
+func decodeNodePubkeyOrURI(val string) ([]byte, string, error) {
+	var connectVal string
+	nodeKey := val
+	split := strings.Split(val, "@")
+
+	if len(split) > 1 {
+		nodeKey, connectVal = split[0], split[1]
+	}
+	nodePubHex, err := hex.DecodeString(nodeKey)
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to decode node public key: %v", err)
+	}
+	return nodePubHex, connectVal, nil
 }
 
 // TODO(roasbeef): also allow short relative channel ID.
@@ -1585,33 +1597,33 @@ var closedChannelsCommand = cli.Command{
 	Name:     "closedchannels",
 	Category: "Channels",
 	Usage:    "List all closed channels.",
-	Flags:    []cli.Flag{
+	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name:  "cooperative",
 			Usage: "list channels that were closed cooperatively",
 		},
 		cli.BoolFlag{
-			Name:  "local_force",
+			Name: "local_force",
 			Usage: "list channels that were force-closed " +
-			       "by the local node",
+				"by the local node",
 		},
 		cli.BoolFlag{
-			Name:  "remote_force",
+			Name: "remote_force",
 			Usage: "list channels that were force-closed " +
-			       "by the remote node",
+				"by the remote node",
 		},
 		cli.BoolFlag{
-			Name:  "breach",
+			Name: "breach",
 			Usage: "list channels for which the remote node " +
-			       "attempted to broadcast a prior " + 
-			       "revoked channel state",
+				"attempted to broadcast a prior " +
+				"revoked channel state",
 		},
 		cli.BoolFlag{
 			Name:  "funding_canceled",
 			Usage: "list channels that were never fully opened",
 		},
 	},
-	Action:   actionDecorator(closedChannels),
+	Action: actionDecorator(closedChannels),
 }
 
 func closedChannels(ctx *cli.Context) error {
@@ -1624,7 +1636,7 @@ func closedChannels(ctx *cli.Context) error {
 		LocalForce:      ctx.Bool("local_force"),
 		RemoteForce:     ctx.Bool("remote_force"),
 		Breach:          ctx.Bool("breach"),
-		FundingCanceled: ctx.Bool("funding_cancelled"),		
+		FundingCanceled: ctx.Bool("funding_cancelled"),
 	}
 
 	resp, err := client.ClosedChannels(ctxb, req)

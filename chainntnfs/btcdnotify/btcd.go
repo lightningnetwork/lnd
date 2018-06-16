@@ -377,11 +377,11 @@ out:
 		// rescan spends. It might get removed entirely in the future.
 		case item := <-b.txUpdates.ChanOut():
 			newSpend := item.(*txUpdate)
-			spendingTx := newSpend.tx
+			spendingTx := newSpend.tx.MsgTx().Copy()
 
 			// First, check if this transaction spends an output
 			// that has an existing spend notification for it.
-			for i, txIn := range spendingTx.MsgTx().TxIn {
+			for i, txIn := range spendingTx.TxIn {
 				prevOut := txIn.PreviousOutPoint
 
 				// If this transaction indeed does spend an
@@ -394,7 +394,7 @@ out:
 					spendDetails := &chainntnfs.SpendDetail{
 						SpentOutPoint:     &prevOut,
 						SpenderTxHash:     spenderSha,
-						SpendingTx:        spendingTx.MsgTx(),
+						SpendingTx:        spendingTx,
 						SpenderInputIndex: uint32(i),
 					}
 					// TODO(roasbeef): after change to
@@ -588,6 +588,7 @@ func (b *BtcdNotifier) confDetailsManually(txid *chainhash.Hash,
 // handleBlocksConnected applies a chain update for a new block. Any watched
 // transactions included this block will processed to either send notifications
 // now or after numConfirmations confs.
+//
 // TODO(halseth): this is reusing the neutrino notifier implementation, unify
 // them.
 func (b *BtcdNotifier) handleBlockConnected(newBlock *filteredBlock) error {
@@ -597,22 +598,20 @@ func (b *BtcdNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 	// Next, we'll scan over the list of relevant transactions and possibly
 	// dispatch notifications for confirmations and spends.
 	for _, tx := range newBlock.txns {
-		mtx := tx.MsgTx()
-		txSha := mtx.TxHash()
-
-		for i, txIn := range mtx.TxIn {
+		for i, txIn := range tx.MsgTx().TxIn {
 			prevOut := txIn.PreviousOutPoint
 
-			// If this transaction indeed does spend an output which we have a
-			// registered notification for, then create a spend summary, finally
-			// sending off the details to the notification subscriber.
+			// If this transaction indeed does spend an output
+			// which we have a registered notification for, then
+			// create a spend summary, finally sending off the
+			// details to the notification subscriber.
 			clients, ok := b.spendNotifications[prevOut]
 			if !ok {
 				continue
 			}
 
-			// TODO(roasbeef): many integration tests expect spend to be
-			// notified within the mempool.
+			mtx := tx.MsgTx().Copy()
+			txSha := mtx.TxHash()
 			spendDetails := &chainntnfs.SpendDetail{
 				SpentOutPoint:     &prevOut,
 				SpenderTxHash:     &txSha,
@@ -622,13 +621,16 @@ func (b *BtcdNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 			}
 
 			for _, ntfn := range clients {
-				chainntnfs.Log.Infof("Dispatching spend notification for "+
-					"outpoint=%v", ntfn.targetOutpoint)
+				chainntnfs.Log.Infof("Dispatching spend "+
+					"notification for outpoint=%v",
+					ntfn.targetOutpoint)
+
 				ntfn.spendChan <- spendDetails
 
-				// Close spendChan to ensure that any calls to Cancel will not
-				// block. This is safe to do since the channel is buffered, and
-				// the message can still be read by the receiver.
+				// Close spendChan to ensure that any calls to
+				// Cancel will not block. This is safe to do
+				// since the channel is buffered, and the
+				// message can still be read by the receiver.
 				close(ntfn.spendChan)
 			}
 
@@ -636,10 +638,12 @@ func (b *BtcdNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 		}
 	}
 
-	// A new block has been connected to the main chain.
-	// Send out any N confirmation notifications which may
-	// have been triggered by this new block.
-	b.txConfNotifier.ConnectTip(&newBlock.hash, newBlock.height, newBlock.txns)
+	// A new block has been connected to the main chain.  Send out any N
+	// confirmation notifications which may have been triggered by this new
+	// block.
+	b.txConfNotifier.ConnectTip(
+		&newBlock.hash, newBlock.height, newBlock.txns,
+	)
 
 	return nil
 }

@@ -35,6 +35,11 @@ const (
 	maxZlibBufSize = 67413630
 )
 
+// zlibDecodeMtx is a package level mutex that we'll use in order to ensure
+// that we'll only attempt a single zlib decoding instance at a time. This
+// allows us to also further bound our memory usage.
+var zlibDecodeMtx sync.Mutex
+
 // ErrUnknownShortChanIDEncoding is a parametrized error that indicates that we
 // came across an unknown short channel ID encoding, and therefore were unable
 // to continue parsing.
@@ -159,6 +164,12 @@ func decodeShortChanIDs(r io.Reader) (ShortChanIDEncoding, []ShortChannelID, err
 	// However, we'll pay attention to ensure that we don't open our selves
 	// up to a memory exhaustion attack.
 	case EncodingSortedZlib:
+		// We'll obtain an ultimately release the zlib decode mutex.
+		// This guards us against allocating too much memory to decode
+		// each instance from concurrent peers.
+		zlibDecodeMtx.Lock()
+		defer zlibDecodeMtx.Unlock()
+
 		// Before we start to decode, we'll create a limit reader over
 		// the current reader. This will ensure that we can control how
 		// much memory we're allocating during the decoding process.

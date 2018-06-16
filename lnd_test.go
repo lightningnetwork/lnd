@@ -41,6 +41,10 @@ var (
 	harnessNetParams = &chaincfg.SimNetParams
 )
 
+const (
+	testFeeBase = 1e+6
+)
+
 // harnessTest wraps a regular testing.T providing enhanced error detection
 // and propagation. All error will be augmented with a full stack-trace in
 // order to aid in debugging. Additionally, any panics caused by active
@@ -876,14 +880,13 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	// With our little cluster set up, we'll update the fees for the
 	// channel Bob side of the Alice->Bob channel, and make sure all nodes
 	// learn about it.
-	const feeBase = 1000000
 	baseFee := int64(1500)
 	feeRate := int64(12)
 	timeLockDelta := uint32(66)
 
 	expectedPolicy := &lnrpc.RoutingPolicy{
 		FeeBaseMsat:      baseFee,
-		FeeRateMilliMsat: feeBase * feeRate,
+		FeeRateMilliMsat: testFeeBase * feeRate,
 		TimeLockDelta:    timeLockDelta,
 	}
 
@@ -971,7 +974,7 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	timeLockDelta = uint32(22)
 
 	expectedPolicy.FeeBaseMsat = baseFee
-	expectedPolicy.FeeRateMilliMsat = feeBase * feeRate
+	expectedPolicy.FeeRateMilliMsat = testFeeBase * feeRate
 	expectedPolicy.TimeLockDelta = timeLockDelta
 
 	req = &lnrpc.PolicyUpdateRequest{
@@ -2773,6 +2776,48 @@ func assertAmountPaid(t *harnessTest, ctxb context.Context, channelName string,
 	}
 }
 
+// updateChannelPolicy updates the channel policy of node to the
+// given fees and timelock delta. This function blocks until
+// listenerNode has received the policy update.
+func updateChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
+	chanPoint *lnrpc.ChannelPoint, baseFee int64, feeRate int64,
+	timeLockDelta uint32, listenerNode *lntest.HarnessNode) {
+
+	ctxb := context.Background()
+	timeout := time.Duration(time.Second * 15)
+
+	expectedPolicy := &lnrpc.RoutingPolicy{
+		FeeBaseMsat:      baseFee,
+		FeeRateMilliMsat: feeRate,
+		TimeLockDelta:    timeLockDelta,
+	}
+
+	updateFeeReq := &lnrpc.PolicyUpdateRequest{
+		BaseFeeMsat:   baseFee,
+		FeeRate:       float64(feeRate) / testFeeBase,
+		TimeLockDelta: timeLockDelta,
+		Scope: &lnrpc.PolicyUpdateRequest_ChanPoint{
+			ChanPoint: chanPoint,
+		},
+	}
+
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	if _, err := node.UpdateChannelPolicy(ctxt, updateFeeReq); err != nil {
+		t.Fatalf("unable to update chan policy: %v", err)
+	}
+
+	// Wait for listener node to receive the channel update from node.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	listenerUpdates, aQuit := subscribeGraphNotifications(t, ctxt, 
+		listenerNode)
+	defer close(aQuit)
+
+	waitForChannelUpdate(
+		t, listenerUpdates, node.PubKeyStr, expectedPolicy,
+		chanPoint,
+	)
+}
+
 func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	const chanAmt = btcutil.Amount(100000)
 	ctxb := context.Background()
@@ -2934,6 +2979,15 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 
 	time.Sleep(time.Millisecond * 50)
 
+	// Set the fee policies of the Alice -> Bob and the Dave -> Alice 
+	// channel edges to relatively large non default values. This makes it 
+	// possible to pick up more subtle fee calculation errors.
+	updateChannelPolicy(t, net.Alice, chanPointAlice, 1000, 100000,
+		144, carol)
+
+	updateChannelPolicy(t, dave, chanPointDave, 5000, 150000,
+		144, carol)
+
 	// Using Carol as the source, pay to the 5 invoices from Bob created
 	// above.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
@@ -2953,42 +3007,61 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// increasing of time is needed to embed the HTLC in commitment
 	// transaction, in channel Carol->David->Alice->Bob, order is Bob,
 	// Alice, David, Carol.
-	const amountPaid = int64(5000)
+
+	// The final node bob expects to get paid five times 1000 sat.
+	expectedAmountPaidAtoB := int64(5 * 1000)
+
 	assertAmountPaid(t, ctxb, "Alice(local) => Bob(remote)", net.Bob,
-		aliceFundPoint, int64(0), amountPaid)
+		aliceFundPoint, int64(0), expectedAmountPaidAtoB)
 	assertAmountPaid(t, ctxb, "Alice(local) => Bob(remote)", net.Alice,
-		aliceFundPoint, amountPaid, int64(0))
+		aliceFundPoint, expectedAmountPaidAtoB, int64(0))
+
+	// To forward a payment of 1000 sat, Alice is charging a fee of 
+	// 1 sat + 10% = 101 sat.
+	const expectedFeeAlice = 5 * 101
+	
+	// Dave needs to pay what Alice pays plus Alice's fee.
+	expectedAmountPaidDtoA := expectedAmountPaidAtoB + expectedFeeAlice
+
 	assertAmountPaid(t, ctxb, "Dave(local) => Alice(remote)", net.Alice,
-		daveFundPoint, int64(0), amountPaid+(baseFee*numPayments))
+		daveFundPoint, int64(0), expectedAmountPaidDtoA)
 	assertAmountPaid(t, ctxb, "Dave(local) => Alice(remote)", dave,
-		daveFundPoint, amountPaid+(baseFee*numPayments), int64(0))
+		daveFundPoint, expectedAmountPaidDtoA, int64(0))
+
+	// To forward a payment of 1101 sat, Dave is charging a fee of 
+	// 5 sat + 15% = 170.15 sat. This is rounded down in rpcserver to 170.
+	const expectedFeeDave = 5 * 170
+
+	// Carol needs to pay what Dave pays plus Dave's fee.
+	expectedAmountPaidCtoD := expectedAmountPaidDtoA + expectedFeeDave
+
 	assertAmountPaid(t, ctxb, "Carol(local) => Dave(remote)", dave,
-		carolFundPoint, int64(0), amountPaid+((baseFee*numPayments)*2))
+		carolFundPoint, int64(0), expectedAmountPaidCtoD)
 	assertAmountPaid(t, ctxb, "Carol(local) => Dave(remote)", carol,
-		carolFundPoint, amountPaid+(baseFee*numPayments)*2, int64(0))
+		carolFundPoint, expectedAmountPaidCtoD, int64(0))
 
 	// Now that we know all the balances have been settled out properly,
 	// we'll ensure that our internal record keeping for completed circuits
 	// was properly updated.
 
 	// First, check that the FeeReport response shows the proper fees
-	// accrued over each time range. Dave should've earned 1 satoshi for
+	// accrued over each time range. Dave should've earned 170 satoshi for
 	// each of the forwarded payments.
 	feeReport, err := dave.FeeReport(ctxb, &lnrpc.FeeReportRequest{})
 	if err != nil {
 		t.Fatalf("unable to query for fee report: %v", err)
 	}
-	const exectedFees = 5
-	if feeReport.DayFeeSum != exectedFees {
-		t.Fatalf("fee mismatch: expected %v, got %v", 5,
+
+	if feeReport.DayFeeSum != uint64(expectedFeeDave) {
+		t.Fatalf("fee mismatch: expected %v, got %v", expectedFeeDave,
 			feeReport.DayFeeSum)
 	}
-	if feeReport.WeekFeeSum != exectedFees {
-		t.Fatalf("fee mismatch: expected %v, got %v", 5,
+	if feeReport.WeekFeeSum != uint64(expectedFeeDave) {
+		t.Fatalf("fee mismatch: expected %v, got %v", expectedFeeDave,
 			feeReport.WeekFeeSum)
 	}
-	if feeReport.MonthFeeSum != exectedFees {
-		t.Fatalf("fee mismatch: expected %v, got %v", 5,
+	if feeReport.MonthFeeSum != uint64(expectedFeeDave) {
+		t.Fatalf("fee mismatch: expected %v, got %v", expectedFeeDave,
 			feeReport.MonthFeeSum)
 	}
 
@@ -3004,11 +3077,12 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("wrong number of forwarding event: expected %v, "+
 			"got %v", 5, len(fwdingHistory.ForwardingEvents))
 	}
+	expectedForwardingFee := uint64(expectedFeeDave / numPayments)
 	for _, event := range fwdingHistory.ForwardingEvents {
-		// Each event should show a fee of 1 satoshi.
-		if event.Fee != 1 {
-			t.Fatalf("fee mismatch: expected %v, got %v", 1,
-				event.Fee)
+		// Each event should show a fee of 170 satoshi.
+		if event.Fee != expectedForwardingFee {
+			t.Fatalf("fee mismatch:  expected %v, got %v",
+				expectedForwardingFee, event.Fee)
 		}
 	}
 
@@ -9775,14 +9849,13 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 	// Therefore, we'll update the fee policy on Carol's side for the
 	// channel between her and Dave to invalidate the route:
 	//	Alice -> Carol -> Dave
-	const feeBase = 1e+6
 	baseFee := int64(10000)
 	feeRate := int64(5)
 	timeLockDelta := uint32(144)
 
 	expectedPolicy := &lnrpc.RoutingPolicy{
 		FeeBaseMsat:      baseFee,
-		FeeRateMilliMsat: feeBase * feeRate,
+		FeeRateMilliMsat: testFeeBase * feeRate,
 		TimeLockDelta:    timeLockDelta,
 	}
 

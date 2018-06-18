@@ -3142,8 +3142,8 @@ func translateSince(sinceVal string) (ret int64,  err error) {
 		case unit == "W" :
 			ret = int64(7*24*3600*count)  
 		default:
-		    err = errors.New("Time unit must be H,D or W")	  	
-	}
+		    err = errors.New("Time unit must be H, D or W")	  	
+		}
 	}
 	return ret, err
 }

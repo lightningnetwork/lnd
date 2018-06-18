@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/strayoutputpool"
 )
 
 var (
@@ -509,10 +510,17 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 				log.Errorf("unable to Checkpoint: %v", err)
 			}
 
+			// Before signing the transaction, check to ensure that it meets
+			// basic validity requirements and prune inputs/outputs until
+			// we're able to sweep a transaction.
+			btx := btcutil.NewTx(h.sweepTx)
+
+			if err := strayoutputpool.CheckTransactionSanity(btx); err != nil {
+				return nil, err
+			}
+
 			// Finally, we'll broadcast the sweep transaction to
 			// the network.
-			//
-			// TODO(roasbeef): validate first?
 			if err := h.PublishTx(h.sweepTx); err != nil {
 				log.Infof("%T(%x): unable to publish tx: %v",
 					h, h.payHash[:], err)
@@ -1292,6 +1300,14 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 
 		log.Infof("%T(%v): sweeping commit output with tx=%v", c,
 			c.chanPoint, spew.Sdump(c.sweepTx))
+
+		// Before signing the transaction, check to ensure that it meets
+		// basic validity requirements and prune inputs/outputs until
+		// we're able to sweep a transaction.
+		btx := btcutil.NewTx(c.sweepTx)
+		if err := strayoutputpool.CheckTransactionSanity(btx); err != nil {
+			return nil, err
+		}
 
 		// Finally, we'll broadcast the sweep transaction to the
 		// network.

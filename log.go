@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/strayoutputpool"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/signal"
 )
@@ -75,6 +76,7 @@ var (
 	atplLog = backendLog.Logger("ATPL")
 	cnctLog = backendLog.Logger("CNCT")
 	sphxLog = backendLog.Logger("SPHX")
+	soplLog = backendLog.Logger("SOPL")
 )
 
 // Initialize package-global logger variables.
@@ -91,6 +93,7 @@ func init() {
 	contractcourt.UseLogger(cnctLog)
 	sphinx.UseLogger(sphxLog)
 	signal.UseLogger(ltndLog)
+	strayoutputpool.UseLogger(soplLog)
 }
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.
@@ -113,6 +116,7 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"ATPL": atplLog,
 	"CNCT": cnctLog,
 	"SPHX": sphxLog,
+	"SOPL": soplLog,
 }
 
 // initLogRotator initializes the logging rotator to write logs to logFile and

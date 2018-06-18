@@ -25,8 +25,6 @@ import (
 )
 
 var (
-	privPass = []byte("private-test")
-
 	// For simplicity a single priv key controls all of our test outputs.
 	testWalletPrivKey = []byte{
 		0x2b, 0xd8, 0x06, 0xc9, 0x7f, 0x0e, 0x00, 0xaf,
@@ -50,10 +48,6 @@ var (
 		0x4f, 0x2f, 0x6f, 0x25, 0x88, 0xa3, 0xef, 0xb9,
 		0x6a, 0x49, 0x18, 0x83, 0x31, 0x98, 0x47, 0x53,
 	}
-
-	// The number of confirmations required to consider any created channel
-	// open.
-	numReqConfs = uint16(1)
 
 	// A serializable txn for testing funding txn.
 	testTx = &wire.MsgTx{

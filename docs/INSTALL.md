@@ -114,7 +114,7 @@ make btcd
 Running the following command will create `rpc.cert` and default `btcd.conf`.
 
 ```
-btcd --testnet --txindex --rpcuser=REPLACEME --rpcpass=REPLACEME
+btcd --testnet --rpcuser=REPLACEME --rpcpass=REPLACEME
 ```
 If you want to use `lnd` on testnet, `btcd` needs to first fully sync the
 testnet blockchain. Depending on your hardware, this may take up to a few
@@ -207,9 +207,7 @@ prefixed by `litecoind`.
 To configure your bitcoind backend for use with lnd, first complete and verify
 the following:
 
-- The `bitcoind` instance must be configured with `--txindex` just like `btcd`
-  above
-- Additionally, since `lnd` uses
+- Since `lnd` uses
   [ZeroMQ](https://github.com/bitcoin/bitcoin/blob/master/doc/zmq.md) to
   interface with `bitcoind`, *your `bitcoind` installation must be compiled with
   ZMQ*. Note that if you installed `bitcoind` from source and ZMQ was not present, 
@@ -228,7 +226,6 @@ the following:
 Here's a sample `bitcoin.conf` for use with lnd:
 ```
 testnet=1
-txindex=1
 server=1
 daemon=1
 zmqpubrawblock=tcp://127.0.0.1:28332

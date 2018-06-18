@@ -207,8 +207,8 @@ prefixed by `litecoind`.
 To configure your bitcoind backend for use with lnd, first complete and verify
 the following:
 
-- The `bitcoind` instance must be configured with `--txindex` just like `btcd`
-  above
+- The `bitcoind` instance can optionally be configured with `--txindex` just like `btcd`
+  above.
 - Additionally, since `lnd` uses
   [ZeroMQ](https://github.com/bitcoin/bitcoin/blob/master/doc/zmq.md) to
   interface with `bitcoind`, *your `bitcoind` installation must be compiled with

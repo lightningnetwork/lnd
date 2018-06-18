@@ -99,7 +99,7 @@ make check
 
 ### Installing btcd
 
-When using the `btcd` backend, `lnd` currently requires the
+If one wishes to use the `btcd` backend, `lnd` currently requires the
 [roasbeef](https://github.com/roasbeef/btcd) fork of `btcd` due to neutrino
 additions that are not yet available in the master branch. To install, run the
 following commands:
@@ -118,7 +118,9 @@ btcd --testnet --rpcuser=REPLACEME --rpcpass=REPLACEME
 ```
 If you want to use `lnd` on testnet, `btcd` needs to first fully sync the
 testnet blockchain. Depending on your hardware, this may take up to a few
-hours.
+hours. Note that adding `--txindex` is optional, as it will take longer to sync
+the node, but then `lnd` will generally operate faster as it can hit the index
+directly, rather than scanning blocks or BIP 158 filters for relevant items.
 
 (NOTE: It may take several minutes to find segwit-enabled peers.)
 
@@ -202,7 +204,10 @@ The configuration for bitcoind and litecoind are nearly identical, the following
 steps can be mirrored with loss of generality to enable a litecoind backend.
 Setup will be described in regards to `bitcoind`, but note that `lnd` uses a
 distinct `litecoin.node=litecoind` argument and analogous subconfigurations
-prefixed by `litecoind`.
+prefixed by `litecoind`. Note that adding `--txindex` is optional, as it will
+take longer to sync the node, but then `lnd` will generally operate faster as
+it can hit the index directly, rather than scanning blocks or BIP 158 filters
+for relevant items.
 
 To configure your bitcoind backend for use with lnd, first complete and verify
 the following:

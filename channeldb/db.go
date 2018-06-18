@@ -59,6 +59,14 @@ var (
 			number:    3,
 			migration: migrateInvoiceTimeSeriesOutgoingPayments,
 		},
+		{
+			// The version of the database where every channel
+			// always has two entries in the edges bucket. If
+			// a policy is unknown, this will be represented
+			// by a special byte sequence.
+			number:    4,
+			migration: migrateEdgePolicies,
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over

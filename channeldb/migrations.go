@@ -300,3 +300,76 @@ func migrateInvoiceTimeSeriesOutgoingPayments(tx *bolt.Tx) error {
 
 	return nil
 }
+
+// migrateEdgePolicies is a migration function that will update the edges
+// bucket. It ensure that edges with unknown policies will also have an entry
+// in the bucket. After the migration, there will be two edge entries for
+// every channel, regardless of whether the policies are known.
+func migrateEdgePolicies(tx *bolt.Tx) error {
+	nodes := tx.Bucket(nodeBucket)
+	if nodes == nil {
+		return nil
+	}
+
+	edges := tx.Bucket(edgeBucket)
+	if edges == nil {
+		return nil
+	}
+
+	edgeIndex := edges.Bucket(edgeIndexBucket)
+	if edgeIndex == nil {
+		return nil
+	}
+
+	// checkKey gets the policy from the database with a low-level call
+	// so that it is still possible to distinguish between unknown and
+	// not present.
+	checkKey := func(channelId uint64, keyBytes []byte) error {
+		var channelID [8]byte
+		byteOrder.PutUint64(channelID[:], channelId)
+
+		_, err := fetchChanEdgePolicy(edges,
+			channelID[:], keyBytes, nodes)
+
+		if err == ErrEdgeNotFound {
+			log.Tracef("Adding unknown edge policy present for node %x, channel %v",
+				keyBytes, channelId)
+
+			err := putChanEdgePolicyUnknown(edges, channelId, keyBytes)
+			if err != nil {
+				return err
+			}
+
+			return nil
+		}
+
+		return err
+	}
+
+	// Iterate over all channels and check both edge policies.
+	err := edgeIndex.ForEach(func(chanID, edgeInfoBytes []byte) error {
+		infoReader := bytes.NewReader(edgeInfoBytes)
+		edgeInfo, err := deserializeChanEdgeInfo(infoReader)
+		if err != nil {
+			return err
+		}
+
+		for _, key := range [][]byte{edgeInfo.NodeKey1Bytes[:],
+			edgeInfo.NodeKey2Bytes[:]} {
+
+			if err := checkKey(edgeInfo.ChannelID, key); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("unable to update edge policies: %v", err)
+	}
+
+	log.Infof("Migration of edge policies complete!")
+
+	return nil
+}

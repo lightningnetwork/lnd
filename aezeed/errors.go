@@ -14,7 +14,7 @@ var (
 	// ErrIncorrectMnemonic is returned if we detect that the checksum of
 	// the specified mnemonic doesn't match. This indicates the user input
 	// the wrong mnemonic.
-	ErrIncorrectMnemonic = fmt.Errorf("mnemonic phrase checksum doesn't" +
+	ErrIncorrectMnemonic = fmt.Errorf("mnemonic phrase checksum doesn't " +
 		"match")
 )
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"container/list"
 	"fmt"
 	"net"
@@ -9,14 +10,11 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/brontide"
-	"github.com/lightningnetwork/lnd/contractcourt"
-
-	"bytes"
-
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -345,11 +343,6 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			continue
 		}
 
-		blockEpoch, err := p.server.cc.chainNotifier.RegisterBlockEpochNtfn()
-		if err != nil {
-			lnChan.Stop()
-			return err
-		}
 		_, currentHeight, err := p.server.cc.chainIO.GetBestBlock()
 		if err != nil {
 			lnChan.Stop()
@@ -412,8 +405,8 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 
 		// Create the link and add it to the switch.
 		err = p.addLink(
-			chanPoint, lnChan, forwardingPolicy, blockEpoch,
-			chainEvents, currentHeight, true,
+			chanPoint, lnChan, forwardingPolicy, chainEvents,
+			currentHeight, true,
 		)
 		if err != nil {
 			lnChan.Stop()
@@ -432,7 +425,6 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 func (p *peer) addLink(chanPoint *wire.OutPoint,
 	lnChan *lnwallet.LightningChannel,
 	forwardingPolicy *htlcswitch.ForwardingPolicy,
-	blockEpoch *chainntnfs.BlockEpochEvent,
 	chainEvents *contractcourt.ChainEventSubscription,
 	currentHeight int32, syncStates bool) error {
 
@@ -537,7 +529,6 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 		ForwardPackets: p.server.htlcSwitch.ForwardPackets,
 		FwrdingPolicy:  *forwardingPolicy,
 		FeeEstimator:   p.server.cc.feeEstimator,
-		BlockEpochs:    blockEpoch,
 		PreimageCache:  p.server.witnessBeacon,
 		ChainEvents:    chainEvents,
 		UpdateContractSignals: func(signals *contractcourt.ContractSignals) error {
@@ -551,11 +542,13 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 			time.NewTicker(50 * time.Millisecond)),
 		FwdPkgGCTicker: htlcswitch.NewBatchTicker(
 			time.NewTicker(time.Minute)),
-		BatchSize:    10,
-		UnsafeReplay: cfg.UnsafeReplay,
+		BatchSize:           10,
+		UnsafeReplay:        cfg.UnsafeReplay,
+		MinFeeUpdateTimeout: htlcswitch.DefaultMinLinkFeeUpdateTimeout,
+		MaxFeeUpdateTimeout: htlcswitch.DefaultMaxLinkFeeUpdateTimeout,
 	}
-	link := htlcswitch.NewChannelLink(linkCfg, lnChan,
-		uint32(currentHeight))
+
+	link := htlcswitch.NewChannelLink(linkCfg, lnChan)
 
 	// With the channel link created, we'll now notify the htlc switch so
 	// this channel can be used to dispatch local payments and also
@@ -1504,11 +1497,6 @@ out:
 			// necessary items it needs to function.
 			//
 			// TODO(roasbeef): panic on below?
-			blockEpoch, err := p.server.cc.chainNotifier.RegisterBlockEpochNtfn()
-			if err != nil {
-				peerLog.Errorf("unable to register for block epoch: %v", err)
-				continue
-			}
 			_, currentHeight, err := p.server.cc.chainIO.GetBestBlock()
 			if err != nil {
 				peerLog.Errorf("unable to get best block: %v", err)
@@ -1524,9 +1512,10 @@ out:
 			}
 
 			// Create the link and add it to the switch.
-			err = p.addLink(chanPoint, newChan,
-				&p.server.cc.routingPolicy, blockEpoch,
-				chainEvents, currentHeight, false)
+			err = p.addLink(
+				chanPoint, newChan, &p.server.cc.routingPolicy,
+				chainEvents, currentHeight, false,
+			)
 			if err != nil {
 				peerLog.Errorf("can't register new channel "+
 					"link(%v) with NodeKey(%x): %v", chanPoint,

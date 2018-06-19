@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
+	"errors"
 	"fmt"
+	prand "math/rand"
 	"net"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/autopilot"
@@ -17,6 +20,10 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcutil/bech32"
 )
+
+func init() {
+	prand.Seed(time.Now().Unix())
+}
 
 // NetworkPeerBootstrapper is an interface that represents an initial peer
 // bootstrap mechanism. This interface is to be used to bootstrap a new peer to
@@ -44,38 +51,62 @@ type NetworkPeerBootstrapper interface {
 // the ignore map is populated, then the bootstrappers will be instructed to
 // skip those nodes.
 func MultiSourceBootstrap(ignore map[autopilot.NodeID]struct{}, numAddrs uint32,
-	bootStrappers ...NetworkPeerBootstrapper) ([]*lnwire.NetAddress, error) {
+	bootstrappers ...NetworkPeerBootstrapper) ([]*lnwire.NetAddress, error) {
+
+	// We'll randomly shuffle our bootstrappers before querying them in
+	// order to avoid from querying the same bootstrapper method over and
+	// over, as some of these might tend to provide better/worse results
+	// than others.
+	bootstrappers = shuffleBootstrappers(bootstrappers)
 
 	var addrs []*lnwire.NetAddress
-	for _, bootStrapper := range bootStrappers {
+	for _, bootstrapper := range bootstrappers {
 		// If we already have enough addresses, then we can exit early
 		// w/o querying the additional bootstrappers.
 		if uint32(len(addrs)) >= numAddrs {
 			break
 		}
 
-		log.Infof("Attempting to bootstrap with: %v", bootStrapper.Name())
+		log.Infof("Attempting to bootstrap with: %v", bootstrapper.Name())
 
 		// If we still need additional addresses, then we'll compute
 		// the number of address remaining that we need to fetch.
 		numAddrsLeft := numAddrs - uint32(len(addrs))
 		log.Tracef("Querying for %v addresses", numAddrsLeft)
-		netAddrs, err := bootStrapper.SampleNodeAddrs(numAddrsLeft, ignore)
+		netAddrs, err := bootstrapper.SampleNodeAddrs(numAddrsLeft, ignore)
 		if err != nil {
 			// If we encounter an error with a bootstrapper, then
 			// we'll continue on to the next available
 			// bootstrapper.
 			log.Errorf("Unable to query bootstrapper %v: %v",
-				bootStrapper.Name(), err)
+				bootstrapper.Name(), err)
 			continue
 		}
 
 		addrs = append(addrs, netAddrs...)
 	}
 
+	if len(addrs) == 0 {
+		return nil, errors.New("no addresses found")
+	}
+
 	log.Infof("Obtained %v addrs to bootstrap network with", len(addrs))
 
 	return addrs, nil
+}
+
+// shuffleBootstrappers shuffles the set of bootstrappers in order to avoid
+// querying the same bootstrapper over and over. To shuffle the set of
+// candidates, we use a version of the Fisher–Yates shuffle algorithm.
+func shuffleBootstrappers(candidates []NetworkPeerBootstrapper) []NetworkPeerBootstrapper {
+	shuffled := make([]NetworkPeerBootstrapper, len(candidates))
+	perm := prand.Perm(len(candidates))
+
+	for i, v := range perm {
+		shuffled[v] = candidates[i]
+	}
+
+	return shuffled
 }
 
 // ChannelGraphBootstrapper is an implementation of the NetworkPeerBootstrapper

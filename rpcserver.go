@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -220,6 +221,10 @@ var (
 			Action: "read",
 		}},
 		"/lnrpc.Lightning/ListChannels": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/ClosedChannels": {{
 			Entity: "offchain",
 			Action: "read",
 		}},
@@ -1133,8 +1138,9 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		// the htlc switch which will handle the negotiation and
 		// broadcast details.
 		feePerKw := feeRate.FeePerKWeight()
-		updateChan, errChan = r.server.htlcSwitch.CloseLink(chanPoint,
-			htlcswitch.CloseRegular, feePerKw)
+		updateChan, errChan = r.server.htlcSwitch.CloseLink(
+			chanPoint, htlcswitch.CloseRegular, feePerKw,
+		)
 	}
 out:
 	for {
@@ -1579,6 +1585,86 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 	return resp, nil
 }
 
+// ClosedChannels returns a list of all the channels have been closed.
+// This does not include channels that are still in the process of closing.
+func (r *rpcServer) ClosedChannels(ctx context.Context,
+	in *lnrpc.ClosedChannelsRequest) (*lnrpc.ClosedChannelsResponse,
+	error) {
+
+	// Show all channels when no filter flags are set.
+	filterResults := in.Cooperative || in.LocalForce ||
+		in.RemoteForce || in.Breach || in.FundingCanceled
+
+	resp := &lnrpc.ClosedChannelsResponse{}
+
+	dbChannels, err := r.server.chanDB.FetchClosedChannels(false)
+	if err != nil {
+		return nil, err
+	}
+
+	// In order to make the response easier to parse for clients, we'll
+	// sort the set of closed channels by their closing height before
+	// serializing the proto response.
+	sort.Slice(dbChannels, func(i, j int) bool {
+		return dbChannels[i].CloseHeight < dbChannels[j].CloseHeight
+	})
+
+	for _, dbChannel := range dbChannels {
+		if dbChannel.IsPending {
+			continue
+		}
+
+		nodePub := dbChannel.RemotePub
+		nodeID := hex.EncodeToString(nodePub.SerializeCompressed())
+
+		var closeType lnrpc.ChannelCloseSummary_ClosureType
+		switch dbChannel.CloseType {
+		case channeldb.CooperativeClose:
+			if filterResults && !in.Cooperative {
+				continue
+			}
+			closeType = lnrpc.ChannelCloseSummary_COOPERATIVE_CLOSE
+		case channeldb.LocalForceClose:
+			if filterResults && !in.LocalForce {
+				continue
+			}
+			closeType = lnrpc.ChannelCloseSummary_LOCAL_FORCE_CLOSE
+		case channeldb.RemoteForceClose:
+			if filterResults && !in.RemoteForce {
+				continue
+			}
+			closeType = lnrpc.ChannelCloseSummary_REMOTE_FORCE_CLOSE
+		case channeldb.BreachClose:
+			if filterResults && !in.Breach {
+				continue
+			}
+			closeType = lnrpc.ChannelCloseSummary_BREACH_CLOSE
+		case channeldb.FundingCanceled:
+			if filterResults && !in.FundingCanceled {
+				continue
+			}
+			closeType = lnrpc.ChannelCloseSummary_FUNDING_CANCELED
+		}
+
+		channel := &lnrpc.ChannelCloseSummary{
+			Capacity:          int64(dbChannel.Capacity),
+			RemotePubkey:      nodeID,
+			CloseHeight:       dbChannel.CloseHeight,
+			CloseType:         closeType,
+			ChannelPoint:      dbChannel.ChanPoint.String(),
+			ChanId:            dbChannel.ShortChanID.ToUint64(),
+			SettledBalance:    int64(dbChannel.SettledBalance),
+			TimeLockedBalance: int64(dbChannel.TimeLockedBalance),
+			ChainHash:         dbChannel.ChainHash.String(),
+			ClosingTxHash:     dbChannel.ClosingTXID.String(),
+		}
+
+		resp.Channels = append(resp.Channels, channel)
+	}
+
+	return resp, nil
+}
+
 // ListChannels returns a description of all the open channels that this node
 // is a participant in.
 func (r *rpcServer) ListChannels(ctx context.Context,
@@ -1765,6 +1851,27 @@ type rpcPaymentRequest struct {
 	routes []*routing.Route
 }
 
+// calculateFeeLimit returns the fee limit in millisatoshis. If a percentage
+// based fee limit has been requested, we'll factor in the ratio provided with
+// the amount of the payment.
+func calculateFeeLimit(feeLimit *lnrpc.FeeLimit,
+	amount lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+
+	switch feeLimit.GetLimit().(type) {
+	case *lnrpc.FeeLimit_Fixed:
+		return lnwire.NewMSatFromSatoshis(
+			btcutil.Amount(feeLimit.GetFixed()),
+		)
+	case *lnrpc.FeeLimit_Percent:
+		return amount * lnwire.MilliSatoshi(feeLimit.GetPercent()) / 100
+	default:
+		// If a fee limit was not specified, we'll use the payment's
+		// amount as an upper bound in order to avoid payment attempts
+		// from incurring fees higher than the payment amount itself.
+		return amount
+	}
+}
+
 // SendPayment dispatches a bi-directional streaming RPC for sending payments
 // through the Lightning Network. A single RPC invocation creates a persistent
 // bi-directional stream allowing clients to rapidly send payments through the
@@ -1831,6 +1938,7 @@ func (r *rpcServer) SendToRoute(stream lnrpc.Lightning_SendToRouteServer) error 
 // directly to the channel router for dispatching.
 type rpcPaymentIntent struct {
 	msat       lnwire.MilliSatoshi
+	feeLimit   lnwire.MilliSatoshi
 	dest       *btcec.PublicKey
 	rHash      [32]byte
 	cltvDelta  uint16
@@ -1890,6 +1998,12 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 		// We override the amount to pay with the amount provided from
 		// the payment request.
 		if payReq.MilliSat == nil {
+			if rpcPayReq.Amt == 0 {
+				return payIntent, errors.New("amount must be " +
+					"specified when paying a zero amount " +
+					"invoice")
+			}
+
 			payIntent.msat = lnwire.NewMSatFromSatoshis(
 				btcutil.Amount(rpcPayReq.Amt),
 			)
@@ -1897,57 +2011,68 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 			payIntent.msat = *payReq.MilliSat
 		}
 
+		// Calculate the fee limit that should be used for this payment.
+		payIntent.feeLimit = calculateFeeLimit(
+			rpcPayReq.FeeLimit, payIntent.msat,
+		)
+
 		copy(payIntent.rHash[:], payReq.PaymentHash[:])
 		payIntent.dest = payReq.Destination
 		payIntent.cltvDelta = uint16(payReq.MinFinalCLTVExpiry())
 		payIntent.routeHints = payReq.RouteHints
 
 		return payIntent, nil
-	} else {
-		// At this point, a destination MUST be specified, so we'll convert it
-		// into the proper representation now. The destination will either be
-		// encoded as raw bytes, or via a hex string.
-		if len(rpcPayReq.Dest) != 0 {
-			payIntent.dest, err = btcec.ParsePubKey(
-				rpcPayReq.Dest, btcec.S256(),
-			)
-			if err != nil {
-				return payIntent, err
-			}
+	}
 
-		} else {
-			pubBytes, err := hex.DecodeString(rpcPayReq.DestString)
-			if err != nil {
-				return payIntent, err
-			}
-			payIntent.dest, err = btcec.ParsePubKey(pubBytes, btcec.S256())
-			if err != nil {
-				return payIntent, err
-			}
-		}
-
-		// Otherwise, If the payment request field was not specified
-		// (and a custom route wasn't specified), construct the payment
-		// from the other fields.
-		payIntent.msat = lnwire.NewMSatFromSatoshis(
-			btcutil.Amount(rpcPayReq.Amt),
+	// At this point, a destination MUST be specified, so we'll convert it
+	// into the proper representation now. The destination will either be
+	// encoded as raw bytes, or via a hex string.
+	if len(rpcPayReq.Dest) != 0 {
+		payIntent.dest, err = btcec.ParsePubKey(
+			rpcPayReq.Dest, btcec.S256(),
 		)
-		payIntent.cltvDelta = uint16(rpcPayReq.FinalCltvDelta)
-
-		// If the user is manually specifying payment details, then the
-		// payment hash may be encoded as a string.
-		if rpcPayReq.PaymentHashString != "" {
-			paymentHash, err := hex.DecodeString(
-				rpcPayReq.PaymentHashString,
-			)
-			if err != nil {
-				return payIntent, err
-			}
-
-			copy(payIntent.rHash[:], paymentHash)
-		} else {
-			copy(payIntent.rHash[:], rpcPayReq.PaymentHash)
+		if err != nil {
+			return payIntent, err
 		}
+
+	} else {
+		pubBytes, err := hex.DecodeString(rpcPayReq.DestString)
+		if err != nil {
+			return payIntent, err
+		}
+		payIntent.dest, err = btcec.ParsePubKey(pubBytes, btcec.S256())
+		if err != nil {
+			return payIntent, err
+		}
+	}
+
+	// Otherwise, If the payment request field was not specified
+	// (and a custom route wasn't specified), construct the payment
+	// from the other fields.
+	payIntent.msat = lnwire.NewMSatFromSatoshis(
+		btcutil.Amount(rpcPayReq.Amt),
+	)
+
+	// Calculate the fee limit that should be used for this payment.
+	payIntent.feeLimit = calculateFeeLimit(
+		rpcPayReq.FeeLimit, payIntent.msat,
+	)
+
+	payIntent.cltvDelta = uint16(rpcPayReq.FinalCltvDelta)
+
+	// If the user is manually specifying payment details, then the
+	// payment hash may be encoded as a string.
+	if rpcPayReq.PaymentHashString != "" {
+		paymentHash, err := hex.DecodeString(
+			rpcPayReq.PaymentHashString,
+		)
+		if err != nil {
+			return payIntent, err
+		}
+
+		copy(payIntent.rHash[:], paymentHash)
+	} else {
+		copy(payIntent.rHash[:], rpcPayReq.PaymentHash)
 	}
 
 	// If we're in debug HTLC mode, then all outgoing HTLCs will pay to the
@@ -1993,6 +2118,7 @@ func (r *rpcServer) dispatchPaymentIntent(payIntent *rpcPaymentIntent) (*routing
 		payment := &routing.LightningPayment{
 			Target:      payIntent.dest,
 			Amount:      payIntent.msat,
+			FeeLimit:    payIntent.feeLimit,
 			PaymentHash: payIntent.rHash,
 			RouteHints:  payIntent.routeHints,
 		}
@@ -2051,9 +2177,6 @@ func (r *rpcServer) dispatchPaymentIntent(payIntent *rpcPaymentIntent) (*routing
 func (r *rpcServer) sendPayment(stream *paymentStream) error {
 	payChan := make(chan *rpcPaymentIntent)
 	errChan := make(chan error, 1)
-
-	// TODO(roasbeef): enforce fee limits, pass into router, ditch if exceed limit
-	//  * limit either a %, or absolute, or iff more than sending
 
 	// We don't allow payments to be sent while the daemon itself is still
 	// syncing as we may be trying to sent a payment over a "stale"
@@ -2240,9 +2363,6 @@ func (r *rpcServer) SendToRouteSync(ctx context.Context,
 // wait until the payment has been fully completed.
 func (r *rpcServer) sendPaymentSync(ctx context.Context,
 	nextPayment *rpcPaymentRequest) (*lnrpc.SendResponse, error) {
-
-	// TODO(roasbeef): enforce fee limits, pass into router, ditch if exceed limit
-	//  * limit either a %, or absolute, or iff more than sending
 
 	// We don't allow payments to be sent while the daemon itself is still
 	// syncing as we may be trying to sent a payment over a "stale"
@@ -3053,6 +3173,8 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 			"allowed is %v", amt, maxPaymentMSat.ToSatoshis())
 	}
 
+	feeLimit := calculateFeeLimit(in.FeeLimit, amtMSat)
+
 	// Query the channel router for a possible path to the destination that
 	// can carry `in.Amt` satoshis _including_ the total fee required on
 	// the route.
@@ -3062,11 +3184,12 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 	)
 	if in.FinalCltvDelta == 0 {
 		routes, findErr = r.server.chanRouter.FindRoutes(
-			pubKey, amtMSat, uint32(in.NumRoutes),
+			pubKey, amtMSat, feeLimit, uint32(in.NumRoutes),
 		)
 	} else {
 		routes, findErr = r.server.chanRouter.FindRoutes(
-			pubKey, amtMSat, uint32(in.NumRoutes), uint16(in.FinalCltvDelta),
+			pubKey, amtMSat, feeLimit, uint32(in.NumRoutes),
+			uint16(in.FinalCltvDelta),
 		)
 	}
 	if findErr != nil {

@@ -184,6 +184,7 @@ type config struct {
 	Listeners      []string `long:"listen" description:"Add an interface/port to listen for peer connections"`
 	DisableListen  bool     `long:"nolisten" description:"Disable listening for incoming peer connections"`
 	ExternalIPs    []string `long:"externalip" description:"Add an ip:port to the list of local addresses we claim to listen on to peers. If a port is not specified, the default (9735) will be used regardless of other parameters"`
+	NAT            bool     `long:"nat" description:"Toggle NAT traversal support (using either UPnP or NAT-PMP) to automatically advertise your external IP address to the network -- NOTE this does not support devices behind multiple NATs"`
 
 	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
 
@@ -453,6 +454,11 @@ func loadConfig() (*config, error) {
 			DNS:             cfg.Tor.DNS,
 			StreamIsolation: cfg.Tor.StreamIsolation,
 		}
+	}
+
+	if cfg.DisableListen && cfg.NAT {
+		return nil, errors.New("NAT traversal cannot be used when " +
+			"listening is disabled")
 	}
 
 	// Determine the active chain configuration and its parameters.
@@ -772,26 +778,36 @@ func loadConfig() (*config, error) {
 		return nil, err
 	}
 
-	// Remove all Listeners if listening is disabled.
+	// Remove the listening addresses specified if listening is disabled.
 	if cfg.DisableListen {
 		ltndLog.Infof("Listening on the p2p interface is disabled!")
 		cfg.Listeners = nil
+		cfg.ExternalIPs = nil
 	}
 
 	// Add default port to all RPC listener addresses if needed and remove
 	// duplicate addresses.
-	cfg.RPCListeners = normalizeAddresses(cfg.RPCListeners,
-		strconv.Itoa(defaultRPCPort))
+	cfg.RPCListeners = normalizeAddresses(
+		cfg.RPCListeners, strconv.Itoa(defaultRPCPort),
+	)
 
 	// Add default port to all REST listener addresses if needed and remove
 	// duplicate addresses.
-	cfg.RESTListeners = normalizeAddresses(cfg.RESTListeners,
-		strconv.Itoa(defaultRESTPort))
+	cfg.RESTListeners = normalizeAddresses(
+		cfg.RESTListeners, strconv.Itoa(defaultRESTPort),
+	)
 
 	// Add default port to all listener addresses if needed and remove
 	// duplicate addresses.
-	cfg.Listeners = normalizeAddresses(cfg.Listeners,
-		strconv.Itoa(defaultPeerPort))
+	cfg.Listeners = normalizeAddresses(
+		cfg.Listeners, strconv.Itoa(defaultPeerPort),
+	)
+
+	// Add default port to all external IP addresses if needed and remove
+	// duplicate addresses.
+	cfg.ExternalIPs = normalizeAddresses(
+		cfg.ExternalIPs, strconv.Itoa(defaultPeerPort),
+	)
 
 	// Finally, ensure that we are only listening on localhost if Tor
 	// inbound support is enabled.

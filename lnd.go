@@ -200,6 +200,7 @@ func lndMain() error {
 		publicWalletPw  = lnwallet.DefaultPublicPassphrase
 		birthday        time.Time
 		recoveryWindow  uint32
+		unlockedWallet  *wallet.Wallet
 	)
 
 	// We wait until the user provides a password over RPC. In case lnd is
@@ -218,6 +219,7 @@ func lndMain() error {
 		publicWalletPw = walletInitParams.Password
 		birthday = walletInitParams.Birthday
 		recoveryWindow = walletInitParams.RecoveryWindow
+		unlockedWallet = walletInitParams.Wallet
 
 		if recoveryWindow > 0 {
 			ltndLog.Infof("Wallet recovery mode enabled with "+
@@ -265,7 +267,7 @@ func lndMain() error {
 	// Lightning Network Daemon.
 	activeChainControl, chainCleanUp, err := newChainControlFromConfig(
 		cfg, chanDB, privateWalletPw, publicWalletPw, birthday,
-		recoveryWindow,
+		recoveryWindow, unlockedWallet,
 	)
 	if err != nil {
 		fmt.Printf("unable to create chain control: %v\n", err)
@@ -869,6 +871,13 @@ type WalletUnlockParams struct {
 	// RecoveryWindow specifies the address lookahead when entering recovery
 	// mode. A recovery will be attempted if this value is non-zero.
 	RecoveryWindow uint32
+
+	// Wallet is the loaded and unlocked Wallet. This is returned
+	// from the unlocker service to avoid it being unlocked twice (once in
+	// the unlocker service to check if the password is correct and again
+	// later when lnd actually uses it). Because unlocking involves scrypt
+	// which is resource intensive, we want to avoid doing it twice.
+	Wallet *wallet.Wallet
 }
 
 // waitForWalletPassword will spin up gRPC and REST endpoints for the
@@ -996,16 +1005,18 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 		)
 
 		// With the seed, we can now use the wallet loader to create
-		// the wallet, then unload it so it can be opened shortly
+		// the wallet, then pass it back to avoid unlocking it again.
 		birthday := cipherSeed.BirthdayTime()
-		_, err = loader.CreateNewWallet(
+		newWallet, err := loader.CreateNewWallet(
 			password, password, cipherSeed.Entropy[:], birthday,
 		)
 		if err != nil {
-			return nil, err
-		}
-
-		if err := loader.UnloadWallet(); err != nil {
+			// Don't leave the file open in case the new wallet
+			// could not be created for whatever reason.
+			if err := loader.UnloadWallet(); err != nil {
+				ltndLog.Errorf("Could not unload new " +
+					"wallet: %v", err)
+			}
 			return nil, err
 		}
 
@@ -1013,6 +1024,7 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 			Password:       password,
 			Birthday:       birthday,
 			RecoveryWindow: recoveryWindow,
+			Wallet:         newWallet,
 		}
 
 		return walletInitParams, nil
@@ -1023,6 +1035,7 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 		walletInitParams := &WalletUnlockParams{
 			Password:       unlockMsg.Passphrase,
 			RecoveryWindow: unlockMsg.RecoveryWindow,
+			Wallet:         unlockMsg.Wallet,
 		}
 		return walletInitParams, nil
 

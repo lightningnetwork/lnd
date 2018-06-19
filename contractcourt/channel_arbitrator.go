@@ -231,6 +231,7 @@ func (c *ChannelArbitrator) Start() error {
 	// machine can act accordingly.
 	c.state, err = c.log.CurrentState()
 	if err != nil {
+		c.cfg.BlockEpochs.Cancel()
 		return err
 	}
 
@@ -239,6 +240,7 @@ func (c *ChannelArbitrator) Start() error {
 
 	_, bestHeight, err := c.cfg.ChainIO.GetBestBlock()
 	if err != nil {
+		c.cfg.BlockEpochs.Cancel()
 		return err
 	}
 
@@ -249,6 +251,7 @@ func (c *ChannelArbitrator) Start() error {
 		uint32(bestHeight), chainTrigger, nil,
 	)
 	if err != nil {
+		c.cfg.BlockEpochs.Cancel()
 		return err
 	}
 
@@ -262,6 +265,7 @@ func (c *ChannelArbitrator) Start() error {
 		// relaunch all contract resolvers.
 		unresolvedContracts, err = c.log.FetchUnresolvedContracts()
 		if err != nil {
+			c.cfg.BlockEpochs.Cancel()
 			return err
 		}
 

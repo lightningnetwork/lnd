@@ -1042,8 +1042,12 @@ func (n *NetworkHarness) AssertChannelExists(ctx context.Context,
 // several running lnd nodes. This function gives callers a way to assert that
 // some property is upheld within a particular time frame.
 func WaitPredicate(pred func() bool, timeout time.Duration) error {
+	const pollInterval = 20 * time.Millisecond
+
 	exitTimer := time.After(timeout)
 	for {
+		<-time.After(pollInterval)
+
 		select {
 		case <-exitTimer:
 			return fmt.Errorf("predicate not satisfied after time out")

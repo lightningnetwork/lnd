@@ -341,10 +341,17 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		breachArbiter: breachArbiter,
 		chainArb:      chainArb,
 	}
+
+	_, currentHeight, err := s.cc.chainIO.GetBestBlock()
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
 	htlcSwitch, err := htlcswitch.New(htlcswitch.Config{
 		DB:             dbAlice,
 		SwitchPackager: channeldb.NewSwitchPackager(),
-	})
+		Notifier:       notifier,
+	}, uint32(currentHeight))
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}

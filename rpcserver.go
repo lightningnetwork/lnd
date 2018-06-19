@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -1137,8 +1138,9 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		// the htlc switch which will handle the negotiation and
 		// broadcast details.
 		feePerKw := feeRate.FeePerKWeight()
-		updateChan, errChan = r.server.htlcSwitch.CloseLink(chanPoint,
-			htlcswitch.CloseRegular, feePerKw)
+		updateChan, errChan = r.server.htlcSwitch.CloseLink(
+			chanPoint, htlcswitch.CloseRegular, feePerKw,
+		)
 	}
 out:
 	for {
@@ -1583,14 +1585,14 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 	return resp, nil
 }
 
-// ClosedChannels returns a list of all the channels have been closed. 
+// ClosedChannels returns a list of all the channels have been closed.
 // This does not include channels that are still in the process of closing.
 func (r *rpcServer) ClosedChannels(ctx context.Context,
-	in *lnrpc.ClosedChannelsRequest) (*lnrpc.ClosedChannelsResponse, 
+	in *lnrpc.ClosedChannelsRequest) (*lnrpc.ClosedChannelsResponse,
 	error) {
 
 	// Show all channels when no filter flags are set.
-	filterResults := in.Cooperative || in.LocalForce || 
+	filterResults := in.Cooperative || in.LocalForce ||
 		in.RemoteForce || in.Breach || in.FundingCanceled
 
 	resp := &lnrpc.ClosedChannelsResponse{}
@@ -1599,6 +1601,13 @@ func (r *rpcServer) ClosedChannels(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+
+	// In order to make the response easier to parse for clients, we'll
+	// sort the set of closed channels by their closing height before
+	// serializing the proto response.
+	sort.Slice(dbChannels, func(i, j int) bool {
+		return dbChannels[i].CloseHeight < dbChannels[j].CloseHeight
+	})
 
 	for _, dbChannel := range dbChannels {
 		if dbChannel.IsPending {

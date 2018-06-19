@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/awalterschulze/gographviz"
 	"github.com/golang/protobuf/jsonpb"
@@ -3173,8 +3174,34 @@ var forwardingHistoryCommand = cli.Command{
 			Name:  "max_events",
 			Usage: "the max number of events to return",
 		},
+		cli.StringFlag{
+			Name:  "since",
+			Usage: "number of H(ours)/D(ays)/W(eeks) before end_time (if negative) or after start_time or current time if no start_time specifued",
+		},		
 	},
 	Action: actionDecorator(forwardingHistory),
+}
+
+func translateSince(sinceVal string) (ret int64,  err error) {
+	//convert first length-1 characters to int
+	count, err := strconv.Atoi(sinceVal[0:len(sinceVal)-1])
+	if err != nil {
+		ret = int64(0)
+	} else  {	
+	
+	unit := sinceVal[len(sinceVal)-1:len(sinceVal)] 	
+	switch {
+		case unit == "H" :
+			ret = int64(3600*count)
+		case unit == "D" :
+		    ret = int64(24*3600*count)
+		case unit == "W" :
+			ret = int64(7*24*3600*count)  
+		default:
+		    err = errors.New("Time unit must be H, D or W")	  	
+		}
+	}
+	return ret, err
 }
 
 func forwardingHistory(ctx *cli.Context) error {
@@ -3185,6 +3212,7 @@ func forwardingHistory(ctx *cli.Context) error {
 	var (
 		startTime, endTime     uint64
 		indexOffset, maxEvents uint32
+		since                  int64
 		err                    error
 	)
 	args := ctx.Args()
@@ -3211,6 +3239,33 @@ func forwardingHistory(ctx *cli.Context) error {
 		args = args.Tail()
 	}
 
+    //Important for "since" to be evaluated after start and end times because it modifies them
+    if ctx.IsSet("since") {
+		since, err = translateSince(ctx.String("since"))
+		if err != nil {
+			return fmt.Errorf("unable to decode since expression: %v", err);
+		}
+		if (since > 0) {
+			//make end time start time plus since's value if start time specified and we set or overwrite endTime if specified
+			if startTime != 0 {
+				endTime = startTime + uint64(since)
+			} else {
+				//Positive since value without startTime is not allowed
+				return errors.New("Positive since value without start_time is illegal") 
+			}
+			
+			
+		} else {
+			//negative "since" value: derive start time from end time. if no end time then it is set (only in "since" present case) to current time
+			if endTime == 0 {
+				now := time.Now()
+				endTime = uint64(now.Unix())
+			} 
+			//adding is correct because since's value is negative here
+			startTime = endTime + uint64(since)
+		}
+	}	
+    
 	switch {
 	case ctx.IsSet("index_offset"):
 		indexOffset = uint32(ctx.Int64("index_offset"))

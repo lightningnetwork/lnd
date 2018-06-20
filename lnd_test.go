@@ -12009,6 +12009,103 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	mineBlocks(t, net, 1)
 }
 
+// testAbandonChannel abandones a channel and asserts that it is no
+// longer open and not in one of the pending closure states. It also
+// verifies that the abandoned channel is reported as closed with close
+// type 'abandoned'.
+func testAbandonChannel(net *lntest.NetworkHarness, t *harnessTest) {
+	timeout := time.Duration(time.Second * 5)
+	ctxb := context.Background()
+
+	// First establish a channel between Alice and Bob.
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+
+	channelParam := lntest.OpenChannelParams{
+		Amt:     maxBtcFundingAmount,
+		PushAmt: btcutil.Amount(100000),
+	}
+
+	chanPoint := openChannelAndAssert(
+		ctxt, t, net, net.Alice, net.Bob, channelParam)
+
+	// Wait for channel to be confirmed open.
+	ctxt, _ = context.WithTimeout(ctxb, time.Second*15)
+	err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	if err != nil {
+		t.Fatalf("alice didn't report channel: %v", err)
+	}
+	err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	if err != nil {
+		t.Fatalf("bob didn't report channel: %v", err)
+	}
+
+	// Send request to abandon channel.
+	abandonChannelRequest := &lnrpc.AbandonChannelRequest{
+		ChannelPoint: chanPoint,
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	_, err = net.Alice.AbandonChannel(ctxt, abandonChannelRequest)
+
+	if err != nil {
+		t.Fatalf("unable to abandon channel: %v", err)
+	}
+
+	// Assert that channel in no longer open.
+	listReq := &lnrpc.ListChannelsRequest{}
+	aliceChannelList, err := net.Alice.ListChannels(ctxb, listReq)
+	if err != nil {
+		t.Fatalf("unable to list channels: %v", err)
+	}
+	if len(aliceChannelList.Channels) != 0 {
+		t.Fatalf("alice should only have no channels open, "+
+			"instead she has %v",
+			len(aliceChannelList.Channels))
+	}
+
+	// Assert that channel is not pending closure.
+	pendingReq := &lnrpc.PendingChannelsRequest{}
+	alicePendingList, err := net.Alice.PendingChannels(ctxb, pendingReq)
+	if err != nil {
+		t.Fatalf("unable to list pending channels: %v", err)
+	}
+	if len(alicePendingList.PendingClosingChannels) != 0 {
+		t.Fatalf("alice should only have no pending closing channels, "+
+			"instead she has %v",
+			len(alicePendingList.PendingClosingChannels))
+	}
+	if len(alicePendingList.PendingForceClosingChannels) != 0 {
+		t.Fatalf("alice should only have no pending force closing "+
+			"channels instead she has %v",
+			len(alicePendingList.PendingForceClosingChannels))
+	}
+	if len(alicePendingList.WaitingCloseChannels) != 0 {
+		t.Fatalf("alice should only have no waiting close "+
+			"channels instead she has %v",
+			len(alicePendingList.WaitingCloseChannels))
+	}
+
+	// Assert that channel is listed as abandoned.
+	closedReq := &lnrpc.ClosedChannelsRequest{
+		Abandoned: true,
+	}
+	aliceClosedList, err := net.Alice.ClosedChannels(ctxb, closedReq)
+	if err != nil {
+		t.Fatalf("unable to list closed channels: %v", err)
+	}
+	if len(aliceClosedList.Channels) != 1 {
+		t.Fatalf("alice should only have a single abandoned channel, "+
+			"instead she has %v",
+			len(aliceClosedList.Channels))
+	}
+
+	// Now that we're done with the test, the channel can be closed. This is
+	// necessary to avoid unexpected outcomes of other tests that use Bob's
+	// lnd instance.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPoint, true)
+}
+
 type testCase struct {
 	name string
 	test func(net *lntest.NetworkHarness, t *harnessTest)
@@ -12195,6 +12292,10 @@ var testsCases = []*testCase{
 	{
 		name: "garbage collect link nodes",
 		test: testGarbageCollectLinkNodes,
+	},
+	{
+		name: "abandonchannel",
+		test: testAbandonChannel,
 	},
 	{
 		name: "revoked uncooperative close retribution zero value remote output",

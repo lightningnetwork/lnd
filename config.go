@@ -184,6 +184,7 @@ type config struct {
 	Listeners      []string `long:"listen" description:"Add an interface/port to listen for peer connections"`
 	DisableListen  bool     `long:"nolisten" description:"Disable listening for incoming peer connections"`
 	ExternalIPs    []string `long:"externalip" description:"Add an ip:port to the list of local addresses we claim to listen on to peers. If a port is not specified, the default (9735) will be used regardless of other parameters"`
+	CORS    	   string `long:"cors" description:"Add ip addresses to allow cross origin access"`
 	NAT            bool     `long:"nat" description:"Toggle NAT traversal support (using either UPnP or NAT-PMP) to automatically advertise your external IP address to the network -- NOTE this does not support devices behind multiple NATs"`
 
 	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`

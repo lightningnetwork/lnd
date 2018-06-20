@@ -30,6 +30,8 @@ import (
 
 	"golang.org/x/net/context"
 
+	"github.com/rs/cors"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
@@ -541,6 +543,7 @@ func lndMain() error {
 	if err != nil {
 		return err
 	}
+	rpcsLog.Infof("GOT TO LINE 546")
 	for _, restEndpoint := range cfg.RESTListeners {
 		listener, err := tls.Listen("tcp", restEndpoint, tlsConf)
 		if err != nil {
@@ -550,7 +553,18 @@ func lndMain() error {
 		defer listener.Close()
 		go func() {
 			rpcsLog.Infof("gRPC proxy started at %s", listener.Addr())
-			http.Serve(listener, mux)
+			//var srv *http.Server
+			if cfg.CORS==""{
+				rpcsLog.Infof("CORS length is zero")
+				http.Serve(listener, mux)
+			} else {
+				rpcsLog.Infof("CORS length is greater than zero")
+				c:=cors.New(cors.Options{
+					AllowedOrigins: []string{cfg.CORS},
+					AllowCredentials: true,
+				})
+				http.Serve(listener, c.Handler(mux))
+			}
 		}()
 	}
 
@@ -945,8 +959,21 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 		return nil, err
 	}
 
-	srv := &http.Server{Handler: mux}
+	rpcsLog.Infof("GOT TO LINE 950")
+	var srv *http.Server
 
+	if cfg.CORS==""{
+		rpcsLog.Infof("CORS length is zero")
+		srv = &http.Server{Handler: mux}
+	} else {
+		rpcsLog.Infof("CORS length is greater than zero")
+		c:=cors.New(cors.Options{
+			AllowedOrigins: []string{cfg.CORS},
+			AllowCredentials: true,
+		})
+		srv = &http.Server{Handler: c.Handler(mux)}
+	}
+	
 	for _, restEndpoint := range restEndpoints {
 		lis, err := tls.Listen("tcp", restEndpoint, tlsConf)
 		if err != nil {

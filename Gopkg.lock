@@ -264,6 +264,12 @@
   revision = "6724a57986aff9bff1a1770e9347036def7c89f6"
 
 [[projects]]
+  name = "github.com/rs/cors"
+  packages = ["."]
+  revision = "ca016a06a5753f8ba03029c0aa5e54afb1bf713f"
+  version = "v1.4.0"
+
+[[projects]]
   name = "github.com/tv42/zbase32"
   packages = ["."]
   revision = "501572607d0273fc75b3b261fa4904d63f6ffa0e"
@@ -404,6 +410,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "dc40dd185a90b723e4b3df4a077b4ad4f99648260661cac9d58121e8bd3474ef"
+  inputs-digest = "0fd4343d6a17062065437a6213cec6c2663a1b3b49cb82fd72d4b3ca92d9bf55"
   solver-name = "gps-cdcl"
   solver-version = 1

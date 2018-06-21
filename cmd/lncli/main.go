@@ -154,7 +154,7 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 func main() {
 	app := cli.NewApp()
 	app.Name = "lncli"
-	app.Version = fmt.Sprintf("%s commit=%s", "0.4.1", Commit)
+	app.Version = fmt.Sprintf("%s commit=%s", "0.4.2", Commit)
 	app.Usage = "control plane for your Lightning Network Daemon (lnd)"
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
@@ -194,6 +194,7 @@ func main() {
 	app.Commands = []cli.Command{
 		createCommand,
 		unlockCommand,
+		changePasswordCommand,
 		newAddressCommand,
 		sendManyCommand,
 		sendCoinsCommand,
@@ -209,10 +210,12 @@ func main() {
 		pendingChannelsCommand,
 		sendPaymentCommand,
 		payInvoiceCommand,
+		sendToRouteCommand,
 		addInvoiceCommand,
 		lookupInvoiceCommand,
 		listInvoicesCommand,
 		listChannelsCommand,
+		closedChannelsCommand,
 		listPaymentsCommand,
 		describeGraphCommand,
 		getChanInfoCommand,

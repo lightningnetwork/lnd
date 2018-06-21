@@ -13,6 +13,25 @@
   revision = "e06297f34865a50b8e473105e52cb64ad1b55da8"
 
 [[projects]]
+  branch = "master"
+  name = "github.com/NebulousLabs/fastrand"
+  packages = ["."]
+  revision = "3cf7173006a0b7d2371fa1a220da7f9d48c7827c"
+
+[[projects]]
+  name = "github.com/NebulousLabs/go-upnp"
+  packages = [
+    ".",
+    "goupnp",
+    "goupnp/dcps/internetgateway1",
+    "goupnp/httpu",
+    "goupnp/scpd",
+    "goupnp/soap",
+    "goupnp/ssdp"
+  ]
+  revision = "29b680b06c82d044ebea91bf3069038eb562df2a"
+
+[[projects]]
   name = "github.com/Yawning/aez"
   packages = ["."]
   revision = "4dad034d9db2caec23fb8f69b9160ae16f8d46a3"
@@ -114,6 +133,17 @@
     "utilities"
   ]
   revision = "f2862b476edcef83412c7af8687c9cd8e4097c0f"
+
+[[projects]]
+  name = "github.com/jackpal/gateway"
+  packages = ["."]
+  revision = "3e333950771011fed13be63e62b9f473c5e0d9bf"
+  version = "v1.0.4"
+
+[[projects]]
+  name = "github.com/jackpal/go-nat-pmp"
+  packages = ["."]
+  revision = "28a68d0c24adce1da43f8df6a57340909ecd7fdd"
 
 [[projects]]
   name = "github.com/jessevdk/go-flags"
@@ -267,6 +297,9 @@
   name = "golang.org/x/net"
   packages = [
     "context",
+    "html",
+    "html/atom",
+    "html/charset",
     "http2",
     "http2/hpack",
     "idna",
@@ -291,12 +324,24 @@
   packages = [
     "collate",
     "collate/build",
+    "encoding",
+    "encoding/charmap",
+    "encoding/htmlindex",
+    "encoding/internal",
+    "encoding/internal/identifier",
+    "encoding/japanese",
+    "encoding/korean",
+    "encoding/simplifiedchinese",
+    "encoding/traditionalchinese",
+    "encoding/unicode",
     "internal/colltab",
     "internal/gen",
     "internal/tag",
     "internal/triegen",
     "internal/ucd",
+    "internal/utf8internal",
     "language",
+    "runes",
     "secure/bidirule",
     "transform",
     "unicode/bidi",
@@ -359,6 +404,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "3e7512c1772a70c004d9557850137e4dd82545ec2e16381b4694ff4a0c5a6819"
+  inputs-digest = "dc40dd185a90b723e4b3df4a077b4ad4f99648260661cac9d58121e8bd3474ef"
   solver-name = "gps-cdcl"
   solver-version = 1

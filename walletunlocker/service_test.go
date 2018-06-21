@@ -64,10 +64,9 @@ func TestGenSeed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create temp directory: %v", err)
 	}
-	defer func() {
-		os.RemoveAll(testDir)
-	}()
-	service := walletunlocker.New(nil, testDir, testNetParams)
+	defer os.RemoveAll(testDir)
+
+	service := walletunlocker.New(testDir, testNetParams, nil)
 
 	// Now that the service has been created, we'll ask it to generate a
 	// new seed for us given a test passphrase.
@@ -108,7 +107,7 @@ func TestGenSeedGenerateEntropy(t *testing.T) {
 	defer func() {
 		os.RemoveAll(testDir)
 	}()
-	service := walletunlocker.New(nil, testDir, testNetParams)
+	service := walletunlocker.New(testDir, testNetParams, nil)
 
 	// Now that the service has been created, we'll ask it to generate a
 	// new seed for us given a test passphrase. Note that we don't actually
@@ -148,7 +147,7 @@ func TestGenSeedInvalidEntropy(t *testing.T) {
 	defer func() {
 		os.RemoveAll(testDir)
 	}()
-	service := walletunlocker.New(nil, testDir, testNetParams)
+	service := walletunlocker.New(testDir, testNetParams, nil)
 
 	// Now that the service has been created, we'll ask it to generate a
 	// new seed for us given a test passphrase. However, we'll be using an
@@ -186,7 +185,7 @@ func TestInitWallet(t *testing.T) {
 	}()
 
 	// Create new UnlockerService.
-	service := walletunlocker.New(nil, testDir, testNetParams)
+	service := walletunlocker.New(testDir, testNetParams, nil)
 
 	// Once we have the unlocker service created, we'll now instantiate a
 	// new cipher seed instance.
@@ -287,7 +286,7 @@ func TestCreateWalletInvalidEntropy(t *testing.T) {
 	}()
 
 	// Create new UnlockerService.
-	service := walletunlocker.New(nil, testDir, testNetParams)
+	service := walletunlocker.New(testDir, testNetParams, nil)
 
 	// We'll attempt to init the wallet with an invalid cipher seed and
 	// passphrase.
@@ -320,7 +319,7 @@ func TestUnlockWallet(t *testing.T) {
 	}()
 
 	// Create new UnlockerService.
-	service := walletunlocker.New(nil, testDir, testNetParams)
+	service := walletunlocker.New(testDir, testNetParams, nil)
 
 	ctx := context.Background()
 	req := &lnrpc.UnlockWalletRequest{
@@ -363,6 +362,104 @@ func TestUnlockWallet(t *testing.T) {
 			t.Fatalf("expected to receive recovery window %d, "+
 				"got %d", testRecoveryWindow,
 				unlockMsg.RecoveryWindow)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatalf("password not received")
+	}
+}
+
+// TestChangeWalletPassword tests that we can successfully change the wallet's
+// password needed to unlock it.
+func TestChangeWalletPassword(t *testing.T) {
+	t.Parallel()
+
+	// testDir is empty, meaning wallet was not created from before.
+	testDir, err := ioutil.TempDir("", "testchangepassword")
+	if err != nil {
+		t.Fatalf("unable to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(testDir)
+
+	// Create some files that will act as macaroon files that should be
+	// deleted after a password change is successful.
+	var tempFiles []string
+	for i := 0; i < 3; i++ {
+		file, err := ioutil.TempFile(testDir, "")
+		if err != nil {
+			t.Fatalf("unable to create temp file: %v", err)
+		}
+		tempFiles = append(tempFiles, file.Name())
+		file.Close()
+	}
+
+	// Create a new UnlockerService with our temp files.
+	service := walletunlocker.New(testDir, testNetParams, tempFiles)
+
+	ctx := context.Background()
+	newPassword := []byte("hunter2???")
+
+	req := &lnrpc.ChangePasswordRequest{
+		CurrentPassword: testPassword,
+		NewPassword:     newPassword,
+	}
+
+	// Changing the password to a non-existing wallet should fail.
+	_, err = service.ChangePassword(ctx, req)
+	if err == nil {
+		t.Fatal("expected call to ChangePassword to fail")
+	}
+
+	// Create a wallet to test changing the password.
+	createTestWallet(t, testDir, testNetParams)
+
+	// Attempting to change the wallet's password using an incorrect
+	// current password should fail.
+	wrongReq := &lnrpc.ChangePasswordRequest{
+		CurrentPassword: []byte("wrong-ofc"),
+		NewPassword:     newPassword,
+	}
+	_, err = service.ChangePassword(ctx, wrongReq)
+	if err == nil {
+		t.Fatal("expected call to ChangePassword to fail")
+	}
+
+	// The files should still exist after an unsuccessful attempt to change
+	// the wallet's password.
+	for _, tempFile := range tempFiles {
+		if _, err := os.Stat(tempFile); os.IsNotExist(err) {
+			t.Fatal("file does not exist but it should")
+		}
+	}
+
+	// Attempting to change the wallet's password using an invalid
+	// new password should fail.
+	wrongReq.NewPassword = []byte("8")
+	_, err = service.ChangePassword(ctx, wrongReq)
+	if err == nil {
+		t.Fatal("expected call to ChangePassword to fail")
+	}
+
+	// When providing the correct wallet's current password and a new
+	// password that meets the length requirement, the password change
+	// should succeed.
+	_, err = service.ChangePassword(ctx, req)
+	if err != nil {
+		t.Fatalf("unable to change wallet's password: %v", err)
+	}
+
+	// The files should no longer exist.
+	for _, tempFile := range tempFiles {
+		if _, err := os.Open(tempFile); err == nil {
+			t.Fatal("file exists but it shouldn't")
+		}
+	}
+
+	// The new password should be sent over the channel.
+	select {
+	case unlockMsg := <-service.UnlockMsgs:
+		if !bytes.Equal(unlockMsg.Passphrase, newPassword) {
+			t.Fatalf("expected to receive password %x, got %x",
+				testPassword, unlockMsg.Passphrase)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatalf("password not received")

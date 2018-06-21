@@ -195,6 +195,39 @@ func lndMain() error {
 	}
 	proxyOpts := []grpc.DialOption{grpc.WithTransportCredentials(cCreds)}
 
+	var (
+		privateWalletPw = lnwallet.DefaultPrivatePassphrase
+		publicWalletPw  = lnwallet.DefaultPublicPassphrase
+		birthday        time.Time
+		recoveryWindow  uint32
+		unlockedWallet  *wallet.Wallet
+	)
+
+	// We wait until the user provides a password over RPC. In case lnd is
+	// started with the --noencryptwallet flag, we use the default password
+	// for wallet encryption.
+	if !cfg.NoEncryptWallet {
+		walletInitParams, err := waitForWalletPassword(
+			cfg.RPCListeners, cfg.RESTListeners, serverOpts,
+			proxyOpts, tlsConf,
+		)
+		if err != nil {
+			return err
+		}
+
+		privateWalletPw = walletInitParams.Password
+		publicWalletPw = walletInitParams.Password
+		birthday = walletInitParams.Birthday
+		recoveryWindow = walletInitParams.RecoveryWindow
+		unlockedWallet = walletInitParams.Wallet
+
+		if recoveryWindow > 0 {
+			ltndLog.Infof("Wallet recovery mode enabled with "+
+				"address lookahead of %d addresses",
+				recoveryWindow)
+		}
+	}
+
 	var macaroonService *macaroons.Service
 	if !cfg.NoMacaroons {
 		// Create the macaroon authentication/authorization service.
@@ -205,45 +238,10 @@ func lndMain() error {
 			return err
 		}
 		defer macaroonService.Close()
-	}
 
-	var (
-		privateWalletPw = []byte("hello")
-		publicWalletPw  = []byte("public")
-		birthday        time.Time
-		recoveryWindow  uint32
-	)
-
-	// We wait until the user provides a password over RPC. In case lnd is
-	// started with the --noencryptwallet flag, we use the default password
-	// "hello" for wallet encryption.
-	if !cfg.NoEncryptWallet {
-		walletInitParams, err := waitForWalletPassword(
-			cfg.RPCListeners, cfg.RESTListeners, serverOpts,
-			proxyOpts, tlsConf, macaroonService,
-		)
-		if err != nil {
-			return err
-		}
-
-		privateWalletPw = walletInitParams.Password
-		publicWalletPw = walletInitParams.Password
-		birthday = walletInitParams.Birthday
-		recoveryWindow = walletInitParams.RecoveryWindow
-
-		if recoveryWindow > 0 {
-			ltndLog.Infof("Wallet recovery mode enabled with "+
-				"address lookahead of %d addresses",
-				recoveryWindow)
-		}
-	}
-
-	if !cfg.NoMacaroons {
 		// Try to unlock the macaroon store with the private password.
-		// Ignore ErrAlreadyUnlocked since it could be unlocked by the
-		// wallet unlocker.
 		err = macaroonService.CreateUnlock(&privateWalletPw)
-		if err != nil && err != macaroons.ErrAlreadyUnlocked {
+		if err != nil {
 			srvrLog.Error(err)
 			return err
 		}
@@ -269,7 +267,7 @@ func lndMain() error {
 	// Lightning Network Daemon.
 	activeChainControl, chainCleanUp, err := newChainControlFromConfig(
 		cfg, chanDB, privateWalletPw, publicWalletPw, birthday,
-		recoveryWindow,
+		recoveryWindow, unlockedWallet,
 	)
 	if err != nil {
 		fmt.Printf("unable to create chain control: %v\n", err)
@@ -308,11 +306,10 @@ func lndMain() error {
 	}
 	idPrivKey.Curve = btcec.S256()
 
-	if cfg.Tor.Socks != "" && cfg.Tor.DNS != "" {
+	if cfg.Tor.Active {
 		srvrLog.Infof("Proxying all network traffic via Tor "+
-			"(stream_isolation=%v)! NOTE: If running with a full-node "+
-			"backend, ensure that is proxying over Tor as well",
-			cfg.Tor.StreamIsolation)
+			"(stream_isolation=%v)! NOTE: Ensure the backend node "+
+			"is proxying over Tor as well", cfg.Tor.StreamIsolation)
 	}
 
 	// Set up the core server which will listen for incoming peer
@@ -874,28 +871,42 @@ type WalletUnlockParams struct {
 	// RecoveryWindow specifies the address lookahead when entering recovery
 	// mode. A recovery will be attempted if this value is non-zero.
 	RecoveryWindow uint32
+
+	// Wallet is the loaded and unlocked Wallet. This is returned
+	// from the unlocker service to avoid it being unlocked twice (once in
+	// the unlocker service to check if the password is correct and again
+	// later when lnd actually uses it). Because unlocking involves scrypt
+	// which is resource intensive, we want to avoid doing it twice.
+	Wallet *wallet.Wallet
 }
 
 // waitForWalletPassword will spin up gRPC and REST endpoints for the
 // WalletUnlocker server, and block until a password is provided by
 // the user to this RPC server.
-func waitForWalletPassword(
-	grpcEndpoints, restEndpoints []string,
-	serverOpts []grpc.ServerOption,
-	proxyOpts []grpc.DialOption,
-	tlsConf *tls.Config,
-	macaroonService *macaroons.Service) (*WalletUnlockParams, error) {
+func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
+	serverOpts []grpc.ServerOption, proxyOpts []grpc.DialOption,
+	tlsConf *tls.Config) (*WalletUnlockParams, error) {
 
-	// Set up a new PasswordService, which will listen
-	// for passwords provided over RPC.
+	// Set up a new PasswordService, which will listen for passwords
+	// provided over RPC.
 	grpcServer := grpc.NewServer(serverOpts...)
 
 	chainConfig := cfg.Bitcoin
 	if registeredChains.PrimaryChain() == litecoinChain {
 		chainConfig = cfg.Litecoin
 	}
-	pwService := walletunlocker.New(macaroonService,
-		chainConfig.ChainDir, activeNetParams.Params)
+
+	// The macaroon files are passed to the wallet unlocker since they are
+	// also encrypted with the wallet's password. These files will be
+	// deleted within it and recreated when successfully changing the
+	// wallet's password.
+	macaroonFiles := []string{
+		filepath.Join(macaroonDatabaseDir, macaroons.DBFilename),
+		cfg.AdminMacPath, cfg.ReadMacPath, cfg.InvoiceMacPath,
+	}
+	pwService := walletunlocker.New(
+		chainConfig.ChainDir, activeNetParams.Params, macaroonFiles,
+	)
 	lnrpc.RegisterWalletUnlockerServer(grpcServer, pwService)
 
 	// Use a WaitGroup so we can be sure the instructions on how to input the
@@ -957,9 +968,10 @@ func waitForWalletPassword(
 	wg.Wait()
 
 	// Wait for user to provide the password.
-	ltndLog.Infof("Waiting for wallet encryption password. " +
-		"Use `lncli create` to create wallet, or " +
-		"`lncli unlock` to unlock already created wallet.")
+	ltndLog.Infof("Waiting for wallet encryption password. Use `lncli " +
+		"create` to create a wallet, `lncli unlock` to unlock an " +
+		"existing wallet, or `lncli changepassword` to change the " +
+		"password of an existing wallet and unlock it.")
 
 	// We currently don't distinguish between getting a password to be used
 	// for creation or unlocking, as a new wallet db will be created if
@@ -993,16 +1005,18 @@ func waitForWalletPassword(
 		)
 
 		// With the seed, we can now use the wallet loader to create
-		// the wallet, then unload it so it can be opened shortly
+		// the wallet, then pass it back to avoid unlocking it again.
 		birthday := cipherSeed.BirthdayTime()
-		_, err = loader.CreateNewWallet(
+		newWallet, err := loader.CreateNewWallet(
 			password, password, cipherSeed.Entropy[:], birthday,
 		)
 		if err != nil {
-			return nil, err
-		}
-
-		if err := loader.UnloadWallet(); err != nil {
+			// Don't leave the file open in case the new wallet
+			// could not be created for whatever reason.
+			if err := loader.UnloadWallet(); err != nil {
+				ltndLog.Errorf("Could not unload new " +
+					"wallet: %v", err)
+			}
 			return nil, err
 		}
 
@@ -1010,6 +1024,7 @@ func waitForWalletPassword(
 			Password:       password,
 			Birthday:       birthday,
 			RecoveryWindow: recoveryWindow,
+			Wallet:         newWallet,
 		}
 
 		return walletInitParams, nil
@@ -1020,6 +1035,7 @@ func waitForWalletPassword(
 		walletInitParams := &WalletUnlockParams{
 			Password:       unlockMsg.Passphrase,
 			RecoveryWindow: unlockMsg.RecoveryWindow,
+			Wallet:         unlockMsg.Wallet,
 		}
 		return walletInitParams, nil
 

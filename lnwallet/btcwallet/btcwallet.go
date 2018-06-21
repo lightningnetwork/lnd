@@ -81,35 +81,43 @@ func New(cfg Config) (*BtcWallet, error) {
 		Coin:    cfg.CoinType,
 	}
 
-	var pubPass []byte
-	if cfg.PublicPass == nil {
-		pubPass = defaultPubPassphrase
-	} else {
-		pubPass = cfg.PublicPass
-	}
-
-	loader := base.NewLoader(cfg.NetParams, netDir, cfg.RecoveryWindow)
-	walletExists, err := loader.WalletExists()
-	if err != nil {
-		return nil, err
-	}
-
-	var wallet *base.Wallet
-	if !walletExists {
-		// Wallet has never been created, perform initial set up.
-		wallet, err = loader.CreateNewWallet(
-			pubPass, cfg.PrivatePass, cfg.HdSeed, cfg.Birthday,
-		)
+	// Maybe the wallet has already been opened and unlocked by the
+	// WalletUnlocker. So if we get a non-nil value from the config,
+	// we assume everything is in order.
+	var wallet = cfg.Wallet
+	if wallet == nil {
+		// No ready wallet was passed, so try to open an existing one.
+		var pubPass []byte
+		if cfg.PublicPass == nil {
+			pubPass = defaultPubPassphrase
+		} else {
+			pubPass = cfg.PublicPass
+		}
+		loader := base.NewLoader(cfg.NetParams, netDir,
+			cfg.RecoveryWindow)
+		walletExists, err := loader.WalletExists()
 		if err != nil {
 			return nil, err
 		}
-	} else {
-		// Wallet has been created and been initialized at this point,
-		// open it along with all the required DB namespaces, and the
-		// DB itself.
-		wallet, err = loader.OpenExistingWallet(pubPass, false)
-		if err != nil {
-			return nil, err
+
+		if !walletExists {
+			// Wallet has never been created, perform initial
+			// set up.
+			wallet, err = loader.CreateNewWallet(
+				pubPass, cfg.PrivatePass, cfg.HdSeed,
+				cfg.Birthday,
+			)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			// Wallet has been created and been initialized at
+			// this point, open it along with all the required DB
+			// namespaces, and the DB itself.
+			wallet, err = loader.OpenExistingWallet(pubPass, false)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 

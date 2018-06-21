@@ -2,23 +2,22 @@ package htlcswitch
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"crypto/sha256"
-
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/roasbeef/btcd/btcec"
-
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 )
@@ -142,6 +141,10 @@ type Config struct {
 	// provide payment senders our latest policy when sending encrypted
 	// error messages.
 	FetchLastChannelUpdate func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error)
+
+	// Notifier is an instance of a chain notifier that we'll use to signal
+	// the switch when a new block has arrived.
+	Notifier chainntnfs.ChainNotifier
 }
 
 // Switch is the central messaging bus for all incoming/outgoing HTLCs.
@@ -153,10 +156,16 @@ type Config struct {
 // HTLCs, forwarding HTLCs initiated from within the daemon, and finally
 // notifies users local-systems concerning their outstanding payment requests.
 type Switch struct {
-	started  int32
-	shutdown int32
-	wg       sync.WaitGroup
-	quit     chan struct{}
+	started  int32 // To be used atomically.
+	shutdown int32 // To be used atomically.
+
+	// bestHeight is the best known height of the main chain. The links will
+	// be used this information to govern decisions based on HTLC timeouts.
+	// This will be retrieved by the registered links atomically.
+	bestHeight uint32
+
+	wg   sync.WaitGroup
+	quit chan struct{}
 
 	// cfg is a copy of the configuration struct that the htlc switch
 	// service was initialized with.
@@ -202,8 +211,8 @@ type Switch struct {
 	forwardingIndex map[lnwire.ShortChannelID]ChannelLink
 
 	// interfaceIndex maps the compressed public key of a peer to all the
-	// channels that the switch maintains iwht that peer.
-	interfaceIndex map[[33]byte]map[ChannelLink]struct{}
+	// channels that the switch maintains with that peer.
+	interfaceIndex map[[33]byte]map[lnwire.ChannelID]ChannelLink
 
 	// htlcPlex is the channel which all connected links use to coordinate
 	// the setup/teardown of Sphinx (onion routing) payment circuits.
@@ -229,10 +238,15 @@ type Switch struct {
 	// to the forwarding log.
 	fwdEventMtx         sync.Mutex
 	pendingFwdingEvents []channeldb.ForwardingEvent
+
+	// blockEpochStream is an active block epoch event stream backed by an
+	// active ChainNotifier instance. This will be used to retrieve the
+	// lastest height of the chain.
+	blockEpochStream *chainntnfs.BlockEpochEvent
 }
 
 // New creates the new instance of htlc switch.
-func New(cfg Config) (*Switch, error) {
+func New(cfg Config, currentHeight uint32) (*Switch, error) {
 	circuitMap, err := NewCircuitMap(&CircuitMapConfig{
 		DB: cfg.DB,
 		ExtractErrorEncrypter: cfg.ExtractErrorEncrypter,
@@ -247,13 +261,14 @@ func New(cfg Config) (*Switch, error) {
 	}
 
 	return &Switch{
+		bestHeight:        currentHeight,
 		cfg:               &cfg,
 		circuits:          circuitMap,
 		paymentSequencer:  sequencer,
 		linkIndex:         make(map[lnwire.ChannelID]ChannelLink),
 		mailOrchestrator:  newMailOrchestrator(),
 		forwardingIndex:   make(map[lnwire.ShortChannelID]ChannelLink),
-		interfaceIndex:    make(map[[33]byte]map[ChannelLink]struct{}),
+		interfaceIndex:    make(map[[33]byte]map[lnwire.ChannelID]ChannelLink),
 		pendingLinkIndex:  make(map[lnwire.ChannelID]ChannelLink),
 		pendingPayments:   make(map[uint64]*pendingPayment),
 		htlcPlex:          make(chan *plexPacket),
@@ -1339,8 +1354,10 @@ func (s *Switch) CloseLink(chanPoint *wire.OutPoint, closeType ChannelCloseType,
 func (s *Switch) htlcForwarder() {
 	defer s.wg.Done()
 
-	// Remove all links once we've been signalled for shutdown.
 	defer func() {
+		s.blockEpochStream.Cancel()
+
+		// Remove all links once we've been signalled for shutdown.
 		s.indexMtx.Lock()
 		for _, link := range s.linkIndex {
 			if err := s.removeLink(link.ChanID()); err != nil {
@@ -1378,8 +1395,15 @@ func (s *Switch) htlcForwarder() {
 	fwdEventTicker := time.NewTicker(15 * time.Second)
 	defer fwdEventTicker.Stop()
 
+out:
 	for {
 		select {
+		case blockEpoch, ok := <-s.blockEpochStream.Epochs:
+			if !ok {
+				break out
+			}
+
+			atomic.StoreUint32(&s.bestHeight, uint32(blockEpoch.Height))
 		// A local close request has arrived, we'll forward this to the
 		// relevant link (if it exists) so the channel can be
 		// cooperatively closed (if possible).
@@ -1548,6 +1572,12 @@ func (s *Switch) Start() error {
 	}
 
 	log.Infof("Starting HTLC Switch")
+
+	blockEpochStream, err := s.cfg.Notifier.RegisterBlockEpochNtfn()
+	if err != nil {
+		return err
+	}
+	s.blockEpochStream = blockEpochStream
 
 	s.wg.Add(1)
 	go s.htlcForwarder()
@@ -1723,6 +1753,13 @@ func (s *Switch) AddLink(link ChannelLink) error {
 
 	chanID := link.ChanID()
 
+	// If a link already exists, then remove the prior one so we can
+	// replace it with this fresh instance.
+	_, err := s.getLink(chanID)
+	if err == nil {
+		s.removeLink(chanID)
+	}
+
 	// Get and attach the mailbox for this link, which buffers packets in
 	// case there packets that we tried to deliver while this link was
 	// offline.
@@ -1767,21 +1804,9 @@ func (s *Switch) addLiveLink(link ChannelLink) {
 	// quickly look up all the channels for a particular node.
 	peerPub := link.Peer().PubKey()
 	if _, ok := s.interfaceIndex[peerPub]; !ok {
-		s.interfaceIndex[peerPub] = make(map[ChannelLink]struct{})
+		s.interfaceIndex[peerPub] = make(map[lnwire.ChannelID]ChannelLink)
 	}
-	s.interfaceIndex[peerPub][link] = struct{}{}
-}
-
-// removeLiveLink removes a link from all associated forwarding indexes, this
-// prevents it from being a candidate in forwarding.
-func (s *Switch) removeLiveLink(link ChannelLink) {
-	// Remove the channel from live link indexes.
-	delete(s.linkIndex, link.ChanID())
-	delete(s.forwardingIndex, link.ShortChanID())
-
-	// Remove the channel from channel index.
-	peerPub := link.Peer().PubKey()
-	delete(s.interfaceIndex, peerPub)
+	s.interfaceIndex[peerPub][link.ChanID()] = link
 }
 
 // GetLink is used to initiate the handling of the get link command. The
@@ -1790,6 +1815,12 @@ func (s *Switch) GetLink(chanID lnwire.ChannelID) (ChannelLink, error) {
 	s.indexMtx.RLock()
 	defer s.indexMtx.RUnlock()
 
+	return s.getLink(chanID)
+}
+
+// getLink returns the link stored in either the pending index or the live
+// lindex.
+func (s *Switch) getLink(chanID lnwire.ChannelID) (ChannelLink, error) {
 	link, ok := s.linkIndex[chanID]
 	if !ok {
 		link, ok = s.pendingLinkIndex[chanID]
@@ -1829,23 +1860,32 @@ func (s *Switch) RemoveLink(chanID lnwire.ChannelID) error {
 func (s *Switch) removeLink(chanID lnwire.ChannelID) error {
 	log.Infof("Removing channel link with ChannelID(%v)", chanID)
 
-	link, ok := s.linkIndex[chanID]
-	if ok {
-		s.removeLiveLink(link)
-		link.Stop()
-
-		return nil
+	link, err := s.getLink(chanID)
+	if err != nil {
+		return err
 	}
 
-	link, ok = s.pendingLinkIndex[chanID]
-	if ok {
-		delete(s.pendingLinkIndex, chanID)
-		link.Stop()
+	// Remove the channel from live link indexes.
+	delete(s.pendingLinkIndex, link.ChanID())
+	delete(s.linkIndex, link.ChanID())
+	delete(s.forwardingIndex, link.ShortChanID())
 
-		return nil
+	// If the link has been added to the peer index, then we'll move to
+	// delete the entry within the index.
+	peerPub := link.Peer().PubKey()
+	if peerIndex, ok := s.interfaceIndex[peerPub]; ok {
+		delete(peerIndex, link.ChanID())
+
+		// If after deletion, there are no longer any links, then we'll
+		// remove the interface map all together.
+		if len(peerIndex) == 0 {
+			delete(s.interfaceIndex, peerPub)
+		}
 	}
 
-	return ErrChannelLinkNotFound
+	link.Stop()
+
+	return nil
 }
 
 // UpdateShortChanID updates the short chan ID for an existing channel. This is
@@ -1917,7 +1957,7 @@ func (s *Switch) getLinks(destination [33]byte) ([]ChannelLink, error) {
 	}
 
 	channelLinks := make([]ChannelLink, 0, len(links))
-	for link := range links {
+	for _, link := range links {
 		channelLinks = append(channelLinks, link)
 	}
 
@@ -2022,4 +2062,9 @@ func (s *Switch) FlushForwardingEvents() error {
 	// Finally, we'll write out the copied events to the persistent
 	// forwarding log.
 	return s.cfg.FwdingLog.AddForwardingEvents(events)
+}
+
+// BestHeight returns the best height known to the switch.
+func (s *Switch) BestHeight() uint32 {
+	return atomic.LoadUint32(&s.bestHeight)
 }

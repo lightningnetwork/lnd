@@ -60,8 +60,8 @@ type MailBox interface {
 // memoryMailBox is an implementation of the MailBox struct backed by purely
 // in-memory queues.
 type memoryMailBox struct {
-	started uint32
-	stopped uint32
+	started uint32 // To be used atomically.
+	stopped uint32 // To be used atomically.
 
 	wireMessages *list.List
 	wireHead     *list.Element

@@ -2,23 +2,27 @@ package htlcswitch
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
+	prand "math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"crypto/sha256"
-
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
-	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
+	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
+
+func init() {
+	prand.Seed(time.Now().UnixNano())
+}
 
 const (
 	// expiryGraceDelta is a grace period that the timeout of incoming
@@ -30,6 +34,17 @@ const (
 	//
 	// TODO(roasbeef): must be < default delta
 	expiryGraceDelta = 2
+
+	// minCommitFeePerKw is the smallest fee rate that we should propose
+	// for a new fee update. We'll use this as a fee floor when proposing
+	// and accepting updates.
+	minCommitFeePerKw = 253
+
+	// DefaultMinLinkFeeUpdateTimeout and DefaultMaxLinkFeeUpdateTimeout
+	// represent the default timeout bounds in which a link should propose
+	// to update its commitment fee rate.
+	DefaultMinLinkFeeUpdateTimeout = 10 * time.Minute
+	DefaultMaxLinkFeeUpdateTimeout = 60 * time.Minute
 )
 
 // ForwardingPolicy describes the set of constraints that a given ChannelLink
@@ -79,7 +94,6 @@ type ForwardingPolicy struct {
 func ExpectedFee(f ForwardingPolicy,
 	htlcAmt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
 
-	// TODO(roasbeef): write some basic table driven tests
 	return f.BaseFee + (htlcAmt*f.FeeRate)/1000000
 }
 
@@ -158,7 +172,7 @@ type ChannelLinkConfig struct {
 
 	// Peer is a lightning network node with which we have the channel link
 	// opened.
-	Peer Peer
+	Peer lnpeer.Peer
 
 	// Registry is a sub-system which responsible for managing the invoices
 	// in thread-safe manner.
@@ -195,13 +209,6 @@ type ChannelLinkConfig struct {
 	// used to dynamically regulate the current fee of the commitment
 	// transaction to ensure timely confirmation.
 	FeeEstimator lnwallet.FeeEstimator
-
-	// BlockEpochs is an active block epoch event stream backed by an
-	// active ChainNotifier instance. The ChannelLink will use new block
-	// notifications sent over this channel to decide when a _new_ HTLC is
-	// too close to expiry, and also when any active HTLC's have expired
-	// (or are close to expiry).
-	BlockEpochs *chainntnfs.BlockEpochEvent
 
 	// DebugHTLC should be turned on if you want all HTLCs sent to a node
 	// with the debug htlc R-Hash are immediately settled in the next
@@ -242,6 +249,12 @@ type ChannelLinkConfig struct {
 	// in testing, it is here to ensure the sphinx replay detection on the
 	// receiving node is persistent.
 	UnsafeReplay bool
+
+	// MinFeeUpdateTimeout and MaxFeeUpdateTimeout represent the timeout
+	// interval bounds in which a link will propose to update its commitment
+	// fee rate. A random timeout will be selected between these values.
+	MinFeeUpdateTimeout time.Duration
+	MaxFeeUpdateTimeout time.Duration
 }
 
 // channelLink is the service which drives a channel's commitment update
@@ -266,10 +279,6 @@ type channelLink struct {
 	// TODO(andrew.shvv) remove after we add additional BatchNumber()
 	// method in state machine.
 	batchCounter uint32
-
-	// bestHeight is the best known height of the main chain. The link will
-	// use this information to govern decisions based on HTLC timeouts.
-	bestHeight uint32
 
 	// keystoneBatch represents a volatile list of keystones that must be
 	// written before attempting to sign the next commitment txn. These
@@ -336,6 +345,10 @@ type channelLink struct {
 	logCommitTimer *time.Timer
 	logCommitTick  <-chan time.Time
 
+	// updateFeeTimer is the timer responsible for updating the link's
+	// commitment fee every time it fires.
+	updateFeeTimer *time.Timer
+
 	sync.RWMutex
 
 	wg   sync.WaitGroup
@@ -344,8 +357,8 @@ type channelLink struct {
 
 // NewChannelLink creates a new instance of a ChannelLink given a configuration
 // and active channel that will be used to verify/apply updates to.
-func NewChannelLink(cfg ChannelLinkConfig, channel *lnwallet.LightningChannel,
-	currentHeight uint32) ChannelLink {
+func NewChannelLink(cfg ChannelLinkConfig,
+	channel *lnwallet.LightningChannel) ChannelLink {
 
 	return &channelLink{
 		cfg:         cfg,
@@ -354,7 +367,6 @@ func NewChannelLink(cfg ChannelLinkConfig, channel *lnwallet.LightningChannel,
 		// TODO(roasbeef): just do reserve here?
 		logCommitTimer: time.NewTimer(300 * time.Millisecond),
 		overflowQueue:  newPacketQueue(lnwallet.MaxHTLCNumber / 2),
-		bestHeight:     currentHeight,
 		htlcUpdates:    make(chan []channeldb.HTLC),
 		quit:           make(chan struct{}),
 	}
@@ -421,6 +433,8 @@ func (l *channelLink) Start() error {
 		}
 	}
 
+	l.updateFeeTimer = time.NewTimer(l.randomFeeUpdateTimeout())
+
 	l.wg.Add(1)
 	go l.htlcManager()
 
@@ -443,8 +457,8 @@ func (l *channelLink) Stop() {
 		l.cfg.ChainEvents.Cancel()
 	}
 
+	l.updateFeeTimer.Stop()
 	l.channel.Stop()
-
 	l.overflowQueue.Stop()
 
 	close(l.quit)
@@ -475,6 +489,16 @@ func (l *channelLink) sampleNetworkFee() (lnwallet.SatPerKWeight, error) {
 
 	// Once we have this fee rate, we'll convert to sat-per-kw.
 	feePerKw := feePerVSize.FeePerKWeight()
+
+	// If the returned feePerKw is less than the current widely used
+	// policy, then we'll use that instead as a floor.
+	if feePerKw < minCommitFeePerKw {
+		log.Debugf("Proposed fee rate of %v sat/kw is below min "+
+			"of %v sat/kw, using fee floor", int64(feePerKw),
+			int64(minCommitFeePerKw))
+
+		feePerKw = minCommitFeePerKw
+	}
 
 	log.Debugf("ChannelLink(%v): sampled fee rate for 3 block conf: %v "+
 		"sat/kw", l, int64(feePerKw))
@@ -519,7 +543,7 @@ func (l *channelLink) syncChanStates() error {
 		return fmt.Errorf("unable to generate chan sync message for "+
 			"ChannelPoint(%v)", l.channel.ChannelPoint())
 	}
-	if err := l.cfg.Peer.SendMessage(localChanSyncMsg, false); err != nil {
+	if err := l.cfg.Peer.SendMessage(false, localChanSyncMsg); err != nil {
 		return fmt.Errorf("Unable to send chan sync message for "+
 			"ChannelPoint(%v)", l.channel.ChannelPoint())
 	}
@@ -561,7 +585,7 @@ func (l *channelLink) syncChanStates() error {
 			fundingLockedMsg := lnwire.NewFundingLocked(
 				l.ChanID(), nextRevocation,
 			)
-			err = l.cfg.Peer.SendMessage(fundingLockedMsg, false)
+			err = l.cfg.Peer.SendMessage(false, fundingLockedMsg)
 			if err != nil {
 				return fmt.Errorf("unable to re-send "+
 					"FundingLocked: %v", err)
@@ -611,7 +635,7 @@ func (l *channelLink) syncChanStates() error {
 		// immediately so we return to a synchronized state as soon as
 		// possible.
 		for _, msg := range msgsToReSend {
-			l.cfg.Peer.SendMessage(msg, false)
+			l.cfg.Peer.SendMessage(false, msg)
 		}
 
 	case <-l.quit:
@@ -765,7 +789,6 @@ func (l *channelLink) fwdPkgGarbager() {
 func (l *channelLink) htlcManager() {
 	defer func() {
 		l.wg.Done()
-		l.cfg.BlockEpochs.Cancel()
 		log.Infof("ChannelLink(%v) has exited", l)
 	}()
 
@@ -819,7 +842,6 @@ func (l *channelLink) htlcManager() {
 
 out:
 	for {
-
 		// We must always check if we failed at some point processing
 		// the last update before processing the next.
 		if l.failed {
@@ -828,16 +850,10 @@ out:
 		}
 
 		select {
-
-		// A new block has arrived, we'll check the network fee to see
-		// if we should adjust our commitment fee, and also update our
-		// track of the best current height.
-		case blockEpoch, ok := <-l.cfg.BlockEpochs.Epochs:
-			if !ok {
-				break out
-			}
-
-			l.bestHeight = uint32(blockEpoch.Height)
+		// Our update fee timer has fired, so we'll check the network
+		// fee to see if we should adjust our commitment fee.
+		case <-l.updateFeeTimer.C:
+			l.updateFeeTimer.Reset(l.randomFeeUpdateTimeout())
 
 			// If we're not the initiator of the channel, don't we
 			// don't control the fees, so we can ignore this.
@@ -967,6 +983,20 @@ out:
 	}
 }
 
+// randomFeeUpdateTimeout returns a random timeout between the bounds defined
+// within the link's configuration that will be used to determine when the link
+// should propose an update to its commitment fee rate.
+func (l *channelLink) randomFeeUpdateTimeout() time.Duration {
+	lower := int64(l.cfg.MinFeeUpdateTimeout)
+	upper := int64(l.cfg.MaxFeeUpdateTimeout)
+	rand := prand.Int63n(upper)
+	if rand < lower {
+		rand = lower
+	}
+
+	return time.Duration(rand)
+}
+
 // handleDownStreamPkt processes an HTLC packet sent from the downstream HTLC
 // Switch. Possible messages sent by the switch include requests to forward new
 // HTLCs, timeout previously cleared HTLCs, and finally to settle currently
@@ -1092,7 +1122,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		l.openedCircuits = append(l.openedCircuits, pkt.inKey())
 		l.keystoneBatch = append(l.keystoneBatch, pkt.keystone())
 
-		l.cfg.Peer.SendMessage(htlc, false)
+		l.cfg.Peer.SendMessage(false, htlc)
 
 	case *lnwire.UpdateFulfillHTLC:
 		// If hodl.SettleOutgoing mode is active, we exit early to
@@ -1133,7 +1163,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 
 		// Then we send the HTLC settle message to the connected peer
 		// so we can continue the propagation of the settle message.
-		l.cfg.Peer.SendMessage(htlc, false)
+		l.cfg.Peer.SendMessage(false, htlc)
 		isSettle = true
 
 	case *lnwire.UpdateFailHTLC:
@@ -1174,7 +1204,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 
 		// Finally, we send the HTLC message to the peer which
 		// initially created the HTLC.
-		l.cfg.Peer.SendMessage(htlc, false)
+		l.cfg.Peer.SendMessage(false, htlc)
 		isSettle = true
 	}
 
@@ -1327,7 +1357,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			log.Errorf("unable to revoke commitment: %v", err)
 			return
 		}
-		l.cfg.Peer.SendMessage(nextRevocation, false)
+		l.cfg.Peer.SendMessage(false, nextRevocation)
 
 		// Since we just revoked our commitment, we may have a new set
 		// of HTLC's on our commitment, so we'll send them over our
@@ -1546,7 +1576,7 @@ func (l *channelLink) updateCommitTx() error {
 		CommitSig: theirCommitSig,
 		HtlcSigs:  htlcSigs,
 	}
-	l.cfg.Peer.SendMessage(commitSig, false)
+	l.cfg.Peer.SendMessage(false, commitSig)
 
 	// We've just initiated a state transition, attempt to stop the
 	// logCommitTimer. If the timer already ticked, then we'll consume the
@@ -1570,7 +1600,7 @@ func (l *channelLink) updateCommitTx() error {
 // channel link opened.
 //
 // NOTE: Part of the ChannelLink interface.
-func (l *channelLink) Peer() Peer {
+func (l *channelLink) Peer() lnpeer.Peer {
 	return l.cfg.Peer
 }
 
@@ -1714,14 +1744,15 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 	incomingHtlcAmt, amtToForward lnwire.MilliSatoshi) lnwire.FailureMessage {
 
 	l.RLock()
-	defer l.RUnlock()
+	policy := l.cfg.FwrdingPolicy
+	l.RUnlock()
 
 	// As our first sanity check, we'll ensure that the passed HTLC isn't
 	// too small for the next hop. If so, then we'll cancel the HTLC
 	// directly.
-	if amtToForward < l.cfg.FwrdingPolicy.MinHTLC {
+	if amtToForward < policy.MinHTLC {
 		l.errorf("outgoing htlc(%x) is too small: min_htlc=%v, "+
-			"htlc_value=%v", payHash[:], l.cfg.FwrdingPolicy.MinHTLC,
+			"htlc_value=%v", payHash[:], policy.MinHTLC,
 			amtToForward)
 
 		// As part of the returned error, we'll send our latest routing
@@ -1742,7 +1773,7 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 	// Next, using the amount of the incoming HTLC, we'll calculate the
 	// expected fee this incoming HTLC must carry in order to satisfy the
 	// constraints of the outgoing link.
-	expectedFee := ExpectedFee(l.cfg.FwrdingPolicy, amtToForward)
+	expectedFee := ExpectedFee(policy, amtToForward)
 
 	// If the actual fee is less than our expected fee, then we'll reject
 	// this HTLC as it didn't provide a sufficient amount of fees, or the
@@ -1836,7 +1867,7 @@ func (l *channelLink) updateChannelFee(feePerKw lnwallet.SatPerKWeight) error {
 	// We'll then attempt to send a new UpdateFee message, and also lock it
 	// in immediately by triggering a commitment update.
 	msg := lnwire.NewUpdateFee(l.ChanID(), uint32(feePerKw))
-	if err := l.cfg.Peer.SendMessage(msg, false); err != nil {
+	if err := l.cfg.Peer.SendMessage(false, msg); err != nil {
 		return err
 	}
 	return l.updateCommitTx()
@@ -2048,7 +2079,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			continue
 		}
 
-		heightNow := l.bestHeight
+		heightNow := l.cfg.Switch.BestHeight()
 
 		fwdInfo := chanIterator.ForwardingInstructions()
 		switch fwdInfo.NextHop {
@@ -2244,11 +2275,11 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 			// HTLC was successfully settled locally send
 			// notification about it remote peer.
-			l.cfg.Peer.SendMessage(&lnwire.UpdateFulfillHTLC{
+			l.cfg.Peer.SendMessage(false, &lnwire.UpdateFulfillHTLC{
 				ChanID:          l.ChanID(),
 				ID:              pd.HtlcIndex,
 				PaymentPreimage: preimage,
-			}, false)
+			})
 			needUpdate = true
 
 		// There are additional channels left within this route. So
@@ -2534,11 +2565,11 @@ func (l *channelLink) sendHTLCError(htlcIndex uint64, failure lnwire.FailureMess
 		return
 	}
 
-	l.cfg.Peer.SendMessage(&lnwire.UpdateFailHTLC{
+	l.cfg.Peer.SendMessage(false, &lnwire.UpdateFailHTLC{
 		ChanID: l.ChanID(),
 		ID:     htlcIndex,
 		Reason: reason,
-	}, false)
+	})
 }
 
 // sendMalformedHTLCError helper function which sends the malformed HTLC update
@@ -2553,12 +2584,12 @@ func (l *channelLink) sendMalformedHTLCError(htlcIndex uint64,
 		return
 	}
 
-	l.cfg.Peer.SendMessage(&lnwire.UpdateFailMalformedHTLC{
+	l.cfg.Peer.SendMessage(false, &lnwire.UpdateFailMalformedHTLC{
 		ChanID:       l.ChanID(),
 		ID:           htlcIndex,
 		ShaOnionBlob: shaOnionBlob,
 		FailureCode:  code,
-	}, false)
+	})
 }
 
 // fail is a function which is used to encapsulate the action necessary for

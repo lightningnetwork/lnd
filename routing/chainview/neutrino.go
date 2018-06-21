@@ -20,8 +20,8 @@ import (
 // blocks, the light client is able to query filters locally, to test if an
 // item in a block modifies any of our watched set of UTXOs.
 type CfFilteredChainView struct {
-	started int32
-	stopped int32
+	started int32 // To be used atomically.
+	stopped int32 // To be used atomically.
 
 	// p2pNode is a pointer to the running GCS-filter supported Bitcoin
 	// light clientl

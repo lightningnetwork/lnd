@@ -3,7 +3,7 @@
 ## Development/testing
 
 For development or testing, or to spin up a `btcd` backend alongside `lnd`,
-check out the documentation at [docker/README.md](docker/README.md).
+check out the documentation at [docker/README.md](../docker/README.md).
 
 ## Production
 

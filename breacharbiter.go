@@ -111,8 +111,8 @@ type BreachConfig struct {
 // counterparties.
 // TODO(roasbeef): closures in config for subsystem pointers to decouple?
 type breachArbiter struct {
-	started uint32
-	stopped uint32
+	started uint32 // To be used atomically.
+	stopped uint32 // To be used atomically.
 
 	cfg *BreachConfig
 

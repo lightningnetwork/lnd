@@ -5,6 +5,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -22,7 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/torsvc"
+	"github.com/lightningnetwork/lnd/tor"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcutil"
 )
@@ -49,6 +50,12 @@ const (
 	defaultTrickleDelay       = 30 * 1000
 	defaultMaxLogFiles        = 3
 	defaultMaxLogFileSize     = 10
+
+	defaultTorSOCKSPort            = 9050
+	defaultTorDNSHost              = "soa.nodes.lightning.directory"
+	defaultTorDNSPort              = 53
+	defaultTorControlPort          = 9051
+	defaultTorV2PrivateKeyFilename = "v2_onion_private_key"
 
 	defaultBroadcastDelta = 10
 
@@ -81,6 +88,11 @@ var (
 
 	defaultBitcoindDir  = btcutil.AppDataDir("bitcoin", false)
 	defaultLitecoindDir = btcutil.AppDataDir("litecoin", false)
+
+	defaultTorSOCKS            = net.JoinHostPort("localhost", strconv.Itoa(defaultTorSOCKSPort))
+	defaultTorDNS              = net.JoinHostPort(defaultTorDNSHost, strconv.Itoa(defaultTorDNSPort))
+	defaultTorControl          = net.JoinHostPort("localhost", strconv.Itoa(defaultTorControlPort))
+	defaultTorV2PrivateKeyPath = filepath.Join(defaultLndDir, defaultTorV2PrivateKeyFilename)
 )
 
 type chainConfig struct {
@@ -136,9 +148,14 @@ type autoPilotConfig struct {
 }
 
 type torConfig struct {
-	Socks           string `long:"socks" description:"The port that Tor's exposed SOCKS5 proxy is listening on. Using Tor allows outbound-only connections (listening will be disabled) -- NOTE port must be between 1024 and 65535"`
-	DNS             string `long:"dns" description:"The DNS server as IP:PORT that Tor will use for SRV queries - NOTE must have TCP resolution enabled"`
-	StreamIsolation bool   `long:"streamisolation" description:"Enable Tor stream isolation by randomizing user credentials for each connection."`
+	Active           bool   `long:"active" description:"Allow outbound and inbound connections to be routed through Tor"`
+	SOCKS            string `long:"socks" description:"The host:port that Tor's exposed SOCKS5 proxy is listening on"`
+	DNS              string `long:"dns" description:"The DNS server as host:port that Tor will use for SRV queries - NOTE must have TCP resolution enabled"`
+	StreamIsolation  bool   `long:"streamisolation" description:"Enable Tor stream isolation by randomizing user credentials for each connection."`
+	Control          string `long:"control" description:"The host:port that Tor is listening on for Tor control connections"`
+	V2               bool   `long:"v2" description:"Automatically set up a v2 onion service to listen for inbound connections"`
+	V2PrivateKeyPath string `long:"v2privatekeypath" description:"The path to the private key of the onion service being created"`
+	V3               bool   `long:"v3" description:"Use a v3 onion service to listen for inbound connections"`
 }
 
 // config defines the configuration options for lnd.
@@ -167,6 +184,7 @@ type config struct {
 	Listeners      []string `long:"listen" description:"Add an interface/port to listen for peer connections"`
 	DisableListen  bool     `long:"nolisten" description:"Disable listening for incoming peer connections"`
 	ExternalIPs    []string `long:"externalip" description:"Add an ip:port to the list of local addresses we claim to listen on to peers. If a port is not specified, the default (9735) will be used regardless of other parameters"`
+	NAT            bool     `long:"nat" description:"Toggle NAT traversal support (using either UPnP or NAT-PMP) to automatically advertise your external IP address to the network -- NOTE this does not support devices behind multiple NATs"`
 
 	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
 
@@ -188,7 +206,7 @@ type config struct {
 	LtcdMode      *btcdConfig     `group:"ltcd" namespace:"ltcd"`
 	LitecoindMode *bitcoindConfig `group:"litecoind" namespace:"litecoind"`
 
-	Autopilot *autoPilotConfig `group:"autopilot" namespace:"autopilot"`
+	Autopilot *autoPilotConfig `group:"Autopilot" namespace:"autopilot"`
 
 	Tor *torConfig `group:"Tor" namespace:"tor"`
 
@@ -204,7 +222,9 @@ type config struct {
 	Color       string `long:"color" description:"The color of the node in hex format (i.e. '#3399FF'). Used to customize node appearance in intelligence services"`
 	MinChanSize int64  `long:"minchansize" description:"The smallest channel size (in satoshis) that we should accept. Incoming channels smaller than this will be rejected"`
 
-	net torsvc.Net
+	NoChanUpdates bool `long:"nochanupdates" description:"If specified, lnd will not request real-time channel updates from connected peers. This option should be used by routing nodes to save bandwidth."`
+
+	net tor.Net
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -273,6 +293,13 @@ func loadConfig() (*config, error) {
 		Alias:        defaultAlias,
 		Color:        defaultColor,
 		MinChanSize:  int64(minChanFundingSize),
+		Tor: &torConfig{
+			SOCKS:            defaultTorSOCKS,
+			DNS:              defaultTorDNS,
+			Control:          defaultTorControl,
+			V2PrivateKeyPath: defaultTorV2PrivateKeyPath,
+		},
+		net: &tor.ClearNet{},
 	}
 
 	// Pre-parse the command line options to pick up an alternative config
@@ -303,6 +330,7 @@ func loadConfig() (*config, error) {
 		defaultCfg.InvoiceMacPath = filepath.Join(lndDir, defaultInvoiceMacFilename)
 		defaultCfg.ReadMacPath = filepath.Join(lndDir, defaultReadMacFilename)
 		defaultCfg.LogDir = filepath.Join(lndDir, defaultLogDirname)
+		defaultCfg.Tor.V2PrivateKeyPath = filepath.Join(lndDir, defaultTorV2PrivateKeyFilename)
 	}
 
 	// Create the lnd directory if it doesn't already exist.
@@ -352,53 +380,88 @@ func loadConfig() (*config, error) {
 	cfg.LtcdMode.Dir = cleanAndExpandPath(cfg.LtcdMode.Dir)
 	cfg.BitcoindMode.Dir = cleanAndExpandPath(cfg.BitcoindMode.Dir)
 	cfg.LitecoindMode.Dir = cleanAndExpandPath(cfg.LitecoindMode.Dir)
+	cfg.Tor.V2PrivateKeyPath = cleanAndExpandPath(cfg.Tor.V2PrivateKeyPath)
 
-	// Setup dial and DNS resolution functions depending on the specified
-	// options. The default is to use the standard golang "net" package
-	// functions. When Tor's proxy is specified, the dial function is set to
-	// the proxy specific dial function and the DNS resolution functions use
-	// Tor.
-	cfg.net = &torsvc.RegularNet{}
-	if cfg.Tor.Socks != "" && cfg.Tor.DNS != "" {
-		// Validate Tor port number
-		torport, err := strconv.Atoi(cfg.Tor.Socks)
-		if err != nil || torport < 1024 || torport > 65535 {
-			str := "%s: The tor socks5 port must be between 1024 and 65535"
-			err := fmt.Errorf(str, funcName)
-			fmt.Fprintln(os.Stderr, err)
-			fmt.Fprintln(os.Stderr, usageMessage)
-			return nil, err
-		}
-
-		// If ExternalIPs is set, throw an error since we cannot
-		// listen for incoming connections via Tor's SOCKS5 proxy.
-		if len(cfg.ExternalIPs) != 0 {
-			str := "%s: Cannot set externalip flag with proxy flag - " +
-				"cannot listen for incoming connections via Tor's " +
-				"socks5 proxy"
-			err := fmt.Errorf(str, funcName)
-			return nil, err
-		}
-
-		cfg.net = &torsvc.TorProxyNet{
-			TorDNS:          cfg.Tor.DNS,
-			TorSocks:        cfg.Tor.Socks,
-			StreamIsolation: cfg.Tor.StreamIsolation,
-		}
-
-		// If we are using Tor, since we only want connections routed
-		// through Tor, listening is disabled.
-		cfg.DisableListen = true
-
-	} else if cfg.Tor.Socks != "" || cfg.Tor.DNS != "" {
-		// Both TorSocks and TorDNS must be set.
-		str := "%s: Both the tor.socks and the tor.dns flags must be set" +
-			"to properly route connections and avoid DNS leaks while" +
-			"using Tor"
+	// Ensure that the user didn't attempt to specify negative values for
+	// any of the autopilot params.
+	if cfg.Autopilot.MaxChannels < 0 {
+		str := "%s: autopilot.maxchannels must be non-negative"
 		err := fmt.Errorf(str, funcName)
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+	if cfg.Autopilot.Allocation < 0 {
+		str := "%s: autopilot.allocation must be non-negative"
+		err := fmt.Errorf(str, funcName)
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+	if cfg.Autopilot.MinChannelSize < 0 {
+		str := "%s: autopilot.minchansize must be non-negative"
+		err := fmt.Errorf(str, funcName)
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+	if cfg.Autopilot.MaxChannelSize < 0 {
+		str := "%s: autopilot.maxchansize must be non-negative"
+		err := fmt.Errorf(str, funcName)
+		fmt.Fprintln(os.Stderr, err)
 		return nil, err
 	}
 
+	// Ensure that the specified values for the min and max channel size
+	// don't are within the bounds of the normal chan size constraints.
+	if cfg.Autopilot.MinChannelSize < int64(minChanFundingSize) {
+		cfg.Autopilot.MinChannelSize = int64(minChanFundingSize)
+	}
+	if cfg.Autopilot.MaxChannelSize > int64(maxFundingAmount) {
+		cfg.Autopilot.MaxChannelSize = int64(maxFundingAmount)
+	}
+
+	// Validate the Tor config parameters.
+	cfg.Tor.SOCKS = normalizeAddress(
+		cfg.Tor.SOCKS, strconv.Itoa(defaultTorSOCKSPort),
+	)
+	cfg.Tor.DNS = normalizeAddress(
+		cfg.Tor.DNS, strconv.Itoa(defaultTorDNSPort),
+	)
+	cfg.Tor.Control = normalizeAddress(
+		cfg.Tor.Control, strconv.Itoa(defaultTorControlPort),
+	)
+	switch {
+	case cfg.Tor.V2 && cfg.Tor.V3:
+		return nil, errors.New("either tor.v2 or tor.v3 can be set, " +
+			"but not both")
+	case cfg.DisableListen && (cfg.Tor.V2 || cfg.Tor.V3):
+		return nil, errors.New("listening must be enabled when " +
+			"enabling inbound connections over Tor")
+	case cfg.Tor.Active && (!cfg.Tor.V2 && !cfg.Tor.V3):
+		// If an onion service version wasn't selected, we'll assume the
+		// user is only interested in outbound connections over Tor.
+		// Therefore, we'll disable listening in order to avoid
+		// inadvertent leaks.
+		cfg.DisableListen = true
+	}
+
+	// Set up the network-related functions that will be used throughout
+	// the daemon. We use the standard Go "net" package functions by
+	// default. If we should be proxying all traffic through Tor, then
+	// we'll use the Tor proxy specific functions in order to avoid leaking
+	// our real information.
+	if cfg.Tor.Active {
+		cfg.net = &tor.ProxyNet{
+			SOCKS:           cfg.Tor.SOCKS,
+			DNS:             cfg.Tor.DNS,
+			StreamIsolation: cfg.Tor.StreamIsolation,
+		}
+	}
+
+	if cfg.DisableListen && cfg.NAT {
+		return nil, errors.New("NAT traversal cannot be used when " +
+			"listening is disabled")
+	}
+
+	// Determine the active chain configuration and its parameters.
 	switch {
 	// At this moment, multiple active chains are not supported.
 	case cfg.Litecoin.Active && cfg.Bitcoin.Active:
@@ -671,7 +734,10 @@ func loadConfig() (*config, error) {
 		normalizeNetwork(activeNetParams.Name))
 
 	// Initialize logging at the default logging level.
-	initLogRotator(filepath.Join(cfg.LogDir, defaultLogFilename), cfg.MaxLogFileSize, cfg.MaxLogFiles)
+	initLogRotator(
+		filepath.Join(cfg.LogDir, defaultLogFilename), cfg.MaxLogFileSize,
+		cfg.MaxLogFiles,
+	)
 
 	// Parse, validate, and set debug log level(s).
 	if err := parseAndSetDebugLevels(cfg.DebugLevel); err != nil {
@@ -712,25 +778,53 @@ func loadConfig() (*config, error) {
 		return nil, err
 	}
 
-	// Remove all Listeners if listening is disabled.
+	// Remove the listening addresses specified if listening is disabled.
 	if cfg.DisableListen {
+		ltndLog.Infof("Listening on the p2p interface is disabled!")
 		cfg.Listeners = nil
+		cfg.ExternalIPs = nil
 	}
 
 	// Add default port to all RPC listener addresses if needed and remove
 	// duplicate addresses.
-	cfg.RPCListeners = normalizeAddresses(cfg.RPCListeners,
-		strconv.Itoa(defaultRPCPort))
+	cfg.RPCListeners = normalizeAddresses(
+		cfg.RPCListeners, strconv.Itoa(defaultRPCPort),
+	)
 
 	// Add default port to all REST listener addresses if needed and remove
 	// duplicate addresses.
-	cfg.RESTListeners = normalizeAddresses(cfg.RESTListeners,
-		strconv.Itoa(defaultRESTPort))
+	cfg.RESTListeners = normalizeAddresses(
+		cfg.RESTListeners, strconv.Itoa(defaultRESTPort),
+	)
 
 	// Add default port to all listener addresses if needed and remove
 	// duplicate addresses.
-	cfg.Listeners = normalizeAddresses(cfg.Listeners,
-		strconv.Itoa(defaultPeerPort))
+	cfg.Listeners = normalizeAddresses(
+		cfg.Listeners, strconv.Itoa(defaultPeerPort),
+	)
+
+	// Add default port to all external IP addresses if needed and remove
+	// duplicate addresses.
+	cfg.ExternalIPs = normalizeAddresses(
+		cfg.ExternalIPs, strconv.Itoa(defaultPeerPort),
+	)
+
+	// Finally, ensure that we are only listening on localhost if Tor
+	// inbound support is enabled.
+	if cfg.Tor.V2 || cfg.Tor.V3 {
+		for _, addr := range cfg.Listeners {
+			// Due to the addresses being normalized above, we can
+			// skip checking the error.
+			host, _, _ := net.SplitHostPort(addr)
+			if host == "localhost" || host == "127.0.0.1" {
+				continue
+			}
+
+			return nil, errors.New("lnd must *only* be listening " +
+				"on localhost when running with Tor inbound " +
+				"support enabled")
+		}
+	}
 
 	// Warn about missing config file only after all other configuration is
 	// done.  This prevents the warning on help messages and invalid
@@ -1111,21 +1205,31 @@ func normalizeAddresses(addrs []string, defaultPort string) []string {
 	result := make([]string, 0, len(addrs))
 	seen := map[string]struct{}{}
 	for _, addr := range addrs {
-		if _, _, err := net.SplitHostPort(addr); err != nil {
-			// If the address is an integer, then we assume it is *only* a
-			// port and default to binding to that port on localhost
-			if _, err := strconv.Atoi(addr); err == nil {
-				addr = net.JoinHostPort("localhost", addr)
-			} else {
-				addr = net.JoinHostPort(addr, defaultPort)
-			}
-		}
+		addr = normalizeAddress(addr, defaultPort)
 		if _, ok := seen[addr]; !ok {
 			result = append(result, addr)
 			seen[addr] = struct{}{}
 		}
 	}
 	return result
+}
+
+// normalizeAddress normalizes an address by either setting a missing host to
+// localhost or missing port to the default port.
+func normalizeAddress(addr, defaultPort string) string {
+	if _, _, err := net.SplitHostPort(addr); err != nil {
+		// If the address is an integer, then we assume it is *only* a
+		// port and default to binding to that port on localhost.
+		if _, err := strconv.Atoi(addr); err == nil {
+			return net.JoinHostPort("localhost", addr)
+		}
+
+		// Otherwise, the address only contains the host so we'll use
+		// the default port.
+		return net.JoinHostPort(addr, defaultPort)
+	}
+
+	return addr
 }
 
 // enforceSafeAuthentication enforces "safe" authentication taking into account

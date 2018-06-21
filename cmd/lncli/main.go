@@ -71,24 +71,24 @@ func getClient(ctx *cli.Context) (lnrpc.LightningClient, func()) {
 
 func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 	lndDir := cleanAndExpandPath(ctx.GlobalString("lnddir"))
-	dataDir := cleanAndExpandPath(ctx.GlobalString("datadir"))
 	chain := ctx.GlobalString("chain")
 	network := ctx.GlobalString("network")
 
-	// Compute networkDir base path based on dataDir
-	// or fallback to lndDir.
-	networkDirBase := filepath.Join(lndDir, defaultDataDirname)
-	if len(ctx.GlobalString("datadir")) != 0 {
-		networkDirBase = dataDir
+	var dataDir string
+	if ctx.GlobalIsSet("datadir") {
+		dataDir = cleanAndExpandPath(ctx.GlobalString("datadir"))
+	} else {
+		dataDir = filepath.Join(lndDir, defaultDataDirname)
 	}
+
 	networkDir := filepath.Join(
-		networkDirBase,
+		dataDir,
 		defaultChainSubDirname,
 		chain, network,
 	)
 
 	// If a custom macaroonpath is not set, we'll use the default path.
-	if len(ctx.GlobalString("macaroonpath")) == 0 {
+	if !ctx.GlobalIsSet("macaroonpath") {
 		ctx.GlobalSet(
 			"macaroonpath",
 			filepath.Join(networkDir, defaultMacaroonFilename),

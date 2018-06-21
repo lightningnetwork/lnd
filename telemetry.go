@@ -151,14 +151,17 @@ func (t *telemeter) Update(update *TelemetryUpdate) {
 	numClients := len(t.clients)
 	t.RUnlock()
 
-	if numClients != 0 {
-		tlmrLog.Tracef("Sending telemetry update to %v clients %v",
-			numClients,
-			newLogClosure(func() string {
-				return spew.Sdump(update)
-			}),
-		)
+	// Do not reacquire the lock twice unnecessarily.
+	if numClients == 0 {
+		return
 	}
+
+	tlmrLog.Tracef("Sending telemetry update to %v clients %v",
+		numClients,
+		newLogClosure(func() string {
+			return spew.Sdump(update)
+		}),
+	)
 
 	t.RLock()
 	for _, client := range t.clients {

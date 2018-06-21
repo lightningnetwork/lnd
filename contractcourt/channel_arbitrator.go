@@ -305,8 +305,6 @@ func (c *ChannelArbitrator) Stop() error {
 	close(c.quit)
 	c.wg.Wait()
 
-	c.cfg.BlockEpochs.Cancel()
-
 	return nil
 }
 
@@ -1293,7 +1291,10 @@ func (c *ChannelArbitrator) UpdateContractSignals(newSignals *ContractSignals) {
 func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 
 	// TODO(roasbeef): tell top chain arb we're done
-	defer c.wg.Done()
+	defer func() {
+		c.cfg.BlockEpochs.Cancel()
+		c.wg.Done()
+	}()
 
 	for {
 		select {

@@ -249,6 +249,11 @@ func (hn *HarnessNode) DBPath() string {
 	return hn.cfg.DBPath()
 }
 
+// Name returns the name of this node set during initialization.
+func (hn *HarnessNode) Name() string {
+	return hn.cfg.Name
+}
+
 // Start launches a new process running lnd. Additionally, the PID of the
 // launched process is saved in order to possibly kill the process forcibly
 // later.

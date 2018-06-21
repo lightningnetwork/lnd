@@ -221,6 +221,11 @@ type addSingleFunderSigsMsg struct {
 // Bitcoin Core + ZeroMQ, etc. Eventually, the wallet won't require a full-node
 // at all, as SPV support is integrated into btcwallet.
 type LightningWallet struct {
+	started  int32 // To be used atomically.
+	shutdown int32 // To be used atomically.
+
+	nextFundingID uint64 // To be used atomically.
+
 	// Cfg is the configuration struct that will be used by the wallet to
 	// access the necessary interfaces and default it needs to carry on its
 	// duties.
@@ -258,7 +263,6 @@ type LightningWallet struct {
 	// monotonically integer. All requests concerning the channel MUST
 	// carry a valid, active funding ID.
 	fundingLimbo  map[uint64]*ChannelReservation
-	nextFundingID uint64
 	limboMtx      sync.RWMutex
 
 	// lockedOutPoints is a set of the currently locked outpoint. This
@@ -266,8 +270,6 @@ type LightningWallet struct {
 	// the currently locked outpoints.
 	lockedOutPoints map[wire.OutPoint]struct{}
 
-	started  int32
-	shutdown int32
 	quit     chan struct{}
 
 	wg sync.WaitGroup

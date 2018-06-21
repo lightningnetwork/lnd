@@ -7,6 +7,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tor"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -49,18 +50,12 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 		// advertised IP addresses, or have made a connection.
 		var connected bool
 		for _, addr := range addrs {
-			// If the address doesn't already have a port, then
-			// we'll assume the current default port.
-			tcpAddr, ok := addr.(*net.TCPAddr)
-			if !ok {
-				return fmt.Errorf("TCP address required instead "+
-					"have %T", addr)
+			switch addr.(type) {
+			case *net.TCPAddr, *tor.OnionAddr:
+				lnAddr.Address = addr
+			default:
+				return fmt.Errorf("unknown address type %T", addr)
 			}
-			if tcpAddr.Port == 0 {
-				tcpAddr.Port = defaultPeerPort
-			}
-
-			lnAddr.Address = tcpAddr
 
 			// TODO(roasbeef): make perm connection in server after
 			// chan open?

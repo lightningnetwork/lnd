@@ -220,8 +220,8 @@ type NurseryConfig struct {
 // the source wallet, returning the outputs so they can be used within future
 // channels, or regular Bitcoin transactions.
 type utxoNursery struct {
-	started uint32
-	stopped uint32
+	started uint32 // To be used atomically.
+	stopped uint32 // To be used atomically.
 
 	cfg *NurseryConfig
 
@@ -736,7 +736,7 @@ func (u *utxoNursery) regraduateClass(classHeight uint32) error {
 		utxnLog.Infof("Re-registering confirmation for kindergarten "+
 			"sweep transaction at height=%d ", classHeight)
 
-		err = u.registerSweepConf(finalTx, kgtnOutputs, classHeight)
+		err = u.sweepMatureOutputs(classHeight, finalTx, kgtnOutputs)
 		if err != nil {
 			utxnLog.Errorf("Failed to re-register for kindergarten "+
 				"sweep transaction at height=%d: %v",
@@ -1124,7 +1124,8 @@ func (u *utxoNursery) sweepMatureOutputs(classHeight uint32, finalTx *wire.MsgTx
 	// With the sweep transaction fully signed, broadcast the transaction
 	// to the network. Additionally, we can stop tracking these outputs as
 	// they've just been swept.
-	if err := u.cfg.PublishTransaction(finalTx); err != nil {
+	err := u.cfg.PublishTransaction(finalTx)
+	if err != nil && err != lnwallet.ErrDoubleSpend {
 		utxnLog.Errorf("unable to broadcast sweep tx: %v, %v",
 			err, spew.Sdump(finalTx))
 		return err
@@ -1230,7 +1231,8 @@ func (u *utxoNursery) sweepCribOutput(classHeight uint32, baby *babyOutput) erro
 
 	// We'll now broadcast the HTLC transaction, then wait for it to be
 	// confirmed before transitioning it to kindergarten.
-	if err := u.cfg.PublishTransaction(baby.timeoutTx); err != nil {
+	err := u.cfg.PublishTransaction(baby.timeoutTx)
+	if err != nil && err != lnwallet.ErrDoubleSpend {
 		utxnLog.Errorf("Unable to broadcast baby tx: "+
 			"%v, %v", err, spew.Sdump(baby.timeoutTx))
 		return err

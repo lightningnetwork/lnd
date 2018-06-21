@@ -2,9 +2,9 @@ package htlcswitch
 
 import (
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
 )
 
 // InvoiceDatabase is an interface which represents the persistent subsystem
@@ -97,7 +97,7 @@ type ChannelLink interface {
 
 	// Peer returns the representation of remote peer with which we have
 	// the channel link opened.
-	Peer() Peer
+	Peer() lnpeer.Peer
 
 	// EligibleToForward returns a bool indicating if the channel is able
 	// to actively accept requests to forward HTLC's. A channel may be
@@ -114,22 +114,6 @@ type ChannelLink interface {
 	// functioning.
 	Start() error
 	Stop()
-}
-
-// Peer is an interface which represents the remote lightning node inside our
-// system.
-type Peer interface {
-	// SendMessage sends message to remote peer. The second argument
-	// denotes if the method should block until the message has been sent
-	// to the remote peer.
-	SendMessage(msg lnwire.Message, sync bool) error
-
-	// WipeChannel removes the channel uniquely identified by its channel
-	// point from all indexes associated with the peer.
-	WipeChannel(*wire.OutPoint) error
-
-	// PubKey returns the serialize public key of the source peer.
-	PubKey() [33]byte
 }
 
 // ForwardingLog is an interface that represents a time series database which

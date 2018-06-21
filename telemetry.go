@@ -9,12 +9,12 @@ import (
 )
 
 type telemeter struct {
+	started  int32 // To be used atomically.
+	shutdown int32 // To be used atomically.
+
 	clientsCounter uint64
 	clients        map[uint64]*telemetryClient
 	clientUpdates  chan *telemetryClientUpdate
-
-	started  int32 // To be used atomically.
-	shutdown int32 // To be used atomically.
 
 	wg sync.WaitGroup
 	sync.RWMutex

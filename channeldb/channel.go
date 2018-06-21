@@ -497,6 +497,7 @@ func (c *OpenChannel) RefreshShortChanID() error {
 	}
 
 	c.ShortChannelID = sid
+	c.Packager = NewChannelPackager(sid)
 
 	return nil
 }
@@ -665,6 +666,7 @@ func (c *OpenChannel) MarkAsOpen(openLoc lnwire.ShortChannelID) error {
 
 	c.IsPending = false
 	c.ShortChannelID = openLoc
+	c.Packager = NewChannelPackager(openLoc)
 
 	return nil
 }
@@ -1474,6 +1476,9 @@ func (c *OpenChannel) NextLocalHtlcIndex() (uint64, error) {
 // processed, and returns their deserialized log updates in map indexed by the
 // remote commitment height at which the updates were locked in.
 func (c *OpenChannel) LoadFwdPkgs() ([]*FwdPkg, error) {
+	c.RLock()
+	defer c.RUnlock()
+
 	var fwdPkgs []*FwdPkg
 	if err := c.Db.View(func(tx *bolt.Tx) error {
 		var err error
@@ -1489,6 +1494,9 @@ func (c *OpenChannel) LoadFwdPkgs() ([]*FwdPkg, error) {
 // SetFwdFilter atomically sets the forwarding filter for the forwarding package
 // identified by `height`.
 func (c *OpenChannel) SetFwdFilter(height uint64, fwdFilter *PkgFilter) error {
+	c.Lock()
+	defer c.Unlock()
+
 	return c.Db.Update(func(tx *bolt.Tx) error {
 		return c.Packager.SetFwdFilter(tx, height, fwdFilter)
 	})
@@ -1499,6 +1507,9 @@ func (c *OpenChannel) SetFwdFilter(height uint64, fwdFilter *PkgFilter) error {
 //
 // NOTE: This method should only be called on packages marked FwdStateCompleted.
 func (c *OpenChannel) RemoveFwdPkg(height uint64) error {
+	c.Lock()
+	defer c.Unlock()
+
 	return c.Db.Update(func(tx *bolt.Tx) error {
 		return c.Packager.RemovePkg(tx, height)
 	})

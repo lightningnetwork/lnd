@@ -110,8 +110,8 @@ var newAddressCommand = cli.Command{
 	ArgsUsage: "address-type",
 	Description: `
 	Generate a wallet new address. Address-types has to be one of:
-	    - p2wkh:  Pay to witness key hash
-	    - np2wkh: Pay to nested witness key hash`,
+	    - p2wkh:  Pay to witness key hash (bech32)
+	    - np2wkh: Pay to nested witness key hash (segwit)`,
 	Action: actionDecorator(newAddress),
 }
 

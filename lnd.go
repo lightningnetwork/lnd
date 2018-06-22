@@ -543,7 +543,6 @@ func lndMain() error {
 	if err != nil {
 		return err
 	}
-	rpcsLog.Infof("GOT TO LINE 546")
 	for _, restEndpoint := range cfg.RESTListeners {
 		listener, err := tls.Listen("tcp", restEndpoint, tlsConf)
 		if err != nil {
@@ -553,14 +552,13 @@ func lndMain() error {
 		defer listener.Close()
 		go func() {
 			rpcsLog.Infof("gRPC proxy started at %s", listener.Addr())
-			//var srv *http.Server
-			if cfg.CORS==""{
-				rpcsLog.Infof("CORS length is zero")
+
+			if len(cfg.CORS)==0{
 				http.Serve(listener, mux)
 			} else {
-				rpcsLog.Infof("CORS length is greater than zero")
+				rpcsLog.Infof("CORS enabled on addresses %s", strings.Join(cfg.CORS, ", "))
 				c:=cors.New(cors.Options{
-					AllowedOrigins: []string{cfg.CORS},
+					AllowedOrigins: cfg.CORS,
 					AllowCredentials: true,
 				})
 				http.Serve(listener, c.Handler(mux))
@@ -959,16 +957,14 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 		return nil, err
 	}
 
-	rpcsLog.Infof("GOT TO LINE 950")
 	var srv *http.Server
 
-	if cfg.CORS==""{
-		rpcsLog.Infof("CORS length is zero")
+	if len(cfg.CORS)==0{
 		srv = &http.Server{Handler: mux}
 	} else {
-		rpcsLog.Infof("CORS length is greater than zero")
+		rpcsLog.Infof("CORS enabled on addresses %s", strings.Join(cfg.CORS, ", "))
 		c:=cors.New(cors.Options{
-			AllowedOrigins: []string{cfg.CORS},
+			AllowedOrigins: cfg.CORS,
 			AllowCredentials: true,
 		})
 		srv = &http.Server{Handler: c.Handler(mux)}

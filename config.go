@@ -355,7 +355,7 @@ func loadConfig() (*config, error) {
 	// Next, load any additional configuration options from the file.
 	var configFileError error
 	cfg := defaultCfg
-	configFile := cleanAndExpandPath(preCfg.ConfigFile)
+	configFile := cleanAndExpandPath(defaultCfg.ConfigFile)
 	if err := flags.IniParse(configFile, &cfg); err != nil {
 		configFileError = err
 	}

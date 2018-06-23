@@ -304,7 +304,7 @@ func loadConfig() (*config, error) {
 
 	// Pre-parse the command line options to pick up an alternative config
 	// file.
-	preCfg := defaultCfg
+	preCfg := config{}
 	if _, err := flags.Parse(&preCfg); err != nil {
 		return nil, err
 	}
@@ -320,8 +320,9 @@ func loadConfig() (*config, error) {
 
 	// If the provided lnd directory is not the default, we'll modify the
 	// path to all of the files and directories that will live within it.
-	lndDir := cleanAndExpandPath(preCfg.LndDir)
-	if lndDir != defaultLndDir {
+	lndDir := cleanAndExpandPath(defaultCfg.LndDir)
+	if preCfg.LndDir != "" {
+		lndDir = cleanAndExpandPath(preCfg.LndDir)
 		defaultCfg.ConfigFile = filepath.Join(lndDir, defaultConfigFilename)
 		defaultCfg.DataDir = filepath.Join(lndDir, defaultDataDirname)
 		defaultCfg.TLSCertPath = filepath.Join(lndDir, defaultTLSCertFilename)
@@ -354,8 +355,11 @@ func loadConfig() (*config, error) {
 
 	// Next, load any additional configuration options from the file.
 	var configFileError error
-	cfg := defaultCfg
 	configFile := cleanAndExpandPath(defaultCfg.ConfigFile)
+	if preCfg.ConfigFile != "" {
+		configFile = cleanAndExpandPath(preCfg.ConfigFile)
+	}
+	cfg := defaultCfg
 	if err := flags.IniParse(configFile, &cfg); err != nil {
 		configFileError = err
 	}

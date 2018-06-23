@@ -314,7 +314,6 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			p.server.cc.signer, p.server.witnessBeacon, dbChan,
 		)
 		if err != nil {
-			lnChan.Stop()
 			return err
 		}
 

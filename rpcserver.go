@@ -252,6 +252,10 @@ var (
 			Entity: "invoices",
 			Action: "read",
 		}},
+		"/lnrpc.Lightning/CancelInvoice": {{
+			Entity: "invoices",
+			Action: "write",
+		}},
 		"/lnrpc.Lightning/ListInvoices": {{
 			Entity: "invoices",
 			Action: "read",
@@ -2733,6 +2737,7 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 		CltvExpiry:      cltvExpiry,
 		FallbackAddr:    fallbackAddr,
 		RouteHints:      routeHints,
+		Canceled:        invoice.Terms.Canceled,
 	}, nil
 }
 
@@ -2814,6 +2819,39 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 	}
 
 	return rpcInvoice, nil
+}
+
+// CancelInvoice attempts to cancel an invoice according to its payment hash.
+// The passed payment hash *must* be exactly 32 bytes, if not an error is
+// returned.
+func (r *rpcServer) CancelInvoice(ctx context.Context,
+	req *lnrpc.PaymentHash) (*lnrpc.CancelInvoiceResponse, error) {
+
+	var (
+		payHash [32]byte
+		rHash   []byte
+		err     error
+	)
+
+	// If the RHash as a raw string was provided, then decode that and use
+	// that directly. Otherwise, we use the raw bytes provided.
+	if req.RHashStr != "" {
+		rHash, err = hex.DecodeString(req.RHashStr)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		rHash = req.RHash
+	}
+
+	// Ensure that the payment hash is *exactly* 32-bytes.
+	if len(rHash) != 0 && len(rHash) != 32 {
+		return nil, fmt.Errorf("payment hash must be exactly "+
+			"32 bytes, is instead %v", len(rHash))
+	}
+	copy(payHash[:], rHash)
+
+	return &lnrpc.CancelInvoiceResponse{}, r.server.invoices.CancelInvoice(payHash)
 }
 
 // ListInvoices returns a list of all the invoices currently stored within the

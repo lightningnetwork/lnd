@@ -84,6 +84,8 @@ description):
      * Lists all stored invoices.
   * LookupInvoice
      * Attempts to look up an invoice by payment hash (r-hash).
+  * CancelInvoice
+     * Attempts to cancel an invoice by payment hash (r-hash).
   * SubscribeInvoices
      * Creates a uni-directional stream which receives async notifications as
        the daemon settles invoices

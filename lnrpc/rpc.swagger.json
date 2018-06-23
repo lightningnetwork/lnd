@@ -610,6 +610,29 @@
         "tags": [
           "Lightning"
         ]
+      },
+      "delete": {
+        "summary": "* lncli: `cancelinvoice`\nCancelInvoice attempts to cancel an invoice according to its payment hash.\nThe passed payment hash *must* be exactly 32 bytes, if not, an error is\nreturned.",
+        "operationId": "CancelInvoice",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcCancelInvoiceResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "r_hash_str",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
       }
     },
     "/v1/invoices": {
@@ -1062,6 +1085,9 @@
           "description": "*\nA bare-bones invoice for a payment within the Lightning Network.  With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient."
         }
       }
+    },
+    "lnrpcCancelInvoiceResponse": {
+      "type": "object"
     },
     "lnrpcChangePasswordRequest": {
       "type": "object",
@@ -1893,6 +1919,11 @@
           "type": "boolean",
           "format": "boolean",
           "description": "/ Whether this invoice should include routing hints for private channels."
+        },
+        "canceled": {
+          "type": "boolean",
+          "format": "boolean",
+          "title": "/ Whether this invoice has been canceled"
         }
       }
     },

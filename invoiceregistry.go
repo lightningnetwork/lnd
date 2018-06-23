@@ -161,6 +161,29 @@ func (i *invoiceRegistry) SettleInvoice(rHash chainhash.Hash) error {
 	return nil
 }
 
+// CancelInvoice attempts to mark an invoice as settled. If the invoice is a
+// debug invoice, then this method is a noop as debug invoices are never fully
+// settled.
+func (i *invoiceRegistry) CancelInvoice(rHash chainhash.Hash) error {
+	ltndLog.Debugf("Canceling invoice %x", rHash[:])
+
+	// First check the in-memory debug invoice index to see if this is an
+	// existing invoice added for debugging.
+	i.RLock()
+	if _, ok := i.debugInvoices[rHash]; ok {
+		// Debug invoices are never fully settled, so we simply return
+		// immediately in this case.
+		i.RUnlock()
+
+		return nil
+	}
+	i.RUnlock()
+
+	// If this isn't a debug invoice, then we'll attempt to cancel an
+	// invoice matching this rHash on disk (if one exists).
+	return i.cdb.CancelInvoice(rHash)
+}
+
 // notifyClients notifies all currently registered invoice notification clients
 // of a newly added/settled invoice.
 func (i *invoiceRegistry) notifyClients(invoice *channeldb.Invoice, settle bool) {

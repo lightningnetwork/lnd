@@ -23,6 +23,10 @@ var (
 	// found.
 	ErrInvoiceNotFound = fmt.Errorf("unable to locate invoice")
 
+	// ErrInvoiceCanceled is returned when a targeted invoice has been
+	// canceled.
+	ErrInvoiceCanceled = fmt.Errorf("invoice has been canceled")
+
 	// ErrNoInvoicesCreated is returned when we don't have invoices in
 	// our database to return.
 	ErrNoInvoicesCreated = fmt.Errorf("there are no existing invoices")

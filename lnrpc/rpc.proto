@@ -462,6 +462,17 @@ service Lightning {
         };
     }
 
+    /** lncli: `cancelinvoice`
+    CancelInvoice attempts to cancel an invoice according to its payment hash.
+    The passed payment hash *must* be exactly 32 bytes, if not, an error is
+    returned.
+    */
+    rpc CancelInvoice (PaymentHash) returns (CancelInvoiceResponse) {
+        option (google.api.http) = {
+            delete: "/v1/invoice/{r_hash_str}"
+        };
+    }
+
     /**
     SubscribeInvoices returns a uni-directional stream (sever -> client) for
     notifying the client of newly added/settled invoices.
@@ -1642,6 +1653,9 @@ message Invoice {
 
     /// Whether this invoice should include routing hints for private channels.
     bool private = 15 [json_name = "private"];
+
+    /// Whether this invoice has been canceled
+    bool canceled = 16 [json_name = "canceled"];
 }
 message AddInvoiceResponse {
     bytes r_hash = 1 [json_name = "r_hash"];
@@ -1825,4 +1839,7 @@ message ForwardingHistoryResponse {
 
    /// The index of the last time in the set of returned forwarding events. Can be used to seek further, pagination style.
    uint32 last_offset_index = 2 [json_name = "last_offset_index"];
+}
+
+message CancelInvoiceResponse {
 }

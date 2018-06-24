@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/awalterschulze/gographviz"
 	"github.com/golang/protobuf/jsonpb"
@@ -3134,7 +3135,115 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	printRespJSON(resp)
 	return nil
 }
-
+/*
+  Because interpretation of start_time and end_time is based on contents of each other
+  we convert everything here into epoch. Logic is as follows. We are introducing
+  "time expressions" or TE which can replace existing epoch in both or one of the
+  start_time/end_time. If both, then both are negative values with start_time having
+  a larger absolute value -- both are negative offsets from present. If one of the fields
+  is TE and the other epoch, then the TE is offset from epoch and must be positive if
+  epoch is in start_time or negative if epoch is in end_time. start_time with no end_time
+  may be specified as TE and it must be a negative and it is again an offset from present.
+  TE in end_time with no start_time makes no sense and is therefore an error.
+  
+*/
+//gives value of TE if it is one, input might be epoch instead
+func isTimeExp(input string) (val int, isTE bool, err error){
+	if strings.ContainsAny(input[len(input)-1:],"hdw") {
+		var count int;
+		unit := input[len(input)-1:]
+		count, err = strconv.Atoi(input[0:len(input)-1])
+		if err == nil {
+			valMap := make(map[string]int)
+			valMap["h"] = 3600
+			valMap["d"] = 24*3600
+			valMap["w"] = 7*24*3600
+			val= count*valMap[unit]
+			isTE = true
+		}
+		
+	} else {
+		val = 0
+		isTE = false
+	}
+	return val, isTE, err
+}
+func translateTimes(start_time string, end_time string) (start_time_u uint64, end_time_u uint64,  err error) {
+	var startVal, endVal int
+	var startTE, endTE bool
+	var startErr, endErr error
+	if start_time != "" {
+		startVal, startTE, startErr = isTimeExp(start_time)
+	}
+	if end_time != "" {
+		endVal, endTE, endErr = isTimeExp(end_time)
+	}
+	if startErr != nil {
+		return 0, 0, startErr
+	}
+	if endErr != nil {
+		return 0, 0, endErr
+	}
+	if startTE && endTE {
+		//should both be negative with start < end
+		if startVal < endVal && startVal < 0 && endVal < 0 {
+			//calculate epoch using start and end as offsets from present
+			now := uint64(time.Now().Unix())
+			return now + uint64(startVal), now + uint64(endVal), nil
+		} else{
+			return 0, 0, errors.New("start_time and end_time TE must both be negative and start_time greater absolute value than end_time")
+		}
+	} 
+	if startTE {
+		if end_time != "" {
+			//end_time should be epoch format and startTE is negative offset from that
+			end_time_u, err = strconv.ParseUint(end_time, 10, 64) 
+			if err != nil {
+				return 0, 0, err
+			}
+			start_time_u = end_time_u + uint64(startVal)
+			return start_time_u, end_time_u, nil
+		} else {
+			//end_time is not present so it is present and startTE's value is subtracted to get startTime
+			now := uint64(time.Now().Unix())
+			start_time_u = now + uint64(startVal)
+			return start_time_u, now, nil
+		}
+	}
+	if endTE {
+		//Only endTE defined and this requires start time in epoch and endTE is positive offest from this
+		if start_time != "" {
+			start_time_u, err = strconv.ParseUint(start_time, 10, 64)
+			if err != nil {
+				return 0, 0, err
+			}
+			end_time_u = start_time_u + uint64(endVal)
+			return start_time_u, end_time_u, nil
+		} else {
+			return 0, 0, errors.New("positive end_time TE requires  start_time to offset from")
+		}
+	}
+	//If here there are no TE and we convert start time and end time strings into uint64 if they exist
+	if !startTE && !endTE {
+		if start_time != "" {
+			start_time_u, err = strconv.ParseUint(start_time, 10, 64)
+			if err != nil {
+				return 0, 0, errors.New("error parsing start_time")
+			} 
+		} else {
+			start_time_u = 0
+		}
+		if end_time != "" {
+			end_time_u, err = strconv.ParseUint(end_time, 10, 64)
+			if err != nil {
+				return 0, 0, errors.New("error parsing end_time")
+			} 
+		} else {
+			end_time_u = 0
+		}
+	}
+	return start_time_u, end_time_u, nil
+}
 var forwardingHistoryCommand = cli.Command{
 	Name:      "fwdinghistory",
 	Category:  "Payments",
@@ -3153,14 +3262,26 @@ var forwardingHistoryCommand = cli.Command{
 	Finally, callers can skip a series of events using the --index_offset
 	parameter. Each response will contain the offset index of the last
 	entry. Using this callers can manually paginate within a time slice.
+	Time offset feature:
+	Start_time and end_time can also have an argument of the form <int><char> 
+	time expression where he first portion is a positive or negative integer 
+	and char is one of h(our) d(ay) or (w)eek. If start_time and end_time are both 
+	specified as TE then both are relative to present time and start with 
+	negative integers. If start_time is epoch and end_time is TE then
+	TE must be positive and is interpreted as offset from start_time. If
+	end_time is epoch the start_time TE must be negative and is offset from
+	end_time. If only start_time is specified and uses TE it must be negative
+	and is offset from present. Specifying end_time only makes no sense as either
+	epoch or TE. The overriding rule is that start_time must be earlier than
+	end_time.
 	`,
 	Flags: []cli.Flag{
-		cli.Int64Flag{
+		cli.StringFlag{
 			Name: "start_time",
 			Usage: "the starting time for the query, expressed in " +
 				"seconds since the unix epoch",
 		},
-		cli.Int64Flag{
+		cli.StringFlag{
 			Name: "end_time",
 			Usage: "the end time for the query, expressed in " +
 				"seconds since the unix epoch",
@@ -3188,29 +3309,29 @@ func forwardingHistory(ctx *cli.Context) error {
 		err                    error
 	)
 	args := ctx.Args()
-
+    
+	var startTime_s, endTime_s string
 	switch {
 	case ctx.IsSet("start_time"):
-		startTime = ctx.Uint64("start_time")
+		startTime_s = ctx.String("start_time")
 	case args.Present():
-		startTime, err = strconv.ParseUint(args.First(), 10, 64)
-		if err != nil {
-			return fmt.Errorf("unable to decode start_time %v", err)
-		}
+		startTime_s = args.First()
 		args = args.Tail()
 	}
-
+	
 	switch {
 	case ctx.IsSet("end_time"):
-		endTime = ctx.Uint64("end_time")
+		endTime_s = ctx.String("end_time")
 	case args.Present():
-		endTime, err = strconv.ParseUint(args.First(), 10, 64)
-		if err != nil {
-			return fmt.Errorf("unable to decode end_time: %v", err)
-		}
+		endTime_s = args.First()
 		args = args.Tail()
 	}
-
+	
+    startTime, endTime, err = translateTimes(startTime_s, endTime_s)
+    if err != nil {
+    	return fmt.Errorf("error entering start or end time %v", err)
+    }
+	
 	switch {
 	case ctx.IsSet("index_offset"):
 		indexOffset = uint32(ctx.Int64("index_offset"))

@@ -306,6 +306,8 @@ func loadConfig() (*config, error) {
 	// file.
 	preCfg := config{}
 	if _, err := flags.Parse(&preCfg); err != nil {
+		preCfg = defaultCfg // Need to re-parse the command line to show the default values
+		_, err = flags.Parse(&preCfg)
 		return nil, err
 	}
 

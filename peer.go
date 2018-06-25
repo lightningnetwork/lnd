@@ -40,6 +40,9 @@ const (
 	// idleTimeout is the duration of inactivity before we time out a peer.
 	idleTimeout = 5 * time.Minute
 
+	// writeMessageTimeout is the timeout used when writing a message to peer.
+	writeMessageTimeout = 10 * time.Second
+
 	// outgoingQueueLen is the buffer size of the channel which houses
 	// messages to be sent across the wire, requested by objects outside
 	// this struct.
@@ -1249,7 +1252,7 @@ func (p *peer) writeMessage(msg lnwire.Message) error {
 	n, err := lnwire.WriteMessage(b, msg, 0)
 	atomic.AddUint64(&p.bytesSent, uint64(n))
 
-	p.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	p.conn.SetWriteDeadline(time.Now().Add(writeMessageTimeout))
 
 	// Finally, write the message itself in a single swoop.
 	_, err = p.conn.Write(b.Bytes())

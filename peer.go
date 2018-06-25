@@ -1539,7 +1539,13 @@ out:
 			// closure process.
 			chanCloser, err := p.fetchActiveChanCloser(closeMsg.cid)
 			if err != nil {
-				peerLog.Errorf("unable to respond to remote "+
+				// If the channel is not known to us, we'll
+				// simply ignore this message.
+				if err == ErrChannelNotFound {
+					continue
+				}
+
+				peerLog.Errorf("Unable to respond to remote "+
 					"close msg: %v", err)
 
 				errMsg := &lnwire.Error{
@@ -1617,8 +1623,7 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 	channel, ok := p.activeChannels[chanID]
 	p.activeChanMtx.RUnlock()
 	if !ok {
-		return nil, fmt.Errorf("unable to close channel, "+
-			"ChannelID(%v) is unknown", chanID)
+		return nil, ErrChannelNotFound
 	}
 
 	// We'll attempt to look up the matching state machine, if we can't

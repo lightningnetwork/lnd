@@ -2659,7 +2659,8 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		Receipt:        invoice.Receipt,
 		PaymentRequest: []byte(payReqString),
 		Terms: channeldb.ContractTerm{
-			Value: amtMSat,
+			Value:          amtMSat,
+			FinalCltvDelta: uint16(payReq.MinFinalCLTVExpiry()),
 		},
 	}
 	copy(i.Terms.PaymentPreimage[:], paymentPreimage[:])

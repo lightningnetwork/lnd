@@ -2373,14 +2373,16 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				chanIterator.EncodeNextHop(buf)
 
 				updatePacket := &htlcPacket{
-					incomingChanID: l.ShortChanID(),
-					incomingHTLCID: pd.HtlcIndex,
-					outgoingChanID: fwdInfo.NextHop,
-					sourceRef:      pd.SourceRef,
-					incomingAmount: pd.Amount,
-					amount:         addMsg.Amount,
-					htlc:           addMsg,
-					obfuscator:     obfuscator,
+					incomingChanID:  l.ShortChanID(),
+					incomingHTLCID:  pd.HtlcIndex,
+					outgoingChanID:  fwdInfo.NextHop,
+					sourceRef:       pd.SourceRef,
+					incomingAmount:  pd.Amount,
+					amount:          addMsg.Amount,
+					htlc:            addMsg,
+					obfuscator:      obfuscator,
+					incomingTimeout: pd.Timeout,
+					outgoingTimeout: fwdInfo.OutgoingCTLV,
 				}
 				switchPackets = append(
 					switchPackets, updatePacket,
@@ -2439,14 +2441,16 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// section.
 			if fwdPkg.State == channeldb.FwdStateLockedIn {
 				updatePacket := &htlcPacket{
-					incomingChanID: l.ShortChanID(),
-					incomingHTLCID: pd.HtlcIndex,
-					outgoingChanID: fwdInfo.NextHop,
-					sourceRef:      pd.SourceRef,
-					incomingAmount: pd.Amount,
-					amount:         addMsg.Amount,
-					htlc:           addMsg,
-					obfuscator:     obfuscator,
+					incomingChanID:  l.ShortChanID(),
+					incomingHTLCID:  pd.HtlcIndex,
+					outgoingChanID:  fwdInfo.NextHop,
+					sourceRef:       pd.SourceRef,
+					incomingAmount:  pd.Amount,
+					amount:          addMsg.Amount,
+					htlc:            addMsg,
+					obfuscator:      obfuscator,
+					incomingTimeout: pd.Timeout,
+					outgoingTimeout: fwdInfo.OutgoingCTLV,
 				}
 
 				fwdPkg.FwdFilter.Set(idx)

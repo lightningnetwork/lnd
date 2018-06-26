@@ -1807,7 +1807,7 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 	// to the current height.
 	timeDelta := policy.TimeLockDelta
 	if incomingTimeout-timeDelta <= heightNow {
-		log.Errorf("htlc(%x) has an expiry that's too soon: "+
+		l.errorf("htlc(%x) has an expiry that's too soon: "+
 			"outgoing_expiry=%v, best_height=%v", payHash[:],
 			incomingTimeout-timeDelta, heightNow)
 
@@ -1829,7 +1829,7 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 	// delta should equal the outgoing time lock. Otherwise, whether the
 	// sender messed up, or an intermediate node tampered with the HTLC.
 	if incomingTimeout-timeDelta < outgoingTimeout {
-		log.Errorf("Incoming htlc(%x) has incorrect time-lock value: "+
+		l.errorf("Incoming htlc(%x) has incorrect time-lock value: "+
 			"expected at least %v block delta, got %v block delta",
 			payHash[:], timeDelta, incomingTimeout-outgoingTimeout)
 

@@ -1741,7 +1741,9 @@ func (l *channelLink) UpdateForwardingPolicy(newPolicy ForwardingPolicy) {
 //
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
-	incomingHtlcAmt, amtToForward lnwire.MilliSatoshi) lnwire.FailureMessage {
+	incomingHtlcAmt, amtToForward lnwire.MilliSatoshi,
+	incomingTimeout, outgoingTimeout uint32,
+	heightNow uint32) lnwire.FailureMessage {
 
 	l.RLock()
 	policy := l.cfg.FwrdingPolicy

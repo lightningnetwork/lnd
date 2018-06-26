@@ -81,8 +81,10 @@ type ChannelLink interface {
 	// Otherwise, a valid protocol failure message should be returned in
 	// order to signal to the source of the HTLC, the policy consistency
 	// issue.
-	HtlcSatifiesPolicy(payHash [32]byte,
-		incomingAmt, amtToForward lnwire.MilliSatoshi) lnwire.FailureMessage
+	HtlcSatifiesPolicy(payHash [32]byte, incomingAmt lnwire.MilliSatoshi,
+		amtToForward lnwire.MilliSatoshi,
+		incomingTimeout, outgoingTimeout uint32,
+		heightNow uint32) lnwire.FailureMessage
 
 	// Bandwidth returns the amount of milli-satoshis which current link
 	// might pass through channel link. The value returned from this method

@@ -3,6 +3,7 @@ package channeldb
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	prand "math/rand"
 	"reflect"
 	"testing"
 	"time"
@@ -24,6 +25,7 @@ func randInvoice(value lnwire.MilliSatoshi) (*Invoice, error) {
 		Terms: ContractTerm{
 			PaymentPreimage: pre,
 			Value:           value,
+			FinalCltvDelta:  uint16(prand.Int31()),
 		},
 	}
 	i.Memo = []byte("memo")
@@ -66,6 +68,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 	fakeInvoice.PaymentRequest = []byte("")
 	copy(fakeInvoice.Terms.PaymentPreimage[:], rev[:])
 	fakeInvoice.Terms.Value = lnwire.NewMSatFromSatoshis(10000)
+	fakeInvoice.Terms.FinalCltvDelta = uint16(prand.Int31())
 
 	// Add the invoice to the database, this should succeed as there aren't
 	// any existing invoices within the database with the same payment

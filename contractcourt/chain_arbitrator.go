@@ -301,6 +301,7 @@ func (c *ChainArbitrator) resolveContract(chanPoint wire.OutPoint,
 	if ok {
 		chainWatcher.Stop()
 	}
+	delete(c.activeWatchers, chanPoint)
 	c.Unlock()
 
 	return nil

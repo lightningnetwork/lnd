@@ -1883,7 +1883,7 @@ func (s *Switch) removeLink(chanID lnwire.ChannelID) error {
 		}
 	}
 
-	link.Stop()
+	go link.Stop()
 
 	return nil
 }

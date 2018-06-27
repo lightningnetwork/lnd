@@ -80,6 +80,15 @@ type htlcPacket struct {
 	// circuit holds a reference to an Add's circuit which is persisted in
 	// the switch during successful forwarding.
 	circuit *PaymentCircuit
+
+	// incomingTimeout is the timeout that the incoming HTLC carried. This
+	// is the timeout of the HTLC applied to the incoming link.
+	incomingTimeout uint32
+
+	// outgoingTimeout is the timeout of the proposed outgoing HTLC. This
+	// will be extraced from the hop payload recevived by the incoming
+	// link.
+	outgoingTimeout uint32
 }
 
 // inKey returns the circuit key used to identify the incoming htlc.

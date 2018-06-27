@@ -964,9 +964,11 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			// Before we check the link's bandwidth, we'll ensure
 			// that the HTLC satisfies the current forwarding
 			// policy of this target link.
+			currentHeight := atomic.LoadUint32(&s.bestHeight)
 			err := link.HtlcSatifiesPolicy(
 				htlc.PaymentHash, packet.incomingAmount,
-				packet.amount,
+				packet.amount, packet.incomingTimeout,
+				packet.outgoingTimeout, currentHeight,
 			)
 			if err != nil {
 				linkErrs[link.ShortChanID()] = err
@@ -1404,6 +1406,7 @@ out:
 			}
 
 			atomic.StoreUint32(&s.bestHeight, uint32(blockEpoch.Height))
+
 		// A local close request has arrived, we'll forward this to the
 		// relevant link (if it exists) so the channel can be
 		// cooperatively closed (if possible).

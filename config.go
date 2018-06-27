@@ -166,20 +166,20 @@ type torConfig struct {
 type config struct {
 	ShowVersion bool `short:"V" long:"version" description:"Display version information and exit"`
 
-	LndDir           string   `long:"lnddir" description:"The base directory that contains lnd's data, logs, configuration file, etc."`
-	ConfigFile       string   `long:"C" long:"configfile" description:"Path to configuration file"`
-	DataDir          string   `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
-	TLSCertPath      string   `long:"tlscertpath" description:"Path to write the TLS certificate for lnd's RPC and REST services"`
-	TLSKeyPath       string   `long:"tlskeypath" description:"Path to write the TLS private key for lnd's RPC and REST services"`
-	TLSExtraIP       string   `long:"tlsextraip" description:"Adds an extra ip to the generated certificate"`
-	TLSExtraDomain   string   `long:"tlsextradomain" description:"Adds an extra domain to the generated certificate"`
-	NoMacaroons      bool     `long:"no-macaroons" description:"Disable macaroon authentication"`
-	AdminMacPath     string   `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
-	ReadMacPath      string   `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`
-	InvoiceMacPath   string   `long:"invoicemacaroonpath" description:"Path to the invoice-only macaroon for lnd's RPC and REST services if it doesn't exist"`
-	LogDir           string   `long:"logdir" description:"Directory to log output."`
-	MaxLogFiles      int      `long:"maxlogfiles" description:"Maximum logfiles to keep (0 for no rotation)"`
-	MaxLogFileSize   int      `long:"maxlogfilesize" description:"Maximum logfile size in MB"`
+	LndDir         string `long:"lnddir" description:"The base directory that contains lnd's data, logs, configuration file, etc."`
+	ConfigFile     string `long:"C" long:"configfile" description:"Path to configuration file"`
+	DataDir        string `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
+	TLSCertPath    string `long:"tlscertpath" description:"Path to write the TLS certificate for lnd's RPC and REST services"`
+	TLSKeyPath     string `long:"tlskeypath" description:"Path to write the TLS private key for lnd's RPC and REST services"`
+	TLSExtraIP     string `long:"tlsextraip" description:"Adds an extra ip to the generated certificate"`
+	TLSExtraDomain string `long:"tlsextradomain" description:"Adds an extra domain to the generated certificate"`
+	NoMacaroons    bool   `long:"no-macaroons" description:"Disable macaroon authentication"`
+	AdminMacPath   string `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
+	ReadMacPath    string `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`
+	InvoiceMacPath string `long:"invoicemacaroonpath" description:"Path to the invoice-only macaroon for lnd's RPC and REST services if it doesn't exist"`
+	LogDir         string `long:"logdir" description:"Directory to log output."`
+	MaxLogFiles    int    `long:"maxlogfiles" description:"Maximum logfiles to keep (0 for no rotation)"`
+	MaxLogFileSize int    `long:"maxlogfilesize" description:"Maximum logfile size in MB"`
 
 	// We'll parse these 'raw' string arguments into real net.Addrs in the
 	// loadConfig function. We need to expose the 'raw' strings so the
@@ -193,8 +193,8 @@ type config struct {
 	RESTListeners    []net.Addr
 	Listeners        []net.Addr
 	ExternalIPs      []net.Addr
-	DisableListen    bool     `long:"nolisten" description:"Disable listening for incoming peer connections"`
-	NAT              bool     `long:"nat" description:"Toggle NAT traversal support (using either UPnP or NAT-PMP) to automatically advertise your external IP address to the network -- NOTE this does not support devices behind multiple NATs"`
+	DisableListen    bool `long:"nolisten" description:"Disable listening for incoming peer connections"`
+	NAT              bool `long:"nat" description:"Toggle NAT traversal support (using either UPnP or NAT-PMP) to automatically advertise your external IP address to the network -- NOTE this does not support devices behind multiple NATs"`
 
 	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
 
@@ -431,25 +431,31 @@ func loadConfig() (*config, error) {
 	// Validate the Tor config parameters.
 	socks, err := lncfg.ParseAddressString(
 		cfg.Tor.SOCKS, strconv.Itoa(defaultTorSOCKSPort),
+		cfg.net.ResolveTCPAddr,
 	)
 	if err != nil {
 		return nil, err
 	}
 	cfg.Tor.SOCKS = socks.String()
+
 	dns, err := lncfg.ParseAddressString(
 		cfg.Tor.DNS, strconv.Itoa(defaultTorDNSPort),
+		cfg.net.ResolveTCPAddr,
 	)
 	if err != nil {
 		return nil, err
 	}
 	cfg.Tor.DNS = dns.String()
+
 	control, err := lncfg.ParseAddressString(
 		cfg.Tor.Control, strconv.Itoa(defaultTorControlPort),
+		cfg.net.ResolveTCPAddr,
 	)
 	if err != nil {
 		return nil, err
 	}
 	cfg.Tor.Control = control.String()
+
 	switch {
 	case cfg.Tor.V2 && cfg.Tor.V3:
 		return nil, errors.New("either tor.v2 or tor.v3 can be set, " +
@@ -817,6 +823,7 @@ func loadConfig() (*config, error) {
 	// duplicate addresses.
 	cfg.RPCListeners, err = lncfg.NormalizeAddresses(
 		cfg.RawRPCListeners, strconv.Itoa(defaultRPCPort),
+		cfg.net.ResolveTCPAddr,
 	)
 	if err != nil {
 		return nil, err
@@ -826,6 +833,7 @@ func loadConfig() (*config, error) {
 	// duplicate addresses.
 	cfg.RESTListeners, err = lncfg.NormalizeAddresses(
 		cfg.RawRESTListeners, strconv.Itoa(defaultRESTPort),
+		cfg.net.ResolveTCPAddr,
 	)
 	if err != nil {
 		return nil, err
@@ -835,6 +843,7 @@ func loadConfig() (*config, error) {
 	// duplicate addresses.
 	cfg.Listeners, err = lncfg.NormalizeAddresses(
 		cfg.RawListeners, strconv.Itoa(defaultPeerPort),
+		cfg.net.ResolveTCPAddr,
 	)
 	if err != nil {
 		return nil, err
@@ -844,6 +853,7 @@ func loadConfig() (*config, error) {
 	// duplicate addresses.
 	cfg.ExternalIPs, err = lncfg.NormalizeAddresses(
 		cfg.RawExternalIPs, strconv.Itoa(defaultPeerPort),
+		cfg.net.ResolveTCPAddr,
 	)
 	if err != nil {
 		return nil, err
@@ -854,7 +864,7 @@ func loadConfig() (*config, error) {
 	// that.
 	for _, p2pListener := range cfg.Listeners {
 		if lncfg.IsUnix(p2pListener) {
-			err := fmt.Errorf("unix socket addresses cannot be " +
+			err := fmt.Errorf("unix socket addresses cannot be "+
 				"used for the p2p connection listener: %s",
 				p2pListener)
 			return nil, err
@@ -868,7 +878,7 @@ func loadConfig() (*config, error) {
 			// Due to the addresses being normalized above, we can
 			// skip checking the error.
 			host, _, _ := net.SplitHostPort(addr.String())
-			if host == "localhost" || host == "127.0.0.1" {
+			if lncfg.IsLoopback(addr) {
 				continue
 			}
 

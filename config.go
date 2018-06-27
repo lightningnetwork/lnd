@@ -332,6 +332,13 @@ func loadConfig() (*config, error) {
 	// path to all of the files and directories that will live within it.
 	lndDir := cleanAndExpandPath(preCfg.LndDir)
 	if lndDir != defaultLndDir {
+		preCfg2 := config{} // Parse again the command line to check if a config file is set
+		if _, err := flags.Parse(&preCfg2); err != nil {
+			return nil, err
+		}
+		if preCfg2.ConfigFile == "" { // That means that the user didn't specify a config file
+			preCfg.ConfigFile = filepath.Join(lndDir, defaultConfigFilename)
+		}
 		defaultCfg.ConfigFile = filepath.Join(lndDir, defaultConfigFilename)
 		defaultCfg.DataDir = filepath.Join(lndDir, defaultDataDirname)
 		defaultCfg.TLSCertPath = filepath.Join(lndDir, defaultTLSCertFilename)

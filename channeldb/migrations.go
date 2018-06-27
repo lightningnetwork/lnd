@@ -112,3 +112,79 @@ func migrateNodeAndEdgeUpdateIndex(tx *bolt.Tx) error {
 
 	return nil
 }
+
+// migrateAddInvoiceWithChannelPoint updates invoice structure by adding
+// new channel point field. This migration ensures that previously existed
+// invoices will be filled with empty channel point, so that new serialisation
+// function wouldn't fail.
+func migrateAddInvoiceWithChannelPoint(tx *bolt.Tx) error {
+	// For every outgoing payment, we deserialize it with old function and
+	// serialise with new, so that when user would like to fetch outgoing
+	// payments, new deserialization function wouldn't fail.
+	paymentsBucket := tx.Bucket(paymentBucket)
+	if paymentsBucket != nil {
+		if err := paymentsBucket.ForEach(func(paymentKey,
+		paymentData []byte) error {
+			// If the value is nil, then we ignore it as it may be
+			// a sub-bucket.
+			if paymentData == nil {
+				return nil
+			}
+
+			r := bytes.NewReader(paymentData)
+			payment, err := deserializeOutgoingPayment(r, nodeAndEdgeUpdateIndexVersion)
+			if err != nil {
+				return err
+			}
+
+			var b bytes.Buffer
+			if err := serializeOutgoingPayment(&b, payment,
+				invoiceWithChannelPointVersion); err != nil {
+				return err
+			}
+
+			log.Tracef("Update schema of outgoing payment("+
+				"%v), added empty channel point in invoice", payment.PaymentPreimage)
+
+			return paymentsBucket.Put(paymentKey, b.Bytes())
+		}); err != nil {
+			return err
+		}
+	}
+
+	// For every invoice, we deserialize it with old function and serialise
+	// with new, so that when user would like to fetch invoices,
+	// new deserialization function wouldn't fail.
+	invoiceBucket := tx.Bucket(invoiceBucket)
+	if invoiceBucket != nil {
+		// Iterate through the entire key space of the top-level
+		// invoice bucket. If key with a non-nil value stores the next
+		// invoice ID which maps to the corresponding invoice.
+		if err := invoiceBucket.ForEach(func(invoiceKey, invoiceData []byte) error {
+			if invoiceData == nil {
+				return nil
+			}
+
+			invoiceReader := bytes.NewReader(invoiceData)
+			invoice, err := deserializeInvoice(invoiceReader,
+				nodeAndEdgeUpdateIndexVersion)
+			if err != nil {
+				return err
+			}
+
+			var b bytes.Buffer
+			if err := serializeInvoice(&b, invoice,
+				invoiceWithChannelPointVersion); err != nil {
+				return err
+			}
+
+			return invoiceBucket.Put(invoiceKey, b.Bytes())
+		}); err != nil {
+			return err
+		}
+	}
+
+	log.Infof("Migration to invoices with channel point field has completed!")
+
+	return nil
+}

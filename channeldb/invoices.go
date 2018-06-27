@@ -110,6 +110,13 @@ type Invoice struct {
 	// TODO(roasbeef): later allow for multiple terms to fulfill the final
 	// invoice: payment fragmentation, etc.
 	Terms ContractTerm
+
+	// ChannelPoint identifies first channel in the payment path for outgoing
+	// payment and last for incoming payment.
+	//
+	// NOTE: Populated only when payment was sent/received for outgoing/incoming
+	// payment respectively.
+	ChannelPoint wire.OutPoint
 }
 
 func validateInvoice(i *Invoice) error {
@@ -134,7 +141,7 @@ func validateInvoice(i *Invoice) error {
 // has *any* payment hashes which already exists within the database, then the
 // insertion will be aborted and rejected due to the strict policy banning any
 // duplicate payment hashes.
-func (d *DB) AddInvoice(i *Invoice) error {
+func (d *DB) AddInvoice(i *Invoice, version DBVersionNumber) error {
 	if err := validateInvoice(i); err != nil {
 		return err
 	}
@@ -170,7 +177,7 @@ func (d *DB) AddInvoice(i *Invoice) error {
 			invoiceNum = byteOrder.Uint32(invoiceCounter)
 		}
 
-		return putInvoice(invoices, invoiceIndex, i, invoiceNum)
+		return putInvoice(invoices, invoiceIndex, i, invoiceNum, version)
 	})
 }
 
@@ -180,7 +187,7 @@ func (d *DB) AddInvoice(i *Invoice) error {
 // full invoice is returned. Before setting the incoming HTLC, the values
 // SHOULD be checked to ensure the payer meets the agreed upon contractual
 // terms of the payment.
-func (d *DB) LookupInvoice(paymentHash [32]byte) (*Invoice, error) {
+func (d *DB) LookupInvoice(paymentHash [32]byte, version DBVersionNumber) (*Invoice, error) {
 	var invoice *Invoice
 	err := d.View(func(tx *bolt.Tx) error {
 		invoices := tx.Bucket(invoiceBucket)
@@ -201,7 +208,7 @@ func (d *DB) LookupInvoice(paymentHash [32]byte) (*Invoice, error) {
 
 		// An invoice matching the payment hash has been found, so
 		// retrieve the record of the invoice itself.
-		i, err := fetchInvoice(invoiceNum, invoices)
+		i, err := fetchInvoice(invoiceNum, invoices, version)
 		if err != nil {
 			return err
 		}
@@ -219,7 +226,7 @@ func (d *DB) LookupInvoice(paymentHash [32]byte) (*Invoice, error) {
 // FetchAllInvoices returns all invoices currently stored within the database.
 // If the pendingOnly param is true, then only unsettled invoices will be
 // returned, skipping all invoices that are fully settled.
-func (d *DB) FetchAllInvoices(pendingOnly bool) ([]*Invoice, error) {
+func (d *DB) FetchAllInvoices(pendingOnly bool, version DBVersionNumber) ([]*Invoice, error) {
 	var invoices []*Invoice
 
 	err := d.View(func(tx *bolt.Tx) error {
@@ -237,7 +244,7 @@ func (d *DB) FetchAllInvoices(pendingOnly bool) ([]*Invoice, error) {
 			}
 
 			invoiceReader := bytes.NewReader(v)
-			invoice, err := deserializeInvoice(invoiceReader)
+			invoice, err := deserializeInvoice(invoiceReader, version)
 			if err != nil {
 				return err
 			}
@@ -262,7 +269,8 @@ func (d *DB) FetchAllInvoices(pendingOnly bool) ([]*Invoice, error) {
 // payment hash as fully settled. If an invoice matching the passed payment
 // hash doesn't existing within the database, then the action will fail with a
 // "not found" error.
-func (d *DB) SettleInvoice(paymentHash [32]byte) error {
+func (d *DB) SettleInvoice(paymentHash [32]byte, channelPoint wire.OutPoint,
+	version DBVersionNumber) error {
 	return d.Update(func(tx *bolt.Tx) error {
 		invoices, err := tx.CreateBucketIfNotExists(invoiceBucket)
 		if err != nil {
@@ -280,12 +288,12 @@ func (d *DB) SettleInvoice(paymentHash [32]byte) error {
 			return ErrInvoiceNotFound
 		}
 
-		return settleInvoice(invoices, invoiceNum)
+		return settleInvoice(invoices, invoiceNum, channelPoint, version)
 	})
 }
 
 func putInvoice(invoices *bolt.Bucket, invoiceIndex *bolt.Bucket,
-	i *Invoice, invoiceNum uint32) error {
+	i *Invoice, invoiceNum uint32, version DBVersionNumber) error {
 
 	// Create the invoice key which is just the big-endian representation
 	// of the invoice number.
@@ -311,14 +319,14 @@ func putInvoice(invoices *bolt.Bucket, invoiceIndex *bolt.Bucket,
 
 	// Finally, serialize the invoice itself to be written to the disk.
 	var buf bytes.Buffer
-	if err := serializeInvoice(&buf, i); err != nil {
+	if err := serializeInvoice(&buf, i, version); err != nil {
 		return nil
 	}
 
 	return invoices.Put(invoiceKey[:], buf.Bytes())
 }
 
-func serializeInvoice(w io.Writer, i *Invoice) error {
+func serializeInvoice(w io.Writer, i *Invoice, dbVersion DBVersionNumber) error {
 	if err := wire.WriteVarBytes(w, 0, i.Memo[:]); err != nil {
 		return err
 	}
@@ -361,10 +369,17 @@ func serializeInvoice(w io.Writer, i *Invoice) error {
 		return err
 	}
 
+	if dbVersion >= invoiceWithChannelPointVersion {
+		if err := writeElements(w, i.ChannelPoint); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
-func fetchInvoice(invoiceNum []byte, invoices *bolt.Bucket) (*Invoice, error) {
+func fetchInvoice(invoiceNum []byte, invoices *bolt.Bucket,
+	version DBVersionNumber) (*Invoice, error) {
 	invoiceBytes := invoices.Get(invoiceNum)
 	if invoiceBytes == nil {
 		return nil, ErrInvoiceNotFound
@@ -372,10 +387,11 @@ func fetchInvoice(invoiceNum []byte, invoices *bolt.Bucket) (*Invoice, error) {
 
 	invoiceReader := bytes.NewReader(invoiceBytes)
 
-	return deserializeInvoice(invoiceReader)
+	return deserializeInvoice(invoiceReader, version)
 }
 
-func deserializeInvoice(r io.Reader) (*Invoice, error) {
+func deserializeInvoice(r io.Reader, dbVersion DBVersionNumber) (*Invoice,
+	error) {
 	var err error
 	invoice := &Invoice{}
 
@@ -423,11 +439,18 @@ func deserializeInvoice(r io.Reader) (*Invoice, error) {
 		return nil, err
 	}
 
+	if dbVersion >= invoiceWithChannelPointVersion {
+		if err := readElements(r, &invoice.ChannelPoint); err != nil {
+			return nil, err
+		}
+	}
+
 	return invoice, nil
 }
 
-func settleInvoice(invoices *bolt.Bucket, invoiceNum []byte) error {
-	invoice, err := fetchInvoice(invoiceNum, invoices)
+func settleInvoice(invoices *bolt.Bucket, invoiceNum []byte,
+	channelPoint wire.OutPoint, version DBVersionNumber) error {
+	invoice, err := fetchInvoice(invoiceNum, invoices, version)
 	if err != nil {
 		return err
 	}
@@ -440,9 +463,10 @@ func settleInvoice(invoices *bolt.Bucket, invoiceNum []byte) error {
 
 	invoice.Terms.Settled = true
 	invoice.SettleDate = time.Now()
+	invoice.ChannelPoint = channelPoint
 
 	var buf bytes.Buffer
-	if err := serializeInvoice(&buf, invoice); err != nil {
+	if err := serializeInvoice(&buf, invoice, version); err != nil {
 		return nil
 	}
 

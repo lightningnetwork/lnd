@@ -53,32 +53,11 @@ func randomBytes(minLen, maxLen int) ([]byte, error) {
 }
 
 func makeRandomFakePayment() (*OutgoingPayment, error) {
-	var err error
-	fakeInvoice := &Invoice{
-		// Use single second precision to avoid false positive test
-		// failures due to the monotonic time component.
-		CreationDate: time.Unix(time.Now().Unix(), 0),
-	}
-
-	fakeInvoice.Memo, err = randomBytes(1, 50)
+	value := lnwire.MilliSatoshi(rand.Intn(10000))
+	fakeInvoice, err := randInvoice(value)
 	if err != nil {
 		return nil, err
 	}
-
-	fakeInvoice.Receipt, err = randomBytes(1, 50)
-	if err != nil {
-		return nil, err
-	}
-
-	fakeInvoice.PaymentRequest = []byte("")
-
-	preImg, err := randomBytes(32, 33)
-	if err != nil {
-		return nil, err
-	}
-	copy(fakeInvoice.Terms.PaymentPreimage[:], preImg)
-
-	fakeInvoice.Terms.Value = lnwire.MilliSatoshi(rand.Intn(10000))
 
 	fakePathLen := 1 + rand.Intn(5)
 	fakePath := make([][33]byte, fakePathLen)
@@ -107,11 +86,11 @@ func TestOutgoingPaymentSerialization(t *testing.T) {
 	fakePayment := makeFakePayment()
 
 	var b bytes.Buffer
-	if err := serializeOutgoingPayment(&b, fakePayment); err != nil {
+	if err := serializeOutgoingPayment(&b, fakePayment, LastVersion); err != nil {
 		t.Fatalf("unable to serialize outgoing payment: %v", err)
 	}
 
-	newPayment, err := deserializeOutgoingPayment(&b)
+	newPayment, err := deserializeOutgoingPayment(&b, LastVersion)
 	if err != nil {
 		t.Fatalf("unable to deserialize outgoing payment: %v", err)
 	}
@@ -135,11 +114,11 @@ func TestOutgoingPaymentWorkflow(t *testing.T) {
 	}
 
 	fakePayment := makeFakePayment()
-	if err = db.AddPayment(fakePayment); err != nil {
+	if err = db.AddPayment(fakePayment, LastVersion); err != nil {
 		t.Fatalf("unable to put payment in DB: %v", err)
 	}
 
-	payments, err := db.FetchAllPayments()
+	payments, err := db.FetchAllPayments(LastVersion)
 	if err != nil {
 		t.Fatalf("unable to fetch payments from DB: %v", err)
 	}
@@ -160,14 +139,14 @@ func TestOutgoingPaymentWorkflow(t *testing.T) {
 			t.Fatalf("Internal error in tests: %v", err)
 		}
 
-		if err = db.AddPayment(randomPayment); err != nil {
+		if err = db.AddPayment(randomPayment, LastVersion); err != nil {
 			t.Fatalf("unable to put payment in DB: %v", err)
 		}
 
 		expectedPayments = append(expectedPayments, randomPayment)
 	}
 
-	payments, err = db.FetchAllPayments()
+	payments, err = db.FetchAllPayments(LastVersion)
 	if err != nil {
 		t.Fatalf("Can't get payments from DB: %v", err)
 	}
@@ -186,7 +165,7 @@ func TestOutgoingPaymentWorkflow(t *testing.T) {
 	}
 
 	// Check that there is no payments after deletion
-	paymentsAfterDeletion, err := db.FetchAllPayments()
+	paymentsAfterDeletion, err := db.FetchAllPayments(LastVersion)
 	if err != nil {
 		t.Fatalf("Can't get payments after deletion: %v", err)
 	}

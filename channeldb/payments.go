@@ -44,7 +44,7 @@ type OutgoingPayment struct {
 
 // AddPayment saves a successful payment to the database. It is assumed that
 // all payment are sent using unique payment hashes.
-func (db *DB) AddPayment(payment *OutgoingPayment) error {
+func (db *DB) AddPayment(payment *OutgoingPayment, version DBVersionNumber) error {
 	// Validate the field of the inner voice within the outgoing payment,
 	// these must also adhere to the same constraints as regular invoices.
 	if err := validateInvoice(&payment.Invoice); err != nil {
@@ -55,7 +55,7 @@ func (db *DB) AddPayment(payment *OutgoingPayment) error {
 	// transaction so we can avoid creating a DB payment in the case of a
 	// serialization error.
 	var b bytes.Buffer
-	if err := serializeOutgoingPayment(&b, payment); err != nil {
+	if err := serializeOutgoingPayment(&b, payment, version); err != nil {
 		return err
 	}
 	paymentBytes := b.Bytes()
@@ -83,7 +83,7 @@ func (db *DB) AddPayment(payment *OutgoingPayment) error {
 }
 
 // FetchAllPayments returns all outgoing payments in DB.
-func (db *DB) FetchAllPayments() ([]*OutgoingPayment, error) {
+func (db *DB) FetchAllPayments(version DBVersionNumber) ([]*OutgoingPayment, error) {
 	var payments []*OutgoingPayment
 
 	err := db.View(func(tx *bolt.Tx) error {
@@ -100,7 +100,7 @@ func (db *DB) FetchAllPayments() ([]*OutgoingPayment, error) {
 			}
 
 			r := bytes.NewReader(v)
-			payment, err := deserializeOutgoingPayment(r)
+			payment, err := deserializeOutgoingPayment(r, version)
 			if err != nil {
 				return err
 			}
@@ -129,10 +129,11 @@ func (db *DB) DeleteAllPayments() error {
 	})
 }
 
-func serializeOutgoingPayment(w io.Writer, p *OutgoingPayment) error {
+func serializeOutgoingPayment(w io.Writer, p *OutgoingPayment,
+	dbVersion DBVersionNumber) error {
 	var scratch [8]byte
 
-	if err := serializeInvoice(w, &p.Invoice); err != nil {
+	if err := serializeInvoice(w, &p.Invoice, dbVersion); err != nil {
 		return err
 	}
 
@@ -168,12 +169,13 @@ func serializeOutgoingPayment(w io.Writer, p *OutgoingPayment) error {
 	return nil
 }
 
-func deserializeOutgoingPayment(r io.Reader) (*OutgoingPayment, error) {
+func deserializeOutgoingPayment(r io.Reader,
+	dbVersion DBVersionNumber) (*OutgoingPayment, error) {
 	var scratch [8]byte
 
 	p := &OutgoingPayment{}
 
-	inv, err := deserializeInvoice(r)
+	inv, err := deserializeInvoice(r, dbVersion)
 	if err != nil {
 		return nil, err
 	}

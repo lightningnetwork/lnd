@@ -9,6 +9,9 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	mathRand "math/rand"
 )
 
 func randInvoice(value lnwire.MilliSatoshi) (*Invoice, error) {
@@ -17,7 +20,19 @@ func randInvoice(value lnwire.MilliSatoshi) (*Invoice, error) {
 		return nil, err
 	}
 
+	var hashData [32]byte
+	if _, err := rand.Read(hashData[:]); err != nil {
+		return nil, err
+	}
+
 	i := &Invoice{
+		// Use single second precision to avoid false positive test
+		// failures due to the monotonic time component.
+		ChannelPoint: wire.OutPoint{
+			Hash:  chainhash.Hash(hashData),
+			Index: mathRand.Uint32(),
+		},
+
 		// Use single second precision to avoid false positive test
 		// failures due to the monotonic time component.
 		CreationDate: time.Unix(time.Now().Unix(), 0),
@@ -26,6 +41,7 @@ func randInvoice(value lnwire.MilliSatoshi) (*Invoice, error) {
 			Value:           value,
 		},
 	}
+
 	i.Memo = []byte("memo")
 	i.Receipt = []byte("receipt")
 
@@ -70,7 +86,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 	// Add the invoice to the database, this should succeed as there aren't
 	// any existing invoices within the database with the same payment
 	// hash.
-	if err := db.AddInvoice(fakeInvoice); err != nil {
+	if err := db.AddInvoice(fakeInvoice, LastVersion); err != nil {
 		t.Fatalf("unable to find invoice: %v", err)
 	}
 
@@ -78,7 +94,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 	// database. It should be found, and the invoice returned should be
 	// identical to the one created above.
 	paymentHash := sha256.Sum256(fakeInvoice.Terms.PaymentPreimage[:])
-	dbInvoice, err := db.LookupInvoice(paymentHash)
+	dbInvoice, err := db.LookupInvoice(paymentHash, LastVersion)
 	if err != nil {
 		t.Fatalf("unable to find invoice: %v", err)
 	}
@@ -90,10 +106,11 @@ func TestInvoiceWorkflow(t *testing.T) {
 	// Settle the invoice, the version retrieved from the database should
 	// now have the settled bit toggle to true and a non-default
 	// SettledDate
-	if err := db.SettleInvoice(paymentHash); err != nil {
+	emptyChanPoint := wire.OutPoint{}
+	if err := db.SettleInvoice(paymentHash, emptyChanPoint, LastVersion); err != nil {
 		t.Fatalf("unable to settle invoice: %v", err)
 	}
-	dbInvoice2, err := db.LookupInvoice(paymentHash)
+	dbInvoice2, err := db.LookupInvoice(paymentHash, LastVersion)
 	if err != nil {
 		t.Fatalf("unable to fetch invoice: %v", err)
 	}
@@ -107,7 +124,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 
 	// Attempt to insert generated above again, this should fail as
 	// duplicates are rejected by the processing logic.
-	if err := db.AddInvoice(fakeInvoice); err != ErrDuplicateInvoice {
+	if err := db.AddInvoice(fakeInvoice, LastVersion); err != ErrDuplicateInvoice {
 		t.Fatalf("invoice insertion should fail due to duplication, "+
 			"instead %v", err)
 	}
@@ -115,7 +132,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 	// Attempt to look up a non-existent invoice, this should also fail but
 	// with a "not found" error.
 	var fakeHash [32]byte
-	if _, err := db.LookupInvoice(fakeHash); err != ErrInvoiceNotFound {
+	if _, err := db.LookupInvoice(fakeHash, LastVersion); err != ErrInvoiceNotFound {
 		t.Fatalf("lookup should have failed, instead %v", err)
 	}
 
@@ -130,7 +147,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 			t.Fatalf("unable to create invoice: %v", err)
 		}
 
-		if err := db.AddInvoice(invoice); err != nil {
+		if err := db.AddInvoice(invoice, LastVersion); err != nil {
 			t.Fatalf("unable to add invoice %v", err)
 		}
 
@@ -138,7 +155,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 	}
 
 	// Perform a scan to collect all the active invoices.
-	dbInvoices, err := db.FetchAllInvoices(false)
+	dbInvoices, err := db.FetchAllInvoices(false, LastVersion)
 	if err != nil {
 		t.Fatalf("unable to fetch all invoices: %v", err)
 	}

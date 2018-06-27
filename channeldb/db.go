@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
-
 	"github.com/coreos/bbolt"
 	"github.com/go-errors/errors"
 	"github.com/roasbeef/btcd/btcec"
@@ -38,8 +36,12 @@ const (
 	// added.
 	nodeAndEdgeUpdateIndexVersion = 1
 
+	// invoiceWithChannelPointVersion is the version of the database where new
+	// channel point field was added to the invoice struct.
+	invoiceWithChannelPointVersion = 2
+
 	// LastVersion denotes current version of database.
-	LastVersion = nodeAndEdgeUpdateIndexVersion
+	LastVersion = invoiceWithChannelPointVersion
 )
 
 type version struct {
@@ -60,6 +62,10 @@ var (
 		{
 			number:    nodeAndEdgeUpdateIndexVersion,
 			migration: migrateNodeAndEdgeUpdateIndex,
+		},
+		{
+			number:    invoiceWithChannelPointVersion,
+			migration: migrateAddInvoiceWithChannelPoint,
 		},
 	}
 

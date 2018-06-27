@@ -71,7 +71,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 	// any existing invoices within the database with the same payment
 	// hash.
 	if err := db.AddInvoice(fakeInvoice); err != nil {
-		t.Fatalf("unable to find invoice: %v", err)
+		t.Fatalf("unable to add invoice: %v", err)
 	}
 
 	// Attempt to retrieve the invoice which was just added to the
@@ -119,12 +119,55 @@ func TestInvoiceWorkflow(t *testing.T) {
 		t.Fatalf("lookup should have failed, instead %v", err)
 	}
 
+	// Add an invoice with an external preimage
+	// Create a fake invoice with an external preimage which we'll use several times in the tests
+	// below.
+	fakeExternalPreimageInvoice := &Invoice{
+		// Use single second precision to avoid false positive test
+		// failures due to the monotonic time component.
+		CreationDate: time.Unix(time.Now().Unix(), 0),
+	}
+	fakeExternalPreimageInvoice.Memo = []byte("memo")
+	fakeExternalPreimageInvoice.Receipt = []byte("receipt")
+	fakeExternalPreimageInvoice.PaymentRequest = []byte("")
+	fakeExternalPreimageInvoice.Terms.ExternalPreimage = true
+	externalPreimagePaymentHash := sha256.Sum256([]byte("fake preimage"))
+	fakeExternalPreimageInvoice.Terms.PaymentHash = externalPreimagePaymentHash
+	fakeExternalPreimageInvoice.Terms.Value = lnwire.NewMSatFromSatoshis(10000)
+
+	// Add the invoice to the database, this should succeed as there aren't
+	// any existing invoices within the database with the same payment
+	// hash.
+	if err := db.AddInvoice(fakeExternalPreimageInvoice); err != nil {
+		t.Fatalf("unable to add invoice: %v", err)
+	}
+
+	// Attempt to retrieve the invoice which was just added to the
+	// database. It should be found, and the invoice returned should be
+	// identical to the one created above.
+	dbExternalPreimageInvoice, err := db.LookupInvoice(externalPreimagePaymentHash)
+	if err != nil {
+		t.Fatalf("unable to find invoice: %v", err)
+	}
+	if !reflect.DeepEqual(fakeExternalPreimageInvoice, dbExternalPreimageInvoice) {
+		t.Fatalf("invoice fetched from db doesn't match original %v vs %v",
+			spew.Sdump(fakeExternalPreimageInvoice), spew.Sdump(dbExternalPreimageInvoice))
+	}
+
+	// Attempt to insert generated above again, this should fail as
+	// duplicates are rejected by the processing logic.
+	if err := db.AddInvoice(fakeExternalPreimageInvoice); err != ErrDuplicateInvoice {
+		t.Fatalf("invoice insertion should fail due to duplication, "+
+			"instead %v", err)
+	}
+
 	// Add 100 random invoices.
 	const numInvoices = 10
 	amt := lnwire.NewMSatFromSatoshis(1000)
 	invoices := make([]*Invoice, numInvoices+1)
 	invoices[0] = dbInvoice2
-	for i := 1; i < len(invoices)-1; i++ {
+	invoices[1] = dbExternalPreimageInvoice
+	for i := 2; i < len(invoices)-1; i++ {
 		invoice, err := randInvoice(amt)
 		if err != nil {
 			t.Fatalf("unable to create invoice: %v", err)

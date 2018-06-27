@@ -88,13 +88,16 @@ func IsUnix(addr net.Addr) bool {
 
 // ParseAddressString converts an address in string format to a net.Addr that is
 // compatible with lnd. UDP is not supported because lnd needs reliable
-// connections.
-func ParseAddressString(strAddress string,
-	defaultPort string) (net.Addr, error) {
+// connections. We accept a custom function to resolve any TCP addresses so
+// that caller is able control exactly how resolution is performed.
+func ParseAddressString(strAddress string, defaultPort string,
+	tcpResolver func(network, addr string) (*net.TCPAddr, error)) (net.Addr, error) {
+
 	var parsedNetwork, parsedAddr string
 
-	// Addresses can either be in network://address:port format or only
-	// address:port. We want to support both.
+	// Addresses can either be in network://address:port format,
+	// network:address:port, address:port, or just port. We want to support
+	// all possible types.
 	if strings.Contains(strAddress, "://") {
 		parts := strings.Split(strAddress, "://")
 		parsedNetwork, parsedAddr = parts[0], parts[1]
@@ -109,18 +112,40 @@ func ParseAddressString(strAddress string,
 	switch parsedNetwork {
 	case "unix", "unixpacket":
 		return net.ResolveUnixAddr(parsedNetwork, parsedAddr)
+
 	case "tcp", "tcp4", "tcp6":
-		return net.ResolveTCPAddr(parsedNetwork,
-			verifyPort(parsedAddr, defaultPort))
+		return tcpResolver(
+			parsedNetwork,
+			verifyPort(parsedAddr, defaultPort),
+		)
+
 	case "ip", "ip4", "ip6", "udp", "udp4", "udp6", "unixgram":
 		return nil, fmt.Errorf("only TCP or unix socket "+
 			"addresses are supported: %s", parsedAddr)
 	default:
+		// We'll now possibly apply the default port, use the local
+		// host short circuit, or parse out an all interfaces listen.
+		addrWithPort := verifyPort(strAddress, defaultPort)
+		rawHost, rawPort, _ := net.SplitHostPort(addrWithPort)
+
+		// If we reach this point, then we'll check to see if we have
+		// an onion addresses, if so, we can directly pass the raw
+		// address and port to create the proper address.
+		if tor.IsOnionHost(rawHost) {
+			portNum, err := strconv.Atoi(rawPort)
+			if err != nil {
+				return nil, err
+			}
+
+			return &tor.OnionAddr{
+				OnionService: rawHost,
+				Port:         portNum,
+			}, nil
+		}
+
 		// There was no network specified, just try to parse as host
 		// and port.
-		return net.ResolveTCPAddr(
-			"tcp", verifyPort(strAddress, defaultPort),
-		)
+		return tcpResolver("tcp", addrWithPort)
 	}
 }
 

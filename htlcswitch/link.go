@@ -465,6 +465,12 @@ func (l *channelLink) Stop() {
 	l.wg.Wait()
 }
 
+// WaitForShutdown blocks until the link finishes shutting down, which includes
+// termination of all dependent goroutines.
+func (l *channelLink) WaitForShutdown() {
+	l.wg.Wait()
+}
+
 // EligibleToForward returns a bool indicating if the channel is able to
 // actively accept requests to forward HTLC's. We're able to forward HTLC's if
 // we know the remote party's next revocation point. Otherwise, we can't

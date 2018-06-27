@@ -399,6 +399,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	// of this server's addresses.
 	externalIPs, err := lncfg.NormalizeAddresses(
 		externalIpStrings, strconv.Itoa(defaultPeerPort),
+		cfg.net.ResolveTCPAddr,
 	)
 	if err != nil {
 		return nil, err

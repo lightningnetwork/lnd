@@ -43,6 +43,19 @@ func readOutpoint(r io.Reader, o *wire.OutPoint) error {
 	return nil
 }
 
+// UnknownElementType is an error returned when the codec is unable to encode or
+// decode a particular type.
+type UnknownElementType struct {
+	method  string
+	element interface{}
+}
+
+// Error returns the name of the method that encountered the error, as well as
+// the type that was unsupported.
+func (e UnknownElementType) Error() string {
+	return fmt.Sprintf("Unknown type in %s: %T", e.method, e.element)
+}
+
 // WriteElement is a one-stop shop to write the big endian representation of
 // any element which is to be serialized for storage on disk. The passed
 // io.Writer should be backed by an appropriately sized byte slice, or be able
@@ -164,7 +177,7 @@ func WriteElement(w io.Writer, element interface{}) error {
 		}
 
 	default:
-		return fmt.Errorf("Unknown type in WriteElement: %T", e)
+		return UnknownElementType{"WriteElement", e}
 	}
 
 	return nil
@@ -343,7 +356,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 		}
 
 	default:
-		return fmt.Errorf("Unknown type in ReadElement: %T", e)
+		return UnknownElementType{"ReadElement", e}
 	}
 
 	return nil

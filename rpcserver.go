@@ -1808,12 +1808,20 @@ func (r *rpcServer) savePayment(route *routing.Route,
 		copy(paymentPath[i][:], hopPub[:])
 	}
 
+	chanID := route.Hops[0].Channel.ChannelID
+	shortID := lnwire.NewShortChanIDFromInt(chanID)
+	channel, _, _, err := r.server.chanRouter.GetChannelByID(shortID)
+	if err != nil {
+		return err
+	}
+
 	payment := &channeldb.OutgoingPayment{
 		Invoice: channeldb.Invoice{
 			Terms: channeldb.ContractTerm{
 				Value: amount,
 			},
 			CreationDate: time.Now(),
+			ChannelPoint: channel.ChannelPoint,
 		},
 		Path:           paymentPath,
 		Fee:            route.TotalFees,
@@ -1821,7 +1829,7 @@ func (r *rpcServer) savePayment(route *routing.Route,
 	}
 	copy(payment.PaymentPreimage[:], preImage)
 
-	return r.server.chanDB.AddPayment(payment)
+	return r.server.chanDB.AddPayment(payment, channeldb.LastVersion)
 }
 
 // validatePayReqExpiry checks if the passed payment request has expired. In
@@ -2734,6 +2742,7 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 		CltvExpiry:      cltvExpiry,
 		FallbackAddr:    fallbackAddr,
 		RouteHints:      routeHints,
+		ChannelPoint:    invoice.ChannelPoint.String(),
 	}, nil
 }
 
@@ -2822,7 +2831,8 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 func (r *rpcServer) ListInvoices(ctx context.Context,
 	req *lnrpc.ListInvoiceRequest) (*lnrpc.ListInvoiceResponse, error) {
 
-	dbInvoices, err := r.server.chanDB.FetchAllInvoices(req.PendingOnly)
+	dbInvoices, err := r.server.chanDB.FetchAllInvoices(req.PendingOnly,
+		channeldb.LastVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -3548,7 +3558,7 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 
 	rpcsLog.Debugf("[ListPayments]")
 
-	payments, err := r.server.chanDB.FetchAllPayments()
+	payments, err := r.server.chanDB.FetchAllPayments(channeldb.LastVersion)
 	if err != nil && err != channeldb.ErrNoPaymentsCreated {
 		return nil, err
 	}
@@ -3570,6 +3580,7 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 			Path:            path,
 			Fee:             int64(payment.Fee.ToSatoshis()),
 			PaymentPreimage: hex.EncodeToString(payment.PaymentPreimage[:]),
+			ChannelPoint:    payment.ChannelPoint.String(),
 		}
 	}
 

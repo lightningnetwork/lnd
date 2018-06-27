@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcutil"
+	"github.com/roasbeef/btcd/wire"
 )
 
 var (
@@ -90,7 +91,7 @@ func (i *invoiceRegistry) AddInvoice(invoice *channeldb.Invoice) error {
 	}))
 
 	// TODO(roasbeef): also check in memory for quick lookups/settles?
-	return i.cdb.AddInvoice(invoice)
+	return i.cdb.AddInvoice(invoice, channeldb.LastVersion)
 
 	// TODO(roasbeef): re-enable?
 	//go i.notifyClients(invoice, false)
@@ -117,7 +118,7 @@ func (i *invoiceRegistry) LookupInvoice(rHash chainhash.Hash) (channeldb.Invoice
 
 	// Otherwise, we'll check the database to see if there's an existing
 	// matching invoice.
-	invoice, err := i.cdb.LookupInvoice(rHash)
+	invoice, err := i.cdb.LookupInvoice(rHash, channeldb.LastVersion)
 	if err != nil {
 		return channeldb.Invoice{}, 0, err
 	}
@@ -135,7 +136,7 @@ func (i *invoiceRegistry) LookupInvoice(rHash chainhash.Hash) (channeldb.Invoice
 // SettleInvoice attempts to mark an invoice as settled. If the invoice is a
 // debug invoice, then this method is a noop as debug invoices are never fully
 // settled.
-func (i *invoiceRegistry) SettleInvoice(rHash chainhash.Hash) error {
+func (i *invoiceRegistry) SettleInvoice(rHash chainhash.Hash, channelPoint wire.OutPoint) error {
 	ltndLog.Debugf("Settling invoice %x", rHash[:])
 
 	// First check the in-memory debug invoice index to see if this is an
@@ -152,14 +153,15 @@ func (i *invoiceRegistry) SettleInvoice(rHash chainhash.Hash) error {
 
 	// If this isn't a debug invoice, then we'll attempt to settle an
 	// invoice matching this rHash on disk (if one exists).
-	if err := i.cdb.SettleInvoice(rHash); err != nil {
+	if err := i.cdb.SettleInvoice(rHash, channelPoint,
+		channeldb.LastVersion); err != nil {
 		return err
 	}
 
 	// Launch a new goroutine to notify any/all registered invoice
 	// notification clients.
 	go func() {
-		invoice, err := i.cdb.LookupInvoice(rHash)
+		invoice, err := i.cdb.LookupInvoice(rHash, channeldb.LastVersion)
 		if err != nil {
 			ltndLog.Errorf("unable to find invoice: %v", err)
 			return

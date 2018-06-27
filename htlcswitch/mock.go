@@ -673,7 +673,7 @@ func (i *mockInvoiceRegistry) LookupInvoice(rHash chainhash.Hash) (channeldb.Inv
 	return invoice, i.finalDelta, nil
 }
 
-func (i *mockInvoiceRegistry) SettleInvoice(rhash chainhash.Hash) error {
+func (i *mockInvoiceRegistry) SettleInvoice(rhash chainhash.Hash, point wire.OutPoint) error {
 	i.Lock()
 	defer i.Unlock()
 

@@ -2308,7 +2308,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 			// Notify the invoiceRegistry of the invoices we just
 			// settled with this latest commitment update.
-			err = l.cfg.Registry.SettleInvoice(invoiceHash)
+			err = l.cfg.Registry.SettleInvoice(invoiceHash, *l.channel.ChanPoint)
 			if err != nil {
 				l.fail(LinkFailureError{code: ErrInternalError},
 					"unable to settle invoice: %v", err)

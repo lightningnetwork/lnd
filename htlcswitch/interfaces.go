@@ -5,6 +5,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/roasbeef/btcd/wire"
 )
 
 // InvoiceDatabase is an interface which represents the persistent subsystem
@@ -18,7 +19,7 @@ type InvoiceDatabase interface {
 
 	// SettleInvoice attempts to mark an invoice corresponding to the
 	// passed payment hash as fully settled.
-	SettleInvoice(chainhash.Hash) error
+	SettleInvoice(chainhash.Hash, wire.OutPoint) error
 }
 
 // ChannelLink is an interface which represents the subsystem for managing the

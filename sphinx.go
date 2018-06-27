@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"io"
-	"io/ioutil"
 	"math/big"
 
 	"github.com/aead/chacha20"
@@ -38,7 +37,7 @@ const (
 
 	// hopDataSize is the fixed size of hop_data. BOLT 04 currently
 	// specifies this to be 1 byte realm, 8 byte channel_id, 8 byte amount
-	// to forward, 4 byte outgoing CLTV value, 16 bytes padding and 32
+	// to forward, 4 byte outgoing CLTV value, 12 bytes padding and 32
 	// bytes HMAC for a total of 65 bytes per hop.
 	hopDataSize = (1 + addressSize + 8 + 4 + padSize + hmacSize)
 
@@ -71,15 +70,9 @@ const (
 // the output of a SHA256 hash.
 type Hash256 [sha256.Size]byte
 
-var (
-	// paddingBytes are the padding bytes used to fill out the remainder of the
-	// unused portion of the per-hop payload.
-	paddingBytes [padSize]byte
-
-	// zeroHMAC is the special HMAC value that allows the final node to
-	// determine if it is the payment destination or not.
-	zeroHMAC [hmacSize]byte
-)
+// zeroHMAC is the special HMAC value that allows the final node to determine
+// if it is the payment destination or not.
+var zeroHMAC [hmacSize]byte
 
 // OnionPacket is the onion wrapped hop-to-hop routing information necessary to
 // propagate a message through the mix-net without intermediate nodes having
@@ -140,6 +133,13 @@ type HopData struct {
 	// should be included in the HTLC forwarded.
 	OutgoingCltv uint32
 
+	// ExtraBytes is the set of unused bytes within the onion payload. This
+	// extra set of bytes can be utilized by higher level applications to
+	// package additional data within the per-hop payload, or signal that a
+	// portion of the remaining set of hops are to be consumed as Extra
+	// Onion Blobs.
+	ExtraBytes [padSize]byte
+
 	// HMAC is an HMAC computed over the entire per-hop payload that also
 	// includes the higher-level (optional) associated data bytes.
 	HMAC [hmacSize]byte
@@ -164,7 +164,7 @@ func (hd *HopData) Encode(w io.Writer) error {
 		return err
 	}
 
-	if _, err := w.Write(paddingBytes[:]); err != nil {
+	if _, err := w.Write(hd.ExtraBytes[:]); err != nil {
 		return err
 	}
 
@@ -194,7 +194,7 @@ func (hd *HopData) Decode(r io.Reader) error {
 		return err
 	}
 
-	if _, err := io.CopyN(ioutil.Discard, r, padSize); err != nil {
+	if _, err := io.ReadFull(r, hd.ExtraBytes[:]); err != nil {
 		return err
 	}
 

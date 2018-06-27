@@ -1,11 +1,14 @@
 package lncfg
 
 import (
-	"time"
-	"net"
-	"fmt"
 	"crypto/tls"
+	"fmt"
+	"net"
+	"strconv"
 	"strings"
+	"time"
+
+	"github.com/lightningnetwork/lnd/tor"
 )
 
 var (
@@ -159,26 +162,38 @@ func ParseAddressString(strAddress string, defaultPort string,
 	}
 }
 
-// verifyPort makes sure that an address string has both a host and a port.
-// If there is no port found, the default port is appended.
-func verifyPort(strAddress string, defaultPort string) string {
-	host, port, err := net.SplitHostPort(strAddress)
+// verifyPort makes sure that an address string has both a host and a port. If
+// there is no port found, the default port is appended. If the address is just
+// a port, then we'll assume that the user is using the short cut to specify a
+// localhost:port address.
+func verifyPort(address string, defaultPort string) string {
+	host, port, err := net.SplitHostPort(address)
 	if err != nil {
-		// If we already have an IPv6 address with brackets, don't use
-		// the JoinHostPort function, since it will always add a pair
-		// of brackets too.
-		if strings.HasPrefix(strAddress, "[") {
-			strAddress = strAddress + ":" + defaultPort
-		} else {
-			strAddress = net.JoinHostPort(strAddress, defaultPort)
+		// If the address itself is just an integer, then we'll assume
+		// that we're mapping this directly to a localhost:port pair.
+		// This ensures we maintain the legacy behavior.
+		if _, err := strconv.Atoi(address); err == nil {
+			return net.JoinHostPort("localhost", address)
 		}
-	} else if host == "" && port == "" {
-		// The string ':' is parsed as valid empty host and empty port.
-		// But in that case, we want the default port to be applied too.
-		strAddress = ":" + defaultPort
+
+		// Otherwise, we'll assume that the address just failed to
+		// attach its own port, so we'll use the default port. In the
+		// case of IPv6 addresses, if the host is already surrounded by
+		// brackets, then we'll avoid using the JoinHostPort function,
+		// since it will always add a pair of brackets.
+		if strings.HasPrefix(address, "[") {
+			return address + ":" + defaultPort
+		}
+		return net.JoinHostPort(address, defaultPort)
 	}
 
-	return strAddress
+	// In the case that both the host and port are empty, we'll use the
+	// default port.
+	if host == "" && port == "" {
+		return ":" + defaultPort
+	}
+
+	return address
 }
 
 // ClientAddressDialer creates a gRPC dialer that can also dial unix socket

@@ -17,7 +17,7 @@ var (
 // Meta structure holds the database meta information.
 type Meta struct {
 	// DbVersionNumber is the current schema version of the database.
-	DbVersionNumber uint32
+	DbVersionNumber DBVersionNumber
 }
 
 // FetchMeta fetches the meta data from boltdb and returns filled meta
@@ -48,7 +48,7 @@ func fetchMeta(meta *Meta, tx *bolt.Tx) error {
 	if data == nil {
 		meta.DbVersionNumber = getLatestDBVersion(dbVersions)
 	} else {
-		meta.DbVersionNumber = byteOrder.Uint32(data)
+		meta.DbVersionNumber = DBVersionNumber(byteOrder.Uint32(data))
 	}
 
 	return nil
@@ -75,6 +75,6 @@ func putMeta(meta *Meta, tx *bolt.Tx) error {
 
 func putDbVersion(metaBucket *bolt.Bucket, meta *Meta) error {
 	scratch := make([]byte, 4)
-	byteOrder.PutUint32(scratch, meta.DbVersionNumber)
+	byteOrder.PutUint32(scratch, uint32(meta.DbVersionNumber))
 	return metaBucket.Put(dbVersionKey, scratch)
 }

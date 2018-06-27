@@ -24,8 +24,26 @@ const (
 // up-to-date version of the database.
 type migration func(tx *bolt.Tx) error
 
+// DBVersionNumber denotes numerical representation of current schema state of
+// database. Is used by serialisation/deserialization functions for
+// changing behaviour.
+type DBVersionNumber uint32
+
+const (
+	// initialVersion is the base DB version requires no migration.
+	initialVersion DBVersionNumber = 0
+
+	// nodeAndEdgeUpdateIndexVersion the version of the database where two
+	// new indexes for the update time of node and channel updates were
+	// added.
+	nodeAndEdgeUpdateIndexVersion = 1
+
+	// LastVersion denotes current version of database.
+	LastVersion = nodeAndEdgeUpdateIndexVersion
+)
+
 type version struct {
-	number    uint32
+	number    DBVersionNumber
 	migration migration
 }
 
@@ -36,15 +54,11 @@ var (
 	// current db.
 	dbVersions = []version{
 		{
-			// The base DB version requires no migration.
-			number:    0,
+			number:    initialVersion,
 			migration: nil,
 		},
 		{
-			// The version of the database where two new indexes
-			// for the update time of node and channel updates were
-			// added.
-			number:    1,
+			number:    nodeAndEdgeUpdateIndexVersion,
 			migration: migrateNodeAndEdgeUpdateIndex,
 		},
 	}
@@ -53,10 +67,6 @@ var (
 	// integer keys iterating in order.
 	byteOrder = binary.BigEndian
 )
-
-var bufPool = &sync.Pool{
-	New: func() interface{} { return new(bytes.Buffer) },
-}
 
 // DB is the primary datastore for the lnd daemon. The database stores
 // information related to nodes, routing data, open/closed channels, fee
@@ -630,15 +640,15 @@ func (d *DB) ChannelGraph() *ChannelGraph {
 	return &ChannelGraph{d}
 }
 
-func getLatestDBVersion(versions []version) uint32 {
+func getLatestDBVersion(versions []version) DBVersionNumber {
 	return versions[len(versions)-1].number
 }
 
 // getMigrationsToApply retrieves the migration function that should be
 // applied to the database.
-func getMigrationsToApply(versions []version, version uint32) ([]migration, []uint32) {
+func getMigrationsToApply(versions []version, version DBVersionNumber) ([]migration, []DBVersionNumber) {
 	migrations := make([]migration, 0, len(versions))
-	migrationVersions := make([]uint32, 0, len(versions))
+	migrationVersions := make([]DBVersionNumber, 0, len(versions))
 
 	for _, v := range versions {
 		if v.number > version {

@@ -916,12 +916,12 @@ type HTLC struct {
 // future.
 func SerializeHtlcs(b io.Writer, htlcs ...HTLC) error {
 	numHtlcs := uint16(len(htlcs))
-	if err := writeElement(b, numHtlcs); err != nil {
+	if err := WriteElement(b, numHtlcs); err != nil {
 		return err
 	}
 
 	for _, htlc := range htlcs {
-		if err := writeElements(b,
+		if err := WriteElements(b,
 			htlc.Signature, htlc.RHash, htlc.Amt, htlc.RefundTimeout,
 			htlc.OutputIndex, htlc.Incoming, htlc.OnionBlob[:],
 			htlc.HtlcIndex, htlc.LogIndex,
@@ -941,7 +941,7 @@ func SerializeHtlcs(b io.Writer, htlcs ...HTLC) error {
 // future.
 func DeserializeHtlcs(r io.Reader) ([]HTLC, error) {
 	var numHtlcs uint16
-	if err := readElement(r, &numHtlcs); err != nil {
+	if err := ReadElement(r, &numHtlcs); err != nil {
 		return nil, err
 	}
 
@@ -952,7 +952,7 @@ func DeserializeHtlcs(r io.Reader) ([]HTLC, error) {
 
 	htlcs = make([]HTLC, numHtlcs)
 	for i := uint16(0); i < numHtlcs; i++ {
-		if err := readElements(r,
+		if err := ReadElements(r,
 			&htlcs[i].Signature, &htlcs[i].RHash, &htlcs[i].Amt,
 			&htlcs[i].RefundTimeout, &htlcs[i].OutputIndex,
 			&htlcs[i].Incoming, &htlcs[i].OnionBlob,
@@ -996,12 +996,12 @@ type LogUpdate struct {
 
 // Encode writes a log update to the provided io.Writer.
 func (l *LogUpdate) Encode(w io.Writer) error {
-	return writeElements(w, l.LogIndex, l.UpdateMsg)
+	return WriteElements(w, l.LogIndex, l.UpdateMsg)
 }
 
 // Decode reads a log update from the provided io.Reader.
 func (l *LogUpdate) Decode(r io.Reader) error {
-	return readElements(r, &l.LogIndex, &l.UpdateMsg)
+	return ReadElements(r, &l.LogIndex, &l.UpdateMsg)
 }
 
 // CircuitKey is used by a channel to uniquely identify the HTLCs it receives
@@ -1142,7 +1142,7 @@ func serializeCommitDiff(w io.Writer, diff *CommitDiff) error {
 	}
 
 	for _, diff := range diff.LogUpdates {
-		err := writeElements(w, diff.LogIndex, diff.UpdateMsg)
+		err := WriteElements(w, diff.LogIndex, diff.UpdateMsg)
 		if err != nil {
 			return err
 		}
@@ -1154,7 +1154,7 @@ func serializeCommitDiff(w io.Writer, diff *CommitDiff) error {
 	}
 
 	for _, openRef := range diff.OpenedCircuitKeys {
-		err := writeElements(w, openRef.ChanID, openRef.HtlcID)
+		err := WriteElements(w, openRef.ChanID, openRef.HtlcID)
 		if err != nil {
 			return err
 		}
@@ -1166,7 +1166,7 @@ func serializeCommitDiff(w io.Writer, diff *CommitDiff) error {
 	}
 
 	for _, closedRef := range diff.ClosedCircuitKeys {
-		err := writeElements(w, closedRef.ChanID, closedRef.HtlcID)
+		err := WriteElements(w, closedRef.ChanID, closedRef.HtlcID)
 		if err != nil {
 			return err
 		}
@@ -1198,7 +1198,7 @@ func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 
 	d.LogUpdates = make([]LogUpdate, numUpdates)
 	for i := 0; i < int(numUpdates); i++ {
-		err := readElements(r,
+		err := ReadElements(r,
 			&d.LogUpdates[i].LogIndex, &d.LogUpdates[i].UpdateMsg,
 		)
 		if err != nil {
@@ -1213,7 +1213,7 @@ func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 
 	d.OpenedCircuitKeys = make([]CircuitKey, numOpenRefs)
 	for i := 0; i < int(numOpenRefs); i++ {
-		err := readElements(r,
+		err := ReadElements(r,
 			&d.OpenedCircuitKeys[i].ChanID,
 			&d.OpenedCircuitKeys[i].HtlcID)
 		if err != nil {
@@ -1228,7 +1228,7 @@ func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 
 	d.ClosedCircuitKeys = make([]CircuitKey, numClosedRefs)
 	for i := 0; i < int(numClosedRefs); i++ {
-		err := readElements(r,
+		err := ReadElements(r,
 			&d.ClosedCircuitKeys[i].ChanID,
 			&d.ClosedCircuitKeys[i].HtlcID)
 		if err != nil {
@@ -1957,7 +1957,7 @@ func putChannelCloseSummary(tx *bolt.Tx, chanID []byte,
 }
 
 func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
-	err := writeElements(w,
+	err := WriteElements(w,
 		cs.ChanPoint, cs.ShortChanID, cs.ChainHash, cs.ClosingTXID,
 		cs.CloseHeight, cs.RemotePub, cs.Capacity, cs.SettledBalance,
 		cs.TimeLockedBalance, cs.CloseType, cs.IsPending,
@@ -1972,7 +1972,7 @@ func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
 		return nil
 	}
 
-	if err := writeElements(w, cs.RemoteCurrentRevocation); err != nil {
+	if err := WriteElements(w, cs.RemoteCurrentRevocation); err != nil {
 		return err
 	}
 
@@ -1987,7 +1987,7 @@ func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
 		return nil
 	}
 
-	return writeElements(w, cs.RemoteNextRevocation)
+	return WriteElements(w, cs.RemoteNextRevocation)
 }
 
 func fetchChannelCloseSummary(tx *bolt.Tx,
@@ -2010,7 +2010,7 @@ func fetchChannelCloseSummary(tx *bolt.Tx,
 func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 	c := &ChannelCloseSummary{}
 
-	err := readElements(r,
+	err := ReadElements(r,
 		&c.ChanPoint, &c.ShortChanID, &c.ChainHash, &c.ClosingTXID,
 		&c.CloseHeight, &c.RemotePub, &c.Capacity, &c.SettledBalance,
 		&c.TimeLockedBalance, &c.CloseType, &c.IsPending,
@@ -2021,7 +2021,7 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 
 	// We'll now check to see if the channel close summary was encoded with
 	// any of the additional optional fields.
-	err = readElements(r, &c.RemoteCurrentRevocation)
+	err = ReadElements(r, &c.RemoteCurrentRevocation)
 	switch {
 	case err == io.EOF:
 		return c, nil
@@ -2042,7 +2042,7 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 	// funding locked message, then this can be nil. As a result, we'll use
 	// the same technique to read the field, only if there's still data
 	// left in the buffer.
-	err = readElements(r, &c.RemoteNextRevocation)
+	err = ReadElements(r, &c.RemoteNextRevocation)
 	if err != nil && err != io.EOF {
 		// If we got a non-eof error, then we know there's an actually
 		// issue. Otherwise, it may have been the case that this
@@ -2054,7 +2054,7 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 }
 
 func writeChanConfig(b io.Writer, c *ChannelConfig) error {
-	return writeElements(b,
+	return WriteElements(b,
 		c.DustLimit, c.MaxPendingAmount, c.ChanReserve, c.MinHTLC,
 		c.MaxAcceptedHtlcs, c.CsvDelay, c.MultiSigKey,
 		c.RevocationBasePoint, c.PaymentBasePoint, c.DelayBasePoint,
@@ -2064,7 +2064,7 @@ func writeChanConfig(b io.Writer, c *ChannelConfig) error {
 
 func putChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 	var w bytes.Buffer
-	if err := writeElements(&w,
+	if err := WriteElements(&w,
 		channel.ChanType, channel.ChainHash, channel.FundingOutpoint,
 		channel.ShortChannelID, channel.IsPending, channel.IsInitiator,
 		channel.ChanStatus, channel.FundingBroadcastHeight,
@@ -2077,7 +2077,7 @@ func putChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 
 	// For single funder channels that we initiated, write the funding txn.
 	if channel.ChanType == SingleFunder && channel.IsInitiator {
-		if err := writeElement(&w, channel.FundingTxn); err != nil {
+		if err := WriteElement(&w, channel.FundingTxn); err != nil {
 			return err
 		}
 	}
@@ -2093,7 +2093,7 @@ func putChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 }
 
 func serializeChanCommit(w io.Writer, c *ChannelCommitment) error {
-	if err := writeElements(w,
+	if err := WriteElements(w,
 		c.CommitHeight, c.LocalLogIndex, c.LocalHtlcIndex,
 		c.RemoteLogIndex, c.RemoteHtlcIndex, c.LocalBalance,
 		c.RemoteBalance, c.CommitFee, c.FeePerKw, c.CommitTx,
@@ -2135,7 +2135,7 @@ func putChanCommitments(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 func putChanRevocationState(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 
 	var b bytes.Buffer
-	err := writeElements(
+	err := WriteElements(
 		&b, channel.RemoteCurrentRevocation, channel.RevocationProducer,
 		channel.RevocationStore,
 	)
@@ -2148,7 +2148,7 @@ func putChanRevocationState(chanBucket *bolt.Bucket, channel *OpenChannel) error
 	// If the next revocation is present, which is only the case after the
 	// FundingLocked message has been sent, then we'll write it to disk.
 	if channel.RemoteNextRevocation != nil {
-		err = writeElements(&b, channel.RemoteNextRevocation)
+		err = WriteElements(&b, channel.RemoteNextRevocation)
 		if err != nil {
 			return err
 		}
@@ -2158,7 +2158,7 @@ func putChanRevocationState(chanBucket *bolt.Bucket, channel *OpenChannel) error
 }
 
 func readChanConfig(b io.Reader, c *ChannelConfig) error {
-	return readElements(b,
+	return ReadElements(b,
 		&c.DustLimit, &c.MaxPendingAmount, &c.ChanReserve,
 		&c.MinHTLC, &c.MaxAcceptedHtlcs, &c.CsvDelay,
 		&c.MultiSigKey, &c.RevocationBasePoint,
@@ -2174,7 +2174,7 @@ func fetchChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 	}
 	r := bytes.NewReader(infoBytes)
 
-	if err := readElements(r,
+	if err := ReadElements(r,
 		&channel.ChanType, &channel.ChainHash, &channel.FundingOutpoint,
 		&channel.ShortChannelID, &channel.IsPending, &channel.IsInitiator,
 		&channel.ChanStatus, &channel.FundingBroadcastHeight,
@@ -2187,7 +2187,7 @@ func fetchChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 
 	// For single funder channels that we initiated, read the funding txn.
 	if channel.ChanType == SingleFunder && channel.IsInitiator {
-		if err := readElement(r, &channel.FundingTxn); err != nil {
+		if err := ReadElement(r, &channel.FundingTxn); err != nil {
 			return err
 		}
 	}
@@ -2207,7 +2207,7 @@ func fetchChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 func deserializeChanCommit(r io.Reader) (ChannelCommitment, error) {
 	var c ChannelCommitment
 
-	err := readElements(r,
+	err := ReadElements(r,
 		&c.CommitHeight, &c.LocalLogIndex, &c.LocalHtlcIndex, &c.RemoteLogIndex,
 		&c.RemoteHtlcIndex, &c.LocalBalance, &c.RemoteBalance,
 		&c.CommitFee, &c.FeePerKw, &c.CommitTx, &c.CommitSig,
@@ -2263,7 +2263,7 @@ func fetchChanRevocationState(chanBucket *bolt.Bucket, channel *OpenChannel) err
 	}
 	r := bytes.NewReader(revBytes)
 
-	err := readElements(
+	err := ReadElements(
 		r, &channel.RemoteCurrentRevocation, &channel.RevocationProducer,
 		&channel.RevocationStore,
 	)
@@ -2279,7 +2279,7 @@ func fetchChanRevocationState(chanBucket *bolt.Bucket, channel *OpenChannel) err
 
 	// Otherwise we'll read the next revocation for the remote party which
 	// is always the last item within the buffer.
-	return readElements(r, &channel.RemoteNextRevocation)
+	return ReadElements(r, &channel.RemoteNextRevocation)
 }
 
 func deleteOpenChannel(chanBucket *bolt.Bucket, chanPointBytes []byte) error {

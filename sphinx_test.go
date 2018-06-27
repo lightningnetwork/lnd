@@ -7,9 +7,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/davecgh/go-spew/spew"
 )
 
 // BOLT 4 Test Vectors
@@ -115,6 +115,7 @@ func newTestRoute(numHops int) ([]*Router, *[]HopData, *OnionPacket, error) {
 			OutgoingCltv:  uint32(i),
 		})
 		copy(hopsData[i].NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
+		copy(hopsData[i].ExtraBytes[:], bytes.Repeat([]byte{byte(i)}, padSize))
 	}
 
 	// Generate a forwarding message to route to the final node via the

@@ -34,12 +34,12 @@ var (
 		{"localhost", "tcp", "127.0.0.1:1234", true, false},
 		{"unix:///tmp/lnd.sock", "unix", "/tmp/lnd.sock", false, true},
 		{"unix:/tmp/lnd.sock", "unix", "/tmp/lnd.sock", false, true},
+		{"123", "tcp", "127.0.0.1:123", true, false},
 	}
 	invalidTestVectors = []string{
 		"some string",
 		"://",
-		"12.12.12",
-		"123",
+		"12.12.12.12.12",
 	}
 )
 

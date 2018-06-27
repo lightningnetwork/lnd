@@ -34,6 +34,14 @@ var (
 	// stored within the invoiceIndexBucket. Within the invoiceBucket
 	// invoices are uniquely identified by the invoice ID.
 	numInvoicesKey = []byte("nik")
+
+	// zeroPreimage is an empty preimage that we use when we have an external
+	// preimage for the invoice. We initialize it here to allow for easy
+	// comparisons.
+	zeroPreimage [32]byte
+
+	// zeroHash is an empty hash for easy comparisons.
+	zeroHash [sha256.Size]byte
 )
 
 const (
@@ -56,6 +64,13 @@ const (
 // the necessary conditions required before the invoice can be considered fully
 // settled by the payee.
 type ContractTerm struct {
+	// ExternalPreimage indicates if the preimage for this hash is
+	// stored externally and must be retrieved.
+	ExternalPreimage bool
+
+	// PaymentHash is the hash that locks the HTLC for this payment.
+	PaymentHash [sha256.Size]byte
+
 	// PaymentPreimage is the preimage which is to be revealed in the
 	// occasion that an HTLC paying to the hash of this preimage is
 	// extended.
@@ -112,6 +127,33 @@ type Invoice struct {
 	Terms ContractTerm
 }
 
+// getPaymentHash retrieves the payment hash for a given invoice,
+// either by calculating it from the preimage, or using the given
+// hash for invoices with external preimages.
+func getPaymentHash(i *Invoice) ([32]byte, error) {
+	var paymentHash [32]byte
+
+	if i.Terms.ExternalPreimage {
+		if bytes.Equal(i.Terms.PaymentHash[:], zeroHash[:]) {
+			return zeroHash, fmt.Errorf("Invoices with ExternalPreimage must " +
+				"have a locally defined PaymentHash.")
+		}
+
+		// For external preimages, we rely on a provided hash
+		paymentHash = i.Terms.PaymentHash
+	} else {
+		if bytes.Equal(i.Terms.PaymentPreimage[:], zeroPreimage[:]) {
+			return zeroHash, fmt.Errorf("Invoices must have a preimage or" +
+				"use ExternalPreimages")
+		}
+
+		// For local preimages, we calculate the hash ourselves
+		paymentHash = sha256.Sum256(i.Terms.PaymentPreimage[:])
+	}
+
+	return paymentHash, nil
+}
+
 func validateInvoice(i *Invoice) error {
 	if len(i.Memo) > MaxMemoSize {
 		return fmt.Errorf("max length a memo is %v, and invoice "+
@@ -149,9 +191,13 @@ func (d *DB) AddInvoice(i *Invoice) error {
 			return err
 		}
 
+		paymentHash, err := getPaymentHash(i)
+		if err != nil {
+			return err
+		}
+
 		// Ensure that an invoice an identical payment hash doesn't
 		// already exist within the index.
-		paymentHash := sha256.Sum256(i.Terms.PaymentPreimage[:])
 		if invoiceIndex.Get(paymentHash[:]) != nil {
 			return ErrDuplicateInvoice
 		}
@@ -301,10 +347,14 @@ func putInvoice(invoices *bolt.Bucket, invoiceIndex *bolt.Bucket,
 		return err
 	}
 
+	paymentHash, err := getPaymentHash(i)
+	if err != nil {
+		return err
+	}
+
 	// Add the payment hash to the invoice index. This will let us quickly
 	// identify if we can settle an incoming payment, and also to possibly
 	// allow a single invoice to have multiple payment installations.
-	paymentHash := sha256.Sum256(i.Terms.PaymentPreimage[:])
 	if err := invoiceIndex.Put(paymentHash[:], invoiceKey[:]); err != nil {
 		return err
 	}
@@ -347,7 +397,28 @@ func serializeInvoice(w io.Writer, i *Invoice) error {
 		return err
 	}
 
-	if _, err := w.Write(i.Terms.PaymentPreimage[:]); err != nil {
+	var preimage [32]byte
+	if !i.Terms.ExternalPreimage {
+		preimage = i.Terms.PaymentPreimage
+	} else {
+		preimage = zeroPreimage
+	}
+
+	if _, err := w.Write(preimage[:]); err != nil {
+		return err
+	}
+
+	var paymentHash [sha256.Size]byte
+	if i.Terms.ExternalPreimage {
+		paymentHash, err = getPaymentHash(i)
+		if err != nil {
+			return err
+		}
+	} else {
+		paymentHash = zeroHash
+	}
+
+	if _, err := w.Write(paymentHash[:]); err != nil {
 		return err
 	}
 
@@ -358,6 +429,10 @@ func serializeInvoice(w io.Writer, i *Invoice) error {
 	}
 
 	if err := binary.Write(w, byteOrder, i.Terms.Settled); err != nil {
+		return err
+	}
+
+	if err := binary.Write(w, byteOrder, i.Terms.ExternalPreimage); err != nil {
 		return err
 	}
 
@@ -413,6 +488,11 @@ func deserializeInvoice(r io.Reader) (*Invoice, error) {
 	if _, err := io.ReadFull(r, invoice.Terms.PaymentPreimage[:]); err != nil {
 		return nil, err
 	}
+
+	if _, err := io.ReadFull(r, invoice.Terms.PaymentHash[:]); err != nil {
+		return nil, err
+	}
+
 	var scratch [8]byte
 	if _, err := io.ReadFull(r, scratch[:]); err != nil {
 		return nil, err
@@ -421,6 +501,18 @@ func deserializeInvoice(r io.Reader) (*Invoice, error) {
 
 	if err := binary.Read(r, byteOrder, &invoice.Terms.Settled); err != nil {
 		return nil, err
+	}
+
+	if err := binary.Read(r, byteOrder, &invoice.Terms.ExternalPreimage); err != nil {
+		return nil, err
+	}
+
+	if invoice.Terms.ExternalPreimage {
+		// If the Preimage is external, we do not want a local copy of the preimage
+		invoice.Terms.PaymentPreimage = zeroPreimage
+	} else {
+		// If the Preimage is internal, we do not want a local copy of the hash
+		invoice.Terms.PaymentHash = zeroHash
 	}
 
 	return invoice, nil

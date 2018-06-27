@@ -1893,6 +1893,10 @@
           "type": "boolean",
           "format": "boolean",
           "description": "/ Whether this invoice should include routing hints for private channels."
+        },
+        "channel_point": {
+          "type": "string",
+          "description": "ChannelPoint identifies first channel in the payment path for outgoing\npayment and last for incoming payment."
         }
       }
     },
@@ -2217,6 +2221,10 @@
         "payment_preimage": {
           "type": "string",
           "title": "/ The payment preimage"
+        },
+        "channel_point": {
+          "type": "string",
+          "description": "ChannelPoint identifies first channel in the payment path for outgoing\npayment and last for incoming payment."
         }
       }
     },

@@ -404,7 +404,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		return nil, err
 	}
 	selfAddrs := make([]net.Addr, 0, len(externalIPs))
-	for _, ip := range cfg.ExternalIPs {
+	for _, ip := range externalIPs {
 		selfAddrs = append(selfAddrs, ip)
 	}
 

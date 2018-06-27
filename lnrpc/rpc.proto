@@ -1642,6 +1642,10 @@ message Invoice {
 
     /// Whether this invoice should include routing hints for private channels.
     bool private = 15 [json_name = "private"];
+
+    // ChannelPoint identifies first channel in the payment path for outgoing
+    // payment and last for incoming payment.
+    string channel_point = 16 [json_name = "channel_point"];
 }
 message AddInvoiceResponse {
     bytes r_hash = 1 [json_name = "r_hash"];
@@ -1693,6 +1697,10 @@ message Payment {
 
     /// The payment preimage
     string payment_preimage = 6 [json_name = "payment_preimage"];
+
+    // ChannelPoint identifies first channel in the payment path for outgoing
+    // payment and last for incoming payment.
+    string channel_point = 7 [json_name = "channel_point"];
 }
 
 message ListPaymentsRequest {

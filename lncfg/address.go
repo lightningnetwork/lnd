@@ -1,11 +1,14 @@
 package lncfg
 
 import (
-	"time"
-	"net"
-	"fmt"
 	"crypto/tls"
+	"fmt"
+	"net"
+	"strconv"
 	"strings"
+	"time"
+
+	"github.com/lightningnetwork/lnd/tor"
 )
 
 var (
@@ -14,12 +17,15 @@ var (
 
 // NormalizeAddresses returns a new slice with all the passed addresses
 // normalized with the given default port and all duplicates removed.
-func NormalizeAddresses(addrs []string,
-	defaultPort string) ([]net.Addr, error) {
+func NormalizeAddresses(addrs []string, defaultPort string,
+	tcpResolver func(network, addr string) (*net.TCPAddr, error)) ([]net.Addr, error) {
+
 	result := make([]net.Addr, 0, len(addrs))
 	seen := map[string]struct{}{}
 	for _, strAddr := range addrs {
-		addr, err := ParseAddressString(strAddr, defaultPort)
+		addr, err := ParseAddressString(
+			strAddr, defaultPort, tcpResolver,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -150,7 +156,9 @@ func ParseAddressString(strAddress string, defaultPort string,
 }
 
 // verifyPort makes sure that an address string has both a host and a port.
-// If there is no port found, the default port is appended.
+// If there is no port found, the default port is appended. If the strAddress
+// is just a port, then we'll assume that the user is using the short cut to
+// specify a localhost:port combo.
 func verifyPort(strAddress string, defaultPort string) string {
 	host, port, err := net.SplitHostPort(strAddress)
 	if err != nil {
@@ -159,12 +167,22 @@ func verifyPort(strAddress string, defaultPort string) string {
 		// of brackets too.
 		if strings.HasPrefix(strAddress, "[") {
 			strAddress = strAddress + ":" + defaultPort
+		} else if _, err := strconv.Atoi(strAddress); err == nil {
+			// If the address itself is just an integer, then we'll
+			// assume that we're mapping this directly to a
+			// localhost:port pair.  This ensures we maintain the
+			// legacy behavior.
+			return net.JoinHostPort("localhost", strAddress)
 		} else {
+			// Otherwise, we'll assume that the address just failed to
+			// attach its own port, so we'll use the default port.
 			strAddress = net.JoinHostPort(strAddress, defaultPort)
 		}
+
 	} else if host == "" && port == "" {
 		// The string ':' is parsed as valid empty host and empty port.
-		// But in that case, we want the default port to be applied too.
+		// But in that case, we want the default port to be applied
+		// too.
 		strAddress = ":" + defaultPort
 	}
 
@@ -173,13 +191,16 @@ func verifyPort(strAddress string, defaultPort string) string {
 
 // ClientAddressDialer creates a gRPC dialer that can also dial unix socket
 // addresses instead of just TCP addresses.
-func ClientAddressDialer(defaultPort string) func(string,
-	time.Duration) (net.Conn, error) {
+func ClientAddressDialer(defaultPort string) func(string, time.Duration) (net.Conn, error) {
+
 	return func(addr string, timeout time.Duration) (net.Conn, error) {
-		parsedAddr, err := ParseAddressString(addr, defaultPort)
+		parsedAddr, err := ParseAddressString(
+			addr, defaultPort, net.ResolveTCPAddr,
+		)
 		if err != nil {
 			return nil, err
 		}
+
 		return net.DialTimeout(parsedAddr.Network(),
 			parsedAddr.String(), timeout)
 	}

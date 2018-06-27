@@ -43,11 +43,11 @@ func readOutpoint(r io.Reader, o *wire.OutPoint) error {
 	return nil
 }
 
-// writeElement is a one-stop shop to write the big endian representation of
+// WriteElement is a one-stop shop to write the big endian representation of
 // any element which is to be serialized for storage on disk. The passed
 // io.Writer should be backed by an appropriately sized byte slice, or be able
 // to dynamically expand to accommodate additional data.
-func writeElement(w io.Writer, element interface{}) error {
+func WriteElement(w io.Writer, element interface{}) error {
 	switch e := element.(type) {
 	case keychain.KeyDescriptor:
 		if err := binary.Write(w, byteOrder, e.Family); err != nil {
@@ -61,7 +61,7 @@ func writeElement(w io.Writer, element interface{}) error {
 			if err := binary.Write(w, byteOrder, true); err != nil {
 			}
 
-			return writeElement(w, e.PubKey)
+			return WriteElement(w, e.PubKey)
 		}
 
 		return binary.Write(w, byteOrder, false)
@@ -164,17 +164,17 @@ func writeElement(w io.Writer, element interface{}) error {
 		}
 
 	default:
-		return fmt.Errorf("Unknown type in writeElement: %T", e)
+		return fmt.Errorf("Unknown type in WriteElement: %T", e)
 	}
 
 	return nil
 }
 
-// writeElements is writes each element in the elements slice to the passed
-// io.Writer using writeElement.
-func writeElements(w io.Writer, elements ...interface{}) error {
+// WriteElements is writes each element in the elements slice to the passed
+// io.Writer using WriteElement.
+func WriteElements(w io.Writer, elements ...interface{}) error {
 	for _, element := range elements {
-		err := writeElement(w, element)
+		err := WriteElement(w, element)
 		if err != nil {
 			return err
 		}
@@ -182,9 +182,9 @@ func writeElements(w io.Writer, elements ...interface{}) error {
 	return nil
 }
 
-// readElement is a one-stop utility function to deserialize any datastructure
+// ReadElement is a one-stop utility function to deserialize any datastructure
 // encoded using the serialization format of the database.
-func readElement(r io.Reader, element interface{}) error {
+func ReadElement(r io.Reader, element interface{}) error {
 	switch e := element.(type) {
 	case *keychain.KeyDescriptor:
 		if err := binary.Read(r, byteOrder, &e.Family); err != nil {
@@ -200,7 +200,7 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 
 		if hasPubKey {
-			return readElement(r, &e.PubKey)
+			return ReadElement(r, &e.PubKey)
 		}
 
 	case *ChannelType:
@@ -343,18 +343,18 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 
 	default:
-		return fmt.Errorf("Unknown type in readElement: %T", e)
+		return fmt.Errorf("Unknown type in ReadElement: %T", e)
 	}
 
 	return nil
 }
 
-// readElements deserializes a variable number of elements into the passed
-// io.Reader, with each element being deserialized according to the readElement
+// ReadElements deserializes a variable number of elements into the passed
+// io.Reader, with each element being deserialized according to the ReadElement
 // function.
-func readElements(r io.Reader, elements ...interface{}) error {
+func ReadElements(r io.Reader, elements ...interface{}) error {
 	for _, element := range elements {
-		err := readElement(r, element)
+		err := ReadElement(r, element)
 		if err != nil {
 			return err
 		}

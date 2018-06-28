@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -85,7 +86,7 @@ type server struct {
 
 	// listenAddrs is the list of addresses the server is currently
 	// listening on.
-	listenAddrs []string
+	listenAddrs []net.Addr
 
 	// torController is a client that will communicate with a locally
 	// running Tor server. This client will handle initiating and
@@ -207,17 +208,19 @@ func parseAddr(address string) (net.Addr, error) {
 
 // newServer creates a new instance of the server which is to listen using the
 // passed listener address.
-func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
+func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	privKey *btcec.PrivateKey) (*server, error) {
 
 	var err error
 
 	listeners := make([]net.Listener, len(listenAddrs))
-	for i, addr := range listenAddrs {
+	for i, listenAddr := range listenAddrs {
 		// Note: though brontide.NewListener uses ResolveTCPAddr, it
 		// doesn't need to call the general lndResolveTCP function
 		// since we are resolving a local address.
-		listeners[i], err = brontide.NewListener(privKey, addr)
+		listeners[i], err = brontide.NewListener(
+			privKey, listenAddr.String(),
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -363,14 +366,17 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 
 	// If we were requested to automatically configure port forwarding,
 	// we'll use the ports that the server will be listening on.
-	externalIPs := cfg.ExternalIPs
+	externalIpStrings := make([]string, len(cfg.ExternalIPs))
+	for idx, ip := range cfg.ExternalIPs {
+		externalIpStrings[idx] = ip.String()
+	}
 	if s.natTraversal != nil {
 		listenPorts := make([]uint16, 0, len(listenAddrs))
 		for _, listenAddr := range listenAddrs {
 			// At this point, the listen addresses should have
 			// already been normalized, so it's safe to ignore the
 			// errors.
-			_, portStr, _ := net.SplitHostPort(listenAddr)
+			_, portStr, _ := net.SplitHostPort(listenAddr.String())
 			port, _ := strconv.Atoi(portStr)
 
 			listenPorts = append(listenPorts, uint16(port))
@@ -385,23 +391,21 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 			srvrLog.Infof("Automatically set up port forwarding "+
 				"using %s to advertise external IP",
 				s.natTraversal.Name())
-			externalIPs = append(externalIPs, ips...)
+			externalIpStrings = append(externalIpStrings, ips...)
 		}
 	}
 
 	// If external IP addresses have been specified, add those to the list
 	// of this server's addresses.
-	externalIPs = normalizeAddresses(
-		externalIPs, strconv.Itoa(defaultPeerPort),
+	externalIPs, err := lncfg.NormalizeAddresses(
+		externalIpStrings, strconv.Itoa(defaultPeerPort),
 	)
+	if err != nil {
+		return nil, err
+	}
 	selfAddrs := make([]net.Addr, 0, len(externalIPs))
 	for _, ip := range cfg.ExternalIPs {
-		addr, err := parseAddr(ip)
-		if err != nil {
-			return nil, err
-		}
-
-		selfAddrs = append(selfAddrs, addr)
+		selfAddrs = append(selfAddrs, ip)
 	}
 
 	// If we were requested to route connections through Tor and to
@@ -881,7 +885,7 @@ func (s *server) watchExternalIP() {
 	// them when detecting a new IP.
 	ipsSetByUser := make(map[string]struct{})
 	for _, ip := range cfg.ExternalIPs {
-		ipsSetByUser[ip] = struct{}{}
+		ipsSetByUser[ip.String()] = struct{}{}
 	}
 
 	forwardedPorts := s.natTraversal.ForwardedPorts()
@@ -1246,7 +1250,7 @@ func (s *server) initTorController() error {
 	for _, listenAddr := range s.listenAddrs {
 		// At this point, the listen addresses should have already been
 		// normalized, so it's safe to ignore the errors.
-		_, portStr, _ := net.SplitHostPort(listenAddr)
+		_, portStr, _ := net.SplitHostPort(listenAddr.String())
 		port, _ := strconv.Atoi(portStr)
 		listenPorts[port] = struct{}{}
 	}

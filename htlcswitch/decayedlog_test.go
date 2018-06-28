@@ -152,17 +152,26 @@ func TestDecayedLogPersistentGarbageCollector(t *testing.T) {
 		t.Fatalf("Unable to store in channeldb: %v", err)
 	}
 
-	// Wait for database write (GC is in a goroutine)
-	time.Sleep(500 * time.Millisecond)
+	// The hash prefix should be retrievable from the decayed log.
+	_, err = d.Get(hashedSecret)
+	if err != nil {
+		t.Fatalf("Get failed - received unexpected error upon Get: %v", err)
+	}
 
 	// Shut down DecayedLog and the garbage collector along with it.
 	d.Stop()
 
-	d2, notifier2, hashedSecret2, err := startup(dbPath, true)
+	d2, notifier2, _, err := startup(dbPath, true)
 	if err != nil {
 		t.Fatalf("Unable to restart DecayedLog: %v", err)
 	}
 	defer shutdown(dbPath, d2)
+
+	// Check that the hash prefix still exists in the new db instance.
+	_, err = d2.Get(hashedSecret)
+	if err != nil {
+		t.Fatalf("Get failed - received unexpected error upon Get: %v", err)
+	}
 
 	// Send a block notification to the garbage collector that expires
 	// the stored CLTV.
@@ -174,10 +183,7 @@ func TestDecayedLogPersistentGarbageCollector(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	// Assert that hashedSecret is not in the sharedHashBucket
-	_, err = d2.Get(hashedSecret2)
-	if err == nil {
-		t.Fatalf("CLTV was not deleted")
-	}
+	_, err = d2.Get(hashedSecret)
 	if err != sphinx.ErrLogEntryNotFound {
 		t.Fatalf("Get failed - received unexpected error upon Get: %v", err)
 	}

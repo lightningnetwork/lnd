@@ -601,15 +601,17 @@ func generateHops(payAmt lnwire.MilliSatoshi, startingHeight uint32,
 			nextHop = path[i+1].channel.ShortChanID()
 		}
 
+		var timeLock uint32
 		// If this is the last, hop, then the time lock will be their
 		// specified delta policy plus our starting height.
-		totalTimelock += lastHop.cfg.FwrdingPolicy.TimeLockDelta
-		timeLock := totalTimelock
-
-		// Otherwise, the outgoing time lock should be the incoming
-		// timelock minus their specified delta.
-		if i != len(path)-1 {
-			delta := path[i].cfg.FwrdingPolicy.TimeLockDelta
+		if i == len(path)-1 {
+			totalTimelock += lastHop.cfg.FwrdingPolicy.TimeLockDelta
+			timeLock = totalTimelock
+		} else {
+			// Otherwise, the outgoing time lock should be the
+			// incoming timelock minus their specified delta.
+			delta := path[i+1].cfg.FwrdingPolicy.TimeLockDelta
+			totalTimelock += delta
 			timeLock = totalTimelock - delta
 		}
 

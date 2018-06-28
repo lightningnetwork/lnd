@@ -618,6 +618,7 @@ func TestLinkForwardTimelockPolicyMismatch(t *testing.T) {
 	_, err = n.makePayment(n.aliceServer, n.carolServer,
 		n.bobServer.PubKey(), hops, amount, htlcAmt,
 		htlcExpiry).Wait(30 * time.Second)
+
 	// We should get an error, and that error should indicate that the HTLC
 	// should be rejected due to a policy violation.
 	if err == nil {
@@ -637,9 +638,9 @@ func TestLinkForwardTimelockPolicyMismatch(t *testing.T) {
 	}
 }
 
-// TestLinkForwardTimelockPolicyMismatch tests that if a node is an
-// intermediate node in a multi-hop payment and receives an HTLC that violates
-// its current fee policy, then the HTLC is rejected with the proper error.
+// TestLinkForwardFeePolicyMismatch tests that if a node is an intermediate
+// node in a multi-hop payment and receives an HTLC that violates its current
+// fee policy, then the HTLC is rejected with the proper error.
 func TestLinkForwardFeePolicyMismatch(t *testing.T) {
 	t.Parallel()
 
@@ -3710,6 +3711,7 @@ func (h *persistentLinkHarness) restart(restartSwitch bool,
 
 	// First, remove the link from the switch.
 	h.coreLink.cfg.Switch.RemoveLink(h.link.ChanID())
+	h.coreLink.WaitForShutdown()
 
 	var htlcSwitch *Switch
 	if restartSwitch {
@@ -4525,5 +4527,57 @@ func TestExpectedFee(t *testing.T) {
 			t.Errorf("expected fee to be (%v), instead got (%v)", test.expected,
 				fee)
 		}
+	}
+}
+
+// TestForwardingAsymmetricTimeLockPolicies tests that each link is able to
+// properly handle forwarding HTLCs when their outgoing channels have
+// asymmetric policies w.r.t what they require for time locks.
+func TestForwardingAsymmetricTimeLockPolicies(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll create our traditional three hop network. Bob
+	// interacting with and asserting the state of two of the end points
+	// for this test.
+	channels, cleanUp, _, err := createClusterChannels(
+		btcutil.SatoshiPerBitcoin*3,
+		btcutil.SatoshiPerBitcoin*5,
+	)
+	if err != nil {
+		t.Fatalf("unable to create channel: %v", err)
+	}
+	defer cleanUp()
+
+	n := newThreeHopNetwork(
+		t, channels.aliceToBob, channels.bobToAlice, channels.bobToCarol,
+		channels.carolToBob, testStartingHeight,
+	)
+	if err := n.start(); err != nil {
+		t.Fatalf("unable to start three hop network: %v", err)
+	}
+	defer n.stop()
+
+	// Now that each of the links are up, we'll modify the link from Alice
+	// -> Bob to have a greater time lock delta than that of the link of
+	// Bob -> Carol.
+	n.firstBobChannelLink.UpdateForwardingPolicy(ForwardingPolicy{
+		TimeLockDelta: 7,
+	})
+
+	// Now that the Alice -> Bob link has been updated, we'll craft and
+	// send a payment from Alice -> Carol. This should succeed as normal,
+	// even though Bob has asymmetric time lock policies.
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	htlcAmt, totalTimelock, hops := generateHops(
+		amount, testStartingHeight, n.firstBobChannelLink,
+		n.carolChannelLink,
+	)
+
+	_, err = n.makePayment(
+		n.aliceServer, n.carolServer, n.bobServer.PubKey(), hops,
+		amount, htlcAmt, totalTimelock,
+	).Wait(30 * time.Second)
+	if err != nil {
+		t.Fatalf("unable to send payment: %v", err)
 	}
 }

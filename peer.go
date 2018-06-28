@@ -40,6 +40,9 @@ const (
 	// idleTimeout is the duration of inactivity before we time out a peer.
 	idleTimeout = 5 * time.Minute
 
+	// writeMessageTimeout is the timeout used when writing a message to peer.
+	writeMessageTimeout = 10 * time.Second
+
 	// outgoingQueueLen is the buffer size of the channel which houses
 	// messages to be sent across the wire, requested by objects outside
 	// this struct.
@@ -314,7 +317,6 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			p.server.cc.signer, p.server.witnessBeacon, dbChan,
 		)
 		if err != nil {
-			lnChan.Stop()
 			return err
 		}
 
@@ -1250,7 +1252,7 @@ func (p *peer) writeMessage(msg lnwire.Message) error {
 	n, err := lnwire.WriteMessage(b, msg, 0)
 	atomic.AddUint64(&p.bytesSent, uint64(n))
 
-	// TODO(roasbeef): add write deadline?
+	p.conn.SetWriteDeadline(time.Now().Add(writeMessageTimeout))
 
 	// Finally, write the message itself in a single swoop.
 	_, err = p.conn.Write(b.Bytes())
@@ -1540,7 +1542,13 @@ out:
 			// closure process.
 			chanCloser, err := p.fetchActiveChanCloser(closeMsg.cid)
 			if err != nil {
-				peerLog.Errorf("unable to respond to remote "+
+				// If the channel is not known to us, we'll
+				// simply ignore this message.
+				if err == ErrChannelNotFound {
+					continue
+				}
+
+				peerLog.Errorf("Unable to respond to remote "+
 					"close msg: %v", err)
 
 				errMsg := &lnwire.Error{
@@ -1618,8 +1626,7 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 	channel, ok := p.activeChannels[chanID]
 	p.activeChanMtx.RUnlock()
 	if !ok {
-		return nil, fmt.Errorf("unable to close channel, "+
-			"ChannelID(%v) is unknown", chanID)
+		return nil, ErrChannelNotFound
 	}
 
 	// We'll attempt to look up the matching state machine, if we can't

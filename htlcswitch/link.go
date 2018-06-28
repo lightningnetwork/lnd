@@ -465,6 +465,12 @@ func (l *channelLink) Stop() {
 	l.wg.Wait()
 }
 
+// WaitForShutdown blocks until the link finishes shutting down, which includes
+// termination of all dependent goroutines.
+func (l *channelLink) WaitForShutdown() {
+	l.wg.Wait()
+}
+
 // EligibleToForward returns a bool indicating if the channel is able to
 // actively accept requests to forward HTLC's. We're able to forward HTLC's if
 // we know the remote party's next revocation point. Otherwise, we can't
@@ -1741,7 +1747,9 @@ func (l *channelLink) UpdateForwardingPolicy(newPolicy ForwardingPolicy) {
 //
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
-	incomingHtlcAmt, amtToForward lnwire.MilliSatoshi) lnwire.FailureMessage {
+	incomingHtlcAmt, amtToForward lnwire.MilliSatoshi,
+	incomingTimeout, outgoingTimeout uint32,
+	heightNow uint32) lnwire.FailureMessage {
 
 	l.RLock()
 	policy := l.cfg.FwrdingPolicy
@@ -1782,10 +1790,8 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 	// any case, we'll cancel this HTLC.
 	actualFee := incomingHtlcAmt - amtToForward
 	if incomingHtlcAmt < amtToForward || actualFee < expectedFee {
-		l.errorf("outgoing htlc(%x) has insufficient "+
-			"fee: expected %v, got %v", payHash[:],
-			int64(expectedFee),
-			int64(actualFee))
+		l.errorf("outgoing htlc(%x) has insufficient fee: expected %v, "+
+			"got %v", payHash[:], int64(expectedFee), int64(actualFee))
 
 		// As part of the returned error, we'll send our latest routing
 		// policy so the sending node obtains the most up to date data.
@@ -1796,6 +1802,54 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 		} else {
 			failure = lnwire.NewFeeInsufficient(
 				amtToForward, *update,
+			)
+		}
+
+		return failure
+	}
+
+	// We want to avoid accepting an HTLC which will expire in the near
+	// future, so we'll reject an HTLC if its expiration time is too close
+	// to the current height.
+	timeDelta := policy.TimeLockDelta
+	if incomingTimeout-timeDelta <= heightNow {
+		l.errorf("htlc(%x) has an expiry that's too soon: "+
+			"outgoing_expiry=%v, best_height=%v", payHash[:],
+			incomingTimeout-timeDelta, heightNow)
+
+		var failure lnwire.FailureMessage
+		update, err := l.cfg.FetchLastChannelUpdate(
+			l.ShortChanID(),
+		)
+		if err != nil {
+			failure = lnwire.NewTemporaryChannelFailure(update)
+		} else {
+			failure = lnwire.NewExpiryTooSoon(*update)
+		}
+
+		return failure
+	}
+
+	// Finally, we'll ensure that the time-lock on the outgoing HTLC meets
+	// the following constraint: the incoming time-lock minus our time-lock
+	// delta should equal the outgoing time lock. Otherwise, whether the
+	// sender messed up, or an intermediate node tampered with the HTLC.
+	if incomingTimeout-timeDelta < outgoingTimeout {
+		l.errorf("Incoming htlc(%x) has incorrect time-lock value: "+
+			"expected at least %v block delta, got %v block delta",
+			payHash[:], timeDelta, incomingTimeout-outgoingTimeout)
+
+		// Grab the latest routing policy so the sending node is up to
+		// date with our current policy.
+		var failure lnwire.FailureMessage
+		update, err := l.cfg.FetchLastChannelUpdate(
+			l.ShortChanID(),
+		)
+		if err != nil {
+			failure = lnwire.NewTemporaryChannelFailure(update)
+		} else {
+			failure = lnwire.NewIncorrectCltvExpiry(
+				incomingTimeout, *update,
 			)
 		}
 
@@ -2283,8 +2337,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			needUpdate = true
 
 		// There are additional channels left within this route. So
-		// we'll verify that our forwarding constraints have been
-		// properly met by this incoming HTLC.
+		// we'll simply do some forwarding package book-keeping.
 		default:
 			// If hodl.AddIncoming is requested, we will not
 			// validate the forwarded ADD, nor will we send the
@@ -2326,14 +2379,16 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				chanIterator.EncodeNextHop(buf)
 
 				updatePacket := &htlcPacket{
-					incomingChanID: l.ShortChanID(),
-					incomingHTLCID: pd.HtlcIndex,
-					outgoingChanID: fwdInfo.NextHop,
-					sourceRef:      pd.SourceRef,
-					incomingAmount: pd.Amount,
-					amount:         addMsg.Amount,
-					htlc:           addMsg,
-					obfuscator:     obfuscator,
+					incomingChanID:  l.ShortChanID(),
+					incomingHTLCID:  pd.HtlcIndex,
+					outgoingChanID:  fwdInfo.NextHop,
+					sourceRef:       pd.SourceRef,
+					incomingAmount:  pd.Amount,
+					amount:          addMsg.Amount,
+					htlc:            addMsg,
+					obfuscator:      obfuscator,
+					incomingTimeout: pd.Timeout,
+					outgoingTimeout: fwdInfo.OutgoingCTLV,
 				}
 				switchPackets = append(
 					switchPackets, updatePacket,
@@ -2342,80 +2397,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				continue
 			}
 
-			// We'll consult the forwarding policy for this link
-			// when checking time locked related constraints.
-			hopPolicy := l.cfg.FwrdingPolicy
-
-			// We want to avoid forwarding an HTLC which will
-			// expire in the near future, so we'll reject an HTLC
-			// if its expiration time is too close to the current
-			// height.
-			timeDelta := hopPolicy.TimeLockDelta
-			if pd.Timeout-timeDelta <= heightNow {
-				log.Errorf("htlc(%x) has an expiry "+
-					"that's too soon: outgoing_expiry=%v, "+
-					"best_height=%v", pd.RHash[:],
-					pd.Timeout-timeDelta, heightNow)
-
-				var failure lnwire.FailureMessage
-				update, err := l.cfg.FetchLastChannelUpdate(
-					l.ShortChanID(),
-				)
-				if err != nil {
-					failure = lnwire.NewTemporaryChannelFailure(
-						update,
-					)
-				} else {
-					failure = lnwire.NewExpiryTooSoon(*update)
-				}
-
-				l.sendHTLCError(
-					pd.HtlcIndex, failure, obfuscator,
-					pd.SourceRef,
-				)
-				needUpdate = true
-				continue
-			}
-
-			// Finally, we'll ensure that the time-lock on the
-			// outgoing HTLC meets the following constraint: the
-			// incoming time-lock minus our time-lock delta should
-			// equal the outgoing time lock. Otherwise, whether the
-			// sender messed up, or an intermediate node tampered
-			// with the HTLC.
-			if pd.Timeout-timeDelta < fwdInfo.OutgoingCTLV {
-				log.Errorf("Incoming htlc(%x) has incorrect "+
-					"time-lock value: expected at least "+
-					"%v block delta, got %v block delta",
-					pd.RHash[:], timeDelta,
-					pd.Timeout-fwdInfo.OutgoingCTLV)
-
-				// Grab the latest routing policy so the
-				// sending node is up to date with our current
-				// policy.
-				update, err := l.cfg.FetchLastChannelUpdate(
-					l.ShortChanID(),
-				)
-				if err != nil {
-					l.fail(LinkFailureError{
-						code: ErrInternalError},
-						"unable to create channel "+
-							"update while handling "+
-							"the error: %v", err)
-					return false
-				}
-
-				failure := lnwire.NewIncorrectCltvExpiry(
-					pd.Timeout, *update)
-				l.sendHTLCError(
-					pd.HtlcIndex, failure, obfuscator, pd.SourceRef,
-				)
-
-				needUpdate = true
-				continue
-			}
-
-			// TODO(roasbeef): also add max timeout value
+			// TODO(roasbeef): ensure don't accept outrageous
+			// timeout for htlc
 
 			// With all our forwarding constraints met, we'll
 			// create the outgoing HTLC using the parameters as
@@ -2464,14 +2447,16 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// section.
 			if fwdPkg.State == channeldb.FwdStateLockedIn {
 				updatePacket := &htlcPacket{
-					incomingChanID: l.ShortChanID(),
-					incomingHTLCID: pd.HtlcIndex,
-					outgoingChanID: fwdInfo.NextHop,
-					sourceRef:      pd.SourceRef,
-					incomingAmount: pd.Amount,
-					amount:         addMsg.Amount,
-					htlc:           addMsg,
-					obfuscator:     obfuscator,
+					incomingChanID:  l.ShortChanID(),
+					incomingHTLCID:  pd.HtlcIndex,
+					outgoingChanID:  fwdInfo.NextHop,
+					sourceRef:       pd.SourceRef,
+					incomingAmount:  pd.Amount,
+					amount:          addMsg.Amount,
+					htlc:            addMsg,
+					obfuscator:      obfuscator,
+					incomingTimeout: pd.Timeout,
+					outgoingTimeout: fwdInfo.OutgoingCTLV,
 				}
 
 				fwdPkg.FwdFilter.Set(idx)

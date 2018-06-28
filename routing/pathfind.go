@@ -373,14 +373,14 @@ func newRoute(amtToSend, feeLimit lnwire.MilliSatoshi, sourceVertex Vertex,
 			// route such that each hops time lock increases as we
 			// walk backwards in the route, using the delta of the
 			// previous hop.
-			route.TotalTimeLock += uint32(edge.TimeLockDelta)
+			delta := uint32(pathEdges[i+1].TimeLockDelta)
+			route.TotalTimeLock += delta
 
 			// Otherwise, the value of the outgoing time-lock will
 			// be the value of the time-lock for the _outgoing_
 			// HTLC, so we factor in their specified grace period
 			// (time lock delta).
-			nextHop.OutgoingTimeLock = route.TotalTimeLock -
-				uint32(edge.TimeLockDelta)
+			nextHop.OutgoingTimeLock = route.TotalTimeLock - delta
 		}
 
 		route.Hops[i] = nextHop

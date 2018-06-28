@@ -442,10 +442,11 @@ var (
 	// of being opened.
 	channelOpeningStateBucket = []byte("channelOpeningState")
 
-	// ErrChannelNotFound is returned when we are looking for a specific
-	// channel opening state in the FundingManager's internal database, but
-	// the channel in question is not considered being in an opening state.
-	ErrChannelNotFound = fmt.Errorf("channel not found in db")
+	// ErrChannelNotFound is an error returned when a channel is not known
+	// to us. In this case of the fundingManager, this error is returned
+	// when the channel in question is not considered being in an opening
+	// state.
+	ErrChannelNotFound = fmt.Errorf("channel not found")
 )
 
 // newFundingManager creates and initializes a new instance of the
@@ -1616,9 +1617,7 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 			fndgLog.Errorf("failed creating lnChannel: %v", err)
 			return
 		}
-		defer func() {
-			lnChannel.Stop()
-		}()
+		defer lnChannel.Stop()
 
 		err = f.sendFundingLocked(completeChan, lnChannel, shortChanID)
 		if err != nil {
@@ -1879,9 +1878,7 @@ func (f *fundingManager) handleFundingConfirmation(completeChan *channeldb.OpenC
 	if err != nil {
 		return err
 	}
-	defer func() {
-		lnChannel.Stop()
-	}()
+	defer lnChannel.Stop()
 
 	chanID := lnwire.NewChanIDFromOutPoint(&completeChan.FundingOutpoint)
 
@@ -2224,6 +2221,7 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 	err = channel.InitNextRevocation(fmsg.msg.NextPerCommitmentPoint)
 	if err != nil {
 		fndgLog.Errorf("unable to insert next commitment point: %v", err)
+		channel.Stop()
 		return
 	}
 
@@ -2249,6 +2247,7 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 	peer, err := f.cfg.FindPeer(fmsg.peerAddress.IdentityKey)
 	if err != nil {
 		fndgLog.Errorf("Unable to find peer: %v", err)
+		channel.Stop()
 		return
 	}
 	newChanDone := make(chan struct{})

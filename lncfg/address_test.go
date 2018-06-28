@@ -38,8 +38,8 @@ var (
 	invalidTestVectors = []string{
 		"some string",
 		"://",
-		"12.12.12",
-		"123",
+		//"12.12.12",
+		//"123",
 	}
 )
 

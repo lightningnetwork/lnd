@@ -481,14 +481,47 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	if req.fundingAmount != 0 {
 		// Coin selection is done on the basis of sat-per-vbyte, we'll
 		// use the passed sat/vbyte passed in to perform coin selection.
-		err := l.selectCoinsAndChange(
-			req.fundingFeePerVSize, req.fundingAmount,
-			reservation.ourContribution,
-		)
+		selectedCoins, changeAmt, err := l.selectCoinsAndChange(
+			req.fundingFeePerVSize, req.fundingAmount)
 		if err != nil {
 			req.err <- err
 			req.resp <- nil
 			return
+		}
+
+		// Attach the selected coins to the funding reservation.
+		contribution := reservation.ourContribution
+		contribution.Inputs = make([]*wire.TxIn, len(selectedCoins))
+		for i, coin := range selectedCoins {
+			outpoint := &coin.OutPoint
+
+			// Empty sig script, we'll actually sign if this reservation is
+			// queued up to be completed (the other side accepts).
+			contribution.Inputs[i] = wire.NewTxIn(outpoint, nil, nil)
+		}
+
+		// Record any change output(s) generated as a result of the coin
+		// selection, but only if the addition of the output won't lead to the
+		// creation of dust.
+		if changeAmt != 0 && changeAmt > DefaultDustLimit() {
+			changeAddr, err := l.NewAddress(WitnessPubKey, true)
+			if err != nil {
+				req.err <- err
+				req.resp <- nil
+				return
+			}
+			changeScript, err := txscript.PayToAddrScript(changeAddr)
+			if err != nil {
+				req.err <- err
+				req.resp <- nil
+				return
+			}
+
+			contribution.ChangeOutputs = make([]*wire.TxOut, 1)
+			contribution.ChangeOutputs[0] = &wire.TxOut{
+				Value:    int64(changeAmt),
+				PkScript: changeScript,
+			}
 		}
 	}
 
@@ -1267,7 +1300,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 // also be generated.
 // TODO(roasbeef): remove hardcoded fees and req'd confs for outputs.
 func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerVByte,
-	amt btcutil.Amount, contribution *ChannelContribution) error {
+	amt btcutil.Amount) ([]*Utxo, btcutil.Amount, error) {
 
 	// We hold the coin select mutex while querying for outputs, and
 	// performing coin selection in order to avoid inadvertent double
@@ -1283,7 +1316,7 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerVByte,
 	// TODO(roasbeef): make num confs a configuration parameter
 	coins, err := l.ListUnspentWitness(1)
 	if err != nil {
-		return err
+		return nil, 0, err
 	}
 
 	// Perform coin selection over our available, unlocked unspent outputs
@@ -1291,44 +1324,19 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerVByte,
 	// requirements.
 	selectedCoins, changeAmt, err := coinSelect(feeRate, amt, coins)
 	if err != nil {
-		return err
+		return nil, 0, err
 	}
 
 	// Lock the selected coins. These coins are now "reserved", this
 	// prevents concurrent funding requests from referring to and this
 	// double-spending the same set of coins.
-	contribution.Inputs = make([]*wire.TxIn, len(selectedCoins))
-	for i, coin := range selectedCoins {
+	for _, coin := range selectedCoins {
 		outpoint := &coin.OutPoint
 		l.lockedOutPoints[*outpoint] = struct{}{}
 		l.LockOutpoint(*outpoint)
-
-		// Empty sig script, we'll actually sign if this reservation is
-		// queued up to be completed (the other side accepts).
-		contribution.Inputs[i] = wire.NewTxIn(outpoint, nil, nil)
 	}
 
-	// Record any change output(s) generated as a result of the coin
-	// selection, but only if the addition of the output won't lead to the
-	// creation of dust.
-	if changeAmt != 0 && changeAmt > DefaultDustLimit() {
-		changeAddr, err := l.NewAddress(WitnessPubKey, true)
-		if err != nil {
-			return err
-		}
-		changeScript, err := txscript.PayToAddrScript(changeAddr)
-		if err != nil {
-			return err
-		}
-
-		contribution.ChangeOutputs = make([]*wire.TxOut, 1)
-		contribution.ChangeOutputs[0] = &wire.TxOut{
-			Value:    int64(changeAmt),
-			PkScript: changeScript,
-		}
-	}
-
-	return nil
+	return selectedCoins, changeAmt, err
 }
 
 // DeriveStateHintObfuscator derives the bytes to be used for obfuscating the

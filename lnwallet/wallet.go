@@ -475,6 +475,10 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 			req.resp <- nil
 			return
 		}
+
+		// FIXME(simon): This doesn't work for dual funder channels.
+		req.capacity = selectedAmt
+		req.fundingAmount = selectedAmt
 	}
 
 	id := atomic.AddUint64(&l.nextFundingID, 1)

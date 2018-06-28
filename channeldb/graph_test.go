@@ -421,6 +421,13 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 	}
 
 	graph := db.ChannelGraph()
+	sourceNode, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create source node: %v", err)
+	}
+	if err := graph.SetSourceNode(sourceNode); err != nil {
+		t.Fatalf("unable to set source node: %v", err)
+	}
 
 	// We'd like to test the insertion/deletion of edges, so we create two
 	// vertexes to connect.
@@ -964,12 +971,29 @@ func assertNumChans(t *testing.T, graph *ChannelGraph, n int) {
 		return nil
 	}); err != nil {
 		_, _, line, _ := runtime.Caller(1)
-		t.Fatalf("line %v:unable to scan channels: %v", line, err)
+		t.Fatalf("line %v: unable to scan channels: %v", line, err)
 	}
 	if numChans != n {
 		_, _, line, _ := runtime.Caller(1)
 		t.Fatalf("line %v: expected %v chans instead have %v", line,
 			n, numChans)
+	}
+}
+
+func assertNumNodes(t *testing.T, graph *ChannelGraph, n int) {
+	numNodes := 0
+	err := graph.ForEachNode(nil, func(_ *bolt.Tx, _ *LightningNode) error {
+		numNodes++
+		return nil
+	})
+	if err != nil {
+		_, _, line, _ := runtime.Caller(1)
+		t.Fatalf("line %v: unable to scan nodes: %v", line, err)
+	}
+
+	if numNodes != n {
+		_, _, line, _ := runtime.Caller(1)
+		t.Fatalf("line %v: expected %v nodes, got %v", line, n, numNodes)
 	}
 }
 
@@ -1003,6 +1027,13 @@ func TestGraphPruning(t *testing.T) {
 	}
 
 	graph := db.ChannelGraph()
+	sourceNode, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create source node: %v", err)
+	}
+	if err := graph.SetSourceNode(sourceNode); err != nil {
+		t.Fatalf("unable to set source node: %v", err)
+	}
 
 	// As initial set up for the test, we'll create a graph with 5 vertexes
 	// and enough edges to create a fully connected graph. The graph will
@@ -1137,9 +1168,11 @@ func TestGraphPruning(t *testing.T) {
 		t.Fatalf("channels were pruned but shouldn't have been")
 	}
 
-	// Once again, the prune tip should have been updated.
+	// Once again, the prune tip should have been updated. We should still
+	// see both channels and their participants, along with the source node.
 	assertPruneTip(t, graph, &blockHash, blockHeight)
 	assertNumChans(t, graph, 2)
+	assertNumNodes(t, graph, 4)
 
 	// Finally, create a block that prunes the remainder of the channels
 	// from the graph.
@@ -1159,10 +1192,11 @@ func TestGraphPruning(t *testing.T) {
 			"expected %v, got %v", 2, len(prunedChans))
 	}
 
-	// The prune tip should be updated, and no channels should be found
-	// within the current graph.
+	// The prune tip should be updated, no channels should be found, and
+	// only the source node should remain within the current graph.
 	assertPruneTip(t, graph, &blockHash, blockHeight)
 	assertNumChans(t, graph, 0)
+	assertNumNodes(t, graph, 1)
 
 	// Finally, the channel view at this point in the graph should now be
 	// completely empty.  Those channels should also be missing from the
@@ -1888,6 +1922,13 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 	}
 
 	graph := db.ChannelGraph()
+	sourceNode, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create source node: %v", err)
+	}
+	if err := graph.SetSourceNode(sourceNode); err != nil {
+		t.Fatalf("unable to set source node: %v", err)
+	}
 
 	// We'll first populate our graph with two nodes. All channels created
 	// below will be made between these two nodes.

@@ -588,6 +588,13 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 
 	var chansClosed []*ChannelEdgeInfo
 
+	// nodesWithChansClosed is the set of nodes, each identified by their
+	// compressed public key, who had a channel closed within the latest
+	// block. We'll use this later on to determine whether we should prune
+	// them from the channel graph due to no longer having any other open
+	// channels.
+	nodesWithChansClosed := make(map[[33]byte]struct{})
+
 	err := c.db.Update(func(tx *bolt.Tx) error {
 		// First grab the edges bucket which houses the information
 		// we'd like to delete
@@ -636,7 +643,6 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 			if err != nil {
 				return err
 			}
-			chansClosed = append(chansClosed, &edgeInfo)
 
 			// Attempt to delete the channel, an ErrEdgeNotFound
 			// will be returned if that outpoint isn't known to be
@@ -648,6 +654,12 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 			if err != nil && err != ErrEdgeNotFound {
 				return err
 			}
+
+			// Include this channel in our list of closed channels
+			// and collect the node public keys at each end.
+			chansClosed = append(chansClosed, &edgeInfo)
+			nodesWithChansClosed[edgeInfo.NodeKey1Bytes] = struct{}{}
+			nodesWithChansClosed[edgeInfo.NodeKey2Bytes] = struct{}{}
 		}
 
 		metaBucket, err := tx.CreateBucketIfNotExists(graphMetaBucket)
@@ -669,13 +681,73 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 		var newTip [pruneTipBytes]byte
 		copy(newTip[:], blockHash[:])
 
-		return pruneBucket.Put(blockHeightBytes[:], newTip[:])
+		err = pruneBucket.Put(blockHeightBytes[:], newTip[:])
+		if err != nil {
+			return err
+		}
+
+		// Now that the graph has been pruned, we'll also attempt to
+		// prune any nodes that have had a channel closed within the
+		// latest block.
+		return c.pruneGraphNodes(tx, nodes, nodesWithChansClosed)
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	return chansClosed, nil
+}
+
+// pruneGraphNodes attempts to remove any nodes from the graph who have had a
+// channel closed within the current block. If the node still has existing
+// channels in the graph, this will act as a no-op.
+func (c *ChannelGraph) pruneGraphNodes(tx *bolt.Tx, nodes *bolt.Bucket,
+	nodePubKeys map[[33]byte]struct{}) error {
+
+	log.Trace("Pruning nodes from graph with no open channels")
+
+	// We'll retrieve the graph's source node to ensure we don't remove it
+	// even if it no longer has any open channels.
+	sourceNode, err := c.sourceNode(tx)
+	if err != nil {
+		return err
+	}
+
+	// We'll now iterate over every node which had a channel closed and
+	// check whether they have any other open channels left within the
+	// graph. If they don't, they'll be pruned from the channel graph.
+	for nodePubKey := range nodePubKeys {
+		if bytes.Equal(nodePubKey[:], sourceNode.PubKeyBytes[:]) {
+			continue
+		}
+
+		node, err := fetchLightningNode(nodes, nodePubKey[:])
+		if err != nil {
+			continue
+		}
+		node.db = c.db
+
+		numChansLeft := 0
+		err = node.ForEachChannel(tx, func(*bolt.Tx, *ChannelEdgeInfo,
+			*ChannelEdgePolicy, *ChannelEdgePolicy) error {
+
+			numChansLeft++
+			return nil
+		})
+		if err != nil {
+			continue
+		}
+
+		if numChansLeft == 0 {
+			err := c.deleteLightningNode(tx, nodePubKey[:])
+			if err != nil {
+				log.Tracef("Unable to prune node %x from the "+
+					"graph: %v", nodePubKey, err)
+			}
+		}
+	}
+
+	return nil
 }
 
 // DisconnectBlockAtHeight is used to indicate that the block specified

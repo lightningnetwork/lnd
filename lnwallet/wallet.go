@@ -458,11 +458,31 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 		return
 	}
 
+	// If we're on the receiving end of a single funder channel then we
+	// don't need to perform any coin selection. Otherwise, attempt to
+	// obtain enough coins to meet the required funding amount.
+	var selectedCoins []*Utxo
+	var changeAmt btcutil.Amount
+	if req.fundingAmount != 0 {
+		var err error
+		// Coin selection is done on the basis of sat-per-vbyte, we'll
+		// use the passed sat/vbyte passed in to perform coin selection.
+		selectedCoins, changeAmt, err = l.selectCoinsAndChange(
+			req.fundingFeePerVSize, req.fundingAmount)
+		if err != nil {
+			req.err <- err
+			req.resp <- nil
+			return
+		}
+	}
+
 	id := atomic.AddUint64(&l.nextFundingID, 1)
 	reservation, err := NewChannelReservation(req.capacity, req.fundingAmount,
 		req.commitFeePerKw, l, id, req.pushMSat,
 		l.Cfg.NetParams.GenesisHash, req.flags)
 	if err != nil {
+		// TODO(simon): Should we release the coins reserved in
+		// selectCoinsAndChange here?
 		req.err <- err
 		req.resp <- nil
 		return
@@ -475,21 +495,8 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	reservation.nodeAddr = req.nodeAddr
 	reservation.partialState.IdentityPub = req.nodeID
 
-	// If we're on the receiving end of a single funder channel then we
-	// don't need to perform any coin selection. Otherwise, attempt to
-	// obtain enough coins to meet the required funding amount.
-	if req.fundingAmount != 0 {
-		// Coin selection is done on the basis of sat-per-vbyte, we'll
-		// use the passed sat/vbyte passed in to perform coin selection.
-		selectedCoins, changeAmt, err := l.selectCoinsAndChange(
-			req.fundingFeePerVSize, req.fundingAmount)
-		if err != nil {
-			req.err <- err
-			req.resp <- nil
-			return
-		}
-
-		// Attach the selected coins to the funding reservation.
+	// Attach the previously selected coins to the funding reservation.
+	if selectedCoins != nil {
 		contribution := reservation.ourContribution
 		contribution.Inputs = make([]*wire.TxIn, len(selectedCoins))
 		for i, coin := range selectedCoins {

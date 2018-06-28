@@ -875,10 +875,7 @@ func loadConfig() (*config, error) {
 	// inbound support is enabled.
 	if cfg.Tor.V2 || cfg.Tor.V3 {
 		for _, addr := range cfg.Listeners {
-			// Due to the addresses being normalized above, we can
-			// skip checking the error.
-			host, _, _ := net.SplitHostPort(addr.String())
-			if lncfg.IsLoopback(addr) {
+			if lncfg.IsLoopback(addr.String()) {
 				continue
 			}
 

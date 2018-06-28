@@ -52,7 +52,7 @@ func EnforceSafeAuthentication(addrs []net.Addr, macaroonsActive bool) error {
 	// on. If it's a localhost address, we'll skip it, otherwise, we'll
 	// return an error if macaroons are inactive.
 	for _, addr := range addrs {
-		if IsLoopback(addr) || IsUnix(addr) {
+		if IsLoopback(addr.String()) || IsUnix(addr) {
 			continue
 		}
 
@@ -79,9 +79,9 @@ func TlsListenOnAddress(addr net.Addr,
 }
 
 // IsLoopback returns true if an address describes a loopback interface.
-func IsLoopback(addr net.Addr) bool {
+func IsLoopback(addr string) bool {
 	for _, loopback := range loopBackAddrs {
-		if strings.Contains(addr.String(), loopback) {
+		if strings.Contains(addr, loopback) {
 			return true
 		}
 	}

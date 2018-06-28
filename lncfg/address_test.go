@@ -100,7 +100,7 @@ func TestAddresses(t *testing.T) {
 				netAddr.Network(), netAddr.String(),
 			)
 		}
-		isAddrLoopback := IsLoopback(normalized[0])
+		isAddrLoopback := IsLoopback(normalized[0].String())
 		if testVector.isLoopback != isAddrLoopback {
 			t.Fatalf("#%v: mismatched loopback detection: expected "+
 				"%v, got %v for addr %s",

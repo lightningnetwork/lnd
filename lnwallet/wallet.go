@@ -465,9 +465,10 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	var changeAmt btcutil.Amount
 	if req.fundingAmount != 0 {
 		var err error
+		var selectedAmt btcutil.Amount
 		// Coin selection is done on the basis of sat-per-vbyte, we'll
 		// use the passed sat/vbyte passed in to perform coin selection.
-		selectedCoins, changeAmt, err = l.selectCoinsAndChange(
+		selectedCoins, selectedAmt, changeAmt, err = l.selectCoinsAndChange(
 			req.fundingFeePerVSize, req.fundingAmount)
 		if err != nil {
 			req.err <- err
@@ -1307,7 +1308,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 // also be generated.
 // TODO(roasbeef): remove hardcoded fees and req'd confs for outputs.
 func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerVByte,
-	amt btcutil.Amount) ([]*Utxo, btcutil.Amount, error) {
+	amt btcutil.Amount) ([]*Utxo, btcutil.Amount, btcutil.Amount, error) {
 
 	// We hold the coin select mutex while querying for outputs, and
 	// performing coin selection in order to avoid inadvertent double
@@ -1323,15 +1324,15 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerVByte,
 	// TODO(roasbeef): make num confs a configuration parameter
 	coins, err := l.ListUnspentWitness(1)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 
 	// Perform coin selection over our available, unlocked unspent outputs
 	// in order to find enough coins to meet the funding amount
 	// requirements.
-	selectedCoins, changeAmt, err := coinSelect(feeRate, amt, coins)
+	selectedCoins, selectedAmt, changeAmt, err := coinSelect(feeRate, amt, coins)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 
 	// Lock the selected coins. These coins are now "reserved", this
@@ -1343,7 +1344,7 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerVByte,
 		l.LockOutpoint(*outpoint)
 	}
 
-	return selectedCoins, changeAmt, err
+	return selectedCoins, selectedAmt, changeAmt, err
 }
 
 // DeriveStateHintObfuscator derives the bytes to be used for obfuscating the
@@ -1403,7 +1404,7 @@ func selectInputs(amt btcutil.Amount, coins []*Utxo) (btcutil.Amount, []*Utxo, e
 // specified fee rate should be expressed in sat/vbyte for coin selection to
 // function properly.
 func coinSelect(feeRate SatPerVByte, amt btcutil.Amount,
-	coins []*Utxo) ([]*Utxo, btcutil.Amount, error) {
+	coins []*Utxo) ([]*Utxo, btcutil.Amount, btcutil.Amount, error) {
 
 	amtNeeded := amt
 	for {
@@ -1411,7 +1412,7 @@ func coinSelect(feeRate SatPerVByte, amt btcutil.Amount,
 		// the required fee.
 		totalSat, selectedUtxos, err := selectInputs(amtNeeded, coins)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, 0, err
 		}
 
 		var weightEstimate TxWeightEstimator
@@ -1423,7 +1424,7 @@ func coinSelect(feeRate SatPerVByte, amt btcutil.Amount,
 			case NestedWitnessPubKey:
 				weightEstimate.AddNestedP2WKHInput()
 			default:
-				return nil, 0, fmt.Errorf("Unsupported address type: %v",
+				return nil, 0, 0, fmt.Errorf("Unsupported address type: %v",
 					utxo.AddressType)
 			}
 		}
@@ -1456,6 +1457,6 @@ func coinSelect(feeRate SatPerVByte, amt btcutil.Amount,
 		// change output.
 		changeAmt := overShootAmt - requiredFee
 
-		return selectedUtxos, changeAmt, nil
+		return selectedUtxos, amt, changeAmt, nil
 	}
 }

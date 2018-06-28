@@ -1437,22 +1437,19 @@ func selectInputsAndFees(feeRate SatPerVByte, amt btcutil.Amount,
 // selection to function properly.
 func coinSelect(feeRate SatPerVByte, amt btcutil.Amount,
 	coins []*Utxo) ([]*Utxo, btcutil.Amount, btcutil.Amount, error) {
-
-	// First perform an initial round of coin selection to estimate
-	// the required fee.
+	// Select enough outputs from our wallet to cover the requested amount.
 	totalSat, requiredFee, selectedUtxos, err := selectInputsAndFees(feeRate, amt, coins)
 	if err != nil {
 		return nil, 0, 0, err
 	}
 
-	// The difference between the selected amount and the amount
-	// requested will be used to pay fees, and generate a change
-	// output with the remaining.
-	overShootAmt := totalSat - amt
+	// The selected amount is returned minus the fees that this transaction
+	// requires.
+	selectedAmt := amt - requiredFee
 
-	// If the fee is sufficient, then calculate the size of the
-	// change output.
-	changeAmt := overShootAmt
+	// Calculate the size of the change output given the selectedAmt that's
+	// being spent.
+	changeAmt := totalSat - amt
 
-	return selectedUtxos, amt - requiredFee, changeAmt, nil
+	return selectedUtxos, selectedAmt, changeAmt, nil
 }

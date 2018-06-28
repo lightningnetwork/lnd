@@ -1209,7 +1209,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	// With their signature for our version of the commitment transactions
 	// verified, we can now generate a signature for their version,
 	// allowing the funding transaction to be safely broadcast.
-	p2wsh, err := witnessScriptHash(witnessScript)
+	p2wsh, err := WitnessScriptHash(witnessScript)
 	if err != nil {
 		req.err <- err
 		req.completeChan <- nil

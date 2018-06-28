@@ -1387,20 +1387,47 @@ func initStateHints(commit1, commit2 *wire.MsgTx,
 	return nil
 }
 
-// selectInputs selects a slice of inputs necessary to meet the specified
+// selectInputsAndFees selects a slice of inputs necessary to meet the specified
 // selection amount. If input selection is unable to succeed due to insufficient
 // funds, a non-nil error is returned. Additionally, the total amount of the
 // selected coins are returned in order for the caller to properly handle
 // change+fees.
-func selectInputs(amt btcutil.Amount, coins []*Utxo) (btcutil.Amount, []*Utxo, error) {
+func selectInputsAndFees(feeRate SatPerVByte, amt btcutil.Amount, coins []*Utxo) (btcutil.Amount, btcutil.Amount, []*Utxo, error) {
 	satSelected := btcutil.Amount(0)
+	requiredFee := btcutil.Amount(0)
+
+	var weightEstimate TxWeightEstimator
+
+	// Channel funding multisig output is P2WSH.
+	weightEstimate.AddP2WSHOutput()
+
+	// Assume that change output is a P2WKH output.
+	//
+	// TODO: Handle wallets that generate non-witness change
+	// addresses.
+	weightEstimate.AddP2WKHOutput()
+
 	for i, coin := range coins {
 		satSelected += coin.Value
+
+		switch coin.AddressType {
+		case WitnessPubKey:
+			weightEstimate.AddP2WKHInput()
+		case NestedWitnessPubKey:
+			weightEstimate.AddNestedP2WKHInput()
+		default:
+			return 0, 0, nil, fmt.Errorf("Unsupported address type: %v",
+				coin.AddressType)
+		}
+
+		requiredFee = feeRate.FeeForVSize(int64(weightEstimate.VSize()))
+
 		if satSelected >= amt {
-			return satSelected, coins[:i+1], nil
+			return satSelected, requiredFee, coins[:i+1], nil
 		}
 	}
-	return 0, nil, &ErrInsufficientFunds{amt, satSelected}
+
+	return 0, 0, nil, &ErrInsufficientFunds{amt, satSelected}
 }
 
 // coinSelect attempts to select a sufficient amount of coins, including a
@@ -1410,57 +1437,21 @@ func selectInputs(amt btcutil.Amount, coins []*Utxo) (btcutil.Amount, []*Utxo, e
 func coinSelect(feeRate SatPerVByte, amt btcutil.Amount,
 	coins []*Utxo) ([]*Utxo, btcutil.Amount, btcutil.Amount, error) {
 
-	amtNeeded := amt
-	for {
-		// First perform an initial round of coin selection to estimate
-		// the required fee.
-		totalSat, selectedUtxos, err := selectInputs(amtNeeded, coins)
-		if err != nil {
-			return nil, 0, 0, err
-		}
-
-		var weightEstimate TxWeightEstimator
-
-		for _, utxo := range selectedUtxos {
-			switch utxo.AddressType {
-			case WitnessPubKey:
-				weightEstimate.AddP2WKHInput()
-			case NestedWitnessPubKey:
-				weightEstimate.AddNestedP2WKHInput()
-			default:
-				return nil, 0, 0, fmt.Errorf("Unsupported address type: %v",
-					utxo.AddressType)
-			}
-		}
-
-		// Channel funding multisig output is P2WSH.
-		weightEstimate.AddP2WSHOutput()
-
-		// Assume that change output is a P2WKH output.
-		//
-		// TODO: Handle wallets that generate non-witness change
-		// addresses.
-		weightEstimate.AddP2WKHOutput()
-
-		// The difference between the selected amount and the amount
-		// requested will be used to pay fees, and generate a change
-		// output with the remaining.
-		overShootAmt := totalSat - amt
-
-		// Based on the estimated size and fee rate, if the excess
-		// amount isn't enough to pay fees, then increase the requested
-		// coin amount by the estimate required fee, performing another
-		// round of coin selection.
-		requiredFee := feeRate.FeeForVSize(int64(weightEstimate.VSize()))
-		if overShootAmt < requiredFee {
-			amtNeeded = amt + requiredFee
-			continue
-		}
-
-		// If the fee is sufficient, then calculate the size of the
-		// change output.
-		changeAmt := overShootAmt - requiredFee
-
-		return selectedUtxos, amt, changeAmt, nil
+	// First perform an initial round of coin selection to estimate
+	// the required fee.
+	totalSat, requiredFee, selectedUtxos, err := selectInputsAndFees(feeRate, amt, coins)
+	if err != nil {
+		return nil, 0, 0, err
 	}
+
+	// The difference between the selected amount and the amount
+	// requested will be used to pay fees, and generate a change
+	// output with the remaining.
+	overShootAmt := totalSat - amt
+
+	// If the fee is sufficient, then calculate the size of the
+	// change output.
+	changeAmt := overShootAmt
+
+	return selectedUtxos, amt - requiredFee, changeAmt, nil
 }

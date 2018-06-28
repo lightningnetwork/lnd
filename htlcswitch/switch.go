@@ -1756,6 +1756,13 @@ func (s *Switch) AddLink(link ChannelLink) error {
 
 	chanID := link.ChanID()
 
+	// If a link already exists, then remove the prior one so we can
+	// replace it with this fresh instance.
+	_, err := s.getLink(chanID)
+	if err == nil {
+		s.removeLink(chanID)
+	}
+
 	// Get and attach the mailbox for this link, which buffers packets in
 	// case there packets that we tried to deliver while this link was
 	// offline.
@@ -1805,24 +1812,18 @@ func (s *Switch) addLiveLink(link ChannelLink) {
 	s.interfaceIndex[peerPub][link.ChanID()] = link
 }
 
-// removeLiveLink removes a link from all associated forwarding indexes, this
-// prevents it from being a candidate in forwarding.
-func (s *Switch) removeLiveLink(link ChannelLink) {
-	// Remove the channel from live link indexes.
-	delete(s.linkIndex, link.ChanID())
-	delete(s.forwardingIndex, link.ShortChanID())
-
-	// Remove the channel from channel index.
-	peerPub := link.Peer().PubKey()
-	delete(s.interfaceIndex, peerPub)
-}
-
 // GetLink is used to initiate the handling of the get link command. The
 // request will be propagated/handled to/in the main goroutine.
 func (s *Switch) GetLink(chanID lnwire.ChannelID) (ChannelLink, error) {
 	s.indexMtx.RLock()
 	defer s.indexMtx.RUnlock()
 
+	return s.getLink(chanID)
+}
+
+// getLink returns the link stored in either the pending index or the live
+// lindex.
+func (s *Switch) getLink(chanID lnwire.ChannelID) (ChannelLink, error) {
 	link, ok := s.linkIndex[chanID]
 	if !ok {
 		link, ok = s.pendingLinkIndex[chanID]
@@ -1862,20 +1863,27 @@ func (s *Switch) RemoveLink(chanID lnwire.ChannelID) error {
 func (s *Switch) removeLink(chanID lnwire.ChannelID) error {
 	log.Infof("Removing channel link with ChannelID(%v)", chanID)
 
-	link, ok := s.linkIndex[chanID]
-	if ok {
-		s.removeLiveLink(link)
-		link.Stop()
-
-		return nil
+	link, err := s.getLink(chanID)
+	if err != nil {
+		return err
 	}
 
-	link, ok = s.pendingLinkIndex[chanID]
-	if ok {
-		delete(s.pendingLinkIndex, chanID)
-		link.Stop()
+	// Remove the channel from live link indexes.
+	delete(s.pendingLinkIndex, link.ChanID())
+	delete(s.linkIndex, link.ChanID())
+	delete(s.forwardingIndex, link.ShortChanID())
 
-		return nil
+	// If the link has been added to the peer index, then we'll move to
+	// delete the entry within the index.
+	peerPub := link.Peer().PubKey()
+	if peerIndex, ok := s.interfaceIndex[peerPub]; ok {
+		delete(peerIndex, link.ChanID())
+
+		// If after deletion, there are no longer any links, then we'll
+		// remove the interface map all together.
+		if len(peerIndex) == 0 {
+			delete(s.interfaceIndex, peerPub)
+		}
 	}
 
 	go link.Stop()

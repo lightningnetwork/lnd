@@ -1702,6 +1702,10 @@ var sendPaymentCommand = cli.Command{
 			Name:  "final_cltv_delta",
 			Usage: "the number of blocks the last hop has to reveal the preimage",
 		},
+		cli.BoolFlag{
+			Name:  "force, f",
+			Usage: "will skip payment request confirmation",
+		},
 	},
 	Action: sendPayment,
 }
@@ -1732,7 +1736,30 @@ func retrieveFeeLimit(ctx *cli.Context) (*lnrpc.FeeLimit, error) {
 	return nil, nil
 }
 
+func confirmPayReq(client lnrpc.LightningClient, payReq string) error {
+	ctxb := context.Background()
+
+	req := &lnrpc.PayReqString{PayReq: payReq}
+	resp, err := client.DecodePayReq(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Description: %v\n", resp.GetDescription())
+	fmt.Printf("Amount (in satoshis): %v\n", resp.GetNumSatoshis())
+	fmt.Printf("Destination: %v\n", resp.GetDestination())
+
+	confirm := promptForConfirmation("Confirm payment (yes/no): ")
+	if !confirm {
+		return fmt.Errorf("payment not confirmed")
+	}
+
+	return nil
+}
+
 func sendPayment(ctx *cli.Context) error {
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 	// Show command help if no arguments provided
 	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
 		cli.ShowCommandHelp(ctx, "sendpayment")
@@ -1750,13 +1777,19 @@ func sendPayment(ctx *cli.Context) error {
 	// If a payment request was provided, we can exit early since all of the
 	// details of the payment are encoded within the request.
 	if ctx.IsSet("pay_req") {
+		if !ctx.Bool("force") {
+			err = confirmPayReq(client, ctx.String("pay_req"))
+			if err != nil {
+				return err
+			}
+		}
 		req := &lnrpc.SendRequest{
 			PaymentRequest: ctx.String("pay_req"),
 			Amt:            ctx.Int64("amt"),
 			FeeLimit:       feeLimit,
 		}
 
-		return sendPaymentRequest(ctx, req)
+		return sendPaymentRequest(client, req)
 	}
 
 	var (
@@ -1835,13 +1868,10 @@ func sendPayment(ctx *cli.Context) error {
 		}
 	}
 
-	return sendPaymentRequest(ctx, req)
+	return sendPaymentRequest(client, req)
 }
 
-func sendPaymentRequest(ctx *cli.Context, req *lnrpc.SendRequest) error {
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
-
+func sendPaymentRequest(client lnrpc.LightningClient, req *lnrpc.SendRequest) error {
 	paymentStream, err := client.SendPayment(context.Background())
 	if err != nil {
 		return err
@@ -1896,12 +1926,18 @@ var payInvoiceCommand = cli.Command{
 			Usage: "percentage of the payment's amount used as the" +
 				"maximum fee allowed when sending the payment",
 		},
+		cli.BoolFlag{
+			Name:  "force, f",
+			Usage: "will skip payment request confirmation",
+		},
 	},
 	Action: actionDecorator(payInvoice),
 }
 
 func payInvoice(ctx *cli.Context) error {
 	args := ctx.Args()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	var payReq string
 	switch {
@@ -1918,13 +1954,20 @@ func payInvoice(ctx *cli.Context) error {
 		return err
 	}
 
+	if !ctx.Bool("force") {
+		err = confirmPayReq(client, payReq)
+		if err != nil {
+			return err
+		}
+	}
+
 	req := &lnrpc.SendRequest{
 		PaymentRequest: payReq,
 		Amt:            ctx.Int64("amt"),
 		FeeLimit:       feeLimit,
 	}
 
-	return sendPaymentRequest(ctx, req)
+	return sendPaymentRequest(client, req)
 }
 
 var sendToRouteCommand = cli.Command{

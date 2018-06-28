@@ -1,34 +1,44 @@
 package lncfg
 
 import (
-	"time"
-	"net"
-	"fmt"
 	"crypto/tls"
+	"fmt"
+	"net"
+	"strconv"
 	"strings"
+	"time"
+
+	"github.com/lightningnetwork/lnd/tor"
 )
 
 var (
 	loopBackAddrs = []string{"localhost", "127.0.0.1", "[::1]"}
 )
 
+type tcpResolver = func(network, addr string) (*net.TCPAddr, error)
+
 // NormalizeAddresses returns a new slice with all the passed addresses
 // normalized with the given default port and all duplicates removed.
-func NormalizeAddresses(addrs []string,
-	defaultPort string) ([]net.Addr, error) {
+func NormalizeAddresses(addrs []string, defaultPort string,
+	tcpResolver tcpResolver) ([]net.Addr, error) {
+
 	result := make([]net.Addr, 0, len(addrs))
 	seen := map[string]struct{}{}
-	for _, strAddr := range addrs {
-		addr, err := ParseAddressString(strAddr, defaultPort)
+
+	for _, addr := range addrs {
+		parsedAddr, err := ParseAddressString(
+			addr, defaultPort, tcpResolver,
+		)
 		if err != nil {
 			return nil, err
 		}
 
-		if _, ok := seen[addr.String()]; !ok {
-			result = append(result, addr)
-			seen[addr.String()] = struct{}{}
+		if _, ok := seen[parsedAddr.String()]; !ok {
+			result = append(result, parsedAddr)
+			seen[parsedAddr.String()] = struct{}{}
 		}
 	}
+
 	return result, nil
 }
 
@@ -42,7 +52,7 @@ func EnforceSafeAuthentication(addrs []net.Addr, macaroonsActive bool) error {
 	// on. If it's a localhost address, we'll skip it, otherwise, we'll
 	// return an error if macaroons are inactive.
 	for _, addr := range addrs {
-		if IsLoopback(addr) || IsUnix(addr) {
+		if IsLoopback(addr.String()) || IsUnix(addr) {
 			continue
 		}
 
@@ -57,23 +67,21 @@ func EnforceSafeAuthentication(addrs []net.Addr, macaroonsActive bool) error {
 	return nil
 }
 
-// ListenOnAddress creates a listener that listens on the given
-// address.
+// ListenOnAddress creates a listener that listens on the given address.
 func ListenOnAddress(addr net.Addr) (net.Listener, error) {
 	return net.Listen(addr.Network(), addr.String())
 }
 
-// TlsListenOnAddress creates a TLS listener that listens on the given
-// address.
+// TlsListenOnAddress creates a TLS listener that listens on the given address.
 func TlsListenOnAddress(addr net.Addr,
 	config *tls.Config) (net.Listener, error) {
 	return tls.Listen(addr.Network(), addr.String(), config)
 }
 
 // IsLoopback returns true if an address describes a loopback interface.
-func IsLoopback(addr net.Addr) bool {
+func IsLoopback(addr string) bool {
 	for _, loopback := range loopBackAddrs {
-		if strings.Contains(addr.String(), loopback) {
+		if strings.Contains(addr, loopback) {
 			return true
 		}
 	}
@@ -81,20 +89,23 @@ func IsLoopback(addr net.Addr) bool {
 	return false
 }
 
-// isUnix returns true if an address describes an Unix socket address.
+// IsUnix returns true if an address describes an Unix socket address.
 func IsUnix(addr net.Addr) bool {
 	return strings.HasPrefix(addr.Network(), "unix")
 }
 
 // ParseAddressString converts an address in string format to a net.Addr that is
 // compatible with lnd. UDP is not supported because lnd needs reliable
-// connections.
-func ParseAddressString(strAddress string,
-	defaultPort string) (net.Addr, error) {
+// connections. We accept a custom function to resolve any TCP addresses so
+// that caller is able control exactly how resolution is performed.
+func ParseAddressString(strAddress string, defaultPort string,
+	tcpResolver tcpResolver) (net.Addr, error) {
+
 	var parsedNetwork, parsedAddr string
 
-	// Addresses can either be in network://address:port format or only
-	// address:port. We want to support both.
+	// Addresses can either be in network://address:port format,
+	// network:address:port, address:port, or just port. We want to support
+	// all possible types.
 	if strings.Contains(strAddress, "://") {
 		parts := strings.Split(strAddress, "://")
 		parsedNetwork, parsedAddr = parts[0], parts[1]
@@ -109,53 +120,95 @@ func ParseAddressString(strAddress string,
 	switch parsedNetwork {
 	case "unix", "unixpacket":
 		return net.ResolveUnixAddr(parsedNetwork, parsedAddr)
+
 	case "tcp", "tcp4", "tcp6":
-		return net.ResolveTCPAddr(parsedNetwork,
-			verifyPort(parsedAddr, defaultPort))
+		return tcpResolver(
+			parsedNetwork, verifyPort(parsedAddr, defaultPort),
+		)
+
 	case "ip", "ip4", "ip6", "udp", "udp4", "udp6", "unixgram":
 		return nil, fmt.Errorf("only TCP or unix socket "+
 			"addresses are supported: %s", parsedAddr)
+
 	default:
-		// There was no network specified, just try to parse as host
-		// and port.
-		return net.ResolveTCPAddr(
-			"tcp", verifyPort(strAddress, defaultPort),
-		)
+		// We'll now possibly apply the default port, use the local
+		// host short circuit, or parse out an all interfaces listen.
+		addrWithPort := verifyPort(strAddress, defaultPort)
+		rawHost, rawPort, _ := net.SplitHostPort(addrWithPort)
+
+		// If we reach this point, then we'll check to see if we have
+		// an onion addresses, if so, we can directly pass the raw
+		// address and port to create the proper address.
+		if tor.IsOnionHost(rawHost) {
+			portNum, err := strconv.Atoi(rawPort)
+			if err != nil {
+				return nil, err
+			}
+
+			return &tor.OnionAddr{
+				OnionService: rawHost,
+				Port:         portNum,
+			}, nil
+		}
+
+		// Otherwise, we'll attempt the resolve the host. The Tor
+		// resolver is unable to resolve local addresses, so we'll use
+		// the system resolver instead.
+		if rawHost == "" || IsLoopback(rawHost) {
+			return net.ResolveTCPAddr("tcp", addrWithPort)
+		}
+
+		return tcpResolver("tcp", addrWithPort)
 	}
 }
 
-// verifyPort makes sure that an address string has both a host and a port.
-// If there is no port found, the default port is appended.
-func verifyPort(strAddress string, defaultPort string) string {
-	host, port, err := net.SplitHostPort(strAddress)
+// verifyPort makes sure that an address string has both a host and a port. If
+// there is no port found, the default port is appended. If the address is just
+// a port, then we'll assume that the user is using the short cut to specify a
+// localhost:port address.
+func verifyPort(address string, defaultPort string) string {
+	host, port, err := net.SplitHostPort(address)
 	if err != nil {
-		// If we already have an IPv6 address with brackets, don't use
-		// the JoinHostPort function, since it will always add a pair
-		// of brackets too.
-		if strings.HasPrefix(strAddress, "[") {
-			strAddress = strAddress + ":" + defaultPort
-		} else {
-			strAddress = net.JoinHostPort(strAddress, defaultPort)
+		// If the address itself is just an integer, then we'll assume
+		// that we're mapping this directly to a localhost:port pair.
+		// This ensures we maintain the legacy behavior.
+		if _, err := strconv.Atoi(address); err == nil {
+			return net.JoinHostPort("localhost", address)
 		}
-	} else if host == "" && port == "" {
-		// The string ':' is parsed as valid empty host and empty port.
-		// But in that case, we want the default port to be applied too.
-		strAddress = ":" + defaultPort
+
+		// Otherwise, we'll assume that the address just failed to
+		// attach its own port, so we'll use the default port. In the
+		// case of IPv6 addresses, if the host is already surrounded by
+		// brackets, then we'll avoid using the JoinHostPort function,
+		// since it will always add a pair of brackets.
+		if strings.HasPrefix(address, "[") {
+			return address + ":" + defaultPort
+		}
+		return net.JoinHostPort(address, defaultPort)
 	}
 
-	return strAddress
+	// In the case that both the host and port are empty, we'll use the
+	// default port.
+	if host == "" && port == "" {
+		return ":" + defaultPort
+	}
+
+	return address
 }
 
 // ClientAddressDialer creates a gRPC dialer that can also dial unix socket
 // addresses instead of just TCP addresses.
-func ClientAddressDialer(defaultPort string) func(string,
-	time.Duration) (net.Conn, error) {
+func ClientAddressDialer(defaultPort string) func(string, time.Duration) (net.Conn, error) {
 	return func(addr string, timeout time.Duration) (net.Conn, error) {
-		parsedAddr, err := ParseAddressString(addr, defaultPort)
+		parsedAddr, err := ParseAddressString(
+			addr, defaultPort, net.ResolveTCPAddr,
+		)
 		if err != nil {
 			return nil, err
 		}
-		return net.DialTimeout(parsedAddr.Network(),
-			parsedAddr.String(), timeout)
+
+		return net.DialTimeout(
+			parsedAddr.Network(), parsedAddr.String(), timeout,
+		)
 	}
 }

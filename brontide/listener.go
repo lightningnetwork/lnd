@@ -2,6 +2,7 @@ package brontide
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"time"
@@ -86,6 +87,13 @@ func (l *Listener) listen() {
 	}
 }
 
+// rejectedConnErr is a helper function that prepends the remote address of the
+// failed connection attempt to the original error message.
+func rejectedConnErr(err error, remoteAddr string) error {
+	return fmt.Errorf("unable to accept connection from %v: %v", remoteAddr,
+		err)
+}
+
 // doHandshake asynchronously performs the brontide handshake, so that it does
 // not block the main accept loop. This prevents peers that delay writing to the
 // connection from block other connection attempts.
@@ -97,6 +105,8 @@ func (l *Listener) doHandshake(conn net.Conn) {
 		return
 	default:
 	}
+
+	remoteAddr := conn.RemoteAddr().String()
 
 	brontideConn := &Conn{
 		conn:  conn,
@@ -114,12 +124,12 @@ func (l *Listener) doHandshake(conn net.Conn) {
 	var actOne [ActOneSize]byte
 	if _, err := io.ReadFull(conn, actOne[:]); err != nil {
 		brontideConn.conn.Close()
-		l.rejectConn(err)
+		l.rejectConn(rejectedConnErr(err, remoteAddr))
 		return
 	}
 	if err := brontideConn.noise.RecvActOne(actOne); err != nil {
 		brontideConn.conn.Close()
-		l.rejectConn(err)
+		l.rejectConn(rejectedConnErr(err, remoteAddr))
 		return
 	}
 
@@ -128,12 +138,12 @@ func (l *Listener) doHandshake(conn net.Conn) {
 	actTwo, err := brontideConn.noise.GenActTwo()
 	if err != nil {
 		brontideConn.conn.Close()
-		l.rejectConn(err)
+		l.rejectConn(rejectedConnErr(err, remoteAddr))
 		return
 	}
 	if _, err := conn.Write(actTwo[:]); err != nil {
 		brontideConn.conn.Close()
-		l.rejectConn(err)
+		l.rejectConn(rejectedConnErr(err, remoteAddr))
 		return
 	}
 
@@ -154,12 +164,12 @@ func (l *Listener) doHandshake(conn net.Conn) {
 	var actThree [ActThreeSize]byte
 	if _, err := io.ReadFull(conn, actThree[:]); err != nil {
 		brontideConn.conn.Close()
-		l.rejectConn(err)
+		l.rejectConn(rejectedConnErr(err, remoteAddr))
 		return
 	}
 	if err := brontideConn.noise.RecvActThree(actThree); err != nil {
 		brontideConn.conn.Close()
-		l.rejectConn(err)
+		l.rejectConn(rejectedConnErr(err, remoteAddr))
 		return
 	}
 

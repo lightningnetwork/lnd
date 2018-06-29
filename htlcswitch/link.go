@@ -2258,9 +2258,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 			// We'll also ensure that our time-lock value has been
 			// computed correctly.
-			//
-			// TODO(roasbeef): also accept global default?
-			expectedHeight := heightNow + l.cfg.FwrdingPolicy.TimeLockDelta
+			minCltvDelta := uint32(invoice.Terms.FinalCltvDelta)
+			expectedHeight := heightNow + minCltvDelta
 			switch {
 
 			case !l.cfg.DebugHTLC && fwdInfo.OutgoingCTLV < expectedHeight:

@@ -137,18 +137,30 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 
 	// First, we'll create the preferential attachment heuristic,
 	// initialized with the passed auto pilot configuration parameters.
-	prefAttachment := autopilot.NewConstrainedPrefAttachment(
-		btcutil.Amount(cfg.MinChannelSize),
-		btcutil.Amount(cfg.MaxChannelSize),
-		uint16(cfg.MaxChannels), cfg.Allocation,
-	)
+	var heuristic autopilot.AttachmentHeuristic
+	//t := T{}
+	if cfg.Algorithm == "erdosrenyi" {
+		heuristic = autopilot.NewConstrainedErdosRenyi(
+			btcutil.Amount(cfg.MinChannelSize),
+			btcutil.Amount(cfg.MaxChannelSize),
+			uint16(cfg.MaxChannels), cfg.Allocation,
+		)
+	} else if cfg.Algorithm == "" || cfg.Algorithm == "prefattach" {
+		heuristic = autopilot.NewConstrainedPrefAttachment(
+			btcutil.Amount(cfg.MinChannelSize),
+			btcutil.Amount(cfg.MaxChannelSize),
+			uint16(cfg.MaxChannels), cfg.Allocation,
+		)
+	} else {
+		fmt.Errorf("You need to spcify the Autopilot Config by Setting the Algorithm field to either 'erdosrenyi' or 'prefattach' or leave it blank ")
+	}
 
 	// With the heuristic itself created, we can now populate the remainder
 	// of the items that the autopilot agent needs to perform its duties.
 	self := svr.identityPriv.PubKey()
 	pilotCfg := autopilot.Config{
 		Self:           self,
-		Heuristic:      prefAttachment,
+		Heuristic:      heuristic,
 		ChanController: &chanController{svr},
 		WalletBalance: func() (btcutil.Amount, error) {
 			return svr.cc.wallet.ConfirmedBalance(1)

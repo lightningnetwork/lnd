@@ -548,6 +548,13 @@ func loadConfig() (*config, error) {
 			return nil, err
 		}
 
+		if cfg.Litecoin.MainNet && cfg.DebugHTLC {
+			str := "%s: debug-htlc mode cannot be used " +
+				"on litecoin mainnet"
+			err := fmt.Errorf(str, funcName)
+			return nil, err
+		}
+
 		// The litecoin chain is the current active chain. However
 		// throughout the codebase we required chaincfg.Params. So as a
 		// temporary hack, we'll mutate the default net params for
@@ -626,6 +633,13 @@ func loadConfig() (*config, error) {
 			str := "%s: either --bitcoin.mainnet, or " +
 				"bitcoin.testnet, bitcoin.simnet, or bitcoin.regtest " +
 				"must be specified"
+			err := fmt.Errorf(str, funcName)
+			return nil, err
+		}
+
+		if cfg.Bitcoin.MainNet && cfg.DebugHTLC {
+			str := "%s: debug-htlc mode cannot be used " +
+				"on bitcoin mainnet"
 			err := fmt.Errorf(str, funcName)
 			return nil, err
 		}

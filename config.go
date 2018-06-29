@@ -438,14 +438,18 @@ func loadConfig() (*config, error) {
 	}
 	cfg.Tor.SOCKS = socks.String()
 
-	dns, err := lncfg.ParseAddressString(
-		cfg.Tor.DNS, strconv.Itoa(defaultTorDNSPort),
-		cfg.net.ResolveTCPAddr,
-	)
-	if err != nil {
-		return nil, err
+	// We'll only attempt to normalize and resolve the DNS host if it hasn't
+	// changed, as it doesn't need to be done for the default.
+	if cfg.Tor.DNS != defaultTorDNS {
+		dns, err := lncfg.ParseAddressString(
+			cfg.Tor.DNS, strconv.Itoa(defaultTorDNSPort),
+			cfg.net.ResolveTCPAddr,
+		)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Tor.DNS = dns.String()
 	}
-	cfg.Tor.DNS = dns.String()
 
 	control, err := lncfg.ParseAddressString(
 		cfg.Tor.Control, strconv.Itoa(defaultTorControlPort),

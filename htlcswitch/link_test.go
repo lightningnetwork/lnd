@@ -227,7 +227,7 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 
 	// Check that alice invoice was settled and bandwidth of HTLC
 	// links was changed.
-	invoice, err := receiver.registry.LookupInvoice(rhash)
+	invoice, _, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -452,7 +452,7 @@ func TestChannelLinkMultiHopPayment(t *testing.T) {
 
 	// Check that Carol invoice was settled and bandwidth of HTLC
 	// links were changed.
-	invoice, err := receiver.registry.LookupInvoice(rhash)
+	invoice, _, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -793,7 +793,7 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 
 	// Carol's invoice should now be shown as settled as the payment
 	// succeeded.
-	invoice, err := n.carolServer.registry.LookupInvoice(payResp)
+	invoice, _, err := n.carolServer.registry.LookupInvoice(payResp)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -909,7 +909,7 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 
 	// Check that alice invoice wasn't settled and bandwidth of htlc
 	// links hasn't been changed.
-	invoice, err := receiver.registry.LookupInvoice(rhash)
+	invoice, _, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -1056,7 +1056,9 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
 
-	daveServer, err := newMockServer(t, "dave", testStartingHeight, nil)
+	daveServer, err := newMockServer(
+		t, "dave", testStartingHeight, nil, n.globalPolicy.TimeLockDelta,
+	)
 	if err != nil {
 		t.Fatalf("unable to init dave's server: %v", err)
 	}
@@ -1077,7 +1079,7 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 
 	// Check that alice invoice wasn't settled and bandwidth of htlc
 	// links hasn't been changed.
-	invoice, err := receiver.registry.LookupInvoice(rhash)
+	invoice, _, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -1165,7 +1167,7 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 
 	// Check that alice invoice wasn't settled and bandwidth of htlc
 	// links hasn't been changed.
-	invoice, err := receiver.registry.LookupInvoice(rhash)
+	invoice, _, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -1442,10 +1444,9 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 	}
 
 	var (
-		invoiceRegistry = newMockRegistry()
-		decoder         = newMockIteratorDecoder()
-		obfuscator      = NewMockObfuscator()
-		alicePeer       = &mockPeer{
+		decoder    = newMockIteratorDecoder()
+		obfuscator = NewMockObfuscator()
+		alicePeer  = &mockPeer{
 			sentMsgs: make(chan lnwire.Message, 2000),
 			quit:     make(chan struct{}),
 		}
@@ -1454,6 +1455,7 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 			BaseFee:       lnwire.NewMSatFromSatoshis(1),
 			TimeLockDelta: 6,
 		}
+		invoiceRegistry = newMockRegistry(globalPolicy.TimeLockDelta)
 	)
 
 	pCache := &mockPreimageCache{
@@ -3257,7 +3259,7 @@ func TestChannelRetransmission(t *testing.T) {
 
 			// Check that alice invoice wasn't settled and
 			// bandwidth of htlc links hasn't been changed.
-			invoice, err = receiver.registry.LookupInvoice(rhash)
+			invoice, _, err = receiver.registry.LookupInvoice(rhash)
 			if err != nil {
 				err = errors.Errorf("unable to get invoice: %v", err)
 				continue
@@ -3624,7 +3626,7 @@ func TestChannelLinkAcceptOverpay(t *testing.T) {
 
 	// Even though we sent 2x what was asked for, Carol should still have
 	// accepted the payment and marked it as settled.
-	invoice, err := receiver.registry.LookupInvoice(rhash)
+	invoice, _, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -3819,10 +3821,9 @@ func restartLink(aliceChannel *lnwallet.LightningChannel, aliceSwitch *Switch,
 	hodlFlags []hodl.Flag) (ChannelLink, chan time.Time, func(), error) {
 
 	var (
-		invoiceRegistry = newMockRegistry()
-		decoder         = newMockIteratorDecoder()
-		obfuscator      = NewMockObfuscator()
-		alicePeer       = &mockPeer{
+		decoder    = newMockIteratorDecoder()
+		obfuscator = NewMockObfuscator()
+		alicePeer  = &mockPeer{
 			sentMsgs: make(chan lnwire.Message, 2000),
 			quit:     make(chan struct{}),
 		}
@@ -3832,6 +3833,8 @@ func restartLink(aliceChannel *lnwallet.LightningChannel, aliceSwitch *Switch,
 			BaseFee:       lnwire.NewMSatFromSatoshis(1),
 			TimeLockDelta: 6,
 		}
+
+		invoiceRegistry = newMockRegistry(globalPolicy.TimeLockDelta)
 
 		pCache = &mockPreimageCache{
 			// hash -> preimage

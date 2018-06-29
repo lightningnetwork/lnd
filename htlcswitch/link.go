@@ -2167,7 +2167,9 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// we attempt to see if we have an invoice locally
 			// which'll allow us to settle this htlc.
 			invoiceHash := chainhash.Hash(pd.RHash)
-			invoice, err := l.cfg.Registry.LookupInvoice(invoiceHash)
+			invoice, minCltvDelta, err := l.cfg.Registry.LookupInvoice(
+				invoiceHash,
+			)
 			if err != nil {
 				log.Errorf("unable to query invoice registry: "+
 					" %v", err)
@@ -2258,7 +2260,6 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 			// We'll also ensure that our time-lock value has been
 			// computed correctly.
-			minCltvDelta := uint32(invoice.Terms.FinalCltvDelta)
 			expectedHeight := heightNow + minCltvDelta
 			switch {
 

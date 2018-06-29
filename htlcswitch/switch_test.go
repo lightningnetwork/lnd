@@ -30,7 +30,7 @@ func genPreimage() ([32]byte, error) {
 func TestSwitchSendPending(t *testing.T) {
 	t.Parallel()
 
-	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil)
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil, 6)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
@@ -125,11 +125,11 @@ func TestSwitchSendPending(t *testing.T) {
 func TestSwitchForward(t *testing.T) {
 	t.Parallel()
 
-	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil)
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil, 6)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
-	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil)
+	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil, 6)
 	if err != nil {
 		t.Fatalf("unable to create bob server: %v", err)
 	}
@@ -230,11 +230,11 @@ func TestSwitchForwardFailAfterFullAdd(t *testing.T) {
 
 	chanID1, chanID2, aliceChanID, bobChanID := genIDs()
 
-	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil)
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil, 6)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
-	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil)
+	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil, 6)
 	if err != nil {
 		t.Fatalf("unable to create bob server: %v", err)
 	}
@@ -421,11 +421,11 @@ func TestSwitchForwardSettleAfterFullAdd(t *testing.T) {
 
 	chanID1, chanID2, aliceChanID, bobChanID := genIDs()
 
-	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil)
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil, 6)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
-	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil)
+	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil, 6)
 	if err != nil {
 		t.Fatalf("unable to create bob server: %v", err)
 	}
@@ -615,11 +615,11 @@ func TestSwitchForwardDropAfterFullAdd(t *testing.T) {
 
 	chanID1, chanID2, aliceChanID, bobChanID := genIDs()
 
-	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil)
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil, 6)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
-	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil)
+	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil, 6)
 	if err != nil {
 		t.Fatalf("unable to create bob server: %v", err)
 	}
@@ -778,11 +778,11 @@ func TestSwitchForwardFailAfterHalfAdd(t *testing.T) {
 
 	chanID1, chanID2, aliceChanID, bobChanID := genIDs()
 
-	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil)
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil, 6)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
-	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil)
+	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil, 6)
 	if err != nil {
 		t.Fatalf("unable to create bob server: %v", err)
 	}
@@ -936,11 +936,11 @@ func TestSwitchForwardCircuitPersistence(t *testing.T) {
 
 	chanID1, chanID2, aliceChanID, bobChanID := genIDs()
 
-	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil)
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil, 6)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
-	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil)
+	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil, 6)
 	if err != nil {
 		t.Fatalf("unable to create bob server: %v", err)
 	}
@@ -1167,11 +1167,11 @@ func TestSkipIneligibleLinksMultiHopForward(t *testing.T) {
 
 	var packet *htlcPacket
 
-	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil)
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil, 6)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
-	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil)
+	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil, 6)
 	if err != nil {
 		t.Fatalf("unable to create bob server: %v", err)
 	}
@@ -1237,7 +1237,7 @@ func TestSkipIneligibleLinksLocalForward(t *testing.T) {
 
 	// We'll create a single link for this test, marking it as being unable
 	// to forward form the get go.
-	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil)
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil, 6)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
@@ -1289,11 +1289,11 @@ func TestSkipIneligibleLinksLocalForward(t *testing.T) {
 func TestSwitchCancel(t *testing.T) {
 	t.Parallel()
 
-	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil)
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil, 6)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
-	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil)
+	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil, 6)
 	if err != nil {
 		t.Fatalf("unable to create bob server: %v", err)
 	}
@@ -1402,11 +1402,11 @@ func TestSwitchAddSamePayment(t *testing.T) {
 
 	chanID1, chanID2, aliceChanID, bobChanID := genIDs()
 
-	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil)
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil, 6)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
-	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil)
+	bobPeer, err := newMockServer(t, "bob", testStartingHeight, nil, 6)
 	if err != nil {
 		t.Fatalf("unable to create bob server: %v", err)
 	}
@@ -1561,7 +1561,7 @@ func TestSwitchAddSamePayment(t *testing.T) {
 func TestSwitchSendPayment(t *testing.T) {
 	t.Parallel()
 
-	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil)
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil, 6)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}

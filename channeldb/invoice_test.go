@@ -99,7 +99,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 	// now have the settled bit toggle to true and a non-default
 	// SettledDate
 	payAmt := fakeInvoice.Terms.Value * 2
-	if err := db.SettleInvoice(paymentHash, payAmt); err != nil {
+	if _, err := db.SettleInvoice(paymentHash, payAmt); err != nil {
 		t.Fatalf("unable to settle invoice: %v", err)
 	}
 	dbInvoice2, err := db.LookupInvoice(paymentHash)
@@ -260,7 +260,7 @@ func TestInvoiceAddTimeSeries(t *testing.T) {
 			invoice.Terms.PaymentPreimage[:],
 		)
 
-		err := db.SettleInvoice(paymentHash, 0)
+		_, err := db.SettleInvoice(paymentHash, 0)
 		if err != nil {
 			t.Fatalf("unable to settle invoice: %v", err)
 		}

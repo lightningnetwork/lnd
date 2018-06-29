@@ -223,6 +223,9 @@ func (i *invoiceRegistry) AddDebugInvoice(amt btcutil.Amount, preimage chainhash
 // daemon add/forward HTLCs are able to obtain the proper preimage required for
 // redemption in the case that we're the final destination.
 func (i *invoiceRegistry) AddInvoice(invoice *channeldb.Invoice) error {
+	i.Lock()
+	defer i.Unlock()
+
 	ltndLog.Debugf("Adding invoice %v", newLogClosure(func() string {
 		return spew.Sdump(invoice)
 	}))
@@ -280,39 +283,29 @@ func (i *invoiceRegistry) LookupInvoice(rHash chainhash.Hash) (channeldb.Invoice
 func (i *invoiceRegistry) SettleInvoice(rHash chainhash.Hash,
 	amtPaid lnwire.MilliSatoshi) error {
 
+	i.Lock()
+	defer i.Unlock()
+
 	ltndLog.Debugf("Settling invoice %x", rHash[:])
 
 	// First check the in-memory debug invoice index to see if this is an
 	// existing invoice added for debugging.
-	i.RLock()
 	if _, ok := i.debugInvoices[rHash]; ok {
 		// Debug invoices are never fully settled, so we simply return
 		// immediately in this case.
-		i.RUnlock()
-
 		return nil
 	}
-	i.RUnlock()
 
 	// If this isn't a debug invoice, then we'll attempt to settle an
 	// invoice matching this rHash on disk (if one exists).
-	if err := i.cdb.SettleInvoice(rHash, amtPaid); err != nil {
+	invoice, err := i.cdb.SettleInvoice(rHash, amtPaid)
+	if err != nil {
 		return err
 	}
 
-	// Launch a new goroutine to notify any/all registered invoice
-	// notification clients.
-	go func() {
-		invoice, err := i.cdb.LookupInvoice(rHash)
-		if err != nil {
-			ltndLog.Errorf("unable to find invoice: %v", err)
-			return
-		}
+	ltndLog.Infof("Payment received: %v", spew.Sdump(invoice))
 
-		ltndLog.Infof("Payment received: %v", spew.Sdump(invoice))
-
-		i.notifyClients(&invoice, true)
-	}()
+	i.notifyClients(invoice, true)
 
 	return nil
 }

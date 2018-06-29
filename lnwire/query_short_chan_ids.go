@@ -146,10 +146,13 @@ func decodeShortChanIDs(r io.Reader) (ShortChanIDEncoding, []ShortChannelID, err
 		// compute the number of bytes encoded based on the size of the
 		// query body.
 		numShortChanIDs := len(queryBody) / 8
-		shortChanIDs := make([]ShortChannelID, numShortChanIDs)
+		if numShortChanIDs == 0 {
+			return encodingType, nil, nil
+		}
 
 		// Finally, we'll read out the exact number of short channel
 		// ID's to conclude our parsing.
+		shortChanIDs := make([]ShortChannelID, numShortChanIDs)
 		bodyReader := bytes.NewReader(queryBody)
 		for i := 0; i < numShortChanIDs; i++ {
 			if err := readElements(bodyReader, &shortChanIDs[i]); err != nil {

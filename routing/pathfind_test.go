@@ -2,6 +2,7 @@ package routing
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -286,6 +287,275 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 	}
 
 	return graph, cleanUp, aliasMap, nil
+}
+
+type testChannelPolicy struct {
+	Expiry      uint16
+	MinHTLC     lnwire.MilliSatoshi
+	FeeBaseMsat lnwire.MilliSatoshi
+	FeeRate     lnwire.MilliSatoshi
+}
+
+type testChannelEnd struct {
+	Alias string
+	testChannelPolicy
+}
+
+func defaultTestChannelEnd(alias string) *testChannelEnd {
+	return &testChannelEnd{
+		Alias: alias,
+		testChannelPolicy: testChannelPolicy{
+			Expiry:      144,
+			MinHTLC:     lnwire.MilliSatoshi(1000),
+			FeeBaseMsat: lnwire.MilliSatoshi(1000),
+			FeeRate:     lnwire.MilliSatoshi(1),
+		},
+	}
+}
+
+func symmetricTestChannel(alias1 string, alias2 string, capacity btcutil.Amount,
+	policy *testChannelPolicy) *testChannel {
+	return &testChannel{
+		Capacity: capacity,
+		Node1: &testChannelEnd{
+			Alias:             alias1,
+			testChannelPolicy: *policy,
+		},
+		Node2: &testChannelEnd{
+			Alias:             alias2,
+			testChannelPolicy: *policy,
+		},
+	}
+}
+
+type testChannel struct {
+	Node1    *testChannelEnd
+	Node2    *testChannelEnd
+	Capacity btcutil.Amount
+}
+
+// createTestGraph returns a fully populated ChannelGraph based on a set of
+// test channels. Additional required information like keys are derived in
+// a deterministical way and added to the channel graph. A list of nodes is
+// not required and derived from the channel data. The goal is to keep
+// instantiating a test channel graph as light weight as possible.
+func createTestGraph(testChannels []*testChannel) (*channeldb.ChannelGraph, func(), aliasMap, error) {
+	// We'll use this fake address for the IP address of all the nodes in
+	// our tests. This value isn't needed for path finding so it doesn't
+	// need to be unique.
+	var testAddrs []net.Addr
+	testAddr, err := net.ResolveTCPAddr("tcp", "192.0.0.1:8888")
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	testAddrs = append(testAddrs, testAddr)
+
+	// Next, create a temporary graph database for usage within the test.
+	graph, cleanUp, err := makeTestGraph()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	aliasMap := make(map[string]*btcec.PublicKey)
+
+	nodeIndex := byte(0)
+	addNodeWithAlias := func(alias string) (*channeldb.LightningNode, error) {
+		keyBytes := make([]byte, 32)
+		keyBytes = []byte{
+			0, 0, 0, 0, 0, 0, 0, 0,
+			0, 0, 0, 0, 0, 0, 0, 0,
+			0, 0, 0, 0, 0, 0, 0, 0,
+			0, 0, 0, 0, 0, 0, 0, nodeIndex + 1,
+		}
+
+		_, pubKey := btcec.PrivKeyFromBytes(btcec.S256(),
+			keyBytes)
+
+		dbNode := &channeldb.LightningNode{
+			HaveNodeAnnouncement: true,
+			AuthSigBytes:         testSig.Serialize(),
+			LastUpdate:           time.Now(),
+			Addresses:            testAddrs,
+			Alias:                alias,
+			Features:             testFeatures,
+		}
+
+		copy(dbNode.PubKeyBytes[:], pubKey.SerializeCompressed())
+
+		// With the node fully parsed, add it as a vertex within the
+		// graph.
+		if err := graph.AddLightningNode(dbNode); err != nil {
+			return nil, err
+		}
+
+		aliasMap[alias] = pubKey
+		nodeIndex++
+
+		return dbNode, nil
+	}
+
+	var source *channeldb.LightningNode
+	if source, err = addNodeWithAlias("roasbeef"); err != nil {
+		return nil, nil, nil, err
+	}
+
+	// Set the source node
+	if err := graph.SetSourceNode(source); err != nil {
+		return nil, nil, nil, err
+	}
+
+	channelID := uint64(0)
+	for _, testChannel := range testChannels {
+		for _, alias := range []string{
+			testChannel.Node1.Alias, testChannel.Node2.Alias} {
+
+			_, exists := aliasMap[alias]
+			if !exists {
+				addNodeWithAlias(alias)
+			}
+		}
+
+		var hash [sha256.Size]byte
+		hash[len(hash)-1] = byte(channelID)
+
+		fundingPoint := &wire.OutPoint{
+			Hash:  chainhash.Hash(hash),
+			Index: 0,
+		}
+
+		// We first insert the existence of the edge between the two
+		// nodes.
+		edgeInfo := channeldb.ChannelEdgeInfo{
+			ChannelID:    channelID,
+			AuthProof:    &testAuthProof,
+			ChannelPoint: *fundingPoint,
+			Capacity:     testChannel.Capacity,
+		}
+
+		node1Bytes := aliasMap[testChannel.Node1.Alias].SerializeCompressed()
+		node2Bytes := aliasMap[testChannel.Node2.Alias].SerializeCompressed()
+
+		copy(edgeInfo.NodeKey1Bytes[:], node1Bytes)
+		copy(edgeInfo.NodeKey2Bytes[:], node2Bytes)
+		copy(edgeInfo.BitcoinKey1Bytes[:], node1Bytes)
+		copy(edgeInfo.BitcoinKey2Bytes[:], node2Bytes)
+
+		err = graph.AddChannelEdge(&edgeInfo)
+		if err != nil && err != channeldb.ErrEdgeAlreadyExist {
+			return nil, nil, nil, err
+		}
+
+		edgePolicy := &channeldb.ChannelEdgePolicy{
+			SigBytes:                  testSig.Serialize(),
+			Flags:                     lnwire.ChanUpdateFlag(0),
+			ChannelID:                 channelID,
+			LastUpdate:                time.Now(),
+			TimeLockDelta:             testChannel.Node1.Expiry,
+			MinHTLC:                   testChannel.Node1.MinHTLC,
+			FeeBaseMSat:               testChannel.Node1.FeeBaseMsat,
+			FeeProportionalMillionths: testChannel.Node1.FeeRate,
+		}
+		if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
+			return nil, nil, nil, err
+		}
+
+		edgePolicy = &channeldb.ChannelEdgePolicy{
+			SigBytes:                  testSig.Serialize(),
+			Flags:                     lnwire.ChanUpdateFlag(lnwire.ChanUpdateDirection),
+			ChannelID:                 channelID,
+			LastUpdate:                time.Now(),
+			TimeLockDelta:             testChannel.Node2.Expiry,
+			MinHTLC:                   testChannel.Node2.MinHTLC,
+			FeeBaseMSat:               testChannel.Node2.FeeBaseMsat,
+			FeeProportionalMillionths: testChannel.Node2.FeeRate,
+		}
+
+		if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
+			return nil, nil, nil, err
+		}
+
+		channelID++
+	}
+
+	return graph, cleanUp, aliasMap, nil
+}
+
+// TestFindLowestFeePath tests that out of two routes with identical total
+// time lock values, the route with the lowest total fee should be returned.
+// The fee rates are chosen such that the test failed on the previous edge
+// weight function where one of the terms was fee squared.
+func TestFindLowestFeePath(t *testing.T) {
+	t.Parallel()
+
+	// Set up a test graph with two paths from roasbeef to target. Both
+	// paths have equal total time locks, but the path through b has lower
+	// fees (700 compared to 800 for the path through a).
+	testChannels := []*testChannel{
+		symmetricTestChannel("roasbeef", "a", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 400,
+			MinHTLC: 1,
+		}),
+		symmetricTestChannel("a", "target", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 400,
+			MinHTLC: 1,
+		}),
+		symmetricTestChannel("roasbeef", "b", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 100,
+			MinHTLC: 1,
+		}),
+		symmetricTestChannel("b", "target", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 600,
+			MinHTLC: 1,
+		}),
+	}
+
+	graph, cleanUp, aliases, err := createTestGraph(testChannels)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+
+	sourceNode, err := graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+	}
+	sourceVertex := Vertex(sourceNode.PubKeyBytes)
+
+	ignoredEdges := make(map[uint64]struct{})
+	ignoredVertexes := make(map[Vertex]struct{})
+
+	const (
+		startingHeight = 100
+		finalHopCLTV   = 1
+	)
+
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+	target := aliases["target"]
+	path, err := findPath(
+		nil, graph, nil, sourceNode, target, ignoredVertexes,
+		ignoredEdges, paymentAmt, nil,
+	)
+	if err != nil {
+		t.Fatalf("unable to find path: %v", err)
+	}
+	route, err := newRoute(
+		paymentAmt, infinity, sourceVertex, path, startingHeight, 
+		finalHopCLTV)
+	if err != nil {
+		t.Fatalf("unable to create path: %v", err)
+	}
+
+	// Assert that the lowest fee route is returned.	
+	if !bytes.Equal(route.Hops[0].Channel.Node.PubKeyBytes[:],
+		aliases["b"].SerializeCompressed()) {
+		t.Fatalf("expected route to pass through b, "+
+			"but got a route through %v",
+			route.Hops[0].Channel.Node.Alias)
+	}
 }
 
 func TestBasicGraphPathFinding(t *testing.T) {

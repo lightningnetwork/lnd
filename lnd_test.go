@@ -7777,7 +7777,7 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 
 	// We'll mine csvDelay blocks in order to generate the sweep transaction
 	// of Bob's funding output.
-	if _, err := net.Miner.Node.Generate(csvDelay); err != nil {
+	if _, err := net.Miner.Node.Generate(csvDelay - 1); err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
 

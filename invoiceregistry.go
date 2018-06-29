@@ -135,13 +135,44 @@ func (i *invoiceRegistry) invoiceEventNotifier() {
 		// dispatch notifications to all registered clients.
 		case event := <-i.invoiceEvents:
 			for _, client := range i.notificationClients {
+				// Before we dispatch this event, we'll check
+				// to ensure that this client hasn't already
+				// received this notification in order to
+				// ensure we don't duplicate any events.
+				invoice := event.invoice
+				switch {
+				// If we've already sent this settle event to
+				// the client, then we can skip this.
+				case event.isSettle &&
+					client.settleIndex == invoice.SettleIndex:
+					continue
+
+				// Similarly, if we've already sent this add to
+				// the client then we can skip this one.
+				case !event.isSettle &&
+					client.addIndex == invoice.AddIndex:
+					continue
+				}
+
 				select {
 				case client.ntfnQueue.ChanIn() <- &invoiceEvent{
 					isSettle: event.isSettle,
-					invoice:  event.invoice,
+					invoice:  invoice,
 				}:
 				case <-i.quit:
 					return
+				}
+
+				// Each time we send a notification to a
+				// client, we'll record the latest add/settle
+				// index it has. We'll use this to ensure we
+				// don't send a notification twice, which can
+				// happen if a new event is added while we're
+				// catching up a new client.
+				if event.isSettle {
+					client.settleIndex = invoice.SettleIndex
+				} else {
+					client.addIndex = invoice.AddIndex
 				}
 			}
 

@@ -373,7 +373,27 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 		return nil
 	}
 
-	return hn.initLightningClient(conn)
+	err = hn.initLightningClient(conn)
+	if err!=nil{
+		return err
+	}
+
+	err = WaitPredicate(func() bool {
+		ctxb := context.Background()
+		getInfoRequest := &lnrpc.GetInfoRequest{}
+		getInfoResponse, err := hn.GetInfo(
+			ctxb, getInfoRequest,
+		)
+		if err != nil {
+			return false
+		}
+		if getInfoResponse.SyncedToChain == true{
+			return true
+		}
+		return false
+	}, time.Second*15)
+
+	return nil
 }
 
 // Init initializes a harness node by passing the init request via rpc. After

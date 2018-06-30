@@ -1078,6 +1078,11 @@
         "payment_request": {
           "type": "string",
           "description": "*\nA bare-bones invoice for a payment within the Lightning Network.  With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient."
+        },
+        "add_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "*\nThe \"add\" index of this invoice. Each newly created invoice will increment\nthis index making it monotonically increasing. Callers to the\nSubscribeInvoices call can use this to instantly get notified of all added\ninvoices with an add_index greater than this one."
         }
       }
     },

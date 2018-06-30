@@ -1685,6 +1685,14 @@ message AddInvoiceResponse {
     payment to the recipient.
     */
     string payment_request = 2 [json_name = "payment_request"];
+
+    /**
+    The "add" index of this invoice. Each newly created invoice will increment
+    this index making it monotonically increasing. Callers to the
+    SubscribeInvoices call can use this to instantly get notified of all added
+    invoices with an add_index greater than this one.
+    */
+    uint64 add_index = 16 [json_name = "add_index"];
 }
 message PaymentHash {
     /**

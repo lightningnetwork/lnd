@@ -1458,7 +1458,10 @@ func generateSphinxPacket(route *Route, paymentHash []byte) ([]byte,
 	hopPayloads := route.ToHopPayloads()
 
 	log.Tracef("Constructed per-hop payloads for payment_hash=%x: %v",
-		paymentHash[:], spew.Sdump(hopPayloads))
+		paymentHash[:], newLogClosure(func() string {
+			return spew.Sdump(hopPayloads)
+		}),
+	)
 
 	sessionKey, err := btcec.NewPrivateKey(btcec.S256())
 	if err != nil {
@@ -1467,8 +1470,9 @@ func generateSphinxPacket(route *Route, paymentHash []byte) ([]byte,
 
 	// Next generate the onion routing packet which allows us to perform
 	// privacy preserving source routing across the network.
-	sphinxPacket, err := sphinx.NewOnionPacket(nodes, sessionKey,
-		hopPayloads, paymentHash)
+	sphinxPacket, err := sphinx.NewOnionPacket(
+		nodes, sessionKey, hopPayloads, paymentHash,
+	)
 	if err != nil {
 		return nil, nil, err
 	}

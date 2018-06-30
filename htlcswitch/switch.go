@@ -1251,7 +1251,7 @@ func (s *Switch) closeCircuit(pkt *htlcPacket) (*PaymentCircuit, error) {
 // we're the originator of the payment, so the link stops attempting to
 // re-broadcast.
 func (s *Switch) ackSettleFail(settleFailRef channeldb.SettleFailRef) error {
-	return s.cfg.DB.Update(func(tx *bolt.Tx) error {
+	return s.cfg.DB.Batch(func(tx *bolt.Tx) error {
 		return s.cfg.SwitchPackager.AckSettleFails(tx, settleFailRef)
 	})
 }

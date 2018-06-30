@@ -30,7 +30,6 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
-	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -380,23 +379,12 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 
 	// If we were requested to automatically configure port forwarding,
 	// we'll use the ports that the server will be listening on.
-	externalIPStrings := make([]string, len(cfg.ExternalIPs))
-	for idx, ip := range cfg.ExternalIPs {
-		externalIPStrings[idx] = ip.String()
-	}
 	if s.natTraversal != nil {
-		listenPorts := make([]uint16, 0, len(listenAddrs))
-		for _, listenAddr := range listenAddrs {
-			// At this point, the listen addresses should have
-			// already been normalized, so it's safe to ignore the
-			// errors.
-			_, portStr, _ := net.SplitHostPort(listenAddr.String())
-			port, _ := strconv.Atoi(portStr)
-
-			listenPorts = append(listenPorts, uint16(port))
-		}
-
-		ips, err := s.configurePortForwarding(listenPorts...)
+		// We'll only forward the port of the first address the server
+		// is listening on since our node announcement cannot advertise
+		// more than one IPv4 address.
+		port := s.listenAddrs[0].(*net.TCPAddr).Port
+		addr, err := s.configurePortForwarding(port)
 		if err != nil {
 			srvrLog.Errorf("Unable to automatically set up port "+
 				"forwarding using %s: %v",
@@ -405,22 +393,9 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 			srvrLog.Infof("Automatically set up port forwarding "+
 				"using %s to advertise external IP",
 				s.natTraversal.Name())
-			externalIPStrings = append(externalIPStrings, ips...)
-		}
-	}
 
-	// If external IP addresses have been specified, add those to the list
-	// of this server's addresses.
-	externalIPs, err := lncfg.NormalizeAddresses(
-		externalIPStrings, strconv.Itoa(defaultPeerPort),
-		cfg.net.ResolveTCPAddr,
-	)
-	if err != nil {
-		return nil, err
-	}
-	selfAddrs := make([]net.Addr, 0, len(externalIPs))
-	for _, ip := range externalIPs {
-		selfAddrs = append(selfAddrs, ip)
+			cfg.ExternalIPs = append(cfg.ExternalIPs, addr)
+		}
 	}
 
 	// If we were requested to route connections through Tor and to
@@ -454,7 +429,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	selfNode := &channeldb.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Now(),
-		Addresses:            selfAddrs,
+		Addresses:            cfg.ExternalIPs,
 		Alias:                nodeAlias.String(),
 		Features:             s.globalFeatures,
 		Color:                color,
@@ -1037,30 +1012,24 @@ func (s *server) Stopped() bool {
 	return atomic.LoadInt32(&s.shutdown) != 0
 }
 
-// configurePortForwarding attempts to set up port forwarding for the diffrent
-// ports that the server will be listening on.
+// configurePortForwarding attempts to set up port forwarding for one of the
+// ports the server will be listening on and returns the externally reachable
+// address.
 //
 // NOTE: This should only be used when using some kind of NAT traversal to
 // automatically set up forwarding rules.
-func (s *server) configurePortForwarding(ports ...uint16) ([]string, error) {
+func (s *server) configurePortForwarding(port int) (net.Addr, error) {
 	ip, err := s.natTraversal.ExternalIP()
 	if err != nil {
 		return nil, err
 	}
 	s.lastDetectedIP = ip
 
-	externalIPs := make([]string, 0, len(ports))
-	for _, port := range ports {
-		if err := s.natTraversal.AddPortMapping(port); err != nil {
-			srvrLog.Debugf("Unable to forward port %d: %v", port, err)
-			continue
-		}
-
-		hostIP := fmt.Sprintf("%v:%d", ip, port)
-		externalIPs = append(externalIPs, hostIP)
+	if err := s.natTraversal.AddPortMapping(uint16(port)); err != nil {
+		return nil, fmt.Errorf("unable to forward port %d: %v", port, err)
 	}
 
-	return externalIPs, nil
+	return &net.TCPAddr{IP: ip, Port: port}, nil
 }
 
 // removePortForwarding attempts to clear the forwarding rules for the different

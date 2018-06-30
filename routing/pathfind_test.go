@@ -2,6 +2,7 @@ package routing
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -286,6 +287,275 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 	}
 
 	return graph, cleanUp, aliasMap, nil
+}
+
+type testChannelPolicy struct {
+	Expiry      uint16
+	MinHTLC     lnwire.MilliSatoshi
+	FeeBaseMsat lnwire.MilliSatoshi
+	FeeRate     lnwire.MilliSatoshi
+}
+
+type testChannelEnd struct {
+	Alias string
+	testChannelPolicy
+}
+
+func defaultTestChannelEnd(alias string) *testChannelEnd {
+	return &testChannelEnd{
+		Alias: alias,
+		testChannelPolicy: testChannelPolicy{
+			Expiry:      144,
+			MinHTLC:     lnwire.MilliSatoshi(1000),
+			FeeBaseMsat: lnwire.MilliSatoshi(1000),
+			FeeRate:     lnwire.MilliSatoshi(1),
+		},
+	}
+}
+
+func symmetricTestChannel(alias1 string, alias2 string, capacity btcutil.Amount,
+	policy *testChannelPolicy) *testChannel {
+	return &testChannel{
+		Capacity: capacity,
+		Node1: &testChannelEnd{
+			Alias:             alias1,
+			testChannelPolicy: *policy,
+		},
+		Node2: &testChannelEnd{
+			Alias:             alias2,
+			testChannelPolicy: *policy,
+		},
+	}
+}
+
+type testChannel struct {
+	Node1    *testChannelEnd
+	Node2    *testChannelEnd
+	Capacity btcutil.Amount
+}
+
+// createTestGraph returns a fully populated ChannelGraph based on a set of
+// test channels. Additional required information like keys are derived in
+// a deterministical way and added to the channel graph. A list of nodes is
+// not required and derived from the channel data. The goal is to keep
+// instantiating a test channel graph as light weight as possible.
+func createTestGraph(testChannels []*testChannel) (*channeldb.ChannelGraph, func(), aliasMap, error) {
+	// We'll use this fake address for the IP address of all the nodes in
+	// our tests. This value isn't needed for path finding so it doesn't
+	// need to be unique.
+	var testAddrs []net.Addr
+	testAddr, err := net.ResolveTCPAddr("tcp", "192.0.0.1:8888")
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	testAddrs = append(testAddrs, testAddr)
+
+	// Next, create a temporary graph database for usage within the test.
+	graph, cleanUp, err := makeTestGraph()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	aliasMap := make(map[string]*btcec.PublicKey)
+
+	nodeIndex := byte(0)
+	addNodeWithAlias := func(alias string) (*channeldb.LightningNode, error) {
+		keyBytes := make([]byte, 32)
+		keyBytes = []byte{
+			0, 0, 0, 0, 0, 0, 0, 0,
+			0, 0, 0, 0, 0, 0, 0, 0,
+			0, 0, 0, 0, 0, 0, 0, 0,
+			0, 0, 0, 0, 0, 0, 0, nodeIndex + 1,
+		}
+
+		_, pubKey := btcec.PrivKeyFromBytes(btcec.S256(),
+			keyBytes)
+
+		dbNode := &channeldb.LightningNode{
+			HaveNodeAnnouncement: true,
+			AuthSigBytes:         testSig.Serialize(),
+			LastUpdate:           time.Now(),
+			Addresses:            testAddrs,
+			Alias:                alias,
+			Features:             testFeatures,
+		}
+
+		copy(dbNode.PubKeyBytes[:], pubKey.SerializeCompressed())
+
+		// With the node fully parsed, add it as a vertex within the
+		// graph.
+		if err := graph.AddLightningNode(dbNode); err != nil {
+			return nil, err
+		}
+
+		aliasMap[alias] = pubKey
+		nodeIndex++
+
+		return dbNode, nil
+	}
+
+	var source *channeldb.LightningNode
+	if source, err = addNodeWithAlias("roasbeef"); err != nil {
+		return nil, nil, nil, err
+	}
+
+	// Set the source node
+	if err := graph.SetSourceNode(source); err != nil {
+		return nil, nil, nil, err
+	}
+
+	channelID := uint64(0)
+	for _, testChannel := range testChannels {
+		for _, alias := range []string{
+			testChannel.Node1.Alias, testChannel.Node2.Alias} {
+
+			_, exists := aliasMap[alias]
+			if !exists {
+				addNodeWithAlias(alias)
+			}
+		}
+
+		var hash [sha256.Size]byte
+		hash[len(hash)-1] = byte(channelID)
+
+		fundingPoint := &wire.OutPoint{
+			Hash:  chainhash.Hash(hash),
+			Index: 0,
+		}
+
+		// We first insert the existence of the edge between the two
+		// nodes.
+		edgeInfo := channeldb.ChannelEdgeInfo{
+			ChannelID:    channelID,
+			AuthProof:    &testAuthProof,
+			ChannelPoint: *fundingPoint,
+			Capacity:     testChannel.Capacity,
+		}
+
+		node1Bytes := aliasMap[testChannel.Node1.Alias].SerializeCompressed()
+		node2Bytes := aliasMap[testChannel.Node2.Alias].SerializeCompressed()
+
+		copy(edgeInfo.NodeKey1Bytes[:], node1Bytes)
+		copy(edgeInfo.NodeKey2Bytes[:], node2Bytes)
+		copy(edgeInfo.BitcoinKey1Bytes[:], node1Bytes)
+		copy(edgeInfo.BitcoinKey2Bytes[:], node2Bytes)
+
+		err = graph.AddChannelEdge(&edgeInfo)
+		if err != nil && err != channeldb.ErrEdgeAlreadyExist {
+			return nil, nil, nil, err
+		}
+
+		edgePolicy := &channeldb.ChannelEdgePolicy{
+			SigBytes:                  testSig.Serialize(),
+			Flags:                     lnwire.ChanUpdateFlag(0),
+			ChannelID:                 channelID,
+			LastUpdate:                time.Now(),
+			TimeLockDelta:             testChannel.Node1.Expiry,
+			MinHTLC:                   testChannel.Node1.MinHTLC,
+			FeeBaseMSat:               testChannel.Node1.FeeBaseMsat,
+			FeeProportionalMillionths: testChannel.Node1.FeeRate,
+		}
+		if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
+			return nil, nil, nil, err
+		}
+
+		edgePolicy = &channeldb.ChannelEdgePolicy{
+			SigBytes:                  testSig.Serialize(),
+			Flags:                     lnwire.ChanUpdateFlag(lnwire.ChanUpdateDirection),
+			ChannelID:                 channelID,
+			LastUpdate:                time.Now(),
+			TimeLockDelta:             testChannel.Node2.Expiry,
+			MinHTLC:                   testChannel.Node2.MinHTLC,
+			FeeBaseMSat:               testChannel.Node2.FeeBaseMsat,
+			FeeProportionalMillionths: testChannel.Node2.FeeRate,
+		}
+
+		if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
+			return nil, nil, nil, err
+		}
+
+		channelID++
+	}
+
+	return graph, cleanUp, aliasMap, nil
+}
+
+// TestFindLowestFeePath tests that out of two routes with identical total
+// time lock values, the route with the lowest total fee should be returned.
+// The fee rates are chosen such that the test failed on the previous edge
+// weight function where one of the terms was fee squared.
+func TestFindLowestFeePath(t *testing.T) {
+	t.Parallel()
+
+	// Set up a test graph with two paths from roasbeef to target. Both
+	// paths have equal total time locks, but the path through b has lower
+	// fees (700 compared to 800 for the path through a).
+	testChannels := []*testChannel{
+		symmetricTestChannel("roasbeef", "a", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 400,
+			MinHTLC: 1,
+		}),
+		symmetricTestChannel("a", "target", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 400,
+			MinHTLC: 1,
+		}),
+		symmetricTestChannel("roasbeef", "b", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 100,
+			MinHTLC: 1,
+		}),
+		symmetricTestChannel("b", "target", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 600,
+			MinHTLC: 1,
+		}),
+	}
+
+	graph, cleanUp, aliases, err := createTestGraph(testChannels)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+
+	sourceNode, err := graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+	}
+	sourceVertex := Vertex(sourceNode.PubKeyBytes)
+
+	ignoredEdges := make(map[uint64]struct{})
+	ignoredVertexes := make(map[Vertex]struct{})
+
+	const (
+		startingHeight = 100
+		finalHopCLTV   = 1
+	)
+
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+	target := aliases["target"]
+	path, err := findPath(
+		nil, graph, nil, sourceNode, target, ignoredVertexes,
+		ignoredEdges, paymentAmt, nil,
+	)
+	if err != nil {
+		t.Fatalf("unable to find path: %v", err)
+	}
+	route, err := newRoute(
+		paymentAmt, infinity, sourceVertex, path, startingHeight, 
+		finalHopCLTV)
+	if err != nil {
+		t.Fatalf("unable to create path: %v", err)
+	}
+
+	// Assert that the lowest fee route is returned.	
+	if !bytes.Equal(route.Hops[0].Channel.Node.PubKeyBytes[:],
+		aliases["b"].SerializeCompressed()) {
+		t.Fatalf("expected route to pass through b, "+
+			"but got a route through %v",
+			route.Hops[0].Channel.Node.Alias)
+	}
 }
 
 func TestBasicGraphPathFinding(t *testing.T) {
@@ -614,6 +884,236 @@ func TestKShortestPathFinding(t *testing.T) {
 
 	// The second route should be a route to luo ji via satoshi.
 	assertExpectedPath(t, paths[1], "roasbeef", "satoshi", "luoji")
+}
+
+// TestNewRoute tests whether the construction of hop payloads by newRoute
+// is executed correctly.
+func TestNewRoute(t *testing.T) {
+
+	var sourceKey [33]byte
+	sourceVertex := Vertex(sourceKey)
+
+	const (
+		startingHeight = 100
+		finalHopCLTV   = 1
+	)
+
+	createHop := func(baseFee lnwire.MilliSatoshi,
+		feeRate lnwire.MilliSatoshi, 
+		capacity btcutil.Amount,
+		timeLockDelta uint16) (*ChannelHop) {
+
+		return &ChannelHop {
+			ChannelEdgePolicy: &channeldb.ChannelEdgePolicy {
+				Node: &channeldb.LightningNode{},
+				FeeProportionalMillionths: feeRate,
+				FeeBaseMSat: baseFee,
+				TimeLockDelta: timeLockDelta,
+			},
+			Capacity: capacity,
+		}
+	}
+
+	testCases := []struct { 
+		// name identifies the test case in the test output.
+		name 		      string
+
+		// hops is the list of hops (the route) that gets passed into
+		// the call to newRoute.
+		hops 	    	      []*ChannelHop
+
+		// paymentAmount is the amount that is send into the route
+		// indicated by hops.
+		paymentAmount 	      lnwire.MilliSatoshi
+
+		// expectedFees is a list of fees that every hop is expected
+		// to charge for forwarding.
+		expectedFees	      []lnwire.MilliSatoshi
+
+		// expectedTimeLocks is a list of time lock values that every
+		// hop is expected to specify in its outgoing HTLC. The time
+		// lock values in this list are relative to the current block
+		// height.
+		expectedTimeLocks     []uint32
+
+		// expectedTotalAmount is the total amount that is expected to
+		// be returned from newRoute. This amount should include all
+		// the fees to be paid to intermediate hops.
+		expectedTotalAmount   lnwire.MilliSatoshi
+
+		// expectedTotalTimeLock is the time lock that is expected to
+		// be returned from newRoute. This is the time lock that should
+		// be specified in the HTLC that is sent by the source node.
+		// expectedTotalTimeLock is relative to the current block height.
+		expectedTotalTimeLock uint32
+
+		// expectError indicates whether the newRoute call is expected
+		// to fail or succeed.
+		expectError	      bool
+
+		// expectedErrorCode indicates the expected error code when
+		// expectError is true.
+		expectedErrorCode     errorCode
+	} {
+	{
+		// For a single hop payment, no fees are expected to be paid.
+		name: "single hop", 
+		paymentAmount: 100000,
+		hops: []*ChannelHop { 
+			createHop(100, 1000, 1000, 10),
+		},
+		expectedFees: []lnwire.MilliSatoshi {0},
+		expectedTimeLocks: []uint32 {1},
+		expectedTotalAmount: 100000,
+		expectedTotalTimeLock: 1,
+	}, {
+		// For a two hop payment, only the fee for the first hop
+		// needs to be paid. The destination hop does not require
+		// a fee to receive the payment.
+		name: "two hop", 
+		paymentAmount: 100000,
+		hops: []*ChannelHop { 
+			createHop(0, 1000, 1000, 10), 
+			createHop(30, 1000, 1000, 5),
+		},
+		expectedFees: []lnwire.MilliSatoshi {130, 0},
+		expectedTimeLocks: []uint32 {1, 1},
+		expectedTotalAmount: 100130,
+		expectedTotalTimeLock: 6,
+	}, {
+		// Insufficient capacity in first channel when fees are added.
+		name: "two hop insufficient", 
+		paymentAmount: 100000,
+		hops: []*ChannelHop { 
+			createHop(0, 1000, 100, 10), 
+			createHop(0, 1000, 1000, 5),
+		},
+		expectError: true,
+		expectedErrorCode: ErrInsufficientCapacity,
+	}, {
+		// A three hop payment where the first and second hop
+		// will both charge 1 msat. The fee for the first hop
+		// is actually slightly higher than 1, because the amount 
+		// to forward also includes the fee for the second hop. This
+		// gets rounded down to 1.
+		name: "three hop", 
+		paymentAmount: 100000,
+		hops: []*ChannelHop { 
+			createHop(0, 10, 1000, 10), 
+			createHop(0, 10, 1000, 5), 
+			createHop(0, 10, 1000, 3),
+		},
+		expectedFees: []lnwire.MilliSatoshi {1, 1, 0},
+		expectedTotalAmount: 100002,
+		expectedTimeLocks: []uint32 {4, 1, 1},
+		expectedTotalTimeLock: 9,
+	}, {
+		// A three hop payment where the fee of the first hop
+		// is slightly higher (11) than the fee at the second hop,
+		// because of the increase amount to forward.
+		name: "three hop with fee carry over", 
+		paymentAmount: 100000,
+		hops: []*ChannelHop { 
+			createHop(0, 10000, 1000, 10), 
+			createHop(0, 10000, 1000, 5), 
+			createHop(0, 10000, 1000, 3),
+		},
+		expectedFees: []lnwire.MilliSatoshi {1010, 1000, 0},
+		expectedTotalAmount: 102010,
+		expectedTimeLocks: []uint32 {4, 1, 1},
+		expectedTotalTimeLock: 9,
+	}, {
+		// A three hop payment where the fee policies of the first and
+		// second hop are just high enough to show the fee carry over
+		// effect.
+		name: "three hop with minimal fees for carry over", 
+		paymentAmount: 100000,
+		hops: []*ChannelHop { 
+			createHop(0, 10000, 1000, 10), 
+			
+			// First hop charges 0.1% so the second hop fee
+			// should show up in the first hop fee as 1 msat
+			// extra.
+			createHop(0, 1000, 1000, 5), 
+
+			// Second hop charges a fixed 1000 msat.
+			createHop(1000, 0, 1000, 3),
+		},
+		expectedFees: []lnwire.MilliSatoshi {101, 1000, 0},
+		expectedTotalAmount: 101101,
+		expectedTimeLocks: []uint32 {4, 1, 1},
+		expectedTotalTimeLock: 9,
+	} }
+	
+	for _, testCase := range testCases {
+		assertRoute := func(t *testing.T, route *Route) {
+			if route.TotalAmount != testCase.expectedTotalAmount {
+				t.Errorf("Expected total amount is be %v" + 
+					", but got %v instead",
+					testCase.expectedTotalAmount,
+					route.TotalAmount)
+			}
+
+			for i := 0; i < len(testCase.expectedFees); i++ {
+				if testCase.expectedFees[i] !=
+					route.Hops[i].Fee {
+	
+					t.Errorf("Expected fee for hop %v to " +
+						 "be %v, but got %v instead",
+						 i, testCase.expectedFees[i],
+						 route.Hops[i].Fee)
+				}
+			}
+
+			expectedTimeLockHeight := startingHeight + 
+				testCase.expectedTotalTimeLock
+
+			if route.TotalTimeLock != expectedTimeLockHeight {
+					
+				t.Errorf("Expected total time lock to be %v" + 
+					", but got %v instead",
+					expectedTimeLockHeight,
+					route.TotalTimeLock)
+			}
+	
+			for i := 0; i < len(testCase.expectedTimeLocks); i++ {
+				expectedTimeLockHeight := startingHeight + 
+					testCase.expectedTimeLocks[i]
+
+				if expectedTimeLockHeight !=
+					route.Hops[i].OutgoingTimeLock {
+	
+					t.Errorf("Expected time lock for hop " + 
+						"%v to be %v, but got %v instead",
+						 i, expectedTimeLockHeight,
+						 route.Hops[i].OutgoingTimeLock)
+				}
+			}
+		}
+	
+		t.Run(testCase.name, func(t *testing.T) {
+			route, err := newRoute(testCase.paymentAmount, 
+				noFeeLimit,
+				sourceVertex, testCase.hops, startingHeight,
+				finalHopCLTV)
+
+			if testCase.expectError {
+				expectedCode := testCase.expectedErrorCode
+				if err == nil || !IsError(err, expectedCode) {
+					t.Errorf("expected newRoute to fail " + 
+						 "with error code %v, but got" +
+						 "%v instead", 
+						 expectedCode, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unable to create path: %v", err)
+				}
+
+				assertRoute(t, route)
+			}
+		})
+	}
 }
 
 func TestNewRoutePathTooLong(t *testing.T) {

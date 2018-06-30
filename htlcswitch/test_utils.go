@@ -844,16 +844,24 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	bobDb := firstBobChannel.State().Db
 	carolDb := carolChannel.State().Db
 
+	defaultDelta := uint32(6)
+
 	// Create three peers/servers.
-	aliceServer, err := newMockServer(t, "alice", startingHeight, aliceDb)
+	aliceServer, err := newMockServer(
+		t, "alice", startingHeight, aliceDb, defaultDelta,
+	)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
-	bobServer, err := newMockServer(t, "bob", startingHeight, bobDb)
+	bobServer, err := newMockServer(
+		t, "bob", startingHeight, bobDb, defaultDelta,
+	)
 	if err != nil {
 		t.Fatalf("unable to create bob server: %v", err)
 	}
-	carolServer, err := newMockServer(t, "carol", startingHeight, carolDb)
+	carolServer, err := newMockServer(
+		t, "carol", startingHeight, carolDb, defaultDelta,
+	)
 	if err != nil {
 		t.Fatalf("unable to create carol server: %v", err)
 	}
@@ -883,7 +891,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	globalPolicy := ForwardingPolicy{
 		MinHTLC:       lnwire.NewMSatFromSatoshis(5),
 		BaseFee:       lnwire.NewMSatFromSatoshis(1),
-		TimeLockDelta: 6,
+		TimeLockDelta: defaultDelta,
 	}
 	obfuscator := NewMockObfuscator()
 

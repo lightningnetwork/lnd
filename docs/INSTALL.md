@@ -64,6 +64,14 @@ cd $GOPATH/src/github.com/lightningnetwork/lnd
 make && make install
 ```
 
+For Windows WSL users, make will need to be referenced directly via /usr/bin/make/, or alternatively by wrapping quotation marks around make, like so:
+
+```
+/usr/bin/make && /usr/bin/make install
+
+"make" && "make" install
+```
+
 Alternatively, if one doesn't wish to use `make`, then the `go` commands can be
 used directly:
 ```

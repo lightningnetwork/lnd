@@ -27,7 +27,6 @@ import (
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/rpcclient"
 	"github.com/roasbeef/btcd/wire"
-	"strings"
 )
 
 var (
@@ -374,32 +373,7 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 		return nil
 	}
 
-	err = hn.initLightningClient(conn)
-	if err!=nil{
-		return err
-	}
-
-	err = WaitPredicate(func() bool {
-		ctxb := context.Background()
-		req := &lnrpc.DisconnectPeerRequest{
-			PubKey:   "Dummy key to get an error",
-		}
-		_, err := hn.DisconnectPeer(
-			ctxb, req,
-		)
-		if err != nil {
-			if strings.Contains(err.Error(),"chain backend is still syncing"){
-				return false
-			}
-			return true
-		}
-		return false
-	}, time.Second*15)
-
-	if err != nil{
-		return fmt.Errorf("node (%v) is still not sync with chain after 15 seconds",hn.cfg.Name)
-	}
-	return nil
+	return hn.initLightningClient(conn)
 }
 
 // Init initializes a harness node by passing the init request via rpc. After
@@ -609,28 +583,6 @@ func (hn *HarnessNode) stop() error {
 // shutdown stops the active lnd process and cleans up any temporary directories
 // created along the way.
 func (hn *HarnessNode) shutdown() error {
-	//make sure the node really started before shutdown to avoid a race situation
-	err := WaitPredicate(func() bool {
-		ctxb := context.Background()
-		req := &lnrpc.DisconnectPeerRequest{
-			PubKey:   "Dummy key to get an error",
-		}
-		_, err := hn.DisconnectPeer(
-			ctxb, req,
-		)
-		if err != nil {
-			if strings.Contains(err.Error(),"chain backend is still syncing"){
-				return false
-			}
-			return true
-		}
-		return false
-	}, time.Second*15)
-
-	if err != nil{
-		//return fmt.Errorf("node (%v) is still not sync with chain after 15 seconds",hn.cfg.Name)
-	}
-
 	if err := hn.stop(); err != nil {
 		return err
 	}

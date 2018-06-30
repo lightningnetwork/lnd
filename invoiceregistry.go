@@ -252,8 +252,10 @@ func (i *invoiceRegistry) AddDebugInvoice(amt btcutil.Amount, preimage chainhash
 // the passed preimage. Additionally, any memo or receipt data provided will
 // also be stored on-disk. Once this invoice is added, subsystems within the
 // daemon add/forward HTLCs are able to obtain the proper preimage required for
-// redemption in the case that we're the final destination.
-func (i *invoiceRegistry) AddInvoice(invoice *channeldb.Invoice) error {
+// redemption in the case that we're the final destination. We also return the
+// addIndex of the newly created invoice which monotonically increases for each
+// new invoice added.
+func (i *invoiceRegistry) AddInvoice(invoice *channeldb.Invoice) (uint64, error) {
 	i.Lock()
 	defer i.Unlock()
 
@@ -261,15 +263,16 @@ func (i *invoiceRegistry) AddInvoice(invoice *channeldb.Invoice) error {
 		return spew.Sdump(invoice)
 	}))
 
-	if err := i.cdb.AddInvoice(invoice); err != nil {
-		return err
+	addIndex, err := i.cdb.AddInvoice(invoice)
+	if err != nil {
+		return 0, err
 	}
 
 	// We'll launch a new goroutine to notify all of our active listeners
 	// that a new invoice was just added.
 	i.notifyClients(invoice, false)
 
-	return nil
+	return addIndex, nil
 }
 
 // LookupInvoice looks up an invoice by its payment hash (R-Hash), if found

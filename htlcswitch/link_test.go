@@ -227,7 +227,7 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 
 	// Check that alice invoice was settled and bandwidth of HTLC
 	// links was changed.
-	invoice, err := receiver.registry.LookupInvoice(rhash)
+	invoice, _, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -452,7 +452,7 @@ func TestChannelLinkMultiHopPayment(t *testing.T) {
 
 	// Check that Carol invoice was settled and bandwidth of HTLC
 	// links were changed.
-	invoice, err := receiver.registry.LookupInvoice(rhash)
+	invoice, _, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -618,6 +618,7 @@ func TestLinkForwardTimelockPolicyMismatch(t *testing.T) {
 	_, err = n.makePayment(n.aliceServer, n.carolServer,
 		n.bobServer.PubKey(), hops, amount, htlcAmt,
 		htlcExpiry).Wait(30 * time.Second)
+
 	// We should get an error, and that error should indicate that the HTLC
 	// should be rejected due to a policy violation.
 	if err == nil {
@@ -637,9 +638,9 @@ func TestLinkForwardTimelockPolicyMismatch(t *testing.T) {
 	}
 }
 
-// TestLinkForwardTimelockPolicyMismatch tests that if a node is an
-// intermediate node in a multi-hop payment and receives an HTLC that violates
-// its current fee policy, then the HTLC is rejected with the proper error.
+// TestLinkForwardFeePolicyMismatch tests that if a node is an intermediate
+// node in a multi-hop payment and receives an HTLC that violates its current
+// fee policy, then the HTLC is rejected with the proper error.
 func TestLinkForwardFeePolicyMismatch(t *testing.T) {
 	t.Parallel()
 
@@ -792,7 +793,7 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 
 	// Carol's invoice should now be shown as settled as the payment
 	// succeeded.
-	invoice, err := n.carolServer.registry.LookupInvoice(payResp)
+	invoice, _, err := n.carolServer.registry.LookupInvoice(payResp)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -908,7 +909,7 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 
 	// Check that alice invoice wasn't settled and bandwidth of htlc
 	// links hasn't been changed.
-	invoice, err := receiver.registry.LookupInvoice(rhash)
+	invoice, _, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -1055,7 +1056,9 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
 
-	daveServer, err := newMockServer(t, "dave", testStartingHeight, nil)
+	daveServer, err := newMockServer(
+		t, "dave", testStartingHeight, nil, n.globalPolicy.TimeLockDelta,
+	)
 	if err != nil {
 		t.Fatalf("unable to init dave's server: %v", err)
 	}
@@ -1076,7 +1079,7 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 
 	// Check that alice invoice wasn't settled and bandwidth of htlc
 	// links hasn't been changed.
-	invoice, err := receiver.registry.LookupInvoice(rhash)
+	invoice, _, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -1164,7 +1167,7 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 
 	// Check that alice invoice wasn't settled and bandwidth of htlc
 	// links hasn't been changed.
-	invoice, err := receiver.registry.LookupInvoice(rhash)
+	invoice, _, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -1441,10 +1444,9 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 	}
 
 	var (
-		invoiceRegistry = newMockRegistry()
-		decoder         = newMockIteratorDecoder()
-		obfuscator      = NewMockObfuscator()
-		alicePeer       = &mockPeer{
+		decoder    = newMockIteratorDecoder()
+		obfuscator = NewMockObfuscator()
+		alicePeer  = &mockPeer{
 			sentMsgs: make(chan lnwire.Message, 2000),
 			quit:     make(chan struct{}),
 		}
@@ -1453,6 +1455,7 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 			BaseFee:       lnwire.NewMSatFromSatoshis(1),
 			TimeLockDelta: 6,
 		}
+		invoiceRegistry = newMockRegistry(globalPolicy.TimeLockDelta)
 	)
 
 	pCache := &mockPreimageCache{
@@ -3256,7 +3259,7 @@ func TestChannelRetransmission(t *testing.T) {
 
 			// Check that alice invoice wasn't settled and
 			// bandwidth of htlc links hasn't been changed.
-			invoice, err = receiver.registry.LookupInvoice(rhash)
+			invoice, _, err = receiver.registry.LookupInvoice(rhash)
 			if err != nil {
 				err = errors.Errorf("unable to get invoice: %v", err)
 				continue
@@ -3623,7 +3626,7 @@ func TestChannelLinkAcceptOverpay(t *testing.T) {
 
 	// Even though we sent 2x what was asked for, Carol should still have
 	// accepted the payment and marked it as settled.
-	invoice, err := receiver.registry.LookupInvoice(rhash)
+	invoice, _, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -3710,6 +3713,7 @@ func (h *persistentLinkHarness) restart(restartSwitch bool,
 
 	// First, remove the link from the switch.
 	h.coreLink.cfg.Switch.RemoveLink(h.link.ChanID())
+	h.coreLink.WaitForShutdown()
 
 	var htlcSwitch *Switch
 	if restartSwitch {
@@ -3817,10 +3821,9 @@ func restartLink(aliceChannel *lnwallet.LightningChannel, aliceSwitch *Switch,
 	hodlFlags []hodl.Flag) (ChannelLink, chan time.Time, func(), error) {
 
 	var (
-		invoiceRegistry = newMockRegistry()
-		decoder         = newMockIteratorDecoder()
-		obfuscator      = NewMockObfuscator()
-		alicePeer       = &mockPeer{
+		decoder    = newMockIteratorDecoder()
+		obfuscator = NewMockObfuscator()
+		alicePeer  = &mockPeer{
 			sentMsgs: make(chan lnwire.Message, 2000),
 			quit:     make(chan struct{}),
 		}
@@ -3830,6 +3833,8 @@ func restartLink(aliceChannel *lnwallet.LightningChannel, aliceSwitch *Switch,
 			BaseFee:       lnwire.NewMSatFromSatoshis(1),
 			TimeLockDelta: 6,
 		}
+
+		invoiceRegistry = newMockRegistry(globalPolicy.TimeLockDelta)
 
 		pCache = &mockPreimageCache{
 			// hash -> preimage
@@ -4525,5 +4530,57 @@ func TestExpectedFee(t *testing.T) {
 			t.Errorf("expected fee to be (%v), instead got (%v)", test.expected,
 				fee)
 		}
+	}
+}
+
+// TestForwardingAsymmetricTimeLockPolicies tests that each link is able to
+// properly handle forwarding HTLCs when their outgoing channels have
+// asymmetric policies w.r.t what they require for time locks.
+func TestForwardingAsymmetricTimeLockPolicies(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll create our traditional three hop network. Bob
+	// interacting with and asserting the state of two of the end points
+	// for this test.
+	channels, cleanUp, _, err := createClusterChannels(
+		btcutil.SatoshiPerBitcoin*3,
+		btcutil.SatoshiPerBitcoin*5,
+	)
+	if err != nil {
+		t.Fatalf("unable to create channel: %v", err)
+	}
+	defer cleanUp()
+
+	n := newThreeHopNetwork(
+		t, channels.aliceToBob, channels.bobToAlice, channels.bobToCarol,
+		channels.carolToBob, testStartingHeight,
+	)
+	if err := n.start(); err != nil {
+		t.Fatalf("unable to start three hop network: %v", err)
+	}
+	defer n.stop()
+
+	// Now that each of the links are up, we'll modify the link from Alice
+	// -> Bob to have a greater time lock delta than that of the link of
+	// Bob -> Carol.
+	n.firstBobChannelLink.UpdateForwardingPolicy(ForwardingPolicy{
+		TimeLockDelta: 7,
+	})
+
+	// Now that the Alice -> Bob link has been updated, we'll craft and
+	// send a payment from Alice -> Carol. This should succeed as normal,
+	// even though Bob has asymmetric time lock policies.
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	htlcAmt, totalTimelock, hops := generateHops(
+		amount, testStartingHeight, n.firstBobChannelLink,
+		n.carolChannelLink,
+	)
+
+	_, err = n.makePayment(
+		n.aliceServer, n.carolServer, n.bobServer.PubKey(), hops,
+		amount, htlcAmt, totalTimelock,
+	).Wait(30 * time.Second)
+	if err != nil {
+		t.Fatalf("unable to send payment: %v", err)
 	}
 }

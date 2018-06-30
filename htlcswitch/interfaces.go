@@ -11,8 +11,10 @@ import (
 // which may search, lookup and settle invoices.
 type InvoiceDatabase interface {
 	// LookupInvoice attempts to look up an invoice according to its 32
-	// byte payment hash.
-	LookupInvoice(chainhash.Hash) (channeldb.Invoice, error)
+	// byte payment hash. This method should also reutrn the min final CLTV
+	// delta for this invoice. We'll use this to ensure that the HTLC
+	// extended to us gives us enough time to settle as we prescribe.
+	LookupInvoice(chainhash.Hash) (channeldb.Invoice, uint32, error)
 
 	// SettleInvoice attempts to mark an invoice corresponding to the
 	// passed payment hash as fully settled.
@@ -81,8 +83,10 @@ type ChannelLink interface {
 	// Otherwise, a valid protocol failure message should be returned in
 	// order to signal to the source of the HTLC, the policy consistency
 	// issue.
-	HtlcSatifiesPolicy(payHash [32]byte,
-		incomingAmt, amtToForward lnwire.MilliSatoshi) lnwire.FailureMessage
+	HtlcSatifiesPolicy(payHash [32]byte, incomingAmt lnwire.MilliSatoshi,
+		amtToForward lnwire.MilliSatoshi,
+		incomingTimeout, outgoingTimeout uint32,
+		heightNow uint32) lnwire.FailureMessage
 
 	// Bandwidth returns the amount of milli-satoshis which current link
 	// might pass through channel link. The value returned from this method

@@ -2657,7 +2657,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		return nil, err
 	}
 
-	i := &channeldb.Invoice{
+	newInvoice := &channeldb.Invoice{
 		CreationDate:   creationDate,
 		Memo:           []byte(invoice.Memo),
 		Receipt:        invoice.Receipt,
@@ -2666,22 +2666,24 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 			Value: amtMSat,
 		},
 	}
-	copy(i.Terms.PaymentPreimage[:], paymentPreimage[:])
+	copy(newInvoice.Terms.PaymentPreimage[:], paymentPreimage[:])
 
 	rpcsLog.Tracef("[addinvoice] adding new invoice %v",
 		newLogClosure(func() string {
-			return spew.Sdump(i)
+			return spew.Sdump(newInvoice)
 		}),
 	)
 
 	// With all sanity checks passed, write the invoice to the database.
-	if err := r.server.invoices.AddInvoice(i); err != nil {
+	addIndex, err := r.server.invoices.AddInvoice(newInvoice)
+	if err != nil {
 		return nil, err
 	}
 
 	return &lnrpc.AddInvoiceResponse{
 		RHash:          rHash[:],
 		PaymentRequest: payReqString,
+		AddIndex:       addIndex,
 	}, nil
 }
 

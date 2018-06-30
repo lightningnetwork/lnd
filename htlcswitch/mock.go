@@ -149,7 +149,7 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 }
 
 func newMockServer(t testing.TB, name string, startingHeight uint32,
-	db *channeldb.DB) (*mockServer, error) {
+	db *channeldb.DB, defaultDelta uint32) (*mockServer, error) {
 
 	var id [33]byte
 	h := sha256.Sum256([]byte(name))
@@ -166,7 +166,7 @@ func newMockServer(t testing.TB, name string, startingHeight uint32,
 		name:             name,
 		messages:         make(chan lnwire.Message, 3000),
 		quit:             make(chan struct{}),
-		registry:         newMockRegistry(),
+		registry:         newMockRegistry(defaultDelta),
 		htlcSwitch:       htlcSwitch,
 		interceptorFuncs: make([]messageInterceptor, 0),
 	}, nil
@@ -648,25 +648,29 @@ var _ ChannelLink = (*mockChannelLink)(nil)
 
 type mockInvoiceRegistry struct {
 	sync.Mutex
-	invoices map[chainhash.Hash]channeldb.Invoice
+
+	invoices   map[chainhash.Hash]channeldb.Invoice
+	finalDelta uint32
 }
 
-func newMockRegistry() *mockInvoiceRegistry {
+func newMockRegistry(minDelta uint32) *mockInvoiceRegistry {
 	return &mockInvoiceRegistry{
-		invoices: make(map[chainhash.Hash]channeldb.Invoice),
+		finalDelta: minDelta,
+		invoices:   make(map[chainhash.Hash]channeldb.Invoice),
 	}
 }
 
-func (i *mockInvoiceRegistry) LookupInvoice(rHash chainhash.Hash) (channeldb.Invoice, error) {
+func (i *mockInvoiceRegistry) LookupInvoice(rHash chainhash.Hash) (channeldb.Invoice, uint32, error) {
 	i.Lock()
 	defer i.Unlock()
 
 	invoice, ok := i.invoices[rHash]
 	if !ok {
-		return channeldb.Invoice{}, fmt.Errorf("can't find mock invoice: %x", rHash[:])
+		return channeldb.Invoice{}, 0, fmt.Errorf("can't find mock "+
+			"invoice: %x", rHash[:])
 	}
 
-	return invoice, nil
+	return invoice, i.finalDelta, nil
 }
 
 func (i *mockInvoiceRegistry) SettleInvoice(rhash chainhash.Hash) error {

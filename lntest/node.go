@@ -27,6 +27,7 @@ import (
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/rpcclient"
 	"github.com/roasbeef/btcd/wire"
+	"strings"
 )
 
 var (
@@ -380,19 +381,24 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 
 	err = WaitPredicate(func() bool {
 		ctxb := context.Background()
-		getInfoRequest := &lnrpc.GetInfoRequest{}
-		getInfoResponse, err := hn.GetInfo(
-			ctxb, getInfoRequest,
+		req := &lnrpc.DisconnectPeerRequest{
+			PubKey:   "Dummy key to get an error",
+		}
+		_, err := hn.DisconnectPeer(
+			ctxb, req,
 		)
 		if err != nil {
-			return false
-		}
-		if getInfoResponse.SyncedToChain == true{
+			if strings.Contains(err.Error(),"chain backend is still syncing"){
+				return false
+			}
 			return true
 		}
 		return false
 	}, time.Second*15)
 
+	if err != nil{
+		return fmt.Errorf("node (%v) is still not sync with chain after 15 seconds",hn.cfg.Name)
+	}
 	return nil
 }
 

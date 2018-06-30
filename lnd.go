@@ -565,23 +565,18 @@ func lndMain() error {
 		}
 		defer lis.Close()
 		go func() {
-<<<<<<< HEAD
-			rpcsLog.Infof("gRPC proxy started at %s", listener.Addr())
+			rpcsLog.Infof("gRPC proxy started at %s", lis.Addr())
 
 			if len(cfg.CORS)==0{
-				http.Serve(listener, mux)
+				http.Serve(lis, mux)
 			} else {
 				rpcsLog.Infof("CORS enabled on addresses %s", strings.Join(cfg.CORS, ", "))
 				c:=cors.New(cors.Options{
 					AllowedOrigins: cfg.CORS,
 					AllowCredentials: true,
 				})
-				http.Serve(listener, c.Handler(mux))
+				http.Serve(lis, c.Handler(mux))
 			}
-=======
-			rpcsLog.Infof("gRPC proxy started at %s", lis.Addr())
-			http.Serve(lis, mux)
->>>>>>> 9205720bea931d73e55a886f94d21a759180ff2b
 		}()
 	}
 

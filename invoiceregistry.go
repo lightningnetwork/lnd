@@ -134,7 +134,7 @@ func (i *invoiceRegistry) invoiceEventNotifier() {
 		// A sub-systems has just modified the invoice state, so we'll
 		// dispatch notifications to all registered clients.
 		case event := <-i.invoiceEvents:
-			for _, client := range i.notificationClients {
+			for clientID, client := range i.notificationClients {
 				// Before we dispatch this event, we'll check
 				// to ensure that this client hasn't already
 				// received this notification in order to
@@ -152,6 +152,24 @@ func (i *invoiceRegistry) invoiceEventNotifier() {
 				case !event.isSettle &&
 					client.addIndex == invoice.AddIndex:
 					continue
+
+				// These two states should never happen, but we
+				// log them just in case so we can detect this
+				// instance.
+				case !event.isSettle &&
+					client.addIndex+1 != invoice.AddIndex:
+					ltndLog.Warnf("client=%v for invoice "+
+						"notifications missed an update, "+
+						"add_index=%v, new add event index=%v",
+						clientID, client.addIndex,
+						invoice.AddIndex)
+				case event.isSettle &&
+					client.settleIndex+1 != invoice.SettleIndex:
+					ltndLog.Warnf("client=%v for invoice "+
+						"notifications missed an update, "+
+						"settle_index=%v, new settle event index=%v",
+						clientID, client.settleIndex,
+						invoice.SettleIndex)
 				}
 
 				select {
@@ -201,6 +219,10 @@ func (i *invoiceRegistry) deliverBacklogEvents(client *invoiceSubscription) erro
 	// notification queue in order to catch up the client before delivering
 	// any new notifications.
 	for _, addEvent := range addEvents {
+		// We re-bind the loop variable to ensure we don't hold onto
+		// the loop reference causing is to point to the same item.
+		addEvent := addEvent
+
 		select {
 		case client.ntfnQueue.ChanIn() <- &invoiceEvent{
 			isSettle: false,
@@ -211,6 +233,10 @@ func (i *invoiceRegistry) deliverBacklogEvents(client *invoiceSubscription) erro
 		}
 	}
 	for _, settleEvent := range settleEvents {
+		// We re-bind the loop variable to ensure we don't hold onto
+		// the loop reference causing is to point to the same item.
+		settleEvent := settleEvent
+
 		select {
 		case client.ntfnQueue.ChanIn() <- &invoiceEvent{
 			isSettle: true,
@@ -268,8 +294,8 @@ func (i *invoiceRegistry) AddInvoice(invoice *channeldb.Invoice) (uint64, error)
 		return 0, err
 	}
 
-	// We'll launch a new goroutine to notify all of our active listeners
-	// that a new invoice was just added.
+	// Now that we've added the invoice, we'll send dispatch a message to
+	// notify the clients of this new invoice.
 	i.notifyClients(invoice, false)
 
 	return addIndex, nil
@@ -308,7 +334,7 @@ func (i *invoiceRegistry) LookupInvoice(rHash chainhash.Hash) (channeldb.Invoice
 		return channeldb.Invoice{}, 0, err
 	}
 
-	return *invoice, uint32(payReq.MinFinalCLTVExpiry()), nil
+	return invoice, uint32(payReq.MinFinalCLTVExpiry()), nil
 }
 
 // SettleInvoice attempts to mark an invoice as settled. If the invoice is a

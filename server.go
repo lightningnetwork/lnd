@@ -377,27 +377,6 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		}
 	}
 
-	// If we were requested to automatically configure port forwarding,
-	// we'll use the ports that the server will be listening on.
-	if s.natTraversal != nil {
-		// We'll only forward the port of the first address the server
-		// is listening on since our node announcement cannot advertise
-		// more than one IPv4 address.
-		port := s.listenAddrs[0].(*net.TCPAddr).Port
-		addr, err := s.configurePortForwarding(port)
-		if err != nil {
-			srvrLog.Errorf("Unable to automatically set up port "+
-				"forwarding using %s: %v",
-				s.natTraversal.Name(), err)
-		} else {
-			srvrLog.Infof("Automatically set up port forwarding "+
-				"using %s to advertise external IP",
-				s.natTraversal.Name())
-
-			cfg.ExternalIPs = append(cfg.ExternalIPs, addr)
-		}
-	}
-
 	// If we were requested to route connections through Tor and to
 	// automatically create an onion service, we'll initiate our Tor
 	// controller and establish a connection to the Tor server.
@@ -888,8 +867,9 @@ func (s *server) Start() error {
 	}
 
 	if s.natTraversal != nil {
-		s.wg.Add(1)
-		go s.watchExternalIP()
+		if err := s.initNATTraversal(); err != nil {
+			return err
+		}
 	}
 
 	// Start the notification server. This is used so channel management
@@ -1010,6 +990,31 @@ func (s *server) Stop() error {
 // NOTE: This function is safe for concurrent access.
 func (s *server) Stopped() bool {
 	return atomic.LoadInt32(&s.shutdown) != 0
+}
+
+// initNATTraversal uses the chosen NAT traversal technique to configure port
+// forwarding rules, advertise the IP address found, and watch for IP address
+// changes.
+func (s *server) initNATTraversal() error {
+	// We'll only forward the port of the first address the server
+	// is listening on since our node announcement cannot advertise
+	// more than one IPv4 address.
+	port := s.listenAddrs[0].(*net.TCPAddr).Port
+	addr, err := s.configurePortForwarding(port)
+	if err != nil {
+		return fmt.Errorf("unable to automatically set up port "+
+			"forwarding using %s: %v", s.natTraversal.Name(), err)
+	}
+
+	srvrLog.Infof("Automatically set up port forwarding using %s to "+
+		"advertise external IP", s.natTraversal.Name())
+
+	s.currentNodeAnn.Addresses = append(s.currentNodeAnn.Addresses, addr)
+
+	s.wg.Add(1)
+	go s.watchExternalIP()
+
+	return nil
 }
 
 // configurePortForwarding attempts to set up port forwarding for one of the

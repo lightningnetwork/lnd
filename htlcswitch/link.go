@@ -995,12 +995,7 @@ out:
 func (l *channelLink) randomFeeUpdateTimeout() time.Duration {
 	lower := int64(l.cfg.MinFeeUpdateTimeout)
 	upper := int64(l.cfg.MaxFeeUpdateTimeout)
-	rand := prand.Int63n(upper)
-	if rand < lower {
-		rand = lower
-	}
-
-	return time.Duration(rand)
+	return time.Duration(prand.Int63n(upper-lower) + lower)
 }
 
 // handleDownStreamPkt processes an HTLC packet sent from the downstream HTLC

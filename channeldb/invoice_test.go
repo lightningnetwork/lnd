@@ -70,7 +70,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 	// Add the invoice to the database, this should succeed as there aren't
 	// any existing invoices within the database with the same payment
 	// hash.
-	if err := db.AddInvoice(fakeInvoice); err != nil {
+	if _, err := db.AddInvoice(fakeInvoice); err != nil {
 		t.Fatalf("unable to find invoice: %v", err)
 	}
 
@@ -126,7 +126,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 
 	// Attempt to insert generated above again, this should fail as
 	// duplicates are rejected by the processing logic.
-	if err := db.AddInvoice(fakeInvoice); err != ErrDuplicateInvoice {
+	if _, err := db.AddInvoice(fakeInvoice); err != ErrDuplicateInvoice {
 		t.Fatalf("invoice insertion should fail due to duplication, "+
 			"instead %v", err)
 	}
@@ -149,7 +149,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 			t.Fatalf("unable to create invoice: %v", err)
 		}
 
-		if err := db.AddInvoice(invoice); err != nil {
+		if _, err := db.AddInvoice(invoice); err != nil {
 			t.Fatalf("unable to add invoice %v", err)
 		}
 
@@ -198,7 +198,7 @@ func TestInvoiceAddTimeSeries(t *testing.T) {
 			t.Fatalf("unable to create invoice: %v", err)
 		}
 
-		if err := db.AddInvoice(invoice); err != nil {
+		if _, err := db.AddInvoice(invoice); err != nil {
 			t.Fatalf("unable to add invoice %v", err)
 		}
 

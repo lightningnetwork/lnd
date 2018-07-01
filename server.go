@@ -707,8 +707,8 @@ func (s *server) Started() bool {
 // NOTE: This function is safe for concurrent access.
 func (s *server) Start() error {
 	// Already running?
-	if !atomic.CompareAndSwapInt32(&s.started, 0, 1) {
-		return nil
+	if s.Started(){
+		return fmt.Errorf("server started already")
 	}
 
 	if s.torController != nil {
@@ -775,6 +775,10 @@ func (s *server) Start() error {
 		go s.peerBootstrapper(defaultMinPeers, bootstrappers)
 	} else {
 		srvrLog.Infof("Auto peer bootstrapping is disabled")
+	}
+
+	if !atomic.CompareAndSwapInt32(&s.started, 0, 1) {
+		return fmt.Errorf("can't mark server as started")
 	}
 
 	return nil

@@ -52,7 +52,7 @@
 
 [[constraint]]
   name = "github.com/ltcsuite/ltcd"
-  revision = "5f654d5faab99ee2b3488fabba98e5f7a5257ee3"
+  revision = "cdab10132e8c6e4a3ffd112dba54791946d28906"
 
 [[constraint]]
   name = "github.com/miekg/dns"

@@ -8,6 +8,7 @@ install:
   - sudo apt-get update -q
   - sudo apt-get install bitcoind -y
   - export PATH=$PATH:$PWD/linux-amd64/
+  - ulimit -n 8096
 env:
   matrix:
     - RACE=false

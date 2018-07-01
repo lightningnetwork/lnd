@@ -432,10 +432,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	// If we were requested to route connections through Tor and to
 	// automatically create an onion service, we'll initiate our Tor
 	// controller and establish a connection to the Tor server.
-	//
-	// NOTE: v3 onion services cannot be created automatically yet. In the
-	// future, this will be expanded to do so.
-	if cfg.Tor.Active && cfg.Tor.V2 {
+	if cfg.Tor.Active {
 		s.torController = tor.NewController(cfg.Tor.Control)
 	}
 
@@ -1479,34 +1476,36 @@ func (s *server) initTorController() error {
 	// Determine the different ports the server is listening on. The onion
 	// service's virtual port will map to these ports and one will be picked
 	// at random when the onion service is being accessed.
-	listenPorts := make(map[int]struct{})
+	listenPorts := make([]int, 0, len(s.listenAddrs))
 	for _, listenAddr := range s.listenAddrs {
-		// At this point, the listen addresses should have already been
-		// normalized, so it's safe to ignore the errors.
-		_, portStr, _ := net.SplitHostPort(listenAddr.String())
-		port, _ := strconv.Atoi(portStr)
-		listenPorts[port] = struct{}{}
+		port := listenAddr.(*net.TCPAddr).Port
+		listenPorts = append(listenPorts, port)
 	}
 
 	// Once the port mapping has been set, we can go ahead and automatically
 	// create our onion service. The service's private key will be saved to
 	// disk in order to regain access to this service when restarting `lnd`.
-	virtToTargPorts := tor.VirtToTargPorts{defaultPeerPort: listenPorts}
-	onionServiceAddrs, err := s.torController.AddOnionV2(
-		cfg.Tor.V2PrivateKeyPath, virtToTargPorts,
-	)
+	onionCfg := tor.AddOnionConfig{
+		VirtualPort:    defaultPeerPort,
+		TargetPorts:    listenPorts,
+		PrivateKeyPath: cfg.Tor.PrivateKeyPath,
+	}
+
+	switch {
+	case cfg.Tor.V2:
+		onionCfg.Type = tor.V2
+	case cfg.Tor.V3:
+		onionCfg.Type = tor.V3
+	}
+
+	addr, err := s.torController.AddOnion(onionCfg)
 	if err != nil {
 		return err
 	}
 
-	// Now that the onion service has been created, we'll add the different
-	// onion addresses it can be reached at to our list of advertised
-	// addresses.
-	for _, addr := range onionServiceAddrs {
-		s.currentNodeAnn.Addresses = append(
-			s.currentNodeAnn.Addresses, addr,
-		)
-	}
+	// Now that the onion service has been created, we'll add the onion
+	// address it can be reached at to our list of advertised addresses.
+	s.currentNodeAnn.Addresses = append(s.currentNodeAnn.Addresses, addr)
 
 	return nil
 }

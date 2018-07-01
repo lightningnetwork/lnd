@@ -581,7 +581,6 @@ func (n *NetworkHarness) RestartNode(node *HarnessNode, callback func() error) e
 // It is done by using RPC calls to DisconnectPeerRequest which returns an error "chain backend is still syncing"
 // before the server started.
 // TODO (Offer): replace this hack with a field in getInfo that indicates that the server staretd
-// Todo (Offer): make sure server is marked started at the end of the start function and not at the start of it
 
 func ensureServerStarted (node *HarnessNode) error{
 	// make sure the node completed the server startup

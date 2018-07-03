@@ -568,44 +568,42 @@ func lndMain() error {
 		}()
 	}
 
-	// If we're not in simnet mode, We'll wait until we're fully synced to
+	// We'll wait until we're fully synced to
 	// continue the start up of the remainder of the daemon. This ensures
 	// that we don't accept any possibly invalid state transitions, or
 	// accept channels with spent funds.
-	if !(cfg.Bitcoin.SimNet || cfg.Litecoin.SimNet) {
-		_, bestHeight, err := activeChainControl.chainIO.GetBestBlock()
-		if err != nil {
-			return err
-		}
+	_, bestHeight, err := activeChainControl.chainIO.GetBestBlock()
+	if err != nil {
+		return err
+	}
 
-		ltndLog.Infof("Waiting for chain backend to finish sync, "+
-			"start_height=%v", bestHeight)
+	ltndLog.Infof("Waiting for chain backend to finish sync, "+
+		"start_height=%v", bestHeight)
 
 		for {
 			if !signal.Alive() {
 				return nil
 			}
 
-			synced, _, err := activeChainControl.wallet.IsSynced()
-			if err != nil {
-				return err
-			}
-
-			if synced {
-				break
-			}
-
-			time.Sleep(time.Second * 1)
-		}
-
-		_, bestHeight, err = activeChainControl.chainIO.GetBestBlock()
+		synced, _, err := activeChainControl.wallet.IsSynced()
 		if err != nil {
 			return err
 		}
 
-		ltndLog.Infof("Chain backend is fully synced (end_height=%v)!",
-			bestHeight)
+		if synced {
+			break
+		}
+
+		time.Sleep(time.Second * 1)
 	}
+
+	_, bestHeight, err = activeChainControl.chainIO.GetBestBlock()
+	if err != nil {
+		return err
+	}
+
+	ltndLog.Infof("Chain backend is fully synced (end_height=%v)!",
+		bestHeight)
 
 	// With all the relevant chains initialized, we can finally start the
 	// server itself.

@@ -812,7 +812,7 @@ func checkChannelPolicy(policy, expectedPolicy *lnrpc.RoutingPolicy) error {
 // testUpdateChannelPolicy tests that policy updates made to a channel
 // gets propagated to other nodes in the network.
 func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
-	timeout := time.Duration(time.Second * 5)
+	timeout := time.Duration(time.Second * 15)
 	ctxb := context.Background()
 
 	// Launch notification clients for all nodes, such that we can
@@ -868,10 +868,12 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("alice didn't report channel: %v", err)
 	}
+	ctxt, _ = context.WithTimeout(ctxb, time.Second*15)
 	err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPoint2)
 	if err != nil {
 		t.Fatalf("bob didn't report channel: %v", err)
 	}
+	ctxt, _ = context.WithTimeout(ctxb, time.Second*15)
 	err = carol.WaitForNetworkChannelOpen(ctxt, chanPoint2)
 	if err != nil {
 		t.Fatalf("carol didn't report channel: %v", err)
@@ -962,6 +964,7 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("alice didn't report channel: %v", err)
 	}
+	ctxt, _ = context.WithTimeout(ctxb, time.Second*15)
 	err = carol.WaitForNetworkChannelOpen(ctxt, chanPoint3)
 	if err != nil {
 		t.Fatalf("bob didn't report channel: %v", err)
@@ -1024,6 +1027,7 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPoint2, false)
+	ctxt, _ = context.WithTimeout(ctxb, time.Second*15)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint3, false)
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 }
@@ -8649,7 +8653,18 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
+	net.Alice.SetPort(19550)
+	err := net.RestartNode(net.Alice,nil)
+	if err != nil{
+		t.Fatalf("unable to restart Alice: %v", err)
+	}
+
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	if err := net.EnsureConnected(ctxt, net.Alice, net.Bob); err != nil {
+		t.Fatalf("unable to reconnect Alice to Bob: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointAlice := openChannelAndAssert(
 		ctxt, t, net, net.Alice, net.Bob, chanAmt, pushAmt, false,
 	)
@@ -8759,7 +8774,7 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 				Index: chanPoint.OutputIndex,
 			}
 
-			ctxt, _ = context.WithTimeout(ctxb, timeout)
+			ctxt, _ = context.WithTimeout(ctxb, time.Duration(time.Second * 15))
 			err = node.WaitForNetworkChannelOpen(ctxt, chanPoint)
 			if err != nil {
 				t.Fatalf("%s(%d): timeout waiting for "+

@@ -213,7 +213,9 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 	case MsgQueryChannelRange:
 		msg = &QueryChannelRange{}
 	case MsgReplyChannelRange:
-		msg = &ReplyChannelRange{}
+		msg = &ReplyChannelRange{
+			ShortChanIDs: make([]ShortChannelID, 0),
+		}
 	case MsgGossipTimestampRange:
 		msg = &GossipTimestampRange{}
 	default:

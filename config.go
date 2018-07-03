@@ -812,13 +812,6 @@ func loadConfig() (*config, error) {
 		return nil, err
 	}
 
-	// Remove the listening addresses specified if listening is disabled.
-	if cfg.DisableListen {
-		ltndLog.Infof("Listening on the p2p interface is disabled!")
-		cfg.Listeners = nil
-		cfg.ExternalIPs = nil
-	}
-
 	// Add default port to all RPC listener addresses if needed and remove
 	// duplicate addresses.
 	cfg.RPCListeners, err = lncfg.NormalizeAddresses(
@@ -839,35 +832,43 @@ func loadConfig() (*config, error) {
 		return nil, err
 	}
 
-	// Add default port to all listener addresses if needed and remove
-	// duplicate addresses.
-	cfg.Listeners, err = lncfg.NormalizeAddresses(
-		cfg.RawListeners, strconv.Itoa(defaultPeerPort),
-		cfg.net.ResolveTCPAddr,
-	)
-	if err != nil {
-		return nil, err
-	}
+	// Remove the listening addresses specified if listening is disabled.
+	if cfg.DisableListen {
+		ltndLog.Infof("Listening on the p2p interface is disabled!")
+		cfg.Listeners = nil
+		cfg.ExternalIPs = nil
+	} else {
 
-	// Add default port to all external IP addresses if needed and remove
-	// duplicate addresses.
-	cfg.ExternalIPs, err = lncfg.NormalizeAddresses(
-		cfg.RawExternalIPs, strconv.Itoa(defaultPeerPort),
-		cfg.net.ResolveTCPAddr,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// For the p2p port it makes no sense to listen to an Unix socket.
-	// Also, we would need to refactor the brontide listener to support
-	// that.
-	for _, p2pListener := range cfg.Listeners {
-		if lncfg.IsUnix(p2pListener) {
-			err := fmt.Errorf("unix socket addresses cannot be "+
-				"used for the p2p connection listener: %s",
-				p2pListener)
+		// Add default port to all listener addresses if needed and remove
+		// duplicate addresses.
+		cfg.Listeners, err = lncfg.NormalizeAddresses(
+			cfg.RawListeners, strconv.Itoa(defaultPeerPort),
+			cfg.net.ResolveTCPAddr,
+		)
+		if err != nil {
 			return nil, err
+		}
+
+		// Add default port to all external IP addresses if needed and remove
+		// duplicate addresses.
+		cfg.ExternalIPs, err = lncfg.NormalizeAddresses(
+			cfg.RawExternalIPs, strconv.Itoa(defaultPeerPort),
+			cfg.net.ResolveTCPAddr,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// For the p2p port it makes no sense to listen to an Unix socket.
+		// Also, we would need to refactor the brontide listener to support
+		// that.
+		for _, p2pListener := range cfg.Listeners {
+			if lncfg.IsUnix(p2pListener) {
+				err := fmt.Errorf("unix socket addresses cannot be "+
+					"used for the p2p connection listener: %s",
+					p2pListener)
+				return nil, err
+			}
 		}
 	}
 

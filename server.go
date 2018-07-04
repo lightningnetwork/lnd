@@ -1948,8 +1948,9 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 	// If we already have an outbound connection to this peer, then ignore
 	// this new connection.
 	if _, ok := s.outboundPeers[pubStr]; ok {
-		srvrLog.Debugf("Already have outbound connection for %v, "+
-			"ignoring inbound connection", nodePub.SerializeCompressed())
+		srvrLog.Debugf("Already have outbound connection for %x, "+
+			"ignoring inbound connection",
+			nodePub.SerializeCompressed())
 
 		conn.Close()
 		return
@@ -2030,7 +2031,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	// If we already have an inbound connection to this peer, then ignore
 	// this new connection.
 	if _, ok := s.inboundPeers[pubStr]; ok {
-		srvrLog.Debugf("Already have inbound connection for %v, "+
+		srvrLog.Debugf("Already have inbound connection for %x, "+
 			"ignoring outbound connection",
 			nodePub.SerializeCompressed())
 

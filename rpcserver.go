@@ -11,11 +11,11 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/macaroon-bakery.v2/bakery"
 
-	"sync"
 	"sync/atomic"
 
 	"github.com/coreos/bbolt"
@@ -51,6 +51,8 @@ const (
 )
 
 var (
+	zeroHash [32]byte
+
 	// maxPaymentMSat is the maximum allowed payment currently permitted as
 	// defined in BOLT-002. This value depends on which chain is active.
 	// It is set to the value under the Bitcoin chain as default.
@@ -2061,9 +2063,10 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 
 	payIntent.cltvDelta = uint16(rpcPayReq.FinalCltvDelta)
 
-	// If the user is manually specifying payment details, then the
-	// payment hash may be encoded as a string.
-	if rpcPayReq.PaymentHashString != "" {
+	// If the user is manually specifying payment details, then the payment
+	// hash may be encoded as a string.
+	switch {
+	case rpcPayReq.PaymentHashString != "":
 		paymentHash, err := hex.DecodeString(
 			rpcPayReq.PaymentHashString,
 		)
@@ -2072,15 +2075,15 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 		}
 
 		copy(payIntent.rHash[:], paymentHash)
-	} else {
-		copy(payIntent.rHash[:], rpcPayReq.PaymentHash)
-	}
 
 	// If we're in debug HTLC mode, then all outgoing HTLCs will pay to the
 	// same debug rHash. Otherwise, we pay to the rHash specified within
 	// the RPC request.
-	if cfg.DebugHTLC && len(payIntent.rHash) == 0 {
+	case cfg.DebugHTLC && bytes.Equal(payIntent.rHash[:], zeroHash[:]):
 		copy(payIntent.rHash[:], debugHash[:])
+
+	default:
+		copy(payIntent.rHash[:], rpcPayReq.PaymentHash)
 	}
 
 	// Currently, within the bootstrap phase of the network, we limit the

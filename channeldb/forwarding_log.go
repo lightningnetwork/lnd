@@ -83,7 +83,7 @@ type ForwardingEvent struct {
 // io.Writer, using the expected DB format. Note that the timestamp isn't
 // serialized as this will be the key value within the bucket.
 func encodeForwardingEvent(w io.Writer, f *ForwardingEvent) error {
-	return writeElements(
+	return WriteElements(
 		w, f.IncomingChanID, f.OutgoingChanID, f.AmtIn, f.AmtOut,
 	)
 }
@@ -93,7 +93,7 @@ func encodeForwardingEvent(w io.Writer, f *ForwardingEvent) error {
 // won't be decoded, as the caller is expected to set this due to the bucket
 // structure of the forwarding log.
 func decodeForwardingEvent(r io.Reader, f *ForwardingEvent) error {
-	return readElements(
+	return ReadElements(
 		r, &f.IncomingChanID, &f.OutgoingChanID, &f.AmtIn, &f.AmtOut,
 	)
 }

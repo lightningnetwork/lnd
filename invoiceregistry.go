@@ -55,10 +55,10 @@ func newInvoiceRegistry(cdb *channeldb.DB) *invoiceRegistry {
 	}
 }
 
-// addDebugInvoice adds a debug invoice for the specified amount, identified
+// AddDebugInvoice adds a debug invoice for the specified amount, identified
 // by the passed preimage. Once this invoice is added, subsystems within the
-// daemon add/forward HTLCs are able to obtain the proper preimage required
-// for redemption in the case that we're the final destination.
+// daemon add/forward HTLCs that are able to obtain the proper preimage
+// required for redemption in the case that we're the final destination.
 func (i *invoiceRegistry) AddDebugInvoice(amt btcutil.Amount, preimage chainhash.Hash) {
 	paymentHash := chainhash.Hash(sha256.Sum256(preimage[:]))
 

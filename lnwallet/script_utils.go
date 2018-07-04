@@ -46,9 +46,9 @@ const (
 	maxStateHint uint64 = (1 << 48) - 1
 )
 
-// witnessScriptHash generates a pay-to-witness-script-hash public key script
+// WitnessScriptHash generates a pay-to-witness-script-hash public key script
 // paying to a version 0 witness program paying to the passed redeem script.
-func witnessScriptHash(witnessScript []byte) ([]byte, error) {
+func WitnessScriptHash(witnessScript []byte) ([]byte, error) {
 	bldr := txscript.NewScriptBuilder()
 
 	bldr.AddOp(txscript.OP_0)
@@ -98,7 +98,7 @@ func GenFundingPkScript(aPub, bPub []byte, amt int64) ([]byte, *wire.TxOut, erro
 
 	// With the 2-of-2 script in had, generate a p2wsh script which pays
 	// to the funding script.
-	pkScript, err := witnessScriptHash(witnessScript)
+	pkScript, err := WitnessScriptHash(witnessScript)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -662,7 +662,7 @@ func createHtlcTimeoutTx(htlcOutput wire.OutPoint, htlcAmt btcutil.Amount,
 	if err != nil {
 		return nil, err
 	}
-	pkScript, err := witnessScriptHash(witnessScript)
+	pkScript, err := WitnessScriptHash(witnessScript)
 	if err != nil {
 		return nil, err
 	}
@@ -709,7 +709,7 @@ func createHtlcSuccessTx(htlcOutput wire.OutPoint, htlcAmt btcutil.Amount,
 	if err != nil {
 		return nil, err
 	}
-	pkScript, err := witnessScriptHash(witnessScript)
+	pkScript, err := WitnessScriptHash(witnessScript)
 	if err != nil {
 		return nil, err
 	}
@@ -902,7 +902,7 @@ func lockTimeToSequence(isSeconds bool, locktime uint32) uint32 {
 	return SequenceLockTimeSeconds | (locktime >> 9)
 }
 
-// commitScriptToSelf constructs the public key script for the output on the
+// CommitScriptToSelf constructs the public key script for the output on the
 // commitment transaction paying to the "owner" of said commitment transaction.
 // If the other party learns of the preimage to the revocation hash, then they
 // can claim all the settled funds in the channel, plus the unsettled funds.
@@ -919,7 +919,7 @@ func lockTimeToSequence(isSeconds bool, locktime uint32) uint32 {
 //         <timeKey>
 //     OP_ENDIF
 //     OP_CHECKSIG
-func commitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) ([]byte, error) {
+func CommitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) ([]byte, error) {
 	// This script is spendable under two conditions: either the
 	// 'csvTimeout' has passed and we can redeem our funds, or they can
 	// produce a valid signature with the revocation public key. The

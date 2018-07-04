@@ -105,7 +105,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	})
 
 	// First, we'll test spending with Alice's key after the timeout.
-	delayScript, err := commitScriptToSelf(csvTimeout, aliceDelayKey,
+	delayScript, err := CommitScriptToSelf(csvTimeout, aliceDelayKey,
 		revokePubKey)
 	if err != nil {
 		t.Fatalf("unable to generate alice delay script: %v", err)
@@ -357,7 +357,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create htlc sender script: %v", err)
 	}
-	htlcPkScript, err := witnessScriptHash(htlcWitnessScript)
+	htlcPkScript, err := WitnessScriptHash(htlcWitnessScript)
 	if err != nil {
 		t.Fatalf("unable to create p2wsh htlc script: %v", err)
 	}
@@ -612,7 +612,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create htlc sender script: %v", err)
 	}
-	htlcPkScript, err := witnessScriptHash(htlcWitnessScript)
+	htlcPkScript, err := WitnessScriptHash(htlcWitnessScript)
 	if err != nil {
 		t.Fatalf("unable to create p2wsh htlc script: %v", err)
 	}
@@ -885,7 +885,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create htlc script: %v", err)
 	}
-	htlcPkScript, err := witnessScriptHash(htlcWitnessScript)
+	htlcPkScript, err := WitnessScriptHash(htlcWitnessScript)
 	if err != nil {
 		t.Fatalf("unable to create htlc output: %v", err)
 	}

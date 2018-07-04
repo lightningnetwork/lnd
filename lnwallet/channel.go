@@ -1412,7 +1412,7 @@ func (lc *LightningChannel) createSignDesc() error {
 		return err
 	}
 
-	fundingPkScript, err := witnessScriptHash(multiSigScript)
+	fundingPkScript, err := WitnessScriptHash(multiSigScript)
 	if err != nil {
 		return err
 	}
@@ -1943,13 +1943,13 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	// number so we can have the proper witness script to sign and include
 	// within the final witness.
 	remoteDelay := uint32(chanState.RemoteChanCfg.CsvDelay)
-	remotePkScript, err := commitScriptToSelf(
+	remotePkScript, err := CommitScriptToSelf(
 		remoteDelay, keyRing.DelayKey, keyRing.RevocationKey,
 	)
 	if err != nil {
 		return nil, err
 	}
-	remoteWitnessHash, err := witnessScriptHash(remotePkScript)
+	remoteWitnessHash, err := WitnessScriptHash(remotePkScript)
 	if err != nil {
 		return nil, err
 	}
@@ -4716,7 +4716,7 @@ func genHtlcScript(isIncoming, ourCommit bool, timeout uint32, rHash [32]byte,
 
 	// Now that we have the redeem scripts, create the P2WSH public key
 	// script for the output itself.
-	htlcP2WSH, err := witnessScriptHash(witnessScript)
+	htlcP2WSH, err := WitnessScriptHash(witnessScript)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -5071,7 +5071,7 @@ func newOutgoingHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelCon
 		if err != nil {
 			return nil, err
 		}
-		htlcScriptHash, err := witnessScriptHash(htlcReceiverScript)
+		htlcScriptHash, err := WitnessScriptHash(htlcReceiverScript)
 		if err != nil {
 			return nil, err
 		}
@@ -5151,7 +5151,7 @@ func newOutgoingHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelCon
 	if err != nil {
 		return nil, err
 	}
-	htlcScriptHash, err := witnessScriptHash(htlcSweepScript)
+	htlcScriptHash, err := WitnessScriptHash(htlcSweepScript)
 	if err != nil {
 		return nil, err
 	}
@@ -5209,7 +5209,7 @@ func newIncomingHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelCon
 		if err != nil {
 			return nil, err
 		}
-		htlcScriptHash, err := witnessScriptHash(htlcSenderScript)
+		htlcScriptHash, err := WitnessScriptHash(htlcSenderScript)
 		if err != nil {
 			return nil, err
 		}
@@ -5287,7 +5287,7 @@ func newIncomingHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelCon
 	if err != nil {
 		return nil, err
 	}
-	htlcScriptHash, err := witnessScriptHash(htlcSweepScript)
+	htlcScriptHash, err := WitnessScriptHash(htlcSweepScript)
 	if err != nil {
 		return nil, err
 	}
@@ -5473,12 +5473,12 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel, signer Signer,
 	commitPoint := ComputeCommitmentPoint(revocation[:])
 	keyRing := deriveCommitmentKeys(commitPoint, true, &chanState.LocalChanCfg,
 		&chanState.RemoteChanCfg)
-	selfScript, err := commitScriptToSelf(csvTimeout, keyRing.DelayKey,
+	selfScript, err := CommitScriptToSelf(csvTimeout, keyRing.DelayKey,
 		keyRing.RevocationKey)
 	if err != nil {
 		return nil, err
 	}
-	payToUsScriptHash, err := witnessScriptHash(selfScript)
+	payToUsScriptHash, err := WitnessScriptHash(selfScript)
 	if err != nil {
 		return nil, err
 	}
@@ -5894,12 +5894,12 @@ func CreateCommitTx(fundingOutput wire.TxIn,
 	// output after a relative block delay, or the remote node can claim
 	// the funds with the revocation key if we broadcast a revoked
 	// commitment transaction.
-	ourRedeemScript, err := commitScriptToSelf(csvTimeout, keyRing.DelayKey,
+	ourRedeemScript, err := CommitScriptToSelf(csvTimeout, keyRing.DelayKey,
 		keyRing.RevocationKey)
 	if err != nil {
 		return nil, err
 	}
-	payToUsScriptHash, err := witnessScriptHash(ourRedeemScript)
+	payToUsScriptHash, err := WitnessScriptHash(ourRedeemScript)
 	if err != nil {
 		return nil, err
 	}

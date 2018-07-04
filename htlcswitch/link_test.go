@@ -1497,7 +1497,7 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 		// to not trigger commit updates automatically during tests.
 		BatchSize:           10000,
 		MinFeeUpdateTimeout: 30 * time.Minute,
-		MaxFeeUpdateTimeout: 30 * time.Minute,
+		MaxFeeUpdateTimeout: 40 * time.Minute,
 	}
 
 	const startingHeight = 100
@@ -3878,7 +3878,7 @@ func restartLink(aliceChannel *lnwallet.LightningChannel, aliceSwitch *Switch,
 		// to not trigger commit updates automatically during tests.
 		BatchSize:           10000,
 		MinFeeUpdateTimeout: 30 * time.Minute,
-		MaxFeeUpdateTimeout: 30 * time.Minute,
+		MaxFeeUpdateTimeout: 40 * time.Minute,
 		// Set any hodl flags requested for the new link.
 		HodlMask:  hodl.MaskFromFlags(hodlFlags...),
 		DebugHTLC: len(hodlFlags) > 0,

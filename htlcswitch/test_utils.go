@@ -878,9 +878,10 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	}
 
 	const (
-		batchTimeout     = 50 * time.Millisecond
-		fwdPkgTimeout    = 5 * time.Second
-		feeUpdateTimeout = 30 * time.Minute
+		batchTimeout        = 50 * time.Millisecond
+		fwdPkgTimeout       = 5 * time.Second
+		minFeeUpdateTimeout = 30 * time.Minute
+		maxFeeUpdateTimeout = 40 * time.Minute
 	)
 
 	pCache := &mockPreimageCache{
@@ -919,8 +920,8 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			BatchSize:           10,
 			BatchTicker:         &mockTicker{time.NewTicker(batchTimeout).C},
 			FwdPkgGCTicker:      &mockTicker{time.NewTicker(fwdPkgTimeout).C},
-			MinFeeUpdateTimeout: feeUpdateTimeout,
-			MaxFeeUpdateTimeout: feeUpdateTimeout,
+			MinFeeUpdateTimeout: minFeeUpdateTimeout,
+			MaxFeeUpdateTimeout: maxFeeUpdateTimeout,
 			OnChannelFailure:    func(lnwire.ChannelID, lnwire.ShortChannelID, LinkFailureError) {},
 		},
 		aliceChannel,
@@ -962,8 +963,8 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			BatchSize:           10,
 			BatchTicker:         &mockTicker{time.NewTicker(batchTimeout).C},
 			FwdPkgGCTicker:      &mockTicker{time.NewTicker(fwdPkgTimeout).C},
-			MinFeeUpdateTimeout: feeUpdateTimeout,
-			MaxFeeUpdateTimeout: feeUpdateTimeout,
+			MinFeeUpdateTimeout: minFeeUpdateTimeout,
+			MaxFeeUpdateTimeout: maxFeeUpdateTimeout,
 			OnChannelFailure:    func(lnwire.ChannelID, lnwire.ShortChannelID, LinkFailureError) {},
 		},
 		firstBobChannel,
@@ -1005,8 +1006,8 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			BatchSize:           10,
 			BatchTicker:         &mockTicker{time.NewTicker(batchTimeout).C},
 			FwdPkgGCTicker:      &mockTicker{time.NewTicker(fwdPkgTimeout).C},
-			MinFeeUpdateTimeout: feeUpdateTimeout,
-			MaxFeeUpdateTimeout: feeUpdateTimeout,
+			MinFeeUpdateTimeout: minFeeUpdateTimeout,
+			MaxFeeUpdateTimeout: maxFeeUpdateTimeout,
 			OnChannelFailure:    func(lnwire.ChannelID, lnwire.ShortChannelID, LinkFailureError) {},
 		},
 		secondBobChannel,
@@ -1048,8 +1049,8 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			BatchSize:           10,
 			BatchTicker:         &mockTicker{time.NewTicker(batchTimeout).C},
 			FwdPkgGCTicker:      &mockTicker{time.NewTicker(fwdPkgTimeout).C},
-			MinFeeUpdateTimeout: feeUpdateTimeout,
-			MaxFeeUpdateTimeout: feeUpdateTimeout,
+			MinFeeUpdateTimeout: minFeeUpdateTimeout,
+			MaxFeeUpdateTimeout: maxFeeUpdateTimeout,
 			OnChannelFailure:    func(lnwire.ChannelID, lnwire.ShortChannelID, LinkFailureError) {},
 		},
 		carolChannel,

@@ -88,7 +88,7 @@ var hodlMaskTests = []struct {
 // for all others.
 func TestMask(t *testing.T) {
 	if !hodl.DebugBuild {
-		t.Fatalf("htlcswitch tests must be run with '-tags debug'")
+		t.Skipf("htlcswitch tests must be run with '-tags debug'")
 	}
 
 	for i, test := range hodlMaskTests {

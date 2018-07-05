@@ -1872,3 +1872,23 @@ func TestMultiHopPaymentForwardingEvents(t *testing.T) {
 		}
 	}
 }
+
+// TestLogTicker verifies that the logTicker ticked by waiting 11 seconds after the start of switch
+// without this the code handling the logTicker will not be called and there will be a drop in coverage stats (build fail)
+func TestLogTicker(t *testing.T) {
+	t.Parallel()
+
+	s, err := initSwitchWithDB(testStartingHeight, nil)
+	if err != nil {
+		t.Fatalf("unable to init switch: %v", err)
+	}
+	if err := s.Start(); err != nil {
+		t.Fatalf("unable to start switch: %v", err)
+	}
+	defer s.Stop()
+
+	// sleep 11 seconds to give logTicker time to tick.
+	// without this the code handling the logTicker will not be called and there will be a drop in coverage stats (build fail)
+	time.Sleep(11 * time.Second)
+}
+

@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -184,6 +185,9 @@ type peer struct {
 	quit      chan struct{}
 	wg        sync.WaitGroup
 }
+
+// A compile-time check to ensure that peer satisfies the lnpeer.Peer interface.
+var _ lnpeer.Peer = (*peer)(nil)
 
 // newPeer creates a new peer from an establish connection object, and a
 // pointer to the main server.
@@ -1997,6 +2001,41 @@ func (p *peer) PubKey() [33]byte {
 // IdentityKey returns the public key of the remote peer.
 func (p *peer) IdentityKey() *btcec.PublicKey {
 	return p.addr.IdentityKey
+}
+
+// Address returns the network address of the remote peer.
+func (p *peer) Address() net.Addr {
+	return p.addr.Address
+}
+
+// AddNewChannel adds a new channel to the peer. The channel should fail to be
+// added if the cancel channel is closed.
+func (p *peer) AddNewChannel(channel *lnwallet.LightningChannel,
+	cancel <-chan struct{}) error {
+
+	newChanDone := make(chan struct{})
+	newChanMsg := &newChannelMsg{
+		channel: channel,
+		done:    newChanDone,
+	}
+
+	select {
+	case p.newChannels <- newChanMsg:
+	case <-cancel:
+		return errors.New("canceled adding new channel")
+	case <-p.quit:
+		return ErrPeerExiting
+	}
+
+	// We pause here to wait for the peer to recognize the new channel
+	// before we close the channel barrier corresponding to the channel.
+	select {
+	case <-newChanDone:
+	case <-p.quit:
+		return ErrPeerExiting
+	}
+
+	return nil
 }
 
 // TODO(roasbeef): make all start/stop mutexes a CAS

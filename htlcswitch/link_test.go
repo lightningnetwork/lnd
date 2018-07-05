@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"reflect"
 	"runtime"
 	"strings"
@@ -1411,6 +1412,9 @@ func (m *mockPeer) SendMessage(sync bool, msgs ...lnwire.Message) error {
 	}
 	return nil
 }
+func (m *mockPeer) AddNewChannel(_ *lnwallet.LightningChannel, _ <-chan struct{}) error {
+	return nil
+}
 func (m *mockPeer) WipeChannel(*wire.OutPoint) error {
 	return nil
 }
@@ -1420,8 +1424,9 @@ func (m *mockPeer) PubKey() [33]byte {
 func (m *mockPeer) IdentityKey() *btcec.PublicKey {
 	return nil
 }
-
-var _ lnpeer.Peer = (*mockPeer)(nil)
+func (m *mockPeer) Address() net.Addr {
+	return nil
+}
 
 func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 	ChannelLink, *lnwallet.LightningChannel, chan time.Time, func() error,

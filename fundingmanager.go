@@ -264,11 +264,6 @@ type fundingConfig struct {
 	// to the greater network.
 	SendAnnouncement func(msg lnwire.Message) error
 
-	// SendToPeer allows the FundingManager to send messages to the peer
-	// node during the multiple steps involved in the creation of the
-	// channel's funding transaction and initial commitment transaction.
-	SendToPeer func(target *btcec.PublicKey, msgs ...lnwire.Message) error
-
 	// NotifyWhenOnline allows the FundingManager to register with a
 	// subsystem that will notify it when the peer comes online. This is
 	// used when sending the fundingLocked message, since it MUST be
@@ -276,11 +271,6 @@ type fundingConfig struct {
 	//
 	// NOTE: The peerChan channel must be buffered.
 	NotifyWhenOnline func(peer *btcec.PublicKey, peerChan chan<- lnpeer.Peer)
-
-	// FindPeer searches the list of peers connected to the node so that
-	// the FundingManager can notify other daemon subsystems as necessary
-	// during the funding process.
-	FindPeer func(peerKey *btcec.PublicKey) (*peer, error)
 
 	// FindChannel queries the database for the channel with the given
 	// channel ID.

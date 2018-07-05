@@ -207,8 +207,8 @@ out:
 				return err
 			}
 
-			if aliceResp.ConfirmedBalance == expectedBalance &&
-				bobResp.ConfirmedBalance == expectedBalance {
+			if aliceResp.Chains[0].ConfirmedBalance == expectedBalance &&
+				bobResp.Chains[0].ConfirmedBalance == expectedBalance {
 				break out
 			}
 		case <-balanceTimeout:
@@ -1236,7 +1236,7 @@ func (n *NetworkHarness) sendCoins(ctx context.Context, amt btcutil.Amount,
 				return err
 			}
 
-			if currentBal.ConfirmedBalance == initialBalance.ConfirmedBalance+int64(amt) {
+			if currentBal.Chains[0].ConfirmedBalance == initialBalance.Chains[0].ConfirmedBalance+int64(amt) {
 				return nil
 			}
 		case <-balanceTimeout:

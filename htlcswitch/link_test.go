@@ -1689,9 +1689,6 @@ func updateState(batchTick chan time.Time, link *channelLink,
 // sleep in this test and the one below
 func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	t.Parallel()
-	if !hodl.DebugBuild{
-		t.Skipf("test must be run with '-tags debug")
-	}
 
 	// TODO(roasbeef): replace manual bit twiddling with concept of
 	// resource cost for packets?
@@ -2635,10 +2632,6 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 // circuits if the ADDs corresponding to open circuits are never committed.
 func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	t.Parallel()
-
-	if !hodl.DebugBuild{
-		t.Skipf("test must be run with '-tags debug")
-	}
 
 	const (
 		chanAmt   = btcutil.SatoshiPerBitcoin * 5

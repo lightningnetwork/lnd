@@ -45,11 +45,6 @@ COVER = for dir in $(GOLISTCOVER); do \
 			-covermode=count \
 			-coverprofile=$$dir/profile.tmp $$dir; \
 		\
-		if [ $$? != 0 ] ;\
-		then \
-		    exit 1 ;\
-		fi ;\
-		\
 		if [ -f $$dir/profile.tmp ]; then \
 			cat $$dir/profile.tmp | \
 				tail -n +2 >> profile.cov; \

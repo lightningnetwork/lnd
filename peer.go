@@ -1398,6 +1398,29 @@ func (p *peer) queueMsg(msg lnwire.Message, errChan chan error) {
 	}
 }
 
+// ActiveChannelsCount returns the number of currently active channels maintained with the remote peer.
+func (p *peer) ActiveChannelsCount(chainHash chainhash.Hash) uint32 {
+	p.activeChanMtx.RLock()
+	defer p.activeChanMtx.RUnlock()
+
+	var count uint32
+
+	for _, activeChan := range p.activeChannels {
+			// We'll only count channels that are
+			// *immedately* available for routing payments over.
+			if activeChan.RemoteNextRevocation() == nil {
+				continue
+			}
+
+			if bytes.Equal(activeChan.State().ChainHash[:], chainHash[:]){
+				count++
+			}
+
+	}
+
+	return count
+}
+
 // ChannelSnapshots returns a slice of channel snapshots detailing all
 // currently active channels maintained with the remote peer.
 func (p *peer) ChannelSnapshots() []*channeldb.ChannelSnapshot {

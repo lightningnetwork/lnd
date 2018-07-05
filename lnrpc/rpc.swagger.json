@@ -1004,6 +1004,9 @@
         "remote_balance": {
           "type": "string",
           "format": "int64"
+        },
+        "chain": {
+          "type": "string"
         }
       }
     },
@@ -1060,6 +1063,145 @@
         "payment_request": {
           "type": "string",
           "description": "*\nA bare-bones invoice for a payment within the Lightning Network.  With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient."
+        },
+        "chain": {
+          "type": "string"
+        }
+      }
+    },
+    "lnrpcChainChannelBalance": {
+      "type": "object",
+      "properties": {
+        "chain": {
+          "type": "string",
+          "title": "/ Name of chain"
+        },
+        "balance": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ Sum of channels balances denominated in satoshis"
+        },
+        "pending_open_balance": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ Sum of channels pending balances denominated in satoshis"
+        }
+      }
+    },
+    "lnrpcChainFeeReport": {
+      "type": "object",
+      "properties": {
+        "chain": {
+          "type": "string"
+        },
+        "day_fee_sum": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The total amount of fee revenue (in satoshis) the switch has collected over the past 24 hrs."
+        },
+        "week_fee_sum": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The total amount of fee revenue (in satoshis) the switch has collected over the past 1 week."
+        },
+        "month_fee_sum": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The total amount of fee revenue (in satoshis) the switch has collected over the past 1 month."
+        }
+      }
+    },
+    "lnrpcChainInfo": {
+      "type": "object",
+      "properties": {
+        "chain": {
+          "type": "string",
+          "title": "/ Name of chain"
+        },
+        "num_pending_channels": {
+          "type": "integer",
+          "format": "int64",
+          "title": "/ Number of pending channels"
+        },
+        "num_active_channels": {
+          "type": "integer",
+          "format": "int64",
+          "title": "/ Number of active channels"
+        },
+        "block_height": {
+          "type": "integer",
+          "format": "int64",
+          "title": "/ The node's current view of the height of the best chain's block"
+        },
+        "block_hash": {
+          "type": "string",
+          "title": "/ The node's current view of the hash of the best chain's block"
+        },
+        "synced_to_chain": {
+          "type": "boolean",
+          "format": "boolean",
+          "title": "/ Whether the wallet's view is synced to the chain"
+        },
+        "testnet": {
+          "type": "boolean",
+          "format": "boolean",
+          "title": "/ Whether the current node is connected to testnet"
+        },
+        "best_header_timestamp": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ Timestamp of the chain's block best known to the wallet"
+        }
+      }
+    },
+    "lnrpcChainNetworkInfo": {
+      "type": "object",
+      "properties": {
+        "chain": {
+          "type": "string"
+        },
+        "num_channels": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "total_network_capacity": {
+          "type": "string",
+          "format": "int64"
+        },
+        "avg_channel_size": {
+          "type": "number",
+          "format": "double"
+        },
+        "min_channel_size": {
+          "type": "string",
+          "format": "int64"
+        },
+        "max_channel_size": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "lnrpcChainWalletBalance": {
+      "type": "object",
+      "properties": {
+        "chain": {
+          "type": "string"
+        },
+        "total_balance": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ The balance of the chain's wallet"
+        },
+        "confirmed_balance": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ The confirmed balance of a wallet(with \u003e= 1 confirmations)"
+        },
+        "unconfirmed_balance": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ The unconfirmed balance of a wallet(with 0 confirmations)"
         }
       }
     },
@@ -1168,6 +1310,10 @@
           "type": "boolean",
           "format": "boolean",
           "title": "/ Whether this channel is advertised to the network or not"
+        },
+        "chain": {
+          "type": "string",
+          "title": "/ the chain this channel operates on"
         }
       }
     },
@@ -1183,6 +1329,12 @@
           "type": "string",
           "format": "int64",
           "title": "/ Sum of channels pending balances denominated in satoshis"
+        },
+        "chains": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcChainChannelBalance"
+          }
         }
       }
     },
@@ -1279,6 +1431,9 @@
         },
         "node2_policy": {
           "$ref": "#/definitions/lnrpcRoutingPolicy"
+        },
+        "chain": {
+          "type": "string"
         }
       },
       "description": "*\nA fully authenticated channel along with all its unique attributes.\nOnce an authenticated channel announcement has been processed on the network,\nthen an instance of ChannelEdgeInfo encapsulating the channels attributes is\nstored. The other portions relevant to routing policy of a channel are stored\nwithin a ChannelEdgePolicy for each direction of the channel."
@@ -1330,6 +1485,9 @@
           "type": "number",
           "format": "double",
           "description": "/ The effective fee rate in milli-satoshis. Computed by dividing the fee_per_mil value by 1 million."
+        },
+        "chain": {
+          "type": "string"
         }
       }
     },
@@ -1499,20 +1657,11 @@
           },
           "description": "/ An array of channel fee reports which describes the current fee schedule for each channel."
         },
-        "day_fee_sum": {
-          "type": "string",
-          "format": "uint64",
-          "description": "/ The total amount of fee revenue (in satoshis) the switch has collected over the past 24 hrs."
-        },
-        "week_fee_sum": {
-          "type": "string",
-          "format": "uint64",
-          "description": "/ The total amount of fee revenue (in satoshis) the switch has collected over the past 1 week."
-        },
-        "month_fee_sum": {
-          "type": "string",
-          "format": "uint64",
-          "description": "/ The total amount of fee revenue (in satoshis) the switch has collected over the past 1 month."
+        "chains": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcChainFeeReport"
+          }
         }
       }
     },
@@ -1636,29 +1785,10 @@
           "format": "int64",
           "title": "/ Number of peers"
         },
-        "block_height": {
-          "type": "integer",
-          "format": "int64",
-          "title": "/ The node's current view of the height of the best block"
-        },
-        "block_hash": {
-          "type": "string",
-          "title": "/ The node's current view of the hash of the best block"
-        },
-        "synced_to_chain": {
-          "type": "boolean",
-          "format": "boolean",
-          "title": "/ Whether the wallet's view is synced to the main chain"
-        },
-        "testnet": {
-          "type": "boolean",
-          "format": "boolean",
-          "title": "/ Whether the current node is connected to testnet"
-        },
         "chains": {
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/definitions/lnrpcChainInfo"
           },
           "title": "/ A list of active chains the node is connected to"
         },
@@ -1668,11 +1798,6 @@
             "type": "string"
           },
           "description": "/ The URIs of the current node."
-        },
-        "best_header_timestamp": {
-          "type": "string",
-          "format": "int64",
-          "title": "/ Timestamp of the block best known to the wallet"
         },
         "version": {
           "type": "string",
@@ -1893,6 +2018,9 @@
           "type": "boolean",
           "format": "boolean",
           "description": "/ Whether this invoice should include routing hints for private channels."
+        },
+        "chain": {
+          "type": "string"
         }
       }
     },
@@ -2004,21 +2132,11 @@
           "type": "integer",
           "format": "int64"
         },
-        "total_network_capacity": {
-          "type": "string",
-          "format": "int64"
-        },
-        "avg_channel_size": {
-          "type": "number",
-          "format": "double"
-        },
-        "min_channel_size": {
-          "type": "string",
-          "format": "int64"
-        },
-        "max_channel_size": {
-          "type": "string",
-          "format": "int64"
+        "chains": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcChainNetworkInfo"
+          }
         }
       }
     },
@@ -2028,6 +2146,9 @@
         "address": {
           "type": "string",
           "title": "/ The newly generated wallet address"
+        },
+        "chain": {
+          "type": "string"
         }
       }
     },
@@ -2042,6 +2163,22 @@
         }
       }
     },
+    "lnrpcNodeChainInfo": {
+      "type": "object",
+      "properties": {
+        "chain": {
+          "type": "string"
+        },
+        "num_channels": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "total_capacity": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
     "lnrpcNodeInfo": {
       "type": "object",
       "properties": {
@@ -2053,9 +2190,11 @@
           "type": "integer",
           "format": "int64"
         },
-        "total_capacity": {
-          "type": "string",
-          "format": "int64"
+        "chains": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcNodeChainInfo"
+          }
         }
       }
     },
@@ -2182,6 +2321,9 @@
           "items": {
             "$ref": "#/definitions/lnrpcRouteHint"
           }
+        },
+        "chain": {
+          "type": "string"
         }
       }
     },
@@ -2217,6 +2359,9 @@
         "payment_preimage": {
           "type": "string",
           "title": "/ The payment preimage"
+        },
+        "chain": {
+          "type": "string"
         }
       }
     },
@@ -2241,16 +2386,6 @@
           "format": "uint64",
           "title": "/ Bytes of data transmitted from this peer"
         },
-        "sat_sent": {
-          "type": "string",
-          "format": "int64",
-          "title": "/ Satoshis sent to this peer"
-        },
-        "sat_recv": {
-          "type": "string",
-          "format": "int64",
-          "title": "/ Satoshis received from this peer"
-        },
         "inbound": {
           "type": "boolean",
           "format": "boolean",
@@ -2260,6 +2395,30 @@
           "type": "string",
           "format": "int64",
           "title": "/ Ping time to this peer"
+        },
+        "chains": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcPeerChain"
+          }
+        }
+      }
+    },
+    "lnrpcPeerChain": {
+      "type": "object",
+      "properties": {
+        "chain": {
+          "type": "string"
+        },
+        "sat_sent": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ Satoshis sent to this peer"
+        },
+        "sat_recv": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ Satoshis received from this peer"
         }
       }
     },
@@ -2388,6 +2547,9 @@
           "items": {
             "$ref": "#/definitions/lnrpcRoute"
           }
+        },
+        "chain": {
+          "type": "string"
         }
       }
     },
@@ -2635,6 +2797,10 @@
             "type": "string"
           },
           "title": "/ Addresses that received funds for this transaction"
+        },
+        "chain": {
+          "type": "string",
+          "title": "/ the chain used by this transaction"
         }
       }
     },
@@ -2685,20 +2851,11 @@
     "lnrpcWalletBalanceResponse": {
       "type": "object",
       "properties": {
-        "total_balance": {
-          "type": "string",
-          "format": "int64",
-          "title": "/ The balance of the wallet"
-        },
-        "confirmed_balance": {
-          "type": "string",
-          "format": "int64",
-          "title": "/ The confirmed balance of a wallet(with \u003e= 1 confirmations)"
-        },
-        "unconfirmed_balance": {
-          "type": "string",
-          "format": "int64",
-          "title": "/ The unconfirmed balance of a wallet(with 0 confirmations)"
+        "chains": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcChainWalletBalance"
+          }
         }
       }
     }

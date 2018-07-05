@@ -505,7 +505,7 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 
 			// Verify that Carol's balance matches our expected
 			// amount.
-			currBalance = resp.ConfirmedBalance
+			currBalance = resp.Chains[0].ConfirmedBalance
 			if expAmount != currBalance {
 				return false
 			}
@@ -1722,7 +1722,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to get carol's balance: %v", err)
 	}
 
-	carolStartingBalance := carolBalResp.ConfirmedBalance
+	carolStartingBalance := carolBalResp.Chains[0].ConfirmedBalance
 
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPoint := openChannelAndAssert(
@@ -2264,10 +2264,10 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to get carol's balance: %v", err)
 	}
 	carolExpectedBalance := btcutil.Amount(carolStartingBalance) + pushAmt
-	if btcutil.Amount(carolBalResp.ConfirmedBalance) < carolExpectedBalance {
+	if btcutil.Amount(carolBalResp.Chains[0].ConfirmedBalance) < carolExpectedBalance {
 		t.Fatalf("carol's balance is incorrect: expected %v got %v",
 			carolExpectedBalance,
-			carolBalResp.ConfirmedBalance)
+			carolBalResp.Chains[0].ConfirmedBalance)
 	}
 }
 
@@ -3056,17 +3056,17 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to query for fee report: %v", err)
 	}
 
-	if feeReport.DayFeeSum != uint64(expectedFeeDave) {
+	if feeReport.Chains[0].DayFeeSum != uint64(expectedFeeDave) {
 		t.Fatalf("fee mismatch: expected %v, got %v", expectedFeeDave,
-			feeReport.DayFeeSum)
+			feeReport.Chains[0].DayFeeSum)
 	}
-	if feeReport.WeekFeeSum != uint64(expectedFeeDave) {
+	if feeReport.Chains[0].WeekFeeSum != uint64(expectedFeeDave) {
 		t.Fatalf("fee mismatch: expected %v, got %v", expectedFeeDave,
-			feeReport.WeekFeeSum)
+			feeReport.Chains[0].WeekFeeSum)
 	}
-	if feeReport.MonthFeeSum != uint64(expectedFeeDave) {
+	if feeReport.Chains[0].MonthFeeSum != uint64(expectedFeeDave) {
 		t.Fatalf("fee mismatch: expected %v, got %v", expectedFeeDave,
-			feeReport.MonthFeeSum)
+			feeReport.Chains[0].MonthFeeSum)
 	}
 
 	// Next, ensure that if we issue the vanilla query for the forwarding

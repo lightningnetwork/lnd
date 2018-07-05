@@ -2520,7 +2520,7 @@ func (s *server) OpenChannel(nodeKey *btcec.PublicKey,
 
 	// TODO(roasbeef): pass in chan that's closed if/when funding succeeds
 	// so can track as persistent peer?
-	go s.fundingMgr.initFundingWorkflow(targetPeer.addr, req)
+	go s.fundingMgr.initFundingWorkflow(targetPeer, req)
 
 	return updateChan, errChan
 }

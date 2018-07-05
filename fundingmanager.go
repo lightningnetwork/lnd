@@ -324,9 +324,9 @@ type fundingConfig struct {
 	// WatchNewChannel is to be called once a new channel enters the final
 	// funding stage: waiting for on-chain confirmation. This method sends
 	// the channel to the ChainArbitrator so it can watch for any on-chain
-	// events related to the channel. We also provide the address of the
+	// events related to the channel. We also provide the public key of the
 	// node we're establishing a channel with for reconnection purposes.
-	WatchNewChannel func(*channeldb.OpenChannel, *lnwire.NetAddress) error
+	WatchNewChannel func(*channeldb.OpenChannel, *btcec.PublicKey) error
 
 	// ReportShortChanID allows the funding manager to report the newly
 	// discovered short channel ID of a formerly pending channel to outside
@@ -1401,8 +1401,7 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 	// Now that we've sent over our final signature for this channel, we'll
 	// send it to the ChainArbitrator so it can watch for any on-chain
 	// actions during this final confirmation stage.
-	peerAddr := resCtx.peerAddress
-	if err := f.cfg.WatchNewChannel(completeChan, peerAddr); err != nil {
+	if err := f.cfg.WatchNewChannel(completeChan, peerKey); err != nil {
 		fndgLog.Errorf("Unable to send new ChannelPoint(%v) for "+
 			"arbitration: %v", fundingOut, err)
 	}
@@ -1553,8 +1552,7 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	// we'll send the to be active channel to the ChainArbitrator so it can
 	// watch for any on-chin actions before the channel has fully
 	// confirmed.
-	peerAddr := resCtx.peerAddress
-	if err := f.cfg.WatchNewChannel(completeChan, peerAddr); err != nil {
+	if err := f.cfg.WatchNewChannel(completeChan, peerKey); err != nil {
 		fndgLog.Errorf("Unable to send new ChannelPoint(%v) for "+
 			"arbitration: %v", fundingPoint, err)
 	}

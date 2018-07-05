@@ -198,8 +198,8 @@ type fundingLockedMsg struct {
 // fundingErrorMsg couples an lnwire.Error message with the peer who sent the
 // message. This allows the funding manager to properly process the error.
 type fundingErrorMsg struct {
-	err         *lnwire.Error
-	peerAddress *lnwire.NetAddress
+	err     *lnwire.Error
+	peerKey *btcec.PublicKey
 }
 
 // pendingChannels is a map instantiated per-peer which tracks all active
@@ -2690,10 +2690,10 @@ func (f *fundingManager) waitUntilChannelOpen(targetChan lnwire.ChannelID) {
 // processFundingError sends a message to the fundingManager allowing it to
 // process the occurred generic error.
 func (f *fundingManager) processFundingError(err *lnwire.Error,
-	peerAddress *lnwire.NetAddress) {
+	peerKey *btcec.PublicKey) {
 
 	select {
-	case f.fundingMsgs <- &fundingErrorMsg{err, peerAddress}:
+	case f.fundingMsgs <- &fundingErrorMsg{err, peerKey}:
 	case <-f.quit:
 		return
 	}
@@ -2705,13 +2705,12 @@ func (f *fundingManager) processFundingError(err *lnwire.Error,
 func (f *fundingManager) handleErrorMsg(fmsg *fundingErrorMsg) {
 	protocolErr := fmsg.err
 
-	peerKey := fmsg.peerAddress.IdentityKey
 	chanID := fmsg.err.ChanID
 
 	// First, we'll attempt to retrieve and cancel the funding workflow
 	// that this error was tied to. If we're unable to do so, then we'll
 	// exit early as this was an unwarranted error.
-	resCtx, err := f.cancelReservationCtx(peerKey, chanID)
+	resCtx, err := f.cancelReservationCtx(fmsg.peerKey, chanID)
 	if err != nil {
 		fndgLog.Warnf("Received error for non-existent funding "+
 			"flow: %v (%v)", err, spew.Sdump(protocolErr))
@@ -2722,7 +2721,7 @@ func (f *fundingManager) handleErrorMsg(fmsg *fundingErrorMsg) {
 	// error back to the caller (if any), and cancel the workflow itself.
 	lnErr := lnwire.ErrorCode(protocolErr.Data[0])
 	fndgLog.Errorf("Received funding error from %x: %v",
-		peerKey.SerializeCompressed(), string(protocolErr.Data),
+		fmsg.peerKey.SerializeCompressed(), string(protocolErr.Data),
 	)
 
 	// If this isn't a simple error code, then we'll display the entire
@@ -2858,9 +2857,9 @@ func (f *fundingManager) getReservationCtx(peerKey *btcec.PublicKey,
 // channel will receive a new, permanent channel ID, and will no longer be
 // considered pending.
 func (f *fundingManager) IsPendingChannel(pendingChanID [32]byte,
-	peerAddress *lnwire.NetAddress) bool {
+	peerKey *btcec.PublicKey) bool {
 
-	peerIDKey := newSerializedKey(peerAddress.IdentityKey)
+	peerIDKey := newSerializedKey(peerKey)
 	f.resMtx.RLock()
 	_, ok := f.activeReservations[peerIDKey][pendingChanID]
 	f.resMtx.RUnlock()

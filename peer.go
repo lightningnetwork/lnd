@@ -935,8 +935,9 @@ out:
 			}
 
 		case *lnwire.Error:
-			switch {
+			key := p.addr.IdentityKey
 
+			switch {
 			// In the case of an all-zero channel ID we want to
 			// forward the error to all channels with this peer.
 			case msg.ChanID == lnwire.ConnectionWideID:
@@ -952,8 +953,8 @@ out:
 			// If the channel ID for the error message corresponds
 			// to a pending channel, then the funding manager will
 			// handle the error.
-			case p.server.fundingMgr.IsPendingChannel(msg.ChanID, p.addr):
-				p.server.fundingMgr.processFundingError(msg, p.addr)
+			case p.server.fundingMgr.IsPendingChannel(msg.ChanID, key):
+				p.server.fundingMgr.processFundingError(msg, key)
 
 			// If not we hand the error to the channel link for
 			// this channel.

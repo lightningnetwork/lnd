@@ -136,10 +136,17 @@ func migrateInvoiceTimeSeries(tx *bolt.Tx) error {
 		return err
 	}
 
+	log.Infof("Migrating invoice database to new time series format")
+
 	// Now that we have all the buckets we need, we'll run through each
 	// invoice in the database, and update it to reflect the new format
 	// expected post migration.
-	return invoices.ForEach(func(invoiceNum, invoiceBytes []byte) error {
+	err = invoices.ForEach(func(invoiceNum, invoiceBytes []byte) error {
+		// If this is a sub bucket, then we'll skip it.
+		if invoiceBytes == nil {
+			return nil
+		}
+
 		// First, we'll make a copy of the encoded invoice bytes.
 		invoiceBytesCopy := make([]byte, len(invoiceBytes))
 		copy(invoiceBytesCopy, invoiceBytes)
@@ -153,7 +160,7 @@ func migrateInvoiceTimeSeries(tx *bolt.Tx) error {
 		invoiceReader := bytes.NewReader(invoiceBytesCopy)
 		invoice, err := deserializeInvoice(invoiceReader)
 		if err != nil {
-			return err
+			return fmt.Errorf("unable to decode invoice: %v", err)
 		}
 
 		// Now that we have the fully decoded invoice, we can update
@@ -173,6 +180,10 @@ func migrateInvoiceTimeSeries(tx *bolt.Tx) error {
 			return err
 		}
 
+		log.Tracef("Adding invoice (preimage=%v, add_index=%v) to add "+
+			"time series", invoice.Terms.PaymentPreimage[:],
+			nextAddSeqNo)
+
 		// Next, we'll check if the invoice has been settled or not. If
 		// so, then we'll also add it to the settle index.
 		var nextSettleSeqNo uint64
@@ -190,6 +201,11 @@ func migrateInvoiceTimeSeries(tx *bolt.Tx) error {
 			}
 
 			invoice.AmtPaid = invoice.Terms.Value
+
+			log.Tracef("Adding invoice (preimage=%v, "+
+				"settle_index=%v) to add time series",
+				invoice.Terms.PaymentPreimage[:],
+				nextSettleSeqNo)
 		}
 
 		// Finally, we'll update the invoice itself with the new
@@ -207,4 +223,11 @@ func migrateInvoiceTimeSeries(tx *bolt.Tx) error {
 
 		return invoices.Put(invoiceNum, b.Bytes())
 	})
+	if err != nil {
+		return err
+	}
+
+	log.Infof("Migration to invoice time series index complete!")
+
+	return nil
 }

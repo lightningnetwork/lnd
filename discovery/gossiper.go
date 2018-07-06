@@ -107,7 +107,9 @@ type Config struct {
 	// NotifyWhenOnline is a function that allows the gossiper to be
 	// notified when a certain peer comes online, allowing it to
 	// retry sending a peer message.
-	NotifyWhenOnline func(peer *btcec.PublicKey, connectedChan chan<- struct{})
+	//
+	// NOTE: The peerChan channel must be buffered.
+	NotifyWhenOnline func(peer *btcec.PublicKey, peerChan chan<- lnpeer.Peer)
 
 	// ProofMatureDelta the number of confirmations which is needed before
 	// exchange the channel announcement proofs.
@@ -2399,13 +2401,13 @@ func (d *AuthenticatedGossiper) sendAnnSigReliably(
 				"to peer(%x): %v. Will retry when online.",
 				remotePeer.SerializeCompressed(), err)
 
-			connected := make(chan struct{})
-			d.cfg.NotifyWhenOnline(remotePeer, connected)
+			peerChan := make(chan lnpeer.Peer, 1)
+			d.cfg.NotifyWhenOnline(remotePeer, peerChan)
 
 			select {
-			case <-connected:
+			case <-peerChan:
 				// Retry sending.
-				log.Infof("peer %x reconnected. Retry sending"+
+				log.Infof("Peer %x reconnected. Retry sending"+
 					" AnnounceSignatures.",
 					remotePeer.SerializeCompressed())
 

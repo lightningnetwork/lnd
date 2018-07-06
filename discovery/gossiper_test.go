@@ -1187,9 +1187,9 @@ func TestSignatureAnnouncementRetry(t *testing.T) {
 	// We expect the gossiper to register for a notification when the peer
 	// comes back online, so keep track of the channel it wants to get
 	// notified on.
-	notifyPeers := make(chan chan<- struct{}, 1)
+	notifyPeers := make(chan chan<- lnpeer.Peer, 1)
 	ctx.gossiper.cfg.NotifyWhenOnline = func(peer *btcec.PublicKey,
-		connectedChan chan<- struct{}) {
+		connectedChan chan<- lnpeer.Peer) {
 		notifyPeers <- connectedChan
 	}
 
@@ -1208,7 +1208,7 @@ func TestSignatureAnnouncementRetry(t *testing.T) {
 	// Since sending this local announcement proof to the remote will fail,
 	// the gossiper should register for a notification when the remote is
 	// online again.
-	var conChan chan<- struct{}
+	var conChan chan<- lnpeer.Peer
 	select {
 	case conChan = <-notifyPeers:
 	case <-time.After(2 * time.Second):
@@ -1372,9 +1372,9 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 		msg ...lnwire.Message) error {
 		return fmt.Errorf("intentional error in SendToPeer")
 	}
-	notifyPeers := make(chan chan<- struct{}, 1)
+	notifyPeers := make(chan chan<- lnpeer.Peer, 1)
 	ctx.gossiper.cfg.NotifyWhenOnline = func(peer *btcec.PublicKey,
-		connectedChan chan<- struct{}) {
+		connectedChan chan<- lnpeer.Peer) {
 		notifyPeers <- connectedChan
 	}
 
@@ -1392,7 +1392,7 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 
 	// Since sending to the remote peer will fail, the gossiper should
 	// register for a notification when it comes back online.
-	var conChan chan<- struct{}
+	var conChan chan<- lnpeer.Peer
 	select {
 	case conChan = <-notifyPeers:
 	case <-time.After(2 * time.Second):
@@ -1431,7 +1431,7 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 			return fmt.Errorf("intentional error in SendToPeer")
 		},
 		NotifyWhenOnline: func(peer *btcec.PublicKey,
-			connectedChan chan<- struct{}) {
+			connectedChan chan<- lnpeer.Peer) {
 			notifyPeers <- connectedChan
 		},
 		Router:           ctx.gossiper.cfg.Router,
@@ -1607,9 +1607,9 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 		return nil
 	}
 
-	notifyPeers := make(chan chan<- struct{}, 1)
+	notifyPeers := make(chan chan<- lnpeer.Peer, 1)
 	ctx.gossiper.cfg.NotifyWhenOnline = func(peer *btcec.PublicKey,
-		connectedChan chan<- struct{}) {
+		connectedChan chan<- lnpeer.Peer) {
 		notifyPeers <- connectedChan
 	}
 
@@ -2145,6 +2145,8 @@ type mockPeer struct {
 	sentMsgs chan lnwire.Message
 	quit     chan struct{}
 }
+
+var _ lnpeer.Peer = (*mockPeer)(nil)
 
 func (p *mockPeer) SendMessage(_ bool, msgs ...lnwire.Message) error {
 	if p.sentMsgs == nil && p.quit == nil {

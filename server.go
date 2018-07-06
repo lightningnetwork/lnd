@@ -110,7 +110,7 @@ type server struct {
 	inboundPeers  map[string]*peer
 	outboundPeers map[string]*peer
 
-	peerConnectedListeners map[string][]chan<- struct{}
+	peerConnectedListeners map[string][]chan<- lnpeer.Peer
 
 	persistentPeers        map[string]struct{}
 	persistentPeersBackoff map[string]time.Duration
@@ -264,7 +264,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		peersByPub:             make(map[string]*peer),
 		inboundPeers:           make(map[string]*peer),
 		outboundPeers:          make(map[string]*peer),
-		peerConnectedListeners: make(map[string][]chan<- struct{}),
+		peerConnectedListeners: make(map[string][]chan<- lnpeer.Peer),
 
 		globalFeatures: lnwire.NewFeatureVector(globalFeatures,
 			lnwire.GlobalFeatures),
@@ -1568,31 +1568,38 @@ func (s *server) SendToPeer(target *btcec.PublicKey,
 }
 
 // NotifyWhenOnline can be called by other subsystems to get notified when a
-// particular peer comes online.
+// particular peer comes online. The peer itself is sent across the peerChan.
 //
 // NOTE: This function is safe for concurrent access.
-func (s *server) NotifyWhenOnline(peer *btcec.PublicKey,
-	connectedChan chan<- struct{}) {
+func (s *server) NotifyWhenOnline(peerKey *btcec.PublicKey,
+	peerChan chan<- lnpeer.Peer) {
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// Compute the target peer's identifier.
-	pubStr := string(peer.SerializeCompressed())
+	pubStr := string(peerKey.SerializeCompressed())
 
 	// Check if peer is connected.
-	_, ok := s.peersByPub[pubStr]
+	peer, ok := s.peersByPub[pubStr]
 	if ok {
 		// Connected, can return early.
 		srvrLog.Debugf("Notifying that peer %x is online",
-			peer.SerializeCompressed())
-		close(connectedChan)
+			peerKey.SerializeCompressed())
+
+		select {
+		case peerChan <- peer:
+		case <-s.quit:
+		}
+
 		return
 	}
 
 	// Not connected, store this listener such that it can be notified when
 	// the peer comes online.
 	s.peerConnectedListeners[pubStr] = append(
-		s.peerConnectedListeners[pubStr], connectedChan)
+		s.peerConnectedListeners[pubStr], peerChan,
+	)
 }
 
 // sendPeerMessages enqueues a list of messages into the outgoingQueue of the
@@ -2240,8 +2247,12 @@ func (s *server) addPeer(p *peer) {
 	}
 
 	// Check if there are listeners waiting for this peer to come online.
-	for _, con := range s.peerConnectedListeners[pubStr] {
-		close(con)
+	for _, peerChan := range s.peerConnectedListeners[pubStr] {
+		select {
+		case peerChan <- p:
+		case <-s.quit:
+			return
+		}
 	}
 	delete(s.peerConnectedListeners, pubStr)
 }

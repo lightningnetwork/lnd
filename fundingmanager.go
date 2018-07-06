@@ -12,6 +12,10 @@ import (
 
 	"golang.org/x/crypto/salsa20"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
@@ -23,10 +27,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 )
 
 const (
@@ -85,6 +85,12 @@ var (
 	//
 	// TODO(roasbeef): add command line param to modify
 	maxFundingAmount = maxBtcFundingAmount
+
+	// ErrFundingManagerShuttingDown is an error returned when attempting to
+	// process a funding request/message but the funding manager has already
+	// been signaled to shut down.
+	ErrFundingManagerShuttingDown = errors.New("funding manager shutting " +
+		"down")
 )
 
 // reservationWithCtx encapsulates a pending channel reservation. This wrapper
@@ -740,7 +746,7 @@ func (f *fundingManager) PendingChannels() ([]*pendingChannel, error) {
 	select {
 	case f.queries <- req:
 	case <-f.quit:
-		return nil, fmt.Errorf("fundingmanager shutting down")
+		return nil, ErrFundingManagerShuttingDown
 	}
 
 	select {
@@ -749,7 +755,7 @@ func (f *fundingManager) PendingChannels() ([]*pendingChannel, error) {
 	case err := <-errChan:
 		return nil, err
 	case <-f.quit:
-		return nil, fmt.Errorf("fundingmanager shutting down")
+		return nil, ErrFundingManagerShuttingDown
 	}
 }
 
@@ -1959,7 +1965,7 @@ func (f *fundingManager) sendFundingLocked(completeChan *channeldb.OpenChannel,
 
 			// Retry sending.
 		case <-f.quit:
-			return fmt.Errorf("shutting down unable to send")
+			return ErrFundingManagerShuttingDown
 		}
 	}
 
@@ -2069,24 +2075,28 @@ func (f *fundingManager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 		confNtfn, err := f.cfg.Notifier.RegisterConfirmationsNtfn(&txid,
 			numConfs, completeChan.FundingBroadcastHeight)
 		if err != nil {
-			return fmt.Errorf("Unable to register for confirmation of "+
-				"ChannelPoint(%v): %v", completeChan.FundingOutpoint, err)
+			return fmt.Errorf("Unable to register for "+
+				"confirmation of ChannelPoint(%v): %v",
+				completeChan.FundingOutpoint, err)
 		}
 
-		// Wait until 6 confirmations has been reached or the wallet signals
-		// a shutdown.
+		// Wait until 6 confirmations has been reached or the wallet
+		// signals a shutdown.
 		select {
 		case _, ok := <-confNtfn.Confirmed:
 			if !ok {
-				return fmt.Errorf("ChainNotifier shutting down, cannot "+
-					"complete funding flow for ChannelPoint(%v)",
+				return fmt.Errorf("ChainNotifier shutting "+
+					"down, cannot complete funding flow "+
+					"for ChannelPoint(%v)",
 					completeChan.FundingOutpoint)
 			}
 			// Fallthrough.
 
 		case <-f.quit:
-			return fmt.Errorf("fundingManager shutting down, stopping funding "+
-				"flow for ChannelPoint(%v)", completeChan.FundingOutpoint)
+			return fmt.Errorf("%v, stopping funding flow for "+
+				"ChannelPoint(%v)",
+				ErrFundingManagerShuttingDown,
+				completeChan.FundingOutpoint)
 		}
 
 		fundingPoint := completeChan.FundingOutpoint
@@ -2095,9 +2105,10 @@ func (f *fundingManager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 		fndgLog.Infof("Announcing ChannelPoint(%v), short_chan_id=%v",
 			&fundingPoint, spew.Sdump(shortChanID))
 
-		// We'll obtain their min HTLC as we'll use this value within our
-		// ChannelUpdate. We use this value isn't of ours, as the remote party
-		// will be the one that's carrying the HTLC towards us.
+		// We'll obtain their min HTLC as we'll use this value within
+		// our ChannelUpdate. We use this value isn't of ours, as the
+		// remote party will be the one that's carrying the HTLC towards
+		// us.
 		remoteMinHTLC := completeChan.RemoteChanCfg.MinHTLC
 
 		// Create and broadcast the proofs required to make this channel

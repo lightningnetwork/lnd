@@ -568,10 +568,9 @@ func lndMain() error {
 		}()
 	}
 
-	// We'll wait until we're fully synced to
-	// continue the start up of the remainder of the daemon. This ensures
-	// that we don't accept any possibly invalid state transitions, or
-	// accept channels with spent funds.
+	// We'll wait until we're fully synced to continue the start up of the
+	// remainder of the daemon. This ensures that we don't accept any possibly
+	// invalid state transitions, or accept channels with spent funds.
 	_, bestHeight, err := activeChainControl.chainIO.GetBestBlock()
 	if err != nil {
 		return err

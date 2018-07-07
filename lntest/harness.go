@@ -239,7 +239,6 @@ func (n *NetworkHarness) TearDownAll() error {
 // not yet connected to other nodes within the network.
 func (n *NetworkHarness) NewNode(name string, extraArgs []string) (*HarnessNode, error) {
 	node, err := n.newNode(name, extraArgs, false)
-
 	if err != nil{
 		return nil, err
 	}

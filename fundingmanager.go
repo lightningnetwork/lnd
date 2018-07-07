@@ -2504,10 +2504,18 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		localAmt       = msg.localFundingAmt
 		remoteAmt      = msg.remoteFundingAmt
 		capacity       = localAmt + remoteAmt
-		ourDustLimit   = lnwallet.DefaultDustLimit()
 		minHtlc        = msg.minHtlc
 		remoteCsvDelay = msg.remoteCsvDelay
 	)
+
+	// We'll determine our dust limit depending on which chain is active.
+	var ourDustLimit btcutil.Amount
+	switch registeredChains.PrimaryChain() {
+	case bitcoinChain:
+		ourDustLimit = lnwallet.DefaultDustLimit()
+	case litecoinChain:
+		ourDustLimit = defaultLitecoinDustLimit
+	}
 
 	fndgLog.Infof("Initiating fundingRequest(localAmt=%v, remoteAmt=%v, "+
 		"capacity=%v, chainhash=%v, addr=%v, dustLimit=%v)", localAmt,

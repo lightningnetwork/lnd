@@ -49,9 +49,7 @@ const (
 	MsgNodeAnnouncement                    = 257
 	MsgChannelUpdate                       = 258
 	MsgAnnounceSignatures                  = 259
-
-	MsgRebalanceChannel = 512
-	MsgAcceptRebalance  = 523
+	MsgRIPUpdate						   = 512
 )
 
 // String return the string representation of message type.
@@ -103,6 +101,8 @@ func (t MessageType) String() string {
 		return "Pong"
 	case MsgUpdateFee:
 		return "UpdateFee"
+	case MsgRIPUpdate:
+		return "RIPUpdate"
 	default:
 		return "<unknown>"
 	}

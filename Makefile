@@ -120,6 +120,9 @@ $(BTCD_DIR):
 btcd: $(GLIDE_BIN) $(BTCD_DIR)
 	@$(call print, "Compiling btcd dependencies.")
 	cd $(BTCD_DIR) && git checkout $(BTCD_COMMIT) && glide install
+	@$(call print, "Patching btcd to allow longer startup of btc deamon.")
+	cp vendor/github.com/roasbeef/btcd/integration/rpctest/rpc_harness.go vendor/github.com/roasbeef/btcd/integration/rpctest/rpc_harness.go.prev
+	cat vendor/github.com/roasbeef/btcd/integration/rpctest/rpc_harness.go.prev|sed -e "195 s/20/30/" >vendor/github.com/roasbeef/btcd/integration/rpctest/rpc_harness.go;
 	@$(call print, "Installing btcd and btcctl.")
 	$(GOINSTALL) $(BTCD_PKG)
 	$(GOINSTALL) $(BTCD_PKG)/cmd/btcctl

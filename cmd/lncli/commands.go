@@ -429,8 +429,11 @@ var openChannelCommand = cli.Command{
 		},
 		cli.IntFlag{
 			Name: "push_amt",
-			Usage: "the number of satoshis to push to the remote " +
-				"side as part of the initial commitment state",
+			Usage: "the number of satoshis to give the remote side " +
+				"as part of the initial commitment state, " +
+				"this is equivalent to first opening a " +
+				"channel and sending the remote party funds, " +
+				"but done all in one step",
 		},
 		cli.BoolFlag{
 			Name:  "block",
@@ -1585,33 +1588,33 @@ var closedChannelsCommand = cli.Command{
 	Name:     "closedchannels",
 	Category: "Channels",
 	Usage:    "List all closed channels.",
-	Flags:    []cli.Flag{
+	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name:  "cooperative",
 			Usage: "list channels that were closed cooperatively",
 		},
 		cli.BoolFlag{
-			Name:  "local_force",
+			Name: "local_force",
 			Usage: "list channels that were force-closed " +
-			       "by the local node",
+				"by the local node",
 		},
 		cli.BoolFlag{
-			Name:  "remote_force",
+			Name: "remote_force",
 			Usage: "list channels that were force-closed " +
-			       "by the remote node",
+				"by the remote node",
 		},
 		cli.BoolFlag{
-			Name:  "breach",
+			Name: "breach",
 			Usage: "list channels for which the remote node " +
-			       "attempted to broadcast a prior " + 
-			       "revoked channel state",
+				"attempted to broadcast a prior " +
+				"revoked channel state",
 		},
 		cli.BoolFlag{
 			Name:  "funding_canceled",
 			Usage: "list channels that were never fully opened",
 		},
 	},
-	Action:   actionDecorator(closedChannels),
+	Action: actionDecorator(closedChannels),
 }
 
 func closedChannels(ctx *cli.Context) error {
@@ -1624,7 +1627,7 @@ func closedChannels(ctx *cli.Context) error {
 		LocalForce:      ctx.Bool("local_force"),
 		RemoteForce:     ctx.Bool("remote_force"),
 		Breach:          ctx.Bool("breach"),
-		FundingCanceled: ctx.Bool("funding_cancelled"),		
+		FundingCanceled: ctx.Bool("funding_cancelled"),
 	}
 
 	resp, err := client.ClosedChannels(ctxb, req)

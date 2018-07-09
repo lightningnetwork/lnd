@@ -18,6 +18,8 @@ type RIPUpdate struct {
 	Distance	int8
 }
 
+var _ Message = (*RIPUpdate)(nil)
+
 // Decode deserializes a serialized RIPUpdate message stored in the passed
 // io.Reader observing the specified protocol version.
 //

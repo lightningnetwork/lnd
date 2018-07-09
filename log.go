@@ -74,6 +74,7 @@ var (
 	atplLog = backendLog.Logger("ATPL")
 	cnctLog = backendLog.Logger("CNCT")
 	sphxLog = backendLog.Logger("SPHX")
+	ripnLog = backendLog.Logger("RIPN")
 )
 
 // Initialize package-global logger variables.

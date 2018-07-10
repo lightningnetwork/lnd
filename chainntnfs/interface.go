@@ -116,6 +116,11 @@ type ConfirmationEvent struct {
 	// channel after confs.
 
 	NegativeConf chan int32 // MUST be buffered.
+
+	// Cancel is a closure that should be executed by the caller in the
+	// case that they wish to prematurely abandon their registered spend
+	// notification.
+	Cancel func()
 }
 
 // SpendDetail contains details pertaining to a spent output. This struct itself

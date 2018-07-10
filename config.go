@@ -190,6 +190,7 @@ type config struct {
 	RawRESTListeners []string `long:"restlisten" description:"Add an interface/port/socket to listen for REST connections"`
 	RawListeners     []string `long:"listen" description:"Add an interface/port to listen for peer connections"`
 	RawExternalIPs   []string `long:"externalip" description:"Add an ip:port to the list of local addresses we claim to listen on to peers. If a port is not specified, the default (9735) will be used regardless of other parameters"`
+	DisableTLS       bool     `long:"notls" description:"Disable TLS for RPC connetions"`
 	RPCListeners     []net.Addr
 	RESTListeners    []net.Addr
 	Listeners        []net.Addr

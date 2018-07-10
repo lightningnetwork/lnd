@@ -371,7 +371,6 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID,
 		incomingChanID: sourceHop,
 		incomingHTLCID: paymentID,
 		outgoingChanID: firstHop,
-		destNode:       nextNode,
 		htlc:           htlc,
 	}
 

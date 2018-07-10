@@ -8,10 +8,6 @@ import (
 // htlcPacket is a wrapper around htlc lnwire update, which adds additional
 // information which is needed by this package.
 type htlcPacket struct {
-	// destNode is the first-hop destination of a local created HTLC add
-	// message.
-	destNode [33]byte
-
 	// incomingChanID is the ID of the channel that we have received an incoming
 	// HTLC on.
 	incomingChanID lnwire.ShortChannelID

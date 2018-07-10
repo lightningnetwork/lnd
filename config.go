@@ -264,7 +264,6 @@ func loadConfig() (*config, error) {
 			BaseFee:       defaultBitcoinBaseFeeMSat,
 			FeeRate:       defaultBitcoinFeeRate,
 			TimeLockDelta: defaultBitcoinTimeLockDelta,
-			Node:          "btcd",
 		},
 		BtcdMode: &btcdConfig{
 			Dir:     defaultBtcdDir,
@@ -280,7 +279,6 @@ func loadConfig() (*config, error) {
 			BaseFee:       defaultLitecoinBaseFeeMSat,
 			FeeRate:       defaultLitecoinFeeRate,
 			TimeLockDelta: defaultLitecoinTimeLockDelta,
-			Node:          "ltcd",
 		},
 		LtcdMode: &btcdConfig{
 			Dir:     defaultLtcdDir,

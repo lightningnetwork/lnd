@@ -2,6 +2,7 @@ package routing
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"runtime"
 	"sort"
@@ -14,17 +15,14 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
 	"github.com/lightningnetwork/lnd/routing/chainview"
-
-	"crypto/sha256"
-
-	"github.com/go-errors/errors"
-	"github.com/lightningnetwork/lightning-onion"
 )
 
 const (
@@ -158,7 +156,8 @@ type Config struct {
 	// forward a fully encoded payment to the first hop in the route
 	// denoted by its public key. A non-nil error is to be returned if the
 	// payment was unsuccessful.
-	SendToSwitch func(firstHop [33]byte, htlcAdd *lnwire.UpdateAddHTLC,
+	SendToSwitch func(firstHop lnwire.ShortChannelID,
+		htlcAdd *lnwire.UpdateAddHTLC,
 		circuit *sphinx.Circuit) ([sha256.Size]byte, error)
 
 	// ChannelPruneExpiry is the duration used to determine if a channel
@@ -1715,7 +1714,9 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 		// Attempt to send this payment through the network to complete
 		// the payment. If this attempt fails, then we'll continue on
 		// to the next available route.
-		firstHop := route.Hops[0].Channel.Node.PubKeyBytes
+		firstHop := lnwire.NewShortChanIDFromInt(
+			route.Hops[0].Channel.ChannelID,
+		)
 		preImage, sendError = r.cfg.SendToSwitch(
 			firstHop, htlcAdd, circuit,
 		)

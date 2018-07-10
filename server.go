@@ -33,6 +33,7 @@ import (
 	"github.com/roasbeef/btcd/connmgr"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
+	"github.com/lightningnetwork/lnd/routing/RIP"
 )
 
 var (
@@ -114,6 +115,8 @@ type server struct {
 	breachArbiter *breachArbiter
 
 	chanRouter *routing.ChannelRouter
+
+	ripRouter *RIP.RIPRouter
 
 	authGossiper *discovery.AuthenticatedGossiper
 
@@ -590,6 +593,8 @@ func (s *server) Start() error {
 		return err
 	}
 
+	s.wg.Add(1)
+	go s.ripRouter.Start(&s.wg)
 	// With all the relevant sub-systems started, we'll now attempt to
 	// establish persistent connections to our direct channel collaborators
 	// within the network.

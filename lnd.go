@@ -48,6 +48,7 @@ import (
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 	"github.com/roasbeef/btcwallet/wallet"
+	"github.com/lightningnetwork/lnd/routing/RIP"
 )
 
 const (
@@ -502,6 +503,12 @@ func lndMain() error {
 		return err
 	}
 	server.fundingMgr = fundingMgr
+
+	// We add the rip router
+	var selfNodeKey [33]byte
+	copy(selfNodeKey[:], server.identityPriv.PubKey().SerializeCompressed())
+	server.ripRouter = RIP.NewRIPRouter(server.chanDB, selfNodeKey)
+	server.ripRouter.SendToPeer = server.SendToPeer
 
 	// Check macaroon authentication if macaroons aren't disabled.
 	if macaroonService != nil {

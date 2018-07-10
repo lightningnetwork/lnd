@@ -615,6 +615,9 @@ func (f *fundingManager) Start() error {
 						"router graph: %v", err)
 					return
 				}
+				// new channel created, so the rip module need update.
+
+
 
 				// TODO(halseth): should create a state machine
 				// that can more easily be resumed from

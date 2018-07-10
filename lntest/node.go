@@ -188,6 +188,9 @@ type HarnessNode struct {
 	// NodeID is a unique identifier for the node within a NetworkHarness.
 	NodeID int
 
+	//TestPort is port which allows us to obtain valuable debug information
+	TestPort int
+
 	// PubKey is the serialized compressed identity public key of the node.
 	// This field will only be populated once the node itself has been
 	// started via the start() method.
@@ -252,6 +255,7 @@ func newNode(cfg nodeConfig) (*HarnessNode, error) {
 		cfg:               &cfg,
 		NodeID:            nodeNum,
 		chanWatchRequests: make(chan *chanWatchRequest),
+		TestPort:          9000 + nodeNum,
 		openChans:         make(map[wire.OutPoint]int),
 		openClients:       make(map[wire.OutPoint][]chan struct{}),
 

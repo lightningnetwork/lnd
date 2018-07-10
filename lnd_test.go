@@ -56,18 +56,22 @@ type harnessTest struct {
 	// testCase is populated during test execution and represents the
 	// current test case.
 	testCase *testCase
+
+	lndHarness *lntest.NetworkHarness
 }
 
 // newHarnessTest creates a new instance of a harnessTest from a regular
 // testing.T instance.
 func newHarnessTest(t *testing.T) *harnessTest {
-	return &harnessTest{t, nil}
+	return &harnessTest{t, nil, nil}
 }
 
 // Fatalf causes the current active test case to fail with a fatal error. All
 // integration tests should mark test failures solely with this method due to
 // the error stack traces it produces.
 func (h *harnessTest) Fatalf(format string, a ...interface{}) {
+	h.lndHarness.SaveProfilesPages()
+
 	stacktrace := errors.Wrap(fmt.Sprintf(format, a...), 1).ErrorStack()
 
 	if h.testCase != nil {
@@ -80,8 +84,7 @@ func (h *harnessTest) Fatalf(format string, a ...interface{}) {
 
 // RunTestCase executes a harness test case. Any errors or panics will be
 // represented as fatal.
-func (h *harnessTest) RunTestCase(testCase *testCase,
-	net *lntest.NetworkHarness) {
+func (h *harnessTest) RunTestCase(testCase *testCase) {
 
 	h.testCase = testCase
 	defer func() {
@@ -96,7 +99,7 @@ func (h *harnessTest) RunTestCase(testCase *testCase,
 		}
 	}()
 
-	testCase.test(net, h)
+	testCase.test(h.lndHarness, h)
 
 	return
 }
@@ -12464,7 +12467,7 @@ var testsCases = []*testCase{
 func TestLightningNetworkDaemon(t *testing.T) {
 	ht := newHarnessTest(t)
 
-	var lndHarness *lntest.NetworkHarness
+	lndHarness := ht.lndHarness
 
 	// First create an instance of the btcd's rpctest.Harness. This will be
 	// used to fund the wallets of the nodes within the test network and to
@@ -12556,7 +12559,8 @@ func TestLightningNetworkDaemon(t *testing.T) {
 
 		success := t.Run(testCase.name, func(t1 *testing.T) {
 			ht := newHarnessTest(t1)
-			ht.RunTestCase(testCase, lndHarness)
+			ht.lndHarness = lndHarness
+			ht.RunTestCase(testCase)
 		})
 
 		// Stop at the first failure. Mimic behavior of original test

@@ -11,6 +11,7 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/grpclog"
 
+	"encoding/hex"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/integration/rpctest"
@@ -20,6 +21,8 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"net/http"
+	"os"
 )
 
 // NetworkHarness is an integration testing harness for the lightning network.
@@ -587,6 +590,54 @@ func (n *NetworkHarness) ShutdownNode(node *HarnessNode) error {
 // started up again.
 func (n *NetworkHarness) StopNode(node *HarnessNode) error {
 	return node.stop()
+}
+
+//SaveProfilesPages hits profiles pages of all active nodes and writes it to disk
+//using a similar naming scheme as to the regular set of logs.
+func (n *NetworkHarness) SaveProfilesPages() {
+	for _, node := range n.activeNodes {
+		url := "http://localhost:%d/debug/pprof/goroutine?debug=1"
+		resp, err := http.Get(fmt.Sprintf(url, node.TestPort))
+		if err != nil {
+			fmt.Printf("Failed to get profile page: "+
+				"Node id is %d; Node name is %s. "+
+				"Exited with error: \n%v",
+				node.NodeID, node.cfg.Name, err)
+			continue
+		}
+		defer resp.Body.Close()
+
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			fmt.Printf("Failed to read profile page: "+
+				"Node id is %d; Node name is %s. "+
+				"Exited with error: \n%v",
+				node.NodeID, node.cfg.Name, err)
+			continue
+		}
+
+		fileName := fmt.Sprintf("pprof-%s-%s-%d.log",
+			node.cfg.Name, hex.EncodeToString(node.PubKey[:logPubKeyBytes]),
+			node.NodeID)
+
+		logFile, err := os.Create(fileName)
+		if err != nil {
+			fmt.Printf("Failed to create file for profile page: "+
+				"Node id is %d; Node name is %s. "+
+				"Exited with error: \n%v",
+				node.NodeID, node.cfg.Name, err)
+			continue
+		}
+		defer logFile.Close()
+
+		_, err = logFile.Write(body)
+		if err != nil {
+			fmt.Printf("Failed to save profile page: "+
+				"Node id is %d; Node name is %s. "+
+				"Exited with error: \n%v",
+				node.NodeID, node.cfg.Name, err)
+		}
+	}
 }
 
 // TODO(roasbeef): add a WithChannel higher-order function?

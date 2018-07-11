@@ -84,7 +84,7 @@ used directly:
 ```
 dep ensure -v
 go install -v ./...
-
+```
 
 **Updating**
 

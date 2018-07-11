@@ -1200,6 +1200,19 @@ mnemonicCheck:
 			return err
 		}
 
+		// Confirm the passphrase
+		fmt.Println()
+		fmt.Printf("Confirm your cipher seed passphrase (press enter if " +
+			"your seed doesn't have a passphrase): ")
+		passphrase2, err := terminal.ReadPassword(int(syscall.Stdin))
+		if err != nil {
+			return err
+		}
+
+		if !bytes.Equal(passphrase, passphrase2) {
+			return fmt.Errorf("passphrases don't match")
+		}
+
 		aezeedPass = []byte(passphrase)
 
 		for {

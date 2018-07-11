@@ -673,7 +673,9 @@ func (i *mockInvoiceRegistry) LookupInvoice(rHash chainhash.Hash) (channeldb.Inv
 	return invoice, i.finalDelta, nil
 }
 
-func (i *mockInvoiceRegistry) SettleInvoice(rhash chainhash.Hash) error {
+func (i *mockInvoiceRegistry) SettleInvoice(rhash chainhash.Hash,
+	amt lnwire.MilliSatoshi) error {
+
 	i.Lock()
 	defer i.Unlock()
 
@@ -687,6 +689,7 @@ func (i *mockInvoiceRegistry) SettleInvoice(rhash chainhash.Hash) error {
 	}
 
 	invoice.Terms.Settled = true
+	invoice.AmtPaid = amt
 	i.invoices[rhash] = invoice
 
 	return nil

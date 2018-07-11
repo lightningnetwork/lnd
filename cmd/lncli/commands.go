@@ -2195,11 +2195,13 @@ func addInvoice(ctx *cli.Context) error {
 	}
 
 	printJSON(struct {
-		RHash  string `json:"r_hash"`
-		PayReq string `json:"pay_req"`
+		RHash    string `json:"r_hash"`
+		PayReq   string `json:"pay_req"`
+		AddIndex uint64 `json:"add_index"`
 	}{
-		RHash:  hex.EncodeToString(resp.RHash),
-		PayReq: resp.PaymentRequest,
+		RHash:    hex.EncodeToString(resp.RHash),
+		PayReq:   resp.PaymentRequest,
+		AddIndex: resp.AddIndex,
 	})
 
 	return nil

@@ -47,6 +47,12 @@ var (
 			number:    1,
 			migration: migrateNodeAndEdgeUpdateIndex,
 		},
+		{
+			// The DB version that added the invoice event time
+			// series.
+			number:    2,
+			migration: migrateInvoiceTimeSeries,
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over

@@ -2657,7 +2657,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		return nil, err
 	}
 
-	i := &channeldb.Invoice{
+	newInvoice := &channeldb.Invoice{
 		CreationDate:   creationDate,
 		Memo:           []byte(invoice.Memo),
 		Receipt:        invoice.Receipt,
@@ -2666,22 +2666,24 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 			Value: amtMSat,
 		},
 	}
-	copy(i.Terms.PaymentPreimage[:], paymentPreimage[:])
+	copy(newInvoice.Terms.PaymentPreimage[:], paymentPreimage[:])
 
 	rpcsLog.Tracef("[addinvoice] adding new invoice %v",
 		newLogClosure(func() string {
-			return spew.Sdump(i)
+			return spew.Sdump(newInvoice)
 		}),
 	)
 
 	// With all sanity checks passed, write the invoice to the database.
-	if err := r.server.invoices.AddInvoice(i); err != nil {
+	addIndex, err := r.server.invoices.AddInvoice(newInvoice)
+	if err != nil {
 		return nil, err
 	}
 
 	return &lnrpc.AddInvoiceResponse{
 		RHash:          rHash[:],
 		PaymentRequest: payReqString,
+		AddIndex:       addIndex,
 	}, nil
 }
 
@@ -2737,6 +2739,9 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 		CltvExpiry:      cltvExpiry,
 		FallbackAddr:    fallbackAddr,
 		RouteHints:      routeHints,
+		AddIndex:        invoice.AddIndex,
+		SettleIndex:     invoice.SettleIndex,
+		AmtPaid:         int64(invoice.AmtPaid),
 	}, nil
 }
 
@@ -2833,7 +2838,7 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 	invoices := make([]*lnrpc.Invoice, len(dbInvoices))
 	for i, dbInvoice := range dbInvoices {
 
-		rpcInvoice, err := createRPCInvoice(dbInvoice)
+		rpcInvoice, err := createRPCInvoice(&dbInvoice)
 		if err != nil {
 			return nil, err
 		}
@@ -2851,14 +2856,24 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 	updateStream lnrpc.Lightning_SubscribeInvoicesServer) error {
 
-	invoiceClient := r.server.invoices.SubscribeNotifications()
+	invoiceClient := r.server.invoices.SubscribeNotifications(
+		req.AddIndex, req.SettleIndex,
+	)
 	defer invoiceClient.Cancel()
 
 	for {
 		select {
-		// TODO(roasbeef): include newly added invoices?
-		case settledInvoice := <-invoiceClient.SettledInvoices:
+		case newInvoice := <-invoiceClient.NewInvoices:
+			rpcInvoice, err := createRPCInvoice(newInvoice)
+			if err != nil {
+				return err
+			}
 
+			if err := updateStream.Send(rpcInvoice); err != nil {
+				return err
+			}
+
+		case settledInvoice := <-invoiceClient.SettledInvoices:
 			rpcInvoice, err := createRPCInvoice(settledInvoice)
 			if err != nil {
 				return err
@@ -2867,6 +2882,7 @@ func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 			if err := updateStream.Send(rpcInvoice); err != nil {
 				return err
 			}
+
 		case <-r.quit:
 			return nil
 		}
@@ -2899,6 +2915,7 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 			if err := updateStream.Send(detail); err != nil {
 				return err
 			}
+
 		case tx := <-txClient.UnconfirmedTransactions():
 			detail := &lnrpc.Transaction{
 				TxHash:    tx.Hash.String(),
@@ -2909,6 +2926,7 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 			if err := updateStream.Send(detail); err != nil {
 				return err
 			}
+
 		case <-r.quit:
 			return nil
 		}

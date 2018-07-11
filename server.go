@@ -753,6 +753,10 @@ func (s *server) Start() error {
 	}
 	s.connMgr.Start()
 
+	if err := s.invoices.Start(); err != nil {
+		return err
+	}
+
 	// With all the relevant sub-systems started, we'll now attempt to
 	// establish persistent connections to our direct channel collaborators
 	// within the network.
@@ -809,6 +813,7 @@ func (s *server) Stop() error {
 	s.cc.chainView.Stop()
 	s.connMgr.Stop()
 	s.cc.feeEstimator.Stop()
+	s.invoices.Stop()
 
 	// Disconnect from each active peers to ensure that
 	// peerTerminationWatchers signal completion to each peer.

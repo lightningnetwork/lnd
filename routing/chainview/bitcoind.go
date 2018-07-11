@@ -154,6 +154,7 @@ func (b *BitcoindFilteredChainView) onFilteredBlockConnected(height int32,
 	hash chainhash.Hash, txns []*wtxmgr.TxRecord) {
 
 	mtxs := make([]*wire.MsgTx, len(txns))
+	b.filterMtx.Lock()
 	for i, tx := range txns {
 		mtxs[i] = &tx.MsgTx
 
@@ -164,12 +165,11 @@ func (b *BitcoindFilteredChainView) onFilteredBlockConnected(height int32,
 			// that's okay since it would never be wise to consider
 			// the channel open again (since a spending transaction
 			// exists on the network).
-			b.filterMtx.Lock()
 			delete(b.chainFilter, txIn.PreviousOutPoint)
-			b.filterMtx.Unlock()
 		}
 
 	}
+	b.filterMtx.Unlock()
 
 	// We record the height of the last connected block added to the
 	// blockQueue such that we can scan up to this height in case of
@@ -246,19 +246,29 @@ func (b *BitcoindFilteredChainView) chainFilterer() {
 	// watched. Additionally, the chain filter will also be updated by
 	// removing any spent outputs.
 	filterBlock := func(blk *wire.MsgBlock) []*wire.MsgTx {
+		b.filterMtx.Lock()
+		defer b.filterMtx.Unlock()
+
 		var filteredTxns []*wire.MsgTx
 		for _, tx := range blk.Transactions {
+			var txAlreadyFiltered bool
 			for _, txIn := range tx.TxIn {
 				prevOp := txIn.PreviousOutPoint
-				if _, ok := b.chainFilter[prevOp]; ok {
-					filteredTxns = append(filteredTxns, tx)
-
-					b.filterMtx.Lock()
-					delete(b.chainFilter, prevOp)
-					b.filterMtx.Unlock()
-
-					break
+				if _, ok := b.chainFilter[prevOp]; !ok {
+					continue
 				}
+
+				delete(b.chainFilter, prevOp)
+
+				// Only add this txn to our list of filtered
+				// txns if it is the first previous outpoint to
+				// cause a match.
+				if txAlreadyFiltered {
+					continue
+				}
+
+				filteredTxns = append(filteredTxns, tx)
+				txAlreadyFiltered = true
 			}
 		}
 
@@ -304,11 +314,12 @@ func (b *BitcoindFilteredChainView) chainFilterer() {
 			// process.
 			log.Debugf("Updating chain filter with new UTXO's: %v",
 				update.newUtxos)
+
+			b.filterMtx.Lock()
 			for _, newOp := range update.newUtxos {
-				b.filterMtx.Lock()
 				b.chainFilter[newOp] = struct{}{}
-				b.filterMtx.Unlock()
 			}
+			b.filterMtx.Unlock()
 
 			// Apply the new TX filter to the chain client, which
 			// will cause all following notifications from and

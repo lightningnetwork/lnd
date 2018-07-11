@@ -255,7 +255,8 @@
     "walletdb/bdb",
     "wtxmgr"
   ]
-  revision = "ccd48bb4720f2baeaa795cac81264f6ced2da4c7"
+  revision = "c221af374d5e08394f5cd354c9de82d852c3dfc2"
+  source = "github.com/vapopov/btcwallet"
 
 [[projects]]
   branch = "master"
@@ -404,6 +405,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "dc40dd185a90b723e4b3df4a077b4ad4f99648260661cac9d58121e8bd3474ef"
+  inputs-digest = "8ea57ed1a7ad34cb61ec14b7a808a6f8876dd5de9fd3b1278ec3f949c7efb76a"
   solver-name = "gps-cdcl"
   solver-version = 1

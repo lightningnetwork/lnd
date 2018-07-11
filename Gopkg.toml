@@ -72,7 +72,8 @@
 
 [[constraint]]
   name = "github.com/roasbeef/btcwallet"
-  revision = "ccd48bb4720f2baeaa795cac81264f6ced2da4c7"
+  revision = "c221af374d5e08394f5cd354c9de82d852c3dfc2"
+  source = "github.com/vapopov/btcwallet"
 
 [[constraint]]
   name = "github.com/tv42/zbase32"

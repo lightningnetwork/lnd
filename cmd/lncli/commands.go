@@ -1888,7 +1888,7 @@ var payInvoiceCommand = cli.Command{
 		},
 		cli.Int64Flag{
 			Name: "fee_limit",
-			Usage: "maximum fee allowed in satoshis when sending" +
+			Usage: "maximum fee allowed in satoshis when sending " +
 				"the payment",
 		},
 		cli.Int64Flag{

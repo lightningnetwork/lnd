@@ -1953,7 +1953,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	if err != nil {
 		return nil, err
 	}
-	localPkScript, err := commitScriptUnencumbered(keyRing.NoDelayKey)
+	localPkScript, err := CommitScriptUnencumbered(keyRing.NoDelayKey)
 	if err != nil {
 		return nil, err
 	}
@@ -4889,7 +4889,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer Signer,
 	// Before we can generate the proper sign descriptor, we'll need to
 	// locate the output index of our non-delayed output on the commitment
 	// transaction.
-	selfP2WKH, err := commitScriptUnencumbered(keyRing.NoDelayKey)
+	selfP2WKH, err := CommitScriptUnencumbered(keyRing.NoDelayKey)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create self commit script: %v", err)
 	}
@@ -5906,7 +5906,7 @@ func CreateCommitTx(fundingOutput wire.TxIn,
 
 	// Next, we create the script paying to them. This is just a regular
 	// P2WPKH output, without any added CSV delay.
-	theirWitnessKeyHash, err := commitScriptUnencumbered(keyRing.NoDelayKey)
+	theirWitnessKeyHash, err := CommitScriptUnencumbered(keyRing.NoDelayKey)
 	if err != nil {
 		return nil, err
 	}

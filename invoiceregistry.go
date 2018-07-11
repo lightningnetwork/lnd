@@ -144,13 +144,13 @@ func (i *invoiceRegistry) invoiceEventNotifier() {
 				// If we've already sent this settle event to
 				// the client, then we can skip this.
 				case event.isSettle &&
-					client.settleIndex == invoice.SettleIndex:
+					client.settleIndex >= invoice.SettleIndex:
 					continue
 
 				// Similarly, if we've already sent this add to
 				// the client then we can skip this one.
 				case !event.isSettle &&
-					client.addIndex == invoice.AddIndex:
+					client.addIndex >= invoice.AddIndex:
 					continue
 
 				// These two states should never happen, but we

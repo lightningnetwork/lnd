@@ -10,12 +10,12 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/btcsuite/btcd/blockchain"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"
@@ -3133,13 +3133,6 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 	msg *lnwire.ChannelReestablish) ([]lnwire.Message, []channeldb.CircuitKey,
 	[]channeldb.CircuitKey, error) {
 
-	// We owe them a commitment if they have an un-acked commitment and the
-	// tip of their chain (from our Pov) is equal to what they think their
-	// next commit height should be.
-	remoteChainTip := lc.remoteCommitChain.tip()
-	oweCommitment := (lc.remoteCommitChain.hasUnackedCommitment() &&
-		msg.NextLocalCommitHeight == remoteChainTip.height)
-
 	// Now we'll examine the state we have, vs what was contained in the
 	// chain sync message. If we're de-synchronized, then we'll send a
 	// batch of messages which when applied will kick start the chain
@@ -3186,6 +3179,8 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 	// more to them.
 	var (
 		localTailHeight  = lc.localCommitChain.tail().height
+		remoteTailHeight = lc.remoteCommitChain.tail().height
+		remoteTipHeight  = lc.remoteCommitChain.tip().height
 	)
 
 	// We'll now check that their view of our local chain is up-to-date.
@@ -3316,10 +3311,54 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		return nil, nil, nil, ErrCannotSyncCommitChains
 	}
 
-	// If we owe them a commitment, then we'll read from disk our
-	// commitment diff, so we can re-send them to the remote party.
-	if oweCommitment {
-		// Grab the current remote chain tip from the database. This
+	// Now check if our view of the remote chain is consistent with what
+	// they tell us.
+	switch {
+
+	// The remote's view of what their next commit height is 2+ states
+	// ahead of us, we most likely lost data, or the remote is trying to
+	// trick us. Since we have no way of verifying whether they are lying
+	// or not, we will fail the channel, but should not force close it
+	// automatically.
+	case msg.NextLocalCommitHeight > remoteTipHeight+1:
+		walletLog.Errorf("ChannelPoint(%v), sync failed: remote's "+
+			"next commit height is %v, while we believe it is %v!",
+			lc.channelState.FundingOutpoint,
+			msg.NextLocalCommitHeight, remoteTipHeight)
+
+		if err := lc.channelState.MarkBorked(); err != nil {
+			return nil, nil, nil, err
+		}
+		return nil, nil, nil, ErrCannotSyncCommitChains
+
+	// They are waiting for a state they have already ACKed.
+	case msg.NextLocalCommitHeight <= remoteTailHeight:
+		walletLog.Errorf("ChannelPoint(%v), sync failed: remote's "+
+			"next commit height is %v, while we believe it is %v!",
+			lc.channelState.FundingOutpoint,
+			msg.NextLocalCommitHeight, remoteTipHeight)
+
+		// They previously ACKed our current tail, and now they are
+		// waiting for it. They probably lost state.
+		if err := lc.channelState.MarkBorked(); err != nil {
+			return nil, nil, nil, err
+		}
+		return nil, nil, nil, ErrCommitSyncRemoteDataLoss
+
+	// They have received our latest commitment, life is good.
+	case msg.NextLocalCommitHeight == remoteTipHeight+1:
+
+	// We owe them a commitment if the tip of their chain (from our Pov) is
+	// equal to what they think their next commit height should be. We'll
+	// re-send all the updates neccessary to recreate this state, along
+	// with the commit sig.
+	case msg.NextLocalCommitHeight == remoteTipHeight:
+		walletLog.Debugf("ChannelPoint(%v), sync: remote's next "+
+			"commit height is %v, while we believe it is %v, we "+
+			"owe them a commitment", lc.channelState.FundingOutpoint,
+			msg.NextLocalCommitHeight, remoteTipHeight)
+
+		// Grab the current remote chain tip from the database.  This
 		// commit diff contains all the information required to re-sync
 		// our states.
 		commitDiff, err := lc.channelState.RemoteCommitChainTip()
@@ -3341,14 +3380,18 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		openedCircuits = commitDiff.OpenedCircuitKeys
 		closedCircuits = commitDiff.ClosedCircuitKeys
 
-	} else if remoteChainTip.height+1 != msg.NextLocalCommitHeight {
+	// There should be no other possible states as long as the commit chain
+	// can have at most two elements. If that's the case, something is
+	// wrong.
+	default:
+		walletLog.Errorf("ChannelPoint(%v), sync failed: remote's "+
+			"next commit height is %v, while we believe it is %v!",
+			lc.channelState.FundingOutpoint,
+			msg.NextLocalCommitHeight, remoteTipHeight)
+
 		if err := lc.channelState.MarkBorked(); err != nil {
 			return nil, nil, nil, err
 		}
-
-		// If we don't owe them a commitment, yet the tip of their
-		// chain isn't one more than the next local commit height they
-		// report, we'll fail the channel.
 		return nil, nil, nil, ErrCannotSyncCommitChains
 	}
 

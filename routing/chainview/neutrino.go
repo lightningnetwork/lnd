@@ -5,13 +5,13 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/lightninglabs/neutrino"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/gcs/builder"
 	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/lightninglabs/neutrino"
 )
 
 // CfFilteredChainView is an implementation of the FilteredChainView interface
@@ -29,7 +29,7 @@ type CfFilteredChainView struct {
 
 	// chainView is the active rescan which only watches our specified
 	// sub-set of the UTXO set.
-	chainView neutrino.Rescan
+	chainView *neutrino.Rescan
 
 	// rescanErrChan is the channel that any errors encountered during the
 	// rescan will be sent over.

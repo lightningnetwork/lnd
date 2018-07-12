@@ -12,8 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lightninglabs/neutrino"
-	"github.com/ltcsuite/ltcd/btcjson"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -22,6 +20,8 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightninglabs/neutrino"
+	"github.com/ltcsuite/ltcd/btcjson"
 
 	"github.com/btcsuite/btcwallet/walletdb"
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb" // Required to register the boltdb walletdb implementation.
@@ -835,7 +835,6 @@ var interfaceImpls = []struct {
 				ConnectPeers: []string{p2pAddr},
 			}
 
-			neutrino.WaitForMoreCFHeaders = 250 * time.Millisecond
 			spvNode, err := neutrino.NewChainService(spvConfig)
 			if err != nil {
 				return nil, nil, err

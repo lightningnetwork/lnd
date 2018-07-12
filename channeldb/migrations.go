@@ -202,7 +202,7 @@ func migrateInvoiceTimeSeries(tx *bolt.Tx) error {
 
 			invoice.AmtPaid = invoice.Terms.Value
 
-			log.Tracef("Adding invoice (preimage=%v, "+
+			log.Tracef("Adding invoice (preimage=%x, "+
 				"settle_index=%v) to add time series",
 				invoice.Terms.PaymentPreimage[:],
 				nextSettleSeqNo)

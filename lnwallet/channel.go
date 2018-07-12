@@ -66,7 +66,8 @@ var (
 
 	// ErrCannotSyncCommitChains is returned if, upon receiving a ChanSync
 	// message, the state machine deems that is unable to properly
-	// synchronize states with the remote peer.
+	// synchronize states with the remote peer. In this case we should fail
+	// the channel, but we won't automatically force close.
 	ErrCannotSyncCommitChains = fmt.Errorf("unable to sync commit chains")
 
 	// ErrInvalidLastCommitSecret is returned in the case that the
@@ -74,12 +75,31 @@ var (
 	// ChannelReestablish message doesn't match the last secret we sent.
 	ErrInvalidLastCommitSecret = fmt.Errorf("commit secret is incorrect")
 
-	// ErrCommitSyncDataLoss is returned in the case that we receive a
+	// ErrInvalidLocalUnrevokedCommitPoint is returned in the case that the
+	// commitment point sent by the remote party in their
+	// ChannelReestablish message doesn't match the last unrevoked commit
+	// point they sent us.
+	ErrInvalidLocalUnrevokedCommitPoint = fmt.Errorf("unrevoked commit " +
+		"point is invalid")
+
+	// ErrCommitSyncLocalDataLoss is returned in the case that we receive a
 	// valid commit secret within the ChannelReestablish message from the
 	// remote node AND they advertise a RemoteCommitTailHeight higher than
-	// our current known height.
-	ErrCommitSyncDataLoss = fmt.Errorf("possible commitment state data " +
-		"loss")
+	// our current known height. This means we have lost some critical
+	// data, and must fail the channel and MUST NOT force close it. Instead
+	// we should wait for the remote to force close it, such that we can
+	// attempt to sweep our funds.
+	ErrCommitSyncLocalDataLoss = fmt.Errorf("possible local commitment " +
+		"state data loss")
+
+	// ErrCommitSyncRemoteDataLoss is returned in the case that we receive
+	// a ChannelReestablish message from the remote that advertises a
+	// NextLocalCommitHeight that is lower than what they have already
+	// ACKed, or a RemoteCommitTailHeight that is lower than our revoked
+	// height. In this case we should force close the channel such that
+	// both parties can retrieve their funds.
+	ErrCommitSyncRemoteDataLoss = fmt.Errorf("possible remote commitment " +
+		"state data loss")
 )
 
 // channelState is an enum like type which represents the current state of a
@@ -3222,7 +3242,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		// In this case, we've likely lost data and shouldn't proceed
 		// with channel updates. So we'll return the appropriate error
 		// to signal to the caller the current state.
-		return nil, nil, nil, ErrCommitSyncDataLoss
+		return nil, nil, nil, ErrCommitSyncLocalDataLoss
 
 	// If we don't owe them a revocation, and the height of our commitment
 	// chain reported by the remote party is not equal to our chain tail,

@@ -53,6 +53,12 @@ var (
 			number:    2,
 			migration: migrateInvoiceTimeSeries,
 		},
+		{
+			// The DB version that updated the embedded invoice in
+			// outgoing payments to match the new format.
+			number:    3,
+			migration: migrateInvoiceTimeSeriesOutgoingPayments,
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over

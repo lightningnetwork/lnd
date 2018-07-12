@@ -180,7 +180,7 @@ func migrateInvoiceTimeSeries(tx *bolt.Tx) error {
 			return err
 		}
 
-		log.Tracef("Adding invoice (preimage=%v, add_index=%v) to add "+
+		log.Tracef("Adding invoice (preimage=%x, add_index=%v) to add "+
 			"time series", invoice.Terms.PaymentPreimage[:],
 			nextAddSeqNo)
 
@@ -228,6 +228,75 @@ func migrateInvoiceTimeSeries(tx *bolt.Tx) error {
 	}
 
 	log.Infof("Migration to invoice time series index complete!")
+
+	return nil
+}
+
+// migrateInvoiceTimeSeriesOutgoingPayments is a follow up to the
+// migrateInvoiceTimeSeries migration. As at the time of writing, the
+// OutgoingPayment struct embeddeds an instance of the Invoice struct. As a
+// result, we also need to migrate the internal invoice to the new format.
+func migrateInvoiceTimeSeriesOutgoingPayments(tx *bolt.Tx) error {
+	payBucket := tx.Bucket(paymentBucket)
+	if payBucket == nil {
+		return nil
+	}
+
+	log.Infof("Migrating invoice database to new outgoing payment format")
+
+	err := payBucket.ForEach(func(payID, paymentBytes []byte) error {
+		log.Tracef("Migrating payment %x", payID[:])
+
+		// The internal invoices for each payment only contain a
+		// populated contract term, and creation date, as a result,
+		// most of the bytes will be "empty".
+
+		// We'll calculate the end of the invoice index assuming a
+		// "minimal" index that's embedded within the greater
+		// OutgoingPayment. The breakdown is:
+		//  3 bytes empty var bytes, 16 bytes creation date, 16 bytes
+		//  settled date, 32 bytes payment pre-image, 8 bytes value, 1
+		//  byte settled.
+		endOfInvoiceIndex := 1 + 1 + 1 + 16 + 16 + 32 + 8 + 1
+
+		// We'll now extract the prefix of the pure invoice embedded
+		// within.
+		invoiceBytes := paymentBytes[:endOfInvoiceIndex]
+
+		// With the prefix extracted, we'll copy over the invoice, and
+		// also add padding for the new 24 bytes of fields, and finally
+		// append the remainder of the outgoing payment.
+		paymentCopy := make([]byte, len(invoiceBytes))
+		copy(paymentCopy[:], invoiceBytes)
+
+		padding := bytes.Repeat([]byte{0}, 24)
+		paymentCopy = append(paymentCopy, padding...)
+		paymentCopy = append(
+			paymentCopy, paymentBytes[endOfInvoiceIndex:]...,
+		)
+
+		// At this point, we now have the new format of the outgoing
+		// payments, we'll attempt to deserialize it to ensure the
+		// bytes are properly formatted.
+		paymentReader := bytes.NewReader(paymentCopy)
+		_, err := deserializeOutgoingPayment(paymentReader)
+		if err != nil {
+			return fmt.Errorf("unable to deserialize payment: %v", err)
+		}
+
+		// Now that we know the modifications was successful, we'll
+		// write it back to disk in the new format.
+		if err := payBucket.Put(payID, paymentCopy); err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	log.Infof("Migration to outgoing payment invoices complete!")
 
 	return nil
 }

@@ -4850,24 +4850,16 @@ type UnilateralCloseSummary struct {
 
 // NewUnilateralCloseSummary creates a new summary that provides the caller
 // with all the information required to claim all funds on chain in the event
-// that the remote party broadcasts their commitment. If the
-// remotePendingCommit value is set to true, then we'll use the next (second)
-// unrevoked commitment point to construct the summary. Otherwise, we assume
-// that the remote party broadcast the lower of their two possible commits.
+// that the remote party broadcasts their commitment. The commitPoint argument
+// should be set to the per_commitment_point corresponding to the spending
+// commitment.
 func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer Signer,
 	pCache PreimageCache, commitSpend *chainntnfs.SpendDetail,
 	remoteCommit channeldb.ChannelCommitment,
-	remotePendingCommit bool) (*UnilateralCloseSummary, error) {
+	commitPoint *btcec.PublicKey) (*UnilateralCloseSummary, error) {
 
 	// First, we'll generate the commitment point and the revocation point
-	// so we can re-construct the HTLC state and also our payment key. If
-	// this is the pending remote commitment, then we'll use the second
-	// unrevoked commit point in order to properly reconstruct the scripts
-	// we need to locate.
-	commitPoint := chanState.RemoteCurrentRevocation
-	if remotePendingCommit {
-		commitPoint = chanState.RemoteNextRevocation
-	}
+	// so we can re-construct the HTLC state and also our payment key.
 	keyRing := deriveCommitmentKeys(
 		commitPoint, false, &chanState.LocalChanCfg,
 		&chanState.RemoteChanCfg,

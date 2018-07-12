@@ -118,7 +118,7 @@
     "walletdb/bdb",
     "wtxmgr"
   ]
-  revision = "74a7124666b49cd7e67da87c61169f4fb83fbd73"
+  revision = "64b5b448f5e6853a2d870f388504a7807bc951f1"
 
 [[projects]]
   branch = "master"
@@ -231,7 +231,7 @@
     "filterdb",
     "headerfs"
   ]
-  revision = "ea85047f01c7ba80d11538ede6d54e5eb9b2f91b"
+  revision = "03f4c660ea0d1586331f32561185d45eab1ba4c9"
 
 [[projects]]
   name = "github.com/lightningnetwork/lightning-onion"
@@ -404,6 +404,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "686514c0db5217eeaab8f5d4ac14a3d30ac0b29a7577332985f0e35609ef0418"
+  inputs-digest = "7ac5bd06ab8aa8f6a01f191092ac37d1e33200f366fa3b52fb4152369d76c5be"
   solver-name = "gps-cdcl"
   solver-version = 1

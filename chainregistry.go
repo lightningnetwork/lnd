@@ -229,7 +229,6 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 				return ips, nil
 			},
 		}
-		neutrino.WaitForMoreCFHeaders = time.Second * 1
 		neutrino.MaxPeers = 8
 		neutrino.BanDuration = 5 * time.Second
 		svc, err := neutrino.NewChainService(config)

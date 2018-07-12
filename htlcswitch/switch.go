@@ -1776,11 +1776,11 @@ func (s *Switch) AddLink(link ChannelLink) error {
 
 	chanID := link.ChanID()
 
-	// If a link already exists, then remove the prior one so we can
-	// replace it with this fresh instance.
+	// First, ensure that this link is not already active in the switch.
 	_, err := s.getLink(chanID)
 	if err == nil {
-		s.removeLink(chanID)
+		return fmt.Errorf("unable to add ChannelLink(%v), already "+
+			"active", chanID)
 	}
 
 	// Get and attach the mailbox for this link, which buffers packets in

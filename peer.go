@@ -1526,8 +1526,8 @@ out:
 			)
 			if err != nil {
 				peerLog.Errorf("can't register new channel "+
-					"link(%v) with NodeKey(%x): %v", chanPoint,
-					p.PubKey(), err)
+					"link(%v) with NodeKey(%x)", chanPoint,
+					p.PubKey())
 			}
 
 			close(newChanReq.done)

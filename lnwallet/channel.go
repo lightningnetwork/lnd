@@ -3138,7 +3138,6 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 	// If the remote party included the optional fields, then we'll verify
 	// their correctness first, as it will influence our decisions below.
 	hasRecoveryOptions := msg.LocalUnrevokedCommitPoint != nil
-	commitSecretCorrect := true
 	if hasRecoveryOptions && msg.RemoteCommitTailHeight != 0 {
 		// We'll check that they've really sent a valid commit
 		// secret from our shachain for our prior height, but only if
@@ -3149,21 +3148,24 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		commitSecretCorrect = bytes.Equal(
+		commitSecretCorrect := bytes.Equal(
 			heightSecret[:], msg.LastRemoteCommitSecret[:],
 		)
+
+		// If the commit secret they sent is incorrect then we'll fail
+		// the channel as the remote node has an inconsistent state.
+		if !commitSecretCorrect {
+			// In this case, we'll return an error to indicate the
+			// remote node sent us the wrong values. This will let
+			// the caller act accordingly.
+			walletLog.Errorf("ChannelPoint(%v), sync failed: "+
+				"remote provided invalid commit secret!",
+				lc.channelState.FundingOutpoint)
+			return nil, nil, nil, ErrInvalidLastCommitSecret
+		}
 	}
 
 	// TODO(roasbeef): check validity of commitment point after the fact
-
-	// If the commit secret they sent is incorrect then we'll fail the
-	// channel as the remote node has an inconsistent state.
-	if !commitSecretCorrect {
-		// In this case, we'll return an error to indicate the remote
-		// node sent us the wrong values. This will let the caller act
-		// accordingly.
-		return nil, nil, nil, ErrInvalidLastCommitSecret
-	}
 
 	switch {
 	// If we owe the remote party a revocation message, then we'll re-send
@@ -3213,9 +3215,9 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 
 	// If we don't owe the remote party a revocation, but their value for
 	// what our remote chain tail should be doesn't match up, and their
-	// purported commitment secrete matches up, then we'll behind!
-	case (msg.RemoteCommitTailHeight > localChainTail.height &&
-		hasRecoveryOptions && commitSecretCorrect):
+	// purported commitment secrete matches up, then we're behind!
+	case msg.RemoteCommitTailHeight > localChainTail.height &&
+		hasRecoveryOptions:
 
 		// In this case, we've likely lost data and shouldn't proceed
 		// with channel updates. So we'll return the appropriate error

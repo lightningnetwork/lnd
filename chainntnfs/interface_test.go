@@ -13,14 +13,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainntnfs/bitcoindnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/neutrinonotify"
 	"github.com/ltcsuite/ltcd/btcjson"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcwallet/walletdb"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -1590,7 +1590,6 @@ func TestInterfaces(t *testing.T) {
 				ChainParams:  *netParams,
 				ConnectPeers: []string{p2pAddr},
 			}
-			neutrino.WaitForMoreCFHeaders = 250 * time.Millisecond
 			spvNode, err := neutrino.NewChainService(spvConfig)
 			if err != nil {
 				t.Fatalf("unable to create neutrino: %v", err)

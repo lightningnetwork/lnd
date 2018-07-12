@@ -3809,8 +3809,8 @@ func TestChanSyncInvalidLastSecret(t *testing.T) {
 	// Alice's former self should conclude that she possibly lost data as
 	// Bob is sending a valid commit secret for the latest state.
 	_, _, _, err = aliceOld.ProcessChanSyncMsg(bobChanSync)
-	if err != ErrCommitSyncDataLoss {
-		t.Fatalf("wrong error, expected ErrCommitSyncDataLoss "+
+	if err != ErrCommitSyncLocalDataLoss {
+		t.Fatalf("wrong error, expected ErrCommitSyncLocalDataLoss "+
 			"instead got: %v", err)
 	}
 

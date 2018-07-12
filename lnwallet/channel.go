@@ -4853,6 +4853,12 @@ type UnilateralCloseSummary struct {
 // that the remote party broadcasts their commitment. The commitPoint argument
 // should be set to the per_commitment_point corresponding to the spending
 // commitment.
+//
+// NOTE: The remoteCommit argument should be set to the stored commitment for
+// this particular state. If we don't have the commitment stored (should only
+// happen in case we have lost state) it should be set to an empty struct, in
+// which case we will attempt to sweep the non-HTLC output using the passed
+// commitPoint.
 func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer Signer,
 	pCache PreimageCache, commitSpend *chainntnfs.SpendDetail,
 	remoteCommit channeldb.ChannelCommitment,
@@ -4885,13 +4891,19 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer Signer,
 	if err != nil {
 		return nil, fmt.Errorf("unable to create self commit script: %v", err)
 	}
-	var selfPoint *wire.OutPoint
+
+	var (
+		selfPoint    *wire.OutPoint
+		localBalance int64
+	)
+
 	for outputIndex, txOut := range commitTxBroadcast.TxOut {
 		if bytes.Equal(txOut.PkScript, selfP2WKH) {
 			selfPoint = &wire.OutPoint{
 				Hash:  *commitSpend.SpenderTxHash,
 				Index: uint32(outputIndex),
 			}
+			localBalance = txOut.Value
 			break
 		}
 	}
@@ -4902,7 +4914,6 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer Signer,
 	var commitResolution *CommitOutputResolution
 	if selfPoint != nil {
 		localPayBase := chanState.LocalChanCfg.PaymentBasePoint
-		localBalance := remoteCommit.LocalBalance.ToSatoshis()
 		commitResolution = &CommitOutputResolution{
 			SelfOutPoint: *selfPoint,
 			SelfOutputSignDesc: SignDescriptor{
@@ -4910,7 +4921,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer Signer,
 				SingleTweak:   keyRing.LocalCommitKeyTweak,
 				WitnessScript: selfP2WKH,
 				Output: &wire.TxOut{
-					Value:    int64(localBalance),
+					Value:    localBalance,
 					PkScript: selfP2WKH,
 				},
 				HashType: txscript.SigHashAll,
@@ -4919,7 +4930,6 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer Signer,
 		}
 	}
 
-	localBalance := remoteCommit.LocalBalance.ToSatoshis()
 	closeSummary := channeldb.ChannelCloseSummary{
 		ChanPoint:      chanState.FundingOutpoint,
 		ChainHash:      chanState.ChainHash,
@@ -4927,7 +4937,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer Signer,
 		CloseHeight:    uint32(commitSpend.SpendingHeight),
 		RemotePub:      chanState.IdentityPub,
 		Capacity:       chanState.Capacity,
-		SettledBalance: localBalance,
+		SettledBalance: btcutil.Amount(localBalance),
 		CloseType:      channeldb.RemoteForceClose,
 		IsPending:      true,
 	}

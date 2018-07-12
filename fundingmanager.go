@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -553,16 +554,29 @@ func (f *fundingManager) Start() error {
 				// resume wait on startup.
 			case shortChanID, ok := <-confChan:
 				if !ok {
-					fndgLog.Errorf("waiting for funding" +
+					fndgLog.Errorf("Waiting for funding" +
 						"confirmation failed")
 					return
 				}
 
-				// Success, funding transaction was confirmed.
-				err := f.handleFundingConfirmation(ch, shortChanID)
+				// The funding transaction has confirmed, so
+				// we'll attempt to retrieve the remote peer
+				// to complete the rest of the funding flow.
+				peerChan := make(chan lnpeer.Peer, 1)
+				f.cfg.NotifyWhenOnline(ch.IdentityPub, peerChan)
+
+				var peer lnpeer.Peer
+				select {
+				case peer = <-peerChan:
+				case <-f.quit:
+					return
+				}
+				err := f.handleFundingConfirmation(
+					peer, ch, shortChanID,
+				)
 				if err != nil {
-					fndgLog.Errorf("failed to handle funding"+
-						"confirmation: %v", err)
+					fndgLog.Errorf("Failed to handle "+
+						"funding confirmation: %v", err)
 					return
 				}
 			}
@@ -620,10 +634,21 @@ func (f *fundingManager) Start() error {
 			go func(dbChan *channeldb.OpenChannel) {
 				defer f.wg.Done()
 
-				err := f.handleFundingConfirmation(dbChan, shortChanID)
+				peerChan := make(chan lnpeer.Peer, 1)
+				f.cfg.NotifyWhenOnline(dbChan.IdentityPub, peerChan)
+
+				var peer lnpeer.Peer
+				select {
+				case peer = <-peerChan:
+				case <-f.quit:
+					return
+				}
+				err := f.handleFundingConfirmation(
+					peer, dbChan, shortChanID,
+				)
 				if err != nil {
-					fndgLog.Errorf("failed to handle funding"+
-						"confirmation: %v", err)
+					fndgLog.Errorf("Failed to handle "+
+						"funding confirmation: %v", err)
 					return
 				}
 			}(channel)

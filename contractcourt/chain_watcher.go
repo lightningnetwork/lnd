@@ -372,15 +372,50 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 					c.cfg.chanState.FundingOutpoint, err)
 			}
 
-		// This is the case that somehow the commitment
-		// broadcast is actually greater than even one beyond
-		// our best known state number. This should NEVER
-		// happen, but we'll log it in any case.
+		// This is the case that somehow the commitment broadcast is
+		// actually greater than even one beyond our best known state
+		// number. This should ONLY happen in case we experienced some
+		// sort of data loss.
 		case broadcastStateNum > remoteStateNum+1:
-			log.Errorf("Remote node broadcast state #%v, "+
+			log.Warnf("Remote node broadcast state #%v, "+
 				"which is more than 1 beyond best known "+
-				"state #%v!!!", broadcastStateNum,
-				remoteStateNum)
+				"state #%v!!! Attempting recovery...",
+				broadcastStateNum, remoteStateNum)
+
+			// If we are lucky, the remote peer sent us the correct
+			// commitment point during channel sync, such that we
+			// can sweep our funds.
+			// TODO(halseth): must handle the case where we haven't
+			// yet processed the chan sync message.
+			commitPoint, err := c.cfg.chanState.DataLossCommitPoint()
+			if err != nil {
+				log.Errorf("Unable to retrieve commitment "+
+					"point for channel(%v) with lost "+
+					"state: %v",
+					c.cfg.chanState.FundingOutpoint, err)
+				return
+			}
+
+			log.Infof("Recovered commit point(%x) for "+
+				"channel(%v)! Now attempting to use it to "+
+				"sweep our funds...",
+				commitPoint.SerializeCompressed(),
+				c.cfg.chanState.FundingOutpoint)
+
+			// Since we don't have the commitment stored for this
+			// state, we'll just pass an empty commitment. Note
+			// that this means we won't be able to recover any HTLC
+			// funds.
+			// TODO(halseth): can we try to recover some HTLCs?
+			err = c.dispatchRemoteForceClose(
+				commitSpend, channeldb.ChannelCommitment{},
+				commitPoint,
+			)
+			if err != nil {
+				log.Errorf("unable to handle remote "+
+					"close for chan_point=%v: %v",
+					c.cfg.chanState.FundingOutpoint, err)
+			}
 
 		// If the state number broadcast is lower than the
 		// remote node's current un-revoked height, then

@@ -4397,8 +4397,10 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 		SpenderTxHash: &commitTxHash,
 	}
 	aliceCloseSummary, err := NewUnilateralCloseSummary(
-		aliceChannel.channelState, aliceChannel.Signer, aliceChannel.pCache,
-		spendDetail, aliceChannel.channelState.RemoteCommitment, false,
+		aliceChannel.channelState, aliceChannel.Signer,
+		aliceChannel.pCache, spendDetail,
+		aliceChannel.channelState.RemoteCommitment,
+		aliceChannel.channelState.RemoteCurrentRevocation,
 	)
 	if err != nil {
 		t.Fatalf("unable to create alice close summary: %v", err)
@@ -4545,8 +4547,10 @@ func TestChannelUnilateralClosePendingCommit(t *testing.T) {
 	// using this commitment, but with the wrong state, we should find that
 	// our output wasn't picked up.
 	aliceWrongCloseSummary, err := NewUnilateralCloseSummary(
-		aliceChannel.channelState, aliceChannel.Signer, aliceChannel.pCache,
-		spendDetail, aliceChannel.channelState.RemoteCommitment, false,
+		aliceChannel.channelState, aliceChannel.Signer,
+		aliceChannel.pCache, spendDetail,
+		aliceChannel.channelState.RemoteCommitment,
+		aliceChannel.channelState.RemoteCurrentRevocation,
 	)
 	if err != nil {
 		t.Fatalf("unable to create alice close summary: %v", err)
@@ -4564,8 +4568,10 @@ func TestChannelUnilateralClosePendingCommit(t *testing.T) {
 		t.Fatalf("unable to fetch remote chain tip: %v", err)
 	}
 	aliceCloseSummary, err := NewUnilateralCloseSummary(
-		aliceChannel.channelState, aliceChannel.Signer, aliceChannel.pCache,
-		spendDetail, aliceRemoteChainTip.Commitment, true,
+		aliceChannel.channelState, aliceChannel.Signer,
+		aliceChannel.pCache, spendDetail,
+		aliceRemoteChainTip.Commitment,
+		aliceChannel.channelState.RemoteNextRevocation,
 	)
 	if err != nil {
 		t.Fatalf("unable to create alice close summary: %v", err)

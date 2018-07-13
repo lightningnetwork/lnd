@@ -23,7 +23,7 @@ mkdir -p $MAINDIR
 
 # Create source archive with vendor folder
 PACKAGESRC="$MAINDIR/$PACKAGE-source-$TAG.tar"
-dep ensure
+make dep
 git archive -o $PACKAGESRC HEAD
 tar rvf $PACKAGESRC vendor/
 gzip -f $PACKAGESRC > "$PACKAGESRC.gz"

@@ -31,12 +31,12 @@ func genPreimage() ([32]byte, error) {
 func TestSwitchAddDuplicateLink(t *testing.T) {
 	t.Parallel()
 
-	alicePeer, err := newMockServer(t, "alice", nil)
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil, 6)
 	if err != nil {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
 
-	s, err := initSwitchWithDB(nil)
+	s, err := initSwitchWithDB(testStartingHeight, nil)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -74,9 +74,7 @@ func TestSwitchAddDuplicateLink(t *testing.T) {
 	}
 
 	// Remove the live link to ensure the indexes are cleared.
-	if err := s.RemoveLink(chanID1); err != nil {
-		t.Fatalf("unable to remove alice link: %v", err)
-	}
+	s.RemoveLink(chanID1)
 
 	// Alice has no links, adding should succeed.
 	if err := s.AddLink(aliceChannelLink); err != nil {

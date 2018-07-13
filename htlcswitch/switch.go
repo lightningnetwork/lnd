@@ -1380,20 +1380,33 @@ func (s *Switch) htlcForwarder() {
 		s.blockEpochStream.Cancel()
 
 		// Remove all links once we've been signalled for shutdown.
+		var linksToStop []ChannelLink
 		s.indexMtx.Lock()
 		for _, link := range s.linkIndex {
-			if err := s.removeLink(link.ChanID()); err != nil {
-				log.Errorf("unable to remove "+
-					"channel link on stop: %v", err)
+			activeLink := s.removeLink(link.ChanID())
+			if activeLink == nil {
+				log.Errorf("unable to remove ChannelLink(%v) "+
+					"on stop", link.ChanID())
+				continue
 			}
+			linksToStop = append(linksToStop, activeLink)
 		}
 		for _, link := range s.pendingLinkIndex {
-			if err := s.removeLink(link.ChanID()); err != nil {
-				log.Errorf("unable to remove pending "+
-					"channel link on stop: %v", err)
+			pendingLink := s.removeLink(link.ChanID())
+			if pendingLink == nil {
+				log.Errorf("unable to remove ChannelLink(%v) "+
+					"on stop", link.ChanID())
+				continue
 			}
+			linksToStop = append(linksToStop, pendingLink)
 		}
 		s.indexMtx.Unlock()
+
+		// Now that all pending and live links have been removed from
+		// the forwarding indexes, stop each one before shutting down.
+		for _, link := range linksToStop {
+			link.Stop()
+		}
 
 		// Before we exit fully, we'll attempt to flush out any
 		// forwarding events that may still be lingering since the last
@@ -1868,24 +1881,28 @@ func (s *Switch) getLinkByShortID(chanID lnwire.ShortChannelID) (ChannelLink, er
 	return link, nil
 }
 
-// RemoveLink is used to initiate the handling of the remove link command. The
-// request will be propagated/handled to/in the main goroutine.
-func (s *Switch) RemoveLink(chanID lnwire.ChannelID) error {
+// RemoveLink purges the switch of any link associated with chanID. If a pending
+// or active link is not found, this method does nothing. Otherwise, the method
+// returns after the link has been completely shutdown.
+func (s *Switch) RemoveLink(chanID lnwire.ChannelID) {
 	s.indexMtx.Lock()
-	defer s.indexMtx.Unlock()
+	link := s.removeLink(chanID)
+	s.indexMtx.Unlock()
 
-	return s.removeLink(chanID)
+	if link != nil {
+		link.Stop()
+	}
 }
 
 // removeLink is used to remove and stop the channel link.
 //
 // NOTE: This MUST be called with the indexMtx held.
-func (s *Switch) removeLink(chanID lnwire.ChannelID) error {
+func (s *Switch) removeLink(chanID lnwire.ChannelID) ChannelLink {
 	log.Infof("Removing channel link with ChannelID(%v)", chanID)
 
 	link, err := s.getLink(chanID)
 	if err != nil {
-		return err
+		return nil
 	}
 
 	// Remove the channel from live link indexes.
@@ -1906,9 +1923,7 @@ func (s *Switch) removeLink(chanID lnwire.ChannelID) error {
 		}
 	}
 
-	go link.Stop()
-
-	return nil
+	return link
 }
 
 // UpdateShortChanID updates the short chan ID for an existing channel. This is

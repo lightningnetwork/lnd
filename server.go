@@ -646,7 +646,8 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		ChainIO:      cc.chainIO,
 		MarkLinkInactive: func(chanPoint wire.OutPoint) error {
 			chanID := lnwire.NewChanIDFromOutPoint(&chanPoint)
-			return s.htlcSwitch.RemoveLink(chanID)
+			s.htlcSwitch.RemoveLink(chanID)
+			return nil
 		},
 		IsOurAddress: func(addr btcutil.Address) bool {
 			_, err := cc.wallet.GetPrivKey(addr)
@@ -1960,11 +1961,7 @@ func (s *server) peerTerminationWatcher(p *peer) {
 	}
 
 	for _, link := range links {
-		err := p.server.htlcSwitch.RemoveLink(link.ChanID())
-		if err != nil {
-			srvrLog.Errorf("unable to remove channel link: %v",
-				err)
-		}
+		p.server.htlcSwitch.RemoveLink(link.ChanID())
 	}
 
 	s.mu.Lock()

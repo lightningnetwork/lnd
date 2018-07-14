@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 )
 
 // ChainNotifier represents a trusted source to receive notifications concerning

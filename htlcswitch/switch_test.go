@@ -14,7 +14,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcutil"
 )
 
 func genPreimage() ([32]byte, error) {

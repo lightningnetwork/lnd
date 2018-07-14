@@ -14,12 +14,12 @@ import (
 	"testing/quick"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/tor"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 var (

@@ -8,14 +8,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/gcs/builder"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/rpcclient"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
-	"github.com/roasbeef/btcutil/gcs/builder"
-	"github.com/roasbeef/btcwallet/waddrmgr"
 )
 
 const (
@@ -58,7 +58,7 @@ type NeutrinoNotifier struct {
 	bestHeight uint32
 
 	p2pNode   *neutrino.ChainService
-	chainView neutrino.Rescan
+	chainView *neutrino.Rescan
 
 	notificationCancels  chan interface{}
 	notificationRegistry chan interface{}

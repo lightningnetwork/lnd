@@ -12,13 +12,13 @@ import (
 	"google.golang.org/grpc/grpclog"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/integration/rpctest"
-	"github.com/roasbeef/btcd/rpcclient"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/integration/rpctest"
+	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 )
 
 // NetworkHarness is an integration testing harness for the lightning network.

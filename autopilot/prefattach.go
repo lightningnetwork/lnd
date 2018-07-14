@@ -5,8 +5,8 @@ import (
 	prand "math/rand"
 	"time"
 
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcutil"
 )
 
 // ConstrainedPrefAttachment is an implementation of the AttachmentHeuristic

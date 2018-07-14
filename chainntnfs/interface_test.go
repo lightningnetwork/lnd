@@ -13,25 +13,25 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainntnfs/bitcoindnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/neutrinonotify"
 	"github.com/ltcsuite/ltcd/btcjson"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcwallet/walletdb"
 
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/integration/rpctest"
-	"github.com/roasbeef/btcd/rpcclient"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/integration/rpctest"
+	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 
 	// Required to register the boltdb walletdb implementation.
-	_ "github.com/roasbeef/btcwallet/walletdb/bdb"
+	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
 )
 
 var (
@@ -1590,7 +1590,6 @@ func TestInterfaces(t *testing.T) {
 				ChainParams:  *netParams,
 				ConnectPeers: []string{p2pAddr},
 			}
-			neutrino.WaitForMoreCFHeaders = 250 * time.Millisecond
 			spvNode, err := neutrino.NewChainService(spvConfig)
 			if err != nil {
 				t.Fatalf("unable to create neutrino: %v", err)

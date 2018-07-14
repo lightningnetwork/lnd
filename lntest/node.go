@@ -23,10 +23,10 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/rpcclient"
-	"github.com/roasbeef/btcd/wire"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcd/wire"
 )
 
 var (

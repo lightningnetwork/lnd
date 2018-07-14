@@ -1,8 +1,8 @@
 package lnwallet
 
 import (
-	"github.com/roasbeef/btcutil"
-	"github.com/roasbeef/btcwallet/wallet/txrules"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcwallet/wallet/txrules"
 )
 
 // DefaultDustLimit is used to calculate the dust HTLC amount which will be

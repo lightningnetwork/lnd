@@ -6,8 +6,8 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcutil"
 )
 
 // Config couples all the items that an autopilot agent needs to function.

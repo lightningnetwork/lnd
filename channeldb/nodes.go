@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/coreos/bbolt"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/wire"
 )
 
 var (

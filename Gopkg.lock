@@ -43,7 +43,7 @@
     ".",
     "chacha"
   ]
-  revision = "c8d29375923a8e1d2a0f0dc0fc1d8a0aba5b97ba"
+  revision = "e2538746bfea853aaa589feb8ec46bd46ee78f86"
 
 [[projects]]
   branch = "master"
@@ -63,9 +63,62 @@
   revision = "761fd5fbb34e4c2c138c280395b65b48e4ff5a53"
 
 [[projects]]
+  name = "github.com/btcsuite/btcd"
+  packages = [
+    "addrmgr",
+    "blockchain",
+    "btcec",
+    "btcjson",
+    "chaincfg",
+    "chaincfg/chainhash",
+    "connmgr",
+    "database",
+    "integration/rpctest",
+    "peer",
+    "rpcclient",
+    "txscript",
+    "wire"
+  ]
+  revision = "86fed781132ac890ee03e906e4ecd5d6fa180c64"
+
+[[projects]]
   name = "github.com/btcsuite/btclog"
   packages = ["."]
   revision = "84c8d2346e9fc8c7b947e243b9c24e6df9fd206a"
+
+[[projects]]
+  name = "github.com/btcsuite/btcutil"
+  packages = [
+    ".",
+    "base58",
+    "bech32",
+    "gcs",
+    "gcs/builder",
+    "hdkeychain",
+    "txsort"
+  ]
+  revision = "d4cc87b860166d00d6b5b9e0d3b3d71d6088d4d4"
+
+[[projects]]
+  name = "github.com/btcsuite/btcwallet"
+  packages = [
+    "chain",
+    "internal/helpers",
+    "internal/legacy/keystore",
+    "internal/legacy/rename",
+    "internal/prompt",
+    "internal/zero",
+    "snacl",
+    "waddrmgr",
+    "wallet",
+    "wallet/internal/txsizes",
+    "wallet/txauthor",
+    "wallet/txrules",
+    "walletdb",
+    "walletdb/bdb",
+    "wtxmgr"
+  ]
+  revision = "64b5b448f5e6853a2d870f388504a7807bc951f1"
 
 [[projects]]
   branch = "master"
@@ -86,7 +139,6 @@
     "nacl/secretbox",
     "pbkdf2",
     "poly1305",
-    "ripemd160",
     "salsa20/salsa",
     "scrypt",
     "ssh/terminal"
@@ -159,7 +211,7 @@
   branch = "master"
   name = "github.com/juju/loggo"
   packages = ["."]
-  revision = "8232ab8918d91c72af1a9fb94d3edbe31d88b790"
+  revision = "584905176618da46b895b176c721b02c476b6993"
 
 [[projects]]
   name = "github.com/kkdai/bstream"
@@ -179,12 +231,12 @@
     "filterdb",
     "headerfs"
   ]
-  revision = "36d9a509ff4ea1e916a73c6f1c2b784c1faf11ed"
+  revision = "03f4c660ea0d1586331f32561185d45eab1ba4c9"
 
 [[projects]]
   name = "github.com/lightningnetwork/lightning-onion"
   packages = ["."]
-  revision = "e5ab5d7396020384f864452ec3c69b56264f1092"
+  revision = "ac4d9da8f1d67c95f1fafdc65e1a4902d6f5a940"
 
 [[projects]]
   name = "github.com/ltcsuite/ltcd"
@@ -203,59 +255,6 @@
     "internal/socket"
   ]
   revision = "79bfde677fa81ff8d27c4330c35bda075d360641"
-
-[[projects]]
-  name = "github.com/roasbeef/btcd"
-  packages = [
-    "addrmgr",
-    "blockchain",
-    "btcec",
-    "btcjson",
-    "chaincfg",
-    "chaincfg/chainhash",
-    "connmgr",
-    "database",
-    "integration/rpctest",
-    "peer",
-    "rpcclient",
-    "txscript",
-    "wire"
-  ]
-  revision = "a03db407e40d3b66ea29984263bbc8bf4d2f04c4"
-
-[[projects]]
-  name = "github.com/roasbeef/btcutil"
-  packages = [
-    ".",
-    "base58",
-    "bech32",
-    "gcs",
-    "gcs/builder",
-    "hdkeychain",
-    "txsort"
-  ]
-  revision = "dfb640c57141f1c2113b92b4b16d2a89c30dd258"
-
-[[projects]]
-  name = "github.com/roasbeef/btcwallet"
-  packages = [
-    "chain",
-    "internal/helpers",
-    "internal/legacy/keystore",
-    "internal/legacy/rename",
-    "internal/prompt",
-    "internal/zero",
-    "snacl",
-    "waddrmgr",
-    "wallet",
-    "wallet/internal/txsizes",
-    "wallet/txauthor",
-    "wallet/txrules",
-    "walletdb",
-    "walletdb/bdb",
-    "wtxmgr"
-  ]
-  revision = "ccd48bb4720f2baeaa795cac81264f6ced2da4c7"
 
 [[projects]]
   branch = "master"
@@ -314,10 +313,11 @@
   branch = "master"
   name = "golang.org/x/sys"
   packages = [
+    "cpu",
     "unix",
     "windows"
   ]
-  revision = "c28acc882ebcbfbe8ce9f0f14b9ac26ee138dd51"
+  revision = "56ede360ec1c541828fb88741b3f1049406d28f5"
 
 [[projects]]
   name = "golang.org/x/text"
@@ -385,7 +385,7 @@
   branch = "v1"
   name = "gopkg.in/errgo.v1"
   packages = ["."]
-  revision = "442357a80af5c6bf9b6d51ae791a39c3421004f3"
+  revision = "c17903c6b19d5dedb9cfba9fa314c7fae63e554f"
 
 [[projects]]
   name = "gopkg.in/macaroon-bakery.v2"
@@ -404,6 +404,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "dc40dd185a90b723e4b3df4a077b4ad4f99648260661cac9d58121e8bd3474ef"
+  inputs-digest = "7ac5bd06ab8aa8f6a01f191092ac37d1e33200f366fa3b52fb4152369d76c5be"
   solver-name = "gps-cdcl"
   solver-version = 1

@@ -10,8 +10,8 @@ import (
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcutil"
 )
 
 func TestConstrainedPrefAttachmentNeedMoreChan(t *testing.T) {

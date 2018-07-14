@@ -17,8 +17,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/miekg/dns"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcutil/bech32"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcutil/bech32"
 )
 
 func init() {

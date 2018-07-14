@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -15,6 +16,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/connmgr"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/coreos/bbolt"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lightning-onion"
@@ -32,12 +38,6 @@ import (
 	"github.com/lightningnetwork/lnd/nat"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/tor"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/connmgr"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
-	"golang.org/x/net/context"
 )
 
 const (

@@ -118,15 +118,15 @@ On FreeBSD, use gmake instead of make.
 
 ### Installing btcd
 
-If one wishes to use the `btcd` backend, `lnd` currently requires the
-[roasbeef](https://github.com/roasbeef/btcd) fork of `btcd` due to neutrino
-additions that are not yet available in the master branch. To install, run the
-following commands:
+To install btcd, run the following commands:
 
-Install **btcd**: (must be from roasbeef fork, not from btcsuite)
+Install **btcd**:
 ```
 make btcd
 ```
+
+Alternatively, you can install [`btcd` directly from its
+repo](https://github.com/btcsuite/btcd).
 
 ### Starting btcd
 
@@ -195,11 +195,11 @@ light client powered by [neutrino](https://github.com/lightninglabs/neutrino).
 #### Running lnd in Light Client Mode
 
 In order to run `lnd` in its light client mode, you'll need to locate a
-full-node which is capable of serving this new light client mode. A [BIP
-draft](https://github.com/Roasbeef/bips/blob/master/gcs_light_client.mediawiki)
-exists, and will be finalized in the near future, but for now you'll need to be
-running `roasbeef`'s fork of btcd. A public instance of such a node can be
-found at `faucet.lightning.community`.
+full-node which is capable of serving this new light client mode. `lnd` uses
+[BIP 157](https://github.com/bitcoin/bips/tree/master/bip-0157) and [BIP
+158](https://github.com/bitcoin/bips/tree/master/bip-0158) for its light client
+mode.  A public instance of such a node can be found at
+`faucet.lightning.community`.
 
 To run lnd in neutrino mode, run `lnd` with the following arguments, (swapping
 in `--bitcoin.simnet` if needed), and also your own `btcd` node if available:
@@ -328,8 +328,3 @@ at the same time), so when working with Litecoin be sure to set to parameters
 for Litecoin accordingly. For node configuration, the sections are called
 `[Btcd]`, `[Bitcoind]`, `[Neutrino]`, `[Ltcd]`, and `[Litecoind]` depending on
 which chain and node type you're using.
-
-# Accurate as of:
-- _roasbeef/btcd commit:_ `f8c02aff4e7a807ba0c1349e2db03695d8e790e8`
-- _roasbeef/btcutil commit:_ `a259eaf2ec1b54653cdd67848a41867f280797ee`
-- _lightningnetwork/lnd commit:_ `08de2becf8d77fae192205172c4fb17bb09bd0dbf49e64aa323b2fcbf9fe2a35`

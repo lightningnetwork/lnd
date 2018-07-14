@@ -17,7 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcutil"
 	"github.com/urfave/cli"
 
 	"google.golang.org/grpc"

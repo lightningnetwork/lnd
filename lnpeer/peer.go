@@ -1,9 +1,9 @@
 package lnpeer
 
 import (
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
 )
 
 // Peer is an interface which represents the remote lightning node inside our

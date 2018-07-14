@@ -19,17 +19,10 @@ fi
 PACKAGE=lnd
 MAINDIR=$PACKAGE-$TAG
 mkdir -p $MAINDIR
-
-
-# Create source archive with vendor folder
-PACKAGESRC="$MAINDIR/$PACKAGE-source-$TAG.tar"
-make dep
-git archive -o $PACKAGESRC HEAD
-tar rvf $PACKAGESRC vendor/
-gzip -f $PACKAGESRC > "$PACKAGESRC.gz"
-
-
 cd $MAINDIR
+
+
+
 
 SYS="windows-386 windows-amd64 openbsd-386 openbsd-amd64 linux-386 linux-amd64 linux-arm linux-arm64 darwin-386 darwin-amd64 dragonfly-amd64 freebsd-386 freebsd-amd64 freebsd-arm netbsd-386 netbsd-amd64 linux-mips64 linux-mips64le linux-ppc64 linux-arm64"
 

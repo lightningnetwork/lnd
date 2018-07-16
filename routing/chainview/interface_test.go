@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/integration/rpctest"
@@ -20,12 +21,12 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"github.com/lightninglabs/neutrino"
-	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/ltcsuite/ltcd/btcjson"
-
+	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/walletdb"
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb" // Required to register the boltdb walletdb implementation.
+
+	"github.com/lightninglabs/neutrino"
+	"github.com/lightningnetwork/lnd/channeldb"
 )
 
 var (
@@ -776,7 +777,8 @@ var interfaceImpls = []struct {
 			if err != nil {
 				return nil, nil, err
 			}
-			zmqPath := "ipc:///" + tempBitcoindDir + "/weks.socket"
+			zmqBlockHost := "ipc:///" + tempBitcoindDir + "/blocks.socket"
+			zmqTxHost := "ipc:///" + tempBitcoindDir + "/tx.socket"
 			cleanUp1 := func() {
 				os.RemoveAll(tempBitcoindDir)
 			}
@@ -792,8 +794,8 @@ var interfaceImpls = []struct {
 					"220110063096c221be9933c82d38e1",
 				fmt.Sprintf("-rpcport=%d", rpcPort),
 				"-disablewallet",
-				"-zmqpubrawblock="+zmqPath,
-				"-zmqpubrawtx="+zmqPath,
+				"-zmqpubrawblock="+zmqBlockHost,
+				"-zmqpubrawtx="+zmqTxHost,
 			)
 			err = bitcoind.Start()
 			if err != nil {
@@ -809,25 +811,30 @@ var interfaceImpls = []struct {
 			// Wait for the bitcoind instance to start up.
 			time.Sleep(time.Second)
 
-			// Start the FilteredChainView implementation instance.
-			config := rpcclient.ConnConfig{
-				Host: fmt.Sprintf(
-					"127.0.0.1:%d", rpcPort),
-				User:                 "weks",
-				Pass:                 "weks",
-				DisableAutoReconnect: false,
-				DisableConnectOnNew:  true,
-				DisableTLS:           true,
-				HTTPPostMode:         true,
+			host := fmt.Sprintf("127.0.0.1:%d", rpcPort)
+			chainConn, err := chain.NewBitcoindConn(
+				&chaincfg.RegressionNetParams, host, "weks",
+				"weks", zmqBlockHost, zmqTxHost,
+				100*time.Millisecond,
+			)
+			if err != nil {
+				return cleanUp2, nil, fmt.Errorf("unable to "+
+					"establish connection to bitcoind: %v",
+					err)
+			}
+			if err := chainConn.Start(); err != nil {
+				return cleanUp2, nil, fmt.Errorf("unable to "+
+					"establish connection to bitcoind: %v",
+					err)
+			}
+			cleanUp3 := func() {
+				chainConn.Stop()
+				cleanUp2()
 			}
 
-			chainView, err := NewBitcoindFilteredChainView(config,
-				zmqPath, chaincfg.RegressionNetParams)
-			if err != nil {
-				cleanUp2()
-				return nil, nil, err
-			}
-			return cleanUp2, chainView, nil
+			chainView := NewBitcoindFilteredChainView(chainConn)
+
+			return cleanUp3, chainView, nil
 		},
 	},
 	{

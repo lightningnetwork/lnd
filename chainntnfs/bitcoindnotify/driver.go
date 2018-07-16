@@ -3,38 +3,25 @@ package bitcoindnotify
 import (
 	"fmt"
 
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcwallet/chain"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 )
 
 // createNewNotifier creates a new instance of the ChainNotifier interface
 // implemented by BitcoindNotifier.
 func createNewNotifier(args ...interface{}) (chainntnfs.ChainNotifier, error) {
-	if len(args) != 3 {
+	if len(args) != 1 {
 		return nil, fmt.Errorf("incorrect number of arguments to "+
-			".New(...), expected 3, instead passed %v", len(args))
+			".New(...), expected 1, instead passed %v", len(args))
 	}
 
-	config, ok := args[0].(*rpcclient.ConnConfig)
+	chainConn, ok := args[0].(*chain.BitcoindConn)
 	if !ok {
-		return nil, fmt.Errorf("first argument to bitcoindnotifier." +
-			"New is incorrect, expected a *rpcclient.ConnConfig")
+		return nil, fmt.Errorf("first argument to bitcoindnotify.New " +
+			"is incorrect, expected a *chain.BitcoindConn")
 	}
 
-	zmqConnect, ok := args[1].(string)
-	if !ok {
-		return nil, fmt.Errorf("second argument to bitcoindnotifier." +
-			"New is incorrect, expected a string")
-	}
-
-	params, ok := args[2].(chaincfg.Params)
-	if !ok {
-		return nil, fmt.Errorf("third argument to bitcoindnotifier." +
-			"New is incorrect, expected a chaincfg.Params")
-	}
-
-	return New(config, zmqConnect, params)
+	return New(chainConn), nil
 }
 
 // init registers a driver for the BtcdNotifier concrete implementation of the

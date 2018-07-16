@@ -9,9 +9,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcjson"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/wtxmgr"
@@ -63,9 +61,8 @@ var _ FilteredChainView = (*BitcoindFilteredChainView)(nil)
 
 // NewBitcoindFilteredChainView creates a new instance of a FilteredChainView
 // from RPC credentials and a ZMQ socket address for a bitcoind instance.
-func NewBitcoindFilteredChainView(config rpcclient.ConnConfig,
-	zmqConnect string, params chaincfg.Params) (*BitcoindFilteredChainView,
-	error) {
+func NewBitcoindFilteredChainView(
+	chainConn *chain.BitcoindConn) *BitcoindFilteredChainView {
 
 	chainView := &BitcoindFilteredChainView{
 		chainFilter:     make(map[wire.OutPoint]struct{}),
@@ -74,16 +71,10 @@ func NewBitcoindFilteredChainView(config rpcclient.ConnConfig,
 		quit:            make(chan struct{}),
 	}
 
-	chainConn, err := chain.NewBitcoindClient(&params, config.Host,
-		config.User, config.Pass, zmqConnect, 100*time.Millisecond)
-	if err != nil {
-		return nil, err
-	}
-	chainView.chainClient = chainConn
-
+	chainView.chainClient = chainConn.NewBitcoindClient(time.Unix(0, 0))
 	chainView.blockQueue = newBlockEventQueue()
 
-	return chainView, nil
+	return chainView
 }
 
 // Start starts all goroutines necessary for normal operation.
@@ -325,9 +316,11 @@ func (b *BitcoindFilteredChainView) chainFilterer() {
 			// will cause all following notifications from and
 			// calls to it return blocks filtered with the new
 			// filter.
-			b.chainClient.LoadTxFilter(
-				false, update.newUtxos,
-			)
+			err := b.chainClient.LoadTxFilter(false, update.newUtxos)
+			if err != nil {
+				log.Errorf("Unable to update filter: %v", err)
+				continue
+			}
 
 			// All blocks gotten after we loaded the filter will
 			// have the filter applied, but we will need to rescan

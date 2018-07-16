@@ -16,18 +16,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coreos/bbolt"
-	"github.com/davecgh/go-spew/spew"
-
-	"github.com/btcsuite/btcwallet/chain"
-	"github.com/btcsuite/btcwallet/walletdb"
-	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
-	"github.com/lightninglabs/neutrino"
-
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcwallet/chain"
+	"github.com/btcsuite/btcwallet/walletdb"
+	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
+	"github.com/coreos/bbolt"
+	"github.com/davecgh/go-spew/spew"
+	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -35,12 +38,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/integration/rpctest"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 )
 
 var (
@@ -2150,7 +2147,8 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			if err != nil {
 				t.Fatalf("unable to create temp directory: %v", err)
 			}
-			zmqPath := "ipc:///" + tempBitcoindDir + "/weks.socket"
+			zmqBlockHost := "ipc:///" + tempBitcoindDir + "/blocks.socket"
+			zmqTxHost := "ipc:///" + tempBitcoindDir + "/tx.socket"
 			defer os.RemoveAll(tempBitcoindDir)
 			rpcPort := rand.Int()%(65536-1024) + 1024
 			bitcoind := exec.Command(
@@ -2164,8 +2162,8 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 					"220110063096c221be9933c82d38e1",
 				fmt.Sprintf("-rpcport=%d", rpcPort),
 				"-disablewallet",
-				"-zmqpubrawblock="+zmqPath,
-				"-zmqpubrawtx="+zmqPath,
+				"-zmqpubrawblock="+zmqBlockHost,
+				"-zmqpubrawtx="+zmqTxHost,
 			)
 			err = bitcoind.Start()
 			if err != nil {
@@ -2174,21 +2172,28 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			defer bitcoind.Wait()
 			defer bitcoind.Process.Kill()
 
-			// Start an Alice btcwallet bitcoind back end instance.
-			aliceClient, err = chain.NewBitcoindClient(netParams,
-				fmt.Sprintf("127.0.0.1:%d", rpcPort), "weks",
-				"weks", zmqPath, 100*time.Millisecond)
-			if err != nil {
-				t.Fatalf("couldn't start alice client: %v", err)
-			}
+			// Wait for the bitcoind instance to start up.
+			time.Sleep(time.Second)
 
-			// Start a Bob btcwallet bitcoind back end instance.
-			bobClient, err = chain.NewBitcoindClient(netParams,
-				fmt.Sprintf("127.0.0.1:%d", rpcPort), "weks",
-				"weks", zmqPath, 100*time.Millisecond)
+			host := fmt.Sprintf("127.0.0.1:%d", rpcPort)
+			chainConn, err := chain.NewBitcoindConn(
+				netParams, host, "weks", "weks", zmqBlockHost,
+				zmqTxHost, 100*time.Millisecond,
+			)
 			if err != nil {
-				t.Fatalf("couldn't start bob client: %v", err)
+				t.Fatalf("unable to establish connection to "+
+					"bitcoind: %v", err)
 			}
+			if err := chainConn.Start(); err != nil {
+				t.Fatalf("unable to establish connection to "+
+					"bitcoind: %v", err)
+			}
+			defer chainConn.Stop()
+
+			// Create a btcwallet bitcoind client for both Alice and
+			// Bob.
+			aliceClient = chainConn.NewBitcoindClient(time.Unix(0, 0))
+			bobClient = chainConn.NewBitcoindClient(time.Unix(0, 0))
 		default:
 			t.Fatalf("unknown chain driver: %v", backEnd)
 		}

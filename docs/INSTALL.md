@@ -120,6 +120,11 @@ On FreeBSD, use gmake instead of make.
 
 To install btcd, run the following commands:
 
+Install [**Glide**](https://github.com/Masterminds/glide), [btcd's](https://github.com/btcsuite/btcd) dependency management tool:
+```
+curl https://glide.sh/get | sh
+```
+
 Install **btcd**:
 ```
 make btcd

@@ -425,14 +425,30 @@ func testSpendNotification(miner *rpctest.Harness,
 		t.Fatalf("tx not relayed to miner: %v", err)
 	}
 
-	// Make sure notifications are not yet sent.
+	// Make sure notifications are not yet sent. We launch a go routine for
+	// all the spend clients, such that we can wait for them all in
+	// parallel.
+	//
+	// Since bitcoind is at times very slow at notifying about txs in the
+	// mempool, we use a quite large timeout of 10 seconds.
+	// TODO(halseth): change this when mempool spends are removed.
+	mempoolSpendTimeout := 10 * time.Second
+	mempoolSpends := make(chan *chainntnfs.SpendDetail, numClients)
 	for _, c := range spendClients {
-		select {
-		case <-c.Spend:
-			t.Fatalf("did not expect to get notification before " +
-				"block was mined")
-		case <-time.After(50 * time.Millisecond):
-		}
+		go func(client *chainntnfs.SpendEvent) {
+			select {
+			case s := <-client.Spend:
+				mempoolSpends <- s
+			case <-time.After(mempoolSpendTimeout):
+			}
+		}(c)
+	}
+
+	select {
+	case <-mempoolSpends:
+		t.Fatalf("did not expect to get notification before " +
+			"block was mined")
+	case <-time.After(mempoolSpendTimeout):
 	}
 
 	// Now we mine a single block, which should include our spend. The

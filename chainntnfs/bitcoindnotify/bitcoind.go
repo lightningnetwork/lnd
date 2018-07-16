@@ -352,16 +352,40 @@ func (b *BitcoindNotifier) handleRelevantTx(tx chain.RelevantTx, bestHeight int3
 			// TODO(roasbeef): after change to
 			// loadfilter, only notify on block
 			// inclusion?
+
+			confirmedSpend := false
 			if tx.Block != nil {
+				confirmedSpend = true
 				spendDetails.SpendingHeight = tx.Block.Height
 			} else {
 				spendDetails.SpendingHeight = bestHeight + 1
 			}
 
-			for _, ntfn := range clients {
-				chainntnfs.Log.Infof("Dispatching "+
+			// Keep spendNotifications that are
+			// waiting for a confirmation around.
+			// They will be notified when we find
+			// the spend within a block.
+			rem := make(map[uint64]*spendNotification)
+			for c, ntfn := range clients {
+				// If this is a mempool spend,
+				// and this client didn't want
+				// to be notified on mempool
+				// spends, store it for later.
+				if !confirmedSpend && !ntfn.mempool {
+					rem[c] = ntfn
+					continue
+				}
+
+				confStr := "unconfirmed"
+				if confirmedSpend {
+					confStr = "confirmed"
+				}
+
+				chainntnfs.Log.Infof("Dispatching %s "+
 					"spend notification for "+
-					"outpoint=%v", ntfn.targetOutpoint)
+					"outpoint=%v at height %v",
+					confStr, ntfn.targetOutpoint,
+					spendDetails.SpendingHeight)
 				ntfn.spendChan <- spendDetails
 
 				// Close spendChan to ensure that any calls to Cancel will not
@@ -370,6 +394,12 @@ func (b *BitcoindNotifier) handleRelevantTx(tx chain.RelevantTx, bestHeight int3
 				close(ntfn.spendChan)
 			}
 			delete(b.spendNotifications, prevOut)
+
+			// If we had any clients left, add them
+			// back to the map.
+			if len(rem) > 0 {
+				b.spendNotifications[prevOut] = rem
+			}
 		}
 	}
 }
@@ -530,6 +560,8 @@ type spendNotification struct {
 	spendID uint64
 
 	heightHint uint32
+
+	mempool bool
 }
 
 // spendCancel is a message sent to the BitcoindNotifier when a client wishes
@@ -548,12 +580,13 @@ type spendCancel struct {
 // across the 'Spend' channel. The heightHint should represent the earliest
 // height in the chain where the transaction could have been spent in.
 func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	heightHint uint32, _ bool) (*chainntnfs.SpendEvent, error) {
+	heightHint uint32, mempool bool) (*chainntnfs.SpendEvent, error) {
 
 	ntfn := &spendNotification{
 		targetOutpoint: outpoint,
 		spendChan:      make(chan *chainntnfs.SpendDetail, 1),
 		spendID:        atomic.AddUint64(&b.spendClientCounter, 1),
+		mempool:        mempool,
 	}
 
 	select {

@@ -12,7 +12,7 @@
     "internal/modes",
   ]
   pruneopts = "UT"
-  revision = "e06297f34865a50b8e473105e52cb64ad1b55da8"
+  revision = "c0276d75487ef7aceab140c9eb31601dd7d18bd4"
 
 [[projects]]
   branch = "master"
@@ -46,14 +46,14 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:9968b12a9d89a2f0aff1e67b36544002d86f35757253055289ecb6051c4081b1"
+  digest = "1:e05c7b72aeba7570b1d2f9c6dc9f0373d224b16b70fa886c504de867bffe1c2e"
   name = "github.com/aead/chacha20"
   packages = [
     ".",
     "chacha",
   ]
   pruneopts = "UT"
-  revision = "e2538746bfea853aaa589feb8ec46bd46ee78f86"
+  revision = "8b13a72661dae6e9e5dea04f344f0dc95ea29547"
 
 [[projects]]
   branch = "master"
@@ -120,7 +120,7 @@
   revision = "ab6388e0c60ae4834a1f57511e20c17b5f78be4b"
 
 [[projects]]
-  digest = "1:9fd2a2efb76ddbde252f60de59aa921e3995ca1a477102b570dff963fd43d4b2"
+  digest = "1:a9bb59675f2aa863eff2bab6f0668b5e6feacaf6b7978fe5a654b068d5ca8e36"
   name = "github.com/btcsuite/btcwallet"
   packages = [
     "chain",
@@ -140,7 +140,7 @@
     "wtxmgr",
   ]
   pruneopts = "UT"
-  revision = "a4d9da433fcfaeec50d3e9657e6d511d14cddadf"
+  revision = "1ede0a1a66bad8f7db796615e496a0a0faba5182"
 
 [[projects]]
   branch = "master"
@@ -298,10 +298,9 @@
   revision = "ac4d9da8f1d67c95f1fafdc65e1a4902d6f5a940"
 
 [[projects]]
-  digest = "1:9acb4594b6cbb2658faebd72023de1e6b8a2b9af05384b97033771dfcd2e9f9d"
+  digest = "1:9e09c46058b3f1456c2690bd853ecd769fce3df943f7883fba64cb8f2be34f33"
   name = "github.com/ltcsuite/ltcd"
   packages = [
-    "btcjson",
     "chaincfg",
     "chaincfg/chainhash",
     "wire",
@@ -384,7 +383,7 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:29581da029e6dfb8e5ad30790fc66f9b59ba43805b66d840ea84000027175073"
+  digest = "1:01b240e338435648db3155614b819aa03735c3e7920712f32638f53272895bfb"
   name = "golang.org/x/sys"
   packages = [
     "cpu",
@@ -392,7 +391,7 @@
     "windows",
   ]
   pruneopts = "UT"
-  revision = "56ede360ec1c541828fb88741b3f1049406d28f5"
+  revision = "904bdc257025c7b3f43c19360ad3ab85783fad78"
 
 [[projects]]
   digest = "1:436b24586f8fee329e0dd65fd67c817681420cda1d7f934345c13fe78c212a73"
@@ -534,7 +533,6 @@
     "github.com/kkdai/bstream",
     "github.com/lightninglabs/neutrino",
     "github.com/lightningnetwork/lightning-onion",
-    "github.com/ltcsuite/ltcd/btcjson",
     "github.com/ltcsuite/ltcd/chaincfg",
     "github.com/ltcsuite/ltcd/wire",
     "github.com/miekg/dns",

@@ -630,6 +630,26 @@ func (db *DB) pruneLinkNode(tx *bolt.Tx, remotePub *btcec.PublicKey) error {
 	return db.deleteLinkNode(tx, remotePub)
 }
 
+// PruneLinkNodes attempts to prune all link nodes found within the databse with
+// whom we no longer have any open channels with.
+func (db *DB) PruneLinkNodes() error {
+	return db.Update(func(tx *bolt.Tx) error {
+		linkNodes, err := db.fetchAllLinkNodes(tx)
+		if err != nil {
+			return err
+		}
+
+		for _, linkNode := range linkNodes {
+			err := db.pruneLinkNode(tx, linkNode.IdentityPub)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
 // syncVersions function is used for safe db version synchronization. It
 // applies migration functions to the current database and recovers the
 // previous state of db if at least one error/panic appeared during migration.

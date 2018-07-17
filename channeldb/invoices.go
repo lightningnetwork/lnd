@@ -8,9 +8,9 @@ import (
 	"io"
 	"time"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/btcsuite/btcd/wire"
 )
 
 var (
@@ -704,7 +704,7 @@ func settleInvoice(invoices, settleIndex *bolt.Bucket, invoiceNum []byte,
 	// Add idempotency to duplicate settles, return here to avoid
 	// overwriting the previous info.
 	if invoice.Terms.Settled {
-		return nil, nil
+		return &invoice, nil
 	}
 
 	// Now that we know the invoice hasn't already been settled, we'll

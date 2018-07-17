@@ -172,7 +172,7 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 		// has been spent by a confirmed transaction.
 		spendNtfn, err := h.Notifier.RegisterSpendNtfn(
 			&h.htlcResolution.ClaimOutpoint,
-			h.broadcastHeight, false,
+			h.broadcastHeight,
 		)
 		if err != nil {
 			return err
@@ -580,7 +580,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	// To wrap this up, we'll wait until the second-level transaction has
 	// been spent, then fully resolve the contract.
 	spendNtfn, err := h.Notifier.RegisterSpendNtfn(
-		&h.htlcResolution.ClaimOutpoint, h.broadcastHeight, false,
+		&h.htlcResolution.ClaimOutpoint, h.broadcastHeight,
 	)
 	if err != nil {
 		return nil, err
@@ -791,8 +791,7 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 	// First, we'll register for a spend notification for this output. If
 	// the remote party sweeps with the pre-image, we'll  be notified.
 	spendNtfn, err := h.Notifier.RegisterSpendNtfn(
-		&outPointToWatch,
-		h.broadcastHeight, false,
+		&outPointToWatch, h.broadcastHeight,
 	)
 	if err != nil {
 		return nil, err
@@ -1288,7 +1287,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		// until the commitment output has been spent.
 		spendNtfn, err := c.Notifier.RegisterSpendNtfn(
 			&c.commitResolution.SelfOutPoint,
-			c.broadcastHeight, false,
+			c.broadcastHeight,
 		)
 		if err != nil {
 			return nil, err

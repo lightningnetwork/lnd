@@ -357,7 +357,7 @@ func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 			var err error
 			spendNtfn, err = b.cfg.Notifier.RegisterSpendNtfn(
 				&breachedOutput.outpoint,
-				breachInfo.breachHeight, false,
+				breachInfo.breachHeight,
 			)
 			if err != nil {
 				brarLog.Errorf("unable to check for spentness "+

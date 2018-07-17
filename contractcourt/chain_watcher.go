@@ -173,7 +173,7 @@ func (c *chainWatcher) Start() error {
 	}
 
 	spendNtfn, err := c.cfg.notifier.RegisterSpendNtfn(
-		fundingOut, heightHint, false,
+		fundingOut, heightHint,
 	)
 	if err != nil {
 		return err

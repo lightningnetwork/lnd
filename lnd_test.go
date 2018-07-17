@@ -5867,17 +5867,17 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	// Query the mempool for Dave's justice transaction, this should be
 	// broadcast as Carol's contract breaching transaction gets confirmed
 	// above. Since Carol might have had the time to take some of the HTLC
-	// outputs to the second level before Alice broadcasts her justice tx,
+	// outputs to the second level before Dave broadcasts his justice tx,
 	// we'll search through the mempool for a tx that matches the number of
 	// expected inputs in the justice tx.
-	// TODO(halseth): change to deterministic check if/when only acting on
-	// confirmed second level spends?
 	var predErr error
 	var justiceTxid *chainhash.Hash
-	err = lntest.WaitPredicate(func() bool {
+	errNotFound := errors.New("justice tx not found")
+	findJusticeTx := func() (*chainhash.Hash, error) {
 		mempool, err := net.Miner.Node.GetRawMempool()
 		if err != nil {
-			t.Fatalf("unable to get mempool from miner: %v", err)
+			return nil, fmt.Errorf("unable to get mempool from "+
+				"miner: %v", err)
 		}
 
 		for _, txid := range mempool {
@@ -5885,22 +5885,46 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 			// of inputs.
 			tx, err := net.Miner.Node.GetRawTransaction(txid)
 			if err != nil {
-				predErr = fmt.Errorf("unable to query for "+
+				return nil, fmt.Errorf("unable to query for "+
 					"txs: %v", err)
-				return false
 			}
 
 			exNumInputs := 2 + numInvoices
 			if len(tx.MsgTx().TxIn) == exNumInputs {
-				justiceTxid = txid
-				return true
+				return txid, nil
 			}
+		}
+		return nil, errNotFound
+	}
 
+	err = lntest.WaitPredicate(func() bool {
+		txid, err := findJusticeTx()
+		if err != nil {
+			predErr = err
+			return false
 		}
 
-		predErr = fmt.Errorf("justice tx not found")
-		return false
-	}, time.Second*15)
+		justiceTxid = txid
+		return true
+	}, time.Second*10)
+	if err != nil && predErr == errNotFound {
+		// If Dave is unable to broadcast his justice tx on first
+		// attempt because of the second layer transactions, he will
+		// wait until the next block epoch before trying again. Because
+		// of this, we'll mine a block if we cannot find the justice tx
+		// immediately.
+		mineBlocks(t, net, 1)
+		err = lntest.WaitPredicate(func() bool {
+			txid, err := findJusticeTx()
+			if err != nil {
+				predErr = err
+				return false
+			}
+
+			justiceTxid = txid
+			return true
+		}, time.Second*10)
+	}
 	if err != nil {
 		t.Fatalf(predErr.Error())
 	}

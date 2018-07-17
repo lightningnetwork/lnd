@@ -1771,7 +1771,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("htlc mismatch: %v", err)
 	}
 
-	// As we'll be querying the state of Carol's channels frequently we'll
+	// As we'll be querying the state of Alice's channels frequently we'll
 	// create a closure helper function for the purpose.
 	getAliceChanInfo := func() (*lnrpc.Channel, error) {
 		req := &lnrpc.ListChannelsRequest{}
@@ -2253,7 +2253,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("no user funds should be left in limbo after incubation")
 	}
 
-	// At this point, Carol should now be aware of his new immediately
+	// At this point, Bob should now be aware of his new immediately
 	// spendable on-chain balance, as it was Alice who broadcast the
 	// commitment transaction.
 	carolBalResp, err = net.Bob.WalletBalance(ctxb, carolBalReq)

@@ -3709,7 +3709,6 @@ func (h *persistentLinkHarness) restart(restartSwitch bool,
 
 	// First, remove the link from the switch.
 	h.coreLink.cfg.Switch.RemoveLink(h.link.ChanID())
-	h.coreLink.WaitForShutdown()
 
 	var htlcSwitch *Switch
 	if restartSwitch {

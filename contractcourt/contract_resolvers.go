@@ -792,7 +792,7 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 	// the remote party sweeps with the pre-image, we'll  be notified.
 	spendNtfn, err := h.Notifier.RegisterSpendNtfn(
 		&outPointToWatch,
-		h.broadcastHeight, true,
+		h.broadcastHeight, false,
 	)
 	if err != nil {
 		return nil, err

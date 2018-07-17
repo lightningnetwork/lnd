@@ -1288,7 +1288,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		// until the commitment output has been spent.
 		spendNtfn, err := c.Notifier.RegisterSpendNtfn(
 			&c.commitResolution.SelfOutPoint,
-			c.broadcastHeight, true,
+			c.broadcastHeight, false,
 		)
 		if err != nil {
 			return nil, err

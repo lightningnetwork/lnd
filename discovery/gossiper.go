@@ -9,6 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
@@ -19,9 +22,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
 	"github.com/lightningnetwork/lnd/routing"
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/wire"
 )
 
 var (
@@ -2404,9 +2404,11 @@ func (d *AuthenticatedGossiper) sendAnnSigReliably(
 
 			select {
 			case <-connected:
-				log.Infof("peer %x reconnected. Retry sending" +
-					" AnnounceSignatures.")
 				// Retry sending.
+				log.Infof("peer %x reconnected. Retry sending"+
+					" AnnounceSignatures.",
+					remotePeer.SerializeCompressed())
+
 			case <-d.quit:
 				log.Infof("Gossiper shutting down, did not send" +
 					" AnnounceSignatures.")

@@ -801,7 +801,7 @@ func (m *mockNotifier) Stop() error {
 }
 
 func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	heightHint uint32, mempool bool) (*chainntnfs.SpendEvent, error) {
+	heightHint uint32) (*chainntnfs.SpendEvent, error) {
 
 	return &chainntnfs.SpendEvent{
 		Spend: make(chan *chainntnfs.SpendDetail),

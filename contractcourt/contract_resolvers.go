@@ -169,45 +169,17 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 	// spent, and the spending transaction has been fully confirmed.
 	waitForOutputResolution := func() error {
 		// We first need to register to see when the HTLC output itself
-		// has been spent so we can wait for the spending transaction
-		// to confirm.
+		// has been spent by a confirmed transaction.
 		spendNtfn, err := h.Notifier.RegisterSpendNtfn(
 			&h.htlcResolution.ClaimOutpoint,
-			h.broadcastHeight, true,
+			h.broadcastHeight, false,
 		)
 		if err != nil {
 			return err
 		}
 
-		var spendDetail *chainntnfs.SpendDetail
 		select {
-		case s, ok := <-spendNtfn.Spend:
-			if !ok {
-				return fmt.Errorf("notifier quit")
-			}
-
-			spendDetail = s
-
-		case <-h.Quit:
-			return fmt.Errorf("quitting")
-		}
-
-		// Now that the output has been spent, we'll also wait for the
-		// transaction to be confirmed before proceeding.
-		confNtfn, err := h.Notifier.RegisterConfirmationsNtfn(
-			spendDetail.SpenderTxHash, 1,
-			uint32(spendDetail.SpendingHeight-1),
-		)
-		if err != nil {
-			return err
-		}
-
-		log.Infof("%T(%v): waiting for spending (txid=%v) to be fully "+
-			"confirmed", h, h.htlcResolution.ClaimOutpoint,
-			spendDetail.SpenderTxHash)
-
-		select {
-		case _, ok := <-confNtfn.Confirmed:
+		case _, ok := <-spendNtfn.Spend:
 			if !ok {
 				return fmt.Errorf("notifier quit")
 			}

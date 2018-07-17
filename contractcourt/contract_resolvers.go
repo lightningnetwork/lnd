@@ -580,7 +580,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	// To wrap this up, we'll wait until the second-level transaction has
 	// been spent, then fully resolve the contract.
 	spendNtfn, err := h.Notifier.RegisterSpendNtfn(
-		&h.htlcResolution.ClaimOutpoint, h.broadcastHeight, true,
+		&h.htlcResolution.ClaimOutpoint, h.broadcastHeight, false,
 	)
 	if err != nil {
 		return nil, err

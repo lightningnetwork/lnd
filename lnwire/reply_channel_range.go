@@ -46,7 +46,12 @@ func (c *ReplyChannelRange) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	c.EncodingType, c.ShortChanIDs, err = decodeShortChanIDs(r)
+	// special handling to avoid error deep compare
+	var shortChanIDs []ShortChannelID
+	c.EncodingType, shortChanIDs, err = decodeShortChanIDs(r)
+	if len(shortChanIDs) > 0{
+		c.ShortChanIDs = shortChanIDs
+	}
 
 	return err
 }

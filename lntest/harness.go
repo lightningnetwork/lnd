@@ -238,7 +238,14 @@ func (n *NetworkHarness) TearDownAll() error {
 // current instance of the network harness. The created node is running, but
 // not yet connected to other nodes within the network.
 func (n *NetworkHarness) NewNode(name string, extraArgs []string) (*HarnessNode, error) {
-	return n.newNode(name, extraArgs, false)
+	node, err := n.newNode(name, extraArgs, false)
+	if err != nil{
+		return nil, err
+	}
+
+	err = ensureServerStarted(node)
+
+	return node, err
 }
 
 // NewNodeWithSeed fully initializes a new HarnessNode after creating a fresh
@@ -283,6 +290,11 @@ func (n *NetworkHarness) NewNodeWithSeed(name string, extraArgs []string,
 		return nil, nil, err
 	}
 
+	err = ensureServerStarted(node)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	// With the node started, we can now record its public key within the
 	// global mapping.
 	n.RegisterNode(node)
@@ -311,6 +323,11 @@ func (n *NetworkHarness) RestoreNodeWithSeed(name string, extraArgs []string,
 	}
 
 	err = node.Init(context.Background(), initReq)
+	if err != nil {
+		return nil, err
+	}
+
+	err = ensureServerStarted(node)
 	if err != nil {
 		return nil, err
 	}
@@ -552,7 +569,43 @@ func (n *NetworkHarness) RestartNode(node *HarnessNode, callback func() error) e
 		}
 	}
 
-	return node.start(n.lndErrorChan)
+	if err := node.start(n.lndErrorChan); err != nil{
+		return err
+	}
+
+	return ensureServerStarted(node)
+}
+
+// ensureServerStarted  verifies that the lnd server started.
+// It is done by using RPC calls to DisconnectPeerRequest which returns an error "chain backend is still syncing"
+// before the server started.
+// TODO (Offer): replace this hack with a field in getInfo that indicates that the server staretd
+
+func ensureServerStarted (node *HarnessNode) error{
+	// make sure the node completed the server startup
+	err := WaitPredicate(func() bool {
+		ctxb := context.Background()
+		req := &lnrpc.DisconnectPeerRequest{
+			PubKey:   "Dummy key to get an error",
+		}
+		_, err := node.DisconnectPeer(
+			ctxb, req,
+		)
+		if err != nil {
+			if strings.Contains(err.Error(),"chain backend is still syncing"){
+				return false
+			}
+			return true
+		}
+		return false
+	}, time.Second*15)
+
+	if err != nil{
+		return fmt.Errorf("node (%v) is still not sync with chain after 15 seconds",node.cfg.Name)
+	}
+
+	return  nil
+
 }
 
 // ShutdownNode stops an active lnd process and returns when the process has

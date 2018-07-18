@@ -251,7 +251,10 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 // link to cope with bigger number of payment updates that commitment
 // transaction may consist.
 func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
-	t.Parallel()
+	// TODO (offer): temporary disabled parallel execution to avoid impact on other tests that are using sleep(x) to sync excution
+	// TODO (offer): this test creates 966 parallel go routine which puts a lot of CPU pressure. Test itself is OK but impact on other tests is huge
+	// TODO (offer): The need of such high number of parallel routine should be discussed
+	//t.Parallel()
 
 	channels, cleanUp, _, err := createClusterChannels(
 		btcutil.SatoshiPerBitcoin*3,
@@ -1686,6 +1689,9 @@ func updateState(batchTick chan time.Time, link *channelLink,
 // sleep in this test and the one below
 func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	t.Parallel()
+	if !hodl.DebugBuild{
+		t.Skipf("test must be run with '-tags debug")
+	}
 
 	// TODO(roasbeef): replace manual bit twiddling with concept of
 	// resource cost for packets?
@@ -2629,6 +2635,10 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 // circuits if the ADDs corresponding to open circuits are never committed.
 func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	t.Parallel()
+
+	if !hodl.DebugBuild{
+		t.Skipf("test must be run with '-tags debug")
+	}
 
 	const (
 		chanAmt   = btcutil.SatoshiPerBitcoin * 5

@@ -420,8 +420,9 @@ func testSpendNotification(miner *rpctest.Harness,
 	const numClients = 5
 	spendClients := make([]*chainntnfs.SpendEvent, numClients)
 	for i := 0; i < numClients; i++ {
-		spentIntent, err := notifier.RegisterSpendNtfn(outpoint,
-			uint32(currentHeight))
+		spentIntent, err := notifier.RegisterSpendNtfn(
+			outpoint, pkScript, uint32(currentHeight),
+		)
 		if err != nil {
 			t.Fatalf("unable to register for spend ntfn: %v", err)
 		}
@@ -471,8 +472,9 @@ func testSpendNotification(miner *rpctest.Harness,
 
 	// Make sure registering a client after the tx is in the mempool still
 	// doesn't trigger a notification.
-	spentIntent, err := notifier.RegisterSpendNtfn(outpoint,
-		uint32(currentHeight))
+	spentIntent, err := notifier.RegisterSpendNtfn(
+		outpoint, pkScript, uint32(currentHeight),
+	)
 	if err != nil {
 		t.Fatalf("unable to register for spend ntfn: %v", err)
 	}
@@ -918,8 +920,9 @@ func testSpendBeforeNtfnRegistration(miner *rpctest.Harness,
 		const numClients = 2
 		spendClients := make([]*chainntnfs.SpendEvent, numClients)
 		for i := 0; i < numClients; i++ {
-			spentIntent, err := notifier.RegisterSpendNtfn(outpoint,
-				uint32(currentHeight))
+			spentIntent, err := notifier.RegisterSpendNtfn(
+				outpoint, pkScript, uint32(currentHeight),
+			)
 			if err != nil {
 				t.Fatalf("unable to register for spend ntfn: %v",
 					err)
@@ -998,8 +1001,9 @@ func testCancelSpendNtfn(node *rpctest.Harness,
 	const numClients = 2
 	spendClients := make([]*chainntnfs.SpendEvent, numClients)
 	for i := 0; i < numClients; i++ {
-		spentIntent, err := notifier.RegisterSpendNtfn(outpoint,
-			uint32(currentHeight))
+		spentIntent, err := notifier.RegisterSpendNtfn(
+			outpoint, pkScript, uint32(currentHeight),
+		)
 		if err != nil {
 			t.Fatalf("unable to register for spend ntfn: %v", err)
 		}

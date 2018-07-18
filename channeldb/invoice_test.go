@@ -314,3 +314,64 @@ func TestInvoiceAddTimeSeries(t *testing.T) {
 		}
 	}
 }
+
+// TestDuplicateSettleInvoice tests that if we add a new invoice and settle it
+// twice, then the second time we also receive the invoice that we settled as a
+// return argument.
+func TestDuplicateSettleInvoice(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test db: %v", err)
+	}
+
+	// We'll start out by creating an invoice and writing it to the DB.
+	amt := lnwire.NewMSatFromSatoshis(1000)
+	invoice, err := randInvoice(amt)
+	if err != nil {
+		t.Fatalf("unable to create invoice: %v", err)
+	}
+
+	if _, err := db.AddInvoice(invoice); err != nil {
+		t.Fatalf("unable to add invoice %v", err)
+	}
+
+	// With the invoice in the DB, we'll now attempt to settle the invoice.
+	payHash := sha256.Sum256(invoice.Terms.PaymentPreimage[:])
+	dbInvoice, err := db.SettleInvoice(payHash, amt)
+	if err != nil {
+		t.Fatalf("unable to settle invoice: %v", err)
+	}
+
+	// We'll update what we expect the settle invoice to be so that our
+	// comparison below has the correct assumption.
+	invoice.SettleIndex = 1
+	invoice.Terms.Settled = true
+	invoice.AmtPaid = amt
+	invoice.SettleDate = dbInvoice.SettleDate
+
+	// We should get back the exact same invoice that we just inserted.
+	if !reflect.DeepEqual(dbInvoice, invoice) {
+		t.Fatalf("wrong invoice after settle, expected %v got %v",
+			spew.Sdump(invoice), spew.Sdump(dbInvoice))
+	}
+
+	// If we try to settle the invoice again, then we should get the very
+	// same invoice back.
+	dbInvoice, err = db.SettleInvoice(payHash, amt)
+	if err != nil {
+		t.Fatalf("unable to settle invoice: %v", err)
+	}
+
+	if dbInvoice == nil {
+		t.Fatalf("invoice from db is nil after settle!")
+	}
+
+	invoice.SettleDate = dbInvoice.SettleDate
+	if !reflect.DeepEqual(dbInvoice, invoice) {
+		t.Fatalf("wrong invoice after second settle, expected %v got %v",
+			spew.Sdump(invoice), spew.Sdump(dbInvoice))
+	}
+}

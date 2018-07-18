@@ -384,22 +384,6 @@ func (c *ChainArbitrator) Start() error {
 	// the chain any longer, only resolve the contracts on the confirmed
 	// commitment.
 	for _, closeChanInfo := range closingChannels {
-		// If this is a pending cooperative close channel then we'll
-		// simply launch a goroutine to wait until the closing
-		// transaction has been confirmed.
-		// TODO(halseth): can remove this since no coop close channels
-		// should be "pending close" after the recent changes. Keeping
-		// it for a bit in case someone with a coop close channel in
-		// the pending close state upgrades to the new commit.
-		if closeChanInfo.CloseType == channeldb.CooperativeClose {
-			go c.watchForChannelClose(closeChanInfo)
-
-			// TODO(roasbeef): actually need arb to possibly
-			// recover from race condition broadcast?
-			//  * if do, can't recover from multi-broadcast
-			continue
-		}
-
 		blockEpoch, err := c.cfg.Notifier.RegisterBlockEpochNtfn()
 		if err != nil {
 			return err
@@ -491,46 +475,6 @@ func (c *ChainArbitrator) Stop() error {
 	c.wg.Wait()
 
 	return nil
-}
-
-// watchForChannelClose is used by the ChainArbitrator to watch for the
-// ultimate on-chain conformation of an existing cooperative channel closure.
-// This is needed if we started a co-op close, but it wasn't fully confirmed
-// before we restarted.
-//
-// NOTE: This must be launched as a goroutine.
-func (c *ChainArbitrator) watchForChannelClose(closeInfo *channeldb.ChannelCloseSummary) {
-	spendNtfn, err := c.cfg.Notifier.RegisterSpendNtfn(
-		&closeInfo.ChanPoint, closeInfo.CloseHeight,
-	)
-	if err != nil {
-		log.Errorf("unable to register for spend: %v", err)
-		return
-	}
-
-	log.Infof("Waiting for ChannelPoint(%v) to be coop closed on chain",
-		closeInfo.ChanPoint)
-
-	var (
-		commitSpend *chainntnfs.SpendDetail
-		ok          bool
-	)
-	select {
-	case commitSpend, ok = <-spendNtfn.Spend:
-		if !ok {
-			return
-		}
-	case <-c.quit:
-		return
-	}
-
-	log.Infof("ChannelPoint(%v) is fully closed, at height: %v",
-		closeInfo.ChanPoint, commitSpend.SpendingHeight)
-
-	if err := c.resolveContract(closeInfo.ChanPoint, nil); err != nil {
-		log.Errorf("unable to resolve contract: %v", err)
-	}
-
 }
 
 // ContractSignals wraps the two signals that affect the state of a channel

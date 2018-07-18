@@ -8130,21 +8130,17 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 		t.Fatalf(predErr.Error())
 	}
 
-	// We'll mine csvDelay blocks in order to generate the sweep transaction
-	// of Bob's funding output.
-	if _, err := net.Miner.Node.Generate(csvDelay - 1); err != nil {
-		t.Fatalf("unable to generate blocks: %v", err)
-	}
-
-	_, err = waitForTxInMempool(net.Miner.Node, 10*time.Second)
+	// Bob can sweep his output immediately.
+	_, err = waitForTxInMempool(net.Miner.Node, 20*time.Second)
 	if err != nil {
-		t.Fatalf("unable to find bob's funding output sweep tx: %v", err)
+		t.Fatalf("unable to find bob's funding output sweep tx: %v",
+			err)
 	}
 
 	// Next, we'll mine enough blocks for the HTLC to expire. At this
 	// point, Bob should hand off the output to his internal utxo nursery,
 	// which will broadcast a sweep transaction.
-	if _, err := net.Miner.Node.Generate(finalCltvDelta - csvDelay - 1); err != nil {
+	if _, err := net.Miner.Node.Generate(finalCltvDelta - 1); err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
 

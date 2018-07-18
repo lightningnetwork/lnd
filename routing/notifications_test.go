@@ -10,15 +10,15 @@ import (
 
 	prand "math/rand"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/chainview"
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 )
 
 var (
@@ -176,7 +176,7 @@ func (m *mockChain) addUtxo(op wire.OutPoint, out *wire.TxOut) {
 	m.utxos[op] = *out
 	m.Unlock()
 }
-func (m *mockChain) GetUtxo(op *wire.OutPoint, _ uint32) (*wire.TxOut, error) {
+func (m *mockChain) GetUtxo(op *wire.OutPoint, _ []byte, _ uint32) (*wire.TxOut, error) {
 	m.RLock()
 	defer m.RUnlock()
 
@@ -242,12 +242,12 @@ func (m *mockChainView) Reset() {
 	m.staleBlocks = make(chan *chainview.FilteredBlock, 10)
 }
 
-func (m *mockChainView) UpdateFilter(ops []wire.OutPoint, updateHeight uint32) error {
+func (m *mockChainView) UpdateFilter(ops []channeldb.EdgePoint, updateHeight uint32) error {
 	m.Lock()
 	defer m.Unlock()
 
 	for _, op := range ops {
-		m.filter[op] = struct{}{}
+		m.filter[op.OutPoint] = struct{}{}
 	}
 
 	return nil

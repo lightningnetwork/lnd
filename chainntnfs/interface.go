@@ -38,7 +38,9 @@ type ChainNotifier interface {
 		heightHint uint32) (*ConfirmationEvent, error)
 
 	// RegisterSpendNtfn registers an intent to be notified once the target
-	// outpoint is successfully spent within a transaction. The returned
+	// outpoint is successfully spent within a transaction. The script that
+	// the outpoint creates must also be specified. This allows this
+	// interface to be implemented by BIP 158-like filtering. The returned
 	// SpendEvent will receive a send on the 'Spend' transaction once a
 	// transaction spending the input is detected on the blockchain.  The
 	// heightHint parameter is provided as a convenience to light clients.
@@ -50,8 +52,8 @@ type ChainNotifier interface {
 	//
 	// NOTE: Dispatching notifications to multiple clients subscribed to a
 	// spend of the same outpoint MUST be supported.
-	RegisterSpendNtfn(outpoint *wire.OutPoint,
-		heightHint uint32) (*SpendEvent, error)
+	RegisterSpendNtfn(outpoint *wire.OutPoint, pkScript []byte,
+		heightHint uint32, mempool bool) (*SpendEvent, error)
 
 	// RegisterBlockEpochNtfn registers an intent to be notified of each
 	// new block connected to the tip of the main chain. The returned

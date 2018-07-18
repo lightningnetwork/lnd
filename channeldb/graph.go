@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"image/color"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/coreos/bbolt"
@@ -2350,12 +2352,62 @@ func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64) (*ChannelEdgeInfo, *
 	return edgeInfo, policy1, policy2, nil
 }
 
+// genMultiSigP2WSH generates the p2wsh'd multisig script for 2 of 2 pubkeys.
+func genMultiSigP2WSH(aPub, bPub []byte) ([]byte, error) {
+	if len(aPub) != 33 || len(bPub) != 33 {
+		return nil, fmt.Errorf("Pubkey size error. Compressed " +
+			"pubkeys only")
+	}
+
+	// Swap to sort pubkeys if needed. Keys are sorted in lexicographical
+	// order. The signatures within the scriptSig must also adhere to the
+	// order, ensuring that the signatures for each public key appears in
+	// the proper order on the stack.
+	if bytes.Compare(aPub, bPub) == 1 {
+		aPub, bPub = bPub, aPub
+	}
+
+	// First, we'll generate the witness script for the multi-sig.
+	bldr := txscript.NewScriptBuilder()
+	bldr.AddOp(txscript.OP_2)
+	bldr.AddData(aPub) // Add both pubkeys (sorted).
+	bldr.AddData(bPub)
+	bldr.AddOp(txscript.OP_2)
+	bldr.AddOp(txscript.OP_CHECKMULTISIG)
+	witnessScript, err := bldr.Script()
+	if err != nil {
+		return nil, err
+	}
+
+	// With the witness script generated, we'll now turn it into a p2sh
+	// script:
+	//  * OP_0 <sha256(script)>
+	bldr = txscript.NewScriptBuilder()
+	bldr.AddOp(txscript.OP_0)
+	scriptHash := sha256.Sum256(witnessScript)
+	bldr.AddData(scriptHash[:])
+
+	return bldr.Script()
+}
+
+// EdgePoint couples the outpoint of a channel with the funding script that it
+// creates. The FilteredChainView will use this to watch for spends of this
+// edge point on chain. We require both of these values as depending on the
+// concrete implementation, either the pkScript, or the out point will be used.
+type EdgePoint struct {
+	// FundingPkScript is the p2wsh multi-sig script of the target channel.
+	FundingPkScript []byte
+
+	// OutPoint is the outpoint of the target channel.
+	OutPoint wire.OutPoint
+}
+
 // ChannelView returns the verifiable edge information for each active channel
-// within the known channel graph. The set of UTXO's returned are the ones that
-// need to be watched on chain to detect channel closes on the resident
-// blockchain.
-func (c *ChannelGraph) ChannelView() ([]wire.OutPoint, error) {
-	var chanPoints []wire.OutPoint
+// within the known channel graph. The set of UTXO's (along with their scripts)
+// returned are the ones that need to be watched on chain to detect channel
+// closes on the resident blockchain.
+func (c *ChannelGraph) ChannelView() ([]EdgePoint, error) {
+	var edgePoints []EdgePoint
 	if err := c.db.View(func(tx *bolt.Tx) error {
 		// We're going to iterate over the entire channel index, so
 		// we'll need to fetch the edgeBucket to get to the index as
@@ -2368,11 +2420,15 @@ func (c *ChannelGraph) ChannelView() ([]wire.OutPoint, error) {
 		if chanIndex == nil {
 			return ErrGraphNoEdgesFound
 		}
+		edgeIndex := edges.Bucket(edgeIndexBucket)
+		if edgeIndex == nil {
+			return ErrGraphNoEdgesFound
+		}
 
 		// Once we have the proper bucket, we'll range over each key
 		// (which is the channel point for the channel) and decode it,
 		// accumulating each entry.
-		return chanIndex.ForEach(func(chanPointBytes, _ []byte) error {
+		return chanIndex.ForEach(func(chanPointBytes, chanID []byte) error {
 			chanPointReader := bytes.NewReader(chanPointBytes)
 
 			var chanPoint wire.OutPoint
@@ -2381,14 +2437,33 @@ func (c *ChannelGraph) ChannelView() ([]wire.OutPoint, error) {
 				return err
 			}
 
-			chanPoints = append(chanPoints, chanPoint)
+			edgeInfo, err := fetchChanEdgeInfo(
+				edgeIndex, chanID,
+			)
+			if err != nil {
+				return err
+			}
+
+			pkScript, err := genMultiSigP2WSH(
+				edgeInfo.BitcoinKey1Bytes[:],
+				edgeInfo.BitcoinKey2Bytes[:],
+			)
+			if err != nil {
+				return err
+			}
+
+			edgePoints = append(edgePoints, EdgePoint{
+				FundingPkScript: pkScript,
+				OutPoint:        chanPoint,
+			})
+
 			return nil
 		})
 	}); err != nil {
 		return nil, err
 	}
 
-	return chanPoints, nil
+	return edgePoints, nil
 }
 
 // NewChannelEdgePolicy returns a new blank ChannelEdgePolicy.

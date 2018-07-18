@@ -53,7 +53,7 @@ type ChainNotifier interface {
 	// NOTE: Dispatching notifications to multiple clients subscribed to a
 	// spend of the same outpoint MUST be supported.
 	RegisterSpendNtfn(outpoint *wire.OutPoint, pkScript []byte,
-		heightHint uint32, mempool bool) (*SpendEvent, error)
+		heightHint uint32) (*SpendEvent, error)
 
 	// RegisterBlockEpochNtfn registers an intent to be notified of each
 	// new block connected to the tip of the main chain. The returned

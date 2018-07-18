@@ -173,8 +173,21 @@ func (c *chainWatcher) Start() error {
 		heightHint = chanState.FundingBroadcastHeight
 	}
 
+	localKey := chanState.LocalChanCfg.MultiSigKey.PubKey.SerializeCompressed()
+	remoteKey := chanState.RemoteChanCfg.MultiSigKey.PubKey.SerializeCompressed()
+	multiSigScript, err := lnwallet.GenMultiSigScript(
+		localKey, remoteKey,
+	)
+	if err != nil {
+		return err
+	}
+	pkScript, err := lnwallet.WitnessScriptHash(multiSigScript)
+	if err != nil {
+		return err
+	}
+
 	spendNtfn, err := c.cfg.notifier.RegisterSpendNtfn(
-		fundingOut, heightHint,
+		fundingOut, pkScript, heightHint,
 	)
 	if err != nil {
 		return err

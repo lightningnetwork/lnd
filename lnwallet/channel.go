@@ -2043,8 +2043,8 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	htlcRetributions := make([]HtlcRetribution, 0, len(revokedSnapshot.Htlcs))
 	for _, htlc := range revokedSnapshot.Htlcs {
 		var (
-			htlcScript []byte
-			err        error
+			htlcWitnessScript []byte
+			err               error
 		)
 
 		// If the HTLC is dust, then we'll skip it as it doesn't have
@@ -2072,7 +2072,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		// the sender of the HTLC (relative to us). So we'll
 		// re-generate the sender HTLC script.
 		if htlc.Incoming {
-			htlcScript, err = senderHTLCScript(
+			htlcWitnessScript, err = senderHTLCScript(
 				keyRing.RemoteHtlcKey, keyRing.LocalHtlcKey,
 				keyRing.RevocationKey, htlc.RHash[:],
 			)
@@ -2084,7 +2084,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 			// Otherwise, is this was an outgoing HTLC that we
 			// sent, then from the PoV of the remote commitment
 			// state, they're the receiver of this HTLC.
-			htlcScript, err = receiverHTLCScript(
+			htlcWitnessScript, err = receiverHTLCScript(
 				htlc.RefundTimeout, keyRing.LocalHtlcKey,
 				keyRing.RemoteHtlcKey, keyRing.RevocationKey,
 				htlc.RHash[:],
@@ -2094,13 +2094,19 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 			}
 		}
 
+		htlcPkScript, err := WitnessScriptHash(htlcWitnessScript)
+		if err != nil {
+			return nil, err
+		}
+
 		htlcRetributions = append(htlcRetributions, HtlcRetribution{
 			SignDesc: SignDescriptor{
 				KeyDesc:       chanState.LocalChanCfg.RevocationBasePoint,
 				DoubleTweak:   commitmentSecret,
-				WitnessScript: htlcScript,
+				WitnessScript: htlcWitnessScript,
 				Output: &wire.TxOut{
-					Value: int64(htlc.Amt.ToSatoshis()),
+					PkScript: htlcPkScript,
+					Value:    int64(htlc.Amt.ToSatoshis()),
 				},
 				HashType: txscript.SigHashAll,
 			},
@@ -5295,7 +5301,8 @@ func newOutgoingHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelCon
 	// With the sign desc created, we can now construct the full witness
 	// for the timeout transaction, and populate it as well.
 	timeoutWitness, err := senderHtlcSpendTimeout(
-		htlc.Signature, signer, &timeoutSignDesc, timeoutTx)
+		htlc.Signature, signer, &timeoutSignDesc, timeoutTx,
+	)
 	if err != nil {
 		return nil, err
 	}

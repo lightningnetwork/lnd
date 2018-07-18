@@ -298,6 +298,7 @@ func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 	newAmt := spendingTx.TxOut[0].Value
 	bo.amt = btcutil.Amount(newAmt)
 	bo.signDesc.Output.Value = newAmt
+	bo.signDesc.Output.PkScript = spendingTx.TxOut[0].PkScript
 
 	// Finally, we'll need to adjust the witness program in the
 	// SignDescriptor.

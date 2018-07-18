@@ -133,7 +133,7 @@ func (n *NeutrinoNotifier) Start() error {
 	// required that a user MUST set an addr/outpoint/txid when creating a
 	// rescan. To get around this, we'll add a "zero" outpoint, that won't
 	// actually be matched.
-	var zeroHash chainhash.Hash
+	var zeroInput neutrino.InputWithScript
 	rescanOptions := []neutrino.RescanOption{
 		neutrino.StartBlock(startingPoint),
 		neutrino.QuitChan(n.quit),
@@ -143,11 +143,12 @@ func (n *NeutrinoNotifier) Start() error {
 				OnFilteredBlockDisconnected: n.onFilteredBlockDisconnected,
 			},
 		),
-		neutrino.WatchTxIDs(zeroHash),
+		neutrino.WatchInputs(zeroInput),
 	}
 
 	n.txConfNotifier = chainntnfs.NewTxConfNotifier(
-		bestHeight, reorgSafetyLimit)
+		bestHeight, reorgSafetyLimit,
+	)
 
 	// Finally, we'll create our rescan struct, start it, and launch all
 	// the goroutines we need to operate this ChainNotifier instance.
@@ -599,7 +600,7 @@ type spendCancel struct {
 // target outpoint has been detected, the details of the spending event will be
 // sent across the 'Spend' channel.
 func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	heightHint uint32) (*chainntnfs.SpendEvent, error) {
+	pkScript []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
 
 	n.heightMtx.RLock()
 	currentHeight := n.bestHeight
@@ -658,10 +659,15 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		break
 	}
 
+	inputToWatch := neutrino.InputWithScript{
+		OutPoint: *outpoint,
+		PkScript: pkScript,
+	}
+
 	// Before sending off the notification request, we'll attempt to see if
 	// this output is still spent or not at this point in the chain.
 	spendReport, err := n.p2pNode.GetUtxo(
-		neutrino.WatchOutPoints(*outpoint),
+		neutrino.WatchInputs(inputToWatch),
 		neutrino.StartBlock(&waddrmgr.BlockStamp{
 			Height: int32(heightHint),
 		}),
@@ -697,7 +703,7 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	// If the output is still unspent, then we'll update our rescan's
 	// filter, and send the request to the dispatcher goroutine.
 	rescanUpdate := []neutrino.UpdateOption{
-		neutrino.AddOutPoints(*outpoint),
+		neutrino.AddInputs(inputToWatch),
 		neutrino.Rewind(currentHeight),
 	}
 

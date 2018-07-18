@@ -360,6 +360,7 @@ func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 			var err error
 			spendNtfn, err = b.cfg.Notifier.RegisterSpendNtfn(
 				&breachedOutput.outpoint,
+				breachedOutput.signDesc.Output.PkScript,
 				breachInfo.breachHeight,
 			)
 			if err != nil {

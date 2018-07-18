@@ -220,24 +220,22 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest,
 	}
 	chanPointStr := fmt.Sprintf("%v:%v", txid, fundingChanPoint.OutputIndex)
 
-	// If we didn't force close the transaction, at this point, the channel
-	// should now be marked as being in the state of "waiting close".
-	if !force {
-		pendingChansRequest := &lnrpc.PendingChannelsRequest{}
-		pendingChanResp, err := node.PendingChannels(ctx, pendingChansRequest)
-		if err != nil {
-			t.Fatalf("unable to query for pending channels: %v", err)
+	// At this point, the channel should now be marked as being in the
+	// state of "waiting close".
+	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
+	pendingChanResp, err := node.PendingChannels(ctx, pendingChansRequest)
+	if err != nil {
+		t.Fatalf("unable to query for pending channels: %v", err)
+	}
+	var found bool
+	for _, pendingClose := range pendingChanResp.WaitingCloseChannels {
+		if pendingClose.Channel.ChannelPoint == chanPointStr {
+			found = true
+			break
 		}
-		var found bool
-		for _, pendingClose := range pendingChanResp.WaitingCloseChannels {
-			if pendingClose.Channel.ChannelPoint == chanPointStr {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Fatalf("channel not marked as waiting close")
-		}
+	}
+	if !found {
+		t.Fatalf("channel not marked as waiting close")
 	}
 
 	// We'll now, generate a single block, wait for the final close status
@@ -254,28 +252,26 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest,
 
 	// Finally, the transaction should no longer be in the waiting close
 	// state as we've just mined a block that should include the closing
-	// transaction. This only applies for co-op close channels though.
-	if !force {
-		err = lntest.WaitPredicate(func() bool {
-			pendingChansRequest := &lnrpc.PendingChannelsRequest{}
-			pendingChanResp, err := node.PendingChannels(
-				ctx, pendingChansRequest,
-			)
-			if err != nil {
+	// transaction.
+	err = lntest.WaitPredicate(func() bool {
+		pendingChansRequest := &lnrpc.PendingChannelsRequest{}
+		pendingChanResp, err := node.PendingChannels(
+			ctx, pendingChansRequest,
+		)
+		if err != nil {
+			return false
+		}
+
+		for _, pendingClose := range pendingChanResp.WaitingCloseChannels {
+			if pendingClose.Channel.ChannelPoint == chanPointStr {
 				return false
 			}
-
-			for _, pendingClose := range pendingChanResp.WaitingCloseChannels {
-				if pendingClose.Channel.ChannelPoint == chanPointStr {
-					return false
-				}
-			}
-
-			return true
-		}, time.Second*15)
-		if err != nil {
-			t.Fatalf("closing transaction not marked as fully closed")
 		}
+
+		return true
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf("closing transaction not marked as fully closed")
 	}
 
 	return closingTxid

@@ -251,7 +251,11 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 // link to cope with bigger number of payment updates that commitment
 // transaction may consist.
 func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
-	t.Parallel()
+	// this test creates 966 parallel goroutines which create CPU pressure.
+	// Test itself is OK but impact on other tests is huge. to avoid impact on
+	// other tests that are using timeouts (sleep(x)) this test should not use
+	// t.Parallel
+	//t.Parallel()
 
 	channels, cleanUp, _, err := createClusterChannels(
 		btcutil.SatoshiPerBitcoin*3,

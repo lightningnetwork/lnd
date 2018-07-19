@@ -8783,7 +8783,18 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
+	net.Alice.SetPort(19550)
+	err := net.RestartNode(net.Alice,nil)
+	if err != nil{
+		t.Fatalf("unable to restart Alice: %v", err)
+	}
+
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	if err := net.EnsureConnected(ctxt, net.Alice, net.Bob); err != nil {
+		t.Fatalf("unable to reconnect Alice to Bob: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointAlice := openChannelAndAssert(
 		ctxt, t, net, net.Alice, net.Bob, chanAmt, pushAmt, false,
 	)

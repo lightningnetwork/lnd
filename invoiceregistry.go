@@ -64,7 +64,7 @@ func newInvoiceRegistry(cdb *channeldb.DB) *invoiceRegistry {
 		notificationClients: make(map[uint32]*invoiceSubscription),
 		newSubscriptions:    make(chan *invoiceSubscription),
 		subscriptionCancels: make(chan uint32),
-		invoiceEvents:       make(chan *invoiceEvent),
+		invoiceEvents:       make(chan *invoiceEvent, 100),
 		quit:                make(chan struct{}),
 	}
 }

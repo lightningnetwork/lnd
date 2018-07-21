@@ -86,7 +86,7 @@ Tor:
       --tor.controlport=                                      The port that Tor is listening on for Tor control connections -- NOTE port must be between 1024 and 65535 (default: 9051)
       --tor.v2                                                Automatically set up a v2 onion service to listen for inbound connections
       --tor.v3                                                Use a v3 onion service to listen for inbound connections
-      --tor.privatekeypath=                                   The path to the private key of the onion service being created (default: /Users/user/Library/Application Support/Lnd/onion_private_key)
+      --tor.v2privatekeypath=                                   The path to the private key of the onion service being created (default: /Users/user/Library/Application Support/Lnd/onion_private_key)
 ```
 
 There are a couple things here, so let's dissect them. The `--tor.active` flag
@@ -103,7 +103,7 @@ bootstrap our connections.
 
 Inbound connections are possible due to `lnd` automatically creating a v2 onion
 service. A path to save the onion service's private key can be specified with
-the `--tor.privatekeypath` flag. A v3 onion service can also be used, but it
+the `--tor.v2privatekeypath` flag. A v3 onion service can also be used, but it
 must be created manually. We'll expand on how this works in [Listening for
 Inbound Connections](#listening-for-inbound-connections).
 
@@ -154,7 +154,7 @@ private key is saved to a file named `onion_private_key` in `lnd`'s base
 directory. This will allow `lnd` to recreate the same hidden service upon
 restart. If you wish to generate a new onion service, you can simply delete this
 file. The path to this private key file can also be modified with the
-`--tor.privatekeypath` argument.
+`--tor.v2privatekeypath` argument.
 
 ### v3 Onion Services
 

@@ -360,9 +360,7 @@ func lndMain() error {
 				idPrivKey.PubKey())
 			return <-errChan
 		},
-		SendToPeer:       server.SendToPeer,
 		NotifyWhenOnline: server.NotifyWhenOnline,
-		FindPeer:         server.FindPeer,
 		TempChanIDSeed:   chanIDSeed,
 		FindChannel: func(chanID lnwire.ChannelID) (*lnwallet.LightningChannel, error) {
 			dbChannels, err := chanDB.FetchAllChannels()
@@ -450,12 +448,12 @@ func lndMain() error {
 			return delay
 		},
 		WatchNewChannel: func(channel *channeldb.OpenChannel,
-			addr *lnwire.NetAddress) error {
+			peerKey *btcec.PublicKey) error {
 
 			// First, we'll mark this new peer as a persistent peer
 			// for re-connection purposes.
 			server.mu.Lock()
-			pubStr := string(addr.IdentityKey.SerializeCompressed())
+			pubStr := string(peerKey.SerializeCompressed())
 			server.persistentPeers[pubStr] = struct{}{}
 			server.mu.Unlock()
 

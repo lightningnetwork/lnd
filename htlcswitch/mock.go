@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -515,6 +516,16 @@ func (s *mockServer) PubKey() [33]byte {
 func (s *mockServer) IdentityKey() *btcec.PublicKey {
 	pubkey, _ := btcec.ParsePubKey(s.id[:], btcec.S256())
 	return pubkey
+}
+
+func (s *mockServer) Address() net.Addr {
+	return nil
+}
+
+func (s *mockServer) AddNewChannel(channel *lnwallet.LightningChannel,
+	cancel <-chan struct{}) error {
+
+	return nil
 }
 
 func (s *mockServer) WipeChannel(*wire.OutPoint) error {

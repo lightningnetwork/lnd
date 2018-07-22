@@ -759,7 +759,12 @@ func (s *server) Start() error {
 
 	// With all the relevant sub-systems started, we'll now attempt to
 	// establish persistent connections to our direct channel collaborators
-	// within the network.
+	// within the network. Before doing so however, we'll prune our set of
+	// link nodes found within the database to ensure we don't reconnect to
+	// any nodes we no longer have open channels with.
+	if err := s.chanDB.PruneLinkNodes(); err != nil {
+		return err
+	}
 	if err := s.establishPersistentConnections(); err != nil {
 		return err
 	}
@@ -1474,6 +1479,22 @@ func (s *server) establishPersistentConnections() error {
 	}
 
 	return nil
+}
+
+// prunePersistentPeerConnection removes all internal state related to
+// persistent connections to a peer within the server. This is used to avoid
+// persistent connection retries to peers we do not have any open channels with.
+func (s *server) prunePersistentPeerConnection(compressedPubKey [33]byte) {
+	srvrLog.Infof("Pruning peer %x from persistent connections, number of "+
+		"open channels is now zero", compressedPubKey)
+
+	pubKeyStr := string(compressedPubKey[:])
+
+	s.mu.Lock()
+	delete(s.persistentPeers, pubKeyStr)
+	delete(s.persistentPeersBackoff, pubKeyStr)
+	s.cancelConnReqs(pubKeyStr, nil)
+	s.mu.Unlock()
 }
 
 // BroadcastMessage sends a request to the server to broadcast a set of

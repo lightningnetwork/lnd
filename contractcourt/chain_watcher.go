@@ -78,13 +78,6 @@ type chainWatcherConfig struct {
 	// machine.
 	signer lnwallet.Signer
 
-	// notifyChanClosed is a method that will be called by the watcher when
-	// it has detected a close on-chain and performed all necessary
-	// actions, like marking the channel closed in the database and
-	// notified all its subcribers. It lets the chain arbitrator know that
-	// the chain watcher chan be stopped.
-	notifyChanClosed func() error
-
 	// contractBreach is a method that will be called by the watcher if it
 	// detects that a contract breach transaction has been confirmed. Only
 	// when this method returns with a non-nil error it will be safe to mark
@@ -492,16 +485,7 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 	}
 	c.Unlock()
 
-	// Now notify the ChainArbitrator that the watcher's job is done, such
-	// that it can shut it down and clean up.
-	if err := c.cfg.notifyChanClosed(); err != nil {
-		log.Errorf("unable to notify channel closed for "+
-			"ChannelPoint(%v): %v",
-			c.cfg.chanState.FundingOutpoint, err)
-	}
-
 	return nil
-
 }
 
 // dispatchLocalForceClose processes a unilateral close by us being confirmed.

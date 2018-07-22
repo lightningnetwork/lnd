@@ -1697,9 +1697,6 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 
 // handleLocalCloseReq kicks-off the workflow to execute a cooperative or
 // forced unilateral closure of the channel initiated by a local subsystem.
-//
-// TODO(roasbeef): if no more active channels with peer call Remove on connMgr
-// with peerID
 func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 	chanID := lnwire.NewChanIDFromOutPoint(req.ChanPoint)
 
@@ -1852,6 +1849,18 @@ func (p *peer) finalizeChanClosure(chanCloser *channelCloser) {
 					},
 				}
 			}
+
+			// Remove the persistent connection to this peer if we
+			// no longer have open channels with them.
+			p.activeChanMtx.Lock()
+			numActiveChans := len(p.activeChannels)
+			p.activeChanMtx.Unlock()
+
+			if numActiveChans == 0 {
+				p.server.prunePersistentPeerConnection(
+					p.pubKeyBytes,
+				)
+			}
 		})
 }
 
@@ -1905,6 +1914,9 @@ func (p *peer) WipeChannel(chanPoint *wire.OutPoint) error {
 	if channel, ok := p.activeChannels[chanID]; ok {
 		channel.Stop()
 		delete(p.activeChannels, chanID)
+		if len(p.activeChannels) == 0 {
+			p.server.prunePersistentPeerConnection(p.pubKeyBytes)
+		}
 	}
 	p.activeChanMtx.Unlock()
 

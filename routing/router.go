@@ -9,6 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -17,9 +20,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
 	"github.com/lightningnetwork/lnd/routing/chainview"
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 
 	"crypto/sha256"
 
@@ -379,6 +379,13 @@ func (r *ChannelRouter) Start() error {
 	// Before we begin normal operation of the router, we first need to
 	// synchronize the channel graph to the latest state of the UTXO set.
 	if err := r.syncGraphWithChain(); err != nil {
+		return err
+	}
+
+	// Finally, before we proceed, we'll prune any unconnected nodes from
+	// the graph in order to ensure we maintain a tight graph of "useful"
+	// nodes.
+	if err := r.cfg.Graph.PruneGraphNodes(); err != nil {
 		return err
 	}
 

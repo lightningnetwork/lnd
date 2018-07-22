@@ -734,7 +734,11 @@ func (c *ChannelGraph) pruneGraphNodes(tx *bolt.Tx, nodes *bolt.Bucket,
 			numChansLeft++
 			return nil
 		})
-		if err != nil {
+
+		// If we're unable read the node, or no edges exist in the
+		// graph atm (so all the nodes are unconnected), then we'll
+		// just skip this node all together.
+		if err != nil && err != ErrGraphNoEdgesFound {
 			continue
 		}
 

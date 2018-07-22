@@ -14,12 +14,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coreos/bbolt"
-	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/coreos/bbolt"
+	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 var (
@@ -2056,6 +2056,55 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("unable to read update index: %v", err)
 	}
+}
+
+// TestPruneGraphNodes tests that unconnected vertexes are pruned via the
+// PruneSyncState method.
+func TestPruneGraphNodes(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+
+	// We'll start off by inserting our source node, to ensure that it's
+	// the only node left after we prune the graph.
+	graph := db.ChannelGraph()
+	sourceNode, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create source node: %v", err)
+	}
+	if err := graph.SetSourceNode(sourceNode); err != nil {
+		t.Fatalf("unable to set source node: %v", err)
+	}
+
+	// With the source node inserted, we'll now add two nodes into the
+	// channel graph, as they don't have any channels they should be
+	// removed from the graph at the end.
+	node1, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	if err := graph.AddLightningNode(node1); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
+	node2, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	if err := graph.AddLightningNode(node2); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
+
+	if err := graph.PruneGraphNodes(); err != nil {
+		t.Fatalf("unable to prune graph nodes: %v", err)
+	}
+
+	// There should only be a single node left at this point, the source
+	// node.
+	assertNumNodes(t, graph, 1)
 }
 
 // compareNodes is used to compare two LightningNodes while excluding the

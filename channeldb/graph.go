@@ -10,12 +10,12 @@ import (
 	"net"
 	"time"
 
-	"github.com/coreos/bbolt"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 var (
@@ -696,6 +696,41 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 	}
 
 	return chansClosed, nil
+}
+
+// PruneGraphNodes is a garbage collection method which attempts to prune out
+// any nodes from the channel graph that are currently unconnected. This ensure
+// that we only maintain a graph of reachable nodes. In the event that a pruned
+// node gains more channels, it will be re-added back to the graph.
+func (c *ChannelGraph) PruneGraphNodes() error {
+	// We'll use this map to collect a
+	nodesToMaybePrune := make(map[[33]byte]struct{})
+
+	return c.db.Update(func(tx *bolt.Tx) error {
+		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
+		if err != nil {
+			return err
+		}
+
+		err = nodes.ForEach(func(pubKey, nodeBytes []byte) error {
+			// Skip anything that may actually be a sub-bucket.
+			if len(pubKey) != 33 {
+				return nil
+			}
+
+			var nodePub [33]byte
+			copy(nodePub[:], pubKey)
+
+			nodesToMaybePrune[nodePub] = struct{}{}
+
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+
+		return c.pruneGraphNodes(tx, nodes, nodesToMaybePrune)
+	})
 }
 
 // pruneGraphNodes attempts to remove any nodes from the graph who have had a

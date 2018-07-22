@@ -7,12 +7,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 )
 
 const (
@@ -765,12 +765,21 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		// and only arrives in the mempool after the getxout call.
 		if blockHash != nil {
 			ops := []*wire.OutPoint{outpoint}
-			err = b.chainConn.Rescan(blockHash, nil, ops)
-			if err != nil {
-				chainntnfs.Log.Errorf("Rescan for spend "+
-					"notification txout failed: %v", err)
-				return nil, err
-			}
+
+			// In order to ensure that we don't block the caller on
+			// what may be a long rescan, we'll launch a new
+			// goroutine to handle the async result of the rescan.
+			asyncResult := b.chainConn.RescanAsync(
+				blockHash, nil, ops,
+			)
+			go func() {
+				rescanErr := asyncResult.Receive()
+				if rescanErr != nil {
+					chainntnfs.Log.Errorf("Rescan for spend "+
+						"notification txout(%x) "+
+						"failed: %v", outpoint, rescanErr)
+				}
+			}()
 		}
 	}
 

@@ -9,6 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -17,9 +20,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
 	"github.com/lightningnetwork/lnd/routing/chainview"
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 
 	"crypto/sha256"
 
@@ -379,6 +379,13 @@ func (r *ChannelRouter) Start() error {
 	// Before we begin normal operation of the router, we first need to
 	// synchronize the channel graph to the latest state of the UTXO set.
 	if err := r.syncGraphWithChain(); err != nil {
+		return err
+	}
+
+	// Finally, before we proceed, we'll prune any unconnected nodes from
+	// the graph in order to ensure we maintain a tight graph of "useful"
+	// nodes.
+	if err := r.cfg.Graph.PruneGraphNodes(); err != nil {
 		return err
 	}
 
@@ -947,34 +954,6 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		} else if exists {
 			return newErrf(ErrIgnored, "Ignoring msg for known "+
 				"chan_id=%v", msg.ChannelID)
-		}
-
-		// Query the database for the existence of the two nodes in this
-		// channel. If not found, add a partial node to the database,
-		// containing only the node keys.
-		_, exists, _ = r.cfg.Graph.HasLightningNode(msg.NodeKey1Bytes)
-		if !exists {
-			node1 := &channeldb.LightningNode{
-				PubKeyBytes:          msg.NodeKey1Bytes,
-				HaveNodeAnnouncement: false,
-			}
-			err := r.cfg.Graph.AddLightningNode(node1)
-			if err != nil {
-				return errors.Errorf("unable to add node %v to"+
-					" the graph: %v", node1.PubKeyBytes, err)
-			}
-		}
-		_, exists, _ = r.cfg.Graph.HasLightningNode(msg.NodeKey2Bytes)
-		if !exists {
-			node2 := &channeldb.LightningNode{
-				PubKeyBytes:          msg.NodeKey2Bytes,
-				HaveNodeAnnouncement: false,
-			}
-			err := r.cfg.Graph.AddLightningNode(node2)
-			if err != nil {
-				return errors.Errorf("unable to add node %v to"+
-					" the graph: %v", node2.PubKeyBytes, err)
-			}
 		}
 
 		// Before we can add the channel to the channel graph, we need

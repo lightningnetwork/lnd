@@ -11,12 +11,12 @@ import (
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
-	"github.com/roasbeef/btcd/wire"
+	"github.com/btcsuite/btcd/wire"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec"
 )
 
 // defaultNumRoutes is the default value for the maximum number of routes to
@@ -175,8 +175,10 @@ func TestFindRoutesFeeSorting(t *testing.T) {
 	// Execute a query for all possible routes between roasbeef and luo ji.
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := ctx.aliases["luoji"]
-	routes, err := ctx.router.FindRoutes(target, paymentAmt,
-		defaultNumRoutes, DefaultFinalCLTVDelta)
+	routes, err := ctx.router.FindRoutes(
+		target, paymentAmt, noFeeLimit, defaultNumRoutes,
+		DefaultFinalCLTVDelta,
+	)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
 	}
@@ -206,6 +208,59 @@ func TestFindRoutesFeeSorting(t *testing.T) {
 	}
 }
 
+// TestFindRoutesWithFeeLimit asserts that routes found by the FindRoutes method
+// within the channel router contain a total fee less than or equal to the fee
+// limit.
+func TestFindRoutesWithFeeLimit(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx, cleanUp, err := createTestCtx(
+		startingBlockHeight, basicGraphFilePath,
+	)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	// This test will attempt to find routes from roasbeef to sophon for 100
+	// satoshis with a fee limit of 10 satoshis. There are two routes from
+	// roasbeef to sophon:
+	//	1. roasbeef -> songoku -> sophon
+	//	2. roasbeef -> phamnuwen -> sophon
+	// The second route violates our fee limit, so we should only expect to
+	// see the first route.
+	target := ctx.aliases["sophon"]
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+	feeLimit := lnwire.NewMSatFromSatoshis(10)
+
+	routes, err := ctx.router.FindRoutes(
+		target, paymentAmt, feeLimit, defaultNumRoutes,
+		DefaultFinalCLTVDelta,
+	)
+	if err != nil {
+		t.Fatalf("unable to find any routes: %v", err)
+	}
+
+	if len(routes) != 1 {
+		t.Fatalf("expected 1 route, got %d", len(routes))
+	}
+
+	if routes[0].TotalFees > feeLimit {
+		t.Fatalf("route exceeded fee limit: %v", spew.Sdump(routes[0]))
+	}
+
+	hops := routes[0].Hops
+	if len(hops) != 2 {
+		t.Fatalf("expected 2 hops, got %d", len(hops))
+	}
+
+	if hops[0].Channel.Node.Alias != "songoku" {
+		t.Fatalf("expected first hop through songoku, got %s",
+			hops[0].Channel.Node.Alias)
+	}
+}
+
 // TestSendPaymentRouteFailureFallback tests that when sending a payment, if
 // one of the target routes is seen as unavailable, then the next route in the
 // queue is used instead. This process should continue until either a payment
@@ -221,11 +276,13 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 	}
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
-	// to luo ji for 100 satoshis.
+	// to luo ji for 1000 satoshis, with a maximum of 1000 satoshis in fees.
 	var payHash [32]byte
+	paymentAmt := lnwire.NewMSatFromSatoshis(1000)
 	payment := LightningPayment{
 		Target:      ctx.aliases["luoji"],
-		Amount:      lnwire.NewMSatFromSatoshis(1000),
+		Amount:      paymentAmt,
+		FeeLimit:    noFeeLimit,
 		PaymentHash: payHash,
 	}
 
@@ -299,9 +356,11 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to luo ji for 100 satoshis.
 	var payHash [32]byte
+	amt := lnwire.NewMSatFromSatoshis(1000)
 	payment := LightningPayment{
 		Target:      ctx.aliases["sophon"],
-		Amount:      lnwire.NewMSatFromSatoshis(1000),
+		Amount:      amt,
+		FeeLimit:    noFeeLimit,
 		PaymentHash: payHash,
 	}
 
@@ -397,9 +456,11 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to sophon for 1k satoshis.
 	var payHash [32]byte
+	amt := lnwire.NewMSatFromSatoshis(1000)
 	payment := LightningPayment{
 		Target:      ctx.aliases["sophon"],
-		Amount:      lnwire.NewMSatFromSatoshis(1000),
+		Amount:      amt,
+		FeeLimit:    noFeeLimit,
 		PaymentHash: payHash,
 	}
 
@@ -524,11 +585,13 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	}
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
-	// to luo ji for 100 satoshis.
+	// to luo ji for 1000 satoshis, with a maximum of 1000 satoshis in fees.
 	var payHash [32]byte
+	paymentAmt := lnwire.NewMSatFromSatoshis(1000)
 	payment := LightningPayment{
 		Target:      ctx.aliases["luoji"],
-		Amount:      lnwire.NewMSatFromSatoshis(1000),
+		Amount:      paymentAmt,
+		FeeLimit:    noFeeLimit,
 		PaymentHash: payHash,
 	}
 
@@ -966,8 +1029,10 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// We should now be able to find two routes to node 2.
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	targetNode := priv2.PubKey()
-	routes, err := ctx.router.FindRoutes(targetNode, paymentAmt,
-		defaultNumRoutes, DefaultFinalCLTVDelta)
+	routes, err := ctx.router.FindRoutes(
+		targetNode, paymentAmt, noFeeLimit, defaultNumRoutes,
+		DefaultFinalCLTVDelta,
+	)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
 	}
@@ -1009,8 +1074,10 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// Should still be able to find the routes, and the info should be
 	// updated.
-	routes, err = ctx.router.FindRoutes(targetNode, paymentAmt,
-		defaultNumRoutes, DefaultFinalCLTVDelta)
+	routes, err = ctx.router.FindRoutes(
+		targetNode, paymentAmt, noFeeLimit, defaultNumRoutes,
+		DefaultFinalCLTVDelta,
+	)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
 	}

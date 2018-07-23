@@ -1,13 +1,14 @@
 package routing
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec"
 )
 
 const (
@@ -71,8 +72,7 @@ type missionControl struct {
 // newMissionControl returns a new instance of missionControl.
 //
 // TODO(roasbeef): persist memory
-func newMissionControl(
-	g *channeldb.ChannelGraph, selfNode *channeldb.LightningNode,
+func newMissionControl(g *channeldb.ChannelGraph, selfNode *channeldb.LightningNode,
 	qb func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi) *missionControl {
 
 	return &missionControl{
@@ -165,6 +165,9 @@ type paymentSession struct {
 	bandwidthHints map[uint64]lnwire.MilliSatoshi
 
 	mc *missionControl
+
+	haveRoutes     bool
+	preBuiltRoutes []*Route
 }
 
 // NewPaymentSession creates a new payment session backed by the latest prune
@@ -238,6 +241,19 @@ func (m *missionControl) NewPaymentSession(routeHints [][]HopHint,
 		bandwidthHints:    bandwidthHints,
 		mc:                m,
 	}, nil
+}
+
+// NewPaymentSessionFromRoutes creates a new paymentSession instance that will
+// skip all path finding, and will instead utilize a set of pre-built routes.
+// This constructor allows callers to specify their own routes which can be
+// used for things like channel rebalancing, and swaps.
+func (m *missionControl) NewPaymentSessionFromRoutes(routes []*Route) *paymentSession {
+	return &paymentSession{
+		pruneViewSnapshot: m.GraphPruneView(),
+		haveRoutes:        true,
+		preBuiltRoutes:    routes,
+		mc:                m,
+	}
 }
 
 // generateBandwidthHints is a helper function that's utilized the main
@@ -326,9 +342,25 @@ func (p *paymentSession) ReportChannelFailure(e uint64) {
 func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	height uint32, finalCltvDelta uint16) (*Route, error) {
 
-	// First, we'll obtain our current prune view snapshot. This view will
-	// only ever grow during the duration of this payment session, never
-	// shrinking.
+	switch {
+	// If we have a set of pre-built routes, then we'll just pop off the
+	// next route from the queue, and use it directly.
+	case p.haveRoutes && len(p.preBuiltRoutes) > 0:
+		nextRoute := p.preBuiltRoutes[0]
+		p.preBuiltRoutes[0] = nil // Set to nil to avoid GC leak.
+		p.preBuiltRoutes = p.preBuiltRoutes[1:]
+
+		return nextRoute, nil
+
+	// If we were instantiated with a set of pre-built routes, and we've
+	// run out, then we'll return a terminal error.
+	case p.haveRoutes && len(p.preBuiltRoutes) == 0:
+		return nil, fmt.Errorf("pre-built routes exhausted")
+	}
+
+	// Otherwise we actually need to perform path finding, so we'll obtain
+	// our current prune view snapshot. This view will only ever grow
+	// during the duration of this payment session, never shrinking.
 	pruneView := p.pruneViewSnapshot
 
 	log.Debugf("Mission Control session using prune view of %v "+
@@ -352,8 +384,10 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	// With the next candidate path found, we'll attempt to turn this into
 	// a route by applying the time-lock and fee requirements.
 	sourceVertex := Vertex(p.mc.selfNode.PubKeyBytes)
-	route, err := newRoute(payment.Amount, sourceVertex, path, height,
-		finalCltvDelta)
+	route, err := newRoute(
+		payment.Amount, payment.FeeLimit, sourceVertex, path, height,
+		finalCltvDelta,
+	)
 	if err != nil {
 		// TODO(roasbeef): return which edge/vertex didn't work
 		// out

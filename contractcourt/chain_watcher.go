@@ -9,10 +9,10 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 )
 
 // LocalUnilateralCloseInfo encapsulates all the informnation we need to act
@@ -78,13 +78,6 @@ type chainWatcherConfig struct {
 	// machine.
 	signer lnwallet.Signer
 
-	// notifyChanClosed is a method that will be called by the watcher when
-	// it has detected a close on-chain and performed all necessary
-	// actions, like marking the channel closed in the database and
-	// notified all its subcribers. It lets the chain arbitrator know that
-	// the chain watcher chan be stopped.
-	notifyChanClosed func() error
-
 	// contractBreach is a method that will be called by the watcher if it
 	// detects that a contract breach transaction has been confirmed. Only
 	// when this method returns with a non-nil error it will be safe to mark
@@ -102,8 +95,8 @@ type chainWatcherConfig struct {
 // that the channel has been closed, and also give them the materials necessary
 // to sweep the funds of the channel on chain eventually.
 type chainWatcher struct {
-	started int32
-	stopped int32
+	started int32 // To be used atomically.
+	stopped int32 // To be used atomically.
 
 	quit chan struct{}
 	wg   sync.WaitGroup
@@ -492,16 +485,7 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 	}
 	c.Unlock()
 
-	// Now notify the ChainArbitrator that the watcher's job is done, such
-	// that it can shut it down and clean up.
-	if err := c.cfg.notifyChanClosed(); err != nil {
-		log.Errorf("unable to notify channel closed for "+
-			"ChannelPoint(%v): %v",
-			c.cfg.chanState.FundingOutpoint, err)
-	}
-
 	return nil
-
 }
 
 // dispatchLocalForceClose processes a unilateral close by us being confirmed.

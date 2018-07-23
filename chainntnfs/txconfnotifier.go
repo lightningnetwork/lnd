@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcutil"
 )
 
 // ConfNtfn represents a notifier client's request to receive a notification

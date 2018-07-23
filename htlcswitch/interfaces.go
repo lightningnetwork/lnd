@@ -1,22 +1,24 @@
 package htlcswitch
 
 import (
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
 )
 
 // InvoiceDatabase is an interface which represents the persistent subsystem
 // which may search, lookup and settle invoices.
 type InvoiceDatabase interface {
 	// LookupInvoice attempts to look up an invoice according to its 32
-	// byte payment hash.
-	LookupInvoice(chainhash.Hash) (channeldb.Invoice, error)
+	// byte payment hash. This method should also reutrn the min final CLTV
+	// delta for this invoice. We'll use this to ensure that the HTLC
+	// extended to us gives us enough time to settle as we prescribe.
+	LookupInvoice(chainhash.Hash) (channeldb.Invoice, uint32, error)
 
 	// SettleInvoice attempts to mark an invoice corresponding to the
 	// passed payment hash as fully settled.
-	SettleInvoice(chainhash.Hash) error
+	SettleInvoice(payHash chainhash.Hash, paidAmount lnwire.MilliSatoshi) error
 }
 
 // ChannelLink is an interface which represents the subsystem for managing the
@@ -81,8 +83,10 @@ type ChannelLink interface {
 	// Otherwise, a valid protocol failure message should be returned in
 	// order to signal to the source of the HTLC, the policy consistency
 	// issue.
-	HtlcSatifiesPolicy(payHash [32]byte,
-		incomingAmt, amtToForward lnwire.MilliSatoshi) lnwire.FailureMessage
+	HtlcSatifiesPolicy(payHash [32]byte, incomingAmt lnwire.MilliSatoshi,
+		amtToForward lnwire.MilliSatoshi,
+		incomingTimeout, outgoingTimeout uint32,
+		heightNow uint32) lnwire.FailureMessage
 
 	// Bandwidth returns the amount of milli-satoshis which current link
 	// might pass through channel link. The value returned from this method
@@ -97,7 +101,7 @@ type ChannelLink interface {
 
 	// Peer returns the representation of remote peer with which we have
 	// the channel link opened.
-	Peer() Peer
+	Peer() lnpeer.Peer
 
 	// EligibleToForward returns a bool indicating if the channel is able
 	// to actively accept requests to forward HTLC's. A channel may be
@@ -114,22 +118,6 @@ type ChannelLink interface {
 	// functioning.
 	Start() error
 	Stop()
-}
-
-// Peer is an interface which represents the remote lightning node inside our
-// system.
-type Peer interface {
-	// SendMessage sends message to remote peer. The second argument
-	// denotes if the method should block until the message has been sent
-	// to the remote peer.
-	SendMessage(msg lnwire.Message, sync bool) error
-
-	// WipeChannel removes the channel uniquely identified by its channel
-	// point from all indexes associated with the peer.
-	WipeChannel(*wire.OutPoint) error
-
-	// PubKey returns the serialize public key of the source peer.
-	PubKey() [33]byte
 }
 
 // ForwardingLog is an interface that represents a time series database which

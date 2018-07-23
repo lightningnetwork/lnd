@@ -2,7 +2,7 @@ PKG := github.com/lightningnetwork/lnd
 ESCPKG := github.com\/lightningnetwork\/lnd
 
 DEP_PKG := github.com/golang/dep/cmd/dep
-BTCD_PKG := github.com/roasbeef/btcd
+BTCD_PKG := github.com/btcsuite/btcd
 GLIDE_PKG := github.com/Masterminds/glide
 GOVERALLS_PKG := github.com/mattn/goveralls
 LINT_PKG := gopkg.in/alecthomas/gometalinter.v1
@@ -110,7 +110,7 @@ dep: $(DEP_BIN)
 
 $(BTCD_DIR):
 	@$(call print, "Fetching btcd.")
-	go get -d github.com/roasbeef/btcd
+	go get -d github.com/btcsuite/btcd
 
 btcd: $(GLIDE_BIN) $(BTCD_DIR)
 	@$(call print, "Compiling btcd dependencies.")
@@ -166,8 +166,7 @@ unit-race:
 
 flakehunter: build
 	@$(call print, "Flake hunting integration tests.")
-	$(ITEST)
-	while [ $$? -eq 0 ]; do /bin/sh -c "$(ITEST)"; done
+	while [ $$? -eq 0 ]; do $(ITEST); done
 
 flake-unit:
 	@$(call print, "Flake hunting unit tests.")

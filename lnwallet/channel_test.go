@@ -13,10 +13,10 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/blockchain"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 )
 
 // forceStateTransition executes the necessary interaction between the two
@@ -3280,21 +3280,65 @@ func TestChanSyncOweRevocationAndCommitForceTransition(t *testing.T) {
 	var bobPreimage [32]byte
 	copy(bobPreimage[:], bytes.Repeat([]byte{0xaa}, 32))
 	rHash := sha256.Sum256(bobPreimage[:])
-	bobHtlc := &lnwire.UpdateAddHTLC{
+	var bobHtlc [2]*lnwire.UpdateAddHTLC
+	bobHtlc[0] = &lnwire.UpdateAddHTLC{
 		PaymentHash: rHash,
 		Amount:      htlcAmt,
 		Expiry:      uint32(10),
 	}
-	bobHtlcIndex, err := bobChannel.AddHTLC(bobHtlc, nil)
+	bobHtlcIndex, err := bobChannel.AddHTLC(bobHtlc[0], nil)
 	if err != nil {
 		t.Fatalf("unable to add bob's htlc: %v", err)
 	}
-	aliceHtlcIndex, err := aliceChannel.ReceiveHTLC(bobHtlc)
+	aliceHtlcIndex, err := aliceChannel.ReceiveHTLC(bobHtlc[0])
 	if err != nil {
 		t.Fatalf("unable to recv bob's htlc: %v", err)
 	}
 	if err := forceStateTransition(bobChannel, aliceChannel); err != nil {
 		t.Fatalf("unable to complete bob's state transition: %v", err)
+	}
+
+	// To ensure the channel sync logic handles the case where the two
+	// commit chains are at different heights, we'll add another HTLC from
+	// Bob to Alice, but let Alice skip the commitment for this state
+	// update.
+	rHash = sha256.Sum256(bytes.Repeat([]byte{0xbb}, 32))
+	bobHtlc[1] = &lnwire.UpdateAddHTLC{
+		PaymentHash: rHash,
+		Amount:      htlcAmt,
+		Expiry:      uint32(10),
+		ID:          1,
+	}
+	_, err = bobChannel.AddHTLC(bobHtlc[1], nil)
+	if err != nil {
+		t.Fatalf("unable to add bob's htlc: %v", err)
+	}
+	_, err = aliceChannel.ReceiveHTLC(bobHtlc[1])
+	if err != nil {
+		t.Fatalf("unable to recv bob's htlc: %v", err)
+	}
+
+	// Bob signs the new state update, and sends the signature to Alice.
+	bobSig, bobHtlcSigs, err := bobChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("bob unable to sign commitment: %v", err)
+	}
+
+	err = aliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
+	if err != nil {
+		t.Fatalf("alice unable to rev bob's commitment: %v", err)
+	}
+
+	// Alice revokes her current state, but doesn't immediately send a
+	// signature for Bob's updated state. Instead she will issue a new
+	// update before sending a new CommitSig. This will lead to Alice's
+	// local commit chain getting height > remote commit chain.
+	aliceRevocation, _, err := aliceChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatalf("alice unable to revoke commitment: %v", err)
+	}
+	if _, _, _, err := bobChannel.ReceiveRevocation(aliceRevocation); err != nil {
+		t.Fatalf("bob unable to recv revocation: %v", err)
 	}
 
 	// Next, Alice will settle that incoming HTLC, then we'll start the
@@ -3433,7 +3477,7 @@ func TestChanSyncOweRevocationAndCommitForceTransition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("alice unable to rev bob's commitment: %v", err)
 	}
-	aliceRevocation, _, err := aliceChannel.RevokeCurrentCommitment()
+	aliceRevocation, _, err = aliceChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("alice unable to revoke commitment: %v", err)
 	}

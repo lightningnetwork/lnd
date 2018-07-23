@@ -17,9 +17,9 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
 	"github.com/lightningnetwork/lnd/routing/chainview"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 
 	"crypto/sha256"
 
@@ -200,12 +200,12 @@ func newRouteTuple(amt lnwire.MilliSatoshi, dest []byte) routeTuple {
 // automatically as new blocks are discovered which spend certain known funding
 // outpoints, thereby closing their respective channels.
 type ChannelRouter struct {
-	ntfnClientCounter uint64
+	ntfnClientCounter uint64 // To be used atomically.
 
-	started uint32
-	stopped uint32
+	started uint32 // To be used atomically.
+	stopped uint32 // To be used atomically.
 
-	bestHeight uint32
+	bestHeight uint32 // To be used atomically.
 
 	// cfg is a copy of the configuration struct that the ChannelRouter was
 	// initialized with.
@@ -1258,8 +1258,9 @@ func pruneChannelFromRoutes(routes []*Route, skipChan uint64) []*Route {
 // fee information attached. The set of routes returned may be less than the
 // initial set of paths as it's possible we drop a route if it can't handle the
 // total payment flow after fees are calculated.
-func pathsToFeeSortedRoutes(source Vertex, paths [][]*ChannelHop, finalCLTVDelta uint16,
-	amt lnwire.MilliSatoshi, currentHeight uint32) ([]*Route, error) {
+func pathsToFeeSortedRoutes(source Vertex, paths [][]*ChannelHop,
+	finalCLTVDelta uint16, amt, feeLimit lnwire.MilliSatoshi,
+	currentHeight uint32) ([]*Route, error) {
 
 	validRoutes := make([]*Route, 0, len(paths))
 	for _, path := range paths {
@@ -1267,7 +1268,8 @@ func pathsToFeeSortedRoutes(source Vertex, paths [][]*ChannelHop, finalCLTVDelta
 		// hop in the path as it contains a "self-hop" that is inserted
 		// by our KSP algorithm.
 		route, err := newRoute(
-			amt, source, path[1:], currentHeight, finalCLTVDelta,
+			amt, feeLimit, source, path[1:], currentHeight,
+			finalCLTVDelta,
 		)
 		if err != nil {
 			// TODO(roasbeef): report straw breaking edge?
@@ -1316,7 +1318,8 @@ func pathsToFeeSortedRoutes(source Vertex, paths [][]*ChannelHop, finalCLTVDelta
 // route that will be ranked the highest is the one with the lowest cumulative
 // fee along the route.
 func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
-	amt lnwire.MilliSatoshi, numPaths uint32, finalExpiry ...uint16) ([]*Route, error) {
+	amt, feeLimit lnwire.MilliSatoshi, numPaths uint32,
+	finalExpiry ...uint16) ([]*Route, error) {
 
 	var finalCLTVDelta uint16
 	if len(finalExpiry) == 0 {
@@ -1402,7 +1405,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	// factored in.
 	sourceVertex := Vertex(r.selfNode.PubKeyBytes)
 	validRoutes, err := pathsToFeeSortedRoutes(
-		sourceVertex, shortestPaths, finalCLTVDelta, amt,
+		sourceVertex, shortestPaths, finalCLTVDelta, amt, feeLimit,
 		uint32(currentHeight),
 	)
 	if err != nil {
@@ -1455,7 +1458,10 @@ func generateSphinxPacket(route *Route, paymentHash []byte) ([]byte,
 	hopPayloads := route.ToHopPayloads()
 
 	log.Tracef("Constructed per-hop payloads for payment_hash=%x: %v",
-		paymentHash[:], spew.Sdump(hopPayloads))
+		paymentHash[:], newLogClosure(func() string {
+			return spew.Sdump(hopPayloads)
+		}),
+	)
 
 	sessionKey, err := btcec.NewPrivateKey(btcec.S256())
 	if err != nil {
@@ -1464,8 +1470,9 @@ func generateSphinxPacket(route *Route, paymentHash []byte) ([]byte,
 
 	// Next generate the onion routing packet which allows us to perform
 	// privacy preserving source routing across the network.
-	sphinxPacket, err := sphinx.NewOnionPacket(nodes, sessionKey,
-		hopPayloads, paymentHash)
+	sphinxPacket, err := sphinx.NewOnionPacket(
+		nodes, sessionKey, hopPayloads, paymentHash,
+	)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1501,6 +1508,11 @@ type LightningPayment struct {
 	// Amount is the value of the payment to send through the network in
 	// milli-satoshis.
 	Amount lnwire.MilliSatoshi
+
+	// FeeLimit is the maximum fee in millisatoshis that the payment should
+	// accept when sending it through the network. The payment will fail
+	// if there isn't a route with lower fees than this limit.
+	FeeLimit lnwire.MilliSatoshi
 
 	// PaymentHash is the r-hash value to use within the HTLC extended to
 	// the first hop.
@@ -1540,11 +1552,54 @@ type LightningPayment struct {
 // within the network to reach the destination. Additionally, the payment
 // preimage will also be returned.
 func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route, error) {
+	// Before starting the HTLC routing attempt, we'll create a fresh
+	// payment session which will report our errors back to mission
+	// control.
+	paySession, err := r.missionControl.NewPaymentSession(
+		payment.RouteHints, payment.Target,
+	)
+	if err != nil {
+		return [32]byte{}, nil, err
+	}
+
+	return r.sendPayment(payment, paySession)
+}
+
+// SendToRoute attempts to send a payment as described within the passed
+// LightningPayment through the provided routes. This function is blocking
+// and will return either: when the payment is successful, or all routes
+// have been attempted and resulted in a failed payment. If the payment
+// succeeds, then a non-nil Route will be returned which describes the
+// path the successful payment traversed within the network to reach the
+// destination. Additionally, the payment preimage will also be returned.
+func (r *ChannelRouter) SendToRoute(routes []*Route,
+	payment *LightningPayment) ([32]byte, *Route, error) {
+
+	paySession := r.missionControl.NewPaymentSessionFromRoutes(
+		routes,
+	)
+
+	return r.sendPayment(payment, paySession)
+}
+
+// sendPayment attempts to send a payment as described within the passed
+// LightningPayment. This function is blocking and will return either: when the
+// payment is successful, or all candidates routes have been attempted and
+// resulted in a failed payment. If the payment succeeds, then a non-nil Route
+// will be returned which describes the path the successful payment traversed
+// within the network to reach the destination. Additionally, the payment
+// preimage will also be returned.
+func (r *ChannelRouter) sendPayment(payment *LightningPayment,
+	paySession *paymentSession) ([32]byte, *Route, error) {
+
 	log.Tracef("Dispatching route for lightning payment: %v",
 		newLogClosure(func() string {
 			// Remove the public key curve parameters when logging
 			// the route to prevent spamming the logs.
-			payment.Target.Curve = nil
+			if payment.Target != nil {
+				payment.Target.Curve = nil
+			}
+
 			for _, routeHint := range payment.RouteHints {
 				for _, hopHint := range routeHint {
 					hopHint.NodeID.Curve = nil
@@ -1569,7 +1624,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 	// calculate the required HTLC time locks within the route.
 	_, currentHeight, err := r.cfg.Chain.GetBestBlock()
 	if err != nil {
-		return preImage, nil, err
+		return [32]byte{}, nil, err
 	}
 
 	var finalCLTVDelta uint16
@@ -1587,17 +1642,6 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 	}
 
 	timeoutChan := time.After(payAttemptTimeout)
-
-	// Before starting the HTLC routing attempt, we'll create a fresh
-	// payment session which will report our errors back to mission
-	// control.
-	paySession, err := r.missionControl.NewPaymentSession(
-		payment.RouteHints, payment.Target,
-	)
-	if err != nil {
-		return preImage, nil, fmt.Errorf("unable to create payment "+
-			"session: %v", err)
-	}
 
 	// We'll continue until either our payment succeeds, or we encounter a
 	// critical error during path finding.
@@ -1623,10 +1667,6 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 			// are expiring.
 		}
 
-		// We'll kick things off by requesting a new route from mission
-		// control, which will incorporate the current best known state
-		// of the channel graph and our past HTLC routing
-		// successes/failures.
 		route, err := paySession.RequestRoute(
 			payment, uint32(currentHeight), finalCLTVDelta,
 		)

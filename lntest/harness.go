@@ -12,13 +12,13 @@ import (
 	"google.golang.org/grpc/grpclog"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/integration/rpctest"
-	"github.com/roasbeef/btcd/rpcclient"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/integration/rpctest"
+	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 )
 
 // NetworkHarness is an integration testing harness for the lightning network.
@@ -566,6 +566,13 @@ func (n *NetworkHarness) ShutdownNode(node *HarnessNode) error {
 	return nil
 }
 
+// StopNode stops the target node, but doesn't yet clean up its directories.
+// This can be used to temporarily bring a node down during a test, to be later
+// started up again.
+func (n *NetworkHarness) StopNode(node *HarnessNode) error {
+	return node.stop()
+}
+
 // TODO(roasbeef): add a WithChannel higher-order function?
 //  * python-like context manager w.r.t using a channel within a test
 //  * possibly  adds more funds to the target wallet if the funds are not
@@ -1035,8 +1042,12 @@ func (n *NetworkHarness) AssertChannelExists(ctx context.Context,
 // several running lnd nodes. This function gives callers a way to assert that
 // some property is upheld within a particular time frame.
 func WaitPredicate(pred func() bool, timeout time.Duration) error {
+	const pollInterval = 20 * time.Millisecond
+
 	exitTimer := time.After(timeout)
 	for {
+		<-time.After(pollInterval)
+
 		select {
 		case <-exitTimer:
 			return fmt.Errorf("predicate not satisfied after time out")

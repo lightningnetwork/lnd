@@ -1,6 +1,6 @@
 package keychain
 
-import "github.com/roasbeef/btcd/btcec"
+import "github.com/btcsuite/btcd/btcec"
 
 const (
 	// KeyDerivationVersion is the version of the key derivation schema

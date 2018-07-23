@@ -2,7 +2,9 @@ package htlcswitch
 
 import (
 	"crypto/rand"
+	"io/ioutil"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -14,8 +16,19 @@ const (
 	cltv uint32 = 100000
 )
 
+// tempDecayedLogPath creates a new temporary database path to back a single
+// deccayed log instance.
+func tempDecayedLogPath(t *testing.T) string {
+	dir, err := ioutil.TempDir("", "decayedlog")
+	if err != nil {
+		t.Fatalf("unable to create temporary decayed log dir: %v", err)
+	}
+
+	return filepath.Join(dir, "sphinxreplay.db")
+}
+
 // startup sets up the DecayedLog and possibly the garbage collector.
-func startup(notifier bool) (sphinx.ReplayLog, *mockNotifier,
+func startup(dbPath string, notifier bool) (sphinx.ReplayLog, *mockNotifier,
 	*sphinx.HashPrefix, error) {
 
 	var log sphinx.ReplayLog
@@ -28,10 +41,10 @@ func startup(notifier bool) (sphinx.ReplayLog, *mockNotifier,
 		}
 
 		// Initialize the DecayedLog object
-		log = NewDecayedLog("tempdir", chainNotifier)
+		log = NewDecayedLog(dbPath, chainNotifier)
 	} else {
 		// Initialize the DecayedLog object
-		log = NewDecayedLog("tempdir", nil)
+		log = NewDecayedLog(dbPath, nil)
 	}
 
 	// Open the channeldb (start the garbage collector)
@@ -65,11 +78,13 @@ func shutdown(dir string, d sphinx.ReplayLog) {
 func TestDecayedLogGarbageCollector(t *testing.T) {
 	t.Parallel()
 
-	d, notifier, hashedSecret, err := startup(true)
+	dbPath := tempDecayedLogPath(t)
+
+	d, notifier, hashedSecret, err := startup(dbPath, true)
 	if err != nil {
 		t.Fatalf("Unable to start up DecayedLog: %v", err)
 	}
-	defer shutdown("tempdir", d)
+	defer shutdown(dbPath, d)
 
 	// Store <hashedSecret, cltv> in the sharedHashBucket.
 	err = d.Put(hashedSecret, cltv)
@@ -124,28 +139,39 @@ func TestDecayedLogGarbageCollector(t *testing.T) {
 func TestDecayedLogPersistentGarbageCollector(t *testing.T) {
 	t.Parallel()
 
-	d, _, hashedSecret, err := startup(true)
+	dbPath := tempDecayedLogPath(t)
+
+	d, _, hashedSecret, err := startup(dbPath, true)
 	if err != nil {
 		t.Fatalf("Unable to start up DecayedLog: %v", err)
 	}
-	defer shutdown("tempdir", d)
+	defer shutdown(dbPath, d)
 
 	// Store <hashedSecret, cltv> in the sharedHashBucket
 	if err = d.Put(hashedSecret, cltv); err != nil {
 		t.Fatalf("Unable to store in channeldb: %v", err)
 	}
 
-	// Wait for database write (GC is in a goroutine)
-	time.Sleep(500 * time.Millisecond)
+	// The hash prefix should be retrievable from the decayed log.
+	_, err = d.Get(hashedSecret)
+	if err != nil {
+		t.Fatalf("Get failed - received unexpected error upon Get: %v", err)
+	}
 
 	// Shut down DecayedLog and the garbage collector along with it.
 	d.Stop()
 
-	d2, notifier2, hashedSecret2, err := startup(true)
+	d2, notifier2, _, err := startup(dbPath, true)
 	if err != nil {
 		t.Fatalf("Unable to restart DecayedLog: %v", err)
 	}
-	defer shutdown("tempdir", d2)
+	defer shutdown(dbPath, d2)
+
+	// Check that the hash prefix still exists in the new db instance.
+	_, err = d2.Get(hashedSecret)
+	if err != nil {
+		t.Fatalf("Get failed - received unexpected error upon Get: %v", err)
+	}
 
 	// Send a block notification to the garbage collector that expires
 	// the stored CLTV.
@@ -157,10 +183,7 @@ func TestDecayedLogPersistentGarbageCollector(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	// Assert that hashedSecret is not in the sharedHashBucket
-	_, err = d2.Get(hashedSecret2)
-	if err == nil {
-		t.Fatalf("CLTV was not deleted")
-	}
+	_, err = d2.Get(hashedSecret)
 	if err != sphinx.ErrLogEntryNotFound {
 		t.Fatalf("Get failed - received unexpected error upon Get: %v", err)
 	}
@@ -172,11 +195,13 @@ func TestDecayedLogPersistentGarbageCollector(t *testing.T) {
 func TestDecayedLogInsertionAndDeletion(t *testing.T) {
 	t.Parallel()
 
-	d, _, hashedSecret, err := startup(false)
+	dbPath := tempDecayedLogPath(t)
+
+	d, _, hashedSecret, err := startup(dbPath, false)
 	if err != nil {
 		t.Fatalf("Unable to start up DecayedLog: %v", err)
 	}
-	defer shutdown("tempdir", d)
+	defer shutdown(dbPath, d)
 
 	// Store <hashedSecret, cltv> in the sharedHashBucket.
 	err = d.Put(hashedSecret, cltv)
@@ -208,11 +233,13 @@ func TestDecayedLogInsertionAndDeletion(t *testing.T) {
 func TestDecayedLogStartAndStop(t *testing.T) {
 	t.Parallel()
 
-	d, _, hashedSecret, err := startup(false)
+	dbPath := tempDecayedLogPath(t)
+
+	d, _, hashedSecret, err := startup(dbPath, false)
 	if err != nil {
 		t.Fatalf("Unable to start up DecayedLog: %v", err)
 	}
-	defer shutdown("tempdir", d)
+	defer shutdown(dbPath, d)
 
 	// Store <hashedSecret, cltv> in the sharedHashBucket.
 	err = d.Put(hashedSecret, cltv)
@@ -223,11 +250,11 @@ func TestDecayedLogStartAndStop(t *testing.T) {
 	// Shutdown the DecayedLog's channeldb
 	d.Stop()
 
-	d2, _, hashedSecret2, err := startup(false)
+	d2, _, hashedSecret2, err := startup(dbPath, false)
 	if err != nil {
 		t.Fatalf("Unable to restart DecayedLog: %v", err)
 	}
-	defer shutdown("tempdir", d2)
+	defer shutdown(dbPath, d2)
 
 	// Retrieve the stored cltv value given the hashedSecret key.
 	value, err := d2.Get(hashedSecret)
@@ -250,11 +277,11 @@ func TestDecayedLogStartAndStop(t *testing.T) {
 	// Shutdown the DecayedLog's channeldb
 	d2.Stop()
 
-	d3, _, hashedSecret3, err := startup(false)
+	d3, _, hashedSecret3, err := startup(dbPath, false)
 	if err != nil {
 		t.Fatalf("Unable to restart DecayedLog: %v", err)
 	}
-	defer shutdown("tempdir", d3)
+	defer shutdown(dbPath, d3)
 
 	// Assert that hashedSecret is not in the sharedHashBucket
 	_, err = d3.Get(hashedSecret3)
@@ -272,11 +299,13 @@ func TestDecayedLogStartAndStop(t *testing.T) {
 func TestDecayedLogStorageAndRetrieval(t *testing.T) {
 	t.Parallel()
 
-	d, _, hashedSecret, err := startup(false)
+	dbPath := tempDecayedLogPath(t)
+
+	d, _, hashedSecret, err := startup(dbPath, false)
 	if err != nil {
 		t.Fatalf("Unable to start up DecayedLog: %v", err)
 	}
-	defer shutdown("tempdir", d)
+	defer shutdown(dbPath, d)
 
 	// Store <hashedSecret, cltv> in the sharedHashBucket
 	err = d.Put(hashedSecret, cltv)
@@ -295,5 +324,4 @@ func TestDecayedLogStorageAndRetrieval(t *testing.T) {
 	if cltv != value {
 		t.Fatalf("Value retrieved doesn't match value stored")
 	}
-
 }

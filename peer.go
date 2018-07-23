@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"container/list"
 	"fmt"
 	"net"
@@ -8,23 +9,22 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/connmgr"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/brontide"
-	"github.com/lightningnetwork/lnd/contractcourt"
-
-	"bytes"
-
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/connmgr"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
 )
 
 var (
@@ -40,6 +40,9 @@ const (
 
 	// idleTimeout is the duration of inactivity before we time out a peer.
 	idleTimeout = 5 * time.Minute
+
+	// writeMessageTimeout is the timeout used when writing a message to peer.
+	writeMessageTimeout = 10 * time.Second
 
 	// outgoingQueueLen is the buffer size of the channel which houses
 	// messages to be sent across the wire, requested by objects outside
@@ -84,22 +87,23 @@ type chanSnapshotReq struct {
 // channels.
 // TODO(roasbeef): proper reconnection logic
 type peer struct {
+	// MUST be used atomically.
+	started    int32
+	disconnect int32
+
 	// The following fields are only meant to be used *atomically*
 	bytesReceived uint64
 	bytesSent     uint64
 
 	// pingTime is a rough estimate of the RTT (round-trip-time) between us
 	// and the connected peer. This time is expressed in micro seconds.
+	// To be used atomically.
 	// TODO(roasbeef): also use a WMA or EMA?
 	pingTime int64
 
 	// pingLastSend is the Unix time expressed in nanoseconds when we sent
-	// our last ping message.
+	// our last ping message.  To be used atomically.
 	pingLastSend int64
-
-	// MUST be used atomically.
-	started    int32
-	disconnect int32
 
 	connReq *connmgr.ConnReq
 	conn    net.Conn
@@ -181,6 +185,9 @@ type peer struct {
 	quit      chan struct{}
 	wg        sync.WaitGroup
 }
+
+// A compile-time check to ensure that peer satisfies the lnpeer.Peer interface.
+var _ lnpeer.Peer = (*peer)(nil)
 
 // newPeer creates a new peer from an establish connection object, and a
 // pointer to the main server.
@@ -314,17 +321,12 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			p.server.cc.signer, p.server.witnessBeacon, dbChan,
 		)
 		if err != nil {
-			lnChan.Stop()
 			return err
 		}
 
 		chanPoint := &dbChan.FundingOutpoint
 
 		chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
-
-		p.activeChanMtx.Lock()
-		p.activeChannels[chanID] = lnChan
-		p.activeChanMtx.Unlock()
 
 		peerLog.Infof("NodeKey(%x) loading ChannelPoint(%v)",
 			p.PubKey(), chanPoint)
@@ -347,11 +349,6 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			continue
 		}
 
-		blockEpoch, err := p.server.cc.chainNotifier.RegisterBlockEpochNtfn()
-		if err != nil {
-			lnChan.Stop()
-			return err
-		}
 		_, currentHeight, err := p.server.cc.chainIO.GetBestBlock()
 		if err != nil {
 			lnChan.Stop()
@@ -413,12 +410,18 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		}
 
 		// Create the link and add it to the switch.
-		err = p.addLink(chanPoint, lnChan, forwardingPolicy, blockEpoch,
-			chainEvents, currentHeight, true)
+		err = p.addLink(
+			chanPoint, lnChan, forwardingPolicy, chainEvents,
+			currentHeight, true,
+		)
 		if err != nil {
 			lnChan.Stop()
 			return err
 		}
+
+		p.activeChanMtx.Lock()
+		p.activeChannels[chanID] = lnChan
+		p.activeChanMtx.Unlock()
 	}
 
 	return nil
@@ -428,7 +431,6 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 func (p *peer) addLink(chanPoint *wire.OutPoint,
 	lnChan *lnwallet.LightningChannel,
 	forwardingPolicy *htlcswitch.ForwardingPolicy,
-	blockEpoch *chainntnfs.BlockEpochEvent,
 	chainEvents *contractcourt.ChainEventSubscription,
 	currentHeight int32, syncStates bool) error {
 
@@ -500,10 +502,10 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 				if linkErr.SendData != nil {
 					data = linkErr.SendData
 				}
-				err := p.SendMessage(&lnwire.Error{
+				err := p.SendMessage(true, &lnwire.Error{
 					ChanID: chanID,
 					Data:   data,
-				}, true)
+				})
 				if err != nil {
 					peerLog.Errorf("unable to send msg to "+
 						"remote peer: %v", err)
@@ -533,7 +535,6 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 		ForwardPackets: p.server.htlcSwitch.ForwardPackets,
 		FwrdingPolicy:  *forwardingPolicy,
 		FeeEstimator:   p.server.cc.feeEstimator,
-		BlockEpochs:    blockEpoch,
 		PreimageCache:  p.server.witnessBeacon,
 		ChainEvents:    chainEvents,
 		UpdateContractSignals: func(signals *contractcourt.ContractSignals) error {
@@ -547,11 +548,13 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 			time.NewTicker(50 * time.Millisecond)),
 		FwdPkgGCTicker: htlcswitch.NewBatchTicker(
 			time.NewTicker(time.Minute)),
-		BatchSize:    10,
-		UnsafeReplay: cfg.UnsafeReplay,
+		BatchSize:           10,
+		UnsafeReplay:        cfg.UnsafeReplay,
+		MinFeeUpdateTimeout: htlcswitch.DefaultMinLinkFeeUpdateTimeout,
+		MaxFeeUpdateTimeout: htlcswitch.DefaultMaxLinkFeeUpdateTimeout,
 	}
-	link := htlcswitch.NewChannelLink(linkCfg, lnChan,
-		uint32(currentHeight))
+
+	link := htlcswitch.NewChannelLink(linkCfg, lnChan)
 
 	// With the channel link created, we'll now notify the htlc switch so
 	// this channel can be used to dispatch local payments and also
@@ -613,7 +616,6 @@ func (p *peer) readNextMessage() (lnwire.Message, error) {
 		return nil, err
 	}
 
-	// TODO(roasbeef): add message summaries
 	p.logWireMessage(nextMsg, true)
 
 	p.telemetryWireMessage(nextMsg, true)
@@ -627,7 +629,7 @@ func (p *peer) readNextMessage() (lnwire.Message, error) {
 // TODO(conner): use stream handler interface to abstract out stream
 // state/logging
 type msgStream struct {
-	streamShutdown int32
+	streamShutdown int32 // To be used atomically.
 
 	peer *peer
 
@@ -834,8 +836,7 @@ func newDiscMsgStream(p *peer) *msgStream {
 		"Update stream for gossiper exited",
 		1000,
 		func(msg lnwire.Message) {
-			p.server.authGossiper.ProcessRemoteAnnouncement(msg,
-				p.addr.IdentityKey)
+			p.server.authGossiper.ProcessRemoteAnnouncement(msg, p)
 		},
 	)
 }
@@ -912,15 +913,15 @@ out:
 			p.queueMsg(lnwire.NewPong(pongBytes), nil)
 
 		case *lnwire.OpenChannel:
-			p.server.fundingMgr.processFundingOpen(msg, p.addr)
+			p.server.fundingMgr.processFundingOpen(msg, p)
 		case *lnwire.AcceptChannel:
-			p.server.fundingMgr.processFundingAccept(msg, p.addr)
+			p.server.fundingMgr.processFundingAccept(msg, p)
 		case *lnwire.FundingCreated:
-			p.server.fundingMgr.processFundingCreated(msg, p.addr)
+			p.server.fundingMgr.processFundingCreated(msg, p)
 		case *lnwire.FundingSigned:
-			p.server.fundingMgr.processFundingSigned(msg, p.addr)
+			p.server.fundingMgr.processFundingSigned(msg, p)
 		case *lnwire.FundingLocked:
-			p.server.fundingMgr.processFundingLocked(msg, p.addr)
+			p.server.fundingMgr.processFundingLocked(msg, p)
 
 		case *lnwire.Shutdown:
 			select {
@@ -936,8 +937,9 @@ out:
 			}
 
 		case *lnwire.Error:
-			switch {
+			key := p.addr.IdentityKey
 
+			switch {
 			// In the case of an all-zero channel ID we want to
 			// forward the error to all channels with this peer.
 			case msg.ChanID == lnwire.ConnectionWideID:
@@ -953,8 +955,8 @@ out:
 			// If the channel ID for the error message corresponds
 			// to a pending channel, then the funding manager will
 			// handle the error.
-			case p.server.fundingMgr.IsPendingChannel(msg.ChanID, p.addr):
-				p.server.fundingMgr.processFundingError(msg, p.addr)
+			case p.server.fundingMgr.IsPendingChannel(msg.ChanID, key):
+				p.server.fundingMgr.processFundingError(msg, key)
 
 			// If not we hand the error to the channel link for
 			// this channel.
@@ -997,7 +999,12 @@ out:
 		case *lnwire.ChannelUpdate,
 			*lnwire.ChannelAnnouncement,
 			*lnwire.NodeAnnouncement,
-			*lnwire.AnnounceSignatures:
+			*lnwire.AnnounceSignatures,
+			*lnwire.GossipTimestampRange,
+			*lnwire.QueryShortChanIDs,
+			*lnwire.QueryChannelRange,
+			*lnwire.ReplyChannelRange,
+			*lnwire.ReplyShortChanIDsEnd:
 
 			discStream.AddMsg(msg)
 
@@ -1141,6 +1148,30 @@ func messageSummary(msg lnwire.Message) string {
 	case *lnwire.ChannelReestablish:
 		return fmt.Sprintf("next_local_height=%v, remote_tail_height=%v",
 			msg.NextLocalCommitHeight, msg.RemoteCommitTailHeight)
+
+	case *lnwire.ReplyShortChanIDsEnd:
+		return fmt.Sprintf("chain_hash=%v, complete=%v", msg.ChainHash,
+			msg.Complete)
+
+	case *lnwire.ReplyChannelRange:
+		return fmt.Sprintf("complete=%v, encoding=%v, num_chans=%v",
+			msg.Complete, msg.EncodingType, len(msg.ShortChanIDs))
+
+	case *lnwire.QueryShortChanIDs:
+		return fmt.Sprintf("chain_hash=%v, encoding=%v, num_chans=%v",
+			msg.ChainHash, msg.EncodingType, len(msg.ShortChanIDs))
+
+	case *lnwire.QueryChannelRange:
+		return fmt.Sprintf("chain_hash=%v, start_height=%v, "+
+			"num_blocks=%v", msg.ChainHash, msg.FirstBlockHeight,
+			msg.NumBlocks)
+
+	case *lnwire.GossipTimestampRange:
+		return fmt.Sprintf("chain_hash=%v, first_stamp=%v, "+
+			"stamp_range=%v", msg.ChainHash,
+			time.Unix(int64(msg.FirstTimestamp), 0),
+			msg.TimestampRange)
+
 	}
 
 	return ""
@@ -1225,7 +1256,6 @@ func (p *peer) writeMessage(msg lnwire.Message) error {
 		return ErrPeerExiting
 	}
 
-	// TODO(roasbeef): add message summaries
 	p.logWireMessage(msg, false)
 
 	p.telemetryWireMessage(msg, false)
@@ -1241,7 +1271,7 @@ func (p *peer) writeMessage(msg lnwire.Message) error {
 	n, err := lnwire.WriteMessage(b, msg, 0)
 	atomic.AddUint64(&p.bytesSent, uint64(n))
 
-	// TODO(roasbeef): add write deadline?
+	p.conn.SetWriteDeadline(time.Now().Add(writeMessageTimeout))
 
 	// Finally, write the message itself in a single swoop.
 	_, err = p.conn.Write(b.Bytes())
@@ -1488,11 +1518,6 @@ out:
 			// necessary items it needs to function.
 			//
 			// TODO(roasbeef): panic on below?
-			blockEpoch, err := p.server.cc.chainNotifier.RegisterBlockEpochNtfn()
-			if err != nil {
-				peerLog.Errorf("unable to register for block epoch: %v", err)
-				continue
-			}
 			_, currentHeight, err := p.server.cc.chainIO.GetBestBlock()
 			if err != nil {
 				peerLog.Errorf("unable to get best block: %v", err)
@@ -1508,13 +1533,14 @@ out:
 			}
 
 			// Create the link and add it to the switch.
-			err = p.addLink(chanPoint, newChan,
-				&p.server.cc.routingPolicy, blockEpoch,
-				chainEvents, currentHeight, false)
+			err = p.addLink(
+				chanPoint, newChan, &p.server.cc.routingPolicy,
+				chainEvents, currentHeight, false,
+			)
 			if err != nil {
 				peerLog.Errorf("can't register new channel "+
-					"link(%v) with NodeKey(%x)", chanPoint,
-					p.PubKey())
+					"link(%v) with NodeKey(%x): %v", chanPoint,
+					p.PubKey(), err)
 			}
 
 			close(newChanReq.done)
@@ -1535,7 +1561,13 @@ out:
 			// closure process.
 			chanCloser, err := p.fetchActiveChanCloser(closeMsg.cid)
 			if err != nil {
-				peerLog.Errorf("unable to respond to remote "+
+				// If the channel is not known to us, we'll
+				// simply ignore this message.
+				if err == ErrChannelNotFound {
+					continue
+				}
+
+				peerLog.Errorf("Unable to respond to remote "+
 					"close msg: %v", err)
 
 				errMsg := &lnwire.Error{
@@ -1613,8 +1645,7 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 	channel, ok := p.activeChannels[chanID]
 	p.activeChanMtx.RUnlock()
 	if !ok {
-		return nil, fmt.Errorf("unable to close channel, "+
-			"ChannelID(%v) is unknown", chanID)
+		return nil, ErrChannelNotFound
 	}
 
 	// We'll attempt to look up the matching state machine, if we can't
@@ -1680,9 +1711,6 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 
 // handleLocalCloseReq kicks-off the workflow to execute a cooperative or
 // forced unilateral closure of the channel initiated by a local subsystem.
-//
-// TODO(roasbeef): if no more active channels with peer call Remove on connMgr
-// with peerID
 func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 	chanID := lnwire.NewChanIDFromOutPoint(req.ChanPoint)
 
@@ -1835,6 +1863,18 @@ func (p *peer) finalizeChanClosure(chanCloser *channelCloser) {
 					},
 				}
 			}
+
+			// Remove the persistent connection to this peer if we
+			// no longer have open channels with them.
+			p.activeChanMtx.Lock()
+			numActiveChans := len(p.activeChannels)
+			p.activeChanMtx.Unlock()
+
+			if numActiveChans == 0 {
+				p.server.prunePersistentPeerConnection(
+					p.pubKeyBytes,
+				)
+			}
 		})
 }
 
@@ -1888,6 +1928,9 @@ func (p *peer) WipeChannel(chanPoint *wire.OutPoint) error {
 	if channel, ok := p.activeChannels[chanID]; ok {
 		channel.Stop()
 		delete(p.activeChannels, chanID)
+		if len(p.activeChannels) == 0 {
+			p.server.prunePersistentPeerConnection(p.pubKeyBytes)
+		}
 	}
 	p.activeChanMtx.Unlock()
 
@@ -1943,28 +1986,83 @@ func (p *peer) sendInitMsg() error {
 	return p.writeMessage(msg)
 }
 
-// SendMessage sends message to remote peer. The second argument denotes if the
-// method should block until the message has been sent to the remote peer.
-func (p *peer) SendMessage(msg lnwire.Message, sync bool) error {
-	if !sync {
-		p.queueMsg(msg, nil)
-		return nil
+// SendMessage sends a variadic number of message to remote peer. The first
+// argument denotes if the method should block until the message has been sent
+// to the remote peer.
+func (p *peer) SendMessage(sync bool, msgs ...lnwire.Message) error {
+	// Add all incoming messages to the outgoing queue. A list of error
+	// chans is populated for each message if the caller requested a sync
+	// send.
+	var errChans []chan error
+	for _, msg := range msgs {
+		// If a sync send was requested, create an error chan to listen
+		// for an ack from the writeHandler.
+		var errChan chan error
+		if sync {
+			errChan = make(chan error, 1)
+			errChans = append(errChans, errChan)
+		}
+
+		p.queueMsg(msg, errChan)
 	}
 
-	errChan := make(chan error, 1)
-	p.queueMsg(msg, errChan)
-
-	select {
-	case err := <-errChan:
-		return err
-	case <-p.quit:
-		return fmt.Errorf("peer shutting down")
+	// Wait for all replies from the writeHandler. For async sends, this
+	// will be a NOP as the list of error chans is nil.
+	for _, errChan := range errChans {
+		select {
+		case err := <-errChan:
+			return err
+		case <-p.quit:
+			return ErrPeerExiting
+		}
 	}
+
+	return nil
 }
 
 // PubKey returns the pubkey of the peer in compressed serialized format.
 func (p *peer) PubKey() [33]byte {
 	return p.pubKeyBytes
+}
+
+// IdentityKey returns the public key of the remote peer.
+func (p *peer) IdentityKey() *btcec.PublicKey {
+	return p.addr.IdentityKey
+}
+
+// Address returns the network address of the remote peer.
+func (p *peer) Address() net.Addr {
+	return p.addr.Address
+}
+
+// AddNewChannel adds a new channel to the peer. The channel should fail to be
+// added if the cancel channel is closed.
+func (p *peer) AddNewChannel(channel *lnwallet.LightningChannel,
+	cancel <-chan struct{}) error {
+
+	newChanDone := make(chan struct{})
+	newChanMsg := &newChannelMsg{
+		channel: channel,
+		done:    newChanDone,
+	}
+
+	select {
+	case p.newChannels <- newChanMsg:
+	case <-cancel:
+		return errors.New("canceled adding new channel")
+	case <-p.quit:
+		return ErrPeerExiting
+	}
+
+	// We pause here to wait for the peer to recognize the new channel
+	// before we close the channel barrier corresponding to the channel.
+	select {
+	case <-newChanDone:
+	case <-p.quit:
+		return ErrPeerExiting
+	}
+
+	return nil
 }
 
 // TODO(roasbeef): make all start/stop mutexes a CAS

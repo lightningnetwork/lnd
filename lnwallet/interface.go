@@ -5,15 +5,11 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 )
-
-// ErrNotMine is an error denoting that a WalletController instance is unable
-// to spend a specified output.
-var ErrNotMine = errors.New("the passed output doesn't belong to the wallet")
 
 // AddressType is an enum-like type which denotes the possible address types
 // WalletController supports.
@@ -32,10 +28,24 @@ const (
 	UnknownAddressType
 )
 
-// ErrDoubleSpend is returned from PublishTransaction in case the
-// tx being published is spending an output spent by a conflicting
-// transaction.
-var ErrDoubleSpend = errors.New("Transaction rejected: output already spent")
+var (
+	// DefaultPublicPassphrase is the default public passphrase used for the
+	// wallet.
+	DefaultPublicPassphrase = []byte("public")
+
+	// DefaultPrivatePassphrase is the default private passphrase used for
+	// the wallet.
+	DefaultPrivatePassphrase = []byte("hello")
+
+	// ErrDoubleSpend is returned from PublishTransaction in case the
+	// tx being published is spending an output spent by a conflicting
+	// transaction.
+	ErrDoubleSpend = errors.New("Transaction rejected: output already spent")
+
+	// ErrNotMine is an error denoting that a WalletController instance is
+	// unable to spend a specified output.
+	ErrNotMine = errors.New("the passed output doesn't belong to the wallet")
+)
 
 // Utxo is an unspent output denoted by its outpoint, and output value of the
 // original output.

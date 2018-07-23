@@ -19,11 +19,15 @@ import (
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 
+	"github.com/btcsuite/btcwallet/chain"
+	"github.com/btcsuite/btcwallet/walletdb"
+	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
 	"github.com/lightninglabs/neutrino"
-	"github.com/roasbeef/btcwallet/chain"
-	"github.com/roasbeef/btcwallet/walletdb"
-	_ "github.com/roasbeef/btcwallet/walletdb/bdb"
 
+	"github.com/btcsuite/btcd/btcjson"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -31,16 +35,12 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcjson"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/rpcclient"
 
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/integration/rpctest"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/integration/rpctest"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 )
 
 var (
@@ -2079,10 +2079,9 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 
 			// Set some package-level variable to speed up
 			// operation for tests.
-			neutrino.WaitForMoreCFHeaders = time.Millisecond * 100
 			neutrino.BanDuration = time.Millisecond * 100
 			neutrino.QueryTimeout = time.Millisecond * 500
-			neutrino.QueryNumRetries = 2
+			neutrino.QueryNumRetries = 1
 
 			// Start Alice - open a database, start a neutrino
 			// instance, and initialize a btcwallet driver for it.
@@ -2190,6 +2189,7 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 				t.Fatalf("couldn't start bob client: %v", err)
 			}
 		default:
+			return
 			t.Fatalf("unknown chain driver: %v", backEnd)
 		}
 

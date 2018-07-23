@@ -1,18 +1,17 @@
 package htlcswitch
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"io/ioutil"
+	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
-
-	"io"
-	"sync/atomic"
-
-	"bytes"
 
 	"github.com/btcsuite/fastsha256"
 	"github.com/go-errors/errors"
@@ -20,12 +19,13 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 )
 
 type mockPreimageCache struct {
@@ -100,8 +100,8 @@ func (m *mockForwardingLog) AddForwardingEvents(events []channeldb.ForwardingEve
 }
 
 type mockServer struct {
-	started  int32
-	shutdown int32
+	started  int32 // To be used atomically.
+	shutdown int32 // To be used atomically.
 	wg       sync.WaitGroup
 	quit     chan struct{}
 
@@ -119,9 +119,9 @@ type mockServer struct {
 	interceptorFuncs []messageInterceptor
 }
 
-var _ Peer = (*mockServer)(nil)
+var _ lnpeer.Peer = (*mockServer)(nil)
 
-func initSwitchWithDB(db *channeldb.DB) (*Switch, error) {
+func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) {
 	if db == nil {
 		tempPath, err := ioutil.TempDir("", "switchdb")
 		if err != nil {
@@ -134,7 +134,7 @@ func initSwitchWithDB(db *channeldb.DB) (*Switch, error) {
 		}
 	}
 
-	return New(Config{
+	cfg := Config{
 		DB:             db,
 		SwitchPackager: channeldb.NewSwitchPackager(),
 		FwdingLog: &mockForwardingLog{
@@ -143,15 +143,20 @@ func initSwitchWithDB(db *channeldb.DB) (*Switch, error) {
 		FetchLastChannelUpdate: func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
 			return nil, nil
 		},
-	})
+		Notifier: &mockNotifier{},
+	}
+
+	return New(cfg, startingHeight)
 }
 
-func newMockServer(t testing.TB, name string, db *channeldb.DB) (*mockServer, error) {
+func newMockServer(t testing.TB, name string, startingHeight uint32,
+	db *channeldb.DB, defaultDelta uint32) (*mockServer, error) {
+
 	var id [33]byte
 	h := sha256.Sum256([]byte(name))
 	copy(id[:], h[:])
 
-	htlcSwitch, err := initSwitchWithDB(db)
+	htlcSwitch, err := initSwitchWithDB(startingHeight, db)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +167,7 @@ func newMockServer(t testing.TB, name string, db *channeldb.DB) (*mockServer, er
 		name:             name,
 		messages:         make(chan lnwire.Message, 3000),
 		quit:             make(chan struct{}),
-		registry:         newMockRegistry(),
+		registry:         newMockRegistry(defaultDelta),
 		htlcSwitch:       htlcSwitch,
 		interceptorFuncs: make([]messageInterceptor, 0),
 	}, nil
@@ -450,12 +455,14 @@ func (s *mockServer) intersect(f messageInterceptor) {
 	s.interceptorFuncs = append(s.interceptorFuncs, f)
 }
 
-func (s *mockServer) SendMessage(message lnwire.Message, sync bool) error {
+func (s *mockServer) SendMessage(sync bool, msgs ...lnwire.Message) error {
 
-	select {
-	case s.messages <- message:
-	case <-s.quit:
-		return errors.New("server is stopped")
+	for _, msg := range msgs {
+		select {
+		case s.messages <- msg:
+		case <-s.quit:
+			return errors.New("server is stopped")
+		}
 	}
 
 	return nil
@@ -506,6 +513,21 @@ func (s *mockServer) PubKey() [33]byte {
 	return s.id
 }
 
+func (s *mockServer) IdentityKey() *btcec.PublicKey {
+	pubkey, _ := btcec.ParsePubKey(s.id[:], btcec.S256())
+	return pubkey
+}
+
+func (s *mockServer) Address() net.Addr {
+	return nil
+}
+
+func (s *mockServer) AddNewChannel(channel *lnwallet.LightningChannel,
+	cancel <-chan struct{}) error {
+
+	return nil
+}
+
 func (s *mockServer) WipeChannel(*wire.OutPoint) error {
 	return nil
 }
@@ -532,7 +554,7 @@ type mockChannelLink struct {
 
 	chanID lnwire.ChannelID
 
-	peer Peer
+	peer lnpeer.Peer
 
 	startMailBox bool
 
@@ -579,7 +601,7 @@ func (f *mockChannelLink) deleteCircuit(pkt *htlcPacket) error {
 }
 
 func newMockChannelLink(htlcSwitch *Switch, chanID lnwire.ChannelID,
-	shortChanID lnwire.ShortChannelID, peer Peer, eligible bool,
+	shortChanID lnwire.ShortChannelID, peer lnpeer.Peer, eligible bool,
 ) *mockChannelLink {
 
 	return &mockChannelLink{
@@ -602,7 +624,7 @@ func (f *mockChannelLink) HandleChannelUpdate(lnwire.Message) {
 func (f *mockChannelLink) UpdateForwardingPolicy(_ ForwardingPolicy) {
 }
 func (f *mockChannelLink) HtlcSatifiesPolicy([32]byte, lnwire.MilliSatoshi,
-	lnwire.MilliSatoshi) lnwire.FailureMessage {
+	lnwire.MilliSatoshi, uint32, uint32, uint32) lnwire.FailureMessage {
 	return nil
 }
 
@@ -624,7 +646,7 @@ func (f *mockChannelLink) Start() error {
 func (f *mockChannelLink) ChanID() lnwire.ChannelID                     { return f.chanID }
 func (f *mockChannelLink) ShortChanID() lnwire.ShortChannelID           { return f.shortChanID }
 func (f *mockChannelLink) Bandwidth() lnwire.MilliSatoshi               { return 99999999 }
-func (f *mockChannelLink) Peer() Peer                                   { return f.peer }
+func (f *mockChannelLink) Peer() lnpeer.Peer                            { return f.peer }
 func (f *mockChannelLink) Stop()                                        {}
 func (f *mockChannelLink) EligibleToForward() bool                      { return f.eligible }
 func (f *mockChannelLink) setLiveShortChanID(sid lnwire.ShortChannelID) { f.shortChanID = sid }
@@ -637,28 +659,34 @@ var _ ChannelLink = (*mockChannelLink)(nil)
 
 type mockInvoiceRegistry struct {
 	sync.Mutex
-	invoices map[chainhash.Hash]channeldb.Invoice
+
+	invoices   map[chainhash.Hash]channeldb.Invoice
+	finalDelta uint32
 }
 
-func newMockRegistry() *mockInvoiceRegistry {
+func newMockRegistry(minDelta uint32) *mockInvoiceRegistry {
 	return &mockInvoiceRegistry{
-		invoices: make(map[chainhash.Hash]channeldb.Invoice),
+		finalDelta: minDelta,
+		invoices:   make(map[chainhash.Hash]channeldb.Invoice),
 	}
 }
 
-func (i *mockInvoiceRegistry) LookupInvoice(rHash chainhash.Hash) (channeldb.Invoice, error) {
+func (i *mockInvoiceRegistry) LookupInvoice(rHash chainhash.Hash) (channeldb.Invoice, uint32, error) {
 	i.Lock()
 	defer i.Unlock()
 
 	invoice, ok := i.invoices[rHash]
 	if !ok {
-		return channeldb.Invoice{}, fmt.Errorf("can't find mock invoice: %x", rHash[:])
+		return channeldb.Invoice{}, 0, fmt.Errorf("can't find mock "+
+			"invoice: %x", rHash[:])
 	}
 
-	return invoice, nil
+	return invoice, i.finalDelta, nil
 }
 
-func (i *mockInvoiceRegistry) SettleInvoice(rhash chainhash.Hash) error {
+func (i *mockInvoiceRegistry) SettleInvoice(rhash chainhash.Hash,
+	amt lnwire.MilliSatoshi) error {
+
 	i.Lock()
 	defer i.Unlock()
 
@@ -672,6 +700,7 @@ func (i *mockInvoiceRegistry) SettleInvoice(rhash chainhash.Hash) error {
 	}
 
 	invoice.Terms.Settled = true
+	invoice.AmtPaid = amt
 	i.invoices[rhash] = invoice
 
 	return nil

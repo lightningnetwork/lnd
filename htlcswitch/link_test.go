@@ -6,6 +6,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
+	"net"
 	"reflect"
 	"runtime"
 	"strings"
@@ -13,21 +15,19 @@ import (
 	"testing"
 	"time"
 
-	"math"
-
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
-	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
+	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 )
 
 const (
@@ -228,7 +228,7 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 
 	// Check that alice invoice was settled and bandwidth of HTLC
 	// links was changed.
-	invoice, err := receiver.registry.LookupInvoice(rhash)
+	invoice, _, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -453,7 +453,7 @@ func TestChannelLinkMultiHopPayment(t *testing.T) {
 
 	// Check that Carol invoice was settled and bandwidth of HTLC
 	// links were changed.
-	invoice, err := receiver.registry.LookupInvoice(rhash)
+	invoice, _, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -619,6 +619,7 @@ func TestLinkForwardTimelockPolicyMismatch(t *testing.T) {
 	_, err = n.makePayment(n.aliceServer, n.carolServer,
 		n.bobServer.PubKey(), hops, amount, htlcAmt,
 		htlcExpiry).Wait(30 * time.Second)
+
 	// We should get an error, and that error should indicate that the HTLC
 	// should be rejected due to a policy violation.
 	if err == nil {
@@ -638,9 +639,9 @@ func TestLinkForwardTimelockPolicyMismatch(t *testing.T) {
 	}
 }
 
-// TestLinkForwardTimelockPolicyMismatch tests that if a node is an
-// intermediate node in a multi-hop payment and receives an HTLC that violates
-// its current fee policy, then the HTLC is rejected with the proper error.
+// TestLinkForwardFeePolicyMismatch tests that if a node is an intermediate
+// node in a multi-hop payment and receives an HTLC that violates its current
+// fee policy, then the HTLC is rejected with the proper error.
 func TestLinkForwardFeePolicyMismatch(t *testing.T) {
 	t.Parallel()
 
@@ -793,7 +794,7 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 
 	// Carol's invoice should now be shown as settled as the payment
 	// succeeded.
-	invoice, err := n.carolServer.registry.LookupInvoice(payResp)
+	invoice, _, err := n.carolServer.registry.LookupInvoice(payResp)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -909,7 +910,7 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 
 	// Check that alice invoice wasn't settled and bandwidth of htlc
 	// links hasn't been changed.
-	invoice, err := receiver.registry.LookupInvoice(rhash)
+	invoice, _, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -1056,7 +1057,9 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
 
-	daveServer, err := newMockServer(t, "dave", nil)
+	daveServer, err := newMockServer(
+		t, "dave", testStartingHeight, nil, n.globalPolicy.TimeLockDelta,
+	)
 	if err != nil {
 		t.Fatalf("unable to init dave's server: %v", err)
 	}
@@ -1077,7 +1080,7 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 
 	// Check that alice invoice wasn't settled and bandwidth of htlc
 	// links hasn't been changed.
-	invoice, err := receiver.registry.LookupInvoice(rhash)
+	invoice, _, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -1165,7 +1168,7 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 
 	// Check that alice invoice wasn't settled and bandwidth of htlc
 	// links hasn't been changed.
-	invoice, err := receiver.registry.LookupInvoice(rhash)
+	invoice, _, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -1396,17 +1399,20 @@ type mockPeer struct {
 	quit         chan struct{}
 }
 
-var _ Peer = (*mockPeer)(nil)
+var _ lnpeer.Peer = (*mockPeer)(nil)
 
-func (m *mockPeer) SendMessage(msg lnwire.Message, sync bool) error {
+func (m *mockPeer) SendMessage(sync bool, msgs ...lnwire.Message) error {
 	if m.disconnected {
 		return fmt.Errorf("disconnected")
 	}
 	select {
-	case m.sentMsgs <- msg:
+	case m.sentMsgs <- msgs[0]:
 	case <-m.quit:
 		return fmt.Errorf("mockPeer shutting down")
 	}
+	return nil
+}
+func (m *mockPeer) AddNewChannel(_ *lnwallet.LightningChannel, _ <-chan struct{}) error {
 	return nil
 }
 func (m *mockPeer) WipeChannel(*wire.OutPoint) error {
@@ -1415,8 +1421,12 @@ func (m *mockPeer) WipeChannel(*wire.OutPoint) error {
 func (m *mockPeer) PubKey() [33]byte {
 	return [33]byte{}
 }
-
-var _ Peer = (*mockPeer)(nil)
+func (m *mockPeer) IdentityKey() *btcec.PublicKey {
+	return nil
+}
+func (m *mockPeer) Address() net.Addr {
+	return nil
+}
 
 func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 	ChannelLink, *lnwallet.LightningChannel, chan time.Time, func() error,
@@ -1439,15 +1449,9 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 	}
 
 	var (
-		globalEpoch = &chainntnfs.BlockEpochEvent{
-			Epochs: make(chan *chainntnfs.BlockEpoch),
-			Cancel: func() {
-			},
-		}
-		invoiceRegistry = newMockRegistry()
-		decoder         = newMockIteratorDecoder()
-		obfuscator      = NewMockObfuscator()
-		alicePeer       = &mockPeer{
+		decoder    = newMockIteratorDecoder()
+		obfuscator = NewMockObfuscator()
+		alicePeer  = &mockPeer{
 			sentMsgs: make(chan lnwire.Message, 2000),
 			quit:     make(chan struct{}),
 		}
@@ -1456,6 +1460,7 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 			BaseFee:       lnwire.NewMSatFromSatoshis(1),
 			TimeLockDelta: 6,
 		}
+		invoiceRegistry = newMockRegistry(globalPolicy.TimeLockDelta)
 	)
 
 	pCache := &mockPreimageCache{
@@ -1464,7 +1469,7 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 	}
 
 	aliceDb := aliceChannel.State().Db
-	aliceSwitch, err := initSwitchWithDB(aliceDb)
+	aliceSwitch, err := initSwitchWithDB(testStartingHeight, aliceDb)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, err
 	}
@@ -1491,16 +1496,17 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 		},
 		Registry:       invoiceRegistry,
 		ChainEvents:    &contractcourt.ChainEventSubscription{},
-		BlockEpochs:    globalEpoch,
 		BatchTicker:    ticker,
 		FwdPkgGCTicker: NewBatchTicker(time.NewTicker(5 * time.Second)),
-		// Make the BatchSize large enough to not
-		// trigger commit update automatically during tests.
-		BatchSize: 10000,
+		// Make the BatchSize and Min/MaxFeeUpdateTimeout large enough
+		// to not trigger commit updates automatically during tests.
+		BatchSize:           10000,
+		MinFeeUpdateTimeout: 30 * time.Minute,
+		MaxFeeUpdateTimeout: 40 * time.Minute,
 	}
 
 	const startingHeight = 100
-	aliceLink := NewChannelLink(aliceCfg, aliceChannel, startingHeight)
+	aliceLink := NewChannelLink(aliceCfg, aliceChannel)
 	start := func() error {
 		return aliceSwitch.AddLink(aliceLink)
 	}
@@ -3258,7 +3264,7 @@ func TestChannelRetransmission(t *testing.T) {
 
 			// Check that alice invoice wasn't settled and
 			// bandwidth of htlc links hasn't been changed.
-			invoice, err = receiver.registry.LookupInvoice(rhash)
+			invoice, _, err = receiver.registry.LookupInvoice(rhash)
 			if err != nil {
 				err = errors.Errorf("unable to get invoice: %v", err)
 				continue
@@ -3447,22 +3453,9 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 	defer n.stop()
 	defer n.feeEstimator.Stop()
 
-	// First, we'll start off all channels at "height" 9000 by sending a
-	// new epoch to all the clients.
-	select {
-	case n.aliceBlockEpoch <- &chainntnfs.BlockEpoch{
-		Height: 9000,
-	}:
-	case <-time.After(time.Second * 5):
-		t.Fatalf("link didn't read block epoch")
-	}
-	select {
-	case n.bobFirstBlockEpoch <- &chainntnfs.BlockEpoch{
-		Height: 9000,
-	}:
-	case <-time.After(time.Second * 5):
-		t.Fatalf("link didn't read block epoch")
-	}
+	// For the sake of this test, we'll reset the timer to fire in a second
+	// so that Alice's link queries for a new network fee.
+	n.aliceChannelLink.updateFeeTimer.Reset(time.Millisecond)
 
 	startingFeeRate := channels.aliceToBob.CommitFeeRate()
 
@@ -3476,20 +3469,15 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 	select {
 	case n.feeEstimator.byteFeeIn <- startingFeeRateSatPerVByte:
 	case <-time.After(time.Second * 5):
-		t.Fatalf("alice didn't query for the new " +
-			"network fee")
+		t.Fatalf("alice didn't query for the new network fee")
 	}
 
-	time.Sleep(time.Millisecond * 500)
+	time.Sleep(time.Second)
 
 	// The fee rate on the alice <-> bob channel should still be the same
 	// on both sides.
 	aliceFeeRate := channels.aliceToBob.CommitFeeRate()
 	bobFeeRate := channels.bobToAlice.CommitFeeRate()
-	if aliceFeeRate != bobFeeRate {
-		t.Fatalf("fee rates don't match: expected %v got %v",
-			aliceFeeRate, bobFeeRate)
-	}
 	if aliceFeeRate != startingFeeRate {
 		t.Fatalf("alice's fee rate shouldn't have changed: "+
 			"expected %v, got %v", aliceFeeRate, startingFeeRate)
@@ -3499,22 +3487,9 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 			"expected %v, got %v", bobFeeRate, startingFeeRate)
 	}
 
-	// Now we'll send a new block update to all end points, with a new
-	// height THAT'S OVER 9000!!!
-	select {
-	case n.aliceBlockEpoch <- &chainntnfs.BlockEpoch{
-		Height: 9001,
-	}:
-	case <-time.After(time.Second * 5):
-		t.Fatalf("link didn't read block epoch")
-	}
-	select {
-	case n.bobFirstBlockEpoch <- &chainntnfs.BlockEpoch{
-		Height: 9001,
-	}:
-	case <-time.After(time.Second * 5):
-		t.Fatalf("link didn't read block epoch")
-	}
+	// We'll reset the timer once again to ensure Alice's link queries for a
+	// new network fee.
+	n.aliceChannelLink.updateFeeTimer.Reset(time.Millisecond)
 
 	// Next, we'll set up a deliver a fee rate that's triple the current
 	// fee rate. This should cause the Alice (the initiator) to trigger a
@@ -3523,11 +3498,10 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 	select {
 	case n.feeEstimator.byteFeeIn <- startingFeeRateSatPerVByte * 3:
 	case <-time.After(time.Second * 5):
-		t.Fatalf("alice didn't query for the new " +
-			"network fee")
+		t.Fatalf("alice didn't query for the new network fee")
 	}
 
-	time.Sleep(time.Second * 2)
+	time.Sleep(time.Second)
 
 	// At this point, Alice should've triggered a new fee update that
 	// increased the fee rate to match the new rate.
@@ -3540,10 +3514,6 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 	if bobFeeRate != newFeeRate {
 		t.Fatalf("bob's fee rate didn't change: expected %v, got %v",
 			newFeeRate, aliceFeeRate)
-	}
-	if aliceFeeRate != bobFeeRate {
-		t.Fatalf("fee rates don't match: expected %v got %v",
-			aliceFeeRate, bobFeeRate)
 	}
 }
 
@@ -3661,7 +3631,7 @@ func TestChannelLinkAcceptOverpay(t *testing.T) {
 
 	// Even though we sent 2x what was asked for, Carol should still have
 	// accepted the payment and marked it as settled.
-	invoice, err := receiver.registry.LookupInvoice(rhash)
+	invoice, _, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -3691,6 +3661,13 @@ func TestChannelLinkAcceptOverpay(t *testing.T) {
 	if expectedCarolBandwidth != n.carolChannelLink.Bandwidth() {
 		t.Fatalf("channel bandwidth incorrect: expected %v, got %v",
 			expectedCarolBandwidth, n.carolChannelLink.Bandwidth())
+	}
+
+	// Finally, we'll ensure that the amount we paid is properly reflected
+	// in the stored invoice.
+	if invoice.AmtPaid != amount {
+		t.Fatalf("expected amt paid to be %v, is instead %v", amount,
+			invoice.AmtPaid)
 	}
 }
 
@@ -3748,6 +3725,7 @@ func (h *persistentLinkHarness) restart(restartSwitch bool,
 
 	// First, remove the link from the switch.
 	h.coreLink.cfg.Switch.RemoveLink(h.link.ChanID())
+	h.coreLink.WaitForShutdown()
 
 	var htlcSwitch *Switch
 	if restartSwitch {
@@ -3855,15 +3833,9 @@ func restartLink(aliceChannel *lnwallet.LightningChannel, aliceSwitch *Switch,
 	hodlFlags []hodl.Flag) (ChannelLink, chan time.Time, func(), error) {
 
 	var (
-		globalEpoch = &chainntnfs.BlockEpochEvent{
-			Epochs: make(chan *chainntnfs.BlockEpoch),
-			Cancel: func() {
-			},
-		}
-		invoiceRegistry = newMockRegistry()
-		decoder         = newMockIteratorDecoder()
-		obfuscator      = NewMockObfuscator()
-		alicePeer       = &mockPeer{
+		decoder    = newMockIteratorDecoder()
+		obfuscator = NewMockObfuscator()
+		alicePeer  = &mockPeer{
 			sentMsgs: make(chan lnwire.Message, 2000),
 			quit:     make(chan struct{}),
 		}
@@ -3873,6 +3845,8 @@ func restartLink(aliceChannel *lnwallet.LightningChannel, aliceSwitch *Switch,
 			BaseFee:       lnwire.NewMSatFromSatoshis(1),
 			TimeLockDelta: 6,
 		}
+
+		invoiceRegistry = newMockRegistry(globalPolicy.TimeLockDelta)
 
 		pCache = &mockPreimageCache{
 			// hash -> preimage
@@ -3884,7 +3858,7 @@ func restartLink(aliceChannel *lnwallet.LightningChannel, aliceSwitch *Switch,
 
 	if aliceSwitch == nil {
 		var err error
-		aliceSwitch, err = initSwitchWithDB(aliceDb)
+		aliceSwitch, err = initSwitchWithDB(testStartingHeight, aliceDb)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -3910,19 +3884,20 @@ func restartLink(aliceChannel *lnwallet.LightningChannel, aliceSwitch *Switch,
 		},
 		Registry:       invoiceRegistry,
 		ChainEvents:    &contractcourt.ChainEventSubscription{},
-		BlockEpochs:    globalEpoch,
 		BatchTicker:    ticker,
 		FwdPkgGCTicker: NewBatchTicker(time.NewTicker(5 * time.Second)),
-		// Make the BatchSize large enough to not
-		// trigger commit update automatically during tests.
-		BatchSize: 10000,
+		// Make the BatchSize and Min/MaxFeeUpdateTimeout large enough
+		// to not trigger commit updates automatically during tests.
+		BatchSize:           10000,
+		MinFeeUpdateTimeout: 30 * time.Minute,
+		MaxFeeUpdateTimeout: 40 * time.Minute,
 		// Set any hodl flags requested for the new link.
 		HodlMask:  hodl.MaskFromFlags(hodlFlags...),
 		DebugHTLC: len(hodlFlags) > 0,
 	}
 
 	const startingHeight = 100
-	aliceLink := NewChannelLink(aliceCfg, aliceChannel, startingHeight)
+	aliceLink := NewChannelLink(aliceCfg, aliceChannel)
 	if err := aliceSwitch.AddLink(aliceLink); err != nil {
 		return nil, nil, nil, err
 	}
@@ -4513,5 +4488,111 @@ func TestChannelLinkFail(t *testing.T) {
 
 		// Clean up before starting next test case.
 		cleanUp()
+	}
+}
+
+// TestExpectedFee tests calculation of ExpectedFee returns expected fee, given
+// a baseFee, a feeRate, and an htlc amount.
+func TestExpectedFee(t *testing.T) {
+	testCases := []struct {
+		baseFee  lnwire.MilliSatoshi
+		feeRate  lnwire.MilliSatoshi
+		htlcAmt  lnwire.MilliSatoshi
+		expected lnwire.MilliSatoshi
+	}{
+		{
+			lnwire.MilliSatoshi(0),
+			lnwire.MilliSatoshi(0),
+			lnwire.MilliSatoshi(0),
+			lnwire.MilliSatoshi(0),
+		},
+		{
+			lnwire.MilliSatoshi(0),
+			lnwire.MilliSatoshi(1),
+			lnwire.MilliSatoshi(999999),
+			lnwire.MilliSatoshi(0),
+		},
+		{
+			lnwire.MilliSatoshi(0),
+			lnwire.MilliSatoshi(1),
+			lnwire.MilliSatoshi(1000000),
+			lnwire.MilliSatoshi(1),
+		},
+		{
+			lnwire.MilliSatoshi(0),
+			lnwire.MilliSatoshi(1),
+			lnwire.MilliSatoshi(1000001),
+			lnwire.MilliSatoshi(1),
+		},
+		{
+			lnwire.MilliSatoshi(1),
+			lnwire.MilliSatoshi(1),
+			lnwire.MilliSatoshi(1000000),
+			lnwire.MilliSatoshi(2),
+		},
+	}
+
+	for _, test := range testCases {
+		f := ForwardingPolicy{
+			BaseFee: test.baseFee,
+			FeeRate: test.feeRate,
+		}
+		fee := ExpectedFee(f, test.htlcAmt)
+		if fee != test.expected {
+			t.Errorf("expected fee to be (%v), instead got (%v)", test.expected,
+				fee)
+		}
+	}
+}
+
+// TestForwardingAsymmetricTimeLockPolicies tests that each link is able to
+// properly handle forwarding HTLCs when their outgoing channels have
+// asymmetric policies w.r.t what they require for time locks.
+func TestForwardingAsymmetricTimeLockPolicies(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll create our traditional three hop network. Bob
+	// interacting with and asserting the state of two of the end points
+	// for this test.
+	channels, cleanUp, _, err := createClusterChannels(
+		btcutil.SatoshiPerBitcoin*3,
+		btcutil.SatoshiPerBitcoin*5,
+	)
+	if err != nil {
+		t.Fatalf("unable to create channel: %v", err)
+	}
+	defer cleanUp()
+
+	n := newThreeHopNetwork(
+		t, channels.aliceToBob, channels.bobToAlice, channels.bobToCarol,
+		channels.carolToBob, testStartingHeight,
+	)
+	if err := n.start(); err != nil {
+		t.Fatalf("unable to start three hop network: %v", err)
+	}
+	defer n.stop()
+
+	// Now that each of the links are up, we'll modify the link from Alice
+	// -> Bob to have a greater time lock delta than that of the link of
+	// Bob -> Carol.
+	n.firstBobChannelLink.UpdateForwardingPolicy(ForwardingPolicy{
+		TimeLockDelta: 7,
+	})
+
+	// Now that the Alice -> Bob link has been updated, we'll craft and
+	// send a payment from Alice -> Carol. This should succeed as normal,
+	// even though Bob has asymmetric time lock policies.
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	htlcAmt, totalTimelock, hops := generateHops(
+		amount, testStartingHeight, n.firstBobChannelLink,
+		n.carolChannelLink,
+	)
+
+	_, err = n.makePayment(
+		n.aliceServer, n.carolServer, n.bobServer.PubKey(), hops,
+		amount, htlcAmt, totalTimelock,
+	).Wait(30 * time.Second)
+	if err != nil {
+		t.Fatalf("unable to send payment: %v", err)
 	}
 }

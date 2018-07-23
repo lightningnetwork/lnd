@@ -1,8 +1,8 @@
 package chainview
 
 import (
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 )
 
 // FilteredChainView represents a subscription to a certain subset of the

@@ -5,13 +5,13 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/gcs/builder"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/neutrino"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/rpcclient"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
-	"github.com/roasbeef/btcutil/gcs/builder"
-	"github.com/roasbeef/btcwallet/waddrmgr"
 )
 
 // CfFilteredChainView is an implementation of the FilteredChainView interface
@@ -20,8 +20,8 @@ import (
 // blocks, the light client is able to query filters locally, to test if an
 // item in a block modifies any of our watched set of UTXOs.
 type CfFilteredChainView struct {
-	started int32
-	stopped int32
+	started int32 // To be used atomically.
+	stopped int32 // To be used atomically.
 
 	// p2pNode is a pointer to the running GCS-filter supported Bitcoin
 	// light clientl
@@ -29,7 +29,7 @@ type CfFilteredChainView struct {
 
 	// chainView is the active rescan which only watches our specified
 	// sub-set of the UTXO set.
-	chainView neutrino.Rescan
+	chainView *neutrino.Rescan
 
 	// rescanErrChan is the channel that any errors encountered during the
 	// rescan will be sent over.

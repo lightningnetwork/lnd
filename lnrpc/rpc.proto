@@ -75,6 +75,17 @@ service WalletUnlocker {
             body: "*"
         };
     }
+
+    /** lncli: `changepassword`
+    ChangePassword changes the password of the encrypted wallet. This will
+    automatically unlock the wallet database if successful.
+    */
+    rpc ChangePassword (ChangePasswordRequest) returns (ChangePasswordResponse) {
+        option (google.api.http) = {
+            post: "/v1/changepassword"
+            body: "*"
+        };
+    }
 }
 
 message GenSeedRequest {
@@ -158,6 +169,21 @@ message UnlockWalletRequest {
     int32 recovery_window = 2;
 }
 message UnlockWalletResponse {}
+
+message ChangePasswordRequest {
+    /**
+    current_password should be the current valid passphrase used to unlock the
+    daemon.
+    */
+    bytes current_password = 1;
+
+    /**
+    new_password should be the new passphrase that will be needed to unlock the
+    daemon.
+    */
+    bytes new_password = 2;
+}
+message ChangePasswordResponse {}
 
 service Lightning {
     /** lncli: `walletbalance`
@@ -315,6 +341,17 @@ service Lightning {
         };
     }
 
+    /** lncli: `closedchannels`
+    ClosedChannels returns a description of all the closed channels that 
+    this node was a participant in.
+    */
+    rpc ClosedChannels (ClosedChannelsRequest) returns (ClosedChannelsResponse) {
+        option (google.api.http) = {
+            get: "/v1/channels/closed"
+        };
+    }
+
+
     /**
     OpenChannelSync is a synchronous version of the OpenChannel RPC call. This
     call is meant to be consumed by clients to the REST proxy. As with all
@@ -373,6 +410,25 @@ service Lightning {
         };
     }
 
+    /** lncli: `sendtoroute`
+    SendToRoute is a bi-directional streaming RPC for sending payment through
+    the Lightning Network. This method differs from SendPayment in that it
+    allows users to specify a full route manually. This can be used for things
+    like rebalancing, and atomic swaps.
+    */
+    rpc SendToRoute(stream SendToRouteRequest) returns (stream SendResponse);
+
+    /**
+    SendToRouteSync is a synchronous version of SendToRoute. It Will block
+    until the payment either fails or succeeds.
+    */
+    rpc SendToRouteSync (SendToRouteRequest) returns (SendResponse) {
+        option (google.api.http) = {
+            post: "/v1/channels/transactions/route"
+            body: "*"
+        };
+    }
+
     /** lncli: `addinvoice`
     AddInvoice attempts to add a new invoice to the invoice database. Any
     duplicated invoices are rejected, therefore all invoices *must* have a
@@ -408,7 +464,14 @@ service Lightning {
 
     /**
     SubscribeInvoices returns a uni-directional stream (sever -> client) for
-    notifying the client of newly added/settled invoices.
+    notifying the client of newly added/settled invoices. The caller can
+    optionally specify the add_index and/or the settle_index. If the add_index
+    is specified, then we'll first start by sending add invoice events for all
+    invoices with an add_index greater than the specified value.  If the
+    settle_index is specified, the next, we'll send out all settle events for
+    invoices with a settle_index greater than the specified value.  One or both
+    of these fields can be set. If no fields are set, then we'll only send out
+    the latest add/settle events.
     */
     rpc SubscribeInvoices (InvoiceSubscription) returns (stream Invoice) {
         option (google.api.http) = {
@@ -608,6 +671,16 @@ message TransactionDetails {
     repeated Transaction transactions = 1 [json_name = "transactions"];
 }
 
+message FeeLimit {
+    oneof limit {
+        /// The fee limit expressed as a fixed amount of satoshis.
+        int64 fixed = 1;
+
+        /// The fee limit expressed as a percentage of the payment amount.
+        int64 percent = 2;
+    }
+}
+
 message SendRequest {
     /// The identity pubkey of the payment recipient
     bytes dest = 1;
@@ -631,13 +704,35 @@ message SendRequest {
     */
     string payment_request = 6;
 
-    /// The CLTV delta from the current height that should be used to set the timelock for the final hop.
+    /**
+    The CLTV delta from the current height that should be used to set the
+    timelock for the final hop.
+    */
     int32 final_cltv_delta = 7;
+
+    /**
+    The maximum number of satoshis that will be paid as a fee of the payment.
+    This value can be represented either as a percentage of the amount being
+    sent, or as a fixed amount of the maximum fee the user is willing the pay to
+    send the payment.
+    */
+    FeeLimit fee_limit = 8;
 }
 message SendResponse {
     string payment_error = 1 [json_name = "payment_error"];
     bytes payment_preimage = 2 [json_name = "payment_preimage"];
     Route payment_route = 3 [json_name = "payment_route"];
+}
+
+message SendToRouteRequest {
+    /// The payment hash to use for the HTLC.
+    bytes payment_hash = 1;
+
+    /// An optional hex-encoded payment hash to be used for the HTLC.
+    string payment_hash_string = 2;
+
+    /// The set of routes that should be used to attempt to complete the payment.
+    repeated Route routes = 3;
 }
 
 message ChannelPoint {
@@ -850,6 +945,7 @@ message Channel {
     bool private = 17 [json_name = "private"];
 }
 
+
 message ListChannelsRequest {
     bool active_only = 1;
     bool inactive_only = 2;
@@ -859,6 +955,58 @@ message ListChannelsRequest {
 message ListChannelsResponse {
     /// The list of active channels
     repeated Channel channels = 11 [json_name = "channels"];
+}
+
+message ChannelCloseSummary {
+    /// The outpoint (txid:index) of the funding transaction. 
+    string channel_point = 1 [json_name = "channel_point"];
+
+    ///  The unique channel ID for the channel. 
+    uint64 chan_id = 2 [json_name = "chan_id"];
+
+    /// The hash of the genesis block that this channel resides within.
+    string chain_hash = 3 [json_name = "chain_hash"];
+
+    /// The txid of the transaction which ultimately closed this channel.
+    string closing_tx_hash = 4 [json_name = "closing_tx_hash"];
+
+    /// Public key of the remote peer that we formerly had a channel with.
+    string remote_pubkey = 5 [json_name = "remote_pubkey"];
+
+    /// Total capacity of the channel.
+    int64 capacity = 6 [json_name = "capacity"];
+
+    /// Height at which the funding transaction was spent.
+    uint32 close_height = 7 [json_name = "close_height"];
+
+    /// Settled balance at the time of channel closure
+    int64 settled_balance = 8 [json_name = "settled_balance"];
+
+    /// The sum of all the time-locked outputs at the time of channel closure
+    int64 time_locked_balance = 9 [json_name = "time_locked_balance"];
+
+    enum ClosureType {
+        COOPERATIVE_CLOSE = 0;
+        LOCAL_FORCE_CLOSE = 1;
+        REMOTE_FORCE_CLOSE = 2;
+        BREACH_CLOSE = 3;
+        FUNDING_CANCELED = 4;
+    }
+
+    /// Details on how the channel was closed.
+    ClosureType close_type = 10 [json_name = "close_type"];
+}
+
+message ClosedChannelsRequest {
+    bool cooperative = 1;
+    bool local_force = 2;
+    bool remote_force = 3;
+    bool breach = 4;
+    bool funding_canceled = 5;
+}
+
+message ClosedChannelsResponse { 
+    repeated ChannelCloseSummary channels = 1 [json_name = "channels"];
 }
 
 message Peer {
@@ -1178,9 +1326,20 @@ message QueryRoutesRequest {
 
     /// The max number of routes to return.
     int32 num_routes = 3;
+
+    /// An optional CLTV delta from the current height that should be used for the timelock of the final hop
+    int32 final_cltv_delta = 4;
+
+    /**
+    The maximum number of satoshis that will be paid as a fee of the payment.
+    This value can be represented either as a percentage of the amount being
+    sent, or as a fixed amount of the maximum fee the user is willing the pay to
+    send the payment.
+    */
+    FeeLimit fee_limit = 5;
 }
 message QueryRoutesResponse {
-    repeated Route routes = 1 [ json_name = "routes"];
+    repeated Route routes = 1 [json_name = "routes"];
 }
 
 message Hop {
@@ -1497,6 +1656,32 @@ message Invoice {
 
     /// Whether this invoice should include routing hints for private channels.
     bool private = 15 [json_name = "private"];
+
+    /**
+    The "add" index of this invoice. Each newly created invoice will increment
+    this index making it monotonically increasing. Callers to the
+    SubscribeInvoices call can use this to instantly get notified of all added
+    invoices with an add_index greater than this one.
+    */
+    uint64 add_index = 16 [json_name = "add_index"];
+
+    /**
+    The "settle" index of this invoice. Each newly settled invoice will
+    increment this index making it monotonically increasing. Callers to the
+    SubscribeInvoices call can use this to instantly get notified of all
+    settled invoices with an settle_index greater than this one.
+    */
+    uint64 settle_index = 17 [json_name = "settle_index"];
+
+    /**
+    The amount that was accepted for this invoice. This will ONLY be set if
+    this invoice has been settled. We provide this field as if the invoice was
+    created with a zero value, then we need to record what amount was
+    ultimately accepted. Additionally, it's possible that the sender paid MORE
+    that was specified in the original invoice. So we'll record that here as
+    well.
+    */
+    int64 amt_paid = 18 [json_name = "amt_paid"];
 }
 message AddInvoiceResponse {
     bytes r_hash = 1 [json_name = "r_hash"];
@@ -1507,6 +1692,14 @@ message AddInvoiceResponse {
     payment to the recipient.
     */
     string payment_request = 2 [json_name = "payment_request"];
+
+    /**
+    The "add" index of this invoice. Each newly created invoice will increment
+    this index making it monotonically increasing. Callers to the
+    SubscribeInvoices call can use this to instantly get notified of all added
+    invoices with an add_index greater than this one.
+    */
+    uint64 add_index = 16 [json_name = "add_index"];
 }
 message PaymentHash {
     /**
@@ -1527,6 +1720,21 @@ message ListInvoiceResponse {
 }
 
 message InvoiceSubscription {
+    /**
+    If specified (non-zero), then we'll first start by sending out
+    notifications for all added indexes with an add_index greater than this
+    value. This allows callers to catch up on any events they missed while they
+    weren't connected to the streaming RPC.
+    */
+    uint64 add_index = 1 [json_name = "add_index"];
+
+    /**
+    If specified (non-zero), then we'll first start by sending out
+    notifications for all settled indexes with an settle_index greater than
+    this value. This allows callers to catch up on any events they missed while
+    they weren't connected to the streaming RPC.
+    */
+    uint64 settle_index = 2 [json_name = "settle_index"];
 }
 
 

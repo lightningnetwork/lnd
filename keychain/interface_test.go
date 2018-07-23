@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcwallet/waddrmgr"
-	"github.com/roasbeef/btcwallet/wallet"
-	"github.com/roasbeef/btcwallet/walletdb"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/btcsuite/btcwallet/wallet"
+	"github.com/btcsuite/btcwallet/walletdb"
 
-	_ "github.com/roasbeef/btcwallet/walletdb/bdb" // Required in order to create the default database.
+	_ "github.com/btcsuite/btcwallet/walletdb/bdb" // Required in order to create the default database.
 )
 
 // versionZeroKeyFamilies is a slice of all the known key families for first

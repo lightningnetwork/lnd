@@ -9,10 +9,10 @@ import (
 
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcutil"
-	"github.com/roasbeef/btcutil/bech32"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/bech32"
 )
 
 // TestDecodeAmount ensures that the amount string in the hrp of the Invoice

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/btcsuite/btcd/connmgr"
 	"github.com/btcsuite/btclog"
 	"github.com/jrick/logrotate/rotator"
 	"github.com/lightninglabs/neutrino"
@@ -20,7 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/routing"
-	"github.com/roasbeef/btcd/connmgr"
+	"github.com/lightningnetwork/lnd/signal"
 )
 
 // logWriter implements an io.Writer that outputs to both standard output and
@@ -90,6 +91,7 @@ func init() {
 	autopilot.UseLogger(atplLog)
 	contractcourt.UseLogger(cnctLog)
 	sphinx.UseLogger(sphxLog)
+	signal.UseLogger(ltndLog)
 }
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.

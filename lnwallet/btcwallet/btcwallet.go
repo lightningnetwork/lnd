@@ -11,16 +11,16 @@ import (
 
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
-	"github.com/roasbeef/btcwallet/chain"
-	"github.com/roasbeef/btcwallet/waddrmgr"
-	base "github.com/roasbeef/btcwallet/wallet"
-	"github.com/roasbeef/btcwallet/walletdb"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcwallet/chain"
+	"github.com/btcsuite/btcwallet/waddrmgr"
+	base "github.com/btcsuite/btcwallet/wallet"
+	"github.com/btcsuite/btcwallet/walletdb"
 )
 
 const (
@@ -81,35 +81,43 @@ func New(cfg Config) (*BtcWallet, error) {
 		Coin:    cfg.CoinType,
 	}
 
-	var pubPass []byte
-	if cfg.PublicPass == nil {
-		pubPass = defaultPubPassphrase
-	} else {
-		pubPass = cfg.PublicPass
-	}
-
-	loader := base.NewLoader(cfg.NetParams, netDir, cfg.RecoveryWindow)
-	walletExists, err := loader.WalletExists()
-	if err != nil {
-		return nil, err
-	}
-
-	var wallet *base.Wallet
-	if !walletExists {
-		// Wallet has never been created, perform initial set up.
-		wallet, err = loader.CreateNewWallet(
-			pubPass, cfg.PrivatePass, cfg.HdSeed, cfg.Birthday,
-		)
+	// Maybe the wallet has already been opened and unlocked by the
+	// WalletUnlocker. So if we get a non-nil value from the config,
+	// we assume everything is in order.
+	var wallet = cfg.Wallet
+	if wallet == nil {
+		// No ready wallet was passed, so try to open an existing one.
+		var pubPass []byte
+		if cfg.PublicPass == nil {
+			pubPass = defaultPubPassphrase
+		} else {
+			pubPass = cfg.PublicPass
+		}
+		loader := base.NewLoader(cfg.NetParams, netDir,
+			cfg.RecoveryWindow)
+		walletExists, err := loader.WalletExists()
 		if err != nil {
 			return nil, err
 		}
-	} else {
-		// Wallet has been created and been initialized at this point,
-		// open it along with all the required DB namespaces, and the
-		// DB itself.
-		wallet, err = loader.OpenExistingWallet(pubPass, false)
-		if err != nil {
-			return nil, err
+
+		if !walletExists {
+			// Wallet has never been created, perform initial
+			// set up.
+			wallet, err = loader.CreateNewWallet(
+				pubPass, cfg.PrivatePass, cfg.HdSeed,
+				cfg.Birthday,
+			)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			// Wallet has been created and been initialized at
+			// this point, open it along with all the required DB
+			// namespaces, and the DB itself.
+			wallet, err = loader.OpenExistingWallet(pubPass, false)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 

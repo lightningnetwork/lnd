@@ -12,19 +12,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/integration/rpctest"
+	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightninglabs/neutrino"
 	"github.com/ltcsuite/ltcd/btcjson"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/integration/rpctest"
-	"github.com/roasbeef/btcd/rpcclient"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 
-	"github.com/roasbeef/btcwallet/walletdb"
-	_ "github.com/roasbeef/btcwallet/walletdb/bdb" // Required to register the boltdb walletdb implementation.
+	"github.com/btcsuite/btcwallet/walletdb"
+	_ "github.com/btcsuite/btcwallet/walletdb/bdb" // Required to register the boltdb walletdb implementation.
 )
 
 var (
@@ -835,7 +835,6 @@ var interfaceImpls = []struct {
 				ConnectPeers: []string{p2pAddr},
 			}
 
-			neutrino.WaitForMoreCFHeaders = 250 * time.Millisecond
 			spvNode, err := neutrino.NewChainService(spvConfig)
 			if err != nil {
 				return nil, nil, err

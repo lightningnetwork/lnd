@@ -9,6 +9,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/connmgr"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/brontide"
@@ -16,14 +21,10 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/connmgr"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
 )
 
 var (
@@ -39,6 +40,9 @@ const (
 
 	// idleTimeout is the duration of inactivity before we time out a peer.
 	idleTimeout = 5 * time.Minute
+
+	// writeMessageTimeout is the timeout used when writing a message to peer.
+	writeMessageTimeout = 10 * time.Second
 
 	// outgoingQueueLen is the buffer size of the channel which houses
 	// messages to be sent across the wire, requested by objects outside
@@ -182,6 +186,9 @@ type peer struct {
 	wg        sync.WaitGroup
 }
 
+// A compile-time check to ensure that peer satisfies the lnpeer.Peer interface.
+var _ lnpeer.Peer = (*peer)(nil)
+
 // newPeer creates a new peer from an establish connection object, and a
 // pointer to the main server.
 func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
@@ -314,7 +321,6 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			p.server.cc.signer, p.server.witnessBeacon, dbChan,
 		)
 		if err != nil {
-			lnChan.Stop()
 			return err
 		}
 
@@ -905,15 +911,15 @@ out:
 			p.queueMsg(lnwire.NewPong(pongBytes), nil)
 
 		case *lnwire.OpenChannel:
-			p.server.fundingMgr.processFundingOpen(msg, p.addr)
+			p.server.fundingMgr.processFundingOpen(msg, p)
 		case *lnwire.AcceptChannel:
-			p.server.fundingMgr.processFundingAccept(msg, p.addr)
+			p.server.fundingMgr.processFundingAccept(msg, p)
 		case *lnwire.FundingCreated:
-			p.server.fundingMgr.processFundingCreated(msg, p.addr)
+			p.server.fundingMgr.processFundingCreated(msg, p)
 		case *lnwire.FundingSigned:
-			p.server.fundingMgr.processFundingSigned(msg, p.addr)
+			p.server.fundingMgr.processFundingSigned(msg, p)
 		case *lnwire.FundingLocked:
-			p.server.fundingMgr.processFundingLocked(msg, p.addr)
+			p.server.fundingMgr.processFundingLocked(msg, p)
 
 		case *lnwire.Shutdown:
 			select {
@@ -929,8 +935,9 @@ out:
 			}
 
 		case *lnwire.Error:
-			switch {
+			key := p.addr.IdentityKey
 
+			switch {
 			// In the case of an all-zero channel ID we want to
 			// forward the error to all channels with this peer.
 			case msg.ChanID == lnwire.ConnectionWideID:
@@ -946,8 +953,8 @@ out:
 			// If the channel ID for the error message corresponds
 			// to a pending channel, then the funding manager will
 			// handle the error.
-			case p.server.fundingMgr.IsPendingChannel(msg.ChanID, p.addr):
-				p.server.fundingMgr.processFundingError(msg, p.addr)
+			case p.server.fundingMgr.IsPendingChannel(msg.ChanID, key):
+				p.server.fundingMgr.processFundingError(msg, key)
 
 			// If not we hand the error to the channel link for
 			// this channel.
@@ -1250,7 +1257,7 @@ func (p *peer) writeMessage(msg lnwire.Message) error {
 	n, err := lnwire.WriteMessage(b, msg, 0)
 	atomic.AddUint64(&p.bytesSent, uint64(n))
 
-	// TODO(roasbeef): add write deadline?
+	p.conn.SetWriteDeadline(time.Now().Add(writeMessageTimeout))
 
 	// Finally, write the message itself in a single swoop.
 	_, err = p.conn.Write(b.Bytes())
@@ -1540,7 +1547,13 @@ out:
 			// closure process.
 			chanCloser, err := p.fetchActiveChanCloser(closeMsg.cid)
 			if err != nil {
-				peerLog.Errorf("unable to respond to remote "+
+				// If the channel is not known to us, we'll
+				// simply ignore this message.
+				if err == ErrChannelNotFound {
+					continue
+				}
+
+				peerLog.Errorf("Unable to respond to remote "+
 					"close msg: %v", err)
 
 				errMsg := &lnwire.Error{
@@ -1618,8 +1631,7 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 	channel, ok := p.activeChannels[chanID]
 	p.activeChanMtx.RUnlock()
 	if !ok {
-		return nil, fmt.Errorf("unable to close channel, "+
-			"ChannelID(%v) is unknown", chanID)
+		return nil, ErrChannelNotFound
 	}
 
 	// We'll attempt to look up the matching state machine, if we can't
@@ -1685,9 +1697,6 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 
 // handleLocalCloseReq kicks-off the workflow to execute a cooperative or
 // forced unilateral closure of the channel initiated by a local subsystem.
-//
-// TODO(roasbeef): if no more active channels with peer call Remove on connMgr
-// with peerID
 func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 	chanID := lnwire.NewChanIDFromOutPoint(req.ChanPoint)
 
@@ -1840,6 +1849,18 @@ func (p *peer) finalizeChanClosure(chanCloser *channelCloser) {
 					},
 				}
 			}
+
+			// Remove the persistent connection to this peer if we
+			// no longer have open channels with them.
+			p.activeChanMtx.Lock()
+			numActiveChans := len(p.activeChannels)
+			p.activeChanMtx.Unlock()
+
+			if numActiveChans == 0 {
+				p.server.prunePersistentPeerConnection(
+					p.pubKeyBytes,
+				)
+			}
 		})
 }
 
@@ -1893,6 +1914,9 @@ func (p *peer) WipeChannel(chanPoint *wire.OutPoint) error {
 	if channel, ok := p.activeChannels[chanID]; ok {
 		channel.Stop()
 		delete(p.activeChannels, chanID)
+		if len(p.activeChannels) == 0 {
+			p.server.prunePersistentPeerConnection(p.pubKeyBytes)
+		}
 	}
 	p.activeChanMtx.Unlock()
 
@@ -1990,6 +2014,41 @@ func (p *peer) PubKey() [33]byte {
 // IdentityKey returns the public key of the remote peer.
 func (p *peer) IdentityKey() *btcec.PublicKey {
 	return p.addr.IdentityKey
+}
+
+// Address returns the network address of the remote peer.
+func (p *peer) Address() net.Addr {
+	return p.addr.Address
+}
+
+// AddNewChannel adds a new channel to the peer. The channel should fail to be
+// added if the cancel channel is closed.
+func (p *peer) AddNewChannel(channel *lnwallet.LightningChannel,
+	cancel <-chan struct{}) error {
+
+	newChanDone := make(chan struct{})
+	newChanMsg := &newChannelMsg{
+		channel: channel,
+		done:    newChanDone,
+	}
+
+	select {
+	case p.newChannels <- newChanMsg:
+	case <-cancel:
+		return errors.New("canceled adding new channel")
+	case <-p.quit:
+		return ErrPeerExiting
+	}
+
+	// We pause here to wait for the peer to recognize the new channel
+	// before we close the channel barrier corresponding to the channel.
+	select {
+	case <-newChanDone:
+	case <-p.quit:
+		return ErrPeerExiting
+	}
+
+	return nil
 }
 
 // TODO(roasbeef): make all start/stop mutexes a CAS

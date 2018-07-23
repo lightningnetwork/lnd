@@ -44,11 +44,11 @@
 
 [[constraint]]
   name = "github.com/lightninglabs/neutrino"
-  revision = "36d9a509ff4ea1e916a73c6f1c2b784c1faf11ed"
+  revision = "03f4c660ea0d1586331f32561185d45eab1ba4c9"
 
 [[constraint]]
   name = "github.com/lightningnetwork/lightning-onion"
-  revision = "e5ab5d7396020384f864452ec3c69b56264f1092"
+  revision = "ac4d9da8f1d67c95f1fafdc65e1a4902d6f5a940"
 
 [[constraint]]
   name = "github.com/ltcsuite/ltcd"
@@ -63,16 +63,16 @@
   revision = "29b680b06c82d044ebea91bf3069038eb562df2a"
 
 [[constraint]]
-  name = "github.com/roasbeef/btcutil"
-  revision = "dfb640c57141f1c2113b92b4b16d2a89c30dd258"
+  name = "github.com/btcsuite/btcutil"
+  revision = "d4cc87b860166d00d6b5b9e0d3b3d71d6088d4d4"
 
 [[constraint]]
-  name = "github.com/roasbeef/btcd"
-  revision = "a03db407e40d3b66ea29984263bbc8bf4d2f04c4"
+  name = "github.com/btcsuite/btcd"
+  revision = "86fed781132ac890ee03e906e4ecd5d6fa180c64"
 
 [[constraint]]
-  name = "github.com/roasbeef/btcwallet"
-  revision = "ccd48bb4720f2baeaa795cac81264f6ced2da4c7"
+  name = "github.com/btcsuite/btcwallet"
+  revision = "64b5b448f5e6853a2d870f388504a7807bc951f1"
 
 [[constraint]]
   name = "github.com/tv42/zbase32"

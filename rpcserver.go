@@ -11,11 +11,11 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/macaroon-bakery.v2/bakery"
 
-	"sync"
 	"sync/atomic"
 
 	"github.com/coreos/bbolt"
@@ -26,14 +26,15 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/zpay32"
-	"github.com/roasbeef/btcd/blockchain"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
-	"github.com/roasbeef/btcwallet/waddrmgr"
+	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/tv42/zbase32"
 	"golang.org/x/net/context"
 )
@@ -50,6 +51,8 @@ const (
 )
 
 var (
+	zeroHash [32]byte
+
 	// maxPaymentMSat is the maximum allowed payment currently permitted as
 	// defined in BOLT-002. This value depends on which chain is active.
 	// It is set to the value under the Bitcoin chain as default.
@@ -2060,9 +2063,10 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 
 	payIntent.cltvDelta = uint16(rpcPayReq.FinalCltvDelta)
 
-	// If the user is manually specifying payment details, then the
-	// payment hash may be encoded as a string.
-	if rpcPayReq.PaymentHashString != "" {
+	// If the user is manually specifying payment details, then the payment
+	// hash may be encoded as a string.
+	switch {
+	case rpcPayReq.PaymentHashString != "":
 		paymentHash, err := hex.DecodeString(
 			rpcPayReq.PaymentHashString,
 		)
@@ -2071,15 +2075,15 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 		}
 
 		copy(payIntent.rHash[:], paymentHash)
-	} else {
-		copy(payIntent.rHash[:], rpcPayReq.PaymentHash)
-	}
 
 	// If we're in debug HTLC mode, then all outgoing HTLCs will pay to the
 	// same debug rHash. Otherwise, we pay to the rHash specified within
 	// the RPC request.
-	if cfg.DebugHTLC && len(payIntent.rHash) == 0 {
+	case cfg.DebugHTLC && bytes.Equal(payIntent.rHash[:], zeroHash[:]):
 		copy(payIntent.rHash[:], debugHash[:])
+
+	default:
+		copy(payIntent.rHash[:], rpcPayReq.PaymentHash)
 	}
 
 	// Currently, within the bootstrap phase of the network, we limit the
@@ -2653,7 +2657,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		return nil, err
 	}
 
-	i := &channeldb.Invoice{
+	newInvoice := &channeldb.Invoice{
 		CreationDate:   creationDate,
 		Memo:           []byte(invoice.Memo),
 		Receipt:        invoice.Receipt,
@@ -2662,22 +2666,24 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 			Value: amtMSat,
 		},
 	}
-	copy(i.Terms.PaymentPreimage[:], paymentPreimage[:])
+	copy(newInvoice.Terms.PaymentPreimage[:], paymentPreimage[:])
 
 	rpcsLog.Tracef("[addinvoice] adding new invoice %v",
 		newLogClosure(func() string {
-			return spew.Sdump(i)
+			return spew.Sdump(newInvoice)
 		}),
 	)
 
 	// With all sanity checks passed, write the invoice to the database.
-	if err := r.server.invoices.AddInvoice(i); err != nil {
+	addIndex, err := r.server.invoices.AddInvoice(newInvoice)
+	if err != nil {
 		return nil, err
 	}
 
 	return &lnrpc.AddInvoiceResponse{
 		RHash:          rHash[:],
 		PaymentRequest: payReqString,
+		AddIndex:       addIndex,
 	}, nil
 }
 
@@ -2733,6 +2739,9 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 		CltvExpiry:      cltvExpiry,
 		FallbackAddr:    fallbackAddr,
 		RouteHints:      routeHints,
+		AddIndex:        invoice.AddIndex,
+		SettleIndex:     invoice.SettleIndex,
+		AmtPaid:         int64(invoice.AmtPaid),
 	}, nil
 }
 
@@ -2798,7 +2807,7 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 
 	rpcsLog.Tracef("[lookupinvoice] searching for invoice %x", payHash[:])
 
-	invoice, err := r.server.invoices.LookupInvoice(payHash)
+	invoice, _, err := r.server.invoices.LookupInvoice(payHash)
 	if err != nil {
 		return nil, err
 	}
@@ -2829,7 +2838,7 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 	invoices := make([]*lnrpc.Invoice, len(dbInvoices))
 	for i, dbInvoice := range dbInvoices {
 
-		rpcInvoice, err := createRPCInvoice(dbInvoice)
+		rpcInvoice, err := createRPCInvoice(&dbInvoice)
 		if err != nil {
 			return nil, err
 		}
@@ -2847,14 +2856,24 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 	updateStream lnrpc.Lightning_SubscribeInvoicesServer) error {
 
-	invoiceClient := r.server.invoices.SubscribeNotifications()
+	invoiceClient := r.server.invoices.SubscribeNotifications(
+		req.AddIndex, req.SettleIndex,
+	)
 	defer invoiceClient.Cancel()
 
 	for {
 		select {
-		// TODO(roasbeef): include newly added invoices?
-		case settledInvoice := <-invoiceClient.SettledInvoices:
+		case newInvoice := <-invoiceClient.NewInvoices:
+			rpcInvoice, err := createRPCInvoice(newInvoice)
+			if err != nil {
+				return err
+			}
 
+			if err := updateStream.Send(rpcInvoice); err != nil {
+				return err
+			}
+
+		case settledInvoice := <-invoiceClient.SettledInvoices:
 			rpcInvoice, err := createRPCInvoice(settledInvoice)
 			if err != nil {
 				return err
@@ -2863,6 +2882,7 @@ func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 			if err := updateStream.Send(rpcInvoice); err != nil {
 				return err
 			}
+
 		case <-r.quit:
 			return nil
 		}
@@ -2895,6 +2915,7 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 			if err := updateStream.Send(detail); err != nil {
 				return err
 			}
+
 		case tx := <-txClient.UnconfirmedTransactions():
 			detail := &lnrpc.Transaction{
 				TxHash:    tx.Hash.String(),
@@ -2905,6 +2926,7 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 			if err := updateStream.Send(detail); err != nil {
 				return err
 			}
+
 		case <-r.quit:
 			return nil
 		}
@@ -3415,7 +3437,7 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 func (r *rpcServer) StopDaemon(ctx context.Context,
 	_ *lnrpc.StopRequest) (*lnrpc.StopResponse, error) {
 
-	shutdownRequestChannel <- struct{}{}
+	signal.RequestShutdown()
 	return &lnrpc.StopResponse{}, nil
 }
 

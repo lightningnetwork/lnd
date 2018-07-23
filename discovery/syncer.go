@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
 // syncerState is an enum that represents the current state of the

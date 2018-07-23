@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -21,10 +22,10 @@ import (
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 )
 
 type mockPreimageCache struct {
@@ -149,7 +150,7 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 }
 
 func newMockServer(t testing.TB, name string, startingHeight uint32,
-	db *channeldb.DB) (*mockServer, error) {
+	db *channeldb.DB, defaultDelta uint32) (*mockServer, error) {
 
 	var id [33]byte
 	h := sha256.Sum256([]byte(name))
@@ -166,7 +167,7 @@ func newMockServer(t testing.TB, name string, startingHeight uint32,
 		name:             name,
 		messages:         make(chan lnwire.Message, 3000),
 		quit:             make(chan struct{}),
-		registry:         newMockRegistry(),
+		registry:         newMockRegistry(defaultDelta),
 		htlcSwitch:       htlcSwitch,
 		interceptorFuncs: make([]messageInterceptor, 0),
 	}, nil
@@ -517,6 +518,16 @@ func (s *mockServer) IdentityKey() *btcec.PublicKey {
 	return pubkey
 }
 
+func (s *mockServer) Address() net.Addr {
+	return nil
+}
+
+func (s *mockServer) AddNewChannel(channel *lnwallet.LightningChannel,
+	cancel <-chan struct{}) error {
+
+	return nil
+}
+
 func (s *mockServer) WipeChannel(*wire.OutPoint) error {
 	return nil
 }
@@ -613,7 +624,7 @@ func (f *mockChannelLink) HandleChannelUpdate(lnwire.Message) {
 func (f *mockChannelLink) UpdateForwardingPolicy(_ ForwardingPolicy) {
 }
 func (f *mockChannelLink) HtlcSatifiesPolicy([32]byte, lnwire.MilliSatoshi,
-	lnwire.MilliSatoshi) lnwire.FailureMessage {
+	lnwire.MilliSatoshi, uint32, uint32, uint32) lnwire.FailureMessage {
 	return nil
 }
 
@@ -648,28 +659,34 @@ var _ ChannelLink = (*mockChannelLink)(nil)
 
 type mockInvoiceRegistry struct {
 	sync.Mutex
-	invoices map[chainhash.Hash]channeldb.Invoice
+
+	invoices   map[chainhash.Hash]channeldb.Invoice
+	finalDelta uint32
 }
 
-func newMockRegistry() *mockInvoiceRegistry {
+func newMockRegistry(minDelta uint32) *mockInvoiceRegistry {
 	return &mockInvoiceRegistry{
-		invoices: make(map[chainhash.Hash]channeldb.Invoice),
+		finalDelta: minDelta,
+		invoices:   make(map[chainhash.Hash]channeldb.Invoice),
 	}
 }
 
-func (i *mockInvoiceRegistry) LookupInvoice(rHash chainhash.Hash) (channeldb.Invoice, error) {
+func (i *mockInvoiceRegistry) LookupInvoice(rHash chainhash.Hash) (channeldb.Invoice, uint32, error) {
 	i.Lock()
 	defer i.Unlock()
 
 	invoice, ok := i.invoices[rHash]
 	if !ok {
-		return channeldb.Invoice{}, fmt.Errorf("can't find mock invoice: %x", rHash[:])
+		return channeldb.Invoice{}, 0, fmt.Errorf("can't find mock "+
+			"invoice: %x", rHash[:])
 	}
 
-	return invoice, nil
+	return invoice, i.finalDelta, nil
 }
 
-func (i *mockInvoiceRegistry) SettleInvoice(rhash chainhash.Hash) error {
+func (i *mockInvoiceRegistry) SettleInvoice(rhash chainhash.Hash,
+	amt lnwire.MilliSatoshi) error {
+
 	i.Lock()
 	defer i.Unlock()
 
@@ -683,6 +700,7 @@ func (i *mockInvoiceRegistry) SettleInvoice(rhash chainhash.Hash) error {
 	}
 
 	invoice.Terms.Settled = true
+	invoice.AmtPaid = amt
 	i.invoices[rhash] = invoice
 
 	return nil

@@ -1,9 +1,12 @@
 package lnpeer
 
 import (
+	"net"
+
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
 )
 
 // Peer is an interface which represents the remote lightning node inside our
@@ -14,6 +17,10 @@ type Peer interface {
 	// has been sent to the remote peer.
 	SendMessage(sync bool, msg ...lnwire.Message) error
 
+	// AddNewChannel adds a new channel to the peer. The channel should fail
+	// to be added if the cancel channel is closed.
+	AddNewChannel(channel *lnwallet.LightningChannel, cancel <-chan struct{}) error
+
 	// WipeChannel removes the channel uniquely identified by its channel
 	// point from all indexes associated with the peer.
 	WipeChannel(*wire.OutPoint) error
@@ -23,4 +30,7 @@ type Peer interface {
 
 	// IdentityKey returns the public key of the remote peer.
 	IdentityKey() *btcec.PublicKey
+
+	// Address returns the network address of the remote peer.
+	Address() net.Addr
 }

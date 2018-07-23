@@ -1,8 +1,8 @@
 package lnwallet
 
 import (
-	"github.com/roasbeef/btcd/blockchain"
-	"github.com/roasbeef/btcd/wire"
+	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/wire"
 )
 
 const (

@@ -12,8 +12,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/walletunlocker"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcwallet/wallet"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcwallet/wallet"
 	"golang.org/x/net/context"
 	"github.com/lightningnetwork/lnd/keychain"
 )

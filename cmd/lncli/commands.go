@@ -21,8 +21,8 @@ import (
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcutil"
 	"github.com/urfave/cli"
 	"golang.org/x/crypto/ssh/terminal"
 	"golang.org/x/net/context"
@@ -429,8 +429,11 @@ var openChannelCommand = cli.Command{
 		},
 		cli.IntFlag{
 			Name: "push_amt",
-			Usage: "the number of satoshis to push to the remote " +
-				"side as part of the initial commitment state",
+			Usage: "the number of satoshis to give the remote side " +
+				"as part of the initial commitment state, " +
+				"this is equivalent to first opening a " +
+				"channel and sending the remote party funds, " +
+				"but done all in one step",
 		},
 		cli.BoolFlag{
 			Name:  "block",
@@ -1235,7 +1238,7 @@ mnemonicCheck:
 		// want to use, we'll generate a fresh one with the GenSeed
 		// command.
 		fmt.Println("Your cipher seed can optionally be encrypted.")
-		fmt.Printf("Input your passphrase you wish to encrypt it " +
+		fmt.Printf("Input your passphrase if you wish to encrypt it " +
 			"(or press enter to proceed without a cipher seed " +
 			"passphrase): ")
 		aezeedPass1, err := terminal.ReadPassword(int(syscall.Stdin))
@@ -1585,33 +1588,33 @@ var closedChannelsCommand = cli.Command{
 	Name:     "closedchannels",
 	Category: "Channels",
 	Usage:    "List all closed channels.",
-	Flags:    []cli.Flag{
+	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name:  "cooperative",
 			Usage: "list channels that were closed cooperatively",
 		},
 		cli.BoolFlag{
-			Name:  "local_force",
+			Name: "local_force",
 			Usage: "list channels that were force-closed " +
-			       "by the local node",
+				"by the local node",
 		},
 		cli.BoolFlag{
-			Name:  "remote_force",
+			Name: "remote_force",
 			Usage: "list channels that were force-closed " +
-			       "by the remote node",
+				"by the remote node",
 		},
 		cli.BoolFlag{
-			Name:  "breach",
+			Name: "breach",
 			Usage: "list channels for which the remote node " +
-			       "attempted to broadcast a prior " + 
-			       "revoked channel state",
+				"attempted to broadcast a prior " +
+				"revoked channel state",
 		},
 		cli.BoolFlag{
 			Name:  "funding_canceled",
 			Usage: "list channels that were never fully opened",
 		},
 	},
-	Action:   actionDecorator(closedChannels),
+	Action: actionDecorator(closedChannels),
 }
 
 func closedChannels(ctx *cli.Context) error {
@@ -1624,7 +1627,7 @@ func closedChannels(ctx *cli.Context) error {
 		LocalForce:      ctx.Bool("local_force"),
 		RemoteForce:     ctx.Bool("remote_force"),
 		Breach:          ctx.Bool("breach"),
-		FundingCanceled: ctx.Bool("funding_cancelled"),		
+		FundingCanceled: ctx.Bool("funding_cancelled"),
 	}
 
 	resp, err := client.ClosedChannels(ctxb, req)
@@ -1885,7 +1888,7 @@ var payInvoiceCommand = cli.Command{
 		},
 		cli.Int64Flag{
 			Name: "fee_limit",
-			Usage: "maximum fee allowed in satoshis when sending" +
+			Usage: "maximum fee allowed in satoshis when sending " +
 				"the payment",
 		},
 		cli.Int64Flag{
@@ -2192,11 +2195,13 @@ func addInvoice(ctx *cli.Context) error {
 	}
 
 	printJSON(struct {
-		RHash  string `json:"r_hash"`
-		PayReq string `json:"pay_req"`
+		RHash    string `json:"r_hash"`
+		PayReq   string `json:"pay_req"`
+		AddIndex uint64 `json:"add_index"`
 	}{
-		RHash:  hex.EncodeToString(resp.RHash),
-		PayReq: resp.PaymentRequest,
+		RHash:    hex.EncodeToString(resp.RHash),
+		PayReq:   resp.PaymentRequest,
+		AddIndex: resp.AddIndex,
 	})
 
 	return nil

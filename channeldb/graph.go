@@ -12,10 +12,10 @@ import (
 
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 )
 
 var (
@@ -259,27 +259,12 @@ func (c *ChannelGraph) ForEachNode(tx *bolt.Tx, cb func(*bolt.Tx, *LightningNode
 func (c *ChannelGraph) SourceNode() (*LightningNode, error) {
 	var source *LightningNode
 	err := c.db.View(func(tx *bolt.Tx) error {
-		// First grab the nodes bucket which stores the mapping from
-		// pubKey to node information.
-		nodes := tx.Bucket(nodeBucket)
-		if nodes == nil {
-			return ErrGraphNotFound
-		}
-
-		selfPub := nodes.Get(sourceKey)
-		if selfPub == nil {
-			return ErrSourceNodeNotSet
-		}
-
-		// With the pubKey of the source node retrieved, we're able to
-		// fetch the full node information.
-		node, err := fetchLightningNode(nodes, selfPub)
+		node, err := c.sourceNode(tx)
 		if err != nil {
 			return err
 		}
+		source = node
 
-		source = &node
-		source.db = c.db
 		return nil
 	})
 	if err != nil {
@@ -287,6 +272,34 @@ func (c *ChannelGraph) SourceNode() (*LightningNode, error) {
 	}
 
 	return source, nil
+}
+
+// sourceNode uses an existing database transaction and returns the source node
+// of the graph. The source node is treated as the center node within a
+// star-graph. This method may be used to kick off a path finding algorithm in
+// order to explore the reachability of another node based off the source node.
+func (c *ChannelGraph) sourceNode(tx *bolt.Tx) (*LightningNode, error) {
+	// First grab the nodes bucket which stores the mapping from
+	// pubKey to node information.
+	nodes := tx.Bucket(nodeBucket)
+	if nodes == nil {
+		return nil, ErrGraphNotFound
+	}
+
+	selfPub := nodes.Get(sourceKey)
+	if selfPub == nil {
+		return nil, ErrSourceNodeNotSet
+	}
+
+	// With the pubKey of the source node retrieved, we're able to
+	// fetch the full node information.
+	node, err := fetchLightningNode(nodes, selfPub)
+	if err != nil {
+		return nil, err
+	}
+	node.db = c.db
+
+	return &node, nil
 }
 
 // SetSourceNode sets the source node within the graph database. The source
@@ -384,28 +397,34 @@ func (c *ChannelGraph) LookupAlias(pub *btcec.PublicKey) (string, error) {
 	return alias, nil
 }
 
-// DeleteLightningNode removes a vertex/node from the database according to the
-// node's public key.
+// DeleteLightningNode starts a new database transaction to remove a vertex/node
+// from the database according to the node's public key.
 func (c *ChannelGraph) DeleteLightningNode(nodePub *btcec.PublicKey) error {
-	pub := nodePub.SerializeCompressed()
-
 	// TODO(roasbeef): ensure dangling edges are removed...
 	return c.db.Update(func(tx *bolt.Tx) error {
-		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
-		if err != nil {
-			return err
-		}
-
-		aliases, err := tx.CreateBucketIfNotExists(aliasIndexBucket)
-		if err != nil {
-			return err
-		}
-
-		if err := aliases.Delete(pub); err != nil {
-			return err
-		}
-		return nodes.Delete(pub)
+		return c.deleteLightningNode(tx, nodePub.SerializeCompressed())
 	})
+}
+
+// deleteLightningNode uses an existing database transaction to remove a
+// vertex/node from the database according to the node's public key.
+func (c *ChannelGraph) deleteLightningNode(tx *bolt.Tx,
+	compressedPubKey []byte) error {
+
+	nodes := tx.Bucket(nodeBucket)
+	if nodes == nil {
+		return ErrGraphNodesNotFound
+	}
+
+	aliases := nodes.Bucket(aliasIndexBucket)
+	if aliases == nil {
+		return ErrGraphNodesNotFound
+	}
+
+	if err := aliases.Delete(compressedPubKey); err != nil {
+		return err
+	}
+	return nodes.Delete(compressedPubKey)
 }
 
 // AddChannelEdge adds a new (undirected, blank) edge to the graph database. An
@@ -569,6 +588,13 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 
 	var chansClosed []*ChannelEdgeInfo
 
+	// nodesWithChansClosed is the set of nodes, each identified by their
+	// compressed public key, who had a channel closed within the latest
+	// block. We'll use this later on to determine whether we should prune
+	// them from the channel graph due to no longer having any other open
+	// channels.
+	nodesWithChansClosed := make(map[[33]byte]struct{})
+
 	err := c.db.Update(func(tx *bolt.Tx) error {
 		// First grab the edges bucket which houses the information
 		// we'd like to delete
@@ -617,7 +643,6 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 			if err != nil {
 				return err
 			}
-			chansClosed = append(chansClosed, &edgeInfo)
 
 			// Attempt to delete the channel, an ErrEdgeNotFound
 			// will be returned if that outpoint isn't known to be
@@ -629,6 +654,12 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 			if err != nil && err != ErrEdgeNotFound {
 				return err
 			}
+
+			// Include this channel in our list of closed channels
+			// and collect the node public keys at each end.
+			chansClosed = append(chansClosed, &edgeInfo)
+			nodesWithChansClosed[edgeInfo.NodeKey1Bytes] = struct{}{}
+			nodesWithChansClosed[edgeInfo.NodeKey2Bytes] = struct{}{}
 		}
 
 		metaBucket, err := tx.CreateBucketIfNotExists(graphMetaBucket)
@@ -650,13 +681,73 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 		var newTip [pruneTipBytes]byte
 		copy(newTip[:], blockHash[:])
 
-		return pruneBucket.Put(blockHeightBytes[:], newTip[:])
+		err = pruneBucket.Put(blockHeightBytes[:], newTip[:])
+		if err != nil {
+			return err
+		}
+
+		// Now that the graph has been pruned, we'll also attempt to
+		// prune any nodes that have had a channel closed within the
+		// latest block.
+		return c.pruneGraphNodes(tx, nodes, nodesWithChansClosed)
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	return chansClosed, nil
+}
+
+// pruneGraphNodes attempts to remove any nodes from the graph who have had a
+// channel closed within the current block. If the node still has existing
+// channels in the graph, this will act as a no-op.
+func (c *ChannelGraph) pruneGraphNodes(tx *bolt.Tx, nodes *bolt.Bucket,
+	nodePubKeys map[[33]byte]struct{}) error {
+
+	log.Trace("Pruning nodes from graph with no open channels")
+
+	// We'll retrieve the graph's source node to ensure we don't remove it
+	// even if it no longer has any open channels.
+	sourceNode, err := c.sourceNode(tx)
+	if err != nil {
+		return err
+	}
+
+	// We'll now iterate over every node which had a channel closed and
+	// check whether they have any other open channels left within the
+	// graph. If they don't, they'll be pruned from the channel graph.
+	for nodePubKey := range nodePubKeys {
+		if bytes.Equal(nodePubKey[:], sourceNode.PubKeyBytes[:]) {
+			continue
+		}
+
+		node, err := fetchLightningNode(nodes, nodePubKey[:])
+		if err != nil {
+			continue
+		}
+		node.db = c.db
+
+		numChansLeft := 0
+		err = node.ForEachChannel(tx, func(*bolt.Tx, *ChannelEdgeInfo,
+			*ChannelEdgePolicy, *ChannelEdgePolicy) error {
+
+			numChansLeft++
+			return nil
+		})
+		if err != nil {
+			continue
+		}
+
+		if numChansLeft == 0 {
+			err := c.deleteLightningNode(tx, nodePubKey[:])
+			if err != nil {
+				log.Tracef("Unable to prune node %x from the "+
+					"graph: %v", nodePubKey, err)
+			}
+		}
+	}
+
+	return nil
 }
 
 // DisconnectBlockAtHeight is used to indicate that the block specified

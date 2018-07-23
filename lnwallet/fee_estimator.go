@@ -3,9 +3,9 @@ package lnwallet
 import (
 	"encoding/json"
 
-	"github.com/roasbeef/btcd/blockchain"
-	"github.com/roasbeef/btcd/rpcclient"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcutil"
 )
 
 // SatPerVByte represents a fee rate in satoshis per vbyte.

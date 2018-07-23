@@ -8,7 +8,7 @@ import (
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec"
 )
 
 const (
@@ -249,9 +249,10 @@ func (m *missionControl) NewPaymentSession(routeHints [][]HopHint,
 // used for things like channel rebalancing, and swaps.
 func (m *missionControl) NewPaymentSessionFromRoutes(routes []*Route) *paymentSession {
 	return &paymentSession{
-		haveRoutes:     true,
-		preBuiltRoutes: routes,
-		mc:             m,
+		pruneViewSnapshot: m.GraphPruneView(),
+		haveRoutes:        true,
+		preBuiltRoutes:    routes,
+		mc:                m,
 	}
 }
 

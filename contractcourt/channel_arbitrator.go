@@ -10,7 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/wire"
+	"github.com/btcsuite/btcd/wire"
 )
 
 const (
@@ -231,6 +231,7 @@ func (c *ChannelArbitrator) Start() error {
 	// machine can act accordingly.
 	c.state, err = c.log.CurrentState()
 	if err != nil {
+		c.cfg.BlockEpochs.Cancel()
 		return err
 	}
 
@@ -239,6 +240,7 @@ func (c *ChannelArbitrator) Start() error {
 
 	_, bestHeight, err := c.cfg.ChainIO.GetBestBlock()
 	if err != nil {
+		c.cfg.BlockEpochs.Cancel()
 		return err
 	}
 
@@ -249,6 +251,7 @@ func (c *ChannelArbitrator) Start() error {
 		uint32(bestHeight), chainTrigger, nil,
 	)
 	if err != nil {
+		c.cfg.BlockEpochs.Cancel()
 		return err
 	}
 
@@ -262,6 +265,7 @@ func (c *ChannelArbitrator) Start() error {
 		// relaunch all contract resolvers.
 		unresolvedContracts, err = c.log.FetchUnresolvedContracts()
 		if err != nil {
+			c.cfg.BlockEpochs.Cancel()
 			return err
 		}
 
@@ -300,8 +304,6 @@ func (c *ChannelArbitrator) Stop() error {
 
 	close(c.quit)
 	c.wg.Wait()
-
-	c.cfg.BlockEpochs.Cancel()
 
 	return nil
 }
@@ -1289,7 +1291,10 @@ func (c *ChannelArbitrator) UpdateContractSignals(newSignals *ContractSignals) {
 func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 
 	// TODO(roasbeef): tell top chain arb we're done
-	defer c.wg.Done()
+	defer func() {
+		c.cfg.BlockEpochs.Cancel()
+		c.wg.Done()
+	}()
 
 	for {
 		select {
@@ -1359,10 +1364,16 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			)
 
 		// We've cooperatively closed the channel, so we're no longer
-		// needed.
+		// needed. We'll mark the channel as resolved and exit.
 		case <-c.cfg.ChainEvents.CooperativeClosure:
 			log.Infof("ChannelArbitrator(%v) closing due to co-op "+
 				"closure", c.cfg.ChanPoint)
+
+			if err := c.cfg.MarkChannelResolved(); err != nil {
+				log.Errorf("Unable to mark contract "+
+					"resolved: %v", err)
+			}
+
 			return
 
 		// We have broadcasted our commitment, and it is now confirmed

@@ -35,19 +35,20 @@ import (
 
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	flags "github.com/jessevdk/go-flags"
-	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/walletunlocker"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
-	"github.com/roasbeef/btcwallet/wallet"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcwallet/wallet"
 )
 
 const (
@@ -61,7 +62,6 @@ var (
 	Commit string
 
 	cfg              *config
-	shutdownChannel  = make(chan struct{})
 	registeredChains = newChainRegistry()
 
 	macaroonDatabaseDir string
@@ -93,6 +93,12 @@ var (
 // defers created in the top-level scope of a main method aren't executed if
 // os.Exit() is called.
 func lndMain() error {
+	defer func() {
+		if logRotatorPipe != nil {
+			ltndLog.Info("Shutdown complete")
+		}
+	}()
+
 	// Load the configuration, and parse any command line options. This
 	// function will also set up logging properly.
 	loadedConfig, err := loadConfig()
@@ -354,9 +360,7 @@ func lndMain() error {
 				idPrivKey.PubKey())
 			return <-errChan
 		},
-		SendToPeer:       server.SendToPeer,
 		NotifyWhenOnline: server.NotifyWhenOnline,
-		FindPeer:         server.FindPeer,
 		TempChanIDSeed:   chanIDSeed,
 		FindChannel: func(chanID lnwire.ChannelID) (*lnwallet.LightningChannel, error) {
 			dbChannels, err := chanDB.FetchAllChannels()
@@ -444,12 +448,12 @@ func lndMain() error {
 			return delay
 		},
 		WatchNewChannel: func(channel *channeldb.OpenChannel,
-			addr *lnwire.NetAddress) error {
+			peerKey *btcec.PublicKey) error {
 
 			// First, we'll mark this new peer as a persistent peer
 			// for re-connection purposes.
 			server.mu.Lock()
-			pubStr := string(addr.IdentityKey.SerializeCompressed())
+			pubStr := string(peerKey.SerializeCompressed())
 			server.persistentPeers[pubStr] = struct{}{}
 			server.mu.Unlock()
 
@@ -499,6 +503,7 @@ func lndMain() error {
 		return err
 	}
 	server.fundingMgr = fundingMgr
+	defer fundingMgr.Stop()
 
 	// Check macaroon authentication if macaroons aren't disabled.
 	if macaroonService != nil {
@@ -516,15 +521,18 @@ func lndMain() error {
 	if err := rpcServer.Start(); err != nil {
 		return err
 	}
+	defer rpcServer.Stop()
 
 	grpcServer := grpc.NewServer(serverOpts...)
 	lnrpc.RegisterLightningServer(grpcServer, rpcServer)
 
 	// Next, Start the gRPC server listening for HTTP/2 connections.
 	for _, listener := range cfg.RPCListeners {
-		lis, err := net.Listen("tcp", listener)
+		lis, err := lncfg.ListenOnAddress(listener)
 		if err != nil {
-			ltndLog.Errorf("RPC server unable to listen on %s", listener)
+			ltndLog.Errorf(
+				"RPC server unable to listen on %s", listener,
+			)
 			return err
 		}
 		defer lis.Close()
@@ -536,21 +544,25 @@ func lndMain() error {
 
 	// Finally, start the REST proxy for our gRPC server above.
 	mux := proxy.NewServeMux()
-	err = lnrpc.RegisterLightningHandlerFromEndpoint(ctx, mux,
-		cfg.RPCListeners[0], proxyOpts)
+	err = lnrpc.RegisterLightningHandlerFromEndpoint(
+		ctx, mux, cfg.RPCListeners[0].String(), proxyOpts,
+	)
 	if err != nil {
 		return err
 	}
 	for _, restEndpoint := range cfg.RESTListeners {
-		listener, err := tls.Listen("tcp", restEndpoint, tlsConf)
+		lis, err := lncfg.TlsListenOnAddress(restEndpoint, tlsConf)
 		if err != nil {
-			ltndLog.Errorf("gRPC proxy unable to listen on %s", restEndpoint)
+			ltndLog.Errorf(
+				"gRPC proxy unable to listen on %s",
+				restEndpoint,
+			)
 			return err
 		}
-		defer listener.Close()
+		defer lis.Close()
 		go func() {
-			rpcsLog.Infof("gRPC proxy started at %s", listener.Addr())
-			http.Serve(listener, mux)
+			rpcsLog.Infof("gRPC proxy started at %s", lis.Addr())
+			http.Serve(lis, mux)
 		}()
 	}
 
@@ -567,18 +579,9 @@ func lndMain() error {
 		ltndLog.Infof("Waiting for chain backend to finish sync, "+
 			"start_height=%v", bestHeight)
 
-		// We'll add an interrupt handler in order to process shutdown
-		// requests while the chain backend syncs.
-		addInterruptHandler(func() {
-			rpcServer.Stop()
-			fundingMgr.Stop()
-		})
-
 		for {
-			select {
-			case <-shutdownChannel:
+			if !signal.Alive() {
 				return nil
-			default:
 			}
 
 			synced, _, err := activeChainControl.wallet.IsSynced()
@@ -608,10 +611,10 @@ func lndMain() error {
 		srvrLog.Errorf("unable to start server: %v\n", err)
 		return err
 	}
+	defer server.Stop()
 
 	// Now that the server has started, if the autopilot mode is currently
 	// active, then we'll initialize a fresh instance of it and start it.
-	var pilot *autopilot.Agent
 	if cfg.Autopilot.Active {
 		pilot, err := initAutoPilot(server, cfg.Autopilot)
 		if err != nil {
@@ -624,21 +627,12 @@ func lndMain() error {
 				err)
 			return err
 		}
+		defer pilot.Stop()
 	}
-
-	addInterruptHandler(func() {
-		rpcServer.Stop()
-		fundingMgr.Stop()
-		if pilot != nil {
-			pilot.Stop()
-		}
-		server.Stop()
-	})
 
 	// Wait for shutdown signal from either a graceful server stop or from
 	// the interrupt handler.
-	<-shutdownChannel
-	ltndLog.Info("Shutdown complete")
+	<-signal.ShutdownChannel()
 	return nil
 }
 
@@ -734,6 +728,10 @@ func genCertPair(certFile, keyFile string) error {
 	if cfg.TLSExtraDomain != "" {
 		dnsNames = append(dnsNames, cfg.TLSExtraDomain)
 	}
+
+	// Also add fake hostnames for unix sockets, otherwise hostname
+	// verification will fail in the client.
+	dnsNames = append(dnsNames, "unix", "unixpacket")
 
 	// Generate a private key for the certificate.
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -883,7 +881,7 @@ type WalletUnlockParams struct {
 // waitForWalletPassword will spin up gRPC and REST endpoints for the
 // WalletUnlocker server, and block until a password is provided by
 // the user to this RPC server.
-func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
+func waitForWalletPassword(grpcEndpoints, restEndpoints []net.Addr,
 	serverOpts []grpc.ServerOption, proxyOpts []grpc.DialOption,
 	tlsConf *tls.Config) (*WalletUnlockParams, error) {
 
@@ -916,17 +914,22 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 	for _, grpcEndpoint := range grpcEndpoints {
 		// Start a gRPC server listening for HTTP/2 connections, solely
 		// used for getting the encryption password from the client.
-		lis, err := net.Listen("tcp", grpcEndpoint)
+		lis, err := lncfg.ListenOnAddress(grpcEndpoint)
 		if err != nil {
-			ltndLog.Errorf("password RPC server unable to listen on %s",
-				grpcEndpoint)
+			ltndLog.Errorf(
+				"password RPC server unable to listen on %s",
+				grpcEndpoint,
+			)
 			return nil, err
 		}
 		defer lis.Close()
 
 		wg.Add(1)
 		go func() {
-			rpcsLog.Infof("password RPC server listening on %s", lis.Addr())
+			rpcsLog.Infof(
+				"password RPC server listening on %s",
+				lis.Addr(),
+			)
 			wg.Done()
 			grpcServer.Serve(lis)
 		}()
@@ -939,8 +942,9 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 
 	mux := proxy.NewServeMux()
 
-	err := lnrpc.RegisterWalletUnlockerHandlerFromEndpoint(ctx, mux,
-		grpcEndpoints[0], proxyOpts)
+	err := lnrpc.RegisterWalletUnlockerHandlerFromEndpoint(
+		ctx, mux, grpcEndpoints[0].String(), proxyOpts,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -948,17 +952,22 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 	srv := &http.Server{Handler: mux}
 
 	for _, restEndpoint := range restEndpoints {
-		lis, err := tls.Listen("tcp", restEndpoint, tlsConf)
+		lis, err := lncfg.TlsListenOnAddress(restEndpoint, tlsConf)
 		if err != nil {
-			ltndLog.Errorf("password gRPC proxy unable to listen on %s",
-				restEndpoint)
+			ltndLog.Errorf(
+				"password gRPC proxy unable to listen on %s",
+				restEndpoint,
+			)
 			return nil, err
 		}
 		defer lis.Close()
 
 		wg.Add(1)
 		go func() {
-			rpcsLog.Infof("password gRPC proxy started at %s", lis.Addr())
+			rpcsLog.Infof(
+				"password gRPC proxy started at %s",
+				lis.Addr(),
+			)
 			wg.Done()
 			srv.Serve(lis)
 		}()
@@ -1014,7 +1023,7 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 			// Don't leave the file open in case the new wallet
 			// could not be created for whatever reason.
 			if err := loader.UnloadWallet(); err != nil {
-				ltndLog.Errorf("Could not unload new " +
+				ltndLog.Errorf("Could not unload new "+
 					"wallet: %v", err)
 			}
 			return nil, err
@@ -1039,7 +1048,7 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []string,
 		}
 		return walletInitParams, nil
 
-	case <-shutdownChannel:
+	case <-signal.ShutdownChannel():
 		return nil, fmt.Errorf("shutting down")
 	}
 }

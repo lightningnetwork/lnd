@@ -392,9 +392,17 @@ func request_Lightning_LookupInvoice_0(ctx context.Context, marshaler runtime.Ma
 
 }
 
+var (
+	filter_Lightning_SubscribeInvoices_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
+)
+
 func request_Lightning_SubscribeInvoices_0(ctx context.Context, marshaler runtime.Marshaler, client LightningClient, req *http.Request, pathParams map[string]string) (Lightning_SubscribeInvoicesClient, runtime.ServerMetadata, error) {
 	var protoReq InvoiceSubscription
 	var metadata runtime.ServerMetadata
+
+	if err := runtime.PopulateQueryParameters(&protoReq, req.URL.Query(), filter_Lightning_SubscribeInvoices_0); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
 
 	stream, err := client.SubscribeInvoices(ctx, &protoReq)
 	if err != nil {

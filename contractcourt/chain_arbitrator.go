@@ -9,9 +9,9 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 )
 
 // ResolutionMsg is a message sent by resolvers to outside sub-systems once an
@@ -301,6 +301,7 @@ func (c *ChainArbitrator) resolveContract(chanPoint wire.OutPoint,
 	if ok {
 		chainWatcher.Stop()
 	}
+	delete(c.activeWatchers, chanPoint)
 	c.Unlock()
 
 	return nil
@@ -341,23 +342,6 @@ func (c *ChainArbitrator) Start() error {
 				pCache:    c.cfg.PreimageDB,
 				signer:    c.cfg.Signer,
 				isOurAddr: c.cfg.IsOurAddress,
-				notifyChanClosed: func() error {
-					c.Lock()
-					delete(c.activeChannels, chanPoint)
-
-					chainWatcher, ok := c.activeWatchers[chanPoint]
-					if ok {
-						// Since the chainWatcher is
-						// calling notifyChanClosed, we
-						// must stop it in a goroutine
-						// to not deadlock.
-						go chainWatcher.Stop()
-					}
-					delete(c.activeWatchers, chanPoint)
-					c.Unlock()
-
-					return nil
-				},
 				contractBreach: func(retInfo *lnwallet.BreachRetribution) error {
 					return c.cfg.ContractBreach(chanPoint, retInfo)
 				},
@@ -696,22 +680,6 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 			pCache:    c.cfg.PreimageDB,
 			signer:    c.cfg.Signer,
 			isOurAddr: c.cfg.IsOurAddress,
-			notifyChanClosed: func() error {
-				c.Lock()
-				delete(c.activeChannels, chanPoint)
-
-				chainWatcher, ok := c.activeWatchers[chanPoint]
-				if ok {
-					// Since the chainWatcher is calling
-					// notifyChanClosed, we must stop it in
-					// a goroutine to not deadlock.
-					go chainWatcher.Stop()
-				}
-				delete(c.activeWatchers, chanPoint)
-				c.Unlock()
-
-				return nil
-			},
 			contractBreach: func(retInfo *lnwallet.BreachRetribution) error {
 				return c.cfg.ContractBreach(chanPoint, retInfo)
 			},

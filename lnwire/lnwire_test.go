@@ -14,12 +14,12 @@ import (
 	"testing/quick"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/tor"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 var (
@@ -651,9 +651,14 @@ func TestLightningWireProtocol(t *testing.T) {
 			v[0] = reflect.ValueOf(req)
 		},
 		MsgQueryShortChanIDs: func(v []reflect.Value, r *rand.Rand) {
-			req := QueryShortChanIDs{
-				// TODO(roasbeef): later alternate encoding types
-				EncodingType: EncodingSortedPlain,
+			req := QueryShortChanIDs{}
+
+			// With a 50/50 change, we'll either use zlib encoding,
+			// or regular encoding.
+			if r.Int31()%2 == 0 {
+				req.EncodingType = EncodingSortedZlib
+			} else {
+				req.EncodingType = EncodingSortedPlain
 			}
 
 			if _, err := rand.Read(req.ChainHash[:]); err != nil {
@@ -663,11 +668,9 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			numChanIDs := rand.Int31n(5000)
 
-			req.ShortChanIDs = make([]ShortChannelID, numChanIDs)
 			for i := int32(0); i < numChanIDs; i++ {
-				req.ShortChanIDs[i] = NewShortChanIDFromInt(
-					uint64(r.Int63()),
-				)
+				req.ShortChanIDs = append(req.ShortChanIDs,
+					NewShortChanIDFromInt(uint64(r.Int63())))
 			}
 
 			v[0] = reflect.ValueOf(req)
@@ -687,8 +690,13 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			req.Complete = uint8(r.Int31n(2))
 
-			// TODO(roasbeef): later alternate encoding types
-			req.EncodingType = EncodingSortedPlain
+			// With a 50/50 change, we'll either use zlib encoding,
+			// or regular encoding.
+			if r.Int31()%2 == 0 {
+				req.EncodingType = EncodingSortedZlib
+			} else {
+				req.EncodingType = EncodingSortedPlain
+			}
 
 			numChanIDs := rand.Int31n(5000)
 

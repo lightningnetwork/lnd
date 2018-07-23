@@ -8,8 +8,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
+
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -17,9 +21,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 var (
@@ -964,9 +965,11 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			// Before we check the link's bandwidth, we'll ensure
 			// that the HTLC satisfies the current forwarding
 			// policy of this target link.
+			currentHeight := atomic.LoadUint32(&s.bestHeight)
 			err := link.HtlcSatifiesPolicy(
 				htlc.PaymentHash, packet.incomingAmount,
-				packet.amount,
+				packet.amount, packet.incomingTimeout,
+				packet.outgoingTimeout, currentHeight,
 			)
 			if err != nil {
 				linkErrs[link.ShortChanID()] = err
@@ -1249,7 +1252,7 @@ func (s *Switch) closeCircuit(pkt *htlcPacket) (*PaymentCircuit, error) {
 // we're the originator of the payment, so the link stops attempting to
 // re-broadcast.
 func (s *Switch) ackSettleFail(settleFailRef channeldb.SettleFailRef) error {
-	return s.cfg.DB.Update(func(tx *bolt.Tx) error {
+	return s.cfg.DB.Batch(func(tx *bolt.Tx) error {
 		return s.cfg.SwitchPackager.AckSettleFails(tx, settleFailRef)
 	})
 }
@@ -1404,6 +1407,7 @@ out:
 			}
 
 			atomic.StoreUint32(&s.bestHeight, uint32(blockEpoch.Height))
+
 		// A local close request has arrived, we'll forward this to the
 		// relevant link (if it exists) so the channel can be
 		// cooperatively closed (if possible).
@@ -1883,7 +1887,7 @@ func (s *Switch) removeLink(chanID lnwire.ChannelID) error {
 		}
 	}
 
-	link.Stop()
+	go link.Stop()
 
 	return nil
 }

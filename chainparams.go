@@ -4,10 +4,10 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	litecoinCfg "github.com/ltcsuite/ltcd/chaincfg"
 	litecoinWire "github.com/ltcsuite/ltcd/wire"
-	"github.com/roasbeef/btcd/chaincfg"
-	bitcoinCfg "github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	bitcoinWire "github.com/roasbeef/btcd/wire"
+	"github.com/btcsuite/btcd/chaincfg"
+	bitcoinCfg "github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	bitcoinWire "github.com/btcsuite/btcd/wire"
 )
 
 // activeNetParams is a pointer to the parameters specific to the currently

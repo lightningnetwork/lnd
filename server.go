@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -15,6 +16,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/connmgr"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/coreos/bbolt"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lightning-onion"
@@ -24,6 +30,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -31,12 +38,6 @@ import (
 	"github.com/lightningnetwork/lnd/nat"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/tor"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/connmgr"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
-	"golang.org/x/net/context"
 )
 
 const (
@@ -85,7 +86,7 @@ type server struct {
 
 	// listenAddrs is the list of addresses the server is currently
 	// listening on.
-	listenAddrs []string
+	listenAddrs []net.Addr
 
 	// torController is a client that will communicate with a locally
 	// running Tor server. This client will handle initiating and
@@ -109,7 +110,7 @@ type server struct {
 	inboundPeers  map[string]*peer
 	outboundPeers map[string]*peer
 
-	peerConnectedListeners map[string][]chan<- struct{}
+	peerConnectedListeners map[string][]chan<- lnpeer.Peer
 
 	persistentPeers        map[string]struct{}
 	persistentPeersBackoff map[string]time.Duration
@@ -207,17 +208,19 @@ func parseAddr(address string) (net.Addr, error) {
 
 // newServer creates a new instance of the server which is to listen using the
 // passed listener address.
-func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
+func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	privKey *btcec.PrivateKey) (*server, error) {
 
 	var err error
 
 	listeners := make([]net.Listener, len(listenAddrs))
-	for i, addr := range listenAddrs {
+	for i, listenAddr := range listenAddrs {
 		// Note: though brontide.NewListener uses ResolveTCPAddr, it
 		// doesn't need to call the general lndResolveTCP function
 		// since we are resolving a local address.
-		listeners[i], err = brontide.NewListener(privKey, addr)
+		listeners[i], err = brontide.NewListener(
+			privKey, listenAddr.String(),
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -261,7 +264,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		peersByPub:             make(map[string]*peer),
 		inboundPeers:           make(map[string]*peer),
 		outboundPeers:          make(map[string]*peer),
-		peerConnectedListeners: make(map[string][]chan<- struct{}),
+		peerConnectedListeners: make(map[string][]chan<- lnpeer.Peer),
 
 		globalFeatures: lnwire.NewFeatureVector(globalFeatures,
 			lnwire.GlobalFeatures),
@@ -363,14 +366,17 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 
 	// If we were requested to automatically configure port forwarding,
 	// we'll use the ports that the server will be listening on.
-	externalIPs := cfg.ExternalIPs
+	externalIpStrings := make([]string, len(cfg.ExternalIPs))
+	for idx, ip := range cfg.ExternalIPs {
+		externalIpStrings[idx] = ip.String()
+	}
 	if s.natTraversal != nil {
 		listenPorts := make([]uint16, 0, len(listenAddrs))
 		for _, listenAddr := range listenAddrs {
 			// At this point, the listen addresses should have
 			// already been normalized, so it's safe to ignore the
 			// errors.
-			_, portStr, _ := net.SplitHostPort(listenAddr)
+			_, portStr, _ := net.SplitHostPort(listenAddr.String())
 			port, _ := strconv.Atoi(portStr)
 
 			listenPorts = append(listenPorts, uint16(port))
@@ -385,23 +391,22 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 			srvrLog.Infof("Automatically set up port forwarding "+
 				"using %s to advertise external IP",
 				s.natTraversal.Name())
-			externalIPs = append(externalIPs, ips...)
+			externalIpStrings = append(externalIpStrings, ips...)
 		}
 	}
 
 	// If external IP addresses have been specified, add those to the list
 	// of this server's addresses.
-	externalIPs = normalizeAddresses(
-		externalIPs, strconv.Itoa(defaultPeerPort),
+	externalIPs, err := lncfg.NormalizeAddresses(
+		externalIpStrings, strconv.Itoa(defaultPeerPort),
+		cfg.net.ResolveTCPAddr,
 	)
+	if err != nil {
+		return nil, err
+	}
 	selfAddrs := make([]net.Addr, 0, len(externalIPs))
-	for _, ip := range cfg.ExternalIPs {
-		addr, err := parseAddr(ip)
-		if err != nil {
-			return nil, err
-		}
-
-		selfAddrs = append(selfAddrs, addr)
+	for _, ip := range externalIPs {
+		selfAddrs = append(selfAddrs, ip)
 	}
 
 	// If we were requested to route connections through Tor and to
@@ -748,9 +753,18 @@ func (s *server) Start() error {
 	}
 	s.connMgr.Start()
 
+	if err := s.invoices.Start(); err != nil {
+		return err
+	}
+
 	// With all the relevant sub-systems started, we'll now attempt to
 	// establish persistent connections to our direct channel collaborators
-	// within the network.
+	// within the network. Before doing so however, we'll prune our set of
+	// link nodes found within the database to ensure we don't reconnect to
+	// any nodes we no longer have open channels with.
+	if err := s.chanDB.PruneLinkNodes(); err != nil {
+		return err
+	}
 	if err := s.establishPersistentConnections(); err != nil {
 		return err
 	}
@@ -804,6 +818,7 @@ func (s *server) Stop() error {
 	s.cc.chainView.Stop()
 	s.connMgr.Stop()
 	s.cc.feeEstimator.Stop()
+	s.invoices.Stop()
 
 	// Disconnect from each active peers to ensure that
 	// peerTerminationWatchers signal completion to each peer.
@@ -881,7 +896,7 @@ func (s *server) watchExternalIP() {
 	// them when detecting a new IP.
 	ipsSetByUser := make(map[string]struct{})
 	for _, ip := range cfg.ExternalIPs {
-		ipsSetByUser[ip] = struct{}{}
+		ipsSetByUser[ip.String()] = struct{}{}
 	}
 
 	forwardedPorts := s.natTraversal.ForwardedPorts()
@@ -1246,7 +1261,7 @@ func (s *server) initTorController() error {
 	for _, listenAddr := range s.listenAddrs {
 		// At this point, the listen addresses should have already been
 		// normalized, so it's safe to ignore the errors.
-		_, portStr, _ := net.SplitHostPort(listenAddr)
+		_, portStr, _ := net.SplitHostPort(listenAddr.String())
 		port, _ := strconv.Atoi(portStr)
 		listenPorts[port] = struct{}{}
 	}
@@ -1466,6 +1481,22 @@ func (s *server) establishPersistentConnections() error {
 	return nil
 }
 
+// prunePersistentPeerConnection removes all internal state related to
+// persistent connections to a peer within the server. This is used to avoid
+// persistent connection retries to peers we do not have any open channels with.
+func (s *server) prunePersistentPeerConnection(compressedPubKey [33]byte) {
+	srvrLog.Infof("Pruning peer %x from persistent connections, number of "+
+		"open channels is now zero", compressedPubKey)
+
+	pubKeyStr := string(compressedPubKey[:])
+
+	s.mu.Lock()
+	delete(s.persistentPeers, pubKeyStr)
+	delete(s.persistentPeersBackoff, pubKeyStr)
+	s.cancelConnReqs(pubKeyStr, nil)
+	s.mu.Unlock()
+}
+
 // BroadcastMessage sends a request to the server to broadcast a set of
 // messages to all peers other than the one specified by the `skips` parameter.
 //
@@ -1558,31 +1589,38 @@ func (s *server) SendToPeer(target *btcec.PublicKey,
 }
 
 // NotifyWhenOnline can be called by other subsystems to get notified when a
-// particular peer comes online.
+// particular peer comes online. The peer itself is sent across the peerChan.
 //
 // NOTE: This function is safe for concurrent access.
-func (s *server) NotifyWhenOnline(peer *btcec.PublicKey,
-	connectedChan chan<- struct{}) {
+func (s *server) NotifyWhenOnline(peerKey *btcec.PublicKey,
+	peerChan chan<- lnpeer.Peer) {
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// Compute the target peer's identifier.
-	pubStr := string(peer.SerializeCompressed())
+	pubStr := string(peerKey.SerializeCompressed())
 
 	// Check if peer is connected.
-	_, ok := s.peersByPub[pubStr]
+	peer, ok := s.peersByPub[pubStr]
 	if ok {
 		// Connected, can return early.
 		srvrLog.Debugf("Notifying that peer %x is online",
-			peer.SerializeCompressed())
-		close(connectedChan)
+			peerKey.SerializeCompressed())
+
+		select {
+		case peerChan <- peer:
+		case <-s.quit:
+		}
+
 		return
 	}
 
 	// Not connected, store this listener such that it can be notified when
 	// the peer comes online.
 	s.peerConnectedListeners[pubStr] = append(
-		s.peerConnectedListeners[pubStr], connectedChan)
+		s.peerConnectedListeners[pubStr], peerChan,
+	)
 }
 
 // sendPeerMessages enqueues a list of messages into the outgoingQueue of the
@@ -1943,8 +1981,9 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 	// If we already have an outbound connection to this peer, then ignore
 	// this new connection.
 	if _, ok := s.outboundPeers[pubStr]; ok {
-		srvrLog.Debugf("Already have outbound connection for %v, "+
-			"ignoring inbound connection", nodePub.SerializeCompressed())
+		srvrLog.Debugf("Already have outbound connection for %x, "+
+			"ignoring inbound connection",
+			nodePub.SerializeCompressed())
 
 		conn.Close()
 		return
@@ -2025,7 +2064,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	// If we already have an inbound connection to this peer, then ignore
 	// this new connection.
 	if _, ok := s.inboundPeers[pubStr]; ok {
-		srvrLog.Debugf("Already have inbound connection for %v, "+
+		srvrLog.Debugf("Already have inbound connection for %x, "+
 			"ignoring outbound connection",
 			nodePub.SerializeCompressed())
 
@@ -2229,8 +2268,12 @@ func (s *server) addPeer(p *peer) {
 	}
 
 	// Check if there are listeners waiting for this peer to come online.
-	for _, con := range s.peerConnectedListeners[pubStr] {
-		close(con)
+	for _, peerChan := range s.peerConnectedListeners[pubStr] {
+		select {
+		case peerChan <- p:
+		case <-s.quit:
+			return
+		}
 	}
 	delete(s.peerConnectedListeners, pubStr)
 }
@@ -2498,7 +2541,7 @@ func (s *server) OpenChannel(nodeKey *btcec.PublicKey,
 
 	// TODO(roasbeef): pass in chan that's closed if/when funding succeeds
 	// so can track as persistent peer?
-	go s.fundingMgr.initFundingWorkflow(targetPeer.addr, req)
+	go s.fundingMgr.initFundingWorkflow(targetPeer, req)
 
 	return updateChan, errChan
 }

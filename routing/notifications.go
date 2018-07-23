@@ -10,9 +10,9 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 )
 
 // TopologyClient represents an intent to receive notifications from the
@@ -113,14 +113,18 @@ func (r *ChannelRouter) notifyTopologyChange(topologyDiff *TopologyChange) {
 	r.RLock()
 	numClients := len(r.topologyClients)
 	r.RUnlock()
-	if numClients != 0 {
-		log.Tracef("Sending topology notification to %v clients %v",
-			numClients,
-			newLogClosure(func() string {
-				return spew.Sdump(topologyDiff)
-			}),
-		)
+
+	// Do not reacquire the lock twice unnecessarily.
+	if numClients == 0 {
+		return
 	}
+
+	log.Tracef("Sending topology notification to %v clients %v",
+		numClients,
+		newLogClosure(func() string {
+			return spew.Sdump(topologyDiff)
+		}),
+	)
 
 	r.RLock()
 	for _, client := range r.topologyClients {

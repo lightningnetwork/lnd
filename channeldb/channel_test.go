@@ -14,12 +14,12 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
-	_ "github.com/roasbeef/btcwallet/walletdb/bdb"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
+	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
 )
 
 var (
@@ -898,6 +898,16 @@ func TestRefreshShortChanID(t *testing.T) {
 			"updated before refreshing short_chan_id")
 	}
 
+	// Now that the receiver's short channel id has been updated, check to
+	// ensure that the channel packager's source has been updated as well.
+	// This ensures that the packager will read and write to buckets
+	// corresponding to the new short chan id, instead of the prior.
+	if state.Packager.(*ChannelPackager).source != chanOpenLoc {
+		t.Fatalf("channel packager source was not updated: want %v, "+
+			"got %v", chanOpenLoc,
+			state.Packager.(*ChannelPackager).source)
+	}
+
 	// Now, refresh the short channel ID of the pending channel.
 	err = pendingChannel.RefreshShortChanID()
 	if err != nil {
@@ -910,5 +920,15 @@ func TestRefreshShortChanID(t *testing.T) {
 		t.Fatalf("expected pending channel short_chan_id to be "+
 			"refreshed: want %v, got %v", state.ShortChanID(),
 			pendingChannel.ShortChanID())
+	}
+
+	// Check to ensure that the _other_ OpenChannel channel packager's
+	// source has also been updated after the refresh. This ensures that the
+	// other packagers will read and write to buckets corresponding to the
+	// updated short chan id.
+	if pendingChannel.Packager.(*ChannelPackager).source != chanOpenLoc {
+		t.Fatalf("channel packager source was not updated: want %v, "+
+			"got %v", chanOpenLoc,
+			pendingChannel.Packager.(*ChannelPackager).source)
 	}
 }

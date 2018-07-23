@@ -666,7 +666,7 @@
     },
     "/v1/invoices/subscribe": {
       "get": {
-        "summary": "*\nSubscribeInvoices returns a uni-directional stream (sever -\u003e client) for\nnotifying the client of newly added/settled invoices.",
+        "summary": "*\nSubscribeInvoices returns a uni-directional stream (sever -\u003e client) for\nnotifying the client of newly added/settled invoices. The caller can\noptionally specify the add_index and/or the settle_index. If the add_index\nis specified, then we'll first start by sending add invoice events for all\ninvoices with an add_index greater than the specified value.  If the\nsettle_index is specified, the next, we'll send out all settle events for\ninvoices with a settle_index greater than the specified value.  One or both\nof these fields can be set. If no fields are set, then we'll only send out\nthe latest add/settle events.",
         "operationId": "SubscribeInvoices",
         "responses": {
           "200": {
@@ -676,6 +676,24 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "add_index",
+            "description": "*\nIf specified (non-zero), then we'll first start by sending out\nnotifications for all added indexes with an add_index greater than this\nvalue. This allows callers to catch up on any events they missed while they\nweren't connected to the streaming RPC.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "settle_index",
+            "description": "*\nIf specified (non-zero), then we'll first start by sending out\nnotifications for all settled indexes with an settle_index greater than\nthis value. This allows callers to catch up on any events they missed while\nthey weren't connected to the streaming RPC.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          }
+        ],
         "tags": [
           "Lightning"
         ]
@@ -1060,6 +1078,11 @@
         "payment_request": {
           "type": "string",
           "description": "*\nA bare-bones invoice for a payment within the Lightning Network.  With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient."
+        },
+        "add_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "*\nThe \"add\" index of this invoice. Each newly created invoice will increment\nthis index making it monotonically increasing. Callers to the\nSubscribeInvoices call can use this to instantly get notified of all added\ninvoices with an add_index greater than this one."
         }
       }
     },
@@ -1893,6 +1916,21 @@
           "type": "boolean",
           "format": "boolean",
           "description": "/ Whether this invoice should include routing hints for private channels."
+        },
+        "add_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "*\nThe \"add\" index of this invoice. Each newly created invoice will increment\nthis index making it monotonically increasing. Callers to the\nSubscribeInvoices call can use this to instantly get notified of all added\ninvoices with an add_index greater than this one."
+        },
+        "settle_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "*\nThe \"settle\" index of this invoice. Each newly settled invoice will\nincrement this index making it monotonically increasing. Callers to the\nSubscribeInvoices call can use this to instantly get notified of all\nsettled invoices with an settle_index greater than this one."
+        },
+        "amt_paid": {
+          "type": "string",
+          "format": "int64",
+          "description": "*\nThe amount that was accepted for this invoice. This will ONLY be set if\nthis invoice has been settled. We provide this field as if the invoice was\ncreated with a zero value, then we need to record what amount was\nultimately accepted. Additionally, it's possible that the sender paid MORE\nthat was specified in the original invoice. So we'll record that here as\nwell."
         }
       }
     },

@@ -1,11 +1,17 @@
 package lnwallet
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 )
+
+// ErrSignPreAuthorized signals that the witness generation function was called
+// on a preauthorized input. A concrete error allows the caller to ignore this
+// case when acceptable.
+var ErrSignPreAuthorized = errors.New("cannot sign preauthorized input")
 
 // WitnessType determines how an output's witness will be generated. The
 // default commitmentTimeLock type will generate a witness that will allow
@@ -69,6 +75,10 @@ const (
 	// broadcast a revoked commitment, but then also immediately attempt to
 	// go to the second level to claim the HTLC.
 	HtlcSecondLevelRevoke WitnessType = 9
+
+	// PreAuthorized is a witness type indicating that we cannot sign for
+	// this input, and that its witness must be computed externally.
+	PreAuthorized WitnessType = 10
 )
 
 // WitnessGenerator represents a function which is able to generate the final
@@ -119,6 +129,9 @@ func (wt WitnessType) GenWitnessFunc(signer Signer,
 
 		case HtlcSecondLevelRevoke:
 			return htlcSpendRevoke(signer, desc, tx)
+
+		case PreAuthorized:
+			return nil, ErrSignPreAuthorized
 
 		default:
 			return nil, fmt.Errorf("unknown witness type: %v", wt)

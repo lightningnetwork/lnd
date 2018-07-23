@@ -439,6 +439,10 @@ func (c *ChannelGraph) AddChannelEdge(edge *ChannelEdgeInfo) error {
 	binary.BigEndian.PutUint64(chanKey[:], edge.ChannelID)
 
 	return c.db.Update(func(tx *bolt.Tx) error {
+		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
+		if err != nil {
+			return err
+		}
 		edges, err := tx.CreateBucketIfNotExists(edgeBucket)
 		if err != nil {
 			return err
@@ -457,6 +461,45 @@ func (c *ChannelGraph) AddChannelEdge(edge *ChannelEdgeInfo) error {
 		// meant to be idempotent.
 		if edgeInfo := edgeIndex.Get(chanKey[:]); edgeInfo != nil {
 			return ErrEdgeAlreadyExist
+		}
+
+		// Before we insert the channel into the database, we'll ensure
+		// that both nodes already exist in the channel graph. If
+		// either node doesn't, then we'll insert a "shell" node that
+		// just includes its public key, so subsequent validation and
+		// queries can work properly.
+		_, node1Err := fetchLightningNode(nodes, edge.NodeKey1Bytes[:])
+		switch {
+		case node1Err == ErrGraphNodeNotFound:
+			node1Shell := LightningNode{
+				PubKeyBytes:          edge.NodeKey1Bytes,
+				HaveNodeAnnouncement: false,
+			}
+			err := addLightningNode(tx, &node1Shell)
+			if err != nil {
+				return fmt.Errorf("unable to create shell node "+
+					"for: %x", edge.NodeKey1Bytes)
+
+			}
+		case node1Err != nil:
+			return err
+		}
+
+		_, node2Err := fetchLightningNode(nodes, edge.NodeKey2Bytes[:])
+		switch {
+		case node2Err == ErrGraphNodeNotFound:
+			node2Shell := LightningNode{
+				PubKeyBytes:          edge.NodeKey2Bytes,
+				HaveNodeAnnouncement: false,
+			}
+			err := addLightningNode(tx, &node2Shell)
+			if err != nil {
+				return fmt.Errorf("unable to create shell node "+
+					"for: %x", edge.NodeKey2Bytes)
+
+			}
+		case node2Err != nil:
+			return err
 		}
 
 		// If the edge hasn't been created yet, then we'll first add it
@@ -2229,8 +2272,9 @@ func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (*ChannelE
 		// Once we have the information about the channels' parameters,
 		// we'll fetch the routing policies for each for the directed
 		// edges.
-		e1, e2, err := fetchChanEdgePolicies(edgeIndex, edges, nodes,
-			chanID, c.db)
+		e1, e2, err := fetchChanEdgePolicies(
+			edgeIndex, edges, nodes, chanID, c.db,
+		)
 		if err != nil {
 			return err
 		}
@@ -2288,8 +2332,9 @@ func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64) (*ChannelEdgeInfo, *
 		}
 		edgeInfo = &edge
 
-		e1, e2, err := fetchChanEdgePolicies(edgeIndex, edges, nodes,
-			channelID[:], c.db)
+		e1, e2, err := fetchChanEdgePolicies(
+			edgeIndex, edges, nodes, channelID[:], c.db,
+		)
 		if err != nil {
 			return err
 		}
@@ -2889,7 +2934,8 @@ func deserializeChanEdgePolicy(r io.Reader,
 
 	node, err := fetchLightningNode(nodes, pub[:])
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to fetch node: %x, %v",
+			pub[:], err)
 	}
 
 	edge.Node = &node

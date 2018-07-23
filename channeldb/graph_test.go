@@ -2080,9 +2080,9 @@ func TestPruneGraphNodes(t *testing.T) {
 		t.Fatalf("unable to set source node: %v", err)
 	}
 
-	// With the source node inserted, we'll now add two nodes into the
-	// channel graph, as they don't have any channels they should be
-	// removed from the graph at the end.
+	// With the source node inserted, we'll now add three nodes to the
+	// channel graph, at the end of the scenario, only two of these nodes
+	// should still be in the graph.
 	node1, err := createTestVertex(db)
 	if err != nil {
 		t.Fatalf("unable to create test node: %v", err)
@@ -2097,14 +2097,51 @@ func TestPruneGraphNodes(t *testing.T) {
 	if err := graph.AddLightningNode(node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
+	node3, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	if err := graph.AddLightningNode(node3); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
 
+	// We'll now add a new edge to the graph, but only actually advertise
+	// the edge of *one* of the nodes.
+	edgeInfo, chanID := createEdge(100, 0, 0, 0, node1, node2)
+	if err := graph.AddChannelEdge(&edgeInfo); err != nil {
+		t.Fatalf("unable to add edge: %v", err)
+	}
+
+	// We'll now insert an advertised edge, but it'll only be the edge that
+	// points from the first to the second node.
+	edge1 := randEdgePolicy(chanID.ToUint64(), edgeInfo.ChannelPoint, db)
+	edge1.Flags = 0
+	edge1.Node = node1
+	edge1.SigBytes = testSig.Serialize()
+	if err := graph.UpdateEdgePolicy(edge1); err != nil {
+		t.Fatalf("unable to update edge: %v", err)
+	}
+
+	// We'll now initiate a around of graph pruning.
 	if err := graph.PruneGraphNodes(); err != nil {
 		t.Fatalf("unable to prune graph nodes: %v", err)
 	}
 
-	// There should only be a single node left at this point, the source
-	// node.
-	assertNumNodes(t, graph, 1)
+	// At this point, there should be 3 nodes left in the graph still: the
+	// source node (which can't be pruned), and node 1+2. Nodes 1 and two
+	// should still be left in the graph as there's half of an advertised
+	// edge between them.
+	assertNumNodes(t, graph, 3)
+
+	// Finally, we'll ensure that node3, the only fully unconnected node as
+	// properly deleted from the graph and not another node in its place.
+	node3Pub, err := node3.PubKey()
+	if err != nil {
+		t.Fatalf("unable to fetch the pubkey of node3: %v", err)
+	}
+	if _, err := graph.FetchLightningNode(node3Pub); err == nil {
+		t.Fatalf("node 3 should have been deleted!")
+	}
 }
 
 // compareNodes is used to compare two LightningNodes while excluding the

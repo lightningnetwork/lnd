@@ -2144,6 +2144,69 @@ func TestPruneGraphNodes(t *testing.T) {
 	}
 }
 
+// TestAddChannelEdgeShellNodes tests that when we attempt to add a ChannelEdge
+// to the graph, one or both of the nodes the edge involves aren't found in the
+// database, then shell edges are created for each node if needed.
+func TestAddChannelEdgeShellNodes(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+
+	graph := db.ChannelGraph()
+
+	// To start, we'll create two nodes, and only add one of them to the
+	// channel graph.
+	node1, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	if err := graph.AddLightningNode(node1); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
+	node2, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+
+	// We'll now create an edge between the two nodes, as a result, node2
+	// should be inserted into the database as a shell node.
+	edgeInfo, _ := createEdge(100, 0, 0, 0, node1, node2)
+	if err := graph.AddChannelEdge(&edgeInfo); err != nil {
+		t.Fatalf("unable to add edge: %v", err)
+	}
+
+	node1Pub, err := node1.PubKey()
+	if err != nil {
+		t.Fatalf("unable to parse node 1 pub: %v", err)
+	}
+	node2Pub, err := node2.PubKey()
+	if err != nil {
+		t.Fatalf("unable to parse node 2 pub: %v", err)
+	}
+
+	// Ensure that node1 was inserted as a full node, while node2 only has
+	// a shell node present.
+	node1, err = graph.FetchLightningNode(node1Pub)
+	if err != nil {
+		t.Fatalf("unable to fetch node1: %v", err)
+	}
+	if !node1.HaveNodeAnnouncement {
+		t.Fatalf("have shell announcement for node1, shouldn't")
+	}
+
+	node2, err = graph.FetchLightningNode(node2Pub)
+	if err != nil {
+		t.Fatalf("unable to fetch node2: %v", err)
+	}
+	if node2.HaveNodeAnnouncement {
+		t.Fatalf("should have shell announcement for node2, but is full")
+	}
+}
+
 // compareNodes is used to compare two LightningNodes while excluding the
 // Features struct, which cannot be compared as the semantics for reserializing
 // the featuresMap have not been defined.

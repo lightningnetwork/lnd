@@ -829,11 +829,8 @@ func (s *server) Stop() error {
 	s.cc.chainView.Stop()
 	s.connMgr.Stop()
 	s.cc.feeEstimator.Stop()
-<<<<<<< HEAD
 	s.telemeter.Stop()
-=======
 	s.invoices.Stop()
->>>>>>> master
 
 	// Disconnect from each active peers to ensure that
 	// peerTerminationWatchers signal completion to each peer.
@@ -1521,24 +1518,16 @@ func (s *server) BroadcastMessage(skips map[routing.Vertex]struct{},
 
 	srvrLog.Debugf("Broadcasting %v messages", len(msgs))
 
-<<<<<<< HEAD
 	s.telemeter.Update(&TelemetryUpdate{
 		MetricName: "broadcast",
 		Value:      1,
 	})
 
-	// Iterate over all known peers, dispatching a go routine to enqueue
-	// all messages to each of peers.  We synchronize access to peersByPub
-	// throughout this process to ensure we deliver messages to exact set
-	// of peers present at the time of invocation.
-	var wg sync.WaitGroup
-=======
 	// Filter out peers found in the skips map. We synchronize access to
 	// peersByPub throughout this process to ensure we deliver messages to
 	// exact set of peers present at the time of invocation.
 	s.mu.RLock()
 	peers := make([]*peer, 0, len(s.peersByPub))
->>>>>>> master
 	for _, sPeer := range s.peersByPub {
 		if skips != nil {
 			if _, ok := skips[sPeer.pubKeyBytes]; ok {

@@ -29,7 +29,7 @@ var (
 	// traversals. The graph is formed as a star-graph with the source node
 	// at the center.
 	//
-	// maps: pubKey -> nofInfo
+	// maps: pubKey -> nodeInfo
 	// maps: source -> selfPubKey
 	nodeBucket = []byte("graph-node")
 
@@ -477,7 +477,7 @@ func (c *ChannelGraph) AddChannelEdge(edge *ChannelEdgeInfo) error {
 }
 
 // HasChannelEdge returns true if the database knows of a channel edge with the
-// passed channel ID, and false otherwise. If the an edge with that ID is found
+// passed channel ID, and false otherwise. If an edge with that ID is found
 // within the graph, then two time stamps representing the last time the edge
 // was updated for both directed edges are returned along with the boolean.
 func (c *ChannelGraph) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool, error) {
@@ -588,13 +588,6 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 
 	var chansClosed []*ChannelEdgeInfo
 
-	// nodesWithChansClosed is the set of nodes, each identified by their
-	// compressed public key, who had a channel closed within the latest
-	// block. We'll use this later on to determine whether we should prune
-	// them from the channel graph due to no longer having any other open
-	// channels.
-	nodesWithChansClosed := make(map[[33]byte]struct{})
-
 	err := c.db.Update(func(tx *bolt.Tx) error {
 		// First grab the edges bucket which houses the information
 		// we'd like to delete
@@ -655,11 +648,7 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 				return err
 			}
 
-			// Include this channel in our list of closed channels
-			// and collect the node public keys at each end.
 			chansClosed = append(chansClosed, &edgeInfo)
-			nodesWithChansClosed[edgeInfo.NodeKey1Bytes] = struct{}{}
-			nodesWithChansClosed[edgeInfo.NodeKey2Bytes] = struct{}{}
 		}
 
 		metaBucket, err := tx.CreateBucketIfNotExists(graphMetaBucket)
@@ -689,7 +678,7 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 		// Now that the graph has been pruned, we'll also attempt to
 		// prune any nodes that have had a channel closed within the
 		// latest block.
-		return c.pruneGraphNodes(tx, nodes, nodesWithChansClosed)
+		return c.pruneGraphNodes(tx, nodes, edgeIndex)
 	})
 	if err != nil {
 		return nil, err
@@ -703,33 +692,21 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 // that we only maintain a graph of reachable nodes. In the event that a pruned
 // node gains more channels, it will be re-added back to the graph.
 func (c *ChannelGraph) PruneGraphNodes() error {
-	// We'll use this map to collect a
-	nodesToMaybePrune := make(map[[33]byte]struct{})
-
 	return c.db.Update(func(tx *bolt.Tx) error {
 		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
 		if err != nil {
 			return err
 		}
-
-		err = nodes.ForEach(func(pubKey, nodeBytes []byte) error {
-			// Skip anything that may actually be a sub-bucket.
-			if len(pubKey) != 33 {
-				return nil
-			}
-
-			var nodePub [33]byte
-			copy(nodePub[:], pubKey)
-
-			nodesToMaybePrune[nodePub] = struct{}{}
-
-			return nil
-		})
-		if err != nil {
-			return err
+		edges := tx.Bucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNotFound
+		}
+		edgeIndex := edges.Bucket(edgeIndexBucket)
+		if edgeIndex == nil {
+			return ErrGraphNoEdgesFound
 		}
 
-		return c.pruneGraphNodes(tx, nodes, nodesToMaybePrune)
+		return c.pruneGraphNodes(tx, nodes, edgeIndex)
 	})
 }
 
@@ -737,7 +714,7 @@ func (c *ChannelGraph) PruneGraphNodes() error {
 // channel closed within the current block. If the node still has existing
 // channels in the graph, this will act as a no-op.
 func (c *ChannelGraph) pruneGraphNodes(tx *bolt.Tx, nodes *bolt.Bucket,
-	nodePubKeys map[[33]byte]struct{}) error {
+	edgeIndex *bolt.Bucket) error {
 
 	log.Trace("Pruning nodes from graph with no open channels")
 
@@ -748,41 +725,69 @@ func (c *ChannelGraph) pruneGraphNodes(tx *bolt.Tx, nodes *bolt.Bucket,
 		return err
 	}
 
-	// We'll now iterate over every node which had a channel closed and
-	// check whether they have any other open channels left within the
-	// graph. If they don't, they'll be pruned from the channel graph.
-	for nodePubKey := range nodePubKeys {
-		if bytes.Equal(nodePubKey[:], sourceNode.PubKeyBytes[:]) {
-			continue
-		}
-
-		node, err := fetchLightningNode(nodes, nodePubKey[:])
-		if err != nil {
-			continue
-		}
-		node.db = c.db
-
-		numChansLeft := 0
-		err = node.ForEachChannel(tx, func(*bolt.Tx, *ChannelEdgeInfo,
-			*ChannelEdgePolicy, *ChannelEdgePolicy) error {
-
-			numChansLeft++
+	// We'll use this map to keep count the number of references to a node
+	// in the graph. A node should only be removed once it has no more
+	// references in the graph.
+	nodeRefCounts := make(map[[33]byte]int)
+	err = nodes.ForEach(func(pubKey, nodeBytes []byte) error {
+		// If this is the source key, then we skip this
+		// iteration as the value for this key is a pubKey
+		// rather than raw node information.
+		if bytes.Equal(pubKey, sourceKey) || len(pubKey) != 33 {
 			return nil
-		})
+		}
 
-		// If we're unable read the node, or no edges exist in the
-		// graph atm (so all the nodes are unconnected), then we'll
-		// just skip this node all together.
-		if err != nil && err != ErrGraphNoEdgesFound {
+		var nodePub [33]byte
+		copy(nodePub[:], pubKey)
+		nodeRefCounts[nodePub] = 0
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// To ensure we never delete the source node, we'll start off by
+	// bumping its ref count to 1.
+	nodeRefCounts[sourceNode.PubKeyBytes] = 1
+
+	// Next, we'll run through the edgeIndex which maps a channel ID to the
+	// edge info. We'll use this scan to populate our reference count map
+	// above.
+	err = edgeIndex.ForEach(func(chanID, edgeInfoBytes []byte) error {
+		// The first 66 bytes of the edge info contain the pubkeys of
+		// the nodes that this edge attaches. We'll extract them, and
+		// add them to the ref count map.
+		var node1, node2 [33]byte
+		copy(node1[:], edgeInfoBytes[:33])
+		copy(node2[:], edgeInfoBytes[33:])
+
+		// With the nodes extracted, we'll increase the ref count of
+		// each of the nodes.
+		nodeRefCounts[node1] += 1
+		nodeRefCounts[node2] += 1
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// Finally, we'll make a second pass over the set of nodes, and delete
+	// any nodes that have a ref count of zero.
+	for nodePubKey, refCount := range nodeRefCounts {
+		// If the ref count of the node isn't zero, then we can safely
+		// skip it as it still has edges to or from it within the
+		// graph.
+		if refCount != 0 {
 			continue
 		}
 
-		if numChansLeft == 0 {
-			err := c.deleteLightningNode(tx, nodePubKey[:])
-			if err != nil {
-				log.Tracef("Unable to prune node %x from the "+
-					"graph: %v", nodePubKey, err)
-			}
+		// If we reach this point, then there are no longer any edges
+		// that connect this node, so we can delete it.
+		if err := c.deleteLightningNode(tx, nodePubKey[:]); err != nil {
+			log.Warnf("Unable to prune node %x from the "+
+				"graph: %v", nodePubKey, err)
 		}
 	}
 

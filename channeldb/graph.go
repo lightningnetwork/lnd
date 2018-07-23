@@ -775,6 +775,7 @@ func (c *ChannelGraph) pruneGraphNodes(tx *bolt.Tx, nodes *bolt.Bucket,
 
 	// Finally, we'll make a second pass over the set of nodes, and delete
 	// any nodes that have a ref count of zero.
+	var numNodesPruned int
 	for nodePubKey, refCount := range nodeRefCounts {
 		// If the ref count of the node isn't zero, then we can safely
 		// skip it as it still has edges to or from it within the
@@ -788,7 +789,18 @@ func (c *ChannelGraph) pruneGraphNodes(tx *bolt.Tx, nodes *bolt.Bucket,
 		if err := c.deleteLightningNode(tx, nodePubKey[:]); err != nil {
 			log.Warnf("Unable to prune node %x from the "+
 				"graph: %v", nodePubKey, err)
+			continue
 		}
+
+		log.Infof("Pruned unconnected node %x from channel graph",
+			nodePubKey[:])
+
+		numNodesPruned++
+	}
+
+	if numNodesPruned > 0 {
+		log.Infof("Pruned %v unconnected nodes from the channel graph",
+			numNodesPruned)
 	}
 
 	return nil

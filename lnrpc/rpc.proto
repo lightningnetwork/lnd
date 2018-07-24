@@ -1343,11 +1343,13 @@ message Hop {
     */
     uint64 chan_id = 1 [json_name = "chan_id"];
     int64 chan_capacity = 2 [json_name = "chan_capacity"];
-    int64 amt_to_forward = 3 [json_name = "amt_to_forward", deprecated = true];
-    int64 fee = 4 [json_name = "fee", deprecated = true];
-    uint32 expiry = 5 [json_name = "expiry"];
-    int64 amt_to_forward_msat = 6 [json_name = "amt_to_forward_msat"];
-    int64 fee_msat = 7 [json_name = "fee_msat"];
+    /// delta calculated by subtracting current block height from the expiry
+    uint32 expiry_delta = 3 [json_name = "expiry_delta"];
+    int64 amt_to_forward = 4 [json_name = "amt_to_forward", deprecated = true];
+    int64 fee = 5 [json_name = "fee", deprecated = true];
+    uint32 expiry = 6 [json_name = "expiry"];
+    int64 amt_to_forward_msat = 7 [json_name = "amt_to_forward_msat"];
+    int64 fee_msat = 8 [json_name = "fee_msat"];
 }
 
 /**
@@ -1368,11 +1370,16 @@ message Route {
     uint32 total_time_lock = 1 [json_name = "total_time_lock"];
 
     /**
+    delta calculated by subtracting current block height from the time_lock
+    */
+    uint32 total_time_lock_delta = 2 [json_name = "total_time_lock_delta"];
+
+    /**
     The sum of the fees paid at each hop within the final route.  In the case
     of a one-hop payment, this value will be zero as we don't need to pay a fee
     it ourself.
     */
-    int64 total_fees = 2 [json_name = "total_fees", deprecated = true];
+    int64 total_fees = 3 [json_name = "total_fees", deprecated = true];
 
     /**
     The total amount of funds required to complete a payment over this route.
@@ -1381,22 +1388,22 @@ message Route {
     satoshis, otherwise the route will fail at an intermediate node due to an
     insufficient amount of fees.
     */
-    int64 total_amt = 3 [json_name = "total_amt", deprecated = true];
+    int64 total_amt = 4 [json_name = "total_amt", deprecated = true];
 
     /**
     Contains details concerning the specific forwarding details at each hop.
     */
-    repeated Hop hops = 4 [json_name = "hops"];
-    
+    repeated Hop hops = 5 [json_name = "hops"];
+
     /**
     The total fees in millisatoshis.
     */
-    int64 total_fees_msat = 5 [json_name = "total_fees_msat"];
-    
+    int64 total_fees_msat = 6 [json_name = "total_fees_msat"];
+
     /**
     The total amount in millisatoshis.
     */
-    int64 total_amt_msat = 6 [json_name = "total_amt_msat"];
+    int64 total_amt_msat = 7 [json_name = "total_amt_msat"];
 }
 
 message NodeInfoRequest {

@@ -1759,6 +1759,11 @@
           "type": "string",
           "format": "int64"
         },
+        "expiry_delta": {
+          "type": "integer",
+          "format": "int64",
+          "title": "/ delta calculated by subtracting current block height from the expiry"
+        },
         "amt_to_forward": {
           "type": "string",
           "format": "int64"
@@ -2436,6 +2441,11 @@
           "type": "integer",
           "format": "int64",
           "description": "*\nThe cumulative (final) time lock across the entire route.  This is the CLTV\nvalue that should be extended to the first hop in the route. All other hops\nwill decrement the time-lock as advertised, leaving enough time for all\nhops to wait for or present the payment preimage to complete the payment."
+        },
+        "total_time_lock_delta": {
+          "type": "integer",
+          "format": "int64",
+          "title": "*\ndelta calculated by subtracting current block height from the time_lock"
         },
         "total_fees": {
           "type": "string",

@@ -632,6 +632,38 @@
             "required": false,
             "type": "boolean",
             "format": "boolean"
+          },
+          {
+            "name": "start_time",
+            "description": "/ StartTime is the start time of the time slice.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
+          },
+          {
+            "name": "end_time",
+            "description": "/ EndTime is the end time of the time slice.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
+          },
+          {
+            "name": "index_offset",
+            "description": "/ IndexOffset is the offset within the time slice to start at. This\n/ can be used to start the response at a particular record.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "num_mux_events",
+            "description": "/ NumMaxEvents is the max number of events to return.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
           }
         ],
         "tags": [
@@ -1992,6 +2024,16 @@
           "items": {
             "$ref": "#/definitions/lnrpcInvoice"
           }
+        },
+        "last_element_index": {
+          "type": "integer",
+          "format": "int64",
+          "title": "/ last element index in Invoices"
+        },
+        "total_num_of_invoices": {
+          "type": "integer",
+          "format": "int64",
+          "title": "/ total number of invoices currently stored within the database"
         }
       }
     },

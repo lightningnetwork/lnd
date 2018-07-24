@@ -285,6 +285,10 @@ type ChannelEdgeUpdate struct {
 
 	// ConnectingNode is the node that the advertising node connects to.
 	ConnectingNode *btcec.PublicKey
+
+	// Disabled, if true, signals that the channel is unavailable to relay
+	// payments.
+	Disabled bool
 }
 
 // appendTopologyChange appends the passed update message to the passed
@@ -359,6 +363,7 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 			FeeRate:         m.FeeProportionalMillionths,
 			AdvertisingNode: aNode,
 			ConnectingNode:  cNode,
+			Disabled:        m.Flags&lnwire.ChanUpdateDisabled != 0,
 		}
 		edgeUpdate.AdvertisingNode.Curve = nil
 		edgeUpdate.ConnectingNode.Curve = nil

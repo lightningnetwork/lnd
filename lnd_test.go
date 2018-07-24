@@ -806,6 +806,9 @@ func checkChannelPolicy(policy, expectedPolicy *lnrpc.RoutingPolicy) error {
 			expectedPolicy.TimeLockDelta,
 			policy.TimeLockDelta)
 	}
+	if policy.Disabled != expectedPolicy.Disabled {
+		return errors.New("edge should be disabled but isn't")
+	}
 
 	return nil
 }
@@ -6441,39 +6444,48 @@ func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) 
 	ctxt, _ = context.WithTimeout(context.Background(), timeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 
-	// Similar to the case above, we should receive another notification
-	// detailing the channel closure.
-	select {
-	case graphUpdate := <-graphUpdates:
-		if len(graphUpdate.ClosedChans) != 1 {
-			t.Fatalf("expected a single update, instead "+
-				"have %v", len(graphUpdate.ClosedChans))
-		}
+	// Now that the channel has been closed, we should receive a
+	// notification indicating so.
+out:
+	for {
+		select {
+		case graphUpdate := <-graphUpdates:
+			if len(graphUpdate.ClosedChans) != 1 {
+				continue
+			}
 
-		closedChan := graphUpdate.ClosedChans[0]
-		if closedChan.ClosedHeight != uint32(blockHeight+1) {
-			t.Fatalf("close heights of channel mismatch: expected "+
-				"%v, got %v", blockHeight+1, closedChan.ClosedHeight)
+			closedChan := graphUpdate.ClosedChans[0]
+			if closedChan.ClosedHeight != uint32(blockHeight+1) {
+				t.Fatalf("close heights of channel mismatch: "+
+					"expected %v, got %v", blockHeight+1,
+					closedChan.ClosedHeight)
+			}
+			chanPointTxid, err := getChanPointFundingTxid(chanPoint)
+			if err != nil {
+				t.Fatalf("unable to get txid: %v", err)
+			}
+			closedChanTxid, err := getChanPointFundingTxid(
+				closedChan.ChanPoint,
+			)
+			if err != nil {
+				t.Fatalf("unable to get txid: %v", err)
+			}
+			if !bytes.Equal(closedChanTxid, chanPointTxid) {
+				t.Fatalf("channel point hash mismatch: "+
+					"expected %v, got %v", chanPointTxid,
+					closedChanTxid)
+			}
+			if closedChan.ChanPoint.OutputIndex != chanPoint.OutputIndex {
+				t.Fatalf("output index mismatch: expected %v, "+
+					"got %v", chanPoint.OutputIndex,
+					closedChan.ChanPoint)
+			}
+
+			break out
+		case <-time.After(time.Second * 10):
+			t.Fatalf("notification for channel closure not " +
+				"sent")
 		}
-		chanPointTxid, err := getChanPointFundingTxid(chanPoint)
-		if err != nil {
-			t.Fatalf("unable to get txid: %v", err)
-		}
-		closedChanTxid, err := getChanPointFundingTxid(closedChan.ChanPoint)
-		if err != nil {
-			t.Fatalf("unable to get txid: %v", err)
-		}
-		if !bytes.Equal(closedChanTxid, chanPointTxid) {
-			t.Fatalf("channel point hash mismatch: expected %v, "+
-				"got %v", chanPointTxid, closedChanTxid)
-		}
-		if closedChan.ChanPoint.OutputIndex != chanPoint.OutputIndex {
-			t.Fatalf("output index mismatch: expected %v, got %v",
-				chanPoint.OutputIndex, closedChan.ChanPoint)
-		}
-	case <-time.After(time.Second * 10):
-		t.Fatalf("notification for channel closure not " +
-			"sent")
 	}
 
 	// For the final portion of the test, we'll ensure that once a new node
@@ -10500,6 +10512,76 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 }
 
+// testSendUpdateDisableChannel ensures that a channel update with the disable
+// flag set is sent once a channel has been either unilaterally or cooperatively
+// closed.
+func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
+	const (
+		chanAmt = 100000
+		timeout = 10 * time.Second
+	)
+
+	// Open a channel between Alice and Bob and Alice and Carol. These will
+	// be closed later on in order to trigger channel update messages
+	// marking the channels as disabled.
+	ctxb := context.Background()
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	chanPointAliceBob := openChannelAndAssert(
+		ctxt, t, net, net.Alice, net.Bob, chanAmt, 0, false,
+	)
+
+	carol, err := net.NewNode("Carol", nil)
+	if err != nil {
+		t.Fatalf("unable to create carol's node: %v", err)
+	}
+	defer shutdownAndAssert(net, t, carol)
+	if err := net.ConnectNodes(ctxb, net.Alice, carol); err != nil {
+		t.Fatalf("unable to connect alice to carol: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPointAliceCarol := openChannelAndAssert(
+		ctxt, t, net, net.Alice, carol, chanAmt, 0, false,
+	)
+
+	// Launch a node for Dave which will connect to Bob in order to receive
+	// graph updates from. This will ensure that the channel updates are
+	// propagated throughout the network.
+	dave, err := net.NewNode("Dave", nil)
+	if err != nil {
+		t.Fatalf("unable to create dave's node: %v", err)
+	}
+	defer shutdownAndAssert(net, t, dave)
+	if err := net.ConnectNodes(ctxb, net.Bob, dave); err != nil {
+		t.Fatalf("unable to connect bob to dave: %v", err)
+	}
+
+	daveUpdates, quit := subscribeGraphNotifications(t, ctxb, net.Alice)
+	defer close(quit)
+
+	// We should expect to see a channel update with the default routing
+	// policy, except that it should indicate the channel is disabled.
+	expectedPolicy := &lnrpc.RoutingPolicy{
+		FeeBaseMsat:      int64(defaultBitcoinBaseFeeMSat),
+		FeeRateMilliMsat: int64(defaultBitcoinFeeRate),
+		TimeLockDelta:    defaultBitcoinTimeLockDelta,
+		Disabled:         true,
+	}
+
+	// Close Alice's channels with Bob and Carol cooperatively and
+	// unilaterally respectively.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAliceBob, false)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAliceCarol, true)
+
+	// Now that the channels have been closed, we should receive an update
+	// marking each as disabled.
+	waitForChannelUpdate(
+		t, daveUpdates, net.Alice.PubKeyStr, expectedPolicy,
+		chanPointAliceBob, chanPointAliceCarol,
+	)
+}
+
 type testCase struct {
 	name string
 	test func(net *lntest.NetworkHarness, t *harnessTest)
@@ -10698,6 +10780,10 @@ var testsCases = []*testCase{
 	{
 		name: "route fee cutoff",
 		test: testRouteFeeCutoff,
+	},
+	{
+		name: "send update disable channel",
+		test: testSendUpdateDisableChannel,
 	},
 }
 

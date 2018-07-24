@@ -3059,6 +3059,7 @@ func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 			MinHtlc:          int64(c1.MinHTLC),
 			FeeBaseMsat:      int64(c1.FeeBaseMSat),
 			FeeRateMilliMsat: int64(c1.FeeProportionalMillionths),
+			Disabled:         c1.Flags&lnwire.ChanUpdateDisabled != 0,
 		}
 	}
 
@@ -3068,6 +3069,7 @@ func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 			MinHtlc:          int64(c2.MinHTLC),
 			FeeBaseMsat:      int64(c2.FeeBaseMSat),
 			FeeRateMilliMsat: int64(c2.FeeProportionalMillionths),
+			Disabled:         c2.Flags&lnwire.ChanUpdateDisabled != 0,
 		}
 	}
 
@@ -3535,6 +3537,7 @@ func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopol
 				MinHtlc:          int64(channelUpdate.MinHTLC),
 				FeeBaseMsat:      int64(channelUpdate.BaseFee),
 				FeeRateMilliMsat: int64(channelUpdate.FeeRate),
+				Disabled:         channelUpdate.Disabled,
 			},
 			AdvertisingNode: encodeKey(channelUpdate.AdvertisingNode),
 			ConnectingNode:  encodeKey(channelUpdate.ConnectingNode),

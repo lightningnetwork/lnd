@@ -1442,6 +1442,7 @@ message RoutingPolicy {
     int64 min_htlc = 2 [json_name = "min_htlc"];
     int64 fee_base_msat = 3 [json_name = "fee_base_msat"];
     int64 fee_rate_milli_msat = 4 [json_name = "fee_rate_milli_msat"];
+    bool disabled = 5 [json_name = "disabled"];
 }
 
 /**

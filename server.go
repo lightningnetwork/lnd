@@ -661,6 +661,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 				return ErrServerShuttingDown
 			}
 		},
+		DisableChannel: s.disableChannel,
 	}, chanDB)
 
 	s.breachArbiter = newBreachArbiter(&BreachConfig{
@@ -2619,4 +2620,123 @@ func (s *server) fetchNodeAdvertisedAddr(pub *btcec.PublicKey) (net.Addr, error)
 	}
 
 	return node.Addresses[0], nil
+}
+
+// disableChannel disables a channel, resulting in it not being able to forward
+// payments. This is done by sending a new channel update across the network
+// with the disabled flag set.
+func (s *server) disableChannel(op wire.OutPoint) error {
+	// Retrieve the latest update for this channel. We'll use this
+	// as our starting point to send the new update.
+	chanUpdate, err := s.fetchLastChanUpdateByOutPoint(op)
+	if err != nil {
+		return err
+	}
+
+	// Set the bit responsible for marking a channel as disabled.
+	chanUpdate.Flags |= lnwire.ChanUpdateDisabled
+
+	// We must now update the message's timestamp and generate a new
+	// signature.
+	chanUpdate.Timestamp = uint32(time.Now().Unix())
+
+	chanUpdateMsg, err := chanUpdate.DataToSign()
+	if err != nil {
+		return err
+	}
+
+	pubKey := s.identityPriv.PubKey()
+	sig, err := s.nodeSigner.SignMessage(pubKey, chanUpdateMsg)
+	if err != nil {
+		return err
+	}
+	chanUpdate.Signature, err = lnwire.NewSigFromSignature(sig)
+	if err != nil {
+		return err
+	}
+
+	// Once signed, we'll send the new update to all of our peers.
+	return s.applyChannelUpdate(chanUpdate)
+}
+
+// fetchLastChanUpdateByOutPoint fetches the latest update for a channel from
+// our point of view.
+func (s *server) fetchLastChanUpdateByOutPoint(op wire.OutPoint) (*lnwire.ChannelUpdate, error) {
+	graph := s.chanDB.ChannelGraph()
+	info, edge1, edge2, err := graph.FetchChannelEdgesByOutpoint(&op)
+	if err != nil {
+		return nil, err
+	}
+
+	if edge1 == nil || edge2 == nil {
+		return nil, fmt.Errorf("unable to find channel(%v)", op)
+	}
+
+	// If we're the outgoing node on the first edge, then that
+	// means the second edge is our policy. Otherwise, the first
+	// edge is our policy.
+	var local *channeldb.ChannelEdgePolicy
+
+	ourPubKey := s.identityPriv.PubKey().SerializeCompressed()
+	if bytes.Equal(edge1.Node.PubKeyBytes[:], ourPubKey) {
+		local = edge2
+	} else {
+		local = edge1
+	}
+
+	return extractChannelUpdate(info, local)
+}
+
+// extractChannelUpdate retrieves a lnwire.ChannelUpdate message from an edge's
+// info and routing policy.
+func extractChannelUpdate(info *channeldb.ChannelEdgeInfo,
+	policy *channeldb.ChannelEdgePolicy) (*lnwire.ChannelUpdate, error) {
+
+	update := &lnwire.ChannelUpdate{
+		ChainHash:       info.ChainHash,
+		ShortChannelID:  lnwire.NewShortChanIDFromInt(policy.ChannelID),
+		Timestamp:       uint32(policy.LastUpdate.Unix()),
+		Flags:           policy.Flags,
+		TimeLockDelta:   policy.TimeLockDelta,
+		HtlcMinimumMsat: policy.MinHTLC,
+		BaseFee:         uint32(policy.FeeBaseMSat),
+		FeeRate:         uint32(policy.FeeProportionalMillionths),
+	}
+
+	var err error
+	update.Signature, err = lnwire.NewSigFromRawSignature(policy.SigBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return update, nil
+}
+
+// applyChannelUpdate applies the channel update to the different sub-systems of
+// the server.
+func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate) error {
+	newChannelPolicy := &channeldb.ChannelEdgePolicy{
+		SigBytes:                  update.Signature.ToSignatureBytes(),
+		ChannelID:                 update.ShortChannelID.ToUint64(),
+		LastUpdate:                time.Unix(int64(update.Timestamp), 0),
+		Flags:                     update.Flags,
+		TimeLockDelta:             update.TimeLockDelta,
+		MinHTLC:                   update.HtlcMinimumMsat,
+		FeeBaseMSat:               lnwire.MilliSatoshi(update.BaseFee),
+		FeeProportionalMillionths: lnwire.MilliSatoshi(update.FeeRate),
+	}
+
+	err := s.chanRouter.UpdateEdge(newChannelPolicy)
+	if err != nil && !routing.IsError(err, routing.ErrIgnored) {
+		return err
+	}
+
+	pubKey := s.identityPriv.PubKey()
+	errChan := s.authGossiper.ProcessLocalAnnouncement(update, pubKey)
+	select {
+	case err := <-errChan:
+		return err
+	case <-s.quit:
+		return ErrServerShuttingDown
+	}
 }

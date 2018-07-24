@@ -2497,6 +2497,10 @@
         "fee_rate_milli_msat": {
           "type": "string",
           "format": "int64"
+        },
+        "disabled": {
+          "type": "boolean",
+          "format": "boolean"
         }
       }
     },

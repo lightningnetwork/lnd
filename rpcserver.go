@@ -11,6 +11,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net"
 	"sort"
 	"strings"
 	"sync"
@@ -292,6 +293,10 @@ var (
 		"/lnrpc.Lightning/GetChanInfo": {{
 			Entity: "info",
 			Action: "read",
+		}},
+		"/lnrpc.Lightning/SetAddr": {{
+			Entity: "offchain",
+			Action: "write",
 		}},
 		"/lnrpc.Lightning/GetNodeInfo": {{
 			Entity: "info",
@@ -3684,6 +3689,59 @@ func (r *rpcServer) GetChanInfo(ctx context.Context,
 	channelEdge := marshalDbEdge(edgeInfo, edge1, edge2)
 
 	return channelEdge, nil
+}
+
+// SetAddr sets or appends the list of addresses contained in the current node
+// announcment and announces it to the network. If in.append is false, the list
+// of addresses contained within the updated node anouncement will match the
+// list provvided in in.Addresses. Otherwise the addresses will be appended to
+// the existing list in the current node announcement.
+func (r *rpcServer) SetAddr(ctx context.Context,
+	in *lnrpc.SetAddrRequest) (*lnrpc.SetAddrResponse, error) {
+
+	var newAddrs []net.Addr
+
+	// Convert incoming lnrpc.NodeAddress list to net.Addr list
+	for _, addr := range in.Addresses {
+		newAddr, err := parseAddr(addr.Addr)
+		if err != nil {
+			srvrLog.Errorf("Unable to parse address: %v", err)
+			return nil, err
+		}
+		newAddrs = append(newAddrs, newAddr)
+	}
+
+	if in.Append {
+		// Get the current node announcement and retrieve the
+		// current list of addresses
+		curNodeAnn, err := r.server.genNodeAnnouncement(false)
+		if err != nil {
+			return nil, fmt.Errorf("unable to retrieve current fully signed "+
+				"node announcement: %v", err)
+		}
+
+		newAddrs = append(curNodeAnn.Addresses, newAddrs...)
+	}
+
+	// Generate a new timestamped node announcement with the updated
+	// address list and broadcast it to our peers.
+	newNodeAnn, err := r.server.genNodeAnnouncement(
+		true, lnwire.UpdateNodeAnnAddrs(newAddrs),
+	)
+	if err != nil {
+		srvrLog.Errorf("Unable to generate new node "+
+			"announcement: %v", err)
+		return nil, err
+	}
+
+	err = r.server.BroadcastMessage(nil, &newNodeAnn)
+	if err != nil {
+		srvrLog.Errorf("Unable to broadcast new node "+
+			"announcement to peers: %v", err)
+		return nil, err
+	}
+
+	return &lnrpc.SetAddrResponse{}, nil
 }
 
 // GetNodeInfo returns the latest advertised and aggregate authenticated

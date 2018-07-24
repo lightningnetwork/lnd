@@ -2268,6 +2268,23 @@ var listInvoicesCommand = cli.Command{
 			Usage: "toggles if all invoices should be returned, or only " +
 				"those that are currently unsettled",
 		},
+		cli.IntFlag{
+			Name: "start",
+			Usage: "is the start time (" +
+				"Unix format) of the time slice",
+		},
+		cli.IntFlag{
+			Name: "end",
+			Usage: "is the end time (" +
+				"Unix format) of the time slice",
+		},
+		cli.IntFlag{
+			Name: "offset",
+			Usage: "is the offset within the time" +
+				" slice to start at. " +
+				"This can be used to start the response at a" +
+				" particular record.",
+		},
 	},
 	Action: actionDecorator(listInvoices),
 }
@@ -2283,6 +2300,12 @@ func listInvoices(ctx *cli.Context) error {
 
 	req := &lnrpc.ListInvoiceRequest{
 		PendingOnly: pendingOnly,
+		StartTime: int64(ctx.Int("start")),
+		EndTime: int64(ctx.Int("end")),
+		IndexOffset: uint32(ctx.Int("offset")),
+		NumMuxEvents:50,
+		
+		
 	}
 
 	invoices, err := client.ListInvoices(context.Background(), req)

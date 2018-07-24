@@ -1663,6 +1663,87 @@ func channelBalance(ctx *cli.Context) error {
 	return nil
 }
 
+var setAddrCommand = cli.Command{
+	Name: "setaddr",
+	Usage: "Set external IP address.",
+	ArgsUsage: "addrs",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "addrs",
+			Usage: "List of IP addresses to advertise (separated by commas).",
+		},
+		cli.BoolFlag{
+			Name: "append",
+			Usage: "Append to the current list of addresses instead of" +
+			       "replacing them.",
+		},
+	},
+	Description: `
+	Configure one or multiple IP addresses to be advertised by the node, and broadcast
+	them to the network.
+
+	The addresses can either replace or append to the existing list of addresses, by
+	using the --append option.
+
+	The addresses should include the port number, but will default to '9735' if
+	ommitted.
+
+	Usage example:
+
+	lncli setaddr 87.133.148.162:9735
+	lncli setaddr 87.133.148.162:9735,2001:db8:a0b:12f0::1:9735
+	lncli setaddr --append 87.133.148.162:9735
+	`,
+	Action: actionDecorator(setAddr),
+}
+
+func setAddr(ctx *cli.Context) error {
+
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	var addrs []string
+
+	// Show command help if no arguments and flags were provided.
+	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
+		cli.ShowCommandHelp(ctx, "setaddr")
+		return nil
+	}
+
+	req := &lnrpc.SetAddrRequest {}
+
+	args := ctx.Args()
+
+	switch {
+	case ctx.IsSet("addrs"):
+		addrs = strings.Split(ctx.String("addrs"), ",")
+	case args.Present():
+		addrs = strings.Split(args.First(), ",")
+	default:
+		return fmt.Errorf("addrs argument missing")
+	}
+
+	// Assume 'tcp' is used for all addresses. This parameter is
+	// ignored by the rpcserver anyway.
+	for _, addr := range addrs {
+		req.Addresses = append(req.Addresses,
+			&lnrpc.NodeAddress{
+				Addr: addr,
+				Network: "tcp",
+			})
+	}
+
+	req.Append = ctx.IsSet("append")
+
+	resp, err := client.SetAddr(context.Background(), req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
 var getInfoCommand = cli.Command{
 	Name:   "getinfo",
 	Usage:  "Returns basic information related to the active daemon.",

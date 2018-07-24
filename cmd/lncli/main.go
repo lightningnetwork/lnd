@@ -267,6 +267,7 @@ func main() {
 		walletBalanceCommand,
 		channelBalanceCommand,
 		getInfoCommand,
+		setAddrCommand,
 		pendingChannelsCommand,
 		sendPaymentCommand,
 		payInvoiceCommand,

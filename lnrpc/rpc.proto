@@ -173,6 +173,16 @@ message UnlockWalletRequest {
 }
 message UnlockWalletResponse {}
 
+message SetAddrRequest {
+    // Whether to append the given address to the list instead of replacing it.
+    bool append = 1 [ json_name = "append" ];
+
+    // Array of all addresses to be added
+    repeated NodeAddress addresses = 2;
+}
+
+message SetAddrResponse {}
+
 message ChangePasswordRequest {
     /**
     current_password should be the current valid passphrase used to unlock the
@@ -579,6 +589,17 @@ service Lightning {
     rpc GetNodeInfo (NodeInfoRequest) returns (NodeInfo) {
         option (google.api.http) = {
             get: "/v1/graph/node/{pub_key}"
+        };
+    }
+
+    /** lncli: `setaddr`
+    SetAddr will replace or append to the existing external IP address list
+    advertised by the local node and announce them to connected peers.
+    */
+    rpc SetAddr (SetAddrRequest) returns (SetAddrResponse) {
+        option (google.api.http) = {
+            post: "/v1/setaddr"
+            body: "*"
         };
     }
 

@@ -1131,7 +1131,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		}
 
 		invalidateCache = true
-		log.Debugf("New channel update applied: %v", spew.Sdump(msg))
+		log.Tracef("New channel update applied: %v", spew.Sdump(msg))
 
 	default:
 		return errors.Errorf("wrong routing update message type")

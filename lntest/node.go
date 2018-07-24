@@ -335,9 +335,11 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 	// Launch a new goroutine which that bubbles up any potential fatal
 	// process errors to the goroutine running the tests.
 	hn.processExit = make(chan struct{})
+	hn.wg.Add(1)
 	go func() {
-		err := hn.cmd.Wait()
+		defer hn.wg.Done()
 
+		err := hn.cmd.Wait()
 		if err != nil {
 			lndError <- errors.Errorf("%v\n%v\n", err, errb.String())
 		}

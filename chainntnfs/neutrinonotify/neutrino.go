@@ -566,7 +566,7 @@ type spendCancel struct {
 // target outpoint has been detected, the details of the spending event will be
 // sent across the 'Spend' channel.
 func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	heightHint uint32, _ bool) (*chainntnfs.SpendEvent, error) {
+	heightHint uint32) (*chainntnfs.SpendEvent, error) {
 
 	n.heightMtx.RLock()
 	currentHeight := n.bestHeight

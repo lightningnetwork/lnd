@@ -497,12 +497,15 @@ func (c *ChainArbitrator) Stop() error {
 // NOTE: This must be launched as a goroutine.
 func (c *ChainArbitrator) watchForChannelClose(closeInfo *channeldb.ChannelCloseSummary) {
 	spendNtfn, err := c.cfg.Notifier.RegisterSpendNtfn(
-		&closeInfo.ChanPoint, closeInfo.CloseHeight, true,
+		&closeInfo.ChanPoint, closeInfo.CloseHeight,
 	)
 	if err != nil {
 		log.Errorf("unable to register for spend: %v", err)
 		return
 	}
+
+	log.Infof("Waiting for ChannelPoint(%v) to be coop closed on chain",
+		closeInfo.ChanPoint)
 
 	var (
 		commitSpend *chainntnfs.SpendDetail
@@ -517,35 +520,11 @@ func (c *ChainArbitrator) watchForChannelClose(closeInfo *channeldb.ChannelClose
 		return
 	}
 
-	confNtfn, err := c.cfg.Notifier.RegisterConfirmationsNtfn(
-		commitSpend.SpenderTxHash, 1,
-		uint32(commitSpend.SpendingHeight),
-	)
-	if err != nil {
-		log.Errorf("unable to register for "+
-			"conf: %v", err)
-		return
-	}
+	log.Infof("ChannelPoint(%v) is fully closed, at height: %v",
+		closeInfo.ChanPoint, commitSpend.SpendingHeight)
 
-	log.Infof("Waiting for txid=%v to close ChannelPoint(%v) on chain",
-		commitSpend.SpenderTxHash, closeInfo.ChanPoint)
-
-	select {
-	case confInfo, ok := <-confNtfn.Confirmed:
-		if !ok {
-			return
-		}
-
-		log.Infof("ChannelPoint(%v) is fully closed, at height: %v",
-			closeInfo.ChanPoint, confInfo.BlockHeight)
-
-		err := c.resolveContract(closeInfo.ChanPoint, nil)
-		if err != nil {
-			log.Errorf("unable to resolve contract: %v", err)
-		}
-
-	case <-c.quit:
-		return
+	if err := c.resolveContract(closeInfo.ChanPoint, nil); err != nil {
+		log.Errorf("unable to resolve contract: %v", err)
 	}
 
 }

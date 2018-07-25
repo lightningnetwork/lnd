@@ -8,12 +8,12 @@ import (
 	"io"
 	"io/ioutil"
 
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
 )
 
 var (
@@ -1012,20 +1012,13 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		copy(h.htlcResolution.Preimage[:], preimage[:])
 	}
 
-	// If the HTLC hasn't yet expired, then we'll query to see if we
-	// already know the preimage.
-	preimage, ok := h.PreimageDB.LookupPreimage(h.payHash[:])
-	if ok {
-		// If we do, then this means we can claim the HTLC!  However,
-		// we don't know how to ourselves, so we'll return our inner
-		// resolver which has the knowledge to do so.
-		applyPreimage(preimage[:])
-		return &h.htlcSuccessResolver, nil
-	}
-
 	// If the HTLC hasn't expired yet, then we may still be able to claim
-	// it if we learn of the pre-image, so we'll wait and see if it pops
-	// up, or the HTLC times out.
+	// it if we learn of the pre-image, so we'll subscribe to the preimage
+	// database to see if it turns up, or the HTLC times out.
+	//
+	// NOTE: This is done BEFORE opportunistically querying the db, to
+	// ensure the preimage can't be delivered between querying and
+	// registering for the preimage subscription.
 	preimageSubscription := h.PreimageDB.SubscribeUpdates()
 	blockEpochs, err := h.Notifier.RegisterBlockEpochNtfn()
 	if err != nil {
@@ -1035,6 +1028,18 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		preimageSubscription.CancelSubscription()
 		blockEpochs.Cancel()
 	}()
+
+	// With the epochs and preimage subscriptions initialized, we'll query
+	// to see if we already know the preimage.
+	preimage, ok := h.PreimageDB.LookupPreimage(h.payHash[:])
+	if ok {
+		// If we do, then this means we can claim the HTLC!  However,
+		// we don't know how to ourselves, so we'll return our inner
+		// resolver which has the knowledge to do so.
+		applyPreimage(preimage[:])
+		return &h.htlcSuccessResolver, nil
+	}
+
 	for {
 
 		select {

@@ -3233,16 +3233,22 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 	routeResp := &lnrpc.QueryRoutesResponse{
 		Routes: make([]*lnrpc.Route, 0, in.NumRoutes),
 	}
+	
+	currentBlockHeight, err:=r.server.chanRouter.CurrentBlockHeight()
+	if err != nil {
+		return nil, err
+	}
+	
 	for i := int32(0); i < numRoutes; i++ {
 		routeResp.Routes = append(
-			routeResp.Routes, marshallRoute(routes[i]),
+			routeResp.Routes, marshallRoute(routes[i],currentBlockHeight),
 		)
 	}
 
 	return routeResp, nil
 }
 
-func marshallRoute(route *routing.Route) *lnrpc.Route {
+func marshallRoute(route *routing.Route, blockHeight ...uint32) *lnrpc.Route {
 	resp := &lnrpc.Route{
 		TotalTimeLock: route.TotalTimeLock,
 		TotalFees:     int64(route.TotalFees.ToSatoshis()),
@@ -3251,6 +3257,11 @@ func marshallRoute(route *routing.Route) *lnrpc.Route {
 		TotalAmtMsat:  int64(route.TotalAmount),
 		Hops:          make([]*lnrpc.Hop, len(route.Hops)),
 	}
+	
+	if len(blockHeight)>0{
+		resp.TotalTimeLockDelta = route.TotalTimeLock-blockHeight[0]
+	}
+	
 	for i, hop := range route.Hops {
 		resp.Hops[i] = &lnrpc.Hop{
 			ChanId:           hop.Channel.ChannelID,
@@ -3260,6 +3271,9 @@ func marshallRoute(route *routing.Route) *lnrpc.Route {
 			Fee:              int64(hop.Fee.ToSatoshis()),
 			FeeMsat:          int64(hop.Fee),
 			Expiry:           uint32(hop.OutgoingTimeLock),
+		}
+		if len(blockHeight)>0{
+			resp.Hops[i].ExpiryDelta = route.TotalTimeLock-resp.Hops[i].Expiry
 		}
 	}
 

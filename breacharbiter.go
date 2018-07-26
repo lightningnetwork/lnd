@@ -8,17 +8,17 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/btcsuite/btcd/blockchain"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 )
 
 var (
@@ -993,7 +993,7 @@ func (b *breachArbiter) createJusticeTx(
 			witnessWeight = lnwallet.AcceptedHtlcPenaltyWitnessSize
 
 		case lnwallet.HtlcSecondLevelRevoke:
-			witnessWeight = lnwallet.SecondLevelHtlcPenaltyWitnessSize
+			witnessWeight = lnwallet.ToLocalPenaltyWitnessSize
 
 		default:
 			brarLog.Warnf("breached output in retribution info "+

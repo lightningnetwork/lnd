@@ -1539,9 +1539,12 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	// transaction. We'll verify the signature for validity, then commit
 	// the state to disk as we can now open the channel.
 	commitSig := fmsg.msg.CommitSig.ToSignatureBytes()
-	completeChan, err := resCtx.reservation.CompleteReservation(nil, commitSig)
+	completeChan, err := resCtx.reservation.CompleteReservation(
+		nil, commitSig,
+	)
 	if err != nil {
-		fndgLog.Errorf("Unable to complete reservation sign complete: %v", err)
+		fndgLog.Errorf("Unable to complete reservation sign "+
+			"complete: %v", err)
 		f.failFundingFlow(fmsg.peer, pendingChanID, err)
 		return
 	}
@@ -1549,6 +1552,22 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	// The channel is now marked IsPending in the database, and we can
 	// delete it from our set of active reservations.
 	f.deleteReservationCtx(peerKey, pendingChanID)
+
+	// Broadcast the finalized funding transaction to the network.
+	fundingTx := completeChan.FundingTxn
+	fndgLog.Infof("Broadcasting funding tx for ChannelPoint(%v): %v",
+		completeChan.FundingOutpoint, spew.Sdump(fundingTx))
+
+	err = f.cfg.PublishTransaction(fundingTx)
+	if err != nil {
+		fndgLog.Errorf("unable to broadcast funding "+
+			"txn: %v", err)
+		// We failed to broadcast the funding transaction, but watch
+		// the channel regardless, in case the transaction made it to
+		// the network. We will retry broadcast at startup.
+		// TODO(halseth): retry more often? Handle with CPFP? Just
+		// delete from the DB?
+	}
 
 	// Now that we have a finalized reservation for this funding flow,
 	// we'll send the to be active channel to the ChainArbitrator so it can

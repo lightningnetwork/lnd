@@ -1351,6 +1351,10 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 		return
 	}
 
+	// The channel is marked IsPending in the database, and can be removed
+	// from the set of active reservations.
+	f.deleteReservationCtx(peerKey, fmsg.msg.PendingChannelID)
+
 	// If something goes wrong before the funding transaction is confirmed,
 	// we use this convenience method to delete the pending OpenChannel
 	// from the database.
@@ -1420,11 +1424,6 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 
 	// At this point we have sent our last funding message to the
 	// initiating peer before the funding transaction will be broadcast.
-	// The only thing left to do before we can delete this reservation
-	// is wait for the funding transaction. Lock the reservation so it
-	// is not pruned by the zombie sweeper.
-	resCtx.lock()
-
 	// With this last message, our job as the responder is now complete.
 	// We'll wait for the funding transaction to reach the specified number
 	// of confirmations, then start normal operations.
@@ -1473,8 +1472,6 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 		}
 
 		// Success, funding transaction was confirmed.
-		f.deleteReservationCtx(peerKey, fmsg.msg.PendingChannelID)
-
 		err := f.handleFundingConfirmation(
 			fmsg.peer, completeChan, shortChanID,
 		)
@@ -1549,6 +1546,10 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 		return
 	}
 
+	// The channel is now marked IsPending in the database, and we can
+	// delete it from our set of active reservations.
+	f.deleteReservationCtx(peerKey, pendingChanID)
+
 	// Now that we have a finalized reservation for this funding flow,
 	// we'll send the to be active channel to the ChainArbitrator so it can
 	// watch for any on-chin actions before the channel has fully
@@ -1576,11 +1577,7 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	}
 
 	// At this point we have broadcast the funding transaction and done all
-	// necessary processing. The only thing left to do before we can delete
-	// this reservation is wait for the funding transaction. Lock the
-	// reservation so it is not pruned by the zombie sweeper.
-	resCtx.lock()
-
+	// necessary processing.
 	f.wg.Add(1)
 	go func() {
 		defer f.wg.Done()
@@ -1658,8 +1655,6 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 				},
 			},
 		}
-
-		f.deleteReservationCtx(peerKey, pendingChanID)
 
 		err = f.annAfterSixConfs(completeChan, shortChanID)
 		if err != nil {

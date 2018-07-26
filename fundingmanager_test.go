@@ -248,8 +248,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	shutdownChan := make(chan struct{})
 
 	wc := &mockWalletController{
-		rootKey:               alicePrivKey,
-		publishedTransactions: publTxChan,
+		rootKey: alicePrivKey,
 	}
 	signer := &mockSigner{
 		key: alicePrivKey,
@@ -347,6 +346,10 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			return nil
 		},
 		ReportShortChanID: func(wire.OutPoint) error {
+			return nil
+		},
+		PublishTransaction: func(txn *wire.MsgTx) error {
+			publTxChan <- txn
 			return nil
 		},
 		ZombieSweeperInterval: 1 * time.Hour,
@@ -565,6 +568,11 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 		t, bob.msgChan, "AcceptChannel",
 	).(*lnwire.AcceptChannel)
 
+	// They now should both have pending reservations for this channel
+	// active.
+	assertNumPendingReservations(t, alice, bobPubKey, 1)
+	assertNumPendingReservations(t, bob, alicePubKey, 1)
+
 	// Forward the response to Alice.
 	alice.fundingMgr.processFundingAccept(acceptChannelResponse, bob)
 
@@ -611,6 +619,12 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 		Hash:  publ.TxHash(),
 		Index: 0,
 	}
+
+	// Finally, make sure neither have active reservation for the channel
+	// now pending open in the database.
+	assertNumPendingReservations(t, alice, bobPubKey, 0)
+	assertNumPendingReservations(t, bob, alicePubKey, 0)
+
 	return fundingOutPoint
 }
 
@@ -947,18 +961,9 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 	fundingOutPoint := openChannel(t, alice, bob, 500000, 0, 1, updateChan,
 		true)
 
-	// Make sure both reservations time out and then run both zombie sweepers.
-	time.Sleep(1 * time.Millisecond)
-	go alice.fundingMgr.pruneZombieReservations()
-	go bob.fundingMgr.pruneZombieReservations()
-
 	// Check that neither Alice nor Bob sent an error message.
 	assertErrorNotSent(t, alice.msgChan)
 	assertErrorNotSent(t, bob.msgChan)
-
-	// Check that neither reservation has been pruned.
-	assertNumPendingReservations(t, alice, bobPubKey, 1)
-	assertNumPendingReservations(t, bob, alicePubKey, 1)
 
 	// Notify that transaction was mined.
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{}
@@ -2087,39 +2092,6 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 		t, alice.msgChan, "FundingCreated",
 	).(*lnwire.FundingCreated)
 
-	// Give the message to Bob.
-	bob.fundingMgr.processFundingCreated(fundingCreated, alice)
-
-	// Finally, Bob should send the FundingSigned message.
-	fundingSigned := assertFundingMsgSent(
-		t, bob.msgChan, "FundingSigned",
-	).(*lnwire.FundingSigned)
-
-	// Forward the signature to Alice.
-	alice.fundingMgr.processFundingSigned(fundingSigned, bob)
-
-	// After Alice processes the singleFundingSignComplete message, she will
-	// broadcast the funding transaction to the network. We expect to get a
-	// channel update saying the channel is pending.
-	var pendingUpdate *lnrpc.OpenStatusUpdate
-	select {
-	case pendingUpdate = <-updateChan:
-	case <-time.After(time.Second * 5):
-		t.Fatalf("alice did not send OpenStatusUpdate_ChanPending")
-	}
-
-	_, ok = pendingUpdate.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
-	if !ok {
-		t.Fatal("OpenStatusUpdate was not OpenStatusUpdate_ChanPending")
-	}
-
-	// Wait for Alice to published the funding tx to the network.
-	select {
-	case <-alice.publTxChan:
-	case <-time.After(time.Second * 5):
-		t.Fatalf("alice did not publish funding tx")
-	}
-
 	// Helper method for checking the CSV delay stored for a reservation.
 	assertDelay := func(resCtx *reservationWithCtx,
 		ourDelay, theirDelay uint16) error {
@@ -2188,5 +2160,38 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 
 	if err := assertMinHtlc(resCtx, minHtlc, 5); err != nil {
 		t.Fatal(err)
+	}
+
+	// Give the message to Bob.
+	bob.fundingMgr.processFundingCreated(fundingCreated, alice)
+
+	// Finally, Bob should send the FundingSigned message.
+	fundingSigned := assertFundingMsgSent(
+		t, bob.msgChan, "FundingSigned",
+	).(*lnwire.FundingSigned)
+
+	// Forward the signature to Alice.
+	alice.fundingMgr.processFundingSigned(fundingSigned, bob)
+
+	// After Alice processes the singleFundingSignComplete message, she will
+	// broadcast the funding transaction to the network. We expect to get a
+	// channel update saying the channel is pending.
+	var pendingUpdate *lnrpc.OpenStatusUpdate
+	select {
+	case pendingUpdate = <-updateChan:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice did not send OpenStatusUpdate_ChanPending")
+	}
+
+	_, ok = pendingUpdate.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
+	if !ok {
+		t.Fatal("OpenStatusUpdate was not OpenStatusUpdate_ChanPending")
+	}
+
+	// Wait for Alice to published the funding tx to the network.
+	select {
+	case <-alice.publTxChan:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice did not publish funding tx")
 	}
 }

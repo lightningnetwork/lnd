@@ -2445,6 +2445,12 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 			len(invoice.DescriptionHash), channeldb.MaxPaymentRequestSize)
 	}
 
+	// The value of the invoice must not be negative.
+	if invoice.Value < 0 {
+		return nil, fmt.Errorf("payments of negative value "+
+			"are not allowed, value is %v", invoice.Value)
+	}
+	
 	amt := btcutil.Amount(invoice.Value)
 	amtMSat := lnwire.NewMSatFromSatoshis(amt)
 

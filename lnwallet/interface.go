@@ -238,7 +238,7 @@ type BlockChainIO interface {
 	// GetUtxo attempts to return the passed outpoint if it's still a
 	// member of the utxo set. The passed height hint should be the "birth
 	// height" of the passed outpoint. The script passed should be the
-	// script that the oupoint creates. In the case that the output is in
+	// script that the outpoint creates. In the case that the output is in
 	// the UTXO set, then the output corresponding to that output is
 	// returned.  Otherwise, a non-nil error will be returned.
 	GetUtxo(op *wire.OutPoint, pkScript []byte,

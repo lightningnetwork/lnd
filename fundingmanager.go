@@ -961,23 +961,42 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// Check number of pending channels to be smaller than maximum allowed
 	// number and send ErrorGeneric to remote peer if condition is
 	// violated.
-	peerIDKey := newSerializedKey(fmsg.peer.IdentityKey())
+	peerPubKey := fmsg.peer.IdentityKey()
+	peerIDKey := newSerializedKey(peerPubKey)
 
 	msg := fmsg.msg
 	amt := msg.FundingAmount
 
+	// We count the number of pending channels for this peer. This is the
+	// sum of the active reservations and the channels pending open in the
+	// database.
+	f.resMtx.RLock()
+	numPending := len(f.activeReservations[peerIDKey])
+	f.resMtx.RUnlock()
+
+	channels, err := f.cfg.Wallet.Cfg.Database.FetchOpenChannels(peerPubKey)
+	if err != nil {
+		f.failFundingFlow(
+			fmsg.peer, fmsg.msg.PendingChannelID, err,
+		)
+		return
+	}
+
+	for _, c := range channels {
+		if c.IsPending {
+			numPending++
+		}
+	}
+
 	// TODO(roasbeef): modify to only accept a _single_ pending channel per
 	// block unless white listed
-	f.resMtx.RLock()
-	if len(f.activeReservations[peerIDKey]) >= cfg.MaxPendingChannels {
-		f.resMtx.RUnlock()
+	if numPending >= cfg.MaxPendingChannels {
 		f.failFundingFlow(
 			fmsg.peer, fmsg.msg.PendingChannelID,
 			lnwire.ErrMaxPendingChannels,
 		)
 		return
 	}
-	f.resMtx.RUnlock()
 
 	// We'll also reject any requests to create channels until we're fully
 	// synced to the network as we won't be able to properly validate the

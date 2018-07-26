@@ -430,6 +430,11 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 		t.Fatalf("channel not detected as dual funder")
 	}
 
+	// Let Alice publish the funding transaction.
+	if err := alice.PublishTransaction(fundingTx); err != nil {
+		t.Fatalf("unable to publish funding tx: %v", err)
+	}
+
 	// Mine a single block, the funding transaction should be included
 	// within this block.
 	err = waitForMempoolTx(miner, &fundingSha)
@@ -844,6 +849,11 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	if bobChannels[0].ChanType != channeldb.SingleFunder {
 		t.Fatalf("channel type is incorrect, expected %v instead got %v",
 			channeldb.SingleFunder, bobChannels[0].ChanType)
+	}
+
+	// Let Alice publish the funding transaction.
+	if err := alice.PublishTransaction(fundingTx); err != nil {
+		t.Fatalf("unable to publish funding tx: %v", err)
 	}
 
 	// Mine a single block, the funding transaction should be included

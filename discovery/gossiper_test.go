@@ -263,8 +263,8 @@ func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	return nil, nil
 }
 
-func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ uint32,
-	_ bool) (*chainntnfs.SpendEvent, error) {
+func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
+	_ uint32) (*chainntnfs.SpendEvent, error) {
 	return nil, nil
 }
 

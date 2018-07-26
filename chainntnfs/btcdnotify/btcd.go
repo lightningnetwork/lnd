@@ -377,6 +377,14 @@ out:
 		// rescan spends. It might get removed entirely in the future.
 		case item := <-b.txUpdates.ChanOut():
 			newSpend := item.(*txUpdate)
+
+			// We only care about notifying on confirmed spends, so
+			// in case this is a mempool spend, we can continue,
+			// and wait for the spend to appear in chain.
+			if newSpend.details == nil {
+				continue
+			}
+
 			spendingTx := newSpend.tx
 
 			// First, check if this transaction spends an output
@@ -397,57 +405,27 @@ out:
 						SpendingTx:        spendingTx.MsgTx(),
 						SpenderInputIndex: uint32(i),
 					}
-					// TODO(roasbeef): after change to
-					// loadfilter, only notify on block
-					// inclusion?
+					spendDetails.SpendingHeight = newSpend.details.Height
 
-					confirmedSpend := false
-					if newSpend.details != nil {
-						confirmedSpend = true
-						spendDetails.SpendingHeight = newSpend.details.Height
-					} else {
-						spendDetails.SpendingHeight = currentHeight + 1
-					}
-
-					// Keep spendNotifications that are
-					// waiting for a confirmation around.
-					// They will be notified when we find
-					// the spend within a block.
-					rem := make(map[uint64]*spendNotification)
-					for c, ntfn := range clients {
-						// If this is a mempool spend,
-						// and this client didn't want
-						// to be notified on mempool
-						// spends, store it for later.
-						if !confirmedSpend && !ntfn.mempool {
-							rem[c] = ntfn
-							continue
-						}
-
-						confStr := "unconfirmed"
-						if confirmedSpend {
-							confStr = "confirmed"
-						}
-
-						chainntnfs.Log.Infof("Dispatching %s "+
-							"spend notification for "+
+					for _, ntfn := range clients {
+						chainntnfs.Log.Infof("Dispatching "+
+							"confirmed spend "+
+							"notification for "+
 							"outpoint=%v at height %v",
-							confStr, ntfn.targetOutpoint,
+							ntfn.targetOutpoint,
 							spendDetails.SpendingHeight)
 						ntfn.spendChan <- spendDetails
 
-						// Close spendChan to ensure that any calls to Cancel will not
-						// block. This is safe to do since the channel is buffered, and the
-						// message can still be read by the receiver.
+						// Close spendChan to ensure
+						// that any calls to Cancel
+						// will not block. This is safe
+						// to do since the channel is
+						// buffered, and the message
+						// can still be read by the
+						// receiver.
 						close(ntfn.spendChan)
 					}
 					delete(b.spendNotifications, prevOut)
-
-					// If we had any clients left, add them
-					// back to the map.
-					if len(rem) > 0 {
-						b.spendNotifications[prevOut] = rem
-					}
 				}
 			}
 
@@ -611,8 +589,6 @@ func (b *BtcdNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 				continue
 			}
 
-			// TODO(roasbeef): many integration tests expect spend to be
-			// notified within the mempool.
 			spendDetails := &chainntnfs.SpendDetail{
 				SpentOutPoint:     &prevOut,
 				SpenderTxHash:     &txSha,
@@ -673,8 +649,6 @@ type spendNotification struct {
 
 	spendID uint64
 
-	mempool bool
-
 	heightHint uint32
 }
 
@@ -694,14 +668,13 @@ type spendCancel struct {
 // across the 'Spend' channel. The heightHint should represent the earliest
 // height in the chain where the transaction could have been spent in.
 func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	heightHint uint32, mempool bool) (*chainntnfs.SpendEvent, error) {
+	heightHint uint32) (*chainntnfs.SpendEvent, error) {
 
 	ntfn := &spendNotification{
 		targetOutpoint: outpoint,
 		spendChan:      make(chan *chainntnfs.SpendDetail, 1),
 		spendID:        atomic.AddUint64(&b.spendClientCounter, 1),
 		heightHint:     heightHint,
-		mempool:        mempool,
 	}
 
 	select {

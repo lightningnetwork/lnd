@@ -43,15 +43,13 @@ type ChainNotifier interface {
 	// The heightHint denotes the earliest height in the blockchain in
 	// which the target output could have been created.
 	//
-	// NOTE: If mempool=true is set, then this notification should be
-	// triggered on a best-effort basis once the transaction is *seen* on
-	// the network. If mempool=false, it should only be triggered when the
-	// spending transaction receives a single confirmation.
+	// NOTE: The notification should only be triggered when the spending
+	// transaction receives a single confirmation.
 	//
 	// NOTE: Dispatching notifications to multiple clients subscribed to a
 	// spend of the same outpoint MUST be supported.
-	RegisterSpendNtfn(outpoint *wire.OutPoint, heightHint uint32,
-		mempool bool) (*SpendEvent, error)
+	RegisterSpendNtfn(outpoint *wire.OutPoint,
+		heightHint uint32) (*SpendEvent, error)
 
 	// RegisterBlockEpochNtfn registers an intent to be notified of each
 	// new block connected to the tip of the main chain. The returned

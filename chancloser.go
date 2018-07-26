@@ -78,6 +78,10 @@ type chanCloseCfg struct {
 	// broadcastTx broadcasts the passed transaction to the network.
 	broadcastTx func(*wire.MsgTx) error
 
+	// disableChannel disables a channel, resulting in it not being able to
+	// forward payments.
+	disableChannel func(wire.OutPoint) error
+
 	// quit is a channel that should be sent upon in the occasion the state
 	// machine should cease all progress and shutdown.
 	quit chan struct{}
@@ -435,6 +439,16 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 		if c.cfg.channel.MarkCommitmentBroadcasted(); err != nil {
 			return nil, false, err
 		}
+
+		// We'll attempt to disable the channel in the background to
+		// avoid blocking due to sending the update message to all
+		// active peers.
+		go func() {
+			if err := c.cfg.disableChannel(c.chanPoint); err != nil {
+				peerLog.Errorf("Unable to disable channel %v on "+
+					"close: %v", c.chanPoint, err)
+			}
+		}()
 
 		// Finally, we'll transition to the closeFinished state, and
 		// also return the final close signed message we sent.

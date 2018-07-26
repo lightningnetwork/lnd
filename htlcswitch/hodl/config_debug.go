@@ -1,3 +1,5 @@
+// +build debug
+
 package hodl
 
 // Config is a struct enumerating the possible command line flags that are used

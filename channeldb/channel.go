@@ -2440,10 +2440,18 @@ func deleteOpenChannel(chanBucket *bolt.Bucket, chanPointBytes []byte) error {
 
 }
 
+// makeLogKey converts a uint64 into an 8 byte array.
 func makeLogKey(updateNum uint64) [8]byte {
 	var key [8]byte
 	byteOrder.PutUint64(key[:], updateNum)
 	return key
+}
+
+// readLogKey parse the first 8- bytes of a byte slice into a uint64.
+//
+// NOTE: The slice must be at least 8 bytes long.
+func readLogKey(b []byte) uint64 {
+	return byteOrder.Uint64(b)
 }
 
 func appendChannelLogEntry(log *bolt.Bucket,

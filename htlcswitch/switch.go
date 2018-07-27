@@ -1174,6 +1174,7 @@ func (s *Switch) failAddPacket(packet *htlcPacket,
 	log.Error(failErr)
 
 	failPkt := &htlcPacket{
+		sourceRef:      packet.sourceRef,
 		incomingChanID: packet.incomingChanID,
 		incomingHTLCID: packet.incomingHTLCID,
 		circuit:        packet.circuit,

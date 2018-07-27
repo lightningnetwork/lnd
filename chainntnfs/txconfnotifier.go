@@ -18,6 +18,10 @@ var (
 // once the target transaction gets sufficient confirmations. The client is
 // asynchronously notified via the ConfirmationEvent channels.
 type ConfNtfn struct {
+	// ConfID uniquely identifies the confirmation notification request for
+	// the specified transaction.
+	ConfID uint64
+
 	// TxID is the hash of the transaction for which confirmation notifications
 	// are requested.
 	TxID *chainhash.Hash
@@ -72,7 +76,7 @@ type TxConfNotifier struct {
 
 	// confNotifications is an index of notification requests by transaction
 	// hash.
-	confNotifications map[chainhash.Hash][]*ConfNtfn
+	confNotifications map[chainhash.Hash]map[uint64]*ConfNtfn
 
 	// txsByInitialHeight is an index of watched transactions by the height
 	// that they are included at in the blockchain. This is tracked so that
@@ -95,7 +99,7 @@ func NewTxConfNotifier(startHeight uint32, reorgSafetyLimit uint32) *TxConfNotif
 	return &TxConfNotifier{
 		currentHeight:        startHeight,
 		reorgSafetyLimit:     reorgSafetyLimit,
-		confNotifications:    make(map[chainhash.Hash][]*ConfNtfn),
+		confNotifications:    make(map[chainhash.Hash]map[uint64]*ConfNtfn),
 		txsByInitialHeight:   make(map[uint32]map[chainhash.Hash]struct{}),
 		ntfnsByConfirmHeight: make(map[uint32]map[*ConfNtfn]struct{}),
 		quit:                 make(chan struct{}),

@@ -48,11 +48,12 @@ var (
 // TODO(roasbeef): heavily consolidate with NeutrinoNotifier code
 //  * maybe combine into single package?
 type NeutrinoNotifier struct {
-	started int32 // To be used atomically.
-	stopped int32 // To be used atomically.
-
+	confClientCounter  uint64 // To be used atomically.
 	spendClientCounter uint64 // To be used atomically.
 	epochClientCounter uint64 // To be used atomically.
+
+	started int32 // To be used atomically.
+	stopped int32 // To be used atomically.
 
 	heightMtx  sync.RWMutex
 	bestHeight uint32
@@ -696,6 +697,7 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 
 	ntfn := &confirmationsNotification{
 		ConfNtfn: chainntnfs.ConfNtfn{
+			ConfID:           atomic.AddUint64(&n.confClientCounter, 1),
 			TxID:             txid,
 			NumConfirmations: numConfs,
 			Event:            chainntnfs.NewConfirmationEvent(numConfs),

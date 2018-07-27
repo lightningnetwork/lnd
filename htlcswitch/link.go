@@ -1043,6 +1043,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		// mailbox, and the HTLC being added to the commitment state.
 		if l.cfg.DebugHTLC && l.cfg.HodlMask.Active(hodl.AddOutgoing) {
 			l.warnf(hodl.AddOutgoing.Warning())
+			l.mailBox.AckPacket(pkt.inKey())
 			return
 		}
 
@@ -1097,6 +1098,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 					err := lnwire.EncodeFailure(&b, failure, 0)
 					if err != nil {
 						l.errorf("unable to encode failure: %v", err)
+						l.mailBox.AckPacket(pkt.inKey())
 						return
 					}
 					reason = lnwire.OpaqueReason(b.Bytes())
@@ -1106,6 +1108,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 					reason, err = pkt.obfuscator.EncryptFirstHop(failure)
 					if err != nil {
 						l.errorf("unable to obfuscate error: %v", err)
+						l.mailBox.AckPacket(pkt.inKey())
 						return
 					}
 				}
@@ -1162,22 +1165,38 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		// commitment state.
 		if l.cfg.DebugHTLC && l.cfg.HodlMask.Active(hodl.SettleOutgoing) {
 			l.warnf(hodl.SettleOutgoing.Warning())
+			l.mailBox.AckPacket(pkt.inKey())
 			return
 		}
 
 		// An HTLC we forward to the switch has just settled somewhere
 		// upstream. Therefore we settle the HTLC within the our local
 		// state machine.
-		closedCircuitRef := pkt.inKey()
-		if err := l.channel.SettleHTLC(
+		inKey := pkt.inKey()
+		err := l.channel.SettleHTLC(
 			htlc.PaymentPreimage,
 			pkt.incomingHTLCID,
 			pkt.sourceRef,
 			pkt.destRef,
-			&closedCircuitRef,
-		); err != nil {
-			l.fail(LinkFailureError{code: ErrInternalError},
-				"unable to settle incoming HTLC: %v", err)
+			&inKey,
+		)
+		if err != nil {
+			l.errorf("unable to settle incoming HTLC for "+
+				"circuit-key=%v: %v", inKey, err)
+
+			// If the HTLC index for Settle response was not known
+			// to our commitment state, it has already been
+			// cleaned up by a prior response. We'll thus try to
+			// clean up any lingering state to ensure we don't
+			// continue reforwarding.
+			if _, ok := err.(lnwallet.ErrUnknownHtlcIndex); ok {
+				l.cleanupSpuriousResponse(pkt)
+			}
+
+			// Remove the packet from the link's mailbox to ensure
+			// it doesn't get replayed after a reconnection.
+			l.mailBox.AckPacket(inKey)
+
 			return
 		}
 
@@ -1204,20 +1223,37 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		// state.
 		if l.cfg.DebugHTLC && l.cfg.HodlMask.Active(hodl.FailOutgoing) {
 			l.warnf(hodl.FailOutgoing.Warning())
+			l.mailBox.AckPacket(pkt.inKey())
 			return
 		}
 
 		// An HTLC cancellation has been triggered somewhere upstream,
 		// we'll remove then HTLC from our local state machine.
-		closedCircuitRef := pkt.inKey()
-		if err := l.channel.FailHTLC(
+		inKey := pkt.inKey()
+		err := l.channel.FailHTLC(
 			pkt.incomingHTLCID,
 			htlc.Reason,
 			pkt.sourceRef,
 			pkt.destRef,
-			&closedCircuitRef,
-		); err != nil {
-			log.Errorf("unable to cancel HTLC: %v", err)
+			&inKey,
+		)
+		if err != nil {
+			l.errorf("unable to cancel incoming HTLC for "+
+				"circuit-key=%v: %v", inKey, err)
+
+			// If the HTLC index for Fail response was not known to
+			// our commitment state, it has already been cleaned up
+			// by a prior response. We'll thus try to clean up any
+			// lingering state to ensure we don't continue
+			// reforwarding.
+			if _, ok := err.(lnwallet.ErrUnknownHtlcIndex); ok {
+				l.cleanupSpuriousResponse(pkt)
+			}
+
+			// Remove the packet from the link's mailbox to ensure
+			// it doesn't get replayed after a reconnection.
+			l.mailBox.AckPacket(inKey)
+
 			return
 		}
 
@@ -1249,6 +1285,70 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 				"unable to update commitment: %v", err)
 			return
 		}
+	}
+}
+
+// cleanupSpuriousResponse attempts to ack any AddRef or SettleFailRef
+// associated with this packet. If successful in doing so, it will also purge
+// the open circuit from the circuit map and remove the packet from the link's
+// mailbox.
+func (l *channelLink) cleanupSpuriousResponse(pkt *htlcPacket) {
+	inKey := pkt.inKey()
+
+	l.debugf("Cleaning up spurious response for incoming circuit-key=%v",
+		inKey)
+
+	// If the htlc packet doesn't have a source reference, it is unsafe to
+	// proceed, as skipping this ack may cause the htlc to be reforwarded.
+	if pkt.sourceRef == nil {
+		l.errorf("uanble to cleanup response for incoming "+
+			"circuit-key=%v, does not contain source reference",
+			inKey)
+		return
+	}
+
+	// If the source reference is present,  we will try to prevent this link
+	// from resending the packet to the switch. To do so, we ack the AddRef
+	// of the incoming HTLC belonging to this link.
+	err := l.channel.AckAddHtlcs(*pkt.sourceRef)
+	if err != nil {
+		l.errorf("unable to ack AddRef for incoming "+
+			"circuit-key=%v: %v", inKey, err)
+
+		// If this operation failed, it is unsafe to attempt removal of
+		// the destination reference or circuit, so we exit early. The
+		// cleanup may proceed with a different packet in the future
+		// that succeeds on this step.
+		return
+	}
+
+	// Now that we know this link will stop retransmitting Adds to the
+	// switch, we can begin to teardown the response reference and circuit
+	// map.
+	//
+	// If the packet includes a destination reference, then a response for
+	// this HTLC was locked into the outgoing channel. Attempt to remove
+	// this reference, so we stop retransmitting the response internally.
+	// Even if this fails, we will proceed in trying to delete the circuit.
+	// When retransmitting responses, the destination references will be
+	// cleaned up if an open circuit is not found in the circuit map.
+	if pkt.destRef != nil {
+		err := l.channel.AckSettleFails(*pkt.destRef)
+		if err != nil {
+			l.errorf("unable to ack SettleFailRef "+
+				"for incoming circuit-key=%v: %v",
+				inKey, err)
+		}
+	}
+
+	l.debugf("Deleting circuit for incoming circuit-key=%x", inKey)
+
+	// With all known references acked, we can now safely delete the circuit
+	// from the switch's circuit map, as the state is no longer needed.
+	err = l.cfg.Circuits.DeleteCircuits(inKey)
+	if err != nil {
+		l.errorf("unable to delete circuit for "+
+			"circuit-key=%v: %v", inKey, err)
 	}
 }
 

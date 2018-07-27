@@ -495,8 +495,13 @@ func (cm *circuitMap) LookupByPaymentHash(hash [32]byte) []*PaymentCircuit {
 func (cm *circuitMap) CommitCircuits(circuits ...*PaymentCircuit) (
 	*CircuitFwdActions, error) {
 
+	inKeys := make([]CircuitKey, 0, len(circuits))
+	for _, circuit := range circuits {
+		inKeys = append(inKeys, circuit.Incoming)
+	}
+
 	log.Tracef("Committing fresh circuits: %v", newLogClosure(func() string {
-		return spew.Sdump(circuits)
+		return spew.Sdump(inKeys)
 	}))
 
 	actions := &CircuitFwdActions{}

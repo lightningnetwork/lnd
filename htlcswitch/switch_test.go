@@ -1554,6 +1554,11 @@ func TestSwitchAddSamePayment(t *testing.T) {
 	if s.circuits.NumOpen() != 0 {
 		t.Fatal("wrong amount of circuits")
 	}
+	// sleep 16 seconds to give logTicker fwdEventicker and time to tick.
+	// without this the code handling the logTicker and fwdEventicker
+	// may not be called (randomally) during coverage tests and there will
+	// be a drop in coverage stats (build fail)
+	time.Sleep(16 * time.Second)
 }
 
 // TestSwitchSendPayment tests ability of htlc switch to respond to the

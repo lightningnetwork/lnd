@@ -8,6 +8,12 @@ import (
 	"github.com/btcsuite/btcutil"
 )
 
+var (
+	// ErrTxConfNotifierExiting is an error returned when attempting to
+	// interact with the TxConfNotifier but it been shut down.
+	ErrTxConfNotifierExiting = errors.New("TxConfNotifier is exiting")
+)
+
 // ConfNtfn represents a notifier client's request to receive a notification
 // once the target transaction gets sufficient confirmations. The client is
 // asynchronously notified via the ConfirmationEvent channels.
@@ -185,7 +191,7 @@ func (tcn *TxConfNotifier) ConnectTip(blockHash *chainhash.Hash,
 
 	select {
 	case <-tcn.quit:
-		return fmt.Errorf("TxConfNotifier is exiting")
+		return ErrTxConfNotifierExiting
 	default:
 	}
 
@@ -256,7 +262,7 @@ func (tcn *TxConfNotifier) ConnectTip(blockHash *chainhash.Hash,
 				select {
 				case ntfn.Event.Updates <- numConfsLeft:
 				case <-tcn.quit:
-					return errors.New("TxConfNotifier is exiting")
+					return ErrTxConfNotifierExiting
 				}
 			}
 		}
@@ -267,11 +273,12 @@ func (tcn *TxConfNotifier) ConnectTip(blockHash *chainhash.Hash,
 	for ntfn := range tcn.ntfnsByConfirmHeight[tcn.currentHeight] {
 		Log.Infof("Dispatching %v conf notification for %v",
 			ntfn.NumConfirmations, ntfn.TxID)
+
 		select {
 		case ntfn.Event.Confirmed <- ntfn.details:
 			ntfn.dispatched = true
 		case <-tcn.quit:
-			return fmt.Errorf("TxConfNotifier is exiting")
+			return ErrTxConfNotifierExiting
 		}
 	}
 	delete(tcn.ntfnsByConfirmHeight, tcn.currentHeight)
@@ -321,7 +328,7 @@ func (tcn *TxConfNotifier) DisconnectTip(blockHeight uint32) error {
 				select {
 				case <-ntfn.Event.Updates:
 				case <-tcn.quit:
-					return errors.New("TxConfNotifier is exiting")
+					return ErrTxConfNotifierExiting
 				default:
 				}
 
@@ -340,7 +347,7 @@ func (tcn *TxConfNotifier) DisconnectTip(blockHeight uint32) error {
 						select {
 						case <-ntfn.Event.Confirmed:
 						case <-tcn.quit:
-							return errors.New("TxConfNotifier is exiting")
+							return ErrTxConfNotifierExiting
 						default:
 						}
 
@@ -352,7 +359,7 @@ func (tcn *TxConfNotifier) DisconnectTip(blockHeight uint32) error {
 						select {
 						case ntfn.Event.NegativeConf <- int32(tcn.reorgDepth):
 						case <-tcn.quit:
-							return errors.New("TxConfNotifier is exiting")
+							return ErrTxConfNotifierExiting
 						}
 
 						continue

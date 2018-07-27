@@ -243,27 +243,40 @@ out:
 					"subscription: txid=%v, numconfs=%v",
 					msg.TxID, msg.NumConfirmations)
 
-				_, currentHeight, err := b.chainConn.GetBestBlock()
-				if err != nil {
-					chainntnfs.Log.Error(err)
-				}
+				currentHeight := uint32(bestHeight)
 
-				// Lookup whether the transaction is already included in the
-				// active chain.
-				txConf, err := b.historicalConfDetails(
-					msg.TxID, msg.heightHint, uint32(currentHeight),
-				)
-				if err != nil {
-					chainntnfs.Log.Error(err)
-				}
+				// Look up whether the transaction is already
+				// included in the active chain. We'll do this
+				// in a goroutine to prevent blocking
+				// potentially long rescans.
+				b.wg.Add(1)
+				go func() {
+					defer b.wg.Done()
 
-				err = b.txConfNotifier.Register(&msg.ConfNtfn, txConf)
-				if err != nil {
-					chainntnfs.Log.Error(err)
-				}
+					confDetails, err := b.historicalConfDetails(
+						msg.TxID, msg.heightHint,
+						currentHeight,
+					)
+					if err != nil {
+						chainntnfs.Log.Error(err)
+						return
+					}
+
+					if confDetails != nil {
+						err := b.txConfNotifier.UpdateConfDetails(
+							*msg.TxID, msg.ConfID,
+							confDetails,
+						)
+						if err != nil {
+							chainntnfs.Log.Error(err)
+						}
+					}
+				}()
+
 			case *blockEpochRegistration:
 				chainntnfs.Log.Infof("New block epoch subscription")
 				b.blockEpochClients[msg.epochID] = msg
+
 			case chain.RelevantTx:
 				b.handleRelevantTx(msg, bestHeight)
 			}
@@ -474,6 +487,14 @@ func (b *BitcoindNotifier) confDetailsManually(txid *chainhash.Hash,
 	// Begin scanning blocks at every height to determine where the
 	// transaction was included in.
 	for height := heightHint; height <= currentHeight; height++ {
+		// Ensure we haven't been requested to shut down before
+		// processing the next height.
+		select {
+		case <-b.quit:
+			return nil, ErrChainNotifierShuttingDown
+		default:
+		}
+
 		blockHash, err := b.chainConn.GetBlockHash(int64(height))
 		if err != nil {
 			return nil, fmt.Errorf("unable to get hash from block "+
@@ -725,11 +746,15 @@ func (b *BitcoindNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 		heightHint: heightHint,
 	}
 
+	if err := b.txConfNotifier.Register(&ntfn.ConfNtfn); err != nil {
+		return nil, err
+	}
+
 	select {
-	case <-b.quit:
-		return nil, ErrChainNotifierShuttingDown
 	case b.notificationRegistry <- ntfn:
 		return ntfn.Event, nil
+	case <-b.quit:
+		return nil, ErrChainNotifierShuttingDown
 	}
 }
 

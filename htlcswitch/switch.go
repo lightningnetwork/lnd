@@ -3,6 +3,7 @@ package htlcswitch
 import (
 	"bytes"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -14,7 +15,6 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -45,7 +45,7 @@ var (
 	// ErrIncompleteForward is used when an htlc was already forwarded
 	// through the switch, but did not get locked into another commitment
 	// txn.
-	ErrIncompleteForward = errors.Errorf("incomplete forward detected")
+	ErrIncompleteForward = errors.New("incomplete forward detected")
 
 	// zeroPreimage is the empty preimage which is returned when we have
 	// some errors.
@@ -666,7 +666,7 @@ func (s *Switch) ForwardPackets(linkQuit chan struct{},
 		}
 
 		for _, packet := range failedPackets {
-			addErr := errors.Errorf("failing packet after " +
+			addErr := errors.New("failing packet after " +
 				"detecting incomplete forward")
 
 			// We don't handle the error here since this method
@@ -969,7 +969,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			// than we should notify this link that some error
 			// occurred.
 			failure := &lnwire.FailUnknownNextPeer{}
-			addErr := errors.Errorf("unable to find link with "+
+			addErr := fmt.Errorf("unable to find link with "+
 				"destination %v", packet.outgoingChanID)
 
 			return s.failAddPacket(packet, failure, addErr)
@@ -1039,7 +1039,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 				failure = lnwire.NewTemporaryChannelFailure(update)
 			}
 
-			addErr := errors.Errorf("unable to find appropriate "+
+			addErr := fmt.Errorf("unable to find appropriate "+
 				"channel link insufficient capacity, need "+
 				"%v", htlc.Amount)
 
@@ -1104,7 +1104,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 					failure,
 				)
 				if err != nil {
-					err = errors.Errorf("unable to obfuscate "+
+					err = fmt.Errorf("unable to obfuscate "+
 						"error: %v", err)
 					log.Error(err)
 				}
@@ -1166,7 +1166,7 @@ func (s *Switch) failAddPacket(packet *htlcPacket,
 	// obfuscate the failure for their eyes only.
 	reason, err := packet.obfuscator.EncryptFirstHop(failure)
 	if err != nil {
-		err := errors.Errorf("unable to obfuscate "+
+		err := fmt.Errorf("unable to obfuscate "+
 			"error: %v", err)
 		log.Error(err)
 		return err
@@ -1186,7 +1186,7 @@ func (s *Switch) failAddPacket(packet *htlcPacket,
 	// Route a fail packet back to the source link.
 	err = s.mailOrchestrator.Deliver(failPkt.incomingChanID, failPkt)
 	if err != nil {
-		err = errors.Errorf("source chanid=%v unable to "+
+		err = fmt.Errorf("source chanid=%v unable to "+
 			"handle switch packet: %v",
 			packet.incomingChanID, err)
 		log.Error(err)
@@ -1263,7 +1263,7 @@ func (s *Switch) closeCircuit(pkt *htlcPacket) (*PaymentCircuit, error) {
 	// Failed to close circuit because it does not exist. This is likely
 	// because the circuit was already successfully closed.
 	case ErrUnknownCircuit:
-		err := errors.Errorf("Unable to find target channel "+
+		err := fmt.Errorf("Unable to find target channel "+
 			"for HTLC settle/fail: channel ID = %s, "+
 			"HTLC ID = %d", pkt.outgoingChanID,
 			pkt.outgoingHTLCID)
@@ -1469,7 +1469,7 @@ out:
 			if !ok {
 				s.indexMtx.RUnlock()
 
-				req.Err <- errors.Errorf("no peer for channel with "+
+				req.Err <- fmt.Errorf("no peer for channel with "+
 					"chan_id=%x", chanID[:])
 				continue
 			}
@@ -2021,7 +2021,7 @@ func (s *Switch) GetLinksByInterface(hop [33]byte) ([]ChannelLink, error) {
 func (s *Switch) getLinks(destination [33]byte) ([]ChannelLink, error) {
 	links, ok := s.interfaceIndex[destination]
 	if !ok {
-		return nil, errors.Errorf("unable to locate channel link by "+
+		return nil, fmt.Errorf("unable to locate channel link by "+
 			"destination hop id %x", destination)
 	}
 
@@ -2040,7 +2040,7 @@ func (s *Switch) removePendingPayment(paymentID uint64) error {
 	defer s.pendingMutex.Unlock()
 
 	if _, ok := s.pendingPayments[paymentID]; !ok {
-		return errors.Errorf("Cannot find pending payment with ID %d",
+		return fmt.Errorf("Cannot find pending payment with ID %d",
 			paymentID)
 	}
 
@@ -2055,7 +2055,7 @@ func (s *Switch) findPayment(paymentID uint64) (*pendingPayment, error) {
 
 	payment, ok := s.pendingPayments[paymentID]
 	if !ok {
-		return nil, errors.Errorf("Cannot find pending payment with ID %d",
+		return nil, fmt.Errorf("Cannot find pending payment with ID %d",
 			paymentID)
 	}
 	return payment, nil

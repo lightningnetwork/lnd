@@ -1190,27 +1190,37 @@ mnemonicCheck:
 				len(cipherSeedMnemonic), 24)
 		}
 
-		// Additionally, the user may have a passphrase, that will also
-		// need to be provided so the daemon can properly decipher the
-		// cipher seed.
-		fmt.Printf("Input your cipher seed passphrase (press enter if " +
-			"your seed doesn't have a passphrase): ")
-		passphrase, err := terminal.ReadPassword(int(syscall.Stdin))
-		if err != nil {
-			return err
-		}
+		var passphrase []byte
+		var passphraseConfirmation []byte
+		// we infinite loop passphrase to give user multiple chances to type in
+		// passphrase correctly
+		for {
 
-		// Confirm the passphrase
-		fmt.Println()
-		fmt.Printf("Confirm your cipher seed passphrase (press enter if " +
-			"your seed doesn't have a passphrase): ")
-		passphrase2, err := terminal.ReadPassword(int(syscall.Stdin))
-		if err != nil {
-			return err
-		}
+			// Additionally, the user may have a passphrase, that will also
+			// need to be provided so the daemon can properly decipher the
+			// cipher seed.
+			fmt.Printf("Input your cipher seed passphrase (press enter if " +
+				"your seed doesn't have a passphrase): ")
+			passphrase, err = terminal.ReadPassword(int(syscall.Stdin))
+			if err != nil {
+				return err
+			}
 
-		if !bytes.Equal(passphrase, passphrase2) {
-			return fmt.Errorf("passphrases don't match")
+			// Confirm the passphrase
+			fmt.Println()
+			fmt.Printf("Confirm your cipher seed passphrase (press enter if " +
+				"your seed doesn't have a passphrase): ")
+			passphraseConfirmation, err = terminal.ReadPassword(int(syscall.Stdin))
+			if err != nil {
+				return err
+			}
+
+			if bytes.Equal(passphrase, passphraseConfirmation) {
+				break // passphrases match, exit for loop
+			} else {
+				fmt.Println()
+				fmt.Printf("passphrases don't match, try again.\n")
+			}
 		}
 
 		aezeedPass = []byte(passphrase)

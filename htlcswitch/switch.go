@@ -47,6 +47,10 @@ var (
 	// txn.
 	ErrIncompleteForward = errors.New("incomplete forward detected")
 
+	// ErrSwitchExiting signaled when the switch has received a shutdown
+	// request.
+	ErrSwitchExiting = errors.New("htlcswitch shutting down")
+
 	// zeroPreimage is the empty preimage which is returned when we have
 	// some errors.
 	zeroPreimage [sha256.Size]byte
@@ -322,13 +326,13 @@ func (s *Switch) ProcessContractResolution(msg contractcourt.ResolutionMsg) erro
 		doneChan:      done,
 	}:
 	case <-s.quit:
-		return fmt.Errorf("switch shutting down")
+		return ErrSwitchExiting
 	}
 
 	select {
 	case <-done:
 	case <-s.quit:
-		return fmt.Errorf("switch shutting down")
+		return ErrSwitchExiting
 	}
 
 	return nil
@@ -383,24 +387,21 @@ func (s *Switch) SendHTLC(nextNode [33]byte, htlc *lnwire.UpdateAddHTLC,
 	case e := <-payment.err:
 		err = e
 	case <-s.quit:
-		return zeroPreimage, errors.New("htlc switch have been stopped " +
-			"while waiting for payment result")
+		return zeroPreimage, ErrSwitchExiting
 	}
 
 	select {
 	case pkt := <-payment.response:
 		response = pkt
 	case <-s.quit:
-		return zeroPreimage, errors.New("htlc switch have been stopped " +
-			"while waiting for payment result")
+		return zeroPreimage, ErrSwitchExiting
 	}
 
 	select {
 	case p := <-payment.preimage:
 		preimage = p
 	case <-s.quit:
-		return zeroPreimage, errors.New("htlc switch have been stopped " +
-			"while waiting for payment result")
+		return zeroPreimage, ErrSwitchExiting
 	}
 
 	// Remove circuit since we are about to complete an add/fail of this
@@ -722,14 +723,14 @@ func (s *Switch) route(packet *htlcPacket) error {
 	select {
 	case s.htlcPlex <- command:
 	case <-s.quit:
-		return errors.New("Htlc Switch was stopped")
+		return ErrSwitchExiting
 	}
 
 	select {
 	case err := <-command.err:
 		return err
 	case <-s.quit:
-		return errors.New("Htlc Switch was stopped")
+		return ErrSwitchExiting
 	}
 }
 
@@ -1374,8 +1375,7 @@ func (s *Switch) CloseLink(chanPoint *wire.OutPoint, closeType ChannelCloseType,
 		return updateChan, errChan
 
 	case <-s.quit:
-		errChan <- errors.New("unable close channel link, htlc " +
-			"switch already stopped")
+		errChan <- ErrSwitchExiting
 		close(updateChan)
 		return updateChan, errChan
 	}

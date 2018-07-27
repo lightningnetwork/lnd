@@ -690,9 +690,7 @@ func (s *Switch) ForwardPackets(linkQuit chan struct{},
 func (s *Switch) proxyFwdErrs(num *int, wg *sync.WaitGroup,
 	fwdChan, errChan chan error) {
 	defer s.wg.Done()
-	defer func() {
-		close(errChan)
-	}()
+	defer close(errChan)
 
 	// Wait here until the outer function has finished persisting
 	// and routing the packets. This guarantees we don't read from num until

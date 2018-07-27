@@ -1628,15 +1628,35 @@ func (s *Switch) Start() error {
 // forwarding packages and reforwards any Settle or Fail HTLCs found. This is
 // used to resurrect the switch's mailboxes after a restart.
 func (s *Switch) reforwardResponses() error {
-	activeChannels, err := s.cfg.DB.FetchAllOpenChannels()
+	openChannels, err := s.cfg.DB.FetchAllOpenChannels()
 	if err != nil {
 		return err
 	}
 
-	for _, activeChannel := range activeChannels {
-		shortChanID := activeChannel.ShortChanID()
+	for _, openChannel := range openChannels {
+		shortChanID := openChannel.ShortChanID()
+
+		// Locally-initiated payments never need reforwarding.
+		if shortChanID == sourceHop {
+			continue
+		}
+
+		// If the channel is pending, it should have no forwarding
+		// packages, and nothing to reforward.
+		if openChannel.IsPending {
+			continue
+		}
+
+		// Channels in open or waiting-close may still have responses in
+		// their forwarding packages. We will continue to reattempt
+		// forwarding on startup until the channel is fully-closed.
+		//
+		// Load this channel's forwarding packages, and deliver them to
+		// the switch.
 		fwdPkgs, err := s.loadChannelFwdPkgs(shortChanID)
 		if err != nil {
+			log.Errorf("unable to load forwarding "+
+				"packages for %v: %v", shortChanID, err)
 			return err
 		}
 

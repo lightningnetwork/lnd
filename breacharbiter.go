@@ -1015,13 +1015,13 @@ func (b *breachArbiter) createJusticeTx(
 		spendableOutputs = append(spendableOutputs, input)
 	}
 
-	txVSize := int64(weightEstimate.VSize())
-	return b.sweepSpendableOutputsTxn(txVSize, spendableOutputs...)
+	txWeight := int64(weightEstimate.Weight())
+	return b.sweepSpendableOutputsTxn(txWeight, spendableOutputs...)
 }
 
 // sweepSpendableOutputsTxn creates a signed transaction from a sequence of
 // spendable outputs by sweeping the funds into a single p2wkh output.
-func (b *breachArbiter) sweepSpendableOutputsTxn(txVSize int64,
+func (b *breachArbiter) sweepSpendableOutputsTxn(txWeight int64,
 	inputs ...SpendableOutput) (*wire.MsgTx, error) {
 
 	// First, we obtain a new public key script from the wallet which we'll
@@ -1041,11 +1041,11 @@ func (b *breachArbiter) sweepSpendableOutputsTxn(txVSize int64,
 
 	// We'll actually attempt to target inclusion within the next two
 	// blocks as we'd like to sweep these funds back into our wallet ASAP.
-	feePerVSize, err := b.cfg.Estimator.EstimateFeePerVSize(2)
+	feePerKw, err := b.cfg.Estimator.EstimateFeePerKW(2)
 	if err != nil {
 		return nil, err
 	}
-	txFee := feePerVSize.FeeForVSize(txVSize)
+	txFee := feePerKw.FeeForWeight(txWeight)
 
 	// TODO(roasbeef): already start to siphon their funds into fees
 	sweepAmt := int64(totalAmt - txFee)

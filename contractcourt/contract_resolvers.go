@@ -451,27 +451,27 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 				return nil, err
 			}
 
-			// With out address obtained, we'll query for an
+			// With our address obtained, we'll query for an
 			// estimate to be confirmed at ease.
 			//
 			// TODO(roasbeef): signal up if fee would be too large
 			// to sweep singly, need to batch
-			feePerVSize, err := h.FeeEstimator.EstimateFeePerVSize(6)
+			feePerKw, err := h.FeeEstimator.EstimateFeePerKW(6)
 			if err != nil {
 				return nil, err
 			}
 
-			log.Debugf("%T(%x): using %v sat/vbyte to sweep htlc"+
+			log.Debugf("%T(%x): using %v sat/kw to sweep htlc"+
 				"incoming+remote htlc confirmed", h,
-				h.payHash[:], int64(feePerVSize))
+				h.payHash[:], int64(feePerKw))
 
 			// Using a weight estimator, we'll compute the total
 			// fee required, and from that the value we'll end up
 			// with.
-			totalVSize := (&lnwallet.TxWeightEstimator{}).
+			totalWeight := (&lnwallet.TxWeightEstimator{}).
 				AddWitnessInput(lnwallet.OfferedHtlcSuccessWitnessSize).
-				AddP2WKHOutput().VSize()
-			totalFees := feePerVSize.FeeForVSize(int64(totalVSize))
+				AddP2WKHOutput().Weight()
+			totalFees := feePerKw.FeeForWeight(int64(totalWeight))
 			sweepAmt := h.htlcResolution.SweepSignDesc.Output.Value -
 				int64(totalFees)
 
@@ -1253,18 +1253,18 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		// First, we'll estimate the total weight so we can compute
 		// fees properly. We'll use a lax estimate, as this output is
 		// in no immediate danger.
-		feePerVSize, err := c.FeeEstimator.EstimateFeePerVSize(6)
+		feePerKw, err := c.FeeEstimator.EstimateFeePerKW(6)
 		if err != nil {
 			return nil, err
 		}
 
-		log.Debugf("%T(%v): using %v sat/vsize for sweep tx", c,
-			c.chanPoint, int64(feePerVSize))
+		log.Debugf("%T(%v): using %v sat/kw for sweep tx", c,
+			c.chanPoint, int64(feePerKw))
 
-		totalVSize := (&lnwallet.TxWeightEstimator{}).
-			AddP2PKHInput().
-			AddP2WKHOutput().VSize()
-		totalFees := feePerVSize.FeeForVSize(int64(totalVSize))
+		totalWeight := (&lnwallet.TxWeightEstimator{}).
+			AddP2WKHInput().
+			AddP2WKHOutput().Weight()
+		totalFees := feePerKw.FeeForWeight(int64(totalWeight))
 		sweepAmt := signDesc.Output.Value - int64(totalFees)
 
 		c.sweepTx = wire.NewMsgTx(2)

@@ -2537,7 +2537,7 @@ type openChanReq struct {
 
 	pushAmt lnwire.MilliSatoshi
 
-	fundingFeePerVSize lnwallet.SatPerVByte
+	fundingFeePerKw lnwallet.SatPerKWeight
 
 	private bool
 
@@ -2685,7 +2685,7 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 // NOTE: This function is safe for concurrent access.
 func (s *server) OpenChannel(nodeKey *btcec.PublicKey,
 	localAmt btcutil.Amount, pushAmt, minHtlc lnwire.MilliSatoshi,
-	fundingFeePerVSize lnwallet.SatPerVByte, private bool,
+	fundingFeePerKw lnwallet.SatPerKWeight, private bool,
 	remoteCsvDelay uint16) (chan *lnrpc.OpenStatusUpdate, chan error) {
 
 	// The updateChan will have a buffer of 2, since we expect a
@@ -2723,9 +2723,9 @@ func (s *server) OpenChannel(nodeKey *btcec.PublicKey,
 
 	// If the fee rate wasn't specified, then we'll use a default
 	// confirmation target.
-	if fundingFeePerVSize == 0 {
+	if fundingFeePerKw == 0 {
 		estimator := s.cc.feeEstimator
-		fundingFeePerVSize, err = estimator.EstimateFeePerVSize(6)
+		fundingFeePerKw, err = estimator.EstimateFeePerKW(6)
 		if err != nil {
 			errChan <- err
 			return updateChan, errChan
@@ -2737,16 +2737,16 @@ func (s *server) OpenChannel(nodeKey *btcec.PublicKey,
 	// instead of blocking on this request which is exported as a
 	// synchronous request to the outside world.
 	req := &openChanReq{
-		targetPubkey:       nodeKey,
-		chainHash:          *activeNetParams.GenesisHash,
-		localFundingAmt:    localAmt,
-		fundingFeePerVSize: fundingFeePerVSize,
-		pushAmt:            pushAmt,
-		private:            private,
-		minHtlc:            minHtlc,
-		remoteCsvDelay:     remoteCsvDelay,
-		updates:            updateChan,
-		err:                errChan,
+		targetPubkey:    nodeKey,
+		chainHash:       *activeNetParams.GenesisHash,
+		localFundingAmt: localAmt,
+		fundingFeePerKw: fundingFeePerKw,
+		pushAmt:         pushAmt,
+		private:         private,
+		minHtlc:         minHtlc,
+		remoteCsvDelay:  remoteCsvDelay,
+		updates:         updateChan,
+		err:             errChan,
 	}
 
 	// TODO(roasbeef): pass in chan that's closed if/when funding succeeds

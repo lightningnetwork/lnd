@@ -179,8 +179,8 @@ func (svc *Service) ValidateMacaroon(ctx context.Context,
 		return err
 	}
 
-	// Check the method being called against the permitted operation and
-	// the expiration time and IP address and return the result.
+	// Check the method being called against the permitted operation, the
+	// expiration time and IP address and return the result.
 	authChecker := svc.Checker.Auth(macaroon.Slice{mac})
 	_, err = authChecker.Allow(ctx, requiredPermissions...)
 	return err
@@ -196,4 +196,16 @@ func (svc *Service) Close() error {
 // the result.
 func (svc *Service) CreateUnlock(password *[]byte) error {
 	return svc.rks.CreateUnlock(password)
+}
+
+// GenerateNewRootKey calls the underlying root key store's GenerateNewRootKey
+// and returns the result.
+func (svc *Service) GenerateNewRootKey() error {
+	return svc.rks.GenerateNewRootKey()
+}
+
+// ChangePassword calls the underlying root key store's ChangePassword and
+// returns the result.
+func (svc *Service) ChangePassword(oldPw, newPw []byte) error {
+	return svc.rks.ChangePassword(oldPw, newPw)
 }

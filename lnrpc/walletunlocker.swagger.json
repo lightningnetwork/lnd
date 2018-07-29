@@ -180,11 +180,28 @@
           "type": "string",
           "format": "byte",
           "description": "new_password should be the new passphrase that will be needed to unlock the\ndaemon. When using REST, this field must be encoded as base64."
+        },
+        "stateless_init": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "stateless_init is an optional argument instructing the daemon NOT to\ncreate any *.macaroon files but instead return the binary serialized admin\nmacaroon in the response."
+        },
+        "new_macaroon_root_key": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "new_macaroon_root_key is an optional argument instructing the daemon\nto rotate the macaroon root key when set to true. This will invalidate all\npreviously generated macaroons."
         }
       }
     },
     "lnrpcChangePasswordResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "admin_macaroon": {
+          "type": "string",
+          "format": "byte",
+          "description": "admin_macaroon is an optional argument that contains the binary serialized\nadmin macaroon in case it was detected that the daemon was initialized\nstateless. If this argument is set, it means no *.macaroon files have been\n(re-)created by the daemon in the password change process."
+        }
+      }
     },
     "lnrpcChannelBackup": {
       "type": "object",
@@ -276,11 +293,23 @@
         "channel_backups": {
           "$ref": "#/definitions/lnrpcChanBackupSnapshot",
           "description": "channel_backups is an optional argument that allows clients to recover the\nsettled funds within a set of channels. This should be populated if the\nuser was unable to close out all channels and sweep funds before partial or\ntotal data loss occurred. If specified, then after on-chain recovery of\nfunds, lnd begin to carry out the data loss recovery protocol in order to\nrecover the funds in each channel from a remote force closed transaction."
+        },
+        "stateless_init": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "stateless_init is an optional argument instructing the daemon NOT to\ncreate any *.macaroon files but instead return the binary serialized admin\nmacaroon in the response."
         }
       }
     },
     "lnrpcInitWalletResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "admin_macaroon": {
+          "type": "string",
+          "format": "byte",
+          "description": "admin_macaroon is an optional argument that contains the binary serialized\nadmin macaroon in case the stateless_init argument was set to true in the\nrequest. If this argument is set, it means no *.macaroon files have been\ncreated by the daemon in the initialization process."
+        }
+      }
     },
     "lnrpcMultiChanBackup": {
       "type": "object",
@@ -315,6 +344,11 @@
         "channel_backups": {
           "$ref": "#/definitions/lnrpcChanBackupSnapshot",
           "description": "channel_backups is an optional argument that allows clients to recover the\nsettled funds within a set of channels. This should be populated if the\nuser was unable to close out all channels and sweep funds before partial or\ntotal data loss occurred. If specified, then after on-chain recovery of\nfunds, lnd begin to carry out the data loss recovery protocol in order to\nrecover the funds in each channel from a remote force closed transaction."
+        },
+        "stateless_init": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "stateless_init is an optional argument instructing the daemon NOT to\ncreate any *.macaroon files."
         }
       }
     },

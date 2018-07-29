@@ -176,6 +176,10 @@ var (
 		},
 	}
 
+	// adminPermissions is a slice of all the entities that exist, giving
+	// a user full admin access to all RPCs.
+	adminPermissions = append(readPermissions, writePermissions...)
+
 	// TODO(guggero): Refactor into constants that are used for all
 	// permissions in this file. Also expose the list of possible
 	// permissions in an RPC when per RPC permissions are

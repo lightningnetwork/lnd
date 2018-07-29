@@ -406,17 +406,32 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		defer macaroonService.Close()
 
 		// Try to unlock the macaroon store with the private password.
+		// Ignore ErrAlreadyUnlocked since it could be unlocked by the
+		// wallet unlocker.
 		err = macaroonService.CreateUnlock(&privateWalletPw)
-		if err != nil {
+		if err != nil && err != macaroons.ErrAlreadyUnlocked {
 			err := fmt.Errorf("unable to unlock macaroons: %v", err)
 			ltndLog.Error(err)
 			return err
 		}
 
-		// Create macaroon files for lncli to use if they don't exist.
-		if !fileExists(cfg.AdminMacPath) && !fileExists(cfg.ReadMacPath) &&
+		// If the user requested a stateless initialization, no macaroon
+		// files should be created but instead the admin macaroon
+		// should be returned in the InitWallet response.
+		if walletInitParams.StatelessInit {
+			adminMacBytes, err := bakeMacaroon(
+				ctx, macaroonService, adminPermissions,
+			)
+			if err != nil {
+				return err
+			}
+			walletInitParams.MacResponseChannel <- adminMacBytes
+		} else if !fileExists(cfg.AdminMacPath) &&
+			!fileExists(cfg.ReadMacPath) &&
 			!fileExists(cfg.InvoiceMacPath) {
 
+			// Create macaroon files for lncli to use if they don't
+			// exist.
 			err = genMacaroons(
 				ctx, macaroonService, cfg.AdminMacPath,
 				cfg.ReadMacPath, cfg.InvoiceMacPath,
@@ -859,6 +874,21 @@ func fileExists(name string) bool {
 	return true
 }
 
+// bakeMacaroon creates a new macaroon with newest version and the given
+// permissions then returns it binary serialized.
+func bakeMacaroon(ctx context.Context, svc *macaroons.Service,
+	permissions []bakery.Op) ([]byte, error) {
+
+	mac, err := svc.Oven.NewMacaroon(
+		ctx, bakery.LatestVersion, nil, permissions...,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return mac.M().MarshalBinary()
+}
+
 // genMacaroons generates three macaroon files; one admin-level, one for
 // invoice access and one read-only. These can also be used to generate more
 // granular macaroons.
@@ -869,13 +899,7 @@ func genMacaroons(ctx context.Context, svc *macaroons.Service,
 	// access invoice related calls. This is useful for merchants and other
 	// services to allow an isolated instance that can only query and
 	// modify invoices.
-	invoiceMac, err := svc.Oven.NewMacaroon(
-		ctx, bakery.LatestVersion, nil, invoicePermissions...,
-	)
-	if err != nil {
-		return err
-	}
-	invoiceMacBytes, err := invoiceMac.M().MarshalBinary()
+	invoiceMacBytes, err := bakeMacaroon(ctx, svc, invoicePermissions)
 	if err != nil {
 		return err
 	}
@@ -886,13 +910,7 @@ func genMacaroons(ctx context.Context, svc *macaroons.Service,
 	}
 
 	// Generate the read-only macaroon and write it to a file.
-	roMacaroon, err := svc.Oven.NewMacaroon(
-		ctx, bakery.LatestVersion, nil, readPermissions...,
-	)
-	if err != nil {
-		return err
-	}
-	roBytes, err := roMacaroon.M().MarshalBinary()
+	roBytes, err := bakeMacaroon(ctx, svc, readPermissions)
 	if err != nil {
 		return err
 	}
@@ -902,14 +920,7 @@ func genMacaroons(ctx context.Context, svc *macaroons.Service,
 	}
 
 	// Generate the admin macaroon and write it to a file.
-	adminPermissions := append(readPermissions, writePermissions...)
-	admMacaroon, err := svc.Oven.NewMacaroon(
-		ctx, bakery.LatestVersion, nil, adminPermissions...,
-	)
-	if err != nil {
-		return err
-	}
-	admBytes, err := admMacaroon.M().MarshalBinary()
+	admBytes, err := bakeMacaroon(ctx, svc, adminPermissions)
 	if err != nil {
 		return err
 	}
@@ -944,6 +955,16 @@ type WalletUnlockParams struct {
 	// ChansToRestore a set of static channel backups that should be
 	// restored before the main server instance starts up.
 	ChansToRestore walletunlocker.ChannelsToRecover
+
+	// StatelessInit signals that the user requested the daemon to be
+	// initialized stateless, which means no unencrypted macaroons should be
+	// written to disk.
+	StatelessInit bool
+
+	// MacResponseChannel is an optional channel for sending back the admin
+	// macaroon to the WalletUnlocker service. If the above StatelessInit is
+	// set to true, the service expects a message on the channel.
+	MacResponseChannel chan []byte
 }
 
 // waitForWalletPassword will spin up gRPC and REST endpoints for the
@@ -979,17 +1000,16 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 		chainConfig = cfg.Litecoin
 	}
 
-	// The macaroon files are passed to the wallet unlocker since they are
-	// also encrypted with the wallet's password. These files will be
-	// deleted within it and recreated when successfully changing the
-	// wallet's password.
+	// The macaroonFiles are passed to the wallet unlocker so they can be
+	// deleted and recreated in case the root macaroon key is also changed
+	// during the change password operation.
 	macaroonFiles := []string{
 		filepath.Join(cfg.networkDir, macaroons.DBFilename),
 		cfg.AdminMacPath, cfg.ReadMacPath, cfg.InvoiceMacPath,
 	}
 	pwService := walletunlocker.New(
 		chainConfig.ChainDir, activeNetParams.Params, !cfg.SyncFreelist,
-		macaroonFiles,
+		cfg.networkDir, macaroonFiles,
 	)
 	lnrpc.RegisterWalletUnlockerServer(grpcServer, pwService)
 
@@ -1109,21 +1129,25 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 		}
 
 		return &WalletUnlockParams{
-			Password:       password,
-			Birthday:       birthday,
-			RecoveryWindow: recoveryWindow,
-			Wallet:         newWallet,
-			ChansToRestore: initMsg.ChanBackups,
+			Password:           password,
+			Birthday:           birthday,
+			RecoveryWindow:     recoveryWindow,
+			Wallet:             newWallet,
+			ChansToRestore:     initMsg.ChanBackups,
+			StatelessInit:      initMsg.StatelessInit,
+			MacResponseChannel: initMsg.MacResponseChannel,
 		}, shutdown, nil
 
 	// The wallet has already been created in the past, and is simply being
 	// unlocked. So we'll just return these passphrases.
 	case unlockMsg := <-pwService.UnlockMsgs:
 		return &WalletUnlockParams{
-			Password:       unlockMsg.Passphrase,
-			RecoveryWindow: unlockMsg.RecoveryWindow,
-			Wallet:         unlockMsg.Wallet,
-			ChansToRestore: unlockMsg.ChanBackups,
+			Password:           unlockMsg.Passphrase,
+			RecoveryWindow:     unlockMsg.RecoveryWindow,
+			Wallet:             unlockMsg.Wallet,
+			ChansToRestore:     unlockMsg.ChanBackups,
+			StatelessInit:      unlockMsg.StatelessInit,
+			MacResponseChannel: unlockMsg.MacResponseChannel,
 		}, shutdown, nil
 
 	case <-signal.ShutdownChannel():

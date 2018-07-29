@@ -266,11 +266,12 @@ func (n *NetworkHarness) NewNode(name string, extraArgs []string) (*HarnessNode,
 // wallet password. The generated mnemonic is returned along with the
 // initialized harness node.
 func (n *NetworkHarness) NewNodeWithSeed(name string, extraArgs []string,
-	password []byte) (*HarnessNode, []string, error) {
+	password []byte, statelessInit bool) (*HarnessNode, []string, []byte,
+	error) {
 
 	node, err := n.newNode(name, extraArgs, true, password)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	timeout := time.Duration(time.Second * 15)
@@ -285,7 +286,7 @@ func (n *NetworkHarness) NewNodeWithSeed(name string, extraArgs []string,
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	genSeedResp, err := node.GenSeed(ctxt, genSeedReq)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	// With the seed created, construct the init request to the node,
@@ -294,20 +295,25 @@ func (n *NetworkHarness) NewNodeWithSeed(name string, extraArgs []string,
 		WalletPassword:     password,
 		CipherSeedMnemonic: genSeedResp.CipherSeedMnemonic,
 		AezeedPassphrase:   password,
+		StatelessInit:      statelessInit,
 	}
 
 	// Pass the init request via rpc to finish unlocking the node. This will
 	// also initialize the macaroon-authenticated LightningClient.
-	err = node.Init(ctxb, initReq)
+	response, err := node.Init(ctxb, initReq)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	// With the node started, we can now record its public key within the
 	// global mapping.
 	n.RegisterNode(node)
 
-	return node, genSeedResp.CipherSeedMnemonic, nil
+	// In stateless initialization mode we get a macaroon back that we have
+	// to return to the test, otherwise gRPC calls won't be possible since
+	// there are no macaroon files created in that mode.
+	// In stateful init the admin macaroon will just be nil.
+	return node, genSeedResp.CipherSeedMnemonic, response.AdminMacaroon, nil
 }
 
 // RestoreNodeWithSeed fully initializes a HarnessNode using a chosen mnemonic,
@@ -332,7 +338,7 @@ func (n *NetworkHarness) RestoreNodeWithSeed(name string, extraArgs []string,
 		ChannelBackups:     chanBackups,
 	}
 
-	err = node.Init(context.Background(), initReq)
+	_, err = node.Init(context.Background(), initReq)
 	if err != nil {
 		return nil, err
 	}
@@ -610,17 +616,8 @@ func (n *NetworkHarness) DisconnectNodes(ctx context.Context, a, b *HarnessNode)
 func (n *NetworkHarness) RestartNode(node *HarnessNode, callback func() error,
 	chanBackups ...*lnrpc.ChanBackupSnapshot) error {
 
-	if err := node.stop(); err != nil {
-		return err
-	}
-
-	if callback != nil {
-		if err := callback(); err != nil {
-			return err
-		}
-	}
-
-	if err := node.start(n.lndBinary, n.lndErrorChan); err != nil {
+	err := n.RestartNodeNoUnlock(node, callback)
+	if err != nil {
 		return err
 	}
 
@@ -641,6 +638,27 @@ func (n *NetworkHarness) RestartNode(node *HarnessNode, callback func() error,
 	}
 
 	return node.Unlock(context.Background(), unlockReq)
+}
+
+// RestartNodeNoUnlock attempts to restart a lightning node by shutting it down
+// cleanly, then restarting the process. In case the node was setup with a seed,
+// it will be left in the unlocked state. This function is fully blocking. If
+// the callback parameter is non-nil, then the function will be executed after
+// the node shuts down, but *before* the process has been started up again.
+func (n *NetworkHarness) RestartNodeNoUnlock(node *HarnessNode,
+	callback func() error) error {
+
+	if err := node.stop(); err != nil {
+		return err
+	}
+
+	if callback != nil {
+		if err := callback(); err != nil {
+			return err
+		}
+	}
+
+	return node.start(n.lndBinary, n.lndErrorChan)
 }
 
 // SuspendNode stops the given node and returns a callback that can be used to

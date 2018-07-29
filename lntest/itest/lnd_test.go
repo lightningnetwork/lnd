@@ -46,6 +46,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
+	"gopkg.in/macaroon.v2"
 )
 
 var (
@@ -806,7 +807,9 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 	// used for key derivation. This will bring up Carol with an empty
 	// wallet, and such that she is synced up.
 	password := []byte("The Magic Words are Squeamish Ossifrage")
-	carol, mnemonic, err := net.NewNodeWithSeed("Carol", nil, password)
+	carol, mnemonic, _, err := net.NewNodeWithSeed(
+		"Carol", nil, password, false,
+	)
 	if err != nil {
 		t.Fatalf("unable to create node with seed; %v", err)
 	}
@@ -13554,8 +13557,8 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	// First, we'll create a brand new node we'll use within the test. If
 	// we have a custom backup file specified, then we'll also create that
 	// for use.
-	dave, mnemonic, err := net.NewNodeWithSeed(
-		"dave", nodeArgs, password,
+	dave, mnemonic, _, err := net.NewNodeWithSeed(
+		"dave", nodeArgs, password, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to create new node: %v", err)
@@ -14757,6 +14760,130 @@ func getPaymentResult(stream routerrpc.Router_SendPaymentV2Client) (
 	}
 }
 
+// testStatelessInit checks that the stateless initialization of the daemon
+// does not write any macaroon files to the daemon's file system and returns
+// the admin macaroon in the response. It then checks that the password
+// change of the wallet can also happen stateless.
+func testStatelessInit(net *lntest.NetworkHarness, t *harnessTest) {
+	var (
+		initPw     = []byte("stateless")
+		newPw      = []byte("stateless-new")
+		newAddrReq = &lnrpc.NewAddressRequest{
+			Type: AddrTypeWitnessPubkeyHash,
+		}
+	)
+
+	// First, create a new node and request it to initialize stateless.
+	// This should return us the binary serialized admin macaroon that we
+	// can then use for further calls.
+	carol, _, macBytes, err := net.NewNodeWithSeed(
+		"Carol", nil, initPw, true,
+	)
+	if err != nil {
+		t.Fatalf("unable to create node with seed; %v", err)
+	}
+	if macBytes == nil || len(macBytes) == 0 {
+		t.Fatalf("invalid macaroon returned in stateless init")
+	}
+
+	// Now make sure no macaroon files have been created by the node Carol.
+	if _, err := os.Stat(carol.AdminMacPath()); err == nil {
+		t.Fatalf("unexpected macaroon file in stateless init: %s",
+			carol.AdminMacPath())
+	}
+	if _, err := os.Stat(carol.ReadMacPath()); err == nil {
+		t.Fatalf("unexpected macaroon file in stateless init: %s",
+			carol.ReadMacPath())
+	}
+	if _, err := os.Stat(carol.InvoiceMacPath()); err == nil {
+		t.Fatalf("unexpected macaroon file in stateless init: %s",
+			carol.InvoiceMacPath())
+	}
+
+	// Then check that we can unmarshal the binary serialized macaroon.
+	adminMac := &macaroon.Macaroon{}
+	if err = adminMac.UnmarshalBinary(macBytes); err != nil {
+		t.Fatalf("unable to unmarshal macaroon: %v", err)
+	}
+
+	// Find out if we can actually use the macaroon that has been returned
+	// to us for a RPC call.
+	conn, err := carol.ConnectRPCWithMacaroon(adminMac)
+	if err != nil {
+		t.Fatalf("unable to connect to alice: %v", err)
+	}
+	defer conn.Close()
+	adminMacClient := lnrpc.NewLightningClient(conn)
+	ctxt, _ := context.WithTimeout(context.Background(), defaultTimeout)
+	res, err := adminMacClient.NewAddress(ctxt, newAddrReq)
+	if err != nil {
+		t.Fatalf("unable to get new address with macaroon: %v", err)
+	}
+	if !strings.HasPrefix(res.Address, harnessNetParams.Bech32HRPSegwit) {
+		t.Fatalf("returned address was not a regtest address")
+	}
+
+	// As a second part, shut down the node and then try to change the
+	// password when we start it up again.
+	if err := net.RestartNodeNoUnlock(carol, nil); err != nil {
+		t.Fatalf("Node restart failed: %v", err)
+	}
+	changePwReq := &lnrpc.ChangePasswordRequest{
+		CurrentPassword: initPw,
+		NewPassword:     newPw,
+		StatelessInit:   true,
+	}
+	ctxb := context.Background()
+	response, err := carol.InitChangePassword(ctxb, changePwReq)
+	if err != nil {
+		t.Fatalf("Changing node password failed: %v", err)
+	}
+
+	// Again, make  sure no macaroon files have been created by the node
+	// Carol.
+	if _, err := os.Stat(carol.AdminMacPath()); err == nil {
+		t.Fatalf("unexpected macaroon file in stateless init: %s",
+			carol.AdminMacPath())
+	}
+	if _, err := os.Stat(carol.ReadMacPath()); err == nil {
+		t.Fatalf("unexpected macaroon file in stateless init: %s",
+			carol.ReadMacPath())
+	}
+	if _, err := os.Stat(carol.InvoiceMacPath()); err == nil {
+		t.Fatalf("unexpected macaroon file in stateless init: %s",
+			carol.InvoiceMacPath())
+	}
+
+	// Then check that we can unmarshal the new binary serialized macaroon
+	// and that it really is a new macaroon.
+	if err = adminMac.UnmarshalBinary(response.AdminMacaroon); err != nil {
+		t.Fatalf("unable to unmarshal macaroon: %v", err)
+	}
+	if bytes.Equal(response.AdminMacaroon, macBytes) {
+		t.Fatalf("expected new macaroon to be different")
+	}
+
+	// Finally, find out if we can actually use the new macaroon that has
+	// been returned to us for a RPC call.
+	conn2, err := carol.ConnectRPCWithMacaroon(adminMac)
+	if err != nil {
+		t.Fatalf("unable to connect to alice: %v", err)
+	}
+	defer conn2.Close()
+	adminMacClient = lnrpc.NewLightningClient(conn2)
+
+	// Changing the password takes a while, so we use the default timeout
+	// of 30 seconds to wait for the connection to be ready.
+	ctxt, _ = context.WithTimeout(context.Background(), defaultTimeout)
+	res, err = adminMacClient.NewAddress(ctxt, newAddrReq)
+	if err != nil {
+		t.Fatalf("unable to get new address with macaroon: %v", err)
+	}
+	if !strings.HasPrefix(res.Address, harnessNetParams.Bech32HRPSegwit) {
+		t.Fatalf("returned address was not a regtest address")
+	}
+}
+
 type testCase struct {
 	name string
 	test func(net *lntest.NetworkHarness, t *harnessTest)
@@ -15001,6 +15128,10 @@ var testsCases = []*testCase{
 	{
 		name: "send multi path payment",
 		test: testSendMultiPathPayment,
+	},
+	{
+		name: "stateless init",
+		test: testStatelessInit,
 	},
 }
 

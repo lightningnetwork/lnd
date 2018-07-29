@@ -525,22 +525,88 @@ func (hn *HarnessNode) initClientWhenReady() error {
 }
 
 // Init initializes a harness node by passing the init request via rpc. After
-// the request is submitted, this method will block until an
-// macaroon-authenticated rpc connection can be established to the harness node.
+// the request is submitted, this method will block until a
+// macaroon-authenticated RPC connection can be established to the harness node.
 // Once established, the new connection is used to initialize the
 // LightningClient and subscribes the HarnessNode to topology changes.
 func (hn *HarnessNode) Init(ctx context.Context,
-	initReq *lnrpc.InitWalletRequest) error {
+	initReq *lnrpc.InitWalletRequest) (*lnrpc.InitWalletResponse, error) {
 
-	ctxt, _ := context.WithTimeout(ctx, DefaultTimeout)
-	_, err := hn.InitWallet(ctxt, initReq)
+	ctxt, cancel := context.WithTimeout(ctx, DefaultTimeout)
+	defer cancel()
+	response, err := hn.InitWallet(ctxt, initReq)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Wait for the wallet to finish unlocking, such that we can connect to
 	// it via a macaroon-authenticated rpc connection.
-	return hn.initClientWhenReady()
+	var conn *grpc.ClientConn
+	if err = wait.Predicate(func() bool {
+		// If the node has been initialized stateless, we need to pass
+		// the macaroon to the client.
+		if initReq.StatelessInit {
+			adminMac := &macaroon.Macaroon{}
+			err := adminMac.UnmarshalBinary(response.AdminMacaroon)
+			if err != nil {
+				return false
+			}
+			conn, err = hn.ConnectRPCWithMacaroon(adminMac)
+			return err == nil
+		}
+
+		// Normal initialization, we expect a macaroon to be in the
+		// file system.
+		conn, err = hn.ConnectRPC(true)
+		return err == nil
+	}, DefaultTimeout); err != nil {
+		return nil, err
+	}
+
+	return response, hn.initLightningClient(conn)
+}
+
+// InitChangePassword initializes a harness node by passing the change password
+// request via RPC. After the request is submitted, this method will block until
+// a macaroon-authenticated RPC connection can be established to the harness
+// node. Once established, the new connection is used to initialize the
+// LightningClient and subscribes the HarnessNode to topology changes.
+func (hn *HarnessNode) InitChangePassword(ctx context.Context,
+	chngPwReq *lnrpc.ChangePasswordRequest) (*lnrpc.ChangePasswordResponse,
+	error) {
+
+	ctxt, cancel := context.WithTimeout(ctx, DefaultTimeout)
+	defer cancel()
+	response, err := hn.ChangePassword(ctxt, chngPwReq)
+	if err != nil {
+		return nil, err
+	}
+
+	// Wait for the wallet to finish unlocking, such that we can connect to
+	// it via a macaroon-authenticated rpc connection.
+	var conn *grpc.ClientConn
+	if err = wait.Predicate(func() bool {
+		// If the node has been initialized stateless, we need to pass
+		// the macaroon to the client.
+		if chngPwReq.StatelessInit {
+			adminMac := &macaroon.Macaroon{}
+			err := adminMac.UnmarshalBinary(response.AdminMacaroon)
+			if err != nil {
+				return false
+			}
+			conn, err = hn.ConnectRPCWithMacaroon(adminMac)
+			return err == nil
+		}
+
+		// Normal initialization, we expect a macaroon to be in the
+		// file system.
+		conn, err = hn.ConnectRPC(true)
+		return err == nil
+	}, DefaultTimeout); err != nil {
+		return nil, err
+	}
+
+	return response, hn.initLightningClient(conn)
 }
 
 // Unlock attempts to unlock the wallet of the target HarnessNode. This method

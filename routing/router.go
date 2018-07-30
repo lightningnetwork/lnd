@@ -38,6 +38,13 @@ const (
 	defaultPayAttemptTimeout = time.Duration(time.Second * 60)
 )
 
+var (
+	// ErrNoRouteHopsProvided is returned when a caller attempts to
+	// construct a new sphinx packet, but provides an empty set of hops for
+	// each route.
+	ErrNoRouteHopsProvided = fmt.Errorf("empty route hops provided")
+)
+
 // ChannelGraphSource represents the source of information about the topology
 // of the lightning network. It's responsible for the addition of nodes, edges,
 // applying edge updates, and returning the current block height with which the
@@ -1412,6 +1419,14 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 // be sent to the first hop within the route.
 func generateSphinxPacket(route *Route, paymentHash []byte) ([]byte,
 	*sphinx.Circuit, error) {
+
+	// As a sanity check, we'll ensure that the set of hops has been
+	// properly filled in, otherwise, we won't actually be able to
+	// construct a route.
+	if len(route.Hops) == 0 {
+		return nil, nil, ErrNoRouteHopsProvided
+	}
+
 	// First obtain all the public keys along the route which are contained
 	// in each hop.
 	nodes := make([]*btcec.PublicKey, len(route.Hops))

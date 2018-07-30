@@ -117,9 +117,10 @@ type ChannelLinkConfig struct {
 	Switch *Switch
 
 	// ForwardPackets attempts to forward the batch of htlcs through the
-	// switch. Any failed packets will be returned to the provided
-	// ChannelLink.
-	ForwardPackets func(...*htlcPacket) chan error
+	// switch, any failed packets will be returned to the provided
+	// ChannelLink. The link's quit signal should be provided to allow
+	// cancellation of forwarding during link shutdown.
+	ForwardPackets func(chan struct{}, ...*htlcPacket) chan error
 
 	// DecodeHopIterators facilitates batched decoding of HTLC Sphinx onion
 	// blobs, which are then used to inform how to forward an HTLC.
@@ -2542,7 +2543,7 @@ func (l *channelLink) forwardBatch(packets ...*htlcPacket) {
 		filteredPkts = append(filteredPkts, pkt)
 	}
 
-	errChan := l.cfg.ForwardPackets(filteredPkts...)
+	errChan := l.cfg.ForwardPackets(l.quit, filteredPkts...)
 	go l.handleBatchFwdErrs(errChan)
 }
 

@@ -549,10 +549,29 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			return
 		}
 
+		// This ignores edges where the next node is the same as the previous.
+		// This is necessary loop prevention when routing to self.
+		if prev[pivot].prevNode == v{
+			return
+		}
+
 		// Compute the tentative distance to this new channel/edge which
 		// is the distance to our pivot node plus the weight of this
 		// edge.
 		tempDist := distance[pivot].dist + edgeWeight(amt, edge)
+
+		// Loop prevention mechanism.  This checks to see if the next hop exists
+		// anywhere in the current path. This prevention is ignored when sending
+		// to self, as we want a loop, but not an infinite loop, and is handled
+		// elsewhere.
+		loopTest := pivot
+		for loopTest != Vertex(sourceNode.PubKeyBytes) {
+			if prev[loopTest].prevNode == v && v != targetVertex{
+				tempDist = infinity
+				break
+			}
+			loopTest = Vertex(prev[loopTest].prevNode)
+		}
 
 		// If this new tentative distance is better than the current
 		// best known distance to this node, then we record the new
@@ -594,6 +613,16 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		node: sourceNode,
 	}
 
+	// When sending to self, we don't want to see the distance to our destination as zero.
+	// Also, we need distance to be max int size so that distance[pivot].dist +
+	// edgeWeight(amt, edge) returns a number less than infitinty, due to int looping.
+	// Example: FFFF FFFF + 2 = 0000 0001 Required for routing to Self.
+	if sourceNode.PubKeyBytes == targetNode.PubKeyBytes {
+               distance[sourceVertex] = nodeWithDist{
+                        dist: infinity,
+                        node: sourceNode,
+                }
+        }
 	// To start, our source node will the sole item within our distance
 	// heap.
 	heap.Push(&nodeHeap, distance[sourceVertex])
@@ -608,7 +637,20 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		// edges), then we're done here and can exit the graph
 		// traversal early.
 		if bytes.Equal(bestNode.PubKeyBytes[:], targetVertex[:]) {
-			break
+			// In the event that we're sending payments to ourselves,
+			// we don't want to give up when starting at the source,
+			// thinking the shortest path is zero.
+			// But, at the same time, we want to ensure the second time
+			// that source shows up, it's considered 'destination reached.'
+			if distance[sourceVertex].dist == infinity &&
+				sourceNode.PubKeyBytes == targetNode.PubKeyBytes{
+				distance[sourceVertex] = nodeWithDist{
+                 			dist: infinity-1,
+					node: sourceNode,
+               			}
+			} else {
+				break
+			}
 		}
 
 		// Now that we've found the next potential step to take we'll
@@ -623,6 +665,21 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			// any more up to date information concerning the
 			// bandwidth of this edge.
 			edgeBandwidth, ok := bandwidthHints[edgeInfo.ChannelID]
+
+			// If the destination is source, we need to use the capacity
+			// of the distant edge for the incoming path.
+			// Example: Local_ballance = 9 and distant = 1 then BandwidthHints
+			// uses 9 instead of 1, resulting in errors.  So we must subtract
+			// bandwidthHints from total capacty, 10-9 =1
+			// Checks nodeHeap to make sure we're not reversing capacity while
+			// exiting source.
+			if nodeHeap.Len() != 0 && (edgeInfo.NodeKey1Bytes == targetNode.PubKeyBytes ||
+				edgeInfo.NodeKey2Bytes == targetNode.PubKeyBytes) {
+				edgeBandwidth = lnwire.NewMSatFromSatoshis(
+                                        edgeInfo.Capacity,
+				) - edgeBandwidth
+			}
+
 			if !ok {
 				// If we don't have a hint for this edge, then
 				// we'll just use the known Capacity as the
@@ -665,6 +722,17 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	// timelock and fee values.
 	pathEdges := make([]*ChannelHop, 0, len(prev))
 	prevNode := NewVertex(target)
+
+	// In the event of self routing and path is found, processes first step
+	// through prevHop map, and deletes previous hop of source to prevent
+	// infinite loops. Required for routing to self. This allows the necessary
+	// loop self back to self, while preventing an infinite loop.
+	if sourceNode.PubKeyBytes == targetNode.PubKeyBytes {
+		pathEdges = append(pathEdges, prev[prevNode].edge)
+
+                prevNode = Vertex(prev[prevNode].prevNode)
+		delete(prev, sourceVertex);
+	}
 	for prevNode != sourceVertex { // TODO(roasbeef): assumes no cycles
 		// Add the current hop to the limit of path edges then walk
 		// backwards from this hop via the prev pointer for this hop

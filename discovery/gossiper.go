@@ -796,7 +796,13 @@ func (d *AuthenticatedGossiper) resendAnnounceSignatures() error {
 			if err != nil {
 				return err
 			}
-			t := msgTuple{peer, msg, k}
+
+			// Make a copy of the database key corresponding to
+			// these AnnounceSignatures.
+			dbKey := make([]byte, len(k))
+			copy(dbKey, k)
+
+			t := msgTuple{peer, msg, dbKey}
 
 			// Add the message to the slice, such that we can
 			// resend it after the database transaction is over.

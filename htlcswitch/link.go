@@ -846,6 +846,13 @@ func (l *channelLink) htlcManager() {
 	batchTick := l.cfg.BatchTicker.Start()
 	defer l.cfg.BatchTicker.Stop()
 
+	// We'll only need the batch ticker if we have outgoing updates that are
+	// not covered by our last signature. This value will be nil unless a
+	// downstream packet forces the batchCounter to be positive. After the
+	// batch is cleared, it will return to nil to prevent wasteful CPU time
+	// caused by the batch ticker waking up the htlcManager needlessly.
+	var maybeBatchTick <-chan time.Time
+
 out:
 	for {
 		// We must always check if we failed at some point processing
@@ -926,10 +933,12 @@ out:
 				break out
 			}
 
-		case <-batchTick:
+		case <-maybeBatchTick:
 			// If the current batch is empty, then we have no work
-			// here.
+			// here. We also disable the batch ticker from waking up
+			// the htlcManager while the batch is empty.
 			if l.batchCounter == 0 {
+				maybeBatchTick = nil
 				continue
 			}
 
@@ -955,6 +964,13 @@ out:
 
 			l.handleDownStreamPkt(packet, true)
 
+			// If the downstream packet resulted in a non-empty
+			// batch, reinstate the batch ticker so that it can be
+			// cleared.
+			if l.batchCounter > 0 {
+				maybeBatchTick = batchTick
+			}
+
 		// A message from the switch was just received. This indicates
 		// that the link is an intermediate hop in a multi-hop HTLC
 		// circuit.
@@ -976,6 +992,13 @@ out:
 			}
 
 			l.handleDownStreamPkt(pkt, false)
+
+			// If the downstream packet resulted in a non-empty
+			// batch, reinstate the batch ticker so that it can be
+			// cleared.
+			if l.batchCounter > 0 {
+				maybeBatchTick = batchTick
+			}
 
 		// A message from the connected peer was just received. This
 		// indicates that we have a new incoming HTLC, either directly

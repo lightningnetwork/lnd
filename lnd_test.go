@@ -3995,7 +3995,9 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 
 		// We'll decode the invoice's payment request to determine which
 		// channels were used as routing hints.
-		payReq := &lnrpc.PayReqString{resp.PaymentRequest}
+		payReq := &lnrpc.PayReqString{
+			PayReq: resp.PaymentRequest,
+		}
 		decoded, err = net.Alice.DecodePayReq(ctxb, payReq)
 		if err != nil {
 			predErr = fmt.Errorf("unable to decode payment "+
@@ -10784,7 +10786,7 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 		for i, hop := range route.Hops {
 			if hop.ChanId != hopChanIDs[i] {
 				t.Fatalf("expected chan id %d, got %d",
-					hop.ChanId)
+					hopChanIDs[i], hop.ChanId)
 			}
 		}
 	}

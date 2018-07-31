@@ -302,8 +302,10 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 						hex.EncodeToString(hn.PubKey[:logPubKeyBytes]))
 					err := os.Rename(fileName, newFileName)
 					if err != nil {
-						fmt.Errorf("could not rename %s to %s: %v",
-							fileName, newFileName, err)
+						fmt.Printf("could not rename "+
+							"%s to %s: %v\n",
+							fileName, newFileName,
+							err)
 					}
 				}
 			}
@@ -481,7 +483,7 @@ func (hn *HarnessNode) writePidFile() error {
 	return nil
 }
 
-// connectRPC uses the TLS certificate and admin macaroon files written by the
+// ConnectRPC uses the TLS certificate and admin macaroon files written by the
 // lnd node to create a gRPC client connection.
 func (hn *HarnessNode) ConnectRPC(useMacs bool) (*grpc.ClientConn, error) {
 	// Wait until TLS certificate and admin macaroon are created before

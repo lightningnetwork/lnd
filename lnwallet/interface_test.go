@@ -2190,7 +2190,6 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 				t.Fatalf("couldn't start bob client: %v", err)
 			}
 		default:
-			return
 			t.Fatalf("unknown chain driver: %v", backEnd)
 		}
 

@@ -2101,12 +2101,20 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 	return payIntent, nil
 }
 
+type paymentIntentResponse struct {
+	Route    *routing.Route
+	Preimage [32]byte
+	Err      error
+}
+
 // dispatchPaymentIntent attempts to fully dispatch an RPC payment intent.
 // We'll either pass the payment as a whole to the channel router, or give it a
 // pre-built route. The first error this method returns denotes if we were
 // unable to save the payment. The second error returned denotes if the payment
 // didn't succeed.
-func (r *rpcServer) dispatchPaymentIntent(payIntent *rpcPaymentIntent) (*routing.Route, [32]byte, error, error) {
+func (r *rpcServer) dispatchPaymentIntent(
+	payIntent *rpcPaymentIntent) (*paymentIntentResponse, error) {
+
 	// Construct a payment request to send to the channel router. If the
 	// payment is successful, the route chosen will be returned. Otherwise,
 	// we'll get a non-nil error.
@@ -2149,7 +2157,9 @@ func (r *rpcServer) dispatchPaymentIntent(payIntent *rpcPaymentIntent) (*routing
 	// If the route failed, then we'll return a nil save err, but a non-nil
 	// routing err.
 	if routerErr != nil {
-		return nil, preImage, nil, routerErr
+		return &paymentIntentResponse{
+			Err: routerErr,
+		}, nil
 	}
 
 	// If a route was used to complete this payment, then we'll need to
@@ -2167,10 +2177,13 @@ func (r *rpcServer) dispatchPaymentIntent(payIntent *rpcPaymentIntent) (*routing
 	if err != nil {
 		// We weren't able to save the payment, so we return the save
 		// err, but a nil routing err.
-		return nil, preImage, err, nil
+		return nil, err
 	}
 
-	return route, preImage, nil, nil
+	return &paymentIntentResponse{
+		Route:    route,
+		Preimage: preImage,
+	}, nil
 }
 
 // sendPayment takes a paymentStream (a source of pre-built routes or payment
@@ -2283,34 +2296,35 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 					htlcSema <- struct{}{}
 				}()
 
-				route, preImage, saveErr, routeErr := r.dispatchPaymentIntent(
+				resp, saveErr := r.dispatchPaymentIntent(
 					payIntent,
 				)
 
 				switch {
-				// If we receive payment error than, instead of
-				// terminating the stream, send error response
-				// to the user.
-				case routeErr != nil:
-					err := stream.send(&lnrpc.SendResponse{
-						PaymentError: routeErr.Error(),
-					})
-					if err != nil {
-						errChan <- err
-					}
-					return
-
 				// If we were unable to save the state of the
 				// payment, then we'll return the error to the
 				// user, and terminate.
 				case saveErr != nil:
 					errChan <- saveErr
 					return
+
+				// If we receive payment error than, instead of
+				// terminating the stream, send error response
+				// to the user.
+				case resp.Err != nil:
+					err := stream.send(&lnrpc.SendResponse{
+						PaymentError: resp.Err.Error(),
+					})
+					if err != nil {
+						errChan <- err
+					}
+					return
 				}
 
+				marshalledRouted := marshallRoute(resp.Route)
 				err := stream.send(&lnrpc.SendResponse{
-					PaymentPreimage: preImage[:],
-					PaymentRoute:    marshallRoute(route),
+					PaymentPreimage: resp.Preimage[:],
+					PaymentRoute:    marshalledRouted,
 				})
 				if err != nil {
 					errChan <- err
@@ -2385,20 +2399,20 @@ func (r *rpcServer) sendPaymentSync(ctx context.Context,
 
 	// With the payment validated, we'll now attempt to dispatch the
 	// payment.
-	route, preImage, saveErr, routeErr := r.dispatchPaymentIntent(&payIntent)
+	resp, saveErr := r.dispatchPaymentIntent(&payIntent)
 	switch {
-	case routeErr != nil:
-		return &lnrpc.SendResponse{
-			PaymentError: routeErr.Error(),
-		}, nil
-
 	case saveErr != nil:
-		return nil, err
+		return nil, saveErr
+
+	case resp.Err != nil:
+		return &lnrpc.SendResponse{
+			PaymentError: resp.Err.Error(),
+		}, nil
 	}
 
 	return &lnrpc.SendResponse{
-		PaymentPreimage: preImage[:],
-		PaymentRoute:    marshallRoute(route),
+		PaymentPreimage: resp.Preimage[:],
+		PaymentRoute:    marshallRoute(resp.Route),
 	}, nil
 }
 

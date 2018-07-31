@@ -129,13 +129,13 @@ func putLinkNode(nodeMetaBucket *bolt.Bucket, l *LinkNode) error {
 
 // DeleteLinkNode removes the link node with the given identity from the
 // database.
-func (d *DB) DeleteLinkNode(identity *btcec.PublicKey) error {
-	return d.Update(func(tx *bolt.Tx) error {
-		return d.deleteLinkNode(tx, identity)
+func (db *DB) DeleteLinkNode(identity *btcec.PublicKey) error {
+	return db.Update(func(tx *bolt.Tx) error {
+		return db.deleteLinkNode(tx, identity)
 	})
 }
 
-func (d *DB) deleteLinkNode(tx *bolt.Tx, identity *btcec.PublicKey) error {
+func (db *DB) deleteLinkNode(tx *bolt.Tx, identity *btcec.PublicKey) error {
 	nodeMetaBucket := tx.Bucket(nodeInfoBucket)
 	if nodeMetaBucket == nil {
 		return ErrLinkNodesNotFound

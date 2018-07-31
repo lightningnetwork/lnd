@@ -10,8 +10,8 @@ import (
 
 type unknownAddrType struct{}
 
-func (_ unknownAddrType) Network() string { return "unknown" }
-func (_ unknownAddrType) String() string  { return "unknown" }
+func (t unknownAddrType) Network() string { return "unknown" }
+func (t unknownAddrType) String() string  { return "unknown" }
 
 var addrTests = []struct {
 	expAddr net.Addr

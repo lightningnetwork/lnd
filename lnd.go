@@ -360,7 +360,7 @@ func lndMain() error {
 		return err
 	}
 	for _, restEndpoint := range cfg.RESTListeners {
-		lis, err := lncfg.TlsListenOnAddress(restEndpoint, tlsConf)
+		lis, err := lncfg.TLSListenOnAddress(restEndpoint, tlsConf)
 		if err != nil {
 			ltndLog.Errorf(
 				"gRPC proxy unable to listen on %s",
@@ -761,7 +761,7 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []net.Addr,
 	srv := &http.Server{Handler: mux}
 
 	for _, restEndpoint := range restEndpoints {
-		lis, err := lncfg.TlsListenOnAddress(restEndpoint, tlsConf)
+		lis, err := lncfg.TLSListenOnAddress(restEndpoint, tlsConf)
 		if err != nil {
 			ltndLog.Errorf(
 				"password gRPC proxy unable to listen on %s",

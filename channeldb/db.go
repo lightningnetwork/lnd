@@ -613,8 +613,8 @@ func (d *DB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
 // pruneLinkNode determines whether we should garbage collect a link node from
 // the database due to no longer having any open channels with it. If there are
 // any left, then this acts as a no-op.
-func (db *DB) pruneLinkNode(tx *bolt.Tx, remotePub *btcec.PublicKey) error {
-	openChannels, err := db.fetchOpenChannels(tx, remotePub)
+func (d *DB) pruneLinkNode(tx *bolt.Tx, remotePub *btcec.PublicKey) error {
+	openChannels, err := d.fetchOpenChannels(tx, remotePub)
 	if err != nil {
 		return fmt.Errorf("unable to fetch open channels for peer %x: "+
 			"%v", remotePub.SerializeCompressed(), err)
@@ -627,20 +627,20 @@ func (db *DB) pruneLinkNode(tx *bolt.Tx, remotePub *btcec.PublicKey) error {
 	log.Infof("Pruning link node %x with zero open channels from database",
 		remotePub.SerializeCompressed())
 
-	return db.deleteLinkNode(tx, remotePub)
+	return d.deleteLinkNode(tx, remotePub)
 }
 
 // PruneLinkNodes attempts to prune all link nodes found within the databse with
 // whom we no longer have any open channels with.
-func (db *DB) PruneLinkNodes() error {
-	return db.Update(func(tx *bolt.Tx) error {
-		linkNodes, err := db.fetchAllLinkNodes(tx)
+func (d *DB) PruneLinkNodes() error {
+	return d.Update(func(tx *bolt.Tx) error {
+		linkNodes, err := d.fetchAllLinkNodes(tx)
 		if err != nil {
 			return err
 		}
 
 		for _, linkNode := range linkNodes {
-			err := db.pruneLinkNode(tx, linkNode.IdentityPub)
+			err := d.pruneLinkNode(tx, linkNode.IdentityPub)
 			if err != nil {
 				return err
 			}

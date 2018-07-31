@@ -3,8 +3,8 @@ package btcwallet
 import (
 	"fmt"
 
-	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/btcsuite/btcwallet/chain"
+	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
 const (

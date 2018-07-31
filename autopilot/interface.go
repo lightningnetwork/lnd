@@ -3,10 +3,10 @@ package autopilot
 import (
 	"net"
 
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // Node node is an interface which represents n abstract vertex within the

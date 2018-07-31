@@ -3,11 +3,11 @@ package main
 import (
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
 // chanSeries is an implementation of the discovery.ChannelGraphTimeSeries

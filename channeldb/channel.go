@@ -8,14 +8,14 @@ import (
 	"net"
 	"sync"
 
-	"github.com/coreos/bbolt"
-	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/shachain"
 )
 
 var (
@@ -354,9 +354,9 @@ type OpenChannel struct {
 	// negotiate fees, or close the channel.
 	IsInitiator bool
 
-	// ChanStatus is the current status of this channel. If it is not in
+	// chanStatus is the current status of this channel. If it is not in
 	// the state Default, it should not be used for forwarding payments.
-	ChanStatus ChannelStatus
+	chanStatus ChannelStatus
 
 	// FundingBroadcastHeight is the height in which the funding
 	// transaction was broadcast. This value can be used by higher level
@@ -466,6 +466,14 @@ func (c *OpenChannel) ShortChanID() lnwire.ShortChannelID {
 	defer c.RUnlock()
 
 	return c.ShortChannelID
+}
+
+// ChanStatus returns the current ChannelStatus of this channel.
+func (c *OpenChannel) ChanStatus() ChannelStatus {
+	c.RLock()
+	defer c.RUnlock()
+
+	return c.chanStatus
 }
 
 // RefreshShortChanID updates the in-memory short channel ID using the latest
@@ -705,7 +713,7 @@ func (c *OpenChannel) putChanStatus(status ChannelStatus) error {
 			return err
 		}
 
-		channel.ChanStatus = status
+		channel.chanStatus = status
 
 		return putOpenChannel(chanBucket, channel)
 	}); err != nil {
@@ -713,7 +721,7 @@ func (c *OpenChannel) putChanStatus(status ChannelStatus) error {
 	}
 
 	// Update the in-memory representation to keep it in sync with the DB.
-	c.ChanStatus = status
+	c.chanStatus = status
 
 	return nil
 }
@@ -2067,7 +2075,7 @@ func putChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 	if err := WriteElements(&w,
 		channel.ChanType, channel.ChainHash, channel.FundingOutpoint,
 		channel.ShortChannelID, channel.IsPending, channel.IsInitiator,
-		channel.ChanStatus, channel.FundingBroadcastHeight,
+		channel.chanStatus, channel.FundingBroadcastHeight,
 		channel.NumConfsRequired, channel.ChannelFlags,
 		channel.IdentityPub, channel.Capacity, channel.TotalMSatSent,
 		channel.TotalMSatReceived,
@@ -2177,7 +2185,7 @@ func fetchChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 	if err := ReadElements(r,
 		&channel.ChanType, &channel.ChainHash, &channel.FundingOutpoint,
 		&channel.ShortChannelID, &channel.IsPending, &channel.IsInitiator,
-		&channel.ChanStatus, &channel.FundingBroadcastHeight,
+		&channel.chanStatus, &channel.FundingBroadcastHeight,
 		&channel.NumConfsRequired, &channel.ChannelFlags,
 		&channel.IdentityPub, &channel.Capacity, &channel.TotalMSatSent,
 		&channel.TotalMSatReceived,

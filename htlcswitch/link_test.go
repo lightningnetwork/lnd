@@ -1497,7 +1497,7 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 		Registry:       invoiceRegistry,
 		ChainEvents:    &contractcourt.ChainEventSubscription{},
 		BatchTicker:    ticker,
-		FwdPkgGCTicker: NewBatchTicker(time.NewTicker(5 * time.Second)),
+		FwdPkgGCTicker: NewBatchTicker(5 * time.Second),
 		// Make the BatchSize and Min/MaxFeeUpdateTimeout large enough
 		// to not trigger commit updates automatically during tests.
 		BatchSize:           10000,
@@ -3885,7 +3885,7 @@ func restartLink(aliceChannel *lnwallet.LightningChannel, aliceSwitch *Switch,
 		Registry:       invoiceRegistry,
 		ChainEvents:    &contractcourt.ChainEventSubscription{},
 		BatchTicker:    ticker,
-		FwdPkgGCTicker: NewBatchTicker(time.NewTicker(5 * time.Second)),
+		FwdPkgGCTicker: NewBatchTicker(5 * time.Second),
 		// Make the BatchSize and Min/MaxFeeUpdateTimeout large enough
 		// to not trigger commit updates automatically during tests.
 		BatchSize:           10000,

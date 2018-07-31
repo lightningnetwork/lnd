@@ -769,6 +769,31 @@ func TestBasicGraphPathFinding(t *testing.T) {
 		t.Fatalf("incorrect total amount, expected %v got %v",
 			paymentAmt, route.TotalAmount)
 	}
+
+        // Next, we attempt to find a path from the source back to itself.
+        // Useful for load balancing channels.
+        target = alieses["roasbeef"]
+        path, err = findPath(
+                nil, graph, nil, sourceNode, target, ignoredVertexes,
+                ignoredEdges, paymentAmt, nil,
+        )
+        if err != nil {
+                t.Fatalf("unable to find route: %v", err)
+        }
+
+        route, err = newRoute(
+                paymentAmt, noFeeLimit, sourceVertex, path, startingHeight,
+                finalHopCLTV,
+        )
+        if err != nil {
+                t.Fatalf("unable to create path: %v", err)
+        }
+
+        // The cheapest path should be sat->lou->roas or lou->sat->roas 3 hops
+        if len(route.Hops) != 3 {
+                t.Fatalf("shortest path not selected, should be of length 1, "+
+                        "is instead: %v", len(route.Hops))
+        }
 }
 
 func TestPathFindingWithAdditionalEdges(t *testing.T) {

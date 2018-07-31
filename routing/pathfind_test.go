@@ -772,7 +772,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 
         // Next, we attempt to find a path from the source back to itself.
         // Useful for load balancing channels.
-        target = alieses["roasbeef"]
+        target = aliases["roasbeef"]
         path, err = findPath(
                 nil, graph, nil, sourceNode, target, ignoredVertexes,
                 ignoredEdges, paymentAmt, nil,

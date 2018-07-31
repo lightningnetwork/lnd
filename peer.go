@@ -542,12 +542,10 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 				*chanPoint, signals,
 			)
 		},
-		OnChannelFailure: onChannelFailure,
-		SyncStates:       syncStates,
-		BatchTicker: htlcswitch.NewBatchTicker(
-			time.NewTicker(50 * time.Millisecond)),
-		FwdPkgGCTicker: htlcswitch.NewBatchTicker(
-			time.NewTicker(time.Minute)),
+		OnChannelFailure:    onChannelFailure,
+		SyncStates:          syncStates,
+		BatchTicker:         htlcswitch.NewBatchTicker(50 * time.Millisecond),
+		FwdPkgGCTicker:      htlcswitch.NewBatchTicker(time.Minute),
 		BatchSize:           10,
 		UnsafeReplay:        cfg.UnsafeReplay,
 		MinFeeUpdateTimeout: htlcswitch.DefaultMinLinkFeeUpdateTimeout,

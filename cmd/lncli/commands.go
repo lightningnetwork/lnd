@@ -1190,10 +1190,12 @@ mnemonicCheck:
 				len(cipherSeedMnemonic), 24)
 		}
 
-		var passphrase []byte
-		var passphraseConfirmation []byte
 		// we infinite loop passphrase to give user multiple chances to type in
 		// passphrase correctly
+		var (
+			passphrase             []byte
+			passphraseConfirmation []byte
+		)
 		for {
 
 			// Additionally, the user may have a passphrase, that will also

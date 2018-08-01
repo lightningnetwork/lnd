@@ -927,11 +927,13 @@ func (d *AuthenticatedGossiper) findGossipSyncer(pub *btcec.PublicKey) (*gossipS
 
 	// At this point, a syncer doesn't yet exist, so we'll create a new one
 	// for the peer and return it to the caller.
+	encoding := lnwire.EncodingSortedPlain
 	syncer = newGossiperSyncer(gossipSyncerCfg{
 		chainHash:       d.cfg.ChainHash,
 		syncChanUpdates: true,
 		channelSeries:   d.cfg.ChanSeries,
-		encodingType:    lnwire.EncodingSortedPlain,
+		encodingType:    encoding,
+		chunkSize:       encodingTypeToChunkSize[encoding],
 		sendToPeer: func(msgs ...lnwire.Message) error {
 			return syncPeer.SendMessage(false, msgs...)
 		},
@@ -1242,14 +1244,15 @@ func (d *AuthenticatedGossiper) InitSyncState(syncPeer lnpeer.Peer, recvUpdates 
 		return
 	}
 
-	log.Infof("Creating new gossipSyncer for peer=%x",
-		nodeID[:])
+	log.Infof("Creating new gossipSyncer for peer=%x", nodeID[:])
 
+	encoding := lnwire.EncodingSortedPlain
 	syncer := newGossiperSyncer(gossipSyncerCfg{
 		chainHash:       d.cfg.ChainHash,
 		syncChanUpdates: recvUpdates,
 		channelSeries:   d.cfg.ChanSeries,
-		encodingType:    lnwire.EncodingSortedPlain,
+		encodingType:    encoding,
+		chunkSize:       encodingTypeToChunkSize[encoding],
 		sendToPeer: func(msgs ...lnwire.Message) error {
 			return syncPeer.SendMessage(false, msgs...)
 		},

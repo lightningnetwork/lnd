@@ -172,6 +172,7 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 		// has been spent by a confirmed transaction.
 		spendNtfn, err := h.Notifier.RegisterSpendNtfn(
 			&h.htlcResolution.ClaimOutpoint,
+			h.htlcResolution.SweepSignDesc.Output.PkScript,
 			h.broadcastHeight,
 		)
 		if err != nil {
@@ -211,8 +212,9 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 		// Otherwise, this is our commitment, so we'll watch for the
 		// second-level transaction to be sufficiently confirmed.
 		secondLevelTXID := h.htlcResolution.SignedTimeoutTx.TxHash()
+		sweepScript := h.htlcResolution.SignedTimeoutTx.TxOut[0].PkScript
 		confNtfn, err := h.Notifier.RegisterConfirmationsNtfn(
-			&secondLevelTXID, 1, h.broadcastHeight,
+			&secondLevelTXID, sweepScript, 1, h.broadcastHeight,
 		)
 		if err != nil {
 			return nil, err
@@ -521,8 +523,9 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 		// With the sweep transaction broadcast, we'll wait for its
 		// confirmation.
 		sweepTXID := h.sweepTx.TxHash()
+		sweepScript := h.sweepTx.TxOut[0].PkScript
 		confNtfn, err := h.Notifier.RegisterConfirmationsNtfn(
-			&sweepTXID, 1, h.broadcastHeight,
+			&sweepTXID, sweepScript, 1, h.broadcastHeight,
 		)
 		if err != nil {
 			return nil, err
@@ -580,7 +583,9 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	// To wrap this up, we'll wait until the second-level transaction has
 	// been spent, then fully resolve the contract.
 	spendNtfn, err := h.Notifier.RegisterSpendNtfn(
-		&h.htlcResolution.ClaimOutpoint, h.broadcastHeight,
+		&h.htlcResolution.ClaimOutpoint,
+		h.htlcResolution.SweepSignDesc.Output.PkScript,
+		h.broadcastHeight,
 	)
 	if err != nil {
 		return nil, err
@@ -781,17 +786,34 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 	// output. If this isn't our commitment transaction, it'll be right on
 	// the resolution. Otherwise, we fetch this pointer from the input of
 	// the time out transaction.
-	var outPointToWatch wire.OutPoint
+	var (
+		outPointToWatch wire.OutPoint
+		scriptToWatch   []byte
+		err             error
+	)
 	if h.htlcResolution.SignedTimeoutTx == nil {
 		outPointToWatch = h.htlcResolution.ClaimOutpoint
+		scriptToWatch = h.htlcResolution.SweepSignDesc.Output.PkScript
 	} else {
+		// If this is the remote party's commitment, then we'll need to
+		// grab watch the output that our timeout transaction points
+		// to. We can directly grab the outpoint, then also extract the
+		// witness script (the last element of the witness stack) to
+		// re-construct the pkScipt we need to watch.
 		outPointToWatch = h.htlcResolution.SignedTimeoutTx.TxIn[0].PreviousOutPoint
+		witness := h.htlcResolution.SignedTimeoutTx.TxIn[0].Witness
+		scriptToWatch, err = lnwallet.WitnessScriptHash(
+			witness[len(witness)-1],
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// First, we'll register for a spend notification for this output. If
-	// the remote party sweeps with the pre-image, we'll  be notified.
+	// the remote party sweeps with the pre-image, we'll be notified.
 	spendNtfn, err := h.Notifier.RegisterSpendNtfn(
-		&outPointToWatch, h.broadcastHeight,
+		&outPointToWatch, scriptToWatch, h.broadcastHeight,
 	)
 	if err != nil {
 		return nil, err
@@ -800,6 +822,7 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 	// We'll quickly check to see if the output has already been spent.
 	select {
 	// If the output has already been spent, then we can stop early and
+	// sweep the pre-image from the output.
 	case commitSpend, ok := <-spendNtfn.Spend:
 		if !ok {
 			return nil, fmt.Errorf("quitting")
@@ -1193,8 +1216,9 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	//
 	// TODO(roasbeef): instead sweep asap if remote commit? yeh
 	commitTXID := c.commitResolution.SelfOutPoint.Hash
+	sweepScript := c.commitResolution.SelfOutputSignDesc.Output.PkScript
 	confNtfn, err := c.Notifier.RegisterConfirmationsNtfn(
-		&commitTXID, 1, c.broadcastHeight,
+		&commitTXID, sweepScript, 1, c.broadcastHeight,
 	)
 	if err != nil {
 		return nil, err
@@ -1292,6 +1316,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		// until the commitment output has been spent.
 		spendNtfn, err := c.Notifier.RegisterSpendNtfn(
 			&c.commitResolution.SelfOutPoint,
+			c.commitResolution.SelfOutputSignDesc.Output.PkScript,
 			c.broadcastHeight,
 		)
 		if err != nil {
@@ -1329,8 +1354,9 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	// Now we'll wait until the sweeping transaction has been fully
 	// confirmed.  Once it's confirmed, we can mark this contract resolved.
 	sweepTXID := c.sweepTx.TxHash()
+	sweepingScript := c.sweepTx.TxOut[0].PkScript
 	confNtfn, err = c.Notifier.RegisterConfirmationsNtfn(
-		&sweepTXID, 1, c.broadcastHeight,
+		&sweepTXID, sweepingScript, 1, c.broadcastHeight,
 	)
 	if err != nil {
 		return nil, err

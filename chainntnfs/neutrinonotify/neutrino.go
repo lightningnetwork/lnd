@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/gcs/builder"
@@ -133,7 +134,7 @@ func (n *NeutrinoNotifier) Start() error {
 	// required that a user MUST set an addr/outpoint/txid when creating a
 	// rescan. To get around this, we'll add a "zero" outpoint, that won't
 	// actually be matched.
-	var zeroHash chainhash.Hash
+	var zeroInput neutrino.InputWithScript
 	rescanOptions := []neutrino.RescanOption{
 		neutrino.StartBlock(startingPoint),
 		neutrino.QuitChan(n.quit),
@@ -143,11 +144,12 @@ func (n *NeutrinoNotifier) Start() error {
 				OnFilteredBlockDisconnected: n.onFilteredBlockDisconnected,
 			},
 		),
-		neutrino.WatchTxIDs(zeroHash),
+		neutrino.WatchInputs(zeroInput),
 	}
 
 	n.txConfNotifier = chainntnfs.NewTxConfNotifier(
-		bestHeight, reorgSafetyLimit)
+		bestHeight, reorgSafetyLimit,
+	)
 
 	// Finally, we'll create our rescan struct, start it, and launch all
 	// the goroutines we need to operate this ChainNotifier instance.
@@ -316,8 +318,19 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 					defer n.wg.Done()
 
 					confDetails, err := n.historicalConfDetails(
-						msg.TxID, currentHeight,
-						msg.heightHint,
+						msg.TxID, msg.pkScript, currentHeight, msg.heightHint,
+					)
+					if err != nil {
+						chainntnfs.Log.Error(err)
+					}
+
+					// We'll map the script into an address
+					// type so we can instruct neutrino to
+					// match if the transaction containing
+					// the script is found in a block.
+					params := n.p2pNode.ChainParams()
+					_, addrs, _, err := txscript.ExtractPkScriptAddrs(
+						msg.pkScript, &params,
 					)
 					if err != nil {
 						chainntnfs.Log.Error(err)
@@ -339,7 +352,7 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 					// filter so we can be notified of its
 					// future initial confirmation.
 					rescanUpdate := []neutrino.UpdateOption{
-						neutrino.AddTxIDs(*msg.TxID),
+						neutrino.AddAddrs(addrs...),
 						neutrino.Rewind(currentHeight),
 					}
 					err = n.chainView.Update(rescanUpdate...)
@@ -410,9 +423,11 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 	}
 }
 
-// historicalConfDetails looks up whether a transaction is already included in a
-// block in the active chain and, if so, returns details about the confirmation.
+// historicalConfDetails looks up whether a transaction is already included in
+// a block in the active chain and, if so, returns details about the
+// confirmation.
 func (n *NeutrinoNotifier) historicalConfDetails(targetHash *chainhash.Hash,
+	pkScript []byte,
 	currentHeight, heightHint uint32) (*chainntnfs.TxConfirmation, error) {
 
 	// Starting from the height hint, we'll walk forwards in the chain to
@@ -437,14 +452,15 @@ func (n *NeutrinoNotifier) historicalConfDetails(targetHash *chainhash.Hash,
 
 		// With the hash computed, we can now fetch the basic filter
 		// for this height.
-		regFilter, err := n.p2pNode.GetCFilter(blockHash,
-			wire.GCSFilterRegular)
+		regFilter, err := n.p2pNode.GetCFilter(
+			blockHash, wire.GCSFilterRegular,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to retrieve regular filter for "+
 				"height=%v: %v", scanHeight, err)
 		}
 
-		// If the block has no transactions other than the coinbase
+		// If the block has no transactions other than the Coinbase
 		// transaction, then the filter may be nil, so we'll continue
 		// forward int that case.
 		if regFilter == nil {
@@ -452,9 +468,9 @@ func (n *NeutrinoNotifier) historicalConfDetails(targetHash *chainhash.Hash,
 		}
 
 		// In the case that the filter exists, we'll attempt to see if
-		// any element in it match our target txid.
+		// any element in it matches our target public key script.
 		key := builder.DeriveKey(&blockHash)
-		match, err := regFilter.Match(key, targetHash[:])
+		match, err := regFilter.Match(key, pkScript)
 		if err != nil {
 			return nil, fmt.Errorf("unable to query filter: %v", err)
 		}
@@ -504,16 +520,15 @@ func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 		for i, txIn := range mtx.TxIn {
 			prevOut := txIn.PreviousOutPoint
 
-			// If this transaction indeed does spend an output which we have a
-			// registered notification for, then create a spend summary, finally
-			// sending off the details to the notification subscriber.
+			// If this transaction indeed does spend an output
+			// which we have a registered notification for, then
+			// create a spend summary, finally sending off the
+			// details to the notification subscriber.
 			clients, ok := n.spendNotifications[prevOut]
 			if !ok {
 				continue
 			}
 
-			// TODO(roasbeef): many integration tests expect spend to be
-			// notified within the mempool.
 			spendDetails := &chainntnfs.SpendDetail{
 				SpentOutPoint:     &prevOut,
 				SpenderTxHash:     &txSha,
@@ -523,13 +538,16 @@ func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 			}
 
 			for _, ntfn := range clients {
-				chainntnfs.Log.Infof("Dispatching spend notification for "+
-					"outpoint=%v", ntfn.targetOutpoint)
+				chainntnfs.Log.Infof("Dispatching spend "+
+					"notification for outpoint=%v",
+					ntfn.targetOutpoint)
+
 				ntfn.spendChan <- spendDetails
 
-				// Close spendChan to ensure that any calls to Cancel will not
-				// block. This is safe to do since the channel is buffered, and
-				// the message can still be read by the receiver.
+				// Close spendChan to ensure that any calls to
+				// Cancel will not block. This is safe to do
+				// since the channel is buffered, and the
+				// message can still be read by the receiver.
 				close(ntfn.spendChan)
 			}
 
@@ -537,10 +555,12 @@ func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 		}
 	}
 
-	// A new block has been connected to the main chain.
-	// Send out any N confirmation notifications which may
-	// have been triggered by this new block.
-	n.txConfNotifier.ConnectTip(&newBlock.hash, newBlock.height, newBlock.txns)
+	// A new block has been connected to the main chain.  Send out any N
+	// confirmation notifications which may have been triggered by this new
+	// block.
+	n.txConfNotifier.ConnectTip(
+		&newBlock.hash, newBlock.height, newBlock.txns,
+	)
 
 	return nil
 }
@@ -592,7 +612,7 @@ type spendCancel struct {
 // target outpoint has been detected, the details of the spending event will be
 // sent across the 'Spend' channel.
 func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	heightHint uint32) (*chainntnfs.SpendEvent, error) {
+	pkScript []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
 
 	n.heightMtx.RLock()
 	currentHeight := n.bestHeight
@@ -651,10 +671,15 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		break
 	}
 
+	inputToWatch := neutrino.InputWithScript{
+		OutPoint: *outpoint,
+		PkScript: pkScript,
+	}
+
 	// Before sending off the notification request, we'll attempt to see if
 	// this output is still spent or not at this point in the chain.
 	spendReport, err := n.p2pNode.GetUtxo(
-		neutrino.WatchOutPoints(*outpoint),
+		neutrino.WatchInputs(inputToWatch),
 		neutrino.StartBlock(&waddrmgr.BlockStamp{
 			Height: int32(heightHint),
 		}),
@@ -690,7 +715,7 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	// If the output is still unspent, then we'll update our rescan's
 	// filter, and send the request to the dispatcher goroutine.
 	rescanUpdate := []neutrino.UpdateOption{
-		neutrino.AddOutPoints(*outpoint),
+		neutrino.AddInputs(inputToWatch),
 		neutrino.Rewind(currentHeight),
 	}
 
@@ -712,12 +737,14 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 type confirmationsNotification struct {
 	chainntnfs.ConfNtfn
 	heightHint uint32
+	pkScript   []byte
 }
 
 // RegisterConfirmationsNtfn registers a notification with NeutrinoNotifier
 // which will be triggered once the txid reaches numConfs number of
 // confirmations.
 func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
+	pkScript []byte,
 	numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
 
 	ntfn := &confirmationsNotification{
@@ -728,6 +755,7 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 			Event:            chainntnfs.NewConfirmationEvent(numConfs),
 		},
 		heightHint: heightHint,
+		pkScript:   pkScript,
 	}
 
 	if err := n.txConfNotifier.Register(&ntfn.ConfNtfn); err != nil {

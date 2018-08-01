@@ -196,8 +196,10 @@ func (b *breachArbiter) Start() error {
 		// Register for a notification when the breach transaction is
 		// confirmed on chain.
 		breachTXID := retInfo.commitHash
+		breachScript := retInfo.breachedOutputs[0].signDesc.Output.PkScript
 		confChan, err := b.cfg.Notifier.RegisterConfirmationsNtfn(
-			&breachTXID, 1, retInfo.breachHeight)
+			&breachTXID, breachScript, 1, retInfo.breachHeight,
+		)
 		if err != nil {
 			brarLog.Errorf("unable to register for conf updates "+
 				"for txid: %v, err: %v", breachTXID, err)
@@ -296,6 +298,7 @@ func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 	newAmt := spendingTx.TxOut[0].Value
 	bo.amt = btcutil.Amount(newAmt)
 	bo.signDesc.Output.Value = newAmt
+	bo.signDesc.Output.PkScript = spendingTx.TxOut[0].PkScript
 
 	// Finally, we'll need to adjust the witness program in the
 	// SignDescriptor.
@@ -357,6 +360,7 @@ func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 			var err error
 			spendNtfn, err = b.cfg.Notifier.RegisterSpendNtfn(
 				&breachedOutput.outpoint,
+				breachedOutput.signDesc.Output.PkScript,
 				breachInfo.breachHeight,
 			)
 			if err != nil {
@@ -556,8 +560,10 @@ justiceTxBroadcast:
 	// notify the caller that initiated the retribution workflow that the
 	// deed has been done.
 	justiceTXID := finalTx.TxHash()
+	justiceScript := finalTx.TxOut[0].PkScript
 	confChan, err = b.cfg.Notifier.RegisterConfirmationsNtfn(
-		&justiceTXID, 1, breachConfHeight)
+		&justiceTXID, justiceScript, 1, breachConfHeight,
+	)
 	if err != nil {
 		brarLog.Errorf("unable to register for conf for txid(%v): %v",
 			justiceTXID, err)
@@ -720,8 +726,10 @@ func (b *breachArbiter) handleBreachHandoff(breachEvent *ContractBreachEvent) {
 	// confirmed in the chain to ensure we're not dealing with a moving
 	// target.
 	breachTXID := &retInfo.commitHash
-	cfChan, err := b.cfg.Notifier.RegisterConfirmationsNtfn(breachTXID, 1,
-		retInfo.breachHeight)
+	breachScript := retInfo.breachedOutputs[0].signDesc.Output.PkScript
+	cfChan, err := b.cfg.Notifier.RegisterConfirmationsNtfn(
+		breachTXID, breachScript, 1, retInfo.breachHeight,
+	)
 	if err != nil {
 		brarLog.Errorf("unable to register for conf updates for "+
 			"txid: %v, err: %v", breachTXID, err)

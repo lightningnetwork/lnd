@@ -1738,7 +1738,7 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 		t.Fatalf("unable to synchronize mining nodes: %v", err)
 	}
 
-	// Step 3: Do a set of reorgs by disconecting the two miners, mining
+	// Step 3: Do a set of reorgs by disconnecting the two miners, mining
 	// one block on the passed miner and two on the created miner,
 	// connecting them, and waiting for them to sync.
 	for i := 0; i < 5; i++ {
@@ -1918,19 +1918,20 @@ func waitForMempoolTx(r *rpctest.Harness, txid *chainhash.Hash) error {
 }
 
 func waitForWalletSync(r *rpctest.Harness, w *lnwallet.LightningWallet) error {
-	var synced bool
-	var err error
-	var bestHash, knownHash *chainhash.Hash
-	var bestHeight, knownHeight int32
-	timeout := time.After(10 * time.Second)
+	var (
+		synced                  bool
+		err                     error
+		bestHash, knownHash     *chainhash.Hash
+		bestHeight, knownHeight int32
+	)
+	timeout := time.After(30 * time.Second)
 	for !synced {
 		// Do a short wait
 		select {
 		case <-timeout:
-			return fmt.Errorf("timeout after 10s")
-		default:
+			return fmt.Errorf("timeout after 30s")
+		case <-time.Tick(50 * time.Millisecond):
 		}
-		time.Sleep(100 * time.Millisecond)
 
 		// Check whether the chain source of the wallet is caught up to
 		// the harness it's supposed to be catching up to.

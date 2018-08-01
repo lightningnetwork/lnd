@@ -21,6 +21,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightninglabs/neutrino"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/ltcsuite/ltcd/btcjson"
 
 	"github.com/btcsuite/btcwallet/walletdb"
@@ -238,8 +239,11 @@ func testFilterBlockNotifications(node *rpctest.Harness,
 		t.Fatalf("unable to get current height: %v", err)
 	}
 
-	// Now we'll add both output to the current filter.
-	filter := []wire.OutPoint{*outPoint1, *outPoint2}
+	// Now we'll add both outpoints to the current filter.
+	filter := []channeldb.EdgePoint{
+		{targetScript, *outPoint1},
+		{targetScript, *outPoint2},
+	}
 	err = chainView.UpdateFilter(filter, uint32(currentHeight))
 	if err != nil {
 		t.Fatalf("unable to update filter: %v", err)
@@ -382,8 +386,9 @@ func testUpdateFilterBackTrack(node *rpctest.Harness,
 
 	// After the block has been mined+notified we'll update the filter with
 	// a _prior_ height so a "rewind" occurs.
-	filter := []wire.OutPoint{*outPoint}
-
+	filter := []channeldb.EdgePoint{
+		{testScript, *outPoint},
+	}
 	err = chainView.UpdateFilter(filter, uint32(currentHeight))
 	if err != nil {
 		t.Fatalf("unable to update filter: %v", err)
@@ -496,7 +501,10 @@ func testFilterSingleBlock(node *rpctest.Harness, chainView FilteredChainView,
 
 	// Now we'll manually trigger filtering the block generated above.
 	// First, we'll add the two outpoints to our filter.
-	filter := []wire.OutPoint{*outPoint1, *outPoint2}
+	filter := []channeldb.EdgePoint{
+		{testScript, *outPoint1},
+		{testScript, *outPoint2},
+	}
 	err = chainView.UpdateFilter(filter, uint32(currentHeight))
 	if err != nil {
 		t.Fatalf("unable to update filter: %v", err)
@@ -562,6 +570,13 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 	newBlocks := reorgView.FilteredBlocks()
 	disconnectedBlocks := reorgView.DisconnectedBlocks()
 
+	// If this the neutrino backend, then we'll give it some time to catch
+	// up, as it's a bit slower to consume new blocks compared to the RPC
+	// backends.
+	if _, ok := reorgView.(*CfFilteredChainView); ok {
+		time.Sleep(time.Second * 3)
+	}
+
 	_, oldHeight, err := reorgNode.Node.GetBestBlock()
 	if err != nil {
 		t.Fatalf("unable to get current height: %v", err)
@@ -591,7 +606,8 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 		case block := <-newBlocks:
 			if i < oldHeight {
 				t.Fatalf("did not expect to get new block "+
-					"in iteration %d", i)
+					"in iteration %d, old height: %v", i,
+					oldHeight)
 			}
 			expectedHeight := uint32(i - oldHeight + 1)
 			if block.Height != expectedHeight {

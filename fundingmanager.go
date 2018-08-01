@@ -1752,6 +1752,20 @@ func (f *fundingManager) waitForFundingWithTimeout(completeChan *channeldb.OpenC
 	}
 }
 
+// makeFundingScript re-creates the funding script for the funding transaction
+// of the target channel.
+func makeFundingScript(channel *channeldb.OpenChannel) ([]byte, error) {
+	localKey := channel.LocalChanCfg.MultiSigKey.PubKey.SerializeCompressed()
+	remoteKey := channel.RemoteChanCfg.MultiSigKey.PubKey.SerializeCompressed()
+
+	multiSigScript, err := lnwallet.GenMultiSigScript(localKey, remoteKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return lnwallet.WitnessScriptHash(multiSigScript)
+}
+
 // waitForFundingConfirmation handles the final stages of the channel funding
 // process once the funding transaction has been broadcast. The primary
 // function of waitForFundingConfirmation is to wait for blockchain
@@ -1767,9 +1781,16 @@ func (f *fundingManager) waitForFundingConfirmation(completeChan *channeldb.Open
 	// Register with the ChainNotifier for a notification once the funding
 	// transaction reaches `numConfs` confirmations.
 	txid := completeChan.FundingOutpoint.Hash
+	fundingScript, err := makeFundingScript(completeChan)
+	if err != nil {
+		fndgLog.Errorf("unable to create funding script for "+
+			"ChannelPoint(%v): %v", completeChan.FundingOutpoint, err)
+		return
+	}
 	numConfs := uint32(completeChan.NumConfsRequired)
-	confNtfn, err := f.cfg.Notifier.RegisterConfirmationsNtfn(&txid,
-		numConfs, completeChan.FundingBroadcastHeight)
+	confNtfn, err := f.cfg.Notifier.RegisterConfirmationsNtfn(
+		&txid, fundingScript, numConfs, completeChan.FundingBroadcastHeight,
+	)
 	if err != nil {
 		fndgLog.Errorf("Unable to register for confirmation of "+
 			"ChannelPoint(%v)", completeChan.FundingOutpoint)
@@ -2073,8 +2094,16 @@ func (f *fundingManager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 			shortChanID.ToUint64(), completeChan.FundingOutpoint,
 			numConfs)
 
-		confNtfn, err := f.cfg.Notifier.RegisterConfirmationsNtfn(&txid,
-			numConfs, completeChan.FundingBroadcastHeight)
+		fundingScript, err := makeFundingScript(completeChan)
+		if err != nil {
+			return fmt.Errorf("unable to create funding script for "+
+				"ChannelPoint(%v): %v",
+				completeChan.FundingOutpoint, err)
+		}
+
+		confNtfn, err := f.cfg.Notifier.RegisterConfirmationsNtfn(
+			&txid, fundingScript, numConfs, completeChan.FundingBroadcastHeight,
+		)
 		if err != nil {
 			return fmt.Errorf("Unable to register for "+
 				"confirmation of ChannelPoint(%v): %v",

@@ -997,7 +997,7 @@ func assertNumNodes(t *testing.T, graph *ChannelGraph, n int) {
 	}
 }
 
-func assertChanViewEqual(t *testing.T, a []wire.OutPoint, b []*wire.OutPoint) {
+func assertChanViewEqual(t *testing.T, a []EdgePoint, b []EdgePoint) {
 	if len(a) != len(b) {
 		_, _, line, _ := runtime.Caller(1)
 		t.Fatalf("line %v: chan views don't match", line)
@@ -1005,14 +1005,34 @@ func assertChanViewEqual(t *testing.T, a []wire.OutPoint, b []*wire.OutPoint) {
 
 	chanViewSet := make(map[wire.OutPoint]struct{})
 	for _, op := range a {
-		chanViewSet[op] = struct{}{}
+		chanViewSet[op.OutPoint] = struct{}{}
+	}
+
+	for _, op := range b {
+		if _, ok := chanViewSet[op.OutPoint]; !ok {
+			_, _, line, _ := runtime.Caller(1)
+			t.Fatalf("line %v: chanPoint(%v) not found in first "+
+				"view", line, op)
+		}
+	}
+}
+
+func assertChanViewEqualChanPoints(t *testing.T, a []EdgePoint, b []*wire.OutPoint) {
+	if len(a) != len(b) {
+		_, _, line, _ := runtime.Caller(1)
+		t.Fatalf("line %v: chan views don't match", line)
+	}
+
+	chanViewSet := make(map[wire.OutPoint]struct{})
+	for _, op := range a {
+		chanViewSet[op.OutPoint] = struct{}{}
 	}
 
 	for _, op := range b {
 		if _, ok := chanViewSet[*op]; !ok {
 			_, _, line, _ := runtime.Caller(1)
-			t.Fatalf("line %v: chanPoint(%v) not found in first view",
-				line, op)
+			t.Fatalf("line %v: chanPoint(%v) not found in first "+
+				"view", line, op)
 		}
 	}
 }
@@ -1056,6 +1076,7 @@ func TestGraphPruning(t *testing.T) {
 	// With the vertexes created, we'll next create a series of channels
 	// between them.
 	channelPoints := make([]*wire.OutPoint, 0, numNodes-1)
+	edgePoints := make([]EdgePoint, 0, numNodes-1)
 	for i := 0; i < numNodes-1; i++ {
 		txHash := sha256.Sum256([]byte{byte(i)})
 		chanID := uint64(i + 1)
@@ -1086,6 +1107,17 @@ func TestGraphPruning(t *testing.T) {
 			t.Fatalf("unable to add node: %v", err)
 		}
 
+		pkScript, err := genMultiSigP2WSH(
+			edgeInfo.BitcoinKey1Bytes[:], edgeInfo.BitcoinKey2Bytes[:],
+		)
+		if err != nil {
+			t.Fatalf("unable to gen multi-sig p2wsh: %v", err)
+		}
+		edgePoints = append(edgePoints, EdgePoint{
+			FundingPkScript: pkScript,
+			OutPoint:        op,
+		})
+
 		// Create and add an edge with random data that points from
 		// node_i -> node_i+1
 		edge := randEdgePolicy(chanID, op, db)
@@ -1113,7 +1145,7 @@ func TestGraphPruning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to get graph channel view: %v", err)
 	}
-	assertChanViewEqual(t, channelView, channelPoints)
+	assertChanViewEqual(t, channelView, edgePoints)
 
 	// Now with our test graph created, we can test the pruning
 	// capabilities of the channel graph.
@@ -1145,7 +1177,7 @@ func TestGraphPruning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to get graph channel view: %v", err)
 	}
-	assertChanViewEqual(t, channelView, channelPoints[2:])
+	assertChanViewEqualChanPoints(t, channelView, channelPoints[2:])
 
 	// Next we'll create a block that doesn't close any channels within the
 	// graph to test the negative error case.

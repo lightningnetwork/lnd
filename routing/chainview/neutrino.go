@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcutil/gcs/builder"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/neutrino"
+	"github.com/lightningnetwork/lnd/channeldb"
 )
 
 // CfFilteredChainView is an implementation of the FilteredChainView interface
@@ -96,7 +97,7 @@ func (c *CfFilteredChainView) Start() error {
 	// required that an user MUST set a addr/outpoint/txid when creating a
 	// rescan. To get around this, we'll add a "zero" outpoint, that won't
 	// actually be matched.
-	var zeroPoint wire.OutPoint
+	var zeroPoint neutrino.InputWithScript
 	rescanOptions := []neutrino.RescanOption{
 		neutrino.StartBlock(startingPoint),
 		neutrino.QuitChan(c.quit),
@@ -106,7 +107,7 @@ func (c *CfFilteredChainView) Start() error {
 				OnFilteredBlockDisconnected: c.onFilteredBlockDisconnected,
 			},
 		),
-		neutrino.WatchOutPoints(zeroPoint),
+		neutrino.WatchInputs(zeroPoint),
 	}
 
 	// Finally, we'll create our rescan struct, start it, and launch all
@@ -314,7 +315,7 @@ func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredB
 // rewound to ensure all relevant notifications are dispatched.
 //
 // NOTE: This is part of the FilteredChainView interface.
-func (c *CfFilteredChainView) UpdateFilter(ops []wire.OutPoint,
+func (c *CfFilteredChainView) UpdateFilter(ops []channeldb.EdgePoint,
 	updateHeight uint32) error {
 
 	log.Debugf("Updating chain filter with new UTXO's: %v", ops)
@@ -323,14 +324,22 @@ func (c *CfFilteredChainView) UpdateFilter(ops []wire.OutPoint,
 	// UTXO's, ignoring duplicates in the process.
 	c.filterMtx.Lock()
 	for _, op := range ops {
-		c.chainFilter[op] = builder.OutPointToFilterEntry(op)
+		c.chainFilter[op.OutPoint] = op.FundingPkScript
 	}
 	c.filterMtx.Unlock()
+
+	inputs := make([]neutrino.InputWithScript, len(ops))
+	for i, op := range ops {
+		inputs[i] = neutrino.InputWithScript{
+			PkScript: op.FundingPkScript,
+			OutPoint: op.OutPoint,
+		}
+	}
 
 	// With our internal chain view update, we'll craft a new update to the
 	// chainView which includes our new UTXO's, and current update height.
 	rescanUpdate := []neutrino.UpdateOption{
-		neutrino.AddOutPoints(ops...),
+		neutrino.AddInputs(inputs...),
 		neutrino.Rewind(updateHeight),
 		neutrino.DisableDisconnectedNtfns(true),
 	}

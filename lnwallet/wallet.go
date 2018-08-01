@@ -458,11 +458,36 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 		return
 	}
 
+	// If we're on the receiving end of a single funder channel then we
+	// don't need to perform any coin selection. Otherwise, attempt to
+	// obtain enough coins to meet the required funding amount.
+	var selectedCoins []*Utxo
+	var changeAmt btcutil.Amount
+	if req.fundingAmount != 0 {
+		var err error
+		var selectedAmt btcutil.Amount
+		// Coin selection is done on the basis of sat-per-vbyte, we'll
+		// use the passed sat/vbyte passed in to perform coin selection.
+		selectedCoins, selectedAmt, changeAmt, err = l.selectCoinsAndChange(
+			req.fundingFeePerVSize, req.fundingAmount)
+		if err != nil {
+			req.err <- err
+			req.resp <- nil
+			return
+		}
+
+		// FIXME(simon): This doesn't work for dual funder channels.
+		req.capacity = selectedAmt
+		req.fundingAmount = selectedAmt
+	}
+
 	id := atomic.AddUint64(&l.nextFundingID, 1)
 	reservation, err := NewChannelReservation(req.capacity, req.fundingAmount,
 		req.commitFeePerKw, l, id, req.pushMSat,
 		l.Cfg.NetParams.GenesisHash, req.flags)
 	if err != nil {
+		// TODO(simon): Should we release the coins reserved in
+		// selectCoinsAndChange here?
 		req.err <- err
 		req.resp <- nil
 		return
@@ -475,20 +500,40 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	reservation.nodeAddr = req.nodeAddr
 	reservation.partialState.IdentityPub = req.nodeID
 
-	// If we're on the receiving end of a single funder channel then we
-	// don't need to perform any coin selection. Otherwise, attempt to
-	// obtain enough coins to meet the required funding amount.
-	if req.fundingAmount != 0 {
-		// Coin selection is done on the basis of sat-per-vbyte, we'll
-		// use the passed sat/vbyte passed in to perform coin selection.
-		err := l.selectCoinsAndChange(
-			req.fundingFeePerVSize, req.fundingAmount,
-			reservation.ourContribution,
-		)
-		if err != nil {
-			req.err <- err
-			req.resp <- nil
-			return
+	// Attach the previously selected coins to the funding reservation.
+	if selectedCoins != nil {
+		contribution := reservation.ourContribution
+		contribution.Inputs = make([]*wire.TxIn, len(selectedCoins))
+		for i, coin := range selectedCoins {
+			outpoint := &coin.OutPoint
+
+			// Empty sig script, we'll actually sign if this reservation is
+			// queued up to be completed (the other side accepts).
+			contribution.Inputs[i] = wire.NewTxIn(outpoint, nil, nil)
+		}
+
+		// Record any change output(s) generated as a result of the coin
+		// selection, but only if the addition of the output won't lead to the
+		// creation of dust.
+		if changeAmt != 0 && changeAmt > DefaultDustLimit() {
+			changeAddr, err := l.NewAddress(WitnessPubKey, true)
+			if err != nil {
+				req.err <- err
+				req.resp <- nil
+				return
+			}
+			changeScript, err := txscript.PayToAddrScript(changeAddr)
+			if err != nil {
+				req.err <- err
+				req.resp <- nil
+				return
+			}
+
+			contribution.ChangeOutputs = make([]*wire.TxOut, 1)
+			contribution.ChangeOutputs[0] = &wire.TxOut{
+				Value:    int64(changeAmt),
+				PkScript: changeScript,
+			}
 		}
 	}
 
@@ -1267,7 +1312,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 // also be generated.
 // TODO(roasbeef): remove hardcoded fees and req'd confs for outputs.
 func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerVByte,
-	amt btcutil.Amount, contribution *ChannelContribution) error {
+	amt btcutil.Amount) ([]*Utxo, btcutil.Amount, btcutil.Amount, error) {
 
 	// We hold the coin select mutex while querying for outputs, and
 	// performing coin selection in order to avoid inadvertent double
@@ -1283,52 +1328,27 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerVByte,
 	// TODO(roasbeef): make num confs a configuration parameter
 	coins, err := l.ListUnspentWitness(1)
 	if err != nil {
-		return err
+		return nil, 0, 0, err
 	}
 
 	// Perform coin selection over our available, unlocked unspent outputs
 	// in order to find enough coins to meet the funding amount
 	// requirements.
-	selectedCoins, changeAmt, err := coinSelect(feeRate, amt, coins)
+	selectedCoins, selectedAmt, changeAmt, err := coinSelect(feeRate, amt, coins)
 	if err != nil {
-		return err
+		return nil, 0, 0, err
 	}
 
 	// Lock the selected coins. These coins are now "reserved", this
 	// prevents concurrent funding requests from referring to and this
 	// double-spending the same set of coins.
-	contribution.Inputs = make([]*wire.TxIn, len(selectedCoins))
-	for i, coin := range selectedCoins {
+	for _, coin := range selectedCoins {
 		outpoint := &coin.OutPoint
 		l.lockedOutPoints[*outpoint] = struct{}{}
 		l.LockOutpoint(*outpoint)
-
-		// Empty sig script, we'll actually sign if this reservation is
-		// queued up to be completed (the other side accepts).
-		contribution.Inputs[i] = wire.NewTxIn(outpoint, nil, nil)
 	}
 
-	// Record any change output(s) generated as a result of the coin
-	// selection, but only if the addition of the output won't lead to the
-	// creation of dust.
-	if changeAmt != 0 && changeAmt > DefaultDustLimit() {
-		changeAddr, err := l.NewAddress(WitnessPubKey, true)
-		if err != nil {
-			return err
-		}
-		changeScript, err := txscript.PayToAddrScript(changeAddr)
-		if err != nil {
-			return err
-		}
-
-		contribution.ChangeOutputs = make([]*wire.TxOut, 1)
-		contribution.ChangeOutputs[0] = &wire.TxOut{
-			Value:    int64(changeAmt),
-			PkScript: changeScript,
-		}
-	}
-
-	return nil
+	return selectedCoins, selectedAmt, changeAmt, err
 }
 
 // DeriveStateHintObfuscator derives the bytes to be used for obfuscating the
@@ -1367,80 +1387,69 @@ func initStateHints(commit1, commit2 *wire.MsgTx,
 	return nil
 }
 
-// selectInputs selects a slice of inputs necessary to meet the specified
-// selection amount. If input selection is unable to succeed due to insufficient
-// funds, a non-nil error is returned. Additionally, the total amount of the
-// selected coins are returned in order for the caller to properly handle
-// change+fees.
-func selectInputs(amt btcutil.Amount, coins []*Utxo) (btcutil.Amount, []*Utxo, error) {
+// selectInputsAndFees selects a slice of inputs necessary to meet the specified
+// selection amount. If successful, the selected amount is returned minus the
+// fees. If input selection is unable to succeed due to insufficient funds, a
+// non-nil error is returned. Additionally, the total amount of the selected
+// coins are returned in order for the caller to properly handle change.
+func selectInputsAndFees(feeRate SatPerVByte, amt btcutil.Amount,
+	coins []*Utxo) (btcutil.Amount, btcutil.Amount, []*Utxo, error) {
 	satSelected := btcutil.Amount(0)
+	requiredFee := btcutil.Amount(0)
+
+	var weightEstimate TxWeightEstimator
+
+	// Channel funding multisig output is P2WSH.
+	weightEstimate.AddP2WSHOutput()
+
+	// Assume that change output is a P2WKH output.
+	//
+	// TODO: Handle wallets that generate non-witness change
+	// addresses.
+	weightEstimate.AddP2WKHOutput()
+
 	for i, coin := range coins {
 		satSelected += coin.Value
+
+		switch coin.AddressType {
+		case WitnessPubKey:
+			weightEstimate.AddP2WKHInput()
+		case NestedWitnessPubKey:
+			weightEstimate.AddNestedP2WKHInput()
+		default:
+			return 0, 0, nil, fmt.Errorf("Unsupported address type: %v",
+				coin.AddressType)
+		}
+
+		requiredFee = feeRate.FeeForVSize(int64(weightEstimate.VSize()))
+
 		if satSelected >= amt {
-			return satSelected, coins[:i+1], nil
+			return satSelected, requiredFee, coins[:i+1], nil
 		}
 	}
-	return 0, nil, &ErrInsufficientFunds{amt, satSelected}
+
+	return 0, 0, nil, &ErrInsufficientFunds{amt, satSelected}
 }
 
 // coinSelect attempts to select a sufficient amount of coins, including a
-// change output to fund amt satoshis, adhering to the specified fee rate. The
-// specified fee rate should be expressed in sat/vbyte for coin selection to
-// function properly.
+// change output to fund amt satoshis inclusive of the fee at the specified fee
+// rate. The specified fee rate should be expressed in sat/vbyte for coin
+// selection to function properly.
 func coinSelect(feeRate SatPerVByte, amt btcutil.Amount,
-	coins []*Utxo) ([]*Utxo, btcutil.Amount, error) {
-
-	amtNeeded := amt
-	for {
-		// First perform an initial round of coin selection to estimate
-		// the required fee.
-		totalSat, selectedUtxos, err := selectInputs(amtNeeded, coins)
-		if err != nil {
-			return nil, 0, err
-		}
-
-		var weightEstimate TxWeightEstimator
-
-		for _, utxo := range selectedUtxos {
-			switch utxo.AddressType {
-			case WitnessPubKey:
-				weightEstimate.AddP2WKHInput()
-			case NestedWitnessPubKey:
-				weightEstimate.AddNestedP2WKHInput()
-			default:
-				return nil, 0, fmt.Errorf("Unsupported address type: %v",
-					utxo.AddressType)
-			}
-		}
-
-		// Channel funding multisig output is P2WSH.
-		weightEstimate.AddP2WSHOutput()
-
-		// Assume that change output is a P2WKH output.
-		//
-		// TODO: Handle wallets that generate non-witness change
-		// addresses.
-		weightEstimate.AddP2WKHOutput()
-
-		// The difference between the selected amount and the amount
-		// requested will be used to pay fees, and generate a change
-		// output with the remaining.
-		overShootAmt := totalSat - amt
-
-		// Based on the estimated size and fee rate, if the excess
-		// amount isn't enough to pay fees, then increase the requested
-		// coin amount by the estimate required fee, performing another
-		// round of coin selection.
-		requiredFee := feeRate.FeeForVSize(int64(weightEstimate.VSize()))
-		if overShootAmt < requiredFee {
-			amtNeeded = amt + requiredFee
-			continue
-		}
-
-		// If the fee is sufficient, then calculate the size of the
-		// change output.
-		changeAmt := overShootAmt - requiredFee
-
-		return selectedUtxos, changeAmt, nil
+	coins []*Utxo) ([]*Utxo, btcutil.Amount, btcutil.Amount, error) {
+	// Select enough outputs from our wallet to cover the requested amount.
+	totalSat, requiredFee, selectedUtxos, err := selectInputsAndFees(feeRate, amt, coins)
+	if err != nil {
+		return nil, 0, 0, err
 	}
+
+	// The selected amount is returned minus the fees that this transaction
+	// requires.
+	selectedAmt := amt - requiredFee
+
+	// Calculate the size of the change output given the selectedAmt that's
+	// being spent.
+	changeAmt := totalSat - amt
+
+	return selectedUtxos, selectedAmt, changeAmt, nil
 }

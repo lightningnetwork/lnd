@@ -2552,6 +2552,11 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		return
 	}
 
+	// The channel capacity and localAmt can be updated during channel
+	// reservation.
+	capacity = reservation.Capacity
+	localAmt = reservation.OurContribution().FundingAmount
+
 	// Obtain a new pending channel ID which is used to track this
 	// reservation throughout its lifetime.
 	chanID := f.nextPendingChanID()

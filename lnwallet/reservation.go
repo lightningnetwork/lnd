@@ -128,6 +128,11 @@ type ChannelReservation struct {
 	chanOpenErr chan error
 
 	wallet *LightningWallet
+
+	// Capacity is the chosen capacity of this channel. This may be less than
+	// the supplied capacity if fees were subtracted during the channel
+	// reservation.
+	Capacity btcutil.Amount
 }
 
 // NewChannelReservation creates a new channel reservation. This function is
@@ -261,6 +266,7 @@ func NewChannelReservation(capacity, fundingAmt btcutil.Amount,
 		chanOpen:      make(chan *openChanDetails, 1),
 		chanOpenErr:   make(chan error, 1),
 		wallet:        wallet,
+		Capacity:      capacity,
 	}, nil
 }
 

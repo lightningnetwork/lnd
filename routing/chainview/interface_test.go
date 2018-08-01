@@ -570,6 +570,13 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 	newBlocks := reorgView.FilteredBlocks()
 	disconnectedBlocks := reorgView.DisconnectedBlocks()
 
+	// If this the neutrino backend, then we'll give it some time to catch
+	// up, as it's a bit slower to consume new blocks compared to the RPC
+	// backends.
+	if _, ok := reorgView.(*CfFilteredChainView); ok {
+		time.Sleep(time.Second * 3)
+	}
+
 	_, oldHeight, err := reorgNode.Node.GetBestBlock()
 	if err != nil {
 		t.Fatalf("unable to get current height: %v", err)
@@ -599,7 +606,8 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 		case block := <-newBlocks:
 			if i < oldHeight {
 				t.Fatalf("did not expect to get new block "+
-					"in iteration %d", i)
+					"in iteration %d, old height: %v", i,
+					oldHeight)
 			}
 			expectedHeight := uint32(i - oldHeight + 1)
 			if block.Height != expectedHeight {

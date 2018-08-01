@@ -37,6 +37,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/lightningnetwork/lnd/tor"
 )
 
@@ -322,6 +323,10 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		ExtractErrorEncrypter:  s.sphinx.ExtractErrorEncrypter,
 		FetchLastChannelUpdate: fetchLastChanUpdate(s, serializedPubKey),
 		Notifier:               s.cc.chainNotifier,
+		FwdEventTicker: ticker.New(
+			htlcswitch.DefaultFwdEventInterval),
+		LogEventTicker: ticker.New(
+			htlcswitch.DefaultLogInterval),
 	}, uint32(currentHeight))
 	if err != nil {
 		return nil, err

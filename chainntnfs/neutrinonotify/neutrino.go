@@ -48,11 +48,12 @@ var (
 // TODO(roasbeef): heavily consolidate with NeutrinoNotifier code
 //  * maybe combine into single package?
 type NeutrinoNotifier struct {
-	started int32 // To be used atomically.
-	stopped int32 // To be used atomically.
-
+	confClientCounter  uint64 // To be used atomically.
 	spendClientCounter uint64 // To be used atomically.
 	epochClientCounter uint64 // To be used atomically.
+
+	started int32 // To be used atomically.
+	stopped int32 // To be used atomically.
 
 	heightMtx  sync.RWMutex
 	bestHeight uint32
@@ -306,31 +307,48 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 				currentHeight := n.bestHeight
 				n.heightMtx.RUnlock()
 
-				// Lookup whether the transaction is already included in the
-				// active chain.
-				txConf, err := n.historicalConfDetails(msg.TxID, currentHeight,
-					msg.heightHint)
-				if err != nil {
-					chainntnfs.Log.Error(err)
-				}
+				// Look up whether the transaction is already
+				// included in the active chain. We'll do this
+				// in a goroutine to prevent blocking
+				// potentially long rescans.
+				n.wg.Add(1)
+				go func() {
+					defer n.wg.Done()
 
-				if txConf == nil {
-					// If we can't fully dispatch confirmation,
-					// then we'll update our filter so we can be
-					// notified of its future initial confirmation.
+					confDetails, err := n.historicalConfDetails(
+						msg.TxID, currentHeight,
+						msg.heightHint,
+					)
+					if err != nil {
+						chainntnfs.Log.Error(err)
+					}
+
+					if confDetails != nil {
+						err := n.txConfNotifier.UpdateConfDetails(
+							*msg.TxID, msg.ConfID,
+							confDetails,
+						)
+						if err != nil {
+							chainntnfs.Log.Error(err)
+						}
+						return
+					}
+
+					// If we can't fully dispatch
+					// confirmation, then we'll update our
+					// filter so we can be notified of its
+					// future initial confirmation.
 					rescanUpdate := []neutrino.UpdateOption{
 						neutrino.AddTxIDs(*msg.TxID),
 						neutrino.Rewind(currentHeight),
 					}
-					if err := n.chainView.Update(rescanUpdate...); err != nil {
-						chainntnfs.Log.Errorf("unable to update rescan: %v", err)
+					err = n.chainView.Update(rescanUpdate...)
+					if err != nil {
+						chainntnfs.Log.Errorf("Unable "+
+							"to update rescan: %v",
+							err)
 					}
-				}
-
-				err = n.txConfNotifier.Register(&msg.ConfNtfn, txConf)
-				if err != nil {
-					chainntnfs.Log.Error(err)
-				}
+				}()
 
 			case *blockEpochRegistration:
 				chainntnfs.Log.Infof("New block epoch subscription")
@@ -400,6 +418,14 @@ func (n *NeutrinoNotifier) historicalConfDetails(targetHash *chainhash.Hash,
 	// Starting from the height hint, we'll walk forwards in the chain to
 	// see if this transaction has already been confirmed.
 	for scanHeight := heightHint; scanHeight <= currentHeight; scanHeight++ {
+		// Ensure we haven't been requested to shut down before
+		// processing the next height.
+		select {
+		case <-n.quit:
+			return nil, ErrChainNotifierShuttingDown
+		default:
+		}
+
 		// First, we'll fetch the block header for this height so we
 		// can compute the current block hash.
 		header, err := n.p2pNode.BlockHeaders.FetchHeaderByHeight(scanHeight)
@@ -696,6 +722,7 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 
 	ntfn := &confirmationsNotification{
 		ConfNtfn: chainntnfs.ConfNtfn{
+			ConfID:           atomic.AddUint64(&n.confClientCounter, 1),
 			TxID:             txid,
 			NumConfirmations: numConfs,
 			Event:            chainntnfs.NewConfirmationEvent(numConfs),
@@ -703,11 +730,15 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 		heightHint: heightHint,
 	}
 
+	if err := n.txConfNotifier.Register(&ntfn.ConfNtfn); err != nil {
+		return nil, err
+	}
+
 	select {
-	case <-n.quit:
-		return nil, ErrChainNotifierShuttingDown
 	case n.notificationRegistry <- ntfn:
 		return ntfn.Event, nil
+	case <-n.quit:
+		return nil, ErrChainNotifierShuttingDown
 	}
 }
 

@@ -867,69 +867,14 @@ func testSpendBeforeNtfnRegistration(miner *rpctest.Harness,
 	// concrete implementations.
 	//
 	// To do so, we first create a new output to our test target address.
-	txid, err := getTestTxId(miner)
-	if err != nil {
-		t.Fatalf("unable to create test addr: %v", err)
-	}
+	outpoint, pkScript := createSpendableOutput(miner, t)
 
-	err = waitForMempoolTx(miner, txid)
-	if err != nil {
-		t.Fatalf("tx not relayed to miner: %v", err)
-	}
-
-	// Mine a single block which should include that txid above.
-	if _, err := miner.Node.Generate(1); err != nil {
-		t.Fatalf("unable to generate single block: %v", err)
-	}
-
-	// Now that we have the txid, fetch the transaction itself.
-	wrappedTx, err := miner.Node.GetRawTransaction(txid)
-	if err != nil {
-		t.Fatalf("unable to get new tx: %v", err)
-	}
-	tx := wrappedTx.MsgTx()
-
-	// Locate the output index sent to us. We need this so we can construct
-	// a spending txn below.
-	outIndex := -1
-	var pkScript []byte
-	for i, txOut := range tx.TxOut {
-		if bytes.Contains(txOut.PkScript, testAddr.ScriptAddress()) {
-			pkScript = txOut.PkScript
-			outIndex = i
-			break
-		}
-	}
-	if outIndex == -1 {
-		t.Fatalf("unable to locate new output")
-	}
-
-	// Now that we've found the output index, register for a spentness
-	// notification for the newly created output.
-	outpoint := wire.NewOutPoint(txid, uint32(outIndex))
-
-	// Next, create a new transaction spending that output.
-	spendingTx := wire.NewMsgTx(1)
-	spendingTx.AddTxIn(&wire.TxIn{
-		PreviousOutPoint: *outpoint,
-	})
-	spendingTx.AddTxOut(&wire.TxOut{
-		Value:    1e8,
-		PkScript: pkScript,
-	})
-	sigScript, err := txscript.SignatureScript(spendingTx, 0, pkScript,
-		txscript.SigHashAll, privKey, true)
-	if err != nil {
-		t.Fatalf("unable to sign tx: %v", err)
-	}
-	spendingTx.TxIn[0].SignatureScript = sigScript
-
-	// Broadcast our spending transaction.
+	// We'll then spend this output and broadcast the spend transaction.
+	spendingTx := createSpendTx(outpoint, pkScript, t)
 	spenderSha, err := miner.Node.SendRawTransaction(spendingTx, true)
 	if err != nil {
 		t.Fatalf("unable to broadcast tx: %v", err)
 	}
-
 	err = waitForMempoolTx(miner, spenderSha)
 	if err != nil {
 		t.Fatalf("tx not relayed to miner: %v", err)

@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/gcs/builder"
@@ -317,8 +318,19 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 					defer n.wg.Done()
 
 					confDetails, err := n.historicalConfDetails(
-						msg.TxID, currentHeight,
-						msg.heightHint,
+						msg.TxID, msg.pkScript, currentHeight, msg.heightHint,
+					)
+					if err != nil {
+						chainntnfs.Log.Error(err)
+					}
+
+					// We'll map the script into an address
+					// type so we can instruct neutrino to
+					// match if the transaction containing
+					// the script is found in a block.
+					params := n.p2pNode.ChainParams()
+					_, addrs, _, err := txscript.ExtractPkScriptAddrs(
+						msg.pkScript, &params,
 					)
 					if err != nil {
 						chainntnfs.Log.Error(err)

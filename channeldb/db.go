@@ -456,7 +456,7 @@ func fetchChannels(d *DB, pending, waitingClose bool) ([]*OpenChannel, error) {
 					// than Default, then it means it is
 					// waiting to be closed.
 					channelWaitingClose :=
-						channel.ChanStatus != Default
+						channel.ChanStatus() != Default
 
 					// Only include it if we requested
 					// channels with the same waitingClose

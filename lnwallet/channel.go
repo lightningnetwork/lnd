@@ -10,12 +10,12 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/btcsuite/btcd/blockchain"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"
@@ -66,7 +66,8 @@ var (
 
 	// ErrCannotSyncCommitChains is returned if, upon receiving a ChanSync
 	// message, the state machine deems that is unable to properly
-	// synchronize states with the remote peer.
+	// synchronize states with the remote peer. In this case we should fail
+	// the channel, but we won't automatically force close.
 	ErrCannotSyncCommitChains = fmt.Errorf("unable to sync commit chains")
 
 	// ErrInvalidLastCommitSecret is returned in the case that the
@@ -74,12 +75,31 @@ var (
 	// ChannelReestablish message doesn't match the last secret we sent.
 	ErrInvalidLastCommitSecret = fmt.Errorf("commit secret is incorrect")
 
-	// ErrCommitSyncDataLoss is returned in the case that we receive a
+	// ErrInvalidLocalUnrevokedCommitPoint is returned in the case that the
+	// commitment point sent by the remote party in their
+	// ChannelReestablish message doesn't match the last unrevoked commit
+	// point they sent us.
+	ErrInvalidLocalUnrevokedCommitPoint = fmt.Errorf("unrevoked commit " +
+		"point is invalid")
+
+	// ErrCommitSyncLocalDataLoss is returned in the case that we receive a
 	// valid commit secret within the ChannelReestablish message from the
 	// remote node AND they advertise a RemoteCommitTailHeight higher than
-	// our current known height.
-	ErrCommitSyncDataLoss = fmt.Errorf("possible commitment state data " +
-		"loss")
+	// our current known height. This means we have lost some critical
+	// data, and must fail the channel and MUST NOT force close it. Instead
+	// we should wait for the remote to force close it, such that we can
+	// attempt to sweep our funds.
+	ErrCommitSyncLocalDataLoss = fmt.Errorf("possible local commitment " +
+		"state data loss")
+
+	// ErrCommitSyncRemoteDataLoss is returned in the case that we receive
+	// a ChannelReestablish message from the remote that advertises a
+	// NextLocalCommitHeight that is lower than what they have already
+	// ACKed, or a RemoteCommitTailHeight that is lower than our revoked
+	// height. In this case we should force close the channel such that
+	// both parties can retrieve their funds.
+	ErrCommitSyncRemoteDataLoss = fmt.Errorf("possible remote commitment " +
+		"state data loss")
 )
 
 // channelState is an enum like type which represents the current state of a
@@ -3113,18 +3133,6 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 	msg *lnwire.ChannelReestablish) ([]lnwire.Message, []channeldb.CircuitKey,
 	[]channeldb.CircuitKey, error) {
 
-	// We owe them a commitment if they have an un-acked commitment and the
-	// tip of their chain (from our Pov) is equal to what they think their
-	// next commit height should be.
-	remoteChainTip := lc.remoteCommitChain.tip()
-	oweCommitment := (lc.remoteCommitChain.hasUnackedCommitment() &&
-		msg.NextLocalCommitHeight == remoteChainTip.height)
-
-	// We owe them a revocation if the tail of our current commitment is
-	// one greater than what they _think_ our commitment tail is.
-	localChainTail := lc.localCommitChain.tail()
-	oweRevocation := localChainTail.height == msg.RemoteCommitTailHeight+1
-
 	// Now we'll examine the state we have, vs what was contained in the
 	// chain sync message. If we're de-synchronized, then we'll send a
 	// batch of messages which when applied will kick start the chain
@@ -3138,7 +3146,6 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 	// If the remote party included the optional fields, then we'll verify
 	// their correctness first, as it will influence our decisions below.
 	hasRecoveryOptions := msg.LocalUnrevokedCommitPoint != nil
-	commitSecretCorrect := true
 	if hasRecoveryOptions && msg.RemoteCommitTailHeight != 0 {
 		// We'll check that they've really sent a valid commit
 		// secret from our shachain for our prior height, but only if
@@ -3149,29 +3156,107 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		commitSecretCorrect = bytes.Equal(
+		commitSecretCorrect := bytes.Equal(
 			heightSecret[:], msg.LastRemoteCommitSecret[:],
 		)
+
+		// If the commit secret they sent is incorrect then we'll fail
+		// the channel as the remote node has an inconsistent state.
+		if !commitSecretCorrect {
+			// In this case, we'll return an error to indicate the
+			// remote node sent us the wrong values. This will let
+			// the caller act accordingly.
+			walletLog.Errorf("ChannelPoint(%v), sync failed: "+
+				"remote provided invalid commit secret!",
+				lc.channelState.FundingOutpoint)
+			return nil, nil, nil, ErrInvalidLastCommitSecret
+		}
 	}
 
-	// TODO(roasbeef): check validity of commitment point after the fact
+	// Take note of our current commit chain heights before we begin adding
+	// more to them.
+	var (
+		localTailHeight  = lc.localCommitChain.tail().height
+		remoteTailHeight = lc.remoteCommitChain.tail().height
+		remoteTipHeight  = lc.remoteCommitChain.tip().height
+	)
 
-	// If the commit secret they sent is incorrect then we'll fail the
-	// channel as the remote node has an inconsistent state.
-	if !commitSecretCorrect {
-		// In this case, we'll return an error to indicate the remote
-		// node sent us the wrong values. This will let the caller act
-		// accordingly.
-		return nil, nil, nil, ErrInvalidLastCommitSecret
-	}
-
+	// We'll now check that their view of our local chain is up-to-date.
+	// This means checking that what their view of our local chain tail
+	// height is what they believe. Note that the tail and tip height will
+	// always be the same for the local chain at this stage, as we won't
+	// store any received commitment to disk before it is ACKed.
 	switch {
-	// If we owe the remote party a revocation message, then we'll re-send
-	// the last revocation message that we sent. This will be the
-	// revocation message for our prior chain tail.
-	case oweRevocation:
+
+	// If their reported height for our local chain tail is ahead of our
+	// view, then we're behind!
+	case msg.RemoteCommitTailHeight > localTailHeight:
+		walletLog.Errorf("ChannelPoint(%v), sync failed with local "+
+			"data loss: remote believes our tail height is %v, "+
+			"while we have %v!", lc.channelState.FundingOutpoint,
+			msg.RemoteCommitTailHeight, localTailHeight)
+
+		// We must check that we had recovery options to ensure the
+		// commitment secret matched up, and the remote is just not
+		// lying about its height.
+		if !hasRecoveryOptions {
+			// At this point we the remote is either lying about
+			// its height, or we are actually behind but the remote
+			// doesn't support data loss protection. In either case
+			// it is not safe for us to keep using the channel, so
+			// we mark it borked and fail the channel.
+			if err := lc.channelState.MarkBorked(); err != nil {
+				return nil, nil, nil, err
+			}
+
+			walletLog.Errorf("ChannelPoint(%v), sync failed: "+
+				"local data loss, but no recovery option.",
+				lc.channelState.FundingOutpoint)
+			return nil, nil, nil, ErrCannotSyncCommitChains
+		}
+
+		// In this case, we've likely lost data and shouldn't proceed
+		// with channel updates. So we'll store the commit point we
+		// were given in the database, such that we can attempt to
+		// recover the funds if the remote force closes the channel.
+		err := lc.channelState.MarkDataLoss(
+			msg.LocalUnrevokedCommitPoint,
+		)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return nil, nil, nil, ErrCommitSyncLocalDataLoss
+
+	// If the height of our commitment chain reported by the remote party
+	// is behind our view of the chain, then they probably lost some state,
+	// and we'll force close the channel.
+	case msg.RemoteCommitTailHeight+1 < localTailHeight:
+		walletLog.Errorf("ChannelPoint(%v), sync failed: remote "+
+			"believes our tail height is %v, while we have %v!",
+			lc.channelState.FundingOutpoint,
+			msg.RemoteCommitTailHeight, localTailHeight)
+
+		if err := lc.channelState.MarkBorked(); err != nil {
+			return nil, nil, nil, err
+		}
+		return nil, nil, nil, ErrCommitSyncRemoteDataLoss
+
+	// Their view of our commit chain is consistent with our view.
+	case msg.RemoteCommitTailHeight == localTailHeight:
+		// In sync, don't have to do anything.
+
+	// We owe them a revocation if the tail of our current commitment chain
+	// is one greater than what they _think_ our commitment tail is. In
+	// this case we'll re-send the last revocation message that we sent.
+	// This will be the revocation message for our prior chain tail.
+	case msg.RemoteCommitTailHeight+1 == localTailHeight:
+		walletLog.Debugf("ChannelPoint(%v), sync: remote believes "+
+			"our tail height is %v, while we have %v, we owe "+
+			"them a revocation", lc.channelState.FundingOutpoint,
+			msg.RemoteCommitTailHeight, localTailHeight)
+
 		revocationMsg, err := lc.generateRevocation(
-			localChainTail.height - 1,
+			localTailHeight - 1,
 		)
 		if err != nil {
 			return nil, nil, nil, err
@@ -3211,32 +3296,67 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 			}
 		}
 
-	// If we don't owe the remote party a revocation, but their value for
-	// what our remote chain tail should be doesn't match up, and their
-	// purported commitment secrete matches up, then we'll behind!
-	case (msg.RemoteCommitTailHeight > localChainTail.height &&
-		hasRecoveryOptions && commitSecretCorrect):
+	// There should be no other possible states.
+	default:
+		walletLog.Errorf("ChannelPoint(%v), sync failed: remote "+
+			"believes our tail height is %v, while we have %v!",
+			lc.channelState.FundingOutpoint,
+			msg.RemoteCommitTailHeight, localTailHeight)
 
-		// In this case, we've likely lost data and shouldn't proceed
-		// with channel updates. So we'll return the appropriate error
-		// to signal to the caller the current state.
-		return nil, nil, nil, ErrCommitSyncDataLoss
-
-	// If we don't owe them a revocation, and the height of our commitment
-	// chain reported by the remote party is not equal to our chain tail,
-	// then we cannot sync.
-	case !oweRevocation && localChainTail.height != msg.RemoteCommitTailHeight:
 		if err := lc.channelState.MarkBorked(); err != nil {
 			return nil, nil, nil, err
 		}
-
 		return nil, nil, nil, ErrCannotSyncCommitChains
 	}
 
-	// If we owe them a commitment, then we'll read from disk our
-	// commitment diff, so we can re-send them to the remote party.
-	if oweCommitment {
-		// Grab the current remote chain tip from the database. This
+	// Now check if our view of the remote chain is consistent with what
+	// they tell us.
+	switch {
+
+	// The remote's view of what their next commit height is 2+ states
+	// ahead of us, we most likely lost data, or the remote is trying to
+	// trick us. Since we have no way of verifying whether they are lying
+	// or not, we will fail the channel, but should not force close it
+	// automatically.
+	case msg.NextLocalCommitHeight > remoteTipHeight+1:
+		walletLog.Errorf("ChannelPoint(%v), sync failed: remote's "+
+			"next commit height is %v, while we believe it is %v!",
+			lc.channelState.FundingOutpoint,
+			msg.NextLocalCommitHeight, remoteTipHeight)
+
+		if err := lc.channelState.MarkBorked(); err != nil {
+			return nil, nil, nil, err
+		}
+		return nil, nil, nil, ErrCannotSyncCommitChains
+
+	// They are waiting for a state they have already ACKed.
+	case msg.NextLocalCommitHeight <= remoteTailHeight:
+		walletLog.Errorf("ChannelPoint(%v), sync failed: remote's "+
+			"next commit height is %v, while we believe it is %v!",
+			lc.channelState.FundingOutpoint,
+			msg.NextLocalCommitHeight, remoteTipHeight)
+
+		// They previously ACKed our current tail, and now they are
+		// waiting for it. They probably lost state.
+		if err := lc.channelState.MarkBorked(); err != nil {
+			return nil, nil, nil, err
+		}
+		return nil, nil, nil, ErrCommitSyncRemoteDataLoss
+
+	// They have received our latest commitment, life is good.
+	case msg.NextLocalCommitHeight == remoteTipHeight+1:
+
+	// We owe them a commitment if the tip of their chain (from our Pov) is
+	// equal to what they think their next commit height should be. We'll
+	// re-send all the updates neccessary to recreate this state, along
+	// with the commit sig.
+	case msg.NextLocalCommitHeight == remoteTipHeight:
+		walletLog.Debugf("ChannelPoint(%v), sync: remote's next "+
+			"commit height is %v, while we believe it is %v, we "+
+			"owe them a commitment", lc.channelState.FundingOutpoint,
+			msg.NextLocalCommitHeight, remoteTipHeight)
+
+		// Grab the current remote chain tip from the database.  This
 		// commit diff contains all the information required to re-sync
 		// our states.
 		commitDiff, err := lc.channelState.RemoteCommitChainTip()
@@ -3258,15 +3378,52 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		openedCircuits = commitDiff.OpenedCircuitKeys
 		closedCircuits = commitDiff.ClosedCircuitKeys
 
-	} else if remoteChainTip.height+1 != msg.NextLocalCommitHeight {
+	// There should be no other possible states as long as the commit chain
+	// can have at most two elements. If that's the case, something is
+	// wrong.
+	default:
+		walletLog.Errorf("ChannelPoint(%v), sync failed: remote's "+
+			"next commit height is %v, while we believe it is %v!",
+			lc.channelState.FundingOutpoint,
+			msg.NextLocalCommitHeight, remoteTipHeight)
+
 		if err := lc.channelState.MarkBorked(); err != nil {
 			return nil, nil, nil, err
 		}
-
-		// If we don't owe them a commitment, yet the tip of their
-		// chain isn't one more than the next local commit height they
-		// report, we'll fail the channel.
 		return nil, nil, nil, ErrCannotSyncCommitChains
+	}
+
+	// If we didn't have recovery options, then the final check cannot be
+	// performed, and we'll return early.
+	if !hasRecoveryOptions {
+		return updates, openedCircuits, closedCircuits, nil
+	}
+
+	// At this point we have determined that either the commit heights are
+	// in sync, or that we are in a state we can recover from. As a final
+	// check, we ensure that the commitment point sent to us by the remote
+	// is valid.
+	var commitPoint *btcec.PublicKey
+	switch {
+	case msg.NextLocalCommitHeight == remoteTailHeight+2:
+		commitPoint = lc.channelState.RemoteNextRevocation
+
+	case msg.NextLocalCommitHeight == remoteTailHeight+1:
+		commitPoint = lc.channelState.RemoteCurrentRevocation
+	}
+	if commitPoint != nil &&
+		!commitPoint.IsEqual(msg.LocalUnrevokedCommitPoint) {
+
+		walletLog.Errorf("ChannelPoint(%v), sync failed: remote "+
+			"sent invalid commit point for height %v!",
+			lc.channelState.FundingOutpoint,
+			msg.NextLocalCommitHeight)
+
+		if err := lc.channelState.MarkBorked(); err != nil {
+			return nil, nil, nil, err
+		}
+		// TODO(halseth): force close?
+		return nil, nil, nil, ErrInvalidLocalUnrevokedCommitPoint
 	}
 
 	return updates, openedCircuits, closedCircuits, nil
@@ -4850,24 +5007,22 @@ type UnilateralCloseSummary struct {
 
 // NewUnilateralCloseSummary creates a new summary that provides the caller
 // with all the information required to claim all funds on chain in the event
-// that the remote party broadcasts their commitment. If the
-// remotePendingCommit value is set to true, then we'll use the next (second)
-// unrevoked commitment point to construct the summary. Otherwise, we assume
-// that the remote party broadcast the lower of their two possible commits.
+// that the remote party broadcasts their commitment. The commitPoint argument
+// should be set to the per_commitment_point corresponding to the spending
+// commitment.
+//
+// NOTE: The remoteCommit argument should be set to the stored commitment for
+// this particular state. If we don't have the commitment stored (should only
+// happen in case we have lost state) it should be set to an empty struct, in
+// which case we will attempt to sweep the non-HTLC output using the passed
+// commitPoint.
 func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer Signer,
 	pCache PreimageCache, commitSpend *chainntnfs.SpendDetail,
 	remoteCommit channeldb.ChannelCommitment,
-	remotePendingCommit bool) (*UnilateralCloseSummary, error) {
+	commitPoint *btcec.PublicKey) (*UnilateralCloseSummary, error) {
 
 	// First, we'll generate the commitment point and the revocation point
-	// so we can re-construct the HTLC state and also our payment key. If
-	// this is the pending remote commitment, then we'll use the second
-	// unrevoked commit point in order to properly reconstruct the scripts
-	// we need to locate.
-	commitPoint := chanState.RemoteCurrentRevocation
-	if remotePendingCommit {
-		commitPoint = chanState.RemoteNextRevocation
-	}
+	// so we can re-construct the HTLC state and also our payment key.
 	keyRing := deriveCommitmentKeys(
 		commitPoint, false, &chanState.LocalChanCfg,
 		&chanState.RemoteChanCfg,
@@ -4893,13 +5048,19 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer Signer,
 	if err != nil {
 		return nil, fmt.Errorf("unable to create self commit script: %v", err)
 	}
-	var selfPoint *wire.OutPoint
+
+	var (
+		selfPoint    *wire.OutPoint
+		localBalance int64
+	)
+
 	for outputIndex, txOut := range commitTxBroadcast.TxOut {
 		if bytes.Equal(txOut.PkScript, selfP2WKH) {
 			selfPoint = &wire.OutPoint{
 				Hash:  *commitSpend.SpenderTxHash,
 				Index: uint32(outputIndex),
 			}
+			localBalance = txOut.Value
 			break
 		}
 	}
@@ -4910,7 +5071,6 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer Signer,
 	var commitResolution *CommitOutputResolution
 	if selfPoint != nil {
 		localPayBase := chanState.LocalChanCfg.PaymentBasePoint
-		localBalance := remoteCommit.LocalBalance.ToSatoshis()
 		commitResolution = &CommitOutputResolution{
 			SelfOutPoint: *selfPoint,
 			SelfOutputSignDesc: SignDescriptor{
@@ -4918,7 +5078,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer Signer,
 				SingleTweak:   keyRing.LocalCommitKeyTweak,
 				WitnessScript: selfP2WKH,
 				Output: &wire.TxOut{
-					Value:    int64(localBalance),
+					Value:    localBalance,
 					PkScript: selfP2WKH,
 				},
 				HashType: txscript.SigHashAll,
@@ -4927,7 +5087,6 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer Signer,
 		}
 	}
 
-	localBalance := remoteCommit.LocalBalance.ToSatoshis()
 	closeSummary := channeldb.ChannelCloseSummary{
 		ChanPoint:      chanState.FundingOutpoint,
 		ChainHash:      chanState.ChainHash,
@@ -4935,7 +5094,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer Signer,
 		CloseHeight:    uint32(commitSpend.SpendingHeight),
 		RemotePub:      chanState.IdentityPub,
 		Capacity:       chanState.Capacity,
-		SettledBalance: localBalance,
+		SettledBalance: btcutil.Amount(localBalance),
 		CloseType:      channeldb.RemoteForceClose,
 		IsPending:      true,
 	}

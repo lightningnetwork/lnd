@@ -953,10 +953,10 @@ func CommitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) 
 	return builder.Script()
 }
 
-// commitScriptUnencumbered constructs the public key script on the commitment
+// CommitScriptUnencumbered constructs the public key script on the commitment
 // transaction paying to the "other" party. The constructed output is a normal
 // p2wkh output spendable immediately, requiring no contestation period.
-func commitScriptUnencumbered(key *btcec.PublicKey) ([]byte, error) {
+func CommitScriptUnencumbered(key *btcec.PublicKey) ([]byte, error) {
 	// This script goes to the "other" party, and it spendable immediately.
 	builder := txscript.NewScriptBuilder()
 	builder.AddOp(txscript.OP_0)

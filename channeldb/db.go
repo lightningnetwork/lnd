@@ -663,12 +663,24 @@ func (d *DB) syncVersions(versions []version) error {
 		}
 	}
 
-	// If the current database version matches the latest version number,
-	// then we don't need to perform any migrations.
 	latestVersion := getLatestDBVersion(versions)
 	log.Infof("Checking for schema update: latest_version=%v, "+
 		"db_version=%v", latestVersion, meta.DbVersionNumber)
-	if meta.DbVersionNumber == latestVersion {
+
+	switch {
+
+	// If the database reports a higher version that we are aware of, the
+	// user is probably trying to revert to a prior version of lnd. We fail
+	// here to prevent reversions and unintended corruption.
+	case meta.DbVersionNumber > latestVersion:
+		log.Errorf("Refusing to revert from db_version=%d to "+
+			"lower version=%d", meta.DbVersionNumber,
+			latestVersion)
+		return ErrDBReversion
+
+	// If the current database version matches the latest version number,
+	// then we don't need to perform any migrations.
+	case meta.DbVersionNumber == latestVersion:
 		return nil
 	}
 

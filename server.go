@@ -2011,7 +2011,7 @@ func (s *server) peerTerminationWatcher(p *peer) {
 			s.persistentConnReqs[pubStr], connReq)
 
 		// Record the computed backoff in the backoff map.
-		backoff := s.nextPeerBackoff(pubStr)
+		backoff := s.nextPeerBackoff(pubStr, p.StartTime())
 		s.persistentPeersBackoff[pubStr] = backoff
 
 		// Initialize a retry canceller for this peer if one does not
@@ -2048,7 +2048,9 @@ func (s *server) peerTerminationWatcher(p *peer) {
 // nextPeerBackoff computes the next backoff duration for a peer's pubkey using
 // exponential backoff. If no previous backoff was known, the default is
 // returned.
-func (s *server) nextPeerBackoff(pubStr string) time.Duration {
+func (s *server) nextPeerBackoff(pubStr string,
+	startTime time.Time) time.Duration {
+
 	// Now, determine the appropriate backoff to use for the retry.
 	backoff, ok := s.persistentPeersBackoff[pubStr]
 	if !ok {
@@ -2056,9 +2058,27 @@ func (s *server) nextPeerBackoff(pubStr string) time.Duration {
 		return defaultBackoff
 	}
 
-	// Otherwise, use a previous backoff to compute the
-	// subsequent randomized exponential backoff duration.
-	return computeNextBackoff(backoff)
+	// If the peer failed to start properly, we'll just use the previous
+	// backoff to compute the subsequent randomized exponential backoff
+	// duration. This will roughly double on average.
+	if startTime.IsZero() {
+		return computeNextBackoff(backoff)
+	}
+
+	// The peer succeeded in starting. We'll reduce the timeout duration
+	// by the length of the connection before applying randomized
+	// exponential backoff. We'll only apply this if:
+	//   backoff - connDuration > defaultBackoff
+	connDuration := time.Now().Sub(startTime)
+	relaxedBackoff := backoff - connDuration
+	if relaxedBackoff > defaultBackoff {
+		return computeNextBackoff(relaxedBackoff)
+	}
+
+	// Otherwise, backoff - connDuration <= defaultBackoff, meaning the
+	// connection lasted much longer than our previous backoff. To reward
+	// such good behavior, we'll reconnect after the default timeout.
+	return defaultBackoff
 }
 
 // shouldRequestGraphSync returns true if the servers deems it necessary that

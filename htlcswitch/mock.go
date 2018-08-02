@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/ticker"
 )
 
 type mockPreimageCache struct {
@@ -143,7 +144,9 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 		FetchLastChannelUpdate: func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
 			return nil, nil
 		},
-		Notifier: &mockNotifier{},
+		Notifier:       &mockNotifier{},
+		FwdEventTicker: ticker.MockNew(DefaultFwdEventInterval),
+		LogEventTicker: ticker.MockNew(DefaultLogInterval),
 	}
 
 	return New(cfg, startingHeight)
@@ -806,15 +809,4 @@ func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ []byte,
 	return &chainntnfs.SpendEvent{
 		Spend: make(chan *chainntnfs.SpendDetail),
 	}, nil
-}
-
-type mockTicker struct {
-	ticker <-chan time.Time
-}
-
-func (m *mockTicker) Start() <-chan time.Time {
-	return m.ticker
-}
-
-func (m *mockTicker) Stop() {
 }

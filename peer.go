@@ -111,13 +111,12 @@ type peer struct {
 	addr        *lnwire.NetAddress
 	pubKeyBytes [33]byte
 
-	inbound bool
+	// startTime is the time this peer connection was successfully
+	// established. It will be zero for peers that did not successfuly
+	// Start().
+	startTime time.Time
 
-	// This mutex protects all the stats below it.
-	sync.RWMutex
-	timeConnected time.Time
-	lastSend      time.Time
-	lastRecv      time.Time
+	inbound bool
 
 	// sendQueue is the channel which is used to queue outgoing to be
 	// written onto the wire. Note that this channel is unbuffered.
@@ -302,6 +301,8 @@ func (p *peer) Start() error {
 	if err := p.loadActiveChannels(activeChans); err != nil {
 		return fmt.Errorf("unable to load channels: %v", err)
 	}
+
+	p.startTime = time.Now()
 
 	p.wg.Add(5)
 	go p.queueHandler()
@@ -1977,6 +1978,8 @@ func (p *peer) sendInitMsg() error {
 // SendMessage sends a variadic number of message to remote peer. The first
 // argument denotes if the method should block until the message has been sent
 // to the remote peer.
+//
+// NOTE: Part of the lnpeer.Peer interface.
 func (p *peer) SendMessage(sync bool, msgs ...lnwire.Message) error {
 	// Add all incoming messages to the outgoing queue. A list of error
 	// chans is populated for each message if the caller requested a sync
@@ -2009,22 +2012,30 @@ func (p *peer) SendMessage(sync bool, msgs ...lnwire.Message) error {
 }
 
 // PubKey returns the pubkey of the peer in compressed serialized format.
+//
+// NOTE: Part of the lnpeer.Peer interface.
 func (p *peer) PubKey() [33]byte {
 	return p.pubKeyBytes
 }
 
 // IdentityKey returns the public key of the remote peer.
+//
+// NOTE: Part of the lnpeer.Peer interface.
 func (p *peer) IdentityKey() *btcec.PublicKey {
 	return p.addr.IdentityKey
 }
 
 // Address returns the network address of the remote peer.
+//
+// NOTE: Part of the lnpeer.Peer interface.
 func (p *peer) Address() net.Addr {
 	return p.addr.Address
 }
 
 // AddNewChannel adds a new channel to the peer. The channel should fail to be
 // added if the cancel channel is closed.
+//
+// NOTE: Part of the lnpeer.Peer interface.
 func (p *peer) AddNewChannel(channel *lnwallet.LightningChannel,
 	cancel <-chan struct{}) error {
 
@@ -2051,6 +2062,12 @@ func (p *peer) AddNewChannel(channel *lnwallet.LightningChannel,
 	}
 
 	return nil
+}
+
+// StartTime returns the time at which the connection was established if the
+// peer started successfully, and zero otherwise.
+func (p *peer) StartTime() time.Time {
+	return p.startTime
 }
 
 // TODO(roasbeef): make all start/stop mutexes a CAS

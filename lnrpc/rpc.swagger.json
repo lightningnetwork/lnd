@@ -1837,6 +1837,10 @@
         "fee_msat": {
           "type": "string",
           "format": "int64"
+        },
+        "pub_key": {
+          "type": "string",
+          "description": "*\nAn optional public key of the hop. If the public key is given, the payment\ncan be executed without relying on a copy of the channel graph."
         }
       }
     },

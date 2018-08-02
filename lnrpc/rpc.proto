@@ -1365,6 +1365,12 @@ message Hop {
     uint32 expiry = 5 [json_name = "expiry"];
     int64 amt_to_forward_msat = 6 [json_name = "amt_to_forward_msat"];
     int64 fee_msat = 7 [json_name = "fee_msat"];
+
+    /**
+    An optional public key of the hop. If the public key is given, the payment
+    can be executed without relying on a copy of the channel graph.
+    */
+    string pub_key = 8 [json_name = "pub_key"];
 }
 
 /**

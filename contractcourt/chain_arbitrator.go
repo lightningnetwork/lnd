@@ -243,6 +243,7 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 			return chanMachine.ForceClose()
 		},
 		MarkCommitmentBroadcasted: channel.MarkCommitmentBroadcasted,
+		MarkChannelClosed:         channel.CloseChannel,
 		ChainArbitratorConfig:     c.cfg,
 		ChainEvents:               chanEvents,
 	}

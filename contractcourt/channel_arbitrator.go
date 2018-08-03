@@ -1410,22 +1410,25 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 				HtlcResolutions:  *closeInfo.HtlcResolutions,
 			}
 
-			// When processing a unilateral close event, we'll
-			// transition directly to the ContractClosed state.
-			// When the state machine reaches that state, we'll log
-			// out the set of resolutions.
 			stateCb := func(nextState ArbitratorState) error {
-				if nextState != StateContractClosed {
-					return nil
-				}
 
-				err := c.log.LogContractResolutions(
-					contractRes,
-				)
-				if err != nil {
-					return fmt.Errorf("unable to "+
-						"write resolutions: %v",
-						err)
+				switch nextState {
+
+				// When processing a unilateral close event,
+				// we'll transition to the ContractClosed
+				// state. When the state machine reaches that
+				// state, we'll log out the set of resolutions,
+				// such that they are available to fetch in
+				// that state.
+				case StateContractClosed:
+					err := c.log.LogContractResolutions(
+						contractRes,
+					)
+					if err != nil {
+						return fmt.Errorf("unable to "+
+							"write resolutions: %v",
+							err)
+					}
 				}
 
 				return nil
@@ -1467,21 +1470,25 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			// present on their commitment.
 			c.activeHTLCs = newHtlcSet(uniClosure.RemoteCommit.Htlcs)
 
-			// When processing a unilateral close event, we'll
-			// transition directly to the ContractClosed state.
-			// When the state machine reaches that state, we'll log
-			// out the set of resolutions.
 			stateCb := func(nextState ArbitratorState) error {
-				if nextState != StateContractClosed {
-					return nil
-				}
 
-				err := c.log.LogContractResolutions(
-					contractRes,
-				)
-				if err != nil {
-					return fmt.Errorf("unable to write "+
-						"resolutions: %v", err)
+				switch nextState {
+
+				// When processing a unilateral close event,
+				// we'll transition to the ContractClosed
+				// state. When the state machine reaches that
+				// state, we'll log out the set of resolutions,
+				// such that they are available to fetch in
+				// that state.
+				case StateContractClosed:
+					err := c.log.LogContractResolutions(
+						contractRes,
+					)
+					if err != nil {
+						return fmt.Errorf("unable to "+
+							"write resolutions: %v",
+							err)
+					}
 				}
 
 				return nil

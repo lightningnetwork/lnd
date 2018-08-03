@@ -620,14 +620,9 @@ func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
 		}
 	}
 
-	if err := c.log.CommitState(nextState); err != nil {
-		return StateError, nil, err
-	}
-
 	log.Tracef("ChannelArbitrator(%v): next_state=%v", c.cfg.ChanPoint,
 		nextState)
 
-	c.state = nextState
 	return nextState, closeTx, nil
 }
 
@@ -658,7 +653,8 @@ func (c *ChannelArbitrator) advanceState(triggerHeight uint32,
 			triggerHeight, trigger,
 		)
 		if err != nil {
-			log.Errorf("unable to advance state: %v", err)
+			log.Errorf("ChannelArbitrator(%v): unable to advance "+
+				"state: %v", c.cfg.ChanPoint, err)
 			return priorState, nil, err
 		}
 
@@ -671,16 +667,31 @@ func (c *ChannelArbitrator) advanceState(triggerHeight uint32,
 		// exit early.
 		if stateCallback != nil {
 			if err := stateCallback(nextState); err != nil {
+				log.Errorf("ChannelArbitrator(%v): unable to "+
+					"execute state callback: %v",
+					c.cfg.ChanPoint, err)
 				return nextState, closeTx, err
 			}
 		}
+
+		// As the prior state and the state callback was successfully
+		// executed, we can now commit the next state. This ensures
+		// that we will re-execute the prior state and callback if
+		// anything fails.
+		if err := c.log.CommitState(nextState); err != nil {
+			log.Errorf("ChannelArbitrator(%v): unable to commit "+
+				"next state(%v): %v", c.cfg.ChanPoint,
+				nextState, err)
+			return priorState, nil, err
+		}
+		c.state = nextState
 
 		// Our termination transition is a noop transition. If we get
 		// our prior state back as the next state, then we'll
 		// terminate.
 		if nextState == priorState {
-			log.Tracef("ChannelArbitrator(%v): terminating at state=%v",
-				c.cfg.ChanPoint, nextState)
+			log.Tracef("ChannelArbitrator(%v): terminating at "+
+				"state=%v", c.cfg.ChanPoint, nextState)
 			return nextState, forceCloseTx, nil
 		}
 	}

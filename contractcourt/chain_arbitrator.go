@@ -448,12 +448,24 @@ func (c *ChainArbitrator) Stop() error {
 
 	close(c.quit)
 
+	var (
+		activeWatchers = make(map[wire.OutPoint]*chainWatcher)
+		activeChannels = make(map[wire.OutPoint]*ChannelArbitrator)
+	)
+
+	// Copy the current set of active watchers and arbitrators to shutdown.
+	// We don't want to hold the lock when shutting down each watcher or
+	// arbitrator individually, as they may need to acquire this mutex.
 	c.Lock()
-	arbitrators := c.activeChannels
-	watchers := c.activeWatchers
+	for chanPoint, watcher := range c.activeWatchers {
+		activeWatchers[chanPoint] = watcher
+	}
+	for chanPoint, arbitrator := range c.activeChannels {
+		activeChannels[chanPoint] = arbitrator
+	}
 	c.Unlock()
 
-	for chanPoint, watcher := range watchers {
+	for chanPoint, watcher := range activeWatchers {
 		log.Tracef("Attempting to stop ChainWatcher(%v)",
 			chanPoint)
 
@@ -462,7 +474,7 @@ func (c *ChainArbitrator) Stop() error {
 				"ChannelPoint(%v): %v", chanPoint, err)
 		}
 	}
-	for chanPoint, arbitrator := range arbitrators {
+	for chanPoint, arbitrator := range activeChannels {
 		log.Tracef("Attempting to stop ChannelArbitrator(%v)",
 			chanPoint)
 

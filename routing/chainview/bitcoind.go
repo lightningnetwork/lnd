@@ -13,9 +13,9 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/wtxmgr"
+	"github.com/lightningnetwork/lnd/channeldb"
 )
 
 // BitcoindFilteredChainView is an implementation of the FilteredChainView
@@ -66,6 +66,7 @@ var _ FilteredChainView = (*BitcoindFilteredChainView)(nil)
 func NewBitcoindFilteredChainView(config rpcclient.ConnConfig,
 	zmqConnect string, params chaincfg.Params) (*BitcoindFilteredChainView,
 	error) {
+
 	chainView := &BitcoindFilteredChainView{
 		chainFilter:     make(map[wire.OutPoint]struct{}),
 		filterUpdates:   make(chan filterUpdate),
@@ -308,7 +309,6 @@ func (b *BitcoindFilteredChainView) chainFilterer() {
 		// filter, so we'll apply the update, possibly rewinding our
 		// state partially.
 		case update := <-b.filterUpdates:
-
 			// First, we'll add all the new UTXO's to the set of
 			// watched UTXO's, eliminating any duplicates in the
 			// process.
@@ -325,8 +325,9 @@ func (b *BitcoindFilteredChainView) chainFilterer() {
 			// will cause all following notifications from and
 			// calls to it return blocks filtered with the new
 			// filter.
-			b.chainClient.LoadTxFilter(false, []btcutil.Address{},
-				update.newUtxos)
+			b.chainClient.LoadTxFilter(
+				false, update.newUtxos,
+			)
 
 			// All blocks gotten after we loaded the filter will
 			// have the filter applied, but we will need to rescan
@@ -362,7 +363,8 @@ func (b *BitcoindFilteredChainView) chainFilterer() {
 				// block at a time, skipping blocks that might
 				// have gone missing.
 				rescanned, err := b.chainClient.RescanBlocks(
-					[]chainhash.Hash{*blockHash})
+					[]chainhash.Hash{*blockHash},
+				)
 				if err != nil {
 					log.Warnf("Unable to rescan block "+
 						"with hash %v at height %d: %v",
@@ -379,7 +381,8 @@ func (b *BitcoindFilteredChainView) chainFilterer() {
 					continue
 				}
 				decoded, err := decodeJSONBlock(
-					&rescanned[0], i)
+					&rescanned[0], i,
+				)
 				if err != nil {
 					log.Errorf("Unable to decode block: %v",
 						err)
@@ -421,9 +424,12 @@ func (b *BitcoindFilteredChainView) chainFilterer() {
 		// We've received a new event from the chain client.
 		case event := <-b.chainClient.Notifications():
 			switch e := event.(type) {
+
 			case chain.FilteredBlockConnected:
-				b.onFilteredBlockConnected(e.Block.Height,
-					e.Block.Hash, e.RelevantTxs)
+				b.onFilteredBlockConnected(
+					e.Block.Height, e.Block.Hash, e.RelevantTxs,
+				)
+
 			case chain.BlockDisconnected:
 				b.onFilteredBlockDisconnected(e.Height, e.Hash)
 			}
@@ -442,11 +448,18 @@ func (b *BitcoindFilteredChainView) chainFilterer() {
 // rewound to ensure all relevant notifications are dispatched.
 //
 // NOTE: This is part of the FilteredChainView interface.
-func (b *BitcoindFilteredChainView) UpdateFilter(ops []wire.OutPoint, updateHeight uint32) error {
+func (b *BitcoindFilteredChainView) UpdateFilter(ops []channeldb.EdgePoint,
+	updateHeight uint32) error {
+
+	newUtxos := make([]wire.OutPoint, len(ops))
+	for i, op := range ops {
+		newUtxos[i] = op.OutPoint
+	}
+
 	select {
 
 	case b.filterUpdates <- filterUpdate{
-		newUtxos:     ops,
+		newUtxos:     newUtxos,
 		updateHeight: updateHeight,
 	}:
 		return nil

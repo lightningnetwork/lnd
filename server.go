@@ -678,6 +678,186 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		Store:              newRetributionStore(chanDB),
 	})
 
+	// Select the configuration and furnding parameters for Bitcoin or
+	// Litecoin, depending on the primary registered chain.
+	primaryChain := registeredChains.PrimaryChain()
+	chainCfg := cfg.Bitcoin
+	minRemoteDelay := minBtcRemoteDelay
+	maxRemoteDelay := maxBtcRemoteDelay
+	if primaryChain == litecoinChain {
+		chainCfg = cfg.Litecoin
+		minRemoteDelay = minLtcRemoteDelay
+		maxRemoteDelay = maxLtcRemoteDelay
+	}
+
+	nodeSigner := newNodeSigner(privKey)
+	var chanIDSeed [32]byte
+	if _, err := rand.Read(chanIDSeed[:]); err != nil {
+		return nil, err
+	}
+	s.fundingMgr, err = newFundingManager(fundingConfig{
+		IDKey:              privKey.PubKey(),
+		Wallet:             cc.wallet,
+		PublishTransaction: cc.wallet.PublishTransaction,
+		Notifier:           cc.chainNotifier,
+		FeeEstimator:       cc.feeEstimator,
+		SignMessage: func(pubKey *btcec.PublicKey,
+			msg []byte) (*btcec.Signature, error) {
+
+			if pubKey.IsEqual(privKey.PubKey()) {
+				return nodeSigner.SignMessage(pubKey, msg)
+			}
+
+			return cc.msgSigner.SignMessage(pubKey, msg)
+		},
+		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement, error) {
+			return s.genNodeAnnouncement(true)
+		},
+		SendAnnouncement: func(msg lnwire.Message) error {
+			errChan := s.authGossiper.ProcessLocalAnnouncement(
+				msg, privKey.PubKey(),
+			)
+			return <-errChan
+		},
+		NotifyWhenOnline: s.NotifyWhenOnline,
+		TempChanIDSeed:   chanIDSeed,
+		FindChannel: func(chanID lnwire.ChannelID) (*lnwallet.LightningChannel, error) {
+			dbChannels, err := chanDB.FetchAllChannels()
+			if err != nil {
+				return nil, err
+			}
+
+			for _, channel := range dbChannels {
+				if chanID.IsChanPoint(&channel.FundingOutpoint) {
+					return lnwallet.NewLightningChannel(
+						cc.signer, s.witnessBeacon,
+						channel,
+					)
+				}
+			}
+
+			return nil, fmt.Errorf("unable to find channel")
+		},
+		DefaultRoutingPolicy: cc.routingPolicy,
+		NumRequiredConfs: func(chanAmt btcutil.Amount,
+			pushAmt lnwire.MilliSatoshi) uint16 {
+			// For large channels we increase the number
+			// of confirmations we require for the
+			// channel to be considered open. As it is
+			// always the responder that gets to choose
+			// value, the pushAmt is value being pushed
+			// to us. This means we have more to lose
+			// in the case this gets re-orged out, and
+			// we will require more confirmations before
+			// we consider it open.
+			// TODO(halseth): Use Litecoin params in case
+			// of LTC channels.
+
+			// In case the user has explicitly specified
+			// a default value for the number of
+			// confirmations, we use it.
+			defaultConf := uint16(chainCfg.DefaultNumChanConfs)
+			if defaultConf != 0 {
+				return defaultConf
+			}
+
+			// If not we return a value scaled linearly
+			// between 3 and 6, depending on channel size.
+			// TODO(halseth): Use 1 as minimum?
+			minConf := uint64(3)
+			maxConf := uint64(6)
+			maxChannelSize := uint64(
+				lnwire.NewMSatFromSatoshis(maxFundingAmount))
+			stake := lnwire.NewMSatFromSatoshis(chanAmt) + pushAmt
+			conf := maxConf * uint64(stake) / maxChannelSize
+			if conf < minConf {
+				conf = minConf
+			}
+			if conf > maxConf {
+				conf = maxConf
+			}
+			return uint16(conf)
+		},
+		RequiredRemoteDelay: func(chanAmt btcutil.Amount) uint16 {
+			// We scale the remote CSV delay (the time the
+			// remote have to claim funds in case of a unilateral
+			// close) linearly from minRemoteDelay blocks
+			// for small channels, to maxRemoteDelay blocks
+			// for channels of size maxFundingAmount.
+			// TODO(halseth): Litecoin parameter for LTC.
+
+			// In case the user has explicitly specified
+			// a default value for the remote delay, we
+			// use it.
+			defaultDelay := uint16(chainCfg.DefaultRemoteDelay)
+			if defaultDelay > 0 {
+				return defaultDelay
+			}
+
+			// If not we scale according to channel size.
+			delay := uint16(btcutil.Amount(maxRemoteDelay) *
+				chanAmt / maxFundingAmount)
+			if delay < minRemoteDelay {
+				delay = minRemoteDelay
+			}
+			if delay > maxRemoteDelay {
+				delay = maxRemoteDelay
+			}
+			return delay
+		},
+		WatchNewChannel: func(channel *channeldb.OpenChannel,
+			peerKey *btcec.PublicKey) error {
+
+			// First, we'll mark this new peer as a persistent peer
+			// for re-connection purposes.
+			s.mu.Lock()
+			pubStr := string(peerKey.SerializeCompressed())
+			s.persistentPeers[pubStr] = struct{}{}
+			s.mu.Unlock()
+
+			// With that taken care of, we'll send this channel to
+			// the chain arb so it can react to on-chain events.
+			return s.chainArb.WatchNewChannel(channel)
+		},
+		ReportShortChanID: func(chanPoint wire.OutPoint) error {
+			cid := lnwire.NewChanIDFromOutPoint(&chanPoint)
+			return s.htlcSwitch.UpdateShortChanID(cid)
+		},
+		RequiredRemoteChanReserve: func(chanAmt,
+			dustLimit btcutil.Amount) btcutil.Amount {
+
+			// By default, we'll require the remote peer to maintain
+			// at least 1% of the total channel capacity at all
+			// times. If this value ends up dipping below the dust
+			// limit, then we'll use the dust limit itself as the
+			// reserve as required by BOLT #2.
+			reserve := chanAmt / 100
+			if reserve < dustLimit {
+				reserve = dustLimit
+			}
+
+			return reserve
+		},
+		RequiredRemoteMaxValue: func(chanAmt btcutil.Amount) lnwire.MilliSatoshi {
+			// By default, we'll allow the remote peer to fully
+			// utilize the full bandwidth of the channel, minus our
+			// required reserve.
+			reserve := lnwire.NewMSatFromSatoshis(chanAmt / 100)
+			return lnwire.NewMSatFromSatoshis(chanAmt) - reserve
+		},
+		RequiredRemoteMaxHTLCs: func(chanAmt btcutil.Amount) uint16 {
+			// By default, we'll permit them to utilize the full
+			// channel bandwidth.
+			return uint16(lnwallet.MaxHTLCNumber / 2)
+		},
+		ZombieSweeperInterval: 1 * time.Minute,
+		ReservationTimeout:    10 * time.Minute,
+		MinChanSize:           btcutil.Amount(cfg.MinChanSize),
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	// Create the connection manager which will be responsible for
 	// maintaining persistent outbound connections and also accepting new
 	// incoming connections
@@ -752,6 +932,9 @@ func (s *server) Start() error {
 	if err := s.chanRouter.Start(); err != nil {
 		return err
 	}
+	if err := s.fundingMgr.Start(); err != nil {
+		return err
+	}
 	s.connMgr.Start()
 
 	if err := s.invoices.Start(); err != nil {
@@ -820,6 +1003,7 @@ func (s *server) Stop() error {
 	s.connMgr.Stop()
 	s.cc.feeEstimator.Stop()
 	s.invoices.Stop()
+	s.fundingMgr.Stop()
 
 	// Disconnect from each active peers to ensure that
 	// peerTerminationWatchers signal completion to each peer.

@@ -61,6 +61,7 @@ type txUpdate struct {
 // notifications. Multiple concurrent clients are supported. All notifications
 // are achieved via non-blocking sends on client channels.
 type BtcdNotifier struct {
+	confClientCounter  uint64 // To be used aotmically.
 	spendClientCounter uint64 // To be used atomically.
 	epochClientCounter uint64 // To be used atomically.
 
@@ -298,24 +299,42 @@ out:
 					b.spendNotifications[op] = make(map[uint64]*spendNotification)
 				}
 				b.spendNotifications[op][msg.spendID] = msg
+
 			case *confirmationNotification:
 				chainntnfs.Log.Infof("New confirmation "+
 					"subscription: txid=%v, numconfs=%v",
 					msg.TxID, msg.NumConfirmations)
 
-				// Lookup whether the transaction is already included in the
-				// active chain.
-				txConf, err := b.historicalConfDetails(
-					msg.TxID, msg.heightHint, uint32(currentHeight),
-				)
-				if err != nil {
-					chainntnfs.Log.Error(err)
-				}
+				bestHeight := uint32(currentHeight)
 
-				err = b.txConfNotifier.Register(&msg.ConfNtfn, txConf)
-				if err != nil {
-					chainntnfs.Log.Error(err)
-				}
+				// Look up whether the transaction is already
+				// included in the active chain. We'll do this
+				// in a goroutine to prevent blocking
+				// potentially long rescans.
+				b.wg.Add(1)
+				go func() {
+					defer b.wg.Done()
+
+					confDetails, err := b.historicalConfDetails(
+						msg.TxID, msg.heightHint,
+						bestHeight,
+					)
+					if err != nil {
+						chainntnfs.Log.Error(err)
+						return
+					}
+
+					if confDetails != nil {
+						err = b.txConfNotifier.UpdateConfDetails(
+							*msg.TxID, msg.ConfID,
+							confDetails,
+						)
+						if err != nil {
+							chainntnfs.Log.Error(err)
+						}
+					}
+				}()
+
 			case *blockEpochRegistration:
 				chainntnfs.Log.Infof("New block epoch subscription")
 				b.blockEpochClients[msg.epochID] = msg
@@ -532,6 +551,14 @@ func (b *BtcdNotifier) confDetailsManually(txid *chainhash.Hash,
 	// Begin scanning blocks at every height to determine where the
 	// transaction was included in.
 	for height := heightHint; height <= currentHeight; height++ {
+		// Ensure we haven't been requested to shut down before
+		// processing the next height.
+		select {
+		case <-b.quit:
+			return nil, ErrChainNotifierShuttingDown
+		default:
+		}
+
 		blockHash, err := b.chainConn.GetBlockHash(int64(height))
 		if err != nil {
 			return nil, fmt.Errorf("unable to get hash from block "+
@@ -668,7 +695,7 @@ type spendCancel struct {
 // across the 'Spend' channel. The heightHint should represent the earliest
 // height in the chain where the transaction could have been spent in.
 func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	heightHint uint32) (*chainntnfs.SpendEvent, error) {
+	pkScript []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
 
 	ntfn := &spendNotification{
 		targetOutpoint: outpoint,
@@ -683,6 +710,7 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	case b.notificationRegistry <- ntfn:
 	}
 
+	// TODO(roasbeef): update btcd rescan logic to also use both
 	if err := b.chainConn.NotifySpent([]*wire.OutPoint{outpoint}); err != nil {
 		return nil, err
 	}
@@ -795,11 +823,12 @@ type confirmationNotification struct {
 // RegisterConfirmationsNtfn registers a notification with BtcdNotifier
 // which will be triggered once the txid reaches numConfs number of
 // confirmations.
-func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
+func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash, _ []byte,
 	numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
 
 	ntfn := &confirmationNotification{
 		ConfNtfn: chainntnfs.ConfNtfn{
+			ConfID:           atomic.AddUint64(&b.confClientCounter, 1),
 			TxID:             txid,
 			NumConfirmations: numConfs,
 			Event:            chainntnfs.NewConfirmationEvent(numConfs),
@@ -807,11 +836,15 @@ func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 		heightHint: heightHint,
 	}
 
+	if err := b.txConfNotifier.Register(&ntfn.ConfNtfn); err != nil {
+		return nil, err
+	}
+
 	select {
-	case <-b.quit:
-		return nil, ErrChainNotifierShuttingDown
 	case b.notificationRegistry <- ntfn:
 		return ntfn.Event, nil
+	case <-b.quit:
+		return nil, ErrChainNotifierShuttingDown
 	}
 }
 

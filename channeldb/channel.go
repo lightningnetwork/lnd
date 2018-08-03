@@ -8,14 +8,14 @@ import (
 	"net"
 	"sync"
 
-	"github.com/coreos/bbolt"
-	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/shachain"
 )
 
 var (
@@ -50,6 +50,10 @@ var (
 	// revocationStateKey stores their current revocation hash, our
 	// preimage producer and their preimage store.
 	revocationStateKey = []byte("revocation-state-key")
+
+	// dataLossCommitPointKey stores the commitment point received from the
+	// remote peer during a channel sync in case we have lost channel state.
+	dataLossCommitPointKey = []byte("data-loss-commit-point-key")
 
 	// commitDiffKey stores the current pending commitment state we've
 	// extended to the remote party (if any). Each time we propose a new
@@ -97,6 +101,10 @@ var (
 	// decoded because the byte slice is of an invalid length.
 	ErrInvalidCircuitKeyLen = fmt.Errorf(
 		"length of serialized circuit key must be 16 bytes")
+
+	// ErrNoCommitPoint is returned when no data loss commit point is found
+	// in the database.
+	ErrNoCommitPoint = fmt.Errorf("no commit point found")
 )
 
 // ChannelType is an enum-like type that describes one of several possible
@@ -285,8 +293,8 @@ type ChannelCommitment struct {
 	//  * lets just walk through
 }
 
-// ChannelStatus is used to indicate whether an OpenChannel is in the default
-// usable state, or a state where it shouldn't be used.
+// ChannelStatus is a bit vector used to indicate whether an OpenChannel is in
+// the default usable state, or a state where it shouldn't be used.
 type ChannelStatus uint8
 
 var (
@@ -300,7 +308,14 @@ var (
 
 	// CommitmentBroadcasted indicates that a commitment for this channel
 	// has been broadcasted.
-	CommitmentBroadcasted ChannelStatus = 2
+	CommitmentBroadcasted ChannelStatus = 1 << 1
+
+	// LocalDataLoss indicates that we have lost channel state for this
+	// channel, and broadcasting our latest commitment might be considered
+	// a breach.
+	// TODO(halseh): actually enforce that we are not force closing such a
+	// channel.
+	LocalDataLoss ChannelStatus = 1 << 2
 )
 
 // String returns a human-readable representation of the ChannelStatus.
@@ -312,8 +327,10 @@ func (c ChannelStatus) String() string {
 		return "Borked"
 	case CommitmentBroadcasted:
 		return "CommitmentBroadcasted"
+	case LocalDataLoss:
+		return "LocalDataLoss"
 	default:
-		return "Unknown"
+		return fmt.Sprintf("Unknown(%08b)", c)
 	}
 }
 
@@ -354,9 +371,9 @@ type OpenChannel struct {
 	// negotiate fees, or close the channel.
 	IsInitiator bool
 
-	// ChanStatus is the current status of this channel. If it is not in
+	// chanStatus is the current status of this channel. If it is not in
 	// the state Default, it should not be used for forwarding payments.
-	ChanStatus ChannelStatus
+	chanStatus ChannelStatus
 
 	// FundingBroadcastHeight is the height in which the funding
 	// transaction was broadcast. This value can be used by higher level
@@ -466,6 +483,14 @@ func (c *OpenChannel) ShortChanID() lnwire.ShortChannelID {
 	defer c.RUnlock()
 
 	return c.ShortChannelID
+}
+
+// ChanStatus returns the current ChannelStatus of this channel.
+func (c *OpenChannel) ChanStatus() ChannelStatus {
+	c.RLock()
+	defer c.RUnlock()
+
+	return c.chanStatus
 }
 
 // RefreshShortChanID updates the in-memory short channel ID using the latest
@@ -671,6 +696,85 @@ func (c *OpenChannel) MarkAsOpen(openLoc lnwire.ShortChannelID) error {
 	return nil
 }
 
+// MarkDataLoss marks sets the channel status to LocalDataLoss and stores the
+// passed commitPoint for use to retrieve funds in case the remote force closes
+// the channel.
+func (c *OpenChannel) MarkDataLoss(commitPoint *btcec.PublicKey) error {
+	c.Lock()
+	defer c.Unlock()
+
+	var status ChannelStatus
+	if err := c.Db.Update(func(tx *bolt.Tx) error {
+		chanBucket, err := updateChanBucket(
+			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		channel, err := fetchOpenChannel(chanBucket, &c.FundingOutpoint)
+		if err != nil {
+			return err
+		}
+
+		// Add status LocalDataLoss to the existing bitvector found in
+		// the DB.
+		status = channel.chanStatus | LocalDataLoss
+		channel.chanStatus = status
+
+		var b bytes.Buffer
+		if err := WriteElement(&b, commitPoint); err != nil {
+			return err
+		}
+
+		err = chanBucket.Put(dataLossCommitPointKey, b.Bytes())
+		if err != nil {
+			return err
+		}
+
+		return putOpenChannel(chanBucket, channel)
+	}); err != nil {
+		return err
+	}
+
+	// Update the in-memory representation to keep it in sync with the DB.
+	c.chanStatus = status
+
+	return nil
+}
+
+// DataLossCommitPoint retrieves the stored commit point set during
+// MarkDataLoss. If not found ErrNoCommitPoint is returned.
+func (c *OpenChannel) DataLossCommitPoint() (*btcec.PublicKey, error) {
+	var commitPoint *btcec.PublicKey
+
+	err := c.Db.View(func(tx *bolt.Tx) error {
+		chanBucket, err := readChanBucket(tx, c.IdentityPub,
+			&c.FundingOutpoint, c.ChainHash)
+		if err == ErrNoActiveChannels || err == ErrNoChanDBExists {
+			return ErrNoCommitPoint
+		} else if err != nil {
+			return err
+		}
+
+		bs := chanBucket.Get(dataLossCommitPointKey)
+		if bs == nil {
+			return ErrNoCommitPoint
+		}
+		r := bytes.NewReader(bs)
+		if err := ReadElements(r, &commitPoint); err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return commitPoint, nil
+}
+
 // MarkBorked marks the event when the channel as reached an irreconcilable
 // state, such as a channel breach or state desynchronization. Borked channels
 // should never be added to the switch.
@@ -705,7 +809,9 @@ func (c *OpenChannel) putChanStatus(status ChannelStatus) error {
 			return err
 		}
 
-		channel.ChanStatus = status
+		// Add this status to the existing bitvector found in the DB.
+		status = channel.chanStatus | status
+		channel.chanStatus = status
 
 		return putOpenChannel(chanBucket, channel)
 	}); err != nil {
@@ -713,7 +819,7 @@ func (c *OpenChannel) putChanStatus(status ChannelStatus) error {
 	}
 
 	// Update the in-memory representation to keep it in sync with the DB.
-	c.ChanStatus = status
+	c.chanStatus = status
 
 	return nil
 }
@@ -2067,7 +2173,7 @@ func putChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 	if err := WriteElements(&w,
 		channel.ChanType, channel.ChainHash, channel.FundingOutpoint,
 		channel.ShortChannelID, channel.IsPending, channel.IsInitiator,
-		channel.ChanStatus, channel.FundingBroadcastHeight,
+		channel.chanStatus, channel.FundingBroadcastHeight,
 		channel.NumConfsRequired, channel.ChannelFlags,
 		channel.IdentityPub, channel.Capacity, channel.TotalMSatSent,
 		channel.TotalMSatReceived,
@@ -2177,7 +2283,7 @@ func fetchChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 	if err := ReadElements(r,
 		&channel.ChanType, &channel.ChainHash, &channel.FundingOutpoint,
 		&channel.ShortChannelID, &channel.IsPending, &channel.IsInitiator,
-		&channel.ChanStatus, &channel.FundingBroadcastHeight,
+		&channel.chanStatus, &channel.FundingBroadcastHeight,
 		&channel.NumConfsRequired, &channel.ChannelFlags,
 		&channel.IdentityPub, &channel.Capacity, &channel.TotalMSatSent,
 		&channel.TotalMSatReceived,

@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -17,7 +18,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
 func init() {
@@ -107,22 +107,29 @@ type Ticker interface {
 
 // BatchTicker implements the Ticker interface, and wraps a time.Ticker.
 type BatchTicker struct {
-	ticker *time.Ticker
+	duration time.Duration
+	ticker   *time.Ticker
 }
 
 // NewBatchTicker returns a new BatchTicker that wraps the passed time.Ticker.
-func NewBatchTicker(t *time.Ticker) *BatchTicker {
-	return &BatchTicker{t}
+func NewBatchTicker(d time.Duration) *BatchTicker {
+	return &BatchTicker{
+		duration: d,
+	}
 }
 
 // Start returns the tick channel for the underlying time.Ticker.
 func (t *BatchTicker) Start() <-chan time.Time {
+	t.ticker = time.NewTicker(t.duration)
 	return t.ticker.C
 }
 
 // Stop stops the underlying time.Ticker.
 func (t *BatchTicker) Stop() {
-	t.ticker.Stop()
+	if t.ticker != nil {
+		t.ticker.Stop()
+		t.ticker = nil
+	}
 }
 
 // ChannelLinkConfig defines the configuration for the channel link. ALL
@@ -613,10 +620,7 @@ func (l *channelLink) syncChanStates() error {
 		msgsToReSend, openedCircuits, closedCircuits, err =
 			l.channel.ProcessChanSyncMsg(remoteChanSyncMsg)
 		if err != nil {
-			// TODO(roasbeef): check concrete type of error, act
-			// accordingly
-			return fmt.Errorf("unable to handle upstream reestablish "+
-				"message: %v", err)
+			return err
 		}
 
 		// Repopulate any identifiers for circuits that may have been
@@ -794,6 +798,7 @@ func (l *channelLink) fwdPkgGarbager() {
 // NOTE: This MUST be run as a goroutine.
 func (l *channelLink) htlcManager() {
 	defer func() {
+		l.cfg.BatchTicker.Stop()
 		l.wg.Done()
 		log.Infof("ChannelLink(%v) has exited", l)
 	}()
@@ -810,13 +815,71 @@ func (l *channelLink) htlcManager() {
 	if l.cfg.SyncStates {
 		err := l.syncChanStates()
 		if err != nil {
-			l.errorf("unable to synchronize channel states: %v", err)
-			if err != ErrLinkShuttingDown {
-				// TODO(halseth): must be revisted when
-				// data-loss protection is in.
-				l.fail(LinkFailureError{code: ErrSyncError},
-					err.Error())
+			switch {
+			case err == ErrLinkShuttingDown:
+				log.Debugf("unable to sync channel states, " +
+					"link is shutting down")
+				return
+
+			// We failed syncing the commit chains, probably
+			// because the remote has lost state. We should force
+			// close the channel.
+			// TODO(halseth): store sent chanSync message to
+			// database, such that it can be resent to peer in case
+			// it tries to sync the channel again.
+			case err == lnwallet.ErrCommitSyncRemoteDataLoss:
+				fallthrough
+
+			// The remote sent us an invalid last commit secret, we
+			// should force close the channel.
+			// TODO(halseth): and permanently ban the peer?
+			case err == lnwallet.ErrInvalidLastCommitSecret:
+				fallthrough
+
+			// The remote sent us a commit point different from
+			// what they sent us before.
+			// TODO(halseth): ban peer?
+			case err == lnwallet.ErrInvalidLocalUnrevokedCommitPoint:
+				l.fail(
+					LinkFailureError{
+						code:       ErrSyncError,
+						ForceClose: true,
+					},
+					"unable to synchronize channel "+
+						"states: %v", err,
+				)
+				return
+
+			// We have lost state and cannot safely force close the
+			// channel. Fail the channel and wait for the remote to
+			// hopefully force close it. The remote has sent us its
+			// latest unrevoked commitment point, that we stored in
+			// the database, that we can use to retrieve the funds
+			// when the remote closes the channel.
+			// TODO(halseth): mark this, such that we prevent
+			// channel from being force closed by the user or
+			// contractcourt etc.
+			case err == lnwallet.ErrCommitSyncLocalDataLoss:
+
+			// We determined the commit chains were not possible to
+			// sync. We cautiously fail the channel, but don't
+			// force close.
+			// TODO(halseth): can we safely force close in any
+			// cases where this error is returned?
+			case err == lnwallet.ErrCannotSyncCommitChains:
+
+			// Other, unspecified error.
+			default:
 			}
+
+			l.fail(
+				LinkFailureError{
+					code:       ErrSyncError,
+					ForceClose: false,
+				},
+				"unable to synchronize channel "+
+					"states: %v", err,
+			)
 			return
 		}
 	}
@@ -843,8 +906,12 @@ func (l *channelLink) htlcManager() {
 	l.wg.Add(1)
 	go l.fwdPkgGarbager()
 
-	batchTick := l.cfg.BatchTicker.Start()
-	defer l.cfg.BatchTicker.Stop()
+	// We'll only need the batch ticker if we have outgoing updates that are
+	// not covered by our last signature. This value will be nil unless a
+	// downstream packet forces the batchCounter to be positive. After the
+	// batch is cleared, it will return to nil to prevent wasteful CPU time
+	// caused by the batch ticker waking up the htlcManager needlessly.
+	var maybeBatchTick <-chan time.Time
 
 out:
 	for {
@@ -926,10 +993,13 @@ out:
 				break out
 			}
 
-		case <-batchTick:
+		case <-maybeBatchTick:
 			// If the current batch is empty, then we have no work
-			// here.
+			// here. We also disable the batch ticker from waking up
+			// the htlcManager while the batch is empty.
 			if l.batchCounter == 0 {
+				l.cfg.BatchTicker.Stop()
+				maybeBatchTick = nil
 				continue
 			}
 
@@ -955,6 +1025,13 @@ out:
 
 			l.handleDownStreamPkt(packet, true)
 
+			// If the downstream packet resulted in a non-empty
+			// batch, reinstate the batch ticker so that it can be
+			// cleared.
+			if l.batchCounter > 0 && maybeBatchTick == nil {
+				maybeBatchTick = l.cfg.BatchTicker.Start()
+			}
+
 		// A message from the switch was just received. This indicates
 		// that the link is an intermediate hop in a multi-hop HTLC
 		// circuit.
@@ -976,6 +1053,13 @@ out:
 			}
 
 			l.handleDownStreamPkt(pkt, false)
+
+			// If the downstream packet resulted in a non-empty
+			// batch, reinstate the batch ticker so that it can be
+			// cleared.
+			if l.batchCounter > 0 && maybeBatchTick == nil {
+				maybeBatchTick = l.cfg.BatchTicker.Start()
+			}
 
 		// A message from the connected peer was just received. This
 		// indicates that we have a new incoming HTLC, either directly
@@ -2155,7 +2239,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					"soon: expiry=%v, best_height=%v",
 					pd.RHash[:], pd.Timeout, heightNow)
 
-				failure := lnwire.FailFinalIncorrectCltvExpiry{}
+				failure := lnwire.FailFinalExpiryTooSoon{}
 				l.sendHTLCError(
 					pd.HtlcIndex, &failure, obfuscator, pd.SourceRef,
 				)

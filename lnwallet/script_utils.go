@@ -57,9 +57,9 @@ func WitnessScriptHash(witnessScript []byte) ([]byte, error) {
 	return bldr.Script()
 }
 
-// genMultiSigScript generates the non-p2sh'd multisig script for 2 of 2
+// GenMultiSigScript generates the non-p2sh'd multisig script for 2 of 2
 // pubkeys.
-func genMultiSigScript(aPub, bPub []byte) ([]byte, error) {
+func GenMultiSigScript(aPub, bPub []byte) ([]byte, error) {
 	if len(aPub) != 33 || len(bPub) != 33 {
 		return nil, fmt.Errorf("Pubkey size error. Compressed pubkeys only")
 	}
@@ -91,7 +91,7 @@ func GenFundingPkScript(aPub, bPub []byte, amt int64) ([]byte, *wire.TxOut, erro
 	}
 
 	// First, create the 2-of-2 multi-sig script itself.
-	witnessScript, err := genMultiSigScript(aPub, bPub)
+	witnessScript, err := GenMultiSigScript(aPub, bPub)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -953,10 +953,10 @@ func CommitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) 
 	return builder.Script()
 }
 
-// commitScriptUnencumbered constructs the public key script on the commitment
+// CommitScriptUnencumbered constructs the public key script on the commitment
 // transaction paying to the "other" party. The constructed output is a normal
 // p2wkh output spendable immediately, requiring no contestation period.
-func commitScriptUnencumbered(key *btcec.PublicKey) ([]byte, error) {
+func CommitScriptUnencumbered(key *btcec.PublicKey) ([]byte, error) {
 	// This script goes to the "other" party, and it spendable immediately.
 	builder := txscript.NewScriptBuilder()
 	builder.AddOp(txscript.OP_0)

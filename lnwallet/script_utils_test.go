@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/keychain"
 )
 
 // TestCommitmentSpendValidation test the spendability of both outputs within
@@ -90,7 +90,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 
 	// We're testing an uncooperative close, output sweep, so construct a
 	// transaction which sweeps the funds to a random address.
-	targetOutput, err := commitScriptUnencumbered(aliceKeyPub)
+	targetOutput, err := CommitScriptUnencumbered(aliceKeyPub)
 	if err != nil {
 		t.Fatalf("unable to create target output: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 
 	// Finally, we test bob sweeping his output as normal in the case that
 	// Alice broadcasts this commitment transaction.
-	bobScriptP2WKH, err := commitScriptUnencumbered(bobPayKey)
+	bobScriptP2WKH, err := CommitScriptUnencumbered(bobPayKey)
 	if err != nil {
 		t.Fatalf("unable to create bob p2wkh script: %v", err)
 	}

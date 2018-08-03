@@ -9,10 +9,10 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 
-	"github.com/lightninglabs/neutrino"
-	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/lightninglabs/neutrino"
+	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
 var (
@@ -33,15 +33,21 @@ func (b *BtcWallet) GetBestBlock() (*chainhash.Hash, int32, error) {
 	return b.chain.GetBestBlock()
 }
 
-// GetUtxo returns the original output referenced by the passed outpoint.
+// GetUtxo returns the original output referenced by the passed outpoint that
+// creates the target pkScript.
 //
 // This method is a part of the lnwallet.BlockChainIO interface.
-func (b *BtcWallet) GetUtxo(op *wire.OutPoint, heightHint uint32) (*wire.TxOut, error) {
+func (b *BtcWallet) GetUtxo(op *wire.OutPoint, pkScript []byte,
+	heightHint uint32) (*wire.TxOut, error) {
+
 	switch backend := b.chain.(type) {
 
 	case *chain.NeutrinoClient:
 		spendReport, err := backend.CS.GetUtxo(
-			neutrino.WatchOutPoints(*op),
+			neutrino.WatchInputs(neutrino.InputWithScript{
+				OutPoint: *op,
+				PkScript: pkScript,
+			}),
 			neutrino.StartBlock(&waddrmgr.BlockStamp{
 				Height: int32(heightHint),
 			}),

@@ -333,7 +333,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 
 		// Skip adding any permanently irreconcilable channels to the
 		// htlcswitch.
-		if dbChan.ChanStatus != channeldb.Default {
+		if dbChan.ChanStatus() != channeldb.Default {
 			peerLog.Warnf("ChannelPoint(%v) has status %v, won't "+
 				"start.", chanPoint, dbChan.ChanStatus)
 			lnChan.Stop()
@@ -542,12 +542,10 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 				*chanPoint, signals,
 			)
 		},
-		OnChannelFailure: onChannelFailure,
-		SyncStates:       syncStates,
-		BatchTicker: htlcswitch.NewBatchTicker(
-			time.NewTicker(50 * time.Millisecond)),
-		FwdPkgGCTicker: htlcswitch.NewBatchTicker(
-			time.NewTicker(time.Minute)),
+		OnChannelFailure:    onChannelFailure,
+		SyncStates:          syncStates,
+		BatchTicker:         htlcswitch.NewBatchTicker(50 * time.Millisecond),
+		FwdPkgGCTicker:      htlcswitch.NewBatchTicker(time.Minute),
 		BatchSize:           10,
 		UnsafeReplay:        cfg.UnsafeReplay,
 		MinFeeUpdateTimeout: htlcswitch.DefaultMinLinkFeeUpdateTimeout,
@@ -1839,7 +1837,7 @@ func (p *peer) finalizeChanClosure(chanCloser *channelCloser) {
 	}
 
 	go waitForChanToClose(chanCloser.negotiationHeight, notifier, errChan,
-		chanPoint, &closingTxid, func() {
+		chanPoint, &closingTxid, closingTx.TxOut[0].PkScript, func() {
 			// Respond to the local subsystem which requested the
 			// channel closure.
 			if closeReq != nil {
@@ -1874,15 +1872,16 @@ func (p *peer) finalizeChanClosure(chanCloser *channelCloser) {
 // the function, then it will be sent over the errChan.
 func waitForChanToClose(bestHeight uint32, notifier chainntnfs.ChainNotifier,
 	errChan chan error, chanPoint *wire.OutPoint,
-	closingTxID *chainhash.Hash, cb func()) {
+	closingTxID *chainhash.Hash, closeScript []byte, cb func()) {
 
 	peerLog.Infof("Waiting for confirmation of cooperative close of "+
 		"ChannelPoint(%v) with txid: %v", chanPoint,
 		closingTxID)
 
 	// TODO(roasbeef): add param for num needed confs
-	confNtfn, err := notifier.RegisterConfirmationsNtfn(closingTxID, 1,
-		bestHeight)
+	confNtfn, err := notifier.RegisterConfirmationsNtfn(
+		closingTxID, closeScript, 1, bestHeight,
+	)
 	if err != nil {
 		if errChan != nil {
 			errChan <- err

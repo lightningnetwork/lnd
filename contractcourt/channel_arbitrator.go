@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -424,15 +425,15 @@ func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
 
 		// Otherwise, if this state advance was triggered by a
 		// commitment being confirmed on chain, then we'll jump
-		// straight to the state where the contract has already been
-		// closed.
+		// straight to the state where the commitment has been
+		// confirmed.
 		case localCloseTrigger:
 			log.Errorf("ChannelArbitrator(%v): unexpected local "+
 				"commitment confirmed while in StateDefault",
 				c.cfg.ChanPoint)
 			fallthrough
 		case remoteCloseTrigger:
-			nextState = StateContractClosed
+			nextState = StateCommitmentConfirmed
 		}
 
 	// If we're in this state, then we've decided to broadcast the
@@ -499,14 +500,52 @@ func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
 			nextState = StateCommitmentBroadcasted
 
 		// If this state advance was triggered by any of the
-		// commitments being confirmed, then we'll jump to the state
-		// where the contract has been closed.
+		// commitments being confirmed, then we'll jump to
+		// StateCommitmentConfirmed.
 		case localCloseTrigger, remoteCloseTrigger:
 			log.Infof("ChannelArbitrator(%v): state %v, "+
-				" going to StateContractClosed",
+				" going to SateCommitmentConfirmed",
 				c.cfg.ChanPoint, trigger)
-			nextState = StateContractClosed
+			nextState = StateCommitmentConfirmed
 		}
+
+	// If we are in this state it means a commitment has been seen
+	// on-chain, and we have written a CloseSummary to the log.
+	case StateCommitmentConfirmed:
+
+		// If the MarkChannelClosed method is nil, it means this is a
+		// restricted arbitrator created for a channel already marked
+		// closed in the database. We can end up in this state if we
+		// are able to mark it closed, but the succeeding state
+		// transtion faile.
+		if c.cfg.MarkChannelClosed == nil {
+			// As it is already marked closed in this case we can
+			// go directly to the next state.
+			nextState = StateContractClosed
+			break
+		}
+
+		// Fetch the close summary we wrote to the log when the
+		// commitment was seen on-chain.
+		closeSummary, err := c.log.FetchCloseSummary()
+		if err != nil {
+			log.Errorf("unable to fetch close summary: %v", err)
+			return StateError, closeTx, err
+		}
+
+		// We now mark the channel closed in the database. If this
+		// succeeds, we'll no longer watch for chain events for this
+		// channel on restart.
+		err = c.cfg.MarkChannelClosed(closeSummary)
+		if err != nil {
+			log.Errorf("unable to mark channel closed: "+
+				"%v", err)
+			return StateError, closeTx, err
+		}
+
+		// We successfully closed the channel, and can go on to resolve
+		// the contract.
+		nextState = StateContractClosed
 
 	// If we're in this state, then the contract has been fully closed to
 	// outside sub-systems, so we'll process the prior set of on-chain
@@ -1451,6 +1490,50 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 
 				switch nextState {
 
+				// If the next state is
+				// StateCommitmentConfirmed, we'll craft and
+				// add a CloseSummary to the log, such that it
+				// can be fetched in that state.
+				case StateCommitmentConfirmed:
+					chanSnapshot := closeInfo.ChanSnapshot
+					closeSummary := &channeldb.ChannelCloseSummary{
+						ChanPoint:   chanSnapshot.ChannelPoint,
+						ChainHash:   chanSnapshot.ChainHash,
+						ClosingTXID: closeInfo.CloseTx.TxHash(),
+						RemotePub:   &chanSnapshot.RemoteIdentity,
+						Capacity:    chanSnapshot.Capacity,
+						CloseType:   channeldb.LocalForceClose,
+						IsPending:   true,
+						ShortChanID: c.cfg.ShortChanID,
+						CloseHeight: uint32(closeInfo.SpendingHeight),
+					}
+
+					// If our commitment output isn't dust
+					// or we have active HTLC's on the
+					// commitment transaction, then we'll
+					// populate the balances on the close
+					// channel summary.
+					if closeInfo.CommitResolution != nil {
+						closeSummary.SettledBalance =
+							chanSnapshot.LocalBalance.
+								ToSatoshis()
+						closeSummary.TimeLockedBalance =
+							chanSnapshot.LocalBalance.
+								ToSatoshis()
+					}
+					for _, htlc := range closeInfo.HtlcResolutions.OutgoingHTLCs {
+						htlcValue := btcutil.Amount(
+							htlc.SweepSignDesc.Output.Value)
+						closeSummary.TimeLockedBalance +=
+							htlcValue
+					}
+					err := c.log.LogCloseSummary(closeSummary)
+					if err != nil {
+						return fmt.Errorf("unable "+
+							"write close "+
+							"summary: %v", err)
+					}
+
 				// When processing a unilateral close event,
 				// we'll transition to the ContractClosed
 				// state. When the state machine reaches that
@@ -1507,6 +1590,20 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			stateCb := func(nextState ArbitratorState) error {
 
 				switch nextState {
+
+				// If the next state is
+				// StateCommitmentConfirmed, we'll add a
+				// CloseSummary to the log, such that it
+				// can be fetched in that state.
+				case StateCommitmentConfirmed:
+					err := c.log.LogCloseSummary(
+						&uniClosure.ChannelCloseSummary,
+					)
+					if err != nil {
+						return fmt.Errorf("unable "+
+							"write close "+
+							"summary: %v", err)
+					}
 
 				// When processing a unilateral close event,
 				// we'll transition to the ContractClosed

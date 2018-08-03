@@ -540,38 +540,6 @@ func (c *chainWatcher) dispatchLocalForceClose(
 		return err
 	}
 
-	// As we've detected that the channel has been closed, immediately
-	// delete the state from disk, creating a close summary for future
-	// usage by related sub-systems.
-	chanSnapshot := forceClose.ChanSnapshot
-	closeSummary := &channeldb.ChannelCloseSummary{
-		ChanPoint:   chanSnapshot.ChannelPoint,
-		ChainHash:   chanSnapshot.ChainHash,
-		ClosingTXID: forceClose.CloseTx.TxHash(),
-		RemotePub:   &chanSnapshot.RemoteIdentity,
-		Capacity:    chanSnapshot.Capacity,
-		CloseType:   channeldb.LocalForceClose,
-		IsPending:   true,
-		ShortChanID: c.cfg.chanState.ShortChanID(),
-		CloseHeight: uint32(commitSpend.SpendingHeight),
-	}
-
-	// If our commitment output isn't dust or we have active HTLC's on the
-	// commitment transaction, then we'll populate the balances on the
-	// close channel summary.
-	if forceClose.CommitResolution != nil {
-		closeSummary.SettledBalance = chanSnapshot.LocalBalance.ToSatoshis()
-		closeSummary.TimeLockedBalance = chanSnapshot.LocalBalance.ToSatoshis()
-	}
-	for _, htlc := range forceClose.HtlcResolutions.OutgoingHTLCs {
-		htlcValue := btcutil.Amount(htlc.SweepSignDesc.Output.Value)
-		closeSummary.TimeLockedBalance += htlcValue
-	}
-	err = c.cfg.chanState.CloseChannel(closeSummary)
-	if err != nil {
-		return fmt.Errorf("unable to delete channel state: %v", err)
-	}
-
 	// With the event processed, we'll now notify all subscribers of the
 	// event.
 	closeInfo := &LocalUnilateralCloseInfo{commitSpend, forceClose}
@@ -621,22 +589,10 @@ func (c *chainWatcher) dispatchRemoteForceClose(
 		return err
 	}
 
-	// As we've detected that the channel has been closed, immediately
-	// delete the state from disk, creating a close summary for future
-	// usage by related sub-systems.
-	err = c.cfg.chanState.CloseChannel(&uniClose.ChannelCloseSummary)
-	if err != nil {
-		return fmt.Errorf("unable to delete channel state: %v", err)
-	}
-
 	// With the event processed, we'll now notify all subscribers of the
 	// event.
 	c.Lock()
 	for _, sub := range c.clientSubscriptions {
-		// TODO(roasbeef): send msg before writing to disk
-		//  * need to ensure proper fault tolerance in all cases
-		//  * get ACK from the consumer of the ntfn before writing to disk?
-		//  * no harm in repeated ntfns: at least once semantics
 		select {
 		case sub.RemoteUnilateralClosure <- uniClose:
 		case <-c.quit:
@@ -723,6 +679,7 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 	// channel as pending force closed.
 	//
 	// TODO(roasbeef): instead mark we got all the monies?
+	// TODO(halseth): move responsibility to breach arbiter?
 	settledBalance := remoteCommit.LocalBalance.ToSatoshis()
 	closeSummary := channeldb.ChannelCloseSummary{
 		ChanPoint:      c.cfg.chanState.FundingOutpoint,

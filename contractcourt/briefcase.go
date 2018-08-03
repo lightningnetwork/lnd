@@ -117,9 +117,21 @@ const (
 	// waiting for it to confirm.
 	StateCommitmentBroadcasted ArbitratorState = 6
 
+	// StateCommitmentConfirmed is a state that indicates that the
+	// commitment has been confirmed. In this state we'll mark the channel
+	// closed in the database.
+	//
+	// NOTE: We mark the channel closed in the database in its own state to
+	// handle the case where a state transition fails after marking the
+	// channel closed. After the channel is marked closed we'll no longer
+	// detect chain events for this channel. In this case we'll restart
+	// from StateCommitmentConfirmed and retry the transition.
+	StateCommitmentConfirmed ArbitratorState = 7
+
 	// StateContractClosed is a state that indicates the contract has
-	// already been "closed", meaning the commitment is confirmed on chain.
-	// At this point, we can now examine our active contracts, in order to
+	// already been "closed", meaning the commitment is confirmed on chain
+	// and we have marked the channel closed in the database. At this
+	// point, we can now examine our active contracts, in order to
 	// create the proper resolver for each one.
 	StateContractClosed ArbitratorState = 2
 
@@ -150,6 +162,9 @@ func (a ArbitratorState) String() string {
 
 	case StateCommitmentBroadcasted:
 		return "StateCommitmentBroadcasted"
+
+	case StateCommitmentConfirmed:
+		return "StateCommitmentConfirmed"
 
 	case StateContractClosed:
 		return "StateContractClosed"

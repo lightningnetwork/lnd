@@ -2055,14 +2055,14 @@ func putChannelCloseSummary(tx *bolt.Tx, chanID []byte,
 	summary.LocalChanConfig = lastChanState.LocalChanCfg
 
 	var b bytes.Buffer
-	if err := serializeChannelCloseSummary(&b, summary); err != nil {
+	if err := SerializeChannelCloseSummary(&b, summary); err != nil {
 		return err
 	}
 
 	return closedChanBucket.Put(chanID, b.Bytes())
 }
 
-func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
+func SerializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
 	err := WriteElements(w,
 		cs.ChanPoint, cs.ShortChanID, cs.ChainHash, cs.ClosingTXID,
 		cs.CloseHeight, cs.RemotePub, cs.Capacity, cs.SettledBalance,
@@ -2110,10 +2110,10 @@ func fetchChannelCloseSummary(tx *bolt.Tx,
 	}
 
 	summaryReader := bytes.NewReader(summaryBytes)
-	return deserializeCloseChannelSummary(summaryReader)
+	return DeserializeCloseChannelSummary(summaryReader)
 }
 
-func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
+func DeserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 	c := &ChannelCloseSummary{}
 
 	err := ReadElements(r,

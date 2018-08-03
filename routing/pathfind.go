@@ -3,6 +3,7 @@ package routing
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"math"
 
@@ -66,7 +67,7 @@ type HopHint struct {
 // ChannelHop describes the channel through which an intermediate or final
 // hop can be reached. This struct contains the relevant routing policy of
 // the particular edge (which is a property of the source node of the channel
-// edge), as well as the total capacity. It also includes the origin chain of 
+// edge), as well as the total capacity. It also includes the origin chain of
 // the channel itself.
 type ChannelHop struct {
 	// Capacity is the total capacity of the channel being traversed. This
@@ -87,7 +88,7 @@ type ChannelHop struct {
 // is in line with the definition given in BOLT #4: Onion Routing Protocol.
 // The struct houses the channel along which this hop can be reached and
 // the values necessary to create the HTLC that needs to be sent to the
-// next hop. It is also used to encode the per-hop payload included within 
+// next hop. It is also used to encode the per-hop payload included within
 // the Sphinx packet.
 type Hop struct {
 	// Channel is the active payment channel edge along which the packet
@@ -297,7 +298,7 @@ func newRoute(amtToSend, feeLimit lnwire.MilliSatoshi, sourceVertex Vertex,
 		route.chanIndex[edge.ChannelID] = struct{}{}
 
 		// If this isn't a direct payment, and this isn't the edge to
-		// the last hop in the route, then we'll also populate the 
+		// the last hop in the route, then we'll also populate the
 		// nextHop map to allow easy route traversal by callers.
 		if len(pathEdges) > 1 && i != len(pathEdges)-1 {
 			route.nextHopMap[v] = route.Hops[i+1].Channel
@@ -316,7 +317,7 @@ func newRoute(amtToSend, feeLimit lnwire.MilliSatoshi, sourceVertex Vertex,
 		// reporting through RPC. Set to zero for the final hop.
 		fee := lnwire.MilliSatoshi(0)
 
-		// If the current hop isn't the last hop, then add enough funds 
+		// If the current hop isn't the last hop, then add enough funds
 		// to pay for transit over the next link.
 		if i != len(pathEdges)-1 {
 			// We'll grab the per-hop payload of the next hop (the
@@ -324,13 +325,13 @@ func newRoute(amtToSend, feeLimit lnwire.MilliSatoshi, sourceVertex Vertex,
 			// route so we can calculate fees properly.
 			nextHop := route.Hops[i+1]
 
-			// The amount that the current hop needs to forward is 
+			// The amount that the current hop needs to forward is
 			// based on how much the next hop forwards plus the fee
 			// that needs to be paid to the next hop.
 			amtToForward = nextHop.AmtToForward + nextHop.Fee
 
 			// The fee that needs to be paid to the current hop is
-			// based on the amount that this hop needs to forward 
+			// based on the amount that this hop needs to forward
 			// and its policy for the outgoing channel. This policy
 			// is stored as part of the incoming channel of
 			// the next hop.
@@ -439,9 +440,9 @@ type edgeWithPrev struct {
 
 // edgeWeight computes the weight of an edge. This value is used when searching
 // for the shortest path within the channel graph between two nodes. Weight is
-// is the fee itself plus a time lock penalty added to it. This benefits 
-// channels with shorter time lock deltas and shorter (hops) routes in general. 
-// RiskFactor controls the influence of time lock on route selection. This is 
+// is the fee itself plus a time lock penalty added to it. This benefits
+// channels with shorter time lock deltas and shorter (hops) routes in general.
+// RiskFactor controls the influence of time lock on route selection. This is
 // currently a fixed value, but might be configurable in the future.
 func edgeWeight(amt lnwire.MilliSatoshi, e *channeldb.ChannelEdgePolicy) int64 {
 	// First, we'll compute the "pure" fee through this hop. We say pure,
@@ -502,16 +503,6 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		return nil, err
 	}
 
-	// We'll also include all the nodes found within the additional edges
-	// that are not known to us yet in the distance map.
-	for vertex := range additionalEdges {
-		node := &channeldb.LightningNode{PubKeyBytes: vertex}
-		distance[vertex] = nodeWithDist{
-			dist: infinity,
-			node: node,
-		}
-	}
-
 	// We can't always assume that the end destination is publicly
 	// advertised to the network and included in the graph.ForEachNode call
 	// above, so we'll manually include the target node.
@@ -520,6 +511,71 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	distance[targetVertex] = nodeWithDist{
 		dist: infinity,
 		node: targetNode,
+	}
+
+	// If we're sending to self, we need to add additional edges that will point to self
+	// with a starting distance of infinity. First we create a virtual self, vSelf, node.
+	if sourceNode.PubKeyBytes == targetNode.PubKeyBytes{
+		vSelfPubKeyHex := "03dd46ff29a6941b4a2607525b043ec9b020b3f318a1bf281536fd7011ec59c882"
+		vSelfPubKeyBytes, err := hex.DecodeString(vSelfPubKeyHex)
+		vSelfPubKey, err := btcec.ParsePubKey(vSelfPubKeyBytes, btcec.S256())
+
+		vSelf := &channeldb.LightningNode{}
+		vSelf.AddPubKey(vSelfPubKey)
+		vSelf.Alias = "vSelf"
+
+		// Create the channel edge going from nodes directly connected to source to vSelf
+		// and include it in our map of additional edges.
+		err = sourceNode.ForEachChannel(tx, func(tx *bolt.Tx,
+			edgeInfo *channeldb.ChannelEdgeInfo,
+			outEdge, inEdge *channeldb.ChannelEdgePolicy) error {
+
+			// If the remote balance is > amount add to vSelf edge to additional
+			// edges, else ignore.  The edge policy must be from the point of view
+			// of the non-self nodes.
+
+			if lnwire.NewMSatFromSatoshis(edgeInfo.Capacity) - bandwidthHints[edgeInfo.ChannelID] > amt{
+				tovSelfEdge := &channeldb.ChannelEdgePolicy{
+					Node:                      vSelf,
+					ChannelID:                 inEdge.ChannelID,
+					FeeBaseMSat:               inEdge.FeeBaseMSat,
+					FeeProportionalMillionths: inEdge.FeeProportionalMillionths,
+					TimeLockDelta:             inEdge.TimeLockDelta,
+				}
+
+				if len(additionalEdges) == 0 {
+					additionalEdges = map[Vertex][]*channeldb.ChannelEdgePolicy{
+						Vertex(outEdge.Node.PubKeyBytes): {tovSelfEdge},
+					}
+				} else {
+					additionalEdges[Vertex(outEdge.Node.PubKeyBytes)] = append(
+						additionalEdges[Vertex(outEdge.Node.PubKeyBytes)], tovSelfEdge)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		target, _ = vSelf.PubKey()
+		targetVertex = Vertex(vSelf.PubKeyBytes)
+		targetNode = &channeldb.LightningNode{PubKeyBytes: targetVertex}
+		targetNode.Alias = "vSelf"
+		distance[targetVertex] = nodeWithDist{
+			dist: infinity,
+			node: targetNode,
+		}
+	}
+
+	// We'll also include all the nodes found within the additional edges
+	// that are not known to us yet in the distance map.
+	for vertex := range additionalEdges {
+		node := &channeldb.LightningNode{PubKeyBytes: vertex}
+		distance[vertex] = nodeWithDist{
+			dist: infinity,
+			node: node,
+		}
 	}
 
 	// We'll use this map as a series of "previous" hop pointers. So to get
@@ -549,10 +605,39 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			return
 		}
 
+		// This ignores edges where that it came in on: A-B-A.
+		// This is necessary 2-hop prevention when routing to self.
+		if pivot != Vertex (sourceNode.PubKeyBytes) && prev[pivot].prevNode == Vertex(sourceNode.PubKeyBytes) &&
+			edge.Node.Alias == "vSelf"{
+			return
+		}
+
 		// Compute the tentative distance to this new channel/edge which
 		// is the distance to our pivot node plus the weight of this
 		// edge.
 		tempDist := distance[pivot].dist + edgeWeight(amt, edge)
+
+		storageDist := int64(0)
+		var storageNode *channeldb.LightningNode
+		// Due to how the pathfinding algo works, we have to do some trickery to get self-routing to work
+		// without breaking anything.  Currently: It sets the distance to all nodes directly attached to source first
+		// This means that going A-B-C-A, the C is always further via A-B-C than it is A-C.  This prevents loops.
+		// So, in *only* the event that we're sending a payment to our self we check to see if the NextHop has
+		// a path to vSelf (C-A).  If C-A exists, then we set the distance to C to be greater than the A-B-C,
+		// so that a path A-B-C-A becomes available.  It aslo checks that it isn't reassigning the node it came
+		// in on has it's distance reset, creating a B-C-B-C-B infinte loop.
+		if targetNode.Alias == "vSelf" && distance[targetVertex].dist == infinity && prev[pivot].prevNode != v{
+			for _, tempEdge := range additionalEdges[v] {
+				if tempEdge.Node.Alias == "vSelf" {
+					storageDist = distance[v].dist
+					storageNode = distance[v].node
+					distance[v] = nodeWithDist{
+						dist: tempDist + 1,
+						node: storageNode,
+					}
+				}
+			}
+		}
 
 		// If this new tentative distance is better than the current
 		// best known distance to this node, then we record the new
@@ -579,6 +664,15 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			// Add this new node to our heap as we'd like to further
 			// explore down this edge.
 			heap.Push(&nodeHeap, distance[v])
+
+		// In the event of self routing altered the distance, but failed to be a viable path,
+		// we set it back to what it was.
+		} else if targetNode.Alias == "vSelf" && storageDist !=0 {
+			distance[v] = nodeWithDist{
+				dist: storageDist,
+				node: storageNode,
+			}
+			storageDist = 0
 		}
 	}
 

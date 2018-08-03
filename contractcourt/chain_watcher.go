@@ -23,6 +23,14 @@ type LocalUnilateralCloseInfo struct {
 	*lnwallet.LocalForceCloseSummary
 }
 
+// CooperativeCloseInfo encapsulates all the informnation we need to act
+// on a cooperative close that gets confirmed.
+type CooperativeCloseInfo struct {
+	SettledBalance btcutil.Amount
+	channeldb.ChannelSnapshot
+	*chainntnfs.SpendDetail
+}
+
 // ChainEventSubscription is a struct that houses a subscription to be notified
 // for any on-chain events related to a channel. There are three types of
 // possible on-chain events: a cooperative channel closure, a unilateral
@@ -42,9 +50,7 @@ type ChainEventSubscription struct {
 
 	// CooperativeClosure is a signal that will be sent upon once a
 	// cooperative channel closure has been detected confirmed.
-	//
-	// TODO(roasbeef): or something else
-	CooperativeClosure chan struct{}
+	CooperativeClosure chan *CooperativeCloseInfo
 
 	// ContractBreach is a channel that will be sent upon if we detect a
 	// contract breach. The struct sent across the channel contains all the
@@ -232,7 +238,7 @@ func (c *chainWatcher) SubscribeChannelEvents() *ChainEventSubscription {
 		ChanPoint:               c.cfg.chanState.FundingOutpoint,
 		RemoteUnilateralClosure: make(chan *lnwallet.UnilateralCloseSummary, 1),
 		LocalUnilateralClosure:  make(chan *LocalUnilateralCloseInfo, 1),
-		CooperativeClosure:      make(chan struct{}, 1),
+		CooperativeClosure:      make(chan *CooperativeCloseInfo, 1),
 		ContractBreach:          make(chan *lnwallet.BreachRetribution, 1),
 		Cancel: func() {
 			c.Lock()
@@ -494,40 +500,20 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 	log.Infof("Cooperative closure for ChannelPoint(%v): %v",
 		c.cfg.chanState.FundingOutpoint, spew.Sdump(broadcastTx))
 
-	// If the input *is* final, then we'll check to see which output is
-	// ours.
-	localAmt := c.toSelfAmount(broadcastTx)
-
-	// Once this is known, we'll mark the state as fully closed in the
-	// database. We can do this as a cooperatively closed channel has all
-	// its outputs resolved after only one confirmation.
-	closeSummary := &channeldb.ChannelCloseSummary{
-		ChanPoint:      c.cfg.chanState.FundingOutpoint,
-		ChainHash:      c.cfg.chanState.ChainHash,
-		ClosingTXID:    *commitSpend.SpenderTxHash,
-		RemotePub:      c.cfg.chanState.IdentityPub,
-		Capacity:       c.cfg.chanState.Capacity,
-		CloseHeight:    uint32(commitSpend.SpendingHeight),
-		SettledBalance: localAmt,
-		CloseType:      channeldb.CooperativeClose,
-		ShortChanID:    c.cfg.chanState.ShortChanID(),
-		IsPending:      false,
-	}
-	err := c.cfg.chanState.CloseChannel(closeSummary)
-	if err != nil && err != channeldb.ErrNoActiveChannels &&
-		err != channeldb.ErrNoChanDBExists {
-		return fmt.Errorf("unable to close chan state: %v", err)
+	// Create a summary of all the information needed to handle the
+	// cooperative closure.
+	closeInfo := &CooperativeCloseInfo{
+		SettledBalance:  c.toSelfAmount(broadcastTx),
+		ChannelSnapshot: *c.cfg.chanState.Snapshot(),
+		SpendDetail:     commitSpend,
 	}
 
-	log.Infof("closeObserver: ChannelPoint(%v) is fully "+
-		"closed, at height: %v",
-		c.cfg.chanState.FundingOutpoint,
-		commitSpend.SpendingHeight)
-
+	// With the event processed, we'll now notify all subscribers of the
+	// event.
 	c.Lock()
 	for _, sub := range c.clientSubscriptions {
 		select {
-		case sub.CooperativeClosure <- struct{}{}:
+		case sub.CooperativeClosure <- closeInfo:
 		case <-c.quit:
 			c.Unlock()
 			return fmt.Errorf("exiting")

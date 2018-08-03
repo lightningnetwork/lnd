@@ -1387,14 +1387,44 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 
 		// We've cooperatively closed the channel, so we're no longer
 		// needed. We'll mark the channel as resolved and exit.
-		case <-c.cfg.ChainEvents.CooperativeClosure:
-			log.Infof("ChannelArbitrator(%v) closing due to co-op "+
-				"closure", c.cfg.ChanPoint)
+		case closeInfo := <-c.cfg.ChainEvents.CooperativeClosure:
+			log.Infof("ChannelArbitrator(%v) marking channel "+
+				"cooperatively closed", c.cfg.ChanPoint)
 
+			// Create a summary and mark the channel cooperatively
+			// closed in the database.
+			closeSummary := &channeldb.ChannelCloseSummary{
+				ChanPoint:      closeInfo.ChannelPoint,
+				ChainHash:      closeInfo.ChainHash,
+				ClosingTXID:    *closeInfo.SpenderTxHash,
+				RemotePub:      &closeInfo.RemoteIdentity,
+				Capacity:       closeInfo.Capacity,
+				CloseHeight:    uint32(closeInfo.SpendingHeight),
+				SettledBalance: closeInfo.SettledBalance,
+				CloseType:      channeldb.CooperativeClose,
+				ShortChanID:    c.cfg.ShortChanID,
+				IsPending:      false,
+			}
+
+			err := c.cfg.MarkChannelClosed(closeSummary)
+			if err != nil {
+				log.Errorf("unable to mark channel closed: "+
+					"%v", err)
+				return
+			}
+
+			// Since all outputs are imemdiately available in a
+			// cooperative close, we can mark the channel resolved
+			// immediately.
 			if err := c.cfg.MarkChannelResolved(); err != nil {
 				log.Errorf("Unable to mark contract "+
 					"resolved: %v", err)
+				return
 			}
+
+			log.Infof("ChannelPoint(%v) is fully closed, at "+
+				"height: %v", c.cfg.ChanPoint,
+				closeInfo.SpendingHeight)
 
 			return
 
@@ -1467,9 +1497,6 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 				CommitResolution: uniClosure.CommitResolution,
 				HtlcResolutions:  *uniClosure.HtlcResolutions,
 			}
-
-			// TODO(roasbeef): modify signal to also detect
-			// cooperative closures?
 
 			// As we're now acting upon an event triggered by the
 			// broadcast of the remote commitment transaction,

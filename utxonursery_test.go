@@ -8,12 +8,12 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
 var (

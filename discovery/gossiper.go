@@ -1225,9 +1225,9 @@ func (d *AuthenticatedGossiper) networkHandler() {
 	}
 }
 
-// TODO(roasbeef): d/c peers that send uupdates not on our chain
+// TODO(roasbeef): d/c peers that send updates not on our chain
 
-// InitPeerSyncState is called by outside sub-systems when a connection is
+// InitSyncState is called by outside sub-systems when a connection is
 // established to a new peer that understands how to perform channel range
 // queries. We'll allocate a new gossip syncer for it, and start any goroutines
 // needed to handle new queries. The recvUpdates bool indicates if we should

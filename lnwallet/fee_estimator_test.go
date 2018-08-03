@@ -3,8 +3,8 @@ package lnwallet_test
 import (
 	"testing"
 
-	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
 // TestFeeRateTypes checks that converting fee rates between the

@@ -8,13 +8,13 @@ import (
 
 	"container/heap"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcutil"
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcutil"
 )
 
 const (
@@ -66,7 +66,7 @@ type HopHint struct {
 // ChannelHop describes the channel through which an intermediate or final
 // hop can be reached. This struct contains the relevant routing policy of
 // the particular edge (which is a property of the source node of the channel
-// edge), as well as the total capacity. It also includes the origin chain of 
+// edge), as well as the total capacity. It also includes the origin chain of
 // the channel itself.
 type ChannelHop struct {
 	// Capacity is the total capacity of the channel being traversed. This
@@ -87,7 +87,7 @@ type ChannelHop struct {
 // is in line with the definition given in BOLT #4: Onion Routing Protocol.
 // The struct houses the channel along which this hop can be reached and
 // the values necessary to create the HTLC that needs to be sent to the
-// next hop. It is also used to encode the per-hop payload included within 
+// next hop. It is also used to encode the per-hop payload included within
 // the Sphinx packet.
 type Hop struct {
 	// Channel is the active payment channel edge along which the packet
@@ -297,7 +297,7 @@ func newRoute(amtToSend, feeLimit lnwire.MilliSatoshi, sourceVertex Vertex,
 		route.chanIndex[edge.ChannelID] = struct{}{}
 
 		// If this isn't a direct payment, and this isn't the edge to
-		// the last hop in the route, then we'll also populate the 
+		// the last hop in the route, then we'll also populate the
 		// nextHop map to allow easy route traversal by callers.
 		if len(pathEdges) > 1 && i != len(pathEdges)-1 {
 			route.nextHopMap[v] = route.Hops[i+1].Channel
@@ -316,7 +316,7 @@ func newRoute(amtToSend, feeLimit lnwire.MilliSatoshi, sourceVertex Vertex,
 		// reporting through RPC. Set to zero for the final hop.
 		fee := lnwire.MilliSatoshi(0)
 
-		// If the current hop isn't the last hop, then add enough funds 
+		// If the current hop isn't the last hop, then add enough funds
 		// to pay for transit over the next link.
 		if i != len(pathEdges)-1 {
 			// We'll grab the per-hop payload of the next hop (the
@@ -324,13 +324,13 @@ func newRoute(amtToSend, feeLimit lnwire.MilliSatoshi, sourceVertex Vertex,
 			// route so we can calculate fees properly.
 			nextHop := route.Hops[i+1]
 
-			// The amount that the current hop needs to forward is 
+			// The amount that the current hop needs to forward is
 			// based on how much the next hop forwards plus the fee
 			// that needs to be paid to the next hop.
 			amtToForward = nextHop.AmtToForward + nextHop.Fee
 
 			// The fee that needs to be paid to the current hop is
-			// based on the amount that this hop needs to forward 
+			// based on the amount that this hop needs to forward
 			// and its policy for the outgoing channel. This policy
 			// is stored as part of the incoming channel of
 			// the next hop.
@@ -358,7 +358,7 @@ func newRoute(amtToSend, feeLimit lnwire.MilliSatoshi, sourceVertex Vertex,
 		// enough capacity to carry the required amount which
 		// includes the fee dictated at each hop. Make the comparison
 		// in msat to prevent rounding errors.
-		if currentHop.AmtToForward + fee > lnwire.NewMSatFromSatoshis(
+		if currentHop.AmtToForward+fee > lnwire.NewMSatFromSatoshis(
 			currentHop.Channel.Capacity) {
 
 			err := fmt.Sprintf("channel graph has insufficient "+
@@ -439,9 +439,9 @@ type edgeWithPrev struct {
 
 // edgeWeight computes the weight of an edge. This value is used when searching
 // for the shortest path within the channel graph between two nodes. Weight is
-// is the fee itself plus a time lock penalty added to it. This benefits 
-// channels with shorter time lock deltas and shorter (hops) routes in general. 
-// RiskFactor controls the influence of time lock on route selection. This is 
+// is the fee itself plus a time lock penalty added to it. This benefits
+// channels with shorter time lock deltas and shorter (hops) routes in general.
+// RiskFactor controls the influence of time lock on route selection. This is
 // currently a fixed value, but might be configurable in the future.
 func edgeWeight(amt lnwire.MilliSatoshi, e *channeldb.ChannelEdgePolicy) int64 {
 	// First, we'll compute the "pure" fee through this hop. We say pure,

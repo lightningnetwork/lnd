@@ -809,8 +809,8 @@ func (c *ChannelGraph) pruneGraphNodes(tx *bolt.Tx, nodes *bolt.Bucket,
 
 		// With the nodes extracted, we'll increase the ref count of
 		// each of the nodes.
-		nodeRefCounts[node1] += 1
-		nodeRefCounts[node2] += 1
+		nodeRefCounts[node1]++
+		nodeRefCounts[node2]++
 
 		return nil
 	})

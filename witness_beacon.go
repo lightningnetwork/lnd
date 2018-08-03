@@ -3,10 +3,10 @@ package main
 import (
 	"sync"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
 // preimageSubscriber reprints an active subscription to be notified once the

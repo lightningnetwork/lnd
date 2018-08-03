@@ -366,9 +366,9 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 
 	// If we were requested to automatically configure port forwarding,
 	// we'll use the ports that the server will be listening on.
-	externalIpStrings := make([]string, len(cfg.ExternalIPs))
+	externalIPStrings := make([]string, len(cfg.ExternalIPs))
 	for idx, ip := range cfg.ExternalIPs {
-		externalIpStrings[idx] = ip.String()
+		externalIPStrings[idx] = ip.String()
 	}
 	if s.natTraversal != nil {
 		listenPorts := make([]uint16, 0, len(listenAddrs))
@@ -391,14 +391,14 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 			srvrLog.Infof("Automatically set up port forwarding "+
 				"using %s to advertise external IP",
 				s.natTraversal.Name())
-			externalIpStrings = append(externalIpStrings, ips...)
+			externalIPStrings = append(externalIPStrings, ips...)
 		}
 	}
 
 	// If external IP addresses have been specified, add those to the list
 	// of this server's addresses.
 	externalIPs, err := lncfg.NormalizeAddresses(
-		externalIpStrings, strconv.Itoa(defaultPeerPort),
+		externalIPStrings, strconv.Itoa(defaultPeerPort),
 		cfg.net.ResolveTCPAddr,
 	)
 	if err != nil {
@@ -2593,8 +2593,6 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress, perm bool) error {
 	case <-s.quit:
 		return ErrServerShuttingDown
 	}
-
-	return nil
 }
 
 // connectToPeer establishes a connection to a remote peer. errChan is used to

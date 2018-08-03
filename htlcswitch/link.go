@@ -40,10 +40,12 @@ const (
 	// and accepting updates.
 	minCommitFeePerKw = 253
 
-	// DefaultMinLinkFeeUpdateTimeout and DefaultMaxLinkFeeUpdateTimeout
-	// represent the default timeout bounds in which a link should propose
-	// to update its commitment fee rate.
+	// DefaultMinLinkFeeUpdateTimeout represents the minimum interval in
+	// which a link should propose to update its commitment fee rate.
 	DefaultMinLinkFeeUpdateTimeout = 10 * time.Minute
+
+	// DefaultMaxLinkFeeUpdateTimeout represents the maximum interval in
+	// which a link should propose to update its commitment fee rate.
 	DefaultMaxLinkFeeUpdateTimeout = 60 * time.Minute
 )
 

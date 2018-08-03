@@ -1259,7 +1259,7 @@ func TestBreachSecondLevelTransfer(t *testing.T) {
 	// output is spent by a second level tx.
 	secondLvlTx := &wire.MsgTx{
 		TxOut: []*wire.TxOut{
-			&wire.TxOut{Value: 1},
+			{Value: 1},
 		},
 	}
 	notifier.Spend(htlcOutpoint, 2, secondLvlTx)

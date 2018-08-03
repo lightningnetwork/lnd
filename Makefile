@@ -199,7 +199,7 @@ fmt:
 lint: $(LINT_BIN)
 	@$(call print, "Linting source.")
 	$(LINT_BIN) --install 1> /dev/null
-	test -z "$($(LINT))"
+	test -z "$$($(LINT))"
 
 list:
 	@$(call print, "Listing commands.")

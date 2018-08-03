@@ -18,11 +18,11 @@ import (
 	"syscall"
 
 	"github.com/awalterschulze/gographviz"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcutil"
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcutil"
 	"github.com/urfave/cli"
 	"golang.org/x/crypto/ssh/terminal"
 	"golang.org/x/net/context"

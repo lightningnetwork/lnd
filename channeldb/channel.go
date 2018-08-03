@@ -299,7 +299,7 @@ type ChannelStatus uint8
 
 var (
 	// Default is the normal state of an open channel.
-	Default ChannelStatus = 0
+	Default ChannelStatus
 
 	// Borked indicates that the channel has entered an irreconcilable
 	// state, triggered by a state desynchronization or channel breach.

@@ -3924,7 +3924,7 @@ func (i *InvalidCommitSigError) Error() string {
 // error interface.
 var _ error = (*InvalidCommitSigError)(nil)
 
-// InvalidCommitSigError is a struc that implements the error interface to
+// InvalidHtlcSigError is a struct that implements the error interface to
 // report a failure to validate an htlc signature from a remote peer. We'll use
 // the items in this struct to generate a rich error message for the remote
 // peer when we receive an invalid signature from it. Doing so can greatly aide

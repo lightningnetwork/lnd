@@ -72,7 +72,7 @@ func (g *GossipTimestampRange) MsgType() MessageType {
 // version.
 //
 // This is part of the lnwire.Message interface.
-func (c *GossipTimestampRange) MaxPayloadLength(uint32) uint32 {
+func (g *GossipTimestampRange) MaxPayloadLength(uint32) uint32 {
 	// 32 + 4 + 4
 	//
 	// TODO(roasbeef): update to 8 byte timestmaps?

@@ -613,7 +613,11 @@ func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
 
 		log.Infof("ChannelPoint(%v) has been fully resolved "+
 			"on-chain at height=%v", c.cfg.ChanPoint, triggerHeight)
-		return nextState, closeTx, c.cfg.MarkChannelResolved()
+
+		if err := c.cfg.MarkChannelResolved(); err != nil {
+			log.Errorf("unable to mark channel resolved: %v", err)
+			return StateError, closeTx, err
+		}
 	}
 
 	if err := c.log.CommitState(nextState); err != nil {

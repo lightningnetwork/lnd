@@ -5,14 +5,14 @@ DEP_PKG := github.com/golang/dep/cmd/dep
 BTCD_PKG := github.com/btcsuite/btcd
 GLIDE_PKG := github.com/Masterminds/glide
 GOVERALLS_PKG := github.com/mattn/goveralls
-LINT_PKG := gopkg.in/alecthomas/gometalinter.v1
+LINT_PKG := gopkg.in/alecthomas/gometalinter.v2
 
 GO_BIN := ${GOPATH}/bin
 DEP_BIN := $(GO_BIN)/dep
 BTCD_BIN := $(GO_BIN)/btcd
 GLIDE_BIN := $(GO_BIN)/glide
 GOVERALLS_BIN := $(GO_BIN)/goveralls
-LINT_BIN := $(GO_BIN)/gometalinter.v1
+LINT_BIN := $(GO_BIN)/gometalinter.v2
 
 HAVE_DEP := $(shell command -v $(DEP_BIN) 2> /dev/null)
 HAVE_BTCD := $(shell command -v $(BTCD_BIN) 2> /dev/null)
@@ -100,7 +100,7 @@ $(GOVERALLS_BIN):
 	go get -u $(GOVERALLS_PKG)
 
 $(LINT_BIN):
-	@$(call print, "Fetching gometalinter.v1")
+	@$(call print, "Fetching gometalinter.v2")
 	go get -u $(LINT_PKG)
 	$(GOINSTALL) $(LINT_PKG)
 
@@ -178,13 +178,13 @@ flake-unit:
 # ======
 
 ifeq ($(RACE), false)
-travis: lint scratch itest unit-cover $(GOVERALLS_BIN)
+travis: dep lint build itest unit-cover $(GOVERALLS_BIN)
 	@$(call print, "Sending coverage report.")
 	$(GOVERALLS_BIN) -coverprofile=profile.cov -service=travis-ci
 endif
 
 ifeq ($(RACE), true)
-travis: lint dep btcd unit-race
+travis: dep lint btcd unit-race
 endif
 
 

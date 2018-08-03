@@ -543,13 +543,13 @@ func TestFindLowestFeePath(t *testing.T) {
 		t.Fatalf("unable to find path: %v", err)
 	}
 	route, err := newRoute(
-		paymentAmt, infinity, sourceVertex, path, startingHeight, 
+		paymentAmt, infinity, sourceVertex, path, startingHeight,
 		finalHopCLTV)
 	if err != nil {
 		t.Fatalf("unable to create path: %v", err)
 	}
 
-	// Assert that the lowest fee route is returned.	
+	// Assert that the lowest fee route is returned.
 	if !bytes.Equal(route.Hops[0].Channel.Node.PubKeyBytes[:],
 		aliases["b"].SerializeCompressed()) {
 		t.Fatalf("expected route to pass through b, "+
@@ -770,30 +770,194 @@ func TestBasicGraphPathFinding(t *testing.T) {
 			paymentAmt, route.TotalAmount)
 	}
 
-        // Next, we attempt to find a path from the source back to itself.
-        // Useful for load balancing channels.
-        target = aliases["roasbeef"]
-        path, err = findPath(
-                nil, graph, nil, sourceNode, target, ignoredVertexes,
-                ignoredEdges, paymentAmt, nil,
-        )
-        if err != nil {
-                t.Fatalf("unable to find route: %v", err)
-        }
+	// Next, we attempt to find a path from the source back to itself.
+	// Useful for load balancing channels.  Requires BandWidthHints!
+	// For efficeincy, paths with known insuffienent remote balance
+	// will not be added to additional edges.
+	target = aliases["roasbeef"]
+	bandwidthHints := make(map[uint64]lnwire.MilliSatoshi)
+	bandwidthHints[12345] = 250000
+	bandwidthHints[999991] = 250000
+	bandwidthHints[2340213491] = 250000
+	bandwidthHints[689530843] =250000
 
-        route, err = newRoute(
-                paymentAmt, noFeeLimit, sourceVertex, path, startingHeight,
-                finalHopCLTV,
-        )
-        if err != nil {
-                t.Fatalf("unable to create path: %v", err)
-        }
+	path, err = findPath(
+		nil, graph, nil, sourceNode, target, ignoredVertexes,
+		ignoredEdges, paymentAmt, bandwidthHints,
+	)
+	if err != nil {
+		t.Fatalf("unable to find route: %v", err)
+	}
 
-        // The cheapest path should be sat->lou->roas or lou->sat->roas 3 hops
-        if len(route.Hops) != 3 {
-                t.Fatalf("shortest path not selected, should be of length 1, "+
-                        "is instead: %v", len(route.Hops))
-        }
+	route, err = newRoute(
+		paymentAmt, noFeeLimit, sourceVertex, path, startingHeight,
+		finalHopCLTV,
+	)
+	if err != nil {
+		t.Fatalf("unable to create path: %v", err)
+	}
+
+	// The cheapest path should be lou->sat->roas 3 hops Lou-self has lower channel
+	// ID than Sat-self, and will be explored first.  However, if the pathfinding algo
+	// changes from Source -> Dest to Dest-> source, the path may become sat-Lou-Roas,
+	// but it'll still be three hops.
+	if len(route.Hops) != 3 {
+		t.Fatalf("shortest path not selected, should be of length 3, "+
+			"is instead: %v", len(route.Hops))
+	}
+
+	// Time to make sure paths with known insufficent incoming balance are ignored
+	// when sending to self. This sets Source->Satoshi channel as if 100% of the balance
+	// is on the source side.
+	bandwidthHints[2340213491] = 10000000
+	path, err = findPath(
+		nil, graph, nil, sourceNode, target, ignoredVertexes,
+		ignoredEdges, paymentAmt, bandwidthHints,
+	)
+	if err != nil {
+		t.Fatalf("unable to find route: %v", err)
+	}
+
+	route, err = newRoute(
+		paymentAmt, noFeeLimit, sourceVertex, path, startingHeight,
+		finalHopCLTV,
+	)
+	if err != nil {
+		t.Fatalf("unable to create path: %v", err)
+	}
+
+	// The cheapest path should be sat->lou->roas 3 hops.  All the capacity of Sat is on near side,
+	// so can't have any incoming.
+	if len(route.Hops) != 3 {
+		t.Fatalf("shortest path not selected, should be of length 3, "+
+			"is instead: %v", len(route.Hops))
+	}
+	// Here we ensure the correct path was taken.
+	satPrevChan, ok := route.prevHopChannel(aliases["satoshi"])
+	if !ok {
+		t.Fatalf("satoshi didn't have next chan but should have")
+	}
+	if satPrevChan.ChannelID != route.Hops[0].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			satPrevChan.ChannelID, route.Hops[0].Channel.ChannelID)
+	}
+	satNextChan, ok := route.nextHopChannel(aliases["satoshi"])
+	if !ok {
+		t.Fatalf("satoshi didn't have prev chan but should have")
+	}
+	if satNextChan.ChannelID != route.Hops[1].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			satNextChan.ChannelID, route.Hops[1].Channel.ChannelID)
+	}
+
+	// Lou should have a next hop and previous hop
+	louPrevChan, ok := route.prevHopChannel(aliases["luoji"])
+	if !ok {
+		t.Fatalf("Luo Ji didn't have next chan but should have")
+	}
+	if louPrevChan.ChannelID != route.Hops[1].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			louPrevChan.ChannelID, route.Hops[1].Channel.ChannelID)
+	}
+	louNextChan, ok := route.nextHopChannel(aliases["luoji"])
+	if !ok {
+		t.Fatalf("luoji didn't have prev chan but should have")
+	}
+	if louNextChan.ChannelID != route.Hops[2].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			louNextChan.ChannelID, route.Hops[2].Channel.ChannelID)
+	}
+	// RoasBeef is never assigned a previous channel, vSelf, which exists soely within the pathfind
+	// algo.
+	if _, ok := route.prevHopChannel(aliases["roasbeef"]); ok {
+		t.Fatalf("incorrect next hop map, no vertexes should " +
+			"be before RoasBeef")
+	}
+	// Testing the case where there is only one incoming channel with suffient funds.
+	// Setting all others as if they were newly opened, with all funds sitting on near side.
+	bandwidthHints[999991] = 100000000
+	bandwidthHints[689530843] = 100000000
+	path, err = findPath(
+		nil, graph, nil, sourceNode, target, ignoredVertexes,
+		ignoredEdges, paymentAmt, bandwidthHints,
+	)
+	if err != nil {
+		t.Fatalf("unable to find route: %v", err)
+	}
+
+	route, err = newRoute(
+		paymentAmt, noFeeLimit, sourceVertex, path, startingHeight,
+		finalHopCLTV,
+	)
+	if err != nil {
+		t.Fatalf("unable to create path: %v", err)
+	}
+
+	// The only path availabe is pham->soph->goku-Roasbeef
+	if len(route.Hops) != 4 {
+		t.Fatalf("shortest path not selected, should be of length r, "+
+			"is instead: %v", len(route.Hops))
+	}
+	// Here we ensure the correct path was taken.
+	phamPrevChan, ok := route.prevHopChannel(aliases["phamnuwen"])
+	if !ok {
+		t.Fatalf("phamnuwen didn't have next chan but should have")
+	}
+	if phamPrevChan.ChannelID != route.Hops[0].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			phamPrevChan.ChannelID, route.Hops[0].Channel.ChannelID)
+	}
+	phamNextChan, ok := route.nextHopChannel(aliases["phamnuwen"])
+	if !ok {
+		t.Fatalf("phamnuwen didn't have prev chan but should have")
+	}
+	if phamNextChan.ChannelID != route.Hops[1].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			phamNextChan.ChannelID, route.Hops[1].Channel.ChannelID)
+	}
+
+	// Sophon should have a next hop and previous hop
+	sophPrevChan, ok := route.prevHopChannel(aliases["sophon"])
+	if !ok {
+		t.Fatalf("Sophon didn't have next chan but should have")
+	}
+	if sophPrevChan.ChannelID != route.Hops[1].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			sophPrevChan.ChannelID, route.Hops[1].Channel.ChannelID)
+	}
+	sophNextChan, ok := route.nextHopChannel(aliases["sophon"])
+	if !ok {
+		t.Fatalf("Sophon didn't have prev chan but should have")
+	}
+	if sophNextChan.ChannelID != route.Hops[2].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			sophNextChan.ChannelID, route.Hops[2].Channel.ChannelID)
+	}
+
+	// Songoku should have a next and previous hop
+	songPrevChan, ok := route.prevHopChannel(aliases["songoku"])
+	if !ok {
+		t.Fatalf("Songoku didn't have next chan but should have")
+	}
+	if songPrevChan.ChannelID != route.Hops[2].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			songPrevChan.ChannelID, route.Hops[2].Channel.ChannelID)
+	}
+	songNextChan, ok := route.nextHopChannel(aliases["songoku"])
+	if !ok {
+		t.Fatalf("Songoku didn't have prev chan but should have")
+	}
+	if songNextChan.ChannelID != route.Hops[3].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			songNextChan.ChannelID, route.Hops[3].Channel.ChannelID)
+	}
+	// RoasBeef is never assigned a previous channel, vSelf, which exists soely within the pathfind
+	// algo has the last previous channel.
+	if _, ok := route.prevHopChannel(aliases["roasbeef"]); ok {
+		t.Fatalf("incorrect next hop map, no vertexes should " +
+			"be before RoasBeef")
+	}
+
 }
 
 func TestPathFindingWithAdditionalEdges(t *testing.T) {
@@ -924,7 +1088,7 @@ func TestNewRoute(t *testing.T) {
 	)
 
 	createHop := func(baseFee lnwire.MilliSatoshi,
-		feeRate lnwire.MilliSatoshi, 
+		feeRate lnwire.MilliSatoshi,
 		capacity btcutil.Amount,
 		timeLockDelta uint16) (*ChannelHop) {
 
@@ -939,7 +1103,7 @@ func TestNewRoute(t *testing.T) {
 		}
 	}
 
-	testCases := []struct { 
+	testCases := []struct {
 		// name identifies the test case in the test output.
 		name 		      string
 
@@ -980,100 +1144,101 @@ func TestNewRoute(t *testing.T) {
 		// expectError is true.
 		expectedErrorCode     errorCode
 	} {
-	{
-		// For a single hop payment, no fees are expected to be paid.
-		name: "single hop", 
-		paymentAmount: 100000,
-		hops: []*ChannelHop { 
-			createHop(100, 1000, 1000, 10),
-		},
-		expectedFees: []lnwire.MilliSatoshi {0},
-		expectedTimeLocks: []uint32 {1},
-		expectedTotalAmount: 100000,
-		expectedTotalTimeLock: 1,
-	}, {
-		// For a two hop payment, only the fee for the first hop
-		// needs to be paid. The destination hop does not require
-		// a fee to receive the payment.
-		name: "two hop", 
-		paymentAmount: 100000,
-		hops: []*ChannelHop { 
-			createHop(0, 1000, 1000, 10), 
-			createHop(30, 1000, 1000, 5),
-		},
-		expectedFees: []lnwire.MilliSatoshi {130, 0},
-		expectedTimeLocks: []uint32 {1, 1},
-		expectedTotalAmount: 100130,
-		expectedTotalTimeLock: 6,
-	}, {
-		// Insufficient capacity in first channel when fees are added.
-		name: "two hop insufficient", 
-		paymentAmount: 100000,
-		hops: []*ChannelHop { 
-			createHop(0, 1000, 100, 10), 
-			createHop(0, 1000, 1000, 5),
-		},
-		expectError: true,
-		expectedErrorCode: ErrInsufficientCapacity,
-	}, {
-		// A three hop payment where the first and second hop
-		// will both charge 1 msat. The fee for the first hop
-		// is actually slightly higher than 1, because the amount 
-		// to forward also includes the fee for the second hop. This
-		// gets rounded down to 1.
-		name: "three hop", 
-		paymentAmount: 100000,
-		hops: []*ChannelHop { 
-			createHop(0, 10, 1000, 10), 
-			createHop(0, 10, 1000, 5), 
-			createHop(0, 10, 1000, 3),
-		},
-		expectedFees: []lnwire.MilliSatoshi {1, 1, 0},
-		expectedTotalAmount: 100002,
-		expectedTimeLocks: []uint32 {4, 1, 1},
-		expectedTotalTimeLock: 9,
-	}, {
-		// A three hop payment where the fee of the first hop
-		// is slightly higher (11) than the fee at the second hop,
-		// because of the increase amount to forward.
-		name: "three hop with fee carry over", 
-		paymentAmount: 100000,
-		hops: []*ChannelHop { 
-			createHop(0, 10000, 1000, 10), 
-			createHop(0, 10000, 1000, 5), 
-			createHop(0, 10000, 1000, 3),
-		},
-		expectedFees: []lnwire.MilliSatoshi {1010, 1000, 0},
-		expectedTotalAmount: 102010,
-		expectedTimeLocks: []uint32 {4, 1, 1},
-		expectedTotalTimeLock: 9,
-	}, {
-		// A three hop payment where the fee policies of the first and
-		// second hop are just high enough to show the fee carry over
-		// effect.
-		name: "three hop with minimal fees for carry over", 
-		paymentAmount: 100000,
-		hops: []*ChannelHop { 
-			createHop(0, 10000, 1000, 10), 
-			
-			// First hop charges 0.1% so the second hop fee
-			// should show up in the first hop fee as 1 msat
-			// extra.
-			createHop(0, 1000, 1000, 5), 
+		{
+			// For a single hop payment, no fees are expected to be paid.
+			name: "single hop",
+			paymentAmount: 100000,
+			hops: []*ChannelHop {
+				createHop(100, 1000, 1000, 10),
+			},
+			expectedFees: []lnwire.MilliSatoshi {0},
+			expectedTimeLocks: []uint32 {1},
+			expectedTotalAmount: 100000,
+			expectedTotalTimeLock: 1,
+		}, {
+			// For a two hop payment, only the fee for the first hop
+			// needs to be paid. The destination hop does not require
+			// a fee to receive the payment.
+			name: "two hop",
+			paymentAmount: 100000,
+			hops: []*ChannelHop {
+				createHop(0, 1000, 1000, 10),
+				createHop(30, 1000, 1000, 5),
+			},
+			expectedFees: []lnwire.MilliSatoshi {130, 0},
+			expectedTimeLocks: []uint32 {1, 1},
+			expectedTotalAmount: 100130,
+			expectedTotalTimeLock: 6,
+		}, {
+			// Insufficient capacity in first channel when fees are added.
+			name: "two hop insufficient",
+			paymentAmount: 100000,
+			hops: []*ChannelHop {
+				createHop(0, 1000, 100, 10),
+				createHop(0, 1000, 1000, 5),
+			},
+			expectError: true,
+			expectedErrorCode: ErrInsufficientCapacity,
+		}, {
+			// A three hop payment where the first and second hop
+			// will both charge 1 msat. The fee for the first hop
+			// is actually slightly higher than 1, because the amount
+			// to forward also includes the fee for the second hop. This
+			// gets rounded down to 1.
+			name: "three hop",
+			paymentAmount: 100000,
+			hops: []*ChannelHop {
+				createHop(0, 10, 1000, 10),
+				createHop(0, 10, 1000, 5),
+				createHop(0, 10, 1000, 3),
+			},
+			expectedFees: []lnwire.MilliSatoshi {1, 1, 0},
+			expectedTotalAmount: 100002,
+			expectedTimeLocks: []uint32 {4, 1, 1},
+			expectedTotalTimeLock: 9,
+		}, {
+			// A three hop payment where the fee of the first hop
+			// is slightly higher (11) than the fee at the second hop,
+			// because of the increase amount to forward.
+			name: "three hop with fee carry over",
+			paymentAmount: 100000,
+			hops: []*ChannelHop {
+				createHop(0, 10000, 1000, 10),
+				createHop(0, 10000, 1000, 5),
+				createHop(0, 10000, 1000, 3),
+			},
+			expectedFees: []lnwire.MilliSatoshi {1010, 1000, 0},
+			expectedTotalAmount: 102010,
+			expectedTimeLocks: []uint32 {4, 1, 1},
+			expectedTotalTimeLock: 9,
+		}, {
+			// A three hop payment where the fee policies of the first and
+			// second hop are just high enough to show the fee carry over
+			// effect.
+			name: "three hop with minimal fees for carry over",
+			paymentAmount: 100000,
+			hops: []*ChannelHop {
+				createHop(0, 10000, 1000, 10),
 
-			// Second hop charges a fixed 1000 msat.
-			createHop(1000, 0, 1000, 3),
-		},
-		expectedFees: []lnwire.MilliSatoshi {101, 1000, 0},
-		expectedTotalAmount: 101101,
-		expectedTimeLocks: []uint32 {4, 1, 1},
-		expectedTotalTimeLock: 9,
-	} }
-	
+				// First hop charges 0.1% so the second hop fee
+				// should show up in the first hop fee as 1 msat
+				// extra.
+				createHop(0, 1000, 1000, 5),
+
+				// Second hop charges a fixed 1000 msat.
+				createHop(1000, 0, 1000, 3),
+			},
+			expectedFees: []lnwire.MilliSatoshi {101, 1000, 0},
+			expectedTotalAmount: 101101,
+			expectedTimeLocks: []uint32 {4, 1, 1},
+			expectedTotalTimeLock: 9,
+		} 
+	}
+
 	for _, testCase := range testCases {
 		assertRoute := func(t *testing.T, route *Route) {
 			if route.TotalAmount != testCase.expectedTotalAmount {
-				t.Errorf("Expected total amount is be %v" + 
+				t.Errorf("Expected total amount is be %v" +
 					", but got %v instead",
 					testCase.expectedTotalAmount,
 					route.TotalAmount)
@@ -1082,42 +1247,42 @@ func TestNewRoute(t *testing.T) {
 			for i := 0; i < len(testCase.expectedFees); i++ {
 				if testCase.expectedFees[i] !=
 					route.Hops[i].Fee {
-	
+
 					t.Errorf("Expected fee for hop %v to " +
-						 "be %v, but got %v instead",
-						 i, testCase.expectedFees[i],
-						 route.Hops[i].Fee)
+						"be %v, but got %v instead",
+						i, testCase.expectedFees[i],
+						route.Hops[i].Fee)
 				}
 			}
 
-			expectedTimeLockHeight := startingHeight + 
+			expectedTimeLockHeight := startingHeight +
 				testCase.expectedTotalTimeLock
 
 			if route.TotalTimeLock != expectedTimeLockHeight {
-					
-				t.Errorf("Expected total time lock to be %v" + 
+
+				t.Errorf("Expected total time lock to be %v" +
 					", but got %v instead",
 					expectedTimeLockHeight,
 					route.TotalTimeLock)
 			}
-	
+
 			for i := 0; i < len(testCase.expectedTimeLocks); i++ {
-				expectedTimeLockHeight := startingHeight + 
+				expectedTimeLockHeight := startingHeight +
 					testCase.expectedTimeLocks[i]
 
 				if expectedTimeLockHeight !=
 					route.Hops[i].OutgoingTimeLock {
-	
-					t.Errorf("Expected time lock for hop " + 
+
+					t.Errorf("Expected time lock for hop " +
 						"%v to be %v, but got %v instead",
-						 i, expectedTimeLockHeight,
-						 route.Hops[i].OutgoingTimeLock)
+						i, expectedTimeLockHeight,
+						route.Hops[i].OutgoingTimeLock)
 				}
 			}
 		}
-	
+
 		t.Run(testCase.name, func(t *testing.T) {
-			route, err := newRoute(testCase.paymentAmount, 
+			route, err := newRoute(testCase.paymentAmount,
 				noFeeLimit,
 				sourceVertex, testCase.hops, startingHeight,
 				finalHopCLTV)
@@ -1125,10 +1290,10 @@ func TestNewRoute(t *testing.T) {
 			if testCase.expectError {
 				expectedCode := testCase.expectedErrorCode
 				if err == nil || !IsError(err, expectedCode) {
-					t.Errorf("expected newRoute to fail " + 
-						 "with error code %v, but got" +
-						 "%v instead", 
-						 expectedCode, err)
+					t.Errorf("expected newRoute to fail " +
+						"with error code %v, but got" +
+						"%v instead",
+						expectedCode, err)
 				}
 			} else {
 				if err != nil {

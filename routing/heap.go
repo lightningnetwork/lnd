@@ -7,7 +7,7 @@ import "github.com/lightningnetwork/lnd/channeldb"
 type nodeWithDist struct {
 	// dist is the distance to this node from the source node in our
 	// current context.
-	dist int64
+	dist uint64
 
 	// node is the vertex itself. This pointer can be used to explore all
 	// the outgoing edges (channels) emanating from a node.

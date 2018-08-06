@@ -75,23 +75,27 @@ func (m *mockHeuristic) Select(self *btcec.PublicKey, graph ChannelGraph,
 var _ AttachmentHeuristic = (*mockHeuristic)(nil)
 
 type openChanIntent struct {
-	target *btcec.PublicKey
-	amt    btcutil.Amount
-	addrs  []net.Addr
+	target  *btcec.PublicKey
+	amt     btcutil.Amount
+	addrs   []net.Addr
+	private bool
 }
 
 type mockChanController struct {
 	openChanSignals chan openChanIntent
+	private         bool
 }
 
 func (m *mockChanController) OpenChannel(target *btcec.PublicKey, amt btcutil.Amount,
 	addrs []net.Addr) error {
 
 	m.openChanSignals <- openChanIntent{
-		target: target,
-		amt:    amt,
-		addrs:  addrs,
+		target:  target,
+		amt:     amt,
+		addrs:   addrs,
+		private: m.private,
 	}
+
 	return nil
 }
 
@@ -700,6 +704,134 @@ func TestAgentImmediateAttach(t *testing.T) {
 			}
 		case <-time.After(time.Second * 10):
 			t.Fatalf("channel not opened in time")
+		}
+	}
+}
+
+// TestAgentPrivateChannels ensure that only requests for private channels are
+// sent if set.
+func TestAgentPrivateChannels(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll create all the dependencies that we'll need in order to
+	// create the autopilot agent.
+	self, err := randKey()
+	if err != nil {
+		t.Fatalf("unable to generate key: %v", err)
+	}
+	heuristic := &mockHeuristic{
+		moreChansResps: make(chan moreChansResp),
+		directiveResps: make(chan []AttachmentDirective),
+	}
+	// The chanController should be initialized such that all of its open
+	// channel requests are for private channels.
+	chanController := &mockChanController{
+		openChanSignals: make(chan openChanIntent),
+		private:         true,
+	}
+	memGraph, _, _ := newMemChanGraph()
+
+	// The wallet will start with 10 BTC available.
+	const walletBalance = btcutil.SatoshiPerBitcoin * 10
+
+	// With the dependencies we created, we can now create the initial
+	// agent itself.
+	cfg := Config{
+		Self:           self,
+		Heuristic:      heuristic,
+		ChanController: chanController,
+		WalletBalance: func() (btcutil.Amount, error) {
+			return walletBalance, nil
+		},
+		Graph:           memGraph,
+		MaxPendingOpens: 10,
+	}
+	agent, err := New(cfg, nil)
+	if err != nil {
+		t.Fatalf("unable to create agent: %v", err)
+	}
+
+	// With the autopilot agent and all its dependencies we'll star the
+	// primary controller goroutine.
+	if err := agent.Start(); err != nil {
+		t.Fatalf("unable to start agent: %v", err)
+	}
+	defer agent.Stop()
+
+	const numChans = 5
+	var wg sync.WaitGroup
+
+	// The very first thing the agent should do is query the NeedMoreChans
+	// method on the passed heuristic. So we'll provide it with a response
+	// that will kick off the main loop.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		// We'll send over a response indicating that it should
+		// establish more channels, and give it a budget of 5 BTC to do
+		// so.
+		resp := moreChansResp{
+			needMore: true,
+			numMore:  numChans,
+			amt:      5 * btcutil.SatoshiPerBitcoin,
+		}
+		select {
+		case heuristic.moreChansResps <- resp:
+			return
+		case <-time.After(time.Second * 10):
+			t.Fatalf("heuristic wasn't queried in time")
+		}
+	}()
+
+	// We'll wait here for the agent to query the heuristic. If it doesn't
+	// do so within 10 seconds, then the test will fail out.
+	wg.Wait()
+
+	// At this point, the agent should now be querying the heuristic to
+	// requests attachment directives. We'll generate 5 mock directives so
+	// it can progress within its loop.
+	directives := make([]AttachmentDirective, numChans)
+	for i := 0; i < numChans; i++ {
+		directives[i] = AttachmentDirective{
+			PeerKey: self,
+			ChanAmt: btcutil.SatoshiPerBitcoin,
+			Addrs: []net.Addr{
+				&net.TCPAddr{
+					IP: bytes.Repeat([]byte("a"), 16),
+				},
+			},
+		}
+	}
+
+	// With our fake directives created, we'll now send then to the agent
+	// as a return value for the Select function.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		select {
+		case heuristic.directiveResps <- directives:
+			return
+		case <-time.After(time.Second * 10):
+			t.Fatalf("heuristic wasn't queried in time")
+		}
+	}()
+
+	// We'll wait here for either the agent to query the heuristic to be
+	// queried, or for the timeout above to tick.
+	wg.Wait()
+
+	// Finally, we should receive 5 calls to the OpenChannel method, each
+	// specifying that it's for a private channel.
+	for i := 0; i < numChans; i++ {
+		select {
+		case openChan := <-chanController.openChanSignals:
+			if !openChan.private {
+				t.Fatal("expected open channel request to be private")
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("channel not opened in time")
 		}
 	}
 }

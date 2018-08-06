@@ -16,7 +16,8 @@ import (
 // chanController is an implementation of the autopilot.ChannelController
 // interface that's backed by a running lnd instance.
 type chanController struct {
-	server *server
+	server  *server
+	private bool
 }
 
 // OpenChannel opens a channel to a target peer, with a capacity of the
@@ -89,7 +90,7 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 	minHtlc := lnwire.NewMSatFromSatoshis(1)
 
 	updateStream, errChan := c.server.OpenChannel(
-		target, amt, 0, minHtlc, feePerKw, false, 0,
+		target, amt, 0, minHtlc, feePerKw, c.private, 0,
 	)
 
 	select {
@@ -148,9 +149,12 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 	// of the items that the autopilot agent needs to perform its duties.
 	self := svr.identityPriv.PubKey()
 	pilotCfg := autopilot.Config{
-		Self:           self,
-		Heuristic:      prefAttachment,
-		ChanController: &chanController{svr},
+		Self:      self,
+		Heuristic: prefAttachment,
+		ChanController: &chanController{
+			server:  svr,
+			private: cfg.Private,
+		},
 		WalletBalance: func() (btcutil.Amount, error) {
 			return svr.cc.wallet.ConfirmedBalance(1)
 		},

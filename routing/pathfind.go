@@ -554,8 +554,6 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		var tempDist int64
 		if distance[pivot].dist == infinity {
 			tempDist = 1
-		}else if distance[pivot].dist == 0 {
-			tempDist = 1
 		}else {
 			tempDist = distance[pivot].dist + edgeWeight(amt, edge)
 		}
@@ -588,14 +586,13 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 
 		// In the event of self routing and next node.dist is less than
 		// current node dist, then we know there is a potential path back to source.
-		} else if targetNode.PubKeyBytes == sourceNode.PubKeyBytes &&  tempDist > distance[v].dist{
-
+		} else if targetNode.PubKeyBytes == sourceNode.PubKeyBytes &&  tempDist > distance[v].dist {
 			// First we adds nodes and edges in the current to pass to the 'from middle to source'
 			// pathFind iteration as "ignored" to prevent loops.
 			tempIgnoredEdges := make(map[uint64]struct{})
 			tempIgnoredNodes := make(map[Vertex]struct{})
 			prevNode := pivot
-			for prevNode != Vertex(sourceNode.PubKeyBytes){
+			for prevNode != Vertex(sourceNode.PubKeyBytes) {
 				// Add the current hop to the list of path edges then walk
 				// backwards from this hop via the prev pointer for this hop
 				// within the prevHop map.
@@ -607,7 +604,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 
 			// Next we invert the bandwidth hints, as we need to know balances from the point of
 			// view of the non-source node.
-			inverseBandwidthHints:= make(map[uint64]lnwire.MilliSatoshi)
+			inverseBandwidthHints := make(map[uint64]lnwire.MilliSatoshi)
 			err = sourceNode.ForEachChannel(tx, func(tx *bolt.Tx,
 				edgeInfo *channeldb.ChannelEdgeInfo,
 				outEdge, inEdge *channeldb.ChannelEdgePolicy) error {
@@ -628,24 +625,23 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			)
 			if err != nil {
 				return
-			} else {
-				// Adds all edges found in PathFromMiddle to prev map
-				prev[Vertex(pathFromMiddle[0].Node.PubKeyBytes)] = edgeWithPrev{
+			}
+			// Adds all edges found in PathFromMiddle to prev map
+			prev[Vertex(pathFromMiddle[0].Node.PubKeyBytes)] = edgeWithPrev{
+				edge: &ChannelHop{
+					ChannelEdgePolicy: pathFromMiddle[0].ChannelEdgePolicy,
+					Capacity:          pathFromMiddle[0].Capacity,
+				},
+				prevNode: pivot,
+			}
+			numEdges := len(pathFromMiddle)
+			for i := 0; i < numEdges-1; i++ {
+				prev[Vertex(pathFromMiddle[i+1].Node.PubKeyBytes)] = edgeWithPrev{
 					edge: &ChannelHop{
-						ChannelEdgePolicy: pathFromMiddle[0].ChannelEdgePolicy,
-						Capacity:          pathFromMiddle[0].Capacity,
+						ChannelEdgePolicy: pathFromMiddle[i+1].ChannelEdgePolicy,
+						Capacity:          pathFromMiddle[i+1].Capacity,
 					},
-					prevNode: pivot,
-				}
-				numEdges := len(pathFromMiddle)
-				for i:= 0; i < numEdges-1; i++{
-					prev[Vertex(pathFromMiddle[i+1].Node.PubKeyBytes)] = edgeWithPrev{
-						edge: &ChannelHop{
-							ChannelEdgePolicy: pathFromMiddle[i+1].ChannelEdgePolicy,
-							Capacity:          pathFromMiddle[i+1].Capacity,
-						},
-						prevNode: pathFromMiddle[i].Node.PubKeyBytes,
-					}
+					prevNode: pathFromMiddle[i].Node.PubKeyBytes,
 				}
 			}
 		}

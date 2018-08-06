@@ -554,7 +554,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		var tempDist int64
 		if distance[pivot].dist == infinity {
 			tempDist = 1
-		}else {
+		} else {
 			tempDist = distance[pivot].dist + edgeWeight(amt, edge)
 		}
 
@@ -584,13 +584,21 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			// explore down this edge.
 			heap.Push(&nodeHeap, distance[v])
 
-		// In the event of self routing and next node.dist is less than
-		// current node dist, then we know there is a potential path back to source.
-		} else if targetNode.PubKeyBytes == sourceNode.PubKeyBytes &&  tempDist > distance[v].dist {
+			// In the event of self routing and next node.dist is less than
+			// current node dist, then we know there is a potential path back to source.
+		} else if targetNode.PubKeyBytes == sourceNode.PubKeyBytes && tempDist >= distance[v].dist {
+
 			// First we adds nodes and edges in the current to pass to the 'from middle to source'
 			// pathFind iteration as "ignored" to prevent loops.
 			tempIgnoredEdges := make(map[uint64]struct{})
 			tempIgnoredNodes := make(map[Vertex]struct{})
+			for x := range ignoredNodes {
+				tempIgnoredNodes[x] = ignoredNodes[x]
+			}
+			for x := range ignoredEdges {
+				tempIgnoredEdges[x] = ignoredEdges[x]
+			}
+
 			prevNode := pivot
 			for prevNode != Vertex(sourceNode.PubKeyBytes) {
 				// Add the current hop to the list of path edges then walk
@@ -670,7 +678,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		bestNode := partialPath.node
 
 		// If we found a full path back to self in an inner loop, we exit early.
-		if _, ok := prev[sourceVertex]; ok  {
+		if _, ok := prev[sourceVertex]; ok {
 			break
 		}
 		// If we've reached our target (or we don't have any outgoing
@@ -701,7 +709,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 
 			// Doesn't process edges where Prev node and next node are the same
 			// Necessary when source = destination and always beneficial.
-			if pivot != Vertex (sourceNode.PubKeyBytes) && prev[pivot].prevNode == Vertex(outEdge.Node.PubKeyBytes) {
+			if pivot != Vertex(sourceNode.PubKeyBytes) && prev[pivot].prevNode == Vertex(outEdge.Node.PubKeyBytes) {
 				return nil
 			}
 
@@ -760,7 +768,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		pathEdges = append(pathEdges, prev[prevNode].edge)
 
 		prevNode = Vertex(prev[prevNode].prevNode)
-		delete(prev, sourceVertex);
+		delete(prev, sourceVertex)
 	}
 
 	for prevNode != sourceVertex { // TODO(roasbeef): assumes no cycles

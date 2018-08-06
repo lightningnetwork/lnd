@@ -779,7 +779,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	bandwidthHints[12345] = 500000
 	bandwidthHints[999991] = 500000
 	bandwidthHints[2340213491] = 500000
-	bandwidthHints[689530843] =500000
+	bandwidthHints[689530843] = 500000
 	path, err = findPath(
 		nil, graph, nil, sourceNode, target, ignoredVertexes,
 		ignoredEdges, paymentAmt, bandwidthHints,
@@ -802,6 +802,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 		t.Fatalf("shortest path not selected, should be of length 3, "+
 			"is instead: %v", len(route.Hops))
 	}
+
 	// Time to make sure paths with known insufficent incoming balance are ignored
 	// when sending to self. This sets Source->Satoshi channel as if 100% of the balance
 	// is on the source side.

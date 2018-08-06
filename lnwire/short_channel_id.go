@@ -36,7 +36,7 @@ func NewShortChanIDFromInt(chanID uint64) ShortChannelID {
 
 // ToUint64 converts the ShortChannelID into a compact format encoded within a
 // uint64 (8 bytes).
-func (c *ShortChannelID) ToUint64() uint64 {
+func (c ShortChannelID) ToUint64() uint64 {
 	// TODO(roasbeef): explicit error on overflow?
 	return ((uint64(c.BlockHeight) << 40) | (uint64(c.TxIndex) << 16) |
 		(uint64(c.TxPosition)))

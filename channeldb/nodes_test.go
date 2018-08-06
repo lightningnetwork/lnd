@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/wire"
 )
 
 func TestLinkNodeEncodeDecode(t *testing.T) {
@@ -104,5 +104,37 @@ func TestLinkNodeEncodeDecode(t *testing.T) {
 	if node1DB.Addresses[1].String() != addr2.String() {
 		t.Fatalf("wrong address for node: expected %v, got %v",
 			addr2.String(), node1DB.Addresses[1].String())
+	}
+}
+
+func TestDeleteLinkNode(t *testing.T) {
+	t.Parallel()
+
+	cdb, cleanUp, err := makeTestDB()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+	defer cleanUp()
+
+	_, pubKey := btcec.PrivKeyFromBytes(btcec.S256(), key[:])
+	addr := &net.TCPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 1337,
+	}
+	linkNode := cdb.NewLinkNode(wire.TestNet3, pubKey, addr)
+	if err := linkNode.Sync(); err != nil {
+		t.Fatalf("unable to write link node to db: %v", err)
+	}
+
+	if _, err := cdb.FetchLinkNode(pubKey); err != nil {
+		t.Fatalf("unable to find link node: %v", err)
+	}
+
+	if err := cdb.DeleteLinkNode(pubKey); err != nil {
+		t.Fatalf("unable to delete link node from db: %v", err)
+	}
+
+	if _, err := cdb.FetchLinkNode(pubKey); err == nil {
+		t.Fatal("should not have found link node in db, but did")
 	}
 }

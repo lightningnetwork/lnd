@@ -3,10 +3,10 @@ package main
 import (
 	"sync"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
 // preimageSubscriber reprints an active subscription to be notified once the
@@ -73,7 +73,7 @@ func (p *preimageBeacon) LookupPreimage(payHash []byte) ([]byte, bool) {
 	// the preimage as it's on that we created ourselves.
 	var invoiceKey chainhash.Hash
 	copy(invoiceKey[:], payHash)
-	invoice, err := p.invoices.LookupInvoice(invoiceKey)
+	invoice, _, err := p.invoices.LookupInvoice(invoiceKey)
 	switch {
 	case err == channeldb.ErrInvoiceNotFound:
 		// If we get this error, then it simply means that this invoice

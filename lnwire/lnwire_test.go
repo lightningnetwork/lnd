@@ -2,6 +2,7 @@ package lnwire
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"image/color"
 	"math"
@@ -11,12 +12,14 @@ import (
 	"reflect"
 	"testing"
 	"testing/quick"
+	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
+	"github.com/lightningnetwork/lnd/tor"
 )
 
 var (
@@ -36,11 +39,6 @@ var (
 	}
 	_, _ = testSig.R.SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
 	_, _ = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
-
-	// TODO(roasbeef): randomly generate from three types of addrs
-	a1        = &net.TCPAddr{IP: (net.IP)([]byte{0x7f, 0x0, 0x0, 0x1}), Port: 8333}
-	a2, _     = net.ResolveTCPAddr("tcp", "[2001:db8:85a3:0:0:8a2e:370:7334]:80")
-	testAddrs = []net.Addr{a1, a2}
 )
 
 func randPubKey() (*btcec.PublicKey, error) {
@@ -73,6 +71,100 @@ func randRawFeatureVector(r *rand.Rand) *RawFeatureVector {
 		}
 	}
 	return featureVec
+}
+
+func randTCP4Addr(r *rand.Rand) (*net.TCPAddr, error) {
+	var ip [4]byte
+	if _, err := r.Read(ip[:]); err != nil {
+		return nil, err
+	}
+
+	var port [2]byte
+	if _, err := r.Read(port[:]); err != nil {
+		return nil, err
+	}
+
+	addrIP := net.IP(ip[:])
+	addrPort := int(binary.BigEndian.Uint16(port[:]))
+
+	return &net.TCPAddr{IP: addrIP, Port: addrPort}, nil
+}
+
+func randTCP6Addr(r *rand.Rand) (*net.TCPAddr, error) {
+	var ip [16]byte
+	if _, err := r.Read(ip[:]); err != nil {
+		return nil, err
+	}
+
+	var port [2]byte
+	if _, err := r.Read(port[:]); err != nil {
+		return nil, err
+	}
+
+	addrIP := net.IP(ip[:])
+	addrPort := int(binary.BigEndian.Uint16(port[:]))
+
+	return &net.TCPAddr{IP: addrIP, Port: addrPort}, nil
+}
+
+func randV2OnionAddr(r *rand.Rand) (*tor.OnionAddr, error) {
+	var serviceID [tor.V2DecodedLen]byte
+	if _, err := r.Read(serviceID[:]); err != nil {
+		return nil, err
+	}
+
+	var port [2]byte
+	if _, err := r.Read(port[:]); err != nil {
+		return nil, err
+	}
+
+	onionService := tor.Base32Encoding.EncodeToString(serviceID[:])
+	onionService += tor.OnionSuffix
+	addrPort := int(binary.BigEndian.Uint16(port[:]))
+
+	return &tor.OnionAddr{OnionService: onionService, Port: addrPort}, nil
+}
+
+func randV3OnionAddr(r *rand.Rand) (*tor.OnionAddr, error) {
+	var serviceID [tor.V3DecodedLen]byte
+	if _, err := r.Read(serviceID[:]); err != nil {
+		return nil, err
+	}
+
+	var port [2]byte
+	if _, err := r.Read(port[:]); err != nil {
+		return nil, err
+	}
+
+	onionService := tor.Base32Encoding.EncodeToString(serviceID[:])
+	onionService += tor.OnionSuffix
+	addrPort := int(binary.BigEndian.Uint16(port[:]))
+
+	return &tor.OnionAddr{OnionService: onionService, Port: addrPort}, nil
+}
+
+func randAddrs(r *rand.Rand) ([]net.Addr, error) {
+	tcp4Addr, err := randTCP4Addr(r)
+	if err != nil {
+		return nil, err
+	}
+
+	tcp6Addr, err := randTCP6Addr(r)
+	if err != nil {
+		return nil, err
+	}
+
+	v2OnionAddr, err := randV2OnionAddr(r)
+	if err != nil {
+		return nil, err
+	}
+
+	v3OnionAddr, err := randV3OnionAddr(r)
+	if err != nil {
+		return nil, err
+	}
+
+	return []net.Addr{tcp4Addr, tcp6Addr, v2OnionAddr, v3OnionAddr}, nil
 }
 
 func TestMaxOutPointIndex(t *testing.T) {
@@ -464,8 +556,6 @@ func TestLightningWireProtocol(t *testing.T) {
 					G: uint8(r.Int31()),
 					B: uint8(r.Int31()),
 				},
-				// TODO(roasbeef): proper gen rand addrs
-				Addresses: testAddrs,
 			}
 			req.Signature, err = NewSigFromSignature(testSig)
 			if err != nil {
@@ -477,6 +567,11 @@ func TestLightningWireProtocol(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unable to generate key: %v", err)
 				return
+			}
+
+			req.Addresses, err = randAddrs(r)
+			if err != nil {
+				t.Fatalf("unable to generate addresses: %v", err)
 			}
 
 			v[0] = reflect.ValueOf(req)
@@ -551,6 +646,65 @@ func TestLightningWireProtocol(t *testing.T) {
 					t.Fatalf("unable to generate key: %v", err)
 					return
 				}
+			}
+
+			v[0] = reflect.ValueOf(req)
+		},
+		MsgQueryShortChanIDs: func(v []reflect.Value, r *rand.Rand) {
+			req := QueryShortChanIDs{}
+
+			// With a 50/50 change, we'll either use zlib encoding,
+			// or regular encoding.
+			if r.Int31()%2 == 0 {
+				req.EncodingType = EncodingSortedZlib
+			} else {
+				req.EncodingType = EncodingSortedPlain
+			}
+
+			if _, err := rand.Read(req.ChainHash[:]); err != nil {
+				t.Fatalf("unable to read chain hash: %v", err)
+				return
+			}
+
+			numChanIDs := rand.Int31n(5000)
+
+			for i := int32(0); i < numChanIDs; i++ {
+				req.ShortChanIDs = append(req.ShortChanIDs,
+					NewShortChanIDFromInt(uint64(r.Int63())))
+			}
+
+			v[0] = reflect.ValueOf(req)
+		},
+		MsgReplyChannelRange: func(v []reflect.Value, r *rand.Rand) {
+			req := ReplyChannelRange{
+				QueryChannelRange: QueryChannelRange{
+					FirstBlockHeight: uint32(r.Int31()),
+					NumBlocks:        uint32(r.Int31()),
+				},
+			}
+
+			if _, err := rand.Read(req.ChainHash[:]); err != nil {
+				t.Fatalf("unable to read chain hash: %v", err)
+				return
+			}
+
+			req.Complete = uint8(r.Int31n(2))
+
+			// With a 50/50 change, we'll either use zlib encoding,
+			// or regular encoding.
+			if r.Int31()%2 == 0 {
+				req.EncodingType = EncodingSortedZlib
+			} else {
+				req.EncodingType = EncodingSortedPlain
+			}
+
+			numChanIDs := rand.Int31n(5000)
+
+			req.ShortChanIDs = make([]ShortChannelID, numChanIDs)
+			for i := int32(0); i < numChanIDs; i++ {
+				req.ShortChanIDs[i] = NewShortChanIDFromInt(
+					uint64(r.Int63()),
+				)
 			}
 
 			v[0] = reflect.ValueOf(req)
@@ -705,6 +859,36 @@ func TestLightningWireProtocol(t *testing.T) {
 				return mainScenario(&m)
 			},
 		},
+		{
+			msgType: MsgGossipTimestampRange,
+			scenario: func(m GossipTimestampRange) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
+			msgType: MsgQueryShortChanIDs,
+			scenario: func(m QueryShortChanIDs) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
+			msgType: MsgReplyShortChanIDsEnd,
+			scenario: func(m ReplyShortChanIDsEnd) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
+			msgType: MsgQueryChannelRange,
+			scenario: func(m QueryChannelRange) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
+			msgType: MsgReplyChannelRange,
+			scenario: func(m ReplyChannelRange) bool {
+				return mainScenario(&m)
+			},
+		},
 	}
 	for _, test := range tests {
 		var config *quick.Config
@@ -725,4 +909,8 @@ func TestLightningWireProtocol(t *testing.T) {
 		}
 	}
 
+}
+
+func init() {
+	rand.Seed(time.Now().Unix())
 }

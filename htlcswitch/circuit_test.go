@@ -6,13 +6,13 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec"
+	bitcoinCfg "github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	bitcoinCfg "github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcutil"
 )
 
 var (
@@ -82,15 +82,8 @@ func initTestExtracter() {
 // newOnionProcessor creates starts a new htlcswitch.OnionProcessor using a temp
 // db and no garbage collection.
 func newOnionProcessor(t *testing.T) *htlcswitch.OnionProcessor {
-	sharedSecretFile, err := ioutil.TempFile("", "sphinxreplay.db")
-	if err != nil {
-		t.Fatalf("unable to create temp path: %v", err)
-	}
-
-	sharedSecretPath := sharedSecretFile.Name()
-
 	sphinxRouter := sphinx.NewRouter(
-		sharedSecretPath, sphinxPrivKey, &bitcoinCfg.SimNetParams, nil,
+		sphinxPrivKey, &bitcoinCfg.SimNetParams, sphinx.NewMemoryReplayLog(),
 	)
 
 	if err := sphinxRouter.Start(); err != nil {
@@ -734,7 +727,7 @@ func TestCircuitMapCommitCircuits(t *testing.T) {
 	// Finally, restart the circuit map, which will cause the added circuit
 	// to be loaded from disk. Since the keystone was never set, subsequent
 	// attempts to commit the circuit should cause the circuit map to
-	// indicate that that the HTLC should be failed back.
+	// indicate that the HTLC should be failed back.
 	cfg, circuitMap = restartCircuitMap(t, cfg)
 
 	actions, err = circuitMap.CommitCircuits(circuit)
@@ -1055,7 +1048,7 @@ func TestCircuitMapTrimOpenCircuits(t *testing.T) {
 		firstTrimIndex,
 	)
 
-	// Restart the circuit map, verify that that the trim is reflected on
+	// Restart the circuit map, verify that the trim is reflected on
 	// startup.
 	cfg, circuitMap = restartCircuitMap(t, cfg)
 

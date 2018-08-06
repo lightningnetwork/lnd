@@ -5,13 +5,14 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 
+	"github.com/btcsuite/btcwallet/chain"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/roasbeef/btcwallet/chain"
-	"github.com/roasbeef/btcwallet/waddrmgr"
 )
 
 var (
@@ -32,15 +33,21 @@ func (b *BtcWallet) GetBestBlock() (*chainhash.Hash, int32, error) {
 	return b.chain.GetBestBlock()
 }
 
-// GetUtxo returns the original output referenced by the passed outpoint.
+// GetUtxo returns the original output referenced by the passed outpoint that
+// creates the target pkScript.
 //
 // This method is a part of the lnwallet.BlockChainIO interface.
-func (b *BtcWallet) GetUtxo(op *wire.OutPoint, heightHint uint32) (*wire.TxOut, error) {
+func (b *BtcWallet) GetUtxo(op *wire.OutPoint, pkScript []byte,
+	heightHint uint32) (*wire.TxOut, error) {
+
 	switch backend := b.chain.(type) {
 
 	case *chain.NeutrinoClient:
 		spendReport, err := backend.CS.GetUtxo(
-			neutrino.WatchOutPoints(*op),
+			neutrino.WatchInputs(neutrino.InputWithScript{
+				OutPoint: *op,
+				PkScript: pkScript,
+			}),
 			neutrino.StartBlock(&waddrmgr.BlockStamp{
 				Height: int32(heightHint),
 			}),
@@ -77,10 +84,15 @@ func (b *BtcWallet) GetUtxo(op *wire.OutPoint, heightHint uint32) (*wire.TxOut, 
 			return nil, err
 		}
 
+		// We'll ensure we properly convert the amount given in BTC to
+		// satoshis.
+		amt, err := btcutil.NewAmount(txout.Value)
+		if err != nil {
+			return nil, err
+		}
+
 		return &wire.TxOut{
-			// Sadly, gettxout returns the output value in BTC
-			// instead of satoshis.
-			Value:    int64(txout.Value * 1e8),
+			Value:    int64(amt),
 			PkScript: pkScript,
 		}, nil
 
@@ -97,10 +109,15 @@ func (b *BtcWallet) GetUtxo(op *wire.OutPoint, heightHint uint32) (*wire.TxOut, 
 			return nil, err
 		}
 
+		// Sadly, gettxout returns the output value in BTC instead of
+		// satoshis.
+		amt, err := btcutil.NewAmount(txout.Value)
+		if err != nil {
+			return nil, err
+		}
+
 		return &wire.TxOut{
-			// Sadly, gettxout returns the output value in BTC
-			// instead of satoshis.
-			Value:    int64(txout.Value * 1e8),
+			Value:    int64(amt),
 			PkScript: pkScript,
 		}, nil
 

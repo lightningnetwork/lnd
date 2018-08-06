@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
 )
 
 //	              Overview of Nursery Store Storage Hierarchy
@@ -1041,7 +1041,7 @@ func (ns *nurseryStore) enterPreschool(tx *bolt.Tx, kid *kidOutput) error {
 		return err
 	}
 
-	// We'll first check if a entry for this key is already stored. If so,
+	// We'll first check if an entry for this key is already stored. If so,
 	// then we'll ignore this request, and return a nil error.
 	if rawBytes := chanBucket.Get(pfxOutputKey); rawBytes != nil {
 		return nil

@@ -1,19 +1,19 @@
 package discovery
 
 import (
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
 )
 
-// createChanAnnouncement is a helper function which creates all channel
+// CreateChanAnnouncement is a helper function which creates all channel
 // announcements given the necessary channel related database items. This
 // function is used to transform out database structs into the corresponding wire
 // structs for announcing new channels to other peers, or simply syncing up a
 // peer's initial routing table upon connect.
-func createChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
+func CreateChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 	chanInfo *channeldb.ChannelEdgeInfo,
 	e1, e2 *channeldb.ChannelEdgePolicy) (*lnwire.ChannelAnnouncement,
 	*lnwire.ChannelUpdate, *lnwire.ChannelUpdate, error) {

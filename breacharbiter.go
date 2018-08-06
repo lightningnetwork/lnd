@@ -8,18 +8,17 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/roasbeef/btcd/blockchain"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 var (
@@ -35,7 +34,30 @@ var (
 	// breached contracts. Entries are added to the justice txn bucket just
 	// before broadcasting the sweep txn.
 	justiceTxnBucket = []byte("justice-txn")
+
+	// errBrarShuttingDown is an error returned if the breacharbiter has
+	// been signalled to exit.
+	errBrarShuttingDown = errors.New("breacharbiter shutting down")
 )
+
+// ContractBreachEvent is an event the breachArbiter will receive in case a
+// contract breach is observed on-chain. It contains the necessary information
+// to handle the breach, and a ProcessACK channel we will use to ACK the event
+// when we have safely stored all the necessary information.
+type ContractBreachEvent struct {
+	// ChanPoint is the channel point of the breached channel.
+	ChanPoint wire.OutPoint
+
+	// ProcessACK is an error channel where a nil error should be sent
+	// iff the breach retribution info is safely stored in the retribution
+	// store. In case storing the information to the store fails, a non-nil
+	// error should be sent.
+	ProcessACK chan error
+
+	// BreachRetribution is the information needed to act on this contract
+	// breach.
+	BreachRetribution *lnwallet.BreachRetribution
+}
 
 // BreachConfig bundles the required subsystems used by the breach arbiter. An
 // instance of BreachConfig is passed to newBreachArbiter during instantiation.
@@ -67,10 +89,11 @@ type BreachConfig struct {
 	// transaction to the network.
 	PublishTransaction func(*wire.MsgTx) error
 
-	// SubscribeChannelEvents is a function closure that allows goroutines
-	// within the breachArbiter to be notified of potential on-chain events
-	// related to the channels they're watching.
-	SubscribeChannelEvents func(wire.OutPoint) (*contractcourt.ChainEventSubscription, error)
+	// ContractBreaches is a channel where the breachArbiter will receive
+	// notifications in the event of a contract breach being observed. A
+	// ContractBreachEvent must be ACKed by the breachArbiter, such that
+	// the sending subsystem knows that the event is properly handed off.
+	ContractBreaches <-chan *ContractBreachEvent
 
 	// Signer is used by the breach arbiter to generate sweep transactions,
 	// which move coins from previously open channels back to the user's
@@ -92,50 +115,22 @@ type BreachConfig struct {
 // counterparties.
 // TODO(roasbeef): closures in config for subsystem pointers to decouple?
 type breachArbiter struct {
-	started uint32
-	stopped uint32
+	started uint32 // To be used atomically.
+	stopped uint32 // To be used atomically.
 
 	cfg *BreachConfig
 
-	// breachObservers is a map which tracks all the active breach
-	// observers we're currently managing. The key of the map is the
-	// funding outpoint of the channel, and the value is a channel which
-	// will be closed once we detect that the channel has been
-	// cooperatively closed, thereby killing the goroutine and freeing up
-	// resources.
-	breachObservers map[wire.OutPoint]chan struct{}
-
-	// breachedContracts is a channel which is used internally within the
-	// struct to send the necessary information required to punish a
-	// counterparty once a channel breach is detected. Breach observers
-	// use this to communicate with the main contractObserver goroutine.
-	breachedContracts chan *retributionInfo
-
-	// settledContracts is a channel by outside subsystems to notify
-	// the breachArbiter that a channel has peacefully been closed. Once a
-	// channel has been closed the arbiter no longer needs to watch for
-	// breach closes.
-	settledContracts chan wire.OutPoint
-
-	// newContracts is a channel which is used by outside subsystems to
-	// notify the breachArbiter of a new contract (a channel) that should
-	// be watched.
-	newContracts chan wire.OutPoint
-
 	quit chan struct{}
 	wg   sync.WaitGroup
+	sync.Mutex
 }
 
 // newBreachArbiter creates a new instance of a breachArbiter initialized with
 // its dependent objects.
 func newBreachArbiter(cfg *BreachConfig) *breachArbiter {
 	return &breachArbiter{
-		cfg:               cfg,
-		breachObservers:   make(map[wire.OutPoint]chan struct{}),
-		breachedContracts: make(chan *retributionInfo),
-		newContracts:      make(chan wire.OutPoint),
-		settledContracts:  make(chan wire.OutPoint),
-		quit:              make(chan struct{}),
+		cfg:  cfg,
+		quit: make(chan struct{}),
 	}
 }
 
@@ -174,6 +169,8 @@ func (b *breachArbiter) Start() error {
 	// finished our responsibilities. If the removal is successful, we also
 	// remove the entry from our in-memory map, to avoid any further action
 	// for this channel.
+	// TODO(halseth): no need continue on IsPending once closed channels
+	// actually means close transaction is confirmed.
 	for _, chanSummary := range closedChans {
 		if chanSummary.IsPending {
 			continue
@@ -191,49 +188,6 @@ func (b *breachArbiter) Start() error {
 		}
 	}
 
-	// We need to query that database state for all currently active
-	// channels, these channels will represent a super set of all channels
-	// that may be assigned a go routine to monitor for channel breaches.
-	activeChannels, err := b.cfg.DB.FetchAllChannels()
-	if err != nil && err != channeldb.ErrNoActiveChannels {
-		brarLog.Errorf("unable to fetch active channels: %v", err)
-		return err
-	}
-
-	nActive := len(activeChannels)
-	if nActive > 0 {
-		brarLog.Infof("Retrieved %v channels from database, watching "+
-			"with vigilance!", nActive)
-	}
-
-	// Here we will determine a set of channels that will need to be managed
-	// by the contractObserver. This should comprise all active channels
-	// that have not been breached. If the channel point has an entry in the
-	// retribution store, we skip it to avoid creating a breach observer.
-	// Resolving breached channels will be handled later by spawning an
-	// exactRetribution task for each.
-	channelsToWatch := make([]*contractcourt.ChainEventSubscription, 0, nActive)
-	for _, chanState := range activeChannels {
-		// If this channel was previously breached, we skip it here to
-		// avoid creating a breach observer, as we can go straight to
-		// the task of exacting retribution.
-		chanPoint := chanState.FundingOutpoint
-		if _, ok := breachRetInfos[chanPoint]; ok {
-			continue
-		}
-
-		// For each active channels, we'll request a chain event
-		// subscription form the system that's overseeing the channel.
-		chainEvents, err := b.cfg.SubscribeChannelEvents(chanPoint)
-		if err != nil {
-			return err
-		}
-
-		// Finally, add this channel event stream to breach arbiter's
-		// list of channels to watch.
-		channelsToWatch = append(channelsToWatch, chainEvents)
-	}
-
 	// Spawn the exactRetribution tasks to monitor and resolve any breaches
 	// that were loaded from the retribution store.
 	for chanPoint := range breachRetInfos {
@@ -242,8 +196,10 @@ func (b *breachArbiter) Start() error {
 		// Register for a notification when the breach transaction is
 		// confirmed on chain.
 		breachTXID := retInfo.commitHash
+		breachScript := retInfo.breachedOutputs[0].signDesc.Output.PkScript
 		confChan, err := b.cfg.Notifier.RegisterConfirmationsNtfn(
-			&breachTXID, 1, retInfo.breachHeight)
+			&breachTXID, breachScript, 1, retInfo.breachHeight,
+		)
 		if err != nil {
 			brarLog.Errorf("unable to register for conf updates "+
 				"for txid: %v, err: %v", breachTXID, err)
@@ -258,7 +214,7 @@ func (b *breachArbiter) Start() error {
 
 	// Start watching the remaining active channels!
 	b.wg.Add(1)
-	go b.contractObserver(channelsToWatch)
+	go b.contractObserver()
 
 	return nil
 }
@@ -286,127 +242,32 @@ func (b *breachArbiter) IsBreached(chanPoint *wire.OutPoint) (bool, error) {
 }
 
 // contractObserver is the primary goroutine for the breachArbiter. This
-// goroutine is responsible for managing goroutines that watch for breaches for
-// all current active and newly created channels. If a channel breach is
-// detected by a spawned child goroutine, then the contractObserver will
-// execute the retribution logic required to sweep ALL outputs from a contested
-// channel into the daemon's wallet.
+// goroutine is responsible for handling breach events coming from the
+// contractcourt on the ContractBreaches channel. If a channel breach is
+// detected, then the contractObserver will execute the retribution logic
+// required to sweep ALL outputs from a contested channel into the daemon's
+// wallet.
 //
 // NOTE: This MUST be run as a goroutine.
-func (b *breachArbiter) contractObserver(channelEvents []*contractcourt.ChainEventSubscription) {
-
+func (b *breachArbiter) contractObserver() {
 	defer b.wg.Done()
 
-	brarLog.Infof("Starting contract observer with %v active channels",
-		len(channelEvents))
+	brarLog.Infof("Starting contract observer, watching for breaches.")
 
-	// For each active channel found within the database, we launch a
-	// detected breachObserver goroutine for that channel and also track
-	// the new goroutine within the breachObservers map so we can cancel it
-	// later if necessary.
-	for _, channelEvent := range channelEvents {
-		settleSignal := make(chan struct{})
-		chanPoint := channelEvent.ChanPoint
-		b.breachObservers[chanPoint] = settleSignal
-
-		b.wg.Add(1)
-		go b.breachObserver(channelEvent, settleSignal)
-	}
-
-	// TODO(roasbeef): need to ensure currentHeight passed in doesn't
-	// result in lost notification
-
-out:
 	for {
 		select {
-		case breachInfo := <-b.breachedContracts:
-			// A new channel contract has just been breached! We
-			// first register for a notification to be dispatched
-			// once the breach transaction (the revoked commitment
-			// transaction) has been confirmed in the chain to
-			// ensure we're not dealing with a moving target.
-			breachTXID := &breachInfo.commitHash
-			cfChan, err := b.cfg.Notifier.RegisterConfirmationsNtfn(
-				breachTXID, 1, breachInfo.breachHeight)
-			if err != nil {
-				brarLog.Errorf("unable to register for conf "+
-					"updates for txid: %v, err: %v",
-					breachTXID, err)
-				continue
-			}
-
-			brarLog.Warnf("A channel has been breached with "+
-				"txid: %v. Waiting for confirmation, then "+
-				"justice will be served!", breachTXID)
-
-			// With the retribution state persisted, channel close
-			// persisted, and notification registered, we launch a
-			// new goroutine which will finalize the channel
-			// retribution after the breach transaction has been
-			// confirmed.
+		case breachEvent := <-b.cfg.ContractBreaches:
+			// We have been notified about a contract breach!
+			// Handle the handoff, making sure we ACK the event
+			// after we have safely added it to the retribution
+			// store.
 			b.wg.Add(1)
-			go b.exactRetribution(cfChan, breachInfo)
+			go b.handleBreachHandoff(breachEvent)
 
-			delete(b.breachObservers, breachInfo.chanPoint)
-
-		case chanPoint := <-b.newContracts:
-			// A new channel has just been opened within the
-			// daemon, so we launch a new breachObserver to handle
-			// the detection of attempted contract breaches.
-			settleSignal := make(chan struct{})
-
-			// If the contract is already being watched, then an
-			// additional send indicates we have a stale version of
-			// the contract. So we'll cancel active watcher
-			// goroutine to create a new instance with the latest
-			// contract reference.
-			if oldSignal, ok := b.breachObservers[chanPoint]; ok {
-				brarLog.Infof("ChannelPoint(%v) is now live, "+
-					"abandoning state contract for live "+
-					"version", chanPoint)
-				close(oldSignal)
-			}
-
-			b.breachObservers[chanPoint] = settleSignal
-
-			brarLog.Debugf("New contract detected, launching " +
-				"breachObserver")
-
-			chainEvents, err := b.cfg.SubscribeChannelEvents(chanPoint)
-			if err != nil {
-				// TODO(roasbeef); panic?
-				brarLog.Errorf("unable to register for event "+
-					"sub for chan_point=%v: %v", chanPoint, err)
-			}
-
-			b.wg.Add(1)
-			go b.breachObserver(chainEvents, settleSignal)
-
-		case chanPoint := <-b.settledContracts:
-			// A new channel has been closed either unilaterally or
-			// cooperatively, as a result we no longer need a
-			// breachObserver detected to the channel.
-			killSignal, ok := b.breachObservers[chanPoint]
-			if !ok {
-				brarLog.Errorf("Unable to find contract: %v",
-					chanPoint)
-				continue
-			}
-
-			brarLog.Debugf("ChannelPoint(%v) has been settled, "+
-				"cancelling breachObserver", chanPoint)
-
-			// If we had a breachObserver active, then we signal it
-			// for exit and also delete its state from our tracking
-			// map.
-			close(killSignal)
-			delete(b.breachObservers, chanPoint)
 		case <-b.quit:
-			break out
+			return
 		}
 	}
-
-	return
 }
 
 // convertToSecondLevelRevoke takes a breached output, and a transaction that
@@ -437,6 +298,7 @@ func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 	newAmt := spendingTx.TxOut[0].Value
 	bo.amt = btcutil.Amount(newAmt)
 	bo.signDesc.Output.Value = newAmt
+	bo.signDesc.Output.PkScript = spendingTx.TxOut[0].PkScript
 
 	// Finally, we'll need to adjust the witness program in the
 	// SignDescriptor.
@@ -445,6 +307,148 @@ func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 	brarLog.Warnf("HTLC(%v) for ChannelPoint(%v) has been spent to the "+
 		"second-level, adjusting -> %v", oldOp, breachInfo.chanPoint,
 		bo.outpoint)
+}
+
+// waitForSpendEvent waits for any of the breached outputs to get spent, and
+// mutates the breachInfo to be able to sweep it. This method should be used
+// when we fail to publish the justice tx because of a double spend, indicating
+// that the counter party has taken one of the breached outputs to the second
+// level. The spendNtfns map is a cache used to store registered spend
+// subscriptions, in case we must call this method multiple times.
+func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
+	spendNtfns map[wire.OutPoint]*chainntnfs.SpendEvent) error {
+
+	// spend is used to wrap the index of the output that gets spent
+	// together with the spend details.
+	type spend struct {
+		index  int
+		detail *chainntnfs.SpendDetail
+	}
+
+	// We create a channel the first goroutine that gets a spend event can
+	// signal. We make it buffered in case multiple spend events come in at
+	// the same time.
+	anySpend := make(chan struct{}, len(breachInfo.breachedOutputs))
+
+	// The allSpends channel will be used to pass spend events from all the
+	// goroutines that detects a spend before they are signalled to exit.
+	allSpends := make(chan spend, len(breachInfo.breachedOutputs))
+
+	// exit will be used to signal the goroutines that they can exit.
+	exit := make(chan struct{})
+	var wg sync.WaitGroup
+
+	// We'll now launch a goroutine for each of the HTLC outputs, that will
+	// signal the moment they detect a spend event.
+	for i := 0; i < len(breachInfo.breachedOutputs); i++ {
+		breachedOutput := &breachInfo.breachedOutputs[i]
+
+		// If this isn't an HTLC output, then we can skip it.
+		if breachedOutput.witnessType != lnwallet.HtlcAcceptedRevoke &&
+			breachedOutput.witnessType != lnwallet.HtlcOfferedRevoke {
+			continue
+		}
+
+		brarLog.Debugf("Checking for second-level attempt on HTLC(%v) "+
+			"for ChannelPoint(%v)", breachedOutput.outpoint,
+			breachInfo.chanPoint)
+
+		// If we have already registered for a notification for this
+		// output, we'll reuse it.
+		spendNtfn, ok := spendNtfns[breachedOutput.outpoint]
+		if !ok {
+			var err error
+			spendNtfn, err = b.cfg.Notifier.RegisterSpendNtfn(
+				&breachedOutput.outpoint,
+				breachedOutput.signDesc.Output.PkScript,
+				breachInfo.breachHeight,
+			)
+			if err != nil {
+				brarLog.Errorf("unable to check for spentness "+
+					"of out_point=%v: %v",
+					breachedOutput.outpoint, err)
+
+				// Registration may have failed if we've been
+				// instructed to shutdown. If so, return here
+				// to avoid entering an infinite loop.
+				select {
+				case <-b.quit:
+					return errBrarShuttingDown
+				default:
+					continue
+				}
+			}
+			spendNtfns[breachedOutput.outpoint] = spendNtfn
+		}
+
+		// Launch a goroutine waiting for a spend event.
+		b.wg.Add(1)
+		wg.Add(1)
+		go func(index int, spendEv *chainntnfs.SpendEvent) {
+			defer b.wg.Done()
+			defer wg.Done()
+
+			select {
+			// The output has been taken to the second level!
+			case sp, ok := <-spendEv.Spend:
+				if !ok {
+					return
+				}
+				brarLog.Debugf("Detected spend of HTLC(%v) "+
+					"for ChannelPoint(%v)",
+					breachedOutput.outpoint,
+					breachInfo.chanPoint)
+
+				// First we send the spend event on the
+				// allSpends channel, such that it can be
+				// handled after all go routines have exited.
+				allSpends <- spend{index, sp}
+
+				// Finally we'll signal the anySpend channel
+				// that a spend was detected, such that the
+				// other goroutines can be shut down.
+				anySpend <- struct{}{}
+			case <-exit:
+				return
+			case <-b.quit:
+				return
+			}
+		}(i, spendNtfn)
+	}
+
+	// We'll wait for any of the outputs to be spent, or that we are
+	// signalled to exit.
+	select {
+	// A goroutine have signalled that a spend occured.
+	case <-anySpend:
+		// Signal for the remaining goroutines to exit.
+		close(exit)
+		wg.Wait()
+
+		// At this point all goroutines that can send on the allSpends
+		// channel have exited. We can therefore safely close the
+		// channel before ranging over its content.
+		close(allSpends)
+		for s := range allSpends {
+			breachedOutput := &breachInfo.breachedOutputs[s.index]
+			brarLog.Debugf("Detected second-level spend on "+
+				"HTLC(%v) for ChannelPoint(%v)",
+				breachedOutput.outpoint, breachInfo.chanPoint)
+
+			delete(spendNtfns, breachedOutput.outpoint)
+
+			// In this case we'll morph our initial revoke spend to
+			// instead point to the second level output, and update
+			// the sign descriptor in the process.
+			convertToSecondLevelRevoke(
+				breachedOutput, breachInfo, s.detail,
+			)
+		}
+	case <-b.quit:
+		return errBrarShuttingDown
+	}
+
+	return nil
 }
 
 // exactRetribution is a goroutine which is executed once a contract breach has
@@ -479,6 +483,11 @@ func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 	brarLog.Debugf("Breach transaction %v has been confirmed, sweeping "+
 		"revoked funds", breachInfo.commitHash)
 
+	// We may have to wait for some of the HTLC outputs to be spent to the
+	// second level before broadcasting the justice tx. We'll store the
+	// SpendEvents between each attempt to not re-register uneccessarily.
+	spendNtfns := make(map[wire.OutPoint]*chainntnfs.SpendEvent)
+
 	finalTx, err := b.cfg.Store.GetFinalizedTxn(&breachInfo.chanPoint)
 	if err != nil {
 		brarLog.Errorf("unable to get finalized txn for"+
@@ -490,66 +499,8 @@ func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 	// construct a sweep transaction and write it to disk. This will allow
 	// the breach arbiter to re-register for notifications for the justice
 	// txid.
-secondLevelCheck:
+justiceTxBroadcast:
 	if finalTx == nil {
-		// Before we create the justice tx, we need to check to see if
-		// any of the active HTLC's on the commitment transactions has
-		// been spent. In this case, we'll need to go to the second
-		// level to sweep them before the remote party can.
-		for i := 0; i < len(breachInfo.breachedOutputs); i++ {
-			breachedOutput := &breachInfo.breachedOutputs[i]
-
-			// If this isn't an HTLC output, then we can skip it.
-			if breachedOutput.witnessType != lnwallet.HtlcAcceptedRevoke &&
-				breachedOutput.witnessType != lnwallet.HtlcOfferedRevoke {
-				continue
-			}
-
-			brarLog.Debugf("Checking for second-level attempt on "+
-				"HTLC(%v) for ChannelPoint(%v)",
-				breachedOutput.outpoint, breachInfo.chanPoint)
-
-			// Now that we have an HTLC output, we'll quickly check
-			// to see if it has been spent or not.
-			spendNtfn, err := b.cfg.Notifier.RegisterSpendNtfn(
-				&breachedOutput.outpoint, breachInfo.breachHeight,
-			)
-			if err != nil {
-				brarLog.Errorf("unable to check for spentness "+
-					"of out_point=%v: %v",
-					breachedOutput.outpoint, err)
-
-				// Registration may have failed if we've been
-				// instructed to shutdown. If so, return here to
-				// avoid entering an infinite loop.
-				select {
-				case <-b.quit:
-					return
-				default:
-					continue
-				}
-			}
-
-			select {
-			// The output has been taken to the second level!
-			case spendDetails, ok := <-spendNtfn.Spend:
-				if !ok {
-					return
-				}
-
-				// In this case we'll morph our initial revoke
-				// spend to instead point to the second level
-				// output, and update the sign descriptor in
-				// the process.
-				convertToSecondLevelRevoke(
-					breachedOutput, breachInfo, spendDetails,
-				)
-
-			// It hasn't been spent so we'll continue.
-			default:
-			}
-		}
-
 		// With the breach transaction confirmed, we now create the
 		// justice tx which will claim ALL the funds within the
 		// channel.
@@ -577,21 +528,30 @@ secondLevelCheck:
 	// channel's retribution against the cheating counter party.
 	err = b.cfg.PublishTransaction(finalTx)
 	if err != nil {
-		brarLog.Errorf("unable to broadcast "+
-			"justice tx: %v", err)
+		brarLog.Errorf("unable to broadcast justice tx: %v", err)
+
 		if err == lnwallet.ErrDoubleSpend {
-			brarLog.Infof("Attempting to transfer HTLC revocations " +
-				"to the second level")
+			// Broadcasting the transaction failed because of a
+			// conflict either in the mempool or in chain. We'll
+			// now create spend subscriptions for all HTLC outputs
+			// on the commitment transaction that could possibly
+			// have been spent, and wait for any of them to
+			// trigger.
+			brarLog.Infof("Waiting for a spend event before " +
+				"attempting to craft new justice tx.")
 			finalTx = nil
 
-			// Txn publication may fail if we're shutting down.
-			// If so, return to avoid entering an infinite loop.
-			select {
-			case <-b.quit:
+			err := b.waitForSpendEvent(breachInfo, spendNtfns)
+			if err != nil {
+				if err != errBrarShuttingDown {
+					brarLog.Errorf("error waiting for "+
+						"spend event: %v", err)
+				}
 				return
-			default:
-				goto secondLevelCheck
 			}
+
+			brarLog.Infof("Attempting another justice tx broadcast")
+			goto justiceTxBroadcast
 		}
 	}
 
@@ -600,11 +560,13 @@ secondLevelCheck:
 	// notify the caller that initiated the retribution workflow that the
 	// deed has been done.
 	justiceTXID := finalTx.TxHash()
+	justiceScript := finalTx.TxOut[0].PkScript
 	confChan, err = b.cfg.Notifier.RegisterConfirmationsNtfn(
-		&justiceTXID, 1, breachConfHeight)
+		&justiceTXID, justiceScript, 1, breachConfHeight,
+	)
 	if err != nil {
-		brarLog.Errorf("unable to register for conf for txid: %v",
-			justiceTXID)
+		brarLog.Errorf("unable to register for conf for txid(%v): %v",
+			justiceTXID, err)
 		return
 	}
 
@@ -664,122 +626,125 @@ secondLevelCheck:
 	}
 }
 
-// breachObserver notifies the breachArbiter contract observer goroutine that a
-// channel's contract has been breached by the prior counterparty. Once
-// notified the breachArbiter will attempt to sweep ALL funds within the
-// channel using the information provided within the BreachRetribution
-// generated due to the breach of channel contract. The funds will be swept
-// only after the breaching transaction receives a necessary number of
-// confirmations.
-func (b *breachArbiter) breachObserver(
-	chainEvents *contractcourt.ChainEventSubscription,
-	settleSignal chan struct{}) {
+// handleBreachHandoff handles a new breach event, by writing it to disk, then
+// notifies the breachArbiter contract observer goroutine that a channel's
+// contract has been breached by the prior counterparty. Once notified the
+// breachArbiter will attempt to sweep ALL funds within the channel using the
+// information provided within the BreachRetribution generated due to the
+// breach of channel contract. The funds will be swept only after the breaching
+// transaction receives a necessary number of confirmations.
+//
+// NOTE: This MUST be run as a goroutine.
+func (b *breachArbiter) handleBreachHandoff(breachEvent *ContractBreachEvent) {
+	defer b.wg.Done()
 
-	defer func() {
-		b.wg.Done()
-		chainEvents.Cancel()
-	}()
-
-	chanPoint := chainEvents.ChanPoint
-
-	brarLog.Debugf("Breach observer for ChannelPoint(%v) started ",
+	chanPoint := breachEvent.ChanPoint
+	brarLog.Debugf("Handling breach handoff for ChannelPoint(%v)",
 		chanPoint)
-
-	select {
-	// A read from this channel indicates that the contract has been
-	// settled cooperatively so we exit as our duties are no longer needed.
-	case <-settleSignal:
-		return
-
-	// The channel has been closed cooperatively, so we're done here.
-	case <-chainEvents.CooperativeClosure:
-		// Launch a goroutine to cancel out this contract within the
-		// breachArbiter's main goroutine.
-		b.wg.Add(1)
-		go func() {
-			defer b.wg.Done()
-
-			select {
-			case b.settledContracts <- chanPoint:
-			case <-b.quit:
-			}
-		}()
-
-		b.cfg.CloseLink(&chanPoint, htlcswitch.CloseBreach)
-
-	// The channel has been closed by a normal means: force closing with
-	// the latest commitment transaction.
-	case <-chainEvents.UnilateralClosure:
-		// Launch a goroutine to cancel out this contract within the
-		// breachArbiter's main goroutine.
-		b.wg.Add(1)
-		go func() {
-			defer b.wg.Done()
-
-			select {
-			case b.settledContracts <- chanPoint:
-			case <-b.quit:
-			}
-		}()
-
-		b.cfg.CloseLink(&chanPoint, htlcswitch.CloseBreach)
 
 	// A read from this channel indicates that a channel breach has been
 	// detected! So we notify the main coordination goroutine with the
 	// information needed to bring the counterparty to justice.
-	case breachInfo := <-chainEvents.ContractBreach:
-		brarLog.Warnf("REVOKED STATE #%v FOR ChannelPoint(%v) "+
-			"broadcast, REMOTE PEER IS DOING SOMETHING "+
-			"SKETCHY!!!", breachInfo.RevokedStateNum,
-			chanPoint)
+	breachInfo := breachEvent.BreachRetribution
+	brarLog.Warnf("REVOKED STATE #%v FOR ChannelPoint(%v) "+
+		"broadcast, REMOTE PEER IS DOING SOMETHING "+
+		"SKETCHY!!!", breachInfo.RevokedStateNum,
+		chanPoint)
 
-		// Immediately notify the HTLC switch that this link has been
-		// breached in order to ensure any incoming or outgoing
-		// multi-hop HTLCs aren't sent over this link, nor any other
-		// links associated with this peer.
-		b.cfg.CloseLink(&chanPoint, htlcswitch.CloseBreach)
+	// Immediately notify the HTLC switch that this link has been
+	// breached in order to ensure any incoming or outgoing
+	// multi-hop HTLCs aren't sent over this link, nor any other
+	// links associated with this peer.
+	b.cfg.CloseLink(&chanPoint, htlcswitch.CloseBreach)
 
-		// TODO(roasbeef): need to handle case of remote broadcast
-		// mid-local initiated state-transition, possible
-		// false-positive?
+	// TODO(roasbeef): need to handle case of remote broadcast
+	// mid-local initiated state-transition, possible
+	// false-positive?
 
-		// Using the breach information provided by the wallet and the
-		// channel snapshot, construct the retribution information that
-		// will be persisted to disk.
-		retInfo := newRetributionInfo(&chanPoint, breachInfo)
+	// Acquire the mutex to ensure consistency between the call to
+	// IsBreached and Add below.
+	b.Lock()
 
-		// Persist the pending retribution state to disk.
-		err := b.cfg.Store.Add(retInfo)
+	// We first check if this breach info is already added to the
+	// retribution store.
+	breached, err := b.cfg.Store.IsBreached(&chanPoint)
+	if err != nil {
+		b.Unlock()
+		brarLog.Errorf("unable to check breach info in DB: %v", err)
+
+		select {
+		case breachEvent.ProcessACK <- err:
+		case <-b.quit:
+		}
+		return
+	}
+
+	// If this channel is already marked as breached in the retribution
+	// store, we already have handled the handoff for this breach. In this
+	// case we can safely ACK the handoff, and return.
+	if breached {
+		b.Unlock()
+
+		select {
+		case breachEvent.ProcessACK <- nil:
+		case <-b.quit:
+		}
+		return
+	}
+
+	// Using the breach information provided by the wallet and the
+	// channel snapshot, construct the retribution information that
+	// will be persisted to disk.
+	retInfo := newRetributionInfo(&chanPoint, breachInfo)
+
+	// Persist the pending retribution state to disk.
+	err = b.cfg.Store.Add(retInfo)
+	b.Unlock()
+	if err != nil {
+		brarLog.Errorf("unable to persist retribution "+
+			"info to db: %v", err)
+	}
+
+	// Now that the breach has been persisted, try to send an
+	// acknowledgment back to the close observer with the error. If
+	// the ack is successful, the close observer will mark the
+	// channel as pending-closed in the channeldb.
+	select {
+	case breachEvent.ProcessACK <- err:
+		// Bail if we failed to persist retribution info.
 		if err != nil {
-			brarLog.Errorf("unable to persist retribution "+
-				"info to db: %v", err)
-		}
-
-		// Now that the breach has been persisted, try to send an
-		// acknowledgment back to the close observer with the error. If
-		// the ack is successful, the close observer will mark the
-		// channel as pending-closed in the channeldb.
-		select {
-		case chainEvents.ProcessACK <- err:
-			// Bail if we failed to persist retribution info.
-			if err != nil {
-				return
-			}
-
-		case <-b.quit:
 			return
-		}
-
-		// Finally, we send the retribution information into the
-		// breachArbiter event loop to deal swift justice.
-		select {
-		case b.breachedContracts <- retInfo:
-		case <-b.quit:
 		}
 
 	case <-b.quit:
 		return
 	}
+
+	// Now that a new channel contract has been added to the retribution
+	// store, we first register for a notification to be dispatched once
+	// the breach transaction (the revoked commitment transaction) has been
+	// confirmed in the chain to ensure we're not dealing with a moving
+	// target.
+	breachTXID := &retInfo.commitHash
+	breachScript := retInfo.breachedOutputs[0].signDesc.Output.PkScript
+	cfChan, err := b.cfg.Notifier.RegisterConfirmationsNtfn(
+		breachTXID, breachScript, 1, retInfo.breachHeight,
+	)
+	if err != nil {
+		brarLog.Errorf("unable to register for conf updates for "+
+			"txid: %v, err: %v", breachTXID, err)
+		return
+	}
+
+	brarLog.Warnf("A channel has been breached with txid: %v. Waiting "+
+		"for confirmation, then justice will be served!", breachTXID)
+
+	// With the retribution state persisted, channel close persisted, and
+	// notification registered, we launch a new goroutine which will
+	// finalize the channel retribution after the breach transaction has
+	// been confirmed.
+	b.wg.Add(1)
+	go b.exactRetribution(cfChan, retInfo)
 }
 
 // SpendableOutput an interface which can be used by the breach arbiter to
@@ -1036,7 +1001,7 @@ func (b *breachArbiter) createJusticeTx(
 			witnessWeight = lnwallet.AcceptedHtlcPenaltyWitnessSize
 
 		case lnwallet.HtlcSecondLevelRevoke:
-			witnessWeight = lnwallet.SecondLevelHtlcPenaltyWitnessSize
+			witnessWeight = lnwallet.ToLocalPenaltyWitnessSize
 
 		default:
 			brarLog.Warnf("breached output in retribution info "+

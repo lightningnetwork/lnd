@@ -14,9 +14,10 @@ import (
 
 	macaroon "gopkg.in/macaroon.v2"
 
+	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
-	"github.com/roasbeef/btcutil"
 	"github.com/urfave/cli"
 
 	"google.golang.org/grpc"
@@ -26,9 +27,15 @@ import (
 const (
 	defaultTLSCertFilename  = "tls.cert"
 	defaultMacaroonFilename = "admin.macaroon"
+	defaultRPCPort          = "10009"
+	defaultRPCHostPort      = "localhost:" + defaultRPCPort
 )
 
 var (
+	//Commit stores the current commit hash of this build. This should be
+	//set using -ldflags during compilation.
+	Commit string
+
 	defaultLndDir       = btcutil.AppDataDir("lnd", false)
 	defaultTLSCertPath  = filepath.Join(defaultLndDir, defaultTLSCertFilename)
 	defaultMacaroonPath = filepath.Join(defaultLndDir, defaultMacaroonFilename)
@@ -139,6 +146,13 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 		opts = append(opts, grpc.WithPerRPCCredentials(cred))
 	}
 
+	// We need to use a custom dialer so we can also connect to unix sockets
+	// and not just TCP addresses.
+	opts = append(
+		opts, grpc.WithDialer(
+			lncfg.ClientAddressDialer(defaultRPCPort),
+		),
+	)
 	conn, err := grpc.Dial(ctx.GlobalString("rpcserver"), opts...)
 	if err != nil {
 		fatal(err)
@@ -150,12 +164,12 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 func main() {
 	app := cli.NewApp()
 	app.Name = "lncli"
-	app.Version = "0.4"
+	app.Version = fmt.Sprintf("%s commit=%s", "0.4.2", Commit)
 	app.Usage = "control plane for your Lightning Network Daemon (lnd)"
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:  "rpcserver",
-			Value: "localhost:10009",
+			Value: defaultRPCHostPort,
 			Usage: "host:port of ln daemon",
 		},
 		cli.StringFlag{
@@ -190,6 +204,7 @@ func main() {
 	app.Commands = []cli.Command{
 		createCommand,
 		unlockCommand,
+		changePasswordCommand,
 		newAddressCommand,
 		sendManyCommand,
 		sendCoinsCommand,
@@ -205,10 +220,12 @@ func main() {
 		pendingChannelsCommand,
 		sendPaymentCommand,
 		payInvoiceCommand,
+		sendToRouteCommand,
 		addInvoiceCommand,
 		lookupInvoiceCommand,
 		listInvoicesCommand,
 		listChannelsCommand,
+		closedChannelsCommand,
 		listPaymentsCommand,
 		describeGraphCommand,
 		getChanInfoCommand,

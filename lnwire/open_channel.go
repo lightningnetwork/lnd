@@ -3,9 +3,9 @@ package lnwire
 import (
 	"io"
 
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcutil"
 )
 
 // FundingFlag represents the possible bit mask values for the ChannelFlags
@@ -185,7 +185,7 @@ func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
 }
 
 // MsgType returns the MessageType code which uniquely identifies this message
-// as a OpenChannel on the wire.
+// as an OpenChannel on the wire.
 //
 // This is part of the lnwire.Message interface.
 func (o *OpenChannel) MsgType() MessageType {

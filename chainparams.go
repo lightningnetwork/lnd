@@ -1,12 +1,13 @@
 package main
 
 import (
+	"github.com/btcsuite/btcd/chaincfg"
+	bitcoinCfg "github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	bitcoinWire "github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/keychain"
 	litecoinCfg "github.com/ltcsuite/ltcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg"
-	bitcoinCfg "github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
+	litecoinWire "github.com/ltcsuite/ltcd/wire"
 )
 
 // activeNetParams is a pointer to the parameters specific to the currently
@@ -82,7 +83,7 @@ var regTestNetParams = bitcoinNetParams{
 // abstract over _which_ chain (or fork) the parameters are for.
 func applyLitecoinParams(params *bitcoinNetParams, litecoinParams *litecoinNetParams) {
 	params.Name = litecoinParams.Name
-	params.Net = wire.BitcoinNet(litecoinParams.Net)
+	params.Net = bitcoinWire.BitcoinNet(litecoinParams.Net)
 	params.DefaultPort = litecoinParams.DefaultPort
 	params.CoinbaseMaturity = litecoinParams.CoinbaseMaturity
 
@@ -115,4 +116,15 @@ func applyLitecoinParams(params *bitcoinNetParams, litecoinParams *litecoinNetPa
 
 	params.rpcPort = litecoinParams.rpcPort
 	params.CoinType = litecoinParams.CoinType
+}
+
+// isTestnet tests if the given params correspond to a testnet
+// parameter configuration.
+func isTestnet(params *bitcoinNetParams) bool {
+	switch params.Params.Net {
+	case bitcoinWire.TestNet3, bitcoinWire.BitcoinNet(litecoinWire.TestNet4):
+		return true
+	default:
+		return false
+	}
 }

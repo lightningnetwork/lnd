@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
 // TestShaChainProducerRestore checks the ability of shachain producer to be

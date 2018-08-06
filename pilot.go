@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
+	"github.com/lightningnetwork/lnd/tor"
 )
 
 // chanController is an implementation of the autopilot.ChannelController
@@ -49,18 +50,12 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 		// advertised IP addresses, or have made a connection.
 		var connected bool
 		for _, addr := range addrs {
-			// If the address doesn't already have a port, then
-			// we'll assume the current default port.
-			tcpAddr, ok := addr.(*net.TCPAddr)
-			if !ok {
-				return fmt.Errorf("TCP address required instead "+
-					"have %T", addr)
+			switch addr.(type) {
+			case *net.TCPAddr, *tor.OnionAddr:
+				lnAddr.Address = addr
+			default:
+				return fmt.Errorf("unknown address type %T", addr)
 			}
-			if tcpAddr.Port == 0 {
-				tcpAddr.Port = defaultPeerPort
-			}
-
-			lnAddr.Address = tcpAddr
 
 			// TODO(roasbeef): make perm connection in server after
 			// chan open?
@@ -94,7 +89,7 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 	minHtlc := lnwire.NewMSatFromSatoshis(1)
 
 	updateStream, errChan := c.server.OpenChannel(target, amt, 0,
-		minHtlc, feePerVSize, false)
+		minHtlc, feePerVSize, false, 0)
 
 	select {
 	case err := <-errChan:
@@ -142,11 +137,9 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 
 	// First, we'll create the preferential attachment heuristic,
 	// initialized with the passed auto pilot configuration parameters.
-	//
-	// TODO(roasbeef): switch here to dispatch specified heuristic
-	minChanSize := svr.cc.wallet.Cfg.DefaultConstraints.DustLimit * 5
 	prefAttachment := autopilot.NewConstrainedPrefAttachment(
-		minChanSize, maxFundingAmount,
+		btcutil.Amount(cfg.MinChannelSize),
+		btcutil.Amount(cfg.MaxChannelSize),
 		uint16(cfg.MaxChannels), cfg.Allocation,
 	)
 
@@ -173,7 +166,7 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 	initialChanState := make([]autopilot.Channel, len(activeChannels))
 	for i, channel := range activeChannels {
 		initialChanState[i] = autopilot.Channel{
-			ChanID:   channel.ShortChanID,
+			ChanID:   channel.ShortChanID(),
 			Capacity: channel.Capacity,
 			Node:     autopilot.NewNodeID(channel.IdentityPub),
 		}
@@ -278,7 +271,7 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 					pilot.OnChannelOpen(edge)
 				}
 
-				// For each closed closed channel, we'll obtain
+				// For each closed channel, we'll obtain
 				// the chanID of the closed channel and send it
 				// to the pilot.
 				for _, chanClose := range topChange.ClosedChannels {

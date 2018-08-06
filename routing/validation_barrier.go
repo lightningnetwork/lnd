@@ -1,11 +1,17 @@
 package routing
 
 import (
+	"errors"
 	"sync"
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
+
+// ErrVBarrierShuttingDown signals that the barrier has been requested to
+// shutdown, and that the caller should not treat the wait condition as
+// fulfilled.
+var ErrVBarrierShuttingDown = errors.New("validation barrier shutting down")
 
 // ValidationBarrier is a barrier used to ensure proper validation order while
 // concurrently validating new announcements for channel edges, and the
@@ -44,7 +50,7 @@ type ValidationBarrier struct {
 
 // NewValidationBarrier creates a new instance of a validation barrier given
 // the total number of active requests, and a quit channel which will be used
-// to know when to kill an pending, but unfilled jobs.
+// to know when to kill pending, but unfilled jobs.
 func NewValidationBarrier(numActiveReqs int,
 	quitChan chan struct{}) *ValidationBarrier {
 
@@ -152,7 +158,7 @@ func (v *ValidationBarrier) CompleteJob() {
 // finished executing. This allows us a graceful way to schedule goroutines
 // based on any pending uncompleted dependent jobs. If this job doesn't have an
 // active dependent, then this function will return immediately.
-func (v *ValidationBarrier) WaitForDependants(job interface{}) {
+func (v *ValidationBarrier) WaitForDependants(job interface{}) error {
 
 	var (
 		signal chan struct{}
@@ -181,13 +187,13 @@ func (v *ValidationBarrier) WaitForDependants(job interface{}) {
 	case *lnwire.AnnounceSignatures:
 		// TODO(roasbeef): need to wait on chan ann?
 		v.Unlock()
-		return
+		return nil
 	case *channeldb.ChannelEdgeInfo:
 		v.Unlock()
-		return
+		return nil
 	case *lnwire.ChannelAnnouncement:
 		v.Unlock()
-		return
+		return nil
 	}
 	v.Unlock()
 
@@ -196,10 +202,13 @@ func (v *ValidationBarrier) WaitForDependants(job interface{}) {
 	if ok {
 		select {
 		case <-v.quit:
-			return
+			return ErrVBarrierShuttingDown
 		case <-signal:
+			return nil
 		}
 	}
+
+	return nil
 }
 
 // SignalDependants will signal any jobs that are dependent on this job that

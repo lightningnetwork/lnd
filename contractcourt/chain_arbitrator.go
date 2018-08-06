@@ -5,13 +5,13 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 // ResolutionMsg is a message sent by resolvers to outside sub-systems once an
@@ -81,12 +81,19 @@ type ChainArbitratorConfig struct {
 	// TODO(roasbeef): rename, routing based
 	MarkLinkInactive func(wire.OutPoint) error
 
+	// ContractBreach is a function closure that the ChainArbitrator will
+	// use to notify the breachArbiter about a contract breach. It should
+	// only return a non-nil error when the breachArbiter has preserved the
+	// necessary breach info for this channel point, and it is safe to mark
+	// the channel as pending close in the database.
+	ContractBreach func(wire.OutPoint, *lnwallet.BreachRetribution) error
+
 	// IsOurAddress is a function that returns true if the passed address
 	// is known to the underlying wallet. Otherwise, false should be
 	// returned.
 	IsOurAddress func(btcutil.Address) bool
 
-	// IncubateOutput sends either a incoming HTLC, an outgoing HTLC, or
+	// IncubateOutput sends either an incoming HTLC, an outgoing HTLC, or
 	// both to the utxo nursery. Once this function returns, the nursery
 	// should have safely persisted the outputs to disk, and should start
 	// the process of incubation. This is used when a resolver wishes to
@@ -115,6 +122,10 @@ type ChainArbitratorConfig struct {
 
 	// ChainIO allows us to query the state of the current main chain.
 	ChainIO lnwallet.BlockChainIO
+
+	// DisableChannel disables a channel, resulting in it not being able to
+	// forward payments.
+	DisableChannel func(wire.OutPoint) error
 }
 
 // ChainArbitrator is a sub-system that oversees the on-chain resolution of all
@@ -127,8 +138,8 @@ type ChainArbitratorConfig struct {
 // forcibly exit a contract, update the set of live signals for each contract,
 // and to receive reports on the state of contract resolution.
 type ChainArbitrator struct {
-	started int32
-	stopped int32
+	started int32 // To be used atomically.
+	stopped int32 // To be used atomically.
 
 	sync.Mutex
 
@@ -194,9 +205,9 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 	// all interfaces and methods the arbitrator needs to do its job.
 	arbCfg := ChannelArbitratorConfig{
 		ChanPoint:   chanPoint,
-		ShortChanID: channel.ShortChanID,
+		ShortChanID: channel.ShortChanID(),
 		BlockEpochs: blockEpoch,
-		ForceCloseChan: func() (*lnwallet.ForceCloseSummary, error) {
+		ForceCloseChan: func() (*lnwallet.LocalForceCloseSummary, error) {
 			// With the channels fetched, attempt to locate
 			// the target channel according to its channel
 			// point.
@@ -231,14 +242,9 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 
 			return chanMachine.ForceClose()
 		},
-		CloseChannel: func(summary *channeldb.ChannelCloseSummary) error {
-			log.Tracef("ChannelArbitrator(%v): closing "+
-				"channel", chanPoint)
-
-			return channel.CloseChannel(summary)
-		},
-		ChainArbitratorConfig: c.cfg,
-		ChainEvents:           chanEvents,
+		MarkCommitmentBroadcasted: channel.MarkCommitmentBroadcasted,
+		ChainArbitratorConfig:     c.cfg,
+		ChainEvents:               chanEvents,
 	}
 
 	// The final component needed is an arbitrator log that the arbitrator
@@ -276,6 +282,8 @@ func (c *ChainArbitrator) resolveContract(chanPoint wire.OutPoint,
 	// the channel source.
 	err := c.chanSource.MarkChanFullyClosed(&chanPoint)
 	if err != nil {
+		log.Errorf("ChainArbitrator: unable to mark ChannelPoint(%v) "+
+			"fully closed: %v", chanPoint, err)
 		return err
 	}
 
@@ -297,6 +305,7 @@ func (c *ChainArbitrator) resolveContract(chanPoint wire.OutPoint,
 	if ok {
 		chainWatcher.Stop()
 	}
+	delete(c.activeWatchers, chanPoint)
 	c.Unlock()
 
 	return nil
@@ -325,27 +334,36 @@ func (c *ChainArbitrator) Start() error {
 	// For each open channel, we'll configure then launch a corresponding
 	// ChannelArbitrator.
 	for _, channel := range openChannels {
+		chanPoint := channel.FundingOutpoint
+		channel := channel
+
 		// First, we'll create an active chainWatcher for this channel
 		// to ensure that we detect any relevant on chain events.
 		chainWatcher, err := newChainWatcher(
-			channel, c.cfg.Notifier, c.cfg.PreimageDB, c.cfg.Signer,
-			c.cfg.IsOurAddress, func() error {
-				return c.resolveContract(channel.FundingOutpoint, nil)
+			chainWatcherConfig{
+				chanState: channel,
+				notifier:  c.cfg.Notifier,
+				pCache:    c.cfg.PreimageDB,
+				signer:    c.cfg.Signer,
+				isOurAddr: c.cfg.IsOurAddress,
+				contractBreach: func(retInfo *lnwallet.BreachRetribution) error {
+					return c.cfg.ContractBreach(chanPoint, retInfo)
+				},
 			},
 		)
 		if err != nil {
 			return err
 		}
 
-		c.activeWatchers[channel.FundingOutpoint] = chainWatcher
+		c.activeWatchers[chanPoint] = chainWatcher
 		channelArb, err := newActiveChannelArbitrator(
-			channel, c, chainWatcher.SubscribeChannelEvents(false),
+			channel, c, chainWatcher.SubscribeChannelEvents(),
 		)
 		if err != nil {
 			return err
 		}
 
-		c.activeChannels[channel.FundingOutpoint] = channelArb
+		c.activeChannels[chanPoint] = channelArb
 	}
 
 	// In addition to the channels that we know to be open, we'll also
@@ -362,20 +380,10 @@ func (c *ChainArbitrator) Start() error {
 	}
 
 	// Next, for each channel is the closing state, we'll launch a
-	// corresponding more restricted resolver.
+	// corresponding more restricted resolver, as we don't have to watch
+	// the chain any longer, only resolve the contracts on the confirmed
+	// commitment.
 	for _, closeChanInfo := range closingChannels {
-		// If this is a pending cooperative close channel then we'll
-		// simply launch a goroutine to wait until the closing
-		// transaction has been confirmed.
-		if closeChanInfo.CloseType == channeldb.CooperativeClose {
-			go c.watchForChannelClose(closeChanInfo)
-
-			// TODO(roasbeef): actually need arb to possibly
-			// recover from race condition broadcast?
-			//  * if do, can't recover from multi-broadcast
-			continue
-		}
-
 		blockEpoch, err := c.cfg.Notifier.RegisterBlockEpochNtfn()
 		if err != nil {
 			return err
@@ -467,67 +475,6 @@ func (c *ChainArbitrator) Stop() error {
 	c.wg.Wait()
 
 	return nil
-}
-
-// watchForChannelClose is used by the ChainArbitrator to watch for the
-// ultimate on-chain conformation of an existing cooperative channel closure.
-// This is needed if we started a co-op close, but it wasn't fully confirmed
-// before we restarted.
-//
-// NOTE: This must be launched as a goroutine.
-func (c *ChainArbitrator) watchForChannelClose(closeInfo *channeldb.ChannelCloseSummary) {
-	spendNtfn, err := c.cfg.Notifier.RegisterSpendNtfn(
-		&closeInfo.ChanPoint, closeInfo.CloseHeight,
-	)
-	if err != nil {
-		log.Errorf("unable to register for spend: %v", err)
-		return
-	}
-
-	var (
-		commitSpend *chainntnfs.SpendDetail
-		ok          bool
-	)
-	select {
-	case commitSpend, ok = <-spendNtfn.Spend:
-		if !ok {
-			return
-		}
-	case <-c.quit:
-		return
-	}
-
-	confNtfn, err := c.cfg.Notifier.RegisterConfirmationsNtfn(
-		commitSpend.SpenderTxHash, 1,
-		uint32(commitSpend.SpendingHeight),
-	)
-	if err != nil {
-		log.Errorf("unable to register for "+
-			"conf: %v", err)
-		return
-	}
-
-	log.Infof("Waiting for txid=%v to close ChannelPoint(%v) on chain",
-		commitSpend.SpenderTxHash, closeInfo.ChanPoint)
-
-	select {
-	case confInfo, ok := <-confNtfn.Confirmed:
-		if !ok {
-			return
-		}
-
-		log.Infof("ChannelPoint(%v) is fully closed, at height: %v",
-			closeInfo.ChanPoint, confInfo.BlockHeight)
-
-		err := c.resolveContract(closeInfo.ChanPoint, nil)
-		if err != nil {
-			log.Errorf("unable to resolve contract: %v", err)
-		}
-
-	case <-c.quit:
-		return
-	}
-
 }
 
 // ContractSignals wraps the two signals that affect the state of a channel
@@ -630,6 +577,16 @@ func (c *ChainArbitrator) ForceCloseContract(chanPoint wire.OutPoint) (*wire.Msg
 		return nil, fmt.Errorf("ChainArbitrator shutting down")
 	}
 
+	// We'll attempt to disable the channel in the background to
+	// avoid blocking due to sending the update message to all
+	// active peers.
+	go func() {
+		if err := c.cfg.DisableChannel(chanPoint); err != nil {
+			log.Errorf("Unable to disable channel %v on "+
+				"close: %v", chanPoint, err)
+		}
+	}()
+
 	return closeTx, nil
 }
 
@@ -654,9 +611,15 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 	// First, also create an active chainWatcher for this channel to ensure
 	// that we detect any relevant on chain events.
 	chainWatcher, err := newChainWatcher(
-		newChan, c.cfg.Notifier, c.cfg.PreimageDB, c.cfg.Signer,
-		c.cfg.IsOurAddress, func() error {
-			return c.resolveContract(chanPoint, nil)
+		chainWatcherConfig{
+			chanState: newChan,
+			notifier:  c.cfg.Notifier,
+			pCache:    c.cfg.PreimageDB,
+			signer:    c.cfg.Signer,
+			isOurAddr: c.cfg.IsOurAddress,
+			contractBreach: func(retInfo *lnwallet.BreachRetribution) error {
+				return c.cfg.ContractBreach(chanPoint, retInfo)
+			},
 		},
 	)
 	if err != nil {
@@ -668,7 +631,7 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 	// We'll also create a new channel arbitrator instance using this new
 	// channel, and our internal state.
 	channelArb, err := newActiveChannelArbitrator(
-		newChan, c, chainWatcher.SubscribeChannelEvents(false),
+		newChan, c, chainWatcher.SubscribeChannelEvents(),
 	)
 	if err != nil {
 		return err
@@ -696,7 +659,7 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 // TODO(roasbeef): can be used later to provide RPC hook for all channel
 // lifetimes
 func (c *ChainArbitrator) SubscribeChannelEvents(
-	chanPoint wire.OutPoint, syncDispatch bool) (*ChainEventSubscription, error) {
+	chanPoint wire.OutPoint) (*ChainEventSubscription, error) {
 
 	// First, we'll attempt to look up the active watcher for this channel.
 	// If we can't find it, then we'll return an error back to the caller.
@@ -708,22 +671,7 @@ func (c *ChainArbitrator) SubscribeChannelEvents(
 
 	// With the watcher located, we'll request for it to create a new chain
 	// event subscription client.
-	return watcher.SubscribeChannelEvents(syncDispatch), nil
-}
-
-// BeginCoopChanClose allows the initiator or responder to a cooperative
-// channel closure to signal to the ChainArbitrator that we're starting close
-// negotiation. The caller can use this context to allow the underlying chain
-// watcher to be prepared to act if *any* of the transactions that may
-// potentially be signed off on during fee negotiation are confirmed.
-func (c *ChainArbitrator) BeginCoopChanClose(chanPoint wire.OutPoint) (*CooperativeCloseCtx, error) {
-	watcher, ok := c.activeWatchers[chanPoint]
-	if !ok {
-		return nil, fmt.Errorf("unable to find watcher for: %v",
-			chanPoint)
-	}
-
-	return watcher.BeginCooperativeClose(), nil
+	return watcher.SubscribeChannelEvents(), nil
 }
 
 // TODO(roasbeef): arbitration reports

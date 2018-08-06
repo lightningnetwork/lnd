@@ -2,15 +2,17 @@ package zpay32
 
 import (
 	"encoding/binary"
+	"math"
 	"reflect"
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/bech32"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcutil"
-	"github.com/roasbeef/btcutil/bech32"
+	"github.com/lightningnetwork/lnd/routing"
 )
 
 // TestDecodeAmount ensures that the amount string in the hrp of the Invoice
@@ -527,7 +529,11 @@ func TestParseExpiry(t *testing.T) {
 			result: &testExpiry60,
 		},
 		{
-			data:  []byte{0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc},
+			data: []byte{
+				0x0, 0x1, 0x2, 0x3, 0x4, 0x5,
+				0x6, 0x7, 0x8, 0x9, 0xa, 0xb,
+				0xc, 0x3,
+			},
 			valid: false, // data too long
 		},
 	}
@@ -547,7 +553,8 @@ func TestParseExpiry(t *testing.T) {
 	}
 }
 
-// TestParseMinFinalCLTVExpiry checks that the minFinalCLTVExpiry is properly parsed.
+// TestParseMinFinalCLTVExpiry checks that the minFinalCLTVExpiry is properly
+// parsed.
 func TestParseMinFinalCLTVExpiry(t *testing.T) {
 	t.Parallel()
 
@@ -567,12 +574,20 @@ func TestParseMinFinalCLTVExpiry(t *testing.T) {
 			result: 60,
 		},
 		{
-			data:   []byte{0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc},
+			data: []byte{
+				0x1, 0x2, 0x3, 0x4, 0x5,
+				0x6, 0x7, 0x8, 0x9, 0xa,
+				0xb, 0xc,
+			},
 			valid:  true,
 			result: 38390726480144748,
 		},
 		{
-			data:  []byte{0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc},
+			data: []byte{
+				0x0, 0x1, 0x2, 0x3, 0x4, 0x5,
+				0x6, 0x7, 0x8, 0x9, 0xa, 0xb,
+				0xc, 0x94,
+			},
 			valid: false, // data too long
 		},
 	}
@@ -589,6 +604,26 @@ func TestParseMinFinalCLTVExpiry(t *testing.T) {
 				i, test.result, *expiry)
 			return
 		}
+	}
+}
+
+// TestParseMinFinalCLTVExpiry tests that were able to properly encode/decode
+// the math.MaxUint64 integer without panicking.
+func TestParseMaxUint64Expiry(t *testing.T) {
+	t.Parallel()
+
+	expiry := uint64(math.MaxUint64)
+
+	expiryBytes := uint64ToBase32(expiry)
+
+	expiryReParse, err := base32ToUint64(expiryBytes)
+	if err != nil {
+		t.Fatalf("unable to parse uint64: %v", err)
+	}
+
+	if expiryReParse != expiry {
+		t.Fatalf("wrong expiry: expected %v got %v", expiry,
+			expiryReParse)
 	}
 }
 
@@ -672,18 +707,18 @@ func TestParseFallbackAddr(t *testing.T) {
 	}
 }
 
-// TestParseRoutingInfo checks that the routing info is properly parsed.
-func TestParseRoutingInfo(t *testing.T) {
+// TestParseRouteHint checks that the routing info is properly parsed.
+func TestParseRouteHint(t *testing.T) {
 	t.Parallel()
 
 	var testSingleHopData []byte
 	for _, r := range testSingleHop {
 		base256 := make([]byte, 51)
-		copy(base256[:33], r.PubKey.SerializeCompressed())
-		binary.BigEndian.PutUint64(base256[33:41], r.ShortChanID)
-		binary.BigEndian.PutUint32(base256[41:45], r.FeeBaseMsat)
+		copy(base256[:33], r.NodeID.SerializeCompressed())
+		binary.BigEndian.PutUint64(base256[33:41], r.ChannelID)
+		binary.BigEndian.PutUint32(base256[41:45], r.FeeBaseMSat)
 		binary.BigEndian.PutUint32(base256[45:49], r.FeeProportionalMillionths)
-		binary.BigEndian.PutUint16(base256[49:51], r.CltvExpDelta)
+		binary.BigEndian.PutUint16(base256[49:51], r.CLTVExpiryDelta)
 		testSingleHopData = append(testSingleHopData, base256...)
 	}
 	testSingleHopData, _ = bech32.ConvertBits(testSingleHopData, 8, 5, true)
@@ -691,11 +726,11 @@ func TestParseRoutingInfo(t *testing.T) {
 	var testDoubleHopData []byte
 	for _, r := range testDoubleHop {
 		base256 := make([]byte, 51)
-		copy(base256[:33], r.PubKey.SerializeCompressed())
-		binary.BigEndian.PutUint64(base256[33:41], r.ShortChanID)
-		binary.BigEndian.PutUint32(base256[41:45], r.FeeBaseMsat)
+		copy(base256[:33], r.NodeID.SerializeCompressed())
+		binary.BigEndian.PutUint64(base256[33:41], r.ChannelID)
+		binary.BigEndian.PutUint32(base256[41:45], r.FeeBaseMSat)
 		binary.BigEndian.PutUint32(base256[45:49], r.FeeProportionalMillionths)
-		binary.BigEndian.PutUint16(base256[49:51], r.CltvExpDelta)
+		binary.BigEndian.PutUint16(base256[49:51], r.CLTVExpiryDelta)
 		testDoubleHopData = append(testDoubleHopData, base256...)
 	}
 	testDoubleHopData, _ = bech32.ConvertBits(testDoubleHopData, 8, 5, true)
@@ -703,7 +738,7 @@ func TestParseRoutingInfo(t *testing.T) {
 	tests := []struct {
 		data   []byte
 		valid  bool
-		result []ExtraRoutingInfo
+		result []routing.HopHint
 	}{
 		{
 			data:  []byte{0x0, 0x0, 0x0, 0x0},
@@ -712,7 +747,7 @@ func TestParseRoutingInfo(t *testing.T) {
 		{
 			data:   []byte{},
 			valid:  true,
-			result: []ExtraRoutingInfo{},
+			result: []routing.HopHint{},
 		},
 		{
 			data:   testSingleHopData,
@@ -731,13 +766,13 @@ func TestParseRoutingInfo(t *testing.T) {
 	}
 
 	for i, test := range tests {
-		routingInfo, err := parseRoutingInfo(test.data)
+		routeHint, err := parseRouteHint(test.data)
 		if (err == nil) != test.valid {
 			t.Errorf("routing info decoding test %d failed: %v", i, err)
 			return
 		}
 		if test.valid {
-			if err := compareRoutingInfos(test.result, routingInfo); err != nil {
+			if err := compareRouteHints(test.result, routeHint); err != nil {
 				t.Fatalf("test %d failed decoding routing info: %v", i, err)
 			}
 		}

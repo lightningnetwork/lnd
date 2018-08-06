@@ -18,11 +18,11 @@ import (
 	"syscall"
 
 	"github.com/awalterschulze/gographviz"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcutil"
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcutil"
 	"github.com/urfave/cli"
 	"golang.org/x/crypto/ssh/terminal"
 	"golang.org/x/net/context"
@@ -34,6 +34,8 @@ import (
 // arguments.
 
 // TODO(roasbeef): expose all fee conf targets
+
+const defaultRecoveryWindow int32 = 250
 
 func printJSON(resp interface{}) {
 	b, err := json.Marshal(resp)
@@ -67,13 +69,27 @@ func printRespJSON(resp proto.Message) {
 func actionDecorator(f func(*cli.Context) error) func(*cli.Context) error {
 	return func(c *cli.Context) error {
 		if err := f(c); err != nil {
+			s, ok := status.FromError(err)
+
+			// If it's a command for the UnlockerService (like
+			// 'create' or 'unlock') but the wallet is already
+			// unlocked, then these methods aren't recognized any
+			// more because this service is shut down after
+			// successful unlock. That's why the code
+			// 'Unimplemented' means something different for these
+			// two commands.
+			if s.Code() == codes.Unimplemented &&
+				(c.Command.Name == "create" ||
+					c.Command.Name == "unlock") {
+				return fmt.Errorf("Wallet is already unlocked")
+			}
+
 			// lnd might be active, but not possible to contact
 			// using RPC if the wallet is encrypted. If we get
 			// error code Unimplemented, it means that lnd is
 			// running, but the RPC server is not active yet (only
 			// WalletUnlocker server active) and most likely this
 			// is because of an encrypted wallet.
-			s, ok := status.FromError(err)
 			if ok && s.Code() == codes.Unimplemented {
 				return fmt.Errorf("Wallet is encrypted. " +
 					"Please unlock using 'lncli unlock', " +
@@ -89,6 +105,7 @@ func actionDecorator(f func(*cli.Context) error) func(*cli.Context) error {
 
 var newAddressCommand = cli.Command{
 	Name:      "newaddress",
+	Category:  "Wallet",
 	Usage:     "Generates a new address.",
 	ArgsUsage: "address-type",
 	Description: `
@@ -131,7 +148,8 @@ func newAddress(ctx *cli.Context) error {
 
 var sendCoinsCommand = cli.Command{
 	Name:      "sendcoins",
-	Usage:     "Send bitcoin on-chain to an address",
+	Category:  "On-chain",
+	Usage:     "Send bitcoin on-chain to an address.",
 	ArgsUsage: "addr amt",
 	Description: `
 	Send amt coins in satoshis to the BASE58 encoded bitcoin address addr.
@@ -229,6 +247,7 @@ func sendCoins(ctx *cli.Context) error {
 
 var sendManyCommand = cli.Command{
 	Name:      "sendmany",
+	Category:  "On-chain",
 	Usage:     "Send bitcoin on-chain to multiple addresses.",
 	ArgsUsage: "send-json-string [--conf_target=N] [--sat_per_byte=P]",
 	Description: `
@@ -286,7 +305,8 @@ func sendMany(ctx *cli.Context) error {
 
 var connectCommand = cli.Command{
 	Name:      "connect",
-	Usage:     "Connect to a remote lnd peer",
+	Category:  "Peers",
+	Usage:     "Connect to a remote lnd peer.",
 	ArgsUsage: "<pubkey>@host",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
@@ -331,7 +351,8 @@ func connectPeer(ctx *cli.Context) error {
 
 var disconnectCommand = cli.Command{
 	Name:      "disconnect",
-	Usage:     "Disconnect a remote lnd peer identified by public key",
+	Category:  "Peers",
+	Usage:     "Disconnect a remote lnd peer identified by public key.",
 	ArgsUsage: "<pubkey>",
 	Flags: []cli.Flag{
 		cli.StringFlag{
@@ -373,8 +394,9 @@ func disconnectPeer(ctx *cli.Context) error {
 
 // TODO(roasbeef): change default number of confirmations
 var openChannelCommand = cli.Command{
-	Name:  "openchannel",
-	Usage: "Open a channel to a node or an existing peer.",
+	Name:     "openchannel",
+	Category: "Channels",
+	Usage:    "Open a channel to a node or an existing peer.",
 	Description: `
 	Attempt to open a new channel to an existing peer with the key node-key
 	optionally blocking until the channel is 'open'.
@@ -384,8 +406,9 @@ var openChannelCommand = cli.Command{
 	the node_key must be provided, rather than the peer_id. This is optional.
 
 	The channel will be initialized with local-amt satoshis local and push-amt
-	satoshis for the remote node. Once the channel is open, a channelPoint (txid:vout)
-	of the funding output is returned.
+	satoshis for the remote node. Note that specifying push-amt means you give that
+	amount to the remote node as part of the channel opening. Once the channel is open,
+	a channelPoint (txid:vout) of the funding output is returned.
 
 	One can manually set the fee to be used for the funding transaction via either
 	the --conf_target or --sat_per_byte arguments. This is optional.`,
@@ -406,8 +429,11 @@ var openChannelCommand = cli.Command{
 		},
 		cli.IntFlag{
 			Name: "push_amt",
-			Usage: "the number of satoshis to push to the remote " +
-				"side as part of the initial commitment state",
+			Usage: "the number of satoshis to give the remote side " +
+				"as part of the initial commitment state, " +
+				"this is equivalent to first opening a " +
+				"channel and sending the remote party funds, " +
+				"but done all in one step",
 		},
 		cli.BoolFlag{
 			Name:  "block",
@@ -438,6 +464,14 @@ var openChannelCommand = cli.Command{
 			Usage: "(optional) the minimum value we will require " +
 				"for incoming HTLCs on the channel",
 		},
+		cli.Uint64Flag{
+			Name: "remote_csv_delay",
+			Usage: "(optional) the number of blocks we will require " +
+				"our channel counterparty to wait before accessing " +
+				"its funds in case of unilateral close. If this is " +
+				"not set, we will scale the value according to the " +
+				"channel size",
+		},
 	},
 	Action: actionDecorator(openChannel),
 }
@@ -458,9 +492,10 @@ func openChannel(ctx *cli.Context) error {
 	}
 
 	req := &lnrpc.OpenChannelRequest{
-		TargetConf:  int32(ctx.Int64("conf_target")),
-		SatPerByte:  ctx.Int64("sat_per_byte"),
-		MinHtlcMsat: ctx.Int64("min_htlc_msat"),
+		TargetConf:     int32(ctx.Int64("conf_target")),
+		SatPerByte:     ctx.Int64("sat_per_byte"),
+		MinHtlcMsat:    ctx.Int64("min_htlc_msat"),
+		RemoteCsvDelay: uint32(ctx.Uint64("remote_csv_delay")),
 	}
 
 	switch {
@@ -599,8 +634,9 @@ func openChannel(ctx *cli.Context) error {
 // TODO(roasbeef): also allow short relative channel ID.
 
 var closeChannelCommand = cli.Command{
-	Name:  "closechannel",
-	Usage: "Close an existing channel.",
+	Name:     "closechannel",
+	Category: "Channels",
+	Usage:    "Close an existing channel.",
 	Description: `
 	Close an existing channel. The channel can be closed either cooperatively,
 	or unilaterally (--force).
@@ -612,7 +648,11 @@ var closeChannelCommand = cli.Command{
 	In the case of a cooperative closure, One can manually set the fee to
 	be used for the closing transaction via either the --conf_target or
 	--sat_per_byte arguments. This will be the starting value used during
-	fee negotiation. This is optional.`,
+	fee negotiation. This is optional.
+
+	To view which funding_txids/output_indexes can be used for a channel close,
+	see the channel_point values within the listchannels command output.
+	The format for a channel_point is 'funding_txid:output_index'.`,
 	ArgsUsage: "funding_txid [output_index [time_limit]]",
 	Flags: []cli.Flag{
 		cli.StringFlag{
@@ -773,8 +813,9 @@ func executeChannelClose(client lnrpc.LightningClient, req *lnrpc.CloseChannelRe
 }
 
 var closeAllChannelsCommand = cli.Command{
-	Name:  "closeallchannels",
-	Usage: "Close all existing channels.",
+	Name:     "closeallchannels",
+	Category: "Channels",
+	Usage:    "Close all existing channels.",
 	Description: `
 	Close all existing channels.
 
@@ -818,7 +859,7 @@ func closeAllChannels(ctx *cli.Context) error {
 		return errors.New("no open channels to close")
 	}
 
-	var channelsToClose []*lnrpc.ActiveChannel
+	var channelsToClose []*lnrpc.Channel
 
 	switch {
 	case ctx.Bool("force") && ctx.Bool("inactive_only"):
@@ -904,7 +945,7 @@ func closeAllChannels(ctx *cli.Context) error {
 	// they come.
 	resultChan := make(chan result, len(channelsToClose))
 	for _, channel := range channelsToClose {
-		go func(channel *lnrpc.ActiveChannel) {
+		go func(channel *lnrpc.Channel) {
 			res := result{}
 			res.RemotePubKey = channel.RemotePubkey
 			res.ChannelPoint = channel.ChannelPoint
@@ -984,9 +1025,10 @@ func promptForConfirmation(msg string) bool {
 }
 
 var listPeersCommand = cli.Command{
-	Name:   "listpeers",
-	Usage:  "List all active, currently connected peers.",
-	Action: actionDecorator(listPeers),
+	Name:     "listpeers",
+	Category: "Peers",
+	Usage:    "List all active, currently connected peers.",
+	Action:   actionDecorator(listPeers),
 }
 
 func listPeers(ctx *cli.Context) error {
@@ -1005,7 +1047,9 @@ func listPeers(ctx *cli.Context) error {
 }
 
 var createCommand = cli.Command{
-	Name: "create",
+	Name:     "create",
+	Category: "Startup",
+	Usage:    "Initialize a wallet when starting lnd for the first time.",
 	Description: `
 	The create command is used to initialize an lnd wallet from scratch for
 	the very first time. This is interactive command with one required
@@ -1119,6 +1163,7 @@ mnemonicCheck:
 	var (
 		cipherSeedMnemonic []string
 		aezeedPass         []byte
+		recoveryWindow     int32
 	)
 	if hasMnemonic {
 		// We'll now prompt the user to enter in their 24-word
@@ -1157,13 +1202,43 @@ mnemonicCheck:
 
 		aezeedPass = []byte(passphrase)
 
-		fmt.Println()
+		for {
+			fmt.Println()
+			fmt.Printf("Input an optional address look-ahead "+
+				"used to scan for used keys (default %d): ",
+				defaultRecoveryWindow)
+
+			reader := bufio.NewReader(os.Stdin)
+			answer, err := reader.ReadString('\n')
+			if err != nil {
+				return err
+			}
+
+			fmt.Println()
+
+			answer = strings.TrimSpace(answer)
+
+			if len(answer) == 0 {
+				recoveryWindow = defaultRecoveryWindow
+				break
+			}
+
+			lookAhead, err := strconv.Atoi(answer)
+			if err != nil {
+				fmt.Println("Unable to parse recovery "+
+					"window: %v", err)
+				continue
+			}
+
+			recoveryWindow = int32(lookAhead)
+			break
+		}
 	} else {
 		// Otherwise, if the user doesn't have a mnemonic that they
 		// want to use, we'll generate a fresh one with the GenSeed
 		// command.
 		fmt.Println("Your cipher seed can optionally be encrypted.")
-		fmt.Printf("Input your passphrase you wish to encrypt it " +
+		fmt.Printf("Input your passphrase if you wish to encrypt it " +
 			"(or press enter to proceed without a cipher seed " +
 			"passphrase): ")
 		aezeedPass1, err := terminal.ReadPassword(int(syscall.Stdin))
@@ -1234,6 +1309,7 @@ mnemonicCheck:
 		WalletPassword:     pw1,
 		CipherSeedMnemonic: cipherSeedMnemonic,
 		AezeedPassphrase:   aezeedPass,
+		RecoveryWindow:     recoveryWindow,
 	}
 	if _, err := client.InitWallet(ctxb, req); err != nil {
 		return err
@@ -1245,13 +1321,25 @@ mnemonicCheck:
 }
 
 var unlockCommand = cli.Command{
-	Name: "unlock",
+	Name:     "unlock",
+	Category: "Startup",
+	Usage:    "Unlock an encrypted wallet at startup.",
 	Description: `
 	The unlock command is used to decrypt lnd's wallet state in order to
 	start up. This command MUST be run after booting up lnd before it's
 	able to carry out its duties. An exception is if a user is running with
 	--noencryptwallet, then a default passphrase will be used.
 	`,
+	Flags: []cli.Flag{
+		cli.IntFlag{
+			Name: "recovery_window",
+			Usage: "address lookahead to resume recovery rescan, " +
+				"value should be non-zero --  To recover all " +
+				"funds, this should be greater than the " +
+				"maximum number of consecutive, unused " +
+				"addresses ever generated by the wallet.",
+		},
+	},
 	Action: actionDecorator(unlock),
 }
 
@@ -1267,8 +1355,26 @@ func unlock(ctx *cli.Context) error {
 	}
 	fmt.Println()
 
+	args := ctx.Args()
+
+	// Parse the optional recovery window if it is specified. By default,
+	// the recovery window will be 0, indicating no lookahead should be
+	// used.
+	var recoveryWindow int32
+	switch {
+	case ctx.IsSet("recovery_window"):
+		recoveryWindow = int32(ctx.Int64("recovery_window"))
+	case args.Present():
+		window, err := strconv.ParseInt(args.First(), 10, 64)
+		if err != nil {
+			return err
+		}
+		recoveryWindow = int32(window)
+	}
+
 	req := &lnrpc.UnlockWalletRequest{
 		WalletPassword: pw,
+		RecoveryWindow: recoveryWindow,
 	}
 	_, err = client.UnlockWallet(ctxb, req)
 	if err != nil {
@@ -1280,10 +1386,71 @@ func unlock(ctx *cli.Context) error {
 	return nil
 }
 
+var changePasswordCommand = cli.Command{
+	Name:     "changepassword",
+	Category: "Startup",
+	Usage:    "Change an encrypted wallet's password at startup.",
+	Description: `
+	The changepassword command is used to Change lnd's encrypted wallet's
+	password. It will automatically unlock the daemon if the password change
+	is successful.
+
+	If one did not specify a password for their wallet (running lnd with
+	--noencryptwallet), one must restart their daemon without
+	--noencryptwallet and use this command. The "current password" field
+	should be left empty.
+	`,
+	Action: actionDecorator(changePassword),
+}
+
+func changePassword(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client, cleanUp := getWalletUnlockerClient(ctx)
+	defer cleanUp()
+
+	fmt.Printf("Input current wallet password: ")
+	currentPw, err := terminal.ReadPassword(int(syscall.Stdin))
+	if err != nil {
+		return err
+	}
+	fmt.Println()
+
+	fmt.Printf("Input new wallet password: ")
+	newPw, err := terminal.ReadPassword(int(syscall.Stdin))
+	if err != nil {
+		return err
+	}
+	fmt.Println()
+
+	fmt.Printf("Confirm new wallet password: ")
+	confirmPw, err := terminal.ReadPassword(int(syscall.Stdin))
+	if err != nil {
+		return err
+	}
+	fmt.Println()
+
+	if !bytes.Equal(newPw, confirmPw) {
+		return fmt.Errorf("passwords don't match")
+	}
+
+	req := &lnrpc.ChangePasswordRequest{
+		CurrentPassword: currentPw,
+		NewPassword:     newPw,
+	}
+
+	_, err = client.ChangePassword(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 var walletBalanceCommand = cli.Command{
-	Name:   "walletbalance",
-	Usage:  "Compute and display the wallet's current balance",
-	Action: actionDecorator(walletBalance),
+	Name:     "walletbalance",
+	Category: "Wallet",
+	Usage:    "Compute and display the wallet's current balance.",
+	Action:   actionDecorator(walletBalance),
 }
 
 func walletBalance(ctx *cli.Context) error {
@@ -1302,8 +1469,10 @@ func walletBalance(ctx *cli.Context) error {
 }
 
 var channelBalanceCommand = cli.Command{
-	Name:   "channelbalance",
-	Usage:  "Returns the sum of the total available channel balance across all open channels",
+	Name:     "channelbalance",
+	Category: "Channels",
+	Usage: "Returns the sum of the total available channel balance across " +
+		"all open channels.",
 	Action: actionDecorator(channelBalance),
 }
 
@@ -1324,7 +1493,7 @@ func channelBalance(ctx *cli.Context) error {
 
 var getInfoCommand = cli.Command{
 	Name:   "getinfo",
-	Usage:  "Returns basic information related to the active daemon",
+	Usage:  "Returns basic information related to the active daemon.",
 	Action: actionDecorator(getInfo),
 }
 
@@ -1344,24 +1513,10 @@ func getInfo(ctx *cli.Context) error {
 }
 
 var pendingChannelsCommand = cli.Command{
-	Name:  "pendingchannels",
-	Usage: "Display information pertaining to pending channels",
-	Flags: []cli.Flag{
-		cli.BoolFlag{
-			Name:  "open, o",
-			Usage: "display the status of new pending channels",
-		},
-		cli.BoolFlag{
-			Name:  "close, c",
-			Usage: "display the status of channels being closed",
-		},
-		cli.BoolFlag{
-			Name: "all, a",
-			Usage: "display the status of channels in the " +
-				"process of being opened or closed",
-		},
-	},
-	Action: actionDecorator(pendingChannels),
+	Name:     "pendingchannels",
+	Category: "Channels",
+	Usage:    "Display information pertaining to pending channels.",
+	Action:   actionDecorator(pendingChannels),
 }
 
 func pendingChannels(ctx *cli.Context) error {
@@ -1381,12 +1536,25 @@ func pendingChannels(ctx *cli.Context) error {
 }
 
 var listChannelsCommand = cli.Command{
-	Name:  "listchannels",
-	Usage: "List all open channels",
+	Name:     "listchannels",
+	Category: "Channels",
+	Usage:    "List all open channels.",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
-			Name:  "active_only, a",
+			Name:  "active_only",
 			Usage: "only list channels which are currently active",
+		},
+		cli.BoolFlag{
+			Name:  "inactive_only",
+			Usage: "only list channels which are currently inactive",
+		},
+		cli.BoolFlag{
+			Name:  "public_only",
+			Usage: "only list channels which are currently public",
+		},
+		cli.BoolFlag{
+			Name:  "private_only",
+			Usage: "only list channels which are currently private",
 		},
 	},
 	Action: actionDecorator(listChannels),
@@ -1397,7 +1565,13 @@ func listChannels(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	req := &lnrpc.ListChannelsRequest{}
+	req := &lnrpc.ListChannelsRequest{
+		ActiveOnly:   ctx.Bool("active_only"),
+		InactiveOnly: ctx.Bool("inactive_only"),
+		PublicOnly:   ctx.Bool("public_only"),
+		PrivateOnly:  ctx.Bool("private_only"),
+	}
+
 	resp, err := client.ListChannels(ctxb, req)
 	if err != nil {
 		return err
@@ -1410,9 +1584,66 @@ func listChannels(ctx *cli.Context) error {
 	return nil
 }
 
+var closedChannelsCommand = cli.Command{
+	Name:     "closedchannels",
+	Category: "Channels",
+	Usage:    "List all closed channels.",
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name:  "cooperative",
+			Usage: "list channels that were closed cooperatively",
+		},
+		cli.BoolFlag{
+			Name: "local_force",
+			Usage: "list channels that were force-closed " +
+				"by the local node",
+		},
+		cli.BoolFlag{
+			Name: "remote_force",
+			Usage: "list channels that were force-closed " +
+				"by the remote node",
+		},
+		cli.BoolFlag{
+			Name: "breach",
+			Usage: "list channels for which the remote node " +
+				"attempted to broadcast a prior " +
+				"revoked channel state",
+		},
+		cli.BoolFlag{
+			Name:  "funding_canceled",
+			Usage: "list channels that were never fully opened",
+		},
+	},
+	Action: actionDecorator(closedChannels),
+}
+
+func closedChannels(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	req := &lnrpc.ClosedChannelsRequest{
+		Cooperative:     ctx.Bool("cooperative"),
+		LocalForce:      ctx.Bool("local_force"),
+		RemoteForce:     ctx.Bool("remote_force"),
+		Breach:          ctx.Bool("breach"),
+		FundingCanceled: ctx.Bool("funding_cancelled"),
+	}
+
+	resp, err := client.ClosedChannels(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+
+	return nil
+}
+
 var sendPaymentCommand = cli.Command{
-	Name:  "sendpayment",
-	Usage: "Send a payment over lightning",
+	Name:     "sendpayment",
+	Category: "Payments",
+	Usage:    "Send a payment over lightning.",
 	Description: `
 	Send a payment over Lightning. One can either specify the full
 	parameters of the payment, or just use a payment request which encodes
@@ -1445,6 +1676,16 @@ var sendPaymentCommand = cli.Command{
 			Name:  "amt, a",
 			Usage: "number of satoshis to send",
 		},
+		cli.Int64Flag{
+			Name: "fee_limit",
+			Usage: "maximum fee allowed in satoshis when sending" +
+				"the payment",
+		},
+		cli.Int64Flag{
+			Name: "fee_limit_percent",
+			Usage: "percentage of the payment's amount used as the" +
+				"maximum fee allowed when sending the payment",
+		},
 		cli.StringFlag{
 			Name:  "payment_hash, r",
 			Usage: "the hash to use within the payment's HTLC",
@@ -1465,6 +1706,32 @@ var sendPaymentCommand = cli.Command{
 	Action: sendPayment,
 }
 
+// retrieveFeeLimit retrieves the fee limit based on the different fee limit
+// flags passed.
+func retrieveFeeLimit(ctx *cli.Context) (*lnrpc.FeeLimit, error) {
+	switch {
+	case ctx.IsSet("fee_limit") && ctx.IsSet("fee_limit_percent"):
+		return nil, fmt.Errorf("either fee_limit or fee_limit_percent " +
+			"can be set, but not both")
+	case ctx.IsSet("fee_limit"):
+		return &lnrpc.FeeLimit{
+			Limit: &lnrpc.FeeLimit_Fixed{
+				Fixed: ctx.Int64("fee_limit"),
+			},
+		}, nil
+	case ctx.IsSet("fee_limit_percent"):
+		return &lnrpc.FeeLimit{
+			Limit: &lnrpc.FeeLimit_Percent{
+				Percent: ctx.Int64("fee_limit_percent"),
+			},
+		}, nil
+	}
+
+	// Since the fee limit flags aren't required, we don't return an error
+	// if they're not set.
+	return nil, nil
+}
+
 func sendPayment(ctx *cli.Context) error {
 	// Show command help if no arguments provided
 	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
@@ -1472,87 +1739,99 @@ func sendPayment(ctx *cli.Context) error {
 		return nil
 	}
 
-	var req *lnrpc.SendRequest
+	// First, we'll retrieve the fee limit value passed since it can apply
+	// to both ways of sending payments (with the payment request or
+	// providing the details manually).
+	feeLimit, err := retrieveFeeLimit(ctx)
+	if err != nil {
+		return err
+	}
+
+	// If a payment request was provided, we can exit early since all of the
+	// details of the payment are encoded within the request.
 	if ctx.IsSet("pay_req") {
-		req = &lnrpc.SendRequest{
+		req := &lnrpc.SendRequest{
 			PaymentRequest: ctx.String("pay_req"),
 			Amt:            ctx.Int64("amt"),
+			FeeLimit:       feeLimit,
 		}
-	} else {
-		args := ctx.Args()
 
-		var (
-			destNode []byte
-			err      error
-			amount   int64
-		)
+		return sendPaymentRequest(ctx, req)
+	}
+
+	var (
+		destNode []byte
+		amount   int64
+	)
+
+	args := ctx.Args()
+
+	switch {
+	case ctx.IsSet("dest"):
+		destNode, err = hex.DecodeString(ctx.String("dest"))
+	case args.Present():
+		destNode, err = hex.DecodeString(args.First())
+		args = args.Tail()
+	default:
+		return fmt.Errorf("destination txid argument missing")
+	}
+	if err != nil {
+		return err
+	}
+
+	if len(destNode) != 33 {
+		return fmt.Errorf("dest node pubkey must be exactly 33 bytes, is "+
+			"instead: %v", len(destNode))
+	}
+
+	if ctx.IsSet("amt") {
+		amount = ctx.Int64("amt")
+	} else if args.Present() {
+		amount, err = strconv.ParseInt(args.First(), 10, 64)
+		args = args.Tail()
+		if err != nil {
+			return fmt.Errorf("unable to decode payment amount: %v", err)
+		}
+	}
+
+	req := &lnrpc.SendRequest{
+		Dest:     destNode,
+		Amt:      amount,
+		FeeLimit: feeLimit,
+	}
+
+	if ctx.Bool("debug_send") && (ctx.IsSet("payment_hash") || args.Present()) {
+		return fmt.Errorf("do not provide a payment hash with debug send")
+	} else if !ctx.Bool("debug_send") {
+		var rHash []byte
 
 		switch {
-		case ctx.IsSet("dest"):
-			destNode, err = hex.DecodeString(ctx.String("dest"))
+		case ctx.IsSet("payment_hash"):
+			rHash, err = hex.DecodeString(ctx.String("payment_hash"))
 		case args.Present():
-			destNode, err = hex.DecodeString(args.First())
-			args = args.Tail()
+			rHash, err = hex.DecodeString(args.First())
 		default:
-			return fmt.Errorf("destination txid argument missing")
+			return fmt.Errorf("payment hash argument missing")
 		}
+
 		if err != nil {
 			return err
 		}
-
-		if len(destNode) != 33 {
-			return fmt.Errorf("dest node pubkey must be exactly 33 bytes, is "+
-				"instead: %v", len(destNode))
+		if len(rHash) != 32 {
+			return fmt.Errorf("payment hash must be exactly 32 "+
+				"bytes, is instead %v", len(rHash))
 		}
+		req.PaymentHash = rHash
 
-		if ctx.IsSet("amt") {
-			amount = ctx.Int64("amt")
-		} else if args.Present() {
-			amount, err = strconv.ParseInt(args.First(), 10, 64)
-			args = args.Tail()
-			if err != nil {
-				return fmt.Errorf("unable to decode payment amount: %v", err)
-			}
-		}
-
-		req = &lnrpc.SendRequest{
-			Dest: destNode,
-			Amt:  amount,
-		}
-
-		if ctx.Bool("debug_send") && (ctx.IsSet("payment_hash") || args.Present()) {
-			return fmt.Errorf("do not provide a payment hash with debug send")
-		} else if !ctx.Bool("debug_send") {
-			var rHash []byte
-
-			switch {
-			case ctx.IsSet("payment_hash"):
-				rHash, err = hex.DecodeString(ctx.String("payment_hash"))
-			case args.Present():
-				rHash, err = hex.DecodeString(args.First())
-			default:
-				return fmt.Errorf("payment hash argument missing")
-			}
-
+		switch {
+		case ctx.IsSet("final_cltv_delta"):
+			req.FinalCltvDelta = int32(ctx.Int64("final_cltv_delta"))
+		case args.Present():
+			delta, err := strconv.ParseInt(args.First(), 10, 64)
 			if err != nil {
 				return err
 			}
-			if len(rHash) != 32 {
-				return fmt.Errorf("payment hash must be exactly 32 "+
-					"bytes, is instead %v", len(rHash))
-			}
-			req.PaymentHash = rHash
-
-			switch {
-			case ctx.IsSet("final_cltv_delta"):
-				req.FinalCltvDelta = int32(ctx.Int64("final_cltv_delta"))
-			case args.Present():
-				delta, err := strconv.ParseInt(args.First(), 10, 64)
-				if err != nil {
-					return err
-				}
-				req.FinalCltvDelta = int32(delta)
-			}
+			req.FinalCltvDelta = int32(delta)
 		}
 	}
 
@@ -1594,7 +1873,8 @@ func sendPaymentRequest(ctx *cli.Context, req *lnrpc.SendRequest) error {
 
 var payInvoiceCommand = cli.Command{
 	Name:      "payinvoice",
-	Usage:     "Pay an invoice over lightning",
+	Category:  "Payments",
+	Usage:     "Pay an invoice over lightning.",
 	ArgsUsage: "pay_req",
 	Flags: []cli.Flag{
 		cli.StringFlag{
@@ -1606,6 +1886,16 @@ var payInvoiceCommand = cli.Command{
 			Usage: "(optional) number of satoshis to fulfill the " +
 				"invoice",
 		},
+		cli.Int64Flag{
+			Name: "fee_limit",
+			Usage: "maximum fee allowed in satoshis when sending " +
+				"the payment",
+		},
+		cli.Int64Flag{
+			Name: "fee_limit_percent",
+			Usage: "percentage of the payment's amount used as the" +
+				"maximum fee allowed when sending the payment",
+		},
 	},
 	Action: actionDecorator(payInvoice),
 }
@@ -1614,7 +1904,6 @@ func payInvoice(ctx *cli.Context) error {
 	args := ctx.Args()
 
 	var payReq string
-
 	switch {
 	case ctx.IsSet("pay_req"):
 		payReq = ctx.String("pay_req")
@@ -1624,17 +1913,168 @@ func payInvoice(ctx *cli.Context) error {
 		return fmt.Errorf("pay_req argument missing")
 	}
 
+	feeLimit, err := retrieveFeeLimit(ctx)
+	if err != nil {
+		return err
+	}
+
 	req := &lnrpc.SendRequest{
 		PaymentRequest: payReq,
 		Amt:            ctx.Int64("amt"),
+		FeeLimit:       feeLimit,
 	}
 
 	return sendPaymentRequest(ctx, req)
 }
 
+var sendToRouteCommand = cli.Command{
+	Name:  "sendtoroute",
+	Usage: "send a payment over a predefined route",
+	Description: `
+	Send a payment over Lightning using a specific route. One must specify
+	a list of routes to attempt and the payment hash. This command can even
+	be chained with the response to queryroutes. This command can be used
+	to implement channel rebalancing by crafting a self-route, or even
+	atomic swaps using a self-route that crosses multiple chains.
+
+	There are three ways to specify routes:
+	   * using the --routes parameter to manually specify a JSON encoded
+	     set of routes in the format of the return value of queryroutes:
+	         (lncli sendtoroute --payment_hash=<pay_hash> --routes=<route>)
+
+	   * passing the routes as a positional argument:
+	         (lncli sendtoroute --payment_hash=pay_hash <route>)
+
+	   * or reading in the routes from stdin, which can allow chaining the
+	     response from queryroutes, or even read in a file with a set of
+	     pre-computed routes:
+	         (lncli queryroutes --args.. | lncli sendtoroute --payment_hash= -
+
+	     notice the '-' at the end, which signals that lncli should read
+	     the route in from stdin
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "payment_hash, pay_hash",
+			Usage: "the hash to use within the payment's HTLC",
+		},
+		cli.StringFlag{
+			Name: "routes, r",
+			Usage: "a json array string in the format of the response " +
+				"of queryroutes that denotes which routes to use",
+		},
+	},
+	Action: sendToRoute,
+}
+
+func sendToRoute(ctx *cli.Context) error {
+	// Show command help if no arguments provided.
+	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
+		cli.ShowCommandHelp(ctx, "sendtoroute")
+		return nil
+	}
+
+	args := ctx.Args()
+
+	var (
+		rHash []byte
+		err   error
+	)
+	switch {
+	case ctx.IsSet("payment_hash"):
+		rHash, err = hex.DecodeString(ctx.String("payment_hash"))
+	case args.Present():
+		rHash, err = hex.DecodeString(args.First())
+
+		args = args.Tail()
+	default:
+		return fmt.Errorf("payment hash argument missing")
+	}
+
+	if err != nil {
+		return err
+	}
+
+	if len(rHash) != 32 {
+		return fmt.Errorf("payment hash must be exactly 32 "+
+			"bytes, is instead %d", len(rHash))
+	}
+
+	var jsonRoutes string
+	switch {
+	// The user is specifying the routes explicitly via the key word
+	// argument.
+	case ctx.IsSet("routes"):
+		jsonRoutes = ctx.String("routes")
+
+	// The user is specifying the routes as a positional argument.
+	case args.Present() && args.First() != "-":
+		jsonRoutes = args.First()
+
+	// The user is signalling that we should read stdin in order to parse
+	// the set of target routes.
+	case args.Present() && args.First() == "-":
+		b, err := ioutil.ReadAll(os.Stdin)
+		if err != nil {
+			return err
+		}
+		if len(b) == 0 {
+			return fmt.Errorf("queryroutes output is empty")
+		}
+
+		jsonRoutes = string(b)
+	}
+
+	routes := &lnrpc.QueryRoutesResponse{}
+	err = jsonpb.UnmarshalString(jsonRoutes, routes)
+	if err != nil {
+		return fmt.Errorf("unable to unmarshal json string "+
+			"from incoming array of routes: %v", err)
+	}
+
+	req := &lnrpc.SendToRouteRequest{
+		PaymentHash: rHash,
+		Routes:      routes.Routes,
+	}
+
+	return sendToRouteRequest(ctx, req)
+}
+
+func sendToRouteRequest(ctx *cli.Context, req *lnrpc.SendToRouteRequest) error {
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	paymentStream, err := client.SendToRoute(context.Background())
+	if err != nil {
+		return err
+	}
+
+	if err := paymentStream.Send(req); err != nil {
+		return err
+	}
+
+	resp, err := paymentStream.Recv()
+	if err != nil {
+		return err
+	}
+
+	printJSON(struct {
+		E string       `json:"payment_error"`
+		P string       `json:"payment_preimage"`
+		R *lnrpc.Route `json:"payment_route"`
+	}{
+		E: resp.PaymentError,
+		P: hex.EncodeToString(resp.PaymentPreimage),
+		R: resp.PaymentRoute,
+	})
+
+	return nil
+}
+
 var addInvoiceCommand = cli.Command{
-	Name:  "addinvoice",
-	Usage: "Add a new invoice.",
+	Name:     "addinvoice",
+	Category: "Payments",
+	Usage:    "Add a new invoice.",
 	Description: `
 	Add a new invoice, expressing intent for a future payment.
 
@@ -1681,6 +2121,12 @@ var addInvoiceCommand = cli.Command{
 			Usage: "the invoice's expiry time in seconds. If not " +
 				"specified an expiry of 3600 seconds (1 hour) " +
 				"is implied.",
+		},
+		cli.BoolTFlag{
+			Name: "private",
+			Usage: "encode routing hints in the invoice with " +
+				"private channels in order to assist the " +
+				"payer in reaching you",
 		},
 	},
 	Action: actionDecorator(addInvoice),
@@ -1740,6 +2186,7 @@ func addInvoice(ctx *cli.Context) error {
 		DescriptionHash: descHash,
 		FallbackAddr:    ctx.String("fallback_addr"),
 		Expiry:          ctx.Int64("expiry"),
+		Private:         ctx.Bool("private"),
 	}
 
 	resp, err := client.AddInvoice(context.Background(), invoice)
@@ -1748,11 +2195,13 @@ func addInvoice(ctx *cli.Context) error {
 	}
 
 	printJSON(struct {
-		RHash  string `json:"r_hash"`
-		PayReq string `json:"pay_req"`
+		RHash    string `json:"r_hash"`
+		PayReq   string `json:"pay_req"`
+		AddIndex uint64 `json:"add_index"`
 	}{
-		RHash:  hex.EncodeToString(resp.RHash),
-		PayReq: resp.PaymentRequest,
+		RHash:    hex.EncodeToString(resp.RHash),
+		PayReq:   resp.PaymentRequest,
+		AddIndex: resp.AddIndex,
 	})
 
 	return nil
@@ -1760,6 +2209,7 @@ func addInvoice(ctx *cli.Context) error {
 
 var lookupInvoiceCommand = cli.Command{
 	Name:      "lookupinvoice",
+	Category:  "Payments",
 	Usage:     "Lookup an existing invoice by its payment hash.",
 	ArgsUsage: "rhash",
 	Flags: []cli.Flag{
@@ -1809,8 +2259,9 @@ func lookupInvoice(ctx *cli.Context) error {
 }
 
 var listInvoicesCommand = cli.Command{
-	Name:  "listinvoices",
-	Usage: "List all invoices currently stored.",
+	Name:     "listinvoices",
+	Category: "Payments",
+	Usage:    "List all invoices currently stored.",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name: "pending_only",
@@ -1845,10 +2296,11 @@ func listInvoices(ctx *cli.Context) error {
 }
 
 var describeGraphCommand = cli.Command{
-	Name: "describegraph",
+	Name:     "describegraph",
+	Category: "Peers",
 	Description: "Prints a human readable version of the known channel " +
 		"graph from the PoV of the node",
-	Usage: "Describe the network graph",
+	Usage: "Describe the network graph.",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name:  "render",
@@ -1880,7 +2332,7 @@ func describeGraph(ctx *cli.Context) error {
 }
 
 // normalizeFunc is a factory function which returns a function that normalizes
-// the capacity of of edges within the graph. The value of the returned
+// the capacity of edges within the graph. The value of the returned
 // function can be used to either plot the capacities, or to use a weight in a
 // rendering of the graph.
 func normalizeFunc(edges []*lnrpc.ChannelEdge, scaleFactor float64) func(int64) float64 {
@@ -2040,9 +2492,10 @@ func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
 }
 
 var listPaymentsCommand = cli.Command{
-	Name:   "listpayments",
-	Usage:  "List all outgoing payments",
-	Action: actionDecorator(listPayments),
+	Name:     "listpayments",
+	Category: "Payments",
+	Usage:    "List all outgoing payments.",
+	Action:   actionDecorator(listPayments),
 }
 
 func listPayments(ctx *cli.Context) error {
@@ -2061,8 +2514,9 @@ func listPayments(ctx *cli.Context) error {
 }
 
 var getChanInfoCommand = cli.Command{
-	Name:  "getchaninfo",
-	Usage: "Get the state of a channel",
+	Name:     "getchaninfo",
+	Category: "Channels",
+	Usage:    "Get the state of a channel.",
 	Description: "Prints out the latest authenticated state for a " +
 		"particular channel",
 	ArgsUsage: "chan_id",
@@ -2108,8 +2562,9 @@ func getChanInfo(ctx *cli.Context) error {
 }
 
 var getNodeInfoCommand = cli.Command{
-	Name:  "getnodeinfo",
-	Usage: "Get information on a specific node.",
+	Name:     "getnodeinfo",
+	Category: "Peers",
+	Usage:    "Get information on a specific node.",
 	Description: "Prints out the latest authenticated node state for an " +
 		"advertised node",
 	Flags: []cli.Flag{
@@ -2154,6 +2609,7 @@ func getNodeInfo(ctx *cli.Context) error {
 
 var queryRoutesCommand = cli.Command{
 	Name:        "queryroutes",
+	Category:    "Payments",
 	Usage:       "Query a route to a destination.",
 	Description: "Queries the channel router for a potential path to the destination that has sufficient flow for the amount including fees",
 	ArgsUsage:   "dest amt",
@@ -2168,9 +2624,24 @@ var queryRoutesCommand = cli.Command{
 			Usage: "the amount to send expressed in satoshis",
 		},
 		cli.Int64Flag{
+			Name: "fee_limit",
+			Usage: "maximum fee allowed in satoshis when sending" +
+				"the payment",
+		},
+		cli.Int64Flag{
+			Name: "fee_limit_percent",
+			Usage: "percentage of the payment's amount used as the" +
+				"maximum fee allowed when sending the payment",
+		},
+		cli.Int64Flag{
 			Name:  "num_max_routes",
 			Usage: "the max number of routes to be returned (default: 10)",
 			Value: 10,
+		},
+		cli.Int64Flag{
+			Name: "final_cltv_delta",
+			Usage: "(optional) number of blocks the last hop has to reveal " +
+				"the preimage",
 		},
 	},
 	Action: actionDecorator(queryRoutes),
@@ -2211,10 +2682,17 @@ func queryRoutes(ctx *cli.Context) error {
 		return fmt.Errorf("amt argument missing")
 	}
 
+	feeLimit, err := retrieveFeeLimit(ctx)
+	if err != nil {
+		return err
+	}
+
 	req := &lnrpc.QueryRoutesRequest{
-		PubKey:    dest,
-		Amt:       amt,
-		NumRoutes: int32(ctx.Int("num_max_routes")),
+		PubKey:         dest,
+		Amt:            amt,
+		FeeLimit:       feeLimit,
+		NumRoutes:      int32(ctx.Int("num_max_routes")),
+		FinalCltvDelta: int32(ctx.Int("final_cltv_delta")),
 	}
 
 	route, err := client.QueryRoutes(ctxb, req)
@@ -2227,10 +2705,12 @@ func queryRoutes(ctx *cli.Context) error {
 }
 
 var getNetworkInfoCommand = cli.Command{
-	Name:  "getnetworkinfo",
-	Usage: "Getnetworkinfo",
-	Description: "Returns a set of statistics pertaining to the known channel " +
-		"graph",
+	Name:     "getnetworkinfo",
+	Category: "Channels",
+	Usage: "Get statistical information about the current " +
+		"state of the network.",
+	Description: "Returns a set of statistics pertaining to the known " +
+		"channel graph",
 	Action: actionDecorator(getNetworkInfo),
 }
 
@@ -2253,7 +2733,7 @@ func getNetworkInfo(ctx *cli.Context) error {
 var debugLevelCommand = cli.Command{
 	Name:  "debuglevel",
 	Usage: "Set the debug level.",
-	Description: `Logging level for all subsystems {trace, debug, info, warn, error, critical}
+	Description: `Logging level for all subsystems {trace, debug, info, warn, error, critical, off}
 	You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems
 	
 	Use show to list available subsystems`,
@@ -2290,6 +2770,7 @@ func debugLevel(ctx *cli.Context) error {
 
 var decodePayReqCommand = cli.Command{
 	Name:        "decodepayreq",
+	Category:    "Payments",
 	Usage:       "Decode a payment request.",
 	Description: "Decode the passed payment request revealing the destination, payment hash and value of the payment request",
 	ArgsUsage:   "pay_req",
@@ -2331,6 +2812,7 @@ func decodePayReq(ctx *cli.Context) error {
 
 var listChainTxnsCommand = cli.Command{
 	Name:        "listchaintxns",
+	Category:    "On-chain",
 	Usage:       "List transactions from the wallet.",
 	Description: "List all transactions an address of the wallet was involved in.",
 	Action:      actionDecorator(listChainTxns),
@@ -2375,7 +2857,8 @@ func stopDaemon(ctx *cli.Context) error {
 
 var signMessageCommand = cli.Command{
 	Name:      "signmessage",
-	Usage:     "Sign a message with the node's private key",
+	Category:  "Wallet",
+	Usage:     "Sign a message with the node's private key.",
 	ArgsUsage: "msg",
 	Description: `
 	Sign msg with the resident node's private key. 
@@ -2418,7 +2901,8 @@ func signMessage(ctx *cli.Context) error {
 
 var verifyMessageCommand = cli.Command{
 	Name:      "verifymessage",
-	Usage:     "Verify a message signed with the signature",
+	Category:  "Wallet",
+	Usage:     "Verify a message signed with the signature.",
 	ArgsUsage: "msg signature",
 	Description: `
 	Verify that the message was signed with a properly-formed signature
@@ -2481,8 +2965,9 @@ func verifyMessage(ctx *cli.Context) error {
 }
 
 var feeReportCommand = cli.Command{
-	Name:  "feereport",
-	Usage: "Display the current fee policies of all active channels",
+	Name:     "feereport",
+	Category: "Channels",
+	Usage:    "Display the current fee policies of all active channels.",
 	Description: ` 
 	Returns the current fee policies of all active channels.
 	Fee policies can be updated using the updatechanpolicy command.`,
@@ -2505,8 +2990,10 @@ func feeReport(ctx *cli.Context) error {
 }
 
 var updateChannelPolicyCommand = cli.Command{
-	Name:      "updatechanpolicy",
-	Usage:     "Update the channel policy for all channels, or a single channel",
+	Name:     "updatechanpolicy",
+	Category: "Channels",
+	Usage: "Update the channel policy for all channels, or a single " +
+		"channel.",
 	ArgsUsage: "base_fee_msat fee_rate time_lock_delta [channel_point]",
 	Description: `
 	Updates the channel policy for all channels, or just a particular channel
@@ -2655,10 +3142,11 @@ func updateChannelPolicy(ctx *cli.Context) error {
 
 var forwardingHistoryCommand = cli.Command{
 	Name:      "fwdinghistory",
-	Usage:     "Query the history of all forwarded htlcs",
+	Category:  "Payments",
+	Usage:     "Query the history of all forwarded HTLCs.",
 	ArgsUsage: "start_time [end_time] [index_offset] [max_events]",
 	Description: `
-	Query the htlc switch's internal forwarding log for all completed
+	Query the HTLC switch's internal forwarding log for all completed
 	payment circuits (HTLCs) over a particular time range (--start_time and
 	--end_time). The start and end times are meant to be expressed in
 	seconds since the Unix epoch. If a start and end time aren't provided,

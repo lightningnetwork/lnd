@@ -27,6 +27,10 @@
   revision = "f2862b476edcef83412c7af8687c9cd8e4097c0f"
 
 [[constraint]]
+  name = "github.com/jackpal/go-nat-pmp"
+  revision = "28a68d0c24adce1da43f8df6a57340909ecd7fdd"
+
+[[constraint]]
   name = "github.com/jessevdk/go-flags"
   revision = "f88afde2fa19a30cf50ba4b05b3d13bc6bae3079"
 
@@ -40,11 +44,11 @@
 
 [[constraint]]
   name = "github.com/lightninglabs/neutrino"
-  revision = "601b7eda6e5c9e8ca91c097f0bb7be2664802ab3"
+  revision = "d5054cea8fe43c324a473e8aa7e0f6dd93622125"
 
 [[constraint]]
   name = "github.com/lightningnetwork/lightning-onion"
-  revision = "6d4b1353e2835def84ee240f40499464521c6046"
+  revision = "ac4d9da8f1d67c95f1fafdc65e1a4902d6f5a940"
 
 [[constraint]]
   name = "github.com/ltcsuite/ltcd"
@@ -55,16 +59,20 @@
   revision = "79bfde677fa81ff8d27c4330c35bda075d360641"
 
 [[constraint]]
-  name = "github.com/roasbeef/btcutil"
-  revision = "c3ff179366044979fb9856c2feb79bd4c2184c7a"
+  name = "github.com/NebulousLabs/go-upnp"
+  revision = "29b680b06c82d044ebea91bf3069038eb562df2a"
 
 [[constraint]]
-  name = "github.com/roasbeef/btcd"
-  revision = "e6807bc4dd5ddbb95b4ab163f6dd61e4ad79463a"
+  name = "github.com/btcsuite/btcutil"
+  revision = "ab6388e0c60ae4834a1f57511e20c17b5f78be4b"
 
 [[constraint]]
-  name = "github.com/roasbeef/btcwallet"
-  revision = "45445d1b09670109410174cb01fab0b133e3a904"
+  name = "github.com/btcsuite/btcd"
+  revision = "9a2f9524024889e129a5422aca2cff73cb3eabf6"
+
+[[constraint]]
+  name = "github.com/btcsuite/btcwallet"
+  revision = "a4d9da433fcfaeec50d3e9657e6d511d14cddadf"
 
 [[constraint]]
   name = "github.com/tv42/zbase32"

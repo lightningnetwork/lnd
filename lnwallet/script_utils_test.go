@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 // TestCommitmentSpendValidation test the spendability of both outputs within
@@ -90,7 +90,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 
 	// We're testing an uncooperative close, output sweep, so construct a
 	// transaction which sweeps the funds to a random address.
-	targetOutput, err := commitScriptUnencumbered(aliceKeyPub)
+	targetOutput, err := CommitScriptUnencumbered(aliceKeyPub)
 	if err != nil {
 		t.Fatalf("unable to create target output: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	})
 
 	// First, we'll test spending with Alice's key after the timeout.
-	delayScript, err := commitScriptToSelf(csvTimeout, aliceDelayKey,
+	delayScript, err := CommitScriptToSelf(csvTimeout, aliceDelayKey,
 		revokePubKey)
 	if err != nil {
 		t.Fatalf("unable to generate alice delay script: %v", err)
@@ -175,7 +175,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	}
 
 	// In order to test the final scenario, we modify the TxIn of the sweep
-	// transaction to instead point to to the regular output (non delay)
+	// transaction to instead point to the regular output (non delay)
 	// within the commitment transaction.
 	sweepTx.TxIn[0] = &wire.TxIn{
 		PreviousOutPoint: wire.OutPoint{
@@ -186,7 +186,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 
 	// Finally, we test bob sweeping his output as normal in the case that
 	// Alice broadcasts this commitment transaction.
-	bobScriptP2WKH, err := commitScriptUnencumbered(bobPayKey)
+	bobScriptP2WKH, err := CommitScriptUnencumbered(bobPayKey)
 	if err != nil {
 		t.Fatalf("unable to create bob p2wkh script: %v", err)
 	}
@@ -357,7 +357,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create htlc sender script: %v", err)
 	}
-	htlcPkScript, err := witnessScriptHash(htlcWitnessScript)
+	htlcPkScript, err := WitnessScriptHash(htlcWitnessScript)
 	if err != nil {
 		t.Fatalf("unable to create p2wsh htlc script: %v", err)
 	}
@@ -612,7 +612,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create htlc sender script: %v", err)
 	}
-	htlcPkScript, err := witnessScriptHash(htlcWitnessScript)
+	htlcPkScript, err := WitnessScriptHash(htlcWitnessScript)
 	if err != nil {
 		t.Fatalf("unable to create p2wsh htlc script: %v", err)
 	}
@@ -885,7 +885,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create htlc script: %v", err)
 	}
-	htlcPkScript, err := witnessScriptHash(htlcWitnessScript)
+	htlcPkScript, err := WitnessScriptHash(htlcWitnessScript)
 	if err != nil {
 		t.Fatalf("unable to create htlc output: %v", err)
 	}

@@ -8,21 +8,21 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/roasbeef/btcd/btcjson"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/rpcclient"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
-	"github.com/roasbeef/btcwallet/chain"
-	"github.com/roasbeef/btcwallet/wtxmgr"
+	"github.com/btcsuite/btcd/btcjson"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/chain"
+	"github.com/btcsuite/btcwallet/wtxmgr"
+	"github.com/lightningnetwork/lnd/channeldb"
 )
 
 // BitcoindFilteredChainView is an implementation of the FilteredChainView
 // interface which is backed by bitcoind.
 type BitcoindFilteredChainView struct {
-	started int32
-	stopped int32
+	started int32 // To be used atomically.
+	stopped int32 // To be used atomically.
 
 	// bestHeight is the height of the latest block added to the
 	// blockQueue from the onFilteredConnectedMethod. It is used to
@@ -66,6 +66,7 @@ var _ FilteredChainView = (*BitcoindFilteredChainView)(nil)
 func NewBitcoindFilteredChainView(config rpcclient.ConnConfig,
 	zmqConnect string, params chaincfg.Params) (*BitcoindFilteredChainView,
 	error) {
+
 	chainView := &BitcoindFilteredChainView{
 		chainFilter:     make(map[wire.OutPoint]struct{}),
 		filterUpdates:   make(chan filterUpdate),
@@ -154,6 +155,7 @@ func (b *BitcoindFilteredChainView) onFilteredBlockConnected(height int32,
 	hash chainhash.Hash, txns []*wtxmgr.TxRecord) {
 
 	mtxs := make([]*wire.MsgTx, len(txns))
+	b.filterMtx.Lock()
 	for i, tx := range txns {
 		mtxs[i] = &tx.MsgTx
 
@@ -164,12 +166,11 @@ func (b *BitcoindFilteredChainView) onFilteredBlockConnected(height int32,
 			// that's okay since it would never be wise to consider
 			// the channel open again (since a spending transaction
 			// exists on the network).
-			b.filterMtx.Lock()
 			delete(b.chainFilter, txIn.PreviousOutPoint)
-			b.filterMtx.Unlock()
 		}
 
 	}
+	b.filterMtx.Unlock()
 
 	// We record the height of the last connected block added to the
 	// blockQueue such that we can scan up to this height in case of
@@ -246,19 +247,29 @@ func (b *BitcoindFilteredChainView) chainFilterer() {
 	// watched. Additionally, the chain filter will also be updated by
 	// removing any spent outputs.
 	filterBlock := func(blk *wire.MsgBlock) []*wire.MsgTx {
+		b.filterMtx.Lock()
+		defer b.filterMtx.Unlock()
+
 		var filteredTxns []*wire.MsgTx
 		for _, tx := range blk.Transactions {
+			var txAlreadyFiltered bool
 			for _, txIn := range tx.TxIn {
 				prevOp := txIn.PreviousOutPoint
-				if _, ok := b.chainFilter[prevOp]; ok {
-					filteredTxns = append(filteredTxns, tx)
-
-					b.filterMtx.Lock()
-					delete(b.chainFilter, prevOp)
-					b.filterMtx.Unlock()
-
-					break
+				if _, ok := b.chainFilter[prevOp]; !ok {
+					continue
 				}
+
+				delete(b.chainFilter, prevOp)
+
+				// Only add this txn to our list of filtered
+				// txns if it is the first previous outpoint to
+				// cause a match.
+				if txAlreadyFiltered {
+					continue
+				}
+
+				filteredTxns = append(filteredTxns, tx)
+				txAlreadyFiltered = true
 			}
 		}
 
@@ -298,24 +309,25 @@ func (b *BitcoindFilteredChainView) chainFilterer() {
 		// filter, so we'll apply the update, possibly rewinding our
 		// state partially.
 		case update := <-b.filterUpdates:
-
 			// First, we'll add all the new UTXO's to the set of
 			// watched UTXO's, eliminating any duplicates in the
 			// process.
 			log.Debugf("Updating chain filter with new UTXO's: %v",
 				update.newUtxos)
+
+			b.filterMtx.Lock()
 			for _, newOp := range update.newUtxos {
-				b.filterMtx.Lock()
 				b.chainFilter[newOp] = struct{}{}
-				b.filterMtx.Unlock()
 			}
+			b.filterMtx.Unlock()
 
 			// Apply the new TX filter to the chain client, which
 			// will cause all following notifications from and
 			// calls to it return blocks filtered with the new
 			// filter.
-			b.chainClient.LoadTxFilter(false, []btcutil.Address{},
-				update.newUtxos)
+			b.chainClient.LoadTxFilter(
+				false, update.newUtxos,
+			)
 
 			// All blocks gotten after we loaded the filter will
 			// have the filter applied, but we will need to rescan
@@ -351,7 +363,8 @@ func (b *BitcoindFilteredChainView) chainFilterer() {
 				// block at a time, skipping blocks that might
 				// have gone missing.
 				rescanned, err := b.chainClient.RescanBlocks(
-					[]chainhash.Hash{*blockHash})
+					[]chainhash.Hash{*blockHash},
+				)
 				if err != nil {
 					log.Warnf("Unable to rescan block "+
 						"with hash %v at height %d: %v",
@@ -368,7 +381,8 @@ func (b *BitcoindFilteredChainView) chainFilterer() {
 					continue
 				}
 				decoded, err := decodeJSONBlock(
-					&rescanned[0], i)
+					&rescanned[0], i,
+				)
 				if err != nil {
 					log.Errorf("Unable to decode block: %v",
 						err)
@@ -410,9 +424,12 @@ func (b *BitcoindFilteredChainView) chainFilterer() {
 		// We've received a new event from the chain client.
 		case event := <-b.chainClient.Notifications():
 			switch e := event.(type) {
+
 			case chain.FilteredBlockConnected:
-				b.onFilteredBlockConnected(e.Block.Height,
-					e.Block.Hash, e.RelevantTxs)
+				b.onFilteredBlockConnected(
+					e.Block.Height, e.Block.Hash, e.RelevantTxs,
+				)
+
 			case chain.BlockDisconnected:
 				b.onFilteredBlockDisconnected(e.Height, e.Hash)
 			}
@@ -431,11 +448,18 @@ func (b *BitcoindFilteredChainView) chainFilterer() {
 // rewound to ensure all relevant notifications are dispatched.
 //
 // NOTE: This is part of the FilteredChainView interface.
-func (b *BitcoindFilteredChainView) UpdateFilter(ops []wire.OutPoint, updateHeight uint32) error {
+func (b *BitcoindFilteredChainView) UpdateFilter(ops []channeldb.EdgePoint,
+	updateHeight uint32) error {
+
+	newUtxos := make([]wire.OutPoint, len(ops))
+	for i, op := range ops {
+		newUtxos[i] = op.OutPoint
+	}
+
 	select {
 
 	case b.filterUpdates <- filterUpdate{
-		newUtxos:     ops,
+		newUtxos:     newUtxos,
 		updateHeight: updateHeight,
 	}:
 		return nil

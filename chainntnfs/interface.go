@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 )
 
 // ChainNotifier represents a trusted source to receive notifications concerning
@@ -20,35 +20,40 @@ import (
 // resource
 type ChainNotifier interface {
 	// RegisterConfirmationsNtfn registers an intent to be notified once
-	// txid reaches numConfs confirmations. The returned ConfirmationEvent
-	// should properly notify the client once the specified number of
-	// confirmations has been reached for the txid, as well as if the
-	// original tx gets re-org'd out of the mainchain.  The heightHint
-	// parameter is provided as a convenience to light clients. The
-	// heightHint denotes the earliest height in the blockchain in which the
-	// target txid _could_ have been included in the chain.  This can be
-	// used to bound the search space when checking to see if a
-	// notification can immediately be dispatched due to historical data.
+	// txid reaches numConfs confirmations. We also pass in the pkScript as
+	// the default light client instead needs to match on scripts created
+	// in the block. The returned ConfirmationEvent should properly notify
+	// the client once the specified number of confirmations has been
+	// reached for the txid, as well as if the original tx gets re-org'd
+	// out of the mainchain.  The heightHint parameter is provided as a
+	// convenience to light clients. The heightHint denotes the earliest
+	// height in the blockchain in which the target txid _could_ have been
+	// included in the chain.  This can be used to bound the search space
+	// when checking to see if a notification can immediately be dispatched
+	// due to historical data.
 	//
 	// NOTE: Dispatching notifications to multiple clients subscribed to
 	// the same (txid, numConfs) tuple MUST be supported.
-	RegisterConfirmationsNtfn(txid *chainhash.Hash, numConfs,
+	RegisterConfirmationsNtfn(txid *chainhash.Hash, pkScript []byte, numConfs,
 		heightHint uint32) (*ConfirmationEvent, error)
 
 	// RegisterSpendNtfn registers an intent to be notified once the target
-	// outpoint is successfully spent within a confirmed transaction. The
-	// returned SpendEvent will receive a send on the 'Spend' transaction
-	// once a transaction spending the input is detected on the blockchain.
-	// The heightHint parameter is provided as a convenience to light
-	// clients. The heightHint denotes the earliest height in the blockchain
-	// in which the target output could have been created.
+	// outpoint is successfully spent within a transaction. The script that
+	// the outpoint creates must also be specified. This allows this
+	// interface to be implemented by BIP 158-like filtering. The returned
+	// SpendEvent will receive a send on the 'Spend' transaction once a
+	// transaction spending the input is detected on the blockchain.  The
+	// heightHint parameter is provided as a convenience to light clients.
+	// The heightHint denotes the earliest height in the blockchain in
+	// which the target output could have been created.
 	//
-	// NOTE: This notifications should be triggered once the transaction is
-	// *seen* on the network, not when it has received a single confirmation.
+	// NOTE: The notification should only be triggered when the spending
+	// transaction receives a single confirmation.
 	//
 	// NOTE: Dispatching notifications to multiple clients subscribed to a
 	// spend of the same outpoint MUST be supported.
-	RegisterSpendNtfn(outpoint *wire.OutPoint, heightHint uint32) (*SpendEvent, error)
+	RegisterSpendNtfn(outpoint *wire.OutPoint, pkScript []byte,
+		heightHint uint32) (*SpendEvent, error)
 
 	// RegisterBlockEpochNtfn registers an intent to be notified of each
 	// new block connected to the tip of the main chain. The returned
@@ -85,8 +90,10 @@ type TxConfirmation struct {
 
 // ConfirmationEvent encapsulates a confirmation notification. With this struct,
 // callers can be notified of: the instance the target txid reaches the targeted
-// number of confirmations, and also in the event that the original txid becomes
-// disconnected from the blockchain as a result of a re-org.
+// number of confirmations, how many confirmations are left for the target txid
+// to be fully confirmed at every new block height, and also in the event that
+// the original txid becomes disconnected from the blockchain as a result of a
+// re-org.
 //
 // Once the txid reaches the specified number of confirmations, the 'Confirmed'
 // channel will be sent upon fulfilling the notification.
@@ -99,6 +106,11 @@ type ConfirmationEvent struct {
 	// has been fully confirmed. The struct sent will contain all the
 	// details of the channel's confirmation.
 	Confirmed chan *TxConfirmation // MUST be buffered.
+
+	// Updates is a channel that will sent upon, at every incremental
+	// confirmation, how many confirmations are left to declare the
+	// transaction as fully confirmed.
+	Updates chan uint32 // MUST be buffered.
 
 	// TODO(roasbeef): all goroutines on ln channel updates should also
 	// have a struct chan that's closed if funding gets re-org out. Need

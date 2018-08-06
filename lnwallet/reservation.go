@@ -4,12 +4,12 @@ import (
 	"net"
 	"sync"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 // ChannelContribution is the primary constituent of the funding workflow
@@ -276,16 +276,6 @@ func (r *ChannelReservation) SetNumConfsRequired(numConfs uint16) {
 	r.partialState.NumConfsRequired = numConfs
 }
 
-// RegisterMinHTLC registers our desired amount for the smallest acceptable
-// HTLC we'll accept within this channel. Any HTLC's that are extended which
-// are below this value will SHOULD be rejected.
-func (r *ChannelReservation) RegisterMinHTLC(minHTLC lnwire.MilliSatoshi) {
-	r.Lock()
-	defer r.Unlock()
-
-	r.ourContribution.MinHTLC = minHTLC
-}
-
 // CommitConstraints takes the constraints that the remote party specifies for
 // the type of commitments that we can generate for them. These constraints
 // include several parameters that serve as flow control restricting the amount
@@ -294,7 +284,7 @@ func (r *ChannelReservation) RegisterMinHTLC(minHTLC lnwire.MilliSatoshi) {
 // if the parameters are seemed unsound.
 func (r *ChannelReservation) CommitConstraints(csvDelay, maxHtlcs uint16,
 	maxValueInFlight, minHtlc lnwire.MilliSatoshi,
-	chanReserve btcutil.Amount) error {
+	chanReserve, dustLimit btcutil.Amount) error {
 
 	r.Lock()
 	defer r.Unlock()
@@ -304,6 +294,12 @@ func (r *ChannelReservation) CommitConstraints(csvDelay, maxHtlcs uint16,
 	const maxDelay = 10000
 	if csvDelay > maxDelay {
 		return ErrCsvDelayTooLarge(csvDelay, maxDelay)
+	}
+
+	// The dust limit should always be greater or equal to the channel
+	// reserve. The reservation request should be denied if otherwise.
+	if dustLimit > chanReserve {
+		return ErrChanReserveTooSmall(chanReserve, dustLimit)
 	}
 
 	// Fail if we consider the channel reserve to be too large.  We
@@ -339,6 +335,12 @@ func (r *ChannelReservation) CommitConstraints(csvDelay, maxHtlcs uint16,
 	if maxValueInFlight < minNumHtlc*minHtlc {
 		return ErrMaxValueInFlightTooSmall(maxValueInFlight,
 			minNumHtlc*minHtlc)
+	}
+
+	// Our dust limit should always be less than or equal our proposed
+	// channel reserve.
+	if r.ourContribution.DustLimit > chanReserve {
+		r.ourContribution.DustLimit = chanReserve
 	}
 
 	r.ourContribution.ChannelConfig.CsvDelay = csvDelay

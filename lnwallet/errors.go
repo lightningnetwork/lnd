@@ -4,9 +4,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcutil"
 )
 
 // ReservationError wraps certain errors returned during channel reservation
@@ -59,6 +59,15 @@ func ErrCsvDelayTooLarge(remoteDelay, maxDelay uint16) ReservationError {
 	}
 }
 
+// ErrChanReserveTooSmall returns an error indicating that the channel reserve
+// the remote is requiring is too small to be accepted.
+func ErrChanReserveTooSmall(reserve, dustLimit btcutil.Amount) ReservationError {
+	return ReservationError{
+		fmt.Errorf("channel reserve of %v sat is too small, min is %v "+
+			"sat", int64(reserve), int64(dustLimit)),
+	}
+}
+
 // ErrChanReserveTooLarge returns an error indicating that the chan reserve the
 // remote is requiring, is too large to be accepted.
 func ErrChanReserveTooLarge(reserve,
@@ -104,5 +113,15 @@ func ErrMaxValueInFlightTooSmall(maxValInFlight,
 	return ReservationError{
 		fmt.Errorf("maxValueInFlight too small: %v, min is %v",
 			maxValInFlight, minMaxValInFlight),
+	}
+}
+
+// ErrChanTooSmall returns an error indicating that an incoming channel request
+// was too small. We'll reject any incoming channels if they're below our
+// configured value for the min channel size we'll accept.
+func ErrChanTooSmall(chanSize, minChanSize btcutil.Amount) ReservationError {
+	return ReservationError{
+		fmt.Errorf("chan size of %v is below min chan size of %v",
+			chanSize, minChanSize),
 	}
 }

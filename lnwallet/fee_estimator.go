@@ -3,9 +3,9 @@ package lnwallet
 import (
 	"encoding/json"
 
-	"github.com/roasbeef/btcd/blockchain"
-	"github.com/roasbeef/btcd/rpcclient"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcutil"
 )
 
 // SatPerVByte represents a fee rate in satoshis per vbyte.
@@ -95,6 +95,12 @@ type BtcdFeeEstimator struct {
 	// actually produce fee estimates.
 	fallBackFeeRate SatPerVByte
 
+	// minFeeRate is the minimum relay fee, in sat/vbyte, of the backend
+	// node. This will be used as the default fee rate of a transaction when
+	// the estimated fee rate is too low to allow the transaction to
+	// propagate through the network.
+	minFeeRate SatPerVByte
+
 	btcdConn *rpcclient.Client
 }
 
@@ -127,6 +133,22 @@ func (b *BtcdFeeEstimator) Start() error {
 	if err := b.btcdConn.Connect(20); err != nil {
 		return err
 	}
+
+	// Once the connection to the backend node has been established, we'll
+	// query it for its minimum relay fee.
+	info, err := b.btcdConn.GetInfo()
+	if err != nil {
+		return err
+	}
+
+	relayFee, err := btcutil.NewAmount(info.RelayFee)
+	if err != nil {
+		return err
+	}
+
+	// The fee rate is expressed in sat/KB, so we'll manually convert it to
+	// our desired sat/vbyte rate.
+	b.minFeeRate = SatPerVByte(relayFee / 1000)
 
 	return nil
 }
@@ -163,7 +185,7 @@ func (b *BtcdFeeEstimator) EstimateFeePerVSize(numBlocks uint32) (SatPerVByte, e
 	return feeEstimate, nil
 }
 
-// fetchEstimate returns a fee estimate for a transaction be be confirmed in
+// fetchEstimate returns a fee estimate for a transaction to be confirmed in
 // confTarget blocks. The estimate is returned in sat/vbyte.
 func (b *BtcdFeeEstimator) fetchEstimatePerVSize(
 	confTarget uint32) (SatPerVByte, error) {
@@ -183,12 +205,20 @@ func (b *BtcdFeeEstimator) fetchEstimatePerVSize(
 	// The value returned is expressed in fees per KB, while we want
 	// fee-per-byte, so we'll divide by 1000 to map to satoshis-per-byte
 	// before returning the estimate.
-	satPerByte := satPerKB / 1000
+	satPerByte := SatPerVByte(satPerKB / 1000)
+
+	// Before proceeding, we'll make sure that this fee rate respects the
+	// minimum relay fee set on the backend node.
+	if satPerByte < b.minFeeRate {
+		walletLog.Debugf("Using backend node's minimum relay fee rate "+
+			"of %v sat/vbyte", b.minFeeRate)
+		satPerByte = b.minFeeRate
+	}
 
 	walletLog.Debugf("Returning %v sat/vbyte for conf target of %v",
 		int64(satPerByte), confTarget)
 
-	return SatPerVByte(satPerByte), nil
+	return satPerByte, nil
 }
 
 // A compile-time assertion to ensure that BtcdFeeEstimator implements the
@@ -203,6 +233,12 @@ type BitcoindFeeEstimator struct {
 	// is returned if the fee estimator does not yet have enough data to
 	// actually produce fee estimates.
 	fallBackFeeRate SatPerVByte
+
+	// minFeeRate is the minimum relay fee, in sat/vbyte, of the backend
+	// node. This will be used as the default fee rate of a transaction when
+	// the estimated fee rate is too low to allow the transaction to
+	// propagate through the network.
+	minFeeRate SatPerVByte
 
 	bitcoindConn *rpcclient.Client
 }
@@ -235,6 +271,32 @@ func NewBitcoindFeeEstimator(rpcConfig rpcclient.ConnConfig,
 //
 // NOTE: This method is part of the FeeEstimator interface.
 func (b *BitcoindFeeEstimator) Start() error {
+	// Once the connection to the backend node has been established, we'll
+	// query it for its minimum relay fee. Since the `getinfo` RPC has been
+	// deprecated for `bitcoind`, we'll need to send a `getnetworkinfo`
+	// command as a raw request.
+	resp, err := b.bitcoindConn.RawRequest("getnetworkinfo", nil)
+	if err != nil {
+		return err
+	}
+
+	// Parse the response to retrieve the relay fee in sat/KB.
+	info := struct {
+		RelayFee float64 `json:"relayfee"`
+	}{}
+	if err := json.Unmarshal(resp, &info); err != nil {
+		return err
+	}
+
+	relayFee, err := btcutil.NewAmount(info.RelayFee)
+	if err != nil {
+		return err
+	}
+
+	// The fee rate is expressed in sat/KB, so we'll manually convert it to
+	// our desired sat/vbyte rate.
+	b.minFeeRate = SatPerVByte(relayFee / 1000)
+
 	return nil
 }
 
@@ -268,7 +330,7 @@ func (b *BitcoindFeeEstimator) EstimateFeePerVSize(numBlocks uint32) (SatPerVByt
 	return feeEstimate, nil
 }
 
-// fetchEstimatePerVSize returns a fee estimate for a transaction be be confirmed in
+// fetchEstimatePerVSize returns a fee estimate for a transaction to be confirmed in
 // confTarget blocks. The estimate is returned in sat/vbyte.
 func (b *BitcoindFeeEstimator) fetchEstimatePerVSize(
 	confTarget uint32) (SatPerVByte, error) {
@@ -304,12 +366,20 @@ func (b *BitcoindFeeEstimator) fetchEstimatePerVSize(
 	// The value returned is expressed in fees per KB, while we want
 	// fee-per-byte, so we'll divide by 1000 to map to satoshis-per-byte
 	// before returning the estimate.
-	satPerByte := satPerKB / 1000
+	satPerByte := SatPerVByte(satPerKB / 1000)
+
+	// Before proceeding, we'll make sure that this fee rate respects the
+	// minimum relay fee set on the backend node.
+	if satPerByte < b.minFeeRate {
+		walletLog.Debugf("Using backend node's minimum relay fee rate "+
+			"of %v sat/vbyte", b.minFeeRate)
+		satPerByte = b.minFeeRate
+	}
 
 	walletLog.Debugf("Returning %v sat/vbyte for conf target of %v",
 		int64(satPerByte), confTarget)
 
-	return SatPerVByte(satPerByte), nil
+	return satPerByte, nil
 }
 
 // A compile-time assertion to ensure that BitcoindFeeEstimator implements the

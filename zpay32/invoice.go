@@ -7,13 +7,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/bech32"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcutil"
-	"github.com/roasbeef/btcutil/bech32"
 )
 
 const (
@@ -37,9 +37,9 @@ const (
 	// with zeroes.
 	pubKeyBase32Len = 53
 
-	// routingInfoLen is the number of bytes needed to encode the extra
-	// routing info of a single private route.
-	routingInfoLen = 51
+	// hopHintLen is the number of bytes needed to encode the hop hint of a
+	// single private route.
+	hopHintLen = 51
 
 	// The following byte values correspond to the supported field types.
 	// The field name is the character representing that 5-bit value in the
@@ -141,31 +141,12 @@ type Invoice struct {
 	// Optional.
 	FallbackAddr btcutil.Address
 
-	// RoutingInfo is one or more entries containing extra routing
-	// information for a private route to the target node.
-	// Optional.
-	RoutingInfo []ExtraRoutingInfo
-}
-
-// ExtraRoutingInfo holds the information needed to route a payment along one
-// private channel.
-type ExtraRoutingInfo struct {
-	// PubKey is the public key of the node at the start of this channel.
-	PubKey *btcec.PublicKey
-
-	// ShortChanID is the channel ID of the channel.
-	ShortChanID uint64
-
-	// FeeBaseMsat is the base fee in millisatoshis required for routing
-	// along this channel.
-	FeeBaseMsat uint32
-
-	// FeeProportionalMillionths is the proportional fee in millionths of a
-	// satoshi required for routing along this channel.
-	FeeProportionalMillionths uint32
-
-	// CltvExpDelta is this channel's cltv expiry delta.
-	CltvExpDelta uint16
+	// RouteHints represents one or more different route hints. Each route
+	// hint can be individually used to reach the destination. These usually
+	// represent private routes.
+	//
+	// NOTE: This is optional.
+	RouteHints [][]routing.HopHint
 }
 
 // Amount is a functional option that allows callers of NewInvoice to set the
@@ -231,12 +212,11 @@ func FallbackAddr(fallbackAddr btcutil.Address) func(*Invoice) {
 	}
 }
 
-// RoutingInfo is a functional option that allows callers of NewInvoice to set
-// one or more entries containing extra routing information for a private route
-// to the target node.
-func RoutingInfo(routingInfo []ExtraRoutingInfo) func(*Invoice) {
+// RouteHint is a functional option that allows callers of NewInvoice to add
+// one or more hop hints that represent a private route to the destination.
+func RouteHint(routeHint []routing.HopHint) func(*Invoice) {
 	return func(i *Invoice) {
-		i.RoutingInfo = routingInfo
+		i.RouteHints = append(i.RouteHints, routeHint)
 	}
 }
 
@@ -290,7 +270,8 @@ func Decode(invoice string, net *chaincfg.Params) (*Invoice, error) {
 	// The next characters should be a valid prefix for a segwit BIP173
 	// address that match the active network.
 	if !strings.HasPrefix(hrp[2:], net.Bech32HRPSegwit) {
-		return nil, fmt.Errorf("unknown network")
+		return nil, fmt.Errorf(
+			"invoice not for current active network '%s'", net.Name)
 	}
 	decodedInvoice.Net = net
 
@@ -524,10 +505,19 @@ func validateInvoice(invoice *Invoice) error {
 		return fmt.Errorf("neither description nor description hash set")
 	}
 
-	// Can have at most 20 extra hops for routing.
-	if len(invoice.RoutingInfo) > 20 {
-		return fmt.Errorf("too many extra hops: %d",
-			len(invoice.RoutingInfo))
+	// We'll restrict invoices to include up to 20 different private route
+	// hints. We do this to avoid overly large invoices.
+	if len(invoice.RouteHints) > 20 {
+		return fmt.Errorf("too many private routes: %d",
+			len(invoice.RouteHints))
+	}
+
+	// Each route hint can have at most 20 hops.
+	for i, routeHint := range invoice.RouteHints {
+		if len(routeHint) > 20 {
+			return fmt.Errorf("route hint %d has too many extra "+
+				"hops: %d", i, len(routeHint))
+		}
 	}
 
 	// Check that we support the field lengths.
@@ -665,13 +655,15 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 
 			invoice.FallbackAddr, err = parseFallbackAddr(base32Data, net)
 		case fieldTypeR:
-			if invoice.RoutingInfo != nil {
-				// We skip the field if we have already seen a
-				// supported one.
-				continue
+			// An `r` field can be included in an invoice multiple
+			// times, so we won't skip it if we have already seen
+			// one.
+			routeHint, err := parseRouteHint(base32Data)
+			if err != nil {
+				return err
 			}
 
-			invoice.RoutingInfo, err = parseRoutingInfo(base32Data)
+			invoice.RouteHints = append(invoice.RouteHints, routeHint)
 		default:
 			// Ignore unknown type.
 		}
@@ -849,35 +841,38 @@ func parseFallbackAddr(data []byte, net *chaincfg.Params) (btcutil.Address, erro
 	return addr, nil
 }
 
-// parseRoutingInfo converts the data (encoded in base32) into an array
-// containing one or more entries of extra routing info.
-func parseRoutingInfo(data []byte) ([]ExtraRoutingInfo, error) {
+// parseRouteHint converts the data (encoded in base32) into an array containing
+// one or more routing hop hints that represent a single route hint.
+func parseRouteHint(data []byte) ([]routing.HopHint, error) {
 	base256Data, err := bech32.ConvertBits(data, 5, 8, false)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(base256Data)%routingInfoLen != 0 {
-		return nil, fmt.Errorf("expected length multiple of %d bytes, got %d",
-			routingInfoLen, len(base256Data))
+	if len(base256Data)%hopHintLen != 0 {
+		return nil, fmt.Errorf("expected length multiple of %d bytes, "+
+			"got %d", hopHintLen, len(base256Data))
 	}
 
-	var routingInfo []ExtraRoutingInfo
-	info := ExtraRoutingInfo{}
+	var routeHint []routing.HopHint
+
 	for len(base256Data) > 0 {
-		info.PubKey, err = btcec.ParsePubKey(base256Data[:33], btcec.S256())
+		hopHint := routing.HopHint{}
+		hopHint.NodeID, err = btcec.ParsePubKey(base256Data[:33], btcec.S256())
 		if err != nil {
 			return nil, err
 		}
-		info.ShortChanID = binary.BigEndian.Uint64(base256Data[33:41])
-		info.FeeBaseMsat = binary.BigEndian.Uint32(base256Data[41:45])
-		info.FeeProportionalMillionths = binary.BigEndian.Uint32(base256Data[45:49])
-		info.CltvExpDelta = binary.BigEndian.Uint16(base256Data[49:51])
-		routingInfo = append(routingInfo, info)
+		hopHint.ChannelID = binary.BigEndian.Uint64(base256Data[33:41])
+		hopHint.FeeBaseMSat = binary.BigEndian.Uint32(base256Data[41:45])
+		hopHint.FeeProportionalMillionths = binary.BigEndian.Uint32(base256Data[45:49])
+		hopHint.CLTVExpiryDelta = binary.BigEndian.Uint16(base256Data[49:51])
+
+		routeHint = append(routeHint, hopHint)
+
 		base256Data = base256Data[51:]
 	}
 
-	return routingInfo, nil
+	return routeHint, nil
 }
 
 // writeTaggedFields writes the non-nil tagged fields of the Invoice to the
@@ -976,25 +971,37 @@ func writeTaggedFields(bufferBase32 *bytes.Buffer, invoice *Invoice) error {
 		}
 	}
 
-	if len(invoice.RoutingInfo) > 0 {
-		// Each extra routing info is encoded using 51 bytes.
-		routingDataBase256 := make([]byte, 0, 51*len(invoice.RoutingInfo))
-		for _, r := range invoice.RoutingInfo {
-			base256 := make([]byte, 51)
-			copy(base256[:33], r.PubKey.SerializeCompressed())
-			binary.BigEndian.PutUint64(base256[33:41], r.ShortChanID)
-			binary.BigEndian.PutUint32(base256[41:45], r.FeeBaseMsat)
-			binary.BigEndian.PutUint32(base256[45:49], r.FeeProportionalMillionths)
-			binary.BigEndian.PutUint16(base256[49:51], r.CltvExpDelta)
-			routingDataBase256 = append(routingDataBase256, base256...)
+	for _, routeHint := range invoice.RouteHints {
+		// Each hop hint is encoded using 51 bytes, so we'll make to
+		// sure to allocate enough space for the whole route hint.
+		routeHintBase256 := make([]byte, 0, hopHintLen*len(routeHint))
+
+		for _, hopHint := range routeHint {
+			hopHintBase256 := make([]byte, hopHintLen)
+			copy(hopHintBase256[:33], hopHint.NodeID.SerializeCompressed())
+			binary.BigEndian.PutUint64(
+				hopHintBase256[33:41], hopHint.ChannelID,
+			)
+			binary.BigEndian.PutUint32(
+				hopHintBase256[41:45], hopHint.FeeBaseMSat,
+			)
+			binary.BigEndian.PutUint32(
+				hopHintBase256[45:49], hopHint.FeeProportionalMillionths,
+			)
+			binary.BigEndian.PutUint16(
+				hopHintBase256[49:51], hopHint.CLTVExpiryDelta,
+			)
+			routeHintBase256 = append(routeHintBase256, hopHintBase256...)
 		}
-		routingDataBase32, err := bech32.ConvertBits(routingDataBase256,
-			8, 5, true)
+
+		routeHintBase32, err := bech32.ConvertBits(
+			routeHintBase256, 8, 5, true,
+		)
 		if err != nil {
 			return err
 		}
 
-		err = writeTaggedField(bufferBase32, fieldTypeR, routingDataBase32)
+		err = writeTaggedField(bufferBase32, fieldTypeR, routeHintBase32)
 		if err != nil {
 			return err
 		}
@@ -1056,8 +1063,8 @@ func writeTaggedField(bufferBase32 *bytes.Buffer, dataType byte, data []byte) er
 
 // base32ToUint64 converts a base32 encoded number to uint64.
 func base32ToUint64(data []byte) (uint64, error) {
-	// Maximum that fits in uint64 is 64 / 5 = 12 groups.
-	if len(data) > 12 {
+	// Maximum that fits in uint64 is ceil(64 / 5) = 12 groups.
+	if len(data) > 13 {
 		return 0, fmt.Errorf("cannot parse data of length %d as uint64",
 			len(data))
 	}
@@ -1077,9 +1084,9 @@ func uint64ToBase32(num uint64) []byte {
 		return []byte{0}
 	}
 
-	// To fit an uint64, we need at most is 64 / 5 = 12 groups.
-	arr := make([]byte, 12)
-	i := 12
+	// To fit an uint64, we need at most is ceil(64 / 5) = 13 groups.
+	arr := make([]byte, 13)
+	i := 13
 	for num > 0 {
 		i--
 		arr[i] = byte(num & uint64(31)) // 0b11111 in binary

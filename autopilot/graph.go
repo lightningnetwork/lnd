@@ -7,11 +7,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcutil"
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcutil"
 )
 
 var (
@@ -22,7 +22,7 @@ var (
 	_, _ = testSig.R.SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
 	_, _ = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
 
-	chanIDCounter uint64
+	chanIDCounter uint64 // To be used atomically.
 )
 
 // databaseChannelGraph wraps a channeldb.ChannelGraph instance with the
@@ -37,7 +37,7 @@ type databaseChannelGraph struct {
 // autopilot.ChannelGraph interface.
 var _ ChannelGraph = (*databaseChannelGraph)(nil)
 
-// ChannelGraphFromDatabase returns a instance of the autopilot.ChannelGraph
+// ChannelGraphFromDatabase returns an instance of the autopilot.ChannelGraph
 // backed by a live, open channeldb instance.
 func ChannelGraphFromDatabase(db *channeldb.ChannelGraph) ChannelGraph {
 	return &databaseChannelGraph{
@@ -260,7 +260,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		nil
 }
 
-// memChannelGraph is a implementation of the autopilot.ChannelGraph backed by
+// memChannelGraph is an implementation of the autopilot.ChannelGraph backed by
 // an in-memory graph.
 type memChannelGraph struct {
 	graph map[NodeID]memNode

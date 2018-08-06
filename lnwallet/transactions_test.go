@@ -6,16 +6,16 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 /**
@@ -188,7 +188,7 @@ func newTestContext() (tc *testContext, err error) {
 		return
 	}
 
-	const fundingChangeAddressStr = "tb1q8j3nctjygm62xp0j8jqdlzk34lw0v5hes3jhvy"
+	const fundingChangeAddressStr = "bcrt1qgyeqfmptyh780dsk32qawsvdffc2g5q5sxamg0"
 	tc.fundingChangeAddress, err = btcutil.DecodeAddress(
 		fundingChangeAddressStr, tc.netParams)
 	if err != nil {
@@ -371,7 +371,7 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 		ChanType:        channeldb.SingleFunder,
 		ChainHash:       *tc.netParams.GenesisHash,
 		FundingOutpoint: tc.fundingOutpoint,
-		ShortChanID:     tc.shortChanID,
+		ShortChannelID:  tc.shortChanID,
 		IsInitiator:     true,
 		IdentityPub:     identityKey,
 		LocalChanCfg: channeldb.ChannelConfig{
@@ -419,7 +419,7 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 	// of the dependencies.
 	channel := LightningChannel{
 		channelState:  &channelState,
-		signer:        signer,
+		Signer:        signer,
 		localChanCfg:  &channelState.LocalChanCfg,
 		remoteChanCfg: &channelState.RemoteChanCfg,
 	}

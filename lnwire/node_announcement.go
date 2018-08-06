@@ -14,6 +14,19 @@ var (
 	endPort   uint16 = 49151
 )
 
+// ErrUnknownAddrType is an error returned if we encounter an unknown address type
+// when parsing addresses.
+type ErrUnknownAddrType struct {
+	addrType addressType
+}
+
+// Error returns a human readable string describing the error.
+//
+// NOTE: implements the error interface.
+func (e ErrUnknownAddrType) Error() string {
+	return fmt.Sprintf("unknown address type: %v", e.addrType)
+}
+
 // NodeAlias a hex encoded UTF-8 string that may be displayed as an alternative
 // to the node's ID. Notice that aliases are not unique and may be freely
 // chosen by the node operators.
@@ -70,6 +83,14 @@ type NodeAnnouncement struct {
 	// Address includes two specification fields: 'ipv6' and 'port' on
 	// which the node is accepting incoming connections.
 	Addresses []net.Addr
+}
+
+// UpdateNodeAnnAddrs is a functional option that allows updating the addresses
+// of the given node announcement.
+func UpdateNodeAnnAddrs(addrs []net.Addr) func(*NodeAnnouncement) {
+	return func(nodeAnn *NodeAnnouncement) {
+		nodeAnn.Addresses = addrs
+	}
 }
 
 // A compile time check to ensure NodeAnnouncement implements the

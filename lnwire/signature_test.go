@@ -5,7 +5,7 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/roasbeef/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec"
 )
 
 func TestSignatureSerializeDeserialize(t *testing.T) {

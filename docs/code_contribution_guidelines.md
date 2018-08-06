@@ -160,7 +160,7 @@ A quick summary of test practices follows:
   be accompanied by unit tests exercising the new or changed behavior.
 - Changes to behavior within the daemon's interaction with the P2P protocol,
   or RPC's will need to be accompanied by integration tests which use the
-  [`networkHarness`framework](https://github.com/lightningnetwork/lnd/blob/master/networktest.go)
+  [`networkHarness`framework](https://github.com/lightningnetwork/lnd/blob/master/lntest/harness.go)
   contained within `lnd`. For example integration tests, see
   [`lnd_test.go`](https://github.com/lightningnetwork/lnd/blob/master/lnd_test.go#L181). 
 
@@ -451,7 +451,7 @@ Rejoice as you will now be listed as a [contributor](https://github.com/lightnin
 
 #### 6.1. Contribution Checklist
 
-- [&nbsp;&nbsp;] All changes are Go version 1.5 compliant
+- [&nbsp;&nbsp;] All changes are Go version 1.9 compliant
 - [&nbsp;&nbsp;] The code being submitted is commented according to the
   [Code Documentation and Commenting](#CodeDocumentation) section
 - [&nbsp;&nbsp;] For new code: Code is accompanied by tests which exercise both
@@ -461,6 +461,9 @@ Rejoice as you will now be listed as a [contributor](https://github.com/lightnin
 - [&nbsp;&nbsp;] Any new logging statements use an appropriate subsystem and
   logging level
 - [&nbsp;&nbsp;] Code has been formatted with `go fmt`
+- [&nbsp;&nbsp;] For code and documentation: lines are wrapped at 80 characters
+  (the tab character should be counted as 8 characters, not 4, as some IDEs do
+  per default)
 - [&nbsp;&nbsp;] Running `go test` does not fail any tests
 - [&nbsp;&nbsp;] Running `go vet` does not report any issues
 - [&nbsp;&nbsp;] Running [golint](https://github.com/golang/lint) does not

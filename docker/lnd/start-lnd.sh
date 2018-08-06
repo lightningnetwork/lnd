@@ -49,7 +49,7 @@ if [[ "$CHAIN" == "litecoin" ]]; then
     BACKEND="ltcd"
 fi
 
-lnd \
+exec lnd \
     --noencryptwallet \
     --logdir="/data" \
     "--$CHAIN.active" \

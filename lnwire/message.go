@@ -49,6 +49,11 @@ const (
 	MsgNodeAnnouncement                    = 257
 	MsgChannelUpdate                       = 258
 	MsgAnnounceSignatures                  = 259
+	MsgQueryShortChanIDs                   = 261
+	MsgReplyShortChanIDsEnd                = 262
+	MsgQueryChannelRange                   = 263
+	MsgReplyChannelRange                   = 264
+	MsgGossipTimestampRange                = 265
 )
 
 // String return the string representation of message type.
@@ -100,6 +105,16 @@ func (t MessageType) String() string {
 		return "Pong"
 	case MsgUpdateFee:
 		return "UpdateFee"
+	case MsgQueryShortChanIDs:
+		return "QueryShortChanIDs"
+	case MsgReplyShortChanIDsEnd:
+		return "ReplyShortChanIDsEnd"
+	case MsgQueryChannelRange:
+		return "QueryChannelRange"
+	case MsgReplyChannelRange:
+		return "ReplyChannelRange"
+	case MsgGossipTimestampRange:
+		return "GossipTimestampRange"
 	default:
 		return "<unknown>"
 	}
@@ -191,8 +206,18 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 		msg = &AnnounceSignatures{}
 	case MsgPong:
 		msg = &Pong{}
+	case MsgQueryShortChanIDs:
+		msg = &QueryShortChanIDs{}
+	case MsgReplyShortChanIDsEnd:
+		msg = &ReplyShortChanIDsEnd{}
+	case MsgQueryChannelRange:
+		msg = &QueryChannelRange{}
+	case MsgReplyChannelRange:
+		msg = &ReplyChannelRange{}
+	case MsgGossipTimestampRange:
+		msg = &GossipTimestampRange{}
 	default:
-		return nil, fmt.Errorf("unknown message type [%d]", msgType)
+		return nil, &UnknownMessage{msgType}
 	}
 
 	return msg, nil

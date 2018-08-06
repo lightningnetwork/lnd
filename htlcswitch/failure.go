@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
 )
 
 // ForwardingError wraps an lnwire.FailureMessage in a struct that also

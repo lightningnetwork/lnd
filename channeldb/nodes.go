@@ -6,9 +6,9 @@ import (
 	"net"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/coreos/bbolt"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
 )
 
 var (
@@ -54,8 +54,6 @@ type LinkNode struct {
 	// Addresses is a list of IP address in which either we were able to
 	// reach the node over in the past, OR we received an incoming
 	// authenticated connection for the stored identity public key.
-	//
-	// TODO(roasbeef): also need to support hidden service addrs
 	Addresses []net.Addr
 
 	db *DB
@@ -85,7 +83,7 @@ func (l *LinkNode) UpdateLastSeen(lastSeen time.Time) error {
 
 // AddAddress appends the specified TCP address to the list of known addresses
 // this node is/was known to be reachable at.
-func (l *LinkNode) AddAddress(addr *net.TCPAddr) error {
+func (l *LinkNode) AddAddress(addr net.Addr) error {
 	for _, a := range l.Addresses {
 		if a.String() == addr.String() {
 			return nil
@@ -129,6 +127,24 @@ func putLinkNode(nodeMetaBucket *bolt.Bucket, l *LinkNode) error {
 	return nodeMetaBucket.Put(nodePub, b.Bytes())
 }
 
+// DeleteLinkNode removes the link node with the given identity from the
+// database.
+func (db *DB) DeleteLinkNode(identity *btcec.PublicKey) error {
+	return db.Update(func(tx *bolt.Tx) error {
+		return db.deleteLinkNode(tx, identity)
+	})
+}
+
+func (db *DB) deleteLinkNode(tx *bolt.Tx, identity *btcec.PublicKey) error {
+	nodeMetaBucket := tx.Bucket(nodeInfoBucket)
+	if nodeMetaBucket == nil {
+		return ErrLinkNodesNotFound
+	}
+
+	pubKey := identity.SerializeCompressed()
+	return nodeMetaBucket.Delete(pubKey)
+}
+
 // FetchLinkNode attempts to lookup the data for a LinkNode based on a target
 // identity public key. If a particular LinkNode for the passed identity public
 // key cannot be found, then ErrNodeNotFound if returned.
@@ -147,7 +163,7 @@ func (db *DB) FetchLinkNode(identity *btcec.PublicKey) (*LinkNode, error) {
 		}
 
 		// If a link node for that particular public key cannot be
-		// located, then exit early with a ErrNodeNotFound.
+		// located, then exit early with an ErrNodeNotFound.
 		pubKey := identity.SerializeCompressed()
 		nodeBytes := nodeMetaBucket.Get(pubKey)
 		if nodeBytes == nil {
@@ -167,32 +183,48 @@ func (db *DB) FetchLinkNode(identity *btcec.PublicKey) (*LinkNode, error) {
 	return node, nil
 }
 
-// FetchAllLinkNodes attempts to fetch all active LinkNodes from the database.
-// If there haven't been any channels explicitly linked to LinkNodes written to
-// the database, then this function will return an empty slice.
+// FetchAllLinkNodes starts a new database transaction to fetch all nodes with
+// whom we have active channels with.
 func (db *DB) FetchAllLinkNodes() ([]*LinkNode, error) {
 	var linkNodes []*LinkNode
-
 	err := db.View(func(tx *bolt.Tx) error {
-		nodeMetaBucket := tx.Bucket(nodeInfoBucket)
-		if nodeMetaBucket == nil {
-			return ErrLinkNodesNotFound
+		nodes, err := db.fetchAllLinkNodes(tx)
+		if err != nil {
+			return err
 		}
 
-		return nodeMetaBucket.ForEach(func(k, v []byte) error {
-			if v == nil {
-				return nil
-			}
+		linkNodes = nodes
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
 
-			nodeReader := bytes.NewReader(v)
-			linkNode, err := deserializeLinkNode(nodeReader)
-			if err != nil {
-				return err
-			}
+	return linkNodes, nil
+}
 
-			linkNodes = append(linkNodes, linkNode)
+// fetchAllLinkNodes uses an existing database transaction to fetch all nodes
+// with whom we have active channels with.
+func (db *DB) fetchAllLinkNodes(tx *bolt.Tx) ([]*LinkNode, error) {
+	nodeMetaBucket := tx.Bucket(nodeInfoBucket)
+	if nodeMetaBucket == nil {
+		return nil, ErrLinkNodesNotFound
+	}
+
+	var linkNodes []*LinkNode
+	err := nodeMetaBucket.ForEach(func(k, v []byte) error {
+		if v == nil {
 			return nil
-		})
+		}
+
+		nodeReader := bytes.NewReader(v)
+		linkNode, err := deserializeLinkNode(nodeReader)
+		if err != nil {
+			return err
+		}
+
+		linkNodes = append(linkNodes, linkNode)
+		return nil
 	})
 	if err != nil {
 		return nil, err

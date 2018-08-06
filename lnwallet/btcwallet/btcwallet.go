@@ -9,18 +9,18 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcwallet/chain"
+	"github.com/btcsuite/btcwallet/waddrmgr"
+	base "github.com/btcsuite/btcwallet/wallet"
+	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
-	"github.com/roasbeef/btcwallet/chain"
-	"github.com/roasbeef/btcwallet/waddrmgr"
-	base "github.com/roasbeef/btcwallet/wallet"
-	"github.com/roasbeef/btcwallet/walletdb"
 )
 
 const (
@@ -81,35 +81,43 @@ func New(cfg Config) (*BtcWallet, error) {
 		Coin:    cfg.CoinType,
 	}
 
-	var pubPass []byte
-	if cfg.PublicPass == nil {
-		pubPass = defaultPubPassphrase
-	} else {
-		pubPass = cfg.PublicPass
-	}
-
-	loader := base.NewLoader(cfg.NetParams, netDir)
-	walletExists, err := loader.WalletExists()
-	if err != nil {
-		return nil, err
-	}
-
-	var wallet *base.Wallet
-	if !walletExists {
-		// Wallet has never been created, perform initial set up.
-		wallet, err = loader.CreateNewWallet(
-			pubPass, cfg.PrivatePass, cfg.HdSeed,
-		)
+	// Maybe the wallet has already been opened and unlocked by the
+	// WalletUnlocker. So if we get a non-nil value from the config,
+	// we assume everything is in order.
+	var wallet = cfg.Wallet
+	if wallet == nil {
+		// No ready wallet was passed, so try to open an existing one.
+		var pubPass []byte
+		if cfg.PublicPass == nil {
+			pubPass = defaultPubPassphrase
+		} else {
+			pubPass = cfg.PublicPass
+		}
+		loader := base.NewLoader(cfg.NetParams, netDir,
+			cfg.RecoveryWindow)
+		walletExists, err := loader.WalletExists()
 		if err != nil {
 			return nil, err
 		}
-	} else {
-		// Wallet has been created and been initialized at this point,
-		// open it along with all the required DB namespaces, and the
-		// DB itself.
-		wallet, err = loader.OpenExistingWallet(pubPass, false)
-		if err != nil {
-			return nil, err
+
+		if !walletExists {
+			// Wallet has never been created, perform initial
+			// set up.
+			wallet, err = loader.CreateNewWallet(
+				pubPass, cfg.PrivatePass, cfg.HdSeed,
+				cfg.Birthday,
+			)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			// Wallet has been created and been initialized at
+			// this point, open it along with all the required DB
+			// namespaces, and the DB itself.
+			wallet, err = loader.OpenExistingWallet(pubPass, false)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -260,7 +268,7 @@ func (b *BtcWallet) GetPrivKey(a btcutil.Address) (*btcec.PrivateKey, error) {
 
 // SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying out to
 // the specified outputs. In the case the wallet has insufficient funds, or the
-// outputs are non-standard, a non-nil error will be be returned.
+// outputs are non-standard, a non-nil error will be returned.
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
@@ -283,7 +291,7 @@ func (b *BtcWallet) LockOutpoint(o wire.OutPoint) {
 	b.wallet.LockOutpoint(o)
 }
 
-// UnlockOutpoint unlocks an previously locked output, marking it eligible for
+// UnlockOutpoint unlocks a previously locked output, marking it eligible for
 // coin selection.
 //
 // This is a part of the WalletController interface.
@@ -330,9 +338,16 @@ func (b *BtcWallet) ListUnspentWitness(minConfs int32) ([]*lnwallet.Utxo, error)
 				return nil, err
 			}
 
+			// We'll ensure we properly convert the amount given in
+			// BTC to satoshis.
+			amt, err := btcutil.NewAmount(output.Amount)
+			if err != nil {
+				return nil, err
+			}
+
 			utxo := &lnwallet.Utxo{
 				AddressType: addressType,
-				Value:       btcutil.Amount(output.Amount * 1e8),
+				Value:       amt,
 				PkScript:    pkScript,
 				OutPoint: wire.OutPoint{
 					Hash:  *txid,
@@ -508,7 +523,7 @@ func minedTransactionsToDetails(
 }
 
 // unminedTransactionsToDetail is a helper function which converts a summary
-// for a unconfirmed transaction to a transaction detail.
+// for an unconfirmed transaction to a transaction detail.
 func unminedTransactionsToDetail(
 	summary base.TransactionSummary,
 ) (*lnwallet.TransactionDetail, error) {
@@ -730,8 +745,24 @@ func (b *BtcWallet) IsSynced() (bool, int64, error) {
 		return false, 0, err
 	}
 
-	// If the timestamp no the best header is more than 2 hours in the
+	// If the timestamp on the best header is more than 2 hours in the
 	// past, then we're not yet synced.
 	minus24Hours := time.Now().Add(-2 * time.Hour)
-	return !blockHeader.Timestamp.Before(minus24Hours), bestTimestamp, nil
+	if blockHeader.Timestamp.Before(minus24Hours) {
+		return false, bestTimestamp, nil
+	}
+
+	// If this is neutrino, then we'll also want to wait until the set of
+	// filter headers also match
+	if neutrinoNode, ok := b.chain.(*chain.NeutrinoClient); ok {
+		filterDB := neutrinoNode.CS.RegFilterHeaders
+		_, filterHeaderTip, err := filterDB.ChainTip()
+		if err != nil {
+			return false, 0, err
+		}
+
+		return filterHeaderTip == uint32(bestHeight), bestTimestamp, nil
+	}
+
+	return true, bestTimestamp, nil
 }

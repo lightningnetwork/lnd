@@ -10,6 +10,10 @@ import (
 	"net"
 	"os"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -18,10 +22,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 var (
@@ -242,7 +242,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		RemoteChanCfg:           bobCfg,
 		IdentityPub:             aliceKeyPub,
 		FundingOutpoint:         *prevOut,
-		ShortChanID:             shortChanID,
+		ShortChannelID:          shortChanID,
 		ChanType:                channeldb.SingleFunder,
 		IsInitiator:             true,
 		Capacity:                channelCapacity,
@@ -341,10 +341,17 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		breachArbiter: breachArbiter,
 		chainArb:      chainArb,
 	}
+
+	_, currentHeight, err := s.cc.chainIO.GetBestBlock()
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
 	htlcSwitch, err := htlcswitch.New(htlcswitch.Config{
 		DB:             dbAlice,
 		SwitchPackager: channeldb.NewSwitchPackager(),
-	})
+		Notifier:       notifier,
+	}, uint32(currentHeight))
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}

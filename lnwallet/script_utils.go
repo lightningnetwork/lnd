@@ -9,10 +9,10 @@ import (
 
 	"golang.org/x/crypto/ripemd160"
 
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 )
 
 var (
@@ -46,9 +46,9 @@ const (
 	maxStateHint uint64 = (1 << 48) - 1
 )
 
-// witnessScriptHash generates a pay-to-witness-script-hash public key script
+// WitnessScriptHash generates a pay-to-witness-script-hash public key script
 // paying to a version 0 witness program paying to the passed redeem script.
-func witnessScriptHash(witnessScript []byte) ([]byte, error) {
+func WitnessScriptHash(witnessScript []byte) ([]byte, error) {
 	bldr := txscript.NewScriptBuilder()
 
 	bldr.AddOp(txscript.OP_0)
@@ -57,9 +57,9 @@ func witnessScriptHash(witnessScript []byte) ([]byte, error) {
 	return bldr.Script()
 }
 
-// genMultiSigScript generates the non-p2sh'd multisig script for 2 of 2
+// GenMultiSigScript generates the non-p2sh'd multisig script for 2 of 2
 // pubkeys.
-func genMultiSigScript(aPub, bPub []byte) ([]byte, error) {
+func GenMultiSigScript(aPub, bPub []byte) ([]byte, error) {
 	if len(aPub) != 33 || len(bPub) != 33 {
 		return nil, fmt.Errorf("Pubkey size error. Compressed pubkeys only")
 	}
@@ -91,14 +91,14 @@ func GenFundingPkScript(aPub, bPub []byte, amt int64) ([]byte, *wire.TxOut, erro
 	}
 
 	// First, create the 2-of-2 multi-sig script itself.
-	witnessScript, err := genMultiSigScript(aPub, bPub)
+	witnessScript, err := GenMultiSigScript(aPub, bPub)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	// With the 2-of-2 script in had, generate a p2wsh script which pays
 	// to the funding script.
-	pkScript, err := witnessScriptHash(witnessScript)
+	pkScript, err := WitnessScriptHash(witnessScript)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -662,7 +662,7 @@ func createHtlcTimeoutTx(htlcOutput wire.OutPoint, htlcAmt btcutil.Amount,
 	if err != nil {
 		return nil, err
 	}
-	pkScript, err := witnessScriptHash(witnessScript)
+	pkScript, err := WitnessScriptHash(witnessScript)
 	if err != nil {
 		return nil, err
 	}
@@ -709,7 +709,7 @@ func createHtlcSuccessTx(htlcOutput wire.OutPoint, htlcAmt btcutil.Amount,
 	if err != nil {
 		return nil, err
 	}
-	pkScript, err := witnessScriptHash(witnessScript)
+	pkScript, err := WitnessScriptHash(witnessScript)
 	if err != nil {
 		return nil, err
 	}
@@ -726,7 +726,7 @@ func createHtlcSuccessTx(htlcOutput wire.OutPoint, htlcAmt btcutil.Amount,
 
 // secondLevelHtlcScript is the uniform script that's used as the output for
 // the second-level HTLC transactions. The second level transaction act as a
-// sort of covenant, ensuring that an 2-of-2 multi-sig output can only be
+// sort of covenant, ensuring that a 2-of-2 multi-sig output can only be
 // spent in a particular way, and to a particular output.
 //
 // Possible Input Scripts:
@@ -809,7 +809,7 @@ func htlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
 	// this instance.
 	signDesc.SigHashes = txscript.NewTxSigHashes(sweepTx)
 
-	// With the proper sequence an version set, we'll now sign the timeout
+	// With the proper sequence and version set, we'll now sign the timeout
 	// transaction using the passed signed descriptor. In order to generate
 	// a valid signature, then signDesc should be using the base delay
 	// public key, and the proper single tweak bytes.
@@ -865,7 +865,7 @@ func htlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 func HtlcSecondLevelSpend(signer Signer, signDesc *SignDescriptor,
 	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
-	// With the proper sequence an version set, we'll now sign the timeout
+	// With the proper sequence and version set, we'll now sign the timeout
 	// transaction using the passed signed descriptor. In order to generate
 	// a valid signature, then signDesc should be using the base delay
 	// public key, and the proper single tweak bytes.
@@ -902,7 +902,7 @@ func lockTimeToSequence(isSeconds bool, locktime uint32) uint32 {
 	return SequenceLockTimeSeconds | (locktime >> 9)
 }
 
-// commitScriptToSelf constructs the public key script for the output on the
+// CommitScriptToSelf constructs the public key script for the output on the
 // commitment transaction paying to the "owner" of said commitment transaction.
 // If the other party learns of the preimage to the revocation hash, then they
 // can claim all the settled funds in the channel, plus the unsettled funds.
@@ -919,7 +919,7 @@ func lockTimeToSequence(isSeconds bool, locktime uint32) uint32 {
 //         <timeKey>
 //     OP_ENDIF
 //     OP_CHECKSIG
-func commitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) ([]byte, error) {
+func CommitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) ([]byte, error) {
 	// This script is spendable under two conditions: either the
 	// 'csvTimeout' has passed and we can redeem our funds, or they can
 	// produce a valid signature with the revocation public key. The
@@ -953,10 +953,10 @@ func commitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) 
 	return builder.Script()
 }
 
-// commitScriptUnencumbered constructs the public key script on the commitment
+// CommitScriptUnencumbered constructs the public key script on the commitment
 // transaction paying to the "other" party. The constructed output is a normal
 // p2wkh output spendable immediately, requiring no contestation period.
-func commitScriptUnencumbered(key *btcec.PublicKey) ([]byte, error) {
+func CommitScriptUnencumbered(key *btcec.PublicKey) ([]byte, error) {
 	// This script goes to the "other" party, and it spendable immediately.
 	builder := txscript.NewScriptBuilder()
 	builder.AddOp(txscript.OP_0)
@@ -1246,7 +1246,7 @@ func DeriveRevocationPrivKey(revokeBasePriv *btcec.PrivateKey,
 func SetStateNumHint(commitTx *wire.MsgTx, stateNum uint64,
 	obfuscator [StateHintSize]byte) error {
 
-	// With the current schema we are only able able to encode state num
+	// With the current schema we are only able to encode state num
 	// hints up to 2^48. Therefore if the passed height is greater than our
 	// state hint ceiling, then exit early.
 	if stateNum > maxStateHint {

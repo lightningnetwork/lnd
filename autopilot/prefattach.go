@@ -5,8 +5,8 @@ import (
 	prand "math/rand"
 	"time"
 
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcutil"
 )
 
 // ConstrainedPrefAttachment is an implementation of the AttachmentHeuristic
@@ -101,7 +101,7 @@ func (p *ConstrainedPrefAttachment) NeedMoreChans(channels []Channel,
 	return fundsAvailable, numAdditionalChans, true
 }
 
-// NodeID is a simple type that holds a EC public key serialized in compressed
+// NodeID is a simple type that holds an EC public key serialized in compressed
 // format.
 type NodeID [33]byte
 

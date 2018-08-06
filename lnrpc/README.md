@@ -72,6 +72,11 @@ description):
      * Send a payment over Lightning to a target peer.
   * SendPaymentSync
      * SendPaymentSync is the synchronous non-streaming version of SendPayment.
+  * SendToRoute
+    * Send a payment over Lightning to a target peer through a route explicitly
+      defined by the user.
+  * SendToRouteSync
+    * SendToRouteSync is the synchronous non-streaming version of SendToRoute.
   * AddInvoice
      * Adds an invoice to the daemon. Invoices are automatically settled once
        seen as an incoming HTLC.
@@ -160,4 +165,4 @@ $ git reset --hard f2862b476edcef83412c7af8687c9cd8e4097c0f
 $ go install ./protoc-gen-grpc-gateway ./protoc-gen-swagger
 ```
 
-4. Run `gen_protos.sh` to generate new protobuf definitions.
+4. Run [`gen_protos.sh`](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/gen_protos.sh) to generate new protobuf definitions.

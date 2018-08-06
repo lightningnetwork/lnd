@@ -11,12 +11,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
+	"github.com/lightningnetwork/lnd/routing"
 
 	litecoinCfg "github.com/ltcsuite/ltcd/chaincfg"
 )
@@ -47,34 +48,34 @@ var (
 	testAddrMainnetP2WPKH, _ = btcutil.DecodeAddress("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", &chaincfg.MainNetParams)
 	testAddrMainnetP2WSH, _  = btcutil.DecodeAddress("bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3", &chaincfg.MainNetParams)
 
-	testRoutingInfoPubkeyBytes, _  = hex.DecodeString("029e03a901b85534ff1e92c43c74431f7ce72046060fcf7a95c37e148f78c77255")
-	testRoutingInfoPubkey, _       = btcec.ParsePubKey(testRoutingInfoPubkeyBytes, btcec.S256())
-	testRoutingInfoPubkeyBytes2, _ = hex.DecodeString("039e03a901b85534ff1e92c43c74431f7ce72046060fcf7a95c37e148f78c77255")
-	testRoutingInfoPubkey2, _      = btcec.ParsePubKey(testRoutingInfoPubkeyBytes2, btcec.S256())
+	testHopHintPubkeyBytes1, _ = hex.DecodeString("029e03a901b85534ff1e92c43c74431f7ce72046060fcf7a95c37e148f78c77255")
+	testHopHintPubkey1, _      = btcec.ParsePubKey(testHopHintPubkeyBytes1, btcec.S256())
+	testHopHintPubkeyBytes2, _ = hex.DecodeString("039e03a901b85534ff1e92c43c74431f7ce72046060fcf7a95c37e148f78c77255")
+	testHopHintPubkey2, _      = btcec.ParsePubKey(testHopHintPubkeyBytes2, btcec.S256())
 
-	testSingleHop = []ExtraRoutingInfo{
+	testSingleHop = []routing.HopHint{
 		{
-			PubKey:                    testRoutingInfoPubkey,
-			ShortChanID:               0x0102030405060708,
-			FeeBaseMsat:               0,
+			NodeID:                    testHopHintPubkey1,
+			ChannelID:                 0x0102030405060708,
+			FeeBaseMSat:               0,
 			FeeProportionalMillionths: 20,
-			CltvExpDelta:              3,
+			CLTVExpiryDelta:           3,
 		},
 	}
-	testDoubleHop = []ExtraRoutingInfo{
+	testDoubleHop = []routing.HopHint{
 		{
-			PubKey:                    testRoutingInfoPubkey,
-			ShortChanID:               0x0102030405060708,
-			FeeBaseMsat:               1,
+			NodeID:                    testHopHintPubkey1,
+			ChannelID:                 0x0102030405060708,
+			FeeBaseMSat:               1,
 			FeeProportionalMillionths: 20,
-			CltvExpDelta:              3,
+			CLTVExpiryDelta:           3,
 		},
 		{
-			PubKey:                    testRoutingInfoPubkey2,
-			ShortChanID:               0x030405060708090a,
-			FeeBaseMsat:               2,
+			NodeID:                    testHopHintPubkey2,
+			ChannelID:                 0x030405060708090a,
+			FeeBaseMSat:               2,
 			FeeProportionalMillionths: 30,
-			CltvExpDelta:              4,
+			CLTVExpiryDelta:           4,
 		},
 	}
 
@@ -413,7 +414,7 @@ func TestDecodeEncode(t *testing.T) {
 					DescriptionHash: &testDescriptionHash,
 					Destination:     testPubKey,
 					FallbackAddr:    testRustyAddr,
-					RoutingInfo:     testSingleHop,
+					RouteHints:      [][]routing.HopHint{testSingleHop},
 				}
 			},
 			beforeEncoding: func(i *Invoice) {
@@ -436,7 +437,7 @@ func TestDecodeEncode(t *testing.T) {
 					DescriptionHash: &testDescriptionHash,
 					Destination:     testPubKey,
 					FallbackAddr:    testRustyAddr,
-					RoutingInfo:     testDoubleHop,
+					RouteHints:      [][]routing.HopHint{testDoubleHop},
 				}
 			},
 			beforeEncoding: func(i *Invoice) {
@@ -680,11 +681,35 @@ func TestNewInvoice(t *testing.T) {
 					Amount(testMillisat20mBTC),
 					DescriptionHash(testDescriptionHash),
 					FallbackAddr(testRustyAddr),
-					RoutingInfo(testDoubleHop),
+					RouteHint(testDoubleHop),
 				)
 			},
 			valid:          true,
 			encodedInvoice: "lnbc20m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqsfpp3qjmp7lwpagxun9pygexvgpjdc4jdj85fr9yq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvpeuqafqxu92d8lr6fvg0r5gv0heeeqgcrqlnm6jhphu9y00rrhy4grqszsvpcgpy9qqqqqqgqqqqq7qqzqj9n4evl6mr5aj9f58zp6fyjzup6ywn3x6sk8akg5v4tgn2q8g4fhx05wf6juaxu9760yp46454gpg5mtzgerlzezqcqvjnhjh8z3g2qqdhhwkj",
+		},
+		{
+			// On simnet
+			newInvoice: func() (*Invoice, error) {
+				return NewInvoice(&chaincfg.SimNetParams,
+					testPaymentHash, time.Unix(1496314658, 0),
+					Amount(testMillisat24BTC),
+					Description(testEmptyString),
+					Destination(testPubKey))
+			},
+			valid:          true,
+			encodedInvoice: "lnsb241pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdqqnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66jdgev3gnwg0aul7unhqlqvrkp23f0negjsw8ac9f6wa8w9nvppgp3updmr5znhze6l5zneztc0alknntn0wv8fkkgvjqwp0jss66cngqcj9tj6",
+		},
+		{
+			// On regtest
+			newInvoice: func() (*Invoice, error) {
+				return NewInvoice(&chaincfg.RegressionNetParams,
+					testPaymentHash, time.Unix(1496314658, 0),
+					Amount(testMillisat24BTC),
+					Description(testEmptyString),
+					Destination(testPubKey))
+			},
+			valid:          true,
+			encodedInvoice: "lnbcrt241pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdqqnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66df5c8pqjjt4z4ymmuaxfx8eh5v7hmzs3wrfas8m2sz5qz56rw2lxy8mmgm4xln0ha26qkw6u3vhu22pss2udugr9g74c3x20slpcqjgq0el4h6",
 		},
 		{
 			// Create a litecoin testnet invoice
@@ -778,7 +803,19 @@ func compareInvoices(expected, actual *Invoice) error {
 			expected.FallbackAddr, actual.FallbackAddr)
 	}
 
-	return compareRoutingInfos(expected.RoutingInfo, actual.RoutingInfo)
+	if len(expected.RouteHints) != len(actual.RouteHints) {
+		return fmt.Errorf("expected %d RouteHints, got %d",
+			len(expected.RouteHints), len(actual.RouteHints))
+	}
+
+	for i, routeHint := range expected.RouteHints {
+		err := compareRouteHints(routeHint, actual.RouteHints[i])
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func comparePubkeys(a, b *btcec.PublicKey) bool {
@@ -807,36 +844,36 @@ func compareHashes(a, b *[32]byte) bool {
 	return bytes.Equal(a[:], b[:])
 }
 
-func compareRoutingInfos(a, b []ExtraRoutingInfo) error {
+func compareRouteHints(a, b []routing.HopHint) error {
 	if len(a) != len(b) {
 		return fmt.Errorf("expected len routingInfo %d, got %d",
 			len(a), len(b))
 	}
 
 	for i := 0; i < len(a); i++ {
-		if !comparePubkeys(a[i].PubKey, b[i].PubKey) {
-			return fmt.Errorf("expected routingInfo pubkey %x, "+
-				"got %x", a[i].PubKey, b[i].PubKey)
+		if !comparePubkeys(a[i].NodeID, b[i].NodeID) {
+			return fmt.Errorf("expected routeHint nodeID %x, "+
+				"got %x", a[i].NodeID, b[i].NodeID)
 		}
 
-		if a[i].ShortChanID != b[i].ShortChanID {
-			return fmt.Errorf("expected routingInfo shortChanID "+
-				"%d, got %d", a[i].ShortChanID, b[i].ShortChanID)
+		if a[i].ChannelID != b[i].ChannelID {
+			return fmt.Errorf("expected routeHint channelID "+
+				"%d, got %d", a[i].ChannelID, b[i].ChannelID)
 		}
 
-		if a[i].FeeBaseMsat != b[i].FeeBaseMsat {
-			return fmt.Errorf("expected routingInfo feeBaseMsat %d, got %d",
-				a[i].FeeBaseMsat, b[i].FeeBaseMsat)
+		if a[i].FeeBaseMSat != b[i].FeeBaseMSat {
+			return fmt.Errorf("expected routeHint feeBaseMsat %d, got %d",
+				a[i].FeeBaseMSat, b[i].FeeBaseMSat)
 		}
 
 		if a[i].FeeProportionalMillionths != b[i].FeeProportionalMillionths {
-			return fmt.Errorf("expected routingInfo feeProportionalMillionths %d, got %d",
+			return fmt.Errorf("expected routeHint feeProportionalMillionths %d, got %d",
 				a[i].FeeProportionalMillionths, b[i].FeeProportionalMillionths)
 		}
 
-		if a[i].CltvExpDelta != b[i].CltvExpDelta {
-			return fmt.Errorf("expected routingInfo cltvExpDelta "+
-				"%d, got %d", a[i].CltvExpDelta, b[i].CltvExpDelta)
+		if a[i].CLTVExpiryDelta != b[i].CLTVExpiryDelta {
+			return fmt.Errorf("expected routeHint cltvExpiryDelta "+
+				"%d, got %d", a[i].CLTVExpiryDelta, b[i].CLTVExpiryDelta)
 		}
 	}
 

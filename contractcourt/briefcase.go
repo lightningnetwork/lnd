@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
 )
 
 // ContractResolutions is a wrapper struct around the two forms of resolutions
@@ -98,7 +98,7 @@ type ArbitratorLog interface {
 	WipeHistory() error
 }
 
-// ArbitratorState is a enum that details the current state of the
+// ArbitratorState is an enum that details the current state of the
 // ChannelArbitrator's state machine.
 type ArbitratorState uint8
 
@@ -112,13 +112,19 @@ const (
 	// so yet.
 	StateBroadcastCommit ArbitratorState = 1
 
+	// StateCommitmentBroadcasted is a state that indicates that the
+	// attendant has broadcasted the commitment transaction, and is now
+	// waiting for it to confirm.
+	StateCommitmentBroadcasted ArbitratorState = 6
+
 	// StateContractClosed is a state that indicates the contract has
-	// already been "closed". At this point, we can now examine our active
-	// contracts, in order to create the proper resolver for each one.
+	// already been "closed", meaning the commitment is confirmed on chain.
+	// At this point, we can now examine our active contracts, in order to
+	// create the proper resolver for each one.
 	StateContractClosed ArbitratorState = 2
 
 	// StateWaitingFullResolution is a state that indicates that the
-	// commitment transaction has been broadcast, and the attendant is now
+	// commitment transaction has been confirmed, and the attendant is now
 	// waiting for all unresolved contracts to be fully resolved.
 	StateWaitingFullResolution ArbitratorState = 3
 
@@ -141,6 +147,9 @@ func (a ArbitratorState) String() string {
 
 	case StateBroadcastCommit:
 		return "StateBroadcastCommit"
+
+	case StateCommitmentBroadcasted:
+		return "StateCommitmentBroadcasted"
 
 	case StateContractClosed:
 		return "StateContractClosed"
@@ -166,7 +175,7 @@ type resolverType uint8
 
 const (
 	// resolverTimeout is the type of a resolver that's tasked with
-	// resolving a outgoing HTLC that is very close to timing out.
+	// resolving an outgoing HTLC that is very close to timing out.
 	resolverTimeout = 0
 
 	// resolverSuccess is the type of a resolver that's tasked with

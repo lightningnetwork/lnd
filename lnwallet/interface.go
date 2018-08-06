@@ -5,17 +5,13 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 )
 
-// ErrNotMine is an error denoting that a WalletController instance is unable
-// to spend a specified output.
-var ErrNotMine = errors.New("the passed output doesn't belong to the wallet")
-
-// AddressType is a enum-like type which denotes the possible address types
+// AddressType is an enum-like type which denotes the possible address types
 // WalletController supports.
 type AddressType uint8
 
@@ -32,10 +28,24 @@ const (
 	UnknownAddressType
 )
 
-// ErrDoubleSpend is returned from PublishTransaction in case the
-// tx being published is spending an output spent by a conflicting
-// transaction.
-var ErrDoubleSpend = errors.New("Transaction rejected: output already spent")
+var (
+	// DefaultPublicPassphrase is the default public passphrase used for the
+	// wallet.
+	DefaultPublicPassphrase = []byte("public")
+
+	// DefaultPrivatePassphrase is the default private passphrase used for
+	// the wallet.
+	DefaultPrivatePassphrase = []byte("hello")
+
+	// ErrDoubleSpend is returned from PublishTransaction in case the
+	// tx being published is spending an output spent by a conflicting
+	// transaction.
+	ErrDoubleSpend = errors.New("Transaction rejected: output already spent")
+
+	// ErrNotMine is an error denoting that a WalletController instance is
+	// unable to spend a specified output.
+	ErrNotMine = errors.New("the passed output doesn't belong to the wallet")
+)
 
 // Utxo is an unspent output denoted by its outpoint, and output value of the
 // original output.
@@ -169,7 +179,7 @@ type WalletController interface {
 	// usage when funding a channel.
 	LockOutpoint(o wire.OutPoint)
 
-	// UnlockOutpoint unlocks an previously locked output, marking it
+	// UnlockOutpoint unlocks a previously locked output, marking it
 	// eligible for coin selection.
 	UnlockOutpoint(o wire.OutPoint)
 
@@ -227,10 +237,12 @@ type BlockChainIO interface {
 
 	// GetUtxo attempts to return the passed outpoint if it's still a
 	// member of the utxo set. The passed height hint should be the "birth
-	// height" of the passed outpoint. In the case that the output is in
+	// height" of the passed outpoint. The script passed should be the
+	// script that the outpoint creates. In the case that the output is in
 	// the UTXO set, then the output corresponding to that output is
 	// returned.  Otherwise, a non-nil error will be returned.
-	GetUtxo(op *wire.OutPoint, heightHint uint32) (*wire.TxOut, error)
+	GetUtxo(op *wire.OutPoint, pkScript []byte,
+		heightHint uint32) (*wire.TxOut, error)
 
 	// GetBlockHash returns the hash of the block in the best blockchain
 	// at the given height.

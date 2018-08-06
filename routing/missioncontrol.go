@@ -1,10 +1,14 @@
 package routing
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 const (
@@ -55,6 +59,8 @@ type missionControl struct {
 
 	selfNode *channeldb.LightningNode
 
+	queryBandwidth func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi
+
 	sync.Mutex
 
 	// TODO(roasbeef): further counters, if vertex continually unavailable,
@@ -66,13 +72,14 @@ type missionControl struct {
 // newMissionControl returns a new instance of missionControl.
 //
 // TODO(roasbeef): persist memory
-func newMissionControl(g *channeldb.ChannelGraph,
-	selfNode *channeldb.LightningNode) *missionControl {
+func newMissionControl(g *channeldb.ChannelGraph, selfNode *channeldb.LightningNode,
+	qb func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi) *missionControl {
 
 	return &missionControl{
 		failedEdges:    make(map[uint64]time.Time),
 		failedVertexes: make(map[Vertex]time.Time),
 		selfNode:       selfNode,
+		queryBandwidth: qb,
 		graph:          g,
 	}
 }
@@ -148,22 +155,140 @@ func (m *missionControl) GraphPruneView() graphPruneView {
 // and will now be pruned after a decay like the main view within mission
 // control. We do this as we want to avoid the case where we continually try a
 // bad edge or route multiple times in a session. This can lead to an infinite
-// loop if payment attempts take long enough.
+// loop if payment attempts take long enough. An additional set of edges can
+// also be provided to assist in reaching the payment's destination.
 type paymentSession struct {
 	pruneViewSnapshot graphPruneView
 
+	additionalEdges map[Vertex][]*channeldb.ChannelEdgePolicy
+
+	bandwidthHints map[uint64]lnwire.MilliSatoshi
+
 	mc *missionControl
+
+	haveRoutes     bool
+	preBuiltRoutes []*Route
 }
 
 // NewPaymentSession creates a new payment session backed by the latest prune
-// view from Mission Control.
-func (m *missionControl) NewPaymentSession() *paymentSession {
+// view from Mission Control. An optional set of routing hints can be provided
+// in order to populate additional edges to explore when finding a path to the
+// payment's destination.
+func (m *missionControl) NewPaymentSession(routeHints [][]HopHint,
+	target *btcec.PublicKey) (*paymentSession, error) {
+
 	viewSnapshot := m.GraphPruneView()
+
+	edges := make(map[Vertex][]*channeldb.ChannelEdgePolicy)
+
+	// Traverse through all of the available hop hints and include them in
+	// our edges map, indexed by the public key of the channel's starting
+	// node.
+	for _, routeHint := range routeHints {
+		// If multiple hop hints are provided within a single route
+		// hint, we'll assume they must be chained together and sorted
+		// in forward order in order to reach the target successfully.
+		for i, hopHint := range routeHint {
+			// In order to determine the end node of this hint,
+			// we'll need to look at the next hint's start node. If
+			// we've reached the end of the hints list, we can
+			// assume we've reached the destination.
+			endNode := &channeldb.LightningNode{}
+			if i != len(routeHint)-1 {
+				endNode.AddPubKey(routeHint[i+1].NodeID)
+			} else {
+				endNode.AddPubKey(target)
+			}
+
+			// Finally, create the channel edge from the hop hint
+			// and add it to list of edges corresponding to the node
+			// at the start of the channel.
+			edge := &channeldb.ChannelEdgePolicy{
+				Node:      endNode,
+				ChannelID: hopHint.ChannelID,
+				FeeBaseMSat: lnwire.MilliSatoshi(
+					hopHint.FeeBaseMSat,
+				),
+				FeeProportionalMillionths: lnwire.MilliSatoshi(
+					hopHint.FeeProportionalMillionths,
+				),
+				TimeLockDelta: hopHint.CLTVExpiryDelta,
+			}
+
+			v := NewVertex(hopHint.NodeID)
+			edges[v] = append(edges[v], edge)
+		}
+	}
+
+	// We'll also obtain a set of bandwidthHints from the lower layer for
+	// each of our outbound channels. This will allow the path finding to
+	// skip any links that aren't active or just don't have enough
+	// bandwidth to carry the payment.
+	sourceNode, err := m.graph.SourceNode()
+	if err != nil {
+		return nil, err
+	}
+	bandwidthHints, err := generateBandwidthHints(
+		sourceNode, m.queryBandwidth,
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	return &paymentSession{
 		pruneViewSnapshot: viewSnapshot,
+		additionalEdges:   edges,
+		bandwidthHints:    bandwidthHints,
+		mc:                m,
+	}, nil
+}
+
+// NewPaymentSessionFromRoutes creates a new paymentSession instance that will
+// skip all path finding, and will instead utilize a set of pre-built routes.
+// This constructor allows callers to specify their own routes which can be
+// used for things like channel rebalancing, and swaps.
+func (m *missionControl) NewPaymentSessionFromRoutes(routes []*Route) *paymentSession {
+	return &paymentSession{
+		pruneViewSnapshot: m.GraphPruneView(),
+		haveRoutes:        true,
+		preBuiltRoutes:    routes,
 		mc:                m,
 	}
+}
+
+// generateBandwidthHints is a helper function that's utilized the main
+// findPath function in order to obtain hints from the lower layer w.r.t to the
+// available bandwidth of edges on the network. Currently, we'll only obtain
+// bandwidth hints for the edges we directly have open ourselves. Obtaining
+// these hints allows us to reduce the number of extraneous attempts as we can
+// skip channels that are inactive, or just don't have enough bandwidth to
+// carry the payment.
+func generateBandwidthHints(sourceNode *channeldb.LightningNode,
+	queryBandwidth func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi) (map[uint64]lnwire.MilliSatoshi, error) {
+
+	// First, we'll collect the set of outbound edges from the target
+	// source node.
+	var localChans []*channeldb.ChannelEdgeInfo
+	err := sourceNode.ForEachChannel(nil, func(tx *bolt.Tx,
+		edgeInfo *channeldb.ChannelEdgeInfo,
+		_, _ *channeldb.ChannelEdgePolicy) error {
+
+		localChans = append(localChans, edgeInfo)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Now that we have all of our outbound edges, we'll populate the set
+	// of bandwidth hints, querying the lower switch layer for the most up
+	// to date values.
+	bandwidthHints := make(map[uint64]lnwire.MilliSatoshi)
+	for _, localChan := range localChans {
+		bandwidthHints[localChan.ChannelID] = queryBandwidth(localChan)
+	}
+
+	return bandwidthHints, nil
 }
 
 // ReportVertexFailure adds a vertex to the graph prune view after a client
@@ -217,9 +342,25 @@ func (p *paymentSession) ReportChannelFailure(e uint64) {
 func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	height uint32, finalCltvDelta uint16) (*Route, error) {
 
-	// First, we'll obtain our current prune view snapshot. This view will
-	// only ever grow during the duration of this payment session, never
-	// shrinking.
+	switch {
+	// If we have a set of pre-built routes, then we'll just pop off the
+	// next route from the queue, and use it directly.
+	case p.haveRoutes && len(p.preBuiltRoutes) > 0:
+		nextRoute := p.preBuiltRoutes[0]
+		p.preBuiltRoutes[0] = nil // Set to nil to avoid GC leak.
+		p.preBuiltRoutes = p.preBuiltRoutes[1:]
+
+		return nextRoute, nil
+
+	// If we were instantiated with a set of pre-built routes, and we've
+	// run out, then we'll return a terminal error.
+	case p.haveRoutes && len(p.preBuiltRoutes) == 0:
+		return nil, fmt.Errorf("pre-built routes exhausted")
+	}
+
+	// Otherwise we actually need to perform path finding, so we'll obtain
+	// our current prune view snapshot. This view will only ever grow
+	// during the duration of this payment session, never shrinking.
 	pruneView := p.pruneViewSnapshot
 
 	log.Debugf("Mission Control session using prune view of %v "+
@@ -231,8 +372,11 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	// Taking into account this prune view, we'll attempt to locate a path
 	// to our destination, respecting the recommendations from
 	// missionControl.
-	path, err := findPath(nil, p.mc.graph, p.mc.selfNode, payment.Target,
-		pruneView.vertexes, pruneView.edges, payment.Amount)
+	path, err := findPath(
+		nil, p.mc.graph, p.additionalEdges, p.mc.selfNode,
+		payment.Target, pruneView.vertexes, pruneView.edges,
+		payment.Amount, p.bandwidthHints,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -240,8 +384,10 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	// With the next candidate path found, we'll attempt to turn this into
 	// a route by applying the time-lock and fee requirements.
 	sourceVertex := Vertex(p.mc.selfNode.PubKeyBytes)
-	route, err := newRoute(payment.Amount, sourceVertex, path, height,
-		finalCltvDelta)
+	route, err := newRoute(
+		payment.Amount, payment.FeeLimit, sourceVertex, path, height,
+		finalCltvDelta,
+	)
 	if err != nil {
 		// TODO(roasbeef): return which edge/vertex didn't work
 		// out

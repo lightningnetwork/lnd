@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 // The block height returned by the mock BlockChainIO's GetBestBlock.
@@ -85,8 +85,8 @@ type mockNotfier struct {
 	confChannel chan *chainntnfs.TxConfirmation
 }
 
-func (m *mockNotfier) RegisterConfirmationsNtfn(txid *chainhash.Hash, numConfs,
-	heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
+func (m *mockNotfier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
+	_ []byte, numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
 	return &chainntnfs.ConfirmationEvent{
 		Confirmed: m.confChannel,
 	}, nil
@@ -105,7 +105,7 @@ func (m *mockNotfier) Start() error {
 func (m *mockNotfier) Stop() error {
 	return nil
 }
-func (m *mockNotfier) RegisterSpendNtfn(outpoint *wire.OutPoint,
+func (m *mockNotfier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ []byte,
 	heightHint uint32) (*chainntnfs.SpendEvent, error) {
 	return &chainntnfs.SpendEvent{
 		Spend:  make(chan *chainntnfs.SpendDetail),
@@ -118,6 +118,7 @@ func (m *mockNotfier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 type mockSpendNotifier struct {
 	*mockNotfier
 	spendMap map[wire.OutPoint][]chan *chainntnfs.SpendDetail
+	mtx      sync.Mutex
 }
 
 func makeMockSpendNotifier() *mockSpendNotifier {
@@ -130,7 +131,9 @@ func makeMockSpendNotifier() *mockSpendNotifier {
 }
 
 func (m *mockSpendNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	heightHint uint32) (*chainntnfs.SpendEvent, error) {
+	_ []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
+	m.mtx.Lock()
+	defer m.mtx.Unlock()
 
 	spendChan := make(chan *chainntnfs.SpendDetail)
 	m.spendMap[*outpoint] = append(m.spendMap[*outpoint], spendChan)
@@ -145,6 +148,8 @@ func (m *mockSpendNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 // will include the transaction and height provided by the caller.
 func (m *mockSpendNotifier) Spend(outpoint *wire.OutPoint, height int32,
 	txn *wire.MsgTx) {
+	m.mtx.Lock()
+	defer m.mtx.Unlock()
 
 	if spendChans, ok := m.spendMap[*outpoint]; ok {
 		delete(m.spendMap, *outpoint)
@@ -167,7 +172,7 @@ func (*mockChainIO) GetBestBlock() (*chainhash.Hash, int32, error) {
 	return activeNetParams.GenesisHash, fundingBroadcastHeight, nil
 }
 
-func (*mockChainIO) GetUtxo(op *wire.OutPoint,
+func (*mockChainIO) GetUtxo(op *wire.OutPoint, _ []byte,
 	heightHint uint32) (*wire.TxOut, error) {
 	return nil, nil
 }

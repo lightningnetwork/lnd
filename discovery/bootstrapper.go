@@ -4,18 +4,26 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
+	"errors"
 	"fmt"
+	prand "math/rand"
 	"net"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcutil/bech32"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tor"
 	"github.com/miekg/dns"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcutil/bech32"
 )
+
+func init() {
+	prand.Seed(time.Now().Unix())
+}
 
 // NetworkPeerBootstrapper is an interface that represents an initial peer
 // bootstrap mechanism. This interface is to be used to bootstrap a new peer to
@@ -43,38 +51,62 @@ type NetworkPeerBootstrapper interface {
 // the ignore map is populated, then the bootstrappers will be instructed to
 // skip those nodes.
 func MultiSourceBootstrap(ignore map[autopilot.NodeID]struct{}, numAddrs uint32,
-	bootStrappers ...NetworkPeerBootstrapper) ([]*lnwire.NetAddress, error) {
+	bootstrappers ...NetworkPeerBootstrapper) ([]*lnwire.NetAddress, error) {
+
+	// We'll randomly shuffle our bootstrappers before querying them in
+	// order to avoid from querying the same bootstrapper method over and
+	// over, as some of these might tend to provide better/worse results
+	// than others.
+	bootstrappers = shuffleBootstrappers(bootstrappers)
 
 	var addrs []*lnwire.NetAddress
-	for _, bootStrapper := range bootStrappers {
+	for _, bootstrapper := range bootstrappers {
 		// If we already have enough addresses, then we can exit early
 		// w/o querying the additional bootstrappers.
 		if uint32(len(addrs)) >= numAddrs {
 			break
 		}
 
-		log.Infof("Attempting to bootstrap with: %v", bootStrapper.Name())
+		log.Infof("Attempting to bootstrap with: %v", bootstrapper.Name())
 
 		// If we still need additional addresses, then we'll compute
 		// the number of address remaining that we need to fetch.
 		numAddrsLeft := numAddrs - uint32(len(addrs))
 		log.Tracef("Querying for %v addresses", numAddrsLeft)
-		netAddrs, err := bootStrapper.SampleNodeAddrs(numAddrsLeft, ignore)
+		netAddrs, err := bootstrapper.SampleNodeAddrs(numAddrsLeft, ignore)
 		if err != nil {
 			// If we encounter an error with a bootstrapper, then
 			// we'll continue on to the next available
 			// bootstrapper.
 			log.Errorf("Unable to query bootstrapper %v: %v",
-				bootStrapper.Name(), err)
+				bootstrapper.Name(), err)
 			continue
 		}
 
 		addrs = append(addrs, netAddrs...)
 	}
 
+	if len(addrs) == 0 {
+		return nil, errors.New("no addresses found")
+	}
+
 	log.Infof("Obtained %v addrs to bootstrap network with", len(addrs))
 
 	return addrs, nil
+}
+
+// shuffleBootstrappers shuffles the set of bootstrappers in order to avoid
+// querying the same bootstrapper over and over. To shuffle the set of
+// candidates, we use a version of the Fisher–Yates shuffle algorithm.
+func shuffleBootstrappers(candidates []NetworkPeerBootstrapper) []NetworkPeerBootstrapper {
+	shuffled := make([]NetworkPeerBootstrapper, len(candidates))
+	perm := prand.Perm(len(candidates))
+
+	for i, v := range perm {
+		shuffled[v] = candidates[i]
+	}
+
+	return shuffled
 }
 
 // ChannelGraphBootstrapper is an implementation of the NetworkPeerBootstrapper
@@ -164,12 +196,12 @@ func (c *ChannelGraphBootstrapper) SampleNodeAddrs(numAddrs uint32,
 				// If we haven't yet reached our limit, then
 				// we'll copy over the details of this node
 				// into the set of addresses to be returned.
-				tcpAddr, ok := nodeAddr.(*net.TCPAddr)
-				if !ok {
-					// If this isn't a valid TCP address,
-					// then we'll ignore it as currently
-					// we'll only attempt to connect out to
-					// TCP peers.
+				switch nodeAddr.(type) {
+				case *net.TCPAddr, *tor.OnionAddr:
+				default:
+					// If this isn't a valid address
+					// supported by the protocol, then we'll
+					// skip this node.
 					return nil
 				}
 
@@ -178,7 +210,7 @@ func (c *ChannelGraphBootstrapper) SampleNodeAddrs(numAddrs uint32,
 				// error.
 				a = append(a, &lnwire.NetAddress{
 					IdentityKey: node.PubKey(),
-					Address:     tcpAddr,
+					Address:     nodeAddr,
 				})
 			}
 
@@ -246,9 +278,8 @@ type DNSSeedBootstrapper struct {
 	// in the tuple is a special A record that we'll query in order to
 	// receive the IP address of the current authoritative DNS server for
 	// the network seed.
-	dnsSeeds   [][2]string
-	lookupHost func(string) ([]string, error)
-	lookupSRV  func(string, string, string) (string, []*net.SRV, error)
+	dnsSeeds [][2]string
+	net      tor.Net
 }
 
 // A compile time assertion to ensure that DNSSeedBootstrapper meets the
@@ -262,14 +293,8 @@ var _ NetworkPeerBootstrapper = (*ChannelGraphBootstrapper)(nil)
 // used as a fallback for manual TCP resolution in the case of an error
 // receiving the UDP response. The second host should return a single A record
 // with the IP address of the authoritative name server.
-func NewDNSSeedBootstrapper(seeds [][2]string, lookupHost func(string) ([]string, error),
-	lookupSRV func(string, string, string) (string, []*net.SRV, error)) (
-	NetworkPeerBootstrapper, error) {
-	return &DNSSeedBootstrapper{
-		dnsSeeds:   seeds,
-		lookupHost: lookupHost,
-		lookupSRV:  lookupSRV,
-	}, nil
+func NewDNSSeedBootstrapper(seeds [][2]string, net tor.Net) NetworkPeerBootstrapper {
+	return &DNSSeedBootstrapper{dnsSeeds: seeds, net: net}
 }
 
 // fallBackSRVLookup attempts to manually query for SRV records we need to
@@ -280,12 +305,14 @@ func NewDNSSeedBootstrapper(seeds [][2]string, lookupHost func(string) ([]string
 // the records we return are currently too large for a class of resolvers,
 // causing them to be filtered out. The targetEndPoint is the original end
 // point that was meant to be hit.
-func fallBackSRVLookup(soaShim string, targetEndPoint string) ([]*net.SRV, error) {
+func (d *DNSSeedBootstrapper) fallBackSRVLookup(soaShim string,
+	targetEndPoint string) ([]*net.SRV, error) {
+
 	log.Tracef("Attempting to query fallback DNS seed")
 
 	// First, we'll lookup the IP address of the server that will act as
 	// our shim.
-	addrs, err := net.LookupHost(soaShim)
+	addrs, err := d.net.LookupHost(soaShim)
 	if err != nil {
 		return nil, err
 	}
@@ -293,12 +320,12 @@ func fallBackSRVLookup(soaShim string, targetEndPoint string) ([]*net.SRV, error
 	// Once we have the IP address, we'll establish a TCP connection using
 	// port 53.
 	dnsServer := net.JoinHostPort(addrs[0], "53")
-	conn, err := net.Dial("tcp", dnsServer)
+	conn, err := d.net.Dial("tcp", dnsServer)
 	if err != nil {
 		return nil, err
 	}
 
-	dnsHost := fmt.Sprintf("_nodes._tcp.%v", targetEndPoint)
+	dnsHost := fmt.Sprintf("_nodes._tcp.%v.", targetEndPoint)
 	dnsConn := &dns.Conn{Conn: conn}
 	defer dnsConn.Close()
 
@@ -356,10 +383,12 @@ search:
 			// keys of nodes. We use the lndLookupSRV function for
 			// this task.
 			primarySeed := dnsSeedTuple[0]
-			_, addrs, err := d.lookupSRV("nodes", "tcp", primarySeed)
+			_, addrs, err := d.net.LookupSRV("nodes", "tcp", primarySeed)
 			if err != nil {
-				log.Tracef("Unable to lookup SRV records via " +
-					"primary seed, falling back to secondary")
+				log.Tracef("Unable to lookup SRV records via "+
+					"primary seed: %v", err)
+
+				log.Trace("Falling back to secondary")
 
 				// If the host of the secondary seed is blank,
 				// then we'll bail here as we can't proceed.
@@ -371,7 +400,7 @@ search:
 				// the primary seed, we'll fallback to the
 				// secondary seed before concluding failure.
 				soaShim := dnsSeedTuple[1]
-				addrs, err = fallBackSRVLookup(
+				addrs, err = d.fallBackSRVLookup(
 					soaShim, primarySeed,
 				)
 				if err != nil {
@@ -397,7 +426,7 @@ search:
 				// key. We use the lndLookup function for this
 				// task.
 				bechNodeHost := nodeSrv.Target
-				addrs, err := d.lookupHost(bechNodeHost)
+				addrs, err := d.net.LookupHost(bechNodeHost)
 				if err != nil {
 					return nil, err
 				}

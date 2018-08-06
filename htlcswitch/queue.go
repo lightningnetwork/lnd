@@ -3,11 +3,12 @@ package htlcswitch
 import (
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// packetQueue is an goroutine-safe queue of htlc packets which over flow the
+// packetQueue is a goroutine-safe queue of htlc packets which over flow the
 // current commitment transaction. An HTLC will overflow the current commitment
 // transaction if one attempts to add a new HTLC to the state machine which
 // already has the max number of pending HTLC's present on the commitment
@@ -17,6 +18,21 @@ import (
 // to signal the number of slots available, and a condition variable to allow
 // the packetQueue to know when new items have been added to the queue.
 type packetQueue struct {
+	// totalHtlcAmt is the sum of the value of all pending HTLC's currently
+	// residing within the overflow queue. This value should only read or
+	// modified *atomically*.
+	totalHtlcAmt int64 // To be used atomically.
+
+	// queueLen is an internal counter that reflects the size of the queue
+	// at any given instance. This value is intended to be use atomically
+	// as this value is used by internal methods to obtain the length of
+	// the queue w/o grabbing the main lock. This allows callers to avoid a
+	// deadlock situation where the main goroutine is attempting a send
+	// with the lock held.
+	queueLen int32 // To be used atomically.
+
+	streamShutdown int32 // To be used atomically.
+
 	queue []*htlcPacket
 
 	wg sync.WaitGroup
@@ -33,20 +49,7 @@ type packetQueue struct {
 	// commitment transaction.
 	outgoingPkts chan *htlcPacket
 
-	// totalHtlcAmt is the sum of the value of all pending HTLC's currently
-	// residing within the overflow queue. This value should only read or
-	// modified *atomically*.
-	totalHtlcAmt int64
-
 	quit chan struct{}
-
-	// queueLen is an internal counter that reflects the size of the queue
-	// at any given instance. This value is intended to be use atomically
-	// as this value is used by internal methods to obtain the length of
-	// the queue w/o grabbing the main lock. This allows callers to avoid a
-	// deadlock situation where the main goroutine is attempting a send
-	// with the lock held.
-	queueLen int32
 }
 
 // newPacketQueue returns a new instance of the packetQueue. The maxFreeSlots
@@ -75,7 +78,12 @@ func (p *packetQueue) Start() {
 func (p *packetQueue) Stop() {
 	close(p.quit)
 
-	p.queueCond.Signal()
+	// Now that we've closed the channel, we'll repeatedly signal the msg
+	// consumer until we've detected that it has exited.
+	for atomic.LoadInt32(&p.streamShutdown) == 0 {
+		p.queueCond.Signal()
+		time.Sleep(time.Millisecond * 100)
+	}
 }
 
 // packetCoordinator is a goroutine that handles the packet overflow queue.
@@ -92,7 +100,7 @@ func (p *packetQueue) Stop() {
 // like reg congestion avoidance:
 //   * random dropping, RED, etc
 func (p *packetQueue) packetCoordinator() {
-	defer p.wg.Done()
+	defer atomic.StoreInt32(&p.streamShutdown, 1)
 
 	for {
 		// First, we'll check our condition. If the queue of packets is

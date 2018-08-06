@@ -3,9 +3,9 @@ package main
 import (
 	"fmt"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
 // nodeSigner is an implementation of the MessageSigner interface backed by the
@@ -67,8 +67,9 @@ func (n *nodeSigner) SignDigestCompact(hash []byte) ([]byte, error) {
 	isCompressedKey := true
 
 	// btcec.SignCompact returns a pubkey-recoverable signature
-	sig, err := btcec.SignCompact(btcec.S256(), n.privKey, hash,
-		isCompressedKey)
+	sig, err := btcec.SignCompact(
+		btcec.S256(), n.privKey, hash, isCompressedKey,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("can't sign the hash: %v", err)
 	}

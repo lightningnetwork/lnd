@@ -343,14 +343,15 @@ func (cm *circuitMap) decodeCircuit(v []byte) (*PaymentCircuit, error) {
 }
 
 // trimAllOpenCircuits reads the set of active channels from disk and trims
-// keystones for any non-pending channels. This method is intended to be called
-// on startup. Each link will also trim it's own circuits upon startup.
+// keystones for any non-pending channels using the next unallocated htlc index.
+// This method is intended to be called on startup. Each link will also trim
+// it's own circuits upon startup.
 //
 // NOTE: This operation will be applied to the persistent state of all active
 // channels. Therefore, it must be called before any links are created to avoid
 // interfering with normal operation.
 func (cm *circuitMap) trimAllOpenCircuits() error {
-	activeChannels, err := cm.cfg.DB.FetchAllChannels()
+	activeChannels, err := cm.cfg.DB.FetchAllOpenChannels()
 	if err != nil {
 		return err
 	}
@@ -360,9 +361,27 @@ func (cm *circuitMap) trimAllOpenCircuits() error {
 			continue
 		}
 
-		chanID := activeChannel.ShortChanID
-		start := activeChannel.LocalCommitment.LocalHtlcIndex
-		if err := cm.TrimOpenCircuits(chanID, start); err != nil {
+		// First, skip any channels that have not been assigned their
+		// final channel identifier, otherwise we would try to trim
+		// htlcs belonging to the all-zero, sourceHop ID.
+		chanID := activeChannel.ShortChanID()
+		if chanID == sourceHop {
+			continue
+		}
+
+		// Next, retrieve the next unallocated htlc index, which bounds
+		// the cutoff of confirmed htlc indexes.
+		start, err := activeChannel.NextLocalHtlcIndex()
+		if err != nil {
+			return err
+		}
+
+		// Finally, remove all pending circuits above at or above the
+		// next unallocated local htlc indexes. This has the effect of
+		// reverting any circuits that have either not been locked in,
+		// or had not been included in a pending commitment.
+		err = cm.TrimOpenCircuits(chanID, start)
+		if err != nil {
 			return err
 		}
 	}

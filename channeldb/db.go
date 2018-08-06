@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/coreos/bbolt"
 	"github.com/go-errors/errors"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
 )
 
 const (
@@ -39,6 +39,25 @@ var (
 			// The base DB version requires no migration.
 			number:    0,
 			migration: nil,
+		},
+		{
+			// The version of the database where two new indexes
+			// for the update time of node and channel updates were
+			// added.
+			number:    1,
+			migration: migrateNodeAndEdgeUpdateIndex,
+		},
+		{
+			// The DB version that added the invoice event time
+			// series.
+			number:    2,
+			migration: migrateInvoiceTimeSeries,
+		},
+		{
+			// The DB version that updated the embedded invoice in
+			// outgoing payments to match the new format.
+			number:    3,
+			migration: migrateInvoiceTimeSeriesOutgoingPayments,
 		},
 	}
 
@@ -214,56 +233,70 @@ func fileExists(path string) bool {
 	return true
 }
 
-// FetchOpenChannels returns all stored currently active/open channels
-// associated with the target nodeID. In the case that no active channels are
-// known to have been created with this node, then a zero-length slice is
-// returned.
+// FetchOpenChannels starts a new database transaction and returns all stored
+// currently active/open channels associated with the target nodeID. In the case
+// that no active channels are known to have been created with this node, then a
+// zero-length slice is returned.
 func (d *DB) FetchOpenChannels(nodeID *btcec.PublicKey) ([]*OpenChannel, error) {
 	var channels []*OpenChannel
 	err := d.View(func(tx *bolt.Tx) error {
-		// Get the bucket dedicated to storing the metadata for open
-		// channels.
-		openChanBucket := tx.Bucket(openChannelBucket)
-		if openChanBucket == nil {
+		var err error
+		channels, err = d.fetchOpenChannels(tx, nodeID)
+		return err
+	})
+
+	return channels, err
+}
+
+// fetchOpenChannels uses and existing database transaction and returns all
+// stored currently active/open channels associated with the target nodeID. In
+// the case that no active channels are known to have been created with this
+// node, then a zero-length slice is returned.
+func (d *DB) fetchOpenChannels(tx *bolt.Tx,
+	nodeID *btcec.PublicKey) ([]*OpenChannel, error) {
+
+	// Get the bucket dedicated to storing the metadata for open channels.
+	openChanBucket := tx.Bucket(openChannelBucket)
+	if openChanBucket == nil {
+		return nil, nil
+	}
+
+	// Within this top level bucket, fetch the bucket dedicated to storing
+	// open channel data specific to the remote node.
+	pub := nodeID.SerializeCompressed()
+	nodeChanBucket := openChanBucket.Bucket(pub)
+	if nodeChanBucket == nil {
+		return nil, nil
+	}
+
+	// Next, we'll need to go down an additional layer in order to retrieve
+	// the channels for each chain the node knows of.
+	var channels []*OpenChannel
+	err := nodeChanBucket.ForEach(func(chainHash, v []byte) error {
+		// If there's a value, it's not a bucket so ignore it.
+		if v != nil {
 			return nil
 		}
 
-		// Within this top level bucket, fetch the bucket dedicated to
-		// storing open channel data specific to the remote node.
-		pub := nodeID.SerializeCompressed()
-		nodeChanBucket := openChanBucket.Bucket(pub)
-		if nodeChanBucket == nil {
-			return nil
+		// If we've found a valid chainhash bucket, then we'll retrieve
+		// that so we can extract all the channels.
+		chainBucket := nodeChanBucket.Bucket(chainHash)
+		if chainBucket == nil {
+			return fmt.Errorf("unable to read bucket for chain=%x",
+				chainHash[:])
 		}
 
-		// Next, we'll need to go down an additional layer in order to
-		// retrieve the channels for each chain the node knows of.
-		return nodeChanBucket.ForEach(func(chainHash, v []byte) error {
-			// If there's a value, it's not a bucket so ignore it.
-			if v != nil {
-				return nil
-			}
+		// Finally, we both of the necessary buckets retrieved, fetch
+		// all the active channels related to this node.
+		nodeChannels, err := d.fetchNodeChannels(chainBucket)
+		if err != nil {
+			return fmt.Errorf("unable to read channel for "+
+				"chain_hash=%x, node_key=%x: %v",
+				chainHash[:], pub, err)
+		}
 
-			// If we've found a valid chainhash bucket, then we'll
-			// retrieve that so we can extract all the channels.
-			chainBucket := nodeChanBucket.Bucket(chainHash)
-			if chainBucket == nil {
-				return fmt.Errorf("unable to read bucket for "+
-					"chain=%x", chainHash[:])
-			}
-
-			// Finally, we both of the necessary buckets retrieved,
-			// fetch all the active channels related to this node.
-			nodeChannels, err := d.fetchNodeChannels(chainBucket)
-			if err != nil {
-				return fmt.Errorf("unable to read channel for "+
-					"chain_hash=%x, node_key=%x: %v",
-					chainHash[:], pub, err)
-			}
-
-			channels = nodeChannels
-			return nil
-		})
+		channels = nodeChannels
+		return nil
 	})
 
 	return channels, err
@@ -312,23 +345,60 @@ func (d *DB) fetchNodeChannels(chainBucket *bolt.Bucket) ([]*OpenChannel, error)
 }
 
 // FetchAllChannels attempts to retrieve all open channels currently stored
-// within the database.
+// within the database, including pending open, fully open and channels waiting
+// for a closing transaction to confirm.
 func (d *DB) FetchAllChannels() ([]*OpenChannel, error) {
-	return fetchChannels(d, false)
+	var channels []*OpenChannel
+
+	// TODO(halseth): fetch all in one db tx.
+	openChannels, err := d.FetchAllOpenChannels()
+	if err != nil {
+		return nil, err
+	}
+	channels = append(channels, openChannels...)
+
+	pendingChannels, err := d.FetchPendingChannels()
+	if err != nil {
+		return nil, err
+	}
+	channels = append(channels, pendingChannels...)
+
+	waitingClose, err := d.FetchWaitingCloseChannels()
+	if err != nil {
+		return nil, err
+	}
+	channels = append(channels, waitingClose...)
+
+	return channels, nil
+}
+
+// FetchAllOpenChannels will return all channels that have the funding
+// transaction confirmed, and is not waiting for a closing transaction to be
+// confirmed.
+func (d *DB) FetchAllOpenChannels() ([]*OpenChannel, error) {
+	return fetchChannels(d, false, false)
 }
 
 // FetchPendingChannels will return channels that have completed the process of
 // generating and broadcasting funding transactions, but whose funding
 // transactions have yet to be confirmed on the blockchain.
 func (d *DB) FetchPendingChannels() ([]*OpenChannel, error) {
-	return fetchChannels(d, true)
+	return fetchChannels(d, true, false)
+}
+
+// FetchWaitingCloseChannels will return all channels that have been opened,
+// but now is waiting for a closing transaction to be confirmed.
+func (d *DB) FetchWaitingCloseChannels() ([]*OpenChannel, error) {
+	return fetchChannels(d, false, true)
 }
 
 // fetchChannels attempts to retrieve channels currently stored in the
-// database. The pendingOnly parameter determines whether only pending channels
-// will be returned. If no active channels exist within the network, then
-// ErrNoActiveChannels is returned.
-func fetchChannels(d *DB, pendingOnly bool) ([]*OpenChannel, error) {
+// database. The pending parameter determines whether only pending channels
+// will be returned, or only open channels will be returned. The waitingClose
+// parameter determines wheter only channels waiting for a closing transaction
+// to be confirmed should be returned. If no active channels exist within the
+// network, then ErrNoActiveChannels is returned.
+func fetchChannels(d *DB, pending, waitingClose bool) ([]*OpenChannel, error) {
 	var channels []*OpenChannel
 
 	err := d.View(func(tx *bolt.Tx) error {
@@ -377,23 +447,36 @@ func fetchChannels(d *DB, pendingOnly bool) ([]*OpenChannel, error) {
 						"channel for chain_hash=%x, "+
 						"node_key=%x: %v", chainHash[:], k, err)
 				}
-				// TODO(roasbeef): simplify
-				if pendingOnly {
-					for _, channel := range nodeChans {
-						if channel.IsPending {
-							channels = append(channels, channel)
-						}
+				for _, channel := range nodeChans {
+					if channel.IsPending != pending {
+						continue
 					}
-				} else {
-					channels = append(channels, nodeChans...)
+
+					// If the channel is in any other state
+					// than Default, then it means it is
+					// waiting to be closed.
+					channelWaitingClose :=
+						channel.ChanStatus() != Default
+
+					// Only include it if we requested
+					// channels with the same waitingClose
+					// status.
+					if channelWaitingClose != waitingClose {
+						continue
+					}
+
+					channels = append(channels, channel)
 				}
 				return nil
 			})
 
 		})
 	})
+	if err != nil {
+		return nil, err
+	}
 
-	return channels, err
+	return channels, nil
 }
 
 // FetchClosedChannels attempts to fetch all closed channels from the database.
@@ -473,8 +556,9 @@ func (d *DB) FetchClosedChannel(chanID *wire.OutPoint) (*ChannelCloseSummary, er
 
 // MarkChanFullyClosed marks a channel as fully closed within the database. A
 // channel should be marked as fully closed if the channel was initially
-// cooperatively closed and it's reached a single confirmation, or after all the
-// pending funds in a channel that has been forcibly closed have been swept.
+// cooperatively closed and it's reached a single confirmation, or after all
+// the pending funds in a channel that has been forcibly closed have been
+// swept.
 func (d *DB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
 	return d.Update(func(tx *bolt.Tx) error {
 		var b bytes.Buffer
@@ -493,8 +577,8 @@ func (d *DB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
 
 		chanSummaryBytes := closedChanBucket.Get(chanID)
 		if chanSummaryBytes == nil {
-			return fmt.Errorf("no closed channel by that chanID " +
-				"found")
+			return fmt.Errorf("no closed channel for "+
+				"chan_point=%v found", chanPoint)
 		}
 
 		chanSummaryReader := bytes.NewReader(chanSummaryBytes)
@@ -513,7 +597,56 @@ func (d *DB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
 			return err
 		}
 
-		return closedChanBucket.Put(chanID, newSummary.Bytes())
+		err = closedChanBucket.Put(chanID, newSummary.Bytes())
+		if err != nil {
+			return err
+		}
+
+		// Now that the channel is closed, we'll check if we have any
+		// other open channels with this peer. If we don't we'll
+		// garbage collect it to ensure we don't establish persistent
+		// connections to peers without open channels.
+		return d.pruneLinkNode(tx, chanSummary.RemotePub)
+	})
+}
+
+// pruneLinkNode determines whether we should garbage collect a link node from
+// the database due to no longer having any open channels with it. If there are
+// any left, then this acts as a no-op.
+func (d *DB) pruneLinkNode(tx *bolt.Tx, remotePub *btcec.PublicKey) error {
+	openChannels, err := d.fetchOpenChannels(tx, remotePub)
+	if err != nil {
+		return fmt.Errorf("unable to fetch open channels for peer %x: "+
+			"%v", remotePub.SerializeCompressed(), err)
+	}
+
+	if len(openChannels) > 0 {
+		return nil
+	}
+
+	log.Infof("Pruning link node %x with zero open channels from database",
+		remotePub.SerializeCompressed())
+
+	return d.deleteLinkNode(tx, remotePub)
+}
+
+// PruneLinkNodes attempts to prune all link nodes found within the databse with
+// whom we no longer have any open channels with.
+func (d *DB) PruneLinkNodes() error {
+	return d.Update(func(tx *bolt.Tx) error {
+		linkNodes, err := d.fetchAllLinkNodes(tx)
+		if err != nil {
+			return err
+		}
+
+		for _, linkNode := range linkNodes {
+			err := d.pruneLinkNode(tx, linkNode.IdentityPub)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
 	})
 }
 
@@ -544,8 +677,9 @@ func (d *DB) syncVersions(versions []version) error {
 	// Otherwise, we fetch the migrations which need to applied, and
 	// execute them serially within a single database transaction to ensure
 	// the migration is atomic.
-	migrations, migrationVersions := getMigrationsToApply(versions,
-		meta.DbVersionNumber)
+	migrations, migrationVersions := getMigrationsToApply(
+		versions, meta.DbVersionNumber,
+	)
 	return d.Update(func(tx *bolt.Tx) error {
 		for i, migration := range migrations {
 			if migration == nil {

@@ -1836,37 +1836,18 @@ func (l *LightningNode) ForEachChannel(tx *bolt.Tx,
 				return err
 			}
 
+			outgoingPolicy, err := fetchChanEdgePolicy(
+				edges, chanID, nodePub, nodes,
+			)
+
 			otherNode, err := edgeInfo.OtherNodeKeyBytes(nodePub)
 			if err != nil {
 				return err
 			}
 
-			policy1, policy2, err := fetchChanEdgePolicies(edgeIndex,
-				edges, nodes, chanID, l.db)
-
-			var incomingPolicy, outgoingPolicy *ChannelEdgePolicy
-
-			if policy1 != nil {
-				switch {
-				case bytes.Equal(nodePub, policy1.Node.PubKeyBytes[:]):
-					incomingPolicy = policy1
-				case bytes.Equal(otherNode, policy1.Node.PubKeyBytes[:]):
-					outgoingPolicy = policy1
-				default:
-					return fmt.Errorf("Unexpected node in policy")
-				}
-			}
-
-			if policy2 != nil {
-				switch {
-				case bytes.Equal(nodePub, policy2.Node.PubKeyBytes[:]):
-					incomingPolicy = policy2
-				case bytes.Equal(otherNode, policy2.Node.PubKeyBytes[:]):
-					outgoingPolicy = policy2
-				default:
-					return fmt.Errorf("Unexpected node in policy")
-				}
-			}
+			incomingPolicy, err := fetchChanEdgePolicy(
+				edges, chanID, otherNode, nodes,
+			)
 
 			// Finally, we execute the callback.
 			err = cb(tx, &edgeInfo, outgoingPolicy, incomingPolicy)
@@ -2915,7 +2896,9 @@ func putChanEdgePolicy(edges *bolt.Bucket, edge *ChannelEdgePolicy, from, to []b
 	// delete the old one to ensure we don't leave around any after-images.
 	// An unknown policy value does not have a update time recorded, so
 	// it also does not need to be removed.
-	if edgeBytes := edges.Get(edgeKey[:]); edgeBytes != nil && !bytes.Equal(edgeBytes[:], unknownPolicy) {
+	if edgeBytes := edges.Get(edgeKey[:]); edgeBytes != nil &&
+		!bytes.Equal(edgeBytes[:], unknownPolicy) {
+
 		// In order to delete the old entry, we'll need to obtain the
 		// *prior* update time in order to delete it. To do this, we'll
 		// create an offset to slice in. Starting backwards, we'll
@@ -2943,8 +2926,11 @@ func putChanEdgePolicy(edges *bolt.Bucket, edge *ChannelEdgePolicy, from, to []b
 	return edges.Put(edgeKey[:], b.Bytes()[:])
 }
 
-// putChanEdgePolicyUnknown marks the edge policy as unknown in the edges bucket.
-func putChanEdgePolicyUnknown(edges *bolt.Bucket, channelID uint64, from []byte) error {
+// putChanEdgePolicyUnknown marks the edge policy as unknown
+// in the edges bucket.
+func putChanEdgePolicyUnknown(edges *bolt.Bucket, channelID uint64,
+	from []byte) error {
+
 	var edgeKey [33 + 8]byte
 	copy(edgeKey[:], from)
 	byteOrder.PutUint64(edgeKey[33:], channelID)

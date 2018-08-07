@@ -206,9 +206,13 @@ type chanCloseUpdate struct {
 // OnBalanceChange is a callback that should be executed each time the balance of
 // the backing wallet changes.
 func (a *Agent) OnBalanceChange(delta btcutil.Amount) {
+	a.wg.Add(1)
 	go func() {
-		a.stateUpdates <- &balanceUpdate{
-			balanceDelta: delta,
+		defer a.wg.Done()
+
+		select {
+		case a.stateUpdates <- &balanceUpdate{balanceDelta: delta}:
+		case <-a.quit:
 		}
 	}()
 }
@@ -216,9 +220,13 @@ func (a *Agent) OnBalanceChange(delta btcutil.Amount) {
 // OnChannelOpen is a callback that should be executed each time a new channel
 // is manually opened by the user or any system outside the autopilot agent.
 func (a *Agent) OnChannelOpen(c Channel) {
+	a.wg.Add(1)
 	go func() {
-		a.stateUpdates <- &chanOpenUpdate{
-			newChan: c,
+		defer a.wg.Done()
+
+		select {
+		case a.stateUpdates <- &chanOpenUpdate{newChan: c}:
+		case <-a.quit:
 		}
 	}()
 }
@@ -227,8 +235,14 @@ func (a *Agent) OnChannelOpen(c Channel) {
 // autopilot has attempted to open a channel, but failed. In this case we can
 // retry channel creation with a different node.
 func (a *Agent) OnChannelOpenFailure() {
+	a.wg.Add(1)
 	go func() {
-		a.stateUpdates <- &chanOpenFailureUpdate{}
+		defer a.wg.Done()
+
+		select {
+		case a.stateUpdates <- &chanOpenFailureUpdate{}:
+		case <-a.quit:
+		}
 	}()
 }
 
@@ -236,9 +250,13 @@ func (a *Agent) OnChannelOpenFailure() {
 // channel has been closed for any reason. This includes regular
 // closes, force closes, and channel breaches.
 func (a *Agent) OnChannelClose(closedChans ...lnwire.ShortChannelID) {
+	a.wg.Add(1)
 	go func() {
-		a.stateUpdates <- &chanCloseUpdate{
-			closedChans: closedChans,
+		defer a.wg.Done()
+
+		select {
+		case a.stateUpdates <- &chanCloseUpdate{closedChans: closedChans}:
+		case <-a.quit:
 		}
 	}()
 }

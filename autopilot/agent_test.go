@@ -2,12 +2,11 @@ package autopilot
 
 import (
 	"bytes"
+	"errors"
 	"net"
 	"sync"
 	"testing"
 	"time"
-
-	"errors"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
@@ -31,21 +30,32 @@ type mockHeuristic struct {
 
 	directiveResps chan []AttachmentDirective
 	directiveArgs  chan directiveArg
+
+	quit chan struct{}
 }
 
 func (m *mockHeuristic) NeedMoreChans(chans []Channel,
 	balance btcutil.Amount) (btcutil.Amount, uint32, bool) {
 
 	if m.moreChanArgs != nil {
-		m.moreChanArgs <- moreChanArg{
+		moreChan := moreChanArg{
 			chans:   chans,
 			balance: balance,
 		}
 
+		select {
+		case m.moreChanArgs <- moreChan:
+		case <-m.quit:
+			return 0, 0, false
+		}
 	}
 
-	resp := <-m.moreChansResps
-	return resp.amt, resp.numMore, resp.needMore
+	select {
+	case resp := <-m.moreChansResps:
+		return resp.amt, resp.numMore, resp.needMore
+	case <-m.quit:
+		return 0, 0, false
+	}
 }
 
 type directiveArg struct {
@@ -60,16 +70,26 @@ func (m *mockHeuristic) Select(self *btcec.PublicKey, graph ChannelGraph,
 	skipChans map[NodeID]struct{}) ([]AttachmentDirective, error) {
 
 	if m.directiveArgs != nil {
-		m.directiveArgs <- directiveArg{
+		directive := directiveArg{
 			self:  self,
 			graph: graph,
 			amt:   amtToUse,
 			skip:  skipChans,
 		}
+
+		select {
+		case m.directiveArgs <- directive:
+		case <-m.quit:
+			return nil, errors.New("exiting")
+		}
 	}
 
-	resp := <-m.directiveResps
-	return resp, nil
+	select {
+	case resp := <-m.directiveResps:
+		return resp, nil
+	case <-m.quit:
+		return nil, errors.New("exiting")
+	}
 }
 
 var _ AttachmentHeuristic = (*mockHeuristic)(nil)
@@ -154,6 +174,10 @@ func TestAgentChannelOpenSignal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create agent: %v", err)
 	}
+
+	// To ensure the heuristic doesn't block on quitting the agent, we'll
+	// use the agent's quit chan to signal when it should also stop.
+	heuristic.quit = agent.quit
 
 	// With the autopilot agent and all its dependencies we'll star the
 	// primary controller goroutine.
@@ -296,6 +320,10 @@ func TestAgentChannelFailureSignal(t *testing.T) {
 		t.Fatalf("unable to create agent: %v", err)
 	}
 
+	// To ensure the heuristic doesn't block on quitting the agent, we'll
+	// use the agent's quit chan to signal when it should also stop.
+	heuristic.quit = agent.quit
+
 	// With the autopilot agent and all its dependencies we'll start the
 	// primary controller goroutine.
 	if err := agent.Start(); err != nil {
@@ -401,6 +429,10 @@ func TestAgentChannelCloseSignal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create agent: %v", err)
 	}
+
+	// To ensure the heuristic doesn't block on quitting the agent, we'll
+	// use the agent's quit chan to signal when it should also stop.
+	heuristic.quit = agent.quit
 
 	// With the autopilot agent and all its dependencies we'll star the
 	// primary controller goroutine.
@@ -520,6 +552,10 @@ func TestAgentBalanceUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create agent: %v", err)
 	}
+
+	// To ensure the heuristic doesn't block on quitting the agent, we'll
+	// use the agent's quit chan to signal when it should also stop.
+	heuristic.quit = agent.quit
 
 	// With the autopilot agent and all its dependencies we'll star the
 	// primary controller goroutine.
@@ -642,6 +678,10 @@ func TestAgentImmediateAttach(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create agent: %v", err)
 	}
+
+	// To ensure the heuristic doesn't block on quitting the agent, we'll
+	// use the agent's quit chan to signal when it should also stop.
+	heuristic.quit = agent.quit
 
 	// With the autopilot agent and all its dependencies we'll star the
 	// primary controller goroutine.
@@ -781,6 +821,10 @@ func TestAgentPrivateChannels(t *testing.T) {
 		t.Fatalf("unable to create agent: %v", err)
 	}
 
+	// To ensure the heuristic doesn't block on quitting the agent, we'll
+	// use the agent's quit chan to signal when it should also stop.
+	heuristic.quit = agent.quit
+
 	// With the autopilot agent and all its dependencies we'll star the
 	// primary controller goroutine.
 	if err := agent.Start(); err != nil {
@@ -914,6 +958,10 @@ func TestAgentPendingChannelState(t *testing.T) {
 		t.Fatalf("unable to create agent: %v", err)
 	}
 
+	// To ensure the heuristic doesn't block on quitting the agent, we'll
+	// use the agent's quit chan to signal when it should also stop.
+	heuristic.quit = agent.quit
+
 	// With the autopilot agent and all its dependencies we'll start the
 	// primary controller goroutine.
 	if err := agent.Start(); err != nil {
@@ -966,7 +1014,6 @@ func TestAgentPendingChannelState(t *testing.T) {
 	}
 	select {
 	case heuristic.directiveResps <- []AttachmentDirective{nodeDirective}:
-		return
 	case <-time.After(time.Second * 10):
 		t.Fatalf("heuristic wasn't queried in time")
 	}
@@ -993,8 +1040,6 @@ func TestAgentPendingChannelState(t *testing.T) {
 	// we'll trigger a balance update in order to trigger a query to the
 	// heuristic.
 	agent.OnBalanceChange(0.4 * btcutil.SatoshiPerBitcoin)
-
-	wg = sync.WaitGroup{}
 
 	// The heuristic should be queried, and the argument for the set of
 	// channels passed in should include the pending channels that

@@ -5,11 +5,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+)
+
+var (
+	privKey, _ = btcec.NewPrivateKey(btcec.S256())
+	pubKey     = privKey.PubKey()
 )
 
 type mockChainIO struct{}
@@ -41,7 +48,7 @@ func createTestChannelArbitrator() (*ChannelArbitrator, chan struct{}, func(), e
 	chanEvents := &ChainEventSubscription{
 		RemoteUnilateralClosure: make(chan *lnwallet.UnilateralCloseSummary, 1),
 		LocalUnilateralClosure:  make(chan *LocalUnilateralCloseInfo, 1),
-		CooperativeClosure:      make(chan struct{}, 1),
+		CooperativeClosure:      make(chan *CooperativeCloseInfo, 1),
 		ContractBreach:          make(chan *lnwallet.BreachRetribution, 1),
 	}
 
@@ -71,13 +78,18 @@ func createTestChannelArbitrator() (*ChannelArbitrator, chan struct{}, func(), e
 			summary := &lnwallet.LocalForceCloseSummary{
 				CloseTx:         &wire.MsgTx{},
 				HtlcResolutions: &lnwallet.HtlcResolutions{},
+				ChanSnapshot: channeldb.ChannelSnapshot{
+					RemoteIdentity: *pubKey,
+				},
 			}
 			return summary, nil
 		},
 		MarkCommitmentBroadcasted: func() error {
 			return nil
 		},
-
+		MarkChannelClosed: func(*channeldb.ChannelCloseSummary) error {
+			return nil
+		},
 		ChainArbitratorConfig: chainArbCfg,
 		ChainEvents:           chanEvents,
 	}
@@ -118,9 +130,16 @@ func TestChannelArbitratorCooperativeClose(t *testing.T) {
 	// It should start out in the default state.
 	assertState(t, chanArb, StateDefault)
 
+	commitSpend := &chainntnfs.SpendDetail{
+		SpenderTxHash: &chainhash.Hash{},
+	}
+
 	// Cooperative close should do nothing.
 	// TODO: this will change?
-	chanArb.cfg.ChainEvents.CooperativeClosure <- struct{}{}
+	closeInfo := &CooperativeCloseInfo{
+		SpendDetail: commitSpend,
+	}
+	chanArb.cfg.ChainEvents.CooperativeClosure <- closeInfo
 	assertState(t, chanArb, StateDefault)
 }
 
@@ -150,6 +169,9 @@ func TestChannelArbitratorRemoteForceClose(t *testing.T) {
 	uniClose := &lnwallet.UnilateralCloseSummary{
 		SpendDetail:     commitSpend,
 		HtlcResolutions: &lnwallet.HtlcResolutions{},
+		ChannelCloseSummary: channeldb.ChannelCloseSummary{
+			RemotePub: pubKey,
+		},
 	}
 	chanArb.cfg.ChainEvents.RemoteUnilateralClosure <- uniClose
 
@@ -237,6 +259,9 @@ func TestChannelArbitratorLocalForceClose(t *testing.T) {
 		&lnwallet.LocalForceCloseSummary{
 			CloseTx:         &wire.MsgTx{},
 			HtlcResolutions: &lnwallet.HtlcResolutions{},
+			ChanSnapshot: channeldb.ChannelSnapshot{
+				RemoteIdentity: *pubKey,
+			},
 		},
 	}
 	// It should mark the channel as resolved.
@@ -324,6 +349,9 @@ func TestChannelArbitratorLocalForceCloseRemoteConfirmed(t *testing.T) {
 	uniClose := &lnwallet.UnilateralCloseSummary{
 		SpendDetail:     commitSpend,
 		HtlcResolutions: &lnwallet.HtlcResolutions{},
+		ChannelCloseSummary: channeldb.ChannelCloseSummary{
+			RemotePub: pubKey,
+		},
 	}
 	chanArb.cfg.ChainEvents.RemoteUnilateralClosure <- uniClose
 
@@ -412,6 +440,9 @@ func TestChannelArbitratorLocalForceDoubleSpend(t *testing.T) {
 	uniClose := &lnwallet.UnilateralCloseSummary{
 		SpendDetail:     commitSpend,
 		HtlcResolutions: &lnwallet.HtlcResolutions{},
+		ChannelCloseSummary: channeldb.ChannelCloseSummary{
+			RemotePub: pubKey,
+		},
 	}
 	chanArb.cfg.ChainEvents.RemoteUnilateralClosure <- uniClose
 

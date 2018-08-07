@@ -81,6 +81,14 @@ type ArbitratorLog interface {
 	// contract resolutions from persistent storage.
 	FetchContractResolutions() (*ContractResolutions, error)
 
+	// LogCloseSummary logs the summary of a channel's close transaction
+	// seen on-chain.
+	LogCloseSummary(*channeldb.ChannelCloseSummary) error
+
+	// FetchCloseSummary fetches the close summary previously written to
+	// the log.
+	FetchCloseSummary() (*channeldb.ChannelCloseSummary, error)
+
 	// LogChainActions stores a set of chain actions which are derived from
 	// our set of active contracts, and the on-chain state. We'll write
 	// this et of cations when: we decide to go on-chain to resolve a
@@ -117,9 +125,21 @@ const (
 	// waiting for it to confirm.
 	StateCommitmentBroadcasted ArbitratorState = 6
 
+	// StateCommitmentConfirmed is a state that indicates that the
+	// commitment has been confirmed. In this state we'll mark the channel
+	// closed in the database.
+	//
+	// NOTE: We mark the channel closed in the database in its own state to
+	// handle the case where a state transition fails after marking the
+	// channel closed. After the channel is marked closed we'll no longer
+	// detect chain events for this channel. In this case we'll restart
+	// from StateCommitmentConfirmed and retry the transition.
+	StateCommitmentConfirmed ArbitratorState = 7
+
 	// StateContractClosed is a state that indicates the contract has
-	// already been "closed", meaning the commitment is confirmed on chain.
-	// At this point, we can now examine our active contracts, in order to
+	// already been "closed", meaning the commitment is confirmed on chain
+	// and we have marked the channel closed in the database. At this
+	// point, we can now examine our active contracts, in order to
 	// create the proper resolver for each one.
 	StateContractClosed ArbitratorState = 2
 
@@ -150,6 +170,9 @@ func (a ArbitratorState) String() string {
 
 	case StateCommitmentBroadcasted:
 		return "StateCommitmentBroadcasted"
+
+	case StateCommitmentConfirmed:
+		return "StateCommitmentConfirmed"
 
 	case StateContractClosed:
 		return "StateContractClosed"
@@ -255,6 +278,11 @@ var (
 	// the full set of resolutions for a channel.
 	resolutionsKey = []byte("resolutions")
 
+	// closeSummaryKey is the key under the logScope that we'll use to
+	// store a channel close summary when a closing transaction is seen
+	// on-chain.
+	closeSummaryKey = []byte("close-summary")
+
 	// actionsBucketKey is the key under the logScope that we'll use to
 	// store all chain actions once they're determined.
 	actionsBucketKey = []byte("chain-actions")
@@ -272,6 +300,10 @@ var (
 	// errNoResolutions is returned when the log doesn't contain any active
 	// chain resolutions.
 	errNoResolutions = fmt.Errorf("no contract resolutions exist")
+
+	// erNoCloseSummary is returned when the log doesn't contain any close
+	// summary for the channel.
+	errNoCloseSummary = fmt.Errorf("no channel close summary exists")
 
 	// errNoActions is retuned when the log doesn't contain any stored
 	// chain actions.
@@ -717,6 +749,63 @@ func (b *boltArbitratorLog) FetchContractResolutions() (*ContractResolutions, er
 	}
 
 	return c, err
+}
+
+// LogCloseSummary logs the summary of a channel's close transaction
+// seen on-chain.
+//
+// NOTE: Part of the ContractResolver interface.
+func (b *boltArbitratorLog) LogCloseSummary(c *channeldb.ChannelCloseSummary) error {
+	return b.db.Batch(func(tx *bolt.Tx) error {
+		scopeBucket, err := tx.CreateBucketIfNotExists(b.scopeKey[:])
+		if err != nil {
+			return err
+		}
+
+		var b bytes.Buffer
+		err = channeldb.SerializeChannelCloseSummary(&b, c)
+		if err != nil {
+			return err
+		}
+
+		return scopeBucket.Put(closeSummaryKey, b.Bytes())
+	})
+}
+
+// FetchCloseSummary fetches the close summary previously written to
+// the log.
+//
+// NOTE: Part of the ContractResolver interface.
+func (b *boltArbitratorLog) FetchCloseSummary() (
+	*channeldb.ChannelCloseSummary, error) {
+
+	var c *channeldb.ChannelCloseSummary
+	var err error
+	err = b.db.View(func(tx *bolt.Tx) error {
+		scopeBucket := tx.Bucket(b.scopeKey[:])
+		if scopeBucket == nil {
+			return errScopeBucketNoExist
+		}
+
+		summaryBytes := scopeBucket.Get(closeSummaryKey)
+		if summaryBytes == nil {
+			return errNoCloseSummary
+		}
+
+		r := bytes.NewReader(summaryBytes)
+
+		c, err = channeldb.DeserializeCloseChannelSummary(r)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return c, nil
 }
 
 // LogChainActions stores a set of chain actions which are derived from our set

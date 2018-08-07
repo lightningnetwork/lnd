@@ -496,7 +496,7 @@ func (d *DB) FetchClosedChannels(pendingOnly bool) ([]*ChannelCloseSummary, erro
 
 		return closeBucket.ForEach(func(chanID []byte, summaryBytes []byte) error {
 			summaryReader := bytes.NewReader(summaryBytes)
-			chanSummary, err := deserializeCloseChannelSummary(summaryReader)
+			chanSummary, err := DeserializeCloseChannelSummary(summaryReader)
 			if err != nil {
 				return err
 			}
@@ -544,7 +544,7 @@ func (d *DB) FetchClosedChannel(chanID *wire.OutPoint) (*ChannelCloseSummary, er
 		}
 
 		summaryReader := bytes.NewReader(summaryBytes)
-		chanSummary, err = deserializeCloseChannelSummary(summaryReader)
+		chanSummary, err = DeserializeCloseChannelSummary(summaryReader)
 
 		return err
 	}); err != nil {
@@ -582,7 +582,7 @@ func (d *DB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
 		}
 
 		chanSummaryReader := bytes.NewReader(chanSummaryBytes)
-		chanSummary, err := deserializeCloseChannelSummary(
+		chanSummary, err := DeserializeCloseChannelSummary(
 			chanSummaryReader,
 		)
 		if err != nil {
@@ -592,7 +592,7 @@ func (d *DB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
 		chanSummary.IsPending = false
 
 		var newSummary bytes.Buffer
-		err = serializeChannelCloseSummary(&newSummary, chanSummary)
+		err = SerializeChannelCloseSummary(&newSummary, chanSummary)
 		if err != nil {
 			return err
 		}

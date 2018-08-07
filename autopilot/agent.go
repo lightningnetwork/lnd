@@ -1,6 +1,7 @@
 package autopilot
 
 import (
+	"net"
 	"sync"
 	"sync/atomic"
 
@@ -31,6 +32,15 @@ type Config struct {
 	// ChanController is an interface that is able to directly manage the
 	// creation, closing and update of channels within the network.
 	ChanController ChannelController
+
+	// ConnectToPeer attempts to connect to the peer using one of its
+	// advertised addresses. The boolean returned signals whether the peer
+	// was already connected.
+	ConnectToPeer func(*btcec.PublicKey, []net.Addr) (bool, error)
+
+	// DisconnectPeer attempts to disconnect the peer with the given public
+	// key.
+	DisconnectPeer func(*btcec.PublicKey) error
 
 	// WalletBalance is a function closure that should return the current
 	// available balance o the backing wallet.
@@ -448,20 +458,86 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 					continue
 				}
 
-				nID := NewNodeID(chanCandidate.PeerKey)
-				pendingOpens[nID] = Channel{
-					Capacity: chanCandidate.ChanAmt,
-					Node:     nID,
-				}
-
 				go func(directive AttachmentDirective) {
-
+					// We'll start out by attempting to
+					// connect to the peer in order to begin
+					// the funding workflow.
 					pub := directive.PeerKey
-					err := a.cfg.ChanController.OpenChannel(
+					alreadyConnected, err := a.cfg.ConnectToPeer(
+						pub, directive.Addrs,
+					)
+					if err != nil {
+						log.Warnf("Unable to connect "+
+							"to %x: %v",
+							pub.SerializeCompressed(),
+							err)
 
-						directive.PeerKey,
-						directive.ChanAmt,
-						directive.Addrs,
+						// Since we failed to connect to
+						// them, we'll mark them as
+						// failed so that we don't
+						// attempt to connect to them
+						// again.
+						nodeID := NewNodeID(pub)
+						pendingMtx.Lock()
+						failedNodes[nodeID] = struct{}{}
+						pendingMtx.Unlock()
+
+						// Finally, we'll trigger the
+						// agent to select new peers to
+						// connect to.
+						a.OnChannelOpenFailure()
+
+						return
+					}
+
+					// If we were succesful, we'll track
+					// this peer in our set of pending
+					// opens. We do this here to ensure we
+					// don't stall on selecting new peers if
+					// the connection attempt happens to
+					// take too long.
+					pendingMtx.Lock()
+					if uint16(len(pendingOpens))+1 >
+						a.cfg.MaxPendingOpens {
+
+						pendingMtx.Unlock()
+
+						// Since we've reached our max
+						// number of pending opens,
+						// we'll disconnect this peer
+						// and exit. However, if we were
+						// previously connected to them,
+						// then we'll make sure to
+						// maintain the connection
+						// alive.
+						if alreadyConnected {
+							return
+						}
+
+						err = a.cfg.DisconnectPeer(
+							pub,
+						)
+						if err != nil {
+							log.Warnf("Unable to "+
+								"disconnect peer "+
+								"%x: %v",
+								pub.SerializeCompressed(),
+								err)
+						}
+						return
+					}
+
+					nodeID := NewNodeID(directive.PeerKey)
+					pendingOpens[nodeID] = Channel{
+						Capacity: directive.ChanAmt,
+						Node:     nodeID,
+					}
+					pendingMtx.Unlock()
+
+					// We can then begin the funding
+					// workflow with this peer.
+					err = a.cfg.ChanController.OpenChannel(
+						pub, directive.ChanAmt,
 					)
 					if err != nil {
 						log.Warnf("Unable to open "+
@@ -470,23 +546,40 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 							directive.ChanAmt, err)
 
 						// As the attempt failed, we'll
-						// clear it from the set of
-						// pending channels.
+						// clear the peer from the set of
+						// pending opens and mark them
+						// as failed so we don't attempt
+						// to open a channel to them
+						// again.
 						pendingMtx.Lock()
-						nID := NewNodeID(directive.PeerKey)
-						delete(pendingOpens, nID)
-
-						// Mark this node as failed so we don't
-						// attempt it again.
-						failedNodes[nID] = struct{}{}
+						delete(pendingOpens, nodeID)
+						failedNodes[nodeID] = struct{}{}
 						pendingMtx.Unlock()
 
-						// Trigger the autopilot controller to
-						// re-evaluate everything and possibly
-						// retry with a different node.
+						// Trigger the agent to
+						// re-evaluate everything and
+						// possibly retry with a
+						// different node.
 						a.OnChannelOpenFailure()
-					}
 
+						// Finally, we should also
+						// disconnect the peer if we
+						// weren't already connected to
+						// them beforehand by an
+						// external subsystem.
+						if alreadyConnected {
+							return
+						}
+
+						err = a.cfg.DisconnectPeer(pub)
+						if err != nil {
+							log.Warnf("Unable to "+
+								"disconnect peer "+
+								"%x: %v",
+								pub.SerializeCompressed(),
+								err)
+						}
+					}
 				}(chanCandidate)
 			}
 			pendingMtx.Unlock()

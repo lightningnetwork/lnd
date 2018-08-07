@@ -40,8 +40,10 @@ GOLIST := go list $(PKG)/... | grep -v '/vendor/'
 GOLISTCOVER := $(shell go list -f '{{.ImportPath}}' ./... | sed -e 's/^$(ESCPKG)/./')
 GOLISTLINT := $(shell go list -f '{{.Dir}}' ./... | grep -v 'lnrpc')
 
+include make/testing_flags.mk
+
 COVER = for dir in $(GOLISTCOVER); do \
-		$(GOTEST) $(TEST_FLAGS) \
+		$(GOTEST) -tags="$(TEST_TAGS)" \
 			-covermode=count \
 			-coverprofile=$$dir/profile.tmp $$dir; \
 		\
@@ -75,7 +77,6 @@ define print
 	echo $(GREEN)$1$(NC)
 endef
 
-include make/testing_flags.mk
 
 default: scratch
 

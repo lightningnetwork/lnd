@@ -1,6 +1,6 @@
 FROM golang:1.12-alpine as builder
 
-MAINTAINER Olaoluwa Osuntokun <lightning.engineering>
+LABEL maintainer="Olaoluwa Osuntokun <laolu@lightning.engineering>"
 
 # Copy in the local repository to build from.
 COPY . /go/src/github.com/lightningnetwork/lnd

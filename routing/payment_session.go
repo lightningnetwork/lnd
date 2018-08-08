@@ -32,8 +32,8 @@ type paymentSession struct {
 
 	mc *missionControl
 
-	haveRoutes     bool
-	preBuiltRoutes []*route.Route
+	preBuiltRoute      *route.Route
+	preBuiltRouteTried bool
 
 	pathFinder pathFinder
 }
@@ -115,19 +115,17 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	height uint32, finalCltvDelta uint16) (*route.Route, error) {
 
 	switch {
-	// If we have a set of pre-built routes, then we'll just pop off the
-	// next route from the queue, and use it directly.
-	case p.haveRoutes && len(p.preBuiltRoutes) > 0:
-		nextRoute := p.preBuiltRoutes[0]
-		p.preBuiltRoutes[0] = nil // Set to nil to avoid GC leak.
-		p.preBuiltRoutes = p.preBuiltRoutes[1:]
 
-		return nextRoute, nil
+	// If we have a pre-built route, use that directly.
+	case p.preBuiltRoute != nil && !p.preBuiltRouteTried:
+		p.preBuiltRouteTried = true
 
-	// If we were instantiated with a set of pre-built routes, and we've
-	// run out, then we'll return a terminal error.
-	case p.haveRoutes && len(p.preBuiltRoutes) == 0:
-		return nil, fmt.Errorf("pre-built routes exhausted")
+		return p.preBuiltRoute, nil
+
+	// If the pre-built route has been tried already, the payment session is
+	// over.
+	case p.preBuiltRoute != nil:
+		return nil, fmt.Errorf("pre-built route already tried")
 	}
 
 	// Otherwise we actually need to perform path finding, so we'll obtain

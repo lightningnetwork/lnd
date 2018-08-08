@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
@@ -1523,21 +1524,24 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *route
 	return r.sendPayment(payment, paySession)
 }
 
-// SendToRoute attempts to send a payment as described within the passed
-// LightningPayment through the provided routes. This function is blocking
-// and will return either: when the payment is successful, or all routes
-// have been attempted and resulted in a failed payment. If the payment
-// succeeds, then a non-nil Route will be returned which describes the
-// path the successful payment traversed within the network to reach the
-// destination. Additionally, the payment preimage will also be returned.
-func (r *ChannelRouter) SendToRoute(routes []*route.Route,
-	payment *LightningPayment) ([32]byte, *route.Route, error) {
+// SendToRoute attempts to send a payment with the given hash through the
+// provided route. This function is blocking and will return the obtained
+// preimage if the payment is successful or the full error in case of a failure.
+func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
+	lntypes.Preimage, error) {
 
-	paySession := r.missionControl.NewPaymentSessionFromRoutes(
-		routes,
-	)
+	// Create a payment session for just this route.
+	paySession := r.missionControl.NewPaymentSessionForRoute(route)
 
-	return r.sendPayment(payment, paySession)
+	// Create a (mostly) dummy payment, as the created payment session is
+	// not going to do path finding.
+	payment := &LightningPayment{
+		PaymentHash: hash,
+	}
+
+	preimage, _, err := r.sendPayment(payment, paySession)
+
+	return preimage, err
 }
 
 // sendPayment attempts to send a payment as described within the passed

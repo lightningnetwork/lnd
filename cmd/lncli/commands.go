@@ -2476,9 +2476,18 @@ func sendToRoute(ctx *cli.Context) error {
 			"from incoming array of routes: %v", err)
 	}
 
+	if len(routes.Routes) == 0 {
+		return fmt.Errorf("no routes provided")
+	}
+
+	if len(routes.Routes) != 1 {
+		return fmt.Errorf("expected a single route, but got %v",
+			len(routes.Routes))
+	}
+
 	req := &lnrpc.SendToRouteRequest{
 		PaymentHash: rHash,
-		Routes:      routes.Routes,
+		Route:       routes.Routes[0],
 	}
 
 	return sendToRouteRequest(ctx, req)

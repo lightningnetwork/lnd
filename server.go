@@ -1346,6 +1346,10 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 					s.connectToPeer(a, errChan)
 					select {
 					case err := <-errChan:
+						if err == nil {
+							return
+						}
+
 						srvrLog.Errorf("Unable to "+
 							"connect to %v: %v",
 							a, err)
@@ -1413,6 +1417,9 @@ func (s *server) initialPeerBootstrap(ignore map[autopilot.NodeID]struct{},
 				// us down.
 				select {
 				case err := <-errChan:
+					if err == nil {
+						return
+					}
 					srvrLog.Errorf("Unable to connect to "+
 						"%v: %v", addr, err)
 				// TODO: tune timeout? 3 seconds might be *too*

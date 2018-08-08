@@ -228,20 +228,6 @@ func (m *missionControl) NewPaymentSession(routeHints [][]HopHint,
 	}, nil
 }
 
-// NewPaymentSessionFromRoutes creates a new paymentSession instance that will
-// skip all path finding, and will instead utilize a set of pre-built routes.
-// This constructor allows callers to specify their own routes which can be
-// used for things like channel rebalancing, and swaps.
-func (m *missionControl) NewPaymentSessionFromRoutes(routes []*Route) *paymentSession {
-	return &paymentSession{
-		pruneViewSnapshot:    m.GraphPruneView(),
-		haveRoutes:           true,
-		preBuiltRoutes:       routes,
-		errFailedPolicyChans: make(map[EdgeLocator]struct{}),
-		mc:                   m,
-	}
-}
-
 // generateBandwidthHints is a helper function that's utilized the main
 // findPath function in order to obtain hints from the lower layer w.r.t to the
 // available bandwidth of edges on the network. Currently, we'll only obtain

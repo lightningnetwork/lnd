@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
@@ -1581,21 +1582,29 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 	return r.sendPayment(payment, paySession)
 }
 
-// SendToRoute attempts to send a payment as described within the passed
-// LightningPayment through the provided routes. This function is blocking
-// and will return either: when the payment is successful, or all routes
-// have been attempted and resulted in a failed payment. If the payment
-// succeeds, then a non-nil Route will be returned which describes the
-// path the successful payment traversed within the network to reach the
-// destination. Additionally, the payment preimage will also be returned.
-func (r *ChannelRouter) SendToRoute(routes []*Route,
-	payment *LightningPayment) ([32]byte, *Route, error) {
+// SendToRoute attempts to send a payment with the given hash through the
+// provided route. This function is blocking and will return the obtained
+// preimage if the payment is successful or the full error in case of a failure.
+func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *Route) (
+	lntypes.Preimage, error) {
 
-	paySession := r.missionControl.NewPaymentSessionFromRoutes(
-		routes,
+	log.Tracef("Attempting to send payment %x, using route: %v",
+		hash, newLogClosure(func() string {
+			return spew.Sdump(route)
+		}),
 	)
 
-	return r.sendPayment(payment, paySession)
+	preimage, err := r.sendToSwitch(route, hash)
+	if err == nil {
+		return preimage, nil
+	}
+
+	log.Warnf("Attempt to send payment %x failed: %v",
+		hash, err)
+
+	r.processSendToRouteError(route, err)
+
+	return lntypes.Preimage{}, err
 }
 
 // sendPayment attempts to send a payment as described within the passed
@@ -1982,6 +1991,38 @@ func (r *ChannelRouter) processSendError(paySession *paymentSession,
 
 	default:
 		return true
+	}
+}
+
+// processSendToRouteError processes an error resulting from a SendToRoute
+// payment attempt. As there is no mission control and payment session involved
+// in SendToRoute (lnd is effectively remote controlled), error processing is
+// limited to applying channel updates if present. It is nothing more than
+// another source of gossip.
+func (r *ChannelRouter) processSendToRouteError(route *Route, err error) {
+	fErr, ok := err.(*htlcswitch.ForwardingError)
+	if !ok {
+		return
+	}
+
+	var update *lnwire.ChannelUpdate
+	switch onionErr := fErr.FailureMessage.(type) {
+	case *lnwire.FailExpiryTooSoon:
+		update = &onionErr.Update
+	case *lnwire.FailAmountBelowMinimum:
+		update = &onionErr.Update
+	case *lnwire.FailFeeInsufficient:
+		update = &onionErr.Update
+	case *lnwire.FailIncorrectCltvExpiry:
+		update = &onionErr.Update
+	case *lnwire.FailChannelDisabled:
+		update = &onionErr.Update
+	case *lnwire.FailTemporaryChannelFailure:
+		update = onionErr.Update
+	}
+
+	if update != nil {
+		r.applyChannelUpdate(update, fErr.ErrorSource)
 	}
 }
 

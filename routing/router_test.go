@@ -18,6 +18,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -467,12 +468,12 @@ func TestChannelUpdateValidation(t *testing.T) {
 
 	// The payment parameter is mostly redundant in SendToRoute. Can be left
 	// empty for this test.
-	payment := &LightningPayment{}
+	var payment lntypes.Hash
 
 	// Send off the payment request to the router. The specified route
 	// should be attempted and the channel update should be received by
 	// router and ignored because it is missing a valid signature.
-	_, _, err = ctx.router.SendToRoute([]*Route{route}, payment)
+	_, err = ctx.router.SendToRoute(payment, route)
 	if err == nil {
 		t.Fatalf("expected route to fail with channel update")
 	}
@@ -505,7 +506,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 	}
 
 	// Retry the payment using the same route as before.
-	_, _, err = ctx.router.SendToRoute([]*Route{route}, payment)
+	_, err = ctx.router.SendToRoute(payment, route)
 	if err == nil {
 		t.Fatalf("expected route to fail with channel update")
 	}

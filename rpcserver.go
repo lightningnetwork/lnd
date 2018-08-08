@@ -2668,7 +2668,7 @@ type paymentStream struct {
 // lnrpc.SendToRouteRequest can be passed to sendPayment.
 type rpcPaymentRequest struct {
 	*lnrpc.SendRequest
-	routes []*routing.Route
+	route *routing.Route
 }
 
 // calculateFeeLimit returns the fee limit in millisatoshis. If a percentage
@@ -2751,29 +2751,13 @@ func (r *rpcServer) SendToRoute(stream lnrpc.Lightning_SendToRouteServer) error 
 func unmarshallSendToRouteRequest(req *lnrpc.SendToRouteRequest,
 	graph *channeldb.ChannelGraph) (*rpcPaymentRequest, error) {
 
-	switch {
-	case len(req.Routes) == 0 && req.Route == nil:
-		return nil, fmt.Errorf("unable to send, no routes provided")
-	case len(req.Routes) > 0 && req.Route != nil:
-		return nil, fmt.Errorf("cannot use both route and routes field")
+	if req.Route == nil {
+		return nil, fmt.Errorf("unable to send, no route provided")
 	}
 
-	var routes []*routing.Route
-	if len(req.Routes) > 0 {
-		routes = make([]*routing.Route, len(req.Routes))
-		for i, rpcroute := range req.Routes {
-			route, err := unmarshallRoute(rpcroute, graph)
-			if err != nil {
-				return nil, err
-			}
-			routes[i] = route
-		}
-	} else {
-		route, err := unmarshallRoute(req.Route, graph)
-		if err != nil {
-			return nil, err
-		}
-		routes = []*routing.Route{route}
+	route, err := unmarshallRoute(req.Route, graph)
+	if err != nil {
+		return nil, err
 	}
 
 	return &rpcPaymentRequest{
@@ -2781,7 +2765,7 @@ func unmarshallSendToRouteRequest(req *lnrpc.SendToRouteRequest,
 			PaymentHash:       req.PaymentHash,
 			PaymentHashString: req.PaymentHashString,
 		},
-		routes: routes,
+		route: route,
 	}, nil
 }
 
@@ -2799,7 +2783,7 @@ type rpcPaymentIntent struct {
 	routeHints        [][]routing.HopHint
 	outgoingChannelID *uint64
 
-	routes []*routing.Route
+	route *routing.Route
 }
 
 // extractPaymentIntent attempts to parse the complete details required to
@@ -2810,7 +2794,7 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 	payIntent := rpcPaymentIntent{}
 
 	// If a route was specified, then we can use that directly.
-	if len(rpcPayReq.routes) != 0 {
+	if rpcPayReq.route != nil {
 		// If the user is using the REST interface, then they'll be
 		// passing the payment hash as a hex encoded string.
 		if rpcPayReq.PaymentHashString != "" {
@@ -2826,7 +2810,7 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 			copy(payIntent.rHash[:], rpcPayReq.PaymentHash)
 		}
 
-		payIntent.routes = rpcPayReq.routes
+		payIntent.route = rpcPayReq.route
 		return payIntent, nil
 	}
 
@@ -2980,7 +2964,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 
 	// If a route was specified, then we'll pass the route directly to the
 	// router, otherwise we'll create a payment session to execute it.
-	if len(payIntent.routes) == 0 {
+	if payIntent.route == nil {
 		payment := &routing.LightningPayment{
 			Target:            payIntent.dest,
 			Amount:            payIntent.msat,
@@ -3000,13 +2984,11 @@ func (r *rpcServer) dispatchPaymentIntent(
 			payment,
 		)
 	} else {
-		payment := &routing.LightningPayment{
-			PaymentHash: payIntent.rHash,
-		}
-
-		preImage, route, routerErr = r.server.chanRouter.SendToRoute(
-			payIntent.routes, payment,
+		preImage, routerErr = r.server.chanRouter.SendToRoute(
+			payIntent.rHash, payIntent.route,
 		)
+
+		route = payIntent.route
 	}
 
 	// If the route failed, then we'll return a nil save err, but a non-nil
@@ -3017,14 +2999,8 @@ func (r *rpcServer) dispatchPaymentIntent(
 		}, nil
 	}
 
-	// If a route was used to complete this payment, then we'll need to
-	// compute the final amount sent
-	var amt lnwire.MilliSatoshi
-	if len(payIntent.routes) > 0 {
-		amt = route.TotalAmount - route.TotalFees
-	} else {
-		amt = payIntent.msat
-	}
+	// Calculate amount paid to receiver.
+	amt := route.TotalAmount - route.TotalFees
 
 	// Save the completed payment to the database for record keeping
 	// purposes.
@@ -3216,7 +3192,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 func (r *rpcServer) SendToRouteSync(ctx context.Context,
 	req *lnrpc.SendToRouteRequest) (*lnrpc.SendResponse, error) {
 
-	if len(req.Routes) == 0 {
+	if req.Route == nil {
 		return nil, fmt.Errorf("unable to send, no routes provided")
 	}
 

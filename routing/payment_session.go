@@ -1,7 +1,6 @@
 package routing
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -30,9 +29,6 @@ type paymentSession struct {
 	errFailedPolicyChans map[EdgeLocator]struct{}
 
 	mc *missionControl
-
-	haveRoutes     bool
-	preBuiltRoutes []*Route
 }
 
 // ReportVertexFailure adds a vertex to the graph prune view after a client
@@ -110,22 +106,6 @@ func (p *paymentSession) ReportEdgePolicyFailure(
 // NOTE: This function is safe for concurrent access.
 func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	height uint32, finalCltvDelta uint16) (*Route, error) {
-
-	switch {
-	// If we have a set of pre-built routes, then we'll just pop off the
-	// next route from the queue, and use it directly.
-	case p.haveRoutes && len(p.preBuiltRoutes) > 0:
-		nextRoute := p.preBuiltRoutes[0]
-		p.preBuiltRoutes[0] = nil // Set to nil to avoid GC leak.
-		p.preBuiltRoutes = p.preBuiltRoutes[1:]
-
-		return nextRoute, nil
-
-	// If we were instantiated with a set of pre-built routes, and we've
-	// run out, then we'll return a terminal error.
-	case p.haveRoutes && len(p.preBuiltRoutes) == 0:
-		return nil, fmt.Errorf("pre-built routes exhausted")
-	}
 
 	// Otherwise we actually need to perform path finding, so we'll obtain
 	// our current prune view snapshot. This view will only ever grow

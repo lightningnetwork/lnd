@@ -1498,6 +1498,18 @@ func testPublishTransaction(r *rpctest.Harness,
 		}
 	}
 
+	// Now, we'll test the case where a transaction has an insufficient fee
+	// that does not allow it to propagate throughout the network.
+	weightEstimator := (&lnwallet.TxWeightEstimator{}).AddP2WKHInput().
+		AddP2WKHOutput()
+	weight := int64(weightEstimator.Weight())
+	txFee = lnwallet.SatPerKWeight(250).FeeForWeight(weight) - 1
+
+	tx8 := newTx(t, r, w, output, keyDesc, keyDesc.PubKey, txFee)
+	if err := w.PublishTransaction(tx8); err != lnwallet.ErrInsufficientFee {
+		t.Fatalf("expected ErrInsufficientFee, got: %v", err)
+	}
+
 	// TODO(halseth): test replaceable transactions when btcd
 	// gets RBF support.
 }

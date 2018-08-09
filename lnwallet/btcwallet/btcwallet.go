@@ -399,6 +399,24 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx) error {
 				// is missing or already spent.
 				return lnwallet.ErrDoubleSpend
 			}
+			if strings.Contains(err.Error(), "insufficient priority") {
+				// Transaction failed to broadcast due to not
+				// having enough of a fee to be accepted by the
+				// backend's mempool.
+				return lnwallet.ErrInsufficientFee
+			}
+			if strings.Contains(err.Error(), "under the required amount") {
+				// Transaction failed to broadcast due to not
+				// having enough of a fee to be accepted by the
+				// backend's mempool.
+				return lnwallet.ErrInsufficientFee
+			}
+			if strings.Contains(err.Error(), "low fees") {
+				// Transaction failed to broadcast due to not
+				// having enough of a fee to be accepted by the
+				// backend's mempool.
+				return lnwallet.ErrInsufficientFee
+			}
 
 		case *chain.BitcoindClient:
 			if strings.Contains(err.Error(), "txn-already-in-mempool") {
@@ -428,6 +446,12 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx) error {
 				// is missing or already spent.
 				return lnwallet.ErrDoubleSpend
 			}
+			if strings.Contains(err.Error(), "fee not met") {
+				// Transaction failed to broadcast due to not
+				// having enough of a fee to be accepted by the
+				// backend's mempool.
+				return lnwallet.ErrInsufficientFee
+			}
 
 		case *chain.NeutrinoClient:
 			if strings.Contains(err.Error(), "already have") {
@@ -443,6 +467,30 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx) error {
 			if strings.Contains(err.Error(), "already spent") {
 				// Output was already spent.
 				return lnwallet.ErrDoubleSpend
+			}
+			if strings.Contains(err.Error(), "insufficient priority") {
+				// Transaction failed to broadcast due to not
+				// having enough of a fee to be accepted by the
+				// network.
+				return lnwallet.ErrInsufficientFee
+			}
+			if strings.Contains(err.Error(), "under the required amount") {
+				// Transaction failed to broadcast due to not
+				// having enough of a fee to be accepted by the
+				// network.
+				return lnwallet.ErrInsufficientFee
+			}
+			if strings.Contains(err.Error(), "low fees") {
+				// Transaction failed to broadcast due to not
+				// having enough of a fee to be accepted by the
+				// network.
+				return lnwallet.ErrInsufficientFee
+			}
+			if strings.Contains(err.Error(), "fee not met") {
+				// Transaction failed to broadcast due to not
+				// having enough of a fee to be accepted by the
+				// network.
+				return lnwallet.ErrInsufficientFee
 			}
 
 		default:

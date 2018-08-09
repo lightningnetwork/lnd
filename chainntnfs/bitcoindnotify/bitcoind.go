@@ -299,30 +299,53 @@ out:
 		case ntfn := <-b.chainConn.Notifications():
 			switch item := ntfn.(type) {
 			case chain.BlockConnected:
-				if item.Height != b.bestBlock.Height+1 {
-					chainntnfs.Log.Warnf("Received blocks out of order: "+
-						"current height=%d, new height=%d",
-						bestHeight, item.Height)
+				blockHeader, err :=
+					b.chainConn.GetBlockHeader(&item.Hash)
+				if err != nil {
+					chainntnfs.Log.Errorf("Unable to fetch "+
+						"block header: %v", err)
 					continue
 				}
 
-				rawBlock, err := b.chainConn.GetBlock(&item.Hash)
-				if err != nil {
-					chainntnfs.Log.Errorf("Unable to get block: %v", err)
-					continue
+				if blockHeader.PrevBlock != *b.bestBlock.Hash {
+					// Handle the case where the notifier
+					// missed some blocks from its chain
+					// backend.
+					chainntnfs.Log.Infof("Missed blocks, " +
+						"attempting to catch up")
+					newBestBlock, missedBlocks, err :=
+						chainntnfs.HandleMissedBlocks(
+							b.chainConn,
+							b.txConfNotifier,
+							b.bestBlock, item.Height,
+							true,
+						)
+
+					if err != nil {
+						// Set the bestBlock here in case
+						// a catch up partially completed.
+						b.bestBlock = newBestBlock
+						chainntnfs.Log.Error(err)
+						continue
+					}
+
+					for _, block := range missedBlocks {
+						err := b.handleBlockConnected(block)
+						if err != nil {
+							chainntnfs.Log.Error(err)
+							continue out
+						}
+					}
 				}
 
-				chainntnfs.Log.Infof("New block: height=%v, sha=%v",
-					item.Height, item.Hash)
-
-				b.notifyBlockEpochs(item.Height, &item.Hash)
-
-				txns := btcutil.NewBlock(rawBlock).Transactions()
-				err = b.txConfNotifier.ConnectTip(&item.Hash,
-					uint32(item.Height), txns)
-				if err != nil {
+				newBlock := chainntnfs.BlockEpoch{
+					Height: item.Height,
+					Hash:   &item.Hash,
+				}
+				if err := b.handleBlockConnected(newBlock); err != nil {
 					chainntnfs.Log.Error(err)
 				}
+
 				continue
 
 			case chain.BlockDisconnected:

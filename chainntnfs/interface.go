@@ -378,6 +378,61 @@ func RewindChain(chainConn ChainConn, txConfNotifier *TxConfNotifier,
 	return newBestBlock, nil
 }
 
+// HandleMissedBlocks is called when the chain backend for a notifier misses a
+// series of blocks, handling a reorg if necessary. Its backendStoresReorgs
+// parameter tells it whether or not the notifier's chainConn stores
+// information about blocks that have been reorged out of the chain, which allows
+// HandleMissedBlocks to check whether the notifier's best block has been
+// reorged out, and rewind the chain accordingly. It returns the best block for
+// the notifier and a slice of the missed blocks. The new best block needs to be
+// returned in case a chain rewind occurs and partially completes before
+// erroring. In the case where there is no rewind, the notifier's
+// current best block is returned.
+func HandleMissedBlocks(chainConn ChainConn, txConfNotifier *TxConfNotifier,
+	currBestBlock BlockEpoch, newHeight int32,
+	backendStoresReorgs bool) (BlockEpoch, []BlockEpoch, error) {
+
+	startingHeight := currBestBlock.Height
+
+	if backendStoresReorgs {
+		// If a reorg causes our best hash to be incorrect, rewind the
+		// chain so our best block is set to the closest common
+		// ancestor, then dispatch notifications from there.
+		hashAtBestHeight, err :=
+			chainConn.GetBlockHash(int64(currBestBlock.Height))
+		if err != nil {
+			return currBestBlock, nil, fmt.Errorf("unable to find "+
+				"blockhash for height=%d: %v",
+				currBestBlock.Height, err)
+		}
+
+		startingHeight, err = GetCommonBlockAncestorHeight(
+			chainConn, *currBestBlock.Hash, *hashAtBestHeight,
+		)
+		if err != nil {
+			return currBestBlock, nil, fmt.Errorf("unable to find "+
+				"common ancestor: %v", err)
+		}
+
+		currBestBlock, err = RewindChain(chainConn, txConfNotifier,
+			currBestBlock, startingHeight)
+		if err != nil {
+			return currBestBlock, nil, fmt.Errorf("unable to "+
+				"rewind chain: %v", err)
+		}
+	}
+
+	// We want to start dispatching historical notifications from the block
+	// right after our best block, to avoid a redundant notification.
+	missedBlocks, err := getMissedBlocks(chainConn, startingHeight+1, newHeight)
+	if err != nil {
+		return currBestBlock, nil, fmt.Errorf("unable to get missed "+
+			"blocks: %v", err)
+	}
+
+	return currBestBlock, missedBlocks, nil
+}
+
 // getMissedBlocks returns a slice of blocks: [startingHeight, endingHeight)
 // fetched from the chain.
 func getMissedBlocks(chainConn ChainConn, startingHeight,
@@ -393,8 +448,8 @@ func getMissedBlocks(chainConn ChainConn, startingHeight,
 	for height := startingHeight; height < endingHeight; height++ {
 		hash, err := chainConn.GetBlockHash(int64(height))
 		if err != nil {
-			return nil, fmt.Errorf("unable to find blockhash for height=%d: %v",
-				height, err)
+			return nil, fmt.Errorf("unable to find blockhash for "+
+				"height=%d: %v", height, err)
 		}
 		missedBlocks = append(missedBlocks,
 			BlockEpoch{Hash: hash, Height: height})

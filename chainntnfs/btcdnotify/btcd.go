@@ -366,31 +366,50 @@ out:
 		case item := <-b.chainUpdates.ChanOut():
 			update := item.(*chainUpdate)
 			if update.connect {
-				if update.blockHeight != b.bestBlock.Height+1 {
-					chainntnfs.Log.Warnf("Received blocks out of order: "+
-						"current height=%d, new height=%d",
-						currentHeight, update.blockHeight)
-					continue
-				}
-
-				rawBlock, err := b.chainConn.GetBlock(update.blockHash)
+				blockHeader, err :=
+					b.chainConn.GetBlockHeader(update.blockHash)
 				if err != nil {
-					chainntnfs.Log.Errorf("Unable to get block: %v", err)
+					chainntnfs.Log.Errorf("Unable to fetch "+
+						"block header: %v", err)
 					continue
 				}
 
-				chainntnfs.Log.Infof("New block: height=%v, sha=%v",
-					update.blockHeight, update.blockHash)
+				if blockHeader.PrevBlock != *b.bestBlock.Hash {
+					// Handle the case where the notifier
+					// missed some blocks from its chain
+					// backend
+					chainntnfs.Log.Infof("Missed blocks, " +
+						"attempting to catch up")
+					newBestBlock, missedBlocks, err :=
+						chainntnfs.HandleMissedBlocks(
+							b.chainConn,
+							b.txConfNotifier,
+							b.bestBlock,
+							update.blockHeight,
+							true,
+						)
+					if err != nil {
+						// Set the bestBlock here in case
+						// a catch up partially completed.
+						b.bestBlock = newBestBlock
+						chainntnfs.Log.Error(err)
+						continue
+					}
 
-				txns := btcutil.NewBlock(rawBlock).Transactions()
-
-				block := &filteredBlock{
-					hash:    *update.blockHash,
-					height:  uint32(update.blockHeight),
-					txns:    txns,
-					connect: true,
+					for _, block := range missedBlocks {
+						err := b.handleBlockConnected(block)
+						if err != nil {
+							chainntnfs.Log.Error(err)
+							continue out
+						}
+					}
 				}
-				if err := b.handleBlockConnected(block); err != nil {
+
+				newBlock := chainntnfs.BlockEpoch{
+					Height: update.blockHeight,
+					Hash:   update.blockHash,
+				}
+				if err := b.handleBlockConnected(newBlock); err != nil {
 					chainntnfs.Log.Error(err)
 				}
 				continue

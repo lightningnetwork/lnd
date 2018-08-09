@@ -245,7 +245,7 @@ func (n *NeutrinoNotifier) onFilteredBlockDisconnected(height int32,
 // notification registrations, as well as notification dispatches.
 func (n *NeutrinoNotifier) notificationDispatcher() {
 	defer n.wg.Done()
-
+out:
 	for {
 		select {
 		case cancelMsg := <-n.notificationCancels:
@@ -396,24 +396,61 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 			update := item.(*filteredBlock)
 			if update.connect {
 				n.heightMtx.Lock()
+				// Since neutrino has no way of knowing what
+				// height to rewind to in the case of a reorged
+				// best known height, there is no point in
+				// checking that the previous hash matches the
+				// the hash from our best known height the way
+				// the other notifiers do when they receive
+				// a new connected block. Therefore, we just
+				// compare the heights.
 				if update.height != n.bestHeight+1 {
-					chainntnfs.Log.Warnf("Received blocks out of order: "+
-						"current height=%d, new height=%d",
-						n.bestHeight, update.height)
-					n.heightMtx.Unlock()
-					continue
+					// Handle the case where the notifier
+					// missed some blocks from its chain
+					// backend
+					chainntnfs.Log.Infof("Missed blocks, " +
+						"attempting to catch up")
+					bestBlock := chainntnfs.BlockEpoch{
+						Height: int32(n.bestHeight),
+						Hash:   nil,
+					}
+					_, missedBlocks, err :=
+						chainntnfs.HandleMissedBlocks(
+							n.chainConn,
+							n.txConfNotifier,
+							bestBlock,
+							int32(update.height),
+							false,
+						)
+					if err != nil {
+						chainntnfs.Log.Error(err)
+						n.heightMtx.Unlock()
+						continue
+					}
+
+					for _, block := range missedBlocks {
+						filteredBlock, err :=
+							n.getFilteredBlock(block)
+						if err != nil {
+							chainntnfs.Log.Error(err)
+							n.heightMtx.Unlock()
+							continue out
+						}
+						err = n.handleBlockConnected(filteredBlock)
+						if err != nil {
+							chainntnfs.Log.Error(err)
+							n.heightMtx.Unlock()
+							continue out
+						}
+					}
+
 				}
-
-				n.bestHeight = update.height
-				n.heightMtx.Unlock()
-
-				chainntnfs.Log.Infof("New block: height=%v, sha=%v",
-					update.height, update.hash)
 
 				err := n.handleBlockConnected(update)
 				if err != nil {
 					chainntnfs.Log.Error(err)
 				}
+				n.heightMtx.Unlock()
 				continue
 			}
 
@@ -429,7 +466,10 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 			if err != nil {
 				chainntnfs.Log.Errorf("Unable to fetch header"+
 					"for height %d: %v", n.bestHeight, err)
+				n.heightMtx.Unlock()
+				continue
 			}
+
 			hash := header.BlockHash()
 			notifierBestBlock := chainntnfs.BlockEpoch{
 				Height: int32(n.bestHeight),

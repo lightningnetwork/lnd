@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -104,6 +105,27 @@ func GenFundingPkScript(aPub, bPub []byte, amt int64) ([]byte, *wire.TxOut, erro
 	}
 
 	return witnessScript, wire.NewTxOut(amt, pkScript), nil
+}
+
+// spendP2WPKH generates the witness stack required to redeem a P2WPKH output.
+func spendP2WPKH(signer Signer, signDesc *SignDescriptor,
+	tx *wire.MsgTx) (wire.TxWitness, error) {
+
+	if signDesc.KeyDesc.PubKey == nil {
+		return nil, errors.New("cannot generate witness with nil " +
+			"KeyDesc pubkey")
+	}
+
+	sig, err := signer.SignOutputRaw(tx, signDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	witness := make(wire.TxWitness, 2)
+	witness[0] = append(sig, byte(txscript.SigHashAll))
+	witness[1] = signDesc.KeyDesc.PubKey.SerializeCompressed()
+
+	return witness, nil
 }
 
 // SpendMultiSig generates the witness stack required to redeem the 2-of-2 p2wsh

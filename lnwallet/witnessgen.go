@@ -69,6 +69,9 @@ const (
 	// broadcast a revoked commitment, but then also immediately attempt to
 	// go to the second level to claim the HTLC.
 	HtlcSecondLevelRevoke WitnessType = 9
+
+	// P2WPKH is a witness that allows us to spend a P2WPKH output.
+	P2WPKH WitnessType = 10
 )
 
 // WitnessGenerator represents a function which is able to generate the final
@@ -119,6 +122,9 @@ func (wt WitnessType) GenWitnessFunc(signer Signer,
 
 		case HtlcSecondLevelRevoke:
 			return htlcSpendRevoke(signer, desc, tx)
+
+		case P2WPKH:
+			return spendP2WPKH(signer, desc, tx)
 
 		default:
 			return nil, fmt.Errorf("unknown witness type: %v", wt)

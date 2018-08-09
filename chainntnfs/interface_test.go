@@ -29,15 +29,15 @@ import (
 
 	// Required to auto-register the bitcoind backed ChainNotifier
 	// implementation.
-	_ "github.com/lightningnetwork/lnd/chainntnfs/bitcoindnotify"
+	"github.com/lightningnetwork/lnd/chainntnfs/bitcoindnotify"
 
 	// Required to auto-register the btcd backed ChainNotifier
 	// implementation.
-	_ "github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
+	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 
 	// Required to auto-register the neutrino backed ChainNotifier
 	// implementation.
-	_ "github.com/lightningnetwork/lnd/chainntnfs/neutrinonotify"
+	"github.com/lightningnetwork/lnd/chainntnfs/neutrinonotify"
 
 	// Required to register the boltdb walletdb implementation.
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
@@ -113,7 +113,7 @@ func waitForMempoolTx(r *rpctest.Harness, txid *chainhash.Hash) error {
 }
 
 func testSingleConfirmationNotification(miner *rpctest.Harness,
-	notifier chainntnfs.ChainNotifier, t *testing.T) {
+	notifier chainntnfs.TestChainNotifier, t *testing.T) {
 
 	// We'd like to test the case of being notified once a txid reaches
 	// a *single* confirmation.
@@ -184,7 +184,7 @@ func testSingleConfirmationNotification(miner *rpctest.Harness,
 }
 
 func testMultiConfirmationNotification(miner *rpctest.Harness,
-	notifier chainntnfs.ChainNotifier, t *testing.T) {
+	notifier chainntnfs.TestChainNotifier, t *testing.T) {
 
 	// We'd like to test the case of being notified once a txid reaches
 	// N confirmations, where N > 1.
@@ -232,7 +232,7 @@ func testMultiConfirmationNotification(miner *rpctest.Harness,
 }
 
 func testBatchConfirmationNotification(miner *rpctest.Harness,
-	notifier chainntnfs.ChainNotifier, t *testing.T) {
+	notifier chainntnfs.TestChainNotifier, t *testing.T) {
 
 	// We'd like to test a case of serving notifications to multiple
 	// clients, each requesting to be notified once a txid receives
@@ -400,7 +400,7 @@ func checkNotificationFields(ntfn *chainntnfs.SpendDetail,
 }
 
 func testSpendNotification(miner *rpctest.Harness,
-	notifier chainntnfs.ChainNotifier, t *testing.T) {
+	notifier chainntnfs.TestChainNotifier, t *testing.T) {
 
 	// We'd like to test the spend notifications for all ChainNotifier
 	// concrete implementations.
@@ -512,7 +512,7 @@ func testSpendNotification(miner *rpctest.Harness,
 }
 
 func testBlockEpochNotification(miner *rpctest.Harness,
-	notifier chainntnfs.ChainNotifier, t *testing.T) {
+	notifier chainntnfs.TestChainNotifier, t *testing.T) {
 
 	// We'd like to test the case of multiple registered clients receiving
 	// block epoch notifications.
@@ -560,7 +560,7 @@ func testBlockEpochNotification(miner *rpctest.Harness,
 }
 
 func testMultiClientConfirmationNotification(miner *rpctest.Harness,
-	notifier chainntnfs.ChainNotifier, t *testing.T) {
+	notifier chainntnfs.TestChainNotifier, t *testing.T) {
 
 	// We'd like to test the case of a multiple clients registered to
 	// receive a confirmation notification for the same transaction.
@@ -626,7 +626,7 @@ func testMultiClientConfirmationNotification(miner *rpctest.Harness,
 // transaction that has already been included in a block. In this case, the
 // confirmation notification should be dispatched immediately.
 func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
-	notifier chainntnfs.ChainNotifier, t *testing.T) {
+	notifier chainntnfs.TestChainNotifier, t *testing.T) {
 
 	// First, let's send some coins to "ourself", obtaining a txid.  We're
 	// spending from a coinbase output here, so we use the dedicated
@@ -786,7 +786,7 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 // checking for a confirmation. This should not cause the notifier to stop
 // working
 func testLazyNtfnConsumer(miner *rpctest.Harness,
-	notifier chainntnfs.ChainNotifier, t *testing.T) {
+	notifier chainntnfs.TestChainNotifier, t *testing.T) {
 
 	// Create a transaction to be notified about. We'll register for
 	// notifications on this transaction but won't be prompt in checking them
@@ -877,7 +877,7 @@ func testLazyNtfnConsumer(miner *rpctest.Harness,
 // has already been included in a block. In this case, the spend notification
 // should be dispatched immediately.
 func testSpendBeforeNtfnRegistration(miner *rpctest.Harness,
-	notifier chainntnfs.ChainNotifier, t *testing.T) {
+	notifier chainntnfs.TestChainNotifier, t *testing.T) {
 
 	// We'd like to test the spend notifications for all ChainNotifier
 	// concrete implementations.
@@ -981,7 +981,7 @@ func testSpendBeforeNtfnRegistration(miner *rpctest.Harness,
 }
 
 func testCancelSpendNtfn(node *rpctest.Harness,
-	notifier chainntnfs.ChainNotifier, t *testing.T) {
+	notifier chainntnfs.TestChainNotifier, t *testing.T) {
 
 	// We'd like to test that once a spend notification is registered, it
 	// can be cancelled before the notification is dispatched.
@@ -1072,7 +1072,7 @@ func testCancelSpendNtfn(node *rpctest.Harness,
 	}
 }
 
-func testCancelEpochNtfn(node *rpctest.Harness, notifier chainntnfs.ChainNotifier,
+func testCancelEpochNtfn(node *rpctest.Harness, notifier chainntnfs.TestChainNotifier,
 	t *testing.T) {
 
 	// We'd like to ensure that once a client cancels their block epoch
@@ -1122,7 +1122,7 @@ func testCancelEpochNtfn(node *rpctest.Harness, notifier chainntnfs.ChainNotifie
 	}
 }
 
-func testReorgConf(miner *rpctest.Harness, notifier chainntnfs.ChainNotifier,
+func testReorgConf(miner *rpctest.Harness, notifier chainntnfs.TestChainNotifier,
 	t *testing.T) {
 
 	// Set up a new miner that we can use to cause a reorg.
@@ -1277,7 +1277,7 @@ func testReorgConf(miner *rpctest.Harness, notifier chainntnfs.ChainNotifier,
 type testCase struct {
 	name string
 
-	test func(node *rpctest.Harness, notifier chainntnfs.ChainNotifier, t *testing.T)
+	test func(node *rpctest.Harness, notifier chainntnfs.TestChainNotifier, t *testing.T)
 }
 
 var ntfnTests = []testCase{
@@ -1361,8 +1361,10 @@ func TestInterfaces(t *testing.T) {
 
 	log.Printf("Running %v ChainNotifier interface tests\n", len(ntfnTests))
 	var (
-		notifier chainntnfs.ChainNotifier
+		notifier chainntnfs.TestChainNotifier
 		cleanUp  func()
+
+		newNotifier func() (chainntnfs.TestChainNotifier, error)
 	)
 	for _, notifierDriver := range chainntnfs.RegisteredNotifiers() {
 		notifierType := notifierDriver.NotifierType
@@ -1430,18 +1432,15 @@ func TestInterfaces(t *testing.T) {
 			}
 			cleanUp = cleanUp3
 
-			notifier, err = notifierDriver.New(chainConn)
-			if err != nil {
-				t.Fatalf("unable to create %v notifier: %v",
-					notifierType, err)
+			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
+				return bitcoindnotify.New(chainConn), nil
 			}
 
 		case "btcd":
-			notifier, err = notifierDriver.New(&rpcConfig)
-			if err != nil {
-				t.Fatalf("unable to create %v notifier: %v",
-					notifierType, err)
+			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
+				return btcdnotify.New(&rpcConfig)
 			}
+
 			cleanUp = func() {}
 
 		case "neutrino":
@@ -1481,15 +1480,17 @@ func TestInterfaces(t *testing.T) {
 			for !spvNode.IsCurrent() {
 				time.Sleep(time.Millisecond * 100)
 			}
-
-			notifier, err = notifierDriver.New(spvNode)
-			if err != nil {
-				t.Fatalf("unable to create %v notifier: %v",
-					notifierType, err)
+			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
+				return neutrinonotify.New(spvNode)
 			}
 		}
 
 		t.Logf("Running ChainNotifier interface tests for: %v", notifierType)
+
+		notifier, err = newNotifier()
+		if err != nil {
+			t.Fatalf("unable to create %v notifier: %v", notifierType, err)
+		}
 
 		if err := notifier.Start(); err != nil {
 			t.Fatalf("unable to start notifier %v: %v",

@@ -26,7 +26,7 @@ func TestHeapOrdering(t *testing.T) {
 	sortedEntries := make([]nodeWithDist, 0, numEntries)
 	for i := 0; i < numEntries; i++ {
 		entry := nodeWithDist{
-			dist: prand.Int63(),
+			dist: prand.Uint64(),
 		}
 
 		heap.Push(&nodeHeap, entry)

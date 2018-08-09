@@ -443,17 +443,17 @@ type edgeWithPrev struct {
 // channels with shorter time lock deltas and shorter (hops) routes in general.
 // RiskFactor controls the influence of time lock on route selection. This is
 // currently a fixed value, but might be configurable in the future.
-func edgeWeight(amt lnwire.MilliSatoshi, e *channeldb.ChannelEdgePolicy) int64 {
+func edgeWeight(amt lnwire.MilliSatoshi, e *channeldb.ChannelEdgePolicy) uint64 {
 	// First, we'll compute the "pure" fee through this hop. We say pure,
 	// as this may not be what's ultimately paid as fees are properly
 	// calculated backwards, while we're going in the reverse direction.
-	pureFee := int64(computeFee(amt, e))
+	pureFee := uint64(computeFee(amt, e))
 
 	// timeLockPenalty is the penalty for the time lock delta of this channel.
 	// It is controlled by RiskFactorBillionths and scales proportional
 	// to the amount that will pass through channel. Rationale is that it if
 	// a twice as large amount gets locked up, it is twice as bad.
-	timeLockPenalty := int64(amt) * int64(e.TimeLockDelta) * RiskFactorBillionths / 1000000000
+	timeLockPenalty := uint64(amt) * uint64(e.TimeLockDelta) * RiskFactorBillionths / 1000000000
 
 	return pureFee + timeLockPenalty
 }

@@ -526,7 +526,7 @@ func testBlockEpochNotification(miner *rpctest.Harness,
 	// blocks we generate below. So we'll use a WaitGroup to synchronize the
 	// test.
 	for i := 0; i < numClients; i++ {
-		epochClient, err := notifier.RegisterBlockEpochNtfn()
+		epochClient, err := notifier.RegisterBlockEpochNtfn(nil)
 		if err != nil {
 			t.Fatalf("unable to register for epoch notification")
 		}
@@ -898,7 +898,7 @@ func testSpendBeforeNtfnRegistration(miner *rpctest.Harness,
 
 	// We create an epoch client we can use to make sure the notifier is
 	// caught up to the mining node's chain.
-	epochClient, err := notifier.RegisterBlockEpochNtfn()
+	epochClient, err := notifier.RegisterBlockEpochNtfn(nil)
 	if err != nil {
 		t.Fatalf("unable to register for block epoch: %v", err)
 	}
@@ -1082,7 +1082,7 @@ func testCancelEpochNtfn(node *rpctest.Harness, notifier chainntnfs.ChainNotifie
 
 	epochClients := make([]*chainntnfs.BlockEpochEvent, numClients)
 	for i := 0; i < numClients; i++ {
-		epochClient, err := notifier.RegisterBlockEpochNtfn()
+		epochClient, err := notifier.RegisterBlockEpochNtfn(nil)
 		if err != nil {
 			t.Fatalf("unable to register for epoch notification")
 		}

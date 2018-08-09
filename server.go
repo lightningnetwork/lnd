@@ -3112,6 +3112,9 @@ func (s *server) watchChannelStatus() {
 
 			// We'll send out an update for all channels that have
 			// had their status unchanged for longer than the limit.
+			// NOTE: We also make sure to activate any channel when
+			// we connect to a peer, to make them available for
+			// path finding immediately.
 			for op, st := range status {
 				disable := !st.active
 

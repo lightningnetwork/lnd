@@ -1,6 +1,7 @@
 // Copyright (c) 2013-2017 The btcsuite developers
 // Copyright (c) 2015-2016 The Decred developers
-// Copyright (C) 2015-2017 The Lightning Network Developers
+// Copyright (C) 2015-2018 The Lightning Network Developers
+//go:generate go-extpoints
 
 package main
 
@@ -18,10 +19,8 @@ import (
 	"math/big"
 	"net"
 	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"path/filepath"
-	"runtime/pprof"
 	"strings"
 	"sync"
 	"time"
@@ -39,6 +38,7 @@ import (
 	flags "github.com/jessevdk/go-flags"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/config"
+	"github.com/lightningnetwork/lnd/extpoints"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -99,11 +99,10 @@ func lndMain() error {
 
 	// Load the configuration, and parse any command line options. This
 	// function will also set up logging properly.
-	loadedConfig, err := loadConfig()
+	cfg, err := loadConfig()
 	if err != nil {
 		return err
 	}
-	cfg = loadedConfig
 	defer func() {
 		if logRotator != nil {
 			logRotator.Close()
@@ -133,27 +132,12 @@ func lndMain() error {
 		network,
 	)
 
-	// Enable http profiling server if requested.
-	if cfg.Profile != "" {
-		go func() {
-			listenAddr := net.JoinHostPort("", cfg.Profile)
-			profileRedirect := http.RedirectHandler("/debug/pprof",
-				http.StatusSeeOther)
-			http.Handle("/", profileRedirect)
-			fmt.Println(http.ListenAndServe(listenAddr, nil))
-		}()
-	}
-
-	// Write cpu profile if requested.
-	if cfg.CPUProfile != "" {
-		f, err := os.Create(cfg.CPUProfile)
+	// Notify listeners that lnd has started
+	for _, listener := range extpoints.EventListeners.All() {
+		err := listener.LndStart(cfg)
 		if err != nil {
-			ltndLog.Errorf("Unable to create cpu profile: %v", err)
-			return err
+			ltndLog.Error(err)
 		}
-		pprof.StartCPUProfile(f)
-		defer f.Close()
-		defer pprof.StopCPUProfile()
 	}
 
 	// Create the network-segmented directory for the channel database.

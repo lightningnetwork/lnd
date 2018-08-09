@@ -70,6 +70,7 @@ LINT = $(LINT_BIN) \
 	--enable=vet \
 	--enable=golint \
 	--line-length=72 \
+	--exclude=extpoints/extpoints.go \
 	--deadline=4m $(GOLISTLINT) 2>&1 | \
 	grep -v 'ALL_CAPS\|OP_' 2>&1 | \
 	tee /dev/stderr
@@ -97,7 +98,7 @@ $(DEP_BIN):
 $(GLIDE_BIN):
 	@$(call print, "Fetching glide.")
 	go get -d $(GLIDE_PKG)
-	cd ${GOPATH}/src/$(GLIDE_PKG) && git checkout $(GLIDE_COMMIT) 
+	cd ${GOPATH}/src/$(GLIDE_PKG) && git checkout $(GLIDE_COMMIT)
 	$(GOINSTALL) $(GLIDE_PKG)
 
 $(GOVERALLS_BIN):
@@ -159,7 +160,7 @@ unit-cover:
 	@$(call print, "Running unit coverage tests.")
 	echo "mode: count" > profile.cov
 	$(COVER)
-		
+
 unit-race:
 	@$(call print, "Running unit race tests.")
 	export CGO_ENABLED=1; env GORACE="history_size=7 halt_on_errors=1" $(UNIT_RACE)

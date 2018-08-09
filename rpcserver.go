@@ -2209,6 +2209,25 @@ func (r *rpcServer) dispatchPaymentIntent(
 	}, nil
 }
 
+// validateUserBalance checks if the user has sufficient funds to complete
+// the payment request. In the case the user does not have sufficient funds,
+// an error will be returned.
+func validateUserBalance(r *rpcServer, payIntent rpcPaymentIntent) error {
+	payAmt := payIntent.msat.ToSatoshis()
+
+	walletBalance, err := r.WalletBalance(context.Background(), &lnrpc.WalletBalanceRequest{})
+	if err != nil {
+		return err
+	}
+	totalBalance := btcutil.Amount(walletBalance.GetTotalBalance())
+
+	if totalBalance < payAmt {
+		return errors.New("not enough funds")
+	}
+
+	return nil
+}
+
 // sendPayment takes a paymentStream (a source of pre-built routes or payment
 // requests) and continually attempt to dispatch payment requests written to
 // the write end of the stream. Responses will also be streamed back to the

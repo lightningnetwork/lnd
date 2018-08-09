@@ -539,6 +539,35 @@ func (b *BitcoindNotifier) confDetailsManually(txid *chainhash.Hash,
 	return nil, nil
 }
 
+// handleBlockConnected applies a chain update for a new block. Any watched
+// transactions included this block will processed to either send notifications
+// now or after numConfirmations confs.
+func (b *BitcoindNotifier) handleBlockConnected(block chainntnfs.BlockEpoch) error {
+	rawBlock, err := b.chainConn.GetBlock(block.Hash)
+	if err != nil {
+		return fmt.Errorf("unable to get block: %v", err)
+	}
+
+	chainntnfs.Log.Infof("New block: height=%v, sha=%v",
+		block.Height, block.Hash)
+
+	txns := btcutil.NewBlock(rawBlock).Transactions()
+	err = b.txConfNotifier.ConnectTip(
+		block.Hash, uint32(block.Height), txns)
+	if err != nil {
+		return fmt.Errorf("unable to connect tip: %v", err)
+	}
+
+	// We want to set the best block before dispatching notifications so
+	// if any subscribers make queries based on their received block epoch,
+	// our state is fully updated in time.
+	b.bestBlock = block
+
+	b.notifyBlockEpochs(block.Height, block.Hash)
+
+	return nil
+}
+
 // notifyBlockEpochs notifies all registered block epoch clients of the newly
 // connected block to the main chain.
 func (b *BitcoindNotifier) notifyBlockEpochs(newHeight int32, newSha *chainhash.Hash) {

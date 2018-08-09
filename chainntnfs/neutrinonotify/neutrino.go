@@ -541,15 +541,29 @@ func (n *NeutrinoNotifier) historicalConfDetails(targetHash *chainhash.Hash,
 	return nil, nil
 }
 
-// handleBlocksConnected applies a chain update for a new block. Any watched
+// handleBlockConnected applies a chain update for a new block. Any watched
 // transactions included this block will processed to either send notifications
 // now or after numConfirmations confs.
 func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
-	// First we'll notify any subscribed clients of the block.
+	// First process the block for our internal state. A new block has
+	// been connected to the main chain. Send out any N confirmation
+	// notifications which may have been triggered by this new block.
+	err := n.txConfNotifier.ConnectTip(&newBlock.hash, newBlock.height,
+		newBlock.txns)
+	if err != nil {
+		return fmt.Errorf("unable to connect tip: %v", err)
+	}
+
+	chainntnfs.Log.Infof("New block: height=%v, sha=%v",
+		newBlock.height, newBlock.hash)
+
+	n.bestHeight = newBlock.height
+
+	// Next, notify any subscribed clients of the block.
 	n.notifyBlockEpochs(int32(newBlock.height), &newBlock.hash)
 
-	// Next, we'll scan over the list of relevant transactions and possibly
-	// dispatch notifications for confirmations and spends.
+	// Finally, we'll scan over the list of relevant transactions and
+	// possibly dispatch notifications for confirmations and spends.
 	for _, tx := range newBlock.txns {
 		mtx := tx.MsgTx()
 		txSha := mtx.TxHash()
@@ -557,10 +571,10 @@ func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 		for i, txIn := range mtx.TxIn {
 			prevOut := txIn.PreviousOutPoint
 
-			// If this transaction indeed does spend an output
-			// which we have a registered notification for, then
-			// create a spend summary, finally sending off the
-			// details to the notification subscriber.
+			// If this transaction indeed does spend an output which
+			// we have a registered notification for, then create a
+			// spend summary, finally sending off the details to the
+			// notification subscriber.
 			clients, ok := n.spendNotifications[prevOut]
 			if !ok {
 				continue
@@ -592,14 +606,25 @@ func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 		}
 	}
 
-	// A new block has been connected to the main chain.  Send out any N
-	// confirmation notifications which may have been triggered by this new
-	// block.
-	n.txConfNotifier.ConnectTip(
-		&newBlock.hash, newBlock.height, newBlock.txns,
-	)
-
 	return nil
+}
+
+// getFilteredBlock is a utility to retrieve the full filtered block from a block epoch.
+func (n *NeutrinoNotifier) getFilteredBlock(epoch chainntnfs.BlockEpoch) (*filteredBlock, error) {
+	rawBlock, err := n.p2pNode.GetBlockFromNetwork(*epoch.Hash)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get block: %v", err)
+	}
+
+	txns := rawBlock.Transactions()
+
+	block := &filteredBlock{
+		hash:    *epoch.Hash,
+		height:  uint32(epoch.Height),
+		txns:    txns,
+		connect: true,
+	}
+	return block, nil
 }
 
 // notifyBlockEpochs notifies all registered block epoch clients of the newly

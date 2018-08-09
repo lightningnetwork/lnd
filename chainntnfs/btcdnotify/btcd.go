@@ -613,17 +613,47 @@ func (b *BtcdNotifier) confDetailsManually(txid *chainhash.Hash,
 	return nil, nil
 }
 
-// handleBlocksConnected applies a chain update for a new block. Any watched
+// handleBlockConnected applies a chain update for a new block. Any watched
 // transactions included this block will processed to either send notifications
 // now or after numConfirmations confs.
 // TODO(halseth): this is reusing the neutrino notifier implementation, unify
 // them.
-func (b *BtcdNotifier) handleBlockConnected(newBlock *filteredBlock) error {
-	// First we'll notify any subscribed clients of the block.
+func (b *BtcdNotifier) handleBlockConnected(epoch chainntnfs.BlockEpoch) error {
+	// First process the block for our internal state. A new block has
+	// been connected to the main chain. Send out any N confirmation
+	// notifications which may have been triggered by this new block.
+	rawBlock, err := b.chainConn.GetBlock(epoch.Hash)
+	if err != nil {
+		return fmt.Errorf("unable to get block: %v", err)
+	}
+
+	chainntnfs.Log.Infof("New block: height=%v, sha=%v",
+		epoch.Height, epoch.Hash)
+
+	txns := btcutil.NewBlock(rawBlock).Transactions()
+
+	newBlock := &filteredBlock{
+		hash:    *epoch.Hash,
+		height:  uint32(epoch.Height),
+		txns:    txns,
+		connect: true,
+	}
+	err = b.txConfNotifier.ConnectTip(&newBlock.hash, newBlock.height,
+		newBlock.txns)
+	if err != nil {
+		return fmt.Errorf("unable to connect tip: %v", err)
+	}
+
+	// We want to set the best block before dispatching notifications
+	// so if any subscribers make queries based on their received
+	// block epoch, our state is fully updated in time.
+	b.bestBlock = epoch
+
+	// Next we'll notify any subscribed clients of the block.
 	b.notifyBlockEpochs(int32(newBlock.height), &newBlock.hash)
 
-	// Next, we'll scan over the list of relevant transactions and possibly
-	// dispatch notifications for confirmations and spends.
+	// Finally, we'll scan over the list of relevant transactions and
+	// possibly dispatch notifications for confirmations and spends.
 	for _, tx := range newBlock.txns {
 		mtx := tx.MsgTx()
 		txSha := mtx.TxHash()
@@ -631,9 +661,10 @@ func (b *BtcdNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 		for i, txIn := range mtx.TxIn {
 			prevOut := txIn.PreviousOutPoint
 
-			// If this transaction indeed does spend an output which we have a
-			// registered notification for, then create a spend summary, finally
-			// sending off the details to the notification subscriber.
+			// If this transaction indeed does spend an output which
+			// we have a registered notification for, then create a
+			// spend summary, finally sending off the details to the
+			// notification subscriber.
 			clients, ok := b.spendNotifications[prevOut]
 			if !ok {
 				continue
@@ -652,20 +683,16 @@ func (b *BtcdNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 					"outpoint=%v", ntfn.targetOutpoint)
 				ntfn.spendChan <- spendDetails
 
-				// Close spendChan to ensure that any calls to Cancel will not
-				// block. This is safe to do since the channel is buffered, and
-				// the message can still be read by the receiver.
+				// Close spendChan to ensure that any calls to
+				// Cancel will not block. This is safe to do
+				// since the channel is buffered, and the
+				// message can still be read by the receiver.
 				close(ntfn.spendChan)
 			}
 
 			delete(b.spendNotifications, prevOut)
 		}
 	}
-
-	// A new block has been connected to the main chain.
-	// Send out any N confirmation notifications which may
-	// have been triggered by this new block.
-	b.txConfNotifier.ConnectTip(&newBlock.hash, newBlock.height, newBlock.txns)
 
 	return nil
 }

@@ -95,6 +95,153 @@ var (
 	aliceAddr, _ = net.ResolveTCPAddr("tcp", "10.0.0.3:9000")
 )
 
+// mineAndAssert mines a block and ensures the given transaction is found within
+// it.
+func mineAndAssert(t *testing.T, miner *rpctest.Harness, tx *wire.MsgTx) {
+	t.Helper()
+
+	blockHashes, err := miner.Node.Generate(1)
+	if err != nil {
+		t.Fatalf("unable to generate block: %v", err)
+	}
+	block, err := miner.Node.GetBlock(blockHashes[0])
+	if err != nil {
+		t.Fatalf("unable to find block: %v", err)
+	}
+	if len(block.Transactions) != 2 {
+		t.Fatalf("expected 2 txs in block, got %d",
+			len(block.Transactions))
+	}
+	blockTx := block.Transactions[1]
+	if blockTx.TxHash() != tx.TxHash() {
+		t.Fatal("incorrect transaction was mined")
+	}
+}
+
+// txFromOutput creates and signs a transaction that spends from the given
+// output.
+func txFromOutput(t *testing.T, w *lnwallet.LightningWallet, tx *wire.MsgTx,
+	pkScript []byte, keyDesc keychain.KeyDescriptor,
+	payToPubKey *btcec.PublicKey, fee btcutil.Amount) *wire.MsgTx {
+
+	t.Helper()
+
+	// Create a script that pays to the given address.
+	pubKeyHash := btcutil.Hash160(payToPubKey.SerializeCompressed())
+	pubKeyHashAddr, err := btcutil.NewAddressWitnessPubKeyHash(
+		pubKeyHash, netParams,
+	)
+	if err != nil {
+		t.Fatalf("unable to create addr: %v", err)
+	}
+	payToPubKeyHashScript, err := txscript.PayToAddrScript(pubKeyHashAddr)
+	if err != nil {
+		t.Fatalf("unable to generate script: %v", err)
+	}
+
+	// Locate the index of the transaction with the given script.
+	outputIndex := -1
+	for i, output := range tx.TxOut {
+		if bytes.Equal(output.PkScript, pkScript) {
+			outputIndex = i
+			break
+		}
+	}
+	if outputIndex == -1 {
+		t.Fatalf("unable to find output that pays to script: %v", err)
+	}
+	outputValue := tx.TxOut[outputIndex].Value
+
+	// With the index located, we can create a transaction spending the
+	// referenced output.
+	spendTx := wire.NewMsgTx(2)
+	spendTx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{
+			Hash:  tx.TxHash(),
+			Index: uint32(outputIndex),
+		},
+		// We don't support RBF, so set sequence to max.
+		Sequence: wire.MaxTxInSequenceNum,
+	})
+	spendTx.AddTxOut(&wire.TxOut{
+		Value:    outputValue - int64(fee),
+		PkScript: payToPubKeyHashScript,
+	})
+
+	// Now we can populate the sign descriptor which we'll use to generate
+	// the signature.
+	signDesc := &lnwallet.SignDescriptor{
+		KeyDesc:       keyDesc,
+		WitnessScript: pkScript,
+		Output:        tx.TxOut[outputIndex],
+		HashType:      txscript.SigHashAll,
+		SigHashes:     txscript.NewTxSigHashes(spendTx),
+		InputIndex:    0,
+	}
+
+	// With the descriptor created, we use it to generate a signature and
+	// manually create a valid witness stack we'll use for signing.
+	sig, err := w.Cfg.Signer.SignOutputRaw(spendTx, signDesc)
+	if err != nil {
+		t.Fatalf("unable to generate signature: %v", err)
+	}
+
+	witness := make(wire.TxWitness, 2)
+	witness[0] = append(sig, byte(txscript.SigHashAll))
+	witness[1] = keyDesc.PubKey.SerializeCompressed()
+	spendTx.TxIn[0].Witness = witness
+
+	// Finally, attempt to validate the completed transaction. This should
+	// succeed if the wallet was able to properly generate the proper
+	// private key.
+	vm, err := txscript.NewEngine(
+		tx.TxOut[outputIndex].PkScript, spendTx, 0,
+		txscript.StandardVerifyFlags, nil, nil, outputValue,
+	)
+	if err != nil {
+		t.Fatalf("unable to create engine: %v", err)
+	}
+	if err := vm.Execute(); err != nil {
+		t.Fatalf("unable to validate spend transaction: %v", err)
+	}
+
+	return spendTx
+}
+
+// newTx creates two transactions. The first is a transaction that pays to the
+// given output. Then, another transaction is created that spends the first one.
+// The spending transaction is the one returned.
+func newTx(t *testing.T, miner *rpctest.Harness, w *lnwallet.LightningWallet,
+	output *wire.TxOut, keyDesc keychain.KeyDescriptor,
+	payToPubKey *btcec.PublicKey, fee btcutil.Amount) *wire.MsgTx {
+
+	t.Helper()
+
+	// Create a new transaction paying to the given output.
+	txid, err := w.SendOutputs([]*wire.TxOut{output}, 2500)
+	if err != nil {
+		t.Fatalf("unable to create output: %v", err)
+	}
+
+	// Wait until it reaches the miner's mempool in order for us to query
+	// and mine it.
+	if err := waitForMempoolTx(miner, txid); err != nil {
+		t.Fatalf("tx not relayed to miner: %v", err)
+	}
+	wrappedTx, err := miner.Node.GetRawTransaction(txid)
+	if err != nil {
+		t.Fatalf("unable to query for tx: %v", err)
+	}
+	tx := wrappedTx.MsgTx()
+
+	mineAndAssert(t, miner, tx)
+
+	// Finally, create the transaction spending the given output.
+	return txFromOutput(
+		t, w, tx, output.PkScript, keyDesc, keyDesc.PubKey, fee,
+	)
+}
+
 // assertProperBalance asserts than the total value of the unspent outputs
 // within the wallet are *exactly* amount. If unable to retrieve the current
 // balance, or the assertion fails, the test will halt with a fatal error.
@@ -1181,45 +1328,14 @@ func testTransactionSubscriptions(miner *rpctest.Harness,
 // expected error types in case the transaction being published
 // conflicts with the current mempool or chain.
 func testPublishTransaction(r *rpctest.Harness,
-	alice, _ *lnwallet.LightningWallet, t *testing.T) {
-
-	// mineAndAssert mines a block and ensures the passed TX
-	// is part of that block.
-	mineAndAssert := func(tx *wire.MsgTx) error {
-		blockHashes, err := r.Node.Generate(1)
-		if err != nil {
-			return fmt.Errorf("unable to generate block: %v", err)
-		}
-
-		block, err := r.Node.GetBlock(blockHashes[0])
-		if err != nil {
-			return fmt.Errorf("unable to find block: %v", err)
-		}
-
-		if len(block.Transactions) != 2 {
-			return fmt.Errorf("expected 2 txs in block, got %d",
-				len(block.Transactions))
-		}
-
-		blockTx := block.Transactions[1]
-		if blockTx.TxHash() != tx.TxHash() {
-			return fmt.Errorf("incorrect transaction was mined")
-		}
-
-		// Sleep for a second before returning, to make sure the
-		// block has propagated.
-		time.Sleep(1 * time.Second)
-		return nil
-	}
+	w, _ *lnwallet.LightningWallet, t *testing.T) {
 
 	// Generate a pubkey, and pay-to-addr script.
-	pubKey, err := alice.DeriveNextKey(
-		keychain.KeyFamilyMultiSig,
-	)
+	keyDesc, err := w.DeriveNextKey(keychain.KeyFamilyMultiSig)
 	if err != nil {
 		t.Fatalf("unable to obtain public key: %v", err)
 	}
-	pubkeyHash := btcutil.Hash160(pubKey.PubKey.SerializeCompressed())
+	pubkeyHash := btcutil.Hash160(keyDesc.PubKey.SerializeCompressed())
 	keyAddr, err := btcutil.NewAddressWitnessPubKeyHash(pubkeyHash,
 		&chaincfg.RegressionNetParams)
 	if err != nil {
@@ -1230,143 +1346,31 @@ func testPublishTransaction(r *rpctest.Harness,
 		t.Fatalf("unable to generate script: %v", err)
 	}
 
-	// txFromOutput takes a tx, and creates a new tx that spends
-	// the output from this tx, to an address derived from payToPubKey.
-	// NB: assumes that the output from tx is paid to pubKey.
-	txFromOutput := func(tx *wire.MsgTx, payToPubKey *btcec.PublicKey,
-		txFee btcutil.Amount) *wire.MsgTx {
-		// Create a script to pay to.
-		payToPubkeyHash := btcutil.Hash160(payToPubKey.SerializeCompressed())
-		payToKeyAddr, err := btcutil.NewAddressWitnessPubKeyHash(payToPubkeyHash,
-			&chaincfg.RegressionNetParams)
-		if err != nil {
-			t.Fatalf("unable to create addr: %v", err)
-		}
-		payToScript, err := txscript.PayToAddrScript(payToKeyAddr)
-		if err != nil {
-			t.Fatalf("unable to generate script: %v", err)
-		}
-
-		// We assume the output was paid to the keyScript made earlier.
-		var outputIndex uint32
-		if len(tx.TxOut) == 1 || bytes.Equal(tx.TxOut[0].PkScript, keyScript) {
-			outputIndex = 0
-		} else {
-			outputIndex = 1
-		}
-		outputValue := tx.TxOut[outputIndex].Value
-
-		// With the index located, we can create a transaction spending
-		// the referenced output.
-		tx1 := wire.NewMsgTx(2)
-		tx1.AddTxIn(&wire.TxIn{
-			PreviousOutPoint: wire.OutPoint{
-				Hash:  tx.TxHash(),
-				Index: outputIndex,
-			},
-			// We don't support RBF, so set sequence to max.
-			Sequence: wire.MaxTxInSequenceNum,
-		})
-		tx1.AddTxOut(&wire.TxOut{
-			Value:    outputValue - int64(txFee),
-			PkScript: payToScript,
-		})
-
-		// Now we can populate the sign descriptor which we'll use to
-		// generate the signature.
-		signDesc := &lnwallet.SignDescriptor{
-			KeyDesc: keychain.KeyDescriptor{
-				PubKey: pubKey.PubKey,
-			},
-			WitnessScript: keyScript,
-			Output:        tx.TxOut[outputIndex],
-			HashType:      txscript.SigHashAll,
-			SigHashes:     txscript.NewTxSigHashes(tx1),
-			InputIndex:    0, // Has only one input.
-		}
-
-		// With the descriptor created, we use it to generate a
-		// signature, then manually create a valid witness stack we'll
-		// use for signing.
-		spendSig, err := alice.Cfg.Signer.SignOutputRaw(tx1, signDesc)
-		if err != nil {
-			t.Fatalf("unable to generate signature: %v", err)
-		}
-		witness := make([][]byte, 2)
-		witness[0] = append(spendSig, byte(txscript.SigHashAll))
-		witness[1] = pubKey.PubKey.SerializeCompressed()
-		tx1.TxIn[0].Witness = witness
-
-		// Finally, attempt to validate the completed transaction. This
-		// should succeed if the wallet was able to properly generate
-		// the proper private key.
-		vm, err := txscript.NewEngine(keyScript,
-			tx1, 0, txscript.StandardVerifyFlags, nil,
-			nil, outputValue)
-		if err != nil {
-			t.Fatalf("unable to create engine: %v", err)
-		}
-		if err := vm.Execute(); err != nil {
-			t.Fatalf("spend is invalid: %v", err)
-		}
-		return tx1
-	}
-
-	// newTx sends coins from Alice's wallet, mines this transaction,
-	// and creates a new, unconfirmed tx that spends this output to
-	// pubKey.
-	newTx := func() *wire.MsgTx {
-
-		// With the script fully assembled, instruct the wallet to fund
-		// the output with a newly created transaction.
-		newOutput := &wire.TxOut{
-			Value:    btcutil.SatoshiPerBitcoin,
-			PkScript: keyScript,
-		}
-		txid, err := alice.SendOutputs([]*wire.TxOut{newOutput}, 2500)
-		if err != nil {
-			t.Fatalf("unable to create output: %v", err)
-		}
-
-		// Query for the transaction generated above so we can located
-		// the index of our output.
-		err = waitForMempoolTx(r, txid)
-		if err != nil {
-			t.Fatalf("tx not relayed to miner: %v", err)
-		}
-		tx, err := r.Node.GetRawTransaction(txid)
-		if err != nil {
-			t.Fatalf("unable to query for tx: %v", err)
-		}
-
-		if err := mineAndAssert(tx.MsgTx()); err != nil {
-			t.Fatalf("unable to mine tx: %v", err)
-		}
-		txFee := btcutil.Amount(0.1 * btcutil.SatoshiPerBitcoin)
-		tx1 := txFromOutput(tx.MsgTx(), pubKey.PubKey, txFee)
-
-		return tx1
-	}
+	const amount = btcutil.SatoshiPerBitcoin
+	txFee := btcutil.Amount(0.1 * amount)
 
 	// We will first check that publishing a transaction already
 	// in the mempool does NOT return an error. Create the tx.
-	tx1 := newTx()
+	output := &wire.TxOut{
+		Value:    int64(amount),
+		PkScript: keyScript,
+	}
+	tx1 := newTx(t, r, w, output, keyDesc, keyDesc.PubKey, txFee)
 
 	// Publish the transaction.
-	if err := alice.PublishTransaction(tx1); err != nil {
+	if err := w.PublishTransaction(tx1); err != nil {
 		t.Fatalf("unable to publish: %v", err)
 	}
 
 	txid1 := tx1.TxHash()
-	err = waitForMempoolTx(r, &txid1)
-	if err != nil {
+	if err := waitForMempoolTx(r, &txid1); err != nil {
 		t.Fatalf("tx not relayed to miner: %v", err)
 	}
 
 	// Publish the exact same transaction again. This should
 	// not return an error, even though the transaction is
 	// already in the mempool.
-	if err := alice.PublishTransaction(tx1); err != nil {
+	if err := w.PublishTransaction(tx1); err != nil {
 		t.Fatalf("unable to publish: %v", err)
 	}
 
@@ -1383,69 +1387,62 @@ func testPublishTransaction(r *rpctest.Harness,
 	// only send us a reject message for a given tx once,
 	// so we create a new to make sure it is not just
 	// immediately rejected.
-	tx2 := newTx()
+	tx2 := newTx(t, r, w, output, keyDesc, keyDesc.PubKey, txFee)
 
 	// Publish this tx.
-	if err := alice.PublishTransaction(tx2); err != nil {
+	if err := w.PublishTransaction(tx2); err != nil {
 		t.Fatalf("unable to publish: %v", err)
 	}
 
 	txid2 := tx2.TxHash()
-	err = waitForMempoolTx(r, &txid2)
-	if err != nil {
+	if err := waitForMempoolTx(r, &txid2); err != nil {
 		t.Fatalf("tx not relayed to miner: %v", err)
 	}
 
 	// Mine the transaction.
-	if err := mineAndAssert(tx2); err != nil {
-		t.Fatalf("unable to mine tx: %v", err)
-	}
+	mineAndAssert(t, r, tx2)
 
 	// Publish the transaction again. It is already mined,
 	// and we don't expect this to return an error.
-	if err := alice.PublishTransaction(tx2); err != nil {
+	if err := w.PublishTransaction(tx2); err != nil {
 		t.Fatalf("unable to publish: %v", err)
 	}
 
 	// Now we'll try to double spend an output with a different
 	// transaction. Create a new tx and publish it. This is
 	// the output we'll try to double spend.
-	tx3 := newTx()
-	if err := alice.PublishTransaction(tx3); err != nil {
+	tx3 := newTx(t, r, w, output, keyDesc, keyDesc.PubKey, txFee)
+	if err := w.PublishTransaction(tx3); err != nil {
 		t.Fatalf("unable to publish: %v", err)
 	}
 
 	txid3 := tx3.TxHash()
-	err = waitForMempoolTx(r, &txid3)
-	if err != nil {
+	if err := waitForMempoolTx(r, &txid3); err != nil {
 		t.Fatalf("tx not relayed to miner: %v", err)
 	}
 
 	// Mine the transaction.
-	if err := mineAndAssert(tx3); err != nil {
-		t.Fatalf("unable to mine tx: %v", err)
-	}
+	mineAndAssert(t, r, tx3)
 
 	// Now we create a transaction that spends the output
 	// from the tx just mined. This should be accepted
 	// into the mempool.
-	txFee := btcutil.Amount(0.05 * btcutil.SatoshiPerBitcoin)
-	tx4 := txFromOutput(tx3, pubKey.PubKey, txFee)
-	if err := alice.PublishTransaction(tx4); err != nil {
+	txFee = btcutil.Amount(0.05 * btcutil.SatoshiPerBitcoin)
+	tx4 := txFromOutput(
+		t, w, tx3, keyScript, keyDesc, keyDesc.PubKey, txFee,
+	)
+	if err := w.PublishTransaction(tx4); err != nil {
 		t.Fatalf("unable to publish: %v", err)
 	}
 
 	txid4 := tx4.TxHash()
-	err = waitForMempoolTx(r, &txid4)
-	if err != nil {
+	if err := waitForMempoolTx(r, &txid4); err != nil {
 		t.Fatalf("tx not relayed to miner: %v", err)
 	}
 
 	// Create a new key we'll pay to, to ensure we create
 	// a unique transaction.
-	pubKey2, err := alice.DeriveNextKey(
-		keychain.KeyFamilyMultiSig,
-	)
+	keyDesc2, err := w.DeriveNextKey(keychain.KeyFamilyMultiSig)
 	if err != nil {
 		t.Fatalf("unable to obtain public key: %v", err)
 	}
@@ -1453,8 +1450,10 @@ func testPublishTransaction(r *rpctest.Harness,
 	// Create a new transaction that spends the output from
 	// tx3, and that pays to a different address. We expect
 	// this to be rejected because it is a double spend.
-	tx5 := txFromOutput(tx3, pubKey2.PubKey, txFee)
-	if err := alice.PublishTransaction(tx5); err != lnwallet.ErrDoubleSpend {
+	tx5 := txFromOutput(
+		t, w, tx3, keyScript, keyDesc, keyDesc2.PubKey, txFee,
+	)
+	if err := w.PublishTransaction(tx5); err != lnwallet.ErrDoubleSpend {
 		t.Fatalf("expected ErrDoubleSpend, got: %v", err)
 	}
 
@@ -1462,16 +1461,16 @@ func testPublishTransaction(r *rpctest.Harness,
 	// but has a higher fee. We expect also this tx to be
 	// rejected, since the sequence number of tx3 is set to Max,
 	// indicating it is not replacable.
-	pubKey3, err := alice.DeriveNextKey(
-		keychain.KeyFamilyMultiSig,
-	)
+	keyDesc3, err := w.DeriveNextKey(keychain.KeyFamilyMultiSig)
 	if err != nil {
 		t.Fatalf("unable to obtain public key: %v", err)
 	}
-	tx6 := txFromOutput(tx3, pubKey3.PubKey, 3*txFee)
+	tx6 := txFromOutput(
+		t, w, tx3, keyScript, keyDesc, keyDesc3.PubKey, 3*txFee,
+	)
 
 	// Expect rejection.
-	if err := alice.PublishTransaction(tx6); err != lnwallet.ErrDoubleSpend {
+	if err := w.PublishTransaction(tx6); err != lnwallet.ErrDoubleSpend {
 		t.Fatalf("expected ErrDoubleSpend, got: %v", err)
 	}
 
@@ -1482,23 +1481,19 @@ func testPublishTransaction(r *rpctest.Harness,
 	// orphan, and will accept it. Should look into if this is
 	// the behavior also for bitcoind, and update test
 	// accordingly.
-	if alice.BackEnd() != "neutrino" {
-		// Mine the tx spending tx3.
-		if err := mineAndAssert(tx4); err != nil {
-			t.Fatalf("unable to mine tx: %v", err)
-		}
-
+	mineAndAssert(t, r, tx4)
+	if w.BackEnd() != "neutrino" {
 		// Create another tx spending tx3.
-		pubKey4, err := alice.DeriveNextKey(
-			keychain.KeyFamilyMultiSig,
-		)
+		keyDesc4, err := w.DeriveNextKey(keychain.KeyFamilyMultiSig)
 		if err != nil {
 			t.Fatalf("unable to obtain public key: %v", err)
 		}
-		tx7 := txFromOutput(tx3, pubKey4.PubKey, txFee)
+		tx7 := txFromOutput(
+			t, w, tx3, keyScript, keyDesc, keyDesc4.PubKey, txFee,
+		)
 
 		// Expect rejection.
-		if err := alice.PublishTransaction(tx7); err != lnwallet.ErrDoubleSpend {
+		if err := w.PublishTransaction(tx7); err != lnwallet.ErrDoubleSpend {
 			t.Fatalf("expected ErrDoubleSpend, got: %v", err)
 		}
 	}

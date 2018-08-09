@@ -1,7 +1,6 @@
 package routing
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -551,8 +550,13 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 
 		// Compute the tentative distance to this new channel/edge which
 		// is the distance to our pivot node plus the weight of this
-		// edge.
-		tempDist := distance[pivot].dist + edgeWeight(amt, edge)
+		// edge. Takes into account for self routing.
+		var tempDist int64
+		if distance[pivot].dist == infinity {
+			tempDist = 1
+		} else {
+			tempDist = distance[pivot].dist + edgeWeight(amt, edge)
+		}
 
 		// If this new tentative distance is better than the current
 		// best known distance to this node, then we record the new
@@ -579,6 +583,75 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			// Add this new node to our heap as we'd like to further
 			// explore down this edge.
 			heap.Push(&nodeHeap, distance[v])
+
+			// In the event of self routing and next node.dist is less than
+			// current node dist, then we know there is a potential path back to source.
+		} else if targetNode.PubKeyBytes == sourceNode.PubKeyBytes && tempDist >= distance[v].dist {
+
+			// First we adds nodes and edges in the current to pass to the 'from middle to source'
+			// pathFind iteration as "ignored" to prevent loops.
+			tempIgnoredEdges := make(map[uint64]struct{})
+			tempIgnoredNodes := make(map[Vertex]struct{})
+			for x := range ignoredNodes {
+				tempIgnoredNodes[x] = ignoredNodes[x]
+			}
+			for x := range ignoredEdges {
+				tempIgnoredEdges[x] = ignoredEdges[x]
+			}
+
+			prevNode := pivot
+			for prevNode != Vertex(sourceNode.PubKeyBytes) {
+				// Add the current hop to the list of path edges then walk
+				// backwards from this hop via the prev pointer for this hop
+				// within the prevHop map.
+				tempIgnoredEdges[prev[prevNode].edge.ChannelID] = struct{}{}
+				tempIgnoredNodes[prevNode] = struct{}{}
+
+				prevNode = Vertex(prev[prevNode].prevNode)
+			}
+
+			// Next we invert the bandwidth hints, as we need to know balances from the point of
+			// view of the non-source node.
+			inverseBandwidthHints := make(map[uint64]lnwire.MilliSatoshi)
+			err = sourceNode.ForEachChannel(tx, func(tx *bolt.Tx,
+				edgeInfo *channeldb.ChannelEdgeInfo,
+				outEdge, inEdge *channeldb.ChannelEdgePolicy) error {
+
+				inverseBandwidthHints[edgeInfo.ChannelID] = lnwire.NewMSatFromSatoshis(edgeInfo.Capacity) -
+					bandwidthHints[edgeInfo.ChannelID]
+
+				return nil
+			})
+			if err != nil {
+				return
+			}
+
+			currentNode := &channeldb.LightningNode{PubKeyBytes: pivot}
+			pathFromMiddle, err := findPath(
+				tx, graph, nil, currentNode, target, tempIgnoredNodes, tempIgnoredEdges,
+				amt, inverseBandwidthHints,
+			)
+			if err != nil {
+				return
+			}
+			// Adds all edges found in PathFromMiddle to prev map
+			prev[Vertex(pathFromMiddle[0].Node.PubKeyBytes)] = edgeWithPrev{
+				edge: &ChannelHop{
+					ChannelEdgePolicy: pathFromMiddle[0].ChannelEdgePolicy,
+					Capacity:          pathFromMiddle[0].Capacity,
+				},
+				prevNode: pivot,
+			}
+			numEdges := len(pathFromMiddle)
+			for i := 0; i < numEdges-1; i++ {
+				prev[Vertex(pathFromMiddle[i+1].Node.PubKeyBytes)] = edgeWithPrev{
+					edge: &ChannelHop{
+						ChannelEdgePolicy: pathFromMiddle[i+1].ChannelEdgePolicy,
+						Capacity:          pathFromMiddle[i+1].Capacity,
+					},
+					prevNode: pathFromMiddle[i].Node.PubKeyBytes,
+				}
+			}
 		}
 	}
 
@@ -604,11 +677,26 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		partialPath := heap.Pop(&nodeHeap).(nodeWithDist)
 		bestNode := partialPath.node
 
+		// If we found a full path back to self in an inner loop, we exit early.
+		if _, ok := prev[sourceVertex]; ok {
+			break
+		}
 		// If we've reached our target (or we don't have any outgoing
 		// edges), then we're done here and can exit the graph
 		// traversal early.
-		if bytes.Equal(bestNode.PubKeyBytes[:], targetVertex[:]) {
-			break
+		if bestNode.PubKeyBytes == targetNode.PubKeyBytes {
+			// In the event that we're sending payments to ourselves,
+			// we don't want to give up when starting at the source,
+			// thinking the shortest path is zero.
+			if distance[targetVertex].dist == 0 &&
+				sourceNode.PubKeyBytes == targetNode.PubKeyBytes {
+				distance[sourceVertex] = nodeWithDist{
+					dist: infinity,
+					node: sourceNode,
+				}
+			} else {
+				break
+			}
 		}
 
 		// Now that we've found the next potential step to take we'll
@@ -618,6 +706,12 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		err := bestNode.ForEachChannel(tx, func(tx *bolt.Tx,
 			edgeInfo *channeldb.ChannelEdgeInfo,
 			outEdge, _ *channeldb.ChannelEdgePolicy) error {
+
+			// Doesn't process edges where Prev node and next node are the same
+			// Necessary when source = destination and always beneficial.
+			if pivot != Vertex(sourceNode.PubKeyBytes) && prev[pivot].prevNode == Vertex(outEdge.Node.PubKeyBytes) {
+				return nil
+			}
 
 			// We'll query the lower layer to see if we can obtain
 			// any more up to date information concerning the
@@ -665,6 +759,18 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	// timelock and fee values.
 	pathEdges := make([]*ChannelHop, 0, len(prev))
 	prevNode := NewVertex(target)
+
+	// In the event of self routing and path is found, processes first step
+	// through prevHop map, and deletes previous hop of source to prevent
+	// infinite loops. Required for routing to self. This allows the necessary
+	// loop self back to self, while preventing an infinite loop.
+	if sourceNode.PubKeyBytes == targetNode.PubKeyBytes {
+		pathEdges = append(pathEdges, prev[prevNode].edge)
+
+		prevNode = Vertex(prev[prevNode].prevNode)
+		delete(prev, sourceVertex)
+	}
+
 	for prevNode != sourceVertex { // TODO(roasbeef): assumes no cycles
 		// Add the current hop to the limit of path edges then walk
 		// backwards from this hop via the prev pointer for this hop

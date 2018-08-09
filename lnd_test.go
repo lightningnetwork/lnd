@@ -10643,6 +10643,8 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to create carol's node: %v", err)
 	}
+	defer shutdownAndAssert(net, t, carol)
+
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	if err := net.ConnectNodes(ctxt, carol, net.Alice); err != nil {
 		t.Fatalf("unable to connect carol to alice: %v", err)
@@ -10663,6 +10665,8 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to create dave's node: %v", err)
 	}
+	defer shutdownAndAssert(net, t, dave)
+
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	if err := net.ConnectNodes(ctxt, dave, net.Bob); err != nil {
 		t.Fatalf("unable to connect dave to bob: %v", err)
@@ -10873,13 +10877,6 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPointBobDave, false)
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarolDave, false)
-
-	if err := net.ShutdownNode(carol); err != nil {
-		t.Fatalf("unable to shut down carol: %v", err)
-	}
-	if err := net.ShutdownNode(dave); err != nil {
-		t.Fatalf("unable to shut down dave: %v", err)
-	}
 }
 
 // testSendUpdateDisableChannel ensures that a channel update with the disable

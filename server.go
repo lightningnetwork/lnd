@@ -166,6 +166,11 @@ type server struct {
 	// changed since last start.
 	currentNodeAnn *lnwire.NodeAnnouncement
 
+	// sendDisabled is used to keep track of the disabled flag of the last
+	// sent ChannelUpdate from announceChanStatus.
+	sentDisabled    map[wire.OutPoint]bool
+	sentDisabledMtx sync.Mutex
+
 	quit chan struct{}
 
 	wg sync.WaitGroup
@@ -275,6 +280,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		inboundPeers:           make(map[string]*peer),
 		outboundPeers:          make(map[string]*peer),
 		peerConnectedListeners: make(map[string][]chan<- lnpeer.Peer),
+		sentDisabled:           make(map[wire.OutPoint]bool),
 
 		globalFeatures: lnwire.NewFeatureVector(globalFeatures,
 			lnwire.GlobalFeatures),
@@ -676,7 +682,9 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 				return ErrServerShuttingDown
 			}
 		},
-		DisableChannel: s.disableChannel,
+		DisableChannel: func(op wire.OutPoint) error {
+			return s.announceChanStatus(op, true)
+		},
 	}, chanDB)
 
 	s.breachArbiter = newBreachArbiter(&BreachConfig{
@@ -2883,10 +2891,23 @@ func (s *server) fetchNodeAdvertisedAddr(pub *btcec.PublicKey) (net.Addr, error)
 	return node.Addresses[0], nil
 }
 
-// disableChannel disables a channel, resulting in it not being able to forward
-// payments. This is done by sending a new channel update across the network
-// with the disabled flag set.
-func (s *server) disableChannel(op wire.OutPoint) error {
+// announceChanStatus disables a channel if disabled=true, otherwise activates
+// it. This is done by sending a new channel update across the network with the
+// disabled flag set accordingly. The result of disabling the channel is it not
+// being able to forward payments.
+func (s *server) announceChanStatus(op wire.OutPoint, disabled bool) error {
+	s.sentDisabledMtx.Lock()
+	defer s.sentDisabledMtx.Unlock()
+
+	// If we have already sent out an update reflecting the current status,
+	// skip this channel.
+	alreadyDisabled, ok := s.sentDisabled[op]
+	if ok && alreadyDisabled == disabled {
+		return nil
+	}
+
+	srvrLog.Debugf("Announcing channel(%v) disabled=%v", op, disabled)
+
 	// Retrieve the latest update for this channel. We'll use this
 	// as our starting point to send the new update.
 	chanUpdate, err := s.fetchLastChanUpdateByOutPoint(op)
@@ -2894,8 +2915,13 @@ func (s *server) disableChannel(op wire.OutPoint) error {
 		return err
 	}
 
-	// Set the bit responsible for marking a channel as disabled.
-	chanUpdate.Flags |= lnwire.ChanUpdateDisabled
+	if disabled {
+		// Set the bit responsible for marking a channel as disabled.
+		chanUpdate.Flags |= lnwire.ChanUpdateDisabled
+	} else {
+		// Clear the bit responsible for marking a channel as disabled.
+		chanUpdate.Flags &= ^lnwire.ChanUpdateDisabled
+	}
 
 	// We must now update the message's timestamp and generate a new
 	// signature.
@@ -2922,7 +2948,15 @@ func (s *server) disableChannel(op wire.OutPoint) error {
 	}
 
 	// Once signed, we'll send the new update to all of our peers.
-	return s.applyChannelUpdate(chanUpdate)
+	if err := s.applyChannelUpdate(chanUpdate); err != nil {
+		return err
+	}
+
+	// We'll keep track of the status set in the last update we sent, to
+	// avoid sending updates if nothing has changed.
+	s.sentDisabled[op] = disabled
+
+	return nil
 }
 
 // fetchLastChanUpdateByOutPoint fetches the latest update for a channel from

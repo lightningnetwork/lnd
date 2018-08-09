@@ -1902,6 +1902,16 @@ func (s *Switch) getLinkByShortID(chanID lnwire.ShortChannelID) (ChannelLink, er
 	return link, nil
 }
 
+// HasActiveLink returns true if the given channel ID has a link in the link
+// index.
+func (s *Switch) HasActiveLink(chanID lnwire.ChannelID) bool {
+	s.indexMtx.RLock()
+	defer s.indexMtx.RUnlock()
+
+	_, ok := s.linkIndex[chanID]
+	return ok
+}
+
 // RemoveLink purges the switch of any link associated with chanID. If a pending
 // or active link is not found, this method does nothing. Otherwise, the method
 // returns after the link has been completely shutdown.

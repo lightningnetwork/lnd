@@ -213,10 +213,10 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			AddPeers:     cfg.NeutrinoMode.AddPeers,
 			ConnectPeers: cfg.NeutrinoMode.ConnectPeers,
 			Dialer: func(addr net.Addr) (net.Conn, error) {
-				return cfg.net.Dial(addr.Network(), addr.String())
+				return cfg.Net.Dial(addr.Network(), addr.String())
 			},
 			NameResolver: func(host string) ([]net.IP, error) {
-				addrs, err := cfg.net.LookupHost(host)
+				addrs, err := cfg.Net.LookupHost(host)
 				if err != nil {
 					return nil, err
 				}

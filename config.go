@@ -233,7 +233,7 @@ type config struct {
 
 	NoChanUpdates bool `long:"nochanupdates" description:"If specified, lnd will not request real-time channel updates from connected peers. This option should be used by routing nodes to save bandwidth."`
 
-	net tor.Net
+	Net tor.Net
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -308,7 +308,7 @@ func loadConfig() (*config, error) {
 			Control:          defaultTorControl,
 			V2PrivateKeyPath: defaultTorV2PrivateKeyPath,
 		},
-		net: &tor.ClearNet{},
+		Net: &tor.ClearNet{},
 	}
 
 	// Pre-parse the command line options to pick up an alternative config
@@ -436,7 +436,7 @@ func loadConfig() (*config, error) {
 	// Validate the Tor config parameters.
 	socks, err := lncfg.ParseAddressString(
 		cfg.Tor.SOCKS, strconv.Itoa(defaultTorSOCKSPort),
-		cfg.net.ResolveTCPAddr,
+		cfg.Net.ResolveTCPAddr,
 	)
 	if err != nil {
 		return nil, err
@@ -448,7 +448,7 @@ func loadConfig() (*config, error) {
 	if cfg.Tor.DNS != defaultTorDNS {
 		dns, err := lncfg.ParseAddressString(
 			cfg.Tor.DNS, strconv.Itoa(defaultTorDNSPort),
-			cfg.net.ResolveTCPAddr,
+			cfg.Net.ResolveTCPAddr,
 		)
 		if err != nil {
 			return nil, err
@@ -458,7 +458,7 @@ func loadConfig() (*config, error) {
 
 	control, err := lncfg.ParseAddressString(
 		cfg.Tor.Control, strconv.Itoa(defaultTorControlPort),
-		cfg.net.ResolveTCPAddr,
+		cfg.Net.ResolveTCPAddr,
 	)
 	if err != nil {
 		return nil, err
@@ -486,7 +486,7 @@ func loadConfig() (*config, error) {
 	// we'll use the Tor proxy specific functions in order to avoid leaking
 	// our real information.
 	if cfg.Tor.Active {
-		cfg.net = &tor.ProxyNet{
+		cfg.Net = &tor.ProxyNet{
 			SOCKS:           cfg.Tor.SOCKS,
 			DNS:             cfg.Tor.DNS,
 			StreamIsolation: cfg.Tor.StreamIsolation,
@@ -839,7 +839,7 @@ func loadConfig() (*config, error) {
 	// duplicate addresses.
 	cfg.RPCListeners, err = lncfg.NormalizeAddresses(
 		cfg.RawRPCListeners, strconv.Itoa(defaultRPCPort),
-		cfg.net.ResolveTCPAddr,
+		cfg.Net.ResolveTCPAddr,
 	)
 	if err != nil {
 		return nil, err
@@ -849,7 +849,7 @@ func loadConfig() (*config, error) {
 	// duplicate addresses.
 	cfg.RESTListeners, err = lncfg.NormalizeAddresses(
 		cfg.RawRESTListeners, strconv.Itoa(defaultRESTPort),
-		cfg.net.ResolveTCPAddr,
+		cfg.Net.ResolveTCPAddr,
 	)
 	if err != nil {
 		return nil, err
@@ -866,7 +866,7 @@ func loadConfig() (*config, error) {
 		// duplicate addresses.
 		cfg.Listeners, err = lncfg.NormalizeAddresses(
 			cfg.RawListeners, strconv.Itoa(defaultPeerPort),
-			cfg.net.ResolveTCPAddr,
+			cfg.Net.ResolveTCPAddr,
 		)
 		if err != nil {
 			return nil, err
@@ -876,7 +876,7 @@ func loadConfig() (*config, error) {
 		// duplicate addresses.
 		cfg.ExternalIPs, err = lncfg.NormalizeAddresses(
 			cfg.RawExternalIPs, strconv.Itoa(defaultPeerPort),
-			cfg.net.ResolveTCPAddr,
+			cfg.Net.ResolveTCPAddr,
 		)
 		if err != nil {
 			return nil, err

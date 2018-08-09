@@ -204,7 +204,7 @@ func parseAddr(address string) (net.Addr, error) {
 	// addresses over Tor in order to prevent leaking your real IP
 	// address.
 	hostPort := net.JoinHostPort(host, strconv.Itoa(port))
-	return cfg.net.ResolveTCPAddr("tcp", hostPort)
+	return cfg.Net.ResolveTCPAddr("tcp", hostPort)
 }
 
 // noiseDial is a factory function which creates a connmgr compliant dialing
@@ -212,7 +212,7 @@ func parseAddr(address string) (net.Addr, error) {
 func noiseDial(idPriv *btcec.PrivateKey) func(net.Addr) (net.Conn, error) {
 	return func(a net.Addr) (net.Conn, error) {
 		lnAddr := a.(*lnwire.NetAddress)
-		return brontide.Dial(idPriv, lnAddr, cfg.net.Dial)
+		return brontide.Dial(idPriv, lnAddr, cfg.Net.Dial)
 	}
 }
 
@@ -413,7 +413,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	// of this server's addresses.
 	externalIPs, err := lncfg.NormalizeAddresses(
 		externalIPStrings, strconv.Itoa(defaultPeerPort),
-		cfg.net.ResolveTCPAddr,
+		cfg.Net.ResolveTCPAddr,
 	)
 	if err != nil {
 		return nil, err
@@ -1233,7 +1233,7 @@ func initNetworkBootstrappers(s *server) ([]discovery.NetworkPeerBootstrapper, e
 				"seeds: %v", dnsSeeds)
 
 			dnsBootStrapper := discovery.NewDNSSeedBootstrapper(
-				dnsSeeds, cfg.net,
+				dnsSeeds, cfg.Net,
 			)
 			bootStrappers = append(bootStrappers, dnsBootStrapper)
 		}
@@ -2640,7 +2640,7 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress, perm bool) error {
 // notify the caller if the connection attempt has failed. Otherwise, it will be
 // closed.
 func (s *server) connectToPeer(addr *lnwire.NetAddress, errChan chan<- error) {
-	conn, err := brontide.Dial(s.identityPriv, addr, cfg.net.Dial)
+	conn, err := brontide.Dial(s.identityPriv, addr, cfg.Net.Dial)
 	if err != nil {
 		srvrLog.Errorf("Unable to connect to %v: %v", addr, err)
 		select {

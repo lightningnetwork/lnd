@@ -327,22 +327,23 @@ out:
 
 			case chain.BlockDisconnected:
 				if item.Height != b.bestBlock.Height {
-					chainntnfs.Log.Warnf("Received blocks "+
-						"out of order: current height="+
-						"%d, disconnected height=%d",
-						bestHeight, item.Height)
-					continue
+					chainntnfs.Log.Infof("Missed disconnected" +
+						"blocks, attempting to catch up")
 				}
 
-				chainntnfs.Log.Infof("Block disconnected from "+
-					"main chain: height=%v, sha=%v",
-					item.Height, item.Hash)
-
-				err := b.txConfNotifier.DisconnectTip(
-					uint32(item.Height))
+				newBestBlock, err := chainntnfs.RewindChain(
+					b.chainConn, b.txConfNotifier,
+					b.bestBlock, item.Height-1,
+				)
 				if err != nil {
-					chainntnfs.Log.Error(err)
+					chainntnfs.Log.Errorf("Unable to rewind chain "+
+						"from height %d to height %d: %v",
+						b.bestBlock.Height, item.Height-1, err)
 				}
+
+				// Set the bestBlock here in case a chain
+				// rewind partially completed.
+				b.bestBlock = newBestBlock
 
 			case chain.RelevantTx:
 				b.handleRelevantTx(item, b.bestBlock.Height)

@@ -397,19 +397,23 @@ out:
 			}
 
 			if update.blockHeight != b.bestBlock.Height {
-				chainntnfs.Log.Warnf("Received blocks out of order: "+
-					"current height=%d, disconnected height=%d",
-					currentHeight, update.blockHeight)
-				continue
+				chainntnfs.Log.Infof("Missed disconnected" +
+					"blocks, attempting to catch up")
 			}
 
-			chainntnfs.Log.Infof("Block disconnected from main chain: "+
-				"height=%v, sha=%v", update.blockHeight, update.blockHash)
-
-			err := b.txConfNotifier.DisconnectTip(uint32(update.blockHeight))
+			newBestBlock, err := chainntnfs.RewindChain(
+				b.chainConn, b.txConfNotifier, b.bestBlock,
+				update.blockHeight-1,
+			)
 			if err != nil {
-				chainntnfs.Log.Error(err)
+				chainntnfs.Log.Errorf("Unable to rewind chain "+
+					"from height %d to height %d: %v",
+					b.bestBlock.Height, update.blockHeight-1, err)
 			}
+
+			// Set the bestBlock here in case a chain rewind
+			// partially completed.
+			b.bestBlock = newBestBlock
 
 		// NOTE: we currently only use txUpdates for mempool spends and
 		// rescan spends. It might get removed entirely in the future.

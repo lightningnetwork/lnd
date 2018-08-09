@@ -365,6 +365,7 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 							"to update rescan: %v",
 							err)
 					}
+
 				}()
 
 			case *blockEpochRegistration:
@@ -417,24 +418,37 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 			}
 
 			n.heightMtx.Lock()
-			if update.height != n.bestHeight {
-				chainntnfs.Log.Warnf("Received blocks out of order: "+
-					"current height=%d, disconnected height=%d",
-					n.bestHeight, update.height)
-				n.heightMtx.Unlock()
-				continue
+			if update.height != uint32(n.bestHeight) {
+				chainntnfs.Log.Infof("Missed disconnected" +
+					"blocks, attempting to catch up")
 			}
 
-			n.bestHeight = update.height - 1
-			n.heightMtx.Unlock()
-
-			chainntnfs.Log.Infof("Block disconnected from main chain: "+
-				"height=%v, sha=%v", update.height, update.hash)
-
-			err := n.txConfNotifier.DisconnectTip(update.height)
+			header, err := n.p2pNode.BlockHeaders.FetchHeaderByHeight(
+				n.bestHeight,
+			)
 			if err != nil {
-				chainntnfs.Log.Error(err)
+				chainntnfs.Log.Errorf("Unable to fetch header"+
+					"for height %d: %v", n.bestHeight, err)
 			}
+			hash := header.BlockHash()
+			notifierBestBlock := chainntnfs.BlockEpoch{
+				Height: int32(n.bestHeight),
+				Hash:   &hash,
+			}
+			newBestBlock, err := chainntnfs.RewindChain(
+				n.chainConn, n.txConfNotifier, notifierBestBlock,
+				int32(update.height-1),
+			)
+			if err != nil {
+				chainntnfs.Log.Errorf("Unable to rewind chain "+
+					"from height %d to height %d: %v",
+					n.bestHeight, update.height-1, err)
+			}
+
+			// Set the bestHeight here in case a chain rewind
+			// partially completed.
+			n.bestHeight = uint32(newBestBlock.Height)
+			n.heightMtx.Unlock()
 
 		case err := <-n.rescanErr:
 			chainntnfs.Log.Errorf("Error during rescan: %v", err)

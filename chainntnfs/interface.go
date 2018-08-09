@@ -344,6 +344,40 @@ func GetClientMissedBlocks(chainConn ChainConn, clientBestBlock *BlockEpoch,
 	return missedBlocks, nil
 }
 
+// RewindChain handles internal state updates for the notifier's TxConfNotifier
+// It has no effect if given a height greater than or equal to our current best
+// known height. It returns the new best block for the notifier.
+func RewindChain(chainConn ChainConn, txConfNotifier *TxConfNotifier,
+	currBestBlock BlockEpoch, targetHeight int32) (BlockEpoch, error) {
+
+	newBestBlock := BlockEpoch{
+		Height: currBestBlock.Height,
+		Hash:   currBestBlock.Hash,
+	}
+
+	for height := currBestBlock.Height; height > targetHeight; height-- {
+		hash, err := chainConn.GetBlockHash(int64(height - 1))
+		if err != nil {
+			return newBestBlock, fmt.Errorf("unable to "+
+				"find blockhash for disconnected height=%d: %v",
+				height, err)
+		}
+
+		Log.Infof("Block disconnected from main chain: "+
+			"height=%v, sha=%v", height, newBestBlock.Hash)
+
+		err = txConfNotifier.DisconnectTip(uint32(height))
+		if err != nil {
+			return newBestBlock, fmt.Errorf("unable to "+
+				" disconnect tip for height=%d: %v",
+				height, err)
+		}
+		newBestBlock.Height = height - 1
+		newBestBlock.Hash = hash
+	}
+	return newBestBlock, nil
+}
+
 // getMissedBlocks returns a slice of blocks: [startingHeight, endingHeight)
 // fetched from the chain.
 func getMissedBlocks(chainConn ChainConn, startingHeight,

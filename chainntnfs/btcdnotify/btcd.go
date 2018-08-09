@@ -344,6 +344,23 @@ out:
 			case *blockEpochRegistration:
 				chainntnfs.Log.Infof("New block epoch subscription")
 				b.blockEpochClients[msg.epochID] = msg
+				if msg.bestBlock != nil {
+					missedBlocks, err :=
+						chainntnfs.GetClientMissedBlocks(
+							b.chainConn, msg.bestBlock,
+							b.bestBlock.Height, true,
+						)
+					if err != nil {
+						msg.errorChan <- err
+						continue
+					}
+					for _, block := range missedBlocks {
+						b.notifyBlockEpochClient(msg,
+							block.Height, block.Hash)
+					}
+
+				}
+				msg.errorChan <- nil
 			}
 
 		case item := <-b.chainUpdates.ChanOut():
@@ -652,20 +669,25 @@ func (b *BtcdNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 // notifyBlockEpochs notifies all registered block epoch clients of the newly
 // connected block to the main chain.
 func (b *BtcdNotifier) notifyBlockEpochs(newHeight int32, newSha *chainhash.Hash) {
+	for _, client := range b.blockEpochClients {
+		b.notifyBlockEpochClient(client, newHeight, newSha)
+	}
+}
+
+// notifyBlockEpochClient sends a registered block epoch client a notification
+// about a specific block.
+func (b *BtcdNotifier) notifyBlockEpochClient(epochClient *blockEpochRegistration,
+	height int32, sha *chainhash.Hash) {
+
 	epoch := &chainntnfs.BlockEpoch{
-		Height: newHeight,
-		Hash:   newSha,
+		Height: height,
+		Hash:   sha,
 	}
 
-	for _, epochClient := range b.blockEpochClients {
-		select {
-
-		case epochClient.epochQueue.ChanIn() <- epoch:
-
-		case <-epochClient.cancelChan:
-
-		case <-b.quit:
-		}
+	select {
+	case epochClient.epochQueue.ChanIn() <- epoch:
+	case <-epochClient.cancelChan:
+	case <-b.quit:
 	}
 }
 

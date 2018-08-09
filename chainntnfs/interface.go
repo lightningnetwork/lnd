@@ -268,3 +268,103 @@ type ChainConn interface {
 	// GetBlockHash returns the hash from a block height.
 	GetBlockHash(blockHeight int64) (*chainhash.Hash, error)
 }
+
+// GetCommonBlockAncestorHeight takes in:
+// (1) the hash of a block that has been reorged out of the main chain
+// (2) the hash of the block of the same height from the main chain
+// It returns the height of the nearest common ancestor between the two hashes,
+// or an error
+func GetCommonBlockAncestorHeight(chainConn ChainConn, reorgHash,
+	chainHash chainhash.Hash) (int32, error) {
+
+	for reorgHash != chainHash {
+		reorgHeader, err := chainConn.GetBlockHeader(&reorgHash)
+		if err != nil {
+			return 0, fmt.Errorf("unable to get header for hash=%v: %v",
+				reorgHash, err)
+		}
+		chainHeader, err := chainConn.GetBlockHeader(&chainHash)
+		if err != nil {
+			return 0, fmt.Errorf("unable to get header for hash=%v: %v",
+				chainHash, err)
+		}
+		reorgHash = reorgHeader.PrevBlock
+		chainHash = chainHeader.PrevBlock
+	}
+
+	verboseHeader, err := chainConn.GetBlockHeaderVerbose(&chainHash)
+	if err != nil {
+		return 0, fmt.Errorf("unable to get verbose header for hash=%v: %v",
+			chainHash, err)
+	}
+
+	return verboseHeader.Height, nil
+}
+
+// GetClientMissedBlocks uses a client's best block to determine what blocks
+// it missed being notified about, and returns them in a slice. Its
+// backendStoresReorgs parameter tells it whether or not the notifier's
+// chainConn stores information about blocks that have been reorged out of the
+// chain, which allows GetClientMissedBlocks to find out whether the client's
+// best block has been reorged out of the chain, rewind to the common ancestor
+// and return blocks starting right after the common ancestor.
+func GetClientMissedBlocks(chainConn ChainConn, clientBestBlock *BlockEpoch,
+	notifierBestHeight int32, backendStoresReorgs bool) ([]BlockEpoch, error) {
+
+	startingHeight := clientBestBlock.Height
+	if backendStoresReorgs {
+		// If a reorg causes the client's best hash to be incorrect,
+		// retrieve the closest common ancestor and dispatch
+		// notifications from there.
+		hashAtBestHeight, err := chainConn.GetBlockHash(
+			int64(clientBestBlock.Height))
+		if err != nil {
+			return nil, fmt.Errorf("unable to find blockhash for "+
+				"height=%d: %v", clientBestBlock.Height, err)
+		}
+
+		startingHeight, err = GetCommonBlockAncestorHeight(
+			chainConn, *clientBestBlock.Hash, *hashAtBestHeight,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to find common ancestor: "+
+				"%v", err)
+		}
+	}
+
+	// We want to start dispatching historical notifications from the block
+	// right after the client's best block, to avoid a redundant notification.
+	missedBlocks, err := getMissedBlocks(
+		chainConn, startingHeight+1, notifierBestHeight+1,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get missed blocks: %v", err)
+	}
+
+	return missedBlocks, nil
+}
+
+// getMissedBlocks returns a slice of blocks: [startingHeight, endingHeight)
+// fetched from the chain.
+func getMissedBlocks(chainConn ChainConn, startingHeight,
+	endingHeight int32) ([]BlockEpoch, error) {
+
+	numMissedBlocks := endingHeight - startingHeight
+	if numMissedBlocks < 0 {
+		return nil, fmt.Errorf("starting height %d is greater than "+
+			"ending height %d", startingHeight, endingHeight)
+	}
+
+	missedBlocks := make([]BlockEpoch, 0, numMissedBlocks)
+	for height := startingHeight; height < endingHeight; height++ {
+		hash, err := chainConn.GetBlockHash(int64(height))
+		if err != nil {
+			return nil, fmt.Errorf("unable to find blockhash for height=%d: %v",
+				height, err)
+		}
+		missedBlocks = append(missedBlocks,
+			BlockEpoch{Hash: hash, Height: height})
+	}
+
+	return missedBlocks, nil
+}

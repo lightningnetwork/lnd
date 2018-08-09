@@ -2899,7 +2899,12 @@ func (s *server) disableChannel(op wire.OutPoint) error {
 
 	// We must now update the message's timestamp and generate a new
 	// signature.
-	chanUpdate.Timestamp = uint32(time.Now().Unix())
+	newTimestamp := uint32(time.Now().Unix())
+	if newTimestamp <= chanUpdate.Timestamp {
+		// Timestamp must increase for message to propagate.
+		newTimestamp = chanUpdate.Timestamp + 1
+	}
+	chanUpdate.Timestamp = newTimestamp
 
 	chanUpdateMsg, err := chanUpdate.DataToSign()
 	if err != nil {

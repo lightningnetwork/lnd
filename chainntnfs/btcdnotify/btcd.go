@@ -78,6 +78,8 @@ type BtcdNotifier struct {
 
 	blockEpochClients map[uint64]*blockEpochRegistration
 
+	bestBlock chainntnfs.BlockEpoch
+
 	chainUpdates *chainntnfs.ConcurrentQueue
 	txUpdates    *chainntnfs.ConcurrentQueue
 
@@ -142,7 +144,7 @@ func (b *BtcdNotifier) Start() error {
 		return err
 	}
 
-	_, currentHeight, err := b.chainConn.GetBestBlock()
+	currentHash, currentHeight, err := b.chainConn.GetBestBlock()
 	if err != nil {
 		return err
 	}
@@ -150,11 +152,16 @@ func (b *BtcdNotifier) Start() error {
 	b.txConfNotifier = chainntnfs.NewTxConfNotifier(
 		uint32(currentHeight), reorgSafetyLimit)
 
+	b.bestBlock = chainntnfs.BlockEpoch{
+		Height: currentHeight,
+		Hash:   currentHash,
+	}
+
 	b.chainUpdates.Start()
 	b.txUpdates.Start()
 
 	b.wg.Add(1)
-	go b.notificationDispatcher(currentHeight)
+	go b.notificationDispatcher()
 
 	return nil
 }
@@ -244,7 +251,7 @@ func (b *BtcdNotifier) onRedeemingTx(tx *btcutil.Tx, details *btcjson.BlockDetai
 
 // notificationDispatcher is the primary goroutine which handles client
 // notification registrations, as well as notification dispatches.
-func (b *BtcdNotifier) notificationDispatcher(currentHeight int32) {
+func (b *BtcdNotifier) notificationDispatcher() {
 out:
 	for {
 		select {
@@ -304,7 +311,7 @@ out:
 					"subscription: txid=%v, numconfs=%v",
 					msg.TxID, msg.NumConfirmations)
 
-				bestHeight := uint32(currentHeight)
+				bestHeight := uint32(b.bestBlock.Height)
 
 				// Look up whether the transaction is already
 				// included in the active chain. We'll do this
@@ -342,14 +349,12 @@ out:
 		case item := <-b.chainUpdates.ChanOut():
 			update := item.(*chainUpdate)
 			if update.connect {
-				if update.blockHeight != currentHeight+1 {
+				if update.blockHeight != b.bestBlock.Height+1 {
 					chainntnfs.Log.Warnf("Received blocks out of order: "+
 						"current height=%d, new height=%d",
 						currentHeight, update.blockHeight)
 					continue
 				}
-
-				currentHeight = update.blockHeight
 
 				rawBlock, err := b.chainConn.GetBlock(update.blockHash)
 				if err != nil {
@@ -374,14 +379,12 @@ out:
 				continue
 			}
 
-			if update.blockHeight != currentHeight {
+			if update.blockHeight != b.bestBlock.Height {
 				chainntnfs.Log.Warnf("Received blocks out of order: "+
 					"current height=%d, disconnected height=%d",
 					currentHeight, update.blockHeight)
 				continue
 			}
-
-			currentHeight = update.blockHeight - 1
 
 			chainntnfs.Log.Infof("Block disconnected from main chain: "+
 				"height=%v, sha=%v", update.blockHeight, update.blockHash)

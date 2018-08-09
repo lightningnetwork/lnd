@@ -74,6 +74,8 @@ type BitcoindNotifier struct {
 
 	blockEpochClients map[uint64]*blockEpochRegistration
 
+	bestBlock chainntnfs.BlockEpoch
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -119,7 +121,7 @@ func (b *BitcoindNotifier) Start() error {
 		return err
 	}
 
-	_, currentHeight, err := b.chainConn.GetBestBlock()
+	currentHash, currentHeight, err := b.chainConn.GetBestBlock()
 	if err != nil {
 		return err
 	}
@@ -127,8 +129,13 @@ func (b *BitcoindNotifier) Start() error {
 	b.txConfNotifier = chainntnfs.NewTxConfNotifier(
 		uint32(currentHeight), reorgSafetyLimit)
 
+	b.bestBlock = chainntnfs.BlockEpoch{
+		Height: currentHeight,
+		Hash:   currentHash,
+	}
+
 	b.wg.Add(1)
-	go b.notificationDispatcher(currentHeight)
+	go b.notificationDispatcher()
 
 	return nil
 }
@@ -174,7 +181,7 @@ type blockNtfn struct {
 
 // notificationDispatcher is the primary goroutine which handles client
 // notification registrations, as well as notification dispatches.
-func (b *BitcoindNotifier) notificationDispatcher(bestHeight int32) {
+func (b *BitcoindNotifier) notificationDispatcher() {
 out:
 	for {
 		select {
@@ -235,7 +242,7 @@ out:
 					"subscription: txid=%v, numconfs=%v",
 					msg.TxID, msg.NumConfirmations)
 
-				currentHeight := uint32(bestHeight)
+				currentHeight := uint32(b.bestBlock.Height)
 
 				// Look up whether the transaction is already
 				// included in the active chain. We'll do this
@@ -270,19 +277,18 @@ out:
 				b.blockEpochClients[msg.epochID] = msg
 
 			case chain.RelevantTx:
-				b.handleRelevantTx(msg, bestHeight)
+				b.handleRelevantTx(msg, b.bestBlock.Height)
 			}
 
 		case ntfn := <-b.chainConn.Notifications():
 			switch item := ntfn.(type) {
 			case chain.BlockConnected:
-				if item.Height != bestHeight+1 {
+				if item.Height != b.bestBlock.Height+1 {
 					chainntnfs.Log.Warnf("Received blocks out of order: "+
 						"current height=%d, new height=%d",
 						bestHeight, item.Height)
 					continue
 				}
-				bestHeight = item.Height
 
 				rawBlock, err := b.chainConn.GetBlock(&item.Hash)
 				if err != nil {
@@ -304,14 +310,13 @@ out:
 				continue
 
 			case chain.BlockDisconnected:
-				if item.Height != bestHeight {
+				if item.Height != b.bestBlock.Height {
 					chainntnfs.Log.Warnf("Received blocks "+
 						"out of order: current height="+
 						"%d, disconnected height=%d",
 						bestHeight, item.Height)
 					continue
 				}
-				bestHeight = item.Height - 1
 
 				chainntnfs.Log.Infof("Block disconnected from "+
 					"main chain: height=%v, sha=%v",
@@ -324,7 +329,7 @@ out:
 				}
 
 			case chain.RelevantTx:
-				b.handleRelevantTx(item, bestHeight)
+				b.handleRelevantTx(item, b.bestBlock.Height)
 			}
 
 		case <-b.quit:

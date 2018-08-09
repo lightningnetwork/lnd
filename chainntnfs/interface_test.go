@@ -1274,10 +1274,109 @@ func testReorgConf(miner *rpctest.Harness, notifier chainntnfs.TestChainNotifier
 	}
 }
 
+// testCatchUpClientOnMissedBlocks tests the case of multiple registered client
+// receiving historical block epoch notifications due to their best known block
+// being out of date.
+func testCatchUpClientOnMissedBlocks(miner *rpctest.Harness,
+	notifier chainntnfs.TestChainNotifier, t *testing.T) {
+
+	const numBlocks = 10
+	const numClients = 5
+	var wg sync.WaitGroup
+
+	outdatedHash, outdatedHeight, err := miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to retrieve current height: %v", err)
+	}
+
+	// This function is used by UnsafeStart to ensure all notifications
+	// are fully drained before clients register for notifications.
+	generateBlocks := func() error {
+		_, err = miner.Node.Generate(numBlocks)
+		return err
+	}
+
+	// We want to ensure that when a client registers for block notifications,
+	// the notifier's best block is at the tip of the chain. If it isn't, the
+	// client may not receive all historical notifications.
+	bestHeight := outdatedHeight + numBlocks
+	if err := notifier.UnsafeStart(
+		bestHeight, nil, bestHeight, generateBlocks); err != nil {
+
+		t.Fatalf("Unable to unsafe start the notifier: %v", err)
+	}
+
+	// Create numClients clients whose best known block is 10 blocks behind
+	// the tip of the chain. We expect each client to receive numBlocks
+	// notifications, 1 for each block  they're behind.
+	clients := make([]*chainntnfs.BlockEpochEvent, 0, numClients)
+	outdatedBlock := &chainntnfs.BlockEpoch{
+		Height: outdatedHeight, Hash: outdatedHash,
+	}
+	for i := 0; i < numClients; i++ {
+		epochClient, err := notifier.RegisterBlockEpochNtfn(outdatedBlock)
+		if err != nil {
+			t.Fatalf("unable to register for epoch notification: %v", err)
+		}
+		clients = append(clients, epochClient)
+	}
+	for expectedHeight := outdatedHeight + 1; expectedHeight <=
+		bestHeight; expectedHeight++ {
+
+		for _, epochClient := range clients {
+			select {
+			case block := <-epochClient.Epochs:
+				if block.Height != expectedHeight {
+					t.Fatalf("received block of height: %d, "+
+						"expected: %d", block.Height,
+						expectedHeight)
+				}
+			case <-time.After(20 * time.Second):
+				t.Fatalf("did not receive historical notification "+
+					"for height %d", expectedHeight)
+			}
+
+		}
+	}
+
+	// Finally, ensure that an extra block notification wasn't received.
+	anyExtras := make(chan struct{}, len(clients))
+	for _, epochClient := range clients {
+		wg.Add(1)
+		go func(epochClient *chainntnfs.BlockEpochEvent) {
+			defer wg.Done()
+			select {
+			case <-epochClient.Epochs:
+				anyExtras <- struct{}{}
+			case <-time.After(5 * time.Second):
+			}
+		}(epochClient)
+	}
+
+	wg.Wait()
+	close(anyExtras)
+
+	var extraCount int
+	for range anyExtras {
+		extraCount++
+	}
+
+	if extraCount > 0 {
+		t.Fatalf("received %d unexpected block notification", extraCount)
+	}
+}
+
 type testCase struct {
 	name string
 
 	test func(node *rpctest.Harness, notifier chainntnfs.TestChainNotifier, t *testing.T)
+}
+
+type blockCatchupTestCase struct {
+	name string
+
+	test func(node *rpctest.Harness, notifier chainntnfs.TestChainNotifier,
+		t *testing.T)
 }
 
 var ntfnTests = []testCase{
@@ -1328,6 +1427,13 @@ var ntfnTests = []testCase{
 	{
 		name: "reorg conf",
 		test: testReorgConf,
+	},
+}
+
+var blockCatchupTests = []blockCatchupTestCase{
+	{
+		name: "catch up client on historical block epoch ntfns",
+		test: testCatchUpClientOnMissedBlocks,
 	},
 }
 
@@ -1511,6 +1617,29 @@ func TestInterfaces(t *testing.T) {
 		}
 
 		notifier.Stop()
+
+		// Run catchup tests separately since they require
+		// restarting the notifier every time.
+		for _, blockCatchupTest := range blockCatchupTests {
+			notifier, err = newNotifier()
+			if err != nil {
+				t.Fatalf("unable to create %v notifier: %v",
+					notifierType, err)
+			}
+			testName := fmt.Sprintf("%v: %v", notifierType,
+				blockCatchupTest.name)
+
+			success := t.Run(testName, func(t *testing.T) {
+				blockCatchupTest.test(miner, notifier, t)
+			})
+
+			notifier.Stop()
+
+			if !success {
+				break
+			}
+		}
+
 		if cleanUp != nil {
 			cleanUp()
 		}

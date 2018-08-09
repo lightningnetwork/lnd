@@ -1924,13 +1924,13 @@ func waitForWalletSync(r *rpctest.Harness, w *lnwallet.LightningWallet) error {
 		bestHash, knownHash     *chainhash.Hash
 		bestHeight, knownHeight int32
 	)
-	timeout := time.After(30 * time.Second)
+	timeout := time.After(10 * time.Second)
 	for !synced {
 		// Do a short wait
 		select {
 		case <-timeout:
 			return fmt.Errorf("timeout after 30s")
-		case <-time.Tick(50 * time.Millisecond):
+		case <-time.Tick(100 * time.Millisecond):
 		}
 
 		// Check whether the chain source of the wallet is caught up to

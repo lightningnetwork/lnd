@@ -78,9 +78,9 @@ type path struct {
 	// that the path requires.
 	dist int
 
-	// hops is an ordered list of edge that comprises a potential payment
+	// hops is an ordered list of edges that comprises a potential payment
 	// path.
-	hops []*ChannelHop
+	hops []*channeldb.ChannelEdgePolicy
 }
 
 // pathHeap is a min-heap that stores potential paths to be considered within

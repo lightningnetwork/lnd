@@ -592,12 +592,24 @@ func TestFindLowestFeePath(t *testing.T) {
 	}
 
 	// Assert that the lowest fee route is returned.
-	if !bytes.Equal(route.Hops[1].Channel.Node.PubKeyBytes[:],
+	if !bytes.Equal(route.Hops[1].PubKeyBytes[:],
 		testGraphInstance.aliasMap["b"].SerializeCompressed()) {
 		t.Fatalf("expected route to pass through b, "+
 			"but got a route through %v",
-			route.Hops[1].Channel.Node.Alias)
+			getAliasFromPubKey(route.Hops[1].PubKeyBytes[:],
+				testGraphInstance.aliasMap))
 	}
+}
+
+func getAliasFromPubKey(pubKey []byte,
+	aliases map[string]*btcec.PublicKey) string {
+
+	for alias, key := range aliases {
+		if bytes.Equal(key.SerializeCompressed(), pubKey) {
+			return alias
+		}
+	}
+	return ""
 }
 
 type expectedHop struct {
@@ -733,11 +745,13 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 
 	// Check hop nodes
 	for i := 0; i < len(expectedHops); i++ {
-		if !bytes.Equal(route.Hops[i].Channel.Node.PubKeyBytes[:],
+		if !bytes.Equal(route.Hops[i].PubKeyBytes[:],
 			aliases[expectedHops[i].alias].SerializeCompressed()) {
 
 			t.Fatalf("%v-th hop should be %v, is instead: %v",
-				i, expectedHops[i], route.Hops[i].Channel.Node.Alias)
+				i, expectedHops[i],
+				getAliasFromPubKey(route.Hops[i].PubKeyBytes[:],
+					aliases))
 		}
 	}
 
@@ -753,7 +767,7 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 	// Hops should point to the next hop
 	for i := 0; i < len(expectedHops)-1; i++ {
 		var expectedHop [8]byte
-		binary.BigEndian.PutUint64(expectedHop[:], route.Hops[i+1].Channel.ChannelID)
+		binary.BigEndian.PutUint64(expectedHop[:], route.Hops[i+1].ChannelID)
 		if !bytes.Equal(hopPayloads[i].NextAddress[:], expectedHop[:]) {
 			t.Fatalf("first hop has incorrect next hop: expected %x, got %x",
 				expectedHop[:], hopPayloads[i].NextAddress)
@@ -774,9 +788,10 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 		// We'll ensure that the amount to forward, and fees
 		// computed for each hop are correct.
 
-		if route.Hops[i].Fee != expectedHops[i].fee {
+		fee := route.HopFee(i)
+		if fee != expectedHops[i].fee {
 			t.Fatalf("fee incorrect for hop %v: expected %v, got %v",
-				i, expectedHops[i].fee, route.Hops[i].Fee)
+				i, expectedHops[i].fee, fee)
 		}
 
 		if route.Hops[i].AmtToForward != expectedHops[i].fwdAmount {
@@ -815,9 +830,9 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 		if !ok {
 			t.Fatalf("hop didn't have prev chan but should have")
 		}
-		if prevChan.ChannelID != route.Hops[i].Channel.ChannelID {
+		if prevChan.ChannelID != route.Hops[i].ChannelID {
 			t.Fatalf("incorrect prev chan: expected %v, got %v",
-				prevChan.ChannelID, route.Hops[i].Channel.ChannelID)
+				prevChan.ChannelID, route.Hops[i].ChannelID)
 		}
 	}
 
@@ -826,9 +841,9 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 		if !ok {
 			t.Fatalf("hop didn't have prev chan but should have")
 		}
-		if nextChan.ChannelID != route.Hops[i+1].Channel.ChannelID {
+		if nextChan.ChannelID != route.Hops[i+1].ChannelID {
 			t.Fatalf("incorrect prev chan: expected %v, got %v",
-				nextChan.ChannelID, route.Hops[i+1].Channel.ChannelID)
+				nextChan.ChannelID, route.Hops[i+1].ChannelID)
 		}
 	}
 
@@ -969,16 +984,13 @@ func TestNewRoute(t *testing.T) {
 	createHop := func(baseFee lnwire.MilliSatoshi,
 		feeRate lnwire.MilliSatoshi,
 		bandwidth lnwire.MilliSatoshi,
-		timeLockDelta uint16) *ChannelHop {
+		timeLockDelta uint16) *channeldb.ChannelEdgePolicy {
 
-		return &ChannelHop{
-			ChannelEdgePolicy: &channeldb.ChannelEdgePolicy{
-				Node:                      &channeldb.LightningNode{},
-				FeeProportionalMillionths: feeRate,
-				FeeBaseMSat:               baseFee,
-				TimeLockDelta:             timeLockDelta,
-			},
-			Bandwidth: bandwidth,
+		return &channeldb.ChannelEdgePolicy{
+			Node:                      &channeldb.LightningNode{},
+			FeeProportionalMillionths: feeRate,
+			FeeBaseMSat:               baseFee,
+			TimeLockDelta:             timeLockDelta,
 		}
 	}
 
@@ -988,7 +1000,7 @@ func TestNewRoute(t *testing.T) {
 
 		// hops is the list of hops (the route) that gets passed into
 		// the call to newRoute.
-		hops []*ChannelHop
+		hops []*channeldb.ChannelEdgePolicy
 
 		// paymentAmount is the amount that is send into the route
 		// indicated by hops.
@@ -1029,7 +1041,7 @@ func TestNewRoute(t *testing.T) {
 			// For a single hop payment, no fees are expected to be paid.
 			name:          "single hop",
 			paymentAmount: 100000,
-			hops: []*ChannelHop{
+			hops: []*channeldb.ChannelEdgePolicy{
 				createHop(100, 1000, 1000000, 10),
 			},
 			expectedFees:          []lnwire.MilliSatoshi{0},
@@ -1043,7 +1055,7 @@ func TestNewRoute(t *testing.T) {
 			// a fee to receive the payment.
 			name:          "two hop",
 			paymentAmount: 100000,
-			hops: []*ChannelHop{
+			hops: []*channeldb.ChannelEdgePolicy{
 				createHop(0, 1000, 1000000, 10),
 				createHop(30, 1000, 1000000, 5),
 			},
@@ -1053,17 +1065,6 @@ func TestNewRoute(t *testing.T) {
 			expectedTotalTimeLock: 6,
 			feeLimit:              noFeeLimit,
 		}, {
-			// Insufficient capacity in first channel when fees are added.
-			name:          "two hop insufficient",
-			paymentAmount: 100000,
-			hops: []*ChannelHop{
-				createHop(0, 1000, 100000, 10),
-				createHop(0, 1000, 1000000, 5),
-			},
-			feeLimit:          noFeeLimit,
-			expectError:       true,
-			expectedErrorCode: ErrInsufficientCapacity,
-		}, {
 			// A three hop payment where the first and second hop
 			// will both charge 1 msat. The fee for the first hop
 			// is actually slightly higher than 1, because the amount
@@ -1071,7 +1072,7 @@ func TestNewRoute(t *testing.T) {
 			// gets rounded down to 1.
 			name:          "three hop",
 			paymentAmount: 100000,
-			hops: []*ChannelHop{
+			hops: []*channeldb.ChannelEdgePolicy{
 				createHop(0, 10, 1000000, 10),
 				createHop(0, 10, 1000000, 5),
 				createHop(0, 10, 1000000, 3),
@@ -1087,7 +1088,7 @@ func TestNewRoute(t *testing.T) {
 			// because of the increase amount to forward.
 			name:          "three hop with fee carry over",
 			paymentAmount: 100000,
-			hops: []*ChannelHop{
+			hops: []*channeldb.ChannelEdgePolicy{
 				createHop(0, 10000, 1000000, 10),
 				createHop(0, 10000, 1000000, 5),
 				createHop(0, 10000, 1000000, 3),
@@ -1103,7 +1104,7 @@ func TestNewRoute(t *testing.T) {
 			// effect.
 			name:          "three hop with minimal fees for carry over",
 			paymentAmount: 100000,
-			hops: []*ChannelHop{
+			hops: []*channeldb.ChannelEdgePolicy{
 				createHop(0, 10000, 1000000, 10),
 
 				// First hop charges 0.1% so the second hop fee
@@ -1124,7 +1125,7 @@ func TestNewRoute(t *testing.T) {
 		{
 			name:          "two hop success with fee limit (greater)",
 			paymentAmount: 100000,
-			hops: []*ChannelHop{
+			hops: []*channeldb.ChannelEdgePolicy{
 				createHop(0, 1000, 1000000, 144),
 				createHop(0, 1000, 1000000, 144),
 			},
@@ -1136,7 +1137,7 @@ func TestNewRoute(t *testing.T) {
 		}, {
 			name:          "two hop success with fee limit (equal)",
 			paymentAmount: 100000,
-			hops: []*ChannelHop{
+			hops: []*channeldb.ChannelEdgePolicy{
 				createHop(0, 1000, 1000000, 144),
 				createHop(0, 1000, 1000000, 144),
 			},
@@ -1148,7 +1149,7 @@ func TestNewRoute(t *testing.T) {
 		}, {
 			name:          "two hop failure with fee limit (smaller)",
 			paymentAmount: 100000,
-			hops: []*ChannelHop{
+			hops: []*channeldb.ChannelEdgePolicy{
 				createHop(0, 1000, 1000000, 144),
 				createHop(0, 1000, 1000000, 144),
 			},
@@ -1158,7 +1159,7 @@ func TestNewRoute(t *testing.T) {
 		}, {
 			name:          "two hop failure with fee limit (zero)",
 			paymentAmount: 100000,
-			hops: []*ChannelHop{
+			hops: []*channeldb.ChannelEdgePolicy{
 				createHop(0, 1000, 1000000, 144),
 				createHop(0, 1000, 1000000, 144),
 			},
@@ -1177,13 +1178,13 @@ func TestNewRoute(t *testing.T) {
 			}
 
 			for i := 0; i < len(testCase.expectedFees); i++ {
-				if testCase.expectedFees[i] !=
-					route.Hops[i].Fee {
+				fee := route.HopFee(i)
+				if testCase.expectedFees[i] != fee {
 
 					t.Errorf("Expected fee for hop %v to "+
 						"be %v, but got %v instead",
 						i, testCase.expectedFees[i],
-						route.Hops[i].Fee)
+						fee)
 				}
 			}
 
@@ -1515,9 +1516,10 @@ func TestPathFindSpecExample(t *testing.T) {
 		t.Fatalf("wrong forward amount: got %v, expected %v",
 			firstRoute.Hops[0].AmtToForward, amt)
 	}
-	if firstRoute.Hops[0].Fee != 0 {
-		t.Fatalf("wrong hop fee: got %v, expected %v",
-			firstRoute.Hops[0].Fee, 0)
+
+	fee := firstRoute.HopFee(0)
+	if fee != 0 {
+		t.Fatalf("wrong hop fee: got %v, expected %v", fee, 0)
 	}
 
 	// The CLTV expiry should be the current height plus 9 (the expiry for
@@ -1600,16 +1602,17 @@ func TestPathFindSpecExample(t *testing.T) {
 	// hop, so we should get a fee of exactly:
 	//
 	//  * 200 + 4999999 * 2000 / 1000000 = 10199
-	if routes[0].Hops[0].Fee != 10199 {
-		t.Fatalf("wrong hop fee: got %v, expected %v",
-			routes[0].Hops[0].Fee, 10199)
+
+	fee = routes[0].HopFee(0)
+	if fee != 10199 {
+		t.Fatalf("wrong hop fee: got %v, expected %v", fee, 10199)
 	}
 
 	// While for the final hop, as there's no additional hop afterwards, we
 	// pay no fee.
-	if routes[0].Hops[1].Fee != 0 {
-		t.Fatalf("wrong hop fee: got %v, expected %v",
-			routes[0].Hops[0].Fee, 0)
+	fee = routes[0].HopFee(1)
+	if fee != 0 {
+		t.Fatalf("wrong hop fee: got %v, expected %v", fee, 0)
 	}
 
 	// The outgoing CLTV value itself should be the current height plus 30
@@ -1677,7 +1680,9 @@ func TestPathFindSpecExample(t *testing.T) {
 	}
 }
 
-func assertExpectedPath(t *testing.T, path []*ChannelHop, nodeAliases ...string) {
+func assertExpectedPath(t *testing.T, path []*channeldb.ChannelEdgePolicy,
+	nodeAliases ...string) {
+
 	if len(path) != len(nodeAliases) {
 		t.Fatal("number of hops and number of aliases do not match")
 	}

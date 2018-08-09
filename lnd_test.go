@@ -10925,7 +10925,7 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to connect bob to dave: %v", err)
 	}
 
-	daveUpdates, quit := subscribeGraphNotifications(t, ctxb, net.Alice)
+	daveUpdates, quit := subscribeGraphNotifications(t, ctxb, dave)
 	defer close(quit)
 
 	// We should expect to see a channel update with the default routing
@@ -10940,16 +10940,30 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	// Close Alice's channels with Bob and Carol cooperatively and
 	// unilaterally respectively.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAliceBob, false)
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAliceCarol, true)
+	_, _, err = net.CloseChannel(ctxt, net.Alice, chanPointAliceBob, false)
+	if err != nil {
+		t.Fatalf("unable to close channel: %v", err)
+	}
 
-	// Now that the channels have been closed, we should receive an update
-	// marking each as disabled.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	_, _, err = net.CloseChannel(ctxt, net.Alice, chanPointAliceCarol, true)
+	if err != nil {
+		t.Fatalf("unable to close channel: %v", err)
+	}
+
+	// Now that the channel close processes have been started, we should
+	// receive an update marking each as disabled.
 	waitForChannelUpdate(
 		t, daveUpdates, net.Alice.PubKeyStr, expectedPolicy,
 		chanPointAliceBob, chanPointAliceCarol,
 	)
+
+	// Finally, close the channels by mining the closing transactions.
+	_, err = waitForNTxsInMempool(net.Miner.Node, 2, timeout)
+	if err != nil {
+		t.Fatalf("expected transactions not found in mempool: %v", err)
+	}
+	mineBlocks(t, net, 1)
 }
 
 type testCase struct {

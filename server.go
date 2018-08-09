@@ -2976,22 +2976,6 @@ func extractChannelUpdate(info *channeldb.ChannelEdgeInfo,
 // applyChannelUpdate applies the channel update to the different sub-systems of
 // the server.
 func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate) error {
-	newChannelPolicy := &channeldb.ChannelEdgePolicy{
-		SigBytes:                  update.Signature.ToSignatureBytes(),
-		ChannelID:                 update.ShortChannelID.ToUint64(),
-		LastUpdate:                time.Unix(int64(update.Timestamp), 0),
-		Flags:                     update.Flags,
-		TimeLockDelta:             update.TimeLockDelta,
-		MinHTLC:                   update.HtlcMinimumMsat,
-		FeeBaseMSat:               lnwire.MilliSatoshi(update.BaseFee),
-		FeeProportionalMillionths: lnwire.MilliSatoshi(update.FeeRate),
-	}
-
-	err := s.chanRouter.UpdateEdge(newChannelPolicy)
-	if err != nil && !routing.IsError(err, routing.ErrIgnored) {
-		return err
-	}
-
 	pubKey := s.identityPriv.PubKey()
 	errChan := s.authGossiper.ProcessLocalAnnouncement(update, pubKey)
 	select {

@@ -2285,6 +2285,24 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 					continue
 				}
 
+				// Validate the users wallet balance compared to
+				// the msat amount from the payIntent. We need
+				// to ensure the user has enough funds to fulfill
+				// the payment request. If the user does not have
+				// enough funds we return an error.
+				if err := validateUserBalance(r, payIntent); err != nil {
+					if err := stream.send(&lnrpc.SendResponse{
+						PaymentError: err.Error(),
+					}); err != nil {
+						select {
+						case errChan <- err:
+						case <-reqQuit:
+							return
+						}
+					}
+					continue
+				}
+
 				// If the payment was well formed, then we'll
 				// send to the dispatch goroutine, or exit,
 				// which ever comes first

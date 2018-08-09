@@ -532,7 +532,7 @@ func (n *NetworkHarness) DisconnectNodes(ctx context.Context, a, b *HarnessNode)
 	return nil
 }
 
-// RestartNode  attempts to restart a lightning node by shutting it down
+// RestartNode attempts to restart a lightning node by shutting it down
 // cleanly, then restarting the process. This function is fully blocking. Upon
 // restart, the RPC connection to the node will be re-attempted, continuing iff
 // the connection attempt is successful. If the callback parameter is non-nil,
@@ -554,6 +554,20 @@ func (n *NetworkHarness) RestartNode(node *HarnessNode, callback func() error) e
 	}
 
 	return node.start(n.lndErrorChan)
+}
+
+// SuspendNode stops the given node and returns a callback that can be used to
+// start it again.
+func (n *NetworkHarness) SuspendNode(node *HarnessNode) (func() error, error) {
+	if err := node.stop(); err != nil {
+		return nil, err
+	}
+
+	restart := func() error {
+		return node.start(n.lndErrorChan)
+	}
+
+	return restart, nil
 }
 
 // ShutdownNode stops an active lnd process and returns when the process has

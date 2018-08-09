@@ -1514,6 +1514,114 @@ func testPublishTransaction(r *rpctest.Harness,
 	// gets RBF support.
 }
 
+// testRebroadcastInsufficientFee ensures that we can properly rebroadcast a
+// transaction with an insufficient fee to allow it to propage throughout the
+// network by continuously bumping up its fee and re-signing it.
+func testRebroadcastInsufficientFee(miner *rpctest.Harness,
+	w, _ *lnwallet.LightningWallet, t *testing.T) {
+
+	// Generate a P2WPKH script.
+	keyDesc, err := w.DeriveNextKey(keychain.KeyFamilyMultiSig)
+	if err != nil {
+		t.Fatalf("unable to obtain public key: %v", err)
+	}
+	pubkeyHash := btcutil.Hash160(keyDesc.PubKey.SerializeCompressed())
+	addrScript, err := btcutil.NewAddressWitnessPubKeyHash(
+		pubkeyHash, &chaincfg.RegressionNetParams,
+	)
+	if err != nil {
+		t.Fatalf("unable to create addr: %v", err)
+	}
+	pkScript, err := txscript.PayToAddrScript(addrScript)
+	if err != nil {
+		t.Fatalf("unable to generate script: %v", err)
+	}
+
+	// Calculate the sufficient fee for a transaction with one input and one
+	// output. We'll then use this to create a transaction with an
+	// insufficient fee 1.5x less.
+	var txWeightEstimator lnwallet.TxWeightEstimator
+	txWeightEstimator.AddP2WKHInput().AddP2WKHOutput()
+	weight := int64(txWeightEstimator.Weight())
+	sufficientFee := lnwallet.SatPerKWeight(250).FeeForWeight(weight)
+	insufficientFee := sufficientFee - (sufficientFee / 2)
+
+	output := &wire.TxOut{
+		Value:    btcutil.SatoshiPerBitcoin,
+		PkScript: pkScript,
+	}
+	tx := newTx(t, miner, w, output, keyDesc, keyDesc.PubKey, insufficientFee)
+	if err := w.PublishTransaction(tx); err != lnwallet.ErrInsufficientFee {
+		t.Fatalf("expected ErrInsufficientFee, got %v", err)
+	}
+
+	// Reconstruct the sign descriptor for the input to be able to re-sign
+	// it after applying the new fee.
+	signDesc := &lnwallet.WitnessSignDescriptor{
+		WitnessType: lnwallet.P2WPKH,
+		SignDescriptor: &lnwallet.SignDescriptor{
+			KeyDesc:       keyDesc,
+			WitnessScript: pkScript,
+			Output:        output,
+			HashType:      txscript.SigHashAll,
+			SigHashes:     txscript.NewTxSigHashes(tx),
+			InputIndex:    0,
+		},
+	}
+	signDescs := []*lnwallet.WitnessSignDescriptor{signDesc}
+
+	// Set the constraints on our rebroadcaster. We'll be bumping up the fee
+	// 10% at every iteration and we should be able to reach the estimated
+	// sufficient fee within 10 attempts. We'll set a maxFee of 2x the
+	// sufficient fee to ensure our transaction fee does not exceed this
+	// limit.
+	const bumpPercentage = 10
+	const maxAttempts = 10
+	maxFee := 2 * sufficientFee
+
+	cfg := lnwallet.TxRebroadcasterCfg{
+		Tx:                tx,
+		ChangeOutputIndex: 0,
+		Signer:            w.Cfg.Signer,
+		WitnessSignDescs:  signDescs,
+		BumpPercentage:    bumpPercentage,
+		MaxAttempts:       maxAttempts,
+		MaxFee:            maxFee,
+		DustLimit:         lnwallet.DefaultDustLimit(),
+		FetchInputAmount: func(*wire.OutPoint) (btcutil.Amount, error) {
+			return btcutil.Amount(output.Value), nil
+		},
+		Broadcast: func(tx *wire.MsgTx) error {
+			return w.PublishTransaction(tx)
+		},
+	}
+
+	rebroadcaster, err := lnwallet.NewTxRebroadcaster(cfg)
+	if err != nil {
+		t.Fatalf("unable to create tx rebroadcaster: %v", err)
+	}
+
+	// Kick off the rebroadcaster.
+	errChan := rebroadcaster.Rebroadcast(nil)
+	select {
+	case err = <-errChan:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for result")
+	}
+
+	// The transaction should have been rebroadcast successfully.
+	if err != nil {
+		t.Fatalf("unable to rebroadcast tx: %v", err)
+	}
+
+	// The last fee used should be greater or equal to the sufficient fee.
+	lastFeeUsed := rebroadcaster.LastFeeUsed()
+	if lastFeeUsed < sufficientFee {
+		t.Fatalf("expected last fee used of %v to be above sufficient "+
+			"fee of %v", lastFeeUsed, sufficientFee)
+	}
+}
+
 func testSignOutputUsingTweaks(r *rpctest.Harness,
 	alice, _ *lnwallet.LightningWallet, t *testing.T) {
 
@@ -1877,6 +1985,10 @@ var walletTests = []walletTestCase{
 	{
 		name: "publish transaction",
 		test: testPublishTransaction,
+	},
+	{
+		name: "rebroadcast insufficient fee",
+		test: testRebroadcastInsufficientFee,
 	},
 	{
 		name: "signed with tweaked pubkeys",

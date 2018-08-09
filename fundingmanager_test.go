@@ -23,6 +23,7 @@ import (
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/config"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -452,7 +453,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 func setupFundingManagers(t *testing.T, maxPendingChannels int) (*testNode, *testNode) {
 	// We need to set the global config, as fundingManager uses
 	// MaxPendingChannels, and it is usually set in lndMain().
-	cfg = &config{
+	cfg = &config.Config{
 		MaxPendingChannels: maxPendingChannels,
 	}
 

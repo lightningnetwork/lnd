@@ -38,6 +38,7 @@ import (
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	flags "github.com/jessevdk/go-flags"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/config"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -58,7 +59,7 @@ var (
 	//set using -ldflags during compilation.
 	Commit string
 
-	cfg              *config
+	cfg              *config.Config
 	registeredChains = newChainRegistry()
 
 	macaroonDatabaseDir string

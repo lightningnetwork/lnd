@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/neutrinonotify"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/config"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -122,7 +123,7 @@ type chainControl struct {
 // according to the parameters in the passed lnd configuration. Currently two
 // branches of chainControl instances exist: one backed by a running btcd
 // full-node, and the other backed by a running neutrino light client instance.
-func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
+func newChainControlFromConfig(cfg *config.Config, chanDB *channeldb.DB,
 	privateWalletPw, publicWalletPw []byte, birthday time.Time,
 	recoveryWindow uint32,
 	wallet *wallet.Wallet) (*chainControl, func(), error) {
@@ -265,7 +266,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			nodeDatabase.Close()
 		}
 	case "bitcoind", "litecoind":
-		var bitcoindMode *bitcoindConfig
+		var bitcoindMode *config.Bitcoind
 		switch {
 		case cfg.Bitcoin.Active:
 			bitcoindMode = cfg.BitcoindMode
@@ -379,7 +380,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 		// connection. If a raw cert was specified in the config, then
 		// we'll set that directly. Otherwise, we attempt to read the
 		// cert from the path specified in the config.
-		var btcdMode *btcdConfig
+		var btcdMode *config.Btcd
 		switch {
 		case cfg.Bitcoin.Active:
 			btcdMode = cfg.BtcdMode

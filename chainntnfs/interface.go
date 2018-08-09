@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 )
@@ -252,4 +253,18 @@ func SupportedNotifiers() []string {
 	}
 
 	return supportedNotifiers
+}
+
+// ChainConn enables notifiers to pass in their chain backend to interface
+// functions that require it.
+type ChainConn interface {
+	// GetBlockHeader returns the block header for a hash.
+	GetBlockHeader(blockHash *chainhash.Hash) (*wire.BlockHeader, error)
+
+	// GetBlockHeaderVerbose returns the verbose block header for a hash.
+	GetBlockHeaderVerbose(blockHash *chainhash.Hash) (
+		*btcjson.GetBlockHeaderVerboseResult, error)
+
+	// GetBlockHash returns the hash from a block height.
+	GetBlockHash(blockHeight int64) (*chainhash.Hash, error)
 }

@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/txscript"
@@ -60,6 +61,8 @@ type NeutrinoNotifier struct {
 
 	p2pNode   *neutrino.ChainService
 	chainView *neutrino.Rescan
+
+	chainConn *NeutrinoChainConn
 
 	notificationCancels  chan interface{}
 	notificationRegistry chan interface{}
@@ -149,6 +152,8 @@ func (n *NeutrinoNotifier) Start() error {
 	n.txConfNotifier = chainntnfs.NewTxConfNotifier(
 		bestHeight, reorgSafetyLimit,
 	)
+
+	n.chainConn = &NeutrinoChainConn{n.p2pNode}
 
 	// Finally, we'll create our rescan struct, start it, and launch all
 	// the goroutines we need to operate this ChainNotifier instance.
@@ -876,4 +881,42 @@ func (n *NeutrinoNotifier) RegisterBlockEpochNtfn(
 			},
 		}, nil
 	}
+}
+
+// NeutrinoChainConn is a wrapper around neutrino's chain backend in order
+// to satisfy the chainntnfs.ChainConn interface.
+type NeutrinoChainConn struct {
+	p2pNode *neutrino.ChainService
+}
+
+// GetBlockHeader returns the block header for a hash.
+func (n *NeutrinoChainConn) GetBlockHeader(blockHash *chainhash.Hash) (*wire.BlockHeader, error) {
+	header, _, err := n.p2pNode.BlockHeaders.FetchHeader(blockHash)
+	if err != nil {
+		return nil, err
+	}
+	return header, nil
+}
+
+// GetBlockHeaderVerbose returns a verbose block header result for a hash. This
+// result only contains the height with a nil hash.
+func (n *NeutrinoChainConn) GetBlockHeaderVerbose(blockHash *chainhash.Hash) (
+	*btcjson.GetBlockHeaderVerboseResult, error) {
+
+	_, height, err := n.p2pNode.BlockHeaders.FetchHeader(blockHash)
+	if err != nil {
+		return nil, err
+	}
+	// Since only the height is used from the result, leave the hash nil.
+	return &btcjson.GetBlockHeaderVerboseResult{Height: int32(height)}, nil
+}
+
+// GetBlockHash returns the hash from a block height.
+func (n *NeutrinoChainConn) GetBlockHash(blockHeight int64) (*chainhash.Hash, error) {
+	header, err := n.p2pNode.BlockHeaders.FetchHeaderByHeight(uint32(blockHeight))
+	if err != nil {
+		return nil, err
+	}
+	hash := header.BlockHash()
+	return &hash, nil
 }

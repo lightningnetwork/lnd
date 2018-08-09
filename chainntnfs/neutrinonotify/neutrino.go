@@ -20,7 +20,6 @@ import (
 )
 
 const (
-
 	// notifierType uniquely identifies this concrete implementation of the
 	// ChainNotifier interface.
 	notifierType = "neutrino"
@@ -781,6 +780,10 @@ type blockEpochRegistration struct {
 
 	cancelChan chan struct{}
 
+	bestBlock *chainntnfs.BlockEpoch
+
+	errorChan chan error
+
 	wg sync.WaitGroup
 }
 
@@ -790,14 +793,20 @@ type epochCancel struct {
 	epochID uint64
 }
 
-// RegisterBlockEpochNtfn returns a BlockEpochEvent which subscribes the caller
-// to receive notifications, of each new block connected to the main chain.
-func (n *NeutrinoNotifier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent, error) {
+// RegisterBlockEpochNtfn returns a BlockEpochEvent which subscribes the
+// caller to receive notifications, of each new block connected to the main
+// chain. Clients have the option of passing in their best known block, which
+// the notifier uses to check if they are behind on blocks and catch them up.
+func (n *NeutrinoNotifier) RegisterBlockEpochNtfn(
+	bestBlock *chainntnfs.BlockEpoch) (*chainntnfs.BlockEpochEvent, error) {
+
 	reg := &blockEpochRegistration{
 		epochQueue: chainntnfs.NewConcurrentQueue(20),
 		epochChan:  make(chan *chainntnfs.BlockEpoch, 20),
 		cancelChan: make(chan struct{}),
 		epochID:    atomic.AddUint64(&n.epochClientCounter, 1),
+		bestBlock:  bestBlock,
+		errorChan:  make(chan error, 1),
 	}
 	reg.epochQueue.Start()
 

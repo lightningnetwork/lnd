@@ -59,7 +59,12 @@ type ChainNotifier interface {
 	// new block connected to the tip of the main chain. The returned
 	// BlockEpochEvent struct contains a channel which will be sent upon
 	// for each new block discovered.
-	RegisterBlockEpochNtfn() (*BlockEpochEvent, error)
+	//
+	// Clients have the option of passing in their best known block.
+	// If they specify a block, the ChainNotifier checks whether the client
+	// is behind on blocks. If they are, the ChainNotifier sends a backlog
+	// of block notifications for the missed blocks.
+	RegisterBlockEpochNtfn(*BlockEpoch) (*BlockEpochEvent, error)
 
 	// Start the ChainNotifier. Once started, the implementation should be
 	// ready, and able to receive notification registrations from clients.

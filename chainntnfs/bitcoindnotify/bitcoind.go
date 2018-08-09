@@ -805,6 +805,10 @@ type blockEpochRegistration struct {
 
 	epochQueue *chainntnfs.ConcurrentQueue
 
+	bestBlock *chainntnfs.BlockEpoch
+
+	errorChan chan error
+
 	cancelChan chan struct{}
 
 	wg sync.WaitGroup
@@ -818,13 +822,18 @@ type epochCancel struct {
 
 // RegisterBlockEpochNtfn returns a BlockEpochEvent which subscribes the
 // caller to receive notifications, of each new block connected to the main
-// chain.
-func (b *BitcoindNotifier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent, error) {
+// chain. Clients have the option of passing in their best known block, which
+// the notifier uses to check if they are behind on blocks and catch them up.
+func (b *BitcoindNotifier) RegisterBlockEpochNtfn(
+	bestBlock *chainntnfs.BlockEpoch) (*chainntnfs.BlockEpochEvent, error) {
+
 	reg := &blockEpochRegistration{
 		epochQueue: chainntnfs.NewConcurrentQueue(20),
 		epochChan:  make(chan *chainntnfs.BlockEpoch, 20),
 		cancelChan: make(chan struct{}),
 		epochID:    atomic.AddUint64(&b.epochClientCounter, 1),
+		bestBlock:  bestBlock,
+		errorChan:  make(chan error, 1),
 	}
 	reg.epochQueue.Start()
 

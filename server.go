@@ -206,6 +206,15 @@ func parseAddr(address string) (net.Addr, error) {
 	return cfg.net.ResolveTCPAddr("tcp", hostPort)
 }
 
+// noiseDial is a factory function which creates a connmgr compliant dialing
+// function by returning a closure which includes the server's identity key.
+func noiseDial(idPriv *btcec.PrivateKey) func(net.Addr) (net.Conn, error) {
+	return func(a net.Addr) (net.Conn, error) {
+		lnAddr := a.(*lnwire.NetAddress)
+		return brontide.Dial(idPriv, lnAddr, cfg.net.Dial)
+	}
+}
+
 // newServer creates a new instance of the server which is to listen using the
 // passed listener address.
 func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,

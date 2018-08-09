@@ -19,10 +19,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil"
 	flags "github.com/jessevdk/go-flags"
-	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -1027,15 +1025,6 @@ func supportedSubsystems() []string {
 	// Sort the subsystems for stable display.
 	sort.Strings(subsystems)
 	return subsystems
-}
-
-// noiseDial is a factory function which creates a connmgr compliant dialing
-// function by returning a closure which includes the server's identity key.
-func noiseDial(idPriv *btcec.PrivateKey) func(net.Addr) (net.Conn, error) {
-	return func(a net.Addr) (net.Conn, error) {
-		lnAddr := a.(*lnwire.NetAddress)
-		return brontide.Dial(idPriv, lnAddr, cfg.net.Dial)
-	}
 }
 
 func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,

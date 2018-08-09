@@ -2964,32 +2964,48 @@ func (s *server) announceChanStatus(op wire.OutPoint, disabled bool) error {
 	return nil
 }
 
-// fetchLastChanUpdateByOutPoint fetches the latest update for a channel from
-// our point of view.
-func (s *server) fetchLastChanUpdateByOutPoint(op wire.OutPoint) (*lnwire.ChannelUpdate, error) {
+// fetchLastChanUpdateByOutPoint fetches the latest policy for our direction of
+// a channel, and crafts a new ChannelUpdate with this policy. Returns an error
+// in case our ChannelEdgePolicy is not found in the database.
+func (s *server) fetchLastChanUpdateByOutPoint(op wire.OutPoint) (
+	*lnwire.ChannelUpdate, error) {
+
+	// Get the edge info and policies for this channel from the graph.
 	graph := s.chanDB.ChannelGraph()
 	info, edge1, edge2, err := graph.FetchChannelEdgesByOutpoint(&op)
 	if err != nil {
 		return nil, err
 	}
 
-	if edge1 == nil || edge2 == nil {
-		return nil, fmt.Errorf("unable to find channel(%v)", op)
+	// Helper function to extract the owner of the given policy.
+	owner := func(edge *channeldb.ChannelEdgePolicy) []byte {
+		var pubKey *btcec.PublicKey
+		switch {
+		case edge.Flags&lnwire.ChanUpdateDirection == 0:
+			pubKey, _ = info.NodeKey1()
+		case edge.Flags&lnwire.ChanUpdateDirection == 1:
+			pubKey, _ = info.NodeKey2()
+		}
+
+		// If pubKey was not found, just return nil.
+		if pubKey == nil {
+			return nil
+		}
+
+		return pubKey.SerializeCompressed()
 	}
 
-	// If we're the outgoing node on the first edge, then that
-	// means the second edge is our policy. Otherwise, the first
-	// edge is our policy.
-	var local *channeldb.ChannelEdgePolicy
-
+	// Extract the channel update from the policy we own, if any.
 	ourPubKey := s.identityPriv.PubKey().SerializeCompressed()
-	if bytes.Equal(edge1.Node.PubKeyBytes[:], ourPubKey) {
-		local = edge2
-	} else {
-		local = edge1
+	if edge1 != nil && bytes.Equal(ourPubKey, owner(edge1)) {
+		return extractChannelUpdate(info, edge1)
 	}
 
-	return extractChannelUpdate(info, local)
+	if edge2 != nil && bytes.Equal(ourPubKey, owner(edge2)) {
+		return extractChannelUpdate(info, edge2)
+	}
+
+	return nil, fmt.Errorf("unable to find channel(%v)", op)
 }
 
 // extractChannelUpdate retrieves a lnwire.ChannelUpdate message from an edge's

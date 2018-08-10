@@ -303,7 +303,7 @@ func (d *DB) fetchOpenChannels(tx *bolt.Tx,
 				chainHash[:], pub, err)
 		}
 
-		channels = nodeChannels
+		channels = append(channels, nodeChannels...)
 		return nil
 	})
 

@@ -305,6 +305,8 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			}
 		}
 
+		// Establish the connection to bitcoind and create the clients
+		// required for our relevant subsystems.
 		bitcoindConn, err := chain.NewBitcoindConn(
 			activeNetParams.Params, bitcoindHost,
 			bitcoindMode.RPCUser, bitcoindMode.RPCPass,
@@ -315,14 +317,13 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			return nil, nil, err
 		}
 
+		if err := bitcoindConn.Start(); err != nil {
+			return nil, nil, fmt.Errorf("unable to connect to "+
+				"bitcoind: %v", err)
+		}
+
 		cc.chainNotifier = bitcoindnotify.New(bitcoindConn)
-
-		// Next, we'll create an instance of the bitcoind chain view to
-		// be used within the routing layer.
 		cc.chainView = chainview.NewBitcoindFilteredChainView(bitcoindConn)
-
-		// Create a special rpc+ZMQ client for bitcoind which will be
-		// used by the wallet for notifications, calls, etc.
 		walletConfig.ChainSource = bitcoindConn.NewBitcoindClient(birthday)
 
 		// If we're not in regtest mode, then we'll attempt to use a

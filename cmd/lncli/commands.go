@@ -472,6 +472,12 @@ var openChannelCommand = cli.Command{
 				"not set, we will scale the value according to the " +
 				"channel size",
 		},
+		cli.Uint64Flag{
+			Name: "min_confs",
+			Usage: "(optional) the minimum number of confirmations " +
+				"each one of your outputs used for the funding " +
+				"transaction must satisfy",
+		},
 	},
 	Action: actionDecorator(openChannel),
 }
@@ -496,6 +502,7 @@ func openChannel(ctx *cli.Context) error {
 		SatPerByte:     ctx.Int64("sat_per_byte"),
 		MinHtlcMsat:    ctx.Int64("min_htlc_msat"),
 		RemoteCsvDelay: uint32(ctx.Uint64("remote_csv_delay")),
+		MinConfs:       int32(ctx.Uint64("min_confs")),
 	}
 
 	switch {

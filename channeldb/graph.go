@@ -2051,6 +2051,55 @@ func (c *ChannelEdgeInfo) OtherNodeKeyBytes(thisNodeKey []byte) (
 	}
 }
 
+// FetchOtherNode attempts to fetch the full LightningNode that's opposite of
+// the target node in the channel. This is useful when one knows the pubkey of
+// one of the nodes, and wishes to obtain the full LightningNode for the other
+// end of the channel.
+func (c *ChannelEdgeInfo) FetchOtherNode(tx *bolt.Tx, thisNodeKey []byte) (*LightningNode, error) {
+
+	// Ensure that the node passed in is actually a member of the channel.
+	var targetNodeBytes [33]byte
+	switch {
+	case bytes.Equal(c.NodeKey1Bytes[:], thisNodeKey):
+		targetNodeBytes = c.NodeKey2Bytes
+	case bytes.Equal(c.NodeKey2Bytes[:], thisNodeKey):
+		targetNodeBytes = c.NodeKey1Bytes
+	default:
+		return nil, fmt.Errorf("node not participating in this channel")
+	}
+
+	var targetNode *LightningNode
+	fetchNodeFunc := func(tx *bolt.Tx) error {
+		// First grab the nodes bucket which stores the mapping from
+		// pubKey to node information.
+		nodes := tx.Bucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNotFound
+		}
+
+		node, err := fetchLightningNode(nodes, targetNodeBytes[:])
+		if err != nil {
+			return err
+		}
+		node.db = c.db
+
+		targetNode = &node
+
+		return nil
+	}
+
+	// If the transaction is nil, then we'll need to create a new one,
+	// otherwise we can use the existing db transaction.
+	var err error
+	if tx == nil {
+		err = c.db.View(fetchNodeFunc)
+	} else {
+		err = fetchNodeFunc(tx)
+	}
+
+	return targetNode, err
+}
+
 // ChannelAuthProof is the authentication proof (the signature portion) for a
 // channel. Using the four signatures contained in the struct, and some
 // auxiliary knowledge (the funding script, node identities, and outpoint) nodes

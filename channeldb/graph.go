@@ -191,6 +191,7 @@ func (c *ChannelGraph) ForEachChannel(cb func(*ChannelEdgeInfo, *ChannelEdgePoli
 			if err != nil {
 				return err
 			}
+			edgeInfo.db = c.db
 
 			edge1, edge2, err := fetchChanEdgePolicies(
 				edgeIndex, edges, nodes, chanID, c.db,
@@ -1194,6 +1195,7 @@ func (c *ChannelGraph) ChanUpdatesInHorizon(startTime, endTime time.Time) ([]Cha
 			if err != nil {
 				return err
 			}
+			edgeInfo.db = c.db
 
 			// With the static information obtained, we'll now
 			// fetch the dynamic policy info.
@@ -1432,6 +1434,7 @@ func (c *ChannelGraph) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
 			if err != nil {
 				return err
 			}
+			edgeInfo.db = c.db
 
 			// With the static information obtained, we'll now
 			// fetch the dynamic policy info.
@@ -1835,6 +1838,7 @@ func (l *LightningNode) ForEachChannel(tx *bolt.Tx,
 			if err != nil {
 				return err
 			}
+			edgeInfo.db = l.db
 
 			outgoingPolicy, err := fetchChanEdgePolicy(
 				edges, chanID, nodePub, nodes,
@@ -1921,6 +1925,8 @@ type ChannelEdgeInfo struct {
 	// Capacity is the total capacity of the channel, this is determined by
 	// the value output in the outpoint that created this channel.
 	Capacity btcutil.Amount
+
+	db *DB
 }
 
 // AddNodeKeys is a setter-like method that can be used to replace the set of
@@ -2035,7 +2041,7 @@ func (c *ChannelEdgeInfo) OtherNodeKeyBytes(thisNodeKey []byte) (
 	case bytes.Equal(c.NodeKey2Bytes[:], thisNodeKey):
 		return c.NodeKey1Bytes[:], nil
 	default:
-		return nil, fmt.Errorf("Node not participating in this channel")
+		return nil, fmt.Errorf("node not participating in this channel")
 	}
 }
 
@@ -2293,6 +2299,7 @@ func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (*ChannelE
 			return err
 		}
 		edgeInfo = &edge
+		edgeInfo.db = c.db
 
 		// Once we have the information about the channels' parameters,
 		// we'll fetch the routing policies for each for the directed
@@ -2356,6 +2363,7 @@ func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64) (*ChannelEdgeInfo, *
 			return err
 		}
 		edgeInfo = &edge
+		edgeInfo.db = c.db
 
 		e1, e2, err := fetchChanEdgePolicies(
 			edgeIndex, edges, nodes, channelID[:], c.db,

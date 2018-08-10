@@ -1708,9 +1708,28 @@ message PaymentHash {
 message ListInvoiceRequest {
     /// Toggles if all invoices should be returned, or only those that are currently unsettled.
     bool pending_only = 1;
+
+    /// StartTime is the start time of the time slice.
+    int64 start_time = 3;
+
+    /// EndTime is the end time of the time slice.
+    int64 end_time = 4;
+
+    /// IndexOffset is the offset within the time slice to start at. This
+    /// can be used to start the response at a particular record.
+    uint32 index_offset = 5;
+
+    /// NumMaxEvents is the max number of events to return.
+    uint32 num_mux_events = 6;
 }
 message ListInvoiceResponse {
     repeated Invoice invoices = 1 [json_name = "invoices"];
+
+    /// last element index in Invoices
+    uint32 last_element_index = 2 [json_name = "last_element_index"];
+
+    /// total number of invoices currently stored within the database
+    uint32 total_num_of_invoices = 3 [json_name = "total_num_of_invoices"];
 }
 
 message InvoiceSubscription {

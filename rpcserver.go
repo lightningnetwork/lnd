@@ -2835,30 +2835,59 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 	return rpcInvoice, nil
 }
 
-// ListInvoices returns a list of all the invoices currently stored within the
-// database. Any active debug invoices are ignored.
+// ListInvoices returns a list of the invoices currently stored within the
+// database for a particular time slice.
+// The caller can control the precise time as well as
+// the offset within the time slice to start at.
 func (r *rpcServer) ListInvoices(ctx context.Context,
-	req *lnrpc.ListInvoiceRequest) (*lnrpc.ListInvoiceResponse, error) {
-
-	dbInvoices, err := r.server.chanDB.FetchAllInvoices(req.PendingOnly)
-	if err != nil {
-		return nil, err
-	}
-
-	invoices := make([]*lnrpc.Invoice, len(dbInvoices))
-	for i, dbInvoice := range dbInvoices {
-
-		rpcInvoice, err := createRPCInvoice(&dbInvoice)
+    	req *lnrpc.ListInvoiceRequest) (*lnrpc.ListInvoiceResponse, error) {
+    		var (
+			indexOffset int
+			invoiceIndex int
+			invoicesTimeSlice []channeldb.Invoice
+			invoices []*lnrpc.Invoice
+		)
+	
+		dbInvoices, err := r.server.chanDB.FetchAllInvoices(req.PendingOnly)
 		if err != nil {
 			return nil, err
 		}
+		
+		for _, dbInvoice := range dbInvoices{
+			creationDate:=dbInvoice.CreationDate.Unix()
+			
+			if creationDate>=req.StartTime && creationDate<=req.EndTime{
+				invoicesTimeSlice = append(invoicesTimeSlice,dbInvoice)
+			}
+		}
+		
+		if invoicesTimeSlice==nil{
+			invoicesTimeSlice=dbInvoices
+		}
+		
+		if int(req.IndexOffset)<len(invoicesTimeSlice) && req.IndexOffset>0{
+			indexOffset=int(req.IndexOffset)
+		}
+		
+		for _, dbInvoice := range invoicesTimeSlice[indexOffset:] {
+			if invoiceIndex==int(req.NumMuxEvents){
+				break
+			}
+			
+			rpcInvoice, err := createRPCInvoice(&dbInvoice)
+			if err != nil {
+				return nil, err
+			}
+			
+			invoices = append(invoices,rpcInvoice)
+			invoiceIndex++
+		}
 
-		invoices[i] = rpcInvoice
-	}
-
-	return &lnrpc.ListInvoiceResponse{
-		Invoices: invoices,
-	}, nil
+		return &lnrpc.ListInvoiceResponse{
+			Invoices: invoices,
+			LastElementIndex: uint32(invoiceIndex+indexOffset),
+			TotalNumOfInvoices: uint32(len(invoicesTimeSlice)),
+		}, nil
 }
 
 // SubscribeInvoices returns a uni-directional stream (server -> client) for

@@ -1726,14 +1726,11 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	coreLink.cfg.HodlMask = hodl.MaskFromFlags(hodl.ExitSettle)
 	coreLink.cfg.DebugHTLC = true
 
-	estimator := &lnwallet.StaticFeeEstimator{
-		FeeRate: 24,
-	}
-	feeRate, err := estimator.EstimateFeePerVSize(1)
+	estimator := &lnwallet.StaticFeeEstimator{FeePerKW: 6000}
+	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		t.Fatalf("unable to query fee estimator: %v", err)
 	}
-	feePerKw := feeRate.FeePerKWeight()
 	htlcFee := lnwire.NewMSatFromSatoshis(
 		feePerKw.FeeForWeight(lnwallet.HtlcWeight),
 	)
@@ -2140,14 +2137,11 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 		aliceMsgs              = coreLink.cfg.Peer.(*mockPeer).sentMsgs
 	)
 
-	estimator := &lnwallet.StaticFeeEstimator{
-		FeeRate: 24,
-	}
-	feeRate, err := estimator.EstimateFeePerVSize(1)
+	estimator := &lnwallet.StaticFeeEstimator{FeePerKW: 6000}
+	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		t.Fatalf("unable to query fee estimator: %v", err)
 	}
-	feePerKw := feeRate.FeePerKWeight()
 
 	var htlcID uint64
 	addLinkHTLC := func(id uint64, amt lnwire.MilliSatoshi) [32]byte {
@@ -2390,17 +2384,15 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 
 	// Compute the static fees that will be used to determine the
 	// correctness of Alice's bandwidth when forwarding HTLCs.
-	estimator := &lnwallet.StaticFeeEstimator{
-		FeeRate: 24,
-	}
-	feeRate, err := estimator.EstimateFeePerVSize(1)
+	estimator := &lnwallet.StaticFeeEstimator{FeePerKW: 6000}
+	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		t.Fatalf("unable to query fee estimator: %v", err)
 	}
 
 	defaultCommitFee := alice.channel.StateSnapshot().CommitFee
 	htlcFee := lnwire.NewMSatFromSatoshis(
-		feeRate.FeePerKWeight().FeeForWeight(lnwallet.HtlcWeight),
+		feePerKw.FeeForWeight(lnwallet.HtlcWeight),
 	)
 
 	// The starting bandwidth of the channel should be exactly the amount
@@ -2666,17 +2658,15 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 
 	// Compute the static fees that will be used to determine the
 	// correctness of Alice's bandwidth when forwarding HTLCs.
-	estimator := &lnwallet.StaticFeeEstimator{
-		FeeRate: 24,
-	}
-	feeRate, err := estimator.EstimateFeePerVSize(1)
+	estimator := &lnwallet.StaticFeeEstimator{FeePerKW: 6000}
+	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		t.Fatalf("unable to query fee estimator: %v", err)
 	}
 
 	defaultCommitFee := alice.channel.StateSnapshot().CommitFee
 	htlcFee := lnwire.NewMSatFromSatoshis(
-		feeRate.FeePerKWeight().FeeForWeight(lnwallet.HtlcWeight),
+		feePerKw.FeeForWeight(lnwallet.HtlcWeight),
 	)
 
 	// The starting bandwidth of the channel should be exactly the amount
@@ -2926,14 +2916,11 @@ func TestChannelLinkBandwidthChanReserve(t *testing.T) {
 		aliceMsgs              = coreLink.cfg.Peer.(*mockPeer).sentMsgs
 	)
 
-	estimator := &lnwallet.StaticFeeEstimator{
-		FeeRate: 24,
-	}
-	feeRate, err := estimator.EstimateFeePerVSize(1)
+	estimator := &lnwallet.StaticFeeEstimator{FeePerKW: 6000}
+	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		t.Fatalf("unable to query fee estimator: %v", err)
 	}
-	feePerKw := feeRate.FeePerKWeight()
 	htlcFee := lnwire.NewMSatFromSatoshis(
 		feePerKw.FeeForWeight(lnwallet.HtlcWeight),
 	)
@@ -3460,15 +3447,9 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 
 	startingFeeRate := channels.aliceToBob.CommitFeeRate()
 
-	// Convert starting fee rate to sat/vbyte. This is usually a
-	// lossy conversion, but since the startingFeeRate is
-	// 6000 sat/kw in this case, we won't lose precision.
-	startingFeeRateSatPerVByte := lnwallet.SatPerVByte(
-		startingFeeRate * 4 / 1000)
-
 	// Next, we'll send the first fee rate response to Alice.
 	select {
-	case n.feeEstimator.byteFeeIn <- startingFeeRateSatPerVByte:
+	case n.feeEstimator.byteFeeIn <- startingFeeRate:
 	case <-time.After(time.Second * 5):
 		t.Fatalf("alice didn't query for the new network fee")
 	}
@@ -3497,7 +3478,7 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 	// fee update.
 	newFeeRate := startingFeeRate * 3
 	select {
-	case n.feeEstimator.byteFeeIn <- startingFeeRateSatPerVByte * 3:
+	case n.feeEstimator.byteFeeIn <- newFeeRate:
 	case <-time.After(time.Second * 5):
 		t.Fatalf("alice didn't query for the new network fee")
 	}

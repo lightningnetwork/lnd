@@ -35,11 +35,6 @@ const (
 	// TODO(roasbeef): must be < default delta
 	expiryGraceDelta = 2
 
-	// minCommitFeePerKw is the smallest fee rate that we should propose
-	// for a new fee update. We'll use this as a fee floor when proposing
-	// and accepting updates.
-	minCommitFeePerKw = 253
-
 	// DefaultMinLinkFeeUpdateTimeout represents the minimum interval in
 	// which a link should propose to update its commitment fee rate.
 	DefaultMinLinkFeeUpdateTimeout = 10 * time.Minute
@@ -495,24 +490,11 @@ func (l *channelLink) EligibleToForward() bool {
 // this is the native rate used when computing the fee for commitment
 // transactions, and the second-level HTLC transactions.
 func (l *channelLink) sampleNetworkFee() (lnwallet.SatPerKWeight, error) {
-	// We'll first query for the sat/vbyte recommended to be confirmed
-	// within 3 blocks.
-	feePerVSize, err := l.cfg.FeeEstimator.EstimateFeePerVSize(3)
+	// We'll first query for the sat/kw recommended to be confirmed within 3
+	// blocks.
+	feePerKw, err := l.cfg.FeeEstimator.EstimateFeePerKW(3)
 	if err != nil {
 		return 0, err
-	}
-
-	// Once we have this fee rate, we'll convert to sat-per-kw.
-	feePerKw := feePerVSize.FeePerKWeight()
-
-	// If the returned feePerKw is less than the current widely used
-	// policy, then we'll use that instead as a floor.
-	if feePerKw < minCommitFeePerKw {
-		log.Debugf("Proposed fee rate of %v sat/kw is below min "+
-			"of %v sat/kw, using fee floor", int64(feePerKw),
-			int64(minCommitFeePerKw))
-
-		feePerKw = minCommitFeePerKw
 	}
 
 	log.Debugf("ChannelLink(%v): sampled fee rate for 3 block conf: %v "+

@@ -58,12 +58,14 @@ func (m *mockPreimageCache) SubscribeUpdates() *contractcourt.WitnessSubscriptio
 }
 
 type mockFeeEstimator struct {
-	byteFeeIn chan lnwallet.SatPerVByte
+	byteFeeIn chan lnwallet.SatPerKWeight
 
 	quit chan struct{}
 }
 
-func (m *mockFeeEstimator) EstimateFeePerVSize(numBlocks uint32) (lnwallet.SatPerVByte, error) {
+func (m *mockFeeEstimator) EstimateFeePerKW(
+	numBlocks uint32) (lnwallet.SatPerKWeight, error) {
+
 	select {
 	case feeRate := <-m.byteFeeIn:
 		return feeRate, nil

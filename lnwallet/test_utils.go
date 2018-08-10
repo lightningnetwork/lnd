@@ -229,12 +229,11 @@ func CreateTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 		return nil, nil, nil, err
 	}
 
-	estimator := &StaticFeeEstimator{24}
-	feePerVSize, err := estimator.EstimateFeePerVSize(1)
+	estimator := &StaticFeeEstimator{FeePerKW: 6000}
+	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	feePerKw := feePerVSize.FeePerKWeight()
 	commitFee := calcStaticFee(0)
 
 	aliceCommit := channeldb.ChannelCommitment{

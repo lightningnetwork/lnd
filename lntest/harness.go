@@ -172,7 +172,8 @@ func (n *NetworkHarness) SetUp(lndArgs []string) error {
 				PkScript: addrScript,
 				Value:    btcutil.SatoshiPerBitcoin,
 			}
-			if _, err := n.Miner.SendOutputs([]*wire.TxOut{output}, 30); err != nil {
+			_, err = n.Miner.SendOutputs([]*wire.TxOut{output}, 7500)
+			if err != nil {
 				return err
 			}
 		}
@@ -1159,7 +1160,8 @@ func (n *NetworkHarness) sendCoins(ctx context.Context, amt btcutil.Amount,
 		PkScript: addrScript,
 		Value:    int64(amt),
 	}
-	if _, err := n.Miner.SendOutputs([]*wire.TxOut{output}, 30); err != nil {
+	_, err = n.Miner.SendOutputs([]*wire.TxOut{output}, 7500)
+	if err != nil {
 		return err
 	}
 

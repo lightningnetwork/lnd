@@ -12,11 +12,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
-
-	"gopkg.in/macaroon-bakery.v2/bakery"
-
 	"sync/atomic"
+	"time"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec"
@@ -37,6 +34,7 @@ import (
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/tv42/zbase32"
 	"golang.org/x/net/context"
+	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
 const (
@@ -402,7 +400,7 @@ func addrPairsToOutputs(addrPairs map[string]int64) ([]*wire.TxOut, error) {
 // more addresses specified in the passed payment map. The payment map maps an
 // address to a specified output value to be sent to that address.
 func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
-	feeRate lnwallet.SatPerVByte) (*chainhash.Hash, error) {
+	feeRate lnwallet.SatPerKWeight) (*chainhash.Hash, error) {
 
 	outputs, err := addrPairsToOutputs(paymentMap)
 	if err != nil {
@@ -412,18 +410,18 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
 	return r.server.cc.wallet.SendOutputs(outputs, feeRate)
 }
 
-// determineFeePerVSize will determine the fee in sat/vbyte that should be paid
-// given an estimator, a confirmation target, and a manual value for sat/byte.
-// A value is chosen based on the two free parameters as one, or both of them
-// can be zero.
-func determineFeePerVSize(feeEstimator lnwallet.FeeEstimator, targetConf int32,
-	feePerByte int64) (lnwallet.SatPerVByte, error) {
+// determineFeePerKw will determine the fee in sat/kw that should be paid given
+// an estimator, a confirmation target, and a manual value for sat/byte. A value
+// is chosen based on the two free parameters as one, or both of them can be
+// zero.
+func determineFeePerKw(feeEstimator lnwallet.FeeEstimator, targetConf int32,
+	feePerByte int64) (lnwallet.SatPerKWeight, error) {
 
 	switch {
 	// If the target number of confirmations is set, then we'll use that to
 	// consult our fee estimator for an adequate fee.
 	case targetConf != 0:
-		feePerVSize, err := feeEstimator.EstimateFeePerVSize(
+		feePerKw, err := feeEstimator.EstimateFeePerKW(
 			uint32(targetConf),
 		)
 		if err != nil {
@@ -431,22 +429,24 @@ func determineFeePerVSize(feeEstimator lnwallet.FeeEstimator, targetConf int32,
 				"estimator: %v", err)
 		}
 
-		return feePerVSize, nil
+		return feePerKw, nil
 
 	// If a manual sat/byte fee rate is set, then we'll use that directly.
+	// We'll need to convert it to sat/kw as this is what we use internally.
 	case feePerByte != 0:
-		return lnwallet.SatPerVByte(feePerByte), nil
+		feePerKB := lnwallet.SatPerKVByte(feePerByte * 1000)
+		return feePerKB.FeePerKWeight(), nil
 
 	// Otherwise, we'll attempt a relaxed confirmation target for the
 	// transaction
 	default:
-		feePerVSize, err := feeEstimator.EstimateFeePerVSize(6)
+		feePerKw, err := feeEstimator.EstimateFeePerKW(6)
 		if err != nil {
-			return 0, fmt.Errorf("unable to query fee "+
-				"estimator: %v", err)
+			return 0, fmt.Errorf("unable to query fee estimator: "+
+				"%v", err)
 		}
 
-		return feePerVSize, nil
+		return feePerKw, nil
 	}
 }
 
@@ -457,18 +457,18 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 
 	// Based on the passed fee related parameters, we'll determine an
 	// appropriate fee rate for this transaction.
-	feeRate, err := determineFeePerVSize(
+	feePerKw, err := determineFeePerKw(
 		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	rpcsLog.Infof("[sendcoins] addr=%v, amt=%v, sat/vbyte=%v",
-		in.Addr, btcutil.Amount(in.Amount), int64(feeRate))
+	rpcsLog.Infof("[sendcoins] addr=%v, amt=%v, sat/kw=%v", in.Addr,
+		btcutil.Amount(in.Amount), int64(feePerKw))
 
 	paymentMap := map[string]int64{in.Addr: in.Amount}
-	txid, err := r.sendCoinsOnChain(paymentMap, feeRate)
+	txid, err := r.sendCoinsOnChain(paymentMap, feePerKw)
 	if err != nil {
 		return nil, err
 	}
@@ -484,18 +484,18 @@ func (r *rpcServer) SendMany(ctx context.Context,
 	in *lnrpc.SendManyRequest) (*lnrpc.SendManyResponse, error) {
 
 	// Based on the passed fee related parameters, we'll determine an
-	// approriate fee rate for this transaction.
-	feeRate, err := determineFeePerVSize(
+	// appropriate fee rate for this transaction.
+	feePerKw, err := determineFeePerKw(
 		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	rpcsLog.Infof("[sendmany] outputs=%v, sat/vbyte=%v",
-		spew.Sdump(in.AddrToAmount), int64(feeRate))
+	rpcsLog.Infof("[sendmany] outputs=%v, sat/kw=%v",
+		spew.Sdump(in.AddrToAmount), int64(feePerKw))
 
-	txid, err := r.sendCoinsOnChain(in.AddrToAmount, feeRate)
+	txid, err := r.sendCoinsOnChain(in.AddrToAmount, feePerKw)
 	if err != nil {
 		return nil, err
 	}
@@ -794,15 +794,15 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 
 	// Based on the passed fee related parameters, we'll determine an
 	// appropriate fee rate for the funding transaction.
-	feeRate, err := determineFeePerVSize(
+	feeRate, err := determineFeePerKw(
 		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
 	)
 	if err != nil {
 		return err
 	}
 
-	rpcsLog.Debugf("[openchannel]: using fee of %v sat/vbyte for funding "+
-		"tx", int64(feeRate))
+	rpcsLog.Debugf("[openchannel]: using fee of %v sat/kw for funding tx",
+		int64(feeRate))
 
 	// Instruct the server to trigger the necessary events to attempt to
 	// open a new channel. A stream is returned in place, this stream will
@@ -925,14 +925,14 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 
 	// Based on the passed fee related parameters, we'll determine an
 	// appropriate fee rate for the funding transaction.
-	feeRate, err := determineFeePerVSize(
+	feeRate, err := determineFeePerKw(
 		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	rpcsLog.Tracef("[openchannel] target sat/vbyte for funding tx: %v",
+	rpcsLog.Tracef("[openchannel] target sat/kw for funding tx: %v",
 		int64(feeRate))
 
 	updateChan, errChan := r.server.OpenChannel(
@@ -1109,24 +1109,15 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		// Based on the passed fee related parameters, we'll determine
 		// an appropriate fee rate for the cooperative closure
 		// transaction.
-		feeRate, err := determineFeePerVSize(
+		feeRate, err := determineFeePerKw(
 			r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
 		)
 		if err != nil {
 			return err
 		}
 
-		rpcsLog.Debugf("Target sat/vbyte for closing transaction: %v",
+		rpcsLog.Debugf("Target sat/kw for closing transaction: %v",
 			int64(feeRate))
-
-		if feeRate == 0 {
-			// If the fee rate returned isn't usable, then we'll
-			// fall back to a lax fee estimate.
-			feeRate, err = r.server.cc.feeEstimator.EstimateFeePerVSize(6)
-			if err != nil {
-				return err
-			}
-		}
 
 		// Before we attempt the cooperative channel closure, we'll
 		// examine the channel to ensure that it doesn't have a
@@ -1140,9 +1131,8 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		// cooperative channel closure. So we'll forward the request to
 		// the htlc switch which will handle the negotiation and
 		// broadcast details.
-		feePerKw := feeRate.FeePerKWeight()
 		updateChan, errChan = r.server.htlcSwitch.CloseLink(
-			chanPoint, htlcswitch.CloseRegular, feePerKw,
+			chanPoint, htlcswitch.CloseRegular, feeRate,
 		)
 	}
 out:

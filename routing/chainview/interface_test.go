@@ -92,7 +92,7 @@ func getTestTXID(miner *rpctest.Harness) (*chainhash.Hash, error) {
 			PkScript: script,
 		},
 	}
-	return miner.SendOutputs(outputs, 10)
+	return miner.SendOutputs(outputs, 2500)
 }
 
 func locateOutput(tx *wire.MsgTx, script []byte) (*wire.OutPoint, *wire.TxOut, error) {

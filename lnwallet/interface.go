@@ -154,13 +154,13 @@ type WalletController interface {
 	// error should be returned.
 	GetPrivKey(a btcutil.Address) (*btcec.PrivateKey, error)
 
-	// SendOutputs funds, signs, and broadcasts a Bitcoin transaction
-	// paying out to the specified outputs. In the case the wallet has
-	// insufficient funds, or the outputs are non-standard, an error should
-	// be returned. This method also takes the target fee expressed in
-	// sat/vbyte that should be used when crafting the transaction.
+	// SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying
+	// out to the specified outputs. In the case the wallet has insufficient
+	// funds, or the outputs are non-standard, an error should be returned.
+	// This method also takes the target fee expressed in sat/kw that should
+	// be used when crafting the transaction.
 	SendOutputs(outputs []*wire.TxOut,
-		feeRate SatPerVByte) (*chainhash.Hash, error)
+		feeRate SatPerKWeight) (*chainhash.Hash, error)
 
 	// ListUnspentWitness returns all unspent outputs which are version 0
 	// witness programs. The 'confirms' parameter indicates the minimum

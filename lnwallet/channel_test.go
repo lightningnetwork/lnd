@@ -1131,12 +1131,11 @@ func TestHTLCSigNumber(t *testing.T) {
 	}
 
 	// Calculate two values that will be below and above Bob's dust limit.
-	estimator := &StaticFeeEstimator{24}
-	feePerVSize, err := estimator.EstimateFeePerVSize(1)
+	estimator := &StaticFeeEstimator{FeePerKW: 6000}
+	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		t.Fatalf("unable to get fee: %v", err)
 	}
-	feePerKw := feePerVSize.FeePerKWeight()
 
 	belowDust := btcutil.Amount(500) + htlcTimeoutFee(feePerKw)
 	aboveDust := btcutil.Amount(1400) + htlcSuccessFee(feePerKw)

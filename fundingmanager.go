@@ -8,10 +8,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"google.golang.org/grpc"
-
-	"golang.org/x/crypto/salsa20"
-
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -28,6 +24,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
+	"golang.org/x/crypto/salsa20"
+	"google.golang.org/grpc"
 )
 
 const (
@@ -68,11 +66,6 @@ const (
 	// currently accepted on the Litecoin chain within the Lightning
 	// Protocol.
 	maxLtcFundingAmount = maxBtcFundingAmount * btcToLtcConversionRate
-
-	// minCommitFeePerKw is the smallest fee rate that we should propose
-	// for a new fee update. We'll use this as a fee floor when proposing
-	// and accepting updates.
-	minCommitFeePerKw = 253
 )
 
 var (
@@ -1047,8 +1040,8 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	reservation, err := f.cfg.Wallet.InitChannelReservation(
 		amt, 0, msg.PushAmount,
 		lnwallet.SatPerKWeight(msg.FeePerKiloWeight), 0,
-		fmsg.peer.IdentityKey(), fmsg.peer.Address(),
-		&chainHash, msg.ChannelFlags,
+		fmsg.peer.IdentityKey(), fmsg.peer.Address(), &chainHash,
+		msg.ChannelFlags,
 	)
 	if err != nil {
 		fndgLog.Errorf("Unable to initialize reservation: %v", err)
@@ -2576,21 +2569,10 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// commitment transaction confirmed by the next few blocks (conf target
 	// of 3). We target the near blocks here to ensure that we'll be able
 	// to execute a timely unilateral channel closure if needed.
-	feePerVSize, err := f.cfg.FeeEstimator.EstimateFeePerVSize(3)
+	commitFeePerKw, err := f.cfg.FeeEstimator.EstimateFeePerKW(3)
 	if err != nil {
 		msg.err <- err
 		return
-	}
-
-	// If the converted fee-per-kw is below the current widely used policy
-	// floor, then we'll use the floor instead.
-	commitFeePerKw := feePerVSize.FeePerKWeight()
-	if commitFeePerKw < minCommitFeePerKw {
-		fndgLog.Infof("Proposed fee rate of %v sat/kw is below min "+
-			"of %v sat/kw, using fee floor", int64(commitFeePerKw),
-			int64(minCommitFeePerKw))
-
-		commitFeePerKw = minCommitFeePerKw
 	}
 
 	// We set the channel flags to indicate whether we want this channel to
@@ -2606,7 +2588,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// request will fail, and be aborted.
 	reservation, err := f.cfg.Wallet.InitChannelReservation(
 		capacity, localAmt, msg.pushAmt, commitFeePerKw,
-		msg.fundingFeePerVSize, peerKey, msg.peer.Address(),
+		msg.fundingFeePerKw, peerKey, msg.peer.Address(),
 		&msg.chainHash, channelFlags,
 	)
 	if err != nil {

@@ -2597,6 +2597,10 @@ type openChanReq struct {
 
 	remoteCsvDelay uint16
 
+	// minConfs indicates the minimum number of confirmations that each
+	// output selected to fund the channel should satisfy.
+	minConfs int32
+
 	// TODO(roasbeef): add ability to specify channel constraints as well
 
 	updates chan *lnrpc.OpenStatusUpdate

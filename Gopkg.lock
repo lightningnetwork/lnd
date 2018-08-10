@@ -77,7 +77,7 @@
   revision = "761fd5fbb34e4c2c138c280395b65b48e4ff5a53"
 
 [[projects]]
-  digest = "1:6e0933958202cf05f8225e813a3d9348a66fca5461695d76089771762d366da9"
+  digest = "1:f944518b25f8733eed1d13855eeaaeda9b1f56c2bc75223a7e3427c024168eba"
   name = "github.com/btcsuite/btcd"
   packages = [
     "addrmgr",
@@ -95,7 +95,7 @@
     "wire",
   ]
   pruneopts = "UT"
-  revision = "9a2f9524024889e129a5422aca2cff73cb3eabf6"
+  revision = "f899737d7f2764dc13e4d01ff00108ec58f766a9"
 
 [[projects]]
   digest = "1:30d4a548e09bca4a0c77317c58e7407e2a65c15325e944f9c08a7b7992f8a59e"

@@ -676,10 +676,12 @@ func (n *NetworkHarness) WaitForTxBroadcast(ctx context.Context, txid chainhash.
 // OpenChannel attempts to open a channel between srcNode and destNode with the
 // passed channel funding parameters. If the passed context has a timeout, then
 // if the timeout is reached before the channel pending notification is
-// received, an error is returned.
+// received, an error is returned. The confirmed boolean determines whether we
+// should fund the channel with confirmed outputs or not.
 func (n *NetworkHarness) OpenChannel(ctx context.Context,
 	srcNode, destNode *HarnessNode, amt btcutil.Amount,
-	pushAmt btcutil.Amount, private bool) (lnrpc.Lightning_OpenChannelClient, error) {
+	pushAmt btcutil.Amount,
+	private, confirmed bool) (lnrpc.Lightning_OpenChannelClient, error) {
 
 	// Wait until srcNode and destNode have the latest chain synced.
 	// Otherwise, we may run into a check within the funding manager that
@@ -692,11 +694,17 @@ func (n *NetworkHarness) OpenChannel(ctx context.Context,
 		return nil, fmt.Errorf("Unable to sync destNode chain: %v", err)
 	}
 
+	minConfs := int32(0)
+	if confirmed {
+		minConfs = 1
+	}
+
 	openReq := &lnrpc.OpenChannelRequest{
 		NodePubkey:         destNode.PubKey[:],
 		LocalFundingAmount: int64(amt),
 		PushSat:            int64(pushAmt),
 		Private:            private,
+		MinConfs:           minConfs,
 	}
 
 	respStream, err := srcNode.OpenChannel(ctx, openReq)

@@ -153,7 +153,7 @@ func openChannelAndAssert(ctx context.Context, t *harnessTest,
 	private bool) *lnrpc.ChannelPoint {
 
 	chanOpenUpdate, err := net.OpenChannel(
-		ctx, alice, bob, fundingAmt, pushAmt, private,
+		ctx, alice, bob, fundingAmt, pushAmt, private, true,
 	)
 	if err != nil {
 		t.Fatalf("unable to open channel: %v", err)
@@ -3694,8 +3694,9 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	if err := net.ConnectNodes(ctxb, carol, net.Alice); err != nil {
 		t.Fatalf("unable to connect dave to alice: %v", err)
 	}
-	chanOpenUpdate, err := net.OpenChannel(ctxb, carol, net.Alice, chanAmt,
-		0, true)
+	chanOpenUpdate, err := net.OpenChannel(
+		ctxb, carol, net.Alice, chanAmt, 0, true, true,
+	)
 	if err != nil {
 		t.Fatalf("unable to open channel: %v", err)
 	}
@@ -4576,8 +4577,9 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	openStreams := make([]lnrpc.Lightning_OpenChannelClient, maxPendingChannels)
 	for i := 0; i < maxPendingChannels; i++ {
 		ctx, _ = context.WithTimeout(context.Background(), timeout)
-		stream, err := net.OpenChannel(ctx, net.Alice, carol, amount,
-			0, false)
+		stream, err := net.OpenChannel(
+			ctx, net.Alice, carol, amount, 0, false, true,
+		)
 		if err != nil {
 			t.Fatalf("unable to open channel: %v", err)
 		}
@@ -4587,7 +4589,9 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// Carol exhausted available amount of pending channels, next open
 	// channel request should cause ErrorGeneric to be sent back to Alice.
 	ctx, _ = context.WithTimeout(context.Background(), timeout)
-	_, err = net.OpenChannel(ctx, net.Alice, carol, amount, 0, false)
+	_, err = net.OpenChannel(
+		ctx, net.Alice, carol, amount, 0, false, true,
+	)
 	if err == nil {
 		t.Fatalf("error wasn't received")
 	} else if grpc.Code(err) != lnwire.ErrMaxPendingChannels.ToGrpcCode() {

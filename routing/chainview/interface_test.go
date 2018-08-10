@@ -242,8 +242,8 @@ func testFilterBlockNotifications(node *rpctest.Harness,
 
 	// Now we'll add both outpoints to the current filter.
 	filter := []channeldb.EdgePoint{
-		{targetScript, *outPoint1},
-		{targetScript, *outPoint2},
+		{FundingPkScript: targetScript, OutPoint: *outPoint1},
+		{FundingPkScript: targetScript, OutPoint: *outPoint2},
 	}
 	err = chainView.UpdateFilter(filter, uint32(currentHeight))
 	if err != nil {
@@ -388,7 +388,7 @@ func testUpdateFilterBackTrack(node *rpctest.Harness,
 	// After the block has been mined+notified we'll update the filter with
 	// a _prior_ height so a "rewind" occurs.
 	filter := []channeldb.EdgePoint{
-		{testScript, *outPoint},
+		{FundingPkScript: testScript, OutPoint: *outPoint},
 	}
 	err = chainView.UpdateFilter(filter, uint32(currentHeight))
 	if err != nil {
@@ -503,8 +503,8 @@ func testFilterSingleBlock(node *rpctest.Harness, chainView FilteredChainView,
 	// Now we'll manually trigger filtering the block generated above.
 	// First, we'll add the two outpoints to our filter.
 	filter := []channeldb.EdgePoint{
-		{testScript, *outPoint1},
-		{testScript, *outPoint2},
+		{FundingPkScript: testScript, OutPoint: *outPoint1},
+		{FundingPkScript: testScript, OutPoint: *outPoint2},
 	}
 	err = chainView.UpdateFilter(filter, uint32(currentHeight))
 	if err != nil {

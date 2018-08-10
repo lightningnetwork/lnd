@@ -227,7 +227,10 @@ func TestCircuitMapPersistence(t *testing.T) {
 
 	cfg, circuitMap := newCircuitMap(t)
 
-	circuit := circuitMap.LookupCircuit(htlcswitch.CircuitKey{chan1, 0})
+	circuit := circuitMap.LookupCircuit(htlcswitch.CircuitKey{
+		ChanID: chan1,
+		HtlcID: 0,
+	})
 	if circuit != nil {
 		t.Fatalf("LookupByHTLC returned a circuit before any were added: %v",
 			circuit)

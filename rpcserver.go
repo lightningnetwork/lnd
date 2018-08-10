@@ -770,6 +770,12 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 			"size is: %v SAT", int64(minChanFundingSize))
 	}
 
+	// Ensure that the MinConfs parameter is non-negative.
+	if in.MinConfs < 0 {
+		return errors.New("minimum number of confirmations must be a " +
+			"non-negative number")
+	}
+
 	var (
 		nodePubKey      *btcec.PublicKey
 		nodePubKeyBytes []byte
@@ -822,6 +828,7 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 		fundingFeePerKw: feeRate,
 		private:         in.Private,
 		remoteCsvDelay:  remoteCsvDelay,
+		minConfs:        in.MinConfs,
 	}
 
 	updateChan, errChan := r.server.OpenChannel(req)
@@ -936,6 +943,12 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 			"size is: %v SAT", int64(minChanFundingSize))
 	}
 
+	// Ensure that the MinConfs parameter is non-negative.
+	if in.MinConfs < 0 {
+		return nil, errors.New("minimum number of confirmations must " +
+			"be a non-negative number")
+	}
+
 	// Based on the passed fee related parameters, we'll determine an
 	// appropriate fee rate for the funding transaction.
 	feeRate, err := determineFeePerKw(
@@ -957,6 +970,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 		fundingFeePerKw: feeRate,
 		private:         in.Private,
 		remoteCsvDelay:  remoteCsvDelay,
+		minConfs:        in.MinConfs,
 	}
 
 	updateChan, errChan := r.server.OpenChannel(req)

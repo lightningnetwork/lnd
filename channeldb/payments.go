@@ -28,25 +28,26 @@ var (
 type PaymentStatus byte
 
 const (
-	// StatusGrounded is status where payment is initiated and received
-	// an intermittent failure
+	// StatusGrounded is the status where a payment has never been
+	// initiated, or has been initiated and received an intermittent
+	// failure.
 	StatusGrounded PaymentStatus = 0
 
-	// StatusInFlight is status where payment is initiated, but a response
-	// has not been received
+	// StatusInFlight is the status where a payment has been initiated, but
+	// a response has not been received.
 	StatusInFlight PaymentStatus = 1
 
-	// StatusCompleted is status where payment is initiated and complete
-	// a payment successfully
+	// StatusCompleted is the status where a payment has been initiated and
+	// the payment was completed successfully.
 	StatusCompleted PaymentStatus = 2
 )
 
-// Bytes returns status as slice of bytes
+// Bytes returns status as slice of bytes.
 func (ps PaymentStatus) Bytes() []byte {
 	return []byte{byte(ps)}
 }
 
-// FromBytes sets status from slice of bytes
+// FromBytes sets status from slice of bytes.
 func (ps *PaymentStatus) FromBytes(status []byte) error {
 	if len(status) != 1 {
 		return errors.New("payment status is empty")
@@ -62,7 +63,7 @@ func (ps *PaymentStatus) FromBytes(status []byte) error {
 	return nil
 }
 
-// String returns readable representation of payment status
+// String returns readable representation of payment status.
 func (ps PaymentStatus) String() string {
 	switch ps {
 	case StatusGrounded:
@@ -186,7 +187,7 @@ func (db *DB) DeleteAllPayments() error {
 	})
 }
 
-// UpdatePaymentStatus sets status for outgoing/finished payment to store status in
+// UpdatePaymentStatus sets the payment status for outgoing/finished payments in
 // local database.
 func (db *DB) UpdatePaymentStatus(paymentHash [32]byte, status PaymentStatus) error {
 	return db.Batch(func(tx *bolt.Tx) error {
@@ -199,10 +200,10 @@ func (db *DB) UpdatePaymentStatus(paymentHash [32]byte, status PaymentStatus) er
 	})
 }
 
-// FetchPaymentStatus returns payment status for outgoing payment
-// if status of the payment isn't found it set to default status "StatusGrounded".
+// FetchPaymentStatus returns the payment status for outgoing payment.
+// If status of the payment isn't found, it will default to "StatusGrounded".
 func (db *DB) FetchPaymentStatus(paymentHash [32]byte) (PaymentStatus, error) {
-	// default status for all payments that wasn't recorded in database
+	// The default status for all payments that aren't recorded in database.
 	paymentStatus := StatusGrounded
 
 	err := db.View(func(tx *bolt.Tx) error {

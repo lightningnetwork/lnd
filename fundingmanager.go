@@ -1052,6 +1052,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		FundingFeePerKw: 0,
 		PushMSat:        msg.PushAmount,
 		Flags:           msg.ChannelFlags,
+		MinConfs:        1,
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)
@@ -2615,6 +2616,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		FundingFeePerKw: msg.fundingFeePerKw,
 		PushMSat:        msg.pushAmt,
 		Flags:           channelFlags,
+		MinConfs:        msg.minConfs,
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)

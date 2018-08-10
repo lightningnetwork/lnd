@@ -93,6 +93,10 @@ type InitFundingReserveMsg struct {
 	// open_channel message.
 	Flags lnwire.FundingFlag
 
+	// MinConfs indicates the minimum number of confirmations that each
+	// output selected to fund the channel should satisfy.
+	MinConfs int32
+
 	// err is a channel in which all errors will be sent across. Will be
 	// nil if this initial set is successful.
 	//
@@ -473,7 +477,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		// Coin selection is done on the basis of sat/kw, so we'll use
 		// the fee rate passed in to perform coin selection.
 		err := l.selectCoinsAndChange(
-			req.FundingFeePerKw, req.FundingAmount,
+			req.FundingFeePerKw, req.FundingAmount, req.MinConfs,
 			reservation.ourContribution,
 		)
 		if err != nil {
@@ -1256,9 +1260,10 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 // selection is successful/possible, then the selected coins are available
 // within the passed contribution's inputs. If necessary, a change address will
 // also be generated.
-// TODO(roasbeef): remove hardcoded fees and req'd confs for outputs.
+// TODO(roasbeef): remove hardcoded fees.
 func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerKWeight,
-	amt btcutil.Amount, contribution *ChannelContribution) error {
+	amt btcutil.Amount, minConfs int32,
+	contribution *ChannelContribution) error {
 
 	// We hold the coin select mutex while querying for outputs, and
 	// performing coin selection in order to avoid inadvertent double
@@ -1269,10 +1274,9 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerKWeight,
 	walletLog.Infof("Performing funding tx coin selection using %v "+
 		"sat/kw as fee rate", int64(feeRate))
 
-	// Find all unlocked unspent witness outputs with greater than 1
-	// confirmation.
-	// TODO(roasbeef): make num confs a configuration parameter
-	coins, err := l.ListUnspentWitness(1)
+	// Find all unlocked unspent witness outputs that satisfy the minimum
+	// number of confirmations required.
+	coins, err := l.ListUnspentWitness(minConfs)
 	if err != nil {
 		return err
 	}

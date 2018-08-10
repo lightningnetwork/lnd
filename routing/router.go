@@ -1384,7 +1384,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	// we'll execute our KSP algorithm to find the k-shortest paths from
 	// our source to the destination.
 	shortestPaths, err := findPaths(
-		tx, r.cfg.Graph, r.selfNode, target, amt, numPaths,
+		tx, r.cfg.Graph, r.selfNode, target, amt, feeLimit, numPaths,
 		bandwidthHints,
 	)
 	if err != nil {
@@ -2135,6 +2135,10 @@ func (r *ChannelRouter) ForAllOutgoingChannels(cb func(*channeldb.ChannelEdgeInf
 
 	return r.selfNode.ForEachChannel(nil, func(_ *bolt.Tx, c *channeldb.ChannelEdgeInfo,
 		e, _ *channeldb.ChannelEdgePolicy) error {
+
+		if e == nil {
+			return fmt.Errorf("Channel from self node has no policy")
+		}
 
 		return cb(c, e)
 	})

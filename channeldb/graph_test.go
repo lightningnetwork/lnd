@@ -350,6 +350,15 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 		t.Fatalf("unable to create channel edge: %v", err)
 	}
 
+	// Ensure that both policies are returned as unknown (nil).
+	_, e1, e2, err := graph.FetchChannelEdgesByID(chanID)
+	if err != nil {
+		t.Fatalf("unable to fetch channel edge")
+	}
+	if e1 != nil || e2 != nil {
+		t.Fatalf("channel edges not unknown")
+	}
+
 	// Next, attempt to delete the edge from the database, again this
 	// should proceed without any issues.
 	if err := graph.DeleteChannelEdge(&outpoint); err != nil {
@@ -917,6 +926,12 @@ func TestGraphTraversal(t *testing.T) {
 	numNodeChans := 0
 	err = firstNode.ForEachChannel(nil, func(_ *bolt.Tx, _ *ChannelEdgeInfo,
 		outEdge, inEdge *ChannelEdgePolicy) error {
+
+		// All channels between first and second node should have fully
+		// (both sides) specified policies.
+		if inEdge == nil || outEdge == nil {
+			return fmt.Errorf("channel policy not present")
+		}
 
 		// Each should indicate that it's outgoing (pointed
 		// towards the second node).
@@ -1939,6 +1954,119 @@ func TestFetchChanInfos(t *testing.T) {
 		}
 		assertEdgeInfoEqual(t, resp[i].Info, edges[i].Info)
 	}
+}
+
+// TestIncompleteChannelPolicies tests that a channel that only has a policy
+// specified on one end is properly returned in ForEachChannel calls from
+// both sides.
+func TestIncompleteChannelPolicies(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+
+	graph := db.ChannelGraph()
+
+	// Create two nodes.
+	node1, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	if err := graph.AddLightningNode(node1); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
+	node2, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	if err := graph.AddLightningNode(node2); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
+
+	// Create channel between nodes.
+	txHash := sha256.Sum256([]byte{0})
+	op := wire.OutPoint{
+		Hash:  txHash,
+		Index: 0,
+	}
+
+	channel, chanID := createEdge(
+		uint32(0), 0, 0, 0, node1, node2,
+	)
+
+	if err := graph.AddChannelEdge(&channel); err != nil {
+		t.Fatalf("unable to create channel edge: %v", err)
+	}
+
+	// Ensure that channel is reported with unknown policies.
+
+	checkPolicies := func(node *LightningNode, expectedIn, expectedOut bool) {
+		calls := 0
+		node.ForEachChannel(nil, func(_ *bolt.Tx, _ *ChannelEdgeInfo,
+			outEdge, inEdge *ChannelEdgePolicy) error {
+
+			if !expectedOut && outEdge != nil {
+				t.Fatalf("Expected no outgoing policy")
+			}
+
+			if expectedOut && outEdge == nil {
+				t.Fatalf("Expected an outgoing policy")
+			}
+
+			if !expectedIn && inEdge != nil {
+				t.Fatalf("Expected no incoming policy")
+			}
+
+			if expectedIn && inEdge == nil {
+				t.Fatalf("Expected an incoming policy")
+			}
+
+			calls++
+
+			return nil
+		})
+
+		if calls != 1 {
+			t.Fatalf("Expected only one callback call")
+		}
+	}
+
+	checkPolicies(node2, false, false)
+
+	// Only create an edge policy for node1 and leave the policy for node2
+	// unknown.
+	updateTime := time.Unix(1234, 0)
+
+	edgePolicy := newEdgePolicy(
+		chanID.ToUint64(), op, db, updateTime.Unix(),
+	)
+	edgePolicy.Flags = 0
+	edgePolicy.Node = node2
+	edgePolicy.SigBytes = testSig.Serialize()
+	if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
+		t.Fatalf("unable to update edge: %v", err)
+	}
+
+	checkPolicies(node1, false, true)
+	checkPolicies(node2, true, false)
+
+	// Create second policy and assert that both policies are reported
+	// as present.
+	edgePolicy = newEdgePolicy(
+		chanID.ToUint64(), op, db, updateTime.Unix(),
+	)
+	edgePolicy.Flags = 1
+	edgePolicy.Node = node1
+	edgePolicy.SigBytes = testSig.Serialize()
+	if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
+		t.Fatalf("unable to update edge: %v", err)
+	}
+
+	checkPolicies(node1, true, true)
+	checkPolicies(node2, true, true)
 }
 
 // TestChannelEdgePruningUpdateIndexDeletion tests that once edges are deleted

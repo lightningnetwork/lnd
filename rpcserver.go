@@ -3264,7 +3264,7 @@ func marshallRoute(route *routing.Route) *lnrpc.Route {
 	for i, hop := range route.Hops {
 		resp.Hops[i] = &lnrpc.Hop{
 			ChanId:           hop.Channel.ChannelID,
-			ChanCapacity:     int64(hop.Channel.Capacity),
+			ChanCapacity:     int64(hop.Channel.Bandwidth.ToSatoshis()),
 			AmtToForward:     int64(hop.AmtToForward.ToSatoshis()),
 			AmtToForwardMsat: int64(hop.AmtToForward),
 			Fee:              int64(hop.Fee.ToSatoshis()),
@@ -3314,8 +3314,9 @@ func unmarshallRoute(rpcroute *lnrpc.Route,
 
 		routingHop := &routing.ChannelHop{
 			ChannelEdgePolicy: channelEdgePolicy,
-			Capacity:          btcutil.Amount(hop.ChanCapacity),
-			Chain:             edgeInfo.ChainHash,
+			Bandwidth: lnwire.NewMSatFromSatoshis(
+				btcutil.Amount(hop.ChanCapacity)),
+			Chain: edgeInfo.ChainHash,
 		}
 
 		route.Hops[i] = &routing.Hop{
@@ -3732,6 +3733,12 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 	var feeReports []*lnrpc.ChannelFeeReport
 	err = selfNode.ForEachChannel(nil, func(_ *bolt.Tx, chanInfo *channeldb.ChannelEdgeInfo,
 		edgePolicy, _ *channeldb.ChannelEdgePolicy) error {
+
+		// Self node should always have policies for its channels.
+		if edgePolicy == nil {
+			return fmt.Errorf("no policy for outgoing channel %v ",
+				chanInfo.ChannelID)
+		}
 
 		// We'll compute the effective fee rate by converting from a
 		// fixed point fee rate to a floating point fee rate. The fee

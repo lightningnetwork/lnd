@@ -1687,7 +1687,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	// path even though the direct path has a higher potential time lock.
 	path, err := findPath(
 		nil, ctx.graph, nil, sourceNode, target, ignoreVertex,
-		ignoreEdge, amt, nil,
+		ignoreEdge, amt, noFeeLimit, nil,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)

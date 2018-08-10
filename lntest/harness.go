@@ -1171,24 +1171,6 @@ func (n *NetworkHarness) sendCoins(ctx context.Context, amt btcutil.Amount,
 		return err
 	}
 
-	// Pause until the nodes current wallet balances reflects the amount
-	// sent to it above.
-	// TODO(roasbeef): factor out into helper func
-	balanceTicker := time.Tick(time.Millisecond * 50)
-	balanceTimeout := time.After(time.Second * 30)
-	for {
-		select {
-		case <-balanceTicker:
-			currentBal, err := target.WalletBalance(ctx, balReq)
-			if err != nil {
-				return err
-			}
-
-			if currentBal.ConfirmedBalance == initialBalance.ConfirmedBalance+int64(amt) {
-				return nil
-			}
-		case <-balanceTimeout:
-			return fmt.Errorf("balances not synced after deadline")
-		}
-	}
+	expectedBalance := initialBalance.ConfirmedBalance + int64(amt)
+	return target.WaitForBalance(expectedBalance, true)
 }

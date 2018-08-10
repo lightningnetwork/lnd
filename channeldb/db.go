@@ -68,8 +68,9 @@ var (
 			migration: migrateEdgePolicies,
 		},
 		{
-			// The version with added payment statuses
-			// for each existing payment
+			// The DB version where we persist each attempt to send
+			// an HTLC to a payment hash, and track whether the
+			// payment is in-flight, succeeded, or failed.
 			number:    5,
 			migration: paymentStatusesMigration,
 		},

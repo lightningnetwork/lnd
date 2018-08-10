@@ -40,14 +40,21 @@ GOLIST := go list $(PKG)/... | grep -v '/vendor/'
 GOLISTCOVER := $(shell go list -f '{{.ImportPath}}' ./... | sed -e 's/^$(ESCPKG)/./')
 GOLISTLINT := $(shell go list -f '{{.Dir}}' ./... | grep -v 'lnrpc')
 
+RM := rm -f
+CP := cp
+MAKE := make
+XARGS := xargs -L 1
+
+include make/testing_flags.mk
+
 COVER = for dir in $(GOLISTCOVER); do \
-		$(GOTEST) $(TEST_FLAGS) \
+		$(GOTEST) -tags="$(TEST_TAGS)" \
 			-covermode=count \
 			-coverprofile=$$dir/profile.tmp $$dir; \
 		\
 		if [ $$? != 0 ] ;\
 		then \
-		    exit 1 ;\
+			exit 1; \
 		fi ;\
 		\
 		if [ -f $$dir/profile.tmp ]; then \
@@ -69,18 +76,11 @@ LINT = $(LINT_BIN) \
 
 CGO_STATUS_QUO := ${CGO_ENABLED}
 
-RM := rm -f
-CP := cp
-MAKE := make
-XARGS := xargs -L 1
-
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"
 define print
 	echo $(GREEN)$1$(NC)
 endef
-
-include make/testing_flags.mk
 
 default: scratch
 

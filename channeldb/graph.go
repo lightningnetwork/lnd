@@ -1843,6 +1843,9 @@ func (l *LightningNode) ForEachChannel(tx *bolt.Tx,
 			outgoingPolicy, err := fetchChanEdgePolicy(
 				edges, chanID, nodePub, nodes,
 			)
+			if err != nil {
+				return err
+			}
 
 			otherNode, err := edgeInfo.OtherNodeKeyBytes(nodePub)
 			if err != nil {
@@ -1852,6 +1855,9 @@ func (l *LightningNode) ForEachChannel(tx *bolt.Tx,
 			incomingPolicy, err := fetchChanEdgePolicy(
 				edges, chanID, otherNode, nodes,
 			)
+			if err != nil {
+				return err
+			}
 
 			// Finally, we execute the callback.
 			err = cb(tx, &edgeInfo, outgoingPolicy, incomingPolicy)

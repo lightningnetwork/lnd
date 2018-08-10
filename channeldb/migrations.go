@@ -386,17 +386,18 @@ func paymentStatusesMigration(tx *bolt.Tx) error {
 	}
 
 	// Get the bucket dedicated to storing statuses of payments,
-	// where a key is payment hash, value is payment status
+	// where a key is payment hash, value is payment status.
 	paymentStatuses, err := tx.CreateBucketIfNotExists(paymentStatusBucket)
 	if err != nil {
 		return err
 	}
 
-	log.Infof("Migration database adds to all existing payments " +
-		"statuses as Completed")
+	log.Infof("Migrating database to support payment statuses -- " +
+		"marking all existing payments with status Completed")
 
-	// For each payment in the bucket, fetch all data.
-	return bucket.ForEach(func(k, v []byte) error {
+	// For each payment in the bucket, deserialize the payment and mark it
+	// as completed.
+	err = bucket.ForEach(func(k, v []byte) error {
 		// Ignores if it is sub-bucket.
 		if v == nil {
 			return nil
@@ -411,9 +412,16 @@ func paymentStatusesMigration(tx *bolt.Tx) error {
 		// Calculate payment hash for current payment.
 		paymentHash := sha256.Sum256(payment.PaymentPreimage[:])
 
-		// Tries to update status for current payment to completed
-		// if it fails - migration abort transaction and return payment bucket
-		// to previous state.
+		// Update status for current payment to completed. If it fails,
+		// the migration is aborted and the payment bucket is returned
+		// to its previous state.
 		return paymentStatuses.Put(paymentHash[:], StatusCompleted.Bytes())
 	})
+	if err != nil {
+		return err
+	}
+
+	log.Infof("Migration of payment statuses complete!")
+
+	return nil
 }

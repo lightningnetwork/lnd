@@ -1096,16 +1096,6 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 		return
 	}
 
-	walletLog.Infof("Broadcasting funding tx for ChannelPoint(%v): %v",
-		res.partialState.FundingOutpoint, spew.Sdump(fundingTx))
-
-	// Broadcast the finalized funding transaction to the network.
-	if err := l.PublishTransaction(fundingTx); err != nil {
-		msg.err <- err
-		msg.completeChan <- nil
-		return
-	}
-
 	msg.completeChan <- res.partialState
 	msg.err <- nil
 }

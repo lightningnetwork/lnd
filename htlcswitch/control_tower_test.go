@@ -79,7 +79,7 @@ func TestPaymentControlSwitchFail(t *testing.T) {
 		t.Fatalf("unable to send htlc message: %v", err)
 	}
 
-	pStatus, err := db.FetchPaymentStatus(htlc.PaymentHash)
+	pStatus, err = db.FetchPaymentStatus(htlc.PaymentHash)
 	if err != nil {
 		t.Fatalf("unable to fetch payment status: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestPaymentControlSwitchFail(t *testing.T) {
 
 	// Attempt a final payment, which should now fail since the prior
 	// payment succeed.
-	if err := pControl.ClearForTakeoff(htlc); err != nil {
+	if err := pControl.ClearForTakeoff(htlc); err != ErrAlreadyPaid {
 		t.Fatalf("unable to send htlc message: %v", err)
 	}
 }

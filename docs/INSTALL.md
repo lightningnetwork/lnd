@@ -240,10 +240,10 @@ the following:
   ([this has now been fixed](https://github.com/Homebrew/homebrew-core/pull/23088) 
   in the latest Homebrew recipe for bitcoin)
 - Configure the `bitcoind` instance for ZMQ with `--zmqpubrawblock` and
-  `--zmqpubrawtx` (the latter is optional but allows you to see unconfirmed
-  transactions in your wallet). They must be combined in the same ZMQ socket
-  address (e.g. `--zmqpubrawblock=tcp://127.0.0.1:28332` and
-  `--zmqpubrawtx=tcp://127.0.0.1:28332`).
+  `--zmqpubrawtx`. These options must each use their own unique address in order
+  to provide a reliable delivery of notifications (e.g.
+  `--zmqpubrawblock=tcp://127.0.0.1:28332` and
+  `--zmqpubrawtx=tcp://127.0.0.1:28333`).
 - Start `bitcoind` running against testnet, and let it complete a full sync with
   the testnet chain (alternatively, use `--bitcoind.regtest` instead).
 
@@ -253,21 +253,43 @@ testnet=1
 server=1
 daemon=1
 zmqpubrawblock=tcp://127.0.0.1:28332
-zmqpubrawtx=tcp://127.0.0.1:28332
+zmqpubrawtx=tcp://127.0.0.1:28333
 ```
 
-Once all of the above is complete, and you've confirmed `bitcoind` is fully updated with the latest blocks on testnet, run the command below to launch `lnd` with `bitcoind` as your backend (as with `bitcoind`, you can create an `lnd.conf` to save these options, more info on that is described further below):
+Once all of the above is complete, and you've confirmed `bitcoind` is fully
+updated with the latest blocks on testnet, run the command below to launch `lnd`
+with `bitcoind` as your backend (as with `bitcoind`, you can create an
+`lnd.conf` to save these options, more info on that is described further below):
 
 ```
-lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --bitcoin.node=bitcoind --bitcoind.rpcuser=REPLACEME --bitcoind.rpcpass=REPLACEME --bitcoind.zmqpath=tcp://127.0.0.1:28332 --externalip=X.X.X.X
+lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --bitcoin.node=bitcoind --bitcoind.rpcuser=REPLACEME --bitcoind.rpcpass=REPLACEME --bitcoind.zmqpubrawblock=tcp://127.0.0.1:28332 --bitcoind.zmqpubrawblock=tcp://127.0.0.1:28333 --externalip=X.X.X.X
 ```
 
 *NOTE:*
-- The auth parameters `rpcuser` and `rpcpass` parameters can typically be determined by `lnd` for a `bitcoind` instance running under the same user, including when using cookie auth. In this case, you can exclude them from the `lnd` options entirely.
-- If you DO choose to explicitly pass the auth parameters in your `lnd.conf` or command line options for `lnd` (`bitcoind.rpcuser` and `bitcoind.rpcpass` as shown in example command above), you must also specify the `bitcoind.zmqpath` option. Otherwise, `lnd` will attempt to get the configuration from your `bitcoin.conf`.
-- You must ensure the same address (including port) is used for the `bitcoind.zmqpath` option passed to `lnd` as for the `zmqpubrawblock` and `zmqpubrawtx` passed in the `bitcoind` options.
-- When running lnd and bitcoind on the same Windows machine, ensure you use 127.0.0.1, not localhost, for all configuration options that require a TCP/IP host address.  If you use "localhost" as the host name, you may see extremely slow inter-process-communication between lnd and the bitcoind backend.  If lnd is experiencing this issue, you'll see "Waiting for chain backend to finish sync, start_height=XXXXXX" as the last entry in the console or log output, and lnd will appear to hang.  Normal lnd output will quickly show multiple messages like this as lnd consumes blocks from bitcoind.
-- Don't connect more than one instance of `lnd` to `bitcoind`.  With the default `bitcoind` settings, having more than one instance of `lnd`, or `lnd` plus any application that consumes the RPC could cause `lnd` to miss crucial updates from the backend.
+- The auth parameters `rpcuser` and `rpcpass` parameters can typically be
+  determined by `lnd` for a `bitcoind` instance running under the same user,
+  including when using cookie auth. In this case, you can exclude them from the
+  `lnd` options entirely.
+- If you DO choose to explicitly pass the auth parameters in your `lnd.conf` or
+  command line options for `lnd` (`bitcoind.rpcuser` and `bitcoind.rpcpass` as
+  shown in example command above), you must also specify the
+  `bitcoind.zmqpubrawblock` and `bitcoind.zmqpubrawtx` options. Otherwise, `lnd`
+  will attempt to get the configuration from your `bitcoin.conf`.
+- You must ensure the same addresses are used for the `bitcoind.zmqpubrawblock`
+  and `bitcoind.zmqpubrawtx` options passed to `lnd` as for the `zmqpubrawblock`
+  and `zmqpubrawtx` passed in the `bitcoind` options respectively.
+- When running lnd and bitcoind on the same Windows machine, ensure you use
+  127.0.0.1, not localhost, for all configuration options that require a TCP/IP
+  host address.  If you use "localhost" as the host name, you may see extremely
+  slow inter-process-communication between lnd and the bitcoind backend.  If lnd
+  is experiencing this issue, you'll see "Waiting for chain backend to finish
+  sync, start_height=XXXXXX" as the last entry in the console or log output, and
+  lnd will appear to hang.  Normal lnd output will quickly show multiple
+  messages like this as lnd consumes blocks from bitcoind.
+- Don't connect more than two or three instances of `lnd` to `bitcoind`. With
+  the default `bitcoind` settings, having more than one instance of `lnd`, or
+  `lnd` plus any application that consumes the RPC could cause `lnd` to miss
+  crucial updates from the backend.
 
 #### Disabling Wallet Encryption
 

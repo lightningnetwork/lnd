@@ -13,19 +13,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcwallet/walletdb"
-	"github.com/lightninglabs/neutrino"
-	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/ltcsuite/ltcd/btcjson"
-
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcwallet/chain"
+	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/lightninglabs/neutrino"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 
 	// Required to auto-register the bitcoind backed ChainNotifier
 	// implementation.
@@ -1375,7 +1375,8 @@ func TestInterfaces(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Unable to create temp dir: %v", err)
 			}
-			zmqPath := "ipc:///" + tempBitcoindDir + "/weks.socket"
+			zmqBlockHost := "ipc:///" + tempBitcoindDir + "/blocks.socket"
+			zmqTxHost := "ipc:///" + tempBitcoindDir + "/tx.socket"
 			cleanUp1 := func() {
 				os.RemoveAll(tempBitcoindDir)
 			}
@@ -1392,8 +1393,8 @@ func TestInterfaces(t *testing.T) {
 					"220110063096c221be9933c82d38e1",
 				fmt.Sprintf("-rpcport=%d", rpcPort),
 				"-disablewallet",
-				"-zmqpubrawblock="+zmqPath,
-				"-zmqpubrawtx="+zmqPath,
+				"-zmqpubrawblock="+zmqBlockHost,
+				"-zmqpubrawtx="+zmqTxHost,
 			)
 			err = bitcoind.Start()
 			if err != nil {
@@ -1410,20 +1411,26 @@ func TestInterfaces(t *testing.T) {
 			// Wait for the bitcoind instance to start up.
 			time.Sleep(time.Second)
 
-			// Start the FilteredChainView implementation instance.
-			config := rpcclient.ConnConfig{
-				Host: fmt.Sprintf(
-					"127.0.0.1:%d", rpcPort),
-				User:                 "weks",
-				Pass:                 "weks",
-				DisableAutoReconnect: false,
-				DisableConnectOnNew:  true,
-				DisableTLS:           true,
-				HTTPPostMode:         true,
+			host := fmt.Sprintf("127.0.0.1:%d", rpcPort)
+			chainConn, err := chain.NewBitcoindConn(
+				netParams, host, "weks", "weks", zmqBlockHost,
+				zmqTxHost, 100*time.Millisecond,
+			)
+			if err != nil {
+				t.Fatalf("unable to establish connection to "+
+					"bitcoind: %v", err)
 			}
+			if err := chainConn.Start(); err != nil {
+				t.Fatalf("unable to establish connection to "+
+					"bitcoind: %v", err)
+			}
+			cleanUp3 := func() {
+				chainConn.Stop()
+				cleanUp2()
+			}
+			cleanUp = cleanUp3
 
-			notifier, err = notifierDriver.New(&config, zmqPath,
-				*netParams)
+			notifier, err = notifierDriver.New(chainConn)
 			if err != nil {
 				t.Fatalf("unable to create %v notifier: %v",
 					notifierType, err)

@@ -8,9 +8,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcjson"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/chain"
@@ -87,8 +85,7 @@ var _ chainntnfs.ChainNotifier = (*BitcoindNotifier)(nil)
 // New returns a new BitcoindNotifier instance. This function assumes the
 // bitcoind node  detailed in the passed configuration is already running, and
 // willing to accept RPC requests and new zmq clients.
-func New(config *rpcclient.ConnConfig, zmqConnect string,
-	params chaincfg.Params) (*BitcoindNotifier, error) {
+func New(chainConn *chain.BitcoindConn) *BitcoindNotifier {
 	notifier := &BitcoindNotifier{
 		notificationCancels:  make(chan interface{}),
 		notificationRegistry: make(chan interface{}),
@@ -100,18 +97,9 @@ func New(config *rpcclient.ConnConfig, zmqConnect string,
 		quit: make(chan struct{}),
 	}
 
-	// Disable connecting to bitcoind within the rpcclient.New method. We
-	// defer establishing the connection to our .Start() method.
-	config.DisableConnectOnNew = true
-	config.DisableAutoReconnect = false
-	chainConn, err := chain.NewBitcoindClient(&params, config.Host,
-		config.User, config.Pass, zmqConnect, 100*time.Millisecond)
-	if err != nil {
-		return nil, err
-	}
-	notifier.chainConn = chainConn
+	notifier.chainConn = chainConn.NewBitcoindClient(time.Unix(0, 0))
 
-	return notifier, nil
+	return notifier
 }
 
 // Start connects to the running bitcoind node over websockets, registers for

@@ -171,9 +171,8 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 	}
 
 	var (
-		err          error
-		cleanUp      func()
-		bitcoindConn *chain.BitcoindClient
+		err     error
+		cleanUp func()
 	)
 
 	// If spv mode is active, then we'll be using a distinct set of
@@ -300,47 +299,37 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			}
 		}
 
-		bitcoindUser := bitcoindMode.RPCUser
-		bitcoindPass := bitcoindMode.RPCPass
+		bitcoindConn, err := chain.NewBitcoindConn(
+			activeNetParams.Params, bitcoindHost,
+			bitcoindMode.RPCUser, bitcoindMode.RPCPass,
+			bitcoindMode.ZMQPubRawBlock, bitcoindMode.ZMQPubRawTx,
+			100*time.Millisecond,
+		)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		cc.chainNotifier = bitcoindnotify.New(bitcoindConn)
+
+		// Next, we'll create an instance of the bitcoind chain view to
+		// be used within the routing layer.
+		cc.chainView = chainview.NewBitcoindFilteredChainView(bitcoindConn)
+
+		// Create a special rpc+ZMQ client for bitcoind which will be
+		// used by the wallet for notifications, calls, etc.
+		walletConfig.ChainSource = bitcoindConn.NewBitcoindClient(birthday)
+
+		// If we're not in regtest mode, then we'll attempt to use a
+		// proper fee estimator for testnet.
 		rpcConfig := &rpcclient.ConnConfig{
 			Host:                 bitcoindHost,
-			User:                 bitcoindUser,
-			Pass:                 bitcoindPass,
+			User:                 bitcoindMode.RPCUser,
+			Pass:                 bitcoindMode.RPCPass,
 			DisableConnectOnNew:  true,
 			DisableAutoReconnect: false,
 			DisableTLS:           true,
 			HTTPPostMode:         true,
 		}
-		cc.chainNotifier, err = bitcoindnotify.New(rpcConfig,
-			bitcoindMode.ZMQPath, *activeNetParams.Params)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		// Next, we'll create an instance of the bitcoind chain view to
-		// be used within the routing layer.
-		cc.chainView, err = chainview.NewBitcoindFilteredChainView(
-			*rpcConfig, bitcoindMode.ZMQPath,
-			*activeNetParams.Params)
-		if err != nil {
-			srvrLog.Errorf("unable to create chain view: %v", err)
-			return nil, nil, err
-		}
-
-		// Create a special rpc+ZMQ client for bitcoind which will be
-		// used by the wallet for notifications, calls, etc.
-		bitcoindConn, err = chain.NewBitcoindClient(
-			activeNetParams.Params, bitcoindHost, bitcoindUser,
-			bitcoindPass, bitcoindMode.ZMQPath,
-			time.Millisecond*100)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		walletConfig.ChainSource = bitcoindConn
-
-		// If we're not in regtest mode, then we'll attempt to use a
-		// proper fee estimator for testnet.
 		if cfg.Bitcoin.Active && !cfg.Bitcoin.RegTest {
 			ltndLog.Infof("Initializing bitcoind backed fee estimator")
 

@@ -37,10 +37,20 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 	// TODO(halseth): make configurable?
 	minHtlc := lnwire.NewMSatFromSatoshis(1)
 
-	updateStream, errChan := c.server.OpenChannel(
-		target, amt, 0, minHtlc, feePerKw, c.private, 0,
-	)
+	// Construct the open channel request and send it to the server to begin
+	// the funding workflow.
+	req := &openChanReq{
+		targetPubkey:    target,
+		chainHash:       *activeNetParams.GenesisHash,
+		localFundingAmt: amt,
+		pushAmt:         0,
+		minHtlc:         minHtlc,
+		fundingFeePerKw: feePerKw,
+		private:         c.private,
+		remoteCsvDelay:  0,
+	}
 
+	updateStream, errChan := c.server.OpenChannel(req)
 	select {
 	case err := <-errChan:
 		// If we were not able to actually open a channel to the peer

@@ -813,11 +813,18 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	// Instruct the server to trigger the necessary events to attempt to
 	// open a new channel. A stream is returned in place, this stream will
 	// be used to consume updates of the state of the pending channel.
-	updateChan, errChan := r.server.OpenChannel(
-		nodePubKey, localFundingAmt,
-		lnwire.NewMSatFromSatoshis(remoteInitialBalance),
-		minHtlc, feeRate, in.Private, remoteCsvDelay,
-	)
+	req := &openChanReq{
+		targetPubkey:    nodePubKey,
+		chainHash:       *activeNetParams.GenesisHash,
+		localFundingAmt: localFundingAmt,
+		pushAmt:         lnwire.NewMSatFromSatoshis(remoteInitialBalance),
+		minHtlc:         minHtlc,
+		fundingFeePerKw: feeRate,
+		private:         in.Private,
+		remoteCsvDelay:  remoteCsvDelay,
+	}
+
+	updateChan, errChan := r.server.OpenChannel(req)
 
 	var outpoint wire.OutPoint
 out:
@@ -941,12 +948,18 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	rpcsLog.Tracef("[openchannel] target sat/kw for funding tx: %v",
 		int64(feeRate))
 
-	updateChan, errChan := r.server.OpenChannel(
-		nodepubKey, localFundingAmt,
-		lnwire.NewMSatFromSatoshis(remoteInitialBalance),
-		minHtlc, feeRate, in.Private, remoteCsvDelay,
-	)
+	req := &openChanReq{
+		targetPubkey:    nodepubKey,
+		chainHash:       *activeNetParams.GenesisHash,
+		localFundingAmt: localFundingAmt,
+		pushAmt:         lnwire.NewMSatFromSatoshis(remoteInitialBalance),
+		minHtlc:         minHtlc,
+		fundingFeePerKw: feeRate,
+		private:         in.Private,
+		remoteCsvDelay:  remoteCsvDelay,
+	}
 
+	updateChan, errChan := r.server.OpenChannel(req)
 	select {
 	// If an error occurs them immediately return the error to the client.
 	case err := <-errChan:

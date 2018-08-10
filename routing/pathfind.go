@@ -490,8 +490,8 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	// traversal.
 	var nodeHeap distanceHeap
 
-	// For each node in the graph, we create an entry in the distance
-	// map for the node set with a distance of "infinity". graph.ForEachNode
+	// For each node in the graph, we create an entry in the distance map
+	// for the node set with a distance of "infinity". graph.ForEachNode
 	// also returns the source node, so there is no need to add the source
 	// node explictly.
 	distance := make(map[Vertex]nodeWithDist)
@@ -509,16 +509,16 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 
 	additionalEdgesWithSrc := make(map[Vertex][]*edgePolicyWithSource)
 	for vertex, outgoingEdgePolicies := range additionalEdges {
-		// We'll also include all the nodes found within the additional edges
-		// that are not known to us yet in the distance map.
+		// We'll also include all the nodes found within the additional
+		// edges that are not known to us yet in the distance map.
 		node := &channeldb.LightningNode{PubKeyBytes: vertex}
 		distance[vertex] = nodeWithDist{
 			dist: infinity,
 			node: node,
 		}
 
-		// Build reverse lookup to find incoming edges. Needed
-		// because search is taken place from target to source.
+		// Build reverse lookup to find incoming edges. Needed because
+		// search is taken place from target to source.
 		for _, outgoingEdgePolicy := range outgoingEdgePolicies {
 			toVertex := outgoingEdgePolicy.Node.PubKeyBytes
 			incomingEdgePolicy := &edgePolicyWithSource{
@@ -536,10 +536,10 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 
 	// We can't always assume that the end destination is publicly
 	// advertised to the network and included in the graph.ForEachNode call
-	// above, so we'll manually include the target node. The target
-	// node charges no fee. Distance is set to 0, because this is the
-	// starting point of the graph traversal. We are searching backwards to
-	// get the fees first time right and correctly match channel bandwidth.
+	// above, so we'll manually include the target node. The target node
+	// charges no fee. Distance is set to 0, because this is the starting
+	// point of the graph traversal. We are searching backwards to get the
+	// fees first time right and correctly match channel bandwidth.
 	targetVertex := NewVertex(target)
 	targetNode := &channeldb.LightningNode{PubKeyBytes: targetVertex}
 	distance[targetVertex] = nodeWithDist{
@@ -569,8 +569,8 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			return
 		}
 
-		// If this vertex or edge has been black listed, then we'll skip
-		// exploring this edge.
+		// If this vertex or edge has been black listed, then we'll
+		// skip exploring this edge.
 		if _, ok := ignoredNodes[fromVertex]; ok {
 			return
 		}
@@ -588,8 +588,8 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			return
 		}
 
-		// If the amountToSend is less than the minimum required amount,
-		// return.
+		// If the amountToSend is less than the minimum required
+		// amount, return.
 		if amountToSend < edge.MinHTLC {
 			return
 		}
@@ -598,12 +598,12 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		// amount that needs to be sent to the next node in the route.
 		//
 		// Source node has no precedessor to pay a fee. Therefore set
-		// fee to zero, because it should not be included in the
-		// fee limit check and edge weight.
+		// fee to zero, because it should not be included in the fee
+		// limit check and edge weight.
 		//
-		// Also determine the time lock delta that will be added to
-		// the route if fromNode is selected. If fromNode is the
-		// source node, no additional timelock is required.
+		// Also determine the time lock delta that will be added to the
+		// route if fromNode is selected. If fromNode is the source
+		// node, no additional timelock is required.
 		var fee lnwire.MilliSatoshi
 		var timeLockDelta uint16
 		if fromVertex != sourceVertex {
@@ -611,15 +611,15 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			timeLockDelta = edge.TimeLockDelta
 		}
 
-		// amountToReceive is the amount that the node that
-		// is added to the distance map needs to receive from
-		// a (to be found) previous node in the route. That
-		// previous node will need to pay the amount that this
-		// node forwards plus the fee it charges.
+		// amountToReceive is the amount that the node that is added to
+		// the distance map needs to receive from a (to be found)
+		// previous node in the route. That previous node will need to
+		// pay the amount that this node forwards plus the fee it
+		// charges.
 		amountToReceive := amountToSend + fee
 
-		// Check if accumulated fees would exceed fee limit when
-		// this node would be added to the path.
+		// Check if accumulated fees would exceed fee limit when this
+		// node would be added to the path.
 		totalFee := amountToReceive - amt
 		if totalFee > feeLimit {
 			return
@@ -627,13 +627,13 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 
 		// By adding fromNode in the route, there will be an extra
 		// weight composed of the fee that this node will charge and
-		// the amount that will be locked for timeLockDelta blocks
-		// in the HTLC that is handed out to fromNode.
+		// the amount that will be locked for timeLockDelta blocks in
+		// the HTLC that is handed out to fromNode.
 		weight := edgeWeight(amountToReceive, fee, timeLockDelta)
 
-		// Compute the tentative distance to this new channel/edge which
-		// is the distance from our toNode to the target node plus the
-		// weight of this edge.
+		// Compute the tentative distance to this new channel/edge
+		// which is the distance from our toNode to the target node
+		// plus the weight of this edge.
 		tempDist := toNodeDist.dist + weight
 
 		// If this new tentative distance is not better than the current
@@ -654,8 +654,8 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 
 		// All conditions are met and this new tentative distance is
 		// better than the current best known distance to this node.
-		// The new better distance is recorded, and also our
-		// "next hop" map is populated with this edge.
+		// The new better distance is recorded, and also our "next hop"
+		// map is populated with this edge.
 		distance[fromVertex] = nodeWithDist{
 			dist:            tempDist,
 			node:            fromNode,
@@ -722,34 +722,20 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 				)
 			}
 
-			// Lookup the source node at the other side of the
-			// channel via edgeInfo. This is necessary because this
-			// information is not present in inEdge.
-			channelSourcePubKeyBytes, err := edgeInfo.OtherNodeKeyBytes(pivot[:])
+			// Before we can process the edge, we'll need to fetch
+			// the node on the _other_ end of this channel as we
+			// may later need to iterate over the incoming edges of
+			// this node if we explore it further.
+			channelSource, err := edgeInfo.FetchOtherNode(
+				tx, pivot[:],
+			)
 			if err != nil {
 				return err
 			}
 
-			channelSourcePubKey, err := btcec.ParsePubKey(
-				channelSourcePubKeyBytes[:], btcec.S256())
-			if err != nil {
-				return err
-			}
-
-			// Lookup the full node details in order to be able to
-			// later iterate over all incoming edges of the source
-			// node.
-			channelSource, err := graph.FetchLightningNode(channelSourcePubKey)
-			if err != nil {
-				return err
-			}
-
-			// Check if this candidate node is better than what
-			// we already have.
+			// Check if this candidate node is better than what we
+			// already have.
 			processEdge(channelSource, inEdge, edgeBandwidth, pivot)
-
-			// TODO(roasbeef): return min HTLC as error in end?
-
 			return nil
 		})
 		if err != nil {

@@ -59,6 +59,12 @@ var (
 			number:    3,
 			migration: migrateInvoiceTimeSeriesOutgoingPayments,
 		},
+		{
+			// The version with added payment statuses
+			// for each existing payment
+			number:    4,
+			migration: paymentStatusesMigration,
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over

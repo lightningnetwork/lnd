@@ -450,6 +450,17 @@ func completePaymentRequests(ctx context.Context, client lnrpc.LightningClient,
 	return nil
 }
 
+// makeFakePayHash creates random pre image hash
+func makeFakePayHash(t *harnessTest) []byte {
+	randBuf := make([]byte, 32)
+
+	if _, err := rand.Read(randBuf); err != nil {
+		t.Fatalf("internal error, cannot generate random string: %v", err)
+	}
+
+	return randBuf
+}
+
 const (
 	AddrTypeWitnessPubkeyHash = lnrpc.NewAddressRequest_WITNESS_PUBKEY_HASH
 	AddrTypeNestedPubkeyHash  = lnrpc.NewAddressRequest_NESTED_PUBKEY_HASH
@@ -1749,13 +1760,13 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to create payment stream for alice: %v", err)
 	}
+
 	carolPubKey := carol.PubKey[:]
-	payHash := bytes.Repeat([]byte{2}, 32)
 	for i := 0; i < numInvoices; i++ {
 		err = alicePayStream.Send(&lnrpc.SendRequest{
 			Dest:           carolPubKey,
 			Amt:            int64(paymentAmt),
-			PaymentHash:    payHash,
+			PaymentHash:    makeFakePayHash(t),
 			FinalCltvDelta: defaultBitcoinTimeLockDelta,
 		})
 		if err != nil {
@@ -3743,9 +3754,16 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	const paymentAmt = 70000
 	payReqs := make([]string, numPayments)
 	for i := 0; i < numPayments; i++ {
+		preimage := make([]byte, 32)
+		_, err := rand.Read(preimage)
+		if err != nil {
+			t.Fatalf("unable to generate preimage: %v", err)
+		}
+
 		invoice := &lnrpc.Invoice{
-			Memo:  "testing",
-			Value: paymentAmt,
+			Memo:     "testing",
+			RPreimage: preimage,
+			Value:     paymentAmt,
 		}
 		resp, err := net.Bob.AddInvoice(ctxb, invoice)
 		if err != nil {
@@ -3806,9 +3824,16 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	const paymentAmt60k = 60000
 	payReqs = make([]string, numPayments)
 	for i := 0; i < numPayments; i++ {
+		preimage := make([]byte, 32)
+		_, err := rand.Read(preimage)
+		if err != nil {
+			t.Fatalf("unable to generate preimage: %v", err)
+		}
+
 		invoice := &lnrpc.Invoice{
-			Memo:  "testing",
-			Value: paymentAmt60k,
+			Memo:      "testing",
+			RPreimage: preimage,
+			Value:     paymentAmt60k,
 		}
 		resp, err := carol.AddInvoice(ctxb, invoice)
 		if err != nil {
@@ -4294,10 +4319,9 @@ func testInvoiceSubscriptions(net *lntest.NetworkHarness, t *harnessTest) {
 	// TODO(roasbeef): make global list of invoices for each node to re-use
 	// and avoid collisions
 	const paymentAmt = 1000
-	preimage := bytes.Repeat([]byte{byte(90)}, 32)
 	invoice := &lnrpc.Invoice{
 		Memo:      "testing",
-		RPreimage: preimage,
+		RPreimage: makeFakePayHash(t),
 		Value:     paymentAmt,
 	}
 	invoiceResp, err := net.Bob.AddInvoice(ctxb, invoice)
@@ -6522,7 +6546,7 @@ out:
 	// stream on payment error.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	sendReq := &lnrpc.SendRequest{
-		PaymentHashString: hex.EncodeToString(bytes.Repeat([]byte("Z"), 32)),
+		PaymentHashString: hex.EncodeToString(makeFakePayHash(t)),
 		DestString:        hex.EncodeToString(carol.PubKey[:]),
 		Amt:               payAmt,
 	}
@@ -6649,6 +6673,12 @@ out:
 		lnwire.CodeTemporaryChannelFailure.String()) {
 		t.Fatalf("payment should fail due to insufficient capacity, "+
 			"instead: %v", resp.PaymentError)
+	}
+
+	// Generate new invoice to not pay same invoice twice.
+	carolInvoice, err = carol.AddInvoice(ctxb, invoiceReq)
+	if err != nil {
+		t.Fatalf("unable to generate carol invoice: %v", err)
 	}
 
 	// For our final test, we'll ensure that if a target link isn't
@@ -7743,8 +7773,8 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 	// We'll create two random payment hashes unknown to carol, then send
 	// each of them by manually specifying the HTLC details.
 	carolPubKey := carol.PubKey[:]
-	dustPayHash := bytes.Repeat([]byte{1}, 32)
-	payHash := bytes.Repeat([]byte{2}, 32)
+	dustPayHash := makeFakePayHash(t)
+	payHash := makeFakePayHash(t)
 	err = alicePayStream.Send(&lnrpc.SendRequest{
 		Dest:           carolPubKey,
 		Amt:            int64(dustHtlcAmt),
@@ -8194,7 +8224,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 
 	// We'll now send a single HTLC across our multi-hop network.
 	carolPubKey := carol.PubKey[:]
-	payHash := bytes.Repeat([]byte{2}, 32)
+	payHash := makeFakePayHash(t)
 	err = alicePayStream.Send(&lnrpc.SendRequest{
 		Dest:           carolPubKey,
 		Amt:            int64(htlcAmt),
@@ -8447,7 +8477,7 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 
 	// We'll now send a single HTLC across our multi-hop network.
 	carolPubKey := carol.PubKey[:]
-	payHash := bytes.Repeat([]byte{2}, 32)
+	payHash := makeFakePayHash(t)
 	err = alicePayStream.Send(&lnrpc.SendRequest{
 		Dest:           carolPubKey,
 		Amt:            int64(htlcAmt),

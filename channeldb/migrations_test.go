@@ -5,14 +5,16 @@ import (
 	"testing"
 )
 
+// TestPaymentStatusesMigration checks that already completed payments will have
+// their payment statuses set to Completed after the migration.
 func TestPaymentStatusesMigration(t *testing.T) {
 	t.Parallel()
 
 	fakePayment := makeFakePayment()
 	paymentHash := sha256.Sum256(fakePayment.PaymentPreimage[:])
 
-	// Add fake payment to the test database and verifies that it was created
-	// and there is only one payment and its status is not "Completed".
+	// Add fake payment to test database, verifying that it was created,
+	// that we have only one payment, and its status is not "Completed".
 	beforeMigrationFunc := func(d *DB) {
 		if err := d.AddPayment(fakePayment); err != nil {
 			t.Fatalf("unable to add payment: %v", err)
@@ -40,8 +42,8 @@ func TestPaymentStatusesMigration(t *testing.T) {
 		}
 	}
 
-	// Verify that was created payment status "Completed" for our one fake
-	// payment.
+	// Verify that the created payment status is "Completed" for our one
+	// fake payment.
 	afterMigrationFunc := func(d *DB) {
 		meta, err := d.FetchMeta(nil)
 		if err != nil {

@@ -25,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/ticker"
 )
 
 var (
@@ -417,7 +418,8 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		)
 		if err != nil {
 			lnChan.Stop()
-			return err
+			return fmt.Errorf("unable to add link %v to switch: %v",
+				chanPoint, err)
 		}
 
 		p.activeChanMtx.Lock()
@@ -545,8 +547,8 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 		},
 		OnChannelFailure:    onChannelFailure,
 		SyncStates:          syncStates,
-		BatchTicker:         htlcswitch.NewBatchTicker(50 * time.Millisecond),
-		FwdPkgGCTicker:      htlcswitch.NewBatchTicker(time.Minute),
+		BatchTicker:         ticker.New(50 * time.Millisecond),
+		FwdPkgGCTicker:      ticker.New(time.Minute),
 		BatchSize:           10,
 		UnsafeReplay:        cfg.UnsafeReplay,
 		MinFeeUpdateTimeout: htlcswitch.DefaultMinLinkFeeUpdateTimeout,
@@ -576,7 +578,7 @@ func (p *peer) Disconnect(reason error) {
 		return
 	}
 
-	peerLog.Tracef("Disconnecting %s, reason: %v", p, reason)
+	peerLog.Debugf("Disconnecting %s, reason: %v", p, reason)
 
 	// Ensure that the TCP connection is properly closed before continuing.
 	p.conn.Close()

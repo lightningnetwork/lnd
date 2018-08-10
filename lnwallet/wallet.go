@@ -3,24 +3,24 @@ package lnwallet
 import (
 	"bytes"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
 
 	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/hdkeychain"
+	"github.com/btcsuite/btcutil/txsort"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
-
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/txsort"
 	"github.com/lightningnetwork/lnd/shachain"
 )
 
@@ -412,29 +412,18 @@ out:
 // transaction, and that the signature we record for our version of the
 // commitment transaction is valid.
 func (l *LightningWallet) InitChannelReservation(
-	capacity, ourFundAmt btcutil.Amount, pushMSat lnwire.MilliSatoshi,
-	commitFeePerKw SatPerKWeight, fundingFeePerKw SatPerKWeight,
-	theirID *btcec.PublicKey, theirAddr net.Addr,
-	chainHash *chainhash.Hash, flags lnwire.FundingFlag) (*ChannelReservation, error) {
+	req *InitFundingReserveMsg) (*ChannelReservation, error) {
 
-	errChan := make(chan error, 1)
-	respChan := make(chan *ChannelReservation, 1)
+	req.resp = make(chan *ChannelReservation, 1)
+	req.err = make(chan error, 1)
 
-	l.msgChan <- &initFundingReserveMsg{
-		chainHash:       chainHash,
-		nodeID:          theirID,
-		nodeAddr:        theirAddr,
-		fundingAmount:   ourFundAmt,
-		capacity:        capacity,
-		commitFeePerKw:  commitFeePerKw,
-		fundingFeePerKw: fundingFeePerKw,
-		pushMSat:        pushMSat,
-		flags:           flags,
-		err:             errChan,
-		resp:            respChan,
+	select {
+	case l.msgChan <- req:
+	case <-l.quit:
+		return nil, errors.New("wallet shutting down")
 	}
 
-	return <-respChan, <-errChan
+	return <-req.resp, <-req.err
 }
 
 // handleFundingReserveRequest processes a message intending to create, and

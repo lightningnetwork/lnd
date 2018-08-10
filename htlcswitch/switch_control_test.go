@@ -24,9 +24,10 @@ func genHtlc() (*lnwire.UpdateAddHTLC, error) {
 	return htlc, nil
 }
 
-// TestPaymentControlSwitch checks the ability of payment control
-// change states of payments
-func TestPaymentControlSwitch(t *testing.T) {
+// TestPaymentControlSwitchFail checks that payment status returns to Grounded
+// status after failing, and that ClearForTakeoff allows another HTLC for the
+// same payment hash.
+func TestPaymentControlSwitchFail(t *testing.T) {
 	t.Parallel()
 
 	db, err := initDB()
@@ -41,10 +42,40 @@ func TestPaymentControlSwitch(t *testing.T) {
 		t.Fatalf("unable to generate htlc message: %v", err)
 	}
 
-	// Sends base htlc message which initiate base status
-	// and move it to StatusInFlight and verifies that it
-	// was changed.
-	if err := pControl.CheckSend(htlc); err != nil {
+	// Sends base htlc message which initiate StatusInFlight.
+	if err := pControl.ClearForTakeoff(htlc); err != nil {
+		t.Fatalf("unable to send htlc message: %v", err)
+	}
+
+	pStatus, err := db.FetchPaymentStatus(htlc.PaymentHash)
+	if err != nil {
+		t.Fatalf("unable to fetch payment status: %v", err)
+	}
+
+	if pStatus != channeldb.StatusInFlight {
+		t.Fatalf("payment status mismatch: expected %v, got %v",
+			channeldb.StatusInFlight, pStatus)
+	}
+
+	// Fail the payment, which should moved it to Grounded.
+	if err := pControl.Fail(htlc.PaymentHash); err != nil {
+		t.Fatalf("unable to fail payment hash: %v", err)
+	}
+
+	// Verify the status is indeed Grounded.
+	pStatus, err = db.FetchPaymentStatus(htlc.PaymentHash)
+	if err != nil {
+		t.Fatalf("unable to fetch payment status: %v", err)
+	}
+
+	if pStatus != channeldb.StatusGrounded {
+		t.Fatalf("payment status mismatch: expected %v, got %v",
+			channeldb.StatusGrounded, pStatus)
+	}
+
+	// Sends the htlc again, which should succeed since the prior payment
+	// failed.
+	if err := pControl.ClearForTakeoff(htlc); err != nil {
 		t.Fatalf("unable to send htlc message: %v", err)
 	}
 
@@ -72,56 +103,16 @@ func TestPaymentControlSwitch(t *testing.T) {
 		t.Fatalf("payment status mismatch: expected %v, got %v",
 			channeldb.StatusCompleted, pStatus)
 	}
-}
 
-// TestPaymentControlSwitchFail checks that payment status returns
-// to initial status after fail
-func TestPaymentControlSwitchFail(t *testing.T) {
-	t.Parallel()
-
-	db, err := initDB()
-	if err != nil {
-		t.Fatalf("unable to init db: %v", err)
-	}
-
-	pControl := NewPaymentControl(db)
-
-	htlc, err := genHtlc()
-	if err != nil {
-		t.Fatalf("unable to generate htlc message: %v", err)
-	}
-
-	// Sends base htlc message which initiate StatusInFlight.
-	if err := pControl.CheckSend(htlc); err != nil {
+	// Attempt a final payment, which should now fail since the prior
+	// payment succeed.
+	if err := pControl.ClearForTakeoff(htlc); err != nil {
 		t.Fatalf("unable to send htlc message: %v", err)
 	}
-
-	pStatus, err := db.FetchPaymentStatus(htlc.PaymentHash)
-	if err != nil {
-		t.Fatalf("unable to fetch payment status: %v", err)
-	}
-
-	if pStatus != channeldb.StatusInFlight {
-		t.Fatalf("payment status mismatch: expected %v, got %v",
-			channeldb.StatusInFlight, pStatus)
-	}
-
-	// Move payment to completed status, second payment should return error.
-	pControl.Fail(htlc.PaymentHash)
-
-	pStatus, err = db.FetchPaymentStatus(htlc.PaymentHash)
-	if err != nil {
-		t.Fatalf("unable to fetch payment status: %v", err)
-	}
-
-	if pStatus != channeldb.StatusGrounded {
-		t.Fatalf("payment status mismatch: expected %v, got %v",
-			channeldb.StatusGrounded, pStatus)
-	}
 }
 
-// TestPaymentControlSwitchDoubleSend checks the ability of payment control
-// to prevent double sending of htlc message, when message is in StatusInFlight
+// TestPaymentControlSwitchDoubleSend checks the ability of payment control to
+// prevent double sending of htlc message, when message is in StatusInFlight.
 func TestPaymentControlSwitchDoubleSend(t *testing.T) {
 	t.Parallel()
 
@@ -137,10 +128,9 @@ func TestPaymentControlSwitchDoubleSend(t *testing.T) {
 		t.Fatalf("unable to generate htlc message: %v", err)
 	}
 
-	// Sends base htlc message which initiate base status
-	// and move it to StatusInFlight and verifies that it
-	// was changed.
-	if err := pControl.CheckSend(htlc); err != nil {
+	// Sends base htlc message which initiate base status and move it to
+	// StatusInFlight and verifies that it was changed.
+	if err := pControl.ClearForTakeoff(htlc); err != nil {
 		t.Fatalf("unable to send htlc message: %v", err)
 	}
 
@@ -154,16 +144,17 @@ func TestPaymentControlSwitchDoubleSend(t *testing.T) {
 			channeldb.StatusInFlight, pStatus)
 	}
 
-	// Tries to initiate double sending of htlc message with the same
-	// payment hash.
-	if err := pControl.CheckSend(htlc); err != ErrPaymentInFlight {
+	// Try to initiate double sending of htlc message with the same
+	// payment hash, should result in error indicating that payment has
+	// already been sent.
+	if err := pControl.ClearForTakeoff(htlc); err != ErrPaymentInFlight {
 		t.Fatalf("payment control wrong behaviour: " +
 			"double sending must trigger ErrPaymentInFlight error")
 	}
 }
 
-// TestPaymentControlSwitchDoublePay checks the ability of payment control
-// to prevent double payment
+// TestPaymentControlSwitchDoublePay checks the ability of payment control to
+// prevent double payment.
 func TestPaymentControlSwitchDoublePay(t *testing.T) {
 	t.Parallel()
 
@@ -180,10 +171,11 @@ func TestPaymentControlSwitchDoublePay(t *testing.T) {
 	}
 
 	// Sends base htlc message which initiate StatusInFlight.
-	if err := pControl.CheckSend(htlc); err != nil {
+	if err := pControl.ClearForTakeoff(htlc); err != nil {
 		t.Fatalf("unable to send htlc message: %v", err)
 	}
 
+	// Verify that payment is InFlight.
 	pStatus, err := db.FetchPaymentStatus(htlc.PaymentHash)
 	if err != nil {
 		t.Fatalf("unable to fetch payment status: %v", err)
@@ -199,7 +191,18 @@ func TestPaymentControlSwitchDoublePay(t *testing.T) {
 		t.Fatalf("error shouldn't have been received, got: %v", err)
 	}
 
-	if err := pControl.CheckSend(htlc); err != ErrAlreadyPaid {
+	// Verify that payment is Completed.
+	pStatus, err = db.FetchPaymentStatus(htlc.PaymentHash)
+	if err != nil {
+		t.Fatalf("unable to fetch payment status: %v", err)
+	}
+
+	if pStatus != channeldb.StatusCompleted {
+		t.Fatalf("payment status mismatch: expected %v, got %v",
+			channeldb.StatusCompleted, pStatus)
+	}
+
+	if err := pControl.ClearForTakeoff(htlc); err != ErrAlreadyPaid {
 		t.Fatalf("payment control wrong behaviour:" +
 			" double payment must trigger ErrAlreadyPaid")
 	}

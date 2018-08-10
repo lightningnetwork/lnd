@@ -68,7 +68,7 @@ func (m *Mock) Ticks() <-chan time.Time {
 	return m.Force
 }
 
-// Resumes starts underlying time.Ticker and causes the ticker to begin
+// Resume starts underlying time.Ticker and causes the ticker to begin
 // delivering scheduled events.
 //
 // NOTE: Part of the Ticker interface.

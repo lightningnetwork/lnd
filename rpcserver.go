@@ -2840,25 +2840,52 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 func (r *rpcServer) ListInvoices(ctx context.Context,
 	req *lnrpc.ListInvoiceRequest) (*lnrpc.ListInvoiceResponse, error) {
 
-	dbInvoices, err := r.server.chanDB.FetchAllInvoices(req.PendingOnly)
-	if err != nil {
-		return nil, err
+	// If the start and end time were not set, then we'll just return the
+	// invoices that were created within the last 24 hours.
+	var startTime, endTime time.Time
+	if req.StartTime == 0 && req.EndTime == 0 {
+		now := time.Now()
+		startTime = now.Add(-time.Hour * 24)
+		endTime = now
+	} else {
+		startTime = time.Unix(int64(req.StartTime), 0)
+		endTime = time.Unix(int64(req.EndTime), 0)
 	}
 
-	invoices := make([]*lnrpc.Invoice, len(dbInvoices))
-	for i, dbInvoice := range dbInvoices {
+	// If the number of invoices was not specified, then we'll default to
+	// returning the latest 100 invoices.
+	if req.NumMaxInvoices == 0 {
+		req.NumMaxInvoices = 100
+	}
 
-		rpcInvoice, err := createRPCInvoice(&dbInvoice)
+	// Next, we'll map the proto request into a format that is understood by
+	// the database.
+	q := channeldb.InvoiceQuery{
+		StartTime:      startTime,
+		EndTime:        endTime,
+		IndexOffset:    req.IndexOffset,
+		NumMaxInvoices: req.NumMaxInvoices,
+		PendingOnly:    req.PendingOnly,
+	}
+	timeSlice, err := r.server.chanDB.QueryInvoices(q)
+	if err != nil {
+		return nil, fmt.Errorf("unable to query invoices: %v", err)
+	}
+
+	// Before returning the response, we'll need to convert each invoice
+	// into it's proto representation.
+	resp := &lnrpc.ListInvoiceResponse{
+		Invoices:        make([]*lnrpc.Invoice, len(timeSlice.Invoices)),
+		LastIndexOffset: timeSlice.LastIndexOffset,
+	}
+	for i, invoice := range timeSlice.Invoices {
+		resp.Invoices[i], err = createRPCInvoice(invoice)
 		if err != nil {
 			return nil, err
 		}
-
-		invoices[i] = rpcInvoice
 	}
 
-	return &lnrpc.ListInvoiceResponse{
-		Invoices: invoices,
-	}, nil
+	return resp, nil
 }
 
 // SubscribeInvoices returns a uni-directional stream (server -> client) for

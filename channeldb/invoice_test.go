@@ -375,3 +375,128 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 			spew.Sdump(invoice), spew.Sdump(dbInvoice))
 	}
 }
+
+// TestQueryInvoices ensures that we can properly query the invoice database for
+// invoices between specific time intervals.
+func TestQueryInvoices(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test db: %v", err)
+	}
+
+	// To begin the test, we'll add 100 invoices to the database. We'll
+	// assume that the index of the invoice within the database is the same
+	// as the amount of the invoice itself.
+	const numInvoices = 100
+	for i := lnwire.MilliSatoshi(0); i < numInvoices; i++ {
+		invoice, err := randInvoice(i)
+		if err != nil {
+			t.Fatalf("unable to create invoice: %v", err)
+		}
+
+		if _, err := db.AddInvoice(invoice); err != nil {
+			t.Fatalf("unable to add invoice: %v", err)
+		}
+
+		// We'll only settle half of all invoices created.
+		if i%2 == 0 {
+			paymentHash := sha256.Sum256(invoice.Terms.PaymentPreimage[:])
+			if _, err := db.SettleInvoice(paymentHash, i); err != nil {
+				t.Fatalf("unable to settle invoice: %v", err)
+			}
+		}
+	}
+
+	// With the invoices created, we can begin querying the database. We'll
+	// start with a simple query to retrieve all invoices.
+	query := InvoiceQuery{
+		NumMaxInvoices: numInvoices,
+	}
+	res, err := db.QueryInvoices(query)
+	if err != nil {
+		t.Fatalf("unable to query invoices: %v", err)
+	}
+	if len(res.Invoices) != numInvoices {
+		t.Fatalf("expected %d invoices, got %d", numInvoices,
+			len(res.Invoices))
+	}
+
+	// Now, we'll limit the query to only return the latest 30 invoices.
+	query.IndexOffset = 70
+	res, err = db.QueryInvoices(query)
+	if err != nil {
+		t.Fatalf("unable to query invoices: %v", err)
+	}
+	if uint32(len(res.Invoices)) != numInvoices-query.IndexOffset {
+		t.Fatalf("expected %d invoices, got %d",
+			numInvoices-query.IndexOffset, len(res.Invoices))
+	}
+	for _, invoice := range res.Invoices {
+		if uint32(invoice.Terms.Value) < query.IndexOffset {
+			t.Fatalf("found invoice with index %v before offset %v",
+				invoice.Terms.Value, query.IndexOffset)
+		}
+	}
+
+	// Limit the query from above to return 25 invoices max.
+	query.NumMaxInvoices = 25
+	res, err = db.QueryInvoices(query)
+	if err != nil {
+		t.Fatalf("unable to query invoices: %v", err)
+	}
+	if uint32(len(res.Invoices)) != query.NumMaxInvoices {
+		t.Fatalf("expected %d invoices, got %d", query.NumMaxInvoices,
+			len(res.Invoices))
+	}
+
+	// Reset the query to fetch all unsettled invoices within the time
+	// slice.
+	query = InvoiceQuery{
+		PendingOnly:    true,
+		NumMaxInvoices: numInvoices,
+	}
+	res, err = db.QueryInvoices(query)
+	if err != nil {
+		t.Fatalf("unable to query invoices: %v", err)
+	}
+	// Since only invoices with even amounts were settled, we should see
+	// that there are 50 invoices within the response.
+	if len(res.Invoices) != numInvoices/2 {
+		t.Fatalf("expected %d pending invoices, got %d", numInvoices/2,
+			len(res.Invoices))
+	}
+	for _, invoice := range res.Invoices {
+		if invoice.Terms.Value%2 == 0 {
+			t.Fatal("retrieved unexpected settled invoice")
+		}
+	}
+
+	// Finally, we'll skip the first 10 invoices from the set of unsettled
+	// invoices.
+	query.IndexOffset = 10
+	res, err = db.QueryInvoices(query)
+	if err != nil {
+		t.Fatalf("unable to query invoices: %v", err)
+	}
+	if uint32(len(res.Invoices)) != (numInvoices/2)-query.IndexOffset {
+		t.Fatalf("expected %d invoices, got %d",
+			(numInvoices/2)-query.IndexOffset, len(res.Invoices))
+	}
+	// To ensure the correct invoices were returned, we'll make sure each
+	// invoice has an odd value (meaning unsettled). Since the 10 invoices
+	// skipped should be unsettled, the value of the invoice must be at
+	// least the index of the 11th unsettled invoice.
+	for _, invoice := range res.Invoices {
+		if uint32(invoice.Terms.Value) < query.IndexOffset*2 {
+			t.Fatalf("found invoice with index %v before offset %v",
+				invoice.Terms.Value, query.IndexOffset*2)
+		}
+		if invoice.Terms.Value%2 == 0 {
+			t.Fatalf("found unexpected settled invoice with index %v",
+				invoice.Terms.Value)
+		}
+	}
+}

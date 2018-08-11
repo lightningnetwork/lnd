@@ -14,12 +14,12 @@ import (
 	"testing/quick"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/tor"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 var (
@@ -668,11 +668,9 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			numChanIDs := rand.Int31n(5000)
 
-			req.ShortChanIDs = make([]ShortChannelID, numChanIDs)
 			for i := int32(0); i < numChanIDs; i++ {
-				req.ShortChanIDs[i] = NewShortChanIDFromInt(
-					uint64(r.Int63()),
-				)
+				req.ShortChanIDs = append(req.ShortChanIDs,
+					NewShortChanIDFromInt(uint64(r.Int63())))
 			}
 
 			v[0] = reflect.ValueOf(req)

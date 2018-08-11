@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 // chanController is an implementation of the autopilot.ChannelController
@@ -80,7 +80,7 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 
 	// With the connection established, we'll now establish our connection
 	// to the target peer, waiting for the first update before we exit.
-	feePerVSize, err := c.server.cc.feeEstimator.EstimateFeePerVSize(3)
+	feePerKw, err := c.server.cc.feeEstimator.EstimateFeePerKW(3)
 	if err != nil {
 		return err
 	}
@@ -88,8 +88,9 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 	// TODO(halseth): make configurable?
 	minHtlc := lnwire.NewMSatFromSatoshis(1)
 
-	updateStream, errChan := c.server.OpenChannel(target, amt, 0,
-		minHtlc, feePerVSize, false, 0)
+	updateStream, errChan := c.server.OpenChannel(
+		target, amt, 0, minHtlc, feePerKw, false, 0,
+	)
 
 	select {
 	case err := <-errChan:

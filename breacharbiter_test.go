@@ -18,7 +18,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog"
+	"github.com/btcsuite/btcutil"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -27,11 +32,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 var (
@@ -1012,6 +1012,11 @@ func TestBreachHandoffSuccess(t *testing.T) {
 		ProcessACK: make(chan error, 1),
 		BreachRetribution: &lnwallet.BreachRetribution{
 			BreachTransaction: bobClose.CloseTx,
+			LocalOutputSignDesc: &lnwallet.SignDescriptor{
+				Output: &wire.TxOut{
+					PkScript: breachKeys[0],
+				},
+			},
 		},
 	}
 	contractBreaches <- breach
@@ -1039,6 +1044,11 @@ func TestBreachHandoffSuccess(t *testing.T) {
 		ProcessACK: make(chan error, 1),
 		BreachRetribution: &lnwallet.BreachRetribution{
 			BreachTransaction: bobClose.CloseTx,
+			LocalOutputSignDesc: &lnwallet.SignDescriptor{
+				Output: &wire.TxOut{
+					PkScript: breachKeys[0],
+				},
+			},
 		},
 	}
 
@@ -1083,6 +1093,11 @@ func TestBreachHandoffFail(t *testing.T) {
 		ProcessACK: make(chan error, 1),
 		BreachRetribution: &lnwallet.BreachRetribution{
 			BreachTransaction: bobClose.CloseTx,
+			LocalOutputSignDesc: &lnwallet.SignDescriptor{
+				Output: &wire.TxOut{
+					PkScript: breachKeys[0],
+				},
+			},
 		},
 	}
 	contractBreaches <- breach
@@ -1130,6 +1145,11 @@ func TestBreachHandoffFail(t *testing.T) {
 		ProcessACK: make(chan error, 1),
 		BreachRetribution: &lnwallet.BreachRetribution{
 			BreachTransaction: bobClose.CloseTx,
+			LocalOutputSignDesc: &lnwallet.SignDescriptor{
+				Output: &wire.TxOut{
+					PkScript: breachKeys[0],
+				},
+			},
 		},
 	}
 
@@ -1239,7 +1259,7 @@ func TestBreachSecondLevelTransfer(t *testing.T) {
 	// output is spent by a second level tx.
 	secondLvlTx := &wire.MsgTx{
 		TxOut: []*wire.TxOut{
-			&wire.TxOut{Value: 1},
+			{Value: 1},
 		},
 	}
 	notifier.Spend(htlcOutpoint, 2, secondLvlTx)
@@ -1331,7 +1351,7 @@ func createTestArbiter(t *testing.T, contractBreaches chan *ContractBreachEvent,
 	ba := newBreachArbiter(&BreachConfig{
 		CloseLink:          func(_ *wire.OutPoint, _ htlcswitch.ChannelCloseType) {},
 		DB:                 db,
-		Estimator:          &lnwallet.StaticFeeEstimator{FeeRate: 50},
+		Estimator:          &lnwallet.StaticFeeEstimator{FeePerKW: 12500},
 		GenSweepScript:     func() ([]byte, error) { return nil, nil },
 		ContractBreaches:   contractBreaches,
 		Signer:             signer,
@@ -1471,12 +1491,11 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 		return nil, nil, nil, err
 	}
 
-	estimator := &lnwallet.StaticFeeEstimator{FeeRate: 50}
-	feePerVSize, err := estimator.EstimateFeePerVSize(1)
+	estimator := &lnwallet.StaticFeeEstimator{FeePerKW: 12500}
+	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	feePerKw := feePerVSize.FeePerKWeight()
 
 	// TODO(roasbeef): need to factor in commit fee?
 	aliceCommit := channeldb.ChannelCommitment{

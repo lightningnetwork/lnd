@@ -192,7 +192,7 @@ func serializeAddr(w io.Writer, address net.Addr) error {
 		return encodeTCPAddr(w, addr)
 	case *tor.OnionAddr:
 		return encodeOnionAddr(w, addr)
+	default:
+		return ErrUnknownAddressType
 	}
-
-	return nil
 }

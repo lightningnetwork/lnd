@@ -7,11 +7,16 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/fastsha256"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lightning-onion"
@@ -21,10 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
+	"github.com/lightningnetwork/lnd/ticker"
 )
 
 type mockPreimageCache struct {
@@ -57,12 +59,14 @@ func (m *mockPreimageCache) SubscribeUpdates() *contractcourt.WitnessSubscriptio
 }
 
 type mockFeeEstimator struct {
-	byteFeeIn chan lnwallet.SatPerVByte
+	byteFeeIn chan lnwallet.SatPerKWeight
 
 	quit chan struct{}
 }
 
-func (m *mockFeeEstimator) EstimateFeePerVSize(numBlocks uint32) (lnwallet.SatPerVByte, error) {
+func (m *mockFeeEstimator) EstimateFeePerKW(
+	numBlocks uint32) (lnwallet.SatPerKWeight, error) {
+
 	select {
 	case feeRate := <-m.byteFeeIn:
 		return feeRate, nil
@@ -142,7 +146,9 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 		FetchLastChannelUpdate: func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
 			return nil, nil
 		},
-		Notifier: &mockNotifier{},
+		Notifier:       &mockNotifier{},
+		FwdEventTicker: ticker.MockNew(DefaultFwdEventInterval),
+		LogEventTicker: ticker.MockNew(DefaultLogInterval),
 	}
 
 	return New(cfg, startingHeight)
@@ -517,6 +523,16 @@ func (s *mockServer) IdentityKey() *btcec.PublicKey {
 	return pubkey
 }
 
+func (s *mockServer) Address() net.Addr {
+	return nil
+}
+
+func (s *mockServer) AddNewChannel(channel *lnwallet.LightningChannel,
+	cancel <-chan struct{}) error {
+
+	return nil
+}
+
 func (s *mockServer) WipeChannel(*wire.OutPoint) error {
 	return nil
 }
@@ -673,7 +689,9 @@ func (i *mockInvoiceRegistry) LookupInvoice(rHash chainhash.Hash) (channeldb.Inv
 	return invoice, i.finalDelta, nil
 }
 
-func (i *mockInvoiceRegistry) SettleInvoice(rhash chainhash.Hash) error {
+func (i *mockInvoiceRegistry) SettleInvoice(rhash chainhash.Hash,
+	amt lnwire.MilliSatoshi) error {
+
 	i.Lock()
 	defer i.Unlock()
 
@@ -687,6 +705,7 @@ func (i *mockInvoiceRegistry) SettleInvoice(rhash chainhash.Hash) error {
 	}
 
 	invoice.Terms.Settled = true
+	invoice.AmtPaid = amt
 	i.invoices[rhash] = invoice
 
 	return nil
@@ -767,7 +786,7 @@ type mockNotifier struct {
 	epochChan chan *chainntnfs.BlockEpoch
 }
 
-func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
+func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash, _ []byte,
 	numConfs uint32, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
 	return nil, nil
 }
@@ -786,21 +805,10 @@ func (m *mockNotifier) Stop() error {
 	return nil
 }
 
-func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	heightHint uint32, mempool bool) (*chainntnfs.SpendEvent, error) {
+func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ []byte,
+	heightHint uint32) (*chainntnfs.SpendEvent, error) {
 
 	return &chainntnfs.SpendEvent{
 		Spend: make(chan *chainntnfs.SpendDetail),
 	}, nil
-}
-
-type mockTicker struct {
-	ticker <-chan time.Time
-}
-
-func (m *mockTicker) Start() <-chan time.Time {
-	return m.ticker
-}
-
-func (m *mockTicker) Stop() {
 }

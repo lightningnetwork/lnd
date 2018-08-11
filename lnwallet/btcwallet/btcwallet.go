@@ -9,18 +9,18 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcwallet/chain"
+	"github.com/btcsuite/btcwallet/waddrmgr"
+	base "github.com/btcsuite/btcwallet/wallet"
+	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
-	"github.com/roasbeef/btcwallet/chain"
-	"github.com/roasbeef/btcwallet/waddrmgr"
-	base "github.com/roasbeef/btcwallet/wallet"
-	"github.com/roasbeef/btcwallet/walletdb"
 )
 
 const (
@@ -272,11 +272,11 @@ func (b *BtcWallet) GetPrivKey(a btcutil.Address) (*btcec.PrivateKey, error) {
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
-	feeRate lnwallet.SatPerVByte) (*chainhash.Hash, error) {
+	feeRate lnwallet.SatPerKWeight) (*chainhash.Hash, error) {
 
-	// The fee rate is passed in using units of sat/vbyte, so we'll scale
-	// this up to sat/KB as the SendOutputs method requires this unit.
-	feeSatPerKB := btcutil.Amount(feeRate * 1000)
+	// Convert our fee rate from sat/kw to sat/kb since it's required by
+	// SendOutputs.
+	feeSatPerKB := btcutil.Amount(feeRate.FeePerKVByte())
 
 	return b.wallet.SendOutputs(outputs, defaultAccount, 1, feeSatPerKB)
 }
@@ -745,8 +745,24 @@ func (b *BtcWallet) IsSynced() (bool, int64, error) {
 		return false, 0, err
 	}
 
-	// If the timestamp no the best header is more than 2 hours in the
+	// If the timestamp on the best header is more than 2 hours in the
 	// past, then we're not yet synced.
 	minus24Hours := time.Now().Add(-2 * time.Hour)
-	return !blockHeader.Timestamp.Before(minus24Hours), bestTimestamp, nil
+	if blockHeader.Timestamp.Before(minus24Hours) {
+		return false, bestTimestamp, nil
+	}
+
+	// If this is neutrino, then we'll also want to wait until the set of
+	// filter headers also match
+	if neutrinoNode, ok := b.chain.(*chain.NeutrinoClient); ok {
+		filterDB := neutrinoNode.CS.RegFilterHeaders
+		_, filterHeaderTip, err := filterDB.ChainTip()
+		if err != nil {
+			return false, 0, err
+		}
+
+		return filterHeaderTip == uint32(bestHeight), bestTimestamp, nil
+	}
+
+	return true, bestTimestamp, nil
 }

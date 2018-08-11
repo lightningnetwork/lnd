@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 )
 
 // ChainNotifier represents a trusted source to receive notifications concerning
@@ -20,38 +20,40 @@ import (
 // resource
 type ChainNotifier interface {
 	// RegisterConfirmationsNtfn registers an intent to be notified once
-	// txid reaches numConfs confirmations. The returned ConfirmationEvent
-	// should properly notify the client once the specified number of
-	// confirmations has been reached for the txid, as well as if the
-	// original tx gets re-org'd out of the mainchain.  The heightHint
-	// parameter is provided as a convenience to light clients. The
-	// heightHint denotes the earliest height in the blockchain in which the
-	// target txid _could_ have been included in the chain.  This can be
-	// used to bound the search space when checking to see if a
-	// notification can immediately be dispatched due to historical data.
+	// txid reaches numConfs confirmations. We also pass in the pkScript as
+	// the default light client instead needs to match on scripts created
+	// in the block. The returned ConfirmationEvent should properly notify
+	// the client once the specified number of confirmations has been
+	// reached for the txid, as well as if the original tx gets re-org'd
+	// out of the mainchain.  The heightHint parameter is provided as a
+	// convenience to light clients. The heightHint denotes the earliest
+	// height in the blockchain in which the target txid _could_ have been
+	// included in the chain.  This can be used to bound the search space
+	// when checking to see if a notification can immediately be dispatched
+	// due to historical data.
 	//
 	// NOTE: Dispatching notifications to multiple clients subscribed to
 	// the same (txid, numConfs) tuple MUST be supported.
-	RegisterConfirmationsNtfn(txid *chainhash.Hash, numConfs,
+	RegisterConfirmationsNtfn(txid *chainhash.Hash, pkScript []byte, numConfs,
 		heightHint uint32) (*ConfirmationEvent, error)
 
 	// RegisterSpendNtfn registers an intent to be notified once the target
-	// outpoint is successfully spent within a transaction. The returned
+	// outpoint is successfully spent within a transaction. The script that
+	// the outpoint creates must also be specified. This allows this
+	// interface to be implemented by BIP 158-like filtering. The returned
 	// SpendEvent will receive a send on the 'Spend' transaction once a
 	// transaction spending the input is detected on the blockchain.  The
 	// heightHint parameter is provided as a convenience to light clients.
 	// The heightHint denotes the earliest height in the blockchain in
 	// which the target output could have been created.
 	//
-	// NOTE: If mempool=true is set, then this notification should be
-	// triggered on a best-effort basis once the transaction is *seen* on
-	// the network. If mempool=false, it should only be triggered when the
-	// spending transaction receives a single confirmation.
+	// NOTE: The notification should only be triggered when the spending
+	// transaction receives a single confirmation.
 	//
 	// NOTE: Dispatching notifications to multiple clients subscribed to a
 	// spend of the same outpoint MUST be supported.
-	RegisterSpendNtfn(outpoint *wire.OutPoint, heightHint uint32,
-		mempool bool) (*SpendEvent, error)
+	RegisterSpendNtfn(outpoint *wire.OutPoint, pkScript []byte,
+		heightHint uint32) (*SpendEvent, error)
 
 	// RegisterBlockEpochNtfn registers an intent to be notified of each
 	// new block connected to the tip of the main chain. The returned

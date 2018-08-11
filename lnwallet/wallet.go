@@ -8,20 +8,20 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/blockchain"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcutil/hdkeychain"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/txsort"
 	"github.com/lightningnetwork/lnd/shachain"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
-	"github.com/roasbeef/btcutil/txsort"
 )
 
 const (
@@ -81,9 +81,9 @@ type initFundingReserveMsg struct {
 	// paying some multiple of the accepted base fee rate of the network.
 	commitFeePerKw SatPerKWeight
 
-	// fundingFeePerVSize is the fee rate in sat/vbyte to use for the
-	// initial funding transaction.
-	fundingFeePerVSize SatPerVByte
+	// fundingFeePerKw is the fee rate in sat/kw to use for the initial
+	// funding transaction.
+	fundingFeePerKw SatPerKWeight
 
 	// pushMSat is the number of milli-satoshis that should be pushed over
 	// the responder as part of the initial channel creation.
@@ -262,15 +262,15 @@ type LightningWallet struct {
 	// is removed from limbo. Each reservation is tracked by a unique
 	// monotonically integer. All requests concerning the channel MUST
 	// carry a valid, active funding ID.
-	fundingLimbo  map[uint64]*ChannelReservation
-	limboMtx      sync.RWMutex
+	fundingLimbo map[uint64]*ChannelReservation
+	limboMtx     sync.RWMutex
 
 	// lockedOutPoints is a set of the currently locked outpoint. This
 	// information is kept in order to provide an easy way to unlock all
 	// the currently locked outpoints.
 	lockedOutPoints map[wire.OutPoint]struct{}
 
-	quit     chan struct{}
+	quit chan struct{}
 
 	wg sync.WaitGroup
 
@@ -413,7 +413,7 @@ out:
 // commitment transaction is valid.
 func (l *LightningWallet) InitChannelReservation(
 	capacity, ourFundAmt btcutil.Amount, pushMSat lnwire.MilliSatoshi,
-	commitFeePerKw SatPerKWeight, fundingFeePerVSize SatPerVByte,
+	commitFeePerKw SatPerKWeight, fundingFeePerKw SatPerKWeight,
 	theirID *btcec.PublicKey, theirAddr net.Addr,
 	chainHash *chainhash.Hash, flags lnwire.FundingFlag) (*ChannelReservation, error) {
 
@@ -421,17 +421,17 @@ func (l *LightningWallet) InitChannelReservation(
 	respChan := make(chan *ChannelReservation, 1)
 
 	l.msgChan <- &initFundingReserveMsg{
-		chainHash:          chainHash,
-		nodeID:             theirID,
-		nodeAddr:           theirAddr,
-		fundingAmount:      ourFundAmt,
-		capacity:           capacity,
-		commitFeePerKw:     commitFeePerKw,
-		fundingFeePerVSize: fundingFeePerVSize,
-		pushMSat:           pushMSat,
-		flags:              flags,
-		err:                errChan,
-		resp:               respChan,
+		chainHash:       chainHash,
+		nodeID:          theirID,
+		nodeAddr:        theirAddr,
+		fundingAmount:   ourFundAmt,
+		capacity:        capacity,
+		commitFeePerKw:  commitFeePerKw,
+		fundingFeePerKw: fundingFeePerKw,
+		pushMSat:        pushMSat,
+		flags:           flags,
+		err:             errChan,
+		resp:            respChan,
 	}
 
 	return <-respChan, <-errChan
@@ -479,10 +479,10 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	// don't need to perform any coin selection. Otherwise, attempt to
 	// obtain enough coins to meet the required funding amount.
 	if req.fundingAmount != 0 {
-		// Coin selection is done on the basis of sat-per-vbyte, we'll
-		// use the passed sat/vbyte passed in to perform coin selection.
+		// Coin selection is done on the basis of sat/kw, so we'll use
+		// the fee rate passed in to perform coin selection.
 		err := l.selectCoinsAndChange(
-			req.fundingFeePerVSize, req.fundingAmount,
+			req.fundingFeePerKw, req.fundingAmount,
 			reservation.ourContribution,
 		)
 		if err != nil {
@@ -971,8 +971,18 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 
 			// Fetch the alleged previous output along with the
 			// pkscript referenced by this input.
-			// TODO(roasbeef): when dual funder pass actual height-hint
-			output, err := l.Cfg.ChainIO.GetUtxo(&txin.PreviousOutPoint, 0)
+			//
+			// TODO(roasbeef): when dual funder pass actual
+			// height-hint
+			pkScript, err := WitnessScriptHash(
+				txin.Witness[len(txin.Witness)-1],
+			)
+			if err != nil {
+			}
+			output, err := l.Cfg.ChainIO.GetUtxo(
+				&txin.PreviousOutPoint,
+				pkScript, 0,
+			)
 			if output == nil {
 				msg.err <- fmt.Errorf("input to funding tx "+
 					"does not exist: %v", err)
@@ -1081,16 +1091,6 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	nodeAddr := res.nodeAddr
 	err = res.partialState.SyncPending(nodeAddr, uint32(bestHeight))
 	if err != nil {
-		msg.err <- err
-		msg.completeChan <- nil
-		return
-	}
-
-	walletLog.Infof("Broadcasting funding tx for ChannelPoint(%v): %v",
-		res.partialState.FundingOutpoint, spew.Sdump(fundingTx))
-
-	// Broadcast the finalized funding transaction to the network.
-	if err := l.PublishTransaction(fundingTx); err != nil {
 		msg.err <- err
 		msg.completeChan <- nil
 		return
@@ -1209,7 +1209,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	// With their signature for our version of the commitment transactions
 	// verified, we can now generate a signature for their version,
 	// allowing the funding transaction to be safely broadcast.
-	p2wsh, err := witnessScriptHash(witnessScript)
+	p2wsh, err := WitnessScriptHash(witnessScript)
 	if err != nil {
 		req.err <- err
 		req.completeChan <- nil
@@ -1266,7 +1266,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 // within the passed contribution's inputs. If necessary, a change address will
 // also be generated.
 // TODO(roasbeef): remove hardcoded fees and req'd confs for outputs.
-func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerVByte,
+func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerKWeight,
 	amt btcutil.Amount, contribution *ChannelContribution) error {
 
 	// We hold the coin select mutex while querying for outputs, and
@@ -1276,7 +1276,7 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerVByte,
 	defer l.coinSelectMtx.Unlock()
 
 	walletLog.Infof("Performing funding tx coin selection using %v "+
-		"sat/vbyte as fee rate", int64(feeRate))
+		"sat/kw as fee rate", int64(feeRate))
 
 	// Find all unlocked unspent witness outputs with greater than 1
 	// confirmation.
@@ -1385,9 +1385,9 @@ func selectInputs(amt btcutil.Amount, coins []*Utxo) (btcutil.Amount, []*Utxo, e
 
 // coinSelect attempts to select a sufficient amount of coins, including a
 // change output to fund amt satoshis, adhering to the specified fee rate. The
-// specified fee rate should be expressed in sat/vbyte for coin selection to
+// specified fee rate should be expressed in sat/kw for coin selection to
 // function properly.
-func coinSelect(feeRate SatPerVByte, amt btcutil.Amount,
+func coinSelect(feeRate SatPerKWeight, amt btcutil.Amount,
 	coins []*Utxo) ([]*Utxo, btcutil.Amount, error) {
 
 	amtNeeded := amt
@@ -1431,7 +1431,8 @@ func coinSelect(feeRate SatPerVByte, amt btcutil.Amount,
 		// amount isn't enough to pay fees, then increase the requested
 		// coin amount by the estimate required fee, performing another
 		// round of coin selection.
-		requiredFee := feeRate.FeeForVSize(int64(weightEstimate.VSize()))
+		totalWeight := int64(weightEstimate.Weight())
+		requiredFee := feeRate.FeeForWeight(totalWeight)
 		if overShootAmt < requiredFee {
 			amtNeeded = amt + requiredFee
 			continue

@@ -2,17 +2,17 @@ PKG := github.com/lightningnetwork/lnd
 ESCPKG := github.com\/lightningnetwork\/lnd
 
 DEP_PKG := github.com/golang/dep/cmd/dep
-BTCD_PKG := github.com/roasbeef/btcd
+BTCD_PKG := github.com/btcsuite/btcd
 GLIDE_PKG := github.com/Masterminds/glide
 GOVERALLS_PKG := github.com/mattn/goveralls
-LINT_PKG := gopkg.in/alecthomas/gometalinter.v1
+LINT_PKG := gopkg.in/alecthomas/gometalinter.v2
 
 GO_BIN := ${GOPATH}/bin
 DEP_BIN := $(GO_BIN)/dep
 BTCD_BIN := $(GO_BIN)/btcd
 GLIDE_BIN := $(GO_BIN)/glide
 GOVERALLS_BIN := $(GO_BIN)/goveralls
-LINT_BIN := $(GO_BIN)/gometalinter.v1
+LINT_BIN := $(GO_BIN)/gometalinter.v2
 
 HAVE_DEP := $(shell command -v $(DEP_BIN) 2> /dev/null)
 HAVE_BTCD := $(shell command -v $(BTCD_BIN) 2> /dev/null)
@@ -40,10 +40,22 @@ GOLIST := go list $(PKG)/... | grep -v '/vendor/'
 GOLISTCOVER := $(shell go list -f '{{.ImportPath}}' ./... | sed -e 's/^$(ESCPKG)/./')
 GOLISTLINT := $(shell go list -f '{{.Dir}}' ./... | grep -v 'lnrpc')
 
+RM := rm -f
+CP := cp
+MAKE := make
+XARGS := xargs -L 1
+
+include make/testing_flags.mk
+
 COVER = for dir in $(GOLISTCOVER); do \
-		$(GOTEST) $(TEST_FLAGS) \
+		$(GOTEST) -tags="$(TEST_TAGS)" \
 			-covermode=count \
 			-coverprofile=$$dir/profile.tmp $$dir; \
+		\
+		if [ $$? != 0 ] ;\
+		then \
+			exit 1; \
+		fi ;\
 		\
 		if [ -f $$dir/profile.tmp ]; then \
 			cat $$dir/profile.tmp | \
@@ -64,18 +76,11 @@ LINT = $(LINT_BIN) \
 
 CGO_STATUS_QUO := ${CGO_ENABLED}
 
-RM := rm -f
-CP := cp
-MAKE := make
-XARGS := xargs -L 1
-
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"
 define print
 	echo $(GREEN)$1$(NC)
 endef
-
-include make/testing_flags.mk
 
 default: scratch
 
@@ -100,7 +105,7 @@ $(GOVERALLS_BIN):
 	go get -u $(GOVERALLS_PKG)
 
 $(LINT_BIN):
-	@$(call print, "Fetching gometalinter.v1")
+	@$(call print, "Fetching gometalinter.v2")
 	go get -u $(LINT_PKG)
 	$(GOINSTALL) $(LINT_PKG)
 
@@ -110,7 +115,7 @@ dep: $(DEP_BIN)
 
 $(BTCD_DIR):
 	@$(call print, "Fetching btcd.")
-	go get -d github.com/roasbeef/btcd
+	go get -d github.com/btcsuite/btcd
 
 btcd: $(GLIDE_BIN) $(BTCD_DIR)
 	@$(call print, "Compiling btcd dependencies.")
@@ -178,13 +183,13 @@ flake-unit:
 # ======
 
 ifeq ($(RACE), false)
-travis: lint scratch itest unit-cover $(GOVERALLS_BIN)
+travis: dep lint build itest unit-cover $(GOVERALLS_BIN)
 	@$(call print, "Sending coverage report.")
 	$(GOVERALLS_BIN) -coverprofile=profile.cov -service=travis-ci
 endif
 
 ifeq ($(RACE), true)
-travis: lint dep btcd unit-race
+travis: dep lint btcd unit-race
 endif
 
 
@@ -199,7 +204,7 @@ fmt:
 lint: $(LINT_BIN)
 	@$(call print, "Linting source.")
 	$(LINT_BIN) --install 1> /dev/null
-	test -z "$($(LINT))"
+	test -z "$$($(LINT))"
 
 list:
 	@$(call print, "Listing commands.")

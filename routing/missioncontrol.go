@@ -5,10 +5,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
 )
 
 const (
@@ -249,9 +249,10 @@ func (m *missionControl) NewPaymentSession(routeHints [][]HopHint,
 // used for things like channel rebalancing, and swaps.
 func (m *missionControl) NewPaymentSessionFromRoutes(routes []*Route) *paymentSession {
 	return &paymentSession{
-		haveRoutes:     true,
-		preBuiltRoutes: routes,
-		mc:             m,
+		pruneViewSnapshot: m.GraphPruneView(),
+		haveRoutes:        true,
+		preBuiltRoutes:    routes,
+		mc:                m,
 	}
 }
 
@@ -374,7 +375,7 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	path, err := findPath(
 		nil, p.mc.graph, p.additionalEdges, p.mc.selfNode,
 		payment.Target, pruneView.vertexes, pruneView.edges,
-		payment.Amount, p.bandwidthHints,
+		payment.Amount, payment.FeeLimit, p.bandwidthHints,
 	)
 	if err != nil {
 		return nil, err

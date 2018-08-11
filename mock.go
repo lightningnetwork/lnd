@@ -4,16 +4,17 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 // The block height returned by the mock BlockChainIO's GetBestBlock.
@@ -85,8 +86,8 @@ type mockNotfier struct {
 	confChannel chan *chainntnfs.TxConfirmation
 }
 
-func (m *mockNotfier) RegisterConfirmationsNtfn(txid *chainhash.Hash, numConfs,
-	heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
+func (m *mockNotfier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
+	_ []byte, numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
 	return &chainntnfs.ConfirmationEvent{
 		Confirmed: m.confChannel,
 	}, nil
@@ -105,8 +106,8 @@ func (m *mockNotfier) Start() error {
 func (m *mockNotfier) Stop() error {
 	return nil
 }
-func (m *mockNotfier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	heightHint uint32, _ bool) (*chainntnfs.SpendEvent, error) {
+func (m *mockNotfier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ []byte,
+	heightHint uint32) (*chainntnfs.SpendEvent, error) {
 	return &chainntnfs.SpendEvent{
 		Spend:  make(chan *chainntnfs.SpendDetail),
 		Cancel: func() {},
@@ -131,7 +132,7 @@ func makeMockSpendNotifier() *mockSpendNotifier {
 }
 
 func (m *mockSpendNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	heightHint uint32, _ bool) (*chainntnfs.SpendEvent, error) {
+	_ []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 
@@ -172,7 +173,7 @@ func (*mockChainIO) GetBestBlock() (*chainhash.Hash, int32, error) {
 	return activeNetParams.GenesisHash, fundingBroadcastHeight, nil
 }
 
-func (*mockChainIO) GetUtxo(op *wire.OutPoint,
+func (*mockChainIO) GetUtxo(op *wire.OutPoint, _ []byte,
 	heightHint uint32) (*wire.TxOut, error) {
 	return nil, nil
 }
@@ -191,6 +192,7 @@ type mockWalletController struct {
 	rootKey               *btcec.PrivateKey
 	prevAddres            btcutil.Address
 	publishedTransactions chan *wire.MsgTx
+	index                 uint32
 }
 
 // BackEnd returns "mock" to signify a mock wallet controller.
@@ -224,23 +226,24 @@ func (*mockWalletController) GetPrivKey(a btcutil.Address) (*btcec.PrivateKey, e
 }
 
 func (*mockWalletController) SendOutputs(outputs []*wire.TxOut,
-	_ lnwallet.SatPerVByte) (*chainhash.Hash, error) {
+	_ lnwallet.SatPerKWeight) (*chainhash.Hash, error) {
 
 	return nil, nil
 }
 
 // ListUnspentWitness is called by the wallet when doing coin selection. We just
 // need one unspent for the funding transaction.
-func (*mockWalletController) ListUnspentWitness(confirms int32) ([]*lnwallet.Utxo, error) {
+func (m *mockWalletController) ListUnspentWitness(confirms int32) ([]*lnwallet.Utxo, error) {
 	utxo := &lnwallet.Utxo{
 		AddressType: lnwallet.WitnessPubKey,
 		Value:       btcutil.Amount(10 * btcutil.SatoshiPerBitcoin),
 		PkScript:    make([]byte, 22),
 		OutPoint: wire.OutPoint{
 			Hash:  chainhash.Hash{},
-			Index: 0,
+			Index: m.index,
 		},
 	}
+	atomic.AddUint32(&m.index, 1)
 	var ret []*lnwallet.Utxo
 	ret = append(ret, utxo)
 	return ret, nil

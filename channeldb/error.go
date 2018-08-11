@@ -7,6 +7,10 @@ var (
 	// created.
 	ErrNoChanDBExists = fmt.Errorf("channel db has not yet been created")
 
+	// ErrDBReversion is returned when detecting an attempt to revert to a
+	// prior database version.
+	ErrDBReversion = fmt.Errorf("channel db cannot revert to prior version")
+
 	// ErrLinkNodesNotFound is returned when node info bucket hasn't been
 	// created.
 	ErrLinkNodesNotFound = fmt.Errorf("no link nodes exist")

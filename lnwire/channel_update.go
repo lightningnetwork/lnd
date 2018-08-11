@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"io"
 
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
 // ChanUpdateFlag is a bitfield that signals various options concerning a

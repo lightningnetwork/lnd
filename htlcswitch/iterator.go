@@ -4,9 +4,9 @@ import (
 	"encoding/binary"
 	"io"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
 )
 
 // NetworkHop indicates the blockchain network that is intended to be the next

@@ -8,14 +8,14 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/roasbeef/btcd/blockchain"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 //                          SUMMARY OF OUTPUT STATES
@@ -962,7 +962,7 @@ func (u *utxoNursery) createSweepTx(kgtnOutputs []kidOutput,
 		// sweep.
 		case lnwallet.HtlcOfferedTimeoutSecondLevel:
 			weightEstimate.AddWitnessInput(
-				lnwallet.SecondLevelHtlcSuccessWitnessSize,
+				lnwallet.ToLocalTimeoutWitnessSize,
 			)
 			csvOutputs = append(csvOutputs, input)
 
@@ -971,7 +971,7 @@ func (u *utxoNursery) createSweepTx(kgtnOutputs []kidOutput,
 		// sweep.
 		case lnwallet.HtlcAcceptedSuccessSecondLevel:
 			weightEstimate.AddWitnessInput(
-				lnwallet.SecondLevelHtlcSuccessWitnessSize,
+				lnwallet.ToLocalTimeoutWitnessSize,
 			)
 			csvOutputs = append(csvOutputs, input)
 
@@ -994,15 +994,15 @@ func (u *utxoNursery) createSweepTx(kgtnOutputs []kidOutput,
 	utxnLog.Infof("Creating sweep transaction for %v CSV inputs, %v CLTV "+
 		"inputs", len(csvOutputs), len(cltvOutputs))
 
-	txVSize := int64(weightEstimate.VSize())
-	return u.populateSweepTx(txVSize, classHeight, csvOutputs, cltvOutputs)
+	txWeight := int64(weightEstimate.Weight())
+	return u.populateSweepTx(txWeight, classHeight, csvOutputs, cltvOutputs)
 }
 
 // populateSweepTx populate the final sweeping transaction with all witnesses
 // in place for all inputs using the provided txn fee. The created transaction
 // has a single output sending all the funds back to the source wallet, after
 // accounting for the fee estimate.
-func (u *utxoNursery) populateSweepTx(txVSize int64, classHeight uint32,
+func (u *utxoNursery) populateSweepTx(txWeight int64, classHeight uint32,
 	csvInputs []CsvSpendableOutput,
 	cltvInputs []SpendableOutput) (*wire.MsgTx, error) {
 
@@ -1022,11 +1022,11 @@ func (u *utxoNursery) populateSweepTx(txVSize int64, classHeight uint32,
 	}
 
 	// Using the txn weight estimate, compute the required txn fee.
-	feePerVSize, err := u.cfg.Estimator.EstimateFeePerVSize(6)
+	feePerKw, err := u.cfg.Estimator.EstimateFeePerKW(6)
 	if err != nil {
 		return nil, err
 	}
-	txFee := feePerVSize.FeeForVSize(txVSize)
+	txFee := feePerKw.FeeForWeight(txWeight)
 
 	// Sweep as much possible, after subtracting txn fees.
 	sweepAmt := int64(totalSum - txFee)
@@ -1145,7 +1145,9 @@ func (u *utxoNursery) registerSweepConf(finalTx *wire.MsgTx,
 	finalTxID := finalTx.TxHash()
 
 	confChan, err := u.cfg.Notifier.RegisterConfirmationsNtfn(
-		&finalTxID, u.cfg.ConfDepth, heightHint)
+		&finalTxID, finalTx.TxOut[0].PkScript, u.cfg.ConfDepth,
+		heightHint,
+	)
 	if err != nil {
 		utxnLog.Errorf("unable to register notification for "+
 			"sweep confirmation: %v", finalTxID)
@@ -1251,7 +1253,9 @@ func (u *utxoNursery) registerTimeoutConf(baby *babyOutput, heightHint uint32) e
 
 	// Register for the confirmation of presigned htlc txn.
 	confChan, err := u.cfg.Notifier.RegisterConfirmationsNtfn(
-		&birthTxID, u.cfg.ConfDepth, heightHint)
+		&birthTxID, baby.timeoutTx.TxOut[0].PkScript, u.cfg.ConfDepth,
+		heightHint,
+	)
 	if err != nil {
 		return err
 	}
@@ -1316,8 +1320,10 @@ func (u *utxoNursery) registerPreschoolConf(kid *kidOutput, heightHint uint32) e
 	// de-duplicate
 	//  * need to do above?
 
-	confChan, err := u.cfg.Notifier.RegisterConfirmationsNtfn(&txID,
-		u.cfg.ConfDepth, heightHint)
+	pkScript := kid.signDesc.Output.PkScript
+	confChan, err := u.cfg.Notifier.RegisterConfirmationsNtfn(
+		&txID, pkScript, u.cfg.ConfDepth, heightHint,
+	)
 	if err != nil {
 		return err
 	}

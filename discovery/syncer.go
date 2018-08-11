@@ -7,8 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
 // syncerState is an enum that represents the current state of the
@@ -158,6 +158,10 @@ type gossipSyncerCfg struct {
 	// encodingType is the current encoding type we're aware of. Requests
 	// with different encoding types will be rejected.
 	encodingType lnwire.ShortChanIDEncoding
+
+	// chunkSize is the max number of short chan IDs using the syncer's
+	// encoding type that we can fit into a single message safely.
+	chunkSize int32
 
 	// sendToPeer is a function closure that should send the set of
 	// targeted messages to the peer we've been assigned to sync the graph
@@ -445,14 +449,6 @@ func (g *gossipSyncer) channelGraphSyncer() {
 // required to ensure they fit into a single message. We may re-renter this
 // state in the case that chunking is required.
 func (g *gossipSyncer) synchronizeChanIDs() (bool, error) {
-	// Ensure that we're able to handle queries using the specified chan
-	// ID.
-	chunkSize, ok := encodingTypeToChunkSize[g.cfg.encodingType]
-	if !ok {
-		return false, fmt.Errorf("unknown encoding type: %v",
-			g.cfg.encodingType)
-	}
-
 	// If we're in this state yet there are no more new channels to query
 	// for, then we'll transition to our final synced state and return true
 	// to signal that we're fully synchronized.
@@ -468,7 +464,7 @@ func (g *gossipSyncer) synchronizeChanIDs() (bool, error) {
 
 	// If the number of channels to query for is less than the chunk size,
 	// then we can issue a single query.
-	if int32(len(g.newChansToQuery)) < chunkSize {
+	if int32(len(g.newChansToQuery)) < g.cfg.chunkSize {
 		queryChunk = g.newChansToQuery
 		g.newChansToQuery = nil
 
@@ -476,8 +472,8 @@ func (g *gossipSyncer) synchronizeChanIDs() (bool, error) {
 		// Otherwise, we'll need to only query for the next chunk.
 		// We'll slice into our query chunk, then slide down our main
 		// pointer down by the chunk size.
-		queryChunk = g.newChansToQuery[:chunkSize]
-		g.newChansToQuery = g.newChansToQuery[chunkSize:]
+		queryChunk = g.newChansToQuery[:g.cfg.chunkSize]
+		g.newChansToQuery = g.newChansToQuery[g.cfg.chunkSize:]
 	}
 
 	log.Infof("gossipSyncer(%x): querying for %v new channels",
@@ -615,14 +611,6 @@ func (g *gossipSyncer) replyPeerQueries(msg lnwire.Message) error {
 // ensure that our final fragment carries the "complete" bit to indicate the
 // end of our streaming response.
 func (g *gossipSyncer) replyChanRangeQuery(query *lnwire.QueryChannelRange) error {
-	// Using the current set encoding type, we'll determine what our chunk
-	// size should be. If we can't locate the chunk size, then we'll return
-	// an error as we can't proceed.
-	chunkSize, ok := encodingTypeToChunkSize[g.cfg.encodingType]
-	if !ok {
-		return fmt.Errorf("unknown encoding type: %v", g.cfg.encodingType)
-	}
-
 	log.Infof("gossipSyncer(%x): filtering chan range: start_height=%v, "+
 		"num_blocks=%v", g.peerPub[:], query.FirstBlockHeight,
 		query.NumBlocks)
@@ -651,7 +639,7 @@ func (g *gossipSyncer) replyChanRangeQuery(query *lnwire.QueryChannelRange) erro
 		// We know this is the final chunk, if the difference between
 		// the total number of channels, and the number of channels
 		// we've sent is less-than-or-equal to the chunk size.
-		isFinalChunk := (numChannels - numChansSent) <= chunkSize
+		isFinalChunk := (numChannels - numChansSent) <= g.cfg.chunkSize
 
 		// If this is indeed the last chunk, then we'll send the
 		// remainder of the channels.
@@ -664,7 +652,7 @@ func (g *gossipSyncer) replyChanRangeQuery(query *lnwire.QueryChannelRange) erro
 		} else {
 			// Otherwise, we'll only send off a fragment exactly
 			// sized to the proper chunk size.
-			channelChunk = channelRange[numChansSent : numChansSent+chunkSize]
+			channelChunk = channelRange[numChansSent : numChansSent+g.cfg.chunkSize]
 
 			log.Infof("gossipSyncer(%x): sending range chunk of "+
 				"size=%v", g.peerPub[:], len(channelChunk))

@@ -20,9 +20,11 @@ TEST_FLAGS += -test.run=TestLightningNetworkDaemon/$(icase)
 endif
 
 # If a timeout was requested, construct initialize the proper flag for the go
-# test command.
+# test command. If not, we set 20m (up from the default 10m).
 ifneq ($(timeout),)
 TEST_FLAGS += -test.timeout=$(timeout)
+else
+TEST_FLAGS += -test.timeout=20m
 endif
 
 # UNIT_TARGTED is undefined iff a specific package and/or unit test case is

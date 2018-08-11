@@ -9,6 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
@@ -19,9 +22,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
 	"github.com/lightningnetwork/lnd/routing"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
 )
 
 var (
@@ -107,7 +107,9 @@ type Config struct {
 	// NotifyWhenOnline is a function that allows the gossiper to be
 	// notified when a certain peer comes online, allowing it to
 	// retry sending a peer message.
-	NotifyWhenOnline func(peer *btcec.PublicKey, connectedChan chan<- struct{})
+	//
+	// NOTE: The peerChan channel must be buffered.
+	NotifyWhenOnline func(peer *btcec.PublicKey, peerChan chan<- lnpeer.Peer)
 
 	// ProofMatureDelta the number of confirmations which is needed before
 	// exchange the channel announcement proofs.
@@ -794,7 +796,13 @@ func (d *AuthenticatedGossiper) resendAnnounceSignatures() error {
 			if err != nil {
 				return err
 			}
-			t := msgTuple{peer, msg, k}
+
+			// Make a copy of the database key corresponding to
+			// these AnnounceSignatures.
+			dbKey := make([]byte, len(k))
+			copy(dbKey, k)
+
+			t := msgTuple{peer, msg, dbKey}
 
 			// Add the message to the slice, such that we can
 			// resend it after the database transaction is over.
@@ -919,11 +927,13 @@ func (d *AuthenticatedGossiper) findGossipSyncer(pub *btcec.PublicKey) (*gossipS
 
 	// At this point, a syncer doesn't yet exist, so we'll create a new one
 	// for the peer and return it to the caller.
+	encoding := lnwire.EncodingSortedPlain
 	syncer = newGossiperSyncer(gossipSyncerCfg{
 		chainHash:       d.cfg.ChainHash,
 		syncChanUpdates: true,
 		channelSeries:   d.cfg.ChanSeries,
-		encodingType:    lnwire.EncodingSortedPlain,
+		encodingType:    encoding,
+		chunkSize:       encodingTypeToChunkSize[encoding],
 		sendToPeer: func(msgs ...lnwire.Message) error {
 			return syncPeer.SendMessage(false, msgs...)
 		},
@@ -1215,9 +1225,9 @@ func (d *AuthenticatedGossiper) networkHandler() {
 	}
 }
 
-// TODO(roasbeef): d/c peers that send uupdates not on our chain
+// TODO(roasbeef): d/c peers that send updates not on our chain
 
-// InitPeerSyncState is called by outside sub-systems when a connection is
+// InitSyncState is called by outside sub-systems when a connection is
 // established to a new peer that understands how to perform channel range
 // queries. We'll allocate a new gossip syncer for it, and start any goroutines
 // needed to handle new queries. The recvUpdates bool indicates if we should
@@ -1234,14 +1244,15 @@ func (d *AuthenticatedGossiper) InitSyncState(syncPeer lnpeer.Peer, recvUpdates 
 		return
 	}
 
-	log.Infof("Creating new gossipSyncer for peer=%x",
-		nodeID[:])
+	log.Infof("Creating new gossipSyncer for peer=%x", nodeID[:])
 
+	encoding := lnwire.EncodingSortedPlain
 	syncer := newGossiperSyncer(gossipSyncerCfg{
 		chainHash:       d.cfg.ChainHash,
 		syncChanUpdates: recvUpdates,
 		channelSeries:   d.cfg.ChanSeries,
-		encodingType:    lnwire.EncodingSortedPlain,
+		encodingType:    encoding,
+		chunkSize:       encodingTypeToChunkSize[encoding],
 		sendToPeer: func(msgs ...lnwire.Message) error {
 			return syncPeer.SendMessage(false, msgs...)
 		},
@@ -2399,14 +2410,16 @@ func (d *AuthenticatedGossiper) sendAnnSigReliably(
 				"to peer(%x): %v. Will retry when online.",
 				remotePeer.SerializeCompressed(), err)
 
-			connected := make(chan struct{})
-			d.cfg.NotifyWhenOnline(remotePeer, connected)
+			peerChan := make(chan lnpeer.Peer, 1)
+			d.cfg.NotifyWhenOnline(remotePeer, peerChan)
 
 			select {
-			case <-connected:
-				log.Infof("peer %x reconnected. Retry sending" +
-					" AnnounceSignatures.")
+			case <-peerChan:
 				// Retry sending.
+				log.Infof("Peer %x reconnected. Retry sending"+
+					" AnnounceSignatures.",
+					remotePeer.SerializeCompressed())
+
 			case <-d.quit:
 				log.Infof("Gossiper shutting down, did not send" +
 					" AnnounceSignatures.")

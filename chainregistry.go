@@ -12,6 +12,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcwallet/chain"
+	"github.com/btcsuite/btcwallet/wallet"
+	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainntnfs/bitcoindnotify"
@@ -24,12 +30,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/chainview"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/rpcclient"
-	"github.com/roasbeef/btcutil"
-	"github.com/roasbeef/btcwallet/chain"
-	"github.com/roasbeef/btcwallet/walletdb"
-	"github.com/roasbeef/btcwallet/wallet"
 )
 
 const (
@@ -37,14 +37,20 @@ const (
 	defaultBitcoinBaseFeeMSat   = lnwire.MilliSatoshi(1000)
 	defaultBitcoinFeeRate       = lnwire.MilliSatoshi(1)
 	defaultBitcoinTimeLockDelta = 144
-	defaultBitcoinStaticFeeRate = lnwallet.SatPerVByte(50)
 
 	defaultLitecoinMinHTLCMSat   = lnwire.MilliSatoshi(1000)
 	defaultLitecoinBaseFeeMSat   = lnwire.MilliSatoshi(1000)
 	defaultLitecoinFeeRate       = lnwire.MilliSatoshi(1)
 	defaultLitecoinTimeLockDelta = 576
-	defaultLitecoinStaticFeeRate = lnwallet.SatPerVByte(200)
 	defaultLitecoinDustLimit     = btcutil.Amount(54600)
+
+	// defaultBitcoinStaticFeePerKW is the fee rate of 50 sat/vbyte
+	// expressed in sat/kw.
+	defaultBitcoinStaticFeePerKW = lnwallet.SatPerKWeight(12500)
+
+	// defaultLitecoinStaticFeePerKW is the fee rate of 200 sat/vbyte
+	// expressed in sat/kw.
+	defaultLitecoinStaticFeePerKW = lnwallet.SatPerKWeight(50000)
 
 	// btcToLtcConversionRate is a fixed ratio used in order to scale up
 	// payments when running on the Litecoin chain.
@@ -141,7 +147,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			TimeLockDelta: cfg.Bitcoin.TimeLockDelta,
 		}
 		cc.feeEstimator = lnwallet.StaticFeeEstimator{
-			FeeRate: defaultBitcoinStaticFeeRate,
+			FeePerKW: defaultBitcoinStaticFeePerKW,
 		}
 	case litecoinChain:
 		cc.routingPolicy = htlcswitch.ForwardingPolicy{
@@ -151,7 +157,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			TimeLockDelta: cfg.Litecoin.TimeLockDelta,
 		}
 		cc.feeEstimator = lnwallet.StaticFeeEstimator{
-			FeeRate: defaultLitecoinStaticFeeRate,
+			FeePerKW: defaultLitecoinStaticFeePerKW,
 		}
 	default:
 		return nil, nil, fmt.Errorf("Default routing policy for "+
@@ -171,9 +177,8 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 	}
 
 	var (
-		err          error
-		cleanUp      func()
-		bitcoindConn *chain.BitcoindClient
+		err     error
+		cleanUp func()
 	)
 
 	// If spv mode is active, then we'll be using a distinct set of
@@ -229,7 +234,6 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 				return ips, nil
 			},
 		}
-		neutrino.WaitForMoreCFHeaders = time.Second * 1
 		neutrino.MaxPeers = 8
 		neutrino.BanDuration = 5 * time.Second
 		svc, err := neutrino.NewChainService(config)
@@ -301,47 +305,38 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			}
 		}
 
-		bitcoindUser := bitcoindMode.RPCUser
-		bitcoindPass := bitcoindMode.RPCPass
+		// Establish the connection to bitcoind and create the clients
+		// required for our relevant subsystems.
+		bitcoindConn, err := chain.NewBitcoindConn(
+			activeNetParams.Params, bitcoindHost,
+			bitcoindMode.RPCUser, bitcoindMode.RPCPass,
+			bitcoindMode.ZMQPubRawBlock, bitcoindMode.ZMQPubRawTx,
+			100*time.Millisecond,
+		)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if err := bitcoindConn.Start(); err != nil {
+			return nil, nil, fmt.Errorf("unable to connect to "+
+				"bitcoind: %v", err)
+		}
+
+		cc.chainNotifier = bitcoindnotify.New(bitcoindConn)
+		cc.chainView = chainview.NewBitcoindFilteredChainView(bitcoindConn)
+		walletConfig.ChainSource = bitcoindConn.NewBitcoindClient(birthday)
+
+		// If we're not in regtest mode, then we'll attempt to use a
+		// proper fee estimator for testnet.
 		rpcConfig := &rpcclient.ConnConfig{
 			Host:                 bitcoindHost,
-			User:                 bitcoindUser,
-			Pass:                 bitcoindPass,
+			User:                 bitcoindMode.RPCUser,
+			Pass:                 bitcoindMode.RPCPass,
 			DisableConnectOnNew:  true,
 			DisableAutoReconnect: false,
 			DisableTLS:           true,
 			HTTPPostMode:         true,
 		}
-		cc.chainNotifier, err = bitcoindnotify.New(rpcConfig,
-			bitcoindMode.ZMQPath, *activeNetParams.Params)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		// Next, we'll create an instance of the bitcoind chain view to
-		// be used within the routing layer.
-		cc.chainView, err = chainview.NewBitcoindFilteredChainView(
-			*rpcConfig, bitcoindMode.ZMQPath,
-			*activeNetParams.Params)
-		if err != nil {
-			srvrLog.Errorf("unable to create chain view: %v", err)
-			return nil, nil, err
-		}
-
-		// Create a special rpc+ZMQ client for bitcoind which will be
-		// used by the wallet for notifications, calls, etc.
-		bitcoindConn, err = chain.NewBitcoindClient(
-			activeNetParams.Params, bitcoindHost, bitcoindUser,
-			bitcoindPass, bitcoindMode.ZMQPath,
-			time.Millisecond*100)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		walletConfig.ChainSource = bitcoindConn
-
-		// If we're not in regtest mode, then we'll attempt to use a
-		// proper fee estimator for testnet.
 		if cfg.Bitcoin.Active && !cfg.Bitcoin.RegTest {
 			ltndLog.Infof("Initializing bitcoind backed fee estimator")
 
@@ -349,9 +344,9 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			// if we're using bitcoind as a backend, then we can
 			// use live fee estimates, rather than a statically
 			// coded value.
-			fallBackFeeRate := lnwallet.SatPerVByte(25)
+			fallBackFeeRate := lnwallet.SatPerKVByte(25 * 1000)
 			cc.feeEstimator, err = lnwallet.NewBitcoindFeeEstimator(
-				*rpcConfig, fallBackFeeRate,
+				*rpcConfig, fallBackFeeRate.FeePerKWeight(),
 			)
 			if err != nil {
 				return nil, nil, err
@@ -366,9 +361,9 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			// if we're using litecoind as a backend, then we can
 			// use live fee estimates, rather than a statically
 			// coded value.
-			fallBackFeeRate := lnwallet.SatPerVByte(25)
+			fallBackFeeRate := lnwallet.SatPerKVByte(25 * 1000)
 			cc.feeEstimator, err = lnwallet.NewBitcoindFeeEstimator(
-				*rpcConfig, fallBackFeeRate,
+				*rpcConfig, fallBackFeeRate.FeePerKWeight(),
 			)
 			if err != nil {
 				return nil, nil, err
@@ -469,9 +464,9 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			// if we're using btcd as a backend, then we can use
 			// live fee estimates, rather than a statically coded
 			// value.
-			fallBackFeeRate := lnwallet.SatPerVByte(25)
+			fallBackFeeRate := lnwallet.SatPerKVByte(25 * 1000)
 			cc.feeEstimator, err = lnwallet.NewBtcdFeeEstimator(
-				*rpcConfig, fallBackFeeRate,
+				*rpcConfig, fallBackFeeRate.FeePerKWeight(),
 			)
 			if err != nil {
 				return nil, nil, err
@@ -684,7 +679,7 @@ func (c *chainRegistry) PrimaryChain() chainCode {
 	return c.primaryChain
 }
 
-// ActiveChains returns the total number of active chains.
+// ActiveChains returns a slice containing the active chains.
 func (c *chainRegistry) ActiveChains() []chainCode {
 	c.RLock()
 	defer c.RUnlock()

@@ -6,18 +6,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
 )
 
 type mockNotifier struct {
 	spendChan chan *chainntnfs.SpendDetail
 }
 
-func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash, numConfs,
+func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash, _ []byte, numConfs,
 	heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
 	return nil, nil
 }
@@ -35,8 +35,8 @@ func (m *mockNotifier) Start() error {
 func (m *mockNotifier) Stop() error {
 	return nil
 }
-func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	heightHint uint32, _ bool) (*chainntnfs.SpendEvent, error) {
+func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ []byte,
+	heightHint uint32) (*chainntnfs.SpendEvent, error) {
 	return &chainntnfs.SpendEvent{
 		Spend:  m.spendChan,
 		Cancel: func() {},

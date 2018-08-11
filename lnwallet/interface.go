@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 )
 
 // AddressType is an enum-like type which denotes the possible address types
@@ -154,13 +154,13 @@ type WalletController interface {
 	// error should be returned.
 	GetPrivKey(a btcutil.Address) (*btcec.PrivateKey, error)
 
-	// SendOutputs funds, signs, and broadcasts a Bitcoin transaction
-	// paying out to the specified outputs. In the case the wallet has
-	// insufficient funds, or the outputs are non-standard, an error should
-	// be returned. This method also takes the target fee expressed in
-	// sat/vbyte that should be used when crafting the transaction.
+	// SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying
+	// out to the specified outputs. In the case the wallet has insufficient
+	// funds, or the outputs are non-standard, an error should be returned.
+	// This method also takes the target fee expressed in sat/kw that should
+	// be used when crafting the transaction.
 	SendOutputs(outputs []*wire.TxOut,
-		feeRate SatPerVByte) (*chainhash.Hash, error)
+		feeRate SatPerKWeight) (*chainhash.Hash, error)
 
 	// ListUnspentWitness returns all unspent outputs which are version 0
 	// witness programs. The 'confirms' parameter indicates the minimum
@@ -237,10 +237,12 @@ type BlockChainIO interface {
 
 	// GetUtxo attempts to return the passed outpoint if it's still a
 	// member of the utxo set. The passed height hint should be the "birth
-	// height" of the passed outpoint. In the case that the output is in
+	// height" of the passed outpoint. The script passed should be the
+	// script that the outpoint creates. In the case that the output is in
 	// the UTXO set, then the output corresponding to that output is
 	// returned.  Otherwise, a non-nil error will be returned.
-	GetUtxo(op *wire.OutPoint, heightHint uint32) (*wire.TxOut, error)
+	GetUtxo(op *wire.OutPoint, pkScript []byte,
+		heightHint uint32) (*wire.TxOut, error)
 
 	// GetBlockHash returns the hash of the block in the best blockchain
 	// at the given height.

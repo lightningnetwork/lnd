@@ -18,16 +18,17 @@ import (
 	"io/ioutil"
 	"os"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnpeer"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
 )
 
 var (
@@ -257,13 +258,13 @@ func newMockNotifier() *mockNotifier {
 }
 
 func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
-	numConfs, _ uint32) (*chainntnfs.ConfirmationEvent, error) {
+	_ []byte, numConfs, _ uint32) (*chainntnfs.ConfirmationEvent, error) {
 
 	return nil, nil
 }
 
-func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ uint32,
-	_ bool) (*chainntnfs.SpendEvent, error) {
+func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ []byte,
+	_ uint32) (*chainntnfs.SpendEvent, error) {
 	return nil, nil
 }
 
@@ -1186,9 +1187,9 @@ func TestSignatureAnnouncementRetry(t *testing.T) {
 	// We expect the gossiper to register for a notification when the peer
 	// comes back online, so keep track of the channel it wants to get
 	// notified on.
-	notifyPeers := make(chan chan<- struct{}, 1)
+	notifyPeers := make(chan chan<- lnpeer.Peer, 1)
 	ctx.gossiper.cfg.NotifyWhenOnline = func(peer *btcec.PublicKey,
-		connectedChan chan<- struct{}) {
+		connectedChan chan<- lnpeer.Peer) {
 		notifyPeers <- connectedChan
 	}
 
@@ -1207,7 +1208,7 @@ func TestSignatureAnnouncementRetry(t *testing.T) {
 	// Since sending this local announcement proof to the remote will fail,
 	// the gossiper should register for a notification when the remote is
 	// online again.
-	var conChan chan<- struct{}
+	var conChan chan<- lnpeer.Peer
 	select {
 	case conChan = <-notifyPeers:
 	case <-time.After(2 * time.Second):
@@ -1371,9 +1372,9 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 		msg ...lnwire.Message) error {
 		return fmt.Errorf("intentional error in SendToPeer")
 	}
-	notifyPeers := make(chan chan<- struct{}, 1)
+	notifyPeers := make(chan chan<- lnpeer.Peer, 1)
 	ctx.gossiper.cfg.NotifyWhenOnline = func(peer *btcec.PublicKey,
-		connectedChan chan<- struct{}) {
+		connectedChan chan<- lnpeer.Peer) {
 		notifyPeers <- connectedChan
 	}
 
@@ -1391,7 +1392,7 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 
 	// Since sending to the remote peer will fail, the gossiper should
 	// register for a notification when it comes back online.
-	var conChan chan<- struct{}
+	var conChan chan<- lnpeer.Peer
 	select {
 	case conChan = <-notifyPeers:
 	case <-time.After(2 * time.Second):
@@ -1430,7 +1431,7 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 			return fmt.Errorf("intentional error in SendToPeer")
 		},
 		NotifyWhenOnline: func(peer *btcec.PublicKey,
-			connectedChan chan<- struct{}) {
+			connectedChan chan<- lnpeer.Peer) {
 			notifyPeers <- connectedChan
 		},
 		Router:           ctx.gossiper.cfg.Router,
@@ -1606,9 +1607,9 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 		return nil
 	}
 
-	notifyPeers := make(chan chan<- struct{}, 1)
+	notifyPeers := make(chan chan<- lnpeer.Peer, 1)
 	ctx.gossiper.cfg.NotifyWhenOnline = func(peer *btcec.PublicKey,
-		connectedChan chan<- struct{}) {
+		connectedChan chan<- lnpeer.Peer) {
 		notifyPeers <- connectedChan
 	}
 
@@ -2145,6 +2146,8 @@ type mockPeer struct {
 	quit     chan struct{}
 }
 
+var _ lnpeer.Peer = (*mockPeer)(nil)
+
 func (p *mockPeer) SendMessage(_ bool, msgs ...lnwire.Message) error {
 	if p.sentMsgs == nil && p.quit == nil {
 		return nil
@@ -2159,6 +2162,9 @@ func (p *mockPeer) SendMessage(_ bool, msgs ...lnwire.Message) error {
 
 	return nil
 }
+func (p *mockPeer) AddNewChannel(_ *lnwallet.LightningChannel, _ <-chan struct{}) error {
+	return nil
+}
 func (p *mockPeer) WipeChannel(_ *wire.OutPoint) error { return nil }
 func (p *mockPeer) IdentityKey() *btcec.PublicKey      { return p.pk }
 func (p *mockPeer) PubKey() [33]byte {
@@ -2166,3 +2172,4 @@ func (p *mockPeer) PubKey() [33]byte {
 	copy(pubkey[:], p.pk.SerializeCompressed())
 	return pubkey
 }
+func (p *mockPeer) Address() net.Addr { return nil }

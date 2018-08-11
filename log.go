@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/btcsuite/btcd/connmgr"
 	"github.com/btcsuite/btclog"
 	"github.com/jrick/logrotate/rotator"
 	"github.com/lightninglabs/neutrino"
@@ -21,7 +22,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/signal"
-	"github.com/roasbeef/btcd/connmgr"
 )
 
 // logWriter implements an io.Writer that outputs to both standard output and

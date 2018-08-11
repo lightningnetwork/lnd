@@ -11,14 +11,14 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/grpclog"
 
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/integration/rpctest"
+	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/integration/rpctest"
-	"github.com/roasbeef/btcd/rpcclient"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 // NetworkHarness is an integration testing harness for the lightning network.
@@ -172,7 +172,8 @@ func (n *NetworkHarness) SetUp(lndArgs []string) error {
 				PkScript: addrScript,
 				Value:    btcutil.SatoshiPerBitcoin,
 			}
-			if _, err := n.Miner.SendOutputs([]*wire.TxOut{output}, 30); err != nil {
+			_, err = n.Miner.SendOutputs([]*wire.TxOut{output}, 7500)
+			if err != nil {
 				return err
 			}
 		}
@@ -1159,7 +1160,8 @@ func (n *NetworkHarness) sendCoins(ctx context.Context, amt btcutil.Amount,
 		PkScript: addrScript,
 		Value:    int64(amt),
 	}
-	if _, err := n.Miner.SendOutputs([]*wire.TxOut{output}, 30); err != nil {
+	_, err = n.Miner.SendOutputs([]*wire.TxOut{output}, 7500)
+	if err != nil {
 		return err
 	}
 

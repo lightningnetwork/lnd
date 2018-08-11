@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/wire"
 )
 
 // NetAddress represents information pertaining to the identity and network

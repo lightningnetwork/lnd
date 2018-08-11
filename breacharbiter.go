@@ -8,17 +8,17 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/roasbeef/btcd/blockchain"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 var (
@@ -196,8 +196,10 @@ func (b *breachArbiter) Start() error {
 		// Register for a notification when the breach transaction is
 		// confirmed on chain.
 		breachTXID := retInfo.commitHash
+		breachScript := retInfo.breachedOutputs[0].signDesc.Output.PkScript
 		confChan, err := b.cfg.Notifier.RegisterConfirmationsNtfn(
-			&breachTXID, 1, retInfo.breachHeight)
+			&breachTXID, breachScript, 1, retInfo.breachHeight,
+		)
 		if err != nil {
 			brarLog.Errorf("unable to register for conf updates "+
 				"for txid: %v, err: %v", breachTXID, err)
@@ -296,6 +298,7 @@ func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 	newAmt := spendingTx.TxOut[0].Value
 	bo.amt = btcutil.Amount(newAmt)
 	bo.signDesc.Output.Value = newAmt
+	bo.signDesc.Output.PkScript = spendingTx.TxOut[0].PkScript
 
 	// Finally, we'll need to adjust the witness program in the
 	// SignDescriptor.
@@ -357,7 +360,8 @@ func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 			var err error
 			spendNtfn, err = b.cfg.Notifier.RegisterSpendNtfn(
 				&breachedOutput.outpoint,
-				breachInfo.breachHeight, true,
+				breachedOutput.signDesc.Output.PkScript,
+				breachInfo.breachHeight,
 			)
 			if err != nil {
 				brarLog.Errorf("unable to check for spentness "+
@@ -556,8 +560,10 @@ justiceTxBroadcast:
 	// notify the caller that initiated the retribution workflow that the
 	// deed has been done.
 	justiceTXID := finalTx.TxHash()
+	justiceScript := finalTx.TxOut[0].PkScript
 	confChan, err = b.cfg.Notifier.RegisterConfirmationsNtfn(
-		&justiceTXID, 1, breachConfHeight)
+		&justiceTXID, justiceScript, 1, breachConfHeight,
+	)
 	if err != nil {
 		brarLog.Errorf("unable to register for conf for txid(%v): %v",
 			justiceTXID, err)
@@ -720,8 +726,10 @@ func (b *breachArbiter) handleBreachHandoff(breachEvent *ContractBreachEvent) {
 	// confirmed in the chain to ensure we're not dealing with a moving
 	// target.
 	breachTXID := &retInfo.commitHash
-	cfChan, err := b.cfg.Notifier.RegisterConfirmationsNtfn(breachTXID, 1,
-		retInfo.breachHeight)
+	breachScript := retInfo.breachedOutputs[0].signDesc.Output.PkScript
+	cfChan, err := b.cfg.Notifier.RegisterConfirmationsNtfn(
+		breachTXID, breachScript, 1, retInfo.breachHeight,
+	)
 	if err != nil {
 		brarLog.Errorf("unable to register for conf updates for "+
 			"txid: %v, err: %v", breachTXID, err)
@@ -993,7 +1001,7 @@ func (b *breachArbiter) createJusticeTx(
 			witnessWeight = lnwallet.AcceptedHtlcPenaltyWitnessSize
 
 		case lnwallet.HtlcSecondLevelRevoke:
-			witnessWeight = lnwallet.SecondLevelHtlcPenaltyWitnessSize
+			witnessWeight = lnwallet.ToLocalPenaltyWitnessSize
 
 		default:
 			brarLog.Warnf("breached output in retribution info "+
@@ -1007,13 +1015,13 @@ func (b *breachArbiter) createJusticeTx(
 		spendableOutputs = append(spendableOutputs, input)
 	}
 
-	txVSize := int64(weightEstimate.VSize())
-	return b.sweepSpendableOutputsTxn(txVSize, spendableOutputs...)
+	txWeight := int64(weightEstimate.Weight())
+	return b.sweepSpendableOutputsTxn(txWeight, spendableOutputs...)
 }
 
 // sweepSpendableOutputsTxn creates a signed transaction from a sequence of
 // spendable outputs by sweeping the funds into a single p2wkh output.
-func (b *breachArbiter) sweepSpendableOutputsTxn(txVSize int64,
+func (b *breachArbiter) sweepSpendableOutputsTxn(txWeight int64,
 	inputs ...SpendableOutput) (*wire.MsgTx, error) {
 
 	// First, we obtain a new public key script from the wallet which we'll
@@ -1033,11 +1041,11 @@ func (b *breachArbiter) sweepSpendableOutputsTxn(txVSize int64,
 
 	// We'll actually attempt to target inclusion within the next two
 	// blocks as we'd like to sweep these funds back into our wallet ASAP.
-	feePerVSize, err := b.cfg.Estimator.EstimateFeePerVSize(2)
+	feePerKw, err := b.cfg.Estimator.EstimateFeePerKW(2)
 	if err != nil {
 		return nil, err
 	}
-	txFee := feePerVSize.FeeForVSize(txVSize)
+	txFee := feePerKw.FeeForWeight(txWeight)
 
 	// TODO(roasbeef): already start to siphon their funds into fees
 	sweepAmt := int64(totalAmt - txFee)

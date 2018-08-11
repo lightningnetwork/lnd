@@ -6,13 +6,13 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec"
+	bitcoinCfg "github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	bitcoinCfg "github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcutil"
 )
 
 var (
@@ -227,7 +227,10 @@ func TestCircuitMapPersistence(t *testing.T) {
 
 	cfg, circuitMap := newCircuitMap(t)
 
-	circuit := circuitMap.LookupCircuit(htlcswitch.CircuitKey{chan1, 0})
+	circuit := circuitMap.LookupCircuit(htlcswitch.CircuitKey{
+		ChanID: chan1,
+		HtlcID: 0,
+	})
 	if circuit != nil {
 		t.Fatalf("LookupByHTLC returned a circuit before any were added: %v",
 			circuit)

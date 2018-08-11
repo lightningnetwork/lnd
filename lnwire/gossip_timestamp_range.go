@@ -3,7 +3,7 @@ package lnwire
 import (
 	"io"
 
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
 // GossipTimestampRange is a message that allows the sender to restrict the set
@@ -72,7 +72,7 @@ func (g *GossipTimestampRange) MsgType() MessageType {
 // version.
 //
 // This is part of the lnwire.Message interface.
-func (c *GossipTimestampRange) MaxPayloadLength(uint32) uint32 {
+func (g *GossipTimestampRange) MaxPayloadLength(uint32) uint32 {
 	// 32 + 4 + 4
 	//
 	// TODO(roasbeef): update to 8 byte timestmaps?

@@ -663,7 +663,7 @@ func (f *FailFeeInsufficient) Code() FailCode {
 //
 // NOTE: Implements the error interface.
 func (f FailFeeInsufficient) Error() string {
-	return fmt.Sprintf("FeeInsufficient(fee=%v, update=%v", f.HtlcMsat,
+	return fmt.Sprintf("FeeInsufficient(htlc_amt==%v, update=%v", f.HtlcMsat,
 		spew.Sdump(f.Update))
 }
 

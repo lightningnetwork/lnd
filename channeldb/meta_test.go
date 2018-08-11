@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"bytes"
+	"io/ioutil"
 	"testing"
 
 	"github.com/coreos/bbolt"
@@ -379,4 +380,44 @@ func TestMigrationWithoutErrors(t *testing.T) {
 		afterMigrationFunc,
 		migrationWithoutErrors,
 		false)
+}
+
+// TestMigrationReversion tests after performing a migration to a higher
+// database version, opening the database with a lower latest db version returns
+// ErrDBReversion.
+func TestMigrationReversion(t *testing.T) {
+	t.Parallel()
+
+	tempDirName, err := ioutil.TempDir("", "channeldb")
+	if err != nil {
+		t.Fatalf("unable to create temp dir: %v", err)
+	}
+
+	cdb, err := Open(tempDirName)
+	if err != nil {
+		t.Fatalf("unable to open channeldb: %v", err)
+	}
+
+	// Update the database metadata to point to one more than the highest
+	// known version.
+	err = cdb.Update(func(tx *bolt.Tx) error {
+		newMeta := &Meta{
+			DbVersionNumber: getLatestDBVersion(dbVersions) + 1,
+		}
+
+		return putMeta(newMeta, tx)
+	})
+
+	// Close the database. Even if we succeeded, our next step is to reopen.
+	cdb.Close()
+
+	if err != nil {
+		t.Fatalf("unable to increase db version: %v", err)
+	}
+
+	_, err = Open(tempDirName)
+	if err != ErrDBReversion {
+		t.Fatalf("unexpected error when opening channeldb, "+
+			"want: %v, got: %v", ErrDBReversion, err)
+	}
 }

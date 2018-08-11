@@ -8,14 +8,14 @@ import (
 	"net"
 	"sync"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 var (
@@ -50,6 +50,10 @@ var (
 	// revocationStateKey stores their current revocation hash, our
 	// preimage producer and their preimage store.
 	revocationStateKey = []byte("revocation-state-key")
+
+	// dataLossCommitPointKey stores the commitment point received from the
+	// remote peer during a channel sync in case we have lost channel state.
+	dataLossCommitPointKey = []byte("data-loss-commit-point-key")
 
 	// commitDiffKey stores the current pending commitment state we've
 	// extended to the remote party (if any). Each time we propose a new
@@ -97,6 +101,10 @@ var (
 	// decoded because the byte slice is of an invalid length.
 	ErrInvalidCircuitKeyLen = fmt.Errorf(
 		"length of serialized circuit key must be 16 bytes")
+
+	// ErrNoCommitPoint is returned when no data loss commit point is found
+	// in the database.
+	ErrNoCommitPoint = fmt.Errorf("no commit point found")
 )
 
 // ChannelType is an enum-like type that describes one of several possible
@@ -285,13 +293,13 @@ type ChannelCommitment struct {
 	//  * lets just walk through
 }
 
-// ChannelStatus is used to indicate whether an OpenChannel is in the default
-// usable state, or a state where it shouldn't be used.
+// ChannelStatus is a bit vector used to indicate whether an OpenChannel is in
+// the default usable state, or a state where it shouldn't be used.
 type ChannelStatus uint8
 
 var (
 	// Default is the normal state of an open channel.
-	Default ChannelStatus = 0
+	Default ChannelStatus
 
 	// Borked indicates that the channel has entered an irreconcilable
 	// state, triggered by a state desynchronization or channel breach.
@@ -300,7 +308,14 @@ var (
 
 	// CommitmentBroadcasted indicates that a commitment for this channel
 	// has been broadcasted.
-	CommitmentBroadcasted ChannelStatus = 2
+	CommitmentBroadcasted ChannelStatus = 1 << 1
+
+	// LocalDataLoss indicates that we have lost channel state for this
+	// channel, and broadcasting our latest commitment might be considered
+	// a breach.
+	// TODO(halseh): actually enforce that we are not force closing such a
+	// channel.
+	LocalDataLoss ChannelStatus = 1 << 2
 )
 
 // String returns a human-readable representation of the ChannelStatus.
@@ -312,8 +327,10 @@ func (c ChannelStatus) String() string {
 		return "Borked"
 	case CommitmentBroadcasted:
 		return "CommitmentBroadcasted"
+	case LocalDataLoss:
+		return "LocalDataLoss"
 	default:
-		return "Unknown"
+		return fmt.Sprintf("Unknown(%08b)", c)
 	}
 }
 
@@ -354,9 +371,9 @@ type OpenChannel struct {
 	// negotiate fees, or close the channel.
 	IsInitiator bool
 
-	// ChanStatus is the current status of this channel. If it is not in
+	// chanStatus is the current status of this channel. If it is not in
 	// the state Default, it should not be used for forwarding payments.
-	ChanStatus ChannelStatus
+	chanStatus ChannelStatus
 
 	// FundingBroadcastHeight is the height in which the funding
 	// transaction was broadcast. This value can be used by higher level
@@ -466,6 +483,14 @@ func (c *OpenChannel) ShortChanID() lnwire.ShortChannelID {
 	defer c.RUnlock()
 
 	return c.ShortChannelID
+}
+
+// ChanStatus returns the current ChannelStatus of this channel.
+func (c *OpenChannel) ChanStatus() ChannelStatus {
+	c.RLock()
+	defer c.RUnlock()
+
+	return c.chanStatus
 }
 
 // RefreshShortChanID updates the in-memory short channel ID using the latest
@@ -671,6 +696,85 @@ func (c *OpenChannel) MarkAsOpen(openLoc lnwire.ShortChannelID) error {
 	return nil
 }
 
+// MarkDataLoss marks sets the channel status to LocalDataLoss and stores the
+// passed commitPoint for use to retrieve funds in case the remote force closes
+// the channel.
+func (c *OpenChannel) MarkDataLoss(commitPoint *btcec.PublicKey) error {
+	c.Lock()
+	defer c.Unlock()
+
+	var status ChannelStatus
+	if err := c.Db.Update(func(tx *bolt.Tx) error {
+		chanBucket, err := updateChanBucket(
+			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		channel, err := fetchOpenChannel(chanBucket, &c.FundingOutpoint)
+		if err != nil {
+			return err
+		}
+
+		// Add status LocalDataLoss to the existing bitvector found in
+		// the DB.
+		status = channel.chanStatus | LocalDataLoss
+		channel.chanStatus = status
+
+		var b bytes.Buffer
+		if err := WriteElement(&b, commitPoint); err != nil {
+			return err
+		}
+
+		err = chanBucket.Put(dataLossCommitPointKey, b.Bytes())
+		if err != nil {
+			return err
+		}
+
+		return putOpenChannel(chanBucket, channel)
+	}); err != nil {
+		return err
+	}
+
+	// Update the in-memory representation to keep it in sync with the DB.
+	c.chanStatus = status
+
+	return nil
+}
+
+// DataLossCommitPoint retrieves the stored commit point set during
+// MarkDataLoss. If not found ErrNoCommitPoint is returned.
+func (c *OpenChannel) DataLossCommitPoint() (*btcec.PublicKey, error) {
+	var commitPoint *btcec.PublicKey
+
+	err := c.Db.View(func(tx *bolt.Tx) error {
+		chanBucket, err := readChanBucket(tx, c.IdentityPub,
+			&c.FundingOutpoint, c.ChainHash)
+		if err == ErrNoActiveChannels || err == ErrNoChanDBExists {
+			return ErrNoCommitPoint
+		} else if err != nil {
+			return err
+		}
+
+		bs := chanBucket.Get(dataLossCommitPointKey)
+		if bs == nil {
+			return ErrNoCommitPoint
+		}
+		r := bytes.NewReader(bs)
+		if err := ReadElements(r, &commitPoint); err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return commitPoint, nil
+}
+
 // MarkBorked marks the event when the channel as reached an irreconcilable
 // state, such as a channel breach or state desynchronization. Borked channels
 // should never be added to the switch.
@@ -705,7 +809,9 @@ func (c *OpenChannel) putChanStatus(status ChannelStatus) error {
 			return err
 		}
 
-		channel.ChanStatus = status
+		// Add this status to the existing bitvector found in the DB.
+		status = channel.chanStatus | status
+		channel.chanStatus = status
 
 		return putOpenChannel(chanBucket, channel)
 	}); err != nil {
@@ -713,7 +819,7 @@ func (c *OpenChannel) putChanStatus(status ChannelStatus) error {
 	}
 
 	// Update the in-memory representation to keep it in sync with the DB.
-	c.ChanStatus = status
+	c.chanStatus = status
 
 	return nil
 }
@@ -916,12 +1022,12 @@ type HTLC struct {
 // future.
 func SerializeHtlcs(b io.Writer, htlcs ...HTLC) error {
 	numHtlcs := uint16(len(htlcs))
-	if err := writeElement(b, numHtlcs); err != nil {
+	if err := WriteElement(b, numHtlcs); err != nil {
 		return err
 	}
 
 	for _, htlc := range htlcs {
-		if err := writeElements(b,
+		if err := WriteElements(b,
 			htlc.Signature, htlc.RHash, htlc.Amt, htlc.RefundTimeout,
 			htlc.OutputIndex, htlc.Incoming, htlc.OnionBlob[:],
 			htlc.HtlcIndex, htlc.LogIndex,
@@ -941,7 +1047,7 @@ func SerializeHtlcs(b io.Writer, htlcs ...HTLC) error {
 // future.
 func DeserializeHtlcs(r io.Reader) ([]HTLC, error) {
 	var numHtlcs uint16
-	if err := readElement(r, &numHtlcs); err != nil {
+	if err := ReadElement(r, &numHtlcs); err != nil {
 		return nil, err
 	}
 
@@ -952,7 +1058,7 @@ func DeserializeHtlcs(r io.Reader) ([]HTLC, error) {
 
 	htlcs = make([]HTLC, numHtlcs)
 	for i := uint16(0); i < numHtlcs; i++ {
-		if err := readElements(r,
+		if err := ReadElements(r,
 			&htlcs[i].Signature, &htlcs[i].RHash, &htlcs[i].Amt,
 			&htlcs[i].RefundTimeout, &htlcs[i].OutputIndex,
 			&htlcs[i].Incoming, &htlcs[i].OnionBlob,
@@ -996,12 +1102,12 @@ type LogUpdate struct {
 
 // Encode writes a log update to the provided io.Writer.
 func (l *LogUpdate) Encode(w io.Writer) error {
-	return writeElements(w, l.LogIndex, l.UpdateMsg)
+	return WriteElements(w, l.LogIndex, l.UpdateMsg)
 }
 
 // Decode reads a log update from the provided io.Reader.
 func (l *LogUpdate) Decode(r io.Reader) error {
-	return readElements(r, &l.LogIndex, &l.UpdateMsg)
+	return ReadElements(r, &l.LogIndex, &l.UpdateMsg)
 }
 
 // CircuitKey is used by a channel to uniquely identify the HTLCs it receives
@@ -1142,7 +1248,7 @@ func serializeCommitDiff(w io.Writer, diff *CommitDiff) error {
 	}
 
 	for _, diff := range diff.LogUpdates {
-		err := writeElements(w, diff.LogIndex, diff.UpdateMsg)
+		err := WriteElements(w, diff.LogIndex, diff.UpdateMsg)
 		if err != nil {
 			return err
 		}
@@ -1154,7 +1260,7 @@ func serializeCommitDiff(w io.Writer, diff *CommitDiff) error {
 	}
 
 	for _, openRef := range diff.OpenedCircuitKeys {
-		err := writeElements(w, openRef.ChanID, openRef.HtlcID)
+		err := WriteElements(w, openRef.ChanID, openRef.HtlcID)
 		if err != nil {
 			return err
 		}
@@ -1166,7 +1272,7 @@ func serializeCommitDiff(w io.Writer, diff *CommitDiff) error {
 	}
 
 	for _, closedRef := range diff.ClosedCircuitKeys {
-		err := writeElements(w, closedRef.ChanID, closedRef.HtlcID)
+		err := WriteElements(w, closedRef.ChanID, closedRef.HtlcID)
 		if err != nil {
 			return err
 		}
@@ -1198,7 +1304,7 @@ func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 
 	d.LogUpdates = make([]LogUpdate, numUpdates)
 	for i := 0; i < int(numUpdates); i++ {
-		err := readElements(r,
+		err := ReadElements(r,
 			&d.LogUpdates[i].LogIndex, &d.LogUpdates[i].UpdateMsg,
 		)
 		if err != nil {
@@ -1213,7 +1319,7 @@ func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 
 	d.OpenedCircuitKeys = make([]CircuitKey, numOpenRefs)
 	for i := 0; i < int(numOpenRefs); i++ {
-		err := readElements(r,
+		err := ReadElements(r,
 			&d.OpenedCircuitKeys[i].ChanID,
 			&d.OpenedCircuitKeys[i].HtlcID)
 		if err != nil {
@@ -1228,7 +1334,7 @@ func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 
 	d.ClosedCircuitKeys = make([]CircuitKey, numClosedRefs)
 	for i := 0; i < int(numClosedRefs); i++ {
-		err := readElements(r,
+		err := ReadElements(r,
 			&d.ClosedCircuitKeys[i].ChanID,
 			&d.ClosedCircuitKeys[i].HtlcID)
 		if err != nil {
@@ -1957,7 +2063,7 @@ func putChannelCloseSummary(tx *bolt.Tx, chanID []byte,
 }
 
 func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
-	err := writeElements(w,
+	err := WriteElements(w,
 		cs.ChanPoint, cs.ShortChanID, cs.ChainHash, cs.ClosingTXID,
 		cs.CloseHeight, cs.RemotePub, cs.Capacity, cs.SettledBalance,
 		cs.TimeLockedBalance, cs.CloseType, cs.IsPending,
@@ -1972,7 +2078,7 @@ func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
 		return nil
 	}
 
-	if err := writeElements(w, cs.RemoteCurrentRevocation); err != nil {
+	if err := WriteElements(w, cs.RemoteCurrentRevocation); err != nil {
 		return err
 	}
 
@@ -1987,7 +2093,7 @@ func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
 		return nil
 	}
 
-	return writeElements(w, cs.RemoteNextRevocation)
+	return WriteElements(w, cs.RemoteNextRevocation)
 }
 
 func fetchChannelCloseSummary(tx *bolt.Tx,
@@ -2010,7 +2116,7 @@ func fetchChannelCloseSummary(tx *bolt.Tx,
 func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 	c := &ChannelCloseSummary{}
 
-	err := readElements(r,
+	err := ReadElements(r,
 		&c.ChanPoint, &c.ShortChanID, &c.ChainHash, &c.ClosingTXID,
 		&c.CloseHeight, &c.RemotePub, &c.Capacity, &c.SettledBalance,
 		&c.TimeLockedBalance, &c.CloseType, &c.IsPending,
@@ -2021,7 +2127,7 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 
 	// We'll now check to see if the channel close summary was encoded with
 	// any of the additional optional fields.
-	err = readElements(r, &c.RemoteCurrentRevocation)
+	err = ReadElements(r, &c.RemoteCurrentRevocation)
 	switch {
 	case err == io.EOF:
 		return c, nil
@@ -2042,7 +2148,7 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 	// funding locked message, then this can be nil. As a result, we'll use
 	// the same technique to read the field, only if there's still data
 	// left in the buffer.
-	err = readElements(r, &c.RemoteNextRevocation)
+	err = ReadElements(r, &c.RemoteNextRevocation)
 	if err != nil && err != io.EOF {
 		// If we got a non-eof error, then we know there's an actually
 		// issue. Otherwise, it may have been the case that this
@@ -2054,7 +2160,7 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 }
 
 func writeChanConfig(b io.Writer, c *ChannelConfig) error {
-	return writeElements(b,
+	return WriteElements(b,
 		c.DustLimit, c.MaxPendingAmount, c.ChanReserve, c.MinHTLC,
 		c.MaxAcceptedHtlcs, c.CsvDelay, c.MultiSigKey,
 		c.RevocationBasePoint, c.PaymentBasePoint, c.DelayBasePoint,
@@ -2064,10 +2170,10 @@ func writeChanConfig(b io.Writer, c *ChannelConfig) error {
 
 func putChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 	var w bytes.Buffer
-	if err := writeElements(&w,
+	if err := WriteElements(&w,
 		channel.ChanType, channel.ChainHash, channel.FundingOutpoint,
 		channel.ShortChannelID, channel.IsPending, channel.IsInitiator,
-		channel.ChanStatus, channel.FundingBroadcastHeight,
+		channel.chanStatus, channel.FundingBroadcastHeight,
 		channel.NumConfsRequired, channel.ChannelFlags,
 		channel.IdentityPub, channel.Capacity, channel.TotalMSatSent,
 		channel.TotalMSatReceived,
@@ -2077,7 +2183,7 @@ func putChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 
 	// For single funder channels that we initiated, write the funding txn.
 	if channel.ChanType == SingleFunder && channel.IsInitiator {
-		if err := writeElement(&w, channel.FundingTxn); err != nil {
+		if err := WriteElement(&w, channel.FundingTxn); err != nil {
 			return err
 		}
 	}
@@ -2093,7 +2199,7 @@ func putChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 }
 
 func serializeChanCommit(w io.Writer, c *ChannelCommitment) error {
-	if err := writeElements(w,
+	if err := WriteElements(w,
 		c.CommitHeight, c.LocalLogIndex, c.LocalHtlcIndex,
 		c.RemoteLogIndex, c.RemoteHtlcIndex, c.LocalBalance,
 		c.RemoteBalance, c.CommitFee, c.FeePerKw, c.CommitTx,
@@ -2135,7 +2241,7 @@ func putChanCommitments(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 func putChanRevocationState(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 
 	var b bytes.Buffer
-	err := writeElements(
+	err := WriteElements(
 		&b, channel.RemoteCurrentRevocation, channel.RevocationProducer,
 		channel.RevocationStore,
 	)
@@ -2148,7 +2254,7 @@ func putChanRevocationState(chanBucket *bolt.Bucket, channel *OpenChannel) error
 	// If the next revocation is present, which is only the case after the
 	// FundingLocked message has been sent, then we'll write it to disk.
 	if channel.RemoteNextRevocation != nil {
-		err = writeElements(&b, channel.RemoteNextRevocation)
+		err = WriteElements(&b, channel.RemoteNextRevocation)
 		if err != nil {
 			return err
 		}
@@ -2158,7 +2264,7 @@ func putChanRevocationState(chanBucket *bolt.Bucket, channel *OpenChannel) error
 }
 
 func readChanConfig(b io.Reader, c *ChannelConfig) error {
-	return readElements(b,
+	return ReadElements(b,
 		&c.DustLimit, &c.MaxPendingAmount, &c.ChanReserve,
 		&c.MinHTLC, &c.MaxAcceptedHtlcs, &c.CsvDelay,
 		&c.MultiSigKey, &c.RevocationBasePoint,
@@ -2174,10 +2280,10 @@ func fetchChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 	}
 	r := bytes.NewReader(infoBytes)
 
-	if err := readElements(r,
+	if err := ReadElements(r,
 		&channel.ChanType, &channel.ChainHash, &channel.FundingOutpoint,
 		&channel.ShortChannelID, &channel.IsPending, &channel.IsInitiator,
-		&channel.ChanStatus, &channel.FundingBroadcastHeight,
+		&channel.chanStatus, &channel.FundingBroadcastHeight,
 		&channel.NumConfsRequired, &channel.ChannelFlags,
 		&channel.IdentityPub, &channel.Capacity, &channel.TotalMSatSent,
 		&channel.TotalMSatReceived,
@@ -2187,7 +2293,7 @@ func fetchChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 
 	// For single funder channels that we initiated, read the funding txn.
 	if channel.ChanType == SingleFunder && channel.IsInitiator {
-		if err := readElement(r, &channel.FundingTxn); err != nil {
+		if err := ReadElement(r, &channel.FundingTxn); err != nil {
 			return err
 		}
 	}
@@ -2207,7 +2313,7 @@ func fetchChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 func deserializeChanCommit(r io.Reader) (ChannelCommitment, error) {
 	var c ChannelCommitment
 
-	err := readElements(r,
+	err := ReadElements(r,
 		&c.CommitHeight, &c.LocalLogIndex, &c.LocalHtlcIndex, &c.RemoteLogIndex,
 		&c.RemoteHtlcIndex, &c.LocalBalance, &c.RemoteBalance,
 		&c.CommitFee, &c.FeePerKw, &c.CommitTx, &c.CommitSig,
@@ -2263,7 +2369,7 @@ func fetchChanRevocationState(chanBucket *bolt.Bucket, channel *OpenChannel) err
 	}
 	r := bytes.NewReader(revBytes)
 
-	err := readElements(
+	err := ReadElements(
 		r, &channel.RemoteCurrentRevocation, &channel.RevocationProducer,
 		&channel.RevocationStore,
 	)
@@ -2279,7 +2385,7 @@ func fetchChanRevocationState(chanBucket *bolt.Bucket, channel *OpenChannel) err
 
 	// Otherwise we'll read the next revocation for the remote party which
 	// is always the last item within the buffer.
-	return readElements(r, &channel.RemoteNextRevocation)
+	return ReadElements(r, &channel.RemoteNextRevocation)
 }
 
 func deleteOpenChannel(chanBucket *bolt.Bucket, chanPointBytes []byte) error {

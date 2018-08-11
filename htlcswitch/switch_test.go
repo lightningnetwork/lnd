@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcutil"
 )
 
 func genPreimage() ([32]byte, error) {

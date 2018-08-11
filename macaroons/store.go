@@ -9,7 +9,7 @@ import (
 
 	"github.com/coreos/bbolt"
 
-	"github.com/roasbeef/btcwallet/snacl"
+	"github.com/btcsuite/btcwallet/snacl"
 )
 
 const (

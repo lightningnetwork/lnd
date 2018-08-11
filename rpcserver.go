@@ -11,13 +11,17 @@ import (
 	"math"
 	"sort"
 	"strings"
-	"time"
-
-	"gopkg.in/macaroon-bakery.v2/bakery"
-
 	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -28,15 +32,9 @@ import (
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/zpay32"
-	"github.com/roasbeef/btcd/blockchain"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
-	"github.com/roasbeef/btcwallet/waddrmgr"
 	"github.com/tv42/zbase32"
 	"golang.org/x/net/context"
+	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
 const (
@@ -51,6 +49,8 @@ const (
 )
 
 var (
+	zeroHash [32]byte
+
 	// maxPaymentMSat is the maximum allowed payment currently permitted as
 	// defined in BOLT-002. This value depends on which chain is active.
 	// It is set to the value under the Bitcoin chain as default.
@@ -400,7 +400,7 @@ func addrPairsToOutputs(addrPairs map[string]int64) ([]*wire.TxOut, error) {
 // more addresses specified in the passed payment map. The payment map maps an
 // address to a specified output value to be sent to that address.
 func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
-	feeRate lnwallet.SatPerVByte) (*chainhash.Hash, error) {
+	feeRate lnwallet.SatPerKWeight) (*chainhash.Hash, error) {
 
 	outputs, err := addrPairsToOutputs(paymentMap)
 	if err != nil {
@@ -410,18 +410,18 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
 	return r.server.cc.wallet.SendOutputs(outputs, feeRate)
 }
 
-// determineFeePerVSize will determine the fee in sat/vbyte that should be paid
-// given an estimator, a confirmation target, and a manual value for sat/byte.
-// A value is chosen based on the two free parameters as one, or both of them
-// can be zero.
-func determineFeePerVSize(feeEstimator lnwallet.FeeEstimator, targetConf int32,
-	feePerByte int64) (lnwallet.SatPerVByte, error) {
+// determineFeePerKw will determine the fee in sat/kw that should be paid given
+// an estimator, a confirmation target, and a manual value for sat/byte. A value
+// is chosen based on the two free parameters as one, or both of them can be
+// zero.
+func determineFeePerKw(feeEstimator lnwallet.FeeEstimator, targetConf int32,
+	feePerByte int64) (lnwallet.SatPerKWeight, error) {
 
 	switch {
 	// If the target number of confirmations is set, then we'll use that to
 	// consult our fee estimator for an adequate fee.
 	case targetConf != 0:
-		feePerVSize, err := feeEstimator.EstimateFeePerVSize(
+		feePerKw, err := feeEstimator.EstimateFeePerKW(
 			uint32(targetConf),
 		)
 		if err != nil {
@@ -429,22 +429,24 @@ func determineFeePerVSize(feeEstimator lnwallet.FeeEstimator, targetConf int32,
 				"estimator: %v", err)
 		}
 
-		return feePerVSize, nil
+		return feePerKw, nil
 
 	// If a manual sat/byte fee rate is set, then we'll use that directly.
+	// We'll need to convert it to sat/kw as this is what we use internally.
 	case feePerByte != 0:
-		return lnwallet.SatPerVByte(feePerByte), nil
+		feePerKB := lnwallet.SatPerKVByte(feePerByte * 1000)
+		return feePerKB.FeePerKWeight(), nil
 
 	// Otherwise, we'll attempt a relaxed confirmation target for the
 	// transaction
 	default:
-		feePerVSize, err := feeEstimator.EstimateFeePerVSize(6)
+		feePerKw, err := feeEstimator.EstimateFeePerKW(6)
 		if err != nil {
-			return 0, fmt.Errorf("unable to query fee "+
-				"estimator: %v", err)
+			return 0, fmt.Errorf("unable to query fee estimator: "+
+				"%v", err)
 		}
 
-		return feePerVSize, nil
+		return feePerKw, nil
 	}
 }
 
@@ -455,18 +457,18 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 
 	// Based on the passed fee related parameters, we'll determine an
 	// appropriate fee rate for this transaction.
-	feeRate, err := determineFeePerVSize(
+	feePerKw, err := determineFeePerKw(
 		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	rpcsLog.Infof("[sendcoins] addr=%v, amt=%v, sat/vbyte=%v",
-		in.Addr, btcutil.Amount(in.Amount), int64(feeRate))
+	rpcsLog.Infof("[sendcoins] addr=%v, amt=%v, sat/kw=%v", in.Addr,
+		btcutil.Amount(in.Amount), int64(feePerKw))
 
 	paymentMap := map[string]int64{in.Addr: in.Amount}
-	txid, err := r.sendCoinsOnChain(paymentMap, feeRate)
+	txid, err := r.sendCoinsOnChain(paymentMap, feePerKw)
 	if err != nil {
 		return nil, err
 	}
@@ -482,18 +484,18 @@ func (r *rpcServer) SendMany(ctx context.Context,
 	in *lnrpc.SendManyRequest) (*lnrpc.SendManyResponse, error) {
 
 	// Based on the passed fee related parameters, we'll determine an
-	// approriate fee rate for this transaction.
-	feeRate, err := determineFeePerVSize(
+	// appropriate fee rate for this transaction.
+	feePerKw, err := determineFeePerKw(
 		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	rpcsLog.Infof("[sendmany] outputs=%v, sat/vbyte=%v",
-		spew.Sdump(in.AddrToAmount), int64(feeRate))
+	rpcsLog.Infof("[sendmany] outputs=%v, sat/kw=%v",
+		spew.Sdump(in.AddrToAmount), int64(feePerKw))
 
-	txid, err := r.sendCoinsOnChain(in.AddrToAmount, feeRate)
+	txid, err := r.sendCoinsOnChain(in.AddrToAmount, feePerKw)
 	if err != nil {
 		return nil, err
 	}
@@ -792,15 +794,15 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 
 	// Based on the passed fee related parameters, we'll determine an
 	// appropriate fee rate for the funding transaction.
-	feeRate, err := determineFeePerVSize(
+	feeRate, err := determineFeePerKw(
 		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
 	)
 	if err != nil {
 		return err
 	}
 
-	rpcsLog.Debugf("[openchannel]: using fee of %v sat/vbyte for funding "+
-		"tx", int64(feeRate))
+	rpcsLog.Debugf("[openchannel]: using fee of %v sat/kw for funding tx",
+		int64(feeRate))
 
 	// Instruct the server to trigger the necessary events to attempt to
 	// open a new channel. A stream is returned in place, this stream will
@@ -923,14 +925,14 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 
 	// Based on the passed fee related parameters, we'll determine an
 	// appropriate fee rate for the funding transaction.
-	feeRate, err := determineFeePerVSize(
+	feeRate, err := determineFeePerKw(
 		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	rpcsLog.Tracef("[openchannel] target sat/vbyte for funding tx: %v",
+	rpcsLog.Tracef("[openchannel] target sat/kw for funding tx: %v",
 		int64(feeRate))
 
 	updateChan, errChan := r.server.OpenChannel(
@@ -1081,7 +1083,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		errChan = make(chan error, 1)
 		notifier := r.server.cc.chainNotifier
 		go waitForChanToClose(uint32(bestHeight), notifier, errChan, chanPoint,
-			&closingTxid, func() {
+			&closingTxid, closingTx.TxOut[0].PkScript, func() {
 				// Respond to the local subsystem which
 				// requested the channel closure.
 				updateChan <- &lnrpc.CloseStatusUpdate{
@@ -1107,24 +1109,15 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		// Based on the passed fee related parameters, we'll determine
 		// an appropriate fee rate for the cooperative closure
 		// transaction.
-		feeRate, err := determineFeePerVSize(
+		feeRate, err := determineFeePerKw(
 			r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
 		)
 		if err != nil {
 			return err
 		}
 
-		rpcsLog.Debugf("Target sat/vbyte for closing transaction: %v",
+		rpcsLog.Debugf("Target sat/kw for closing transaction: %v",
 			int64(feeRate))
-
-		if feeRate == 0 {
-			// If the fee rate returned isn't usable, then we'll
-			// fall back to a lax fee estimate.
-			feeRate, err = r.server.cc.feeEstimator.EstimateFeePerVSize(6)
-			if err != nil {
-				return err
-			}
-		}
 
 		// Before we attempt the cooperative channel closure, we'll
 		// examine the channel to ensure that it doesn't have a
@@ -1138,9 +1131,8 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		// cooperative channel closure. So we'll forward the request to
 		// the htlc switch which will handle the negotiation and
 		// broadcast details.
-		feePerKw := feeRate.FeePerKWeight()
 		updateChan, errChan = r.server.htlcSwitch.CloseLink(
-			chanPoint, htlcswitch.CloseRegular, feePerKw,
+			chanPoint, htlcswitch.CloseRegular, feeRate,
 		)
 	}
 out:
@@ -2061,9 +2053,10 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 
 	payIntent.cltvDelta = uint16(rpcPayReq.FinalCltvDelta)
 
-	// If the user is manually specifying payment details, then the
-	// payment hash may be encoded as a string.
-	if rpcPayReq.PaymentHashString != "" {
+	// If the user is manually specifying payment details, then the payment
+	// hash may be encoded as a string.
+	switch {
+	case rpcPayReq.PaymentHashString != "":
 		paymentHash, err := hex.DecodeString(
 			rpcPayReq.PaymentHashString,
 		)
@@ -2072,15 +2065,15 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 		}
 
 		copy(payIntent.rHash[:], paymentHash)
-	} else {
-		copy(payIntent.rHash[:], rpcPayReq.PaymentHash)
-	}
 
 	// If we're in debug HTLC mode, then all outgoing HTLCs will pay to the
 	// same debug rHash. Otherwise, we pay to the rHash specified within
 	// the RPC request.
-	if cfg.DebugHTLC && len(payIntent.rHash) == 0 {
+	case cfg.DebugHTLC && bytes.Equal(payIntent.rHash[:], zeroHash[:]):
 		copy(payIntent.rHash[:], debugHash[:])
+
+	default:
+		copy(payIntent.rHash[:], rpcPayReq.PaymentHash)
 	}
 
 	// Currently, within the bootstrap phase of the network, we limit the
@@ -2098,12 +2091,20 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 	return payIntent, nil
 }
 
+type paymentIntentResponse struct {
+	Route    *routing.Route
+	Preimage [32]byte
+	Err      error
+}
+
 // dispatchPaymentIntent attempts to fully dispatch an RPC payment intent.
 // We'll either pass the payment as a whole to the channel router, or give it a
 // pre-built route. The first error this method returns denotes if we were
 // unable to save the payment. The second error returned denotes if the payment
 // didn't succeed.
-func (r *rpcServer) dispatchPaymentIntent(payIntent *rpcPaymentIntent) (*routing.Route, [32]byte, error, error) {
+func (r *rpcServer) dispatchPaymentIntent(
+	payIntent *rpcPaymentIntent) (*paymentIntentResponse, error) {
+
 	// Construct a payment request to send to the channel router. If the
 	// payment is successful, the route chosen will be returned. Otherwise,
 	// we'll get a non-nil error.
@@ -2146,7 +2147,9 @@ func (r *rpcServer) dispatchPaymentIntent(payIntent *rpcPaymentIntent) (*routing
 	// If the route failed, then we'll return a nil save err, but a non-nil
 	// routing err.
 	if routerErr != nil {
-		return nil, preImage, nil, routerErr
+		return &paymentIntentResponse{
+			Err: routerErr,
+		}, nil
 	}
 
 	// If a route was used to complete this payment, then we'll need to
@@ -2164,10 +2167,13 @@ func (r *rpcServer) dispatchPaymentIntent(payIntent *rpcPaymentIntent) (*routing
 	if err != nil {
 		// We weren't able to save the payment, so we return the save
 		// err, but a nil routing err.
-		return nil, preImage, err, nil
+		return nil, err
 	}
 
-	return route, preImage, nil, nil
+	return &paymentIntentResponse{
+		Route:    route,
+		Preimage: preImage,
+	}, nil
 }
 
 // sendPayment takes a paymentStream (a source of pre-built routes or payment
@@ -2280,34 +2286,35 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 					htlcSema <- struct{}{}
 				}()
 
-				route, preImage, saveErr, routeErr := r.dispatchPaymentIntent(
+				resp, saveErr := r.dispatchPaymentIntent(
 					payIntent,
 				)
 
 				switch {
-				// If we receive payment error than, instead of
-				// terminating the stream, send error response
-				// to the user.
-				case routeErr != nil:
-					err := stream.send(&lnrpc.SendResponse{
-						PaymentError: routeErr.Error(),
-					})
-					if err != nil {
-						errChan <- err
-					}
-					return
-
 				// If we were unable to save the state of the
 				// payment, then we'll return the error to the
 				// user, and terminate.
 				case saveErr != nil:
 					errChan <- saveErr
 					return
+
+				// If we receive payment error than, instead of
+				// terminating the stream, send error response
+				// to the user.
+				case resp.Err != nil:
+					err := stream.send(&lnrpc.SendResponse{
+						PaymentError: resp.Err.Error(),
+					})
+					if err != nil {
+						errChan <- err
+					}
+					return
 				}
 
+				marshalledRouted := marshallRoute(resp.Route)
 				err := stream.send(&lnrpc.SendResponse{
-					PaymentPreimage: preImage[:],
-					PaymentRoute:    marshallRoute(route),
+					PaymentPreimage: resp.Preimage[:],
+					PaymentRoute:    marshalledRouted,
 				})
 				if err != nil {
 					errChan <- err
@@ -2382,20 +2389,20 @@ func (r *rpcServer) sendPaymentSync(ctx context.Context,
 
 	// With the payment validated, we'll now attempt to dispatch the
 	// payment.
-	route, preImage, saveErr, routeErr := r.dispatchPaymentIntent(&payIntent)
+	resp, saveErr := r.dispatchPaymentIntent(&payIntent)
 	switch {
-	case routeErr != nil:
-		return &lnrpc.SendResponse{
-			PaymentError: routeErr.Error(),
-		}, nil
-
 	case saveErr != nil:
-		return nil, err
+		return nil, saveErr
+
+	case resp.Err != nil:
+		return &lnrpc.SendResponse{
+			PaymentError: resp.Err.Error(),
+		}, nil
 	}
 
 	return &lnrpc.SendResponse{
-		PaymentPreimage: preImage[:],
-		PaymentRoute:    marshallRoute(route),
+		PaymentPreimage: resp.Preimage[:],
+		PaymentRoute:    marshallRoute(resp.Route),
 	}, nil
 }
 
@@ -2440,6 +2447,12 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	if len(invoice.DescriptionHash) > 0 && len(invoice.DescriptionHash) != 32 {
 		return nil, fmt.Errorf("description hash is %v bytes, must be %v",
 			len(invoice.DescriptionHash), channeldb.MaxPaymentRequestSize)
+	}
+
+	// The value of the invoice must not be negative.
+	if invoice.Value < 0 {
+		return nil, fmt.Errorf("payments of negative value "+
+			"are not allowed, value is %v", invoice.Value)
 	}
 
 	amt := btcutil.Amount(invoice.Value)
@@ -2654,7 +2667,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		return nil, err
 	}
 
-	i := &channeldb.Invoice{
+	newInvoice := &channeldb.Invoice{
 		CreationDate:   creationDate,
 		Memo:           []byte(invoice.Memo),
 		Receipt:        invoice.Receipt,
@@ -2663,22 +2676,24 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 			Value: amtMSat,
 		},
 	}
-	copy(i.Terms.PaymentPreimage[:], paymentPreimage[:])
+	copy(newInvoice.Terms.PaymentPreimage[:], paymentPreimage[:])
 
 	rpcsLog.Tracef("[addinvoice] adding new invoice %v",
 		newLogClosure(func() string {
-			return spew.Sdump(i)
+			return spew.Sdump(newInvoice)
 		}),
 	)
 
 	// With all sanity checks passed, write the invoice to the database.
-	if err := r.server.invoices.AddInvoice(i); err != nil {
+	addIndex, err := r.server.invoices.AddInvoice(newInvoice)
+	if err != nil {
 		return nil, err
 	}
 
 	return &lnrpc.AddInvoiceResponse{
 		RHash:          rHash[:],
 		PaymentRequest: payReqString,
+		AddIndex:       addIndex,
 	}, nil
 }
 
@@ -2734,6 +2749,9 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 		CltvExpiry:      cltvExpiry,
 		FallbackAddr:    fallbackAddr,
 		RouteHints:      routeHints,
+		AddIndex:        invoice.AddIndex,
+		SettleIndex:     invoice.SettleIndex,
+		AmtPaid:         int64(invoice.AmtPaid),
 	}, nil
 }
 
@@ -2830,7 +2848,7 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 	invoices := make([]*lnrpc.Invoice, len(dbInvoices))
 	for i, dbInvoice := range dbInvoices {
 
-		rpcInvoice, err := createRPCInvoice(dbInvoice)
+		rpcInvoice, err := createRPCInvoice(&dbInvoice)
 		if err != nil {
 			return nil, err
 		}
@@ -2848,14 +2866,24 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 	updateStream lnrpc.Lightning_SubscribeInvoicesServer) error {
 
-	invoiceClient := r.server.invoices.SubscribeNotifications()
+	invoiceClient := r.server.invoices.SubscribeNotifications(
+		req.AddIndex, req.SettleIndex,
+	)
 	defer invoiceClient.Cancel()
 
 	for {
 		select {
-		// TODO(roasbeef): include newly added invoices?
-		case settledInvoice := <-invoiceClient.SettledInvoices:
+		case newInvoice := <-invoiceClient.NewInvoices:
+			rpcInvoice, err := createRPCInvoice(newInvoice)
+			if err != nil {
+				return err
+			}
 
+			if err := updateStream.Send(rpcInvoice); err != nil {
+				return err
+			}
+
+		case settledInvoice := <-invoiceClient.SettledInvoices:
 			rpcInvoice, err := createRPCInvoice(settledInvoice)
 			if err != nil {
 				return err
@@ -2864,6 +2892,7 @@ func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 			if err := updateStream.Send(rpcInvoice); err != nil {
 				return err
 			}
+
 		case <-r.quit:
 			return nil
 		}
@@ -2896,6 +2925,7 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 			if err := updateStream.Send(detail); err != nil {
 				return err
 			}
+
 		case tx := <-txClient.UnconfirmedTransactions():
 			detail := &lnrpc.Transaction{
 				TxHash:    tx.Hash.String(),
@@ -2906,6 +2936,7 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 			if err := updateStream.Send(detail); err != nil {
 				return err
 			}
+
 		case <-r.quit:
 			return nil
 		}
@@ -3038,6 +3069,7 @@ func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 			MinHtlc:          int64(c1.MinHTLC),
 			FeeBaseMsat:      int64(c1.FeeBaseMSat),
 			FeeRateMilliMsat: int64(c1.FeeProportionalMillionths),
+			Disabled:         c1.Flags&lnwire.ChanUpdateDisabled != 0,
 		}
 	}
 
@@ -3047,6 +3079,7 @@ func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 			MinHtlc:          int64(c2.MinHTLC),
 			FeeBaseMsat:      int64(c2.FeeBaseMSat),
 			FeeRateMilliMsat: int64(c2.FeeProportionalMillionths),
+			Disabled:         c2.Flags&lnwire.ChanUpdateDisabled != 0,
 		}
 	}
 
@@ -3231,7 +3264,7 @@ func marshallRoute(route *routing.Route) *lnrpc.Route {
 	for i, hop := range route.Hops {
 		resp.Hops[i] = &lnrpc.Hop{
 			ChanId:           hop.Channel.ChannelID,
-			ChanCapacity:     int64(hop.Channel.Capacity),
+			ChanCapacity:     int64(hop.Channel.Bandwidth.ToSatoshis()),
 			AmtToForward:     int64(hop.AmtToForward.ToSatoshis()),
 			AmtToForwardMsat: int64(hop.AmtToForward),
 			Fee:              int64(hop.Fee.ToSatoshis()),
@@ -3281,8 +3314,9 @@ func unmarshallRoute(rpcroute *lnrpc.Route,
 
 		routingHop := &routing.ChannelHop{
 			ChannelEdgePolicy: channelEdgePolicy,
-			Capacity:          btcutil.Amount(hop.ChanCapacity),
-			Chain:             edgeInfo.ChainHash,
+			Bandwidth: lnwire.NewMSatFromSatoshis(
+				btcutil.Amount(hop.ChanCapacity)),
+			Chain: edgeInfo.ChainHash,
 		}
 
 		route.Hops[i] = &routing.Hop{
@@ -3514,6 +3548,7 @@ func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopol
 				MinHtlc:          int64(channelUpdate.MinHTLC),
 				FeeBaseMsat:      int64(channelUpdate.BaseFee),
 				FeeRateMilliMsat: int64(channelUpdate.FeeRate),
+				Disabled:         channelUpdate.Disabled,
 			},
 			AdvertisingNode: encodeKey(channelUpdate.AdvertisingNode),
 			ConnectingNode:  encodeKey(channelUpdate.ConnectingNode),
@@ -3698,6 +3733,12 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 	var feeReports []*lnrpc.ChannelFeeReport
 	err = selfNode.ForEachChannel(nil, func(_ *bolt.Tx, chanInfo *channeldb.ChannelEdgeInfo,
 		edgePolicy, _ *channeldb.ChannelEdgePolicy) error {
+
+		// Self node should always have policies for its channels.
+		if edgePolicy == nil {
+			return fmt.Errorf("no policy for outgoing channel %v ",
+				chanInfo.ChannelID)
+		}
 
 		// We'll compute the effective fee rate by converting from a
 		// fixed point fee rate to a floating point fee rate. The fee

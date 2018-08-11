@@ -3,10 +3,10 @@ package chainntnfs_test
 import (
 	"testing"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 var zeroHash chainhash.Hash
@@ -38,7 +38,9 @@ func TestTxConfFutureDispatch(t *testing.T) {
 		NumConfirmations: tx1NumConfs,
 		Event:            chainntnfs.NewConfirmationEvent(tx1NumConfs),
 	}
-	txConfNotifier.Register(&ntfn1, nil)
+	if err := txConfNotifier.Register(&ntfn1); err != nil {
+		t.Fatalf("unable to register ntfn: %v", err)
+	}
 
 	tx2Hash := tx2.TxHash()
 	ntfn2 := chainntnfs.ConfNtfn{
@@ -46,7 +48,9 @@ func TestTxConfFutureDispatch(t *testing.T) {
 		NumConfirmations: tx2NumConfs,
 		Event:            chainntnfs.NewConfirmationEvent(tx2NumConfs),
 	}
-	txConfNotifier.Register(&ntfn2, nil)
+	if err := txConfNotifier.Register(&ntfn2); err != nil {
+		t.Fatalf("unable to register ntfn: %v", err)
+	}
 
 	// We should not receive any notifications from both transactions
 	// since they have not been included in a block yet.
@@ -202,32 +206,37 @@ func TestTxConfHistoricalDispatch(t *testing.T) {
 	// starting height so that they are confirmed once registering them.
 	tx1Hash := tx1.TxHash()
 	ntfn1 := chainntnfs.ConfNtfn{
+		ConfID:           0,
 		TxID:             &tx1Hash,
 		NumConfirmations: tx1NumConfs,
 		Event:            chainntnfs.NewConfirmationEvent(tx1NumConfs),
 	}
+	if err := txConfNotifier.Register(&ntfn1); err != nil {
+		t.Fatalf("unable to register ntfn: %v", err)
+	}
+
+	tx2Hash := tx2.TxHash()
+	ntfn2 := chainntnfs.ConfNtfn{
+		ConfID:           1,
+		TxID:             &tx2Hash,
+		NumConfirmations: tx2NumConfs,
+		Event:            chainntnfs.NewConfirmationEvent(tx2NumConfs),
+	}
+	if err := txConfNotifier.Register(&ntfn2); err != nil {
+		t.Fatalf("unable to register ntfn: %v", err)
+	}
+
+	// Update tx1 with its confirmation details. We should only receive one
+	// update since it only requires one confirmation and it already met it.
 	txConf1 := chainntnfs.TxConfirmation{
 		BlockHash:   &zeroHash,
 		BlockHeight: 9,
 		TxIndex:     1,
 	}
-	txConfNotifier.Register(&ntfn1, &txConf1)
-
-	tx2Hash := tx2.TxHash()
-	txConf2 := chainntnfs.TxConfirmation{
-		BlockHash:   &zeroHash,
-		BlockHeight: 9,
-		TxIndex:     2,
+	err := txConfNotifier.UpdateConfDetails(tx1Hash, ntfn1.ConfID, &txConf1)
+	if err != nil {
+		t.Fatalf("unable to update conf details: %v", err)
 	}
-	ntfn2 := chainntnfs.ConfNtfn{
-		TxID:             &tx2Hash,
-		NumConfirmations: tx2NumConfs,
-		Event:            chainntnfs.NewConfirmationEvent(tx2NumConfs),
-	}
-	txConfNotifier.Register(&ntfn2, &txConf2)
-
-	// We should only receive one update for tx1 since it only requires
-	// one confirmation and it already met it.
 	select {
 	case numConfsLeft := <-ntfn1.Event.Updates:
 		const expected = 0
@@ -240,8 +249,7 @@ func TestTxConfHistoricalDispatch(t *testing.T) {
 		t.Fatal("Expected confirmation update for tx1")
 	}
 
-	// A confirmation notification for tx1 should be dispatched, as it met
-	// its required number of confirmations.
+	// A confirmation notification for tx1 should also be dispatched.
 	select {
 	case txConf := <-ntfn1.Event.Confirmed:
 		assertEqualTxConf(t, txConf, &txConf1)
@@ -249,8 +257,19 @@ func TestTxConfHistoricalDispatch(t *testing.T) {
 		t.Fatalf("Expected confirmation for tx1")
 	}
 
-	// We should only receive one update indicating how many confirmations
-	// are left for the transaction to be confirmed.
+	// Update tx2 with its confirmation details. This should not trigger a
+	// confirmation notification since it hasn't reached its required number
+	// of confirmations, but we should receive a confirmation update
+	// indicating how many confirmation are left.
+	txConf2 := chainntnfs.TxConfirmation{
+		BlockHash:   &zeroHash,
+		BlockHeight: 9,
+		TxIndex:     2,
+	}
+	err = txConfNotifier.UpdateConfDetails(tx2Hash, ntfn2.ConfID, &txConf2)
+	if err != nil {
+		t.Fatalf("unable to update conf details: %v", err)
+	}
 	select {
 	case numConfsLeft := <-ntfn2.Event.Updates:
 		const expected = 1
@@ -263,8 +282,6 @@ func TestTxConfHistoricalDispatch(t *testing.T) {
 		t.Fatal("Expected confirmation update for tx2")
 	}
 
-	// A confirmation notification for tx2 should not be dispatched yet, as
-	// it requires one more confirmation.
 	select {
 	case txConf := <-ntfn2.Event.Confirmed:
 		t.Fatalf("Received unexpected confirmation for tx2: %v", txConf)
@@ -277,7 +294,7 @@ func TestTxConfHistoricalDispatch(t *testing.T) {
 		Transactions: []*wire.MsgTx{&tx3},
 	})
 
-	err := txConfNotifier.ConnectTip(block.Hash(), 11, block.Transactions())
+	err = txConfNotifier.ConnectTip(block.Hash(), 11, block.Transactions())
 	if err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
 	}
@@ -343,7 +360,9 @@ func TestTxConfChainReorg(t *testing.T) {
 		NumConfirmations: tx1NumConfs,
 		Event:            chainntnfs.NewConfirmationEvent(tx1NumConfs),
 	}
-	txConfNotifier.Register(&ntfn1, nil)
+	if err := txConfNotifier.Register(&ntfn1); err != nil {
+		t.Fatalf("unable to register ntfn: %v", err)
+	}
 
 	// Tx 2 will be confirmed in block 10 and requires 1 conf.
 	tx2Hash := tx2.TxHash()
@@ -352,7 +371,9 @@ func TestTxConfChainReorg(t *testing.T) {
 		NumConfirmations: tx2NumConfs,
 		Event:            chainntnfs.NewConfirmationEvent(tx2NumConfs),
 	}
-	txConfNotifier.Register(&ntfn2, nil)
+	if err := txConfNotifier.Register(&ntfn2); err != nil {
+		t.Fatalf("unable to register ntfn: %v", err)
+	}
 
 	// Tx 3 will be confirmed in block 10 and requires 2 confs.
 	tx3Hash := tx3.TxHash()
@@ -361,7 +382,9 @@ func TestTxConfChainReorg(t *testing.T) {
 		NumConfirmations: tx3NumConfs,
 		Event:            chainntnfs.NewConfirmationEvent(tx3NumConfs),
 	}
-	txConfNotifier.Register(&ntfn3, nil)
+	if err := txConfNotifier.Register(&ntfn3); err != nil {
+		t.Fatalf("unable to register ntfn: %v", err)
+	}
 
 	// Sync chain to block 10. Txs 1 & 2 should be confirmed.
 	block1 := btcutil.NewBlock(&wire.MsgBlock{
@@ -581,7 +604,9 @@ func TestTxConfTearDown(t *testing.T) {
 		NumConfirmations: 1,
 		Event:            chainntnfs.NewConfirmationEvent(1),
 	}
-	txConfNotifier.Register(&ntfn1, nil)
+	if err := txConfNotifier.Register(&ntfn1); err != nil {
+		t.Fatalf("unable to register ntfn: %v", err)
+	}
 
 	tx2Hash := tx2.TxHash()
 	ntfn2 := chainntnfs.ConfNtfn{
@@ -589,7 +614,9 @@ func TestTxConfTearDown(t *testing.T) {
 		NumConfirmations: 2,
 		Event:            chainntnfs.NewConfirmationEvent(2),
 	}
-	txConfNotifier.Register(&ntfn2, nil)
+	if err := txConfNotifier.Register(&ntfn2); err != nil {
+		t.Fatalf("unable to register ntfn: %v", err)
+	}
 
 	// Include the transactions in a block and add it to the TxConfNotifier.
 	// This should confirm tx1, but not tx2.

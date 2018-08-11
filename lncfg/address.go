@@ -72,8 +72,8 @@ func ListenOnAddress(addr net.Addr) (net.Listener, error) {
 	return net.Listen(addr.Network(), addr.String())
 }
 
-// TlsListenOnAddress creates a TLS listener that listens on the given address.
-func TlsListenOnAddress(addr net.Addr,
+// TLSListenOnAddress creates a TLS listener that listens on the given address.
+func TLSListenOnAddress(addr net.Addr,
 	config *tls.Config) (net.Listener, error) {
 	return tls.Listen(addr.Network(), addr.String(), config)
 }

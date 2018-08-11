@@ -27,8 +27,15 @@ var (
 	// for looking up incoming HTLCs to determine if we're able to settle
 	// them fully.
 	//
-	// maps: payHash => invoiceIndex
+	// maps: payHash => invoiceKey
 	invoiceIndexBucket = []byte("paymenthashes")
+
+	// invoiceCreationDateBucket is the name of the sub-bucket with in the
+	// invoiceBucket which indexes all invoices by their creation date. This
+	// index is used to support pagination style responses at the RPC level.
+	//
+	// maps: creationDate => invoiceKey
+	invoiceCreationDateBucket = []byte("invoice-creation-date")
 
 	// numInvoicesKey is the name of key which houses the auto-incrementing
 	// invoice ID which is essentially used as a primary key. With each
@@ -44,7 +51,7 @@ var (
 	//
 	// In addition to this sequence number, we map:
 	//
-	//   addIndexNo => invoiceIndex
+	//   addIndexNo => invoiceKey
 	addIndexBucket = []byte("invoice-add-index")
 
 	// settleIndexBucket is an index bucket that we'll use to create a
@@ -54,7 +61,7 @@ var (
 	//
 	// In addition to this sequence number, we map:
 	//
-	//   settleIndexNo => invoiceIndex
+	//   settleIndexNo => invoiceKey
 	settleIndexBucket = []byte("invoice-settle-index")
 )
 
@@ -197,6 +204,12 @@ func (d *DB) AddInvoice(newInvoice *Invoice) (uint64, error) {
 		if err != nil {
 			return err
 		}
+		invoiceCreationDateIndex, err := invoices.CreateBucketIfNotExists(
+			invoiceCreationDateBucket,
+		)
+		if err != nil {
+			return err
+		}
 		addIndex, err := invoices.CreateBucketIfNotExists(
 			addIndexBucket,
 		)
@@ -229,7 +242,8 @@ func (d *DB) AddInvoice(newInvoice *Invoice) (uint64, error) {
 		}
 
 		newIndex, err := putInvoice(
-			invoices, invoiceIndex, addIndex, newInvoice, invoiceNum,
+			invoices, invoiceIndex, invoiceCreationDateIndex,
+			addIndex, newInvoice, invoiceNum,
 		)
 		if err != nil {
 			return err
@@ -507,8 +521,8 @@ func (d *DB) InvoicesSettledSince(sinceSettleIndex uint64) ([]Invoice, error) {
 	return settledInvoices, nil
 }
 
-func putInvoice(invoices, invoiceIndex, addIndex *bolt.Bucket,
-	i *Invoice, invoiceNum uint32) (uint64, error) {
+func putInvoice(invoices, invoiceIndex, invoiceCreationDateIndex,
+	addIndex *bolt.Bucket, i *Invoice, invoiceNum uint32) (uint64, error) {
 
 	// Create the invoice key which is just the big-endian representation
 	// of the invoice number.
@@ -529,6 +543,16 @@ func putInvoice(invoices, invoiceIndex, addIndex *bolt.Bucket,
 	// allow a single invoice to have multiple payment installations.
 	paymentHash := sha256.Sum256(i.Terms.PaymentPreimage[:])
 	err := invoiceIndex.Put(paymentHash[:], invoiceKey[:])
+	if err != nil {
+		return 0, err
+	}
+
+	// Add the creation date of the invoice to the creation date index.
+	// This index provides an easier interface when querying the database
+	// for invoices between a specific time interval.
+	var creationDate [8]byte
+	byteOrder.PutUint64(creationDate[:], uint64(i.CreationDate.UnixNano()))
+	err = invoiceCreationDateIndex.Put(creationDate[:], invoiceKey[:])
 	if err != nil {
 		return 0, err
 	}

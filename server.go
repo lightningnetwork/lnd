@@ -600,14 +600,15 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		GenSweepScript: func() ([]byte, error) {
 			return newSweepPkScript(cc.wallet)
 		},
-		CutStrayTxInputs: func(tx *btcutil.Tx) error {
-			return strayoutputpool.CutStrayInputs(s.strayOutputsPool, tx)
+		CutStrayInputs: func(feeRate lnwallet.SatPerVByte,
+			inputs []lnwallet.SpendableOutput) []lnwallet.SpendableOutput {
+			return strayoutputpool.CutStrayInputs(s.strayOutputsPool,
+				feeRate, inputs)
 		},
 		Notifier:           cc.chainNotifier,
 		PublishTransaction: cc.wallet.PublishTransaction,
 		Signer:             cc.wallet.Cfg.Signer,
 		Store:              utxnStore,
-		StrayOutputsPool:   s.strayOutputsPool,
 	})
 
 	// Construct a closure that wraps the htlcswitch's CloseLink method.
@@ -704,8 +705,10 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		CloseLink: closeLink,
 		DB:        chanDB,
 		Estimator: s.cc.feeEstimator,
-		CutStrayTxInputs: func(tx *btcutil.Tx) error {
-			return strayoutputpool.CutStrayInputs(s.strayOutputsPool, tx)
+		CutStrayInputs: func(feeRate lnwallet.SatPerVByte,
+			inputs []lnwallet.SpendableOutput) []lnwallet.SpendableOutput {
+			return strayoutputpool.CutStrayInputs(s.strayOutputsPool,
+				feeRate, inputs)
 		},
 		GenSweepScript: func() ([]byte, error) {
 			return newSweepPkScript(cc.wallet)

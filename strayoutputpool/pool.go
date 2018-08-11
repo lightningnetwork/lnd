@@ -27,14 +27,8 @@ func NewDBStrayOutputsPool(config *PoolConfig) StrayOutputsPool {
 	}
 }
 
-func (d *DBStrayOutputsPool) AddOutputs(txVSize int64,
-	outputs ...lnwallet.SpendableOutput) error {
-
-	// Compute the total amount contained in the outputs.
-	var totalAmt btcutil.Amount
-	for _, output := range outputs {
-		totalAmt += output.Amount()
-	}
+func (d *DBStrayOutputsPool) AddSpendableOutput(
+	output lnwallet.SpendableOutput) error {
 
 	return nil
 }

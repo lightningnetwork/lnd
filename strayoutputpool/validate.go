@@ -1,17 +1,90 @@
 package strayoutputpool
 
 import (
+	"github.com/go-errors/errors"
 	"github.com/roasbeef/btcd/blockchain"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 
 	"github.com/lightningnetwork/lnd/lnwallet"
-
 )
 
-func CutStrayInputs(pool StrayOutputsPool, tx *btcutil.Tx) error {
-	var _ = pool
-	return CheckTransactionSanity(tx)
+func CutStrayInputs(pool StrayOutputsPool, feeRate lnwallet.SatPerVByte,
+	inputs []lnwallet.SpendableOutput) []lnwallet.SpendableOutput {
+
+	var validInputs []lnwallet.SpendableOutput
+
+	for _, input := range inputs {
+		if isNegativeInput(feeRate, input) {
+			pool.AddSpendableOutput(input)
+		} else {
+			validInputs = append(validInputs, input)
+		}
+	}
+
+	return validInputs
+}
+
+func isNegativeInput(feeRate lnwallet.SatPerVByte, input lnwallet.SpendableOutput) bool {
+	var wEstimate lnwallet.TxWeightEstimator
+	wEstimate.AddWitnessInputByType(input.WitnessType())
+
+	return feeRate.FeeForVSize(int64(wEstimate.VSize())) > input.Amount()
+}
+
+func (d *DBStrayOutputsPool) CheckTransactionSanity(tx *btcutil.Tx) error {
+	var err error
+
+	txInputs := tx.MsgTx().TxIn
+	tx.MsgTx().TxIn = make([]*wire.TxIn, len(txInputs))
+	prunedTxInputs := make([]*wire.TxIn, len(txInputs))
+
+	var wEstimate lnwallet.TxWeightEstimator
+
+	// we should get transaction by outpoint and calculate witness size
+
+	// Our sweep transaction will pay to a single segwit p2wkh address,
+	// ensure it contributes to our weight estimate.
+	wEstimate.AddP2WKHOutput()
+
+	//wEstimate.AddWitnessInput()
+	//wEstimate.AddNestedP2WSHInput()
+	wEstimate.AddP2PKHInput()
+	wEstimate.AddNestedP2WKHInput()
+	wEstimate.AddP2WKHInput()
+	wEstimate.VSize()
+
+
+	feePerVSize, err := d.cfg.Estimator.EstimateFeePerVSize(6)
+	if err != nil {
+		return err
+	}
+
+	feePerKw := feePerVSize.FeePerKWeight()
+
+	_ = feePerKw.FeeForWeight(blockchain.GetTransactionWeight(tx))
+
+	// Using a weight estimator, we'll compute the total
+	// fee required, and from that the value we'll end up
+	// with.
+	totalFees := feePerVSize.FeeForVSize(int64(wEstimate.VSize()))
+
+
+	// Amount of money that will be swept, if its negative this output is dust
+	sweepAmt := 100 - int64(totalFees)
+	// or
+	if d.cfg.DustLimit >= totalFees {
+		return errors.New("under dust limit")
+	}
+
+	_ = sweepAmt
+	_ = prunedTxInputs
+
+
+	tx.MsgTx().Command()
+
+
+	return nil
 }
 
 // CheckTransactionSanity does sanity check of transaction and tries
@@ -29,6 +102,8 @@ func CheckTransactionSanity(tx *btcutil.Tx) error {
 	for _, txIn := range txInputs {
 
 		outpoint := txIn.PreviousOutPoint
+
+		_ = outpoint
 
 		wEstimate.AddP2PKHInput()
 

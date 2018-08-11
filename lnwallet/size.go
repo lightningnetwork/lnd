@@ -420,6 +420,42 @@ func (twe *TxWeightEstimator) AddWitnessInput(witnessSize int) *TxWeightEstimato
 	return twe
 }
 
+// AddWitnessInputByType updates the weight estimate to account for input
+// by its type.
+func (twe *TxWeightEstimator) AddWitnessInputByType(wt WitnessType) *TxWeightEstimator {
+	switch wt {
+
+	case CommitmentNoDelay:
+		twe.AddWitnessInput(P2WKHWitnessSize)
+
+	case CommitmentRevoke:
+		twe.AddWitnessInput(ToLocalPenaltyWitnessSize)
+
+	case HtlcOfferedRevoke:
+		twe.AddWitnessInput(OfferedHtlcPenaltyWitnessSize)
+
+	case HtlcAcceptedRevoke:
+		twe.AddWitnessInput(AcceptedHtlcPenaltyWitnessSize)
+
+	case HtlcSecondLevelRevoke:
+		twe.AddWitnessInput(SecondLevelHtlcPenaltyWitnessSize)
+
+	case CommitmentTimeLock:
+		twe.AddWitnessInput(ToLocalTimeoutWitnessSize)
+
+	case HtlcOfferedTimeoutSecondLevel:
+		twe.AddWitnessInput(SecondLevelHtlcSuccessWitnessSize)
+
+	case HtlcAcceptedSuccessSecondLevel:
+		twe.AddWitnessInput(SecondLevelHtlcSuccessWitnessSize)
+
+	case HtlcOfferedRemoteTimeout:
+		twe.AddWitnessInput(AcceptedHtlcTimeoutWitnessSize)
+	}
+
+	return twe
+}
+
 // AddNestedP2WKHInput updates the weight estimate to account for an additional
 // input spending a P2SH output with a nested P2WKH redeem script.
 func (twe *TxWeightEstimator) AddNestedP2WKHInput() *TxWeightEstimator {

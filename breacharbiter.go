@@ -90,7 +90,11 @@ type BreachConfig struct {
 	// transaction to the network.
 	PublishTransaction func(*wire.MsgTx) error
 
-	CutStrayTxInputs func(tx *btcutil.Tx) error
+	// CutStrayInputs cuts outputs with negative amount due to current fee rate
+	// and adds them to a storage to be able sweep at any time by request
+	// or schedule with appropriate fee rate flor.
+	CutStrayInputs func(feeRate lnwallet.SatPerVByte,
+		inputs []lnwallet.SpendableOutput) []lnwallet.SpendableOutput
 
 	// ContractBreaches is a channel where the breachArbiter will receive
 	// notifications in the event of a contract breach being observed. A
@@ -937,19 +941,11 @@ func (b *breachArbiter) createJusticeTx(
 	// We will assemble the breached outputs into a slice of spendable
 	// outputs, while simultaneously computing the estimated weight of the
 	// transaction.
-	var (
-		spendableOutputs []lnwallet.SpendableOutput
-		weightEstimate   lnwallet.TxWeightEstimator
-	)
+	var spendableOutputs []lnwallet.SpendableOutput
 
 	// Allocate enough space to potentially hold each of the breached
 	// outputs in the retribution info.
 	spendableOutputs = make([]lnwallet.SpendableOutput, 0, len(r.breachedOutputs))
-
-	// The justice transaction we construct will be a segwit transaction
-	// that pays to a p2wkh output. Components such as the version,
-	// nLockTime, and output are already included in the TxWeightEstimator.
-	weightEstimate.AddP2WKHOutput()
 
 	// Next, we iterate over the breached outputs contained in the
 	// retribution info.  For each, we switch over the witness type such
@@ -959,46 +955,47 @@ func (b *breachArbiter) createJusticeTx(
 		// Grab locally scoped reference to breached output.
 		input := &r.breachedOutputs[i]
 
-		// First, select the appropriate estimated witness weight for
-		// the give witness type of this breached output. If the witness
-		// type is unrecognized, we will omit it from the transaction.
-		var witnessWeight int
 		switch input.WitnessType() {
-		case lnwallet.CommitmentNoDelay:
-			witnessWeight = lnwallet.P2WKHWitnessSize
+		case lnwallet.CommitmentNoDelay,
+			 lnwallet.CommitmentRevoke,
+			 lnwallet.HtlcOfferedRevoke,
+			 lnwallet.HtlcAcceptedRevoke,
+			 lnwallet.HtlcSecondLevelRevoke:
 
-		case lnwallet.CommitmentRevoke:
-			witnessWeight = lnwallet.ToLocalPenaltyWitnessSize
-
-		case lnwallet.HtlcOfferedRevoke:
-			witnessWeight = lnwallet.OfferedHtlcPenaltyWitnessSize
-
-		case lnwallet.HtlcAcceptedRevoke:
-			witnessWeight = lnwallet.AcceptedHtlcPenaltyWitnessSize
-
-		case lnwallet.HtlcSecondLevelRevoke:
-			witnessWeight = lnwallet.ToLocalPenaltyWitnessSize
-
+		// If the witness type is unrecognized, we will omit it from
+		// the transaction.
 		default:
 			brarLog.Warnf("breached output in retribution info "+
 				"contains unexpected witness type: %v",
 				input.WitnessType())
 			continue
 		}
-		weightEstimate.AddWitnessInput(witnessWeight)
 
 		// Finally, append this input to our list of spendable outputs.
 		spendableOutputs = append(spendableOutputs, input)
 	}
 
-	txWeight := int64(weightEstimate.Weight())
-	return b.sweepSpendableOutputsTxn(txWeight, spendableOutputs...)
+	return b.sweepSpendableOutputsTxn(spendableOutputs...)
 }
 
 // sweepSpendableOutputsTxn creates a signed transaction from a sequence of
 // spendable outputs by sweeping the funds into a single p2wkh output.
-func (b *breachArbiter) sweepSpendableOutputsTxn(txWeight int64,
+func (b *breachArbiter) sweepSpendableOutputsTxn(
 	inputs ...lnwallet.SpendableOutput) (*wire.MsgTx, error) {
+
+	var weightEstimate lnwallet.TxWeightEstimator
+
+	// The justice transaction we construct will be a segwit transaction
+	// that pays to a p2wkh output. Components such as the version,
+	// nLockTime, and output are already included in the TxWeightEstimator.
+	weightEstimate.AddP2WKHOutput()
+
+	// We'll actually attempt to target inclusion within the next two
+	// blocks as we'd like to sweep these funds back into our wallet ASAP.
+	feePerKw, err := b.cfg.Estimator.EstimateFeePerKW(2)
+	if err != nil {
+		return nil, err
+	}
 
 	// First, we obtain a new public key script from the wallet which we'll
 	// sweep the funds to.
@@ -1009,19 +1006,20 @@ func (b *breachArbiter) sweepSpendableOutputsTxn(txWeight int64,
 		return nil, err
 	}
 
+	// Split inputs that has less amount than fee and add them to stray pool
+	inputs = b.cfg.CutStrayInputs(feePerKw, inputs)
+
 	// Compute the total amount contained in the inputs.
 	var totalAmt btcutil.Amount
 	for _, input := range inputs {
 		totalAmt += input.Amount()
+
+		// First, select the appropriate estimated witness weight for
+		// the give witness type of this breached output.
+		weightEstimate.AddWitnessInputByType(input.WitnessType())
 	}
 
-	// We'll actually attempt to target inclusion within the next two
-	// blocks as we'd like to sweep these funds back into our wallet ASAP.
-	feePerKw, err := b.cfg.Estimator.EstimateFeePerKW(2)
-	if err != nil {
-		return nil, err
-	}
-	txFee := feePerKw.FeeForWeight(txWeight)
+	txFee := feePerKw.FeeForWeight(int64(weightEstimate.Weight()))
 
 	// TODO(roasbeef): already start to siphon their funds into fees
 	sweepAmt := int64(totalAmt - txFee)
@@ -1064,8 +1062,7 @@ func (b *breachArbiter) sweepSpendableOutputsTxn(txWeight int64,
 		// First, we construct a valid witness for this outpoint and
 		// transaction using the SpendableOutput's witness generation
 		// function.
-		witness, err := so.BuildWitness(b.cfg.Signer, txn, hashCache,
-			idx)
+		witness, err := so.BuildWitness(b.cfg.Signer, txn, hashCache, idx)
 		if err != nil {
 			return err
 		}

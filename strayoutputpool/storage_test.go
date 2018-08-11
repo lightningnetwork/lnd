@@ -60,13 +60,13 @@ func TestSerialization(t *testing.T) {
 			&spendableOutput{
 				amt: 100,
 				outpoint: *wire.NewOutPoint(&testHash, 0),
-				witnessType: lnwallet.CommitmentTimeLock,
+				witnessType: lnwallet.CommitmentNoDelay,
 				signDesc: sighDescriptor,
 			},
 			&spendableOutput{
 				amt: 101,
 				outpoint: *wire.NewOutPoint(&testHash, 1),
-				witnessType: lnwallet.CommitmentTimeLock,
+				witnessType: lnwallet.CommitmentNoDelay,
 				signDesc: sighDescriptor,
 			},
 		},

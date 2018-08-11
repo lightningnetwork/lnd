@@ -12,8 +12,8 @@ import (
 // StrayOutputsPool periodically batch outputs into single transaction
 // to sweep back into the wallet.
 type StrayOutputsPool interface {
-	// AddOutputs adds outputs to the pool for late processing.
-	AddOutputs(txVSize int64, outputs ...lnwallet.SpendableOutput) error
+	// AddSpendableOutputs adds outputs to the pool for late processing.
+	AddSpendableOutput(output lnwallet.SpendableOutput) error
 
 	// GenSweepTx generates transaction for all added outputs.
 	GenSweepTx() (*btcutil.Tx, error)

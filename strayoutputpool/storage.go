@@ -27,7 +27,8 @@ var (
 )
 
 // spendableOutput basic implementation of SpendableOutput interface.
-type spendableOutput struct {
+type
+spendableOutput struct {
 	amt         btcutil.Amount
 	outpoint    wire.OutPoint
 	witnessType lnwallet.WitnessType
@@ -56,7 +57,14 @@ func (s *spendableOutput) SignDesc() *lnwallet.SignDescriptor {
 
 func (s *spendableOutput) BuildWitness(signer lnwallet.Signer, txn *wire.MsgTx,
 	hashCache *txscript.TxSigHashes, txinIdx int) ([][]byte, error) {
-	return nil, nil
+	// Now that we have ensured that the witness generation function has
+	// been initialized, we can proceed to execute it and generate the
+	// witness for this particular breached output.
+	witnessFunc := s.witnessType.GenWitnessFunc(
+		signer, s.SignDesc(),
+	)
+
+	return witnessFunc(txn, hashCache, txinIdx)
 }
 
 // AddStrayOutput saves serialized stray output to database in order to combine

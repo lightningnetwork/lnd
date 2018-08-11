@@ -1705,12 +1705,46 @@ message PaymentHash {
     /// The payment hash of the invoice to be looked up.
     bytes r_hash = 2 [json_name = "r_hash"];
 }
+
 message ListInvoiceRequest {
-    /// Toggles if all invoices should be returned, or only those that are currently unsettled.
-    bool pending_only = 1;
+    /// If set, only unsettled invoices will be returned in the response.
+    bool pending_only = 1 [json_name = "pending_only"];
+
+    /**
+    The starting point of the list invoices request. All invoices beyond this
+    point will be included, respecting the end time and the index offset.
+    */
+    uint64 start_time = 2 [json_name = "start_time"];
+
+    /**
+    The end point of the list invoices request. The response will carry at most
+    50k invoices between the start and end times. The index offset can be used
+    to implement pagination.
+    */
+    uint64 end_time = 3 [json_name = "end_time"];
+
+    /**
+    The offset in the time series to start at. As each response can only contain
+    50k invoices, callers can use this to skip around within a packed time
+    series.
+    */
+    uint32 index_offset = 4 [json_name = "index_offset"];
+
+    /// The max number of invoices to return in the response to this query.
+    uint32 num_max_invoices = 5 [json_name = "num_max_invoices"];
 }
 message ListInvoiceResponse {
+    /**
+    A list of invoices from the time slice of the time series specified in the
+    request.
+    */
     repeated Invoice invoices = 1 [json_name = "invoices"];
+
+    /**
+    The index of the last time in the set of returned invoices. Can be used to
+    seek further, pagination style.
+    */
+    uint32 last_index_offset = 2 [json_name = "last_index_offset"];
 }
 
 message InvoiceSubscription {

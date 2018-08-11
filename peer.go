@@ -337,7 +337,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		// htlcswitch.
 		if dbChan.ChanStatus() != channeldb.Default {
 			peerLog.Warnf("ChannelPoint(%v) has status %v, won't "+
-				"start.", chanPoint, dbChan.ChanStatus)
+				"start.", chanPoint, dbChan.ChanStatus())
 			lnChan.Stop()
 			continue
 		}

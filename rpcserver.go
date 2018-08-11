@@ -2873,25 +2873,38 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 func (r *rpcServer) ListInvoices(ctx context.Context,
 	req *lnrpc.ListInvoiceRequest) (*lnrpc.ListInvoiceResponse, error) {
 
-	dbInvoices, err := r.server.chanDB.FetchAllInvoices(req.PendingOnly)
-	if err != nil {
-		return nil, err
+	// If the number of invoices was not specified, then we'll default to
+	// returning the latest 100 invoices.
+	if req.NumMaxInvoices == 0 {
+		req.NumMaxInvoices = 100
 	}
 
-	invoices := make([]*lnrpc.Invoice, len(dbInvoices))
-	for i, dbInvoice := range dbInvoices {
+	// Next, we'll map the proto request into a format that is understood by
+	// the database.
+	q := channeldb.InvoiceQuery{
+		IndexOffset:    req.IndexOffset,
+		NumMaxInvoices: req.NumMaxInvoices,
+		PendingOnly:    req.PendingOnly,
+	}
+	invoiceSlice, err := r.server.chanDB.QueryInvoices(q)
+	if err != nil {
+		return nil, fmt.Errorf("unable to query invoices: %v", err)
+	}
 
-		rpcInvoice, err := createRPCInvoice(&dbInvoice)
+	// Before returning the response, we'll need to convert each invoice
+	// into it's proto representation.
+	resp := &lnrpc.ListInvoiceResponse{
+		Invoices:        make([]*lnrpc.Invoice, len(invoiceSlice.Invoices)),
+		LastIndexOffset: invoiceSlice.LastIndexOffset,
+	}
+	for i, invoice := range invoiceSlice.Invoices {
+		resp.Invoices[i], err = createRPCInvoice(invoice)
 		if err != nil {
 			return nil, err
 		}
-
-		invoices[i] = rpcInvoice
 	}
 
-	return &lnrpc.ListInvoiceResponse{
-		Invoices: invoices,
-	}, nil
+	return resp, nil
 }
 
 // SubscribeInvoices returns a uni-directional stream (server -> client) for

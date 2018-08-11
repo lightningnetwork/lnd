@@ -2312,8 +2312,16 @@ var listInvoicesCommand = cli.Command{
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name: "pending_only",
-			Usage: "toggles if all invoices should be returned, or only " +
-				"those that are currently unsettled",
+			Usage: "toggles if all invoices should be returned, " +
+				"or only those that are currently unsettled",
+		},
+		cli.Uint64Flag{
+			Name:  "index_offset",
+			Usage: "the number of invoices to skip",
+		},
+		cli.Uint64Flag{
+			Name:  "max_invoices",
+			Usage: "the max number of invoices to return",
 		},
 	},
 	Action: actionDecorator(listInvoices),
@@ -2323,13 +2331,10 @@ func listInvoices(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	pendingOnly := true
-	if !ctx.Bool("pending_only") {
-		pendingOnly = false
-	}
-
 	req := &lnrpc.ListInvoiceRequest{
-		PendingOnly: pendingOnly,
+		PendingOnly:    ctx.Bool("pending_only"),
+		IndexOffset:    uint32(ctx.Uint64("index_offset")),
+		NumMaxInvoices: uint32(ctx.Uint64("max_invoices")),
 	}
 
 	invoices, err := client.ListInvoices(context.Background(), req)

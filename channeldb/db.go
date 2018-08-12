@@ -67,6 +67,12 @@ var (
 			number:    4,
 			migration: migrateEdgePolicies,
 		},
+		{
+			// The version with added payment statuses
+			// for each existing payment
+			number:    5,
+			migration: paymentStatusesMigration,
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over

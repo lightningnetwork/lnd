@@ -90,11 +90,11 @@ type BreachConfig struct {
 	// transaction to the network.
 	PublishTransaction func(*wire.MsgTx) error
 
-	// CutStrayInputs cuts outputs with negative amount due to current fee rate
-	// and adds them to a storage to be able sweep at any time by request
-	// or schedule with appropriate fee rate flor.
-	CutStrayInputs func(feeRate lnwallet.SatPerVByte,
-		inputs []lnwallet.SpendableOutput) []lnwallet.SpendableOutput
+	// CutStrayInput cuts output with negative amount due to current fee rate
+	// and adds it to a persistent storage to be able sweep at any time
+	// by request or schedule with appropriate fee rate flor.
+	CutStrayInput func(feeRate lnwallet.SatPerVByte,
+		input lnwallet.SpendableOutput) bool
 
 	// ContractBreaches is a channel where the breachArbiter will receive
 	// notifications in the event of a contract breach being observed. A
@@ -983,7 +983,10 @@ func (b *breachArbiter) createJusticeTx(
 func (b *breachArbiter) sweepSpendableOutputsTxn(
 	inputs ...lnwallet.SpendableOutput) (*wire.MsgTx, error) {
 
-	var weightEstimate lnwallet.TxWeightEstimator
+	var (
+		txInputs       []lnwallet.SpendableOutput
+		weightEstimate lnwallet.TxWeightEstimator
+	)
 
 	// The justice transaction we construct will be a segwit transaction
 	// that pays to a p2wkh output. Components such as the version,
@@ -1006,17 +1009,31 @@ func (b *breachArbiter) sweepSpendableOutputsTxn(
 		return nil, err
 	}
 
-	// Split inputs that has less amount than fee and add them to stray pool
-	inputs = b.cfg.CutStrayInputs(feePerKw, inputs)
+	// With the fee calculated, we can now create the transaction using the
+	// information gathered above and the provided retribution information.
+	txn := wire.NewMsgTx(2)
 
 	// Compute the total amount contained in the inputs.
 	var totalAmt btcutil.Amount
 	for _, input := range inputs {
+		// Cut input that has less amount than fee and add them to stray pool
+		if b.cfg.CutStrayInput(feePerKw, input) {
+			continue
+		}
+
+		// We add all of the spendable outputs as inputs to the transaction.
+		txn.AddTxIn(&wire.TxIn{
+			PreviousOutPoint: *input.OutPoint(),
+		})
+
 		totalAmt += input.Amount()
 
-		// First, select the appropriate estimated witness weight for
+		// Select the appropriate estimated witness weight for
 		// the give witness type of this breached output.
 		weightEstimate.AddWitnessInputByType(input.WitnessType())
+
+		// Add input to a list of publishing transaction.
+		txInputs = append(txInputs, input)
 	}
 
 	txFee := feePerKw.FeeForWeight(int64(weightEstimate.Weight()))
@@ -1024,23 +1041,11 @@ func (b *breachArbiter) sweepSpendableOutputsTxn(
 	// TODO(roasbeef): already start to siphon their funds into fees
 	sweepAmt := int64(totalAmt - txFee)
 
-	// With the fee calculated, we can now create the transaction using the
-	// information gathered above and the provided retribution information.
-	txn := wire.NewMsgTx(2)
-
 	// We begin by adding the output to which our funds will be deposited.
 	txn.AddTxOut(&wire.TxOut{
 		PkScript: pkScript,
 		Value:    sweepAmt,
 	})
-
-	// Next, we add all of the spendable outputs as inputs to the
-	// transaction.
-	for _, input := range inputs {
-		txn.AddTxIn(&wire.TxIn{
-			PreviousOutPoint: *input.OutPoint(),
-		})
-	}
 
 	// Before signing the transaction, check to ensure that it meets some
 	// basic validity requirements.
@@ -1076,7 +1081,7 @@ func (b *breachArbiter) sweepSpendableOutputsTxn(
 
 	// Finally, generate a witness for each output and attach it to the
 	// transaction.
-	for i, input := range inputs {
+	for i, input := range txInputs {
 		if err := addWitness(i, input); err != nil {
 			return nil, err
 		}

@@ -214,8 +214,8 @@ type NurseryConfig struct {
 	// CutStrayInputs cuts outputs with negative amount due to current fee rate
 	// and adds them to a storage to be able sweep at any time by request
 	// or schedule with appropriate fee rate flor.
-	CutStrayInputs func(feeRate lnwallet.SatPerVByte,
-		inputs []lnwallet.SpendableOutput) []lnwallet.SpendableOutput
+	CutStrayInput func(feeRate lnwallet.SatPerVByte,
+		input lnwallet.SpendableOutput) bool
 }
 
 // utxoNursery is a system dedicated to incubating time-locked outputs created
@@ -937,7 +937,18 @@ func (u *utxoNursery) createSweepTx(kgtnOutputs []kidOutput,
 	var (
 		csvOutputs     []lnwallet.CsvSpendableOutput
 		cltvOutputs    []lnwallet.SpendableOutput
+		weightEstimate lnwallet.TxWeightEstimator
 	)
+
+	// Our sweep transaction will pay to a single segwit p2wkh address,
+	// ensure it contributes to our weight estimate.
+	weightEstimate.AddP2WKHOutput()
+
+	// Using the txn weight estimate, compute the required txn fee.
+	feePerKw, err := u.cfg.Estimator.EstimateFeePerKW(6)
+	if err != nil {
+		return nil, err
+	}
 
 	// Allocate enough room for both types of kindergarten outputs.
 	csvOutputs = make([]lnwallet.CsvSpendableOutput, 0, len(kgtnOutputs))
@@ -946,32 +957,36 @@ func (u *utxoNursery) createSweepTx(kgtnOutputs []kidOutput,
 	// For each kindergarten output, use its witness type to determine the
 	// estimate weight of its witness, and add it to the proper set of
 	// spendable outputs.
-	for i := range kgtnOutputs {
-		input := &kgtnOutputs[i]
+	for _, input := range kgtnOutputs {
+		// Cut input that has less amount than fee and add them to stray pool
+		if u.cfg.CutStrayInput(feePerKw, &input) {
+			continue
+		}
+
+		weightEstimate.AddWitnessInputByType(input.WitnessType())
 
 		switch input.WitnessType() {
-
 		// Outputs on a past commitment transaction that pay directly
 		// to us.
 		case lnwallet.CommitmentTimeLock:
-			csvOutputs = append(csvOutputs, input)
+			csvOutputs = append(csvOutputs, &input)
 
 		// Outgoing second layer HTLC's that have confirmed within the
 		// chain, and the output they produced is now mature enough to
 		// sweep.
 		case lnwallet.HtlcOfferedTimeoutSecondLevel:
-			csvOutputs = append(csvOutputs, input)
+			csvOutputs = append(csvOutputs, &input)
 
 		// Incoming second layer HTLC's that have confirmed within the
 		// chain, and the output they produced is now mature enough to
 		// sweep.
 		case lnwallet.HtlcAcceptedSuccessSecondLevel:
-			csvOutputs = append(csvOutputs, input)
+			csvOutputs = append(csvOutputs, &input)
 
 		// An HTLC on the commitment transaction of the remote party,
 		// that has had its absolute timelock expire.
 		case lnwallet.HtlcOfferedRemoteTimeout:
-			cltvOutputs = append(cltvOutputs, input)
+			cltvOutputs = append(cltvOutputs, &input)
 
 		default:
 			utxnLog.Warnf("kindergarten output in nursery store "+
@@ -984,22 +999,18 @@ func (u *utxoNursery) createSweepTx(kgtnOutputs []kidOutput,
 	utxnLog.Infof("Creating sweep transaction for %v CSV inputs, %v CLTV "+
 		"inputs", len(csvOutputs), len(cltvOutputs))
 
-	return u.populateSweepTx(classHeight, csvOutputs, cltvOutputs)
+	txFee := feePerKw.FeeForWeight(int64(weightEstimate.VSize()))
+
+	return u.populateSweepTx(txFee, classHeight, csvOutputs, cltvOutputs)
 }
 
 // populateSweepTx populate the final sweeping transaction with all witnesses
 // in place for all inputs using the provided txn fee. The created transaction
 // has a single output sending all the funds back to the source wallet, after
 // accounting for the fee estimate.
-func (u *utxoNursery) populateSweepTx(classHeight uint32,
+func (u *utxoNursery) populateSweepTx(txFee btcutil.Amount, classHeight uint32,
 	csvInputs []lnwallet.CsvSpendableOutput,
 	cltvInputs []lnwallet.SpendableOutput) (*wire.MsgTx, error) {
-
-	var weightEstimate lnwallet.TxWeightEstimator
-
-	// Our sweep transaction will pay to a single segwit p2wkh address,
-	// ensure it contributes to our weight estimate.
-	weightEstimate.AddP2WKHOutput()
 
 	// Generate the receiving script to which the funds will be swept.
 	pkScript, err := u.cfg.GenSweepScript()
@@ -1007,28 +1018,14 @@ func (u *utxoNursery) populateSweepTx(classHeight uint32,
 		return nil, err
 	}
 
-	// Using the txn weight estimate, compute the required txn fee.
-	feePerKw, err := u.cfg.Estimator.EstimateFeePerKW(6)
-	if err != nil {
-		return nil, err
-	}
-
-	// Split inputs that has less amount than fee and add them to stray pool
-	//csvInp = u.cfg.CutStrayInputs(feePerVSize, csvInp)
-	cltvInputs = u.cfg.CutStrayInputs(feePerKw, cltvInputs)
-
 	// Sum up the total value contained in the inputs.
 	var totalSum btcutil.Amount
 	for _, o := range csvInputs {
 		totalSum += o.Amount()
-		weightEstimate.AddWitnessInputByType(o.WitnessType())
 	}
 	for _, o := range cltvInputs {
 		totalSum += o.Amount()
-		weightEstimate.AddWitnessInputByType(o.WitnessType())
 	}
-
-	txFee := feePerKw.FeeForWeight(int64(weightEstimate.Weight()))
 
 	// Sweep as much possible, after subtracting txn fees.
 	sweepAmt := int64(totalSum - txFee)

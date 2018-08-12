@@ -9,27 +9,20 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
-func CutStrayInputs(pool StrayOutputsPool, feeRate lnwallet.SatPerVByte,
-	inputs []lnwallet.SpendableOutput) []lnwallet.SpendableOutput {
+// CutStrayInput cuts input that has less amount than current fee
+// needed to mine it
+func CutStrayInput(spool StrayOutputsPool, feeRate lnwallet.SatPerVByte,
+	input lnwallet.SpendableOutput) bool {
+	var wEstimate lnwallet.TxWeightEstimator
 
-	var validInputs []lnwallet.SpendableOutput
+	vSize := wEstimate.AddWitnessInputByType(input.WitnessType()).VSize()
+	isStrayInput := feeRate.FeeForVSize(int64(vSize)) > input.Amount()
 
-	for _, input := range inputs {
-		if isNegativeInput(feeRate, input) {
-			pool.AddSpendableOutput(input)
-		} else {
-			validInputs = append(validInputs, input)
-		}
+	if isStrayInput {
+		spool.AddSpendableOutput(input)
 	}
 
-	return validInputs
-}
-
-func isNegativeInput(feeRate lnwallet.SatPerVByte, input lnwallet.SpendableOutput) bool {
-	var wEstimate lnwallet.TxWeightEstimator
-	wEstimate.AddWitnessInputByType(input.WitnessType())
-
-	return feeRate.FeeForVSize(int64(wEstimate.VSize())) > input.Amount()
+	return isStrayInput
 }
 
 func (d *DBStrayOutputsPool) CheckTransactionSanity(tx *btcutil.Tx) error {

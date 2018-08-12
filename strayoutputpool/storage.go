@@ -27,8 +27,7 @@ var (
 )
 
 // spendableOutput basic implementation of SpendableOutput interface.
-type
-spendableOutput struct {
+type spendableOutput struct {
 	amt         btcutil.Amount
 	outpoint    wire.OutPoint
 	witnessType lnwallet.WitnessType
@@ -65,6 +64,67 @@ func (s *spendableOutput) BuildWitness(signer lnwallet.Signer, txn *wire.MsgTx,
 	)
 
 	return witnessFunc(txn, hashCache, txinIdx)
+}
+
+// Encode serializes data of spendable output to serial data
+func (s *spendableOutput) Encode(w io.Writer) error {
+	var scratch [8]byte
+
+	byteOrder.PutUint64(scratch[:], uint64(s.Amount()))
+	if _, err := w.Write(scratch[:]); err != nil {
+		return err
+	}
+
+	if err := writeOutpoint(w, s.OutPoint()); err != nil {
+		return err
+	}
+
+	byteOrder.PutUint16(scratch[:2], uint16(s.WitnessType()))
+	if _, err := w.Write(scratch[:2]); err != nil {
+		return err
+	}
+
+	if err := lnwallet.WriteSignDescriptor(w, s.SignDesc()); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Decode deserializes data of spendable output from serial data
+func (s *spendableOutput) Decode(r io.Reader) error {
+	var (
+		scratch [8]byte
+		err     error
+	)
+
+	if _, err = r.Read(scratch[:]); err != nil && err != io.EOF {
+		return err
+	}
+	s.amt = btcutil.Amount(byteOrder.Uint64(scratch[:]))
+
+	if err = readOutpoint(io.LimitReader(r, 40),
+		&s.outpoint); err != nil && err != io.EOF {
+		return err
+	}
+
+	if _, err = r.Read(scratch[:2]); err != nil && err != io.EOF {
+		return err
+	}
+	s.witnessType = lnwallet.WitnessType(
+		byteOrder.Uint16(scratch[:2]),
+	)
+
+	if err = lnwallet.ReadSignDescriptor(r, &s.signDesc);
+	err != nil && err != io.EOF {
+		return err
+	}
+
+	if err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
 }
 
 // AddStrayOutput saves serialized stray output to database in order to combine
@@ -129,7 +189,7 @@ type strayOutput struct {
 	totalAmt btcutil.Amount
 
 	// outputs
-	outputs []lnwallet.SpendableOutput
+	outputs []*spendableOutput
 }
 
 
@@ -148,23 +208,7 @@ func (s *strayOutput) Encode(w io.Writer) error {
 	}
 
 	for _, input := range s.outputs {
-		byteOrder.PutUint64(scratch[:], uint64(input.Amount()))
-		if _, err := w.Write(scratch[:]); err != nil {
-			return err
-		}
-
-		if err := writeOutpoint(w, input.OutPoint()); err != nil {
-			return err
-		}
-
-		byteOrder.PutUint16(scratch[:2], uint16(input.WitnessType()))
-		if _, err := w.Write(scratch[:2]); err != nil {
-			return err
-		}
-
-		if err := lnwallet.WriteSignDescriptor(w, input.SignDesc()); err != nil {
-			return err
-		}
+		input.Encode(w)
 	}
 
 	return nil
@@ -184,35 +228,12 @@ func (s *strayOutput) Decode(r io.Reader) error {
 	}
 	s.totalAmt = btcutil.Amount(byteOrder.Uint64(scratch[:]))
 
-	var err error
 	for {
 		sOutput := &spendableOutput{}
-
-		if _, err = r.Read(scratch[:]); err != nil {
-			break
+		if err := sOutput.Decode(r); err != nil && err != io.EOF {
+			return err
 		}
-		sOutput.amt = btcutil.Amount(byteOrder.Uint64(scratch[:]))
-
-		if err = readOutpoint(io.LimitReader(r, 40),
-			&sOutput.outpoint); err != nil {
-			break
-		}
-
-		if _, err = r.Read(scratch[:2]); err != nil {
-			break
-		}
-		sOutput.witnessType = lnwallet.WitnessType(
-			byteOrder.Uint16(scratch[:2]),
-		)
-
-		if err = lnwallet.ReadSignDescriptor(r, &sOutput.signDesc); err != nil {
-			break
-		}
-
 		s.outputs = append(s.outputs, sOutput)
-	}
-	if err != nil && err != io.EOF {
-		return err
 	}
 
 	return nil

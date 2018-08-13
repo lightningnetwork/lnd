@@ -434,8 +434,14 @@ func determineFeePerKw(feeEstimator lnwallet.FeeEstimator, targetConf int32,
 	// If a manual sat/byte fee rate is set, then we'll use that directly.
 	// We'll need to convert it to sat/kw as this is what we use internally.
 	case feePerByte != 0:
-		feePerKB := lnwallet.SatPerKVByte(feePerByte * 1000)
-		return feePerKB.FeePerKWeight(), nil
+		feePerKW := lnwallet.SatPerKVByte(feePerByte * 1000).FeePerKWeight()
+		if feePerKW < lnwallet.FeePerKwFloor {
+			rpcsLog.Infof("Manual fee rate input of %d sat/kw is "+
+				"too low, using %d sat/kw instead", feePerKW,
+				lnwallet.FeePerKwFloor)
+			feePerKW = lnwallet.FeePerKwFloor
+		}
+		return feePerKW, nil
 
 	// Otherwise, we'll attempt a relaxed confirmation target for the
 	// transaction

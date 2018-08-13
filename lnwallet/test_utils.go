@@ -509,7 +509,7 @@ func (m *mockPreimageCache) LookupPreimage(hash []byte) ([]byte, bool) {
 	return p, ok
 }
 
-func (m *mockPreimageCache) AddPreimage(preimage []byte) error {
+func (m *mockPreimageCache) AddPreimage(preimage []byte, expiry uint32) error {
 	m.Lock()
 	defer m.Unlock()
 

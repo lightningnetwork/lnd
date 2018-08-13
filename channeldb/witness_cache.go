@@ -1,6 +1,7 @@
 package channeldb
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"fmt"
 
@@ -70,12 +71,13 @@ func (d *DB) NewWitnessCache() *WitnessCache {
 	}
 }
 
-// AddWitness adds a new witness of wType to the witness cache. The type of the
-// witness will be used to map the witness to the key that will be used to look
-// it up.
+// AddWitness adds a new witness of wType and its expiry height to the witness
+// cache. The type of the witness will be used to map the witness to the key
+// that will be used to look it up.
 //
 // TODO(roasbeef): fake closure to map instead a constructor?
-func (w *WitnessCache) AddWitness(wType WitnessType, witness []byte) error {
+func (w *WitnessCache) AddWitness(wType WitnessType, witness []byte,
+	expiryHeight uint32) error {
 	return w.db.Batch(func(tx *bolt.Tx) error {
 		witnessBucket, err := tx.CreateBucketIfNotExists(witnessBucketKey)
 		if err != nil {
@@ -102,7 +104,12 @@ func (w *WitnessCache) AddWitness(wType WitnessType, witness []byte) error {
 			witnessKey = key[:]
 		}
 
-		return witnessTypeBucket.Put(witnessKey, witness)
+		var writer bytes.Buffer
+		if err := WriteElements(&writer, witness, expiryHeight); err != nil {
+			return err
+		}
+
+		return witnessTypeBucket.Put(witnessKey, writer.Bytes())
 	})
 }
 
@@ -131,8 +138,14 @@ func (w *WitnessCache) LookupWitness(wType WitnessType, witnessKey []byte) ([]by
 			return ErrNoWitnesses
 		}
 
-		witness = make([]byte, len(dbWitness))
-		copy(witness[:], dbWitness)
+		r := bytes.NewReader(dbWitness)
+		// We don't actually use the expiry anywhere since only the
+		// garbage collector uses it.
+		var expiry uint32
+		err = ReadElements(r, &witness, &expiry)
+		if err != nil {
+			return err
+		}
 
 		return nil
 	})
@@ -141,6 +154,52 @@ func (w *WitnessCache) LookupWitness(wType WitnessType, witnessKey []byte) ([]by
 	}
 
 	return witness, nil
+}
+
+// FetchAllWitnesses retrieves all witness data (witness + expiry height) from
+// the db for a given WitnessType.
+func (w *WitnessCache) FetchAllWitnesses(wType WitnessType) ([][]byte, []uint32, error) {
+	var witnesses [][]byte
+	var expiryHeights []uint32
+	err := w.db.View(func(tx *bolt.Tx) error {
+		witnessBucket := tx.Bucket(witnessBucketKey)
+		if witnessBucket == nil {
+			return ErrNoWitnesses
+		}
+
+		witnessTypeBucketKey, err := wType.toDBKey()
+		if err != nil {
+			return err
+		}
+		witnessTypeBucket := witnessBucket.Bucket(witnessTypeBucketKey)
+		if witnessTypeBucket == nil {
+			return ErrNoWitnesses
+		}
+
+		// Loop through the bucket and return all witnesses with their
+		// respective expiries.
+		if err = witnessTypeBucket.ForEach(func(keys, witnessData []byte) error {
+			var witness []byte
+			var expiry uint32
+
+			r := bytes.NewReader(witnessData)
+			err := ReadElements(r, &witness, &expiry)
+			if err != nil {
+				return err
+			}
+
+			witnesses = append(witnesses, witness)
+			expiryHeights = append(expiryHeights, expiry)
+
+			return nil
+		}); err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	return witnesses, expiryHeights, err
 }
 
 // DeleteWitness attempts to delete a particular witness from the database.

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math"
 
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -760,8 +761,8 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 			"spend!", h, h.htlcResolution.ClaimOutpoint, preimage[:])
 
 		// With the preimage obtained, we can now add it to the global
-		// cache.
-		if err := h.PreimageDB.AddPreimage(preimage[:]); err != nil {
+		// cache with a dummy expiry height.
+		if err := h.PreimageDB.AddPreimage(preimage[:], math.MaxUint32); err != nil {
 			log.Errorf("%T(%v): unable to add witness to cache",
 				h, h.htlcResolution.ClaimOutpoint)
 		}

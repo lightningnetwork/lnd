@@ -50,12 +50,20 @@ type WitnessBeacon interface {
 	// a new preimage is discovered.
 	SubscribeUpdates() *WitnessSubscription
 
-	// LookupPreImage attempts to lookup a preimage in the global cache.
-	// True is returned for the second argument if the preimage is found.
+	// LookupPreImage attempts to lookup a preimage. True is returned for
+	// the second argument if the preimage is found.
 	LookupPreimage(payhash []byte) ([]byte, bool)
 
-	// AddPreImage adds a newly discovered preimage to the global cache.
-	AddPreimage(pre []byte) error
+	// AddPreImage adds a newly discovered preimage and its expiry height
+	// to the global cache.
+	AddPreimage(pre []byte, expiryHeight uint32) error
+
+	// Start starts the WitnessBeacon's witness garbage collector.
+	// This is run in a goroutine.
+	Start() error
+
+	// Stop stops the WitnessBeacon's witness garbage collector.
+	Stop() error
 }
 
 // ChannelArbitratorConfig contains all the functionality that the

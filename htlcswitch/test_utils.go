@@ -435,7 +435,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		}
 
 		newAliceChannel, err := lnwallet.NewLightningChannel(aliceSigner,
-			nil, aliceStoredChannel)
+			pCache, aliceStoredChannel)
 		if err != nil {
 			return nil, nil, errors.Errorf("unable to create new channel: %v",
 				err)
@@ -474,7 +474,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		}
 
 		newBobChannel, err := lnwallet.NewLightningChannel(bobSigner,
-			nil, bobStoredChannel)
+			pCache, bobStoredChannel)
 		if err != nil {
 			return nil, nil, errors.Errorf("unable to create new channel: %v",
 				err)

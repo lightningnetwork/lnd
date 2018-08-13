@@ -45,7 +45,7 @@ func (m *mockPreimageCache) LookupPreimage(hash []byte) ([]byte, bool) {
 	return p, ok
 }
 
-func (m *mockPreimageCache) AddPreimage(preimage []byte) error {
+func (m *mockPreimageCache) AddPreimage(preimage []byte, expiry uint32) error {
 	m.Lock()
 	defer m.Unlock()
 
@@ -55,6 +55,14 @@ func (m *mockPreimageCache) AddPreimage(preimage []byte) error {
 }
 
 func (m *mockPreimageCache) SubscribeUpdates() *contractcourt.WitnessSubscription {
+	return nil
+}
+
+func (m *mockPreimageCache) Start() error {
+	return nil
+}
+
+func (m *mockPreimageCache) Stop() error {
 	return nil
 }
 

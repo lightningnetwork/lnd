@@ -4602,6 +4602,12 @@ func (lc *LightningChannel) SettleHTLC(preimage [32]byte,
 		return ErrInvalidSettlePreimage{preimage[:], htlc.RHash[:]}
 	}
 
+	// Since we have a valid preimage, we will go ahead and add the correct
+	// expiry to the PreimageCache.
+	if err := lc.pCache.AddPreimage(preimage[:], htlc.Timeout); err != nil {
+		return fmt.Errorf("Unable to add preimage=%x to cache", preimage[:])
+	}
+
 	pd := &PaymentDescriptor{
 		Amount:           htlc.Amount,
 		RPreimage:        preimage,

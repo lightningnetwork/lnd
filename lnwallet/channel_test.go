@@ -582,7 +582,7 @@ func TestForceClose(t *testing.T) {
 
 	// Before we force close Alice's channel, we'll add the pre-image of
 	// Bob's HTLC to her preimage cache.
-	aliceChannel.pCache.AddPreimage(preimageBob[:])
+	aliceChannel.pCache.AddPreimage(preimageBob[:], 0)
 
 	// With the cache populated, we'll now attempt the force close
 	// initiated by Alice.
@@ -1444,14 +1444,18 @@ func TestStateUpdatePersistence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch channel: %v", err)
 	}
+	pCache := &mockPreimageCache{
+		// hash -> preimage
+		preimageMap: make(map[[32]byte][]byte),
+	}
 	aliceChannelNew, err := NewLightningChannel(
-		aliceChannel.Signer, nil, aliceChannels[0],
+		aliceChannel.Signer, pCache, aliceChannels[0],
 	)
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
 	}
 	bobChannelNew, err := NewLightningChannel(
-		bobChannel.Signer, nil, bobChannels[0],
+		bobChannel.Signer, pCache, bobChannels[0],
 	)
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
@@ -4608,7 +4612,7 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 	// Now that Bob has force closed, we'll modify Alice's pre image cache
 	// such that she now gains the ability to also settle the incoming HTLC
 	// from Bob.
-	aliceChannel.pCache.AddPreimage(preimageBob[:])
+	aliceChannel.pCache.AddPreimage(preimageBob[:], 0)
 
 	// We'll then use Bob's transaction to trigger a spend notification for
 	// Alice.

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
+	"math"
 	prand "math/rand"
 	"sync"
 	"sync/atomic"
@@ -1394,11 +1395,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// TODO(roasbeef): pipeline to switch
 
 		// As we've learned of a new preimage for the first time, we'll
-		// add it to our preimage cache. By doing this, we ensure
-		// any contested contracts watched by any on-chain arbitrators
-		// can now sweep this HTLC on-chain.
+		// add it to our preimage cache with a dummy expiry height. By
+		// doing this, we ensure any contested contracts watched by
+		// any on-chain arbitrators can now sweep this HTLC on-chain.
 		go func() {
-			err := l.cfg.PreimageCache.AddPreimage(pre[:])
+			err := l.cfg.PreimageCache.AddPreimage(pre[:], math.MaxUint32)
 			if err != nil {
 				l.errorf("unable to add preimage=%x to "+
 					"cache", pre[:])

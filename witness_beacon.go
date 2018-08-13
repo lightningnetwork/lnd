@@ -1,9 +1,13 @@
 package main
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -21,6 +25,9 @@ type preimageSubscriber struct {
 // interface, and the lnwallet.PreimageCache interface. This implementation is
 // concerned with a single witness type: sha256 hahsh preimages.
 type preimageBeacon struct {
+	started int32
+	stopped int32
+
 	sync.RWMutex
 
 	invoices *invoiceRegistry
@@ -29,6 +36,11 @@ type preimageBeacon struct {
 
 	clientCounter uint64
 	subscribers   map[uint64]*preimageSubscriber
+
+	notifier chainntnfs.ChainNotifier
+
+	wg   sync.WaitGroup
+	quit chan struct{}
 }
 
 // SubscribeUpdates returns a channel that will be sent upon *each* time a new
@@ -63,8 +75,9 @@ func (p *preimageBeacon) SubscribeUpdates() *contractcourt.WitnessSubscription {
 	}
 }
 
-// LookupPreImage attempts to lookup a preimage in the global cache.  True is
-// returned for the second argument if the preimage is found.
+// LookupPreImage attempts to lookup a preimage. True is returned for the
+// second argument if the preimage is found. Returning the expiry height
+// is unnecessary.
 func (p *preimageBeacon) LookupPreimage(payHash []byte) ([]byte, bool) {
 	p.RLock()
 	defer p.RUnlock()
@@ -101,15 +114,19 @@ func (p *preimageBeacon) LookupPreimage(payHash []byte) ([]byte, bool) {
 }
 
 // AddPreImage adds a newly discovered preimage to the global cache, and also
-// signals any subscribers of the newly discovered witness.
-func (p *preimageBeacon) AddPreimage(pre []byte) error {
+// signals any subscribers of the newly discovered witness. After the preimage is
+// first discovered, it will have an expiry height of Math.MaxUint32.  When the
+// appropriate subsystems query for this preimage and construct an UpdateFulfillHTLC
+// message to send to the downstream peer, the correct expiry height will be added
+// to the global cache.
+func (p *preimageBeacon) AddPreimage(pre []byte, expiryHeight uint32) error {
 	p.Lock()
 	defer p.Unlock()
 
 	srvrLog.Infof("Adding preimage=%x to witness cache", pre[:])
 
-	// First, we'll add the witness to the decaying witness cache.
-	err := p.wCache.AddWitness(channeldb.Sha256HashWitness, pre)
+	// First, we'll add the witness and height to the decaying witness cache.
+	err := p.wCache.AddWitness(channeldb.Sha256HashWitness, pre, expiryHeight)
 	if err != nil {
 		return err
 	}
@@ -127,6 +144,100 @@ func (p *preimageBeacon) AddPreimage(pre []byte) error {
 	}
 
 	return nil
+}
+
+// Start starts the R-value preimage garbage collector.
+func (p *preimageBeacon) Start() error {
+	if !atomic.CompareAndSwapInt32(&p.started, 0, 1) {
+		return nil
+	}
+
+	// Start garbage collector
+	epochClient, err := p.notifier.RegisterBlockEpochNtfn()
+	if err != nil {
+		return fmt.Errorf("Unable to register for epoch "+
+			"notifications: %v", err)
+	}
+
+	p.wg.Add(1)
+	go p.garbageCollector(epochClient)
+
+	return nil
+}
+
+// Stop stops the garbage collector.
+func (p *preimageBeacon) Stop() error {
+	if !atomic.CompareAndSwapInt32(&p.stopped, 0, 1) {
+		return nil
+	}
+
+	// Stop garbage collector
+	close(p.quit)
+
+	p.wg.Wait()
+
+	return nil
+}
+
+// garbageCollector calls gcExpiredPreimages, which actually does the garbage
+// collecting, upon receiving new block notifications from the epochClient.
+func (p *preimageBeacon) garbageCollector(epochClient *chainntnfs.BlockEpochEvent) {
+	defer p.wg.Done()
+	defer epochClient.Cancel()
+
+	for {
+		select {
+		case epoch, ok := <-epochClient.Epochs:
+			if !ok {
+				// Block epoch was canceled, shutting down.
+				srvrLog.Infof("Block epoch canceled, " +
+					"garbage collector shutting down")
+				return
+			}
+
+			// Using the current block height, scrub the cache
+			// of expired preimages.
+			height := uint32(epoch.Height)
+			numStale, err := p.gcExpiredPreimages(height)
+			if err != nil {
+				srvrLog.Errorf("unable to expire preimages at "+
+					"height=%d", height)
+			}
+
+			if numStale > 0 {
+				srvrLog.Infof("Garbage collected %v preimages "+
+					"at height=%d", numStale, height)
+			}
+		case <-p.quit:
+			// Received shutdown request.
+			srvrLog.Infof("Garbage collector received shutdown request")
+			return
+		}
+	}
+}
+
+// gcExpiredPreimages is the function that actually removes the preimages.
+// NOTE: We could remove the preimages when their associated HTLC's has been swept
+// and confirmed or when we receive a revocation key from the remote party, but
+// as the preimages already have a set termination date, this is unnecessary.
+func (p *preimageBeacon) gcExpiredPreimages(height uint32) (uint32, error) {
+	var numExpiredPreimages uint32
+
+	witnesses, expiryHeights, err := p.wCache.FetchAllWitnesses(channeldb.Sha256HashWitness)
+	if err != nil {
+		return 0, err
+	}
+
+	for i := 0; i < len(witnesses); i++ {
+		if expiryHeights[i] < height {
+			key := sha256.Sum256(witnesses[i])
+			witnessKey := key[:]
+			p.wCache.DeleteWitness(channeldb.Sha256HashWitness, witnessKey)
+			numExpiredPreimages++
+		}
+	}
+
+	return numExpiredPreimages, nil
 }
 
 var _ contractcourt.WitnessBeacon = (*preimageBeacon)(nil)

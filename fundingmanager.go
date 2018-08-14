@@ -523,10 +523,15 @@ func (f *fundingManager) Start() error {
 				// initiator.
 
 				closeInfo := &channeldb.ChannelCloseSummary{
-					ChainHash: ch.ChainHash,
-					ChanPoint: ch.FundingOutpoint,
-					RemotePub: ch.IdentityPub,
-					CloseType: channeldb.FundingCanceled,
+					ChainHash:               ch.ChainHash,
+					ChanPoint:               ch.FundingOutpoint,
+					RemotePub:               ch.IdentityPub,
+					Capacity:                ch.Capacity,
+					SettledBalance:          ch.LocalBalance,
+					CloseType:               channeldb.FundingCanceled,
+					RemoteCurrentRevocation: ch.RemoteCurrentRevocation,
+					RemoteNextRevocation:    ch.RemoteNextRevocation,
+					LocalChanConfig:         ch.LocalChanCfg,
 				}
 
 				if err := ch.CloseChannel(closeInfo); err != nil {
@@ -1372,10 +1377,15 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 	// from the database.
 	deleteFromDatabase := func() {
 		closeInfo := &channeldb.ChannelCloseSummary{
-			ChanPoint: completeChan.FundingOutpoint,
-			ChainHash: completeChan.ChainHash,
-			RemotePub: completeChan.IdentityPub,
-			CloseType: channeldb.FundingCanceled,
+			ChanPoint:               completeChan.FundingOutpoint,
+			ChainHash:               completeChan.ChainHash,
+			RemotePub:               completeChan.IdentityPub,
+			CloseType:               channeldb.FundingCanceled,
+			Capacity:                completeChan.Capacity,
+			SettledBalance:          completeChan.LocalBalance,
+			RemoteCurrentRevocation: completeChan.RemoteCurrentRevocation,
+			RemoteNextRevocation:    completeChan.RemoteNextRevocation,
+			LocalChanConfig:         completeChan.LocalChanCfg,
 		}
 
 		if err := completeChan.CloseChannel(closeInfo); err != nil {

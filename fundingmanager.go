@@ -521,13 +521,13 @@ func (f *fundingManager) Start() error {
 				// mined since the channel was initiated reaches
 				// maxWaitNumBlocksFundingConf and we are not the channel
 				// initiator.
-
+				localBalance := ch.LocalCommitment.LocalBalance.ToSatoshis()
 				closeInfo := &channeldb.ChannelCloseSummary{
 					ChainHash:               ch.ChainHash,
 					ChanPoint:               ch.FundingOutpoint,
 					RemotePub:               ch.IdentityPub,
 					Capacity:                ch.Capacity,
-					SettledBalance:          ch.LocalBalance,
+					SettledBalance:          localBalance,
 					CloseType:               channeldb.FundingCanceled,
 					RemoteCurrentRevocation: ch.RemoteCurrentRevocation,
 					RemoteNextRevocation:    ch.RemoteNextRevocation,
@@ -1376,13 +1376,14 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 	// we use this convenience method to delete the pending OpenChannel
 	// from the database.
 	deleteFromDatabase := func() {
+		localBalance := completeChan.LocalCommitment.LocalBalance.ToSatoshis()
 		closeInfo := &channeldb.ChannelCloseSummary{
 			ChanPoint:               completeChan.FundingOutpoint,
 			ChainHash:               completeChan.ChainHash,
 			RemotePub:               completeChan.IdentityPub,
 			CloseType:               channeldb.FundingCanceled,
 			Capacity:                completeChan.Capacity,
-			SettledBalance:          completeChan.LocalBalance,
+			SettledBalance:          localBalance,
 			RemoteCurrentRevocation: completeChan.RemoteCurrentRevocation,
 			RemoteNextRevocation:    completeChan.RemoteNextRevocation,
 			LocalChanConfig:         completeChan.LocalChanCfg,

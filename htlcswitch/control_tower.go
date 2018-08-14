@@ -57,15 +57,17 @@ type ControlTower interface {
 // paymentControl is persistent implementation of ControlTower to restrict
 // double payment sending.
 type paymentControl struct {
-	mx sync.Mutex
+	strict bool
 
+	mx sync.Mutex
 	db *channeldb.DB
 }
 
 // NewPaymentControl creates a new instance of the paymentControl.
-func NewPaymentControl(db *channeldb.DB) ControlTower {
+func NewPaymentControl(strict bool, db *channeldb.DB) ControlTower {
 	return &paymentControl{
-		db: db,
+		strict: strict,
+		db:     db,
 	}
 }
 
@@ -116,19 +118,25 @@ func (p *paymentControl) Success(paymentHash [32]byte) error {
 		return err
 	}
 
-	switch paymentStatus {
-	case channeldb.StatusGrounded:
+	switch {
+
+	case paymentStatus == channeldb.StatusGrounded && p.strict:
 		// Our records show the payment as still being grounded, meaning
 		// it never should have left the switch.
 		return ErrPaymentNotInitiated
 
-	case channeldb.StatusInFlight:
+	case paymentStatus == channeldb.StatusGrounded && !p.strict:
+		// Our records show the payment as still being grounded, meaning
+		// it never should have left the switch.
+		fallthrough
+
+	case paymentStatus == channeldb.StatusInFlight:
 		// A successful response was received for an InFlight payment,
 		// mark it as completed to prevent sending to this payment hash
 		// again.
 		return p.db.UpdatePaymentStatus(paymentHash, channeldb.StatusCompleted)
 
-	case channeldb.StatusCompleted:
+	case paymentStatus == channeldb.StatusCompleted:
 		// The payment was completed previously, alert the caller that
 		// this may be a duplicate call.
 		return ErrPaymentAlreadyCompleted
@@ -150,18 +158,24 @@ func (p *paymentControl) Fail(paymentHash [32]byte) error {
 		return err
 	}
 
-	switch paymentStatus {
-	case channeldb.StatusGrounded:
+	switch {
+
+	case paymentStatus == channeldb.StatusGrounded && p.strict:
 		// Our records show the payment as still being grounded, meaning
 		// it never should have left the switch.
 		return ErrPaymentNotInitiated
 
-	case channeldb.StatusInFlight:
+	case paymentStatus == channeldb.StatusGrounded && !p.strict:
+		// Our records show the payment as still being grounded, meaning
+		// it never should have left the switch.
+		fallthrough
+
+	case paymentStatus == channeldb.StatusInFlight:
 		// A failed response was received for an InFlight payment, mark
 		// it as Grounded again to allow subsequent attempts.
 		return p.db.UpdatePaymentStatus(paymentHash, channeldb.StatusGrounded)
 
-	case channeldb.StatusCompleted:
+	case paymentStatus == channeldb.StatusCompleted:
 		// The payment was completed previously, and we are now
 		// reporting that it has failed. Leave the status as completed,
 		// but alert the user that something is wrong.

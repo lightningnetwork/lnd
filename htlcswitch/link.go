@@ -117,9 +117,10 @@ type ChannelLinkConfig struct {
 	Switch *Switch
 
 	// ForwardPackets attempts to forward the batch of htlcs through the
-	// switch. Any failed packets will be returned to the provided
-	// ChannelLink.
-	ForwardPackets func(...*htlcPacket) chan error
+	// switch, any failed packets will be returned to the provided
+	// ChannelLink. The link's quit signal should be provided to allow
+	// cancellation of forwarding during link shutdown.
+	ForwardPackets func(chan struct{}, ...*htlcPacket) chan error
 
 	// DecodeHopIterators facilitates batched decoding of HTLC Sphinx onion
 	// blobs, which are then used to inform how to forward an HTLC.
@@ -359,21 +360,6 @@ func (l *channelLink) Start() error {
 
 	log.Infof("ChannelLink(%v) is starting", l)
 
-	// Before we start the link, we'll update the ChainArbitrator with the
-	// set of new channel signals for this channel.
-	//
-	// TODO(roasbeef): split goroutines within channel arb to avoid
-	go func() {
-		err := l.cfg.UpdateContractSignals(&contractcourt.ContractSignals{
-			HtlcUpdates: l.htlcUpdates,
-			ShortChanID: l.channel.ShortChanID(),
-		})
-		if err != nil {
-			log.Errorf("Unable to update signals for "+
-				"ChannelLink(%v)", l)
-		}
-	}()
-
 	l.mailBox.ResetMessages()
 	l.overflowQueue.Start()
 
@@ -401,6 +387,24 @@ func (l *channelLink) Start() error {
 			return fmt.Errorf("unable to trim circuits above "+
 				"local htlc index %d: %v", localHtlcIndex, err)
 		}
+
+		// Since the link is live, before we start the link we'll update
+		// the ChainArbitrator with the set of new channel signals for
+		// this channel.
+		//
+		// TODO(roasbeef): split goroutines within channel arb to avoid
+		go func() {
+			signals := &contractcourt.ContractSignals{
+				HtlcUpdates: l.htlcUpdates,
+				ShortChanID: l.channel.ShortChanID(),
+			}
+
+			err := l.cfg.UpdateContractSignals(signals)
+			if err != nil {
+				log.Errorf("Unable to update signals for "+
+					"ChannelLink(%v)", l)
+			}
+		}()
 	}
 
 	l.updateFeeTimer = time.NewTimer(l.randomFeeUpdateTimeout())
@@ -2539,7 +2543,7 @@ func (l *channelLink) forwardBatch(packets ...*htlcPacket) {
 		filteredPkts = append(filteredPkts, pkt)
 	}
 
-	errChan := l.cfg.ForwardPackets(filteredPkts...)
+	errChan := l.cfg.ForwardPackets(l.quit, filteredPkts...)
 	go l.handleBatchFwdErrs(errChan)
 }
 

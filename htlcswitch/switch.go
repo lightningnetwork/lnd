@@ -527,12 +527,15 @@ func (s *Switch) forward(packet *htlcPacket) error {
 // ForwardPackets adds a list of packets to the switch for processing. Fails
 // and settles are added on a first past, simultaneously constructing circuits
 // for any adds. After persisting the circuits, another pass of the adds is
-// given to forward them through the router.
+// given to forward them through the router. The sending link's quit channel is
+// used to prevent deadlocks when the switch stops a link in the midst of
+// forwarding.
 //
 // NOTE: This method guarantees that the returned err chan will eventually be
 // closed. The receiver should read on the channel until receiving such a
 // signal.
-func (s *Switch) ForwardPackets(packets ...*htlcPacket) chan error {
+func (s *Switch) ForwardPackets(linkQuit chan struct{},
+	packets ...*htlcPacket) chan error {
 
 	var (
 		// fwdChan is a buffered channel used to receive err msgs from
@@ -568,6 +571,9 @@ func (s *Switch) ForwardPackets(packets ...*htlcPacket) chan error {
 	// so, we exit early to avoid incrementing the switch's waitgroup while
 	// it is already in the process of shutting down.
 	select {
+	case <-linkQuit:
+		close(errChan)
+		return errChan
 	case <-s.quit:
 		close(errChan)
 		return errChan
@@ -593,7 +599,10 @@ func (s *Switch) ForwardPackets(packets ...*htlcPacket) chan error {
 			circuits = append(circuits, circuit)
 			addBatch = append(addBatch, packet)
 		default:
-			s.routeAsync(packet, fwdChan)
+			err := s.routeAsync(packet, fwdChan, linkQuit)
+			if err != nil {
+				return errChan
+			}
 			numSent++
 		}
 	}
@@ -635,7 +644,10 @@ func (s *Switch) ForwardPackets(packets ...*htlcPacket) chan error {
 	// Now, forward any packets for circuits that were successfully added to
 	// the switch's circuit map.
 	for _, packet := range addedPackets {
-		s.routeAsync(packet, fwdChan)
+		err := s.routeAsync(packet, fwdChan, linkQuit)
+		if err != nil {
+			return errChan
+		}
 		numSent++
 	}
 
@@ -722,9 +734,13 @@ func (s *Switch) route(packet *htlcPacket) error {
 }
 
 // routeAsync sends a packet through the htlc switch, using the provided err
-// chan to propagate errors back to the caller. This method does not wait for
-// a response before returning.
-func (s *Switch) routeAsync(packet *htlcPacket, errChan chan error) error {
+// chan to propagate errors back to the caller. The link's quit channel is
+// provided so that the send can be canceled if either the link or the switch
+// receive a shutdown requuest. This method does not wait for a response from
+// the htlcForwarder before returning.
+func (s *Switch) routeAsync(packet *htlcPacket, errChan chan error,
+	linkQuit chan struct{}) error {
+
 	command := &plexPacket{
 		pkt: packet,
 		err: errChan,
@@ -733,6 +749,8 @@ func (s *Switch) routeAsync(packet *htlcPacket, errChan chan error) error {
 	select {
 	case s.htlcPlex <- command:
 		return nil
+	case <-linkQuit:
+		return ErrLinkShuttingDown
 	case <-s.quit:
 		return errors.New("Htlc Switch was stopped")
 	}
@@ -1380,20 +1398,33 @@ func (s *Switch) htlcForwarder() {
 		s.blockEpochStream.Cancel()
 
 		// Remove all links once we've been signalled for shutdown.
+		var linksToStop []ChannelLink
 		s.indexMtx.Lock()
 		for _, link := range s.linkIndex {
-			if err := s.removeLink(link.ChanID()); err != nil {
-				log.Errorf("unable to remove "+
-					"channel link on stop: %v", err)
+			activeLink := s.removeLink(link.ChanID())
+			if activeLink == nil {
+				log.Errorf("unable to remove ChannelLink(%v) "+
+					"on stop", link.ChanID())
+				continue
 			}
+			linksToStop = append(linksToStop, activeLink)
 		}
 		for _, link := range s.pendingLinkIndex {
-			if err := s.removeLink(link.ChanID()); err != nil {
-				log.Errorf("unable to remove pending "+
-					"channel link on stop: %v", err)
+			pendingLink := s.removeLink(link.ChanID())
+			if pendingLink == nil {
+				log.Errorf("unable to remove ChannelLink(%v) "+
+					"on stop", link.ChanID())
+				continue
 			}
+			linksToStop = append(linksToStop, pendingLink)
 		}
 		s.indexMtx.Unlock()
+
+		// Now that all pending and live links have been removed from
+		// the forwarding indexes, stop each one before shutting down.
+		for _, link := range linksToStop {
+			link.Stop()
+		}
 
 		// Before we exit fully, we'll attempt to flush out any
 		// forwarding events that may still be lingering since the last
@@ -1721,7 +1752,10 @@ func (s *Switch) reforwardSettleFails(fwdPkgs []*channeldb.FwdPkg) {
 			}
 		}
 
-		errChan := s.ForwardPackets(switchPackets...)
+		// Since this send isn't tied to a specific link, we pass a nil
+		// link quit channel, meaning the send will fail only if the
+		// switch receives a shutdown request.
+		errChan := s.ForwardPackets(nil, switchPackets...)
 		go handleBatchFwdErrs(errChan)
 	}
 }
@@ -1776,11 +1810,11 @@ func (s *Switch) AddLink(link ChannelLink) error {
 
 	chanID := link.ChanID()
 
-	// If a link already exists, then remove the prior one so we can
-	// replace it with this fresh instance.
+	// First, ensure that this link is not already active in the switch.
 	_, err := s.getLink(chanID)
 	if err == nil {
-		s.removeLink(chanID)
+		return fmt.Errorf("unable to add ChannelLink(%v), already "+
+			"active", chanID)
 	}
 
 	// Get and attach the mailbox for this link, which buffers packets in
@@ -1868,24 +1902,28 @@ func (s *Switch) getLinkByShortID(chanID lnwire.ShortChannelID) (ChannelLink, er
 	return link, nil
 }
 
-// RemoveLink is used to initiate the handling of the remove link command. The
-// request will be propagated/handled to/in the main goroutine.
-func (s *Switch) RemoveLink(chanID lnwire.ChannelID) error {
+// RemoveLink purges the switch of any link associated with chanID. If a pending
+// or active link is not found, this method does nothing. Otherwise, the method
+// returns after the link has been completely shutdown.
+func (s *Switch) RemoveLink(chanID lnwire.ChannelID) {
 	s.indexMtx.Lock()
-	defer s.indexMtx.Unlock()
+	link := s.removeLink(chanID)
+	s.indexMtx.Unlock()
 
-	return s.removeLink(chanID)
+	if link != nil {
+		link.Stop()
+	}
 }
 
 // removeLink is used to remove and stop the channel link.
 //
 // NOTE: This MUST be called with the indexMtx held.
-func (s *Switch) removeLink(chanID lnwire.ChannelID) error {
+func (s *Switch) removeLink(chanID lnwire.ChannelID) ChannelLink {
 	log.Infof("Removing channel link with ChannelID(%v)", chanID)
 
 	link, err := s.getLink(chanID)
 	if err != nil {
-		return err
+		return nil
 	}
 
 	// Remove the channel from live link indexes.
@@ -1906,9 +1944,7 @@ func (s *Switch) removeLink(chanID lnwire.ChannelID) error {
 		}
 	}
 
-	go link.Stop()
-
-	return nil
+	return link
 }
 
 // UpdateShortChanID updates the short chan ID for an existing channel. This is

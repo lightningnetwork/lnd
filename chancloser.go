@@ -73,7 +73,7 @@ type chanCloseCfg struct {
 	// unregisterChannel is a function closure that allows the
 	// channelCloser to re-register a channel. Once this has been done, no
 	// further HTLC's should be routed through the channel.
-	unregisterChannel func(lnwire.ChannelID) error
+	unregisterChannel func(lnwire.ChannelID)
 
 	// broadcastTx broadcasts the passed transaction to the network.
 	broadcastTx func(*wire.MsgTx) error

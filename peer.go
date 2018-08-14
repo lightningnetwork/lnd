@@ -469,11 +469,7 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 			// mailboxes such that we can safely force close
 			// without the link being added again and updates being
 			// applied.
-			err := p.server.htlcSwitch.RemoveLink(chanID)
-			if err != nil {
-				peerLog.Errorf("unable to stop link(%v): %v",
-					shortChanID, err)
-			}
+			p.server.htlcSwitch.RemoveLink(chanID)
 
 			// If the error encountered was severe enough, we'll
 			// now force close the channel.
@@ -556,6 +552,12 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 	}
 
 	link := htlcswitch.NewChannelLink(linkCfg, lnChan)
+
+	// Before adding our new link, purge the switch of any pending or live
+	// links going by the same channel id. If one is found, we'll shut it
+	// down to ensure that the mailboxes are only ever under the control of
+	// one link.
+	p.server.htlcSwitch.RemoveLink(link.ChanID())
 
 	// With the channel link created, we'll now notify the htlc switch so
 	// this channel can be used to dispatch local payments and also
@@ -1526,8 +1528,8 @@ out:
 			)
 			if err != nil {
 				peerLog.Errorf("can't register new channel "+
-					"link(%v) with NodeKey(%x): %v", chanPoint,
-					p.PubKey(), err)
+					"link(%v) with NodeKey(%x)", chanPoint,
+					p.PubKey())
 			}
 
 			close(newChanReq.done)
@@ -1922,14 +1924,7 @@ func (p *peer) WipeChannel(chanPoint *wire.OutPoint) error {
 
 	// Instruct the HtlcSwitch to close this link as the channel is no
 	// longer active.
-	if err := p.server.htlcSwitch.RemoveLink(chanID); err != nil {
-		if err == htlcswitch.ErrChannelLinkNotFound {
-			peerLog.Warnf("unable remove channel link with "+
-				"ChannelPoint(%v): %v", chanID, err)
-			return nil
-		}
-		return err
-	}
+	p.server.htlcSwitch.RemoveLink(chanID)
 
 	return nil
 }

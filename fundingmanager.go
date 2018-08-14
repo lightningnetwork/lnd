@@ -1705,7 +1705,7 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 func (f *fundingManager) waitForFundingWithTimeout(completeChan *channeldb.OpenChannel,
 	confChan chan<- *lnwire.ShortChannelID, timeoutChan chan<- struct{}) {
 
-	epochClient, err := f.cfg.Notifier.RegisterBlockEpochNtfn()
+	epochClient, err := f.cfg.Notifier.RegisterBlockEpochNtfn(nil)
 	if err != nil {
 		fndgLog.Errorf("unable to register for epoch notification: %v",
 			err)

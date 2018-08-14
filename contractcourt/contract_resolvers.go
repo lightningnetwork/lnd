@@ -855,7 +855,7 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 	// If we reach this point, then we can't fully act yet, so we'll await
 	// either of our signals triggering: the HTLC expires, or we learn of
 	// the preimage.
-	blockEpochs, err := h.Notifier.RegisterBlockEpochNtfn()
+	blockEpochs, err := h.Notifier.RegisterBlockEpochNtfn(nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1043,7 +1043,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	// ensure the preimage can't be delivered between querying and
 	// registering for the preimage subscription.
 	preimageSubscription := h.PreimageDB.SubscribeUpdates()
-	blockEpochs, err := h.Notifier.RegisterBlockEpochNtfn()
+	blockEpochs, err := h.Notifier.RegisterBlockEpochNtfn(nil)
 	if err != nil {
 		return nil, err
 	}

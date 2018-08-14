@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/txscript"
@@ -20,7 +21,6 @@ import (
 )
 
 const (
-
 	// notifierType uniquely identifies this concrete implementation of the
 	// ChainNotifier interface.
 	notifierType = "neutrino"
@@ -61,6 +61,8 @@ type NeutrinoNotifier struct {
 
 	p2pNode   *neutrino.ChainService
 	chainView *neutrino.Rescan
+
+	chainConn *NeutrinoChainConn
 
 	notificationCancels  chan interface{}
 	notificationRegistry chan interface{}
@@ -150,6 +152,8 @@ func (n *NeutrinoNotifier) Start() error {
 	n.txConfNotifier = chainntnfs.NewTxConfNotifier(
 		bestHeight, reorgSafetyLimit,
 	)
+
+	n.chainConn = &NeutrinoChainConn{n.p2pNode}
 
 	// Finally, we'll create our rescan struct, start it, and launch all
 	// the goroutines we need to operate this ChainNotifier instance.
@@ -241,7 +245,7 @@ func (n *NeutrinoNotifier) onFilteredBlockDisconnected(height int32,
 // notification registrations, as well as notification dispatches.
 func (n *NeutrinoNotifier) notificationDispatcher() {
 	defer n.wg.Done()
-
+out:
 	for {
 		select {
 		case cancelMsg := <-n.notificationCancels:
@@ -361,57 +365,130 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 							"to update rescan: %v",
 							err)
 					}
+
 				}()
 
 			case *blockEpochRegistration:
 				chainntnfs.Log.Infof("New block epoch subscription")
 				n.blockEpochClients[msg.epochID] = msg
+				if msg.bestBlock != nil {
+					n.heightMtx.Lock()
+					bestHeight := int32(n.bestHeight)
+					n.heightMtx.Unlock()
+					missedBlocks, err :=
+						chainntnfs.GetClientMissedBlocks(
+							n.chainConn, msg.bestBlock,
+							bestHeight, false,
+						)
+					if err != nil {
+						msg.errorChan <- err
+						continue
+					}
+					for _, block := range missedBlocks {
+						n.notifyBlockEpochClient(msg,
+							block.Height, block.Hash)
+					}
+				}
+				msg.errorChan <- nil
 			}
 
 		case item := <-n.chainUpdates.ChanOut():
 			update := item.(*filteredBlock)
 			if update.connect {
 				n.heightMtx.Lock()
+				// Since neutrino has no way of knowing what
+				// height to rewind to in the case of a reorged
+				// best known height, there is no point in
+				// checking that the previous hash matches the
+				// the hash from our best known height the way
+				// the other notifiers do when they receive
+				// a new connected block. Therefore, we just
+				// compare the heights.
 				if update.height != n.bestHeight+1 {
-					chainntnfs.Log.Warnf("Received blocks out of order: "+
-						"current height=%d, new height=%d",
-						n.bestHeight, update.height)
-					n.heightMtx.Unlock()
-					continue
+					// Handle the case where the notifier
+					// missed some blocks from its chain
+					// backend
+					chainntnfs.Log.Infof("Missed blocks, " +
+						"attempting to catch up")
+					bestBlock := chainntnfs.BlockEpoch{
+						Height: int32(n.bestHeight),
+						Hash:   nil,
+					}
+					_, missedBlocks, err :=
+						chainntnfs.HandleMissedBlocks(
+							n.chainConn,
+							n.txConfNotifier,
+							bestBlock,
+							int32(update.height),
+							false,
+						)
+					if err != nil {
+						chainntnfs.Log.Error(err)
+						n.heightMtx.Unlock()
+						continue
+					}
+
+					for _, block := range missedBlocks {
+						filteredBlock, err :=
+							n.getFilteredBlock(block)
+						if err != nil {
+							chainntnfs.Log.Error(err)
+							n.heightMtx.Unlock()
+							continue out
+						}
+						err = n.handleBlockConnected(filteredBlock)
+						if err != nil {
+							chainntnfs.Log.Error(err)
+							n.heightMtx.Unlock()
+							continue out
+						}
+					}
+
 				}
-
-				n.bestHeight = update.height
-				n.heightMtx.Unlock()
-
-				chainntnfs.Log.Infof("New block: height=%v, sha=%v",
-					update.height, update.hash)
 
 				err := n.handleBlockConnected(update)
 				if err != nil {
 					chainntnfs.Log.Error(err)
 				}
-				continue
-			}
-
-			n.heightMtx.Lock()
-			if update.height != n.bestHeight {
-				chainntnfs.Log.Warnf("Received blocks out of order: "+
-					"current height=%d, disconnected height=%d",
-					n.bestHeight, update.height)
 				n.heightMtx.Unlock()
 				continue
 			}
 
-			n.bestHeight = update.height - 1
-			n.heightMtx.Unlock()
-
-			chainntnfs.Log.Infof("Block disconnected from main chain: "+
-				"height=%v, sha=%v", update.height, update.hash)
-
-			err := n.txConfNotifier.DisconnectTip(update.height)
-			if err != nil {
-				chainntnfs.Log.Error(err)
+			n.heightMtx.Lock()
+			if update.height != uint32(n.bestHeight) {
+				chainntnfs.Log.Infof("Missed disconnected" +
+					"blocks, attempting to catch up")
 			}
+
+			header, err := n.p2pNode.BlockHeaders.FetchHeaderByHeight(
+				n.bestHeight,
+			)
+			if err != nil {
+				chainntnfs.Log.Errorf("Unable to fetch header"+
+					"for height %d: %v", n.bestHeight, err)
+				n.heightMtx.Unlock()
+				continue
+			}
+
+			hash := header.BlockHash()
+			notifierBestBlock := chainntnfs.BlockEpoch{
+				Height: int32(n.bestHeight),
+				Hash:   &hash,
+			}
+			newBestBlock, err := chainntnfs.RewindChain(
+				n.chainConn, n.txConfNotifier, notifierBestBlock,
+				int32(update.height-1),
+			)
+			if err != nil {
+				chainntnfs.Log.Errorf("Unable to rewind chain "+
+					"from height %d to height %d: %v",
+					n.bestHeight, update.height-1, err)
+			}
+
+			// Set the bestHeight here in case a chain rewind
+			// partially completed.
+			n.bestHeight = uint32(newBestBlock.Height)
+			n.heightMtx.Unlock()
 
 		case err := <-n.rescanErr:
 			chainntnfs.Log.Errorf("Error during rescan: %v", err)
@@ -504,15 +581,29 @@ func (n *NeutrinoNotifier) historicalConfDetails(targetHash *chainhash.Hash,
 	return nil, nil
 }
 
-// handleBlocksConnected applies a chain update for a new block. Any watched
+// handleBlockConnected applies a chain update for a new block. Any watched
 // transactions included this block will processed to either send notifications
 // now or after numConfirmations confs.
 func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
-	// First we'll notify any subscribed clients of the block.
+	// First process the block for our internal state. A new block has
+	// been connected to the main chain. Send out any N confirmation
+	// notifications which may have been triggered by this new block.
+	err := n.txConfNotifier.ConnectTip(&newBlock.hash, newBlock.height,
+		newBlock.txns)
+	if err != nil {
+		return fmt.Errorf("unable to connect tip: %v", err)
+	}
+
+	chainntnfs.Log.Infof("New block: height=%v, sha=%v",
+		newBlock.height, newBlock.hash)
+
+	n.bestHeight = newBlock.height
+
+	// Next, notify any subscribed clients of the block.
 	n.notifyBlockEpochs(int32(newBlock.height), &newBlock.hash)
 
-	// Next, we'll scan over the list of relevant transactions and possibly
-	// dispatch notifications for confirmations and spends.
+	// Finally, we'll scan over the list of relevant transactions and
+	// possibly dispatch notifications for confirmations and spends.
 	for _, tx := range newBlock.txns {
 		mtx := tx.MsgTx()
 		txSha := mtx.TxHash()
@@ -520,10 +611,10 @@ func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 		for i, txIn := range mtx.TxIn {
 			prevOut := txIn.PreviousOutPoint
 
-			// If this transaction indeed does spend an output
-			// which we have a registered notification for, then
-			// create a spend summary, finally sending off the
-			// details to the notification subscriber.
+			// If this transaction indeed does spend an output which
+			// we have a registered notification for, then create a
+			// spend summary, finally sending off the details to the
+			// notification subscriber.
 			clients, ok := n.spendNotifications[prevOut]
 			if !ok {
 				continue
@@ -555,33 +646,49 @@ func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 		}
 	}
 
-	// A new block has been connected to the main chain.  Send out any N
-	// confirmation notifications which may have been triggered by this new
-	// block.
-	n.txConfNotifier.ConnectTip(
-		&newBlock.hash, newBlock.height, newBlock.txns,
-	)
-
 	return nil
+}
+
+// getFilteredBlock is a utility to retrieve the full filtered block from a block epoch.
+func (n *NeutrinoNotifier) getFilteredBlock(epoch chainntnfs.BlockEpoch) (*filteredBlock, error) {
+	rawBlock, err := n.p2pNode.GetBlockFromNetwork(*epoch.Hash)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get block: %v", err)
+	}
+
+	txns := rawBlock.Transactions()
+
+	block := &filteredBlock{
+		hash:    *epoch.Hash,
+		height:  uint32(epoch.Height),
+		txns:    txns,
+		connect: true,
+	}
+	return block, nil
 }
 
 // notifyBlockEpochs notifies all registered block epoch clients of the newly
 // connected block to the main chain.
 func (n *NeutrinoNotifier) notifyBlockEpochs(newHeight int32, newSha *chainhash.Hash) {
+	for _, client := range n.blockEpochClients {
+		n.notifyBlockEpochClient(client, newHeight, newSha)
+	}
+}
+
+// notifyBlockEpochClient sends a registered block epoch client a notification
+// about a specific block.
+func (n *NeutrinoNotifier) notifyBlockEpochClient(epochClient *blockEpochRegistration,
+	height int32, sha *chainhash.Hash) {
+
 	epoch := &chainntnfs.BlockEpoch{
-		Height: newHeight,
-		Hash:   newSha,
+		Height: height,
+		Hash:   sha,
 	}
 
-	for _, epochClient := range n.blockEpochClients {
-		select {
-
-		case epochClient.epochQueue.ChanIn() <- epoch:
-
-		case <-epochClient.cancelChan:
-
-		case <-n.quit:
-		}
+	select {
+	case epochClient.epochQueue.ChanIn() <- epoch:
+	case <-epochClient.cancelChan:
+	case <-n.quit:
 	}
 }
 
@@ -781,6 +888,10 @@ type blockEpochRegistration struct {
 
 	cancelChan chan struct{}
 
+	bestBlock *chainntnfs.BlockEpoch
+
+	errorChan chan error
+
 	wg sync.WaitGroup
 }
 
@@ -790,14 +901,20 @@ type epochCancel struct {
 	epochID uint64
 }
 
-// RegisterBlockEpochNtfn returns a BlockEpochEvent which subscribes the caller
-// to receive notifications, of each new block connected to the main chain.
-func (n *NeutrinoNotifier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent, error) {
+// RegisterBlockEpochNtfn returns a BlockEpochEvent which subscribes the
+// caller to receive notifications, of each new block connected to the main
+// chain. Clients have the option of passing in their best known block, which
+// the notifier uses to check if they are behind on blocks and catch them up.
+func (n *NeutrinoNotifier) RegisterBlockEpochNtfn(
+	bestBlock *chainntnfs.BlockEpoch) (*chainntnfs.BlockEpochEvent, error) {
+
 	reg := &blockEpochRegistration{
 		epochQueue: chainntnfs.NewConcurrentQueue(20),
 		epochChan:  make(chan *chainntnfs.BlockEpoch, 20),
 		cancelChan: make(chan struct{}),
 		epochID:    atomic.AddUint64(&n.epochClientCounter, 1),
+		bestBlock:  bestBlock,
+		errorChan:  make(chan error, 1),
 	}
 	reg.epochQueue.Start()
 
@@ -867,4 +984,42 @@ func (n *NeutrinoNotifier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent
 			},
 		}, nil
 	}
+}
+
+// NeutrinoChainConn is a wrapper around neutrino's chain backend in order
+// to satisfy the chainntnfs.ChainConn interface.
+type NeutrinoChainConn struct {
+	p2pNode *neutrino.ChainService
+}
+
+// GetBlockHeader returns the block header for a hash.
+func (n *NeutrinoChainConn) GetBlockHeader(blockHash *chainhash.Hash) (*wire.BlockHeader, error) {
+	header, _, err := n.p2pNode.BlockHeaders.FetchHeader(blockHash)
+	if err != nil {
+		return nil, err
+	}
+	return header, nil
+}
+
+// GetBlockHeaderVerbose returns a verbose block header result for a hash. This
+// result only contains the height with a nil hash.
+func (n *NeutrinoChainConn) GetBlockHeaderVerbose(blockHash *chainhash.Hash) (
+	*btcjson.GetBlockHeaderVerboseResult, error) {
+
+	_, height, err := n.p2pNode.BlockHeaders.FetchHeader(blockHash)
+	if err != nil {
+		return nil, err
+	}
+	// Since only the height is used from the result, leave the hash nil.
+	return &btcjson.GetBlockHeaderVerboseResult{Height: int32(height)}, nil
+}
+
+// GetBlockHash returns the hash from a block height.
+func (n *NeutrinoChainConn) GetBlockHash(blockHeight int64) (*chainhash.Hash, error) {
+	header, err := n.p2pNode.BlockHeaders.FetchHeaderByHeight(uint32(blockHeight))
+	if err != nil {
+		return nil, err
+	}
+	hash := header.BlockHash()
+	return &hash, nil
 }

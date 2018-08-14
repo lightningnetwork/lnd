@@ -257,7 +257,7 @@ func (u *utxoNursery) Start() error {
 	// connected block. We register immediately on startup to ensure that
 	// no blocks are missed while we are handling blocks that were missed
 	// during the time the UTXO nursery was unavailable.
-	newBlockChan, err := u.cfg.Notifier.RegisterBlockEpochNtfn()
+	newBlockChan, err := u.cfg.Notifier.RegisterBlockEpochNtfn(nil)
 	if err != nil {
 		return err
 	}

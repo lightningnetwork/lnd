@@ -165,18 +165,38 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 		CsvDelay: uint16(rand.Int31()),
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: privKey.PubKey(),
+			KeyLocator: keychain.KeyLocator{
+				Family: keychain.KeyFamilyMultiSig,
+				Index:  9,
+			},
 		},
 		RevocationBasePoint: keychain.KeyDescriptor{
 			PubKey: privKey.PubKey(),
+			KeyLocator: keychain.KeyLocator{
+				Family: keychain.KeyFamilyRevocationBase,
+				Index:  8,
+			},
 		},
 		PaymentBasePoint: keychain.KeyDescriptor{
 			PubKey: privKey.PubKey(),
+			KeyLocator: keychain.KeyLocator{
+				Family: keychain.KeyFamilyPaymentBase,
+				Index:  7,
+			},
 		},
 		DelayBasePoint: keychain.KeyDescriptor{
 			PubKey: privKey.PubKey(),
+			KeyLocator: keychain.KeyLocator{
+				Family: keychain.KeyFamilyDelayBase,
+				Index:  6,
+			},
 		},
 		HtlcBasePoint: keychain.KeyDescriptor{
 			PubKey: privKey.PubKey(),
+			KeyLocator: keychain.KeyLocator{
+				Family: keychain.KeyFamilyHtlcBase,
+				Index:  5,
+			},
 		},
 	}
 
@@ -772,6 +792,7 @@ func TestFetchClosedChannels(t *testing.T) {
 		TimeLockedBalance: state.RemoteCommitment.LocalBalance.ToSatoshis() + 10000,
 		CloseType:         RemoteForceClose,
 		IsPending:         true,
+		LocalChanConfig:   state.LocalChanCfg,
 	}
 	if err := state.CloseChannel(summary); err != nil {
 		t.Fatalf("unable to close channel: %v", err)

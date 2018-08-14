@@ -3,6 +3,7 @@ package channeldb
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 
 	"github.com/coreos/bbolt"
@@ -379,12 +380,6 @@ func migrateEdgePolicies(tx *bolt.Tx) error {
 // statuses for each existing payment entity in bucket to be able control
 // transitions of statuses and prevent cases such as double payment
 func paymentStatusesMigration(tx *bolt.Tx) error {
-	// Get the bucket dedicated to storing payments
-	bucket := tx.Bucket(paymentBucket)
-	if bucket == nil {
-		return nil
-	}
-
 	// Get the bucket dedicated to storing statuses of payments,
 	// where a key is payment hash, value is payment status.
 	paymentStatuses, err := tx.CreateBucketIfNotExists(paymentStatusBucket)
@@ -392,8 +387,46 @@ func paymentStatusesMigration(tx *bolt.Tx) error {
 		return err
 	}
 
-	log.Infof("Migrating database to support payment statuses -- " +
-		"marking all existing payments with status Completed")
+	log.Infof("Migrating database to support payment statuses")
+
+	circuitAddKey := []byte("circuit-adds")
+	circuits := tx.Bucket(circuitAddKey)
+	if circuits != nil {
+		log.Infof("Marking all known circuits with status InFlight")
+
+		err = circuits.ForEach(func(k, v []byte) error {
+			// Parse the first 8 bytes as the short chan ID for the
+			// circuit. We'll skip all short chan IDs are not
+			// locally initiated, which includes all non-zero short
+			// chan ids.
+			chanID := binary.BigEndian.Uint64(k[:8])
+			if chanID != 0 {
+				return nil
+			}
+
+			// The payment hash is the third item in the serialized
+			// payment circuit. The first two items are an AddRef
+			// (10 bytes) and the incoming circuit key (16 bytes).
+			const payHashOffset = 10 + 16
+
+			paymentHash := v[payHashOffset : payHashOffset+32]
+
+			return paymentStatuses.Put(
+				paymentHash[:], StatusInFlight.Bytes(),
+			)
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	log.Infof("Marking all existing payments with status Completed")
+
+	// Get the bucket dedicated to storing payments
+	bucket := tx.Bucket(paymentBucket)
+	if bucket == nil {
+		return nil
+	}
 
 	// For each payment in the bucket, deserialize the payment and mark it
 	// as completed.

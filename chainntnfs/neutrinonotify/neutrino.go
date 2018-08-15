@@ -869,6 +869,18 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	pkScript []byte,
 	numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
 
+	// Before proceeding to register the notification, we'll query our
+	// height hint cache to determine whether a better one exists.
+	if hint, err := n.confirmHintCache.QueryConfirmHint(*txid); err == nil {
+		if hint > heightHint {
+			chainntnfs.Log.Debugf("Using height hint %d retrieved "+
+				"from cache for %v", hint, txid)
+			heightHint = hint
+		}
+	}
+
+	// Construct a notification request for the transaction and send it to
+	// the main event loop.
 	ntfn := &confirmationsNotification{
 		ConfNtfn: chainntnfs.ConfNtfn{
 			ConfID:           atomic.AddUint64(&n.confClientCounter, 1),

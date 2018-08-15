@@ -373,6 +373,7 @@ out:
 					rescanUpdate := []neutrino.UpdateOption{
 						neutrino.AddAddrs(addrs...),
 						neutrino.Rewind(currentHeight),
+						neutrino.DisableDisconnectedNtfns(true),
 					}
 					err = n.chainView.Update(rescanUpdate...)
 					if err != nil {
@@ -870,6 +871,7 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	rescanUpdate := []neutrino.UpdateOption{
 		neutrino.AddInputs(inputToWatch),
 		neutrino.Rewind(currentHeight),
+		neutrino.DisableDisconnectedNtfns(true),
 	}
 
 	if err := n.chainView.Update(rescanUpdate...); err != nil {

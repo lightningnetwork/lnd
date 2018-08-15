@@ -587,9 +587,6 @@ func (b *BitcoindNotifier) handleBlockConnected(block chainntnfs.BlockEpoch) err
 		return fmt.Errorf("unable to get block: %v", err)
 	}
 
-	chainntnfs.Log.Infof("New block: height=%v, sha=%v",
-		block.Height, block.Hash)
-
 	txns := btcutil.NewBlock(rawBlock).Transactions()
 	err = b.txConfNotifier.ConnectTip(
 		block.Hash, uint32(block.Height), txns)
@@ -597,12 +594,35 @@ func (b *BitcoindNotifier) handleBlockConnected(block chainntnfs.BlockEpoch) err
 		return fmt.Errorf("unable to connect tip: %v", err)
 	}
 
+	chainntnfs.Log.Infof("New block: height=%v, sha=%v", block.Height,
+		block.Hash)
+
 	// We want to set the best block before dispatching notifications so
 	// if any subscribers make queries based on their received block epoch,
 	// our state is fully updated in time.
 	b.bestBlock = block
 
 	b.notifyBlockEpochs(block.Height, block.Hash)
+
+	// Finally, we'll update the spend height hint for all of our watched
+	// outpoints that have not been spent yet. This is safe to do as we do
+	// not watch already spent outpoints for spend notifications.
+	ops := make([]wire.OutPoint, 0, len(b.spendNotifications))
+	for op := range b.spendNotifications {
+		ops = append(ops, op)
+	}
+
+	if len(ops) > 0 {
+		err := b.spendHintCache.CommitSpendHint(
+			uint32(block.Height), ops...,
+		)
+		if err != nil {
+			// The error is not fatal, so we should not return an
+			// error to the caller.
+			chainntnfs.Log.Errorf("Unable to update spend hint to "+
+				"%d for %v: %v", block.Height, ops, err)
+		}
+	}
 
 	return nil
 }
@@ -662,6 +682,18 @@ type spendCancel struct {
 func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	pkScript []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
 
+	// Before proceeding to register the notification, we'll query our
+	// height hint cache to determine whether a better one exists.
+	if hint, err := b.spendHintCache.QuerySpendHint(*outpoint); err == nil {
+		if hint > heightHint {
+			chainntnfs.Log.Debugf("Using height hint %d retrieved "+
+				"from cache for %v", hint, outpoint)
+			heightHint = hint
+		}
+	}
+
+	// Construct a notification request for the outpoint and send it to the
+	// main event loop.
 	ntfn := &spendNotification{
 		targetOutpoint: outpoint,
 		spendChan:      make(chan *chainntnfs.SpendDetail, 1),
@@ -688,7 +720,20 @@ func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		return nil, err
 	}
 
-	if txOut == nil {
+	// If the output is unspent, then we'll write it to the cache with the
+	// given height hint. This allows us to increase the height hint as the
+	// chain extends and the output remains unspent.
+	if txOut != nil {
+		err := b.spendHintCache.CommitSpendHint(heightHint, *outpoint)
+		if err != nil {
+			// The error is not fatal, so we should not return an
+			// error to the caller.
+			chainntnfs.Log.Error("Unable to update spend hint to "+
+				"%d for %v: %v", heightHint, *outpoint, err)
+		}
+	} else {
+		// Otherwise, we'll determine when the output was spent.
+		//
 		// First, we'll attempt to retrieve the transaction's block hash
 		// using the backend's transaction index.
 		tx, err := b.chainConn.GetRawTransactionVerbose(&outpoint.Hash)
@@ -718,7 +763,9 @@ func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 				int64(heightHint),
 			)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("unable to retrieve "+
+					"hash for block with height %d: %v",
+					heightHint, err)
 			}
 		}
 
@@ -810,11 +857,13 @@ func (b *BitcoindNotifier) dispatchSpendDetailsManually(op wire.OutPoint,
 
 		blockHash, err := b.chainConn.GetBlockHash(int64(height))
 		if err != nil {
-			return err
+			return fmt.Errorf("unable to retrieve hash for block "+
+				"with height %d: %v", height, err)
 		}
 		block, err := b.chainConn.GetBlock(blockHash)
 		if err != nil {
-			return err
+			return fmt.Errorf("unable to retrieve block with hash "+
+				"%v: %v", blockHash, err)
 		}
 
 		for _, tx := range block.Transactions {

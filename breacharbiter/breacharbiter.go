@@ -1,4 +1,4 @@
-package main
+package breacharbiter
 
 import (
 	"bytes"
@@ -41,7 +41,7 @@ var (
 	errBrarShuttingDown = errors.New("breacharbiter shutting down")
 )
 
-// ContractBreachEvent is an event the breachArbiter will receive in case a
+// ContractBreachEvent is an event the BreachArbiter will receive in case a
 // contract breach is observed on-chain. It contains the necessary information
 // to handle the breach, and a ProcessACK channel we will use to ACK the event
 // when we have safely stored all the necessary information.
@@ -61,7 +61,7 @@ type ContractBreachEvent struct {
 }
 
 // BreachConfig bundles the required subsystems used by the breach arbiter. An
-// instance of BreachConfig is passed to newBreachArbiter during instantiation.
+// instance of BreachConfig is passed to NewBreachArbiter during instantiation.
 type BreachConfig struct {
 	// CloseLink allows the breach arbiter to shutdown any channel links for
 	// which it detects a breach, ensuring now further activity will
@@ -96,9 +96,9 @@ type BreachConfig struct {
 	CutStrayInput func(feeRate lnwallet.SatPerVByte,
 		input lnwallet.SpendableOutput) bool
 
-	// ContractBreaches is a channel where the breachArbiter will receive
+	// ContractBreaches is a channel where the BreachArbiter will receive
 	// notifications in the event of a contract breach being observed. A
-	// ContractBreachEvent must be ACKed by the breachArbiter, such that
+	// ContractBreachEvent must be ACKed by the BreachArbiter, such that
 	// the sending subsystem knows that the event is properly handed off.
 	ContractBreaches <-chan *ContractBreachEvent
 
@@ -113,7 +113,7 @@ type BreachConfig struct {
 	Store RetributionStore
 }
 
-// breachArbiter is a special subsystem which is responsible for watching and
+// BreachArbiter is a special subsystem which is responsible for watching and
 // acting on the detection of any attempted uncooperative channel breaches by
 // channel counterparties. This file essentially acts as deterrence code for
 // those attempting to launch attacks against the daemon. In practice it's
@@ -121,7 +121,7 @@ type BreachConfig struct {
 // important to have it in place just in case we encounter cheating channel
 // counterparties.
 // TODO(roasbeef): closures in config for subsystem pointers to decouple?
-type breachArbiter struct {
+type BreachArbiter struct {
 	started uint32 // To be used atomically.
 	stopped uint32 // To be used atomically.
 
@@ -132,18 +132,18 @@ type breachArbiter struct {
 	sync.Mutex
 }
 
-// newBreachArbiter creates a new instance of a breachArbiter initialized with
+// NewBreachArbiter creates a new instance of a BreachArbiter initialized with
 // its dependent objects.
-func newBreachArbiter(cfg *BreachConfig) *breachArbiter {
-	return &breachArbiter{
+func NewBreachArbiter(cfg *BreachConfig) *BreachArbiter {
+	return &BreachArbiter{
 		cfg:  cfg,
 		quit: make(chan struct{}),
 	}
 }
 
-// Start is an idempotent method that officially starts the breachArbiter along
+// Start is an idempotent method that officially starts the BreachArbiter along
 // with all other goroutines it needs to perform its functions.
-func (b *breachArbiter) Start() error {
+func (b *BreachArbiter) Start() error {
 	if !atomic.CompareAndSwapUint32(&b.started, 0, 1) {
 		return nil
 	}
@@ -226,10 +226,10 @@ func (b *breachArbiter) Start() error {
 	return nil
 }
 
-// Stop is an idempotent method that signals the breachArbiter to execute a
+// Stop is an idempotent method that signals the BreachArbiter to execute a
 // graceful shutdown. This function will block until all goroutines spawned by
-// the breachArbiter have gracefully exited.
-func (b *breachArbiter) Stop() error {
+// the BreachArbiter have gracefully exited.
+func (b *BreachArbiter) Stop() error {
 	if !atomic.CompareAndSwapUint32(&b.stopped, 0, 1) {
 		return nil
 	}
@@ -244,11 +244,11 @@ func (b *breachArbiter) Stop() error {
 
 // IsBreached queries the breach arbiter's retribution store to see if it is
 // aware of any channel breaches for a particular channel point.
-func (b *breachArbiter) IsBreached(chanPoint *wire.OutPoint) (bool, error) {
+func (b *BreachArbiter) IsBreached(chanPoint *wire.OutPoint) (bool, error) {
 	return b.cfg.Store.IsBreached(chanPoint)
 }
 
-// contractObserver is the primary goroutine for the breachArbiter. This
+// contractObserver is the primary goroutine for the BreachArbiter. This
 // goroutine is responsible for handling breach events coming from the
 // contractcourt on the ContractBreaches channel. If a channel breach is
 // detected, then the contractObserver will execute the retribution logic
@@ -256,7 +256,7 @@ func (b *breachArbiter) IsBreached(chanPoint *wire.OutPoint) (bool, error) {
 // wallet.
 //
 // NOTE: This MUST be run as a goroutine.
-func (b *breachArbiter) contractObserver() {
+func (b *BreachArbiter) contractObserver() {
 	defer b.wg.Done()
 
 	brarLog.Infof("Starting contract observer, watching for breaches.")
@@ -316,7 +316,8 @@ func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 		"second-level, adjusting -> %v", bo.OutPoint(), breachInfo.chanPoint,
 		bo.OutPoint())
 
-	bo.BaseOutput = lnwallet.NewBaseOutput(amt, outpoint, witnessType, signDesc)
+	bo.BaseOutput = *lnwallet.NewBaseOutput(amt, outpoint,
+		witnessType, signDesc)
 }
 
 // waitForSpendEvent waits for any of the breached outputs to get spent, and
@@ -325,7 +326,7 @@ func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 // that the counter party has taken one of the breached outputs to the second
 // level. The spendNtfns map is a cache used to store registered spend
 // subscriptions, in case we must call this method multiple times.
-func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
+func (b *BreachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 	spendNtfns map[wire.OutPoint]*chainntnfs.SpendEvent) error {
 
 	// spend is used to wrap the index of the output that gets spent
@@ -354,8 +355,8 @@ func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 		breachedOutput := &breachInfo.breachedOutputs[i]
 
 		// If this isn't an HTLC output, then we can skip it.
-		if breachedOutput.witnessType != lnwallet.HtlcAcceptedRevoke &&
-			breachedOutput.witnessType != lnwallet.HtlcOfferedRevoke {
+		if breachedOutput.WitnessType() != lnwallet.HtlcAcceptedRevoke &&
+			breachedOutput.WitnessType() != lnwallet.HtlcOfferedRevoke {
 			continue
 		}
 
@@ -369,14 +370,14 @@ func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 		if !ok {
 			var err error
 			spendNtfn, err = b.cfg.Notifier.RegisterSpendNtfn(
-				&breachedOutput.outpoint,
-				breachedOutput.signDesc.Output.PkScript,
+				*breachedOutput.OutPoint(),
+				breachedOutput.SignDesc().Output.PkScript,
 				breachInfo.breachHeight,
 			)
 			if err != nil {
 				brarLog.Errorf("unable to check for spentness "+
 					"of out_point=%v: %v",
-					breachedOutput.outpoint, err)
+					breachedOutput.OutPoint(), err)
 
 				// Registration may have failed if we've been
 				// instructed to shutdown. If so, return here
@@ -388,7 +389,7 @@ func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 					continue
 				}
 			}
-			spendNtfns[breachedOutput.outpoint] = spendNtfn
+			spendNtfns[*breachedOutput.OutPoint()] = spendNtfn
 		}
 
 		// Launch a goroutine waiting for a spend event.
@@ -406,7 +407,7 @@ func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 				}
 				brarLog.Debugf("Detected spend of HTLC(%v) "+
 					"for ChannelPoint(%v)",
-					breachedOutput.outpoint,
+					*breachedOutput.OutPoint(),
 					breachInfo.chanPoint)
 
 				// First we send the spend event on the
@@ -443,7 +444,7 @@ func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 			breachedOutput := &breachInfo.breachedOutputs[s.index]
 			brarLog.Debugf("Detected second-level spend on "+
 				"HTLC(%v) for ChannelPoint(%v)",
-				breachedOutput.outpoint, breachInfo.chanPoint)
+				*breachedOutput.OutPoint(), breachInfo.chanPoint)
 
 			delete(spendNtfns, breachedOutput.outpoint)
 
@@ -467,7 +468,7 @@ func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 // the lingering funds within the channel into the daemon's wallet.
 //
 // NOTE: This MUST be run as a goroutine.
-func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
+func (b *BreachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 	breachInfo *retributionInfo) {
 
 	defer b.wg.Done()
@@ -637,15 +638,15 @@ justiceTxBroadcast:
 }
 
 // handleBreachHandoff handles a new breach event, by writing it to disk, then
-// notifies the breachArbiter contract observer goroutine that a channel's
+// notifies the BreachArbiter contract observer goroutine that a channel's
 // contract has been breached by the prior counterparty. Once notified the
-// breachArbiter will attempt to sweep ALL funds within the channel using the
+// BreachArbiter will attempt to sweep ALL funds within the channel using the
 // information provided within the BreachRetribution generated due to the
 // breach of channel contract. The funds will be swept only after the breaching
 // transaction receives a necessary number of confirmations.
 //
 // NOTE: This MUST be run as a goroutine.
-func (b *breachArbiter) handleBreachHandoff(breachEvent *ContractBreachEvent) {
+func (b *BreachArbiter) handleBreachHandoff(breachEvent *ContractBreachEvent) {
 	defer b.wg.Done()
 
 	chanPoint := breachEvent.ChanPoint
@@ -763,7 +764,7 @@ func (b *breachArbiter) handleBreachHandoff(breachEvent *ContractBreachEvent) {
 type breachedOutput struct {
 	secondLevelWitnessScript []byte
 
-	*lnwallet.BaseOutput
+	lnwallet.BaseOutput
 }
 
 // makeBreachedOutput assembles a new breachedOutput that can be used by the
@@ -776,7 +777,7 @@ func makeBreachedOutput(outpoint *wire.OutPoint,
 
 	return breachedOutput{
 		secondLevelWitnessScript: secondLevelScript,
-		BaseOutput: lnwallet.NewBaseOutput(btcutil.Amount(amount), *outpoint,
+		BaseOutput: *lnwallet.NewBaseOutput(btcutil.Amount(amount), *outpoint,
 			witnessType, *signDescriptor),
 	}
 }
@@ -895,7 +896,7 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 // the funds within the channel which we are now entitled to due to a breach of
 // the channel's contract by the counterparty. This function returns a *fully*
 // signed transaction with the witness for each input fully in place.
-func (b *breachArbiter) createJusticeTx(
+func (b *BreachArbiter) createJusticeTx(
 	r *retributionInfo) (*wire.MsgTx, error) {
 
 	// We will assemble the breached outputs into a slice of spendable
@@ -940,7 +941,7 @@ func (b *breachArbiter) createJusticeTx(
 
 // sweepSpendableOutputsTxn creates a signed transaction from a sequence of
 // spendable outputs by sweeping the funds into a single p2wkh output.
-func (b *breachArbiter) sweepSpendableOutputsTxn(
+func (b *BreachArbiter) sweepSpendableOutputsTxn(
 	inputs ...lnwallet.SpendableOutput) (*wire.MsgTx, error) {
 
 	var (
@@ -1012,7 +1013,7 @@ func (b *breachArbiter) sweepSpendableOutputsTxn(
 	// Before signing the transaction, check to ensure that it meets some
 	// basic validity requirements.
 	btx := btcutil.NewTx(txn)
-	if err := strayoutputpool.CheckTransactionSanity(btx); err != nil {
+	if err := blockchain.CheckTransactionSanity(btx); err != nil {
 		return nil, err
 	}
 
@@ -1100,8 +1101,8 @@ type retributionStore struct {
 	db *channeldb.DB
 }
 
-// newRetributionStore creates a new instance of a retributionStore.
-func newRetributionStore(db *channeldb.DB) *retributionStore {
+// NewRetributionStore creates a new instance of a retributionStore.
+func NewRetributionStore(db *channeldb.DB) RetributionStore {
 	return &retributionStore{
 		db: db,
 	}
@@ -1119,7 +1120,7 @@ func (rs *retributionStore) Add(ret *retributionInfo) error {
 		}
 
 		var outBuf bytes.Buffer
-		if err := writeOutpoint(&outBuf, &ret.chanPoint); err != nil {
+		if err := lnwallet.WriteOutpoint(&outBuf, &ret.chanPoint); err != nil {
 			return err
 		}
 
@@ -1144,7 +1145,7 @@ func (rs *retributionStore) Finalize(chanPoint *wire.OutPoint,
 		}
 
 		var chanBuf bytes.Buffer
-		if err := writeOutpoint(&chanBuf, chanPoint); err != nil {
+		if err := lnwallet.WriteOutpoint(&chanBuf, chanPoint); err != nil {
 			return err
 		}
 
@@ -1171,7 +1172,7 @@ func (rs *retributionStore) GetFinalizedTxn(
 		}
 
 		var chanBuf bytes.Buffer
-		if err := writeOutpoint(&chanBuf, chanPoint); err != nil {
+		if err := lnwallet.WriteOutpoint(&chanBuf, chanPoint); err != nil {
 			return err
 		}
 
@@ -1205,7 +1206,7 @@ func (rs *retributionStore) IsBreached(chanPoint *wire.OutPoint) (bool, error) {
 		}
 
 		var chanBuf bytes.Buffer
-		if err := writeOutpoint(&chanBuf, chanPoint); err != nil {
+		if err := lnwallet.WriteOutpoint(&chanBuf, chanPoint); err != nil {
 			return err
 		}
 
@@ -1237,7 +1238,7 @@ func (rs *retributionStore) Remove(chanPoint *wire.OutPoint) error {
 
 		// Serialize the channel point we are intending to remove.
 		var chanBuf bytes.Buffer
-		if err := writeOutpoint(&chanBuf, chanPoint); err != nil {
+		if err := lnwallet.WriteOutpoint(&chanBuf, chanPoint); err != nil {
 			return err
 		}
 		chanBytes := chanBuf.Bytes()
@@ -1293,7 +1294,7 @@ func (ret *retributionInfo) Encode(w io.Writer) error {
 		return err
 	}
 
-	if err := writeOutpoint(w, &ret.chanPoint); err != nil {
+	if err := lnwallet.WriteOutpoint(w, &ret.chanPoint); err != nil {
 		return err
 	}
 
@@ -1333,7 +1334,7 @@ func (ret *retributionInfo) Decode(r io.Reader) error {
 	}
 	ret.commitHash = *hash
 
-	if err := readOutpoint(r, &ret.chanPoint); err != nil {
+	if err := lnwallet.ReadOutpoint(r, &ret.chanPoint); err != nil {
 		return err
 	}
 
@@ -1380,7 +1381,7 @@ func (bo *breachedOutput) Encode(w io.Writer) error {
 		return err
 	}
 
-	if err := writeOutpoint(w, bo.OutPoint()); err != nil {
+	if err := lnwallet.WriteOutpoint(w, bo.OutPoint()); err != nil {
 		return err
 	}
 
@@ -1412,7 +1413,7 @@ func (bo *breachedOutput) Decode(r io.Reader) error {
 	amt := btcutil.Amount(binary.BigEndian.Uint64(scratch[:8]))
 
 	outpoint := wire.OutPoint{}
-	if err := readOutpoint(r, &outpoint); err != nil {
+	if err := lnwallet.ReadOutpoint(r, &outpoint); err != nil {
 		return err
 	}
 
@@ -1434,7 +1435,8 @@ func (bo *breachedOutput) Decode(r io.Reader) error {
 		binary.BigEndian.Uint16(scratch[:2]),
 	)
 
-	bo.BaseOutput = lnwallet.NewBaseOutput(amt, outpoint, witnessType, signDesc)
+	bo.BaseOutput = *lnwallet.NewBaseOutput(amt, outpoint,
+		witnessType, signDesc)
 
 	return nil
 }

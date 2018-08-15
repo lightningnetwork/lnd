@@ -1,6 +1,6 @@
 // +build !rpctest
 
-package main
+package nursery
 
 import (
 	"bytes"
@@ -195,44 +195,48 @@ var (
 
 	kidOutputs = []kidOutput{
 		{
-			breachedOutput: breachedOutput{
-				amt:         btcutil.Amount(13e7),
-				outpoint:    outPoints[1],
-				witnessType: lnwallet.CommitmentTimeLock,
-			},
+			BaseOutput: *lnwallet.NewBaseOutput(
+				btcutil.Amount(13e7),
+				outPoints[1],
+				lnwallet.CommitmentTimeLock,
+				lnwallet.SignDescriptor{},
+			),
 			originChanPoint:  outPoints[0],
 			blocksToMaturity: uint32(42),
 			confHeight:       uint32(1000),
 		},
 
 		{
-			breachedOutput: breachedOutput{
-				amt:         btcutil.Amount(24e7),
-				outpoint:    outPoints[2],
-				witnessType: lnwallet.CommitmentTimeLock,
-			},
+			BaseOutput: *lnwallet.NewBaseOutput(
+				btcutil.Amount(24e7),
+				outPoints[2],
+				lnwallet.CommitmentTimeLock,
+				lnwallet.SignDescriptor{},
+			),
 			originChanPoint:  outPoints[0],
 			blocksToMaturity: uint32(42),
 			confHeight:       uint32(1000),
 		},
 
 		{
-			breachedOutput: breachedOutput{
-				amt:         btcutil.Amount(2e5),
-				outpoint:    outPoints[3],
-				witnessType: lnwallet.CommitmentTimeLock,
-			},
+			BaseOutput: *lnwallet.NewBaseOutput(
+				btcutil.Amount(2e5),
+				outPoints[3],
+				lnwallet.CommitmentTimeLock,
+				lnwallet.SignDescriptor{},
+			),
 			originChanPoint:  outPoints[0],
 			blocksToMaturity: uint32(28),
 			confHeight:       uint32(500),
 		},
 
 		{
-			breachedOutput: breachedOutput{
-				amt:         btcutil.Amount(10e6),
-				outpoint:    outPoints[4],
-				witnessType: lnwallet.CommitmentTimeLock,
-			},
+			BaseOutput: *lnwallet.NewBaseOutput(
+				btcutil.Amount(10e6),
+				outPoints[4],
+				lnwallet.CommitmentTimeLock,
+				lnwallet.SignDescriptor{},
+			),
 			originChanPoint:  outPoints[0],
 			blocksToMaturity: uint32(28),
 			confHeight:       uint32(500),
@@ -322,14 +326,27 @@ func init() {
 		signDescriptors[i].KeyDesc.PubKey = pk
 
 	}
+
 	for i := range kidOutputs {
 		isd := i % len(signDescriptors)
-		kidOutputs[i].signDesc = signDescriptors[isd]
+		output := kidOutputs[i]
+		kidOutputs[i].BaseOutput = *lnwallet.NewBaseOutput(
+			output.Amount(),
+			*output.OutPoint(),
+			output.WitnessType(),
+			signDescriptors[isd],
+		)
 	}
 
 	for i := range babyOutputs {
 		isd := i % len(signDescriptors)
-		babyOutputs[i].kidOutput.signDesc = signDescriptors[isd]
+		output := babyOutputs[i].kidOutput
+		babyOutputs[i].kidOutput.BaseOutput = *lnwallet.NewBaseOutput(
+			output.Amount(),
+			*output.OutPoint(),
+			output.WitnessType(),
+			signDescriptors[isd],
+		)
 	}
 
 	initIncubateTests()

@@ -82,7 +82,7 @@ func (s *BaseOutput) Encode(w io.Writer) error {
 		return err
 	}
 
-	if err := writeOutpoint(w, s.OutPoint()); err != nil {
+	if err := WriteOutpoint(w, s.OutPoint()); err != nil {
 		return err
 	}
 
@@ -110,7 +110,7 @@ func (s *BaseOutput) Decode(r io.Reader) error {
 	}
 	s.amt = btcutil.Amount(byteOrder.Uint64(scratch[:]))
 
-	if err = readOutpoint(io.LimitReader(r, 40),
+	if err = ReadOutpoint(io.LimitReader(r, 40),
 		&s.outpoint); err != nil && err != io.EOF {
 		return err
 	}
@@ -134,9 +134,9 @@ func (s *BaseOutput) Decode(r io.Reader) error {
 	return nil
 }
 
-// writeOutpoint writes an outpoint to the passed writer using the minimal
+// WriteOutpoint writes an outpoint to the passed writer using the minimal
 // amount of bytes possible.
-func writeOutpoint(w io.Writer, o *wire.OutPoint) error {
+func WriteOutpoint(w io.Writer, o *wire.OutPoint) error {
 	if _, err := w.Write(o.Hash[:]); err != nil {
 		return err
 	}
@@ -147,9 +147,9 @@ func writeOutpoint(w io.Writer, o *wire.OutPoint) error {
 	return nil
 }
 
-// readOutpoint reads an outpoint from the passed reader that was previously
-// written using the writeOutpoint struct.
-func readOutpoint(r io.Reader, o *wire.OutPoint) error {
+// ReadOutpoint reads an outpoint from the passed reader that was previously
+// written using the WriteOutpoint struct.
+func ReadOutpoint(r io.Reader, o *wire.OutPoint) error {
 	if _, err := io.ReadFull(r, o.Hash[:]); err != nil {
 		return err
 	}
@@ -163,3 +163,16 @@ func readOutpoint(r io.Reader, o *wire.OutPoint) error {
 // Add compile-time constraint ensuring BaseOutput implements
 // SpendableOutput.
 var _ SpendableOutput = (*BaseOutput)(nil)
+
+// newSweepPkScript creates a new public key script which should be used to
+// sweep any time-locked, or contested channel funds into the wallet.
+// Specifically, the script generated is a version 0, pay-to-witness-pubkey-hash
+// (p2wkh) output.
+func NewSweepPkScript(wallet WalletController) ([]byte, error) {
+	sweepAddr, err := wallet.NewAddress(WitnessPubKey, false)
+	if err != nil {
+		return nil, err
+	}
+
+	return txscript.PayToAddrScript(sweepAddr)
+}

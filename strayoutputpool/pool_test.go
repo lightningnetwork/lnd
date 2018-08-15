@@ -36,7 +36,7 @@ func TestGenSweepScript(t *testing.T) {
 		DB: db,
 		Estimator:      &lnwallet.StaticFeeEstimator{FeeRate: 50},
 		GenSweepScript: func() ([]byte, error) { return nil, nil },
-		Signer: &test.MockSigner{
+		Signer: &test.MockMultSigner{
 			Privkeys: []*btcec.PrivateKey{
 				localFundingPrivKey, localPaymentPrivKey,
 			},

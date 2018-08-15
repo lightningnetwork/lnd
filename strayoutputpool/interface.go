@@ -60,8 +60,4 @@ type PoolConfig struct {
 	// which move coins from previously unsuccessfully swept outputs
 	// to the user's wallet.
 	Signer lnwallet.Signer
-
-	// DustLimit is the limit in satoshis below which any outputs
-	// should be pulled. And aggregated to one transaction.
-	DustLimit btcutil.Amount
 }

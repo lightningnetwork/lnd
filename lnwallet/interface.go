@@ -3,6 +3,7 @@ package lnwallet
 import (
 	"errors"
 	"fmt"
+	"io"
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -139,6 +140,12 @@ type SpendableOutput interface {
 	BuildWitness(signer Signer, txn *wire.MsgTx,
 		hashCache *txscript.TxSigHashes,
 		txinIdx int) ([][]byte, error)
+
+	// Encode serializes data of spendable output to serial data.
+	Encode(w io.Writer) error
+
+	// Decode de-serializes data of spendable output from serial data.
+	Decode(r io.Reader) error
 }
 
 // CsvSpendableOutput is a SpendableOutput that contains all of the information

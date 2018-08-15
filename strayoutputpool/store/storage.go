@@ -1,4 +1,4 @@
-package strayoutputpool
+package store
 
 import (
 	"bytes"
@@ -7,9 +7,12 @@ import (
 	"io"
 
 	"github.com/coreos/bbolt"
+
+	"github.com/lightningnetwork/lnd/breacharbiter"
+	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
+	"github.com/lightningnetwork/lnd/nursery"
 )
 
 var (
@@ -25,17 +28,23 @@ var (
 	byteOrder = binary.BigEndian
 )
 
+type outputdb struct {
+	db *channeldb.DB
+}
 
+func NewOutputDB(db *channeldb.DB) OutputStore {
+	return &outputdb{db: db}
+}
 
 // AddStrayOutput saves serialized stray output to database in order to combine
 // them to one transaction to pay fee for one transaction.
-func (d *DBStrayOutputsPool) AddStrayOutput(output *strayOutputEntity) error {
+func (o *outputdb) AddStrayOutput(output OutputEntity) error {
 	var b bytes.Buffer
 	if err := output.Encode(&b); err != nil {
 		return err
 	}
 
-	return d.cfg.DB.Batch(func(tx *bolt.Tx) error {
+	return o.db.Batch(func(tx *bolt.Tx) error {
 		outputs, err := tx.CreateBucketIfNotExists(strayOutputBucket)
 		if err != nil {
 			return err
@@ -46,17 +55,17 @@ func (d *DBStrayOutputsPool) AddStrayOutput(output *strayOutputEntity) error {
 			return err
 		}
 
-		paymentIDBytes := make([]byte, 8)
-		binary.BigEndian.PutUint64(paymentIDBytes, outputID)
+		outputIDBytes := make([]byte, 8)
+		binary.BigEndian.PutUint64(outputIDBytes, outputID)
 
-		return outputs.Put(paymentIDBytes, b.Bytes())
+		return outputs.Put(outputIDBytes, b.Bytes())
 	})
 }
 
 // FetchAllStrayOutputs returns all stray outputs in DB.
-func (d *DBStrayOutputsPool) FetchAllStrayOutputs() ([]*strayOutputEntity, error) {
-	var outputs []*strayOutputEntity
-	err := d.cfg.DB.View(func(tx *bolt.Tx) error {
+func (o *outputdb) FetchAllStrayOutputs() ([]OutputEntity, error) {
+	var outputs []OutputEntity
+	err := o.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(strayOutputBucket)
 		if bucket == nil {
 			return ErrNoStrayOutputCreated
@@ -86,10 +95,22 @@ type strayOutputEntity struct {
 	txVSize int64
 
 	// totalAmt
-	totalAmt btcutil.Amount
+	oType outputType
 
 	// outputs
-	outputs []*lnwallet.BaseOutput
+	output lnwallet.SpendableOutput
+}
+
+func (s *strayOutputEntity) TxVSize() int64 {
+	return s.txVSize
+}
+
+func (s *strayOutputEntity) OutputType() outputType {
+	return s.oType
+}
+
+func (s *strayOutputEntity) Output() lnwallet.SpendableOutput {
+	return s.output
 }
 
 
@@ -102,21 +123,20 @@ func (s *strayOutputEntity) Encode(w io.Writer) error {
 		return err
 	}
 
-	byteOrder.PutUint64(scratch[:], uint64(s.totalAmt))
+	byteOrder.PutUint64(scratch[:], uint64(s.oType))
 	if _, err := w.Write(scratch[:]); err != nil {
 		return err
 	}
 
-	for _, input := range s.outputs {
-		input.Encode(w)
-	}
-
-	return nil
+	return s.output.Encode(w)
 }
 
 // Decode
 func (s *strayOutputEntity) Decode(r io.Reader) error {
-	var scratch [8]byte
+	var (
+		scratch [8]byte
+		err     error
+	)
 
 	if _, err := r.Read(scratch[:]); err != nil {
 		return err
@@ -126,41 +146,21 @@ func (s *strayOutputEntity) Decode(r io.Reader) error {
 	if _, err := r.Read(scratch[:]); err != nil {
 		return err
 	}
-	s.totalAmt = btcutil.Amount(byteOrder.Uint64(scratch[:]))
+	s.oType = outputType(byteOrder.Uint64(scratch[:]))
 
-	for {
-		sOutput := &lnwallet.BaseOutput{}
-		if err := sOutput.Decode(r); err != nil && err != io.EOF {
-			return err
-		}
-		s.outputs = append(s.outputs, sOutput)
+	switch s.oType {
+	case outputContract:
+		s.output, err = contractcourt.NewDecodedContractOutput(r)
+
+	case outputNurseryBaby:
+		s.output, err = nursery.NewDecodedBabyOutput(r)
+
+	case outputNurseryKid:
+		s.output, err = nursery.NewDecodedKidOutput(r)
+
+	case outputBreached:
+		s.output, err = breacharbiter.NewDecodedBreachedOutput(r)
 	}
 
-	return nil
-}
-
-// writeOutpoint writes an outpoint to the passed writer using the minimal
-// amount of bytes possible.
-func writeOutpoint(w io.Writer, o *wire.OutPoint) error {
-	if _, err := w.Write(o.Hash[:]); err != nil {
-		return err
-	}
-	if err := binary.Write(w, byteOrder, o.Index); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// readOutpoint reads an outpoint from the passed reader that was previously
-// written using the writeOutpoint struct.
-func readOutpoint(r io.Reader, o *wire.OutPoint) error {
-	if _, err := io.ReadFull(r, o.Hash[:]); err != nil {
-		return err
-	}
-	if err := binary.Read(r, byteOrder, &o.Index); err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }

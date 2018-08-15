@@ -15,7 +15,7 @@ import (
 type contractOutput struct {
 	preimage    [32]byte
 
-	*lnwallet.BaseOutput
+	lnwallet.BaseOutput
 }
 
 // NewContractOutput creates contract spendable output.
@@ -28,7 +28,7 @@ func NewContractOutput(
 ) lnwallet.SpendableOutput {
 	return &contractOutput{
 		preimage: preimage,
-		BaseOutput: lnwallet.NewBaseOutput(amt, outpoint,
+		BaseOutput: *lnwallet.NewBaseOutput(amt, outpoint,
 			witnessType, signDesc),
 	}
 }

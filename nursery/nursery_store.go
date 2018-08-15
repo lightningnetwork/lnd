@@ -1,4 +1,4 @@
-package main
+package nursery
 
 import (
 	"bytes"
@@ -44,7 +44,7 @@ import (
 //   |   non-zero number of outputs being tracked by the nursery store.
 //   |   Inside each channel directory are files containing serialized spendable
 //   |   outputs that are awaiting some state transition. The name of each file
-//   |   contains the outpoint of the spendable output in the file, and is
+//   |   contains the Outpoint of the spendable output in the file, and is
 //   |   prefixed with 4-byte state prefix, indicating whether the spendable
 //   |   output is a crib, preschool, or kindergarten, or graduated output. The
 //   |   nursery store supports the ability to enumerate all outputs for a
@@ -52,13 +52,13 @@ import (
 //   |
 //   ├── channel-index-key/
 //   │   ├── <chan-point-1>/                      <- CHANNEL BUCKET
-//   |   |   ├── <state-prefix><outpoint-1>: <spendable-output-1>
-//   |   |   └── <state-prefix><outpoint-2>: <spendable-output-2>
+//   |   |   ├── <state-prefix><Outpoint-1>: <spendable-output-1>
+//   |   |   └── <state-prefix><Outpoint-2>: <spendable-output-2>
 //   │   ├── <chan-point-2>/
-//   |   |   └── <state-prefix><outpoint-3>: <spendable-output-3>
+//   |   |   └── <state-prefix><Outpoint-3>: <spendable-output-3>
 //   │   └── <chan-point-3>/
-//   |       ├── <state-prefix><outpoint-4>: <spendable-output-4>
-//   |       └── <state-prefix><outpoint-5>: <spendable-output-5>
+//   |       ├── <state-prefix><Outpoint-4>: <spendable-output-4>
+//   |       └── <state-prefix><Outpoint-5>: <spendable-output-5>
 //   |
 //   |   HEIGHT INDEX
 //   |
@@ -67,10 +67,10 @@ import (
 //   |   kindergarten output, it will have an associated entry in the height
 //   |   index. Inside a particular height directory, the structure is similar
 //   |   to that of the channel index, containing multiple channel directories,
-//   |   each of which contains subdirectories named with a prefixed outpoint
+//   |   each of which contains subdirectories named with a prefixed Outpoint
 //   |   belonging to the channel. Enumerating these combinations yields a
 //   |   relative file path:
-//   |     e.g. <chan-point-3>/<prefix><outpoint-2>/
+//   |     e.g. <chan-point-3>/<prefix><Outpoint-2>/
 //   |   that can be queried in the channel index to retrieve the serialized
 //   |   output. If a height bucket is less than or equal to the current last
 //   |   finalized height and has a non-zero number of kindergarten outputs, a
@@ -80,15 +80,15 @@ import (
 //   └── height-index-key/
 //       ├── <height-1>/                             <- HEIGHT BUCKET
 //       |   ├── <chan-point-3>/                     <- HEIGHT-CHANNEL BUCKET
-//       |   |    ├── <state-prefix><outpoint-4>: "" <- PREFIXED OUTPOINT
-//       |   |    └── <state-prefix><outpoint-5>: ""
+//       |   |    ├── <state-prefix><Outpoint-4>: "" <- PREFIXED OUTPOINT
+//       |   |    └── <state-prefix><Outpoint-5>: ""
 //       |   ├── <chan-point-2>/
-//       |   |    └── <state-prefix><outpoint-3>: ""
+//       |   |    └── <state-prefix><Outpoint-3>: ""
 //       |   └── finalized-kndr-txn:              "" | <kndr-sweep-tnx>
 //       └── <height-2>/
 //           └── <chan-point-1>/
-//                └── <state-prefix><outpoint-1>: ""
-//                └── <state-prefix><outpoint-2>: ""
+//                └── <state-prefix><Outpoint-1>: ""
+//                └── <state-prefix><Outpoint-2>: ""
 
 // NurseryStore abstracts the persistent storage layer for the utxo nursery.
 // Concretely, it stores commitment and htlc outputs until any time-bounded
@@ -159,7 +159,7 @@ type NurseryStore interface {
 	// ForChanOutputs iterates over all outputs being incubated for a
 	// particular channel point. This method accepts a callback that allows
 	// the caller to process each key-value pair. The key will be a prefixed
-	// outpoint, and the value will be the serialized bytes for an output,
+	// Outpoint, and the value will be the serialized bytes for an output,
 	// whose type should be inferred from the key's prefix.
 	ForChanOutputs(*wire.OutPoint, func([]byte, []byte) error) error
 
@@ -210,7 +210,7 @@ var (
 // an existing state prefix.
 var (
 	// cribPrefix is the state prefix given to htlc outputs waiting for
-	// their first-stage, absolute locktime to elapse.
+	// their first-Stage, absolute locktime to elapse.
 	cribPrefix = []byte("crib")
 
 	// psclPrefix is the state prefix given to commitment outputs awaiting
@@ -219,9 +219,9 @@ var (
 	psclPrefix = []byte("pscl")
 
 	// kndrPrefix is the state prefix given to all CSV delayed outputs,
-	// either from the commitment transaction, or a stage-one htlc
+	// either from the commitment transaction, or a Stage-one htlc
 	// transaction, whose maturity height has solidified. Outputs marked in
-	// this state are in their final stage of incubation within the nursery,
+	// this state are in their final Stage of incubation within the nursery,
 	// and will be swept into the wallet after waiting out the relative
 	// timelock.
 	kndrPrefix = []byte("kndr")
@@ -253,13 +253,13 @@ func prefixChainKey(sysPrefix []byte, hash *chainhash.Hash) ([]byte, error) {
 }
 
 // prefixOutputKey creates a serialized key that prefixes the serialized
-// outpoint with the provided state prefix. The returned bytes will be of the
-// form <prefix><outpoint>.
+// Outpoint with the provided state prefix. The returned bytes will be of the
+// form <prefix><Outpoint>.
 func prefixOutputKey(statePrefix []byte,
 	outpoint *wire.OutPoint) ([]byte, error) {
 
 	// Create a buffer to which we will first write the state prefix,
-	// followed by the outpoint.
+	// followed by the Outpoint.
 	var pfxOutputBuffer bytes.Buffer
 	if _, err := pfxOutputBuffer.Write(statePrefix); err != nil {
 		return nil, err
@@ -282,11 +282,11 @@ type nurseryStore struct {
 	pfxChainKey []byte
 }
 
-// newNurseryStore accepts a chain hash and a channeldb.DB instance, returning
+// NewNurseryStore accepts a chain hash and a channeldb.DB instance, returning
 // an instance of nurseryStore who's database is properly segmented for the
 // given chain.
-func newNurseryStore(chainHash *chainhash.Hash,
-	db *channeldb.DB) (*nurseryStore, error) {
+func NewNurseryStore(chainHash *chainhash.Hash,
+	db *channeldb.DB) (NurseryStore, error) {
 
 	// Prefix the provided chain hash with "utxn" to create the key for the
 	// nursery store's root bucket, ensuring each one has proper chain
@@ -305,7 +305,7 @@ func newNurseryStore(chainHash *chainhash.Hash,
 
 // Incubate persists the beginning of the incubation process for the
 // CSV-delayed outputs (commitment and incoming HTLC's), commitment output and
-// a list of outgoing two-stage htlc outputs.
+// a list of outgoing two-Stage htlc outputs.
 func (ns *nurseryStore) Incubate(kids []kidOutput, babies []babyOutput) error {
 	return ns.db.Update(func(tx *bolt.Tx) error {
 		// If we have any kid outputs to incubate, then we'll attempt
@@ -345,7 +345,7 @@ func (ns *nurseryStore) CribToKinder(bby *babyOutput) error {
 		}
 
 		// The babyOutput should currently be stored in the crib bucket.
-		// So, we create a key that prefixes the babyOutput's outpoint
+		// So, we create a key that prefixes the babyOutput's Outpoint
 		// with the crib prefix, allowing us to reference it in the
 		// store.
 		pfxOutputKey, err := prefixOutputKey(cribPrefix, bby.OutPoint())
@@ -355,7 +355,7 @@ func (ns *nurseryStore) CribToKinder(bby *babyOutput) error {
 
 		// Since the babyOutput is being moved to the kindergarten
 		// bucket, we remove the entry from the channel bucket under the
-		// crib-prefixed outpoint key.
+		// crib-prefixed Outpoint key.
 		if err := chanBucket.Delete(pfxOutputKey); err != nil {
 			return err
 		}
@@ -382,7 +382,7 @@ func (ns *nurseryStore) CribToKinder(bby *babyOutput) error {
 		kidBytes := kidBuffer.Bytes()
 
 		// Persist the serialized kidOutput under the
-		// kindergarten-prefixed outpoint key.
+		// kindergarten-prefixed Outpoint key.
 		if err := chanBucket.Put(pfxOutputKey, kidBytes); err != nil {
 			return err
 		}
@@ -426,11 +426,11 @@ func (ns *nurseryStore) PreschoolToKinder(kid *kidOutput) error {
 		}
 
 		// First, we will attempt to remove the existing serialized
-		// output from the channel bucket, where the kid's outpoint will
+		// output from the channel bucket, where the kid's Outpoint will
 		// be prefixed by a preschool prefix.
 
 		// Generate the key of existing serialized kid output by
-		// prefixing its outpoint with the preschool prefix...
+		// prefixing its Outpoint with the preschool prefix...
 		pfxOutputKey, err := prefixOutputKey(psclPrefix, kid.OutPoint())
 		if err != nil {
 			return err
@@ -441,11 +441,11 @@ func (ns *nurseryStore) PreschoolToKinder(kid *kidOutput) error {
 			return err
 		}
 
-		// Next, we will write the provided kid outpoint to the channel
+		// Next, we will write the provided kid Outpoint to the channel
 		// bucket, using a key prefixed by the kindergarten prefix.
 
 		// Convert the preschool prefix key into a kindergarten key for
-		// the same outpoint.
+		// the same Outpoint.
 		copy(pfxOutputKey, kndrPrefix)
 
 		// Reserialize the kid here to capture any differences in the
@@ -803,7 +803,7 @@ func (ns *nurseryStore) HeightsBelowOrEqual(height uint32) ([]uint32, error) {
 
 // ForChanOutputs iterates over all outputs being incubated for a particular
 // channel point. This method accepts a callback that allows the caller to
-// process each key-value pair. The key will be a prefixed outpoint, and the
+// process each key-value pair. The key will be a prefixed Outpoint, and the
 // value will be the serialized bytes for an output, whose type should be
 // inferred from the key's prefix.
 // NOTE: The callback should not modify the provided byte slices and is
@@ -967,9 +967,9 @@ func (ns *nurseryStore) LastGraduatedHeight() (uint32, error) {
 // Helper Methods
 
 // enterCrib accepts a new htlc output that the nursery will incubate through
-// its two-stage process of sweeping funds back to the user's wallet. These
+// its two-Stage process of sweeping funds back to the user's wallet. These
 // outputs are persisted in the nursery store in the crib state, and will be
-// revisited after the first-stage output's CLTV has expired.
+// revisited after the first-Stage output's CLTV has expired.
 func (ns *nurseryStore) enterCrib(tx *bolt.Tx, baby *babyOutput) error {
 	// First, retrieve or create the channel bucket corresponding to the
 	// baby output's origin channel point.
@@ -980,7 +980,7 @@ func (ns *nurseryStore) enterCrib(tx *bolt.Tx, baby *babyOutput) error {
 	}
 
 	// Since we are inserting this output into the crib bucket, we create a
-	// key that prefixes the baby output's outpoint with the crib prefix.
+	// key that prefixes the baby output's Outpoint with the crib prefix.
 	pfxOutputKey, err := prefixOutputKey(cribPrefix, baby.OutPoint())
 	if err != nil {
 		return err
@@ -1022,7 +1022,7 @@ func (ns *nurseryStore) enterCrib(tx *bolt.Tx, baby *babyOutput) error {
 }
 
 // enterPreschool accepts a new commitment output that the nursery will incubate
-// through a single stage before sweeping. Outputs are stored in the preschool
+// through a single Stage before sweeping. Outputs are stored in the preschool
 // bucket until the commitment transaction has been confirmed, at which point
 // they will be moved to the kindergarten bucket.
 func (ns *nurseryStore) enterPreschool(tx *bolt.Tx, kid *kidOutput) error {
@@ -1035,7 +1035,7 @@ func (ns *nurseryStore) enterPreschool(tx *bolt.Tx, kid *kidOutput) error {
 	}
 
 	// Since the kidOutput is being inserted into the preschool bucket, we
-	// create a key that prefixes its outpoint with the preschool prefix.
+	// create a key that prefixes its Outpoint with the preschool prefix.
 	pfxOutputKey, err := prefixOutputKey(psclPrefix, kid.OutPoint())
 	if err != nil {
 		return err

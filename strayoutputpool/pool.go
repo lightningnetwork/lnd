@@ -7,10 +7,12 @@ import (
 	"github.com/roasbeef/btcutil"
 
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/strayoutputpool/store"
 )
 
 type DBStrayOutputsPool struct {
-	cfg *PoolConfig
+	cfg   *PoolConfig
+	store store.OutputStore
 }
 
 // NewDBStrayOutputsPool instantiate StrayOutputsPool with implementation
@@ -18,6 +20,7 @@ type DBStrayOutputsPool struct {
 func NewDBStrayOutputsPool(config *PoolConfig) StrayOutputsPoolServer {
 	return &DBStrayOutputsPool{
 		cfg: config,
+		store: store.NewOutputDB(config.DB),
 	}
 }
 
@@ -47,7 +50,7 @@ func (d *DBStrayOutputsPool) GenSweepTx() (*btcutil.Tx, error) {
 		return nil, err
 	}
 
-	strayInputs, err := d.FetchAllStrayOutputs()
+	strayInputs, err := d.store.FetchAllStrayOutputs()
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +60,7 @@ func (d *DBStrayOutputsPool) GenSweepTx() (*btcutil.Tx, error) {
 
 // genSweepTx
 func (d *DBStrayOutputsPool) genSweepTx(pkScript []byte,
-	strayOutputs ...*strayOutputEntity) (*btcutil.Tx, error) {
+	strayOutputs ...store.OutputEntity) (*btcutil.Tx, error) {
 
 	feePerVSize, err := d.cfg.Estimator.EstimateFeePerVSize(2)
 	if err != nil {
@@ -72,36 +75,32 @@ func (d *DBStrayOutputsPool) genSweepTx(pkScript []byte,
 	// marked as strayed.
 	var totalAmt btcutil.Amount
 
-	for _, sOutput := range strayOutputs {
-		txFee := feePerVSize.FeeForVSize(sOutput.txVSize)
-		totalAmt += sOutput.totalAmt - txFee
+	hashCache := txscript.NewTxSigHashes(txn)
 
-		// Add all spendable outputs to transaction
-		for _, output := range sOutput.outputs {
-			txn.AddTxIn(&wire.TxIn{
-				PreviousOutPoint: *output.OutPoint(),
-			})
+	addWitness := func(idx int, so lnwallet.SpendableOutput) error {
+		// Generate witness for this outpoint and transaction.
+		witness, err := so.BuildWitness(d.cfg.Signer, txn, hashCache, idx)
+		if err != nil {
+			return err
 		}
 
-		hashCache := txscript.NewTxSigHashes(txn)
+		txn.TxIn[idx].Witness = witness
 
-		addWitness := func(idx int, so lnwallet.SpendableOutput) error {
-			// Generate witness for this outpoint and transaction.
-			witness, err := so.BuildWitness(d.cfg.Signer, txn, hashCache, idx)
-			if err != nil {
-				return err
-			}
+		return nil
+	}
 
-			txn.TxIn[idx].Witness = witness
+	for i, sOutput := range strayOutputs {
+		txFee := feePerVSize.FeeForVSize(sOutput.TxVSize())
+		totalAmt += sOutput.Output().Amount() - txFee
 
-			return nil
-		}
+		// Add spendable outputs to transaction
+		txn.AddTxIn(&wire.TxIn{
+			PreviousOutPoint: *sOutput.Output().OutPoint(),
+		})
 
 		// Generate a witness for each output of the transaction.
-		for i, output := range sOutput.outputs {
-			if err := addWitness(i, output); err != nil {
-				return nil, err
-			}
+		if err := addWitness(i, sOutput.Output()); err != nil {
+			return nil, err
 		}
 	}
 

@@ -8,13 +8,13 @@ import (
 	"io"
 	"io/ioutil"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/strayoutputpool"
 )
 
 var (
@@ -535,7 +535,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 			// we're able to sweep a transaction.
 			btx := btcutil.NewTx(h.sweepTx)
 
-			if err := strayoutputpool.CheckTransactionSanity(btx); err != nil {
+			if err := blockchain.CheckTransactionSanity(btx); err != nil {
 				return nil, err
 			}
 
@@ -1335,7 +1335,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		// basic validity requirements and prune inputs/outputs until
 		// we're able to sweep a transaction.
 		btx := btcutil.NewTx(c.sweepTx)
-		if err := strayoutputpool.CheckTransactionSanity(btx); err != nil {
+		if err := blockchain.CheckTransactionSanity(btx); err != nil {
 			return nil, err
 		}
 

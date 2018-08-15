@@ -334,7 +334,8 @@ func (u *UnlockerService) ChangePassword(ctx context.Context,
 	// this after unlocking the wallet to ensure macaroon files don't get
 	// deleted with incorrect password attempts.
 	for _, file := range u.macaroonFiles {
-		if err := os.Remove(file); err != nil {
+		err := os.Remove(file)
+		if err != nil && !os.IsNotExist(err) {
 			return nil, err
 		}
 	}

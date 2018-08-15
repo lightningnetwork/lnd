@@ -420,6 +420,19 @@ func (h *htlcSuccessResolver) ResolverKey() []byte {
 	return key[:]
 }
 
+// makeSpendableOutput returns contract spendable output for htlc success
+// resolver.
+func (h *htlcSuccessResolver) makeSpendableOutput() lnwallet.SpendableOutput {
+	signDesc := h.htlcResolution.SweepSignDesc
+	return NewContractOutput(
+		btcutil.Amount(signDesc.Output.Value),
+		h.htlcResolution.ClaimOutpoint,
+		lnwallet.HtlcAcceptedRemoteSuccess,
+		signDesc,
+		h.htlcResolution.Preimage,
+	)
+}
+
 // Resolve attempts to resolve an unresolved incoming HTLC that we know the
 // preimage to. If the HTLC is on the commitment of the remote party, then
 // we'll simply sweep it directly. Otherwise, we'll hand this off to the utxo
@@ -472,31 +485,38 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 			totalWeight := (&lnwallet.TxWeightEstimator{}).
 				AddWitnessInput(lnwallet.OfferedHtlcSuccessWitnessSize).
 				AddP2WKHOutput().Weight()
+
 			totalFees := feePerKw.FeeForWeight(int64(totalWeight))
-			sweepAmt := h.htlcResolution.SweepSignDesc.Output.Value -
-				int64(totalFees)
+
+			input := h.makeSpendableOutput()
+
+			// If input has negative balance it's better to put it into stray
+			// output pool, until then fee rate is more appropriate
+			// to sweep, but after for this input we must check double
+			// spending, because it could be swept by remote node.
+			if h.CutStrayInput(feePerKw, input) {
+				log.Infof("input with outpoint: '%v' has negative amount of value, added to a stray pool",
+					input.OutPoint())
+				return nil, nil
+			}
+
+			sweepAmt := input.Amount() - totalFees
 
 			// With the fee computation finished, we'll now
 			// construct the sweep transaction.
-			htlcPoint := h.htlcResolution.ClaimOutpoint
 			h.sweepTx = wire.NewMsgTx(2)
 			h.sweepTx.AddTxIn(&wire.TxIn{
-				PreviousOutPoint: htlcPoint,
+				PreviousOutPoint: *input.OutPoint(),
 			})
 			h.sweepTx.AddTxOut(&wire.TxOut{
 				PkScript: addr,
-				Value:    sweepAmt,
+				Value:    int64(sweepAmt),
 			})
 
 			// With the transaction fully assembled, we can now
 			// generate a valid witness for the transaction.
-			h.htlcResolution.SweepSignDesc.SigHashes = txscript.NewTxSigHashes(
-				h.sweepTx,
-			)
-			h.sweepTx.TxIn[0].Witness, err = lnwallet.SenderHtlcSpendRedeem(
-				h.Signer, &h.htlcResolution.SweepSignDesc, h.sweepTx,
-				h.htlcResolution.Preimage[:],
-			)
+			h.sweepTx.TxIn[0].Witness, err = input.BuildWitness(h.Signer,
+				h.sweepTx, txscript.NewTxSigHashes(h.sweepTx), 0)
 			if err != nil {
 				return nil, err
 			}
@@ -1206,6 +1226,20 @@ func (c *commitSweepResolver) ResolverKey() []byte {
 	return key[:]
 }
 
+// makeSpendableOutput returns contract spendable output for commit sweep
+// resolver.
+func (c *commitSweepResolver) makeSpendableOutput() lnwallet.SpendableOutput {
+	signDesc := c.commitResolution.SelfOutputSignDesc
+
+	return NewContractOutput(
+		btcutil.Amount(signDesc.Output.Value),
+		c.commitResolution.SelfOutPoint,
+		lnwallet.CommitmentNoDelay,
+		signDesc,
+		[32]byte{},
+	)
+}
+
 // Resolve instructs the contract resolver to resolve the output on-chain. Once
 // the output has been *fully* resolved, the function should return immediately
 // with a nil ContractResolver value for the first return value.  In the case
@@ -1254,10 +1288,6 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	// If the sweep transaction isn't already generated, and the remote
 	// party broadcast the commitment transaction then we'll create it now.
 	case c.sweepTx == nil && !isLocalCommitTx:
-		// Now that the commitment transaction has confirmed, we'll
-		// craft a transaction to sweep this output into the wallet.
-		signDesc := c.commitResolution.SelfOutputSignDesc
-
 		// First, we'll estimate the total weight so we can compute
 		// fees properly. We'll use a lax estimate, as this output is
 		// in no immediate danger.
@@ -1269,37 +1299,37 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		log.Debugf("%T(%v): using %v sat/kw for sweep tx", c,
 			c.chanPoint, int64(feePerKw))
 
+		input := c.makeSpendableOutput()
+
+		// If input has negative balance it's better to put it into stray
+		// output pool, until then fee rate is more appropriate
+		// to sweep.
+		if c.CutStrayInput(feePerKw, input) {
+			log.Infof("input with outpoint: '%v' has negative amount of value, added to a stray pool",
+				input.OutPoint())
+			return nil, nil
+		}
+
 		totalWeight := (&lnwallet.TxWeightEstimator{}).
-			AddP2WKHInput().
+			AddP2PKHInput().
 			AddP2WKHOutput().Weight()
+
 		totalFees := feePerKw.FeeForWeight(int64(totalWeight))
-		sweepAmt := signDesc.Output.Value - int64(totalFees)
 
 		c.sweepTx = wire.NewMsgTx(2)
 		c.sweepTx.AddTxIn(&wire.TxIn{
-			PreviousOutPoint: c.commitResolution.SelfOutPoint,
+			PreviousOutPoint: *input.OutPoint(),
 		})
+
 		sweepAddr, err := c.NewSweepAddr()
 		if err != nil {
 			return nil, err
 		}
+
 		c.sweepTx.AddTxOut(&wire.TxOut{
 			PkScript: sweepAddr,
-			Value:    sweepAmt,
+			Value:    int64(input.Amount() - totalFees),
 		})
-
-		// With the transaction fully assembled, we can now generate a
-		// valid witness for the transaction.
-		signDesc.SigHashes = txscript.NewTxSigHashes(c.sweepTx)
-		c.sweepTx.TxIn[0].Witness, err = lnwallet.CommitSpendNoDelay(
-			c.Signer, &signDesc, c.sweepTx,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		log.Infof("%T(%v): sweeping commit output with tx=%v", c,
-			c.chanPoint, spew.Sdump(c.sweepTx))
 
 		// Before signing the transaction, check to ensure that it meets
 		// basic validity requirements and prune inputs/outputs until
@@ -1308,6 +1338,17 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		if err := strayoutputpool.CheckTransactionSanity(btx); err != nil {
 			return nil, err
 		}
+
+		// With the transaction fully assembled, we can now generate a
+		// valid witness for the transaction.
+		c.sweepTx.TxIn[0].Witness, err = input.BuildWitness(c.Signer, c.sweepTx,
+			txscript.NewTxSigHashes(c.sweepTx), 0)
+		if err != nil {
+			return nil, err
+		}
+
+		log.Infof("%T(%v): sweeping commit output with tx=%v", c,
+			c.chanPoint, spew.Sdump(c.sweepTx))
 
 		// Finally, we'll broadcast the sweep transaction to the
 		// network.

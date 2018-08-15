@@ -61,6 +61,12 @@ type ChainArbitratorConfig struct {
 	// NOTE: This SHOULD return a p2wkh script.
 	NewSweepAddr func() ([]byte, error)
 
+	// CutStrayInput cuts output with negative amount due to current fee rate
+	// and adds it to a persistent storage to be able sweep at any time
+	// by request or schedule with appropriate fee rate flor.
+	CutStrayInput func(feeRate lnwallet.SatPerVByte,
+		input lnwallet.SpendableOutput) bool
+
 	// PublishTx reliably broadcasts a transaction to the network. Once
 	// this function exits without an error, then they transaction MUST
 	// continually be rebroadcast if needed.

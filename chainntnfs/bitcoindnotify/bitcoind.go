@@ -76,6 +76,16 @@ type BitcoindNotifier struct {
 
 	bestBlock chainntnfs.BlockEpoch
 
+	// spendHintCache is a cache used to query and update the latest height
+	// hints for an outpoint. Each height hint represents the earliest
+	// height at which the outpoint could have been spent within the chain.
+	spendHintCache chainntnfs.SpendHintCache
+
+	// confirmHintCache is a cache used to query the latest height hints for
+	// a transaction. Each height hint represents the earliest height at
+	// which the transaction could have confirmed within the chain.
+	confirmHintCache chainntnfs.ConfirmHintCache
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -87,7 +97,9 @@ var _ chainntnfs.ChainNotifier = (*BitcoindNotifier)(nil)
 // New returns a new BitcoindNotifier instance. This function assumes the
 // bitcoind node  detailed in the passed configuration is already running, and
 // willing to accept RPC requests and new zmq clients.
-func New(chainConn *chain.BitcoindConn) *BitcoindNotifier {
+func New(chainConn *chain.BitcoindConn, spendHintCache chainntnfs.SpendHintCache,
+	confirmHintCache chainntnfs.ConfirmHintCache) *BitcoindNotifier {
+
 	notifier := &BitcoindNotifier{
 		notificationCancels:  make(chan interface{}),
 		notificationRegistry: make(chan interface{}),
@@ -95,6 +107,9 @@ func New(chainConn *chain.BitcoindConn) *BitcoindNotifier {
 		blockEpochClients: make(map[uint64]*blockEpochRegistration),
 
 		spendNotifications: make(map[wire.OutPoint]map[uint64]*spendNotification),
+
+		spendHintCache:   spendHintCache,
+		confirmHintCache: confirmHintCache,
 
 		quit: make(chan struct{}),
 	}
@@ -127,7 +142,8 @@ func (b *BitcoindNotifier) Start() error {
 	}
 
 	b.txConfNotifier = chainntnfs.NewTxConfNotifier(
-		uint32(currentHeight), reorgSafetyLimit)
+		uint32(currentHeight), reorgSafetyLimit, b.confirmHintCache,
+	)
 
 	b.bestBlock = chainntnfs.BlockEpoch{
 		Height: currentHeight,

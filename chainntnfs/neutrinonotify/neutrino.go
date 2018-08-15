@@ -77,6 +77,16 @@ type NeutrinoNotifier struct {
 
 	chainUpdates *chainntnfs.ConcurrentQueue
 
+	// spendHintCache is a cache used to query and update the latest height
+	// hints for an outpoint. Each height hint represents the earliest
+	// height at which the outpoint could have been spent within the chain.
+	spendHintCache chainntnfs.SpendHintCache
+
+	// confirmHintCache is a cache used to query the latest height hints for
+	// a transaction. Each height hint represents the earliest height at
+	// which the transaction could have confirmed within the chain.
+	confirmHintCache chainntnfs.ConfirmHintCache
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -89,7 +99,9 @@ var _ chainntnfs.ChainNotifier = (*NeutrinoNotifier)(nil)
 //
 // NOTE: The passed neutrino node should already be running and active before
 // being passed into this function.
-func New(node *neutrino.ChainService) (*NeutrinoNotifier, error) {
+func New(node *neutrino.ChainService, spendHintCache chainntnfs.SpendHintCache,
+	confirmHintCache chainntnfs.ConfirmHintCache) (*NeutrinoNotifier, error) {
+
 	notifier := &NeutrinoNotifier{
 		notificationCancels:  make(chan interface{}),
 		notificationRegistry: make(chan interface{}),
@@ -103,6 +115,9 @@ func New(node *neutrino.ChainService) (*NeutrinoNotifier, error) {
 		rescanErr: make(chan error),
 
 		chainUpdates: chainntnfs.NewConcurrentQueue(10),
+
+		spendHintCache:   spendHintCache,
+		confirmHintCache: confirmHintCache,
 
 		quit: make(chan struct{}),
 	}
@@ -150,7 +165,7 @@ func (n *NeutrinoNotifier) Start() error {
 	}
 
 	n.txConfNotifier = chainntnfs.NewTxConfNotifier(
-		bestHeight, reorgSafetyLimit,
+		bestHeight, reorgSafetyLimit, n.confirmHintCache,
 	)
 
 	n.chainConn = &NeutrinoChainConn{n.p2pNode}

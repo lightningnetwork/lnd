@@ -5,7 +5,6 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"os"
-	"runtime"
 	"testing"
 	"time"
 
@@ -94,10 +93,10 @@ func createTestBtcWallet(coinType uint32) (func(), *wallet.Wallet, error) {
 }
 
 func assertEqualKeyLocator(t *testing.T, a, b KeyLocator) {
-	_, _, line, _ := runtime.Caller(1)
+	t.Helper()
 	if a != b {
-		t.Fatalf("line #%v: mismatched key locators: expected %v, "+
-			"got %v", line, spew.Sdump(a), spew.Sdump(b))
+		t.Fatalf("mismatched key locators: expected %v, "+
+			"got %v", spew.Sdump(a), spew.Sdump(b))
 	}
 }
 

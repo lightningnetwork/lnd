@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/autopilot"
+	"github.com/lightningnetwork/lnd/config"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
 )
@@ -133,7 +134,7 @@ var _ autopilot.ChannelController = (*chanController)(nil)
 // initAutoPilot initializes a new autopilot.Agent instance based on the passed
 // configuration struct. All interfaces needed to drive the pilot will be
 // registered and launched.
-func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) {
+func initAutoPilot(svr *server, cfg *config.AutoPilot) (*autopilot.Agent, error) {
 	atplLog.Infof("Instantiating autopilot with cfg: %v", spew.Sdump(cfg))
 
 	// First, we'll create the preferential attachment heuristic,

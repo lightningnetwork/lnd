@@ -20,6 +20,12 @@ type StrayOutputsPool interface {
 
 	// Sweep generates transaction and broadcast it to the network.
 	Sweep() error
+}
+
+// StrayOutputsPool server implementation for running 'Sweep' automatically
+// by schedule.
+type StrayOutputsPoolServer interface {
+	StrayOutputsPool
 
 	// Start launches background processing of scheduled outputs
 	Start() error
@@ -27,7 +33,6 @@ type StrayOutputsPool interface {
 	// Stop finalises processing
 	Stop()
 }
-
 
 // PoolConfig is contextual storage for dependant data for pool
 type PoolConfig struct {

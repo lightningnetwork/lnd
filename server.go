@@ -158,7 +158,7 @@ type server struct {
 
 	connMgr *connmgr.ConnManager
 
-	strayOutputsPool strayoutputpool.StrayOutputsPool
+	strayOutputsPool strayoutputpool.StrayOutputsPoolServer
 
 	// globalFeatures feature vector which affects HTLCs and thus are also
 	// advertised to other nodes.

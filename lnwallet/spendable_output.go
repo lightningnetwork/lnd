@@ -11,7 +11,7 @@ import (
 
 var byteOrder = binary.BigEndian
 
-// BaseOutput is base implementation of SpendableOutput interface
+// BaseOutput is base implementation of SpendableOutput interface.
 type BaseOutput struct {
 	amt         btcutil.Amount
 	outpoint    wire.OutPoint
@@ -21,7 +21,7 @@ type BaseOutput struct {
 	witnessFunc WitnessGenerator
 }
 
-// NewBaseOutput creates new base output instance
+// NewBaseOutput creates new base output instance.
 func NewBaseOutput(
 	amt btcutil.Amount,
 	outpoint wire.OutPoint,
@@ -73,7 +73,7 @@ func (s *BaseOutput) BuildWitness(signer Signer, txn *wire.MsgTx,
 	return s.witnessFunc(txn, hashCache, txinIdx)
 }
 
-// Encode serializes data of spendable output to serial data
+// Encode serializes data of spendable output to serial data.
 func (s *BaseOutput) Encode(w io.Writer) error {
 	var scratch [8]byte
 
@@ -98,7 +98,7 @@ func (s *BaseOutput) Encode(w io.Writer) error {
 	return nil
 }
 
-// Decode deserializes data of spendable output from serial data
+// Decode deserializes data of spendable output from serial data.
 func (s *BaseOutput) Decode(r io.Reader) error {
 	var (
 		scratch [8]byte

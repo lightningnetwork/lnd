@@ -1,18 +1,12 @@
 package strayoutputpool
 
 import (
-	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/roasbeef/btcd/blockchain"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
-)
 
-const (
-	// minCommitFeePerKw is the smallest fee rate that we should propose
-	// for a new fee update. We'll use this as a fee floor when proposing
-	// and accepting updates.
-	minCommitFeePerKw = 253
+	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
 type DBStrayOutputsPool struct {
@@ -21,7 +15,7 @@ type DBStrayOutputsPool struct {
 
 // NewDBStrayOutputsPool instantiate StrayOutputsPool with implementation
 // of storing serialised outputs to database
-func NewDBStrayOutputsPool(config *PoolConfig) StrayOutputsPool {
+func NewDBStrayOutputsPool(config *PoolConfig) StrayOutputsPoolServer {
 	return &DBStrayOutputsPool{
 		cfg: config,
 	}
@@ -59,28 +53,6 @@ func (d *DBStrayOutputsPool) GenSweepTx() (*btcutil.Tx, error) {
 	}
 
 	return d.genSweepTx(pkScript, strayInputs...)
-}
-
-// commitFeePerKw returns fee rate floor based on the widely used consensus fee
-// rate floors.
-func (d *DBStrayOutputsPool) commitFeePerKw(numBlocks uint32) (lnwallet.SatPerKWeight, error) {
-	feePerVSize, err := d.cfg.Estimator.EstimateFeePerVSize(numBlocks)
-	if err != nil {
-		return 0, err
-	}
-
-	// If we obtain a fee rate quote below this, then we should bump the
-	// rate to ensure we've above the floor.
-	commitFeePerKw := feePerVSize.FeePerKWeight()
-	if commitFeePerKw < minCommitFeePerKw {
-		log.Infof("Proposed fee rate of %v sat/kw is below min "+
-			"of %v sat/kw, using fee floor", int64(commitFeePerKw),
-			int64(minCommitFeePerKw))
-
-		commitFeePerKw = minCommitFeePerKw
-	}
-
-	return commitFeePerKw, nil
 }
 
 // genSweepTx

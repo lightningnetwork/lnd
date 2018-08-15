@@ -53,22 +53,22 @@ var (
 )
 
 func TestSerialization(t *testing.T) {
-	encodeSample := &strayOutput{
+	encodeSample := &strayOutputEntity{
 		txVSize: 10,
 		totalAmt: 201,
-		outputs: []lnwallet.SpendableOutput{
-			&spendableOutput{
-				amt: 100,
-				outpoint: *wire.NewOutPoint(&testHash, 0),
-				witnessType: lnwallet.CommitmentNoDelay,
-				signDesc: sighDescriptor,
-			},
-			&spendableOutput{
-				amt: 101,
-				outpoint: *wire.NewOutPoint(&testHash, 1),
-				witnessType: lnwallet.CommitmentNoDelay,
-				signDesc: sighDescriptor,
-			},
+		outputs: []*lnwallet.BaseOutput{
+			lnwallet.NewBaseOutput(
+				100,
+				*wire.NewOutPoint(&testHash, 0),
+				lnwallet.CommitmentNoDelay,
+				sighDescriptor,
+			),
+			lnwallet.NewBaseOutput(
+				101,
+				*wire.NewOutPoint(&testHash, 1),
+				lnwallet.CommitmentNoDelay,
+				sighDescriptor,
+			),
 		},
 	}
 
@@ -79,7 +79,7 @@ func TestSerialization(t *testing.T) {
 		t.Fatalf("unable to encode stray output: %v", err)
 	}
 
-	decodeSample := &strayOutput{}
+	decodeSample := &strayOutputEntity{}
 
 	if err := decodeSample.Decode(buf); err != nil {
 		t.Fatalf("unable to decode stray output: %v", err)

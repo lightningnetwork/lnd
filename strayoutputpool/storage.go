@@ -8,7 +8,6 @@ import (
 
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 )
@@ -26,110 +25,11 @@ var (
 	byteOrder = binary.BigEndian
 )
 
-// spendableOutput basic implementation of SpendableOutput interface.
-type spendableOutput struct {
-	amt         btcutil.Amount
-	outpoint    wire.OutPoint
-	witnessType lnwallet.WitnessType
-	signDesc    lnwallet.SignDescriptor
-}
 
-// Amount returns amount of the output.
-func (s *spendableOutput) Amount() btcutil.Amount {
-	return s.amt
-}
-
-// OutPoint is previous transaction output.
-func (s *spendableOutput) OutPoint() *wire.OutPoint {
-	return &s.outpoint
-}
-
-// WitnessType returns types which attached to generation of witness data.
-func (s *spendableOutput) WitnessType() lnwallet.WitnessType {
-	return s.witnessType
-}
-
-// SignDesc is used to signing raw transaction.
-func (s *spendableOutput) SignDesc() *lnwallet.SignDescriptor {
-	return &s.signDesc
-}
-
-func (s *spendableOutput) BuildWitness(signer lnwallet.Signer, txn *wire.MsgTx,
-	hashCache *txscript.TxSigHashes, txinIdx int) ([][]byte, error) {
-	// Now that we have ensured that the witness generation function has
-	// been initialized, we can proceed to execute it and generate the
-	// witness for this particular breached output.
-	witnessFunc := s.witnessType.GenWitnessFunc(
-		signer, s.SignDesc(),
-	)
-
-	return witnessFunc(txn, hashCache, txinIdx)
-}
-
-// Encode serializes data of spendable output to serial data
-func (s *spendableOutput) Encode(w io.Writer) error {
-	var scratch [8]byte
-
-	byteOrder.PutUint64(scratch[:], uint64(s.Amount()))
-	if _, err := w.Write(scratch[:]); err != nil {
-		return err
-	}
-
-	if err := writeOutpoint(w, s.OutPoint()); err != nil {
-		return err
-	}
-
-	byteOrder.PutUint16(scratch[:2], uint16(s.WitnessType()))
-	if _, err := w.Write(scratch[:2]); err != nil {
-		return err
-	}
-
-	if err := lnwallet.WriteSignDescriptor(w, s.SignDesc()); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// Decode deserializes data of spendable output from serial data
-func (s *spendableOutput) Decode(r io.Reader) error {
-	var (
-		scratch [8]byte
-		err     error
-	)
-
-	if _, err = r.Read(scratch[:]); err != nil && err != io.EOF {
-		return err
-	}
-	s.amt = btcutil.Amount(byteOrder.Uint64(scratch[:]))
-
-	if err = readOutpoint(io.LimitReader(r, 40),
-		&s.outpoint); err != nil && err != io.EOF {
-		return err
-	}
-
-	if _, err = r.Read(scratch[:2]); err != nil && err != io.EOF {
-		return err
-	}
-	s.witnessType = lnwallet.WitnessType(
-		byteOrder.Uint16(scratch[:2]),
-	)
-
-	if err = lnwallet.ReadSignDescriptor(r, &s.signDesc);
-	err != nil && err != io.EOF {
-		return err
-	}
-
-	if err != nil && err != io.EOF {
-		return err
-	}
-
-	return nil
-}
 
 // AddStrayOutput saves serialized stray output to database in order to combine
 // them to one transaction to pay fee for one transaction.
-func (d *DBStrayOutputsPool) AddStrayOutput(output *strayOutput) error {
+func (d *DBStrayOutputsPool) AddStrayOutput(output *strayOutputEntity) error {
 	var b bytes.Buffer
 	if err := output.Encode(&b); err != nil {
 		return err
@@ -154,8 +54,8 @@ func (d *DBStrayOutputsPool) AddStrayOutput(output *strayOutput) error {
 }
 
 // FetchAllStrayOutputs returns all stray outputs in DB.
-func (d *DBStrayOutputsPool) FetchAllStrayOutputs() ([]*strayOutput, error) {
-	var outputs []*strayOutput
+func (d *DBStrayOutputsPool) FetchAllStrayOutputs() ([]*strayOutputEntity, error) {
+	var outputs []*strayOutputEntity
 	err := d.cfg.DB.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(strayOutputBucket)
 		if bucket == nil {
@@ -163,7 +63,7 @@ func (d *DBStrayOutputsPool) FetchAllStrayOutputs() ([]*strayOutput, error) {
 		}
 
 		return bucket.ForEach(func(k, v []byte) error {
-			output := &strayOutput{}
+			output := &strayOutputEntity{}
 			if err := output.Decode(bytes.NewReader(v)); err != nil {
 				return err
 			}
@@ -180,8 +80,8 @@ func (d *DBStrayOutputsPool) FetchAllStrayOutputs() ([]*strayOutput, error) {
 	return outputs, nil
 }
 
-// strayOutput
-type strayOutput struct {
+// strayOutputEntity
+type strayOutputEntity struct {
 	// txVSize
 	txVSize int64
 
@@ -189,12 +89,12 @@ type strayOutput struct {
 	totalAmt btcutil.Amount
 
 	// outputs
-	outputs []*spendableOutput
+	outputs []*lnwallet.BaseOutput
 }
 
 
 // Encode
-func (s *strayOutput) Encode(w io.Writer) error {
+func (s *strayOutputEntity) Encode(w io.Writer) error {
 	var scratch [8]byte
 
 	byteOrder.PutUint64(scratch[:], uint64(s.txVSize))
@@ -215,7 +115,7 @@ func (s *strayOutput) Encode(w io.Writer) error {
 }
 
 // Decode
-func (s *strayOutput) Decode(r io.Reader) error {
+func (s *strayOutputEntity) Decode(r io.Reader) error {
 	var scratch [8]byte
 
 	if _, err := r.Read(scratch[:]); err != nil {
@@ -229,7 +129,7 @@ func (s *strayOutput) Decode(r io.Reader) error {
 	s.totalAmt = btcutil.Amount(byteOrder.Uint64(scratch[:]))
 
 	for {
-		sOutput := &spendableOutput{}
+		sOutput := &lnwallet.BaseOutput{}
 		if err := sOutput.Decode(r); err != nil && err != io.EOF {
 			return err
 		}

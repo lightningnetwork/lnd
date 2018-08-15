@@ -85,16 +85,12 @@ func (d *DBStrayOutputsPool) commitFeePerKw(numBlocks uint32) (lnwallet.SatPerKW
 
 // genSweepTx
 func (d *DBStrayOutputsPool) genSweepTx(pkScript []byte,
-	strayOutputs ...*strayOutput) (*btcutil.Tx, error) {
+	strayOutputs ...*strayOutputEntity) (*btcutil.Tx, error) {
 
 	feePerVSize, err := d.cfg.Estimator.EstimateFeePerVSize(2)
 	if err != nil {
 		return nil, err
 	}
-	//feePerVSize, err := d.feePerVSize(2)
-	//if err != nil {
-	//	return nil, err
-	//}
 
 	// With the fee calculated, we can now create the transaction using the
 	// information gathered above and the provided retribution information.

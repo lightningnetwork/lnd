@@ -256,10 +256,9 @@ func (hn *HarnessNode) Name() string {
 
 // SetPort can be used to change P2P port of a node
 // TODO (Offer): remove once issue 1496 is resolved
-func (hn *HarnessNode) SetPort(port int)  {
+func (hn *HarnessNode) SetPort(port int) {
 	hn.cfg.P2PPort = port
 }
-
 
 // Start launches a new process running lnd. Additionally, the PID of the
 // launched process is saved in order to possibly kill the process forcibly

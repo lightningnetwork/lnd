@@ -9212,8 +9212,8 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	networkChans = append(networkChans, chanPointAlice)
 
 	net.Bob.SetPort(19550)
-	err := net.RestartNode(net.Bob,nil)
-	if err != nil{
+	err := net.RestartNode(net.Bob, nil)
+	if err != nil {
 		t.Fatalf("unable to restart Bob: %v", err)
 	}
 
@@ -9221,8 +9221,6 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	if err := net.EnsureConnected(ctxt, net.Alice, net.Bob); err != nil {
 		t.Fatalf("unable to reconnect Alice to Bob: %v", err)
 	}
-
-
 
 	txidHash, err := getChanPointFundingTxid(chanPointAlice)
 	if err != nil {

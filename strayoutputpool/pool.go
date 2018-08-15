@@ -1,29 +1,32 @@
 package strayoutputpool
 
 import (
-	"github.com/roasbeef/btcd/blockchain"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/strayoutputpool/store"
 )
 
+// DBStrayOutputsPool is pool which contains a list of stray outputs that
+// can be manually or automatically swept into wallet.
 type DBStrayOutputsPool struct {
 	cfg   *PoolConfig
 	store store.OutputStore
 }
 
 // NewDBStrayOutputsPool instantiate StrayOutputsPool with implementation
-// of storing serialised outputs to database
+// of storing serialised outputs to database.
 func NewDBStrayOutputsPool(config *PoolConfig) StrayOutputsPoolServer {
 	return &DBStrayOutputsPool{
-		cfg: config,
+		cfg:   config,
 		store: store.NewOutputDB(config.DB),
 	}
 }
 
+// AddSpendableOutput adds spendable output to stray outputs pool.
 func (d *DBStrayOutputsPool) AddSpendableOutput(
 	output lnwallet.SpendableOutput) error {
 
@@ -31,7 +34,7 @@ func (d *DBStrayOutputsPool) AddSpendableOutput(
 }
 
 // Sweep generates transaction for all added previously outputs to the wallet
-// output address and broadcast it to the network
+// output address and broadcast it to the network.
 func (d *DBStrayOutputsPool) Sweep() error {
 	btx, err := d.GenSweepTx()
 	if err != nil {
@@ -41,7 +44,8 @@ func (d *DBStrayOutputsPool) Sweep() error {
 	return d.cfg.PublishTransaction(btx.MsgTx())
 }
 
-// GenSweepTx
+// GenSweepTx fetches all stray outputs from database and
+// generates sweep transaction for them.
 func (d *DBStrayOutputsPool) GenSweepTx() (*btcutil.Tx, error) {
 	// First, we obtain a new public key script from the wallet which we'll
 	// sweep the funds to.
@@ -58,11 +62,11 @@ func (d *DBStrayOutputsPool) GenSweepTx() (*btcutil.Tx, error) {
 	return d.genSweepTx(pkScript, strayInputs...)
 }
 
-// genSweepTx
+// genSweepTx generates sweep transaction for list of stray outputs.
 func (d *DBStrayOutputsPool) genSweepTx(pkScript []byte,
 	strayOutputs ...store.OutputEntity) (*btcutil.Tx, error) {
 
-	feePerVSize, err := d.cfg.Estimator.EstimateFeePerVSize(2)
+	feePerKW, err := d.cfg.Estimator.EstimateFeePerKW(2)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +94,7 @@ func (d *DBStrayOutputsPool) genSweepTx(pkScript []byte,
 	}
 
 	for i, sOutput := range strayOutputs {
-		txFee := feePerVSize.FeeForVSize(sOutput.TxVSize())
+		txFee := feePerKW.FeeForWeight(sOutput.TxWeight())
 		totalAmt += sOutput.Output().Amount() - txFee
 
 		// Add spendable outputs to transaction

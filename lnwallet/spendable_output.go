@@ -4,9 +4,9 @@ import (
 	"encoding/binary"
 	"io"
 
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 )
 
 var byteOrder = binary.BigEndian
@@ -29,10 +29,10 @@ func NewBaseOutput(
 	signDesc SignDescriptor,
 ) *BaseOutput {
 	return &BaseOutput{
-		amt: amt,
-		outpoint: outpoint,
+		amt:         amt,
+		outpoint:    outpoint,
 		witnessType: witnessType,
-		signDesc: signDesc,
+		signDesc:    signDesc,
 	}
 }
 
@@ -122,8 +122,7 @@ func (s *BaseOutput) Decode(r io.Reader) error {
 		byteOrder.Uint16(scratch[:2]),
 	)
 
-	if err = ReadSignDescriptor(r, &s.signDesc);
-		err != nil && err != io.EOF {
+	if err = ReadSignDescriptor(r, &s.signDesc); err != nil && err != io.EOF {
 		return err
 	}
 
@@ -164,7 +163,7 @@ func ReadOutpoint(r io.Reader, o *wire.OutPoint) error {
 // SpendableOutput.
 var _ SpendableOutput = (*BaseOutput)(nil)
 
-// newSweepPkScript creates a new public key script which should be used to
+// NewSweepPkScript creates a new public key script which should be used to
 // sweep any time-locked, or contested channel funds into the wallet.
 // Specifically, the script generated is a version 0, pay-to-witness-pubkey-hash
 // (p2wkh) output.

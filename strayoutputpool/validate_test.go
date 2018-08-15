@@ -3,10 +3,10 @@ package strayoutputpool_test
 import (
 	"testing"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/strayoutputpool"
@@ -14,7 +14,7 @@ import (
 
 type strayOutputsPoolMock struct {
 	// AddSpendableOutputs adds outputs to the pool for late processing.
-	AddSpendableOutputFunc func (output lnwallet.SpendableOutput) error
+	AddSpendableOutputFunc func(output lnwallet.SpendableOutput) error
 
 	// GenSweepTx generates transaction for all added outputs.
 	GenSweepTxFunc func() (*btcutil.Tx, error)
@@ -24,7 +24,7 @@ type strayOutputsPoolMock struct {
 }
 
 // AddSpendableOutput is mock function.
-func (s *strayOutputsPoolMock) AddSpendableOutput (output lnwallet.SpendableOutput) error {
+func (s *strayOutputsPoolMock) AddSpendableOutput(output lnwallet.SpendableOutput) error {
 	return s.AddSpendableOutputFunc(output)
 }
 
@@ -41,14 +41,13 @@ func (s *strayOutputsPoolMock) Sweep() error {
 // Interface match validation.
 var _ strayoutputpool.StrayOutputsPool = (*strayOutputsPoolMock)(nil)
 
-
 func TestCutStrayInput(t *testing.T) {
 	sPool := &strayOutputsPoolMock{}
 
 	testCases := []struct {
-		inp *lnwallet.BaseOutput
+		inp            *lnwallet.BaseOutput
 		isMustBeCutted bool
-	} {
+	}{
 		{
 			lnwallet.NewBaseOutput(50000,
 				*wire.NewOutPoint(&chainhash.Hash{}, 0),
@@ -63,15 +62,15 @@ func TestCutStrayInput(t *testing.T) {
 		},
 	}
 
-	estimator := lnwallet.StaticFeeEstimator{FeeRate: 250}
-	feeRate, err := estimator.EstimateFeePerVSize(6)
+	estimator := lnwallet.StaticFeeEstimator{FeePerKW: 250}
+	feeRate, err := estimator.EstimateFeePerKW(6)
 	if err != nil {
 		t.Fatal("couldn't init fee estimator")
 	}
 
 	for _, testCase := range testCases {
 		var addCounter int
-		sPool.AddSpendableOutputFunc = func (output lnwallet.SpendableOutput) error {
+		sPool.AddSpendableOutputFunc = func(output lnwallet.SpendableOutput) error {
 			addCounter++
 
 			return nil

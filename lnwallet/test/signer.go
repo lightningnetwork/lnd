@@ -6,26 +6,29 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
-
+// MockSigner mock of Signer implementation.
 type MockSigner struct {
 	key *btcec.PrivateKey
 }
 
+// MakeMockSigner creates MockSigner instance.
 func MakeMockSigner(key *btcec.PrivateKey) *MockSigner {
 	return &MockSigner{key: key}
 }
 
+// SignOutputRaw generates a signature for the passed transaction
+// according to the data within the passed SignDescriptor.
 func (m *MockSigner) SignOutputRaw(tx *wire.MsgTx,
 	signDesc *lnwallet.SignDescriptor) ([]byte, error) {
 	amt := signDesc.Output.Value
@@ -55,6 +58,9 @@ func (m *MockSigner) SignOutputRaw(tx *wire.MsgTx,
 	return sig[:len(sig)-1], nil
 }
 
+// ComputeInputScript generates a complete InputIndex for the passed
+// transaction with the signature as defined within the passed
+// SignDescriptor.
 func (m *MockSigner) ComputeInputScript(tx *wire.MsgTx,
 	signDesc *lnwallet.SignDescriptor) (*lnwallet.InputScript, error) {
 
@@ -84,56 +90,74 @@ func (m *MockSigner) ComputeInputScript(tx *wire.MsgTx,
 	}, nil
 }
 
+// MockNotfier is mock of ChainNotifier implementation.
 type MockNotfier struct {
-	confChannel chan *chainntnfs.TxConfirmation
+	ConfChannel chan *chainntnfs.TxConfirmation
 }
 
-func (m *MockNotfier) RegisterConfirmationsNtfn(txid *chainhash.Hash, numConfs,
-heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
+// RegisterConfirmationsNtfn registers an intent to be notified once
+// txid reaches numConfs confirmations.
+func (m *MockNotfier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
+	_ []byte, numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
 	return &chainntnfs.ConfirmationEvent{
-		Confirmed: m.confChannel,
+		Confirmed: m.ConfChannel,
 	}, nil
 }
-func (m *MockNotfier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent, error) {
+
+// RegisterBlockEpochNtfn registers an intent to be notified of each
+// new block connected to the tip of the main chain.
+func (m *MockNotfier) RegisterBlockEpochNtfn(
+	bestBlock *chainntnfs.BlockEpoch) (*chainntnfs.BlockEpochEvent, error) {
 	return &chainntnfs.BlockEpochEvent{
 		Epochs: make(chan *chainntnfs.BlockEpoch),
 		Cancel: func() {},
 	}, nil
 }
 
+// Start is stub method.
 func (m *MockNotfier) Start() error {
 	return nil
 }
 
+// Stop is stub method.
 func (m *MockNotfier) Stop() error {
 	return nil
 }
-func (m *MockNotfier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	heightHint uint32, _ bool) (*chainntnfs.SpendEvent, error) {
+
+// RegisterSpendNtfn registers an intent to be notified once the target
+// outpoint is successfully spent within a transaction.
+func (m *MockNotfier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ []byte,
+	heightHint uint32) (*chainntnfs.SpendEvent, error) {
 	return &chainntnfs.SpendEvent{
 		Spend:  make(chan *chainntnfs.SpendDetail),
 		Cancel: func() {},
 	}, nil
 }
 
-// mockSpendNotifier extends the mockNotifier so that spend notifications can be
+// MockSpendNotifier extends the mockNotifier so that spend notifications can be
 // triggered and delivered to subscribers.
 type MockSpendNotifier struct {
 	*MockNotfier
 	spendMap map[wire.OutPoint][]chan *chainntnfs.SpendDetail
+	mtx      sync.Mutex
 }
 
+// MakeMockSpendNotifier creates MockSpendNotifier instance.
 func MakeMockSpendNotifier() *MockSpendNotifier {
 	return &MockSpendNotifier{
 		MockNotfier: &MockNotfier{
-			confChannel: make(chan *chainntnfs.TxConfirmation),
+			ConfChannel: make(chan *chainntnfs.TxConfirmation),
 		},
 		spendMap: make(map[wire.OutPoint][]chan *chainntnfs.SpendDetail),
 	}
 }
 
+// RegisterSpendNtfn registers an intent to be notified once the target
+// outpoint is successfully spent within a transaction.
 func (m *MockSpendNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	heightHint uint32, _ bool) (*chainntnfs.SpendEvent, error) {
+	_ []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
+	m.mtx.Lock()
+	defer m.mtx.Unlock()
 
 	spendChan := make(chan *chainntnfs.SpendDetail)
 	m.spendMap[*outpoint] = append(m.spendMap[*outpoint], spendChan)
@@ -164,7 +188,7 @@ func (m *MockSpendNotifier) Spend(outpoint *wire.OutPoint, height int32,
 	}
 }
 
-// MockSigner is a simple implementation of the Signer interface. Each one has
+// MockMultSigner is a simple implementation of the Signer interface. Each one has
 // a set of private keys in a slice and can sign messages using the appropriate
 // one.
 type MockMultSigner struct {
@@ -172,6 +196,8 @@ type MockMultSigner struct {
 	NetParams *chaincfg.Params
 }
 
+// SignOutputRaw generates a signature for the passed transaction
+// according to the data within the passed SignDescriptor.
 func (m *MockMultSigner) SignOutputRaw(tx *wire.MsgTx,
 	signDesc *lnwallet.SignDescriptor) ([]byte, error) {
 	pubkey := signDesc.KeyDesc.PubKey
@@ -199,6 +225,9 @@ func (m *MockMultSigner) SignOutputRaw(tx *wire.MsgTx,
 	return sig[:len(sig)-1], nil
 }
 
+// ComputeInputScript generates a complete InputIndex for the passed
+// transaction with the signature as defined within the passed
+// SignDescriptor.
 func (m *MockMultSigner) ComputeInputScript(tx *wire.MsgTx,
 	signDesc *lnwallet.SignDescriptor) (*lnwallet.InputScript, error) {
 	scriptType, addresses, _, err := txscript.ExtractPkScriptAddrs(
@@ -277,11 +306,13 @@ func (m *MockMultSigner) findKey(needleHash160 []byte, singleTweak []byte,
 	return nil
 }
 
+// MockPreimageCache is mock of PreimageCache implementation.
 type MockPreimageCache struct {
 	sync.Mutex
 	PreimageMap map[[32]byte][]byte
 }
 
+// LookupPreimage attempts to look up a preimage according to its hash.
 func (m *MockPreimageCache) LookupPreimage(hash []byte) ([]byte, bool) {
 	m.Lock()
 	defer m.Unlock()
@@ -293,6 +324,7 @@ func (m *MockPreimageCache) LookupPreimage(hash []byte) ([]byte, bool) {
 	return p, ok
 }
 
+// AddPreimage attempts to add a new preimage to the global cache.
 func (m *MockPreimageCache) AddPreimage(preimage []byte) error {
 	m.Lock()
 	defer m.Unlock()

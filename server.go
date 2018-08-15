@@ -36,8 +36,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/nursery"
 	"github.com/lightningnetwork/lnd/nat"
+	"github.com/lightningnetwork/lnd/nursery"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/strayoutputpool"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -577,7 +577,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	// Create outputs pool manager responsible for gathering outputs and
 	// merging them to one transaction.
 	s.strayOutputsPool = strayoutputpool.NewDBStrayOutputsPool(&strayoutputpool.PoolConfig{
-		DB:   chanDB,
+		DB:        chanDB,
 		Estimator: s.cc.feeEstimator,
 		GenSweepScript: func() ([]byte, error) {
 			return lnwallet.NewSweepPkScript(cc.wallet)
@@ -593,7 +593,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		return nil, err
 	}
 
-	s.utxoNursery = nursery.NewUtxoNursery(&nursery.NurseryConfig{
+	s.utxoNursery = nursery.NewUtxoNursery(&nursery.Config{
 		ChainIO:   cc.chainIO,
 		ConfDepth: 1,
 		DB:        chanDB,
@@ -601,10 +601,10 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		GenSweepScript: func() ([]byte, error) {
 			return lnwallet.NewSweepPkScript(cc.wallet)
 		},
-		CutStrayInput: func(feeRate lnwallet.SatPerVByte,
+		CutStrayInput: func(feeRate lnwallet.SatPerKWeight,
 			input lnwallet.SpendableOutput) bool {
-				return strayoutputpool.CutStrayInput(s.strayOutputsPool,
-					feeRate, input)
+			return strayoutputpool.CutStrayInput(s.strayOutputsPool,
+				feeRate, input)
 		},
 		Notifier:           cc.chainNotifier,
 		PublishTransaction: cc.wallet.PublishTransaction,
@@ -632,7 +632,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		NewSweepAddr: func() ([]byte, error) {
 			return lnwallet.NewSweepPkScript(cc.wallet)
 		},
-		CutStrayInput: func(feeRate lnwallet.SatPerVByte,
+		CutStrayInput: func(feeRate lnwallet.SatPerKWeight,
 			input lnwallet.SpendableOutput) bool {
 			return strayoutputpool.CutStrayInput(s.strayOutputsPool,
 				feeRate, input)
@@ -712,7 +712,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 			CloseLink: closeLink,
 			DB:        chanDB,
 			Estimator: s.cc.feeEstimator,
-			CutStrayInput: func(feeRate lnwallet.SatPerVByte,
+			CutStrayInput: func(feeRate lnwallet.SatPerKWeight,
 				input lnwallet.SpendableOutput) bool {
 				return strayoutputpool.CutStrayInput(s.strayOutputsPool,
 					feeRate, input)

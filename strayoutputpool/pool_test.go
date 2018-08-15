@@ -4,9 +4,9 @@ import (
 	"io/ioutil"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg"
 
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/test"
@@ -33,8 +33,8 @@ func TestGenSweepScript(t *testing.T) {
 	}
 
 	pool := NewDBStrayOutputsPool(&PoolConfig{
-		DB: db,
-		Estimator:      &lnwallet.StaticFeeEstimator{FeeRate: 50},
+		DB:             db,
+		Estimator:      &lnwallet.StaticFeeEstimator{FeePerKW: 50},
 		GenSweepScript: func() ([]byte, error) { return nil, nil },
 		Signer: &test.MockMultSigner{
 			Privkeys: []*btcec.PrivateKey{
@@ -49,7 +49,6 @@ func TestGenSweepScript(t *testing.T) {
 		t.Fatal("Couldn't generate sweep transaction: ", err)
 	}
 }
-
 
 func initDB() (*channeldb.DB, error) {
 	tempPath, err := ioutil.TempDir("", "switchdb")

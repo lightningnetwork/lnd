@@ -5,9 +5,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 )
 
 var (
@@ -52,15 +52,13 @@ var (
 
 func TestSerialization(t *testing.T) {
 	encodeSample := &BaseOutput{
-		amt: 100,
-		outpoint: *wire.NewOutPoint(&testHash, 0),
+		amt:         100,
+		outpoint:    *wire.NewOutPoint(&testHash, 0),
 		witnessType: CommitmentNoDelay,
-		signDesc: sighDescriptor,
+		signDesc:    sighDescriptor,
 	}
 
-
 	buf := bytes.NewBuffer([]byte{})
-
 
 	if err := encodeSample.Encode(buf); err != nil {
 		t.Fatalf("unable to encode stray output: %v", err)

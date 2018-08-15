@@ -8,14 +8,15 @@ import (
 
 type outputType int
 
-const(
-	outputUndefined outputType   = 0
-	outputNurseryKid outputType  = 1
+const (
+	outputUndefined   outputType = 0
+	outputNurseryKid  outputType = 1
 	outputNurseryBaby outputType = 2
-	outputBreached outputType    = 3
-	outputContract outputType    = 4
+	outputBreached    outputType = 3
+	outputContract    outputType = 4
 )
 
+// OutputStore is interface of storage for stray outputs pool.
 type OutputStore interface {
 	// AddStrayOutput add spendable output to persistent storage.
 	AddStrayOutput(OutputEntity) error
@@ -25,10 +26,10 @@ type OutputStore interface {
 	FetchAllStrayOutputs() ([]OutputEntity, error)
 }
 
-// strayOutputEntity
+// OutputEntity is representation of entity for storing spendable outputs.
 type OutputEntity interface {
-	// TxVSize returns virtual size of spendable output.
-	TxVSize() int64
+	// TxWeight returns weight of spendable output.
+	TxWeight() int64
 
 	// OutputType returns type of spendable output.
 	OutputType() outputType

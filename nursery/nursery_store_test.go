@@ -8,9 +8,9 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 
 	"github.com/lightningnetwork/lnd/channeldb"
 )
@@ -526,7 +526,7 @@ func TestNurseryStoreGraduate(t *testing.T) {
 
 // assertNumChanOutputs checks that the channel bucket has the expected number
 // of outputs.
-func assertNumChanOutputs(t *testing.T, ns NurseryStore,
+func assertNumChanOutputs(t *testing.T, ns Store,
 	chanPoint *wire.OutPoint, expectedNum int) {
 
 	var count int
@@ -550,7 +550,7 @@ func assertNumChanOutputs(t *testing.T, ns NurseryStore,
 
 // assertLastFinalizedHeight checks that the nursery stores last finalized
 // height matches the expected height.
-func assertLastFinalizedHeight(t *testing.T, ns NurseryStore,
+func assertLastFinalizedHeight(t *testing.T, ns Store,
 	expected uint32) {
 
 	lfh, err := ns.LastFinalizedHeight()
@@ -566,7 +566,7 @@ func assertLastFinalizedHeight(t *testing.T, ns NurseryStore,
 
 // assertLastGraduatedHeight checks that the nursery stores last purged height
 // matches the expected height.
-func assertLastGraduatedHeight(t *testing.T, ns NurseryStore, expected uint32) {
+func assertLastGraduatedHeight(t *testing.T, ns Store, expected uint32) {
 	lgh, err := ns.LastGraduatedHeight()
 	if err != nil {
 		t.Fatalf("unable to get last graduated height: %v", err)
@@ -580,7 +580,7 @@ func assertLastGraduatedHeight(t *testing.T, ns NurseryStore, expected uint32) {
 
 // assertNumPreschools loads all preschool outputs and verifies their count
 // matches the expected number.
-func assertNumPreschools(t *testing.T, ns NurseryStore, expected int) {
+func assertNumPreschools(t *testing.T, ns Store, expected int) {
 	psclOutputs, err := ns.FetchPreschools()
 	if err != nil {
 		t.Fatalf("unable to retrieve preschool outputs: %v", err)
@@ -594,7 +594,7 @@ func assertNumPreschools(t *testing.T, ns NurseryStore, expected int) {
 
 // assertNumChannels checks that the nursery has a given number of active
 // channels.
-func assertNumChannels(t *testing.T, ns NurseryStore, expected int) {
+func assertNumChannels(t *testing.T, ns Store, expected int) {
 	channels, err := ns.ListChannels()
 	if err != nil {
 		t.Fatalf("unable to fetch channels from nursery store: %v",
@@ -609,7 +609,7 @@ func assertNumChannels(t *testing.T, ns NurseryStore, expected int) {
 
 // assertHeightIsPurged checks that the finalized transaction, kindergarten, and
 // htlc outputs at a particular height are all nil.
-func assertHeightIsPurged(t *testing.T, ns NurseryStore,
+func assertHeightIsPurged(t *testing.T, ns Store,
 	height uint32) {
 
 	finalTx, kndrOutputs, cribOutputs, err := ns.FetchClass(height)
@@ -633,7 +633,7 @@ func assertHeightIsPurged(t *testing.T, ns NurseryStore,
 
 // assertCribAtExpiryHeight loads the class at the given height, and verifies
 // that the given htlc output is one of the crib outputs.
-func assertCribAtExpiryHeight(t *testing.T, ns NurseryStore,
+func assertCribAtExpiryHeight(t *testing.T, ns Store,
 	htlcOutput *babyOutput) {
 
 	expiryHeight := htlcOutput.expiry
@@ -655,7 +655,7 @@ func assertCribAtExpiryHeight(t *testing.T, ns NurseryStore,
 
 // assertCribNotAtExpiryHeight loads the class at the given height, and verifies
 // that the given htlc output is not one of the crib outputs.
-func assertCribNotAtExpiryHeight(t *testing.T, ns NurseryStore,
+func assertCribNotAtExpiryHeight(t *testing.T, ns Store,
 	htlcOutput *babyOutput) {
 
 	expiryHeight := htlcOutput.expiry
@@ -676,7 +676,7 @@ func assertCribNotAtExpiryHeight(t *testing.T, ns NurseryStore,
 // assertFinalizedTxn loads the class at the given height and compares the
 // returned finalized txn to that in the class. It is safe to presented a nil
 // expected transaction.
-func assertFinalizedTxn(t *testing.T, ns NurseryStore, height uint32,
+func assertFinalizedTxn(t *testing.T, ns Store, height uint32,
 	exFinalTx *wire.MsgTx) {
 
 	finalTx, _, _, err := ns.FetchClass(height)
@@ -695,7 +695,7 @@ func assertFinalizedTxn(t *testing.T, ns NurseryStore, height uint32,
 // assertKndrAtMaturityHeight loads the class at the provided height and
 // verifies that the provided kid output is one of the kindergarten outputs
 // returned.
-func assertKndrAtMaturityHeight(t *testing.T, ns NurseryStore,
+func assertKndrAtMaturityHeight(t *testing.T, ns Store,
 	kndrOutput *kidOutput) {
 
 	maturityHeight := kndrOutput.ConfHeight() +
@@ -719,7 +719,7 @@ func assertKndrAtMaturityHeight(t *testing.T, ns NurseryStore,
 // assertKndrNotAtMaturityHeight loads the class at the provided height and
 // verifies that the provided kid output is not one of the kindergarten outputs
 // returned.
-func assertKndrNotAtMaturityHeight(t *testing.T, ns NurseryStore,
+func assertKndrNotAtMaturityHeight(t *testing.T, ns Store,
 	kndrOutput *kidOutput) {
 
 	maturityHeight := kndrOutput.ConfHeight() +
@@ -741,7 +741,7 @@ func assertKndrNotAtMaturityHeight(t *testing.T, ns NurseryStore,
 
 // assertChannelMaturity queries the nursery store for the maturity of the given
 // channel, failing if the result does not match the expectedMaturity.
-func assertChannelMaturity(t *testing.T, ns NurseryStore,
+func assertChannelMaturity(t *testing.T, ns Store,
 	chanPoint *wire.OutPoint, expectedMaturity bool) {
 
 	isMature, err := ns.IsMatureChannel(chanPoint)
@@ -757,7 +757,7 @@ func assertChannelMaturity(t *testing.T, ns NurseryStore,
 
 // assertCanRemoveChannel tries to remove a channel from the nursery store,
 // failing if the result does match expected canRemove.
-func assertCanRemoveChannel(t *testing.T, ns NurseryStore,
+func assertCanRemoveChannel(t *testing.T, ns Store,
 	chanPoint *wire.OutPoint, canRemove bool) {
 
 	err := ns.RemoveChannel(chanPoint)

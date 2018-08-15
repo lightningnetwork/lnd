@@ -44,7 +44,7 @@ import (
 //   |   non-zero number of outputs being tracked by the nursery store.
 //   |   Inside each channel directory are files containing serialized spendable
 //   |   outputs that are awaiting some state transition. The name of each file
-//   |   contains the Outpoint of the spendable output in the file, and is
+//   |   contains the outpoint of the spendable output in the file, and is
 //   |   prefixed with 4-byte state prefix, indicating whether the spendable
 //   |   output is a crib, preschool, or kindergarten, or graduated output. The
 //   |   nursery store supports the ability to enumerate all outputs for a
@@ -52,13 +52,13 @@ import (
 //   |
 //   ├── channel-index-key/
 //   │   ├── <chan-point-1>/                      <- CHANNEL BUCKET
-//   |   |   ├── <state-prefix><Outpoint-1>: <spendable-output-1>
-//   |   |   └── <state-prefix><Outpoint-2>: <spendable-output-2>
+//   |   |   ├── <state-prefix><outpoint-1>: <spendable-output-1>
+//   |   |   └── <state-prefix><outpoint-2>: <spendable-output-2>
 //   │   ├── <chan-point-2>/
-//   |   |   └── <state-prefix><Outpoint-3>: <spendable-output-3>
+//   |   |   └── <state-prefix><outpoint-3>: <spendable-output-3>
 //   │   └── <chan-point-3>/
-//   |       ├── <state-prefix><Outpoint-4>: <spendable-output-4>
-//   |       └── <state-prefix><Outpoint-5>: <spendable-output-5>
+//   |       ├── <state-prefix><outpoint-4>: <spendable-output-4>
+//   |       └── <state-prefix><outpoint-5>: <spendable-output-5>
 //   |
 //   |   HEIGHT INDEX
 //   |
@@ -67,10 +67,10 @@ import (
 //   |   kindergarten output, it will have an associated entry in the height
 //   |   index. Inside a particular height directory, the structure is similar
 //   |   to that of the channel index, containing multiple channel directories,
-//   |   each of which contains subdirectories named with a prefixed Outpoint
+//   |   each of which contains subdirectories named with a prefixed outpoint
 //   |   belonging to the channel. Enumerating these combinations yields a
 //   |   relative file path:
-//   |     e.g. <chan-point-3>/<prefix><Outpoint-2>/
+//   |     e.g. <chan-point-3>/<prefix><outpoint-2>/
 //   |   that can be queried in the channel index to retrieve the serialized
 //   |   output. If a height bucket is less than or equal to the current last
 //   |   finalized height and has a non-zero number of kindergarten outputs, a
@@ -80,21 +80,21 @@ import (
 //   └── height-index-key/
 //       ├── <height-1>/                             <- HEIGHT BUCKET
 //       |   ├── <chan-point-3>/                     <- HEIGHT-CHANNEL BUCKET
-//       |   |    ├── <state-prefix><Outpoint-4>: "" <- PREFIXED OUTPOINT
-//       |   |    └── <state-prefix><Outpoint-5>: ""
+//       |   |    ├── <state-prefix><outpoint-4>: "" <- PREFIXED OUTPOINT
+//       |   |    └── <state-prefix><outpoint-5>: ""
 //       |   ├── <chan-point-2>/
-//       |   |    └── <state-prefix><Outpoint-3>: ""
+//       |   |    └── <state-prefix><outpoint-3>: ""
 //       |   └── finalized-kndr-txn:              "" | <kndr-sweep-tnx>
 //       └── <height-2>/
 //           └── <chan-point-1>/
-//                └── <state-prefix><Outpoint-1>: ""
-//                └── <state-prefix><Outpoint-2>: ""
+//                └── <state-prefix><outpoint-1>: ""
+//                └── <state-prefix><outpoint-2>: ""
 
-// NurseryStore abstracts the persistent storage layer for the utxo nursery.
+// Store abstracts the persistent storage layer for the utxo nursery.
 // Concretely, it stores commitment and htlc outputs until any time-bounded
 // constraints have fully matured. The store exposes methods for enumerating its
 // contents, and persisting state transitions detected by the utxo nursery.
-type NurseryStore interface {
+type Store interface {
 	// Incubate registers a set of CSV delayed outputs (incoming HTLC's on
 	// our commitment transaction, or a commitment output), and a slice of
 	// outgoing htlc outputs to be swept back into the user's wallet. The
@@ -210,7 +210,7 @@ var (
 // an existing state prefix.
 var (
 	// cribPrefix is the state prefix given to htlc outputs waiting for
-	// their first-Stage, absolute locktime to elapse.
+	// their first-stage, absolute locktime to elapse.
 	cribPrefix = []byte("crib")
 
 	// psclPrefix is the state prefix given to commitment outputs awaiting
@@ -219,8 +219,8 @@ var (
 	psclPrefix = []byte("pscl")
 
 	// kndrPrefix is the state prefix given to all CSV delayed outputs,
-	// either from the commitment transaction, or a Stage-one htlc
-	// transaction, whose maturity height has solidified. Outputs marked in
+	// either from the commitment transaction, or a stage-one htlc
+	// transaction, whose maturity height has solidified. outputs marked in
 	// this state are in their final Stage of incubation within the nursery,
 	// and will be swept into the wallet after waiting out the relative
 	// timelock.
@@ -273,7 +273,7 @@ func prefixOutputKey(statePrefix []byte,
 	return pfxOutputBuffer.Bytes(), nil
 }
 
-// nurseryStore is a concrete instantiation of a NurseryStore that is backed by
+// nurseryStore is a concrete instantiation of a Store that is backed by
 // a channeldb.DB instance.
 type nurseryStore struct {
 	chainHash chainhash.Hash
@@ -286,7 +286,7 @@ type nurseryStore struct {
 // an instance of nurseryStore who's database is properly segmented for the
 // given chain.
 func NewNurseryStore(chainHash *chainhash.Hash,
-	db *channeldb.DB) (NurseryStore, error) {
+	db *channeldb.DB) (Store, error) {
 
 	// Prefix the provided chain hash with "utxn" to create the key for the
 	// nursery store's root bucket, ensuring each one has proper chain
@@ -305,7 +305,7 @@ func NewNurseryStore(chainHash *chainhash.Hash,
 
 // Incubate persists the beginning of the incubation process for the
 // CSV-delayed outputs (commitment and incoming HTLC's), commitment output and
-// a list of outgoing two-Stage htlc outputs.
+// a list of outgoing two-stage htlc outputs.
 func (ns *nurseryStore) Incubate(kids []kidOutput, babies []babyOutput) error {
 	return ns.db.Update(func(tx *bolt.Tx) error {
 		// If we have any kid outputs to incubate, then we'll attempt
@@ -967,9 +967,9 @@ func (ns *nurseryStore) LastGraduatedHeight() (uint32, error) {
 // Helper Methods
 
 // enterCrib accepts a new htlc output that the nursery will incubate through
-// its two-Stage process of sweeping funds back to the user's wallet. These
+// its two-stage process of sweeping funds back to the user's wallet. These
 // outputs are persisted in the nursery store in the crib state, and will be
-// revisited after the first-Stage output's CLTV has expired.
+// revisited after the first-stage output's CLTV has expired.
 func (ns *nurseryStore) enterCrib(tx *bolt.Tx, baby *babyOutput) error {
 	// First, retrieve or create the channel bucket corresponding to the
 	// baby output's origin channel point.
@@ -980,7 +980,7 @@ func (ns *nurseryStore) enterCrib(tx *bolt.Tx, baby *babyOutput) error {
 	}
 
 	// Since we are inserting this output into the crib bucket, we create a
-	// key that prefixes the baby output's Outpoint with the crib prefix.
+	// key that prefixes the baby output's outpoint with the crib prefix.
 	pfxOutputKey, err := prefixOutputKey(cribPrefix, baby.OutPoint())
 	if err != nil {
 		return err
@@ -1035,7 +1035,7 @@ func (ns *nurseryStore) enterPreschool(tx *bolt.Tx, kid *kidOutput) error {
 	}
 
 	// Since the kidOutput is being inserted into the preschool bucket, we
-	// create a key that prefixes its Outpoint with the preschool prefix.
+	// create a key that prefixes its outpoint with the preschool prefix.
 	pfxOutputKey, err := prefixOutputKey(psclPrefix, kid.OutPoint())
 	if err != nil {
 		return err
@@ -1613,5 +1613,5 @@ func isBucketEmpty(parent *bolt.Bucket) error {
 	})
 }
 
-// Compile-time constraint to ensure nurseryStore implements NurseryStore.
-var _ NurseryStore = (*nurseryStore)(nil)
+// Compile-time constraint to ensure nurseryStore implements Store.
+var _ Store = (*nurseryStore)(nil)

@@ -32,6 +32,7 @@ type outputdb struct {
 	db *channeldb.DB
 }
 
+// NewOutputDB creates new instance of storage for stray outputs.
 func NewOutputDB(db *channeldb.DB) OutputStore {
 	return &outputdb{db: db}
 }
@@ -91,34 +92,31 @@ func (o *outputdb) FetchAllStrayOutputs() ([]OutputEntity, error) {
 
 // strayOutputEntity
 type strayOutputEntity struct {
-	// txVSize
-	txVSize int64
-
-	// totalAmt
-	oType outputType
-
-	// outputs
-	output lnwallet.SpendableOutput
+	txWeight int64
+	oType    outputType
+	output   lnwallet.SpendableOutput
 }
 
-func (s *strayOutputEntity) TxVSize() int64 {
-	return s.txVSize
+// TxWeight returns transaction weight of stored spendable output.
+func (s *strayOutputEntity) TxWeight() int64 {
+	return s.txWeight
 }
 
+// OutputType returns type of current output.
 func (s *strayOutputEntity) OutputType() outputType {
 	return s.oType
 }
 
+// Output returns output entity.
 func (s *strayOutputEntity) Output() lnwallet.SpendableOutput {
 	return s.output
 }
 
-
-// Encode
+// Encode encodes spendable output to serial data.
 func (s *strayOutputEntity) Encode(w io.Writer) error {
 	var scratch [8]byte
 
-	byteOrder.PutUint64(scratch[:], uint64(s.txVSize))
+	byteOrder.PutUint64(scratch[:], uint64(s.txWeight))
 	if _, err := w.Write(scratch[:]); err != nil {
 		return err
 	}
@@ -131,7 +129,7 @@ func (s *strayOutputEntity) Encode(w io.Writer) error {
 	return s.output.Encode(w)
 }
 
-// Decode
+// Decode encodes spendable output from serial data.
 func (s *strayOutputEntity) Decode(r io.Reader) error {
 	var (
 		scratch [8]byte
@@ -141,7 +139,7 @@ func (s *strayOutputEntity) Decode(r io.Reader) error {
 	if _, err := r.Read(scratch[:]); err != nil {
 		return err
 	}
-	s.txVSize = int64(byteOrder.Uint64(scratch[:]))
+	s.txWeight = int64(byteOrder.Uint64(scratch[:]))
 
 	if _, err := r.Read(scratch[:]); err != nil {
 		return err

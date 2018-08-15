@@ -3,8 +3,8 @@ package test
 import (
 	"encoding/hex"
 
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcutil"
 )
 
 // PubkeyFromHex parses a Bitcoin public key from a hex encoded string.

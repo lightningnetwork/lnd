@@ -170,9 +170,9 @@ var (
 	ErrContractNotFound = fmt.Errorf("unable to locate contract")
 )
 
-// NurseryConfig abstracts the required subsystems used by the utxo nursery. An
-// instance of NurseryConfig is passed to NewUtxoNursery during instantiation.
-type NurseryConfig struct {
+// Config abstracts the required subsystems used by the utxo nursery. An
+// instance of Config is passed to NewUtxoNursery during instantiation.
+type Config struct {
 	// ChainIO is used by the utxo nursery to determine the current block
 	// height, which drives the incubation of the nursery's outputs.
 	ChainIO lnwallet.BlockChainIO
@@ -208,12 +208,12 @@ type NurseryConfig struct {
 
 	// Store provides access to and modification of the persistent state
 	// maintained about the utxo nursery's incubating outputs.
-	Store NurseryStore
+	Store Store
 
 	// CutStrayInputs cuts outputs with negative Amount due to current fee rate
 	// and adds them to a storage to be able sweep at any time by request
 	// or schedule with appropriate fee rate flor.
-	CutStrayInput func(feeRate lnwallet.SatPerVByte,
+	CutStrayInput func(feeRate lnwallet.SatPerKWeight,
 		input lnwallet.SpendableOutput) bool
 }
 
@@ -229,7 +229,7 @@ type UtxoNursery struct {
 	started uint32 // To be used atomically.
 	stopped uint32 // To be used atomically.
 
-	cfg *NurseryConfig
+	cfg *Config
 
 	mu         sync.Mutex
 	bestHeight uint32
@@ -240,7 +240,7 @@ type UtxoNursery struct {
 
 // NewUtxoNursery creates a new instance of the UtxoNursery from a
 // ChainNotifier and LightningWallet instance.
-func NewUtxoNursery(cfg *NurseryConfig) *UtxoNursery {
+func NewUtxoNursery(cfg *Config) *UtxoNursery {
 	return &UtxoNursery{
 		cfg:  cfg,
 		quit: make(chan struct{}),
@@ -490,7 +490,7 @@ func (u *UtxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 // contract that was previously force closed. If a report entry for the target
 // ChanPoint is unable to be constructed, then an error will be returned.
 func (u *UtxoNursery) NurseryReport(
-	chanPoint *wire.OutPoint) (*contractMaturityReport, error) {
+	chanPoint *wire.OutPoint) (*ContractMaturityReport, error) {
 
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -498,7 +498,7 @@ func (u *UtxoNursery) NurseryReport(
 	utxnLog.Infof("NurseryReport: building nursery report for channel %v",
 		chanPoint)
 
-	report := &contractMaturityReport{
+	report := &ContractMaturityReport{
 		ChanPoint: *chanPoint,
 	}
 
@@ -1390,9 +1390,9 @@ func (u *UtxoNursery) waitForPreschoolConf(kid *kidOutput,
 	}
 }
 
-// contractMaturityReport is a report that details the maturity progress of a
+// ContractMaturityReport is a report that details the maturity progress of a
 // particular force closed contract.
-type contractMaturityReport struct {
+type ContractMaturityReport struct {
 	// ChanPoint is the channel point of the original contract that is now
 	// awaiting maturity within the UtxoNursery.
 	ChanPoint wire.OutPoint
@@ -1424,7 +1424,7 @@ type contractMaturityReport struct {
 }
 
 // htlcMaturityReport provides a summary of a single htlc output, and is
-// embedded as party of the overarching contractMaturityReport
+// embedded as party of the overarching ContractMaturityReport
 type htlcMaturityReport struct {
 	// Outpoint is the final output that will be swept back to the wallet.
 	Outpoint wire.OutPoint
@@ -1452,7 +1452,7 @@ type htlcMaturityReport struct {
 
 // AddLimboCommitment adds an incubating commitment output to maturity
 // report's Htlcs, and contributes its Amount to the limbo balance.
-func (c *contractMaturityReport) AddLimboCommitment(kid *kidOutput) {
+func (c *ContractMaturityReport) AddLimboCommitment(kid *kidOutput) {
 	c.LimboBalance += kid.Amount()
 
 	c.LocalAmount += kid.Amount()
@@ -1468,7 +1468,7 @@ func (c *contractMaturityReport) AddLimboCommitment(kid *kidOutput) {
 
 // AddRecoveredCommitment adds a graduated commitment output to maturity
 // report's  Htlcs, and contributes its Amount to the recovered balance.
-func (c *contractMaturityReport) AddRecoveredCommitment(kid *kidOutput) {
+func (c *ContractMaturityReport) AddRecoveredCommitment(kid *kidOutput) {
 	c.RecoveredBalance += kid.Amount()
 
 	c.LocalAmount += kid.Amount()
@@ -1479,7 +1479,7 @@ func (c *contractMaturityReport) AddRecoveredCommitment(kid *kidOutput) {
 
 // AddLimboStage1TimeoutHtlc adds an htlc crib output to the maturity report's
 // Htlcs, and contributes its Amount to the limbo balance.
-func (c *contractMaturityReport) AddLimboStage1TimeoutHtlc(baby *babyOutput) {
+func (c *ContractMaturityReport) AddLimboStage1TimeoutHtlc(baby *babyOutput) {
 	c.LimboBalance += baby.Amount()
 
 	// TODO(roasbeef): bool to indicate Stage 1 vs Stage 2?
@@ -1495,7 +1495,7 @@ func (c *contractMaturityReport) AddLimboStage1TimeoutHtlc(baby *babyOutput) {
 // AddLimboDirectHtlc adds a direct HTLC on the commitment transaction of the
 // remote party to the maturity report. This a CLTV time-locked output that
 // hasn't yet expired.
-func (c *contractMaturityReport) AddLimboDirectHtlc(kid *kidOutput) {
+func (c *ContractMaturityReport) AddLimboDirectHtlc(kid *kidOutput) {
 	c.LimboBalance += kid.Amount()
 
 	htlcReport := htlcMaturityReport{
@@ -1509,10 +1509,10 @@ func (c *contractMaturityReport) AddLimboDirectHtlc(kid *kidOutput) {
 	c.Htlcs = append(c.Htlcs, htlcReport)
 }
 
-// AddLimboStage1SuccessHtlcHtlc adds an htlc crib output to the maturity
+// AddLimboStage1SuccessHtlc adds an htlc crib output to the maturity
 // report's set of HTLC's. We'll use this to report any incoming HTLC sweeps
 // where the second level transaction hasn't yet confirmed.
-func (c *contractMaturityReport) AddLimboStage1SuccessHtlc(kid *kidOutput) {
+func (c *ContractMaturityReport) AddLimboStage1SuccessHtlc(kid *kidOutput) {
 	c.LimboBalance += kid.Amount()
 
 	c.Htlcs = append(c.Htlcs, htlcMaturityReport{
@@ -1526,7 +1526,7 @@ func (c *contractMaturityReport) AddLimboStage1SuccessHtlc(kid *kidOutput) {
 
 // AddLimboStage2Htlc adds an htlc kindergarten output to the maturity report's
 // Htlcs, and contributes its Amount to the limbo balance.
-func (c *contractMaturityReport) AddLimboStage2Htlc(kid *kidOutput) {
+func (c *ContractMaturityReport) AddLimboStage2Htlc(kid *kidOutput) {
 	c.LimboBalance += kid.Amount()
 
 	htlcReport := htlcMaturityReport{
@@ -1549,7 +1549,7 @@ func (c *contractMaturityReport) AddLimboStage2Htlc(kid *kidOutput) {
 
 // AddRecoveredHtlc adds a graduate output to the maturity report's Htlcs, and
 // contributes its Amount to the recovered balance.
-func (c *contractMaturityReport) AddRecoveredHtlc(kid *kidOutput) {
+func (c *ContractMaturityReport) AddRecoveredHtlc(kid *kidOutput) {
 	c.RecoveredBalance += kid.Amount()
 
 	c.Htlcs = append(c.Htlcs, htlcMaturityReport{

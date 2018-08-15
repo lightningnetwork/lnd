@@ -1,13 +1,12 @@
 package strayoutputpool
 
 import (
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
-
 
 // StrayOutputsPool periodically batch outputs into single transaction
 // to sweep back into the wallet.
@@ -22,8 +21,8 @@ type StrayOutputsPool interface {
 	Sweep() error
 }
 
-// StrayOutputsPool server implementation for running 'Sweep' automatically
-// by schedule.
+// StrayOutputsPoolServer is server implementation for running 'Sweep'
+// automatically by schedule.
 type StrayOutputsPoolServer interface {
 	StrayOutputsPool
 

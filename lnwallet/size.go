@@ -438,16 +438,16 @@ func (twe *TxWeightEstimator) AddWitnessInputByType(wt WitnessType) *TxWeightEst
 		twe.AddWitnessInput(AcceptedHtlcPenaltyWitnessSize)
 
 	case HtlcSecondLevelRevoke:
-		twe.AddWitnessInput(SecondLevelHtlcPenaltyWitnessSize)
+		twe.AddWitnessInput(ToLocalPenaltyWitnessSize)
 
 	case CommitmentTimeLock:
 		twe.AddWitnessInput(ToLocalTimeoutWitnessSize)
 
 	case HtlcOfferedTimeoutSecondLevel:
-		twe.AddWitnessInput(SecondLevelHtlcSuccessWitnessSize)
+		twe.AddWitnessInput(ToLocalTimeoutWitnessSize)
 
 	case HtlcAcceptedSuccessSecondLevel:
-		twe.AddWitnessInput(SecondLevelHtlcSuccessWitnessSize)
+		twe.AddWitnessInput(ToLocalTimeoutWitnessSize)
 
 	case HtlcOfferedRemoteTimeout:
 		twe.AddWitnessInput(AcceptedHtlcTimeoutWitnessSize)

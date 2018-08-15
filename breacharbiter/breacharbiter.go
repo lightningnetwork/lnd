@@ -19,7 +19,6 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/lightningnetwork/lnd/strayoutputpool"
 )
 
 var (
@@ -93,7 +92,7 @@ type BreachConfig struct {
 	// CutStrayInput cuts output with negative amount due to current fee rate
 	// and adds it to a persistent storage to be able sweep at any time
 	// by request or schedule with appropriate fee rate flor.
-	CutStrayInput func(feeRate lnwallet.SatPerVByte,
+	CutStrayInput func(feeRate lnwallet.SatPerKWeight,
 		input lnwallet.SpendableOutput) bool
 
 	// ContractBreaches is a channel where the BreachArbiter will receive
@@ -203,7 +202,7 @@ func (b *BreachArbiter) Start() error {
 		// Register for a notification when the breach transaction is
 		// confirmed on chain.
 		breachTXID := retInfo.commitHash
-		breachScript := retInfo.breachedOutputs[0].signDesc.Output.PkScript
+		breachScript := retInfo.breachedOutputs[0].SignDesc().Output.PkScript
 		confChan, err := b.cfg.Notifier.RegisterConfirmationsNtfn(
 			&breachTXID, breachScript, 1, retInfo.breachHeight,
 		)
@@ -361,16 +360,16 @@ func (b *BreachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 		}
 
 		brarLog.Debugf("Checking for second-level attempt on HTLC(%v) "+
-			"for ChannelPoint(%v)", breachedOutput.outpoint,
+			"for ChannelPoint(%v)", *breachedOutput.OutPoint(),
 			breachInfo.chanPoint)
 
 		// If we have already registered for a notification for this
 		// output, we'll reuse it.
-		spendNtfn, ok := spendNtfns[breachedOutput.outpoint]
+		spendNtfn, ok := spendNtfns[*breachedOutput.OutPoint()]
 		if !ok {
 			var err error
 			spendNtfn, err = b.cfg.Notifier.RegisterSpendNtfn(
-				*breachedOutput.OutPoint(),
+				breachedOutput.OutPoint(),
 				breachedOutput.SignDesc().Output.PkScript,
 				breachInfo.breachHeight,
 			)
@@ -446,7 +445,7 @@ func (b *BreachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 				"HTLC(%v) for ChannelPoint(%v)",
 				*breachedOutput.OutPoint(), breachInfo.chanPoint)
 
-			delete(spendNtfns, breachedOutput.outpoint)
+			delete(spendNtfns, *breachedOutput.OutPoint())
 
 			// In this case we'll morph our initial revoke spend to
 			// instead point to the second level output, and update
@@ -737,7 +736,7 @@ func (b *BreachArbiter) handleBreachHandoff(breachEvent *ContractBreachEvent) {
 	// confirmed in the chain to ensure we're not dealing with a moving
 	// target.
 	breachTXID := &retInfo.commitHash
-	breachScript := retInfo.breachedOutputs[0].signDesc.Output.PkScript
+	breachScript := retInfo.breachedOutputs[0].SignDesc().Output.PkScript
 	cfChan, err := b.cfg.Notifier.RegisterConfirmationsNtfn(
 		breachTXID, breachScript, 1, retInfo.breachHeight,
 	)
@@ -918,10 +917,10 @@ func (b *BreachArbiter) createJusticeTx(
 
 		switch input.WitnessType() {
 		case lnwallet.CommitmentNoDelay,
-			 lnwallet.CommitmentRevoke,
-			 lnwallet.HtlcOfferedRevoke,
-			 lnwallet.HtlcAcceptedRevoke,
-			 lnwallet.HtlcSecondLevelRevoke:
+			lnwallet.CommitmentRevoke,
+			lnwallet.HtlcOfferedRevoke,
+			lnwallet.HtlcAcceptedRevoke,
+			lnwallet.HtlcSecondLevelRevoke:
 
 		// If the witness type is unrecognized, we will omit it from
 		// the transaction.

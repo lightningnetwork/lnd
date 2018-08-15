@@ -22,9 +22,9 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/nursery"
-	"github.com/lightningnetwork/lnd/strayoutputpool"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/signal"
+	"github.com/lightningnetwork/lnd/strayoutputpool"
 )
 
 // logWriter implements an io.Writer that outputs to both standard output and

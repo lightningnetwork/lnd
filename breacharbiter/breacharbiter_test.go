@@ -998,7 +998,7 @@ restartCheck:
 	}
 }
 
-func initBreachedState(t *testing.T) (*breachArbiter,
+func initBreachedState(t *testing.T) (*BreachArbiter,
 	*lnwallet.LightningChannel, *lnwallet.LightningChannel,
 	*lnwallet.LocalForceCloseSummary, chan *ContractBreachEvent,
 	func(), func()) {
@@ -1289,8 +1289,8 @@ func TestBreachSecondLevelTransfer(t *testing.T) {
 
 	// Notify that the breaching transaction is confirmed, to trigger the
 	// retribution logic.
-	notifier := brar.cfg.Notifier.(*mockSpendNotifier)
-	notifier.confChannel <- &chainntnfs.TxConfirmation{}
+	notifier := brar.cfg.Notifier.(*test.MockSpendNotifier)
+	notifier.ConfChannel <- &chainntnfs.TxConfirmation{}
 
 	// The breach arbiter should attempt to sweep all outputs on the
 	// breached commitment. We'll pretend that the HTLC output has been
@@ -1421,7 +1421,11 @@ func createTestArbiter(t *testing.T, contractBreaches chan *ContractBreachEvent,
 		Signer:             signer,
 		Notifier:           notifier,
 		PublishTransaction: func(_ *wire.MsgTx) error { return nil },
-		Store:              store,
+		CutStrayInput: func(feeRate lnwallet.SatPerKWeight,
+			input lnwallet.SpendableOutput) bool {
+			return false
+		},
+		Store: store,
 	})
 
 	if err := ba.Start(); err != nil {

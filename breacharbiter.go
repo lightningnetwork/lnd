@@ -287,33 +287,36 @@ func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 
 	// In this case, we'll modify the witness type of this output to
 	// actually prepare for a second level revoke.
-	bo.witnessType = lnwallet.HtlcSecondLevelRevoke
+	witnessType := lnwallet.HtlcSecondLevelRevoke
 
 	// We'll also redirect the outpoint to this second level output, so the
 	// spending transaction updates it inputs accordingly.
 	spendingTx := spendDetails.SpendingTx
-	oldOp := bo.outpoint
-	bo.outpoint = wire.OutPoint{
+	outpoint := wire.OutPoint{
 		Hash:  spendingTx.TxHash(),
 		Index: 0,
 	}
+
+	signDesc := *bo.SignDesc()
 
 	// Next, we need to update the amount so we can do fee estimation
 	// properly, and also so we can generate a valid signature as we need
 	// to know the new input value (the second level transactions shaves
 	// off some funds to fees).
 	newAmt := spendingTx.TxOut[0].Value
-	bo.amt = btcutil.Amount(newAmt)
-	bo.signDesc.Output.Value = newAmt
-	bo.signDesc.Output.PkScript = spendingTx.TxOut[0].PkScript
+	amt := btcutil.Amount(newAmt)
+	signDesc.Output.Value = newAmt
+	signDesc.Output.PkScript = spendingTx.TxOut[0].PkScript
 
 	// Finally, we'll need to adjust the witness program in the
 	// SignDescriptor.
-	bo.signDesc.WitnessScript = bo.secondLevelWitnessScript
+	signDesc.WitnessScript = bo.secondLevelWitnessScript
 
 	brarLog.Warnf("HTLC(%v) for ChannelPoint(%v) has been spent to the "+
-		"second-level, adjusting -> %v", oldOp, breachInfo.chanPoint,
-		bo.outpoint)
+		"second-level, adjusting -> %v", bo.OutPoint(), breachInfo.chanPoint,
+		bo.OutPoint())
+
+	bo.BaseOutput = lnwallet.NewBaseOutput(amt, outpoint, witnessType, signDesc)
 }
 
 // waitForSpendEvent waits for any of the breached outputs to get spent, and
@@ -758,14 +761,9 @@ func (b *breachArbiter) handleBreachHandoff(breachEvent *ContractBreachEvent) {
 // output. A breached output is an output that we are now entitled to due to a
 // revoked commitment transaction being broadcast.
 type breachedOutput struct {
-	amt         btcutil.Amount
-	outpoint    wire.OutPoint
-	witnessType lnwallet.WitnessType
-	signDesc    lnwallet.SignDescriptor
-
 	secondLevelWitnessScript []byte
 
-	witnessFunc lnwallet.WitnessGenerator
+	*lnwallet.BaseOutput
 }
 
 // makeBreachedOutput assembles a new breachedOutput that can be used by the
@@ -774,59 +772,21 @@ func makeBreachedOutput(outpoint *wire.OutPoint,
 	witnessType lnwallet.WitnessType,
 	secondLevelScript []byte,
 	signDescriptor *lnwallet.SignDescriptor) breachedOutput {
-
 	amount := signDescriptor.Output.Value
 
 	return breachedOutput{
-		amt:                      btcutil.Amount(amount),
-		outpoint:                 *outpoint,
 		secondLevelWitnessScript: secondLevelScript,
-		witnessType:              witnessType,
-		signDesc:                 *signDescriptor,
+		BaseOutput: lnwallet.NewBaseOutput(btcutil.Amount(amount), outpoint,
+			witnessType, *signDescriptor),
 	}
 }
 
-// Amount returns the number of satoshis contained in the breached output.
-func (bo *breachedOutput) Amount() btcutil.Amount {
-	return bo.amt
-}
+// NewDecodedBreachedOutput creates breached spendable output from
+// serialized stream.
+func NewDecodedBreachedOutput(r io.Reader) (lnwallet.SpendableOutput, error) {
+	output := &breachedOutput{}
 
-// OutPoint returns the breached output's identifier that is to be included as a
-// transaction input.
-func (bo *breachedOutput) OutPoint() *wire.OutPoint {
-	return &bo.outpoint
-}
-
-// WitnessType returns the type of witness that must be generated to spend the
-// breached output.
-func (bo *breachedOutput) WitnessType() lnwallet.WitnessType {
-	return bo.witnessType
-}
-
-// SignDesc returns the breached output's SignDescriptor, which is used during
-// signing to compute the witness.
-func (bo *breachedOutput) SignDesc() *lnwallet.SignDescriptor {
-	return &bo.signDesc
-}
-
-// BuildWitness computes a valid witness that allows us to spend from the
-// breached output. It does so by first generating and memoizing the witness
-// generation function, which parameterized primarily by the witness type and
-// sign descriptor. The method then returns the witness computed by invoking
-// this function on the first and subsequent calls.
-func (bo *breachedOutput) BuildWitness(signer lnwallet.Signer, txn *wire.MsgTx,
-	hashCache *txscript.TxSigHashes, txinIdx int) ([][]byte, error) {
-
-	// First, we ensure that the witness generation function has been
-	// initialized for this breached output.
-	bo.witnessFunc = bo.witnessType.GenWitnessFunc(
-		signer, bo.SignDesc(),
-	)
-
-	// Now that we have ensured that the witness generation function has
-	// been initialized, we can proceed to execute it and generate the
-	// witness for this particular breached output.
-	return bo.witnessFunc(txn, hashCache, txinIdx)
+	return output, output.Decode(r)
 }
 
 // Add compile-time constraint ensuring breachedOutput implements
@@ -1016,8 +976,10 @@ func (b *breachArbiter) sweepSpendableOutputsTxn(
 	// Compute the total amount contained in the inputs.
 	var totalAmt btcutil.Amount
 	for _, input := range inputs {
-		// Cut input that has less amount than fee and add them to stray pool
+		// Cut input if it has less amount than fee and add it to stray pool
 		if b.cfg.CutStrayInput(feePerKw, input) {
+			brarLog.Infof("input with outpoint: '%v' has negative amount of value, added to a stray pool",
+				input.OutPoint())
 			continue
 		}
 
@@ -1407,18 +1369,22 @@ func (ret *retributionInfo) Decode(r io.Reader) error {
 
 // Encode serializes a breachedOutput into the passed byte stream.
 func (bo *breachedOutput) Encode(w io.Writer) error {
+	// TODO(vapopov): need to have migration script to reorder data for
+	// secondLevelWitnessScript because it is stored in the middle of
+	// serialized data, must be moved to the end of stream to be compatible
+	// with base output from lnwallet package.
 	var scratch [8]byte
 
-	binary.BigEndian.PutUint64(scratch[:8], uint64(bo.amt))
+	binary.BigEndian.PutUint64(scratch[:8], uint64(bo.Amount()))
 	if _, err := w.Write(scratch[:8]); err != nil {
 		return err
 	}
 
-	if err := writeOutpoint(w, &bo.outpoint); err != nil {
+	if err := writeOutpoint(w, bo.OutPoint()); err != nil {
 		return err
 	}
 
-	err := lnwallet.WriteSignDescriptor(w, &bo.signDesc)
+	err := lnwallet.WriteSignDescriptor(w, bo.SignDesc())
 	if err != nil {
 		return err
 	}
@@ -1428,7 +1394,7 @@ func (bo *breachedOutput) Encode(w io.Writer) error {
 		return err
 	}
 
-	binary.BigEndian.PutUint16(scratch[:2], uint16(bo.witnessType))
+	binary.BigEndian.PutUint16(scratch[:2], uint16(bo.WitnessType()))
 	if _, err := w.Write(scratch[:2]); err != nil {
 		return err
 	}
@@ -1443,13 +1409,15 @@ func (bo *breachedOutput) Decode(r io.Reader) error {
 	if _, err := io.ReadFull(r, scratch[:8]); err != nil {
 		return err
 	}
-	bo.amt = btcutil.Amount(binary.BigEndian.Uint64(scratch[:8]))
+	amt := btcutil.Amount(binary.BigEndian.Uint64(scratch[:8]))
 
-	if err := readOutpoint(r, &bo.outpoint); err != nil {
+	outpoint := wire.OutPoint{}
+	if err := readOutpoint(r, &outpoint); err != nil {
 		return err
 	}
 
-	if err := lnwallet.ReadSignDescriptor(r, &bo.signDesc); err != nil {
+	signDesc := lnwallet.SignDescriptor{}
+	if err := lnwallet.ReadSignDescriptor(r, &signDesc); err != nil {
 		return err
 	}
 
@@ -1462,9 +1430,11 @@ func (bo *breachedOutput) Decode(r io.Reader) error {
 	if _, err := io.ReadFull(r, scratch[:2]); err != nil {
 		return err
 	}
-	bo.witnessType = lnwallet.WitnessType(
+	witnessType := lnwallet.WitnessType(
 		binary.BigEndian.Uint16(scratch[:2]),
 	)
+
+	bo.BaseOutput = lnwallet.NewBaseOutput(amt, outpoint, witnessType, signDesc)
 
 	return nil
 }

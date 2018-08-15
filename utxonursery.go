@@ -958,8 +958,10 @@ func (u *utxoNursery) createSweepTx(kgtnOutputs []kidOutput,
 	// estimate weight of its witness, and add it to the proper set of
 	// spendable outputs.
 	for _, input := range kgtnOutputs {
-		// Cut input that has less amount than fee and add them to stray pool
+		// Cut input if it has less amount than fee and add it to stray pool
 		if u.cfg.CutStrayInput(feePerKw, &input) {
+			utxnLog.Infof("input with outpoint: '%v' has negative amount of value, added to a stray pool",
+				input.OutPoint())
 			continue
 		}
 
@@ -1317,7 +1319,7 @@ func (u *utxoNursery) registerPreschoolConf(kid *kidOutput, heightHint uint32) e
 	// de-duplicate
 	//  * need to do above?
 
-	pkScript := kid.signDesc.Output.PkScript
+	pkScript := kid.SignDesc().Output.PkScript
 	confChan, err := u.cfg.Notifier.RegisterConfirmationsNtfn(
 		&txID, pkScript, u.cfg.ConfDepth, heightHint,
 	)
@@ -1656,6 +1658,14 @@ func makeBabyOutput(chanPoint *wire.OutPoint,
 	}
 }
 
+// NewDecodedBabyOutput creates kid spendable output from
+// serialized stream.
+func NewDecodedBabyOutput(r io.Reader) (lnwallet.SpendableOutput, error) {
+	output := &babyOutput{}
+
+	return output, output.Decode(r)
+}
+
 // Encode writes the baby output to the given io.Writer.
 func (bo *babyOutput) Encode(w io.Writer) error {
 	var scratch [4]byte
@@ -1730,8 +1740,8 @@ func makeKidOutput(outpoint, originChanPoint *wire.OutPoint,
 	// This is an HTLC either if it's an incoming HTLC on our commitment
 	// transaction, or is an outgoing HTLC on the commitment transaction of
 	// the remote peer.
-	isHtlc := (witnessType == lnwallet.HtlcAcceptedSuccessSecondLevel ||
-		witnessType == lnwallet.HtlcOfferedRemoteTimeout)
+	isHtlc := witnessType == lnwallet.HtlcAcceptedSuccessSecondLevel ||
+		witnessType == lnwallet.HtlcOfferedRemoteTimeout
 
 	return kidOutput{
 		breachedOutput: makeBreachedOutput(
@@ -1742,6 +1752,14 @@ func makeKidOutput(outpoint, originChanPoint *wire.OutPoint,
 		blocksToMaturity: blocksToMaturity,
 		absoluteMaturity: absoluteMaturity,
 	}
+}
+
+// NewDecodedKidOutput creates kid spendable output from
+// serialized stream.
+func NewDecodedKidOutput(r io.Reader) (lnwallet.SpendableOutput, error) {
+	output := &kidOutput{}
+
+	return output, output.Decode(r)
 }
 
 func (k *kidOutput) OriginChanPoint() *wire.OutPoint {
@@ -1814,9 +1832,10 @@ func (k *kidOutput) Decode(r io.Reader) error {
 	if _, err := r.Read(scratch[:]); err != nil {
 		return err
 	}
-	k.amt = btcutil.Amount(byteOrder.Uint64(scratch[:]))
+	amt := btcutil.Amount(byteOrder.Uint64(scratch[:]))
 
-	if err := readOutpoint(io.LimitReader(r, 40), &k.outpoint); err != nil {
+	outpoint := wire.OutPoint{}
+	if err := readOutpoint(io.LimitReader(r, 40), &outpoint); err != nil {
 		return err
 	}
 
@@ -1847,9 +1866,17 @@ func (k *kidOutput) Decode(r io.Reader) error {
 	if _, err := r.Read(scratch[:2]); err != nil {
 		return err
 	}
-	k.witnessType = lnwallet.WitnessType(byteOrder.Uint16(scratch[:2]))
 
-	return lnwallet.ReadSignDescriptor(r, &k.signDesc)
+	witnessType := lnwallet.WitnessType(byteOrder.Uint16(scratch[:2]))
+
+	signDesc := lnwallet.SignDescriptor{}
+	if err := lnwallet.ReadSignDescriptor(r, &signDesc); err != nil {
+		return err
+	}
+
+	k.BaseOutput = lnwallet.NewBaseOutput(amt, outpoint, witnessType, signDesc)
+
+	return nil
 }
 
 // TODO(bvu): copied from channeldb, remove repetition
@@ -1882,38 +1909,6 @@ func readOutpoint(r io.Reader, o *wire.OutPoint) error {
 		return err
 	}
 	o.Index = byteOrder.Uint32(scratch)
-
-	return nil
-}
-
-func writeTxOut(w io.Writer, txo *wire.TxOut) error {
-	scratch := make([]byte, 8)
-
-	byteOrder.PutUint64(scratch, uint64(txo.Value))
-	if _, err := w.Write(scratch); err != nil {
-		return err
-	}
-
-	if err := wire.WriteVarBytes(w, 0, txo.PkScript); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func readTxOut(r io.Reader, txo *wire.TxOut) error {
-	scratch := make([]byte, 8)
-
-	if _, err := r.Read(scratch); err != nil {
-		return err
-	}
-	txo.Value = int64(byteOrder.Uint64(scratch))
-
-	pkScript, err := wire.ReadVarBytes(r, 0, 80, "pkScript")
-	if err != nil {
-		return err
-	}
-	txo.PkScript = pkScript
 
 	return nil
 }

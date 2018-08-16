@@ -1801,7 +1801,8 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// correct block height is.
 			case *lnwire.FailExpiryTooSoon:
 				update := onionErr.Update
-				if err := r.applyChannelUpdate(&update); err != nil {
+				err := r.applyChannelUpdate(&update, errSource)
+				if err != nil {
 					log.Errorf("unable to apply channel "+
 						"update for onion error: %v", err)
 				}
@@ -1826,7 +1827,8 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// and continue with the rest of the routes.
 			case *lnwire.FailAmountBelowMinimum:
 				update := onionErr.Update
-				if err := r.applyChannelUpdate(&update); err != nil {
+				err := r.applyChannelUpdate(&update, errSource)
+				if err != nil {
 					log.Errorf("unable to apply channel "+
 						"update for onion error: %v", err)
 				}
@@ -1838,7 +1840,8 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// newly updated fees.
 			case *lnwire.FailFeeInsufficient:
 				update := onionErr.Update
-				if err := r.applyChannelUpdate(&update); err != nil {
+				err := r.applyChannelUpdate(&update, errSource)
+				if err != nil {
 					log.Errorf("unable to apply channel "+
 						"update for onion error: %v", err)
 
@@ -1871,7 +1874,8 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// finding.
 			case *lnwire.FailIncorrectCltvExpiry:
 				update := onionErr.Update
-				if err := r.applyChannelUpdate(&update); err != nil {
+				err := r.applyChannelUpdate(&update, errSource)
+				if err != nil {
 					log.Errorf("unable to apply channel "+
 						"update for onion error: %v", err)
 				}
@@ -1886,7 +1890,8 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// the update and continue.
 			case *lnwire.FailChannelDisabled:
 				update := onionErr.Update
-				if err := r.applyChannelUpdate(&update); err != nil {
+				err := r.applyChannelUpdate(&update, errSource)
+				if err != nil {
 					log.Errorf("unable to apply channel "+
 						"update for onion error: %v", err)
 				}
@@ -1899,7 +1904,8 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// now, and continue onwards with our path finding.
 			case *lnwire.FailTemporaryChannelFailure:
 				update := onionErr.Update
-				if err := r.applyChannelUpdate(update); err != nil {
+				err := r.applyChannelUpdate(update, errSource)
+				if err != nil {
 					log.Errorf("unable to apply channel "+
 						"update for onion error: %v", err)
 				}
@@ -2023,13 +2029,18 @@ func pruneEdgeFailure(paySession *paymentSession, route *Route,
 	paySession.ReportChannelFailure(badChan.ChannelID)
 }
 
-// applyChannelUpdate applies a channel update directly to the database,
-// skipping preliminary validation.
-func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate) error {
+// applyChannelUpdate validates a channel update and if valid, applies it to the
+// database.
+func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate,
+	pubKey *btcec.PublicKey) error {
 	// If we get passed a nil channel update (as it's optional with some
 	// onion errors), then we'll exit early with a nil error.
 	if msg == nil {
 		return nil
+	}
+
+	if err := ValidateChannelUpdateAnn(pubKey, msg); err != nil {
+		return err
 	}
 
 	err := r.UpdateEdge(&channeldb.ChannelEdgePolicy{

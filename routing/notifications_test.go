@@ -339,7 +339,7 @@ func (m *mockChainView) Stop() error {
 func TestEdgeUpdateNotification(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanUp, err := createTestCtx(0)
+	ctx, cleanUp, err := createTestCtxSingleNode(0)
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -528,7 +528,7 @@ func TestNodeUpdateNotification(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
+	ctx, cleanUp, err := createTestCtxSingleNode(startingBlockHeight)
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -706,7 +706,7 @@ func TestNotificationCancellation(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
+	ctx, cleanUp, err := createTestCtxSingleNode(startingBlockHeight)
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -798,7 +798,7 @@ func TestChannelCloseNotification(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
+	ctx, cleanUp, err := createTestCtxSingleNode(startingBlockHeight)
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)

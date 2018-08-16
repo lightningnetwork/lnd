@@ -74,51 +74,17 @@ func copyPubKey(pub *btcec.PublicKey) *btcec.PublicKey {
 	}
 }
 
-func createTestCtx(startingHeight uint32, testGraph ...string) (*testCtx, func(), error) {
-	var (
-		graph      *channeldb.ChannelGraph
-		sourceNode *channeldb.LightningNode
-		cleanup    func()
-		err        error
-	)
+func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGraphInstance) (
+	*testCtx, func(), error) {
 
-	aliasMap := make(map[string]*btcec.PublicKey)
-
-	// If the testGraph isn't set, then we'll create an empty graph to
-	// start out with. Our usage of a variadic parameter allows caller to
-	// omit the testGraph argument all together if they wish to start with
-	// a blank graph.
-	if testGraph == nil {
-		// First we'll set up a test graph for usage within the test.
-		graph, cleanup, err = makeTestGraph()
-		if err != nil {
-			return nil, nil, fmt.Errorf("unable to create test graph: %v", err)
-		}
-
-		sourceNode, err = createTestNode()
-		if err != nil {
-			return nil, nil, fmt.Errorf("unable to create source node: %v", err)
-		}
-		if err = graph.SetSourceNode(sourceNode); err != nil {
-			return nil, nil, fmt.Errorf("unable to set source node: %v", err)
-		}
-	} else {
-		// Otherwise, we'll attempt to locate and parse out the file
-		// that encodes the graph that our tests should be run against.
-		graph, cleanup, aliasMap, err = parseTestGraph(testGraph[0])
-		if err != nil {
-			return nil, nil, fmt.Errorf("unable to create test graph: %v", err)
-		}
-	}
-
-	// Next we'll initialize an instance of the channel router with mock
+	// We'll initialize an instance of the channel router with mock
 	// versions of the chain and channel notifier. As we don't need to test
 	// any p2p functionality, the peer send and switch send messages won't
 	// be populated.
 	chain := newMockChain(startingHeight)
 	chainView := newMockChainView(chain)
 	router, err := New(Config{
-		Graph:     graph,
+		Graph:     graphInstance.graph,
 		Chain:     chain,
 		ChainView: chainView,
 		SendToSwitch: func(_ lnwire.ShortChannelID,
@@ -141,18 +107,58 @@ func createTestCtx(startingHeight uint32, testGraph ...string) (*testCtx, func()
 
 	ctx := &testCtx{
 		router:    router,
-		graph:     graph,
-		aliases:   aliasMap,
+		graph:     graphInstance.graph,
+		aliases:   graphInstance.aliasMap,
 		chain:     chain,
 		chainView: chainView,
 	}
 
 	cleanUp := func() {
 		ctx.router.Stop()
-		cleanup()
+		graphInstance.cleanUp()
 	}
 
 	return ctx, cleanUp, nil
+}
+
+func createTestCtxSingleNode(startingHeight uint32) (*testCtx, func(), error) {
+	var (
+		graph      *channeldb.ChannelGraph
+		sourceNode *channeldb.LightningNode
+		cleanup    func()
+		err        error
+	)
+
+	graph, cleanup, err = makeTestGraph()
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to create test graph: %v", err)
+	}
+
+	sourceNode, err = createTestNode()
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to create source node: %v", err)
+	}
+	if err = graph.SetSourceNode(sourceNode); err != nil {
+		return nil, nil, fmt.Errorf("unable to set source node: %v", err)
+	}
+
+	graphInstance := &testGraphInstance{
+		graph:   graph,
+		cleanUp: cleanup,
+	}
+
+	return createTestCtxFromGraphInstance(startingHeight, graphInstance)
+}
+
+func createTestCtxFromFile(startingHeight uint32, testGraph string) (*testCtx, func(), error) {
+	// We'll attempt to locate and parse out the file
+	// that encodes the graph that our tests should be run against.
+	graphInstance, err := parseTestGraph(testGraph)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to create test graph: %v", err)
+	}
+
+	return createTestCtxFromGraphInstance(startingHeight, graphInstance)
 }
 
 // TestFindRoutesFeeSorting asserts that routes found by the FindRoutes method
@@ -162,7 +168,7 @@ func TestFindRoutesFeeSorting(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight, basicGraphFilePath)
+	ctx, cleanUp, err := createTestCtxFromFile(startingBlockHeight, basicGraphFilePath)
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -215,7 +221,7 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(
+	ctx, cleanUp, err := createTestCtxFromFile(
 		startingBlockHeight, basicGraphFilePath,
 	)
 	defer cleanUp()
@@ -269,7 +275,7 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight, basicGraphFilePath)
+	ctx, cleanUp, err := createTestCtxFromFile(startingBlockHeight, basicGraphFilePath)
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -348,7 +354,7 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight, basicGraphFilePath)
+	ctx, cleanUp, err := createTestCtxFromFile(startingBlockHeight, basicGraphFilePath)
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -449,7 +455,7 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight, basicGraphFilePath)
+	ctx, cleanUp, err := createTestCtxFromFile(startingBlockHeight, basicGraphFilePath)
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -581,7 +587,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight, basicGraphFilePath)
+	ctx, cleanUp, err := createTestCtxFromFile(startingBlockHeight, basicGraphFilePath)
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -753,7 +759,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 func TestAddProof(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanup, err := createTestCtx(0)
+	ctx, cleanup, err := createTestCtxSingleNode(0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -816,7 +822,7 @@ func TestIgnoreNodeAnnouncement(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight,
+	ctx, cleanUp, err := createTestCtxFromFile(startingBlockHeight,
 		basicGraphFilePath)
 	defer cleanUp()
 	if err != nil {
@@ -849,7 +855,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight,
+	ctx, cleanUp, err := createTestCtxFromFile(startingBlockHeight,
 		basicGraphFilePath)
 	defer cleanUp()
 	if err != nil {
@@ -1119,7 +1125,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
+	ctx, cleanUp, err := createTestCtxSingleNode(startingBlockHeight)
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -1322,7 +1328,7 @@ func TestDisconnectedBlocks(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
+	ctx, cleanUp, err := createTestCtxSingleNode(startingBlockHeight)
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -1512,7 +1518,7 @@ func TestRouterChansClosedOfflinePruneGraph(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
+	ctx, cleanUp, err := createTestCtxSingleNode(startingBlockHeight)
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -1665,7 +1671,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight, basicGraphFilePath)
+	ctx, cleanUp, err := createTestCtxFromFile(startingBlockHeight, basicGraphFilePath)
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -1716,7 +1722,7 @@ func TestIsStaleNode(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
+	ctx, cleanUp, err := createTestCtxSingleNode(startingBlockHeight)
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -1798,7 +1804,7 @@ func TestIsKnownEdge(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
+	ctx, cleanUp, err := createTestCtxSingleNode(startingBlockHeight)
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -1850,7 +1856,7 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight,
+	ctx, cleanUp, err := createTestCtxFromFile(startingBlockHeight,
 		basicGraphFilePath)
 	defer cleanUp()
 	if err != nil {

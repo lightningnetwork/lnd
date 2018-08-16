@@ -43,7 +43,7 @@ const (
 	idleTimeout = 5 * time.Minute
 
 	// writeMessageTimeout is the timeout used when writing a message to peer.
-	writeMessageTimeout = 10 * time.Second
+	writeMessageTimeout = 50 * time.Second
 
 	// outgoingQueueLen is the buffer size of the channel which houses
 	// messages to be sent across the wire, requested by objects outside
@@ -567,8 +567,18 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 
 // WaitForDisconnect waits until the peer has disconnected. A peer may be
 // disconnected if the local or remote side terminating the connection, or an
-// irrecoverable protocol error has been encountered.
-func (p *peer) WaitForDisconnect() {
+// irrecoverable protocol error has been encountered. This method will only
+// begin watching the peer's waitgroup after the ready channel or the peer's
+// quit channel are signaled. The ready channel should only be signaled if a
+// call to Start returns no error. Otherwise, if the peer fails to start,
+// calling Disconnect will signal the quit channel and the method will not
+// block, since no goroutines were spawned.
+func (p *peer) WaitForDisconnect(ready chan struct{}) {
+	select {
+	case <-ready:
+	case <-p.quit:
+	}
+
 	p.wg.Wait()
 }
 

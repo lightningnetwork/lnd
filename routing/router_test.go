@@ -910,7 +910,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	edgePolicy := &channeldb.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
-		LastUpdate:                time.Now(),
+		LastUpdate:                testTime,
 		TimeLockDelta:             10,
 		MinHTLC:                   1,
 		FeeBaseMSat:               10,
@@ -926,7 +926,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	edgePolicy = &channeldb.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
-		LastUpdate:                time.Now(),
+		LastUpdate:                testTime,
 		TimeLockDelta:             10,
 		MinHTLC:                   1,
 		FeeBaseMSat:               10,
@@ -1006,7 +1006,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	edgePolicy = &channeldb.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
-		LastUpdate:                time.Now(),
+		LastUpdate:                testTime,
 		TimeLockDelta:             10,
 		MinHTLC:                   1,
 		FeeBaseMSat:               10,
@@ -1021,7 +1021,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	edgePolicy = &channeldb.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
-		LastUpdate:                time.Now(),
+		LastUpdate:                testTime,
 		TimeLockDelta:             10,
 		MinHTLC:                   1,
 		FeeBaseMSat:               10,

@@ -14,7 +14,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -22,8 +21,6 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
-
-	prand "math/rand"
 )
 
 const (
@@ -50,9 +47,7 @@ const (
 )
 
 var (
-	randSource = prand.NewSource(time.Now().Unix())
-	randInts   = prand.New(randSource)
-	testSig    = &btcec.Signature{
+	testSig = &btcec.Signature{
 		R: new(big.Int),
 		S: new(big.Int),
 	}
@@ -176,7 +171,7 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 		dbNode := &channeldb.LightningNode{
 			HaveNodeAnnouncement: true,
 			AuthSigBytes:         testSig.Serialize(),
-			LastUpdate:           time.Now(),
+			LastUpdate:           testTime,
 			Addresses:            testAddrs,
 			Alias:                node.Alias,
 			Features:             testFeatures,
@@ -275,7 +270,7 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 			SigBytes:                  testSig.Serialize(),
 			Flags:                     lnwire.ChanUpdateFlag(edge.Flags),
 			ChannelID:                 edge.ChannelID,
-			LastUpdate:                time.Now(),
+			LastUpdate:                testTime,
 			TimeLockDelta:             edge.Expiry,
 			MinHTLC:                   lnwire.MilliSatoshi(edge.MinHTLC),
 			FeeBaseMSat:               lnwire.MilliSatoshi(edge.FeeBaseMsat),
@@ -374,7 +369,7 @@ func createTestGraph(testChannels []*testChannel) (*channeldb.ChannelGraph, func
 		dbNode := &channeldb.LightningNode{
 			HaveNodeAnnouncement: true,
 			AuthSigBytes:         testSig.Serialize(),
-			LastUpdate:           time.Now(),
+			LastUpdate:           testTime,
 			Addresses:            testAddrs,
 			Alias:                alias,
 			Features:             testFeatures,
@@ -449,7 +444,7 @@ func createTestGraph(testChannels []*testChannel) (*channeldb.ChannelGraph, func
 			SigBytes:                  testSig.Serialize(),
 			Flags:                     lnwire.ChanUpdateFlag(0),
 			ChannelID:                 channelID,
-			LastUpdate:                time.Now(),
+			LastUpdate:                testTime,
 			TimeLockDelta:             testChannel.Node1.Expiry,
 			MinHTLC:                   testChannel.Node1.MinHTLC,
 			FeeBaseMSat:               testChannel.Node1.FeeBaseMsat,
@@ -463,7 +458,7 @@ func createTestGraph(testChannels []*testChannel) (*channeldb.ChannelGraph, func
 			SigBytes:                  testSig.Serialize(),
 			Flags:                     lnwire.ChanUpdateFlag(lnwire.ChanUpdateDirection),
 			ChannelID:                 channelID,
-			LastUpdate:                time.Now(),
+			LastUpdate:                testTime,
 			TimeLockDelta:             testChannel.Node2.Expiry,
 			MinHTLC:                   testChannel.Node2.MinHTLC,
 			FeeBaseMSat:               testChannel.Node2.FeeBaseMsat,

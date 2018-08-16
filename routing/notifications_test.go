@@ -35,6 +35,8 @@ var (
 		0x6a, 0x49, 0x18, 0x83, 0x31, 0x98, 0x47, 0x53,
 	}
 
+	testTime = time.Date(2018, time.January, 9, 14, 00, 00, 0, time.UTC)
+
 	priv1, _    = btcec.NewPrivateKey(btcec.S256())
 	bitcoinKey1 = priv1.PubKey()
 

@@ -193,7 +193,7 @@ var (
 		},
 	}
 
-	kidOutputs = []kidOutput{
+	kidOutputs = []KidOutput{
 		{
 			BaseOutput: *lnwallet.NewBaseOutput(
 				btcutil.Amount(13e7),
@@ -243,19 +243,19 @@ var (
 		},
 	}
 
-	babyOutputs = []babyOutput{
+	babyOutputs = []BabyOutput{
 		{
-			kidOutput: kidOutputs[1],
+			KidOutput: kidOutputs[1],
 			expiry:    3829,
 			timeoutTx: timeoutTx,
 		},
 		{
-			kidOutput: kidOutputs[2],
+			KidOutput: kidOutputs[2],
 			expiry:    4,
 			timeoutTx: timeoutTx,
 		},
 		{
-			kidOutput: kidOutputs[3],
+			KidOutput: kidOutputs[3],
 			expiry:    4,
 			timeoutTx: timeoutTx,
 		},
@@ -340,8 +340,8 @@ func init() {
 
 	for i := range babyOutputs {
 		isd := i % len(signDescriptors)
-		output := babyOutputs[i].kidOutput
-		babyOutputs[i].kidOutput.BaseOutput = *lnwallet.NewBaseOutput(
+		output := babyOutputs[i].KidOutput
+		babyOutputs[i].KidOutput.BaseOutput = *lnwallet.NewBaseOutput(
 			output.Amount(),
 			*output.OutPoint(),
 			output.WitnessType(),
@@ -360,14 +360,14 @@ func TestKidOutputSerialization(t *testing.T) {
 				"kid output: %v", i, err)
 		}
 
-		var deserializedKid kidOutput
+		var deserializedKid KidOutput
 		if err := deserializedKid.Decode(&b); err != nil {
 			t.Fatalf("Decode #%d: unable to deserialize "+
 				"kid output: %v", i, err)
 		}
 
 		if !reflect.DeepEqual(kid, deserializedKid) {
-			t.Fatalf("DeepEqual #%d: unexpected kidOutput, "+
+			t.Fatalf("DeepEqual #%d: unexpected KidOutput, "+
 				"want %+v, got %+v",
 				i, kid, deserializedKid)
 		}
@@ -382,14 +382,14 @@ func TestBabyOutputSerialization(t *testing.T) {
 				"baby output: %v", i, err)
 		}
 
-		var deserializedBaby babyOutput
+		var deserializedBaby BabyOutput
 		if err := deserializedBaby.Decode(&b); err != nil {
 			t.Fatalf("Decode #%d: unable to deserialize "+
 				"baby output: %v", i, err)
 		}
 
 		if !reflect.DeepEqual(baby, deserializedBaby) {
-			t.Fatalf("DeepEqual #%d: unexpected babyOutput, "+
+			t.Fatalf("DeepEqual #%d: unexpected BabyOutput, "+
 				"want %+v, got %+v",
 				i, baby, deserializedBaby)
 		}

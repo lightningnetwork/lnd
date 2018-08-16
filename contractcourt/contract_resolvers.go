@@ -1312,7 +1312,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		}
 
 		totalWeight := (&lnwallet.TxWeightEstimator{}).
-			AddP2PKHInput().
+			AddP2WKHInput().
 			AddP2WKHOutput().Weight()
 
 		totalFees := feePerKw.FeeForWeight(int64(totalWeight))

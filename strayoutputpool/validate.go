@@ -8,6 +8,18 @@ import (
 // needed to mine it.
 func CutStrayInput(spool StrayOutputsPool, feeRate lnwallet.SatPerKWeight,
 	input lnwallet.SpendableOutput) bool {
+	isStrayInput := isNegativeAmount(feeRate, input)
+
+	if isStrayInput {
+		spool.AddSpendableOutput(input)
+	}
+
+	return isStrayInput
+}
+
+// isNegativeAmount verifies that input has negative amount
+func isNegativeAmount(feeRate lnwallet.SatPerKWeight,
+	input lnwallet.SpendableOutput) bool {
 	var wEstimate lnwallet.TxWeightEstimator
 
 	// We need to estimate also output, it is possible that all this inputs
@@ -16,11 +28,5 @@ func CutStrayInput(spool StrayOutputsPool, feeRate lnwallet.SatPerKWeight,
 
 	weight := wEstimate.AddWitnessInputByType(input.WitnessType()).Weight()
 
-	isStrayInput := feeRate.FeeForWeight(int64(weight)) > input.Amount()
-
-	if isStrayInput {
-		spool.AddSpendableOutput(input)
-	}
-
-	return isStrayInput
+	return feeRate.FeeForWeight(int64(weight)) > input.Amount()
 }

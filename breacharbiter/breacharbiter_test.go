@@ -149,7 +149,7 @@ var (
 		},
 	}
 
-	breachedOutputs = []breachedOutput{
+	breachedOutputs = []BreachedOutput{
 		{
 			BaseOutput: *lnwallet.NewBaseOutput(
 				btcutil.Amount(1e7),
@@ -308,7 +308,7 @@ var (
 			chanPoint:    breachOutPoints[0],
 			breachHeight: 337,
 			// Set to breachedOutputs 0 and 1 in init()
-			breachedOutputs: []breachedOutput{{}, {}},
+			breachedOutputs: []BreachedOutput{{}, {}},
 		},
 		{
 			commitHash: [chainhash.HashSize]byte{
@@ -326,7 +326,7 @@ var (
 			chanPoint:    breachOutPoints[1],
 			breachHeight: 420420,
 			// Set to breachedOutputs 1 and 2 in init()
-			breachedOutputs: []breachedOutput{{}, {}},
+			breachedOutputs: []BreachedOutput{{}, {}},
 		},
 	}
 )
@@ -479,7 +479,7 @@ func initBreachedOutputs() error {
 	return nil
 }
 
-// Test that breachedOutput Encode/Decode works.
+// Test that BreachedOutput Encode/Decode works.
 func TestBreachedOutputSerialization(t *testing.T) {
 	for i := range breachedOutputs {
 		bo := &breachedOutputs[i]
@@ -491,7 +491,7 @@ func TestBreachedOutputSerialization(t *testing.T) {
 				i, err)
 		}
 
-		desBo := &breachedOutput{}
+		desBo := &BreachedOutput{}
 		if err := desBo.Decode(&buf); err != nil {
 			t.Fatalf("unable to deserialize "+
 				"breached output [%v]: %v", i, err)
@@ -544,7 +544,7 @@ func copyRetInfo(retInfo *retributionInfo) *retributionInfo {
 		chainHash:       retInfo.chainHash,
 		chanPoint:       retInfo.chanPoint,
 		breachHeight:    retInfo.breachHeight,
-		breachedOutputs: make([]breachedOutput, nOutputs),
+		breachedOutputs: make([]BreachedOutput, nOutputs),
 	}
 
 	for i := range retInfo.breachedOutputs {

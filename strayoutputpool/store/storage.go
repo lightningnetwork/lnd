@@ -18,12 +18,16 @@ import (
 var (
 	// strayOutputBucket is the name of the bucket within the database that
 	// stores all data related to small outputs that should be combined to
-	// minimise fee rate to proceed the transaction
+	// minimise fee rate to proceed the transaction.
 	strayOutputBucket = []byte("stray-output")
 
 	// ErrNoStrayOutputCreated is returned when bucket of stray outputs
 	// hasn't been created.
 	ErrNoStrayOutputCreated = fmt.Errorf("there are no existing stray outputs")
+
+	// ErrNotSupportedOutputType is returned when we can't recognize type
+	// of stored output entity.
+	ErrNotSupportedOutputType = fmt.Errorf("undefined stray spendable output")
 
 	byteOrder = binary.BigEndian
 )
@@ -90,21 +94,39 @@ func (o *outputdb) FetchAllStrayOutputs() ([]OutputEntity, error) {
 	return outputs, nil
 }
 
-// strayOutputEntity
+// strayOutputEntity contains information about stray spendable output.
 type strayOutputEntity struct {
-	txWeight int64
-	oType    outputType
-	output   lnwallet.SpendableOutput
+	outputType outputType
+	output     lnwallet.SpendableOutput
 }
 
-// TxWeight returns transaction weight of stored spendable output.
-func (s *strayOutputEntity) TxWeight() int64 {
-	return s.txWeight
+// NewOutputEntity creates new output entity.
+func NewOutputEntity(output lnwallet.SpendableOutput) OutputEntity {
+	var outputType = outputUndefined
+
+	switch output.(type) {
+	case *nursery.KidOutput:
+		outputType = outputNurseryKid
+
+	case *nursery.BabyOutput:
+		outputType = outputNurseryBaby
+
+	case *breacharbiter.BreachedOutput:
+		outputType = outputBreached
+
+	case *contractcourt.ContractOutput:
+		outputType = outputContract
+	}
+
+	return &strayOutputEntity{
+		outputType: outputType,
+		output:     output,
+	}
 }
 
 // OutputType returns type of current output.
 func (s *strayOutputEntity) OutputType() outputType {
-	return s.oType
+	return s.outputType
 }
 
 // Output returns output entity.
@@ -116,12 +138,7 @@ func (s *strayOutputEntity) Output() lnwallet.SpendableOutput {
 func (s *strayOutputEntity) Encode(w io.Writer) error {
 	var scratch [8]byte
 
-	byteOrder.PutUint64(scratch[:], uint64(s.txWeight))
-	if _, err := w.Write(scratch[:]); err != nil {
-		return err
-	}
-
-	byteOrder.PutUint64(scratch[:], uint64(s.oType))
+	byteOrder.PutUint64(scratch[:], uint64(s.outputType))
 	if _, err := w.Write(scratch[:]); err != nil {
 		return err
 	}
@@ -131,22 +148,16 @@ func (s *strayOutputEntity) Encode(w io.Writer) error {
 
 // Decode encodes spendable output from serial data.
 func (s *strayOutputEntity) Decode(r io.Reader) error {
-	var (
-		scratch [8]byte
-		err     error
-	)
+	var scratch [8]byte
 
 	if _, err := r.Read(scratch[:]); err != nil {
 		return err
 	}
-	s.txWeight = int64(byteOrder.Uint64(scratch[:]))
+	s.outputType = outputType(byteOrder.Uint64(scratch[:]))
 
-	if _, err := r.Read(scratch[:]); err != nil {
-		return err
-	}
-	s.oType = outputType(byteOrder.Uint64(scratch[:]))
+	var err error
+	switch s.outputType {
 
-	switch s.oType {
 	case outputContract:
 		s.output, err = contractcourt.NewDecodedContractOutput(r)
 
@@ -158,6 +169,9 @@ func (s *strayOutputEntity) Decode(r io.Reader) error {
 
 	case outputBreached:
 		s.output, err = breacharbiter.NewDecodedBreachedOutput(r)
+
+	default:
+		return ErrNotSupportedOutputType
 	}
 
 	return err

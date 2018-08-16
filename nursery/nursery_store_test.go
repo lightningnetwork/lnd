@@ -60,8 +60,8 @@ func makeTestDB() (*channeldb.DB, func(), error) {
 type incubateTest struct {
 	nOutputs    int
 	chanPoint   *wire.OutPoint
-	commOutput  *kidOutput
-	htlcOutputs []babyOutput
+	commOutput  *KidOutput
+	htlcOutputs []BabyOutput
 	err         error
 }
 
@@ -140,7 +140,7 @@ func TestNurseryStoreIncubate(t *testing.T) {
 
 		// Begin incubating all of the outputs provided in this test
 		// vector.
-		var kids []kidOutput
+		var kids []KidOutput
 		if test.commOutput != nil {
 			kids = append(kids, *test.commOutput)
 		}
@@ -278,12 +278,12 @@ func TestNurseryStoreIncubate(t *testing.T) {
 						assertCribAtExpiryHeight(t, ns,
 							&test.htlcOutputs[j])
 						assertKndrNotAtMaturityHeight(t,
-							ns, &test.htlcOutputs[j].kidOutput)
+							ns, &test.htlcOutputs[j].KidOutput)
 					} else {
 						assertCribNotAtExpiryHeight(t, ns,
 							&test.htlcOutputs[j])
 						assertKndrAtMaturityHeight(t,
-							ns, &test.htlcOutputs[j].kidOutput)
+							ns, &test.htlcOutputs[j].KidOutput)
 					}
 				}
 			}
@@ -345,7 +345,7 @@ func TestNurseryStoreIncubate(t *testing.T) {
 		// crib or kindergarten height buckets.
 		for _, htlcOutput := range test.htlcOutputs {
 			assertCribNotAtExpiryHeight(t, ns, &htlcOutput)
-			assertKndrNotAtMaturityHeight(t, ns, &htlcOutput.kidOutput)
+			assertKndrNotAtMaturityHeight(t, ns, &htlcOutput.KidOutput)
 		}
 
 		// Lastly, there should be no lingering preschool outputs.
@@ -379,7 +379,7 @@ func TestNurseryStoreFinalize(t *testing.T) {
 
 	// Begin incubating the commitment output, which will be placed in the
 	// preschool bucket.
-	err = ns.Incubate([]kidOutput{*kid}, nil)
+	err = ns.Incubate([]KidOutput{*kid}, nil)
 	if err != nil {
 		t.Fatalf("unable to incubate commitment output: %v", err)
 	}
@@ -466,7 +466,7 @@ func TestNurseryStoreGraduate(t *testing.T) {
 
 	// First, add a commitment output to the nursery store, which is
 	// initially inserted in the preschool bucket.
-	err = ns.Incubate([]kidOutput{*kid}, nil)
+	err = ns.Incubate([]KidOutput{*kid}, nil)
 	if err != nil {
 		t.Fatalf("unable to incubate commitment output: %v", err)
 	}
@@ -634,7 +634,7 @@ func assertHeightIsPurged(t *testing.T, ns Store,
 // assertCribAtExpiryHeight loads the class at the given height, and verifies
 // that the given htlc output is one of the crib outputs.
 func assertCribAtExpiryHeight(t *testing.T, ns Store,
-	htlcOutput *babyOutput) {
+	htlcOutput *BabyOutput) {
 
 	expiryHeight := htlcOutput.expiry
 	_, _, cribOutputs, err := ns.FetchClass(expiryHeight)
@@ -656,7 +656,7 @@ func assertCribAtExpiryHeight(t *testing.T, ns Store,
 // assertCribNotAtExpiryHeight loads the class at the given height, and verifies
 // that the given htlc output is not one of the crib outputs.
 func assertCribNotAtExpiryHeight(t *testing.T, ns Store,
-	htlcOutput *babyOutput) {
+	htlcOutput *BabyOutput) {
 
 	expiryHeight := htlcOutput.expiry
 	_, _, cribOutputs, err := ns.FetchClass(expiryHeight)
@@ -696,7 +696,7 @@ func assertFinalizedTxn(t *testing.T, ns Store, height uint32,
 // verifies that the provided kid output is one of the kindergarten outputs
 // returned.
 func assertKndrAtMaturityHeight(t *testing.T, ns Store,
-	kndrOutput *kidOutput) {
+	kndrOutput *KidOutput) {
 
 	maturityHeight := kndrOutput.ConfHeight() +
 		kndrOutput.BlocksToMaturity()
@@ -720,7 +720,7 @@ func assertKndrAtMaturityHeight(t *testing.T, ns Store,
 // verifies that the provided kid output is not one of the kindergarten outputs
 // returned.
 func assertKndrNotAtMaturityHeight(t *testing.T, ns Store,
-	kndrOutput *kidOutput) {
+	kndrOutput *KidOutput) {
 
 	maturityHeight := kndrOutput.ConfHeight() +
 		kndrOutput.BlocksToMaturity()

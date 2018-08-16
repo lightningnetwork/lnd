@@ -10,9 +10,9 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
-// contractOutput implementation of SpendableOutput interface for
+// ContractOutput implementation of SpendableOutput interface for
 // contract resolvers.
-type contractOutput struct {
+type ContractOutput struct {
 	preimage [32]byte
 
 	lnwallet.BaseOutput
@@ -26,7 +26,7 @@ func NewContractOutput(
 	signDesc lnwallet.SignDescriptor,
 	preimage [32]byte,
 ) lnwallet.SpendableOutput {
-	return &contractOutput{
+	return &ContractOutput{
 		preimage: preimage,
 		BaseOutput: *lnwallet.NewBaseOutput(amt, outpoint,
 			witnessType, signDesc),
@@ -36,13 +36,13 @@ func NewContractOutput(
 // NewDecodedContractOutput creates contract spendable output from
 // serialized stream.
 func NewDecodedContractOutput(r io.Reader) (lnwallet.SpendableOutput, error) {
-	output := &contractOutput{}
+	output := &ContractOutput{}
 
 	return output, output.Decode(r)
 }
 
 // BuildWitness generate witness script for current spendable output.
-func (s *contractOutput) BuildWitness(signer lnwallet.Signer, txn *wire.MsgTx,
+func (s *ContractOutput) BuildWitness(signer lnwallet.Signer, txn *wire.MsgTx,
 	hashCache *txscript.TxSigHashes, txinIdx int) ([][]byte, error) {
 
 	switch s.WitnessType() {
@@ -60,7 +60,7 @@ func (s *contractOutput) BuildWitness(signer lnwallet.Signer, txn *wire.MsgTx,
 }
 
 // Encode serializes data of spendable output to serial data
-func (s *contractOutput) Encode(w io.Writer) error {
+func (s *ContractOutput) Encode(w io.Writer) error {
 	if err := s.BaseOutput.Encode(w); err != nil {
 		return err
 	}
@@ -73,7 +73,7 @@ func (s *contractOutput) Encode(w io.Writer) error {
 }
 
 // Decode deserializes data of spendable output from serial data
-func (s *contractOutput) Decode(r io.Reader) error {
+func (s *ContractOutput) Decode(r io.Reader) error {
 	if err := s.BaseOutput.Decode(r); err != nil {
 		return err
 	}

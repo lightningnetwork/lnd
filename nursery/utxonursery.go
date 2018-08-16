@@ -21,25 +21,25 @@ import (
 //                          SUMMARY OF OUTPUT STATES
 //
 //  - CRIB
-//    - SerializedType: babyOutput
+//    - SerializedType: BabyOutput
 //    - OriginalOutputType: HTLC
 //    - Awaiting: First-stage HTLC CLTV expiry
 //    - HeightIndexEntry: Absolute block height of CLTV expiry.
 //    - NextState: KNDR
 //  - PSCL
-//    - SerializedType: kidOutput
+//    - SerializedType: KidOutput
 //    - OriginalOutputType: Commitment
 //    - Awaiting: Confirmation of commitment txn
 //    - HeightIndexEntry: None.
 //    - NextState: KNDR
 //  - KNDR
-//    - SerializedType: kidOutput
+//    - SerializedType: KidOutput
 //    - OriginalOutputType: Commitment or HTLC
 //    - Awaiting: Commitment CSV expiry or second-stage HTLC CSV expiry.
 //    - HeightIndexEntry: Input confirmation height + relative CSV delay
 //    - NextState: GRAD
 //  - GRAD:
-//    - SerializedType: kidOutput
+//    - SerializedType: KidOutput
 //    - OriginalOutputType: Commitment or HTLC
 //    - Awaiting: All other outputs in channel to become GRAD.
 //    - NextState: Mark channel fully closed in channeldb and remove.
@@ -48,7 +48,7 @@ import (
 //
 // TODO(roasbeef): update comment with both new output types
 //
-//  - CRIB (babyOutput) outputs are two-stage htlc outputs that are initially
+//  - CRIB (BabyOutput) outputs are two-stage htlc outputs that are initially
 //    locked using a CLTV delay, followed by a CSV delay. The first stage of a
 //    crib output requires broadcasting a presigned htlc timeout txn generated
 //    by the wallet after an absolute expiry height. Since the timeout txns are
@@ -57,13 +57,13 @@ import (
 //    stage is complete, a CRIB output is moved to the KNDR state, which will
 //    finishing sweeping the second-layer CSV delay.
 //
-//  - PSCL (kidOutput) outputs are commitment outputs locked under a CSV delay.
+//  - PSCL (KidOutput) outputs are commitment outputs locked under a CSV delay.
 //    These outputs are stored temporarily in this state until the commitment
 //    transaction confirms, as this solidifies an absolute height that the
 //    relative time lock will expire. Once this maturity height is determined,
 //    the PSCL output is moved into KNDR.
 //
-//  - KNDR (kidOutput) outputs are CSV delayed outputs for which the maturity
+//  - KNDR (KidOutput) outputs are CSV delayed outputs for which the maturity
 //    height has been fully determined. This results from having received
 //    confirmation of the UTXO we are trying to spend, contained in either the
 //    commitment txn or htlc timeout txn. Once the maturity height is reached,
@@ -81,7 +81,7 @@ import (
 //    generating the pkscript in the sweep txn's output, even if the set of
 //    inputs remains static across attempts.
 //
-//  - GRAD (kidOutput) outputs are KNDR outputs that have successfully been
+//  - GRAD (KidOutput) outputs are KNDR outputs that have successfully been
 //    swept into the user's wallet. A channel is considered mature once all of
 //    its outputs, including two-stage htlcs, have entered the GRAD state,
 //    indicating that it safe to mark the channel as fully closed.
@@ -359,8 +359,8 @@ func (u *UtxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 		// followed by a maturity period.Baby outputs are two Stage and
 		// will need to wait for an absolute time out to reach a
 		// confirmation, then require a relative confirmation delay.
-		kidOutputs  = make([]kidOutput, 0, 1+len(incomingHtlcs))
-		babyOutputs = make([]babyOutput, 0, len(outgoingHtlcs))
+		kidOutputs  = make([]KidOutput, 0, 1+len(incomingHtlcs))
+		babyOutputs = make([]BabyOutput, 0, len(outgoingHtlcs))
 	)
 
 	// 1. Build all the spendable outputs that we will try to incubate.
@@ -507,7 +507,7 @@ func (u *UtxoNursery) NurseryReport(
 		case bytes.HasPrefix(k, cribPrefix):
 			// Cribs outputs are the only kind currently stored as
 			// baby outputs.
-			var baby babyOutput
+			var baby BabyOutput
 			err := baby.Decode(bytes.NewReader(v))
 			if err != nil {
 				return err
@@ -522,7 +522,7 @@ func (u *UtxoNursery) NurseryReport(
 			bytes.HasPrefix(k, gradPrefix):
 
 			// All others states can be deserialized as kid outputs.
-			var kid kidOutput
+			var kid KidOutput
 			err := kid.Decode(bytes.NewReader(v))
 			if err != nil {
 				return err
@@ -920,7 +920,7 @@ func (u *UtxoNursery) graduateClass(classHeight uint32) error {
 // outputs which don't require a second-layer claim, and signs and generates a
 // signed txn that spends from them. This method also makes an accurate fee
 // estimate before generating the required witnesses.
-func (u *UtxoNursery) createSweepTx(kgtnOutputs []kidOutput,
+func (u *UtxoNursery) createSweepTx(kgtnOutputs []KidOutput,
 	classHeight uint32) (*wire.MsgTx, error) {
 
 	// Create a transaction which sweeps all the newly mature outputs into
@@ -1110,7 +1110,7 @@ func (u *UtxoNursery) populateSweepTx(txFee btcutil.Amount, classHeight uint32,
 // wallet. The outputs swept were previously time locked (either absolute or
 // relative), but are not mature enough to sweep into the wallet.
 func (u *UtxoNursery) sweepMatureOutputs(classHeight uint32, finalTx *wire.MsgTx,
-	kgtnOutputs []kidOutput) error {
+	kgtnOutputs []KidOutput) error {
 
 	utxnLog.Infof("Sweeping %v CSV-delayed outputs with sweep tx "+
 		"(txid=%v): %v", len(kgtnOutputs),
@@ -1138,7 +1138,7 @@ func (u *UtxoNursery) sweepMatureOutputs(classHeight uint32, finalTx *wire.MsgTx
 // confirmation, and graduates the provided kindergarten class within the
 // nursery store.
 func (u *UtxoNursery) registerSweepConf(finalTx *wire.MsgTx,
-	kgtnOutputs []kidOutput, heightHint uint32) error {
+	kgtnOutputs []KidOutput, heightHint uint32) error {
 
 	finalTxID := finalTx.TxHash()
 
@@ -1167,7 +1167,7 @@ func (u *UtxoNursery) registerSweepConf(finalTx *wire.MsgTx,
 // to mark any mature channels as fully closed in channeldb.
 // NOTE(conner): this method MUST be called as a go routine.
 func (u *UtxoNursery) waitForSweepConf(classHeight uint32,
-	kgtnOutputs []kidOutput, confChan *chainntnfs.ConfirmationEvent) {
+	kgtnOutputs []KidOutput, confChan *chainntnfs.ConfirmationEvent) {
 
 	defer u.wg.Done()
 
@@ -1221,7 +1221,7 @@ func (u *UtxoNursery) waitForSweepConf(classHeight uint32,
 // sweepCribOutput broadcasts the crib output's htlc timeout txn, and sets up a
 // notification that will advance it to the kindergarten bucket upon
 // confirmation.
-func (u *UtxoNursery) sweepCribOutput(classHeight uint32, baby *babyOutput) error {
+func (u *UtxoNursery) sweepCribOutput(classHeight uint32, baby *BabyOutput) error {
 	utxnLog.Infof("Publishing CLTV-delayed HTLC output using timeout tx "+
 		"(txid=%v): %v", baby.timeoutTx.TxHash(),
 		newLogClosure(func() string {
@@ -1245,7 +1245,7 @@ func (u *UtxoNursery) sweepCribOutput(classHeight uint32, baby *babyOutput) erro
 // notification for an htlc timeout transaction. If successful, a goroutine
 // will be spawned that will transition the provided baby output into the
 // kindergarten state within the nursery store.
-func (u *UtxoNursery) registerTimeoutConf(baby *babyOutput, heightHint uint32) error {
+func (u *UtxoNursery) registerTimeoutConf(baby *BabyOutput, heightHint uint32) error {
 
 	birthTxID := baby.timeoutTx.TxHash()
 
@@ -1270,7 +1270,7 @@ func (u *UtxoNursery) registerTimeoutConf(baby *babyOutput, heightHint uint32) e
 // waitForTimeoutConf watches for the confirmation of an htlc timeout
 // transaction, and attempts to move the htlc output from the crib bucket to the
 // kindergarten bucket upon success.
-func (u *UtxoNursery) waitForTimeoutConf(baby *babyOutput,
+func (u *UtxoNursery) waitForTimeoutConf(baby *BabyOutput,
 	confChan *chainntnfs.ConfirmationEvent) {
 
 	defer u.wg.Done()
@@ -1311,7 +1311,7 @@ func (u *UtxoNursery) waitForTimeoutConf(baby *babyOutput,
 // HTLC on our commitment transaction.. If successful, the provided preschool
 // output will be moved persistently into the kindergarten state within the
 // nursery store.
-func (u *UtxoNursery) registerPreschoolConf(kid *kidOutput, heightHint uint32) error {
+func (u *UtxoNursery) registerPreschoolConf(kid *KidOutput, heightHint uint32) error {
 	txID := kid.OutPoint().Hash
 
 	// TODO(roasbeef): ensure we don't already have one waiting, need to
@@ -1349,7 +1349,7 @@ func (u *UtxoNursery) registerPreschoolConf(kid *kidOutput, heightHint uint32) e
 // will delete the output from the "preschool" database bucket and atomically
 // add it to the "kindergarten" database bucket.  This is the second step in
 // the output incubation process.
-func (u *UtxoNursery) waitForPreschoolConf(kid *kidOutput,
+func (u *UtxoNursery) waitForPreschoolConf(kid *KidOutput,
 	confChan *chainntnfs.ConfirmationEvent) {
 
 	defer u.wg.Done()
@@ -1452,7 +1452,7 @@ type htlcMaturityReport struct {
 
 // AddLimboCommitment adds an incubating commitment output to maturity
 // report's Htlcs, and contributes its Amount to the limbo balance.
-func (c *ContractMaturityReport) AddLimboCommitment(kid *kidOutput) {
+func (c *ContractMaturityReport) AddLimboCommitment(kid *KidOutput) {
 	c.LimboBalance += kid.Amount()
 
 	c.LocalAmount += kid.Amount()
@@ -1468,7 +1468,7 @@ func (c *ContractMaturityReport) AddLimboCommitment(kid *kidOutput) {
 
 // AddRecoveredCommitment adds a graduated commitment output to maturity
 // report's  Htlcs, and contributes its Amount to the recovered balance.
-func (c *ContractMaturityReport) AddRecoveredCommitment(kid *kidOutput) {
+func (c *ContractMaturityReport) AddRecoveredCommitment(kid *KidOutput) {
 	c.RecoveredBalance += kid.Amount()
 
 	c.LocalAmount += kid.Amount()
@@ -1479,7 +1479,7 @@ func (c *ContractMaturityReport) AddRecoveredCommitment(kid *kidOutput) {
 
 // AddLimboStage1TimeoutHtlc adds an htlc crib output to the maturity report's
 // Htlcs, and contributes its Amount to the limbo balance.
-func (c *ContractMaturityReport) AddLimboStage1TimeoutHtlc(baby *babyOutput) {
+func (c *ContractMaturityReport) AddLimboStage1TimeoutHtlc(baby *BabyOutput) {
 	c.LimboBalance += baby.Amount()
 
 	// TODO(roasbeef): bool to indicate Stage 1 vs Stage 2?
@@ -1495,7 +1495,7 @@ func (c *ContractMaturityReport) AddLimboStage1TimeoutHtlc(baby *babyOutput) {
 // AddLimboDirectHtlc adds a direct HTLC on the commitment transaction of the
 // remote party to the maturity report. This a CLTV time-locked output that
 // hasn't yet expired.
-func (c *ContractMaturityReport) AddLimboDirectHtlc(kid *kidOutput) {
+func (c *ContractMaturityReport) AddLimboDirectHtlc(kid *KidOutput) {
 	c.LimboBalance += kid.Amount()
 
 	htlcReport := htlcMaturityReport{
@@ -1512,7 +1512,7 @@ func (c *ContractMaturityReport) AddLimboDirectHtlc(kid *kidOutput) {
 // AddLimboStage1SuccessHtlc adds an htlc crib output to the maturity
 // report's set of HTLC's. We'll use this to report any incoming HTLC sweeps
 // where the second level transaction hasn't yet confirmed.
-func (c *ContractMaturityReport) AddLimboStage1SuccessHtlc(kid *kidOutput) {
+func (c *ContractMaturityReport) AddLimboStage1SuccessHtlc(kid *KidOutput) {
 	c.LimboBalance += kid.Amount()
 
 	c.Htlcs = append(c.Htlcs, htlcMaturityReport{
@@ -1526,7 +1526,7 @@ func (c *ContractMaturityReport) AddLimboStage1SuccessHtlc(kid *kidOutput) {
 
 // AddLimboStage2Htlc adds an htlc kindergarten output to the maturity report's
 // Htlcs, and contributes its Amount to the limbo balance.
-func (c *ContractMaturityReport) AddLimboStage2Htlc(kid *kidOutput) {
+func (c *ContractMaturityReport) AddLimboStage2Htlc(kid *KidOutput) {
 	c.LimboBalance += kid.Amount()
 
 	htlcReport := htlcMaturityReport{
@@ -1549,7 +1549,7 @@ func (c *ContractMaturityReport) AddLimboStage2Htlc(kid *kidOutput) {
 
 // AddRecoveredHtlc adds a graduate output to the maturity report's Htlcs, and
 // contributes its Amount to the recovered balance.
-func (c *ContractMaturityReport) AddRecoveredHtlc(kid *kidOutput) {
+func (c *ContractMaturityReport) AddRecoveredHtlc(kid *KidOutput) {
 	c.RecoveredBalance += kid.Amount()
 
 	c.Htlcs = append(c.Htlcs, htlcMaturityReport{
@@ -1595,17 +1595,17 @@ func (u *UtxoNursery) closeAndRemoveIfMature(chanPoint *wire.OutPoint) error {
 	return nil
 }
 
-// babyOutput represents a two-stage CSV locked output, and is used to track
+// BabyOutput represents a two-stage CSV locked output, and is used to track
 // htlc outputs through incubation. The first stage requires broadcasting a
 // presigned timeout txn that spends from the CLTV locked output on the
-// commitment txn. A babyOutput is treated as a subset of CsvSpendableOutputs,
+// commitment txn. A BabyOutput is treated as a subset of CsvSpendableOutputs,
 // with the additional constraint that a transaction must be broadcast before
-// it can be spent. Each baby transaction embeds the kidOutput that can later
+// it can be spent. Each baby transaction embeds the KidOutput that can later
 // be used to spend the CSV output contained in the timeout txn.
 //
 // TODO(roasbeef): re-rename to timeout tx
 //  * create CltvCsvSpendableOutput
-type babyOutput struct {
+type BabyOutput struct {
 	// expiry is the absolute block height at which the secondLevelTx
 	// should be broadcast to the network.
 	//
@@ -1617,16 +1617,16 @@ type babyOutput struct {
 	// transitions the htlc into the delay+claim stage.
 	timeoutTx *wire.MsgTx
 
-	// kidOutput represents the CSV output to be swept from the
+	// KidOutput represents the CSV output to be swept from the
 	// secondLevelTx after it has been broadcast and confirmed.
-	kidOutput
+	KidOutput
 }
 
-// makeBabyOutput constructs a baby output that wraps a future kidOutput. The
+// makeBabyOutput constructs a baby output that wraps a future KidOutput. The
 // provided sign descriptors and witness types will be used once the output
 // reaches the delay and claim stage.
 func makeBabyOutput(chanPoint *wire.OutPoint,
-	htlcResolution *lnwallet.OutgoingHtlcResolution) babyOutput {
+	htlcResolution *lnwallet.OutgoingHtlcResolution) BabyOutput {
 
 	htlcOutpoint := htlcResolution.ClaimOutpoint
 	blocksToMaturity := htlcResolution.CsvDelay
@@ -1637,8 +1637,8 @@ func makeBabyOutput(chanPoint *wire.OutPoint,
 		&htlcResolution.SweepSignDesc, 0,
 	)
 
-	return babyOutput{
-		kidOutput: kid,
+	return BabyOutput{
+		KidOutput: kid,
 		expiry:    htlcResolution.Expiry,
 		timeoutTx: htlcResolution.SignedTimeoutTx,
 	}
@@ -1647,13 +1647,13 @@ func makeBabyOutput(chanPoint *wire.OutPoint,
 // NewDecodedBabyOutput creates kid spendable output from
 // serialized stream.
 func NewDecodedBabyOutput(r io.Reader) (lnwallet.SpendableOutput, error) {
-	output := &babyOutput{}
+	output := &BabyOutput{}
 
 	return output, output.Decode(r)
 }
 
 // Encode writes the baby output to the given io.Writer.
-func (bo *babyOutput) Encode(w io.Writer) error {
+func (bo *BabyOutput) Encode(w io.Writer) error {
 	var scratch [4]byte
 	byteOrder.PutUint32(scratch[:], bo.expiry)
 	if _, err := w.Write(scratch[:]); err != nil {
@@ -1664,11 +1664,11 @@ func (bo *babyOutput) Encode(w io.Writer) error {
 		return err
 	}
 
-	return bo.kidOutput.Encode(w)
+	return bo.KidOutput.Encode(w)
 }
 
 // Decode reconstructs a baby output using the provided io.Reader.
-func (bo *babyOutput) Decode(r io.Reader) error {
+func (bo *BabyOutput) Decode(r io.Reader) error {
 	var scratch [4]byte
 	if _, err := r.Read(scratch[:]); err != nil {
 		return err
@@ -1680,16 +1680,16 @@ func (bo *babyOutput) Decode(r io.Reader) error {
 		return err
 	}
 
-	return bo.kidOutput.Decode(r)
+	return bo.KidOutput.Decode(r)
 }
 
-// kidOutput represents an output that's waiting for a required blockheight
+// KidOutput represents an output that's waiting for a required blockheight
 // before its funds will be available to be moved into the user's wallet.  The
 // struct includes a WitnessGenerator closure which will be used to generate
 // the witness required to sweep the output once it's mature.
 //
 // TODO(roasbeef): rename to immatureOutput?
-type kidOutput struct {
+type KidOutput struct {
 	lnwallet.BaseOutput
 
 	originChanPoint wire.OutPoint
@@ -1721,7 +1721,7 @@ type kidOutput struct {
 func makeKidOutput(outpoint, originChanPoint *wire.OutPoint,
 	blocksToMaturity uint32, witnessType lnwallet.WitnessType,
 	signDescriptor *lnwallet.SignDescriptor,
-	absoluteMaturity uint32) kidOutput {
+	absoluteMaturity uint32) KidOutput {
 
 	// This is an HTLC either if it's an incoming HTLC on our commitment
 	// transaction, or is an outgoing HTLC on the commitment transaction of
@@ -1729,7 +1729,7 @@ func makeKidOutput(outpoint, originChanPoint *wire.OutPoint,
 	isHtlc := witnessType == lnwallet.HtlcAcceptedSuccessSecondLevel ||
 		witnessType == lnwallet.HtlcOfferedRemoteTimeout
 
-	return kidOutput{
+	return KidOutput{
 		BaseOutput: *lnwallet.NewBaseOutput(
 			btcutil.Amount(signDescriptor.Output.Value),
 			*outpoint,
@@ -1746,24 +1746,24 @@ func makeKidOutput(outpoint, originChanPoint *wire.OutPoint,
 // NewDecodedKidOutput creates kid spendable output from
 // serialized stream.
 func NewDecodedKidOutput(r io.Reader) (lnwallet.SpendableOutput, error) {
-	output := &kidOutput{}
+	output := &KidOutput{}
 
 	return output, output.Decode(r)
 }
 
-func (k *kidOutput) OriginChanPoint() *wire.OutPoint {
+func (k *KidOutput) OriginChanPoint() *wire.OutPoint {
 	return &k.originChanPoint
 }
 
-func (k *kidOutput) BlocksToMaturity() uint32 {
+func (k *KidOutput) BlocksToMaturity() uint32 {
 	return k.blocksToMaturity
 }
 
-func (k *kidOutput) SetConfHeight(height uint32) {
+func (k *KidOutput) SetConfHeight(height uint32) {
 	k.confHeight = height
 }
 
-func (k *kidOutput) ConfHeight() uint32 {
+func (k *KidOutput) ConfHeight() uint32 {
 	return k.confHeight
 }
 
@@ -1771,7 +1771,7 @@ func (k *kidOutput) ConfHeight() uint32 {
 // storage. Note that the signDescriptor struct field is included so that the
 // output's witness can be generated by createSweepTx() when the output becomes
 // spendable.
-func (k *kidOutput) Encode(w io.Writer) error {
+func (k *KidOutput) Encode(w io.Writer) error {
 	var scratch [8]byte
 	byteOrder.PutUint64(scratch[:], uint64(k.Amount()))
 	if _, err := w.Write(scratch[:]); err != nil {
@@ -1812,10 +1812,10 @@ func (k *kidOutput) Encode(w io.Writer) error {
 	return lnwallet.WriteSignDescriptor(w, k.SignDesc())
 }
 
-// Decode takes a byte array representation of a kidOutput and converts it to an
+// Decode takes a byte array representation of a KidOutput and converts it to an
 // struct. Note that the witnessFunc method isn't added during deserialization
 // and must be added later based on the value of the witnessType field.
-func (k *kidOutput) Decode(r io.Reader) error {
+func (k *KidOutput) Decode(r io.Reader) error {
 	var scratch [8]byte
 
 	if _, err := r.Read(scratch[:]); err != nil {
@@ -1903,7 +1903,7 @@ func readOutpoint(r io.Reader, o *wire.OutPoint) error {
 	return nil
 }
 
-// Compile-time constraint to ensure kidOutput and babyOutput implement the
+// Compile-time constraint to ensure KidOutput and BabyOutput implement the
 // CsvSpendableOutput interface.
-var _ lnwallet.CsvSpendableOutput = (*kidOutput)(nil)
-var _ lnwallet.CsvSpendableOutput = (*babyOutput)(nil)
+var _ lnwallet.CsvSpendableOutput = (*KidOutput)(nil)
+var _ lnwallet.CsvSpendableOutput = (*BabyOutput)(nil)

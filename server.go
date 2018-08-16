@@ -576,7 +576,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 
 	// Create outputs pool manager responsible for gathering outputs and
 	// merging them to one transaction.
-	s.strayOutputsPool = strayoutputpool.NewDBStrayOutputsPool(&strayoutputpool.PoolConfig{
+	s.strayOutputsPool = strayoutputpool.NewPoolServer(&strayoutputpool.PoolConfig{
 		DB:        chanDB,
 		Estimator: s.cc.feeEstimator,
 		GenSweepScript: func() ([]byte, error) {

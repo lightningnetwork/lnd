@@ -100,21 +100,21 @@ type Store interface {
 	// outgoing htlc outputs to be swept back into the user's wallet. The
 	// event is persisted to disk, such that the nursery can resume the
 	// incubation process after a potential crash.
-	Incubate([]kidOutput, []babyOutput) error
+	Incubate([]KidOutput, []BabyOutput) error
 
-	// CribToKinder atomically moves a babyOutput in the crib bucket to the
+	// CribToKinder atomically moves a BabyOutput in the crib bucket to the
 	// kindergarten bucket. Baby outputs are outgoing HTLC's which require
-	// us to go to the second-layer to claim. The now mature kidOutput
-	// contained in the babyOutput will be stored as it waits out the
-	// kidOutput's CSV delay.
-	CribToKinder(*babyOutput) error
+	// us to go to the second-layer to claim. The now mature KidOutput
+	// contained in the BabyOutput will be stored as it waits out the
+	// KidOutput's CSV delay.
+	CribToKinder(*BabyOutput) error
 
-	// PreschoolToKinder atomically moves a kidOutput from the preschool
+	// PreschoolToKinder atomically moves a KidOutput from the preschool
 	// bucket to the kindergarten bucket. This transition should be
 	// executed after receiving confirmation of the preschool output.
 	// Incoming HTLC's we need to go to the second-layer to claim, and also
 	// our commitment outputs fall into this class.
-	PreschoolToKinder(*kidOutput) error
+	PreschoolToKinder(*KidOutput) error
 
 	// GraduateKinder atomically moves the kindergarten class at the
 	// provided height into the graduated status. This involves removing the
@@ -126,13 +126,13 @@ type Store interface {
 
 	// FetchPreschools returns a list of all outputs currently stored in
 	// the preschool bucket.
-	FetchPreschools() ([]kidOutput, error)
+	FetchPreschools() ([]KidOutput, error)
 
 	// FetchClass returns a list of kindergarten and crib outputs whose
 	// timelocks expire at the given height. If the kindergarten class at
 	// this height hash been finalized previously, via FinalizeKinder, it
 	// will also returns the finalized kindergarten sweep txn.
-	FetchClass(height uint32) (*wire.MsgTx, []kidOutput, []babyOutput, error)
+	FetchClass(height uint32) (*wire.MsgTx, []KidOutput, []BabyOutput, error)
 
 	// FinalizeKinder accepts a block height and the kindergarten sweep txn
 	// computed for this height. Upon startup, we will rebroadcast any
@@ -306,7 +306,7 @@ func NewNurseryStore(chainHash *chainhash.Hash,
 // Incubate persists the beginning of the incubation process for the
 // CSV-delayed outputs (commitment and incoming HTLC's), commitment output and
 // a list of outgoing two-stage htlc outputs.
-func (ns *nurseryStore) Incubate(kids []kidOutput, babies []babyOutput) error {
+func (ns *nurseryStore) Incubate(kids []KidOutput, babies []BabyOutput) error {
 	return ns.db.Update(func(tx *bolt.Tx) error {
 		// If we have any kid outputs to incubate, then we'll attempt
 		// to add each of them to the nursery store. Any duplicate
@@ -330,10 +330,10 @@ func (ns *nurseryStore) Incubate(kids []kidOutput, babies []babyOutput) error {
 	})
 }
 
-// CribToKinder atomically moves a babyOutput in the crib bucket to the
-// kindergarten bucket. The now mature kidOutput contained in the babyOutput
-// will be stored as it waits out the kidOutput's CSV delay.
-func (ns *nurseryStore) CribToKinder(bby *babyOutput) error {
+// CribToKinder atomically moves a BabyOutput in the crib bucket to the
+// kindergarten bucket. The now mature KidOutput contained in the BabyOutput
+// will be stored as it waits out the KidOutput's CSV delay.
+func (ns *nurseryStore) CribToKinder(bby *BabyOutput) error {
 	return ns.db.Update(func(tx *bolt.Tx) error {
 
 		// First, retrieve or create the channel bucket corresponding to
@@ -344,8 +344,8 @@ func (ns *nurseryStore) CribToKinder(bby *babyOutput) error {
 			return err
 		}
 
-		// The babyOutput should currently be stored in the crib bucket.
-		// So, we create a key that prefixes the babyOutput's Outpoint
+		// The BabyOutput should currently be stored in the crib bucket.
+		// So, we create a key that prefixes the BabyOutput's Outpoint
 		// with the crib prefix, allowing us to reference it in the
 		// store.
 		pfxOutputKey, err := prefixOutputKey(cribPrefix, bby.OutPoint())
@@ -353,7 +353,7 @@ func (ns *nurseryStore) CribToKinder(bby *babyOutput) error {
 			return err
 		}
 
-		// Since the babyOutput is being moved to the kindergarten
+		// Since the BabyOutput is being moved to the kindergarten
 		// bucket, we remove the entry from the channel bucket under the
 		// crib-prefixed Outpoint key.
 		if err := chanBucket.Delete(pfxOutputKey); err != nil {
@@ -372,28 +372,28 @@ func (ns *nurseryStore) CribToKinder(bby *babyOutput) error {
 		// key with the kindergarten prefix.
 		copy(pfxOutputKey, kndrPrefix)
 
-		// Now, serialize babyOutput's encapsulated kidOutput such that
+		// Now, serialize BabyOutput's encapsulated KidOutput such that
 		// it can be written to the channel bucket under the new
 		// kindergarten-prefixed key.
 		var kidBuffer bytes.Buffer
-		if err := bby.kidOutput.Encode(&kidBuffer); err != nil {
+		if err := bby.KidOutput.Encode(&kidBuffer); err != nil {
 			return err
 		}
 		kidBytes := kidBuffer.Bytes()
 
-		// Persist the serialized kidOutput under the
+		// Persist the serialized KidOutput under the
 		// kindergarten-prefixed Outpoint key.
 		if err := chanBucket.Put(pfxOutputKey, kidBytes); err != nil {
 			return err
 		}
 
-		// Now, compute the height at which this kidOutput's CSV delay
+		// Now, compute the height at which this KidOutput's CSV delay
 		// will expire.  This is done by adding the required delay to
 		// the block height at which the output was confirmed.
 		maturityHeight := bby.ConfHeight() + bby.BlocksToMaturity()
 
 		// Retrieve or create a height-channel bucket corresponding to
-		// the kidOutput's maturity height.
+		// the KidOutput's maturity height.
 		hghtChanBucketCsv, err := ns.createHeightChanBucket(tx,
 			maturityHeight, chanPoint)
 		if err != nil {
@@ -412,10 +412,10 @@ func (ns *nurseryStore) CribToKinder(bby *babyOutput) error {
 	})
 }
 
-// PreschoolToKinder atomically moves a kidOutput from the preschool bucket to
+// PreschoolToKinder atomically moves a KidOutput from the preschool bucket to
 // the kindergarten bucket. This transition should be executed after receiving
 // confirmation of the preschool output's commitment transaction.
-func (ns *nurseryStore) PreschoolToKinder(kid *kidOutput) error {
+func (ns *nurseryStore) PreschoolToKinder(kid *KidOutput) error {
 	return ns.db.Update(func(tx *bolt.Tx) error {
 		// Create or retrieve the channel bucket corresponding to the
 		// kid output's origin channel point.
@@ -544,7 +544,7 @@ func (ns *nurseryStore) GraduateKinder(height uint32) error {
 		// channel index.
 		return ns.forEachHeightPrefix(tx, kndrPrefix, height,
 			func(v []byte) error {
-				var kid kidOutput
+				var kid KidOutput
 				err := kid.Decode(bytes.NewReader(v))
 				if err != nil {
 					return err
@@ -625,13 +625,13 @@ func (ns *nurseryStore) GraduateHeight(height uint32) error {
 // FetchClass returns a list of the kindergarten and crib outputs whose timeouts
 // are expiring
 func (ns *nurseryStore) FetchClass(
-	height uint32) (*wire.MsgTx, []kidOutput, []babyOutput, error) {
+	height uint32) (*wire.MsgTx, []KidOutput, []BabyOutput, error) {
 
 	// Construct list of all crib and kindergarten outputs that need to be
 	// processed at the provided block height.
 	var finalTx *wire.MsgTx
-	var kids []kidOutput
-	var babies []babyOutput
+	var kids []KidOutput
+	var babies []BabyOutput
 	if err := ns.db.View(func(tx *bolt.Tx) error {
 
 		var err error
@@ -648,7 +648,7 @@ func (ns *nurseryStore) FetchClass(
 				// stored with the crib prefix into babyOutputs,
 				// since this is the expected type that would
 				// have been serialized previously.
-				var baby babyOutput
+				var baby BabyOutput
 				babyReader := bytes.NewReader(buf)
 				if err := baby.Decode(babyReader); err != nil {
 					return err
@@ -670,7 +670,7 @@ func (ns *nurseryStore) FetchClass(
 				// stored with the kindergarten prefix into
 				// kidOutputs, since this is the expected type
 				// that would have been serialized previously.
-				var kid kidOutput
+				var kid KidOutput
 				kidReader := bytes.NewReader(buf)
 				if err := kid.Decode(kidReader); err != nil {
 					return err
@@ -691,8 +691,8 @@ func (ns *nurseryStore) FetchClass(
 
 // FetchPreschools returns a list of all outputs currently stored in the
 // preschool bucket.
-func (ns *nurseryStore) FetchPreschools() ([]kidOutput, error) {
-	var kids []kidOutput
+func (ns *nurseryStore) FetchPreschools() ([]KidOutput, error) {
+	var kids []KidOutput
 	if err := ns.db.View(func(tx *bolt.Tx) error {
 
 		// Retrieve the existing chain bucket for this nursery store.
@@ -719,7 +719,7 @@ func (ns *nurseryStore) FetchPreschools() ([]kidOutput, error) {
 
 		// Iterate over all of the accumulated channels, and do a prefix
 		// scan inside of each channel bucket. Each output found that
-		// has a preschool prefix will be deserialized into a kidOutput,
+		// has a preschool prefix will be deserialized into a KidOutput,
 		// and added to our list of preschool outputs to return to the
 		// caller.
 		for _, chanBytes := range activeChannels {
@@ -738,10 +738,10 @@ func (ns *nurseryStore) FetchPreschools() ([]kidOutput, error) {
 			for k, v := c.Seek(psclPrefix); bytes.HasPrefix(
 				k, psclPrefix); k, v = c.Next() {
 
-				// Deserialize each output as a kidOutput, since
+				// Deserialize each output as a KidOutput, since
 				// this should have been the type that was
 				// serialized when it was written to disk.
-				var psclOutput kidOutput
+				var psclOutput KidOutput
 				psclReader := bytes.NewReader(v)
 				err := psclOutput.Decode(psclReader)
 				if err != nil {
@@ -916,7 +916,7 @@ func (ns *nurseryStore) RemoveChannel(chanPoint *wire.OutPoint) error {
 			copy(kndrKey[:4], kndrPrefix)
 
 			// Decode each to retrieve the output's maturity height.
-			var kid kidOutput
+			var kid KidOutput
 			if err := kid.Decode(bytes.NewReader(v)); err != nil {
 				return err
 			}
@@ -970,7 +970,7 @@ func (ns *nurseryStore) LastGraduatedHeight() (uint32, error) {
 // its two-stage process of sweeping funds back to the user's wallet. These
 // outputs are persisted in the nursery store in the crib state, and will be
 // revisited after the first-stage output's CLTV has expired.
-func (ns *nurseryStore) enterCrib(tx *bolt.Tx, baby *babyOutput) error {
+func (ns *nurseryStore) enterCrib(tx *bolt.Tx, baby *BabyOutput) error {
 	// First, retrieve or create the channel bucket corresponding to the
 	// baby output's origin channel point.
 	chanPoint := baby.OriginChanPoint()
@@ -1025,7 +1025,7 @@ func (ns *nurseryStore) enterCrib(tx *bolt.Tx, baby *babyOutput) error {
 // through a single Stage before sweeping. Outputs are stored in the preschool
 // bucket until the commitment transaction has been confirmed, at which point
 // they will be moved to the kindergarten bucket.
-func (ns *nurseryStore) enterPreschool(tx *bolt.Tx, kid *kidOutput) error {
+func (ns *nurseryStore) enterPreschool(tx *bolt.Tx, kid *KidOutput) error {
 	// First, retrieve or create the channel bucket corresponding to the
 	// baby output's origin channel point.
 	chanPoint := kid.OriginChanPoint()
@@ -1034,7 +1034,7 @@ func (ns *nurseryStore) enterPreschool(tx *bolt.Tx, kid *kidOutput) error {
 		return err
 	}
 
-	// Since the kidOutput is being inserted into the preschool bucket, we
+	// Since the KidOutput is being inserted into the preschool bucket, we
 	// create a key that prefixes its outpoint with the preschool prefix.
 	pfxOutputKey, err := prefixOutputKey(psclPrefix, kid.OutPoint())
 	if err != nil {
@@ -1047,7 +1047,7 @@ func (ns *nurseryStore) enterPreschool(tx *bolt.Tx, kid *kidOutput) error {
 		return nil
 	}
 
-	// Serialize the kidOutput and insert it into the channel bucket.
+	// Serialize the KidOutput and insert it into the channel bucket.
 	var kidBuffer bytes.Buffer
 	if err := kid.Encode(&kidBuffer); err != nil {
 		return err
@@ -1298,7 +1298,7 @@ func (ns *nurseryStore) forEachHeightPrefix(tx *bolt.Tx, prefix []byte,
 			k, prefix); k, _ = c.Next() {
 
 			// Use the prefix output key emitted from our scan to
-			// load the serialized babyOutput from the appropriate
+			// load the serialized BabyOutput from the appropriate
 			// channel bucket.
 			outputBytes := chanBucket.Get(k)
 			if outputBytes == nil {

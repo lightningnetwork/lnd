@@ -10,43 +10,54 @@ import (
 	"github.com/lightningnetwork/lnd/strayoutputpool/store"
 )
 
-// DBStrayOutputsPool is pool which contains a list of stray outputs that
-// can be manually or automatically swept into wallet.
-type DBStrayOutputsPool struct {
+// PoolServer is pool which contains a list of stray outputs that
+// can be manually or automatically swept back into wallet.
+type PoolServer struct {
 	cfg   *PoolConfig
 	store store.OutputStore
 }
 
-// NewDBStrayOutputsPool instantiate StrayOutputsPool with implementation
+// NewPoolServer instantiate StrayOutputsPool with implementation
 // of storing serialised outputs to database.
-func NewDBStrayOutputsPool(config *PoolConfig) StrayOutputsPoolServer {
-	return &DBStrayOutputsPool{
+func NewPoolServer(config *PoolConfig) StrayOutputsPoolServer {
+	return &PoolServer{
 		cfg:   config,
 		store: store.NewOutputDB(config.DB),
 	}
 }
 
 // AddSpendableOutput adds spendable output to stray outputs pool.
-func (d *DBStrayOutputsPool) AddSpendableOutput(
+func (d *PoolServer) AddSpendableOutput(
 	output lnwallet.SpendableOutput) error {
-
-	return nil
+	return d.store.AddStrayOutput(
+		store.NewOutputEntity(output),
+	)
 }
 
 // Sweep generates transaction for all added previously outputs to the wallet
 // output address and broadcast it to the network.
-func (d *DBStrayOutputsPool) Sweep() error {
+func (d *PoolServer) Sweep() error {
 	btx, err := d.GenSweepTx()
 	if err != nil {
 		return err
 	}
+
+	// Calculate base amount of transaction, needs only to show in
+	// info log.
+	var amount int64
+	for _, txOut := range btx.MsgTx().TxOut {
+		amount += txOut.Value
+	}
+
+	log.Infof("publishing sweep transaction for a set of stray inputs with amount: %v",
+		amount)
 
 	return d.cfg.PublishTransaction(btx.MsgTx())
 }
 
 // GenSweepTx fetches all stray outputs from database and
 // generates sweep transaction for them.
-func (d *DBStrayOutputsPool) GenSweepTx() (*btcutil.Tx, error) {
+func (d *PoolServer) GenSweepTx() (*btcutil.Tx, error) {
 	// First, we obtain a new public key script from the wallet which we'll
 	// sweep the funds to.
 	pkScript, err := d.cfg.GenSweepScript()
@@ -54,6 +65,9 @@ func (d *DBStrayOutputsPool) GenSweepTx() (*btcutil.Tx, error) {
 		return nil, err
 	}
 
+	// Retrieve all stray outputs that can be swept back to the wallet,
+	// for all of them we need to recalculate fee based on current fee
+	// rate in time of triggering sweeping function.
 	strayInputs, err := d.store.FetchAllStrayOutputs()
 	if err != nil {
 		return nil, err
@@ -62,11 +76,17 @@ func (d *DBStrayOutputsPool) GenSweepTx() (*btcutil.Tx, error) {
 	return d.genSweepTx(pkScript, strayInputs...)
 }
 
-// genSweepTx generates sweep transaction for list of stray outputs.
-func (d *DBStrayOutputsPool) genSweepTx(pkScript []byte,
+// genSweepTx generates sweep transaction for the list of stray outputs.
+func (d *PoolServer) genSweepTx(pkScript []byte,
 	strayOutputs ...store.OutputEntity) (*btcutil.Tx, error) {
+	// Compute the total amount contained in all stored outputs
+	// marked as strayed.
+	var (
+		totalAmt    btcutil.Amount
+		txEstimator lnwallet.TxWeightEstimator
+	)
 
-	feePerKW, err := d.cfg.Estimator.EstimateFeePerKW(2)
+	feePerKW, err := d.cfg.Estimator.EstimateFeePerKW(6)
 	if err != nil {
 		return nil, err
 	}
@@ -74,10 +94,6 @@ func (d *DBStrayOutputsPool) genSweepTx(pkScript []byte,
 	// With the fee calculated, we can now create the transaction using the
 	// information gathered above and the provided retribution information.
 	txn := wire.NewMsgTx(2)
-
-	// Compute the total amount contained in all stored outputs
-	// marked as strayed.
-	var totalAmt btcutil.Amount
 
 	hashCache := txscript.NewTxSigHashes(txn)
 
@@ -93,11 +109,15 @@ func (d *DBStrayOutputsPool) genSweepTx(pkScript []byte,
 		return nil
 	}
 
-	for i, sOutput := range strayOutputs {
-		txFee := feePerKW.FeeForWeight(sOutput.TxWeight())
-		totalAmt += sOutput.Output().Amount() - txFee
+	// Add standard output to our wallet.
+	txEstimator.AddP2WKHOutput()
 
-		// Add spendable outputs to transaction
+	for i, sOutput := range strayOutputs {
+		txEstimator.AddWitnessInputByType(sOutput.Output().WitnessType())
+
+		totalAmt += sOutput.Output().Amount()
+
+		// Add spendable outputs to transaction.
 		txn.AddTxIn(&wire.TxIn{
 			PreviousOutPoint: *sOutput.Output().OutPoint(),
 		})
@@ -108,9 +128,11 @@ func (d *DBStrayOutputsPool) genSweepTx(pkScript []byte,
 		}
 	}
 
+	txFee := feePerKW.FeeForWeight(int64(txEstimator.Weight()))
+
 	txn.AddTxOut(&wire.TxOut{
 		PkScript: pkScript,
-		Value:    int64(totalAmt),
+		Value:    int64(totalAmt - txFee),
 	})
 
 	// Validate the transaction before signing
@@ -124,11 +146,11 @@ func (d *DBStrayOutputsPool) genSweepTx(pkScript []byte,
 
 // Start is launches checking of swept outputs by interval into database.
 // It must be run as a goroutine.
-func (d *DBStrayOutputsPool) Start() error {
+func (d *PoolServer) Start() error {
 	return nil
 }
 
 // Stop is launches checking of swept outputs by interval into database.
-func (d *DBStrayOutputsPool) Stop() {
+func (d *PoolServer) Stop() {
 
 }

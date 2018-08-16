@@ -281,7 +281,7 @@ func (b *BreachArbiter) contractObserver() {
 // is able to properly sweep that second level output. We'll use this function
 // when we go to sweep a breached commitment transaction, but the cheating
 // party has already attempted to take it to the second level
-func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
+func convertToSecondLevelRevoke(bo *BreachedOutput, breachInfo *retributionInfo,
 	spendDetails *chainntnfs.SpendDetail) {
 
 	// In this case, we'll modify the witness type of this output to
@@ -757,24 +757,24 @@ func (b *BreachArbiter) handleBreachHandoff(breachEvent *ContractBreachEvent) {
 	go b.exactRetribution(cfChan, retInfo)
 }
 
-// breachedOutput contains all the information needed to sweep a breached
+// BreachedOutput contains all the information needed to sweep a breached
 // output. A breached output is an output that we are now entitled to due to a
 // revoked commitment transaction being broadcast.
-type breachedOutput struct {
+type BreachedOutput struct {
 	secondLevelWitnessScript []byte
 
 	lnwallet.BaseOutput
 }
 
-// makeBreachedOutput assembles a new breachedOutput that can be used by the
+// makeBreachedOutput assembles a new BreachedOutput that can be used by the
 // breach arbiter to construct a justice or sweep transaction.
 func makeBreachedOutput(outpoint *wire.OutPoint,
 	witnessType lnwallet.WitnessType,
 	secondLevelScript []byte,
-	signDescriptor *lnwallet.SignDescriptor) breachedOutput {
+	signDescriptor *lnwallet.SignDescriptor) BreachedOutput {
 	amount := signDescriptor.Output.Value
 
-	return breachedOutput{
+	return BreachedOutput{
 		secondLevelWitnessScript: secondLevelScript,
 		BaseOutput: *lnwallet.NewBaseOutput(btcutil.Amount(amount), *outpoint,
 			witnessType, *signDescriptor),
@@ -784,14 +784,14 @@ func makeBreachedOutput(outpoint *wire.OutPoint,
 // NewDecodedBreachedOutput creates breached spendable output from
 // serialized stream.
 func NewDecodedBreachedOutput(r io.Reader) (lnwallet.SpendableOutput, error) {
-	output := &breachedOutput{}
+	output := &BreachedOutput{}
 
 	return output, output.Decode(r)
 }
 
-// Add compile-time constraint ensuring breachedOutput implements
+// Add compile-time constraint ensuring BreachedOutput implements
 // SpendableOutput.
-var _ lnwallet.SpendableOutput = (*breachedOutput)(nil)
+var _ lnwallet.SpendableOutput = (*BreachedOutput)(nil)
 
 // retributionInfo encapsulates all the data needed to sweep all the contested
 // funds within a channel whose contract has been breached by the prior
@@ -804,7 +804,7 @@ type retributionInfo struct {
 	chainHash    chainhash.Hash
 	breachHeight uint32
 
-	breachedOutputs []breachedOutput
+	breachedOutputs []BreachedOutput
 }
 
 // newRetributionInfo constructs a retributionInfo containing all the
@@ -823,7 +823,7 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 	// HTLC outputs provided by the wallet are guaranteed to be non-dust,
 	// though the commitment outputs are conditionally added depending on
 	// the nil-ness of their sign descriptors.
-	breachedOutputs := make([]breachedOutput, 0, nHtlcs+2)
+	breachedOutputs := make([]BreachedOutput, 0, nHtlcs+2)
 
 	// First, record the breach information for the local channel point if
 	// it is not considered dust, which is signaled by a non-nil sign
@@ -843,7 +843,7 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 
 	// Second, record the same information regarding the remote outpoint,
 	// again if it is not dust, which belongs to the party who tried to
-	// steal our money! Here we set witnessType of the breachedOutput to
+	// steal our money! Here we set witnessType of the BreachedOutput to
 	// CommitmentRevoke, since we will be using a revoke key, withdrawing
 	// the funds from the commitment transaction immediately.
 	if breachInfo.RemoteOutputSignDesc != nil {
@@ -1357,7 +1357,7 @@ func (ret *retributionInfo) Decode(r io.Reader) error {
 	}
 	nOutputs := int(nOutputsU64)
 
-	ret.breachedOutputs = make([]breachedOutput, nOutputs)
+	ret.breachedOutputs = make([]BreachedOutput, nOutputs)
 	for i := range ret.breachedOutputs {
 		if err := ret.breachedOutputs[i].Decode(r); err != nil {
 			return err
@@ -1367,8 +1367,8 @@ func (ret *retributionInfo) Decode(r io.Reader) error {
 	return nil
 }
 
-// Encode serializes a breachedOutput into the passed byte stream.
-func (bo *breachedOutput) Encode(w io.Writer) error {
+// Encode serializes a BreachedOutput into the passed byte stream.
+func (bo *BreachedOutput) Encode(w io.Writer) error {
 	// TODO(vapopov): need to have migration script to reorder data for
 	// secondLevelWitnessScript because it is stored in the middle of
 	// serialized data, must be moved to the end of stream to be compatible
@@ -1402,8 +1402,8 @@ func (bo *breachedOutput) Encode(w io.Writer) error {
 	return nil
 }
 
-// Decode deserializes a breachedOutput from the passed byte stream.
-func (bo *breachedOutput) Decode(r io.Reader) error {
+// Decode deserializes a BreachedOutput from the passed byte stream.
+func (bo *BreachedOutput) Decode(r io.Reader) error {
 	var scratch [8]byte
 
 	if _, err := io.ReadFull(r, scratch[:8]); err != nil {

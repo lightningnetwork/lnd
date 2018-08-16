@@ -172,6 +172,8 @@ func (m *MockSpendNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 // will include the transaction and height provided by the caller.
 func (m *MockSpendNotifier) Spend(outpoint *wire.OutPoint, height int32,
 	txn *wire.MsgTx) {
+	m.mtx.Lock()
+	defer m.mtx.Unlock()
 
 	if spendChans, ok := m.spendMap[*outpoint]; ok {
 		delete(m.spendMap, *outpoint)

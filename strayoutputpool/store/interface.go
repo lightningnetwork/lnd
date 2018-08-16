@@ -28,9 +28,6 @@ type OutputStore interface {
 
 // OutputEntity is representation of entity for storing spendable outputs.
 type OutputEntity interface {
-	// TxWeight returns weight of spendable output.
-	TxWeight() int64
-
 	// OutputType returns type of spendable output.
 	OutputType() outputType
 

@@ -145,6 +145,7 @@ type autoPilotConfig struct {
 	Allocation     float64 `long:"allocation" description:"The percentage of total funds that should be committed to automatic channel establishment"`
 	MinChannelSize int64   `long:"minchansize" description:"The smallest channel that the autopilot agent should create"`
 	MaxChannelSize int64   `long:"maxchansize" description:"The largest channel that the autopilot agent should create"`
+	Private        bool    `long:"private" description:"Whether the channels created by the autopilot agent should be private or not. Private channels won't be announced to the network."`
 }
 
 type torConfig struct {

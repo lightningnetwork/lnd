@@ -2488,6 +2488,12 @@ type EdgePoint struct {
 	OutPoint wire.OutPoint
 }
 
+// String returns a human readable version of the target EdgePoint. We return
+// the outpoint directly as it is enough to uniquely identify the edge point.
+func (e *EdgePoint) String() string {
+	return e.OutPoint.String()
+}
+
 // ChannelView returns the verifiable edge information for each active channel
 // within the known channel graph. The set of UTXO's (along with their scripts)
 // returned are the ones that need to be watched on chain to detect channel

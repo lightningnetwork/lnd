@@ -502,16 +502,19 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 	// database. We can do this as a cooperatively closed channel has all
 	// its outputs resolved after only one confirmation.
 	closeSummary := &channeldb.ChannelCloseSummary{
-		ChanPoint:      c.cfg.chanState.FundingOutpoint,
-		ChainHash:      c.cfg.chanState.ChainHash,
-		ClosingTXID:    *commitSpend.SpenderTxHash,
-		RemotePub:      c.cfg.chanState.IdentityPub,
-		Capacity:       c.cfg.chanState.Capacity,
-		CloseHeight:    uint32(commitSpend.SpendingHeight),
-		SettledBalance: localAmt,
-		CloseType:      channeldb.CooperativeClose,
-		ShortChanID:    c.cfg.chanState.ShortChanID(),
-		IsPending:      false,
+		ChanPoint:               c.cfg.chanState.FundingOutpoint,
+		ChainHash:               c.cfg.chanState.ChainHash,
+		ClosingTXID:             *commitSpend.SpenderTxHash,
+		RemotePub:               c.cfg.chanState.IdentityPub,
+		Capacity:                c.cfg.chanState.Capacity,
+		CloseHeight:             uint32(commitSpend.SpendingHeight),
+		SettledBalance:          localAmt,
+		CloseType:               channeldb.CooperativeClose,
+		ShortChanID:             c.cfg.chanState.ShortChanID(),
+		IsPending:               false,
+		RemoteCurrentRevocation: c.cfg.chanState.RemoteCurrentRevocation,
+		RemoteNextRevocation:    c.cfg.chanState.RemoteNextRevocation,
+		LocalChanConfig:         c.cfg.chanState.LocalChanCfg,
 	}
 	err := c.cfg.chanState.CloseChannel(closeSummary)
 	if err != nil && err != channeldb.ErrNoActiveChannels &&
@@ -559,15 +562,18 @@ func (c *chainWatcher) dispatchLocalForceClose(
 	// usage by related sub-systems.
 	chanSnapshot := forceClose.ChanSnapshot
 	closeSummary := &channeldb.ChannelCloseSummary{
-		ChanPoint:   chanSnapshot.ChannelPoint,
-		ChainHash:   chanSnapshot.ChainHash,
-		ClosingTXID: forceClose.CloseTx.TxHash(),
-		RemotePub:   &chanSnapshot.RemoteIdentity,
-		Capacity:    chanSnapshot.Capacity,
-		CloseType:   channeldb.LocalForceClose,
-		IsPending:   true,
-		ShortChanID: c.cfg.chanState.ShortChanID(),
-		CloseHeight: uint32(commitSpend.SpendingHeight),
+		ChanPoint:               chanSnapshot.ChannelPoint,
+		ChainHash:               chanSnapshot.ChainHash,
+		ClosingTXID:             forceClose.CloseTx.TxHash(),
+		RemotePub:               &chanSnapshot.RemoteIdentity,
+		Capacity:                chanSnapshot.Capacity,
+		CloseType:               channeldb.LocalForceClose,
+		IsPending:               true,
+		ShortChanID:             c.cfg.chanState.ShortChanID(),
+		CloseHeight:             uint32(commitSpend.SpendingHeight),
+		RemoteCurrentRevocation: c.cfg.chanState.RemoteCurrentRevocation,
+		RemoteNextRevocation:    c.cfg.chanState.RemoteNextRevocation,
+		LocalChanConfig:         c.cfg.chanState.LocalChanCfg,
 	}
 
 	// If our commitment output isn't dust or we have active HTLC's on the
@@ -739,16 +745,19 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 	// TODO(roasbeef): instead mark we got all the monies?
 	settledBalance := remoteCommit.LocalBalance.ToSatoshis()
 	closeSummary := channeldb.ChannelCloseSummary{
-		ChanPoint:      c.cfg.chanState.FundingOutpoint,
-		ChainHash:      c.cfg.chanState.ChainHash,
-		ClosingTXID:    *spendEvent.SpenderTxHash,
-		CloseHeight:    spendHeight,
-		RemotePub:      c.cfg.chanState.IdentityPub,
-		Capacity:       c.cfg.chanState.Capacity,
-		SettledBalance: settledBalance,
-		CloseType:      channeldb.BreachClose,
-		IsPending:      true,
-		ShortChanID:    c.cfg.chanState.ShortChanID(),
+		ChanPoint:               c.cfg.chanState.FundingOutpoint,
+		ChainHash:               c.cfg.chanState.ChainHash,
+		ClosingTXID:             *spendEvent.SpenderTxHash,
+		CloseHeight:             spendHeight,
+		RemotePub:               c.cfg.chanState.IdentityPub,
+		Capacity:                c.cfg.chanState.Capacity,
+		SettledBalance:          settledBalance,
+		CloseType:               channeldb.BreachClose,
+		IsPending:               true,
+		ShortChanID:             c.cfg.chanState.ShortChanID(),
+		RemoteCurrentRevocation: c.cfg.chanState.RemoteCurrentRevocation,
+		RemoteNextRevocation:    c.cfg.chanState.RemoteNextRevocation,
+		LocalChanConfig:         c.cfg.chanState.LocalChanCfg,
 	}
 
 	if err := c.cfg.chanState.CloseChannel(&closeSummary); err != nil {

@@ -5094,15 +5094,18 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer Signer,
 	}
 
 	closeSummary := channeldb.ChannelCloseSummary{
-		ChanPoint:      chanState.FundingOutpoint,
-		ChainHash:      chanState.ChainHash,
-		ClosingTXID:    *commitSpend.SpenderTxHash,
-		CloseHeight:    uint32(commitSpend.SpendingHeight),
-		RemotePub:      chanState.IdentityPub,
-		Capacity:       chanState.Capacity,
-		SettledBalance: btcutil.Amount(localBalance),
-		CloseType:      channeldb.RemoteForceClose,
-		IsPending:      true,
+		ChanPoint:               chanState.FundingOutpoint,
+		ChainHash:               chanState.ChainHash,
+		ClosingTXID:             *commitSpend.SpenderTxHash,
+		CloseHeight:             uint32(commitSpend.SpendingHeight),
+		RemotePub:               chanState.IdentityPub,
+		Capacity:                chanState.Capacity,
+		SettledBalance:          btcutil.Amount(localBalance),
+		CloseType:               channeldb.RemoteForceClose,
+		IsPending:               true,
+		RemoteCurrentRevocation: chanState.RemoteCurrentRevocation,
+		RemoteNextRevocation:    chanState.RemoteNextRevocation,
+		LocalChanConfig:         chanState.LocalChanCfg,
 	}
 
 	return &UnilateralCloseSummary{

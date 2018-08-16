@@ -2573,8 +2573,9 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	}
 
 	fndgLog.Infof("Initiating fundingRequest(localAmt=%v, remoteAmt=%v, "+
-		"capacity=%v, chainhash=%v, addr=%v, dustLimit=%v)", localAmt,
-		msg.pushAmt, capacity, msg.chainHash, peerKey, ourDustLimit)
+		"capacity=%v, chainhash=%v, peer=%x, dustLimit=%v)", localAmt,
+		msg.pushAmt, capacity, msg.chainHash, peerKey.SerializeCompressed(),
+		ourDustLimit)
 
 	// First, we'll query the fee estimator for a fee that should get the
 	// commitment transaction confirmed by the next few blocks (conf target

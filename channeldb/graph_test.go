@@ -2367,6 +2367,70 @@ func TestAddChannelEdgeShellNodes(t *testing.T) {
 	}
 }
 
+// TestNodePruningUpdateIndexDeletion tests that once a node has been removed
+// from the channel graph, we also remove the entry from the update index as
+// well.
+func TestNodePruningUpdateIndexDeletion(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+
+	graph := db.ChannelGraph()
+
+	// We'll first populate our graph with a single node that will be
+	// removed shortly.
+	node1, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	if err := graph.AddLightningNode(node1); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
+
+	// We'll confirm that we can retrieve the node using
+	// NodeUpdatesInHorizon, using a time that's slightly beyond the last
+	// update time of our test node.
+	startTime := time.Unix(9, 0)
+	endTime := node1.LastUpdate.Add(time.Minute)
+	nodesInHorizon, err := graph.NodeUpdatesInHorizon(startTime, endTime)
+	if err != nil {
+		t.Fatalf("unable to fetch nodes in horizon: %v", err)
+	}
+
+	// We should only have a single node, and that node should exactly
+	// match the node we just inserted.
+	if len(nodesInHorizon) != 1 {
+		t.Fatalf("should have 1 nodes instead have: %v",
+			len(nodesInHorizon))
+	}
+	if err := compareNodes(node1, &nodesInHorizon[0]); err != nil {
+		t.Fatalf("nodes don't match: %v", err)
+	}
+
+	// We'll now delete the node from the graph, this should result in it
+	// being removed from the update index as well.
+	nodePub, _ := node1.PubKey()
+	if err := graph.DeleteLightningNode(nodePub); err != nil {
+		t.Fatalf("unable to delete node: %v", err)
+	}
+
+	// Now that the node has been deleted, we'll again query the nodes in
+	// the horizon. This time we should have no nodes at all.
+	nodesInHorizon, err = graph.NodeUpdatesInHorizon(startTime, endTime)
+	if err != nil {
+		t.Fatalf("unable to fetch nodes in horizon: %v", err)
+	}
+
+	if len(nodesInHorizon) != 0 {
+		t.Fatalf("should have zero nodes instead have: %v",
+			len(nodesInHorizon))
+	}
+}
+
 // compareNodes is used to compare two LightningNodes while excluding the
 // Features struct, which cannot be compared as the semantics for reserializing
 // the featuresMap have not been defined.

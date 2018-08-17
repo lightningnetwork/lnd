@@ -158,9 +158,11 @@ type WalletController interface {
 	// out to the specified outputs. In the case the wallet has insufficient
 	// funds, or the outputs are non-standard, an error should be returned.
 	// This method also takes the target fee expressed in sat/kw that should
-	// be used when crafting the transaction.
-	SendOutputs(outputs []*wire.TxOut,
-		feeRate SatPerKWeight) (*chainhash.Hash, error)
+	// be used when crafting the transaction. The minConfs parameter
+	// enforces that each output used to fund the transaction must have at
+	// least minConfs confirmations.
+	SendOutputs(outputs []*wire.TxOut, feeRate SatPerKWeight,
+		minConfs int32) (*chainhash.Hash, error)
 
 	// ListUnspentWitness returns all unspent outputs which are version 0
 	// witness programs. The 'confirms' parameter indicates the minimum

@@ -268,17 +268,21 @@ func (b *BtcWallet) GetPrivKey(a btcutil.Address) (*btcec.PrivateKey, error) {
 
 // SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying out to
 // the specified outputs. In the case the wallet has insufficient funds, or the
-// outputs are non-standard, a non-nil error will be returned.
+// outputs are non-standard, a non-nil error will be returned. The minConfs
+// parameter enforces that each output used to fund the transaction must have at
+// least minConfs confirmations.
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
-	feeRate lnwallet.SatPerKWeight) (*chainhash.Hash, error) {
+	feeRate lnwallet.SatPerKWeight, minConfs int32) (*chainhash.Hash, error) {
 
 	// Convert our fee rate from sat/kw to sat/kb since it's required by
 	// SendOutputs.
 	feeSatPerKB := btcutil.Amount(feeRate.FeePerKVByte())
 
-	return b.wallet.SendOutputs(outputs, defaultAccount, 1, feeSatPerKB)
+	return b.wallet.SendOutputs(
+		outputs, defaultAccount, minConfs, feeSatPerKB,
+	)
 }
 
 // LockOutpoint marks an outpoint as locked meaning it will no longer be deemed

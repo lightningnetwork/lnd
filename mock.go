@@ -227,7 +227,7 @@ func (*mockWalletController) GetPrivKey(a btcutil.Address) (*btcec.PrivateKey, e
 }
 
 func (*mockWalletController) SendOutputs(outputs []*wire.TxOut,
-	_ lnwallet.SatPerKWeight) (*chainhash.Hash, error) {
+	_ lnwallet.SatPerKWeight, _ int32) (*chainhash.Hash, error) {
 
 	return nil, nil
 }

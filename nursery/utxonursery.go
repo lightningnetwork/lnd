@@ -1751,18 +1751,24 @@ func NewDecodedKidOutput(r io.Reader) (lnwallet.SpendableOutput, error) {
 	return output, output.Decode(r)
 }
 
+// OriginChanPoint returns origin channel outpoint.
 func (k *KidOutput) OriginChanPoint() *wire.OutPoint {
 	return &k.originChanPoint
 }
 
+// BlocksToMaturity returns relative CSV delay required after initial
+// confirmation of the commitment transaction before we can sweep this
+// output.
 func (k *KidOutput) BlocksToMaturity() uint32 {
 	return k.blocksToMaturity
 }
 
+// SetConfHeight sets configuration height.
 func (k *KidOutput) SetConfHeight(height uint32) {
 	k.confHeight = height
 }
 
+// ConfHeight returns configuration height.
 func (k *KidOutput) ConfHeight() uint32 {
 	return k.confHeight
 }

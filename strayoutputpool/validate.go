@@ -26,6 +26,7 @@ func isNegativeAmount(feeRate lnwallet.SatPerKWeight,
 	// could be swept separately.
 	wEstimate.AddP2WKHOutput()
 
+	// Weight of input according witness type.
 	weight := wEstimate.AddWitnessInputByType(input.WitnessType()).Weight()
 
 	return feeRate.FeeForWeight(int64(weight)) > input.Amount()

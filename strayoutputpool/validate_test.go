@@ -17,7 +17,7 @@ type strayOutputsPoolMock struct {
 	AddSpendableOutputFunc func(output lnwallet.SpendableOutput) error
 
 	// GenSweepTx generates transaction for all added outputs.
-	GenSweepTxFunc func() (*btcutil.Tx, error)
+	GenSweepTxFunc func(...lnwallet.SpendableOutput) (*btcutil.Tx, error)
 
 	// Sweep generates transaction and broadcast it to the network.
 	SweepFunc func() error
@@ -29,8 +29,8 @@ func (s *strayOutputsPoolMock) AddSpendableOutput(output lnwallet.SpendableOutpu
 }
 
 // GenSweepTx is mock function.
-func (s *strayOutputsPoolMock) GenSweepTx() (*btcutil.Tx, error) {
-	return s.GenSweepTxFunc()
+func (s *strayOutputsPoolMock) GenSweepTx(outputs ...lnwallet.SpendableOutput) (*btcutil.Tx, error) {
+	return s.GenSweepTxFunc(outputs...)
 }
 
 // GenSweepTx is mock function.

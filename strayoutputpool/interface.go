@@ -12,10 +12,10 @@ import (
 // to sweep back into the wallet.
 type StrayOutputsPool interface {
 	// AddSpendableOutputs adds outputs to the pool for late processing.
-	AddSpendableOutput(output lnwallet.SpendableOutput) error
+	AddSpendableOutput(lnwallet.SpendableOutput) error
 
 	// GenSweepTx generates transaction for all added outputs.
-	GenSweepTx() (*btcutil.Tx, error)
+	GenSweepTx(...lnwallet.SpendableOutput) (*btcutil.Tx, error)
 
 	// Sweep generates transaction and broadcast it to the network.
 	Sweep() error

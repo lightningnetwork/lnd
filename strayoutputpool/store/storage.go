@@ -27,7 +27,7 @@ var (
 
 	// ErrNotSupportedOutputType is returned when we can't recognize type
 	// of stored output entity.
-	ErrNotSupportedOutputType = fmt.Errorf("undefined stray spendable output")
+	ErrNotSupportedOutputType = fmt.Errorf("undefined type of stray output")
 
 	byteOrder = binary.BigEndian
 )
@@ -146,7 +146,7 @@ func (s *strayOutputEntity) Encode(w io.Writer) error {
 	return s.output.Encode(w)
 }
 
-// Decode encodes spendable output from serial data.
+// Decode decodes spendable output from serial data.
 func (s *strayOutputEntity) Decode(r io.Reader) error {
 	var scratch [8]byte
 

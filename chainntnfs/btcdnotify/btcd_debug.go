@@ -1,3 +1,5 @@
+// +build debug
+
 package btcdnotify
 
 import (

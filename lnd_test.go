@@ -9210,7 +9210,7 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		ctxt, t, net, net.Alice, net.Bob, chanAmt, pushAmt, false,
 	)
 	networkChans = append(networkChans, chanPointAlice)
-// was  here
+	// was  here
 	txidHash, err := getChanPointFundingTxid(chanPointAlice)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
@@ -9223,7 +9223,7 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		Hash:  *aliceChanTXID,
 		Index: chanPointAlice.OutputIndex,
 	}
-	 //start block
+	//start block
 	net.Bob.SetPort(19550)
 	err1 := net.RestartNode(net.Bob, nil)
 	if err1 != nil {
@@ -9556,7 +9556,6 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	//if err1 != nil {
 	//	t.Fatalf("unable to restart Bob: %v", err)
 	//}
-
 
 	// As preliminary setup, we'll create two new nodes: Carol and Dave,
 	// such that we now have a 4 ndoe, 3 channel topology. Dave will make
@@ -10975,6 +10974,7 @@ type testCase struct {
 	name string
 	test func(net *lntest.NetworkHarness, t *harnessTest)
 }
+
 var testsCases = []*testCase{
 	{
 		name: "switch circuit persistence",
@@ -10984,8 +10984,6 @@ var testsCases = []*testCase{
 		name: "switch offline delivery",
 		test: testSwitchOfflineDelivery,
 	},
-
-
 }
 var testsCases1 = []*testCase{
 	{

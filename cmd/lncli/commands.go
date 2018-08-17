@@ -181,6 +181,13 @@ var sendCoinsCommand = cli.Command{
 				"sat/byte that should be used when crafting " +
 				"the transaction",
 		},
+		cli.Int64Flag{
+			Name: "min_confs",
+			Usage: "(optional) the minimum number of confirmations " +
+				"each one of your outputs used for the " +
+				"transaction must satisfy",
+			Value: 1,
+		},
 	},
 	Action: actionDecorator(sendCoins),
 }
@@ -235,6 +242,7 @@ func sendCoins(ctx *cli.Context) error {
 		Amount:     amt,
 		TargetConf: int32(ctx.Int64("conf_target")),
 		SatPerByte: ctx.Int64("sat_per_byte"),
+		MinConfs:   int32(ctx.Int64("min_confs")),
 	}
 	txid, err := client.SendCoins(ctxb, req)
 	if err != nil {
@@ -269,6 +277,13 @@ var sendManyCommand = cli.Command{
 			Usage: "(optional) a manual fee expressed in sat/byte that should be " +
 				"used when crafting the transaction",
 		},
+		cli.Int64Flag{
+			Name: "min_confs",
+			Usage: "(optional) the minimum number of confirmations " +
+				"each one of your outputs used for the " +
+				"transaction must satisfy",
+			Value: 1,
+		},
 	},
 	Action: actionDecorator(sendMany),
 }
@@ -294,6 +309,7 @@ func sendMany(ctx *cli.Context) error {
 		AddrToAmount: amountToAddr,
 		TargetConf:   int32(ctx.Int64("conf_target")),
 		SatPerByte:   ctx.Int64("sat_per_byte"),
+		MinConfs:     int32(ctx.Int64("min_confs")),
 	})
 	if err != nil {
 		return err

@@ -845,7 +845,11 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 	if err != nil {
 		return nil, err
 	}
-	if uint32(currentHeight) >= h.htlcResolution.Expiry {
+
+	// If the current height is >= expiry-1, then a spend will be valid to
+	// be included in the next block, and we can immediately return the
+	// resolver.
+	if uint32(currentHeight) >= h.htlcResolution.Expiry-1 {
 		log.Infof("%T(%v): HTLC has expired (height=%v, expiry=%v), "+
 			"transforming into timeout resolver", h,
 			h.htlcResolution.ClaimOutpoint)

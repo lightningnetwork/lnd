@@ -1766,11 +1766,16 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// Once the HTLC has cleared, all the nodes n our mini network should
 	// show that the HTLC has been locked in.
 	nodes := []*lntest.HarnessNode{net.Alice, carol}
+	var predErr error
 	err = lntest.WaitPredicate(func() bool {
-		return assertNumActiveHtlcs(nodes, numInvoices)
+		predErr = assertNumActiveHtlcs(nodes, numInvoices)
+		if predErr != nil {
+			return false
+		}
+		return true
 	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("htlc mismatch: %v", err)
+		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
 	// As we'll be querying the state of Alice's channels frequently we'll
@@ -7570,13 +7575,13 @@ func assertActiveHtlcs(nodes []*lntest.HarnessNode, payHashes ...[]byte) error {
 }
 
 func assertNumActiveHtlcsChanPoint(node *lntest.HarnessNode,
-	chanPoint wire.OutPoint, numHtlcs int) bool {
+	chanPoint wire.OutPoint, numHtlcs int) error {
 
 	req := &lnrpc.ListChannelsRequest{}
 	ctxb := context.Background()
 	nodeChans, err := node.ListChannels(ctxb, req)
 	if err != nil {
-		return false
+		return err
 	}
 
 	for _, channel := range nodeChans.Channels {
@@ -7584,29 +7589,34 @@ func assertNumActiveHtlcsChanPoint(node *lntest.HarnessNode,
 			continue
 		}
 
-		return len(channel.PendingHtlcs) == numHtlcs
+		if len(channel.PendingHtlcs) != numHtlcs {
+			return fmt.Errorf("expected %v active HTLCs, got %v",
+				numHtlcs, len(channel.PendingHtlcs))
+		}
+		return nil
 	}
 
-	return false
+	return fmt.Errorf("channel point %v not found", chanPoint)
 }
 
-func assertNumActiveHtlcs(nodes []*lntest.HarnessNode, numHtlcs int) bool {
+func assertNumActiveHtlcs(nodes []*lntest.HarnessNode, numHtlcs int) error {
 	req := &lnrpc.ListChannelsRequest{}
 	ctxb := context.Background()
 	for _, node := range nodes {
 		nodeChans, err := node.ListChannels(ctxb, req)
 		if err != nil {
-			return false
+			return err
 		}
 
 		for _, channel := range nodeChans.Channels {
 			if len(channel.PendingHtlcs) != numHtlcs {
-				return false
+				return fmt.Errorf("expected %v HTLCs, got %v",
+					numHtlcs, len(channel.PendingHtlcs))
 			}
 		}
 	}
 
-	return true
+	return nil
 }
 
 func assertSpendingTxInMempool(t *harnessTest, miner *rpcclient.Client,
@@ -7877,10 +7887,14 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 	assertTxInBlock(t, block, secondLayerHash)
 	nodes = []*lntest.HarnessNode{net.Alice}
 	err = lntest.WaitPredicate(func() bool {
-		return assertNumActiveHtlcs(nodes, 0)
+		predErr = assertNumActiveHtlcs(nodes, 0)
+		if predErr != nil {
+			return false
+		}
+		return true
 	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("alice's channel still has active htlc's")
+		t.Fatalf("alice's channel still has active htlc's: %v", predErr)
 	}
 
 	// At this point, Bob should show that the pending HTLC has advanced to
@@ -8112,10 +8126,14 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	// clearing the HTLC off-chain.
 	nodes = []*lntest.HarnessNode{net.Alice}
 	err = lntest.WaitPredicate(func() bool {
-		return assertNumActiveHtlcs(nodes, 0)
+		predErr = assertNumActiveHtlcs(nodes, 0)
+		if predErr != nil {
+			return false
+		}
+		return true
 	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("htlc mismatch: %v", err)
+		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
 	// If we mine 4 additional blocks, then both outputs should now be
@@ -8327,10 +8345,14 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// cancelled backwards the HTLC that carol sent.
 	nodes = []*lntest.HarnessNode{net.Alice}
 	err = lntest.WaitPredicate(func() bool {
-		return assertNumActiveHtlcs(nodes, 0)
+		predErr = assertNumActiveHtlcs(nodes, 0)
+		if predErr != nil {
+			return false
+		}
+		return true
 	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("alice's channel still has active htlc's")
+		t.Fatalf("alice's channel still has active htlc's: %v", predErr)
 	}
 
 	// Additionally, Bob should now show that HTLC as being advanced to the
@@ -8585,10 +8607,14 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// active HTLC's.
 	nodes = []*lntest.HarnessNode{net.Alice}
 	err = lntest.WaitPredicate(func() bool {
-		return assertNumActiveHtlcs(nodes, 0)
+		predErr = assertNumActiveHtlcs(nodes, 0)
+		if predErr != nil {
+			return false
+		}
+		return true
 	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("alice's channel still has active htlc's")
+		t.Fatalf("alice's channel still has active htlc's: %v", predErr)
 	}
 
 	// Now we'll check Bob's pending channel report. Since this was Carol's
@@ -9368,11 +9394,16 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Wait until all nodes in the network have 5 outstanding htlcs.
+	var predErr error
 	err = lntest.WaitPredicate(func() bool {
-		return assertNumActiveHtlcs(nodes, numPayments)
+		predErr = assertNumActiveHtlcs(nodes, numPayments)
+		if predErr != nil {
+			return false
+		}
+		return true
 	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("htlc mismatch: %v", err)
+		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
 	// Restart the intermediaries and the sender.
@@ -9403,10 +9434,15 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Ensure all nodes in the network still have 5 outstanding htlcs.
 	err = lntest.WaitPredicate(func() bool {
-		return assertNumActiveHtlcs(nodes, numPayments)
+		predErr = assertNumActiveHtlcs(nodes, numPayments)
+		if predErr != nil {
+			return false
+		}
+		return true
+
 	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("htlc mismatch: %v", err)
+		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
 	// Now restart carol without hodl mode, to settle back the outstanding
@@ -9425,10 +9461,15 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	// After the payments settle, there should be no active htlcs on any of
 	// the nodes in the network.
 	err = lntest.WaitPredicate(func() bool {
-		return assertNumActiveHtlcs(nodes, 0)
+		predErr = assertNumActiveHtlcs(nodes, 0)
+		if predErr != nil {
+			return false
+		}
+		return true
+
 	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("htlc mismatch: %v", err)
+		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
 	// When asserting the amount of satoshis moved, we'll factor in the
@@ -9683,11 +9724,16 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Wait for all of the payments to reach Carol.
+	var predErr error
 	err = lntest.WaitPredicate(func() bool {
-		return assertNumActiveHtlcs(nodes, numPayments)
+		predErr = assertNumActiveHtlcs(nodes, numPayments)
+		if predErr != nil {
+			return false
+		}
+		return true
 	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("htlc mismatch: %v", err)
+		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
 	// First, disconnect Dave and Alice so that their link is broken.
@@ -9706,10 +9752,14 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	// reconnecting. All node should report the number payments initiated
 	// for the duration of the interval.
 	err = lntest.WaitInvariant(func() bool {
-		return assertNumActiveHtlcs(nodes, numPayments)
+		predErr = assertNumActiveHtlcs(nodes, numPayments)
+		if predErr != nil {
+			return false
+		}
+		return true
 	}, time.Second*2)
 	if err != nil {
-		t.Fatalf("htlc change: %v", err)
+		t.Fatalf("htlc change: %v", predErr)
 	}
 
 	// Now, disconnect Dave from Alice again before settling back the
@@ -9729,10 +9779,14 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	// Wait for Carol to report no outstanding htlcs.
 	carolNode := []*lntest.HarnessNode{carol}
 	err = lntest.WaitPredicate(func() bool {
-		return assertNumActiveHtlcs(carolNode, 0)
+		predErr = assertNumActiveHtlcs(carolNode, 0)
+		if predErr != nil {
+			return false
+		}
+		return true
 	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("htlc mismatch: %v", err)
+		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
 	// Now that the settles have reached Dave, reconnect him with Alice,
@@ -9744,10 +9798,14 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Wait until all outstanding htlcs in the network have been settled.
 	err = lntest.WaitPredicate(func() bool {
-		return assertNumActiveHtlcs(nodes, 0)
+		predErr = assertNumActiveHtlcs(nodes, 0)
+		if predErr != nil {
+			return false
+		}
+		return true
 	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("htlc mismatch: %v", err)
+		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
 	// When asserting the amount of satoshis moved, we'll factor in the
@@ -10000,11 +10058,17 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 		t.Fatalf("unable to send payments: %v", err)
 	}
 
+	var predErr error
 	err = lntest.WaitPredicate(func() bool {
-		return assertNumActiveHtlcs(nodes, numPayments)
+		predErr = assertNumActiveHtlcs(nodes, numPayments)
+		if predErr != nil {
+			return false
+		}
+		return true
+
 	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("htlc mismatch: %v", err)
+		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
 	// Disconnect the two intermediaries, Alice and Dave, by shutting down
@@ -10033,11 +10097,19 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	// receive all the settles from Carol.
 	carolNode := []*lntest.HarnessNode{carol}
 	err = lntest.WaitPredicate(func() bool {
-		return assertNumActiveHtlcs(carolNode, 0) &&
-			assertNumActiveHtlcsChanPoint(dave, carolFundPoint, 0)
+		predErr = assertNumActiveHtlcs(carolNode, 0)
+		if predErr != nil {
+			return false
+		}
+
+		predErr = assertNumActiveHtlcsChanPoint(dave, carolFundPoint, 0)
+		if predErr != nil {
+			return false
+		}
+		return true
 	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("htlc mismatch: %v", err)
+		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
 	// Finally, restart dave who received the settles, but was unable to
@@ -10060,10 +10132,14 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	// After reconnection succeeds, the settles should be propagated all
 	// the way back to the sender. All nodes should report no active htlcs.
 	err = lntest.WaitPredicate(func() bool {
-		return assertNumActiveHtlcs(nodes, 0)
+		predErr = assertNumActiveHtlcs(nodes, 0)
+		if predErr != nil {
+			return false
+		}
+		return true
 	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("htlc mismatch: %v", err)
+		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
 	// When asserting the amount of satoshis moved, we'll factor in the
@@ -10325,11 +10401,16 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	}
 
 	// Wait for all payments to reach Carol.
+	var predErr error
 	err = lntest.WaitPredicate(func() bool {
-		return assertNumActiveHtlcs(nodes, numPayments)
+		predErr = assertNumActiveHtlcs(nodes, numPayments)
+		if predErr != nil {
+			return false
+		}
+		return true
 	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("htlc mismatch: %v", err)
+		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
 	// Disconnect the two intermediaries, Alice and Dave, so that when carol
@@ -10349,11 +10430,20 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	// Wait for Carol to report no outstanding htlcs.
 	carolNode := []*lntest.HarnessNode{carol}
 	err = lntest.WaitPredicate(func() bool {
-		return assertNumActiveHtlcs(carolNode, 0) &&
-			assertNumActiveHtlcsChanPoint(dave, carolFundPoint, 0)
+		predErr = assertNumActiveHtlcs(carolNode, 0)
+		if predErr != nil {
+			return false
+		}
+
+		predErr = assertNumActiveHtlcsChanPoint(dave, carolFundPoint, 0)
+		if predErr != nil {
+			return false
+		}
+
+		return true
 	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("htlc mismatch: %v", err)
+		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
 	// Now check that the total amount was transferred from Dave to Carol.
@@ -10391,10 +10481,14 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	// other nodes in the network report no active htlcs.
 	nodesMinusCarol := []*lntest.HarnessNode{net.Bob, net.Alice, dave}
 	err = lntest.WaitPredicate(func() bool {
-		return assertNumActiveHtlcs(nodesMinusCarol, 0)
+		predErr = assertNumActiveHtlcs(nodesMinusCarol, 0)
+		if predErr != nil {
+			return false
+		}
+		return true
 	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("htlc mismatch: %v", err)
+		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
 	// When asserting the amount of satoshis moved, we'll factor in the

@@ -962,7 +962,7 @@ func testReorgConf(miner *rpctest.Harness, notifier chainntnfs.TestChainNotifier
 	t *testing.T) {
 
 	// Set up a new miner that we can use to cause a reorg.
-	miner2, err := rpctest.New(chainntnfs.NetParams, nil, nil)
+	miner2, err := rpctest.New(chainntnfs.NetParams, nil, []string{"--txindex"})
 	if err != nil {
 		t.Fatalf("unable to create mining node: %v", err)
 	}
@@ -1301,7 +1301,7 @@ func testCatchUpOnMissedBlocksWithReorg(miner1 *rpctest.Harness,
 	var wg sync.WaitGroup
 
 	// Set up a new miner that we can use to cause a reorg.
-	miner2, err := rpctest.New(chainntnfs.NetParams, nil, nil)
+	miner2, err := rpctest.New(chainntnfs.NetParams, nil, []string{"--txindex"})
 	if err != nil {
 		t.Fatalf("unable to create mining node: %v", err)
 	}

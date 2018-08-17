@@ -64,19 +64,6 @@
   revision = "e404fcfc888570cadd1610538e2dbc89f66af814"
 
 [[projects]]
-  digest = "1:9c78699f117ea9ee1923694ee8c13e1a94bd8cf311b2797c96521359a5d8ae10"
-  name = "github.com/awalterschulze/gographviz"
-  packages = [
-    ".",
-    "ast",
-    "parser",
-    "scanner",
-    "token",
-  ]
-  pruneopts = "UT"
-  revision = "761fd5fbb34e4c2c138c280395b65b48e4ff5a53"
-
-[[projects]]
   digest = "1:f944518b25f8733eed1d13855eeaaeda9b1f56c2bc75223a7e3427c024168eba"
   name = "github.com/btcsuite/btcd"
   packages = [
@@ -493,7 +480,6 @@
   input-imports = [
     "github.com/NebulousLabs/go-upnp",
     "github.com/Yawning/aez",
-    "github.com/awalterschulze/gographviz",
     "github.com/btcsuite/btcd/blockchain",
     "github.com/btcsuite/btcd/btcec",
     "github.com/btcsuite/btcd/btcjson",

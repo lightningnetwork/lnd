@@ -400,14 +400,14 @@ func addrPairsToOutputs(addrPairs map[string]int64) ([]*wire.TxOut, error) {
 // more addresses specified in the passed payment map. The payment map maps an
 // address to a specified output value to be sent to that address.
 func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
-	feeRate lnwallet.SatPerKWeight) (*chainhash.Hash, error) {
+	feeRate lnwallet.SatPerKWeight, minConfs int32) (*chainhash.Hash, error) {
 
 	outputs, err := addrPairsToOutputs(paymentMap)
 	if err != nil {
 		return nil, err
 	}
 
-	return r.server.cc.wallet.SendOutputs(outputs, feeRate)
+	return r.server.cc.wallet.SendOutputs(outputs, feeRate, minConfs)
 }
 
 // determineFeePerKw will determine the fee in sat/kw that should be paid given
@@ -474,7 +474,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		btcutil.Amount(in.Amount), int64(feePerKw))
 
 	paymentMap := map[string]int64{in.Addr: in.Amount}
-	txid, err := r.sendCoinsOnChain(paymentMap, feePerKw)
+	txid, err := r.sendCoinsOnChain(paymentMap, feePerKw, in.MinConfs)
 	if err != nil {
 		return nil, err
 	}
@@ -501,7 +501,7 @@ func (r *rpcServer) SendMany(ctx context.Context,
 	rpcsLog.Infof("[sendmany] outputs=%v, sat/kw=%v",
 		spew.Sdump(in.AddrToAmount), int64(feePerKw))
 
-	txid, err := r.sendCoinsOnChain(in.AddrToAmount, feePerKw)
+	txid, err := r.sendCoinsOnChain(in.AddrToAmount, feePerKw, in.MinConfs)
 	if err != nil {
 		return nil, err
 	}

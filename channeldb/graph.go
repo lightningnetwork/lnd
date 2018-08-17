@@ -433,7 +433,36 @@ func (c *ChannelGraph) deleteLightningNode(tx *bolt.Tx,
 	if err := aliases.Delete(compressedPubKey); err != nil {
 		return err
 	}
-	return nodes.Delete(compressedPubKey)
+
+	// Before we delete the node, we'll fetch its current state so we can
+	// determine when its last update was to clear out the node update
+	// index.
+	node, err := fetchLightningNode(nodes, compressedPubKey)
+	if err != nil {
+		return err
+	}
+
+	if err := nodes.Delete(compressedPubKey); err != nil {
+
+		return err
+	}
+
+	// Finally, we'll delete the index entry for the node within the
+	// nodeUpdateIndexBucket as this node is no longer active, so we don't
+	// need to track its last update.
+	nodeUpdateIndex := nodes.Bucket(nodeUpdateIndexBucket)
+	if nodeUpdateIndex == nil {
+		return ErrGraphNodesNotFound
+	}
+
+	// In order to delete the entry, we'll need to reconstruct the key for
+	// its last update.
+	updateUnix := uint64(node.LastUpdate.Unix())
+	var indexKey [8 + 33]byte
+	byteOrder.PutUint64(indexKey[:8], updateUnix)
+	copy(indexKey[8:], compressedPubKey)
+
+	return nodeUpdateIndex.Delete(indexKey[:])
 }
 
 // AddChannelEdge adds a new (undirected, blank) edge to the graph database. An

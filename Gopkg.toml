@@ -1,8 +1,4 @@
 [[constraint]]
-  name = "github.com/awalterschulze/gographviz"
-  revision = "761fd5fbb34e4c2c138c280395b65b48e4ff5a53"
-
-[[constraint]]
   name = "github.com/btcsuite/btclog"
   revision = "84c8d2346e9fc8c7b947e243b9c24e6df9fd206a"
 

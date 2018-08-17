@@ -61,29 +61,32 @@ func (d *PoolServer) Sweep() error {
 	// Retrieve all stray outputs that can be swept back to the wallet,
 	// for all of them we need to recalculate fee based on current fee
 	// rate in time of triggering sweeping function.
-	strayInputs, err := d.getSpendableOutputs()
+	outputEntities, err := d.getOutputEntities(store.OutputPending)
 	if err != nil {
 		return err
 	}
 
 	// If we have no inputs we should ignore generation of sweep transaction.
-	if len(strayInputs) == 0 {
+	if len(outputEntities) == 0 {
 		log.Debug("there are no spendable outputs ready to be swept")
 
 		return nil
 	}
 
-	// Generate transaction message with appropriate inputs.
-	btx, err := d.GenSweepTx(strayInputs...)
-	if err != nil {
-		return err
-	}
+	var outputs []lnwallet.SpendableOutput
 
 	// Calculate base amount of transaction, needs only to show in
 	// log message.
 	var amount btcutil.Amount
-	for _, input := range strayInputs {
-		amount += input.Amount()
+	for _, oe := range outputEntities {
+		outputs = append(outputs, oe.Output())
+		amount += oe.Output().Amount()
+	}
+
+	// Generate transaction message with appropriate inputs.
+	btx, err := d.GenSweepTx(outputs...)
+	if err != nil {
+		return err
 	}
 
 	log.Infof("publishing sweep transaction for a list of stray inputs with full amount: %v",
@@ -95,6 +98,13 @@ func (d *PoolServer) Sweep() error {
 			err, spew.Sdump(btx.MsgTx()))
 
 		return err
+	}
+
+	for _, oe := range outputEntities {
+		if err := d.store.ChangeState(oe, store.OutputPublished); err != nil {
+			log.Errorf("couldn't change state to 'Published' for output with id: %v",
+				oe.ID())
+		}
 	}
 
 	return err
@@ -113,10 +123,11 @@ func (d *PoolServer) GenSweepTx(strayInputs ...lnwallet.SpendableOutput) (*btcut
 	return d.genSweepTx(pkScript, strayInputs...)
 }
 
-// getSpendableOutputs returns the list of spendable outputs that are ready
-// now to be swept back into wallet.
-func (d *PoolServer) getSpendableOutputs() ([]lnwallet.SpendableOutput, error) {
-	oEntities, err := d.store.FetchAllStrayOutputs()
+// getOutputEntities returns the list of spendable outputs according passed
+// state.
+func (d *PoolServer) getOutputEntities(
+	state store.OutputState) ([]store.OutputEntity, error) {
+	oEntities, err := d.store.FetchAllStrayOutputs(state)
 	if err != nil {
 		return nil, err
 	}
@@ -126,10 +137,10 @@ func (d *PoolServer) getSpendableOutputs() ([]lnwallet.SpendableOutput, error) {
 		return nil, err
 	}
 
-	var outputsToSpend []lnwallet.SpendableOutput
+	var outputsToSpend []store.OutputEntity
 	for _, oe := range oEntities {
 		if !isNegativeAmount(feePerKW, oe.Output()) {
-			outputsToSpend = append(outputsToSpend, oe.Output())
+			outputsToSpend = append(outputsToSpend, oe)
 		}
 	}
 
@@ -232,13 +243,13 @@ func (d *PoolServer) Start() error {
 	return nil
 }
 
-// Stop is launches checking of swept outputs by interval into database.
+// Stop shutting down automatic sweeping function.
 func (d *PoolServer) Stop() {
 	if !atomic.CompareAndSwapUint32(&d.stopped, 0, 1) {
 		return
 	}
 
-	log.Infof("StrayOutputPool is shutting down")
+	log.Infof("StrayOutputPool shutting down")
 
 	d.ticker.Stop()
 	close(d.quit)

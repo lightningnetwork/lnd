@@ -21,11 +21,15 @@ var (
 	// minimise fee rate to proceed the transaction.
 	strayOutputBucket = []byte("stray-output")
 
+	// strayOutputStateBucket stores links to keys of strayOutputBucket,
+	// where keys are contain prefix build on state of the output.
+	strayOutputStateBucket = []byte("stray-output-state")
+
 	// ErrNoStrayOutputCreated is returned when bucket of stray outputs
 	// hasn't been created.
 	ErrNoStrayOutputCreated = fmt.Errorf("there are no existing stray outputs")
 
-	// ErrNotSupportedOutputType is returned when we can't recognize type
+	// ErrNotSupportedOutputType is returned when we can't recognize the type
 	// of stored output entity.
 	ErrNotSupportedOutputType = fmt.Errorf("undefined type of stray output")
 
@@ -41,8 +45,8 @@ func NewOutputDB(db *channeldb.DB) OutputStore {
 	return &outputdb{db: db}
 }
 
-// AddStrayOutput saves serialized stray output to database in order to combine
-// them to one transaction to pay fee for one transaction.
+// AddStrayOutput saves serialized stray output to the database in order
+// to combine them to one transaction to pay common fee.
 func (o *outputdb) AddStrayOutput(output OutputEntity) error {
 	var b bytes.Buffer
 	if err := output.Encode(&b); err != nil {
@@ -55,48 +59,106 @@ func (o *outputdb) AddStrayOutput(output OutputEntity) error {
 			return err
 		}
 
+		states, err := tx.CreateBucketIfNotExists(strayOutputStateBucket)
+		if err != nil {
+			return err
+		}
+
 		outputID, err := outputs.NextSequence()
 		if err != nil {
 			return err
 		}
 
-		outputIDBytes := make([]byte, 8)
-		binary.BigEndian.PutUint64(outputIDBytes, outputID)
+		stateID, err := states.NextSequence()
+		if err != nil {
+			return err
+		}
 
-		return outputs.Put(outputIDBytes, b.Bytes())
+		outputIDBytes := make([]byte, 8)
+		byteOrder.PutUint64(outputIDBytes, outputID)
+
+		if err := outputs.Put(outputIDBytes, b.Bytes()); err != nil {
+			return err
+		}
+
+		stateIDBytes := make([]byte, 10)
+		copy(stateIDBytes[:2], output.State().Prefix())
+		byteOrder.PutUint64(stateIDBytes[2:], stateID)
+
+		return states.Put(stateIDBytes, outputIDBytes)
 	})
 }
 
 // FetchAllStrayOutputs returns all stray outputs in DB.
-func (o *outputdb) FetchAllStrayOutputs() ([]OutputEntity, error) {
+func (o *outputdb) FetchAllStrayOutputs(state OutputState) ([]OutputEntity, error) {
 	var outputs []OutputEntity
-	err := o.db.View(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(strayOutputBucket)
-		if bucket == nil {
-			return ErrNoStrayOutputCreated
+	if err := o.db.View(func(tx *bolt.Tx) error {
+		outputBucket := tx.Bucket(strayOutputBucket)
+		stateBucket := tx.Bucket(strayOutputStateBucket)
+		if outputBucket == nil || stateBucket == nil {
+			return nil
 		}
 
-		return bucket.ForEach(func(k, v []byte) error {
-			output := &strayOutputEntity{}
-			if err := output.Decode(bytes.NewReader(v)); err != nil {
+		c := stateBucket.Cursor()
+		for k, v := c.Seek(state.Prefix()); k != nil &&
+			bytes.HasPrefix(k, state.Prefix()); k, v = c.Next() {
+			output := &strayOutputEntity{id: byteOrder.Uint64(k)}
+
+			if err := output.Decode(bytes.NewReader(
+				outputBucket.Get(v))); err != nil {
 				return err
 			}
 
 			outputs = append(outputs, output)
+		}
 
-			return nil
-		})
-	})
-	if err != nil {
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 
 	return outputs, nil
 }
 
+// ChangeState migrates state for passed output entity.
+func (o *outputdb) ChangeState(output OutputEntity, state OutputState) error {
+	if output.State() == state {
+		return nil
+	}
+
+	return o.db.Update(func(tx *bolt.Tx) error {
+		stateBucket := tx.Bucket(strayOutputStateBucket)
+		if stateBucket == nil {
+			return ErrNoStrayOutputCreated
+		}
+
+		stateIDBytes := make([]byte, 10)
+		binary.BigEndian.PutUint64(stateIDBytes[2:], output.ID())
+
+		// Set old prefix to get value of this key that contains.
+		copy(stateIDBytes[:2], output.State().Prefix())
+
+		// Get key of strayOutputBucket where contains encoded data
+		// with spendable output.
+		outputLinkBytes := stateBucket.Get(stateIDBytes)
+
+		// We need to remove previous link to this prefix.
+		if err := stateBucket.Delete(stateIDBytes); err != nil {
+			return err
+		}
+
+		// Set a new changed prefix for specified output entity.
+		copy(stateIDBytes[:2], state.Prefix())
+
+		return stateBucket.Put(stateIDBytes, outputLinkBytes)
+	})
+}
+
 // strayOutputEntity contains information about stray spendable output.
 type strayOutputEntity struct {
+	id         uint64
 	outputType outputType
+	state      OutputState
 	output     lnwallet.SpendableOutput
 }
 
@@ -120,13 +182,24 @@ func NewOutputEntity(output lnwallet.SpendableOutput) OutputEntity {
 
 	return &strayOutputEntity{
 		outputType: outputType,
+		state:      OutputPending,
 		output:     output,
 	}
 }
 
-// OutputType returns type of current output.
-func (s *strayOutputEntity) OutputType() outputType {
+// ID returns id of current entity stored in database.
+func (s *strayOutputEntity) ID() uint64 {
+	return s.id
+}
+
+// Type returns type of current output.
+func (s *strayOutputEntity) Type() outputType {
 	return s.outputType
+}
+
+// Type returns type of current output.
+func (s *strayOutputEntity) State() OutputState {
+	return s.state
 }
 
 // Output returns output entity.
@@ -136,9 +209,14 @@ func (s *strayOutputEntity) Output() lnwallet.SpendableOutput {
 
 // Encode encodes spendable output to serial data.
 func (s *strayOutputEntity) Encode(w io.Writer) error {
-	var scratch [8]byte
+	var scratch [1]byte
 
-	byteOrder.PutUint64(scratch[:], uint64(s.outputType))
+	scratch[0] = byte(s.outputType)
+	if _, err := w.Write(scratch[:]); err != nil {
+		return err
+	}
+
+	scratch[0] = byte(s.state)
 	if _, err := w.Write(scratch[:]); err != nil {
 		return err
 	}
@@ -148,12 +226,17 @@ func (s *strayOutputEntity) Encode(w io.Writer) error {
 
 // Decode decodes spendable output from serial data.
 func (s *strayOutputEntity) Decode(r io.Reader) error {
-	var scratch [8]byte
+	var scratch [1]byte
 
 	if _, err := r.Read(scratch[:]); err != nil {
 		return err
 	}
-	s.outputType = outputType(byteOrder.Uint64(scratch[:]))
+	s.outputType = outputType(scratch[0])
+
+	if _, err := r.Read(scratch[:]); err != nil {
+		return err
+	}
+	s.state = OutputState(scratch[0])
 
 	var err error
 	switch s.outputType {

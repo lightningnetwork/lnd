@@ -109,17 +109,17 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 		Graph:           autopilot.ChannelGraphFromDatabase(svr.chanDB.ChannelGraph()),
 		MaxPendingOpens: 10,
 		ConnectToPeer: func(target *btcec.PublicKey, addrs []net.Addr) (bool, error) {
-			// We can't establish a channel if no addresses were
-			// provided for the peer.
-			if len(addrs) == 0 {
-				return false, errors.New("no addresses specified")
-			}
-
 			// First, we'll check if we're already connected to the
 			// target peer. If we are, we can exit early. Otherwise,
 			// we'll need to establish a connection.
 			if _, err := svr.FindPeer(target); err == nil {
 				return true, nil
+			}
+
+			// We can't establish a channel if no addresses were
+			// provided for the peer.
+			if len(addrs) == 0 {
+				return false, errors.New("no addresses specified")
 			}
 
 			atplLog.Tracef("Attempting to connect to %x",

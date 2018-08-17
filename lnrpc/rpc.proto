@@ -758,6 +758,9 @@ message SendManyRequest {
 
     /// A manual fee rate set in sat/byte that should be used when crafting the transaction.
     int64 sat_per_byte = 5;
+
+    /// The minimum number of confirmations each one of your outputs used for the funding transaction must satisfy.
+    int32 min_confs = 11 [json_name = "min_confs"];
 }
 message SendManyResponse {
     /// The id of the transaction
@@ -776,6 +779,9 @@ message SendCoinsRequest {
 
     /// A manual fee rate set in sat/byte that should be used when crafting the transaction.
     int64 sat_per_byte = 5;
+
+    /// The minimum number of confirmations each one of your outputs used for the funding transaction must satisfy.
+    int32 min_confs = 11 [json_name = "min_confs"];
 }
 message SendCoinsResponse {
     /// The transaction ID of the transaction

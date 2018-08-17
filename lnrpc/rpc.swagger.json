@@ -2525,6 +2525,11 @@
           "type": "string",
           "format": "int64",
           "description": "/ A manual fee rate set in sat/byte that should be used when crafting the transaction."
+        },
+        "min_confs": {
+          "type": "integer",
+          "format": "int32",
+          "description": "/ The minimum number of confirmations each one of your outputs used for the funding transaction must satisfy."
         }
       }
     },

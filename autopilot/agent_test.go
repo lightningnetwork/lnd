@@ -77,7 +77,6 @@ var _ AttachmentHeuristic = (*mockHeuristic)(nil)
 type openChanIntent struct {
 	target  *btcec.PublicKey
 	amt     btcutil.Amount
-	addrs   []net.Addr
 	private bool
 }
 
@@ -86,13 +85,12 @@ type mockChanController struct {
 	private         bool
 }
 
-func (m *mockChanController) OpenChannel(target *btcec.PublicKey, amt btcutil.Amount,
-	addrs []net.Addr) error {
+func (m *mockChanController) OpenChannel(target *btcec.PublicKey,
+	amt btcutil.Amount) error {
 
 	m.openChanSignals <- openChanIntent{
 		target:  target,
 		amt:     amt,
-		addrs:   addrs,
 		private: m.private,
 	}
 
@@ -141,6 +139,12 @@ func TestAgentChannelOpenSignal(t *testing.T) {
 		ChanController: chanController,
 		WalletBalance: func() (btcutil.Amount, error) {
 			return 0, nil
+		},
+		ConnectToPeer: func(*btcec.PublicKey, []net.Addr) (bool, error) {
+			return false, nil
+		},
+		DisconnectPeer: func(*btcec.PublicKey) error {
+			return nil
 		},
 		Graph:           memGraph,
 		MaxPendingOpens: 10,
@@ -230,8 +234,8 @@ func TestAgentChannelOpenSignal(t *testing.T) {
 type mockFailingChanController struct {
 }
 
-func (m *mockFailingChanController) OpenChannel(target *btcec.PublicKey, amt btcutil.Amount,
-	addrs []net.Addr) error {
+func (m *mockFailingChanController) OpenChannel(target *btcec.PublicKey,
+	amt btcutil.Amount) error {
 	return errors.New("failure")
 }
 
@@ -275,6 +279,12 @@ func TestAgentChannelFailureSignal(t *testing.T) {
 		ChanController: chanController,
 		WalletBalance: func() (btcutil.Amount, error) {
 			return 0, nil
+		},
+		ConnectToPeer: func(*btcec.PublicKey, []net.Addr) (bool, error) {
+			return false, nil
+		},
+		DisconnectPeer: func(*btcec.PublicKey) error {
+			return nil
 		},
 		Graph:           memGraph,
 		MaxPendingOpens: 10,
@@ -365,6 +375,12 @@ func TestAgentChannelCloseSignal(t *testing.T) {
 		ChanController: chanController,
 		WalletBalance: func() (btcutil.Amount, error) {
 			return 0, nil
+		},
+		ConnectToPeer: func(*btcec.PublicKey, []net.Addr) (bool, error) {
+			return false, nil
+		},
+		DisconnectPeer: func(*btcec.PublicKey) error {
+			return nil
 		},
 		Graph:           memGraph,
 		MaxPendingOpens: 10,
@@ -490,6 +506,12 @@ func TestAgentBalanceUpdate(t *testing.T) {
 		WalletBalance: func() (btcutil.Amount, error) {
 			return walletBalance, nil
 		},
+		ConnectToPeer: func(*btcec.PublicKey, []net.Addr) (bool, error) {
+			return false, nil
+		},
+		DisconnectPeer: func(*btcec.PublicKey) error {
+			return nil
+		},
 		Graph:           memGraph,
 		MaxPendingOpens: 10,
 	}
@@ -606,6 +628,12 @@ func TestAgentImmediateAttach(t *testing.T) {
 		WalletBalance: func() (btcutil.Amount, error) {
 			return walletBalance, nil
 		},
+		ConnectToPeer: func(*btcec.PublicKey, []net.Addr) (bool, error) {
+			return false, nil
+		},
+		DisconnectPeer: func(*btcec.PublicKey) error {
+			return nil
+		},
 		Graph:           memGraph,
 		MaxPendingOpens: 10,
 	}
@@ -698,10 +726,6 @@ func TestAgentImmediateAttach(t *testing.T) {
 					self.SerializeCompressed(),
 					openChan.target.SerializeCompressed())
 			}
-			if len(openChan.addrs) != 1 {
-				t.Fatalf("should have single addr, instead have: %v",
-					len(openChan.addrs))
-			}
 		case <-time.After(time.Second * 10):
 			t.Fatalf("channel not opened in time")
 		}
@@ -742,6 +766,12 @@ func TestAgentPrivateChannels(t *testing.T) {
 		ChanController: chanController,
 		WalletBalance: func() (btcutil.Amount, error) {
 			return walletBalance, nil
+		},
+		ConnectToPeer: func(*btcec.PublicKey, []net.Addr) (bool, error) {
+			return false, nil
+		},
+		DisconnectPeer: func(*btcec.PublicKey) error {
+			return nil
 		},
 		Graph:           memGraph,
 		MaxPendingOpens: 10,
@@ -869,6 +899,12 @@ func TestAgentPendingChannelState(t *testing.T) {
 		WalletBalance: func() (btcutil.Amount, error) {
 			return walletBalance, nil
 		},
+		ConnectToPeer: func(*btcec.PublicKey, []net.Addr) (bool, error) {
+			return false, nil
+		},
+		DisconnectPeer: func(*btcec.PublicKey) error {
+			return nil
+		},
 		Graph:           memGraph,
 		MaxPendingOpens: 10,
 	}
@@ -948,10 +984,6 @@ func TestAgentPendingChannelState(t *testing.T) {
 			t.Fatalf("unexpected key: expected %x, got %x",
 				nodeKey.SerializeCompressed(),
 				openChan.target.SerializeCompressed())
-		}
-		if len(openChan.addrs) != 1 {
-			t.Fatalf("should have single addr, instead have: %v",
-				len(openChan.addrs))
 		}
 	case <-time.After(time.Second * 10):
 		t.Fatalf("channel wasn't opened in time")

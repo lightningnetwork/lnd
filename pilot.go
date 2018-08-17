@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net"
 
@@ -24,60 +25,7 @@ type chanController struct {
 // specified amount. This function should un-block immediately after the
 // funding transaction that marks the channel open has been broadcast.
 func (c *chanController) OpenChannel(target *btcec.PublicKey,
-	amt btcutil.Amount, addrs []net.Addr) error {
-
-	// We can't establish a channel if no addresses were provided for the
-	// peer.
-	if len(addrs) == 0 {
-		return fmt.Errorf("Unable to create channel w/o an active " +
-			"address")
-	}
-
-	// First, we'll check if we're already connected to the target peer. If
-	// not, then we'll need to establish a connection.
-	if _, err := c.server.FindPeer(target); err != nil {
-		// TODO(roasbeef): try teach addr
-
-		atplLog.Tracef("Connecting to %x to auto-create channel: ",
-			target.SerializeCompressed())
-
-		lnAddr := &lnwire.NetAddress{
-			IdentityKey: target,
-			ChainNet:    activeNetParams.Net,
-		}
-
-		// We'll attempt to successively connect to each of the
-		// advertised IP addresses until we've either exhausted the
-		// advertised IP addresses, or have made a connection.
-		var connected bool
-		for _, addr := range addrs {
-			switch addr.(type) {
-			case *net.TCPAddr, *tor.OnionAddr:
-				lnAddr.Address = addr
-			default:
-				return fmt.Errorf("unknown address type %T", addr)
-			}
-
-			// TODO(roasbeef): make perm connection in server after
-			// chan open?
-			err := c.server.ConnectToPeer(lnAddr, false)
-			if err != nil {
-				// If we weren't able to connect to the peer,
-				// then we'll move onto the next.
-				continue
-			}
-
-			connected = true
-			break
-		}
-
-		// If we weren't able to establish a connection at all, then
-		// we'll error out.
-		if !connected {
-			return fmt.Errorf("Unable to connect to %x",
-				target.SerializeCompressed())
-		}
-	}
+	amt btcutil.Amount) error {
 
 	// With the connection established, we'll now establish our connection
 	// to the target peer, waiting for the first update before we exit.
@@ -160,6 +108,64 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 		},
 		Graph:           autopilot.ChannelGraphFromDatabase(svr.chanDB.ChannelGraph()),
 		MaxPendingOpens: 10,
+		ConnectToPeer: func(target *btcec.PublicKey, addrs []net.Addr) (bool, error) {
+			// We can't establish a channel if no addresses were
+			// provided for the peer.
+			if len(addrs) == 0 {
+				return false, errors.New("no addresses specified")
+			}
+
+			// First, we'll check if we're already connected to the
+			// target peer. If we are, we can exit early. Otherwise,
+			// we'll need to establish a connection.
+			if _, err := svr.FindPeer(target); err == nil {
+				return true, nil
+			}
+
+			atplLog.Tracef("Attempting to connect to %x",
+				target.SerializeCompressed())
+
+			lnAddr := &lnwire.NetAddress{
+				IdentityKey: target,
+				ChainNet:    activeNetParams.Net,
+			}
+
+			// We'll attempt to successively connect to each of the
+			// advertised IP addresses until we've either exhausted
+			// the advertised IP addresses, or have made a
+			// connection.
+			var connected bool
+			for _, addr := range addrs {
+				switch addr.(type) {
+				case *net.TCPAddr, *tor.OnionAddr:
+					lnAddr.Address = addr
+				default:
+					return false, fmt.Errorf("unknown "+
+						"address type %T", addr)
+				}
+
+				err := svr.ConnectToPeer(lnAddr, false)
+				if err != nil {
+					// If we weren't able to connect to the
+					// peer at this address, then we'll move
+					// onto the next.
+					continue
+				}
+
+				connected = true
+				break
+			}
+
+			// If we weren't able to establish a connection at all,
+			// then we'll error out.
+			if !connected {
+				return false, fmt.Errorf("unable to connect "+
+					"to %x", target.SerializeCompressed())
+			}
+
+			return false, nil
+		},
+		DisconnectPeer: svr.DisconnectPeer,
 	}
 
 	// Next, we'll fetch the current state of open channels from the

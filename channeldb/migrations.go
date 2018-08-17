@@ -373,3 +373,61 @@ func migrateEdgePolicies(tx *bolt.Tx) error {
 
 	return nil
 }
+
+// migrateInvoiceCreationDateIndex is a migration function that will add an
+// entry for every existing invoice within the database to the newly added
+// creation date index. This index is used to properly support querying invoices
+// within a specific time slice.
+func migrateInvoiceCreationDateIndex(tx *bolt.Tx) error {
+	// If there aren't any existing invoices within the database, we can
+	// simply exit.
+	invoices := tx.Bucket(invoiceBucket)
+	if invoices == nil {
+		return nil
+	}
+
+	// Create the new sub-bucket that will be used to index each invoice by
+	// their creation date.
+	invoiceCreationDateIndex, err := invoices.CreateBucketIfNotExists(
+		invoiceCreationDateBucket,
+	)
+	if err != nil {
+		return err
+	}
+
+	log.Info("Migrating invoice database to include creation date index")
+
+	// With the bucket created, we'll iterate over every existing invoice in
+	// the database and add an entry for it in our creation date index.
+	err = invoices.ForEach(func(invoiceKey, invoiceBytes []byte) error {
+		// If this is a sub bucket, then we'll skip it.
+		if invoiceBytes == nil {
+			return nil
+		}
+
+		// Deserialize the invoice in order to retrieve its creation
+		// date.
+		invoiceReader := bytes.NewReader(invoiceBytes)
+		invoice, err := deserializeInvoice(invoiceReader)
+		if err != nil {
+			return err
+		}
+
+		// Add an entry for this invoice that maps its creation date to
+		// its interval invoiceKey within the database.
+		var creationDate [8]byte
+		byteOrder.PutUint64(
+			creationDate[:], uint64(invoice.CreationDate.UnixNano()),
+		)
+		return invoiceCreationDateIndex.Put(
+			creationDate[:], invoiceKey[:],
+		)
+	})
+	if err != nil {
+		return err
+	}
+
+	log.Info("Migration of invoices creation date index complete!")
+
+	return nil
+}

@@ -67,6 +67,14 @@ var (
 			number:    4,
 			migration: migrateEdgePolicies,
 		},
+		{
+			// The version of the database where every existing
+			// invoice is added to the creation date index in order
+			// to properly support querying invoices within a time
+			// slice.
+			number:    5,
+			migration: migrateInvoiceCreationDateIndex,
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over

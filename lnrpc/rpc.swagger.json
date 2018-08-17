@@ -632,6 +632,38 @@
             "required": false,
             "type": "boolean",
             "format": "boolean"
+          },
+          {
+            "name": "start_time",
+            "description": "/ Start time is the starting point of the list invoices request. All invoices beyond this point will be included, respecting the end time and the index offset.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "end_time",
+            "description": "/ End time is the end point of the list invoices request. The response will carry at most 50k invoices between the start and end times. The index offset can be used to implement pagination.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "index_offset",
+            "description": "/ Index offset is the offset in the time series to start at. As each response can only contain 50k invoices, callers can use this to skip around within a packed time series.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "num_max_invoices",
+            "description": "/ The max number of invoices to return in the response to this query.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
           }
         ],
         "tags": [
@@ -1991,7 +2023,13 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/lnrpcInvoice"
-          }
+          },
+          "description": "/ A list of invoices from the time slice of the time series specified in the request."
+        },
+        "last_index_offset": {
+          "type": "integer",
+          "format": "int64",
+          "description": "/ The index of the last time in the set of returned invoices. Can be used to seek further, pagination style."
         }
       }
     },

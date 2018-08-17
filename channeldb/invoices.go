@@ -27,8 +27,15 @@ var (
 	// for looking up incoming HTLCs to determine if we're able to settle
 	// them fully.
 	//
-	// maps: payHash => invoiceIndex
+	// maps: payHash => invoiceKey
 	invoiceIndexBucket = []byte("paymenthashes")
+
+	// invoiceCreationDateBucket is the name of the sub-bucket with in the
+	// invoiceBucket which indexes all invoices by their creation date. This
+	// index is used to support pagination style responses at the RPC level.
+	//
+	// maps: creationDate => invoiceKey
+	invoiceCreationDateBucket = []byte("invoice-creation-date")
 
 	// numInvoicesKey is the name of key which houses the auto-incrementing
 	// invoice ID which is essentially used as a primary key. With each
@@ -44,7 +51,7 @@ var (
 	//
 	// In addition to this sequence number, we map:
 	//
-	//   addIndexNo => invoiceIndex
+	//   addIndexNo => invoiceKey
 	addIndexBucket = []byte("invoice-add-index")
 
 	// settleIndexBucket is an index bucket that we'll use to create a
@@ -54,7 +61,7 @@ var (
 	//
 	// In addition to this sequence number, we map:
 	//
-	//   settleIndexNo => invoiceIndex
+	//   settleIndexNo => invoiceKey
 	settleIndexBucket = []byte("invoice-settle-index")
 )
 
@@ -197,6 +204,12 @@ func (d *DB) AddInvoice(newInvoice *Invoice) (uint64, error) {
 		if err != nil {
 			return err
 		}
+		invoiceCreationDateIndex, err := invoices.CreateBucketIfNotExists(
+			invoiceCreationDateBucket,
+		)
+		if err != nil {
+			return err
+		}
 		addIndex, err := invoices.CreateBucketIfNotExists(
 			addIndexBucket,
 		)
@@ -229,7 +242,8 @@ func (d *DB) AddInvoice(newInvoice *Invoice) (uint64, error) {
 		}
 
 		newIndex, err := putInvoice(
-			invoices, invoiceIndex, addIndex, newInvoice, invoiceNum,
+			invoices, invoiceIndex, invoiceCreationDateIndex,
+			addIndex, newInvoice, invoiceNum,
 		)
 		if err != nil {
 			return err
@@ -396,6 +410,134 @@ func (d *DB) FetchAllInvoices(pendingOnly bool) ([]Invoice, error) {
 	return invoices, nil
 }
 
+// InvoiceQuery represents a query to the invoice database. The query allows a
+// caller to retrieve all invoices for a particular time slice, specify an
+// offset within a time slice, or limit the maximum number of invoices within a
+// time slice.
+type InvoiceQuery struct {
+	// StartTime is the start time of the time slice.
+	StartTime time.Time
+
+	// EndTime is the start time of the time slice.
+	EndTime time.Time
+
+	// IndexOffset is the offset within the time slice to start at. This
+	// can be used to start the response at a particular invoice.
+	IndexOffset uint32
+
+	// NumMaxInvoices is the maximum number of invoices that should be
+	// returned from the time slice.
+	NumMaxInvoices uint32
+
+	// PendingOnly, if set, returns unsettled invoices found within the time
+	// slice.
+	PendingOnly bool
+}
+
+// InvoiceTimeSlice is the response to a invoice query. It includes the original
+// query, the set of invoices that match the query, and an integer which
+// represents the offset index of the last item in the set of returned invoices.
+// This integer allows callers to resume their query using this offset in the
+// event that the query's response exceeds the maximum number of returnable
+// invoices.
+type InvoiceTimeSlice struct {
+	InvoiceQuery
+
+	// Invoices is the set of invoices that matched the query above.
+	Invoices []*Invoice
+
+	// LastIndexOffset is the index of the last element in the set of
+	// returned Invoices above. Callers can use this to resume their query
+	// in the event that the time slice has too many events to fit into a
+	// single response.
+	LastIndexOffset uint32
+}
+
+// QueryInvoices allows a caller to query the invoice database for invoices
+// within the specified time slice. The caller can controler the precise time as
+// well as the number of invoices to be returned.
+func (d *DB) QueryInvoices(q InvoiceQuery) (InvoiceTimeSlice, error) {
+	resp := InvoiceTimeSlice{
+		InvoiceQuery: q,
+	}
+
+	// If the caller provided an index offset, then we'll not know how many
+	// records we need to skip. We'll also keep track of the record offset
+	// as that's part of the final return value.
+	invoicesToSkip := q.IndexOffset
+	invoiceOffset := q.IndexOffset
+
+	err := d.View(func(tx *bolt.Tx) error {
+		// If the bucket wasn't found, then there aren't any invoices
+		// within the database yet, so we can simply exit.
+		invoices := tx.Bucket(invoiceBucket)
+		if invoices == nil {
+			return ErrNoInvoicesCreated
+		}
+		invoiceCreationDateIndex := invoices.Bucket(
+			invoiceCreationDateBucket,
+		)
+		if invoiceCreationDateIndex == nil {
+			return ErrNoInvoicesCreated
+		}
+
+		// We'll be using a cursor to seek into the database, so we'll
+		// populate byte slices that represent the start of the key
+		// space we're interested in, and the end.
+		var startTime, endTime [8]byte
+		byteOrder.PutUint64(startTime[:], uint64(q.StartTime.UnixNano()))
+		byteOrder.PutUint64(endTime[:], uint64(q.EndTime.UnixNano()))
+
+		// If we know that a set of invoices exists, then we'll begin
+		// our seek through the bucket in order to satisfy the query.
+		// We'll continue until either we reach the end of the range,
+		// or reach our max number of events.
+		cursor := invoiceCreationDateIndex.Cursor()
+		timestamp, invoiceKey := cursor.Seek(startTime[:])
+		for ; timestamp != nil && bytes.Compare(timestamp, endTime[:]) <= 0; timestamp, invoiceKey = cursor.Next() {
+			// If our current return payload exceeds the max number
+			// of invoices, then we'll exit now.
+			if uint32(len(resp.Invoices)) >= q.NumMaxInvoices {
+				return nil
+			}
+
+			invoice, err := fetchInvoice(invoiceKey, invoices)
+			if err != nil {
+				return err
+			}
+
+			// Skip any settled invoices if the caller is only
+			// interested in unsettled.
+			if q.PendingOnly && invoice.Terms.Settled {
+				continue
+			}
+
+			// If we're not yet past the user defined offset, then
+			// we'll continue to seek forward.
+			if invoicesToSkip > 0 {
+				invoicesToSkip--
+				continue
+			}
+
+			// At this point, we've exhausted the offset, so we'll
+			// begin collecting invoices found within the range.
+			resp.Invoices = append(resp.Invoices, &invoice)
+			invoiceOffset++
+		}
+
+		return nil
+	})
+	if err != nil && err != ErrNoInvoicesCreated {
+		return resp, err
+	}
+
+	// Finally, record the index of the last invoice added so that the
+	// caller can resume from this point later on.
+	resp.LastIndexOffset = invoiceOffset
+
+	return resp, nil
+}
+
 // SettleInvoice attempts to mark an invoice corresponding to the passed
 // payment hash as fully settled. If an invoice matching the passed payment
 // hash doesn't existing within the database, then the action will fail with a
@@ -507,8 +649,8 @@ func (d *DB) InvoicesSettledSince(sinceSettleIndex uint64) ([]Invoice, error) {
 	return settledInvoices, nil
 }
 
-func putInvoice(invoices, invoiceIndex, addIndex *bolt.Bucket,
-	i *Invoice, invoiceNum uint32) (uint64, error) {
+func putInvoice(invoices, invoiceIndex, invoiceCreationDateIndex,
+	addIndex *bolt.Bucket, i *Invoice, invoiceNum uint32) (uint64, error) {
 
 	// Create the invoice key which is just the big-endian representation
 	// of the invoice number.
@@ -529,6 +671,16 @@ func putInvoice(invoices, invoiceIndex, addIndex *bolt.Bucket,
 	// allow a single invoice to have multiple payment installations.
 	paymentHash := sha256.Sum256(i.Terms.PaymentPreimage[:])
 	err := invoiceIndex.Put(paymentHash[:], invoiceKey[:])
+	if err != nil {
+		return 0, err
+	}
+
+	// Add the creation date of the invoice to the creation date index.
+	// This index provides an easier interface when querying the database
+	// for invoices between a specific time interval.
+	var creationDate [8]byte
+	byteOrder.PutUint64(creationDate[:], uint64(i.CreationDate.UnixNano()))
+	err = invoiceCreationDateIndex.Put(creationDate[:], invoiceKey[:])
 	if err != nil {
 		return 0, err
 	}

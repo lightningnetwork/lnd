@@ -308,7 +308,15 @@ func defaultTestChannelEnd(alias string) *testChannelEnd {
 }
 
 func symmetricTestChannel(alias1 string, alias2 string, capacity btcutil.Amount,
-	policy *testChannelPolicy) *testChannel {
+	policy *testChannelPolicy, chanID ...uint64) *testChannel {
+
+	// Leaving id zero will result in auto-generation of a channel id during
+	// graph construction.
+	var id uint64
+	if len(chanID) > 0 {
+		id = chanID[0]
+	}
+
 	return &testChannel{
 		Capacity: capacity,
 		Node1: &testChannelEnd{
@@ -319,13 +327,15 @@ func symmetricTestChannel(alias1 string, alias2 string, capacity btcutil.Amount,
 			Alias:             alias2,
 			testChannelPolicy: *policy,
 		},
+		ChannelID: id,
 	}
 }
 
 type testChannel struct {
-	Node1    *testChannelEnd
-	Node2    *testChannelEnd
-	Capacity btcutil.Amount
+	Node1     *testChannelEnd
+	Node2     *testChannelEnd
+	Capacity  btcutil.Amount
+	ChannelID uint64
 }
 
 type testGraphInstance struct {
@@ -415,7 +425,10 @@ func createTestGraphFromChannels(testChannels []*testChannel) (*testGraphInstanc
 		return nil, err
 	}
 
-	channelID := uint64(0)
+	// Initialize variable that keeps track of the next channel id to assign
+	// if none is specified.
+	nextUnassignedChannelID := uint64(100000)
+
 	for _, testChannel := range testChannels {
 		for _, alias := range []string{
 			testChannel.Node1.Alias, testChannel.Node2.Alias} {
@@ -424,6 +437,14 @@ func createTestGraphFromChannels(testChannels []*testChannel) (*testGraphInstanc
 			if !exists {
 				addNodeWithAlias(alias)
 			}
+		}
+
+		channelID := testChannel.ChannelID
+
+		// If no channel id is specified, generate an id.
+		if channelID == 0 {
+			channelID = nextUnassignedChannelID
+			nextUnassignedChannelID++
 		}
 
 		var hash [sha256.Size]byte

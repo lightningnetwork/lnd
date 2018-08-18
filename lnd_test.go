@@ -10817,6 +10817,8 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to create carol's node: %v", err)
 	}
+	defer shutdownAndAssert(net, t, carol)
+
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	if err := net.ConnectNodes(ctxt, carol, net.Alice); err != nil {
 		t.Fatalf("unable to connect carol to alice: %v", err)
@@ -10837,6 +10839,8 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to create dave's node: %v", err)
 	}
+	defer shutdownAndAssert(net, t, dave)
+
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	if err := net.ConnectNodes(ctxt, dave, net.Bob); err != nil {
 		t.Fatalf("unable to connect dave to bob: %v", err)
@@ -11047,13 +11051,6 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPointBobDave, false)
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarolDave, false)
-
-	if err := net.ShutdownNode(carol); err != nil {
-		t.Fatalf("unable to shut down carol: %v", err)
-	}
-	if err := net.ShutdownNode(dave); err != nil {
-		t.Fatalf("unable to shut down dave: %v", err)
-	}
 }
 
 // testSendUpdateDisableChannel ensures that a channel update with the disable
@@ -11079,12 +11076,41 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to create carol's node: %v", err)
 	}
 	defer shutdownAndAssert(net, t, carol)
+
 	if err := net.ConnectNodes(ctxb, net.Alice, carol); err != nil {
 		t.Fatalf("unable to connect alice to carol: %v", err)
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointAliceCarol := openChannelAndAssert(
 		ctxt, t, net, net.Alice, carol, chanAmt, 0, false,
+	)
+
+	// We create a new node Eve that has an inactive channel timeout of
+	// just 2 seconds (down from the default 20m). It will be used to test
+	// channel updates for channels going inactive.
+	eve, err := net.NewNode("Eve", []string{"--inactivechantimeout=2s"})
+	if err != nil {
+		t.Fatalf("unable to create eve's node: %v", err)
+	}
+	defer shutdownAndAssert(net, t, eve)
+
+	// Give Eve some coins.
+	err = net.SendCoins(ctxb, btcutil.SatoshiPerBitcoin, eve)
+	if err != nil {
+		t.Fatalf("unable to send coins to eve: %v", err)
+	}
+
+	// Connect Eve to Carol and Bob, and open a channel to carol.
+	if err := net.ConnectNodes(ctxb, eve, carol); err != nil {
+		t.Fatalf("unable to connect alice to carol: %v", err)
+	}
+	if err := net.ConnectNodes(ctxb, eve, net.Bob); err != nil {
+		t.Fatalf("unable to connect eve to bob: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPointEveCarol := openChannelAndAssert(
+		ctxt, t, net, eve, carol, chanAmt, 0, false,
 	)
 
 	// Launch a node for Dave which will connect to Bob in order to receive
@@ -11099,7 +11125,7 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to connect bob to dave: %v", err)
 	}
 
-	daveUpdates, quit := subscribeGraphNotifications(t, ctxb, net.Alice)
+	daveUpdates, quit := subscribeGraphNotifications(t, ctxb, dave)
 	defer close(quit)
 
 	// We should expect to see a channel update with the default routing
@@ -11111,19 +11137,75 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 		Disabled:         true,
 	}
 
+	// Let Carol go offline. Since Eve has an inactive timeout of 2s, we
+	// expect her to send an update disabling the channel.
+	restartCarol, err := net.SuspendNode(carol)
+	if err != nil {
+		t.Fatalf("unable to suspend carol: %v", err)
+	}
+	waitForChannelUpdate(
+		t, daveUpdates, eve.PubKeyStr, expectedPolicy,
+		chanPointEveCarol,
+	)
+
+	// We restart Carol. Since the channel now becomes active again, Eve
+	// should send a ChannelUpdate setting the channel no longer disabled.
+	if err := restartCarol(); err != nil {
+		t.Fatalf("unable to restart carol: %v", err)
+	}
+
+	expectedPolicy.Disabled = false
+	waitForChannelUpdate(
+		t, daveUpdates, eve.PubKeyStr, expectedPolicy,
+		chanPointEveCarol,
+	)
+
 	// Close Alice's channels with Bob and Carol cooperatively and
 	// unilaterally respectively.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAliceBob, false)
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAliceCarol, true)
+	_, _, err = net.CloseChannel(ctxt, net.Alice, chanPointAliceBob, false)
+	if err != nil {
+		t.Fatalf("unable to close channel: %v", err)
+	}
 
-	// Now that the channels have been closed, we should receive an update
-	// marking each as disabled.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	_, _, err = net.CloseChannel(ctxt, net.Alice, chanPointAliceCarol, true)
+	if err != nil {
+		t.Fatalf("unable to close channel: %v", err)
+	}
+
+	// Now that the channel close processes have been started, we should
+	// receive an update marking each as disabled.
+	expectedPolicy.Disabled = true
 	waitForChannelUpdate(
 		t, daveUpdates, net.Alice.PubKeyStr, expectedPolicy,
 		chanPointAliceBob, chanPointAliceCarol,
 	)
+
+	// Finally, close the channels by mining the closing transactions.
+	_, err = waitForNTxsInMempool(net.Miner.Node, 2, timeout)
+	if err != nil {
+		t.Fatalf("expected transactions not found in mempool: %v", err)
+	}
+	mineBlocks(t, net, 1)
+
+	// Also do this check for Eve's channel with Carol.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	_, _, err = net.CloseChannel(ctxt, eve, chanPointEveCarol, false)
+	if err != nil {
+		t.Fatalf("unable to close channel: %v", err)
+	}
+
+	waitForChannelUpdate(
+		t, daveUpdates, eve.PubKeyStr, expectedPolicy,
+		chanPointEveCarol,
+	)
+
+	_, err = waitForNTxsInMempool(net.Miner.Node, 1, timeout)
+	if err != nil {
+		t.Fatalf("expected transactions not found in mempool: %v", err)
+	}
+	mineBlocks(t, net, 1)
 }
 
 type testCase struct {

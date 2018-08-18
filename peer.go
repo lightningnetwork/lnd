@@ -318,6 +318,7 @@ func (p *peer) Start() error {
 // loadActiveChannels creates indexes within the peer for tracking all active
 // channels returned by the database.
 func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
+	var activeChans []wire.OutPoint
 	for _, dbChan := range chans {
 		lnChan, err := lnwallet.NewLightningChannel(
 			p.server.cc.signer, p.server.witnessBeacon, dbChan,
@@ -425,7 +426,25 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		p.activeChanMtx.Lock()
 		p.activeChannels[chanID] = lnChan
 		p.activeChanMtx.Unlock()
+
+		activeChans = append(activeChans, *chanPoint)
 	}
+
+	// As a final measure we launch a goroutine that will ensure the
+	// channels are not currently disabled, as that will make us skip it
+	// during path finding.
+	go func() {
+		for _, chanPoint := range activeChans {
+			// Set the channel disabled=false by sending out a new
+			// ChannelUpdate. If this channel is already active,
+			// the update won't be sent.
+			err := p.server.announceChanStatus(chanPoint, false)
+			if err != nil {
+				peerLog.Errorf("unable to send out active "+
+					"channel update: %v", err)
+			}
+		}
+	}()
 
 	return nil
 }
@@ -1690,8 +1709,11 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 				channel:           channel,
 				unregisterChannel: p.server.htlcSwitch.RemoveLink,
 				broadcastTx:       p.server.cc.wallet.PublishTransaction,
-				disableChannel:    p.server.disableChannel,
-				quit:              p.quit,
+				disableChannel: func(op wire.OutPoint) error {
+					return p.server.announceChanStatus(op,
+						true)
+				},
+				quit: p.quit,
 			},
 			deliveryAddr,
 			feePerKw,
@@ -1750,8 +1772,11 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 				channel:           channel,
 				unregisterChannel: p.server.htlcSwitch.RemoveLink,
 				broadcastTx:       p.server.cc.wallet.PublishTransaction,
-				disableChannel:    p.server.disableChannel,
-				quit:              p.quit,
+				disableChannel: func(op wire.OutPoint) error {
+					return p.server.announceChanStatus(op,
+						true)
+				},
+				quit: p.quit,
 			},
 			deliveryAddr,
 			req.TargetFeePerKw,

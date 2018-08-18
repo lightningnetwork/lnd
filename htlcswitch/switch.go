@@ -336,7 +336,8 @@ func (s *Switch) ProcessContractResolution(msg contractcourt.ResolutionMsg) erro
 
 // SendHTLC is used by other subsystems which aren't belong to htlc switch
 // package in order to send the htlc update.
-func (s *Switch) SendHTLC(nextNode [33]byte, htlc *lnwire.UpdateAddHTLC,
+func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID,
+	htlc *lnwire.UpdateAddHTLC,
 	deobfuscator ErrorDecrypter) ([sha256.Size]byte, error) {
 
 	// Create payment and add to the map of payment in order later to be
@@ -365,7 +366,7 @@ func (s *Switch) SendHTLC(nextNode [33]byte, htlc *lnwire.UpdateAddHTLC,
 	packet := &htlcPacket{
 		incomingChanID: sourceHop,
 		incomingHTLCID: paymentID,
-		destNode:       nextNode,
+		outgoingChanID: firstHop,
 		htlc:           htlc,
 	}
 
@@ -784,56 +785,24 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 	// User have created the htlc update therefore we should find the
 	// appropriate channel link and send the payment over this link.
 	case *lnwire.UpdateAddHTLC:
-		// Try to find links by node destination.
 		s.indexMtx.RLock()
-		links, err := s.getLinks(pkt.destNode)
+		link, err := s.getLinkByShortID(pkt.outgoingChanID)
+		s.indexMtx.RUnlock()
 		if err != nil {
-			s.indexMtx.RUnlock()
-
-			log.Errorf("unable to find links by destination %v", err)
+			log.Errorf("Link %v not found", pkt.outgoingChanID)
 			return &ForwardingError{
 				ErrorSource:    s.cfg.SelfKey,
 				FailureMessage: &lnwire.FailUnknownNextPeer{},
 			}
 		}
-		s.indexMtx.RUnlock()
 
-		// Try to find destination channel link with appropriate
-		// bandwidth.
-		var (
-			destination      ChannelLink
-			largestBandwidth lnwire.MilliSatoshi
-		)
-		for _, link := range links {
-			// We'll skip any links that aren't yet eligible for
-			// forwarding.
-			if !link.EligibleToForward() {
-				continue
-			}
-
-			bandwidth := link.Bandwidth()
-			if bandwidth > largestBandwidth {
-
-				largestBandwidth = bandwidth
-			}
-
-			if bandwidth >= htlc.Amount {
-				destination = link
-				break
-			}
-		}
-
-		// If the channel link we're attempting to forward the update
-		// over has insufficient capacity, then we'll cancel the HTLC
-		// as the payment cannot succeed.
-		if destination == nil {
-			err := fmt.Errorf("insufficient capacity in available "+
-				"outgoing links: need %v, max available is %v",
-				htlc.Amount, largestBandwidth)
+		if !link.EligibleToForward() {
+			err := fmt.Errorf("Link %v is not available to forward",
+				pkt.outgoingChanID)
 			log.Error(err)
 
-			// Note that we don't need to populate an update here,
-			// as this will go directly back to the router.
+			// The update does not need to be populated as the error
+			// will be returned back to the router.
 			htlcErr := lnwire.NewTemporaryChannelFailure(nil)
 			return &ForwardingError{
 				ErrorSource:    s.cfg.SelfKey,
@@ -842,12 +811,23 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 			}
 		}
 
-		// Send the packet to the destination channel link which
-		// manages then channel.
-		//
-		// TODO(roasbeef): should return with an error
-		pkt.outgoingChanID = destination.ShortChanID()
-		return destination.HandleSwitchPacket(pkt)
+		if link.Bandwidth() < htlc.Amount {
+			err := fmt.Errorf("Link %v has insufficient capacity: "+
+				"need %v, has %v", pkt.outgoingChanID,
+				htlc.Amount, link.Bandwidth())
+			log.Error(err)
+
+			// The update does not need to be populated as the error
+			// will be returned back to the router.
+			htlcErr := lnwire.NewTemporaryChannelFailure(nil)
+			return &ForwardingError{
+				ErrorSource:    s.cfg.SelfKey,
+				ExtraMsg:       err.Error(),
+				FailureMessage: htlcErr,
+			}
+		}
+
+		return link.HandleSwitchPacket(pkt)
 
 	// We've just received a settle update which means we can finalize the
 	// user payment and return successful response.
@@ -961,73 +941,26 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		}
 
 		s.indexMtx.RLock()
-		targetLink, err := s.getLinkByShortID(packet.outgoingChanID)
+		link, err := s.getLinkByShortID(packet.outgoingChanID)
 		if err != nil {
 			s.indexMtx.RUnlock()
 
-			// If packet was forwarded from another channel link
-			// than we should notify this link that some error
+			// Since the packet was forwarded from another channel
+			// link, we should notify this link that some error
 			// occurred.
 			failure := &lnwire.FailUnknownNextPeer{}
-			addErr := errors.Errorf("unable to find link with "+
+			addErr := fmt.Errorf("unable to find link with "+
 				"destination %v", packet.outgoingChanID)
 
 			return s.failAddPacket(packet, failure, addErr)
 		}
-		interfaceLinks, _ := s.getLinks(targetLink.Peer().PubKey())
 		s.indexMtx.RUnlock()
 
-		// We'll keep track of any HTLC failures during the link
-		// selection process. This way we can return the error for
-		// precise link that the sender selected, while optimistically
-		// trying all links to utilize our available bandwidth.
-		linkErrs := make(map[lnwire.ShortChannelID]lnwire.FailureMessage)
-
-		// Try to find destination channel link with appropriate
-		// bandwidth.
-		var destination ChannelLink
-		for _, link := range interfaceLinks {
-			// We'll skip any links that aren't yet eligible for
-			// forwarding.
-			switch {
-			case !link.EligibleToForward():
-				continue
-
-			// If the link doesn't yet have a source chan ID, then
-			// we'll skip it as well.
-			case link.ShortChanID() == sourceHop:
-				continue
-			}
-
-			// Before we check the link's bandwidth, we'll ensure
-			// that the HTLC satisfies the current forwarding
-			// policy of this target link.
-			currentHeight := atomic.LoadUint32(&s.bestHeight)
-			err := link.HtlcSatifiesPolicy(
-				htlc.PaymentHash, packet.incomingAmount,
-				packet.amount, packet.incomingTimeout,
-				packet.outgoingTimeout, currentHeight,
-			)
-			if err != nil {
-				linkErrs[link.ShortChanID()] = err
-				continue
-			}
-
-			if link.Bandwidth() >= htlc.Amount {
-				destination = link
-
-				break
-			}
-		}
-
-		switch {
-		// If the channel link we're attempting to forward the update
-		// over has insufficient capacity, and didn't violate any
-		// forwarding policies, then we'll cancel the htlc as the
-		// payment cannot succeed.
-		case destination == nil && len(linkErrs) == 0:
-			// If packet was forwarded from another channel link
-			// than we should notify this link that some error
+		// We'll make sure the link is currently eligible to forward
+		// this packet.
+		if !link.EligibleToForward() {
+			// Since the packet was forwarded from another channel
+			// link, we should notify this link that some error
 			// occurred.
 			var failure lnwire.FailureMessage
 			update, err := s.cfg.FetchLastChannelUpdate(
@@ -1039,45 +972,59 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 				failure = lnwire.NewTemporaryChannelFailure(update)
 			}
 
-			addErr := errors.Errorf("unable to find appropriate "+
-				"channel link insufficient capacity, need "+
-				"%v", htlc.Amount)
+			addErr := fmt.Errorf("link(%v) is unable to forward "+
+				"the incoming HTLC(%x)", packet.outgoingChanID,
+				htlc.PaymentHash[:])
 
 			return s.failAddPacket(packet, failure, addErr)
+		}
 
-		// If we had a forwarding failure due to the HTLC not
-		// satisfying the current policy, then we'll send back an
-		// error, but ensure we send back the error sourced at the
-		// *target* link.
-		case destination == nil && len(linkErrs) != 0:
-			// At this point, some or all of the links rejected the
-			// HTLC so we couldn't forward it. So we'll try to look
-			// up the error that came from the source.
-			linkErr, ok := linkErrs[packet.outgoingChanID]
-			if !ok {
-				// If we can't find the error of the source,
-				// then we'll return an unknown next peer,
-				// though this should never happen.
-				linkErr = &lnwire.FailUnknownNextPeer{}
-				log.Warnf("unable to find err source for "+
-					"outgoing_link=%v, errors=%v",
-					packet.outgoingChanID, newLogClosure(func() string {
-						return spew.Sdump(linkErrs)
-					}))
-			}
-
+		// Before we check the link's bandwidth, we'll ensure that the
+		// HTLC satisfies the current forwarding policy of this target
+		// link.
+		currentHeight := atomic.LoadUint32(&s.bestHeight)
+		linkFailure := link.HtlcSatifiesPolicy(
+			htlc.PaymentHash, packet.incomingAmount,
+			packet.amount, packet.incomingTimeout,
+			packet.outgoingTimeout, currentHeight,
+		)
+		if linkFailure != nil {
 			addErr := fmt.Errorf("incoming HTLC(%x) violated "+
 				"target outgoing link (id=%v) policy: %v",
 				htlc.PaymentHash[:], packet.outgoingChanID,
-				linkErr)
+				linkFailure)
 
-			return s.failAddPacket(packet, linkErr, addErr)
+			return s.failAddPacket(packet, linkFailure, addErr)
+		}
+
+		// If the channel link we're attempting to forward the update
+		// over has insufficient capacity, and didn't violate any
+		// forwarding policies, then we'll cancel the htlc as the
+		// payment cannot succeed.
+		if link.Bandwidth() < htlc.Amount {
+			// Since the packet was forwarded from another channel
+			// link, we should notify this link that some error
+			// occurred.
+			var failure lnwire.FailureMessage
+			update, err := s.cfg.FetchLastChannelUpdate(
+				packet.outgoingChanID,
+			)
+			if err != nil {
+				failure = &lnwire.FailTemporaryNodeFailure{}
+			} else {
+				failure = lnwire.NewTemporaryChannelFailure(update)
+			}
+
+			addErr := fmt.Errorf("link(%v) has insufficient "+
+				"bandwidth, need %v", packet.outgoingChanID,
+				htlc.Amount)
+
+			return s.failAddPacket(packet, failure, addErr)
 		}
 
 		// Send the packet to the destination channel link which
 		// manages the channel.
-		packet.outgoingChanID = destination.ShortChanID()
-		return destination.HandleSwitchPacket(packet)
+		return link.HandleSwitchPacket(packet)
 
 	case *lnwire.UpdateFailHTLC, *lnwire.UpdateFulfillHTLC:
 		// If the source of this packet has not been set, use the

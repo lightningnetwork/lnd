@@ -503,7 +503,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		Graph:     chanGraph,
 		Chain:     cc.chainIO,
 		ChainView: cc.chainView,
-		SendToSwitch: func(firstHopPub [33]byte,
+		SendToSwitch: func(firstHop lnwire.ShortChannelID,
 			htlcAdd *lnwire.UpdateAddHTLC,
 			circuit *sphinx.Circuit) ([32]byte, error) {
 
@@ -514,7 +514,9 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 				OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
 			}
 
-			return s.htlcSwitch.SendHTLC(firstHopPub, htlcAdd, errorDecryptor)
+			return s.htlcSwitch.SendHTLC(
+				firstHop, htlcAdd, errorDecryptor,
+			)
 		},
 		ChannelPruneExpiry: time.Duration(time.Hour * 24 * 14),
 		GraphPruneInterval: time.Duration(time.Hour),

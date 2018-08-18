@@ -1330,8 +1330,7 @@ func TestSkipIneligibleLinksLocalForward(t *testing.T) {
 	// We'll attempt to send out a new HTLC that has Alice as the first
 	// outgoing link. This should fail as Alice isn't yet able to forward
 	// any active HTLC's.
-	alicePub := aliceChannelLink.Peer().PubKey()
-	_, err = s.SendHTLC(alicePub, addMsg, nil)
+	_, err = s.SendHTLC(aliceChannelLink.ShortChanID(), addMsg, nil)
 	if err == nil {
 		t.Fatalf("local forward should fail due to inactive link")
 	}
@@ -1656,7 +1655,8 @@ func TestSwitchSendPayment(t *testing.T) {
 	// Handle the request and checks that bob channel link received it.
 	errChan := make(chan error)
 	go func() {
-		_, err := s.SendHTLC(aliceChannelLink.Peer().PubKey(), update,
+		_, err := s.SendHTLC(
+			aliceChannelLink.ShortChanID(), update,
 			newMockDeobfuscator())
 		errChan <- err
 	}()
@@ -1664,8 +1664,10 @@ func TestSwitchSendPayment(t *testing.T) {
 	go func() {
 		// Send the payment with the same payment hash and same
 		// amount and check that it will be propagated successfully
-		_, err := s.SendHTLC(aliceChannelLink.Peer().PubKey(), update,
-			newMockDeobfuscator())
+		_, err := s.SendHTLC(
+			aliceChannelLink.ShortChanID(), update,
+			newMockDeobfuscator(),
+		)
 		errChan <- err
 	}()
 
@@ -1793,9 +1795,10 @@ func TestLocalPaymentNoForwardingEvents(t *testing.T) {
 	// wait for Alice to receive the preimage for the payment before
 	// proceeding.
 	receiver := n.bobServer
+	firstHop := n.firstBobChannelLink.ShortChanID()
 	_, err = n.makePayment(
-		n.aliceServer, receiver, n.bobServer.PubKey(), hops, amount,
-		htlcAmt, totalTimelock,
+		n.aliceServer, receiver, firstHop, hops, amount, htlcAmt,
+		totalTimelock,
 	).Wait(30 * time.Second)
 	if err != nil {
 		t.Fatalf("unable to make the payment: %v", err)
@@ -1852,10 +1855,11 @@ func TestMultiHopPaymentForwardingEvents(t *testing.T) {
 		finalAmt, testStartingHeight, n.firstBobChannelLink,
 		n.carolChannelLink,
 	)
+	firstHop := n.firstBobChannelLink.ShortChanID()
 	for i := 0; i < numPayments; i++ {
 		_, err := n.makePayment(
-			n.aliceServer, n.carolServer, n.bobServer.PubKey(),
-			hops, finalAmt, htlcAmt, totalTimelock,
+			n.aliceServer, n.carolServer, firstHop, hops, finalAmt,
+			htlcAmt, totalTimelock,
 		).Wait(30 * time.Second)
 		if err != nil {
 			t.Fatalf("unable to send payment: %v", err)

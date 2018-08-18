@@ -942,73 +942,26 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		}
 
 		s.indexMtx.RLock()
-		targetLink, err := s.getLinkByShortID(packet.outgoingChanID)
+		link, err := s.getLinkByShortID(packet.outgoingChanID)
 		if err != nil {
 			s.indexMtx.RUnlock()
 
-			// If packet was forwarded from another channel link
-			// than we should notify this link that some error
+			// Since the packet was forwarded from another channel
+			// link, we should notify this link that some error
 			// occurred.
 			failure := &lnwire.FailUnknownNextPeer{}
-			addErr := errors.Errorf("unable to find link with "+
+			addErr := fmt.Errorf("unable to find link with "+
 				"destination %v", packet.outgoingChanID)
 
 			return s.failAddPacket(packet, failure, addErr)
 		}
-		interfaceLinks, _ := s.getLinks(targetLink.Peer().PubKey())
 		s.indexMtx.RUnlock()
 
-		// We'll keep track of any HTLC failures during the link
-		// selection process. This way we can return the error for
-		// precise link that the sender selected, while optimistically
-		// trying all links to utilize our available bandwidth.
-		linkErrs := make(map[lnwire.ShortChannelID]lnwire.FailureMessage)
-
-		// Try to find destination channel link with appropriate
-		// bandwidth.
-		var destination ChannelLink
-		for _, link := range interfaceLinks {
-			// We'll skip any links that aren't yet eligible for
-			// forwarding.
-			switch {
-			case !link.EligibleToForward():
-				continue
-
-			// If the link doesn't yet have a source chan ID, then
-			// we'll skip it as well.
-			case link.ShortChanID() == sourceHop:
-				continue
-			}
-
-			// Before we check the link's bandwidth, we'll ensure
-			// that the HTLC satisfies the current forwarding
-			// policy of this target link.
-			currentHeight := atomic.LoadUint32(&s.bestHeight)
-			err := link.HtlcSatifiesPolicy(
-				htlc.PaymentHash, packet.incomingAmount,
-				packet.amount, packet.incomingTimeout,
-				packet.outgoingTimeout, currentHeight,
-			)
-			if err != nil {
-				linkErrs[link.ShortChanID()] = err
-				continue
-			}
-
-			if link.Bandwidth() >= htlc.Amount {
-				destination = link
-
-				break
-			}
-		}
-
-		switch {
-		// If the channel link we're attempting to forward the update
-		// over has insufficient capacity, and didn't violate any
-		// forwarding policies, then we'll cancel the htlc as the
-		// payment cannot succeed.
-		case destination == nil && len(linkErrs) == 0:
-			// If packet was forwarded from another channel link
-			// than we should notify this link that some error
+		// We'll make sure the link is currently eligible to forward
+		// this packet.
+		if !link.EligibleToForward() {
+			// Since the packet was forwarded from another channel
+			// link, we should notify this link that some error
 			// occurred.
 			var failure lnwire.FailureMessage
 			update, err := s.cfg.FetchLastChannelUpdate(
@@ -1020,45 +973,59 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 				failure = lnwire.NewTemporaryChannelFailure(update)
 			}
 
-			addErr := errors.Errorf("unable to find appropriate "+
-				"channel link insufficient capacity, need "+
-				"%v", htlc.Amount)
+			addErr := fmt.Errorf("link(%v) is unable to forward "+
+				"the incoming HTLC(%x)", packet.outgoingChanID,
+				htlc.PaymentHash[:])
 
 			return s.failAddPacket(packet, failure, addErr)
+		}
 
-		// If we had a forwarding failure due to the HTLC not
-		// satisfying the current policy, then we'll send back an
-		// error, but ensure we send back the error sourced at the
-		// *target* link.
-		case destination == nil && len(linkErrs) != 0:
-			// At this point, some or all of the links rejected the
-			// HTLC so we couldn't forward it. So we'll try to look
-			// up the error that came from the source.
-			linkErr, ok := linkErrs[packet.outgoingChanID]
-			if !ok {
-				// If we can't find the error of the source,
-				// then we'll return an unknown next peer,
-				// though this should never happen.
-				linkErr = &lnwire.FailUnknownNextPeer{}
-				log.Warnf("unable to find err source for "+
-					"outgoing_link=%v, errors=%v",
-					packet.outgoingChanID, newLogClosure(func() string {
-						return spew.Sdump(linkErrs)
-					}))
-			}
-
+		// Before we check the link's bandwidth, we'll ensure that the
+		// HTLC satisfies the current forwarding policy of this target
+		// link.
+		currentHeight := atomic.LoadUint32(&s.bestHeight)
+		linkFailure := link.HtlcSatifiesPolicy(
+			htlc.PaymentHash, packet.incomingAmount,
+			packet.amount, packet.incomingTimeout,
+			packet.outgoingTimeout, currentHeight,
+		)
+		if linkFailure != nil {
 			addErr := fmt.Errorf("incoming HTLC(%x) violated "+
 				"target outgoing link (id=%v) policy: %v",
 				htlc.PaymentHash[:], packet.outgoingChanID,
-				linkErr)
+				linkFailure)
 
-			return s.failAddPacket(packet, linkErr, addErr)
+			return s.failAddPacket(packet, linkFailure, addErr)
+		}
+
+		// If the channel link we're attempting to forward the update
+		// over has insufficient capacity, and didn't violate any
+		// forwarding policies, then we'll cancel the htlc as the
+		// payment cannot succeed.
+		if link.Bandwidth() < htlc.Amount {
+			// Since the packet was forwarded from another channel
+			// link, we should notify this link that some error
+			// occurred.
+			var failure lnwire.FailureMessage
+			update, err := s.cfg.FetchLastChannelUpdate(
+				packet.outgoingChanID,
+			)
+			if err != nil {
+				failure = &lnwire.FailTemporaryNodeFailure{}
+			} else {
+				failure = lnwire.NewTemporaryChannelFailure(update)
+			}
+
+			addErr := fmt.Errorf("link(%v) has insufficient "+
+				"bandwidth, need %v", packet.outgoingChanID,
+				htlc.Amount)
+
+			return s.failAddPacket(packet, failure, addErr)
 		}
 
 		// Send the packet to the destination channel link which
 		// manages the channel.
-		packet.outgoingChanID = destination.ShortChanID()
-		return destination.HandleSwitchPacket(packet)
+		return link.HandleSwitchPacket(packet)
 
 	case *lnwire.UpdateFailHTLC, *lnwire.UpdateFulfillHTLC:
 		// If the source of this packet has not been set, use the

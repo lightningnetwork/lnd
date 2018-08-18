@@ -221,6 +221,8 @@ func (p *preimageBeacon) garbageCollector(epochClient *chainntnfs.BlockEpochEven
 // and confirmed or when we receive a revocation key from the remote party, but
 // as the preimages already have a set termination date, this is unnecessary.
 func (p *preimageBeacon) gcExpiredPreimages(height uint32) (uint32, error) {
+	p.Lock()
+	defer p.Unlock()
 	var numExpiredPreimages uint32
 
 	witnesses, expiryHeights, err := p.wCache.FetchAllWitnesses(channeldb.Sha256HashWitness)

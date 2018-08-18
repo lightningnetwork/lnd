@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
@@ -319,4 +320,87 @@ func (m *mockPreimageCache) AddPreimage(preimage []byte, exp uint32) error {
 	m.preimageMap[sha256.Sum256(preimage[:])] = preimage
 
 	return nil
+}
+
+type preimageAndExp struct {
+	preimage []byte
+	expiry uint32
+}
+
+type mockWitnessBeacon struct {
+	sync.RWMutex
+	cache map[[32]byte]*preimageAndExp
+	// cache: payhash -> (preimage, expiry)
+	notifier *mockNotfier
+	wg sync.WaitGroup
+}
+
+func (m *mockWitnessBeacon) SubscribeUpdates() *contractcourt.WitnessSubscription {
+	return nil
+}
+
+func (m *mockWitnessBeacon) LookupPreimage(payhash []byte) ([]byte, bool) {
+	m.Lock()
+	defer m.Unlock()
+
+	var h [32]byte
+	copy(h[:], payhash)
+
+	p, ok := m.cache[h]
+	return p.preimage, ok
+}
+
+func (m *mockWitnessBeacon) AddPreimage(pre []byte, expiryHeight uint32) error {
+	m.Lock()
+	defer m.Unlock()
+
+	m.cache[sha256.Sum256(preimage[:])] = &preimageAndExp{
+		preimage: preimage,
+		expiry: expiryHeight,
+	}
+
+	return nil
+}
+
+func (m *mockWitnessBeacon) Start() error {
+	epochClient, err := m.notifier.RegisterBlockEpochNtfn()
+	if err != nil {
+		return err
+	}
+
+	m.wg.Add(1)
+	go m.gc(epochClient)
+
+	return nil
+}
+
+func (m *mockWitnessBeacon) Stop() error {
+	m.wg.Wait()
+
+	return nil
+}
+
+func (m *mockWitnessBeacon) gc(epochClient *chainntnfs.BlockEpochEvent) {
+	defer m.wg.Done()
+	defer epochClient.Cancel()
+
+	for {
+		select {
+		case epoch, ok := <- epochClient.Epochs:
+			if !ok {
+				// Block epoch was canceled, return.
+				return
+			}
+
+			height := uint32(epoch.Height)
+			// Loop through cache and delete expired preimages.
+			m.Lock()
+			for payhash, value := range m.cache {
+				if (height > value.expiry) {
+					delete(m.cache, payhash)
+				}
+			}
+			m.Unlock()
+		}
+	}
 }

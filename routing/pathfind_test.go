@@ -336,6 +336,10 @@ type testGraphInstance struct {
 	// provided in order to allow easily look up from the human memorable alias
 	// to an exact node's public key.
 	aliasMap map[string]*btcec.PublicKey
+
+	// privKeyMap maps a node alias to its private key. This is used to be
+	// able to mock a remote node's signing behaviour.
+	privKeyMap map[string]*btcec.PrivateKey
 }
 
 // createTestGraphFromChannels returns a fully populated ChannelGraph based on a set of
@@ -361,6 +365,7 @@ func createTestGraphFromChannels(testChannels []*testChannel) (*testGraphInstanc
 	}
 
 	aliasMap := make(map[string]*btcec.PublicKey)
+	privKeyMap := make(map[string]*btcec.PrivateKey)
 
 	nodeIndex := byte(0)
 	addNodeWithAlias := func(alias string) (*channeldb.LightningNode, error) {
@@ -372,7 +377,7 @@ func createTestGraphFromChannels(testChannels []*testChannel) (*testGraphInstanc
 			0, 0, 0, 0, 0, 0, 0, nodeIndex + 1,
 		}
 
-		_, pubKey := btcec.PrivKeyFromBytes(btcec.S256(),
+		privKey, pubKey := btcec.PrivKeyFromBytes(btcec.S256(),
 			keyBytes)
 
 		dbNode := &channeldb.LightningNode{
@@ -385,6 +390,8 @@ func createTestGraphFromChannels(testChannels []*testChannel) (*testGraphInstanc
 		}
 
 		copy(dbNode.PubKeyBytes[:], pubKey.SerializeCompressed())
+
+		privKeyMap[alias] = privKey
 
 		// With the node fully parsed, add it as a vertex within the
 		// graph.
@@ -482,9 +489,11 @@ func createTestGraphFromChannels(testChannels []*testChannel) (*testGraphInstanc
 	}
 
 	return &testGraphInstance{
-		graph:    graph,
-		cleanUp:  cleanUp,
-		aliasMap: aliasMap}, nil
+		graph:      graph,
+		cleanUp:    cleanUp,
+		aliasMap:   aliasMap,
+		privKeyMap: privKeyMap,
+	}, nil
 }
 
 // TestFindLowestFeePath tests that out of two routes with identical total

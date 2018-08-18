@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -344,6 +345,171 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 		t.Fatalf("route should go through satoshi as first hop, "+
 			"instead passes through: %v",
 			route.Hops[0].Channel.Node.Alias)
+	}
+}
+
+// TestChannelUpdateValidation tests that a failed payment with an associated
+// channel update will only be applied to the graph when the update contains a
+// valid signature.
+func TestChannelUpdateValidation(t *testing.T) {
+	t.Parallel()
+
+	// Setup a three node network.
+	testChannels := []*testChannel{
+		symmetricTestChannel("a", "b", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 400,
+			MinHTLC: 1,
+		}, 1),
+		symmetricTestChannel("b", "c", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 400,
+			MinHTLC: 1,
+		}, 2),
+	}
+
+	testGraph, err := createTestGraphFromChannels(testChannels)
+	defer testGraph.cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+
+	const startingBlockHeight = 101
+
+	ctx, cleanUp, err := createTestCtxFromGraphInstance(startingBlockHeight,
+		testGraph)
+
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	// Assert that the initially configured fee is retrieved correctly.
+	_, policy, _, err := ctx.router.GetChannelByID(
+		lnwire.NewShortChanIDFromInt(1))
+	if err != nil {
+		t.Fatalf("cannot retrieve channel")
+	}
+
+	if policy.FeeProportionalMillionths != 400 {
+		t.Fatalf("invalid fee")
+	}
+
+	// Setup a route from source a to destination c. The route will be used
+	// in a call to SendToRoute. SendToRoute also applies channel updates,
+	// but it saves us from including RequestRoute in the test scope too.
+	var hop1 [33]byte
+	copy(hop1[:], ctx.aliases["b"].SerializeCompressed())
+
+	var hop2 [33]byte
+	copy(hop2[:], ctx.aliases["c"].SerializeCompressed())
+
+	hops := []*Hop{
+		{
+			Channel: &ChannelHop{
+				ChannelEdgePolicy: &channeldb.ChannelEdgePolicy{
+					ChannelID: 1,
+					Node: &channeldb.LightningNode{
+						PubKeyBytes: hop1,
+					},
+				},
+			},
+		},
+		{
+			Channel: &ChannelHop{
+				ChannelEdgePolicy: &channeldb.ChannelEdgePolicy{
+					ChannelID: 2,
+					Node: &channeldb.LightningNode{
+						PubKeyBytes: hop2,
+					},
+				},
+			},
+		},
+	}
+
+	route := &Route{
+		Hops: hops,
+	}
+
+	// Set up a channel update message with an invalid signature to be
+	// returned to the sender.
+	var invalidSignature [64]byte
+	errChanUpdate := lnwire.ChannelUpdate{
+		Signature:      invalidSignature,
+		FeeRate:        500,
+		ShortChannelID: lnwire.NewShortChanIDFromInt(1),
+		Timestamp:      uint32(testTime.Add(time.Minute).Unix()),
+	}
+
+	// We'll modify the SendToSwitch method so that it simulates a failed
+	// payment with an error originating from the first hop of the route.
+	// The unsigned channel update is attached to the failure message.
+	ctx.router.cfg.SendToSwitch = func(firstHop lnwire.ShortChannelID,
+		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
+
+		return [32]byte{}, &htlcswitch.ForwardingError{
+			ErrorSource: ctx.aliases["b"],
+			FailureMessage: &lnwire.FailFeeInsufficient{
+				Update: errChanUpdate,
+			},
+		}
+	}
+
+	// The payment parameter is mostly redundant in SendToRoute. Can be left
+	// empty for this test.
+	payment := &LightningPayment{}
+
+	// Send off the payment request to the router. The specified route
+	// should be attempted and the channel update should be received by
+	// router and ignored because it is missing a valid signature.
+	_, _, err = ctx.router.SendToRoute([]*Route{route}, payment)
+	if err == nil {
+		t.Fatalf("expected route to fail with channel update")
+	}
+
+	_, policy, _, err = ctx.router.GetChannelByID(
+		lnwire.NewShortChanIDFromInt(1))
+	if err != nil {
+		t.Fatalf("cannot retrieve channel")
+	}
+
+	if policy.FeeProportionalMillionths != 400 {
+		t.Fatalf("fee updated without valid signature")
+	}
+
+	// Next, add a signature to the channel update.
+	chanUpdateMsg, err := errChanUpdate.DataToSign()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	digest := chainhash.DoubleHashB(chanUpdateMsg)
+	sig, err := testGraph.privKeyMap["b"].Sign(digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	errChanUpdate.Signature, err = lnwire.NewSigFromSignature(sig)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Retry the payment using the same route as before.
+	_, _, err = ctx.router.SendToRoute([]*Route{route}, payment)
+	if err == nil {
+		t.Fatalf("expected route to fail with channel update")
+	}
+
+	// This time a valid signature was supplied and the policy change should
+	// have been applied to the graph.
+	_, policy, _, err = ctx.router.GetChannelByID(
+		lnwire.NewShortChanIDFromInt(1))
+	if err != nil {
+		t.Fatalf("cannot retrieve channel")
+	}
+
+	if policy.FeeProportionalMillionths != 500 {
+		t.Fatalf("fee not updated even though signature is valid")
 	}
 }
 

@@ -2597,6 +2597,10 @@ type openChanReq struct {
 
 	remoteCsvDelay uint16
 
+	// minConfs indicates the minimum number of confirmations that each
+	// output selected to fund the channel should satisfy.
+	minConfs int32
+
 	// TODO(roasbeef): add ability to specify channel constraints as well
 
 	updates chan *lnrpc.OpenStatusUpdate
@@ -2735,77 +2739,45 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 // peer identified by nodeKey with the passed channel funding parameters.
 //
 // NOTE: This function is safe for concurrent access.
-func (s *server) OpenChannel(nodeKey *btcec.PublicKey,
-	localAmt btcutil.Amount, pushAmt, minHtlc lnwire.MilliSatoshi,
-	fundingFeePerKw lnwallet.SatPerKWeight, private bool,
-	remoteCsvDelay uint16) (chan *lnrpc.OpenStatusUpdate, chan error) {
+func (s *server) OpenChannel(
+	req *openChanReq) (chan *lnrpc.OpenStatusUpdate, chan error) {
 
-	// The updateChan will have a buffer of 2, since we expect a
-	// ChanPending + a ChanOpen update, and we want to make sure the
-	// funding process is not blocked if the caller is not reading the
-	// updates.
-	updateChan := make(chan *lnrpc.OpenStatusUpdate, 2)
-	errChan := make(chan error, 1)
-
-	var (
-		targetPeer  *peer
-		pubKeyBytes []byte
-		err         error
-	)
-
-	// If the user is targeting the peer by public key, then we'll need to
-	// convert that into a string for our map. Otherwise, we expect them to
-	// target by peer ID instead.
-	if nodeKey != nil {
-		pubKeyBytes = nodeKey.SerializeCompressed()
-	}
+	// The updateChan will have a buffer of 2, since we expect a ChanPending
+	// + a ChanOpen update, and we want to make sure the funding process is
+	// not blocked if the caller is not reading the updates.
+	req.updates = make(chan *lnrpc.OpenStatusUpdate, 2)
+	req.err = make(chan error, 1)
 
 	// First attempt to locate the target peer to open a channel with, if
 	// we're unable to locate the peer then this request will fail.
+	pubKeyBytes := req.targetPubkey.SerializeCompressed()
 	s.mu.RLock()
-	if peer, ok := s.peersByPub[string(pubKeyBytes)]; ok {
-		targetPeer = peer
+	peer, ok := s.peersByPub[string(pubKeyBytes)]
+	if !ok {
+		req.err <- fmt.Errorf("peer %x is not online", pubKeyBytes)
+		return req.updates, req.err
 	}
 	s.mu.RUnlock()
 
-	if targetPeer == nil {
-		errChan <- fmt.Errorf("peer is not connected NodeKey(%x)", pubKeyBytes)
-		return updateChan, errChan
-	}
-
 	// If the fee rate wasn't specified, then we'll use a default
 	// confirmation target.
-	if fundingFeePerKw == 0 {
+	if req.fundingFeePerKw == 0 {
 		estimator := s.cc.feeEstimator
-		fundingFeePerKw, err = estimator.EstimateFeePerKW(6)
+		feeRate, err := estimator.EstimateFeePerKW(6)
 		if err != nil {
-			errChan <- err
-			return updateChan, errChan
+			req.err <- err
+			return req.updates, req.err
 		}
+		req.fundingFeePerKw = feeRate
 	}
 
-	// Spawn a goroutine to send the funding workflow request to the
-	// funding manager. This allows the server to continue handling queries
-	// instead of blocking on this request which is exported as a
-	// synchronous request to the outside world.
-	req := &openChanReq{
-		targetPubkey:    nodeKey,
-		chainHash:       *activeNetParams.GenesisHash,
-		localFundingAmt: localAmt,
-		fundingFeePerKw: fundingFeePerKw,
-		pushAmt:         pushAmt,
-		private:         private,
-		minHtlc:         minHtlc,
-		remoteCsvDelay:  remoteCsvDelay,
-		updates:         updateChan,
-		err:             errChan,
-	}
+	// Spawn a goroutine to send the funding workflow request to the funding
+	// manager. This allows the server to continue handling queries instead
+	// of blocking on this request which is exported as a synchronous
+	// request to the outside world.
+	go s.fundingMgr.initFundingWorkflow(peer, req)
 
-	// TODO(roasbeef): pass in chan that's closed if/when funding succeeds
-	// so can track as persistent peer?
-	go s.fundingMgr.initFundingWorkflow(targetPeer, req)
-
-	return updateChan, errChan
+	return req.updates, req.err
 }
 
 // Peers returns a slice of all active peers.

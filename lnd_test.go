@@ -153,7 +153,7 @@ func openChannelAndAssert(ctx context.Context, t *harnessTest,
 	private bool) *lnrpc.ChannelPoint {
 
 	chanOpenUpdate, err := net.OpenChannel(
-		ctx, alice, bob, fundingAmt, pushAmt, private,
+		ctx, alice, bob, fundingAmt, pushAmt, private, true,
 	)
 	if err != nil {
 		t.Fatalf("unable to open channel: %v", err)
@@ -675,6 +675,82 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	// relevant channel closing post conditions.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+}
+
+// testUnconfirmedChannelFunding tests that unconfirmed outputs that pay to us
+// can be used to fund channels.
+func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
+	const (
+		timeout = time.Duration(15 * time.Second)
+		chanAmt = maxBtcFundingAmount
+		pushAmt = btcutil.Amount(100000)
+	)
+
+	ctxb := context.Background()
+
+	// We'll start off by creating a node for Carol.
+	carol, err := net.NewNode("Carol", nil)
+	if err != nil {
+		t.Fatalf("unable to create carol's node: %v", err)
+	}
+	defer shutdownAndAssert(net, t, carol)
+
+	// We'll send her some funds that should not confirm.
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	err = net.SendCoinsUnconfirmed(ctxt, 2*chanAmt, carol)
+	if err != nil {
+		t.Fatalf("unable to send coins to carol: %v", err)
+	}
+
+	// Now, we'll connect her to Alice so that they can open a channel
+	// together. The funding flow should select Carol's unconfirmed output
+	// as she doesn't have any other funds since it's a new node.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	if err := net.ConnectNodes(ctxt, carol, net.Alice); err != nil {
+		t.Fatalf("unable to connect dave to alice: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanOpenUpdate, err := net.OpenChannel(
+		ctxt, carol, net.Alice, chanAmt, pushAmt, false, false,
+	)
+	if err != nil {
+		t.Fatalf("unable to open channel between carol and alice: %v",
+			err)
+	}
+
+	// Confirm the channel and wait for it to be recognized by both parties.
+	mineBlocks(t, net, 6)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPoint, err := net.WaitForChannelOpen(ctxt, chanOpenUpdate)
+	if err != nil {
+		t.Fatalf("error while waiting for channel open: %v", err)
+	}
+
+	// With the channel open, we'll check the balances on each side of the
+	// channel as a sanity check to ensure things worked out as intended.
+	balReq := &lnrpc.ChannelBalanceRequest{}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	carolBal, err := carol.ChannelBalance(ctxt, balReq)
+	if err != nil {
+		t.Fatalf("unable to get carol's balance: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	aliceBal, err := net.Alice.ChannelBalance(ctxt, balReq)
+	if err != nil {
+		t.Fatalf("unable to get alice's balance: %v", err)
+	}
+	if carolBal.Balance != int64(chanAmt-pushAmt-calcStaticFee(0)) {
+		t.Fatalf("carol's balance is incorrect: expected %v got %v",
+			chanAmt-pushAmt-calcStaticFee(0), carolBal)
+	}
+	if aliceBal.Balance != int64(pushAmt) {
+		t.Fatalf("alice's balance is incorrect: expected %v got %v",
+			pushAmt, aliceBal.Balance)
+	}
+
+	// Now that we're done with the test, the channel can be closed.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, carol, chanPoint, false)
 }
 
 // txStr returns the string representation of the channel's funding transaction.
@@ -3699,8 +3775,9 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	if err := net.ConnectNodes(ctxb, carol, net.Alice); err != nil {
 		t.Fatalf("unable to connect dave to alice: %v", err)
 	}
-	chanOpenUpdate, err := net.OpenChannel(ctxb, carol, net.Alice, chanAmt,
-		0, true)
+	chanOpenUpdate, err := net.OpenChannel(
+		ctxb, carol, net.Alice, chanAmt, 0, true, true,
+	)
 	if err != nil {
 		t.Fatalf("unable to open channel: %v", err)
 	}
@@ -4581,8 +4658,9 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	openStreams := make([]lnrpc.Lightning_OpenChannelClient, maxPendingChannels)
 	for i := 0; i < maxPendingChannels; i++ {
 		ctx, _ = context.WithTimeout(context.Background(), timeout)
-		stream, err := net.OpenChannel(ctx, net.Alice, carol, amount,
-			0, false)
+		stream, err := net.OpenChannel(
+			ctx, net.Alice, carol, amount, 0, false, true,
+		)
 		if err != nil {
 			t.Fatalf("unable to open channel: %v", err)
 		}
@@ -4592,7 +4670,9 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// Carol exhausted available amount of pending channels, next open
 	// channel request should cause ErrorGeneric to be sent back to Alice.
 	ctx, _ = context.WithTimeout(context.Background(), timeout)
-	_, err = net.OpenChannel(ctx, net.Alice, carol, amount, 0, false)
+	_, err = net.OpenChannel(
+		ctx, net.Alice, carol, amount, 0, false, true,
+	)
 	if err == nil {
 		t.Fatalf("error wasn't received")
 	} else if grpc.Code(err) != lnwire.ErrMaxPendingChannels.ToGrpcCode() {
@@ -11059,6 +11139,10 @@ var testsCases = []*testCase{
 	{
 		name: "basic funding flow",
 		test: testBasicChannelFunding,
+	},
+	{
+		name: "unconfirmed channel funding",
+		test: testUnconfirmedChannelFunding,
 	},
 	{
 		name: "update channel policy",

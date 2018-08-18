@@ -2164,6 +2164,11 @@
           "type": "integer",
           "format": "int64",
           "description": "/ The delay we require on the remote's commitment transaction. If this is not set, it will be scaled automatically with the channel size."
+        },
+        "min_confs": {
+          "type": "integer",
+          "format": "int32",
+          "description": "/ The minimum number of confirmations each one of your outputs used for the funding transaction must satisfy."
         }
       }
     },

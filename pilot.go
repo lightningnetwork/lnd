@@ -17,8 +17,9 @@ import (
 // chanController is an implementation of the autopilot.ChannelController
 // interface that's backed by a running lnd instance.
 type chanController struct {
-	server  *server
-	private bool
+	server   *server
+	private  bool
+	minConfs int32
 }
 
 // OpenChannel opens a channel to a target peer, with a capacity of the
@@ -37,10 +38,21 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 	// TODO(halseth): make configurable?
 	minHtlc := lnwire.NewMSatFromSatoshis(1)
 
-	updateStream, errChan := c.server.OpenChannel(
-		target, amt, 0, minHtlc, feePerKw, c.private, 0,
-	)
+	// Construct the open channel request and send it to the server to begin
+	// the funding workflow.
+	req := &openChanReq{
+		targetPubkey:    target,
+		chainHash:       *activeNetParams.GenesisHash,
+		localFundingAmt: amt,
+		pushAmt:         0,
+		minHtlc:         minHtlc,
+		fundingFeePerKw: feePerKw,
+		private:         c.private,
+		remoteCsvDelay:  0,
+		minConfs:        c.minConfs,
+	}
 
+	updateStream, errChan := c.server.OpenChannel(req)
 	select {
 	case err := <-errChan:
 		// If we were not able to actually open a channel to the peer
@@ -100,11 +112,12 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 		Self:      self,
 		Heuristic: prefAttachment,
 		ChanController: &chanController{
-			server:  svr,
-			private: cfg.Private,
+			server:   svr,
+			private:  cfg.Private,
+			minConfs: cfg.MinConfs,
 		},
 		WalletBalance: func() (btcutil.Amount, error) {
-			return svr.cc.wallet.ConfirmedBalance(1)
+			return svr.cc.wallet.ConfirmedBalance(cfg.MinConfs)
 		},
 		Graph:           autopilot.ChannelGraphFromDatabase(svr.chanDB.ChannelGraph()),
 		MaxPendingOpens: 10,

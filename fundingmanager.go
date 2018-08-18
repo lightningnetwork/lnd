@@ -1042,12 +1042,20 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// responding side of a single funder workflow, we don't commit any
 	// funds to the channel ourselves.
 	chainHash := chainhash.Hash(msg.ChainHash)
-	reservation, err := f.cfg.Wallet.InitChannelReservation(
-		amt, 0, msg.PushAmount,
-		lnwallet.SatPerKWeight(msg.FeePerKiloWeight), 0,
-		fmsg.peer.IdentityKey(), fmsg.peer.Address(), &chainHash,
-		msg.ChannelFlags,
-	)
+	req := &lnwallet.InitFundingReserveMsg{
+		ChainHash:       &chainHash,
+		NodeID:          fmsg.peer.IdentityKey(),
+		NodeAddr:        fmsg.peer.Address(),
+		FundingAmount:   0,
+		Capacity:        amt,
+		CommitFeePerKw:  lnwallet.SatPerKWeight(msg.FeePerKiloWeight),
+		FundingFeePerKw: 0,
+		PushMSat:        msg.PushAmount,
+		Flags:           msg.ChannelFlags,
+		MinConfs:        1,
+	}
+
+	reservation, err := f.cfg.Wallet.InitChannelReservation(req)
 	if err != nil {
 		fndgLog.Errorf("Unable to initialize reservation: %v", err)
 		f.failFundingFlow(fmsg.peer, msg.PendingChannelID, err)
@@ -2598,11 +2606,20 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// Initialize a funding reservation with the local wallet. If the
 	// wallet doesn't have enough funds to commit to this channel, then the
 	// request will fail, and be aborted.
-	reservation, err := f.cfg.Wallet.InitChannelReservation(
-		capacity, localAmt, msg.pushAmt, commitFeePerKw,
-		msg.fundingFeePerKw, peerKey, msg.peer.Address(),
-		&msg.chainHash, channelFlags,
-	)
+	req := &lnwallet.InitFundingReserveMsg{
+		ChainHash:       &msg.chainHash,
+		NodeID:          peerKey,
+		NodeAddr:        msg.peer.Address(),
+		FundingAmount:   localAmt,
+		Capacity:        capacity,
+		CommitFeePerKw:  commitFeePerKw,
+		FundingFeePerKw: msg.fundingFeePerKw,
+		PushMSat:        msg.pushAmt,
+		Flags:           channelFlags,
+		MinConfs:        msg.minConfs,
+	}
+
+	reservation, err := f.cfg.Wallet.InitChannelReservation(req)
 	if err != nil {
 		msg.err <- err
 		return

@@ -146,6 +146,7 @@ type autoPilotConfig struct {
 	MinChannelSize int64   `long:"minchansize" description:"The smallest channel that the autopilot agent should create"`
 	MaxChannelSize int64   `long:"maxchansize" description:"The largest channel that the autopilot agent should create"`
 	Private        bool    `long:"private" description:"Whether the channels created by the autopilot agent should be private or not. Private channels won't be announced to the network."`
+	MinConfs       int32   `long:"minconfs" description:"The minimum number of confirmations each of your inputs in funding transactions created by the autopilot agent must have."`
 }
 
 type torConfig struct {
@@ -420,6 +421,12 @@ func loadConfig() (*config, error) {
 	}
 	if cfg.Autopilot.MaxChannelSize < 0 {
 		str := "%s: autopilot.maxchansize must be non-negative"
+		err := fmt.Errorf(str, funcName)
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+	if cfg.Autopilot.MinConfs < 0 {
+		str := "%s: autopilot.minconfs must be non-negative"
 		err := fmt.Errorf(str, funcName)
 		fmt.Fprintln(os.Stderr, err)
 		return nil, err

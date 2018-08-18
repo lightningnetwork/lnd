@@ -895,6 +895,33 @@ func (hn *HarnessNode) WaitForBlockchainSync(ctx context.Context) error {
 	}
 }
 
+// WaitForBalance waits until the node sees the expected confirmed/unconfirmed
+// balance within their wallet.
+func (hn *HarnessNode) WaitForBalance(expectedBalance int64, confirmed bool) error {
+	ctx := context.Background()
+	req := &lnrpc.WalletBalanceRequest{}
+
+	doesBalanceMatch := func() bool {
+		balance, err := hn.WalletBalance(ctx, req)
+		if err != nil {
+			return false
+		}
+
+		if confirmed {
+			return balance.ConfirmedBalance == expectedBalance
+		}
+
+		return balance.UnconfirmedBalance == expectedBalance
+	}
+
+	err := WaitPredicate(doesBalanceMatch, 30*time.Second)
+	if err != nil {
+		return errors.New("balances not synced after deadline")
+	}
+
+	return nil
+}
+
 // fileExists reports whether the named file or directory exists.
 // This function is taken from https://github.com/btcsuite/btcd
 func fileExists(name string) bool {

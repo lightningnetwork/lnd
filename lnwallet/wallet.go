@@ -3,24 +3,24 @@ package lnwallet
 import (
 	"bytes"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
 
 	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/hdkeychain"
+	"github.com/btcsuite/btcutil/txsort"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
-
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/txsort"
 	"github.com/lightningnetwork/lnd/shachain"
 )
 
@@ -44,7 +44,7 @@ func (e *ErrInsufficientFunds) Error() string {
 		e.amountSelected)
 }
 
-// initFundingReserveReq is the first message sent to initiate the workflow
+// InitFundingReserveMsg is the first message sent to initiate the workflow
 // required to open a payment channel with a remote peer. The initial required
 // parameters are configurable across channels. These parameters are to be
 // chosen depending on the fee climate within the network, and time value of
@@ -54,44 +54,48 @@ func (e *ErrInsufficientFunds) Error() string {
 // pending reservations. Therefore, all channels in reservation limbo will be
 // periodically timed out after an idle period in order to avoid "exhaustion"
 // attacks.
-type initFundingReserveMsg struct {
-	// chainHash denotes that chain to be used to ultimately open the
+type InitFundingReserveMsg struct {
+	// ChainHash denotes that chain to be used to ultimately open the
 	// target channel.
-	chainHash *chainhash.Hash
+	ChainHash *chainhash.Hash
 
-	// nodeId is the ID of the remote node we would like to open a channel
+	// NodeID is the ID of the remote node we would like to open a channel
 	// with.
-	nodeID *btcec.PublicKey
+	NodeID *btcec.PublicKey
 
-	// nodeAddr is the address port that we used to either establish or
+	// NodeAddr is the address port that we used to either establish or
 	// accept the connection which led to the negotiation of this funding
 	// workflow.
-	nodeAddr net.Addr
+	NodeAddr net.Addr
 
-	// fundingAmount is the amount of funds requested for this channel.
-	fundingAmount btcutil.Amount
+	// FundingAmount is the amount of funds requested for this channel.
+	FundingAmount btcutil.Amount
 
-	// capacity is the total capacity of the channel which includes the
+	// Capacity is the total capacity of the channel which includes the
 	// amount of funds the remote party contributes (if any).
-	capacity btcutil.Amount
+	Capacity btcutil.Amount
 
-	// commitFeePerKw is the starting accepted satoshis/Kw fee for the set
+	// CommitFeePerKw is the starting accepted satoshis/Kw fee for the set
 	// of initial commitment transactions. In order to ensure timely
 	// confirmation, it is recommended that this fee should be generous,
 	// paying some multiple of the accepted base fee rate of the network.
-	commitFeePerKw SatPerKWeight
+	CommitFeePerKw SatPerKWeight
 
-	// fundingFeePerKw is the fee rate in sat/kw to use for the initial
+	// FundingFeePerKw is the fee rate in sat/kw to use for the initial
 	// funding transaction.
-	fundingFeePerKw SatPerKWeight
+	FundingFeePerKw SatPerKWeight
 
-	// pushMSat is the number of milli-satoshis that should be pushed over
+	// PushMSat is the number of milli-satoshis that should be pushed over
 	// the responder as part of the initial channel creation.
-	pushMSat lnwire.MilliSatoshi
+	PushMSat lnwire.MilliSatoshi
 
-	// flags are the channel flags specified by the initiator in the
+	// Flags are the channel flags specified by the initiator in the
 	// open_channel message.
-	flags lnwire.FundingFlag
+	Flags lnwire.FundingFlag
+
+	// MinConfs indicates the minimum number of confirmations that each
+	// output selected to fund the channel should satisfy.
+	MinConfs int32
 
 	// err is a channel in which all errors will be sent across. Will be
 	// nil if this initial set is successful.
@@ -372,7 +376,7 @@ out:
 		select {
 		case m := <-l.msgChan:
 			switch msg := m.(type) {
-			case *initFundingReserveMsg:
+			case *InitFundingReserveMsg:
 				l.handleFundingReserveRequest(msg)
 			case *fundingReserveCancelMsg:
 				l.handleFundingCancelRequest(msg)
@@ -412,36 +416,25 @@ out:
 // transaction, and that the signature we record for our version of the
 // commitment transaction is valid.
 func (l *LightningWallet) InitChannelReservation(
-	capacity, ourFundAmt btcutil.Amount, pushMSat lnwire.MilliSatoshi,
-	commitFeePerKw SatPerKWeight, fundingFeePerKw SatPerKWeight,
-	theirID *btcec.PublicKey, theirAddr net.Addr,
-	chainHash *chainhash.Hash, flags lnwire.FundingFlag) (*ChannelReservation, error) {
+	req *InitFundingReserveMsg) (*ChannelReservation, error) {
 
-	errChan := make(chan error, 1)
-	respChan := make(chan *ChannelReservation, 1)
+	req.resp = make(chan *ChannelReservation, 1)
+	req.err = make(chan error, 1)
 
-	l.msgChan <- &initFundingReserveMsg{
-		chainHash:       chainHash,
-		nodeID:          theirID,
-		nodeAddr:        theirAddr,
-		fundingAmount:   ourFundAmt,
-		capacity:        capacity,
-		commitFeePerKw:  commitFeePerKw,
-		fundingFeePerKw: fundingFeePerKw,
-		pushMSat:        pushMSat,
-		flags:           flags,
-		err:             errChan,
-		resp:            respChan,
+	select {
+	case l.msgChan <- req:
+	case <-l.quit:
+		return nil, errors.New("wallet shutting down")
 	}
 
-	return <-respChan, <-errChan
+	return <-req.resp, <-req.err
 }
 
 // handleFundingReserveRequest processes a message intending to create, and
 // validate a funding reservation request.
-func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg) {
+func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg) {
 	// It isn't possible to create a channel with zero funds committed.
-	if req.fundingAmount+req.capacity == 0 {
+	if req.FundingAmount+req.Capacity == 0 {
 		err := ErrZeroCapacity()
 		req.err <- err
 		req.resp <- nil
@@ -450,18 +443,20 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 
 	// If the funding request is for a different chain than the one the
 	// wallet is aware of, then we'll reject the request.
-	if !bytes.Equal(l.Cfg.NetParams.GenesisHash[:], req.chainHash[:]) {
-		err := ErrChainMismatch(l.Cfg.NetParams.GenesisHash,
-			req.chainHash)
+	if !bytes.Equal(l.Cfg.NetParams.GenesisHash[:], req.ChainHash[:]) {
+		err := ErrChainMismatch(
+			l.Cfg.NetParams.GenesisHash, req.ChainHash,
+		)
 		req.err <- err
 		req.resp <- nil
 		return
 	}
 
 	id := atomic.AddUint64(&l.nextFundingID, 1)
-	reservation, err := NewChannelReservation(req.capacity, req.fundingAmount,
-		req.commitFeePerKw, l, id, req.pushMSat,
-		l.Cfg.NetParams.GenesisHash, req.flags)
+	reservation, err := NewChannelReservation(
+		req.Capacity, req.FundingAmount, req.CommitFeePerKw, l, id,
+		req.PushMSat, l.Cfg.NetParams.GenesisHash, req.Flags,
+	)
 	if err != nil {
 		req.err <- err
 		req.resp <- nil
@@ -472,17 +467,17 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	reservation.Lock()
 	defer reservation.Unlock()
 
-	reservation.nodeAddr = req.nodeAddr
-	reservation.partialState.IdentityPub = req.nodeID
+	reservation.nodeAddr = req.NodeAddr
+	reservation.partialState.IdentityPub = req.NodeID
 
 	// If we're on the receiving end of a single funder channel then we
 	// don't need to perform any coin selection. Otherwise, attempt to
 	// obtain enough coins to meet the required funding amount.
-	if req.fundingAmount != 0 {
+	if req.FundingAmount != 0 {
 		// Coin selection is done on the basis of sat/kw, so we'll use
 		// the fee rate passed in to perform coin selection.
 		err := l.selectCoinsAndChange(
-			req.fundingFeePerKw, req.fundingAmount,
+			req.FundingFeePerKw, req.FundingAmount, req.MinConfs,
 			reservation.ourContribution,
 		)
 		if err != nil {
@@ -1265,9 +1260,10 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 // selection is successful/possible, then the selected coins are available
 // within the passed contribution's inputs. If necessary, a change address will
 // also be generated.
-// TODO(roasbeef): remove hardcoded fees and req'd confs for outputs.
+// TODO(roasbeef): remove hardcoded fees.
 func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerKWeight,
-	amt btcutil.Amount, contribution *ChannelContribution) error {
+	amt btcutil.Amount, minConfs int32,
+	contribution *ChannelContribution) error {
 
 	// We hold the coin select mutex while querying for outputs, and
 	// performing coin selection in order to avoid inadvertent double
@@ -1278,10 +1274,9 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerKWeight,
 	walletLog.Infof("Performing funding tx coin selection using %v "+
 		"sat/kw as fee rate", int64(feeRate))
 
-	// Find all unlocked unspent witness outputs with greater than 1
-	// confirmation.
-	// TODO(roasbeef): make num confs a configuration parameter
-	coins, err := l.ListUnspentWitness(1)
+	// Find all unlocked unspent witness outputs that satisfy the minimum
+	// number of confirmations required.
+	coins, err := l.ListUnspentWitness(minConfs)
 	if err != nil {
 		return err
 	}

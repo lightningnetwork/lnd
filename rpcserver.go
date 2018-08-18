@@ -770,6 +770,12 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 			"size is: %v SAT", int64(minChanFundingSize))
 	}
 
+	// Ensure that the MinConfs parameter is non-negative.
+	if in.MinConfs < 0 {
+		return errors.New("minimum number of confirmations must be a " +
+			"non-negative number")
+	}
+
 	var (
 		nodePubKey      *btcec.PublicKey
 		nodePubKeyBytes []byte
@@ -813,11 +819,19 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	// Instruct the server to trigger the necessary events to attempt to
 	// open a new channel. A stream is returned in place, this stream will
 	// be used to consume updates of the state of the pending channel.
-	updateChan, errChan := r.server.OpenChannel(
-		nodePubKey, localFundingAmt,
-		lnwire.NewMSatFromSatoshis(remoteInitialBalance),
-		minHtlc, feeRate, in.Private, remoteCsvDelay,
-	)
+	req := &openChanReq{
+		targetPubkey:    nodePubKey,
+		chainHash:       *activeNetParams.GenesisHash,
+		localFundingAmt: localFundingAmt,
+		pushAmt:         lnwire.NewMSatFromSatoshis(remoteInitialBalance),
+		minHtlc:         minHtlc,
+		fundingFeePerKw: feeRate,
+		private:         in.Private,
+		remoteCsvDelay:  remoteCsvDelay,
+		minConfs:        in.MinConfs,
+	}
+
+	updateChan, errChan := r.server.OpenChannel(req)
 
 	var outpoint wire.OutPoint
 out:
@@ -929,6 +943,12 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 			"size is: %v SAT", int64(minChanFundingSize))
 	}
 
+	// Ensure that the MinConfs parameter is non-negative.
+	if in.MinConfs < 0 {
+		return nil, errors.New("minimum number of confirmations must " +
+			"be a non-negative number")
+	}
+
 	// Based on the passed fee related parameters, we'll determine an
 	// appropriate fee rate for the funding transaction.
 	feeRate, err := determineFeePerKw(
@@ -941,12 +961,19 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	rpcsLog.Tracef("[openchannel] target sat/kw for funding tx: %v",
 		int64(feeRate))
 
-	updateChan, errChan := r.server.OpenChannel(
-		nodepubKey, localFundingAmt,
-		lnwire.NewMSatFromSatoshis(remoteInitialBalance),
-		minHtlc, feeRate, in.Private, remoteCsvDelay,
-	)
+	req := &openChanReq{
+		targetPubkey:    nodepubKey,
+		chainHash:       *activeNetParams.GenesisHash,
+		localFundingAmt: localFundingAmt,
+		pushAmt:         lnwire.NewMSatFromSatoshis(remoteInitialBalance),
+		minHtlc:         minHtlc,
+		fundingFeePerKw: feeRate,
+		private:         in.Private,
+		remoteCsvDelay:  remoteCsvDelay,
+		minConfs:        in.MinConfs,
+	}
 
+	updateChan, errChan := r.server.OpenChannel(req)
 	select {
 	// If an error occurs them immediately return the error to the client.
 	case err := <-errChan:

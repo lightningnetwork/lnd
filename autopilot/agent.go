@@ -186,12 +186,17 @@ type balanceUpdate struct {
 	balanceDelta btcutil.Amount
 }
 
-// chanOpenUpdate is a type of external state update the indicates a new
+// chanOpenUpdate is a type of external state update that indicates a new
 // channel has been opened, either by the Agent itself (within the main
 // controller loop), or by an external user to the system.
 type chanOpenUpdate struct {
 	newChan Channel
 }
+
+// chanPendingOpenUpdate is a type of external state update that indicates a new
+// channel has been opened, either by the agent itself or an external subsystem,
+// but is still pending.
+type chanPendingOpenUpdate struct{}
 
 // chanOpenFailureUpdate is a type of external state update that indicates
 // a previous channel open failed, and that it might be possible to try again.
@@ -206,9 +211,13 @@ type chanCloseUpdate struct {
 // OnBalanceChange is a callback that should be executed each time the balance of
 // the backing wallet changes.
 func (a *Agent) OnBalanceChange(delta btcutil.Amount) {
+	a.wg.Add(1)
 	go func() {
-		a.stateUpdates <- &balanceUpdate{
-			balanceDelta: delta,
+		defer a.wg.Done()
+
+		select {
+		case a.stateUpdates <- &balanceUpdate{balanceDelta: delta}:
+		case <-a.quit:
 		}
 	}()
 }
@@ -216,9 +225,25 @@ func (a *Agent) OnBalanceChange(delta btcutil.Amount) {
 // OnChannelOpen is a callback that should be executed each time a new channel
 // is manually opened by the user or any system outside the autopilot agent.
 func (a *Agent) OnChannelOpen(c Channel) {
+	a.wg.Add(1)
 	go func() {
-		a.stateUpdates <- &chanOpenUpdate{
-			newChan: c,
+		defer a.wg.Done()
+
+		select {
+		case a.stateUpdates <- &chanOpenUpdate{newChan: c}:
+		case <-a.quit:
+		}
+	}()
+}
+
+// OnChannelPendingOpen is a callback that should be executed each time a new
+// channel is opened, either by the agent or an external subsystems, but is
+// still pending.
+func (a *Agent) OnChannelPendingOpen() {
+	go func() {
+		select {
+		case a.stateUpdates <- &chanPendingOpenUpdate{}:
+		case <-a.quit:
 		}
 	}()
 }
@@ -227,8 +252,14 @@ func (a *Agent) OnChannelOpen(c Channel) {
 // autopilot has attempted to open a channel, but failed. In this case we can
 // retry channel creation with a different node.
 func (a *Agent) OnChannelOpenFailure() {
+	a.wg.Add(1)
 	go func() {
-		a.stateUpdates <- &chanOpenFailureUpdate{}
+		defer a.wg.Done()
+
+		select {
+		case a.stateUpdates <- &chanOpenFailureUpdate{}:
+		case <-a.quit:
+		}
 	}()
 }
 
@@ -236,9 +267,13 @@ func (a *Agent) OnChannelOpenFailure() {
 // channel has been closed for any reason. This includes regular
 // closes, force closes, and channel breaches.
 func (a *Agent) OnChannelClose(closedChans ...lnwire.ShortChannelID) {
+	a.wg.Add(1)
 	go func() {
-		a.stateUpdates <- &chanCloseUpdate{
-			closedChans: closedChans,
+		defer a.wg.Done()
+
+		select {
+		case a.stateUpdates <- &chanCloseUpdate{closedChans: closedChans}:
+		case <-a.quit:
 		}
 	}()
 }
@@ -362,6 +397,12 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 				delete(pendingOpens, newChan.Node)
 				pendingMtx.Unlock()
 
+				updateBalance()
+
+			// A new channel has been opened by the agent or an
+			// external subsystem, but is still pending
+			// confirmation.
+			case *chanPendingOpenUpdate:
 				updateBalance()
 
 			// A channel has been closed, this may free up an
@@ -580,6 +621,12 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 								err)
 						}
 					}
+
+					// Since the channel open was successful
+					// and is currently pending, we'll
+					// trigger the autopilot agent to query
+					// for more peers.
+					a.OnChannelPendingOpen()
 				}(chanCandidate)
 			}
 			pendingMtx.Unlock()

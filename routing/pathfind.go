@@ -1,7 +1,6 @@
 package routing
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -634,11 +633,71 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		// Compute the tentative distance to this new channel/edge
 		// which is the distance from our toNode to the target node
 		// plus the weight of this edge.
-		tempDist := toNodeDist.dist + weight
+		// If Source = destination the distance "to source" is set to
+		// infintiy. So we need tempDist to be lower.
+		var tempDist int64
+		if toNodeDist.dist == infinity {
+			tempDist = weight
+		} else {
+			tempDist = toNodeDist.dist + weight
+		}
 
-		// If this new tentative distance is not better than the current
-		// best known distance to this node, return.
-		if tempDist >= distance[fromVertex].dist {
+		// In the event of self routing and next node.dist is less than
+		// current node dist, then we know there is a potential path back to source.
+		if targetNode.PubKeyBytes == sourceNode.PubKeyBytes && tempDist-weight >= distance[fromVertex].dist {
+			// First we add the current ignored list then nodes and edges in
+			// the current to pass to the 'from middle to source' pathFind
+			// iteration as "ignored" to prevent loops.
+			tempIgnoredEdges := make(map[uint64]struct{})
+			tempIgnoredNodes := make(map[Vertex]struct{})
+			for x := range ignoredNodes {
+				tempIgnoredNodes[x] = ignoredNodes[x]
+			}
+			for x := range ignoredEdges {
+				tempIgnoredEdges[x] = ignoredEdges[x]
+			}
+			currentNode := Vertex(fromNode.PubKeyBytes)
+			for currentNode != Vertex(sourceNode.PubKeyBytes) {
+				// Add the current hop to the list of path edges then walk
+				// backwards from this hop via the prev pointer for this hop
+				// within the prevHop map.
+				tempIgnoredEdges[next[currentNode].ChannelID] = struct{}{}
+				if currentNode != fromNode.PubKeyBytes {
+					tempIgnoredNodes[currentNode] = struct{}{}
+				}
+				// Advance current node.
+				currentNode = Vertex(next[currentNode].Node.PubKeyBytes)
+			}
+			// To get the correct ChannelEdgePolicy we set the node, that we found
+			// that is closer to the source than our current node, as the destination
+			// and the source as the source.  This'll give us the other half of
+			// the route, from the POV of the fromNode.
+			tempSource, _ := fromNode.PubKey()
+			maxRemainderFee := feeLimit - distance[fromVertex].fee
+			pathFromMiddle, err := findPath(
+				tx, graph, nil, targetNode, tempSource, tempIgnoredNodes, tempIgnoredEdges,
+				amt, maxRemainderFee, bandwidthHints,
+			)
+			if err != nil {
+				return
+			}
+			// Adds all edges found in PathFromMiddle to next map
+			next[targetVertex] = &ChannelHop{
+				ChannelEdgePolicy: pathFromMiddle[0].ChannelEdgePolicy,
+				Bandwidth:         pathFromMiddle[0].Bandwidth,
+			}
+			numEdges := len(pathFromMiddle)
+			for i := 0; i < numEdges-1; i++ {
+				next[Vertex(pathFromMiddle[i].Node.PubKeyBytes)] = &ChannelHop{
+					ChannelEdgePolicy: pathFromMiddle[i+1].ChannelEdgePolicy,
+					Bandwidth:         pathFromMiddle[i+1].Bandwidth,
+				}
+			}
+			return
+
+			// If this new tentative distance is not better than the current
+			// best known distance to this node, return.
+		} else if tempDist >= distance[fromVertex].dist {
 			return
 		}
 
@@ -686,11 +745,29 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		partialPath := heap.Pop(&nodeHeap).(nodeWithDist)
 		bestNode := partialPath.node
 
+		// If we found a full path back to self in an inner loop, we exit early.
+		if _, ok := next[sourceVertex]; ok {
+			break
+		}
+
 		// If we've reached our source (or we don't have any incoming
 		// edges), then we're done here and can exit the graph
 		// traversal early.
-		if bytes.Equal(bestNode.PubKeyBytes[:], sourceVertex[:]) {
-			break
+		if bestNode.PubKeyBytes == sourceNode.PubKeyBytes {
+			// In the event that we're sending payments to ourselves,
+			// we don't want to give up when starting at the source,
+			// thinking the shortest path is zero.
+			if distance[targetVertex].dist == 0 &&
+				sourceNode.PubKeyBytes == targetNode.PubKeyBytes {
+				distance[sourceVertex] = nodeWithDist{
+					dist:            infinity,
+					node:            targetNode,
+					amountToReceive: amt,
+					fee:             0,
+				}
+			} else {
+				break
+			}
 		}
 
 		// Now that we've found the next potential step to take we'll
@@ -709,17 +786,15 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 				return nil
 			}
 
-			// We'll query the lower layer to see if we can obtain
-			// any more up to date information concerning the
-			// bandwidth of this edge.
-			edgeBandwidth, ok := bandwidthHints[edgeInfo.ChannelID]
-			if !ok {
-				// If we don't have a hint for this edge, then
-				// we'll just use the known Capacity as the
-				// available bandwidth.
-				edgeBandwidth = lnwire.NewMSatFromSatoshis(
-					edgeInfo.Capacity,
-				)
+			// Doesn't process edges where Prev node and next channel are the same
+			// Necessary when source = destination and always beneficial.
+			if pivot != Vertex(targetNode.PubKeyBytes) && next[pivot].ChannelID == inEdge.ChannelID {
+				return nil
+			}
+
+			// If path found in inner loop, do not process any more edges
+			if _, ok := next[sourceVertex]; ok {
+				return nil
 			}
 
 			// Before we can process the edge, we'll need to fetch
@@ -731,6 +806,25 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			)
 			if err != nil {
 				return err
+			}
+
+			// We'll query the lower layer to see if we can obtain
+			// any more up to date information concerning the
+			// bandwidth of this edge.
+			edgeBandwidth, ok := bandwidthHints[edgeInfo.ChannelID]
+			if !ok {
+				// If we don't have a hint for this edge, then
+				// we'll just use the known Capacity as the
+				// available bandwidth.
+				edgeBandwidth = lnwire.NewMSatFromSatoshis(
+					edgeInfo.Capacity,
+				)
+			} else if sourceVertex == targetVertex && channelSource.PubKeyBytes != sourceNode.PubKeyBytes {
+				// If routing to self bandwidth hints exist, but should be reversed.
+				// We need to reverse bandwidth hints when current node is source, but
+				// not when the next hop is source.
+				edgeBandwidth = lnwire.NewMSatFromSatoshis(
+					edgeInfo.Capacity) - edgeBandwidth
 			}
 
 			// Check if this candidate node is better than what we
@@ -763,6 +857,23 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	// Use the nextHop map to unravel the forward path from source to target.
 	pathEdges := make([]*ChannelHop, 0, len(next))
 	currentNode := sourceVertex
+
+	// In the event of self routing and path is found, processes first step
+	// through prevHop map, and deletes next hop of source to prevent
+	// infinite loops. Required for routing to self. This allows the necessary
+	// loop self back to self, while preventing an infinite loop.
+	if sourceNode.PubKeyBytes == targetNode.PubKeyBytes {
+		// Determine the next hop forward using the next map.
+		nextNode := next[currentNode]
+
+		// Add the next hop to the list of path edges.
+		pathEdges = append(pathEdges, nextNode)
+
+		// Advance current node.
+		currentNode = Vertex(nextNode.Node.PubKeyBytes)
+		delete(next, sourceVertex)
+	}
+
 	for currentNode != targetVertex { // TODO(roasbeef): assumes no cycles
 		// Determine the next hop forward using the next map.
 		nextNode := next[currentNode]

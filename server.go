@@ -817,7 +817,16 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 				return defaultDelay
 			}
 
-			// If not we scale according to channel size.
+			// In case the user has explicitly specified
+			// a max value for the remote delay, we use it and
+			// also for the scaling based on the channel size.
+			maxRemoteDelayOverride := uint16(chainCfg.MaxRemoteDelay)
+			if maxRemoteDelayOverride > 0 {
+				maxRemoteDelay = maxRemoteDelayOverride
+			}
+
+			// If no default value is provided,
+			// we scale according to channel size.
 			delay := uint16(btcutil.Amount(maxRemoteDelay) *
 				chanAmt / maxFundingAmount)
 			if delay < minRemoteDelay {

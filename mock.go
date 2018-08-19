@@ -84,7 +84,8 @@ func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx,
 }
 
 type mockNotfier struct {
-	confChannel chan *chainntnfs.TxConfirmation
+	confChannel  chan *chainntnfs.TxConfirmation
+	epochChannel chan *chainntnfs.BlockEpoch
 }
 
 func (m *mockNotfier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
@@ -96,7 +97,7 @@ func (m *mockNotfier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 func (m *mockNotfier) RegisterBlockEpochNtfn(
 	bestBlock *chainntnfs.BlockEpoch) (*chainntnfs.BlockEpochEvent, error) {
 	return &chainntnfs.BlockEpochEvent{
-		Epochs: make(chan *chainntnfs.BlockEpoch),
+		Epochs: m.epochChannel,
 		Cancel: func() {},
 	}, nil
 }
@@ -329,10 +330,11 @@ type preimageAndExp struct {
 
 type mockWitnessBeacon struct {
 	sync.RWMutex
-	cache map[[32]byte]*preimageAndExp
 	// cache: payhash -> (preimage, expiry)
+	cache map[[32]byte]*preimageAndExp
 	notifier *mockNotfier
 	wg sync.WaitGroup
+	quit chan struct{}
 }
 
 func (m *mockWitnessBeacon) SubscribeUpdates() *contractcourt.WitnessSubscription {
@@ -347,6 +349,9 @@ func (m *mockWitnessBeacon) LookupPreimage(payhash []byte) ([]byte, bool) {
 	copy(h[:], payhash)
 
 	p, ok := m.cache[h]
+	if (p == nil) {
+		return nil, ok
+	}
 	return p.preimage, ok
 }
 
@@ -354,8 +359,8 @@ func (m *mockWitnessBeacon) AddPreimage(pre []byte, expiryHeight uint32) error {
 	m.Lock()
 	defer m.Unlock()
 
-	m.cache[sha256.Sum256(preimage[:])] = &preimageAndExp{
-		preimage: preimage,
+	m.cache[sha256.Sum256(pre[:])] = &preimageAndExp{
+		preimage: pre,
 		expiry: expiryHeight,
 	}
 
@@ -375,6 +380,9 @@ func (m *mockWitnessBeacon) Start() error {
 }
 
 func (m *mockWitnessBeacon) Stop() error {
+	// Stop garbage collector
+	close(m.quit)
+
 	m.wg.Wait()
 
 	return nil
@@ -386,7 +394,7 @@ func (m *mockWitnessBeacon) gc(epochClient *chainntnfs.BlockEpochEvent) {
 
 	for {
 		select {
-		case epoch, ok := <- epochClient.Epochs:
+		case epoch, ok := <-epochClient.Epochs:
 			if !ok {
 				// Block epoch was canceled, return.
 				return
@@ -401,6 +409,8 @@ func (m *mockWitnessBeacon) gc(epochClient *chainntnfs.BlockEpochEvent) {
 				}
 			}
 			m.Unlock()
+		case <-m.quit:
+			return
 		}
 	}
 }

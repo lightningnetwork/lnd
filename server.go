@@ -2767,6 +2767,8 @@ func (s *server) OpenChannel(
 	s.mu.RLock()
 	peer, ok := s.peersByPub[string(pubKeyBytes)]
 	if !ok {
+		s.mu.RUnlock()
+
 		req.err <- fmt.Errorf("peer %x is not online", pubKeyBytes)
 		return req.updates, req.err
 	}

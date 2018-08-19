@@ -20,14 +20,14 @@ var (
 
 func createPreimageBeacon() *mockWitnessBeacon {
 	notifier := &mockNotfier{
-		confChannel: nil,
+		confChannel:  nil,
 		epochChannel: make(chan *chainntnfs.BlockEpoch),
 	}
 
 	witnessBeacon := &mockWitnessBeacon{
-		cache: make(map[[32]byte]*preimageAndExp),
+		cache:    make(map[[32]byte]*preimageAndExp),
 		notifier: notifier,
-		quit: make(chan struct{}),
+		quit:     make(chan struct{}),
 	}
 
 	return witnessBeacon
@@ -46,7 +46,7 @@ func TestPreimageBeaconGarbageCollector(t *testing.T) {
 	witnessBeacon.AddPreimage(preimage[:], 5)
 
 	witnessBeacon.notifier.epochChannel <- &chainntnfs.BlockEpoch{
-		Hash: nil,
+		Hash:   nil,
 		Height: 6,
 	}
 

@@ -325,16 +325,16 @@ func (m *mockPreimageCache) AddPreimage(preimage []byte, exp uint32) error {
 
 type preimageAndExp struct {
 	preimage []byte
-	expiry uint32
+	expiry   uint32
 }
 
 type mockWitnessBeacon struct {
 	sync.RWMutex
 	// cache: payhash -> (preimage, expiry)
-	cache map[[32]byte]*preimageAndExp
+	cache    map[[32]byte]*preimageAndExp
 	notifier *mockNotfier
-	wg sync.WaitGroup
-	quit chan struct{}
+	wg       sync.WaitGroup
+	quit     chan struct{}
 }
 
 func (m *mockWitnessBeacon) SubscribeUpdates() *contractcourt.WitnessSubscription {
@@ -349,7 +349,7 @@ func (m *mockWitnessBeacon) LookupPreimage(payhash []byte) ([]byte, bool) {
 	copy(h[:], payhash)
 
 	p, ok := m.cache[h]
-	if (p == nil) {
+	if p == nil {
 		return nil, ok
 	}
 	return p.preimage, ok
@@ -361,7 +361,7 @@ func (m *mockWitnessBeacon) AddPreimage(pre []byte, expiryHeight uint32) error {
 
 	m.cache[sha256.Sum256(pre[:])] = &preimageAndExp{
 		preimage: pre,
-		expiry: expiryHeight,
+		expiry:   expiryHeight,
 	}
 
 	return nil
@@ -404,7 +404,7 @@ func (m *mockWitnessBeacon) gc(epochClient *chainntnfs.BlockEpochEvent) {
 			// Loop through cache and delete expired preimages.
 			m.Lock()
 			for payhash, value := range m.cache {
-				if (height > value.expiry) {
+				if height > value.expiry {
 					delete(m.cache, payhash)
 				}
 			}

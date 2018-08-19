@@ -585,7 +585,7 @@ func (l *channelLink) syncChanStates() error {
 
 		// Ensure that all packets have been have been removed from the
 		// link's mailbox.
-		if err := l.ackDownStreamPackets(true); err != nil {
+		if err := l.ackDownStreamPackets(); err != nil {
 			return err
 		}
 
@@ -1493,12 +1493,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 // removed from the circuit map before removing them from the link's mailbox,
 // otherwise it could be possible for some circuit to be missed if this link
 // flaps.
-//
-// The `forgive` flag allows this method to tolerate restarts, and ignores
-// errors that could be caused by a previous circuit deletion. Under normal
-// operation, this is set to false so that we would fail the link if we were
-// unable to remove a circuit.
-func (l *channelLink) ackDownStreamPackets(forgive bool) error {
+func (l *channelLink) ackDownStreamPackets() error {
 	// First, remove the downstream Add packets that were included in the
 	// previous commitment signature. This will prevent the Adds from being
 	// replayed if this link disconnects.
@@ -1523,21 +1518,6 @@ func (l *channelLink) ackDownStreamPackets(forgive bool) error {
 	switch err {
 	case nil:
 		// Successful deletion.
-
-	case ErrUnknownCircuit:
-		if forgive {
-			// After a restart, we may have already removed this
-			// circuit. Since it shouldn't be possible for a
-			// circuit to be closed by different htlcs, we assume
-			// this error signals that the whole batch was
-			// successfully removed.
-			l.warnf("forgiving unknown circuit error after " +
-				"attempting deletion, circuit was probably " +
-				"removed before shutting down.")
-			break
-		}
-
-		return err
 
 	default:
 		l.errorf("unable to delete %d circuits: %v",
@@ -1603,7 +1583,7 @@ func (l *channelLink) updateCommitTx() error {
 		return err
 	}
 
-	if err := l.ackDownStreamPackets(false); err != nil {
+	if err := l.ackDownStreamPackets(); err != nil {
 		return err
 	}
 

@@ -225,8 +225,10 @@ func (cm *circuitMap) initBuckets() error {
 
 // restoreMemState loads the contents of the half circuit and full circuit
 // buckets from disk and reconstructs the in-memory representation of the
-// circuit map.  Afterwards, the state of the hash index is reconstructed using
-// the recovered set of full circuits.
+// circuit map. Afterwards, the state of the hash index is reconstructed using
+// the recovered set of full circuits. This method will also remove any stray
+// keystones, which are those that appear fully-opened, but have no pending
+// circuit related to the intended incoming link.
 func (cm *circuitMap) restoreMemState() error {
 	log.Infof("Restoring in-memory circuit state from disk")
 
@@ -235,7 +237,7 @@ func (cm *circuitMap) restoreMemState() error {
 		pending = make(map[CircuitKey]*PaymentCircuit)
 	)
 
-	if err := cm.cfg.DB.View(func(tx *bolt.Tx) error {
+	if err := cm.cfg.DB.Update(func(tx *bolt.Tx) error {
 		// Restore any of the circuits persisted in the circuit bucket
 		// back into memory.
 		circuitBkt := tx.Bucket(circuitAddKey)
@@ -264,6 +266,7 @@ func (cm *circuitMap) restoreMemState() error {
 			return ErrCorruptedCircuitMap
 		}
 
+		var strayKeystones []Keystone
 		if err := keystoneBkt.ForEach(func(k, v []byte) error {
 			var (
 				inKey  CircuitKey
@@ -280,13 +283,43 @@ func (cm *circuitMap) restoreMemState() error {
 
 			// Retrieve the pending circuit, set its keystone, then
 			// add it to the opened map.
-			circuit := pending[inKey]
-			circuit.Outgoing = outKey
-			opened[*outKey] = circuit
+			circuit, ok := pending[inKey]
+			if ok {
+				circuit.Outgoing = outKey
+				opened[*outKey] = circuit
+			} else {
+				strayKeystones = append(strayKeystones, Keystone{
+					InKey:  inKey,
+					OutKey: *outKey,
+				})
+			}
 
 			return nil
 		}); err != nil {
 			return err
+		}
+
+		// If any stray keystones were found, we'll proceed to prune
+		// them from the circuit map's persistent storage. This may
+		// manifest on older nodes that had updated channels before
+		// their short channel id was set properly. We believe this
+		// issue has been fixed, though this will allow older nodes to
+		// recover without additional intervention.
+		for _, strayKeystone := range strayKeystones {
+			// As a precaution, we will only cleanup keystones
+			// related to locally-initiated payments. If a
+			// documented case of stray keystones emerges for
+			// forwarded payments, this check should be removed, but
+			// with extreme caution.
+			if strayKeystone.OutKey.ChanID != sourceHop {
+				continue
+			}
+
+			log.Infof("Removing stray keystone: %v", strayKeystone)
+			err := keystoneBkt.Delete(strayKeystone.OutKey.Bytes())
+			if err != nil {
+				return err
+			}
 		}
 
 		return nil

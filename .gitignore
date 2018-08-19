@@ -28,8 +28,10 @@ _testmain.go
 /lnd-debug
 /lncli
 /lncli-debug
+/lnwallet-debug
 /lnd-itest
 /lncli-itest
+/lnwallet-itest
 
 # Integration test log files
 lntest/itest/output*.log

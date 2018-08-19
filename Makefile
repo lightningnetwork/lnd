@@ -88,19 +88,22 @@ btcd:
 # ============
 
 build:
-	@$(call print, "Building debug lnd and lncli.")
+	@$(call print, "Building debug lnd/lncli and lnwallet.")
 	$(GOBUILD) -tags="$(DEV_TAGS)" -o lnd-debug $(LDFLAGS) $(PKG)/cmd/lnd
 	$(GOBUILD) -tags="$(DEV_TAGS)" -o lncli-debug $(LDFLAGS) $(PKG)/cmd/lncli
+	$(GOBUILD) -tags="$(DEV_TAGS)" -o lnwallet-debug $(LDFLAGS) $(PKG)/cmd/lnwallet
 
 build-itest:
 	@$(call print, "Building itest lnd and lncli.")
 	$(GOBUILD) -tags="$(ITEST_TAGS)" -o lnd-itest $(LDFLAGS) $(PKG)/cmd/lnd
 	$(GOBUILD) -tags="$(ITEST_TAGS)" -o lncli-itest $(LDFLAGS) $(PKG)/cmd/lncli
+	$(GOBUILD) -tags="$(ITEST_TAGS)" -o lnwallet-itest $(LDFLAGS) $(PKG)/cmd/lnwallet
 
 install:
-	@$(call print, "Installing lnd and lncli.")
+	@$(call print, "Installing lnd/lncli and lnwallet.")
 	$(GOINSTALL) -tags="${tags}" $(LDFLAGS) $(PKG)/cmd/lnd
 	$(GOINSTALL) -tags="${tags}" $(LDFLAGS) $(PKG)/cmd/lncli
+	$(GOINSTALL) -tags="${tags}" $(LDFLAGS) $(PKG)/cmd/lnwallet
 
 scratch: build
 
@@ -198,8 +201,8 @@ mobile: ios android
 
 clean:
 	@$(call print, "Cleaning source.$(NC)")
-	$(RM) ./lnd-debug ./lncli-debug
-	$(RM) ./lnd-itest ./lncli-itest
+	$(RM) ./lnd-debug ./lncli-debug ./lnwallet-debug
+	$(RM) ./lnd-itest ./lncli-itest ./lnwallet-itest
 	$(RM) -r ./vendor .vendor-new
 
 

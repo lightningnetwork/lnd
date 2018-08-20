@@ -89,7 +89,7 @@ func (o *outputdb) AddStrayOutput(output OutputEntity) error {
 	})
 }
 
-// FetchAllStrayOutputs returns all stray outputs in DB.
+// FetchAllStrayOutputs returns stray outputs in DB by prefix.
 func (o *outputdb) FetchAllStrayOutputs(state OutputState) ([]OutputEntity, error) {
 	var outputs []OutputEntity
 	if err := o.db.View(func(tx *bolt.Tx) error {
@@ -127,8 +127,9 @@ func (o *outputdb) ChangeState(output OutputEntity, state OutputState) error {
 	}
 
 	return o.db.Update(func(tx *bolt.Tx) error {
+		outputBucket := tx.Bucket(strayOutputBucket)
 		stateBucket := tx.Bucket(strayOutputStateBucket)
-		if stateBucket == nil {
+		if outputBucket == nil || stateBucket == nil {
 			return ErrNoStrayOutputCreated
 		}
 
@@ -140,7 +141,23 @@ func (o *outputdb) ChangeState(output OutputEntity, state OutputState) error {
 
 		// Get key of strayOutputBucket where contains encoded data
 		// with spendable output.
-		outputLinkBytes := stateBucket.Get(stateIDBytes)
+		outputIDBytes := stateBucket.Get(stateIDBytes)
+
+		// Then we need to encode output entity with new state parameter.
+		var b bytes.Buffer
+		output := &strayOutputEntity{
+			id:         output.ID(),
+			outputType: output.Type(),
+			state:      state,
+			output:     output.Output(),
+		}
+		if err := output.Encode(&b); err != nil {
+			return err
+		}
+
+		if err := outputBucket.Put(outputIDBytes, b.Bytes()); err != nil {
+			return err
+		}
 
 		// We need to remove previous link to this prefix.
 		if err := stateBucket.Delete(stateIDBytes); err != nil {
@@ -150,7 +167,7 @@ func (o *outputdb) ChangeState(output OutputEntity, state OutputState) error {
 		// Set a new changed prefix for specified output entity.
 		copy(stateIDBytes[:2], state.Prefix())
 
-		return stateBucket.Put(stateIDBytes, outputLinkBytes)
+		return stateBucket.Put(stateIDBytes, outputIDBytes)
 	})
 }
 

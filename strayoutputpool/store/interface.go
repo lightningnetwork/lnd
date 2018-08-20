@@ -23,9 +23,17 @@ const (
 type OutputState byte
 
 const (
-	OutputPending   OutputState = 0
-	OutputPublished             = 1
-	OutputSwept                 = 2
+	// OutputPending is state when stray output was added to pool and haven't
+	// processed yet, stored in persistent storage.
+	OutputPending OutputState = 0
+
+	// OutputPublished is state when this output was aggregated with others
+	// as transaction and published to the chain network.
+	OutputPublished = 1
+
+	// OutputSwept is state when output was published and has appropriate
+	// number of confirmations.
+	OutputSwept = 2
 )
 
 // Prefix returns prefix of state needed to store in database.

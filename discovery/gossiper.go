@@ -31,6 +31,10 @@ var (
 	// AnnounceSignatures messages, by persisting them until a send
 	// operation has succeeded.
 	messageStoreKey = []byte("message-store")
+
+	// ErrGossiperShuttingDown is an error that is returned if the gossiper
+	// is in the process of being shut down.
+	ErrGossiperShuttingDown = errors.New("gossiper is shutting down")
 )
 
 // networkMsg couples a routing related wire message with the peer that
@@ -476,7 +480,7 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(msg lnwire.Message,
 	select {
 	case d.networkMsgs <- nMsg:
 	case <-d.quit:
-		nMsg.err <- errors.New("gossiper has shut down")
+		nMsg.err <- ErrGossiperShuttingDown
 	}
 
 	return nMsg.err
@@ -502,7 +506,7 @@ func (d *AuthenticatedGossiper) ProcessLocalAnnouncement(msg lnwire.Message,
 	select {
 	case d.networkMsgs <- nMsg:
 	case <-d.quit:
-		nMsg.err <- errors.New("gossiper has shut down")
+		nMsg.err <- ErrGossiperShuttingDown
 	}
 
 	return nMsg.err

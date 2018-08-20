@@ -31,7 +31,7 @@ const (
 	ErrTargetNotInNetwork
 
 	// ErrOutdated is returned when the routing update already have
-	// been applied.
+	// been applied, or a newer update is already known.
 	ErrOutdated
 
 	// ErrIgnored is returned when the update have been ignored because

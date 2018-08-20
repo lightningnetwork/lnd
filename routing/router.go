@@ -1080,30 +1080,31 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		// As edges are directional edge node has a unique policy for
 		// the direction of the edge they control. Therefore we first
 		// check if we already have the most up to date information for
-		// that edge. If so, then we can exit early.
+		// that edge. If this message has a timestamp not strictly
+		// newer than what we already know of we can exit early.
 		switch {
 
 		// A flag set of 0 indicates this is an announcement for the
 		// "first" node in the channel.
 		case msg.Flags&lnwire.ChanUpdateDirection == 0:
-			if edge1Timestamp.After(msg.LastUpdate) ||
-				edge1Timestamp.Equal(msg.LastUpdate) {
 
-				return newErrf(ErrIgnored, "Ignoring update "+
-					"(flags=%v) for known chan_id=%v", msg.Flags,
-					msg.ChannelID)
+			// Ignore outdated message.
+			if !edge1Timestamp.Before(msg.LastUpdate) {
+				return newErrf(ErrOutdated, "Ignoring "+
+					"outdated update (flags=%v) for known "+
+					"chan_id=%v", msg.Flags, msg.ChannelID)
 
 			}
 
 		// Similarly, a flag set of 1 indicates this is an announcement
 		// for the "second" node in the channel.
 		case msg.Flags&lnwire.ChanUpdateDirection == 1:
-			if edge2Timestamp.After(msg.LastUpdate) ||
-				edge2Timestamp.Equal(msg.LastUpdate) {
 
-				return newErrf(ErrIgnored, "Ignoring update "+
-					"(flags=%v) for known chan_id=%v", msg.Flags,
-					msg.ChannelID)
+			// Ignore outdated message.
+			if !edge2Timestamp.Before(msg.LastUpdate) {
+				return newErrf(ErrOutdated, "Ignoring "+
+					"outdated update (flags=%v) for known "+
+					"chan_id=%v", msg.Flags, msg.ChannelID)
 			}
 		}
 
@@ -2021,7 +2022,7 @@ func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate) error {
 		FeeBaseMSat:               lnwire.MilliSatoshi(msg.BaseFee),
 		FeeProportionalMillionths: lnwire.MilliSatoshi(msg.FeeRate),
 	})
-	if err != nil && !IsError(err, ErrIgnored) {
+	if err != nil && !IsError(err, ErrIgnored, ErrOutdated) {
 		return fmt.Errorf("Unable to apply channel update: %v", err)
 	}
 

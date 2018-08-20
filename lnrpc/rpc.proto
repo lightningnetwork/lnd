@@ -1091,6 +1091,9 @@ message ChannelOpenUpdate {
     ChannelPoint channel_point = 1 [json_name = "channel_point"];
 }
 
+message FundingCanceledUpdate {
+}
+
 message ChannelCloseUpdate {
     bytes closing_txid = 1 [json_name = "closing_txid"];
 
@@ -1164,6 +1167,7 @@ message OpenStatusUpdate {
         PendingUpdate chan_pending = 1 [json_name = "chan_pending"];
         ConfirmationUpdate confirmation = 2 [json_name = "confirmation"];
         ChannelOpenUpdate chan_open = 3 [json_name = "chan_open"];
+        FundingCanceledUpdate canceled = 4 [json_name = "canceled"];
     }
 }
 

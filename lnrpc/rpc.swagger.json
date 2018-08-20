@@ -1616,6 +1616,9 @@
         }
       }
     },
+    "lnrpcFundingCanceledUpdate": {
+      "type": "object"
+    },
     "lnrpcGenSeedResponse": {
       "type": "object",
       "properties": {
@@ -2183,6 +2186,9 @@
         },
         "chan_open": {
           "$ref": "#/definitions/lnrpcChannelOpenUpdate"
+        },
+        "canceled": {
+          "$ref": "#/definitions/lnrpcFundingCanceledUpdate"
         }
       }
     },

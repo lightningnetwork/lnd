@@ -87,6 +87,16 @@ var (
 		"down")
 )
 
+// errFundingCanceled is an error that will be returned and sent to the peer in
+// case the funding flow is being canceled.
+type errFundingCanceled struct {
+}
+
+// Error returns the string representation for errFundingCanaceled.
+func (e errFundingCanceled) Error() string {
+	return "funding flow canceled"
+}
+
 // reservationWithCtx encapsulates a pending channel reservation. This wrapper
 // struct is used internally within the funding manager to track and progress
 // the funding workflow initiated by incoming/outgoing methods from the target
@@ -517,10 +527,11 @@ func (f *fundingManager) Start() error {
 
 			select {
 			case <-timeoutChan:
-				// Timeout channel will be triggered if the number of blocks
-				// mined since the channel was initiated reaches
-				// maxWaitNumBlocksFundingConf and we are not the channel
-				// initiator.
+				// Timeout channel will be triggered if the
+				// number of blocks mined since the channel was
+				// initiated reaches
+				// maxWaitNumBlocksFundingConf and we are not
+				// the channel initiator.
 				localBalance := ch.LocalCommitment.LocalBalance.ToSatoshis()
 				closeInfo := &channeldb.ChannelCloseSummary{
 					ChainHash:               ch.ChainHash,
@@ -835,7 +846,8 @@ func (f *fundingManager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 	}
 
 	// We only send the exact error if it is part of out whitelisted set of
-	// errors (lnwire.ErrorCode or lnwallet.ReservationError).
+	// errors (lnwire.ErrorCode, lnwallet.ReservationError, or
+	// errFundingCanceled).
 	var msg lnwire.ErrorData
 	switch e := fundingErr.(type) {
 
@@ -846,6 +858,10 @@ func (f *fundingManager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 	// Send the status code.
 	case lnwire.ErrorCode:
 		msg = lnwire.ErrorData{byte(e)}
+
+	// Send the error message.
+	case errFundingCanceled:
+		msg = lnwire.ErrorData(e.Error())
 
 	// We just send a generic error.
 	default:
@@ -1486,7 +1502,8 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 			err := fmt.Errorf("timeout waiting for funding tx "+
 				"(%v) to confirm", completeChan.FundingOutpoint)
 			fndgLog.Warnf(err.Error())
-			f.failFundingFlow(fmsg.peer, pendingChanID, err)
+			f.failFundingFlow(fmsg.peer, pendingChanID,
+				errFundingCanceled{})
 			deleteFromDatabase()
 			return
 		case <-f.quit:

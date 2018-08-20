@@ -1092,6 +1092,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 							"barrier shutdown: %v",
 							err)
 					}
+					announcement.err <- err
 					return
 				}
 

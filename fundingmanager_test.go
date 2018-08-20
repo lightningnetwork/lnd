@@ -2407,3 +2407,105 @@ func TestFundingManagerMaxPendingChannels(t *testing.T) {
 		t, bob.msgChan, "AcceptChannel",
 	).(*lnwire.AcceptChannel)
 }
+
+// TestFundingManagerFundingDoubleSpend tests that we correctly handles the
+// case where we fail to broadcast the funding transaction, and/or another
+// conflicting transaction gets mined.
+func TestFundingManagerFundingDoubleSpend(t *testing.T) {
+
+	testCases := []struct {
+		// publishErr is the error to return from the call to
+		// PublishTransaction.
+		publishErr error
+
+		// fundingTxMined indicates whether we the funding tx or a
+		// conflicting tx should be mined.
+		fundingTxMined bool
+	}{
+		{nil, true},
+		{nil, false},
+		{errors.New("any error"), true},
+		{errors.New("any error"), false},
+		{lnwallet.ErrDoubleSpend, true},
+		{lnwallet.ErrDoubleSpend, false},
+	}
+
+	for _, test := range testCases {
+		alice, bob := setupFundingManagers(t, defaultMaxPendingChannels)
+		defer tearDownFundingManagers(t, alice, bob)
+
+		// Intercept the publish method and return the error set for
+		// this test case.
+		alice.fundingMgr.cfg.PublishTransaction = func(
+			txn *wire.MsgTx) error {
+			alice.publTxChan <- txn
+			return test.publishErr
+		}
+
+		// We will consume the channel updates as we go, so no
+		// buffering is needed.
+		updateChan := make(chan *lnrpc.OpenStatusUpdate)
+
+		// Run through the process of opening the channel, up until the
+		// funding transaction is broadcasted.
+		fundingOutPoint := openChannel(t, alice, bob, 500000, 0, 1,
+			updateChan, true)
+
+		// If the test case is checking the case where the funding tx
+		// successfully gets mined and spends the funding input, notify
+		// that the funding input was spent by the funding tx, if not
+		// that it was spent by a conflicting transaction.
+		var spenderHash *chainhash.Hash
+		var err error
+		if test.fundingTxMined {
+			spenderHash = &fundingOutPoint.Hash
+		} else {
+			spenderHash, err = chainhash.NewHashFromStr("abc")
+			if err != nil {
+				t.Fatalf("unable to create hash: %v", err)
+			}
+		}
+
+		alice.mockNotifier.spendChannel <- &chainntnfs.SpendDetail{
+			SpenderTxHash: spenderHash,
+		}
+
+		// If a transaction that conflicts with the funding tx got
+		// mined, we should receive an update saying the funding flow
+		// was canceled at this point.
+		if !test.fundingTxMined {
+			var recvUpdate *lnrpc.OpenStatusUpdate
+			select {
+			case recvUpdate = <-updateChan:
+			case <-time.After(time.Second * 5):
+				t.Fatalf("alice did not send OpenStatusUpdate")
+			}
+
+			_, ok := recvUpdate.Update.(*lnrpc.OpenStatusUpdate_Canceled)
+			if !ok {
+				t.Fatal("OpenStatusUpdate was not OpenStatusUpdate_Canceled")
+			}
+
+			// Go to next test case.
+			continue
+		}
+
+		// If not the funding flow should continue as normal.
+		alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{}
+		bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{}
+
+		_ = assertFundingMsgSent(
+			t, alice.msgChan, "FundingLocked",
+		).(*lnwire.FundingLocked)
+
+		_ = assertFundingMsgSent(
+			t, bob.msgChan, "FundingLocked",
+		).(*lnwire.FundingLocked)
+
+		assertChannelAnnouncements(t, alice, bob)
+
+		// The funding transaction is now confirmed, wait for the
+		// OpenStatusUpdate_ChanOpen update
+		waitForOpenUpdate(t, updateChan)
+	}
+}

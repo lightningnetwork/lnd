@@ -946,7 +946,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		r.rejectMtx.RLock()
 		if _, ok := r.rejectCache[msg.ChannelID]; ok {
 			r.rejectMtx.RUnlock()
-			return newErrf(ErrIgnored, "recently rejected "+
+			return newErrf(ErrRejected, "recently rejected "+
 				"chan_id=%v", msg.ChannelID)
 		}
 		r.rejectMtx.RUnlock()
@@ -1055,7 +1055,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		r.rejectMtx.RLock()
 		if _, ok := r.rejectCache[msg.ChannelID]; ok {
 			r.rejectMtx.RUnlock()
-			return newErrf(ErrIgnored, "recently rejected "+
+			return newErrf(ErrRejected, "recently rejected "+
 				"chan_id=%v", msg.ChannelID)
 		}
 		r.rejectMtx.RUnlock()

@@ -39,6 +39,11 @@ const (
 	// announcement was given for node not found in any channel.
 	ErrIgnored
 
+	// ErrRejected is returned if the update is for a channel ID that was
+	// previously added to the reject cache because of an invalid update
+	// was attempted to be processed.
+	ErrRejected
+
 	// ErrPaymentAttemptTimeout is an error that indicates that a payment
 	// attempt timed out before we were able to successfully route an HTLC.
 	ErrPaymentAttemptTimeout

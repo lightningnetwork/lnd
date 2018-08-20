@@ -1653,12 +1653,16 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		// We'll ignore any channel announcements that target any chain
 		// other than the set of chains we know of.
 		if !bytes.Equal(msg.ChainHash[:], d.cfg.ChainHash[:]) {
-			log.Errorf("Ignoring ChannelAnnouncement from "+
+			err := fmt.Errorf("Ignoring ChannelAnnouncement from "+
 				"chain=%v, gossiper on chain=%v", msg.ChainHash,
 				d.cfg.ChainHash)
+			log.Errorf(err.Error())
+
 			d.rejectMtx.Lock()
 			d.recentRejects[msg.ShortChannelID.ToUint64()] = struct{}{}
 			d.rejectMtx.Unlock()
+
+			nMsg.err <- err
 			return nil
 		}
 
@@ -1863,12 +1867,16 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		// We'll ignore any channel announcements that target any chain
 		// other than the set of chains we know of.
 		if !bytes.Equal(msg.ChainHash[:], d.cfg.ChainHash[:]) {
-			log.Errorf("Ignoring ChannelUpdate from "+
+			err := fmt.Errorf("Ignoring ChannelUpdate from "+
 				"chain=%v, gossiper on chain=%v", msg.ChainHash,
 				d.cfg.ChainHash)
+			log.Errorf(err.Error())
+
 			d.rejectMtx.Lock()
 			d.recentRejects[msg.ShortChannelID.ToUint64()] = struct{}{}
 			d.rejectMtx.Unlock()
+
+			nMsg.err <- err
 			return nil
 		}
 

@@ -1619,7 +1619,7 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 
 	// Now that we have a finalized reservation for this funding flow,
 	// we'll send the to be active channel to the ChainArbitrator so it can
-	// watch for any on-chin actions before the channel has fully
+	// watch for any on-chain actions before the channel has fully
 	// confirmed.
 	if err := f.cfg.WatchNewChannel(completeChan, peerKey); err != nil {
 		fndgLog.Errorf("Unable to send new ChannelPoint(%v) for "+
@@ -1645,16 +1645,80 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 
 	// At this point we have broadcast the funding transaction and done all
 	// necessary processing.
+
+	// TODO: the following leads to a lot of duplication, extract into common methods.
 	f.wg.Add(1)
 	go func() {
 		defer f.wg.Done()
+
+		// First we wait for any spend of the inputs to the funding
+		// transaction. We do this to handle the case where any of the
+		// inputs gets spent by another transaction, invalidating this
+		// funding tx.
+		// TODO(halseth): Move this logic to within RegisterConfNtfn
+		// and return error in case of double spend?
+		fundingTxid := fundingTx.TxHash()
+		fndgLog.Infof("Waiting for funding tx (%v) spend event",
+			fundingTxid)
+
+		spendTxid, err := f.waitForFundingSpend(fundingTx,
+			completeChan.FundingBroadcastHeight)
+		if err != nil {
+			fndgLog.Errorf("Failed waiting for funding spend: %v",
+				err)
+			return
+		}
+
+		// If the funding transaction is being invalidated by a tx
+		// spending one of its inputs, we can cancel this funding flow.
+		if *spendTxid != fundingTxid {
+			fndgLog.Warnf("Input to funding tx spent by another "+
+				"tx(%v)", spendTxid)
+
+			localBalance := completeChan.LocalCommitment.LocalBalance.ToSatoshis()
+			closeInfo := &channeldb.ChannelCloseSummary{
+				ChainHash:               completeChan.ChainHash,
+				ChanPoint:               completeChan.FundingOutpoint,
+				RemotePub:               completeChan.IdentityPub,
+				Capacity:                completeChan.Capacity,
+				SettledBalance:          localBalance,
+				CloseType:               channeldb.FundingCanceled,
+				RemoteCurrentRevocation: completeChan.RemoteCurrentRevocation,
+				RemoteNextRevocation:    completeChan.RemoteNextRevocation,
+				LocalChanConfig:         completeChan.LocalChanCfg,
+			}
+
+			err := completeChan.CloseChannel(closeInfo)
+			if err != nil {
+				fndgLog.Errorf("Failed closing channel %v: %v",
+					completeChan.FundingOutpoint, err)
+			}
+
+			// Send an OpenStatusUpdate, notifying the caller about
+			// the canceled funding flow.
+			update := &lnrpc.OpenStatusUpdate{
+				Update: &lnrpc.OpenStatusUpdate_Canceled{},
+			}
+
+			select {
+			case resCtx.updates <- update:
+			case <-f.quit:
+				return
+			}
+
+			// We must also notify our peer about the failure, as
+			// they only know the funding txid, not necessarily the
+			// inputs, and cannot detect that they are spent.
+			f.failFundingFlow(fmsg.peer, pendingChanID,
+				errFundingCanceled{})
+			return
+		}
+
 		confChan := make(chan *lnwire.ShortChannelID)
 		cancelChan := make(chan struct{})
 
-		// In case the fundingManager is stopped at some point during
-		// the remaining part of the opening process, we must wait for
-		// this process to finish (either successfully or with some
-		// error), before the fundingManager can be shut down.
+		// We now launch a goroutine that will wiat for the funding
+		// transaction to reach the required number of confirmations.
 		f.wg.Add(1)
 		go func() {
 			defer f.wg.Done()
@@ -1669,8 +1733,8 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 			return
 		case shortChanID, ok = <-confChan:
 			if !ok {
-				fndgLog.Errorf("waiting for funding confirmation" +
-					" failed")
+				fndgLog.Errorf("waiting for funding " +
+					"confirmation failed")
 				return
 			}
 		}
@@ -1828,6 +1892,77 @@ func makeFundingScript(channel *channeldb.OpenChannel) ([]byte, error) {
 	return lnwallet.WitnessScriptHash(multiSigScript)
 }
 
+// waitForFundingSpend waits for any of the inputs to the provided funding
+// transaction to be spent, and returns the txid of the spending transaction.
+// This is used to detect the case where the funding tx is double spent and
+// rendered invalid.
+func (f *fundingManager) waitForFundingSpend(fundingTx *wire.MsgTx,
+	fndBroadcastHeight uint32) (*chainhash.Hash, error) {
+
+	// TODO: best way to fetch the script?
+	pkScript := []byte("todo")
+
+	quit := make(chan struct{})
+	defer close(quit)
+
+	errs := make(chan error)
+	spends := make(chan *chainntnfs.SpendDetail)
+
+	for _, txIn := range fundingTx.TxIn {
+
+		f.wg.Add(1)
+		go func() {
+			defer f.wg.Done()
+
+			spendNtfn, err := f.cfg.Notifier.RegisterSpendNtfn(
+				&txIn.PreviousOutPoint, pkScript,
+				fndBroadcastHeight,
+			)
+			if err != nil {
+				select {
+				case errs <- err:
+				case <-quit:
+				case <-f.quit:
+				}
+				return
+			}
+			defer spendNtfn.Cancel()
+
+			select {
+			case spend, ok := <-spendNtfn.Spend:
+				if !ok {
+					err := fmt.Errorf("spend client closed")
+					select {
+					case errs <- err:
+					case <-quit:
+					case <-f.quit:
+					}
+					return
+				}
+
+				select {
+				case spends <- spend:
+				case <-quit:
+				case <-f.quit:
+				}
+
+			case <-quit:
+			case <-f.quit:
+			}
+		}()
+	}
+
+	select {
+	case spend := <-spends:
+		return spend.SpenderTxHash, nil
+	case err := <-errs:
+		return nil, err
+	case <-f.quit:
+		return nil, ErrFundingManagerShuttingDown
+	}
+
+}
+
 // waitForFundingConfirmation handles the final stages of the channel funding
 // process once the funding transaction has been broadcast. The primary
 // function of waitForFundingConfirmation is to wait for blockchain
@@ -1835,8 +1970,9 @@ func makeFundingScript(channel *channeldb.OpenChannel) ([]byte, error) {
 // when a channel has become active for lightning transactions.
 // The wait can be canceled by closing the cancelChan. In case of success,
 // a *lnwire.ShortChannelID will be passed to confChan.
-func (f *fundingManager) waitForFundingConfirmation(completeChan *channeldb.OpenChannel,
-	cancelChan <-chan struct{}, confChan chan<- *lnwire.ShortChannelID) {
+func (f *fundingManager) waitForFundingConfirmation(
+	completeChan *channeldb.OpenChannel, cancelChan <-chan struct{},
+	confChan chan<- *lnwire.ShortChannelID) {
 
 	defer close(confChan)
 

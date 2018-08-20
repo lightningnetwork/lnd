@@ -97,7 +97,7 @@ $(DEP_BIN):
 $(GLIDE_BIN):
 	@$(call print, "Fetching glide.")
 	go get -d $(GLIDE_PKG)
-	cd ${GOPATH}/src/$(GLIDE_PKG) && git checkout $(GLIDE_COMMIT) 
+	cd ${GOPATH}/src/$(GLIDE_PKG) && ( git checkout $(GLIDE_COMMIT) || ( git fetch --all && git checkout $(GLIDE_COMMIT) ) )
 	$(GOINSTALL) $(GLIDE_PKG)
 
 $(GOVERALLS_BIN):
@@ -119,7 +119,7 @@ $(BTCD_DIR):
 
 btcd: $(GLIDE_BIN) $(BTCD_DIR)
 	@$(call print, "Compiling btcd dependencies.")
-	cd $(BTCD_DIR) && git checkout $(BTCD_COMMIT) && glide install
+	cd $(BTCD_DIR) && ( git checkout $(BTCD_COMMIT) || ( git fetch --all && git checkout $(BTCD_COMMIT) ) ) && glide install
 	@$(call print, "Installing btcd and btcctl.")
 	$(GOINSTALL) $(BTCD_PKG)
 	$(GOINSTALL) $(BTCD_PKG)/cmd/btcctl

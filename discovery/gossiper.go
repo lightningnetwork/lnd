@@ -1139,11 +1139,14 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			d.Lock()
 			numPremature := len(d.prematureAnnouncements[uint32(newBlock.Height)])
 			d.Unlock()
-			if numPremature != 0 {
-				log.Infof("Re-processing %v premature "+
-					"announcements for height %v",
-					numPremature, blockHeight)
+
+			// Return early if no announcement to process.
+			if numPremature == 0 {
+				continue
 			}
+
+			log.Infof("Re-processing %v premature announcements "+
+				"for height %v", numPremature, blockHeight)
 
 			d.Lock()
 			for _, ann := range d.prematureAnnouncements[uint32(newBlock.Height)] {

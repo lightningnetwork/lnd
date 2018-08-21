@@ -824,3 +824,46 @@ func TestChannelArbitratorCommitFailure(t *testing.T) {
 		t.Fatalf("contract was not resolved")
 	}
 }
+
+// TestChannelArbitratorEmptyResolutions makes sure that a channel that is
+// pending close in the database, but haven't had any resolutions logged will
+// not be marked resolved. This situation must be handled to avoid closing
+// channels from earlier versions of the ChannelArbitrator, which didn't have a
+// proper handoff from the ChainWatcher, and we could risk ending up in a state
+// where the channel was closed in the DB, but the resolutions weren't properly
+// written.
+func TestChannelArbitratorEmptyResolutions(t *testing.T) {
+	// Start out with a log that will fail writing the set of resolutions.
+	log := &mockArbitratorLog{
+		state:     StateDefault,
+		newStates: make(chan ArbitratorState, 5),
+		failFetch: errNoResolutions,
+	}
+
+	chanArb, _, err := createTestChannelArbitrator(log)
+	if err != nil {
+		t.Fatalf("unable to create ChannelArbitrator: %v", err)
+	}
+
+	chanArb.cfg.IsPendingClose = true
+	chanArb.cfg.ClosingHeight = 100
+	chanArb.cfg.CloseType = channeldb.RemoteForceClose
+
+	if err := chanArb.Start(); err != nil {
+		t.Fatalf("unable to start ChannelArbitrator: %v", err)
+	}
+
+	// It should not advance its state beyond StateContractClosed, since
+	// fetching resolutions fails.
+	assertStateTransitions(
+		t, log.newStates, StateContractClosed,
+	)
+
+	// It should not advance further, however, as fetching resolutions
+	// failed.
+	time.Sleep(100 * time.Millisecond)
+	if log.state != StateContractClosed {
+		t.Fatalf("expected to stay in StateContractClosed")
+	}
+	chanArb.Stop()
+}

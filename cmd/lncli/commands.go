@@ -2037,10 +2037,10 @@ func reBalance(ctx *cli.Context) error {
 			return err
 		}
 	default:
-		return fmt.Errorf("Amount argument is missing.")
+		return fmt.Errorf("amount argument is missing")
 	}
 	if amt <= 0 {
-		return fmt.Errorf("Amount may not be negative nor zero.")
+		return fmt.Errorf("amount may not be negative nor zero")
 	}
 
 	feeLimit, err := retrieveFeeLimit(ctx)

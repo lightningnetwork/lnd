@@ -338,6 +338,10 @@ const (
 	// localCloseTrigger is a transition trigger driven by our commitment
 	// being confirmed.
 	localCloseTrigger
+
+	// coopCloseTrigger is a transition trigger driven by a cooperative
+	// close transaction being confirmed.
+	coopCloseTrigger
 )
 
 // String returns a human readable string describing the passed
@@ -355,6 +359,9 @@ func (t transitionTrigger) String() string {
 
 	case localCloseTrigger:
 		return "localCloseTrigger"
+
+	case coopCloseTrigger:
+		return "coopCloseTrigger"
 
 	default:
 		return "unknown trigger"
@@ -421,10 +428,16 @@ func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
 		case userTrigger:
 			nextState = StateBroadcastCommit
 
+		// If the trigger is a cooperative close being confirmed, then
+		// we can go straight to StateFullyResolved, as there won't be
+		// any contracts to resolve.
+		case coopCloseTrigger:
+			nextState = StateFullyResolved
+
 		// Otherwise, if this state advance was triggered by a
 		// commitment being confirmed on chain, then we'll jump
 		// straight to the state where the contract has already been
-		// closed.
+		// closed, and we will inspect the set of unresolved contracts.
 		case localCloseTrigger:
 			log.Errorf("ChannelArbitrator(%v): unexpected local "+
 				"commitment confirmed while in StateDefault",
@@ -1372,16 +1385,28 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 
 		// We've cooperatively closed the channel, so we're no longer
 		// needed. We'll mark the channel as resolved and exit.
-		case <-c.cfg.ChainEvents.CooperativeClosure:
-			log.Infof("ChannelArbitrator(%v) closing due to co-op "+
-				"closure", c.cfg.ChanPoint)
+		case closeInfo := <-c.cfg.ChainEvents.CooperativeClosure:
+			log.Infof("ChannelArbitrator(%v) marking channel "+
+				"cooperatively closed", c.cfg.ChanPoint)
 
-			if err := c.cfg.MarkChannelResolved(); err != nil {
-				log.Errorf("Unable to mark contract "+
-					"resolved: %v", err)
+			err := c.cfg.MarkChannelClosed(
+				closeInfo.ChannelCloseSummary,
+			)
+			if err != nil {
+				log.Errorf("unable to mark channel closed: "+
+					"%v", err)
+				return
 			}
 
-			return
+			// We'll now advance our state machine until it reaches
+			// a terminal state, and the channel is marked resolved.
+			_, _, err = c.advanceState(
+				closeInfo.CloseHeight, coopCloseTrigger,
+			)
+			if err != nil {
+				log.Errorf("unable to advance state: %v", err)
+				return
+			}
 
 		// We have broadcasted our commitment, and it is now confirmed
 		// on-chain.
@@ -1439,9 +1464,6 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 				CommitResolution: uniClosure.CommitResolution,
 				HtlcResolutions:  *uniClosure.HtlcResolutions,
 			}
-
-			// TODO(roasbeef): modify signal to also detect
-			// cooperative closures?
 
 			// As we're now acting upon an event triggered by the
 			// broadcast of the remote commitment transaction,

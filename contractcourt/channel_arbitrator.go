@@ -262,12 +262,38 @@ func (c *ChannelArbitrator) Start() error {
 		return err
 	}
 
+	// If the channel has been marked pending close in the database, and we
+	// haven't transitioned the state machine to StateContractClosed (or a
+	// suceeding state), then a state transition most likely failed. We'll
+	// try to recover from this by manually advancing the state by setting
+	// the corresponding close trigger.
+	trigger := chainTrigger
+	triggerHeight := uint32(bestHeight)
+	if c.cfg.IsPendingClose {
+		switch c.state {
+		case StateDefault:
+			fallthrough
+		case StateBroadcastCommit:
+			fallthrough
+		case StateCommitmentBroadcasted:
+			switch c.cfg.CloseType {
+			case channeldb.LocalForceClose:
+				trigger = localCloseTrigger
+			case channeldb.RemoteForceClose:
+				trigger = remoteCloseTrigger
+			}
+			triggerHeight = c.cfg.ClosingHeight
+
+			log.Warnf("ChannelArbitrator(%v): detected stalled "+
+				"state=%v for closed channel, using "+
+				"trigger=%v", c.cfg.ChanPoint, c.state, trigger)
+		}
+	}
+
 	// We'll now attempt to advance our state forward based on the current
 	// on-chain state, and our set of active contracts.
 	startingState := c.state
-	nextState, _, err := c.advanceState(
-		uint32(bestHeight), chainTrigger,
-	)
+	nextState, _, err := c.advanceState(triggerHeight, trigger)
 	if err != nil {
 		c.cfg.BlockEpochs.Cancel()
 		return err

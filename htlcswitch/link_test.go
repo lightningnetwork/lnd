@@ -1465,6 +1465,7 @@ func (m *mockPeer) SendMessage(sync bool, msgs ...lnwire.Message) error {
 	if m.disconnected {
 		return fmt.Errorf("disconnected")
 	}
+
 	select {
 	case m.sentMsgs <- msgs[0]:
 	case <-m.quit:
@@ -4195,6 +4196,9 @@ func receiveRevAndAckAliceToBob(t *testing.T, aliceMsgs chan lnwire.Message,
 func receiveCommitSigAliceToBob(t *testing.T, aliceMsgs chan lnwire.Message,
 	aliceLink ChannelLink, bobChannel *lnwallet.LightningChannel,
 	expHtlcs int) {
+
+	t.Helper()
+
 	var msg lnwire.Message
 	select {
 	case msg = <-aliceMsgs:
@@ -4234,6 +4238,9 @@ func sendRevAndAckBobToAlice(t *testing.T, aliceLink ChannelLink,
 // Bob, then hands this to Bob.
 func receiveSettleAliceToBob(t *testing.T, aliceMsgs chan lnwire.Message,
 	aliceLink ChannelLink, bobChannel *lnwallet.LightningChannel) {
+
+	t.Helper()
+
 	var msg lnwire.Message
 	select {
 	case msg = <-aliceMsgs:
@@ -4250,6 +4257,31 @@ func receiveSettleAliceToBob(t *testing.T, aliceMsgs chan lnwire.Message,
 		settleMsg.ID)
 	if err != nil {
 		t.Fatalf("failed settling htlc: %v", err)
+	}
+}
+
+// receiveSettleAliceToBob waits for Alice to send a HTLC settle message to
+// Bob, then hands this to Bob.
+func receiveFailAliceToBob(t *testing.T, aliceMsgs chan lnwire.Message,
+	aliceLink ChannelLink, bobChannel *lnwallet.LightningChannel) {
+
+	t.Helper()
+
+	var msg lnwire.Message
+	select {
+	case msg = <-aliceMsgs:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("did not receive message")
+	}
+
+	failMsg, ok := msg.(*lnwire.UpdateFailHTLC)
+	if !ok {
+		t.Fatalf("expected UpdateFailHTLC, got %T", msg)
+	}
+
+	err := bobChannel.ReceiveFailHTLC(failMsg.ID, failMsg.Reason)
+	if err != nil {
+		t.Fatalf("unable to apply received fail htlc: %v", err)
 	}
 }
 
@@ -4452,6 +4484,307 @@ func TestChannelLinkWaitForRevocation(t *testing.T) {
 	case <-aliceMsgs:
 		t.Fatalf("did not expect message from Alice")
 	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// TestChannelLinkCleanupSpuriousResponses tests that we properly cleanup
+// references in the event that internal retransmission continues as a result of
+// not properly cleaning up Add/SettleFailRefs.
+func TestChannelLinkCleanupSpuriousResponses(t *testing.T) {
+	t.Parallel()
+
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	const chanReserve = btcutil.SatoshiPerBitcoin * 1
+	aliceLink, bobChannel, _, start, cleanUp, _, err :=
+		newSingleLinkTestHarness(chanAmt, chanReserve)
+	if err != nil {
+		t.Fatalf("unable to create link: %v", err)
+	}
+	defer cleanUp()
+
+	if err := start(); err != nil {
+		t.Fatalf("unable to start test harness: %v", err)
+	}
+
+	var (
+		coreLink  = aliceLink.(*channelLink)
+		aliceMsgs = coreLink.cfg.Peer.(*mockPeer).sentMsgs
+	)
+
+	// Settle Alice in hodl ExitSettle mode so that she won't respond
+	// immediately to the htlc's meant for her. This allows us to control
+	// the responses she gives back to Bob.
+	coreLink.cfg.DebugHTLC = true
+	coreLink.cfg.HodlMask = hodl.ExitSettle.Mask()
+
+	// Add two HTLCs to Alice's registry, that Bob can pay.
+	htlc1 := generateHtlc(t, coreLink, bobChannel, 0)
+	htlc2 := generateHtlc(t, coreLink, bobChannel, 1)
+
+	// We start with he following scenario: Bob sends Alice two HTLCs, and a
+	// commitment dance ensures, leaving two HTLCs that Alice can respond
+	// to. Since Alice is in ExitSettle mode, we will then take over and
+	// provide targetted fail messages to test the link's ability to cleanup
+	// spurious responses.
+	//
+	//  Bob               Alice
+	//   |------ add-1 ----->|
+	//   |------ add-2 ----->|
+	//   |------  sig  ----->| commits add-1 + add-2
+	//   |<-----  rev  ------|
+	//   |<-----  sig  ------| commits add-1 + add-2
+	//   |------  rev  ----->|
+	sendHtlcBobToAlice(t, aliceLink, bobChannel, htlc1)
+	sendHtlcBobToAlice(t, aliceLink, bobChannel, htlc2)
+	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 2)
+	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)
+	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 2)
+	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)
+
+	// Give Alice to time to process the revocation.
+	time.Sleep(time.Second)
+
+	aliceFwdPkgs, err := coreLink.channel.LoadFwdPkgs()
+	if err != nil {
+		t.Fatalf("unable to load alice's fwdpkgs: %v", err)
+	}
+
+	// Alice should have exactly one forwarding package.
+	if len(aliceFwdPkgs) != 1 {
+		t.Fatalf("alice should have 1 fwd pkgs, has %d instead",
+			len(aliceFwdPkgs))
+	}
+
+	// We'll stash the height of these AddRefs, so that we can reconstruct
+	// the proper references later.
+	addHeight := aliceFwdPkgs[0].Height
+
+	// The first fwdpkg should have exactly 2 entries, one for each Add that
+	// was added during the last dance.
+	if aliceFwdPkgs[0].AckFilter.Count() != 2 {
+		t.Fatalf("alice fwdpkg should have 2 Adds, has %d instead",
+			aliceFwdPkgs[0].AckFilter.Count())
+	}
+
+	// Both of the entries in the FwdFilter should be unacked.
+	for i := 0; i < 2; i++ {
+		if aliceFwdPkgs[0].AckFilter.Contains(uint16(i)) {
+			t.Fatalf("alice fwdpkg index %d should not "+
+				"have ack", i)
+		}
+	}
+
+	// Now, construct a Fail packet for Bob settling the first HTLC. This
+	// packet will NOT include a sourceRef, meaning the AddRef on disk will
+	// not be acked after committing this response.
+	fail0 := &htlcPacket{
+		incomingChanID: bobChannel.ShortChanID(),
+		incomingHTLCID: 0,
+		obfuscator:     NewMockObfuscator(),
+		htlc:           &lnwire.UpdateFailHTLC{},
+	}
+	aliceLink.HandleSwitchPacket(fail0)
+
+	//  Bob               Alice
+	//   |<----- fal-1 ------|
+	//   |<-----  sig  ------| commits fal-1
+	receiveFailAliceToBob(t, aliceMsgs, aliceLink, bobChannel)
+	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 1)
+
+	aliceFwdPkgs, err = coreLink.channel.LoadFwdPkgs()
+	if err != nil {
+		t.Fatalf("unable to load alice's fwdpkgs: %v", err)
+	}
+
+	// Alice should still only have one fwdpkg, as she hasn't yet received
+	// another revocation from Bob.
+	if len(aliceFwdPkgs) != 1 {
+		t.Fatalf("alice should have 1 fwd pkgs, has %d instead",
+			len(aliceFwdPkgs))
+	}
+
+	// Assert the fwdpkg still has 2 entries for the original Adds.
+	if aliceFwdPkgs[0].AckFilter.Count() != 2 {
+		t.Fatalf("alice fwdpkg should have 2 Adds, has %d instead",
+			aliceFwdPkgs[0].AckFilter.Count())
+	}
+
+	// Since the fail packet was missing the AddRef, the forward filter for
+	// either HTLC should not have been modified.
+	for i := 0; i < 2; i++ {
+		if aliceFwdPkgs[0].AckFilter.Contains(uint16(i)) {
+			t.Fatalf("alice fwdpkg index %d should not "+
+				"have ack", i)
+		}
+	}
+
+	// Complete the rest of the commitment dance, now that the forwarding
+	// packages have been verified.
+	//
+	//  Bob                Alice
+	//   |------  rev  ----->|
+	//   |------  sig  ----->|
+	//   |<-----  rev  ------|
+	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)
+	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 1)
+	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)
+
+	// Next, we'll construct a fail packet for add-2 (index 1), which we'll
+	// send to Bob and lock in. Since the AddRef is set on this instance, we
+	// should see the second HTLCs AddRef update the forward filter for the
+	// first fwd pkg.
+	fail1 := &htlcPacket{
+		sourceRef: &channeldb.AddRef{
+			Height: addHeight,
+			Index:  1,
+		},
+		incomingChanID: bobChannel.ShortChanID(),
+		incomingHTLCID: 1,
+		obfuscator:     NewMockObfuscator(),
+		htlc:           &lnwire.UpdateFailHTLC{},
+	}
+	aliceLink.HandleSwitchPacket(fail1)
+
+	//  Bob               Alice
+	//   |<----- fal-1 ------|
+	//   |<-----  sig  ------| commits fal-1
+	receiveFailAliceToBob(t, aliceMsgs, aliceLink, bobChannel)
+	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 0)
+
+	aliceFwdPkgs, err = coreLink.channel.LoadFwdPkgs()
+	if err != nil {
+		t.Fatalf("unable to load alice's fwdpkgs: %v", err)
+	}
+
+	// Now that another commitment dance has completed, Alice should have 2
+	// forwarding packages.
+	if len(aliceFwdPkgs) != 2 {
+		t.Fatalf("alice should have 2 fwd pkgs, has %d instead",
+			len(aliceFwdPkgs))
+	}
+
+	// The most recent package should have no new HTLCs, so it should be
+	// empty.
+	if aliceFwdPkgs[1].AckFilter.Count() != 0 {
+		t.Fatalf("alice fwdpkg height=%d should have 0 Adds, "+
+			"has %d instead", aliceFwdPkgs[1].Height,
+			aliceFwdPkgs[1].AckFilter.Count())
+	}
+
+	// The index for the first AddRef should still be unacked, as the
+	// sourceRef was missing on the htlcPacket.
+	if aliceFwdPkgs[0].AckFilter.Contains(0) {
+		t.Fatalf("alice fwdpkg height=%d index=0 should not "+
+			"have an ack", aliceFwdPkgs[0].Height)
+	}
+
+	// The index for the second AddRef should now be acked, as it was
+	// properly constructed and committed in Alice's last commit sig.
+	if !aliceFwdPkgs[0].AckFilter.Contains(1) {
+		t.Fatalf("alice fwdpkg height=%d index=1 should have "+
+			"an ack", aliceFwdPkgs[0].Height)
+	}
+
+	// Complete the rest of the commitment dance.
+	//
+	//  Bob                Alice
+	//   |------  rev  ----->|
+	//   |------  sig  ----->|
+	//   |<-----  rev  ------|
+	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)
+	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 0)
+	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)
+
+	// We'll do a quick sanity check, and blindly send the same fail packet
+	// for the first HTLC. Since this HTLC index has already been settled,
+	// this should trigger an attempt to cleanup the spurious response.
+	// However, we expect it to result in a NOP since it is still missing
+	// its sourceRef.
+	aliceLink.HandleSwitchPacket(fail0)
+
+	// Allow the link enough time to process and reject the duplicate
+	// packet, we'll also check that this doesn't trigger Alice to send the
+	// fail to Bob.
+	select {
+	case <-aliceMsgs:
+		t.Fatalf("message sent for duplicate fail")
+	case <-time.After(time.Second):
+	}
+
+	aliceFwdPkgs, err = coreLink.channel.LoadFwdPkgs()
+	if err != nil {
+		t.Fatalf("unable to load alice's fwdpkgs: %v", err)
+	}
+
+	// Alice should now have 3 forwarding packages, and the latest should be
+	// empty.
+	if len(aliceFwdPkgs) != 3 {
+		t.Fatalf("alice should have 3 fwd pkgs, has %d instead",
+			len(aliceFwdPkgs))
+	}
+	if aliceFwdPkgs[2].AckFilter.Count() != 0 {
+		t.Fatalf("alice fwdpkg height=%d should have 0 Adds, "+
+			"has %d instead", aliceFwdPkgs[2].Height,
+			aliceFwdPkgs[2].AckFilter.Count())
+	}
+
+	// The state of the forwarding packages should be unmodified from the
+	// prior assertion, since the duplicate Fail for index 0 should have
+	// been ignored.
+	if aliceFwdPkgs[0].AckFilter.Contains(0) {
+		t.Fatalf("alice fwdpkg height=%d index=0 should not "+
+			"have an ack", aliceFwdPkgs[0].Height)
+	}
+	if !aliceFwdPkgs[0].AckFilter.Contains(1) {
+		t.Fatalf("alice fwdpkg height=%d index=1 should have "+
+			"an ack", aliceFwdPkgs[0].Height)
+	}
+
+	// Finally, construct a new Fail packet for the first HTLC, this time
+	// with the sourceRef properly constructed. When the link handles this
+	// duplicate, it should clean up the remaining AddRef state maintained
+	// in Alice's link, but it should not result in anything being sent to
+	// Bob.
+	fail0 = &htlcPacket{
+		sourceRef: &channeldb.AddRef{
+			Height: addHeight,
+			Index:  0,
+		},
+		incomingChanID: bobChannel.ShortChanID(),
+		incomingHTLCID: 0,
+		obfuscator:     NewMockObfuscator(),
+		htlc:           &lnwire.UpdateFailHTLC{},
+	}
+	aliceLink.HandleSwitchPacket(fail0)
+
+	// Allow the link enough time to process and reject the duplicate
+	// packet, we'll also check that this doesn't trigger Alice to send the
+	// fail to Bob.
+	select {
+	case <-aliceMsgs:
+		t.Fatalf("message sent for duplicate fail")
+	case <-time.After(time.Second):
+	}
+
+	aliceFwdPkgs, err = coreLink.channel.LoadFwdPkgs()
+	if err != nil {
+		t.Fatalf("unable to load alice's fwdpkgs: %v", err)
+	}
+
+	// Since no state transitions have been performed for the duplicate
+	// packets, Alice should still have the same 3 forwarding packages.
+	if len(aliceFwdPkgs) != 3 {
+		t.Fatalf("alice should have 3 fwd pkgs, has %d instead",
+			len(aliceFwdPkgs))
+	}
+
+	// Assert that all indices in our original forwarded have now been acked
+	// as a result of our spurious cleanup logic.
+	for i := 0; i < 2; i++ {
+		if !aliceFwdPkgs[0].AckFilter.Contains(uint16(i)) {
+			t.Fatalf("alice fwdpkg height=%d index=%d "+
+				"should have ack", aliceFwdPkgs[0].Height, i)
+		}
 	}
 }
 

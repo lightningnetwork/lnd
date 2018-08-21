@@ -3843,7 +3843,7 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 
 		invoice := &lnrpc.Invoice{
-			Memo:     "testing",
+			Memo:      "testing",
 			RPreimage: preimage,
 			Value:     paymentAmt,
 		}

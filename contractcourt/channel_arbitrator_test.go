@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -101,7 +102,7 @@ func createTestChannelArbitrator(log ArbitratorLog) (*ChannelArbitrator,
 	chanEvents := &ChainEventSubscription{
 		RemoteUnilateralClosure: make(chan *lnwallet.UnilateralCloseSummary, 1),
 		LocalUnilateralClosure:  make(chan *LocalUnilateralCloseInfo, 1),
-		CooperativeClosure:      make(chan struct{}, 1),
+		CooperativeClosure:      make(chan *CooperativeCloseInfo, 1),
 		ContractBreach:          make(chan *lnwallet.BreachRetribution, 1),
 	}
 
@@ -156,14 +157,15 @@ func assertState(t *testing.T, c *ChannelArbitrator, expected ArbitratorState) {
 }
 
 // TestChannelArbitratorCooperativeClose tests that the ChannelArbitertor
-// correctly does nothing in case a cooperative close is confirmed.
+// correctly marks the channel resolved in case a cooperative close is
+// confirmed.
 func TestChannelArbitratorCooperativeClose(t *testing.T) {
 	log := &mockArbitratorLog{
 		state:     StateDefault,
 		newStates: make(chan ArbitratorState, 5),
 	}
 
-	chanArb, _, err := createTestChannelArbitrator(log)
+	chanArb, resolved, err := createTestChannelArbitrator(log)
 	if err != nil {
 		t.Fatalf("unable to create ChannelArbitrator: %v", err)
 	}
@@ -176,10 +178,37 @@ func TestChannelArbitratorCooperativeClose(t *testing.T) {
 	// It should start out in the default state.
 	assertState(t, chanArb, StateDefault)
 
-	// Cooperative close should do nothing.
-	// TODO: this will change?
-	chanArb.cfg.ChainEvents.CooperativeClosure <- struct{}{}
-	assertState(t, chanArb, StateDefault)
+	// We set up a channel to detect when MarkChannelClosed is called.
+	closeInfos := make(chan *channeldb.ChannelCloseSummary)
+	chanArb.cfg.MarkChannelClosed = func(
+		closeInfo *channeldb.ChannelCloseSummary) error {
+		closeInfos <- closeInfo
+		return nil
+	}
+
+	// Cooperative close should do trigger a MarkChannelClosed +
+	// MarkChannelResolved.
+	closeInfo := &CooperativeCloseInfo{
+		&channeldb.ChannelCloseSummary{},
+	}
+	chanArb.cfg.ChainEvents.CooperativeClosure <- closeInfo
+
+	select {
+	case c := <-closeInfos:
+		if c.CloseType != channeldb.CooperativeClose {
+			t.Fatalf("expected cooperative close, got %v", c.CloseType)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timeout waiting for channel close")
+	}
+
+	// It should mark the channel as resolved.
+	select {
+	case <-resolved:
+		// Expected.
+	case <-time.After(5 * time.Second):
+		t.Fatalf("contract was not resolved")
+	}
 }
 
 func assertStateTransitions(t *testing.T, newStates <-chan ArbitratorState,

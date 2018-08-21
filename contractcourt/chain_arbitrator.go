@@ -244,6 +244,7 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 		},
 		MarkCommitmentBroadcasted: channel.MarkCommitmentBroadcasted,
 		MarkChannelClosed:         channel.CloseChannel,
+		IsPendingClose:            false,
 		ChainArbitratorConfig:     c.cfg,
 		ChainEvents:               chanEvents,
 	}
@@ -399,6 +400,9 @@ func (c *ChainArbitrator) Start() error {
 			BlockEpochs:           blockEpoch,
 			ChainArbitratorConfig: c.cfg,
 			ChainEvents:           &ChainEventSubscription{},
+			IsPendingClose:        true,
+			ClosingHeight:         closeChanInfo.CloseHeight,
+			CloseType:             closeChanInfo.CloseType,
 		}
 		chanLog, err := newBoltArbitratorLog(
 			c.chanSource.DB, arbCfg, c.cfg.ChainHash, chanPoint,

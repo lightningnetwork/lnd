@@ -101,6 +101,18 @@ type ChannelArbitratorConfig struct {
 	// again.
 	MarkChannelClosed func(*channeldb.ChannelCloseSummary) error
 
+	// IsPendingClose is a boolean indicating whether the channel is marked
+	// as pending close in the database.
+	IsPendingClose bool
+
+	// ClosingHeight is the height at which the channel was closed. Note
+	// that this value is only valid if IsPendingClose is true.
+	ClosingHeight uint32
+
+	// CloseType is the type of the close event in case IsPendingClose is
+	// true. Otherwise this value is unset.
+	CloseType channeldb.ClosureType
+
 	// MarkChannelResolved is a function closure that serves to mark a
 	// channel as "fully resolved". A channel itself can be considered
 	// fully resolved once all active contracts have individually been

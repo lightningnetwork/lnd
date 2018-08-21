@@ -46,6 +46,11 @@ var (
 	// txn.
 	ErrIncompleteForward = errors.New("incomplete forward detected")
 
+	// ErrUnknownErrorDecryptor signals that we were unable to locate the
+	// error decryptor for this payment. This is likely due to restarting
+	// the daemon.
+	ErrUnknownErrorDecryptor = errors.New("unknown error decryptor")
+
 	// ErrSwitchExiting signaled when the switch has received a shutdown
 	// request.
 	ErrSwitchExiting = errors.New("htlcswitch shutting down")
@@ -933,7 +938,7 @@ func (s *Switch) parseFailedPayment(payment *pendingPayment, pkt *htlcPacket,
 		if err != nil {
 			userErr = fmt.Sprintf("unable to decode onion failure, "+
 				"htlc with hash(%x): %v",
-				payment.paymentHash[:], err)
+				pkt.circuit.PaymentHash[:], err)
 			log.Error(userErr)
 
 			// As this didn't even clear the link, we don't need to
@@ -960,6 +965,18 @@ func (s *Switch) parseFailedPayment(payment *pendingPayment, pkt *htlcPacket,
 			FailureMessage: lnwire.FailPermanentChannelFailure{},
 		}
 
+	// If the provided payment is nil, we have discarded the error decryptor
+	// due to a restart. We'll return a fixed error and signal a temporary
+	// channel failure to the router.
+	case payment == nil:
+		userErr := fmt.Sprintf("error decryptor for payment " +
+			"could not be located, likely due to restart")
+		failure = &ForwardingError{
+			ErrorSource:    s.cfg.SelfKey,
+			ExtraMsg:       userErr,
+			FailureMessage: lnwire.NewTemporaryChannelFailure(nil),
+		}
+
 	// A regular multi-hop payment error that we'll need to
 	// decrypt.
 	default:
@@ -968,8 +985,9 @@ func (s *Switch) parseFailedPayment(payment *pendingPayment, pkt *htlcPacket,
 		// error. If we're unable to then we'll bail early.
 		failure, err = payment.deobfuscator.DecryptError(htlc.Reason)
 		if err != nil {
-			userErr := fmt.Sprintf("unable to de-obfuscate onion failure, "+
-				"htlc with hash(%x): %v", payment.paymentHash[:], err)
+			userErr := fmt.Sprintf("unable to de-obfuscate onion "+
+				"failure, htlc with hash(%x): %v",
+				pkt.circuit.PaymentHash[:], err)
 			log.Error(userErr)
 			failure = &ForwardingError{
 				ErrorSource:    s.cfg.SelfKey,

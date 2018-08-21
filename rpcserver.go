@@ -3252,11 +3252,12 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 	if in.FinalCltvDelta == 0 {
 		routes, findErr = r.server.chanRouter.FindRoutes(
 			pubKey, amtMSat, feeLimit, uint32(in.NumRoutes),
+			uint64(in.Incoming), uint64(in.Outgoing),
 		)
 	} else {
 		routes, findErr = r.server.chanRouter.FindRoutes(
 			pubKey, amtMSat, feeLimit, uint32(in.NumRoutes),
-			uint16(in.FinalCltvDelta),
+			uint64(in.Incoming), uint64(in.Outgoing), uint16(in.FinalCltvDelta),
 		)
 	}
 	if findErr != nil {

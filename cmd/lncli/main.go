@@ -220,6 +220,7 @@ func main() {
 		pendingChannelsCommand,
 		sendPaymentCommand,
 		payInvoiceCommand,
+		reBalanceCommand,
 		sendToRouteCommand,
 		addInvoiceCommand,
 		lookupInvoiceCommand,

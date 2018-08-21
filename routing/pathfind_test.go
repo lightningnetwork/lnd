@@ -542,7 +542,7 @@ func TestFindLowestFeePath(t *testing.T) {
 	target := aliases["target"]
 	path, err := findPath(
 		nil, graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, paymentAmt, noFeeLimit, nil,
+		ignoredEdges, paymentAmt, noFeeLimit, nil, 0, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -574,6 +574,8 @@ type basicGraphPathFindingTestCase struct {
 	target                string
 	paymentAmt            btcutil.Amount
 	feeLimit              lnwire.MilliSatoshi
+	incoming              uint64
+	outgoing              uint64
 	expectedTotalAmt      lnwire.MilliSatoshi
 	expectedTotalTimeLock uint32
 	expectedHops          []expectedHop
@@ -618,7 +620,23 @@ var basicGraphPathFindingTests = []basicGraphPathFindingTestCase{
 			{alias: "elst", fwdAmount: 100000000, fee: 0, timeLock: 101},
 		}},
 
+	// Three hop route explictly forcing the outgoing channel to go through phamnuwen
+	{target: "elst", paymentAmt: 50000, feeLimit: noFeeLimit,
+		outgoing:              999991,
+		expectedTotalTimeLock: 103, expectedTotalAmt: 55010220,
+		expectedHops: []expectedHop{
+			{alias: "phamnuwen", fwdAmount: 50000200, fee: 5010020, timeLock: 102},
+			{alias: "sophon", fwdAmount: 50000000, fee: 200, timeLock: 101},
+			{alias: "elst", fwdAmount: 50000000, fee: 0, timeLock: 101},
+		}},
+
 	// Basic route with fee limit.
+	{target: "phamnuwen", paymentAmt: 100, feeLimit: noFeeLimit,
+		incoming:            999991,
+		expectFailureNoPath: true,
+	},
+
+	// Testing setting incoming when not sending to self
 	{target: "sophon", paymentAmt: 100, feeLimit: 50,
 		expectFailureNoPath: true,
 	}}
@@ -669,6 +687,7 @@ func testBasicGraphPathFindingCase(t *testing.T, graph *channeldb.ChannelGraph,
 	path, err := findPath(
 		nil, graph, nil, sourceNode, target, ignoredVertexes,
 		ignoredEdges, paymentAmt, test.feeLimit, nil,
+		test.incoming, test.outgoing,
 	)
 	if test.expectFailureNoPath {
 		if err == nil {
@@ -801,6 +820,340 @@ func testBasicGraphPathFindingCase(t *testing.T, graph *channeldb.ChannelGraph,
 	}
 }
 
+func TestSelfPathFinding(t *testing.T) {
+	t.Parallel()
+	graph, cleanUp, aliases, err := parseTestGraph(basicGraphFilePath)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+
+	sourceNode, err := graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+	}
+	sourceVertex := Vertex(sourceNode.PubKeyBytes)
+	const (
+		startingHeight = 100
+		finalHopCLTV   = 1
+	)
+
+	ignoredEdges := make(map[uint64]struct{})
+	ignoredVertexes := make(map[Vertex]struct{})
+	// Next, we attempt to find a path from the source back to itself.
+	// Useful for load balancing channels.  Requires BandWidthHints!
+	// For efficeincy, paths with known insuffienent remote balance
+	// will not be added to additional edges.
+	target := aliases["roasbeef"]
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+	bandwidthHints := make(map[uint64]lnwire.MilliSatoshi)
+	bandwidthHints[12345] = 500000
+	bandwidthHints[999991] = 500000
+	bandwidthHints[2340213491] = 500000
+	bandwidthHints[689530843] = 500000
+	path, err := findPath(
+		nil, graph, nil, sourceNode, target, ignoredVertexes,
+		ignoredEdges, paymentAmt, noFeeLimit, bandwidthHints, 0, 0,
+	)
+	if err != nil {
+		t.Fatalf("unable to find route: %v", err)
+	}
+	route, err := newRoute(
+		paymentAmt, noFeeLimit, sourceVertex, path, startingHeight,
+		finalHopCLTV,
+	)
+	if err != nil {
+		t.Fatalf("unable to create path: %v", err)
+	}
+	// The cheapest path should be lou->sat->roas 3 hops Lou-self has lower channel
+	// ID than Sat-self, and will be explored first.  However, if the pathfinding algo
+	// changes from Source -> Dest to Dest-> source (PR1321), the path may become sat-Lou-Roas,
+	// but it'll still be three hops.
+	if len(route.Hops) != 3 {
+		t.Fatalf("shortest path not selected, should be of length 3, "+
+			"is instead: %v", len(route.Hops))
+	}
+
+	// This tests finding a path with the outgoing specified
+	path, err = findPath(
+		nil, graph, nil, sourceNode, target, ignoredVertexes,
+		ignoredEdges, paymentAmt, noFeeLimit, bandwidthHints, 0, 999991,
+	)
+	if err != nil {
+		t.Fatalf("unable to find route: %v", err)
+	}
+	route, err = newRoute(
+		paymentAmt, noFeeLimit, sourceVertex, path, startingHeight,
+		finalHopCLTV,
+	)
+	if err != nil {
+		t.Fatalf("unable to create path: %v", err)
+	}
+
+	// The only path availabe is pham->soph->goku-Roasbeef
+	if len(route.Hops) != 4 {
+		t.Fatalf("shortest path not selected, should be of length r, "+
+			"is instead: %v", len(route.Hops))
+	}
+	// Here we ensure the correct path was taken.
+	phamPrevChan, ok := route.prevHopChannel(aliases["phamnuwen"])
+	if !ok {
+		t.Fatalf("phamnuwen didn't have next chan but should have")
+	}
+	if phamPrevChan.ChannelID != route.Hops[0].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			phamPrevChan.ChannelID, route.Hops[0].Channel.ChannelID)
+	}
+	phamNextChan, ok := route.nextHopChannel(aliases["phamnuwen"])
+	if !ok {
+		t.Fatalf("phamnuwen didn't have prev chan but should have")
+	}
+	if phamNextChan.ChannelID != route.Hops[1].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			phamNextChan.ChannelID, route.Hops[1].Channel.ChannelID)
+	}
+	// Sophon should have a next hop and previous hop
+	sophPrevChan, ok := route.prevHopChannel(aliases["sophon"])
+	if !ok {
+		t.Fatalf("Sophon didn't have next chan but should have")
+	}
+	if sophPrevChan.ChannelID != route.Hops[1].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			sophPrevChan.ChannelID, route.Hops[1].Channel.ChannelID)
+	}
+	sophNextChan, ok := route.nextHopChannel(aliases["sophon"])
+	if !ok {
+		t.Fatalf("Sophon didn't have prev chan but should have")
+	}
+	if sophNextChan.ChannelID != route.Hops[2].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			sophNextChan.ChannelID, route.Hops[2].Channel.ChannelID)
+	}
+	// Songoku should have a next and previous hop
+	songPrevChan, ok := route.prevHopChannel(aliases["songoku"])
+	if !ok {
+		t.Fatalf("Songoku didn't have next chan but should have")
+	}
+	if songPrevChan.ChannelID != route.Hops[2].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			songPrevChan.ChannelID, route.Hops[2].Channel.ChannelID)
+	}
+	songNextChan, ok := route.nextHopChannel(aliases["songoku"])
+	if !ok {
+		t.Fatalf("Songoku didn't have prev chan but should have")
+	}
+	if songNextChan.ChannelID != route.Hops[3].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			songNextChan.ChannelID, route.Hops[3].Channel.ChannelID)
+	}
+
+	// This tests finding a path with the incoming specified
+	path, err = findPath(
+		nil, graph, nil, sourceNode, target, ignoredVertexes,
+		ignoredEdges, paymentAmt, noFeeLimit, bandwidthHints, 12345, 0,
+	)
+	if err != nil {
+		t.Fatalf("unable to find route: %v", err)
+	}
+	route, err = newRoute(
+		paymentAmt, noFeeLimit, sourceVertex, path, startingHeight,
+		finalHopCLTV,
+	)
+	if err != nil {
+		t.Fatalf("unable to create path: %v", err)
+	}
+
+	// The only path availabe is pham->soph->goku-Roasbeef
+	if len(route.Hops) != 4 {
+		t.Fatalf("shortest path not selected, should be of length r, "+
+			"is instead: %v", len(route.Hops))
+	}
+	// Here we ensure the correct path was taken.
+	phamPrevChan, ok = route.prevHopChannel(aliases["phamnuwen"])
+	if !ok {
+		t.Fatalf("phamnuwen didn't have next chan but should have")
+	}
+	if phamPrevChan.ChannelID != route.Hops[0].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			phamPrevChan.ChannelID, route.Hops[0].Channel.ChannelID)
+	}
+	phamNextChan, ok = route.nextHopChannel(aliases["phamnuwen"])
+	if !ok {
+		t.Fatalf("phamnuwen didn't have prev chan but should have")
+	}
+	if phamNextChan.ChannelID != route.Hops[1].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			phamNextChan.ChannelID, route.Hops[1].Channel.ChannelID)
+	}
+	// Sophon should have a next hop and previous hop
+	sophPrevChan, ok = route.prevHopChannel(aliases["sophon"])
+	if !ok {
+		t.Fatalf("Sophon didn't have next chan but should have")
+	}
+	if sophPrevChan.ChannelID != route.Hops[1].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			sophPrevChan.ChannelID, route.Hops[1].Channel.ChannelID)
+	}
+	sophNextChan, ok = route.nextHopChannel(aliases["sophon"])
+	if !ok {
+		t.Fatalf("Sophon didn't have prev chan but should have")
+	}
+	if sophNextChan.ChannelID != route.Hops[2].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			sophNextChan.ChannelID, route.Hops[2].Channel.ChannelID)
+	}
+	// Songoku should have a next and previous hop
+	songPrevChan, ok = route.prevHopChannel(aliases["songoku"])
+	if !ok {
+		t.Fatalf("Songoku didn't have next chan but should have")
+	}
+	if songPrevChan.ChannelID != route.Hops[2].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			songPrevChan.ChannelID, route.Hops[2].Channel.ChannelID)
+	}
+	songNextChan, ok = route.nextHopChannel(aliases["songoku"])
+	if !ok {
+		t.Fatalf("Songoku didn't have prev chan but should have")
+	}
+	if songNextChan.ChannelID != route.Hops[3].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			songNextChan.ChannelID, route.Hops[3].Channel.ChannelID)
+	}
+
+	// Time to make sure paths with known insufficent incoming balance are ignored
+	// when sending to self. This sets Source->Satoshi channel as if 100% of the balance
+	// is on the source side.
+	bandwidthHints[2340213491] = 10000000
+	path, err = findPath(
+		nil, graph, nil, sourceNode, target, ignoredVertexes,
+		ignoredEdges, paymentAmt, noFeeLimit, bandwidthHints, 0, 0,
+	)
+	if err != nil {
+		t.Fatalf("unable to find route: %v", err)
+	}
+	route, err = newRoute(
+		paymentAmt, noFeeLimit, sourceVertex, path, startingHeight,
+		finalHopCLTV,
+	)
+	if err != nil {
+		t.Fatalf("unable to create path: %v", err)
+	}
+	// The cheapest path should be sat->lou->roas 3 hops.  All the capacity of Sat is on near side,
+	// so can't have any incoming.
+	if len(route.Hops) != 3 {
+		t.Fatalf("shortest path not selected, should be of length 3, "+
+			"is instead: %v", len(route.Hops))
+	}
+	// Here we ensure the correct path was taken.
+	satPrevChan, ok := route.prevHopChannel(aliases["satoshi"])
+	if !ok {
+		t.Fatalf("satoshi didn't have next chan but should have")
+	}
+	if satPrevChan.ChannelID != route.Hops[0].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			satPrevChan.ChannelID, route.Hops[0].Channel.ChannelID)
+	}
+	satNextChan, ok := route.nextHopChannel(aliases["satoshi"])
+	if !ok {
+		t.Fatalf("satoshi didn't have prev chan but should have")
+	}
+	if satNextChan.ChannelID != route.Hops[1].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			satNextChan.ChannelID, route.Hops[1].Channel.ChannelID)
+	}
+	// Lou should have a next hop and previous hop
+	louPrevChan, ok := route.prevHopChannel(aliases["luoji"])
+	if !ok {
+		t.Fatalf("Luo Ji didn't have next chan but should have")
+	}
+	if louPrevChan.ChannelID != route.Hops[1].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			louPrevChan.ChannelID, route.Hops[1].Channel.ChannelID)
+	}
+	louNextChan, ok := route.nextHopChannel(aliases["luoji"])
+	if !ok {
+		t.Fatalf("luoji didn't have prev chan but should have")
+	}
+	if louNextChan.ChannelID != route.Hops[2].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			louNextChan.ChannelID, route.Hops[2].Channel.ChannelID)
+	}
+	// Testing the case where there is only one incoming channel with suffient funds.
+	// Setting all others as if they were newly opened, with all funds sitting on near side.
+	bandwidthHints[999991] = 100000000
+	bandwidthHints[689530843] = 100000000
+	path, err = findPath(
+		nil, graph, nil, sourceNode, target, ignoredVertexes,
+		ignoredEdges, paymentAmt, noFeeLimit, bandwidthHints, 0, 0,
+	)
+	if err != nil {
+		t.Fatalf("unable to find route: %v", err)
+	}
+	route, err = newRoute(
+		paymentAmt, noFeeLimit, sourceVertex, path, startingHeight,
+		finalHopCLTV,
+	)
+	if err != nil {
+		t.Fatalf("unable to create path: %v", err)
+	}
+	// The only path availabe is pham->soph->goku-Roasbeef
+	if len(route.Hops) != 4 {
+		t.Fatalf("shortest path not selected, should be of length r, "+
+			"is instead: %v", len(route.Hops))
+	}
+	// Here we ensure the correct path was taken.
+	phamPrevChan, ok = route.prevHopChannel(aliases["phamnuwen"])
+	if !ok {
+		t.Fatalf("phamnuwen didn't have next chan but should have")
+	}
+	if phamPrevChan.ChannelID != route.Hops[0].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			phamPrevChan.ChannelID, route.Hops[0].Channel.ChannelID)
+	}
+	phamNextChan, ok = route.nextHopChannel(aliases["phamnuwen"])
+	if !ok {
+		t.Fatalf("phamnuwen didn't have prev chan but should have")
+	}
+	if phamNextChan.ChannelID != route.Hops[1].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			phamNextChan.ChannelID, route.Hops[1].Channel.ChannelID)
+	}
+	// Sophon should have a next hop and previous hop
+	sophPrevChan, ok = route.prevHopChannel(aliases["sophon"])
+	if !ok {
+		t.Fatalf("Sophon didn't have next chan but should have")
+	}
+	if sophPrevChan.ChannelID != route.Hops[1].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			sophPrevChan.ChannelID, route.Hops[1].Channel.ChannelID)
+	}
+	sophNextChan, ok = route.nextHopChannel(aliases["sophon"])
+	if !ok {
+		t.Fatalf("Sophon didn't have prev chan but should have")
+	}
+	if sophNextChan.ChannelID != route.Hops[2].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			sophNextChan.ChannelID, route.Hops[2].Channel.ChannelID)
+	}
+	// Songoku should have a next and previous hop
+	songPrevChan, ok = route.prevHopChannel(aliases["songoku"])
+	if !ok {
+		t.Fatalf("Songoku didn't have next chan but should have")
+	}
+	if songPrevChan.ChannelID != route.Hops[2].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			songPrevChan.ChannelID, route.Hops[2].Channel.ChannelID)
+	}
+	songNextChan, ok = route.nextHopChannel(aliases["songoku"])
+	if !ok {
+		t.Fatalf("Songoku didn't have prev chan but should have")
+	}
+	if songNextChan.ChannelID != route.Hops[3].Channel.ChannelID {
+		t.Fatalf("incorrect prev chan: expected %v, got %v",
+			songNextChan.ChannelID, route.Hops[3].Channel.ChannelID)
+	}
+}
+
 func TestPathFindingWithAdditionalEdges(t *testing.T) {
 	t.Parallel()
 
@@ -853,7 +1206,7 @@ func TestPathFindingWithAdditionalEdges(t *testing.T) {
 	// We should now be able to find a path from roasbeef to doge.
 	path, err := findPath(
 		nil, graph, additionalEdges, sourceNode, dogePubKey, nil, nil,
-		paymentAmt, noFeeLimit, nil,
+		paymentAmt, noFeeLimit, nil, 0, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to find private path to doge: %v", err)
@@ -890,7 +1243,7 @@ func TestKShortestPathFinding(t *testing.T) {
 	target := aliases["luoji"]
 	paths, err := findPaths(
 		nil, graph, sourceNode, target, paymentAmt, noFeeLimit, 100,
-		nil,
+		nil, 0, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to find paths between roasbeef and "+
@@ -1227,7 +1580,7 @@ func TestNewRoutePathTooLong(t *testing.T) {
 	target := aliases["ursula"]
 	_, err = findPath(
 		nil, graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, paymentAmt, noFeeLimit, nil,
+		ignoredEdges, paymentAmt, noFeeLimit, nil, 0, 0,
 	)
 	if err != nil {
 		t.Fatalf("path should have been found")
@@ -1238,7 +1591,7 @@ func TestNewRoutePathTooLong(t *testing.T) {
 	target = aliases["vincent"]
 	path, err := findPath(
 		nil, graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, paymentAmt, noFeeLimit, nil,
+		ignoredEdges, paymentAmt, noFeeLimit, nil, 0, 0,
 	)
 	if err == nil {
 		t.Fatalf("should not have been able to find path, supposed to be "+
@@ -1280,7 +1633,7 @@ func TestPathNotAvailable(t *testing.T) {
 
 	_, err = findPath(
 		nil, graph, nil, sourceNode, unknownNode, ignoredVertexes,
-		ignoredEdges, 100, noFeeLimit, nil,
+		ignoredEdges, 100, noFeeLimit, nil, 0, 0,
 	)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("path shouldn't have been found: %v", err)
@@ -1316,7 +1669,7 @@ func TestPathInsufficientCapacity(t *testing.T) {
 	payAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 	_, err = findPath(
 		nil, graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, payAmt, noFeeLimit, nil,
+		ignoredEdges, payAmt, noFeeLimit, nil, 0, 0,
 	)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
@@ -1348,7 +1701,7 @@ func TestRouteFailMinHTLC(t *testing.T) {
 	payAmt := lnwire.MilliSatoshi(10)
 	_, err = findPath(
 		nil, graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, payAmt, noFeeLimit, nil,
+		ignoredEdges, payAmt, noFeeLimit, nil, 0, 0,
 	)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
@@ -1380,7 +1733,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	payAmt := lnwire.NewMSatFromSatoshis(105000)
 	_, err = findPath(
 		nil, graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, payAmt, noFeeLimit, nil,
+		ignoredEdges, payAmt, noFeeLimit, nil, 0, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -1401,7 +1754,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	// failure as it is no longer eligible.
 	_, err = findPath(
 		nil, graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, payAmt, noFeeLimit, nil,
+		ignoredEdges, payAmt, noFeeLimit, nil, 0, 0,
 	)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
@@ -1453,7 +1806,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	// Query for a route of 4,999,999 mSAT to carol.
 	carol := ctx.aliases["C"]
 	const amt lnwire.MilliSatoshi = 4999999
-	routes, err := ctx.router.FindRoutes(carol, amt, noFeeLimit, 100)
+	routes, err := ctx.router.FindRoutes(carol, amt, noFeeLimit, 100, 0, 0)
 	if err != nil {
 		t.Fatalf("unable to find route: %v", err)
 	}
@@ -1513,7 +1866,7 @@ func TestPathFindSpecExample(t *testing.T) {
 
 	// We'll now request a route from A -> B -> C.
 	ctx.router.routeCache = make(map[routeTuple][]*Route)
-	routes, err = ctx.router.FindRoutes(carol, amt, noFeeLimit, 100)
+	routes, err = ctx.router.FindRoutes(carol, amt, noFeeLimit, 100, 0, 0)
 	if err != nil {
 		t.Fatalf("unable to find routes: %v", err)
 	}

@@ -544,6 +544,22 @@
             "required": false,
             "type": "string",
             "format": "int64"
+          },
+          {
+            "name": "incoming",
+            "description": "Optional inomcing channel ID.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "outgoing",
+            "description": "Optional outgoing channel ID.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
           }
         ],
         "tags": [
@@ -2589,6 +2605,16 @@
         "fee_limit": {
           "$ref": "#/definitions/lnrpcFeeLimit",
           "description": "*\nThe maximum number of satoshis that will be paid as a fee of the payment.\nThis value can be represented either as a percentage of the amount being\nsent, or as a fixed amount of the maximum fee the user is willing the pay to\nsend the payment."
+        },
+        "incoming": {
+          "type": "string",
+          "format": "uint64",
+          "title": "Incoming compact Channel ID to use"
+        },
+        "outgoing": {
+          "type": "string",
+          "format": "uint64",
+          "title": "Outgoing compact Channel ID to use"
         }
       }
     },

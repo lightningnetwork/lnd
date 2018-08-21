@@ -1314,6 +1314,7 @@ func pathsToFeeSortedRoutes(source Vertex, paths [][]*ChannelHop,
 // fee along the route.
 func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	amt, feeLimit lnwire.MilliSatoshi, numPaths uint32,
+	incoming uint64, outgoing uint64,
 	finalExpiry ...uint16) ([]*Route, error) {
 
 	var finalCLTVDelta uint16
@@ -1384,7 +1385,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	// our source to the destination.
 	shortestPaths, err := findPaths(
 		tx, r.cfg.Graph, r.selfNode, target, amt, feeLimit, numPaths,
-		bandwidthHints,
+		bandwidthHints, incoming, outgoing,
 	)
 	if err != nil {
 		tx.Rollback()

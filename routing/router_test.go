@@ -176,7 +176,7 @@ func TestFindRoutesFeeSorting(t *testing.T) {
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := ctx.aliases["luoji"]
 	routes, err := ctx.router.FindRoutes(
-		target, paymentAmt, noFeeLimit, defaultNumRoutes,
+		target, paymentAmt, noFeeLimit, defaultNumRoutes, 0, 0,
 		DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -235,7 +235,7 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 	feeLimit := lnwire.NewMSatFromSatoshis(10)
 
 	routes, err := ctx.router.FindRoutes(
-		target, paymentAmt, feeLimit, defaultNumRoutes,
+		target, paymentAmt, feeLimit, defaultNumRoutes, 0, 0,
 		DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -1037,7 +1037,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	targetNode := priv2.PubKey()
 	routes, err := ctx.router.FindRoutes(
-		targetNode, paymentAmt, noFeeLimit, defaultNumRoutes,
+		targetNode, paymentAmt, noFeeLimit, defaultNumRoutes, 0, 0,
 		DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -1082,7 +1082,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// Should still be able to find the routes, and the info should be
 	// updated.
 	routes, err = ctx.router.FindRoutes(
-		targetNode, paymentAmt, noFeeLimit, defaultNumRoutes,
+		targetNode, paymentAmt, noFeeLimit, defaultNumRoutes, 0, 0,
 		DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -1694,7 +1694,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	// path even though the direct path has a higher potential time lock.
 	path, err := findPath(
 		nil, ctx.graph, nil, sourceNode, target, ignoreVertex,
-		ignoreEdge, amt, noFeeLimit, nil,
+		ignoreEdge, amt, noFeeLimit, nil, 0, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)

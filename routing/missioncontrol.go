@@ -375,7 +375,7 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	path, err := findPath(
 		nil, p.mc.graph, p.additionalEdges, p.mc.selfNode,
 		payment.Target, pruneView.vertexes, pruneView.edges,
-		payment.Amount, payment.FeeLimit, p.bandwidthHints,
+		payment.Amount, payment.FeeLimit, p.bandwidthHints, 0, 0,
 	)
 	if err != nil {
 		return nil, err

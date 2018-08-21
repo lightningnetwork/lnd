@@ -710,6 +710,12 @@ message SendRequest {
     send the payment.
     */
     FeeLimit fee_limit = 8;
+
+    // Incoming compact Channel ID to use
+    uint64 incoming = 9;
+
+    // Outgoing compact Channel ID to use
+    uint64 outgoing =10;
 }
 message SendResponse {
     string payment_error = 1 [json_name = "payment_error"];
@@ -1332,6 +1338,12 @@ message QueryRoutesRequest {
     send the payment.
     */
     FeeLimit fee_limit = 5;
+
+    // Optional inomcing channel ID
+    uint64 incoming = 6;
+
+    // Optional outgoing channel ID
+    uint64 outgoing = 7;
 }
 message QueryRoutesResponse {
     repeated Route routes = 1 [json_name = "routes"];

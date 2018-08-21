@@ -1974,6 +1974,129 @@ func payInvoice(ctx *cli.Context) error {
 	return sendPaymentRequest(client, req)
 }
 
+var reBalanceCommand = cli.Command{
+	Name:     "rebalance",
+	Category: "Channels",
+	Usage:    "Rebalance a pair of channels.",
+	Description: `
+	Creates a payment request, and sends payment to self.
+	The payment will be sent out the outgoing, and in the incoming,
+	if specified.  If they are not specified, it'll use the cheapest
+	with sufficient incoming and outgoing balances. Note: Lightning
+	transaction fees will apply.  Fee limits highly recommended.
+	`,
+	ArgsUsage: "amt",
+	Flags: []cli.Flag{
+		cli.Int64Flag{
+			Name:  "amt",
+			Usage: "number of satoshis you wish to balance",
+		},
+		cli.Int64Flag{
+			Name: "fee_limit",
+			Usage: "maximum fee allowed in satoshis when sending " +
+				"the payment",
+		},
+		cli.Int64Flag{
+			Name: "fee_limit_percent",
+			Usage: "percentage of the payment's amount used as the" +
+				"maximum fee allowed when sending the payment",
+		},
+		cli.Uint64Flag{
+			Name:  "incoming",
+			Usage: "(optional) incoming compact channel ID",
+		},
+		cli.Uint64Flag{
+			Name:  "outgoing",
+			Usage: "(optional) outgoing compact channel ID",
+		},
+	},
+	Action: actionDecorator(reBalance),
+}
+
+func reBalance(ctx *cli.Context) error {
+	// Show command help if no arguments provided.
+	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
+		cli.ShowCommandHelp(ctx, "reBalance")
+		return nil
+	}
+	ctxb := context.Background()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	args := ctx.Args()
+
+	var amt int64
+	var err error
+
+	switch {
+	case ctx.IsSet("amt"):
+		amt = ctx.Int64("amt")
+	case args.Present():
+		amt, err = strconv.ParseInt(args.First(), 10, 64)
+		if err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("Amount argument is missing.")
+	}
+	if amt <= 0 {
+		return fmt.Errorf("Amount may not be negative nor zero.")
+	}
+
+	feeLimit, err := retrieveFeeLimit(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Creates an invoice of <amt>
+	invoice := &lnrpc.Invoice{
+		Memo:  "rebalance",
+		Value: amt,
+	}
+
+	resp, err := client.AddInvoice(context.Background(), invoice)
+	if err != nil {
+		return err
+	}
+
+	printJSON(struct {
+		RHash    string `json:"r_hash"`
+		PayReq   string `json:"pay_req"`
+		AddIndex uint64 `json:"add_index"`
+	}{
+		RHash:    hex.EncodeToString(resp.RHash),
+		PayReq:   resp.PaymentRequest,
+		AddIndex: resp.AddIndex,
+	})
+
+	// Pay pay invoice just created, using incoming and outgoing
+	// channels if specified.
+
+	// Sets SelfNode to the sender's PubKey
+	infoReq := &lnrpc.GetInfoRequest{}
+	selfNode, err := client.GetInfo(ctxb, infoReq)
+
+	req := &lnrpc.QueryRoutesRequest{
+		PubKey:         selfNode.IdentityPubkey,
+		Amt:            amt,
+		FeeLimit:       feeLimit,
+		Incoming:       ctx.Uint64("incoming"),
+		Outgoing:       ctx.Uint64("outgoing"),
+	}
+
+	route, err := client.QueryRoutes(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	payReq := &lnrpc.SendToRouteRequest{
+		PaymentHash: resp.RHash,
+		Routes:      route.Routes,
+	}
+
+	return sendToRouteRequest(ctx, payReq)
+}
+
 var sendToRouteCommand = cli.Command{
 	Name:  "sendtoroute",
 	Usage: "send a payment over a predefined route",
@@ -2549,6 +2672,14 @@ var queryRoutesCommand = cli.Command{
 			Usage: "(optional) number of blocks the last hop has to reveal " +
 				"the preimage",
 		},
+		cli.Uint64Flag{
+			Name:  "incoming",
+			Usage: "(optional) incoming compact channel ID",
+		},
+		cli.Uint64Flag{
+			Name:  "outgoing",
+			Usage: "(optional) outgoing compact channel ID",
+		},
 	},
 	Action: actionDecorator(queryRoutes),
 }
@@ -2599,6 +2730,8 @@ func queryRoutes(ctx *cli.Context) error {
 		FeeLimit:       feeLimit,
 		NumRoutes:      int32(ctx.Int("num_max_routes")),
 		FinalCltvDelta: int32(ctx.Int("final_cltv_delta")),
+		Incoming:       ctx.Uint64("incoming"),
+		Outgoing:       ctx.Uint64("outgoing"),
 	}
 
 	route, err := client.QueryRoutes(ctxb, req)

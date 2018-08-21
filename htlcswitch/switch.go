@@ -1401,9 +1401,17 @@ func (s *Switch) htlcForwarder() {
 
 		// Now that all pending and live links have been removed from
 		// the forwarding indexes, stop each one before shutting down.
+		// We'll shut them down in parallel to make exiting as fast as
+		// possible.
+		var wg sync.WaitGroup
 		for _, link := range linksToStop {
-			link.Stop()
+			wg.Add(1)
+			go func(l ChannelLink) {
+				defer wg.Done()
+				l.Stop()
+			}(link)
 		}
+		wg.Wait()
 
 		// Before we exit fully, we'll attempt to flush out any
 		// forwarding events that may still be lingering since the last

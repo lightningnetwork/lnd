@@ -877,7 +877,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 
 	const (
 		batchTimeout        = 50 * time.Millisecond
-		fwdPkgTimeout       = 5 * time.Second
+		fwdPkgTimeout       = 15 * time.Second
 		minFeeUpdateTimeout = 30 * time.Minute
 		maxFeeUpdateTimeout = 40 * time.Minute
 	)

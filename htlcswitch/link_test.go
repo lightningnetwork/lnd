@@ -1058,15 +1058,17 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
 
-	daveServer, err := newMockServer(
-		t, "dave", testStartingHeight, nil, n.globalPolicy.TimeLockDelta,
+	// Remove bob's outgoing link with Carol. This will cause him to fail
+	// back the payment to Alice since he is unaware of Carol when the
+	// payment comes across.
+	bobChanID := lnwire.NewChanIDFromOutPoint(
+		&channels.bobToCarol.State().FundingOutpoint,
 	)
-	if err != nil {
-		t.Fatalf("unable to init dave's server: %v", err)
-	}
-	davePub := daveServer.PubKey()
-	receiver := n.bobServer
-	rhash, err := n.makePayment(n.aliceServer, n.bobServer, davePub, hops,
+	n.bobServer.htlcSwitch.RemoveLink(bobChanID)
+
+	bobPub := n.bobServer.PubKey()
+	receiver := n.carolServer
+	rhash, err := n.makePayment(n.aliceServer, receiver, bobPub, hops,
 		amount, htlcAmt, totalTimelock).Wait(30 * time.Second)
 	if err == nil {
 		t.Fatal("error haven't been received")
@@ -1107,6 +1109,31 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	if n.carolChannelLink.Bandwidth() != carolBandwidthBefore {
 		t.Fatal("the bandwidth of carol channel link which handles " +
 			"bob->carol channel should be the same")
+	}
+
+	// Load the forwarding packages for Bob's incoming link. The payment
+	// should have been rejected by the switch, and the AddRef in this link
+	// should be acked by the failed payment.
+	bobInFwdPkgs, err := channels.bobToAlice.State().LoadFwdPkgs()
+	if err != nil {
+		t.Fatalf("unable to load bob's fwd pkgs: %v", err)
+	}
+
+	// There should be exactly two forward packages, as a full state
+	// transition requires two commitment dances.
+	if len(bobInFwdPkgs) != 2 {
+		t.Fatalf("bob should have exactly 2 fwdpkgs, has %d",
+			len(bobInFwdPkgs))
+	}
+
+	// Only one of the forwarding package should have an Add in it, the
+	// other will be empty. Either way, both AckFilters should be fully
+	// acked.
+	for _, fwdPkg := range bobInFwdPkgs {
+		if !fwdPkg.AckFilter.IsFull() {
+			t.Fatalf("fwdpkg chanid=%v height=%d AckFilter is not "+
+				"fully acked", fwdPkg.Source, fwdPkg.Height)
+		}
 	}
 }
 

@@ -1,7 +1,6 @@
 package contractcourt
 
 import (
-	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -248,7 +247,7 @@ func (c *ChannelArbitrator) Start() error {
 	// on-chain state, and our set of active contracts.
 	startingState := c.state
 	nextState, _, err := c.advanceState(
-		uint32(bestHeight), chainTrigger, nil,
+		uint32(bestHeight), chainTrigger,
 	)
 	if err != nil {
 		c.cfg.BlockEpochs.Cancel()
@@ -638,8 +637,7 @@ func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
 // param is a callback that allows the caller to execute an arbitrary action
 // after each state transition.
 func (c *ChannelArbitrator) advanceState(triggerHeight uint32,
-	trigger transitionTrigger, stateCallback func(ArbitratorState) error) (
-	ArbitratorState, *wire.MsgTx, error) {
+	trigger transitionTrigger) (ArbitratorState, *wire.MsgTx, error) {
 
 	var (
 		priorState   ArbitratorState
@@ -664,15 +662,6 @@ func (c *ChannelArbitrator) advanceState(triggerHeight uint32,
 
 		if forceCloseTx == nil && closeTx != nil {
 			forceCloseTx = closeTx
-		}
-
-		// If we have a state callback, then we'll attempt to execute
-		// it. If the callback doesn't execute successfully, then we'll
-		// exit early.
-		if stateCallback != nil {
-			if err := stateCallback(nextState); err != nil {
-				return nextState, closeTx, err
-			}
 		}
 
 		// Our termination transition is a noop transition. If we get
@@ -1322,7 +1311,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			// Now that a new block has arrived, we'll attempt to
 			// advance our state forward.
 			nextState, _, err := c.advanceState(
-				uint32(bestHeight), chainTrigger, nil,
+				uint32(bestHeight), chainTrigger,
 			)
 			if err != nil {
 				log.Errorf("unable to advance state: %v", err)
@@ -1400,31 +1389,21 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			}
 
 			// When processing a unilateral close event, we'll
-			// transition directly to the ContractClosed state.
-			// When the state machine reaches that state, we'll log
-			// out the set of resolutions.
-			stateCb := func(nextState ArbitratorState) error {
-				if nextState != StateContractClosed {
-					return nil
-				}
-
-				err := c.log.LogContractResolutions(
-					contractRes,
-				)
-				if err != nil {
-					return fmt.Errorf("unable to "+
-						"write resolutions: %v",
-						err)
-				}
-
-				return nil
+			// transition to the ContractClosed state. We'll log
+			// out the set of resolutions such that they are
+			// available to fetch in that state.
+			err := c.log.LogContractResolutions(contractRes)
+			if err != nil {
+				log.Errorf("unable to write resolutions: %v",
+					err)
+				return
 			}
 
 			// We'll now advance our state machine until it reaches
 			// a terminal state.
-			_, _, err := c.advanceState(
+			_, _, err = c.advanceState(
 				uint32(closeInfo.SpendingHeight),
-				localCloseTrigger, stateCb,
+				localCloseTrigger,
 			)
 			if err != nil {
 				log.Errorf("unable to advance state: %v", err)
@@ -1457,30 +1436,21 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			c.activeHTLCs = newHtlcSet(uniClosure.RemoteCommit.Htlcs)
 
 			// When processing a unilateral close event, we'll
-			// transition directly to the ContractClosed state.
-			// When the state machine reaches that state, we'll log
-			// out the set of resolutions.
-			stateCb := func(nextState ArbitratorState) error {
-				if nextState != StateContractClosed {
-					return nil
-				}
-
-				err := c.log.LogContractResolutions(
-					contractRes,
-				)
-				if err != nil {
-					return fmt.Errorf("unable to write "+
-						"resolutions: %v", err)
-				}
-
-				return nil
+			// transition to the ContractClosed state. We'll log
+			// out the set of resolutions such that they are
+			// available to fetch in that state.
+			err := c.log.LogContractResolutions(contractRes)
+			if err != nil {
+				log.Errorf("unable to write resolutions: %v",
+					err)
+				return
 			}
 
 			// We'll now advance our state machine until it reaches
 			// a terminal state.
-			_, _, err := c.advanceState(
+			_, _, err = c.advanceState(
 				uint32(uniClosure.SpendingHeight),
-				remoteCloseTrigger, stateCb,
+				remoteCloseTrigger,
 			)
 			if err != nil {
 				log.Errorf("unable to advance state: %v", err)
@@ -1525,7 +1495,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			}
 
 			nextState, closeTx, err := c.advanceState(
-				uint32(bestHeight), userTrigger, nil,
+				uint32(bestHeight), userTrigger,
 			)
 			if err != nil {
 				log.Errorf("unable to advance state: %v", err)

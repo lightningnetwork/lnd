@@ -16,6 +16,8 @@ import (
 type mockArbitratorLog struct {
 	state     ArbitratorState
 	newStates chan ArbitratorState
+	failLog   bool
+	failFetch error
 }
 
 // A compile time check to ensure mockArbitratorLog meets the ArbitratorLog
@@ -50,10 +52,16 @@ func (b *mockArbitratorLog) ResolveContract(res ContractResolver) error {
 }
 
 func (b *mockArbitratorLog) LogContractResolutions(c *ContractResolutions) error {
+	if b.failLog {
+		return fmt.Errorf("intentional log failure")
+	}
 	return nil
 }
 
 func (b *mockArbitratorLog) FetchContractResolutions() (*ContractResolutions, error) {
+	if b.failFetch != nil {
+		return nil, b.failFetch
+	}
 	c := &ContractResolutions{}
 
 	return c, nil
@@ -591,6 +599,135 @@ func TestChannelArbitratorLocalForceDoubleSpend(t *testing.T) {
 	case <-resolved:
 		// Expected.
 	case <-time.After(15 * time.Second):
+		t.Fatalf("contract was not resolved")
+	}
+}
+
+// TestChannelArbitratorPersistence tests that the ChannelArbitrator is able to
+// keep advancing the state machine from various states after restart.
+func TestChannelArbitratorPersistence(t *testing.T) {
+	// Start out with a log that will fail writing the set of resolutions.
+	log := &mockArbitratorLog{
+		state:     StateDefault,
+		newStates: make(chan ArbitratorState, 5),
+		failLog:   true,
+	}
+
+	chanArb, resolved, err := createTestChannelArbitrator(log)
+	if err != nil {
+		t.Fatalf("unable to create ChannelArbitrator: %v", err)
+	}
+
+	if err := chanArb.Start(); err != nil {
+		t.Fatalf("unable to start ChannelArbitrator: %v", err)
+	}
+
+	// It should start in StateDefault.
+	assertState(t, chanArb, StateDefault)
+
+	// Send a remote force close event.
+	commitSpend := &chainntnfs.SpendDetail{
+		SpenderTxHash: &chainhash.Hash{},
+	}
+
+	uniClose := &lnwallet.UnilateralCloseSummary{
+		SpendDetail:     commitSpend,
+		HtlcResolutions: &lnwallet.HtlcResolutions{},
+	}
+	chanArb.cfg.ChainEvents.RemoteUnilateralClosure <- uniClose
+
+	// Since writing the resolutions fail, the arbitrator should not
+	// advance to the next state.
+	time.Sleep(100 * time.Millisecond)
+	if log.state != StateDefault {
+		t.Fatalf("expected to stay in StateDefault")
+	}
+	chanArb.Stop()
+
+	// Create a new arbitrator with the same log.
+	chanArb, resolved, err = createTestChannelArbitrator(log)
+	if err != nil {
+		t.Fatalf("unable to create ChannelArbitrator: %v", err)
+	}
+
+	if err := chanArb.Start(); err != nil {
+		t.Fatalf("unable to start ChannelArbitrator: %v", err)
+	}
+
+	// Again, it should start up in the default state.
+	assertState(t, chanArb, StateDefault)
+
+	// Now we make the log succeed writing the resolutions, but fail when
+	// attempting to close the channel.
+	log.failLog = false
+	chanArb.cfg.MarkChannelClosed = func(*channeldb.ChannelCloseSummary) error {
+		return fmt.Errorf("intentional close error")
+	}
+
+	// Send a new remote force close event.
+	chanArb.cfg.ChainEvents.RemoteUnilateralClosure <- uniClose
+
+	// Since closing the channel failed, the arbitrator should stay in the
+	// default state.
+	time.Sleep(100 * time.Millisecond)
+	if log.state != StateDefault {
+		t.Fatalf("expected to stay in StateDefault")
+	}
+	chanArb.Stop()
+
+	// Create yet another arbitrator with the same log.
+	chanArb, resolved, err = createTestChannelArbitrator(log)
+	if err != nil {
+		t.Fatalf("unable to create ChannelArbitrator: %v", err)
+	}
+
+	if err := chanArb.Start(); err != nil {
+		t.Fatalf("unable to start ChannelArbitrator: %v", err)
+	}
+
+	// Starts out in StateDefault.
+	assertState(t, chanArb, StateDefault)
+
+	// Now make fetching the resolutions fail.
+	log.failFetch = fmt.Errorf("intentional fetch failure")
+	chanArb.cfg.ChainEvents.RemoteUnilateralClosure <- uniClose
+
+	// Since logging the resolutions and closing the channel now succeeds,
+	// it should advance to StateContractClosed.
+	assertStateTransitions(
+		t, log.newStates, StateContractClosed,
+	)
+
+	// It should not advance further, however, as fetching resolutions
+	// failed.
+	time.Sleep(100 * time.Millisecond)
+	if log.state != StateContractClosed {
+		t.Fatalf("expected to stay in StateContractClosed")
+	}
+	chanArb.Stop()
+
+	// Create a new arbitrator, and now make fetching resolutions succeed.
+	log.failFetch = nil
+	chanArb, resolved, err = createTestChannelArbitrator(log)
+	if err != nil {
+		t.Fatalf("unable to create ChannelArbitrator: %v", err)
+	}
+
+	if err := chanArb.Start(); err != nil {
+		t.Fatalf("unable to start ChannelArbitrator: %v", err)
+	}
+	defer chanArb.Stop()
+
+	// Finally it should advance to StateFullyResolved.
+	assertStateTransitions(
+		t, log.newStates, StateFullyResolved,
+	)
+
+	// It should also mark the channel as resolved.
+	select {
+	case <-resolved:
+		// Expected.
+	case <-time.After(5 * time.Second):
 		t.Fatalf("contract was not resolved")
 	}
 }

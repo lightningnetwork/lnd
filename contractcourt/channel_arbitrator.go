@@ -295,8 +295,23 @@ func (c *ChannelArbitrator) Start() error {
 	startingState := c.state
 	nextState, _, err := c.advanceState(triggerHeight, trigger)
 	if err != nil {
-		c.cfg.BlockEpochs.Cancel()
-		return err
+		switch err {
+
+		// If we detect that we tried to fetch resolutions, but failed,
+		// this channel was marked closed in the database before
+		// resolutions successfully written. In this case there is not
+		// much we can do, so we don't return the error.
+		case errScopeBucketNoExist:
+			fallthrough
+		case errNoResolutions:
+			log.Warnf("ChannelArbitrator(%v): detected closed"+
+				"channel with no contract resolutions written.",
+				c.cfg.ChanPoint)
+
+		default:
+			c.cfg.BlockEpochs.Cancel()
+			return err
+		}
 	}
 
 	// If we start and ended at the awaiting full resolution state, then

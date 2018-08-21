@@ -16,11 +16,14 @@ import (
 )
 
 const (
-	// Duration when stray output pull tries to fetch all stored spendable
-	// outputs and validate them with current fee rate and create sweep
-	// transaction if output has positive amount compared with fee needed
-	// to mine it.
+	// checkDuration is duration when stray output pull tries to fetch all
+	// stored spendable outputs and validate them with current fee rate and
+	// create sweep transaction if output has positive amount compared
+	// with fee needed to mine it.
 	checkDuration = time.Hour
+
+	// numConfs needs for estimation fee + monitoring transaction confirmations.
+	numConfs = 6
 )
 
 // PoolServer is pool which contains a list of stray outputs that
@@ -61,7 +64,7 @@ func (d *PoolServer) Sweep() error {
 	// Retrieve all stray outputs that can be swept back to the wallet,
 	// for all of them we need to recalculate fee based on current fee
 	// rate in time of triggering sweeping function.
-	outputEntities, err := d.getOutputEntities(store.OutputPending)
+	outputEntities, err := d.getOutputsToSweep()
 	if err != nil {
 		return err
 	}
@@ -92,22 +95,27 @@ func (d *PoolServer) Sweep() error {
 	log.Infof("publishing sweep transaction for a list of stray inputs with full amount: %v",
 		amount)
 
-	err = d.cfg.PublishTransaction(btx.MsgTx())
-	if err != nil && err != lnwallet.ErrDoubleSpend {
+	if err := d.cfg.PublishTransaction(btx.MsgTx()); err != nil && err != lnwallet.ErrDoubleSpend {
 		log.Errorf("unable to broadcast sweep tx: %v, %v",
 			err, spew.Sdump(btx.MsgTx()))
 
 		return err
 	}
 
-	for _, oe := range outputEntities {
-		if err := d.store.ChangeState(oe, store.OutputPublished); err != nil {
-			log.Errorf("couldn't change state to 'Published' for output with id: %v",
-				oe.ID())
-		}
+	pub, err := d.store.PublishOutputs(btx, outputEntities)
+	if err != nil {
+		log.Errorf("couldn't move to 'Published' for outputs: %v",
+			spew.Sdump(outputEntities))
+
+		return err
 	}
 
-	return err
+	_, bestHeight, err := d.cfg.ChainIO.GetBestBlock()
+	if err != nil {
+		return err
+	}
+
+	return d.registerTimeoutConf(pub, uint32(bestHeight))
 }
 
 // GenSweepTx fetches all stray outputs from database and
@@ -123,16 +131,15 @@ func (d *PoolServer) GenSweepTx(strayInputs ...lnwallet.SpendableOutput) (*btcut
 	return d.genSweepTx(pkScript, strayInputs...)
 }
 
-// getOutputEntities returns the list of spendable outputs according passed
-// state.
-func (d *PoolServer) getOutputEntities(
-	state store.OutputState) ([]store.OutputEntity, error) {
-	oEntities, err := d.store.FetchAllStrayOutputs(state)
+// getOutputsToSweep returns the list of spendable outputs that can be
+// swept by current fee rate.
+func (d *PoolServer) getOutputsToSweep() ([]store.OutputEntity, error) {
+	oEntities, err := d.store.FetchAllStrayOutputs()
 	if err != nil {
 		return nil, err
 	}
 
-	feePerKW, err := d.cfg.Estimator.EstimateFeePerKW(6)
+	feePerKW, err := d.cfg.Estimator.EstimateFeePerKW(numConfs)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +164,7 @@ func (d *PoolServer) genSweepTx(pkScript []byte,
 		txEstimator lnwallet.TxWeightEstimator
 	)
 
-	feePerKW, err := d.cfg.Estimator.EstimateFeePerKW(6)
+	feePerKW, err := d.cfg.Estimator.EstimateFeePerKW(numConfs)
 	if err != nil {
 		return nil, err
 	}
@@ -215,6 +222,65 @@ func (d *PoolServer) genSweepTx(pkScript []byte,
 	return btx, nil
 }
 
+// registerTimeoutConf is responsible for subscribing to confirmation
+// notification for sweep transaction.
+func (d *PoolServer) registerTimeoutConf(outputs store.PublishedOutputs,
+	heightHint uint32) error {
+	pkScript := outputs.Tx().TxOut[0].PkScript
+	tx := btcutil.NewTx(outputs.Tx())
+
+	// Register for the confirmation of published swept transaction.
+	confChan, err := d.cfg.Notifier.RegisterConfirmationsNtfn(
+		tx.Hash(), pkScript, numConfs,
+		heightHint,
+	)
+	if err != nil {
+		return err
+	}
+
+	d.wg.Add(1)
+	go func() {
+		defer d.wg.Done()
+
+		select {
+		case _, ok := <-confChan.Confirmed:
+			if ok {
+				if err := d.store.Sweep(outputs); err != nil {
+					log.Errorf("couldn't mark outputs as swept: %v",
+						err)
+				}
+			}
+
+		case <-d.quit:
+			return
+		}
+	}()
+
+	return nil
+}
+
+// checkLastConfirmations restores confirmations watcher for already
+// published transaction to the network with swept outputs.
+func (d *PoolServer) checkLastConfirmations() error {
+	pubOutputs, err := d.store.FetchPublishedOutputs()
+	if err != nil {
+		return nil
+	}
+
+	_, bestHeight, err := d.cfg.ChainIO.GetBestBlock()
+	if err != nil {
+		return err
+	}
+
+	for _, pub := range pubOutputs {
+		if err := d.registerTimeoutConf(pub, uint32(bestHeight)); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // Start is launches checking of swept outputs by interval into database.
 // It must be run as a goroutine.
 func (d *PoolServer) Start() error {
@@ -232,11 +298,23 @@ func (d *PoolServer) Start() error {
 		for {
 			select {
 			case <-d.ticker.C:
-				d.Sweep()
+				if err := d.Sweep(); err != nil {
+					log.Errorf("couldn't sweep outputs: %v",
+						err)
+				}
 
 			case <-d.quit:
 				return
 			}
+		}
+	}()
+
+	d.wg.Add(1)
+	go func() {
+		defer d.wg.Done()
+		if err := d.checkLastConfirmations(); err != nil {
+			log.Errorf("couldn't init checking last confirmation for published transactions: %v",
+				err)
 		}
 	}()
 

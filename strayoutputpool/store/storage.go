@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/btcsuite/btcutil"
 	"github.com/coreos/bbolt"
 
 	"github.com/lightningnetwork/lnd/breacharbiter"
@@ -23,11 +24,11 @@ var (
 
 	// strayOutputStateBucket stores links to keys of strayOutputBucket,
 	// where keys are contain prefix build on state of the output.
-	strayOutputStateBucket = []byte("stray-output-state")
+	strayOutputPublishedBucket = []byte("stray-output-published")
 
-	// ErrNoStrayOutputCreated is returned when bucket of stray outputs
-	// hasn't been created.
-	ErrNoStrayOutputCreated = fmt.Errorf("there are no existing stray outputs")
+	// strayOutputSweptBucket bucket with the list of stray outputs
+	// for which was created sweep transaction and it has enough confirmations.
+	strayOutputSweptBucket = []byte("stray-output-swept")
 
 	// ErrNotSupportedOutputType is returned when we can't recognize the type
 	// of stored output entity.
@@ -59,17 +60,7 @@ func (o *outputdb) AddStrayOutput(output OutputEntity) error {
 			return err
 		}
 
-		states, err := tx.CreateBucketIfNotExists(strayOutputStateBucket)
-		if err != nil {
-			return err
-		}
-
 		outputID, err := outputs.NextSequence()
-		if err != nil {
-			return err
-		}
-
-		stateID, err := states.NextSequence()
 		if err != nil {
 			return err
 		}
@@ -77,31 +68,20 @@ func (o *outputdb) AddStrayOutput(output OutputEntity) error {
 		outputIDBytes := make([]byte, 8)
 		byteOrder.PutUint64(outputIDBytes, outputID)
 
-		if err := outputs.Put(outputIDBytes, b.Bytes()); err != nil {
-			return err
-		}
-
-		stateIDBytes := make([]byte, 10)
-		copy(stateIDBytes[:2], output.State().Prefix())
-		byteOrder.PutUint64(stateIDBytes[2:], stateID)
-
-		return states.Put(stateIDBytes, outputIDBytes)
+		return outputs.Put(outputIDBytes, b.Bytes())
 	})
 }
 
 // FetchAllStrayOutputs returns stray outputs in DB by prefix.
-func (o *outputdb) FetchAllStrayOutputs(state OutputState) ([]OutputEntity, error) {
+func (o *outputdb) FetchAllStrayOutputs() ([]OutputEntity, error) {
 	var outputs []OutputEntity
 	if err := o.db.View(func(tx *bolt.Tx) error {
 		outputBucket := tx.Bucket(strayOutputBucket)
-		stateBucket := tx.Bucket(strayOutputStateBucket)
-		if outputBucket == nil || stateBucket == nil {
+		if outputBucket == nil {
 			return nil
 		}
 
-		c := stateBucket.Cursor()
-		for k, v := c.Seek(state.Prefix()); k != nil &&
-			bytes.HasPrefix(k, state.Prefix()); k, v = c.Next() {
+		return outputBucket.ForEach(func(k, v []byte) error {
 			output := &strayOutputEntity{id: byteOrder.Uint64(k)}
 
 			if err := output.Decode(bytes.NewReader(
@@ -110,9 +90,9 @@ func (o *outputdb) FetchAllStrayOutputs(state OutputState) ([]OutputEntity, erro
 			}
 
 			outputs = append(outputs, output)
-		}
 
-		return nil
+			return nil
+		})
 	}); err != nil {
 		return nil, err
 	}
@@ -120,54 +100,84 @@ func (o *outputdb) FetchAllStrayOutputs(state OutputState) ([]OutputEntity, erro
 	return outputs, nil
 }
 
-// ChangeState migrates state for passed output entity.
-func (o *outputdb) ChangeState(output OutputEntity, state OutputState) error {
-	if output.State() == state {
-		return nil
+// FetchPublishedOutputs retrieves published outputs as a raw transaction
+// to the network.
+func (o *outputdb) FetchPublishedOutputs() ([]PublishedOutputs, error) {
+	var outputs []PublishedOutputs
+	return outputs, o.db.View(func(tx *bolt.Tx) error {
+		pubBucket, err := tx.CreateBucketIfNotExists(strayOutputPublishedBucket)
+		if err != nil {
+			return err
+		}
+
+		return pubBucket.ForEach(func(k, v []byte) error {
+			pub := &published{db: o.db, id: byteOrder.Uint64(k)}
+			outputs = append(outputs, pub)
+
+			return pub.Decode(bytes.NewReader(v))
+		})
+	})
+}
+
+// PublishOutputs migrates spendable outputs from awaiting list to published
+// storage with created raw transaction.
+func (o *outputdb) PublishOutputs(tx *btcutil.Tx,
+	outputs []OutputEntity) (PublishedOutputs, error) {
+	pub := &published{
+		db:      o.db,
+		tx:      tx.MsgTx(),
+		outputs: outputs,
 	}
 
-	return o.db.Update(func(tx *bolt.Tx) error {
-		outputBucket := tx.Bucket(strayOutputBucket)
-		stateBucket := tx.Bucket(strayOutputStateBucket)
-		if outputBucket == nil || stateBucket == nil {
-			return ErrNoStrayOutputCreated
-		}
-
-		stateIDBytes := make([]byte, 10)
-		binary.BigEndian.PutUint64(stateIDBytes[2:], output.ID())
-
-		// Set old prefix to get value of this key that contains.
-		copy(stateIDBytes[:2], output.State().Prefix())
-
-		// Get key of strayOutputBucket where contains encoded data
-		// with spendable output.
-		outputIDBytes := stateBucket.Get(stateIDBytes)
-
-		// Then we need to encode output entity with new state parameter.
-		var b bytes.Buffer
-		output := &strayOutputEntity{
-			id:         output.ID(),
-			outputType: output.Type(),
-			state:      state,
-			output:     output.Output(),
-		}
-		if err := output.Encode(&b); err != nil {
+	return pub, o.db.Batch(func(tx *bolt.Tx) error {
+		outputsBucket, err := tx.CreateBucketIfNotExists(strayOutputBucket)
+		if err != nil {
 			return err
 		}
 
-		if err := outputBucket.Put(outputIDBytes, b.Bytes()); err != nil {
+		pubBucket, err := tx.CreateBucketIfNotExists(strayOutputPublishedBucket)
+		if err != nil {
 			return err
 		}
 
-		// We need to remove previous link to this prefix.
-		if err := stateBucket.Delete(stateIDBytes); err != nil {
+		if err := pub.Save(pubBucket, tx); err != nil {
 			return err
 		}
 
-		// Set a new changed prefix for specified output entity.
-		copy(stateIDBytes[:2], state.Prefix())
+		outputIDBytes := make([]byte, 8)
+		for _, output := range outputs {
+			byteOrder.PutUint64(outputIDBytes, output.ID())
+			if err := outputsBucket.Delete(outputIDBytes); err != nil {
+				return err
+			}
+		}
 
-		return stateBucket.Put(stateIDBytes, outputIDBytes)
+		return nil
+	})
+}
+
+// Sweep marks published sweep transaction with the list of outputs as
+// completed after several confirmations on the blockchain.
+func (o *outputdb) Sweep(published PublishedOutputs) error {
+	return o.db.Batch(func(tx *bolt.Tx) error {
+		pubBucket, err := tx.CreateBucketIfNotExists(strayOutputPublishedBucket)
+		if err != nil {
+			return err
+		}
+
+		sweptBucket, err := tx.CreateBucketIfNotExists(strayOutputSweptBucket)
+		if err != nil {
+			return err
+		}
+
+		outputIDBytes := make([]byte, 8)
+		byteOrder.PutUint64(outputIDBytes, published.ID())
+
+		if err := pubBucket.Delete(outputIDBytes); err != nil {
+			return err
+		}
+
+		return published.Save(sweptBucket, tx)
 	})
 }
 
@@ -175,7 +185,6 @@ func (o *outputdb) ChangeState(output OutputEntity, state OutputState) error {
 type strayOutputEntity struct {
 	id         uint64
 	outputType outputType
-	state      OutputState
 	output     lnwallet.SpendableOutput
 }
 
@@ -199,7 +208,6 @@ func NewOutputEntity(output lnwallet.SpendableOutput) OutputEntity {
 
 	return &strayOutputEntity{
 		outputType: outputType,
-		state:      OutputPending,
 		output:     output,
 	}
 }
@@ -214,11 +222,6 @@ func (s *strayOutputEntity) Type() outputType {
 	return s.outputType
 }
 
-// Type returns type of current output.
-func (s *strayOutputEntity) State() OutputState {
-	return s.state
-}
-
 // Output returns output entity.
 func (s *strayOutputEntity) Output() lnwallet.SpendableOutput {
 	return s.output
@@ -229,11 +232,6 @@ func (s *strayOutputEntity) Encode(w io.Writer) error {
 	var scratch [1]byte
 
 	scratch[0] = byte(s.outputType)
-	if _, err := w.Write(scratch[:]); err != nil {
-		return err
-	}
-
-	scratch[0] = byte(s.state)
 	if _, err := w.Write(scratch[:]); err != nil {
 		return err
 	}
@@ -253,7 +251,6 @@ func (s *strayOutputEntity) Decode(r io.Reader) error {
 	if _, err := r.Read(scratch[:]); err != nil {
 		return err
 	}
-	s.state = OutputState(scratch[0])
 
 	var err error
 	switch s.outputType {

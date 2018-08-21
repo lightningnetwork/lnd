@@ -26,10 +26,10 @@ type StrayOutputsPool interface {
 type StrayOutputsPoolServer interface {
 	StrayOutputsPool
 
-	// Start launches background processing of scheduled outputs
+	// Start launches background processing of scheduled outputs.
 	Start() error
 
-	// Stop finalises processing
+	// Stop finalises processing.
 	Stop()
 }
 
@@ -59,4 +59,8 @@ type PoolConfig struct {
 	// which move coins from previously unsuccessfully swept outputs
 	// to the user's wallet.
 	Signer lnwallet.Signer
+
+	// ChainIO is used to determine the current block height for chain
+	// notification.
+	ChainIO lnwallet.BlockChainIO
 }

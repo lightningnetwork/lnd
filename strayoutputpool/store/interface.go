@@ -3,6 +3,10 @@ package store
 import (
 	"io"
 
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
+	"github.com/coreos/bbolt"
+
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
@@ -18,64 +22,33 @@ const (
 	outputContract               = 4
 )
 
-// OutputState contains information about state of stored spendable stray
-// output.
-type OutputState byte
-
-const (
-	// OutputPending is state when stray output was added to pool and haven't
-	// processed yet, stored in persistent storage.
-	OutputPending OutputState = 0
-
-	// OutputPublished is state when this output was aggregated with others
-	// as transaction and published to the chain network.
-	OutputPublished = 1
-
-	// OutputSwept is state when output was published and has appropriate
-	// number of confirmations.
-	OutputSwept = 2
-)
-
-// Prefix returns prefix of state needed to store in database.
-func (s OutputState) Prefix() []byte {
-	switch s {
-	case OutputPending:
-		return []byte("pn")
-
-	case OutputPublished:
-		return []byte("pb")
-
-	case OutputSwept:
-		return []byte("sw")
-	}
-
-	return nil
-}
-
 // OutputStore is interface of storage for stray outputs pool.
 type OutputStore interface {
 	// AddStrayOutput add spendable output to persistent storage.
 	AddStrayOutput(OutputEntity) error
 
-	// FetchAllStrayOutputs receives stray spendable outputs
+	// FetchAllStrayOutputs retrieves stray spendable outputs
 	// from persistent storage.
-	FetchAllStrayOutputs(state OutputState) ([]OutputEntity, error)
+	FetchAllStrayOutputs() ([]OutputEntity, error)
 
-	// ChangeState used for migration states for spendable outputs.
-	ChangeState(output OutputEntity, state OutputState) error
+	// FetchPublishedOutputs retrieves published outputs from storage.
+	FetchPublishedOutputs() ([]PublishedOutputs, error)
+
+	// PublishOutputs marks all spendable outputs as published and
+	// add them to storage with raw transaction.
+	PublishOutputs(tx *btcutil.Tx, outputs []OutputEntity) (PublishedOutputs, error)
+
+	// Sweep finalises stored published outputs in storage.
+	Sweep(published PublishedOutputs) error
 }
 
 // OutputEntity is representation of entity for storing spendable outputs.
 type OutputEntity interface {
-	// ID returns unique ident of output entity stored in database.
+	// ID returns unique identification of output entity stored in database.
 	ID() uint64
 
 	// Type returns type of spendable output.
 	Type() outputType
-
-	// State contains state information about current spendable stray output,
-	// it's: ready, transaction is published, already swept.
-	State() OutputState
 
 	// Output returns spendable output entity.
 	Output() lnwallet.SpendableOutput
@@ -85,4 +58,19 @@ type OutputEntity interface {
 
 	// Decode de-serializes data of spendable output from serial data.
 	Decode(r io.Reader) error
+}
+
+// PublishedOutputs contains a list of translated to the network outputs.
+type PublishedOutputs interface {
+	// ID returns unique identification of published outputs stored in database.
+	ID() uint64
+
+	// Tx returns published transaction.
+	Tx() *wire.MsgTx
+
+	// Outputs returns list of stored outputs that were published.
+	Outputs() []OutputEntity
+
+	// Save encodes data and saves in passed bucket using giving transaction.
+	Save(*bolt.Bucket, *bolt.Tx) error
 }

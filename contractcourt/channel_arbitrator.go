@@ -1438,6 +1438,25 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 				return
 			}
 
+			// After the set of resolutions are successfully
+			// logged, we can safely close the channel. After this
+			// succeeds we won't be getting chain events anymore,
+			// so we must make sure we can recover on restart after
+			// it is marked closed. If the next state transation
+			// fails, we'll start up in the prior state again, and
+			// we won't be longer getting chain events. In this
+			// case we must manually re-trigger the state
+			// transition into StateContractClosed based on the
+			// close status of the channel.
+			err = c.cfg.MarkChannelClosed(
+				closeInfo.ChannelCloseSummary,
+			)
+			if err != nil {
+				log.Errorf("unable to mark "+
+					"channel closed: %v", err)
+				return
+			}
+
 			// We'll now advance our state machine until it reaches
 			// a terminal state.
 			_, _, err = c.advanceState(
@@ -1478,6 +1497,24 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			err := c.log.LogContractResolutions(contractRes)
 			if err != nil {
 				log.Errorf("unable to write resolutions: %v",
+					err)
+				return
+			}
+
+			// After the set of resolutions are successfully
+			// logged, we can safely close the channel. After this
+			// succeeds we won't be getting chain events anymore,
+			// so we must make sure we can recover on restart after
+			// it is marked closed. If the next state transation
+			// fails, we'll start up in the prior state again, and
+			// we won't be longer getting chain events. In this
+			// case we must manually re-trigger the state
+			// transition into StateContractClosed based on the
+			// close status of the channel.
+			closeSummary := &uniClosure.ChannelCloseSummary
+			err = c.cfg.MarkChannelClosed(closeSummary)
+			if err != nil {
+				log.Errorf("unable to mark channel closed: %v",
 					err)
 				return
 			}

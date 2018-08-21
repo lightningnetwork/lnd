@@ -367,6 +367,7 @@ func TestChannelArbitratorLocalForceClose(t *testing.T) {
 			CloseTx:         &wire.MsgTx{},
 			HtlcResolutions: &lnwallet.HtlcResolutions{},
 		},
+		&channeldb.ChannelCloseSummary{},
 	}
 
 	// It should transition StateContractClosed -> StateFullyResolved.

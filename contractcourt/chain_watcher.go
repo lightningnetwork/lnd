@@ -21,6 +21,7 @@ import (
 type LocalUnilateralCloseInfo struct {
 	*chainntnfs.SpendDetail
 	*lnwallet.LocalForceCloseSummary
+	*channeldb.ChannelCloseSummary
 }
 
 // CooperativeCloseInfo encapsulates all the informnation we need to act
@@ -560,8 +561,7 @@ func (c *chainWatcher) dispatchLocalForceClose(
 	}
 
 	// As we've detected that the channel has been closed, immediately
-	// delete the state from disk, creating a close summary for future
-	// usage by related sub-systems.
+	// creating a close summary for future usage by related sub-systems.
 	chanSnapshot := forceClose.ChanSnapshot
 	closeSummary := &channeldb.ChannelCloseSummary{
 		ChanPoint:               chanSnapshot.ChannelPoint,
@@ -589,14 +589,12 @@ func (c *chainWatcher) dispatchLocalForceClose(
 		htlcValue := btcutil.Amount(htlc.SweepSignDesc.Output.Value)
 		closeSummary.TimeLockedBalance += htlcValue
 	}
-	err = c.cfg.chanState.CloseChannel(closeSummary)
-	if err != nil {
-		return fmt.Errorf("unable to delete channel state: %v", err)
-	}
 
 	// With the event processed, we'll now notify all subscribers of the
 	// event.
-	closeInfo := &LocalUnilateralCloseInfo{commitSpend, forceClose}
+	closeInfo := &LocalUnilateralCloseInfo{
+		commitSpend, forceClose, closeSummary,
+	}
 	c.Lock()
 	for _, sub := range c.clientSubscriptions {
 		select {
@@ -643,22 +641,10 @@ func (c *chainWatcher) dispatchRemoteForceClose(
 		return err
 	}
 
-	// As we've detected that the channel has been closed, immediately
-	// delete the state from disk, creating a close summary for future
-	// usage by related sub-systems.
-	err = c.cfg.chanState.CloseChannel(&uniClose.ChannelCloseSummary)
-	if err != nil {
-		return fmt.Errorf("unable to delete channel state: %v", err)
-	}
-
 	// With the event processed, we'll now notify all subscribers of the
 	// event.
 	c.Lock()
 	for _, sub := range c.clientSubscriptions {
-		// TODO(roasbeef): send msg before writing to disk
-		//  * need to ensure proper fault tolerance in all cases
-		//  * get ACK from the consumer of the ntfn before writing to disk?
-		//  * no harm in repeated ntfns: at least once semantics
 		select {
 		case sub.RemoteUnilateralClosure <- uniClose:
 		case <-c.quit:
@@ -745,6 +731,7 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 	// channel as pending force closed.
 	//
 	// TODO(roasbeef): instead mark we got all the monies?
+	// TODO(halseth): move responsibility to breach arbiter?
 	settledBalance := remoteCommit.LocalBalance.ToSatoshis()
 	closeSummary := channeldb.ChannelCloseSummary{
 		ChanPoint:               c.cfg.chanState.FundingOutpoint,

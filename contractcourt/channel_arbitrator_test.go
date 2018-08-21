@@ -221,10 +221,17 @@ func TestChannelArbitratorLocalForceClose(t *testing.T) {
 
 	select {
 	case <-respChan:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("no response received")
+	}
+
+	select {
 	case err := <-errChan:
-		t.Fatalf("error force closing channel: %v", err)
-	case <-time.After(15 * time.Second):
-		t.Fatalf("did not receive reponse")
+		if err != nil {
+			t.Fatalf("error force closing channel: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("no response received")
 	}
 
 	// After broadcasting the close tx, it should be in state
@@ -308,9 +315,16 @@ func TestChannelArbitratorLocalForceCloseRemoteConfirmed(t *testing.T) {
 	// Wait for a response to the force close.
 	select {
 	case <-respChan:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("no response received")
+	}
+
+	select {
 	case err := <-errChan:
-		t.Fatalf("error force closing channel: %v", err)
-	case <-time.After(15 * time.Second):
+		if err != nil {
+			t.Fatalf("error force closing channel: %v", err)
+		}
+	case <-time.After(5 * time.Second):
 		t.Fatalf("no response received")
 	}
 
@@ -396,9 +410,16 @@ func TestChannelArbitratorLocalForceDoubleSpend(t *testing.T) {
 	// Wait for a response to the force close.
 	select {
 	case <-respChan:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("no response received")
+	}
+
+	select {
 	case err := <-errChan:
-		t.Fatalf("error force closing channel: %v", err)
-	case <-time.After(15 * time.Second):
+		if err != nil {
+			t.Fatalf("error force closing channel: %v", err)
+		}
+	case <-time.After(5 * time.Second):
 		t.Fatalf("no response received")
 	}
 

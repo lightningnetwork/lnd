@@ -2077,11 +2077,11 @@ func reBalance(ctx *cli.Context) error {
 	selfNode, err := client.GetInfo(ctxb, infoReq)
 
 	req := &lnrpc.QueryRoutesRequest{
-		PubKey:         selfNode.IdentityPubkey,
-		Amt:            amt,
-		FeeLimit:       feeLimit,
-		Incoming:       ctx.Uint64("incoming"),
-		Outgoing:       ctx.Uint64("outgoing"),
+		PubKey:   selfNode.IdentityPubkey,
++               Amt:      amt,
++               FeeLimit: feeLimit,
++               Incoming: ctx.Uint64("incoming"),
++               Outgoing: ctx.Uint64("outgoing"),
 	}
 
 	route, err := client.QueryRoutes(ctxb, req)

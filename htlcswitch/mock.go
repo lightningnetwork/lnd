@@ -138,7 +138,6 @@ func initDB() (*channeldb.DB, error) {
 	return db, err
 }
 
-
 func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) {
 	var err error
 

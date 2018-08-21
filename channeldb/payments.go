@@ -191,37 +191,60 @@ func (db *DB) DeleteAllPayments() error {
 // local database.
 func (db *DB) UpdatePaymentStatus(paymentHash [32]byte, status PaymentStatus) error {
 	return db.Batch(func(tx *bolt.Tx) error {
-		paymentStatuses, err := tx.CreateBucketIfNotExists(paymentStatusBucket)
-		if err != nil {
-			return err
-		}
-
-		return paymentStatuses.Put(paymentHash[:], status.Bytes())
+		return UpdatePaymentStatusTx(tx, paymentHash, status)
 	})
+}
+
+// UpdatePaymentStatusTx is a helper method that sets the payment status for
+// outgoing/finished payments in the local database. This method accepts a
+// boltdb transaction such that the operation can be composed into other
+// database transactions.
+func UpdatePaymentStatusTx(tx *bolt.Tx,
+	paymentHash [32]byte, status PaymentStatus) error {
+
+	paymentStatuses, err := tx.CreateBucketIfNotExists(paymentStatusBucket)
+	if err != nil {
+		return err
+	}
+
+	return paymentStatuses.Put(paymentHash[:], status.Bytes())
 }
 
 // FetchPaymentStatus returns the payment status for outgoing payment.
 // If status of the payment isn't found, it will default to "StatusGrounded".
 func (db *DB) FetchPaymentStatus(paymentHash [32]byte) (PaymentStatus, error) {
-	// The default status for all payments that aren't recorded in database.
-	paymentStatus := StatusGrounded
-
+	var paymentStatus = StatusGrounded
 	err := db.View(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(paymentStatusBucket)
-		if bucket == nil {
-			return nil
-		}
-
-		paymentStatusBytes := bucket.Get(paymentHash[:])
-		if paymentStatusBytes == nil {
-			return nil
-		}
-
-		return paymentStatus.FromBytes(paymentStatusBytes)
+		var err error
+		paymentStatus, err = FetchPaymentStatusTx(tx, paymentHash)
+		return err
 	})
 	if err != nil {
 		return StatusGrounded, err
 	}
+
+	return paymentStatus, nil
+}
+
+// FetchPaymentStatusTx is a helper method that returns the payment status for
+// outgoing payment.  If status of the payment isn't found, it will default to
+// "StatusGrounded". It accepts the boltdb transactions such that this method
+// can be composed into other atomic operations.
+func FetchPaymentStatusTx(tx *bolt.Tx, paymentHash [32]byte) (PaymentStatus, error) {
+	// The default status for all payments that aren't recorded in database.
+	var paymentStatus = StatusGrounded
+
+	bucket := tx.Bucket(paymentStatusBucket)
+	if bucket == nil {
+		return paymentStatus, nil
+	}
+
+	paymentStatusBytes := bucket.Get(paymentHash[:])
+	if paymentStatusBytes == nil {
+		return paymentStatus, nil
+	}
+
+	paymentStatus.FromBytes(paymentStatusBytes)
 
 	return paymentStatus, nil
 }

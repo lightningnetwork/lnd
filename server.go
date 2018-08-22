@@ -2953,6 +2953,18 @@ func (s *server) fetchLastChanUpdateByOutPoint(op wire.OutPoint) (
 		return nil, err
 	}
 
+	pubKey := s.identityPriv.PubKey().SerializeCompressed()
+	return extractChannelUpdate(pubKey, info, edge1, edge2)
+}
+
+// extractChannelUpdate attempts to retrieve a lnwire.ChannelUpdate message
+// from an edge's info and a set of routing policies.
+// NOTE: the passed policies can be nil.
+func extractChannelUpdate(ownerPubKey []byte,
+	info *channeldb.ChannelEdgeInfo,
+	policies ...*channeldb.ChannelEdgePolicy) (
+	*lnwire.ChannelUpdate, error) {
+
 	// Helper function to extract the owner of the given policy.
 	owner := func(edge *channeldb.ChannelEdgePolicy) []byte {
 		var pubKey *btcec.PublicKey
@@ -2972,21 +2984,19 @@ func (s *server) fetchLastChanUpdateByOutPoint(op wire.OutPoint) (
 	}
 
 	// Extract the channel update from the policy we own, if any.
-	ourPubKey := s.identityPriv.PubKey().SerializeCompressed()
-	if edge1 != nil && bytes.Equal(ourPubKey, owner(edge1)) {
-		return extractChannelUpdate(info, edge1)
+	for _, edge := range policies {
+		if edge != nil && bytes.Equal(ownerPubKey, owner(edge)) {
+			return createChannelUpdate(info, edge)
+		}
 	}
 
-	if edge2 != nil && bytes.Equal(ourPubKey, owner(edge2)) {
-		return extractChannelUpdate(info, edge2)
-	}
-
-	return nil, fmt.Errorf("unable to find channel(%v)", op)
+	return nil, fmt.Errorf("unable to extract ChannelUpdate for channel %v",
+		info.ChannelPoint)
 }
 
-// extractChannelUpdate retrieves a lnwire.ChannelUpdate message from an edge's
-// info and routing policy.
-func extractChannelUpdate(info *channeldb.ChannelEdgeInfo,
+// createChannelUpdate reconstructs a signed ChannelUpdate from the given edge
+// info and policy.
+func createChannelUpdate(info *channeldb.ChannelEdgeInfo,
 	policy *channeldb.ChannelEdgePolicy) (*lnwire.ChannelUpdate, error) {
 
 	update := &lnwire.ChannelUpdate{

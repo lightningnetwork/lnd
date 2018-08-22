@@ -2139,6 +2139,6 @@ func fetchLastChanUpdate(s *server,
 			local = edge1
 		}
 
-		return extractChannelUpdate(info, local)
+		return extractChannelUpdate(pubKey[:], info, local)
 	}
 }

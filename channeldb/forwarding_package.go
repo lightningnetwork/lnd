@@ -3,11 +3,11 @@ package channeldb
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 
 	"github.com/coreos/bbolt"
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -759,7 +759,11 @@ func ackAddHtlcsAtHeight(sourceBkt *bolt.Bucket, height uint64,
 	heightKey := makeLogKey(height)
 	heightBkt := sourceBkt.Bucket(heightKey[:])
 	if heightBkt == nil {
-		return ErrCorruptedFwdPkg
+		// If the height bucket isn't found, this could be because the
+		// forwarding package was already removed. We'll return nil to
+		// signal that the operation is successful, as there is nothing
+		// to ack.
+		return nil
 	}
 
 	// Load ack filter from disk.
@@ -824,12 +828,17 @@ func ackSettleFails(tx *bolt.Tx, settleFailRefs []SettleFailRef) error {
 	}
 
 	// With the references organized by destination and height, we now load
-	// each remote bucket, and update the settle fail filter for  any
+	// each remote bucket, and update the settle fail filter for any
 	// settle/fail htlcs.
 	for dest, destHeights := range destHeightDiffs {
 		destKey := makeLogKey(dest.ToUint64())
 		destBkt := fwdPkgBkt.Bucket(destKey[:])
 		if destBkt == nil {
+			// If the destination bucket is not found, this is
+			// likely the result of the destination channel being
+			// closed and having it's forwarding packages wiped. We
+			// won't treat this as an error, because the response
+			// will no longer be retransmitted internally.
 			continue
 		}
 
@@ -852,6 +861,9 @@ func ackSettleFailsAtHeight(destBkt *bolt.Bucket, height uint64,
 	heightKey := makeLogKey(height)
 	heightBkt := destBkt.Bucket(heightKey[:])
 	if heightBkt == nil {
+		// If the height bucket isn't found, this could be because the
+		// forwarding package was already removed. We'll return nil to
+		// signal that the operation is as there is nothing to ack.
 		return nil
 	}
 

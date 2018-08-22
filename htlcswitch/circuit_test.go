@@ -483,8 +483,9 @@ func TestCircuitMapPersistence(t *testing.T) {
 
 	// Removing already-removed circuit should return an error.
 	err = circuitMap.DeleteCircuits(circuit1.Incoming)
-	if err == nil {
-		t.Fatal("Remove did not return expected not found error")
+	if err != nil {
+		t.Fatal("Unexpected failure when deleting already "+
+			"deleted circuit: %v", err)
 	}
 
 	// Verify that nothing related to hash1 has changed
@@ -518,10 +519,17 @@ func TestCircuitMapPersistence(t *testing.T) {
 	assertNumCircuitsWithHash(t, circuitMap, hash2, 0)
 	assertNumCircuitsWithHash(t, circuitMap, hash3, 1)
 
-	// Remove last remaining circuit with payment hash hash3.
-	err = circuitMap.DeleteCircuits(circuit3.Incoming)
+	// In removing the final circuit, we will try and remove all other known
+	// circuits as well. Any circuits that are unknown to the circuit map
+	// will be ignored, and only circuit 3 should be cause any change in the
+	// state.
+	err = circuitMap.DeleteCircuits(
+		circuit1.Incoming, circuit2.Incoming,
+		circuit3.Incoming, circuit4.Incoming,
+	)
 	if err != nil {
-		t.Fatalf("Remove returned unexpected error: %v", err)
+		t.Fatalf("Unexpected failure when removing circuit while also "+
+			"deleting already deleted circuits: %v", err)
 	}
 
 	// Check that the circuit map is empty, even after restarting.

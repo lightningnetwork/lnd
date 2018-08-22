@@ -46,7 +46,7 @@ func (c *testCtx) RestartRouter() error {
 		Graph:     c.graph,
 		Chain:     c.chain,
 		ChainView: c.chainView,
-		SendToSwitch: func(_ [33]byte,
+		SendToSwitch: func(_ lnwire.ShortChannelID,
 			_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 			return [32]byte{}, nil
 		},
@@ -121,8 +121,8 @@ func createTestCtx(startingHeight uint32, testGraph ...string) (*testCtx, func()
 		Graph:     graph,
 		Chain:     chain,
 		ChainView: chainView,
-		SendToSwitch: func(_ [33]byte, _ *lnwire.UpdateAddHTLC,
-			_ *sphinx.Circuit) ([32]byte, error) {
+		SendToSwitch: func(_ lnwire.ShortChannelID,
+			_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 
 			return [32]byte{}, nil
 		},
@@ -295,10 +295,11 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 	// router's configuration to ignore the path that has luo ji as the
 	// first hop. This should force the router to instead take the
 	// available two hop path (through satoshi).
-	ctx.router.cfg.SendToSwitch = func(n [33]byte,
+	ctx.router.cfg.SendToSwitch = func(firstHop lnwire.ShortChannelID,
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 
-		if bytes.Equal(ctx.aliases["luoji"].SerializeCompressed(), n[:]) {
+		roasbeefLuoji := lnwire.NewShortChanIDFromInt(689530843)
+		if firstHop == roasbeefLuoji {
 			pub, err := sourceNode.PubKey()
 			if err != nil {
 				return preImage, err
@@ -370,7 +371,7 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	// We'll also fetch the first outgoing channel edge from roasbeef to
 	// son goku. We'll obtain this as we'll need to to generate the
 	// FeeInsufficient error that we'll send back.
-	chanID := uint64(3495345)
+	chanID := uint64(12345)
 	_, _, edgeUpateToFail, err := ctx.graph.FetchChannelEdgesByID(chanID)
 	if err != nil {
 		t.Fatalf("unable to fetch chan id: %v", err)
@@ -392,10 +393,11 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	// We'll now modify the SendToSwitch method to return an error for the
 	// outgoing channel to Son goku. This will be a fee related error, so
 	// it should only cause the edge to be pruned after the second attempt.
-	ctx.router.cfg.SendToSwitch = func(n [33]byte,
+	ctx.router.cfg.SendToSwitch = func(firstHop lnwire.ShortChannelID,
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 
-		if bytes.Equal(sourceNode.SerializeCompressed(), n[:]) {
+		roasbeefSongoku := lnwire.NewShortChanIDFromInt(chanID)
+		if firstHop == roasbeefSongoku {
 			return [32]byte{}, &htlcswitch.ForwardingError{
 				ErrorSource: sourceNode,
 
@@ -471,7 +473,8 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	// son goku. This edge will be included in the time lock related expiry
 	// errors that we'll get back due to disagrements in what the current
 	// block height is.
-	chanID := uint64(3495345)
+	chanID := uint64(12345)
+	roasbeefSongoku := lnwire.NewShortChanIDFromInt(chanID)
 	_, _, edgeUpateToFail, err := ctx.graph.FetchChannelEdgesByID(chanID)
 	if err != nil {
 		t.Fatalf("unable to fetch chan id: %v", err)
@@ -494,10 +497,10 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	// outgoing channel to son goku. Since this is a time lock related
 	// error, we should fail the payment flow all together, as Goku is the
 	// only channel to Sophon.
-	ctx.router.cfg.SendToSwitch = func(n [33]byte,
+	ctx.router.cfg.SendToSwitch = func(firstHop lnwire.ShortChannelID,
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 
-		if bytes.Equal(sourceNode.SerializeCompressed(), n[:]) {
+		if firstHop == roasbeefSongoku {
 			return [32]byte{}, &htlcswitch.ForwardingError{
 				ErrorSource: sourceNode,
 				FailureMessage: &lnwire.FailExpiryTooSoon{
@@ -546,10 +549,10 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	// We'll now modify the error return an IncorrectCltvExpiry error
 	// instead, this should result in the same behavior of roasbeef routing
 	// around the faulty Son Goku node.
-	ctx.router.cfg.SendToSwitch = func(n [33]byte,
+	ctx.router.cfg.SendToSwitch = func(firstHop lnwire.ShortChannelID,
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 
-		if bytes.Equal(sourceNode.SerializeCompressed(), n[:]) {
+		if firstHop == roasbeefSongoku {
 			return [32]byte{}, &htlcswitch.ForwardingError{
 				ErrorSource: sourceNode,
 				FailureMessage: &lnwire.FailIncorrectCltvExpiry{
@@ -608,16 +611,18 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 		t.Fatalf("unable to fetch source node pub: %v", err)
 	}
 
+	roasbeefLuoji := lnwire.NewShortChanIDFromInt(689530843)
+
 	// First, we'll modify the SendToSwitch method to return an error
 	// indicating that the channel from roasbeef to luoji is not operable
 	// with an UnknownNextPeer.
 	//
 	// TODO(roasbeef): filtering should be intelligent enough so just not
 	// go through satoshi at all at this point.
-	ctx.router.cfg.SendToSwitch = func(n [33]byte,
+	ctx.router.cfg.SendToSwitch = func(firstHop lnwire.ShortChannelID,
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 
-		if bytes.Equal(ctx.aliases["luoji"].SerializeCompressed(), n[:]) {
+		if firstHop == roasbeefLuoji {
 			// We'll first simulate an error from the first
 			// outgoing link to simulate the channel from luo ji to
 			// roasbeef not having enough capacity.
@@ -630,7 +635,8 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 		// Next, we'll create an error from satoshi to indicate
 		// that the luoji node is not longer online, which should
 		// prune out the rest of the routes.
-		if bytes.Equal(ctx.aliases["satoshi"].SerializeCompressed(), n[:]) {
+		roasbeefSatoshi := lnwire.NewShortChanIDFromInt(2340213491)
+		if firstHop == roasbeefSatoshi {
 			return [32]byte{}, &htlcswitch.ForwardingError{
 				ErrorSource:    ctx.aliases["satoshi"],
 				FailureMessage: &lnwire.FailUnknownNextPeer{},
@@ -660,10 +666,10 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	// Next, we'll modify the SendToSwitch method to indicate that luo ji
 	// wasn't originally online. This should also halt the send all
 	// together as all paths contain luoji and he can't be reached.
-	ctx.router.cfg.SendToSwitch = func(n [33]byte,
+	ctx.router.cfg.SendToSwitch = func(firstHop lnwire.ShortChannelID,
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 
-		if bytes.Equal(ctx.aliases["luoji"].SerializeCompressed(), n[:]) {
+		if firstHop == roasbeefLuoji {
 			return [32]byte{}, &htlcswitch.ForwardingError{
 				ErrorSource:    sourcePub,
 				FailureMessage: &lnwire.FailUnknownNextPeer{},
@@ -701,9 +707,10 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	// Finally, we'll modify the SendToSwitch function to indicate that the
 	// roasbeef -> luoji channel has insufficient capacity. This should
 	// again cause us to instead go via the satoshi route.
-	ctx.router.cfg.SendToSwitch = func(n [33]byte,
+	ctx.router.cfg.SendToSwitch = func(firstHop lnwire.ShortChannelID,
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
-		if bytes.Equal(ctx.aliases["luoji"].SerializeCompressed(), n[:]) {
+
+		if firstHop == roasbeefLuoji {
 			// We'll first simulate an error from the first
 			// outgoing link to simulate the channel from luo ji to
 			// roasbeef not having enough capacity.
@@ -1272,7 +1279,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 		Graph:     ctx.graph,
 		Chain:     ctx.chain,
 		ChainView: ctx.chainView,
-		SendToSwitch: func(_ [33]byte,
+		SendToSwitch: func(_ lnwire.ShortChannelID,
 			_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 			return [32]byte{}, nil
 		},

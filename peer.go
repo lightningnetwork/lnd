@@ -396,10 +396,14 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 				TimeLockDelta: uint32(selfPolicy.TimeLockDelta),
 			}
 		} else {
+			peerLog.Warnf("Unable to find our forwarding policy "+
+				"for channel %v, using default values",
+				chanPoint)
 			forwardingPolicy = &p.server.cc.routingPolicy
 		}
 
-		peerLog.Tracef("Using link policy of: %v", spew.Sdump(forwardingPolicy))
+		peerLog.Tracef("Using link policy of: %v",
+			spew.Sdump(forwardingPolicy))
 
 		// Register this new channel link with the HTLC Switch. This is
 		// necessary to properly route multi-hop payments, and forward

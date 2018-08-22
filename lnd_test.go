@@ -1103,6 +1103,126 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("carol didn't report channel: %v", err)
 	}
 
+	// First we'll try to send a payment from Alice to Carol with an amount
+	// less than the min_htlc value required by Carol. This payment should
+	// fail, as the channel Bob->Carol cannot carry HTLCs this small.
+	payAmt := btcutil.Amount(4)
+	invoice := &lnrpc.Invoice{
+		Memo:  "testing",
+		Value: int64(payAmt),
+	}
+	resp, err := carol.AddInvoice(ctxb, invoice)
+	if err != nil {
+		t.Fatalf("unable to add invoice: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = completePaymentRequests(
+		ctxt, net.Alice, []string{resp.PaymentRequest}, true,
+	)
+
+	// Alice knows about the channel policy of Carol and should therefore
+	// not be able to find a path during routing.
+	if err == nil ||
+		!strings.Contains(err.Error(), "unable to find a path") {
+		t.Fatalf("expected payment to fail, instead got %v", err)
+	}
+
+	// Now we try to send a payment over the channel with a value too low
+	// to be accepted. First we query for a route to route a payment of
+	// 5000 mSAT, as this is accepted.
+	payAmt = btcutil.Amount(5)
+	routesReq := &lnrpc.QueryRoutesRequest{
+		PubKey:         carol.PubKeyStr,
+		Amt:            int64(payAmt),
+		NumRoutes:      1,
+		FinalCltvDelta: 144,
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	routes, err := net.Alice.QueryRoutes(ctxt, routesReq)
+	if err != nil {
+		t.Fatalf("unable to get route: %v", err)
+	}
+
+	if len(routes.Routes) != 1 {
+		t.Fatalf("expected to find 1 route, got %v", len(routes.Routes))
+	}
+
+	// We change the route to carry a payment of 4000 mSAT instead of 5000
+	// mSAT.
+	payAmt = btcutil.Amount(4)
+	amtSat := int64(payAmt)
+	amtMSat := int64(lnwire.NewMSatFromSatoshis(payAmt))
+	routes.Routes[0].Hops[0].AmtToForward = amtSat
+	routes.Routes[0].Hops[0].AmtToForwardMsat = amtMSat
+	routes.Routes[0].Hops[1].AmtToForward = amtSat
+	routes.Routes[0].Hops[1].AmtToForwardMsat = amtMSat
+
+	// Send the payment with the modified value.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	alicePayStream, err := net.Alice.SendToRoute(ctxt)
+	if err != nil {
+		t.Fatalf("unable to create payment stream for alice: %v", err)
+	}
+	sendReq := &lnrpc.SendToRouteRequest{
+		PaymentHash: resp.RHash,
+		Routes:      routes.Routes,
+	}
+
+	err = alicePayStream.Send(sendReq)
+	if err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+
+	// We expect this payment to fail, and that the min_htlc value is
+	// communicated back to us, since the attempted HTLC value was too low.
+	sendResp, err := alicePayStream.Recv()
+	if err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+
+	// Expected as part of the error message.
+	substrs := []string{
+		"AmountBelowMinimum",
+		"HtlcMinimumMsat: (lnwire.MilliSatoshi) 5000 mSAT",
+	}
+	for _, s := range substrs {
+		if !strings.Contains(sendResp.PaymentError, s) {
+			t.Fatalf("expected error to contain \"%v\", instead "+
+				"got %v", sendResp.PaymentError)
+		}
+	}
+
+	// Make sure sending using the original value succeeds.
+	payAmt = btcutil.Amount(5)
+	amtSat = int64(payAmt)
+	amtMSat = int64(lnwire.NewMSatFromSatoshis(payAmt))
+	routes.Routes[0].Hops[0].AmtToForward = amtSat
+	routes.Routes[0].Hops[0].AmtToForwardMsat = amtMSat
+	routes.Routes[0].Hops[1].AmtToForward = amtSat
+	routes.Routes[0].Hops[1].AmtToForwardMsat = amtMSat
+
+	sendReq = &lnrpc.SendToRouteRequest{
+		PaymentHash: resp.RHash,
+		Routes:      routes.Routes,
+	}
+
+	err = alicePayStream.Send(sendReq)
+	if err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+
+	sendResp, err = alicePayStream.Recv()
+	if err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+
+	if sendResp.PaymentError != "" {
+		t.Fatalf("expected payment to succeed, instead got %v",
+			sendResp.PaymentError)
+	}
+
 	// With our little cluster set up, we'll update the fees for the
 	// channel Bob side of the Alice->Bob channel, and make sure all nodes
 	// learn about it.
@@ -1154,12 +1274,12 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	// doesn't pay for transit over that channel as it's direct.
 	// Note that the payment amount is >= the min_htlc value for the
 	// channel Bob->Carol, so it should successfully be forwarded.
-	payAmt := btcutil.Amount(5)
-	invoice := &lnrpc.Invoice{
+	payAmt = btcutil.Amount(5)
+	invoice = &lnrpc.Invoice{
 		Memo:  "testing",
 		Value: int64(payAmt),
 	}
-	resp, err := carol.AddInvoice(ctxb, invoice)
+	resp, err = carol.AddInvoice(ctxb, invoice)
 	if err != nil {
 		t.Fatalf("unable to add invoice: %v", err)
 	}

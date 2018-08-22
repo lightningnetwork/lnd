@@ -306,10 +306,12 @@ Github](https://github.com/lightningnetwork/lnd/issues/20).
 
 Running `lnd` for the first time will by default generate the `admin.macaroon`,
 `read_only.macaroon`, and `macaroons.db` files that are used to authenticate
-into `lnd`. They will be stored in the default `lnd` data directory. Note that
-if you specified an alternative data directory (via the `--datadir` argument),
-you will have to additionally pass the updated location of the `admin.macaroon`
-file into `lncli` using the `--macaroonpath` argument.
+into `lnd`. They will be stored in the network directory (default:
+`lnddir/data/chain/bitcoin/mainnet`) so that it's possible to use a distinct
+password for mainnet, testnet, simnet, etc. Note that if you specified an
+alternative data directory (via the `--datadir` argument), you will have to
+additionally pass the updated location of the `admin.macaroon` file into `lncli`
+using the `--macaroonpath` argument.
 
 To disable macaroons for testing, pass the `--no-macaroons` flag into *both*
 `lnd` and `lncli`.

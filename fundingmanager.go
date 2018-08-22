@@ -1617,13 +1617,19 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	// is over.
 	// TODO(roasbeef): add abstraction over updates to accommodate
 	// long-polling, or SSE, etc.
-	resCtx.updates <- &lnrpc.OpenStatusUpdate{
+	upd := &lnrpc.OpenStatusUpdate{
 		Update: &lnrpc.OpenStatusUpdate_ChanPending{
 			ChanPending: &lnrpc.PendingUpdate{
 				Txid:        fundingPoint.Hash[:],
 				OutputIndex: fundingPoint.Index,
 			},
 		},
+	}
+
+	select {
+	case resCtx.updates <- upd:
+	case <-f.quit:
+		return
 	}
 
 	// At this point we have broadcast the funding transaction and done all
@@ -1693,7 +1699,7 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 		// Give the caller a final update notifying them that
 		// the channel is now open.
 		// TODO(roasbeef): only notify after recv of funding locked?
-		resCtx.updates <- &lnrpc.OpenStatusUpdate{
+		upd := &lnrpc.OpenStatusUpdate{
 			Update: &lnrpc.OpenStatusUpdate_ChanOpen{
 				ChanOpen: &lnrpc.ChannelOpenUpdate{
 					ChannelPoint: &lnrpc.ChannelPoint{
@@ -1704,6 +1710,12 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 					},
 				},
 			},
+		}
+
+		select {
+		case resCtx.updates <- upd:
+		case <-f.quit:
+			return
 		}
 
 		err = f.annAfterSixConfs(completeChan, shortChanID)

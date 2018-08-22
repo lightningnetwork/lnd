@@ -847,18 +847,23 @@ func (l *channelLink) htlcManager() {
 
 	// After cleaning up any memory pertaining to incoming packets, we now
 	// replay our forwarding packages to handle any htlcs that can be
-	// processed locally, or need to be forwarded out to the switch.
-	if err := l.resolveFwdPkgs(); err != nil {
-		l.fail(LinkFailureError{code: ErrInternalError},
-			"unable to resolve fwd pkgs: %v", err)
-		return
-	}
+	// processed locally, or need to be forwarded out to the switch. We will
+	// only attempt to resolve packages if our short chan id indicates that
+	// the channel is not pending, otherwise we should have no htlcs to
+	// reforward.
+	if l.ShortChanID() != sourceHop {
+		if err := l.resolveFwdPkgs(); err != nil {
+			l.fail(LinkFailureError{code: ErrInternalError},
+				"unable to resolve fwd pkgs: %v", err)
+			return
+		}
 
-	// With our link's in-memory state fully reconstructed, spawn a
-	// goroutine to manage the reclamation of disk space occupied by
-	// completed forwarding packages.
-	l.wg.Add(1)
-	go l.fwdPkgGarbager()
+		// With our link's in-memory state fully reconstructed, spawn a
+		// goroutine to manage the reclamation of disk space occupied by
+		// completed forwarding packages.
+		l.wg.Add(1)
+		go l.fwdPkgGarbager()
+	}
 
 out:
 	for {
@@ -1669,6 +1674,11 @@ func (l *channelLink) UpdateShortChanID() (lnwire.ShortChannelID, error) {
 				"ChannelLink(%v)", l)
 		}
 	}()
+
+	// Now that the short channel ID has been properly updated, we can begin
+	// garbage collecting any forwarding packages we create.
+	l.wg.Add(1)
+	go l.fwdPkgGarbager()
 
 	return sid, nil
 }

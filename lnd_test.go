@@ -921,6 +921,10 @@ func checkChannelPolicy(policy, expectedPolicy *lnrpc.RoutingPolicy) error {
 			expectedPolicy.TimeLockDelta,
 			policy.TimeLockDelta)
 	}
+	if policy.MinHtlc != expectedPolicy.MinHtlc {
+		return fmt.Errorf("expected min htlc %v, got %v",
+			expectedPolicy.MinHtlc, policy.MinHtlc)
+	}
 	if policy.Disabled != expectedPolicy.Disabled {
 		return errors.New("edge should be disabled but isn't")
 	}
@@ -934,6 +938,13 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	timeout := time.Duration(time.Second * 15)
 	ctxb := context.Background()
 
+	const (
+		defaultFeeBase       = 1000
+		defaultFeeRate       = 1
+		defaultTimeLockDelta = 144
+		defaultMinHtlc       = 1000
+	)
+
 	// Launch notification clients for all nodes, such that we can
 	// get notified when they discover new channels and updates in the
 	// graph.
@@ -943,7 +954,7 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	defer close(bQuit)
 
 	chanAmt := maxBtcFundingAmount
-	pushAmt := btcutil.Amount(100000)
+	pushAmt := chanAmt / 2
 
 	// Create a channel Alice->Bob.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
@@ -959,6 +970,35 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	// make sure they all receive the expected updates.
 	nodeUpdates := []chan *lnrpc.GraphTopologyUpdate{aliceUpdates, bobUpdates}
 	nodes := []*lntest.HarnessNode{net.Alice, net.Bob}
+
+	// Alice and Bob should see each other's ChannelUpdates, advertising the
+	// default routing policies.
+	expectedPolicy := &lnrpc.RoutingPolicy{
+		FeeBaseMsat:      defaultFeeBase,
+		FeeRateMilliMsat: defaultFeeRate,
+		TimeLockDelta:    defaultTimeLockDelta,
+		MinHtlc:          defaultMinHtlc,
+	}
+
+	for _, updates := range nodeUpdates {
+		waitForChannelUpdate(
+			t, updates,
+			[]expectedChanUpdate{
+				{net.Alice.PubKeyStr, expectedPolicy, chanPoint},
+				{net.Bob.PubKeyStr, expectedPolicy, chanPoint},
+			},
+		)
+	}
+
+	// They should now know about the default policies.
+	for _, node := range nodes {
+		assertChannelPolicy(
+			t, node, net.Alice.PubKeyStr, expectedPolicy, chanPoint,
+		)
+		assertChannelPolicy(
+			t, node, net.Bob.PubKeyStr, expectedPolicy, chanPoint,
+		)
+	}
 
 	ctxt, _ = context.WithTimeout(ctxb, time.Second*15)
 	err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
@@ -985,18 +1025,67 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	nodeUpdates = append(nodeUpdates, carolUpdates)
 	nodes = append(nodes, carol)
 
+	// Send some coins to Carol that can be used for channel funding.
+	ctxt, _ = context.WithTimeout(ctxb, time.Second*15)
+	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
+	if err != nil {
+		t.Fatalf("unable to send coins to carol: %v", err)
+	}
+
 	if err := net.ConnectNodes(ctxb, carol, net.Bob); err != nil {
 		t.Fatalf("unable to connect dave to alice: %v", err)
 	}
 
+	// Open the channel Carol->Bob with a custom min_htlc value set. Since
+	// Carol is opening the channel, she will require Bob to not forward
+	// HTLCs smaller than this value, and hence he should advertise it as
+	// part of his ChannelUpdate.
+	const customMinHtlc = 5000
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPoint2 := openChannelAndAssert(
-		ctxt, t, net, net.Bob, carol,
+		ctxt, t, net, carol, net.Bob,
 		lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
+			MinHtlc: customMinHtlc,
 		},
 	)
+
+	expectedPolicyBob := &lnrpc.RoutingPolicy{
+		FeeBaseMsat:      defaultFeeBase,
+		FeeRateMilliMsat: defaultFeeRate,
+		TimeLockDelta:    defaultTimeLockDelta,
+		MinHtlc:          customMinHtlc,
+	}
+
+	expectedPolicyCarol := &lnrpc.RoutingPolicy{
+		FeeBaseMsat:      defaultFeeBase,
+		FeeRateMilliMsat: defaultFeeRate,
+		TimeLockDelta:    defaultTimeLockDelta,
+		MinHtlc:          defaultMinHtlc,
+	}
+
+	for _, updates := range nodeUpdates {
+		waitForChannelUpdate(
+			t, updates,
+			[]expectedChanUpdate{
+				{net.Bob.PubKeyStr, expectedPolicyBob, chanPoint2},
+				{carol.PubKeyStr, expectedPolicyCarol, chanPoint2},
+			},
+		)
+	}
+
+	// Check that all nodes now know about the updated policies.
+	for _, node := range nodes {
+		assertChannelPolicy(
+			t, node, net.Bob.PubKeyStr, expectedPolicyBob,
+			chanPoint2,
+		)
+		assertChannelPolicy(
+			t, node, carol.PubKeyStr, expectedPolicyCarol,
+			chanPoint2,
+		)
+	}
 
 	ctxt, _ = context.WithTimeout(ctxb, time.Second*15)
 	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint2)
@@ -1021,10 +1110,11 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	feeRate := int64(12)
 	timeLockDelta := uint32(66)
 
-	expectedPolicy := &lnrpc.RoutingPolicy{
+	expectedPolicy = &lnrpc.RoutingPolicy{
 		FeeBaseMsat:      baseFee,
 		FeeRateMilliMsat: testFeeBase * feeRate,
 		TimeLockDelta:    timeLockDelta,
+		MinHtlc:          defaultMinHtlc,
 	}
 
 	req := &lnrpc.PolicyUpdateRequest{
@@ -1062,7 +1152,9 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	// internalized this fee update. This shouldn't affect the route that
 	// Alice takes though: we updated the Alice -> Bob channel and she
 	// doesn't pay for transit over that channel as it's direct.
-	payAmt := lnwire.MilliSatoshi(2000)
+	// Note that the payment amount is >= the min_htlc value for the
+	// channel Bob->Carol, so it should successfully be forwarded.
+	payAmt := btcutil.Amount(5)
 	invoice := &lnrpc.Invoice{
 		Memo:  "testing",
 		Value: int64(payAmt),
@@ -3059,6 +3151,7 @@ func updateChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
 		FeeBaseMsat:      baseFee,
 		FeeRateMilliMsat: feeRate,
 		TimeLockDelta:    timeLockDelta,
+		MinHtlc:          1000, // default value
 	}
 
 	updateFeeReq := &lnrpc.PolicyUpdateRequest{
@@ -11322,6 +11415,7 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 		FeeBaseMsat:      baseFee,
 		FeeRateMilliMsat: testFeeBase * feeRate,
 		TimeLockDelta:    timeLockDelta,
+		MinHtlc:          1000, // default value
 	}
 
 	updateFeeReq := &lnrpc.PolicyUpdateRequest{
@@ -11341,6 +11435,7 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	aliceUpdates, aQuit := subscribeGraphNotifications(t, ctxt, net.Alice)
 	defer close(aQuit)
+
 	waitForChannelUpdate(
 		t, aliceUpdates,
 		[]expectedChanUpdate{
@@ -11561,6 +11656,7 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 		FeeBaseMsat:      int64(defaultBitcoinBaseFeeMSat),
 		FeeRateMilliMsat: int64(defaultBitcoinFeeRate),
 		TimeLockDelta:    defaultBitcoinTimeLockDelta,
+		MinHtlc:          1000, // default value
 		Disabled:         true,
 	}
 

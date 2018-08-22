@@ -73,14 +73,7 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 	lndDir := cleanAndExpandPath(ctx.GlobalString("lnddir"))
 	chain := ctx.GlobalString("chain")
 	network := ctx.GlobalString("network")
-
-	var dataDir string
-	if ctx.GlobalIsSet("datadir") {
-		dataDir = cleanAndExpandPath(ctx.GlobalString("datadir"))
-	} else {
-		dataDir = filepath.Join(lndDir, defaultDataDirname)
-	}
-
+	dataDir := filepath.Join(lndDir, defaultDataDirname)
 	networkDir := filepath.Join(
 		dataDir,
 		defaultChainSubDirname,
@@ -196,10 +189,6 @@ func main() {
 			Name:  "lnddir",
 			Value: defaultLndDir,
 			Usage: "path to lnd's base directory",
-		},
-		cli.StringFlag{
-			Name:  "datadir",
-			Usage: "if set, assign a custom path to lnd's data directory",
 		},
 		cli.StringFlag{
 			Name:  "chain",

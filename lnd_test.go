@@ -789,48 +789,72 @@ func txStr(chanPoint *lnrpc.ChannelPoint) string {
 	return cp.String()
 }
 
-// waitForChannelUpdate waits for a node to receive updates from the advertising
-// node for the specified channels.
-func waitForChannelUpdate(t *harnessTest, graphUpdates chan *lnrpc.GraphTopologyUpdate,
-	advertisingNode string, expectedPolicy *lnrpc.RoutingPolicy,
-	chanPoints ...*lnrpc.ChannelPoint) {
+// expectedChanUpdate houses params we expect a ChannelUpdate to advertise.
+type expectedChanUpdate struct {
+	advertisingNode string
+	expectedPolicy  *lnrpc.RoutingPolicy
+	chanPoint       *lnrpc.ChannelPoint
+}
 
-	// Create a set containing all the channel points we are awaiting
-	// updates for.
-	cps := make(map[string]struct{})
-	for _, chanPoint := range chanPoints {
-		cps[txStr(chanPoint)] = struct{}{}
-	}
+// waitForChannelUpdate waits for a node to receive the expected channel
+// updates.
+func waitForChannelUpdate(t *harnessTest,
+	graphUpdates chan *lnrpc.GraphTopologyUpdate,
+	expUpdates []expectedChanUpdate) {
+
+	// Create an array indicating which expected channel updates we have
+	// received.
+	found := make([]bool, len(expUpdates))
 out:
 	for {
 		select {
 		case graphUpdate := <-graphUpdates:
 			for _, update := range graphUpdate.ChannelUpdates {
-				fundingTxStr := txStr(update.ChanPoint)
-				if _, ok := cps[fundingTxStr]; !ok {
-					continue
-				}
 
-				if update.AdvertisingNode != advertisingNode {
-					continue
-				}
+				// For each expected update, check if it matches
+				// the update we just received.
+				for i, exp := range expUpdates {
+					fundingTxStr := txStr(update.ChanPoint)
+					if fundingTxStr != txStr(exp.chanPoint) {
+						continue
+					}
 
-				err := checkChannelPolicy(
-					update.RoutingPolicy, expectedPolicy,
-				)
-				if err != nil {
-					continue
-				}
+					if update.AdvertisingNode !=
+						exp.advertisingNode {
+						continue
+					}
 
-				// We got a policy update that matched the
-				// values and channel point of what we
-				// expected, delete it from the map.
-				delete(cps, fundingTxStr)
+					err := checkChannelPolicy(
+						update.RoutingPolicy,
+						exp.expectedPolicy,
+					)
+					if err != nil {
+						continue
+					}
 
-				// If we have no more channel points we are
-				// waiting for, break out of the loop.
-				if len(cps) == 0 {
-					break out
+					// We got a policy update that matched
+					// the values and channel point of what
+					// we expected, mark it as found.
+					found[i] = true
+
+					// If we have no more channel updates
+					// we are waiting for, break out of the
+					// loop.
+					rem := 0
+					for _, f := range found {
+						if !f {
+							rem++
+						}
+					}
+
+					if rem == 0 {
+						break out
+					}
+
+					// Since we found a match among the
+					// expected updates, break out of the
+					// inner loop.
+					break
 				}
 			}
 		case <-time.After(20 * time.Second):
@@ -931,6 +955,11 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	)
 
+	// We add all the nodes' update channels to a slice, such that we can
+	// make sure they all receive the expected updates.
+	nodeUpdates := []chan *lnrpc.GraphTopologyUpdate{aliceUpdates, bobUpdates}
+	nodes := []*lntest.HarnessNode{net.Alice, net.Bob}
+
 	ctxt, _ = context.WithTimeout(ctxb, time.Second*15)
 	err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
 	if err != nil {
@@ -952,6 +981,9 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 
 	carolUpdates, cQuit := subscribeGraphNotifications(t, ctxb, carol)
 	defer close(cQuit)
+
+	nodeUpdates = append(nodeUpdates, carolUpdates)
+	nodes = append(nodes, carol)
 
 	if err := net.ConnectNodes(ctxb, carol, net.Bob); err != nil {
 		t.Fatalf("unable to connect dave to alice: %v", err)
@@ -1009,26 +1041,21 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Wait for all nodes to have seen the policy update done by Bob.
-	waitForChannelUpdate(
-		t, aliceUpdates, net.Bob.PubKeyStr, expectedPolicy, chanPoint,
-	)
-	waitForChannelUpdate(
-		t, bobUpdates, net.Bob.PubKeyStr, expectedPolicy, chanPoint,
-	)
-	waitForChannelUpdate(
-		t, carolUpdates, net.Bob.PubKeyStr, expectedPolicy, chanPoint,
-	)
+	for _, updates := range nodeUpdates {
+		waitForChannelUpdate(
+			t, updates,
+			[]expectedChanUpdate{
+				{net.Bob.PubKeyStr, expectedPolicy, chanPoint},
+			},
+		)
+	}
 
 	// Check that all nodes now know about Bob's updated policy.
-	assertChannelPolicy(
-		t, net.Alice, net.Bob.PubKeyStr, expectedPolicy, chanPoint,
-	)
-	assertChannelPolicy(
-		t, net.Bob, net.Bob.PubKeyStr, expectedPolicy, chanPoint,
-	)
-	assertChannelPolicy(
-		t, carol, net.Bob.PubKeyStr, expectedPolicy, chanPoint,
-	)
+	for _, node := range nodes {
+		assertChannelPolicy(
+			t, node, net.Bob.PubKeyStr, expectedPolicy, chanPoint,
+		)
+	}
 
 	// Now that all nodes have received the new channel update, we'll try
 	// to send a payment from Alice to Carol to ensure that Alice has
@@ -1101,33 +1128,24 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Wait for all nodes to have seen the policy updates for both of
 	// Alice's channels.
-	waitForChannelUpdate(
-		t, aliceUpdates, net.Alice.PubKeyStr, expectedPolicy, chanPoint,
-		chanPoint3,
-	)
-	waitForChannelUpdate(
-		t, bobUpdates, net.Alice.PubKeyStr, expectedPolicy, chanPoint,
-		chanPoint3,
-	)
-	waitForChannelUpdate(
-		t, carolUpdates, net.Alice.PubKeyStr, expectedPolicy, chanPoint,
-		chanPoint3,
-	)
+	for _, updates := range nodeUpdates {
+		waitForChannelUpdate(
+			t, updates,
+			[]expectedChanUpdate{
+				{net.Alice.PubKeyStr, expectedPolicy, chanPoint},
+				{net.Alice.PubKeyStr, expectedPolicy, chanPoint3},
+			},
+		)
+	}
 
 	// And finally check that all nodes remembers the policy update they
 	// received.
-	assertChannelPolicy(
-		t, net.Alice, net.Alice.PubKeyStr, expectedPolicy, chanPoint,
-		chanPoint3,
-	)
-	assertChannelPolicy(
-		t, net.Bob, net.Alice.PubKeyStr, expectedPolicy, chanPoint,
-		chanPoint3,
-	)
-	assertChannelPolicy(
-		t, carol, net.Alice.PubKeyStr, expectedPolicy, chanPoint,
-		chanPoint3,
-	)
+	for _, node := range nodes {
+		assertChannelPolicy(
+			t, node, net.Alice.PubKeyStr, expectedPolicy,
+			chanPoint, chanPoint3,
+		)
+	}
 
 	// Close the channels.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
@@ -3064,8 +3082,10 @@ func updateChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
 	defer close(aQuit)
 
 	waitForChannelUpdate(
-		t, listenerUpdates, node.PubKeyStr, expectedPolicy,
-		chanPoint,
+		t, listenerUpdates,
+		[]expectedChanUpdate{
+			{node.PubKeyStr, expectedPolicy, chanPoint},
+		},
 	)
 }
 
@@ -11322,8 +11342,10 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 	aliceUpdates, aQuit := subscribeGraphNotifications(t, ctxt, net.Alice)
 	defer close(aQuit)
 	waitForChannelUpdate(
-		t, aliceUpdates, carol.PubKeyStr, expectedPolicy,
-		chanPointCarolDave,
+		t, aliceUpdates,
+		[]expectedChanUpdate{
+			{carol.PubKeyStr, expectedPolicy, chanPointCarolDave},
+		},
 	)
 
 	// We'll also need the channel IDs for Bob's channels in order to
@@ -11549,8 +11571,10 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to suspend carol: %v", err)
 	}
 	waitForChannelUpdate(
-		t, daveUpdates, eve.PubKeyStr, expectedPolicy,
-		chanPointEveCarol,
+		t, daveUpdates,
+		[]expectedChanUpdate{
+			{eve.PubKeyStr, expectedPolicy, chanPointEveCarol},
+		},
 	)
 
 	// We restart Carol. Since the channel now becomes active again, Eve
@@ -11561,8 +11585,10 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 
 	expectedPolicy.Disabled = false
 	waitForChannelUpdate(
-		t, daveUpdates, eve.PubKeyStr, expectedPolicy,
-		chanPointEveCarol,
+		t, daveUpdates,
+		[]expectedChanUpdate{
+			{eve.PubKeyStr, expectedPolicy, chanPointEveCarol},
+		},
 	)
 
 	// Close Alice's channels with Bob and Carol cooperatively and
@@ -11583,8 +11609,11 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	// receive an update marking each as disabled.
 	expectedPolicy.Disabled = true
 	waitForChannelUpdate(
-		t, daveUpdates, net.Alice.PubKeyStr, expectedPolicy,
-		chanPointAliceBob, chanPointAliceCarol,
+		t, daveUpdates,
+		[]expectedChanUpdate{
+			{net.Alice.PubKeyStr, expectedPolicy, chanPointAliceBob},
+			{net.Alice.PubKeyStr, expectedPolicy, chanPointAliceCarol},
+		},
 	)
 
 	// Finally, close the channels by mining the closing transactions.
@@ -11602,8 +11631,10 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	waitForChannelUpdate(
-		t, daveUpdates, eve.PubKeyStr, expectedPolicy,
-		chanPointEveCarol,
+		t, daveUpdates,
+		[]expectedChanUpdate{
+			{eve.PubKeyStr, expectedPolicy, chanPointEveCarol},
+		},
 	)
 
 	_, err = waitForNTxsInMempool(net.Miner.Node, 1, timeout)

@@ -252,10 +252,13 @@ func main() {
 // passed path, cleans the result, and returns it.
 // This function is taken from https://github.com/btcsuite/btcd
 func cleanAndExpandPath(path string) string {
+	if path == "" {
+		return ""
+	}
+
 	// Expand initial ~ to OS specific home directory.
 	if strings.HasPrefix(path, "~") {
 		var homeDir string
-
 		user, err := user.Current()
 		if err == nil {
 			homeDir = user.HomeDir

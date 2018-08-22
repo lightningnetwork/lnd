@@ -1550,9 +1550,23 @@ out:
 				continue
 			}
 
+			// We'll query the localChanCfg of the new channel to
+			// determine the minimum HTLC value that can be
+			// forwarded. For fees we'll use the default values, as
+			// they currently are always set to the default values
+			// at initial channel creation.
+			fwdMinHtlc := newChan.FwdMinHtlc()
+			defaultPolicy := p.server.cc.routingPolicy
+			forwardingPolicy := &htlcswitch.ForwardingPolicy{
+				MinHTLC:       fwdMinHtlc,
+				BaseFee:       defaultPolicy.BaseFee,
+				FeeRate:       defaultPolicy.FeeRate,
+				TimeLockDelta: defaultPolicy.TimeLockDelta,
+			}
+
 			// Create the link and add it to the switch.
 			err = p.addLink(
-				chanPoint, newChan, &p.server.cc.routingPolicy,
+				chanPoint, newChan, forwardingPolicy,
 				chainEvents, currentHeight, false,
 			)
 			if err != nil {

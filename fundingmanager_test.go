@@ -428,6 +428,12 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		},
 		TempChanIDSeed: oldCfg.TempChanIDSeed,
 		FindChannel:    oldCfg.FindChannel,
+		DefaultRoutingPolicy: htlcswitch.ForwardingPolicy{
+			MinHTLC:       5,
+			BaseFee:       100,
+			FeeRate:       1000,
+			TimeLockDelta: 10,
+		},
 		PublishTransaction: func(txn *wire.MsgTx) error {
 			publishChan <- txn
 			return nil
@@ -806,7 +812,16 @@ func assertAddedToRouterGraph(t *testing.T, alice, bob *testNode,
 	assertDatabaseState(t, bob, fundingOutPoint, addedToRouterGraph)
 }
 
-func assertChannelAnnouncements(t *testing.T, alice, bob *testNode) {
+// assertChannelAnnouncements checks that alice and bob both sends the expected
+// announcements (ChannelAnnouncement, ChannelUpdate) after the funding tx has
+// confirmed. The last arguments can be set if we expect the nodes to advertise
+// custom min_htlc values as part of their ChannelUpdate. We expect Alice to
+// advertise the value required by Bob and vice versa. If they are not set the
+// advertised value will be checked againts the other node's default min_htlc
+// value.
+func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
+	customMinHtlc ...lnwire.MilliSatoshi) {
+
 	// After the FundingLocked message is sent, Alice and Bob will each
 	// send the following messages to their gossiper:
 	//	1) ChannelAnnouncement
@@ -814,7 +829,8 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode) {
 	// The ChannelAnnouncement is kept locally, while the ChannelUpdate
 	// is sent directly to the other peer, so the edge policies are
 	// known to both peers.
-	for j, node := range []*testNode{alice, bob} {
+	nodes := []*testNode{alice, bob}
+	for j, node := range nodes {
 		announcements := make([]lnwire.Message, 2)
 		for i := 0; i < len(announcements); i++ {
 			select {
@@ -827,10 +843,35 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode) {
 		gotChannelAnnouncement := false
 		gotChannelUpdate := false
 		for _, msg := range announcements {
-			switch msg.(type) {
+			switch m := msg.(type) {
 			case *lnwire.ChannelAnnouncement:
 				gotChannelAnnouncement = true
 			case *lnwire.ChannelUpdate:
+
+				// The channel update sent by the node should
+				// advertise the MinHTLC value required by the
+				// _other_ node.
+				other := (j + 1) % 2
+				minHtlc := nodes[other].fundingMgr.cfg.
+					DefaultRoutingPolicy.MinHTLC
+
+				// We might expect a custom MinHTLC value.
+				if len(customMinHtlc) > 0 {
+					if len(customMinHtlc) != 2 {
+						t.Fatalf("only 0 or 2 custom " +
+							"min htlc values " +
+							"currently supported")
+					}
+
+					minHtlc = customMinHtlc[j]
+				}
+
+				if m.HtlcMinimumMsat != minHtlc {
+					t.Fatalf("expected ChannelUpdate to "+
+						"advertise min HTLC %v, had %v",
+						minHtlc, m.HtlcMinimumMsat)
+				}
+
 				gotChannelUpdate = true
 			}
 		}
@@ -2201,6 +2242,31 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	case <-time.After(time.Second * 5):
 		t.Fatalf("alice did not publish funding tx")
 	}
+
+	// Notify that transaction was mined.
+	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{}
+	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{}
+
+	// After the funding transaction is mined, Alice will send
+	// fundingLocked to Bob.
+	_ = assertFundingMsgSent(
+		t, alice.msgChan, "FundingLocked",
+	).(*lnwire.FundingLocked)
+
+	// And similarly Bob will send funding locked to Alice.
+	_ = assertFundingMsgSent(
+		t, bob.msgChan, "FundingLocked",
+	).(*lnwire.FundingLocked)
+
+	// Make sure both fundingManagers send the expected channel
+	// announcements. Alice should advertise the default MinHTLC value of
+	// 5, while bob should advertise the value minHtlc, since Alice
+	// required him to use it.
+	assertChannelAnnouncements(t, alice, bob, 5, minHtlc)
+
+	// The funding transaction is now confirmed, wait for the
+	// OpenStatusUpdate_ChanOpen update
+	waitForOpenUpdate(t, updateChan)
 }
 
 // TestFundingManagerMaxPendingChannels checks that trying to open another

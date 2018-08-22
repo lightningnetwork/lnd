@@ -336,7 +336,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		FwdingLog:              chanDB.ForwardingLog(),
 		SwitchPackager:         channeldb.NewSwitchPackager(),
 		ExtractErrorEncrypter:  s.sphinx.ExtractErrorEncrypter,
-		FetchLastChannelUpdate: fetchLastChanUpdate(s, serializedPubKey),
+		FetchLastChannelUpdate: s.fetchLastChanUpdate(),
 		Notifier:               s.cc.chainNotifier,
 		FwdEventTicker: ticker.New(
 			htlcswitch.DefaultFwdEventInterval),
@@ -2955,6 +2955,21 @@ func (s *server) fetchLastChanUpdateByOutPoint(op wire.OutPoint) (
 
 	pubKey := s.identityPriv.PubKey().SerializeCompressed()
 	return extractChannelUpdate(pubKey, info, edge1, edge2)
+}
+
+// fetchLastChanUpdate returns a function which is able to retrieve our latest
+// channel update for a target channel.
+func (s *server) fetchLastChanUpdate() func(lnwire.ShortChannelID) (
+	*lnwire.ChannelUpdate, error) {
+
+	ourPubKey := s.identityPriv.PubKey().SerializeCompressed()
+	return func(cid lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
+		info, edge1, edge2, err := s.chanRouter.GetChannelByID(cid)
+		if err != nil {
+			return nil, err
+		}
+		return extractChannelUpdate(ourPubKey[:], info, edge1, edge2)
+	}
 }
 
 // extractChannelUpdate attempts to retrieve a lnwire.ChannelUpdate message

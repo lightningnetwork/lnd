@@ -768,24 +768,28 @@ func loadConfig() (*config, error) {
 	// At this point, we'll save the base data directory in order to ensure
 	// we don't store the macaroon database within any of the chain
 	// namespaced directories.
-	macaroonDatabaseDir = cfg.DataDir
+	networkDir = filepath.Join(
+		cfg.DataDir, defaultChainSubDirname,
+		registeredChains.PrimaryChain().String(),
+		normalizeNetwork(activeNetParams.Name),
+	)
 
 	// If a custom macaroon directory wasn't specified and the data
 	// directory has changed from the default path, then we'll also update
 	// the path for the macaroons to be generated.
 	if cfg.DataDir != defaultDataDir && cfg.AdminMacPath == defaultAdminMacPath {
 		cfg.AdminMacPath = filepath.Join(
-			cfg.DataDir, defaultAdminMacFilename,
+			networkDir, defaultAdminMacFilename,
 		)
 	}
 	if cfg.DataDir != defaultDataDir && cfg.ReadMacPath == defaultReadMacPath {
 		cfg.ReadMacPath = filepath.Join(
-			cfg.DataDir, defaultReadMacFilename,
+			networkDir, defaultReadMacFilename,
 		)
 	}
 	if cfg.DataDir != defaultDataDir && cfg.InvoiceMacPath == defaultInvoiceMacPath {
 		cfg.InvoiceMacPath = filepath.Join(
-			cfg.DataDir, defaultInvoiceMacFilename,
+			networkDir, defaultInvoiceMacFilename,
 		)
 	}
 

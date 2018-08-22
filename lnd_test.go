@@ -149,11 +149,10 @@ func mineBlocks(t *harnessTest, net *lntest.NetworkHarness, num uint32) []*wire.
 // channel.
 func openChannelAndAssert(ctx context.Context, t *harnessTest,
 	net *lntest.NetworkHarness, alice, bob *lntest.HarnessNode,
-	fundingAmt btcutil.Amount, pushAmt btcutil.Amount,
-	private bool) *lnrpc.ChannelPoint {
+	p lntest.OpenChannelParams) *lnrpc.ChannelPoint {
 
 	chanOpenUpdate, err := net.OpenChannel(
-		ctx, alice, bob, fundingAmt, pushAmt, private, true,
+		ctx, alice, bob, p,
 	)
 	if err != nil {
 		t.Fatalf("unable to open channel: %v", err)
@@ -648,7 +647,11 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	// successfully.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob, chanAmt, pushAmt, false,
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: pushAmt,
+		},
 	)
 
 	ctxt, _ = context.WithTimeout(ctxb, time.Second*15)
@@ -722,7 +725,12 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanOpenUpdate, err := net.OpenChannel(
-		ctxt, carol, net.Alice, chanAmt, pushAmt, false, false,
+		ctxt, carol, net.Alice,
+		lntest.OpenChannelParams{
+			Amt:              chanAmt,
+			PushAmt:          pushAmt,
+			SpendUnconfirmed: true,
+		},
 	)
 	if err != nil {
 		t.Fatalf("unable to open channel between carol and alice: %v",
@@ -916,7 +924,11 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	// Create a channel Alice->Bob.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob, chanAmt, pushAmt, false,
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: pushAmt,
+		},
 	)
 
 	ctxt, _ = context.WithTimeout(ctxb, time.Second*15)
@@ -947,7 +959,11 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPoint2 := openChannelAndAssert(
-		ctxt, t, net, net.Bob, carol, chanAmt, pushAmt, false,
+		ctxt, t, net, net.Bob, carol,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: pushAmt,
+		},
 	)
 
 	ctxt, _ = context.WithTimeout(ctxb, time.Second*15)
@@ -1043,7 +1059,11 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPoint3 := openChannelAndAssert(
-		ctxt, t, net, net.Alice, carol, chanAmt, pushAmt, false,
+		ctxt, t, net, net.Alice, carol,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: pushAmt,
+		},
 	)
 
 	ctxt, _ = context.WithTimeout(ctxb, time.Second*15)
@@ -1607,7 +1627,10 @@ func testChannelBalance(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	chanPoint := openChannelAndAssert(
-		ctx, t, net, net.Alice, net.Bob, amount, 0, false,
+		ctx, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt: amount,
+		},
 	)
 
 	// Wait for both Alice and Bob to recognize this new channel.
@@ -1809,7 +1832,11 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, carol, chanAmt, pushAmt, false,
+		ctxt, t, net, net.Alice, carol,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: pushAmt,
+		},
 	)
 
 	// Wait for Alice and Carol to receive the channel edge from the
@@ -2525,7 +2552,10 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, carol, dave, chanAmt, 0, false,
+		ctxt, t, net, carol, dave,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 
 	assertAmountSent := func(amt btcutil.Amount) {
@@ -2663,7 +2693,10 @@ func testSingleHopInvoice(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanAmt := btcutil.Amount(100000)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob, chanAmt, 0, false,
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 
 	assertAmountSent := func(amt btcutil.Amount) {
@@ -2819,7 +2852,10 @@ func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	chanAmt := btcutil.Amount(100000)
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob, chanAmt, 0, false,
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 
 	// Now that the channel is open, create an invoice for Bob which
@@ -3043,7 +3079,10 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// being the sole funder of the channel.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPointAlice := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob, chanAmt, 0, false,
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 	networkChans = append(networkChans, chanPointAlice)
 
@@ -3082,7 +3121,10 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointDave := openChannelAndAssert(
-		ctxt, t, net, dave, net.Alice, chanAmt, 0, false,
+		ctxt, t, net, dave, net.Alice,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 	networkChans = append(networkChans, chanPointDave)
 	txidHash, err = getChanPointFundingTxid(chanPointDave)
@@ -3115,7 +3157,10 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointCarol := openChannelAndAssert(
-		ctxt, t, net, carol, dave, chanAmt, 0, false,
+		ctxt, t, net, carol, dave,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 	networkChans = append(networkChans, chanPointCarol)
 
@@ -3324,8 +3369,12 @@ func testSingleHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
-	chanPointAlice := openChannelAndAssert(ctxt, t, net, net.Alice,
-		net.Bob, chanAmt, 0, false)
+	chanPointAlice := openChannelAndAssert(
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
+	)
 	networkChans = append(networkChans, chanPointAlice)
 
 	txidHash, err := getChanPointFundingTxid(chanPointAlice)
@@ -3471,8 +3520,12 @@ func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
-	chanPointAlice := openChannelAndAssert(ctxt, t, net, net.Alice,
-		net.Bob, chanAmt, 0, false)
+	chanPointAlice := openChannelAndAssert(
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
+	)
 	networkChans = append(networkChans, chanPointAlice)
 
 	txidHash, err := getChanPointFundingTxid(chanPointAlice)
@@ -3505,8 +3558,12 @@ func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to send coins to bob: %v", err)
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	chanPointBob := openChannelAndAssert(ctxt, t, net, net.Bob,
-		carol, chanAmt, 0, false)
+	chanPointBob := openChannelAndAssert(
+		ctxt, t, net, net.Bob, carol,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
+	)
 	networkChans = append(networkChans, chanPointBob)
 	txidHash, err = getChanPointFundingTxid(chanPointBob)
 	if err != nil {
@@ -3659,8 +3716,12 @@ func testSendToRouteErrorPropagation(net *lntest.NetworkHarness, t *harnessTest)
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
-	chanPointAlice := openChannelAndAssert(ctxt, t, net, net.Alice,
-		net.Bob, chanAmt, 0, false)
+	chanPointAlice := openChannelAndAssert(
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
+	)
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPointAlice)
 	if err != nil {
@@ -3701,8 +3762,12 @@ func testSendToRouteErrorPropagation(net *lntest.NetworkHarness, t *harnessTest)
 	}
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	chanPointCarol := openChannelAndAssert(ctxt, t, net, carol,
-		charlie, chanAmt, 0, false)
+	chanPointCarol := openChannelAndAssert(
+		ctxt, t, net, carol, charlie,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
+	)
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	err = carol.WaitForNetworkChannelOpen(ctxt, chanPointCarol)
 	if err != nil {
@@ -3790,7 +3855,10 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// Open a channel with 200k satoshis between Alice and Bob.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPointAlice := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob, chanAmt*2, 0, false,
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt: chanAmt * 2,
+		},
 	)
 	networkChans = append(networkChans, chanPointAlice)
 
@@ -3823,7 +3891,10 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointDave := openChannelAndAssert(
-		ctxt, t, net, dave, net.Alice, chanAmt, 0, false,
+		ctxt, t, net, dave, net.Alice,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 	networkChans = append(networkChans, chanPointDave)
 	txidHash, err = getChanPointFundingTxid(chanPointDave)
@@ -3856,7 +3927,10 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointCarol := openChannelAndAssert(
-		ctxt, t, net, carol, dave, chanAmt, 0, false,
+		ctxt, t, net, carol, dave,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 	networkChans = append(networkChans, chanPointCarol)
 
@@ -3907,7 +3981,11 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to connect dave to alice: %v", err)
 	}
 	chanOpenUpdate, err := net.OpenChannel(
-		ctxb, carol, net.Alice, chanAmt, 0, true, true,
+		ctxb, carol, net.Alice,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			Private: true,
+		},
 	)
 	if err != nil {
 		t.Fatalf("unable to open channel: %v", err)
@@ -4134,7 +4212,12 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 	// payment.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPointBob := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob, chanAmt, chanAmt/2, true,
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: chanAmt / 2,
+			Private: true,
+		},
 	)
 
 	// Then, we'll create Carol's node and open a public channel between her
@@ -4151,7 +4234,11 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointCarol := openChannelAndAssert(
-		ctxt, t, net, net.Alice, carol, chanAmt, chanAmt/2, false,
+		ctxt, t, net, net.Alice, carol,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: chanAmt / 2,
+		},
 	)
 
 	// Then, we'll create Dave's node and open a private channel between him
@@ -4169,7 +4256,11 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointDave := openChannelAndAssert(
-		ctxt, t, net, net.Alice, dave, chanAmt, 0, true,
+		ctxt, t, net, net.Alice, dave,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			Private: true,
+		},
 	)
 
 	// Finally, we'll create Eve's node and open a private channel between
@@ -4185,7 +4276,12 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointEve := openChannelAndAssert(
-		ctxt, t, net, net.Alice, eve, chanAmt, chanAmt/2, true,
+		ctxt, t, net, net.Alice, eve,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: chanAmt / 2,
+			Private: true,
+		},
 	)
 
 	// Make sure all the channels have been opened.
@@ -4307,7 +4403,11 @@ func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest)
 	// being the funder.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPointAlice := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob, chanAmt, 0, true,
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			Private: true,
+		},
 	)
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
@@ -4350,7 +4450,10 @@ func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest)
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointBob := openChannelAndAssert(
-		ctxt, t, net, net.Bob, carol, chanAmt, 0, false,
+		ctxt, t, net, net.Bob, carol,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
@@ -4403,7 +4506,11 @@ func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest)
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointCarol := openChannelAndAssert(
-		ctxt, t, net, carol, dave, chanAmt, 0, true,
+		ctxt, t, net, carol, dave,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			Private: true,
+		},
 	)
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
@@ -4514,7 +4621,10 @@ func testInvoiceSubscriptions(net *lntest.NetworkHarness, t *harnessTest) {
 	// being the sole funder of the channel.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob, chanAmt, 0, false,
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 
 	// Next create a new invoice for Bob requesting 1k satoshis.
@@ -4752,7 +4862,10 @@ func testBasicChannelCreation(net *lntest.NetworkHarness, t *harnessTest) {
 	for i := 0; i < numChannels; i++ {
 		ctx, _ := context.WithTimeout(context.Background(), timeout)
 		chanPoints[i] = openChannelAndAssert(
-			ctx, t, net, net.Alice, net.Bob, amount, 0, false,
+			ctx, t, net, net.Alice, net.Bob,
+			lntest.OpenChannelParams{
+				Amt: amount,
+			},
 		)
 	}
 
@@ -4803,7 +4916,10 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	for i := 0; i < maxPendingChannels; i++ {
 		ctx, _ = context.WithTimeout(context.Background(), timeout)
 		stream, err := net.OpenChannel(
-			ctx, net.Alice, carol, amount, 0, false, true,
+			ctx, net.Alice, carol,
+			lntest.OpenChannelParams{
+				Amt: amount,
+			},
 		)
 		if err != nil {
 			t.Fatalf("unable to open channel: %v", err)
@@ -4815,8 +4931,12 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// channel request should cause ErrorGeneric to be sent back to Alice.
 	ctx, _ = context.WithTimeout(context.Background(), timeout)
 	_, err = net.OpenChannel(
-		ctx, net.Alice, carol, amount, 0, false, true,
+		ctx, net.Alice, carol,
+		lntest.OpenChannelParams{
+			Amt: amount,
+		},
 	)
+
 	if err == nil {
 		t.Fatalf("error wasn't received")
 	} else if grpc.Code(err) != lnwire.ErrMaxPendingChannels.ToGrpcCode() {
@@ -4973,7 +5093,10 @@ func testFailingChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, carol, chanAmt, 0, false,
+		ctxt, t, net, net.Alice, carol,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 
 	// With the channel open, we'll create a invoice for Carol that Alice
@@ -5146,7 +5269,10 @@ func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	coopChanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob, chanAmt, 0, false,
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 
 	// Create Carol's node and connect Alice to her.
@@ -5164,7 +5290,10 @@ func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 	// closed.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	forceCloseChanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, carol, chanAmt, 0, false,
+		ctxt, t, net, net.Alice, carol,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 
 	// Now, create Dave's a node and also open a channel between Alice and
@@ -5180,7 +5309,10 @@ func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	persistentChanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, dave, chanAmt, 0, false,
+		ctxt, t, net, net.Alice, dave,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 
 	// isConnected is a helper closure that checks if a peer is connected to
@@ -5360,7 +5492,10 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 	// 0.5 BTC value.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, carol, net.Bob, chanAmt, 0, false,
+		ctxt, t, net, carol, net.Bob,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 
 	// With the channel open, we'll create a few invoices for Bob that
@@ -5639,7 +5774,10 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 	// 0.5 BTC value.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, dave, carol, chanAmt, 0, false,
+		ctxt, t, net, dave, carol,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 
 	// With the channel open, we'll create a few invoices for Carol that
@@ -5904,7 +6042,11 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	// maxBtcFundingAmount (2^24) satoshis value.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, dave, carol, chanAmt, pushAmt, false,
+		ctxt, t, net, dave, carol,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: pushAmt,
+		},
 	)
 
 	// With the channel open, we'll create a few invoices for Carol that
@@ -6361,7 +6503,10 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 	// We'll first open up a channel between them with a 0.5 BTC value.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, carol, dave, chanAmt, 0, false,
+		ctxt, t, net, carol, dave,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 
 	// We a´make a note of the nodes' current on-chain balances, to make
@@ -6650,7 +6795,10 @@ func testHtlcErrorPropagation(net *lntest.NetworkHarness, t *harnessTest) {
 	// and Bob.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPointAlice := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob, chanAmt, 0, false,
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	if err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPointAlice); err != nil {
@@ -6695,7 +6843,10 @@ func testHtlcErrorPropagation(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	const bobChanAmt = maxBtcFundingAmount
 	chanPointBob := openChannelAndAssert(
-		ctxt, t, net, net.Bob, carol, chanAmt, 0, false,
+		ctxt, t, net, net.Bob, carol,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 
 	// Ensure that Alice has Carol in her routing table before proceeding.
@@ -6992,7 +7143,10 @@ func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) 
 	// Open a new channel between Alice and Bob.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob, chanAmt, 0, false,
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 
 	// The channel opening above should have triggered a few notifications
@@ -7117,7 +7271,10 @@ out:
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPoint = openChannelAndAssert(
-		ctxt, t, net, net.Bob, carol, chanAmt, 0, false,
+		ctxt, t, net, net.Bob, carol,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 
 	// Reconnect Alice and Bob. This should result in the nodes syncing up
@@ -7213,7 +7370,10 @@ func testNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 	timeout := time.Duration(time.Second * 5)
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Bob, dave, 1000000, 0, false,
+		ctxt, t, net, net.Bob, dave,
+		lntest.OpenChannelParams{
+			Amt: 1000000,
+		},
 	)
 
 	// When Alice now connects with Dave, Alice will get his node
@@ -7274,7 +7434,11 @@ func testNodeSignVerify(net *lntest.NetworkHarness, t *harnessTest) {
 	// Create a channel between alice and bob.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	aliceBobCh := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob, chanAmt, pushAmt, false,
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: pushAmt,
+		},
 	)
 
 	aliceMsg := []byte("alice msg")
@@ -7370,7 +7534,10 @@ func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	channelCapacity := btcutil.Amount(paymentAmt * 2000)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob, channelCapacity, 0, false,
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt: channelCapacity,
+		},
 	)
 
 	info, err := getChanInfo(net.Alice)
@@ -7553,8 +7720,11 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 	// Alice should send all money from her side to Bob.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob, paymentAmt*2000,
-		paymentAmt*1000, false,
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt:     paymentAmt * 2000,
+			PushAmt: paymentAmt * 1000,
+		},
 	)
 
 	info, err := getChanInfo(net.Alice)
@@ -7896,7 +8066,10 @@ func createThreeHopHodlNetwork(t *harnessTest,
 	timeout := time.Duration(time.Second * 15)
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	aliceChanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob, chanAmt, 0, false,
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 
 	ctxt, _ = context.WithTimeout(ctxb, time.Second*15)
@@ -7926,7 +8099,10 @@ func createThreeHopHodlNetwork(t *harnessTest,
 	// open, our topology looks like:  A -> B -> C.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	bobChanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Bob, carol, chanAmt, 0, false,
+		ctxt, t, net, net.Bob, carol,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 	ctxt, _ = context.WithTimeout(ctxb, time.Second*15)
 	err = net.Bob.WaitForNetworkChannelOpen(ctxt, bobChanPoint)
@@ -9463,7 +9639,11 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	// being the sole funder of the channel.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPointAlice := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob, chanAmt, pushAmt, false,
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: pushAmt,
+		},
 	)
 	networkChans = append(networkChans, chanPointAlice)
 
@@ -9502,7 +9682,11 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointDave := openChannelAndAssert(
-		ctxt, t, net, dave, net.Alice, chanAmt, pushAmt, false,
+		ctxt, t, net, dave, net.Alice,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: pushAmt,
+		},
 	)
 	networkChans = append(networkChans, chanPointDave)
 	txidHash, err = getChanPointFundingTxid(chanPointDave)
@@ -9536,7 +9720,11 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointCarol := openChannelAndAssert(
-		ctxt, t, net, carol, dave, chanAmt, pushAmt, false,
+		ctxt, t, net, carol, dave,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: pushAmt,
+		},
 	)
 	networkChans = append(networkChans, chanPointCarol)
 
@@ -9793,7 +9981,11 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	// being the sole funder of the channel.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPointAlice := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob, chanAmt, pushAmt, false,
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: pushAmt,
+		},
 	)
 	networkChans = append(networkChans, chanPointAlice)
 
@@ -9832,7 +10024,11 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointDave := openChannelAndAssert(
-		ctxt, t, net, dave, net.Alice, chanAmt, pushAmt, false,
+		ctxt, t, net, dave, net.Alice,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: pushAmt,
+		},
 	)
 	networkChans = append(networkChans, chanPointDave)
 	txidHash, err = getChanPointFundingTxid(chanPointDave)
@@ -9866,7 +10062,11 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointCarol := openChannelAndAssert(
-		ctxt, t, net, carol, dave, chanAmt, pushAmt, false,
+		ctxt, t, net, carol, dave,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: pushAmt,
+		},
 	)
 	networkChans = append(networkChans, chanPointCarol)
 
@@ -10130,7 +10330,11 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	// being the sole funder of the channel.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPointAlice := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob, chanAmt, pushAmt, false,
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: pushAmt,
+		},
 	)
 	networkChans = append(networkChans, chanPointAlice)
 
@@ -10169,8 +10373,13 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointDave := openChannelAndAssert(
-		ctxt, t, net, dave, net.Alice, chanAmt, pushAmt, false,
+		ctxt, t, net, dave, net.Alice,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: pushAmt,
+		},
 	)
+
 	networkChans = append(networkChans, chanPointDave)
 	txidHash, err = getChanPointFundingTxid(chanPointDave)
 	if err != nil {
@@ -10203,7 +10412,11 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointCarol := openChannelAndAssert(
-		ctxt, t, net, carol, dave, chanAmt, pushAmt, false,
+		ctxt, t, net, carol, dave,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: pushAmt,
+		},
 	)
 	networkChans = append(networkChans, chanPointCarol)
 
@@ -10474,7 +10687,11 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	// being the sole funder of the channel.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPointAlice := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob, chanAmt, pushAmt, false,
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: pushAmt,
+		},
 	)
 	networkChans = append(networkChans, chanPointAlice)
 
@@ -10513,7 +10730,11 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointDave := openChannelAndAssert(
-		ctxt, t, net, dave, net.Alice, chanAmt, pushAmt, false,
+		ctxt, t, net, dave, net.Alice,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: pushAmt,
+		},
 	)
 	networkChans = append(networkChans, chanPointDave)
 	txidHash, err = getChanPointFundingTxid(chanPointDave)
@@ -10545,7 +10766,11 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointCarol := openChannelAndAssert(
-		ctxt, t, net, carol, dave, chanAmt, pushAmt, false,
+		ctxt, t, net, carol, dave,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: pushAmt,
+		},
 	)
 	networkChans = append(networkChans, chanPointCarol)
 
@@ -10764,7 +10989,10 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 	// Open a channel between Alice and Bob.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPointAlice := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob, chanAmt, 0, false,
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 	networkChans = append(networkChans, chanPointAlice)
 
@@ -10784,7 +11012,10 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointBob := openChannelAndAssert(
-		ctxt, t, net, net.Bob, carol, chanAmt, 0, false,
+		ctxt, t, net, net.Bob, carol,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 	networkChans = append(networkChans, chanPointBob)
 
@@ -10804,7 +11035,10 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointCarol := openChannelAndAssert(
-		ctxt, t, net, carol, dave, chanAmt, 0, false,
+		ctxt, t, net, carol, dave,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 	networkChans = append(networkChans, chanPointCarol)
 
@@ -10958,7 +11192,10 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 	// Open a channel between Alice and Bob.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPointAliceBob := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob, chanAmt, 0, false,
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 
 	// Create Carol's node and open a channel between her and Alice with
@@ -10980,7 +11217,10 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointAliceCarol := openChannelAndAssert(
-		ctxt, t, net, net.Alice, carol, chanAmt, 0, false,
+		ctxt, t, net, net.Alice, carol,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 
 	// Create Dave's node and open a channel between him and Bob with Bob
@@ -10997,7 +11237,10 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointBobDave := openChannelAndAssert(
-		ctxt, t, net, net.Bob, dave, chanAmt, 0, false,
+		ctxt, t, net, net.Bob, dave,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 
 	// Open a channel between Carol and Dave.
@@ -11007,7 +11250,10 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointCarolDave := openChannelAndAssert(
-		ctxt, t, net, carol, dave, chanAmt, 0, false,
+		ctxt, t, net, carol, dave,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 
 	// Now that all the channels were set up, we'll wait for all the nodes
@@ -11218,7 +11464,10 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPointAliceBob := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob, chanAmt, 0, false,
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 
 	carol, err := net.NewNode("Carol", nil)
@@ -11232,7 +11481,10 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointAliceCarol := openChannelAndAssert(
-		ctxt, t, net, net.Alice, carol, chanAmt, 0, false,
+		ctxt, t, net, net.Alice, carol,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 
 	// We create a new node Eve that has an inactive channel timeout of
@@ -11260,7 +11512,10 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointEveCarol := openChannelAndAssert(
-		ctxt, t, net, eve, carol, chanAmt, 0, false,
+		ctxt, t, net, eve, carol,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
 	)
 
 	// Launch a node for Dave which will connect to Bob in order to receive

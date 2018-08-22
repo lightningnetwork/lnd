@@ -182,6 +182,17 @@ func main() {
 			Value: defaultTLSCertPath,
 			Usage: "path to TLS certificate",
 		},
+		cli.StringFlag{
+			Name:  "chain, c",
+			Usage: "the chain lnd is running on e.g. bitcoin",
+			Value: "bitcoin",
+		},
+		cli.StringFlag{
+			Name: "network, n",
+			Usage: "the network lnd is running on e.g. mainnet, " +
+				"testnet, etc.",
+			Value: "mainnet",
+		},
 		cli.BoolFlag{
 			Name:  "no-macaroons",
 			Usage: "disable macaroon authentication",

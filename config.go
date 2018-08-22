@@ -76,10 +76,6 @@ var (
 	defaultTLSCertPath = filepath.Join(defaultLndDir, defaultTLSCertFilename)
 	defaultTLSKeyPath  = filepath.Join(defaultLndDir, defaultTLSKeyFilename)
 
-	defaultAdminMacPath   = filepath.Join(defaultLndDir, defaultAdminMacFilename)
-	defaultReadMacPath    = filepath.Join(defaultLndDir, defaultReadMacFilename)
-	defaultInvoiceMacPath = filepath.Join(defaultLndDir, defaultInvoiceMacFilename)
-
 	defaultBtcdDir         = btcutil.AppDataDir("btcd", false)
 	defaultBtcdRPCCertFile = filepath.Join(defaultBtcdDir, "rpc.cert")
 
@@ -256,9 +252,6 @@ func loadConfig() (*config, error) {
 		DebugLevel:     defaultLogLevel,
 		TLSCertPath:    defaultTLSCertPath,
 		TLSKeyPath:     defaultTLSKeyPath,
-		AdminMacPath:   defaultAdminMacPath,
-		InvoiceMacPath: defaultInvoiceMacPath,
-		ReadMacPath:    defaultReadMacPath,
 		LogDir:         defaultLogDir,
 		MaxLogFiles:    defaultMaxLogFiles,
 		MaxLogFileSize: defaultMaxLogFileSize,
@@ -765,27 +758,28 @@ func loadConfig() (*config, error) {
 		}
 	}
 
-	// At this point, we'll save the base data directory in order to ensure
-	// we don't store the macaroon database within any of the chain
-	// namespaced directories.
-	macaroonDatabaseDir = cfg.DataDir
+	// Compute network directory to store network specific
+	// files such as macaroon database, macaroons etc.
+	networkDir = filepath.Join(cfg.DataDir,
+		defaultChainSubDirname,
+		registeredChains.PrimaryChain().String(),
+		normalizeNetwork(activeNetParams.Name))
 
-	// If a custom macaroon directory wasn't specified and the data
-	// directory has changed from the default path, then we'll also update
-	// the path for the macaroons to be generated.
-	if cfg.DataDir != defaultDataDir && cfg.AdminMacPath == defaultAdminMacPath {
+	// If a custom macaroon path wasn't specified we'll
+	// store the macaroons within the network level.
+	if cfg.AdminMacPath == "." {
 		cfg.AdminMacPath = filepath.Join(
-			cfg.DataDir, defaultAdminMacFilename,
+			networkDir, defaultAdminMacFilename,
 		)
 	}
-	if cfg.DataDir != defaultDataDir && cfg.ReadMacPath == defaultReadMacPath {
+	if cfg.ReadMacPath == "." {
 		cfg.ReadMacPath = filepath.Join(
-			cfg.DataDir, defaultReadMacFilename,
+			networkDir, defaultReadMacFilename,
 		)
 	}
-	if cfg.DataDir != defaultDataDir && cfg.InvoiceMacPath == defaultInvoiceMacPath {
+	if cfg.InvoiceMacPath == "." {
 		cfg.InvoiceMacPath = filepath.Join(
-			cfg.DataDir, defaultInvoiceMacFilename,
+			networkDir, defaultInvoiceMacFilename,
 		)
 	}
 

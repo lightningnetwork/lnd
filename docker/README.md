@@ -1,15 +1,15 @@
-This document is written for people who are eager to do something with 
+This document is written for people who are eager to do something with
 the Lightning Network Daemon (`lnd`). This folder uses `docker-compose` to
 package `lnd` and `btcd` together to make deploying the two daemons as easy as
 typing a few commands. All configuration between `lnd` and `btcd` are handled
 automatically by their `docker-compose` config file.
 
 ### Prerequisites
-    Name  | Version 
+    Name  | Version
     --------|---------
     docker-compose | 1.9.0
     docker | 1.13.0
-  
+
 ### Table of content
  * [Create lightning network cluster](#create-lightning-network-cluster)
  * [Connect to faucet lightning node](#connect-to-faucet-lightning-node)
@@ -33,20 +33,20 @@ In the workflow below, we describe the steps required to recreate the following
 topology, and send a payment from `Alice` to `Bob`.
 ```
 + ----- +                   + --- +
-| Alice | <--- channel ---> | Bob |  <---   Bob and Alice are the lightning network daemons which 
-+ ----- +                   + --- +         create channels and interact with each other using the   
-    |                          |            Bitcoin network as source of truth. 
-    |                          |            
-    + - - - -  - + - - - - - - +            
+| Alice | <--- channel ---> | Bob |  <---   Bob and Alice are the lightning network daemons which
++ ----- +                   + --- +         create channels and interact with each other using the
+    |                          |            Bitcoin network as source of truth.
+    |                          |
+    + - - - -  - + - - - - - - +
                  |
         + --------------- +
-        | Bitcoin network |  <---  In the current scenario for simplicity we create only one  
-        + --------------- +        "btcd" node which represents the Bitcoin network, in a 
-                                    real situation Alice and Bob will likely be 
+        | Bitcoin network |  <---  In the current scenario for simplicity we create only one
+        + --------------- +        "btcd" node which represents the Bitcoin network, in a
+                                    real situation Alice and Bob will likely be
                                     connected to different Bitcoin nodes.
 ```
 
-**General workflow is the following:** 
+**General workflow is the following:**
 
  * Create a `btcd` node running on a private `simnet`.
  * Create `Alice`, one of the `lnd` nodes in our simulation network.
@@ -61,19 +61,19 @@ Start `btcd`, and then create an address for `Alice` that we'll directly mine
 bitcoin into.
 ```bash
 # Init bitcoin network env variable:
-$ export NETWORK="simnet" 
+$ export NETWORK="simnet"
 
 # Run the "Alice" container and log into it:
 $ docker-compose run -d alice
 $ docker exec -i -t alice bash
 
 # Generate a new backward compatible nested p2sh address for Alice:
-alice$ lncli newaddress np2wkh 
+alice$ lncli newaddress np2wkh
 
 # Recreate "btcd" node and set Alice's address as mining address:
 $ MINING_ADDRESS=<alice_address> docker-compose up -d btcd
 
-# Generate 400 blocks (we need at least "100 >=" blocks because of coinbase 
+# Generate 400 blocks (we need at least "100 >=" blocks because of coinbase
 # block maturity and "300 ~=" in order to activate segwit):
 $ docker-compose run btcctl generate 400
 
@@ -192,8 +192,8 @@ Send the payment from `Alice` to `Bob`.
 # Add invoice on "Bob" side:
 bob$ lncli addinvoice --amt=10000
 {
-        "r_hash": "<your_random_rhash_here>", 
-        "pay_req": "<encoded_invoice>", 
+        "r_hash": "<your_random_rhash_here>",
+        "pay_req": "<encoded_invoice>",
 }
 
 # Send payment from "Alice" to "Bob":
@@ -237,7 +237,7 @@ alice$ lncli listchannels
     ]
 }
 
-# Channel point consists of two numbers separated by a colon. The first one 
+# Channel point consists of two numbers separated by a colon. The first one
 # is "funding_txid" and the second one is "output_index":
 alice$ lncli closechannel --funding_txid=<funding_txid> --output_index=<output_index>
 
@@ -258,41 +258,41 @@ bob$ lncli walletbalance
 ```
 
 ### Connect to faucet lightning node
-In order to be more confident with `lnd` commands I suggest you to try 
+In order to be more confident with `lnd` commands I suggest you to try
 to create a mini lightning network cluster ([Create lightning network cluster](#create-lightning-network-cluster)).
 
-In this section we will try to connect our node to the faucet/hub node 
-which we will create a channel with and send some amount of 
+In this section we will try to connect our node to the faucet/hub node
+which we will create a channel with and send some amount of
 bitcoins. The schema will be following:
 
 ```
 + ----- +                   + ------ +         (1)        + --- +
-| Alice | <--- channel ---> | Faucet |  <--- channel ---> | Bob |    
-+ ----- +                   + ------ +                    + --- +        
-    |                            |                           |           
-    |                            |                           |      <---  (2)         
-    + - - - -  - - - - - - - - - + - - - - - - - - - - - - - +            
+| Alice | <--- channel ---> | Faucet |  <--- channel ---> | Bob |
++ ----- +                   + ------ +                    + --- +
+    |                            |                           |
+    |                            |                           |      <---  (2)
+    + - - - -  - - - - - - - - - + - - - - - - - - - - - - - +
                                  |
                        + --------------- +
-                       | Bitcoin network |  <---  (3)   
-                       + --------------- +        
-        
-        
+                       | Bitcoin network |  <---  (3)
+                       + --------------- +
+
+
  (1) You may connect an additional node "Bob" and make the multihop
  payment Alice->Faucet->Bob
-  
- (2) "Faucet", "Alice" and "Bob" are the lightning network daemons which 
- create channels to interact with each other using the Bitcoin network 
+
+ (2) "Faucet", "Alice" and "Bob" are the lightning network daemons which
+ create channels to interact with each other using the Bitcoin network
  as source of truth.
- 
- (3) In current scenario "Alice" and "Faucet" lightning network nodes 
+
+ (3) In current scenario "Alice" and "Faucet" lightning network nodes
  connect to different Bitcoin nodes. If you decide to connect "Bob"
  to "Faucet" then the already created "btcd" node would be sufficient.
 ```
 
-First of all you need to run `btcd` node in `testnet` and wait for it to be 
+First of all you need to run `btcd` node in `testnet` and wait for it to be
 synced with test network (`May the Force and Patience be with you`).
-```bash 
+```bash
 # Init bitcoin network env variable:
 $ export NETWORK="testnet"
 
@@ -304,7 +304,7 @@ After `btcd` synced, connect `Alice` to the `Faucet` node.
 
 The `Faucet` node address can be found at the [Faucet Lightning Community webpage](https://faucet.lightning.community).
 
-```bash 
+```bash
 # Run "Alice" container and log into it:
 $ docker-compose up -d "alice"; docker exec -i -t "alice" bash
 

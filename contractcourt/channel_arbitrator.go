@@ -277,8 +277,13 @@ func (c *ChannelArbitrator) Start() error {
 			fallthrough
 		case StateCommitmentBroadcasted:
 			switch c.cfg.CloseType {
+
+			case channeldb.CooperativeClose:
+				trigger = coopCloseTrigger
+
 			case channeldb.LocalForceClose:
 				trigger = localCloseTrigger
+
 			case channeldb.RemoteForceClose:
 				trigger = remoteCloseTrigger
 			}

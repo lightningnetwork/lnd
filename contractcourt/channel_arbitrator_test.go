@@ -742,86 +742,141 @@ func TestChannelArbitratorPersistence(t *testing.T) {
 // TestChannelArbitratorCommitFailure tests that the channel arbitrator is able
 // to recover from a failed CommitState call at restart.
 func TestChannelArbitratorCommitFailure(t *testing.T) {
-	// Start out with a log that will fail committing to StateContractClosed.
-	log := &mockArbitratorLog{
-		state:           StateDefault,
-		newStates:       make(chan ArbitratorState, 5),
-		failCommit:      true,
-		failCommitState: StateContractClosed,
+
+	testCases := []struct {
+
+		// closeType is the type of channel close we want ot test.
+		closeType channeldb.ClosureType
+
+		// sendEvent is a function that will send the event
+		// corresponding to this test's closeType to the passed
+		// ChannelArbitrator.
+		sendEvent func(chanArb *ChannelArbitrator)
+
+		// expectedStates is the states we expect the state machine to
+		// go through after a restart and successful log commit.
+		expectedStates []ArbitratorState
+	}{
+		{
+			closeType: channeldb.CooperativeClose,
+			sendEvent: func(chanArb *ChannelArbitrator) {
+				closeInfo := &CooperativeCloseInfo{
+					&channeldb.ChannelCloseSummary{},
+				}
+				chanArb.cfg.ChainEvents.CooperativeClosure <- closeInfo
+			},
+			expectedStates: []ArbitratorState{StateFullyResolved},
+		},
+		{
+			closeType: channeldb.RemoteForceClose,
+			sendEvent: func(chanArb *ChannelArbitrator) {
+				commitSpend := &chainntnfs.SpendDetail{
+					SpenderTxHash: &chainhash.Hash{},
+				}
+
+				uniClose := &lnwallet.UnilateralCloseSummary{
+					SpendDetail:     commitSpend,
+					HtlcResolutions: &lnwallet.HtlcResolutions{},
+				}
+				chanArb.cfg.ChainEvents.RemoteUnilateralClosure <- uniClose
+			},
+			expectedStates: []ArbitratorState{StateContractClosed, StateFullyResolved},
+		},
+		{
+			closeType: channeldb.LocalForceClose,
+			sendEvent: func(chanArb *ChannelArbitrator) {
+				chanArb.cfg.ChainEvents.LocalUnilateralClosure <- &LocalUnilateralCloseInfo{
+					&chainntnfs.SpendDetail{},
+					&lnwallet.LocalForceCloseSummary{
+						CloseTx:         &wire.MsgTx{},
+						HtlcResolutions: &lnwallet.HtlcResolutions{},
+					},
+					&channeldb.ChannelCloseSummary{},
+				}
+			},
+			expectedStates: []ArbitratorState{StateContractClosed, StateFullyResolved},
+		},
 	}
 
-	chanArb, resolved, err := createTestChannelArbitrator(log)
-	if err != nil {
-		t.Fatalf("unable to create ChannelArbitrator: %v", err)
-	}
+	for _, test := range testCases {
+		log := &mockArbitratorLog{
+			state:      StateDefault,
+			newStates:  make(chan ArbitratorState, 5),
+			failCommit: true,
 
-	if err := chanArb.Start(); err != nil {
-		t.Fatalf("unable to start ChannelArbitrator: %v", err)
-	}
+			// Set the log to fail on the first expected state
+			// after state machine progress for this test case.
+			failCommitState: test.expectedStates[0],
+		}
 
-	// It should start in StateDefault.
-	assertState(t, chanArb, StateDefault)
+		chanArb, resolved, err := createTestChannelArbitrator(log)
+		if err != nil {
+			t.Fatalf("unable to create ChannelArbitrator: %v", err)
+		}
 
-	closed := make(chan struct{})
-	chanArb.cfg.MarkChannelClosed = func(*channeldb.ChannelCloseSummary) error {
-		close(closed)
-		return nil
-	}
+		if err := chanArb.Start(); err != nil {
+			t.Fatalf("unable to start ChannelArbitrator: %v", err)
+		}
 
-	// Send a remote force close event.
-	commitSpend := &chainntnfs.SpendDetail{
-		SpenderTxHash: &chainhash.Hash{},
-	}
+		// It should start in StateDefault.
+		assertState(t, chanArb, StateDefault)
 
-	uniClose := &lnwallet.UnilateralCloseSummary{
-		SpendDetail:     commitSpend,
-		HtlcResolutions: &lnwallet.HtlcResolutions{},
-	}
-	chanArb.cfg.ChainEvents.RemoteUnilateralClosure <- uniClose
+		closed := make(chan struct{})
+		chanArb.cfg.MarkChannelClosed = func(
+			*channeldb.ChannelCloseSummary) error {
+			close(closed)
+			return nil
+		}
 
-	select {
-	case <-closed:
-	case <-time.After(5 * time.Second):
-		t.Fatalf("channel was not marked closed")
-	}
+		// Send the test event to trigger the state machine.
+		test.sendEvent(chanArb)
 
-	// Since the channel was marked closed in the database, but the commit
-	// to the next state failed, the state should still be StateDefault.
-	time.Sleep(100 * time.Millisecond)
-	if log.state != StateDefault {
-		t.Fatalf("expected to stay in StateDefault")
-	}
-	chanArb.Stop()
+		select {
+		case <-closed:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("channel was not marked closed")
+		}
 
-	// Start the arbitrator again, with IsPendingClose reporting the
-	// channel closed in the database.
-	chanArb, resolved, err = createTestChannelArbitrator(log)
-	if err != nil {
-		t.Fatalf("unable to create ChannelArbitrator: %v", err)
-	}
+		// Since the channel was marked closed in the database, but the
+		// commit to the next state failed, the state should still be
+		// StateDefault.
+		time.Sleep(100 * time.Millisecond)
+		if log.state != StateDefault {
+			t.Fatalf("expected to stay in StateDefault, instead "+
+				"has %v", log.state)
+		}
+		chanArb.Stop()
 
-	log.failCommit = false
+		// Start the arbitrator again, with IsPendingClose reporting
+		// the channel closed in the database.
+		chanArb, resolved, err = createTestChannelArbitrator(log)
+		if err != nil {
+			t.Fatalf("unable to create ChannelArbitrator: %v", err)
+		}
 
-	chanArb.cfg.IsPendingClose = true
-	chanArb.cfg.ClosingHeight = 100
-	chanArb.cfg.CloseType = channeldb.RemoteForceClose
+		log.failCommit = false
 
-	if err := chanArb.Start(); err != nil {
-		t.Fatalf("unable to start ChannelArbitrator: %v", err)
-	}
+		chanArb.cfg.IsPendingClose = true
+		chanArb.cfg.ClosingHeight = 100
+		chanArb.cfg.CloseType = test.closeType
 
-	// Since the channel is marked closed in the database, it should
-	// advance to StateContractClosed and StateFullyResolved.
-	assertStateTransitions(
-		t, log.newStates, StateContractClosed, StateFullyResolved,
-	)
+		if err := chanArb.Start(); err != nil {
+			t.Fatalf("unable to start ChannelArbitrator: %v", err)
+		}
 
-	// It should also mark the channel as resolved.
-	select {
-	case <-resolved:
-		// Expected.
-	case <-time.After(5 * time.Second):
-		t.Fatalf("contract was not resolved")
+		// Since the channel is marked closed in the database, it
+		// should advance to the expected states.
+		assertStateTransitions(
+			t, log.newStates, test.expectedStates...,
+		)
+
+		// It should also mark the channel as resolved.
+		select {
+		case <-resolved:
+			// Expected.
+		case <-time.After(5 * time.Second):
+			t.Fatalf("contract was not resolved")
+		}
 	}
 }
 

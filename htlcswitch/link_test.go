@@ -1560,7 +1560,7 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 		Registry:       invoiceRegistry,
 		ChainEvents:    &contractcourt.ChainEventSubscription{},
 		BatchTicker:    bticker,
-		FwdPkgGCTicker: ticker.MockNew(5 * time.Second),
+		FwdPkgGCTicker: ticker.MockNew(15 * time.Second),
 		// Make the BatchSize and Min/MaxFeeUpdateTimeout large enough
 		// to not trigger commit updates automatically during tests.
 		BatchSize:           10000,

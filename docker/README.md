@@ -64,7 +64,7 @@ bitcoin into.
 $ export NETWORK="simnet"
 
 # Run the "Alice" container and log into it:
-$ docker-compose run -d alice
+$ docker-compose run -d --name alice alice
 $ docker exec -i -t alice bash
 
 # Generate a new backward compatible nested p2sh address for Alice:
@@ -90,7 +90,7 @@ Connect `Bob` node to `Alice` node.
 
 ```bash
 # Run "Bob" node and log into it:
-$ docker-compose run -d bob
+$ docker-compose run -d --name bob bob
 $ docker exec -i -t bob bash
 
 # Get the identity pubkey of "Bob" node:

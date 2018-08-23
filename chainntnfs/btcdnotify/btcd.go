@@ -83,6 +83,16 @@ type BtcdNotifier struct {
 	chainUpdates *chainntnfs.ConcurrentQueue
 	txUpdates    *chainntnfs.ConcurrentQueue
 
+	// spendHintCache is a cache used to query and update the latest height
+	// hints for an outpoint. Each height hint represents the earliest
+	// height at which the outpoint could have been spent within the chain.
+	spendHintCache chainntnfs.SpendHintCache
+
+	// confirmHintCache is a cache used to query the latest height hints for
+	// a transaction. Each height hint represents the earliest height at
+	// which the transaction could have confirmed within the chain.
+	confirmHintCache chainntnfs.ConfirmHintCache
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -93,7 +103,9 @@ var _ chainntnfs.ChainNotifier = (*BtcdNotifier)(nil)
 // New returns a new BtcdNotifier instance. This function assumes the btcd node
 // detailed in the passed configuration is already running, and willing to
 // accept new websockets clients.
-func New(config *rpcclient.ConnConfig) (*BtcdNotifier, error) {
+func New(config *rpcclient.ConnConfig, spendHintCache chainntnfs.SpendHintCache,
+	confirmHintCache chainntnfs.ConfirmHintCache) (*BtcdNotifier, error) {
+
 	notifier := &BtcdNotifier{
 		notificationCancels:  make(chan interface{}),
 		notificationRegistry: make(chan interface{}),
@@ -104,6 +116,9 @@ func New(config *rpcclient.ConnConfig) (*BtcdNotifier, error) {
 
 		chainUpdates: chainntnfs.NewConcurrentQueue(10),
 		txUpdates:    chainntnfs.NewConcurrentQueue(10),
+
+		spendHintCache:   spendHintCache,
+		confirmHintCache: confirmHintCache,
 
 		quit: make(chan struct{}),
 	}
@@ -150,7 +165,8 @@ func (b *BtcdNotifier) Start() error {
 	}
 
 	b.txConfNotifier = chainntnfs.NewTxConfNotifier(
-		uint32(currentHeight), reorgSafetyLimit)
+		uint32(currentHeight), reorgSafetyLimit, b.confirmHintCache,
+	)
 
 	b.bestBlock = chainntnfs.BlockEpoch{
 		Height: currentHeight,
@@ -646,22 +662,22 @@ func (b *BtcdNotifier) handleBlockConnected(epoch chainntnfs.BlockEpoch) error {
 		return fmt.Errorf("unable to get block: %v", err)
 	}
 
-	chainntnfs.Log.Infof("New block: height=%v, sha=%v",
-		epoch.Height, epoch.Hash)
-
-	txns := btcutil.NewBlock(rawBlock).Transactions()
-
 	newBlock := &filteredBlock{
 		hash:    *epoch.Hash,
 		height:  uint32(epoch.Height),
-		txns:    txns,
+		txns:    btcutil.NewBlock(rawBlock).Transactions(),
 		connect: true,
 	}
-	err = b.txConfNotifier.ConnectTip(&newBlock.hash, newBlock.height,
-		newBlock.txns)
+
+	err = b.txConfNotifier.ConnectTip(
+		&newBlock.hash, newBlock.height, newBlock.txns,
+	)
 	if err != nil {
 		return fmt.Errorf("unable to connect tip: %v", err)
 	}
+
+	chainntnfs.Log.Infof("New block: height=%v, sha=%v", epoch.Height,
+		epoch.Hash)
 
 	// We want to set the best block before dispatching notifications
 	// so if any subscribers make queries based on their received
@@ -671,8 +687,8 @@ func (b *BtcdNotifier) handleBlockConnected(epoch chainntnfs.BlockEpoch) error {
 	// Next we'll notify any subscribed clients of the block.
 	b.notifyBlockEpochs(int32(newBlock.height), &newBlock.hash)
 
-	// Finally, we'll scan over the list of relevant transactions and
-	// possibly dispatch notifications for confirmations and spends.
+	// Scan over the list of relevant transactions and possibly dispatch
+	// notifications for spends.
 	for _, tx := range newBlock.txns {
 		mtx := tx.MsgTx()
 		txSha := mtx.TxHash()
@@ -698,8 +714,10 @@ func (b *BtcdNotifier) handleBlockConnected(epoch chainntnfs.BlockEpoch) error {
 			}
 
 			for _, ntfn := range clients {
-				chainntnfs.Log.Infof("Dispatching spend notification for "+
-					"outpoint=%v", ntfn.targetOutpoint)
+				chainntnfs.Log.Infof("Dispatching spend "+
+					"notification for outpoint=%v",
+					ntfn.targetOutpoint)
+
 				ntfn.spendChan <- spendDetails
 
 				// Close spendChan to ensure that any calls to
@@ -710,6 +728,26 @@ func (b *BtcdNotifier) handleBlockConnected(epoch chainntnfs.BlockEpoch) error {
 			}
 
 			delete(b.spendNotifications, prevOut)
+		}
+	}
+
+	// Finally, we'll update the spend height hint for all of our watched
+	// outpoints that have not been spent yet. This is safe to do as we do
+	// not watch already spent outpoints for spend notifications.
+	ops := make([]wire.OutPoint, 0, len(b.spendNotifications))
+	for op := range b.spendNotifications {
+		ops = append(ops, op)
+	}
+
+	if len(ops) > 0 {
+		err := b.spendHintCache.CommitSpendHint(
+			uint32(epoch.Height), ops...,
+		)
+		if err != nil {
+			// The error is not fatal, so we should not return an
+			// error to the caller.
+			chainntnfs.Log.Errorf("Unable to update spend hint to "+
+				"%d for %v: %v", epoch.Height, ops, err)
 		}
 	}
 
@@ -771,6 +809,18 @@ type spendCancel struct {
 func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	pkScript []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
 
+	// Before proceeding to register the notification, we'll query our
+	// height hint cache to determine whether a better one exists.
+	if hint, err := b.spendHintCache.QuerySpendHint(*outpoint); err == nil {
+		if hint > heightHint {
+			chainntnfs.Log.Debugf("Using height hint %d retrieved "+
+				"from cache for %v", hint, outpoint)
+			heightHint = hint
+		}
+	}
+
+	// Construct a notification request for the outpoint and send it to the
+	// main event loop.
 	ntfn := &spendNotification{
 		targetOutpoint: outpoint,
 		spendChan:      make(chan *chainntnfs.SpendDetail, 1),
@@ -799,7 +849,20 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		return nil, err
 	}
 
-	if txOut == nil {
+	// If the output is unspent, then we'll write it to the cache with the
+	// given height hint. This allows us to increase the height hint as the
+	// chain extends and the output remains unspent.
+	if txOut != nil {
+		err := b.spendHintCache.CommitSpendHint(heightHint, *outpoint)
+		if err != nil {
+			// The error is not fatal, so we should not return an
+			// error to the caller.
+			chainntnfs.Log.Error("Unable to update spend hint to "+
+				"%d for %v: %v", heightHint, *outpoint, err)
+		}
+	} else {
+		// Otherwise, we'll determine when the output was spent.
+		//
 		// First, we'll attempt to retrieve the transaction's block hash
 		// using the backend's transaction index.
 		tx, err := b.chainConn.GetRawTransactionVerbose(&outpoint.Hash)
@@ -900,6 +963,18 @@ type confirmationNotification struct {
 func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash, _ []byte,
 	numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
 
+	// Before proceeding to register the notification, we'll query our
+	// height hint cache to determine whether a better one exists.
+	if hint, err := b.confirmHintCache.QueryConfirmHint(*txid); err == nil {
+		if hint > heightHint {
+			chainntnfs.Log.Debugf("Using height hint %d retrieved "+
+				"from cache for %v", hint, txid)
+			heightHint = hint
+		}
+	}
+
+	// Construct a notification request for the transaction and send it to
+	// the main event loop.
 	ntfn := &confirmationNotification{
 		ConfNtfn: chainntnfs.ConfNtfn{
 			ConfID:           atomic.AddUint64(&b.confClientCounter, 1),

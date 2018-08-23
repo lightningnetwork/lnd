@@ -1,6 +1,7 @@
 package chainntnfs_test
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -10,6 +11,90 @@ import (
 )
 
 var zeroHash chainhash.Hash
+
+type mockHintCache struct {
+	mu         sync.Mutex
+	confHints  map[chainhash.Hash]uint32
+	spendHints map[wire.OutPoint]uint32
+}
+
+var _ chainntnfs.SpendHintCache = (*mockHintCache)(nil)
+var _ chainntnfs.ConfirmHintCache = (*mockHintCache)(nil)
+
+func (c *mockHintCache) CommitSpendHint(heightHint uint32, ops ...wire.OutPoint) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, op := range ops {
+		c.spendHints[op] = heightHint
+	}
+
+	return nil
+}
+
+func (c *mockHintCache) QuerySpendHint(op wire.OutPoint) (uint32, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	hint, ok := c.spendHints[op]
+	if !ok {
+		return 0, chainntnfs.ErrSpendHintNotFound
+	}
+
+	return hint, nil
+}
+
+func (c *mockHintCache) PurgeSpendHint(ops ...wire.OutPoint) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, op := range ops {
+		delete(c.spendHints, op)
+	}
+
+	return nil
+}
+
+func (c *mockHintCache) CommitConfirmHint(heightHint uint32, txids ...chainhash.Hash) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, txid := range txids {
+		c.confHints[txid] = heightHint
+	}
+
+	return nil
+}
+
+func (c *mockHintCache) QueryConfirmHint(txid chainhash.Hash) (uint32, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	hint, ok := c.confHints[txid]
+	if !ok {
+		return 0, chainntnfs.ErrConfirmHintNotFound
+	}
+
+	return hint, nil
+}
+
+func (c *mockHintCache) PurgeConfirmHint(txids ...chainhash.Hash) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, txid := range txids {
+		delete(c.confHints, txid)
+	}
+
+	return nil
+}
+
+func newMockHintCache() *mockHintCache {
+	return &mockHintCache{
+		confHints:  make(map[chainhash.Hash]uint32),
+		spendHints: make(map[wire.OutPoint]uint32),
+	}
+}
 
 // TestTxConfFutureDispatch tests that the TxConfNotifier dispatches
 // registered notifications when the transaction confirms after registration.
@@ -27,7 +112,8 @@ func TestTxConfFutureDispatch(t *testing.T) {
 		tx3 = wire.MsgTx{Version: 3}
 	)
 
-	txConfNotifier := chainntnfs.NewTxConfNotifier(10, 100)
+	hintCache := newMockHintCache()
+	txConfNotifier := chainntnfs.NewTxConfNotifier(10, 100, hintCache)
 
 	// Create the test transactions and register them with the
 	// TxConfNotifier before including them in a block to receive future
@@ -200,7 +286,8 @@ func TestTxConfHistoricalDispatch(t *testing.T) {
 		tx3 = wire.MsgTx{Version: 3}
 	)
 
-	txConfNotifier := chainntnfs.NewTxConfNotifier(10, 100)
+	hintCache := newMockHintCache()
+	txConfNotifier := chainntnfs.NewTxConfNotifier(10, 100, hintCache)
 
 	// Create the test transactions at a height before the TxConfNotifier's
 	// starting height so that they are confirmed once registering them.
@@ -351,7 +438,8 @@ func TestTxConfChainReorg(t *testing.T) {
 		tx3 = wire.MsgTx{Version: 3}
 	)
 
-	txConfNotifier := chainntnfs.NewTxConfNotifier(7, 100)
+	hintCache := newMockHintCache()
+	txConfNotifier := chainntnfs.NewTxConfNotifier(7, 100, hintCache)
 
 	// Tx 1 will be confirmed in block 9 and requires 2 confs.
 	tx1Hash := tx1.TxHash()
@@ -586,6 +674,147 @@ func TestTxConfChainReorg(t *testing.T) {
 	}
 }
 
+// TestTxConfHeightHintCache ensures that the height hints for transactions are
+// kept track of correctly with each new block connected/disconnected.
+func TestTxConfHeightHintCache(t *testing.T) {
+	t.Parallel()
+
+	const (
+		startingHeight = 10
+		tx1Height      = 11
+		tx2Height      = 12
+	)
+
+	// Initialize our TxConfNotifier instance backed by a height hint cache.
+	hintCache := newMockHintCache()
+	txConfNotifier := chainntnfs.NewTxConfNotifier(
+		startingHeight, 100, hintCache,
+	)
+
+	// Create two test transactions and register them for notifications.
+	tx1 := wire.MsgTx{Version: 1}
+	tx1Hash := tx1.TxHash()
+	ntfn1 := &chainntnfs.ConfNtfn{
+		TxID:             &tx1Hash,
+		NumConfirmations: 1,
+		Event:            chainntnfs.NewConfirmationEvent(1),
+	}
+
+	tx2 := wire.MsgTx{Version: 2}
+	tx2Hash := tx2.TxHash()
+	ntfn2 := &chainntnfs.ConfNtfn{
+		TxID:             &tx2Hash,
+		NumConfirmations: 2,
+		Event:            chainntnfs.NewConfirmationEvent(2),
+	}
+
+	if err := txConfNotifier.Register(ntfn1); err != nil {
+		t.Fatalf("unable to register tx1: %v", err)
+	}
+	if err := txConfNotifier.Register(ntfn2); err != nil {
+		t.Fatalf("unable to register tx2: %v", err)
+	}
+
+	// Both transactions should have a height hint of the starting height
+	// due to registering notifications for them.
+	hint, err := hintCache.QueryConfirmHint(tx1Hash)
+	if err != nil {
+		t.Fatalf("unable to query for hint: %v", err)
+	}
+	if hint != startingHeight {
+		t.Fatalf("expected hint %d, got %d", startingHeight, hint)
+	}
+
+	hint, err = hintCache.QueryConfirmHint(tx2Hash)
+	if err != nil {
+		t.Fatalf("unable to query for hint: %v", err)
+	}
+	if hint != startingHeight {
+		t.Fatalf("expected hint %d, got %d", startingHeight, hint)
+	}
+
+	// Create a new block that will include the first transaction and extend
+	// the chain.
+	block1 := btcutil.NewBlock(&wire.MsgBlock{
+		Transactions: []*wire.MsgTx{&tx1},
+	})
+
+	err = txConfNotifier.ConnectTip(
+		block1.Hash(), tx1Height, block1.Transactions(),
+	)
+	if err != nil {
+		t.Fatalf("Failed to connect block: %v", err)
+	}
+
+	// The height hint for the first transaction should now be updated to
+	// reflect its confirmation.
+	hint, err = hintCache.QueryConfirmHint(tx1Hash)
+	if err != nil {
+		t.Fatalf("unable to query for hint: %v", err)
+	}
+	if hint != tx1Height {
+		t.Fatalf("expected hint %d, got %d", tx1Height, hint)
+	}
+
+	// The height hint for the second transaction should also be updated due
+	// to it still being unconfirmed.
+	hint, err = hintCache.QueryConfirmHint(tx2Hash)
+	if err != nil {
+		t.Fatalf("unable to query for hint: %v", err)
+	}
+	if hint != tx1Height {
+		t.Fatalf("expected hint %d, got %d", tx1Height, hint)
+	}
+
+	// Now, we'll create another block that will include the second
+	// transaction and extend the chain.
+	block2 := btcutil.NewBlock(&wire.MsgBlock{
+		Transactions: []*wire.MsgTx{&tx2},
+	})
+
+	err = txConfNotifier.ConnectTip(
+		block2.Hash(), tx2Height, block2.Transactions(),
+	)
+	if err != nil {
+		t.Fatalf("Failed to connect block: %v", err)
+	}
+
+	// The height hint for the first transaction should remain the same.
+	hint, err = hintCache.QueryConfirmHint(tx1Hash)
+	if err != nil {
+		t.Fatalf("unable to query for hint: %v", err)
+	}
+	if hint != tx1Height {
+		t.Fatalf("expected hint %d, got %d", tx1Height, hint)
+	}
+
+	// The height hint for the second transaction should now be updated to
+	// reflect its confirmation.
+	hint, err = hintCache.QueryConfirmHint(tx2Hash)
+	if err != nil {
+		t.Fatalf("unable to query for hint: %v", err)
+	}
+	if hint != tx2Height {
+		t.Fatalf("expected hint %d, got %d", tx2Height, hint)
+	}
+
+	// Now, we'll attempt do disconnect the last block in order to simulate
+	// a chain reorg.
+	if err := txConfNotifier.DisconnectTip(tx2Height); err != nil {
+		t.Fatalf("Failed to disconnect block: %v", err)
+	}
+
+	// This should update the second transaction's height hint within the
+	// cache to the previous height.
+	hint, err = hintCache.QueryConfirmHint(tx2Hash)
+	if err != nil {
+		t.Fatalf("unable to query for hint: %v", err)
+	}
+	if hint != tx1Height {
+		t.Fatalf("expected hint %d, got %d", tx1Height, hint)
+	}
+}
+
 func TestTxConfTearDown(t *testing.T) {
 	t.Parallel()
 
@@ -594,7 +823,8 @@ func TestTxConfTearDown(t *testing.T) {
 		tx2 = wire.MsgTx{Version: 2}
 	)
 
-	txConfNotifier := chainntnfs.NewTxConfNotifier(10, 100)
+	hintCache := newMockHintCache()
+	txConfNotifier := chainntnfs.NewTxConfNotifier(10, 100, hintCache)
 
 	// Create the test transactions and register them with the
 	// TxConfNotifier to receive notifications.

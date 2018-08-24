@@ -1,6 +1,7 @@
 package btcwallet
 
 import (
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -37,8 +38,8 @@ func (b *BtcWallet) GetBestBlock() (*chainhash.Hash, int32, error) {
 // creates the target pkScript.
 //
 // This method is a part of the lnwallet.BlockChainIO interface.
-func (b *BtcWallet) GetUtxo(op *wire.OutPoint, pkScript []byte,
-	heightHint uint32) (*wire.TxOut, error) {
+func (b *BtcWallet) GetUtxo(ctx context.Context, op *wire.OutPoint,
+	pkScript []byte, heightHint uint32) (*wire.TxOut, error) {
 
 	switch backend := b.chain.(type) {
 

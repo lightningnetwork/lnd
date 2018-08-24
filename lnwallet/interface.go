@@ -1,6 +1,7 @@
 package lnwallet
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -250,7 +251,9 @@ type BlockChainIO interface {
 	// script that the outpoint creates. In the case that the output is in
 	// the UTXO set, then the output corresponding to that output is
 	// returned.  Otherwise, a non-nil error will be returned.
-	GetUtxo(op *wire.OutPoint, pkScript []byte,
+	// As for some backends this call can initiate a rescan, the passed
+	// context can be canceled to abort the call.
+	GetUtxo(ctx context.Context, op *wire.OutPoint, pkScript []byte,
 		heightHint uint32) (*wire.TxOut, error)
 
 	// GetBlockHash returns the hash of the block in the best blockchain

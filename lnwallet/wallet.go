@@ -2,6 +2,7 @@ package lnwallet
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -972,10 +973,26 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 			)
 			if err != nil {
 			}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan struct{})
+
+			l.wg.Add(1)
+			go func() {
+				defer l.wg.Done()
+				defer cancel()
+
+				select {
+				case <-l.quit:
+				case <-done:
+				}
+
+			}()
 			output, err := l.Cfg.ChainIO.GetUtxo(
-				&txin.PreviousOutPoint,
+				ctx, &txin.PreviousOutPoint,
 				pkScript, 0,
 			)
+			close(done)
 			if output == nil {
 				msg.err <- fmt.Errorf("input to funding tx "+
 					"does not exist: %v", err)

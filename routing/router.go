@@ -2,6 +2,7 @@ package routing
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"runtime"
@@ -1058,10 +1059,26 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 			// Now that we have the funding outpoint of the channel,
 			// ensure that it hasn't yet been spent. If so, then
 			// this channel has been closed so we'll ignore it.
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan struct{})
+
+			r.wg.Add(1)
+			go func() {
+				defer r.wg.Done()
+				defer cancel()
+
+				select {
+				case <-r.quit:
+				case <-done:
+				}
+
+			}()
+
 			chanUtxo, err = r.cfg.Chain.GetUtxo(
-				fundingPoint, fundingPkScript,
+				ctx, fundingPoint, fundingPkScript,
 				channelID.BlockHeight,
 			)
+			close(done)
 			if err != nil {
 				r.rejectMtx.Lock()
 				r.rejectCache[msg.ChannelID] = struct{}{}

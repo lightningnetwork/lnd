@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -178,7 +179,7 @@ func (m *mockChainIO) GetBestBlock() (*chainhash.Hash, int32, error) {
 	return activeNetParams.GenesisHash, m.bestHeight, nil
 }
 
-func (*mockChainIO) GetUtxo(op *wire.OutPoint, _ []byte,
+func (*mockChainIO) GetUtxo(_ context.Context, op *wire.OutPoint, _ []byte,
 	heightHint uint32) (*wire.TxOut, error) {
 	return nil, nil
 }

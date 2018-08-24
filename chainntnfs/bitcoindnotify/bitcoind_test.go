@@ -127,6 +127,22 @@ func TestHistoricalConfDetailsTxIndex(t *testing.T) {
 	if err := chainntnfs.WaitForMempoolTx(miner, txid); err != nil {
 		t.Fatal(err)
 	}
+
+	// The transaction should be found in the mempool at this point.
+	_, txStatus, err = notifier.historicalConfDetails(txid, 0, 0)
+	if err != nil {
+		t.Fatalf("unable to retrieve historical conf details: %v", err)
+	}
+
+	// Since it has yet to be included in a block, it should have been found
+	// within the mempool.
+	switch txStatus {
+	case txFoundMempool:
+	default:
+		t.Fatal("should have found the transaction within the "+
+			"mempool, but did not: %v", txStatus)
+	}
+
 	if _, err := miner.Node.Generate(1); err != nil {
 		t.Fatalf("unable to generate block: %v", err)
 	}
@@ -194,9 +210,6 @@ func TestHistoricalConfDetailsNoTxIndex(t *testing.T) {
 	// one output, which we will manually spend. The backend node's
 	// transaction index should also be disabled, which we've already
 	// ensured above.
-	//
-	// TODO(wilmer): add mempool case once trickle timeout can be specified
-	// in btcd.
 	output, pkScript := chainntnfs.CreateSpendableOutput(t, miner)
 	spendTx := chainntnfs.CreateSpendTx(t, output, pkScript)
 	spendTxHash, err := miner.Node.SendRawTransaction(spendTx, true)

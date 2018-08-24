@@ -163,27 +163,36 @@ func parseArgs(ctx *cli.Context) (string, string) {
 		fatal(err)
 	}
 
-	var tlsCertPath, macPath string
+	// We'll now fetch the lnddir so we can make a decision  on how to
+	// properly read the macaroons (if needed) and also the cert. This will
+	// either be the default, or will have been overwritten by the end
+	// user.
 	lndDir := cleanAndExpandPath(ctx.GlobalString("lnddir"))
-	if lndDir != defaultLndDir {
-		// If a custom lnd directory was set, we'll also check if custom
-		// paths for the TLS cert and macaroon file were set as well. If
-		// not, we'll override their paths so they can be found within
-		// the custom lnd directory set. This allows us to set a custom
-		// lnd directory, along with custom paths to the TLS cert and
-		// macaroon file.
-		tlsCertPath = cleanAndExpandPath(ctx.GlobalString("tlscertpath"))
-		if tlsCertPath == defaultTLSCertPath {
-			tlsCertPath = filepath.Join(lndDir, defaultTLSCertFilename)
-		}
 
+	// If the macaroon path as been manually provided, then we'll only
+	// target the specified file.
+	var macPath string
+	if ctx.GlobalString("macaroonpath") != "" {
 		macPath = cleanAndExpandPath(ctx.GlobalString("macaroonpath"))
-		if macPath == "" {
-			macPath = filepath.Join(
-				lndDir, defaultDataDir, defaultChainSubDir,
-				chain, network, defaultMacaroonFilename,
-			)
-		}
+	} else {
+		// Otherwise, we'll go into the path:
+		// lnddir/data/chain/<chain>/<network> in order to fetch the
+		// macaroon that we need.
+		macPath = filepath.Join(
+			lndDir, defaultDataDir, defaultChainSubDir, chain,
+			network, defaultMacaroonFilename,
+		)
+	}
+
+	tlsCertPath := cleanAndExpandPath(ctx.GlobalString("tlscertpath"))
+
+	// If a custom lnd directory was set, we'll also check if custom paths
+	// for the TLS cert and macaroon file were set as well. If not, we'll
+	// override their paths so they can be found within the custom lnd
+	// directory set. This allows us to set a custom lnd directory, along
+	// with custom paths to the TLS cert and macaroon file.
+	if lndDir != defaultLndDir {
+		tlsCertPath = filepath.Join(lndDir, defaultTLSCertFilename)
 	}
 
 	return tlsCertPath, macPath

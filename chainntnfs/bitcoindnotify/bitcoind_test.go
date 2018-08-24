@@ -3,6 +3,7 @@
 package bitcoindnotify
 
 import (
+	"io/ioutil"
 	"testing"
 	"time"
 
@@ -10,14 +11,37 @@ import (
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/channeldb"
 )
+
+func initHintCache(t *testing.T) *chainntnfs.HeightHintCache {
+	t.Helper()
+
+	tempDir, err := ioutil.TempDir("", "kek")
+	if err != nil {
+		t.Fatalf("unable to create temp dir: %v", err)
+	}
+	db, err := channeldb.Open(tempDir)
+	if err != nil {
+		t.Fatalf("unable to create db: %v", err)
+	}
+	hintCache, err := chainntnfs.NewHeightHintCache(db)
+	if err != nil {
+		t.Fatalf("unable to create hint cache: %v", err)
+	}
+
+	return hintCache
+}
 
 // setUpNotifier is a helper function to start a new notifier backed by a
 // bitcoind driver.
-func setUpNotifier(t *testing.T, bitcoindConn *chain.BitcoindConn) *BitcoindNotifier {
+func setUpNotifier(t *testing.T, bitcoindConn *chain.BitcoindConn,
+	spendHintCache chainntnfs.SpendHintCache,
+	confirmHintCache chainntnfs.ConfirmHintCache) *BitcoindNotifier {
+
 	t.Helper()
 
-	notifier := New(bitcoindConn)
+	notifier := New(bitcoindConn, spendHintCache, confirmHintCache)
 	if err := notifier.Start(); err != nil {
 		t.Fatalf("unable to start notifier: %v", err)
 	}
@@ -70,7 +94,9 @@ func TestHistoricalConfDetailsTxIndex(t *testing.T) {
 	)
 	defer cleanUp()
 
-	notifier := setUpNotifier(t, bitcoindConn)
+	hintCache := initHintCache(t)
+
+	notifier := setUpNotifier(t, bitcoindConn, hintCache, hintCache)
 	defer notifier.Stop()
 
 	syncNotifierWithMiner(t, notifier, miner)
@@ -136,7 +162,9 @@ func TestHistoricalConfDetailsNoTxIndex(t *testing.T) {
 	)
 	defer cleanUp()
 
-	notifier := setUpNotifier(t, bitcoindConn)
+	hintCache := initHintCache(t)
+
+	notifier := setUpNotifier(t, bitcoindConn, hintCache, hintCache)
 	defer notifier.Stop()
 
 	// Since the node has its txindex disabled, we fall back to scanning the

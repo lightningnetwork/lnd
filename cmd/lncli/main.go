@@ -69,7 +69,10 @@ func getClient(ctx *cli.Context) (lnrpc.LightningClient, func()) {
 
 func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 	// First, we'll parse the args from the command.
-	tlsCertPath, macPath := parseArgs(ctx)
+	tlsCertPath, macPath, err := extractPathArgs(ctx)
+	if err != nil {
+		fatal(err)
+	}
 
 	// Load the specified TLS certificate and build transport credentials
 	// with it.
@@ -89,11 +92,13 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 		// Load the specified macaroon file.
 		macBytes, err := ioutil.ReadFile(macPath)
 		if err != nil {
-			fatal(err)
+			fatal(fmt.Errorf("unable to read macaroon path (check "+
+				"the network setting!): %v", err))
 		}
+
 		mac := &macaroon.Macaroon{}
 		if err = mac.UnmarshalBinary(macBytes); err != nil {
-			fatal(err)
+			fatal(fmt.Errorf("unable to decode macaroon: %v", err))
 		}
 
 		macConstraints := []macaroons.Constraint{
@@ -136,14 +141,15 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 	)
 	conn, err := grpc.Dial(ctx.GlobalString("rpcserver"), opts...)
 	if err != nil {
-		fatal(err)
+		fatal(fmt.Errorf("unable to connect to RPC server: %v", err))
 	}
 
 	return conn
 }
 
-// parseArgs parses the TLS certificate and macaroon paths from the command.
-func parseArgs(ctx *cli.Context) (string, string) {
+// extractPathArgs parses the TLS certificate and macaroon paths from the
+// command.
+func extractPathArgs(ctx *cli.Context) (string, string, error) {
 	// We'll start off by parsing the active chain and network. These are
 	// needed to determine the correct path to the macaroon when not
 	// specified.
@@ -151,16 +157,14 @@ func parseArgs(ctx *cli.Context) (string, string) {
 	switch chain {
 	case "bitcoin", "litecoin":
 	default:
-		err := fmt.Errorf("unknown chain: %v", chain)
-		fatal(err)
+		return "", "", fmt.Errorf("unknown chain: %v", chain)
 	}
 
 	network := strings.ToLower(ctx.GlobalString("network"))
 	switch network {
 	case "mainnet", "testnet", "regtest", "simnet":
 	default:
-		err := fmt.Errorf("unknown network: %v", network)
-		fatal(err)
+		return "", "", fmt.Errorf("unknown network: %v", network)
 	}
 
 	// We'll now fetch the lnddir so we can make a decision  on how to
@@ -195,7 +199,7 @@ func parseArgs(ctx *cli.Context) (string, string) {
 		tlsCertPath = filepath.Join(lndDir, defaultTLSCertFilename)
 	}
 
-	return tlsCertPath, macPath
+	return tlsCertPath, macPath, nil
 }
 
 func main() {

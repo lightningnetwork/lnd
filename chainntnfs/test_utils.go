@@ -27,6 +27,13 @@ import (
 )
 
 var (
+	// trickleInterval is the interval at which the miner should trickle
+	// transactions to its peers. We'll set it small to ensure the miner
+	// propagates transactions quickly in the tests.
+	trickleInterval = 10 * time.Millisecond
+)
+
+var (
 	NetParams = &chaincfg.RegressionNetParams
 
 	testPrivKey = []byte{
@@ -62,6 +69,7 @@ func GetTestTxidAndScript(h *rpctest.Harness) (*chainhash.Hash, []byte, error) {
 // WaitForMempoolTx waits for the txid to be seen in the miner's mempool.
 func WaitForMempoolTx(miner *rpctest.Harness, txid *chainhash.Hash) error {
 	timeout := time.After(10 * time.Second)
+	trickle := time.After(2 * trickleInterval)
 	for {
 		// Check for the harness' knowledge of the txid.
 		tx, err := miner.Node.GetRawTransaction(txid)
@@ -82,6 +90,16 @@ func WaitForMempoolTx(miner *rpctest.Harness, txid *chainhash.Hash) error {
 		case <-timeout:
 			return errors.New("timed out waiting for tx")
 		}
+	}
+
+	// To ensure any transactions propagate from the miner to the peers
+	// before returning, ensure we have waited for at least
+	// 2*trickleInterval before returning.
+	select {
+	case <-trickle:
+	case <-timeout:
+		return errors.New("timeout waiting for trickle interval. " +
+			"Trickle interval to large?")
 	}
 
 	return nil
@@ -140,6 +158,10 @@ func NewMiner(t *testing.T, extraArgs []string, createChain bool,
 	spendableOutputs uint32) (*rpctest.Harness, func()) {
 
 	t.Helper()
+
+	// Add the trickle interval argument to the extra args.
+	trickle := fmt.Sprintf("--trickleinterval=%v", trickleInterval)
+	extraArgs = append(extraArgs, trickle)
 
 	node, err := rpctest.New(NetParams, nil, extraArgs)
 	if err != nil {

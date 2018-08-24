@@ -268,8 +268,10 @@ type BlockChainIO interface {
 	// script that the outpoint creates. In the case that the output is in
 	// the UTXO set, then the output corresponding to that output is
 	// returned.  Otherwise, a non-nil error will be returned.
-	GetUtxo(op *wire.OutPoint, pkScript []byte,
-		heightHint uint32) (*wire.TxOut, error)
+	// As for some backends this call can initiate a rescan, the passed
+	// cancel channel can be closed to abort the call.
+	GetUtxo(op *wire.OutPoint, pkScript []byte, heightHint uint32,
+		cancel <-chan struct{}) (*wire.TxOut, error)
 
 	// GetBlockHash returns the hash of the block in the best blockchain
 	// at the given height.

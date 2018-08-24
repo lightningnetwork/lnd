@@ -755,9 +755,8 @@ func loadConfig() (*config, error) {
 		}
 	}
 
-	// At this point, we'll save the base data directory in order to ensure
-	// we don't store the macaroon database within any of the chain
-	// namespaced directories.
+	// We'll now construct the network directory which will be where we
+	// store all the data specifc to this chain/network.
 	networkDir = filepath.Join(
 		cfg.DataDir, defaultChainSubDirname,
 		registeredChains.PrimaryChain().String(),

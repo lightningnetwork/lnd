@@ -1183,3 +1183,117 @@ func TestAgentPendingOpenChannel(t *testing.T) {
 	default:
 	}
 }
+
+// TestAgentOnNodeUpdates tests that the agent will wake up in response to the
+// OnNodeUpdates signal. This is useful in ensuring that autopilot is always
+// pulling in the latest graph updates into its decision making. It also
+// prevents the agent from stalling after an initial attempt that finds no nodes
+// in the graph.
+func TestAgentOnNodeUpdates(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll create all the dependencies that we'll need in order to
+	// create the autopilot agent.
+	self, err := randKey()
+	if err != nil {
+		t.Fatalf("unable to generate key: %v", err)
+	}
+	heuristic := &mockHeuristic{
+		moreChansResps: make(chan moreChansResp),
+		directiveResps: make(chan []AttachmentDirective),
+	}
+	chanController := &mockChanController{
+		openChanSignals: make(chan openChanIntent),
+	}
+	memGraph, _, _ := newMemChanGraph()
+
+	// The wallet will start with 6 BTC available.
+	const walletBalance = btcutil.SatoshiPerBitcoin * 6
+
+	// With the dependencies we created, we can now create the initial
+	// agent itself.
+	cfg := Config{
+		Self:           self,
+		Heuristic:      heuristic,
+		ChanController: chanController,
+		WalletBalance: func() (btcutil.Amount, error) {
+			return walletBalance, nil
+		},
+		Graph:           memGraph,
+		MaxPendingOpens: 10,
+	}
+	agent, err := New(cfg, nil)
+	if err != nil {
+		t.Fatalf("unable to create agent: %v", err)
+	}
+
+	// To ensure the heuristic doesn't block on quitting the agent, we'll
+	// use the agent's quit chan to signal when it should also stop.
+	heuristic.quit = agent.quit
+
+	// With the autopilot agent and all its dependencies we'll start the
+	// primary controller goroutine.
+	if err := agent.Start(); err != nil {
+		t.Fatalf("unable to start agent: %v", err)
+	}
+	defer agent.Stop()
+
+	// We'll send an initial "yes" response to advance the agent past its
+	// initial check. This will cause it to try to get directives from an
+	// empty graph.
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		select {
+		case heuristic.moreChansResps <- moreChansResp{
+			needMore: true,
+			numMore:  2,
+			amt:      walletBalance,
+		}:
+		case <-time.After(time.Second * 10):
+			t.Fatalf("heuristic wasn't queried in time")
+		}
+	}()
+	wg.Wait()
+
+	// Send over an empty list of attachment directives, which should cause
+	// the agent to return to waiting on a new signal.
+	select {
+	case heuristic.directiveResps <- []AttachmentDirective{}:
+	case <-time.After(time.Second * 10):
+		t.Fatalf("Select was not called but should have been")
+	}
+
+	// Simulate more nodes being added to the graph by informing the agent
+	// that we have node updates.
+	agent.OnNodeUpdates()
+
+	// In response, the agent should wake up and see if it needs more
+	// channels. Since we haven't done anything, we will send the same
+	// response as before since we are still trying to open channels.
+	var wg2 sync.WaitGroup
+	wg2.Add(1)
+	go func() {
+		defer wg2.Done()
+		select {
+		case heuristic.moreChansResps <- moreChansResp{
+			needMore: true,
+			numMore:  2,
+			amt:      walletBalance,
+		}:
+		case <-time.After(time.Second * 10):
+			t.Fatalf("heuristic wasn't queried in time")
+		}
+	}()
+	wg2.Wait()
+
+	// Again the agent should pull in the next set of attachment directives.
+	// It's not important that this list is also empty, so long as the node
+	// updates signal is causing the agent to make this attempt.
+	select {
+	case heuristic.directiveResps <- []AttachmentDirective{}:
+	case <-time.After(time.Second * 10):
+		t.Fatalf("Select was not called but should have been")
+	}
+}

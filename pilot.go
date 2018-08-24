@@ -306,6 +306,13 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 					pilot.OnChannelClose(chanID)
 				}
 
+				// If new nodes were added to the graph, or nod
+				// information has changed, we'll poke autopilot
+				// to see if it can make use of them.
+				if len(topChange.NodeUpdates) > 0 {
+					pilot.OnNodeUpdates()
+				}
+
 			case <-svr.quit:
 				return
 			}

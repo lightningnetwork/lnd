@@ -28,31 +28,6 @@ const (
 	reorgSafetyLimit = 100
 )
 
-// txConfStatus denotes the status of a transaction's lookup.
-type txConfStatus uint8
-
-const (
-	// txFoundMempool denotes that the transaction was found within the
-	// backend node's mempool.
-	txFoundMempool txConfStatus = iota
-
-	// txFoundIndex denotes that the transaction was found within the
-	// backend node's txindex.
-	txFoundIndex
-
-	// txFoundIndex denotes that the transaction was not found within the
-	// backend node's txindex.
-	txNotFoundIndex
-
-	// txFoundManually denotes that the transaction was found within the
-	// chain by scanning for it manually.
-	txFoundManually
-
-	// txFoundManually denotes that the transaction was not found within the
-	// chain by scanning for it manually.
-	txNotFoundManually
-)
-
 var (
 	// ErrChainNotifierShuttingDown is used when we are trying to
 	// measure a spend notification when notifier is already stopped.
@@ -474,7 +449,7 @@ func (b *BitcoindNotifier) handleRelevantTx(tx chain.RelevantTx, bestHeight int3
 // block in the active chain and, if so, returns details about the confirmation.
 func (b *BitcoindNotifier) historicalConfDetails(txid *chainhash.Hash,
 	heightHint, currentHeight uint32) (*chainntnfs.TxConfirmation,
-	txConfStatus, error) {
+	chainntnfs.TxConfStatus, error) {
 
 	// We'll first attempt to retrieve the transaction using the node's
 	// txindex.
@@ -484,13 +459,13 @@ func (b *BitcoindNotifier) historicalConfDetails(txid *chainhash.Hash,
 	// determine whether we should proceed with any fallback methods.
 	switch {
 	// The transaction was found within the node's mempool.
-	case txStatus == txFoundMempool:
+	case txStatus == chainntnfs.TxFoundMempool:
 
 	// The transaction was found within the node's txindex.
-	case txStatus == txFoundIndex:
+	case txStatus == chainntnfs.TxFoundIndex:
 
 	// The transaction was not found within the node's mempool or txindex.
-	case err == nil && txStatus == txNotFoundIndex:
+	case err == nil && txStatus == chainntnfs.TxNotFoundIndex:
 
 	// We failed to look up the transaction within the node's mempool or
 	// txindex, so we'll proceed to scan the chain manually.
@@ -508,7 +483,7 @@ func (b *BitcoindNotifier) historicalConfDetails(txid *chainhash.Hash,
 // be TxFoundIndex. Otherwise TxNotFoundIndex is returned. If the tx is found
 // in a block its confirmation details are also returned.
 func (b *BitcoindNotifier) confDetailsFromTxIndex(txid *chainhash.Hash,
-) (*chainntnfs.TxConfirmation, txConfStatus, error) {
+) (*chainntnfs.TxConfirmation, chainntnfs.TxConfStatus, error) {
 
 	// If the transaction has some or all of its confirmations required,
 	// then we may be able to dispatch it immediately.
@@ -523,18 +498,18 @@ func (b *BitcoindNotifier) confDetailsFromTxIndex(txid *chainhash.Hash,
 		if ok && jsonErr.Code == btcjson.ErrRPCNoTxInfo &&
 			strings.Contains(jsonErr.Message, txNotFoundErr) {
 
-			return nil, txNotFoundIndex, nil
+			return nil, chainntnfs.TxNotFoundIndex, nil
 		}
 
-		return nil, txNotFoundIndex, fmt.Errorf("unable to query for "+
-			"txid %v: %v", txid, err)
+		return nil, chainntnfs.TxNotFoundIndex,
+			fmt.Errorf("unable to query for txid %v: %v", txid, err)
 	}
 
 	// Make sure we actually retrieved a transaction that is included in a
 	// block. If not, the transaction must be unconfirmed (in the mempool),
 	// and we'll return TxFoundMempool together with a nil TxConfirmation.
 	if tx.BlockHash == "" {
-		return nil, txFoundMempool, nil
+		return nil, chainntnfs.TxFoundMempool, nil
 	}
 
 	// As we need to fully populate the returned TxConfirmation struct,
@@ -542,16 +517,16 @@ func (b *BitcoindNotifier) confDetailsFromTxIndex(txid *chainhash.Hash,
 	// locate its exact index within the block.
 	blockHash, err := chainhash.NewHashFromStr(tx.BlockHash)
 	if err != nil {
-		return nil, txNotFoundIndex, fmt.Errorf("unable to get block "+
-			"hash %v for historical dispatch: %v", tx.BlockHash,
-			err)
+		return nil, chainntnfs.TxNotFoundIndex,
+			fmt.Errorf("unable to get block hash %v for "+
+				"historical dispatch: %v", tx.BlockHash, err)
 	}
 
 	block, err := b.chainConn.GetBlockVerbose(blockHash)
 	if err != nil {
-		return nil, txNotFoundIndex, fmt.Errorf("unable to get block "+
-			"with hash %v for historical dispatch: %v", blockHash,
-			err)
+		return nil, chainntnfs.TxNotFoundIndex,
+			fmt.Errorf("unable to get block with hash %v for "+
+				"historical dispatch: %v", blockHash, err)
 	}
 
 	// If the block was obtained, locate the transaction's index within the
@@ -564,14 +539,15 @@ func (b *BitcoindNotifier) confDetailsFromTxIndex(txid *chainhash.Hash,
 				BlockHeight: uint32(block.Height),
 				TxIndex:     uint32(txIndex),
 			}
-			return details, txFoundIndex, nil
+			return details, chainntnfs.TxFoundIndex, nil
 		}
 	}
 
 	// We return an error because we should have found the transaction
 	// within the block, but didn't.
-	return nil, txNotFoundIndex, fmt.Errorf("unable to locate tx %v in "+
-		"block %v", txid, blockHash)
+	return nil, chainntnfs.TxNotFoundIndex,
+		fmt.Errorf("unable to locate tx %v in block %v", txid,
+			blockHash)
 }
 
 // confDetailsManually looks up whether a transaction is already included in a
@@ -580,7 +556,8 @@ func (b *BitcoindNotifier) confDetailsFromTxIndex(txid *chainhash.Hash,
 // height in the chain. If the transaction is found, its confirmation details
 // are returned. Otherwise, nil is returned.
 func (b *BitcoindNotifier) confDetailsManually(txid *chainhash.Hash,
-	heightHint, currentHeight uint32) (*chainntnfs.TxConfirmation, txConfStatus, error) {
+	heightHint, currentHeight uint32) (*chainntnfs.TxConfirmation,
+	chainntnfs.TxConfStatus, error) {
 
 	targetTxidStr := txid.String()
 
@@ -591,20 +568,23 @@ func (b *BitcoindNotifier) confDetailsManually(txid *chainhash.Hash,
 		// processing the next height.
 		select {
 		case <-b.quit:
-			return nil, txNotFoundManually, ErrChainNotifierShuttingDown
+			return nil, chainntnfs.TxNotFoundManually,
+				ErrChainNotifierShuttingDown
 		default:
 		}
 
 		blockHash, err := b.chainConn.GetBlockHash(int64(height))
 		if err != nil {
-			return nil, txNotFoundManually, fmt.Errorf("unable to "+
-				"get hash from block with height %d", height)
+			return nil, chainntnfs.TxNotFoundManually,
+				fmt.Errorf("unable to get hash from block "+
+					"with height %d", height)
 		}
 
 		block, err := b.chainConn.GetBlockVerbose(blockHash)
 		if err != nil {
-			return nil, txNotFoundManually, fmt.Errorf("unable to "+
-				"get block with hash %v: %v", blockHash, err)
+			return nil, chainntnfs.TxNotFoundManually,
+				fmt.Errorf("unable to get block with hash "+
+					"%v: %v", blockHash, err)
 		}
 
 		for txIndex, txHash := range block.Tx {
@@ -616,14 +596,14 @@ func (b *BitcoindNotifier) confDetailsManually(txid *chainhash.Hash,
 					BlockHeight: height,
 					TxIndex:     uint32(txIndex),
 				}
-				return details, txFoundManually, nil
+				return details, chainntnfs.TxFoundManually, nil
 			}
 		}
 	}
 
 	// If we reach here, then we were not able to find the transaction
 	// within a block, so we avoid returning an error.
-	return nil, txNotFoundManually, nil
+	return nil, chainntnfs.TxNotFoundManually, nil
 }
 
 // handleBlockConnected applies a chain update for a new block. Any watched

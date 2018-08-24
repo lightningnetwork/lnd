@@ -1,6 +1,7 @@
 package contractcourt
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -125,11 +126,13 @@ func (b *mockArbitratorLog) WipeHistory() error {
 
 type mockChainIO struct{}
 
+var _ lnwallet.BlockChainIO = (*mockChainIO)(nil)
+
 func (*mockChainIO) GetBestBlock() (*chainhash.Hash, int32, error) {
 	return nil, 0, nil
 }
 
-func (*mockChainIO) GetUtxo(op *wire.OutPoint, _ []byte,
+func (*mockChainIO) GetUtxo(_ context.Context, op *wire.OutPoint, _ []byte,
 	heightHint uint32) (*wire.TxOut, error) {
 	return nil, nil
 }

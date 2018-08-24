@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"context"
 	"fmt"
 	"image/color"
 	"net"
@@ -180,7 +181,9 @@ func (m *mockChain) addUtxo(op wire.OutPoint, out *wire.TxOut) {
 	m.utxos[op] = *out
 	m.Unlock()
 }
-func (m *mockChain) GetUtxo(op *wire.OutPoint, _ []byte, _ uint32) (*wire.TxOut, error) {
+func (m *mockChain) GetUtxo(_ context.Context, op *wire.OutPoint, _ []byte,
+	_ uint32) (*wire.TxOut, error) {
+
 	m.RLock()
 	defer m.RUnlock()
 

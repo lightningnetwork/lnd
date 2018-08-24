@@ -273,7 +273,7 @@ func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredB
 	// If we reach this point, then there was a match, so we'll need to
 	// fetch the block itself so we can scan it for any actual matches (as
 	// there's a fp rate).
-	block, err := c.p2pNode.GetBlockFromNetwork(*blockHash)
+	block, err := c.p2pNode.GetBlock(*blockHash)
 	if err != nil {
 		return nil, err
 	}

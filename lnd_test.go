@@ -1376,7 +1376,7 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
 	// Set up a new miner that we can use to cause a reorg.
-	args := []string{"--rejectnonstd"}
+	args := []string{"--rejectnonstd", "--txindex"}
 	miner, err := rpctest.New(harnessNetParams,
 		&rpcclient.NotificationHandlers{}, args)
 	if err != nil {
@@ -12086,7 +12086,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// setting of accepting non-standard transactions on simnet to reject them.
 	// Transactions on the lightning network should always be standard to get
 	// better guarantees of getting included in to blocks.
-	args := []string{"--rejectnonstd"}
+	args := []string{"--rejectnonstd", "--txindex"}
 	handlers := &rpcclient.NotificationHandlers{
 		OnTxAccepted: func(hash *chainhash.Hash, amt btcutil.Amount) {
 			lndHarness.OnTxAccepted(hash)

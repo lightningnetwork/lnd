@@ -9,6 +9,54 @@ import (
 	"github.com/btcsuite/btcd/wire"
 )
 
+// TxConfStatus denotes the status of a transaction's lookup.
+type TxConfStatus uint8
+
+const (
+	// TxFoundMempool denotes that the transaction was found within the
+	// backend node's mempool.
+	TxFoundMempool TxConfStatus = iota
+
+	// TxFoundIndex denotes that the transaction was found within the
+	// backend node's txindex.
+	TxFoundIndex
+
+	// TxNotFoundIndex denotes that the transaction was not found within the
+	// backend node's txindex.
+	TxNotFoundIndex
+
+	// TxFoundManually denotes that the transaction was found within the
+	// chain by scanning for it manually.
+	TxFoundManually
+
+	// TxNotFoundManually denotes that the transaction was not found within
+	// the chain by scanning for it manually.
+	TxNotFoundManually
+)
+
+// String returns the string representation of the TxConfStatus.
+func (t TxConfStatus) String() string {
+	switch t {
+	case TxFoundMempool:
+		return "TxFoundMempool"
+
+	case TxFoundIndex:
+		return "TxFoundIndex"
+
+	case TxNotFoundIndex:
+		return "TxNotFoundIndex"
+
+	case TxFoundManually:
+		return "TxFoundManually"
+
+	case TxNotFoundManually:
+		return "TxNotFoundManually"
+
+	default:
+		return "unknown"
+	}
+}
+
 // ChainNotifier represents a trusted source to receive notifications concerning
 // targeted events on the Bitcoin blockchain. The interface specification is
 // intentionally general in order to support a wide array of chain notification

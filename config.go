@@ -788,6 +788,12 @@ func loadConfig() (*config, error) {
 		registeredChains.PrimaryChain().String(),
 		normalizeNetwork(activeNetParams.Name))
 
+	// Special show command to list supported subsystems and exit.
+	if cfg.DebugLevel == "show" {
+		fmt.Println("Supported subsystems", supportedSubsystems())
+		os.Exit(0)
+	}
+
 	// Initialize logging at the default logging level.
 	initLogRotator(
 		filepath.Join(cfg.LogDir, defaultLogFilename),

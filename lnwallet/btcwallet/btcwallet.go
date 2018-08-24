@@ -67,8 +67,9 @@ type BtcWallet struct {
 }
 
 // A compile time check to ensure that BtcWallet implements the
-// WalletController interface.
+// WalletController and BlockChainIO interfaces.
 var _ lnwallet.WalletController = (*BtcWallet)(nil)
+var _ lnwallet.BlockChainIO = (*BtcWallet)(nil)
 
 // New returns a new fully initialized instance of BtcWallet given a valid
 // configuration struct.

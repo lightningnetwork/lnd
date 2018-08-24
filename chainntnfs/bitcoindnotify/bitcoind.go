@@ -501,10 +501,12 @@ func (b *BitcoindNotifier) historicalConfDetails(txid *chainhash.Hash,
 	return txConf, txStatus, nil
 }
 
-// confDetailsFromTxIndex looks up whether a transaction is already included
-// in a block in the active chain by using the backend node's transaction index.
-// If the transaction is found, its confirmation details are returned.
-// Otherwise, nil is returned.
+// confDetailsFromTxIndex looks up whether a transaction is already included in
+// a block in the active chain by using the backend node's transaction index.
+// If the transaction is found its TxConfStatus is returned. If it was found in
+// the mempool this will be TxFoundMempool, if it is found in a block this will
+// be TxFoundIndex. Otherwise TxNotFoundIndex is returned. If the tx is found
+// in a block its confirmation details are also returned.
 func (b *BitcoindNotifier) confDetailsFromTxIndex(txid *chainhash.Hash,
 ) (*chainntnfs.TxConfirmation, txConfStatus, error) {
 
@@ -529,9 +531,9 @@ func (b *BitcoindNotifier) confDetailsFromTxIndex(txid *chainhash.Hash,
 	}
 
 	// Make sure we actually retrieved a transaction that is included in a
-	// block. Without this, we won't be able to retrieve its confirmation
-	// details.
-	if tx == nil || tx.BlockHash == "" {
+	// block. If not, the transaction must be unconfirmed (in the mempool),
+	// and we'll return TxFoundMempool together with a nil TxConfirmation.
+	if tx.BlockHash == "" {
 		return nil, txFoundMempool, nil
 	}
 

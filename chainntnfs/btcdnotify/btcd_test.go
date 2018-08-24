@@ -71,8 +71,8 @@ func TestHistoricalConfDetailsTxIndex(t *testing.T) {
 	}
 
 	switch txStatus {
-	case txNotFoundIndex:
-	case txNotFoundManually:
+	case chainntnfs.TxNotFoundIndex:
+	case chainntnfs.TxNotFoundManually:
 		t.Fatal("should not have proceeded with fallback method, but did")
 	default:
 		t.Fatal("should not have found non-existent transaction, but did")
@@ -88,6 +88,7 @@ func TestHistoricalConfDetailsTxIndex(t *testing.T) {
 		t.Fatalf("unable to find tx in the mempool: %v", err)
 	}
 
+	// The transaction should be found in the mempool at this point.
 	_, txStatus, err = notifier.historicalConfDetails(txid, 0, 0)
 	if err != nil {
 		t.Fatalf("unable to retrieve historical conf details: %v", err)
@@ -96,10 +97,10 @@ func TestHistoricalConfDetailsTxIndex(t *testing.T) {
 	// Since it has yet to be included in a block, it should have been found
 	// within the mempool.
 	switch txStatus {
-	case txFoundMempool:
+	case chainntnfs.TxFoundMempool:
 	default:
-		t.Fatal("should have found the transaction within the " +
-			"mempool, but did not")
+		t.Fatalf("should have found the transaction within the "+
+			"mempool, but did not: %v", txStatus)
 	}
 
 	// We'll now confirm this transaction and re-attempt to retrieve its
@@ -116,7 +117,7 @@ func TestHistoricalConfDetailsTxIndex(t *testing.T) {
 	// Since the backend node's txindex is enabled and the transaction has
 	// confirmed, we should be able to retrieve it using the txindex.
 	switch txStatus {
-	case txFoundIndex:
+	case chainntnfs.TxFoundIndex:
 	default:
 		t.Fatal("should have found the transaction within the " +
 			"txindex, but did not")
@@ -145,8 +146,8 @@ func TestHistoricalConfDetailsNoTxIndex(t *testing.T) {
 	}
 
 	switch txStatus {
-	case txNotFoundManually:
-	case txNotFoundIndex:
+	case chainntnfs.TxNotFoundManually:
+	case chainntnfs.TxNotFoundIndex:
 		t.Fatal("should have proceeded with fallback method, but did not")
 	default:
 		t.Fatal("should not have found non-existent transaction, but did")
@@ -175,7 +176,7 @@ func TestHistoricalConfDetailsNoTxIndex(t *testing.T) {
 
 	// Since it has yet to be included in a block, it should have been found
 	// within the mempool.
-	if txStatus != txFoundMempool {
+	if txStatus != chainntnfs.TxFoundMempool {
 		t.Fatal("should have found the transaction within the " +
 			"mempool, but did not")
 	}
@@ -196,7 +197,7 @@ func TestHistoricalConfDetailsNoTxIndex(t *testing.T) {
 	// Since the backend node's txindex is disabled and the transaction has
 	// confirmed, we should be able to find it by falling back to scanning
 	// the chain manually.
-	if txStatus != txFoundManually {
+	if txStatus != chainntnfs.TxFoundManually {
 		t.Fatal("should have found the transaction by manually " +
 			"scanning the chain, but did not")
 	}

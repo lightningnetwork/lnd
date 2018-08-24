@@ -1617,13 +1617,19 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	// is over.
 	// TODO(roasbeef): add abstraction over updates to accommodate
 	// long-polling, or SSE, etc.
-	resCtx.updates <- &lnrpc.OpenStatusUpdate{
+	upd := &lnrpc.OpenStatusUpdate{
 		Update: &lnrpc.OpenStatusUpdate_ChanPending{
 			ChanPending: &lnrpc.PendingUpdate{
 				Txid:        fundingPoint.Hash[:],
 				OutputIndex: fundingPoint.Index,
 			},
 		},
+	}
+
+	select {
+	case resCtx.updates <- upd:
+	case <-f.quit:
+		return
 	}
 
 	// At this point we have broadcast the funding transaction and done all
@@ -1693,7 +1699,7 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 		// Give the caller a final update notifying them that
 		// the channel is now open.
 		// TODO(roasbeef): only notify after recv of funding locked?
-		resCtx.updates <- &lnrpc.OpenStatusUpdate{
+		upd := &lnrpc.OpenStatusUpdate{
 			Update: &lnrpc.OpenStatusUpdate_ChanOpen{
 				ChanOpen: &lnrpc.ChannelOpenUpdate{
 					ChannelPoint: &lnrpc.ChannelPoint{
@@ -1704,6 +1710,12 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 					},
 				},
 			},
+		}
+
+		select {
+		case resCtx.updates <- upd:
+		case <-f.quit:
+			return
 		}
 
 		err = f.annAfterSixConfs(completeChan, shortChanID)
@@ -2060,16 +2072,17 @@ func (f *fundingManager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 
 	chanID := lnwire.NewChanIDFromOutPoint(&completeChan.FundingOutpoint)
 
-	// We'll obtain their min HTLC as we'll use this value within our
-	// ChannelUpdate. We use this value isn't of ours, as the remote party
-	// will be the one that's carrying the HTLC towards us.
-	remoteMinHTLC := completeChan.RemoteChanCfg.MinHTLC
+	// We'll obtain the min HTLC value we can forward in our direction, as
+	// we'll use this value within our ChannelUpdate. This constraint is
+	// originally set by the remote node, as it will be the one that will
+	// need to determine the smallest HTLC it deems economically relevant.
+	fwdMinHTLC := completeChan.LocalChanCfg.MinHTLC
 
 	ann, err := f.newChanAnnouncement(
 		f.cfg.IDKey, completeChan.IdentityPub,
 		completeChan.LocalChanCfg.MultiSigKey.PubKey,
 		completeChan.RemoteChanCfg.MultiSigKey.PubKey, *shortChanID,
-		chanID, remoteMinHTLC,
+		chanID, fwdMinHTLC,
 	)
 	if err != nil {
 		return fmt.Errorf("error generating channel "+
@@ -2196,11 +2209,12 @@ func (f *fundingManager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 		fndgLog.Infof("Announcing ChannelPoint(%v), short_chan_id=%v",
 			&fundingPoint, spew.Sdump(shortChanID))
 
-		// We'll obtain their min HTLC as we'll use this value within
-		// our ChannelUpdate. We use this value isn't of ours, as the
-		// remote party will be the one that's carrying the HTLC towards
-		// us.
-		remoteMinHTLC := completeChan.RemoteChanCfg.MinHTLC
+		// We'll obtain the min HTLC value we can forward in our
+		// direction, as we'll use this value within our ChannelUpdate.
+		// This constraint is originally set by the remote node, as it
+		// will be the one that will need to determine the smallest
+		// HTLC it deems economically relevant.
+		fwdMinHTLC := completeChan.LocalChanCfg.MinHTLC
 
 		// Create and broadcast the proofs required to make this channel
 		// public and usable for other nodes for routing.
@@ -2208,7 +2222,7 @@ func (f *fundingManager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 			f.cfg.IDKey, completeChan.IdentityPub,
 			completeChan.LocalChanCfg.MultiSigKey.PubKey,
 			completeChan.RemoteChanCfg.MultiSigKey.PubKey,
-			*shortChanID, chanID, remoteMinHTLC,
+			*shortChanID, chanID, fwdMinHTLC,
 		)
 		if err != nil {
 			return fmt.Errorf("channel announcement failed: %v", err)
@@ -2375,10 +2389,10 @@ type chanAnnouncement struct {
 // identity pub keys of both parties to the channel, and the second segment is
 // authenticated only by us and contains our directional routing policy for the
 // channel.
-func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.PublicKey,
+func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey,
 	localFundingKey, remoteFundingKey *btcec.PublicKey,
 	shortChanID lnwire.ShortChannelID, chanID lnwire.ChannelID,
-	remoteMinHTLC lnwire.MilliSatoshi) (*chanAnnouncement, error) {
+	fwdMinHTLC lnwire.MilliSatoshi) (*chanAnnouncement, error) {
 
 	chainHash := *f.cfg.Wallet.Cfg.NetParams.GenesisHash
 
@@ -2432,9 +2446,10 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 		Flags:          chanFlags,
 		TimeLockDelta:  uint16(f.cfg.DefaultRoutingPolicy.TimeLockDelta),
 
-		// We use the *remote* party's HtlcMinimumMsat, as they'll be
-		// the ones carrying the HTLC routed *towards* us.
-		HtlcMinimumMsat: remoteMinHTLC,
+		// We use the HtlcMinimumMsat that the remote party required us
+		// to use, as our ChannelUpdate will be used to carry HTLCs
+		// towards them.
+		HtlcMinimumMsat: fwdMinHTLC,
 
 		BaseFee: uint32(f.cfg.DefaultRoutingPolicy.BaseFee),
 		FeeRate: uint32(f.cfg.DefaultRoutingPolicy.FeeRate),
@@ -2513,7 +2528,7 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 // finish, either successfully or with an error.
 func (f *fundingManager) announceChannel(localIDKey, remoteIDKey, localFundingKey,
 	remoteFundingKey *btcec.PublicKey, shortChanID lnwire.ShortChannelID,
-	chanID lnwire.ChannelID, remoteMinHTLC lnwire.MilliSatoshi) error {
+	chanID lnwire.ChannelID, fwdMinHTLC lnwire.MilliSatoshi) error {
 
 	// First, we'll create the batch of announcements to be sent upon
 	// initial channel creation. This includes the channel announcement
@@ -2521,7 +2536,7 @@ func (f *fundingManager) announceChannel(localIDKey, remoteIDKey, localFundingKe
 	// proof needed to fully authenticate the channel.
 	ann, err := f.newChanAnnouncement(localIDKey, remoteIDKey,
 		localFundingKey, remoteFundingKey, shortChanID, chanID,
-		remoteMinHTLC,
+		fwdMinHTLC,
 	)
 	if err != nil {
 		fndgLog.Errorf("can't generate channel announcement: %v", err)

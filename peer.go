@@ -396,10 +396,14 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 				TimeLockDelta: uint32(selfPolicy.TimeLockDelta),
 			}
 		} else {
+			peerLog.Warnf("Unable to find our forwarding policy "+
+				"for channel %v, using default values",
+				chanPoint)
 			forwardingPolicy = &p.server.cc.routingPolicy
 		}
 
-		peerLog.Tracef("Using link policy of: %v", spew.Sdump(forwardingPolicy))
+		peerLog.Tracef("Using link policy of: %v",
+			spew.Sdump(forwardingPolicy))
 
 		// Register this new channel link with the HTLC Switch. This is
 		// necessary to properly route multi-hop payments, and forward
@@ -539,22 +543,20 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 	}
 
 	linkCfg := htlcswitch.ChannelLinkConfig{
-		Peer:                  p,
-		DecodeHopIterators:    p.server.sphinx.DecodeHopIterators,
-		ExtractErrorEncrypter: p.server.sphinx.ExtractErrorEncrypter,
-		FetchLastChannelUpdate: fetchLastChanUpdate(
-			p.server, p.PubKey(),
-		),
-		DebugHTLC:      cfg.DebugHTLC,
-		HodlMask:       cfg.Hodl.Mask(),
-		Registry:       p.server.invoices,
-		Switch:         p.server.htlcSwitch,
-		Circuits:       p.server.htlcSwitch.CircuitModifier(),
-		ForwardPackets: p.server.htlcSwitch.ForwardPackets,
-		FwrdingPolicy:  *forwardingPolicy,
-		FeeEstimator:   p.server.cc.feeEstimator,
-		PreimageCache:  p.server.witnessBeacon,
-		ChainEvents:    chainEvents,
+		Peer:                   p,
+		DecodeHopIterators:     p.server.sphinx.DecodeHopIterators,
+		ExtractErrorEncrypter:  p.server.sphinx.ExtractErrorEncrypter,
+		FetchLastChannelUpdate: p.server.fetchLastChanUpdate(),
+		DebugHTLC:              cfg.DebugHTLC,
+		HodlMask:               cfg.Hodl.Mask(),
+		Registry:               p.server.invoices,
+		Switch:                 p.server.htlcSwitch,
+		Circuits:               p.server.htlcSwitch.CircuitModifier(),
+		ForwardPackets:         p.server.htlcSwitch.ForwardPackets,
+		FwrdingPolicy:          *forwardingPolicy,
+		FeeEstimator:           p.server.cc.feeEstimator,
+		PreimageCache:          p.server.witnessBeacon,
+		ChainEvents:            chainEvents,
 		UpdateContractSignals: func(signals *contractcourt.ContractSignals) error {
 			return p.server.chainArb.UpdateContractSignals(
 				*chanPoint, signals,
@@ -1550,9 +1552,23 @@ out:
 				continue
 			}
 
+			// We'll query the localChanCfg of the new channel to
+			// determine the minimum HTLC value that can be
+			// forwarded. For fees we'll use the default values, as
+			// they currently are always set to the default values
+			// at initial channel creation.
+			fwdMinHtlc := newChan.FwdMinHtlc()
+			defaultPolicy := p.server.cc.routingPolicy
+			forwardingPolicy := &htlcswitch.ForwardingPolicy{
+				MinHTLC:       fwdMinHtlc,
+				BaseFee:       defaultPolicy.BaseFee,
+				FeeRate:       defaultPolicy.FeeRate,
+				TimeLockDelta: defaultPolicy.TimeLockDelta,
+			}
+
 			// Create the link and add it to the switch.
 			err = p.addLink(
-				chanPoint, newChan, &p.server.cc.routingPolicy,
+				chanPoint, newChan, forwardingPolicy,
 				chainEvents, currentHeight, false,
 			)
 			if err != nil {
@@ -2098,33 +2114,3 @@ func (p *peer) StartTime() time.Time {
 }
 
 // TODO(roasbeef): make all start/stop mutexes a CAS
-
-// fetchLastChanUpdate returns a function which is able to retrieve the last
-// channel update for a target channel.
-func fetchLastChanUpdate(s *server,
-	pubKey [33]byte) func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
-
-	return func(cid lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
-		info, edge1, edge2, err := s.chanRouter.GetChannelByID(cid)
-		if err != nil {
-			return nil, err
-		}
-
-		if edge1 == nil || edge2 == nil {
-			return nil, fmt.Errorf("unable to find channel by "+
-				"ShortChannelID(%v)", cid)
-		}
-
-		// If we're the outgoing node on the first edge, then that
-		// means the second edge is our policy. Otherwise, the first
-		// edge is our policy.
-		var local *channeldb.ChannelEdgePolicy
-		if bytes.Equal(edge1.Node.PubKeyBytes[:], pubKey[:]) {
-			local = edge2
-		} else {
-			local = edge1
-		}
-
-		return extractChannelUpdate(info, local)
-	}
-}

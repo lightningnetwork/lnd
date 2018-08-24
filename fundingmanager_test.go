@@ -286,13 +286,15 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		SignMessage: func(pubKey *btcec.PublicKey, msg []byte) (*btcec.Signature, error) {
 			return testSig, nil
 		},
-		SendAnnouncement: func(msg lnwire.Message) error {
+		SendAnnouncement: func(msg lnwire.Message) chan error {
+			errChan := make(chan error, 1)
 			select {
 			case sentAnnouncements <- msg:
+				errChan <- nil
 			case <-shutdownChan:
-				return fmt.Errorf("shutting down")
+				errChan <- fmt.Errorf("shutting down")
 			}
-			return nil
+			return errChan
 		},
 		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement, error) {
 			return lnwire.NodeAnnouncement{}, nil
@@ -410,13 +412,15 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 			msg []byte) (*btcec.Signature, error) {
 			return testSig, nil
 		},
-		SendAnnouncement: func(msg lnwire.Message) error {
+		SendAnnouncement: func(msg lnwire.Message) chan error {
+			errChan := make(chan error, 1)
 			select {
 			case aliceAnnounceChan <- msg:
+				errChan <- nil
 			case <-shutdownChan:
-				return fmt.Errorf("shutting down")
+				errChan <- fmt.Errorf("shutting down")
 			}
-			return nil
+			return errChan
 		},
 		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement, error) {
 			return lnwire.NodeAnnouncement{}, nil
@@ -1096,9 +1100,13 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	recreateAliceFundingManager(t, alice)
 
 	// Intentionally make the channel announcements fail
-	alice.fundingMgr.cfg.SendAnnouncement = func(msg lnwire.Message) error {
-		return fmt.Errorf("intentional error in SendAnnouncement")
-	}
+	alice.fundingMgr.cfg.SendAnnouncement =
+		func(msg lnwire.Message) chan error {
+			errChan := make(chan error, 1)
+			errChan <- fmt.Errorf("intentional error in " +
+				"SendAnnouncement")
+			return errChan
+		}
 
 	fundingLockedAlice := assertFundingMsgSent(
 		t, alice.msgChan, "FundingLocked",

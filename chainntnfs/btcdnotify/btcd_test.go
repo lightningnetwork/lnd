@@ -3,18 +3,41 @@
 package btcdnotify
 
 import (
+	"io/ioutil"
 	"testing"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/channeldb"
 )
+
+func initHintCache(t *testing.T) *chainntnfs.HeightHintCache {
+	t.Helper()
+
+	tempDir, err := ioutil.TempDir("", "kek")
+	if err != nil {
+		t.Fatalf("unable to create temp dir: %v", err)
+	}
+	db, err := channeldb.Open(tempDir)
+	if err != nil {
+		t.Fatalf("unable to create db: %v", err)
+	}
+	hintCache, err := chainntnfs.NewHeightHintCache(db)
+	if err != nil {
+		t.Fatalf("unable to create hint cache: %v", err)
+	}
+
+	return hintCache
+}
 
 // setUpNotifier is a helper function to start a new notifier backed by a btcd
 // driver.
 func setUpNotifier(t *testing.T, h *rpctest.Harness) *BtcdNotifier {
+	hintCache := initHintCache(t)
+
 	rpcCfg := h.RPCConfig()
-	notifier, err := New(&rpcCfg)
+	notifier, err := New(&rpcCfg, hintCache, hintCache)
 	if err != nil {
 		t.Fatalf("unable to create notifier: %v", err)
 	}

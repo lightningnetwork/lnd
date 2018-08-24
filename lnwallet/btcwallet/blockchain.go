@@ -52,6 +52,7 @@ func (b *BtcWallet) GetUtxo(ctx context.Context, op *wire.OutPoint,
 			neutrino.StartBlock(&waddrmgr.BlockStamp{
 				Height: int32(heightHint),
 			}),
+			neutrino.QuitChan(ctx.Done()),
 		)
 		if err != nil {
 			return nil, err

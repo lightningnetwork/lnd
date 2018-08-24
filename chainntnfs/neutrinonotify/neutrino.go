@@ -837,6 +837,7 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		neutrino.StartBlock(&waddrmgr.BlockStamp{
 			Height: int32(heightHint),
 		}),
+		neutrino.QuitChan(n.quit),
 	)
 	if err != nil && !strings.Contains(err.Error(), "not found") {
 		return nil, err

@@ -527,6 +527,14 @@ func (b *BtcdNotifier) historicalConfDetails(txid *chainhash.Hash,
 	// We'll then check the status of the transaction lookup returned to
 	// determine whether we should proceed with any fallback methods.
 	switch {
+
+	// We failed querying the index for the transaction, fall back to
+	// scanning manually.
+	case err != nil:
+		chainntnfs.Log.Debugf("Failed getting conf details from "+
+			"index (%v), scanning manually", err)
+		return b.confDetailsManually(txid, heightHint, currentHeight)
+
 	// The transaction was found within the node's mempool.
 	case txStatus == chainntnfs.TxFoundMempool:
 
@@ -534,12 +542,12 @@ func (b *BtcdNotifier) historicalConfDetails(txid *chainhash.Hash,
 	case txStatus == chainntnfs.TxFoundIndex:
 
 	// The transaction was not found within the node's mempool or txindex.
-	case txStatus == chainntnfs.TxNotFoundIndex && err == nil:
+	case txStatus == chainntnfs.TxNotFoundIndex:
 
-	// We failed to look up the transaction within the node's mempool or
-	// txindex, so we'll proceed to scan the chain manually.
+	// Unexpected txStatus returned.
 	default:
-		return b.confDetailsManually(txid, heightHint, currentHeight)
+		return nil, txStatus,
+			fmt.Errorf("Got unexpected txConfStatus: %v", txStatus)
 	}
 
 	return txConf, txStatus, nil

@@ -70,6 +70,7 @@ var LocalFeatures = map[FeatureBit]string{
 	DataLossProtectOptional: "data-loss-protect-optional",
 	InitialRoutingSync:      "initial-routing-sync",
 	GossipQueriesOptional:   "gossip-queries-optional",
+	GossipQueriesRequired:   "gossip-queries-required",
 }
 
 // GlobalFeatures is a mapping of known global feature bits to a descriptive

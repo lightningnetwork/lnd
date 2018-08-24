@@ -26,6 +26,7 @@ import (
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/channeldb"
 
 	// Required to auto-register the bitcoind backed ChainNotifier
 	// implementation.
@@ -1741,10 +1742,22 @@ func TestInterfaces(t *testing.T) {
 		newNotifier func() (chainntnfs.TestChainNotifier, error)
 	)
 	for _, notifierDriver := range chainntnfs.RegisteredNotifiers() {
+		// Initialize a height hint cache for each notifier.
+		tempDir, err := ioutil.TempDir("", "channeldb")
+		if err != nil {
+			t.Fatalf("unable to create temp dir: %v", err)
+		}
+		db, err := channeldb.Open(tempDir)
+		if err != nil {
+			t.Fatalf("unable to create db: %v", err)
+		}
+		hintCache, err := chainntnfs.NewHeightHintCache(db)
+		if err != nil {
+			t.Fatalf("unable to create height hint cache: %v", err)
+		}
+
 		notifierType := notifierDriver.NotifierType
-
 		switch notifierType {
-
 		case "bitcoind":
 			// Start a bitcoind instance.
 			tempBitcoindDir, err := ioutil.TempDir("", "bitcoind")
@@ -1807,12 +1820,16 @@ func TestInterfaces(t *testing.T) {
 			cleanUp = cleanUp3
 
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
-				return bitcoindnotify.New(chainConn), nil
+				return bitcoindnotify.New(
+					chainConn, hintCache, hintCache,
+				), nil
 			}
 
 		case "btcd":
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
-				return btcdnotify.New(&rpcConfig)
+				return btcdnotify.New(
+					&rpcConfig, hintCache, hintCache,
+				)
 			}
 
 			cleanUp = func() {}
@@ -1855,7 +1872,9 @@ func TestInterfaces(t *testing.T) {
 				time.Sleep(time.Millisecond * 100)
 			}
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
-				return neutrinonotify.New(spvNode)
+				return neutrinonotify.New(
+					spvNode, hintCache, hintCache,
+				)
 			}
 		}
 

@@ -76,10 +76,6 @@ var (
 	defaultTLSCertPath = filepath.Join(defaultLndDir, defaultTLSCertFilename)
 	defaultTLSKeyPath  = filepath.Join(defaultLndDir, defaultTLSKeyFilename)
 
-	defaultAdminMacPath   = filepath.Join(defaultLndDir, defaultAdminMacFilename)
-	defaultReadMacPath    = filepath.Join(defaultLndDir, defaultReadMacFilename)
-	defaultInvoiceMacPath = filepath.Join(defaultLndDir, defaultInvoiceMacFilename)
-
 	defaultBtcdDir         = btcutil.AppDataDir("btcd", false)
 	defaultBtcdRPCCertFile = filepath.Join(defaultBtcdDir, "rpc.cert")
 
@@ -256,9 +252,6 @@ func loadConfig() (*config, error) {
 		DebugLevel:     defaultLogLevel,
 		TLSCertPath:    defaultTLSCertPath,
 		TLSKeyPath:     defaultTLSKeyPath,
-		AdminMacPath:   defaultAdminMacPath,
-		InvoiceMacPath: defaultInvoiceMacPath,
-		ReadMacPath:    defaultReadMacPath,
 		LogDir:         defaultLogDir,
 		MaxLogFiles:    defaultMaxLogFiles,
 		MaxLogFileSize: defaultMaxLogFileSize,
@@ -347,9 +340,6 @@ func loadConfig() (*config, error) {
 		preCfg.DataDir = filepath.Join(lndDir, defaultDataDirname)
 		preCfg.TLSCertPath = filepath.Join(lndDir, defaultTLSCertFilename)
 		preCfg.TLSKeyPath = filepath.Join(lndDir, defaultTLSKeyFilename)
-		preCfg.AdminMacPath = filepath.Join(lndDir, defaultAdminMacFilename)
-		preCfg.InvoiceMacPath = filepath.Join(lndDir, defaultInvoiceMacFilename)
-		preCfg.ReadMacPath = filepath.Join(lndDir, defaultReadMacFilename)
 		preCfg.LogDir = filepath.Join(lndDir, defaultLogDirname)
 		preCfg.Tor.V2PrivateKeyPath = filepath.Join(lndDir, defaultTorV2PrivateKeyFilename)
 	}
@@ -765,27 +755,30 @@ func loadConfig() (*config, error) {
 		}
 	}
 
-	// At this point, we'll save the base data directory in order to ensure
-	// we don't store the macaroon database within any of the chain
-	// namespaced directories.
-	macaroonDatabaseDir = cfg.DataDir
+	// We'll now construct the network directory which will be where we
+	// store all the data specifc to this chain/network.
+	networkDir = filepath.Join(
+		cfg.DataDir, defaultChainSubDirname,
+		registeredChains.PrimaryChain().String(),
+		normalizeNetwork(activeNetParams.Name),
+	)
 
 	// If a custom macaroon directory wasn't specified and the data
 	// directory has changed from the default path, then we'll also update
 	// the path for the macaroons to be generated.
-	if cfg.DataDir != defaultDataDir && cfg.AdminMacPath == defaultAdminMacPath {
+	if cfg.AdminMacPath == "" {
 		cfg.AdminMacPath = filepath.Join(
-			cfg.DataDir, defaultAdminMacFilename,
+			networkDir, defaultAdminMacFilename,
 		)
 	}
-	if cfg.DataDir != defaultDataDir && cfg.ReadMacPath == defaultReadMacPath {
+	if cfg.ReadMacPath == "" {
 		cfg.ReadMacPath = filepath.Join(
-			cfg.DataDir, defaultReadMacFilename,
+			networkDir, defaultReadMacFilename,
 		)
 	}
-	if cfg.DataDir != defaultDataDir && cfg.InvoiceMacPath == defaultInvoiceMacPath {
+	if cfg.InvoiceMacPath == "" {
 		cfg.InvoiceMacPath = filepath.Join(
-			cfg.DataDir, defaultInvoiceMacFilename,
+			networkDir, defaultInvoiceMacFilename,
 		)
 	}
 
@@ -794,6 +787,12 @@ func loadConfig() (*config, error) {
 	cfg.LogDir = filepath.Join(cfg.LogDir,
 		registeredChains.PrimaryChain().String(),
 		normalizeNetwork(activeNetParams.Name))
+
+	// Special show command to list supported subsystems and exit.
+	if cfg.DebugLevel == "show" {
+		fmt.Println("Supported subsystems", supportedSubsystems())
+		os.Exit(0)
+	}
 
 	// Initialize logging at the default logging level.
 	initLogRotator(
@@ -934,10 +933,13 @@ func loadConfig() (*config, error) {
 // passed path, cleans the result, and returns it.
 // This function is taken from https://github.com/btcsuite/btcd
 func cleanAndExpandPath(path string) string {
+	if path == "" {
+		return ""
+	}
+
 	// Expand initial ~ to OS specific home directory.
 	if strings.HasPrefix(path, "~") {
 		var homeDir string
-
 		user, err := user.Current()
 		if err == nil {
 			homeDir = user.HomeDir

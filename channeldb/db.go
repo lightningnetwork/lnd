@@ -67,6 +67,13 @@ var (
 			number:    4,
 			migration: migrateEdgePolicies,
 		},
+		{
+			// The DB version where we persist each attempt to send
+			// an HTLC to a payment hash, and track whether the
+			// payment is in-flight, succeeded, or failed.
+			number:    5,
+			migration: paymentStatusesMigration,
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over

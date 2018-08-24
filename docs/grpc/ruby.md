@@ -119,9 +119,9 @@ You should now see the details of the settled invoice appear.
 To authenticate using macaroons you need to include the macaroon in the metadata of the request.
 
 ```ruby
-# Lnd admin macaroon is at ~/.lnd/admin.macaroon on Linux and
-# ~/Library/Application Support/Lnd/admin.macaroon on Mac
-macaroon_binary = File.read(File.expand_path("~/.lnd/admin.macaroon"))
+# Lnd admin macaroon is at ~/.lnd/data/chain/bitcoin/simnet/admin.macaroon on Linux and
+# ~/Library/Application Support/Lnd/data/chain/bitcoin/simnet/admin.macaroon on Mac
+macaroon_binary = File.read(File.expand_path("~/.lnd/data/chain/bitcoin/simnet/admin.macaroon"))
 macaroon = macaroon_binary.each_byte.map { |b| b.to_s(16).rjust(2,'0') }.join
 ```
 
@@ -154,7 +154,7 @@ And then we would include it when we create our stub like so.
 ```ruby
 certificate = File.read(File.expand_path("~/.lnd/tls.cert"))
 credentials = GRPC::Core::ChannelCredentials.new(certificate)
-macaroon_binary = File.read(File.expand_path("~/.lnd/admin.macaroon"))
+macaroon_binary = File.read(File.expand_path("~/.lnd/data/chain/bitcoin/simnet/admin.macaroon"))
 macaroon = macaroon_binary.each_byte.map { |b| b.to_s(16).rjust(2,'0') }.join
 
 stub = Lnrpc::Lightning::Stub.new(

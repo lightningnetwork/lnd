@@ -1,7 +1,6 @@
 package contractcourt
 
 import (
-	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -94,6 +93,25 @@ type ChannelArbitratorConfig struct {
 	// MarkCommitmentBroadcasted should mark the channel as the commitment
 	// being broadcast, and we are waiting for the commitment to confirm.
 	MarkCommitmentBroadcasted func() error
+
+	// MarkChannelClosed marks the channel closed in the database, with the
+	// passed close summary. After this method successfully returns we can
+	// no longer expect to receive chain events for this channel, and must
+	// be able to recover from a failure without getting the close event
+	// again.
+	MarkChannelClosed func(*channeldb.ChannelCloseSummary) error
+
+	// IsPendingClose is a boolean indicating whether the channel is marked
+	// as pending close in the database.
+	IsPendingClose bool
+
+	// ClosingHeight is the height at which the channel was closed. Note
+	// that this value is only valid if IsPendingClose is true.
+	ClosingHeight uint32
+
+	// CloseType is the type of the close event in case IsPendingClose is
+	// true. Otherwise this value is unset.
+	CloseType channeldb.ClosureType
 
 	// MarkChannelResolved is a function closure that serves to mark a
 	// channel as "fully resolved". A channel itself can be considered
@@ -244,15 +262,61 @@ func (c *ChannelArbitrator) Start() error {
 		return err
 	}
 
+	// If the channel has been marked pending close in the database, and we
+	// haven't transitioned the state machine to StateContractClosed (or a
+	// suceeding state), then a state transition most likely failed. We'll
+	// try to recover from this by manually advancing the state by setting
+	// the corresponding close trigger.
+	trigger := chainTrigger
+	triggerHeight := uint32(bestHeight)
+	if c.cfg.IsPendingClose {
+		switch c.state {
+		case StateDefault:
+			fallthrough
+		case StateBroadcastCommit:
+			fallthrough
+		case StateCommitmentBroadcasted:
+			switch c.cfg.CloseType {
+
+			case channeldb.CooperativeClose:
+				trigger = coopCloseTrigger
+
+			case channeldb.LocalForceClose:
+				trigger = localCloseTrigger
+
+			case channeldb.RemoteForceClose:
+				trigger = remoteCloseTrigger
+			}
+			triggerHeight = c.cfg.ClosingHeight
+
+			log.Warnf("ChannelArbitrator(%v): detected stalled "+
+				"state=%v for closed channel, using "+
+				"trigger=%v", c.cfg.ChanPoint, c.state, trigger)
+		}
+	}
+
 	// We'll now attempt to advance our state forward based on the current
 	// on-chain state, and our set of active contracts.
 	startingState := c.state
-	nextState, _, err := c.advanceState(
-		uint32(bestHeight), chainTrigger, nil,
-	)
+	nextState, _, err := c.advanceState(triggerHeight, trigger)
 	if err != nil {
-		c.cfg.BlockEpochs.Cancel()
-		return err
+		switch err {
+
+		// If we detect that we tried to fetch resolutions, but failed,
+		// this channel was marked closed in the database before
+		// resolutions successfully written. In this case there is not
+		// much we can do, so we don't return the error.
+		case errScopeBucketNoExist:
+			fallthrough
+		case errNoResolutions:
+			log.Warnf("ChannelArbitrator(%v): detected closed"+
+				"channel with no contract resolutions written.",
+				c.cfg.ChanPoint)
+
+		default:
+			c.cfg.BlockEpochs.Cancel()
+			return err
+		}
 	}
 
 	// If we start and ended at the awaiting full resolution state, then
@@ -332,6 +396,10 @@ const (
 	// localCloseTrigger is a transition trigger driven by our commitment
 	// being confirmed.
 	localCloseTrigger
+
+	// coopCloseTrigger is a transition trigger driven by a cooperative
+	// close transaction being confirmed.
+	coopCloseTrigger
 )
 
 // String returns a human readable string describing the passed
@@ -349,6 +417,9 @@ func (t transitionTrigger) String() string {
 
 	case localCloseTrigger:
 		return "localCloseTrigger"
+
+	case coopCloseTrigger:
+		return "coopCloseTrigger"
 
 	default:
 		return "unknown trigger"
@@ -415,10 +486,16 @@ func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
 		case userTrigger:
 			nextState = StateBroadcastCommit
 
+		// If the trigger is a cooperative close being confirmed, then
+		// we can go straight to StateFullyResolved, as there won't be
+		// any contracts to resolve.
+		case coopCloseTrigger:
+			nextState = StateFullyResolved
+
 		// Otherwise, if this state advance was triggered by a
 		// commitment being confirmed on chain, then we'll jump
 		// straight to the state where the contract has already been
-		// closed.
+		// closed, and we will inspect the set of unresolved contracts.
 		case localCloseTrigger:
 			log.Errorf("ChannelArbitrator(%v): unexpected local "+
 				"commitment confirmed while in StateDefault",
@@ -613,17 +690,16 @@ func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
 
 		log.Infof("ChannelPoint(%v) has been fully resolved "+
 			"on-chain at height=%v", c.cfg.ChanPoint, triggerHeight)
-		return nextState, closeTx, c.cfg.MarkChannelResolved()
-	}
 
-	if err := c.log.CommitState(nextState); err != nil {
-		return StateError, nil, err
+		if err := c.cfg.MarkChannelResolved(); err != nil {
+			log.Errorf("unable to mark channel resolved: %v", err)
+			return StateError, closeTx, err
+		}
 	}
 
 	log.Tracef("ChannelArbitrator(%v): next_state=%v", c.cfg.ChanPoint,
 		nextState)
 
-	c.state = nextState
 	return nextState, closeTx, nil
 }
 
@@ -634,8 +710,7 @@ func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
 // param is a callback that allows the caller to execute an arbitrary action
 // after each state transition.
 func (c *ChannelArbitrator) advanceState(triggerHeight uint32,
-	trigger transitionTrigger, stateCallback func(ArbitratorState) error) (
-	ArbitratorState, *wire.MsgTx, error) {
+	trigger transitionTrigger) (ArbitratorState, *wire.MsgTx, error) {
 
 	var (
 		priorState   ArbitratorState
@@ -654,7 +729,8 @@ func (c *ChannelArbitrator) advanceState(triggerHeight uint32,
 			triggerHeight, trigger,
 		)
 		if err != nil {
-			log.Errorf("unable to advance state: %v", err)
+			log.Errorf("ChannelArbitrator(%v): unable to advance "+
+				"state: %v", c.cfg.ChanPoint, err)
 			return priorState, nil, err
 		}
 
@@ -662,23 +738,25 @@ func (c *ChannelArbitrator) advanceState(triggerHeight uint32,
 			forceCloseTx = closeTx
 		}
 
-		// If we have a state callback, then we'll attempt to execute
-		// it. If the callback doesn't execute successfully, then we'll
-		// exit early.
-		if stateCallback != nil {
-			if err := stateCallback(nextState); err != nil {
-				return nextState, closeTx, err
-			}
-		}
-
 		// Our termination transition is a noop transition. If we get
 		// our prior state back as the next state, then we'll
 		// terminate.
 		if nextState == priorState {
-			log.Tracef("ChannelArbitrator(%v): terminating at state=%v",
-				c.cfg.ChanPoint, nextState)
+			log.Tracef("ChannelArbitrator(%v): terminating at "+
+				"state=%v", c.cfg.ChanPoint, nextState)
 			return nextState, forceCloseTx, nil
 		}
+
+		// As the prior state was successfully executed, we can now
+		// commit the next state. This ensures that we will re-execute
+		// the prior state if anything fails.
+		if err := c.log.CommitState(nextState); err != nil {
+			log.Errorf("ChannelArbitrator(%v): unable to commit "+
+				"next state(%v): %v", c.cfg.ChanPoint,
+				nextState, err)
+			return priorState, nil, err
+		}
+		c.state = nextState
 	}
 }
 
@@ -1318,7 +1396,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			// Now that a new block has arrived, we'll attempt to
 			// advance our state forward.
 			nextState, _, err := c.advanceState(
-				uint32(bestHeight), chainTrigger, nil,
+				uint32(bestHeight), chainTrigger,
 			)
 			if err != nil {
 				log.Errorf("unable to advance state: %v", err)
@@ -1365,16 +1443,28 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 
 		// We've cooperatively closed the channel, so we're no longer
 		// needed. We'll mark the channel as resolved and exit.
-		case <-c.cfg.ChainEvents.CooperativeClosure:
-			log.Infof("ChannelArbitrator(%v) closing due to co-op "+
-				"closure", c.cfg.ChanPoint)
+		case closeInfo := <-c.cfg.ChainEvents.CooperativeClosure:
+			log.Infof("ChannelArbitrator(%v) marking channel "+
+				"cooperatively closed", c.cfg.ChanPoint)
 
-			if err := c.cfg.MarkChannelResolved(); err != nil {
-				log.Errorf("Unable to mark contract "+
-					"resolved: %v", err)
+			err := c.cfg.MarkChannelClosed(
+				closeInfo.ChannelCloseSummary,
+			)
+			if err != nil {
+				log.Errorf("unable to mark channel closed: "+
+					"%v", err)
+				return
 			}
 
-			return
+			// We'll now advance our state machine until it reaches
+			// a terminal state, and the channel is marked resolved.
+			_, _, err = c.advanceState(
+				closeInfo.CloseHeight, coopCloseTrigger,
+			)
+			if err != nil {
+				log.Errorf("unable to advance state: %v", err)
+				return
+			}
 
 		// We have broadcasted our commitment, and it is now confirmed
 		// on-chain.
@@ -1396,31 +1486,40 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			}
 
 			// When processing a unilateral close event, we'll
-			// transition directly to the ContractClosed state.
-			// When the state machine reaches that state, we'll log
-			// out the set of resolutions.
-			stateCb := func(nextState ArbitratorState) error {
-				if nextState != StateContractClosed {
-					return nil
-				}
+			// transition to the ContractClosed state. We'll log
+			// out the set of resolutions such that they are
+			// available to fetch in that state.
+			err := c.log.LogContractResolutions(contractRes)
+			if err != nil {
+				log.Errorf("unable to write resolutions: %v",
+					err)
+				return
+			}
 
-				err := c.log.LogContractResolutions(
-					contractRes,
-				)
-				if err != nil {
-					return fmt.Errorf("unable to "+
-						"write resolutions: %v",
-						err)
-				}
-
-				return nil
+			// After the set of resolutions are successfully
+			// logged, we can safely close the channel. After this
+			// succeeds we won't be getting chain events anymore,
+			// so we must make sure we can recover on restart after
+			// it is marked closed. If the next state transation
+			// fails, we'll start up in the prior state again, and
+			// we won't be longer getting chain events. In this
+			// case we must manually re-trigger the state
+			// transition into StateContractClosed based on the
+			// close status of the channel.
+			err = c.cfg.MarkChannelClosed(
+				closeInfo.ChannelCloseSummary,
+			)
+			if err != nil {
+				log.Errorf("unable to mark "+
+					"channel closed: %v", err)
+				return
 			}
 
 			// We'll now advance our state machine until it reaches
 			// a terminal state.
-			_, _, err := c.advanceState(
+			_, _, err = c.advanceState(
 				uint32(closeInfo.SpendingHeight),
-				localCloseTrigger, stateCb,
+				localCloseTrigger,
 			)
 			if err != nil {
 				log.Errorf("unable to advance state: %v", err)
@@ -1443,9 +1542,6 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 				HtlcResolutions:  *uniClosure.HtlcResolutions,
 			}
 
-			// TODO(roasbeef): modify signal to also detect
-			// cooperative closures?
-
 			// As we're now acting upon an event triggered by the
 			// broadcast of the remote commitment transaction,
 			// we'll swap out our active HTLC set with the set
@@ -1453,30 +1549,39 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			c.activeHTLCs = newHtlcSet(uniClosure.RemoteCommit.Htlcs)
 
 			// When processing a unilateral close event, we'll
-			// transition directly to the ContractClosed state.
-			// When the state machine reaches that state, we'll log
-			// out the set of resolutions.
-			stateCb := func(nextState ArbitratorState) error {
-				if nextState != StateContractClosed {
-					return nil
-				}
+			// transition to the ContractClosed state. We'll log
+			// out the set of resolutions such that they are
+			// available to fetch in that state.
+			err := c.log.LogContractResolutions(contractRes)
+			if err != nil {
+				log.Errorf("unable to write resolutions: %v",
+					err)
+				return
+			}
 
-				err := c.log.LogContractResolutions(
-					contractRes,
-				)
-				if err != nil {
-					return fmt.Errorf("unable to write "+
-						"resolutions: %v", err)
-				}
-
-				return nil
+			// After the set of resolutions are successfully
+			// logged, we can safely close the channel. After this
+			// succeeds we won't be getting chain events anymore,
+			// so we must make sure we can recover on restart after
+			// it is marked closed. If the next state transation
+			// fails, we'll start up in the prior state again, and
+			// we won't be longer getting chain events. In this
+			// case we must manually re-trigger the state
+			// transition into StateContractClosed based on the
+			// close status of the channel.
+			closeSummary := &uniClosure.ChannelCloseSummary
+			err = c.cfg.MarkChannelClosed(closeSummary)
+			if err != nil {
+				log.Errorf("unable to mark channel closed: %v",
+					err)
+				return
 			}
 
 			// We'll now advance our state machine until it reaches
 			// a terminal state.
-			_, _, err := c.advanceState(
+			_, _, err = c.advanceState(
 				uint32(uniClosure.SpendingHeight),
-				remoteCloseTrigger, stateCb,
+				remoteCloseTrigger,
 			)
 			if err != nil {
 				log.Errorf("unable to advance state: %v", err)
@@ -1521,7 +1626,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			}
 
 			nextState, closeTx, err := c.advanceState(
-				uint32(bestHeight), userTrigger, nil,
+				uint32(bestHeight), userTrigger,
 			)
 			if err != nil {
 				log.Errorf("unable to advance state: %v", err)

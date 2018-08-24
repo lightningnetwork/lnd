@@ -21,6 +21,13 @@ import (
 type LocalUnilateralCloseInfo struct {
 	*chainntnfs.SpendDetail
 	*lnwallet.LocalForceCloseSummary
+	*channeldb.ChannelCloseSummary
+}
+
+// CooperativeCloseInfo encapsulates all the informnation we need to act
+// on a cooperative close that gets confirmed.
+type CooperativeCloseInfo struct {
+	*channeldb.ChannelCloseSummary
 }
 
 // ChainEventSubscription is a struct that houses a subscription to be notified
@@ -42,9 +49,7 @@ type ChainEventSubscription struct {
 
 	// CooperativeClosure is a signal that will be sent upon once a
 	// cooperative channel closure has been detected confirmed.
-	//
-	// TODO(roasbeef): or something else
-	CooperativeClosure chan struct{}
+	CooperativeClosure chan *CooperativeCloseInfo
 
 	// ContractBreach is a channel that will be sent upon if we detect a
 	// contract breach. The struct sent across the channel contains all the
@@ -232,7 +237,7 @@ func (c *chainWatcher) SubscribeChannelEvents() *ChainEventSubscription {
 		ChanPoint:               c.cfg.chanState.FundingOutpoint,
 		RemoteUnilateralClosure: make(chan *lnwallet.UnilateralCloseSummary, 1),
 		LocalUnilateralClosure:  make(chan *LocalUnilateralCloseInfo, 1),
-		CooperativeClosure:      make(chan struct{}, 1),
+		CooperativeClosure:      make(chan *CooperativeCloseInfo, 1),
 		ContractBreach:          make(chan *lnwallet.BreachRetribution, 1),
 		Cancel: func() {
 			c.Lock()
@@ -511,26 +516,24 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 		SettledBalance:          localAmt,
 		CloseType:               channeldb.CooperativeClose,
 		ShortChanID:             c.cfg.chanState.ShortChanID(),
-		IsPending:               false,
+		IsPending:               true,
 		RemoteCurrentRevocation: c.cfg.chanState.RemoteCurrentRevocation,
 		RemoteNextRevocation:    c.cfg.chanState.RemoteNextRevocation,
 		LocalChanConfig:         c.cfg.chanState.LocalChanCfg,
 	}
-	err := c.cfg.chanState.CloseChannel(closeSummary)
-	if err != nil && err != channeldb.ErrNoActiveChannels &&
-		err != channeldb.ErrNoChanDBExists {
-		return fmt.Errorf("unable to close chan state: %v", err)
+
+	// Create a summary of all the information needed to handle the
+	// cooperative closure.
+	closeInfo := &CooperativeCloseInfo{
+		ChannelCloseSummary: closeSummary,
 	}
 
-	log.Infof("closeObserver: ChannelPoint(%v) is fully "+
-		"closed, at height: %v",
-		c.cfg.chanState.FundingOutpoint,
-		commitSpend.SpendingHeight)
-
+	// With the event processed, we'll now notify all subscribers of the
+	// event.
 	c.Lock()
 	for _, sub := range c.clientSubscriptions {
 		select {
-		case sub.CooperativeClosure <- struct{}{}:
+		case sub.CooperativeClosure <- closeInfo:
 		case <-c.quit:
 			c.Unlock()
 			return fmt.Errorf("exiting")
@@ -558,8 +561,7 @@ func (c *chainWatcher) dispatchLocalForceClose(
 	}
 
 	// As we've detected that the channel has been closed, immediately
-	// delete the state from disk, creating a close summary for future
-	// usage by related sub-systems.
+	// creating a close summary for future usage by related sub-systems.
 	chanSnapshot := forceClose.ChanSnapshot
 	closeSummary := &channeldb.ChannelCloseSummary{
 		ChanPoint:               chanSnapshot.ChannelPoint,
@@ -587,14 +589,12 @@ func (c *chainWatcher) dispatchLocalForceClose(
 		htlcValue := btcutil.Amount(htlc.SweepSignDesc.Output.Value)
 		closeSummary.TimeLockedBalance += htlcValue
 	}
-	err = c.cfg.chanState.CloseChannel(closeSummary)
-	if err != nil {
-		return fmt.Errorf("unable to delete channel state: %v", err)
-	}
 
 	// With the event processed, we'll now notify all subscribers of the
 	// event.
-	closeInfo := &LocalUnilateralCloseInfo{commitSpend, forceClose}
+	closeInfo := &LocalUnilateralCloseInfo{
+		commitSpend, forceClose, closeSummary,
+	}
 	c.Lock()
 	for _, sub := range c.clientSubscriptions {
 		select {
@@ -641,22 +641,10 @@ func (c *chainWatcher) dispatchRemoteForceClose(
 		return err
 	}
 
-	// As we've detected that the channel has been closed, immediately
-	// delete the state from disk, creating a close summary for future
-	// usage by related sub-systems.
-	err = c.cfg.chanState.CloseChannel(&uniClose.ChannelCloseSummary)
-	if err != nil {
-		return fmt.Errorf("unable to delete channel state: %v", err)
-	}
-
 	// With the event processed, we'll now notify all subscribers of the
 	// event.
 	c.Lock()
 	for _, sub := range c.clientSubscriptions {
-		// TODO(roasbeef): send msg before writing to disk
-		//  * need to ensure proper fault tolerance in all cases
-		//  * get ACK from the consumer of the ntfn before writing to disk?
-		//  * no harm in repeated ntfns: at least once semantics
 		select {
 		case sub.RemoteUnilateralClosure <- uniClose:
 		case <-c.quit:
@@ -743,6 +731,7 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 	// channel as pending force closed.
 	//
 	// TODO(roasbeef): instead mark we got all the monies?
+	// TODO(halseth): move responsibility to breach arbiter?
 	settledBalance := remoteCommit.LocalBalance.ToSatoshis()
 	closeSummary := channeldb.ChannelCloseSummary{
 		ChanPoint:               c.cfg.chanState.FundingOutpoint,

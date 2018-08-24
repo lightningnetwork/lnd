@@ -6254,3 +6254,9 @@ func (lc *LightningChannel) RemoteCommitHeight() uint64 {
 
 	return lc.channelState.RemoteCommitment.CommitHeight
 }
+
+// FwdMinHtlc returns the minimum HTLC value required by the remote node, i.e.
+// the minimum value HTLC we can forward on this channel.
+func (lc *LightningChannel) FwdMinHtlc() lnwire.MilliSatoshi {
+	return lc.localChanCfg.MinHTLC
+}

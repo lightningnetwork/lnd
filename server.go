@@ -336,7 +336,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		FwdingLog:              chanDB.ForwardingLog(),
 		SwitchPackager:         channeldb.NewSwitchPackager(),
 		ExtractErrorEncrypter:  s.sphinx.ExtractErrorEncrypter,
-		FetchLastChannelUpdate: fetchLastChanUpdate(s, serializedPubKey),
+		FetchLastChannelUpdate: s.fetchLastChanUpdate(),
 		Notifier:               s.cc.chainNotifier,
 		FwdEventTicker: ticker.New(
 			htlcswitch.DefaultFwdEventInterval),
@@ -738,11 +738,10 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement, error) {
 			return s.genNodeAnnouncement(true)
 		},
-		SendAnnouncement: func(msg lnwire.Message) error {
-			errChan := s.authGossiper.ProcessLocalAnnouncement(
+		SendAnnouncement: func(msg lnwire.Message) chan error {
+			return s.authGossiper.ProcessLocalAnnouncement(
 				msg, privKey.PubKey(),
 			)
-			return <-errChan
 		},
 		NotifyWhenOnline: s.NotifyWhenOnline,
 		TempChanIDSeed:   chanIDSeed,
@@ -2953,6 +2952,33 @@ func (s *server) fetchLastChanUpdateByOutPoint(op wire.OutPoint) (
 		return nil, err
 	}
 
+	pubKey := s.identityPriv.PubKey().SerializeCompressed()
+	return extractChannelUpdate(pubKey, info, edge1, edge2)
+}
+
+// fetchLastChanUpdate returns a function which is able to retrieve our latest
+// channel update for a target channel.
+func (s *server) fetchLastChanUpdate() func(lnwire.ShortChannelID) (
+	*lnwire.ChannelUpdate, error) {
+
+	ourPubKey := s.identityPriv.PubKey().SerializeCompressed()
+	return func(cid lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
+		info, edge1, edge2, err := s.chanRouter.GetChannelByID(cid)
+		if err != nil {
+			return nil, err
+		}
+		return extractChannelUpdate(ourPubKey[:], info, edge1, edge2)
+	}
+}
+
+// extractChannelUpdate attempts to retrieve a lnwire.ChannelUpdate message
+// from an edge's info and a set of routing policies.
+// NOTE: the passed policies can be nil.
+func extractChannelUpdate(ownerPubKey []byte,
+	info *channeldb.ChannelEdgeInfo,
+	policies ...*channeldb.ChannelEdgePolicy) (
+	*lnwire.ChannelUpdate, error) {
+
 	// Helper function to extract the owner of the given policy.
 	owner := func(edge *channeldb.ChannelEdgePolicy) []byte {
 		var pubKey *btcec.PublicKey
@@ -2972,21 +2998,19 @@ func (s *server) fetchLastChanUpdateByOutPoint(op wire.OutPoint) (
 	}
 
 	// Extract the channel update from the policy we own, if any.
-	ourPubKey := s.identityPriv.PubKey().SerializeCompressed()
-	if edge1 != nil && bytes.Equal(ourPubKey, owner(edge1)) {
-		return extractChannelUpdate(info, edge1)
+	for _, edge := range policies {
+		if edge != nil && bytes.Equal(ownerPubKey, owner(edge)) {
+			return createChannelUpdate(info, edge)
+		}
 	}
 
-	if edge2 != nil && bytes.Equal(ourPubKey, owner(edge2)) {
-		return extractChannelUpdate(info, edge2)
-	}
-
-	return nil, fmt.Errorf("unable to find channel(%v)", op)
+	return nil, fmt.Errorf("unable to extract ChannelUpdate for channel %v",
+		info.ChannelPoint)
 }
 
-// extractChannelUpdate retrieves a lnwire.ChannelUpdate message from an edge's
-// info and routing policy.
-func extractChannelUpdate(info *channeldb.ChannelEdgeInfo,
+// createChannelUpdate reconstructs a signed ChannelUpdate from the given edge
+// info and policy.
+func createChannelUpdate(info *channeldb.ChannelEdgeInfo,
 	policy *channeldb.ChannelEdgePolicy) (*lnwire.ChannelUpdate, error) {
 
 	update := &lnwire.ChannelUpdate{

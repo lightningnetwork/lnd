@@ -7,6 +7,7 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -46,6 +47,9 @@ var (
 // this documentation, this implementation requires a full btcd node to
 // operate.
 type BtcWallet struct {
+	started uint32 // To be used atomically.
+	stopped uint32 // To be used atomically.
+
 	// wallet is an active instance of btcwallet.
 	wallet *base.Wallet
 
@@ -63,6 +67,8 @@ type BtcWallet struct {
 	// FetchInputInfo.
 	utxoCache map[wire.OutPoint]*wire.TxOut
 	cacheMtx  sync.RWMutex
+
+	quit chan struct{}
 }
 
 // A compile time check to ensure that BtcWallet implements the
@@ -130,6 +136,7 @@ func New(cfg Config) (*BtcWallet, error) {
 		netParams:     cfg.NetParams,
 		chainKeyScope: chainKeyScope,
 		utxoCache:     make(map[wire.OutPoint]*wire.TxOut),
+		quit:          make(chan struct{}),
 	}, nil
 }
 
@@ -155,6 +162,10 @@ func (b *BtcWallet) InternalWallet() *base.Wallet {
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) Start() error {
+	if !atomic.CompareAndSwapUint32(&b.started, 0, 1) {
+		return nil
+	}
+
 	// Establish an RPC connection in addition to starting the goroutines
 	// in the underlying wallet.
 	if err := b.chain.Start(); err != nil {
@@ -201,11 +212,17 @@ func (b *BtcWallet) Start() error {
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) Stop() error {
+	if !atomic.CompareAndSwapUint32(&b.stopped, 0, 1) {
+		return nil
+	}
+
 	b.wallet.Stop()
 
 	b.wallet.WaitForShutdown()
 
 	b.chain.Stop()
+
+	close(b.quit)
 
 	return nil
 }

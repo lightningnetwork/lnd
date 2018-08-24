@@ -21,7 +21,7 @@ const (
 	// backend node's txindex.
 	TxFoundIndex
 
-	// TxFoundIndex denotes that the transaction was not found within the
+	// TxNotFoundIndex denotes that the transaction was not found within the
 	// backend node's txindex.
 	TxNotFoundIndex
 
@@ -29,8 +29,8 @@ const (
 	// chain by scanning for it manually.
 	TxFoundManually
 
-	// TxFoundManually denotes that the transaction was not found within the
-	// chain by scanning for it manually.
+	// TxNotFoundManually denotes that the transaction was not found within
+	// the chain by scanning for it manually.
 	TxNotFoundManually
 )
 

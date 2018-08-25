@@ -254,7 +254,7 @@ out:
 				}
 				b.spendNotifications[op][msg.spendID] = msg
 
-			case *confirmationNotification:
+			case *chainntnfs.ConfNtfn:
 				chainntnfs.Log.Infof("New confirmation "+
 					"subscription: txid=%v, numconfs=%v",
 					msg.TxID, msg.NumConfirmations)
@@ -270,7 +270,7 @@ out:
 					defer b.wg.Done()
 
 					confDetails, _, err := b.historicalConfDetails(
-						msg.TxID, msg.heightHint,
+						msg.TxID, msg.HeightHint,
 						currentHeight,
 					)
 					if err != nil {
@@ -948,42 +948,23 @@ func (b *BitcoindNotifier) dispatchSpendDetailsManually(op wire.OutPoint,
 	return ErrTransactionNotFound
 }
 
-// confirmationNotification represents a client's intent to receive a
-// notification once the target txid reaches numConfirmations confirmations.
-type confirmationNotification struct {
-	chainntnfs.ConfNtfn
-	heightHint uint32
-}
-
 // RegisterConfirmationsNtfn registers a notification with BitcoindNotifier
 // which will be triggered once the txid reaches numConfs number of
 // confirmations.
 func (b *BitcoindNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	_ []byte, numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
 
-	// Before proceeding to register the notification, we'll query our
-	// height hint cache to determine whether a better one exists.
-	if hint, err := b.confirmHintCache.QueryConfirmHint(*txid); err == nil {
-		if hint > heightHint {
-			chainntnfs.Log.Debugf("Using height hint %d retrieved "+
-				"from cache for %v", hint, txid)
-			heightHint = hint
-		}
-	}
-
 	// Construct a notification request for the transaction and send it to
 	// the main event loop.
-	ntfn := &confirmationNotification{
-		ConfNtfn: chainntnfs.ConfNtfn{
-			ConfID:           atomic.AddUint64(&b.confClientCounter, 1),
-			TxID:             txid,
-			NumConfirmations: numConfs,
-			Event:            chainntnfs.NewConfirmationEvent(numConfs),
-		},
-		heightHint: heightHint,
+	ntfn := &chainntnfs.ConfNtfn{
+		ConfID:           atomic.AddUint64(&b.confClientCounter, 1),
+		TxID:             txid,
+		NumConfirmations: numConfs,
+		Event:            chainntnfs.NewConfirmationEvent(numConfs),
+		HeightHint:       heightHint,
 	}
 
-	if err := b.txConfNotifier.Register(&ntfn.ConfNtfn); err != nil {
+	if err := b.txConfNotifier.Register(ntfn); err != nil {
 		return nil, err
 	}
 

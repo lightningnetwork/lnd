@@ -2771,7 +2771,9 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 // waitUntilChannelOpen is designed to prevent other lnd subsystems from
 // sending new update messages to a channel before the channel is fully
 // opened.
-func (f *fundingManager) waitUntilChannelOpen(targetChan lnwire.ChannelID) {
+func (f *fundingManager) waitUntilChannelOpen(targetChan lnwire.ChannelID,
+	quit <-chan struct{}) {
+
 	f.barrierMtx.RLock()
 	barrier, ok := f.newChanBarriers[targetChan]
 	f.barrierMtx.RUnlock()
@@ -2781,8 +2783,10 @@ func (f *fundingManager) waitUntilChannelOpen(targetChan lnwire.ChannelID) {
 
 		select {
 		case <-barrier:
-		case <-f.quit: // TODO(roasbeef): add timer?
-			break
+		case <-quit:
+			return
+		case <-f.quit:
+			return
 		}
 
 		fndgLog.Tracef("barrier for ChanID(%v) closed", targetChan)

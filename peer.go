@@ -318,7 +318,7 @@ func (p *peer) Start() error {
 // loadActiveChannels creates indexes within the peer for tracking all active
 // channels returned by the database.
 func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
-	var activeChans []wire.OutPoint
+	var activePublicChans []wire.OutPoint
 	for _, dbChan := range chans {
 		lnChan, err := lnwallet.NewLightningChannel(
 			p.server.cc.signer, p.server.witnessBeacon, dbChan,
@@ -431,14 +431,19 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		p.activeChannels[chanID] = lnChan
 		p.activeChanMtx.Unlock()
 
-		activeChans = append(activeChans, *chanPoint)
+		// Only if the channel is public do we need to collect it for
+		// sending out a new enable update.
+		chanIsPublic := dbChan.ChannelFlags&lnwire.FFAnnounceChannel != 0
+		if chanIsPublic {
+			activePublicChans = append(activePublicChans, *chanPoint)
+		}
 	}
 
-	// As a final measure we launch a goroutine that will ensure the
-	// channels are not currently disabled, as that will make us skip it
-	// during path finding.
+	// As a final measure we launch a goroutine that will ensure the newly
+	// loaded public channels are not currently disabled, as that will make
+	// us skip it during path finding.
 	go func() {
-		for _, chanPoint := range activeChans {
+		for _, chanPoint := range activePublicChans {
 			// Set the channel disabled=false by sending out a new
 			// ChannelUpdate. If this channel is already active,
 			// the update won't be sent.

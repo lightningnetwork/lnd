@@ -878,6 +878,7 @@ func newDiscMsgStream(p *peer) *msgStream {
 //
 // NOTE: This method MUST be run as a goroutine.
 func (p *peer) readHandler() {
+	defer p.wg.Done()
 
 	// We'll stop the timer after a new messages is received, and also
 	// reset it after we process the next message.
@@ -1065,8 +1066,6 @@ out:
 
 		idleTimer.Reset(idleTimeout)
 	}
-
-	p.wg.Done()
 
 	p.Disconnect(errors.New("read handler closed"))
 

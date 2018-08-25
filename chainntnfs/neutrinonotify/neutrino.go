@@ -317,7 +317,8 @@ out:
 			case *confirmationsNotification:
 				chainntnfs.Log.Infof("New confirmations subscription: "+
 					"txid=%v, numconfs=%v, height_hint=%v",
-					msg.TxID, msg.NumConfirmations, msg.heightHint)
+					msg.TxID, msg.NumConfirmations,
+					msg.ConfNtfn.HeightHint)
 
 				// If the notification can be partially or
 				// fully dispatched, then we can skip the first
@@ -335,7 +336,8 @@ out:
 					defer n.wg.Done()
 
 					confDetails, err := n.historicalConfDetails(
-						msg.TxID, msg.pkScript, currentHeight, msg.heightHint,
+						msg.TxID, msg.pkScript, currentHeight,
+						msg.ConfNtfn.HeightHint,
 					)
 					if err != nil {
 						chainntnfs.Log.Error(err)
@@ -924,8 +926,7 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 // notification once the target txid reaches numConfirmations confirmations.
 type confirmationsNotification struct {
 	chainntnfs.ConfNtfn
-	heightHint uint32
-	pkScript   []byte
+	pkScript []byte
 }
 
 // RegisterConfirmationsNtfn registers a notification with NeutrinoNotifier
@@ -935,16 +936,6 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	pkScript []byte,
 	numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
 
-	// Before proceeding to register the notification, we'll query our
-	// height hint cache to determine whether a better one exists.
-	if hint, err := n.confirmHintCache.QueryConfirmHint(*txid); err == nil {
-		if hint > heightHint {
-			chainntnfs.Log.Debugf("Using height hint %d retrieved "+
-				"from cache for %v", hint, txid)
-			heightHint = hint
-		}
-	}
-
 	// Construct a notification request for the transaction and send it to
 	// the main event loop.
 	ntfn := &confirmationsNotification{
@@ -953,9 +944,9 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 			TxID:             txid,
 			NumConfirmations: numConfs,
 			Event:            chainntnfs.NewConfirmationEvent(numConfs),
+			HeightHint:       heightHint,
 		},
-		heightHint: heightHint,
-		pkScript:   pkScript,
+		pkScript: pkScript,
 	}
 
 	if err := n.txConfNotifier.Register(&ntfn.ConfNtfn); err != nil {

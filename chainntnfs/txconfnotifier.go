@@ -35,6 +35,11 @@ type ConfNtfn struct {
 	// be sent over.
 	Event *ConfirmationEvent
 
+	// HeightHint is the minimum height in the chain that we expect to find
+	// this txid. This value will be overridden by the height hint cache if
+	// a more recent value is available.
+	HeightHint uint32
+
 	// details describes the transaction's position is the blockchain. May be
 	// nil for unconfirmed transactions.
 	details *TxConfirmation
@@ -170,6 +175,17 @@ func (tcn *TxConfNotifier) Register(ntfn *ConfNtfn) (bool, uint32, error) {
 	case <-tcn.quit:
 		return false, 0, ErrTxConfNotifierExiting
 	default:
+	}
+
+	// Before proceeding to register the notification, we'll query our
+	// height hint cache to determine whether a better one exists.
+	hint, err := tcn.hintCache.QueryConfirmHint(*ntfn.TxID)
+	if err == nil {
+		if hint > ntfn.HeightHint {
+			Log.Debugf("Using height hint %d retrieved "+
+				"from cache for %v", hint, *ntfn.TxID)
+			ntfn.HeightHint = hint
+		}
 	}
 
 	tcn.Lock()

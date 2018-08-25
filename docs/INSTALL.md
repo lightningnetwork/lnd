@@ -7,14 +7,14 @@
   * **Go:** `lnd` is written in Go. To install, run one of the following commands:
 
 
-    **Note**: The minimum version of Go supported is Go 1.9. We recommend that
+    **Note**: The minimum version of Go supported is Go 1.10. We recommend that
     users use the latest version of Go, which at the time of writing is
-    [`1.10`](https://blog.golang.org/go1.10).
+    [`1.11`](https://blog.golang.org/go1.11).
 
 
     On Linux:
     ```
-    sudo apt-get install golang-1.10-go
+    sudo apt-get install golang-1.11-go
     ```
     > Note that golang-1.10-go puts binaries in /usr/lib/go-1.10/bin. If you want them on your PATH, you need to make that change yourself. Alternatively, you can run:
     ```

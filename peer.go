@@ -753,6 +753,8 @@ func (ms *msgStream) msgConsumer() {
 			// Otherwise, we'll check the message queue for any new
 			// items.
 			select {
+			case <-ms.peer.quit:
+				return
 			case <-ms.quit:
 				ms.msgCond.L.Unlock()
 				return
@@ -777,6 +779,8 @@ func (ms *msgStream) msgConsumer() {
 		// grow indefinitely.
 		select {
 		case ms.producerSema <- struct{}{}:
+		case <-ms.peer.quit:
+			return
 		case <-ms.quit:
 			return
 		}

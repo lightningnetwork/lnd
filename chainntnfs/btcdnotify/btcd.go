@@ -348,14 +348,19 @@ out:
 						return
 					}
 
-					if confDetails != nil {
-						err = b.txConfNotifier.UpdateConfDetails(
-							*msg.TxID, msg.ConfID,
-							confDetails,
-						)
-						if err != nil {
-							chainntnfs.Log.Error(err)
-						}
+					// If the historical dispatch finished
+					// without error, we will invoke
+					// UpdateConfDetails even if none were
+					// found. This allows the notifier to
+					// begin safely updating the height hint
+					// cache at tip, since any pending
+					// rescans have now completed.
+					err = b.txConfNotifier.UpdateConfDetails(
+						*msg.TxID, msg.ConfID,
+						confDetails,
+					)
+					if err != nil {
+						chainntnfs.Log.Error(err)
 					}
 				}()
 

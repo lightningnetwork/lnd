@@ -845,12 +845,17 @@ func newChanMsgStream(p *peer, cid lnwire.ChannelID) *msgStream {
 				// to the other side, they immediately send a
 				// channel update message, but we haven't yet
 				// sent the channel to the channelManager.
-				p.server.fundingMgr.waitUntilChannelOpen(
+				err := p.server.fundingMgr.waitUntilChannelOpen(
 					cid, p.quit,
 				)
+				if err != nil {
+					// If we have a non-nil error, then the
+					// funding manager is shutting down, s
+					// we can exit here without attempting
+					// to deliver the message.
+					return
+				}
 			}
-
-			// TODO(roasbeef): only wait if not chan sync
 
 			// Dispatch the commitment update message to the proper active
 			// goroutine dedicated to this channel.

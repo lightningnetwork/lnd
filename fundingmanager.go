@@ -2772,7 +2772,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 // sending new update messages to a channel before the channel is fully
 // opened.
 func (f *fundingManager) waitUntilChannelOpen(targetChan lnwire.ChannelID,
-	quit <-chan struct{}) {
+	quit <-chan struct{}) error {
 
 	f.barrierMtx.RLock()
 	barrier, ok := f.newChanBarriers[targetChan]
@@ -2784,13 +2784,16 @@ func (f *fundingManager) waitUntilChannelOpen(targetChan lnwire.ChannelID,
 		select {
 		case <-barrier:
 		case <-quit:
-			return
+			return ErrFundingManagerShuttingDown
 		case <-f.quit:
-			return
+			return ErrFundingManagerShuttingDown
 		}
 
 		fndgLog.Tracef("barrier for ChanID(%v) closed", targetChan)
+		return nil
 	}
+
+	return nil
 }
 
 // processFundingError sends a message to the fundingManager allowing it to

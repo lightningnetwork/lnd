@@ -1057,6 +1057,7 @@ out:
 				chanStream = newChanMsgStream(p, targetChan)
 				chanMsgStreams[targetChan] = chanStream
 				chanStream.Start()
+				defer chanStream.Stop()
 			}
 
 			// With the stream obtained, add the message to the
@@ -1068,12 +1069,6 @@ out:
 	}
 
 	p.Disconnect(errors.New("read handler closed"))
-
-	for cid, chanStream := range chanMsgStreams {
-		chanStream.Stop()
-
-		delete(chanMsgStreams, cid)
-	}
 
 	peerLog.Tracef("readHandler for peer %v done", p)
 }

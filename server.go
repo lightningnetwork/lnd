@@ -3090,6 +3090,13 @@ func (s *server) watchChannelStatus() {
 			// the status of closed channels around.
 			newStatus := make(map[wire.OutPoint]activeStatus)
 			for _, c := range channels {
+				// We'll skip any private channels, as they
+				// aren't used for routing within the network
+				// by other nodes.
+				if c.ChannelFlags&lnwire.FFAnnounceChannel == 0 {
+					continue
+				}
+
 				chanID := lnwire.NewChanIDFromOutPoint(
 					&c.FundingOutpoint)
 

@@ -128,7 +128,6 @@ func TestTxConfFutureDispatch(t *testing.T) {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
-	err := tcn.UpdateConfDetails(*ntfn1.TxID, 0, nil)
 	tx2Hash := tx2.TxHash()
 	ntfn2 := chainntnfs.ConfNtfn{
 		TxID:             &tx2Hash,
@@ -163,7 +162,7 @@ func TestTxConfFutureDispatch(t *testing.T) {
 		Transactions: []*wire.MsgTx{&tx1, &tx2, &tx3},
 	})
 
-	err = tcn.ConnectTip(
+	err := tcn.ConnectTip(
 		block1.Hash(), 11, block1.Transactions(),
 	)
 	if err != nil {
@@ -453,6 +452,10 @@ func TestTxConfChainReorg(t *testing.T) {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
+	if err := tcn.UpdateConfDetails(*ntfn1.TxID, 0, nil); err != nil {
+		t.Fatalf("unable to deliver conf details: %v", err)
+	}
+
 	// Tx 2 will be confirmed in block 10 and requires 1 conf.
 	tx2Hash := tx2.TxHash()
 	ntfn2 := chainntnfs.ConfNtfn{
@@ -464,6 +467,10 @@ func TestTxConfChainReorg(t *testing.T) {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
+	if err := tcn.UpdateConfDetails(*ntfn2.TxID, 0, nil); err != nil {
+		t.Fatalf("unable to deliver conf details: %v", err)
+	}
+
 	// Tx 3 will be confirmed in block 10 and requires 2 confs.
 	tx3Hash := tx3.TxHash()
 	ntfn3 := chainntnfs.ConfNtfn{
@@ -473,6 +480,10 @@ func TestTxConfChainReorg(t *testing.T) {
 	}
 	if err := tcn.Register(&ntfn3); err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
+	}
+
+	if err := tcn.UpdateConfDetails(*ntfn3.TxID, 0, nil); err != nil {
+		t.Fatalf("unable to deliver conf details: %v", err)
 	}
 
 	// Sync chain to block 10. Txs 1 & 2 should be confirmed.
@@ -896,6 +907,9 @@ func TestTxConfTearDown(t *testing.T) {
 	if err := tcn.Register(&ntfn1); err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
+	if err := tcn.UpdateConfDetails(*ntfn1.TxID, 0, nil); err != nil {
+		t.Fatalf("unable to update conf details: %v", err)
+	}
 
 	tx2Hash := tx2.TxHash()
 	ntfn2 := chainntnfs.ConfNtfn{
@@ -905,6 +919,9 @@ func TestTxConfTearDown(t *testing.T) {
 	}
 	if err := tcn.Register(&ntfn2); err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
+	}
+	if err := tcn.UpdateConfDetails(*ntfn2.TxID, 0, nil); err != nil {
+		t.Fatalf("unable to update conf details: %v", err)
 	}
 
 	// Include the transactions in a block and add it to the TxConfNotifier.

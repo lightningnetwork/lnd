@@ -330,7 +330,7 @@
   revision = "1efa31f08b9333f1bd4882d61f9d668a70cd902e"
 
 [[projects]]
-  digest = "1:61cf25ac3ac0c8c50959666ddf732a396fbc445570be051c8b9795c8a087fde7"
+  digest = "1:381cef09c1e5c31eee50d98d7b7d921856c1a5bebf6932138cce77367252bdbf"
   name = "golang.org/x/crypto"
   packages = [
     "blake2b",
@@ -338,6 +338,7 @@
     "curve25519",
     "hkdf",
     "internal/chacha20",
+    "internal/subtle",
     "nacl/box",
     "nacl/secretbox",
     "pbkdf2",
@@ -349,7 +350,7 @@
     "ssh/terminal",
   ]
   pruneopts = "UT"
-  revision = "49796115aa4b964c318aad4f3084fdb41e9aa067"
+  revision = "56440b844dfe139a8ac053f4ecac0b20b79058f4"
 
 [[projects]]
   digest = "1:0764abb1e99bb977d1b9f320d02859d4a737252da3e1fd233c4ae0f9522e7446"

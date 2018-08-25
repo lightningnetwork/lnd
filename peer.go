@@ -836,7 +836,9 @@ func newChanMsgStream(p *peer, cid lnwire.ChannelID) *msgStream {
 				// to the other side, they immediately send a
 				// channel update message, but we haven't yet
 				// sent the channel to the channelManager.
-				p.server.fundingMgr.waitUntilChannelOpen(cid)
+				p.server.fundingMgr.waitUntilChannelOpen(
+					cid, p.quit,
+				)
 			}
 
 			// TODO(roasbeef): only wait if not chan sync

@@ -738,6 +738,7 @@ func (ms *msgStream) Stop() {
 func (ms *msgStream) msgConsumer() {
 	defer ms.wg.Done()
 	defer peerLog.Tracef(ms.stopMsg)
+	defer atomic.StoreInt32(&ms.streamShutdown, 1)
 
 	peerLog.Tracef(ms.startMsg)
 
@@ -754,7 +755,6 @@ func (ms *msgStream) msgConsumer() {
 			select {
 			case <-ms.quit:
 				ms.msgCond.L.Unlock()
-				atomic.StoreInt32(&ms.streamShutdown, 1)
 				return
 			default:
 			}
@@ -778,7 +778,6 @@ func (ms *msgStream) msgConsumer() {
 		select {
 		case ms.producerSema <- struct{}{}:
 		case <-ms.quit:
-			atomic.StoreInt32(&ms.streamShutdown, 1)
 			return
 		}
 	}

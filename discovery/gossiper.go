@@ -481,6 +481,11 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(msg lnwire.Message,
 
 	select {
 	case d.networkMsgs <- nMsg:
+
+	// If the peer that sent us this error is quitting, then we don't need
+	// to send back an error and can return immediately.
+	case <-peer.QuitSignal():
+		return nil
 	case <-d.quit:
 		nMsg.err <- ErrGossiperShuttingDown
 	}

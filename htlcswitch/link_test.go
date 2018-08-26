@@ -1459,6 +1459,10 @@ type mockPeer struct {
 	quit         chan struct{}
 }
 
+func (m *mockPeer) QuitSignal() <-chan struct{} {
+	return m.quit
+}
+
 var _ lnpeer.Peer = (*mockPeer)(nil)
 
 func (m *mockPeer) SendMessage(sync bool, msgs ...lnwire.Message) error {

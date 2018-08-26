@@ -238,6 +238,10 @@ func (s *mockServer) Start() error {
 	return nil
 }
 
+func (s *mockServer) QuitSignal() <-chan struct{} {
+	return s.quit
+}
+
 // mockHopIterator represents the test version of hop iterator which instead
 // of encrypting the path in onion blob just stores the path as a list of hops.
 type mockHopIterator struct {

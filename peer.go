@@ -867,8 +867,17 @@ func newChanMsgStream(p *peer, cid lnwire.ChannelID) *msgStream {
 				}
 			}
 
-			// Dispatch the commitment update message to the proper active
-			// goroutine dedicated to this channel.
+			// In order to avoid unnecessarily delivering message
+			// as the peer is exiting, we'll check quickly to see
+			// if we need to exit.
+			select {
+			case <-p.quit:
+				return
+			default:
+			}
+
+			// Dispatch the commitment update message to the proper
+			// active goroutine dedicated to this channel.
 			if chanLink == nil {
 				link, err := p.server.htlcSwitch.GetLink(cid)
 				if err != nil {
@@ -877,6 +886,15 @@ func newChanMsgStream(p *peer, cid lnwire.ChannelID) *msgStream {
 					return
 				}
 				chanLink = link
+			}
+
+			// In order to avoid unnecessarily delivering message
+			// as the peer is exiting, we'll check quickly to see
+			// if we need to exit.
+			select {
+			case <-p.quit:
+				return
+			default:
 			}
 
 			chanLink.HandleChannelUpdate(msg)

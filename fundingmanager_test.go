@@ -174,6 +174,10 @@ func (n *testNode) WipeChannel(_ *wire.OutPoint) error {
 	return nil
 }
 
+func (n *testNode) QuitSignal() <-chan struct{} {
+	return n.shutdownChannel
+}
+
 func (n *testNode) AddNewChannel(channel *lnwallet.LightningChannel,
 	quit <-chan struct{}) error {
 

@@ -84,7 +84,7 @@
 
 [[constraint]]
   name = "golang.org/x/crypto"
-  revision = "49796115aa4b964c318aad4f3084fdb41e9aa067"
+  revision = "614d502a4dac94afa3a6ce146bd1736da82514c6"
 
 [[constraint]]
   name = "golang.org/x/net"

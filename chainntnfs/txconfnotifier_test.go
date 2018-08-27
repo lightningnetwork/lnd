@@ -124,7 +124,7 @@ func TestTxConfFutureDispatch(t *testing.T) {
 		NumConfirmations: tx1NumConfs,
 		Event:            chainntnfs.NewConfirmationEvent(tx1NumConfs),
 	}
-	if err := tcn.Register(&ntfn1); err != nil {
+	if _, err := tcn.Register(&ntfn1); err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
@@ -134,7 +134,7 @@ func TestTxConfFutureDispatch(t *testing.T) {
 		NumConfirmations: tx2NumConfs,
 		Event:            chainntnfs.NewConfirmationEvent(tx2NumConfs),
 	}
-	if err := tcn.Register(&ntfn2); err != nil {
+	if _, err := tcn.Register(&ntfn2); err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
@@ -298,7 +298,7 @@ func TestTxConfHistoricalDispatch(t *testing.T) {
 		NumConfirmations: tx1NumConfs,
 		Event:            chainntnfs.NewConfirmationEvent(tx1NumConfs),
 	}
-	if err := tcn.Register(&ntfn1); err != nil {
+	if _, err := tcn.Register(&ntfn1); err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
@@ -309,7 +309,7 @@ func TestTxConfHistoricalDispatch(t *testing.T) {
 		NumConfirmations: tx2NumConfs,
 		Event:            chainntnfs.NewConfirmationEvent(tx2NumConfs),
 	}
-	if err := tcn.Register(&ntfn2); err != nil {
+	if _, err := tcn.Register(&ntfn2); err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
@@ -448,7 +448,7 @@ func TestTxConfChainReorg(t *testing.T) {
 		NumConfirmations: tx1NumConfs,
 		Event:            chainntnfs.NewConfirmationEvent(tx1NumConfs),
 	}
-	if err := tcn.Register(&ntfn1); err != nil {
+	if _, err := tcn.Register(&ntfn1); err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
@@ -463,7 +463,8 @@ func TestTxConfChainReorg(t *testing.T) {
 		NumConfirmations: tx2NumConfs,
 		Event:            chainntnfs.NewConfirmationEvent(tx2NumConfs),
 	}
-	if err := tcn.Register(&ntfn2); err != nil {
+	if _, _, err := tcn.Register(&ntfn2); err != nil {
+	if _, err := tcn.Register(&ntfn2); err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
@@ -478,7 +479,7 @@ func TestTxConfChainReorg(t *testing.T) {
 		NumConfirmations: tx3NumConfs,
 		Event:            chainntnfs.NewConfirmationEvent(tx3NumConfs),
 	}
-	if err := tcn.Register(&ntfn3); err != nil {
+	if _, err := tcn.Register(&ntfn3); err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
@@ -724,10 +725,10 @@ func TestTxConfHeightHintCache(t *testing.T) {
 		Event:            chainntnfs.NewConfirmationEvent(2),
 	}
 
-	if err := tcn.Register(ntfn1); err != nil {
+	if _, err := tcn.Register(ntfn1); err != nil {
 		t.Fatalf("unable to register tx1: %v", err)
 	}
-	if err := tcn.Register(ntfn2); err != nil {
+	if _, err := tcn.Register(ntfn2); err != nil {
 		t.Fatalf("unable to register tx2: %v", err)
 	}
 
@@ -904,7 +905,7 @@ func TestTxConfTearDown(t *testing.T) {
 		NumConfirmations: 1,
 		Event:            chainntnfs.NewConfirmationEvent(1),
 	}
-	if err := tcn.Register(&ntfn1); err != nil {
+	if _, err := tcn.Register(&ntfn1); err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 	if err := tcn.UpdateConfDetails(*ntfn1.TxID, 0, nil); err != nil {
@@ -917,7 +918,7 @@ func TestTxConfTearDown(t *testing.T) {
 		NumConfirmations: 2,
 		Event:            chainntnfs.NewConfirmationEvent(2),
 	}
-	if err := tcn.Register(&ntfn2); err != nil {
+	if _, err := tcn.Register(&ntfn2); err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 	if err := tcn.UpdateConfDetails(*ntfn2.TxID, 0, nil); err != nil {

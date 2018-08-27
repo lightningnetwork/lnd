@@ -2411,15 +2411,22 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf(err.Error())
 	}
 
-	// The htlc funds will still be shown as limbo, since they are still in
-	// their first stage. The commitment funds will have been recovered
-	// after the commit txn was included in the last block.
+	// The commitment funds will have been recovered after the commit txn
+	// was included in the last block. The htlc funds will not be shown in
+	// limbo, since they are still in their first stage and the nursery
+	// hasn't received them from the contract court.
 	forceClose, err := findForceClosedChannel(pendingChanResp, &op)
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
-	if forceClose.LimboBalance == 0 {
-		t.Fatalf("htlc funds should still be in limbo")
+	err = checkPendingChannelNumHtlcs(forceClose, 0)
+	if err != nil {
+		t.Fatalf("expected 0 pending htlcs, found %d",
+			len(forceClose.PendingHtlcs))
+	}
+	if forceClose.LimboBalance != 0 {
+		t.Fatalf("expected 0 funds in limbo, found %d",
+			forceClose.LimboBalance)
 	}
 
 	// Compute the height preceding that which will cause the htlc CLTV

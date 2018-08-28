@@ -101,6 +101,7 @@ bob$ lncli --network=simnet getinfo
     "alias": "",
     "num_pending_channels": 0,
     "num_active_channels": 0,
+    "num_inactive_channels": 0,
     "num_peers": 0,
     "block_height": 1215,
     "block_hash": "7d0bc86ea4151ed3b5be908ea883d2ac3073263537bcf8ca2dca4bec22e79d50",

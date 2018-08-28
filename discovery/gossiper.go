@@ -1983,23 +1983,6 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 					"saving for reprocessing later",
 					shortChanID)
 
-				// If the node supports it, we may try to
-				// request the chan ann from it.
-				d.wg.Add(1)
-				go func() {
-					defer d.wg.Done()
-
-					reqErr := d.maybeRequestChanAnn(
-						msg.ShortChannelID,
-					)
-					if reqErr != nil {
-						log.Errorf("unable to request "+
-							"ann for chan_id=%v: "+
-							"%v", shortChanID,
-							reqErr)
-					}
-				}()
-
 				// NOTE: We don't return anything on the error
 				// channel for this message, as we expect that
 				// will be done when this ChannelUpdate is
@@ -2597,34 +2580,4 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 	}
 
 	return chanAnn, chanUpdate, err
-}
-
-// maybeRequestChanAnn will attempt to request the full channel announcement
-// for a particular short chan ID. We do this in the case that we get a channel
-// update, yet don't already have a channel announcement for it.
-func (d *AuthenticatedGossiper) maybeRequestChanAnn(
-	cid lnwire.ShortChannelID) error {
-
-	d.syncerMtx.Lock()
-	defer d.syncerMtx.Unlock()
-
-	for nodeID, syncer := range d.peerSyncers {
-		// If this syncer is already at the terminal state, then we'll
-		// chose it to request the fully channel update.
-		if syncer.SyncState() == chansSynced {
-			log.Debugf("attempting to request chan ann for "+
-				"chan_id=%v from node=%x", cid, nodeID[:])
-
-			return syncer.cfg.sendToPeer(&lnwire.QueryShortChanIDs{
-				ChainHash:    d.cfg.ChainHash,
-				EncodingType: lnwire.EncodingSortedPlain,
-				ShortChanIDs: []lnwire.ShortChannelID{cid},
-			})
-		}
-	}
-
-	log.Debugf("unable to find peer to request chan ann for chan_id=%v "+
-		"from", cid)
-
-	return nil
 }

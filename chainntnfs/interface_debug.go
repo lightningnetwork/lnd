@@ -1,3 +1,5 @@
+// +build debug
+
 package chainntnfs
 
 import "github.com/btcsuite/btcd/chaincfg/chainhash"

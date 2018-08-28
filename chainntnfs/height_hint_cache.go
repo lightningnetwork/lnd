@@ -85,7 +85,8 @@ type ConfirmHintCache interface {
 // ConfirmHintCache interfaces backed by a channeldb DB instance where the hints
 // will be stored.
 type HeightHintCache struct {
-	db *channeldb.DB
+	db       *channeldb.DB
+	disabled bool
 }
 
 // Compile-time checks to ensure HeightHintCache satisfies the SpendHintCache
@@ -94,8 +95,11 @@ var _ SpendHintCache = (*HeightHintCache)(nil)
 var _ ConfirmHintCache = (*HeightHintCache)(nil)
 
 // NewHeightHintCache returns a new height hint cache backed by a database.
-func NewHeightHintCache(db *channeldb.DB) (*HeightHintCache, error) {
-	cache := &HeightHintCache{db}
+func NewHeightHintCache(db *channeldb.DB, disable bool) (*HeightHintCache, error) {
+	cache := &HeightHintCache{
+		db:       db,
+		disabled: disable,
+	}
 	if err := cache.initBuckets(); err != nil {
 		return nil, err
 	}
@@ -119,6 +123,10 @@ func (c *HeightHintCache) initBuckets() error {
 
 // CommitSpendHint commits a spend hint for the outpoints to the cache.
 func (c *HeightHintCache) CommitSpendHint(height uint32, ops ...wire.OutPoint) error {
+	if c.disabled {
+		return nil
+	}
+
 	Log.Tracef("Updating spend hint to height %d for %v", height, ops)
 
 	return c.db.Batch(func(tx *bolt.Tx) error {
@@ -153,6 +161,10 @@ func (c *HeightHintCache) CommitSpendHint(height uint32, ops ...wire.OutPoint) e
 // ErrSpendHintNotFound is returned if a spend hint does not exist within the
 // cache for the outpoint.
 func (c *HeightHintCache) QuerySpendHint(op wire.OutPoint) (uint32, error) {
+	if c.disabled {
+		return 0, ErrSpendHintNotFound
+	}
+
 	var hint uint32
 	err := c.db.View(func(tx *bolt.Tx) error {
 		spendHints := tx.Bucket(spendHintBucket)
@@ -181,6 +193,10 @@ func (c *HeightHintCache) QuerySpendHint(op wire.OutPoint) (uint32, error) {
 
 // PurgeSpendHint removes the spend hint for the outpoints from the cache.
 func (c *HeightHintCache) PurgeSpendHint(ops ...wire.OutPoint) error {
+	if c.disabled {
+		return nil
+	}
+
 	Log.Tracef("Removing spend hints for %v", ops)
 
 	return c.db.Batch(func(tx *bolt.Tx) error {
@@ -208,6 +224,10 @@ func (c *HeightHintCache) PurgeSpendHint(ops ...wire.OutPoint) error {
 
 // CommitConfirmHint commits a confirm hint for the transactions to the cache.
 func (c *HeightHintCache) CommitConfirmHint(height uint32, txids ...chainhash.Hash) error {
+	if c.disabled {
+		return nil
+	}
+
 	Log.Tracef("Updating confirm hints to height %d for %v", height, txids)
 
 	return c.db.Batch(func(tx *bolt.Tx) error {
@@ -242,6 +262,10 @@ func (c *HeightHintCache) CommitConfirmHint(height uint32, txids ...chainhash.Ha
 // ErrConfirmHintNotFound is returned if a confirm hint does not exist within
 // the cache for the transaction hash.
 func (c *HeightHintCache) QueryConfirmHint(txid chainhash.Hash) (uint32, error) {
+	if c.disabled {
+		return 0, ErrConfirmHintNotFound
+	}
+
 	var hint uint32
 	err := c.db.View(func(tx *bolt.Tx) error {
 		confirmHints := tx.Bucket(confirmHintBucket)
@@ -271,6 +295,10 @@ func (c *HeightHintCache) QueryConfirmHint(txid chainhash.Hash) (uint32, error) 
 // PurgeConfirmHint removes the confirm hint for the transactions from the
 // cache.
 func (c *HeightHintCache) PurgeConfirmHint(txids ...chainhash.Hash) error {
+	if c.disabled {
+		return nil
+	}
+
 	Log.Tracef("Removing confirm hints for %v", txids)
 
 	return c.db.Batch(func(tx *bolt.Tx) error {

@@ -186,6 +186,10 @@ type balanceUpdate struct {
 	balanceDelta btcutil.Amount
 }
 
+// nodeUpdates is a type of external state update that reflects an addition or
+// modification in channel graph node membership.
+type nodeUpdates struct{}
+
 // chanOpenUpdate is a type of external state update that indicates a new
 // channel has been opened, either by the Agent itself (within the main
 // controller loop), or by an external user to the system.
@@ -217,6 +221,20 @@ func (a *Agent) OnBalanceChange(delta btcutil.Amount) {
 
 		select {
 		case a.stateUpdates <- &balanceUpdate{balanceDelta: delta}:
+		case <-a.quit:
+		}
+	}()
+}
+
+// OnNodeUpdates is a callback that should be executed each time our channel
+// graph has new nodes or their node announcements are updated.
+func (a *Agent) OnNodeUpdates() {
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+
+		select {
+		case a.stateUpdates <- &nodeUpdates{}:
 		case <-a.quit:
 		}
 	}()
@@ -417,6 +435,14 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 				}
 
 				updateBalance()
+
+			// New nodes have been added to the graph or their node
+			// announcements have been updated. We will consider
+			// opening channels to these nodes if we haven't
+			// stabilized.
+			case *nodeUpdates:
+				log.Infof("Node updates received, assessing " +
+					"need for more channels")
 			}
 
 			pendingMtx.Lock()

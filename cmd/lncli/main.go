@@ -205,7 +205,7 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 func main() {
 	app := cli.NewApp()
 	app.Name = "lncli"
-	app.Version = fmt.Sprintf("%s commit=%s", "0.4.2", Commit)
+	app.Version = fmt.Sprintf("%s commit=%s", "0.5", Commit)
 	app.Usage = "control plane for your Lightning Network Daemon (lnd)"
 	app.Flags = []cli.Flag{
 		cli.StringFlag{

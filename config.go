@@ -325,23 +325,42 @@ func loadConfig() (*config, error) {
 		os.Exit(0)
 	}
 
+	// If the config file path has not been modified by the user, then we'll
+	// use the default config file path. However, if the user has modified
+	// their lnddir, then we should assume they intend to use the config
+	// file within it.
+	configFileDir := cleanAndExpandPath(preCfg.LndDir)
+	configFilePath := cleanAndExpandPath(preCfg.ConfigFile)
+	if configFileDir != defaultLndDir {
+		if configFilePath == defaultConfigFile {
+			configFilePath = filepath.Join(
+				configFileDir, defaultConfigFilename,
+			)
+		}
+	}
+
+	// Next, load any additional configuration options from the file.
+	var configFileError error
+	cfg := preCfg
+	if err := flags.IniParse(configFilePath, &cfg); err != nil {
+		configFileError = err
+	}
+
+	// Finally, parse the remaining command line options again to ensure
+	// they take precedence.
+	if _, err := flags.Parse(&cfg); err != nil {
+		return nil, err
+	}
+
 	// If the provided lnd directory is not the default, we'll modify the
 	// path to all of the files and directories that will live within it.
-	lndDir := cleanAndExpandPath(preCfg.LndDir)
-	configFilePath := cleanAndExpandPath(preCfg.ConfigFile)
+	lndDir := cleanAndExpandPath(cfg.LndDir)
 	if lndDir != defaultLndDir {
-		// If the config file path has not been modified by the user,
-		// then we'll use the default config file path. However, if the
-		// user has modified their lnddir, then we should assume they
-		// intend to use the config file within it.
-		if configFilePath == defaultConfigFile {
-			preCfg.ConfigFile = filepath.Join(lndDir, defaultConfigFilename)
-		}
-		preCfg.DataDir = filepath.Join(lndDir, defaultDataDirname)
-		preCfg.TLSCertPath = filepath.Join(lndDir, defaultTLSCertFilename)
-		preCfg.TLSKeyPath = filepath.Join(lndDir, defaultTLSKeyFilename)
-		preCfg.LogDir = filepath.Join(lndDir, defaultLogDirname)
-		preCfg.Tor.V2PrivateKeyPath = filepath.Join(lndDir, defaultTorV2PrivateKeyFilename)
+		cfg.DataDir = filepath.Join(lndDir, defaultDataDirname)
+		cfg.TLSCertPath = filepath.Join(lndDir, defaultTLSCertFilename)
+		cfg.TLSKeyPath = filepath.Join(lndDir, defaultTLSKeyFilename)
+		cfg.LogDir = filepath.Join(lndDir, defaultLogDirname)
+		cfg.Tor.V2PrivateKeyPath = filepath.Join(lndDir, defaultTorV2PrivateKeyFilename)
 	}
 
 	// Create the lnd directory if it doesn't already exist.
@@ -360,19 +379,6 @@ func loadConfig() (*config, error) {
 		str := "%s: Failed to create lnd directory: %v"
 		err := fmt.Errorf(str, funcName, err)
 		fmt.Fprintln(os.Stderr, err)
-		return nil, err
-	}
-
-	// Next, load any additional configuration options from the file.
-	var configFileError error
-	cfg := preCfg
-	if err := flags.IniParse(cfg.ConfigFile, &cfg); err != nil {
-		configFileError = err
-	}
-
-	// Finally, parse the remaining command line options again to ensure
-	// they take precedence.
-	if _, err := flags.Parse(&cfg); err != nil {
 		return nil, err
 	}
 

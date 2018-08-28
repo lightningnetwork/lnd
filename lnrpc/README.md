@@ -1,7 +1,7 @@
 lnrpc
 =====
 
-[![Build Status](http://img.shields.io/travis/lightningnetwork/lnd.svg)](https://travis-ci.org/lightningnetwork/lnd) 
+[![Build Status](http://img.shields.io/travis/lightningnetwork/lnd.svg)](https://travis-ci.org/lightningnetwork/lnd)
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/lightningnetwork/lnd/blob/master/LICENSE)
 [![GoDoc](https://img.shields.io/badge/godoc-reference-blue.svg)](http://godoc.org/github.com/lightningnetwork/lnd/lnrpc)
 
@@ -140,28 +140,28 @@ $ go get -u github.com/lightningnetwork/lnd/lnrpc
 
 ## Generate protobuf definitions
 
-1. Download [v.3.4.0](https://github.com/google/protobuf/releases/tag/v3.4.0) of
+1. Download [v.3.6.0](https://github.com/google/protobuf/releases/tag/v3.6.0) of
 `protoc` for your operating system and add it to your `PATH`.
 For example, if using macOS:
 ```bash
-$ curl -LO https://github.com/google/protobuf/releases/download/v3.4.0/protoc-3.4.0-osx-x86_64.zip
-$ unzip protoc-3.4.0-osx-x86_64.zip -d protoc
+$ curl -LO https://github.com/google/protobuf/releases/download/v3.6.0/protoc-3.6.0-osx-x86_64.zip
+$ unzip protoc-3.6.0-osx-x86_64.zip -d protoc
 $ export PATH=$PWD/protoc/bin:$PATH
 ```
 
-2. Install `golang/protobuf` at commit `ab9f9a6dab164b7d1246e0e688b0ab7b94d8553e`.
+2. Install `golang/protobuf` at commit `427e165155e0a4ff5993a36657c1f733f5b0f782`.
 ```bash
 $ git clone https://github.com/golang/protobuf $GOPATH/src/github.com/golang/protobuf
 $ cd $GOPATH/src/github.com/golang/protobuf
-$ git reset --hard ab9f9a6dab164b7d1246e0e688b0ab7b94d8553e
+$ git reset --hard 427e165155e0a4ff5993a36657c1f733f5b0f782
 $ make
 ```
 
-3. Install `grpc-ecosystem/grpc-gateway` at commit `f2862b476edcef83412c7af8687c9cd8e4097c0f`.
+3. Install `grpc-ecosystem/grpc-gateway` at commit `92583770e3f01b09a0d3e9bdf64321d8bebd48f2`.
 ```bash
 $ git clone https://github.com/grpc-ecosystem/grpc-gateway $GOPATH/src/github.com/grpc-ecosystem/grpc-gateway
 $ cd $GOPATH/src/github.com/grpc-ecosystem/grpc-gateway
-$ git reset --hard f2862b476edcef83412c7af8687c9cd8e4097c0f
+$ git reset --hard 92583770e3f01b09a0d3e9bdf64321d8bebd48f2
 $ go install ./protoc-gen-grpc-gateway ./protoc-gen-swagger
 ```
 

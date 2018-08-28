@@ -85,7 +85,7 @@ In the build section,  we'll need to configure the following things :
             <artifactId>protobuf-maven-plugin</artifactId>
             <version>0.5.0</version>
             <configuration>
-                <protocArtifact>com.google.protobuf:protoc:3.4.0:exe:${os.detected.classifier}</protocArtifact>
+                <protocArtifact>com.google.protobuf:protoc:3.6.0:exe:${os.detected.classifier}</protocArtifact>
                 <pluginId>grpc-java</pluginId>
                 <pluginArtifact>io.grpc:protoc-gen-grpc-java:${grpc.version}:exe:${os.detected.classifier}</pluginArtifact>
             </configuration>

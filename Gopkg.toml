@@ -20,11 +20,11 @@
 
 [[constraint]]
   name = "github.com/golang/protobuf"
-  revision = "bbd03ef6da3a115852eaf24c8a1c46aeb39aa175"
+  revision = "427e165155e0a4ff5993a36657c1f733f5b0f782"
 
 [[constraint]]
   name = "github.com/grpc-ecosystem/grpc-gateway"
-  revision = "f2862b476edcef83412c7af8687c9cd8e4097c0f"
+  revision = "92583770e3f01b09a0d3e9bdf64321d8bebd48f2"
 
 [[constraint]]
   name = "github.com/jackpal/go-nat-pmp"
@@ -100,11 +100,11 @@
 
 [[constraint]]
   name = "google.golang.org/genproto"
-  revision = "df60624c1e9b9d2973e889c7a1cff73155da81c4"
+  revision = "02b4e95473316948020af0b7a4f0f22c73929b0e"
 
 [[constraint]]
   name = "google.golang.org/grpc"
-  revision = "b3ddf786825de56a4178401b7e174ee332173b66"
+  revision = "168a6198bcb0ef175f7dacec0b8691fc141dc9b8"
 
 [[override]]
   name = "gopkg.in/errgo.v1"

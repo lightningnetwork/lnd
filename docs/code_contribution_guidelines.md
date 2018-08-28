@@ -348,13 +348,13 @@ The `lnd` project uses `protobuf`, and its extension [`gRPC`](www.grpc.io) in
 several areas and as the primary RPC interface. In order to ensure uniformity
 of all protos checked, in we require that all contributors pin against the
 _exact same_ version of `protoc`. As of the writing of this article, the `lnd`
-project uses [v3.4.0](https://github.com/google/protobuf/releases/tag/v3.4.0)
+project uses [v3.6.0](https://github.com/google/protobuf/releases/tag/v3.6.0)
 of `protoc`.
 
 The following commit hashes of related projects are also required in order to
 generate identical compiled protos and related files:
-   * grpc-ecosystem/grpc-gateway: `f2862b476edcef83412c7af8687c9cd8e4097c0f`
-   * golang/protobuf: `ab9f9a6dab164b7d1246e0e688b0ab7b94d8553e`
+   * grpc-ecosystem/grpc-gateway: `92583770e3f01b09a0d3e9bdf64321d8bebd48f2`
+   * golang/protobuf: `427e165155e0a4ff5993a36657c1f733f5b0f782`
 
 For detailed instructions on how to compile modifications to `lnd`'s `protobuf`
 definitions, check out the [lnrpc README](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/README.md).

@@ -189,20 +189,23 @@
   revision = "a6af135bd4e28680facf08a3d206b454abc877a4"
 
 [[projects]]
-  digest = "1:19c3d5be42d5d503b94650e45bb2a01264bb36caff20f708e9cf67a6683b4c04"
+  digest = "1:da8507620030c9bab1530d2e6ea87284ed307bf254b9250b4b36c34e896ecfe3"
   name = "github.com/golang/protobuf"
   packages = [
     "jsonpb",
     "proto",
     "protoc-gen-go/descriptor",
+    "ptypes",
     "ptypes/any",
+    "ptypes/duration",
     "ptypes/struct",
+    "ptypes/timestamp",
   ]
   pruneopts = "UT"
-  revision = "bbd03ef6da3a115852eaf24c8a1c46aeb39aa175"
+  revision = "427e165155e0a4ff5993a36657c1f733f5b0f782"
 
 [[projects]]
-  digest = "1:983bdae4397d2a7c88316865e7de6b76bbedd8c33342004931829eba0975d9ed"
+  digest = "1:6a06217fc753e65aea71446b777393009ef6797dadc0086c4f75bd16590be04d"
   name = "github.com/grpc-ecosystem/grpc-gateway"
   packages = [
     "runtime",
@@ -210,7 +213,7 @@
     "utilities",
   ]
   pruneopts = "UT"
-  revision = "f2862b476edcef83412c7af8687c9cd8e4097c0f"
+  revision = "92583770e3f01b09a0d3e9bdf64321d8bebd48f2"
 
 [[projects]]
   digest = "1:6b8866cc9496eada254debc24199981e21fd70fd0031ff7a581ac91be47187bb"
@@ -417,37 +420,47 @@
   version = "v0.3.0"
 
 [[projects]]
-  digest = "1:c2dee8dbcc504d1a7858f5dbaed7c8b256c512c5e9e81480158c30185bbd2792"
+  digest = "1:eff11a4ed88d9d3e28dd697961c550af1c4d0d3dccdc6252715b9a65a1d541bb"
   name = "google.golang.org/genproto"
   packages = [
     "googleapis/api/annotations",
     "googleapis/rpc/status",
   ]
   pruneopts = "UT"
-  revision = "df60624c1e9b9d2973e889c7a1cff73155da81c4"
+  revision = "02b4e95473316948020af0b7a4f0f22c73929b0e"
 
 [[projects]]
-  digest = "1:8d9ccf0a790b530f94357a5d27e9c86fb53e862b6e0f9133c792269c0b567218"
+  digest = "1:2dab32a43451e320e49608ff4542fdfc653c95dcc35d0065ec9c6c3dd540ed74"
   name = "google.golang.org/grpc"
   packages = [
     ".",
+    "balancer",
+    "balancer/base",
+    "balancer/roundrobin",
     "codes",
     "connectivity",
     "credentials",
-    "grpclb/grpc_lb_v1",
+    "encoding",
+    "encoding/proto",
     "grpclog",
     "internal",
+    "internal/backoff",
+    "internal/channelz",
+    "internal/grpcrand",
     "keepalive",
     "metadata",
     "naming",
     "peer",
+    "resolver",
+    "resolver/dns",
+    "resolver/passthrough",
     "stats",
     "status",
     "tap",
     "transport",
   ]
   pruneopts = "UT"
-  revision = "b3ddf786825de56a4178401b7e174ee332173b66"
+  revision = "168a6198bcb0ef175f7dacec0b8691fc141dc9b8"
 
 [[projects]]
   digest = "1:9f0c81ca4b497d3723d0a66495d8a1efe277068b77ef3ad2d6460e480bf09bb3"

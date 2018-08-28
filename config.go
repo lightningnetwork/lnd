@@ -1076,6 +1076,17 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 		}
 
 	case *bitcoindConfig:
+		// Ensure that if the ZMQ options are set, that they are not
+		// equal.
+		if conf.ZMQPubRawBlock != "" && conf.ZMQPubRawTx != "" {
+			err := checkZMQOptions(
+				conf.ZMQPubRawBlock, conf.ZMQPubRawTx,
+			)
+			if err != nil {
+				return err
+			}
+		}
+
 		// If all of RPCUser, RPCPass, ZMQBlockHost, and ZMQTxHost are
 		// set, we assume those parameters are good to use.
 		if conf.RPCUser != "" && conf.RPCPass != "" &&
@@ -1095,8 +1106,8 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 			confFile = "litecoin"
 		}
 
-		// If only one or two of the parameters are set, we assume the
-		// user did that unintentionally.
+		// If not all of the parameters are set, we'll assume the user
+		// did this unintentionally.
 		if conf.RPCUser != "" || conf.RPCPass != "" ||
 			conf.ZMQPubRawBlock != "" || conf.ZMQPubRawTx != "" {
 
@@ -1237,9 +1248,8 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 	}
 	zmqBlockHost := string(zmqBlockHostSubmatches[1])
 	zmqTxHost := string(zmqTxHostSubmatches[1])
-	if zmqBlockHost == zmqTxHost {
-		return "", "", "", "", errors.New("zmqpubrawblock and " +
-			"zmqpubrawtx must be different")
+	if err := checkZMQOptions(zmqBlockHost, zmqTxHost); err != nil {
+		return "", "", "", "", err
 	}
 
 	// Next, we'll try to find an auth cookie. We need to detect the chain
@@ -1301,6 +1311,17 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 
 	return string(userSubmatches[1]), string(passSubmatches[1]),
 		zmqBlockHost, zmqTxHost, nil
+}
+
+// checkZMQOptions ensures that the provided addresses to use as the hosts for
+// ZMQ rawblock and rawtx notifications are different.
+func checkZMQOptions(zmqBlockHost, zmqTxHost string) error {
+	if zmqBlockHost == zmqTxHost {
+		return errors.New("zmqpubrawblock and zmqpubrawtx must be set" +
+			"to different addresses")
+	}
+
+	return nil
 }
 
 // normalizeNetwork returns the common name of a network type used to create

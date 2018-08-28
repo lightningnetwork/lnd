@@ -1759,6 +1759,11 @@
         "version": {
           "type": "string",
           "description": "/ The version of the LND software that the node is running."
+        },
+        "num_inactive_channels": {
+          "type": "integer",
+          "format": "int64",
+          "title": "/ Number of inactive channels"
         }
       }
     },

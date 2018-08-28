@@ -11,6 +11,7 @@ import (
 	"io/ioutil"
 	"net/textproto"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 )
@@ -30,6 +31,11 @@ const (
 	// ProtocolInfoVersion is the `protocolinfo` version currently supported
 	// by the Tor server.
 	ProtocolInfoVersion = 1
+
+	// MinTorVersion is the minimum supported version that the Tor server
+	// must be running on. This is needed in order to create v3 onion
+	// services through Tor's control port.
+	MinTorVersion = "0.3.3.6"
 )
 
 var (
@@ -72,6 +78,9 @@ type Controller struct {
 	// controlAddr is the host:port the Tor server is listening locally for
 	// controller connections on.
 	controlAddr string
+
+	// version is the current version of the Tor server.
+	version string
 }
 
 // NewController returns a new Tor controller that will be able to interact with
@@ -251,14 +260,18 @@ func (c *Controller) authenticate() error {
 }
 
 // getAuthCookie retrieves the authentication cookie in bytes from the Tor
-// server. Cookie authentication must be enabled for this to work.
+// server. Cookie authentication must be enabled for this to work. The boolean
 func (c *Controller) getAuthCookie() ([]byte, error) {
 	// Retrieve the authentication methods currently supported by the Tor
 	// server.
-	authMethods, cookieFilePath, _, err := c.ProtocolInfo()
+	authMethods, cookieFilePath, version, err := c.ProtocolInfo()
 	if err != nil {
 		return nil, err
 	}
+
+	// With the version retrieved, we'll cache it now in case it needs to be
+	// used later on.
+	c.version = version
 
 	// Ensure that the Tor server supports the SAFECOOKIE authentication
 	// method.
@@ -292,6 +305,47 @@ func computeHMAC256(key, message []byte) []byte {
 	mac := hmac.New(sha256.New, key)
 	mac.Write(message)
 	return mac.Sum(nil)
+}
+
+// supportsV3 is a helper function that parses the current version of the Tor
+// server and determines whether it supports creationg v3 onion services through
+// Tor's control port. The version string should be of the format:
+//	major.minor.revision.build
+func supportsV3(version string) error {
+	// We'll split the minimum Tor version that's supported and the given
+	// version in order to individually compare each number.
+	requiredParts := strings.Split(MinTorVersion, ".")
+	parts := strings.Split(version, ".")
+	if len(parts) != 4 {
+		return errors.New("version string is not of the format " +
+			"major.minor.revision.build")
+	}
+
+	// It's possible that the build number (the last part of the version
+	// string) includes a pre-release string, e.g. rc, beta, etc., so we'll
+	// parse that as well.
+	build := strings.Split(parts[len(parts)-1], "-")
+	parts[len(parts)-1] = build[0]
+
+	// Convert them each number from its string representation to integers
+	// and check that they respect the minimum version.
+	for i := range parts {
+		n, err := strconv.Atoi(parts[i])
+		if err != nil {
+			return err
+		}
+		requiredN, err := strconv.Atoi(requiredParts[i])
+		if err != nil {
+			return err
+		}
+
+		if n < requiredN {
+			return fmt.Errorf("version %v below minimum version "+
+				"supported %v", version, MinTorVersion)
+		}
+	}
+
+	return nil
 }
 
 // ProtocolInfo returns the different authentication methods supported by the
@@ -375,6 +429,15 @@ type AddOnionConfig struct {
 // created, the new onion service will remain active until the connection
 // between the controller and the Tor server is closed.
 func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
+	// Before sending the request to create an onion service to the Tor
+	// server, we'll make sure that it supports V3 onion services if that
+	// was the type requested.
+	if cfg.Type == V3 {
+		if err := supportsV3(c.version); err != nil {
+			return nil, err
+		}
+	}
+
 	// We'll start off by checking if the file containing the private key
 	// exists. If it does not, then we should request the server to create
 	// a new onion service and return its private key. Otherwise, we'll

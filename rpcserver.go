@@ -1710,7 +1710,7 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	remoteInitialBalance := btcutil.Amount(in.PushSat)
 	minHtlcIn := lnwire.MilliSatoshi(in.MinHtlcMsat)
 	remoteCsvDelay := uint16(in.RemoteCsvDelay)
-	maxValue := lnwire.MilliSatoshi(in.MaxValueInFlight)
+	maxValue := lnwire.MilliSatoshi(in.RemoteMaxValueInFlightMsat)
 
 	// Ensure that the initial balance of the remote party (if pushing
 	// satoshis) does not exceed the amount the local party has requested

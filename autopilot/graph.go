@@ -59,12 +59,12 @@ type dbNode struct {
 var _ Node = (*dbNode)(nil)
 
 // PubKey is the identity public key of the node. This will be used to attempt
-// to target a node for channel opening by the main autopilot agent.
+// to target a node for channel opening by the main autopilot agent. The key
+// will be returned in serialized compressed format.
 //
 // NOTE: Part of the autopilot.Node interface.
-func (d dbNode) PubKey() *btcec.PublicKey {
-	pubKey, _ := d.node.PubKey()
-	return pubKey
+func (d dbNode) PubKey() [33]byte {
+	return d.node.PubKeyBytes
 }
 
 // Addrs returns a slice of publicly reachable public TCP addresses that the
@@ -406,8 +406,11 @@ var _ Node = (*memNode)(nil)
 // to target a node for channel opening by the main autopilot agent.
 //
 // NOTE: Part of the autopilot.Node interface.
-func (m memNode) PubKey() *btcec.PublicKey {
-	return m.pub
+func (m memNode) PubKey() [33]byte {
+	var n [33]byte
+	copy(n[:], m.pub.SerializeCompressed())
+
+	return n
 }
 
 // Addrs returns a slice of publicly reachable public TCP addresses that the

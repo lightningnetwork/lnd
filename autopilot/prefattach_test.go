@@ -1,6 +1,7 @@
 package autopilot
 
 import (
+	"bytes"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -344,11 +345,14 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 			// The node attached to should be amongst the two edges
 			// created above.
 			for _, directive := range directives {
+				edge1Pub := edge1.Peer.PubKey()
+				edge2Pub := edge2.Peer.PubKey()
+
 				switch {
-				case directive.PeerKey.IsEqual(edge1.Peer.PubKey()):
-				case directive.PeerKey.IsEqual(edge2.Peer.PubKey()):
+				case bytes.Equal(directive.PeerKey.SerializeCompressed(), edge1Pub[:]):
+				case bytes.Equal(directive.PeerKey.SerializeCompressed(), edge2Pub[:]):
 				default:
-					t1.Fatalf("attache to unknown node: %x",
+					t1.Fatalf("attached to unknown node: %x",
 						directive.PeerKey.SerializeCompressed())
 				}
 
@@ -472,8 +476,15 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 			if err != nil {
 				t1.Fatalf("unable to create channel: %v", err)
 			}
+			peerPubBytes := edge1.Peer.PubKey()
+			peerPub, err := btcec.ParsePubKey(
+				peerPubBytes[:], btcec.S256(),
+			)
+			if err != nil {
+				t.Fatalf("unable to parse pubkey: %v", err)
+			}
 			_, _, err = graph.addRandChannel(
-				edge1.Peer.PubKey(), nil, chanCapacity,
+				peerPub, nil, chanCapacity,
 			)
 			if err != nil {
 				t1.Fatalf("unable to create channel: %v", err)

@@ -982,8 +982,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 	// To start, we'll first check to see if there are any stale channels
 	// that we need to re-transmit.
 	if err := d.retransmitStaleChannels(); err != nil {
-		log.Errorf("unable to rebroadcast stale channels: %v",
-			err)
+		log.Errorf("Unable to rebroadcast stale channels: %v", err)
 	}
 
 	// We'll use this validation to ensure that we process jobs in their
@@ -1375,9 +1374,9 @@ func (d *AuthenticatedGossiper) retransmitStaleChannels() error {
 
 		return nil
 	})
-	if err != nil {
-		return fmt.Errorf("error while retrieving outgoing "+
-			"channels: %v", err)
+	if err != nil && err != channeldb.ErrGraphNoEdgesFound {
+		return fmt.Errorf("unable to retrieve outgoing channels: %v",
+			err)
 	}
 
 	var signedUpdates []lnwire.Message

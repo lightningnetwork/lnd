@@ -224,8 +224,8 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 
 		for {
 			select {
-			case txnUpdate := <-txnSubscription.ConfirmedTransactions():
-				pilot.OnBalanceChange(txnUpdate.Value)
+			case <-txnSubscription.ConfirmedTransactions():
+				pilot.OnBalanceChange()
 			case <-svr.quit:
 				return
 			}

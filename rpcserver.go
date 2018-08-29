@@ -1710,6 +1710,7 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	remoteInitialBalance := btcutil.Amount(in.PushSat)
 	minHtlcIn := lnwire.MilliSatoshi(in.MinHtlcMsat)
 	remoteCsvDelay := uint16(in.RemoteCsvDelay)
+	maxValue := lnwire.MilliSatoshi(in.MaxValueInFlight)
 
 	// Ensure that the initial balance of the remote party (if pushing
 	// satoshis) does not exceed the amount the local party has requested
@@ -1812,16 +1813,17 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	// open a new channel. A stream is returned in place, this stream will
 	// be used to consume updates of the state of the pending channel.
 	return &openChanReq{
-		targetPubkey:    nodePubKey,
-		chainHash:       *activeNetParams.GenesisHash,
-		localFundingAmt: localFundingAmt,
-		pushAmt:         lnwire.NewMSatFromSatoshis(remoteInitialBalance),
-		minHtlcIn:       minHtlcIn,
-		fundingFeePerKw: feeRate,
-		private:         in.Private,
-		remoteCsvDelay:  remoteCsvDelay,
-		minConfs:        minConfs,
-		shutdownScript:  script,
+		targetPubkey:     nodePubKey,
+		chainHash:        *activeNetParams.GenesisHash,
+		localFundingAmt:  localFundingAmt,
+		pushAmt:          lnwire.NewMSatFromSatoshis(remoteInitialBalance),
+		minHtlcIn:        minHtlcIn,
+		fundingFeePerKw:  feeRate,
+		private:          in.Private,
+		remoteCsvDelay:   remoteCsvDelay,
+		minConfs:         minConfs,
+		shutdownScript:   script,
+		maxValueInFlight: maxValue,
 	}, nil
 }
 

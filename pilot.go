@@ -160,8 +160,8 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 			// If we weren't able to establish a connection at all,
 			// then we'll error out.
 			if !connected {
-				return false, fmt.Errorf("unable to connect "+
-					"to %x", target.SerializeCompressed())
+				return false, errors.New("exhausted all " +
+					"advertised addresses")
 			}
 
 			return false, nil

@@ -22,7 +22,7 @@ package lnrpc;
  * 
  * More information on how exactly the gRPC documentation is generated from
  * this proto file can be found here:
- * https://github.com/MaxFangX/lightning-api
+ * https://github.com/lightninglabs/lightning-api
  */
 
 // The WalletUnlocker service is used to set up a wallet password for

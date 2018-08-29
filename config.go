@@ -510,8 +510,13 @@ func loadConfig() (*config, error) {
 	// Either Bitcoin must be active, or Litecoin must be active.
 	// Otherwise, we don't know which chain we're on.
 	case !cfg.Bitcoin.Active && !cfg.Litecoin.Active:
-		return nil, fmt.Errorf("%s: either bitcoin.active or "+
-			"litecoin.active must be set to 1 (true)", funcName)
+		str := "%s: either bitcoin.active or " +
+			"litecoin.active must be set to 1 (true)"
+		if configFileError != nil {
+			err = fmt.Errorf("%s: %v", funcName, configFileError)
+			fmt.Fprintln(os.Stderr,err)
+		}
+		return nil, fmt.Errorf(str,funcName)
 
 	case cfg.Litecoin.Active:
 		if cfg.Litecoin.SimNet {

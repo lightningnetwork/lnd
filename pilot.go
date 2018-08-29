@@ -55,18 +55,6 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 	updateStream, errChan := c.server.OpenChannel(req)
 	select {
 	case err := <-errChan:
-		// If we were not able to actually open a channel to the peer
-		// for whatever reason, then we'll disconnect from the peer to
-		// ensure we don't accumulate a bunch of unnecessary
-		// connections.
-		if err != nil {
-			dcErr := c.server.DisconnectPeer(target)
-			if dcErr != nil {
-				atplLog.Errorf("Unable to disconnect from peer %v",
-					target.SerializeCompressed())
-			}
-		}
-
 		return err
 	case <-updateStream:
 		return nil

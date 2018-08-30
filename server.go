@@ -549,6 +549,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 			// for the available bandwidth for the link.
 			return link.Bandwidth()
 		},
+		AssumeChannelValid: cfg.Routing.UseAssumeChannelValid(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("can't create router: %v", err)

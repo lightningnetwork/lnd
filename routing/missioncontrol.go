@@ -160,7 +160,7 @@ func (m *missionControl) GraphPruneView() graphPruneView {
 type paymentSession struct {
 	pruneViewSnapshot graphPruneView
 
-	additionalEdges map[Vertex][]*channeldb.ChannelEdgePolicy
+	additionalEdges map[Vertex][]*edgePolicyWithSource
 
 	bandwidthHints map[uint64]lnwire.MilliSatoshi
 
@@ -179,7 +179,7 @@ func (m *missionControl) NewPaymentSession(routeHints [][]HopHint,
 
 	viewSnapshot := m.GraphPruneView()
 
-	edges := make(map[Vertex][]*channeldb.ChannelEdgePolicy)
+	edges := make(map[Vertex][]*edgePolicyWithSource)
 
 	// Traverse through all of the available hop hints and include them in
 	// our edges map, indexed by the public key of the channel's starting
@@ -215,8 +215,14 @@ func (m *missionControl) NewPaymentSession(routeHints [][]HopHint,
 				TimeLockDelta: hopHint.CLTVExpiryDelta,
 			}
 
-			v := NewVertex(hopHint.NodeID)
-			edges[v] = append(edges[v], edge)
+			from := NewVertex(hopHint.NodeID)
+			to := Vertex(endNode.PubKeyBytes)
+
+			fromNode := &channeldb.LightningNode{PubKeyBytes: from}
+			edges[to] = append(edges[to], &edgePolicyWithSource{
+				sourceNode: fromNode,
+				edge:       edge,
+			})
 		}
 	}
 

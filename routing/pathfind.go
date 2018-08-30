@@ -470,7 +470,7 @@ func edgeWeight(lockedAmt lnwire.MilliSatoshi, fee lnwire.MilliSatoshi,
 // that need to be paid along the path and accurately check the amount
 // to forward at every node against the available bandwidth.
 func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
-	additionalEdges map[Vertex][]*channeldb.ChannelEdgePolicy,
+	additionalEdges map[Vertex][]*edgePolicyWithSource,
 	sourceNode *channeldb.LightningNode, target *btcec.PublicKey,
 	ignoredNodes map[Vertex]struct{}, ignoredEdges map[uint64]struct{},
 	amt lnwire.MilliSatoshi, feeLimit lnwire.MilliSatoshi,
@@ -507,28 +507,23 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		return nil, err
 	}
 
-	additionalEdgesWithSrc := make(map[Vertex][]*edgePolicyWithSource)
-	for vertex, outgoingEdgePolicies := range additionalEdges {
-		// We'll also include all the nodes found within the additional
-		// edges that are not known to us yet in the distance map.
+	// We'll also include all the nodes found within the additional edges
+	// that are not known to us yet in the distance map.
+	for vertex, incomingEdges := range additionalEdges {
 		node := &channeldb.LightningNode{PubKeyBytes: vertex}
 		distance[vertex] = nodeWithDist{
 			dist: infinity,
 			node: node,
 		}
 
-		// Build reverse lookup to find incoming edges. Needed because
-		// search is taken place from target to source.
-		for _, outgoingEdgePolicy := range outgoingEdgePolicies {
-			toVertex := outgoingEdgePolicy.Node.PubKeyBytes
-			incomingEdgePolicy := &edgePolicyWithSource{
-				sourceNode: node,
-				edge:       outgoingEdgePolicy,
+		// For all edges pointing to this node, add the source node to
+		// the distance map.
+		for _, incomingEdge := range incomingEdges {
+			fromNode := incomingEdge.sourceNode
+			distance[fromNode.PubKeyBytes] = nodeWithDist{
+				dist: infinity,
+				node: fromNode,
 			}
-
-			additionalEdgesWithSrc[toVertex] =
-				append(additionalEdgesWithSrc[toVertex],
-					incomingEdgePolicy)
 		}
 	}
 
@@ -748,7 +743,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		// routing hint due to having enough capacity for the payment
 		// and use the payment amount as its capacity.
 		bandWidth := partialPath.amountToReceive
-		for _, reverseEdge := range additionalEdgesWithSrc[bestNode.PubKeyBytes] {
+		for _, reverseEdge := range additionalEdges[bestNode.PubKeyBytes] {
 			processEdge(reverseEdge.sourceNode, reverseEdge.edge, bandWidth, pivot)
 		}
 	}

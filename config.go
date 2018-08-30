@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/tor"
 )
 
@@ -234,6 +235,8 @@ type config struct {
 	NoChanUpdates bool `long:"nochanupdates" description:"If specified, lnd will not request real-time channel updates from connected peers. This option should be used by routing nodes to save bandwidth."`
 
 	net tor.Net
+
+	Routing *routing.Conf `group:"routing" namespace:"routing"`
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -692,6 +695,7 @@ func loadConfig() (*config, error) {
 			}
 		case "neutrino":
 			// No need to get RPC parameters.
+
 		default:
 			str := "%s: only btcd, bitcoind, and neutrino mode " +
 				"supported for bitcoin at this time"

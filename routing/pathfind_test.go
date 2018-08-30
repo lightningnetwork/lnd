@@ -838,7 +838,7 @@ func TestPathFindingWithAdditionalEdges(t *testing.T) {
 
 	// Create the channel edge going from songoku to doge and include it in
 	// our map of additional edges.
-	songokuToDoge := &channeldb.ChannelEdgePolicy{
+	songokuToDogePolicy := &channeldb.ChannelEdgePolicy{
 		Node:                      doge,
 		ChannelID:                 1337,
 		FeeBaseMSat:               1,
@@ -846,8 +846,16 @@ func TestPathFindingWithAdditionalEdges(t *testing.T) {
 		TimeLockDelta:             9,
 	}
 
-	additionalEdges := map[Vertex][]*channeldb.ChannelEdgePolicy{
-		NewVertex(aliases["songoku"]): {songokuToDoge},
+	songoku := &channeldb.LightningNode{
+		PubKeyBytes: NewVertex(aliases["songoku"]),
+	}
+	songokuToDoge := &edgePolicyWithSource{
+		sourceNode: songoku,
+		edge:       songokuToDogePolicy,
+	}
+
+	additionalEdges := map[Vertex][]*edgePolicyWithSource{
+		Vertex(doge.PubKeyBytes): {songokuToDoge},
 	}
 
 	// We should now be able to find a path from roasbeef to doge.

@@ -2377,17 +2377,18 @@ func (s *server) peerTerminationWatcher(p *peer, ready chan struct{}) {
 		return
 	}
 
+	pubKey := p.PubKey()
+	pubStr := string(pubKey[:])
+
 	// Next, we'll cancel all pending funding reservations with this node.
 	// If we tried to initiate any funding flows that haven't yet finished,
 	// then we need to unlock those committed outputs so they're still
 	// available for use.
-	s.fundingMgr.CancelPeerReservations(p.PubKey())
-
-	pubKey := p.addr.IdentityKey
+	s.fundingMgr.CancelPeerReservations(pubKey)
 
 	// We'll also inform the gossiper that this peer is no longer active,
 	// so we don't need to maintain sync state for it any longer.
-	s.authGossiper.PruneSyncState(pubKey)
+	s.authGossiper.PruneSyncState(p.IdentityKey())
 
 	// Tell the switch to remove all links associated with this peer.
 	// Passing nil as the target link indicates that all links associated
@@ -2412,9 +2413,6 @@ func (s *server) peerTerminationWatcher(p *peer, ready chan struct{}) {
 	if _, ok := s.ignorePeerTermination[p]; ok {
 		delete(s.ignorePeerTermination, p)
 
-		pubKey := p.PubKey()
-		pubStr := string(pubKey[:])
-
 		// If a connection callback is present, we'll go ahead and
 		// execute it now that previous peer has fully disconnected. If
 		// the callback is not present, this likely implies the peer was
@@ -2433,7 +2431,6 @@ func (s *server) peerTerminationWatcher(p *peer, ready chan struct{}) {
 	s.removePeer(p)
 
 	// Next, check to see if this is a persistent peer or not.
-	pubStr := string(pubKey.SerializeCompressed())
 	_, ok := s.persistentPeers[pubStr]
 	if ok {
 		// We'll only need to re-launch a connection request if one
@@ -2448,12 +2445,12 @@ func (s *server) peerTerminationWatcher(p *peer, ready chan struct{}) {
 		// TODO(roasbeef): use them all?
 		if p.inbound {
 			advertisedAddr, err := s.fetchNodeAdvertisedAddr(
-				pubKey,
+				p.IdentityKey(),
 			)
 			if err != nil {
 				srvrLog.Errorf("Unable to retrieve advertised "+
 					"address for node %x: %v",
-					pubKey.SerializeCompressed(), err)
+					pubKey[:], err)
 			} else {
 				p.addr.Address = advertisedAddr
 			}

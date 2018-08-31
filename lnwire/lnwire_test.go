@@ -666,7 +666,9 @@ func TestLightningWireProtocol(t *testing.T) {
 				return
 			}
 
-			numChanIDs := rand.Int31n(5000)
+			// random number of ChanIDs. Make sure it is not zero to avoid
+			// deep compare error
+			numChanIDs := 1 + rand.Int31n(5000)
 
 			for i := int32(0); i < numChanIDs; i++ {
 				req.ShortChanIDs = append(req.ShortChanIDs,
@@ -698,7 +700,9 @@ func TestLightningWireProtocol(t *testing.T) {
 				req.EncodingType = EncodingSortedPlain
 			}
 
-			numChanIDs := rand.Int31n(5000)
+			// random number of ChanIDs. Make sure it is not zero to avoid
+			// deep compare error
+			numChanIDs := 1 + rand.Int31n(5000)
 
 			req.ShortChanIDs = make([]ShortChannelID, numChanIDs)
 			for i := int32(0); i < numChanIDs; i++ {

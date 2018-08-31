@@ -1617,14 +1617,18 @@ func (c *ChannelGraph) UpdateEdgePolicy(edge *ChannelEdgePolicy) error {
 		if err != nil {
 			return err
 		}
+		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
+		if err != nil {
+			return err
+		}
 
-		return updateEdgePolicy(edges, edgeIndex, edge)
+		return updateEdgePolicy(edges, edgeIndex, nodes, edge)
 	})
 }
 
 // updateEdgePolicy attempts to update an edge's policy within the relevant
 // buckets using an existing database transaction.
-func updateEdgePolicy(edges, edgeIndex *bolt.Bucket,
+func updateEdgePolicy(edges, edgeIndex, nodes *bolt.Bucket,
 	edge *ChannelEdgePolicy) error {
 
 	// Create the channelID key be converting the channel ID
@@ -1652,7 +1656,7 @@ func updateEdgePolicy(edges, edgeIndex *bolt.Bucket,
 
 	// Finally, with the direction of the edge being updated
 	// identified, we update the on-disk edge representation.
-	return putChanEdgePolicy(edges, edge, fromNode, toNode)
+	return putChanEdgePolicy(edges, nodes, edge, fromNode, toNode)
 }
 
 // LightningNode represents an individual vertex/node within the channel graph.
@@ -2949,7 +2953,9 @@ func deserializeChanEdgeInfo(r io.Reader) (ChannelEdgeInfo, error) {
 	return edgeInfo, nil
 }
 
-func putChanEdgePolicy(edges *bolt.Bucket, edge *ChannelEdgePolicy, from, to []byte) error {
+func putChanEdgePolicy(edges, nodes *bolt.Bucket, edge *ChannelEdgePolicy,
+	from, to []byte) error {
+
 	var edgeKey [33 + 8]byte
 	copy(edgeKey[:], from)
 	byteOrder.PutUint64(edgeKey[33:], edge.ChannelID)
@@ -3012,17 +3018,20 @@ func putChanEdgePolicy(edges *bolt.Bucket, edge *ChannelEdgePolicy, from, to []b
 
 		// In order to delete the old entry, we'll need to obtain the
 		// *prior* update time in order to delete it. To do this, we'll
-		// create an offset to slice in. Starting backwards, we'll
-		// create an offset than puts us right after the flags
-		// variable:
-		//
-		//  * pubkeySize + fee+policySize + timelockSize + flagSize
-		updateEnd := 33 + (8 * 3) + 2 + 1
-		updateStart := updateEnd - 8
-		oldUpdateTime := edgeBytes[updateStart:updateEnd]
+		// need to deserialize the existing policy within the database
+		// (now outdated by the new one), and delete its corresponding
+		// entry within the update index.
+		oldEdgePolicy, err := deserializeChanEdgePolicy(
+			bytes.NewReader(edgeBytes), nodes,
+		)
+		if err != nil {
+			return err
+		}
+
+		oldUpdateTime := uint64(oldEdgePolicy.LastUpdate.Unix())
 
 		var oldIndexKey [8 + 8]byte
-		copy(oldIndexKey[:], oldUpdateTime)
+		byteOrder.PutUint64(oldIndexKey[:8], oldUpdateTime)
 		byteOrder.PutUint64(oldIndexKey[8:], edge.ChannelID)
 
 		if err := updateIndex.Delete(oldIndexKey[:]); err != nil {

@@ -2130,43 +2130,53 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 
-	// Now that both edges have been updated, if we manually check the
-	// update index, we should have an entry for both edges.
-	if err := db.View(func(tx *bolt.Tx) error {
-		edges := tx.Bucket(edgeBucket)
-		if edges == nil {
-			return ErrGraphNoEdgesFound
-		}
-		edgeIndex := edges.Bucket(edgeIndexBucket)
-		if edgeIndex == nil {
-			return ErrGraphNoEdgesFound
-		}
-		edgeUpdateIndex := edges.Bucket(edgeUpdateIndexBucket)
-		if edgeUpdateIndex == nil {
-			return ErrGraphNoEdgesFound
+	// checkIndexTimestamps is a helper function that checks the edge update
+	// index only includes the given timestamps.
+	checkIndexTimestamps := func(timestamps ...uint64) {
+		timestampSet := make(map[uint64]struct{})
+		for _, t := range timestamps {
+			timestampSet[t] = struct{}{}
 		}
 
-		var edgeKey [8 + 8]byte
+		err := db.View(func(tx *bolt.Tx) error {
+			edges := tx.Bucket(edgeBucket)
+			if edges == nil {
+				return ErrGraphNoEdgesFound
+			}
+			edgeUpdateIndex := edges.Bucket(edgeUpdateIndexBucket)
+			if edgeUpdateIndex == nil {
+				return ErrGraphNoEdgesFound
+			}
 
-		byteOrder.PutUint64(edgeKey[:8], uint64(edge1.LastUpdate.Unix()))
-		byteOrder.PutUint64(edgeKey[8:], edge1.ChannelID)
+			numEntries := edgeUpdateIndex.Stats().KeyN
+			expectedEntries := len(timestampSet)
+			if numEntries != expectedEntries {
+				return fmt.Errorf("expected %v entries in the "+
+					"update index, got %v", expectedEntries,
+					numEntries)
+			}
 
-		if edgeUpdateIndex.Get(edgeKey[:]) == nil {
-			return fmt.Errorf("first edge not found in update " +
-				"index")
+			return edgeUpdateIndex.ForEach(func(k, _ []byte) error {
+				t := byteOrder.Uint64(k[:8])
+				if _, ok := timestampSet[t]; !ok {
+					return fmt.Errorf("found unexpected "+
+						"timestamp "+"%d", t)
+				}
+
+				return nil
+			})
+		})
+		if err != nil {
+			t.Fatal(err)
 		}
-
-		byteOrder.PutUint64(edgeKey[:8], uint64(edge2.LastUpdate.Unix()))
-		byteOrder.PutUint64(edgeKey[8:], edge2.ChannelID)
-		if edgeUpdateIndex.Get(edgeKey[:]) == nil {
-			return fmt.Errorf("second edge not found in update " +
-				"index")
-		}
-
-		return nil
-	}); err != nil {
-		t.Fatalf("unable to read update index: %v", err)
 	}
+
+	// With both edges policies added, we'll make sure to check they exist
+	// within the edge update index.
+	checkIndexTimestamps(
+		uint64(edge1.LastUpdate.Unix()),
+		uint64(edge2.LastUpdate.Unix()),
+	)
 
 	// Now we'll prune the graph, removing the edges, and also the update
 	// index entries from the database all together.
@@ -2179,43 +2189,10 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 		t.Fatalf("unable to prune graph: %v", err)
 	}
 
-	// We'll now check the database state again, at this point, we should
-	// no longer be able to locate the entries within the edge update
-	// index.
-	if err := db.View(func(tx *bolt.Tx) error {
-		edges := tx.Bucket(edgeBucket)
-		if edges == nil {
-			return ErrGraphNoEdgesFound
-		}
-		edgeIndex := edges.Bucket(edgeIndexBucket)
-		if edgeIndex == nil {
-			return ErrGraphNoEdgesFound
-		}
-		edgeUpdateIndex := edges.Bucket(edgeUpdateIndexBucket)
-		if edgeUpdateIndex == nil {
-			return ErrGraphNoEdgesFound
-		}
-
-		var edgeKey [8 + 8]byte
-
-		byteOrder.PutUint64(edgeKey[:8], uint64(edge1.LastUpdate.Unix()))
-		byteOrder.PutUint64(edgeKey[8:], edge1.ChannelID)
-		if edgeUpdateIndex.Get(edgeKey[:]) != nil {
-			return fmt.Errorf("first edge still found in update " +
-				"index")
-		}
-
-		byteOrder.PutUint64(edgeKey[:8], uint64(edge2.LastUpdate.Unix()))
-		byteOrder.PutUint64(edgeKey[8:], edge2.ChannelID)
-		if edgeUpdateIndex.Get(edgeKey[:]) != nil {
-			return fmt.Errorf("second edge still found in update " +
-				"index")
-		}
-
-		return nil
-	}); err != nil {
-		t.Fatalf("unable to read update index: %v", err)
-	}
+	// Finally, we'll check the database state one last time to conclude
+	// that we should no longer be able to locate _any_ entries within the
+	// edge update index.
+	checkIndexTimestamps()
 }
 
 // TestPruneGraphNodes tests that unconnected vertexes are pruned via the

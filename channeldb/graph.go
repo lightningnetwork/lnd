@@ -1644,9 +1644,9 @@ func updateEdgePolicy(edges, edgeIndex *bolt.Bucket,
 	var fromNode, toNode []byte
 	if edge.Flags&lnwire.ChanUpdateDirection == 0 {
 		fromNode = nodeInfo[:33]
-		toNode = nodeInfo[33:67]
+		toNode = nodeInfo[33:66]
 	} else {
-		fromNode = nodeInfo[33:67]
+		fromNode = nodeInfo[33:66]
 		toNode = nodeInfo[:33]
 	}
 
@@ -3103,7 +3103,7 @@ func fetchChanEdgePolicies(edgeIndex *bolt.Bucket, edges *bolt.Bucket,
 
 	// Similarly, the second node is contained within the latter
 	// half of the edge information.
-	node2Pub := edgeInfo[33:67]
+	node2Pub := edgeInfo[33:66]
 	edge2, err := fetchChanEdgePolicy(edges, chanID, node2Pub, nodes)
 	if err != nil {
 		return nil, nil, err

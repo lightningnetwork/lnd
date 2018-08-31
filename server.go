@@ -892,7 +892,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		RetryDuration:  time.Second * 5,
 		TargetOutbound: 100,
 		Dial:           noiseDial(s.identityPriv),
-		OnConnection:   s.OutboundPeerConnected,
+		OnConnection:   s.outboundPeerConnected,
 	})
 	if err != nil {
 		return nil, err
@@ -2025,7 +2025,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
 		s.cancelConnReqs(pubStr, nil)
-		s.peerConnected(conn, nil, true)
+		s.peerConnected(conn, nil, true, nil)
 
 	case nil:
 		// We already have a connection with the incoming peer. If the
@@ -2054,18 +2054,38 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		s.removePeer(connectedPeer)
 		s.ignorePeerTermination[connectedPeer] = struct{}{}
 		s.scheduledPeerConnection[pubStr] = func() {
-			s.peerConnected(conn, nil, true)
+			s.peerConnected(conn, nil, true, nil)
 		}
 	}
+}
+
+// outboundPeerConnected is a helper method that serves as the outbound callback
+// from the connection manager. It passes a nil errChan to OutboundPeerConnected
+// since we don't need to wait for the response.
+func (s *server) outboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) {
+	// TODO(conner): lookup errchan for conn req in map to respond to
+	// callers of persistent connection attempts?
+	s.OutboundPeerConnected(connReq, conn, nil)
 }
 
 // OutboundPeerConnected initializes a new peer in response to a new outbound
 // connection.
 // NOTE: This function is safe for concurrent access.
-func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) {
+func (s *server) OutboundPeerConnected(
+	connReq *connmgr.ConnReq, conn net.Conn, errChan chan<- error) {
+
+	// Create a closure that we can use to respond to a caller waiting for a
+	// response via the error chan if the connection is rejected.
+	replyIfErrChan := func(err error) {
+		if errChan != nil {
+			errChan <- err
+		}
+	}
+
 	// Exit early if we have already been instructed to shutdown, this
 	// prevents any delayed callbacks from accidentally registering peers.
 	if s.Stopped() {
+		replyIfErrChan(ErrServerShuttingDown)
 		return
 	}
 
@@ -2078,20 +2098,23 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	// If we already have an inbound connection to this peer, then ignore
 	// this new connection.
 	if _, ok := s.inboundPeers[pubStr]; ok {
-		srvrLog.Debugf("Already have inbound connection for %x, "+
+		err := fmt.Errorf("Already have inbound connection for %x, "+
 			"ignoring outbound connection",
 			nodePub.SerializeCompressed())
-
+		srvrLog.Debug(err)
 		if connReq != nil {
 			s.connMgr.Remove(connReq.ID())
 		}
 		conn.Close()
+		replyIfErrChan(err)
 		return
 	}
 	if _, ok := s.persistentConnReqs[pubStr]; !ok && connReq != nil {
-		srvrLog.Debugf("Ignoring cancelled outbound connection")
+		err := fmt.Errorf("Ignoring cancelled outbound connection")
+		srvrLog.Debug(err)
 		s.connMgr.Remove(connReq.ID())
 		conn.Close()
+		replyIfErrChan(err)
 		return
 	}
 
@@ -2099,13 +2122,15 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	// precedence once the prior peer has finished disconnecting, we'll
 	// ignore this connection.
 	if _, ok := s.scheduledPeerConnection[pubStr]; ok {
-		srvrLog.Debugf("Ignoring connection, peer already scheduled")
+		err := fmt.Errorf("Ignoring connection, peer already scheduled")
+		srvrLog.Debug(err)
 
 		if connReq != nil {
 			s.connMgr.Remove(connReq.ID())
 		}
 
 		conn.Close()
+		replyIfErrChan(err)
 		return
 	}
 
@@ -2132,7 +2157,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	case ErrPeerNotConnected:
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
-		s.peerConnected(conn, connReq, false)
+		s.peerConnected(conn, connReq, false, errChan)
 
 	case nil:
 		// We already have a connection open with the target peer.
@@ -2141,13 +2166,15 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		// connections.
 		localPub := s.identityPriv.PubKey()
 		if shouldDropLocalConnection(localPub, nodePub) {
-			srvrLog.Warnf("Established outbound connection to "+
+			err := fmt.Errorf("Established outbound connection to "+
 				"peer %x, but already connected, dropping conn",
 				nodePub.SerializeCompressed())
+			srvrLog.Warn(err)
 			if connReq != nil {
 				s.connMgr.Remove(connReq.ID())
 			}
 			conn.Close()
+			replyIfErrChan(err)
 			return
 		}
 
@@ -2163,7 +2190,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		s.removePeer(connectedPeer)
 		s.ignorePeerTermination[connectedPeer] = struct{}{}
 		s.scheduledPeerConnection[pubStr] = func() {
-			s.peerConnected(conn, connReq, false)
+			s.peerConnected(conn, connReq, false, errChan)
 		}
 	}
 }
@@ -2222,7 +2249,7 @@ func (s *server) cancelConnReqs(pubStr string, skip *uint64) {
 // starting all the goroutines the peer needs to function properly. The inbound
 // boolean should be true if the peer initiated the connection to us.
 func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
-	inbound bool) {
+	inbound bool, errChan chan<- error) {
 
 	brontideConn := conn.(*brontide.Conn)
 	addr := conn.RemoteAddr()
@@ -2250,7 +2277,11 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	// the set of currently active peers.
 	p, err := newPeer(conn, connReq, s, peerAddr, inbound, localFeatures)
 	if err != nil {
-		srvrLog.Errorf("unable to create peer %v", err)
+		err = fmt.Errorf("Unable to create peer %v", err)
+		srvrLog.Error(err)
+		if errChan != nil {
+			errChan <- err
+		}
 		return
 	}
 
@@ -2263,7 +2294,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	// includes sending and receiving Init messages, which would be a DOS
 	// vector if we held the server's mutex throughout the procedure.
 	s.wg.Add(1)
-	go s.peerInitializer(p)
+	go s.peerInitializer(p, errChan)
 }
 
 // addPeer adds the passed peer to the server's global state of all active
@@ -2304,7 +2335,7 @@ func (s *server) addPeer(p *peer) {
 // be signaled of the new peer once the method returns.
 //
 // NOTE: This MUST be launched as a goroutine.
-func (s *server) peerInitializer(p *peer) {
+func (s *server) peerInitializer(p *peer, errChan chan<- error) {
 	defer s.wg.Done()
 
 	// Avoid initializing peers while the server is exiting.
@@ -2329,8 +2360,15 @@ func (s *server) peerInitializer(p *peer) {
 	// Start teh peer! If an error occurs, we Disconnect the peer, which
 	// will unblock the peerTerminationWatcher.
 	if err := p.Start(); err != nil {
-		p.Disconnect(fmt.Errorf("unable to start peer: %v", err))
+		err = fmt.Errorf("unable to start peer: %v", err)
+		p.Disconnect(err)
+		if errChan != nil {
+			errChan <- err
+		}
 		return
+	}
+	if errChan != nil {
+		close(errChan)
 	}
 
 	// Otherwise, signal to the peerTerminationWatcher that the peer startup
@@ -2650,9 +2688,7 @@ func (s *server) connectToPeer(addr *lnwire.NetAddress, errChan chan<- error) {
 		return
 	}
 
-	close(errChan)
-
-	s.OutboundPeerConnected(nil, conn)
+	s.OutboundPeerConnected(nil, conn, errChan)
 }
 
 // DisconnectPeer sends the request to server to close the connection with peer

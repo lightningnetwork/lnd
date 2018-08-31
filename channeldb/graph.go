@@ -1618,33 +1618,41 @@ func (c *ChannelGraph) UpdateEdgePolicy(edge *ChannelEdgePolicy) error {
 			return err
 		}
 
-		// Create the channelID key be converting the channel ID
-		// integer into a byte slice.
-		var chanID [8]byte
-		byteOrder.PutUint64(chanID[:], edge.ChannelID)
-
-		// With the channel ID, we then fetch the value storing the two
-		// nodes which connect this channel edge.
-		nodeInfo := edgeIndex.Get(chanID[:])
-		if nodeInfo == nil {
-			return ErrEdgeNotFound
-		}
-
-		// Depending on the flags value passed above, either the first
-		// or second edge policy is being updated.
-		var fromNode, toNode []byte
-		if edge.Flags&lnwire.ChanUpdateDirection == 0 {
-			fromNode = nodeInfo[:33]
-			toNode = nodeInfo[33:67]
-		} else {
-			fromNode = nodeInfo[33:67]
-			toNode = nodeInfo[:33]
-		}
-
-		// Finally, with the direction of the edge being updated
-		// identified, we update the on-disk edge representation.
-		return putChanEdgePolicy(edges, edge, fromNode, toNode)
+		return updateEdgePolicy(edges, edgeIndex, edge)
 	})
+}
+
+// updateEdgePolicy attempts to update an edge's policy within the relevant
+// buckets using an existing database transaction.
+func updateEdgePolicy(edges, edgeIndex *bolt.Bucket,
+	edge *ChannelEdgePolicy) error {
+
+	// Create the channelID key be converting the channel ID
+	// integer into a byte slice.
+	var chanID [8]byte
+	byteOrder.PutUint64(chanID[:], edge.ChannelID)
+
+	// With the channel ID, we then fetch the value storing the two
+	// nodes which connect this channel edge.
+	nodeInfo := edgeIndex.Get(chanID[:])
+	if nodeInfo == nil {
+		return ErrEdgeNotFound
+	}
+
+	// Depending on the flags value passed above, either the first
+	// or second edge policy is being updated.
+	var fromNode, toNode []byte
+	if edge.Flags&lnwire.ChanUpdateDirection == 0 {
+		fromNode = nodeInfo[:33]
+		toNode = nodeInfo[33:67]
+	} else {
+		fromNode = nodeInfo[33:67]
+		toNode = nodeInfo[:33]
+	}
+
+	// Finally, with the direction of the edge being updated
+	// identified, we update the on-disk edge representation.
+	return putChanEdgePolicy(edges, edge, fromNode, toNode)
 }
 
 // LightningNode represents an individual vertex/node within the channel graph.

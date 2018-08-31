@@ -2178,6 +2178,26 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 		uint64(edge2.LastUpdate.Unix()),
 	)
 
+	// Now, we'll update the edge policies to ensure the old timestamps are
+	// removed from the update index.
+	edge1.Flags = 2
+	edge1.LastUpdate = time.Now()
+	if err := graph.UpdateEdgePolicy(edge1); err != nil {
+		t.Fatalf("unable to update edge: %v", err)
+	}
+	edge2.Flags = 3
+	edge2.LastUpdate = edge1.LastUpdate.Add(time.Hour)
+	if err := graph.UpdateEdgePolicy(edge2); err != nil {
+		t.Fatalf("unable to update edge: %v", err)
+	}
+
+	// With the policies updated, we should now be able to find their
+	// updated entries within the update index.
+	checkIndexTimestamps(
+		uint64(edge1.LastUpdate.Unix()),
+		uint64(edge2.LastUpdate.Unix()),
+	)
+
 	// Now we'll prune the graph, removing the edges, and also the update
 	// index entries from the database all together.
 	var blockHash chainhash.Hash

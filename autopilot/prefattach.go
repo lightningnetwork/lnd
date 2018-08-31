@@ -249,7 +249,8 @@ func (p *ConstrainedPrefAttachment) Select(self *btcec.PublicKey, g ChannelGraph
 				X: pub.X,
 				Y: pub.Y,
 			},
-			Addrs: selectedNode.Addrs(),
+			NodeID: NewNodeID(pub),
+			Addrs:  selectedNode.Addrs(),
 		})
 
 		// With the node selected, we'll add it to the set of visited

@@ -117,6 +117,11 @@ type Agent struct {
 	// affect the heuristics of the agent will be sent over.
 	stateUpdates chan interface{}
 
+	// nodeUpdates is a channel that changes to the graph node landscape
+	// will be sent over. This channel will be buffered to ensure we have
+	// at most one pending update of this type to handle at a given time.
+	nodeUpdates chan *nodeUpdates
+
 	// totalBalance is the total number of satoshis the backing wallet is
 	// known to control at any given instance. This value will be updated
 	// when the agent receives external balance update signals.
@@ -136,6 +141,7 @@ func New(cfg Config, initialState []Channel) (*Agent, error) {
 		chanState:    make(map[lnwire.ShortChannelID]Channel),
 		quit:         make(chan struct{}),
 		stateUpdates: make(chan interface{}),
+		nodeUpdates:  make(chan *nodeUpdates, 1),
 	}
 
 	for _, c := range initialState {
@@ -223,15 +229,10 @@ func (a *Agent) OnBalanceChange() {
 // OnNodeUpdates is a callback that should be executed each time our channel
 // graph has new nodes or their node announcements are updated.
 func (a *Agent) OnNodeUpdates() {
-	a.wg.Add(1)
-	go func() {
-		defer a.wg.Done()
-
-		select {
-		case a.stateUpdates <- &nodeUpdates{}:
-		case <-a.quit:
-		}
-	}()
+	select {
+	case a.nodeUpdates <- &nodeUpdates{}:
+	default:
+	}
 }
 
 // OnChannelOpen is a callback that should be executed each time a new channel
@@ -430,15 +431,14 @@ func (a *Agent) controller() {
 				}
 
 				updateBalance()
-
-			// New nodes have been added to the graph or their node
-			// announcements have been updated. We will consider
-			// opening channels to these nodes if we haven't
-			// stabilized.
-			case *nodeUpdates:
-				log.Infof("Node updates received, assessing " +
-					"need for more channels")
 			}
+
+		// New nodes have been added to the graph or their node
+		// announcements have been updated. We will consider opening
+		// channels to these nodes if we haven't stabilized.
+		case <-a.nodeUpdates:
+			log.Infof("Node updates received, assessing " +
+				"need for more channels")
 
 		// The agent has been signalled to exit, so we'll bail out
 		// immediately.

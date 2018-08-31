@@ -1222,7 +1222,9 @@ func (c *ChannelGraph) ChanUpdatesInHorizon(startTime, endTime time.Time) ([]Cha
 			// First, we'll fetch the static edge information.
 			edgeInfo, err := fetchChanEdgeInfo(edgeIndex, chanID)
 			if err != nil {
-				return err
+				chanID := byteOrder.Uint64(chanID)
+				return fmt.Errorf("unable to fetch info for "+
+					"edge with chan_id=%v: %v", chanID, err)
 			}
 			edgeInfo.db = c.db
 
@@ -1232,7 +1234,10 @@ func (c *ChannelGraph) ChanUpdatesInHorizon(startTime, endTime time.Time) ([]Cha
 				edgeIndex, edges, nodes, chanID, c.db,
 			)
 			if err != nil {
-				return err
+				chanID := byteOrder.Uint64(chanID)
+				return fmt.Errorf("unable to fetch policies "+
+					"for edge with chan_id=%v: %v", chanID,
+					err)
 			}
 
 			// Finally, we'll collate this edge with the rest of

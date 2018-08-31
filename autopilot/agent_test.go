@@ -345,6 +345,7 @@ func TestAgentChannelFailureSignal(t *testing.T) {
 	// attempt to open a channel.
 	var fakeDirective = AttachmentDirective{
 		PeerKey: self,
+		NodeID:  NewNodeID(self),
 		ChanAmt: btcutil.SatoshiPerBitcoin,
 		Addrs: []net.Addr{
 			&net.TCPAddr{
@@ -726,9 +727,16 @@ func TestAgentImmediateAttach(t *testing.T) {
 	// requests attachment directives. We'll generate 5 mock directives so
 	// it can progress within its loop.
 	directives := make([]AttachmentDirective, numChans)
+	nodeKeys := make(map[NodeID]struct{})
 	for i := 0; i < numChans; i++ {
+		pub, err := randKey()
+		if err != nil {
+			t.Fatalf("unable to generate key: %v", err)
+		}
+		nodeID := NewNodeID(pub)
 		directives[i] = AttachmentDirective{
-			PeerKey: self,
+			PeerKey: pub,
+			NodeID:  nodeID,
 			ChanAmt: btcutil.SatoshiPerBitcoin,
 			Addrs: []net.Addr{
 				&net.TCPAddr{
@@ -736,6 +744,7 @@ func TestAgentImmediateAttach(t *testing.T) {
 				},
 			},
 		}
+		nodeKeys[nodeID] = struct{}{}
 	}
 
 	wg = sync.WaitGroup{}
@@ -767,11 +776,13 @@ func TestAgentImmediateAttach(t *testing.T) {
 				t.Fatalf("invalid chan amt: expected %v, got %v",
 					btcutil.SatoshiPerBitcoin, openChan.amt)
 			}
-			if !openChan.target.IsEqual(self) {
-				t.Fatalf("unexpected key: expected %x, got %x",
-					self.SerializeCompressed(),
-					openChan.target.SerializeCompressed())
+			nodeID := NewNodeID(openChan.target)
+			_, ok := nodeKeys[nodeID]
+			if !ok {
+				t.Fatalf("unexpected key: %v, not found",
+					nodeID)
 			}
+			delete(nodeKeys, nodeID)
 		case <-time.After(time.Second * 10):
 			t.Fatalf("channel not opened in time")
 		}
@@ -873,8 +884,13 @@ func TestAgentPrivateChannels(t *testing.T) {
 	// it can progress within its loop.
 	directives := make([]AttachmentDirective, numChans)
 	for i := 0; i < numChans; i++ {
+		pub, err := randKey()
+		if err != nil {
+			t.Fatalf("unable to generate key: %v", err)
+		}
 		directives[i] = AttachmentDirective{
-			PeerKey: self,
+			PeerKey: pub,
+			NodeID:  NewNodeID(pub),
 			ChanAmt: btcutil.SatoshiPerBitcoin,
 			Addrs: []net.Addr{
 				&net.TCPAddr{
@@ -1015,6 +1031,7 @@ func TestAgentPendingChannelState(t *testing.T) {
 	nodeID := NewNodeID(nodeKey)
 	nodeDirective := AttachmentDirective{
 		PeerKey: nodeKey,
+		NodeID:  nodeID,
 		ChanAmt: 0.5 * btcutil.SatoshiPerBitcoin,
 		Addrs: []net.Addr{
 			&net.TCPAddr{
@@ -1073,7 +1090,7 @@ func TestAgentPendingChannelState(t *testing.T) {
 		}
 		if req.chans[0].Node != nodeID {
 			t.Fatalf("wrong node ID: expected %x, got %x",
-				req.chans[0].Node[:], nodeID)
+				nodeID, req.chans[0].Node[:])
 		}
 	case <-time.After(time.Second * 10):
 		t.Fatalf("need more chans wasn't queried in time")

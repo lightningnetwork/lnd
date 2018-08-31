@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"container/list"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -15,7 +16,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -32,7 +32,7 @@ var (
 	numNodes int32
 
 	// ErrPeerExiting signals that the peer received a disconnect request.
-	ErrPeerExiting = errors.Errorf("peer exiting")
+	ErrPeerExiting = fmt.Errorf("peer exiting")
 )
 
 const (
@@ -113,7 +113,7 @@ type peer struct {
 	pubKeyBytes [33]byte
 
 	// startTime is the time this peer connection was successfully
-	// established. It will be zero for peers that did not successfuly
+	// established. It will be zero for peers that did not successfully
 	// Start().
 	startTime time.Time
 
@@ -239,7 +239,7 @@ func (p *peer) Start() error {
 		return nil
 	}
 
-	peerLog.Tracef("peer %v starting", p)
+	peerLog.Tracef("Peer %v starting", p)
 
 	// Exchange local and global features, the init message should be very
 	// first between two nodes.
@@ -606,7 +606,7 @@ func (p *peer) Disconnect(reason error) {
 		return
 	}
 
-	peerLog.Debugf("Disconnecting %s, reason: %v", p, reason)
+	peerLog.Infof("Disconnecting %s, reason: %v", p, reason)
 
 	// Ensure that the TCP connection is properly closed before continuing.
 	p.conn.Close()
@@ -1361,7 +1361,8 @@ out:
 			}
 
 			if err != nil {
-				exitErr = errors.Errorf("unable to write message: %v", err)
+				exitErr = fmt.Errorf("unable to write "+
+					"message: %v", err)
 				break out
 			}
 
@@ -2093,17 +2094,15 @@ func (p *peer) handleInitMsg(msg *lnwire.Init) error {
 
 	unknownLocalFeatures := p.remoteLocalFeatures.UnknownRequiredFeatures()
 	if len(unknownLocalFeatures) > 0 {
-		err := errors.Errorf("Peer set unknown local feature bits: %v",
+		err := fmt.Errorf("Peer set unknown local feature bits: %v",
 			unknownLocalFeatures)
-		peerLog.Error(err)
 		return err
 	}
 
 	unknownGlobalFeatures := p.remoteGlobalFeatures.UnknownRequiredFeatures()
 	if len(unknownGlobalFeatures) > 0 {
-		err := errors.Errorf("Peer set unknown global feature bits: %v",
+		err := fmt.Errorf("Peer set unknown global feature bits: %v",
 			unknownGlobalFeatures)
-		peerLog.Error(err)
 		return err
 	}
 

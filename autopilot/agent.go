@@ -122,6 +122,12 @@ type Agent struct {
 	// at most one pending update of this type to handle at a given time.
 	nodeUpdates chan *nodeUpdates
 
+	// pendingOpenUpdates is a channel where updates about channel pending
+	// opening will be sent. This channel will be buffered to ensure we
+	// have at most one pending update of this type to handle at a given
+	// time.
+	pendingOpenUpdates chan *chanPendingOpenUpdate
+
 	// chanOpenFailures is a channel where updates about channel open
 	// failures will be sent. This channel will be buffered to ensure we
 	// have at most one pending update of this type to handle at a given
@@ -143,12 +149,13 @@ type Agent struct {
 // the backing Lightning Node.
 func New(cfg Config, initialState []Channel) (*Agent, error) {
 	a := &Agent{
-		cfg:              cfg,
-		chanState:        make(map[lnwire.ShortChannelID]Channel),
-		quit:             make(chan struct{}),
-		stateUpdates:     make(chan interface{}),
-		nodeUpdates:      make(chan *nodeUpdates, 1),
-		chanOpenFailures: make(chan *chanOpenFailureUpdate, 1),
+		cfg:                cfg,
+		chanState:          make(map[lnwire.ShortChannelID]Channel),
+		quit:               make(chan struct{}),
+		stateUpdates:       make(chan interface{}),
+		nodeUpdates:        make(chan *nodeUpdates, 1),
+		chanOpenFailures:   make(chan *chanOpenFailureUpdate, 1),
+		pendingOpenUpdates: make(chan *chanPendingOpenUpdate, 1),
 	}
 
 	for _, c := range initialState {
@@ -260,12 +267,10 @@ func (a *Agent) OnChannelOpen(c Channel) {
 // channel is opened, either by the agent or an external subsystems, but is
 // still pending.
 func (a *Agent) OnChannelPendingOpen() {
-	go func() {
-		select {
-		case a.stateUpdates <- &chanPendingOpenUpdate{}:
-		case <-a.quit:
-		}
-	}()
+	select {
+	case a.pendingOpenUpdates <- &chanPendingOpenUpdate{}:
+	default:
+	}
 }
 
 // OnChannelOpenFailure is a callback that should be executed when the
@@ -406,13 +411,6 @@ func (a *Agent) controller() {
 				pendingMtx.Unlock()
 
 				updateBalance()
-
-			// A new channel has been opened by the agent or an
-			// external subsystem, but is still pending
-			// confirmation.
-			case *chanPendingOpenUpdate:
-				updateBalance()
-
 			// A channel has been closed, this may free up an
 			// available slot, triggering a new channel update.
 			case *chanCloseUpdate:
@@ -426,6 +424,11 @@ func (a *Agent) controller() {
 
 				updateBalance()
 			}
+
+		// A new channel has been opened by the agent or an external
+		// subsystem, but is still pending confirmation.
+		case <-a.pendingOpenUpdates:
+			updateBalance()
 
 		// The channel we tried to open previously failed for whatever
 		// reason.

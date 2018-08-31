@@ -74,6 +74,12 @@ var (
 			number:    5,
 			migration: paymentStatusesMigration,
 		},
+		{
+			// The DB version that properly prunes stale entries
+			// from the edge update index.
+			number:    6,
+			migration: migratePruneEdgeUpdateIndex,
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over

@@ -3,6 +3,7 @@ package autopilot
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"testing"
@@ -1308,5 +1309,182 @@ func TestAgentOnNodeUpdates(t *testing.T) {
 	case heuristic.directiveResps <- []AttachmentDirective{}:
 	case <-time.After(time.Second * 10):
 		t.Fatalf("Select was not called but should have been")
+	}
+}
+
+// TestAgentSkipPendingConns asserts that the agent will not try to make
+// duplicate connection requests to the same node, even if the attachment
+// heuristic instructs the agent to do so. It also asserts that the agent
+// stops tracking the pending connection once it finishes. Note that in
+// practice, a failed connection would be inserted into the skip map passed to
+// the attachment heuristic, though this does not assert that case.
+func TestAgentSkipPendingConns(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll create all the dependencies that we'll need in order to
+	// create the autopilot agent.
+	self, err := randKey()
+	if err != nil {
+		t.Fatalf("unable to generate key: %v", err)
+	}
+	heuristic := &mockHeuristic{
+		moreChansResps: make(chan moreChansResp),
+		directiveResps: make(chan []AttachmentDirective),
+	}
+	chanController := &mockChanController{
+		openChanSignals: make(chan openChanIntent),
+	}
+	memGraph, _, _ := newMemChanGraph()
+
+	// The wallet will start with 6 BTC available.
+	const walletBalance = btcutil.SatoshiPerBitcoin * 6
+
+	connect := make(chan chan error)
+
+	// With the dependencies we created, we can now create the initial
+	// agent itself.
+	testCfg := Config{
+		Self:           self,
+		Heuristic:      heuristic,
+		ChanController: chanController,
+		WalletBalance: func() (btcutil.Amount, error) {
+			return walletBalance, nil
+		},
+		ConnectToPeer: func(*btcec.PublicKey, []net.Addr) (bool, error) {
+			errChan := make(chan error)
+			connect <- errChan
+			err := <-errChan
+			return false, err
+		},
+		DisconnectPeer: func(*btcec.PublicKey) error {
+			return nil
+		},
+		Graph:           memGraph,
+		MaxPendingOpens: 10,
+	}
+	initialChans := []Channel{}
+	agent, err := New(testCfg, initialChans)
+	if err != nil {
+		t.Fatalf("unable to create agent: %v", err)
+	}
+
+	// To ensure the heuristic doesn't block on quitting the agent, we'll
+	// use the agent's quit chan to signal when it should also stop.
+	heuristic.quit = agent.quit
+
+	// With the autopilot agent and all its dependencies we'll start the
+	// primary controller goroutine.
+	if err := agent.Start(); err != nil {
+		t.Fatalf("unable to start agent: %v", err)
+	}
+	defer agent.Stop()
+
+	// We'll send an initial "yes" response to advance the agent past its
+	// initial check. This will cause it to try to get directives from the
+	// graph.
+	select {
+	case heuristic.moreChansResps <- moreChansResp{
+		needMore: true,
+		numMore:  1,
+		amt:      walletBalance,
+	}:
+	case <-time.After(time.Second * 10):
+		t.Fatalf("heuristic wasn't queried in time")
+	}
+
+	// Next, the agent should deliver a query to the Select method of the
+	// heuristic. We'll only return a single directive for a pre-chosen
+	// node.
+	nodeKey, err := randKey()
+	if err != nil {
+		t.Fatalf("unable to generate key: %v", err)
+	}
+	nodeDirective := AttachmentDirective{
+		PeerKey: nodeKey,
+		NodeID:  NewNodeID(nodeKey),
+		ChanAmt: 0.5 * btcutil.SatoshiPerBitcoin,
+		Addrs: []net.Addr{
+			&net.TCPAddr{
+				IP: bytes.Repeat([]byte("a"), 16),
+			},
+		},
+	}
+	select {
+	case heuristic.directiveResps <- []AttachmentDirective{nodeDirective}:
+	case <-time.After(time.Second * 10):
+		t.Fatalf("heuristic wasn't queried in time")
+	}
+
+	var errChan chan error
+	select {
+	case errChan = <-connect:
+	case <-time.After(time.Second * 10):
+		t.Fatalf("agent did not attempt connection")
+	}
+
+	// Signal the agent to go again, now that we've tried to connect.
+	agent.OnNodeUpdates()
+
+	// The heuristic again informs the agent that we need more channels.
+	select {
+	case heuristic.moreChansResps <- moreChansResp{
+		needMore: true,
+		numMore:  1,
+		amt:      walletBalance,
+	}:
+	case <-time.After(time.Second * 10):
+		t.Fatalf("heuristic wasn't queried in time")
+	}
+
+	// Send a directive for the same node, which already has a pending conn.
+	select {
+	case heuristic.directiveResps <- []AttachmentDirective{nodeDirective}:
+	case <-time.After(time.Second * 10):
+		t.Fatalf("heuristic wasn't queried in time")
+	}
+
+	// This time, the agent should skip trying to connect to the node with a
+	// pending connection.
+	select {
+	case <-connect:
+		t.Fatalf("agent should not have attempted connection")
+	case <-time.After(time.Second * 3):
+	}
+
+	// Now, timeout the original request, which should still be waiting for
+	// a response.
+	select {
+	case errChan <- fmt.Errorf("connection timeout"):
+	case <-time.After(time.Second * 10):
+		t.Fatalf("agent did not receive connection timeout")
+	}
+
+	// Signal the agent to try again, now that there are no pending conns.
+	agent.OnNodeUpdates()
+
+	// The heuristic again informs the agent that we need more channels.
+	select {
+	case heuristic.moreChansResps <- moreChansResp{
+		needMore: true,
+		numMore:  1,
+		amt:      walletBalance,
+	}:
+	case <-time.After(time.Second * 10):
+		t.Fatalf("heuristic wasn't queried in time")
+	}
+
+	// Send a directive for the same node, which already has a pending conn.
+	select {
+	case heuristic.directiveResps <- []AttachmentDirective{nodeDirective}:
+	case <-time.After(time.Second * 10):
+		t.Fatalf("heuristic wasn't queried in time")
+	}
+
+	// This time, the agent should try the connection since the peer has
+	// been removed from the pending map.
+	select {
+	case <-connect:
+	case <-time.After(time.Second * 10):
+		t.Fatalf("agent have attempted connection")
 	}
 }

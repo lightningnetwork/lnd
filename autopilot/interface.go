@@ -90,6 +90,9 @@ type AttachmentDirective struct {
 	// a ChannelOpener implementation to execute the directive.
 	PeerKey *btcec.PublicKey
 
+	// NodeID is the serialized compressed pubkey of the target node.
+	NodeID NodeID
+
 	// ChanAmt is the size of the channel that should be opened, expressed
 	// in satoshis.
 	ChanAmt btcutil.Amount

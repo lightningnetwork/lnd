@@ -122,6 +122,12 @@ type Agent struct {
 	// at most one pending update of this type to handle at a given time.
 	nodeUpdates chan *nodeUpdates
 
+	// chanOpenFailures is a channel where updates about channel open
+	// failures will be sent. This channel will be buffered to ensure we
+	// have at most one pending update of this type to handle at a given
+	// time.
+	chanOpenFailures chan *chanOpenFailureUpdate
+
 	// totalBalance is the total number of satoshis the backing wallet is
 	// known to control at any given instance. This value will be updated
 	// when the agent receives external balance update signals.
@@ -137,11 +143,12 @@ type Agent struct {
 // the backing Lightning Node.
 func New(cfg Config, initialState []Channel) (*Agent, error) {
 	a := &Agent{
-		cfg:          cfg,
-		chanState:    make(map[lnwire.ShortChannelID]Channel),
-		quit:         make(chan struct{}),
-		stateUpdates: make(chan interface{}),
-		nodeUpdates:  make(chan *nodeUpdates, 1),
+		cfg:              cfg,
+		chanState:        make(map[lnwire.ShortChannelID]Channel),
+		quit:             make(chan struct{}),
+		stateUpdates:     make(chan interface{}),
+		nodeUpdates:      make(chan *nodeUpdates, 1),
+		chanOpenFailures: make(chan *chanOpenFailureUpdate, 1),
 	}
 
 	for _, c := range initialState {
@@ -265,15 +272,10 @@ func (a *Agent) OnChannelPendingOpen() {
 // autopilot has attempted to open a channel, but failed. In this case we can
 // retry channel creation with a different node.
 func (a *Agent) OnChannelOpenFailure() {
-	a.wg.Add(1)
-	go func() {
-		defer a.wg.Done()
-
-		select {
-		case a.stateUpdates <- &chanOpenFailureUpdate{}:
-		case <-a.quit:
-		}
-	}()
+	select {
+	case a.chanOpenFailures <- &chanOpenFailureUpdate{}:
+	default:
+	}
 }
 
 // OnChannelClose is a callback that should be executed each time a prior
@@ -388,14 +390,6 @@ func (a *Agent) controller() {
 
 				updateBalance()
 
-			// The channel we tried to open previously failed for
-			// whatever reason.
-			case *chanOpenFailureUpdate:
-				log.Debug("Retrying after previous channel " +
-					"open failure.")
-
-				updateBalance()
-
 			// A new channel has been opened successfully. This was
 			// either opened by the Agent, or an external system
 			// that is able to drive the Lightning Node.
@@ -432,6 +426,14 @@ func (a *Agent) controller() {
 
 				updateBalance()
 			}
+
+		// The channel we tried to open previously failed for whatever
+		// reason.
+		case <-a.chanOpenFailures:
+			log.Debug("Retrying after previous channel open " +
+				"failure.")
+
+			updateBalance()
 
 		// New nodes have been added to the graph or their node
 		// announcements have been updated. We will consider opening

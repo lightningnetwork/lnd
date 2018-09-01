@@ -1,6 +1,9 @@
 package lnwire
 
-import "io"
+import (
+	"io"
+	"io/ioutil"
+)
 
 // AnnounceSignatures this is a direct message between two endpoints of a
 // channel and serves as an opt-in mechanism to allow the announcement of
@@ -30,6 +33,14 @@ type AnnounceSignatures struct {
 	// bitcoin key and and creating the reverse reference bitcoin_key ->
 	// node_key.
 	BitcoinSignature Sig
+
+	// ExtraOpaqueData is the set of data that was appended to this
+	// message, some of which we may not actually know how to iterate or
+	// parse. By holding onto this data, we ensure that we're able to
+	// properly validate the set of signatures that cover these new fields,
+	// and ensure we're able to make upgrades to the network in a forwards
+	// compatible manner.
+	ExtraOpaqueData []byte
 }
 
 // A compile time check to ensure AnnounceSignatures implements the
@@ -41,12 +52,29 @@ var _ Message = (*AnnounceSignatures)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (a *AnnounceSignatures) Decode(r io.Reader, pver uint32) error {
-	return readElements(r,
+	err := readElements(r,
 		&a.ChannelID,
 		&a.ShortChannelID,
 		&a.NodeSignature,
 		&a.BitcoinSignature,
 	)
+	if err != nil {
+		return err
+	}
+
+	// Now that we've read out all the fields that we explicitly know of,
+	// we'll collect the remainder into the ExtraOpaqueData field. If there
+	// aren't any bytes, then we'll snip off the slice to avoid carrying
+	// around excess capacity.
+	a.ExtraOpaqueData, err = ioutil.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	if len(a.ExtraOpaqueData) == 0 {
+		a.ExtraOpaqueData = nil
+	}
+
+	return nil
 }
 
 // Encode serializes the target AnnounceSignatures into the passed io.Writer
@@ -59,6 +87,7 @@ func (a *AnnounceSignatures) Encode(w io.Writer, pver uint32) error {
 		a.ShortChannelID,
 		a.NodeSignature,
 		a.BitcoinSignature,
+		a.ExtraOpaqueData,
 	)
 }
 
@@ -75,19 +104,5 @@ func (a *AnnounceSignatures) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (a *AnnounceSignatures) MaxPayloadLength(pver uint32) uint32 {
-	var length uint32
-
-	// ChannelID - 36 bytes
-	length += 36
-
-	// ShortChannelID - 8 bytes
-	length += 8
-
-	// NodeSignatures - 64 bytes
-	length += 64
-
-	// BitcoinSignatures - 64 bytes
-	length += 64
-
-	return length
+	return 65533
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image/color"
 	"io"
+	"io/ioutil"
 	"net"
 	"unicode/utf8"
 )
@@ -83,6 +84,14 @@ type NodeAnnouncement struct {
 	// Address includes two specification fields: 'ipv6' and 'port' on
 	// which the node is accepting incoming connections.
 	Addresses []net.Addr
+
+	// ExtraOpaqueData is the set of data that was appended to this
+	// message, some of which we may not actually know how to iterate or
+	// parse. By holding onto this data, we ensure that we're able to
+	// properly validate the set of signatures that cover these new fields,
+	// and ensure we're able to make upgrades to the network in a forwards
+	// compatible manner.
+	ExtraOpaqueData []byte
 }
 
 // UpdateNodeAnnAddrs is a functional option that allows updating the addresses
@@ -102,7 +111,7 @@ var _ Message = (*NodeAnnouncement)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (a *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
-	return readElements(r,
+	err := readElements(r,
 		&a.Signature,
 		&a.Features,
 		&a.Timestamp,
@@ -111,6 +120,23 @@ func (a *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
 		a.Alias[:],
 		&a.Addresses,
 	)
+	if err != nil {
+		return err
+	}
+
+	// Now that we've read out all the fields that we explicitly know of,
+	// we'll collect the remainder into the ExtraOpaqueData field. If there
+	// aren't any bytes, then we'll snip off the slice to avoid carrying
+	// around excess capacity.
+	a.ExtraOpaqueData, err = ioutil.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	if len(a.ExtraOpaqueData) == 0 {
+		a.ExtraOpaqueData = nil
+	}
+
+	return nil
 }
 
 // Encode serializes the target NodeAnnouncement into the passed io.Writer
@@ -125,6 +151,7 @@ func (a *NodeAnnouncement) Encode(w io.Writer, pver uint32) error {
 		a.RGBColor,
 		a.Alias[:],
 		a.Addresses,
+		a.ExtraOpaqueData,
 	)
 }
 
@@ -156,12 +183,11 @@ func (a *NodeAnnouncement) DataToSign() ([]byte, error) {
 		a.RGBColor,
 		a.Alias[:],
 		a.Addresses,
+		a.ExtraOpaqueData,
 	)
 	if err != nil {
 		return nil, err
 	}
-
-	// TODO(roasbeef): also capture the excess bytes in msg padded out?
 
 	return w.Bytes(), nil
 }

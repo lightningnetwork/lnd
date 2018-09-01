@@ -537,6 +537,17 @@ func TestLightningWireProtocol(t *testing.T) {
 				return
 			}
 
+			numExtraBytes := r.Int31n(1000)
+			if numExtraBytes > 0 {
+				req.ExtraOpaqueData = make([]byte, numExtraBytes)
+				_, err := r.Read(req.ExtraOpaqueData[:])
+				if err != nil {
+					t.Fatalf("unable to generate opaque "+
+						"bytes: %v", err)
+					return
+				}
+			}
+
 			v[0] = reflect.ValueOf(req)
 		},
 		MsgNodeAnnouncement: func(v []reflect.Value, r *rand.Rand) {
@@ -574,6 +585,17 @@ func TestLightningWireProtocol(t *testing.T) {
 				t.Fatalf("unable to generate addresses: %v", err)
 			}
 
+			numExtraBytes := r.Int31n(1000)
+			if numExtraBytes > 0 {
+				req.ExtraOpaqueData = make([]byte, numExtraBytes)
+				_, err := r.Read(req.ExtraOpaqueData[:])
+				if err != nil {
+					t.Fatalf("unable to generate opaque "+
+						"bytes: %v", err)
+					return
+				}
+			}
+
 			v[0] = reflect.ValueOf(req)
 		},
 		MsgChannelUpdate: func(v []reflect.Value, r *rand.Rand) {
@@ -596,6 +618,17 @@ func TestLightningWireProtocol(t *testing.T) {
 			if _, err := r.Read(req.ChainHash[:]); err != nil {
 				t.Fatalf("unable to generate chain hash: %v", err)
 				return
+			}
+
+			numExtraBytes := r.Int31n(1000)
+			if numExtraBytes > 0 {
+				req.ExtraOpaqueData = make([]byte, numExtraBytes)
+				_, err := r.Read(req.ExtraOpaqueData[:])
+				if err != nil {
+					t.Fatalf("unable to generate opaque "+
+						"bytes: %v", err)
+					return
+				}
 			}
 
 			v[0] = reflect.ValueOf(req)
@@ -621,6 +654,17 @@ func TestLightningWireProtocol(t *testing.T) {
 			if _, err := r.Read(req.ChannelID[:]); err != nil {
 				t.Fatalf("unable to generate chan id: %v", err)
 				return
+			}
+
+			numExtraBytes := r.Int31n(1000)
+			if numExtraBytes > 0 {
+				req.ExtraOpaqueData = make([]byte, numExtraBytes)
+				_, err := r.Read(req.ExtraOpaqueData[:])
+				if err != nil {
+					t.Fatalf("unable to generate opaque "+
+						"bytes: %v", err)
+					return
+				}
 			}
 
 			v[0] = reflect.ValueOf(req)

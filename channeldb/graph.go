@@ -1694,6 +1694,14 @@ type LightningNode struct {
 	// Features is the list of protocol features supported by this node.
 	Features *lnwire.FeatureVector
 
+	// ExtraOpaqueData is the set of data that was appended to this
+	// message, some of which we may not actually know how to iterate or
+	// parse. By holding onto this data, we ensure that we're able to
+	// properly validate the set of signatures that cover these new fields,
+	// and ensure we're able to make upgrades to the network in a forwards
+	// compatible manner.
+	ExtraOpaqueData []byte
+
 	db *DB
 
 	// TODO(roasbeef): discovery will need storage to keep it's last IP
@@ -1977,6 +1985,14 @@ type ChannelEdgeInfo struct {
 	// Capacity is the total capacity of the channel, this is determined by
 	// the value output in the outpoint that created this channel.
 	Capacity btcutil.Amount
+
+	// ExtraOpaqueData is the set of data that was appended to this
+	// message, some of which we may not actually know how to iterate or
+	// parse. By holding onto this data, we ensure that we're able to
+	// properly validate the set of signatures that cover these new fields,
+	// and ensure we're able to make upgrades to the network in a forwards
+	// compatible manner.
+	ExtraOpaqueData []byte
 
 	db *DB
 }
@@ -2321,6 +2337,14 @@ type ChannelEdgePolicy struct {
 	// Node is the LightningNode that this directed edge leads to. Using
 	// this pointer the channel graph can further be traversed.
 	Node *LightningNode
+
+	// ExtraOpaqueData is the set of data that was appended to this
+	// message, some of which we may not actually know how to iterate or
+	// parse. By holding onto this data, we ensure that we're able to
+	// properly validate the set of signatures that cover these new fields,
+	// and ensure we're able to make upgrades to the network in a forwards
+	// compatible manner.
+	ExtraOpaqueData []byte
 
 	db *DB
 }
@@ -2691,6 +2715,11 @@ func putLightningNode(nodeBucket *bolt.Bucket, aliasBucket *bolt.Bucket,
 		return err
 	}
 
+	err = wire.WriteVarBytes(&b, 0, node.ExtraOpaqueData)
+	if err != nil {
+		return err
+	}
+
 	if err := aliasBucket.Put(nodePub, []byte(node.Alias)); err != nil {
 		return err
 	}
@@ -2815,6 +2844,13 @@ func deserializeLightningNode(r io.Reader) (LightningNode, error) {
 		return LightningNode{}, err
 	}
 
+	// We'll try and see if there are any opaque bytes left, if not, then
+	// we'll ignore the EOF error and return the node as is.
+	node.ExtraOpaqueData, err = wire.ReadVarBytes(r, 0, 1000, "blob")
+	if err != nil && err != io.ErrUnexpectedEOF {
+		return LightningNode{}, err
+	}
+
 	return node, nil
 }
 
@@ -2870,6 +2906,11 @@ func putChanEdgeInfo(edgeIndex *bolt.Bucket, edgeInfo *ChannelEdgeInfo, chanID [
 		return err
 	}
 	if _, err := b.Write(edgeInfo.ChainHash[:]); err != nil {
+		return err
+	}
+
+	err := wire.WriteVarBytes(&b, 0, edgeInfo.ExtraOpaqueData)
+	if err != nil {
 		return err
 	}
 
@@ -2950,6 +2991,13 @@ func deserializeChanEdgeInfo(r io.Reader) (ChannelEdgeInfo, error) {
 		return ChannelEdgeInfo{}, err
 	}
 
+	// We'll try and see if there are any opaque bytes left, if not, then
+	// we'll ignore the EOF error and return the edge as is.
+	edgeInfo.ExtraOpaqueData, err = wire.ReadVarBytes(r, 0, 1000, "blob")
+	if err != nil && err != io.ErrUnexpectedEOF {
+		return ChannelEdgeInfo{}, err
+	}
+
 	return edgeInfo, nil
 }
 
@@ -2995,6 +3043,10 @@ func putChanEdgePolicy(edges, nodes *bolt.Bucket, edge *ChannelEdgePolicy,
 	}
 
 	if _, err := b.Write(to); err != nil {
+		return err
+	}
+
+	if err := wire.WriteVarBytes(&b, 0, edge.ExtraOpaqueData); err != nil {
 		return err
 	}
 
@@ -3180,6 +3232,13 @@ func deserializeChanEdgePolicy(r io.Reader,
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch node: %x, %v",
 			pub[:], err)
+	}
+
+	// We'll try and see if there are any opaque bytes left, if not, then
+	// we'll ignore the EOF error and return the edge as is.
+	edge.ExtraOpaqueData, err = wire.ReadVarBytes(r, 0, 1000, "blob")
+	if err != nil && err != io.ErrUnexpectedEOF {
+		return nil, err
 	}
 
 	edge.Node = &node

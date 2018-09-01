@@ -1,6 +1,7 @@
 package lnwire
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
@@ -478,6 +479,44 @@ func (f FailInvalidOnionKey) Error() string {
 	return fmt.Sprintf("InvalidOnionKey(onion_sha=%x)", f.OnionSHA256[:])
 }
 
+// parseChannelUpdateCompatabilityMode will attempt to parse a channel updated
+// encoded into an onion error payload in two ways. First, we'll try the
+// compatibility oriented version wherein we'll _skip_ the length prefixing on
+// the channel update message. Older versions of c-lighting do this so we'll
+// attempt to parse these messages in order to retain compatibility. If we're
+// unable to pull out a fully valid version, then we'll fall back to the
+// regular parsing mechanism which includes the length prefix an NO type byte.
+func parseChannelUpdateCompatabilityMode(r *bufio.Reader,
+	chanUpdate *ChannelUpdate, pver uint32) error {
+
+	// We'll peek out two bytes from the buffer without advancing the
+	// buffer so we can decide how to parse the remainder of it.
+	maybeTypeBytes, err := r.Peek(2)
+	if err != nil {
+		return err
+	}
+
+	// Some nodes well prefix an additional set of bytes in front of their
+	// channel updates. These bytes will _almost_ always be 258 or the type
+	// of the ChannelUpdate message.
+	typeInt := binary.BigEndian.Uint16(maybeTypeBytes)
+	if typeInt == MsgChannelUpdate {
+		// At this point it's likely the case that this is a channel
+		// update message with its type prefixed, so we'll snip off the
+		// first two bytes and parse it as normal.
+		var throwAwayTypeBytes [2]byte
+		_, err := r.Read(throwAwayTypeBytes[:])
+		if err != nil {
+			return err
+		}
+	}
+
+	// At this pint, we've either decided to keep the entire thing, or snip
+	// off the first two bytes. In either case, we can just read it as
+	// normal.
+	return chanUpdate.Decode(r, pver)
+}
+
 // FailTemporaryChannelFailure is if an otherwise unspecified transient error
 // occurs for the outgoing channel (eg. channel capacity reached, too many
 // in-flight htlcs)
@@ -490,9 +529,6 @@ type FailTemporaryChannelFailure struct {
 	// NOTE: This field is optional.
 	Update *ChannelUpdate
 }
-
-// TODO(roasbeef): any error with an Update needs to include the edge+vertex of
-// failure
 
 // NewTemporaryChannelFailure creates new instance of the FailTemporaryChannelFailure.
 func NewTemporaryChannelFailure(update *ChannelUpdate) *FailTemporaryChannelFailure {
@@ -530,7 +566,9 @@ func (f *FailTemporaryChannelFailure) Decode(r io.Reader, pver uint32) error {
 
 	if length != 0 {
 		f.Update = &ChannelUpdate{}
-		return f.Update.Decode(r, pver)
+		return parseChannelUpdateCompatabilityMode(
+			bufio.NewReader(r), f.Update, pver,
+		)
 	}
 
 	return nil
@@ -610,7 +648,9 @@ func (f *FailAmountBelowMinimum) Decode(r io.Reader, pver uint32) error {
 	}
 
 	f.Update = ChannelUpdate{}
-	return f.Update.Decode(r, pver)
+	return parseChannelUpdateCompatabilityMode(
+		bufio.NewReader(r), &f.Update, pver,
+	)
 }
 
 // Encode writes the failure in bytes stream.
@@ -681,7 +721,9 @@ func (f *FailFeeInsufficient) Decode(r io.Reader, pver uint32) error {
 	}
 
 	f.Update = ChannelUpdate{}
-	return f.Update.Decode(r, pver)
+	return parseChannelUpdateCompatabilityMode(
+		bufio.NewReader(r), &f.Update, pver,
+	)
 }
 
 // Encode writes the failure in bytes stream.
@@ -752,7 +794,9 @@ func (f *FailIncorrectCltvExpiry) Decode(r io.Reader, pver uint32) error {
 	}
 
 	f.Update = ChannelUpdate{}
-	return f.Update.Decode(r, pver)
+	return parseChannelUpdateCompatabilityMode(
+		bufio.NewReader(r), &f.Update, pver,
+	)
 }
 
 // Encode writes the failure in bytes stream.
@@ -812,7 +856,9 @@ func (f *FailExpiryTooSoon) Decode(r io.Reader, pver uint32) error {
 	}
 
 	f.Update = ChannelUpdate{}
-	return f.Update.Decode(r, pver)
+	return parseChannelUpdateCompatabilityMode(
+		bufio.NewReader(r), &f.Update, pver,
+	)
 }
 
 // Encode writes the failure in bytes stream.
@@ -879,7 +925,9 @@ func (f *FailChannelDisabled) Decode(r io.Reader, pver uint32) error {
 	}
 
 	f.Update = ChannelUpdate{}
-	return f.Update.Decode(r, pver)
+	return parseChannelUpdateCompatabilityMode(
+		bufio.NewReader(r), &f.Update, pver,
+	)
 }
 
 // Encode writes the failure in bytes stream.

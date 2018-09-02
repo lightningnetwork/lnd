@@ -187,22 +187,13 @@ func TestAgentChannelOpenSignal(t *testing.T) {
 	}
 	defer agent.Stop()
 
-	var wg sync.WaitGroup
-
 	// We'll send an initial "no" response to advance the agent past its
 	// initial check.
-	wg.Add(1)
-	go func() {
-		select {
-		case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
-			wg.Done()
-			return
-		case <-time.After(time.Second * 10):
-			t.Fatalf("heuristic wasn't queried in time")
-		}
-	}()
-
-	wg.Wait()
+	select {
+	case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
+	case <-time.After(time.Second * 10):
+		t.Fatalf("heuristic wasn't queried in time")
+	}
 
 	// Next we'll signal a new channel being opened by the backing LN node,
 	// with a capacity of 1 BTC.
@@ -212,34 +203,20 @@ func TestAgentChannelOpenSignal(t *testing.T) {
 	}
 	agent.OnChannelOpen(newChan)
 
-	wg = sync.WaitGroup{}
-
 	// The agent should now query the heuristic in order to determine its
 	// next action as it local state has now been modified.
-	wg.Add(1)
-	go func() {
-		select {
-		case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
-			// At this point, the local state of the agent should
-			// have also been updated to reflect that the LN node
-			// now has an additional channel with one BTC.
-			if _, ok := agent.chanState[newChan.ChanID]; !ok {
-				t.Fatalf("internal channel state wasn't updated")
-			}
-
-			// With all of our assertions passed, we'll signal the
-			// main test goroutine to continue the test.
-			wg.Done()
-			return
-
-		case <-time.After(time.Second * 10):
-			t.Fatalf("heuristic wasn't queried in time")
+	select {
+	case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
+		// At this point, the local state of the agent should
+		// have also been updated to reflect that the LN node
+		// now has an additional channel with one BTC.
+		if _, ok := agent.chanState[newChan.ChanID]; !ok {
+			t.Fatalf("internal channel state wasn't updated")
 		}
-	}()
 
-	// We'll wait here for either the agent to query the heuristic to be
-	// queried, or for the timeout above to tick.
-	wg.Wait()
+	case <-time.After(time.Second * 10):
+		t.Fatalf("heuristic wasn't queried in time")
+	}
 
 	// There shouldn't be a call to the Select method as we've returned
 	// "false" for NeedMoreChans above.
@@ -443,55 +420,32 @@ func TestAgentChannelCloseSignal(t *testing.T) {
 	}
 	defer agent.Stop()
 
-	var wg sync.WaitGroup
-
 	// We'll send an initial "no" response to advance the agent past its
 	// initial check.
-	wg.Add(1)
-	go func() {
-		select {
-		case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
-			wg.Done()
-			return
-		case <-time.After(time.Second * 10):
-			t.Fatalf("heuristic wasn't queried in time")
-		}
-	}()
-
-	wg.Wait()
+	select {
+	case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
+	case <-time.After(time.Second * 10):
+		t.Fatalf("heuristic wasn't queried in time")
+	}
 
 	// Next, we'll close both channels which should force the agent to
 	// re-query the heuristic.
 	agent.OnChannelClose(initialChans[0].ChanID, initialChans[1].ChanID)
 
-	wg = sync.WaitGroup{}
-
 	// The agent should now query the heuristic in order to determine its
 	// next action as it local state has now been modified.
-	wg.Add(1)
-	go func() {
-		select {
-		case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
-			// At this point, the local state of the agent should
-			// have also been updated to reflect that the LN node
-			// has no existing open channels.
-			if len(agent.chanState) != 0 {
-				t.Fatalf("internal channel state wasn't updated")
-			}
-
-			// With all of our assertions passed, we'll signal the
-			// main test goroutine to continue the test.
-			wg.Done()
-			return
-
-		case <-time.After(time.Second * 10):
-			t.Fatalf("heuristic wasn't queried in time")
+	select {
+	case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
+		// At this point, the local state of the agent should
+		// have also been updated to reflect that the LN node
+		// has no existing open channels.
+		if len(agent.chanState) != 0 {
+			t.Fatalf("internal channel state wasn't updated")
 		}
-	}()
 
-	// We'll wait here for either the agent to query the heuristic to be
-	// queried, or for the timeout above to tick.
-	wg.Wait()
+	case <-time.After(time.Second * 10):
+		t.Fatalf("heuristic wasn't queried in time")
+	}
 
 	// There shouldn't be a call to the Select method as we've returned
 	// "false" for NeedMoreChans above.
@@ -569,22 +523,13 @@ func TestAgentBalanceUpdate(t *testing.T) {
 	}
 	defer agent.Stop()
 
-	var wg sync.WaitGroup
-
 	// We'll send an initial "no" response to advance the agent past its
 	// initial check.
-	wg.Add(1)
-	go func() {
-		select {
-		case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
-			wg.Done()
-			return
-		case <-time.After(time.Second * 10):
-			t.Fatalf("heuristic wasn't queried in time")
-		}
-	}()
-
-	wg.Wait()
+	select {
+	case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
+	case <-time.After(time.Second * 10):
+		t.Fatalf("heuristic wasn't queried in time")
+	}
 
 	// Next we'll send a new balance update signal to the agent, adding 5
 	// BTC to the amount of available funds.
@@ -594,36 +539,22 @@ func TestAgentBalanceUpdate(t *testing.T) {
 
 	agent.OnBalanceChange()
 
-	wg = sync.WaitGroup{}
-
 	// The agent should now query the heuristic in order to determine its
 	// next action as it local state has now been modified.
-	wg.Add(1)
-	go func() {
-		select {
-		case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
-			// At this point, the local state of the agent should
-			// have also been updated to reflect that the LN node
-			// now has an additional 5BTC available.
-			if agent.totalBalance != walletBalance {
-				t.Fatalf("expected %v wallet balance "+
-					"instead have %v", agent.totalBalance,
-					walletBalance)
-			}
-
-			// With all of our assertions passed, we'll signal the
-			// main test goroutine to continue the test.
-			wg.Done()
-			return
-
-		case <-time.After(time.Second * 10):
-			t.Fatalf("heuristic wasn't queried in time")
+	select {
+	case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
+		// At this point, the local state of the agent should
+		// have also been updated to reflect that the LN node
+		// now has an additional 5BTC available.
+		if agent.totalBalance != walletBalance {
+			t.Fatalf("expected %v wallet balance "+
+				"instead have %v", agent.totalBalance,
+				walletBalance)
 		}
-	}()
 
-	// We'll wait here for either the agent to query the heuristic to be
-	// queried, or for the timeout above to tick.
-	wg.Wait()
+	case <-time.After(time.Second * 10):
+		t.Fatalf("heuristic wasn't queried in time")
+	}
 
 	// There shouldn't be a call to the Select method as we've returned
 	// "false" for NeedMoreChans above.
@@ -697,31 +628,24 @@ func TestAgentImmediateAttach(t *testing.T) {
 	}
 	defer agent.Stop()
 
-	var wg sync.WaitGroup
-
 	const numChans = 5
 
 	// The very first thing the agent should do is query the NeedMoreChans
 	// method on the passed heuristic. So we'll provide it with a response
 	// that will kick off the main loop.
-	wg.Add(1)
-	go func() {
-		select {
+	select {
 
-		// We'll send over a response indicating that it should
-		// establish more channels, and give it a budget of 5 BTC to do
-		// so.
-		case heuristic.moreChansResps <- moreChansResp{true, numChans, 5 * btcutil.SatoshiPerBitcoin}:
-			wg.Done()
-			return
-		case <-time.After(time.Second * 10):
-			t.Fatalf("heuristic wasn't queried in time")
-		}
-	}()
-
-	// We'll wait here for the agent to query the heuristic. If ti doesn't
-	// do so within 10 seconds, then the test will fail out.
-	wg.Wait()
+	// We'll send over a response indicating that it should
+	// establish more channels, and give it a budget of 5 BTC to do
+	// so.
+	case heuristic.moreChansResps <- moreChansResp{
+		needMore: true,
+		numMore:  numChans,
+		amt:      5 * btcutil.SatoshiPerBitcoin,
+	}:
+	case <-time.After(time.Second * 10):
+		t.Fatalf("heuristic wasn't queried in time")
+	}
 
 	// At this point, the agent should now be querying the heuristic to
 	// requests attachment directives. We'll generate 5 mock directives so
@@ -747,24 +671,13 @@ func TestAgentImmediateAttach(t *testing.T) {
 		nodeKeys[nodeID] = struct{}{}
 	}
 
-	wg = sync.WaitGroup{}
-
 	// With our fake directives created, we'll now send then to the agent
 	// as a return value for the Select function.
-	wg.Add(1)
-	go func() {
-		select {
-		case heuristic.directiveResps <- directives:
-			wg.Done()
-			return
-		case <-time.After(time.Second * 10):
-			t.Fatalf("heuristic wasn't queried in time")
-		}
-	}()
-
-	// We'll wait here for either the agent to query the heuristic to be
-	// queried, or for the timeout above to tick.
-	wg.Wait()
+	select {
+	case heuristic.directiveResps <- directives:
+	case <-time.After(time.Second * 10):
+		t.Fatalf("heuristic wasn't queried in time")
+	}
 
 	// Finally, we should receive 5 calls to the OpenChannel method with
 	// the exact same parameters that we specified within the attachment
@@ -850,34 +763,22 @@ func TestAgentPrivateChannels(t *testing.T) {
 	defer agent.Stop()
 
 	const numChans = 5
-	var wg sync.WaitGroup
 
 	// The very first thing the agent should do is query the NeedMoreChans
 	// method on the passed heuristic. So we'll provide it with a response
-	// that will kick off the main loop.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
-		// We'll send over a response indicating that it should
-		// establish more channels, and give it a budget of 5 BTC to do
-		// so.
-		resp := moreChansResp{
-			needMore: true,
-			numMore:  numChans,
-			amt:      5 * btcutil.SatoshiPerBitcoin,
-		}
-		select {
-		case heuristic.moreChansResps <- resp:
-			return
-		case <-time.After(time.Second * 10):
-			t.Fatalf("heuristic wasn't queried in time")
-		}
-	}()
-
-	// We'll wait here for the agent to query the heuristic. If it doesn't
-	// do so within 10 seconds, then the test will fail out.
-	wg.Wait()
+	// that will kick off the main loop.  We'll send over a response
+	// indicating that it should establish more channels, and give it a
+	// budget of 5 BTC to do so.
+	resp := moreChansResp{
+		needMore: true,
+		numMore:  numChans,
+		amt:      5 * btcutil.SatoshiPerBitcoin,
+	}
+	select {
+	case heuristic.moreChansResps <- resp:
+	case <-time.After(time.Second * 10):
+		t.Fatalf("heuristic wasn't queried in time")
+	}
 
 	// At this point, the agent should now be querying the heuristic to
 	// requests attachment directives. We'll generate 5 mock directives so
@@ -902,21 +803,11 @@ func TestAgentPrivateChannels(t *testing.T) {
 
 	// With our fake directives created, we'll now send then to the agent
 	// as a return value for the Select function.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
-		select {
-		case heuristic.directiveResps <- directives:
-			return
-		case <-time.After(time.Second * 10):
-			t.Fatalf("heuristic wasn't queried in time")
-		}
-	}()
-
-	// We'll wait here for either the agent to query the heuristic to be
-	// queried, or for the timeout above to tick.
-	wg.Wait()
+	select {
+	case heuristic.directiveResps <- directives:
+	case <-time.After(time.Second * 10):
+		t.Fatalf("heuristic wasn't queried in time")
+	}
 
 	// Finally, we should receive 5 calls to the OpenChannel method, each
 	// specifying that it's for a private channel.
@@ -995,29 +886,19 @@ func TestAgentPendingChannelState(t *testing.T) {
 	}
 	defer agent.Stop()
 
-	var wg sync.WaitGroup
-
 	// Once again, we'll start by telling the agent as part of its first
 	// query, that it needs more channels and has 3 BTC available for
-	// attachment.
-	wg.Add(1)
-	go func() {
-		select {
-
-		// We'll send over a response indicating that it should
-		// establish more channels, and give it a budget of 1 BTC to do
-		// so.
-		case heuristic.moreChansResps <- moreChansResp{true, 1, btcutil.SatoshiPerBitcoin}:
-			wg.Done()
-			return
-		case <-time.After(time.Second * 10):
-			t.Fatalf("heuristic wasn't queried in time")
-		}
-	}()
-
-	// We'll wait for the first query to be consumed. If this doesn't
-	// happen then the above goroutine will timeout, and fail the test.
-	wg.Wait()
+	// attachment.  We'll send over a response indicating that it should
+	// establish more channels, and give it a budget of 1 BTC to do so.
+	select {
+	case heuristic.moreChansResps <- moreChansResp{
+		needMore: true,
+		numMore:  1,
+		amt:      btcutil.SatoshiPerBitcoin,
+	}:
+	case <-time.After(time.Second * 10):
+		t.Fatalf("heuristic wasn't queried in time")
+	}
 
 	heuristic.moreChanArgs = make(chan moreChanArg)
 
@@ -1175,16 +1056,11 @@ func TestAgentPendingOpenChannel(t *testing.T) {
 
 	// We'll send an initial "no" response to advance the agent past its
 	// initial check.
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		select {
-		case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
-		case <-time.After(time.Second * 10):
-			t.Fatalf("heuristic wasn't queried in time")
-		}
-	}()
+	select {
+	case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
+	case <-time.After(time.Second * 10):
+		t.Fatalf("heuristic wasn't queried in time")
+	}
 
 	// Next, we'll signal that a new channel has been opened, but it is
 	// still pending.
@@ -1192,19 +1068,11 @@ func TestAgentPendingOpenChannel(t *testing.T) {
 
 	// The agent should now query the heuristic in order to determine its
 	// next action as its local state has now been modified.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		select {
-		case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
-		case <-time.After(time.Second * 10):
-			t.Fatalf("heuristic wasn't queried in time")
-		}
-	}()
-
-	// We'll wait here for either the agent to query the heuristic to be
-	// queried, or for the timeout above to tick.
-	wg.Wait()
+	select {
+	case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
+	case <-time.After(time.Second * 10):
+		t.Fatalf("heuristic wasn't queried in time")
+	}
 
 	// There shouldn't be a call to the Select method as we've returned
 	// "false" for NeedMoreChans above.
@@ -1272,21 +1140,15 @@ func TestAgentOnNodeUpdates(t *testing.T) {
 	// We'll send an initial "yes" response to advance the agent past its
 	// initial check. This will cause it to try to get directives from an
 	// empty graph.
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		select {
-		case heuristic.moreChansResps <- moreChansResp{
-			needMore: true,
-			numMore:  2,
-			amt:      walletBalance,
-		}:
-		case <-time.After(time.Second * 10):
-			t.Fatalf("heuristic wasn't queried in time")
-		}
-	}()
-	wg.Wait()
+	select {
+	case heuristic.moreChansResps <- moreChansResp{
+		needMore: true,
+		numMore:  2,
+		amt:      walletBalance,
+	}:
+	case <-time.After(time.Second * 10):
+		t.Fatalf("heuristic wasn't queried in time")
+	}
 
 	// Send over an empty list of attachment directives, which should cause
 	// the agent to return to waiting on a new signal.
@@ -1303,21 +1165,15 @@ func TestAgentOnNodeUpdates(t *testing.T) {
 	// In response, the agent should wake up and see if it needs more
 	// channels. Since we haven't done anything, we will send the same
 	// response as before since we are still trying to open channels.
-	var wg2 sync.WaitGroup
-	wg2.Add(1)
-	go func() {
-		defer wg2.Done()
-		select {
-		case heuristic.moreChansResps <- moreChansResp{
-			needMore: true,
-			numMore:  2,
-			amt:      walletBalance,
-		}:
-		case <-time.After(time.Second * 10):
-			t.Fatalf("heuristic wasn't queried in time")
-		}
-	}()
-	wg2.Wait()
+	select {
+	case heuristic.moreChansResps <- moreChansResp{
+		needMore: true,
+		numMore:  2,
+		amt:      walletBalance,
+	}:
+	case <-time.After(time.Second * 10):
+		t.Fatalf("heuristic wasn't queried in time")
+	}
 
 	// Again the agent should pull in the next set of attachment directives.
 	// It's not important that this list is also empty, so long as the node

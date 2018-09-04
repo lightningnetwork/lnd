@@ -154,13 +154,8 @@ func (a *Agent) Start() error {
 
 	log.Infof("Autopilot Agent starting")
 
-	startingBalance, err := a.cfg.WalletBalance()
-	if err != nil {
-		return err
-	}
-
 	a.wg.Add(1)
-	go a.controller(startingBalance)
+	go a.controller()
 
 	return nil
 }
@@ -183,7 +178,6 @@ func (a *Agent) Stop() error {
 // balanceUpdate is a type of external state update that reflects an
 // increase/decrease in the funds currently available to the wallet.
 type balanceUpdate struct {
-	balanceDelta btcutil.Amount
 }
 
 // nodeUpdates is a type of external state update that reflects an addition or
@@ -214,13 +208,13 @@ type chanCloseUpdate struct {
 
 // OnBalanceChange is a callback that should be executed each time the balance of
 // the backing wallet changes.
-func (a *Agent) OnBalanceChange(delta btcutil.Amount) {
+func (a *Agent) OnBalanceChange() {
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
 
 		select {
-		case a.stateUpdates <- &balanceUpdate{balanceDelta: delta}:
+		case a.stateUpdates <- &balanceUpdate{}:
 		case <-a.quit:
 		}
 	}()
@@ -342,12 +336,12 @@ func mergeChanState(pendingChans map[NodeID]Channel,
 // and external state changes as a result of decisions it  makes w.r.t channel
 // allocation, or attributes affecting its control loop being updated by the
 // backing Lightning Node.
-func (a *Agent) controller(startingBalance btcutil.Amount) {
+func (a *Agent) controller() {
 	defer a.wg.Done()
 
 	// We'll start off by assigning our starting balance, and injecting
 	// that amount as an initial wake up to the main controller goroutine.
-	a.OnBalanceChange(startingBalance)
+	a.OnBalanceChange()
 
 	// TODO(roasbeef): do we in fact need to maintain order?
 	//  * use sync.Cond if so
@@ -388,15 +382,16 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 			// up an additional channel, or splice in funds to an
 			// existing one.
 			case *balanceUpdate:
-				log.Debugf("Applying external balance state "+
-					"update of: %v", update.balanceDelta)
+				log.Debug("Applying external balance state " +
+					"update")
 
-				a.totalBalance += update.balanceDelta
+				updateBalance()
 
 			// The channel we tried to open previously failed for
 			// whatever reason.
 			case *chanOpenFailureUpdate:
-				log.Debug("Retrying after previous channel open failure.")
+				log.Debug("Retrying after previous channel " +
+					"open failure.")
 
 				updateBalance()
 

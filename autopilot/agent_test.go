@@ -527,7 +527,8 @@ func TestAgentBalanceUpdate(t *testing.T) {
 	memGraph, _, _ := newMemChanGraph()
 
 	// The wallet will start with 2 BTC available.
-	const walletBalance = btcutil.SatoshiPerBitcoin * 2
+	var walletBalanceMtx sync.Mutex
+	walletBalance := btcutil.Amount(btcutil.SatoshiPerBitcoin * 2)
 
 	// With the dependencies we created, we can now create the initial
 	// agent itself.
@@ -536,6 +537,8 @@ func TestAgentBalanceUpdate(t *testing.T) {
 		Heuristic:      heuristic,
 		ChanController: chanController,
 		WalletBalance: func() (btcutil.Amount, error) {
+			walletBalanceMtx.Lock()
+			defer walletBalanceMtx.Unlock()
 			return walletBalance, nil
 		},
 		ConnectToPeer: func(*btcec.PublicKey, []net.Addr) (bool, error) {
@@ -583,8 +586,11 @@ func TestAgentBalanceUpdate(t *testing.T) {
 
 	// Next we'll send a new balance update signal to the agent, adding 5
 	// BTC to the amount of available funds.
-	const balanceDelta = btcutil.SatoshiPerBitcoin * 5
-	agent.OnBalanceChange(balanceDelta)
+	walletBalanceMtx.Lock()
+	walletBalance += btcutil.SatoshiPerBitcoin * 5
+	walletBalanceMtx.Unlock()
+
+	agent.OnBalanceChange()
 
 	wg = sync.WaitGroup{}
 
@@ -597,11 +603,10 @@ func TestAgentBalanceUpdate(t *testing.T) {
 			// At this point, the local state of the agent should
 			// have also been updated to reflect that the LN node
 			// now has an additional 5BTC available.
-			const expectedAmt = walletBalance + balanceDelta
-			if agent.totalBalance != expectedAmt {
+			if agent.totalBalance != walletBalance {
 				t.Fatalf("expected %v wallet balance "+
 					"instead have %v", agent.totalBalance,
-					expectedAmt)
+					walletBalance)
 			}
 
 			// With all of our assertions passed, we'll signal the
@@ -932,7 +937,8 @@ func TestAgentPendingChannelState(t *testing.T) {
 	memGraph, _, _ := newMemChanGraph()
 
 	// The wallet will start with 6 BTC available.
-	const walletBalance = btcutil.SatoshiPerBitcoin * 6
+	var walletBalanceMtx sync.Mutex
+	walletBalance := btcutil.Amount(btcutil.SatoshiPerBitcoin * 6)
 
 	// With the dependencies we created, we can now create the initial
 	// agent itself.
@@ -941,6 +947,9 @@ func TestAgentPendingChannelState(t *testing.T) {
 		Heuristic:      heuristic,
 		ChanController: chanController,
 		WalletBalance: func() (btcutil.Amount, error) {
+			walletBalanceMtx.Lock()
+			defer walletBalanceMtx.Unlock()
+
 			return walletBalance, nil
 		},
 		ConnectToPeer: func(*btcec.PublicKey, []net.Addr) (bool, error) {
@@ -1039,7 +1048,11 @@ func TestAgentPendingChannelState(t *testing.T) {
 	// Now, in order to test that the pending state was properly updated,
 	// we'll trigger a balance update in order to trigger a query to the
 	// heuristic.
-	agent.OnBalanceChange(0.4 * btcutil.SatoshiPerBitcoin)
+	walletBalanceMtx.Lock()
+	walletBalance += 0.4 * btcutil.SatoshiPerBitcoin
+	walletBalanceMtx.Unlock()
+
+	agent.OnBalanceChange()
 
 	// The heuristic should be queried, and the argument for the set of
 	// channels passed in should include the pending channels that

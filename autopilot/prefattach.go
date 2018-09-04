@@ -1,6 +1,7 @@
 package autopilot
 
 import (
+	"bytes"
 	"fmt"
 	prand "math/rand"
 	"time"
@@ -153,6 +154,8 @@ func (p *ConstrainedPrefAttachment) Select(self *btcec.PublicKey, g ChannelGraph
 		return directives, nil
 	}
 
+	selfPubBytes := self.SerializeCompressed()
+
 	// We'll continue our attachment loop until we've exhausted the current
 	// amount of available funds.
 	visited := make(map[NodeID]struct{})
@@ -174,7 +177,7 @@ func (p *ConstrainedPrefAttachment) Select(self *btcec.PublicKey, g ChannelGraph
 		//
 		// TODO(roasbeef): add noise to make adversarially resistant?
 		if err := g.ForEachNode(func(node Node) error {
-			nID := NewNodeID(node.PubKey())
+			nID := NodeID(node.PubKey())
 
 			// Once a node has already been attached to, we'll
 			// ensure that it isn't factored into any further
@@ -186,7 +189,7 @@ func (p *ConstrainedPrefAttachment) Select(self *btcec.PublicKey, g ChannelGraph
 			// If we come across ourselves, them we'll continue in
 			// order to avoid attempting to make a channel with
 			// ourselves.
-			if node.PubKey().IsEqual(self) {
+			if bytes.Equal(nID[:], selfPubBytes) {
 				return nil
 			}
 
@@ -235,7 +238,11 @@ func (p *ConstrainedPrefAttachment) Select(self *btcec.PublicKey, g ChannelGraph
 
 		// With the node selected, we'll add this (node, amount) tuple
 		// to out set of recommended directives.
-		pub := selectedNode.PubKey()
+		pubBytes := selectedNode.PubKey()
+		pub, err := btcec.ParsePubKey(pubBytes[:], btcec.S256())
+		if err != nil {
+			return nil, err
+		}
 		directives = append(directives, AttachmentDirective{
 			// TODO(roasbeef): need curve?
 			PeerKey: &btcec.PublicKey{
@@ -247,7 +254,7 @@ func (p *ConstrainedPrefAttachment) Select(self *btcec.PublicKey, g ChannelGraph
 
 		// With the node selected, we'll add it to the set of visited
 		// nodes to avoid attaching to it again.
-		visited[NewNodeID(selectedNode.PubKey())] = struct{}{}
+		visited[NodeID(pubBytes)] = struct{}{}
 	}
 
 	numSelectedNodes := int64(len(directives))

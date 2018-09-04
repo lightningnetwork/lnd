@@ -17,8 +17,8 @@ import (
 type Node interface {
 	// PubKey is the identity public key of the node. This will be used to
 	// attempt to target a node for channel opening by the main autopilot
-	// agent.
-	PubKey() *btcec.PublicKey
+	// agent. The key will be returned in serialized compressed format.
+	PubKey() [33]byte
 
 	// Addrs returns a slice of publicly reachable public TCP addresses
 	// that the peer is known to be listening on.

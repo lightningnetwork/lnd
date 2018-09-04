@@ -55,6 +55,10 @@ var (
 	// request.
 	ErrSwitchExiting = errors.New("htlcswitch shutting down")
 
+	// ErrNoLinksFound is an error returned when we attempt to retrieve the
+	// active links in the switch for a specific destination.
+	ErrNoLinksFound = errors.New("no channel links found")
+
 	// zeroPreimage is the empty preimage which is returned when we have
 	// some errors.
 	zeroPreimage [sha256.Size]byte
@@ -2105,8 +2109,7 @@ func (s *Switch) GetLinksByInterface(hop [33]byte) ([]ChannelLink, error) {
 func (s *Switch) getLinks(destination [33]byte) ([]ChannelLink, error) {
 	links, ok := s.interfaceIndex[destination]
 	if !ok {
-		return nil, fmt.Errorf("unable to locate channel link by "+
-			"destination hop id %x", destination)
+		return nil, ErrNoLinksFound
 	}
 
 	channelLinks := make([]ChannelLink, 0, len(links))

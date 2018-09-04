@@ -2449,8 +2449,9 @@ func (s *server) peerTerminationWatcher(p *peer, ready chan struct{}) {
 	//
 	// TODO(roasbeef): instead add a PurgeInterfaceLinks function?
 	links, err := p.server.htlcSwitch.GetLinksByInterface(p.pubKeyBytes)
-	if err != nil {
-		srvrLog.Errorf("unable to get channel links: %v", err)
+	if err != nil && err != htlcswitch.ErrNoLinksFound {
+		srvrLog.Errorf("Unable to get channel links for %x: %v",
+			p.pubKeyBytes, err)
 	}
 
 	for _, link := range links {

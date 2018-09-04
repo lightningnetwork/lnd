@@ -769,6 +769,7 @@ func (ms *msgStream) msgConsumer() {
 			// items.
 			select {
 			case <-ms.peer.quit:
+				ms.msgCond.L.Unlock()
 				return
 			case <-ms.quit:
 				ms.msgCond.L.Unlock()

@@ -153,7 +153,7 @@ func (p *preimageBeacon) Start() error {
 	}
 
 	// Start garbage collector
-	epochClient, err := p.notifier.RegisterBlockEpochNtfn()
+	epochClient, err := p.notifier.RegisterBlockEpochNtfn(nil)
 	if err != nil {
 		return fmt.Errorf("Unable to register for epoch "+
 			"notifications: %v", err)

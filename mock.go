@@ -368,7 +368,7 @@ func (m *mockWitnessBeacon) AddPreimage(pre []byte, expiryHeight uint32) error {
 }
 
 func (m *mockWitnessBeacon) Start() error {
-	epochClient, err := m.notifier.RegisterBlockEpochNtfn()
+	epochClient, err := m.notifier.RegisterBlockEpochNtfn(nil)
 	if err != nil {
 		return err
 	}

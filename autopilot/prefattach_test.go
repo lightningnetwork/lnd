@@ -349,11 +349,11 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 				edge2Pub := edge2.Peer.PubKey()
 
 				switch {
-				case bytes.Equal(directive.PeerKey.SerializeCompressed(), edge1Pub[:]):
-				case bytes.Equal(directive.PeerKey.SerializeCompressed(), edge2Pub[:]):
+				case bytes.Equal(directive.NodeKey.SerializeCompressed(), edge1Pub[:]):
+				case bytes.Equal(directive.NodeKey.SerializeCompressed(), edge2Pub[:]):
 				default:
 					t1.Fatalf("attached to unknown node: %x",
-						directive.PeerKey.SerializeCompressed())
+						directive.NodeKey.SerializeCompressed())
 				}
 
 				// As the number of funds available exceed the
@@ -634,8 +634,8 @@ func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
 			// We'll simulate a channel update by adding the nodes
 			// we just establish channel with the to set of nodes
 			// to be skipped.
-			skipNodes[NewNodeID(directives[0].PeerKey)] = struct{}{}
-			skipNodes[NewNodeID(directives[1].PeerKey)] = struct{}{}
+			skipNodes[NewNodeID(directives[0].NodeKey)] = struct{}{}
+			skipNodes[NewNodeID(directives[1].NodeKey)] = struct{}{}
 
 			// If we attempt to make a call to the Select function,
 			// without providing any new information, then we

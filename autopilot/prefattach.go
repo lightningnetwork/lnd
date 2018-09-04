@@ -245,7 +245,7 @@ func (p *ConstrainedPrefAttachment) Select(self *btcec.PublicKey, g ChannelGraph
 		}
 		directives = append(directives, AttachmentDirective{
 			// TODO(roasbeef): need curve?
-			PeerKey: &btcec.PublicKey{
+			NodeKey: &btcec.PublicKey{
 				X: pub.X,
 				Y: pub.Y,
 			},

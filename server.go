@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"image/color"
@@ -80,10 +79,6 @@ type server struct {
 	// nodeSigner is an implementation of the MessageSigner implementation
 	// that's backed by the identity private key of the running lnd node.
 	nodeSigner *nodeSigner
-
-	// lightningID is the sha256 of the public key corresponding to our
-	// long-term identity private key.
-	lightningID [32]byte
 
 	// listenAddrs is the list of addresses the server is currently
 	// listening on.
@@ -266,8 +261,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 
 		// TODO(roasbeef): derive proper onion key based on rotation
 		// schedule
-		sphinx:      htlcswitch.NewOnionProcessor(sphinxRouter),
-		lightningID: sha256.Sum256(serializedPubKey[:]),
+		sphinx: htlcswitch.NewOnionProcessor(sphinxRouter),
 
 		persistentPeers:         make(map[string]struct{}),
 		persistentPeersBackoff:  make(map[string]time.Duration),

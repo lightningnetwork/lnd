@@ -96,13 +96,12 @@ func (d dbNode) ForEachChannel(cb func(ChannelEdge) error) error {
 			return nil
 		}
 
-		pubkey, _ := ep.Node.PubKey()
 		edge := ChannelEdge{
 			Channel: Channel{
 				ChanID:    lnwire.NewShortChanIDFromInt(ep.ChannelID),
 				Capacity:  ei.Capacity,
 				FundedAmt: ei.Capacity,
-				Node:      NewNodeID(pubkey),
+				Node:      NodeID(ep.Node.PubKeyBytes),
 			},
 			Peer: dbNode{
 				tx:   tx,

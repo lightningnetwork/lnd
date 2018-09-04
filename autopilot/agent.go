@@ -117,6 +117,12 @@ type Agent struct {
 	// affect the heuristics of the agent will be sent over.
 	stateUpdates chan interface{}
 
+	// balanceUpdates is a channel where notifications about updates to the
+	// wallet's balance will be sent. This channel will be buffered to
+	// ensure we have at most one pending update of this type to handle at
+	// a given time.
+	balanceUpdates chan *balanceUpdate
+
 	// nodeUpdates is a channel that changes to the graph node landscape
 	// will be sent over. This channel will be buffered to ensure we have
 	// at most one pending update of this type to handle at a given time.
@@ -153,6 +159,7 @@ func New(cfg Config, initialState []Channel) (*Agent, error) {
 		chanState:          make(map[lnwire.ShortChannelID]Channel),
 		quit:               make(chan struct{}),
 		stateUpdates:       make(chan interface{}),
+		balanceUpdates:     make(chan *balanceUpdate, 1),
 		nodeUpdates:        make(chan *nodeUpdates, 1),
 		chanOpenFailures:   make(chan *chanOpenFailureUpdate, 1),
 		pendingOpenUpdates: make(chan *chanPendingOpenUpdate, 1),
@@ -226,18 +233,13 @@ type chanCloseUpdate struct {
 	closedChans []lnwire.ShortChannelID
 }
 
-// OnBalanceChange is a callback that should be executed each time the balance of
-// the backing wallet changes.
+// OnBalanceChange is a callback that should be executed each time the balance
+// of the backing wallet changes.
 func (a *Agent) OnBalanceChange() {
-	a.wg.Add(1)
-	go func() {
-		defer a.wg.Done()
-
-		select {
-		case a.stateUpdates <- &balanceUpdate{}:
-		case <-a.quit:
-		}
-	}()
+	select {
+	case a.balanceUpdates <- &balanceUpdate{}:
+	default:
+	}
 }
 
 // OnNodeUpdates is a callback that should be executed each time our channel
@@ -385,16 +387,6 @@ func (a *Agent) controller() {
 			log.Infof("Processing new external signal")
 
 			switch update := signal.(type) {
-			// The balance of the backing wallet has changed, if
-			// more funds are now available, we may attempt to open
-			// up an additional channel, or splice in funds to an
-			// existing one.
-			case *balanceUpdate:
-				log.Debug("Applying external balance state " +
-					"update")
-
-				updateBalance()
-
 			// A new channel has been opened successfully. This was
 			// either opened by the Agent, or an external system
 			// that is able to drive the Lightning Node.
@@ -428,6 +420,14 @@ func (a *Agent) controller() {
 		// A new channel has been opened by the agent or an external
 		// subsystem, but is still pending confirmation.
 		case <-a.pendingOpenUpdates:
+			updateBalance()
+
+		// The balance of the backing wallet has changed, if more funds
+		// are now available, we may attempt to open up an additional
+		// channel, or splice in funds to an existing one.
+		case <-a.balanceUpdates:
+			log.Debug("Applying external balance state update")
+
 			updateBalance()
 
 		// The channel we tried to open previously failed for whatever

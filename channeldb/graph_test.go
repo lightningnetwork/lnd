@@ -1398,11 +1398,12 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 			t.Fatalf("unable to create channel edge: %v", err)
 		}
 
-		updateTime := endTime
-		endTime = updateTime.Add(time.Second * 10)
+		edge1UpdateTime := endTime
+		edge2UpdateTime := edge1UpdateTime.Add(time.Second)
+		endTime = endTime.Add(time.Second * 10)
 
 		edge1 := newEdgePolicy(
-			chanID.ToUint64(), op, db, updateTime.Unix(),
+			chanID.ToUint64(), op, db, edge1UpdateTime.Unix(),
 		)
 		edge1.Flags = 0
 		edge1.Node = node2
@@ -1412,7 +1413,7 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 		}
 
 		edge2 := newEdgePolicy(
-			chanID.ToUint64(), op, db, updateTime.Unix(),
+			chanID.ToUint64(), op, db, edge2UpdateTime.Unix(),
 		)
 		edge2.Flags = 1
 		edge2.Node = node1

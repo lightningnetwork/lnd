@@ -1176,6 +1176,10 @@ type ChannelEdge struct {
 // ChanUpdatesInHorizon returns all the known channel edges which have at least
 // one edge that has an update timestamp within the specified horizon.
 func (c *ChannelGraph) ChanUpdatesInHorizon(startTime, endTime time.Time) ([]ChannelEdge, error) {
+	// To ensure we don't return duplicate ChannelEdges, we'll use an
+	// additional map to keep track of the edges already seen to prevent
+	// re-adding it.
+	edgesSeen := make(map[uint64]struct{})
 	var edgesInHorizon []ChannelEdge
 
 	err := c.db.View(func(tx *bolt.Tx) error {
@@ -1219,6 +1223,14 @@ func (c *ChannelGraph) ChanUpdatesInHorizon(startTime, endTime time.Time) ([]Cha
 			// chan ID so we can query it in the DB.
 			chanID := indexKey[8:]
 
+			// If we've already retrieved the info and policies for
+			// this edge, then we can skip it as we don't need to do
+			// so again.
+			chanIDInt := byteOrder.Uint64(chanID)
+			if _, ok := edgesSeen[chanIDInt]; ok {
+				continue
+			}
+
 			// First, we'll fetch the static edge information.
 			edgeInfo, err := fetchChanEdgeInfo(edgeIndex, chanID)
 			if err != nil {
@@ -1242,6 +1254,7 @@ func (c *ChannelGraph) ChanUpdatesInHorizon(startTime, endTime time.Time) ([]Cha
 
 			// Finally, we'll collate this edge with the rest of
 			// edges to be returned.
+			edgesSeen[chanIDInt] = struct{}{}
 			edgesInHorizon = append(edgesInHorizon, ChannelEdge{
 				Info:    &edgeInfo,
 				Policy1: edge1,

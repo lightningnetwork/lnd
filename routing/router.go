@@ -177,6 +177,12 @@ type Config struct {
 	// date knowledge of the available bandwidth of the link should be
 	// returned.
 	QueryBandwidth func(edge *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi
+
+	// AssumeChannelValid toggles whether or not the router will check for
+	// spentness of channel outpoints. For neutrino, this saves long rescans
+	// from blocking initial usage of the wallet. This should only be
+	// enabled on testnet.
+	AssumeChannelValid bool
 }
 
 // routeTuple is an entry within the ChannelRouter's route cache. We cache
@@ -966,7 +972,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		// to obtain the full funding outpoint that's encoded within
 		// the channel ID.
 		channelID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
-		fundingPoint, _, err := r.fetchChanPoint(&channelID)
+		fundingPoint, fundingTxOut, err := r.fetchChanPoint(&channelID)
 		if err != nil {
 			r.rejectMtx.Lock()
 			r.rejectCache[msg.ChannelID] = struct{}{}
@@ -990,20 +996,28 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 			return err
 		}
 
-		// Now that we have the funding outpoint of the channel, ensure
-		// that it hasn't yet been spent. If so, then this channel has
-		// been closed so we'll ignore it.
-		chanUtxo, err := r.cfg.Chain.GetUtxo(
-			fundingPoint, fundingPkScript, channelID.BlockHeight,
-		)
-		if err != nil {
-			r.rejectMtx.Lock()
-			r.rejectCache[msg.ChannelID] = struct{}{}
-			r.rejectMtx.Unlock()
+		var chanUtxo *wire.TxOut
+		if r.cfg.AssumeChannelValid {
+			// If AssumeChannelValid is present, we'll just use the
+			// txout returned from fetchChanPoint.
+			chanUtxo = fundingTxOut
+		} else {
+			// Now that we have the funding outpoint of the channel,
+			// ensure that it hasn't yet been spent. If so, then
+			// this channel has been closed so we'll ignore it.
+			chanUtxo, err = r.cfg.Chain.GetUtxo(
+				fundingPoint, fundingPkScript,
+				channelID.BlockHeight,
+			)
+			if err != nil {
+				r.rejectMtx.Lock()
+				r.rejectCache[msg.ChannelID] = struct{}{}
+				r.rejectMtx.Unlock()
 
-			return errors.Errorf("unable to fetch utxo for "+
-				"chan_id=%v, chan_point=%v: %v", msg.ChannelID,
-				fundingPoint, err)
+				return errors.Errorf("unable to fetch utxo "+
+					"for chan_id=%v, chan_point=%v: %v",
+					msg.ChannelID, fundingPoint, err)
+			}
 		}
 
 		// By checking the equality of witness pkscripts we checks that
@@ -1108,11 +1122,11 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 			}
 		}
 
-		if !exists {
+		if !exists && !r.cfg.AssumeChannelValid {
 			// Before we can update the channel information, we'll
 			// ensure that the target channel is still open by
 			// querying the utxo-set for its existence.
-			chanPoint, fundingPkScript, err := r.fetchChanPoint(
+			chanPoint, fundingTxOut, err := r.fetchChanPoint(
 				&channelID,
 			)
 			if err != nil {
@@ -1125,7 +1139,8 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 					msg.ChannelID, err)
 			}
 			_, err = r.cfg.Chain.GetUtxo(
-				chanPoint, fundingPkScript, channelID.BlockHeight,
+				chanPoint, fundingTxOut.PkScript,
+				channelID.BlockHeight,
 			)
 			if err != nil {
 				r.rejectMtx.Lock()
@@ -1171,7 +1186,9 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 //
 // TODO(roasbeef): replace with call to GetBlockTransaction? (would allow to
 // later use getblocktxn)
-func (r *ChannelRouter) fetchChanPoint(chanID *lnwire.ShortChannelID) (*wire.OutPoint, []byte, error) {
+func (r *ChannelRouter) fetchChanPoint(
+	chanID *lnwire.ShortChannelID) (*wire.OutPoint, *wire.TxOut, error) {
+
 	// First fetch the block hash by the block number encoded, then use
 	// that hash to fetch the block itself.
 	blockNum := int64(chanID.BlockHeight)
@@ -1195,12 +1212,15 @@ func (r *ChannelRouter) fetchChanPoint(chanID *lnwire.ShortChannelID) (*wire.Out
 	}
 
 	// Finally once we have the block itself, we seek to the targeted
-	// transaction index to obtain the funding output and txid.
+	// transaction index to obtain the funding output and txout.
 	fundingTx := fundingBlock.Transactions[chanID.TxIndex]
-	return &wire.OutPoint{
+	outPoint := &wire.OutPoint{
 		Hash:  fundingTx.TxHash(),
 		Index: uint32(chanID.TxPosition),
-	}, fundingTx.TxOut[chanID.TxPosition].PkScript, nil
+	}
+	txOut := fundingTx.TxOut[chanID.TxPosition]
+
+	return outPoint, txOut, nil
 }
 
 // routingMsg couples a routing related routing topology update to the

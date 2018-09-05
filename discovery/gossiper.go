@@ -3,6 +3,7 @@ package discovery
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"runtime"
 	"sync"
@@ -14,7 +15,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -1522,7 +1522,7 @@ func (d *AuthenticatedGossiper) processRejectedEdge(
 	}
 	err = ValidateChannelAnn(chanAnn)
 	if err != nil {
-		err := errors.Errorf("assembled channel announcement proof "+
+		err := fmt.Errorf("assembled channel announcement proof "+
 			"for shortChanID=%v isn't valid: %v",
 			chanAnnMsg.ShortChannelID, err)
 		log.Error(err)
@@ -1533,7 +1533,7 @@ func (d *AuthenticatedGossiper) processRejectedEdge(
 	// to the database.
 	err = d.cfg.Router.AddProof(chanAnnMsg.ShortChannelID, proof)
 	if err != nil {
-		err := errors.Errorf("unable add proof to shortChanID=%v: %v",
+		err := fmt.Errorf("unable add proof to shortChanID=%v: %v",
 			chanAnnMsg.ShortChannelID, err)
 		log.Error(err)
 		return nil, err
@@ -1599,7 +1599,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			}
 
 			if err := ValidateNodeAnn(msg); err != nil {
-				err := errors.Errorf("unable to validate "+
+				err := fmt.Errorf("unable to validate "+
 					"node announcement: %v", err)
 				log.Error(err)
 				nMsg.err <- err
@@ -1702,7 +1702,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		var proof *channeldb.ChannelAuthProof
 		if nMsg.isRemote {
 			if err := ValidateChannelAnn(msg); err != nil {
-				err := errors.Errorf("unable to validate "+
+				err := fmt.Errorf("unable to validate "+
 					"announcement: %v", err)
 				d.rejectMtx.Lock()
 				d.recentRejects[msg.ShortChannelID.ToUint64()] = struct{}{}
@@ -1966,7 +1966,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 				return nil
 
 			default:
-				err := errors.Errorf("unable to validate "+
+				err := fmt.Errorf("unable to validate "+
 					"channel update short_chan_id=%v: %v",
 					shortChanID, err)
 				log.Error(err)
@@ -1994,7 +1994,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// key, In the case of an invalid channel , we'll return an
 		// error to the caller and exit early.
 		if err := ValidateChannelUpdateAnn(pubKey, msg); err != nil {
-			rErr := errors.Errorf("unable to validate channel "+
+			rErr := fmt.Errorf("unable to validate channel "+
 				"update announcement for short_chan_id=%v: %v",
 				spew.Sdump(msg.ShortChannelID), err)
 
@@ -2130,7 +2130,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			// node might rewrite the waiting proof.
 			proof := channeldb.NewWaitingProof(nMsg.isRemote, msg)
 			if err := d.waitingProofs.Add(proof); err != nil {
-				err := errors.Errorf("unable to store "+
+				err := fmt.Errorf("unable to store "+
 					"the proof for short_chan_id=%v: %v",
 					shortChanID, err)
 				log.Error(err)
@@ -2152,7 +2152,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// Ensure that channel that was retrieved belongs to the peer
 		// which sent the proof announcement.
 		if !(isFirstNode || isSecondNode) {
-			err := errors.Errorf("channel that was received not "+
+			err := fmt.Errorf("channel that was received not "+
 				"belongs to the peer which sent the proof, "+
 				"short_chan_id=%v", shortChanID)
 			log.Error(err)
@@ -2176,7 +2176,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			// deliver the proof when it comes online.
 			err := d.sendAnnSigReliably(msg, remotePeer)
 			if err != nil {
-				err := errors.Errorf("unable to send reliably "+
+				err := fmt.Errorf("unable to send reliably "+
 					"to remote for short_chan_id=%v: %v",
 					shortChanID, err)
 				log.Error(err)
@@ -2245,7 +2245,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		proof := channeldb.NewWaitingProof(nMsg.isRemote, msg)
 		oppositeProof, err := d.waitingProofs.Get(proof.OppositeKey())
 		if err != nil && err != channeldb.ErrWaitingProofNotFound {
-			err := errors.Errorf("unable to get "+
+			err := fmt.Errorf("unable to get "+
 				"the opposite proof for short_chan_id=%v: %v",
 				shortChanID, err)
 			log.Error(err)
@@ -2255,7 +2255,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 
 		if err == channeldb.ErrWaitingProofNotFound {
 			if err := d.waitingProofs.Add(proof); err != nil {
-				err := errors.Errorf("unable to store "+
+				err := fmt.Errorf("unable to store "+
 					"the proof for short_chan_id=%v: %v",
 					shortChanID, err)
 				log.Error(err)
@@ -2298,7 +2298,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// With all the necessary components assembled validate the
 		// full channel announcement proof.
 		if err := ValidateChannelAnn(chanAnn); err != nil {
-			err := errors.Errorf("channel  announcement proof "+
+			err := fmt.Errorf("channel  announcement proof "+
 				"for short_chan_id=%v isn't valid: %v",
 				shortChanID, err)
 
@@ -2316,7 +2316,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// can announce it on peer connect.
 		err = d.cfg.Router.AddProof(msg.ShortChannelID, &dbProof)
 		if err != nil {
-			err := errors.Errorf("unable add proof to the "+
+			err := fmt.Errorf("unable add proof to the "+
 				"channel chanID=%v: %v", msg.ChannelID, err)
 			log.Error(err)
 			nMsg.err <- err
@@ -2325,7 +2325,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 
 		err = d.waitingProofs.Remove(proof.OppositeKey())
 		if err != nil {
-			err := errors.Errorf("unable remove opposite proof "+
+			err := fmt.Errorf("unable remove opposite proof "+
 				"for the channel with chanID=%v: %v",
 				msg.ChannelID, err)
 			log.Error(err)

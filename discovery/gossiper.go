@@ -35,6 +35,11 @@ var (
 	// ErrGossiperShuttingDown is an error that is returned if the gossiper
 	// is in the process of being shut down.
 	ErrGossiperShuttingDown = errors.New("gossiper is shutting down")
+
+	// ErrGossipSyncerNotFound signals that we were unable to find an active
+	// gossip syncer corresponding to a gossip query message received from
+	// the remote peer.
+	ErrGossipSyncerNotFound = errors.New("gossip syncer not found")
 )
 
 // networkMsg couples a routing related wire message with the peer that
@@ -919,45 +924,7 @@ func (d *AuthenticatedGossiper) findGossipSyncer(pub *btcec.PublicKey) (
 		return syncer, nil
 	}
 
-	// A known gossip syncer doesn't exist, so we may have to create one
-	// from scratch. To do so, we'll query for a reference directly to the
-	// active peer.
-	syncPeer, err := d.cfg.FindPeer(pub)
-	if err != nil {
-		log.Debugf("unable to find gossip peer %v: %v",
-			pub.SerializeCompressed(), err)
-		return nil, err
-	}
-
-	// Finally, we'll obtain the exclusive mutex, then check again if a
-	// gossiper was added after we dropped the read mutex.
-	d.syncerMtx.Lock()
-	syncer, ok = d.peerSyncers[target]
-	if ok {
-		d.syncerMtx.Unlock()
-		return syncer, nil
-	}
-
-	// At this point, a syncer doesn't yet exist, so we'll create a new one
-	// for the peer and return it to the caller.
-	encoding := lnwire.EncodingSortedPlain
-	syncer = newGossiperSyncer(gossipSyncerCfg{
-		chainHash:       d.cfg.ChainHash,
-		syncChanUpdates: true,
-		channelSeries:   d.cfg.ChanSeries,
-		encodingType:    encoding,
-		chunkSize:       encodingTypeToChunkSize[encoding],
-		sendToPeer: func(msgs ...lnwire.Message) error {
-			return syncPeer.SendMessage(false, msgs...)
-		},
-	})
-	copy(syncer.peerPub[:], pub.SerializeCompressed())
-	d.peerSyncers[target] = syncer
-	syncer.Start()
-
-	d.syncerMtx.Unlock()
-
-	return syncer, nil
+	return nil, ErrGossipSyncerNotFound
 }
 
 // networkHandler is the primary goroutine that drives this service. The roles
@@ -1041,6 +1008,9 @@ func (d *AuthenticatedGossiper) networkHandler() {
 					announcement.source,
 				)
 				if err != nil {
+					log.Warnf("Unable to find gossip "+
+						"syncer for peer=%x: %v",
+						announcement.peer.PubKey(), err)
 					continue
 				}
 
@@ -1066,6 +1036,9 @@ func (d *AuthenticatedGossiper) networkHandler() {
 					announcement.source,
 				)
 				if err != nil {
+					log.Warnf("Unable to find gossip "+
+						"syncer for peer=%x: %v",
+						announcement.source, err)
 					continue
 				}
 

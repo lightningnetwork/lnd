@@ -509,6 +509,30 @@ func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
 	// commitment transaction. We enter this state either due to an outside
 	// sub-system, or because an on-chain action has been triggered.
 	case StateBroadcastCommit:
+		// Under normal operation, we can only enter
+		// StateBroadcastCommit via a user or chain trigger. On restart,
+		// this state may be reexecuted after closing the channel, but
+		// failing to commit to StateContractClosed or
+		// StateFullyResolved. In that case, one of the three close
+		// triggers will be presented, signifying that we should skip
+		// rebroadcasting, and go straight to resolving the on-chain
+		// contract or marking the channel resolved.
+		switch trigger {
+		case localCloseTrigger, remoteCloseTrigger:
+			log.Infof("ChannelArbitrator(%v): detected %s "+
+				"close after closing channel, fast-forwarding "+
+				"to %s to resolve contract",
+				c.cfg.ChanPoint, trigger, StateContractClosed)
+			return StateContractClosed, closeTx, nil
+
+		case coopCloseTrigger:
+			log.Infof("ChannelArbitrator(%v): detected %s "+
+				"close after closing channel, fast-forwarding "+
+				"to %s to resolve contract",
+				c.cfg.ChanPoint, trigger, StateFullyResolved)
+			return StateFullyResolved, closeTx, nil
+		}
+
 		log.Infof("ChannelArbitrator(%v): force closing "+
 			"chan", c.cfg.ChanPoint)
 
@@ -564,7 +588,7 @@ func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
 		// We are waiting for a commitment to be confirmed, so any
 		// other trigger will be ignored.
 		case chainTrigger, userTrigger:
-			log.Infof("ChannelArbitrator(%v): noop state %v",
+			log.Infof("ChannelArbitrator(%v): noop trigger %v",
 				c.cfg.ChanPoint, trigger)
 			nextState = StateCommitmentBroadcasted
 
@@ -572,10 +596,16 @@ func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
 		// commitments being confirmed, then we'll jump to the state
 		// where the contract has been closed.
 		case localCloseTrigger, remoteCloseTrigger:
-			log.Infof("ChannelArbitrator(%v): state %v, "+
+			log.Infof("ChannelArbitrator(%v): trigger %v, "+
 				" going to StateContractClosed",
 				c.cfg.ChanPoint, trigger)
 			nextState = StateContractClosed
+
+		case coopCloseTrigger:
+			log.Infof("ChannelArbitrator(%v): trigger %v, "+
+				" going to StateFullyResolved",
+				c.cfg.ChanPoint, trigger)
+			nextState = StateFullyResolved
 		}
 
 	// If we're in this state, then the contract has been fully closed to

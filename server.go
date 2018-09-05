@@ -53,6 +53,12 @@ const (
 	// maximumBackoff is the largest backoff we will permit when
 	// reattempting connections to persistent peers.
 	maximumBackoff = time.Hour
+
+	// defaultStableConnDuration is a floor under which all reconnection
+	// attempts will apply exponential randomized backoff. Connections
+	// durations exceeding this value will be eligible to have their
+	// backoffs reduced.
+	defaultStableConnDuration = 10 * time.Minute
 )
 
 var (
@@ -1951,19 +1957,28 @@ func (s *server) nextPeerBackoff(pubStr string,
 		return computeNextBackoff(backoff)
 	}
 
-	// The peer succeeded in starting. We'll reduce the timeout duration
-	// by the length of the connection before applying randomized
-	// exponential backoff. We'll only apply this if:
-	//   backoff - connDuration > defaultBackoff
+	// The peer succeeded in starting. If the connection didn't last long
+	// enough to be considered stable, we'll continue to back off retries
+	// with this peer.
 	connDuration := time.Now().Sub(startTime)
-	relaxedBackoff := backoff - connDuration
-	if relaxedBackoff > defaultBackoff {
-		return computeNextBackoff(relaxedBackoff)
+	if connDuration < defaultStableConnDuration {
+		return computeNextBackoff(backoff)
 	}
 
-	// Otherwise, backoff - connDuration <= defaultBackoff, meaning the
-	// connection lasted much longer than our previous backoff. To reward
-	// such good behavior, we'll reconnect after the default timeout.
+	// The peer succeed in starting and this was stable peer, so we'll
+	// reduce the timeout duration by the length of the connection after
+	// applying randomized exponential backoff. We'll only apply this in the
+	// case that:
+	//   reb(curBackoff) - connDuration > defaultBackoff
+	relaxedBackoff := computeNextBackoff(backoff) - connDuration
+	if relaxedBackoff > defaultBackoff {
+		return relaxedBackoff
+	}
+
+	// Lastly, if reb(currBackoff) - connDuration <= defaultBackoff, meaning
+	// the stable connection lasted much longer than our previous backoff.
+	// To reward such good behavior, we'll reconnect after the default
+	// timeout.
 	return defaultBackoff
 }
 
@@ -2451,7 +2466,7 @@ func (s *server) peerTerminationWatcher(p *peer, ready chan struct{}) {
 	links, err := p.server.htlcSwitch.GetLinksByInterface(p.pubKeyBytes)
 	if err != nil && err != htlcswitch.ErrNoLinksFound {
 		srvrLog.Errorf("Unable to get channel links for %x: %v",
-			p.pubKeyBytes, err)
+			p.PubKey(), err)
 	}
 
 	for _, link := range links {

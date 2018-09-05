@@ -343,7 +343,8 @@ func (u *utxoNursery) Stop() error {
 func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	commitResolution *lnwallet.CommitOutputResolution,
 	outgoingHtlcs []lnwallet.OutgoingHtlcResolution,
-	incomingHtlcs []lnwallet.IncomingHtlcResolution) error {
+	incomingHtlcs []lnwallet.IncomingHtlcResolution,
+	broadcastHeight uint32) error {
 
 	numHtlcs := len(incomingHtlcs) + len(outgoingHtlcs)
 	var (
@@ -469,7 +470,9 @@ func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	// kindergarten bucket.
 	if len(kidOutputs) != 0 {
 		for _, kidOutput := range kidOutputs {
-			err := u.registerPreschoolConf(&kidOutput, u.bestHeight)
+			err := u.registerPreschoolConf(
+				&kidOutput, broadcastHeight,
+			)
 			if err != nil {
 				return err
 			}

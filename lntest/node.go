@@ -168,7 +168,7 @@ func (cfg nodeConfig) genArgs() []string {
 	args = append(args, fmt.Sprintf("--trickledelay=%v", trickleDelay))
 
 	if !cfg.HasSeed {
-		args = append(args, "--noencryptwallet")
+		args = append(args, "--noseedbackup")
 	}
 
 	if cfg.ExtraArgs != nil {

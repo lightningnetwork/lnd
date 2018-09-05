@@ -56,12 +56,11 @@
   revision = "8b13a72661dae6e9e5dea04f344f0dc95ea29547"
 
 [[projects]]
-  branch = "master"
-  digest = "1:dc417dbf4d023500d4fd5685910f202b2e380d5310c00a0b9d4803e3d35ed4df"
+  digest = "1:1c10bf6793afd790b0949d5384403d8d4850bf8f5f72ab6fc232277daaa5057b"
   name = "github.com/aead/siphash"
   packages = ["."]
   pruneopts = "UT"
-  revision = "e404fcfc888570cadd1610538e2dbc89f66af814"
+  revision = "83563a290f60225eb120d724600b9690c3fb536f"
 
 [[projects]]
   digest = "1:e0ab2aba19fe77b2367828b186e46a5efa57d35a94df282ae25adf624136ae5c"
@@ -266,7 +265,7 @@
   revision = "462a8a75388506b68f76661af8d649f0b88e5301"
 
 [[projects]]
-  digest = "1:8d52bdba5fb92865f3ad4b9cd6ed48a03bbf2aaf2d4d190acaf54cd7b65bd7bd"
+  digest = "1:b87ab48ac3bdfcf8d90c51f9c1a4061660dcb2e1c3c12822ccfc131f5a898578"
   name = "github.com/lightninglabs/neutrino"
   packages = [
     ".",
@@ -277,7 +276,7 @@
     "headerlist",
   ]
   pruneopts = "UT"
-  revision = "e7780d39ef5628b23615a6cbbb2f41cd583f4afd"
+  revision = "cccdda0fbb69281c17de496da88e956c300511e2"
 
 [[projects]]
   digest = "1:58ab6d6525898cbeb86dc29a68f8e9bfe95254b9032134eb9458779574872260"
@@ -372,8 +371,7 @@
   revision = "ae89d30ce0c63142b652837da33d782e2b0a9b25"
 
 [[projects]]
-  branch = "master"
-  digest = "1:01b240e338435648db3155614b819aa03735c3e7920712f32638f53272895bfb"
+  digest = "1:576f8d82185dc836ec6d10c0e5568dc4ff94e4d9f101d33ed5d6bae0cbba65b2"
   name = "golang.org/x/sys"
   packages = [
     "cpu",
@@ -381,7 +379,7 @@
     "windows",
   ]
   pruneopts = "UT"
-  revision = "904bdc257025c7b3f43c19360ad3ab85783fad78"
+  revision = "ebe1bf3edb3325c393447059974de898d5133eb8"
 
 [[projects]]
   digest = "1:436b24586f8fee329e0dd65fd67c817681420cda1d7f934345c13fe78c212a73"
@@ -452,12 +450,11 @@
   revision = "b3ddf786825de56a4178401b7e174ee332173b66"
 
 [[projects]]
-  branch = "v1"
-  digest = "1:beb56f8f7b0cb98f3773e279d02ddc67b20fbff1f277d29fe74209b65cbcad26"
+  digest = "1:9f0c81ca4b497d3723d0a66495d8a1efe277068b77ef3ad2d6460e480bf09bb3"
   name = "gopkg.in/errgo.v1"
   packages = ["."]
   pruneopts = "UT"
-  revision = "c17903c6b19d5dedb9cfba9fa314c7fae63e554f"
+  revision = "b20caedf0710d0988e92b5f2d76843ad1f231f2d"
 
 [[projects]]
   digest = "1:f75654fe9e7a52c9df4c13d3c362a02e9dd0ab5e1ef336212ae68964c05ff53f"

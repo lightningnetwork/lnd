@@ -628,7 +628,8 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		IncubateOutputs: func(chanPoint wire.OutPoint,
 			commitRes *lnwallet.CommitOutputResolution,
 			outHtlcRes *lnwallet.OutgoingHtlcResolution,
-			inHtlcRes *lnwallet.IncomingHtlcResolution) error {
+			inHtlcRes *lnwallet.IncomingHtlcResolution,
+			broadcastHeight uint32) error {
 
 			var (
 				inRes  []lnwallet.IncomingHtlcResolution

@@ -309,7 +309,7 @@ func (u *UnlockerService) ChangePassword(ctx context.Context,
 	privatePw := in.CurrentPassword
 
 	// If the current password is blank, we'll assume the user is coming
-	// from a --noencryptwallet state, so we'll use the default passwords.
+	// from a --noseedbackup state, so we'll use the default passwords.
 	if len(in.CurrentPassword) == 0 {
 		publicPw = lnwallet.DefaultPublicPassphrase
 		privatePw = lnwallet.DefaultPrivatePassphrase

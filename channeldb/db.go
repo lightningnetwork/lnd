@@ -80,6 +80,12 @@ var (
 			number:    6,
 			migration: migratePruneEdgeUpdateIndex,
 		},
+		{
+			// The DB version where borked channels (caused by
+			// earlier bug fixes) are finally cleaned up.
+			number:    7,
+			migration: abandonBorkedChannels,
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over

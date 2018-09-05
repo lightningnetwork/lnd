@@ -6,7 +6,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/coreos/bbolt"
 )
 
@@ -560,6 +562,236 @@ func migratePruneEdgeUpdateIndex(tx *bolt.Tx) error {
 		oldNumEntries-newNumEntries)
 
 	log.Info("Migration to properly prune edge update index complete!")
+
+	return nil
+}
+
+// borkedChannel stores the information required to navigate back to the borked
+// channel bucket and allow it to be deleted.
+type borkedChannel struct {
+	ChainHash       *chainhash.Hash
+	FundingOutpoint *wire.OutPoint
+	IdentityPub     *btcec.PublicKey
+}
+
+// abandonBorkedChannels is a database migration that attempts to remove all
+// open channel information that is not deserializable anymore. This will allow
+// old nodes to remove workarounds from their code without whose lnd would not
+// start.
+func abandonBorkedChannels(tx *bolt.Tx) error {
+
+	openChanBucket := tx.Bucket(openChannelBucket)
+	if openChanBucket == nil {
+		// No migration necessary when openChannelBucket non-existent.
+		return nil
+	}
+
+	// Next, fetch the bucket dedicated to storing metadata related
+	// to all nodes. All keys within this bucket are the serialized
+	// public keys of all our direct counterparties.
+	nodeMetaBucket := tx.Bucket(nodeInfoBucket)
+	if nodeMetaBucket == nil {
+		return fmt.Errorf("node bucket not created")
+	}
+
+	// Start with creating a list of borked channels. Modifying the
+	// bucket inside the ForEach is documented to lead to unexpected
+	// behaviour.
+	var borkedChannels []*borkedChannel
+
+	err := nodeMetaBucket.ForEach(func(k, v []byte) error {
+		nodeChanBucket := openChanBucket.Bucket(k)
+		if nodeChanBucket == nil {
+			return nil
+		}
+
+		return nodeChanBucket.ForEach(func(chainHash, v []byte) error {
+			// If there's a value, it's not a bucket so
+			// ignore it.
+			if v != nil {
+				return nil
+			}
+
+			// If we've found a valid chainhash bucket,
+			// then we'll retrieve that so we can extract
+			// all the channels.
+			chainBucket := nodeChanBucket.Bucket(chainHash)
+			if chainBucket == nil {
+				return fmt.Errorf("unable to read "+
+					"bucket for chain=%x", chainHash[:])
+			}
+
+			// Try to deserialize all channels to find the borked
+			// ones.
+			outPoints, err := getBorkedChannelsForChain(chainBucket)
+			if err != nil {
+				return fmt.Errorf("unable to read "+
+					"channel for chain_hash=%x, "+
+					"node_key=%x: %v", chainHash[:], k, err)
+			}
+
+			var chainHashBytes chainhash.Hash
+			copy(chainHashBytes[:], chainHash)
+
+			var pubkey *btcec.PublicKey
+			pubkey, err = btcec.ParsePubKey(k, btcec.S256())
+			if err != nil {
+				return err
+			}
+
+			// Connect the list of out points with the other
+			// identifying information to be able to find them back
+			// in the deletion step that will follow.
+			for _, outPoint := range outPoints {
+				borkedChannels = append(borkedChannels,
+					&borkedChannel{
+						FundingOutpoint: outPoint,
+						ChainHash:       &chainHashBytes,
+						IdentityPub:     pubkey,
+					})
+			}
+
+			return nil
+		})
+	})
+	if err != nil {
+		return err
+	}
+
+	// Do the actual deletion of the channels.
+	for _, borkedChannel := range borkedChannels {
+		if err := abandonBorkedChannel(tx, borkedChannel); err != nil {
+			return err
+		}
+	}
+
+	log.Infof("Abandoned %d borked channels", len(borkedChannels))
+
+	log.Info("Migration to abandon borked open channels complete!")
+
+	return nil
+}
+
+func getBorkedChannelsForChain(chainBucket *bolt.Bucket) (
+	[]*wire.OutPoint, error) {
+
+	var outPoints []*wire.OutPoint
+	// A node may have channels on several chains, so for each known chain,
+	// we'll extract all the channels.
+	err := chainBucket.ForEach(func(chanPoint, v []byte) error {
+		// If there's a value, it's not a bucket so ignore it.
+		if v != nil {
+			return nil
+		}
+
+		// Once we've found a valid channel bucket, we'll extract it
+		// from the node's chain bucket.
+		chanBucket := chainBucket.Bucket(chanPoint)
+
+		var outPoint wire.OutPoint
+		err := readOutpoint(bytes.NewReader(chanPoint), &outPoint)
+		if err != nil {
+			return err
+		}
+
+		// Test deserialization of the channel and add to the result
+		// list if an error is returned.
+		_, err = fetchOpenChannel(chanBucket, &outPoint)
+		if err != nil {
+			outPoints = append(outPoints, &outPoint)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return outPoints, nil
+}
+
+func abandonBorkedChannel(tx *bolt.Tx, c *borkedChannel) error {
+	// Navigate to the channel bucket indicated by the borkedChannel
+	// parameter.
+	openChanBucket := tx.Bucket(openChannelBucket)
+	if openChanBucket == nil {
+		return ErrNoChanDBExists
+	}
+
+	nodeChanBucket := openChanBucket.Bucket(c.IdentityPub.SerializeCompressed())
+	if nodeChanBucket == nil {
+		return ErrNoActiveChannels
+	}
+
+	chainBucket := nodeChanBucket.Bucket(c.ChainHash[:])
+	if chainBucket == nil {
+		return ErrNoActiveChannels
+	}
+
+	var chanPointBuf bytes.Buffer
+	err := writeOutpoint(&chanPointBuf, c.FundingOutpoint)
+	if err != nil {
+		return err
+	}
+	chanPointBytes := chanPointBuf.Bytes()
+
+	chanBucket := chainBucket.Bucket(chanPointBytes)
+	if chanBucket == nil {
+		return ErrNoActiveChannels
+	}
+
+	// Now that the index to this channel has been deleted, purge
+	// the remaining channel metadata from the database.
+	err = deleteOpenChannel(chanBucket, chanPointBytes)
+	if err != nil {
+		return err
+	}
+
+	// With the base channel data deleted, attempt to delete the
+	// information stored within the revocation log.
+	logBucket := chanBucket.Bucket(revocationLogBucket)
+	if logBucket != nil {
+		err := wipeChannelLogEntries(logBucket)
+		if err != nil {
+			return err
+		}
+		err = chanBucket.DeleteBucket(revocationLogBucket)
+		if err != nil {
+			return err
+		}
+	}
+
+	err = chainBucket.DeleteBucket(chanPointBytes)
+	if err != nil {
+		return err
+	}
+
+	// Finally, create a summary of this channel in the closed
+	// channel bucket for this node.
+	closedChanBucket, err := tx.CreateBucketIfNotExists(closedChannelBucket)
+	if err != nil {
+		return err
+	}
+
+	// Many fields are left empty, but it is still enough to make it show up
+	// in the result of the ClosedChannels RPC call.
+	summary := &ChannelCloseSummary{
+		ChanPoint: *c.FundingOutpoint,
+		ChainHash: *c.ChainHash,
+		RemotePub: c.IdentityPub,
+		CloseType: Abandoned,
+		IsPending: false,
+	}
+
+	var b bytes.Buffer
+	if err := serializeChannelCloseSummary(&b, summary); err != nil {
+		return err
+	}
+
+	if err := closedChanBucket.Put(chanPointBytes, b.Bytes()); err != nil {
+		return err
+	}
+
+	log.Infof("Abandoned borked channel %v", *c.FundingOutpoint)
 
 	return nil
 }

@@ -1332,7 +1332,7 @@ var unlockCommand = cli.Command{
 	The unlock command is used to decrypt lnd's wallet state in order to
 	start up. This command MUST be run after booting up lnd before it's
 	able to carry out its duties. An exception is if a user is running with
-	--noencryptwallet, then a default passphrase will be used.
+	--noseedbackup, then a default passphrase will be used.
 	`,
 	Flags: []cli.Flag{
 		cli.IntFlag{
@@ -1400,8 +1400,8 @@ var changePasswordCommand = cli.Command{
 	is successful.
 
 	If one did not specify a password for their wallet (running lnd with
-	--noencryptwallet), one must restart their daemon without
-	--noencryptwallet and use this command. The "current password" field
+	--noseedbackup), one must restart their daemon without
+	--noseedbackup and use this command. The "current password" field
 	should be left empty.
 	`,
 	Action: actionDecorator(changePassword),

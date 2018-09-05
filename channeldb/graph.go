@@ -127,6 +127,14 @@ var (
 	nodeBloomKey = []byte("node-bloom")
 )
 
+const (
+	// MaxAllowedExtraOpaqueBytes is the largest amount of opaque bytes that
+	// we'll permit to be written to disk. We limit this as otherwise, it
+	// would be possible for a node to create a ton of updates and slowly
+	// fill our disk, and also waste bandwidth due to relaying.
+	MaxAllowedExtraOpaqueBytes = 10000
+)
+
 // ChannelGraph is a persistent, on-disk graph representation of the Lightning
 // Network. This struct can be used to implement path finding algorithms on top
 // of, and also to update a node's view based on information received from the
@@ -2715,6 +2723,9 @@ func putLightningNode(nodeBucket *bolt.Bucket, aliasBucket *bolt.Bucket,
 		return err
 	}
 
+	if len(node.ExtraOpaqueData) > MaxAllowedExtraOpaqueBytes {
+		return ErrTooManyExtraOpaqueBytes(len(node.ExtraOpaqueData))
+	}
 	err = wire.WriteVarBytes(&b, 0, node.ExtraOpaqueData)
 	if err != nil {
 		return err
@@ -2846,7 +2857,9 @@ func deserializeLightningNode(r io.Reader) (LightningNode, error) {
 
 	// We'll try and see if there are any opaque bytes left, if not, then
 	// we'll ignore the EOF error and return the node as is.
-	node.ExtraOpaqueData, err = wire.ReadVarBytes(r, 0, 1000, "blob")
+	node.ExtraOpaqueData, err = wire.ReadVarBytes(
+		r, 0, MaxAllowedExtraOpaqueBytes, "blob",
+	)
 	if err != nil && err != io.ErrUnexpectedEOF {
 		return LightningNode{}, err
 	}
@@ -2909,6 +2922,9 @@ func putChanEdgeInfo(edgeIndex *bolt.Bucket, edgeInfo *ChannelEdgeInfo, chanID [
 		return err
 	}
 
+	if len(edgeInfo.ExtraOpaqueData) > MaxAllowedExtraOpaqueBytes {
+		return ErrTooManyExtraOpaqueBytes(len(edgeInfo.ExtraOpaqueData))
+	}
 	err := wire.WriteVarBytes(&b, 0, edgeInfo.ExtraOpaqueData)
 	if err != nil {
 		return err
@@ -2993,7 +3009,9 @@ func deserializeChanEdgeInfo(r io.Reader) (ChannelEdgeInfo, error) {
 
 	// We'll try and see if there are any opaque bytes left, if not, then
 	// we'll ignore the EOF error and return the edge as is.
-	edgeInfo.ExtraOpaqueData, err = wire.ReadVarBytes(r, 0, 1000, "blob")
+	edgeInfo.ExtraOpaqueData, err = wire.ReadVarBytes(
+		r, 0, MaxAllowedExtraOpaqueBytes, "blob",
+	)
 	if err != nil && err != io.ErrUnexpectedEOF {
 		return ChannelEdgeInfo{}, err
 	}
@@ -3046,6 +3064,9 @@ func putChanEdgePolicy(edges, nodes *bolt.Bucket, edge *ChannelEdgePolicy,
 		return err
 	}
 
+	if len(edge.ExtraOpaqueData) > MaxAllowedExtraOpaqueBytes {
+		return ErrTooManyExtraOpaqueBytes(len(edge.ExtraOpaqueData))
+	}
 	if err := wire.WriteVarBytes(&b, 0, edge.ExtraOpaqueData); err != nil {
 		return err
 	}
@@ -3236,7 +3257,9 @@ func deserializeChanEdgePolicy(r io.Reader,
 
 	// We'll try and see if there are any opaque bytes left, if not, then
 	// we'll ignore the EOF error and return the edge as is.
-	edge.ExtraOpaqueData, err = wire.ReadVarBytes(r, 0, 1000, "blob")
+	edge.ExtraOpaqueData, err = wire.ReadVarBytes(
+		r, 0, MaxAllowedExtraOpaqueBytes, "blob",
+	)
 	if err != nil && err != io.ErrUnexpectedEOF {
 		return nil, err
 	}

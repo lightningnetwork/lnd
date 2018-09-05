@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"image/color"
@@ -86,10 +85,6 @@ type server struct {
 	// nodeSigner is an implementation of the MessageSigner implementation
 	// that's backed by the identity private key of the running lnd node.
 	nodeSigner *nodeSigner
-
-	// lightningID is the sha256 of the public key corresponding to our
-	// long-term identity private key.
-	lightningID [32]byte
 
 	// listenAddrs is the list of addresses the server is currently
 	// listening on.
@@ -272,8 +267,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 
 		// TODO(roasbeef): derive proper onion key based on rotation
 		// schedule
-		sphinx:      htlcswitch.NewOnionProcessor(sphinxRouter),
-		lightningID: sha256.Sum256(serializedPubKey[:]),
+		sphinx: htlcswitch.NewOnionProcessor(sphinxRouter),
 
 		persistentPeers:         make(map[string]struct{}),
 		persistentPeersBackoff:  make(map[string]time.Duration),
@@ -1603,50 +1597,32 @@ func (s *server) establishPersistentConnections() error {
 
 		pubStr := string(policy.Node.PubKeyBytes[:])
 
-		// Add addresses from channel graph/NodeAnnouncements to the
-		// list of addresses we'll connect to. If there are duplicates
-		// that have different ports specified, the port from the
-		// channel graph should supersede the port from the link node.
-		var addrs []net.Addr
+		// Add all unique addresses from channel graph/NodeAnnouncements
+		// to the list of addresses we'll connect to for this peer.
+		var addrSet = make(map[string]net.Addr)
+		for _, addr := range policy.Node.Addresses {
+			switch addr.(type) {
+			case *net.TCPAddr, *tor.OnionAddr:
+				addrSet[addr.String()] = addr
+			}
+		}
+
+		// If this peer is also recorded as a link node, we'll add any
+		// additional addresses that have not already been selected.
 		linkNodeAddrs, ok := nodeAddrsMap[pubStr]
 		if ok {
 			for _, lnAddress := range linkNodeAddrs.addresses {
-				var addrHost string
-				switch addr := lnAddress.(type) {
-				case *net.TCPAddr:
-					addrHost = addr.IP.String()
-				case *tor.OnionAddr:
-					addrHost = addr.OnionService
-				default:
-					continue
-				}
-
-				var addrMatched bool
-				for _, polAddress := range policy.Node.Addresses {
-					switch addr := polAddress.(type) {
-					case *net.TCPAddr:
-						if addr.IP.String() == addrHost {
-							addrMatched = true
-							addrs = append(addrs, addr)
-						}
-					case *tor.OnionAddr:
-						if addr.OnionService == addrHost {
-							addrMatched = true
-							addrs = append(addrs, addr)
-						}
-					}
-				}
-				if !addrMatched {
-					addrs = append(addrs, lnAddress)
-				}
-			}
-		} else {
-			for _, addr := range policy.Node.Addresses {
-				switch addr.(type) {
+				switch lnAddress.(type) {
 				case *net.TCPAddr, *tor.OnionAddr:
-					addrs = append(addrs, addr)
+					addrSet[lnAddress.String()] = lnAddress
 				}
 			}
+		}
+
+		// Construct a slice of the deduped addresses.
+		var addrs []net.Addr
+		for _, addr := range addrSet {
+			addrs = append(addrs, addr)
 		}
 
 		n := &nodeAddresses{
@@ -2371,7 +2347,7 @@ func (s *server) peerInitializer(p *peer) {
 	// Start teh peer! If an error occurs, we Disconnect the peer, which
 	// will unblock the peerTerminationWatcher.
 	if err := p.Start(); err != nil {
-		p.Disconnect(errors.New("unable to start peer: %v"))
+		p.Disconnect(fmt.Errorf("unable to start peer: %v", err))
 		return
 	}
 

@@ -1367,6 +1367,30 @@ func testCatchUpOnMissedBlocksWithReorg(miner1 *rpctest.Harness,
 		t.Fatalf("unable to join node on blocks: %v", err)
 	}
 
+	// The two should be on the same block hash.
+	timeout := time.After(10 * time.Second)
+	for {
+		nodeHash1, _, err := miner1.Node.GetBestBlock()
+		if err != nil {
+			t.Fatalf("unable to get current block hash: %v", err)
+		}
+
+		nodeHash2, _, err := miner2.Node.GetBestBlock()
+		if err != nil {
+			t.Fatalf("unable to get current block hash: %v", err)
+		}
+
+		if *nodeHash1 == *nodeHash2 {
+			break
+		}
+		select {
+		case <-timeout:
+			t.Fatalf("Unable to sync two chains")
+		case <-time.After(50 * time.Millisecond):
+			continue
+		}
+	}
+
 	// Next, start the notifier with outdated best block information.
 	// We set the notifier's best block to be the last block mined on the
 	// shorter chain, to test that the notifier correctly rewinds to

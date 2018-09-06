@@ -204,7 +204,7 @@ func lndMain() error {
 	var (
 		privateWalletPw = lnwallet.DefaultPrivatePassphrase
 		publicWalletPw  = lnwallet.DefaultPublicPassphrase
-		birthday        time.Time
+		birthday        = time.Now()
 		recoveryWindow  uint32
 		unlockedWallet  *wallet.Wallet
 	)

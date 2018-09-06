@@ -2988,6 +2988,7 @@ func createChannelUpdate(info *channeldb.ChannelEdgeInfo,
 		HtlcMinimumMsat: policy.MinHTLC,
 		BaseFee:         uint32(policy.FeeBaseMSat),
 		FeeRate:         uint32(policy.FeeProportionalMillionths),
+		ExtraOpaqueData: policy.ExtraOpaqueData,
 	}
 
 	var err error

@@ -6,6 +6,8 @@ import (
 	"encoding/binary"
 	"reflect"
 	"testing"
+
+	"github.com/davecgh/go-spew/spew"
 )
 
 var (
@@ -66,8 +68,8 @@ func TestEncodeDecodeCode(t *testing.T) {
 		}
 
 		if !reflect.DeepEqual(failure1, failure2) {
-			t.Fatalf("failure message are different, failure "+
-				"code(%v)", failure1.Code())
+			t.Fatalf("expected %v, got %v", spew.Sdump(failure1),
+				spew.Sdump(failure2))
 		}
 	}
 }

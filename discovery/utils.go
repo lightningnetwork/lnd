@@ -23,13 +23,14 @@ func CreateChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 	// authenticated channel announcement.
 	chanID := lnwire.NewShortChanIDFromInt(chanInfo.ChannelID)
 	chanAnn := &lnwire.ChannelAnnouncement{
-		ShortChannelID: chanID,
-		NodeID1:        chanInfo.NodeKey1Bytes,
-		NodeID2:        chanInfo.NodeKey2Bytes,
-		ChainHash:      chanInfo.ChainHash,
-		BitcoinKey1:    chanInfo.BitcoinKey1Bytes,
-		BitcoinKey2:    chanInfo.BitcoinKey2Bytes,
-		Features:       lnwire.NewRawFeatureVector(),
+		ShortChannelID:  chanID,
+		NodeID1:         chanInfo.NodeKey1Bytes,
+		NodeID2:         chanInfo.NodeKey2Bytes,
+		ChainHash:       chanInfo.ChainHash,
+		BitcoinKey1:     chanInfo.BitcoinKey1Bytes,
+		BitcoinKey2:     chanInfo.BitcoinKey2Bytes,
+		Features:        lnwire.NewRawFeatureVector(),
+		ExtraOpaqueData: chanInfo.ExtraOpaqueData,
 	}
 
 	var err error
@@ -76,6 +77,7 @@ func CreateChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 			HtlcMinimumMsat: e1.MinHTLC,
 			BaseFee:         uint32(e1.FeeBaseMSat),
 			FeeRate:         uint32(e1.FeeProportionalMillionths),
+			ExtraOpaqueData: e1.ExtraOpaqueData,
 		}
 		edge1Ann.Signature, err = lnwire.NewSigFromRawSignature(e1.SigBytes)
 		if err != nil {
@@ -92,6 +94,7 @@ func CreateChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 			HtlcMinimumMsat: e2.MinHTLC,
 			BaseFee:         uint32(e2.FeeBaseMSat),
 			FeeRate:         uint32(e2.FeeProportionalMillionths),
+			ExtraOpaqueData: e2.ExtraOpaqueData,
 		}
 		edge2Ann.Signature, err = lnwire.NewSigFromRawSignature(e2.SigBytes)
 		if err != nil {

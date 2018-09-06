@@ -87,6 +87,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 		Alias:                "kek",
 		Features:             testFeatures,
 		Addresses:            testAddrs,
+		ExtraOpaqueData:      []byte("extra new data"),
 		db:                   db,
 	}
 	copy(node.PubKeyBytes[:], testPub.SerializeCompressed())
@@ -614,6 +615,11 @@ func assertEdgeInfoEqual(t *testing.T, e1 *ChannelEdgeInfo,
 		t.Fatalf("capacity doesn't match: %v vs %v", e1.Capacity,
 			e2.Capacity)
 	}
+
+	if !bytes.Equal(e1.ExtraOpaqueData, e2.ExtraOpaqueData) {
+		t.Fatalf("extra data doesn't match: %v vs %v",
+			e2.ExtraOpaqueData, e2.ExtraOpaqueData)
+	}
 }
 
 func TestEdgeInfoUpdates(t *testing.T) {
@@ -675,8 +681,9 @@ func TestEdgeInfoUpdates(t *testing.T) {
 			BitcoinSig1Bytes: testSig.Serialize(),
 			BitcoinSig2Bytes: testSig.Serialize(),
 		},
-		ChannelPoint: outpoint,
-		Capacity:     1000,
+		ChannelPoint:    outpoint,
+		Capacity:        1000,
+		ExtraOpaqueData: []byte("new unknown feature"),
 	}
 	copy(edgeInfo.NodeKey1Bytes[:], firstNode.PubKeyBytes[:])
 	copy(edgeInfo.NodeKey2Bytes[:], secondNode.PubKeyBytes[:])
@@ -697,8 +704,9 @@ func TestEdgeInfoUpdates(t *testing.T) {
 		MinHTLC:                   2342135,
 		FeeBaseMSat:               4352345,
 		FeeProportionalMillionths: 3452352,
-		Node: secondNode,
-		db:   db,
+		Node:            secondNode,
+		ExtraOpaqueData: []byte("new unknown feature2"),
+		db:              db,
 	}
 	edge2 := &ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
@@ -709,8 +717,9 @@ func TestEdgeInfoUpdates(t *testing.T) {
 		MinHTLC:                   2342135,
 		FeeBaseMSat:               4352345,
 		FeeProportionalMillionths: 90392423,
-		Node: firstNode,
-		db:   db,
+		Node:            firstNode,
+		ExtraOpaqueData: []byte("new unknown feature1"),
+		db:              db,
 	}
 
 	// Next, insert both nodes into the database, they should both be
@@ -2461,6 +2470,10 @@ func compareNodes(a, b *LightningNode) error {
 		return fmt.Errorf("HaveNodeAnnouncement doesn't match: expected %#v, \n "+
 			"got %#v", a.HaveNodeAnnouncement, b.HaveNodeAnnouncement)
 	}
+	if !bytes.Equal(a.ExtraOpaqueData, b.ExtraOpaqueData) {
+		return fmt.Errorf("extra data doesn't match: %v vs %v",
+			a.ExtraOpaqueData, b.ExtraOpaqueData)
+	}
 
 	return nil
 }
@@ -2496,6 +2509,10 @@ func compareEdgePolicies(a, b *ChannelEdgePolicy) error {
 		return fmt.Errorf("FeeProportionalMillionths doesn't match: "+
 			"expected %v, got %v", a.FeeProportionalMillionths,
 			b.FeeProportionalMillionths)
+	}
+	if !bytes.Equal(a.ExtraOpaqueData, b.ExtraOpaqueData) {
+		return fmt.Errorf("extra data doesn't match: %v vs %v",
+			a.ExtraOpaqueData, b.ExtraOpaqueData)
 	}
 	if err := compareNodes(a.Node, b.Node); err != nil {
 		return err

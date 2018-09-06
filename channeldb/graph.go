@@ -127,6 +127,14 @@ var (
 	nodeBloomKey = []byte("node-bloom")
 )
 
+const (
+	// MaxAllowedExtraOpaqueBytes is the largest amount of opaque bytes that
+	// we'll permit to be written to disk. We limit this as otherwise, it
+	// would be possible for a node to create a ton of updates and slowly
+	// fill our disk, and also waste bandwidth due to relaying.
+	MaxAllowedExtraOpaqueBytes = 10000
+)
+
 // ChannelGraph is a persistent, on-disk graph representation of the Lightning
 // Network. This struct can be used to implement path finding algorithms on top
 // of, and also to update a node's view based on information received from the
@@ -1707,6 +1715,14 @@ type LightningNode struct {
 	// Features is the list of protocol features supported by this node.
 	Features *lnwire.FeatureVector
 
+	// ExtraOpaqueData is the set of data that was appended to this
+	// message, some of which we may not actually know how to iterate or
+	// parse. By holding onto this data, we ensure that we're able to
+	// properly validate the set of signatures that cover these new fields,
+	// and ensure we're able to make upgrades to the network in a forwards
+	// compatible manner.
+	ExtraOpaqueData []byte
+
 	db *DB
 
 	// TODO(roasbeef): discovery will need storage to keep it's last IP
@@ -1990,6 +2006,14 @@ type ChannelEdgeInfo struct {
 	// Capacity is the total capacity of the channel, this is determined by
 	// the value output in the outpoint that created this channel.
 	Capacity btcutil.Amount
+
+	// ExtraOpaqueData is the set of data that was appended to this
+	// message, some of which we may not actually know how to iterate or
+	// parse. By holding onto this data, we ensure that we're able to
+	// properly validate the set of signatures that cover these new fields,
+	// and ensure we're able to make upgrades to the network in a forwards
+	// compatible manner.
+	ExtraOpaqueData []byte
 
 	db *DB
 }
@@ -2334,6 +2358,14 @@ type ChannelEdgePolicy struct {
 	// Node is the LightningNode that this directed edge leads to. Using
 	// this pointer the channel graph can further be traversed.
 	Node *LightningNode
+
+	// ExtraOpaqueData is the set of data that was appended to this
+	// message, some of which we may not actually know how to iterate or
+	// parse. By holding onto this data, we ensure that we're able to
+	// properly validate the set of signatures that cover these new fields,
+	// and ensure we're able to make upgrades to the network in a forwards
+	// compatible manner.
+	ExtraOpaqueData []byte
 
 	db *DB
 }
@@ -2704,6 +2736,14 @@ func putLightningNode(nodeBucket *bolt.Bucket, aliasBucket *bolt.Bucket,
 		return err
 	}
 
+	if len(node.ExtraOpaqueData) > MaxAllowedExtraOpaqueBytes {
+		return ErrTooManyExtraOpaqueBytes(len(node.ExtraOpaqueData))
+	}
+	err = wire.WriteVarBytes(&b, 0, node.ExtraOpaqueData)
+	if err != nil {
+		return err
+	}
+
 	if err := aliasBucket.Put(nodePub, []byte(node.Alias)); err != nil {
 		return err
 	}
@@ -2828,6 +2868,18 @@ func deserializeLightningNode(r io.Reader) (LightningNode, error) {
 		return LightningNode{}, err
 	}
 
+	// We'll try and see if there are any opaque bytes left, if not, then
+	// we'll ignore the EOF error and return the node as is.
+	node.ExtraOpaqueData, err = wire.ReadVarBytes(
+		r, 0, MaxAllowedExtraOpaqueBytes, "blob",
+	)
+	switch {
+	case err == io.ErrUnexpectedEOF:
+	case err == io.EOF:
+	case err != nil:
+		return LightningNode{}, err
+	}
+
 	return node, nil
 }
 
@@ -2883,6 +2935,14 @@ func putChanEdgeInfo(edgeIndex *bolt.Bucket, edgeInfo *ChannelEdgeInfo, chanID [
 		return err
 	}
 	if _, err := b.Write(edgeInfo.ChainHash[:]); err != nil {
+		return err
+	}
+
+	if len(edgeInfo.ExtraOpaqueData) > MaxAllowedExtraOpaqueBytes {
+		return ErrTooManyExtraOpaqueBytes(len(edgeInfo.ExtraOpaqueData))
+	}
+	err := wire.WriteVarBytes(&b, 0, edgeInfo.ExtraOpaqueData)
+	if err != nil {
 		return err
 	}
 
@@ -2963,6 +3023,18 @@ func deserializeChanEdgeInfo(r io.Reader) (ChannelEdgeInfo, error) {
 		return ChannelEdgeInfo{}, err
 	}
 
+	// We'll try and see if there are any opaque bytes left, if not, then
+	// we'll ignore the EOF error and return the edge as is.
+	edgeInfo.ExtraOpaqueData, err = wire.ReadVarBytes(
+		r, 0, MaxAllowedExtraOpaqueBytes, "blob",
+	)
+	switch {
+	case err == io.ErrUnexpectedEOF:
+	case err == io.EOF:
+	case err != nil:
+		return ChannelEdgeInfo{}, err
+	}
+
 	return edgeInfo, nil
 }
 
@@ -3008,6 +3080,13 @@ func putChanEdgePolicy(edges, nodes *bolt.Bucket, edge *ChannelEdgePolicy,
 	}
 
 	if _, err := b.Write(to); err != nil {
+		return err
+	}
+
+	if len(edge.ExtraOpaqueData) > MaxAllowedExtraOpaqueBytes {
+		return ErrTooManyExtraOpaqueBytes(len(edge.ExtraOpaqueData))
+	}
+	if err := wire.WriteVarBytes(&b, 0, edge.ExtraOpaqueData); err != nil {
 		return err
 	}
 
@@ -3193,6 +3272,18 @@ func deserializeChanEdgePolicy(r io.Reader,
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch node: %x, %v",
 			pub[:], err)
+	}
+
+	// We'll try and see if there are any opaque bytes left, if not, then
+	// we'll ignore the EOF error and return the edge as is.
+	edge.ExtraOpaqueData, err = wire.ReadVarBytes(
+		r, 0, MaxAllowedExtraOpaqueBytes, "blob",
+	)
+	switch {
+	case err == io.ErrUnexpectedEOF:
+	case err == io.EOF:
+	case err != nil:
+		return nil, err
 	}
 
 	edge.Node = &node

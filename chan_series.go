@@ -159,13 +159,14 @@ func makeNodeAnn(n *channeldb.LightningNode) (*lnwire.NodeAnnouncement, error) {
 		return nil, err
 	}
 	return &lnwire.NodeAnnouncement{
-		Signature: wireSig,
-		Timestamp: uint32(n.LastUpdate.Unix()),
-		Addresses: n.Addresses,
-		NodeID:    n.PubKeyBytes,
-		Features:  n.Features.RawFeatureVector,
-		RGBColor:  n.Color,
-		Alias:     alias,
+		Signature:       wireSig,
+		Timestamp:       uint32(n.LastUpdate.Unix()),
+		Addresses:       n.Addresses,
+		NodeID:          n.PubKeyBytes,
+		Features:        n.Features.RawFeatureVector,
+		RGBColor:        n.Color,
+		Alias:           alias,
+		ExtraOpaqueData: n.ExtraOpaqueData,
 	}, nil
 }
 
@@ -277,6 +278,7 @@ func (c *chanSeries) FetchChanUpdates(chain chainhash.Hash,
 			HtlcMinimumMsat: e1.MinHTLC,
 			BaseFee:         uint32(e1.FeeBaseMSat),
 			FeeRate:         uint32(e1.FeeProportionalMillionths),
+			ExtraOpaqueData: e1.ExtraOpaqueData,
 		}
 		chanUpdate.Signature, err = lnwire.NewSigFromRawSignature(e1.SigBytes)
 		if err != nil {
@@ -295,6 +297,7 @@ func (c *chanSeries) FetchChanUpdates(chain chainhash.Hash,
 			HtlcMinimumMsat: e2.MinHTLC,
 			BaseFee:         uint32(e2.FeeBaseMSat),
 			FeeRate:         uint32(e2.FeeProportionalMillionths),
+			ExtraOpaqueData: e1.ExtraOpaqueData,
 		}
 		chanUpdate.Signature, err = lnwire.NewSigFromRawSignature(e2.SigBytes)
 		if err != nil {

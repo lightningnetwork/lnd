@@ -1959,17 +1959,6 @@ func (s *server) nextPeerBackoff(pubStr string,
 	return defaultBackoff
 }
 
-// shouldRequestGraphSync returns true if the servers deems it necessary that
-// we sync channel graph state with the remote peer. This method is used to
-// avoid _always_ syncing channel graph state with each peer that connects.
-//
-// NOTE: This MUST be called with the server's mutex held.
-func (s *server) shouldRequestGraphSync() bool {
-	// Initially, we'll only request a graph sync iff we have less than two
-	// peers.
-	return len(s.peersByPub) <= 2
-}
-
 // shouldDropConnection determines if our local connection to a remote peer
 // should be dropped in the case of concurrent connection establishment. In
 // order to deterministically decide which connection should be dropped, we'll
@@ -2256,14 +2245,6 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	// and also that we support the new gossip query features.
 	localFeatures.Set(lnwire.DataLossProtectOptional)
 	localFeatures.Set(lnwire.GossipQueriesOptional)
-
-	// We'll only request a full channel graph sync if we detect that that
-	// we aren't fully synced yet.
-	if s.shouldRequestGraphSync() {
-		// TODO(roasbeef): only do so if gossiper doesn't have active
-		// peers?
-		localFeatures.Set(lnwire.InitialRoutingSync)
-	}
 
 	// Now that we've established a connection, create a peer, and it to
 	// the set of currently active peers.

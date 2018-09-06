@@ -297,7 +297,7 @@ func (c *chanSeries) FetchChanUpdates(chain chainhash.Hash,
 			HtlcMinimumMsat: e2.MinHTLC,
 			BaseFee:         uint32(e2.FeeBaseMSat),
 			FeeRate:         uint32(e2.FeeProportionalMillionths),
-			ExtraOpaqueData: e1.ExtraOpaqueData,
+			ExtraOpaqueData: e2.ExtraOpaqueData,
 		}
 		chanUpdate.Signature, err = lnwire.NewSigFromRawSignature(e2.SigBytes)
 		if err != nil {

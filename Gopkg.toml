@@ -1,3 +1,7 @@
+[[override]]
+  name = "github.com/aead/siphash"
+  revision = "83563a290f60225eb120d724600b9690c3fb536f"
+
 [[constraint]]
   name = "github.com/btcsuite/btclog"
   revision = "84c8d2346e9fc8c7b947e243b9c24e6df9fd206a"
@@ -40,7 +44,7 @@
 
 [[constraint]]
   name = "github.com/lightninglabs/neutrino"
-  revision = "e7780d39ef5628b23615a6cbbb2f41cd583f4afd"
+  revision = "cccdda0fbb69281c17de496da88e956c300511e2"
 
 [[constraint]]
   name = "github.com/lightningnetwork/lightning-onion"
@@ -90,6 +94,10 @@
   name = "golang.org/x/net"
   revision = "ae89d30ce0c63142b652837da33d782e2b0a9b25"
 
+[[override]]
+  name = "golang.org/x/sys"
+  revision = "ebe1bf3edb3325c393447059974de898d5133eb8"
+
 [[constraint]]
   name = "google.golang.org/genproto"
   revision = "df60624c1e9b9d2973e889c7a1cff73155da81c4"
@@ -97,6 +105,10 @@
 [[constraint]]
   name = "google.golang.org/grpc"
   revision = "b3ddf786825de56a4178401b7e174ee332173b66"
+
+[[override]]
+  name = "gopkg.in/errgo.v1"
+  revision = "b20caedf0710d0988e92b5f2d76843ad1f231f2d"
 
 [[constraint]]
   name = "gopkg.in/macaroon-bakery.v2"

@@ -825,7 +825,7 @@ func assertAddedToRouterGraph(t *testing.T, alice, bob *testNode,
 // confirmed. The last arguments can be set if we expect the nodes to advertise
 // custom min_htlc values as part of their ChannelUpdate. We expect Alice to
 // advertise the value required by Bob and vice versa. If they are not set the
-// advertised value will be checked againts the other node's default min_htlc
+// advertised value will be checked against the other node's default min_htlc
 // value.
 func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 	customMinHtlc ...lnwire.MilliSatoshi) {

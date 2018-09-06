@@ -211,7 +211,7 @@ func (tcn *TxConfNotifier) UpdateConfDetails(txid chainhash.Hash,
 	ntfn.details = details
 
 	// Now, we'll examine whether the transaction of this notification
-	// request has reched its required number of confirmations. If it has,
+	// request has reached its required number of confirmations. If it has,
 	// we'll disaptch a confirmation notification to the caller.
 	confHeight := details.BlockHeight + ntfn.NumConfirmations - 1
 	if confHeight <= tcn.currentHeight {

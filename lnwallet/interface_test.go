@@ -1200,7 +1200,7 @@ func testTransactionSubscriptions(miner *rpctest.Harness,
 		select {
 		case <-time.After(time.Second * 10):
 			t.Fatalf("transactions not received after 10 seconds")
-		case <-unconfirmedNtfns: // Fall through on successs
+		case <-unconfirmedNtfns: // Fall through on success
 		}
 	}
 

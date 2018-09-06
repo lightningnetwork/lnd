@@ -264,7 +264,7 @@ func (c *ChannelArbitrator) Start() error {
 
 	// If the channel has been marked pending close in the database, and we
 	// haven't transitioned the state machine to StateContractClosed (or a
-	// suceeding state), then a state transition most likely failed. We'll
+	// succeeding state), then a state transition most likely failed. We'll
 	// try to recover from this by manually advancing the state by setting
 	// the corresponding close trigger.
 	trigger := chainTrigger
@@ -1530,7 +1530,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			// logged, we can safely close the channel. After this
 			// succeeds we won't be getting chain events anymore,
 			// so we must make sure we can recover on restart after
-			// it is marked closed. If the next state transation
+			// it is marked closed. If the next state transition
 			// fails, we'll start up in the prior state again, and
 			// we won't be longer getting chain events. In this
 			// case we must manually re-trigger the state
@@ -1593,7 +1593,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			// logged, we can safely close the channel. After this
 			// succeeds we won't be getting chain events anymore,
 			// so we must make sure we can recover on restart after
-			// it is marked closed. If the next state transation
+			// it is marked closed. If the next state transition
 			// fails, we'll start up in the prior state again, and
 			// we won't be longer getting chain events. In this
 			// case we must manually re-trigger the state

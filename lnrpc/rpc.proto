@@ -636,7 +636,7 @@ message Transaction {
     /// The transaction hash
     string tx_hash = 1 [ json_name = "tx_hash" ];
 
-    /// The transaction ammount, denominated in satoshis
+    /// The transaction amount, denominated in satoshis
     int64 amount = 2 [ json_name = "amount" ];
 
     /// The number of confirmations

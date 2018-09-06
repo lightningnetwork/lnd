@@ -2672,7 +2672,7 @@
         "amount": {
           "type": "string",
           "format": "int64",
-          "title": "/ The transaction ammount, denominated in satoshis"
+          "title": "/ The transaction amount, denominated in satoshis"
         },
         "num_confirmations": {
           "type": "integer",

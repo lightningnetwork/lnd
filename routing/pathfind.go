@@ -493,7 +493,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	// For each node in the graph, we create an entry in the distance map
 	// for the node set with a distance of "infinity". graph.ForEachNode
 	// also returns the source node, so there is no need to add the source
-	// node explictly.
+	// node explicitly.
 	distance := make(map[Vertex]nodeWithDist)
 	if err := graph.ForEachNode(tx, func(_ *bolt.Tx, node *channeldb.LightningNode) error {
 		// TODO(roasbeef): with larger graph can just use disk seeks
@@ -597,7 +597,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		// Compute fee that fromNode is charging. It is based on the
 		// amount that needs to be sent to the next node in the route.
 		//
-		// Source node has no precedessor to pay a fee. Therefore set
+		// Source node has no predecessor to pay a fee. Therefore set
 		// fee to zero, because it should not be included in the fee
 		// limit check and edge weight.
 		//

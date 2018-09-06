@@ -4492,7 +4492,7 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 	timeout := time.Duration(15 * time.Second)
 	const chanAmt = btcutil.Amount(100000)
 
-	// Throughout this test, we'll be opening a channel betwen Alice and
+	// Throughout this test, we'll be opening a channel between Alice and
 	// several other parties.
 	//
 	// First, we'll create a private channel between Alice and Bob. This
@@ -9523,7 +9523,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	assertTxInBlock(t, block, commitHash)
 
 	// After the force close transacion is mined, Carol should broadcast
-	// her second level HTLC transacion. Bob will braodcast a sweep tx to
+	// her second level HTLC transacion. Bob will broadcast a sweep tx to
 	// sweep his output in the channel with Carol. He can do this
 	// immediately, as the output is not timelocked since Carol was the one
 	// force closing.
@@ -9851,7 +9851,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	assertTxInBlock(t, block, commitHash)
 
 	// After the force close transacion is mined, Carol should broadcast
-	// her second level HTLC transacion. Bob will braodcast a sweep tx to
+	// her second level HTLC transacion. Bob will broadcast a sweep tx to
 	// sweep his output in the channel with Carol. He can do this
 	// immediately, as the output is not timelocked since Carol was the one
 	// force closing.
@@ -11473,7 +11473,7 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 
 		// For all hops except the last, we check that fee equals feePerHop
-		// and amount to foward deducts feePerHop on each hop.
+		// and amount to forward deducts feePerHop on each hop.
 		expectedAmtToForwardMSat := expectedTotalAmtMSat
 		for j, hop := range route.Hops[:len(route.Hops)-1] {
 			expectedAmtToForwardMSat -= feePerHopMSat
@@ -11499,7 +11499,7 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 					i, j, expectedAmtToForwardMSat, hop.AmtToForwardMsat)
 			}
 		}
-		// Last hop should have zero fee and amount to foward should equal
+		// Last hop should have zero fee and amount to forward should equal
 		// payment amount.
 		hop := route.Hops[len(route.Hops)-1]
 
@@ -11650,7 +11650,7 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 	}
 
-	// The payments should only be succesful across the route:
+	// The payments should only be successful across the route:
 	//	Alice -> Bob -> Dave
 	// Therefore, we'll update the fee policy on Carol's side for the
 	// channel between her and Dave to invalidate the route:

@@ -2856,7 +2856,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	assertLinkBandwidth(t, alice.link, aliceStartingBandwidth)
 
 	// Now, try to commit the last two payment circuits, which are unused
-	// thus far. These should succeed without hestiation.
+	// thus far. These should succeed without hesitation.
 	fwdActions = alice.commitCircuits(circuits[halfHtlcs:])
 	if len(fwdActions.Adds) != halfHtlcs {
 		t.Fatalf("expected %d packets to be added", halfHtlcs)
@@ -4528,7 +4528,7 @@ func TestChannelLinkCleanupSpuriousResponses(t *testing.T) {
 	// We start with he following scenario: Bob sends Alice two HTLCs, and a
 	// commitment dance ensures, leaving two HTLCs that Alice can respond
 	// to. Since Alice is in ExitSettle mode, we will then take over and
-	// provide targetted fail messages to test the link's ability to cleanup
+	// provide targeted fail messages to test the link's ability to cleanup
 	// spurious responses.
 	//
 	//  Bob               Alice

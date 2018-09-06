@@ -124,8 +124,8 @@ func (c *Controller) sendCommand(command string) (int, string, error) {
 	return code, reply, nil
 }
 
-// parseTorReply parses the reply from the Tor server after receving a command
-// from a controller. This will parse the relevent reply parameters into a map
+// parseTorReply parses the reply from the Tor server after receiving a command
+// from a controller. This will parse the relevant reply parameters into a map
 // of keys and values.
 func parseTorReply(reply string) map[string]string {
 	params := make(map[string]string)

@@ -537,7 +537,7 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	}
 
 	// Send off the payment request to the router, this payment should
-	// suceed as we should actually go through Pham Nuwen in order to get
+	// succeed as we should actually go through Pham Nuwen in order to get
 	// to Sophon, even though he has higher fees.
 	paymentPreImage, route, err := ctx.router.SendPayment(&payment)
 	if err != nil {

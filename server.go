@@ -1053,7 +1053,7 @@ func (s *server) Stopped() bool {
 	return atomic.LoadInt32(&s.shutdown) != 0
 }
 
-// configurePortForwarding attempts to set up port forwarding for the diffrent
+// configurePortForwarding attempts to set up port forwarding for the different
 // ports that the server will be listening on.
 //
 // NOTE: This should only be used when using some kind of NAT traversal to
@@ -1094,7 +1094,7 @@ func (s *server) removePortForwarding() {
 	}
 }
 
-// watchExternalIP continously checks for an updated external IP address every
+// watchExternalIP continuously checks for an updated external IP address every
 // 15 minutes. Once a new IP address has been detected, it will automatically
 // handle port forwarding rules and send updated node announcements to the
 // currently connected peers.
@@ -1165,7 +1165,7 @@ out:
 			}
 
 			// Now, we'll need to update the addresses in our node's
-			// announcement in order to propogate the update
+			// announcement in order to propagate the update
 			// throughout the network. We'll only include addresses
 			// that have a different IP from the previous one, as
 			// the previous IP is no longer valid.
@@ -2326,7 +2326,7 @@ func (s *server) peerInitializer(p *peer) {
 	s.wg.Add(1)
 	go s.peerTerminationWatcher(p, ready)
 
-	// Start teh peer! If an error occurs, we Disconnect the peer, which
+	// Start the peer! If an error occurs, we Disconnect the peer, which
 	// will unblock the peerTerminationWatcher.
 	if err := p.Start(); err != nil {
 		p.Disconnect(fmt.Errorf("unable to start peer: %v", err))

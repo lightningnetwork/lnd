@@ -416,7 +416,7 @@ func (d *DB) FetchWaitingCloseChannels() ([]*OpenChannel, error) {
 // fetchChannels attempts to retrieve channels currently stored in the
 // database. The pending parameter determines whether only pending channels
 // will be returned, or only open channels will be returned. The waitingClose
-// parameter determines wheter only channels waiting for a closing transaction
+// parameter determines whether only channels waiting for a closing transaction
 // to be confirmed should be returned. If no active channels exist within the
 // network, then ErrNoActiveChannels is returned.
 func fetchChannels(d *DB, pending, waitingClose bool) ([]*OpenChannel, error) {

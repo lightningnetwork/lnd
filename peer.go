@@ -299,11 +299,16 @@ func (p *peer) Start() error {
 		return err
 	}
 
+	if len(activeChans) == 0 {
+		p.server.prunePersistentPeerConnection(p.pubKeyBytes)
+	}
+
 	// Next, load all the active channels we have with this peer,
 	// registering them with the switch and launching the necessary
 	// goroutines required to operate them.
 	peerLog.Debugf("Loaded %v active channels from database with "+
 		"NodeKey(%x)", len(activeChans), p.PubKey())
+
 	if err := p.loadActiveChannels(activeChans); err != nil {
 		return fmt.Errorf("unable to load channels: %v", err)
 	}
@@ -1993,6 +1998,7 @@ func (p *peer) finalizeChanClosure(chanCloser *channelCloser) {
 
 	go waitForChanToClose(chanCloser.negotiationHeight, notifier, errChan,
 		chanPoint, &closingTxid, closingTx.TxOut[0].PkScript, func() {
+
 			// Respond to the local subsystem which requested the
 			// channel closure.
 			if closeReq != nil {
@@ -2004,18 +2010,6 @@ func (p *peer) finalizeChanClosure(chanCloser *channelCloser) {
 						},
 					},
 				}
-			}
-
-			// Remove the persistent connection to this peer if we
-			// no longer have open channels with them.
-			p.activeChanMtx.Lock()
-			numActiveChans := len(p.activeChannels)
-			p.activeChanMtx.Unlock()
-
-			if numActiveChans == 0 {
-				p.server.prunePersistentPeerConnection(
-					p.pubKeyBytes,
-				)
 			}
 		})
 }
@@ -2061,19 +2055,15 @@ func waitForChanToClose(bestHeight uint32, notifier chainntnfs.ChainNotifier,
 	cb()
 }
 
-// WipeChannel removes the passed channel point from all indexes associated
-// with the peer, and the switch.
+// WipeChannel removes the passed channel point from all indexes associated with
+// the peer, and the switch.
 func (p *peer) WipeChannel(chanPoint *wire.OutPoint) error {
-
 	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
 	p.activeChanMtx.Lock()
 	if channel, ok := p.activeChannels[chanID]; ok {
 		channel.Stop()
 		delete(p.activeChannels, chanID)
-		if len(p.activeChannels) == 0 {
-			p.server.prunePersistentPeerConnection(p.pubKeyBytes)
-		}
 	}
 	p.activeChanMtx.Unlock()
 

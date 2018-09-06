@@ -272,21 +272,21 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 
-	addr := &net.TCPAddr{
+	aliceAddr := &net.TCPAddr{
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18555,
 	}
 
-	if err := aliceChannelState.SyncPending(addr, 0); err != nil {
+	if err := aliceChannelState.SyncPending(aliceAddr, 0); err != nil {
 		return nil, nil, nil, nil, err
 	}
 
-	addr = &net.TCPAddr{
+	bobAddr := &net.TCPAddr{
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18556,
 	}
 
-	if err := bobChannelState.SyncPending(addr, 0); err != nil {
+	if err := bobChannelState.SyncPending(bobAddr, 0); err != nil {
 		return nil, nil, nil, nil, err
 	}
 
@@ -363,6 +363,11 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	s.htlcSwitch.Start()
 
 	alicePeer := &peer{
+		addr: &lnwire.NetAddress{
+			IdentityKey: aliceKeyPub,
+			Address:     aliceAddr,
+		},
+
 		server:        s,
 		sendQueue:     make(chan outgoingMsg, 1),
 		outgoingQueue: make(chan outgoingMsg, outgoingQueueLen),

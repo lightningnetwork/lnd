@@ -1937,3 +1937,21 @@ message ForwardingHistoryResponse {
    /// The index of the last time in the set of returned forwarding events. Can be used to seek further, pagination style.
    uint32 last_offset_index = 2 [json_name = "last_offset_index"];
 }
+
+service HashResolver {
+    // ResolveHash is used by LND to request translation of Rhash to a pre-image.
+    // the resolver may return the preimage and error indicating that there is no
+    // such hash/deal
+    rpc ResolveHash(ResolveRequest) returns (ResolveResponse) {}
+}
+
+message ResolveRequest {
+    string hash = 1 [json_name = "hash"];
+    uint32 timeout = 2 [json_name = "timeout"];
+    uint32 height_now = 3 [json_name = "height_now"];
+    int64  amount = 4 [json_name = "amount"];
+}
+
+message ResolveResponse {
+    string preimage = 1 [json_name = "preimage"];
+}

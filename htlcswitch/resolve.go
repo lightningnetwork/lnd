@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"encoding/hex"
-	pb "github.com/ExchangeUnion/swap-resolver/hashresolver"
+	pb "github.com/lightningnetwork/lnd/lnrpc"
 )
 
 const (
@@ -106,7 +106,7 @@ func queryPreImage(pd *lnwallet.PaymentDescriptor, heightNow uint32) (*pb.Resolv
 		Hash:      hex.EncodeToString(pd.RHash[:]),
 		Amount:    int64(pd.Amount),
 		Timeout:   pd.Timeout,
-		Heightnow: heightNow,
+		HeightNow: heightNow,
 	})
 	if err != nil {
 		log.Errorf("%v.ResolveHash(_) = _, %v: ", client, err)

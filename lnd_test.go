@@ -5715,6 +5715,47 @@ func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
 
+	// Before we test reconnection, we'll ensure that the channel has been
+	// fully cleaned up for both Carol and Alice.
+	var predErr error
+	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
+	err = lntest.WaitPredicate(func() bool {
+		ctxt, _ = context.WithTimeout(ctxb, timeout)
+		pendingChanResp, err := net.Alice.PendingChannels(
+			ctxt, pendingChansRequest,
+		)
+		if err != nil {
+			predErr = fmt.Errorf("unable to query for pending "+
+				"channels: %v", err)
+			return false
+		}
+
+		predErr = checkNumForceClosedChannels(pendingChanResp, 0)
+		if predErr != nil {
+			return false
+		}
+
+		ctxt, _ = context.WithTimeout(ctxb, timeout)
+		pendingChanResp, err = carol.PendingChannels(
+			ctxt, pendingChansRequest,
+		)
+		if err != nil {
+			predErr = fmt.Errorf("unable to query for pending "+
+				"channels: %v", err)
+			return false
+		}
+
+		predErr = checkNumForceClosedChannels(pendingChanResp, 0)
+		if predErr != nil {
+			return false
+		}
+
+		return true
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf("channels not marked as fully resolved: %v", predErr)
+	}
+
 	testReconnection(carol)
 
 	// Finally, we'll ensure that Bob and Carol no longer show in Alice's

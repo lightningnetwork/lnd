@@ -16,6 +16,14 @@
 
 [[projects]]
   branch = "master"
+  digest = "1:5e6b5232d1bc7667cf0f77f1d7322e8752ac9ca568bd4799da1b9e1f5718dd07"
+  name = "github.com/ExchangeUnion/swap-resolver"
+  packages = ["hashresolver"]
+  pruneopts = "UT"
+  revision = "8a0017340b52816020731dee2a0d98224295542c"
+
+[[projects]]
+  branch = "master"
   digest = "1:9a112e9f617878a9a643fdfcb7c31afaf0cf8859b8c179bf6bf53f9f881be695"
   name = "github.com/NebulousLabs/fastrand"
   packages = ["."]
@@ -485,6 +493,7 @@
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
+    "github.com/ExchangeUnion/swap-resolver/hashresolver",
     "github.com/NebulousLabs/go-upnp",
     "github.com/Yawning/aez",
     "github.com/btcsuite/btcd/blockchain",

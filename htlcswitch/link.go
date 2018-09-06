@@ -308,6 +308,10 @@ type channelLink struct {
 	// sub-systems with the latest set of active HTLC's on our channel.
 	htlcUpdates chan []channeldb.HTLC
 
+	// resolver is a channel that we'll use to receive preimage
+	// resolution from the async hash resolver.
+	resolver chan resolutionData
+
 	// logCommitTimer is a timer which is sent upon if we go an interval
 	// without receiving/sending a commitment update. It's role is to
 	// ensure both chains converge to identical state in a timely manner.
@@ -340,6 +344,7 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		overflowQueue:  newPacketQueue(lnwallet.MaxHTLCNumber / 2),
 		htlcUpdates:    make(chan []channeldb.HTLC),
 		quit:           make(chan struct{}),
+		resolver:       make(chan resolutionData, 1),
 	}
 }
 
@@ -944,6 +949,39 @@ out:
 					"unable to update commitment: %v", err)
 				break out
 			}
+
+		case resolution := <-l.resolver:
+			log.Debugf("Starting to handle resolution")
+
+			if resolution.failed {
+				log.Errorf("resolution: Received failure from hash resolver")
+				failure := lnwire.FailUnknownPaymentHash{}
+				l.sendHTLCError(
+					resolution.pd.HtlcIndex, failure, resolution.obfuscator, resolution.pd.SourceRef,
+				)
+			} else {
+				// if we are here, we have the preImage and we can settle this HTLC
+				err := l.channel.SettleHTLC(
+					resolution.preimageArray, resolution.pd.HtlcIndex, resolution.pd.SourceRef, nil, nil,
+				)
+				// if there is an error, fail the link
+				if err != nil {
+					l.fail(LinkFailureError{code: ErrInternalError},
+						"resolution: unable to settle htlc: %v", err)
+					continue
+				}
+
+				l.cfg.Peer.SendMessage(false, &lnwire.UpdateFulfillHTLC{
+					ChanID:          resolution.l.ChanID(),
+					ID:              resolution.pd.HtlcIndex,
+					PaymentPreimage: resolution.preimageArray,
+				})
+			}
+
+			log.Debugf("resolution: resuming BatchTicker")
+
+			l.batchCounter++
+			l.cfg.BatchTicker.Resume()
 
 		case <-l.cfg.BatchTicker.Ticks():
 			// If the current batch is empty, then we have no work
@@ -2291,6 +2329,12 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				invoiceHash,
 			)
 			if err != nil {
+				if isResolverActive() {
+					// fire async resolver and return. HTLC will be handled by the resolver
+					asyncResolve(pd, l, obfuscator, heightNow)
+					continue
+				}
+
 				log.Errorf("unable to query invoice registry: "+
 					" %v", err)
 				failure := lnwire.FailUnknownPaymentHash{}

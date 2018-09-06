@@ -1555,14 +1555,13 @@ type nodeAddresses struct {
 }
 
 // establishPersistentConnections attempts to establish persistent connections
-// to all our direct channel collaborators.  In order to promote liveness of
-// our active channels, we instruct the connection manager to attempt to
-// establish and maintain persistent connections to all our direct channel
-// counterparties.
+// to all our direct channel collaborators. In order to promote liveness of our
+// active channels, we instruct the connection manager to attempt to establish
+// and maintain persistent connections to all our direct channel counterparties.
 func (s *server) establishPersistentConnections() error {
-	// nodeAddrsMap stores the combination of node public keys and
-	// addresses that we'll attempt to reconnect to. PubKey strings are
-	// used as keys since other PubKey forms can't be compared.
+	// nodeAddrsMap stores the combination of node public keys and addresses
+	// that we'll attempt to reconnect to. PubKey strings are used as keys
+	// since other PubKey forms can't be compared.
 	nodeAddrsMap := map[string]*nodeAddresses{}
 
 	// Iterate through the list of LinkNodes to find addresses we should
@@ -1600,11 +1599,18 @@ func (s *server) establishPersistentConnections() error {
 
 		// Add all unique addresses from channel graph/NodeAnnouncements
 		// to the list of addresses we'll connect to for this peer.
-		var addrSet = make(map[string]net.Addr)
+		addrSet := make(map[string]net.Addr)
 		for _, addr := range policy.Node.Addresses {
 			switch addr.(type) {
-			case *net.TCPAddr, *tor.OnionAddr:
+			case *net.TCPAddr:
 				addrSet[addr.String()] = addr
+
+			// We'll only attempt to connect to Tor addresses if Tor
+			// outbound support is enabled.
+			case *tor.OnionAddr:
+				if cfg.Tor.Active {
+					addrSet[addr.String()] = addr
+				}
 			}
 		}
 
@@ -1614,8 +1620,15 @@ func (s *server) establishPersistentConnections() error {
 		if ok {
 			for _, lnAddress := range linkNodeAddrs.addresses {
 				switch lnAddress.(type) {
-				case *net.TCPAddr, *tor.OnionAddr:
+				case *net.TCPAddr:
 					addrSet[lnAddress.String()] = lnAddress
+
+				// We'll only attempt to connect to Tor
+				// addresses if Tor outbound support is enabled.
+				case *tor.OnionAddr:
+					if cfg.Tor.Active {
+						addrSet[lnAddress.String()] = lnAddress
+					}
 				}
 			}
 		}

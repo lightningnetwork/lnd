@@ -88,6 +88,9 @@ func (h *agentConstraints) ChannelBudget(channels []Channel,
 	// If we're already over our maximum allowed number of channels, then
 	// we'll instruct the controller not to create any more channels.
 	if len(channels) >= int(h.chanLimit) {
+                log.Debugf("No more channels needed because channel limit was reached. " +
+                        "Limit: %v. Current number of channels: %v",
+                        h.chanLimit, len(channels))
 		return 0, 0
 	}
 
@@ -116,6 +119,10 @@ func (h *agentConstraints) ChannelBudget(channels []Channel,
 	// of channels to attempt to open.
 	needMore := fundsFraction < h.allocation
 	if !needMore {
+                log.Debugf("No more channels needed because funds allocation " +
+                        "was reached. Funds total: %v. Funds allocated to channels: %v. " +
+                        "Current fraction (allocated divided by total): %v. Limit fraction: %v.",
+                        totalFunds, totalChanAllocation, fundsFraction, h.allocation)
 		return 0, 0
 	}
 

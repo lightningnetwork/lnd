@@ -404,7 +404,7 @@ func (*ChangePasswordResponse) Descriptor() ([]byte, []int) { return fileDescrip
 type Transaction struct {
 	// / The transaction hash
 	TxHash string `protobuf:"bytes,1,opt,name=tx_hash" json:"tx_hash,omitempty"`
-	// / The transaction ammount, denominated in satoshis
+	// / The transaction amount, denominated in satoshis
 	Amount int64 `protobuf:"varint,2,opt,name=amount" json:"amount,omitempty"`
 	// / The number of confirmations
 	NumConfirmations int32 `protobuf:"varint,3,opt,name=num_confirmations" json:"num_confirmations,omitempty"`

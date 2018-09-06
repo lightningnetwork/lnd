@@ -705,7 +705,7 @@ type OpenChannelParams struct {
 	// unconfirmed outputs to fund the channel.
 	SpendUnconfirmed bool
 
-	// MinHtlc is the htlc_minumum_msat value set when opening the channel.
+	// MinHtlc is the htlc_minimum_msat value set when opening the channel.
 	MinHtlc lnwire.MilliSatoshi
 }
 

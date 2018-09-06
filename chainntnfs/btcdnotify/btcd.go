@@ -566,7 +566,7 @@ func (b *BtcdNotifier) confDetailsFromTxIndex(txid *chainhash.Hash,
 	// then we may be able to dispatch it immediately.
 	tx, err := b.chainConn.GetRawTransactionVerbose(txid)
 	if err != nil {
-		// If the transaction lookup was succesful, but it wasn't found
+		// If the transaction lookup was successful, but it wasn't found
 		// within the index itself, then we can exit early. We'll also
 		// need to look at the error message returned as the error code
 		// is used for multiple errors.

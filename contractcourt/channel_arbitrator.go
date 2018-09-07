@@ -1,11 +1,13 @@
 package contractcourt
 
 import (
+	"bytes"
 	"errors"
 	"sync"
 	"sync/atomic"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -132,6 +134,36 @@ type ChannelArbitratorConfig struct {
 	ChainArbitratorConfig
 }
 
+// ContractReport provides a summary of a commitment tx output.
+type ContractReport struct {
+	// Outpoint is the final output that will be swept back to the wallet.
+	Outpoint wire.OutPoint
+
+	// Incoming indicates whether the htlc was incoming to this channel.
+	Incoming bool
+
+	// Amount is the final value that will be swept in back to the wallet.
+	Amount btcutil.Amount
+
+	// MaturityHeight is the absolute block height that this output will
+	// mature at.
+	MaturityHeight uint32
+
+	// Stage indicates whether the htlc is in the CLTV-timeout stage (1) or
+	// the CSV-delay stage (2). A stage 1 htlc's maturity height will be set
+	// to its expiry height, while a stage 2 htlc's maturity height will be
+	// set to its confirmation height plus the maturity requirement.
+	Stage uint32
+
+	// LimboBalance is the total number of frozen coins within this
+	// contract.
+	LimboBalance btcutil.Amount
+
+	// RecoveredBalance is the total value that has been successfully swept
+	// back to the user's wallet.
+	RecoveredBalance btcutil.Amount
+}
+
 // htlcSet represents the set of active HTLCs on a given commitment
 // transaction.
 type htlcSet struct {
@@ -201,6 +233,10 @@ type ChannelArbitrator struct {
 	// activeResolvers is a slice of any active resolvers. This is used to
 	// be able to signal them for shutdown in the case that we shutdown.
 	activeResolvers []ContractResolver
+
+	// activeResolversLock prevents simultaneous read and write to the
+	// resolvers slice.
+	activeResolversLock sync.RWMutex
 
 	// resolutionSignal is a channel that will be sent upon by contract
 	// resolvers once their contract has been fully resolved. With each
@@ -461,6 +497,33 @@ func supplementTimeoutResolver(r *htlcTimeoutResolver,
 	return nil
 }
 
+// Report returns htlc reports for the active resolvers.
+func (c *ChannelArbitrator) Report() []*ContractReport {
+	c.activeResolversLock.RLock()
+	defer c.activeResolversLock.RUnlock()
+
+	var reports []*ContractReport
+	for _, resolver := range c.activeResolvers {
+		r, ok := resolver.(reportingContractResolver)
+		if !ok {
+			continue
+		}
+
+		if r.IsResolved() {
+			continue
+		}
+
+		report := r.report()
+		if report == nil {
+			continue
+		}
+
+		reports = append(reports, report)
+	}
+
+	return reports
+}
+
 // Stop signals the ChannelArbitrator for a graceful shutdown.
 func (c *ChannelArbitrator) Stop() error {
 	if !atomic.CompareAndSwapInt32(&c.stopped, 0, 1) {
@@ -473,9 +536,11 @@ func (c *ChannelArbitrator) Stop() error {
 		go c.cfg.ChainEvents.Cancel()
 	}
 
+	c.activeResolversLock.RLock()
 	for _, activeResolver := range c.activeResolvers {
 		activeResolver.Stop()
 	}
+	c.activeResolversLock.RUnlock()
 
 	close(c.quit)
 	c.wg.Wait()
@@ -854,6 +919,9 @@ func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
 
 // launchResolvers updates the activeResolvers list and starts the resolvers.
 func (c *ChannelArbitrator) launchResolvers(resolvers []ContractResolver) {
+	c.activeResolversLock.Lock()
+	defer c.activeResolversLock.Unlock()
+
 	c.activeResolvers = resolvers
 	for _, contract := range resolvers {
 		c.wg.Add(1)
@@ -1373,6 +1441,25 @@ func (c *ChannelArbitrator) prepContractResolutions(htlcActions ChainActionMap,
 	return htlcResolvers, msgsToSend, nil
 }
 
+// replaceResolver replaces a in the list of active resolvers. If the resolver
+// to be replaced is not found, it returns an error.
+func (c *ChannelArbitrator) replaceResolver(oldResolver,
+	newResolver ContractResolver) error {
+
+	c.activeResolversLock.Lock()
+	defer c.activeResolversLock.Unlock()
+
+	oldKey := oldResolver.ResolverKey()
+	for i, r := range c.activeResolvers {
+		if bytes.Equal(r.ResolverKey(), oldKey) {
+			c.activeResolvers[i] = newResolver
+			return nil
+		}
+	}
+
+	return errors.New("resolver to be replaced not found")
+}
+
 // resolveContract is a goroutine tasked with fully resolving an unresolved
 // contract. Either the initial contract will be resolved after a single step,
 // or the contract will itself create another contract to be resolved. In
@@ -1422,11 +1509,23 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
 					c.cfg.ChanPoint, currentContract,
 					nextContract)
 
+				// Swap contract in log.
 				err := c.log.SwapContract(
 					currentContract, nextContract,
 				)
 				if err != nil {
 					log.Errorf("unable to add recurse "+
+						"contract: %v", err)
+				}
+
+				// Swap contract in resolvers list. This is to
+				// make sure that reports are queried from the
+				// new resolver.
+				err = c.replaceResolver(
+					currentContract, nextContract,
+				)
+				if err != nil {
+					log.Errorf("unable to replace "+
 						"contract: %v", err)
 				}
 

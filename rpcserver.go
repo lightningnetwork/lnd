@@ -2063,7 +2063,19 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 				ClosingTxid: closeTXID,
 			}
 
+			// Fetch reports from both nursery and resolvers. At the
+			// moment this is not an atomic snapshot. This is
+			// planned to be resolved when the nursery is removed
+			// and channel arbitrator will be the single source for
+			// these kind of reports.
 			err := r.nurseryPopulateForceCloseResp(
+				&chanPoint, currentHeight, forceClose,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			err = r.arbitratorPopulateForceCloseResp(
 				&chanPoint, currentHeight, forceClose,
 			)
 			if err != nil {
@@ -2113,6 +2125,42 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 	}
 
 	return resp, nil
+}
+
+// arbitratorPopulateForceCloseResp populates the pending channels response
+// message with channel resolution information from the contract resolvers.
+func (r *rpcServer) arbitratorPopulateForceCloseResp(chanPoint *wire.OutPoint,
+	currentHeight int32,
+	forceClose *lnrpc.PendingChannelsResponse_ForceClosedChannel) error {
+
+	// Query for contract resolvers state.
+	arbitrator, err := r.server.chainArb.GetChannelArbitrator(*chanPoint)
+	if err != nil {
+		return err
+	}
+	reports := arbitrator.Report()
+
+	for _, report := range reports {
+		htlc := &lnrpc.PendingHTLC{
+			Incoming:       report.Incoming,
+			Amount:         int64(report.Amount),
+			Outpoint:       report.Outpoint.String(),
+			MaturityHeight: report.MaturityHeight,
+			Stage:          report.Stage,
+		}
+
+		if htlc.MaturityHeight != 0 {
+			htlc.BlocksTilMaturity =
+				int32(htlc.MaturityHeight) - currentHeight
+		}
+
+		forceClose.LimboBalance += int64(report.LimboBalance)
+		forceClose.RecoveredBalance += int64(report.RecoveredBalance)
+
+		forceClose.PendingHtlcs = append(forceClose.PendingHtlcs, htlc)
+	}
+
+	return nil
 }
 
 // nurseryPopulateForceCloseResp populates the pending channels response

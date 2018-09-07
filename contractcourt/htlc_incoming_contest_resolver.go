@@ -6,6 +6,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+
+	"github.com/btcsuite/btcutil"
 )
 
 // htlcIncomingContestResolver is a ContractResolver that's able to resolve an
@@ -163,6 +165,27 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		case <-h.Quit:
 			return nil, fmt.Errorf("resolver stopped")
 		}
+	}
+}
+
+// report returns a report on the resolution state of the contract.
+func (h *htlcIncomingContestResolver) report() *ContractReport {
+	// No locking needed as these values are read-only.
+
+	finalAmt := h.htlcAmt.ToSatoshis()
+	if h.htlcResolution.SignedSuccessTx != nil {
+		finalAmt = btcutil.Amount(
+			h.htlcResolution.SignedSuccessTx.TxOut[0].Value,
+		)
+	}
+
+	return &ContractReport{
+		Outpoint:       h.htlcResolution.ClaimOutpoint,
+		Incoming:       true,
+		Amount:         finalAmt,
+		MaturityHeight: h.htlcExpiry,
+		LimboBalance:   finalAmt,
+		Stage:          1,
 	}
 }
 

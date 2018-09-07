@@ -2803,6 +2803,12 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 
 	assertTxInBlock(t, block, sweepTx.Hash())
 
+	// Update current height
+	_, curHeight, err = net.Miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get best block height")
+	}
+
 	err = lntest.WaitPredicate(func() bool {
 		// Now that the commit output has been fully swept, check to see
 		// that the channel remains open for the pending htlc outputs.
@@ -2824,21 +2830,25 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 
 		// The commitment funds will have been recovered after the
 		// commit txn was included in the last block. The htlc funds
-		// will not be shown in limbo, since they are still in their
-		// first stage and the nursery hasn't received them from the
-		// contract court.
+		// will be shown in limbo.
 		forceClose, err := findForceClosedChannel(pendingChanResp, &op)
 		if err != nil {
 			predErr = err
 			return false
 		}
-		predErr = checkPendingChannelNumHtlcs(forceClose, 0)
+		predErr = checkPendingChannelNumHtlcs(forceClose, numInvoices)
 		if predErr != nil {
 			return false
 		}
-		if forceClose.LimboBalance != 0 {
-			predErr = fmt.Errorf("expected 0 funds in limbo, "+
-				"found %d", forceClose.LimboBalance)
+		predErr = checkPendingHtlcStageAndMaturity(
+			forceClose, 1, htlcExpiryHeight,
+			int32(htlcExpiryHeight)-curHeight,
+		)
+		if predErr != nil {
+			return false
+		}
+		if forceClose.LimboBalance == 0 {
+			predErr = fmt.Errorf("expected funds in limbo, found 0")
 			return false
 		}
 

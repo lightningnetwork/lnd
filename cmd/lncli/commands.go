@@ -474,6 +474,7 @@ var openChannelCommand = cli.Command{
 			Usage: "(optional) the minimum number of confirmations " +
 				"each one of your outputs used for the funding " +
 				"transaction must satisfy",
+			Value: 1,
 		},
 	},
 	Action: actionDecorator(openChannel),

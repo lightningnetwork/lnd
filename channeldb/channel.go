@@ -70,12 +70,6 @@ var (
 	// channel closure. This key should be accessed from within the
 	// sub-bucket of a target channel, identified by its channel point.
 	revocationLogBucket = []byte("revocation-log-key")
-
-	// fwdPackageLogBucket is a bucket that stores the locked-in htlcs after
-	// having received a revocation from the remote party. The keys in this
-	// bucket represent the remote height at which these htlcs were
-	// accepted.
-	fwdPackageLogBucket = []byte("fwd-package-log-key")
 )
 
 var (

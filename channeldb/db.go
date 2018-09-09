@@ -201,8 +201,15 @@ func createChannelDB(dbPath string) error {
 		if _, err := tx.CreateBucket(openChannelBucket); err != nil {
 			return err
 		}
-
 		if _, err := tx.CreateBucket(closedChannelBucket); err != nil {
+			return err
+		}
+
+		if _, err := tx.CreateBucket(forwardingLogBucket); err != nil {
+			return err
+		}
+
+		if _, err := tx.CreateBucket(fwdPackagesKey); err != nil {
 			return err
 		}
 
@@ -210,20 +217,47 @@ func createChannelDB(dbPath string) error {
 			return err
 		}
 
+		if _, err := tx.CreateBucket(paymentBucket); err != nil {
+			return err
+		}
+
 		if _, err := tx.CreateBucket(nodeInfoBucket); err != nil {
 			return err
 		}
 
-		if _, err := tx.CreateBucket(nodeBucket); err != nil {
+		nodes, err := tx.CreateBucket(nodeBucket)
+		if err != nil {
 			return err
 		}
-		if _, err := tx.CreateBucket(edgeBucket); err != nil {
+		_, err = nodes.CreateBucket(aliasIndexBucket)
+		if err != nil {
 			return err
 		}
-		if _, err := tx.CreateBucket(edgeIndexBucket); err != nil {
+		_, err = nodes.CreateBucket(nodeUpdateIndexBucket)
+		if err != nil {
 			return err
 		}
-		if _, err := tx.CreateBucket(graphMetaBucket); err != nil {
+
+		edges, err := tx.CreateBucket(edgeBucket)
+		if err != nil {
+			return err
+		}
+		if _, err := edges.CreateBucket(edgeIndexBucket); err != nil {
+			return err
+		}
+		if _, err := edges.CreateBucket(edgeUpdateIndexBucket); err != nil {
+			return err
+		}
+		if _, err := edges.CreateBucket(channelPointBucket); err != nil {
+			return err
+		}
+
+		graphMeta, err := tx.CreateBucket(graphMetaBucket)
+		if err != nil {
+			return err
+		}
+		_, err = graphMeta.CreateBucket(pruneLogBucket)
+		if err != nil {
 			return err
 		}
 

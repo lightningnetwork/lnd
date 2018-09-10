@@ -15,16 +15,22 @@ import (
 
 type mockNotifier struct {
 	spendChan chan *chainntnfs.SpendDetail
+	epochChan chan *chainntnfs.BlockEpoch
+	confChan  chan *chainntnfs.TxConfirmation
 }
 
 func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash, _ []byte, numConfs,
 	heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
-	return nil, nil
+	return &chainntnfs.ConfirmationEvent{
+		Confirmed: m.confChan,
+	}, nil
 }
+
 func (m *mockNotifier) RegisterBlockEpochNtfn(
 	bestBlock *chainntnfs.BlockEpoch) (*chainntnfs.BlockEpochEvent, error) {
+
 	return &chainntnfs.BlockEpochEvent{
-		Epochs: make(chan *chainntnfs.BlockEpoch),
+		Epochs: m.epochChan,
 		Cancel: func() {},
 	}, nil
 }
@@ -38,6 +44,7 @@ func (m *mockNotifier) Stop() error {
 }
 func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ []byte,
 	heightHint uint32) (*chainntnfs.SpendEvent, error) {
+
 	return &chainntnfs.SpendEvent{
 		Spend:  m.spendChan,
 		Cancel: func() {},

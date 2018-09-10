@@ -554,6 +554,9 @@ func (w WebApiFeeEstimator) EstimateFeePerKW(numBlocks uint32) (SatPerKWeight, e
 		walletLog.Errorf("unable to query web api for fee response: %v", err)
 		return w.defaultFeePerkw, nil
 	}
+	
+	// Set MOAR fees due to testnet spam
+	satPerKw = satPerKw * 10
 
 	// If the result is too low, then we'll clamp it to our current fee
 	// floor.

@@ -1279,7 +1279,7 @@ func (n *NetworkHarness) sendCoins(ctx context.Context, amt btcutil.Amount,
 	// the target node's unconfirmed balance reflects the expected balance
 	// and exit.
 	if !confirmed {
-		expectedBalance := initialBalance.UnconfirmedBalance + int64(amt)
+		expectedBalance := btcutil.Amount(initialBalance.UnconfirmedBalance) + amt
 		return target.WaitForBalance(expectedBalance, false)
 	}
 
@@ -1290,7 +1290,7 @@ func (n *NetworkHarness) sendCoins(ctx context.Context, amt btcutil.Amount,
 		return err
 	}
 
-	expectedBalance := initialBalance.ConfirmedBalance + int64(amt)
+	expectedBalance := btcutil.Amount(initialBalance.ConfirmedBalance) + amt
 	return target.WaitForBalance(expectedBalance, true)
 }
 

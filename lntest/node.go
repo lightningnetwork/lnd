@@ -915,7 +915,7 @@ func (hn *HarnessNode) WaitForBlockchainSync(ctx context.Context) error {
 
 // WaitForBalance waits until the node sees the expected confirmed/unconfirmed
 // balance within their wallet.
-func (hn *HarnessNode) WaitForBalance(expectedBalance int64, confirmed bool) error {
+func (hn *HarnessNode) WaitForBalance(expectedBalance btcutil.Amount, confirmed bool) error {
 	ctx := context.Background()
 	req := &lnrpc.WalletBalanceRequest{}
 
@@ -928,11 +928,11 @@ func (hn *HarnessNode) WaitForBalance(expectedBalance int64, confirmed bool) err
 
 		if confirmed {
 			lastBalance = btcutil.Amount(balance.ConfirmedBalance)
-			return balance.ConfirmedBalance == expectedBalance
+			return btcutil.Amount(balance.ConfirmedBalance) == expectedBalance
 		}
 
 		lastBalance = btcutil.Amount(balance.UnconfirmedBalance)
-		return balance.UnconfirmedBalance == expectedBalance
+		return btcutil.Amount(balance.UnconfirmedBalance) == expectedBalance
 	}
 
 	err := WaitPredicate(doesBalanceMatch, 30*time.Second)

@@ -555,7 +555,7 @@ func (w WebApiFeeEstimator) EstimateFeePerKW(numBlocks uint32) (SatPerKWeight, e
 		return w.defaultFeePerkw, nil
 	}
 	
-	// Set MOAR fees due to testnet spam
+	// Set MOAR fees due to testnet spam.
 	satPerKw = satPerKw * 10
 
 	// If the result is too low, then we'll clamp it to our current fee

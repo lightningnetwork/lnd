@@ -137,15 +137,12 @@ func (n *NeutrinoNotifier) Start() error {
 	// start the auto-rescan from this point. Once a caller actually wishes
 	// to register a chain view, the rescan state will be rewound
 	// accordingly.
-	bestHeader, bestHeight, err := n.p2pNode.BlockHeaders.ChainTip()
+	startingPoint, err := n.p2pNode.BestBlock()
 	if err != nil {
 		return err
 	}
-	startingPoint := &waddrmgr.BlockStamp{
-		Height: int32(bestHeight),
-		Hash:   bestHeader.BlockHash(),
-	}
-	n.bestHeight = bestHeight
+
+	n.bestHeight = uint32(startingPoint.Height)
 
 	// Next, we'll create our set of rescan options. Currently it's
 	// required that a user MUST set an addr/outpoint/txid when creating a
@@ -165,7 +162,7 @@ func (n *NeutrinoNotifier) Start() error {
 	}
 
 	n.txConfNotifier = chainntnfs.NewTxConfNotifier(
-		bestHeight, reorgSafetyLimit, n.confirmHintCache,
+		n.bestHeight, reorgSafetyLimit, n.confirmHintCache,
 	)
 
 	n.chainConn = &NeutrinoChainConn{n.p2pNode}
@@ -476,20 +473,17 @@ out:
 					"blocks, attempting to catch up")
 			}
 
-			header, err := n.p2pNode.BlockHeaders.FetchHeaderByHeight(
-				n.bestHeight,
-			)
+			hash, err := n.p2pNode.GetBlockHash(int64(n.bestHeight))
 			if err != nil {
-				chainntnfs.Log.Errorf("Unable to fetch header"+
+				chainntnfs.Log.Errorf("Unable to fetch block hash"+
 					"for height %d: %v", n.bestHeight, err)
 				n.heightMtx.Unlock()
 				continue
 			}
 
-			hash := header.BlockHash()
 			notifierBestBlock := chainntnfs.BlockEpoch{
 				Height: int32(n.bestHeight),
-				Hash:   &hash,
+				Hash:   hash,
 			}
 			newBestBlock, err := chainntnfs.RewindChain(
 				n.chainConn, n.txConfNotifier, notifierBestBlock,
@@ -536,17 +530,16 @@ func (n *NeutrinoNotifier) historicalConfDetails(targetHash *chainhash.Hash,
 
 		// First, we'll fetch the block header for this height so we
 		// can compute the current block hash.
-		header, err := n.p2pNode.BlockHeaders.FetchHeaderByHeight(scanHeight)
+		blockHash, err := n.p2pNode.GetBlockHash(int64(scanHeight))
 		if err != nil {
 			return nil, fmt.Errorf("unable to get header for height=%v: %v",
 				scanHeight, err)
 		}
-		blockHash := header.BlockHash()
 
 		// With the hash computed, we can now fetch the basic filter
 		// for this height.
 		regFilter, err := n.p2pNode.GetCFilter(
-			blockHash, wire.GCSFilterRegular,
+			*blockHash, wire.GCSFilterRegular,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to retrieve regular filter for "+
@@ -562,7 +555,7 @@ func (n *NeutrinoNotifier) historicalConfDetails(targetHash *chainhash.Hash,
 
 		// In the case that the filter exists, we'll attempt to see if
 		// any element in it matches our target public key script.
-		key := builder.DeriveKey(&blockHash)
+		key := builder.DeriveKey(blockHash)
 		match, err := regFilter.Match(key, pkScript)
 		if err != nil {
 			return nil, fmt.Errorf("unable to query filter: %v", err)
@@ -577,7 +570,7 @@ func (n *NeutrinoNotifier) historicalConfDetails(targetHash *chainhash.Hash,
 		// In the case that we do have a match, we'll fetch the block
 		// from the network so we can find the positional data required
 		// to send the proper response.
-		block, err := n.p2pNode.GetBlock(blockHash)
+		block, err := n.p2pNode.GetBlock(*blockHash)
 		if err != nil {
 			return nil, fmt.Errorf("unable to get block from network: %v", err)
 		}
@@ -585,7 +578,7 @@ func (n *NeutrinoNotifier) historicalConfDetails(targetHash *chainhash.Hash,
 			txHash := tx.Hash()
 			if txHash.IsEqual(targetHash) {
 				confDetails := chainntnfs.TxConfirmation{
-					BlockHash:   &blockHash,
+					BlockHash:   blockHash,
 					BlockHeight: scanHeight,
 					TxIndex:     uint32(j),
 				}
@@ -1085,11 +1078,7 @@ type NeutrinoChainConn struct {
 
 // GetBlockHeader returns the block header for a hash.
 func (n *NeutrinoChainConn) GetBlockHeader(blockHash *chainhash.Hash) (*wire.BlockHeader, error) {
-	header, _, err := n.p2pNode.BlockHeaders.FetchHeader(blockHash)
-	if err != nil {
-		return nil, err
-	}
-	return header, nil
+	return n.p2pNode.GetBlockHeader(blockHash)
 }
 
 // GetBlockHeaderVerbose returns a verbose block header result for a hash. This
@@ -1097,7 +1086,7 @@ func (n *NeutrinoChainConn) GetBlockHeader(blockHash *chainhash.Hash) (*wire.Blo
 func (n *NeutrinoChainConn) GetBlockHeaderVerbose(blockHash *chainhash.Hash) (
 	*btcjson.GetBlockHeaderVerboseResult, error) {
 
-	_, height, err := n.p2pNode.BlockHeaders.FetchHeader(blockHash)
+	height, err := n.p2pNode.GetBlockHeight(blockHash)
 	if err != nil {
 		return nil, err
 	}
@@ -1107,10 +1096,5 @@ func (n *NeutrinoChainConn) GetBlockHeaderVerbose(blockHash *chainhash.Hash) (
 
 // GetBlockHash returns the hash from a block height.
 func (n *NeutrinoChainConn) GetBlockHash(blockHeight int64) (*chainhash.Hash, error) {
-	header, err := n.p2pNode.BlockHeaders.FetchHeaderByHeight(uint32(blockHeight))
-	if err != nil {
-		return nil, err
-	}
-	hash := header.BlockHash()
-	return &hash, nil
+	return n.p2pNode.GetBlockHash(blockHeight)
 }

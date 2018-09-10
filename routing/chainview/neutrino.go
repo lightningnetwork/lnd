@@ -10,7 +10,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/gcs/builder"
-	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/channeldb"
 )
@@ -84,13 +83,9 @@ func (c *CfFilteredChainView) Start() error {
 	// start the auto-rescan from this point. Once a caller actually wishes
 	// to register a chain view, the rescan state will be rewound
 	// accordingly.
-	bestHeader, bestHeight, err := c.p2pNode.BlockHeaders.ChainTip()
+	startingPoint, err := c.p2pNode.BestBlock()
 	if err != nil {
 		return err
-	}
-	startingPoint := &waddrmgr.BlockStamp{
-		Height: int32(bestHeight),
-		Hash:   bestHeader.BlockHash(),
 	}
 
 	// Next, we'll create our set of rescan options. Currently it's
@@ -215,14 +210,14 @@ func (c *CfFilteredChainView) chainFilterer() {
 func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredBlock, error) {
 	// First, we'll fetch the block header itself so we can obtain the
 	// height which is part of our return value.
-	_, blockHeight, err := c.p2pNode.BlockHeaders.FetchHeader(blockHash)
+	blockHeight, err := c.p2pNode.GetBlockHeight(blockHash)
 	if err != nil {
 		return nil, err
 	}
 
 	filteredBlock := &FilteredBlock{
 		Hash:   *blockHash,
-		Height: blockHeight,
+		Height: uint32(blockHeight),
 	}
 
 	// If we don't have any items within our current chain filter, then we

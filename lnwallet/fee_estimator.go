@@ -458,3 +458,19 @@ func (b *BitcoindFeeEstimator) fetchEstimate(confTarget uint32) (SatPerKWeight, 
 // A compile-time assertion to ensure that BitcoindFeeEstimator implements the
 // FeeEstimator interface.
 var _ FeeEstimator = (*BitcoindFeeEstimator)(nil)
+
+// WebAPIFeeSource is an interface allows the WebAPIFeeEstimator to query an
+// arbitrary HTTP-based fee estimator. Each new set/network will gain an
+// implementation of this interface in order to allow the WebAPIFeeEstimator to
+// be fully generic in its logic.
+type WebAPIFeeSource interface {
+	// GenQueryURL generates the full query URL. The value returned by this
+	// method should be able to be used directly as a path for an HTTP GET
+	// request.
+	GenQueryURL() string
+
+	// ParseResponse attempts to parse the body of the response generated
+	// by the above query URL. Typically this will be JSON, but the
+	// specifics are left to the WebAPIFeeSource implementation.
+	ParseResponse(r io.Reader) (map[uint32]uint32, error)
+}

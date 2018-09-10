@@ -263,6 +263,20 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			return nil, nil, err
 		}
 
+		// If testnet is activated, then we'll fallback to our
+		// temporary API based fee estimation, until our RBF fee engine
+		// is finished.
+		if cfg.Bitcoin.TestNet3 {
+			ltndLog.Infof("Using testnet API fee estimator!")
+
+			estimator := lnwallet.NewWebApiFeeSource(
+				lnwallet.TestnetBitGoFeeSource{},
+				defaultBitcoinStaticFeePerKW,
+			)
+			cc.feeEstimator = estimator
+			walletConfig.FeeEstimator = estimator
+		}
+
 		// Finally, we'll set the chain source for btcwallet, and
 		// create our clean up function which simply closes the
 		// database.

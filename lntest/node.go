@@ -24,6 +24,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
@@ -901,6 +902,7 @@ func (hn *HarnessNode) WaitForBalance(expectedBalance int64, confirmed bool) err
 	ctx := context.Background()
 	req := &lnrpc.WalletBalanceRequest{}
 
+	var lastBalance btcutil.Amount
 	doesBalanceMatch := func() bool {
 		balance, err := hn.WalletBalance(ctx, req)
 		if err != nil {
@@ -908,15 +910,18 @@ func (hn *HarnessNode) WaitForBalance(expectedBalance int64, confirmed bool) err
 		}
 
 		if confirmed {
+			lastBalance = btcutil.Amount(balance.ConfirmedBalance)
 			return balance.ConfirmedBalance == expectedBalance
 		}
 
+		lastBalance = btcutil.Amount(balance.UnconfirmedBalance)
 		return balance.UnconfirmedBalance == expectedBalance
 	}
 
 	err := WaitPredicate(doesBalanceMatch, 30*time.Second)
 	if err != nil {
-		return errors.New("balances not synced after deadline")
+		return fmt.Errorf("balances not synced after deadline: "+
+			"expected %v, only have %v", expectedBalance, lastBalance)
 	}
 
 	return nil

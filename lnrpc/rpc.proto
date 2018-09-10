@@ -1669,15 +1669,28 @@ message Invoice {
     */
     uint64 settle_index = 17 [json_name = "settle_index"];
 
+    /// Deprecated, use amt_paid_sat or amt_paid_msat.
+    int64 amt_paid = 18 [json_name = "amt_paid", deprecated = true];
+
     /**
-    The amount that was accepted for this invoice. This will ONLY be set if
-    this invoice has been settled. We provide this field as if the invoice was
-    created with a zero value, then we need to record what amount was
-    ultimately accepted. Additionally, it's possible that the sender paid MORE
-    that was specified in the original invoice. So we'll record that here as
-    well.
+    The amount that was accepted for this invoice, in satoshis. This will ONLY
+    be set if this invoice has been settled. We provide this field as if the
+    invoice was created with a zero value, then we need to record what amount
+    was ultimately accepted. Additionally, it's possible that the sender paid
+    MORE that was specified in the original invoice. So we'll record that here
+    as well.
     */
-    int64 amt_paid = 18 [json_name = "amt_paid"];
+    int64 amt_paid_sat = 19 [json_name = "amt_paid_sat"];
+
+    /**
+    The amount that was accepted for this invoice, in millisatoshis. This will
+    ONLY be set if this invoice has been settled. We provide this field as if
+    the invoice was created with a zero value, then we need to record what
+    amount was ultimately accepted. Additionally, it's possible that the sender
+    paid MORE that was specified in the original invoice. So we'll record that
+    here as well.
+    */
+    int64 amt_paid_msat = 20 [json_name = "amt_paid_msat"];
 }
 message AddInvoiceResponse {
     bytes r_hash = 1 [json_name = "r_hash"];

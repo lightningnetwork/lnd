@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"container/list"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -15,7 +16,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -32,7 +32,7 @@ var (
 	numNodes int32
 
 	// ErrPeerExiting signals that the peer received a disconnect request.
-	ErrPeerExiting = errors.Errorf("peer exiting")
+	ErrPeerExiting = fmt.Errorf("peer exiting")
 )
 
 const (
@@ -113,7 +113,7 @@ type peer struct {
 	pubKeyBytes [33]byte
 
 	// startTime is the time this peer connection was successfully
-	// established. It will be zero for peers that did not successfuly
+	// established. It will be zero for peers that did not successfully
 	// Start().
 	startTime time.Time
 
@@ -147,6 +147,10 @@ type peer struct {
 	// localCloseChanReqs is a channel in which any local requests to close
 	// a particular channel are sent over.
 	localCloseChanReqs chan *htlcswitch.ChanClose
+
+	// linkFailures receives all reported channel failures from the switch,
+	// and instructs the channelManager to clean remaining channel state.
+	linkFailures chan linkFailureReport
 
 	// chanCloseMsgs is a channel that any message related to channel
 	// closures are sent over. This includes lnwire.Shutdown message as
@@ -216,6 +220,7 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 
 		activeChanCloses:   make(map[lnwire.ChannelID]*channelCloser),
 		localCloseChanReqs: make(chan *htlcswitch.ChanClose),
+		linkFailures:       make(chan linkFailureReport),
 		chanCloseMsgs:      make(chan *closeMsg),
 		failedChannels:     make(map[lnwire.ChannelID]struct{}),
 
@@ -234,7 +239,7 @@ func (p *peer) Start() error {
 		return nil
 	}
 
-	peerLog.Tracef("peer %v starting", p)
+	peerLog.Tracef("Peer %v starting", p)
 
 	// Exchange local and global features, the init message should be very
 	// first between two nodes.
@@ -294,11 +299,16 @@ func (p *peer) Start() error {
 		return err
 	}
 
+	if len(activeChans) == 0 {
+		p.server.prunePersistentPeerConnection(p.pubKeyBytes)
+	}
+
 	// Next, load all the active channels we have with this peer,
 	// registering them with the switch and launching the necessary
 	// goroutines required to operate them.
 	peerLog.Debugf("Loaded %v active channels from database with "+
 		"NodeKey(%x)", len(activeChans), p.PubKey())
+
 	if err := p.loadActiveChannels(activeChans); err != nil {
 		return fmt.Errorf("unable to load channels: %v", err)
 	}
@@ -313,6 +323,43 @@ func (p *peer) Start() error {
 	go p.pingHandler()
 
 	return nil
+}
+
+// initGossipSync initializes either a gossip syncer or an initial routing
+// dump, depending on the negotiated synchronization method.
+func (p *peer) initGossipSync() {
+	switch {
+
+	// If the remote peer knows of the new gossip queries feature, then
+	// we'll create a new gossipSyncer in the AuthenticatedGossiper for it.
+	case p.remoteLocalFeatures.HasFeature(lnwire.GossipQueriesOptional):
+		srvrLog.Infof("Negotiated chan series queries with %x",
+			p.pubKeyBytes[:])
+
+		// We'll only request channel updates from the remote peer if
+		// its enabled in the config, or we're already getting updates
+		// from enough peers.
+		//
+		// TODO(roasbeef): craft s.t. we only get updates from a few
+		// peers
+		recvUpdates := !cfg.NoChanUpdates
+
+		// Register the this peer's for gossip syncer with the gossiper.
+		// This is blocks synchronously to ensure the gossip syncer is
+		// registered with the gossiper before attempting to read
+		// messages from the remote peer.
+		p.server.authGossiper.InitSyncState(p, recvUpdates)
+
+	// If the remote peer has the initial sync feature bit set, then we'll
+	// being the synchronization protocol to exchange authenticated channel
+	// graph edges/vertexes, but only if they don't know of the new gossip
+	// queries.
+	case p.remoteLocalFeatures.HasFeature(lnwire.InitialRoutingSync):
+		srvrLog.Infof("Requesting full table sync with %x",
+			p.pubKeyBytes[:])
+
+		go p.server.authGossiper.SynchronizeNode(p)
+	}
 }
 
 // QuitSignal is a method that should return a channel which will be sent upon
@@ -481,80 +528,18 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 		shortChanID lnwire.ShortChannelID,
 		linkErr htlcswitch.LinkFailureError) {
 
-		select {
-		// If the server is already exiting, then none of the actions
-		// below can finish exiting, so we'll exit early as well.
-		case <-p.server.quit:
-			return
-
-		default:
+		failure := linkFailureReport{
+			chanPoint:   *chanPoint,
+			chanID:      chanID,
+			shortChanID: shortChanID,
+			linkErr:     linkErr,
 		}
 
-		// The link has notified us about a failure. We launch a go
-		// routine to stop the link, disconnect the peer and optionally
-		// force close the channel. We must launch a goroutine since we
-		// must let OnChannelFailure return in order for the link to
-		// completely stop in the call to RemoveLink.
-		p.server.wg.Add(1)
-		go func() {
-			defer p.server.wg.Done()
-
-			// We begin by removing the link from the switch, such
-			// that it won't be attempted used for any more
-			// updates.
-			// TODO(halseth): should introduce a way to atomically
-			// stop/pause the link and cancel back any adds in its
-			// mailboxes such that we can safely force close
-			// without the link being added again and updates being
-			// applied.
-			p.server.htlcSwitch.RemoveLink(chanID)
-
-			// If the error encountered was severe enough, we'll
-			// now force close the channel.
-			if linkErr.ForceClose {
-				peerLog.Warnf("Force closing link(%v)",
-					shortChanID)
-
-				closeTx, err := p.server.chainArb.ForceCloseContract(*chanPoint)
-				if err != nil {
-					peerLog.Errorf("unable to force close "+
-						"link(%v): %v", shortChanID,
-						err)
-				} else {
-					peerLog.Infof("channel(%v) force "+
-						"closed with txid %v",
-						shortChanID, closeTx.TxHash())
-				}
-			}
-
-			// Send an error to the peer, why we failed the
-			// channel.
-			if linkErr.ShouldSendToPeer() {
-				// If SendData is set, send it to the peer. If
-				// not, we'll use the standard error messages
-				// in the payload. We only include sendData in
-				// the cases where the error data does not
-				// contain sensitive information.
-				data := []byte(linkErr.Error())
-				if linkErr.SendData != nil {
-					data = linkErr.SendData
-				}
-				err := p.SendMessage(true, &lnwire.Error{
-					ChanID: chanID,
-					Data:   data,
-				})
-				if err != nil {
-					peerLog.Errorf("unable to send msg to "+
-						"remote peer: %v", err)
-				}
-			}
-
-			// Initiate disconnection.
-			// TODO(halseth): consider not disconnecting the peer,
-			// as we might still have other active channels with
-			// the same peer.
-			p.Disconnect(linkErr)
-		}()
+		select {
+		case p.linkFailures <- failure:
+		case <-p.quit:
+		case <-p.server.quit:
+		}
 	}
 
 	linkCfg := htlcswitch.ChannelLinkConfig{
@@ -626,7 +611,7 @@ func (p *peer) Disconnect(reason error) {
 		return
 	}
 
-	peerLog.Debugf("Disconnecting %s, reason: %v", p, reason)
+	peerLog.Infof("Disconnecting %s, reason: %v", p, reason)
 
 	// Ensure that the TCP connection is properly closed before continuing.
 	p.conn.Close()
@@ -769,6 +754,7 @@ func (ms *msgStream) msgConsumer() {
 			// items.
 			select {
 			case <-ms.peer.quit:
+				ms.msgCond.L.Unlock()
 				return
 			case <-ms.quit:
 				ms.msgCond.L.Unlock()
@@ -932,6 +918,14 @@ func (p *peer) readHandler() {
 			p, idleTimeout)
 		p.Disconnect(err)
 	})
+
+	// Initialize our negotiated gossip sync method before reading
+	// messages off the wire. When using gossip queries, this ensures
+	// a gossip syncer is active by the time query messages arrive.
+	//
+	// TODO(conner): have peer store gossip syncer directly and bypass
+	// gossiper?
+	p.initGossipSync()
 
 	discStream := newDiscMsgStream(p)
 	discStream.Start()
@@ -1372,7 +1366,8 @@ out:
 			}
 
 			if err != nil {
-				exitErr = errors.Errorf("unable to write message: %v", err)
+				exitErr = fmt.Errorf("unable to write "+
+					"message: %v", err)
 				break out
 			}
 
@@ -1625,6 +1620,12 @@ out:
 		case req := <-p.localCloseChanReqs:
 			p.handleLocalCloseReq(req)
 
+		// We've received a link failure from a link that was added to
+		// the switch. This will initiate the teardown of the link, and
+		// initiate any on-chain closures if necessary.
+		case failure := <-p.linkFailures:
+			p.handleLinkFailure(failure)
+
 		// We've received a new cooperative channel closure related
 		// message from the remote peer, we'll use this message to
 		// advance the chan closer state machine.
@@ -1873,6 +1874,75 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 	}
 }
 
+// linkFailureReport is sent to the channelManager whenever a link that was
+// added to the switch reports a link failure, and is forced to exit. The report
+// houses the necessary information to cleanup the channel state, send back the
+// error message, and force close if necessary.
+type linkFailureReport struct {
+	chanPoint   wire.OutPoint
+	chanID      lnwire.ChannelID
+	shortChanID lnwire.ShortChannelID
+	linkErr     htlcswitch.LinkFailureError
+}
+
+// handleLinkFailure processes a link failure report when a link in the switch
+// fails. It handles facilitates removal of all channel state within the peer,
+// force closing the channel depending on severity, and sending the error
+// message back to the remote party.
+func (p *peer) handleLinkFailure(failure linkFailureReport) {
+	// We begin by wiping the link, which will remove it from the switch,
+	// such that it won't be attempted used for any more updates.
+	//
+	// TODO(halseth): should introduce a way to atomically stop/pause the
+	// link and cancel back any adds in its mailboxes such that we can
+	// safely force close without the link being added again and updates
+	// being applied.
+	if err := p.WipeChannel(&failure.chanPoint); err != nil {
+		peerLog.Errorf("Unable to wipe link for chanpoint=%v",
+			failure.chanPoint)
+		return
+	}
+
+	// If the error encountered was severe enough, we'll now force close the
+	// channel to prevent readding it to the switch in the future.
+	if failure.linkErr.ForceClose {
+		peerLog.Warnf("Force closing link(%v)",
+			failure.shortChanID)
+
+		closeTx, err := p.server.chainArb.ForceCloseContract(
+			failure.chanPoint,
+		)
+		if err != nil {
+			peerLog.Errorf("unable to force close "+
+				"link(%v): %v", failure.shortChanID, err)
+		} else {
+			peerLog.Infof("channel(%v) force "+
+				"closed with txid %v",
+				failure.shortChanID, closeTx.TxHash())
+		}
+	}
+
+	// Send an error to the peer, why we failed the channel.
+	if failure.linkErr.ShouldSendToPeer() {
+		// If SendData is set, send it to the peer. If not, we'll use
+		// the standard error messages in the payload. We only include
+		// sendData in the cases where the error data does not contain
+		// sensitive information.
+		data := []byte(failure.linkErr.Error())
+		if failure.linkErr.SendData != nil {
+			data = failure.linkErr.SendData
+		}
+		err := p.SendMessage(true, &lnwire.Error{
+			ChanID: failure.chanID,
+			Data:   data,
+		})
+		if err != nil {
+			peerLog.Errorf("unable to send msg to "+
+				"remote peer: %v", err)
+		}
+	}
+}
+
 // finalizeChanClosure performs the final clean up steps once the cooperative
 // closure transaction has been fully broadcast. The finalized closing state
 // machine should be passed in. Once the transaction has been sufficiently
@@ -1928,6 +1998,7 @@ func (p *peer) finalizeChanClosure(chanCloser *channelCloser) {
 
 	go waitForChanToClose(chanCloser.negotiationHeight, notifier, errChan,
 		chanPoint, &closingTxid, closingTx.TxOut[0].PkScript, func() {
+
 			// Respond to the local subsystem which requested the
 			// channel closure.
 			if closeReq != nil {
@@ -1939,18 +2010,6 @@ func (p *peer) finalizeChanClosure(chanCloser *channelCloser) {
 						},
 					},
 				}
-			}
-
-			// Remove the persistent connection to this peer if we
-			// no longer have open channels with them.
-			p.activeChanMtx.Lock()
-			numActiveChans := len(p.activeChannels)
-			p.activeChanMtx.Unlock()
-
-			if numActiveChans == 0 {
-				p.server.prunePersistentPeerConnection(
-					p.pubKeyBytes,
-				)
 			}
 		})
 }
@@ -1996,19 +2055,15 @@ func waitForChanToClose(bestHeight uint32, notifier chainntnfs.ChainNotifier,
 	cb()
 }
 
-// WipeChannel removes the passed channel point from all indexes associated
-// with the peer, and the switch.
+// WipeChannel removes the passed channel point from all indexes associated with
+// the peer, and the switch.
 func (p *peer) WipeChannel(chanPoint *wire.OutPoint) error {
-
 	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
 	p.activeChanMtx.Lock()
 	if channel, ok := p.activeChannels[chanID]; ok {
 		channel.Stop()
 		delete(p.activeChannels, chanID)
-		if len(p.activeChannels) == 0 {
-			p.server.prunePersistentPeerConnection(p.pubKeyBytes)
-		}
 	}
 	p.activeChanMtx.Unlock()
 
@@ -2029,17 +2084,15 @@ func (p *peer) handleInitMsg(msg *lnwire.Init) error {
 
 	unknownLocalFeatures := p.remoteLocalFeatures.UnknownRequiredFeatures()
 	if len(unknownLocalFeatures) > 0 {
-		err := errors.Errorf("Peer set unknown local feature bits: %v",
+		err := fmt.Errorf("Peer set unknown local feature bits: %v",
 			unknownLocalFeatures)
-		peerLog.Error(err)
 		return err
 	}
 
 	unknownGlobalFeatures := p.remoteGlobalFeatures.UnknownRequiredFeatures()
 	if len(unknownGlobalFeatures) > 0 {
-		err := errors.Errorf("Peer set unknown global feature bits: %v",
+		err := fmt.Errorf("Peer set unknown global feature bits: %v",
 			unknownGlobalFeatures)
-		peerLog.Error(err)
 		return err
 	}
 

@@ -94,3 +94,13 @@ var (
 	// to the log not having any recorded events.
 	ErrNoForwardingEvents = fmt.Errorf("no recorded forwarding events")
 )
+
+// ErrTooManyExtraOpaqueBytes creates an error which should be returned if the
+// caller attempts to write an announcement message which bares too many extra
+// opaque bytes. We limit this value in order to ensure that we don't waste
+// disk space due to nodes unnecessarily padding out their announcements with
+// garbage data.
+func ErrTooManyExtraOpaqueBytes(numBytes int) error {
+	return fmt.Errorf("max allowed number of opaque bytes is %v, received "+
+		"%v bytes", MaxAllowedExtraOpaqueBytes, numBytes)
+}

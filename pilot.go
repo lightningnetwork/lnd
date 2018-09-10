@@ -55,18 +55,6 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 	updateStream, errChan := c.server.OpenChannel(req)
 	select {
 	case err := <-errChan:
-		// If we were not able to actually open a channel to the peer
-		// for whatever reason, then we'll disconnect from the peer to
-		// ensure we don't accumulate a bunch of unnecessary
-		// connections.
-		if err != nil {
-			dcErr := c.server.DisconnectPeer(target)
-			if dcErr != nil {
-				atplLog.Errorf("Unable to disconnect from peer %v",
-					target.SerializeCompressed())
-			}
-		}
-
 		return err
 	case <-updateStream:
 		return nil
@@ -172,8 +160,8 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 			// If we weren't able to establish a connection at all,
 			// then we'll error out.
 			if !connected {
-				return false, fmt.Errorf("unable to connect "+
-					"to %x", target.SerializeCompressed())
+				return false, errors.New("exhausted all " +
+					"advertised addresses")
 			}
 
 			return false, nil
@@ -224,8 +212,8 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 
 		for {
 			select {
-			case txnUpdate := <-txnSubscription.ConfirmedTransactions():
-				pilot.OnBalanceChange(txnUpdate.Value)
+			case <-txnSubscription.ConfirmedTransactions():
+				pilot.OnBalanceChange()
 			case <-svr.quit:
 				return
 			}

@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/tor"
 )
 
@@ -234,6 +235,8 @@ type config struct {
 	NoChanUpdates bool `long:"nochanupdates" description:"If specified, lnd will not request real-time channel updates from connected peers. This option should be used by routing nodes to save bandwidth."`
 
 	net tor.Net
+
+	Routing *routing.Conf `group:"routing" namespace:"routing"`
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -325,23 +328,42 @@ func loadConfig() (*config, error) {
 		os.Exit(0)
 	}
 
+	// If the config file path has not been modified by the user, then we'll
+	// use the default config file path. However, if the user has modified
+	// their lnddir, then we should assume they intend to use the config
+	// file within it.
+	configFileDir := cleanAndExpandPath(preCfg.LndDir)
+	configFilePath := cleanAndExpandPath(preCfg.ConfigFile)
+	if configFileDir != defaultLndDir {
+		if configFilePath == defaultConfigFile {
+			configFilePath = filepath.Join(
+				configFileDir, defaultConfigFilename,
+			)
+		}
+	}
+
+	// Next, load any additional configuration options from the file.
+	var configFileError error
+	cfg := preCfg
+	if err := flags.IniParse(configFilePath, &cfg); err != nil {
+		configFileError = err
+	}
+
+	// Finally, parse the remaining command line options again to ensure
+	// they take precedence.
+	if _, err := flags.Parse(&cfg); err != nil {
+		return nil, err
+	}
+
 	// If the provided lnd directory is not the default, we'll modify the
 	// path to all of the files and directories that will live within it.
-	lndDir := cleanAndExpandPath(preCfg.LndDir)
-	configFilePath := cleanAndExpandPath(preCfg.ConfigFile)
+	lndDir := cleanAndExpandPath(cfg.LndDir)
 	if lndDir != defaultLndDir {
-		// If the config file path has not been modified by the user,
-		// then we'll use the default config file path. However, if the
-		// user has modified their lnddir, then we should assume they
-		// intend to use the config file within it.
-		if configFilePath == defaultConfigFile {
-			preCfg.ConfigFile = filepath.Join(lndDir, defaultConfigFilename)
-		}
-		preCfg.DataDir = filepath.Join(lndDir, defaultDataDirname)
-		preCfg.TLSCertPath = filepath.Join(lndDir, defaultTLSCertFilename)
-		preCfg.TLSKeyPath = filepath.Join(lndDir, defaultTLSKeyFilename)
-		preCfg.LogDir = filepath.Join(lndDir, defaultLogDirname)
-		preCfg.Tor.V2PrivateKeyPath = filepath.Join(lndDir, defaultTorV2PrivateKeyFilename)
+		cfg.DataDir = filepath.Join(lndDir, defaultDataDirname)
+		cfg.TLSCertPath = filepath.Join(lndDir, defaultTLSCertFilename)
+		cfg.TLSKeyPath = filepath.Join(lndDir, defaultTLSKeyFilename)
+		cfg.LogDir = filepath.Join(lndDir, defaultLogDirname)
+		cfg.Tor.V2PrivateKeyPath = filepath.Join(lndDir, defaultTorV2PrivateKeyFilename)
 	}
 
 	// Create the lnd directory if it doesn't already exist.
@@ -360,19 +382,6 @@ func loadConfig() (*config, error) {
 		str := "%s: Failed to create lnd directory: %v"
 		err := fmt.Errorf(str, funcName, err)
 		fmt.Fprintln(os.Stderr, err)
-		return nil, err
-	}
-
-	// Next, load any additional configuration options from the file.
-	var configFileError error
-	cfg := preCfg
-	if err := flags.IniParse(cfg.ConfigFile, &cfg); err != nil {
-		configFileError = err
-	}
-
-	// Finally, parse the remaining command line options again to ensure
-	// they take precedence.
-	if _, err := flags.Parse(&cfg); err != nil {
 		return nil, err
 	}
 
@@ -692,6 +701,7 @@ func loadConfig() (*config, error) {
 			}
 		case "neutrino":
 			// No need to get RPC parameters.
+
 		default:
 			str := "%s: only btcd, bitcoind, and neutrino mode " +
 				"supported for bitcoin at this time"
@@ -1076,6 +1086,17 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 		}
 
 	case *bitcoindConfig:
+		// Ensure that if the ZMQ options are set, that they are not
+		// equal.
+		if conf.ZMQPubRawBlock != "" && conf.ZMQPubRawTx != "" {
+			err := checkZMQOptions(
+				conf.ZMQPubRawBlock, conf.ZMQPubRawTx,
+			)
+			if err != nil {
+				return err
+			}
+		}
+
 		// If all of RPCUser, RPCPass, ZMQBlockHost, and ZMQTxHost are
 		// set, we assume those parameters are good to use.
 		if conf.RPCUser != "" && conf.RPCPass != "" &&
@@ -1095,8 +1116,8 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 			confFile = "litecoin"
 		}
 
-		// If only one or two of the parameters are set, we assume the
-		// user did that unintentionally.
+		// If not all of the parameters are set, we'll assume the user
+		// did this unintentionally.
 		if conf.RPCUser != "" || conf.RPCPass != "" ||
 			conf.ZMQPubRawBlock != "" || conf.ZMQPubRawTx != "" {
 
@@ -1237,9 +1258,8 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 	}
 	zmqBlockHost := string(zmqBlockHostSubmatches[1])
 	zmqTxHost := string(zmqTxHostSubmatches[1])
-	if zmqBlockHost == zmqTxHost {
-		return "", "", "", "", errors.New("zmqpubrawblock and " +
-			"zmqpubrawtx must be different")
+	if err := checkZMQOptions(zmqBlockHost, zmqTxHost); err != nil {
+		return "", "", "", "", err
 	}
 
 	// Next, we'll try to find an auth cookie. We need to detect the chain
@@ -1301,6 +1321,17 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 
 	return string(userSubmatches[1]), string(passSubmatches[1]),
 		zmqBlockHost, zmqTxHost, nil
+}
+
+// checkZMQOptions ensures that the provided addresses to use as the hosts for
+// ZMQ rawblock and rawtx notifications are different.
+func checkZMQOptions(zmqBlockHost, zmqTxHost string) error {
+	if zmqBlockHost == zmqTxHost {
+		return errors.New("zmqpubrawblock and zmqpubrawtx must be set" +
+			"to different addresses")
+	}
+
+	return nil
 }
 
 // normalizeNetwork returns the common name of a network type used to create

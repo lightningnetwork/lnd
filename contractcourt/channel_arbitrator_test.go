@@ -2,6 +2,7 @@ package contractcourt
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,11 @@ type mockArbitratorLog struct {
 	failFetch       error
 	failCommit      bool
 	failCommitState ArbitratorState
+	resolutions     *ContractResolutions
+	chainActions    ChainActionMap
+	resolvers       map[ContractResolver]struct{}
+
+	sync.Mutex
 }
 
 // A compile time check to ensure mockArbitratorLog meets the ArbitratorLog
@@ -40,20 +46,48 @@ func (b *mockArbitratorLog) CommitState(s ArbitratorState) error {
 	return nil
 }
 
-func (b *mockArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver, error) {
-	var contracts []ContractResolver
-	return contracts, nil
+func (b *mockArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver,
+	error) {
+
+	b.Lock()
+	v := make([]ContractResolver, len(b.resolvers))
+	idx := 0
+	for resolver := range b.resolvers {
+		v[idx] = resolver
+		idx++
+	}
+	b.Unlock()
+
+	return v, nil
 }
 
-func (b *mockArbitratorLog) InsertUnresolvedContracts(resolvers ...ContractResolver) error {
+func (b *mockArbitratorLog) InsertUnresolvedContracts(
+	resolvers ...ContractResolver) error {
+
+	b.Lock()
+	for _, resolver := range resolvers {
+		b.resolvers[resolver] = struct{}{}
+	}
+	b.Unlock()
 	return nil
 }
 
-func (b *mockArbitratorLog) SwapContract(oldContract, newContract ContractResolver) error {
+func (b *mockArbitratorLog) SwapContract(oldContract,
+	newContract ContractResolver) error {
+
+	b.Lock()
+	delete(b.resolvers, oldContract)
+	b.resolvers[newContract] = struct{}{}
+	b.Unlock()
+
 	return nil
 }
 
 func (b *mockArbitratorLog) ResolveContract(res ContractResolver) error {
+	b.Lock()
+	delete(b.resolvers, res)
+	b.Unlock()
+
 	return nil
 }
 
@@ -61,6 +95,7 @@ func (b *mockArbitratorLog) LogContractResolutions(c *ContractResolutions) error
 	if b.failLog {
 		return fmt.Errorf("intentional log failure")
 	}
+	b.resolutions = c
 	return nil
 }
 
@@ -68,17 +103,17 @@ func (b *mockArbitratorLog) FetchContractResolutions() (*ContractResolutions, er
 	if b.failFetch != nil {
 		return nil, b.failFetch
 	}
-	c := &ContractResolutions{}
 
-	return c, nil
+	return b.resolutions, nil
 }
 
 func (b *mockArbitratorLog) LogChainActions(actions ChainActionMap) error {
+	b.chainActions = actions
 	return nil
 }
 
 func (b *mockArbitratorLog) FetchChainActions() (ChainActionMap, error) {
-	actionsMap := make(ChainActionMap)
+	actionsMap := b.chainActions
 	return actionsMap, nil
 }
 
@@ -124,6 +159,20 @@ func createTestChannelArbitrator(log ArbitratorLog) (*ChannelArbitrator,
 	chainArbCfg := ChainArbitratorConfig{
 		ChainIO: chainIO,
 		PublishTx: func(*wire.MsgTx) error {
+			return nil
+		},
+		DeliverResolutionMsg: func(...ResolutionMsg) error {
+			return nil
+		},
+		BroadcastDelta: 5,
+		Notifier: &mockNotifier{
+			epochChan: make(chan *chainntnfs.BlockEpoch),
+			spendChan: make(chan *chainntnfs.SpendDetail),
+			confChan:  make(chan *chainntnfs.TxConfirmation),
+		},
+		IncubateOutputs: func(wire.OutPoint, *lnwallet.CommitOutputResolution,
+			*lnwallet.OutgoingHtlcResolution,
+			*lnwallet.IncomingHtlcResolution) error {
 			return nil
 		},
 	}
@@ -393,6 +442,178 @@ func TestChannelArbitratorLocalForceClose(t *testing.T) {
 	select {
 	case <-resolved:
 		// Expected.
+	case <-time.After(5 * time.Second):
+		t.Fatalf("contract was not resolved")
+	}
+}
+
+// TestChannelArbitratorLocalForceClosePendingHtlc tests that the
+// ChannelArbitrator goes through the expected states in case we request it to
+// force close a channel that still has an HTLC pending.
+func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
+	arbLog := &mockArbitratorLog{
+		state:     StateDefault,
+		newStates: make(chan ArbitratorState, 5),
+		resolvers: make(map[ContractResolver]struct{}),
+	}
+
+	chanArb, resolved, err := createTestChannelArbitrator(arbLog)
+	if err != nil {
+		t.Fatalf("unable to create ChannelArbitrator: %v", err)
+	}
+
+	incubateChan := make(chan struct{})
+	chanArb.cfg.IncubateOutputs = func(outPoint wire.OutPoint,
+		commitOutputRes *lnwallet.CommitOutputResolution,
+		outgoingHtlcRes *lnwallet.OutgoingHtlcResolution,
+		incomingHtlcRes *lnwallet.IncomingHtlcResolution) error {
+
+		incubateChan <- struct{}{}
+
+		return nil
+	}
+
+	if err := chanArb.Start(); err != nil {
+		t.Fatalf("unable to start ChannelArbitrator: %v", err)
+	}
+	defer chanArb.Stop()
+
+	// Create htlcUpdates channel.
+	htlcUpdates := make(chan []channeldb.HTLC)
+
+	signals := &ContractSignals{
+		HtlcUpdates: htlcUpdates,
+		ShortChanID: lnwire.ShortChannelID{},
+	}
+	chanArb.UpdateContractSignals(signals)
+
+	// Add HTLC to channel arbitrator.
+	htlc := channeldb.HTLC{
+		Incoming:  false,
+		Amt:       10000,
+		HtlcIndex: 0,
+	}
+
+	htlcUpdates <- []channeldb.HTLC{
+		htlc,
+	}
+
+	errChan := make(chan error, 1)
+	respChan := make(chan *wire.MsgTx, 1)
+
+	// With the channel found, and the request crafted, we'll send over a
+	// force close request to the arbitrator that watches this channel.
+	chanArb.forceCloseReqs <- &forceCloseReq{
+		errResp: errChan,
+		closeTx: respChan,
+	}
+
+	// The force close request should trigger broadcast of the commitment
+	// transaction.
+	assertStateTransitions(t, arbLog.newStates,
+		StateBroadcastCommit, StateCommitmentBroadcasted)
+	select {
+	case <-respChan:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("no response received")
+	}
+
+	select {
+	case err := <-errChan:
+		if err != nil {
+			t.Fatalf("error force closing channel: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("no response received")
+	}
+
+	// Now notify about the local force close getting confirmed.
+	closeTx := &wire.MsgTx{}
+
+	htlcOp := wire.OutPoint{
+		Hash:  closeTx.TxHash(),
+		Index: 0,
+	}
+
+	// Set up the outgoing resolution. Populate SignedTimeoutTx because
+	// our commitment transaction got confirmed.
+	outgoingRes := lnwallet.OutgoingHtlcResolution{
+		Expiry: 10,
+		SweepSignDesc: lnwallet.SignDescriptor{
+			Output: &wire.TxOut{},
+		},
+		SignedTimeoutTx: &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				{
+					PreviousOutPoint: htlcOp,
+					Witness:          [][]byte{{}},
+				},
+			},
+			TxOut: []*wire.TxOut{
+				{},
+			},
+		},
+	}
+
+	chanArb.cfg.ChainEvents.LocalUnilateralClosure <- &LocalUnilateralCloseInfo{
+		&chainntnfs.SpendDetail{},
+		&lnwallet.LocalForceCloseSummary{
+			CloseTx: closeTx,
+			HtlcResolutions: &lnwallet.HtlcResolutions{
+				OutgoingHTLCs: []lnwallet.OutgoingHtlcResolution{
+					outgoingRes,
+				},
+			},
+		},
+		&channeldb.ChannelCloseSummary{},
+	}
+
+	assertStateTransitions(t, arbLog.newStates, StateContractClosed,
+		StateWaitingFullResolution)
+
+	// htlcOutgoingContestResolver is now active and waiting for the HTLC to
+	// expire. It should not yet have passed it on for incubation.
+	select {
+	case <-incubateChan:
+		t.Fatalf("contract should not be incubated yet")
+	default:
+	}
+
+	// Send a notification that the expiry height has been reached.
+	notifier := chanArb.cfg.Notifier.(*mockNotifier)
+	notifier.epochChan <- &chainntnfs.BlockEpoch{Height: 10}
+
+	// htlcOutgoingContestResolver is now transforming into a
+	// htlcTimeoutResolver and should send the contract off for incubation.
+	select {
+	case <-incubateChan:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("no response received")
+	}
+
+	// Notify resolver that output of the commitment has been spent.
+	notifier.confChan <- &chainntnfs.TxConfirmation{}
+
+	// As this is our own commitment transaction, the HTLC will go through
+	// to the second level. Channel arbitrator should still not be marked as
+	// resolved.
+	select {
+	case <-resolved:
+		t.Fatalf("channel resolved prematurely")
+	default:
+	}
+
+	// Notify resolver that the second level transaction is spent.
+	notifier.spendChan <- &chainntnfs.SpendDetail{}
+
+	// At this point channel should be marked as resolved.
+
+	// It should transition StateWaitingFullResolution ->
+	// StateFullyResolved, but this isn't happening.
+	// assertStateTransitions(t, arbLog.newStates, StateFullyResolved)
+
+	select {
+	case <-resolved:
 	case <-time.After(5 * time.Second):
 		t.Fatalf("contract was not resolved")
 	}

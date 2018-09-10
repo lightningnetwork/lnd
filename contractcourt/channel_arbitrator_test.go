@@ -611,10 +611,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	notifier.spendChan <- &chainntnfs.SpendDetail{}
 
 	// At this point channel should be marked as resolved.
-
-	// It should transition StateWaitingFullResolution ->
-	// StateFullyResolved, but this isn't happening.
-	// assertStateTransitions(t, arbLog.newStates, StateFullyResolved)
+	assertStateTransitions(t, arbLog.newStates, StateFullyResolved)
 
 	select {
 	case <-resolved:

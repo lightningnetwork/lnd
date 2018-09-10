@@ -816,7 +816,19 @@ func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
 		log.Infof("ChannelArbitrator(%v): still awaiting contract "+
 			"resolution", c.cfg.ChanPoint)
 
-		nextState = StateWaitingFullResolution
+		numUnresolved, err := c.log.FetchUnresolvedContracts()
+		if err != nil {
+			return StateError, closeTx, err
+		}
+
+		// If we still have unresolved contracts, then we'll stay alive
+		// to oversee their resolution.
+		if len(numUnresolved) != 0 {
+			nextState = StateWaitingFullResolution
+			break
+		}
+
+		nextState = StateFullyResolved
 
 	// If we start as fully resolved, then we'll end as fully resolved.
 	case StateFullyResolved:
@@ -1722,29 +1734,22 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			log.Infof("ChannelArbitrator(%v): a contract has been "+
 				"fully resolved!", c.cfg.ChanPoint)
 
-			numUnresolved, err := c.log.FetchUnresolvedContracts()
+			nextState, _, err := c.advanceState(
+				uint32(bestHeight), chainTrigger,
+			)
 			if err != nil {
-				log.Errorf("unable to query resolved "+
-					"contracts: %v", err)
+				log.Errorf("unable to advance state: %v", err)
 			}
 
-			// If we still have unresolved contracts, then we'll
-			// stay alive to oversee their resolution.
-			if len(numUnresolved) != 0 {
-				continue
-			}
+			// If we don't have anything further to do after
+			// advancing our state, then we'll exit.
+			if nextState == StateFullyResolved {
+				log.Infof("ChannelArbitrator(%v): all "+
+					"contracts fully resolved, exiting",
+					c.cfg.ChanPoint)
 
-			log.Infof("ChannelArbitrator(%v): all contracts fully "+
-				"resolved, exiting", c.cfg.ChanPoint)
-
-			// Otherwise, our job is finished here, the contract is
-			// now fully resolved! We'll mark it as such, then exit
-			// ourselves.
-			if err := c.cfg.MarkChannelResolved(); err != nil {
-				log.Errorf("unable to mark contract "+
-					"resolved: %v", err)
+				return
 			}
-			return
 
 		// We've just received a request to forcibly close out the
 		// channel. We'll

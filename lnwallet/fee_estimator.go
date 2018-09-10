@@ -492,3 +492,97 @@ func (t TestnetBitGoFeeSource) ParseResponse(r io.Reader) (SatPerKWeight, error)
 // A compile-time assertion to ensure that TestnetBitGoFeeSource implements the
 // WebApiFeeEstimator interface.
 var _ WebApiFeeSource = (*TestnetBitGoFeeSource)(nil)
+
+// WebApiFeeEstimator is an implementation of the FeeEstimator interface that
+// queries an HTTP-based fee estimation from an existing web API.
+type WebApiFeeEstimator struct {
+	// apiSource is the backing web API source we'll use for our queries.
+	apiSource WebApiFeeSource
+
+	// defaultFeePerkw is a fallback value that we'll use if we're unable
+	// to query the API for w/e reason.
+	defaultFeePerkw SatPerKWeight
+}
+
+// NewWebApiFeeSource creates a new WebApiFeeSource from a given
+// WebApiFeeSource and a fall back default fee.
+func NewWebApiFeeSource(api WebApiFeeSource, defaultFee SatPerKWeight) *WebApiFeeEstimator {
+	return &WebApiFeeEstimator{
+		apiSource:       api,
+		defaultFeePerkw: defaultFee,
+	}
+}
+
+// EstimateFeePerKW takes in a target for the number of blocks until an initial
+// confirmation and returns the estimated fee expressed in sat/kw.
+//
+// NOTE: This method is part of the FeeEstimator interface.
+func (w WebApiFeeEstimator) EstimateFeePerKW(numBlocks uint32) (SatPerKWeight, error) {
+	// Rather than use the default http.Client, we'll make a custom one
+	// which will allow us to control how long we'll wait to read the
+	// response from the service. This way, if the service is down or
+	// overloaded, we can exit early and use our default fee.
+	netTransport := &http.Transport{
+		Dial: (&net.Dialer{
+			Timeout: 5 * time.Second,
+		}).Dial,
+		TLSHandshakeTimeout: 5 * time.Second,
+	}
+	netClient := &http.Client{
+		Timeout:   time.Second * 10,
+		Transport: netTransport,
+	}
+
+	// With the client created, we'll query the API source to fetch the URL
+	// that we should use to query for the fee estimation.
+	targetURL := w.apiSource.GenQueryURL(numBlocks)
+	resp, err := netClient.Get(targetURL)
+	if err != nil {
+		// If we're unable to dial for w/e reason, then we'll log the
+		// error, but return the default static fee.
+		walletLog.Errorf("unable to query web api for fee response: %v", err)
+		return w.defaultFeePerkw, nil
+	}
+	defer resp.Body.Close()
+
+	// Once we've obtained the response, we'll instruct the WebApiFeeSource
+	// to parse out the body to obtain our final result.
+	satPerKw, err := w.apiSource.ParseResponse(resp.Body)
+	if err != nil {
+		// If we're unable to dial for w/e reason, then we'll log the
+		// error, but return the default static fee.
+		walletLog.Errorf("unable to query web api for fee response: %v", err)
+		return w.defaultFeePerkw, nil
+	}
+
+	// If the result is too low, then we'll clamp it to our current fee
+	// floor.
+	if satPerKw < FeePerKwFloor {
+		satPerKw = FeePerKwFloor
+	}
+
+	walletLog.Debugf("Web API returning %v sat/kw for conf target of %v",
+		int64(satPerKw), numBlocks)
+
+	return satPerKw, nil
+}
+
+// Start signals the FeeEstimator to start any processes or goroutines it needs
+// to perform its duty.
+//
+// NOTE: This method is part of the FeeEstimator interface.
+func (w WebApiFeeEstimator) Start() error {
+	return nil
+}
+
+// Stop stops any spawned goroutines and cleans up the resources used by the
+// fee estimator.
+//
+// NOTE: This method is part of the FeeEstimator interface.
+func (w WebApiFeeEstimator) Stop() error {
+	return nil
+}
+
+// A compile-time assertion to ensure that WebApiFeeEstimator implements the
+// FeeEstimator interface.
+var _ FeeEstimator = (*WebApiFeeEstimator)(nil)

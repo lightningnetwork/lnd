@@ -8,7 +8,6 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
-	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 )
@@ -26,13 +25,9 @@ func (n *NeutrinoNotifier) UnsafeStart(bestHeight int32, bestHash *chainhash.Has
 	// start the auto-rescan from this point. Once a caller actually wishes
 	// to register a chain view, the rescan state will be rewound
 	// accordingly.
-	header, height, err := n.p2pNode.BlockHeaders.ChainTip()
+	startingPoint, err := n.p2pNode.BestBlock()
 	if err != nil {
 		return err
-	}
-	startingPoint := &waddrmgr.BlockStamp{
-		Height: int32(height),
-		Hash:   header.BlockHash(),
 	}
 
 	// Next, we'll create our set of rescan options. Currently it's

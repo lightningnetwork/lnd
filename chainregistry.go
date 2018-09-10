@@ -208,6 +208,23 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			return nil, err
 		}
 
+		// If the user provided an API for fee estimation, activate it now.
+		if cfg.NeutrinoMode.FeeURL != "" {
+			ltndLog.Infof("Using API fee estimator!")
+
+			estimator := lnwallet.NewWebAPIFeeEstimator(
+				lnwallet.SparseConfFeeSource{
+					URL: cfg.NeutrinoMode.FeeURL,
+				},
+				defaultBitcoinStaticFeePerKW,
+			)
+
+			if err := estimator.Start(); err != nil {
+				return nil, err
+			}
+			cc.feeEstimator = estimator
+		}
+
 		walletConfig.ChainSource = chain.NewNeutrinoClient(
 			activeNetParams.Params, neutrinoCS,
 		)

@@ -638,16 +638,24 @@
             "description": "*\nThe offset in the time series to start at. As each response can only contain\n50k invoices, callers can use this to skip around within a packed time\nseries.",
             "in": "query",
             "required": false,
-            "type": "integer",
-            "format": "int64"
+            "type": "string",
+            "format": "uint64"
           },
           {
             "name": "num_max_invoices",
             "description": "/ The max number of invoices to return in the response to this query.",
             "in": "query",
             "required": false,
-            "type": "integer",
-            "format": "int64"
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "reversed",
+            "description": "*\nIf set, the invoices returned will result from seeking backwards from the\nspecified index offset.",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
           }
         ],
         "tags": [
@@ -2021,9 +2029,14 @@
           "description": "*\nA list of invoices from the time slice of the time series specified in the\nrequest."
         },
         "last_index_offset": {
-          "type": "integer",
-          "format": "int64",
-          "description": "*\nThe index of the last time in the set of returned invoices. Can be used to\nseek further, pagination style."
+          "type": "string",
+          "format": "uint64",
+          "description": "*\nThe index of the last item in the set of returned invoices. This can be used\nto seek further, pagination style."
+        },
+        "first_index_offset": {
+          "type": "string",
+          "format": "uint64",
+          "description": "*\nThe index of the last item in the set of returned invoices. This can be used\nto seek backwards, pagination style."
         }
       }
     },

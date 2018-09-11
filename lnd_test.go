@@ -5676,6 +5676,17 @@ func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 	// reestablished her connection with Dave, as they still have an open
 	// channel together.
 	testReconnection := func(node *lntest.HarnessNode) {
+		// Restart both nodes, to trigger the pruning logic.
+		if err := net.RestartNode(node, nil); err != nil {
+			t.Fatalf("unable to restart %v's node: %v",
+				node.Name(), err)
+		}
+
+		if err := net.RestartNode(net.Alice, nil); err != nil {
+			t.Fatalf("unable to restart alice's node: %v", err)
+		}
+
+		// Now restart both nodes and make sure they don't reconnect.
 		if err := net.RestartNode(node, nil); err != nil {
 			t.Fatalf("unable to restart %v's node: %v", node.Name(),
 				err)

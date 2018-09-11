@@ -1741,7 +1741,7 @@ func retrieveFeeLimit(ctx *cli.Context) (*lnrpc.FeeLimit, error) {
 	return nil, nil
 }
 
-func confirmPayReq(client lnrpc.LightningClient, payReq string) error {
+func confirmPayReq(ctx *cli.Context, client lnrpc.LightningClient, payReq string) error {
 	ctxb := context.Background()
 
 	req := &lnrpc.PayReqString{PayReq: payReq}
@@ -1750,8 +1750,19 @@ func confirmPayReq(client lnrpc.LightningClient, payReq string) error {
 		return err
 	}
 
+	// If the amount was not included in the invoice, then we let
+	// the payee specify the amount of satoshis they wish to send.
+	amt := resp.GetNumSatoshis()
+	if amt == 0 {
+		amt = ctx.Int64("amt")
+		if amt == 0 {
+			return fmt.Errorf("amount must be specified when " +
+				"paying a zero amount invoice")
+		}
+	}
+
 	fmt.Printf("Description: %v\n", resp.GetDescription())
-	fmt.Printf("Amount (in satoshis): %v\n", resp.GetNumSatoshis())
+	fmt.Printf("Amount (in satoshis): %v\n", amt)
 	fmt.Printf("Destination: %v\n", resp.GetDestination())
 
 	confirm := promptForConfirmation("Confirm payment (yes/no): ")
@@ -1783,7 +1794,7 @@ func sendPayment(ctx *cli.Context) error {
 	// details of the payment are encoded within the request.
 	if ctx.IsSet("pay_req") {
 		if !ctx.Bool("force") {
-			err = confirmPayReq(client, ctx.String("pay_req"))
+			err = confirmPayReq(ctx, client, ctx.String("pay_req"))
 			if err != nil {
 				return err
 			}
@@ -1960,7 +1971,7 @@ func payInvoice(ctx *cli.Context) error {
 	}
 
 	if !ctx.Bool("force") {
-		err = confirmPayReq(client, payReq)
+		err = confirmPayReq(ctx, client, payReq)
 		if err != nil {
 			return err
 		}
@@ -1971,7 +1982,6 @@ func payInvoice(ctx *cli.Context) error {
 		Amt:            ctx.Int64("amt"),
 		FeeLimit:       feeLimit,
 	}
-
 	return sendPaymentRequest(client, req)
 }
 

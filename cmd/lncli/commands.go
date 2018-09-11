@@ -2310,6 +2310,15 @@ var listInvoicesCommand = cli.Command{
 	Name:     "listinvoices",
 	Category: "Payments",
 	Usage:    "List all invoices currently stored.",
+	Description: `
+	This command enables the retrieval of all invoices currently stored
+	within the database. It has full support for pagination-style responses,
+	allowing users to query for specific invoices through their add_index.
+	This can be done by using either the first_index_offset or
+	last_index_offset fields included in the response. The reversed flag is
+	set by default in order to paginate backwards. If you wish to paginate
+	forwards, you must explicitly set the flag to false. If none of the
+	parameters are specified, then the last 100 invoices will be returned.`,
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name: "pending_only",
@@ -2324,6 +2333,12 @@ var listInvoicesCommand = cli.Command{
 			Name:  "max_invoices",
 			Usage: "the max number of invoices to return",
 		},
+		cli.BoolTFlag{
+			Name: "reversed",
+			Usage: "if set, the invoices returned precede the " +
+				"given index_offset, allowing backwards " +
+				"pagination",
+		},
 	},
 	Action: actionDecorator(listInvoices),
 }
@@ -2334,8 +2349,9 @@ func listInvoices(ctx *cli.Context) error {
 
 	req := &lnrpc.ListInvoiceRequest{
 		PendingOnly:    ctx.Bool("pending_only"),
-		IndexOffset:    uint32(ctx.Uint64("index_offset")),
-		NumMaxInvoices: uint32(ctx.Uint64("max_invoices")),
+		IndexOffset:    ctx.Uint64("index_offset"),
+		NumMaxInvoices: ctx.Uint64("max_invoices"),
+		Reversed:       ctx.Bool("reversed"),
 	}
 
 	invoices, err := client.ListInvoices(context.Background(), req)

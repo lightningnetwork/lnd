@@ -438,17 +438,17 @@ type WebApiFeeSource interface {
 	ParseResponse(r io.Reader) (SatPerKWeight, error)
 }
 
-// TestnetBitGoFeeSource is an implemtatnion of the WebApiFeeSource that access
-// the BitGo testnet fee estimation API for Bitcoin.
-type TestnetBitGoFeeSource struct{}
+// TestnetFacuetFeeSource is an implemtatnion of the WebApiFeeSource that access
+// the faucet testnet fee estimation API for Bitcoin.
+type TestnetFaucetFeeSource struct{}
 
 // GenQueryURL generates the full query URL given a number of blocks to query
 // for fee estimation for. The value returned by this method should be able to
 // be used directly as a path for an HTTP GET request.
 //
 // NOTE: Part of the WebApiFeeSource interface.
-func (t TestnetBitGoFeeSource) GenQueryURL(numBlocks uint32) string {
-	urlTemplate := "https://test.bitgo.com/api/v2/tbtc/tx/fee?numBlocks=%v"
+func (t TestnetFaucetFeeSource) GenQueryURL(numBlocks uint32) string {
+	urlTemplate := "https://faucet.lightning.community/estimatefee?numBlocks=%v"
 	return fmt.Sprintf(urlTemplate, numBlocks)
 }
 
@@ -457,19 +457,11 @@ func (t TestnetBitGoFeeSource) GenQueryURL(numBlocks uint32) string {
 // the WebApiFeeSource implementation.
 //
 // NOTE: Part of the WebApiFeeSource interface.
-func (t TestnetBitGoFeeSource) ParseResponse(r io.Reader) (SatPerKWeight, error) {
+func (t TestnetFaucetFeeSource) ParseResponse(r io.Reader) (SatPerKWeight, error) {
 	// jsonResp is a struct that we'll use to decode the response sent by
 	// the API. We only capture the fields that we need for our response.
 	type jsonResp struct {
-		FeePerKb     uint64  `json:"feePerKb"`
-		CpfpFeePerKb uint64  `json:"cpfpFeePerKb"`
-		NumBlocks    uint64  `json:"numBlocks"`
-		Confidence   uint64  `json:"confidence"`
-		Multiplier   float64 `json:"multiplier"`
-
-		FeeByBlockTarget map[string]uint32 `json:feeByBlockTarget"`
-
-		// TODO(roasbeef): can add rest of fees if needed
+		FeePerKb uint64 `json:"feePerKb"`
 	}
 
 	kresp, err := ioutil.ReadAll(r)
@@ -489,9 +481,9 @@ func (t TestnetBitGoFeeSource) ParseResponse(r io.Reader) (SatPerKWeight, error)
 	return SatPerKVByte(resp.FeePerKb).FeePerKWeight(), nil
 }
 
-// A compile-time assertion to ensure that TestnetBitGoFeeSource implements the
+// A compile-time assertion to ensure that TestnetFaucetFeeSource implements the
 // WebApiFeeEstimator interface.
-var _ WebApiFeeSource = (*TestnetBitGoFeeSource)(nil)
+var _ WebApiFeeSource = (*TestnetFaucetFeeSource)(nil)
 
 // WebApiFeeEstimator is an implementation of the FeeEstimator interface that
 // queries an HTTP-based fee estimation from an existing web API.

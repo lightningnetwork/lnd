@@ -270,7 +270,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			ltndLog.Infof("Using testnet API fee estimator!")
 
 			estimator := lnwallet.NewWebApiFeeSource(
-				lnwallet.TestnetBitGoFeeSource{},
+				lnwallet.TestnetFaucetFeeSource{},
 				defaultBitcoinStaticFeePerKW,
 			)
 			cc.feeEstimator = estimator

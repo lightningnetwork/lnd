@@ -5663,6 +5663,12 @@ func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("alice did not reconnect to carol")
 	}
+	err = lntest.WaitPredicate(func() bool {
+		return isConnected(dave.PubKeyStr)
+	}, 15*time.Second)
+	if err != nil {
+		t.Fatalf("alice did not reconnect to dave")
+	}
 
 	// testReconnection is a helper closure that restarts the nodes at both
 	// ends of a channel to ensure they do not reconnect after restarting.
@@ -5674,9 +5680,9 @@ func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 			t.Fatalf("unable to restart %v's node: %v", node.Name(),
 				err)
 		}
-		err = lntest.WaitPredicate(func() bool {
+		err = lntest.WaitInvariant(func() bool {
 			return !isConnected(node.PubKeyStr)
-		}, 20*time.Second)
+		}, 5*time.Second)
 		if err != nil {
 			t.Fatalf("alice reconnected to %v", node.Name())
 		}
@@ -5685,11 +5691,15 @@ func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 			t.Fatalf("unable to restart alice's node: %v", err)
 		}
 		err = lntest.WaitPredicate(func() bool {
-			if !isConnected(dave.PubKeyStr) {
-				return false
-			}
-			return !isConnected(node.PubKeyStr)
+			return isConnected(dave.PubKeyStr)
 		}, 20*time.Second)
+		if err != nil {
+			t.Fatalf("alice didn't reconnect to Dave")
+		}
+
+		err = lntest.WaitInvariant(func() bool {
+			return !isConnected(node.PubKeyStr)
+		}, 5*time.Second)
 		if err != nil {
 			t.Fatalf("alice reconnected to %v", node.Name())
 		}

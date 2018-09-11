@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"golang.org/x/time/rate"
 )
 
 // syncerState is an enum that represents the current state of the
@@ -56,12 +57,12 @@ const (
 const (
 	// DefaultMaxUndelayedQueryReplies specifies how many gossip queries we
 	// will respond to immediately before starting to delay responses.
-	DefaultMaxUndelayedQueryReplies = 5
+	DefaultMaxUndelayedQueryReplies = 10
 
 	// DefaultDelayedQueryReplyInterval is the length of time we will wait
 	// before responding to gossip queries after replying to
 	// maxUndelayedQueryReplies queries.
-	DefaultDelayedQueryReplyInterval = 30 * time.Second
+	DefaultDelayedQueryReplyInterval = 5 * time.Second
 )
 
 // String returns a human readable string describing the target syncerState.
@@ -238,10 +239,11 @@ type gossipSyncer struct {
 
 	cfg gossipSyncerCfg
 
-	// replyCount records how many query replies we've responded to. This is
-	// used to determine when to start delaying responses to peers to
-	// prevent DOS vulnerabilities.
-	replyCount int
+	// rateLimiter dictates the frequency with which we will reply to gossip
+	// queries from a peer. This is used to delay responses to peers to
+	// prevent DOS vulnerabilities if they are spamming with an unreasonable
+	// number of queries.
+	rateLimiter *rate.Limiter
 
 	sync.Mutex
 
@@ -259,15 +261,25 @@ func newGossiperSyncer(cfg gossipSyncerCfg) *gossipSyncer {
 	}
 
 	// If no parameter was specified for delayed query reply interval, set
-	// to the default of 30 seconds.
+	// to the default of 5 seconds.
 	if cfg.delayedQueryReplyInterval <= 0 {
 		cfg.delayedQueryReplyInterval = DefaultDelayedQueryReplyInterval
 	}
 
+	// Construct a rate limiter that will govern how frequently we reply to
+	// gossip queries from this peer. The limiter will automatically adjust
+	// during periods of quiescence, and increase the reply interval under
+	// load.
+	interval := rate.Every(cfg.delayedQueryReplyInterval)
+	rateLimiter := rate.NewLimiter(
+		interval, cfg.maxUndelayedQueryReplies,
+	)
+
 	return &gossipSyncer{
-		cfg:        cfg,
-		gossipMsgs: make(chan lnwire.Message, 100),
-		quit:       make(chan struct{}),
+		cfg:         cfg,
+		rateLimiter: rateLimiter,
+		gossipMsgs:  make(chan lnwire.Message, 100),
+		quit:        make(chan struct{}),
 	}
 }
 
@@ -629,23 +641,22 @@ func (g *gossipSyncer) genChanRangeQuery() (*lnwire.QueryChannelRange, error) {
 // replyPeerQueries is called in response to any query by the remote peer.
 // We'll examine our state and send back our best response.
 func (g *gossipSyncer) replyPeerQueries(msg lnwire.Message) error {
+	reservation := g.rateLimiter.Reserve()
+	delay := reservation.Delay()
+
 	// If we've already replied a handful of times, we will start to delay
 	// responses back to the remote peer. This can help prevent DOS attacks
 	// where the remote peer spams us endlessly.
-	switch {
-	case g.replyCount == g.cfg.maxUndelayedQueryReplies:
-		log.Infof("gossipSyncer(%x): entering delayed gossip replies",
-			g.peerPub[:])
-		fallthrough
+	if delay > 0 {
+		log.Infof("gossipSyncer(%x): rate limiting gossip replies, ",
+			"responding in %s", g.peerPub[:], delay)
 
-	case g.replyCount > g.cfg.maxUndelayedQueryReplies:
 		select {
-		case <-time.After(g.cfg.delayedQueryReplyInterval):
+		case <-time.After(delay):
 		case <-g.quit:
 			return ErrGossipSyncerExiting
 		}
 	}
-	g.replyCount++
 
 	switch msg := msg.(type) {
 

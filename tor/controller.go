@@ -11,6 +11,7 @@ import (
 	"io/ioutil"
 	"net/textproto"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 )
@@ -30,6 +31,11 @@ const (
 	// ProtocolInfoVersion is the `protocolinfo` version currently supported
 	// by the Tor server.
 	ProtocolInfoVersion = 1
+
+	// MinTorVersion is the minimum supported version that the Tor server
+	// must be running on. This is needed in order to create v3 onion
+	// services through Tor's control port.
+	MinTorVersion = "0.3.3.6"
 )
 
 var (
@@ -72,6 +78,9 @@ type Controller struct {
 	// controlAddr is the host:port the Tor server is listening locally for
 	// controller connections on.
 	controlAddr string
+
+	// version is the current version of the Tor server.
+	version string
 }
 
 // NewController returns a new Tor controller that will be able to interact with
@@ -251,14 +260,18 @@ func (c *Controller) authenticate() error {
 }
 
 // getAuthCookie retrieves the authentication cookie in bytes from the Tor
-// server. Cookie authentication must be enabled for this to work.
+// server. Cookie authentication must be enabled for this to work. The boolean
 func (c *Controller) getAuthCookie() ([]byte, error) {
 	// Retrieve the authentication methods currently supported by the Tor
 	// server.
-	authMethods, cookieFilePath, _, err := c.ProtocolInfo()
+	authMethods, cookieFilePath, version, err := c.ProtocolInfo()
 	if err != nil {
 		return nil, err
 	}
+
+	// With the version retrieved, we'll cache it now in case it needs to be
+	// used later on.
+	c.version = version
 
 	// Ensure that the Tor server supports the SAFECOOKIE authentication
 	// method.
@@ -292,6 +305,47 @@ func computeHMAC256(key, message []byte) []byte {
 	mac := hmac.New(sha256.New, key)
 	mac.Write(message)
 	return mac.Sum(nil)
+}
+
+// supportsV3 is a helper function that parses the current version of the Tor
+// server and determines whether it supports creationg v3 onion services through
+// Tor's control port. The version string should be of the format:
+//	major.minor.revision.build
+func supportsV3(version string) error {
+	// We'll split the minimum Tor version that's supported and the given
+	// version in order to individually compare each number.
+	requiredParts := strings.Split(MinTorVersion, ".")
+	parts := strings.Split(version, ".")
+	if len(parts) != 4 {
+		return errors.New("version string is not of the format " +
+			"major.minor.revision.build")
+	}
+
+	// It's possible that the build number (the last part of the version
+	// string) includes a pre-release string, e.g. rc, beta, etc., so we'll
+	// parse that as well.
+	build := strings.Split(parts[len(parts)-1], "-")
+	parts[len(parts)-1] = build[0]
+
+	// Convert them each number from its string representation to integers
+	// and check that they respect the minimum version.
+	for i := range parts {
+		n, err := strconv.Atoi(parts[i])
+		if err != nil {
+			return err
+		}
+		requiredN, err := strconv.Atoi(requiredParts[i])
+		if err != nil {
+			return err
+		}
+
+		if n < requiredN {
+			return fmt.Errorf("version %v below minimum version "+
+				"supported %v", version, MinTorVersion)
+		}
+	}
+
+	return nil
 }
 
 // ProtocolInfo returns the different authentication methods supported by the
@@ -338,60 +392,88 @@ func (c *Controller) ProtocolInfo() ([]string, string, string, error) {
 	return authMethods, cookieFilePath, torVersion, nil
 }
 
-// VirtToTargPorts is a mapping of virtual ports to target ports. When creating
-// an onion service, it will be listening externally on each virtual port. Each
-// virtual port can then be mapped to one or many target ports internally. When
-// accessing the onion service at a specific virtual port, it will forward the
-// traffic to a mapped randomly chosen target port.
-type VirtToTargPorts = map[int]map[int]struct{}
+// OnionType denotes the type of the onion service.
+type OnionType int
 
-// AddOnionV2 creates a new v2 onion service and returns its onion address(es).
-// Once created, the new onion service will remain active until the connection
-// between the controller and the Tor server is closed. The path to a private
-// key can be provided in order to restore a previously created onion service.
-// If a file at this path does not exist, a new onion service will be created
-// and its private key will be saved to a file at this path. A mapping of
-// virtual ports to target ports should also be provided. Each virtual port will
-// be the ports where the onion service can be reached at, while the mapped
-// target ports will be the ports where the onion service is running locally.
-func (c *Controller) AddOnionV2(privateKeyFilename string,
-	virtToTargPorts VirtToTargPorts) ([]*OnionAddr, error) {
+const (
+	// V2 denotes that the onion service is V2.
+	V2 OnionType = iota
+
+	// V3 denotes that the onion service is V3.
+	V3
+)
+
+// AddOnionConfig houses all of the required paramaters in order to succesfully
+// create a new onion service or restore an existing one.
+type AddOnionConfig struct {
+	// Type denotes the type of the onion service that should be created.
+	Type OnionType
+
+	// VirtualPort is the externally reachable port of the onion address.
+	VirtualPort int
+
+	// TargetPorts is the set of ports that the service will be listening on
+	// locally. The Tor server will use choose a random port from this set
+	// to forward the traffic from the virtual port.
+	//
+	// NOTE: If nil/empty, the virtual port will be used as the only target
+	// port.
+	TargetPorts []int
+
+	// PrivateKeyPath is the full path to where the onion service's private
+	// key is stored. This can be used to restore an existing onion service.
+	PrivateKeyPath string
+}
+
+// AddOnion creates an onion service and returns its onion address. Once
+// created, the new onion service will remain active until the connection
+// between the controller and the Tor server is closed.
+func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
+	// Before sending the request to create an onion service to the Tor
+	// server, we'll make sure that it supports V3 onion services if that
+	// was the type requested.
+	if cfg.Type == V3 {
+		if err := supportsV3(c.version); err != nil {
+			return nil, err
+		}
+	}
 
 	// We'll start off by checking if the file containing the private key
 	// exists. If it does not, then we should request the server to create
 	// a new onion service and return its private key. Otherwise, we'll
 	// request the server to recreate the onion server from our private key.
 	var keyParam string
-	if _, err := os.Stat(privateKeyFilename); os.IsNotExist(err) {
-		keyParam = "NEW:RSA1024"
+	if _, err := os.Stat(cfg.PrivateKeyPath); os.IsNotExist(err) {
+		switch cfg.Type {
+		case V2:
+			keyParam = "NEW:RSA1024"
+		case V3:
+			keyParam = "NEW:ED25519-V3"
+		}
 	} else {
-		privateKey, err := ioutil.ReadFile(privateKeyFilename)
+		privateKey, err := ioutil.ReadFile(cfg.PrivateKeyPath)
 		if err != nil {
 			return nil, err
 		}
 		keyParam = string(privateKey)
 	}
 
-	// Now, we'll determine the different virtual ports on which this onion
-	// service will be accessed by.
+	// Now, we'll create a mapping from the virtual port to each target
+	// port. If no target ports were specified, we'll use the virtual port
+	// to provide a one-to-one mapping.
 	var portParam string
-	for virtPort, targPorts := range virtToTargPorts {
-		// If the virtual port doesn't map to any target ports, we'll
-		// use the virtual port as the target port.
-		if len(targPorts) == 0 {
-			portParam += fmt.Sprintf("Port=%d,%d ", virtPort,
-				virtPort)
-			continue
-		}
-
-		// Otherwise, we'll create a mapping from the virtual port to
-		// each target port.
-		for targPort := range targPorts {
-			portParam += fmt.Sprintf("Port=%d,%d ", virtPort,
-				targPort)
+	if len(cfg.TargetPorts) == 0 {
+		portParam += fmt.Sprintf("Port=%d,%d ", cfg.VirtualPort,
+			cfg.VirtualPort)
+	} else {
+		for _, targetPort := range cfg.TargetPorts {
+			portParam += fmt.Sprintf("Port=%d,%d ", cfg.VirtualPort,
+				targetPort)
 		}
 	}
 
+	// Send the command to create the onion service to the Tor server and
+	// await its response.
 	cmd := fmt.Sprintf("ADD_ONION %s %s", keyParam, portParam)
 	_, reply, err := c.sendCommand(cmd)
 	if err != nil {
@@ -423,7 +505,7 @@ func (c *Controller) AddOnionV2(privateKeyFilename string,
 	// recreated later on.
 	if privateKey, ok := replyParams["PrivateKey"]; ok {
 		err := ioutil.WriteFile(
-			privateKeyFilename, []byte(privateKey), 0600,
+			cfg.PrivateKeyPath, []byte(privateKey), 0600,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to write private key "+
@@ -431,18 +513,11 @@ func (c *Controller) AddOnionV2(privateKeyFilename string,
 		}
 	}
 
-	// Finally, return the different onion addresses composed of the service
-	// ID, along with the onion suffix, and the different virtual ports this
-	// onion service can be reached at.
-	onionService := serviceID + ".onion"
-	addrs := make([]*OnionAddr, 0, len(virtToTargPorts))
-	for virtPort := range virtToTargPorts {
-		addr := &OnionAddr{
-			OnionService: onionService,
-			Port:         virtPort,
-		}
-		addrs = append(addrs, addr)
-	}
-
-	return addrs, nil
+	// Finally, we'll return the onion address composed of the service ID,
+	// along with the onion suffix, and the port this onion service can be
+	// reached at externally.
+	return &OnionAddr{
+		OnionService: serviceID + ".onion",
+		Port:         cfg.VirtualPort,
+	}, nil
 }

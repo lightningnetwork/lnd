@@ -406,11 +406,16 @@ func init() {
 type nurseryTestContext struct {
 	nursery     *utxoNursery
 	notifier    *nurseryMockNotifier
-	publishChan chan chainhash.Hash
+	publishChan chan wire.MsgTx
 	store       *nurseryStoreInterceptor
+	restart     func() bool
+	receiveTx   func() wire.MsgTx
+	t           *testing.T
 }
 
-func createNurseryTestContext(t *testing.T) *nurseryTestContext {
+func createNurseryTestContext(t *testing.T,
+	checkStartStop func(func()) bool) *nurseryTestContext {
+
 	// Create a temporary database and connect nurseryStore to it. The
 	// alternative, mocking nurseryStore, is not chosen because there is
 	// still considerable logic in the store.
@@ -448,21 +453,62 @@ func createNurseryTestContext(t *testing.T) *nurseryTestContext {
 		Signer:    &nurseryMockSigner{},
 	}
 
-	publishChan := make(chan chainhash.Hash, 1)
+	publishChan := make(chan wire.MsgTx, 1)
 	cfg.PublishTransaction = func(tx *wire.MsgTx) error {
 		utxnLog.Tracef("Publishing tx %v", tx.TxHash())
-		publishChan <- tx.TxHash()
+		publishChan <- *tx
 		return nil
 	}
 
 	nursery := newUtxoNursery(&cfg)
 	nursery.Start()
 
-	return &nurseryTestContext{
+	ctx := &nurseryTestContext{
 		nursery:     nursery,
 		notifier:    notifier,
 		store:       storeIntercepter,
 		publishChan: publishChan,
+		t:           t,
+	}
+
+	ctx.restart = func() bool {
+		return checkStartStop(func() {
+			ctx.nursery.Stop()
+			// Simulate lnd restart.
+			ctx.nursery = newUtxoNursery(ctx.nursery.cfg)
+			ctx.nursery.Start()
+		})
+	}
+
+	ctx.receiveTx = func() wire.MsgTx {
+		var tx wire.MsgTx
+		select {
+		case tx = <-ctx.publishChan:
+			return tx
+		case <-time.After(5 * time.Second):
+			t.Fatalf("tx not published")
+		}
+		return tx
+	}
+
+	// Start with testing an immediate restart.
+	ctx.restart()
+
+	return ctx
+}
+
+func (ctx *nurseryTestContext) finish() {
+	// Add a final restart point in this state
+	ctx.restart()
+
+	ctx.nursery.Stop()
+
+	// We should have consumed and asserted all published transactions in
+	// our unit tests.
+	select {
+	case <-ctx.publishChan:
+		ctx.t.Fatalf("unexpected transactions published")
+	default:
 	}
 }
 
@@ -563,10 +609,57 @@ func assertNurseryReportUnavailable(t *testing.T, nursery *utxoNursery) {
 	}
 }
 
+// testRestartLoop runs the specified test multiple times and in every run it
+// will attempt to execute a restart action in a different location. This is to
+// assert that the unit under test is recovering correctly from restarts.
+func testRestartLoop(t *testing.T, test func(*testing.T,
+	func(func()) bool)) {
+
+	// Start with running the test without any restarts (index zero)
+	restartIdx := 0
+
+	for {
+		currentStartStopIdx := 0
+
+		// checkStartStop is called at every point in the test where a
+		// restart should be exercised. When this function is called as
+		// many times as the current value of currentStartStopIdx, it
+		// will execute startStopFunc.
+		checkStartStop := func(startStopFunc func()) bool {
+			currentStartStopIdx++
+			if restartIdx == currentStartStopIdx {
+				startStopFunc()
+
+				return true
+			}
+			return false
+		}
+
+		t.Run(fmt.Sprintf("restart_%v", restartIdx),
+			func(t *testing.T) {
+				test(t, checkStartStop)
+			})
+
+		// Exit the loop when all restart points have been tested.
+		if currentStartStopIdx == restartIdx {
+			return
+		}
+		restartIdx++
+	}
+}
+
 func TestNurserySuccessLocal(t *testing.T) {
-	ctx := createNurseryTestContext(t)
+	testRestartLoop(t, testNurserySuccessLocal)
+}
+
+func testNurserySuccessLocal(t *testing.T,
+	checkStartStop func(func()) bool) {
+
+	ctx := createNurseryTestContext(t, checkStartStop)
 
 	outgoingRes := incubateTestOutput(t, ctx.nursery, true)
+
+	ctx.restart()
 
 	// Notify arrival of block where HTLC CLTV expires.
 	ctx.notifier.epochChan <- &chainntnfs.BlockEpoch{
@@ -574,10 +667,11 @@ func TestNurserySuccessLocal(t *testing.T) {
 	}
 
 	// This should trigger nursery to publish the timeout tx.
-	select {
-	case <-ctx.publishChan:
-	case <-time.After(5 * time.Second):
-		t.Fatalf("tx not published")
+	ctx.receiveTx()
+
+	if ctx.restart() {
+		// Restart should retrigger broadcast of timeout tx.
+		ctx.receiveTx()
 	}
 
 	// Confirm the timeout tx. This should promote the HTLC to KNDR state.
@@ -591,6 +685,8 @@ func TestNurserySuccessLocal(t *testing.T) {
 		t.Fatalf("output not promoted to KNDR")
 	}
 
+	ctx.restart()
+
 	// Notify arrival of block where second level HTLC unlocks.
 	ctx.notifier.epochChan <- &chainntnfs.BlockEpoch{
 		Height: 128,
@@ -601,9 +697,21 @@ func TestNurserySuccessLocal(t *testing.T) {
 }
 
 func TestNurserySuccessRemote(t *testing.T) {
-	ctx := createNurseryTestContext(t)
+	testRestartLoop(t, testNurserySuccessRemote)
+}
+
+func testNurserySuccessRemote(t *testing.T,
+	checkStartStop func(func()) bool) {
+
+	ctx := createNurseryTestContext(t, checkStartStop)
 
 	outgoingRes := incubateTestOutput(t, ctx.nursery, false)
+
+	// TODO(joostjager): for this restart to work, channel db needs to be
+	// mocked. Waiting for merge of #1847 to completely remove reading
+	// closed channel summary.
+
+	// ctx.restart()
 
 	// Notify confirmation of the commitment tx. Is only listened to when
 	// resolving remote commitment tx.
@@ -618,6 +726,8 @@ func TestNurserySuccessRemote(t *testing.T) {
 		t.Fatalf("output not promoted to KNDR")
 	}
 
+	ctx.restart()
+
 	// Notify arrival of block where HTLC CLTV expires.
 	ctx.notifier.epochChan <- &chainntnfs.BlockEpoch{
 		Height: 125,
@@ -629,11 +739,11 @@ func TestNurserySuccessRemote(t *testing.T) {
 
 func testSweep(t *testing.T, ctx *nurseryTestContext) {
 	// Wait for nursery to publish the sweep tx.
-	var sweepTxHash chainhash.Hash
-	select {
-	case sweepTxHash = <-ctx.publishChan:
-	case <-time.After(5 * time.Second):
-		t.Fatalf("sweep tx not published")
+	sweepTx := ctx.receiveTx()
+
+	if ctx.restart() {
+		// Restart will trigger rebroadcast of sweep tx.
+		sweepTx = ctx.receiveTx()
 	}
 
 	// Verify stage in nursery report. HTLCs should now both still be in
@@ -641,6 +751,7 @@ func testSweep(t *testing.T, ctx *nurseryTestContext) {
 	assertNurseryReport(t, ctx.nursery, 1, 2)
 
 	// Confirm the sweep tx.
+	sweepTxHash := sweepTx.TxHash()
 	ctx.notifier.confirmTx(&sweepTxHash, 129)
 
 	// Wait for output to be promoted in store to GRAD.
@@ -650,9 +761,13 @@ func testSweep(t *testing.T, ctx *nurseryTestContext) {
 		t.Fatalf("output not graduated")
 	}
 
+	ctx.restart()
+
 	// As there only was one output to graduate, we expect the channel to be
 	// closed and no report available anymore.
 	assertNurseryReportUnavailable(t, ctx.nursery)
+
+	ctx.finish()
 }
 
 type nurseryStoreInterceptor struct {

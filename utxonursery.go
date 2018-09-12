@@ -333,6 +333,8 @@ func (u *utxoNursery) Stop() error {
 	close(u.quit)
 	u.wg.Wait()
 
+	utxnLog.Infof("UTXO nursery shut down finished")
+
 	return nil
 }
 
@@ -344,6 +346,18 @@ func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	commitResolution *lnwallet.CommitOutputResolution,
 	outgoingHtlcs []lnwallet.OutgoingHtlcResolution,
 	incomingHtlcs []lnwallet.IncomingHtlcResolution) error {
+
+	// Add to wait group because nursery might shut down during execution of
+	// this function. Otherwise it could happen that nursery thinks it is
+	// shut down, but in this function new goroutines were started and stay
+	// around.
+	u.wg.Add(1)
+	defer u.wg.Done()
+	select {
+	case <-u.quit:
+		return fmt.Errorf("nursery shutting down")
+	default:
+	}
 
 	numHtlcs := len(incomingHtlcs) + len(outgoingHtlcs)
 	var (

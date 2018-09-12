@@ -1457,6 +1457,7 @@ func (ns *nurseryStore) getLastGraduatedHeight(tx *bolt.Tx) (uint32, error) {
 // the last graduated height key.
 func (ns *nurseryStore) putLastGraduatedHeight(tx *bolt.Tx, height uint32) error {
 
+	utxnLog.Infof("Log last graduated height at %v", height)
 	// Ensure that the chain bucket for this nursery store exists.
 	chainBucket, err := tx.CreateBucketIfNotExists(ns.pfxChainKey)
 	if err != nil {

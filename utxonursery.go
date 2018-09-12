@@ -548,11 +548,18 @@ func (u *utxoNursery) NurseryReport(
 				case lnwallet.CommitmentTimeLock:
 					report.AddLimboCommitment(&kid)
 
-				// An HTLC output on our commitment transaction
-				// where the second-layer transaction hasn't
-				// yet confirmed.
 				case lnwallet.HtlcAcceptedSuccessSecondLevel:
+					// An HTLC output on our commitment transaction
+					// where the second-layer transaction hasn't
+					// yet confirmed.
 					report.AddLimboStage1SuccessHtlc(&kid)
+
+				case lnwallet.HtlcOfferedRemoteTimeout:
+					// This is an HTLC output on the
+					// commitment transaction of the remote
+					// party. We are waiting for the CLTV
+					// timelock expire.
+					report.AddLimboDirectHtlc(&kid)
 				}
 
 			case bytes.HasPrefix(k, kndrPrefix):
@@ -1510,7 +1517,7 @@ func (c *contractMaturityReport) AddLimboStage1TimeoutHtlc(baby *babyOutput) {
 
 // AddLimboDirectHtlc adds a direct HTLC on the commitment transaction of the
 // remote party to the maturity report. This a CLTV time-locked output that
-// hasn't yet expired.
+// has or hasn't expired yet.
 func (c *contractMaturityReport) AddLimboDirectHtlc(kid *kidOutput) {
 	c.limboBalance += kid.Amount()
 

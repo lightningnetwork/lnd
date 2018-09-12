@@ -298,7 +298,7 @@ func (u *utxoNursery) Start() error {
 	// for the force closed commitment txn to confirm, or any second-layer
 	// HTLC success transactions.
 	//
-	// NOTE: The next two steps *may* spawn go routines, thus from this
+	// NOTE: The next three steps *may* spawn go routines, thus from this
 	// point forward, we must close the nursery's quit channel if we detect
 	// any failures during startup to ensure they terminate.
 	if err := u.reloadPreschool(); err != nil {
@@ -307,7 +307,15 @@ func (u *utxoNursery) Start() error {
 		return err
 	}
 
-	// 3. Replay all crib and kindergarten outputs from last pruned to
+	// 3. Restart spend ntfns for any crib outputs, which are waiting
+	// for the CTLV to expire.
+	if err := u.reloadCrib(); err != nil {
+		newBlockChan.Cancel()
+		close(u.quit)
+		return err
+	}
+
+	// 4. Replay all crib and kindergarten outputs from last pruned to
 	// current best height.
 	if err := u.reloadClasses(lastGraduatedHeight); err != nil {
 		newBlockChan.Cancel()
@@ -342,6 +350,9 @@ func (u *utxoNursery) Stop() error {
 // outputs from an existing commitment transaction. Outputs need to incubate if
 // they're CLTV absolute time locked, or if they're CSV relative time locked.
 // Once all outputs reach maturity, they'll be swept back into the wallet.
+//
+// NOTE: For crib outputs, it is assumed that the commit tx is confirmed when
+// IncubateOutputs is called.
 func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	commitResolution *lnwallet.CommitOutputResolution,
 	outgoingHtlcs []lnwallet.OutgoingHtlcResolution,
@@ -476,6 +487,16 @@ func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 				return err
 			}
 		}
+
+		// Start watch this output for (remote) spends.
+		// TODO(joostjager): This watching should happen for all
+		// commitment outputs and for timeout tx outputs as well. The
+		// remote party cannot only sweep with pre-image of the payment
+		// hash, but with the revocation key too.
+		err := u.registerCribSpend(&babyOutput, uint32(bestHeight))
+		if err != nil {
+			return err
+		}
 	}
 
 	// 3. If we are incubating any preschool outputs, register for a
@@ -524,6 +545,19 @@ func (u *utxoNursery) NurseryReport(
 			// Each crib output represents a stage one htlc, and
 			// will contribute towards the limbo balance.
 			report.AddLimboStage1TimeoutHtlc(&baby)
+		case bytes.HasPrefix(k, spndPrefix):
+			// Cribs outputs are the only kind currently stored as
+			// baby outputs.
+			var kid kidOutput
+			err := kid.Decode(bytes.NewReader(v))
+			if err != nil {
+				return err
+			}
+
+			// Remote spend outputs will be mentioned in the report,
+			// but do not contribute towards the limbo balance
+			// anymore.
+			report.AddLostHtlc(&kid)
 
 		case bytes.HasPrefix(k, psclPrefix),
 			bytes.HasPrefix(k, kndrPrefix),
@@ -661,6 +695,30 @@ func (u *utxoNursery) reloadPreschool() error {
 		// depth as a buffer for reorgs.
 		heightHint := closeSummary.CloseHeight - u.cfg.ConfDepth
 		err = u.registerPreschoolConf(kid, heightHint)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// reloadCrib re-initializes the chain notifier with all of the outputs
+// that had been saved to the "crib" database bucket prior to shutdown.
+func (u *utxoNursery) reloadCrib() error {
+	cribOutputs, err := u.cfg.Store.FetchCribs()
+	if err != nil {
+		return err
+	}
+
+	// For each of the crib outputs stored in the nursery store, load
+	// its close summary from disk so that we can get an accurate height
+	// hint from which to start our range for spend notifications.
+	for i := range cribOutputs {
+		baby := &cribOutputs[i]
+
+		// TODO(joostjager): set height hint after #1847 is merged.
+		err = u.registerCribSpend(baby, 0)
 		if err != nil {
 			return err
 		}
@@ -1329,6 +1387,78 @@ func (u *utxoNursery) waitForTimeoutConf(baby *babyOutput,
 		"kindergarten", baby.OutPoint())
 }
 
+func (u *utxoNursery) registerCribSpend(baby *babyOutput,
+	heightHint uint32) error {
+
+	outPointToWatch := baby.timeoutTx.TxIn[0].PreviousOutPoint
+	witness := baby.timeoutTx.TxIn[0].Witness
+	scriptToWatch, err := lnwallet.WitnessScriptHash(
+		witness[len(witness)-1],
+	)
+	if err != nil {
+		return err
+	}
+
+	// First, we'll register for a spend notification for this output. If
+	// the remote party sweeps with the pre-image, we'll be notified.
+	spendNtfn, err := u.cfg.Notifier.RegisterSpendNtfn(
+		&outPointToWatch, scriptToWatch, heightHint,
+	)
+	if err != nil {
+		return err
+	}
+
+	u.wg.Add(1)
+	go u.waitForCribSpend(baby, spendNtfn)
+
+	return nil
+}
+
+func (u *utxoNursery) waitForCribSpend(baby *babyOutput,
+	spendNtfn *chainntnfs.SpendEvent) {
+
+	defer u.wg.Done()
+
+	timeoutTxHash := baby.timeoutTx.TxHash()
+
+	select {
+	case spendDetail, ok := <-spendNtfn.Spend:
+		if !ok {
+			utxnLog.Errorf("Notification chan "+
+				"closed, can't monitor output %v",
+				baby.OutPoint())
+			return
+		}
+
+		// Check if it is our own timeout transaction that spends. If
+		// so, no action is needed. Output handling will continue when
+		// transaction sufficiently confirms.
+		if bytes.Equal(spendDetail.SpenderTxHash[:], timeoutTxHash[:]) {
+			utxnLog.Trace("Timeout tx spent output")
+			return
+		}
+	case <-u.quit:
+		spendNtfn.Cancel()
+		return
+	}
+
+	// Remote party has spent the output.
+	utxnLog.Trace("Remote party spend detected!")
+
+	err := u.cfg.Store.CribToRemoteSpend(baby)
+	if err != nil {
+		utxnLog.Errorf("Unable to move %v output "+
+			"to spend bucket", baby.OutPoint())
+
+		// TODO(joostjager): error channel to signal incubator to quit?
+		return
+	}
+
+	// TODO(joostjager): somehow notify the caller of IncubateOutput of the
+	// remote spend. In case of a resolver, it can proceed with extracting
+	// the pre-image and resolving the contract.
+}
+
 // registerPreschoolConf is responsible for subscribing to the confirmation of
 // a commitment transaction, or an htlc success transaction for an incoming
 // HTLC on our commitment transaction.. If successful, the provided preschool
@@ -1469,7 +1599,9 @@ type htlcMaturityReport struct {
 	// stage indicates whether the htlc is in the CLTV-timeout stage (1) or
 	// the CSV-delay stage (2). A stage 1 htlc's maturity height will be set
 	// to its expiry height, while a stage 2 htlc's maturity height will be
-	// set to its confirmation height plus the maturity requirement.
+	// set to its confirmation height plus the maturity requirement. Stage 0
+	// indicates that the htlc was swept by the remote party by either a
+	// revocation key or a payment pre-image.
 	stage uint32
 }
 
@@ -1498,6 +1630,17 @@ func (c *contractMaturityReport) AddRecoveredCommitment(kid *kidOutput) {
 	c.confHeight = kid.ConfHeight()
 	c.maturityRequirement = kid.BlocksToMaturity()
 	c.maturityHeight = kid.BlocksToMaturity() + kid.ConfHeight()
+}
+
+// AddLostHtlc adds a lost commitment output to maturity
+// report's htlcs.
+func (c *contractMaturityReport) AddLostHtlc(kid *kidOutput) {
+	c.htlcs = append(c.htlcs, htlcMaturityReport{
+		// TODO: check fields
+		outpoint: *kid.OutPoint(),
+		amount:   kid.Amount(),
+		stage:    0,
+	})
 }
 
 // AddLimboStage1TimeoutHtlc adds an htlc crib output to the maturity report's
@@ -1581,6 +1724,7 @@ func (c *contractMaturityReport) AddRecoveredHtlc(kid *kidOutput) {
 		confHeight:          kid.ConfHeight(),
 		maturityRequirement: kid.BlocksToMaturity(),
 		maturityHeight:      kid.ConfHeight() + kid.BlocksToMaturity(),
+		// TODO(joostjager): set stage?
 	})
 }
 

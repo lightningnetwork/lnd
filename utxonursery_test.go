@@ -669,8 +669,14 @@ func testNurserySuccessLocal(t *testing.T,
 		ctx.receiveTx()
 	}
 
-	// Confirm the timeout tx. This should promote the HTLC to KNDR state.
+	// Spend the previous outpoint of the timeout transaction.
+	// Nursery is listening for it.
 	timeoutTxHash := outgoingRes.SignedTimeoutTx.TxHash()
+	ctx.notifier.spendOutpoint(
+		&outgoingRes.SignedTimeoutTx.TxIn[0].PreviousOutPoint,
+		outgoingRes.SignedTimeoutTx)
+
+	// Confirm the timeout tx. This should promote the HTLC to KNDR state.
 	ctx.notifier.confirmTx(&timeoutTxHash, 126)
 
 	// Wait for output to be promoted in store to KNDR.
@@ -745,8 +751,13 @@ func testSweep(t *testing.T, ctx *nurseryTestContext) {
 	// stage two.
 	assertNurseryReport(t, ctx.nursery, 1, 2)
 
-	// Confirm the sweep tx.
 	sweepTxHash := sweepTx.TxHash()
+
+	ctx.notifier.spendOutpoint(
+		&sweepTx.TxIn[0].PreviousOutPoint,
+		&sweepTx)
+
+	// Confirm the sweep tx.
 	ctx.notifier.confirmTx(&sweepTxHash, 129)
 
 	// Wait for output to be promoted in store to GRAD.
@@ -763,6 +774,59 @@ func testSweep(t *testing.T, ctx *nurseryTestContext) {
 	assertNurseryReportUnavailable(t, ctx.nursery)
 
 	ctx.finish()
+}
+
+func TestNurseryRemoteSpend(t *testing.T) {
+	testRestartLoop(t, testNurseryRemoteSpend)
+}
+
+func testNurseryRemoteSpend(t *testing.T,
+	checkStartStop func(func()) bool) {
+
+	ctx := createNurseryTestContext(t, checkStartStop)
+
+	outgoingRes := incubateTestOutput(t, ctx.nursery, true)
+
+	ctx.restart()
+
+	// Have the remote party spend the commit tx outpoint.
+	remoteSpendTxPreviousOutpoint :=
+		outgoingRes.SignedTimeoutTx.TxIn[0].PreviousOutPoint
+
+	remoteSpendTx := wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{
+				PreviousOutPoint: remoteSpendTxPreviousOutpoint,
+			},
+		},
+	}
+	ctx.notifier.spendOutpoint(
+		&remoteSpendTxPreviousOutpoint,
+		&remoteSpendTx)
+
+	// Wait for output to be marked as SPND.
+	select {
+	case <-ctx.store.cribToRemoteSpendChan:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("not marked as SPND")
+	}
+
+	// Notify arrival of block where HTLC expires.
+	ctx.notifier.epochChan <- &chainntnfs.BlockEpoch{
+		Height: 125,
+	}
+
+	// This should not trigger the nursery to publish the timeout tx.
+	select {
+	case <-ctx.publishChan:
+		t.Fatalf("tx should not be published anymore")
+	default:
+	}
+
+	// Verify stage in nursery report.
+	assertNurseryReport(t, ctx.nursery, 1, 0)
+
+	ctx.nursery.Stop()
 }
 
 type nurseryStoreInterceptor struct {
@@ -807,6 +871,14 @@ func (i *nurseryStoreInterceptor) PreschoolToKinder(kidOutput *kidOutput) error 
 	return err
 }
 
+func (i *nurseryStoreInterceptor) CribToRemoteSpend(baby *babyOutput) error {
+	err := i.ns.CribToRemoteSpend(baby)
+
+	i.cribToRemoteSpendChan <- struct{}{}
+
+	return err
+}
+
 func (i *nurseryStoreInterceptor) GraduateKinder(height uint32) error {
 	err := i.ns.GraduateKinder(height)
 
@@ -817,6 +889,10 @@ func (i *nurseryStoreInterceptor) GraduateKinder(height uint32) error {
 
 func (i *nurseryStoreInterceptor) FetchPreschools() ([]kidOutput, error) {
 	return i.ns.FetchPreschools()
+}
+
+func (i *nurseryStoreInterceptor) FetchCribs() ([]babyOutput, error) {
+	return i.ns.FetchCribs()
 }
 
 func (i *nurseryStoreInterceptor) FetchClass(height uint32) (*wire.MsgTx, []kidOutput, []babyOutput, error) {
@@ -894,19 +970,29 @@ func (m *nurseryMockSigner) ComputeInputScript(tx *wire.MsgTx,
 type nurseryMockNotifier struct {
 	confChannel map[chainhash.Hash]chan *chainntnfs.TxConfirmation
 	epochChan   chan *chainntnfs.BlockEpoch
-	spendChan   chan *chainntnfs.SpendDetail
+	spendChan   map[wire.OutPoint]chan *chainntnfs.SpendDetail
 }
 
 func newNurseryMockNotifier() *nurseryMockNotifier {
 	return &nurseryMockNotifier{
 		confChannel: make(map[chainhash.Hash]chan *chainntnfs.TxConfirmation),
 		epochChan:   make(chan *chainntnfs.BlockEpoch),
-		spendChan:   make(chan *chainntnfs.SpendDetail),
+		spendChan:   make(map[wire.OutPoint]chan *chainntnfs.SpendDetail),
 	}
 }
 
 func (m *nurseryMockNotifier) confirmTx(txid *chainhash.Hash, height uint32) {
 	m.getConfChannel(txid) <- &chainntnfs.TxConfirmation{BlockHeight: height}
+}
+
+func (m *nurseryMockNotifier) spendOutpoint(outpoint *wire.OutPoint,
+	spendingTx *wire.MsgTx) {
+
+	spenderTxHash := spendingTx.TxHash()
+	m.getSpendChannel(outpoint) <- &chainntnfs.SpendDetail{
+		SpenderTxHash: &spenderTxHash,
+		SpendingTx:    spendingTx,
+	}
 }
 
 func (m *nurseryMockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
@@ -943,10 +1029,20 @@ func (m *nurseryMockNotifier) Stop() error {
 	return nil
 }
 
+func (m *nurseryMockNotifier) getSpendChannel(outpoint *wire.OutPoint) chan *chainntnfs.SpendDetail {
+	channel, ok := m.spendChan[*outpoint]
+	if ok {
+		return channel
+	}
+	channel = make(chan *chainntnfs.SpendDetail, 1)
+	m.spendChan[*outpoint] = channel
+	return channel
+}
+
 func (m *nurseryMockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ []byte,
 	heightHint uint32) (*chainntnfs.SpendEvent, error) {
 	return &chainntnfs.SpendEvent{
-		Spend:  m.spendChan,
+		Spend:  m.getSpendChannel(outpoint),
 		Cancel: func() {},
 	}, nil
 }

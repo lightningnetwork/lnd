@@ -109,6 +109,10 @@ type NurseryStore interface {
 	// kidOutput's CSV delay.
 	CribToKinder(*babyOutput) error
 
+	// CribToRemoteSpend marks an output as spend by the remote party.
+	// TODO(joostjager): Generalize this function to other states too.
+	CribToRemoteSpend(*babyOutput) error
+
 	// PreschoolToKinder atomically moves a kidOutput from the preschool
 	// bucket to the kindergarten bucket. This transition should be
 	// executed after receiving confirmation of the preschool output.
@@ -127,6 +131,10 @@ type NurseryStore interface {
 	// FetchPreschools returns a list of all outputs currently stored in
 	// the preschool bucket.
 	FetchPreschools() ([]kidOutput, error)
+
+	// FetchCribs returns a list of all outputs currently stored in the
+	// cribs bucket.
+	FetchCribs() ([]babyOutput, error)
 
 	// FetchClass returns a list of kindergarten and crib outputs whose
 	// timelocks expire at the given height. If the kindergarten class at
@@ -231,6 +239,8 @@ var (
 	// this serves as a persistent marker that the nursery should mark the
 	// channel fully closed in the channeldb.
 	gradPrefix = []byte("grad")
+
+	spndPrefix = []byte("spnd")
 )
 
 // prefixChainKey creates the root level keys for the nursery store. The keys
@@ -412,6 +422,67 @@ func (ns *nurseryStore) CribToKinder(bby *babyOutput) error {
 	})
 }
 
+func (ns *nurseryStore) CribToRemoteSpend(bby *babyOutput) error {
+	return ns.db.Update(func(tx *bolt.Tx) error {
+
+		// First, retrieve or create the channel bucket corresponding to
+		// the baby output's origin channel point.
+		chanPoint := bby.OriginChanPoint()
+		chanBucket, err := ns.createChannelBucket(tx, chanPoint)
+		if err != nil {
+			return err
+		}
+
+		// The babyOutput should currently be stored in the crib bucket.
+		// So, we create a key that prefixes the babyOutput's outpoint
+		// with the crib prefix, allowing us to reference it in the
+		// store.
+		pfxOutputKey, err := prefixOutputKey(cribPrefix, bby.OutPoint())
+		if err != nil {
+			return err
+		}
+
+		// Since the babyOutput is being moved to the spend bucket, we
+		// remove the entry from the channel bucket under the
+		// crib-prefixed outpoint key.
+		if err := chanBucket.Delete(pfxOutputKey); err != nil {
+			return err
+		}
+
+		// Remove the crib output's entry in the height index.
+		err = ns.removeOutputFromHeight(tx, bby.expiry, chanPoint,
+			pfxOutputKey)
+		if err != nil {
+			return err
+		}
+
+		// Since we are moving this output from the crib bucket to the
+		// spend bucket, we overwrite the existing prefix of this key
+		// with the spend prefix.
+		copy(pfxOutputKey, spndPrefix)
+
+		// Now, serialize babyOutput's encapsulated kidOutput such that
+		// it can be written to the channel bucket under the new
+		// spend-prefixed key.
+		var kidBuffer bytes.Buffer
+		if err := bby.kidOutput.Encode(&kidBuffer); err != nil {
+			return err
+		}
+		kidBytes := kidBuffer.Bytes()
+
+		// Persist the serialized kidOutput under the spend-prefixed
+		// outpoint key.
+		if err := chanBucket.Put(pfxOutputKey, kidBytes); err != nil {
+			return err
+		}
+
+		utxnLog.Tracef("Transitioning (crib -> spnd) output for "+
+			"chan_point=%v", chanPoint)
+
+		return nil
+	})
+}
+
 // PreschoolToKinder atomically moves a kidOutput from the preschool bucket to
 // the kindergarten bucket. This transition should be executed after receiving
 // confirmation of the preschool output's commitment transaction.
@@ -494,7 +565,7 @@ func (ns *nurseryStore) PreschoolToKinder(kid *kidOutput) error {
 			maturityHeight = lastGradHeight + 1
 		}
 
-		utxnLog.Infof("Transitioning (crib -> kid) output for "+
+		utxnLog.Infof("Transitioning (preschool -> kid) output for "+
 			"chan_point=%v at height_index=%v", chanPoint,
 			maturityHeight)
 
@@ -760,6 +831,79 @@ func (ns *nurseryStore) FetchPreschools() ([]kidOutput, error) {
 	}
 
 	return kids, nil
+}
+
+// FetchPreschools returns a list of all outputs currently stored in the
+// preschool bucket.
+func (ns *nurseryStore) FetchCribs() ([]babyOutput, error) {
+	var babies []babyOutput
+	if err := ns.db.View(func(tx *bolt.Tx) error {
+
+		// Retrieve the existing chain bucket for this nursery store.
+		chainBucket := tx.Bucket(ns.pfxChainKey)
+		if chainBucket == nil {
+			return nil
+		}
+
+		// Load the existing channel index from the chain bucket.
+		chanIndex := chainBucket.Bucket(channelIndexKey)
+		if chanIndex == nil {
+			return nil
+		}
+
+		// Construct a list of all channels in the channel index that
+		// are currently being tracked by the nursery store.
+		var activeChannels [][]byte
+		if err := chanIndex.ForEach(func(chanBytes, _ []byte) error {
+			activeChannels = append(activeChannels, chanBytes)
+			return nil
+		}); err != nil {
+			return err
+		}
+
+		// Iterate over all of the accumulated channels, and do a prefix
+		// scan inside of each channel bucket. Each output found that
+		// has a preschool prefix will be deserialized into a kidOutput,
+		// and added to our list of preschool outputs to return to the
+		// caller.
+		for _, chanBytes := range activeChannels {
+			// Retrieve the channel bucket associated with this
+			// channel.
+			chanBucket := chanIndex.Bucket(chanBytes)
+			if chanBucket == nil {
+				continue
+			}
+
+			// All of the outputs of interest will start with the
+			// "pscl" prefix. So, we will perform a prefix scan of
+			// the channel bucket to efficiently enumerate all the
+			// desired outputs.
+			c := chanBucket.Cursor()
+			for k, v := c.Seek(cribPrefix); bytes.HasPrefix(
+				k, cribPrefix); k, v = c.Next() {
+
+				// Deserialize each output as a kidOutput, since
+				// this should have been the type that was
+				// serialized when it was written to disk.
+				var cribOutput babyOutput
+				cribReader := bytes.NewReader(v)
+				err := cribOutput.Decode(cribReader)
+				if err != nil {
+					return err
+				}
+
+				// Add the deserialized output to our list of
+				// preschool outputs.
+				babies = append(babies, cribOutput)
+			}
+		}
+
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return babies, nil
 }
 
 // HeightsBelowOrEqual returns a slice of all non-empty heights in the height

@@ -181,9 +181,15 @@ type NurseryConfig struct {
 	// determining outputs in the chain as confirmed.
 	ConfDepth uint32
 
-	// DB provides access to a user's channels, such that they can be marked
-	// fully closed after incubation has concluded.
-	DB *channeldb.DB
+	// FetchClosedChannels provides access to a user's channels, such that
+	// they can be marked fully closed after incubation has concluded.
+	FetchClosedChannels func(pendingOnly bool) (
+		[]*channeldb.ChannelCloseSummary, error)
+
+	// FetchClosedChannel provides access to the close summary to extract a
+	// height hint from.
+	FetchClosedChannel func(chanID *wire.OutPoint) (
+		*channeldb.ChannelCloseSummary, error)
 
 	// Estimator is used when crafting sweep transactions to estimate the
 	// necessary fee relative to the expected size of the sweep transaction.
@@ -266,7 +272,7 @@ func (u *utxoNursery) Start() error {
 
 	// Load any pending close channels, which represents the super set of
 	// all channels that may still be incubating.
-	pendingCloseChans, err := u.cfg.DB.FetchClosedChannels(true)
+	pendingCloseChans, err := u.cfg.FetchClosedChannels(true)
 	if err != nil {
 		newBlockChan.Cancel()
 		return err
@@ -345,6 +351,13 @@ func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	outgoingHtlcs []lnwallet.OutgoingHtlcResolution,
 	incomingHtlcs []lnwallet.IncomingHtlcResolution,
 	broadcastHeight uint32) error {
+
+	// Add to wait group because nursery might shut down during execution of
+	// this function. Otherwise it could happen that nursery thinks it is
+	// shut down, but in this function new goroutines were started and stay
+	// around.
+	u.wg.Add(1)
+	defer u.wg.Done()
 
 	numHtlcs := len(incomingHtlcs) + len(outgoingHtlcs)
 	var (
@@ -624,7 +637,7 @@ func (u *utxoNursery) reloadPreschool() error {
 		chanPoint := kid.OriginChanPoint()
 
 		// Load the close summary for this output's channel point.
-		closeSummary, err := u.cfg.DB.FetchClosedChannel(chanPoint)
+		closeSummary, err := u.cfg.FetchClosedChannel(chanPoint)
 		if err == channeldb.ErrClosedChannelNotFound {
 			// This should never happen since the close summary
 			// should only be removed after the channel has been

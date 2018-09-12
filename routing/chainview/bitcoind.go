@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -71,7 +70,7 @@ func NewBitcoindFilteredChainView(
 		quit:            make(chan struct{}),
 	}
 
-	chainView.chainClient = chainConn.NewBitcoindClient(time.Unix(0, 0))
+	chainView.chainClient = chainConn.NewBitcoindClient()
 	chainView.blockQueue = newBlockEventQueue()
 
 	return chainView

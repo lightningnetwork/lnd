@@ -106,7 +106,7 @@
   revision = "ab6388e0c60ae4834a1f57511e20c17b5f78be4b"
 
 [[projects]]
-  digest = "1:012039cbb6694894aa9e9890645e6ade8a5aff5a02c279714779eff3eae53bc2"
+  digest = "1:316f670e7f97526601bfa2104f7df2569440223f4b5730f2d0deaab5ec634dab"
   name = "github.com/btcsuite/btcwallet"
   packages = [
     "chain",
@@ -126,7 +126,8 @@
     "wtxmgr",
   ]
   pruneopts = "UT"
-  revision = "f4ae41ce5f5834eb67ab64cdeed74c74fc95638c"
+  revision = "ed47296c885c2512e1fe54dd67020b551a113e89"
+  source = "github.com/wpaulino/btcwallet"
 
 [[projects]]
   branch = "master"
@@ -417,7 +418,6 @@
   version = "v0.3.0"
 
 [[projects]]
-  branch = "master"
   digest = "1:c9e7a4b4d47c0ed205d257648b0e5b0440880cb728506e318f8ac7cd36270bc4"
   name = "golang.org/x/time"
   packages = ["rate"]

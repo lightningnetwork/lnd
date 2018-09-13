@@ -559,9 +559,11 @@ func (b *BtcWallet) ListTransactionDetails() ([]*lnwallet.TransactionDetail, err
 	bestBlock := b.wallet.Manager.SyncedTo()
 	currentHeight := bestBlock.Height
 
-	// TODO(roasbeef): can replace with start "wallet birthday"
+	// We'll attempt to find all unconfirmed transactions (height of -1),
+	// as well as all transactions that are known to have confirmed at this
+	// height.
 	start := base.NewBlockIdentifierFromHeight(0)
-	stop := base.NewBlockIdentifierFromHeight(bestBlock.Height)
+	stop := base.NewBlockIdentifierFromHeight(-1)
 	txns, err := b.wallet.GetTransactions(start, stop, nil)
 	if err != nil {
 		return nil, err

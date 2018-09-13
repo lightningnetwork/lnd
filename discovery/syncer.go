@@ -648,7 +648,7 @@ func (g *gossipSyncer) replyPeerQueries(msg lnwire.Message) error {
 	// responses back to the remote peer. This can help prevent DOS attacks
 	// where the remote peer spams us endlessly.
 	if delay > 0 {
-		log.Infof("gossipSyncer(%x): rate limiting gossip replies, ",
+		log.Infof("gossipSyncer(%x): rate limiting gossip replies, "+
 			"responding in %s", g.peerPub[:], delay)
 
 		select {

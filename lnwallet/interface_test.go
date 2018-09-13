@@ -1270,6 +1270,45 @@ func testTransactionSubscriptions(miner *rpctest.Harness,
 		t.Fatalf("transactions not received after 5 seconds")
 	case <-confirmedNtfns: // Fall through on success
 	}
+
+	// We'll also ensure that the client is able to send our new
+	// notifications when we _create_ transactions ourselves that spend our
+	// own outputs.
+	b := txscript.NewScriptBuilder()
+	b.AddOp(txscript.OP_0)
+	outputScript, err := b.Script()
+	if err != nil {
+		t.Fatalf("unable to make output script: %v", err)
+	}
+	burnOutput := wire.NewTxOut(outputAmt, outputScript)
+	txid, err := alice.SendOutputs([]*wire.TxOut{burnOutput}, 2500)
+	if err != nil {
+		t.Fatalf("unable to create burn tx: %v", err)
+	}
+	err = waitForMempoolTx(miner, txid)
+	if err != nil {
+		t.Fatalf("tx not relayed to miner: %v", err)
+	}
+
+	// Before we mine the next block, we'll ensure that the above
+	// transaction shows up in the set of unconfirmed transactions returned
+	// by ListTransactionDetails.
+	err = waitForWalletSync(miner, alice)
+	if err != nil {
+		t.Fatalf("Couldn't sync Alice's wallet: %v", err)
+	}
+
+	// As we just sent the transaction and it was landed in the mempool, we
+	// should get a notification for a new unconfirmed transactions
+	select {
+	case <-time.After(time.Second * 10):
+		t.Fatalf("transactions not received after 10 seconds")
+	case unConfTx := <-txClient.UnconfirmedTransactions():
+		if unConfTx.Hash != *txid {
+			t.Fatalf("wrong txn notified: expected %v got %v",
+				txid, unConfTx.Hash)
+		}
+	}
 }
 
 // testPublishTransaction checks that PublishTransaction returns the

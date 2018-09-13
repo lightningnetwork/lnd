@@ -473,12 +473,9 @@ func migratePruneEdgeUpdateIndex(tx *bolt.Tx) error {
 	if edges == nil {
 		return nil
 	}
-	edgeUpdateIndex, err := edges.CreateBucketIfNotExists(
-		edgeUpdateIndexBucket,
-	)
-	if err != nil {
-		return fmt.Errorf("unable to create/fetch edge update " +
-			"index bucket")
+	edgeUpdateIndex := edges.Bucket(edgeUpdateIndexBucket)
+	if edgeUpdateIndex == nil {
+		return nil
 	}
 
 	// Retrieve some buckets that will be needed later on. These should
@@ -518,7 +515,6 @@ func migratePruneEdgeUpdateIndex(tx *bolt.Tx) error {
 
 	// With the existing edge policies gathered, we'll recreate the index
 	// and populate it with the correct entries.
-	oldNumEntries := edgeUpdateIndex.Stats().KeyN
 	if err := edges.DeleteBucket(edgeUpdateIndexBucket); err != nil {
 		return fmt.Errorf("unable to remove existing edge update "+
 			"index: %v", err)
@@ -557,10 +553,6 @@ func migratePruneEdgeUpdateIndex(tx *bolt.Tx) error {
 			return err
 		}
 	}
-
-	newNumEntries := edgeUpdateIndex.Stats().KeyN
-	log.Infof("Pruned %d stale entries from the edge update index",
-		oldNumEntries-newNumEntries)
 
 	log.Info("Migration to properly prune edge update index complete!")
 

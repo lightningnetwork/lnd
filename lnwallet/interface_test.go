@@ -1055,7 +1055,9 @@ func testListTransactionDetails(miner *rpctest.Harness,
 		delete(txids, txDetail.Hash)
 	}
 	if len(txids) != 0 {
-		t.Fatalf("all transactions not found in details!")
+		t.Fatalf("all transactions not found in details: left=%v, "+
+			"returned_set=%v", spew.Sdump(txids),
+			spew.Sdump(txDetails))
 	}
 
 	// Next create a transaction paying to an output which isn't under the
@@ -1075,6 +1077,41 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	if err != nil {
 		t.Fatalf("tx not relayed to miner: %v", err)
 	}
+
+	// Before we mine the next block, we'll ensure that the above
+	// transaction shows up in the set of unconfirmed transactions returned
+	// by ListTransactionDetails.
+	err = waitForWalletSync(miner, alice)
+	if err != nil {
+		t.Fatalf("Couldn't sync Alice's wallet: %v", err)
+	}
+
+	// We should be able to find the transaction above in the set of
+	// returned transactions, and it should have a confirmation of -1,
+	// indicating that it's not yet mined.
+	txDetails, err = alice.ListTransactionDetails()
+	if err != nil {
+		t.Fatalf("unable to fetch tx details: %v", err)
+	}
+	var mempoolTxFound bool
+	for _, txDetail := range txDetails {
+		if !bytes.Equal(txDetail.Hash[:], burnTXID[:]) {
+			continue
+		}
+
+		// Now that we've found the transaction, ensure that it has a
+		// negative number of confirmations to indicate that it's
+		// unconfirmed.
+		mempoolTxFound = true
+		if txDetail.NumConfirmations != 0 {
+			t.Fatalf("num confs incorrect, got %v expected %v",
+				txDetail.NumConfirmations, 0)
+		}
+	}
+	if !mempoolTxFound {
+		t.Fatalf("unable to find mempool tx in tx details!")
+	}
+
 	burnBlock, err := miner.Node.Generate(1)
 	if err != nil {
 		t.Fatalf("unable to mine block: %v", err)
@@ -1232,6 +1269,45 @@ func testTransactionSubscriptions(miner *rpctest.Harness,
 	case <-time.After(time.Second * 5):
 		t.Fatalf("transactions not received after 5 seconds")
 	case <-confirmedNtfns: // Fall through on success
+	}
+
+	// We'll also ensure that the client is able to send our new
+	// notifications when we _create_ transactions ourselves that spend our
+	// own outputs.
+	b := txscript.NewScriptBuilder()
+	b.AddOp(txscript.OP_0)
+	outputScript, err := b.Script()
+	if err != nil {
+		t.Fatalf("unable to make output script: %v", err)
+	}
+	burnOutput := wire.NewTxOut(outputAmt, outputScript)
+	txid, err := alice.SendOutputs([]*wire.TxOut{burnOutput}, 2500)
+	if err != nil {
+		t.Fatalf("unable to create burn tx: %v", err)
+	}
+	err = waitForMempoolTx(miner, txid)
+	if err != nil {
+		t.Fatalf("tx not relayed to miner: %v", err)
+	}
+
+	// Before we mine the next block, we'll ensure that the above
+	// transaction shows up in the set of unconfirmed transactions returned
+	// by ListTransactionDetails.
+	err = waitForWalletSync(miner, alice)
+	if err != nil {
+		t.Fatalf("Couldn't sync Alice's wallet: %v", err)
+	}
+
+	// As we just sent the transaction and it was landed in the mempool, we
+	// should get a notification for a new unconfirmed transactions
+	select {
+	case <-time.After(time.Second * 10):
+		t.Fatalf("transactions not received after 10 seconds")
+	case unConfTx := <-txClient.UnconfirmedTransactions():
+		if unConfTx.Hash != *txid {
+			t.Fatalf("wrong txn notified: expected %v got %v",
+				txid, unConfTx.Hash)
+		}
 	}
 }
 
@@ -2278,8 +2354,8 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 
 			// Create a btcwallet bitcoind client for both Alice and
 			// Bob.
-			aliceClient = chainConn.NewBitcoindClient(time.Unix(0, 0))
-			bobClient = chainConn.NewBitcoindClient(time.Unix(0, 0))
+			aliceClient = chainConn.NewBitcoindClient()
+			bobClient = chainConn.NewBitcoindClient()
 		default:
 			t.Fatalf("unknown chain driver: %v", backEnd)
 		}

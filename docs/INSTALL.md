@@ -291,12 +291,6 @@ lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --bitcoin.node=bitcoin
   `lnd` plus any application that consumes the RPC could cause `lnd` to miss
   crucial updates from the backend.
 
-#### Disabling Wallet Encryption
-
-To disable encryption of the wallet files, pass the `--noencryptwallet` argument
-to `lnd`. Obviously beware the security implications of running an unencrypted
-wallet - this argument must only be used for testing purposes.
-
 #### Macaroons
 
 `lnd`'s authentication system is called **macaroons**, which are decentralized

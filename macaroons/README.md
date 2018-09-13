@@ -26,7 +26,7 @@ In this DB the following two key/value pairs are stored:
   * The root key is symmetrically encrypted with the derived secret key, using
     the `secretbox` method of the library
     [btcsuite/golangcrypto](https://github.com/btcsuite/golangcrypto).
-  * If the option `--noencryptwallet` is used, then the default passphrase
+  * If the option `--noseedbackup` is used, then the default passphrase
     `hello` is used to encrypt the root key.
 
 ## Generated macaroons

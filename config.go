@@ -46,7 +46,7 @@ const (
 	defaultPeerPort            = 9735
 	defaultRPCHost             = "localhost"
 	defaultMaxPendingChannels  = 1
-	defaultNoEncryptWallet     = false
+	defaultNoSeedBackup        = false
 	defaultTrickleDelay        = 30 * 1000
 	defaultInactiveChanTimeout = 20 * time.Minute
 	defaultMaxLogFiles         = 3
@@ -223,7 +223,7 @@ type config struct {
 
 	NoNetBootstrap bool `long:"nobootstrap" description:"If true, then automatic network bootstrapping will not be attempted."`
 
-	NoEncryptWallet bool `long:"noencryptwallet" description:"If set, wallet will be encrypted using the default passphrase."`
+	NoSeedBackup bool `long:"noseedbackup" description:"If true, NO SEED WILL BE EXPOSED AND THE WALLET WILL BE ENCRYPTED USING THE DEFAULT PASSPHRASE -- EVER. THIS FLAG IS ONLY FOR TESTING AND IS BEING DEPRECATED."`
 
 	TrickleDelay        int           `long:"trickledelay" description:"Time in milliseconds between each release of announcements to the network"`
 	InactiveChanTimeout time.Duration `long:"inactivechantimeout" description:"If a channel has been inactive for the set time, send a ChannelUpdate disabling it."`
@@ -291,7 +291,7 @@ func loadConfig() (*config, error) {
 			RPCHost: defaultRPCHost,
 		},
 		MaxPendingChannels: defaultMaxPendingChannels,
-		NoEncryptWallet:    defaultNoEncryptWallet,
+		NoSeedBackup:       defaultNoSeedBackup,
 		Autopilot: &autoPilotConfig{
 			MaxChannels:    5,
 			Allocation:     0.6,

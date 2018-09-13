@@ -335,7 +335,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			bitcoindConn, hintCache, hintCache,
 		)
 		cc.chainView = chainview.NewBitcoindFilteredChainView(bitcoindConn)
-		walletConfig.ChainSource = bitcoindConn.NewBitcoindClient(birthday)
+		walletConfig.ChainSource = bitcoindConn.NewBitcoindClient()
 
 		// If we're not in regtest mode, then we'll attempt to use a
 		// proper fee estimator for testnet.

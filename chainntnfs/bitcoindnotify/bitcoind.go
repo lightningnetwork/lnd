@@ -6,7 +6,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -115,7 +114,7 @@ func New(chainConn *chain.BitcoindConn, spendHintCache chainntnfs.SpendHintCache
 		quit: make(chan struct{}),
 	}
 
-	notifier.chainConn = chainConn.NewBitcoindClient(time.Unix(0, 0))
+	notifier.chainConn = chainConn.NewBitcoindClient()
 
 	return notifier
 }

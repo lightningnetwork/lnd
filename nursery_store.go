@@ -110,8 +110,10 @@ type NurseryStore interface {
 	CribToKinder(*babyOutput) error
 
 	// CribToRemoteSpend marks an output as spend by the remote party.
-	// TODO(joostjager): Generalize this function to other states too.
 	CribToRemoteSpend(*babyOutput) error
+
+	// KidToRemoteSpend marks an output as spend by the remote party.
+	KidToRemoteSpend(*kidOutput) error
 
 	// PreschoolToKinder atomically moves a kidOutput from the preschool
 	// bucket to the kindergarten bucket. This transition should be
@@ -131,6 +133,10 @@ type NurseryStore interface {
 	// FetchPreschools returns a list of all outputs currently stored in
 	// the preschool bucket.
 	FetchPreschools() ([]kidOutput, error)
+
+	// FetchKinder returns a list of all outputs currently stored in
+	// the kindergarten bucket.
+	FetchKinder() ([]kidOutput, error)
 
 	// FetchCribs returns a list of all outputs currently stored in the
 	// cribs bucket.
@@ -483,6 +489,71 @@ func (ns *nurseryStore) CribToRemoteSpend(bby *babyOutput) error {
 	})
 }
 
+func (ns *nurseryStore) KidToRemoteSpend(kid *kidOutput) error {
+	return ns.db.Update(func(tx *bolt.Tx) error {
+
+		// First, retrieve or create the channel bucket corresponding to
+		// the baby output's origin channel point.
+		chanPoint := kid.OriginChanPoint()
+		chanBucket, err := ns.createChannelBucket(tx, chanPoint)
+		if err != nil {
+			return err
+		}
+
+		// The kidOutput should currently be stored in the kndr bucket.
+		// So, we create a key that prefixes the kidOutput's outpoint
+		// with the crib prefix, allowing us to reference it in the
+		// store.
+		pfxOutputKey, err := prefixOutputKey(kndrPrefix, kid.OutPoint())
+		if err != nil {
+			return err
+		}
+
+		// Since the kidOutput is being moved to the spend bucket, we
+		// remove the entry from the channel bucket under the
+		// crib-prefixed outpoint key.
+		if err := chanBucket.Delete(pfxOutputKey); err != nil {
+			return err
+		}
+
+		// Remove the crib output's entry in the height index.
+		//
+		// TODO(joostjager): Here we assume no late graduation into kid
+		// stage has happened! Probably ok, because channel_arb holds
+		// back until commit tx is confirmed.
+		err = ns.removeOutputFromHeight(tx, kid.absoluteMaturity,
+			chanPoint, pfxOutputKey)
+		if err != nil {
+			return err
+		}
+
+		// Since we are moving this output from the crib bucket to the
+		// spend bucket, we overwrite the existing prefix of this key
+		// with the spend prefix.
+		copy(pfxOutputKey, spndPrefix)
+
+		// Now, serialize babyOutput's encapsulated kidOutput such that
+		// it can be written to the channel bucket under the new
+		// spend-prefixed key.
+		var kidBuffer bytes.Buffer
+		if err := kid.Encode(&kidBuffer); err != nil {
+			return err
+		}
+		kidBytes := kidBuffer.Bytes()
+
+		// Persist the serialized kidOutput under the spend-prefixed
+		// outpoint key.
+		if err := chanBucket.Put(pfxOutputKey, kidBytes); err != nil {
+			return err
+		}
+
+		utxnLog.Tracef("Transitioning (kid -> spnd) output for "+
+			"chan_point=%v", chanPoint)
+
+		return nil
+	})
+}
+
 // PreschoolToKinder atomically moves a kidOutput from the preschool bucket to
 // the kindergarten bucket. This transition should be executed after receiving
 // confirmation of the preschool output's commitment transaction.
@@ -763,6 +834,16 @@ func (ns *nurseryStore) FetchClass(
 // FetchPreschools returns a list of all outputs currently stored in the
 // preschool bucket.
 func (ns *nurseryStore) FetchPreschools() ([]kidOutput, error) {
+	return ns.fetchKidsByPrefix(psclPrefix)
+}
+
+// FetchKinder returns a list of all outputs currently stored in the
+// kindergarten bucket.
+func (ns *nurseryStore) FetchKinder() ([]kidOutput, error) {
+	return ns.fetchKidsByPrefix(kndrPrefix)
+}
+
+func (ns *nurseryStore) fetchKidsByPrefix(prefix []byte) ([]kidOutput, error) {
 	var kids []kidOutput
 	if err := ns.db.View(func(tx *bolt.Tx) error {
 
@@ -802,26 +883,26 @@ func (ns *nurseryStore) FetchPreschools() ([]kidOutput, error) {
 			}
 
 			// All of the outputs of interest will start with the
-			// "pscl" prefix. So, we will perform a prefix scan of
+			// specified prefix. So, we will perform a prefix scan of
 			// the channel bucket to efficiently enumerate all the
 			// desired outputs.
 			c := chanBucket.Cursor()
-			for k, v := c.Seek(psclPrefix); bytes.HasPrefix(
-				k, psclPrefix); k, v = c.Next() {
+			for k, v := c.Seek(prefix); bytes.HasPrefix(
+				k, prefix); k, v = c.Next() {
 
 				// Deserialize each output as a kidOutput, since
 				// this should have been the type that was
 				// serialized when it was written to disk.
-				var psclOutput kidOutput
-				psclReader := bytes.NewReader(v)
-				err := psclOutput.Decode(psclReader)
+				var kidOutput kidOutput
+				kidReader := bytes.NewReader(v)
+				err := kidOutput.Decode(kidReader)
 				if err != nil {
 					return err
 				}
 
 				// Add the deserialized output to our list of
 				// preschool outputs.
-				kids = append(kids, psclOutput)
+				kids = append(kids, kidOutput)
 			}
 		}
 

@@ -298,7 +298,7 @@ func (u *utxoNursery) Start() error {
 	// for the force closed commitment txn to confirm, or any second-layer
 	// HTLC success transactions.
 	//
-	// NOTE: The next three steps *may* spawn go routines, thus from this
+	// NOTE: The next four steps *may* spawn go routines, thus from this
 	// point forward, we must close the nursery's quit channel if we detect
 	// any failures during startup to ensure they terminate.
 	if err := u.reloadPreschool(); err != nil {
@@ -307,7 +307,15 @@ func (u *utxoNursery) Start() error {
 		return err
 	}
 
-	// 3. Restart spend ntfns for any crib outputs, which are waiting
+	// 3. Restart spend ntfns for any kinder outputs, which are waiting
+	// for the CTLV to expire.
+	if err := u.reloadKinder(); err != nil {
+		newBlockChan.Cancel()
+		close(u.quit)
+		return err
+	}
+
+	// 4. Restart spend ntfns for any crib outputs, which are waiting
 	// for the CTLV to expire.
 	if err := u.reloadCrib(); err != nil {
 		newBlockChan.Cancel()
@@ -315,7 +323,7 @@ func (u *utxoNursery) Start() error {
 		return err
 	}
 
-	// 4. Replay all crib and kindergarten outputs from last pruned to
+	// 5. Replay all crib and kindergarten outputs from last pruned to
 	// current best height.
 	if err := u.reloadClasses(lastGraduatedHeight); err != nil {
 		newBlockChan.Cancel()
@@ -695,6 +703,32 @@ func (u *utxoNursery) reloadPreschool() error {
 		// depth as a buffer for reorgs.
 		heightHint := closeSummary.CloseHeight - u.cfg.ConfDepth
 		err = u.registerPreschoolConf(kid, heightHint)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// reloadPreschool re-initializes the chain notifier with all of the outputs
+// that had been saved to the "preschool" database bucket prior to shutdown.
+func (u *utxoNursery) reloadKinder() error {
+	kndrOutputs, err := u.cfg.Store.FetchKinder()
+	if err != nil {
+		return err
+	}
+
+	// For each of the preschool outputs stored in the nursery store, load
+	// its close summary from disk so that we can get an accurate height
+	// hint from which to start our range for spend notifications.
+
+	for i := range kndrOutputs {
+		kid := &kndrOutputs[i]
+
+		// TODO(joostjager): fix height hint
+		heightHint := uint32(0)
+		err = u.registerKinderSpend(kid, heightHint)
 		if err != nil {
 			return err
 		}
@@ -1459,6 +1493,85 @@ func (u *utxoNursery) waitForCribSpend(baby *babyOutput,
 	// the pre-image and resolving the contract.
 }
 
+func (u *utxoNursery) registerKinderSpend(kid *kidOutput,
+	heightHint uint32) error {
+
+	// For CLTV locked direct outputs on the remote commit tx, register a
+	// spend notification. These output are still contested and can also be
+	// swept by the remote party. Other kid outputs don't need to be watched
+	// for spends.
+	if kid.WitnessType() != lnwallet.HtlcOfferedRemoteTimeout {
+		return nil
+	}
+
+	outPointToWatch := kid.OutPoint()
+	scriptToWatch := kid.SignDesc().Output.PkScript
+
+	// First, we'll register for a spend notification for this output. If
+	// the remote party sweeps with the pre-image, we'll be notified.
+	spendNtfn, err := u.cfg.Notifier.RegisterSpendNtfn(
+		outPointToWatch, scriptToWatch, heightHint,
+	)
+	if err != nil {
+		return err
+	}
+
+	u.wg.Add(1)
+	go u.waitForKidSpend(kid, spendNtfn)
+
+	return nil
+}
+
+func (u *utxoNursery) waitForKidSpend(kid *kidOutput,
+	spendNtfn *chainntnfs.SpendEvent) {
+
+	defer u.wg.Done()
+
+	select {
+	case spendDetail, ok := <-spendNtfn.Spend:
+		if !ok {
+			utxnLog.Errorf("Notification chan "+
+				"closed, can't monitor output %v",
+				kid.OutPoint())
+			return
+		}
+
+		utxnLog.Tracef("Spend details: %v", spendDetail)
+
+		// Recognize success tx based on script length.
+		isRemoteSuccessTx :=
+			len(spendDetail.SpendingTx.TxIn[0].Witness) == 5
+
+		// If it is not the remote tx, it must be our own sweep tx.
+		// Output handling will continue when transaction sufficiently
+		// confirms.
+
+		if !isRemoteSuccessTx {
+			utxnLog.Trace("Timeout tx spent output")
+			return
+		}
+	case <-u.quit:
+		spendNtfn.Cancel()
+		return
+	}
+
+	// Remote party has spent the output.
+	utxnLog.Trace("Remote party spend detected!")
+
+	err := u.cfg.Store.KidToRemoteSpend(kid)
+	if err != nil {
+		utxnLog.Errorf("Unable to move %v output "+
+			"to spend bucket", kid.OutPoint())
+
+		// TODO(joostjager): error channel to signal incubator to quit?
+		return
+	}
+
+	// TODO(joostjager): somehow notify the caller of IncubateOutput of the
+	// remote spend. In case of a resolver, it can proceed with extracting
+	// the pre-image and resolving the contract.
+}
+
 // registerPreschoolConf is responsible for subscribing to the confirmation of
 // a commitment transaction, or an htlc success transaction for an incoming
 // HTLC on our commitment transaction.. If successful, the provided preschool
@@ -1539,6 +1652,17 @@ func (u *utxoNursery) waitForPreschoolConf(kid *kidOutput,
 		utxnLog.Errorf("Unable to move %v output "+
 			"from preschool to kindergarten bucket: %v",
 			outputType, err)
+		return
+	}
+
+	// Register spend notification for this now confirmed kid output. We
+	// don't handle the case where it is spend before the commit tx is
+	// properly confirmed. This should not happen as channel_arbitrator only
+	// hands off to nursery after confirmation of the commit tx.
+	err = u.registerKinderSpend(kid, kid.ConfHeight())
+	if err != nil {
+		utxnLog.Errorf("Unable to register spend notification for %v "+
+			"kid output: %v", outputType, err)
 		return
 	}
 }

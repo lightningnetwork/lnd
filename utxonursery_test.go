@@ -588,7 +588,7 @@ func assertNurseryReport(t *testing.T, nursery *utxoNursery,
 
 	if len(report.htlcs) != expectedNofHtlcs {
 		t.Fatalf("expected %v outputs to be reported, but report "+
-			"only contains %v", expectedNofHtlcs, len(report.htlcs))
+			"contains %v", expectedNofHtlcs, len(report.htlcs))
 	}
 	htlcReport := report.htlcs[0]
 	if htlcReport.stage != expectedStage {
@@ -776,11 +776,11 @@ func testSweep(t *testing.T, ctx *nurseryTestContext) {
 	ctx.finish()
 }
 
-func TestNurseryRemoteSpend(t *testing.T) {
-	testRestartLoop(t, testNurseryRemoteSpend)
+func TestNurseryRemoteSpendOnLocal(t *testing.T) {
+	testRestartLoop(t, testNurseryRemoteSpendOnLocal)
 }
 
-func testNurseryRemoteSpend(t *testing.T,
+func testNurseryRemoteSpendOnLocal(t *testing.T,
 	checkStartStop func(func()) bool) {
 
 	ctx := createNurseryTestContext(t, checkStartStop)
@@ -829,6 +829,69 @@ func testNurseryRemoteSpend(t *testing.T,
 	ctx.nursery.Stop()
 }
 
+func TestNurseryRemoteSpendOnRemote(t *testing.T) {
+	testRestartLoop(t, testNurseryRemoteSpendOnRemote)
+}
+
+func testNurseryRemoteSpendOnRemote(t *testing.T,
+	checkStartStop func(func()) bool) {
+
+	ctx := createNurseryTestContext(t, checkStartStop)
+
+	outgoingRes := incubateTestOutput(t, ctx.nursery, false)
+
+	ctx.notifier.confirmTx(&outgoingRes.ClaimOutpoint.Hash, 124)
+
+	// Wait for output to be promoted from PSCL to KNDR.
+	select {
+	case <-ctx.store.preschoolToKinderChan:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("output not promoted to KNDR")
+	}
+
+	ctx.restart()
+
+	// Remote spend the htlc using a remote success tx. Set witness script
+	// length to 5 so nursery recognizes it properly.
+	remoteSpendTxPreviousOutpoint := outgoingRes.ClaimOutpoint
+
+	remoteSpendTx := wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{
+				PreviousOutPoint: remoteSpendTxPreviousOutpoint,
+				Witness:          [][]byte{{}, {}, {}, {}, {}},
+			},
+		},
+	}
+	ctx.notifier.spendOutpoint(
+		&remoteSpendTxPreviousOutpoint,
+		&remoteSpendTx)
+
+	// Wait for output to be marked as SPND.
+	select {
+	case <-ctx.store.kidToRemoteSpendChan:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("not marked as SPND")
+	}
+
+	// Notify arrival of block where HTLC expires.
+	ctx.notifier.epochChan <- &chainntnfs.BlockEpoch{
+		Height: 125,
+	}
+
+	// This should not trigger the nursery to publish the timeout tx.
+	select {
+	case <-ctx.publishChan:
+		t.Fatalf("tx should not be published anymore")
+	default:
+	}
+
+	// Verify stage in nursery report.
+	assertNurseryReport(t, ctx.nursery, 1, 0)
+
+	ctx.nursery.Stop()
+}
+
 type nurseryStoreInterceptor struct {
 	ns NurseryStore
 
@@ -837,6 +900,7 @@ type nurseryStoreInterceptor struct {
 	cribToRemoteSpendChan chan struct{}
 	graduateKinderChan    chan struct{}
 	preschoolToKinderChan chan struct{}
+	kidToRemoteSpendChan  chan struct{}
 }
 
 func newNurseryStoreInterceptor(ns NurseryStore) *nurseryStoreInterceptor {
@@ -846,6 +910,7 @@ func newNurseryStoreInterceptor(ns NurseryStore) *nurseryStoreInterceptor {
 		cribToRemoteSpendChan: make(chan struct{}),
 		graduateKinderChan:    make(chan struct{}),
 		preschoolToKinderChan: make(chan struct{}),
+		kidToRemoteSpendChan:  make(chan struct{}),
 	}
 }
 
@@ -879,6 +944,14 @@ func (i *nurseryStoreInterceptor) CribToRemoteSpend(baby *babyOutput) error {
 	return err
 }
 
+func (i *nurseryStoreInterceptor) KidToRemoteSpend(kid *kidOutput) error {
+	err := i.ns.KidToRemoteSpend(kid)
+
+	i.kidToRemoteSpendChan <- struct{}{}
+
+	return err
+}
+
 func (i *nurseryStoreInterceptor) GraduateKinder(height uint32) error {
 	err := i.ns.GraduateKinder(height)
 
@@ -889,6 +962,10 @@ func (i *nurseryStoreInterceptor) GraduateKinder(height uint32) error {
 
 func (i *nurseryStoreInterceptor) FetchPreschools() ([]kidOutput, error) {
 	return i.ns.FetchPreschools()
+}
+
+func (i *nurseryStoreInterceptor) FetchKinder() ([]kidOutput, error) {
+	return i.ns.FetchKinder()
 }
 
 func (i *nurseryStoreInterceptor) FetchCribs() ([]babyOutput, error) {

@@ -1730,10 +1730,16 @@ message ListInvoiceRequest {
     50k invoices, callers can use this to skip around within a packed time
     series.
     */
-    uint32 index_offset = 4 [json_name = "index_offset"];
+    uint64 index_offset = 4 [json_name = "index_offset"];
 
     /// The max number of invoices to return in the response to this query.
-    uint32 num_max_invoices = 5 [json_name = "num_max_invoices"];
+    uint64 num_max_invoices = 5 [json_name = "num_max_invoices"];
+
+    /**
+    If set, the invoices returned will result from seeking backwards from the
+    specified index offset.
+    */
+    bool reversed = 6 [json_name = "reversed"];
 }
 message ListInvoiceResponse {
     /**
@@ -1743,10 +1749,16 @@ message ListInvoiceResponse {
     repeated Invoice invoices = 1 [json_name = "invoices"];
 
     /**
-    The index of the last time in the set of returned invoices. Can be used to
-    seek further, pagination style.
+    The index of the last item in the set of returned invoices. This can be used
+    to seek further, pagination style.
     */
-    uint32 last_index_offset = 2 [json_name = "last_index_offset"];
+    uint64 last_index_offset = 2 [json_name = "last_index_offset"];
+
+    /**
+    The index of the last item in the set of returned invoices. This can be used
+    to seek backwards, pagination style.
+    */
+    uint64 first_index_offset = 3 [json_name = "first_index_offset"];
 }
 
 message InvoiceSubscription {

@@ -350,9 +350,9 @@ func loadConfig() (*config, error) {
 		// file doesn't exist which is OK.
 		if _, ok := err.(*flags.IniError); ok {
 			return nil, err
-		} else {
-			configFileError = err
 		}
+
+		configFileError = err
 	}
 
 	// Finally, parse the remaining command line options again to ensure

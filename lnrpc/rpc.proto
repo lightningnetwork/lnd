@@ -443,7 +443,14 @@ service Lightning {
 
     /** lncli: `listinvoices`
     ListInvoices returns a list of all the invoices currently stored within the
-    database. Any active debug invoices are ignored.
+    database. Any active debug invoices are ignored. It has full support for
+    paginated responses, allowing users to query for specific invoices through
+    their add_index. This can be done by using either the first_index_offset or
+    last_index_offset fields included in the response as the index_offset of the
+    next request. The reversed flag is set by default in order to paginate
+    backwards. If you wish to paginate forwards, you must explicitly set the
+    flag to false. If none of the parameters are specified, then the last 100
+    invoices will be returned.
     */
     rpc ListInvoices (ListInvoiceRequest) returns (ListInvoiceResponse) {
         option (google.api.http) = {
@@ -1726,9 +1733,8 @@ message ListInvoiceRequest {
     bool pending_only = 1 [json_name = "pending_only"];
 
     /**
-    The offset in the time series to start at. As each response can only contain
-    50k invoices, callers can use this to skip around within a packed time
-    series.
+    The index of an invoice that will be used as either the start or end of a
+    query to determine which invoices should be returned in the response.
     */
     uint64 index_offset = 4 [json_name = "index_offset"];
 
@@ -1737,7 +1743,7 @@ message ListInvoiceRequest {
 
     /**
     If set, the invoices returned will result from seeking backwards from the
-    specified index offset.
+    specified index offset. This can be used to paginate backwards.
     */
     bool reversed = 6 [json_name = "reversed"];
 }

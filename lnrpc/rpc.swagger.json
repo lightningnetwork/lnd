@@ -614,7 +614,7 @@
     },
     "/v1/invoices": {
       "get": {
-        "summary": "* lncli: `listinvoices`\nListInvoices returns a list of all the invoices currently stored within the\ndatabase. Any active debug invoices are ignored.",
+        "summary": "* lncli: `listinvoices`\nListInvoices returns a list of all the invoices currently stored within the\ndatabase. Any active debug invoices are ignored. It has full support for\npaginated responses, allowing users to query for specific invoices through\ntheir add_index. This can be done by using either the first_index_offset or\nlast_index_offset fields included in the response as the index_offset of the\nnext request. The reversed flag is set by default in order to paginate\nbackwards. If you wish to paginate forwards, you must explicitly set the\nflag to false. If none of the parameters are specified, then the last 100\ninvoices will be returned.",
         "operationId": "ListInvoices",
         "responses": {
           "200": {
@@ -635,7 +635,7 @@
           },
           {
             "name": "index_offset",
-            "description": "*\nThe offset in the time series to start at. As each response can only contain\n50k invoices, callers can use this to skip around within a packed time\nseries.",
+            "description": "*\nThe index of an invoice that will be used as either the start or end of a\nquery to determine which invoices should be returned in the response.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -651,7 +651,7 @@
           },
           {
             "name": "reversed",
-            "description": "*\nIf set, the invoices returned will result from seeking backwards from the\nspecified index offset.",
+            "description": "*\nIf set, the invoices returned will result from seeking backwards from the\nspecified index offset. This can be used to paginate backwards.",
             "in": "query",
             "required": false,
             "type": "boolean",

@@ -4101,15 +4101,14 @@ type ListInvoiceRequest struct {
 	// / If set, only unsettled invoices will be returned in the response.
 	PendingOnly bool `protobuf:"varint,1,opt,name=pending_only" json:"pending_only,omitempty"`
 	// *
-	// The offset in the time series to start at. As each response can only contain
-	// 50k invoices, callers can use this to skip around within a packed time
-	// series.
+	// The index of an invoice that will be used as either the start or end of a
+	// query to determine which invoices should be returned in the response.
 	IndexOffset uint64 `protobuf:"varint,4,opt,name=index_offset" json:"index_offset,omitempty"`
 	// / The max number of invoices to return in the response to this query.
 	NumMaxInvoices uint64 `protobuf:"varint,5,opt,name=num_max_invoices" json:"num_max_invoices,omitempty"`
 	// *
 	// If set, the invoices returned will result from seeking backwards from the
-	// specified index offset.
+	// specified index offset. This can be used to paginate backwards.
 	Reversed bool `protobuf:"varint,6,opt,name=reversed" json:"reversed,omitempty"`
 }
 
@@ -5327,7 +5326,14 @@ type LightningClient interface {
 	AddInvoice(ctx context.Context, in *Invoice, opts ...grpc.CallOption) (*AddInvoiceResponse, error)
 	// * lncli: `listinvoices`
 	// ListInvoices returns a list of all the invoices currently stored within the
-	// database. Any active debug invoices are ignored.
+	// database. Any active debug invoices are ignored. It has full support for
+	// paginated responses, allowing users to query for specific invoices through
+	// their add_index. This can be done by using either the first_index_offset or
+	// last_index_offset fields included in the response as the index_offset of the
+	// next request. The reversed flag is set by default in order to paginate
+	// backwards. If you wish to paginate forwards, you must explicitly set the
+	// flag to false. If none of the parameters are specified, then the last 100
+	// invoices will be returned.
 	ListInvoices(ctx context.Context, in *ListInvoiceRequest, opts ...grpc.CallOption) (*ListInvoiceResponse, error)
 	// * lncli: `lookupinvoice`
 	// LookupInvoice attempts to look up an invoice according to its payment hash.
@@ -6104,7 +6110,14 @@ type LightningServer interface {
 	AddInvoice(context.Context, *Invoice) (*AddInvoiceResponse, error)
 	// * lncli: `listinvoices`
 	// ListInvoices returns a list of all the invoices currently stored within the
-	// database. Any active debug invoices are ignored.
+	// database. Any active debug invoices are ignored. It has full support for
+	// paginated responses, allowing users to query for specific invoices through
+	// their add_index. This can be done by using either the first_index_offset or
+	// last_index_offset fields included in the response as the index_offset of the
+	// next request. The reversed flag is set by default in order to paginate
+	// backwards. If you wish to paginate forwards, you must explicitly set the
+	// flag to false. If none of the parameters are specified, then the last 100
+	// invoices will be returned.
 	ListInvoices(context.Context, *ListInvoiceRequest) (*ListInvoiceResponse, error)
 	// * lncli: `lookupinvoice`
 	// LookupInvoice attempts to look up an invoice according to its payment hash.

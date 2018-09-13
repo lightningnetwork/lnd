@@ -2309,16 +2309,23 @@ func lookupInvoice(ctx *cli.Context) error {
 var listInvoicesCommand = cli.Command{
 	Name:     "listinvoices",
 	Category: "Payments",
-	Usage:    "List all invoices currently stored.",
+	Usage: "List all invoices currently stored within the database. Any " +
+		"active debug invoices are ingnored.",
 	Description: `
 	This command enables the retrieval of all invoices currently stored
-	within the database. It has full support for pagination-style responses,
+	within the database. It has full support for paginationed responses,
 	allowing users to query for specific invoices through their add_index.
 	This can be done by using either the first_index_offset or
-	last_index_offset fields included in the response. The reversed flag is
-	set by default in order to paginate backwards. If you wish to paginate
-	forwards, you must explicitly set the flag to false. If none of the
-	parameters are specified, then the last 100 invoices will be returned.`,
+	last_index_offset fields included in the response as the index_offset of
+	the next request. The reversed flag is set by default in order to
+	paginate backwards. If you wish to paginate forwards, you must
+	explicitly set the flag to false. If none of the parameters are
+	specified, then the last 100 invoices will be returned.
+
+	For example: if you have 200 invoices, "lncli listinvoices" will return
+	the last 100 created. If you wish to retrieve the previous 100, the
+	first_offset_index of the response can be used as the index_offset of
+	the next listinvoices request.`,
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name: "pending_only",
@@ -2326,8 +2333,11 @@ var listInvoicesCommand = cli.Command{
 				"or only those that are currently unsettled",
 		},
 		cli.Uint64Flag{
-			Name:  "index_offset",
-			Usage: "the number of invoices to skip",
+			Name: "index_offset",
+			Usage: "the index of an invoice that will be used as " +
+				"either the start or end of a query to " +
+				"determine which invoices should be returned " +
+				"in the response",
 		},
 		cli.Uint64Flag{
 			Name:  "max_invoices",

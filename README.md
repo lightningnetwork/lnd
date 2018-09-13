@@ -75,6 +75,17 @@ discuss various aspects of `lnd` and also Lightning in general.
   * channel #lnd
   * [webchat](https://webchat.freenode.net/?channels=lnd)
 
+## Security
+
+The developers of `lnd` take security _very_ seriously. The disclosure of
+security vulnerabilities helps us security the health of `lnd`, privacy of our
+users, and also the health of the Lightning Network as a whole.  If you find
+any issues regarding security or privacy, please disclose the information
+responsibly by sending an email to security at lightning dot engineering,
+preferably [encrypted using our designated PGP key
+(`91FE464CD75101DA6B6BAB60555C6465E5BCB3AF`) which can be found
+here](https://pgp.mit.edu/pks/lookup?op=vindex&search=0x555C6465E5BCB3AF).
+
 ## Further reading
 * [Step-by-step send payment guide with docker](https://github.com/lightningnetwork/lnd/tree/master/docker)
 * [Contribution guide](https://github.com/lightningnetwork/lnd/blob/master/docs/code_contribution_guidelines.md)

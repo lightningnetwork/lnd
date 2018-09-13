@@ -345,7 +345,14 @@ func loadConfig() (*config, error) {
 	var configFileError error
 	cfg := preCfg
 	if err := flags.IniParse(configFilePath, &cfg); err != nil {
-		configFileError = err
+		// If it's a parsing related error, then we'll return
+		// immediately, otherwise we can proceed as possibly the config
+		// file doesn't exist which is OK.
+		if _, ok := err.(*flags.IniError); ok {
+			return nil, err
+		} else {
+			configFileError = err
+		}
 	}
 
 	// Finally, parse the remaining command line options again to ensure

@@ -369,15 +369,17 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		preimageMap: make(map[[32]byte][]byte),
 	}
 
-	channelAlice, err := lnwallet.NewLightningChannel(
+	channelAlice := lnwallet.NewLightningChannel(
 		aliceSigner, pCache, aliceChannelState,
 	)
+	err = channelAlice.Start()
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	channelBob, err := lnwallet.NewLightningChannel(
+	channelBob := lnwallet.NewLightningChannel(
 		bobSigner, pCache, bobChannelState,
 	)
+	channelBob.Start()
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -434,8 +436,9 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 			return nil, nil, errors.New("unable to find stored alice channel")
 		}
 
-		newAliceChannel, err := lnwallet.NewLightningChannel(aliceSigner,
+		newAliceChannel := lnwallet.NewLightningChannel(aliceSigner,
 			nil, aliceStoredChannel)
+		err = newAliceChannel.Start()
 		if err != nil {
 			return nil, nil, errors.Errorf("unable to create new channel: %v",
 				err)
@@ -473,8 +476,9 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 			return nil, nil, errors.New("unable to find stored bob channel")
 		}
 
-		newBobChannel, err := lnwallet.NewLightningChannel(bobSigner,
+		newBobChannel := lnwallet.NewLightningChannel(bobSigner,
 			nil, bobStoredChannel)
+		err = newBobChannel.Start()
 		if err != nil {
 			return nil, nil, errors.Errorf("unable to create new channel: %v",
 				err)

@@ -312,10 +312,13 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 
 			for _, channel := range dbChannels {
 				if chanID.IsChanPoint(&channel.FundingOutpoint) {
-					return lnwallet.NewLightningChannel(
-						signer,
-						nil,
-						channel)
+					lc := lnwallet.NewLightningChannel(
+						signer, nil, channel,
+					)
+					if err := lc.Start(); err != nil {
+						return nil, err
+					}
+					return lc, nil
 				}
 			}
 

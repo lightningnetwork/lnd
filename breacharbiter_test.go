@@ -1132,7 +1132,8 @@ func TestBreachHandoffFail(t *testing.T) {
 		alicesPrivKey)
 	aliceSigner := &mockSigner{aliceKeyPriv}
 
-	alice2, err := lnwallet.NewLightningChannel(aliceSigner, nil, alice.State())
+	alice2 := lnwallet.NewLightningChannel(aliceSigner, nil, alice.State())
+	err = alice2.Start()
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
@@ -1570,15 +1571,17 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 	aliceSigner := &mockSigner{aliceKeyPriv}
 	bobSigner := &mockSigner{bobKeyPriv}
 
-	channelAlice, err := lnwallet.NewLightningChannel(
+	channelAlice := lnwallet.NewLightningChannel(
 		aliceSigner, pCache, aliceChannelState,
 	)
+	err = channelAlice.Start()
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	channelBob, err := lnwallet.NewLightningChannel(
+	channelBob := lnwallet.NewLightningChannel(
 		bobSigner, pCache, bobChannelState,
 	)
+	err = channelBob.Start()
 	if err != nil {
 		return nil, nil, nil, err
 	}

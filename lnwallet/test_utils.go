@@ -309,15 +309,18 @@ func CreateTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 	}
 
 	// TODO(roasbeef): make mock version of pre-image store
-	channelAlice, err := NewLightningChannel(
+	channelAlice := NewLightningChannel(
 		aliceSigner, pCache, aliceChannelState,
 	)
+	err = channelAlice.Start()
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	channelBob, err := NewLightningChannel(
+
+	channelBob := NewLightningChannel(
 		bobSigner, pCache, bobChannelState,
 	)
+	err = channelBob.Start()
 	if err != nil {
 		return nil, nil, nil, err
 	}

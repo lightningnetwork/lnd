@@ -479,7 +479,8 @@ func migratePruneEdgeUpdateIndex(tx *bolt.Tx) error {
 	}
 
 	// Retrieve some buckets that will be needed later on. These should
-	// already exist given the assumption that the buckets above do as well.
+	// already exist given the assumption that the buckets above do as
+	// well.
 	edgeIndex, err := edges.CreateBucketIfNotExists(edgeIndexBucket)
 	if edgeIndex == nil {
 		return fmt.Errorf("unable to create/fetch edge index " +
@@ -515,16 +516,15 @@ func migratePruneEdgeUpdateIndex(tx *bolt.Tx) error {
 
 	// With the existing edge policies gathered, we'll recreate the index
 	// and populate it with the correct entries.
-	if err := edges.DeleteBucket(edgeUpdateIndexBucket); err != nil {
-		return fmt.Errorf("unable to remove existing edge update "+
-			"index: %v", err)
-	}
-	edgeUpdateIndex, err = edges.CreateBucketIfNotExists(
-		edgeUpdateIndexBucket,
-	)
-	if err != nil {
-		return fmt.Errorf("unable to recreate edge update index: %v",
-			err)
+	//
+	// NOTE: In bolt DB, calling Delete() on an iterator will actually move
+	// it to the NEXT item. As a result, we call First() here again to go
+	// back to the front after the item has been deleted.
+	updateCursor := edgeUpdateIndex.Cursor()
+	for k, _ := updateCursor.First(); k != nil; k, _ = updateCursor.First() {
+		if err := updateCursor.Delete(); err != nil {
+			return err
+		}
 	}
 
 	// For each edge key, we'll retrieve the policy, deserialize it, and

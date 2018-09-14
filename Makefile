@@ -175,8 +175,8 @@ flakehunter: build
 
 flake-unit:
 	@$(call print, "Flake hunting unit tests.")
-	$(UNIT) -count=1
-	while [ $$? -eq 0 ]; do /bin/sh -c "$(UNIT) -count=1"; done
+	GOTRACEBACK=all $(UNIT) -count=1
+	while [ $$? -eq 0 ]; do /bin/sh -c "GOTRACEBACK=all $(UNIT) -count=1"; done
 
 # ======
 # TRAVIS

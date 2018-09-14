@@ -377,14 +377,6 @@ func (p *peer) QuitSignal() <-chan struct{} {
 func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 	var activePublicChans []wire.OutPoint
 	for _, dbChan := range chans {
-		lnChan := lnwallet.NewLightningChannel(
-			p.server.cc.signer, p.server.witnessBeacon, dbChan,
-		)
-		err := lnChan.Start()
-		if err != nil {
-			return err
-		}
-
 		chanPoint := &dbChan.FundingOutpoint
 
 		chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
@@ -397,7 +389,6 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		if dbChan.ChanStatus() != channeldb.Default {
 			peerLog.Warnf("ChannelPoint(%v) has status %v, won't "+
 				"start.", chanPoint, dbChan.ChanStatus())
-			lnChan.Stop()
 			continue
 		}
 
@@ -406,13 +397,11 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		if _, ok := p.failedChannels[chanID]; ok {
 			peerLog.Warnf("ChannelPoint(%v) is failed, won't "+
 				"start.", chanPoint)
-			lnChan.Stop()
 			continue
 		}
 
 		_, currentHeight, err := p.server.cc.chainIO.GetBestBlock()
 		if err != nil {
-			lnChan.Stop()
 			return err
 		}
 
@@ -422,7 +411,6 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		graph := p.server.chanDB.ChannelGraph()
 		info, p1, p2, err := graph.FetchChannelEdgesByOutpoint(chanPoint)
 		if err != nil && err != channeldb.ErrEdgeNotFound {
-			lnChan.Stop()
 			return err
 		}
 
@@ -470,8 +458,15 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			*chanPoint,
 		)
 		if err != nil {
-			lnChan.Stop()
 			return err
+		}
+
+		// Start the channel.
+		lnChan := lnwallet.NewLightningChannel(
+			p.server.cc.signer, p.server.witnessBeacon, dbChan,
+		)
+		if err := lnChan.Start(); err != nil {
+			return fmt.Errorf("Unable to start channel: %v", err)
 		}
 
 		// Create the link and add it to the switch.

@@ -1361,7 +1361,7 @@ type LightningChannel struct {
 // automatically persist pertinent state to the database in an efficient
 // manner.
 func NewLightningChannel(signer Signer, pCache PreimageCache,
-	state *channeldb.OpenChannel) (*LightningChannel, error) {
+	state *channeldb.OpenChannel) *LightningChannel {
 
 	localCommit := state.LocalCommitment
 	remoteCommit := state.RemoteCommitment
@@ -1375,7 +1375,7 @@ func NewLightningChannel(signer Signer, pCache PreimageCache,
 		localCommit.RemoteLogIndex, localCommit.RemoteHtlcIndex,
 	)
 
-	lc := &LightningChannel{
+	return &LightningChannel{
 		// TODO(roasbeef): tune num sig workers?
 		sigPool:           newSigPool(runtime.NumCPU(), signer),
 		Signer:            signer,
@@ -1394,31 +1394,6 @@ func NewLightningChannel(signer Signer, pCache PreimageCache,
 		RemoteFundingKey:  state.RemoteChanCfg.MultiSigKey.PubKey,
 		quit:              make(chan struct{}),
 	}
-
-	// With the main channel struct reconstructed, we'll now restore the
-	// commitment state in memory and also the update logs themselves.
-	err := lc.restoreCommitState(&localCommit, &remoteCommit)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create the sign descriptor which we'll be using very frequently to
-	// request a signature for the 2-of-2 multi-sig from the signer in
-	// order to complete channel state transitions.
-	err = lc.createSignDesc()
-	if err != nil {
-		return nil, err
-	}
-
-	lc.createStateHintObfuscator()
-
-	// Finally, we'll kick of the signature job pool to handle any upcoming
-	// commitment state generation and validation.
-	if err := lc.sigPool.Start(); err != nil {
-		return nil, err
-	}
-
-	return lc, nil
 }
 
 // createSignDesc derives the SignDescriptor for commitment transactions from
@@ -1466,6 +1441,39 @@ func (lc *LightningChannel) createStateHintObfuscator() {
 			state.LocalChanCfg.PaymentBasePoint.PubKey,
 		)
 	}
+}
+
+//Start starts the channel by restoring the commit state and starting the go
+//routines necessary to activate the channel.
+func (lc *LightningChannel) Start() error {
+
+	localCommit := lc.channelState.LocalCommitment
+	remoteCommit := lc.channelState.RemoteCommitment
+
+	// With the main channel struct reconstructed, we'll now restore the
+	// commitment state in memory and also the update logs themselves.
+	err := lc.restoreCommitState(&localCommit, &remoteCommit)
+	if err != nil {
+		return err
+	}
+
+	// Create the sign descriptor which we'll be using very frequently to
+	// request a signature for the 2-of-2 multi-sig from the signer in
+	// order to complete channel state transitions.
+	err = lc.createSignDesc()
+	if err != nil {
+		return err
+	}
+
+	lc.createStateHintObfuscator()
+
+	// Finally, we'll kick of the signature job pool to handle any upcoming
+	// commitment state generation and validation.
+	if err := lc.sigPool.Start(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // Stop gracefully shuts down any active goroutines spawned by the

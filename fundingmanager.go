@@ -1669,9 +1669,10 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 
 		// Go on adding the channel to the channel graph, and crafting
 		// channel announcements.
-		lnChannel, err := lnwallet.NewLightningChannel(
+		lnChannel := lnwallet.NewLightningChannel(
 			nil, nil, completeChan,
 		)
+		err = lnChannel.Start()
 		if err != nil {
 			fndgLog.Errorf("failed creating lnChannel: %v", err)
 			return
@@ -1959,9 +1960,10 @@ func (f *fundingManager) handleFundingConfirmation(peer lnpeer.Peer,
 	shortChanID *lnwire.ShortChannelID) error {
 
 	// We create the state-machine object which wraps the database state.
-	lnChannel, err := lnwallet.NewLightningChannel(
+	lnChannel := lnwallet.NewLightningChannel(
 		nil, nil, completeChan,
 	)
+	err := lnChannel.Start()
 	if err != nil {
 		return err
 	}

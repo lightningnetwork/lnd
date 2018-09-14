@@ -233,8 +233,10 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 				return nil, fmt.Errorf("unable to find channel")
 			}
 
-			chanMachine, err := lnwallet.NewLightningChannel(
+			chanMachine := lnwallet.NewLightningChannel(
 				c.cfg.Signer, c.cfg.PreimageDB, channel)
+
+			err = chanMachine.Start()
 			if err != nil {
 				return nil, err
 			}

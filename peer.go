@@ -377,9 +377,10 @@ func (p *peer) QuitSignal() <-chan struct{} {
 func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 	var activePublicChans []wire.OutPoint
 	for _, dbChan := range chans {
-		lnChan, err := lnwallet.NewLightningChannel(
+		lnChan := lnwallet.NewLightningChannel(
 			p.server.cc.signer, p.server.witnessBeacon, dbChan,
 		)
+		err := lnChan.Start()
 		if err != nil {
 			return err
 		}

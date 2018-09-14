@@ -751,14 +751,10 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 
 			for _, channel := range dbChannels {
 				if chanID.IsChanPoint(&channel.FundingOutpoint) {
-					lc := lnwallet.NewLightningChannel(
+					return lnwallet.NewLightningChannel(
 						cc.signer, s.witnessBeacon,
 						channel,
-					)
-					if err := lc.Start(); err != nil {
-						return nil, err
-					}
-					return lc, nil
+					), nil
 				}
 			}
 

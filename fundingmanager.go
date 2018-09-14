@@ -2317,7 +2317,6 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 	if channel.RemoteNextRevocation() != nil {
 		fndgLog.Infof("Received duplicate fundingLocked for "+
 			"ChannelID(%v), ignoring.", chanID)
-		channel.Stop()
 		return
 	}
 
@@ -2328,7 +2327,6 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 	err = channel.InitNextRevocation(fmsg.msg.NextPerCommitmentPoint)
 	if err != nil {
 		fndgLog.Errorf("unable to insert next commitment point: %v", err)
-		channel.Stop()
 		return
 	}
 
@@ -2349,11 +2347,16 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 		f.barrierMtx.Unlock()
 	}()
 
+	// Start the channel and send it to the peer.
+	if err := channel.Start(); err != nil {
+		fndgLog.Errorf("Unable to start channel(%v): %v", chanID, err)
+		return
+	}
+
 	if err := fmsg.peer.AddNewChannel(channel, f.quit); err != nil {
 		fndgLog.Errorf("Unable to add new channel %v with peer %x: %v",
 			fmsg.peer.IdentityKey().SerializeCompressed(),
 			*channel.ChanPoint, err)
-		channel.Stop()
 	}
 }
 

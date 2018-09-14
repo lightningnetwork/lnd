@@ -1672,12 +1672,6 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 		lnChannel := lnwallet.NewLightningChannel(
 			nil, nil, completeChan,
 		)
-		err = lnChannel.Start()
-		if err != nil {
-			fndgLog.Errorf("failed creating lnChannel: %v", err)
-			return
-		}
-		defer lnChannel.Stop()
 
 		err = f.sendFundingLocked(
 			fmsg.peer, completeChan, lnChannel, shortChanID,
@@ -1963,17 +1957,12 @@ func (f *fundingManager) handleFundingConfirmation(peer lnpeer.Peer,
 	lnChannel := lnwallet.NewLightningChannel(
 		nil, nil, completeChan,
 	)
-	err := lnChannel.Start()
-	if err != nil {
-		return err
-	}
-	defer lnChannel.Stop()
 
 	chanID := lnwire.NewChanIDFromOutPoint(&completeChan.FundingOutpoint)
 
 	fndgLog.Debugf("ChannelID(%v) is now fully confirmed!", chanID)
 
-	err = f.sendFundingLocked(peer, completeChan, lnChannel, shortChanID)
+	err := f.sendFundingLocked(peer, completeChan, lnChannel, shortChanID)
 	if err != nil {
 		return fmt.Errorf("failed sending fundingLocked: %v", err)
 	}

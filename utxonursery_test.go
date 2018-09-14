@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"io/ioutil"
+	"math"
 	"os"
 	"reflect"
 	"testing"
@@ -531,6 +532,25 @@ func (ctx *nurseryTestContext) finish() {
 	case <-ctx.publishChan:
 		ctx.t.Fatalf("unexpected transactions published")
 	default:
+	}
+
+	// Assert that the database is empty. All channels removed and height
+	// index cleared.
+	nurseryChannels, err := ctx.nursery.cfg.Store.ListChannels()
+	if err != nil {
+		ctx.t.Fatal(err)
+	}
+	if len(nurseryChannels) > 0 {
+		ctx.t.Fatalf("Expected all channels to be removed from store")
+	}
+
+	activeHeights, err := ctx.nursery.cfg.Store.HeightsBelowOrEqual(
+		math.MaxUint32)
+	if err != nil {
+		ctx.t.Fatal(err)
+	}
+	if len(activeHeights) > 0 {
+		ctx.t.Fatalf("Expected height index to be empty")
 	}
 }
 

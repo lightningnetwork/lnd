@@ -630,20 +630,33 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 			outHtlcRes *lnwallet.OutgoingHtlcResolution,
 			inHtlcRes *lnwallet.IncomingHtlcResolution) error {
 
-			var (
-				inRes  []lnwallet.IncomingHtlcResolution
-				outRes []lnwallet.OutgoingHtlcResolution
-			)
-			if inHtlcRes != nil {
-				inRes = append(inRes, *inHtlcRes)
-			}
-			if outHtlcRes != nil {
-				outRes = append(outRes, *outHtlcRes)
+			// TODO(joostjager): Propagate function split further
+			// up. To prevent adding three function typed fields in
+			// the config struct, replace by nursery typed field.
+			// But before this can be done, nursery needs to be put
+			// in its own package to fix dependencies.
+			if commitRes == nil &&
+				outHtlcRes == nil && inHtlcRes != nil {
+
+				return s.utxoNursery.IncubateIncomingHtlcOutput(
+					chanPoint, *inHtlcRes)
 			}
 
-			return s.utxoNursery.IncubateOutputs(
-				chanPoint, commitRes, outRes, inRes,
-			)
+			if commitRes == nil &&
+				outHtlcRes != nil && inHtlcRes == nil {
+
+				return s.utxoNursery.IncubateOutgoingHtlcOutput(
+					chanPoint, *outHtlcRes)
+			}
+
+			if commitRes != nil &&
+				outHtlcRes == nil && inHtlcRes == nil {
+
+				return s.utxoNursery.IncubateCommitOutput(
+					chanPoint, commitRes)
+			}
+
+			panic("invalid combination of inputs")
 		},
 		PreimageDB:   s.witnessBeacon,
 		Notifier:     cc.chainNotifier,

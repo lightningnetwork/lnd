@@ -600,11 +600,9 @@ func incubateTestOutput(t *testing.T, nursery *utxoNursery,
 	outgoingRes := createOutgoingRes(onLocalCommitment)
 
 	// Hand off to nursery.
-	err := nursery.IncubateOutputs(
+	err := nursery.IncubateOutgoingHtlcOutput(
 		testChanPoint,
-		nil,
-		[]lnwallet.OutgoingHtlcResolution{*outgoingRes},
-		nil,
+		*outgoingRes,
 	)
 	if err != nil {
 		t.Fatal(err)

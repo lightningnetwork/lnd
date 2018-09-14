@@ -219,8 +219,8 @@ rpc:
 
 clean:
 	@$(call print, "Cleaning source.$(NC)")
-	$(RM) ./lnd ./lncli
-	$(RM) -r ./vendor
+	$(RM) ./lnd-debug ./lncli-debug
+	$(RM) -r ./vendor .vendor-new
 
 
 .PHONY: all \

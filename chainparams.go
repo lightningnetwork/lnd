@@ -54,6 +54,14 @@ var bitcoinSimNetParams = bitcoinNetParams{
 	CoinType: keychain.CoinTypeTestnet,
 }
 
+// litecoinSimNetParams contains parameters specific to the simulation test
+// network.
+var litecoinSimNetParams = litecoinNetParams{
+	Params:   &litecoinCfg.SimNetParams,
+	rpcPort:  "18556",
+	CoinType: keychain.CoinTypeTestnet,
+}
+
 // litecoinTestNetParams contains parameters specific to the 4th version of the
 // test network.
 var litecoinTestNetParams = litecoinNetParams{

@@ -499,6 +499,28 @@ func (ctx *nurseryTestContext) finish() {
 	// Add a final restart point in this state
 	ctx.restart()
 
+	// We assume that when finish is called, nursery has finished all its
+	// goroutines. This implies that the waitgroup is empty.
+	signalChan := make(chan struct{})
+	go func() {
+		ctx.nursery.wg.Wait()
+		close(signalChan)
+	}()
+
+	// The only goroutine that is still expected to be running is
+	// incubator(). Simulate exit of this goroutine.
+	ctx.nursery.wg.Done()
+
+	// We now expect the Wait to succeed.
+	select {
+	case <-signalChan:
+	case <-time.After(time.Second):
+		ctx.t.Fatalf("lingering goroutines detected after test is finished")
+	}
+
+	// Restore waitgroup state to what it was before.
+	ctx.nursery.wg.Add(1)
+
 	ctx.nursery.Stop()
 
 	// We should have consumed and asserted all published transactions in

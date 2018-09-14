@@ -432,7 +432,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	// If we were requested to route connections through Tor and to
 	// automatically create an onion service, we'll initiate our Tor
 	// controller and establish a connection to the Tor server.
-	if cfg.Tor.Active {
+	if cfg.Tor.Active && (cfg.Tor.V2 || cfg.Tor.V3) {
 		s.torController = tor.NewController(cfg.Tor.Control)
 	}
 

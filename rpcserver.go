@@ -1062,7 +1062,6 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 	if err != nil {
 		return err
 	}
-	channel.Stop()
 
 	// If a force closure was requested, then we'll handle all the details
 	// around the creation and broadcast of the unilateral closure
@@ -1226,13 +1225,9 @@ func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (*lnwallet.Light
 
 	// Otherwise, we create a fully populated channel state machine which
 	// uses the db channel as backing storage.
-	lc := lnwallet.NewLightningChannel(
+	return lnwallet.NewLightningChannel(
 		r.server.cc.wallet.Cfg.Signer, nil, dbChan,
-	)
-	if err := lc.Start(); err != nil {
-		return nil, err
-	}
-	return lc, nil
+	), nil
 }
 
 // GetInfo returns general information concerning the lightning node including

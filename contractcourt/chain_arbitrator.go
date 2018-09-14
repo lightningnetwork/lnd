@@ -236,12 +236,6 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 			chanMachine := lnwallet.NewLightningChannel(
 				c.cfg.Signer, c.cfg.PreimageDB, channel)
 
-			err = chanMachine.Start()
-			if err != nil {
-				return nil, err
-			}
-			chanMachine.Stop()
-
 			if err := c.cfg.MarkLinkInactive(chanPoint); err != nil {
 				log.Errorf("unable to mark link inactive: %v", err)
 			}

@@ -489,59 +489,55 @@ func (f *fundingManager) start() error {
 	// down.
 	// TODO(roasbeef): store height that funding finished?
 	//  * would then replace call below
-	pendingChannels, err := f.cfg.Wallet.Cfg.Database.FetchPendingChannels()
+	allChannels, err := f.cfg.Wallet.Cfg.Database.FetchAllChannels()
 	if err != nil {
 		return err
 	}
 
-	// For any channels that were in a pending state when the daemon was
-	// last connected, the Funding Manager will re-initialize the channel
-	// barriers and will also launch waitForFundingConfirmation to wait for
-	// the channel's funding transaction to be confirmed on the blockchain.
-	for _, channel := range pendingChannels {
-		f.barrierMtx.Lock()
-		fndgLog.Tracef("Loading pending ChannelPoint(%v), creating chan "+
-			"barrier", channel.FundingOutpoint)
+	for _, channel := range allChannels {
 		chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
-		f.newChanBarriers[chanID] = make(chan struct{})
-		f.barrierMtx.Unlock()
 
-		f.localDiscoverySignals[chanID] = make(chan struct{})
+		// For any channels that were in a pending state when the
+		// daemon was last connected, the Funding Manager will
+		// re-initialize the channel barriers, and republish the
+		// funding transaction if we're the initiator.
+		if channel.IsPending {
+			f.barrierMtx.Lock()
+			fndgLog.Tracef("Loading pending ChannelPoint(%v), "+
+				"creating chan barrier",
+				channel.FundingOutpoint)
 
-		// Rebroadcast the funding transaction for any pending channel
-		// that we initiated. If this operation fails due to a reported
-		// double spend, we treat this as an indicator that we have
-		// already broadcast this transaction. Otherwise, we simply log
-		// the error as there isn't anything we can currently do to
-		// recover.
-		if channel.ChanType == channeldb.SingleFunder &&
-			channel.IsInitiator {
+			f.newChanBarriers[chanID] = make(chan struct{})
+			f.barrierMtx.Unlock()
 
-			err := f.cfg.PublishTransaction(channel.FundingTxn)
-			if err != nil {
-				fndgLog.Errorf("Unable to rebroadcast funding "+
-					"tx for ChannelPoint(%v): %v",
-					channel.FundingOutpoint, err)
+			f.localDiscoverySignals[chanID] = make(chan struct{})
+
+			// Rebroadcast the funding transaction for any pending
+			// channel that we initiated. No error will be returned
+			// if the transaction already has been broadcasted.
+			if channel.ChanType == channeldb.SingleFunder &&
+				channel.IsInitiator {
+
+				err := f.cfg.PublishTransaction(
+					channel.FundingTxn,
+				)
+				if err != nil {
+					fndgLog.Errorf("Unable to rebroadcast "+
+						"funding tx for "+
+						"ChannelPoint(%v): %v",
+						channel.FundingOutpoint, err)
+				}
 			}
 		}
 
-		f.wg.Add(1)
-		go f.advanceFundingState(channel, chanID, nil)
-	}
-
-	// Fetch all our open channels, and make sure they all finalized the
-	// opening process.
-	// TODO(halseth): this check is only done on restart atm, but should
-	// also be done if a peer that disappeared during the opening process
-	// reconnects.
-	openChannels, err := f.cfg.Wallet.Cfg.Database.FetchAllChannels()
-	if err != nil {
-		return err
-	}
-
-	for _, channel := range openChannels {
-		chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
-
+		// We will restart the funding state machine for all channels,
+		// which will wait for the channel's funding transaction to be
+		// confirmed on the blockchain, and retransmit the messages
+		// necessary for the channel to be operational.
+		// TODO(halseth): retransmission of messages to make the
+		// channel operational is only done on restart atm, but should
+		// also be done if a peer that disappeared during the opening
+		// process reconnects.
 		f.wg.Add(1)
 		go f.advanceFundingState(channel, chanID, nil)
 	}

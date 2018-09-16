@@ -934,6 +934,33 @@ func (f *fundingManager) stateStep(channel *channeldb.OpenChannel,
 		fndgLog.Debugf("Channel(%v) with ShortChanID %v: successfully "+
 			"added to router graph", chanID, shortChanID)
 
+		// Give the caller a final update notifying them that
+		// the channel is now open.
+		// TODO(roasbeef): only notify after recv of funding locked?
+		fundingPoint := channel.FundingOutpoint
+		cp := &lnrpc.ChannelPoint{
+			FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+				FundingTxidBytes: fundingPoint.Hash[:],
+			},
+			OutputIndex: fundingPoint.Index,
+		}
+
+		if updateChan != nil {
+			upd := &lnrpc.OpenStatusUpdate{
+				Update: &lnrpc.OpenStatusUpdate_ChanOpen{
+					ChanOpen: &lnrpc.ChannelOpenUpdate{
+						ChannelPoint: cp,
+					},
+				},
+			}
+
+			select {
+			case updateChan <- upd:
+			case <-f.quit:
+				return ErrFundingManagerShuttingDown
+			}
+		}
+
 		return nil
 
 	// The channel was added to the Router's topology, but the channel
@@ -1742,62 +1769,8 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 		fndgLog.Debugf("Channel with ShortChanID %v now confirmed",
 			shortChanID.ToUint64())
 
-		// Go on adding the channel to the channel graph, and crafting
-		// channel announcements.
-		lnChannel, err := lnwallet.NewLightningChannel(
-			nil, completeChan, nil,
-		)
-		if err != nil {
-			fndgLog.Errorf("failed creating lnChannel: %v", err)
-			return
-		}
-
-		err = f.sendFundingLocked(
-			fmsg.peer, completeChan, lnChannel, shortChanID,
-		)
-		if err != nil {
-			fndgLog.Errorf("failed sending fundingLocked: %v", err)
-			return
-		}
-		fndgLog.Debugf("FundingLocked for channel with ShortChanID "+
-			"%v sent", shortChanID.ToUint64())
-
-		err = f.addToRouterGraph(completeChan, shortChanID)
-		if err != nil {
-			fndgLog.Errorf("failed adding to router graph: %v", err)
-			return
-		}
-		fndgLog.Debugf("Channel with ShortChanID %v added to "+
-			"router graph", shortChanID.ToUint64())
-
-		// Give the caller a final update notifying them that
-		// the channel is now open.
-		// TODO(roasbeef): only notify after recv of funding locked?
-		upd := &lnrpc.OpenStatusUpdate{
-			Update: &lnrpc.OpenStatusUpdate_ChanOpen{
-				ChanOpen: &lnrpc.ChannelOpenUpdate{
-					ChannelPoint: &lnrpc.ChannelPoint{
-						FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
-							FundingTxidBytes: fundingPoint.Hash[:],
-						},
-						OutputIndex: fundingPoint.Index,
-					},
-				},
-			},
-		}
-
-		select {
-		case resCtx.updates <- upd:
-		case <-f.quit:
-			return
-		}
-
-		err = f.annAfterSixConfs(completeChan, shortChanID)
-		if err != nil {
-			fndgLog.Errorf("failed sending channel announcement: %v",
-				err)
-			return
-		}
+		f.wg.Add(1)
+		go f.advanceFundingState(completeChan, resCtx.updates)
 	}()
 }
 

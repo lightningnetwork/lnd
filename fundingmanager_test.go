@@ -394,7 +394,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	f.cfg.NotifyWhenOnline = func(peer [33]byte,
 		connectedChan chan<- lnpeer.Peer) {
 
-		connectedChan <- testNode
+		connectedChan <- testNode.remotePeer
 	}
 
 	return testNode, nil

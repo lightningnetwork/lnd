@@ -672,6 +672,8 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 }
 
 func assertErrorNotSent(t *testing.T, msgChan chan lnwire.Message) {
+	t.Helper()
+
 	select {
 	case <-msgChan:
 		t.Fatalf("error sent unexpectedly")
@@ -681,6 +683,8 @@ func assertErrorNotSent(t *testing.T, msgChan chan lnwire.Message) {
 }
 
 func assertErrorSent(t *testing.T, msgChan chan lnwire.Message) {
+	t.Helper()
+
 	var msg lnwire.Message
 	select {
 	case msg = <-msgChan:
@@ -741,6 +745,8 @@ func assertFundingMsgSent(t *testing.T, msgChan chan lnwire.Message,
 
 func assertNumPendingReservations(t *testing.T, node *testNode,
 	peerPubKey *btcec.PublicKey, expectedNum int) {
+	t.Helper()
+
 	serializedPubKey := newSerializedKey(peerPubKey)
 	actualNum := len(node.fundingMgr.activeReservations[serializedPubKey])
 	if actualNum == expectedNum {
@@ -753,6 +759,8 @@ func assertNumPendingReservations(t *testing.T, node *testNode,
 }
 
 func assertNumPendingChannelsBecomes(t *testing.T, node *testNode, expectedNum int) {
+	t.Helper()
+
 	var numPendingChans int
 	for i := 0; i < testPollNumTries; i++ {
 		// If this is not the first try, sleep before retrying.
@@ -777,6 +785,8 @@ func assertNumPendingChannelsBecomes(t *testing.T, node *testNode, expectedNum i
 }
 
 func assertNumPendingChannelsRemains(t *testing.T, node *testNode, expectedNum int) {
+	t.Helper()
+
 	var numPendingChans int
 	for i := 0; i < 5; i++ {
 		// If this is not the first try, sleep before retrying.
@@ -800,6 +810,7 @@ func assertNumPendingChannelsRemains(t *testing.T, node *testNode, expectedNum i
 
 func assertDatabaseState(t *testing.T, node *testNode,
 	fundingOutPoint *wire.OutPoint, expectedState channelOpeningState) {
+	t.Helper()
 
 	var state channelOpeningState
 	var err error
@@ -832,18 +843,24 @@ func assertDatabaseState(t *testing.T, node *testNode,
 
 func assertMarkedOpen(t *testing.T, alice, bob *testNode,
 	fundingOutPoint *wire.OutPoint) {
+	t.Helper()
+
 	assertDatabaseState(t, alice, fundingOutPoint, markedOpen)
 	assertDatabaseState(t, bob, fundingOutPoint, markedOpen)
 }
 
 func assertFundingLockedSent(t *testing.T, alice, bob *testNode,
 	fundingOutPoint *wire.OutPoint) {
+	t.Helper()
+
 	assertDatabaseState(t, alice, fundingOutPoint, fundingLockedSent)
 	assertDatabaseState(t, bob, fundingOutPoint, fundingLockedSent)
 }
 
 func assertAddedToRouterGraph(t *testing.T, alice, bob *testNode,
 	fundingOutPoint *wire.OutPoint) {
+	t.Helper()
+
 	assertDatabaseState(t, alice, fundingOutPoint, addedToRouterGraph)
 	assertDatabaseState(t, bob, fundingOutPoint, addedToRouterGraph)
 }
@@ -950,6 +967,8 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 }
 
 func assertAnnouncementSignatures(t *testing.T, alice, bob *testNode) {
+	t.Helper()
+
 	// After the FundingLocked message is sent and six confirmations have
 	// been reached, the channel will be announced to the greater network
 	// by having the nodes exchange announcement signatures.
@@ -1006,6 +1025,7 @@ func waitForOpenUpdate(t *testing.T, updateChan chan *lnrpc.OpenStatusUpdate) {
 
 func assertNoChannelState(t *testing.T, alice, bob *testNode,
 	fundingOutPoint *wire.OutPoint) {
+	t.Helper()
 
 	assertErrChannelNotFound(t, alice, fundingOutPoint)
 	assertErrChannelNotFound(t, bob, fundingOutPoint)
@@ -1013,6 +1033,7 @@ func assertNoChannelState(t *testing.T, alice, bob *testNode,
 
 func assertErrChannelNotFound(t *testing.T, node *testNode,
 	fundingOutPoint *wire.OutPoint) {
+	t.Helper()
 
 	var state channelOpeningState
 	var err error
@@ -1036,6 +1057,8 @@ func assertErrChannelNotFound(t *testing.T, node *testNode,
 }
 
 func assertHandleFundingLocked(t *testing.T, alice, bob *testNode) {
+	t.Helper()
+
 	// They should both send the new channel state to their peer.
 	select {
 	case c := <-alice.newChannels:

@@ -222,7 +222,7 @@ func (m *mockWalletController) NewAddress(addrType lnwallet.AddressType,
 		m.rootKey.PubKey().SerializeCompressed(), &chaincfg.MainNetParams)
 	return addr, nil
 }
-func (*mockWalletController) IsOurAddress(a btcutil.Address) (bool) {
+func (*mockWalletController) IsOurAddress(a btcutil.Address) bool {
 	return false
 }
 

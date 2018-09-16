@@ -149,7 +149,7 @@ type WalletController interface {
 	NewAddress(addrType AddressType, change bool) (btcutil.Address, error)
 
 	// IsOurAddress checks if the passed address belongs to this wallet
-	IsOurAddress(a btcutil.Address) (bool)
+	IsOurAddress(a btcutil.Address) bool
 
 	// SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying
 	// out to the specified outputs. In the case the wallet has insufficient

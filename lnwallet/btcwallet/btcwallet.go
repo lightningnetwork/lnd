@@ -258,13 +258,9 @@ func (b *BtcWallet) NewAddress(t lnwallet.AddressType, change bool) (btcutil.Add
 // IsOurAddress checks if the passed address belongs to this wallet
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) IsOurAddress(a btcutil.Address) (bool) {
+func (b *BtcWallet) IsOurAddress(a btcutil.Address) bool {
 	result, err := b.wallet.HaveAddress(a)
-	if result && err == nil {
-		return true
-	} else {
-		return false
-	}
+	return result && (err == nil)
 }
 
 // SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying out to

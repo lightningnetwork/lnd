@@ -525,6 +525,8 @@ func (f *fundingManager) start() error {
 		go func(ch *channeldb.OpenChannel) {
 			go f.waitForFundingWithTimeout(ch, confChan, timeoutChan)
 
+			var shortChanID *lnwire.ShortChannelID
+			var ok bool
 			select {
 			case <-timeoutChan:
 				// Timeout channel will be triggered if the number of blocks
@@ -547,43 +549,30 @@ func (f *fundingManager) start() error {
 				if err := ch.CloseChannel(closeInfo); err != nil {
 					fndgLog.Errorf("Failed closing channel "+
 						"%v: %v", ch.FundingOutpoint, err)
+					return
 				}
+				return
 
 			case <-f.quit:
 				// The fundingManager is shutting down, and will
 				// resume wait on startup.
-			case shortChanID, ok := <-confChan:
+				return
+
+			case shortChanID, ok = <-confChan:
 				if !ok {
 					fndgLog.Errorf("Waiting for funding" +
 						"confirmation failed")
 					return
 				}
-
-				// The funding transaction has confirmed, so
-				// we'll attempt to retrieve the remote peer
-				// to complete the rest of the funding flow.
-				peerChan := make(chan lnpeer.Peer, 1)
-
-				var peerKey [33]byte
-				copy(peerKey[:], ch.IdentityPub.SerializeCompressed())
-
-				f.cfg.NotifyWhenOnline(peerKey, peerChan)
-
-				var peer lnpeer.Peer
-				select {
-				case peer = <-peerChan:
-				case <-f.quit:
-					return
-				}
-				err := f.handleFundingConfirmation(
-					peer, ch, shortChanID,
-				)
-				if err != nil {
-					fndgLog.Errorf("Failed to handle "+
-						"funding confirmation: %v", err)
-					return
-				}
+				// Fallthrough.
 			}
+
+			// Success, funding transaction was confirmed.
+			fndgLog.Debugf("ChannelID(%v) is now fully confirmed! "+
+				"(shortChanID=%v)", chanID, shortChanID)
+
+			f.wg.Add(1)
+			go f.advanceFundingState(ch, nil)
 		}(channel)
 	}
 
@@ -1604,14 +1593,12 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 		}
 
 		// Success, funding transaction was confirmed.
-		err := f.handleFundingConfirmation(
-			fmsg.peer, completeChan, shortChanID,
-		)
-		if err != nil {
-			fndgLog.Errorf("failed to handle funding"+
-				"confirmation: %v", err)
-			return
-		}
+		fndgLog.Debugf("ChannelID(%v) is now fully confirmed! "+
+			"(shortChanID=%v)", channelID, shortChanID)
+
+		f.wg.Add(1)
+		go f.advanceFundingState(completeChan, nil)
+
 	}()
 }
 
@@ -2018,43 +2005,6 @@ func (f *fundingManager) waitForFundingConfirmation(
 		close(discoverySignal)
 	}
 	f.localDiscoveryMtx.Unlock()
-}
-
-// handleFundingConfirmation is a wrapper method for creating a new
-// lnwallet.LightningChannel object, calling sendFundingLocked,
-// addToRouterGraph, and annAfterSixConfs. This is called after the funding
-// transaction is confirmed.
-func (f *fundingManager) handleFundingConfirmation(peer lnpeer.Peer,
-	completeChan *channeldb.OpenChannel,
-	shortChanID *lnwire.ShortChannelID) error {
-
-	// We create the state-machine object which wraps the database state.
-	lnChannel, err := lnwallet.NewLightningChannel(
-		nil, completeChan, nil,
-	)
-	if err != nil {
-		return err
-	}
-
-	chanID := lnwire.NewChanIDFromOutPoint(&completeChan.FundingOutpoint)
-
-	fndgLog.Debugf("ChannelID(%v) is now fully confirmed!", chanID)
-
-	err = f.sendFundingLocked(peer, completeChan, lnChannel, shortChanID)
-	if err != nil {
-		return fmt.Errorf("failed sending fundingLocked: %v", err)
-	}
-	err = f.addToRouterGraph(completeChan, shortChanID)
-	if err != nil {
-		return fmt.Errorf("failed adding to router graph: %v", err)
-	}
-	err = f.annAfterSixConfs(completeChan, shortChanID)
-	if err != nil {
-		return fmt.Errorf("failed sending channel announcement: %v",
-			err)
-	}
-
-	return nil
 }
 
 // sendFundingLocked creates and sends the fundingLocked message.

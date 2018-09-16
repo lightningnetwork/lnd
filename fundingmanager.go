@@ -1990,12 +1990,35 @@ func (f *fundingManager) waitForFundingConfirmation(
 		TxPosition:  uint16(fundingPoint.Index),
 	}
 
+	err = f.handleFundingConfirmation(completeChan, shortChanID)
+	if err != nil {
+		fndgLog.Errorf("Unable to handle funding confirmation: %v", err)
+		return
+	}
+
+	select {
+	case confChan <- &shortChanID:
+	case <-f.quit:
+		return
+	}
+}
+
+// handleFundingConfirmation marks a channel as open in the database, and set
+// the channelOpeningState markedOpen. In addition it will report the now
+// decided short channel ID to the switch, and close the local discovery signal
+// for this channel.
+func (f *fundingManager) handleFundingConfirmation(
+	completeChan *channeldb.OpenChannel,
+	shortChanID lnwire.ShortChannelID) error {
+
+	fundingPoint := completeChan.FundingOutpoint
+	chanID := lnwire.NewChanIDFromOutPoint(&fundingPoint)
+
 	// Now that the channel has been fully confirmed, we'll mark it as open
 	// within the database.
 	if err := completeChan.MarkAsOpen(shortChanID); err != nil {
-		fndgLog.Errorf("error setting channel pending flag to false: "+
+		return fmt.Errorf("error setting channel pending flag to false: "+
 			"%v", err)
-		return
 	}
 
 	// Inform the ChannelNotifier that the channel has transitioned from
@@ -2013,12 +2036,10 @@ func (f *fundingManager) waitForFundingConfirmation(
 	// TODO(halseth): make the two db transactions (MarkChannelAsOpen and
 	// saveChannelOpeningState) atomic by doing them in the same transaction.
 	// Needed to be properly fault-tolerant.
-	err = f.saveChannelOpeningState(&completeChan.FundingOutpoint, markedOpen,
-		&shortChanID)
+	err := f.saveChannelOpeningState(&fundingPoint, markedOpen, &shortChanID)
 	if err != nil {
-		fndgLog.Errorf("error setting channel state to markedOpen: %v",
+		return fmt.Errorf("error setting channel state to markedOpen: %v",
 			err)
-		return
 	}
 
 	// As there might already be an active link in the switch with an
@@ -2027,12 +2048,6 @@ func (f *fundingManager) waitForFundingConfirmation(
 	err = f.cfg.ReportShortChanID(fundingPoint)
 	if err != nil {
 		fndgLog.Errorf("unable to report short chan id: %v", err)
-	}
-
-	select {
-	case confChan <- &shortChanID:
-	case <-f.quit:
-		return
 	}
 
 	// Close the discoverySignal channel, indicating to a separate
@@ -2044,6 +2059,8 @@ func (f *fundingManager) waitForFundingConfirmation(
 		close(discoverySignal)
 	}
 	f.localDiscoveryMtx.Unlock()
+
+	return nil
 }
 
 // sendFundingLocked creates and sends the fundingLocked message.

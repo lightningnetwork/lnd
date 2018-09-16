@@ -598,103 +598,9 @@ func (f *fundingManager) start() error {
 	}
 
 	for _, channel := range openChannels {
-		channelState, shortChanID, err := f.getChannelOpeningState(
-			&channel.FundingOutpoint)
-		if err == ErrChannelNotFound {
-			// Channel not in fundingManager's opening database,
-			// meaning it was successfully announced to the
-			// network.
-			continue
-		} else if err != nil {
+		err = f.advanceFundingState(channel)
+		if err != nil {
 			return err
-		}
-
-		chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
-		fndgLog.Debugf("channel (%v) with opening state %v found",
-			chanID, channelState)
-
-		// If we did find the channel in the opening state database, we
-		// have seen the funding transaction being confirmed, but we
-		// did not finish the rest of the setup procedure before we shut
-		// down. We handle the remaining steps of this setup by
-		// continuing the procedure where we left off.
-		switch channelState {
-		case markedOpen:
-			// The funding transaction was confirmed, but we did not
-			// successfully send the fundingLocked message to the
-			// peer, so let's do that now.
-			f.wg.Add(1)
-			go func(dbChan *channeldb.OpenChannel) {
-				defer f.wg.Done()
-
-				peerChan := make(chan lnpeer.Peer, 1)
-
-				var peerKey [33]byte
-				copy(peerKey[:], dbChan.IdentityPub.SerializeCompressed())
-
-				f.cfg.NotifyWhenOnline(peerKey, peerChan)
-
-				var peer lnpeer.Peer
-				select {
-				case peer = <-peerChan:
-				case <-f.quit:
-					return
-				}
-				err := f.handleFundingConfirmation(
-					peer, dbChan, shortChanID,
-				)
-				if err != nil {
-					fndgLog.Errorf("Failed to handle "+
-						"funding confirmation: %v", err)
-					return
-				}
-			}(channel)
-
-		case fundingLockedSent:
-			// fundingLocked was sent to peer, but the channel
-			// was not added to the router graph and the channel
-			// announcement was not sent.
-			f.wg.Add(1)
-			go func(dbChan *channeldb.OpenChannel) {
-				defer f.wg.Done()
-
-				err = f.addToRouterGraph(dbChan, shortChanID)
-				if err != nil {
-					fndgLog.Errorf("failed adding to "+
-						"router graph: %v", err)
-					return
-				}
-
-				// TODO(halseth): should create a state machine
-				// that can more easily be resumed from
-				// different states, to avoid this code
-				// duplication.
-				err = f.annAfterSixConfs(dbChan, shortChanID)
-				if err != nil {
-					fndgLog.Errorf("error sending channel "+
-						"announcements: %v", err)
-					return
-				}
-			}(channel)
-
-		case addedToRouterGraph:
-			// The channel was added to the Router's topology, but
-			// the channel announcement was not sent.
-			f.wg.Add(1)
-			go func(dbChan *channeldb.OpenChannel) {
-				defer f.wg.Done()
-
-				err = f.annAfterSixConfs(dbChan, shortChanID)
-				if err != nil {
-					fndgLog.Errorf("error sending channel "+
-						"announcement: %v", err)
-					return
-				}
-			}(channel)
-
-		default:
-			fndgLog.Errorf("undefined channelState: %v",
-				channelState)
 		}
 	}
 
@@ -918,6 +824,114 @@ func (f *fundingManager) reservationCoordinator() {
 			return
 		}
 	}
+}
+
+// advanceFundingState will advance the channel fromt the markedOpen state to
+// the point where the channel is ready for operation. This includes sending
+// funding locked to the peer, adding the channel to the router graph, and
+// announcing the channel.
+func (f *fundingManager) advanceFundingState(
+	channel *channeldb.OpenChannel) error {
+
+	channelState, shortChanID, err := f.getChannelOpeningState(
+		&channel.FundingOutpoint)
+	if err == ErrChannelNotFound {
+		// Channel not in fundingManager's opening database,
+		// meaning it was successfully announced to the
+		// network.
+		return nil
+	} else if err != nil {
+		return err
+	}
+
+	chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
+	fndgLog.Debugf("channel (%v) with opening state %v found",
+		chanID, channelState)
+
+	// If we did find the channel in the opening state database, we have
+	// seen the funding transaction being confirmed, but we did not finish
+	// the rest of the setup procedure before we shut down. We handle the
+	// remaining steps of this setup by continuing the procedure where we
+	// left off.
+	switch channelState {
+
+	// The funding transaction was confirmed, but we did not successfully
+	// send the fundingLocked message to the peer, so let's do that now.
+	case markedOpen:
+		f.wg.Add(1)
+		go func(dbChan *channeldb.OpenChannel) {
+			defer f.wg.Done()
+
+			peerChan := make(chan lnpeer.Peer, 1)
+
+			var peerKey [33]byte
+			copy(peerKey[:], dbChan.IdentityPub.SerializeCompressed())
+
+			f.cfg.NotifyWhenOnline(peerKey, peerChan)
+
+			var peer lnpeer.Peer
+			select {
+			case peer = <-peerChan:
+			case <-f.quit:
+				return
+			}
+			err := f.handleFundingConfirmation(
+				peer, dbChan, shortChanID,
+			)
+			if err != nil {
+				fndgLog.Errorf("Failed to handle "+
+					"funding confirmation: %v", err)
+				return
+			}
+		}(channel)
+
+	// fundingLocked was sent to peer, but the channel was not added to the
+	// router graph and the channel announcement was not sent.
+	case fundingLockedSent:
+		f.wg.Add(1)
+		go func(dbChan *channeldb.OpenChannel) {
+			defer f.wg.Done()
+
+			err = f.addToRouterGraph(dbChan, shortChanID)
+			if err != nil {
+				fndgLog.Errorf("failed adding to "+
+					"router graph: %v", err)
+				return
+			}
+
+			// TODO(halseth): should create a state machine
+			// that can more easily be resumed from
+			// different states, to avoid this code
+			// duplication.
+			err = f.annAfterSixConfs(dbChan, shortChanID)
+			if err != nil {
+				fndgLog.Errorf("error sending channel "+
+					"announcements: %v", err)
+				return
+			}
+		}(channel)
+
+	// The channel was added to the Router's topology, but the channel
+	// announcement was not sent.
+	case addedToRouterGraph:
+		f.wg.Add(1)
+		go func(dbChan *channeldb.OpenChannel) {
+			defer f.wg.Done()
+
+			err = f.annAfterSixConfs(dbChan, shortChanID)
+			if err != nil {
+				fndgLog.Errorf("error sending channel "+
+					"announcement: %v", err)
+				return
+			}
+		}(channel)
+
+	default:
+		return fmt.Errorf("undefined channelState: %v",
+			channelState)
+	}
+
+	return nil
 }
 
 // handlePendingChannels responds to a request for details concerning all

@@ -1792,6 +1792,14 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 			}
 		}
 
+		err = f.handleFundingConfirmation(completeChan, *shortChanID)
+		if err != nil {
+			fndgLog.Errorf("unable to handle funding confirmation "+
+				"for ChannelPoint(%v): %v",
+				completeChan.FundingOutpoint, err)
+			return
+		}
+
 		fndgLog.Debugf("Channel with ShortChanID %v now confirmed",
 			shortChanID.ToUint64())
 
@@ -1870,6 +1878,16 @@ func (f *fundingManager) waitForFundingWithTimeout(completeChan *channeldb.OpenC
 				// Failed waiting for confirmation, close
 				// confChan to indicate failure.
 				close(confChan)
+				return
+			}
+
+			err = f.handleFundingConfirmation(
+				completeChan, *shortChanID,
+			)
+			if err != nil {
+				fndgLog.Errorf("unable to handle funding "+
+					"confirmation for ChannelPoint(%v): %v",
+					completeChan.FundingOutpoint, err)
 				return
 			}
 
@@ -1988,12 +2006,6 @@ func (f *fundingManager) waitForFundingConfirmation(
 		BlockHeight: confDetails.BlockHeight,
 		TxIndex:     confDetails.TxIndex,
 		TxPosition:  uint16(fundingPoint.Index),
-	}
-
-	err = f.handleFundingConfirmation(completeChan, shortChanID)
-	if err != nil {
-		fndgLog.Errorf("Unable to handle funding confirmation: %v", err)
-		return
 	}
 
 	select {

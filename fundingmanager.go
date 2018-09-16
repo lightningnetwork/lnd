@@ -1789,11 +1789,8 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 		// this process to finish (either successfully or with some
 		// error), before the fundingManager can be shut down.
 		f.wg.Add(1)
-		go func() {
-			defer f.wg.Done()
-			f.waitForFundingConfirmation(completeChan, cancelChan,
-				confChan)
-		}()
+		go f.waitForFundingConfirmation(completeChan, cancelChan,
+			confChan)
 
 		var shortChanID *lnwire.ShortChannelID
 		var ok bool
@@ -1849,11 +1846,8 @@ func (f *fundingManager) waitForFundingWithTimeout(completeChan *channeldb.OpenC
 	// Add this goroutine to wait group so we can be sure that it is
 	// properly stopped before the funding manager can be shut down.
 	f.wg.Add(1)
-	go func() {
-		defer f.wg.Done()
-		f.waitForFundingConfirmation(completeChan, cancelChan,
-			waitingConfChan)
-	}()
+	go f.waitForFundingConfirmation(completeChan, cancelChan,
+		waitingConfChan)
 
 	// On block maxHeight we will cancel the funding confirmation wait.
 	maxHeight := completeChan.FundingBroadcastHeight + maxWaitNumBlocksFundingConf
@@ -1927,10 +1921,13 @@ func makeFundingScript(channel *channeldb.OpenChannel) ([]byte, error) {
 // when a channel has become active for lightning transactions.
 // The wait can be canceled by closing the cancelChan. In case of success,
 // a *lnwire.ShortChannelID will be passed to confChan.
+//
+// NOTE: This MUST be run as a goroutine.
 func (f *fundingManager) waitForFundingConfirmation(
 	completeChan *channeldb.OpenChannel, cancelChan <-chan struct{},
 	confChan chan<- *lnwire.ShortChannelID) {
 
+	defer f.wg.Done()
 	defer close(confChan)
 
 	// Register with the ChainNotifier for a notification once the funding

@@ -598,10 +598,8 @@ func (f *fundingManager) start() error {
 	}
 
 	for _, channel := range openChannels {
-		err = f.advanceFundingState(channel)
-		if err != nil {
-			return err
-		}
+		f.wg.Add(1)
+		go f.advanceFundingState(channel, nil)
 	}
 
 	f.wg.Add(1) // TODO(roasbeef): tune
@@ -829,109 +827,130 @@ func (f *fundingManager) reservationCoordinator() {
 // advanceFundingState will advance the channel fromt the markedOpen state to
 // the point where the channel is ready for operation. This includes sending
 // funding locked to the peer, adding the channel to the router graph, and
-// announcing the channel.
-func (f *fundingManager) advanceFundingState(
-	channel *channeldb.OpenChannel) error {
+// announcing the channel. The updateChan can be set non-nil to get
+// OpenStatusUpdates.
+//
+// NOTE: This MUST be run as a goroutine.
+func (f *fundingManager) advanceFundingState(channel *channeldb.OpenChannel,
+	updateChan chan<- *lnrpc.OpenStatusUpdate) {
 
-	channelState, shortChanID, err := f.getChannelOpeningState(
-		&channel.FundingOutpoint)
-	if err == ErrChannelNotFound {
-		// Channel not in fundingManager's opening database,
-		// meaning it was successfully announced to the
-		// network.
-		return nil
-	} else if err != nil {
-		return err
+	defer f.wg.Done()
+
+	// We create the state-machine object which wraps the database state.
+	lnChannel, err := lnwallet.NewLightningChannel(
+		nil, channel, nil,
+	)
+	if err != nil {
+		fndgLog.Errorf("Unable to create LightningChannel(%v): %v",
+			channel.FundingOutpoint, err)
+		return
 	}
 
-	chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
-	fndgLog.Debugf("channel (%v) with opening state %v found",
-		chanID, channelState)
+	for {
+		channelState, shortChanID, err := f.getChannelOpeningState(
+			&channel.FundingOutpoint,
+		)
+		if err == ErrChannelNotFound {
+			// Channel not in fundingManager's opening database,
+			// meaning it was successfully announced to the
+			// network.
+			return
+		} else if err != nil {
+			fndgLog.Errorf("Unable to query database for "+
+				"channel opening state(%v): %v",
+				channel.FundingOutpoint, err)
+			return
+		}
 
-	// If we did find the channel in the opening state database, we have
-	// seen the funding transaction being confirmed, but we did not finish
-	// the rest of the setup procedure before we shut down. We handle the
-	// remaining steps of this setup by continuing the procedure where we
-	// left off.
+		// If we did find the channel in the opening state database, we
+		// have seen the funding transaction being confirmed, but there
+		// are still steps left of the setup procedure. We continue the
+		// procedure where we left off.
+		err = f.stateStep(
+			channel, lnChannel, shortChanID, channelState,
+			updateChan,
+		)
+		if err != nil {
+			fndgLog.Errorf("Unable to advance state(%v): %v",
+				channel.FundingOutpoint, err)
+			return
+		}
+	}
+}
+
+// stateStep advances the confirmed channel one step in the funding state
+// machine. This method is synchronous and the new channel opening state will
+// have been written to the database when it successfully returns. The
+// updateChan can be set non-nil to get OpenStatusUpdates.
+func (f *fundingManager) stateStep(channel *channeldb.OpenChannel,
+	lnChannel *lnwallet.LightningChannel,
+	shortChanID *lnwire.ShortChannelID, channelState channelOpeningState,
+	updateChan chan<- *lnrpc.OpenStatusUpdate) error {
+
+	chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
+	fndgLog.Debugf("Channel(%v) with ShortChanID %v has opening state %v",
+		chanID, shortChanID, channelState)
+
 	switch channelState {
 
 	// The funding transaction was confirmed, but we did not successfully
 	// send the fundingLocked message to the peer, so let's do that now.
 	case markedOpen:
-		f.wg.Add(1)
-		go func(dbChan *channeldb.OpenChannel) {
-			defer f.wg.Done()
+		peerChan := make(chan lnpeer.Peer, 1)
 
-			peerChan := make(chan lnpeer.Peer, 1)
+		var peerKey [33]byte
+		copy(peerKey[:], channel.IdentityPub.SerializeCompressed())
 
-			var peerKey [33]byte
-			copy(peerKey[:], dbChan.IdentityPub.SerializeCompressed())
+		f.cfg.NotifyWhenOnline(peerKey, peerChan)
 
-			f.cfg.NotifyWhenOnline(peerKey, peerChan)
+		var peer lnpeer.Peer
+		select {
+		case peer = <-peerChan:
+		case <-f.quit:
+			return ErrFundingManagerShuttingDown
+		}
 
-			var peer lnpeer.Peer
-			select {
-			case peer = <-peerChan:
-			case <-f.quit:
-				return
-			}
-			err := f.handleFundingConfirmation(
-				peer, dbChan, shortChanID,
-			)
-			if err != nil {
-				fndgLog.Errorf("Failed to handle "+
-					"funding confirmation: %v", err)
-				return
-			}
-		}(channel)
+		err := f.sendFundingLocked(
+			peer, channel, lnChannel, shortChanID,
+		)
+		if err != nil {
+			return fmt.Errorf("failed sending fundingLocked: %v",
+				err)
+		}
+
+		fndgLog.Debugf("Channel(%v) with ShortChanID %v: successfully "+
+			"sent FundingLocked", chanID, shortChanID)
+		return nil
 
 	// fundingLocked was sent to peer, but the channel was not added to the
 	// router graph and the channel announcement was not sent.
 	case fundingLockedSent:
-		f.wg.Add(1)
-		go func(dbChan *channeldb.OpenChannel) {
-			defer f.wg.Done()
+		err := f.addToRouterGraph(channel, shortChanID)
+		if err != nil {
+			return fmt.Errorf("failed adding to "+
+				"router graph: %v", err)
+		}
 
-			err = f.addToRouterGraph(dbChan, shortChanID)
-			if err != nil {
-				fndgLog.Errorf("failed adding to "+
-					"router graph: %v", err)
-				return
-			}
+		fndgLog.Debugf("Channel(%v) with ShortChanID %v: successfully "+
+			"added to router graph", chanID, shortChanID)
 
-			// TODO(halseth): should create a state machine
-			// that can more easily be resumed from
-			// different states, to avoid this code
-			// duplication.
-			err = f.annAfterSixConfs(dbChan, shortChanID)
-			if err != nil {
-				fndgLog.Errorf("error sending channel "+
-					"announcements: %v", err)
-				return
-			}
-		}(channel)
+		return nil
 
 	// The channel was added to the Router's topology, but the channel
 	// announcement was not sent.
 	case addedToRouterGraph:
-		f.wg.Add(1)
-		go func(dbChan *channeldb.OpenChannel) {
-			defer f.wg.Done()
+		err := f.annAfterSixConfs(channel, shortChanID)
+		if err != nil {
+			return fmt.Errorf("error sending channel "+
+				"announcement: %v", err)
+		}
 
-			err = f.annAfterSixConfs(dbChan, shortChanID)
-			if err != nil {
-				fndgLog.Errorf("error sending channel "+
-					"announcement: %v", err)
-				return
-			}
-		}(channel)
-
-	default:
-		return fmt.Errorf("undefined channelState: %v",
-			channelState)
+		fndgLog.Debugf("Channel(%v) with ShortChanID %v: successfully "+
+			"announced", chanID, shortChanID)
+		return nil
 	}
 
-	return nil
+	return fmt.Errorf("undefined channelState: %v", channelState)
 }
 
 // handlePendingChannels responds to a request for details concerning all

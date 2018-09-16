@@ -526,60 +526,7 @@ func (f *fundingManager) start() error {
 		}
 
 		f.wg.Add(1)
-		go func(ch *channeldb.OpenChannel) {
-			defer f.wg.Done()
-
-			shortChanID, err := f.waitForFundingWithTimeout(ch)
-			if err == ErrConfirmationTimeout {
-				fndgLog.Warnf("Timeout waiting for funding "+
-					"confirmation of ChannelPoint(%v)",
-					ch.FundingOutpoint)
-
-				// We'll get a timeout if the number of blocks
-				// mined since the channel was initiated
-				// reaches maxWaitNumBlocksFundingConf and we
-				// are not the channel initiator.
-				localBalance := ch.LocalCommitment.LocalBalance.ToSatoshis()
-				closeInfo := &channeldb.ChannelCloseSummary{
-					ChainHash:               ch.ChainHash,
-					ChanPoint:               ch.FundingOutpoint,
-					RemotePub:               ch.IdentityPub,
-					Capacity:                ch.Capacity,
-					SettledBalance:          localBalance,
-					CloseType:               channeldb.FundingCanceled,
-					RemoteCurrentRevocation: ch.RemoteCurrentRevocation,
-					RemoteNextRevocation:    ch.RemoteNextRevocation,
-					LocalChanConfig:         ch.LocalChanCfg,
-				}
-
-				if err := ch.CloseChannel(closeInfo); err != nil {
-					fndgLog.Errorf("Failed closing channel "+
-						"%v: %v", ch.FundingOutpoint, err)
-					return
-				}
-				return
-			} else if err != nil {
-				fndgLog.Errorf("Failed waiting for funding "+
-					"confirmation for ChannelPoint(%v): %v",
-					ch.FundingOutpoint, err)
-				return
-			}
-
-			// Success, funding transaction was confirmed.
-			fndgLog.Debugf("ChannelID(%v) is now fully confirmed! "+
-				"(shortChanID=%v)", chanID, shortChanID)
-
-			err = f.handleFundingConfirmation(ch, *shortChanID)
-			if err != nil {
-				fndgLog.Errorf("unable to handle funding "+
-					"confirmation for ChannelPoint(%v): %v",
-					ch.FundingOutpoint, err)
-				return
-			}
-
-			f.wg.Add(1)
-			go f.advanceFundingState(ch, nil)
-		}(channel)
+		go f.advanceFundingState(channel, chanID, nil)
 	}
 
 	// Fetch all our open channels, and make sure they all finalized the
@@ -593,8 +540,10 @@ func (f *fundingManager) start() error {
 	}
 
 	for _, channel := range openChannels {
+		chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
+
 		f.wg.Add(1)
-		go f.advanceFundingState(channel, nil)
+		go f.advanceFundingState(channel, chanID, nil)
 	}
 
 	f.wg.Add(1) // TODO(roasbeef): tune
@@ -819,17 +768,30 @@ func (f *fundingManager) reservationCoordinator() {
 	}
 }
 
-// advanceFundingState will advance the channel fromt the markedOpen state to
-// the point where the channel is ready for operation. This includes sending
-// funding locked to the peer, adding the channel to the router graph, and
-// announcing the channel. The updateChan can be set non-nil to get
-// OpenStatusUpdates.
+// advanceFundingState will advance the channel through the steps after the
+// funding transaction is broadcasted, up until the point where the channel is
+// ready for operation. This includes waiting for the funding transaction to
+// confirm, sending funding locked to the peer, adding the channel to the
+// router graph, and announcing the channel. The updateChan can be set non-nil
+// to get OpenStatusUpdates.
 //
 // NOTE: This MUST be run as a goroutine.
 func (f *fundingManager) advanceFundingState(channel *channeldb.OpenChannel,
-	updateChan chan<- *lnrpc.OpenStatusUpdate) {
+	pendingChanID [32]byte, updateChan chan<- *lnrpc.OpenStatusUpdate) {
 
 	defer f.wg.Done()
+
+	// If the channel is still pending we must wait for the funding
+	// transaction to confirm.
+	if channel.IsPending {
+		err := f.advancePendingChannelState(channel, pendingChanID)
+		if err != nil {
+			fndgLog.Errorf("Unable to advance pending state of "+
+				"ChannelPoint(%v): %v",
+				channel.FundingOutpoint, err)
+			return
+		}
+	}
 
 	// We create the state-machine object which wraps the database state.
 	lnChannel, err := lnwallet.NewLightningChannel(
@@ -1012,6 +974,85 @@ func (f *fundingManager) stateStep(channel *channeldb.OpenChannel,
 	}
 
 	return fmt.Errorf("undefined channelState: %v", channelState)
+}
+
+// advancePendingChannelState waits for a pending channel's funding tx to
+// confirm, and marks it open in the database when that happens.
+func (f *fundingManager) advancePendingChannelState(
+	channel *channeldb.OpenChannel, pendingChanID [32]byte) error {
+
+	shortChanID, err := f.waitForFundingWithTimeout(channel)
+	if err == ErrConfirmationTimeout {
+		// We'll get a timeout if the number of blocks mined
+		// since the channel was initiated reaches
+		// maxWaitNumBlocksFundingConf and we are not the
+		// channel initiator.
+		ch := channel
+		localBalance := ch.LocalCommitment.LocalBalance.ToSatoshis()
+		closeInfo := &channeldb.ChannelCloseSummary{
+			ChainHash:               ch.ChainHash,
+			ChanPoint:               ch.FundingOutpoint,
+			RemotePub:               ch.IdentityPub,
+			Capacity:                ch.Capacity,
+			SettledBalance:          localBalance,
+			CloseType:               channeldb.FundingCanceled,
+			RemoteCurrentRevocation: ch.RemoteCurrentRevocation,
+			RemoteNextRevocation:    ch.RemoteNextRevocation,
+			LocalChanConfig:         ch.LocalChanCfg,
+		}
+
+		if err := ch.CloseChannel(closeInfo); err != nil {
+			return fmt.Errorf("failed closing channel "+
+				"%v: %v", ch.FundingOutpoint, err)
+		}
+
+		timeoutErr := fmt.Errorf("timeout waiting for funding tx "+
+			"(%v) to confirm", channel.FundingOutpoint)
+
+		// When the peer comes online, we'll notify it that we
+		// are now considering the channel flow canceled.
+		f.wg.Add(1)
+		go func() {
+			defer f.wg.Done()
+
+			peerChan := make(chan lnpeer.Peer, 1)
+			var peerKey [33]byte
+			copy(peerKey[:], ch.IdentityPub.SerializeCompressed())
+
+			f.cfg.NotifyWhenOnline(peerKey, peerChan)
+
+			var peer lnpeer.Peer
+			select {
+			case peer = <-peerChan:
+			case <-f.quit:
+				return
+			}
+			// TODO(halseth): should this send be made
+			// reliable?
+			f.failFundingFlow(peer, pendingChanID, timeoutErr)
+		}()
+
+		return timeoutErr
+
+	} else if err != nil {
+		return fmt.Errorf("error waiting for funding "+
+			"confirmation for ChannelPoint(%v): %v",
+			channel.FundingOutpoint, err)
+	}
+
+	// Success, funding transaction was confirmed.
+	chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
+	fndgLog.Debugf("ChannelID(%v) is now fully confirmed! "+
+		"(shortChanID=%v)", chanID, shortChanID)
+
+	err = f.handleFundingConfirmation(channel, *shortChanID)
+	if err != nil {
+		return fmt.Errorf("unable to handle funding "+
+			"confirmation for ChannelPoint(%v): %v",
+			channel.FundingOutpoint, err)
+	}
+
+	return nil
 }
 
 // handlePendingChannels responds to a request for details concerning all
@@ -1605,40 +1646,7 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 	// transaction in 288 blocks (~ 48 hrs), by canceling the reservation
 	// and canceling the wait for the funding confirmation.
 	f.wg.Add(1)
-	go func() {
-		defer f.wg.Done()
-
-		shortChanID, err := f.waitForFundingWithTimeout(completeChan)
-		if err == ErrConfirmationTimeout {
-			// We did not see the funding confirmation before
-			// timeout, so we forget the channel.
-			err := fmt.Errorf("timeout waiting for funding tx "+
-				"(%v) to confirm", completeChan.FundingOutpoint)
-			fndgLog.Warnf(err.Error())
-			f.failFundingFlow(fmsg.peer, pendingChanID, err)
-			deleteFromDatabase()
-			return
-		} else if err != nil {
-			fndgLog.Errorf(err.Error())
-			return
-		}
-
-		// Success, funding transaction was confirmed.
-		fndgLog.Debugf("ChannelID(%v) is now fully confirmed! "+
-			"(shortChanID=%v)", channelID, shortChanID)
-
-		err = f.handleFundingConfirmation(completeChan, *shortChanID)
-		if err != nil {
-			fndgLog.Errorf("unable to handle funding "+
-				"confirmation for ChannelPoint(%v): %v",
-				completeChan.FundingOutpoint, err)
-			return
-		}
-
-		f.wg.Add(1)
-		go f.advanceFundingState(completeChan, nil)
-
-	}()
+	go f.advanceFundingState(completeChan, pendingChanID, nil)
 }
 
 // processFundingSigned sends a single funding sign complete message along with
@@ -1763,33 +1771,7 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	// At this point we have broadcast the funding transaction and done all
 	// necessary processing.
 	f.wg.Add(1)
-	go func() {
-		defer f.wg.Done()
-
-		shortChanID, err := f.waitForFundingWithTimeout(completeChan)
-		if err != nil {
-			// Since we are the channel initiator, we don't expect
-			// to get ErrConfirmationTimeout.
-			fndgLog.Errorf("Failed waiting for funding "+
-				"confirmation for ChannelPoint(%v): %v",
-				completeChan.FundingOutpoint, err)
-			return
-		}
-
-		err = f.handleFundingConfirmation(completeChan, *shortChanID)
-		if err != nil {
-			fndgLog.Errorf("unable to handle funding confirmation "+
-				"for ChannelPoint(%v): %v",
-				completeChan.FundingOutpoint, err)
-			return
-		}
-
-		fndgLog.Debugf("Channel with ShortChanID %v now confirmed",
-			shortChanID.ToUint64())
-
-		f.wg.Add(1)
-		go f.advanceFundingState(completeChan, resCtx.updates)
-	}()
+	go f.advanceFundingState(completeChan, pendingChanID, resCtx.updates)
 }
 
 // waitForFundingWithTimeout is a wrapper around waitForFundingConfirmation and

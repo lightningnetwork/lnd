@@ -243,7 +243,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	chainNotifier := &mockNotifier{
 		oneConfChannel: make(chan *chainntnfs.TxConfirmation, 1),
 		sixConfChannel: make(chan *chainntnfs.TxConfirmation, 1),
-		epochChan:      make(chan *chainntnfs.BlockEpoch, 1),
+		epochChan:      make(chan *chainntnfs.BlockEpoch, 2),
 	}
 
 	sentMessages := make(chan lnwire.Message)
@@ -1741,7 +1741,7 @@ func TestFundingManagerFundingNotTimeoutInitiator(t *testing.T) {
 		t.Fatalf("alice did not publish funding tx")
 	}
 
-	// Increase the height to 1 minus the maxWaitNumBlocksFundingConf height
+	// Increase the height to 1 minus the maxWaitNumBlocksFundingConf height.
 	alice.mockNotifier.epochChan <- &chainntnfs.BlockEpoch{
 		Height: fundingBroadcastHeight + maxWaitNumBlocksFundingConf - 1,
 	}
@@ -1750,12 +1750,12 @@ func TestFundingManagerFundingNotTimeoutInitiator(t *testing.T) {
 		Height: fundingBroadcastHeight + maxWaitNumBlocksFundingConf - 1,
 	}
 
-	// Assert both and Alice and Bob still have 1 pending channels
+	// Assert both and Alice and Bob still have 1 pending channels.
 	assertNumPendingChannelsRemains(t, alice, 1)
 
 	assertNumPendingChannelsRemains(t, bob, 1)
 
-	// Increase both Alice and Bob to maxWaitNumBlocksFundingConf height
+	// Increase both Alice and Bob to maxWaitNumBlocksFundingConf height.
 	alice.mockNotifier.epochChan <- &chainntnfs.BlockEpoch{
 		Height: fundingBroadcastHeight + maxWaitNumBlocksFundingConf,
 	}
@@ -1764,13 +1764,13 @@ func TestFundingManagerFundingNotTimeoutInitiator(t *testing.T) {
 		Height: fundingBroadcastHeight + maxWaitNumBlocksFundingConf,
 	}
 
-	// Since Alice was the initiator, the channel should not have timed out
+	// Since Alice was the initiator, the channel should not have timed out.
 	assertNumPendingChannelsRemains(t, alice, 1)
 
 	// Bob should have sent an Error message to Alice.
 	assertErrorSent(t, bob.msgChan)
 
-	// Since Bob was not the initiator, the channel should timeout
+	// Since Bob was not the initiator, the channel should timeout.
 	assertNumPendingChannelsBecomes(t, bob, 0)
 }
 

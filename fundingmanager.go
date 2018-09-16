@@ -2005,8 +2005,23 @@ func (f *fundingManager) handleFundingConfirmation(
 	fundingPoint := completeChan.FundingOutpoint
 	chanID := lnwire.NewChanIDFromOutPoint(&fundingPoint)
 
-	// Now that the channel has been fully confirmed, we'll mark it as open
-	// within the database.
+	// TODO(roasbeef): ideally persistent state update for chan above
+	// should be abstracted
+
+	// The funding transaction now being confirmed, we add this channel to
+	// the fundingManager's internal persistent state machine that we use
+	// to track the remaining process of the channel opening. This is
+	// useful to resume the opening process in case of restarts. We set the
+	// opening state before we mark the channel opened in the database,
+	// such that we can receover from one of the db writes failing.
+	err := f.saveChannelOpeningState(&fundingPoint, markedOpen, &shortChanID)
+	if err != nil {
+		return fmt.Errorf("error setting channel state to markedOpen: %v",
+			err)
+	}
+
+	// Now that the channel has been fully confirmed and we successfully
+	// saved the opening state, we'll mark it as open within the database.
 	if err := completeChan.MarkAsOpen(shortChanID); err != nil {
 		return fmt.Errorf("error setting channel pending flag to false: "+
 			"%v", err)
@@ -2015,23 +2030,6 @@ func (f *fundingManager) handleFundingConfirmation(
 	// Inform the ChannelNotifier that the channel has transitioned from
 	// pending open to open.
 	f.cfg.NotifyOpenChannelEvent(completeChan.FundingOutpoint)
-
-	// TODO(roasbeef): ideally persistent state update for chan above
-	// should be abstracted
-
-	// The funding transaction now being confirmed, we add this channel to
-	// the fundingManager's internal persistent state machine that we use
-	// to track the remaining process of the channel opening. This is
-	// useful to resume the opening process in case of restarts.
-	//
-	// TODO(halseth): make the two db transactions (MarkChannelAsOpen and
-	// saveChannelOpeningState) atomic by doing them in the same transaction.
-	// Needed to be properly fault-tolerant.
-	err := f.saveChannelOpeningState(&fundingPoint, markedOpen, &shortChanID)
-	if err != nil {
-		return fmt.Errorf("error setting channel state to markedOpen: %v",
-			err)
-	}
 
 	// As there might already be an active link in the switch with an
 	// outdated short chan ID, we'll instruct the switch to load the updated

@@ -1805,8 +1805,8 @@ message Payment {
     /// The payment hash
     string payment_hash = 1 [json_name = "payment_hash"];
 
-    /// The value of the payment in satoshis
-    int64 value = 2 [json_name = "value"];
+    /// Deprecated, use value_sat or value_msat.
+    int64 value = 2 [json_name = "value", deprecated = true];
 
     /// The date of this payment
     int64 creation_date = 3 [json_name = "creation_date"];
@@ -1819,6 +1819,12 @@ message Payment {
 
     /// The payment preimage
     string payment_preimage = 6 [json_name = "payment_preimage"];
+
+    /// The value of the payment in satoshis
+    int64 value_sat = 7 [json_name = "value_sat"];
+
+    /// The value of the payment in milli-satoshis
+    int64 value_msat = 8 [json_name = "value_msat"];
 }
 
 message ListPaymentsRequest {

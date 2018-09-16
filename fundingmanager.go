@@ -2018,6 +2018,65 @@ func (f *fundingManager) waitForFundingConfirmation(
 	}
 }
 
+// waitForTimeout will close the timeout channel if maxWaitNumBlocksFundingConf
+// has passed from the broadcast height of the given channel. In case of error,
+// the error is sent on timeoutChan. The wait can be canceled by closing the
+// cancelChan.
+//
+// NOTE: timeoutChan MUST be buffered.
+// NOTE: This MUST be run as a goroutine.
+func (f *fundingManager) waitForTimeout(completeChan *channeldb.OpenChannel,
+	cancelChan <-chan struct{}, timeoutChan chan<- error) {
+	defer f.wg.Done()
+
+	epochClient, err := f.cfg.Notifier.RegisterBlockEpochNtfn(nil)
+	if err != nil {
+		timeoutChan <- fmt.Errorf("unable to register for epoch "+
+			"notification: %v", err)
+		return
+	}
+
+	defer epochClient.Cancel()
+
+	// On block maxHeight we will cancel the funding confirmation wait.
+	maxHeight := completeChan.FundingBroadcastHeight + maxWaitNumBlocksFundingConf
+	for {
+		select {
+		case epoch, ok := <-epochClient.Epochs:
+			if !ok {
+				timeoutChan <- fmt.Errorf("epoch client " +
+					"shutting down")
+				return
+			}
+
+			// Close the timeout channel and exit if the block is
+			// aboce the max height.
+			if uint32(epoch.Height) >= maxHeight {
+				fndgLog.Warnf("Waited for %v blocks without "+
+					"seeing funding transaction confirmed,"+
+					" cancelling.",
+					maxWaitNumBlocksFundingConf)
+
+				// Notify the caller of the timeout.
+				close(timeoutChan)
+				return
+			}
+
+			// TODO: If we are the channel initiator implement
+			// a method for recovering the funds from the funding
+			// transaction
+
+		case <-cancelChan:
+			return
+
+		case <-f.quit:
+			// The fundingManager is shutting down, will resume
+			// waiting for the funding transaction on startup.
+			return
+		}
+	}
+}
+
 // handleFundingConfirmation marks a channel as open in the database, and set
 // the channelOpeningState markedOpen. In addition it will report the now
 // decided short channel ID to the switch, and close the local discovery signal

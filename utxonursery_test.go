@@ -594,6 +594,21 @@ func createOutgoingRes(onLocalCommitment bool) *lnwallet.OutgoingHtlcResolution 
 	return &outgoingRes
 }
 
+func createCommitmentRes() *lnwallet.CommitOutputResolution {
+	// Set up a commitment output resolution to hand off to nursery.
+	commitRes := lnwallet.CommitOutputResolution{
+		SelfOutPoint: wire.OutPoint{},
+		SelfOutputSignDesc: lnwallet.SignDescriptor{
+			Output: &wire.TxOut{
+				Value: 10000,
+			},
+		},
+		MaturityDelay: 2,
+	}
+
+	return &commitRes
+}
+
 func incubateTestOutput(t *testing.T, nursery *utxoNursery,
 	onLocalCommitment bool) *lnwallet.OutgoingHtlcResolution {
 
@@ -614,13 +629,14 @@ func incubateTestOutput(t *testing.T, nursery *utxoNursery,
 	if onLocalCommitment {
 		expectedStage = 1
 	}
-	assertNurseryReport(t, nursery, 1, expectedStage)
+	assertNurseryReport(t, nursery, 1, expectedStage, 10000)
 
 	return outgoingRes
 }
 
 func assertNurseryReport(t *testing.T, nursery *utxoNursery,
-	expectedNofHtlcs int, expectedStage uint32) {
+	expectedNofHtlcs int, expectedStage uint32,
+	expectedLimboBalance btcutil.Amount) {
 	report, err := nursery.NurseryReport(&testChanPoint)
 	if err != nil {
 		t.Fatal(err)
@@ -630,10 +646,18 @@ func assertNurseryReport(t *testing.T, nursery *utxoNursery,
 		t.Fatalf("expected %v outputs to be reported, but report "+
 			"contains %v", expectedNofHtlcs, len(report.htlcs))
 	}
-	htlcReport := report.htlcs[0]
-	if htlcReport.stage != expectedStage {
-		t.Fatalf("expected htlc be advanced to stage %v, but it is "+
-			"reported in stage %v", expectedStage, htlcReport.stage)
+
+	if expectedNofHtlcs != 0 {
+		htlcReport := report.htlcs[0]
+		if htlcReport.stage != expectedStage {
+			t.Fatalf("expected htlc be advanced to stage %v, but it is "+
+				"reported in stage %v", expectedStage, htlcReport.stage)
+		}
+	}
+
+	if report.limboBalance != expectedLimboBalance {
+		t.Fatalf("expected limbo balance to be %v, but it is %v instead",
+			expectedLimboBalance, report.limboBalance)
 	}
 }
 
@@ -734,7 +758,9 @@ func testNurserySuccessLocal(t *testing.T,
 	}
 
 	// Check final sweep into wallet.
-	testSweep(t, ctx)
+	testSweepHtlc(t, ctx)
+
+	ctx.finish()
 }
 
 func TestNurserySuccessRemote(t *testing.T) {
@@ -775,10 +801,77 @@ func testNurserySuccessRemote(t *testing.T,
 	}
 
 	// Check final sweep into wallet.
-	testSweep(t, ctx)
+	testSweepHtlc(t, ctx)
+
+	ctx.finish()
 }
 
-func testSweep(t *testing.T, ctx *nurseryTestContext) {
+func TestNurseryCommitmentOutput(t *testing.T) {
+	testRestartLoop(t, testNurseryCommitmentOutput)
+}
+
+func testNurseryCommitmentOutput(t *testing.T,
+	checkStartStop func(func()) bool) {
+
+	ctx := createNurseryTestContext(t, checkStartStop)
+
+	commitRes := createCommitmentRes()
+
+	// Hand off to nursery.
+	err := ctx.nursery.IncubateCommitOutput(
+		testChanPoint,
+		commitRes,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify that commitment output is showing up in nursery report as
+	// limbo balance.
+	assertNurseryReport(t, ctx.nursery, 0, 0, 10000)
+
+	// TODO(joostjager): for this restart to work, channel db needs to be
+	// mocked. Waiting for merge of #1847 to completely remove reading
+	// closed channel summary.
+
+	// ctx.restart()
+
+	// Notify confirmation of the commitment tx.
+	ctx.notifier.confirmTx(&commitRes.SelfOutPoint.Hash, 124)
+
+	// Wait for output to be promoted from PSCL to KNDR.
+	select {
+	case <-ctx.store.preschoolToKinderChan:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("output not promoted to KNDR")
+	}
+
+	ctx.restart()
+
+	// Notify arrival of block where commit output CSV expires.
+	ctx.notifier.epochChan <- &chainntnfs.BlockEpoch{
+		Height: 126,
+	}
+
+	// Check final sweep into wallet.
+	testSweep(t, ctx, func() {
+		// Check limbo balance after sweep publication
+		assertNurseryReport(t, ctx.nursery, 0, 0, 10000)
+	})
+
+	ctx.finish()
+}
+
+func testSweepHtlc(t *testing.T, ctx *nurseryTestContext) {
+	testSweep(t, ctx, func() {
+		// Verify stage in nursery report. HTLCs should now both still be in
+		// stage two.
+		assertNurseryReport(t, ctx.nursery, 1, 2, 10000)
+	})
+}
+
+func testSweep(t *testing.T, ctx *nurseryTestContext,
+	afterPublishAssert func()) {
 	// Wait for nursery to publish the sweep tx.
 	sweepTx := ctx.receiveTx()
 
@@ -787,9 +880,7 @@ func testSweep(t *testing.T, ctx *nurseryTestContext) {
 		sweepTx = ctx.receiveTx()
 	}
 
-	// Verify stage in nursery report. HTLCs should now both still be in
-	// stage two.
-	assertNurseryReport(t, ctx.nursery, 1, 2)
+	afterPublishAssert()
 
 	sweepTxHash := sweepTx.TxHash()
 
@@ -812,8 +903,6 @@ func testSweep(t *testing.T, ctx *nurseryTestContext) {
 	// As there only was one output to graduate, we expect the channel to be
 	// closed and no report available anymore.
 	assertNurseryReportUnavailable(t, ctx.nursery)
-
-	ctx.finish()
 }
 
 func TestNurseryRemoteSpendOnLocal(t *testing.T) {
@@ -864,7 +953,7 @@ func testNurseryRemoteSpendOnLocal(t *testing.T,
 	}
 
 	// Verify stage in nursery report.
-	assertNurseryReport(t, ctx.nursery, 1, 0)
+	assertNurseryReport(t, ctx.nursery, 1, 0, 0)
 
 	ctx.nursery.Stop()
 }
@@ -927,7 +1016,7 @@ func testNurseryRemoteSpendOnRemote(t *testing.T,
 	}
 
 	// Verify stage in nursery report.
-	assertNurseryReport(t, ctx.nursery, 1, 0)
+	assertNurseryReport(t, ctx.nursery, 1, 0, 0)
 
 	ctx.nursery.Stop()
 }

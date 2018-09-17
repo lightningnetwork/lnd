@@ -862,6 +862,64 @@ func testNurseryCommitmentOutput(t *testing.T,
 	ctx.finish()
 }
 
+func TestNurseryCommitmentOutputIdempotent(t *testing.T) {
+	testRestartLoop(t, testNurseryCommitmentOutputIdempotent)
+}
+
+func testNurseryCommitmentOutputIdempotent(t *testing.T,
+	checkStartStop func(func()) bool) {
+
+	ctx := createNurseryTestContext(t, checkStartStop)
+
+	commitRes := createCommitmentRes()
+
+	// Hand off to nursery.
+	err := ctx.nursery.IncubateCommitOutput(
+		testChanPoint,
+		commitRes,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Notify confirmation of the commitment tx.
+	ctx.notifier.confirmTx(&commitRes.SelfOutPoint.Hash, 124)
+
+	// Wait for output to be promoted from PSCL to KNDR.
+	select {
+	case <-ctx.store.preschoolToKinderChan:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("output not promoted to KNDR")
+	}
+
+	remoteSpendTx := wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{
+				PreviousOutPoint: commitRes.SelfOutPoint,
+			},
+		},
+	}
+
+	ctx.notifier.spendOutpoint(
+		&commitRes.SelfOutPoint,
+		&remoteSpendTx)
+
+	// Wait for output to be promoted in store to GRAD.
+	select {
+	case <-ctx.store.graduateKinderChan:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("output not graduated")
+	}
+
+	ctx.restart()
+
+	// As there only was one output to graduate, we expect the channel to be
+	// closed and no report available anymore.
+	assertNurseryReportUnavailable(t, ctx.nursery)
+
+	ctx.finish()
+}
+
 func testSweepHtlc(t *testing.T, ctx *nurseryTestContext) {
 	testSweep(t, ctx, func() {
 		// Verify stage in nursery report. HTLCs should now both still be in

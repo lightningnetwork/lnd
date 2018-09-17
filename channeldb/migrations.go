@@ -514,18 +514,33 @@ func migratePruneEdgeUpdateIndex(tx *bolt.Tx) error {
 			err)
 	}
 
-	// With the existing edge policies gathered, we'll recreate the index
-	// and populate it with the correct entries.
-	//
-	// NOTE: In bolt DB, calling Delete() on an iterator will actually move
-	// it to the NEXT item. As a result, we call First() here again to go
-	// back to the front after the item has been deleted.
-	updateCursor := edgeUpdateIndex.Cursor()
-	for k, _ := updateCursor.First(); k != nil; k, _ = updateCursor.First() {
-		if err := updateCursor.Delete(); err != nil {
+	log.Info("Constructing set of edge update entries to purge.")
+
+	// Build the set of keys that we will remove from the edge update index.
+	// This will include all keys contained within the bucket.
+	var updateKeysToRemove [][]byte
+	err = edgeUpdateIndex.ForEach(func(updKey, _ []byte) error {
+		updateKeysToRemove = append(updateKeysToRemove, updKey)
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("unable to gather existing edge updates: %v",
+			err)
+	}
+
+	log.Infof("Removing %d entries from edge update index.",
+		len(updateKeysToRemove))
+
+	// With the set of keys contained in the edge update index constructed,
+	// we'll proceed in purging all of them from the index.
+	for _, updKey := range updateKeysToRemove {
+		if err := edgeUpdateIndex.Delete(updKey); err != nil {
 			return err
 		}
 	}
+
+	log.Infof("Repopulating edge update index with %d valid entries.",
+		len(edgeKeys))
 
 	// For each edge key, we'll retrieve the policy, deserialize it, and
 	// re-add it to the different buckets. By doing so, we'll ensure that

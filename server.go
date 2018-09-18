@@ -291,6 +291,8 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		invoices:    s.invoices,
 		wCache:      chanDB.NewWitnessCache(),
 		subscribers: make(map[uint64]*preimageSubscriber),
+		notifier:    s.cc.chainNotifier,
+		quit:        make(chan struct{}),
 	}
 
 	// If the debug HTLC flag is on, then we invoice a "master debug"
@@ -965,6 +967,10 @@ func (s *server) Start() error {
 		return err
 	}
 
+	if err := s.witnessBeacon.Start(); err != nil {
+		return err
+	}
+
 	// With all the relevant sub-systems started, we'll now attempt to
 	// establish persistent connections to our direct channel collaborators
 	// within the network. Before doing so however, we'll prune our set of
@@ -1033,6 +1039,7 @@ func (s *server) Stop() error {
 	s.cc.feeEstimator.Stop()
 	s.invoices.Stop()
 	s.fundingMgr.Stop()
+	s.witnessBeacon.Stop()
 
 	// Disconnect from each active peers to ensure that
 	// peerTerminationWatchers signal completion to each peer.

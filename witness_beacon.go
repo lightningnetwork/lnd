@@ -199,9 +199,13 @@ func (p *preimageBeacon) garbageCollector(epochClient *chainntnfs.BlockEpochEven
 			// of expired preimages.
 			height := uint32(epoch.Height)
 			numStale, err := p.gcExpiredPreimages(height)
-			if err != nil {
+
+			// We don't log ErrNoWitnesses in case the WitnessBucket
+			// hasn't been created yet. Otherwise, this would cause
+			// unnecessary spam.
+			if err != nil && err != channeldb.ErrNoWitnesses {
 				srvrLog.Errorf("unable to expire preimages at "+
-					"height=%d", height)
+					"height=%d, error: %v", height, err)
 			}
 
 			if numStale > 0 {

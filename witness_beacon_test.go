@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"fmt"
 )
 
 var (
@@ -55,7 +56,7 @@ func TestPreimageBeaconGarbageCollector(t *testing.T) {
 	time.Sleep(2000 * time.Millisecond)
 
 	// Make sure that the preimage was deleted from the cache
-	_, ok := witnessBeacon.LookupPreimage(payhash[:])
+	_, ok = witnessBeacon.LookupPreimage(payhash[:])
 	if ok {
 		t.Fatal("The preimage was not deleted from the cache even" +
 			"though it's expired.")

@@ -93,7 +93,7 @@ commands:
 ```
 cd $GOPATH/src/github.com/lightningnetwork/lnd
 git pull
-make && make install
+make clean && make && make install
 ```
 
 On FreeBSD, use gmake instead of make.

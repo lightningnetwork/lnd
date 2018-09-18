@@ -1520,7 +1520,7 @@ func (d *AuthenticatedGossiper) processRejectedEdge(
 	if err != nil {
 		return nil, err
 	}
-	err = ValidateChannelAnn(chanAnn)
+	err = routing.ValidateChannelAnn(chanAnn)
 	if err != nil {
 		err := fmt.Errorf("assembled channel announcement proof "+
 			"for shortChanID=%v isn't valid: %v",
@@ -1598,7 +1598,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 				return nil
 			}
 
-			if err := ValidateNodeAnn(msg); err != nil {
+			if err := routing.ValidateNodeAnn(msg); err != nil {
 				err := fmt.Errorf("unable to validate "+
 					"node announcement: %v", err)
 				log.Error(err)
@@ -1701,7 +1701,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// formed.
 		var proof *channeldb.ChannelAuthProof
 		if nMsg.isRemote {
-			if err := ValidateChannelAnn(msg); err != nil {
+			if err := routing.ValidateChannelAnn(msg); err != nil {
 				err := fmt.Errorf("unable to validate "+
 					"announcement: %v", err)
 				d.rejectMtx.Lock()
@@ -1993,7 +1993,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// Validate the channel announcement with the expected public
 		// key, In the case of an invalid channel , we'll return an
 		// error to the caller and exit early.
-		if err := ValidateChannelUpdateAnn(pubKey, msg); err != nil {
+		if err := routing.ValidateChannelUpdateAnn(pubKey, msg); err != nil {
 			rErr := fmt.Errorf("unable to validate channel "+
 				"update announcement for short_chan_id=%v: %v",
 				spew.Sdump(msg.ShortChannelID), err)
@@ -2297,7 +2297,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 
 		// With all the necessary components assembled validate the
 		// full channel announcement proof.
-		if err := ValidateChannelAnn(chanAnn); err != nil {
+		if err := routing.ValidateChannelAnn(chanAnn); err != nil {
 			err := fmt.Errorf("channel  announcement proof "+
 				"for short_chan_id=%v isn't valid: %v",
 				shortChanID, err)
@@ -2505,7 +2505,7 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 
 	// To ensure that our signature is valid, we'll verify it ourself
 	// before committing it to the slice returned.
-	err = ValidateChannelUpdateAnn(d.selfKey, chanUpdate)
+	err = routing.ValidateChannelUpdateAnn(d.selfKey, chanUpdate)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generated invalid channel "+
 			"update sig: %v", err)

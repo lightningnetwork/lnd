@@ -171,6 +171,7 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 
 		if err := h.Checkpoint(h); err != nil {
 			log.Errorf("unable to Checkpoint: %v", err)
+			return nil, err
 		}
 	}
 
@@ -485,6 +486,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 			// Checkpoint our state.
 			if err := h.Checkpoint(h); err != nil {
 				log.Errorf("unable to Checkpoint: %v", err)
+				return nil, err
 			}
 		}
 
@@ -559,6 +561,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 
 		if err := h.Checkpoint(h); err != nil {
 			log.Errorf("unable to Checkpoint: %v", err)
+			return nil, err
 		}
 	}
 
@@ -1323,6 +1326,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 
 			if err := c.Checkpoint(c); err != nil {
 				log.Errorf("unable to Checkpoint: %v", err)
+				return nil, err
 			}
 		case <-c.Quit:
 			return nil, fmt.Errorf("quitting")

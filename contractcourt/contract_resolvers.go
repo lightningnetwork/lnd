@@ -481,21 +481,21 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 			log.Infof("%T(%x): crafted sweep tx=%v", h,
 				h.payHash[:], spew.Sdump(h.sweepTx))
 
-			// With the sweep transaction confirmed, we'll now
+			// With the sweep transaction signed, we'll now
 			// Checkpoint our state.
 			if err := h.Checkpoint(h); err != nil {
 				log.Errorf("unable to Checkpoint: %v", err)
 			}
+		}
 
-			// Finally, we'll broadcast the sweep transaction to
-			// the network.
-			//
-			// TODO(roasbeef): validate first?
-			if err := h.PublishTx(h.sweepTx); err != nil {
-				log.Infof("%T(%x): unable to publish tx: %v",
-					h, h.payHash[:], err)
-				return nil, err
-			}
+		// Regardless of whether an existing transaction was found or newly
+		// constructed, we'll broadcast the sweep transaction to the
+		// network.
+		err := h.PublishTx(h.sweepTx)
+		if err != nil && err != lnwallet.ErrDoubleSpend {
+			log.Infof("%T(%x): unable to publish tx: %v",
+				h, h.payHash[:], err)
+			return nil, err
 		}
 
 		// With the sweep transaction broadcast, we'll wait for its

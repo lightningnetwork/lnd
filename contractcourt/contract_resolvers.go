@@ -535,7 +535,8 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	// the claiming process.
 	//
 	// TODO(roasbeef): after changing sighashes send to tx bundler
-	if err := h.PublishTx(h.htlcResolution.SignedSuccessTx); err != nil {
+	err := h.PublishTx(h.htlcResolution.SignedSuccessTx)
+	if err != nil && err != lnwallet.ErrDoubleSpend {
 		return nil, err
 	}
 

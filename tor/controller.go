@@ -149,7 +149,7 @@ func parseTorReply(reply string) map[string]string {
 		// "KEY=VALUE". If the parameter doesn't contain "=", then we
 		// can assume it does not provide any other relevant information
 		// already known.
-		keyValue := strings.Split(content, "=")
+		keyValue := strings.SplitN(content, "=", 2)
 		if len(keyValue) != 2 {
 			continue
 		}

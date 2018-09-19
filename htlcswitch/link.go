@@ -331,13 +331,15 @@ type channelLink struct {
 func NewChannelLink(cfg ChannelLinkConfig,
 	channel *lnwallet.LightningChannel) ChannelLink {
 
+	maxHTCL := lnwallet.MaxHTLCNumber
+
 	return &channelLink{
 		cfg:         cfg,
 		channel:     channel,
 		shortChanID: channel.ShortChanID(),
 		// TODO(roasbeef): just do reserve here?
 		logCommitTimer: time.NewTimer(300 * time.Millisecond),
-		overflowQueue:  newPacketQueue(lnwallet.MaxHTLCNumber / 2),
+		overflowQueue:  newPacketQueue(maxHTCL/2, lnwallet.MaxOverflowQueueLength),
 		htlcUpdates:    make(chan []channeldb.HTLC),
 		quit:           make(chan struct{}),
 	}

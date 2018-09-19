@@ -15,8 +15,9 @@ func TestWaitingQueueThreadSafety(t *testing.T) {
 	t.Parallel()
 
 	const numPkts = 1000
+	const maxQueueLen = numPkts - 1
 
-	q := newPacketQueue(numPkts)
+	q := newPacketQueue(numPkts, maxQueueLen)
 	q.Start()
 	defer q.Stop()
 
@@ -29,16 +30,15 @@ func TestWaitingQueueThreadSafety(t *testing.T) {
 		})
 	}
 
-	// The reported length of the queue should be the exact number of
-	// packets we added above.
+	// The reported length of the queue should be maxQueueLen.
 	queueLength := q.Length()
-	if queueLength != numPkts {
-		t.Fatalf("queue has wrong length: expected %v, got %v", numPkts,
+	if queueLength != maxQueueLen {
+		t.Fatalf("queue has wrong length: expected %v, got %v", maxQueueLen,
 			queueLength)
 	}
 
 	var b []uint64
-	for i := 0; i < numPkts; i++ {
+	for i := 0; i < maxQueueLen; i++ {
 		q.SignalFreeSlot()
 
 		select {
@@ -49,6 +49,8 @@ func TestWaitingQueueThreadSafety(t *testing.T) {
 			t.Fatal("timeout")
 		}
 	}
+	// Append the last dropped packet
+	b = append(b, numPkts - 1)
 
 	// The length of the queue should be zero at this point.
 	time.Sleep(time.Millisecond * 50)

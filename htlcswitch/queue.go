@@ -4,6 +4,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	// "fmt"
 
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -31,6 +32,9 @@ type packetQueue struct {
 	// with the lock held.
 	queueLen int32 // To be used atomically.
 
+	// maximum queue length for overflow queue
+	maxQueueLen int32
+
 	streamShutdown int32 // To be used atomically.
 
 	queue []*htlcPacket
@@ -55,11 +59,12 @@ type packetQueue struct {
 // newPacketQueue returns a new instance of the packetQueue. The maxFreeSlots
 // value should reflect the max number of HTLC's that we're allowed to have
 // outstanding within the commitment transaction.
-func newPacketQueue(maxFreeSlots int) *packetQueue {
+func newPacketQueue(maxFreeSlots int, maxQueueLen int32) *packetQueue {
 	p := &packetQueue{
 		outgoingPkts: make(chan *htlcPacket),
 		freeSlots:    make(chan struct{}, maxFreeSlots),
 		quit:         make(chan struct{}),
+		maxQueueLen:	maxQueueLen,
 	}
 	p.queueCond = sync.NewCond(&p.queueMtx)
 
@@ -163,9 +168,14 @@ func (p *packetQueue) AddPkt(pkt *htlcPacket) {
 	// the message queue, and increment the internal atomic for tracking
 	// the queue's length.
 	p.queueCond.L.Lock()
-	p.queue = append(p.queue, pkt)
-	atomic.AddInt32(&p.queueLen, 1)
-	atomic.AddInt64(&p.totalHtlcAmt, int64(pkt.amount))
+	if atomic.LoadInt32(&p.queueLen) < p.maxQueueLen {
+		p.queue = append(p.queue, pkt)
+		atomic.AddInt32(&p.queueLen, 1)
+		atomic.AddInt64(&p.totalHtlcAmt, int64(pkt.amount))
+	} else {
+		log.Warnf("Packet %v dropped as overflow queue is full", pkt.incomingHTLCID)
+		// fmt.Println("Packet", pkt.incomingHTLCID, "dropped as overflow queue is full")
+	}
 	p.queueCond.L.Unlock()
 
 	// With the message added, we signal to the msgConsumer that there are

@@ -186,6 +186,11 @@ const (
 	// weight limits.
 	MaxHTLCNumber = 966
 
+	// MaxOverflowQueueLength is the maximum length of the overflow queue in
+	// the sqitch. Any packet received when the queue is full would be
+	// dropped
+	MaxOverflowQueueLength = MaxHTLCNumber * 4
+
 	// ToLocalScriptSize 79 bytes
 	//      - OP_IF: 1 byte
 	//          - OP_DATA: 1 byte

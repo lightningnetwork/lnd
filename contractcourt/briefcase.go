@@ -355,8 +355,6 @@ func (b *boltArbitratorLog) writeResolver(contractBucket *bolt.Bucket,
 		rType = resolverTimeout
 	case *htlcSuccessResolver:
 		rType = resolverSuccess
-	case *htlcOutgoingContestResolver:
-		rType = resolverOutgoingContest
 	case *htlcIncomingContestResolver:
 		rType = resolverIncomingContest
 	case *commitSweepResolver:
@@ -466,16 +464,6 @@ func (b *boltArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver, erro
 				}
 
 				res = successRes
-
-			case resolverOutgoingContest:
-				outContestRes := &htlcOutgoingContestResolver{
-					htlcTimeoutResolver: htlcTimeoutResolver{},
-				}
-				if err := outContestRes.Decode(resReader); err != nil {
-					return err
-				}
-
-				res = outContestRes
 
 			case resolverIncomingContest:
 				inContestRes := &htlcIncomingContestResolver{

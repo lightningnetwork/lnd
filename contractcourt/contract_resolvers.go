@@ -112,6 +112,8 @@ type htlcTimeoutResolver struct {
 	htlcIndex uint64
 
 	ResolverKit
+
+	sweeper Sweeper
 }
 
 // ResolverKey returns an identifier which should be globally unique for this
@@ -282,23 +284,36 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 	state := cltvWait
 	var secondLevelExpiry int32
 
+	var sweepChan chan wire.OutPoint
+
+	// If this is the remote party commit tx, we can already announce that
+	// we are going to sweep after expiry. Sweeper will hold back the sweep
+	// tx until our input is in.
+	if h.htlcResolution.SignedTimeoutTx == nil {
+		sweepChan = h.sweeper.AnnounceSweep(int32(h.htlcResolution.Expiry))
+	}
+
 	evaluateHeight := func() {
 		switch {
 		case state == cltvWait &&
 			uint32(currentHeight) >= h.htlcResolution.Expiry-1:
 
 			if h.htlcResolution.SignedTimeoutTx == nil {
-				// Start sweep
+				// Signal sweeper that this input can be picked
+				// up now.
+				sweepChan <- h.htlcResolution.ClaimOutpoint
 
 				state = sweepWait
 			} else {
-				// Publish timeout tx
+				// TODO: Publish timeout tx
 
 				state = secondLevelConf
 			}
 
 		case state == csvWait && currentHeight >= secondLevelExpiry-1:
-			// Start sweep
+			// Signal sweeper that this input can be picked now that
+			// the second level tx time lock is expired.
+			sweepChan <- h.htlcResolution.ClaimOutpoint
 
 			state = sweepWait
 		}
@@ -335,7 +350,7 @@ loop:
 			evaluateHeight()
 
 		// The output has been spent! This means the preimage has been
-		// revealed on-chain.
+		// revealed on-chain or we used the output ourselves.
 		case commitSpend, ok := <-spendNtfn.Spend:
 			if !ok {
 				return nil, fmt.Errorf("quitting")
@@ -359,12 +374,16 @@ loop:
 			}
 
 			if isRemoteSpend {
+				// Cancel sweep
+				close(sweepChan)
+
 				return claimCleanUp(commitSpend)
 			}
 
-			// At this point, the second-level transaction is sufficiently
-			// confirmed, or a transaction directly spending the output is.
-			// Therefore, we can now send back our clean up message.
+			// At this point, the second-level transaction is
+			// sufficiently confirmed, or a transaction directly
+			// spending the output is. Therefore, we can now send
+			// back our clean up message.
 			failureMsg := &lnwire.FailPermanentChannelFailure{}
 			if err := h.DeliverResolutionMsg(ResolutionMsg{
 				SourceChan: h.ShortChanID,
@@ -378,6 +397,10 @@ loop:
 				state = csvWait
 				secondLevelExpiry = currentHeight +
 					int32(h.htlcResolution.CsvDelay)
+
+				// Announce that a sweep will be needed when the
+				// 2nd level tx timelock expires.
+				sweepChan = h.sweeper.AnnounceSweep(secondLevelExpiry)
 
 				evaluateHeight()
 			} else {

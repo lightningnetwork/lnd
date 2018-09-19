@@ -2328,12 +2328,16 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			invoice, minCltvDelta, err := l.cfg.Registry.LookupInvoice(
 				invoiceHash,
 			)
+			// Before we give up on this HTLC, we check if we have an active
+			// resolver that may dynamically resolve the hash to a preimage.
+			// The resolver may provide an invoice to indicate that it has
+			// interest in trying to resolve the hash. We let the resolver
+			// know what should be the minCltvDelta for this HTLC
 			if err != nil {
-				if isResolverActive() {
-					// fire async resolver and return. HTLC will be handled by the resolver
-					asyncResolve(pd, l, obfuscator, heightNow)
-					continue
-				}
+				invoice, minCltvDelta, err = lookupResolverInvoice(invoiceHash, fwdInfo.OutgoingCTLV-heightNow, err)
+			}
+
+			if err != nil {
 
 				log.Errorf("unable to query invoice registry: "+
 					" %v", err)
@@ -2458,6 +2462,14 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				)
 
 				needUpdate = true
+				continue
+			}
+
+			// if this is a resolver invoice accept the HTLC and use the
+			// async resolver to get the preimage
+			if invoice.AddIndex == 0 {
+				// fire async resolver and return. HTLC will be handled by the resolver
+				asyncResolve(pd, l, obfuscator, heightNow)
 				continue
 			}
 

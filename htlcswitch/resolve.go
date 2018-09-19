@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"encoding/hex"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/channeldb"
 	pb "github.com/lightningnetwork/lnd/lnrpc"
 )
 
@@ -35,6 +37,22 @@ var (
 		ServerHostOverride: "",
 	}
 )
+
+func lookupResolverInvoice(rHash chainhash.Hash, cltvDelta uint32, err error) (channeldb.Invoice, uint32, error) {
+	invoice := channeldb.Invoice{}
+	if !isResolverActive() {
+		log.Info("resolver is not active. Providing no invoice")
+		return invoice, 0, err
+	}
+	invoice.Terms = channeldb.ContractTerm{
+		Value:   0,
+		Settled: false,
+	}
+	log.Infof("resolver is active. Providing an invoice so HTLC will be accepted."+
+		"TimeLockDelta = %v", cltvDelta)
+	return invoice, cltvDelta, nil
+
+}
 
 func isResolverActive() bool {
 	// first see if we have a configuration file at the working directory. If

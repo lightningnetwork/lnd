@@ -704,6 +704,15 @@ type htlcOutgoingContestResolver struct {
 	htlcTimeoutResolver
 }
 
+type outgoingState uint8
+
+const (
+	cltvWait uint8 = iota
+	secondLevelConf
+	csvWait
+	sweepWait
+)
+
 // Resolve commences the resolution of this contract. As this contract hasn't
 // yet timed out, we'll wait for one of two things to happen
 //
@@ -787,13 +796,17 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 	// the resolution. Otherwise, we fetch this pointer from the input of
 	// the time out transaction.
 	var (
-		outPointToWatch wire.OutPoint
-		scriptToWatch   []byte
-		err             error
+		outPointToWatch      wire.OutPoint
+		scriptToWatch        []byte
+		err                  error
+		secondLevelSpendChan <-chan *chainntnfs.SpendDetail
 	)
 	if h.htlcResolution.SignedTimeoutTx == nil {
 		outPointToWatch = h.htlcResolution.ClaimOutpoint
 		scriptToWatch = h.htlcResolution.SweepSignDesc.Output.PkScript
+
+		// Create dummy channel that will never receive a notification.
+		secondLevelSpendChan = make(chan *chainntnfs.SpendDetail)
 	} else {
 		// If this is the remote party's commitment, then we'll need to
 		// grab watch the output that our timeout transaction points
@@ -808,6 +821,16 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 		if err != nil {
 			return nil, err
 		}
+
+		secondLevelOutPointToWatch := h.htlcResolution.ClaimOutpoint
+		secondLevelScriptToWatch := h.htlcResolution.SweepSignDesc.Output.PkScript
+		secondLevelSpendNtfn, err := h.Notifier.RegisterSpendNtfn(
+			&secondLevelOutPointToWatch, secondLevelScriptToWatch, h.broadcastHeight,
+		)
+		if err != nil {
+			return nil, err
+		}
+		secondLevelSpendChan = secondLevelSpendNtfn.Spend
 	}
 
 	// First, we'll register for a spend notification for this output. If
@@ -819,42 +842,41 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 		return nil, err
 	}
 
-	// We'll quickly check to see if the output has already been spent.
-	select {
-	// If the output has already been spent, then we can stop early and
-	// sweep the pre-image from the output.
-	case commitSpend, ok := <-spendNtfn.Spend:
-		if !ok {
-			return nil, fmt.Errorf("quitting")
-		}
+	// TODO: Cancel spend notifications on quit?
 
-		// TODO(roasbeef): Checkpoint?
-		return claimCleanUp(commitSpend)
-
-	// If it hasn't, then we'll watch for both the expiration, and the
-	// sweeping out this output.
-	default:
-	}
-
-	// We'll check the current height, if the HTLC has already expired,
-	// then we'll morph immediately into a resolver that can sweep the
-	// HTLC.
-	//
-	// TODO(roasbeef): use grace period instead?
 	_, currentHeight, err := h.ChainIO.GetBestBlock()
 	if err != nil {
 		return nil, err
 	}
 
-	// If the current height is >= expiry-1, then a spend will be valid to
-	// be included in the next block, and we can immediately return the
-	// resolver.
-	if uint32(currentHeight) >= h.htlcResolution.Expiry-1 {
-		log.Infof("%T(%v): HTLC has expired (height=%v, expiry=%v), "+
-			"transforming into timeout resolver", h,
-			h.htlcResolution.ClaimOutpoint)
-		return &h.htlcTimeoutResolver, nil
+	state := cltvWait
+	var secondLevelExpiry int32
+
+	evaluateHeight := func() {
+		switch {
+		case state == cltvWait &&
+			uint32(currentHeight) >= h.htlcResolution.Expiry-1:
+
+			if h.htlcResolution.SignedTimeoutTx == nil {
+				// Start sweep
+
+				state = sweepWait
+			} else {
+				// Publish timeout tx
+
+				state = secondLevelConf
+			}
+
+		case state == csvWait && currentHeight >= secondLevelExpiry-1:
+			// Start sweep
+
+			state = sweepWait
+		}
+
 	}
+
+	// Evaluate current height in case cltv has already expired.
+	evaluateHeight()
 
 	// If we reach this point, then we can't fully act yet, so we'll await
 	// either of our signals triggering: the HTLC expires, or we learn of
@@ -865,6 +887,7 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 	}
 	defer blockEpochs.Cancel()
 
+loop:
 	for {
 		select {
 
@@ -878,15 +901,8 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 			// If this new height expires the HTLC, then we can
 			// exit early and create a resolver that's capable of
 			// handling the time locked output.
-			newHeight := uint32(newBlock.Height)
-			if newHeight >= h.htlcResolution.Expiry-1 {
-				log.Infof("%T(%v): HTLC has expired "+
-					"(height=%v, expiry=%v), transforming "+
-					"into timeout resolver", h,
-					h.htlcResolution.ClaimOutpoint,
-					newHeight, h.htlcResolution.Expiry)
-				return &h.htlcTimeoutResolver, nil
-			}
+			currentHeight = newBlock.Height
+			evaluateHeight()
 
 		// The output has been spent! This means the preimage has been
 		// revealed on-chain.
@@ -899,12 +915,58 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 			// party is by revealing the preimage. So we'll perform
 			// our duties to clean up the contract once it has been
 			// claimed.
-			return claimCleanUp(commitSpend)
+			var isRemoteSpend bool
+			if h.htlcResolution.SignedTimeoutTx != nil {
+				timeoutTxHash := h.htlcResolution.SignedTimeoutTx.TxHash()
+
+				// If spend not by our own timeout tx, it must
+				// be a remote spend.
+				isRemoteSpend = !bytes.Equal(commitSpend.SpenderTxHash[:],
+					timeoutTxHash[:])
+			} else {
+				// Detect remote success tx by witness length.
+				isRemoteSpend = len(commitSpend.SpendingTx.TxIn[0].Witness) == 5
+			}
+
+			if isRemoteSpend {
+				return claimCleanUp(commitSpend)
+			}
+
+			// At this point, the second-level transaction is sufficiently
+			// confirmed, or a transaction directly spending the output is.
+			// Therefore, we can now send back our clean up message.
+			failureMsg := &lnwire.FailPermanentChannelFailure{}
+			if err := h.DeliverResolutionMsg(ResolutionMsg{
+				SourceChan: h.ShortChanID,
+				HtlcIndex:  h.htlcIndex,
+				Failure:    failureMsg,
+			}); err != nil {
+				return nil, err
+			}
+
+			if state == secondLevelConf {
+				state = csvWait
+				secondLevelExpiry = currentHeight +
+					int32(h.htlcResolution.CsvDelay)
+
+				evaluateHeight()
+			} else {
+				break loop
+			}
+
+		case _, ok := <-secondLevelSpendChan:
+			if !ok {
+				return nil, fmt.Errorf("quitting")
+			}
+			break loop
 
 		case <-h.Quit:
 			return nil, fmt.Errorf("resolver cancelled")
 		}
+
 	}
+	h.resolved = true
+	return nil, h.Checkpoint(h)
 }
 
 // Stop signals the resolver to cancel any current resolution processes, and

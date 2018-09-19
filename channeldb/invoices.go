@@ -27,7 +27,7 @@ var (
 	// for looking up incoming HTLCs to determine if we're able to settle
 	// them fully.
 	//
-	// maps: payHash => invoiceIndex
+	// maps: payHash => invoiceKey
 	invoiceIndexBucket = []byte("paymenthashes")
 
 	// numInvoicesKey is the name of key which houses the auto-incrementing
@@ -44,7 +44,7 @@ var (
 	//
 	// In addition to this sequence number, we map:
 	//
-	//   addIndexNo => invoiceIndex
+	//   addIndexNo => invoiceKey
 	addIndexBucket = []byte("invoice-add-index")
 
 	// settleIndexBucket is an index bucket that we'll use to create a
@@ -54,7 +54,7 @@ var (
 	//
 	// In addition to this sequence number, we map:
 	//
-	//   settleIndexNo => invoiceIndex
+	//   settleIndexNo => invoiceKey
 	settleIndexBucket = []byte("invoice-settle-index")
 )
 
@@ -394,6 +394,156 @@ func (d *DB) FetchAllInvoices(pendingOnly bool) ([]Invoice, error) {
 	}
 
 	return invoices, nil
+}
+
+// InvoiceQuery represents a query to the invoice database. The query allows a
+// caller to retrieve all invoices starting from a particular add index and
+// limit the number of results returned.
+type InvoiceQuery struct {
+	// IndexOffset is the offset within the add indices to start at. This
+	// can be used to start the response at a particular invoice.
+	IndexOffset uint64
+
+	// NumMaxInvoices is the maximum number of invoices that should be
+	// starting from the add index.
+	NumMaxInvoices uint64
+
+	// PendingOnly, if set, returns unsettled invoices starting from the
+	// add index.
+	PendingOnly bool
+
+	// Reversed, if set, indicates that the invoices returned should start
+	// from the IndexOffset and go backwards.
+	Reversed bool
+}
+
+// InvoiceSlice is the response to a invoice query. It includes the original
+// query, the set of invoices that match the query, and an integer which
+// represents the offset index of the last item in the set of returned invoices.
+// This integer allows callers to resume their query using this offset in the
+// event that the query's response exceeds the maximum number of returnable
+// invoices.
+type InvoiceSlice struct {
+	InvoiceQuery
+
+	// Invoices is the set of invoices that matched the query above.
+	Invoices []Invoice
+
+	// FirstIndexOffset is the index of the first element in the set of
+	// returned Invoices above. Callers can use this to resume their query
+	// in the event that the slice has too many events to fit into a single
+	// response.
+	FirstIndexOffset uint64
+
+	// LastIndexOffset is the index of the last element in the set of
+	// returned Invoices above. Callers can use this to resume their query
+	// in the event that the slice has too many events to fit into a single
+	// response.
+	LastIndexOffset uint64
+}
+
+// QueryInvoices allows a caller to query the invoice database for invoices
+// within the specified add index range.
+func (d *DB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
+	resp := InvoiceSlice{
+		InvoiceQuery: q,
+	}
+
+	err := d.View(func(tx *bolt.Tx) error {
+		// If the bucket wasn't found, then there aren't any invoices
+		// within the database yet, so we can simply exit.
+		invoices := tx.Bucket(invoiceBucket)
+		if invoices == nil {
+			return ErrNoInvoicesCreated
+		}
+		invoiceAddIndex := invoices.Bucket(addIndexBucket)
+		if invoiceAddIndex == nil {
+			return ErrNoInvoicesCreated
+		}
+
+		// keyForIndex is a helper closure that retrieves the invoice
+		// key for the given add index of an invoice.
+		keyForIndex := func(c *bolt.Cursor, index uint64) []byte {
+			var keyIndex [8]byte
+			byteOrder.PutUint64(keyIndex[:], index)
+			_, invoiceKey := c.Seek(keyIndex[:])
+			return invoiceKey
+		}
+
+		// nextKey is a helper closure to determine what the next
+		// invoice key is when iterating over the invoice add index.
+		nextKey := func(c *bolt.Cursor) ([]byte, []byte) {
+			if q.Reversed {
+				return c.Prev()
+			}
+			return c.Next()
+		}
+
+		// We'll be using a cursor to seek into the database and return
+		// a slice of invoices. We'll need to determine where to start
+		// our cursor depending on the parameters set within the query.
+		c := invoiceAddIndex.Cursor()
+		invoiceKey := keyForIndex(c, q.IndexOffset+1)
+		if q.Reversed {
+			_, invoiceKey = c.Last()
+			if q.IndexOffset != 0 {
+				invoiceKey = keyForIndex(c, q.IndexOffset-1)
+			}
+		}
+
+		// If we know that a set of invoices exists, then we'll begin
+		// our seek through the bucket in order to satisfy the query.
+		// We'll continue until either we reach the end of the range, or
+		// reach our max number of invoices.
+		for ; invoiceKey != nil; _, invoiceKey = nextKey(c) {
+			// If our current return payload exceeds the max number
+			// of invoices, then we'll exit now.
+			if uint64(len(resp.Invoices)) >= q.NumMaxInvoices {
+				break
+			}
+
+			invoice, err := fetchInvoice(invoiceKey, invoices)
+			if err != nil {
+				return err
+			}
+
+			// Skip any settled invoices if the caller is only
+			// interested in unsettled.
+			if q.PendingOnly && invoice.Terms.Settled {
+				continue
+			}
+
+			// At this point, we've exhausted the offset, so we'll
+			// begin collecting invoices found within the range.
+			resp.Invoices = append(resp.Invoices, invoice)
+		}
+
+		// If we iterated through the add index in reverse order, then
+		// we'll need to reverse the slice of invoices to return them in
+		// forward order.
+		if q.Reversed {
+			numInvoices := len(resp.Invoices)
+			for i := 0; i < numInvoices/2; i++ {
+				opposite := numInvoices - i - 1
+				resp.Invoices[i], resp.Invoices[opposite] =
+					resp.Invoices[opposite], resp.Invoices[i]
+			}
+		}
+
+		return nil
+	})
+	if err != nil && err != ErrNoInvoicesCreated {
+		return resp, err
+	}
+
+	// Finally, record the indexes of the first and last invoices returned
+	// so that the caller can resume from this point later on.
+	if len(resp.Invoices) > 0 {
+		resp.FirstIndexOffset = resp.Invoices[0].AddIndex
+		resp.LastIndexOffset = resp.Invoices[len(resp.Invoices)-1].AddIndex
+	}
+
+	return resp, nil
 }
 
 // SettleInvoice attempts to mark an invoice corresponding to the passed

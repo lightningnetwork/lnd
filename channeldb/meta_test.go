@@ -9,6 +9,59 @@ import (
 	"github.com/go-errors/errors"
 )
 
+// applyMigration is a helper test function that encapsulates the general steps
+// which are needed to properly check the result of applying migration function.
+func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
+	migrationFunc migration, shouldFail bool) {
+
+	cdb, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// beforeMigration usually used for populating the database
+	// with test data.
+	beforeMigration(cdb)
+
+	// Create test meta info with zero database version and put it on disk.
+	// Than creating the version list pretending that new version was added.
+	meta := &Meta{DbVersionNumber: 0}
+	if err := cdb.PutMeta(meta); err != nil {
+		t.Fatalf("unable to store meta data: %v", err)
+	}
+
+	versions := []version{
+		{
+			number:    0,
+			migration: nil,
+		},
+		{
+			number:    1,
+			migration: migrationFunc,
+		},
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			err = errors.New(r)
+		}
+
+		if err == nil && shouldFail {
+			t.Fatal("error wasn't received on migration stage")
+		} else if err != nil && !shouldFail {
+			t.Fatal("error was received on migration stage")
+		}
+
+		// afterMigration usually used for checking the database state and
+		// throwing the error if something went wrong.
+		afterMigration(cdb)
+	}()
+
+	// Sync with the latest version - applying migration function.
+	err = cdb.syncVersions(versions)
+}
+
 // TestVersionFetchPut checks the propernces of fetch/put methods
 // and also initialization of meta data in case if don't have any in
 // database.
@@ -118,59 +171,8 @@ func TestGlobalVersionList(t *testing.T) {
 	}
 }
 
-// applyMigration is a helper test function that encapsulates the general steps
-// which are needed to properly check the result of applying migration function.
-func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
-	migrationFunc migration, shouldFail bool) {
-
-	cdb, cleanUp, err := makeTestDB()
-	defer cleanUp()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// beforeMigration usually used for populating the database
-	// with test data.
-	beforeMigration(cdb)
-
-	// Create test meta info with zero database version and put it on disk.
-	// Than creating the version list pretending that new version was added.
-	meta := &Meta{DbVersionNumber: 0}
-	if err := cdb.PutMeta(meta); err != nil {
-		t.Fatalf("unable to store meta data: %v", err)
-	}
-
-	versions := []version{
-		{
-			number:    0,
-			migration: nil,
-		},
-		{
-			number:    1,
-			migration: migrationFunc,
-		},
-	}
-
-	defer func() {
-		if r := recover(); r != nil {
-			err = errors.New(r)
-		}
-
-		if err == nil && shouldFail {
-			t.Fatal("error wasn't received on migration stage")
-		} else if err != nil && !shouldFail {
-			t.Fatal("error was received on migration stage")
-		}
-
-		// afterMigration usually used for checking the database state and
-		// throwing the error if something went wrong.
-		afterMigration(cdb)
-	}()
-
-	// Sync with the latest version - applying migration function.
-	err = cdb.syncVersions(versions)
-}
-
+// TestMigrationWithPanic asserts that if migration logic panics, we will return
+// to the original state unaltered.
 func TestMigrationWithPanic(t *testing.T) {
 	t.Parallel()
 
@@ -242,6 +244,8 @@ func TestMigrationWithPanic(t *testing.T) {
 		true)
 }
 
+// TestMigrationWithFatal asserts that migrations which fail do not modify the
+// database.
 func TestMigrationWithFatal(t *testing.T) {
 	t.Parallel()
 
@@ -312,6 +316,8 @@ func TestMigrationWithFatal(t *testing.T) {
 		true)
 }
 
+// TestMigrationWithoutErrors asserts that a successful migration has its
+// changes applied to the database.
 func TestMigrationWithoutErrors(t *testing.T) {
 	t.Parallel()
 

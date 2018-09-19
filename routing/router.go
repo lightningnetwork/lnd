@@ -2,6 +2,7 @@ package routing
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"runtime"
 	"sort"
@@ -14,17 +15,14 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
 	"github.com/lightningnetwork/lnd/routing/chainview"
-
-	"crypto/sha256"
-
-	"github.com/go-errors/errors"
-	"github.com/lightningnetwork/lightning-onion"
 )
 
 const (
@@ -158,7 +156,8 @@ type Config struct {
 	// forward a fully encoded payment to the first hop in the route
 	// denoted by its public key. A non-nil error is to be returned if the
 	// payment was unsuccessful.
-	SendToSwitch func(firstHop [33]byte, htlcAdd *lnwire.UpdateAddHTLC,
+	SendToSwitch func(firstHop lnwire.ShortChannelID,
+		htlcAdd *lnwire.UpdateAddHTLC,
 		circuit *sphinx.Circuit) ([sha256.Size]byte, error)
 
 	// ChannelPruneExpiry is the duration used to determine if a channel
@@ -178,6 +177,12 @@ type Config struct {
 	// date knowledge of the available bandwidth of the link should be
 	// returned.
 	QueryBandwidth func(edge *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi
+
+	// AssumeChannelValid toggles whether or not the router will check for
+	// spentness of channel outpoints. For neutrino, this saves long rescans
+	// from blocking initial usage of the wallet. This should only be
+	// enabled on testnet.
+	AssumeChannelValid bool
 }
 
 // routeTuple is an entry within the ChannelRouter's route cache. We cache
@@ -947,7 +952,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		r.rejectMtx.RLock()
 		if _, ok := r.rejectCache[msg.ChannelID]; ok {
 			r.rejectMtx.RUnlock()
-			return newErrf(ErrIgnored, "recently rejected "+
+			return newErrf(ErrRejected, "recently rejected "+
 				"chan_id=%v", msg.ChannelID)
 		}
 		r.rejectMtx.RUnlock()
@@ -967,7 +972,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		// to obtain the full funding outpoint that's encoded within
 		// the channel ID.
 		channelID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
-		fundingPoint, _, err := r.fetchChanPoint(&channelID)
+		fundingPoint, fundingTxOut, err := r.fetchChanPoint(&channelID)
 		if err != nil {
 			r.rejectMtx.Lock()
 			r.rejectCache[msg.ChannelID] = struct{}{}
@@ -991,20 +996,28 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 			return err
 		}
 
-		// Now that we have the funding outpoint of the channel, ensure
-		// that it hasn't yet been spent. If so, then this channel has
-		// been closed so we'll ignore it.
-		chanUtxo, err := r.cfg.Chain.GetUtxo(
-			fundingPoint, fundingPkScript, channelID.BlockHeight,
-		)
-		if err != nil {
-			r.rejectMtx.Lock()
-			r.rejectCache[msg.ChannelID] = struct{}{}
-			r.rejectMtx.Unlock()
+		var chanUtxo *wire.TxOut
+		if r.cfg.AssumeChannelValid {
+			// If AssumeChannelValid is present, we'll just use the
+			// txout returned from fetchChanPoint.
+			chanUtxo = fundingTxOut
+		} else {
+			// Now that we have the funding outpoint of the channel,
+			// ensure that it hasn't yet been spent. If so, then
+			// this channel has been closed so we'll ignore it.
+			chanUtxo, err = r.cfg.Chain.GetUtxo(
+				fundingPoint, fundingPkScript,
+				channelID.BlockHeight,
+			)
+			if err != nil {
+				r.rejectMtx.Lock()
+				r.rejectCache[msg.ChannelID] = struct{}{}
+				r.rejectMtx.Unlock()
 
-			return errors.Errorf("unable to fetch utxo for "+
-				"chan_id=%v, chan_point=%v: %v", msg.ChannelID,
-				fundingPoint, err)
+				return errors.Errorf("unable to fetch utxo "+
+					"for chan_id=%v, chan_point=%v: %v",
+					msg.ChannelID, fundingPoint, err)
+			}
 		}
 
 		// By checking the equality of witness pkscripts we checks that
@@ -1056,7 +1069,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		r.rejectMtx.RLock()
 		if _, ok := r.rejectCache[msg.ChannelID]; ok {
 			r.rejectMtx.RUnlock()
-			return newErrf(ErrIgnored, "recently rejected "+
+			return newErrf(ErrRejected, "recently rejected "+
 				"chan_id=%v", msg.ChannelID)
 		}
 		r.rejectMtx.RUnlock()
@@ -1081,38 +1094,39 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		// As edges are directional edge node has a unique policy for
 		// the direction of the edge they control. Therefore we first
 		// check if we already have the most up to date information for
-		// that edge. If so, then we can exit early.
+		// that edge. If this message has a timestamp not strictly
+		// newer than what we already know of we can exit early.
 		switch {
 
 		// A flag set of 0 indicates this is an announcement for the
 		// "first" node in the channel.
 		case msg.Flags&lnwire.ChanUpdateDirection == 0:
-			if edge1Timestamp.After(msg.LastUpdate) ||
-				edge1Timestamp.Equal(msg.LastUpdate) {
 
-				return newErrf(ErrIgnored, "Ignoring update "+
-					"(flags=%v) for known chan_id=%v", msg.Flags,
-					msg.ChannelID)
+			// Ignore outdated message.
+			if !edge1Timestamp.Before(msg.LastUpdate) {
+				return newErrf(ErrOutdated, "Ignoring "+
+					"outdated update (flags=%v) for known "+
+					"chan_id=%v", msg.Flags, msg.ChannelID)
 
 			}
 
 		// Similarly, a flag set of 1 indicates this is an announcement
 		// for the "second" node in the channel.
 		case msg.Flags&lnwire.ChanUpdateDirection == 1:
-			if edge2Timestamp.After(msg.LastUpdate) ||
-				edge2Timestamp.Equal(msg.LastUpdate) {
 
-				return newErrf(ErrIgnored, "Ignoring update "+
-					"(flags=%v) for known chan_id=%v", msg.Flags,
-					msg.ChannelID)
+			// Ignore outdated message.
+			if !edge2Timestamp.Before(msg.LastUpdate) {
+				return newErrf(ErrOutdated, "Ignoring "+
+					"outdated update (flags=%v) for known "+
+					"chan_id=%v", msg.Flags, msg.ChannelID)
 			}
 		}
 
-		if !exists {
+		if !exists && !r.cfg.AssumeChannelValid {
 			// Before we can update the channel information, we'll
 			// ensure that the target channel is still open by
 			// querying the utxo-set for its existence.
-			chanPoint, fundingPkScript, err := r.fetchChanPoint(
+			chanPoint, fundingTxOut, err := r.fetchChanPoint(
 				&channelID,
 			)
 			if err != nil {
@@ -1125,7 +1139,8 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 					msg.ChannelID, err)
 			}
 			_, err = r.cfg.Chain.GetUtxo(
-				chanPoint, fundingPkScript, channelID.BlockHeight,
+				chanPoint, fundingTxOut.PkScript,
+				channelID.BlockHeight,
 			)
 			if err != nil {
 				r.rejectMtx.Lock()
@@ -1171,7 +1186,9 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 //
 // TODO(roasbeef): replace with call to GetBlockTransaction? (would allow to
 // later use getblocktxn)
-func (r *ChannelRouter) fetchChanPoint(chanID *lnwire.ShortChannelID) (*wire.OutPoint, []byte, error) {
+func (r *ChannelRouter) fetchChanPoint(
+	chanID *lnwire.ShortChannelID) (*wire.OutPoint, *wire.TxOut, error) {
+
 	// First fetch the block hash by the block number encoded, then use
 	// that hash to fetch the block itself.
 	blockNum := int64(chanID.BlockHeight)
@@ -1195,12 +1212,15 @@ func (r *ChannelRouter) fetchChanPoint(chanID *lnwire.ShortChannelID) (*wire.Out
 	}
 
 	// Finally once we have the block itself, we seek to the targeted
-	// transaction index to obtain the funding output and txid.
+	// transaction index to obtain the funding output and txout.
 	fundingTx := fundingBlock.Transactions[chanID.TxIndex]
-	return &wire.OutPoint{
+	outPoint := &wire.OutPoint{
 		Hash:  fundingTx.TxHash(),
 		Index: uint32(chanID.TxPosition),
-	}, fundingTx.TxOut[chanID.TxPosition].PkScript, nil
+	}
+	txOut := fundingTx.TxOut[chanID.TxPosition]
+
+	return outPoint, txOut, nil
 }
 
 // routingMsg couples a routing related routing topology update to the
@@ -1715,7 +1735,9 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 		// Attempt to send this payment through the network to complete
 		// the payment. If this attempt fails, then we'll continue on
 		// to the next available route.
-		firstHop := route.Hops[0].Channel.Node.PubKeyBytes
+		firstHop := lnwire.NewShortChanIDFromInt(
+			route.Hops[0].Channel.ChannelID,
+		)
 		preImage, sendError = r.cfg.SendToSwitch(
 			firstHop, htlcAdd, circuit,
 		)
@@ -1779,7 +1801,8 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// correct block height is.
 			case *lnwire.FailExpiryTooSoon:
 				update := onionErr.Update
-				if err := r.applyChannelUpdate(&update); err != nil {
+				err := r.applyChannelUpdate(&update, errSource)
+				if err != nil {
 					log.Errorf("unable to apply channel "+
 						"update for onion error: %v", err)
 				}
@@ -1804,7 +1827,8 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// and continue with the rest of the routes.
 			case *lnwire.FailAmountBelowMinimum:
 				update := onionErr.Update
-				if err := r.applyChannelUpdate(&update); err != nil {
+				err := r.applyChannelUpdate(&update, errSource)
+				if err != nil {
 					log.Errorf("unable to apply channel "+
 						"update for onion error: %v", err)
 				}
@@ -1816,7 +1840,8 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// newly updated fees.
 			case *lnwire.FailFeeInsufficient:
 				update := onionErr.Update
-				if err := r.applyChannelUpdate(&update); err != nil {
+				err := r.applyChannelUpdate(&update, errSource)
+				if err != nil {
 					log.Errorf("unable to apply channel "+
 						"update for onion error: %v", err)
 
@@ -1849,7 +1874,8 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// finding.
 			case *lnwire.FailIncorrectCltvExpiry:
 				update := onionErr.Update
-				if err := r.applyChannelUpdate(&update); err != nil {
+				err := r.applyChannelUpdate(&update, errSource)
+				if err != nil {
 					log.Errorf("unable to apply channel "+
 						"update for onion error: %v", err)
 				}
@@ -1864,7 +1890,8 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// the update and continue.
 			case *lnwire.FailChannelDisabled:
 				update := onionErr.Update
-				if err := r.applyChannelUpdate(&update); err != nil {
+				err := r.applyChannelUpdate(&update, errSource)
+				if err != nil {
 					log.Errorf("unable to apply channel "+
 						"update for onion error: %v", err)
 				}
@@ -1877,7 +1904,8 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// now, and continue onwards with our path finding.
 			case *lnwire.FailTemporaryChannelFailure:
 				update := onionErr.Update
-				if err := r.applyChannelUpdate(update); err != nil {
+				err := r.applyChannelUpdate(update, errSource)
+				if err != nil {
 					log.Errorf("unable to apply channel "+
 						"update for onion error: %v", err)
 				}
@@ -2001,13 +2029,18 @@ func pruneEdgeFailure(paySession *paymentSession, route *Route,
 	paySession.ReportChannelFailure(badChan.ChannelID)
 }
 
-// applyChannelUpdate applies a channel update directly to the database,
-// skipping preliminary validation.
-func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate) error {
+// applyChannelUpdate validates a channel update and if valid, applies it to the
+// database.
+func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate,
+	pubKey *btcec.PublicKey) error {
 	// If we get passed a nil channel update (as it's optional with some
 	// onion errors), then we'll exit early with a nil error.
 	if msg == nil {
 		return nil
+	}
+
+	if err := ValidateChannelUpdateAnn(pubKey, msg); err != nil {
+		return err
 	}
 
 	err := r.UpdateEdge(&channeldb.ChannelEdgePolicy{
@@ -2020,7 +2053,7 @@ func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate) error {
 		FeeBaseMSat:               lnwire.MilliSatoshi(msg.BaseFee),
 		FeeProportionalMillionths: lnwire.MilliSatoshi(msg.FeeRate),
 	})
-	if err != nil && !IsError(err, ErrIgnored) {
+	if err != nil && !IsError(err, ErrIgnored, ErrOutdated) {
 		return fmt.Errorf("Unable to apply channel update: %v", err)
 	}
 

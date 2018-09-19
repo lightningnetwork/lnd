@@ -177,7 +177,7 @@ func (c *ChannelGraphBootstrapper) SampleNodeAddrs(numAddrs uint32,
 		)
 
 		err := c.chanGraph.ForEachNode(func(node autopilot.Node) error {
-			nID := autopilot.NewNodeID(node.PubKey())
+			nID := autopilot.NodeID(node.PubKey())
 			if _, ok := c.tried[nID]; ok {
 				return nil
 			}
@@ -187,8 +187,8 @@ func (c *ChannelGraphBootstrapper) SampleNodeAddrs(numAddrs uint32,
 			// value. When comparing, we skip the first byte as
 			// it's 50/50. If it isn't less, than then we'll
 			// continue forward.
-			nodePub := node.PubKey().SerializeCompressed()[1:]
-			if bytes.Compare(c.hashAccumulator[:], nodePub) > 0 {
+			nodePubKeyBytes := node.PubKey()
+			if bytes.Compare(c.hashAccumulator[:], nodePubKeyBytes[1:]) > 0 {
 				return nil
 			}
 
@@ -205,11 +205,18 @@ func (c *ChannelGraphBootstrapper) SampleNodeAddrs(numAddrs uint32,
 					return nil
 				}
 
+				nodePub, err := btcec.ParsePubKey(
+					nodePubKeyBytes[:], btcec.S256(),
+				)
+				if err != nil {
+					return err
+				}
+
 				// At this point, we've found an eligible node,
 				// so we'll return early with our shibboleth
 				// error.
 				a = append(a, &lnwire.NetAddress{
-					IdentityKey: node.PubKey(),
+					IdentityKey: nodePub,
 					Address:     nodeAddr,
 				})
 			}

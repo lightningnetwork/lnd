@@ -532,6 +532,13 @@ func TestContractResolutionsStorage(t *testing.T) {
 		},
 	}
 
+	// First make sure that fetching unlogged contract resolutions will
+	// fail.
+	_, err = testLog.FetchContractResolutions()
+	if err == nil {
+		t.Fatalf("expected reading unlogged resolution from db to fail")
+	}
+
 	// Insert the resolution into the database, then immediately retrieve
 	// them so we can compare equality against the original version.
 	if err := testLog.LogContractResolutions(&res); err != nil {

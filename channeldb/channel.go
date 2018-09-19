@@ -70,12 +70,6 @@ var (
 	// channel closure. This key should be accessed from within the
 	// sub-bucket of a target channel, identified by its channel point.
 	revocationLogBucket = []byte("revocation-log-key")
-
-	// fwdPackageLogBucket is a bucket that stores the locked-in htlcs after
-	// having received a revocation from the remote party. The keys in this
-	// bucket represent the remote height at which these htlcs were
-	// accepted.
-	fwdPackageLogBucket = []byte("fwd-package-log-key")
 )
 
 var (
@@ -1597,6 +1591,31 @@ func (c *OpenChannel) LoadFwdPkgs() ([]*FwdPkg, error) {
 	return fwdPkgs, nil
 }
 
+// AckAddHtlcs updates the AckAddFilter containing any of the provided AddRefs
+// indicating that a response to this Add has been committed to the remote party.
+// Doing so will prevent these Add HTLCs from being reforwarded internally.
+func (c *OpenChannel) AckAddHtlcs(addRefs ...AddRef) error {
+	c.Lock()
+	defer c.Unlock()
+
+	return c.Db.Update(func(tx *bolt.Tx) error {
+		return c.Packager.AckAddHtlcs(tx, addRefs...)
+	})
+}
+
+// AckSettleFails updates the SettleFailFilter containing any of the provided
+// SettleFailRefs, indicating that the response has been delivered to the
+// incoming link, corresponding to a particular AddRef. Doing so will prevent
+// the responses from being retransmitted internally.
+func (c *OpenChannel) AckSettleFails(settleFailRefs ...SettleFailRef) error {
+	c.Lock()
+	defer c.Unlock()
+
+	return c.Db.Update(func(tx *bolt.Tx) error {
+		return c.Packager.AckSettleFails(tx, settleFailRefs...)
+	})
+}
+
 // SetFwdFilter atomically sets the forwarding filter for the forwarding package
 // identified by `height`.
 func (c *OpenChannel) SetFwdFilter(height uint64, fwdFilter *PkgFilter) error {
@@ -2415,10 +2434,18 @@ func deleteOpenChannel(chanBucket *bolt.Bucket, chanPointBytes []byte) error {
 
 }
 
+// makeLogKey converts a uint64 into an 8 byte array.
 func makeLogKey(updateNum uint64) [8]byte {
 	var key [8]byte
 	byteOrder.PutUint64(key[:], updateNum)
 	return key
+}
+
+// readLogKey parse the first 8- bytes of a byte slice into a uint64.
+//
+// NOTE: The slice must be at least 8 bytes long.
+func readLogKey(b []byte) uint64 {
+	return byteOrder.Uint64(b)
 }
 
 func appendChannelLogEntry(log *bolt.Bucket,

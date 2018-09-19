@@ -375,3 +375,147 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 			spew.Sdump(invoice), spew.Sdump(dbInvoice))
 	}
 }
+
+// TestQueryInvoices ensures that we can properly query the invoice database for
+// invoices using different types of queries.
+func TestQueryInvoices(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test db: %v", err)
+	}
+
+	// To begin the test, we'll add 50 invoices to the database. We'll
+	// assume that the index of the invoice within the database is the same
+	// as the amount of the invoice itself.
+	const numInvoices = 50
+	for i := lnwire.MilliSatoshi(1); i <= numInvoices; i++ {
+		invoice, err := randInvoice(i)
+		if err != nil {
+			t.Fatalf("unable to create invoice: %v", err)
+		}
+
+		if _, err := db.AddInvoice(invoice); err != nil {
+			t.Fatalf("unable to add invoice: %v", err)
+		}
+
+		// We'll only settle half of all invoices created.
+		if i%2 == 0 {
+			paymentHash := sha256.Sum256(invoice.Terms.PaymentPreimage[:])
+			if _, err := db.SettleInvoice(paymentHash, i); err != nil {
+				t.Fatalf("unable to settle invoice: %v", err)
+			}
+		}
+	}
+
+	// We'll then retrieve the set of all invoices and pending invoices.
+	// This will serve useful when comparing the expected responses of the
+	// query with the actual ones.
+	invoices, err := db.FetchAllInvoices(false)
+	if err != nil {
+		t.Fatalf("unable to retrieve invoices: %v", err)
+	}
+	pendingInvoices, err := db.FetchAllInvoices(true)
+	if err != nil {
+		t.Fatalf("unable to retrieve pending invoices: %v", err)
+	}
+
+	// The test will consist of several queries along with their respective
+	// expected response. Each query response should match its expected one.
+	testCases := []struct {
+		query    InvoiceQuery
+		expected []Invoice
+	}{
+		// Fetch all invoices with a single query.
+		{
+			query: InvoiceQuery{
+				NumMaxInvoices: numInvoices,
+			},
+			expected: invoices,
+		},
+		// Fetch the first 25 invoices.
+		{
+			query: InvoiceQuery{
+				NumMaxInvoices: numInvoices / 2,
+			},
+			expected: invoices[:numInvoices/2],
+		},
+		// Fetch the first 10 invoices, but this time iterating
+		// backwards.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    11,
+				Reversed:       true,
+				NumMaxInvoices: numInvoices,
+			},
+			expected: invoices[:10],
+		},
+		// Fetch the last 40 invoices.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    10,
+				NumMaxInvoices: numInvoices,
+			},
+			expected: invoices[10:],
+		},
+		// Fetch all pending invoices with a single query.
+		{
+			query: InvoiceQuery{
+				PendingOnly:    true,
+				NumMaxInvoices: numInvoices,
+			},
+			expected: pendingInvoices,
+		},
+		// Fetch the first 12 pending invoices.
+		{
+			query: InvoiceQuery{
+				PendingOnly:    true,
+				NumMaxInvoices: numInvoices / 4,
+			},
+			expected: pendingInvoices[:len(pendingInvoices)/2],
+		},
+		// Fetch the first 5 pending invoices, but this time iterating
+		// backwards.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    10,
+				PendingOnly:    true,
+				Reversed:       true,
+				NumMaxInvoices: numInvoices,
+			},
+			// Since we seek to the invoice with index 10 and
+			// iterate backwards, there should only be 5 pending
+			// invoices before it as every other invoice within the
+			// index is settled.
+			expected: pendingInvoices[:5],
+		},
+		// Fetch the last 15 invoices.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    20,
+				PendingOnly:    true,
+				NumMaxInvoices: numInvoices,
+			},
+			// Since we seek to the invoice with index 20, there are
+			// 30 invoices left. From these 30, only 15 of them are
+			// still pending.
+			expected: pendingInvoices[len(pendingInvoices)-15:],
+		},
+	}
+
+	for i, testCase := range testCases {
+		response, err := db.QueryInvoices(testCase.query)
+		if err != nil {
+			t.Fatalf("unable to query invoice database: %v", err)
+		}
+
+		if !reflect.DeepEqual(response.Invoices, testCase.expected) {
+			t.Fatalf("test #%d: query returned incorrect set of "+
+				"invoices: expcted %v, got %v", i,
+				spew.Sdump(response.Invoices),
+				spew.Sdump(testCase.expected))
+		}
+	}
+}

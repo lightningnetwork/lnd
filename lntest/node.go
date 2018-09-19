@@ -24,6 +24,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
@@ -168,7 +169,7 @@ func (cfg nodeConfig) genArgs() []string {
 	args = append(args, fmt.Sprintf("--trickledelay=%v", trickleDelay))
 
 	if !cfg.HasSeed {
-		args = append(args, "--noencryptwallet")
+		args = append(args, "--noseedbackup")
 	}
 
 	if cfg.ExtraArgs != nil {
@@ -893,6 +894,37 @@ func (hn *HarnessNode) WaitForBlockchainSync(ctx context.Context) error {
 	case <-ctx.Done():
 		return fmt.Errorf("Timeout while waiting for blockchain sync")
 	}
+}
+
+// WaitForBalance waits until the node sees the expected confirmed/unconfirmed
+// balance within their wallet.
+func (hn *HarnessNode) WaitForBalance(expectedBalance int64, confirmed bool) error {
+	ctx := context.Background()
+	req := &lnrpc.WalletBalanceRequest{}
+
+	var lastBalance btcutil.Amount
+	doesBalanceMatch := func() bool {
+		balance, err := hn.WalletBalance(ctx, req)
+		if err != nil {
+			return false
+		}
+
+		if confirmed {
+			lastBalance = btcutil.Amount(balance.ConfirmedBalance)
+			return balance.ConfirmedBalance == expectedBalance
+		}
+
+		lastBalance = btcutil.Amount(balance.UnconfirmedBalance)
+		return balance.UnconfirmedBalance == expectedBalance
+	}
+
+	err := WaitPredicate(doesBalanceMatch, 30*time.Second)
+	if err != nil {
+		return fmt.Errorf("balances not synced after deadline: "+
+			"expected %v, only have %v", expectedBalance, lastBalance)
+	}
+
+	return nil
 }
 
 // fileExists reports whether the named file or directory exists.

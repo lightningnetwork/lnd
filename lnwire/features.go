@@ -67,8 +67,10 @@ const (
 // not advertised to the entire network. A full description of these feature
 // bits is provided in the BOLT-09 specification.
 var LocalFeatures = map[FeatureBit]string{
+	DataLossProtectRequired: "data-loss-protect-required",
 	DataLossProtectOptional: "data-loss-protect-optional",
 	InitialRoutingSync:      "initial-routing-sync",
+	GossipQueriesRequired:   "gossip-queries-required",
 	GossipQueriesOptional:   "gossip-queries-optional",
 }
 

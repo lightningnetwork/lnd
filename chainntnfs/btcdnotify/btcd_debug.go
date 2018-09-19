@@ -1,3 +1,5 @@
+// +build debug
+
 package btcdnotify
 
 import (
@@ -28,7 +30,8 @@ func (b *BtcdNotifier) UnsafeStart(bestHeight int32, bestHash *chainhash.Hash,
 	}
 
 	b.txConfNotifier = chainntnfs.NewTxConfNotifier(
-		uint32(bestHeight), reorgSafetyLimit)
+		uint32(bestHeight), reorgSafetyLimit, b.confirmHintCache,
+	)
 
 	b.chainUpdates.Start()
 	b.txUpdates.Start()

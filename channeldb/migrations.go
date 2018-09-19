@@ -2,6 +2,8 @@ package channeldb
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 
 	"github.com/coreos/bbolt"
@@ -370,6 +372,204 @@ func migrateEdgePolicies(tx *bolt.Tx) error {
 	}
 
 	log.Infof("Migration of edge policies complete!")
+
+	return nil
+}
+
+// paymentStatusesMigration is a database migration intended for adding payment
+// statuses for each existing payment entity in bucket to be able control
+// transitions of statuses and prevent cases such as double payment
+func paymentStatusesMigration(tx *bolt.Tx) error {
+	// Get the bucket dedicated to storing statuses of payments,
+	// where a key is payment hash, value is payment status.
+	paymentStatuses, err := tx.CreateBucketIfNotExists(paymentStatusBucket)
+	if err != nil {
+		return err
+	}
+
+	log.Infof("Migrating database to support payment statuses")
+
+	circuitAddKey := []byte("circuit-adds")
+	circuits := tx.Bucket(circuitAddKey)
+	if circuits != nil {
+		log.Infof("Marking all known circuits with status InFlight")
+
+		err = circuits.ForEach(func(k, v []byte) error {
+			// Parse the first 8 bytes as the short chan ID for the
+			// circuit. We'll skip all short chan IDs are not
+			// locally initiated, which includes all non-zero short
+			// chan ids.
+			chanID := binary.BigEndian.Uint64(k[:8])
+			if chanID != 0 {
+				return nil
+			}
+
+			// The payment hash is the third item in the serialized
+			// payment circuit. The first two items are an AddRef
+			// (10 bytes) and the incoming circuit key (16 bytes).
+			const payHashOffset = 10 + 16
+
+			paymentHash := v[payHashOffset : payHashOffset+32]
+
+			return paymentStatuses.Put(
+				paymentHash[:], StatusInFlight.Bytes(),
+			)
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	log.Infof("Marking all existing payments with status Completed")
+
+	// Get the bucket dedicated to storing payments
+	bucket := tx.Bucket(paymentBucket)
+	if bucket == nil {
+		return nil
+	}
+
+	// For each payment in the bucket, deserialize the payment and mark it
+	// as completed.
+	err = bucket.ForEach(func(k, v []byte) error {
+		// Ignores if it is sub-bucket.
+		if v == nil {
+			return nil
+		}
+
+		r := bytes.NewReader(v)
+		payment, err := deserializeOutgoingPayment(r)
+		if err != nil {
+			return err
+		}
+
+		// Calculate payment hash for current payment.
+		paymentHash := sha256.Sum256(payment.PaymentPreimage[:])
+
+		// Update status for current payment to completed. If it fails,
+		// the migration is aborted and the payment bucket is returned
+		// to its previous state.
+		return paymentStatuses.Put(paymentHash[:], StatusCompleted.Bytes())
+	})
+	if err != nil {
+		return err
+	}
+
+	log.Infof("Migration of payment statuses complete!")
+
+	return nil
+}
+
+// migratePruneEdgeUpdateIndex is a database migration that attempts to resolve
+// some lingering bugs with regards to edge policies and their update index.
+// Stale entries within the edge update index were not being properly pruned due
+// to a miscalculation on the offset of an edge's policy last update. This
+// migration also fixes the case where the public keys within edge policies were
+// being serialized with an extra byte, causing an even greater error when
+// attempting to perform the offset calculation described earlier.
+func migratePruneEdgeUpdateIndex(tx *bolt.Tx) error {
+	// To begin the migration, we'll retrieve the update index bucket. If it
+	// does not exist, we have nothing left to do so we can simply exit.
+	edges := tx.Bucket(edgeBucket)
+	if edges == nil {
+		return nil
+	}
+	edgeUpdateIndex := edges.Bucket(edgeUpdateIndexBucket)
+	if edgeUpdateIndex == nil {
+		return nil
+	}
+
+	// Retrieve some buckets that will be needed later on. These should
+	// already exist given the assumption that the buckets above do as
+	// well.
+	edgeIndex, err := edges.CreateBucketIfNotExists(edgeIndexBucket)
+	if edgeIndex == nil {
+		return fmt.Errorf("unable to create/fetch edge index " +
+			"bucket")
+	}
+	nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
+	if err != nil {
+		return fmt.Errorf("unable to make node bucket")
+	}
+
+	log.Info("Migrating database to properly prune edge update index")
+
+	// We'll need to properly prune all the outdated entries within the edge
+	// update index. To do so, we'll gather all of the existing policies
+	// within the graph to re-populate them later on.
+	var edgeKeys [][]byte
+	err = edges.ForEach(func(edgeKey, edgePolicyBytes []byte) error {
+		// All valid entries are indexed by a public key (33 bytes)
+		// followed by a channel ID (8 bytes), so we'll skip any entries
+		// with keys that do not match this.
+		if len(edgeKey) != 33+8 {
+			return nil
+		}
+
+		edgeKeys = append(edgeKeys, edgeKey)
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("unable to gather existing edge policies: %v",
+			err)
+	}
+
+	log.Info("Constructing set of edge update entries to purge.")
+
+	// Build the set of keys that we will remove from the edge update index.
+	// This will include all keys contained within the bucket.
+	var updateKeysToRemove [][]byte
+	err = edgeUpdateIndex.ForEach(func(updKey, _ []byte) error {
+		updateKeysToRemove = append(updateKeysToRemove, updKey)
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("unable to gather existing edge updates: %v",
+			err)
+	}
+
+	log.Infof("Removing %d entries from edge update index.",
+		len(updateKeysToRemove))
+
+	// With the set of keys contained in the edge update index constructed,
+	// we'll proceed in purging all of them from the index.
+	for _, updKey := range updateKeysToRemove {
+		if err := edgeUpdateIndex.Delete(updKey); err != nil {
+			return err
+		}
+	}
+
+	log.Infof("Repopulating edge update index with %d valid entries.",
+		len(edgeKeys))
+
+	// For each edge key, we'll retrieve the policy, deserialize it, and
+	// re-add it to the different buckets. By doing so, we'll ensure that
+	// all existing edge policies are serialized correctly within their
+	// respective buckets and that the correct entries are populated within
+	// the edge update index.
+	for _, edgeKey := range edgeKeys {
+		edgePolicyBytes := edges.Get(edgeKey)
+
+		// Skip any entries with unknown policies as there will not be
+		// any entries for them in the edge update index.
+		if bytes.Equal(edgePolicyBytes[:], unknownPolicy) {
+			continue
+		}
+
+		edgePolicy, err := deserializeChanEdgePolicy(
+			bytes.NewReader(edgePolicyBytes), nodes,
+		)
+		if err != nil {
+			return err
+		}
+
+		err = updateEdgePolicy(edges, edgeIndex, nodes, edgePolicy)
+		if err != nil {
+			return err
+		}
+	}
+
+	log.Info("Migration to properly prune edge update index complete!")
 
 	return nil
 }

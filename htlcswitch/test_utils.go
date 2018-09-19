@@ -664,7 +664,7 @@ func (r *paymentResponse) Wait(d time.Duration) (chainhash.Hash, error) {
 // * from Alice to Carol through the Bob
 // * from Alice to some another peer through the Bob
 func (n *threeHopNetwork) makePayment(sendingPeer, receivingPeer lnpeer.Peer,
-	firstHopPub [33]byte, hops []ForwardingInfo,
+	firstHop lnwire.ShortChannelID, hops []ForwardingInfo,
 	invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 	timelock uint32) *paymentResponse {
 
@@ -708,8 +708,9 @@ func (n *threeHopNetwork) makePayment(sendingPeer, receivingPeer lnpeer.Peer,
 
 	// Send payment and expose err channel.
 	go func() {
-		_, err := sender.htlcSwitch.SendHTLC(firstHopPub, htlc,
-			newMockDeobfuscator())
+		_, err := sender.htlcSwitch.SendHTLC(
+			firstHop, htlc, newMockDeobfuscator(),
+		)
 		paymentErr <- err
 	}()
 
@@ -877,7 +878,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 
 	const (
 		batchTimeout        = 50 * time.Millisecond
-		fwdPkgTimeout       = 5 * time.Second
+		fwdPkgTimeout       = 15 * time.Second
 		minFeeUpdateTimeout = 30 * time.Minute
 		maxFeeUpdateTimeout = 40 * time.Minute
 	)

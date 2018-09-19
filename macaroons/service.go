@@ -3,6 +3,7 @@ package macaroons
 import (
 	"encoding/hex"
 	"fmt"
+	"os"
 	"path"
 
 	"google.golang.org/grpc"
@@ -40,10 +41,18 @@ type Service struct {
 // such as those for `allow`, `time-before`, `declared`, and `error` caveats
 // are registered automatically and don't need to be added.
 func NewService(dir string, checks ...Checker) (*Service, error) {
+	// Ensure that the path to the directory exists.
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return nil, err
+		}
+	}
+
 	// Open the database that we'll use to store the primary macaroon key,
 	// and all generated macaroons+caveats.
-	macaroonDB, err := bolt.Open(path.Join(dir, DBFilename), 0600,
-		bolt.DefaultOptions)
+	macaroonDB, err := bolt.Open(
+		path.Join(dir, DBFilename), 0600, bolt.DefaultOptions,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -614,7 +614,7 @@
     },
     "/v1/invoices": {
       "get": {
-        "summary": "* lncli: `listinvoices`\nListInvoices returns a list of all the invoices currently stored within the\ndatabase. Any active debug invoices are ignored.",
+        "summary": "* lncli: `listinvoices`\nListInvoices returns a list of all the invoices currently stored within the\ndatabase. Any active debug invoices are ignored. It has full support for\npaginated responses, allowing users to query for specific invoices through\ntheir add_index. This can be done by using either the first_index_offset or\nlast_index_offset fields included in the response as the index_offset of the\nnext request. The reversed flag is set by default in order to paginate\nbackwards. If you wish to paginate forwards, you must explicitly set the\nflag to false. If none of the parameters are specified, then the last 100\ninvoices will be returned.",
         "operationId": "ListInvoices",
         "responses": {
           "200": {
@@ -627,7 +627,31 @@
         "parameters": [
           {
             "name": "pending_only",
-            "description": "/ Toggles if all invoices should be returned, or only those that are currently unsettled.",
+            "description": "/ If set, only unsettled invoices will be returned in the response.",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
+          },
+          {
+            "name": "index_offset",
+            "description": "*\nThe index of an invoice that will be used as either the start or end of a\nquery to determine which invoices should be returned in the response.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "num_max_invoices",
+            "description": "/ The max number of invoices to return in the response to this query.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "reversed",
+            "description": "*\nIf set, the invoices returned will result from seeking backwards from the\nspecified index offset. This can be used to paginate backwards.",
             "in": "query",
             "required": false,
             "type": "boolean",
@@ -1930,7 +1954,17 @@
         "amt_paid": {
           "type": "string",
           "format": "int64",
-          "description": "*\nThe amount that was accepted for this invoice. This will ONLY be set if\nthis invoice has been settled. We provide this field as if the invoice was\ncreated with a zero value, then we need to record what amount was\nultimately accepted. Additionally, it's possible that the sender paid MORE\nthat was specified in the original invoice. So we'll record that here as\nwell."
+          "description": "/ Deprecated, use amt_paid_sat or amt_paid_msat."
+        },
+        "amt_paid_sat": {
+          "type": "string",
+          "format": "int64",
+          "description": "*\nThe amount that was accepted for this invoice, in satoshis. This will ONLY\nbe set if this invoice has been settled. We provide this field as if the\ninvoice was created with a zero value, then we need to record what amount\nwas ultimately accepted. Additionally, it's possible that the sender paid\nMORE that was specified in the original invoice. So we'll record that here\nas well."
+        },
+        "amt_paid_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "*\nThe amount that was accepted for this invoice, in millisatoshis. This will\nONLY be set if this invoice has been settled. We provide this field as if\nthe invoice was created with a zero value, then we need to record what\namount was ultimately accepted. Additionally, it's possible that the sender\npaid MORE that was specified in the original invoice. So we'll record that\nhere as well."
         }
       }
     },
@@ -1991,7 +2025,18 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/lnrpcInvoice"
-          }
+          },
+          "description": "*\nA list of invoices from the time slice of the time series specified in the\nrequest."
+        },
+        "last_index_offset": {
+          "type": "string",
+          "format": "uint64",
+          "description": "*\nThe index of the last item in the set of returned invoices. This can be used\nto seek further, pagination style."
+        },
+        "first_index_offset": {
+          "type": "string",
+          "format": "uint64",
+          "description": "*\nThe index of the last item in the set of returned invoices. This can be used\nto seek backwards, pagination style."
         }
       }
     },
@@ -2164,6 +2209,11 @@
           "type": "integer",
           "format": "int64",
           "description": "/ The delay we require on the remote's commitment transaction. If this is not set, it will be scaled automatically with the channel size."
+        },
+        "min_confs": {
+          "type": "integer",
+          "format": "int32",
+          "description": "/ The minimum number of confirmations each one of your outputs used for the funding transaction must satisfy."
         }
       }
     },

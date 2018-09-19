@@ -22,7 +22,7 @@ package lnrpc;
  * 
  * More information on how exactly the gRPC documentation is generated from
  * this proto file can be found here:
- * https://github.com/MaxFangX/lightning-api
+ * https://github.com/lightninglabs/lightning-api
  */
 
 // The WalletUnlocker service is used to set up a wallet password for
@@ -443,7 +443,14 @@ service Lightning {
 
     /** lncli: `listinvoices`
     ListInvoices returns a list of all the invoices currently stored within the
-    database. Any active debug invoices are ignored.
+    database. Any active debug invoices are ignored. It has full support for
+    paginated responses, allowing users to query for specific invoices through
+    their add_index. This can be done by using either the first_index_offset or
+    last_index_offset fields included in the response as the index_offset of the
+    next request. The reversed flag is set by default in order to paginate
+    backwards. If you wish to paginate forwards, you must explicitly set the
+    flag to false. If none of the parameters are specified, then the last 100
+    invoices will be returned.
     */
     rpc ListInvoices (ListInvoiceRequest) returns (ListInvoiceResponse) {
         option (google.api.http) = {
@@ -1129,11 +1136,10 @@ message PendingUpdate {
 }
 
 message OpenChannelRequest {
-
     /// The pubkey of the node to open a channel with
     bytes node_pubkey = 2 [json_name = "node_pubkey"];
 
-    /// The hex encoded pubkey of the node to open a channel with 
+    /// The hex encoded pubkey of the node to open a channel with
     string node_pubkey_string = 3 [json_name = "node_pubkey_string"];
 
     /// The number of satoshis the wallet should commit to the channel
@@ -1156,6 +1162,9 @@ message OpenChannelRequest {
 
     /// The delay we require on the remote's commitment transaction. If this is not set, it will be scaled automatically with the channel size.
     uint32 remote_csv_delay = 10 [json_name = "remote_csv_delay"];
+
+    /// The minimum number of confirmations each one of your outputs used for the funding transaction must satisfy.
+    int32 min_confs = 11 [json_name = "min_confs"];
 }
 message OpenStatusUpdate {
     oneof update {
@@ -1667,15 +1676,28 @@ message Invoice {
     */
     uint64 settle_index = 17 [json_name = "settle_index"];
 
+    /// Deprecated, use amt_paid_sat or amt_paid_msat.
+    int64 amt_paid = 18 [json_name = "amt_paid", deprecated = true];
+
     /**
-    The amount that was accepted for this invoice. This will ONLY be set if
-    this invoice has been settled. We provide this field as if the invoice was
-    created with a zero value, then we need to record what amount was
-    ultimately accepted. Additionally, it's possible that the sender paid MORE
-    that was specified in the original invoice. So we'll record that here as
-    well.
+    The amount that was accepted for this invoice, in satoshis. This will ONLY
+    be set if this invoice has been settled. We provide this field as if the
+    invoice was created with a zero value, then we need to record what amount
+    was ultimately accepted. Additionally, it's possible that the sender paid
+    MORE that was specified in the original invoice. So we'll record that here
+    as well.
     */
-    int64 amt_paid = 18 [json_name = "amt_paid"];
+    int64 amt_paid_sat = 19 [json_name = "amt_paid_sat"];
+
+    /**
+    The amount that was accepted for this invoice, in millisatoshis. This will
+    ONLY be set if this invoice has been settled. We provide this field as if
+    the invoice was created with a zero value, then we need to record what
+    amount was ultimately accepted. Additionally, it's possible that the sender
+    paid MORE that was specified in the original invoice. So we'll record that
+    here as well.
+    */
+    int64 amt_paid_msat = 20 [json_name = "amt_paid_msat"];
 }
 message AddInvoiceResponse {
     bytes r_hash = 1 [json_name = "r_hash"];
@@ -1705,12 +1727,44 @@ message PaymentHash {
     /// The payment hash of the invoice to be looked up.
     bytes r_hash = 2 [json_name = "r_hash"];
 }
+
 message ListInvoiceRequest {
-    /// Toggles if all invoices should be returned, or only those that are currently unsettled.
-    bool pending_only = 1;
+    /// If set, only unsettled invoices will be returned in the response.
+    bool pending_only = 1 [json_name = "pending_only"];
+
+    /**
+    The index of an invoice that will be used as either the start or end of a
+    query to determine which invoices should be returned in the response.
+    */
+    uint64 index_offset = 4 [json_name = "index_offset"];
+
+    /// The max number of invoices to return in the response to this query.
+    uint64 num_max_invoices = 5 [json_name = "num_max_invoices"];
+
+    /**
+    If set, the invoices returned will result from seeking backwards from the
+    specified index offset. This can be used to paginate backwards.
+    */
+    bool reversed = 6 [json_name = "reversed"];
 }
 message ListInvoiceResponse {
+    /**
+    A list of invoices from the time slice of the time series specified in the
+    request.
+    */
     repeated Invoice invoices = 1 [json_name = "invoices"];
+
+    /**
+    The index of the last item in the set of returned invoices. This can be used
+    to seek further, pagination style.
+    */
+    uint64 last_index_offset = 2 [json_name = "last_index_offset"];
+
+    /**
+    The index of the last item in the set of returned invoices. This can be used
+    to seek backwards, pagination style.
+    */
+    uint64 first_index_offset = 3 [json_name = "first_index_offset"];
 }
 
 message InvoiceSubscription {

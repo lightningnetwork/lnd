@@ -11,15 +11,12 @@ import (
 	"io/ioutil"
 	"math"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 
-	"github.com/awalterschulze/gographviz"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcutil"
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -154,9 +151,9 @@ var sendCoinsCommand = cli.Command{
 	Description: `
 	Send amt coins in satoshis to the BASE58 encoded bitcoin address addr.
 
-	Fees used when sending the transaction can be specified via the --conf_target, or 
+	Fees used when sending the transaction can be specified via the --conf_target, or
 	--sat_per_byte optional flags.
-	
+
 	Positional arguments and flags can be used interchangeably but not at the same time!
 	`,
 	Flags: []cli.Flag{
@@ -253,7 +250,7 @@ var sendManyCommand = cli.Command{
 	Description: `
 	Create and broadcast a transaction paying the specified amount(s) to the passed address(es).
 
-	The send-json-string' param decodes addresses and the amount to send 
+	The send-json-string' param decodes addresses and the amount to send
 	respectively in the following format:
 
 	    '{"ExampleAddr": NumCoinsInSatoshis, "SecondAddr": NumCoins}'
@@ -472,6 +469,13 @@ var openChannelCommand = cli.Command{
 				"not set, we will scale the value according to the " +
 				"channel size",
 		},
+		cli.Uint64Flag{
+			Name: "min_confs",
+			Usage: "(optional) the minimum number of confirmations " +
+				"each one of your outputs used for the funding " +
+				"transaction must satisfy",
+			Value: 1,
+		},
 	},
 	Action: actionDecorator(openChannel),
 }
@@ -496,6 +500,7 @@ func openChannel(ctx *cli.Context) error {
 		SatPerByte:     ctx.Int64("sat_per_byte"),
 		MinHtlcMsat:    ctx.Int64("min_htlc_msat"),
 		RemoteCsvDelay: uint32(ctx.Uint64("remote_csv_delay")),
+		MinConfs:       int32(ctx.Uint64("min_confs")),
 	}
 
 	switch {
@@ -1054,7 +1059,7 @@ var createCommand = cli.Command{
 	The create command is used to initialize an lnd wallet from scratch for
 	the very first time. This is interactive command with one required
 	argument (the password), and one optional argument (the mnemonic
-	passphrase).  
+	passphrase).
 
 	The first argument (the password) is required and MUST be greater than
 	8 characters. This will be used to encrypt the wallet within lnd. This
@@ -1328,7 +1333,7 @@ var unlockCommand = cli.Command{
 	The unlock command is used to decrypt lnd's wallet state in order to
 	start up. This command MUST be run after booting up lnd before it's
 	able to carry out its duties. An exception is if a user is running with
-	--noencryptwallet, then a default passphrase will be used.
+	--noseedbackup, then a default passphrase will be used.
 	`,
 	Flags: []cli.Flag{
 		cli.IntFlag{
@@ -1396,8 +1401,8 @@ var changePasswordCommand = cli.Command{
 	is successful.
 
 	If one did not specify a password for their wallet (running lnd with
-	--noencryptwallet), one must restart their daemon without
-	--noencryptwallet and use this command. The "current password" field
+	--noseedbackup), one must restart their daemon without
+	--noseedbackup and use this command. The "current password" field
 	should be left empty.
 	`,
 	Action: actionDecorator(changePassword),
@@ -1736,7 +1741,7 @@ func retrieveFeeLimit(ctx *cli.Context) (*lnrpc.FeeLimit, error) {
 	return nil, nil
 }
 
-func confirmPayReq(client lnrpc.LightningClient, payReq string) error {
+func confirmPayReq(ctx *cli.Context, client lnrpc.LightningClient, payReq string) error {
 	ctxb := context.Background()
 
 	req := &lnrpc.PayReqString{PayReq: payReq}
@@ -1745,8 +1750,19 @@ func confirmPayReq(client lnrpc.LightningClient, payReq string) error {
 		return err
 	}
 
+	// If the amount was not included in the invoice, then we let
+	// the payee specify the amount of satoshis they wish to send.
+	amt := resp.GetNumSatoshis()
+	if amt == 0 {
+		amt = ctx.Int64("amt")
+		if amt == 0 {
+			return fmt.Errorf("amount must be specified when " +
+				"paying a zero amount invoice")
+		}
+	}
+
 	fmt.Printf("Description: %v\n", resp.GetDescription())
-	fmt.Printf("Amount (in satoshis): %v\n", resp.GetNumSatoshis())
+	fmt.Printf("Amount (in satoshis): %v\n", amt)
 	fmt.Printf("Destination: %v\n", resp.GetDestination())
 
 	confirm := promptForConfirmation("Confirm payment (yes/no): ")
@@ -1778,7 +1794,7 @@ func sendPayment(ctx *cli.Context) error {
 	// details of the payment are encoded within the request.
 	if ctx.IsSet("pay_req") {
 		if !ctx.Bool("force") {
-			err = confirmPayReq(client, ctx.String("pay_req"))
+			err = confirmPayReq(ctx, client, ctx.String("pay_req"))
 			if err != nil {
 				return err
 			}
@@ -1955,7 +1971,7 @@ func payInvoice(ctx *cli.Context) error {
 	}
 
 	if !ctx.Bool("force") {
-		err = confirmPayReq(client, payReq)
+		err = confirmPayReq(ctx, client, payReq)
 		if err != nil {
 			return err
 		}
@@ -1966,7 +1982,6 @@ func payInvoice(ctx *cli.Context) error {
 		Amt:            ctx.Int64("amt"),
 		FeeLimit:       feeLimit,
 	}
-
 	return sendPaymentRequest(client, req)
 }
 
@@ -2304,12 +2319,45 @@ func lookupInvoice(ctx *cli.Context) error {
 var listInvoicesCommand = cli.Command{
 	Name:     "listinvoices",
 	Category: "Payments",
-	Usage:    "List all invoices currently stored.",
+	Usage: "List all invoices currently stored within the database. Any " +
+		"active debug invoices are ingnored.",
+	Description: `
+	This command enables the retrieval of all invoices currently stored
+	within the database. It has full support for paginationed responses,
+	allowing users to query for specific invoices through their add_index.
+	This can be done by using either the first_index_offset or
+	last_index_offset fields included in the response as the index_offset of
+	the next request. The reversed flag is set by default in order to
+	paginate backwards. If you wish to paginate forwards, you must
+	explicitly set the flag to false. If none of the parameters are
+	specified, then the last 100 invoices will be returned.
+
+	For example: if you have 200 invoices, "lncli listinvoices" will return
+	the last 100 created. If you wish to retrieve the previous 100, the
+	first_offset_index of the response can be used as the index_offset of
+	the next listinvoices request.`,
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name: "pending_only",
-			Usage: "toggles if all invoices should be returned, or only " +
-				"those that are currently unsettled",
+			Usage: "toggles if all invoices should be returned, " +
+				"or only those that are currently unsettled",
+		},
+		cli.Uint64Flag{
+			Name: "index_offset",
+			Usage: "the index of an invoice that will be used as " +
+				"either the start or end of a query to " +
+				"determine which invoices should be returned " +
+				"in the response",
+		},
+		cli.Uint64Flag{
+			Name:  "max_invoices",
+			Usage: "the max number of invoices to return",
+		},
+		cli.BoolTFlag{
+			Name: "reversed",
+			Usage: "if set, the invoices returned precede the " +
+				"given index_offset, allowing backwards " +
+				"pagination",
 		},
 	},
 	Action: actionDecorator(listInvoices),
@@ -2319,13 +2367,11 @@ func listInvoices(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	pendingOnly := true
-	if !ctx.Bool("pending_only") {
-		pendingOnly = false
-	}
-
 	req := &lnrpc.ListInvoiceRequest{
-		PendingOnly: pendingOnly,
+		PendingOnly:    ctx.Bool("pending_only"),
+		IndexOffset:    ctx.Uint64("index_offset"),
+		NumMaxInvoices: ctx.Uint64("max_invoices"),
+		Reversed:       ctx.Bool("reversed"),
 	}
 
 	invoices, err := client.ListInvoices(context.Background(), req)
@@ -2343,13 +2389,7 @@ var describeGraphCommand = cli.Command{
 	Category: "Peers",
 	Description: "Prints a human readable version of the known channel " +
 		"graph from the PoV of the node",
-	Usage: "Describe the network graph.",
-	Flags: []cli.Flag{
-		cli.BoolFlag{
-			Name:  "render",
-			Usage: "If set, then an image of graph will be generated and displayed. The generated image is stored within the current directory with a file name of 'graph.svg'",
-		},
-	},
+	Usage:  "Describe the network graph.",
 	Action: actionDecorator(describeGraph),
 }
 
@@ -2362,12 +2402,6 @@ func describeGraph(ctx *cli.Context) error {
 	graph, err := client.DescribeGraph(context.Background(), req)
 	if err != nil {
 		return err
-	}
-
-	// If the draw flag is on, then we'll use the 'dot' command to create a
-	// visualization of the graph itself.
-	if ctx.Bool("render") {
-		return drawChannelGraph(graph)
 	}
 
 	printRespJSON(graph)
@@ -2403,135 +2437,6 @@ func normalizeFunc(edges []*lnrpc.ChannelEdge, scaleFactor float64) func(int64) 
 		// TODO(roasbeef): results in min being zero
 		return (y - min) / (max - min) * scaleFactor
 	}
-}
-
-func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
-	// First we'll create a temporary file that we'll write the compiled
-	// string that describes our graph in the dot format to.
-	tempDotFile, err := ioutil.TempFile("", "")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tempDotFile.Name())
-
-	// Next, we'll create (or re-create) the file that the final graph
-	// image will be written to.
-	imageFile, err := os.Create("graph.svg")
-	if err != nil {
-		return err
-	}
-
-	// With our temporary files set up, we'll initialize the graphviz
-	// object that we'll use to draw our graph.
-	graphName := "LightningNetwork"
-	graphCanvas := gographviz.NewGraph()
-	graphCanvas.SetName(graphName)
-	graphCanvas.SetDir(false)
-
-	const numKeyChars = 10
-
-	truncateStr := func(k string, n uint) string {
-		return k[:n]
-	}
-
-	// For each node within the graph, we'll add a new vertex to the graph.
-	for _, node := range graph.Nodes {
-		// Rather than using the entire hex-encoded string, we'll only
-		// use the first 10 characters. We also add a prefix of "Z" as
-		// graphviz is unable to parse the compressed pubkey as a
-		// non-integer.
-		//
-		// TODO(roasbeef): should be able to get around this?
-		nodeID := fmt.Sprintf(`"%v"`, truncateStr(node.PubKey, numKeyChars))
-
-		attrs := gographviz.Attrs{}
-
-		if node.Color != "" {
-			attrs["color"] = fmt.Sprintf(`"%v"`, node.Color)
-		}
-
-		graphCanvas.AddNode(graphName, nodeID, attrs)
-	}
-
-	normalize := normalizeFunc(graph.Edges, 3)
-
-	// Similarly, for each edge we'll add an edge between the corresponding
-	// nodes added to the graph above.
-	for _, edge := range graph.Edges {
-		// Once again, we add a 'Z' prefix so we're compliant with the
-		// dot grammar.
-		src := fmt.Sprintf(`"%v"`, truncateStr(edge.Node1Pub, numKeyChars))
-		dest := fmt.Sprintf(`"%v"`, truncateStr(edge.Node2Pub, numKeyChars))
-
-		// The weight for our edge will be the total capacity of the
-		// channel, in BTC.
-		// TODO(roasbeef): can also factor in the edges time-lock delta
-		// and fee information
-		amt := btcutil.Amount(edge.Capacity).ToBTC()
-		edgeWeight := strconv.FormatFloat(amt, 'f', -1, 64)
-
-		// The label for each edge will simply be a truncated version
-		// of its channel ID.
-		chanIDStr := strconv.FormatUint(edge.ChannelId, 10)
-		edgeLabel := fmt.Sprintf(`"cid:%v"`, truncateStr(chanIDStr, 7))
-
-		// We'll also use a normalized version of the channels'
-		// capacity in satoshis in order to modulate the "thickness" of
-		// the line that creates the edge within the graph.
-		normalizedCapacity := normalize(edge.Capacity)
-		edgeThickness := strconv.FormatFloat(normalizedCapacity, 'f', -1, 64)
-
-		// If there's only a single channel in the graph, then we'll
-		// just set the edge thickness to 1 for everything.
-		if math.IsNaN(normalizedCapacity) {
-			edgeThickness = "1"
-		}
-
-		// TODO(roasbeef): color code based on percentile capacity
-		graphCanvas.AddEdge(src, dest, false, gographviz.Attrs{
-			"penwidth": edgeThickness,
-			"weight":   edgeWeight,
-			"label":    edgeLabel,
-		})
-	}
-
-	// With the declarative generation of the graph complete, we now write
-	// the dot-string description of the graph
-	graphDotString := graphCanvas.String()
-	if _, err := tempDotFile.WriteString(graphDotString); err != nil {
-		return err
-	}
-	if err := tempDotFile.Sync(); err != nil {
-		return err
-	}
-
-	var errBuffer bytes.Buffer
-
-	// Once our dot file has been written to disk, we can use the dot
-	// command itself to generate the drawn rendering of the graph
-	// described.
-	drawCmd := exec.Command("dot", "-T"+"svg", "-o"+imageFile.Name(),
-		tempDotFile.Name())
-	drawCmd.Stderr = &errBuffer
-	if err := drawCmd.Run(); err != nil {
-		fmt.Println("error rendering graph: ", errBuffer.String())
-		fmt.Println("dot: ", graphDotString)
-
-		return err
-	}
-
-	errBuffer.Reset()
-
-	// Finally, we'll open the drawn graph to display to the user.
-	openCmd := exec.Command("open", imageFile.Name())
-	openCmd.Stderr = &errBuffer
-	if err := openCmd.Run(); err != nil {
-		fmt.Println("error opening rendered graph image: ",
-			errBuffer.String())
-		return err
-	}
-
-	return nil
 }
 
 var listPaymentsCommand = cli.Command{
@@ -2668,12 +2573,12 @@ var queryRoutesCommand = cli.Command{
 		},
 		cli.Int64Flag{
 			Name: "fee_limit",
-			Usage: "maximum fee allowed in satoshis when sending" +
+			Usage: "maximum fee allowed in satoshis when sending " +
 				"the payment",
 		},
 		cli.Int64Flag{
 			Name: "fee_limit_percent",
-			Usage: "percentage of the payment's amount used as the" +
+			Usage: "percentage of the payment's amount used as the " +
 				"maximum fee allowed when sending the payment",
 		},
 		cli.Int64Flag{
@@ -2778,7 +2683,7 @@ var debugLevelCommand = cli.Command{
 	Usage: "Set the debug level.",
 	Description: `Logging level for all subsystems {trace, debug, info, warn, error, critical, off}
 	You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems
-	
+
 	Use show to list available subsystems`,
 	Flags: []cli.Flag{
 		cli.BoolFlag{
@@ -2880,7 +2785,7 @@ var stopCommand = cli.Command{
 	Name:  "stop",
 	Usage: "Stop and shutdown the daemon.",
 	Description: `
-	Gracefully stop all daemon subsystems before stopping the daemon itself. 
+	Gracefully stop all daemon subsystems before stopping the daemon itself.
 	This is equivalent to stopping it using CTRL-C.`,
 	Action: actionDecorator(stopDaemon),
 }
@@ -2904,9 +2809,9 @@ var signMessageCommand = cli.Command{
 	Usage:     "Sign a message with the node's private key.",
 	ArgsUsage: "msg",
 	Description: `
-	Sign msg with the resident node's private key. 
-	Returns the signature as a zbase32 string. 
-	
+	Sign msg with the resident node's private key.
+	Returns the signature as a zbase32 string.
+
 	Positional arguments and flags can be used interchangeably but not at the same time!`,
 	Flags: []cli.Flag{
 		cli.StringFlag{
@@ -3011,7 +2916,7 @@ var feeReportCommand = cli.Command{
 	Name:     "feereport",
 	Category: "Channels",
 	Usage:    "Display the current fee policies of all active channels.",
-	Description: ` 
+	Description: `
 	Returns the current fee policies of all active channels.
 	Fee policies can be updated using the updatechanpolicy command.`,
 	Action: actionDecorator(feeReport),

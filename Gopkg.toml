@@ -1,6 +1,6 @@
-[[constraint]]
-  name = "github.com/awalterschulze/gographviz"
-  revision = "761fd5fbb34e4c2c138c280395b65b48e4ff5a53"
+[[override]]
+  name = "github.com/aead/siphash"
+  revision = "83563a290f60225eb120d724600b9690c3fb536f"
 
 [[constraint]]
   name = "github.com/btcsuite/btclog"
@@ -44,7 +44,7 @@
 
 [[constraint]]
   name = "github.com/lightninglabs/neutrino"
-  revision = "0d0ce901538af81e234c1b2376babf20fe976b09"
+  revision = "bee0ed11601a4ad0c3b23d462cd71089fc11f2cd"
 
 [[constraint]]
   name = "github.com/lightningnetwork/lightning-onion"
@@ -52,7 +52,7 @@
 
 [[constraint]]
   name = "github.com/ltcsuite/ltcd"
-  revision = "5f654d5faab99ee2b3488fabba98e5f7a5257ee3"
+  revision = "cdab10132e8c6e4a3ffd112dba54791946d28906"
 
 [[constraint]]
   name = "github.com/miekg/dns"
@@ -68,11 +68,11 @@
 
 [[constraint]]
   name = "github.com/btcsuite/btcd"
-  revision = "f899737d7f2764dc13e4d01ff00108ec58f766a9"
+  revision = "79e00513b1011888b1e675157ab89f527f901cae"
 
 [[constraint]]
   name = "github.com/btcsuite/btcwallet"
-  revision = "5fb94231d0c814f02ffc3110eee588278151b4e1"
+  revision = "421298df22601db0fe4adb8f4be71b7014324ba9"
 
 [[constraint]]
   name = "github.com/tv42/zbase32"
@@ -88,11 +88,19 @@
 
 [[constraint]]
   name = "golang.org/x/crypto"
-  revision = "49796115aa4b964c318aad4f3084fdb41e9aa067"
+  revision = "614d502a4dac94afa3a6ce146bd1736da82514c6"
 
 [[constraint]]
   name = "golang.org/x/net"
   revision = "ae89d30ce0c63142b652837da33d782e2b0a9b25"
+
+[[override]]
+  name = "golang.org/x/sys"
+  revision = "ebe1bf3edb3325c393447059974de898d5133eb8"
+
+[[constraint]]
+  name = "golang.org/x/time"
+  revision = "fbb02b2291d28baffd63558aa44b4b56f178d650"
 
 [[constraint]]
   name = "google.golang.org/genproto"
@@ -101,6 +109,10 @@
 [[constraint]]
   name = "google.golang.org/grpc"
   revision = "b3ddf786825de56a4178401b7e174ee332173b66"
+
+[[override]]
+  name = "gopkg.in/errgo.v1"
+  revision = "b20caedf0710d0988e92b5f2d76843ad1f231f2d"
 
 [[constraint]]
   name = "gopkg.in/macaroon-bakery.v2"

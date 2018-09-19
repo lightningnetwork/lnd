@@ -140,9 +140,9 @@ To authenticate using macaroons you need to include the macaroon in the metadata
 ```python
 import codecs
 
-# Lnd admin macaroon is at ~/.lnd/admin.macaroon on Linux and
-# ~/Library/Application Support/Lnd/admin.macaroon on Mac
-with open(os.path.expanduser('~/.lnd/admin.macaroon'), 'rb') as f:
+# Lnd admin macaroon is at ~/.lnd/data/chain/bitcoin/simnet/admin.macaroon on Linux and
+# ~/Library/Application Support/Lnd/data/chain/bitcoin/simnet/admin.macaroon on Mac
+with open(os.path.expanduser('~/.lnd/data/chain/bitcoin/simnet/admin.macaroon'), 'rb') as f:
     macaroon_bytes = f.read()
     macaroon = codecs.encode(macaroon_bytes, 'hex')
 ```

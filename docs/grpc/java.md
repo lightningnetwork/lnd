@@ -158,7 +158,7 @@ public class Main {
   }
 
   private static final String CERT_PATH = "/Users/user/Library/Application Support/Lnd/tls.cert";
-  private static final String MACAROON_PATH = "/Users/user/Library/Application Support/Lnd/admin.macaroon";
+  private static final String MACAROON_PATH = "/Users/user/Library/Application Support/Lnd/data/chain/bitcoin/simnet/admin.macaroon";
   private static final String HOST = "localhost";
   private static final int PORT = 10009;
 

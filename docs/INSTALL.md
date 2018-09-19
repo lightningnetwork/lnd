@@ -291,12 +291,6 @@ lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --bitcoin.node=bitcoin
   `lnd` plus any application that consumes the RPC could cause `lnd` to miss
   crucial updates from the backend.
 
-#### Disabling Wallet Encryption
-
-To disable encryption of the wallet files, pass the `--noencryptwallet` argument
-to `lnd`. Obviously beware the security implications of running an unencrypted
-wallet - this argument must only be used for testing purposes.
-
 #### Macaroons
 
 `lnd`'s authentication system is called **macaroons**, which are decentralized
@@ -306,10 +300,12 @@ Github](https://github.com/lightningnetwork/lnd/issues/20).
 
 Running `lnd` for the first time will by default generate the `admin.macaroon`,
 `read_only.macaroon`, and `macaroons.db` files that are used to authenticate
-into `lnd`. They will be stored in the default `lnd` data directory. Note that
-if you specified an alternative data directory (via the `--datadir` argument),
-you will have to additionally pass the updated location of the `admin.macaroon`
-file into `lncli` using the `--macaroonpath` argument.
+into `lnd`. They will be stored in the network directory (default:
+`lnddir/data/chain/bitcoin/mainnet`) so that it's possible to use a distinct
+password for mainnet, testnet, simnet, etc. Note that if you specified an
+alternative data directory (via the `--datadir` argument), you will have to
+additionally pass the updated location of the `admin.macaroon` file into `lncli`
+using the `--macaroonpath` argument.
 
 To disable macaroons for testing, pass the `--no-macaroons` flag into *both*
 `lnd` and `lncli`.

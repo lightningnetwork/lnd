@@ -1,3 +1,5 @@
+// +build debug
+
 package neutrinonotify
 
 import (
@@ -51,7 +53,8 @@ func (n *NeutrinoNotifier) UnsafeStart(bestHeight int32, bestHash *chainhash.Has
 	}
 
 	n.txConfNotifier = chainntnfs.NewTxConfNotifier(
-		uint32(bestHeight), reorgSafetyLimit)
+		uint32(bestHeight), reorgSafetyLimit, n.confirmHintCache,
+	)
 
 	n.chainConn = &NeutrinoChainConn{n.p2pNode}
 

@@ -56,28 +56,14 @@
   revision = "8b13a72661dae6e9e5dea04f344f0dc95ea29547"
 
 [[projects]]
-  branch = "master"
-  digest = "1:dc417dbf4d023500d4fd5685910f202b2e380d5310c00a0b9d4803e3d35ed4df"
+  digest = "1:1c10bf6793afd790b0949d5384403d8d4850bf8f5f72ab6fc232277daaa5057b"
   name = "github.com/aead/siphash"
   packages = ["."]
   pruneopts = "UT"
-  revision = "e404fcfc888570cadd1610538e2dbc89f66af814"
+  revision = "83563a290f60225eb120d724600b9690c3fb536f"
 
 [[projects]]
-  digest = "1:9c78699f117ea9ee1923694ee8c13e1a94bd8cf311b2797c96521359a5d8ae10"
-  name = "github.com/awalterschulze/gographviz"
-  packages = [
-    ".",
-    "ast",
-    "parser",
-    "scanner",
-    "token",
-  ]
-  pruneopts = "UT"
-  revision = "761fd5fbb34e4c2c138c280395b65b48e4ff5a53"
-
-[[projects]]
-  digest = "1:f944518b25f8733eed1d13855eeaaeda9b1f56c2bc75223a7e3427c024168eba"
+  digest = "1:e0ab2aba19fe77b2367828b186e46a5efa57d35a94df282ae25adf624136ae5c"
   name = "github.com/btcsuite/btcd"
   packages = [
     "addrmgr",
@@ -95,7 +81,7 @@
     "wire",
   ]
   pruneopts = "UT"
-  revision = "f899737d7f2764dc13e4d01ff00108ec58f766a9"
+  revision = "79e00513b1011888b1e675157ab89f527f901cae"
 
 [[projects]]
   digest = "1:30d4a548e09bca4a0c77317c58e7407e2a65c15325e944f9c08a7b7992f8a59e"
@@ -120,7 +106,7 @@
   revision = "ab6388e0c60ae4834a1f57511e20c17b5f78be4b"
 
 [[projects]]
-  digest = "1:04bf3f47dafa64588795c5e0329dc662e867c3afa191051821dbacbe09ba2ca8"
+  digest = "1:e6575f3ee773e72a38319dbd8f4cb7f1b574eccfed7cb103c3a25c254d5c250f"
   name = "github.com/btcsuite/btcwallet"
   packages = [
     "chain",
@@ -140,7 +126,7 @@
     "wtxmgr",
   ]
   pruneopts = "UT"
-  revision = "5fb94231d0c814f02ffc3110eee588278151b4e1"
+  revision = "421298df22601db0fe4adb8f4be71b7014324ba9"
 
 [[projects]]
   branch = "master"
@@ -279,16 +265,18 @@
   revision = "462a8a75388506b68f76661af8d649f0b88e5301"
 
 [[projects]]
-  digest = "1:11ab77a97c0db5cfe9c82f16cb7c47213612033e8bd711e6ddc9a32615fc747d"
+  digest = "1:bfa96e847f4503afbd7c893be9c3b81dde1109bdf2004d9f2534dd8d44a8d9d0"
   name = "github.com/lightninglabs/neutrino"
   packages = [
     ".",
+    "cache",
+    "cache/lru",
     "filterdb",
     "headerfs",
     "headerlist",
   ]
   pruneopts = "UT"
-  revision = "0d0ce901538af81e234c1b2376babf20fe976b09"
+  revision = "bee0ed11601a4ad0c3b23d462cd71089fc11f2cd"
 
 [[projects]]
   digest = "1:58ab6d6525898cbeb86dc29a68f8e9bfe95254b9032134eb9458779574872260"
@@ -298,7 +286,7 @@
   revision = "ac4d9da8f1d67c95f1fafdc65e1a4902d6f5a940"
 
 [[projects]]
-  digest = "1:9e09c46058b3f1456c2690bd853ecd769fce3df943f7883fba64cb8f2be34f33"
+  digest = "1:3402f61a37575d808e4499dbfda1ab756d570c66cdfed492b84a936bbb909533"
   name = "github.com/ltcsuite/ltcd"
   packages = [
     "chaincfg",
@@ -306,7 +294,7 @@
     "wire",
   ]
   pruneopts = "UT"
-  revision = "5f654d5faab99ee2b3488fabba98e5f7a5257ee3"
+  revision = "cdab10132e8c6e4a3ffd112dba54791946d28906"
 
 [[projects]]
   digest = "1:a0bf6f18ffeb4a45fd00d5eb16d918769bbe0e2dc7824e95abf05a3306f60102"
@@ -341,7 +329,7 @@
   revision = "1efa31f08b9333f1bd4882d61f9d668a70cd902e"
 
 [[projects]]
-  digest = "1:61cf25ac3ac0c8c50959666ddf732a396fbc445570be051c8b9795c8a087fde7"
+  digest = "1:270627be1fb5b0875bdbf8a96f86a551adc0aeba97fb63af3caaa21c0a39c499"
   name = "golang.org/x/crypto"
   packages = [
     "blake2b",
@@ -349,6 +337,7 @@
     "curve25519",
     "hkdf",
     "internal/chacha20",
+    "internal/subtle",
     "nacl/box",
     "nacl/secretbox",
     "pbkdf2",
@@ -360,7 +349,7 @@
     "ssh/terminal",
   ]
   pruneopts = "UT"
-  revision = "49796115aa4b964c318aad4f3084fdb41e9aa067"
+  revision = "614d502a4dac94afa3a6ce146bd1736da82514c6"
 
 [[projects]]
   digest = "1:0764abb1e99bb977d1b9f320d02859d4a737252da3e1fd233c4ae0f9522e7446"
@@ -382,8 +371,7 @@
   revision = "ae89d30ce0c63142b652837da33d782e2b0a9b25"
 
 [[projects]]
-  branch = "master"
-  digest = "1:01b240e338435648db3155614b819aa03735c3e7920712f32638f53272895bfb"
+  digest = "1:576f8d82185dc836ec6d10c0e5568dc4ff94e4d9f101d33ed5d6bae0cbba65b2"
   name = "golang.org/x/sys"
   packages = [
     "cpu",
@@ -391,7 +379,7 @@
     "windows",
   ]
   pruneopts = "UT"
-  revision = "904bdc257025c7b3f43c19360ad3ab85783fad78"
+  revision = "ebe1bf3edb3325c393447059974de898d5133eb8"
 
 [[projects]]
   digest = "1:436b24586f8fee329e0dd65fd67c817681420cda1d7f934345c13fe78c212a73"
@@ -429,6 +417,13 @@
   version = "v0.3.0"
 
 [[projects]]
+  digest = "1:c9e7a4b4d47c0ed205d257648b0e5b0440880cb728506e318f8ac7cd36270bc4"
+  name = "golang.org/x/time"
+  packages = ["rate"]
+  pruneopts = "UT"
+  revision = "fbb02b2291d28baffd63558aa44b4b56f178d650"
+
+[[projects]]
   digest = "1:c2dee8dbcc504d1a7858f5dbaed7c8b256c512c5e9e81480158c30185bbd2792"
   name = "google.golang.org/genproto"
   packages = [
@@ -462,12 +457,11 @@
   revision = "b3ddf786825de56a4178401b7e174ee332173b66"
 
 [[projects]]
-  branch = "v1"
-  digest = "1:beb56f8f7b0cb98f3773e279d02ddc67b20fbff1f277d29fe74209b65cbcad26"
+  digest = "1:9f0c81ca4b497d3723d0a66495d8a1efe277068b77ef3ad2d6460e480bf09bb3"
   name = "gopkg.in/errgo.v1"
   packages = ["."]
   pruneopts = "UT"
-  revision = "c17903c6b19d5dedb9cfba9fa314c7fae63e554f"
+  revision = "b20caedf0710d0988e92b5f2d76843ad1f231f2d"
 
 [[projects]]
   digest = "1:f75654fe9e7a52c9df4c13d3c362a02e9dd0ab5e1ef336212ae68964c05ff53f"
@@ -493,7 +487,6 @@
   input-imports = [
     "github.com/NebulousLabs/go-upnp",
     "github.com/Yawning/aez",
-    "github.com/awalterschulze/gographviz",
     "github.com/btcsuite/btcd/blockchain",
     "github.com/btcsuite/btcd/btcec",
     "github.com/btcsuite/btcd/btcjson",
@@ -546,6 +539,7 @@
     "golang.org/x/crypto/ssh/terminal",
     "golang.org/x/net/context",
     "golang.org/x/net/proxy",
+    "golang.org/x/time/rate",
     "google.golang.org/genproto/googleapis/api/annotations",
     "google.golang.org/grpc",
     "google.golang.org/grpc/codes",

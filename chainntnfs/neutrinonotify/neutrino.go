@@ -77,6 +77,16 @@ type NeutrinoNotifier struct {
 
 	chainUpdates *chainntnfs.ConcurrentQueue
 
+	// spendHintCache is a cache used to query and update the latest height
+	// hints for an outpoint. Each height hint represents the earliest
+	// height at which the outpoint could have been spent within the chain.
+	spendHintCache chainntnfs.SpendHintCache
+
+	// confirmHintCache is a cache used to query the latest height hints for
+	// a transaction. Each height hint represents the earliest height at
+	// which the transaction could have confirmed within the chain.
+	confirmHintCache chainntnfs.ConfirmHintCache
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -89,7 +99,9 @@ var _ chainntnfs.ChainNotifier = (*NeutrinoNotifier)(nil)
 //
 // NOTE: The passed neutrino node should already be running and active before
 // being passed into this function.
-func New(node *neutrino.ChainService) (*NeutrinoNotifier, error) {
+func New(node *neutrino.ChainService, spendHintCache chainntnfs.SpendHintCache,
+	confirmHintCache chainntnfs.ConfirmHintCache) (*NeutrinoNotifier, error) {
+
 	notifier := &NeutrinoNotifier{
 		notificationCancels:  make(chan interface{}),
 		notificationRegistry: make(chan interface{}),
@@ -103,6 +115,9 @@ func New(node *neutrino.ChainService) (*NeutrinoNotifier, error) {
 		rescanErr: make(chan error),
 
 		chainUpdates: chainntnfs.NewConcurrentQueue(10),
+
+		spendHintCache:   spendHintCache,
+		confirmHintCache: confirmHintCache,
 
 		quit: make(chan struct{}),
 	}
@@ -150,7 +165,7 @@ func (n *NeutrinoNotifier) Start() error {
 	}
 
 	n.txConfNotifier = chainntnfs.NewTxConfNotifier(
-		bestHeight, reorgSafetyLimit,
+		bestHeight, reorgSafetyLimit, n.confirmHintCache,
 	)
 
 	n.chainConn = &NeutrinoChainConn{n.p2pNode}
@@ -358,6 +373,7 @@ out:
 					rescanUpdate := []neutrino.UpdateOption{
 						neutrino.AddAddrs(addrs...),
 						neutrino.Rewind(currentHeight),
+						neutrino.DisableDisconnectedNtfns(true),
 					}
 					err = n.chainView.Update(rescanUpdate...)
 					if err != nil {
@@ -561,7 +577,7 @@ func (n *NeutrinoNotifier) historicalConfDetails(targetHash *chainhash.Hash,
 		// In the case that we do have a match, we'll fetch the block
 		// from the network so we can find the positional data required
 		// to send the proper response.
-		block, err := n.p2pNode.GetBlockFromNetwork(blockHash)
+		block, err := n.p2pNode.GetBlock(blockHash)
 		if err != nil {
 			return nil, fmt.Errorf("unable to get block from network: %v", err)
 		}
@@ -588,22 +604,23 @@ func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 	// First process the block for our internal state. A new block has
 	// been connected to the main chain. Send out any N confirmation
 	// notifications which may have been triggered by this new block.
-	err := n.txConfNotifier.ConnectTip(&newBlock.hash, newBlock.height,
-		newBlock.txns)
+	err := n.txConfNotifier.ConnectTip(
+		&newBlock.hash, newBlock.height, newBlock.txns,
+	)
 	if err != nil {
 		return fmt.Errorf("unable to connect tip: %v", err)
 	}
 
-	chainntnfs.Log.Infof("New block: height=%v, sha=%v",
-		newBlock.height, newBlock.hash)
+	chainntnfs.Log.Infof("New block: height=%v, sha=%v", newBlock.height,
+		newBlock.hash)
 
 	n.bestHeight = newBlock.height
 
 	// Next, notify any subscribed clients of the block.
 	n.notifyBlockEpochs(int32(newBlock.height), &newBlock.hash)
 
-	// Finally, we'll scan over the list of relevant transactions and
-	// possibly dispatch notifications for confirmations and spends.
+	// Scan over the list of relevant transactions and possibly dispatch
+	// notifications for spends.
 	for _, tx := range newBlock.txns {
 		mtx := tx.MsgTx()
 		txSha := mtx.TxHash()
@@ -646,12 +663,30 @@ func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 		}
 	}
 
+	// Finally, we'll update the spend height hint for all of our watched
+	// outpoints that have not been spent yet. This is safe to do as we do
+	// not watch already spent outpoints for spend notifications.
+	ops := make([]wire.OutPoint, 0, len(n.spendNotifications))
+	for op := range n.spendNotifications {
+		ops = append(ops, op)
+	}
+
+	if len(ops) > 0 {
+		err := n.spendHintCache.CommitSpendHint(newBlock.height, ops...)
+		if err != nil {
+			// The error is not fatal, so we should not return an
+			// error to the caller.
+			chainntnfs.Log.Errorf("Unable to update spend hint to "+
+				"%d for %v: %v", newBlock.height, ops, err)
+		}
+	}
+
 	return nil
 }
 
 // getFilteredBlock is a utility to retrieve the full filtered block from a block epoch.
 func (n *NeutrinoNotifier) getFilteredBlock(epoch chainntnfs.BlockEpoch) (*filteredBlock, error) {
-	rawBlock, err := n.p2pNode.GetBlockFromNetwork(*epoch.Hash)
+	rawBlock, err := n.p2pNode.GetBlock(*epoch.Hash)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get block: %v", err)
 	}
@@ -725,15 +760,26 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	currentHeight := n.bestHeight
 	n.heightMtx.RUnlock()
 
-	chainntnfs.Log.Infof("New spend notification for outpoint=%v, "+
-		"height_hint=%v", outpoint, heightHint)
+	// Before proceeding to register the notification, we'll query our
+	// height hint cache to determine whether a better one exists.
+	if hint, err := n.spendHintCache.QuerySpendHint(*outpoint); err == nil {
+		if hint > heightHint {
+			chainntnfs.Log.Debugf("Using height hint %d retrieved "+
+				"from cache for %v", hint, outpoint)
+			heightHint = hint
+		}
+	}
 
+	// Construct a notification request for the outpoint. We'll defer
+	// sending it to the main event loop until after we've guaranteed that
+	// the outpoint has not been spent.
 	ntfn := &spendNotification{
 		targetOutpoint: outpoint,
 		spendChan:      make(chan *chainntnfs.SpendDetail, 1),
 		spendID:        atomic.AddUint64(&n.spendClientCounter, 1),
 		heightHint:     heightHint,
 	}
+
 	spendEvent := &chainntnfs.SpendEvent{
 		Spend: ntfn.spendChan,
 		Cancel: func() {
@@ -745,8 +791,9 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 			// Submit spend cancellation to notification dispatcher.
 			select {
 			case n.notificationCancels <- cancel:
-				// Cancellation is being handled, drain the spend chan until it is
-				// closed before yielding to the caller.
+				// Cancellation is being handled, drain the
+				// spend chan until it is closed before yielding
+				// to the caller.
 				for {
 					select {
 					case _, ok := <-ntfn.spendChan:
@@ -824,6 +871,7 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	rescanUpdate := []neutrino.UpdateOption{
 		neutrino.AddInputs(inputToWatch),
 		neutrino.Rewind(currentHeight),
+		neutrino.DisableDisconnectedNtfns(true),
 	}
 
 	if err := n.chainView.Update(rescanUpdate...); err != nil {
@@ -834,6 +882,16 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	case n.notificationRegistry <- ntfn:
 	case <-n.quit:
 		return nil, ErrChainNotifierShuttingDown
+	}
+
+	// Finally, we'll add a spent hint with the current height to the cache
+	// in order to better keep track of when this outpoint is spent.
+	err = n.spendHintCache.CommitSpendHint(currentHeight, *outpoint)
+	if err != nil {
+		// The error is not fatal, so we should not return an error to
+		// the caller.
+		chainntnfs.Log.Errorf("Unable to update spend hint to %d for "+
+			"%v: %v", currentHeight, outpoint, err)
 	}
 
 	return spendEvent, nil
@@ -854,6 +912,18 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	pkScript []byte,
 	numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
 
+	// Before proceeding to register the notification, we'll query our
+	// height hint cache to determine whether a better one exists.
+	if hint, err := n.confirmHintCache.QueryConfirmHint(*txid); err == nil {
+		if hint > heightHint {
+			chainntnfs.Log.Debugf("Using height hint %d retrieved "+
+				"from cache for %v", hint, txid)
+			heightHint = hint
+		}
+	}
+
+	// Construct a notification request for the transaction and send it to
+	// the main event loop.
 	ntfn := &confirmationsNotification{
 		ConfNtfn: chainntnfs.ConfNtfn{
 			ConfID:           atomic.AddUint64(&n.confClientCounter, 1),

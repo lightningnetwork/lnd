@@ -52,10 +52,10 @@ COVER = for dir in $(GOLISTCOVER); do \
 			-covermode=count \
 			-coverprofile=$$dir/profile.tmp $$dir; \
 		\
-		if [ $$? != 0 ] ;\
+		if [ $$? != 0 ] ; \
 		then \
 			exit 1; \
-		fi ;\
+		fi ; \
 		\
 		if [ -f $$dir/profile.tmp ]; then \
 			cat $$dir/profile.tmp | \
@@ -97,7 +97,7 @@ $(DEP_BIN):
 $(GLIDE_BIN):
 	@$(call print, "Fetching glide.")
 	go get -d $(GLIDE_PKG)
-	cd ${GOPATH}/src/$(GLIDE_PKG) && git checkout $(GLIDE_COMMIT) 
+	cd ${GOPATH}/src/$(GLIDE_PKG) && ( git checkout $(GLIDE_COMMIT) || ( git fetch --all && git checkout $(GLIDE_COMMIT) ) )
 	$(GOINSTALL) $(GLIDE_PKG)
 
 $(GOVERALLS_BIN):
@@ -119,7 +119,7 @@ $(BTCD_DIR):
 
 btcd: $(GLIDE_BIN) $(BTCD_DIR)
 	@$(call print, "Compiling btcd dependencies.")
-	cd $(BTCD_DIR) && git checkout $(BTCD_COMMIT) && glide install
+	cd $(BTCD_DIR) && ( git checkout $(BTCD_COMMIT) || ( git fetch --all && git checkout $(BTCD_COMMIT) ) ) && glide install
 	@$(call print, "Installing btcd and btcctl.")
 	$(GOINSTALL) $(BTCD_PKG)
 	$(GOINSTALL) $(BTCD_PKG)/cmd/btcctl
@@ -130,13 +130,13 @@ btcd: $(GLIDE_BIN) $(BTCD_DIR)
 
 build:
 	@$(call print, "Building debug lnd and lncli.")
-	$(GOBUILD) -tags=$(TEST_TAGS) -o lnd-debug $(LDFLAGS) $(PKG)
-	$(GOBUILD) -tags=$(TEST_TAGS) -o lncli-debug $(LDFLAGS) $(PKG)/cmd/lncli
+	$(GOBUILD) -tags="$(TEST_TAGS) ${tags}" -o lnd-debug $(LDFLAGS) $(PKG)
+	$(GOBUILD) -tags="$(TEST_TAGS) ${tags}" -o lncli-debug $(LDFLAGS) $(PKG)/cmd/lncli
 
 install:
 	@$(call print, "Installing lnd and lncli.")
-	go install -v $(LDFLAGS) $(PKG)
-	go install -v $(LDFLAGS) $(PKG)/cmd/lncli
+	go install -v -tags="${tags}" $(LDFLAGS) $(PKG)
+	go install -v -tags="${tags}" $(LDFLAGS) $(PKG)/cmd/lncli
 
 scratch: dep build
 
@@ -219,12 +219,12 @@ rpc:
 
 clean:
 	@$(call print, "Cleaning source.$(NC)")
-	$(RM) ./lnd ./lncli
-	$(RM) -r ./vendor
+	$(RM) ./lnd-debug ./lncli-debug
+	$(RM) -r ./vendor .vendor-new
 
 
 .PHONY: all \
-	btcd\
+	btcd \
 	default \
 	dep \
 	build \

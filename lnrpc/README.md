@@ -92,6 +92,9 @@ description):
        encoded within the payment request.
   * ListPayments
      * List all outgoing Lightning payments the daemon has made.
+  * SubscribePayments
+     * Creates a uni-directional stream which receives async notifications of
+       the daemon outgoing payments
   * DeleteAllPayments
      * Deletes all outgoing payments from DB.
   * DescribeGraph

@@ -1,4 +1,4 @@
-// +build debug
+// +build dev
 
 package neutrinonotify
 

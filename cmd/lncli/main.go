@@ -15,6 +15,7 @@ import (
 	macaroon "gopkg.in/macaroon.v2"
 
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
@@ -34,10 +35,6 @@ const (
 )
 
 var (
-	// Commit stores the current commit hash of this build. This should be
-	// set using -ldflags during compilation.
-	Commit string
-
 	defaultLndDir      = btcutil.AppDataDir("lnd", false)
 	defaultTLSCertPath = filepath.Join(defaultLndDir, defaultTLSCertFilename)
 )
@@ -205,7 +202,7 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 func main() {
 	app := cli.NewApp()
 	app.Name = "lncli"
-	app.Version = fmt.Sprintf("%s commit=%s", "0.5", Commit)
+	app.Version = build.Version()
 	app.Usage = "control plane for your Lightning Network Daemon (lnd)"
 	app.Flags = []cli.Flag{
 		cli.StringFlag{

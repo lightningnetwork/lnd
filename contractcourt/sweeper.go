@@ -25,6 +25,25 @@ func (s *Sweeper) Start() error {
 	return nil
 }
 
+// SweepInput is what is pushed to the sweeper to describe the input to sweep.
+type SweepInput struct {
+	OutPoint   wire.OutPoint
+	ResultChan chan struct{}
+}
+
+// SweeperCall is push in the channel to collect sweep inputs.
+type SweeperCall struct {
+	InputChan    chan SweepInput
+	TargetHeight int32
+}
+
+// RegisterForCalls returns a channel on which the caller can listen for sweeper
+// events.
+func (s *Sweeper) RegisterForCalls() chan SweeperCall {
+
+	return make(chan SweeperCall)
+}
+
 func (s *Sweeper) collector(newBlockChan *chainntnfs.BlockEpochEvent) {
 	defer newBlockChan.Cancel()
 

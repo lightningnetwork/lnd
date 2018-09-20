@@ -228,17 +228,14 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 	// the resolution. Otherwise, we fetch this pointer from the input of
 	// the time out transaction.
 	var (
-		outPointToWatch      wire.OutPoint
-		scriptToWatch        []byte
-		err                  error
-		secondLevelSpendChan <-chan *chainntnfs.SpendDetail
+		outPointToWatch     wire.OutPoint
+		scriptToWatch       []byte
+		err                 error
+		firstLevelSpendChan <-chan *chainntnfs.SpendDetail
 	)
 	if h.htlcResolution.SignedTimeoutTx == nil {
-		outPointToWatch = h.htlcResolution.ClaimOutpoint
-		scriptToWatch = h.htlcResolution.SweepSignDesc.Output.PkScript
-
 		// Create dummy channel that will never receive a notification.
-		secondLevelSpendChan = make(chan *chainntnfs.SpendDetail)
+		firstLevelSpendChan = make(chan *chainntnfs.SpendDetail)
 	} else {
 		// If this is the remote party's commitment, then we'll need to
 		// grab watch the output that our timeout transaction points
@@ -254,24 +251,13 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 			return nil, err
 		}
 
-		secondLevelOutPointToWatch := h.htlcResolution.ClaimOutpoint
-		secondLevelScriptToWatch := h.htlcResolution.SweepSignDesc.Output.PkScript
 		secondLevelSpendNtfn, err := h.Notifier.RegisterSpendNtfn(
-			&secondLevelOutPointToWatch, secondLevelScriptToWatch, h.broadcastHeight,
+			&outPointToWatch, scriptToWatch, h.broadcastHeight,
 		)
 		if err != nil {
 			return nil, err
 		}
-		secondLevelSpendChan = secondLevelSpendNtfn.Spend
-	}
-
-	// First, we'll register for a spend notification for this output. If
-	// the remote party sweeps with the pre-image, we'll be notified.
-	spendNtfn, err := h.Notifier.RegisterSpendNtfn(
-		&outPointToWatch, scriptToWatch, h.broadcastHeight,
-	)
-	if err != nil {
-		return nil, err
+		firstLevelSpendChan = secondLevelSpendNtfn.Spend
 	}
 
 	// TODO: Cancel spend notifications on quit?
@@ -283,62 +269,78 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 
 	state := cltvWait
 	var secondLevelExpiry int32
+	sweepDoneChan := make(chan struct{})
 
-	var sweepChan chan wire.OutPoint
+	evaluateSweep := func(sweeperCall SweeperCall) bool {
+		height := sweeperCall.TargetHeight
 
-	// If this is the remote party commit tx, we can already announce that
-	// we are going to sweep after expiry. Sweeper will hold back the sweep
-	// tx until our input is in.
-	if h.htlcResolution.SignedTimeoutTx == nil {
-		sweepChan = h.sweeper.AnnounceSweep(int32(h.htlcResolution.Expiry))
-	}
-
-	evaluateHeight := func() {
 		switch {
-		case state == cltvWait &&
-			uint32(currentHeight) >= h.htlcResolution.Expiry-1:
-
-			if h.htlcResolution.SignedTimeoutTx == nil {
-				// Signal sweeper that this input can be picked
-				// up now.
-				sweepChan <- h.htlcResolution.ClaimOutpoint
-
-				state = sweepWait
-			} else {
-				// TODO: Publish timeout tx
-
-				state = secondLevelConf
+		case state == cltvWait:
+			// Nothing to sweep if not expired or second level
+			// required.
+			if h.htlcResolution.SignedTimeoutTx != nil {
+				return false
 			}
 
-		case state == csvWait && currentHeight >= secondLevelExpiry-1:
-			// Signal sweeper that this input can be picked now that
-			// the second level tx time lock is expired.
-			sweepChan <- h.htlcResolution.ClaimOutpoint
-
-			state = sweepWait
+			if uint32(height) < h.htlcResolution.Expiry-1 {
+				return false
+			}
+		case state == csvWait:
+			// Nothing to sweep if second level not expired yet.
+			if height < secondLevelExpiry-1 {
+				return false
+			}
+		default:
+			return false
 		}
 
+		// Signal sweeper that this input can be picked
+		// up now.
+		sweeperCall.InputChan <- SweepInput{
+			OutPoint:   h.htlcResolution.ClaimOutpoint,
+			ResultChan: sweepDoneChan,
+		}
+		close(sweeperCall.InputChan)
+
+		state = sweepWait
+
+		return true
 	}
 
-	// Evaluate current height in case cltv has already expired.
-	evaluateHeight()
+	// defer sweeperCallChan.Close() ?
 
-	// If we reach this point, then we can't fully act yet, so we'll await
-	// either of our signals triggering: the HTLC expires, or we learn of
-	// the preimage.
+	sweeperCallChan := h.sweeper.RegisterForCalls()
 	blockEpochs, err := h.Notifier.RegisterBlockEpochNtfn(nil)
 	if err != nil {
 		return nil, err
 	}
 	defer blockEpochs.Cancel()
 
+	// Early publish of timeout tx
+
 loop:
 	for {
 		select {
 
 		// A new block has arrived, we'll check to see if this leads to
-		// HTLC expiration.
+		// HTLC expiration and the need to publish the timeout tx.
 		case newBlock, ok := <-blockEpochs.Epochs:
+			if !ok {
+				return nil, fmt.Errorf("quitting")
+			}
+
+			if state == cltvWait &&
+				uint32(newBlock.Height) >= h.htlcResolution.Expiry-1 &&
+				h.htlcResolution.SignedTimeoutTx != nil {
+
+				// TODO: Publish timeout tx
+
+				state = secondLevelConf
+			}
+
+		// Sweeper is constructing a new sweep. Evaluate if we have
+		// anything to add.
+		case newBlock, ok := <-sweeperCallChan:
 			if !ok {
 				return nil, fmt.Errorf("quitting")
 			}
@@ -346,12 +348,11 @@ loop:
 			// If this new height expires the HTLC, then we can
 			// exit early and create a resolver that's capable of
 			// handling the time locked output.
-			currentHeight = newBlock.Height
-			evaluateHeight()
+			evaluateSweep(newBlock)
 
 		// The output has been spent! This means the preimage has been
 		// revealed on-chain or we used the output ourselves.
-		case commitSpend, ok := <-spendNtfn.Spend:
+		case commitSpend, ok := <-firstLevelSpendChan:
 			if !ok {
 				return nil, fmt.Errorf("quitting")
 			}
@@ -360,23 +361,14 @@ loop:
 			// party is by revealing the preimage. So we'll perform
 			// our duties to clean up the contract once it has been
 			// claimed.
-			var isRemoteSpend bool
-			if h.htlcResolution.SignedTimeoutTx != nil {
-				timeoutTxHash := h.htlcResolution.SignedTimeoutTx.TxHash()
+			timeoutTxHash := h.htlcResolution.SignedTimeoutTx.TxHash()
 
-				// If spend not by our own timeout tx, it must
-				// be a remote spend.
-				isRemoteSpend = !bytes.Equal(commitSpend.SpenderTxHash[:],
-					timeoutTxHash[:])
-			} else {
-				// Detect remote success tx by witness length.
-				isRemoteSpend = len(commitSpend.SpendingTx.TxIn[0].Witness) == 5
-			}
+			// If spend not by our own timeout tx, it must
+			// be a remote spend.
+			isRemoteSpend := !bytes.Equal(commitSpend.SpenderTxHash[:],
+				timeoutTxHash[:])
 
 			if isRemoteSpend {
-				// Cancel sweep
-				close(sweepChan)
-
 				return claimCleanUp(commitSpend)
 			}
 
@@ -393,26 +385,18 @@ loop:
 				return nil, err
 			}
 
-			if state == secondLevelConf {
-				state = csvWait
-				secondLevelExpiry = currentHeight +
-					int32(h.htlcResolution.CsvDelay)
+			state = csvWait
+			secondLevelExpiry = currentHeight +
+				int32(h.htlcResolution.CsvDelay)
+		case <-sweepDoneChan:
+			// Check for remote spend
 
-				// Announce that a sweep will be needed when the
-				// 2nd level tx timelock expires.
-				sweepChan = h.sweeper.AnnounceSweep(secondLevelExpiry)
+			// Detect remote success tx by witness length.
+			// isRemoteSpend = len(commitSpend.SpendingTx.TxIn[0].Witness) == 5
 
-				evaluateHeight()
-			} else {
-				break loop
-			}
+			// Deliver failure message
 
-		case _, ok := <-secondLevelSpendChan:
-			if !ok {
-				return nil, fmt.Errorf("quitting")
-			}
 			break loop
-
 		case <-h.Quit:
 			return nil, fmt.Errorf("resolver cancelled")
 		}

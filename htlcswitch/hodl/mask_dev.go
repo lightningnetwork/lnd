@@ -1,4 +1,4 @@
-// +build debug
+// +build dev
 
 package hodl
 
@@ -6,9 +6,6 @@ import (
 	"fmt"
 	"strings"
 )
-
-// DebugBuild signals that this is a debug build.
-const DebugBuild = true
 
 // MaskFromFlags merges a variadic set of Flags into a single Mask.
 func MaskFromFlags(flags ...Flag) Mask {

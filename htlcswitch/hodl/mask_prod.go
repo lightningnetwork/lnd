@@ -1,9 +1,6 @@
-// +build !debug
+// +build !dev
 
 package hodl
-
-// DebugBuild signals that this is a production build.
-const DebugBuild = false
 
 // MaskFromFlags in production always returns MaskNone.
 func MaskFromFlags(_ ...Flag) Mask {

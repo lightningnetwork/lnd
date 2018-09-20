@@ -18,12 +18,10 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btclog"
 	"github.com/btcsuite/btcutil"
-	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
+
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -199,13 +197,6 @@ func (n *testNode) AddNewChannel(channel *channeldb.OpenChannel,
 	case <-quit:
 		return ErrFundingManagerShuttingDown
 	}
-}
-
-func init() {
-	channeldb.UseLogger(btclog.Disabled)
-	lnwallet.UseLogger(btclog.Disabled)
-	contractcourt.UseLogger(btclog.Disabled)
-	fndgLog = btclog.Disabled
 }
 
 func createTestWallet(cdb *channeldb.DB, netParams *chaincfg.Params,

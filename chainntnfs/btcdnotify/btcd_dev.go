@@ -1,13 +1,12 @@
-// +build debug
+// +build dev
 
-package bitcoindnotify
+package btcdnotify
 
 import (
 	"fmt"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcwallet/chain"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 )
 
@@ -18,12 +17,12 @@ import (
 // to syncHeight, since if they are generated ahead of UnsafeStart the chainConn
 // may start up with an outdated best block and miss sending ntfns. Used for
 // testing.
-func (b *BitcoindNotifier) UnsafeStart(bestHeight int32, bestHash *chainhash.Hash,
+func (b *BtcdNotifier) UnsafeStart(bestHeight int32, bestHash *chainhash.Hash,
 	syncHeight int32, generateBlocks func() error) error {
 
-	// Connect to bitcoind, and register for notifications on connected,
-	// and disconnected blocks.
-	if err := b.chainConn.Start(); err != nil {
+	// Connect to btcd, and register for notifications on connected, and
+	// disconnected blocks.
+	if err := b.chainConn.Connect(20); err != nil {
 		return err
 	}
 	if err := b.chainConn.NotifyBlocks(); err != nil {
@@ -33,6 +32,9 @@ func (b *BitcoindNotifier) UnsafeStart(bestHeight int32, bestHash *chainhash.Has
 	b.txConfNotifier = chainntnfs.NewTxConfNotifier(
 		uint32(bestHeight), reorgSafetyLimit, b.confirmHintCache,
 	)
+
+	b.chainUpdates.Start()
+	b.txUpdates.Start()
 
 	if generateBlocks != nil {
 		// Ensure no block notifications are pending when we start the
@@ -48,12 +50,10 @@ func (b *BitcoindNotifier) UnsafeStart(bestHeight int32, bestHash *chainhash.Has
 	loop:
 		for {
 			select {
-			case ntfn := <-b.chainConn.Notifications():
-				switch update := ntfn.(type) {
-				case chain.BlockConnected:
-					if update.Height >= syncHeight {
-						break loop
-					}
+			case ntfn := <-b.chainUpdates.ChanOut():
+				lastReceivedNtfn := ntfn.(*chainUpdate)
+				if lastReceivedNtfn.blockHeight >= syncHeight {
+					break loop
 				}
 			case <-timeout:
 				return fmt.Errorf("unable to catch up to height %d",

@@ -37,6 +37,8 @@ import (
 	"github.com/btcsuite/btcwallet/wallet"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	flags "github.com/jessevdk/go-flags"
+
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -54,10 +56,6 @@ const (
 )
 
 var (
-	// Commit stores the current commit hash of this build. This should be
-	// set using -ldflags during compilation.
-	Commit string
-
 	cfg              *config
 	registeredChains = newChainRegistry()
 
@@ -108,7 +106,8 @@ func lndMain() error {
 	}()
 
 	// Show version at startup.
-	ltndLog.Infof("Version %s", version())
+	ltndLog.Infof("Version: %s, build=%s, logging=%s",
+		build.Version(), build.Deployment, build.LoggingType)
 
 	var network string
 	switch {

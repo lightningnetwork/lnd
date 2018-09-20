@@ -142,6 +142,8 @@ type server struct {
 
 	invoices *invoiceRegistry
 
+	payments *paymentRegistry
+
 	witnessBeacon contractcourt.WitnessBeacon
 
 	breachArbiter *breachArbiter
@@ -259,6 +261,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		cc:     cc,
 
 		invoices: newInvoiceRegistry(chanDB),
+		payments: newPaymentRegistry(chanDB),
 
 		identityPriv: privKey,
 		nodeSigner:   newNodeSigner(privKey),
@@ -962,6 +965,7 @@ func (s *server) Start() error {
 	if err := s.invoices.Start(); err != nil {
 		return err
 	}
+	s.payments.Start()
 
 	// With all the relevant sub-systems started, we'll now attempt to
 	// establish persistent connections to our direct channel collaborators

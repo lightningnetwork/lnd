@@ -21,6 +21,7 @@ import (
 
 	"github.com/btcsuite/btcutil"
 	flags "github.com/jessevdk/go-flags"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -323,7 +324,7 @@ func loadConfig() (*config, error) {
 	appName = strings.TrimSuffix(appName, filepath.Ext(appName))
 	usageMessage := fmt.Sprintf("Use %s -h to show usage", appName)
 	if preCfg.ShowVersion {
-		fmt.Println(appName, "version", version())
+		fmt.Println(appName, "version", build.Version())
 		os.Exit(0)
 	}
 

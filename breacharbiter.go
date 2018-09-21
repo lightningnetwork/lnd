@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/sweep"
 )
 
 var (
@@ -748,33 +749,6 @@ func (b *breachArbiter) handleBreachHandoff(breachEvent *ContractBreachEvent) {
 	go b.exactRetribution(cfChan, retInfo)
 }
 
-// SpendableOutput an interface which can be used by the breach arbiter to
-// construct a transaction spending from outputs we control.
-type SpendableOutput interface {
-	// Amount returns the number of satoshis contained within the output.
-	Amount() btcutil.Amount
-
-	// Outpoint returns the reference to the output being spent, used to
-	// construct the corresponding transaction input.
-	OutPoint() *wire.OutPoint
-
-	// WitnessType returns an enum specifying the type of witness that must
-	// be generated in order to spend this output.
-	WitnessType() lnwallet.WitnessType
-
-	// SignDesc returns a reference to a spendable output's sign descriptor,
-	// which is used during signing to compute a valid witness that spends
-	// this output.
-	SignDesc() *lnwallet.SignDescriptor
-
-	// BuildWitness returns a valid witness allowing this output to be
-	// spent, the witness should be attached to the transaction at the
-	// location determined by the given `txinIdx`.
-	BuildWitness(signer lnwallet.Signer, txn *wire.MsgTx,
-		hashCache *txscript.TxSigHashes,
-		txinIdx int) ([][]byte, error)
-}
-
 // breachedOutput contains all the information needed to sweep a breached
 // output. A breached output is an output that we are now entitled to due to a
 // revoked commitment transaction being broadcast.
@@ -852,7 +826,7 @@ func (bo *breachedOutput) BuildWitness(signer lnwallet.Signer, txn *wire.MsgTx,
 
 // Add compile-time constraint ensuring breachedOutput implements
 // SpendableOutput.
-var _ SpendableOutput = (*breachedOutput)(nil)
+var _ sweep.SpendableOutput = (*breachedOutput)(nil)
 
 // retributionInfo encapsulates all the data needed to sweep all the contested
 // funds within a channel whose contract has been breached by the prior
@@ -963,13 +937,13 @@ func (b *breachArbiter) createJusticeTx(
 	// outputs, while simultaneously computing the estimated weight of the
 	// transaction.
 	var (
-		spendableOutputs []SpendableOutput
+		spendableOutputs []sweep.SpendableOutput
 		weightEstimate   lnwallet.TxWeightEstimator
 	)
 
 	// Allocate enough space to potentially hold each of the breached
 	// outputs in the retribution info.
-	spendableOutputs = make([]SpendableOutput, 0, len(r.breachedOutputs))
+	spendableOutputs = make([]sweep.SpendableOutput, 0, len(r.breachedOutputs))
 
 	// The justice transaction we construct will be a segwit transaction
 	// that pays to a p2wkh output. Components such as the version,
@@ -1023,7 +997,7 @@ func (b *breachArbiter) createJusticeTx(
 // sweepSpendableOutputsTxn creates a signed transaction from a sequence of
 // spendable outputs by sweeping the funds into a single p2wkh output.
 func (b *breachArbiter) sweepSpendableOutputsTxn(txWeight int64,
-	inputs ...SpendableOutput) (*wire.MsgTx, error) {
+	inputs ...sweep.SpendableOutput) (*wire.MsgTx, error) {
 
 	// First, we obtain a new public key script from the wallet which we'll
 	// sweep the funds to.
@@ -1085,7 +1059,7 @@ func (b *breachArbiter) sweepSpendableOutputsTxn(txWeight int64,
 	// witness, and attaching it to the transaction. This function accepts
 	// an integer index representing the intended txin index, and the
 	// breached output from which it will spend.
-	addWitness := func(idx int, so SpendableOutput) error {
+	addWitness := func(idx int, so sweep.SpendableOutput) error {
 		// First, we construct a valid witness for this outpoint and
 		// transaction using the SpendableOutput's witness generation
 		// function.

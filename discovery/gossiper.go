@@ -270,27 +270,6 @@ func (d *AuthenticatedGossiper) SynchronizeNode(syncPeer lnpeer.Peer) error {
 	// containing all the messages to be sent to the target peer.
 	var announceMessages []lnwire.Message
 
-	makeNodeAnn := func(n *channeldb.LightningNode) (
-		*lnwire.NodeAnnouncement, error) {
-
-		alias, _ := lnwire.NewNodeAlias(n.Alias)
-
-		wireSig, err := lnwire.NewSigFromRawSignature(n.AuthSigBytes)
-		if err != nil {
-			return nil, err
-		}
-		return &lnwire.NodeAnnouncement{
-			Signature:       wireSig,
-			Timestamp:       uint32(n.LastUpdate.Unix()),
-			Addresses:       n.Addresses,
-			NodeID:          n.PubKeyBytes,
-			Features:        n.Features.RawFeatureVector,
-			RGBColor:        n.Color,
-			Alias:           alias,
-			ExtraOpaqueData: n.ExtraOpaqueData,
-		}, nil
-	}
-
 	// We'll use this map to ensure we don't send the same node
 	// announcement more than one time as one node may have many channel
 	// anns we'll need to send.
@@ -330,7 +309,7 @@ func (d *AuthenticatedGossiper) SynchronizeNode(syncPeer lnpeer.Peer) error {
 				nodePub := e1.Node.PubKeyBytes
 				hasNodeAnn := e1.Node.HaveNodeAnnouncement
 				if _, ok := nodePubsSent[nodePub]; !ok && hasNodeAnn {
-					nodeAnn, err := makeNodeAnn(e1.Node)
+					nodeAnn, err := e1.Node.NodeAnnouncement(true)
 					if err != nil {
 						return err
 					}
@@ -352,7 +331,7 @@ func (d *AuthenticatedGossiper) SynchronizeNode(syncPeer lnpeer.Peer) error {
 				nodePub := e2.Node.PubKeyBytes
 				hasNodeAnn := e2.Node.HaveNodeAnnouncement
 				if _, ok := nodePubsSent[nodePub]; !ok && hasNodeAnn {
-					nodeAnn, err := makeNodeAnn(e2.Node)
+					nodeAnn, err := e2.Node.NodeAnnouncement(true)
 					if err != nil {
 						return err
 					}

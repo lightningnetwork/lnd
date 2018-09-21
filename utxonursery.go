@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/lightningnetwork/lnd/sweep"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -953,14 +954,14 @@ func (u *utxoNursery) createSweepTx(kgtnOutputs []kidOutput,
 	// outputs are CLTV locked outputs that have had their timelocks
 	// expire.
 	var (
-		csvOutputs     []CsvSpendableOutput
-		cltvOutputs    []SpendableOutput
+		csvOutputs     []sweep.CsvSpendableOutput
+		cltvOutputs    []sweep.SpendableOutput
 		weightEstimate lnwallet.TxWeightEstimator
 	)
 
 	// Allocate enough room for both types of kindergarten outputs.
-	csvOutputs = make([]CsvSpendableOutput, 0, len(kgtnOutputs))
-	cltvOutputs = make([]SpendableOutput, 0, len(kgtnOutputs))
+	csvOutputs = make([]sweep.CsvSpendableOutput, 0, len(kgtnOutputs))
+	cltvOutputs = make([]sweep.SpendableOutput, 0, len(kgtnOutputs))
 
 	// Our sweep transaction will pay to a single segwit p2wkh address,
 	// ensure it contributes to our weight estimate.
@@ -1028,8 +1029,8 @@ func (u *utxoNursery) createSweepTx(kgtnOutputs []kidOutput,
 // has a single output sending all the funds back to the source wallet, after
 // accounting for the fee estimate.
 func (u *utxoNursery) populateSweepTx(txWeight int64, classHeight uint32,
-	csvInputs []CsvSpendableOutput,
-	cltvInputs []SpendableOutput) (*wire.MsgTx, error) {
+	csvInputs []sweep.CsvSpendableOutput,
+	cltvInputs []sweep.SpendableOutput) (*wire.MsgTx, error) {
 
 	// Generate the receiving script to which the funds will be swept.
 	pkScript, err := u.cfg.GenSweepScript()
@@ -1099,7 +1100,7 @@ func (u *utxoNursery) populateSweepTx(txWeight int64, classHeight uint32,
 
 	// With all the inputs in place, use each output's unique witness
 	// function to generate the final witness required for spending.
-	addWitness := func(idx int, tso SpendableOutput) error {
+	addWitness := func(idx int, tso sweep.SpendableOutput) error {
 		witness, err := tso.BuildWitness(
 			u.cfg.Signer, sweepTx, hashCache, idx,
 		)
@@ -1635,29 +1636,6 @@ func newSweepPkScript(wallet lnwallet.WalletController) ([]byte, error) {
 	return txscript.PayToAddrScript(sweepAddr)
 }
 
-// CsvSpendableOutput is a SpendableOutput that contains all of the information
-// necessary to construct, sign, and sweep an output locked with a CSV delay.
-type CsvSpendableOutput interface {
-	SpendableOutput
-
-	// ConfHeight returns the height at which this output was confirmed.
-	// A zero value indicates that the output has not been confirmed.
-	ConfHeight() uint32
-
-	// SetConfHeight marks the height at which the output is confirmed in
-	// the chain.
-	SetConfHeight(height uint32)
-
-	// BlocksToMaturity returns the relative timelock, as a number of
-	// blocks, that must be built on top of the confirmation height before
-	// the output can be spent.
-	BlocksToMaturity() uint32
-
-	// OriginChanPoint returns the outpoint of the channel from which this
-	// output is derived.
-	OriginChanPoint() *wire.OutPoint
-}
-
 // babyOutput represents a two-stage CSV locked output, and is used to track
 // htlc outputs through incubation. The first stage requires broadcasting a
 // presigned timeout txn that spends from the CLTV locked output on the
@@ -1971,5 +1949,5 @@ func readTxOut(r io.Reader, txo *wire.TxOut) error {
 
 // Compile-time constraint to ensure kidOutput and babyOutput implement the
 // CsvSpendableOutput interface.
-var _ CsvSpendableOutput = (*kidOutput)(nil)
-var _ CsvSpendableOutput = (*babyOutput)(nil)
+var _ sweep.CsvSpendableOutput = (*kidOutput)(nil)
+var _ sweep.CsvSpendableOutput = (*babyOutput)(nil)

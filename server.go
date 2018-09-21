@@ -440,14 +440,19 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 
 	chanGraph := chanDB.ChannelGraph()
 
-	// Parse node color from configuration.
+	// We'll now reconstruct a node announcement based on our current
+	// configuration so we can send it out as a sort of heart beat within
+	// the network.
+	//
+	// We'll start by parsing the node color from configuration.
 	color, err := parseHexColor(cfg.Color)
 	if err != nil {
 		srvrLog.Errorf("unable to parse color: %v\n", err)
 		return nil, err
 	}
 
-	// If no alias is provided, default to first 10 characters of public key
+	// If no alias is provided, default to first 10 characters of public
+	// key.
 	alias := cfg.Alias
 	if alias == "" {
 		alias = hex.EncodeToString(serializedPubKey[:10])
@@ -473,6 +478,9 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	if err != nil {
 		return nil, fmt.Errorf("unable to gen self node ann: %v", err)
 	}
+
+	// With the announcement generated, we'll sign it to properly
+	// authenticate the message on the network.
 	authSig, err := discovery.SignAnnouncement(
 		s.nodeSigner, s.identityPriv.PubKey(), nodeAnn,
 	)
@@ -480,18 +488,21 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		return nil, fmt.Errorf("unable to generate signature for "+
 			"self node announcement: %v", err)
 	}
-
 	selfNode.AuthSigBytes = authSig.Serialize()
-	s.currentNodeAnn = nodeAnn
-
-	if err := chanGraph.SetSourceNode(selfNode); err != nil {
-		return nil, fmt.Errorf("can't set self node: %v", err)
-	}
-
-	nodeAnn.Signature, err = lnwire.NewSigFromRawSignature(selfNode.AuthSigBytes)
+	nodeAnn.Signature, err = lnwire.NewSigFromRawSignature(
+		selfNode.AuthSigBytes,
+	)
 	if err != nil {
 		return nil, err
 	}
+
+	// Finally, we'll update the representation on disk, and update our
+	// cached in-memory version as well.
+	if err := chanGraph.SetSourceNode(selfNode); err != nil {
+		return nil, fmt.Errorf("can't set self node: %v", err)
+	}
+	s.currentNodeAnn = nodeAnn
+
 	s.chanRouter, err = routing.New(routing.Config{
 		Graph:     chanGraph,
 		Chain:     cc.chainIO,
@@ -1566,7 +1577,7 @@ func (s *server) genNodeAnnouncement(refresh bool,
 	}
 	s.currentNodeAnn.Timestamp = newStamp
 
-	// Now that the annoncement is fully updated, we'll generate a new
+	// Now that the announcement is fully updated, we'll generate a new
 	// signature over the announcement to ensure nodes on the network
 	// accepted the new authenticated announcement.
 	sig, err := discovery.SignAnnouncement(

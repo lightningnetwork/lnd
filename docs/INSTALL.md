@@ -52,11 +52,8 @@
   * **dep:** This project uses `dep` to manage dependencies as well
     as to provide *reproducible builds*.
 
-    **Note**: `dep` is automatically installed via the `make`. To fetch `dep`
-    manually, use the following command (assumes you already have Go properly
-    installed):
     ```
-    go get -u github.com/golang/dep/cmd/dep
+    sudo apt install go-dep
     ```
 
 ### Installing lnd

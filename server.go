@@ -734,7 +734,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 			return cc.msgSigner.SignMessage(pubKey, msg)
 		},
 		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement, error) {
-			return s.genNodeAnnouncement(true)
+			return s.genNodeAnnouncement(false)
 		},
 		SendAnnouncement: func(msg lnwire.Message) chan error {
 			return s.authGossiper.ProcessLocalAnnouncement(

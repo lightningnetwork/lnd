@@ -1500,12 +1500,18 @@ func (s *server) initTorController() error {
 
 	addr, err := s.torController.AddOnion(onionCfg)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to create onion service: %v", err)
 	}
 
 	// Now that the onion service has been created, we'll add the onion
 	// address it can be reached at to our list of advertised addresses.
-	s.currentNodeAnn.Addresses = append(s.currentNodeAnn.Addresses, addr)
+	nodeAnn, _ := s.genNodeAnnouncement(false)
+	addrs := append(nodeAnn.Addresses, addr)
+	_, err = s.genNodeAnnouncement(true, lnwire.UpdateNodeAnnAddrs(addrs))
+	if err != nil {
+		return fmt.Errorf("unable to generate a new node announcement "+
+			"including the onion service address: %v", err)
+	}
 
 	return nil
 }
@@ -1543,6 +1549,23 @@ func (s *server) genNodeAnnouncement(refresh bool,
 	s.currentNodeAnn.Signature, err = lnwire.NewSigFromSignature(sig)
 	if err != nil {
 		return lnwire.NodeAnnouncement{}, err
+	}
+
+	// With the node announcement updated, we'll modify our on-disk state to
+	// account for the new changes.
+	selfNode := &channeldb.LightningNode{
+		HaveNodeAnnouncement: true,
+		LastUpdate:           time.Unix(int64(s.currentNodeAnn.Timestamp), 0),
+		Addresses:            s.currentNodeAnn.Addresses,
+		Alias:                s.currentNodeAnn.Alias.String(),
+		Features:             s.globalFeatures,
+		Color:                s.currentNodeAnn.RGBColor,
+	}
+	copy(selfNode.PubKeyBytes[:], s.identityPriv.PubKey().SerializeCompressed())
+
+	if err := s.chanDB.ChannelGraph().AddLightningNode(selfNode); err != nil {
+		return lnwire.NodeAnnouncement{}, fmt.Errorf("unable to "+
+			"update self node: %v", err)
 	}
 
 	return *s.currentNodeAnn, nil

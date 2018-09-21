@@ -466,18 +466,12 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	}
 	copy(selfNode.PubKeyBytes[:], privKey.PubKey().SerializeCompressed())
 
-	// If our information has changed since our last boot, then we'll
-	// re-sign our node announcement so a fresh authenticated version of it
-	// can be propagated throughout the network upon startup.
-	//
-	// TODO(roasbeef): don't always set timestamp above to _now.
-	nodeAnn := &lnwire.NodeAnnouncement{
-		Timestamp: uint32(selfNode.LastUpdate.Unix()),
-		Addresses: selfNode.Addresses,
-		NodeID:    selfNode.PubKeyBytes,
-		Alias:     nodeAlias,
-		Features:  selfNode.Features.RawFeatureVector,
-		RGBColor:  color,
+	// Based on the disk representation of the node announcement generated
+	// above, we'll generate a node announcement that can go out on the
+	// network so we can properly sign it.
+	nodeAnn, err := selfNode.NodeAnnouncement(false)
+	if err != nil {
+		return nil, fmt.Errorf("unable to gen self node ann: %v", err)
 	}
 	authSig, err := discovery.SignAnnouncement(
 		s.nodeSigner, s.identityPriv.PubKey(), nodeAnn,
@@ -1512,7 +1506,32 @@ func (s *server) initTorController() error {
 
 	// Now that the onion service has been created, we'll add the onion
 	// address it can be reached at to our list of advertised addresses.
-	s.currentNodeAnn.Addresses = append(s.currentNodeAnn.Addresses, addr)
+	newNodeAnn, err := s.genNodeAnnouncement(
+		true, func(currentAnn *lnwire.NodeAnnouncement) {
+			currentAnn.Addresses = append(currentAnn.Addresses, addr)
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("Unable to generate new node "+
+			"announcement: %v", err)
+	}
+
+	// Finally, we'll update the on-disk version of our announcement so it
+	// will eventually propagate to nodes in the network.
+	selfNode := &channeldb.LightningNode{
+		HaveNodeAnnouncement: true,
+		LastUpdate:           time.Unix(int64(newNodeAnn.Timestamp), 0),
+		Addresses:            newNodeAnn.Addresses,
+		Alias:                newNodeAnn.Alias.String(),
+		Features: lnwire.NewFeatureVector(
+			newNodeAnn.Features, lnwire.GlobalFeatures,
+		),
+		Color:        newNodeAnn.RGBColor,
+		AuthSigBytes: newNodeAnn.Signature.ToSignatureBytes(),
+	}
+	if err := s.chanDB.ChannelGraph().SetSourceNode(selfNode); err != nil {
+		return fmt.Errorf("can't set self node: %v", err)
+	}
 
 	return nil
 }
@@ -1547,7 +1566,7 @@ func (s *server) genNodeAnnouncement(refresh bool,
 	}
 	s.currentNodeAnn.Timestamp = newStamp
 
-	// Now that the announce tn is fully updated, we'll generate a new
+	// Now that the annoncement is fully updated, we'll generate a new
 	// signature over the announcement to ensure nodes on the network
 	// accepted the new authenticated announcement.
 	sig, err := discovery.SignAnnouncement(
@@ -1559,24 +1578,6 @@ func (s *server) genNodeAnnouncement(refresh bool,
 	s.currentNodeAnn.Signature, err = lnwire.NewSigFromSignature(sig)
 	if err != nil {
 		return lnwire.NodeAnnouncement{}, err
-	}
-
-	// Finally, we'll update the on-disk version of our announcement so it
-	// will eventually propagate to nodes in the network.
-	selfNode := &channeldb.LightningNode{
-		HaveNodeAnnouncement: true,
-		LastUpdate:           time.Unix(int64(s.currentNodeAnn.Timestamp), 0),
-		Addresses:            s.currentNodeAnn.Addresses,
-		Alias:                s.currentNodeAnn.Alias.String(),
-		Features: lnwire.NewFeatureVector(
-			s.currentNodeAnn.Features, lnwire.GlobalFeatures,
-		),
-		Color:        s.currentNodeAnn.RGBColor,
-		AuthSigBytes: sig.Serialize(),
-	}
-	if err := s.chanDB.ChannelGraph().SetSourceNode(selfNode); err != nil {
-		return *s.currentNodeAnn, fmt.Errorf("can't set self node: %v",
-			err)
 	}
 
 	return *s.currentNodeAnn, nil

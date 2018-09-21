@@ -229,7 +229,8 @@ func (b *BtcdFeeEstimator) fetchEstimate(confTarget uint32) (SatPerKWeight, erro
 	// Finally, we'll enforce our fee floor.
 	if satPerKw < b.minFeePerKW {
 		walletLog.Debugf("Estimated fee rate of %v sat/kw is too low, "+
-			"using fee floor of %v sat/kw instead", b.minFeePerKW)
+			"using fee floor of %v sat/kw instead", satPerKw,
+			b.minFeePerKW)
 		satPerKw = b.minFeePerKW
 	}
 

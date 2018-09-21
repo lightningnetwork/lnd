@@ -1846,7 +1846,8 @@ func (r *rpcServer) savePayment(route *routing.Route,
 	}
 	copy(payment.PaymentPreimage[:], preImage)
 
-	return r.server.chanDB.AddPayment(payment)
+	_, err := r.server.payments.AddPayment(payment)
+	return err
 }
 
 // validatePayReqExpiry checks if the passed payment request has expired. In
@@ -3650,23 +3651,52 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 		Payments: make([]*lnrpc.Payment, len(payments)),
 	}
 	for i, payment := range payments {
-		path := make([]string, len(payment.Path))
-		for i, hop := range payment.Path {
-			path[i] = hex.EncodeToString(hop[:])
-		}
-
-		paymentHash := sha256.Sum256(payment.PaymentPreimage[:])
-		paymentsResp.Payments[i] = &lnrpc.Payment{
-			PaymentHash:     hex.EncodeToString(paymentHash[:]),
-			Value:           int64(payment.Terms.Value.ToSatoshis()),
-			CreationDate:    payment.CreationDate.Unix(),
-			Path:            path,
-			Fee:             int64(payment.Fee.ToSatoshis()),
-			PaymentPreimage: hex.EncodeToString(payment.PaymentPreimage[:]),
-		}
+		paymentsResp.Payments[i] = createRPCPayment(payment)
 	}
 
 	return paymentsResp, nil
+}
+
+// SubscribePayments returns a uni-directional stream (server -> client) for
+// notifying the client of newly added payments.
+func (r *rpcServer) SubscribePayments(req *lnrpc.PaymentSubscription,
+	updateStream lnrpc.Lightning_SubscribePaymentsServer) error {
+
+	paymentClient := r.server.payments.SubscribeNotifications(
+		req.AddIndex,
+	)
+	defer paymentClient.Cancel()
+
+	for {
+		select {
+		case newPayment := <-paymentClient.NewPayments:
+			rpcPayment := createRPCPayment(newPayment)
+			if err := updateStream.Send(rpcPayment); err != nil {
+				return err
+			}
+
+		case <-r.quit:
+			return nil
+		}
+	}
+}
+
+func createRPCPayment(payment *channeldb.OutgoingPayment) *lnrpc.Payment {
+	path := make([]string, len(payment.Path))
+	for i, hop := range payment.Path {
+		path[i] = hex.EncodeToString(hop[:])
+	}
+
+	paymentHash := sha256.Sum256(payment.PaymentPreimage[:])
+	return &lnrpc.Payment{
+		PaymentHash:     hex.EncodeToString(paymentHash[:]),
+		Value:           int64(payment.Terms.Value.ToSatoshis()),
+		CreationDate:    payment.CreationDate.Unix(),
+		Path:            path,
+		Fee:             int64(payment.Fee.ToSatoshis()),
+		PaymentPreimage: hex.EncodeToString(payment.PaymentPreimage[:]),
+		AddIndex:        payment.AddIndex,
+	}
 }
 
 // DeleteAllPayments deletes all outgoing payments from DB.

@@ -278,6 +278,7 @@ func main() {
 		listChannelsCommand,
 		closedChannelsCommand,
 		listPaymentsCommand,
+		subscribePaymentsCommand,
 		describeGraphCommand,
 		getChanInfoCommand,
 		getNodeInfoCommand,

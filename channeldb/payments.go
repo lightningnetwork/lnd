@@ -98,27 +98,23 @@ type OutgoingPayment struct {
 	// PaymentPreimage is the preImage of a successful payment. This is used
 	// to calculate the PaymentHash as well as serve as a proof of payment.
 	PaymentPreimage [32]byte
+
+	// Index is the an auto-increment sequence number for outgoing payments.
+	// This can be used by a client to effectively sync the outgoing payments
+	// with external storage
+	Index uint32
 }
 
 // AddPayment saves a successful payment to the database. It is assumed that
 // all payment are sent using unique payment hashes.
-func (db *DB) AddPayment(payment *OutgoingPayment) error {
+func (db *DB) AddPayment(payment *OutgoingPayment) (uint64, error) {
 	// Validate the field of the inner voice within the outgoing payment,
 	// these must also adhere to the same constraints as regular invoices.
 	if err := validateInvoice(&payment.Invoice); err != nil {
-		return err
+		return 0, err
 	}
 
-	// We first serialize the payment before starting the database
-	// transaction so we can avoid creating a DB payment in the case of a
-	// serialization error.
-	var b bytes.Buffer
-	if err := serializeOutgoingPayment(&b, payment); err != nil {
-		return err
-	}
-	paymentBytes := b.Bytes()
-
-	return db.Batch(func(tx *bolt.Tx) error {
+	err := db.Batch(func(tx *bolt.Tx) error {
 		payments, err := tx.CreateBucketIfNotExists(paymentBucket)
 		if err != nil {
 			return err
@@ -129,6 +125,13 @@ func (db *DB) AddPayment(payment *OutgoingPayment) error {
 		if err != nil {
 			return err
 		}
+		payment.AddIndex = paymentID
+
+		//Serialize the invoice to be written to disk
+		var b bytes.Buffer
+		if err := serializeOutgoingPayment(&b, payment); err != nil {
+			return err
+		}
 
 		// We use BigEndian for keys as it orders keys in
 		// ascending order. This allows bucket scans to order payments
@@ -136,8 +139,12 @@ func (db *DB) AddPayment(payment *OutgoingPayment) error {
 		paymentIDBytes := make([]byte, 8)
 		binary.BigEndian.PutUint64(paymentIDBytes, paymentID)
 
-		return payments.Put(paymentIDBytes, paymentBytes)
+		return payments.Put(paymentIDBytes, b.Bytes())
 	})
+	if err != nil {
+		return 0, err
+	}
+	return payment.AddIndex, nil
 }
 
 // FetchAllPayments returns all outgoing payments in DB.
@@ -174,15 +181,65 @@ func (db *DB) FetchAllPayments() ([]*OutgoingPayment, error) {
 	return payments, nil
 }
 
+// PaymentsAddedSince fetches from disk all outgoing paymetns that were added
+// since the index provided
+func (db *DB) PaymentsAddedSince(sinceAddIndex uint64) ([]*OutgoingPayment, error) {
+	var newPayments []*OutgoingPayment
+	var startIndex [8]byte
+	byteOrder.PutUint64(startIndex[:], sinceAddIndex)
+
+	err := db.View(func(tx *bolt.Tx) error {
+		payments := tx.Bucket(paymentBucket)
+
+		//If the bucket wasn't created the use should get empty payments
+		if payments == nil {
+			return nil
+		}
+
+		paymentCursor := payments.Cursor()
+		for addIndex, v := paymentCursor.Seek(startIndex[:]); addIndex != nil; addIndex, v = paymentCursor.Next() {
+
+			//in case it is the sinceAddIndex let's just skip it
+			if bytes.Compare(addIndex, startIndex[:]) <= 0 {
+				continue
+			}
+			r := bytes.NewReader(v)
+			payment, err := deserializeOutgoingPayment(r)
+			if err != nil {
+				return err
+			}
+
+			newPayments = append(newPayments, payment)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return newPayments, nil
+}
+
 // DeleteAllPayments deletes all payments from DB.
 func (db *DB) DeleteAllPayments() error {
 	return db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(paymentBucket)
+		if bucket == nil {
+			return nil
+		}
+		paymentSeq := bucket.Sequence()
 		err := tx.DeleteBucket(paymentBucket)
 		if err != nil && err != bolt.ErrBucketNotFound {
 			return err
 		}
 
-		_, err = tx.CreateBucket(paymentBucket)
+		newBucket, err := tx.CreateBucket(paymentBucket)
+		if err != nil {
+			return err
+		}
+		newBucket.SetSequence(paymentSeq)
 		return err
 	})
 }

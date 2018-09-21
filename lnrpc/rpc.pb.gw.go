@@ -453,6 +453,31 @@ func request_Lightning_ListPayments_0(ctx context.Context, marshaler runtime.Mar
 
 }
 
+var (
+	filter_Lightning_SubscribePayments_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
+)
+
+func request_Lightning_SubscribePayments_0(ctx context.Context, marshaler runtime.Marshaler, client LightningClient, req *http.Request, pathParams map[string]string) (Lightning_SubscribePaymentsClient, runtime.ServerMetadata, error) {
+	var protoReq PaymentSubscription
+	var metadata runtime.ServerMetadata
+
+	if err := runtime.PopulateQueryParameters(&protoReq, req.URL.Query(), filter_Lightning_SubscribePayments_0); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	stream, err := client.SubscribePayments(ctx, &protoReq)
+	if err != nil {
+		return nil, metadata, err
+	}
+	header, err := stream.Header()
+	if err != nil {
+		return nil, metadata, err
+	}
+	metadata.HeaderMD = header
+	return stream, metadata, nil
+
+}
+
 func request_Lightning_DeleteAllPayments_0(ctx context.Context, marshaler runtime.Marshaler, client LightningClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var protoReq DeleteAllPaymentsRequest
 	var metadata runtime.ServerMetadata
@@ -1452,6 +1477,35 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 
 	})
 
+	mux.Handle("GET", pattern_Lightning_SubscribePayments_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		if cn, ok := w.(http.CloseNotifier); ok {
+			go func(done <-chan struct{}, closed <-chan bool) {
+				select {
+				case <-done:
+				case <-closed:
+					cancel()
+				}
+			}(ctx.Done(), cn.CloseNotify())
+		}
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		rctx, err := runtime.AnnotateContext(ctx, mux, req)
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_Lightning_SubscribePayments_0(rctx, inboundMarshaler, client, req, pathParams)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_Lightning_SubscribePayments_0(ctx, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
+
+	})
+
 	mux.Handle("DELETE", pattern_Lightning_DeleteAllPayments_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
@@ -1761,6 +1815,8 @@ var (
 
 	pattern_Lightning_ListPayments_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "payments"}, ""))
 
+	pattern_Lightning_SubscribePayments_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "payments", "subscribe"}, ""))
+
 	pattern_Lightning_DeleteAllPayments_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "payments"}, ""))
 
 	pattern_Lightning_DescribeGraph_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "graph"}, ""))
@@ -1824,6 +1880,8 @@ var (
 	forward_Lightning_DecodePayReq_0 = runtime.ForwardResponseMessage
 
 	forward_Lightning_ListPayments_0 = runtime.ForwardResponseMessage
+
+	forward_Lightning_SubscribePayments_0 = runtime.ForwardResponseStream
 
 	forward_Lightning_DeleteAllPayments_0 = runtime.ForwardResponseMessage
 

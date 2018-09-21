@@ -772,6 +772,33 @@
         ]
       }
     },
+    "/v1/payments/subscribe": {
+      "get": {
+        "summary": "*\nSubscribePayments returns a uni-directional stream (sever -\u003e client) for\nnotifying the client of newly added payments. The caller can\noptionally specify the add_index. If the add_index is specified, then we'll \nfirst start by sending add payment events for all payments with an add_index \ngreater than the specified value.  If add_index field is not set, then we'll \nonly send out the latest added events.",
+        "operationId": "SubscribePayments",
+        "responses": {
+          "200": {
+            "description": "(streaming responses)",
+            "schema": {
+              "$ref": "#/definitions/lnrpcPayment"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "add_index",
+            "description": "*\nIf specified (non-zero), then we'll first start by sending out\nnotifications for all added indexes with an add_index greater than this\nvalue. This allows callers to catch up on any events they missed while they\nweren't connected to the streaming RPC.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/payreq/{pay_req}": {
       "get": {
         "summary": "* lncli: `decodepayreq`\nDecodePayReq takes an encoded payment request string and attempts to decode\nit, returning a full description of the conditions encoded within the\npayment request.",
@@ -2305,6 +2332,11 @@
         "payment_preimage": {
           "type": "string",
           "title": "/ The payment preimage"
+        },
+        "add_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "*\nIf specified (non-zero), then we'll first start by sending out\nnotifications for all added indexes with an add_index greater than this\nvalue. This allows callers to catch up on any events they missed while they\nweren't connected to the streaming RPC."
         }
       }
     },

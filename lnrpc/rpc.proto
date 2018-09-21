@@ -507,6 +507,20 @@ service Lightning {
     };
 
     /**
+    SubscribePayments returns a uni-directional stream (sever -> client) for
+    notifying the client of newly added payments. The caller can
+    optionally specify the add_index. If the add_index is specified, then we'll 
+    first start by sending add payment events for all payments with an add_index 
+    greater than the specified value.  If add_index field is not set, then we'll 
+    only send out the latest added events.
+    */
+    rpc SubscribePayments (PaymentSubscription) returns (stream Payment) {
+        option (google.api.http) = {
+            get: "/v1/payments/subscribe"
+        };
+    }
+
+    /**
     DeleteAllPayments deletes all outgoing payments from DB.
     */
     rpc DeleteAllPayments (DeleteAllPaymentsRequest) returns (DeleteAllPaymentsResponse) {
@@ -1804,6 +1818,14 @@ message Payment {
 
     /// The payment preimage
     string payment_preimage = 6 [json_name = "payment_preimage"];
+
+    /**
+    If specified (non-zero), then we'll first start by sending out
+    notifications for all added indexes with an add_index greater than this
+    value. This allows callers to catch up on any events they missed while they
+    weren't connected to the streaming RPC.
+    */
+    uint64 add_index = 7 [json_name = "add_index"];
 }
 
 message ListPaymentsRequest {
@@ -1812,6 +1834,16 @@ message ListPaymentsRequest {
 message ListPaymentsResponse {
     /// The list of payments
     repeated Payment payments = 1 [json_name = "payments"];
+}
+
+message PaymentSubscription {
+    /**
+    If specified (non-zero), then we'll first start by sending out
+    notifications for all added indexes with an add_index greater than this
+    value. This allows callers to catch up on any events they missed while they
+    weren't connected to the streaming RPC.
+    */
+    uint64 add_index = 1 [json_name = "add_index"];
 }
 
 message DeleteAllPaymentsRequest {

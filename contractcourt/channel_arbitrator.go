@@ -648,7 +648,7 @@ func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
 
 			err = c.cfg.IncubateOutputs(
 				c.cfg.ChanPoint, commitRes,
-				nil, nil,
+				nil, nil, triggerHeight,
 			)
 			if err != nil {
 				// TODO(roasbeef): check for AlreadyExists errors

@@ -152,7 +152,10 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 		log.Tracef("%T(%v): incubating htlc output", h,
 			h.htlcResolution.ClaimOutpoint)
 
-		err := h.IncubateOutputs(h.ChanPoint, nil, &h.htlcResolution, nil)
+		err := h.IncubateOutputs(
+			h.ChanPoint, nil, &h.htlcResolution, nil,
+			h.broadcastHeight,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -568,7 +571,10 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 		log.Infof("%T(%x): incubating incoming htlc output",
 			h, h.payHash[:])
 
-		err := h.IncubateOutputs(h.ChanPoint, nil, nil, &h.htlcResolution)
+		err := h.IncubateOutputs(
+			h.ChanPoint, nil, nil, &h.htlcResolution,
+			h.broadcastHeight,
+		)
 		if err != nil {
 			return nil, err
 		}

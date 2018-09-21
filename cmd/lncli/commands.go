@@ -2758,6 +2758,41 @@ func decodePayReq(ctx *cli.Context) error {
 	return nil
 }
 
+var subscribePaymentsCommand = cli.Command{
+	Name:     "subscribepayments",
+	Category: "Payments",
+	Usage:    "Subscribe for outgoing payment notifications.",
+	Flags: []cli.Flag{
+		cli.Uint64Flag{
+			Name:  "add_index",
+			Usage: "the start index for getting notifications.",
+		},
+	},
+	Action: actionDecorator(subscribePayments),
+}
+
+func subscribePayments(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	stream, err := client.SubscribePayments(ctxb, &lnrpc.PaymentSubscription{AddIndex: ctx.Uint64("add_index")})
+	if err != nil {
+		return err
+	}
+
+	for {
+		payment, err := stream.Recv()
+		if err == io.EOF {
+			return nil
+		} else if err != nil {
+			return err
+		}
+
+		printRespJSON(payment)
+	}
+}
+
 var listChainTxnsCommand = cli.Command{
 	Name:        "listchaintxns",
 	Category:    "On-chain",

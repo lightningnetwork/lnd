@@ -573,3 +573,48 @@ func migratePruneEdgeUpdateIndex(tx *bolt.Tx) error {
 
 	return nil
 }
+
+// migrateAddIndexOutgoingPayments is a migration for all outgoing payments
+// to make sure they have their AddIndex initialized.
+// This follows the implementation of the subscribePayments RPC API.
+func migrateAddIndexOutgoingPayments(tx *bolt.Tx) error {
+	payBucket := tx.Bucket(paymentBucket)
+	if payBucket == nil {
+		return nil
+	}
+
+	log.Infof("Migrating payments database to initialize AddIndex for all payments")
+
+	err := payBucket.ForEach(func(payID, paymentBytes []byte) error {
+		log.Tracef("Migrating payment %x", payID[:])
+
+		paymentReader := bytes.NewReader(paymentBytes)
+		payment, err := deserializeOutgoingPayment(paymentReader)
+		if err != nil {
+			return fmt.Errorf("unable to deserialize payment: %v", err)
+		}
+
+		// Set the proper value for AddIndex, use the key sequence.
+		payment.AddIndex = binary.BigEndian.Uint64(payID)
+
+		var b bytes.Buffer
+		if err := serializeOutgoingPayment(&b, payment); err != nil {
+			return err
+		}
+
+		// Now that we know the modifications was successful, we'll
+		// write it back to disk with the right AddIndex.
+		if err := payBucket.Put(payID, b.Bytes()); err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	log.Infof("Migration to outgoing payment AddIndex complete!")
+
+	return nil
+}

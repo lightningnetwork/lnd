@@ -80,6 +80,12 @@ var (
 			number:    6,
 			migration: migratePruneEdgeUpdateIndex,
 		},
+		{
+			// The DB version that support payment notifications.
+			// This migration ensures every payment has AddIndex initialized
+			number:    7,
+			migration: migrateAddIndexOutgoingPayments,
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over

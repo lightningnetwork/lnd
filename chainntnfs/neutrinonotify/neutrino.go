@@ -814,7 +814,7 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	// may miss a notification dispatch.
 	for {
 		n.heightMtx.RLock()
-		currentHeight := n.bestHeight
+		currentHeight = n.bestHeight
 		n.heightMtx.RUnlock()
 
 		if currentHeight < heightHint {

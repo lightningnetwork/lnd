@@ -54,9 +54,8 @@ type WitnessBeacon interface {
 	// the second argument if the preimage is found.
 	LookupPreimage(payhash []byte) ([]byte, bool)
 
-	// AddPreImage adds a newly discovered preimage and its expiry height
-	// to the global cache.
-	AddPreimage(pre []byte, expiryHeight uint32) error
+	// AddPreImage adds a newly discovered preimage to the global cache.
+	AddPreimage(pre []byte) error
 
 	// Start starts the WitnessBeacon's witness garbage collector.
 	// This is run in a goroutine.

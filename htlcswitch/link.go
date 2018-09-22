@@ -1398,8 +1398,9 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// add it to our preimage cache with a dummy expiry height. By
 		// doing this, we ensure any contested contracts watched by
 		// any on-chain arbitrators can now sweep this HTLC on-chain.
+		// TODO - l.channel.ShortChanID()
 		go func() {
-			err := l.cfg.PreimageCache.AddPreimage(pre[:], math.MaxUint32)
+			err := l.cfg.PreimageCache.AddPreimage(pre[:])
 			if err != nil {
 				l.errorf("unable to add preimage=%x to "+
 					"cache", pre[:])

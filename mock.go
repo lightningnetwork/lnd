@@ -325,7 +325,6 @@ func (m *mockPreimageCache) AddPreimage(preimage []byte, exp uint32) error {
 
 type preimageAndExp struct {
 	preimage []byte
-	expiry   uint32
 }
 
 type mockWitnessBeacon struct {
@@ -355,13 +354,12 @@ func (m *mockWitnessBeacon) LookupPreimage(payhash []byte) ([]byte, bool) {
 	return p.preimage, ok
 }
 
-func (m *mockWitnessBeacon) AddPreimage(pre []byte, expiryHeight uint32) error {
+func (m *mockWitnessBeacon) AddPreimage(pre []byte) error {
 	m.Lock()
 	defer m.Unlock()
 
 	m.cache[sha256.Sum256(pre[:])] = &preimageAndExp{
 		preimage: pre,
-		expiry:   expiryHeight,
 	}
 
 	return nil
@@ -388,6 +386,7 @@ func (m *mockWitnessBeacon) Stop() error {
 	return nil
 }
 
+// TODO
 func (m *mockWitnessBeacon) gc(epochClient *chainntnfs.BlockEpochEvent) {
 	defer m.wg.Done()
 	defer epochClient.Cancel()

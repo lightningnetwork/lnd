@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+baseImage="${DOCKER_TAG%%-*}"
+baseBuilderImage="golang:$baseImage"
+
+echo "Building $IMAGE_NAME from '$baseBuilderImage' to create image from '$baseImage'."
+
+docker build \
+  --build-arg BASE_BUILDER_IMAGE="$baseBuilderImage" \
+  --build-arg BASE_IMAGE="$baseImage" \
+  -t "$IMAGE_NAME" .

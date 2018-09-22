@@ -1,4 +1,7 @@
-FROM golang:alpine as builder
+ARG BASE_BUILDER_IMAGE="golang:alpine"
+ARG BASE_IMAGE="alpine"
+
+FROM ${BASE_BUILDER_IMAGE} as builder
 
 # Force Go to use the cgo based DNS resolver. This is required to ensure DNS
 # queries required to connect to linked containers succeed.
@@ -14,7 +17,7 @@ RUN apk add --no-cache \
 &&  make install
 
 # Start a new, final image.
-FROM alpine as final
+FROM ${BASE_IMAGE} as final
 
 # Define a root volume for data persistence.
 VOLUME /root/.lnd

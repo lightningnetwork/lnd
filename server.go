@@ -2847,8 +2847,6 @@ func (s *server) announceChanStatus(op wire.OutPoint, disabled bool) error {
 		return nil
 	}
 
-	srvrLog.Debugf("Announcing channel(%v) disabled=%v", op, disabled)
-
 	// Retrieve the latest update for this channel. We'll use this
 	// as our starting point to send the new update.
 	chanUpdate, err := s.fetchLastChanUpdateByOutPoint(op)
@@ -2887,6 +2885,8 @@ func (s *server) announceChanStatus(op wire.OutPoint, disabled bool) error {
 	if err != nil {
 		return err
 	}
+
+	srvrLog.Debugf("Announcing channel(%v) disabled=%v", op, disabled)
 
 	// Once signed, we'll send the new update to all of our peers.
 	if err := s.applyChannelUpdate(chanUpdate); err != nil {
@@ -3053,8 +3053,8 @@ func (s *server) watchChannelStatus() {
 			newStatus := make(map[wire.OutPoint]activeStatus)
 			for _, c := range channels {
 				// We'll skip any private channels, as they
-				// aren't used for routing within the network
-				// by other nodes.
+				// aren't used for routing within the network by
+				// other nodes.
 				if c.ChannelFlags&lnwire.FFAnnounceChannel == 0 {
 					continue
 				}
@@ -3113,10 +3113,12 @@ func (s *server) watchChannelStatus() {
 					delete(status, op)
 
 					err = s.announceChanStatus(op, disable)
-					if err != nil {
+					if err != nil &&
+						err != channeldb.ErrEdgeNotFound {
+
 						srvrLog.Errorf("Unable to "+
-							"disable channel: %v",
-							err)
+							"disable channel %v: %v",
+							op, err)
 					}
 				}
 			}

@@ -505,9 +505,9 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			// ChannelUpdate. If this channel is already active,
 			// the update won't be sent.
 			err := p.server.announceChanStatus(chanPoint, false)
-			if err != nil {
-				peerLog.Errorf("unable to send out active "+
-					"channel update: %v", err)
+			if err != nil && err != channeldb.ErrEdgeNotFound {
+				srvrLog.Errorf("Unable to enable channel %v: %v",
+					chanPoint, err)
 			}
 		}
 	}()

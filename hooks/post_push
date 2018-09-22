@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+baseImage="${DOCKER_TAG%%-*}"
+vcsRef=$(git rev-parse --short HEAD)
+
+commitHashTag="$DOCKER_REPO:$baseImage-$vcsRef"
+docker tag "$IMAGE_NAME" "$commitHashTag"
+docker push "$commitHashTag"
+
+latestTag="$DOCKER_REPO:$baseImage-latest"
+docker tag "$IMAGE_NAME" "$latestTag"
+docker push "$latestTag"

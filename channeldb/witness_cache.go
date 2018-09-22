@@ -331,6 +331,33 @@ func (w *WitnessCache) DeleteWitnessClass(wType WitnessType) error {
 // of its associated witnesses in the WitnessTypeBucket sub-bucket keyed by
 // this ShortChannelID.
 func (w *WitnessCache) DeleteChannel(wType WitnessType, chanID lnwire.ShortChannelID) error {
-	// TODO
-	return nil
+	return w.db.Batch(func(tx *bolt.Tx) error {
+		witnessBucket, err := tx.CreateBucketIfNotExists(witnessBucketKey)
+		if err != nil {
+			return err
+		}
+
+		witnessTypeBucketKey, err := wType.toDBKey()
+		if err != nil {
+			return err
+		}
+		witnessTypeBucket, err := witnessBucket.CreateBucketIfNotExists(witnessTypeBucketKey)
+		if err != nil {
+			return err
+		}
+
+		channelBucket, err := witnessTypeBucket.CreateBucketIfNotExists(channelBucketKey)
+		if err != nil {
+			return err
+		}
+
+		var cid [8]byte
+		byteOrder.PutUint64(cid, chanID.ToUint64())
+
+		if err := channelBucket.Delete(cid[:]); err != nil {
+			return err
+		}
+
+		return witnessTypeBucket.DeleteBucket(cid[:])
+	})
 }

@@ -3,7 +3,6 @@ package channeldb
 import (
 	"bytes"
 	"crypto/sha256"
-	"encoding/binary"
 	"fmt"
 
 	"github.com/coreos/bbolt"
@@ -17,6 +16,10 @@ var (
 
 	// ErrUnknownWitnessType is returned if a caller attempts to
 	ErrUnknownWitnessType = fmt.Errorf("unknown witness type")
+
+	// ErrNoChannels is an error that's returned when there are no ShortChannelIDs
+	// stored in the ChannelBucket.
+	ErrNoChannels = fmt.Errorf("no channels or channel states")
 )
 
 // WitnessType is enum that denotes what "type" of witness is being
@@ -135,7 +138,7 @@ func (w *WitnessCache) AddWitness(wType WitnessType, witness []byte,
 		}
 
 		var cid [8]byte
-		binary.BigEndian.PutUint64(cid, chanID.ToUint64())
+		byteOrder.PutUint64(cid, chanID.ToUint64())
 
 		// This is the specific channel bucket that houses all witnesses
 		// for a particular channel.
@@ -220,7 +223,7 @@ func (w *WitnessCache) LookupWitness(wType WitnessType, witnessKey []byte,
 			// Get the witnessTypeBucket's ChannelWitnessBucket and
 			// look to see if the witness is housed in this sub-bucket.
 			var cid [8]byte
-			binary.BigEndian.PutUint64(chanID.ToUint64())
+			byteOrder.PutUint64(cid, chanID.ToUint64())
 
 			channelWitnessBucket := witnessTypeBucket.Bucket(cid)
 			if channelWitnessBucket == nil {
@@ -251,25 +254,12 @@ func (w *WitnessCache) LookupWitness(wType WitnessType, witnessKey []byte,
 func (w *WitnessCache) FetchAllChannelStates(wType WitnessType) ([]lnwire.ShortChannelID,
 	[]ChannelState, error) {
 
-	// TODO
 	var chanIDs []lnwire.ShortChannelID
 	var chanStates []ChannelState
 	err := w.db.View(func(tx *bolt.Tx) error {
 		witnessBucket := tx.Bucket(witnessBucketKey)
 		if witnessBucket == nil {
-
-		}
-	})
-
-	return chanIDs, chanStates, err
-
-	// END
-	var witnesses [][]byte
-	var expiryHeights []uint32
-	err := w.db.View(func(tx *bolt.Tx) error {
-		witnessBucket := tx.Bucket(witnessBucketKey)
-		if witnessBucket == nil {
-			return ErrNoWitnesses
+			return ErrNoChannels
 		}
 
 		witnessTypeBucketKey, err := wType.toDBKey()
@@ -278,25 +268,37 @@ func (w *WitnessCache) FetchAllChannelStates(wType WitnessType) ([]lnwire.ShortC
 		}
 		witnessTypeBucket := witnessBucket.Bucket(witnessTypeBucketKey)
 		if witnessTypeBucket == nil {
-			return ErrNoWitnesses
+			return ErrNoChannels
 		}
 
-		// Loop through the bucket and return all witnesses with their
-		// respective expiries.
-		if err = witnessTypeBucket.ForEach(func(keys, witnessData []byte) error {
-			var witness []byte
-			var expiry uint32
+		channelBucket := witnessTypeBucket.Bucket(channelBucketKey)
+		if channelBucket == nil {
+			return ErrNoChannels
+		}
 
-			r := bytes.NewReader(witnessData)
-			err := ReadElements(r, &witness, &expiry)
-			if err != nil {
+		// Loop through the bucket and return all ShortChannelIDs with
+		// their ChannelStates.
+		if err = channelBucket.ForEach(func(id, state []byte) error {
+
+			var chanID lnwire.ShortChannelID
+			var chanState ChannelState
+
+			r := bytes.NewReader(id)
+			if err := ReadElements(r, &chanID); err != nil {
 				return err
 			}
 
-			witnesses = append(witnesses, witness)
-			expiryHeights = append(expiryHeights, expiry)
+			if len(state) != 1 {
+				return ErrNoChannels
+			}
+
+			chanState = uint8(state[0])
+
+			chanIDs = append(chanIDs, chanID)
+			chanStates = append(chanStates, chanState)
 
 			return nil
+
 		}); err != nil {
 			return err
 		}
@@ -304,7 +306,7 @@ func (w *WitnessCache) FetchAllChannelStates(wType WitnessType) ([]lnwire.ShortC
 		return nil
 	})
 
-	return witnesses, expiryHeights, err
+	return chanIDs, chanStates, err
 }
 
 // DeleteWitnessClass attempts to delete an *entire* class of witnesses. After
@@ -330,4 +332,5 @@ func (w *WitnessCache) DeleteWitnessClass(wType WitnessType) error {
 // this ShortChannelID.
 func (w *WitnessCache) DeleteChannel(wType WitnessType, chanID lnwire.ShortChannelID) error {
 	// TODO
+	return nil
 }

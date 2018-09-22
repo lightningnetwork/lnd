@@ -248,6 +248,41 @@ func (w *WitnessCache) LookupWitness(wType WitnessType, witnessKey []byte,
 	return witness, nil
 }
 
+// FinalizeChannelState takes a WitnessType and a ShortChannelID and attempts to
+// update the internally stored ChannelState to the FINALIZED state. Returns an
+// error if one occurs.
+func (w *WitnessCache) FinalizeChannelState(wType WitnessType, chanID lnwire.ShortChannelID) error {
+	return w.db.Batch(func(tx *bolt.Tx) error {
+		witnessBucket, err := tx.CreateBucketIfNotExists(witnessBucketKey)
+		if err != nil {
+			return err
+		}
+
+		witnessTypeBucketKey, err := wType.toDBKey()
+		if err != nil {
+			return err
+		}
+		witnessTypeBucket, err := witnessBucket.CreateBucketIfNotExists(
+			witnessTypeBucketKey,
+		)
+		if err != nil {
+			return err
+		}
+
+		channelBucket, err := witnessTypeBucket.CreateBucketIfNotExists(
+			channelBucketKey,
+		)
+		if err != nil {
+			return err
+		}
+
+		var cid [8]byte
+		byteOrder.PutUint64(cid[:], chanID.ToUint64())
+
+		return channelBucket.Put(cid, byte(FINALIZED))
+	});
+}
+
 // FetchAllChannelStates retrieves all ShortChannelIDs and ChannelStates from
 // the ChannelBucket for a given WitnessType. This is used by the garbage collector
 // to determine if the ShortChannelID's set of witnesses should be collected.

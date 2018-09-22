@@ -1792,6 +1792,11 @@ const (
 	// we or the remote fail at some point during the opening workflow, or
 	// we timeout waiting for the funding transaction to be confirmed.
 	FundingCanceled ClosureType = 3
+
+	// Abandoned indicates that the channel state was removed without
+	// any further actions. This is intended to clean up unusable
+	// channels during development.
+	Abandoned ClosureType = 5
 )
 
 // ChannelCloseSummary contains the final state of a channel at the point it

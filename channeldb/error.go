@@ -43,6 +43,10 @@ var (
 	// specific identity can't be found.
 	ErrNodeNotFound = fmt.Errorf("link node with target identity not found")
 
+	// ErrChannelNotFound is returned when we attempt to locate a channel
+	// for a specific chain, but it is not found.
+	ErrChannelNotFound = fmt.Errorf("channel not found")
+
 	// ErrMetaNotFound is returned when meta bucket hasn't been
 	// created.
 	ErrMetaNotFound = fmt.Errorf("unable to locate meta information")

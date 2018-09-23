@@ -34,7 +34,7 @@ type mockPreimageCache struct {
 	preimageMap map[[32]byte][]byte
 }
 
-func (m *mockPreimageCache) LookupPreimage(hash []byte) ([]byte, bool) {
+func (m *mockPreimageCache) LookupPreimage(hash []byte, chanID lnwire.ShortChannelID) ([]byte, bool) {
 	m.Lock()
 	defer m.Unlock()
 
@@ -45,7 +45,7 @@ func (m *mockPreimageCache) LookupPreimage(hash []byte) ([]byte, bool) {
 	return p, ok
 }
 
-func (m *mockPreimageCache) AddPreimage(preimage []byte, expiry uint32) error {
+func (m *mockPreimageCache) AddPreimage(preimage []byte, chanID lnwire.ShortChannelID) error {
 	m.Lock()
 	defer m.Unlock()
 

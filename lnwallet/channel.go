@@ -4602,11 +4602,9 @@ func (lc *LightningChannel) SettleHTLC(preimage [32]byte,
 		return ErrInvalidSettlePreimage{preimage[:], htlc.RHash[:]}
 	}
 
-	// Since we have a valid preimage, we will go ahead and add the correct
-	// expiry to the PreimageCache.
-
-	// TODO - lc.channelState.ShortChannelID
-	if err := lc.pCache.AddPreimage(preimage[:]); err != nil {
+	// Add this preimage to the cache under another ShortChannelID.
+	// TODO - Is this necessary?
+	if err := lc.pCache.AddPreimage(preimage[:], lc.channelState.ShortChannelID); err != nil {
 		return fmt.Errorf("Unable to add preimage=%x to cache", preimage[:])
 	}
 
@@ -5529,9 +5527,9 @@ func extractHtlcResolutions(feePerKw SatPerKWeight, ourCommit bool,
 		if htlc.Incoming {
 			// We'll now query the preimage cache for the preimage
 			// for this HTLC. If it's present then we can fully
-			// populate this resolution.
-			// TODO - LookupPreimage without ShortChanId?
-			preimage, _ := pCache.LookupPreimage(htlc.RHash[:])
+			// populate this resolution. We pass in a nil ShortChannelID
+			// since we don't know it.
+			preimage, _ := pCache.LookupPreimage(htlc.RHash[:], nil)
 
 			// Otherwise, we'll create an incoming HTLC resolution
 			// as we can satisfy the contract.

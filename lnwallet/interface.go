@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // AddressType is an enum-like type which denotes the possible address types
@@ -293,14 +294,14 @@ type MessageSigner interface {
 // We'll utilize this cache to communicate the discovery of new preimages
 // across sub-systems.
 type PreimageCache interface {
-	// LookupPreimage attempts to look up a preimage according to its hash.
-	// If found, the preimage is returned along with true for the second
-	// argument. Otherwise, it'll return false.
-	LookupPreimage(hash []byte) ([]byte, bool)
+	// LookupPreimage attempts to look up a preimage according to its hash
+	// and ShortChannelID if given. If found, the preimage is returned along
+	// with true for the second argument. Otherwise, it'll return false.
+	LookupPreimage(hash []byte, chanID lnwire.ShortChannelID) ([]byte, bool)
 
 	// AddPreimage attempts to add a new preimage to the global cache along
-	// with its expiry. If successful a nil error will be returned.
-	AddPreimage(preimage []byte, expiry uint32) error
+	// with its ShortChannelID. If successful a nil error will be returned.
+	AddPreimage(preimage []byte, chanID lnwire.ShortChannelID) error
 }
 
 // WalletDriver represents a "driver" for a particular concrete

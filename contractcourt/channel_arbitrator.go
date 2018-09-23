@@ -50,12 +50,14 @@ type WitnessBeacon interface {
 	// a new preimage is discovered.
 	SubscribeUpdates() *WitnessSubscription
 
-	// LookupPreImage attempts to lookup a preimage. True is returned for
-	// the second argument if the preimage is found.
-	LookupPreimage(payhash []byte) ([]byte, bool)
+	// LookupPreImage attempts to lookup a preimage given a payment hash and
+	// a ShortChannelID. True is returned for the second argument if the
+	// preimage is found.
+	LookupPreimage(payhash []byte, chanID lnwire.ShortChannelID) ([]byte, bool)
 
-	// AddPreImage adds a newly discovered preimage to the global cache.
-	AddPreimage(pre []byte) error
+	// AddPreImage adds a newly discovered preimage to the global cache given
+	// its associated ShortChannelID.
+	AddPreimage(pre []byte, chanID lnwire.ShortChannelID) error
 
 	// Start starts the WitnessBeacon's witness garbage collector.
 	// This is run in a goroutine.

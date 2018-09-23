@@ -220,6 +220,7 @@ func (w *WitnessCache) LookupWitness(wType WitnessType, witnessKey []byte,
 				return ErrNoWitnesses
 			}
 		} else {
+			// TODO - Multi-hop payments, ShortChannelID might be wrong?
 			// Get the witnessTypeBucket's ChannelWitnessBucket and
 			// look to see if the witness is housed in this sub-bucket.
 			var cid [8]byte

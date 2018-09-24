@@ -124,9 +124,6 @@ func (p *packetQueue) packetCoordinator() {
 			default:
 			}
 		}
-
-		nextPkt := p.queue[0].packet
-
 		p.queueCond.L.Unlock()
 
 		// If there aren't any further messages to sent (or the link
@@ -136,18 +133,22 @@ func (p *packetQueue) packetCoordinator() {
 		select {
 		case <-p.freeSlots:
 
+			// Pop item with highest priority from the front of the queue. This will
+			// set us up for the next iteration. If the queue is empty at this point,
+			// then we'll block at the top.
+			// Note that the item must be retrived within queueCond lock as any new
+			// inserted item might have a higher priority than p.queue[0]
+			p.queueCond.L.Lock()
+			nextPkt := p.queue[0].packet
+			heap.Pop(&p.queue)
+			p.queueCond.L.Unlock()
+
 			select {
 			case p.outgoingPkts <- nextPkt:
-				// Pop the item off the front of the queue and
-				// slide down the reference one to re-position
-				// the head pointer. This will set us up for
-				// the next iteration.  If the queue is empty
-				// at this point, then we'll block at the top.
-				p.queueCond.L.Lock()
-				heap.Pop(&p.queue)
+				// Only decrease the queueLen and totalHtlcAmt once the packet has been
+				// sent out
 				atomic.AddInt32(&p.queueLen, -1)
 				atomic.AddInt64(&p.totalHtlcAmt, int64(-nextPkt.amount))
-				p.queueCond.L.Unlock()
 			case <-p.quit:
 				return
 			}

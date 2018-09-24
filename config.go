@@ -1282,7 +1282,7 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 	// Next, we'll try to find an auth cookie. We need to detect the chain
 	// by seeing if one is specified in the configuration file.
 	dataDir := filepath.Dir(bitcoindConfigPath)
-	dataDirRE, err := regexp.Compile(`(?m)^\s*datadir\s*=\s*([^\s]+)`)
+	dataDirRE, err := regexp.Compile(`(?m)^\s*datadir\s*=\s*([\S ]+?)\s*$`)
 	if err != nil {
 		return "", "", "", "", err
 	}

@@ -4,7 +4,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	// "fmt"
+  "container/heap"
 
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -37,7 +37,7 @@ type packetQueue struct {
 
 	streamShutdown int32 // To be used atomically.
 
-	queue []*htlcPacket
+	queue priorityQueue
 
 	wg sync.WaitGroup
 
@@ -125,7 +125,7 @@ func (p *packetQueue) packetCoordinator() {
 			}
 		}
 
-		nextPkt := p.queue[0]
+		nextPkt := p.queue[0].packet
 
 		p.queueCond.L.Unlock()
 
@@ -144,8 +144,7 @@ func (p *packetQueue) packetCoordinator() {
 				// the next iteration.  If the queue is empty
 				// at this point, then we'll block at the top.
 				p.queueCond.L.Lock()
-				p.queue[0] = nil
-				p.queue = p.queue[1:]
+				heap.Pop(&p.queue)
 				atomic.AddInt32(&p.queueLen, -1)
 				atomic.AddInt64(&p.totalHtlcAmt, int64(-nextPkt.amount))
 				p.queueCond.L.Unlock()
@@ -169,12 +168,11 @@ func (p *packetQueue) AddPkt(pkt *htlcPacket) {
 	// the queue's length.
 	p.queueCond.L.Lock()
 	if atomic.LoadInt32(&p.queueLen) < p.maxQueueLen {
-		p.queue = append(p.queue, pkt)
+		heap.Push(&p.queue, makeNode(pkt))
 		atomic.AddInt32(&p.queueLen, 1)
 		atomic.AddInt64(&p.totalHtlcAmt, int64(pkt.amount))
 	} else {
 		log.Warnf("Packet %v dropped as overflow queue is full", pkt.incomingHTLCID)
-		// fmt.Println("Packet", pkt.incomingHTLCID, "dropped as overflow queue is full")
 	}
 	p.queueCond.L.Unlock()
 

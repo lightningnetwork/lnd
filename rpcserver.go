@@ -1190,12 +1190,16 @@ out:
 func (r *rpcServer) AbandonChannel(ctx context.Context,
 	in *lnrpc.AbandonChannelRequest) (*lnrpc.AbandonChannelResponse, error) {
 
+	// If this isn't the debug build, then we won't allow the RPC to be
+	// executed, as it's an advanced feature and won't be activated in
+	// regular production/release builds.
 	if !DebugBuild {
 		return nil, fmt.Errorf("AbandonChannel RPC call only " +
 			"available in debug builds")
 	}
 
-	index := in.ChannelPoint.OutputIndex
+	// We'll parse out the arguments to we can obtain the chanPoint of the
+	// target channel.
 	txidHash, err := getChanPointFundingTxid(in.GetChannelPoint())
 	if err != nil {
 		return nil, err
@@ -1204,23 +1208,41 @@ func (r *rpcServer) AbandonChannel(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+	index := in.ChannelPoint.OutputIndex
 	chanPoint := wire.NewOutPoint(txid, index)
 
+	// With the chanPoint constructed, we'll attempt to find the target
+	// channel in the database. If we can't find the channel, then we'll
+	// return the error back to the caller.
 	dbChan, err := r.fetchOpenDbChannel(*chanPoint)
 	if err != nil {
 		return nil, err
 	}
 
+	// Now that we've found the channel, we'll populate a close summary for
+	// the channel, so we can store as much information for this abounded
+	// channel as possible. We also ensure that we set Pending to false, to
+	// indicate that this channel has been "fully" closed.
+	_, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
+	if err != nil {
+		return nil, err
+	}
 	summary := &channeldb.ChannelCloseSummary{
-		ChanPoint:   *chanPoint,
-		ChainHash:   dbChan.ChainHash,
-		RemotePub:   dbChan.IdentityPub,
-		Capacity:    dbChan.Capacity,
-		CloseType:   channeldb.Abandoned,
-		ShortChanID: dbChan.ShortChannelID,
-		IsPending:   false,
+		CloseType:               channeldb.Abandoned,
+		ChanPoint:               *chanPoint,
+		ChainHash:               dbChan.ChainHash,
+		CloseHeight:             uint32(bestHeight),
+		RemotePub:               dbChan.IdentityPub,
+		Capacity:                dbChan.Capacity,
+		SettledBalance:          dbChan.LocalCommitment.LocalBalance.ToSatoshis(),
+		ShortChanID:             dbChan.ShortChanID(),
+		RemoteCurrentRevocation: dbChan.RemoteCurrentRevocation,
+		RemoteNextRevocation:    dbChan.RemoteNextRevocation,
+		LocalChanConfig:         dbChan.LocalChanCfg,
 	}
 
+	// Finally, we'll close the channel in the DB, and return back to the
+	// caller.
 	err = dbChan.CloseChannel(summary)
 	if err != nil {
 		return nil, err

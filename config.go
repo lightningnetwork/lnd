@@ -1279,8 +1279,8 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 		return "", "", "", "", err
 	}
 
-	// Next, we'll try to find an auth cookie. We need to detect the chain
-	// by seeing if one is specified in the configuration file.
+	// Next, we'll try to find an auth cookie. We first follow the datadir
+	// if one is specified in the configuration file.
 	dataDir := filepath.Dir(bitcoindConfigPath)
 	dataDirRE, err := regexp.Compile(`(?m)^\s*datadir\s*=\s*([\S ]+?)\s*$`)
 	if err != nil {
@@ -1291,17 +1291,19 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 		dataDir = string(dataDirSubmatches[1])
 	}
 
-	chainDir := "/"
+	// Next we must append the appropriate chain dir
 	switch activeNetParams.Params.Name {
 	case "testnet3":
-		chainDir = "/testnet3/"
+		dataDir = filepath.Join(dataDir, "testnet3")
 	case "testnet4":
-		chainDir = "/testnet4/"
+		dataDir = filepath.Join(dataDir, "testnet4")
 	case "regtest":
-		chainDir = "/regtest/"
+		dataDir = filepath.Join(dataDir, "regtest")
 	}
 
-	cookie, err := ioutil.ReadFile(dataDir + chainDir + ".cookie")
+	// We can now try to read the authentication details from the
+	// .cookie file in this directory, if one exists.
+	cookie, err := ioutil.ReadFile(filepath.Join(dataDir, ".cookie"))
 	if err == nil {
 		splitCookie := strings.Split(string(cookie), ":")
 		if len(splitCookie) == 2 {

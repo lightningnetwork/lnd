@@ -15,6 +15,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/ticker"
 )
 
 func genPreimage() ([32]byte, error) {
@@ -1835,7 +1836,60 @@ func TestMultiHopPaymentForwardingEvents(t *testing.T) {
 		n.carolChannelLink,
 	)
 	firstHop := n.firstBobChannelLink.ShortChanID()
-	for i := 0; i < numPayments; i++ {
+	for i := 0; i < numPayments/2; i++ {
+		_, err := n.makePayment(
+			n.aliceServer, n.carolServer, firstHop, hops, finalAmt,
+			htlcAmt, totalTimelock,
+		).Wait(30 * time.Second)
+		if err != nil {
+			t.Fatalf("unable to send payment: %v", err)
+		}
+	}
+
+	bobLog, ok := n.bobServer.htlcSwitch.cfg.FwdingLog.(*mockForwardingLog)
+	if !ok {
+		t.Fatalf("mockForwardingLog assertion failed")
+	}
+
+	// After sending 5 of the payments, trigger the forwarding ticker, to
+	// make sure the events are properly flushed.
+	bobTicker, ok := n.bobServer.htlcSwitch.cfg.FwdEventTicker.(*ticker.Mock)
+	if !ok {
+		t.Fatalf("mockTicker assertion failed")
+	}
+
+	// We'll trigger the ticker, and wait for the events to appear in Bob's
+	// forwarding log.
+	timeout := time.After(15 * time.Second)
+	for {
+		select {
+		case bobTicker.Force <- time.Now():
+		case <-time.After(1 * time.Second):
+			t.Fatalf("unable to force tick")
+		}
+
+		// If all 5 events is found in Bob's log, we can break out and
+		// continue the test.
+		bobLog.Lock()
+		if len(bobLog.events) == 5 {
+			bobLog.Unlock()
+			break
+		}
+		bobLog.Unlock()
+
+		// Otherwise wait a little bit before checking again.
+		select {
+		case <-time.After(50 * time.Millisecond):
+		case <-timeout:
+			bobLog.Lock()
+			defer bobLog.Unlock()
+			t.Fatalf("expected 5 events in event log, instead "+
+				"found: %v", spew.Sdump(bobLog.events))
+		}
+	}
+
+	// Send the remaining payments.
+	for i := numPayments / 2; i < numPayments; i++ {
 		_, err := n.makePayment(
 			n.aliceServer, n.carolServer, firstHop, hops, finalAmt,
 			htlcAmt, totalTimelock,
@@ -1874,10 +1928,6 @@ func TestMultiHopPaymentForwardingEvents(t *testing.T) {
 	}
 
 	// Bob on the other hand, should have 10 events.
-	bobLog, ok := n.bobServer.htlcSwitch.cfg.FwdingLog.(*mockForwardingLog)
-	if !ok {
-		t.Fatalf("mockForwardingLog assertion failed")
-	}
 	bobLog.Lock()
 	defer bobLog.Unlock()
 	if len(bobLog.events) != 10 {

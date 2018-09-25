@@ -359,6 +359,14 @@ func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	u.wg.Add(1)
 	defer u.wg.Done()
 
+	// Check quit channel for the case where the waitgroup wait was finished
+	// right before this function's add call was made.
+	select {
+	case <-u.quit:
+		return fmt.Errorf("nursery shutting down")
+	default:
+	}
+
 	numHtlcs := len(incomingHtlcs) + len(outgoingHtlcs)
 	var (
 		hasCommit bool

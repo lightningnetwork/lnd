@@ -26,7 +26,6 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnpeer"
-	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 )
@@ -2315,7 +2314,7 @@ func (p *mockPeer) SendMessage(_ bool, msgs ...lnwire.Message) error {
 
 	return nil
 }
-func (p *mockPeer) AddNewChannel(_ *lnwallet.LightningChannel, _ <-chan struct{}) error {
+func (p *mockPeer) AddNewChannel(_ *channeldb.OpenChannel, _ <-chan struct{}) error {
 	return nil
 }
 func (p *mockPeer) WipeChannel(_ *wire.OutPoint) error { return nil }

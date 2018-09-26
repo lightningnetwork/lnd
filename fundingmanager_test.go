@@ -178,13 +178,13 @@ func (n *testNode) QuitSignal() <-chan struct{} {
 	return n.shutdownChannel
 }
 
-func (n *testNode) AddNewChannel(channel *lnwallet.LightningChannel,
+func (n *testNode) AddNewChannel(channel *channeldb.OpenChannel,
 	quit <-chan struct{}) error {
 
-	done := make(chan struct{})
+	errChan := make(chan error)
 	msg := &newChannelMsg{
 		channel: channel,
-		done:    done,
+		err:     errChan,
 	}
 
 	select {
@@ -194,12 +194,11 @@ func (n *testNode) AddNewChannel(channel *lnwallet.LightningChannel,
 	}
 
 	select {
-	case <-done:
+	case err := <-errChan:
+		return err
 	case <-quit:
 		return ErrFundingManagerShuttingDown
 	}
-
-	return nil
 }
 
 func init() {
@@ -304,7 +303,8 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			return lnwire.NodeAnnouncement{}, nil
 		},
 		TempChanIDSeed: chanIDSeed,
-		FindChannel: func(chanID lnwire.ChannelID) (*lnwallet.LightningChannel, error) {
+		FindChannel: func(chanID lnwire.ChannelID) (
+			*channeldb.OpenChannel, error) {
 			dbChannels, err := cdb.FetchAllChannels()
 			if err != nil {
 				return nil, err
@@ -312,10 +312,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 
 			for _, channel := range dbChannels {
 				if chanID.IsChanPoint(&channel.FundingOutpoint) {
-					return lnwallet.NewLightningChannel(
-						signer,
-						nil,
-						channel)
+					return channel, nil
 				}
 			}
 
@@ -992,14 +989,14 @@ func assertHandleFundingLocked(t *testing.T, alice, bob *testNode) {
 	// They should both send the new channel state to their peer.
 	select {
 	case c := <-alice.newChannels:
-		close(c.done)
+		close(c.err)
 	case <-time.After(time.Second * 15):
 		t.Fatalf("alice did not send new channel to peer")
 	}
 
 	select {
 	case c := <-bob.newChannels:
-		close(c.done)
+		close(c.err)
 	case <-time.After(time.Second * 15):
 		t.Fatalf("bob did not send new channel to peer")
 	}

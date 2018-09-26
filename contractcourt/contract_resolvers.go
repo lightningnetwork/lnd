@@ -9,7 +9,6 @@ import (
 	"io"
 	"io/ioutil"
 
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -447,59 +446,19 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 				"incoming+remote htlc confirmed", h,
 				h.payHash[:])
 
-			// In this case, we can sweep it directly from the
-			// commitment output. We'll first grab a fresh address
-			// from the wallet to sweep the output.
-			addr, err := h.NewSweepAddr()
-			if err != nil {
-				return nil, err
-			}
-
-			// With our address obtained, we'll query for an
-			// estimate to be confirmed at ease.
-			//
-			// TODO(roasbeef): signal up if fee would be too large
-			// to sweep singly, need to batch
-			feePerKw, err := h.FeeEstimator.EstimateFeePerKW(6)
-			if err != nil {
-				return nil, err
-			}
-
-			log.Debugf("%T(%x): using %v sat/kw to sweep htlc"+
-				"incoming+remote htlc confirmed", h,
-				h.payHash[:], int64(feePerKw))
-
-			// Using a weight estimator, we'll compute the total
-			// fee required, and from that the value we'll end up
-			// with.
-			totalWeight := (&lnwallet.TxWeightEstimator{}).
-				AddWitnessInput(lnwallet.OfferedHtlcSuccessWitnessSize).
-				AddP2WKHOutput().Weight()
-			totalFees := feePerKw.FeeForWeight(int64(totalWeight))
-			sweepAmt := h.htlcResolution.SweepSignDesc.Output.Value -
-				int64(totalFees)
-
-			// With the fee computation finished, we'll now
-			// construct the sweep transaction.
-			htlcPoint := h.htlcResolution.ClaimOutpoint
-			h.sweepTx = wire.NewMsgTx(2)
-			h.sweepTx.AddTxIn(&wire.TxIn{
-				PreviousOutPoint: htlcPoint,
-			})
-			h.sweepTx.AddTxOut(&wire.TxOut{
-				PkScript: addr,
-				Value:    sweepAmt,
-			})
-
-			// With the transaction fully assembled, we can now
-			// generate a valid witness for the transaction.
-			h.htlcResolution.SweepSignDesc.SigHashes = txscript.NewTxSigHashes(
-				h.sweepTx,
-			)
-			h.sweepTx.TxIn[0].Witness, err = lnwallet.SenderHtlcSpendRedeem(
-				h.Signer, &h.htlcResolution.SweepSignDesc, h.sweepTx,
+			input := sweep.MakeHtlcSucceedInput(
+				&h.htlcResolution.ClaimOutpoint,
+				&h.htlcResolution.SweepSignDesc,
 				h.htlcResolution.Preimage[:],
 			)
+
+			var err error
+
+			// TODO: Set tx lock time to current block height instead of
+			// zero. Will be taken care of once sweeper implementation is
+			// complete.
+			h.sweepTx, err = h.Sweeper.CreateSweepTx(
+				[]sweep.Input{&input}, 0)
 			if err != nil {
 				return nil, err
 			}

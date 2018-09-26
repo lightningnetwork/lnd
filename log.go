@@ -1,11 +1,9 @@
 package main
 
 import (
-	"os"
-
-	"io"
-
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 
 	"github.com/btcsuite/btcd/connmgr"
@@ -24,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/signal"
+	"github.com/lightningnetwork/lnd/sweep"
 )
 
 // Loggers per subsystem.  A single backend logger is created and all subsystem
@@ -65,6 +64,7 @@ var (
 	atplLog = build.NewSubLogger("ATPL", backendLog.Logger)
 	cnctLog = build.NewSubLogger("CNCT", backendLog.Logger)
 	sphxLog = build.NewSubLogger("SPHX", backendLog.Logger)
+	swprLog = build.NewSubLogger("SWPR", backendLog.Logger)
 )
 
 // Initialize package-global logger variables.
@@ -81,6 +81,7 @@ func init() {
 	contractcourt.UseLogger(cnctLog)
 	sphinx.UseLogger(sphxLog)
 	signal.UseLogger(ltndLog)
+	sweep.UseLogger(swprLog)
 }
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.
@@ -103,6 +104,7 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"ATPL": atplLog,
 	"CNCT": cnctLog,
 	"SPHX": sphxLog,
+	"SWPR": swprLog,
 }
 
 // initLogRotator initializes the logging rotator to write logs to logFile and

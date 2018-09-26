@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"github.com/lightningnetwork/lnd/sweep"
 	"image/color"
 	"math/big"
 	"net"
@@ -58,6 +59,10 @@ const (
 	// durations exceeding this value will be eligible to have their
 	// backoffs reduced.
 	defaultStableConnDuration = 10 * time.Minute
+
+	// sweepTxConfirmationTarget assigns a confirmation target for sweep
+	// txes on which the fee calculation will be based.
+	sweepTxConfirmationTarget = 6
 )
 
 var (
@@ -581,19 +586,24 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		return nil, err
 	}
 
+	sweeper := sweep.New(&sweep.UtxoSweeperConfig{
+		Estimator: cc.feeEstimator,
+		GenSweepScript: func() ([]byte, error) {
+			return newSweepPkScript(cc.wallet)
+		},
+		Signer:     cc.wallet.Cfg.Signer,
+		ConfTarget: sweepTxConfirmationTarget,
+	})
+
 	s.utxoNursery = newUtxoNursery(&NurseryConfig{
 		ChainIO:             cc.chainIO,
 		ConfDepth:           1,
 		FetchClosedChannels: chanDB.FetchClosedChannels,
 		FetchClosedChannel:  chanDB.FetchClosedChannel,
-		Estimator:           cc.feeEstimator,
-		GenSweepScript: func() ([]byte, error) {
-			return newSweepPkScript(cc.wallet)
-		},
-		Notifier:           cc.chainNotifier,
-		PublishTransaction: cc.wallet.PublishTransaction,
-		Signer:             cc.wallet.Cfg.Signer,
-		Store:              utxnStore,
+		Notifier:            cc.chainNotifier,
+		PublishTransaction:  cc.wallet.PublishTransaction,
+		Store:               utxnStore,
+		Sweeper:             sweeper,
 	})
 
 	// Construct a closure that wraps the htlcswitch's CloseLink method.

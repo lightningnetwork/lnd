@@ -9,7 +9,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
@@ -193,14 +192,6 @@ type NurseryConfig struct {
 	FetchClosedChannel func(chanID *wire.OutPoint) (
 		*channeldb.ChannelCloseSummary, error)
 
-	// Estimator is used when crafting sweep transactions to estimate the
-	// necessary fee relative to the expected size of the sweep transaction.
-	Estimator lnwallet.FeeEstimator
-
-	// GenSweepScript generates a P2WKH script belonging to the wallet where
-	// funds can be swept.
-	GenSweepScript func() ([]byte, error)
-
 	// Notifier provides the utxo nursery the ability to subscribe to
 	// transaction confirmation events, which advance outputs through their
 	// persistence state transitions.
@@ -210,13 +201,13 @@ type NurseryConfig struct {
 	// transaction to the appropriate network.
 	PublishTransaction func(*wire.MsgTx) error
 
-	// Signer is used by the utxo nursery to generate valid witnesses at the
-	// time the incubated outputs need to be spent.
-	Signer lnwallet.Signer
-
 	// Store provides access to and modification of the persistent state
 	// maintained about the utxo nursery's incubating outputs.
 	Store NurseryStore
+
+	// Sweeper provides functionality to generate sweep transactions.
+	// Nursery uses this to sweep final outputs back into the wallet.
+	Sweeper *sweep.UtxoSweeper
 }
 
 // utxoNursery is a system dedicated to incubating time-locked outputs created
@@ -880,7 +871,15 @@ func (u *utxoNursery) graduateClass(classHeight uint32) error {
 		// generated a sweep txn for this height. Generate one if there
 		// are kindergarten outputs or cltv crib outputs to be spent.
 		if len(kgtnOutputs) > 0 {
-			finalTx, err = u.createSweepTx(kgtnOutputs, classHeight)
+			csvSpendableOutputs := make([]sweep.CsvSpendableOutput,
+				len(kgtnOutputs))
+			for i := range kgtnOutputs {
+				csvSpendableOutputs[i] = &kgtnOutputs[i]
+			}
+
+			finalTx, err = u.cfg.Sweeper.CreateSweepTx(
+				csvSpendableOutputs, classHeight)
+
 			if err != nil {
 				utxnLog.Errorf("Failed to create sweep txn at "+
 					"height=%d", classHeight)
@@ -934,203 +933,6 @@ func (u *utxoNursery) graduateClass(classHeight uint32) error {
 	}
 
 	return u.cfg.Store.GraduateHeight(classHeight)
-}
-
-// craftSweepTx accepts a list of kindergarten outputs, and baby
-// outputs which don't require a second-layer claim, and signs and generates a
-// signed txn that spends from them. This method also makes an accurate fee
-// estimate before generating the required witnesses.
-func (u *utxoNursery) createSweepTx(kgtnOutputs []kidOutput,
-	classHeight uint32) (*wire.MsgTx, error) {
-
-	// Create a transaction which sweeps all the newly mature outputs into
-	// an output controlled by the wallet.
-
-	// TODO(roasbeef): can be more intelligent about buffering outputs to
-	// be more efficient on-chain.
-
-	// Assemble the kindergarten class into a slice csv spendable outputs,
-	// and also a set of regular spendable outputs. The set of regular
-	// outputs are CLTV locked outputs that have had their timelocks
-	// expire.
-	var (
-		csvOutputs     []sweep.CsvSpendableOutput
-		cltvOutputs    []sweep.SpendableOutput
-		weightEstimate lnwallet.TxWeightEstimator
-	)
-
-	// Allocate enough room for both types of kindergarten outputs.
-	csvOutputs = make([]sweep.CsvSpendableOutput, 0, len(kgtnOutputs))
-	cltvOutputs = make([]sweep.SpendableOutput, 0, len(kgtnOutputs))
-
-	// Our sweep transaction will pay to a single segwit p2wkh address,
-	// ensure it contributes to our weight estimate.
-	weightEstimate.AddP2WKHOutput()
-
-	// For each kindergarten output, use its witness type to determine the
-	// estimate weight of its witness, and add it to the proper set of
-	// spendable outputs.
-	for i := range kgtnOutputs {
-		input := &kgtnOutputs[i]
-
-		switch input.WitnessType() {
-
-		// Outputs on a past commitment transaction that pay directly
-		// to us.
-		case lnwallet.CommitmentTimeLock:
-			weightEstimate.AddWitnessInput(
-				lnwallet.ToLocalTimeoutWitnessSize,
-			)
-			csvOutputs = append(csvOutputs, input)
-
-		// Outgoing second layer HTLC's that have confirmed within the
-		// chain, and the output they produced is now mature enough to
-		// sweep.
-		case lnwallet.HtlcOfferedTimeoutSecondLevel:
-			weightEstimate.AddWitnessInput(
-				lnwallet.ToLocalTimeoutWitnessSize,
-			)
-			csvOutputs = append(csvOutputs, input)
-
-		// Incoming second layer HTLC's that have confirmed within the
-		// chain, and the output they produced is now mature enough to
-		// sweep.
-		case lnwallet.HtlcAcceptedSuccessSecondLevel:
-			weightEstimate.AddWitnessInput(
-				lnwallet.ToLocalTimeoutWitnessSize,
-			)
-			csvOutputs = append(csvOutputs, input)
-
-		// An HTLC on the commitment transaction of the remote party,
-		// that has had its absolute timelock expire.
-		case lnwallet.HtlcOfferedRemoteTimeout:
-			weightEstimate.AddWitnessInput(
-				lnwallet.AcceptedHtlcTimeoutWitnessSize,
-			)
-			cltvOutputs = append(cltvOutputs, input)
-
-		default:
-			utxnLog.Warnf("kindergarten output in nursery store "+
-				"contains unexpected witness type: %v",
-				input.WitnessType())
-			continue
-		}
-	}
-
-	utxnLog.Infof("Creating sweep transaction for %v CSV inputs, %v CLTV "+
-		"inputs", len(csvOutputs), len(cltvOutputs))
-
-	txWeight := int64(weightEstimate.Weight())
-	return u.populateSweepTx(txWeight, classHeight, csvOutputs, cltvOutputs)
-}
-
-// populateSweepTx populate the final sweeping transaction with all witnesses
-// in place for all inputs using the provided txn fee. The created transaction
-// has a single output sending all the funds back to the source wallet, after
-// accounting for the fee estimate.
-func (u *utxoNursery) populateSweepTx(txWeight int64, classHeight uint32,
-	csvInputs []sweep.CsvSpendableOutput,
-	cltvInputs []sweep.SpendableOutput) (*wire.MsgTx, error) {
-
-	// Generate the receiving script to which the funds will be swept.
-	pkScript, err := u.cfg.GenSweepScript()
-	if err != nil {
-		return nil, err
-	}
-
-	// Sum up the total value contained in the inputs.
-	var totalSum btcutil.Amount
-	for _, o := range csvInputs {
-		totalSum += o.Amount()
-	}
-	for _, o := range cltvInputs {
-		totalSum += o.Amount()
-	}
-
-	// Using the txn weight estimate, compute the required txn fee.
-	feePerKw, err := u.cfg.Estimator.EstimateFeePerKW(6)
-	if err != nil {
-		return nil, err
-	}
-	txFee := feePerKw.FeeForWeight(txWeight)
-
-	// Sweep as much possible, after subtracting txn fees.
-	sweepAmt := int64(totalSum - txFee)
-
-	// Create the sweep transaction that we will be building. We use
-	// version 2 as it is required for CSV. The txn will sweep the amount
-	// after fees to the pkscript generated above.
-	sweepTx := wire.NewMsgTx(2)
-	sweepTx.AddTxOut(&wire.TxOut{
-		PkScript: pkScript,
-		Value:    sweepAmt,
-	})
-
-	// We'll also ensure that the transaction has the required lock time if
-	// we're sweeping any cltvInputs.
-	if len(cltvInputs) > 0 {
-		sweepTx.LockTime = classHeight
-	}
-
-	// Add all inputs to the sweep transaction. Ensure that for each
-	// csvInput, we set the sequence number properly.
-	for _, input := range csvInputs {
-		sweepTx.AddTxIn(&wire.TxIn{
-			PreviousOutPoint: *input.OutPoint(),
-			Sequence:         input.BlocksToMaturity(),
-		})
-	}
-	for _, input := range cltvInputs {
-		sweepTx.AddTxIn(&wire.TxIn{
-			PreviousOutPoint: *input.OutPoint(),
-		})
-	}
-
-	// Before signing the transaction, check to ensure that it meets some
-	// basic validity requirements.
-	// TODO(conner): add more control to sanity checks, allowing us to delay
-	// spending "problem" outputs, e.g. possibly batching with other classes
-	// if fees are too low.
-	btx := btcutil.NewTx(sweepTx)
-	if err := blockchain.CheckTransactionSanity(btx); err != nil {
-		return nil, err
-	}
-
-	hashCache := txscript.NewTxSigHashes(sweepTx)
-
-	// With all the inputs in place, use each output's unique witness
-	// function to generate the final witness required for spending.
-	addWitness := func(idx int, tso sweep.SpendableOutput) error {
-		witness, err := tso.BuildWitness(
-			u.cfg.Signer, sweepTx, hashCache, idx,
-		)
-		if err != nil {
-			return err
-		}
-
-		sweepTx.TxIn[idx].Witness = witness
-
-		return nil
-	}
-
-	// Finally we'll attach a valid witness to each csv and cltv input
-	// within the sweeping transaction.
-	for i, input := range csvInputs {
-		if err := addWitness(i, input); err != nil {
-			return nil, err
-		}
-	}
-
-	// Add offset to relative indexes so cltv witnesses don't overwrite csv
-	// witnesses.
-	offset := len(csvInputs)
-	for i, input := range cltvInputs {
-		if err := addWitness(offset+i, input); err != nil {
-			return nil, err
-		}
-	}
-
-	return sweepTx, nil
 }
 
 // sweepMatureOutputs generates and broadcasts the transaction that transfers

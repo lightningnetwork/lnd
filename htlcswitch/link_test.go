@@ -1477,7 +1477,8 @@ func (m *mockPeer) SendMessage(sync bool, msgs ...lnwire.Message) error {
 	}
 	return nil
 }
-func (m *mockPeer) AddNewChannel(_ *lnwallet.LightningChannel, _ <-chan struct{}) error {
+func (m *mockPeer) AddNewChannel(_ *channeldb.OpenChannel,
+	_ <-chan struct{}) error {
 	return nil
 }
 func (m *mockPeer) WipeChannel(*wire.OutPoint) error {

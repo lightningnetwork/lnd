@@ -543,7 +543,7 @@ func (s *mockServer) Address() net.Addr {
 	return nil
 }
 
-func (s *mockServer) AddNewChannel(channel *lnwallet.LightningChannel,
+func (s *mockServer) AddNewChannel(channel *channeldb.OpenChannel,
 	cancel <-chan struct{}) error {
 
 	return nil

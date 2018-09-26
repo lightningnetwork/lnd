@@ -64,7 +64,7 @@ type outgoingMsg struct {
 // has been confirmed and the channel creation process completed.
 type newChannelMsg struct {
 	channel *lnwallet.LightningChannel
-	done    chan struct{}
+	err     chan error
 }
 
 // closeMsgs is a wrapper struct around any wire messages that deal with the
@@ -1535,7 +1535,7 @@ out:
 					"ignoring.", chanPoint)
 
 				p.activeChanMtx.Unlock()
-				close(newChanReq.done)
+				close(newChanReq.err)
 				newChanReq.channel.Stop()
 
 				// If we're being sent a new channel, and our
@@ -1576,15 +1576,22 @@ out:
 			// TODO(roasbeef): panic on below?
 			_, currentHeight, err := p.server.cc.chainIO.GetBestBlock()
 			if err != nil {
-				peerLog.Errorf("unable to get best block: %v", err)
+				err := fmt.Errorf("unable to get best "+
+					"block: %v", err)
+				peerLog.Errorf(err.Error())
+
+				newChanReq.err <- err
 				continue
 			}
 			chainEvents, err := p.server.chainArb.SubscribeChannelEvents(
 				*chanPoint,
 			)
 			if err != nil {
-				peerLog.Errorf("unable to subscribe to chain "+
-					"events: %v", err)
+				err := fmt.Errorf("unable to subscribe to "+
+					"chain events: %v", err)
+				peerLog.Errorf(err.Error())
+
+				newChanReq.err <- err
 				continue
 			}
 
@@ -1608,12 +1615,16 @@ out:
 				chainEvents, currentHeight, false,
 			)
 			if err != nil {
-				peerLog.Errorf("can't register new channel "+
+				err := fmt.Errorf("can't register new channel "+
 					"link(%v) with NodeKey(%x)", chanPoint,
 					p.PubKey())
+				peerLog.Errorf(err.Error())
+
+				newChanReq.err <- err
+				continue
 			}
 
-			close(newChanReq.done)
+			close(newChanReq.err)
 
 		// We've just received a local request to close an active
 		// channel. If will either kick of a cooperative channel
@@ -2176,10 +2187,10 @@ func (p *peer) Address() net.Addr {
 func (p *peer) AddNewChannel(channel *lnwallet.LightningChannel,
 	cancel <-chan struct{}) error {
 
-	newChanDone := make(chan struct{})
+	errChan := make(chan error, 1)
 	newChanMsg := &newChannelMsg{
 		channel: channel,
-		done:    newChanDone,
+		err:     errChan,
 	}
 
 	select {
@@ -2193,12 +2204,11 @@ func (p *peer) AddNewChannel(channel *lnwallet.LightningChannel,
 	// We pause here to wait for the peer to recognize the new channel
 	// before we close the channel barrier corresponding to the channel.
 	select {
-	case <-newChanDone:
+	case err := <-errChan:
+		return err
 	case <-p.quit:
 		return ErrPeerExiting
 	}
-
-	return nil
 }
 
 // StartTime returns the time at which the connection was established if the

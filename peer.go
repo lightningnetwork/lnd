@@ -59,11 +59,11 @@ type outgoingMsg struct {
 	errChan chan error // MUST be buffered.
 }
 
-// newChannelMsg packages an lnwallet.LightningChannel with a channel that
-// allows the receiver of the request to report when the funding transaction
-// has been confirmed and the channel creation process completed.
+// newChannelMsg packages a channeldb.OpenChannel with a channel that allows
+// the receiver of the request to report when the funding transaction has been
+// confirmed and the channel creation process completed.
 type newChannelMsg struct {
-	channel *lnwallet.LightningChannel
+	channel *channeldb.OpenChannel
 	err     chan error
 }
 
@@ -1524,9 +1524,9 @@ out:
 		// funding workflow. We'll initialize the necessary local
 		// state, and notify the htlc switch of a new link.
 		case newChanReq := <-p.newChannels:
-			chanPoint := newChanReq.channel.ChannelPoint()
-			chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 			newChan := newChanReq.channel
+			chanPoint := &newChan.FundingOutpoint
+			chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
 			// Make sure this channel is not already active.
 			p.activeChanMtx.Lock()
@@ -1536,7 +1536,6 @@ out:
 
 				p.activeChanMtx.Unlock()
 				close(newChanReq.err)
-				newChanReq.channel.Stop()
 
 				// If we're being sent a new channel, and our
 				// existing channel doesn't have the next
@@ -1550,7 +1549,7 @@ out:
 					"FundingLocked for ChannelPoint(%v)",
 					chanPoint)
 
-				nextRevoke := newChan.RemoteNextRevocation()
+				nextRevoke := newChan.RemoteNextRevocation
 				err := currentChan.InitNextRevocation(nextRevoke)
 				if err != nil {
 					peerLog.Errorf("unable to init chan "+
@@ -1564,7 +1563,21 @@ out:
 			// If not already active, we'll add this channel to the
 			// set of active channels, so we can look it up later
 			// easily according to its channel ID.
-			p.activeChannels[chanID] = newChan
+			lnChan, err := lnwallet.NewLightningChannel(
+				p.server.cc.signer, p.server.witnessBeacon,
+				newChan,
+			)
+			if err != nil {
+				p.activeChanMtx.Unlock()
+				err := fmt.Errorf("unable to create "+
+					"LightningChannel: %v", err)
+				peerLog.Errorf(err.Error())
+
+				newChanReq.err <- err
+				continue
+			}
+
+			p.activeChannels[chanID] = lnChan
 			p.activeChanMtx.Unlock()
 
 			peerLog.Infof("New channel active ChannelPoint(%v) "+
@@ -1580,6 +1593,7 @@ out:
 					"block: %v", err)
 				peerLog.Errorf(err.Error())
 
+				lnChan.Stop()
 				newChanReq.err <- err
 				continue
 			}
@@ -1591,6 +1605,7 @@ out:
 					"chain events: %v", err)
 				peerLog.Errorf(err.Error())
 
+				lnChan.Stop()
 				newChanReq.err <- err
 				continue
 			}
@@ -1600,7 +1615,7 @@ out:
 			// forwarded. For fees we'll use the default values, as
 			// they currently are always set to the default values
 			// at initial channel creation.
-			fwdMinHtlc := newChan.FwdMinHtlc()
+			fwdMinHtlc := lnChan.FwdMinHtlc()
 			defaultPolicy := p.server.cc.routingPolicy
 			forwardingPolicy := &htlcswitch.ForwardingPolicy{
 				MinHTLC:       fwdMinHtlc,
@@ -1611,7 +1626,7 @@ out:
 
 			// Create the link and add it to the switch.
 			err = p.addLink(
-				chanPoint, newChan, forwardingPolicy,
+				chanPoint, lnChan, forwardingPolicy,
 				chainEvents, currentHeight, false,
 			)
 			if err != nil {
@@ -1620,6 +1635,7 @@ out:
 					p.PubKey())
 				peerLog.Errorf(err.Error())
 
+				lnChan.Stop()
 				newChanReq.err <- err
 				continue
 			}
@@ -2184,7 +2200,7 @@ func (p *peer) Address() net.Addr {
 // added if the cancel channel is closed.
 //
 // NOTE: Part of the lnpeer.Peer interface.
-func (p *peer) AddNewChannel(channel *lnwallet.LightningChannel,
+func (p *peer) AddNewChannel(channel *channeldb.OpenChannel,
 	cancel <-chan struct{}) error {
 
 	errChan := make(chan error, 1)

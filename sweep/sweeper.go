@@ -118,6 +118,13 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []Input,
 			)
 			cltvCount++
 
+		// An HTLC on the commitment transaction of the remote party,
+		// that can be swept with the preimage.
+		case lnwallet.HtlcAcceptedRemoteSuccess:
+			weightEstimate.AddWitnessInput(
+				lnwallet.OfferedHtlcSuccessWitnessSize,
+			)
+
 		default:
 			unknownCount++
 			log.Warnf("kindergarten output in nursery store "+

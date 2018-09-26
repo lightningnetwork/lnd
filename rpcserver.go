@@ -3117,9 +3117,10 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 // specific routing policy which includes: the time lock delta, fee
 // information, etc.
 func (r *rpcServer) DescribeGraph(ctx context.Context,
-	_ *lnrpc.ChannelGraphRequest) (*lnrpc.ChannelGraph, error) {
+	req *lnrpc.ChannelGraphRequest) (*lnrpc.ChannelGraph, error) {
 
 	resp := &lnrpc.ChannelGraph{}
+	includeUnannounced := req.IncludeUnannounced
 
 	// Obtain the pointer to the global singleton channel graph, this will
 	// provide a consistent view of the graph due to bolt db's
@@ -3160,8 +3161,17 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 	err = graph.ForEachChannel(func(edgeInfo *channeldb.ChannelEdgeInfo,
 		c1, c2 *channeldb.ChannelEdgePolicy) error {
 
+		// Do not include unannounced channels unless specifically
+		// requested. Unannounced channels include both private channels as
+		// well as public channels whose authentication proof were not
+		// confirmed yet, hence were not announced.
+		if !includeUnannounced && edgeInfo.AuthProof == nil {
+			return nil
+		}
+
 		edge := marshalDbEdge(edgeInfo, c1, c2)
 		resp.Edges = append(resp.Edges, edge)
+
 		return nil
 	})
 	if err != nil && err != channeldb.ErrGraphNoEdgesFound {

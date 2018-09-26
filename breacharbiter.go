@@ -824,9 +824,16 @@ func (bo *breachedOutput) BuildWitness(signer lnwallet.Signer, txn *wire.MsgTx,
 	return bo.witnessFunc(txn, hashCache, txinIdx)
 }
 
-// Add compile-time constraint ensuring breachedOutput implements
-// SpendableOutput.
-var _ sweep.SpendableOutput = (*breachedOutput)(nil)
+// BlocksToMaturity returns the relative timelock, as a number of blocks, that
+// must be built on top of the confirmation height before the output can be
+// spent.
+func (bo *breachedOutput) BlocksToMaturity() uint32 {
+	return 0
+}
+
+// Add compile-time constraint ensuring breachedOutput implements the Input
+// interface.
+var _ sweep.Input = (*breachedOutput)(nil)
 
 // retributionInfo encapsulates all the data needed to sweep all the contested
 // funds within a channel whose contract has been breached by the prior
@@ -937,13 +944,13 @@ func (b *breachArbiter) createJusticeTx(
 	// outputs, while simultaneously computing the estimated weight of the
 	// transaction.
 	var (
-		spendableOutputs []sweep.SpendableOutput
+		spendableOutputs []sweep.Input
 		weightEstimate   lnwallet.TxWeightEstimator
 	)
 
 	// Allocate enough space to potentially hold each of the breached
 	// outputs in the retribution info.
-	spendableOutputs = make([]sweep.SpendableOutput, 0, len(r.breachedOutputs))
+	spendableOutputs = make([]sweep.Input, 0, len(r.breachedOutputs))
 
 	// The justice transaction we construct will be a segwit transaction
 	// that pays to a p2wkh output. Components such as the version,
@@ -997,7 +1004,7 @@ func (b *breachArbiter) createJusticeTx(
 // sweepSpendableOutputsTxn creates a signed transaction from a sequence of
 // spendable outputs by sweeping the funds into a single p2wkh output.
 func (b *breachArbiter) sweepSpendableOutputsTxn(txWeight int64,
-	inputs ...sweep.SpendableOutput) (*wire.MsgTx, error) {
+	inputs ...sweep.Input) (*wire.MsgTx, error) {
 
 	// First, we obtain a new public key script from the wallet which we'll
 	// sweep the funds to.
@@ -1011,7 +1018,7 @@ func (b *breachArbiter) sweepSpendableOutputsTxn(txWeight int64,
 	// Compute the total amount contained in the inputs.
 	var totalAmt btcutil.Amount
 	for _, input := range inputs {
-		totalAmt += input.Amount()
+		totalAmt += btcutil.Amount(input.SignDesc().Output.Value)
 	}
 
 	// We'll actually attempt to target inclusion within the next two
@@ -1059,7 +1066,7 @@ func (b *breachArbiter) sweepSpendableOutputsTxn(txWeight int64,
 	// witness, and attaching it to the transaction. This function accepts
 	// an integer index representing the intended txin index, and the
 	// breached output from which it will spend.
-	addWitness := func(idx int, so sweep.SpendableOutput) error {
+	addWitness := func(idx int, so sweep.Input) error {
 		// First, we construct a valid witness for this outpoint and
 		// transaction using the SpendableOutput's witness generation
 		// function.

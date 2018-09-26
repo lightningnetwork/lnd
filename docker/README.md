@@ -5,10 +5,10 @@ typing a few commands. All configuration between `lnd` and `btcd` are handled
 automatically by their `docker-compose` config file.
 
 ### Prerequisites
-    Name  | Version 
-    --------|---------
-    docker-compose | 1.9.0
-    docker | 1.13.0
+Name  | Version 
+--------|---------
+docker-compose | 1.9.0
+docker | 1.13.0
   
 ### Table of content
  * [Create lightning network cluster](#create-lightning-network-cluster)
@@ -321,8 +321,7 @@ and send some amount of bitcoins to `Alice`.
 - Close channel with `Faucet` and check the onchain balance.
 
 ### Questions
-[![Irc](https://img.shields.io/badge/chat-on%20freenode-brightgreen.svg)]
-(https://webchat.freenode.net/?channels=lnd)
+[![Irc](https://img.shields.io/badge/chat-on%20freenode-brightgreen.svg)](https://webchat.freenode.net/?channels=lnd)
 
 * How to see `alice` | `bob` | `btcd` logs?
 ```bash

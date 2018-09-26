@@ -53,7 +53,7 @@ func New(cfg *UtxoSweeperConfig) *UtxoSweeper {
 // - Make handling re-orgs easier.
 // - Thwart future possible fee sniping attempts.
 // - Make us blend in with the bitcoind wallet.
-func (s *UtxoSweeper) CreateSweepTx(inputs []CsvSpendableOutput,
+func (s *UtxoSweeper) CreateSweepTx(inputs []Input,
 	currentBlockHeight uint32) (*wire.MsgTx, error) {
 
 	// Create a transaction which sweeps all the newly mature outputs into
@@ -62,18 +62,7 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []CsvSpendableOutput,
 	// TODO(roasbeef): can be more intelligent about buffering outputs to
 	// be more efficient on-chain.
 
-	// Assemble the inputs into a slice csv spendable outputs, and also a
-	// set of regular spendable outputs. The set of regular outputs are CLTV
-	// locked outputs that have had their timelocks expire.
-	var (
-		csvOutputs     []CsvSpendableOutput
-		cltvOutputs    []SpendableOutput
-		weightEstimate lnwallet.TxWeightEstimator
-	)
-
-	// Allocate enough room for both types of outputs.
-	csvOutputs = make([]CsvSpendableOutput, 0, len(inputs))
-	cltvOutputs = make([]SpendableOutput, 0, len(inputs))
+	var weightEstimate lnwallet.TxWeightEstimator
 
 	// Our sweep transaction will pay to a single segwit p2wkh address,
 	// ensure it contributes to our weight estimate.
@@ -82,6 +71,8 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []CsvSpendableOutput,
 	// For each output, use its witness type to determine the estimate
 	// weight of its witness, and add it to the proper set of spendable
 	// outputs.
+	csvCount := 0
+	cltvCount := 0
 	for i := range inputs {
 		input := inputs[i]
 
@@ -93,7 +84,7 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []CsvSpendableOutput,
 			weightEstimate.AddWitnessInput(
 				lnwallet.ToLocalTimeoutWitnessSize,
 			)
-			csvOutputs = append(csvOutputs, input)
+			csvCount++
 
 		// Outgoing second layer HTLC's that have confirmed within the
 		// chain, and the output they produced is now mature enough to
@@ -102,7 +93,7 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []CsvSpendableOutput,
 			weightEstimate.AddWitnessInput(
 				lnwallet.ToLocalTimeoutWitnessSize,
 			)
-			csvOutputs = append(csvOutputs, input)
+			csvCount++
 
 		// Incoming second layer HTLC's that have confirmed within the
 		// chain, and the output they produced is now mature enough to
@@ -111,7 +102,7 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []CsvSpendableOutput,
 			weightEstimate.AddWitnessInput(
 				lnwallet.ToLocalTimeoutWitnessSize,
 			)
-			csvOutputs = append(csvOutputs, input)
+			csvCount++
 
 		// An HTLC on the commitment transaction of the remote party,
 		// that has had its absolute timelock expire.
@@ -119,9 +110,11 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []CsvSpendableOutput,
 			weightEstimate.AddWitnessInput(
 				lnwallet.AcceptedHtlcTimeoutWitnessSize,
 			)
-			cltvOutputs = append(cltvOutputs, input)
+			cltvCount++
 
 		default:
+			// TODO: Also add non-timelocked outputs
+
 			log.Warnf("kindergarten output in nursery store "+
 				"contains unexpected witness type: %v",
 				input.WitnessType())
@@ -129,11 +122,11 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []CsvSpendableOutput,
 		}
 	}
 
-	log.Infof("Creating sweep transaction for %v CSV inputs, %v CLTV "+
-		"inputs", len(csvOutputs), len(cltvOutputs))
+	log.Infof("Creating sweep transaction for %v inputs (%v CSV, %v CLTV)",
+		csvCount+cltvCount, csvCount, cltvCount)
 
 	txWeight := int64(weightEstimate.Weight())
-	return s.populateSweepTx(txWeight, currentBlockHeight, csvOutputs, cltvOutputs)
+	return s.populateSweepTx(txWeight, currentBlockHeight, inputs)
 }
 
 // populateSweepTx populate the final sweeping transaction with all witnesses
@@ -141,8 +134,7 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []CsvSpendableOutput,
 // has a single output sending all the funds back to the source wallet, after
 // accounting for the fee estimate.
 func (s *UtxoSweeper) populateSweepTx(txWeight int64, currentBlockHeight uint32,
-	csvInputs []CsvSpendableOutput,
-	cltvInputs []SpendableOutput) (*wire.MsgTx, error) {
+	inputs []Input) (*wire.MsgTx, error) {
 
 	// Generate the receiving script to which the funds will be swept.
 	pkScript, err := s.cfg.GenSweepScript()
@@ -152,11 +144,8 @@ func (s *UtxoSweeper) populateSweepTx(txWeight int64, currentBlockHeight uint32,
 
 	// Sum up the total value contained in the inputs.
 	var totalSum btcutil.Amount
-	for _, o := range csvInputs {
-		totalSum += o.Amount()
-	}
-	for _, o := range cltvInputs {
-		totalSum += o.Amount()
+	for _, o := range inputs {
+		totalSum += btcutil.Amount(o.SignDesc().Output.Value)
 	}
 
 	// Using the txn weight estimate, compute the required txn fee.
@@ -181,23 +170,14 @@ func (s *UtxoSweeper) populateSweepTx(txWeight int64, currentBlockHeight uint32,
 		Value:    sweepAmt,
 	})
 
-	// We'll also ensure that the transaction has the required lock time if
-	// we're sweeping any cltvInputs.
-	if len(cltvInputs) > 0 {
-		sweepTx.LockTime = currentBlockHeight
-	}
+	sweepTx.LockTime = currentBlockHeight
 
 	// Add all inputs to the sweep transaction. Ensure that for each
 	// csvInput, we set the sequence number properly.
-	for _, input := range csvInputs {
+	for _, input := range inputs {
 		sweepTx.AddTxIn(&wire.TxIn{
 			PreviousOutPoint: *input.OutPoint(),
 			Sequence:         input.BlocksToMaturity(),
-		})
-	}
-	for _, input := range cltvInputs {
-		sweepTx.AddTxIn(&wire.TxIn{
-			PreviousOutPoint: *input.OutPoint(),
 		})
 	}
 
@@ -215,7 +195,7 @@ func (s *UtxoSweeper) populateSweepTx(txWeight int64, currentBlockHeight uint32,
 
 	// With all the inputs in place, use each output's unique witness
 	// function to generate the final witness required for spending.
-	addWitness := func(idx int, tso SpendableOutput) error {
+	addWitness := func(idx int, tso Input) error {
 		witness, err := tso.BuildWitness(
 			s.cfg.Signer, sweepTx, hashCache, idx,
 		)
@@ -230,17 +210,8 @@ func (s *UtxoSweeper) populateSweepTx(txWeight int64, currentBlockHeight uint32,
 
 	// Finally we'll attach a valid witness to each csv and cltv input
 	// within the sweeping transaction.
-	for i, input := range csvInputs {
+	for i, input := range inputs {
 		if err := addWitness(i, input); err != nil {
-			return nil, err
-		}
-	}
-
-	// Add offset to relative indexes so cltv witnesses don't overwrite csv
-	// witnesses.
-	offset := len(csvInputs)
-	for i, input := range cltvInputs {
-		if err := addWitness(offset+i, input); err != nil {
 			return nil, err
 		}
 	}

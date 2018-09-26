@@ -871,14 +871,14 @@ func (u *utxoNursery) graduateClass(classHeight uint32) error {
 		// generated a sweep txn for this height. Generate one if there
 		// are kindergarten outputs or cltv crib outputs to be spent.
 		if len(kgtnOutputs) > 0 {
-			csvSpendableOutputs := make([]sweep.CsvSpendableOutput,
+			sweepInputs := make([]sweep.Input,
 				len(kgtnOutputs))
 			for i := range kgtnOutputs {
-				csvSpendableOutputs[i] = &kgtnOutputs[i]
+				sweepInputs[i] = &kgtnOutputs[i]
 			}
 
 			finalTx, err = u.cfg.Sweeper.CreateSweepTx(
-				csvSpendableOutputs, classHeight)
+				sweepInputs, classHeight)
 
 			if err != nil {
 				utxnLog.Errorf("Failed to create sweep txn at "+
@@ -1749,7 +1749,7 @@ func readTxOut(r io.Reader, txo *wire.TxOut) error {
 	return nil
 }
 
-// Compile-time constraint to ensure kidOutput and babyOutput implement the
-// CsvSpendableOutput interface.
-var _ sweep.CsvSpendableOutput = (*kidOutput)(nil)
-var _ sweep.CsvSpendableOutput = (*babyOutput)(nil)
+// Compile-time constraint to ensure kidOutput implements the
+// Input interface.
+
+var _ sweep.Input = (*kidOutput)(nil)

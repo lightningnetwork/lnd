@@ -3,16 +3,11 @@ package sweep
 import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
-// SpendableOutput an interface which can be used by the breach arbiter to
-// construct a transaction spending from outputs we control.
-type SpendableOutput interface {
-	// Amount returns the number of satoshis contained within the output.
-	Amount() btcutil.Amount
-
+// Input contains all data needed to construct a sweep tx input.
+type Input interface {
 	// Outpoint returns the reference to the output being spent, used to
 	// construct the corresponding transaction input.
 	OutPoint() *wire.OutPoint
@@ -32,27 +27,73 @@ type SpendableOutput interface {
 	BuildWitness(signer lnwallet.Signer, txn *wire.MsgTx,
 		hashCache *txscript.TxSigHashes,
 		txinIdx int) ([][]byte, error)
-}
-
-// CsvSpendableOutput is a SpendableOutput that contains all of the information
-// necessary to construct, sign, and sweep an output locked with a CSV delay.
-type CsvSpendableOutput interface {
-	SpendableOutput
-
-	// ConfHeight returns the height at which this output was confirmed.
-	// A zero value indicates that the output has not been confirmed.
-	ConfHeight() uint32
-
-	// SetConfHeight marks the height at which the output is confirmed in
-	// the chain.
-	SetConfHeight(height uint32)
 
 	// BlocksToMaturity returns the relative timelock, as a number of
 	// blocks, that must be built on top of the confirmation height before
-	// the output can be spent.
+	// the output can be spent. For non-CSV locked inputs this is always
+	// zero.
 	BlocksToMaturity() uint32
-
-	// OriginChanPoint returns the outpoint of the channel from which this
-	// output is derived.
-	OriginChanPoint() *wire.OutPoint
 }
+
+// BaseInput contains all the information needed to sweep an output.
+type BaseInput struct {
+	outpoint    wire.OutPoint
+	witnessType lnwallet.WitnessType
+	signDesc    lnwallet.SignDescriptor
+}
+
+// MakeBaseInput assembles a new BaseInput that can be used to construct a
+// sweep transaction.
+func MakeBaseInput(outpoint *wire.OutPoint,
+	witnessType lnwallet.WitnessType,
+	signDescriptor *lnwallet.SignDescriptor) BaseInput {
+
+	return BaseInput{
+		outpoint:    *outpoint,
+		witnessType: witnessType,
+		signDesc:    *signDescriptor,
+	}
+}
+
+// OutPoint returns the breached output's identifier that is to be included as a
+// transaction input.
+func (bi *BaseInput) OutPoint() *wire.OutPoint {
+	return &bi.outpoint
+}
+
+// WitnessType returns the type of witness that must be generated to spend the
+// breached output.
+func (bi *BaseInput) WitnessType() lnwallet.WitnessType {
+	return bi.witnessType
+}
+
+// SignDesc returns the breached output's SignDescriptor, which is used during
+// signing to compute the witness.
+func (bi *BaseInput) SignDesc() *lnwallet.SignDescriptor {
+	return &bi.signDesc
+}
+
+// BuildWitness computes a valid witness that allows us to spend from the
+// breached output. It does so by generating the witness generation function,
+// which is parameterized primarily by the witness type and sign descriptor. The
+// method then returns the witness computed by invoking this function.
+func (bi *BaseInput) BuildWitness(signer lnwallet.Signer, txn *wire.MsgTx,
+	hashCache *txscript.TxSigHashes, txinIdx int) ([][]byte, error) {
+
+	witnessFunc := bi.witnessType.GenWitnessFunc(
+		signer, bi.SignDesc(),
+	)
+
+	return witnessFunc(txn, hashCache, txinIdx)
+}
+
+// BlocksToMaturity returns the relative timelock, as a number of blocks, that
+// must be built on top of the confirmation height before the output can be
+// spent. For non-CSV locked inputs this is always zero.
+func (bi *BaseInput) BlocksToMaturity() uint32 {
+	return 0
+}
+
+// Add compile-time constraint ensuring BaseInput implements
+// SpendableOutput.
+var _ Input = (*BaseInput)(nil)

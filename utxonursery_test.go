@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/sweep"
 	"io/ioutil"
 	"math"
 	"reflect"
@@ -431,6 +432,14 @@ func createNurseryTestContext(t *testing.T,
 
 	notifier := newNurseryMockNotifier(t)
 
+	sweeper := sweep.New(&sweep.UtxoSweeperConfig{
+		GenSweepScript: func() ([]byte, error) {
+			return []byte{}, nil
+		},
+		Estimator: &mockFeeEstimator{},
+		Signer:    &nurseryMockSigner{},
+	})
+
 	cfg := NurseryConfig{
 		Notifier: notifier,
 		FetchClosedChannels: func(pendingOnly bool) (
@@ -445,11 +454,7 @@ func createNurseryTestContext(t *testing.T,
 		},
 		Store:   storeIntercepter,
 		ChainIO: &mockChainIO{},
-		GenSweepScript: func() ([]byte, error) {
-			return []byte{}, nil
-		},
-		Estimator: &mockFeeEstimator{},
-		Signer:    &nurseryMockSigner{},
+		Sweeper: sweeper,
 	}
 
 	publishChan := make(chan wire.MsgTx, 1)

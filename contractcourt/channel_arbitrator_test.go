@@ -172,7 +172,7 @@ func createTestChannelArbitrator(log ArbitratorLog) (*ChannelArbitrator,
 		},
 		IncubateOutputs: func(wire.OutPoint, *lnwallet.CommitOutputResolution,
 			*lnwallet.OutgoingHtlcResolution,
-			*lnwallet.IncomingHtlcResolution) error {
+			*lnwallet.IncomingHtlcResolution, uint32) error {
 			return nil
 		},
 	}
@@ -463,10 +463,10 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	}
 
 	incubateChan := make(chan struct{})
-	chanArb.cfg.IncubateOutputs = func(outPoint wire.OutPoint,
-		commitOutputRes *lnwallet.CommitOutputResolution,
-		outgoingHtlcRes *lnwallet.OutgoingHtlcResolution,
-		incomingHtlcRes *lnwallet.IncomingHtlcResolution) error {
+	chanArb.cfg.IncubateOutputs = func(_ wire.OutPoint,
+		_ *lnwallet.CommitOutputResolution,
+		_ *lnwallet.OutgoingHtlcResolution,
+		_ *lnwallet.IncomingHtlcResolution, _ uint32) error {
 
 		incubateChan <- struct{}{}
 

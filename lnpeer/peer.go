@@ -5,7 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -19,7 +19,7 @@ type Peer interface {
 
 	// AddNewChannel adds a new channel to the peer. The channel should fail
 	// to be added if the cancel channel is closed.
-	AddNewChannel(channel *lnwallet.LightningChannel, cancel <-chan struct{}) error
+	AddNewChannel(channel *channeldb.OpenChannel, cancel <-chan struct{}) error
 
 	// WipeChannel removes the channel uniquely identified by its channel
 	// point from all indexes associated with the peer.

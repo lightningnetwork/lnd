@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"github.com/lightningnetwork/lnd/sweep"
 	"io"
 	"io/ioutil"
 
@@ -1256,46 +1257,16 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	// If the sweep transaction isn't already generated, and the remote
 	// party broadcast the commitment transaction then we'll create it now.
 	case c.sweepTx == nil && !isLocalCommitTx:
-		// Now that the commitment transaction has confirmed, we'll
-		// craft a transaction to sweep this output into the wallet.
-		signDesc := c.commitResolution.SelfOutputSignDesc
+		input := sweep.MakeBaseInput(
+			&c.commitResolution.SelfOutPoint,
+			lnwallet.CommitmentNoDelay,
+			&c.commitResolution.SelfOutputSignDesc)
 
-		// First, we'll estimate the total weight so we can compute
-		// fees properly. We'll use a lax estimate, as this output is
-		// in no immediate danger.
-		feePerKw, err := c.FeeEstimator.EstimateFeePerKW(6)
-		if err != nil {
-			return nil, err
-		}
-
-		log.Debugf("%T(%v): using %v sat/kw for sweep tx", c,
-			c.chanPoint, int64(feePerKw))
-
-		totalWeight := (&lnwallet.TxWeightEstimator{}).
-			AddP2WKHInput().
-			AddP2WKHOutput().Weight()
-		totalFees := feePerKw.FeeForWeight(int64(totalWeight))
-		sweepAmt := signDesc.Output.Value - int64(totalFees)
-
-		c.sweepTx = wire.NewMsgTx(2)
-		c.sweepTx.AddTxIn(&wire.TxIn{
-			PreviousOutPoint: c.commitResolution.SelfOutPoint,
-		})
-		sweepAddr, err := c.NewSweepAddr()
-		if err != nil {
-			return nil, err
-		}
-		c.sweepTx.AddTxOut(&wire.TxOut{
-			PkScript: sweepAddr,
-			Value:    sweepAmt,
-		})
-
-		// With the transaction fully assembled, we can now generate a
-		// valid witness for the transaction.
-		signDesc.SigHashes = txscript.NewTxSigHashes(c.sweepTx)
-		c.sweepTx.TxIn[0].Witness, err = lnwallet.CommitSpendNoDelay(
-			c.Signer, &signDesc, c.sweepTx,
-		)
+		// TODO: Set tx lock time to current block height instead of
+		// zero. Will be taken care of once sweeper implementation is
+		// complete.
+		c.sweepTx, err = c.Sweeper.CreateSweepTx(
+			[]sweep.Input{&input}, 0)
 		if err != nil {
 			return nil, err
 		}

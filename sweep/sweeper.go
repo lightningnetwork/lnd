@@ -73,10 +73,16 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []Input,
 	// outputs.
 	csvCount := 0
 	cltvCount := 0
+	unknownCount := 0
 	for i := range inputs {
 		input := inputs[i]
 
 		switch input.WitnessType() {
+
+		// Outputs on a remote commitment transaction that pay directly
+		// to us.
+		case lnwallet.CommitmentNoDelay:
+			weightEstimate.AddP2WKHInput()
 
 		// Outputs on a past commitment transaction that pay directly
 		// to us.
@@ -113,8 +119,7 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []Input,
 			cltvCount++
 
 		default:
-			// TODO: Also add non-timelocked outputs
-
+			unknownCount++
 			log.Warnf("kindergarten output in nursery store "+
 				"contains unexpected witness type: %v",
 				input.WitnessType())
@@ -123,7 +128,7 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []Input,
 	}
 
 	log.Infof("Creating sweep transaction for %v inputs (%v CSV, %v CLTV)",
-		csvCount+cltvCount, csvCount, cltvCount)
+		len(inputs)-unknownCount, csvCount, cltvCount)
 
 	txWeight := int64(weightEstimate.Weight())
 	return s.populateSweepTx(txWeight, currentBlockHeight, inputs)

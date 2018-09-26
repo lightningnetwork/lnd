@@ -78,7 +78,7 @@ discuss various aspects of `lnd` and also Lightning in general.
 ## Security
 
 The developers of `lnd` take security _very_ seriously. The disclosure of
-security vulnerabilities helps us security the health of `lnd`, privacy of our
+security vulnerabilities helps us secure the health of `lnd`, privacy of our
 users, and also the health of the Lightning Network as a whole.  If you find
 any issues regarding security or privacy, please disclose the information
 responsibly by sending an email to security at lightning dot engineering,

@@ -2467,7 +2467,15 @@ var describeGraphCommand = cli.Command{
 	Category: "Peers",
 	Description: "Prints a human readable version of the known channel " +
 		"graph from the PoV of the node",
-	Usage:  "Describe the network graph.",
+	Usage: "Describe the network graph.",
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name: "include_unannounced",
+			Usage: "If set, unannounced channels will be included in the " +
+				"graph. Unannounced channels are both private channels, and " +
+				"public channels that are not yet announced to the network.",
+		},
+	},
 	Action: actionDecorator(describeGraph),
 }
 
@@ -2475,7 +2483,9 @@ func describeGraph(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	req := &lnrpc.ChannelGraphRequest{}
+	req := &lnrpc.ChannelGraphRequest{
+		IncludeUnannounced: ctx.Bool("include_unannounced"),
+	}
 
 	graph, err := client.DescribeGraph(context.Background(), req)
 	if err != nil {

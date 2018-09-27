@@ -175,7 +175,7 @@ func (n *NetworkHarness) SetUp(lndArgs []string) error {
 	// each.
 	ctxb := context.Background()
 	addrReq := &lnrpc.NewAddressRequest{
-		Type: lnrpc.NewAddressRequest_WITNESS_PUBKEY_HASH,
+		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
 	}
 	clients := []lnrpc.LightningClient{n.Alice, n.Bob}
 	for _, client := range clients {
@@ -1202,7 +1202,7 @@ func (n *NetworkHarness) SendCoins(ctx context.Context, amt btcutil.Amount,
 	target *HarnessNode) error {
 
 	return n.sendCoins(
-		ctx, amt, target, lnrpc.NewAddressRequest_WITNESS_PUBKEY_HASH,
+		ctx, amt, target, lnrpc.AddressType_WITNESS_PUBKEY_HASH,
 		true,
 	)
 }
@@ -1214,7 +1214,7 @@ func (n *NetworkHarness) SendCoinsUnconfirmed(ctx context.Context,
 	amt btcutil.Amount, target *HarnessNode) error {
 
 	return n.sendCoins(
-		ctx, amt, target, lnrpc.NewAddressRequest_WITNESS_PUBKEY_HASH,
+		ctx, amt, target, lnrpc.AddressType_WITNESS_PUBKEY_HASH,
 		false,
 	)
 }
@@ -1225,7 +1225,7 @@ func (n *NetworkHarness) SendCoinsNP2WKH(ctx context.Context,
 	amt btcutil.Amount, target *HarnessNode) error {
 
 	return n.sendCoins(
-		ctx, amt, target, lnrpc.NewAddressRequest_NESTED_PUBKEY_HASH,
+		ctx, amt, target, lnrpc.AddressType_NESTED_PUBKEY_HASH,
 		true,
 	)
 }
@@ -1234,7 +1234,7 @@ func (n *NetworkHarness) SendCoinsNP2WKH(ctx context.Context,
 // targeted lightning node. The confirmed boolean indicates whether the
 // transaction that pays to the target should confirm.
 func (n *NetworkHarness) sendCoins(ctx context.Context, amt btcutil.Amount,
-	target *HarnessNode, addrType lnrpc.NewAddressRequest_AddressType,
+	target *HarnessNode, addrType lnrpc.AddressType,
 	confirmed bool) error {
 
 	balReq := &lnrpc.WalletBalanceRequest{}

@@ -120,12 +120,12 @@ func newAddress(ctx *cli.Context) error {
 
 	// Map the string encoded address type, to the concrete typed address
 	// type enum. An unrecognized address type will result in an error.
-	var addrType lnrpc.NewAddressRequest_AddressType
+	var addrType lnrpc.AddressType
 	switch stringAddrType { // TODO(roasbeef): make them ints on the cli?
 	case "p2wkh":
-		addrType = lnrpc.NewAddressRequest_WITNESS_PUBKEY_HASH
+		addrType = lnrpc.AddressType_WITNESS_PUBKEY_HASH
 	case "np2wkh":
-		addrType = lnrpc.NewAddressRequest_NESTED_PUBKEY_HASH
+		addrType = lnrpc.AddressType_NESTED_PUBKEY_HASH
 	default:
 		return fmt.Errorf("invalid address type %v, support address type "+
 			"are: p2wkh and np2wkh", stringAddrType)
@@ -239,6 +239,101 @@ func sendCoins(ctx *cli.Context) error {
 	}
 
 	printRespJSON(txid)
+	return nil
+}
+
+var listUnspentCommand = cli.Command{
+	Name:      "listunspent",
+	Category:  "On-chain",
+	Usage:     "List utxos available for spending.",
+	ArgsUsage: "min-confs max-confs",
+	Description: `
+	For each spendable utxo currently in the wallet, with at least min_confs
+	confirmations, and at most max_confs confirmations, lists the txid, index,
+	amount, address, address type, scriptPubkey and number of confirmations.
+	Use --min_confs=0 to include unconfirmed coins. To list all coins
+	with at least min_confs confirmations, omit the second argument or flag
+	'--max_confs'.
+	`,
+	Flags: []cli.Flag{
+		cli.Int64Flag{
+			Name:  "min_confs",
+			Usage: "the minimum number of confirmations for a utxo",
+		},
+		cli.Int64Flag{
+			Name:  "max_confs",
+			Usage: "the maximum number of confirmations for a utxo",
+		},
+	},
+	Action: actionDecorator(listUnspent),
+}
+
+func listUnspent(ctx *cli.Context) error {
+	var (
+		minConfirms int64
+		maxConfirms int64
+		err         error
+	)
+	args := ctx.Args()
+
+	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
+		cli.ShowCommandHelp(ctx, "listunspent")
+		return nil
+	}
+
+	if ctx.IsSet("max_confs") && !ctx.IsSet("min_confs") {
+		return fmt.Errorf("max_confs cannot be set without " +
+			"min_confs being set")
+	}
+
+	switch {
+	case ctx.IsSet("min_confs"):
+		minConfirms = ctx.Int64("min_confs")
+	case args.Present():
+		minConfirms, err = strconv.ParseInt(args.First(), 10, 64)
+		if err != nil {
+			cli.ShowCommandHelp(ctx, "listunspent")
+			return nil
+		}
+		args = args.Tail()
+	default:
+		return fmt.Errorf("minimum confirmations argument missing")
+	}
+
+	switch {
+	case ctx.IsSet("max_confs"):
+		maxConfirms = ctx.Int64("max_confs")
+	case args.Present():
+		maxConfirms, err = strconv.ParseInt(args.First(), 10, 64)
+		if err != nil {
+			cli.ShowCommandHelp(ctx, "listunspent")
+			return nil
+		}
+		args = args.Tail()
+	default:
+		// No maxconfs was specified; we use max as flag;
+		// the default for ctx.Int64 (0) is *not* appropriate here.
+		maxConfirms = math.MaxInt32
+	}
+
+	if minConfirms < 0 || maxConfirms < minConfirms {
+		return fmt.Errorf("maximum confirmations must be greater or " +
+			"equal to minimum confirmations")
+	}
+
+	ctxb := context.Background()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	req := &lnrpc.ListUnspentRequest{
+		MinConfs: int32(minConfirms),
+		MaxConfs: int32(maxConfirms),
+	}
+	jsonResponse, err := client.ListUnspent(ctxb, req)
+	if err != nil {
+		return err
+	}
+	printRespJSON(jsonResponse)
 	return nil
 }
 

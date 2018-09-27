@@ -256,6 +256,7 @@ func main() {
 		newAddressCommand,
 		sendManyCommand,
 		sendCoinsCommand,
+		listUnspentCommand,
 		connectCommand,
 		disconnectCommand,
 		openChannelCommand,

@@ -616,8 +616,8 @@ func getChanInfo(ctx context.Context, node *lntest.HarnessNode) (
 }
 
 const (
-	AddrTypeWitnessPubkeyHash = lnrpc.NewAddressRequest_WITNESS_PUBKEY_HASH
-	AddrTypeNestedPubkeyHash  = lnrpc.NewAddressRequest_NESTED_PUBKEY_HASH
+	AddrTypeWitnessPubkeyHash = lnrpc.AddressType_WITNESS_PUBKEY_HASH
+	AddrTypeNestedPubkeyHash  = lnrpc.AddressType_NESTED_PUBKEY_HASH
 )
 
 // testOnchainFundRecovery checks lnd's ability to rescan for onchain outputs

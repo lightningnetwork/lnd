@@ -1051,6 +1051,41 @@
         ]
       }
     },
+    "/v1/utxos": {
+      "get": {
+        "summary": "* lncli: `listunspent`\nListUnspent returns a list of all utxos spendable by the wallet with a\nnumber of confirmations between the specified minimum and maximum.",
+        "operationId": "ListUnspent",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcListUnspentResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "min_confs",
+            "description": "/ The minimum number of confirmations to be included.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "max_confs",
+            "description": "/ The maximum number of confirmations to be included.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/verifymessage": {
       "post": {
         "summary": "* lncli: `verifymessage`\nVerifyMessage verifies a signature over a msg. The signature must be\nzbase32 encoded and signed by an active node in the resident node's\nchannel database. In addition to returning the validity of the signature,\nVerifyMessage also returns the recovered pubkey from the signature.",
@@ -1230,6 +1265,16 @@
           "description": "*\nThe \"add\" index of this invoice. Each newly created invoice will increment\nthis index making it monotonically increasing. Callers to the\nSubscribeInvoices call can use this to instantly get notified of all added\ninvoices with an add_index greater than this one."
         }
       }
+    },
+    "lnrpcAddressType": {
+      "type": "string",
+      "enum": [
+        "WITNESS_PUBKEY_HASH",
+        "NESTED_PUBKEY_HASH"
+      ],
+      "default": "WITNESS_PUBKEY_HASH",
+      "description": "- `p2wkh`: Pay to witness key hash (`WITNESS_PUBKEY_HASH` = 0)\n- `np2wkh`: Pay to nested witness key hash (`NESTED_PUBKEY_HASH` = 1)",
+      "title": "* \n`AddressType` has to be one of:"
     },
     "lnrpcChangePasswordRequest": {
       "type": "object",
@@ -2194,6 +2239,18 @@
         }
       }
     },
+    "lnrpcListUnspentResponse": {
+      "type": "object",
+      "properties": {
+        "utxos": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcUtxo"
+          },
+          "title": "/ A list of utxos"
+        }
+      }
+    },
     "lnrpcNetworkInfo": {
       "type": "object",
       "properties": {
@@ -2918,6 +2975,37 @@
     },
     "lnrpcUnlockWalletResponse": {
       "type": "object"
+    },
+    "lnrpcUtxo": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/definitions/lnrpcAddressType",
+          "title": "/ The type of address"
+        },
+        "address": {
+          "type": "string",
+          "title": "/ The address"
+        },
+        "amount_sat": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ The value of the unspent coin in satoshis"
+        },
+        "script_pubkey": {
+          "type": "string",
+          "title": "/ The scriptpubkey in hex"
+        },
+        "outpoint": {
+          "$ref": "#/definitions/lnrpcChannelPoint",
+          "title": "/ The outpoint in format txid:n\n/ Note that this reuses the `ChannelPoint` message but\n/ is not actually a channel related outpoint, of course"
+        },
+        "confirmations": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ The number of confirmations for the Utxo"
+        }
+      }
     },
     "lnrpcVerifyMessageRequest": {
       "type": "object",

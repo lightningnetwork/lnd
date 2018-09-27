@@ -34,15 +34,16 @@
     Alternatively, one can download the pre-compiled binaries hosted on the
     [golang download page](https://golang.org/dl/). If one seeks to install
     from source, then more detailed installation instructions can be found
-    [here](http://golang.org/doc/install).
-
+    [here](http://golang.org/doc/install).  
+  
+    Set $GOPATH:  
     At this point, you should set your `$GOPATH` environment variable, which
     represents the path to your workspace. By default, `$GOPATH` is set to
-    `~/go`. You will also need to add `$GOPATH/bin` to your `PATH`. This ensures
+    `$HOME/go`. You will also need to add `$GOPATH/bin` to your `PATH`. This ensures
     that your shell will be able to detect the binaries you install.
 
     ```bash
-    export GOPATH=~/gocode
+    export GOPATH=$HOME/go
     export PATH=$PATH:$GOPATH/bin
     ```
 
@@ -234,7 +235,8 @@ the following:
 - Since `lnd` uses
   [ZeroMQ](https://github.com/bitcoin/bitcoin/blob/master/doc/zmq.md) to
   interface with `bitcoind`, *your `bitcoind` installation must be compiled with
-  ZMQ*. Note that if you installed `bitcoind` from source and ZMQ was not present, 
+  ZMQ*. The official Bitcoin Core binaries do support ZMQ.  
+  Note that if you installed `bitcoind` from source and ZMQ was not present, 
   then ZMQ support will be disabled, and `lnd` will quit on a `connection refused` error. 
   If you installed `bitcoind` via Homebrew in the past ZMQ may not be included 
   ([this has now been fixed](https://github.com/Homebrew/homebrew-core/pull/23088) 
@@ -345,4 +347,6 @@ Bitcoin chain. `lnd` also supports Litecoin testnet4 (but not both BTC and LTC
 at the same time), so when working with Litecoin be sure to set to parameters
 for Litecoin accordingly. For node configuration, the sections are called
 `[Btcd]`, `[Bitcoind]`, `[Neutrino]`, `[Ltcd]`, and `[Litecoind]` depending on
-which chain and node type you're using.
+which chain and node type you're using.  
+Make sure to place options in the proper section.  
+

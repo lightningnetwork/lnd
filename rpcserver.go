@@ -160,10 +160,6 @@ var (
 			Entity: "address",
 			Action: "write",
 		}},
-		"/lnrpc.Lightning/NewWitnessAddress": {{
-			Entity: "address",
-			Action: "write",
-		}},
 		"/lnrpc.Lightning/SignMessage": {{
 			Entity: "message",
 			Action: "write",
@@ -530,22 +526,6 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 	}
 
 	addr, err := r.server.cc.wallet.NewAddress(addrType, false)
-	if err != nil {
-		return nil, err
-	}
-
-	rpcsLog.Infof("[newaddress] addr=%v", addr.String())
-	return &lnrpc.NewAddressResponse{Address: addr.String()}, nil
-}
-
-// NewWitnessAddress returns a new native witness address under the control of
-// the local wallet.
-func (r *rpcServer) NewWitnessAddress(ctx context.Context,
-	in *lnrpc.NewWitnessAddressRequest) (*lnrpc.NewAddressResponse, error) {
-
-	addr, err := r.server.cc.wallet.NewAddress(
-		lnwallet.NestedWitnessPubKey, false,
-	)
 	if err != nil {
 		return nil, err
 	}

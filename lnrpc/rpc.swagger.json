@@ -732,8 +732,8 @@
     },
     "/v1/newaddress": {
       "get": {
-        "summary": "*\nNewWitnessAddress creates a new witness address under control of the local wallet.",
-        "operationId": "NewWitnessAddress",
+        "summary": "* lncli: `newaddress`\nNewAddress creates a new address under control of the local wallet.",
+        "operationId": "NewAddress",
         "responses": {
           "200": {
             "description": "",
@@ -742,6 +742,20 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "type",
+            "description": "/ The address type.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "WITNESS_PUBKEY_HASH",
+              "NESTED_PUBKEY_HASH"
+            ],
+            "default": "WITNESS_PUBKEY_HASH"
+          }
+        ],
         "tags": [
           "Lightning"
         ]

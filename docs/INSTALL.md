@@ -42,7 +42,7 @@
     that your shell will be able to detect the binaries you install.
 
     ```bash
-    export GOPATH=~/gocode
+    export GOPATH=$HOME/go
     export PATH=$PATH:$GOPATH/bin
     ```
 

@@ -37,10 +37,8 @@ description):
        (many outputs).
   * NewAddress
      * Returns a new address, the following address types are supported:
-       pay-to-public-key-hash (p2pkh), pay-to-witness-key-hash (p2wkh), and
-       nested-pay-to-witness-key-hash (np2wkh).
-  * NewWitnessAddress
-     * Returns a new witness address (np2wkh) under control of the local wallet.
+       pay-to-witness-key-hash (p2wkh) and nested-pay-to-witness-key-hash
+       (np2wkh).
   * SignMessage
      * Signs a message with the node's identity key and returns a
        zbase32 encoded signature.

@@ -2254,56 +2254,34 @@ func (r *rpcServer) ClosedChannels(ctx context.Context,
 			continue
 		}
 
-		nodePub := dbChannel.RemotePub
-		nodeID := hex.EncodeToString(nodePub.SerializeCompressed())
-
-		var closeType lnrpc.ChannelCloseSummary_ClosureType
 		switch dbChannel.CloseType {
 		case channeldb.CooperativeClose:
 			if filterResults && !in.Cooperative {
 				continue
 			}
-			closeType = lnrpc.ChannelCloseSummary_COOPERATIVE_CLOSE
 		case channeldb.LocalForceClose:
 			if filterResults && !in.LocalForce {
 				continue
 			}
-			closeType = lnrpc.ChannelCloseSummary_LOCAL_FORCE_CLOSE
 		case channeldb.RemoteForceClose:
 			if filterResults && !in.RemoteForce {
 				continue
 			}
-			closeType = lnrpc.ChannelCloseSummary_REMOTE_FORCE_CLOSE
 		case channeldb.BreachClose:
 			if filterResults && !in.Breach {
 				continue
 			}
-			closeType = lnrpc.ChannelCloseSummary_BREACH_CLOSE
 		case channeldb.FundingCanceled:
 			if filterResults && !in.FundingCanceled {
 				continue
 			}
-			closeType = lnrpc.ChannelCloseSummary_FUNDING_CANCELED
 		case channeldb.Abandoned:
 			if filterResults && !in.Abandoned {
 				continue
 			}
-			closeType = lnrpc.ChannelCloseSummary_ABANDONED
 		}
 
-		channel := &lnrpc.ChannelCloseSummary{
-			Capacity:          int64(dbChannel.Capacity),
-			RemotePubkey:      nodeID,
-			CloseHeight:       dbChannel.CloseHeight,
-			CloseType:         closeType,
-			ChannelPoint:      dbChannel.ChanPoint.String(),
-			ChanId:            dbChannel.ShortChanID.ToUint64(),
-			SettledBalance:    int64(dbChannel.SettledBalance),
-			TimeLockedBalance: int64(dbChannel.TimeLockedBalance),
-			ChainHash:         dbChannel.ChainHash.String(),
-			ClosingTxHash:     dbChannel.ClosingTXID.String(),
-		}
-
+		channel := createRPCClosedChannel(dbChannel)
 		resp.Channels = append(resp.Channels, channel)
 	}
 
@@ -2339,13 +2317,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 
 	for _, dbChannel := range dbChannels {
 		nodePub := dbChannel.IdentityPub
-		nodeID := hex.EncodeToString(nodePub.SerializeCompressed())
 		chanPoint := dbChannel.FundingOutpoint
-
-		// With the channel point known, retrieve the network channel
-		// ID from the database.
-		var chanID uint64
-		chanID, _ = graph.ChannelID(&chanPoint)
 
 		var peerOnline bool
 		if _, err := r.server.FindPeer(nodePub); err == nil {
@@ -2364,7 +2336,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		// Next, we'll determine whether we should add this channel to
 		// our list depending on the type of channels requested to us.
 		isActive := peerOnline && linkActive
-		isPublic := dbChannel.ChannelFlags&lnwire.FFAnnounceChannel != 0
+		channel := createRPCOpenChannel(r, graph, dbChannel, isActive)
 
 		// We'll only skip returning this channel if we were requested
 		// for a specific kind and this channel doesn't satisfy it.
@@ -2373,76 +2345,133 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 			continue
 		case in.InactiveOnly && isActive:
 			continue
-		case in.PublicOnly && !isPublic:
+		case in.PublicOnly && channel.Private:
 			continue
-		case in.PrivateOnly && isPublic:
+		case in.PrivateOnly && !channel.Private:
 			continue
-		}
-
-		// As this is required for display purposes, we'll calculate
-		// the weight of the commitment transaction. We also add on the
-		// estimated weight of the witness to calculate the weight of
-		// the transaction if it were to be immediately unilaterally
-		// broadcast.
-		localCommit := dbChannel.LocalCommitment
-		utx := btcutil.NewTx(localCommit.CommitTx)
-		commitBaseWeight := blockchain.GetTransactionWeight(utx)
-		commitWeight := commitBaseWeight + input.WitnessCommitmentTxWeight
-
-		localBalance := localCommit.LocalBalance
-		remoteBalance := localCommit.RemoteBalance
-
-		// As an artifact of our usage of mSAT internally, either party
-		// may end up in a state where they're holding a fractional
-		// amount of satoshis which can't be expressed within the
-		// actual commitment output. Since we round down when going
-		// from mSAT -> SAT, we may at any point be adding an
-		// additional SAT to miners fees. As a result, we display a
-		// commitment fee that accounts for this externally.
-		var sumOutputs btcutil.Amount
-		for _, txOut := range localCommit.CommitTx.TxOut {
-			sumOutputs += btcutil.Amount(txOut.Value)
-		}
-		externalCommitFee := dbChannel.Capacity - sumOutputs
-
-		channel := &lnrpc.Channel{
-			Active:                isActive,
-			Private:               !isPublic,
-			RemotePubkey:          nodeID,
-			ChannelPoint:          chanPoint.String(),
-			ChanId:                chanID,
-			Capacity:              int64(dbChannel.Capacity),
-			LocalBalance:          int64(localBalance.ToSatoshis()),
-			RemoteBalance:         int64(remoteBalance.ToSatoshis()),
-			CommitFee:             int64(externalCommitFee),
-			CommitWeight:          commitWeight,
-			FeePerKw:              int64(localCommit.FeePerKw),
-			TotalSatoshisSent:     int64(dbChannel.TotalMSatSent.ToSatoshis()),
-			TotalSatoshisReceived: int64(dbChannel.TotalMSatReceived.ToSatoshis()),
-			NumUpdates:            localCommit.CommitHeight,
-			PendingHtlcs:          make([]*lnrpc.HTLC, len(localCommit.Htlcs)),
-			CsvDelay:              uint32(dbChannel.LocalChanCfg.CsvDelay),
-			Initiator:             dbChannel.IsInitiator,
-		}
-
-		for i, htlc := range localCommit.Htlcs {
-			var rHash [32]byte
-			copy(rHash[:], htlc.RHash[:])
-			channel.PendingHtlcs[i] = &lnrpc.HTLC{
-				Incoming:         htlc.Incoming,
-				Amount:           int64(htlc.Amt.ToSatoshis()),
-				HashLock:         rHash[:],
-				ExpirationHeight: htlc.RefundTimeout,
-			}
-
-			// Add the Pending Htlc Amount to UnsettledBalance field.
-			channel.UnsettledBalance += channel.PendingHtlcs[i].Amount
 		}
 
 		resp.Channels = append(resp.Channels, channel)
 	}
 
 	return resp, nil
+}
+
+// createRPCOpenChannel creates an *lnrpc.Channel from the *channeldb.Channel.
+func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
+	dbChannel *channeldb.OpenChannel, isActive bool) *lnrpc.Channel {
+
+	nodePub := dbChannel.IdentityPub
+	nodeID := hex.EncodeToString(nodePub.SerializeCompressed())
+	chanPoint := dbChannel.FundingOutpoint
+
+	// With the channel point known, retrieve the network channel
+	// ID from the database.
+	var chanID uint64
+	chanID, _ = graph.ChannelID(&chanPoint)
+
+	// Next, we'll determine whether the channel is public or not.
+	isPublic := dbChannel.ChannelFlags&lnwire.FFAnnounceChannel != 0
+
+	// As this is required for display purposes, we'll calculate
+	// the weight of the commitment transaction. We also add on the
+	// estimated weight of the witness to calculate the weight of
+	// the transaction if it were to be immediately unilaterally
+	// broadcast.
+	localCommit := dbChannel.LocalCommitment
+	utx := btcutil.NewTx(localCommit.CommitTx)
+	commitBaseWeight := blockchain.GetTransactionWeight(utx)
+	commitWeight := commitBaseWeight + input.WitnessCommitmentTxWeight
+
+	localBalance := localCommit.LocalBalance
+	remoteBalance := localCommit.RemoteBalance
+
+	// As an artifact of our usage of mSAT internally, either party
+	// may end up in a state where they're holding a fractional
+	// amount of satoshis which can't be expressed within the
+	// actual commitment output. Since we round down when going
+	// from mSAT -> SAT, we may at any point be adding an
+	// additional SAT to miners fees. As a result, we display a
+	// commitment fee that accounts for this externally.
+	var sumOutputs btcutil.Amount
+	for _, txOut := range localCommit.CommitTx.TxOut {
+		sumOutputs += btcutil.Amount(txOut.Value)
+	}
+	externalCommitFee := dbChannel.Capacity - sumOutputs
+
+	channel := &lnrpc.Channel{
+		Active:                isActive,
+		Private:               !isPublic,
+		RemotePubkey:          nodeID,
+		ChannelPoint:          chanPoint.String(),
+		ChanId:                chanID,
+		Capacity:              int64(dbChannel.Capacity),
+		LocalBalance:          int64(localBalance.ToSatoshis()),
+		RemoteBalance:         int64(remoteBalance.ToSatoshis()),
+		CommitFee:             int64(externalCommitFee),
+		CommitWeight:          commitWeight,
+		FeePerKw:              int64(localCommit.FeePerKw),
+		TotalSatoshisSent:     int64(dbChannel.TotalMSatSent.ToSatoshis()),
+		TotalSatoshisReceived: int64(dbChannel.TotalMSatReceived.ToSatoshis()),
+		NumUpdates:            localCommit.CommitHeight,
+		PendingHtlcs:          make([]*lnrpc.HTLC, len(localCommit.Htlcs)),
+		CsvDelay:              uint32(dbChannel.LocalChanCfg.CsvDelay),
+		Initiator:             dbChannel.IsInitiator,
+	}
+
+	for i, htlc := range localCommit.Htlcs {
+		var rHash [32]byte
+		copy(rHash[:], htlc.RHash[:])
+		channel.PendingHtlcs[i] = &lnrpc.HTLC{
+			Incoming:         htlc.Incoming,
+			Amount:           int64(htlc.Amt.ToSatoshis()),
+			HashLock:         rHash[:],
+			ExpirationHeight: htlc.RefundTimeout,
+		}
+
+		// Add the Pending Htlc Amount to UnsettledBalance field.
+		channel.UnsettledBalance += channel.PendingHtlcs[i].Amount
+	}
+
+	return channel
+}
+
+// createRPCClosedChannel creates an *lnrpc.ClosedChannelSummary from a
+// *channeldb.ChannelCloseSummary.
+func createRPCClosedChannel(
+	dbChannel *channeldb.ChannelCloseSummary) *lnrpc.ChannelCloseSummary {
+
+	nodePub := dbChannel.RemotePub
+	nodeID := hex.EncodeToString(nodePub.SerializeCompressed())
+
+	var closeType lnrpc.ChannelCloseSummary_ClosureType
+	switch dbChannel.CloseType {
+	case channeldb.CooperativeClose:
+		closeType = lnrpc.ChannelCloseSummary_COOPERATIVE_CLOSE
+	case channeldb.LocalForceClose:
+		closeType = lnrpc.ChannelCloseSummary_LOCAL_FORCE_CLOSE
+	case channeldb.RemoteForceClose:
+		closeType = lnrpc.ChannelCloseSummary_REMOTE_FORCE_CLOSE
+	case channeldb.BreachClose:
+		closeType = lnrpc.ChannelCloseSummary_BREACH_CLOSE
+	case channeldb.FundingCanceled:
+		closeType = lnrpc.ChannelCloseSummary_FUNDING_CANCELED
+	case channeldb.Abandoned:
+		closeType = lnrpc.ChannelCloseSummary_ABANDONED
+	}
+
+	return &lnrpc.ChannelCloseSummary{
+		Capacity:          int64(dbChannel.Capacity),
+		RemotePubkey:      nodeID,
+		CloseHeight:       dbChannel.CloseHeight,
+		CloseType:         closeType,
+		ChannelPoint:      dbChannel.ChanPoint.String(),
+		ChanId:            dbChannel.ShortChanID.ToUint64(),
+		SettledBalance:    int64(dbChannel.SettledBalance),
+		TimeLockedBalance: int64(dbChannel.TimeLockedBalance),
+		ChainHash:         dbChannel.ChainHash.String(),
+		ClosingTxHash:     dbChannel.ClosingTXID.String(),
+	}
 }
 
 // savePayment saves a successfully completed payment to the database for

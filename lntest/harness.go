@@ -602,7 +602,7 @@ type txWatchRequest struct {
 	eventChan chan struct{}
 }
 
-// bitcoinNetworkWatcher is a goroutine which accepts async notification
+// networkWatcher is a goroutine which accepts async notification
 // requests for the broadcast of a target transaction, and then dispatches the
 // transaction once its seen on the Bitcoin network.
 func (n *NetworkHarness) networkWatcher() {
@@ -877,10 +877,10 @@ func (n *NetworkHarness) WaitForChannelOpen(ctx context.Context,
 	}
 }
 
-// CloseChannel close channel attempts to close the channel indicated by the
+// CloseChannel attempts to close the channel indicated by the
 // passed channel point, initiated by the passed lnNode. If the passed context
-// has a timeout, then if the timeout is reached before the channel close is
-// pending, then an error is returned.
+// has a timeout, an error is returned if that timeout is reached before the
+// channel close is pending.
 func (n *NetworkHarness) CloseChannel(ctx context.Context,
 	lnNode *HarnessNode, cp *lnrpc.ChannelPoint,
 	force bool) (lnrpc.Lightning_CloseChannelClient, *chainhash.Hash, error) {

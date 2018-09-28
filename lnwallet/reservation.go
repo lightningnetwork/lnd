@@ -403,7 +403,7 @@ func (r *ChannelReservation) ProcessSingleContribution(theirContribution *Channe
 // TheirContribution returns the counterparty's pending contribution to the
 // payment channel. See 'ChannelContribution' for further details regarding the
 // contents of a contribution. This attribute will ONLY be available after a
-// call to .ProcesContribution().
+// call to .ProcessContribution().
 //
 // NOTE: This SHOULD NOT be modified.
 func (r *ChannelReservation) TheirContribution() *ChannelContribution {
@@ -419,7 +419,7 @@ func (r *ChannelReservation) TheirContribution() *ChannelContribution {
 // BIP-69: https://github.com/bitcoin/bips/blob/master/bip-0069.mediawiki.
 //
 // NOTE: These signatures will only be populated after a call to
-// .ProcesContribution()
+// .ProcessContribution()
 func (r *ChannelReservation) OurSignatures() ([]*InputScript, []byte) {
 	r.RLock()
 	defer r.RUnlock()

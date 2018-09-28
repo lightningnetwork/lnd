@@ -249,12 +249,7 @@ service Lightning {
     /** lncli: `newaddress`
     NewAddress creates a new address under control of the local wallet.
     */
-    rpc NewAddress (NewAddressRequest) returns (NewAddressResponse);
-
-    /**
-    NewWitnessAddress creates a new witness address under control of the local wallet.
-    */
-    rpc NewWitnessAddress (NewWitnessAddressRequest) returns (NewAddressResponse) {
+    rpc NewAddress (NewAddressRequest) returns (NewAddressResponse) {
         option (google.api.http) = {
             get: "/v1/newaddress"
         };
@@ -807,7 +802,6 @@ message SendCoinsResponse {
 
 - `p2wkh`: Pay to witness key hash (`WITNESS_PUBKEY_HASH` = 0)
 - `np2wkh`: Pay to nested witness key hash (`NESTED_PUBKEY_HASH` = 1)
-- `p2pkh`:  Pay to public key hash (`PUBKEY_HASH` = 2)
 */
 message NewAddressRequest {
     enum AddressType {
@@ -818,10 +812,6 @@ message NewAddressRequest {
     /// The address type
     AddressType type = 1;
 }
-
-message NewWitnessAddressRequest {
-}
-
 message NewAddressResponse {
     /// The newly generated wallet address
     string address = 1 [json_name = "address"];

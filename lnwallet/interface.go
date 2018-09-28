@@ -148,11 +148,8 @@ type WalletController interface {
 	// p2wsh, etc.
 	NewAddress(addrType AddressType, change bool) (btcutil.Address, error)
 
-	// GetPrivKey retrieves the underlying private key associated with the
-	// passed address. If the wallet is unable to locate this private key
-	// due to the address not being under control of the wallet, then an
-	// error should be returned.
-	GetPrivKey(a btcutil.Address) (*btcec.PrivateKey, error)
+	// IsOurAddress checks if the passed address belongs to this wallet
+	IsOurAddress(a btcutil.Address) bool
 
 	// SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying
 	// out to the specified outputs. In the case the wallet has insufficient

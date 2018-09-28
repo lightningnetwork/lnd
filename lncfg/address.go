@@ -45,7 +45,7 @@ func NormalizeAddresses(addrs []string, defaultPort string,
 // EnforceSafeAuthentication enforces "safe" authentication taking into account
 // the interfaces that the RPC servers are listening on, and if macaroons are
 // activated or not. To protect users from using dangerous config combinations,
-// we'll prevent disabling authentication if the sever is listening on a public
+// we'll prevent disabling authentication if the server is listening on a public
 // interface.
 func EnforceSafeAuthentication(addrs []net.Addr, macaroonsActive bool) error {
 	// We'll now examine all addresses that this RPC server is listening

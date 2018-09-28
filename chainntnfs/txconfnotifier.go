@@ -222,9 +222,6 @@ func (tcn *TxConfNotifier) Register(
 	tcn.Lock()
 	defer tcn.Unlock()
 
-	// TODO(conner): promote immediately to confNotifications if a
-	// historical dispatch has already completed.
-
 	confSet, ok := tcn.confNotifications[*ntfn.TxID]
 	if !ok {
 		confSet = newConfNtfnSet()
@@ -238,6 +235,10 @@ func (tcn *TxConfNotifier) Register(
 	// A prior rescan has already completed and we are actively watching at
 	// tip for this txid.
 	case rescanComplete:
+		// If conf details for this set of notifications has already
+		// been found, we'll attempt to deliver them immediately to this
+		// client.
+		tcn.dispatchConfDetails(ntfn, confSet.details)
 		return nil, nil
 
 	// A rescan is already in progress, return here to prevent dispatching
@@ -327,72 +328,96 @@ func (tcn *TxConfNotifier) UpdateConfDetails(txid chainhash.Hash,
 			details.BlockHeight, txid, err)
 	}
 
-	// Update the conf details of all ntfns that don't yet have them.
+	// Cache the details found in the rescan and attempt to dispatch any
+	// notifications that have not yet been delivered.
+	confSet.details = details
 	for _, ntfn := range confSet.ntfns {
-		if ntfn.details != nil {
-			continue
+		err = tcn.dispatchConfDetails(ntfn, details)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// dispatchConfDetails attempts to cache and dispatch details to a particular
+// client if the transaction has sufficiently confirmed. If the provided details
+// are nil, this method will be a no-op.
+func (tcn *TxConfNotifier) dispatchConfDetails(
+	ntfn *ConfNtfn, details *TxConfirmation) error {
+
+	// If no details are provided, return early as we can't dispatch.
+	if details == nil {
+		return nil
+	}
+
+	// Set the confirmation details for this notification, only if the
+	// notification doesn't already have details. This ensure we only fall
+	// through the following logic at most once, which could cause the
+	// buffered channels to block when exceeding their allocated capacity.
+	if ntfn.details != nil {
+		return nil
+	}
+	ntfn.details = details
+
+	// Now, we'll examine whether the transaction of this
+	// notification request has reached its required number of
+	// confirmations. If it has, we'll dispatch a confirmation
+	// notification to the caller.
+	confHeight := details.BlockHeight + ntfn.NumConfirmations - 1
+	if confHeight <= tcn.currentHeight {
+		Log.Infof("Dispatching %v conf notification for %v",
+			ntfn.NumConfirmations, ntfn.TxID)
+
+		// We'll send a 0 value to the Updates channel,
+		// indicating that the transaction has already been
+		// confirmed.
+		select {
+		case ntfn.Event.Updates <- 0:
+		case <-tcn.quit:
+			return ErrTxConfNotifierExiting
 		}
 
-		ntfn.details = details
-
-		// Now, we'll examine whether the transaction of this
-		// notification request has reached its required number of
-		// confirmations. If it has, we'll dispatch a confirmation
-		// notification to the caller.
-		confHeight := details.BlockHeight + ntfn.NumConfirmations - 1
-		if confHeight <= tcn.currentHeight {
-			Log.Infof("Dispatching %v conf notification for %v",
-				ntfn.NumConfirmations, ntfn.TxID)
-
-			// We'll send a 0 value to the Updates channel,
-			// indicating that the transaction has already been
-			// confirmed.
-			select {
-			case ntfn.Event.Updates <- 0:
-			case <-tcn.quit:
-				return ErrTxConfNotifierExiting
-			}
-
-			select {
-			case ntfn.Event.Confirmed <- details:
-				ntfn.dispatched = true
-			case <-tcn.quit:
-				return ErrTxConfNotifierExiting
-			}
-		} else {
-			// Otherwise, we'll keep track of the notification
-			// request by the height at which we should dispatch the
-			// confirmation notification.
-			ntfnSet, exists := tcn.ntfnsByConfirmHeight[confHeight]
-			if !exists {
-				ntfnSet = make(map[*ConfNtfn]struct{})
-				tcn.ntfnsByConfirmHeight[confHeight] = ntfnSet
-			}
-			ntfnSet[ntfn] = struct{}{}
-
-			// We'll also send an update to the client of how many
-			// confirmations are left for the transaction to be
-			// confirmed.
-			numConfsLeft := confHeight - tcn.currentHeight
-			select {
-			case ntfn.Event.Updates <- numConfsLeft:
-			case <-tcn.quit:
-				return ErrTxConfNotifierExiting
-			}
+		select {
+		case ntfn.Event.Confirmed <- details:
+			ntfn.dispatched = true
+		case <-tcn.quit:
+			return ErrTxConfNotifierExiting
 		}
-
-		// As a final check, we'll also watch the transaction if it's
-		// still possible for it to get reorged out of the chain.
-		blockHeight := details.BlockHeight
-		reorgSafeHeight := blockHeight + tcn.reorgSafetyLimit
-		if reorgSafeHeight > tcn.currentHeight {
-			txSet, exists := tcn.txsByInitialHeight[blockHeight]
-			if !exists {
-				txSet = make(map[chainhash.Hash]struct{})
-				tcn.txsByInitialHeight[blockHeight] = txSet
-			}
-			txSet[txid] = struct{}{}
+	} else {
+		// Otherwise, we'll keep track of the notification
+		// request by the height at which we should dispatch the
+		// confirmation notification.
+		ntfnSet, exists := tcn.ntfnsByConfirmHeight[confHeight]
+		if !exists {
+			ntfnSet = make(map[*ConfNtfn]struct{})
+			tcn.ntfnsByConfirmHeight[confHeight] = ntfnSet
 		}
+		ntfnSet[ntfn] = struct{}{}
+
+		// We'll also send an update to the client of how many
+		// confirmations are left for the transaction to be
+		// confirmed.
+		numConfsLeft := confHeight - tcn.currentHeight
+		select {
+		case ntfn.Event.Updates <- numConfsLeft:
+		case <-tcn.quit:
+			return ErrTxConfNotifierExiting
+		}
+	}
+
+	// As a final check, we'll also watch the transaction if it's
+	// still possible for it to get reorged out of the chain.
+	blockHeight := details.BlockHeight
+	reorgSafeHeight := blockHeight + tcn.reorgSafetyLimit
+	if reorgSafeHeight > tcn.currentHeight {
+		txSet, exists := tcn.txsByInitialHeight[blockHeight]
+		if !exists {
+			txSet = make(map[chainhash.Hash]struct{})
+			tcn.txsByInitialHeight[blockHeight] = txSet
+		}
+		txSet[*ntfn.TxID] = struct{}{}
 	}
 
 	return nil

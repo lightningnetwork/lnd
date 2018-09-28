@@ -287,7 +287,7 @@ func (tcn *TxConfNotifier) Register(
 // NOTE: The notification should be registered first to ensure notifications are
 // dispatched correctly.
 func (tcn *TxConfNotifier) UpdateConfDetails(txid chainhash.Hash,
-	clientID uint64, details *TxConfirmation) error {
+	details *TxConfirmation) error {
 
 	select {
 	case <-tcn.quit:

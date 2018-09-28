@@ -48,6 +48,26 @@ type ConfNtfn struct {
 	dispatched bool
 }
 
+// HistoricalConfDispatch parameterizes a manual rescan for a particular
+// transaction identifier. The parameters include the start and end block
+// heights specifying the range of blocks to scan.
+type HistoricalConfDispatch struct {
+	// TxID is the transaction ID to search for in the historical dispatch.
+	TxID *chainhash.Hash
+
+	// PkScript is a public key script from an output created by this
+	// transaction.
+	PkScript []byte
+
+	// StartHeight specifies the block height at which to being the
+	// historical rescan.
+	StartHeight uint32
+
+	// EndHeight specifies the last block height (inclusive) that the
+	// historical scan should consider.
+	EndHeight uint32
+}
+
 // NewConfirmationEvent constructs a new ConfirmationEvent with newly opened
 // channels.
 func NewConfirmationEvent(numConfs uint32) *ConfirmationEvent {

@@ -27,6 +27,10 @@ type ConfNtfn struct {
 	// are requested.
 	TxID *chainhash.Hash
 
+	// PkScript is the public key script of an outpoint created in this
+	// transaction.
+	PkScript []byte
+
 	// NumConfirmations is the number of confirmations after which the
 	// notification is to be sent.
 	NumConfirmations uint32

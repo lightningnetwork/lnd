@@ -207,6 +207,8 @@ func (tcn *TxConfNotifier) Register(
 
 	// Before proceeding to register the notification, we'll query our
 	// height hint cache to determine whether a better one exists.
+	//
+	// TODO(conner): verify that all submitted height hints are identical.
 	startHeight := ntfn.HeightHint
 	hint, err := tcn.hintCache.QueryConfirmHint(*ntfn.TxID)
 	if err == nil {

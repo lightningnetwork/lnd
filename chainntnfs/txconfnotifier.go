@@ -101,6 +101,27 @@ type TxConfNotifier struct {
 	sync.Mutex
 }
 
+// rescanState indicates the progression of a registration before the notifier
+// can begin dispatching confirmations at tip.
+type rescanState uint8
+
+const (
+	// rescanNotStarted is the initial state, denoting that a historical
+	// dispatch may be required.
+	rescanNotStarted rescanState = iota
+
+	// rescanPending indicates that a dispatch has already been made, and we
+	// are waiting for its completion. No other rescans should be dispatched
+	// while in this state.
+	rescanPending
+
+	// rescanComplete signals either that a rescan was dispatched and has
+	// completed, or that we began watching at tip immediately. In either
+	// case, the notifier can only dispatch notifications from tip when in
+	// this state.
+	rescanComplete
+)
+
 // NewTxConfNotifier creates a TxConfNotifier. The current height of the
 // blockchain is accepted as a parameter.
 func NewTxConfNotifier(startHeight uint32, reorgSafetyLimit uint32,

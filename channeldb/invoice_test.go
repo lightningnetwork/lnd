@@ -460,6 +460,27 @@ func TestQueryInvoices(t *testing.T) {
 			},
 			expected: invoices[10:],
 		},
+		// Fetch one invoice, at index 1, reversed. Since invoice#1 is
+		// the very first, there won't be any left in a reverse search,
+		// so we expect no invoices to be returned.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    1,
+				Reversed:       true,
+				NumMaxInvoices: 1,
+			},
+			expected: nil,
+		},
+		// Same as above, but don't restrict the number of invoices to
+		// 1.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    1,
+				Reversed:       true,
+				NumMaxInvoices: numInvoices,
+			},
+			expected: nil,
+		},
 		// Fetch all pending invoices with a single query.
 		{
 			query: InvoiceQuery{

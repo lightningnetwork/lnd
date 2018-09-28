@@ -554,6 +554,10 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	// mapped to within `next`.
 	next := make(map[Vertex]*ChannelHop)
 
+	// We'll activate this flag if the bandwidth of the channel edge
+	// does not have enough funds to route the transaction.
+	var bandwithFlag bool
+
 	// processEdge is a helper closure that will be used to make sure edges
 	// satisfy our specific requirements.
 	processEdge := func(fromNode *channeldb.LightningNode,
@@ -561,6 +565,9 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		bandwidth lnwire.MilliSatoshi, toNode Vertex) {
 
 		fromVertex := Vertex(fromNode.PubKeyBytes)
+
+		// Reset the bandWithFlag each time we process an edge node.
+		bandwithFlag = false
 
 		// If the edge is currently disabled, then we'll stop here, as
 		// we shouldn't attempt to route through it.
@@ -585,6 +592,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		// If the estimated band width of the channel edge is not able
 		// to carry the amount that needs to be send, return.
 		if bandwidth < amountToSend {
+			bandwithFlag = true
 			return
 		}
 
@@ -756,6 +764,14 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	// If the source node isn't found in the next hop map, then a path
 	// doesn't exist, so we terminate in an error.
 	if _, ok := next[sourceVertex]; !ok {
+		// If the bandwithFlag was activated we return an error, citing
+		// not able to find a path back to source because of insufficient
+		// funds.
+		if bandwithFlag {
+			return nil, newErrf(ErrNoPathFound, "unable to find path with sufficient "+
+				"funds to the destination")
+		}
+
 		return nil, newErrf(ErrNoPathFound, "unable to find a path to "+
 			"destination")
 	}

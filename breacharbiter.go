@@ -419,7 +419,7 @@ func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 	// We'll wait for any of the outputs to be spent, or that we are
 	// signalled to exit.
 	select {
-	// A goroutine have signalled that a spend occured.
+	// A goroutine have signalled that a spend occurred.
 	case <-anySpend:
 		// Signal for the remaining goroutines to exit.
 		close(exit)

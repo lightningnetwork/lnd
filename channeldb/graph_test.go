@@ -1549,7 +1549,7 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 			len(nodeUpdates))
 	}
 
-	// We'll create 10 node announcements, each with an update timestmap 10
+	// We'll create 10 node announcements, each with an update timestamp 10
 	// seconds after the other.
 	const numNodes = 10
 	nodeAnns := make([]LightningNode, 0, numNodes)

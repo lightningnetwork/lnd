@@ -88,7 +88,7 @@ func newPaymentCircuit(hash *[32]byte, pkt *htlcPacket) *PaymentCircuit {
 	}
 }
 
-// makePaymentCircuit initalizes a payment circuit on the stack using the
+// makePaymentCircuit initializes a payment circuit on the stack using the
 // payment hash and an in-memory htlc packet.
 func makePaymentCircuit(hash *[32]byte, pkt *htlcPacket) PaymentCircuit {
 	var addRef channeldb.AddRef

@@ -30,7 +30,7 @@ $ lnd --debuglevel=<subsystem>=<level>,<subsystem2>=<level>,...
 `lnd` has a built-in feature which allows you to capture profiling data at
 runtime using [pprof](https://golang.org/pkg/runtime/pprof/), a profiler for
 Go. The profiler has negligible performance overhead during normal operations
-(unless you have explictly enabled CPU profiling).
+(unless you have explicitly enabled CPU profiling).
 
 To enable this ability, start `lnd` with the `--profile` option using a free port.
 

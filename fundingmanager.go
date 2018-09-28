@@ -267,7 +267,7 @@ type fundingConfig struct {
 
 	// FindChannel queries the database for the channel with the given
 	// channel ID.
-	FindChannel func(chanID lnwire.ChannelID) (*lnwallet.LightningChannel, error)
+	FindChannel func(chanID lnwire.ChannelID) (*channeldb.OpenChannel, error)
 
 	// TempChanIDSeed is a cryptographically random string of bytes that's
 	// used as a seed to generate pending channel ID's.
@@ -2323,10 +2323,9 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 
 	// If the RemoteNextRevocation is non-nil, it means that we have
 	// already processed fundingLocked for this channel, so ignore.
-	if channel.RemoteNextRevocation() != nil {
+	if channel.RemoteNextRevocation != nil {
 		fndgLog.Infof("Received duplicate fundingLocked for "+
 			"ChannelID(%v), ignoring.", chanID)
-		channel.Stop()
 		return
 	}
 
@@ -2334,10 +2333,9 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 	// need to create the next commitment state for the remote party. So
 	// we'll insert that into the channel now before passing it along to
 	// other sub-systems.
-	err = channel.InitNextRevocation(fmsg.msg.NextPerCommitmentPoint)
+	err = channel.InsertNextRevocation(fmsg.msg.NextPerCommitmentPoint)
 	if err != nil {
 		fndgLog.Errorf("unable to insert next commitment point: %v", err)
-		channel.Stop()
 		return
 	}
 
@@ -2361,8 +2359,7 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 	if err := fmsg.peer.AddNewChannel(channel, f.quit); err != nil {
 		fndgLog.Errorf("Unable to add new channel %v with peer %x: %v",
 			fmsg.peer.IdentityKey().SerializeCompressed(),
-			*channel.ChanPoint, err)
-		channel.Stop()
+			channel.FundingOutpoint, err)
 	}
 }
 

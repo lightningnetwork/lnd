@@ -222,8 +222,8 @@ func (m *mockWalletController) NewAddress(addrType lnwallet.AddressType,
 		m.rootKey.PubKey().SerializeCompressed(), &chaincfg.MainNetParams)
 	return addr, nil
 }
-func (*mockWalletController) GetPrivKey(a btcutil.Address) (*btcec.PrivateKey, error) {
-	return nil, nil
+func (*mockWalletController) IsOurAddress(a btcutil.Address) bool {
+	return false
 }
 
 func (*mockWalletController) SendOutputs(outputs []*wire.TxOut,

@@ -658,10 +658,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 			s.htlcSwitch.RemoveLink(chanID)
 			return nil
 		},
-		IsOurAddress: func(addr btcutil.Address) bool {
-			_, err := cc.wallet.GetPrivKey(addr)
-			return err == nil
-		},
+		IsOurAddress: cc.wallet.IsOurAddress,
 		ContractBreach: func(chanPoint wire.OutPoint,
 			breachRet *lnwallet.BreachRetribution) error {
 			event := &ContractBreachEvent{

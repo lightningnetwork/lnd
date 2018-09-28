@@ -40,8 +40,7 @@ type ConfNtfn struct {
 	Event *ConfirmationEvent
 
 	// HeightHint is the minimum height in the chain that we expect to find
-	// this txid. This value will be overridden by the height hint cache if
-	// a more recent value is available.
+	// this txid.
 	HeightHint uint32
 
 	// details describes the transaction's position is the blockchain. May be
@@ -189,26 +188,32 @@ func NewTxConfNotifier(startHeight uint32, reorgSafetyLimit uint32,
 
 // Register handles a new notification request. The client will be notified when
 // the transaction gets a sufficient number of confirmations on the blockchain.
+// The registration succeeds if no error is returned. If the returned
+// HistoricalConfDispatch is non-nil, the caller is responsible for attempting
+// to manually rescan blocks for the txid between the start and end heights.
 //
 // NOTE: If the transaction has already been included in a block on the chain,
 // the confirmation details must be provided with the UpdateConfDetails method,
 // otherwise we will wait for the transaction to confirm even though it already
 // has.
-func (tcn *TxConfNotifier) Register(ntfn *ConfNtfn) (bool, uint32, error) {
+func (tcn *TxConfNotifier) Register(
+	ntfn *ConfNtfn) (*HistoricalConfDispatch, error) {
+
 	select {
 	case <-tcn.quit:
-		return false, 0, ErrTxConfNotifierExiting
+		return nil, ErrTxConfNotifierExiting
 	default:
 	}
 
 	// Before proceeding to register the notification, we'll query our
 	// height hint cache to determine whether a better one exists.
+	startHeight := ntfn.HeightHint
 	hint, err := tcn.hintCache.QueryConfirmHint(*ntfn.TxID)
 	if err == nil {
-		if hint > ntfn.HeightHint {
+		if hint > startHeight {
 			Log.Debugf("Using height hint %d retrieved "+
 				"from cache for %v", hint, *ntfn.TxID)
-			ntfn.HeightHint = hint
+			startHeight = hint
 		}
 	}
 
@@ -254,9 +259,22 @@ func (tcn *TxConfNotifier) Register(ntfn *ConfNtfn) (bool, uint32, error) {
 		return nil, nil
 	}
 
+	// Construct the parameters for historical dispatch, scanning the range
+	// of blocks between our best known height hint and the notifier's
+	// current height. The notifier will begin also watching for
+	// confirmations at tip starting with the next block.
+	dispatch := &HistoricalConfDispatch{
+		TxID:        ntfn.TxID,
+		PkScript:    ntfn.PkScript,
+		StartHeight: startHeight,
+		EndHeight:   tcn.currentHeight,
+	}
+
 	// Set this confSet's status to pending, ensuring subsequent
 	// registrations don't also attempt a dispatch.
 	confSet.rescanStatus = rescanPending
+
+	return dispatch, nil
 }
 
 // UpdateConfDetails attempts to update the confirmation details for an active

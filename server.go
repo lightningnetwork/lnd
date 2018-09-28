@@ -582,10 +582,11 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	}
 
 	s.utxoNursery = newUtxoNursery(&NurseryConfig{
-		ChainIO:   cc.chainIO,
-		ConfDepth: 1,
-		DB:        chanDB,
-		Estimator: cc.feeEstimator,
+		ChainIO:             cc.chainIO,
+		ConfDepth:           1,
+		FetchClosedChannels: chanDB.FetchClosedChannels,
+		FetchClosedChannel:  chanDB.FetchClosedChannel,
+		Estimator:           cc.feeEstimator,
 		GenSweepScript: func() ([]byte, error) {
 			return newSweepPkScript(cc.wallet)
 		},

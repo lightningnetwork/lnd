@@ -545,10 +545,6 @@ func loadConfig() (*config, error) {
 			str := "%s: simnet mode for litecoin not currently supported"
 			return nil, fmt.Errorf(str, funcName)
 		}
-		if cfg.Litecoin.RegTest {
-			str := "%s: regnet mode for litecoin not currently supported"
-			return nil, fmt.Errorf(str, funcName)
-		}
 
 		if cfg.Litecoin.TimeLockDelta < minTimeLockDelta {
 			return nil, fmt.Errorf("timelockdelta must be at least %v",
@@ -568,6 +564,10 @@ func loadConfig() (*config, error) {
 			numNets++
 			ltcParams = litecoinTestNetParams
 		}
+		if cfg.Litecoin.RegTest {
+			numNets++
+			ltcParams = litecoinRegNetParams
+		}
 		if numNets > 1 {
 			str := "%s: The mainnet, testnet, and simnet params " +
 				"can't be used together -- choose one of the " +
@@ -579,8 +579,8 @@ func loadConfig() (*config, error) {
 		// The target network must be provided, otherwise, we won't
 		// know how to initialize the daemon.
 		if numNets == 0 {
-			str := "%s: either --litecoin.mainnet, or " +
-				"litecoin.testnet must be specified"
+			str := "%s: either --litecoin.mainnet, " +
+				"--litecoin.testnet, or --litecoin.regtest must be specified"
 			err := fmt.Errorf(str, funcName)
 			return nil, err
 		}
@@ -611,6 +611,13 @@ func loadConfig() (*config, error) {
 			if cfg.Litecoin.SimNet {
 				return nil, fmt.Errorf("%s: litecoind does not "+
 					"support simnet", funcName)
+			}
+			// TODO: when the PR here https://github.com/ltcsuite/ltcd/pull/10
+			// is merged, regnet should work and we will be able to remove this
+			// check
+			if cfg.Litecoin.RegTest {
+				return nil, fmt.Errorf("%s: lnd does not "+
+					"support regnet with litecoind", funcName)
 			}
 			err := parseRPCParams(cfg.Litecoin, cfg.LitecoindMode,
 				litecoinChain, funcName)

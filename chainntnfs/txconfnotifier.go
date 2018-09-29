@@ -217,6 +217,9 @@ func (tcn *TxConfNotifier) Register(
 				"from cache for %v", hint, *ntfn.TxID)
 			startHeight = hint
 		}
+	} else if err != ErrConfirmHintNotFound {
+		Log.Errorf("Unable to query confirm hint for %v: %v",
+			*ntfn.TxID, err)
 	}
 
 	tcn.Lock()
@@ -224,6 +227,8 @@ func (tcn *TxConfNotifier) Register(
 
 	confSet, ok := tcn.confNotifications[*ntfn.TxID]
 	if !ok {
+		// If this is the first registration for this txid, construct a
+		// confSet to coalesce all notifications for the same txid.
 		confSet = newConfNtfnSet()
 		tcn.confNotifications[*ntfn.TxID] = confSet
 	}
@@ -238,13 +243,17 @@ func (tcn *TxConfNotifier) Register(
 		// If conf details for this set of notifications has already
 		// been found, we'll attempt to deliver them immediately to this
 		// client.
-		tcn.dispatchConfDetails(ntfn, confSet.details)
-		return nil, nil
+		Log.Debugf("Attempting to dispatch conf for txid=%v "+
+			"on registration since rescan has finished", ntfn.TxID)
+		return nil, tcn.dispatchConfDetails(ntfn, confSet.details)
 
 	// A rescan is already in progress, return here to prevent dispatching
 	// another. When the scan returns, this notifications details will be
 	// updated as well.
 	case rescanPending:
+		Log.Debugf("Waiting for pending rescan to finish before "+
+			"notifying txid=%v at tip", ntfn.TxID)
+
 		return nil, nil
 
 	// If no rescan has been dispatched, attempt to do so now.
@@ -255,12 +264,16 @@ func (tcn *TxConfNotifier) Register(
 	// is to be confirmed at a height greater than the conf notifier's
 	// current height, we'll refrain from spawning a historical dispatch.
 	if startHeight > tcn.currentHeight {
+		Log.Debugf("Height hint is above current height, not dispatching "+
+			"historical rescan for txid=%v ", ntfn.TxID)
 		// Set the rescan status to complete, which will allow the conf
 		// notifier to start delivering messages for this set
 		// immediately.
 		confSet.rescanStatus = rescanComplete
 		return nil, nil
 	}
+
+	Log.Debugf("Dispatching historical rescan for txid=%v ", ntfn.TxID)
 
 	// Construct the parameters for historical dispatch, scanning the range
 	// of blocks between our best known height hint and the notifier's
@@ -316,9 +329,19 @@ func (tcn *TxConfNotifier) UpdateConfDetails(txid chainhash.Hash,
 	// The notifier has yet to reach the height at which the transaction was
 	// included in a block, so we should defer until handling it then within
 	// ConnectTip.
-	if details == nil || details.BlockHeight > tcn.currentHeight {
+	if details == nil {
+		Log.Debugf("Conf details for txid=%v not found during "+
+			"historical dispatch, waiting to dispatch at tip", txid)
 		return nil
 	}
+
+	if details.BlockHeight > tcn.currentHeight {
+		Log.Debugf("Conf details for txid=%v found above current "+
+			"height, waiting to dispatch at tip", txid)
+		return nil
+	}
+
+	Log.Debugf("Updating conf details for txid=%v details", txid)
 
 	err := tcn.hintCache.CommitConfirmHint(details.BlockHeight, txid)
 	if err != nil {
@@ -349,6 +372,8 @@ func (tcn *TxConfNotifier) dispatchConfDetails(
 
 	// If no details are provided, return early as we can't dispatch.
 	if details == nil {
+		Log.Debugf("Unable to dispatch %v, no details provided",
+			ntfn.TxID)
 		return nil
 	}
 
@@ -386,6 +411,9 @@ func (tcn *TxConfNotifier) dispatchConfDetails(
 			return ErrTxConfNotifierExiting
 		}
 	} else {
+		Log.Debugf("Queueing %v conf notification for %v at tip ",
+			ntfn.NumConfirmations, ntfn.TxID)
+
 		// Otherwise, we'll keep track of the notification
 		// request by the height at which we should dispatch the
 		// confirmation notification.
@@ -498,7 +526,7 @@ func (tcn *TxConfNotifier) ConnectTip(blockHash *chainhash.Hash,
 	// transactions along with the ones that confirmed at the current
 	// height. To do so, we'll iterate over the confNotifications map, which
 	// contains the transactions we currently have notifications for. Since
-	// this map doesn't tell us whether the transaction hsa confirmed or
+	// this map doesn't tell us whether the transaction has confirmed or
 	// not, we'll need to look at txsByInitialHeight to determine so.
 	var txsToUpdateHints []chainhash.Hash
 	for confirmedTx := range tcn.txsByInitialHeight[tcn.currentHeight] {
@@ -506,6 +534,9 @@ func (tcn *TxConfNotifier) ConnectTip(blockHash *chainhash.Hash,
 	}
 out:
 	for maybeUnconfirmedTx, confSet := range tcn.confNotifications {
+		// We shouldn't update the confirm hints if we still have a
+		// pending rescan in progress. We'll skip writing any for
+		// notification sets that haven't reached rescanComplete.
 		if confSet.rescanStatus != rescanComplete {
 			continue
 		}
@@ -546,15 +577,7 @@ out:
 		for txHash := range txHashes {
 			confSet := tcn.confNotifications[txHash]
 			for _, ntfn := range confSet.ntfns {
-				// If the notification hasn't learned about the
-				// confirmation of its transaction yet (in the
-				// case of historical confirmations), we'll skip
-				// it.
-				if ntfn.details == nil {
-					continue
-				}
-
-				txConfHeight := ntfn.details.BlockHeight +
+				txConfHeight := confSet.details.BlockHeight +
 					ntfn.NumConfirmations - 1
 				numConfsLeft := txConfHeight - blockHeight
 

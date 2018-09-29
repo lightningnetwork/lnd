@@ -488,10 +488,12 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		p.activeChannels[chanID] = lnChan
 		p.activeChanMtx.Unlock()
 
-		// Only if the channel is public do we need to collect it for
-		// sending out a new enable update.
+		// To ensure we can route through this channel now that the peer
+		// is back online, we'll attempt to send an update to enable it.
+		// This will only be used for non-pending public channels, as
+		// they are the only ones capable of routing.
 		chanIsPublic := dbChan.ChannelFlags&lnwire.FFAnnounceChannel != 0
-		if chanIsPublic {
+		if chanIsPublic && !dbChan.IsPending {
 			activePublicChans = append(activePublicChans, *chanPoint)
 		}
 	}
@@ -505,9 +507,9 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			// ChannelUpdate. If this channel is already active,
 			// the update won't be sent.
 			err := p.server.announceChanStatus(chanPoint, false)
-			if err != nil {
-				peerLog.Errorf("unable to send out active "+
-					"channel update: %v", err)
+			if err != nil && err != channeldb.ErrEdgeNotFound {
+				srvrLog.Errorf("Unable to enable channel %v: %v",
+					chanPoint, err)
 			}
 		}
 	}()

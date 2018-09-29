@@ -455,17 +455,26 @@ func (tcn *TxConfNotifier) ConnectTip(blockHash *chainhash.Hash,
 	// handled correctly.
 	for _, tx := range txns {
 		txHash := tx.Hash()
+
+		// Check if we have any pending notifications for this txid. If
+		// none are found, we can proceed to the next transaction.
 		confSet, ok := tcn.confNotifications[*txHash]
 		if !ok {
 			continue
 		}
 
+		Log.Debugf("Block contains txid=%v, constructing details",
+			txHash)
+
+		details := &TxConfirmation{
+			BlockHash:   blockHash,
+			BlockHeight: blockHeight,
+			TxIndex:     uint32(tx.Index()),
+		}
+
+		confSet.details = details
 		for _, ntfn := range confSet.ntfns {
-			ntfn.details = &TxConfirmation{
-				BlockHash:   blockHash,
-				BlockHeight: blockHeight,
-				TxIndex:     uint32(tx.Index()),
-			}
+			ntfn.details = details
 
 			confHeight := blockHeight + ntfn.NumConfirmations - 1
 			ntfnSet, exists := tcn.ntfnsByConfirmHeight[confHeight]

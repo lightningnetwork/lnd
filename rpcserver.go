@@ -1773,6 +1773,11 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		localBalance := localCommit.LocalBalance
 		remoteBalance := localCommit.RemoteBalance
 
+                // Also for display purposes, we'll subtract the channel's "reserve"
+                // to show many satoshis can actually be spent
+                chanReserve := dbChannel.LocalChanCfg.ChannelConstraints.ChanReserve
+                spendableSatoshis := int64(dbChannel.Capacity) - int64(chanReserve)
+
 		// As an artifact of our usage of mSAT internally, either party
 		// may end up in a state where they're holding a fractional
 		// amount of satoshis which can't be expressed within the
@@ -1803,6 +1808,9 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 			NumUpdates:            localCommit.CommitHeight,
 			PendingHtlcs:          make([]*lnrpc.HTLC, len(localCommit.Htlcs)),
 			CsvDelay:              uint32(dbChannel.LocalChanCfg.CsvDelay),
+		 	ChanReserve:           int64(chanReserve),
+                        SpendableSatoshis:     int64(spendableSatoshis), 
+                        AvailableLiquidity:    int64(spendableSatoshis),
 		}
 
 		for i, htlc := range localCommit.Htlcs {

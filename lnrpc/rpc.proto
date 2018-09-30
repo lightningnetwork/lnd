@@ -943,6 +943,15 @@ message Channel {
 
     /// Whether this channel is advertised to the network or not
     bool private = 17 [json_name = "private"];
+
+    /// How many satoshis need to be in a channel at one time
+    int64 chan_reserve = 18 [json_name = "chan_reserve"];
+
+    /// How many satoshis can be spent before touching the channel reserve
+    int64 spendable_satoshis = 19 [json_name = "spendable_satoshis"];
+
+    /// How much liquidity this channel has for routing other users' payments
+    int64 available_liquidity = 20 [json_name = "available_liquidity"];
 }
 
 

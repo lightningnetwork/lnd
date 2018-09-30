@@ -49,7 +49,7 @@ func request_WalletUnlocker_InitWallet_0(ctx context.Context, marshaler runtime.
 	var protoReq InitWalletRequest
 	var metadata runtime.ServerMetadata
 
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -62,7 +62,7 @@ func request_WalletUnlocker_UnlockWallet_0(ctx context.Context, marshaler runtim
 	var protoReq UnlockWalletRequest
 	var metadata runtime.ServerMetadata
 
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -75,7 +75,7 @@ func request_WalletUnlocker_ChangePassword_0(ctx context.Context, marshaler runt
 	var protoReq ChangePasswordRequest
 	var metadata runtime.ServerMetadata
 
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -115,7 +115,7 @@ func request_Lightning_SendCoins_0(ctx context.Context, marshaler runtime.Marsha
 	var protoReq SendCoinsRequest
 	var metadata runtime.ServerMetadata
 
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -137,7 +137,7 @@ func request_Lightning_ConnectPeer_0(ctx context.Context, marshaler runtime.Mars
 	var protoReq ConnectPeerRequest
 	var metadata runtime.ServerMetadata
 
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -238,7 +238,7 @@ func request_Lightning_OpenChannelSync_0(ctx context.Context, marshaler runtime.
 	var protoReq OpenChannelRequest
 	var metadata runtime.ServerMetadata
 
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -305,7 +305,7 @@ func request_Lightning_SendPaymentSync_0(ctx context.Context, marshaler runtime.
 	var protoReq SendRequest
 	var metadata runtime.ServerMetadata
 
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -318,7 +318,7 @@ func request_Lightning_SendToRouteSync_0(ctx context.Context, marshaler runtime.
 	var protoReq SendToRouteRequest
 	var metadata runtime.ServerMetadata
 
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -331,7 +331,7 @@ func request_Lightning_AddInvoice_0(ctx context.Context, marshaler runtime.Marsh
 	var protoReq Invoice
 	var metadata runtime.ServerMetadata
 
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -593,7 +593,7 @@ func request_Lightning_UpdateChannelPolicy_0(ctx context.Context, marshaler runt
 	var protoReq PolicyUpdateRequest
 	var metadata runtime.ServerMetadata
 
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -606,7 +606,7 @@ func request_Lightning_ForwardingHistory_0(ctx context.Context, marshaler runtim
 	var protoReq ForwardingHistoryRequest
 	var metadata runtime.ServerMetadata
 
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -625,14 +625,14 @@ func RegisterWalletUnlockerHandlerFromEndpoint(ctx context.Context, mux *runtime
 	defer func() {
 		if err != nil {
 			if cerr := conn.Close(); cerr != nil {
-				grpclog.Printf("Failed to close conn to %s: %v", endpoint, cerr)
+				grpclog.Infof("Failed to close conn to %s: %v", endpoint, cerr)
 			}
 			return
 		}
 		go func() {
 			<-ctx.Done()
 			if cerr := conn.Close(); cerr != nil {
-				grpclog.Printf("Failed to close conn to %s: %v", endpoint, cerr)
+				grpclog.Infof("Failed to close conn to %s: %v", endpoint, cerr)
 			}
 		}()
 	}()
@@ -643,10 +643,18 @@ func RegisterWalletUnlockerHandlerFromEndpoint(ctx context.Context, mux *runtime
 // RegisterWalletUnlockerHandler registers the http handlers for service WalletUnlocker to "mux".
 // The handlers forward requests to the grpc endpoint over "conn".
 func RegisterWalletUnlockerHandler(ctx context.Context, mux *runtime.ServeMux, conn *grpc.ClientConn) error {
-	client := NewWalletUnlockerClient(conn)
+	return RegisterWalletUnlockerHandlerClient(ctx, mux, NewWalletUnlockerClient(conn))
+}
+
+// RegisterWalletUnlockerHandlerClient registers the http handlers for service WalletUnlocker
+// to "mux". The handlers forward requests to the grpc endpoint over the given implementation of "WalletUnlockerClient".
+// Note: the gRPC framework executes interceptors within the gRPC handler. If the passed in "WalletUnlockerClient"
+// doesn't go through the normal gRPC flow (creating a gRPC client etc.) then it will be up to the passed in
+// "WalletUnlockerClient" to call the correct interceptors.
+func RegisterWalletUnlockerHandlerClient(ctx context.Context, mux *runtime.ServeMux, client WalletUnlockerClient) error {
 
 	mux.Handle("GET", pattern_WalletUnlocker_GenSeed_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -675,7 +683,7 @@ func RegisterWalletUnlockerHandler(ctx context.Context, mux *runtime.ServeMux, c
 	})
 
 	mux.Handle("POST", pattern_WalletUnlocker_InitWallet_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -704,7 +712,7 @@ func RegisterWalletUnlockerHandler(ctx context.Context, mux *runtime.ServeMux, c
 	})
 
 	mux.Handle("POST", pattern_WalletUnlocker_UnlockWallet_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -733,7 +741,7 @@ func RegisterWalletUnlockerHandler(ctx context.Context, mux *runtime.ServeMux, c
 	})
 
 	mux.Handle("POST", pattern_WalletUnlocker_ChangePassword_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -794,14 +802,14 @@ func RegisterLightningHandlerFromEndpoint(ctx context.Context, mux *runtime.Serv
 	defer func() {
 		if err != nil {
 			if cerr := conn.Close(); cerr != nil {
-				grpclog.Printf("Failed to close conn to %s: %v", endpoint, cerr)
+				grpclog.Infof("Failed to close conn to %s: %v", endpoint, cerr)
 			}
 			return
 		}
 		go func() {
 			<-ctx.Done()
 			if cerr := conn.Close(); cerr != nil {
-				grpclog.Printf("Failed to close conn to %s: %v", endpoint, cerr)
+				grpclog.Infof("Failed to close conn to %s: %v", endpoint, cerr)
 			}
 		}()
 	}()
@@ -812,10 +820,18 @@ func RegisterLightningHandlerFromEndpoint(ctx context.Context, mux *runtime.Serv
 // RegisterLightningHandler registers the http handlers for service Lightning to "mux".
 // The handlers forward requests to the grpc endpoint over "conn".
 func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *grpc.ClientConn) error {
-	client := NewLightningClient(conn)
+	return RegisterLightningHandlerClient(ctx, mux, NewLightningClient(conn))
+}
+
+// RegisterLightningHandlerClient registers the http handlers for service Lightning
+// to "mux". The handlers forward requests to the grpc endpoint over the given implementation of "LightningClient".
+// Note: the gRPC framework executes interceptors within the gRPC handler. If the passed in "LightningClient"
+// doesn't go through the normal gRPC flow (creating a gRPC client etc.) then it will be up to the passed in
+// "LightningClient" to call the correct interceptors.
+func RegisterLightningHandlerClient(ctx context.Context, mux *runtime.ServeMux, client LightningClient) error {
 
 	mux.Handle("GET", pattern_Lightning_WalletBalance_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -844,7 +860,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("GET", pattern_Lightning_ChannelBalance_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -873,7 +889,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("GET", pattern_Lightning_GetTransactions_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -902,7 +918,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("POST", pattern_Lightning_SendCoins_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -931,7 +947,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("GET", pattern_Lightning_NewWitnessAddress_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -960,7 +976,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("POST", pattern_Lightning_ConnectPeer_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -989,7 +1005,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("DELETE", pattern_Lightning_DisconnectPeer_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -1018,7 +1034,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("GET", pattern_Lightning_ListPeers_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -1047,7 +1063,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("GET", pattern_Lightning_GetInfo_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -1076,7 +1092,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("GET", pattern_Lightning_PendingChannels_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -1105,7 +1121,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("GET", pattern_Lightning_ListChannels_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -1134,7 +1150,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("GET", pattern_Lightning_ClosedChannels_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -1163,7 +1179,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("POST", pattern_Lightning_OpenChannelSync_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -1192,7 +1208,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("DELETE", pattern_Lightning_CloseChannel_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -1221,7 +1237,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("POST", pattern_Lightning_SendPaymentSync_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -1250,7 +1266,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("POST", pattern_Lightning_SendToRouteSync_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -1279,7 +1295,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("POST", pattern_Lightning_AddInvoice_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -1308,7 +1324,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("GET", pattern_Lightning_ListInvoices_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -1337,7 +1353,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("GET", pattern_Lightning_LookupInvoice_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -1366,7 +1382,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("GET", pattern_Lightning_SubscribeInvoices_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -1395,7 +1411,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("GET", pattern_Lightning_DecodePayReq_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -1424,7 +1440,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("GET", pattern_Lightning_ListPayments_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -1453,7 +1469,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("DELETE", pattern_Lightning_DeleteAllPayments_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -1482,7 +1498,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("GET", pattern_Lightning_DescribeGraph_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -1511,7 +1527,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("GET", pattern_Lightning_GetChanInfo_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -1540,7 +1556,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("GET", pattern_Lightning_GetNodeInfo_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -1569,7 +1585,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("GET", pattern_Lightning_QueryRoutes_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -1598,7 +1614,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("GET", pattern_Lightning_GetNetworkInfo_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -1627,7 +1643,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("GET", pattern_Lightning_FeeReport_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -1656,7 +1672,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("POST", pattern_Lightning_UpdateChannelPolicy_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {
@@ -1685,7 +1701,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 	})
 
 	mux.Handle("POST", pattern_Lightning_ForwardingHistory_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
 			go func(done <-chan struct{}, closed <-chan bool) {

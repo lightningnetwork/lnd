@@ -684,6 +684,19 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 			pushAmt, bobBal.Balance)
 	}
 
+        // Look at Alice's channel info so we can check the "spendable 
+        // satoshis" is calculated correctly  
+        ctxb = context.Background()
+   	req := &lnrpc.ListChannelsRequest{}
+    	aliceChannelInfo, err := net.Alice.ListChannels(ctxb, req)
+        if err != nil {
+               t.Fatalf("unable to get alice's channel info: %v", err)
+    	}
+        if (*aliceChannelInfo).Channels[0].SpendableSatoshis != 16609443 {
+	  	t.Fatalf(`alice's spendable satoshis field is incorrect: 
+	  		expected %v got %v`, 16609443, (*aliceChannelInfo).Channels[0].SpendableSatoshis)
+	}
+
 	// Finally, immediately close the channel. This function will also
 	// block until the channel is closed and will additionally assert the
 	// relevant channel closing post conditions.
@@ -12217,14 +12230,15 @@ var testsCases = []*testCase{
 		test: testRouteFeeCutoff,
 	},
 	{
-		name: "send update disable channel",
-		test: testSendUpdateDisableChannel,
+	 	name: "send update disable channel",
+	 	test: testSendUpdateDisableChannel,
 	},
 }
 
 // TestLightningNetworkDaemon performs a series of integration tests amongst a
 // programmatically driven network of lnd nodes.
 func TestLightningNetworkDaemon(t *testing.T) {
+
 	ht := newHarnessTest(t)
 
 	var lndHarness *lntest.NetworkHarness

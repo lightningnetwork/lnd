@@ -181,8 +181,8 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 		cleanUp func()
 	)
 
-	// Initialize disabled height hint cache within the chain directory.
-	hintCache, err := chainntnfs.NewHeightHintCache(chanDB, true)
+	// Initialize the height hint cache within the chain directory.
+	hintCache, err := chainntnfs.NewHeightHintCache(chanDB)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to initialize height hint "+
 			"cache: %v", err)

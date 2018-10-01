@@ -7677,20 +7677,16 @@ func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) 
 	// The channel opening above should have triggered a few notifications
 	// sent to the notification client. We'll expect two channel updates,
 	// and two node announcements.
-	const numExpectedUpdates = 4
-	for i := 0; i < numExpectedUpdates; i++ {
+	var numChannelUpds int
+	var numNodeAnns int
+	for numChannelUpds < 2 && numNodeAnns < 2 {
 		select {
 		// Ensure that a new update for both created edges is properly
 		// dispatched to our registered client.
 		case graphUpdate := <-graphSub.updateChan:
-
-			if len(graphUpdate.ChannelUpdates) > 0 {
-				chanUpdate := graphUpdate.ChannelUpdates[0]
-				if chanUpdate.Capacity != int64(chanAmt) {
-					t.Fatalf("channel capacities mismatch:"+
-						" expected %v, got %v", chanAmt,
-						btcutil.Amount(chanUpdate.Capacity))
-				}
+			// Process all channel updates prsented in this update
+			// message.
+			for _, chanUpdate := range graphUpdate.ChannelUpdates {
 				switch chanUpdate.AdvertisingNode {
 				case net.Alice.PubKeyStr:
 				case net.Bob.PubKeyStr:
@@ -7705,10 +7701,16 @@ func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) 
 					t.Fatalf("unknown connecting node: %v",
 						chanUpdate.ConnectingNode)
 				}
+
+				if chanUpdate.Capacity != int64(chanAmt) {
+					t.Fatalf("channel capacities mismatch:"+
+						" expected %v, got %v", chanAmt,
+						btcutil.Amount(chanUpdate.Capacity))
+				}
+				numChannelUpds++
 			}
 
-			if len(graphUpdate.NodeUpdates) > 0 {
-				nodeUpdate := graphUpdate.NodeUpdates[0]
+			for _, nodeUpdate := range graphUpdate.NodeUpdates {
 				switch nodeUpdate.IdentityKey {
 				case net.Alice.PubKeyStr:
 				case net.Bob.PubKeyStr:
@@ -7716,11 +7718,14 @@ func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) 
 					t.Fatalf("unknown node: %v",
 						nodeUpdate.IdentityKey)
 				}
+				numNodeAnns++
 			}
 		case err := <-graphSub.errChan:
 			t.Fatalf("unable to recv graph update: %v", err)
 		case <-time.After(time.Second * 10):
-			t.Fatalf("timeout waiting for graph notification %v", i)
+			t.Fatalf("timeout waiting for graph notifications, "+
+				"only received %d/2 chanupds and %d/2 nodeanns",
+				numChannelUpds, numNodeAnns)
 		}
 	}
 
@@ -7819,11 +7824,12 @@ out:
 
 	// We should receive an update advertising the newly connected node,
 	// Bob's new node announcement, and the channel between Bob and Carol.
-	for i := 0; i < 3; i++ {
+	numNodeAnns = 0
+	numChannelUpds = 0
+	for numChannelUpds < 2 && numNodeAnns < 1 {
 		select {
 		case graphUpdate := <-graphSub.updateChan:
-			if len(graphUpdate.NodeUpdates) > 0 {
-				nodeUpdate := graphUpdate.NodeUpdates[0]
+			for _, nodeUpdate := range graphUpdate.NodeUpdates {
 				switch nodeUpdate.IdentityKey {
 				case carol.PubKeyStr:
 				case net.Bob.PubKeyStr:
@@ -7831,15 +7837,10 @@ out:
 					t.Fatalf("unknown node update pubey: %v",
 						nodeUpdate.IdentityKey)
 				}
+				numNodeAnns++
 			}
 
-			if len(graphUpdate.ChannelUpdates) > 0 {
-				chanUpdate := graphUpdate.ChannelUpdates[0]
-				if chanUpdate.Capacity != int64(chanAmt) {
-					t.Fatalf("channel capacities mismatch:"+
-						" expected %v, got %v", chanAmt,
-						btcutil.Amount(chanUpdate.Capacity))
-				}
+			for _, chanUpdate := range graphUpdate.ChannelUpdates {
 				switch chanUpdate.AdvertisingNode {
 				case carol.PubKeyStr:
 				case net.Bob.PubKeyStr:
@@ -7854,11 +7855,20 @@ out:
 					t.Fatalf("unknown connecting node: %v",
 						chanUpdate.ConnectingNode)
 				}
+
+				if chanUpdate.Capacity != int64(chanAmt) {
+					t.Fatalf("channel capacities mismatch:"+
+						" expected %v, got %v", chanAmt,
+						btcutil.Amount(chanUpdate.Capacity))
+				}
+				numChannelUpds++
 			}
 		case err := <-graphSub.errChan:
 			t.Fatalf("unable to recv graph update: %v", err)
 		case <-time.After(time.Second * 10):
-			t.Fatalf("timeout waiting for graph notification %v", i)
+			t.Fatalf("timeout waiting for graph notifications, "+
+				"only received %d/2 chanupds and %d/2 nodeanns",
+				numChannelUpds, numNodeAnns)
 		}
 	}
 

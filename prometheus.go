@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -17,6 +18,16 @@ import (
 	"github.com/roasbeef/btcd/blockchain"
 	"github.com/roasbeef/btcutil"
 )
+
+func addressType(addr string) string {
+	if len(addr) >= 1 && addr[0] == '[' {
+		return "ipv6";
+	}
+	if len(addr) >= 1 && '0' <= addr[0] && addr[0] <= '9' {
+		return "ipv4";
+	}
+	return "unknown";
+}
 
 func exportPrometheusStats(server *server) {
 	ltndLog.Info("Adding static Prometheus stats and adding interceptors to gRPC server...")
@@ -43,16 +54,6 @@ func exportPrometheusStats(server *server) {
 		}))
 
 	prometheus.MustRegister(newPeerCollector(server))
-
-	// TODO(baryluk): Merge into peerCollector.
-	prometheus.MustRegister(prometheus.NewGaugeFunc(
-		prometheus.GaugeOpts{
-			Name: "lnd_peer_count",
-			Help: "Number of server peers.",
-		},
-		func() float64 {
-			return float64(len(server.Peers()))
-		}))
 
 	// Could be a counter, as it makes sense to have blocks per hour metric.
 	// But it could go back, so it is a gauge for now.
@@ -99,33 +100,8 @@ func exportPrometheusStats(server *server) {
 		}))
 
 	// Lightning network graph metadata
-
 	// TODO(baryluk): Cache these stats for some time?
-	prometheus.MustRegister(prometheus.NewGaugeFunc(
-		prometheus.GaugeOpts{
-			Name: "lnd_graph_node_count",
-			Help: "What is the size of know network.",
-		},
-		func() float64 {
-			// Obtain the pointer to the global singleton channel graph, this will
-			// provide a consistent view of the graph due to bolt db's
-			// transactional model.
-			graph := server.chanDB.ChannelGraph()
-
-			// First iterate through all the known nodes (connected or unconnected
-			// within the graph), collating their current state into the RPC
-			// response.
-			var nodes uint64 = 0
-			err := graph.ForEachNode(nil, func(_ *bolt.Tx, node *channeldb.LightningNode) error {
-				nodes++
-				// LastUpdate: uint32(node.LastUpdate.Unix()),
-				return nil
-			})
-			if err != nil {
-				return math.NaN()
-			}
-			return float64(nodes)
-		}))
+	prometheus.MustRegister(newNodesCollector(server))
 	prometheus.MustRegister(prometheus.NewGaugeFunc(
 		prometheus.GaugeOpts{
 			Name: "lnd_graph_edge_count",
@@ -137,9 +113,6 @@ func exportPrometheusStats(server *server) {
 			// transactional model.
 			graph := server.chanDB.ChannelGraph()
 
-			// Next, for each active channel we know of within the graph, create a
-			// similar response which details both the edge information as well as
-			// the routing policies of th nodes connecting the two edges.
 			var edges uint64 = 0
 			err := graph.ForEachChannel(func(edgeInfo *channeldb.ChannelEdgeInfo,
 				c1, c2 *channeldb.ChannelEdgePolicy) error {
@@ -151,6 +124,8 @@ func exportPrometheusStats(server *server) {
 			}
 			return float64(edges)
 		}))
+
+	prometheus.MustRegister(newChannelsCollector(server))
 
 	// TODO(baryluk): Export registeredChains.ActiveChains() on startup.
 
@@ -174,6 +149,18 @@ func exportPrometheusStats(server *server) {
 		},
 		func() float64 {
 			confirmedBal, err := server.cc.wallet.ConfirmedBalance(1)
+			if err != nil {
+				return math.NaN()
+			}
+			return float64(confirmedBal)
+		}))
+	prometheus.MustRegister(prometheus.NewGaugeFunc(
+		prometheus.GaugeOpts{
+			Name: "lnd_wallet_well_confirmed_balance",
+			Help: "Total balance in satoshis, from txs that have >= 10 confirmations.",
+		},
+		func() float64 {
+			confirmedBal, err := server.cc.wallet.ConfirmedBalance(10)
 			if err != nil {
 				return math.NaN()
 			}
@@ -255,18 +242,32 @@ func exportPrometheusStats(server *server) {
 // We use custom collector, as this is more efficient that using Set on vectors.
 // It also deals with peer disappering automatically.
 type peerCollector struct {
-	server        *server
-	pingDesc      *prometheus.Desc
-	satSentDesc   *prometheus.Desc
-	satRecvDesc   *prometheus.Desc
-	bytesSentDesc *prometheus.Desc
-	bytesRecvDesc *prometheus.Desc
+	server              *server
+	countDesc           *prometheus.Desc
+	countByProtocolDesc *prometheus.Desc
+
+	// ByPeer (pub_key)
+	pingDesc            *prometheus.Desc
+	satSentDesc         *prometheus.Desc
+	satRecvDesc         *prometheus.Desc
+	bytesSentDesc       *prometheus.Desc
+	bytesRecvDesc       *prometheus.Desc
 }
 
 func newPeerCollector(server *server) prometheus.Collector {
 	labels := []string{"pub_key"}
 	return &peerCollector{
 		server: server,
+		countDesc: prometheus.NewDesc(
+			"lnd_peer_count",
+			"Number of server peers.",
+			nil,
+			nil),
+		countByProtocolDesc: prometheus.NewDesc(
+			"lnd_peer_count_by_protocol",
+			"Number of server peers by protocol used for connection.",
+			[]string{"protocol"},
+			nil),
 		pingDesc: prometheus.NewDesc(
 			"lnd_peer_ping_by_peer",
 			"Ping to peer in microseconds by peer.",
@@ -296,6 +297,8 @@ func newPeerCollector(server *server) prometheus.Collector {
 }
 
 func (c *peerCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- c.countDesc
+	ch <- c.countByProtocolDesc
 	ch <- c.pingDesc
 	ch <- c.satSentDesc
 	ch <- c.satRecvDesc
@@ -306,7 +309,11 @@ func (c *peerCollector) Describe(ch chan<- *prometheus.Desc) {
 func (c *peerCollector) Collect(ch chan<- prometheus.Metric) {
 	serverPeers := c.server.Peers()
 
-	// TODO(baryluk): Number of IPv4 vs IPv6 peers.
+	ch <- prometheus.MustNewConstMetric(c.countDesc, prometheus.GaugeValue, float64(len(serverPeers)))
+
+	var peer_ipv4 uint64 = 0
+	var peer_ipv6 uint64 = 0
+	var peer_unknown_protocol uint64 = 0
 
 	for _, serverPeer := range serverPeers {
 		var (
@@ -334,7 +341,20 @@ func (c *peerCollector) Collect(ch chan<- prometheus.Metric) {
 		ch <- prometheus.MustNewConstMetric(c.satRecvDesc, prometheus.CounterValue, float64(satRecv), labelValues...)
 		ch <- prometheus.MustNewConstMetric(c.bytesRecvDesc, prometheus.CounterValue, float64(atomic.LoadUint64(&serverPeer.bytesReceived)), labelValues...)
 		ch <- prometheus.MustNewConstMetric(c.bytesSentDesc, prometheus.CounterValue, float64(atomic.LoadUint64(&serverPeer.bytesSent)), labelValues...)
+
+		t := addressType(serverPeer.addr.String())
+		if t == "ipv4" {
+			peer_ipv4++
+		} else if t == "ipv6" {
+			peer_ipv6++
+		} else {
+			peer_unknown_protocol++
+		}
 	}
+
+	ch <- prometheus.MustNewConstMetric(c.countByProtocolDesc, prometheus.GaugeValue, float64(peer_ipv4), "ipv4")
+	ch <- prometheus.MustNewConstMetric(c.countByProtocolDesc, prometheus.GaugeValue, float64(peer_ipv6), "ipv6")
+	ch <- prometheus.MustNewConstMetric(c.countByProtocolDesc, prometheus.GaugeValue, float64(peer_unknown_protocol), "unknown")
 }
 
 // Custom collector, so we only do one atomic pass over transactions,
@@ -408,6 +428,7 @@ type invoicesCollector struct {
 	server           *server
 	countDesc        *prometheus.Desc
 	pendingCountDesc *prometheus.Desc
+	settledCountDesc *prometheus.Desc
 }
 
 func newInvoicesCollector(server *server) prometheus.Collector {
@@ -421,12 +442,17 @@ func newInvoicesCollector(server *server) prometheus.Collector {
 			"lnd_invoices_pending_count",
 			"Number of pending invoices.",
 			nil, nil),
+		settledCountDesc: prometheus.NewDesc(
+			"lnd_invoices_settled_count",
+			"Number of settled invoices.",
+			nil, nil),
 	}
 }
 
 func (c *invoicesCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.countDesc
 	ch <- c.pendingCountDesc
+	ch <- c.settledCountDesc
 }
 
 func (c *invoicesCollector) Collect(ch chan<- prometheus.Metric) {
@@ -441,12 +467,16 @@ func (c *invoicesCollector) Collect(ch chan<- prometheus.Metric) {
 	ch <- prometheus.MustNewConstMetric(c.countDesc, prometheus.CounterValue, float64(allInvoicesCount))
 
 	var pendingInvoicesCount int64 = 0
+	var settledInvoicesCount int64 = 0
 	for _, invoice := range dbInvoices {
 		if !invoice.Terms.Settled {
+			settledInvoicesCount++
+		} else {
 			pendingInvoicesCount++
 		}
 	}
 	ch <- prometheus.MustNewConstMetric(c.pendingCountDesc, prometheus.GaugeValue, float64(pendingInvoicesCount))
+	ch <- prometheus.MustNewConstMetric(c.settledCountDesc, prometheus.CounterValue, float64(settledInvoicesCount))
 
 	// TODO(baryluk): Value in invoices.
 }
@@ -627,4 +657,105 @@ func (c *channelsCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 
 	// TODO(baryluk): Some totals that are useful to have across inactive channels: total satoshis sent / received, commit fee totals.
+}
+
+// Custom collector for stats about nodes on network.
+type nodesCollector struct {
+	server                         *server
+	nodeCountDesc                  *prometheus.Desc
+	nodeAddressCountDesc           *prometheus.Desc
+	nodeAddressCountByProtocolDesc *prometheus.Desc
+	nodeWithoutAddressCountDesc    *prometheus.Desc
+}
+
+func newNodesCollector(server *server) prometheus.Collector {
+	return &nodesCollector{
+		server: server,
+		nodeCountDesc: prometheus.NewDesc(
+			"lnd_graph_node_count",
+			"What is the size of known network.",
+			nil, nil),
+		nodeAddressCountDesc: prometheus.NewDesc(
+			"lnd_graph_node_address_count",
+			"Number of all known addresses across all nodes.",
+			nil, nil),
+		nodeAddressCountByProtocolDesc: prometheus.NewDesc(
+			"lnd_graph_node_address_count_by_protocol",
+			"Number of all known addresses across all nodes by protocol. Note that some nodes can have multiple addresses even on same protocol. And some nodes might have no known addresses.",
+			[]string{"protocol"}, nil),
+		nodeWithoutAddressCountDesc: prometheus.NewDesc(
+			"lnd_graph_node_without_address_count",
+			"Number of all known addresses across all nodes.",
+			nil, nil),
+	}
+}
+
+func (c *nodesCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- c.nodeCountDesc
+	ch <- c.nodeAddressCountDesc
+	ch <- c.nodeAddressCountByProtocolDesc
+	ch <- c.nodeWithoutAddressCountDesc
+}
+
+func (c *nodesCollector) Collect(ch chan<- prometheus.Metric) {
+	// Obtain the pointer to the global singleton channel graph, this will
+	// provide a consistent view of the graph due to bolt db's
+	// transactional model.
+	graph := c.server.chanDB.ChannelGraph()
+
+	var nodes uint64 = 0
+
+	var addresses_all uint64 = 0
+	var addresses_tcp_ipv4 uint64 = 0
+	var addresses_tcp_ipv6 uint64 = 0
+	var addresses_tcp_unknown uint64 = 0
+	var addresses_unix uint64 = 0
+	var addresses_unknown uint64 = 0  // exotic transports (udp, sctp, quik, http/2, etc).
+
+	var nodes_without_address = 0
+
+	protocols := map[string]int{}
+
+	// TODO(baryluk): Nodes without channels.
+
+	err := graph.ForEachNode(nil, func(_ *bolt.Tx, node *channeldb.LightningNode) error {
+		nodes++
+
+		if len(node.Addresses) == 0 {
+			nodes_without_address++
+		}
+
+		addresses_all += uint64(len(node.Addresses))
+		for _, addr := range node.Addresses {
+			protocols[addr.Network()]++
+			// Do not assume anything about address format of non-tcp network.
+			if addr.Network() == "tcp" {
+				t := addressType(addr.String())
+				if t == "ipv6" {
+					addresses_tcp_ipv6++
+				} else if t == "ipv4" {
+					addresses_tcp_ipv4++
+				} else {
+					addresses_tcp_unknown++
+				}
+			} else if strings.HasPrefix("unix", addr.Network()) {
+				addresses_unix++
+			} else {
+				addresses_unknown++
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return
+	}
+
+	ch <- prometheus.MustNewConstMetric(c.nodeCountDesc, prometheus.GaugeValue, float64(nodes))
+	ch <- prometheus.MustNewConstMetric(c.nodeAddressCountDesc, prometheus.GaugeValue, float64(addresses_all))
+	ch <- prometheus.MustNewConstMetric(c.nodeAddressCountByProtocolDesc, prometheus.GaugeValue, float64(addresses_tcp_ipv4), "ipv4")
+	ch <- prometheus.MustNewConstMetric(c.nodeAddressCountByProtocolDesc, prometheus.GaugeValue, float64(addresses_tcp_ipv6), "ipv6")
+	ch <- prometheus.MustNewConstMetric(c.nodeAddressCountByProtocolDesc, prometheus.GaugeValue, float64(addresses_unix), "unix")
+	ch <- prometheus.MustNewConstMetric(c.nodeAddressCountByProtocolDesc, prometheus.GaugeValue, float64(addresses_unknown), "unknown")
+	ch <- prometheus.MustNewConstMetric(c.nodeWithoutAddressCountDesc, prometheus.GaugeValue, float64(nodes_without_address))
 }

@@ -44,7 +44,7 @@
 
 [[constraint]]
   name = "github.com/lightninglabs/neutrino"
-  revision = "bee0ed11601a4ad0c3b23d462cd71089fc11f2cd"
+  revision = "838f7ba74d217d188efc223604bd280b4e3f0238"
 
 [[constraint]]
   name = "github.com/lightningnetwork/lightning-onion"

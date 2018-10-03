@@ -29,6 +29,9 @@ type ConfNtfn struct {
 
 	// PkScript is the public key script of an outpoint created in this
 	// transaction.
+	//
+	// NOTE: This value MUST be set when the dispatch is to be performed
+	// using compact filters.
 	PkScript []byte
 
 	// NumConfirmations is the number of confirmations after which the
@@ -60,6 +63,9 @@ type HistoricalConfDispatch struct {
 
 	// PkScript is a public key script from an output created by this
 	// transaction.
+	//
+	// NOTE: This value MUST be set when the dispatch is to be performed
+	// using compact filters.
 	PkScript []byte
 
 	// StartHeight specifies the block height at which to being the
@@ -709,57 +715,15 @@ func (tcn *TxConfNotifier) DisconnectTip(blockHeight uint32) error {
 
 				// Then, we'll check if the current transaction
 				// was included in the block currently being
-				// disconnected. If it was, we'll need to take
-				// some necessary precautions.
+				// disconnected. If it was, we'll need to
+				// dispatch a reorg notification to the client.
 				if initialHeight == blockHeight {
-					// If the transaction's confirmation notification
-					// has already been dispatched, we'll attempt to
-					// notify the client it was reorged out of the chain.
-					if ntfn.dispatched {
-						// Attempt to drain the confirmation notification
-						// to ensure sends to the Confirmed channel are
-						// always non-blocking.
-						select {
-						case <-ntfn.Event.Confirmed:
-						case <-tcn.quit:
-							return ErrTxConfNotifierExiting
-						default:
-						}
-
-						ntfn.dispatched = false
-
-						// Send a negative confirmation notification to the
-						// client indicating how many blocks have been
-						// disconnected successively.
-						select {
-						case ntfn.Event.NegativeConf <- int32(tcn.reorgDepth):
-						case <-tcn.quit:
-							return ErrTxConfNotifierExiting
-						}
-
-						continue
+					err := tcn.dispatchConfReorg(
+						ntfn, blockHeight,
+					)
+					if err != nil {
+						return err
 					}
-
-					// Otherwise, since the transactions was reorged out
-					// of the chain, we can safely remove its accompanying
-					// confirmation notification.
-					confHeight := blockHeight + ntfn.NumConfirmations - 1
-					ntfnSet, exists := tcn.ntfnsByConfirmHeight[confHeight]
-					if !exists {
-						continue
-					}
-					delete(ntfnSet, ntfn)
-
-					// Intuitively, we should also remove
-					// the txHash from confNotifications if
-					// the ntfnSet is now empty. However, we
-					// will not do so since we may want to
-					// continue rewinding the height hints
-					// for this txid.
-					//
-					// NOTE(conner): safe to delete if
-					// blockHeight is below client-provided
-					// height hint?
 				}
 			}
 		}
@@ -768,6 +732,49 @@ func (tcn *TxConfNotifier) DisconnectTip(blockHeight uint32) error {
 	// Finally, we can remove the transactions we're currently watching that
 	// were included in this block height.
 	delete(tcn.txsByInitialHeight, blockHeight)
+
+	return nil
+}
+
+// dispatchConfReorg dispatches a reorg notification to the client if the
+// confirmation notification was already delivered.
+//
+// NOTE: This must be called with the TxNotifier's lock held.
+func (tcn *TxConfNotifier) dispatchConfReorg(
+	ntfn *ConfNtfn, heightDisconnected uint32) error {
+
+	// If the transaction's confirmation notification has yet to be
+	// dispatched, we'll need to clear its entry within the
+	// ntfnsByConfirmHeight index to prevent from notifiying the client once
+	// the notifier reaches the confirmation height.
+	if !ntfn.dispatched {
+		confHeight := heightDisconnected + ntfn.NumConfirmations - 1
+		ntfnSet, exists := tcn.ntfnsByConfirmHeight[confHeight]
+		if exists {
+			delete(ntfnSet, ntfn)
+		}
+		return nil
+	}
+
+	// Otherwise, the entry within the ntfnsByConfirmHeight has already been
+	// deleted, so we'll attempt to drain the confirmation notification to
+	// ensure sends to the Confirmed channel are always non-blocking.
+	select {
+	case <-ntfn.Event.Confirmed:
+	case <-tcn.quit:
+		return ErrTxConfNotifierExiting
+	default:
+	}
+
+	ntfn.dispatched = false
+
+	// Send a negative confirmation notification to the client indicating
+	// how many blocks have been disconnected successively.
+	select {
+	case ntfn.Event.NegativeConf <- int32(tcn.reorgDepth):
+	case <-tcn.quit:
+		return ErrTxConfNotifierExiting
+	}
 
 	return nil
 }

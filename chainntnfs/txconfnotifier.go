@@ -494,6 +494,9 @@ func (tcn *TxConfNotifier) ConnectTip(blockHash *chainhash.Hash,
 		Log.Debugf("Block contains txid=%v, constructing details",
 			txHash)
 
+		// If we have any, we'll record its confirmed height so that
+		// notifications get dispatched when the transaction reaches the
+		// clients' desired number of confirmations.
 		details := &TxConfirmation{
 			BlockHash:   blockHash,
 			BlockHeight: blockHeight,
@@ -505,6 +508,18 @@ func (tcn *TxConfNotifier) ConnectTip(blockHash *chainhash.Hash,
 		for _, ntfn := range confSet.ntfns {
 			ntfn.details = details
 
+			// In the event that this notification was aware that
+			// the transaction was reorged out of the chain, we'll
+			// consume the reorg notification if it hasn't been done
+			// yet already.
+			select {
+			case <-ntfn.Event.NegativeConf:
+			default:
+			}
+
+			// We'll note this client's required number of
+			// confirmations so that we can notify them when
+			// expected.
 			confHeight := blockHeight + ntfn.NumConfirmations - 1
 			ntfnSet, exists := tcn.ntfnsByConfirmHeight[confHeight]
 			if !exists {
@@ -513,6 +528,9 @@ func (tcn *TxConfNotifier) ConnectTip(blockHash *chainhash.Hash,
 			}
 			ntfnSet[ntfn] = struct{}{}
 
+			// We'll also note the initial confirmation height in
+			// order to correctly handle dispatching notifications
+			// when the transaction gets reorged out of the chain.
 			txSet, exists := tcn.txsByInitialHeight[blockHeight]
 			if !exists {
 				txSet = make(map[chainhash.Hash]struct{})
@@ -602,7 +620,7 @@ out:
 
 	// Then, we'll dispatch notifications for all the transactions that have
 	// become confirmed at this new block height.
-	for ntfn := range tcn.ntfnsByConfirmHeight[tcn.currentHeight] {
+	for ntfn := range tcn.ntfnsByConfirmHeight[blockHeight] {
 		Log.Infof("Dispatching %v conf notification for %v",
 			ntfn.NumConfirmations, ntfn.TxID)
 

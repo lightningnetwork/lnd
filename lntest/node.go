@@ -20,13 +20,14 @@ import (
 	"google.golang.org/grpc/credentials"
 	macaroon "gopkg.in/macaroon.v2"
 
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/rpcclient"
-	"github.com/roasbeef/btcd/wire"
 )
 
 var (
@@ -168,7 +169,7 @@ func (cfg nodeConfig) genArgs() []string {
 	args = append(args, fmt.Sprintf("--trickledelay=%v", trickleDelay))
 
 	if !cfg.HasSeed {
-		args = append(args, "--noencryptwallet")
+		args = append(args, "--noseedbackup")
 	}
 
 	if cfg.ExtraArgs != nil {
@@ -202,6 +203,16 @@ type HarnessNode struct {
 	processExit chan struct{}
 
 	chanWatchRequests chan *chanWatchRequest
+
+	// For each outpoint, we'll track an integer which denotes the number of
+	// edges seen for that channel within the network. When this number
+	// reaches 2, then it means that both edge advertisements has propagated
+	// through the network.
+	openChans   map[wire.OutPoint]int
+	openClients map[wire.OutPoint][]chan struct{}
+
+	closedChans  map[wire.OutPoint]struct{}
+	closeClients map[wire.OutPoint][]chan struct{}
 
 	quit chan struct{}
 	wg   sync.WaitGroup
@@ -241,12 +252,22 @@ func newNode(cfg nodeConfig) (*HarnessNode, error) {
 		cfg:               &cfg,
 		NodeID:            nodeNum,
 		chanWatchRequests: make(chan *chanWatchRequest),
+		openChans:         make(map[wire.OutPoint]int),
+		openClients:       make(map[wire.OutPoint][]chan struct{}),
+
+		closedChans:  make(map[wire.OutPoint]struct{}),
+		closeClients: make(map[wire.OutPoint][]chan struct{}),
 	}, nil
 }
 
 // DBPath returns the filepath to the channeldb database file for this node.
 func (hn *HarnessNode) DBPath() string {
 	return hn.cfg.DBPath()
+}
+
+// Name returns the name of this node set during initialization.
+func (hn *HarnessNode) Name() string {
+	return hn.cfg.Name
 }
 
 // Start launches a new process running lnd. Additionally, the PID of the
@@ -297,8 +318,10 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 						hex.EncodeToString(hn.PubKey[:logPubKeyBytes]))
 					err := os.Rename(fileName, newFileName)
 					if err != nil {
-						fmt.Errorf("could not rename %s to %s: %v",
-							fileName, newFileName, err)
+						fmt.Printf("could not rename "+
+							"%s to %s: %v\n",
+							fileName, newFileName,
+							err)
 					}
 				}
 			}
@@ -330,9 +353,11 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 	// Launch a new goroutine which that bubbles up any potential fatal
 	// process errors to the goroutine running the tests.
 	hn.processExit = make(chan struct{})
+	hn.wg.Add(1)
 	go func() {
-		err := hn.cmd.Wait()
+		defer hn.wg.Done()
 
+		err := hn.cmd.Wait()
 		if err != nil {
 			lndError <- errors.Errorf("%v\n%v\n", err, errb.String())
 		}
@@ -474,7 +499,7 @@ func (hn *HarnessNode) writePidFile() error {
 	return nil
 }
 
-// connectRPC uses the TLS certificate and admin macaroon files written by the
+// ConnectRPC uses the TLS certificate and admin macaroon files written by the
 // lnd node to create a gRPC client connection.
 func (hn *HarnessNode) ConnectRPC(useMacs bool) (*grpc.ClientConn, error) {
 	// Wait until TLS certificate and admin macaroon are created before
@@ -634,9 +659,9 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 	go func() {
 		defer hn.wg.Done()
 
-		ctxb := context.Background()
 		req := &lnrpc.GraphTopologySubscription{}
-		topologyClient, err := hn.SubscribeChannelGraph(ctxb, req)
+		ctx, cancelFunc := context.WithCancel(context.Background())
+		topologyClient, err := hn.SubscribeChannelGraph(ctx, req)
 		if err != nil {
 			// We panic here in case of an error as failure to
 			// create the topology client will cause all subsequent
@@ -644,6 +669,8 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 			panic(fmt.Errorf("unable to create topology "+
 				"client: %v", err))
 		}
+
+		defer cancelFunc()
 
 		for {
 			update, err := topologyClient.Recv()
@@ -661,16 +688,6 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 		}
 	}()
 
-	// For each outpoint, we'll track an integer which denotes the number
-	// of edges seen for that channel within the network. When this number
-	// reaches 2, then it means that both edge advertisements has
-	// propagated through the network.
-	openChans := make(map[wire.OutPoint]int)
-	openClients := make(map[wire.OutPoint][]chan struct{})
-
-	closedChans := make(map[wire.OutPoint]struct{})
-	closeClients := make(map[wire.OutPoint][]chan struct{})
-
 	for {
 		select {
 
@@ -687,21 +704,21 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 					Hash:  *txid,
 					Index: newChan.ChanPoint.OutputIndex,
 				}
-				openChans[op]++
+				hn.openChans[op]++
 
 				// For this new channel, if the number of edges
 				// seen is less than two, then the channel
 				// hasn't been fully announced yet.
-				if numEdges := openChans[op]; numEdges < 2 {
+				if numEdges := hn.openChans[op]; numEdges < 2 {
 					continue
 				}
 
 				// Otherwise, we'll notify all the registered
 				// clients and remove the dispatched clients.
-				for _, eventChan := range openClients[op] {
+				for _, eventChan := range hn.openClients[op] {
 					close(eventChan)
 				}
-				delete(openClients, op)
+				delete(hn.openClients, op)
 			}
 
 			// For each channel closed, we'll mark that we've
@@ -714,14 +731,14 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 					Hash:  *txid,
 					Index: closedChan.ChanPoint.OutputIndex,
 				}
-				closedChans[op] = struct{}{}
+				hn.closedChans[op] = struct{}{}
 
 				// As the channel has been closed, we'll notify
 				// all register clients.
-				for _, eventChan := range closeClients[op] {
+				for _, eventChan := range hn.closeClients[op] {
 					close(eventChan)
 				}
-				delete(closeClients, op)
+				delete(hn.closeClients, op)
 			}
 
 		// A new watch request, has just arrived. We'll either be able
@@ -736,30 +753,34 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 				// If this is an open request, then it can be
 				// dispatched if the number of edges seen for
 				// the channel is at least two.
-				if numEdges := openChans[targetChan]; numEdges >= 2 {
+				if numEdges := hn.openChans[targetChan]; numEdges >= 2 {
 					close(watchRequest.eventChan)
 					continue
 				}
 
 				// Otherwise, we'll add this to the list of
 				// watch open clients for this out point.
-				openClients[targetChan] = append(openClients[targetChan],
-					watchRequest.eventChan)
+				hn.openClients[targetChan] = append(
+					hn.openClients[targetChan],
+					watchRequest.eventChan,
+				)
 				continue
 			}
 
 			// If this is a close request, then it can be
 			// immediately dispatched if we've already seen a
 			// channel closure for this channel.
-			if _, ok := closedChans[targetChan]; ok {
+			if _, ok := hn.closedChans[targetChan]; ok {
 				close(watchRequest.eventChan)
 				continue
 			}
 
 			// Otherwise, we'll add this to the list of close watch
 			// clients for this out point.
-			closeClients[targetChan] = append(closeClients[targetChan],
-				watchRequest.eventChan)
+			hn.closeClients[targetChan] = append(
+				hn.closeClients[targetChan],
+				watchRequest.eventChan,
+			)
 
 		case <-hn.quit:
 			return
@@ -882,6 +903,37 @@ func (hn *HarnessNode) WaitForBlockchainSync(ctx context.Context) error {
 	case <-ctx.Done():
 		return fmt.Errorf("Timeout while waiting for blockchain sync")
 	}
+}
+
+// WaitForBalance waits until the node sees the expected confirmed/unconfirmed
+// balance within their wallet.
+func (hn *HarnessNode) WaitForBalance(expectedBalance int64, confirmed bool) error {
+	ctx := context.Background()
+	req := &lnrpc.WalletBalanceRequest{}
+
+	var lastBalance btcutil.Amount
+	doesBalanceMatch := func() bool {
+		balance, err := hn.WalletBalance(ctx, req)
+		if err != nil {
+			return false
+		}
+
+		if confirmed {
+			lastBalance = btcutil.Amount(balance.ConfirmedBalance)
+			return balance.ConfirmedBalance == expectedBalance
+		}
+
+		lastBalance = btcutil.Amount(balance.UnconfirmedBalance)
+		return balance.UnconfirmedBalance == expectedBalance
+	}
+
+	err := WaitPredicate(doesBalanceMatch, 30*time.Second)
+	if err != nil {
+		return fmt.Errorf("balances not synced after deadline: "+
+			"expected %v, only have %v", expectedBalance, lastBalance)
+	}
+
+	return nil
 }
 
 // fileExists reports whether the named file or directory exists.

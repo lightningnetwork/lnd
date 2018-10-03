@@ -4,10 +4,10 @@ import (
 	"crypto/sha256"
 	"fmt"
 
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcwallet/waddrmgr"
-	"github.com/roasbeef/btcwallet/wallet"
-	"github.com/roasbeef/btcwallet/walletdb"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/btcsuite/btcwallet/wallet"
+	"github.com/btcsuite/btcwallet/walletdb"
 )
 
 const (
@@ -139,7 +139,10 @@ func (b *BtcWalletKeyRing) createAccountIfNotExists(
 //
 // NOTE: This is part of the keychain.KeyRing interface.
 func (b *BtcWalletKeyRing) DeriveNextKey(keyFam KeyFamily) (KeyDescriptor, error) {
-	var pubKey *btcec.PublicKey
+	var (
+		pubKey *btcec.PublicKey
+		keyLoc KeyLocator
+	)
 
 	db := b.wallet.Database()
 	err := walletdb.Update(db, func(tx walletdb.ReadWriteTx) error {
@@ -165,7 +168,21 @@ func (b *BtcWalletKeyRing) DeriveNextKey(keyFam KeyFamily) (KeyDescriptor, error
 			return err
 		}
 
-		pubKey = addrs[0].(waddrmgr.ManagedPubKeyAddress).PubKey()
+		// Extract the first address, ensuring that it is of the proper
+		// interface type, otherwise we can't manipulate it below.
+		addr, ok := addrs[0].(waddrmgr.ManagedPubKeyAddress)
+		if !ok {
+			return fmt.Errorf("address is not a managed pubkey " +
+				"addr")
+		}
+
+		pubKey = addr.PubKey()
+
+		_, pathInfo, _ := addr.DerivationInfo()
+		keyLoc = KeyLocator{
+			Family: keyFam,
+			Index:  pathInfo.Index,
+		}
 
 		return nil
 	})
@@ -174,7 +191,8 @@ func (b *BtcWalletKeyRing) DeriveNextKey(keyFam KeyFamily) (KeyDescriptor, error
 	}
 
 	return KeyDescriptor{
-		PubKey: pubKey,
+		PubKey:     pubKey,
+		KeyLocator: keyLoc,
 	}, nil
 }
 

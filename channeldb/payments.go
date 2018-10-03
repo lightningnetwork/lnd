@@ -3,6 +3,7 @@ package channeldb
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"io"
 
 	"github.com/coreos/bbolt"
@@ -17,7 +18,64 @@ var (
 	// which is a monotonically increasing uint64.  BoltDB's sequence
 	// feature is used for generating monotonically increasing id.
 	paymentBucket = []byte("payments")
+
+	// paymentStatusBucket is the name of the bucket within the database that
+	// stores the status of a payment indexed by the payment's preimage.
+	paymentStatusBucket = []byte("payment-status")
 )
+
+// PaymentStatus represent current status of payment
+type PaymentStatus byte
+
+const (
+	// StatusGrounded is the status where a payment has never been
+	// initiated, or has been initiated and received an intermittent
+	// failure.
+	StatusGrounded PaymentStatus = 0
+
+	// StatusInFlight is the status where a payment has been initiated, but
+	// a response has not been received.
+	StatusInFlight PaymentStatus = 1
+
+	// StatusCompleted is the status where a payment has been initiated and
+	// the payment was completed successfully.
+	StatusCompleted PaymentStatus = 2
+)
+
+// Bytes returns status as slice of bytes.
+func (ps PaymentStatus) Bytes() []byte {
+	return []byte{byte(ps)}
+}
+
+// FromBytes sets status from slice of bytes.
+func (ps *PaymentStatus) FromBytes(status []byte) error {
+	if len(status) != 1 {
+		return errors.New("payment status is empty")
+	}
+
+	switch PaymentStatus(status[0]) {
+	case StatusGrounded, StatusInFlight, StatusCompleted:
+		*ps = PaymentStatus(status[0])
+	default:
+		return errors.New("unknown payment status")
+	}
+
+	return nil
+}
+
+// String returns readable representation of payment status.
+func (ps PaymentStatus) String() string {
+	switch ps {
+	case StatusGrounded:
+		return "Grounded"
+	case StatusInFlight:
+		return "In Flight"
+	case StatusCompleted:
+		return "Completed"
+	default:
+		return "Unknown"
+	}
+}
 
 // OutgoingPayment represents a successful payment between the daemon and a
 // remote node. Details such as the total fee paid, and the time of the payment
@@ -129,6 +187,68 @@ func (db *DB) DeleteAllPayments() error {
 	})
 }
 
+// UpdatePaymentStatus sets the payment status for outgoing/finished payments in
+// local database.
+func (db *DB) UpdatePaymentStatus(paymentHash [32]byte, status PaymentStatus) error {
+	return db.Batch(func(tx *bolt.Tx) error {
+		return UpdatePaymentStatusTx(tx, paymentHash, status)
+	})
+}
+
+// UpdatePaymentStatusTx is a helper method that sets the payment status for
+// outgoing/finished payments in the local database. This method accepts a
+// boltdb transaction such that the operation can be composed into other
+// database transactions.
+func UpdatePaymentStatusTx(tx *bolt.Tx,
+	paymentHash [32]byte, status PaymentStatus) error {
+
+	paymentStatuses, err := tx.CreateBucketIfNotExists(paymentStatusBucket)
+	if err != nil {
+		return err
+	}
+
+	return paymentStatuses.Put(paymentHash[:], status.Bytes())
+}
+
+// FetchPaymentStatus returns the payment status for outgoing payment.
+// If status of the payment isn't found, it will default to "StatusGrounded".
+func (db *DB) FetchPaymentStatus(paymentHash [32]byte) (PaymentStatus, error) {
+	var paymentStatus = StatusGrounded
+	err := db.View(func(tx *bolt.Tx) error {
+		var err error
+		paymentStatus, err = FetchPaymentStatusTx(tx, paymentHash)
+		return err
+	})
+	if err != nil {
+		return StatusGrounded, err
+	}
+
+	return paymentStatus, nil
+}
+
+// FetchPaymentStatusTx is a helper method that returns the payment status for
+// outgoing payment.  If status of the payment isn't found, it will default to
+// "StatusGrounded". It accepts the boltdb transactions such that this method
+// can be composed into other atomic operations.
+func FetchPaymentStatusTx(tx *bolt.Tx, paymentHash [32]byte) (PaymentStatus, error) {
+	// The default status for all payments that aren't recorded in database.
+	var paymentStatus = StatusGrounded
+
+	bucket := tx.Bucket(paymentStatusBucket)
+	if bucket == nil {
+		return paymentStatus, nil
+	}
+
+	paymentStatusBytes := bucket.Get(paymentHash[:])
+	if paymentStatusBytes == nil {
+		return paymentStatus, nil
+	}
+
+	paymentStatus.FromBytes(paymentStatusBytes)
+
+	return paymentStatus, nil
+}
+
 func serializeOutgoingPayment(w io.Writer, p *OutgoingPayment) error {
 	var scratch [8]byte
 
@@ -177,7 +297,7 @@ func deserializeOutgoingPayment(r io.Reader) (*OutgoingPayment, error) {
 	if err != nil {
 		return nil, err
 	}
-	p.Invoice = *inv
+	p.Invoice = inv
 
 	if _, err := r.Read(scratch[:]); err != nil {
 		return nil, err

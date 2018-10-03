@@ -3,8 +3,9 @@ package lnwire
 import (
 	"bytes"
 	"io"
+	"io/ioutil"
 
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
 // ChanUpdateFlag is a bitfield that signals various options concerning a
@@ -73,6 +74,14 @@ type ChannelUpdate struct {
 	// FeeRate is the fee rate that will be charged per millionth of a
 	// satoshi.
 	FeeRate uint32
+
+	// ExtraOpaqueData is the set of data that was appended to this
+	// message, some of which we may not actually know how to iterate or
+	// parse. By holding onto this data, we ensure that we're able to
+	// properly validate the set of signatures that cover these new fields,
+	// and ensure we're able to make upgrades to the network in a forwards
+	// compatible manner.
+	ExtraOpaqueData []byte
 }
 
 // A compile time check to ensure ChannelUpdate implements the lnwire.Message
@@ -84,7 +93,7 @@ var _ Message = (*ChannelUpdate)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (a *ChannelUpdate) Decode(r io.Reader, pver uint32) error {
-	return readElements(r,
+	err := readElements(r,
 		&a.Signature,
 		a.ChainHash[:],
 		&a.ShortChannelID,
@@ -95,6 +104,23 @@ func (a *ChannelUpdate) Decode(r io.Reader, pver uint32) error {
 		&a.BaseFee,
 		&a.FeeRate,
 	)
+	if err != nil {
+		return err
+	}
+
+	// Now that we've read out all the fields that we explicitly know of,
+	// we'll collect the remainder into the ExtraOpaqueData field. If there
+	// aren't any bytes, then we'll snip off the slice to avoid carrying
+	// around excess capacity.
+	a.ExtraOpaqueData, err = ioutil.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	if len(a.ExtraOpaqueData) == 0 {
+		a.ExtraOpaqueData = nil
+	}
+
+	return nil
 }
 
 // Encode serializes the target ChannelUpdate into the passed io.Writer
@@ -112,6 +138,7 @@ func (a *ChannelUpdate) Encode(w io.Writer, pver uint32) error {
 		a.HtlcMinimumMsat,
 		a.BaseFee,
 		a.FeeRate,
+		a.ExtraOpaqueData,
 	)
 }
 
@@ -128,36 +155,7 @@ func (a *ChannelUpdate) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (a *ChannelUpdate) MaxPayloadLength(pver uint32) uint32 {
-	var length uint32
-
-	// Signature - 64 bytes
-	length += 64
-
-	// ChainHash - 64 bytes
-	length += 32
-
-	// ShortChannelID - 8 bytes
-	length += 8
-
-	// Timestamp - 4 bytes
-	length += 4
-
-	// Flags - 2 bytes
-	length += 2
-
-	// Expiry - 2 bytes
-	length += 2
-
-	// HtlcMinimumMstat - 8 bytes
-	length += 8
-
-	// FeeBaseMstat - 4 bytes
-	length += 4
-
-	// FeeProportionalMillionths - 4 bytes
-	length += 4
-
-	return length
+	return 65533
 }
 
 // DataToSign is used to retrieve part of the announcement message which should
@@ -175,6 +173,7 @@ func (a *ChannelUpdate) DataToSign() ([]byte, error) {
 		a.HtlcMinimumMsat,
 		a.BaseFee,
 		a.FeeRate,
+		a.ExtraOpaqueData,
 	)
 	if err != nil {
 		return nil, err

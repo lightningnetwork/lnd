@@ -7,11 +7,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcutil"
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcutil"
 )
 
 var (
@@ -59,12 +59,12 @@ type dbNode struct {
 var _ Node = (*dbNode)(nil)
 
 // PubKey is the identity public key of the node. This will be used to attempt
-// to target a node for channel opening by the main autopilot agent.
+// to target a node for channel opening by the main autopilot agent. The key
+// will be returned in serialized compressed format.
 //
 // NOTE: Part of the autopilot.Node interface.
-func (d dbNode) PubKey() *btcec.PublicKey {
-	pubKey, _ := d.node.PubKey()
-	return pubKey
+func (d dbNode) PubKey() [33]byte {
+	return d.node.PubKeyBytes
 }
 
 // Addrs returns a slice of publicly reachable public TCP addresses that the
@@ -85,13 +85,23 @@ func (d dbNode) ForEachChannel(cb func(ChannelEdge) error) error {
 	return d.node.ForEachChannel(d.tx, func(tx *bolt.Tx,
 		ei *channeldb.ChannelEdgeInfo, ep, _ *channeldb.ChannelEdgePolicy) error {
 
-		pubkey, _ := ep.Node.PubKey()
+		// Skip channels for which no outgoing edge policy is available.
+		//
+		// TODO(joostjager): Ideally the case where channels have a nil
+		// policy should be supported, as auto pilot is not looking at
+		// the policies. For now, it is not easily possible to get a
+		// reference to the other end LightningNode object without
+		// retrieving the policy.
+		if ep == nil {
+			return nil
+		}
+
 		edge := ChannelEdge{
 			Channel: Channel{
 				ChanID:    lnwire.NewShortChanIDFromInt(ep.ChannelID),
 				Capacity:  ei.Capacity,
 				FundedAmt: ei.Capacity,
-				Node:      NewNodeID(pubkey),
+				Node:      NodeID(ep.Node.PubKeyBytes),
 			},
 			Peer: dbNode{
 				tx:   tx,
@@ -395,8 +405,11 @@ var _ Node = (*memNode)(nil)
 // to target a node for channel opening by the main autopilot agent.
 //
 // NOTE: Part of the autopilot.Node interface.
-func (m memNode) PubKey() *btcec.PublicKey {
-	return m.pub
+func (m memNode) PubKey() [33]byte {
+	var n [33]byte
+	copy(n[:], m.pub.SerializeCompressed())
+
+	return n
 }
 
 // Addrs returns a slice of publicly reachable public TCP addresses that the

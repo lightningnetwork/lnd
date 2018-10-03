@@ -2,17 +2,17 @@ PKG := github.com/lightningnetwork/lnd
 ESCPKG := github.com\/lightningnetwork\/lnd
 
 DEP_PKG := github.com/golang/dep/cmd/dep
-BTCD_PKG := github.com/roasbeef/btcd
+BTCD_PKG := github.com/btcsuite/btcd
 GLIDE_PKG := github.com/Masterminds/glide
 GOVERALLS_PKG := github.com/mattn/goveralls
-LINT_PKG := gopkg.in/alecthomas/gometalinter.v1
+LINT_PKG := gopkg.in/alecthomas/gometalinter.v2
 
 GO_BIN := ${GOPATH}/bin
 DEP_BIN := $(GO_BIN)/dep
 BTCD_BIN := $(GO_BIN)/btcd
 GLIDE_BIN := $(GO_BIN)/glide
 GOVERALLS_BIN := $(GO_BIN)/goveralls
-LINT_BIN := $(GO_BIN)/gometalinter.v1
+LINT_BIN := $(GO_BIN)/gometalinter.v2
 
 HAVE_DEP := $(shell command -v $(DEP_BIN) 2> /dev/null)
 HAVE_BTCD := $(shell command -v $(BTCD_BIN) 2> /dev/null)
@@ -40,10 +40,22 @@ GOLIST := go list $(PKG)/... | grep -v '/vendor/'
 GOLISTCOVER := $(shell go list -f '{{.ImportPath}}' ./... | sed -e 's/^$(ESCPKG)/./')
 GOLISTLINT := $(shell go list -f '{{.Dir}}' ./... | grep -v 'lnrpc')
 
+RM := rm -f
+CP := cp
+MAKE := make
+XARGS := xargs -L 1
+
+include make/testing_flags.mk
+
 COVER = for dir in $(GOLISTCOVER); do \
-		$(GOTEST) $(TEST_FLAGS) \
+		$(GOTEST) -tags="$(TEST_TAGS)" \
 			-covermode=count \
 			-coverprofile=$$dir/profile.tmp $$dir; \
+		\
+		if [ $$? != 0 ] ; \
+		then \
+			exit 1; \
+		fi ; \
 		\
 		if [ -f $$dir/profile.tmp ]; then \
 			cat $$dir/profile.tmp | \
@@ -64,18 +76,11 @@ LINT = $(LINT_BIN) \
 
 CGO_STATUS_QUO := ${CGO_ENABLED}
 
-RM := rm -f
-CP := cp
-MAKE := make
-XARGS := xargs -L 1
-
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"
 define print
 	echo $(GREEN)$1$(NC)
 endef
-
-include make/testing_flags.mk
 
 default: scratch
 
@@ -92,7 +97,7 @@ $(DEP_BIN):
 $(GLIDE_BIN):
 	@$(call print, "Fetching glide.")
 	go get -d $(GLIDE_PKG)
-	cd ${GOPATH}/src/$(GLIDE_PKG) && git checkout $(GLIDE_COMMIT) 
+	cd ${GOPATH}/src/$(GLIDE_PKG) && ( git checkout $(GLIDE_COMMIT) || ( git fetch --all && git checkout $(GLIDE_COMMIT) ) )
 	$(GOINSTALL) $(GLIDE_PKG)
 
 $(GOVERALLS_BIN):
@@ -100,7 +105,7 @@ $(GOVERALLS_BIN):
 	go get -u $(GOVERALLS_PKG)
 
 $(LINT_BIN):
-	@$(call print, "Fetching gometalinter.v1")
+	@$(call print, "Fetching gometalinter.v2")
 	go get -u $(LINT_PKG)
 	$(GOINSTALL) $(LINT_PKG)
 
@@ -110,11 +115,11 @@ dep: $(DEP_BIN)
 
 $(BTCD_DIR):
 	@$(call print, "Fetching btcd.")
-	go get -d github.com/roasbeef/btcd
+	go get -d github.com/btcsuite/btcd
 
 btcd: $(GLIDE_BIN) $(BTCD_DIR)
 	@$(call print, "Compiling btcd dependencies.")
-	cd $(BTCD_DIR) && git checkout $(BTCD_COMMIT) && glide install
+	cd $(BTCD_DIR) && ( git checkout $(BTCD_COMMIT) || ( git fetch --all && git checkout $(BTCD_COMMIT) ) ) && glide install
 	@$(call print, "Installing btcd and btcctl.")
 	$(GOINSTALL) $(BTCD_PKG)
 	$(GOINSTALL) $(BTCD_PKG)/cmd/btcctl
@@ -125,13 +130,13 @@ btcd: $(GLIDE_BIN) $(BTCD_DIR)
 
 build:
 	@$(call print, "Building debug lnd and lncli.")
-	$(GOBUILD) -tags=$(TEST_TAGS) -o lnd-debug $(LDFLAGS) $(PKG)
-	$(GOBUILD) -tags=$(TEST_TAGS) -o lncli-debug $(LDFLAGS) $(PKG)/cmd/lncli
+	$(GOBUILD) -tags="$(TEST_TAGS) ${tags}" -o lnd-debug $(LDFLAGS) $(PKG)
+	$(GOBUILD) -tags="$(TEST_TAGS) ${tags}" -o lncli-debug $(LDFLAGS) $(PKG)/cmd/lncli
 
 install:
 	@$(call print, "Installing lnd and lncli.")
-	go install -v $(LDFLAGS) $(PKG)
-	go install -v $(LDFLAGS) $(PKG)/cmd/lncli
+	go install -v -tags="${tags}" $(LDFLAGS) $(PKG)
+	go install -v -tags="${tags}" $(LDFLAGS) $(PKG)/cmd/lncli
 
 scratch: dep build
 
@@ -170,21 +175,21 @@ flakehunter: build
 
 flake-unit:
 	@$(call print, "Flake hunting unit tests.")
-	$(UNIT) -count=1
-	while [ $$? -eq 0 ]; do /bin/sh -c "$(UNIT) -count=1"; done
+	GOTRACEBACK=all $(UNIT) -count=1
+	while [ $$? -eq 0 ]; do /bin/sh -c "GOTRACEBACK=all $(UNIT) -count=1"; done
 
 # ======
 # TRAVIS
 # ======
 
 ifeq ($(RACE), false)
-travis: lint scratch itest unit-cover $(GOVERALLS_BIN)
+travis: dep lint build itest unit-cover $(GOVERALLS_BIN)
 	@$(call print, "Sending coverage report.")
 	$(GOVERALLS_BIN) -coverprofile=profile.cov -service=travis-ci
 endif
 
 ifeq ($(RACE), true)
-travis: lint dep btcd unit-race
+travis: dep lint btcd unit-race
 endif
 
 
@@ -199,7 +204,7 @@ fmt:
 lint: $(LINT_BIN)
 	@$(call print, "Linting source.")
 	$(LINT_BIN) --install 1> /dev/null
-	test -z "$($(LINT))"
+	test -z "$$($(LINT))"
 
 list:
 	@$(call print, "Listing commands.")
@@ -214,12 +219,12 @@ rpc:
 
 clean:
 	@$(call print, "Cleaning source.$(NC)")
-	$(RM) ./lnd ./lncli
-	$(RM) -r ./vendor
+	$(RM) ./lnd-debug ./lncli-debug
+	$(RM) -r ./vendor .vendor-new
 
 
 .PHONY: all \
-	btcd\
+	btcd \
 	default \
 	dep \
 	build \

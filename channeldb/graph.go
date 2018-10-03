@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"image/color"
@@ -10,12 +11,13 @@ import (
 	"net"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 var (
@@ -29,7 +31,7 @@ var (
 	// traversals. The graph is formed as a star-graph with the source node
 	// at the center.
 	//
-	// maps: pubKey -> nofInfo
+	// maps: pubKey -> nodeInfo
 	// maps: source -> selfPubKey
 	nodeBucket = []byte("graph-node")
 
@@ -54,15 +56,21 @@ var (
 	// edgeBucket is a bucket which houses all of the edge or channel
 	// information within the channel graph. This bucket essentially acts
 	// as an adjacency list, which in conjunction with a range scan, can be
-	// used to iterate over all the _outgoing_ edges for a particular node.
-	// Key in the bucket use a prefix scheme which leads with the node's
-	// public key and sends with the compact edge ID. For each edgeID,
-	// there will be two entries within the bucket, as the graph is
-	// directed: nodes may have different policies w.r.t to fees for their
-	// respective directions.
+	// used to iterate over all the incoming and outgoing edges for a
+	// particular node. Key in the bucket use a prefix scheme which leads
+	// with the node's public key and sends with the compact edge ID.
+	// For each chanID, there will be two entries within the bucket, as the
+	// graph is directed: nodes may have different policies w.r.t to fees
+	// for their respective directions.
 	//
-	// maps: pubKey || edgeID -> edge policy for node
+	// maps: pubKey || chanID -> channel edge policy for node
 	edgeBucket = []byte("graph-edge")
+
+	// unknownPolicy is represented as an empty slice. It is
+	// used as the value in edgeBucket for unknown channel edge policies.
+	// Unknown policies are still stored in the database to enable efficient
+	// lookup of incoming channel edges.
+	unknownPolicy = []byte{}
 
 	// chanStart is an array of all zero bytes which is used to perform
 	// range scans within the edgeBucket to obtain all of the outgoing
@@ -117,6 +125,14 @@ var (
 
 	edgeBloomKey = []byte("edge-bloom")
 	nodeBloomKey = []byte("node-bloom")
+)
+
+const (
+	// MaxAllowedExtraOpaqueBytes is the largest amount of opaque bytes that
+	// we'll permit to be written to disk. We limit this as otherwise, it
+	// would be possible for a node to create a ton of updates and slowly
+	// fill our disk, and also waste bandwidth due to relaying.
+	MaxAllowedExtraOpaqueBytes = 10000
 )
 
 // ChannelGraph is a persistent, on-disk graph representation of the Lightning
@@ -183,6 +199,7 @@ func (c *ChannelGraph) ForEachChannel(cb func(*ChannelEdgeInfo, *ChannelEdgePoli
 			if err != nil {
 				return err
 			}
+			edgeInfo.db = c.db
 
 			edge1, edge2, err := fetchChanEdgePolicies(
 				edgeIndex, edges, nodes, chanID, c.db,
@@ -259,27 +276,12 @@ func (c *ChannelGraph) ForEachNode(tx *bolt.Tx, cb func(*bolt.Tx, *LightningNode
 func (c *ChannelGraph) SourceNode() (*LightningNode, error) {
 	var source *LightningNode
 	err := c.db.View(func(tx *bolt.Tx) error {
-		// First grab the nodes bucket which stores the mapping from
-		// pubKey to node information.
-		nodes := tx.Bucket(nodeBucket)
-		if nodes == nil {
-			return ErrGraphNotFound
-		}
-
-		selfPub := nodes.Get(sourceKey)
-		if selfPub == nil {
-			return ErrSourceNodeNotSet
-		}
-
-		// With the pubKey of the source node retrieved, we're able to
-		// fetch the full node information.
-		node, err := fetchLightningNode(nodes, selfPub)
+		node, err := c.sourceNode(tx)
 		if err != nil {
 			return err
 		}
+		source = node
 
-		source = &node
-		source.db = c.db
 		return nil
 	})
 	if err != nil {
@@ -287,6 +289,34 @@ func (c *ChannelGraph) SourceNode() (*LightningNode, error) {
 	}
 
 	return source, nil
+}
+
+// sourceNode uses an existing database transaction and returns the source node
+// of the graph. The source node is treated as the center node within a
+// star-graph. This method may be used to kick off a path finding algorithm in
+// order to explore the reachability of another node based off the source node.
+func (c *ChannelGraph) sourceNode(tx *bolt.Tx) (*LightningNode, error) {
+	// First grab the nodes bucket which stores the mapping from
+	// pubKey to node information.
+	nodes := tx.Bucket(nodeBucket)
+	if nodes == nil {
+		return nil, ErrGraphNotFound
+	}
+
+	selfPub := nodes.Get(sourceKey)
+	if selfPub == nil {
+		return nil, ErrSourceNodeNotSet
+	}
+
+	// With the pubKey of the source node retrieved, we're able to
+	// fetch the full node information.
+	node, err := fetchLightningNode(nodes, selfPub)
+	if err != nil {
+		return nil, err
+	}
+	node.db = c.db
+
+	return &node, nil
 }
 
 // SetSourceNode sets the source node within the graph database. The source
@@ -384,28 +414,63 @@ func (c *ChannelGraph) LookupAlias(pub *btcec.PublicKey) (string, error) {
 	return alias, nil
 }
 
-// DeleteLightningNode removes a vertex/node from the database according to the
-// node's public key.
+// DeleteLightningNode starts a new database transaction to remove a vertex/node
+// from the database according to the node's public key.
 func (c *ChannelGraph) DeleteLightningNode(nodePub *btcec.PublicKey) error {
-	pub := nodePub.SerializeCompressed()
-
 	// TODO(roasbeef): ensure dangling edges are removed...
 	return c.db.Update(func(tx *bolt.Tx) error {
-		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
-		if err != nil {
-			return err
-		}
-
-		aliases, err := tx.CreateBucketIfNotExists(aliasIndexBucket)
-		if err != nil {
-			return err
-		}
-
-		if err := aliases.Delete(pub); err != nil {
-			return err
-		}
-		return nodes.Delete(pub)
+		return c.deleteLightningNode(tx, nodePub.SerializeCompressed())
 	})
+}
+
+// deleteLightningNode uses an existing database transaction to remove a
+// vertex/node from the database according to the node's public key.
+func (c *ChannelGraph) deleteLightningNode(tx *bolt.Tx,
+	compressedPubKey []byte) error {
+
+	nodes := tx.Bucket(nodeBucket)
+	if nodes == nil {
+		return ErrGraphNodesNotFound
+	}
+
+	aliases := nodes.Bucket(aliasIndexBucket)
+	if aliases == nil {
+		return ErrGraphNodesNotFound
+	}
+
+	if err := aliases.Delete(compressedPubKey); err != nil {
+		return err
+	}
+
+	// Before we delete the node, we'll fetch its current state so we can
+	// determine when its last update was to clear out the node update
+	// index.
+	node, err := fetchLightningNode(nodes, compressedPubKey)
+	if err != nil {
+		return err
+	}
+
+	if err := nodes.Delete(compressedPubKey); err != nil {
+
+		return err
+	}
+
+	// Finally, we'll delete the index entry for the node within the
+	// nodeUpdateIndexBucket as this node is no longer active, so we don't
+	// need to track its last update.
+	nodeUpdateIndex := nodes.Bucket(nodeUpdateIndexBucket)
+	if nodeUpdateIndex == nil {
+		return ErrGraphNodesNotFound
+	}
+
+	// In order to delete the entry, we'll need to reconstruct the key for
+	// its last update.
+	updateUnix := uint64(node.LastUpdate.Unix())
+	var indexKey [8 + 33]byte
+	byteOrder.PutUint64(indexKey[:8], updateUnix)
+	copy(indexKey[8:], compressedPubKey)
+
+	return nodeUpdateIndex.Delete(indexKey[:])
 }
 
 // AddChannelEdge adds a new (undirected, blank) edge to the graph database. An
@@ -420,6 +485,10 @@ func (c *ChannelGraph) AddChannelEdge(edge *ChannelEdgeInfo) error {
 	binary.BigEndian.PutUint64(chanKey[:], edge.ChannelID)
 
 	return c.db.Update(func(tx *bolt.Tx) error {
+		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
+		if err != nil {
+			return err
+		}
 		edges, err := tx.CreateBucketIfNotExists(edgeBucket)
 		if err != nil {
 			return err
@@ -440,11 +509,62 @@ func (c *ChannelGraph) AddChannelEdge(edge *ChannelEdgeInfo) error {
 			return ErrEdgeAlreadyExist
 		}
 
+		// Before we insert the channel into the database, we'll ensure
+		// that both nodes already exist in the channel graph. If
+		// either node doesn't, then we'll insert a "shell" node that
+		// just includes its public key, so subsequent validation and
+		// queries can work properly.
+		_, node1Err := fetchLightningNode(nodes, edge.NodeKey1Bytes[:])
+		switch {
+		case node1Err == ErrGraphNodeNotFound:
+			node1Shell := LightningNode{
+				PubKeyBytes:          edge.NodeKey1Bytes,
+				HaveNodeAnnouncement: false,
+			}
+			err := addLightningNode(tx, &node1Shell)
+			if err != nil {
+				return fmt.Errorf("unable to create shell node "+
+					"for: %x", edge.NodeKey1Bytes)
+
+			}
+		case node1Err != nil:
+			return err
+		}
+
+		_, node2Err := fetchLightningNode(nodes, edge.NodeKey2Bytes[:])
+		switch {
+		case node2Err == ErrGraphNodeNotFound:
+			node2Shell := LightningNode{
+				PubKeyBytes:          edge.NodeKey2Bytes,
+				HaveNodeAnnouncement: false,
+			}
+			err := addLightningNode(tx, &node2Shell)
+			if err != nil {
+				return fmt.Errorf("unable to create shell node "+
+					"for: %x", edge.NodeKey2Bytes)
+
+			}
+		case node2Err != nil:
+			return err
+		}
+
 		// If the edge hasn't been created yet, then we'll first add it
 		// to the edge index in order to associate the edge between two
 		// nodes and also store the static components of the channel.
 		if err := putChanEdgeInfo(edgeIndex, edge, chanKey); err != nil {
 			return err
+		}
+
+		// Mark edge policies for both sides as unknown. This is to
+		// enable efficient incoming channel lookup for a node.
+		for _, key := range []*[33]byte{&edge.NodeKey1Bytes,
+			&edge.NodeKey2Bytes} {
+
+			err := putChanEdgePolicyUnknown(edges, edge.ChannelID,
+				key[:])
+			if err != nil {
+				return err
+			}
 		}
 
 		// Finally we add it to the channel index which maps channel
@@ -458,7 +578,7 @@ func (c *ChannelGraph) AddChannelEdge(edge *ChannelEdgeInfo) error {
 }
 
 // HasChannelEdge returns true if the database knows of a channel edge with the
-// passed channel ID, and false otherwise. If the an edge with that ID is found
+// passed channel ID, and false otherwise. If an edge with that ID is found
 // within the graph, then two time stamps representing the last time the edge
 // was updated for both directed edges are returned along with the boolean.
 func (c *ChannelGraph) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool, error) {
@@ -617,7 +737,6 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 			if err != nil {
 				return err
 			}
-			chansClosed = append(chansClosed, &edgeInfo)
 
 			// Attempt to delete the channel, an ErrEdgeNotFound
 			// will be returned if that outpoint isn't known to be
@@ -629,6 +748,8 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 			if err != nil && err != ErrEdgeNotFound {
 				return err
 			}
+
+			chansClosed = append(chansClosed, &edgeInfo)
 		}
 
 		metaBucket, err := tx.CreateBucketIfNotExists(graphMetaBucket)
@@ -650,13 +771,140 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 		var newTip [pruneTipBytes]byte
 		copy(newTip[:], blockHash[:])
 
-		return pruneBucket.Put(blockHeightBytes[:], newTip[:])
+		err = pruneBucket.Put(blockHeightBytes[:], newTip[:])
+		if err != nil {
+			return err
+		}
+
+		// Now that the graph has been pruned, we'll also attempt to
+		// prune any nodes that have had a channel closed within the
+		// latest block.
+		return c.pruneGraphNodes(tx, nodes, edgeIndex)
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	return chansClosed, nil
+}
+
+// PruneGraphNodes is a garbage collection method which attempts to prune out
+// any nodes from the channel graph that are currently unconnected. This ensure
+// that we only maintain a graph of reachable nodes. In the event that a pruned
+// node gains more channels, it will be re-added back to the graph.
+func (c *ChannelGraph) PruneGraphNodes() error {
+	return c.db.Update(func(tx *bolt.Tx) error {
+		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
+		if err != nil {
+			return err
+		}
+		edges := tx.Bucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNotFound
+		}
+		edgeIndex := edges.Bucket(edgeIndexBucket)
+		if edgeIndex == nil {
+			return ErrGraphNoEdgesFound
+		}
+
+		return c.pruneGraphNodes(tx, nodes, edgeIndex)
+	})
+}
+
+// pruneGraphNodes attempts to remove any nodes from the graph who have had a
+// channel closed within the current block. If the node still has existing
+// channels in the graph, this will act as a no-op.
+func (c *ChannelGraph) pruneGraphNodes(tx *bolt.Tx, nodes *bolt.Bucket,
+	edgeIndex *bolt.Bucket) error {
+
+	log.Trace("Pruning nodes from graph with no open channels")
+
+	// We'll retrieve the graph's source node to ensure we don't remove it
+	// even if it no longer has any open channels.
+	sourceNode, err := c.sourceNode(tx)
+	if err != nil {
+		return err
+	}
+
+	// We'll use this map to keep count the number of references to a node
+	// in the graph. A node should only be removed once it has no more
+	// references in the graph.
+	nodeRefCounts := make(map[[33]byte]int)
+	err = nodes.ForEach(func(pubKey, nodeBytes []byte) error {
+		// If this is the source key, then we skip this
+		// iteration as the value for this key is a pubKey
+		// rather than raw node information.
+		if bytes.Equal(pubKey, sourceKey) || len(pubKey) != 33 {
+			return nil
+		}
+
+		var nodePub [33]byte
+		copy(nodePub[:], pubKey)
+		nodeRefCounts[nodePub] = 0
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// To ensure we never delete the source node, we'll start off by
+	// bumping its ref count to 1.
+	nodeRefCounts[sourceNode.PubKeyBytes] = 1
+
+	// Next, we'll run through the edgeIndex which maps a channel ID to the
+	// edge info. We'll use this scan to populate our reference count map
+	// above.
+	err = edgeIndex.ForEach(func(chanID, edgeInfoBytes []byte) error {
+		// The first 66 bytes of the edge info contain the pubkeys of
+		// the nodes that this edge attaches. We'll extract them, and
+		// add them to the ref count map.
+		var node1, node2 [33]byte
+		copy(node1[:], edgeInfoBytes[:33])
+		copy(node2[:], edgeInfoBytes[33:])
+
+		// With the nodes extracted, we'll increase the ref count of
+		// each of the nodes.
+		nodeRefCounts[node1]++
+		nodeRefCounts[node2]++
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// Finally, we'll make a second pass over the set of nodes, and delete
+	// any nodes that have a ref count of zero.
+	var numNodesPruned int
+	for nodePubKey, refCount := range nodeRefCounts {
+		// If the ref count of the node isn't zero, then we can safely
+		// skip it as it still has edges to or from it within the
+		// graph.
+		if refCount != 0 {
+			continue
+		}
+
+		// If we reach this point, then there are no longer any edges
+		// that connect this node, so we can delete it.
+		if err := c.deleteLightningNode(tx, nodePubKey[:]); err != nil {
+			log.Warnf("Unable to prune node %x from the "+
+				"graph: %v", nodePubKey, err)
+			continue
+		}
+
+		log.Infof("Pruned unconnected node %x from channel graph",
+			nodePubKey[:])
+
+		numNodesPruned++
+	}
+
+	if numNodesPruned > 0 {
+		log.Infof("Pruned %v unconnected nodes from the channel graph",
+			numNodesPruned)
+	}
+
+	return nil
 }
 
 // DisconnectBlockAtHeight is used to indicate that the block specified
@@ -936,6 +1184,10 @@ type ChannelEdge struct {
 // ChanUpdatesInHorizon returns all the known channel edges which have at least
 // one edge that has an update timestamp within the specified horizon.
 func (c *ChannelGraph) ChanUpdatesInHorizon(startTime, endTime time.Time) ([]ChannelEdge, error) {
+	// To ensure we don't return duplicate ChannelEdges, we'll use an
+	// additional map to keep track of the edges already seen to prevent
+	// re-adding it.
+	edgesSeen := make(map[uint64]struct{})
 	var edgesInHorizon []ChannelEdge
 
 	err := c.db.View(func(tx *bolt.Tx) error {
@@ -979,11 +1231,22 @@ func (c *ChannelGraph) ChanUpdatesInHorizon(startTime, endTime time.Time) ([]Cha
 			// chan ID so we can query it in the DB.
 			chanID := indexKey[8:]
 
+			// If we've already retrieved the info and policies for
+			// this edge, then we can skip it as we don't need to do
+			// so again.
+			chanIDInt := byteOrder.Uint64(chanID)
+			if _, ok := edgesSeen[chanIDInt]; ok {
+				continue
+			}
+
 			// First, we'll fetch the static edge information.
 			edgeInfo, err := fetchChanEdgeInfo(edgeIndex, chanID)
 			if err != nil {
-				return err
+				chanID := byteOrder.Uint64(chanID)
+				return fmt.Errorf("unable to fetch info for "+
+					"edge with chan_id=%v: %v", chanID, err)
 			}
+			edgeInfo.db = c.db
 
 			// With the static information obtained, we'll now
 			// fetch the dynamic policy info.
@@ -991,11 +1254,15 @@ func (c *ChannelGraph) ChanUpdatesInHorizon(startTime, endTime time.Time) ([]Cha
 				edgeIndex, edges, nodes, chanID, c.db,
 			)
 			if err != nil {
-				return err
+				chanID := byteOrder.Uint64(chanID)
+				return fmt.Errorf("unable to fetch policies "+
+					"for edge with chan_id=%v: %v", chanID,
+					err)
 			}
 
 			// Finally, we'll collate this edge with the rest of
 			// edges to be returned.
+			edgesSeen[chanIDInt] = struct{}{}
 			edgesInHorizon = append(edgesInHorizon, ChannelEdge{
 				Info:    &edgeInfo,
 				Policy1: edge1,
@@ -1222,6 +1489,7 @@ func (c *ChannelGraph) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
 			if err != nil {
 				return err
 			}
+			edgeInfo.db = c.db
 
 			// With the static information obtained, we'll now
 			// fetch the dynamic policy info.
@@ -1370,34 +1638,46 @@ func (c *ChannelGraph) UpdateEdgePolicy(edge *ChannelEdgePolicy) error {
 		if err != nil {
 			return err
 		}
-
-		// Create the channelID key be converting the channel ID
-		// integer into a byte slice.
-		var chanID [8]byte
-		byteOrder.PutUint64(chanID[:], edge.ChannelID)
-
-		// With the channel ID, we then fetch the value storing the two
-		// nodes which connect this channel edge.
-		nodeInfo := edgeIndex.Get(chanID[:])
-		if nodeInfo == nil {
-			return ErrEdgeNotFound
+		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
+		if err != nil {
+			return err
 		}
 
-		// Depending on the flags value passed above, either the first
-		// or second edge policy is being updated.
-		var fromNode, toNode []byte
-		if edge.Flags&lnwire.ChanUpdateDirection == 0 {
-			fromNode = nodeInfo[:33]
-			toNode = nodeInfo[33:67]
-		} else {
-			fromNode = nodeInfo[33:67]
-			toNode = nodeInfo[:33]
-		}
-
-		// Finally, with the direction of the edge being updated
-		// identified, we update the on-disk edge representation.
-		return putChanEdgePolicy(edges, edge, fromNode, toNode)
+		return updateEdgePolicy(edges, edgeIndex, nodes, edge)
 	})
+}
+
+// updateEdgePolicy attempts to update an edge's policy within the relevant
+// buckets using an existing database transaction.
+func updateEdgePolicy(edges, edgeIndex, nodes *bolt.Bucket,
+	edge *ChannelEdgePolicy) error {
+
+	// Create the channelID key be converting the channel ID
+	// integer into a byte slice.
+	var chanID [8]byte
+	byteOrder.PutUint64(chanID[:], edge.ChannelID)
+
+	// With the channel ID, we then fetch the value storing the two
+	// nodes which connect this channel edge.
+	nodeInfo := edgeIndex.Get(chanID[:])
+	if nodeInfo == nil {
+		return ErrEdgeNotFound
+	}
+
+	// Depending on the flags value passed above, either the first
+	// or second edge policy is being updated.
+	var fromNode, toNode []byte
+	if edge.Flags&lnwire.ChanUpdateDirection == 0 {
+		fromNode = nodeInfo[:33]
+		toNode = nodeInfo[33:66]
+	} else {
+		fromNode = nodeInfo[33:66]
+		toNode = nodeInfo[:33]
+	}
+
+	// Finally, with the direction of the edge being updated
+	// identified, we update the on-disk edge representation.
+	return putChanEdgePolicy(edges, nodes, edge, fromNode, toNode)
 }
 
 // LightningNode represents an individual vertex/node within the channel graph.
@@ -1434,6 +1714,14 @@ type LightningNode struct {
 
 	// Features is the list of protocol features supported by this node.
 	Features *lnwire.FeatureVector
+
+	// ExtraOpaqueData is the set of data that was appended to this
+	// message, some of which we may not actually know how to iterate or
+	// parse. By holding onto this data, we ensure that we're able to
+	// properly validate the set of signatures that cover these new fields,
+	// and ensure we're able to make upgrades to the network in a forwards
+	// compatible manner.
+	ExtraOpaqueData []byte
 
 	db *DB
 
@@ -1567,12 +1855,14 @@ func (c *ChannelGraph) HasLightningNode(nodePub [33]byte) (time.Time, bool, erro
 	return updateTime, exists, nil
 }
 
-// ForEachChannel iterates through all the outgoing channel edges from this
-// node, executing the passed callback with each edge as its sole argument. The
-// first edge policy is the outgoing edge *to* the connecting node, while the
-// second is the incoming edge *from* the connecting node. If the callback
-// returns an error, then the iteration is halted with the error propagated
-// back up to the caller.
+// ForEachChannel iterates through all channels of this node, executing the
+// passed callback with an edge info structure and the policies of each end
+// of the channel. The first edge policy is the outgoing edge *to* the
+// the connecting node, while the second is the incoming edge *from* the
+// connecting node. If the callback returns an error, then the iteration is
+// halted with the error propagated back up to the caller.
+//
+// Unknown policies are passed into the callback as nil values.
 //
 // If the caller wishes to re-use an existing boltdb transaction, then it
 // should be passed as the first argument.  Otherwise the first argument should
@@ -1613,44 +1903,39 @@ func (l *LightningNode) ForEachChannel(tx *bolt.Tx,
 		// as its prefix. This indicates that we've stepped over into
 		// another node's edges, so we can terminate our scan.
 		edgeCursor := edges.Cursor()
-		for nodeEdge, edgeInfo := edgeCursor.Seek(nodeStart[:]); bytes.HasPrefix(nodeEdge, nodePub); nodeEdge, edgeInfo = edgeCursor.Next() {
-			// If the prefix still matches, then the value is the
-			// raw edge information. So we can now serialize the
-			// edge info and fetch the outgoing node in order to
-			// retrieve the full channel edge.
-			edgeReader := bytes.NewReader(edgeInfo)
-			toEdgePolicy, err := deserializeChanEdgePolicy(edgeReader, nodes)
-			if err != nil {
-				return err
-			}
-			toEdgePolicy.db = l.db
-			toEdgePolicy.Node.db = l.db
-
+		for nodeEdge, _ := edgeCursor.Seek(nodeStart[:]); bytes.HasPrefix(nodeEdge, nodePub); nodeEdge, _ = edgeCursor.Next() {
+			// If the prefix still matches, the channel id is
+			// returned in nodeEdge. Channel id is used to lookup
+			// the node at the other end of the channel and both
+			// edge policies.
 			chanID := nodeEdge[33:]
 			edgeInfo, err := fetchChanEdgeInfo(edgeIndex, chanID)
 			if err != nil {
 				return err
 			}
+			edgeInfo.db = l.db
 
-			// We'll also fetch the incoming edge so this
-			// information can be available to the caller.
-			incomingNode := toEdgePolicy.Node.PubKeyBytes[:]
-			fromEdgePolicy, err := fetchChanEdgePolicy(
-				edges, chanID, incomingNode, nodes,
+			outgoingPolicy, err := fetchChanEdgePolicy(
+				edges, chanID, nodePub, nodes,
 			)
-			if err != nil && err != ErrEdgeNotFound &&
-				err != ErrGraphNodeNotFound {
+			if err != nil {
 				return err
 			}
-			if fromEdgePolicy != nil {
-				fromEdgePolicy.db = l.db
-				if fromEdgePolicy.Node != nil {
-					fromEdgePolicy.Node.db = l.db
-				}
+
+			otherNode, err := edgeInfo.OtherNodeKeyBytes(nodePub)
+			if err != nil {
+				return err
+			}
+
+			incomingPolicy, err := fetchChanEdgePolicy(
+				edges, chanID, otherNode, nodes,
+			)
+			if err != nil {
+				return err
 			}
 
 			// Finally, we execute the callback.
-			err = cb(tx, &edgeInfo, toEdgePolicy, fromEdgePolicy)
+			err = cb(tx, &edgeInfo, outgoingPolicy, incomingPolicy)
 			if err != nil {
 				return err
 			}
@@ -1721,6 +2006,16 @@ type ChannelEdgeInfo struct {
 	// Capacity is the total capacity of the channel, this is determined by
 	// the value output in the outpoint that created this channel.
 	Capacity btcutil.Amount
+
+	// ExtraOpaqueData is the set of data that was appended to this
+	// message, some of which we may not actually know how to iterate or
+	// parse. By holding onto this data, we ensure that we're able to
+	// properly validate the set of signatures that cover these new fields,
+	// and ensure we're able to make upgrades to the network in a forwards
+	// compatible manner.
+	ExtraOpaqueData []byte
+
+	db *DB
 }
 
 // AddNodeKeys is a setter-like method that can be used to replace the set of
@@ -1822,6 +2117,70 @@ func (c *ChannelEdgeInfo) BitcoinKey2() (*btcec.PublicKey, error) {
 	c.bitcoinKey2 = key
 
 	return key, nil
+}
+
+// OtherNodeKeyBytes returns the node key bytes of the other end of
+// the channel.
+func (c *ChannelEdgeInfo) OtherNodeKeyBytes(thisNodeKey []byte) (
+	[]byte, error) {
+
+	switch {
+	case bytes.Equal(c.NodeKey1Bytes[:], thisNodeKey):
+		return c.NodeKey2Bytes[:], nil
+	case bytes.Equal(c.NodeKey2Bytes[:], thisNodeKey):
+		return c.NodeKey1Bytes[:], nil
+	default:
+		return nil, fmt.Errorf("node not participating in this channel")
+	}
+}
+
+// FetchOtherNode attempts to fetch the full LightningNode that's opposite of
+// the target node in the channel. This is useful when one knows the pubkey of
+// one of the nodes, and wishes to obtain the full LightningNode for the other
+// end of the channel.
+func (c *ChannelEdgeInfo) FetchOtherNode(tx *bolt.Tx, thisNodeKey []byte) (*LightningNode, error) {
+
+	// Ensure that the node passed in is actually a member of the channel.
+	var targetNodeBytes [33]byte
+	switch {
+	case bytes.Equal(c.NodeKey1Bytes[:], thisNodeKey):
+		targetNodeBytes = c.NodeKey2Bytes
+	case bytes.Equal(c.NodeKey2Bytes[:], thisNodeKey):
+		targetNodeBytes = c.NodeKey1Bytes
+	default:
+		return nil, fmt.Errorf("node not participating in this channel")
+	}
+
+	var targetNode *LightningNode
+	fetchNodeFunc := func(tx *bolt.Tx) error {
+		// First grab the nodes bucket which stores the mapping from
+		// pubKey to node information.
+		nodes := tx.Bucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNotFound
+		}
+
+		node, err := fetchLightningNode(nodes, targetNodeBytes[:])
+		if err != nil {
+			return err
+		}
+		node.db = c.db
+
+		targetNode = &node
+
+		return nil
+	}
+
+	// If the transaction is nil, then we'll need to create a new one,
+	// otherwise we can use the existing db transaction.
+	var err error
+	if tx == nil {
+		err = c.db.View(fetchNodeFunc)
+	} else {
+		err = fetchNodeFunc(tx)
+	}
+
+	return targetNode, err
 }
 
 // ChannelAuthProof is the authentication proof (the signature portion) for a
@@ -2000,6 +2359,14 @@ type ChannelEdgePolicy struct {
 	// this pointer the channel graph can further be traversed.
 	Node *LightningNode
 
+	// ExtraOpaqueData is the set of data that was appended to this
+	// message, some of which we may not actually know how to iterate or
+	// parse. By holding onto this data, we ensure that we're able to
+	// properly validate the set of signatures that cover these new fields,
+	// and ensure we're able to make upgrades to the network in a forwards
+	// compatible manner.
+	ExtraOpaqueData []byte
+
 	db *DB
 }
 
@@ -2078,12 +2445,14 @@ func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (*ChannelE
 			return err
 		}
 		edgeInfo = &edge
+		edgeInfo.db = c.db
 
 		// Once we have the information about the channels' parameters,
 		// we'll fetch the routing policies for each for the directed
 		// edges.
-		e1, e2, err := fetchChanEdgePolicies(edgeIndex, edges, nodes,
-			chanID, c.db)
+		e1, e2, err := fetchChanEdgePolicies(
+			edgeIndex, edges, nodes, chanID, c.db,
+		)
 		if err != nil {
 			return err
 		}
@@ -2140,9 +2509,11 @@ func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64) (*ChannelEdgeInfo, *
 			return err
 		}
 		edgeInfo = &edge
+		edgeInfo.db = c.db
 
-		e1, e2, err := fetchChanEdgePolicies(edgeIndex, edges, nodes,
-			channelID[:], c.db)
+		e1, e2, err := fetchChanEdgePolicies(
+			edgeIndex, edges, nodes, channelID[:], c.db,
+		)
 		if err != nil {
 			return err
 		}
@@ -2158,12 +2529,68 @@ func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64) (*ChannelEdgeInfo, *
 	return edgeInfo, policy1, policy2, nil
 }
 
+// genMultiSigP2WSH generates the p2wsh'd multisig script for 2 of 2 pubkeys.
+func genMultiSigP2WSH(aPub, bPub []byte) ([]byte, error) {
+	if len(aPub) != 33 || len(bPub) != 33 {
+		return nil, fmt.Errorf("Pubkey size error. Compressed " +
+			"pubkeys only")
+	}
+
+	// Swap to sort pubkeys if needed. Keys are sorted in lexicographical
+	// order. The signatures within the scriptSig must also adhere to the
+	// order, ensuring that the signatures for each public key appears in
+	// the proper order on the stack.
+	if bytes.Compare(aPub, bPub) == 1 {
+		aPub, bPub = bPub, aPub
+	}
+
+	// First, we'll generate the witness script for the multi-sig.
+	bldr := txscript.NewScriptBuilder()
+	bldr.AddOp(txscript.OP_2)
+	bldr.AddData(aPub) // Add both pubkeys (sorted).
+	bldr.AddData(bPub)
+	bldr.AddOp(txscript.OP_2)
+	bldr.AddOp(txscript.OP_CHECKMULTISIG)
+	witnessScript, err := bldr.Script()
+	if err != nil {
+		return nil, err
+	}
+
+	// With the witness script generated, we'll now turn it into a p2sh
+	// script:
+	//  * OP_0 <sha256(script)>
+	bldr = txscript.NewScriptBuilder()
+	bldr.AddOp(txscript.OP_0)
+	scriptHash := sha256.Sum256(witnessScript)
+	bldr.AddData(scriptHash[:])
+
+	return bldr.Script()
+}
+
+// EdgePoint couples the outpoint of a channel with the funding script that it
+// creates. The FilteredChainView will use this to watch for spends of this
+// edge point on chain. We require both of these values as depending on the
+// concrete implementation, either the pkScript, or the out point will be used.
+type EdgePoint struct {
+	// FundingPkScript is the p2wsh multi-sig script of the target channel.
+	FundingPkScript []byte
+
+	// OutPoint is the outpoint of the target channel.
+	OutPoint wire.OutPoint
+}
+
+// String returns a human readable version of the target EdgePoint. We return
+// the outpoint directly as it is enough to uniquely identify the edge point.
+func (e *EdgePoint) String() string {
+	return e.OutPoint.String()
+}
+
 // ChannelView returns the verifiable edge information for each active channel
-// within the known channel graph. The set of UTXO's returned are the ones that
-// need to be watched on chain to detect channel closes on the resident
-// blockchain.
-func (c *ChannelGraph) ChannelView() ([]wire.OutPoint, error) {
-	var chanPoints []wire.OutPoint
+// within the known channel graph. The set of UTXO's (along with their scripts)
+// returned are the ones that need to be watched on chain to detect channel
+// closes on the resident blockchain.
+func (c *ChannelGraph) ChannelView() ([]EdgePoint, error) {
+	var edgePoints []EdgePoint
 	if err := c.db.View(func(tx *bolt.Tx) error {
 		// We're going to iterate over the entire channel index, so
 		// we'll need to fetch the edgeBucket to get to the index as
@@ -2176,11 +2603,15 @@ func (c *ChannelGraph) ChannelView() ([]wire.OutPoint, error) {
 		if chanIndex == nil {
 			return ErrGraphNoEdgesFound
 		}
+		edgeIndex := edges.Bucket(edgeIndexBucket)
+		if edgeIndex == nil {
+			return ErrGraphNoEdgesFound
+		}
 
 		// Once we have the proper bucket, we'll range over each key
 		// (which is the channel point for the channel) and decode it,
 		// accumulating each entry.
-		return chanIndex.ForEach(func(chanPointBytes, _ []byte) error {
+		return chanIndex.ForEach(func(chanPointBytes, chanID []byte) error {
 			chanPointReader := bytes.NewReader(chanPointBytes)
 
 			var chanPoint wire.OutPoint
@@ -2189,14 +2620,33 @@ func (c *ChannelGraph) ChannelView() ([]wire.OutPoint, error) {
 				return err
 			}
 
-			chanPoints = append(chanPoints, chanPoint)
+			edgeInfo, err := fetchChanEdgeInfo(
+				edgeIndex, chanID,
+			)
+			if err != nil {
+				return err
+			}
+
+			pkScript, err := genMultiSigP2WSH(
+				edgeInfo.BitcoinKey1Bytes[:],
+				edgeInfo.BitcoinKey2Bytes[:],
+			)
+			if err != nil {
+				return err
+			}
+
+			edgePoints = append(edgePoints, EdgePoint{
+				FundingPkScript: pkScript,
+				OutPoint:        chanPoint,
+			})
+
 			return nil
 		})
 	}); err != nil {
 		return nil, err
 	}
 
-	return chanPoints, nil
+	return edgePoints, nil
 }
 
 // NewChannelEdgePolicy returns a new blank ChannelEdgePolicy.
@@ -2282,6 +2732,14 @@ func putLightningNode(nodeBucket *bolt.Bucket, aliasBucket *bolt.Bucket,
 	}
 
 	err = wire.WriteVarBytes(&b, 0, node.AuthSigBytes)
+	if err != nil {
+		return err
+	}
+
+	if len(node.ExtraOpaqueData) > MaxAllowedExtraOpaqueBytes {
+		return ErrTooManyExtraOpaqueBytes(len(node.ExtraOpaqueData))
+	}
+	err = wire.WriteVarBytes(&b, 0, node.ExtraOpaqueData)
 	if err != nil {
 		return err
 	}
@@ -2410,6 +2868,18 @@ func deserializeLightningNode(r io.Reader) (LightningNode, error) {
 		return LightningNode{}, err
 	}
 
+	// We'll try and see if there are any opaque bytes left, if not, then
+	// we'll ignore the EOF error and return the node as is.
+	node.ExtraOpaqueData, err = wire.ReadVarBytes(
+		r, 0, MaxAllowedExtraOpaqueBytes, "blob",
+	)
+	switch {
+	case err == io.ErrUnexpectedEOF:
+	case err == io.EOF:
+	case err != nil:
+		return LightningNode{}, err
+	}
+
 	return node, nil
 }
 
@@ -2465,6 +2935,14 @@ func putChanEdgeInfo(edgeIndex *bolt.Bucket, edgeInfo *ChannelEdgeInfo, chanID [
 		return err
 	}
 	if _, err := b.Write(edgeInfo.ChainHash[:]); err != nil {
+		return err
+	}
+
+	if len(edgeInfo.ExtraOpaqueData) > MaxAllowedExtraOpaqueBytes {
+		return ErrTooManyExtraOpaqueBytes(len(edgeInfo.ExtraOpaqueData))
+	}
+	err := wire.WriteVarBytes(&b, 0, edgeInfo.ExtraOpaqueData)
+	if err != nil {
 		return err
 	}
 
@@ -2545,10 +3023,24 @@ func deserializeChanEdgeInfo(r io.Reader) (ChannelEdgeInfo, error) {
 		return ChannelEdgeInfo{}, err
 	}
 
+	// We'll try and see if there are any opaque bytes left, if not, then
+	// we'll ignore the EOF error and return the edge as is.
+	edgeInfo.ExtraOpaqueData, err = wire.ReadVarBytes(
+		r, 0, MaxAllowedExtraOpaqueBytes, "blob",
+	)
+	switch {
+	case err == io.ErrUnexpectedEOF:
+	case err == io.EOF:
+	case err != nil:
+		return ChannelEdgeInfo{}, err
+	}
+
 	return edgeInfo, nil
 }
 
-func putChanEdgePolicy(edges *bolt.Bucket, edge *ChannelEdgePolicy, from, to []byte) error {
+func putChanEdgePolicy(edges, nodes *bolt.Bucket, edge *ChannelEdgePolicy,
+	from, to []byte) error {
+
 	var edgeKey [33 + 8]byte
 	copy(edgeKey[:], from)
 	byteOrder.PutUint64(edgeKey[33:], edge.ChannelID)
@@ -2591,6 +3083,13 @@ func putChanEdgePolicy(edges *bolt.Bucket, edge *ChannelEdgePolicy, from, to []b
 		return err
 	}
 
+	if len(edge.ExtraOpaqueData) > MaxAllowedExtraOpaqueBytes {
+		return ErrTooManyExtraOpaqueBytes(len(edge.ExtraOpaqueData))
+	}
+	if err := wire.WriteVarBytes(&b, 0, edge.ExtraOpaqueData); err != nil {
+		return err
+	}
+
 	// Before we write out the new edge, we'll create a new entry in the
 	// update index in order to keep it fresh.
 	var indexKey [8 + 8]byte
@@ -2604,20 +3103,27 @@ func putChanEdgePolicy(edges *bolt.Bucket, edge *ChannelEdgePolicy, from, to []b
 
 	// If there was already an entry for this edge, then we'll need to
 	// delete the old one to ensure we don't leave around any after-images.
-	if edgeBytes := edges.Get(edgeKey[:]); edgeBytes != nil {
+	// An unknown policy value does not have a update time recorded, so
+	// it also does not need to be removed.
+	if edgeBytes := edges.Get(edgeKey[:]); edgeBytes != nil &&
+		!bytes.Equal(edgeBytes[:], unknownPolicy) {
+
 		// In order to delete the old entry, we'll need to obtain the
 		// *prior* update time in order to delete it. To do this, we'll
-		// create an offset to slice in. Starting backwards, we'll
-		// create an offset than puts us right after the flags
-		// variable:
-		//
-		//  * pubkeySize + fee+policySize + timelockSize + flagSize
-		updateEnd := 33 + (8 * 3) + 2 + 1
-		updateStart := updateEnd - 8
-		oldUpdateTime := edgeBytes[updateStart:updateEnd]
+		// need to deserialize the existing policy within the database
+		// (now outdated by the new one), and delete its corresponding
+		// entry within the update index.
+		oldEdgePolicy, err := deserializeChanEdgePolicy(
+			bytes.NewReader(edgeBytes), nodes,
+		)
+		if err != nil {
+			return err
+		}
+
+		oldUpdateTime := uint64(oldEdgePolicy.LastUpdate.Unix())
 
 		var oldIndexKey [8 + 8]byte
-		copy(oldIndexKey[:], oldUpdateTime)
+		byteOrder.PutUint64(oldIndexKey[:8], oldUpdateTime)
 		byteOrder.PutUint64(oldIndexKey[8:], edge.ChannelID)
 
 		if err := updateIndex.Delete(oldIndexKey[:]); err != nil {
@@ -2632,6 +3138,23 @@ func putChanEdgePolicy(edges *bolt.Bucket, edge *ChannelEdgePolicy, from, to []b
 	return edges.Put(edgeKey[:], b.Bytes()[:])
 }
 
+// putChanEdgePolicyUnknown marks the edge policy as unknown
+// in the edges bucket.
+func putChanEdgePolicyUnknown(edges *bolt.Bucket, channelID uint64,
+	from []byte) error {
+
+	var edgeKey [33 + 8]byte
+	copy(edgeKey[:], from)
+	byteOrder.PutUint64(edgeKey[33:], channelID)
+
+	if edges.Get(edgeKey[:]) != nil {
+		return fmt.Errorf("Cannot write unknown policy for channel %v "+
+			" when there is already a policy present", channelID)
+	}
+
+	return edges.Put(edgeKey[:], unknownPolicy)
+}
+
 func fetchChanEdgePolicy(edges *bolt.Bucket, chanID []byte,
 	nodePub []byte, nodes *bolt.Bucket) (*ChannelEdgePolicy, error) {
 
@@ -2642,6 +3165,11 @@ func fetchChanEdgePolicy(edges *bolt.Bucket, chanID []byte,
 	edgeBytes := edges.Get(edgeKey[:])
 	if edgeBytes == nil {
 		return nil, ErrEdgeNotFound
+	}
+
+	// No need to deserialize unknown policy.
+	if bytes.Equal(edgeBytes[:], unknownPolicy) {
+		return nil, nil
 	}
 
 	edgeReader := bytes.NewReader(edgeBytes)
@@ -2663,7 +3191,7 @@ func fetchChanEdgePolicies(edgeIndex *bolt.Bucket, edges *bolt.Bucket,
 	// something other than edge non-existence.
 	node1Pub := edgeInfo[:33]
 	edge1, err := fetchChanEdgePolicy(edges, chanID, node1Pub, nodes)
-	if err != nil && err != ErrEdgeNotFound {
+	if err != nil {
 		return nil, nil, err
 	}
 
@@ -2676,9 +3204,9 @@ func fetchChanEdgePolicies(edgeIndex *bolt.Bucket, edges *bolt.Bucket,
 
 	// Similarly, the second node is contained within the latter
 	// half of the edge information.
-	node2Pub := edgeInfo[33:67]
+	node2Pub := edgeInfo[33:66]
 	edge2, err := fetchChanEdgePolicy(edges, chanID, node2Pub, nodes)
-	if err != nil && err != ErrEdgeNotFound {
+	if err != nil {
 		return nil, nil, err
 	}
 
@@ -2742,6 +3270,19 @@ func deserializeChanEdgePolicy(r io.Reader,
 
 	node, err := fetchLightningNode(nodes, pub[:])
 	if err != nil {
+		return nil, fmt.Errorf("unable to fetch node: %x, %v",
+			pub[:], err)
+	}
+
+	// We'll try and see if there are any opaque bytes left, if not, then
+	// we'll ignore the EOF error and return the edge as is.
+	edge.ExtraOpaqueData, err = wire.ReadVarBytes(
+		r, 0, MaxAllowedExtraOpaqueBytes, "blob",
+	)
+	switch {
+	case err == io.ErrUnexpectedEOF:
+	case err == io.EOF:
+	case err != nil:
 		return nil, err
 	}
 

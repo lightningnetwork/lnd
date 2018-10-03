@@ -22,7 +22,7 @@ package lnrpc;
  * 
  * More information on how exactly the gRPC documentation is generated from
  * this proto file can be found here:
- * https://github.com/MaxFangX/lightning-api
+ * https://github.com/lightninglabs/lightning-api
  */
 
 // The WalletUnlocker service is used to set up a wallet password for
@@ -249,12 +249,7 @@ service Lightning {
     /** lncli: `newaddress`
     NewAddress creates a new address under control of the local wallet.
     */
-    rpc NewAddress (NewAddressRequest) returns (NewAddressResponse);
-
-    /**
-    NewWitnessAddress creates a new witness address under control of the local wallet.
-    */
-    rpc NewWitnessAddress (NewWitnessAddressRequest) returns (NewAddressResponse) {
+    rpc NewAddress (NewAddressRequest) returns (NewAddressResponse) {
         option (google.api.http) = {
             get: "/v1/newaddress"
         };
@@ -341,6 +336,17 @@ service Lightning {
         };
     }
 
+    /** lncli: `closedchannels`
+    ClosedChannels returns a description of all the closed channels that 
+    this node was a participant in.
+    */
+    rpc ClosedChannels (ClosedChannelsRequest) returns (ClosedChannelsResponse) {
+        option (google.api.http) = {
+            get: "/v1/channels/closed"
+        };
+    }
+
+
     /**
     OpenChannelSync is a synchronous version of the OpenChannel RPC call. This
     call is meant to be consumed by clients to the REST proxy. As with all
@@ -377,6 +383,19 @@ service Lightning {
             delete: "/v1/channels/{channel_point.funding_txid_str}/{channel_point.output_index}"
         };
     }
+
+    /** lncli: `abandonchannel`
+    AbandonChannel removes all channel state from the database except for a
+    close summary. This method can be used to get rid of permanently unusable
+    channels due to bugs fixed in newer versions of lnd. Only available
+    when in debug builds of lnd.
+    */
+    rpc AbandonChannel (AbandonChannelRequest) returns (AbandonChannelResponse) {
+        option (google.api.http) = {
+            delete: "/v1/channels/{channel_point.funding_txid_str}/{channel_point.output_index}"
+        };
+    }
+
 
     /** lncli: `sendpayment`
     SendPayment dispatches a bi-directional streaming RPC for sending payments
@@ -432,7 +451,14 @@ service Lightning {
 
     /** lncli: `listinvoices`
     ListInvoices returns a list of all the invoices currently stored within the
-    database. Any active debug invoices are ignored.
+    database. Any active debug invoices are ignored. It has full support for
+    paginated responses, allowing users to query for specific invoices through
+    their add_index. This can be done by using either the first_index_offset or
+    last_index_offset fields included in the response as the index_offset of the
+    next request. The reversed flag is set by default in order to paginate
+    backwards. If you wish to paginate forwards, you must explicitly set the
+    flag to false. If none of the parameters are specified, then the last 100
+    invoices will be returned.
     */
     rpc ListInvoices (ListInvoiceRequest) returns (ListInvoiceResponse) {
         option (google.api.http) = {
@@ -452,8 +478,15 @@ service Lightning {
     }
 
     /**
-    SubscribeInvoices returns a uni-directional stream (sever -> client) for
-    notifying the client of newly added/settled invoices.
+    SubscribeInvoices returns a uni-directional stream (server -> client) for
+    notifying the client of newly added/settled invoices. The caller can
+    optionally specify the add_index and/or the settle_index. If the add_index
+    is specified, then we'll first start by sending add invoice events for all
+    invoices with an add_index greater than the specified value.  If the
+    settle_index is specified, the next, we'll send out all settle events for
+    invoices with a settle_index greater than the specified value.  One or both
+    of these fields can be set. If no fields are set, then we'll only send out
+    the latest add/settle events.
     */
     rpc SubscribeInvoices (InvoiceSubscription) returns (stream Invoice) {
         option (google.api.http) = {
@@ -618,7 +651,7 @@ message Transaction {
     /// The transaction hash
     string tx_hash = 1 [ json_name = "tx_hash" ];
 
-    /// The transaction ammount, denominated in satoshis
+    /// The transaction amount, denominated in satoshis
     int64 amount = 2 [ json_name = "amount" ];
 
     /// The number of confirmations
@@ -646,6 +679,16 @@ message TransactionDetails {
     repeated Transaction transactions = 1 [json_name = "transactions"];
 }
 
+message FeeLimit {
+    oneof limit {
+        /// The fee limit expressed as a fixed amount of satoshis.
+        int64 fixed = 1;
+
+        /// The fee limit expressed as a percentage of the payment amount.
+        int64 percent = 2;
+    }
+}
+
 message SendRequest {
     /// The identity pubkey of the payment recipient
     bytes dest = 1;
@@ -653,7 +696,7 @@ message SendRequest {
     /// The hex-encoded identity pubkey of the payment recipient
     string dest_string = 2;
 
-    /// Number of satoshis to send. 
+    /// Number of satoshis to send.
     int64 amt = 3;
 
     /// The hash to use within the payment's HTLC
@@ -669,8 +712,19 @@ message SendRequest {
     */
     string payment_request = 6;
 
-    /// The CLTV delta from the current height that should be used to set the timelock for the final hop.
+    /**
+    The CLTV delta from the current height that should be used to set the
+    timelock for the final hop.
+    */
     int32 final_cltv_delta = 7;
+
+    /**
+    The maximum number of satoshis that will be paid as a fee of the payment.
+    This value can be represented either as a percentage of the amount being
+    sent, or as a fixed amount of the maximum fee the user is willing the pay to
+    send the payment.
+    */
+    FeeLimit fee_limit = 8;
 }
 message SendResponse {
     string payment_error = 1 [json_name = "payment_error"];
@@ -748,7 +802,6 @@ message SendCoinsResponse {
 
 - `p2wkh`: Pay to witness key hash (`WITNESS_PUBKEY_HASH` = 0)
 - `np2wkh`: Pay to nested witness key hash (`NESTED_PUBKEY_HASH` = 1)
-- `p2pkh`:  Pay to public key hash (`PUBKEY_HASH` = 2)
 */
 message NewAddressRequest {
     enum AddressType {
@@ -759,10 +812,6 @@ message NewAddressRequest {
     /// The address type
     AddressType type = 1;
 }
-
-message NewWitnessAddressRequest {
-}
-
 message NewAddressResponse {
     /// The newly generated wallet address
     string address = 1 [json_name = "address"];
@@ -899,6 +948,7 @@ message Channel {
     bool private = 17 [json_name = "private"];
 }
 
+
 message ListChannelsRequest {
     bool active_only = 1;
     bool inactive_only = 2;
@@ -908,6 +958,60 @@ message ListChannelsRequest {
 message ListChannelsResponse {
     /// The list of active channels
     repeated Channel channels = 11 [json_name = "channels"];
+}
+
+message ChannelCloseSummary {
+    /// The outpoint (txid:index) of the funding transaction. 
+    string channel_point = 1 [json_name = "channel_point"];
+
+    ///  The unique channel ID for the channel. 
+    uint64 chan_id = 2 [json_name = "chan_id"];
+
+    /// The hash of the genesis block that this channel resides within.
+    string chain_hash = 3 [json_name = "chain_hash"];
+
+    /// The txid of the transaction which ultimately closed this channel.
+    string closing_tx_hash = 4 [json_name = "closing_tx_hash"];
+
+    /// Public key of the remote peer that we formerly had a channel with.
+    string remote_pubkey = 5 [json_name = "remote_pubkey"];
+
+    /// Total capacity of the channel.
+    int64 capacity = 6 [json_name = "capacity"];
+
+    /// Height at which the funding transaction was spent.
+    uint32 close_height = 7 [json_name = "close_height"];
+
+    /// Settled balance at the time of channel closure
+    int64 settled_balance = 8 [json_name = "settled_balance"];
+
+    /// The sum of all the time-locked outputs at the time of channel closure
+    int64 time_locked_balance = 9 [json_name = "time_locked_balance"];
+
+    enum ClosureType {
+        COOPERATIVE_CLOSE = 0;
+        LOCAL_FORCE_CLOSE = 1;
+        REMOTE_FORCE_CLOSE = 2;
+        BREACH_CLOSE = 3;
+        FUNDING_CANCELED = 4;
+        ABANDONED = 5;
+    }
+
+    /// Details on how the channel was closed.
+    ClosureType close_type = 10 [json_name = "close_type"];
+}
+
+message ClosedChannelsRequest {
+    bool cooperative = 1;
+    bool local_force = 2;
+    bool remote_force = 3;
+    bool breach = 4;
+    bool funding_canceled = 5;
+    bool abandoned = 6;
+}
+
+message ClosedChannelsResponse { 
+    repeated ChannelCloseSummary channels = 1 [json_name = "channels"];
 }
 
 message Peer {
@@ -1037,11 +1141,10 @@ message PendingUpdate {
 }
 
 message OpenChannelRequest {
-
     /// The pubkey of the node to open a channel with
     bytes node_pubkey = 2 [json_name = "node_pubkey"];
 
-    /// The hex encoded pubkey of the node to open a channel with 
+    /// The hex encoded pubkey of the node to open a channel with
     string node_pubkey_string = 3 [json_name = "node_pubkey_string"];
 
     /// The number of satoshis the wallet should commit to the channel
@@ -1064,6 +1167,9 @@ message OpenChannelRequest {
 
     /// The delay we require on the remote's commitment transaction. If this is not set, it will be scaled automatically with the channel size.
     uint32 remote_csv_delay = 10 [json_name = "remote_csv_delay"];
+
+    /// The minimum number of confirmations each one of your outputs used for the funding transaction must satisfy.
+    int32 min_confs = 11 [json_name = "min_confs"];
 }
 message OpenStatusUpdate {
     oneof update {
@@ -1230,9 +1336,17 @@ message QueryRoutesRequest {
 
     /// An optional CLTV delta from the current height that should be used for the timelock of the final hop
     int32 final_cltv_delta = 4;
+
+    /**
+    The maximum number of satoshis that will be paid as a fee of the payment.
+    This value can be represented either as a percentage of the amount being
+    sent, or as a fixed amount of the maximum fee the user is willing the pay to
+    send the payment.
+    */
+    FeeLimit fee_limit = 5;
 }
 message QueryRoutesResponse {
-    repeated Route routes = 1 [ json_name = "routes"];
+    repeated Route routes = 1 [json_name = "routes"];
 }
 
 message Hop {
@@ -1342,6 +1456,7 @@ message RoutingPolicy {
     int64 min_htlc = 2 [json_name = "min_htlc"];
     int64 fee_base_msat = 3 [json_name = "fee_base_msat"];
     int64 fee_rate_milli_msat = 4 [json_name = "fee_rate_milli_msat"];
+    bool disabled = 5 [json_name = "disabled"];
 }
 
 /**
@@ -1549,6 +1664,45 @@ message Invoice {
 
     /// Whether this invoice should include routing hints for private channels.
     bool private = 15 [json_name = "private"];
+
+    /**
+    The "add" index of this invoice. Each newly created invoice will increment
+    this index making it monotonically increasing. Callers to the
+    SubscribeInvoices call can use this to instantly get notified of all added
+    invoices with an add_index greater than this one.
+    */
+    uint64 add_index = 16 [json_name = "add_index"];
+
+    /**
+    The "settle" index of this invoice. Each newly settled invoice will
+    increment this index making it monotonically increasing. Callers to the
+    SubscribeInvoices call can use this to instantly get notified of all
+    settled invoices with an settle_index greater than this one.
+    */
+    uint64 settle_index = 17 [json_name = "settle_index"];
+
+    /// Deprecated, use amt_paid_sat or amt_paid_msat.
+    int64 amt_paid = 18 [json_name = "amt_paid", deprecated = true];
+
+    /**
+    The amount that was accepted for this invoice, in satoshis. This will ONLY
+    be set if this invoice has been settled. We provide this field as if the
+    invoice was created with a zero value, then we need to record what amount
+    was ultimately accepted. Additionally, it's possible that the sender paid
+    MORE that was specified in the original invoice. So we'll record that here
+    as well.
+    */
+    int64 amt_paid_sat = 19 [json_name = "amt_paid_sat"];
+
+    /**
+    The amount that was accepted for this invoice, in millisatoshis. This will
+    ONLY be set if this invoice has been settled. We provide this field as if
+    the invoice was created with a zero value, then we need to record what
+    amount was ultimately accepted. Additionally, it's possible that the sender
+    paid MORE that was specified in the original invoice. So we'll record that
+    here as well.
+    */
+    int64 amt_paid_msat = 20 [json_name = "amt_paid_msat"];
 }
 message AddInvoiceResponse {
     bytes r_hash = 1 [json_name = "r_hash"];
@@ -1559,6 +1713,14 @@ message AddInvoiceResponse {
     payment to the recipient.
     */
     string payment_request = 2 [json_name = "payment_request"];
+
+    /**
+    The "add" index of this invoice. Each newly created invoice will increment
+    this index making it monotonically increasing. Callers to the
+    SubscribeInvoices call can use this to instantly get notified of all added
+    invoices with an add_index greater than this one.
+    */
+    uint64 add_index = 16 [json_name = "add_index"];
 }
 message PaymentHash {
     /**
@@ -1570,15 +1732,62 @@ message PaymentHash {
     /// The payment hash of the invoice to be looked up.
     bytes r_hash = 2 [json_name = "r_hash"];
 }
+
 message ListInvoiceRequest {
-    /// Toggles if all invoices should be returned, or only those that are currently unsettled.
-    bool pending_only = 1;
+    /// If set, only unsettled invoices will be returned in the response.
+    bool pending_only = 1 [json_name = "pending_only"];
+
+    /**
+    The index of an invoice that will be used as either the start or end of a
+    query to determine which invoices should be returned in the response.
+    */
+    uint64 index_offset = 4 [json_name = "index_offset"];
+
+    /// The max number of invoices to return in the response to this query.
+    uint64 num_max_invoices = 5 [json_name = "num_max_invoices"];
+
+    /**
+    If set, the invoices returned will result from seeking backwards from the
+    specified index offset. This can be used to paginate backwards.
+    */
+    bool reversed = 6 [json_name = "reversed"];
 }
 message ListInvoiceResponse {
+    /**
+    A list of invoices from the time slice of the time series specified in the
+    request.
+    */
     repeated Invoice invoices = 1 [json_name = "invoices"];
+
+    /**
+    The index of the last item in the set of returned invoices. This can be used
+    to seek further, pagination style.
+    */
+    uint64 last_index_offset = 2 [json_name = "last_index_offset"];
+
+    /**
+    The index of the last item in the set of returned invoices. This can be used
+    to seek backwards, pagination style.
+    */
+    uint64 first_index_offset = 3 [json_name = "first_index_offset"];
 }
 
 message InvoiceSubscription {
+    /**
+    If specified (non-zero), then we'll first start by sending out
+    notifications for all added indexes with an add_index greater than this
+    value. This allows callers to catch up on any events they missed while they
+    weren't connected to the streaming RPC.
+    */
+    uint64 add_index = 1 [json_name = "add_index"];
+
+    /**
+    If specified (non-zero), then we'll first start by sending out
+    notifications for all settled indexes with an settle_index greater than
+    this value. This allows callers to catch up on any events they missed while
+    they weren't connected to the streaming RPC.
+    */
+    uint64 settle_index = 2 [json_name = "settle_index"];
 }
 
 
@@ -1586,8 +1795,8 @@ message Payment {
     /// The payment hash
     string payment_hash = 1 [json_name = "payment_hash"];
 
-    /// The value of the payment in satoshis
-    int64 value = 2 [json_name = "value"];
+    /// Deprecated, use value_sat or value_msat.
+    int64 value = 2 [json_name = "value", deprecated = true];
 
     /// The date of this payment
     int64 creation_date = 3 [json_name = "creation_date"];
@@ -1600,6 +1809,12 @@ message Payment {
 
     /// The payment preimage
     string payment_preimage = 6 [json_name = "payment_preimage"];
+
+    /// The value of the payment in satoshis
+    int64 value_sat = 7 [json_name = "value_sat"];
+
+    /// The value of the payment in milli-satoshis
+    int64 value_msat = 8 [json_name = "value_msat"];
 }
 
 message ListPaymentsRequest {
@@ -1615,6 +1830,14 @@ message DeleteAllPaymentsRequest {
 
 message DeleteAllPaymentsResponse {
 }
+
+message AbandonChannelRequest {
+    ChannelPoint channel_point = 1;
+}
+
+message AbandonChannelResponse {
+}
+
 
 message DebugLevelRequest {
     bool show = 1;

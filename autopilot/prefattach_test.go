@@ -1,6 +1,7 @@
 package autopilot
 
 import (
+	"bytes"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -8,10 +9,10 @@ import (
 
 	prand "math/rand"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcutil"
 )
 
 func TestConstrainedPrefAttachmentNeedMoreChan(t *testing.T) {
@@ -344,12 +345,15 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 			// The node attached to should be amongst the two edges
 			// created above.
 			for _, directive := range directives {
+				edge1Pub := edge1.Peer.PubKey()
+				edge2Pub := edge2.Peer.PubKey()
+
 				switch {
-				case directive.PeerKey.IsEqual(edge1.Peer.PubKey()):
-				case directive.PeerKey.IsEqual(edge2.Peer.PubKey()):
+				case bytes.Equal(directive.NodeKey.SerializeCompressed(), edge1Pub[:]):
+				case bytes.Equal(directive.NodeKey.SerializeCompressed(), edge2Pub[:]):
 				default:
-					t1.Fatalf("attache to unknown node: %x",
-						directive.PeerKey.SerializeCompressed())
+					t1.Fatalf("attached to unknown node: %x",
+						directive.NodeKey.SerializeCompressed())
 				}
 
 				// As the number of funds available exceed the
@@ -472,8 +476,15 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 			if err != nil {
 				t1.Fatalf("unable to create channel: %v", err)
 			}
+			peerPubBytes := edge1.Peer.PubKey()
+			peerPub, err := btcec.ParsePubKey(
+				peerPubBytes[:], btcec.S256(),
+			)
+			if err != nil {
+				t.Fatalf("unable to parse pubkey: %v", err)
+			}
 			_, _, err = graph.addRandChannel(
-				edge1.Peer.PubKey(), nil, chanCapacity,
+				peerPub, nil, chanCapacity,
 			)
 			if err != nil {
 				t1.Fatalf("unable to create channel: %v", err)
@@ -623,8 +634,8 @@ func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
 			// We'll simulate a channel update by adding the nodes
 			// we just establish channel with the to set of nodes
 			// to be skipped.
-			skipNodes[NewNodeID(directives[0].PeerKey)] = struct{}{}
-			skipNodes[NewNodeID(directives[1].PeerKey)] = struct{}{}
+			skipNodes[NewNodeID(directives[0].NodeKey)] = struct{}{}
+			skipNodes[NewNodeID(directives[1].NodeKey)] = struct{}{}
 
 			// If we attempt to make a call to the Select function,
 			// without providing any new information, then we

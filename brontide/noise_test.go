@@ -9,8 +9,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
 )
 
 type maybeNetConn struct {

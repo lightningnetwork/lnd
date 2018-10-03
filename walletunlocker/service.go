@@ -7,14 +7,14 @@ import (
 	"os"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/aezeed"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcwallet/wallet"
 	"golang.org/x/net/context"
-	"github.com/lightningnetwork/lnd/keychain"
 )
 
 // WalletInitMsg is a message sent by the UnlockerService when a user wishes to
@@ -52,6 +52,13 @@ type WalletUnlockMsg struct {
 	// recovery should be attempted, such as after the wallet's initial
 	// creation, but before any addresses have been created.
 	RecoveryWindow uint32
+
+	// Wallet is the loaded and unlocked Wallet. This is returned
+	// through the channel to avoid it being unlocked twice (once to check
+	// if the password is correct, here in the WalletUnlocker and again
+	// later when lnd actually uses it). Because unlocking involves scrypt
+	// which is resource intensive, we want to avoid doing it twice.
+	Wallet *wallet.Wallet
 }
 
 // UnlockerService implements the WalletUnlocker service used to provide lnd
@@ -255,23 +262,19 @@ func (u *UnlockerService) UnlockWallet(ctx context.Context,
 	}
 
 	// Try opening the existing wallet with the provided password.
-	_, err = loader.OpenExistingWallet(password, false)
+	unlockedWallet, err := loader.OpenExistingWallet(password, false)
 	if err != nil {
 		// Could not open wallet, most likely this means that provided
 		// password was incorrect.
 		return nil, err
 	}
 
-	// We successfully opened the wallet, but we'll need to unload it to
-	// make sure lnd can open it later.
-	if err := loader.UnloadWallet(); err != nil {
-		// TODO: not return error here?
-		return nil, err
-	}
-
+	// We successfully opened the wallet and pass the instance back to
+	// avoid it needing to be unlocked again.
 	walletUnlockMsg := &WalletUnlockMsg{
 		Passphrase:     password,
 		RecoveryWindow: recoveryWindow,
+		Wallet:         unlockedWallet,
 	}
 
 	// At this point we was able to open the existing wallet with the
@@ -306,7 +309,7 @@ func (u *UnlockerService) ChangePassword(ctx context.Context,
 	privatePw := in.CurrentPassword
 
 	// If the current password is blank, we'll assume the user is coming
-	// from a --noencryptwallet state, so we'll use the default passwords.
+	// from a --noseedbackup state, so we'll use the default passwords.
 	if len(in.CurrentPassword) == 0 {
 		publicPw = lnwallet.DefaultPublicPassphrase
 		privatePw = lnwallet.DefaultPrivatePassphrase
@@ -331,7 +334,8 @@ func (u *UnlockerService) ChangePassword(ctx context.Context,
 	// this after unlocking the wallet to ensure macaroon files don't get
 	// deleted with incorrect password attempts.
 	for _, file := range u.macaroonFiles {
-		if err := os.Remove(file); err != nil {
+		err := os.Remove(file)
+		if err != nil && !os.IsNotExist(err) {
 			return nil, err
 		}
 	}

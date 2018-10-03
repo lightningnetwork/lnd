@@ -2,32 +2,33 @@
     "info": [
     "This file encodes a basic graph that resembles the following ascii graph:",  
     "", 
-"                           50k satoshis       ┌──────┐                                 ", 
+"                           50k satoshis       ┌──────┐                                  ", 
 "                         ┌───────────────────▶│luo ji│◀─┐                               ",
-"                         │                    └──────┘  │                               ",
-"                         │                              │                               ", 
-"                         │                              │                               ", 
-"                         │                              │                               ",  
-"                         │                              │                               ",  
-"                         │                              │                               ",   
+"                         │                    └──────┘  │      ┌──────┐                 ",
+"                         │                              │      | elst |                 ", 
+"                         │                              │      └──────┘                 ", 
+"                         │                              │         ▲                     ",  
+"                         │                              │         | 100k sat            ",  
+"                         │                              │         ▼                     ",   
 "                         ▼                              │      ┌──────┐                 ",  
 "                    ┌────────┐                          │      │sophon│◀┐               ",  
 "                    │satoshi │                          │      └──────┘ │               ",  
-"                    └────────┘                          │               │               ",  
-"                         ▲                              │               │  500 satoshis ",          
-"                         │          ┌───────────────────┘               │               ",  
-"                         │          │   100k satoshis                   │               ",  
-"                         │          │                                   │               ",  
-"                         │          │                                   │  ┌────────┐   ", 
-"                         └──────────┤                                   └─▶│son goku│   ", 
-"                    10k satoshis    │                                      └────────┘   ", 
-"                                    │                                           ▲       ", 
-"                                    │                                           │       ", 
-"                                    │                                           │       ", 
-"                                    ▼                                           │       ", 
-"                              ┌──────────┐                                      │       ", 
-"                              │ roasbeef │◀─────────────────────────────────────┘       ", 
-"                              └──────────┘               100k satoshis                  ",
+"                    └────────┘                          │        ▲      │               ",  
+"                         ▲                              │        |      │ 110k satoshis ",          
+"                         │          ┌───────────────────┘        |      │               ",  
+"                         │          │   100k satoshis            |      │               ",  
+"                         │          │                            |      │               ",  
+"                         │          │                   120k sat |      │  ┌────────┐   ", 
+"                         └──────────┤                   (hi fee) ▼      └─▶│son goku│   ", 
+"                    10k satoshis    │                ┌────────────┐        └────────┘   ", 
+"                                    │                | pham nuwen |             ▲       ", 
+"                                    │                └────────────┘             │       ", 
+"                                    │                    ▲                      │       ", 
+"                                    ▼                    | 120k sat (hi fee)    │       ", 
+"                              ┌──────────┐               |                      │       ", 
+"                              │ roasbeef │◀──────────────┴──────────────────────┘       ", 
+"                              └──────────┘                         100k satoshis        ",
+
 " the graph also includes a channel from roasbeef to sophon via pham nuwen"
     ], 
     "nodes": [
@@ -60,10 +61,39 @@
             "source": false,
             "pubkey": "02a1d2856be336a58af08989aea0d8c41e072ccc392c46f8ce0e6e069f002035f3",
             "alias": "phamnuwen"
+        },
+        {
+            "source": false,
+            "pubkey": "02a4b236b69b09b8efe6ccf822fa95ee95a0196451f4d066a450b7489e2e354a64",
+            "alias": "elst"
         }
     ], 
     "edges": [
         {
+            "node_1": "02a4b236b69b09b8efe6ccf822fa95ee95a0196451f4d066a450b7489e2e354a64",
+            "node_2": "036264734b40c9e91d3d990a8cdfbbe23b5b0b7ad3cd0e080a25dcd05d39eeb7eb",
+            "channel_id": 15433,
+            "channel_point": "33bd5d49a50e284221561b91e781f1fca0d60341c9f9dd785b5e379a6d88af3d:0", 
+            "flags": 1,
+            "expiry": 1,
+            "min_htlc": 1000, 
+            "fee_base_msat": 200,
+            "fee_rate": 0, 
+            "capacity": 100000
+        },
+        {
+            "node_1": "02a4b236b69b09b8efe6ccf822fa95ee95a0196451f4d066a450b7489e2e354a64",
+            "node_2": "036264734b40c9e91d3d990a8cdfbbe23b5b0b7ad3cd0e080a25dcd05d39eeb7eb",
+            "channel_id": 15433,
+            "channel_point": "33bd5d49a50e284221561b91e781f1fca0d60341c9f9dd785b5e379a6d88af3d:0", 
+            "flags": 0,
+            "expiry": 1,
+            "min_htlc": 1000, 
+            "fee_base_msat": 200, 
+            "fee_rate": 0, 
+            "capacity": 100000
+        },
+        {
             "node_1": "02a1d2856be336a58af08989aea0d8c41e072ccc392c46f8ce0e6e069f002035f3",
             "node_2": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6",
             "channel_id": 999991,
@@ -72,8 +102,8 @@
             "expiry": 1,
             "min_htlc": 1000, 
             "fee_base_msat": 10000,
-            "fee_rate": 1000000, 
-            "capacity": 100000
+            "fee_rate": 100000, 
+            "capacity": 120000
         },
         {
             "node_1": "02a1d2856be336a58af08989aea0d8c41e072ccc392c46f8ce0e6e069f002035f3",
@@ -84,8 +114,8 @@
             "expiry": 1,
             "min_htlc": 1000, 
             "fee_base_msat": 10000, 
-            "fee_rate": 1000000, 
-            "capacity": 100000
+            "fee_rate": 100000, 
+            "capacity": 120000
         },
         {
             "node_1": "02a1d2856be336a58af08989aea0d8c41e072ccc392c46f8ce0e6e069f002035f3",
@@ -96,8 +126,8 @@
             "expiry": 1,
             "min_htlc": 1000, 
             "fee_base_msat": 10000,
-            "fee_rate": 1000000, 
-            "capacity": 100000
+            "fee_rate": 100000, 
+            "capacity": 120000
         },
         {
             "node_1": "02a1d2856be336a58af08989aea0d8c41e072ccc392c46f8ce0e6e069f002035f3",
@@ -108,8 +138,8 @@
             "expiry": 1,
             "min_htlc": 1000, 
             "fee_base_msat": 10000, 
-            "fee_rate": 1000000, 
-            "capacity": 100000
+            "fee_rate": 100000, 
+            "capacity": 120000
         },
         {
             "node_1": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6",
@@ -145,7 +175,7 @@
             "min_htlc": 1, 
             "fee_base_msat": 10, 
             "fee_rate": 1000, 
-            "capacity": 500 
+            "capacity": 110000
         },
         {
 	    "node_1": "032b480de5d002f1a8fd1fe1bbf0a0f1b07760f65f052e66d56f15d71097c01add",
@@ -157,7 +187,7 @@
             "min_htlc": 1, 
             "fee_base_msat": 10, 
             "fee_rate": 1000, 
-            "capacity": 500 
+            "capacity": 110000 
         },
         {
             "node_1": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6",

@@ -4,9 +4,58 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
+	"github.com/btcsuite/btcd/btcjson"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 )
+
+// TxConfStatus denotes the status of a transaction's lookup.
+type TxConfStatus uint8
+
+const (
+	// TxFoundMempool denotes that the transaction was found within the
+	// backend node's mempool.
+	TxFoundMempool TxConfStatus = iota
+
+	// TxFoundIndex denotes that the transaction was found within the
+	// backend node's txindex.
+	TxFoundIndex
+
+	// TxNotFoundIndex denotes that the transaction was not found within the
+	// backend node's txindex.
+	TxNotFoundIndex
+
+	// TxFoundManually denotes that the transaction was found within the
+	// chain by scanning for it manually.
+	TxFoundManually
+
+	// TxNotFoundManually denotes that the transaction was not found within
+	// the chain by scanning for it manually.
+	TxNotFoundManually
+)
+
+// String returns the string representation of the TxConfStatus.
+func (t TxConfStatus) String() string {
+	switch t {
+	case TxFoundMempool:
+		return "TxFoundMempool"
+
+	case TxFoundIndex:
+		return "TxFoundIndex"
+
+	case TxNotFoundIndex:
+		return "TxNotFoundIndex"
+
+	case TxFoundManually:
+		return "TxFoundManually"
+
+	case TxNotFoundManually:
+		return "TxNotFoundManually"
+
+	default:
+		return "unknown"
+	}
+}
 
 // ChainNotifier represents a trusted source to receive notifications concerning
 // targeted events on the Bitcoin blockchain. The interface specification is
@@ -20,44 +69,51 @@ import (
 // resource
 type ChainNotifier interface {
 	// RegisterConfirmationsNtfn registers an intent to be notified once
-	// txid reaches numConfs confirmations. The returned ConfirmationEvent
-	// should properly notify the client once the specified number of
-	// confirmations has been reached for the txid, as well as if the
-	// original tx gets re-org'd out of the mainchain.  The heightHint
-	// parameter is provided as a convenience to light clients. The
-	// heightHint denotes the earliest height in the blockchain in which the
-	// target txid _could_ have been included in the chain.  This can be
-	// used to bound the search space when checking to see if a
-	// notification can immediately be dispatched due to historical data.
+	// txid reaches numConfs confirmations. We also pass in the pkScript as
+	// the default light client instead needs to match on scripts created
+	// in the block. The returned ConfirmationEvent should properly notify
+	// the client once the specified number of confirmations has been
+	// reached for the txid, as well as if the original tx gets re-org'd
+	// out of the mainchain.  The heightHint parameter is provided as a
+	// convenience to light clients. The heightHint denotes the earliest
+	// height in the blockchain in which the target txid _could_ have been
+	// included in the chain.  This can be used to bound the search space
+	// when checking to see if a notification can immediately be dispatched
+	// due to historical data.
 	//
 	// NOTE: Dispatching notifications to multiple clients subscribed to
 	// the same (txid, numConfs) tuple MUST be supported.
-	RegisterConfirmationsNtfn(txid *chainhash.Hash, numConfs,
+	RegisterConfirmationsNtfn(txid *chainhash.Hash, pkScript []byte, numConfs,
 		heightHint uint32) (*ConfirmationEvent, error)
 
 	// RegisterSpendNtfn registers an intent to be notified once the target
-	// outpoint is successfully spent within a transaction. The returned
+	// outpoint is successfully spent within a transaction. The script that
+	// the outpoint creates must also be specified. This allows this
+	// interface to be implemented by BIP 158-like filtering. The returned
 	// SpendEvent will receive a send on the 'Spend' transaction once a
 	// transaction spending the input is detected on the blockchain.  The
 	// heightHint parameter is provided as a convenience to light clients.
 	// The heightHint denotes the earliest height in the blockchain in
 	// which the target output could have been created.
 	//
-	// NOTE: If mempool=true is set, then this notification should be
-	// triggered on a best-effort basis once the transaction is *seen* on
-	// the network. If mempool=false, it should only be triggered when the
-	// spending transaction receives a single confirmation.
+	// NOTE: The notification should only be triggered when the spending
+	// transaction receives a single confirmation.
 	//
 	// NOTE: Dispatching notifications to multiple clients subscribed to a
 	// spend of the same outpoint MUST be supported.
-	RegisterSpendNtfn(outpoint *wire.OutPoint, heightHint uint32,
-		mempool bool) (*SpendEvent, error)
+	RegisterSpendNtfn(outpoint *wire.OutPoint, pkScript []byte,
+		heightHint uint32) (*SpendEvent, error)
 
 	// RegisterBlockEpochNtfn registers an intent to be notified of each
 	// new block connected to the tip of the main chain. The returned
 	// BlockEpochEvent struct contains a channel which will be sent upon
 	// for each new block discovered.
-	RegisterBlockEpochNtfn() (*BlockEpochEvent, error)
+	//
+	// Clients have the option of passing in their best known block.
+	// If they specify a block, the ChainNotifier checks whether the client
+	// is behind on blocks. If they are, the ChainNotifier sends a backlog
+	// of block notifications for the missed blocks.
+	RegisterBlockEpochNtfn(*BlockEpoch) (*BlockEpochEvent, error)
 
 	// Start the ChainNotifier. Once started, the implementation should be
 	// ready, and able to receive notification registrations from clients.
@@ -245,4 +301,207 @@ func SupportedNotifiers() []string {
 	}
 
 	return supportedNotifiers
+}
+
+// ChainConn enables notifiers to pass in their chain backend to interface
+// functions that require it.
+type ChainConn interface {
+	// GetBlockHeader returns the block header for a hash.
+	GetBlockHeader(blockHash *chainhash.Hash) (*wire.BlockHeader, error)
+
+	// GetBlockHeaderVerbose returns the verbose block header for a hash.
+	GetBlockHeaderVerbose(blockHash *chainhash.Hash) (
+		*btcjson.GetBlockHeaderVerboseResult, error)
+
+	// GetBlockHash returns the hash from a block height.
+	GetBlockHash(blockHeight int64) (*chainhash.Hash, error)
+}
+
+// GetCommonBlockAncestorHeight takes in:
+// (1) the hash of a block that has been reorged out of the main chain
+// (2) the hash of the block of the same height from the main chain
+// It returns the height of the nearest common ancestor between the two hashes,
+// or an error
+func GetCommonBlockAncestorHeight(chainConn ChainConn, reorgHash,
+	chainHash chainhash.Hash) (int32, error) {
+
+	for reorgHash != chainHash {
+		reorgHeader, err := chainConn.GetBlockHeader(&reorgHash)
+		if err != nil {
+			return 0, fmt.Errorf("unable to get header for hash=%v: %v",
+				reorgHash, err)
+		}
+		chainHeader, err := chainConn.GetBlockHeader(&chainHash)
+		if err != nil {
+			return 0, fmt.Errorf("unable to get header for hash=%v: %v",
+				chainHash, err)
+		}
+		reorgHash = reorgHeader.PrevBlock
+		chainHash = chainHeader.PrevBlock
+	}
+
+	verboseHeader, err := chainConn.GetBlockHeaderVerbose(&chainHash)
+	if err != nil {
+		return 0, fmt.Errorf("unable to get verbose header for hash=%v: %v",
+			chainHash, err)
+	}
+
+	return verboseHeader.Height, nil
+}
+
+// GetClientMissedBlocks uses a client's best block to determine what blocks
+// it missed being notified about, and returns them in a slice. Its
+// backendStoresReorgs parameter tells it whether or not the notifier's
+// chainConn stores information about blocks that have been reorged out of the
+// chain, which allows GetClientMissedBlocks to find out whether the client's
+// best block has been reorged out of the chain, rewind to the common ancestor
+// and return blocks starting right after the common ancestor.
+func GetClientMissedBlocks(chainConn ChainConn, clientBestBlock *BlockEpoch,
+	notifierBestHeight int32, backendStoresReorgs bool) ([]BlockEpoch, error) {
+
+	startingHeight := clientBestBlock.Height
+	if backendStoresReorgs {
+		// If a reorg causes the client's best hash to be incorrect,
+		// retrieve the closest common ancestor and dispatch
+		// notifications from there.
+		hashAtBestHeight, err := chainConn.GetBlockHash(
+			int64(clientBestBlock.Height))
+		if err != nil {
+			return nil, fmt.Errorf("unable to find blockhash for "+
+				"height=%d: %v", clientBestBlock.Height, err)
+		}
+
+		startingHeight, err = GetCommonBlockAncestorHeight(
+			chainConn, *clientBestBlock.Hash, *hashAtBestHeight,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to find common ancestor: "+
+				"%v", err)
+		}
+	}
+
+	// We want to start dispatching historical notifications from the block
+	// right after the client's best block, to avoid a redundant notification.
+	missedBlocks, err := getMissedBlocks(
+		chainConn, startingHeight+1, notifierBestHeight+1,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get missed blocks: %v", err)
+	}
+
+	return missedBlocks, nil
+}
+
+// RewindChain handles internal state updates for the notifier's TxConfNotifier
+// It has no effect if given a height greater than or equal to our current best
+// known height. It returns the new best block for the notifier.
+func RewindChain(chainConn ChainConn, txConfNotifier *TxConfNotifier,
+	currBestBlock BlockEpoch, targetHeight int32) (BlockEpoch, error) {
+
+	newBestBlock := BlockEpoch{
+		Height: currBestBlock.Height,
+		Hash:   currBestBlock.Hash,
+	}
+
+	for height := currBestBlock.Height; height > targetHeight; height-- {
+		hash, err := chainConn.GetBlockHash(int64(height - 1))
+		if err != nil {
+			return newBestBlock, fmt.Errorf("unable to "+
+				"find blockhash for disconnected height=%d: %v",
+				height, err)
+		}
+
+		Log.Infof("Block disconnected from main chain: "+
+			"height=%v, sha=%v", height, newBestBlock.Hash)
+
+		err = txConfNotifier.DisconnectTip(uint32(height))
+		if err != nil {
+			return newBestBlock, fmt.Errorf("unable to "+
+				" disconnect tip for height=%d: %v",
+				height, err)
+		}
+		newBestBlock.Height = height - 1
+		newBestBlock.Hash = hash
+	}
+	return newBestBlock, nil
+}
+
+// HandleMissedBlocks is called when the chain backend for a notifier misses a
+// series of blocks, handling a reorg if necessary. Its backendStoresReorgs
+// parameter tells it whether or not the notifier's chainConn stores
+// information about blocks that have been reorged out of the chain, which allows
+// HandleMissedBlocks to check whether the notifier's best block has been
+// reorged out, and rewind the chain accordingly. It returns the best block for
+// the notifier and a slice of the missed blocks. The new best block needs to be
+// returned in case a chain rewind occurs and partially completes before
+// erroring. In the case where there is no rewind, the notifier's
+// current best block is returned.
+func HandleMissedBlocks(chainConn ChainConn, txConfNotifier *TxConfNotifier,
+	currBestBlock BlockEpoch, newHeight int32,
+	backendStoresReorgs bool) (BlockEpoch, []BlockEpoch, error) {
+
+	startingHeight := currBestBlock.Height
+
+	if backendStoresReorgs {
+		// If a reorg causes our best hash to be incorrect, rewind the
+		// chain so our best block is set to the closest common
+		// ancestor, then dispatch notifications from there.
+		hashAtBestHeight, err :=
+			chainConn.GetBlockHash(int64(currBestBlock.Height))
+		if err != nil {
+			return currBestBlock, nil, fmt.Errorf("unable to find "+
+				"blockhash for height=%d: %v",
+				currBestBlock.Height, err)
+		}
+
+		startingHeight, err = GetCommonBlockAncestorHeight(
+			chainConn, *currBestBlock.Hash, *hashAtBestHeight,
+		)
+		if err != nil {
+			return currBestBlock, nil, fmt.Errorf("unable to find "+
+				"common ancestor: %v", err)
+		}
+
+		currBestBlock, err = RewindChain(chainConn, txConfNotifier,
+			currBestBlock, startingHeight)
+		if err != nil {
+			return currBestBlock, nil, fmt.Errorf("unable to "+
+				"rewind chain: %v", err)
+		}
+	}
+
+	// We want to start dispatching historical notifications from the block
+	// right after our best block, to avoid a redundant notification.
+	missedBlocks, err := getMissedBlocks(chainConn, startingHeight+1, newHeight)
+	if err != nil {
+		return currBestBlock, nil, fmt.Errorf("unable to get missed "+
+			"blocks: %v", err)
+	}
+
+	return currBestBlock, missedBlocks, nil
+}
+
+// getMissedBlocks returns a slice of blocks: [startingHeight, endingHeight)
+// fetched from the chain.
+func getMissedBlocks(chainConn ChainConn, startingHeight,
+	endingHeight int32) ([]BlockEpoch, error) {
+
+	numMissedBlocks := endingHeight - startingHeight
+	if numMissedBlocks < 0 {
+		return nil, fmt.Errorf("starting height %d is greater than "+
+			"ending height %d", startingHeight, endingHeight)
+	}
+
+	missedBlocks := make([]BlockEpoch, 0, numMissedBlocks)
+	for height := startingHeight; height < endingHeight; height++ {
+		hash, err := chainConn.GetBlockHash(int64(height))
+		if err != nil {
+			return nil, fmt.Errorf("unable to find blockhash for "+
+				"height=%d: %v", height, err)
+		}
+		missedBlocks = append(missedBlocks,
+			BlockEpoch{Hash: hash, Height: height})
+	}
+
+	return missedBlocks, nil
 }

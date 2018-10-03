@@ -10,15 +10,15 @@ import (
 
 	prand "math/rand"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
 )
 
 var (
@@ -530,6 +530,13 @@ func TestContractResolutionsStorage(t *testing.T) {
 				},
 			},
 		},
+	}
+
+	// First make sure that fetching unlogged contract resolutions will
+	// fail.
+	_, err = testLog.FetchContractResolutions()
+	if err == nil {
+		t.Fatalf("expected reading unlogged resolution from db to fail")
 	}
 
 	// Insert the resolution into the database, then immediately retrieve

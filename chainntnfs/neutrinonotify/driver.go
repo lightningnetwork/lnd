@@ -1,6 +1,7 @@
 package neutrinonotify
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/lightninglabs/neutrino"
@@ -10,18 +11,30 @@ import (
 // createNewNotifier creates a new instance of the ChainNotifier interface
 // implemented by NeutrinoNotifier.
 func createNewNotifier(args ...interface{}) (chainntnfs.ChainNotifier, error) {
-	if len(args) != 1 {
-		return nil, fmt.Errorf("incorrect number of arguments to .New(...), "+
-			"expected 1, instead passed %v", len(args))
+	if len(args) != 2 {
+		return nil, fmt.Errorf("incorrect number of arguments to "+
+			".New(...), expected 2, instead passed %v", len(args))
 	}
 
 	config, ok := args[0].(*neutrino.ChainService)
 	if !ok {
-		return nil, fmt.Errorf("first argument to neutrinonotify.New is " +
-			"incorrect, expected a *neutrino.ChainService")
+		return nil, errors.New("first argument to neutrinonotify.New " +
+			"is incorrect, expected a *neutrino.ChainService")
 	}
 
-	return New(config)
+	spendHintCache, ok := args[1].(chainntnfs.SpendHintCache)
+	if !ok {
+		return nil, errors.New("second argument to neutrinonotify.New " +
+			"is  incorrect, expected a chainntfs.SpendHintCache")
+	}
+
+	confirmHintCache, ok := args[2].(chainntnfs.ConfirmHintCache)
+	if !ok {
+		return nil, errors.New("third argument to neutrinonotify.New " +
+			"is  incorrect, expected a chainntfs.ConfirmHintCache")
+	}
+
+	return New(config, spendHintCache, confirmHintCache)
 }
 
 // init registers a driver for the NeutrinoNotify concrete implementation of

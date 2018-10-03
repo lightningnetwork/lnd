@@ -5,15 +5,21 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"github.com/lightningnetwork/lnd/channeldb"
+	"io/ioutil"
+	"math"
 	"reflect"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 var (
@@ -309,6 +315,9 @@ var (
 			},
 		},
 	}
+
+	testChanPoint      = wire.OutPoint{}
+	defaultTestTimeout = 5 * time.Second
 )
 
 func init() {
@@ -336,6 +345,8 @@ func init() {
 }
 
 func TestKidOutputSerialization(t *testing.T) {
+	t.Parallel()
+
 	for i, kid := range kidOutputs {
 		var b bytes.Buffer
 		if err := kid.Encode(&b); err != nil {
@@ -358,6 +369,8 @@ func TestKidOutputSerialization(t *testing.T) {
 }
 
 func TestBabyOutputSerialization(t *testing.T) {
+	t.Parallel()
+
 	for i, baby := range babyOutputs {
 		var b bytes.Buffer
 		if err := baby.Encode(&b); err != nil {
@@ -378,4 +391,736 @@ func TestBabyOutputSerialization(t *testing.T) {
 		}
 
 	}
+}
+
+type nurseryTestContext struct {
+	nursery     *utxoNursery
+	notifier    *nurseryMockNotifier
+	publishChan chan wire.MsgTx
+	store       *nurseryStoreInterceptor
+	restart     func() bool
+	receiveTx   func() wire.MsgTx
+	t           *testing.T
+}
+
+func createNurseryTestContext(t *testing.T,
+	checkStartStop func(func()) bool) *nurseryTestContext {
+
+	// Create a temporary database and connect nurseryStore to it. The
+	// alternative, mocking nurseryStore, is not chosen because there is
+	// still considerable logic in the store.
+
+	tempDirName, err := ioutil.TempDir("", "channeldb")
+	if err != nil {
+		t.Fatalf("unable to create temp dir: %v", err)
+	}
+
+	cdb, err := channeldb.Open(tempDirName)
+	if err != nil {
+		t.Fatalf("unable to open channeldb: %v", err)
+	}
+
+	store, err := newNurseryStore(&chainhash.Hash{}, cdb)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wrap the store in an inceptor to be able to wait for events in this
+	// test.
+	storeIntercepter := newNurseryStoreInterceptor(store)
+
+	notifier := newNurseryMockNotifier(t)
+
+	cfg := NurseryConfig{
+		Notifier: notifier,
+		FetchClosedChannels: func(pendingOnly bool) (
+			[]*channeldb.ChannelCloseSummary, error) {
+			return []*channeldb.ChannelCloseSummary{}, nil
+		},
+		FetchClosedChannel: func(chanID *wire.OutPoint) (
+			*channeldb.ChannelCloseSummary, error) {
+			return &channeldb.ChannelCloseSummary{
+				CloseHeight: 0,
+			}, nil
+		},
+		Store:   storeIntercepter,
+		ChainIO: &mockChainIO{},
+		GenSweepScript: func() ([]byte, error) {
+			return []byte{}, nil
+		},
+		Estimator: &mockFeeEstimator{},
+		Signer:    &nurseryMockSigner{},
+	}
+
+	publishChan := make(chan wire.MsgTx, 1)
+	cfg.PublishTransaction = func(tx *wire.MsgTx) error {
+		t.Logf("Publishing tx %v", tx.TxHash())
+		publishChan <- *tx
+		return nil
+	}
+
+	nursery := newUtxoNursery(&cfg)
+	nursery.Start()
+
+	ctx := &nurseryTestContext{
+		nursery:     nursery,
+		notifier:    notifier,
+		store:       storeIntercepter,
+		publishChan: publishChan,
+		t:           t,
+	}
+
+	ctx.restart = func() bool {
+		return checkStartStop(func() {
+			ctx.nursery.Stop()
+			// Simulate lnd restart.
+			ctx.nursery = newUtxoNursery(ctx.nursery.cfg)
+			ctx.nursery.Start()
+		})
+	}
+
+	ctx.receiveTx = func() wire.MsgTx {
+		var tx wire.MsgTx
+		select {
+		case tx = <-ctx.publishChan:
+			return tx
+		case <-time.After(5 * time.Second):
+			t.Fatalf("tx not published")
+		}
+		return tx
+	}
+
+	// Start with testing an immediate restart.
+	ctx.restart()
+
+	return ctx
+}
+
+func (ctx *nurseryTestContext) finish() {
+	// Add a final restart point in this state
+	ctx.restart()
+
+	// We assume that when finish is called, nursery has finished all its
+	// goroutines. This implies that the waitgroup is empty.
+	signalChan := make(chan struct{})
+	go func() {
+		ctx.nursery.wg.Wait()
+		close(signalChan)
+	}()
+
+	// The only goroutine that is still expected to be running is
+	// incubator(). Simulate exit of this goroutine.
+	ctx.nursery.wg.Done()
+
+	// We now expect the Wait to succeed.
+	select {
+	case <-signalChan:
+	case <-time.After(time.Second):
+		ctx.t.Fatalf("lingering goroutines detected after test " +
+			"is finished")
+	}
+
+	// Restore waitgroup state to what it was before.
+	ctx.nursery.wg.Add(1)
+
+	ctx.nursery.Stop()
+
+	// We should have consumed and asserted all published transactions in
+	// our unit tests.
+	select {
+	case <-ctx.publishChan:
+		ctx.t.Fatalf("unexpected transactions published")
+	default:
+	}
+
+	// Assert that the database is empty. All channels removed and height
+	// index cleared.
+	nurseryChannels, err := ctx.nursery.cfg.Store.ListChannels()
+	if err != nil {
+		ctx.t.Fatal(err)
+	}
+	if len(nurseryChannels) > 0 {
+		ctx.t.Fatalf("Expected all channels to be removed from store")
+	}
+
+	activeHeights, err := ctx.nursery.cfg.Store.HeightsBelowOrEqual(
+		math.MaxUint32)
+	if err != nil {
+		ctx.t.Fatal(err)
+	}
+	if len(activeHeights) > 0 {
+		ctx.t.Fatalf("Expected height index to be empty")
+	}
+}
+
+func createOutgoingRes(onLocalCommitment bool) *lnwallet.OutgoingHtlcResolution {
+	// Set up an outgoing htlc resolution to hand off to nursery.
+	closeTx := &wire.MsgTx{}
+
+	htlcOp := wire.OutPoint{
+		Hash:  closeTx.TxHash(),
+		Index: 0,
+	}
+
+	outgoingRes := lnwallet.OutgoingHtlcResolution{
+		Expiry: 125,
+		SweepSignDesc: lnwallet.SignDescriptor{
+			Output: &wire.TxOut{
+				Value: 10000,
+			},
+		},
+		CsvDelay: 2,
+	}
+
+	if onLocalCommitment {
+		timeoutTx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				{
+					PreviousOutPoint: htlcOp,
+					Witness:          [][]byte{{}},
+				},
+			},
+			TxOut: []*wire.TxOut{
+				{},
+			},
+		}
+
+		outgoingRes.SignedTimeoutTx = timeoutTx
+	} else {
+		outgoingRes.ClaimOutpoint = htlcOp
+	}
+
+	return &outgoingRes
+}
+
+func createCommitmentRes() *lnwallet.CommitOutputResolution {
+	// Set up a commitment output resolution to hand off to nursery.
+	commitRes := lnwallet.CommitOutputResolution{
+		SelfOutPoint: wire.OutPoint{},
+		SelfOutputSignDesc: lnwallet.SignDescriptor{
+			Output: &wire.TxOut{
+				Value: 10000,
+			},
+		},
+		MaturityDelay: 2,
+	}
+
+	return &commitRes
+}
+
+func incubateTestOutput(t *testing.T, nursery *utxoNursery,
+	onLocalCommitment bool) *lnwallet.OutgoingHtlcResolution {
+
+	outgoingRes := createOutgoingRes(onLocalCommitment)
+
+	// Hand off to nursery.
+	err := nursery.IncubateOutputs(
+		testChanPoint,
+		nil,
+		[]lnwallet.OutgoingHtlcResolution{*outgoingRes},
+		nil, 0,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// IncubateOutputs is executing synchronously and we expect the output
+	// to immediately show up in the report.
+	expectedStage := uint32(2)
+	if onLocalCommitment {
+		expectedStage = 1
+	}
+
+	// TODO(joostjager): Nursery is currently not reporting this limbo
+	// balance.
+	if onLocalCommitment {
+		assertNurseryReport(t, nursery, 1, expectedStage, 10000)
+	}
+
+	return outgoingRes
+}
+
+func assertNurseryReport(t *testing.T, nursery *utxoNursery,
+	expectedNofHtlcs int, expectedStage uint32,
+	expectedLimboBalance btcutil.Amount) {
+	report, err := nursery.NurseryReport(&testChanPoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(report.htlcs) != expectedNofHtlcs {
+		t.Fatalf("expected %v outputs to be reported, but report "+
+			"only contains %v", expectedNofHtlcs, len(report.htlcs))
+	}
+
+	if expectedNofHtlcs != 0 {
+		htlcReport := report.htlcs[0]
+		if htlcReport.stage != expectedStage {
+			t.Fatalf("expected htlc be advanced to stage %v, but "+
+				"it is reported in stage %v",
+				expectedStage, htlcReport.stage)
+		}
+	}
+
+	if report.limboBalance != expectedLimboBalance {
+		t.Fatalf("expected limbo balance to be %v, but it is %v instead",
+			expectedLimboBalance, report.limboBalance)
+	}
+}
+
+func assertNurseryReportUnavailable(t *testing.T, nursery *utxoNursery) {
+	_, err := nursery.NurseryReport(&testChanPoint)
+	if err != ErrContractNotFound {
+		t.Fatal("expected report to be unavailable")
+	}
+}
+
+// testRestartLoop runs the specified test multiple times and in every run it
+// will attempt to execute a restart action in a different location. This is to
+// assert that the unit under test is recovering correctly from restarts.
+func testRestartLoop(t *testing.T, test func(*testing.T,
+	func(func()) bool)) {
+
+	// Start with running the test without any restarts (index zero)
+	restartIdx := 0
+
+	for {
+		currentStartStopIdx := 0
+
+		// checkStartStop is called at every point in the test where a
+		// restart should be exercised. When this function is called as
+		// many times as the current value of currentStartStopIdx, it
+		// will execute startStopFunc.
+		checkStartStop := func(startStopFunc func()) bool {
+			currentStartStopIdx++
+			if restartIdx == currentStartStopIdx {
+				startStopFunc()
+
+				return true
+			}
+			return false
+		}
+
+		var subTestName string
+		if restartIdx == 0 {
+			subTestName = "no_restart"
+		} else {
+			subTestName = fmt.Sprintf("restart_%v", restartIdx)
+		}
+		t.Run(subTestName,
+			func(t *testing.T) {
+				test(t, checkStartStop)
+			})
+
+		// Exit the loop when all restart points have been tested.
+		if currentStartStopIdx == restartIdx {
+			return
+		}
+		restartIdx++
+	}
+}
+
+func TestNurseryOutgoingHtlcSuccessOnLocal(t *testing.T) {
+	testRestartLoop(t, testNurseryOutgoingHtlcSuccessOnLocal)
+}
+
+func testNurseryOutgoingHtlcSuccessOnLocal(t *testing.T,
+	checkStartStop func(func()) bool) {
+
+	ctx := createNurseryTestContext(t, checkStartStop)
+
+	outgoingRes := incubateTestOutput(t, ctx.nursery, true)
+
+	ctx.restart()
+
+	// Notify arrival of block where HTLC CLTV expires.
+	ctx.notifier.notifyEpoch(125)
+
+	// This should trigger nursery to publish the timeout tx.
+	ctx.receiveTx()
+
+	if ctx.restart() {
+		// Restart should retrigger broadcast of timeout tx.
+		ctx.receiveTx()
+	}
+
+	// Confirm the timeout tx. This should promote the HTLC to KNDR state.
+	timeoutTxHash := outgoingRes.SignedTimeoutTx.TxHash()
+	if err := ctx.notifier.confirmTx(&timeoutTxHash, 126); err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for output to be promoted in store to KNDR.
+	select {
+	case <-ctx.store.cribToKinderChan:
+	case <-time.After(defaultTestTimeout):
+		t.Fatalf("output not promoted to KNDR")
+	}
+
+	ctx.restart()
+
+	// Notify arrival of block where second level HTLC unlocks.
+	ctx.notifier.notifyEpoch(128)
+
+	// Check final sweep into wallet.
+	testSweepHtlc(t, ctx)
+
+	ctx.finish()
+}
+
+func TestNurseryOutgoingHtlcSuccessOnRemote(t *testing.T) {
+	testRestartLoop(t, testNurseryOutgoingHtlcSuccessOnRemote)
+}
+
+func testNurseryOutgoingHtlcSuccessOnRemote(t *testing.T,
+	checkStartStop func(func()) bool) {
+
+	ctx := createNurseryTestContext(t, checkStartStop)
+
+	outgoingRes := incubateTestOutput(t, ctx.nursery, false)
+
+	ctx.restart()
+
+	// Notify confirmation of the commitment tx. Is only listened to when
+	// resolving remote commitment tx.
+	//
+	// TODO(joostjager): This is probably not correct?
+	err := ctx.notifier.confirmTx(&outgoingRes.ClaimOutpoint.Hash, 124)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for output to be promoted from PSCL to KNDR.
+	select {
+	case <-ctx.store.preschoolToKinderChan:
+	case <-time.After(defaultTestTimeout):
+		t.Fatalf("output not promoted to KNDR")
+	}
+
+	ctx.restart()
+
+	// Notify arrival of block where HTLC CLTV expires.
+	ctx.notifier.notifyEpoch(125)
+
+	// Check final sweep into wallet.
+	testSweepHtlc(t, ctx)
+
+	ctx.finish()
+}
+
+func TestNurseryCommitSuccessOnLocal(t *testing.T) {
+	testRestartLoop(t, testNurseryCommitSuccessOnLocal)
+}
+
+func testNurseryCommitSuccessOnLocal(t *testing.T,
+	checkStartStop func(func()) bool) {
+
+	ctx := createNurseryTestContext(t, checkStartStop)
+
+	commitRes := createCommitmentRes()
+
+	// Hand off to nursery.
+	err := ctx.nursery.IncubateOutputs(
+		testChanPoint,
+		commitRes, nil, nil, 0,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify that commitment output is showing up in nursery report as
+	// limbo balance.
+	assertNurseryReport(t, ctx.nursery, 0, 0, 10000)
+
+	ctx.restart()
+
+	// Notify confirmation of the commitment tx.
+	err = ctx.notifier.confirmTx(&commitRes.SelfOutPoint.Hash, 124)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for output to be promoted from PSCL to KNDR.
+	select {
+	case <-ctx.store.preschoolToKinderChan:
+	case <-time.After(defaultTestTimeout):
+		t.Fatalf("output not promoted to KNDR")
+	}
+
+	ctx.restart()
+
+	// Notify arrival of block where commit output CSV expires.
+	ctx.notifier.notifyEpoch(126)
+
+	// Check final sweep into wallet.
+	testSweep(t, ctx, func() {
+		// Check limbo balance after sweep publication
+		assertNurseryReport(t, ctx.nursery, 0, 0, 10000)
+	})
+
+	ctx.finish()
+}
+
+func testSweepHtlc(t *testing.T, ctx *nurseryTestContext) {
+	testSweep(t, ctx, func() {
+		// Verify stage in nursery report. HTLCs should now both still
+		// be in stage two.
+		assertNurseryReport(t, ctx.nursery, 1, 2, 10000)
+	})
+}
+
+func testSweep(t *testing.T, ctx *nurseryTestContext,
+	afterPublishAssert func()) {
+	// Wait for nursery to publish the sweep tx.
+	sweepTx := ctx.receiveTx()
+
+	if ctx.restart() {
+		// Restart will trigger rebroadcast of sweep tx.
+		sweepTx = ctx.receiveTx()
+	}
+
+	afterPublishAssert()
+
+	// Confirm the sweep tx.
+	sweepTxHash := sweepTx.TxHash()
+	err := ctx.notifier.confirmTx(&sweepTxHash, 129)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for output to be promoted in store to GRAD.
+	select {
+	case <-ctx.store.graduateKinderChan:
+	case <-time.After(defaultTestTimeout):
+		t.Fatalf("output not graduated")
+	}
+
+	ctx.restart()
+
+	// As there only was one output to graduate, we expect the channel to be
+	// closed and no report available anymore.
+	assertNurseryReportUnavailable(t, ctx.nursery)
+}
+
+type nurseryStoreInterceptor struct {
+	ns NurseryStore
+
+	// TODO(joostjager): put more useful info through these channels.
+	cribToKinderChan      chan struct{}
+	cribToRemoteSpendChan chan struct{}
+	graduateKinderChan    chan struct{}
+	preschoolToKinderChan chan struct{}
+}
+
+func newNurseryStoreInterceptor(ns NurseryStore) *nurseryStoreInterceptor {
+	return &nurseryStoreInterceptor{
+		ns:                    ns,
+		cribToKinderChan:      make(chan struct{}),
+		cribToRemoteSpendChan: make(chan struct{}),
+		graduateKinderChan:    make(chan struct{}),
+		preschoolToKinderChan: make(chan struct{}),
+	}
+}
+
+func (i *nurseryStoreInterceptor) Incubate(kidOutputs []kidOutput,
+	babyOutputs []babyOutput) error {
+
+	return i.ns.Incubate(kidOutputs, babyOutputs)
+}
+
+func (i *nurseryStoreInterceptor) CribToKinder(babyOutput *babyOutput) error {
+	err := i.ns.CribToKinder(babyOutput)
+
+	i.cribToKinderChan <- struct{}{}
+
+	return err
+}
+
+func (i *nurseryStoreInterceptor) PreschoolToKinder(kidOutput *kidOutput) error {
+	err := i.ns.PreschoolToKinder(kidOutput)
+
+	i.preschoolToKinderChan <- struct{}{}
+
+	return err
+}
+
+func (i *nurseryStoreInterceptor) GraduateKinder(height uint32) error {
+	err := i.ns.GraduateKinder(height)
+
+	i.graduateKinderChan <- struct{}{}
+
+	return err
+}
+
+func (i *nurseryStoreInterceptor) FetchPreschools() ([]kidOutput, error) {
+	return i.ns.FetchPreschools()
+}
+
+func (i *nurseryStoreInterceptor) FetchClass(height uint32) (*wire.MsgTx,
+	[]kidOutput, []babyOutput, error) {
+
+	return i.ns.FetchClass(height)
+}
+
+func (i *nurseryStoreInterceptor) FinalizeKinder(height uint32,
+	tx *wire.MsgTx) error {
+
+	return i.ns.FinalizeKinder(height, tx)
+}
+
+func (i *nurseryStoreInterceptor) LastFinalizedHeight() (uint32, error) {
+	return i.ns.LastFinalizedHeight()
+}
+
+func (i *nurseryStoreInterceptor) GraduateHeight(height uint32) error {
+	return i.ns.GraduateHeight(height)
+}
+
+func (i *nurseryStoreInterceptor) LastGraduatedHeight() (uint32, error) {
+	return i.ns.LastGraduatedHeight()
+}
+
+func (i *nurseryStoreInterceptor) HeightsBelowOrEqual(height uint32) (
+	[]uint32, error) {
+
+	return i.ns.HeightsBelowOrEqual(height)
+}
+
+func (i *nurseryStoreInterceptor) ForChanOutputs(chanPoint *wire.OutPoint,
+	callback func([]byte, []byte) error) error {
+
+	return i.ns.ForChanOutputs(chanPoint, callback)
+}
+
+func (i *nurseryStoreInterceptor) ListChannels() ([]wire.OutPoint, error) {
+	return i.ns.ListChannels()
+}
+
+func (i *nurseryStoreInterceptor) IsMatureChannel(chanPoint *wire.OutPoint) (
+	bool, error) {
+
+	return i.ns.IsMatureChannel(chanPoint)
+}
+
+func (i *nurseryStoreInterceptor) RemoveChannel(chanPoint *wire.OutPoint) error {
+	return i.ns.RemoveChannel(chanPoint)
+}
+
+type mockFeeEstimator struct{}
+
+func (m *mockFeeEstimator) EstimateFeePerKW(
+	numBlocks uint32) (lnwallet.SatPerKWeight, error) {
+
+	return lnwallet.SatPerKWeight(10000), nil
+}
+
+func (m *mockFeeEstimator) Start() error {
+	return nil
+}
+func (m *mockFeeEstimator) Stop() error {
+	return nil
+}
+
+type nurseryMockSigner struct {
+}
+
+func (m *nurseryMockSigner) SignOutputRaw(tx *wire.MsgTx,
+	signDesc *lnwallet.SignDescriptor) ([]byte, error) {
+
+	return []byte{}, nil
+}
+
+func (m *nurseryMockSigner) ComputeInputScript(tx *wire.MsgTx,
+	signDesc *lnwallet.SignDescriptor) (*lnwallet.InputScript, error) {
+
+	return &lnwallet.InputScript{}, nil
+}
+
+type nurseryMockNotifier struct {
+	confChannel map[chainhash.Hash]chan *chainntnfs.TxConfirmation
+	epochChan   chan *chainntnfs.BlockEpoch
+	spendChan   chan *chainntnfs.SpendDetail
+	mutex       sync.RWMutex
+	t           *testing.T
+}
+
+func newNurseryMockNotifier(t *testing.T) *nurseryMockNotifier {
+	return &nurseryMockNotifier{
+		confChannel: make(map[chainhash.Hash]chan *chainntnfs.TxConfirmation),
+		epochChan:   make(chan *chainntnfs.BlockEpoch),
+		spendChan:   make(chan *chainntnfs.SpendDetail),
+		t:           t,
+	}
+}
+
+func (m *nurseryMockNotifier) notifyEpoch(height int32) {
+	select {
+	case m.epochChan <- &chainntnfs.BlockEpoch{
+		Height: height,
+	}:
+	case <-time.After(defaultTestTimeout):
+		m.t.Fatal("epoch event not consumed")
+	}
+}
+
+func (m *nurseryMockNotifier) confirmTx(txid *chainhash.Hash, height uint32) error {
+	confirm := &chainntnfs.TxConfirmation{
+		BlockHeight: height,
+	}
+	select {
+	case m.getConfChannel(txid) <- confirm:
+	case <-time.After(defaultTestTimeout):
+		return fmt.Errorf("confirmation not consumed")
+	}
+	return nil
+}
+
+func (m *nurseryMockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
+	_ []byte, numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent,
+	error) {
+
+	return &chainntnfs.ConfirmationEvent{
+		Confirmed: m.getConfChannel(txid),
+	}, nil
+}
+
+func (m *nurseryMockNotifier) getConfChannel(
+	txid *chainhash.Hash) chan *chainntnfs.TxConfirmation {
+
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	channel, ok := m.confChannel[*txid]
+	if ok {
+		return channel
+	}
+	channel = make(chan *chainntnfs.TxConfirmation)
+	m.confChannel[*txid] = channel
+
+	return channel
+}
+
+func (m *nurseryMockNotifier) RegisterBlockEpochNtfn(
+	bestBlock *chainntnfs.BlockEpoch) (*chainntnfs.BlockEpochEvent, error) {
+	return &chainntnfs.BlockEpochEvent{
+		Epochs: m.epochChan,
+		Cancel: func() {},
+	}, nil
+}
+
+func (m *nurseryMockNotifier) Start() error {
+	return nil
+}
+
+func (m *nurseryMockNotifier) Stop() error {
+	return nil
+}
+
+func (m *nurseryMockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
+	_ []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
+
+	return &chainntnfs.SpendEvent{
+		Spend:  m.spendChan,
+		Cancel: func() {},
+	}, nil
 }

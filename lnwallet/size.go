@@ -1,8 +1,8 @@
 package lnwallet
 
 import (
-	"github.com/roasbeef/btcd/blockchain"
-	"github.com/roasbeef/btcd/wire"
+	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/wire"
 )
 
 const (
@@ -143,8 +143,8 @@ const (
 	WitnessHeaderSize = 1 + 1
 
 	// BaseTxSize 8 bytes
-	// - Version: 4 bytes
-	// - LockTime: 4 bytes
+	//      - Version: 4 bytes
+	//      - LockTime: 4 bytes
 	BaseTxSize = 4 + 4
 
 	// BaseCommitmentTxSize 125 + 43 * num-htlc-outputs bytes
@@ -186,67 +186,38 @@ const (
 	// weight limits.
 	MaxHTLCNumber = 966
 
-	// ToLocalScriptSize 83 bytes
-	//      - OP_IF: 1 byte
-	//              - OP_DATA: 1 byte (revocationkey length)
-	//              - revocationkey: 33 bytes
-	//              - OP_CHECKSIG: 1 byte
-	//      - OP_ELSE: 1 byte
-	//              - OP_DATA: 1 byte (localkey length)
-	//              - local_delay_key: 33 bytes
-	//              - OP_CHECKSIG_VERIFY: 1 byte
-	//              - OP_DATA: 1 byte (delay length)
-	//              - delay: 8 bytes
-	//              -OP_CHECKSEQUENCEVERIFY: 1 byte
-	//      - OP_ENDIF: 1 byte
-	ToLocalScriptSize = 1 + 1 + 33 + 1 + 1 + 1 + 33 + 1 + 1 + 8 + 1 + 1
-
-	// ToLocalTimeoutWitnessSize x bytes
-	//     - number_of_witness_elements: 1 byte
-	//     - local_delay_sig_length: 1 byte
-	//     - local_delay_sig: 73 bytes
-	//     - zero_length: 1 byte
-	//     - witness_script_length: 1 byte
-	//     - witness_script (to_local_script)
-	ToLocalTimeoutWitnessSize = 1 + 1 + 73 + 1 + 1 + ToLocalScriptSize
-
-	// ToLocalPenaltyWitnessSize 160 bytes
-	//      - number_of_witness_elements: 1 byte
-	//      - revocation_sig_length: 1 byte
-	//      - revocation_sig: 73 bytes
-	//      - one_length: 1 byte
-	//      - witness_script_length: 1 byte
-	//      - witness_script (to_local_script)
-	ToLocalPenaltyWitnessSize = 1 + 1 + 73 + 1 + 1 + ToLocalScriptSize
-
-	// SecondLevelHtlcScriptSize 73 bytes
+	// ToLocalScriptSize 79 bytes
 	//      - OP_IF: 1 byte
 	//          - OP_DATA: 1 byte
 	//          - revoke_key: 33 bytes
 	//      - OP_ELSE: 1 byte
-	//          - csv_delay: 1 byte
+	//          - OP_DATA: 1 byte
+	//          - csv_delay: 4 bytes
 	//          - OP_CHECKSEQUENCEVERIFY: 1 byte
 	//          - OP_DROP: 1 byte
+	//          - OP_DATA: 1 byte
 	//          - delay_key: 33 bytes
 	//      - OP_ENDIF: 1 byte
 	//      - OP_CHECKSIG: 1 byte
-	SecondLevelHtlcScriptSize = 73
+	ToLocalScriptSize = 1 + 1 + 33 + 1 + 1 + 4 + 1 + 1 + 1 + 33 + 1 + 1
 
-	// SecondLevelHtlcPenaltyWitnessSize 149 bytes
-	//  - number_of_witness_elements: 1 byte
-	//  - revoke_sig_length: 1 byte
-	//  - revoke_sig: 73 bytes
-	//  - OP_TRUE: 1 byte
-	//  - witness_script (second_level_script_size)
-	SecondLevelHtlcPenaltyWitnessSize = 1 + 1 + 73 + 1 + SecondLevelHtlcScriptSize
+	// ToLocalTimeoutWitnessSize 156 bytes
+	//      - number_of_witness_elements: 1 byte
+	//      - local_delay_sig_length: 1 byte
+	//      - local_delay_sig: 73 bytes
+	//      - zero_length: 1 byte
+	//      - witness_script_length: 1 byte
+	//      - witness_script (to_local_script)
+	ToLocalTimeoutWitnessSize = 1 + 1 + 73 + 1 + 1 + ToLocalScriptSize
 
-	// SecondLevelHtlcSuccessWitnessSize 149 bytes
-	//  - number_of_witness_elements: 1 byte
-	//  - success_sig_length: 1 byte
-	//  - success_sig: 73 bytes
-	//  - nil_length: 1 byte
-	//  - witness_script (second_level_script_size)
-	SecondLevelHtlcSuccessWitnessSize = 1 + 1 + 73 + 1 + SecondLevelHtlcScriptSize
+	// ToLocalPenaltyWitnessSize 156 bytes
+	//      - number_of_witness_elements: 1 byte
+	//      - revocation_sig_length: 1 byte
+	//      - revocation_sig: 73 bytes
+	//      - OP_TRUE: 1 byte
+	//      - witness_script_length: 1 byte
+	//      - witness_script (to_local_script)
+	ToLocalPenaltyWitnessSize = 1 + 1 + 73 + 1 + 1 + ToLocalScriptSize
 
 	// AcceptedHtlcScriptSize 139 bytes
 	//      - OP_DUP: 1 byte
@@ -286,34 +257,36 @@ const (
 	AcceptedHtlcScriptSize = 3*1 + 20 + 5*1 + 33 + 7*1 + 20 + 4*1 +
 		33 + 5*1 + 4 + 5*1
 
-	// AcceptedHtlcTimeoutWitnessSize 214
-	//  - number_of_witness_elements: 1 byte
-	//  - sender_sig: 73 bytes
-	//  - nil_length: 1 byte
-	//  - witness_script: (accepted_htlc_script)
-	AcceptedHtlcTimeoutWitnessSize = 1 + 73 + 1 + AcceptedHtlcScriptSize
+	// AcceptedHtlcTimeoutWitnessSize 216
+	//      - number_of_witness_elements: 1 byte
+	//      - sender_sig_length: 1 byte
+	//      - sender_sig: 73 bytes
+	//      - nil_length: 1 byte
+	//      - witness_script_length: 1 byte
+	//      - witness_script: (accepted_htlc_script)
+	AcceptedHtlcTimeoutWitnessSize = 1 + 1 + 73 + 1 + 1 + AcceptedHtlcScriptSize
 
-	// AcceptedHtlcSuccessWitnessSize 325 bytes
-	//    - number_of_witness_elements: 1 byte
-	//    - nil_length: 1 byte
-	//    - sig_alice_length: 1 byte
-	//    - sig_alice: 73 bytes
-	//    - sig_bob_length: 1 byte
-	//    - sig_bob: 73 bytes
-	//    - preimage_length: 1 byte
-	//    - preimage: 32 bytes
-	//    - witness_script_length: 1 byte
-	//    - witness_script (accepted_htlc_script)
+	// AcceptedHtlcSuccessWitnessSize 322 bytes
+	//      - number_of_witness_elements: 1 byte
+	//      - nil_length: 1 byte
+	//      - sig_alice_length: 1 byte
+	//      - sig_alice: 73 bytes
+	//      - sig_bob_length: 1 byte
+	//      - sig_bob: 73 bytes
+	//      - preimage_length: 1 byte
+	//      - preimage: 32 bytes
+	//      - witness_script_length: 1 byte
+	//      - witness_script (accepted_htlc_script)
 	AcceptedHtlcSuccessWitnessSize = 1 + 1 + 73 + 1 + 73 + 1 + 32 + 1 + AcceptedHtlcScriptSize
 
 	// AcceptedHtlcPenaltyWitnessSize 249 bytes
-	//    - number_of_witness_elements: 1 byte
-	//    - revocation_sig_length: 1 byte
-	//    - revocation_sig: 73 bytes
-	//    - revocation_key_length: 1 byte
-	//    - revocation_key: 33 bytes
-	//    - witness_script_length: 1 byte
-	//    - witness_script (accepted_htlc_script)
+	//      - number_of_witness_elements: 1 byte
+	//      - revocation_sig_length: 1 byte
+	//      - revocation_sig: 73 bytes
+	//      - revocation_key_length: 1 byte
+	//      - revocation_key: 33 bytes
+	//      - witness_script_length: 1 byte
+	//      - witness_script (accepted_htlc_script)
 	AcceptedHtlcPenaltyWitnessSize = 1 + 1 + 73 + 1 + 33 + 1 + AcceptedHtlcScriptSize
 
 	// OfferedHtlcScriptSize 133 bytes
@@ -351,26 +324,29 @@ const (
 	OfferedHtlcScriptSize = 3*1 + 20 + 5*1 + 33 + 10*1 + 33 + 5*1 + 20 + 4*1
 
 	// OfferedHtlcTimeoutWitnessSize 285 bytes
-	// - number_of_witness_elements: 1 byte
-	// - nil_length: 1 byte
-	// - sig_alice_length: 1 byte
-	// - sig_alice: 73 bytes
-	// - sig_bob_length: 1 byte
-	// - sig_bob: 73 bytes
-	// - nil_length: 1 byte
-	// - witness_script_length: 1 byte
-	// - witness_script (offered_htlc_script)
+	//      - number_of_witness_elements: 1 byte
+	//      - nil_length: 1 byte
+	//      - sig_alice_length: 1 byte
+	//      - sig_alice: 73 bytes
+	//      - sig_bob_length: 1 byte
+	//      - sig_bob: 73 bytes
+	//      - nil_length: 1 byte
+	//      - witness_script_length: 1 byte
+	//      - witness_script (offered_htlc_script)
 	OfferedHtlcTimeoutWitnessSize = 1 + 1 + 1 + 73 + 1 + 73 + 1 + 1 + OfferedHtlcScriptSize
 
-	// OfferedHtlcSuccessWitnessSize 283 bytes
-	// - number_of_witness_elements: 1 byte
-	// - nil_length: 1 byte
-	// - receiver_sig: 73 bytes
-	// - sender_sigs: 73 bytes
-	// - payment_preimage: 32 bytes
-	// - witness_script_length: 1 byte
-	// - witness_script (offered_htlc_script)
-	OfferedHtlcSuccessWitnessSize = 1 + 1 + 73 + 73 + 73 + 32 + 1 + OfferedHtlcScriptSize
+	// OfferedHtlcSuccessWitnessSize 317 bytes
+	//      - number_of_witness_elements: 1 byte
+	//      - nil_length: 1 byte
+	//      - receiver_sig_length: 1 byte
+	//      - receiver_sig: 73 bytes
+	//      - sender_sig_length: 1 byte
+	//      - sender_sig: 73 bytes
+	//      - payment_preimage_length: 1 byte
+	//      - payment_preimage: 32 bytes
+	//      - witness_script_length: 1 byte
+	//      - witness_script (offered_htlc_script)
+	OfferedHtlcSuccessWitnessSize = 1 + 1 + 1 + 73 + 1 + 73 + 1 + 32 + 1 + OfferedHtlcScriptSize
 
 	// OfferedHtlcPenaltyWitnessSize 243 bytes
 	//      - number_of_witness_elements: 1 byte
@@ -380,7 +356,7 @@ const (
 	//      - revocation_key: 33 bytes
 	//      - witness_script_length: 1 byte
 	//      - witness_script (offered_htlc_script)
-	OfferedHtlcPenaltyWitnessSize = 1 + 1 + 73 + 1 + 1 + OfferedHtlcScriptSize
+	OfferedHtlcPenaltyWitnessSize = 1 + 1 + 73 + 1 + 33 + 1 + OfferedHtlcScriptSize
 )
 
 // estimateCommitTxWeight estimate commitment transaction weight depending on

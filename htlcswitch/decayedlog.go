@@ -103,7 +103,7 @@ func (d *DecayedLog) Start() error {
 
 	// Start garbage collector.
 	if d.notifier != nil {
-		epochClient, err := d.notifier.RegisterBlockEpochNtfn()
+		epochClient, err := d.notifier.RegisterBlockEpochNtfn(nil)
 		if err != nil {
 			return fmt.Errorf("Unable to register for epoch "+
 				"notifications: %v", err)

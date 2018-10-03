@@ -1,6 +1,6 @@
 package keychain
 
-import "github.com/roasbeef/btcd/btcec"
+import "github.com/btcsuite/btcd/btcec"
 
 const (
 	// KeyDerivationVersion is the version of the key derivation schema
@@ -83,7 +83,7 @@ const (
 // will vary per channel and use case) is the final element which allows us to
 // deterministically derive keys.
 type KeyLocator struct {
-	// TODO(roasbeef); add the key scope as well??
+	// TODO(roasbeef): add the key scope as well??
 
 	// Family is the family of key being identified.
 	Family KeyFamily
@@ -92,8 +92,8 @@ type KeyLocator struct {
 	Index uint32
 }
 
-// IsEmpty returns true if a KeyLocator is "empty". This may be the case where we
-// learn of a key from a remote party for a contract, but don't know the
+// IsEmpty returns true if a KeyLocator is "empty". This may be the case where
+// we learn of a key from a remote party for a contract, but don't know the
 // precise details of its derivation (as we don't know the private key!).
 func (k KeyLocator) IsEmpty() bool {
 	return k.Family == 0 && k.Index == 0

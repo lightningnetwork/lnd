@@ -31,7 +31,7 @@ const (
 	ErrTargetNotInNetwork
 
 	// ErrOutdated is returned when the routing update already have
-	// been applied.
+	// been applied, or a newer update is already known.
 	ErrOutdated
 
 	// ErrIgnored is returned when the update have been ignored because
@@ -39,9 +39,18 @@ const (
 	// announcement was given for node not found in any channel.
 	ErrIgnored
 
+	// ErrRejected is returned if the update is for a channel ID that was
+	// previously added to the reject cache because of an invalid update
+	// was attempted to be processed.
+	ErrRejected
+
 	// ErrPaymentAttemptTimeout is an error that indicates that a payment
 	// attempt timed out before we were able to successfully route an HTLC.
 	ErrPaymentAttemptTimeout
+
+	// ErrFeeLimitExceeded is returned when the total fees of a route exceed
+	// the user-specified fee limit.
+	ErrFeeLimitExceeded
 )
 
 // routerError is a structure that represent the error inside the routing package,

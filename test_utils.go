@@ -10,6 +10,10 @@ import (
 	"net"
 	"os"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -18,10 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
+	"github.com/lightningnetwork/lnd/ticker"
 )
 
 var (
@@ -201,12 +202,11 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		return nil, nil, nil, nil, err
 	}
 
-	estimator := &lnwallet.StaticFeeEstimator{FeeRate: 50}
-	feePerVSize, err := estimator.EstimateFeePerVSize(1)
+	estimator := &lnwallet.StaticFeeEstimator{FeePerKW: 12500}
+	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	feePerKw := feePerVSize.FeePerKWeight()
 
 	// TODO(roasbeef): need to factor in commit fee?
 	aliceCommit := channeldb.ChannelCommitment{
@@ -272,21 +272,21 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 
-	addr := &net.TCPAddr{
+	aliceAddr := &net.TCPAddr{
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18555,
 	}
 
-	if err := aliceChannelState.SyncPending(addr, 0); err != nil {
+	if err := aliceChannelState.SyncPending(aliceAddr, 0); err != nil {
 		return nil, nil, nil, nil, err
 	}
 
-	addr = &net.TCPAddr{
+	bobAddr := &net.TCPAddr{
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18556,
 	}
 
-	if err := bobChannelState.SyncPending(addr, 0); err != nil {
+	if err := bobChannelState.SyncPending(bobAddr, 0); err != nil {
 		return nil, nil, nil, nil, err
 	}
 
@@ -341,10 +341,21 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		breachArbiter: breachArbiter,
 		chainArb:      chainArb,
 	}
+
+	_, currentHeight, err := s.cc.chainIO.GetBestBlock()
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
 	htlcSwitch, err := htlcswitch.New(htlcswitch.Config{
 		DB:             dbAlice,
 		SwitchPackager: channeldb.NewSwitchPackager(),
-	})
+		Notifier:       notifier,
+		FwdEventTicker: ticker.New(
+			htlcswitch.DefaultFwdEventInterval),
+		LogEventTicker: ticker.New(
+			htlcswitch.DefaultLogInterval),
+	}, uint32(currentHeight))
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -352,6 +363,11 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	s.htlcSwitch.Start()
 
 	alicePeer := &peer{
+		addr: &lnwire.NetAddress{
+			IdentityKey: aliceKeyPub,
+			Address:     aliceAddr,
+		},
+
 		server:        s,
 		sendQueue:     make(chan outgoingMsg, 1),
 		outgoingQueue: make(chan outgoingMsg, outgoingQueueLen),

@@ -1,14 +1,16 @@
 package discovery
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"golang.org/x/time/rate"
 )
 
 // syncerState is an enum that represents the current state of the
@@ -52,6 +54,17 @@ const (
 	chansSynced
 )
 
+const (
+	// DefaultMaxUndelayedQueryReplies specifies how many gossip queries we
+	// will respond to immediately before starting to delay responses.
+	DefaultMaxUndelayedQueryReplies = 10
+
+	// DefaultDelayedQueryReplyInterval is the length of time we will wait
+	// before responding to gossip queries after replying to
+	// maxUndelayedQueryReplies queries.
+	DefaultDelayedQueryReplyInterval = 5 * time.Second
+)
+
 // String returns a human readable string describing the target syncerState.
 func (s syncerState) String() string {
 	switch s {
@@ -82,6 +95,9 @@ var (
 	encodingTypeToChunkSize = map[lnwire.ShortChanIDEncoding]int32{
 		lnwire.EncodingSortedPlain: 8000,
 	}
+
+	// ErrGossipSyncerExiting signals that the syncer has been killed.
+	ErrGossipSyncerExiting = errors.New("gossip syncer exiting")
 )
 
 const (
@@ -159,10 +175,23 @@ type gossipSyncerCfg struct {
 	// with different encoding types will be rejected.
 	encodingType lnwire.ShortChanIDEncoding
 
+	// chunkSize is the max number of short chan IDs using the syncer's
+	// encoding type that we can fit into a single message safely.
+	chunkSize int32
+
 	// sendToPeer is a function closure that should send the set of
 	// targeted messages to the peer we've been assigned to sync the graph
 	// state from.
 	sendToPeer func(...lnwire.Message) error
+
+	// maxUndelayedQueryReplies specifies how many gossip queries we will
+	// respond to immediately before starting to delay responses.
+	maxUndelayedQueryReplies int
+
+	// delayedQueryReplyInterval is the length of time we will wait before
+	// responding to gossip queries after replying to
+	// maxUndelayedQueryReplies queries.
+	delayedQueryReplyInterval time.Duration
 }
 
 // gossipSyncer is a struct that handles synchronizing the channel graph state
@@ -210,6 +239,12 @@ type gossipSyncer struct {
 
 	cfg gossipSyncerCfg
 
+	// rateLimiter dictates the frequency with which we will reply to gossip
+	// queries from a peer. This is used to delay responses to peers to
+	// prevent DOS vulnerabilities if they are spamming with an unreasonable
+	// number of queries.
+	rateLimiter *rate.Limiter
+
 	sync.Mutex
 
 	quit chan struct{}
@@ -219,10 +254,32 @@ type gossipSyncer struct {
 // newGossiperSyncer returns a new instance of the gossipSyncer populated using
 // the passed config.
 func newGossiperSyncer(cfg gossipSyncerCfg) *gossipSyncer {
+	// If no parameter was specified for max undelayed query replies, set it
+	// to the default of 5 queries.
+	if cfg.maxUndelayedQueryReplies <= 0 {
+		cfg.maxUndelayedQueryReplies = DefaultMaxUndelayedQueryReplies
+	}
+
+	// If no parameter was specified for delayed query reply interval, set
+	// to the default of 5 seconds.
+	if cfg.delayedQueryReplyInterval <= 0 {
+		cfg.delayedQueryReplyInterval = DefaultDelayedQueryReplyInterval
+	}
+
+	// Construct a rate limiter that will govern how frequently we reply to
+	// gossip queries from this peer. The limiter will automatically adjust
+	// during periods of quiescence, and increase the reply interval under
+	// load.
+	interval := rate.Every(cfg.delayedQueryReplyInterval)
+	rateLimiter := rate.NewLimiter(
+		interval, cfg.maxUndelayedQueryReplies,
+	)
+
 	return &gossipSyncer{
-		cfg:        cfg,
-		gossipMsgs: make(chan lnwire.Message, 100),
-		quit:       make(chan struct{}),
+		cfg:         cfg,
+		rateLimiter: rateLimiter,
+		gossipMsgs:  make(chan lnwire.Message, 100),
+		quit:        make(chan struct{}),
 	}
 }
 
@@ -328,7 +385,7 @@ func (g *gossipSyncer) channelGraphSyncer() {
 				// Otherwise, it's the remote peer performing a
 				// query, which we'll attempt to reply to.
 				err := g.replyPeerQueries(msg)
-				if err != nil {
+				if err != nil && err != ErrGossipSyncerExiting {
 					log.Errorf("unable to reply to peer "+
 						"query: %v", err)
 				}
@@ -382,7 +439,7 @@ func (g *gossipSyncer) channelGraphSyncer() {
 				// Otherwise, it's the remote peer performing a
 				// query, which we'll attempt to deploy to.
 				err := g.replyPeerQueries(msg)
-				if err != nil {
+				if err != nil && err != ErrGossipSyncerExiting {
 					log.Errorf("unable to reply to peer "+
 						"query: %v", err)
 				}
@@ -426,7 +483,7 @@ func (g *gossipSyncer) channelGraphSyncer() {
 			select {
 			case msg := <-g.gossipMsgs:
 				err := g.replyPeerQueries(msg)
-				if err != nil {
+				if err != nil && err != ErrGossipSyncerExiting {
 					log.Errorf("unable to reply to peer "+
 						"query: %v", err)
 				}
@@ -445,14 +502,6 @@ func (g *gossipSyncer) channelGraphSyncer() {
 // required to ensure they fit into a single message. We may re-renter this
 // state in the case that chunking is required.
 func (g *gossipSyncer) synchronizeChanIDs() (bool, error) {
-	// Ensure that we're able to handle queries using the specified chan
-	// ID.
-	chunkSize, ok := encodingTypeToChunkSize[g.cfg.encodingType]
-	if !ok {
-		return false, fmt.Errorf("unknown encoding type: %v",
-			g.cfg.encodingType)
-	}
-
 	// If we're in this state yet there are no more new channels to query
 	// for, then we'll transition to our final synced state and return true
 	// to signal that we're fully synchronized.
@@ -468,7 +517,7 @@ func (g *gossipSyncer) synchronizeChanIDs() (bool, error) {
 
 	// If the number of channels to query for is less than the chunk size,
 	// then we can issue a single query.
-	if int32(len(g.newChansToQuery)) < chunkSize {
+	if int32(len(g.newChansToQuery)) < g.cfg.chunkSize {
 		queryChunk = g.newChansToQuery
 		g.newChansToQuery = nil
 
@@ -476,8 +525,8 @@ func (g *gossipSyncer) synchronizeChanIDs() (bool, error) {
 		// Otherwise, we'll need to only query for the next chunk.
 		// We'll slice into our query chunk, then slide down our main
 		// pointer down by the chunk size.
-		queryChunk = g.newChansToQuery[:chunkSize]
-		g.newChansToQuery = g.newChansToQuery[chunkSize:]
+		queryChunk = g.newChansToQuery[:g.cfg.chunkSize]
+		g.newChansToQuery = g.newChansToQuery[g.cfg.chunkSize:]
 	}
 
 	log.Infof("gossipSyncer(%x): querying for %v new channels",
@@ -592,6 +641,23 @@ func (g *gossipSyncer) genChanRangeQuery() (*lnwire.QueryChannelRange, error) {
 // replyPeerQueries is called in response to any query by the remote peer.
 // We'll examine our state and send back our best response.
 func (g *gossipSyncer) replyPeerQueries(msg lnwire.Message) error {
+	reservation := g.rateLimiter.Reserve()
+	delay := reservation.Delay()
+
+	// If we've already replied a handful of times, we will start to delay
+	// responses back to the remote peer. This can help prevent DOS attacks
+	// where the remote peer spams us endlessly.
+	if delay > 0 {
+		log.Infof("gossipSyncer(%x): rate limiting gossip replies, "+
+			"responding in %s", g.peerPub[:], delay)
+
+		select {
+		case <-time.After(delay):
+		case <-g.quit:
+			return ErrGossipSyncerExiting
+		}
+	}
+
 	switch msg := msg.(type) {
 
 	// In this state, we'll also handle any incoming channel range queries
@@ -615,14 +681,6 @@ func (g *gossipSyncer) replyPeerQueries(msg lnwire.Message) error {
 // ensure that our final fragment carries the "complete" bit to indicate the
 // end of our streaming response.
 func (g *gossipSyncer) replyChanRangeQuery(query *lnwire.QueryChannelRange) error {
-	// Using the current set encoding type, we'll determine what our chunk
-	// size should be. If we can't locate the chunk size, then we'll return
-	// an error as we can't proceed.
-	chunkSize, ok := encodingTypeToChunkSize[g.cfg.encodingType]
-	if !ok {
-		return fmt.Errorf("unknown encoding type: %v", g.cfg.encodingType)
-	}
-
 	log.Infof("gossipSyncer(%x): filtering chan range: start_height=%v, "+
 		"num_blocks=%v", g.peerPub[:], query.FirstBlockHeight,
 		query.NumBlocks)
@@ -651,7 +709,7 @@ func (g *gossipSyncer) replyChanRangeQuery(query *lnwire.QueryChannelRange) erro
 		// We know this is the final chunk, if the difference between
 		// the total number of channels, and the number of channels
 		// we've sent is less-than-or-equal to the chunk size.
-		isFinalChunk := (numChannels - numChansSent) <= chunkSize
+		isFinalChunk := (numChannels - numChansSent) <= g.cfg.chunkSize
 
 		// If this is indeed the last chunk, then we'll send the
 		// remainder of the channels.
@@ -664,7 +722,7 @@ func (g *gossipSyncer) replyChanRangeQuery(query *lnwire.QueryChannelRange) erro
 		} else {
 			// Otherwise, we'll only send off a fragment exactly
 			// sized to the proper chunk size.
-			channelChunk = channelRange[numChansSent : numChansSent+chunkSize]
+			channelChunk = channelRange[numChansSent : numChansSent+g.cfg.chunkSize]
 
 			log.Infof("gossipSyncer(%x): sending range chunk of "+
 				"size=%v", g.peerPub[:], len(channelChunk))
@@ -715,6 +773,12 @@ func (g *gossipSyncer) replyShortChanIDs(query *lnwire.QueryShortChanIDs) error 
 		})
 	}
 
+	if len(query.ShortChanIDs) == 0 {
+		log.Infof("gossipSyncer(%x): ignoring query for blank short chan ID's",
+			g.peerPub[:])
+		return nil
+	}
+
 	log.Infof("gossipSyncer(%x): fetching chan anns for %v chans",
 		g.peerPub[:], len(query.ShortChanIDs))
 
@@ -726,7 +790,8 @@ func (g *gossipSyncer) replyShortChanIDs(query *lnwire.QueryShortChanIDs) error 
 		query.ChainHash, query.ShortChanIDs,
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to fetch chan anns for %v..., %v",
+			query.ShortChanIDs[0].ToUint64(), err)
 	}
 
 	// If we didn't find any messages related to those channel ID's, then

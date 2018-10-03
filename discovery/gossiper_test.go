@@ -18,6 +18,9 @@ import (
 	"io/ioutil"
 	"os"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -25,9 +28,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
 )
 
 var (
@@ -257,13 +257,13 @@ func newMockNotifier() *mockNotifier {
 }
 
 func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
-	numConfs, _ uint32) (*chainntnfs.ConfirmationEvent, error) {
+	_ []byte, numConfs, _ uint32) (*chainntnfs.ConfirmationEvent, error) {
 
 	return nil, nil
 }
 
-func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ uint32,
-	_ bool) (*chainntnfs.SpendEvent, error) {
+func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ []byte,
+	_ uint32) (*chainntnfs.SpendEvent, error) {
 	return nil, nil
 }
 
@@ -279,7 +279,8 @@ func (m *mockNotifier) notifyBlock(hash chainhash.Hash, height uint32) {
 	}
 }
 
-func (m *mockNotifier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent, error) {
+func (m *mockNotifier) RegisterBlockEpochNtfn(
+	bestBlock *chainntnfs.BlockEpoch) (*chainntnfs.BlockEpochEvent, error) {
 	m.RLock()
 	defer m.RUnlock()
 
@@ -370,10 +371,9 @@ func createAnnouncements(blockHeight uint32) (*annBatch, error) {
 }
 
 func createNodeAnnouncement(priv *btcec.PrivateKey,
-	timestamp uint32) (*lnwire.NodeAnnouncement,
-	error) {
-	var err error
+	timestamp uint32, extraBytes ...[]byte) (*lnwire.NodeAnnouncement, error) {
 
+	var err error
 	k := hex.EncodeToString(priv.Serialize())
 	alias, err := lnwire.NewNodeAlias("kek" + k[:10])
 	if err != nil {
@@ -387,6 +387,9 @@ func createNodeAnnouncement(priv *btcec.PrivateKey,
 		Features:  testFeatures,
 	}
 	copy(a.NodeID[:], priv.PubKey().SerializeCompressed())
+	if len(extraBytes) == 1 {
+		a.ExtraOpaqueData = extraBytes[0]
+	}
 
 	signer := mockSigner{priv}
 	sig, err := SignAnnouncement(&signer, priv.PubKey(), a)
@@ -403,8 +406,8 @@ func createNodeAnnouncement(priv *btcec.PrivateKey,
 }
 
 func createUpdateAnnouncement(blockHeight uint32, flags lnwire.ChanUpdateFlag,
-	nodeKey *btcec.PrivateKey, timestamp uint32) (*lnwire.ChannelUpdate,
-	error) {
+	nodeKey *btcec.PrivateKey, timestamp uint32,
+	extraBytes ...[]byte) (*lnwire.ChannelUpdate, error) {
 
 	var err error
 
@@ -418,6 +421,9 @@ func createUpdateAnnouncement(blockHeight uint32, flags lnwire.ChanUpdateFlag,
 		HtlcMinimumMsat: lnwire.MilliSatoshi(prand.Int63()),
 		FeeRate:         uint32(prand.Int31()),
 		BaseFee:         uint32(prand.Int31()),
+	}
+	if len(extraBytes) == 1 {
+		a.ExtraOpaqueData = extraBytes[0]
 	}
 
 	pub := nodeKey.PubKey()
@@ -435,7 +441,8 @@ func createUpdateAnnouncement(blockHeight uint32, flags lnwire.ChanUpdateFlag,
 	return a, nil
 }
 
-func createRemoteChannelAnnouncement(blockHeight uint32) (*lnwire.ChannelAnnouncement, error) {
+func createRemoteChannelAnnouncement(blockHeight uint32,
+	extraBytes ...[]byte) (*lnwire.ChannelAnnouncement, error) {
 
 	var err error
 	a := &lnwire.ChannelAnnouncement{
@@ -450,6 +457,9 @@ func createRemoteChannelAnnouncement(blockHeight uint32) (*lnwire.ChannelAnnounc
 	copy(a.NodeID2[:], nodeKeyPub2.SerializeCompressed())
 	copy(a.BitcoinKey1[:], bitcoinKeyPub1.SerializeCompressed())
 	copy(a.BitcoinKey2[:], bitcoinKeyPub2.SerializeCompressed())
+	if len(extraBytes) == 1 {
+		a.ExtraOpaqueData = extraBytes[0]
+	}
 
 	pub := nodeKeyPriv1.PubKey()
 	signer := mockSigner{nodeKeyPriv1}
@@ -1186,9 +1196,9 @@ func TestSignatureAnnouncementRetry(t *testing.T) {
 	// We expect the gossiper to register for a notification when the peer
 	// comes back online, so keep track of the channel it wants to get
 	// notified on.
-	notifyPeers := make(chan chan<- struct{}, 1)
+	notifyPeers := make(chan chan<- lnpeer.Peer, 1)
 	ctx.gossiper.cfg.NotifyWhenOnline = func(peer *btcec.PublicKey,
-		connectedChan chan<- struct{}) {
+		connectedChan chan<- lnpeer.Peer) {
 		notifyPeers <- connectedChan
 	}
 
@@ -1207,7 +1217,7 @@ func TestSignatureAnnouncementRetry(t *testing.T) {
 	// Since sending this local announcement proof to the remote will fail,
 	// the gossiper should register for a notification when the remote is
 	// online again.
-	var conChan chan<- struct{}
+	var conChan chan<- lnpeer.Peer
 	select {
 	case conChan = <-notifyPeers:
 	case <-time.After(2 * time.Second):
@@ -1371,9 +1381,9 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 		msg ...lnwire.Message) error {
 		return fmt.Errorf("intentional error in SendToPeer")
 	}
-	notifyPeers := make(chan chan<- struct{}, 1)
+	notifyPeers := make(chan chan<- lnpeer.Peer, 1)
 	ctx.gossiper.cfg.NotifyWhenOnline = func(peer *btcec.PublicKey,
-		connectedChan chan<- struct{}) {
+		connectedChan chan<- lnpeer.Peer) {
 		notifyPeers <- connectedChan
 	}
 
@@ -1391,7 +1401,7 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 
 	// Since sending to the remote peer will fail, the gossiper should
 	// register for a notification when it comes back online.
-	var conChan chan<- struct{}
+	var conChan chan<- lnpeer.Peer
 	select {
 	case conChan = <-notifyPeers:
 	case <-time.After(2 * time.Second):
@@ -1430,7 +1440,7 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 			return fmt.Errorf("intentional error in SendToPeer")
 		},
 		NotifyWhenOnline: func(peer *btcec.PublicKey,
-			connectedChan chan<- struct{}) {
+			connectedChan chan<- lnpeer.Peer) {
 			notifyPeers <- connectedChan
 		},
 		Router:           ctx.gossiper.cfg.Router,
@@ -1606,9 +1616,9 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 		return nil
 	}
 
-	notifyPeers := make(chan chan<- struct{}, 1)
+	notifyPeers := make(chan chan<- lnpeer.Peer, 1)
 	ctx.gossiper.cfg.NotifyWhenOnline = func(peer *btcec.PublicKey,
-		connectedChan chan<- struct{}) {
+		connectedChan chan<- lnpeer.Peer) {
 		notifyPeers <- connectedChan
 	}
 
@@ -1734,7 +1744,6 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	// same channel ID. Adding this shouldn't cause an increase in the
 	// number of items as they should be de-duplicated.
 	ca2, err := createRemoteChannelAnnouncement(0)
-
 	if err != nil {
 		t.Fatalf("can't create remote channel announcement: %v", err)
 	}
@@ -2003,10 +2012,8 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 	// Recreate the case where the remote node is sending us its ChannelUpdate
 	// before we have been able to process our own ChannelAnnouncement and
 	// ChannelUpdate.
-	err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.chanUpdAnn2, remotePeer)
-	if err != nil {
-		t.Fatalf("unable to process :%v", err)
-	}
+	errRemoteAnn := ctx.gossiper.ProcessRemoteAnnouncement(batch.chanUpdAnn2, remotePeer)
+
 	select {
 	case <-ctx.broadcastedMessage:
 		t.Fatal("channel update announcement was broadcast")
@@ -2067,6 +2074,15 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 
 	// At this point the remote ChannelUpdate we received earlier should
 	// be reprocessed, as we now have the necessary edge entry in the graph.
+	select {
+	case err := <-errRemoteAnn:
+		if err != nil {
+			t.Fatalf("error re-processing remote update: %v", err)
+		}
+	case <-time.After(2 * trickleDelay):
+		t.Fatalf("remote update was not processed")
+	}
+
 	// Check that the ChannelEdgePolicy was added to the graph.
 	chanInfo, e1, e2, err = ctx.router.GetChannelByID(batch.chanUpdAnn1.ShortChannelID)
 	if err != nil {
@@ -2137,6 +2153,143 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 	}
 }
 
+// TestExtraDataChannelAnnouncementValidation tests that we're able to properly
+// validate a ChannelAnnouncement that includes opaque bytes that we don't
+// currently know of.
+func TestExtraDataChannelAnnouncementValidation(t *testing.T) {
+	t.Parallel()
+
+	ctx, cleanup, err := createTestCtx(0)
+	if err != nil {
+		t.Fatalf("can't create context: %v", err)
+	}
+	defer cleanup()
+
+	remotePeer := &mockPeer{nodeKeyPriv1.PubKey(), nil, nil}
+
+	// We'll now create an announcement that contains an extra set of bytes
+	// that we don't know of ourselves, but should still include in the
+	// final signature check.
+	extraBytes := []byte("gotta validate this stil!")
+	ca, err := createRemoteChannelAnnouncement(0, extraBytes)
+	if err != nil {
+		t.Fatalf("can't create channel announcement: %v", err)
+	}
+
+	// We'll now send the announcement to the main gossiper. We should be
+	// able to validate this announcement to problem.
+	select {
+	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(ca, remotePeer):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	if err != nil {
+		t.Fatalf("unable to process :%v", err)
+	}
+}
+
+// TestExtraDataChannelUpdateValidation tests that we're able to properly
+// validate a ChannelUpdate that includes opaque bytes that we don't currently
+// know of.
+func TestExtraDataChannelUpdateValidation(t *testing.T) {
+	t.Parallel()
+
+	ctx, cleanup, err := createTestCtx(0)
+	if err != nil {
+		t.Fatalf("can't create context: %v", err)
+	}
+	defer cleanup()
+
+	remotePeer := &mockPeer{nodeKeyPriv1.PubKey(), nil, nil}
+	timestamp := uint32(123456)
+
+	// In this scenario, we'll create two announcements, one regular
+	// channel announcement, and another channel update announcement, that
+	// has additional data that we won't be interpreting.
+	chanAnn, err := createRemoteChannelAnnouncement(0)
+	if err != nil {
+		t.Fatalf("unable to create chan ann: %v", err)
+	}
+	chanUpdAnn1, err := createUpdateAnnouncement(
+		0, 0, nodeKeyPriv1, timestamp,
+		[]byte("must also validate"),
+	)
+	if err != nil {
+		t.Fatalf("unable to create chan up: %v", err)
+	}
+	chanUpdAnn2, err := createUpdateAnnouncement(
+		0, 1, nodeKeyPriv2, timestamp,
+		[]byte("must also validate"),
+	)
+	if err != nil {
+		t.Fatalf("unable to create chan up: %v", err)
+	}
+
+	// We should be able to properly validate all three messages without
+	// any issue.
+	select {
+	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(chanAnn, remotePeer):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	if err != nil {
+		t.Fatalf("unable to process announcement: %v", err)
+	}
+
+	select {
+	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(chanUpdAnn1, remotePeer):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	if err != nil {
+		t.Fatalf("unable to process announcement: %v", err)
+	}
+
+	select {
+	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(chanUpdAnn2, remotePeer):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	if err != nil {
+		t.Fatalf("unable to process announcement: %v", err)
+	}
+}
+
+// TestExtraDataNodeAnnouncementValidation tests that we're able to properly
+// validate a NodeAnnouncement that includes opaque bytes that we don't
+// currently know of.
+func TestExtraDataNodeAnnouncementValidation(t *testing.T) {
+	t.Parallel()
+
+	ctx, cleanup, err := createTestCtx(0)
+	if err != nil {
+		t.Fatalf("can't create context: %v", err)
+	}
+	defer cleanup()
+
+	remotePeer := &mockPeer{nodeKeyPriv1.PubKey(), nil, nil}
+	timestamp := uint32(123456)
+
+	// We'll create a node announcement that includes a set of opaque data
+	// which we don't know of, but will store anyway in order to ensure
+	// upgrades can flow smoothly in the future.
+	nodeAnn, err := createNodeAnnouncement(
+		nodeKeyPriv1, timestamp, []byte("gotta validate"),
+	)
+	if err != nil {
+		t.Fatalf("can't create node announcement: %v", err)
+	}
+
+	select {
+	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(nodeAnn, remotePeer):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	if err != nil {
+		t.Fatalf("unable to process announcement: %v", err)
+	}
+}
+
 // mockPeer implements the lnpeer.Peer interface and is used to test the
 // gossiper's interaction with peers.
 type mockPeer struct {
@@ -2144,6 +2297,8 @@ type mockPeer struct {
 	sentMsgs chan lnwire.Message
 	quit     chan struct{}
 }
+
+var _ lnpeer.Peer = (*mockPeer)(nil)
 
 func (p *mockPeer) SendMessage(_ bool, msgs ...lnwire.Message) error {
 	if p.sentMsgs == nil && p.quit == nil {
@@ -2159,10 +2314,17 @@ func (p *mockPeer) SendMessage(_ bool, msgs ...lnwire.Message) error {
 
 	return nil
 }
+func (p *mockPeer) AddNewChannel(_ *channeldb.OpenChannel, _ <-chan struct{}) error {
+	return nil
+}
 func (p *mockPeer) WipeChannel(_ *wire.OutPoint) error { return nil }
 func (p *mockPeer) IdentityKey() *btcec.PublicKey      { return p.pk }
 func (p *mockPeer) PubKey() [33]byte {
 	var pubkey [33]byte
 	copy(pubkey[:], p.pk.SerializeCompressed())
 	return pubkey
+}
+func (p *mockPeer) Address() net.Addr { return nil }
+func (p *mockPeer) QuitSignal() <-chan struct{} {
+	return p.quit
 }

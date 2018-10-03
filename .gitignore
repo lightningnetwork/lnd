@@ -25,7 +25,9 @@ _testmain.go
 *.prof
 
 lnd
+lnd-debug
 lncli
+lncli-debug
 
 output*.log
 
@@ -51,3 +53,5 @@ profile.tmp
 .DS_Store
 
 main*
+
+.vscode

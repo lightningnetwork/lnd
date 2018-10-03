@@ -11,12 +11,12 @@ import (
 
 	"github.com/coreos/bbolt"
 
+	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/roasbeef/btcd/blockchain"
-	"github.com/roasbeef/btcutil"
 )
 
 func addressType(addr string) string {
@@ -169,8 +169,6 @@ func exportPrometheusStats(server *server) {
 
 	// Get unconfirmed balance, from txs with 0 confirmations.
 	// unconfirmedBal := totalBal - confirmedBal
-
-	prometheus.MustRegister(newChannelsCollector(server))
 
 	// TODO(baryluk): Can be merged into channelsCollector to calculate
 	// aggregates in single pass together with per-channel stats.

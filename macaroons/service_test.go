@@ -1,18 +1,18 @@
 package macaroons_test
 
 import (
-	"testing"
-	"path"
-	"os"
 	"context"
-	"io/ioutil"
 	"encoding/hex"
+	"io/ioutil"
+	"os"
+	"path"
+	"testing"
 
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/macaroons"
-	"gopkg.in/macaroon-bakery.v2/bakery/checkers"
-	"gopkg.in/macaroon-bakery.v2/bakery"
 	"google.golang.org/grpc/metadata"
+	"gopkg.in/macaroon-bakery.v2/bakery"
+	"gopkg.in/macaroon-bakery.v2/bakery/checkers"
 )
 
 var (

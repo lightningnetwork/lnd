@@ -3,10 +3,10 @@ package autopilot
 import (
 	"net"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 // Node node is an interface which represents n abstract vertex within the
@@ -17,8 +17,8 @@ import (
 type Node interface {
 	// PubKey is the identity public key of the node. This will be used to
 	// attempt to target a node for channel opening by the main autopilot
-	// agent.
-	PubKey() *btcec.PublicKey
+	// agent. The key will be returned in serialized compressed format.
+	PubKey() [33]byte
 
 	// Addrs returns a slice of publicly reachable public TCP addresses
 	// that the peer is known to be listening on.
@@ -85,10 +85,13 @@ type ChannelGraph interface {
 // AttachmentHeuristic. It details to which node a channel should be created
 // to, and also the parameters which should be used in the channel creation.
 type AttachmentDirective struct {
-	// PeerKey is the target node for this attachment directive. It can be
+	// NodeKey is the target node for this attachment directive. It can be
 	// identified by its public key, and therefore can be used along with
 	// a ChannelOpener implementation to execute the directive.
-	PeerKey *btcec.PublicKey
+	NodeKey *btcec.PublicKey
+
+	// NodeID is the serialized compressed pubkey of the target node.
+	NodeID NodeID
 
 	// ChanAmt is the size of the channel that should be opened, expressed
 	// in satoshis.
@@ -136,8 +139,7 @@ type ChannelController interface {
 	// specified amount. This function should un-block immediately after
 	// the funding transaction that marks the channel open has been
 	// broadcast.
-	OpenChannel(target *btcec.PublicKey, amt btcutil.Amount,
-		addrs []net.Addr) error
+	OpenChannel(target *btcec.PublicKey, amt btcutil.Amount) error
 
 	// CloseChannel attempts to close out the target channel.
 	//

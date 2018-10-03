@@ -687,7 +687,15 @@ func (tcn *TxConfNotifier) DisconnectTip(blockHeight uint32) error {
 	// clients is always non-blocking.
 	for initialHeight, txHashes := range tcn.txsByInitialHeight {
 		for txHash := range txHashes {
+			// If the transaction has been reorged out of the chain,
+			// we'll make sure to remove the cached confirmation
+			// details to prevent notifying clients with old
+			// information.
 			confSet := tcn.confNotifications[txHash]
+			if initialHeight == blockHeight {
+				confSet.details = nil
+			}
+
 			for _, ntfn := range confSet.ntfns {
 				// First, we'll attempt to drain an update
 				// from each notification to ensure sends to the

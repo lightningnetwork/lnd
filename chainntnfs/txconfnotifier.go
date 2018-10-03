@@ -500,6 +500,7 @@ func (tcn *TxConfNotifier) ConnectTip(blockHash *chainhash.Hash,
 			TxIndex:     uint32(tx.Index()),
 		}
 
+		confSet.rescanStatus = rescanComplete
 		confSet.details = details
 		for _, ntfn := range confSet.ntfns {
 			ntfn.details = details

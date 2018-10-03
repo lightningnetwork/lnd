@@ -452,6 +452,19 @@ func (tcn *TxConfNotifier) DisconnectTip(blockHeight uint32) error {
 	tcn.currentHeight--
 	tcn.reorgDepth++
 
+	// Rewind the height hint for all watched transactions.
+	var txs []chainhash.Hash
+	for tx := range tcn.confNotifications {
+		txs = append(txs, tx)
+	}
+
+	err := tcn.hintCache.CommitConfirmHint(tcn.currentHeight, txs...)
+	if err != nil {
+		Log.Errorf("Unable to update confirm hint to %d for %v: %v",
+			tcn.currentHeight, txs, err)
+		return err
+	}
+
 	// We'll go through all of our watched transactions and attempt to drain
 	// their notification channels to ensure sending notifications to the
 	// clients is always non-blocking.
@@ -513,20 +526,6 @@ func (tcn *TxConfNotifier) DisconnectTip(blockHeight uint32) error {
 				}
 			}
 		}
-	}
-
-	// Rewind the height hint for all watched transactions.
-	var txs []chainhash.Hash
-	for tx := range tcn.confNotifications {
-		txs = append(txs, tx)
-	}
-
-	err := tcn.hintCache.CommitConfirmHint(tcn.currentHeight, txs...)
-	if err != nil {
-		// The error is not fatal, so we should not return an error to
-		// the caller.
-		Log.Errorf("Unable to update confirm hint to %d for %v: %v",
-			tcn.currentHeight, txs, err)
 	}
 
 	// Finally, we can remove the transactions we're currently watching that

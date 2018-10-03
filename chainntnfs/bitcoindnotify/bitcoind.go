@@ -632,13 +632,6 @@ func (b *BitcoindNotifier) handleBlockConnected(block chainntnfs.BlockEpoch) err
 	chainntnfs.Log.Infof("New block: height=%v, sha=%v", block.Height,
 		block.Hash)
 
-	// We want to set the best block before dispatching notifications so
-	// if any subscribers make queries based on their received block epoch,
-	// our state is fully updated in time.
-	b.bestBlock = block
-
-	b.notifyBlockEpochs(block.Height, block.Hash)
-
 	// Finally, we'll update the spend height hint for all of our watched
 	// outpoints that have not been spent yet. This is safe to do as we do
 	// not watch already spent outpoints for spend notifications.
@@ -652,12 +645,21 @@ func (b *BitcoindNotifier) handleBlockConnected(block chainntnfs.BlockEpoch) err
 			uint32(block.Height), ops...,
 		)
 		if err != nil {
-			// The error is not fatal, so we should not return an
-			// error to the caller.
+			// The error is not fatal since we are connecting a
+			// block, and advancing the spend hint is an optimistic
+			// optimization.
 			chainntnfs.Log.Errorf("Unable to update spend hint to "+
 				"%d for %v: %v", block.Height, ops, err)
 		}
 	}
+
+	// We want to set the best block before dispatching notifications so
+	// if any subscribers make queries based on their received block epoch,
+	// our state is fully updated in time.
+	b.bestBlock = block
+
+	// Lastly we'll notify any subscribed clients of the block.
+	b.notifyBlockEpochs(block.Height, block.Hash)
 
 	return nil
 }

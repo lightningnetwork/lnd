@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/channeldb"
 )
 
 // The block height returned by the mock BlockChainIO's GetBestBlock.
@@ -323,14 +324,15 @@ func (m *mockPreimageCache) AddPreimage(preimage []byte, exp uint32) error {
 	return nil
 }
 
-type preimageAndExp struct {
+type preimageAndState struct {
 	preimage []byte
+	state    uint8
 }
 
 type mockWitnessBeacon struct {
 	sync.RWMutex
-	// cache: payhash -> (preimage, expiry)
-	cache    map[[32]byte]*preimageAndExp
+	// cache: payhash -> (preimage, state)
+	cache    map[[32]byte]*preimageAndState
 	notifier *mockNotfier
 	wg       sync.WaitGroup
 	quit     chan struct{}
@@ -358,8 +360,24 @@ func (m *mockWitnessBeacon) AddPreimage(pre []byte) error {
 	m.Lock()
 	defer m.Unlock()
 
-	m.cache[sha256.Sum256(pre[:])] = &preimageAndExp{
+	m.cache[sha256.Sum256(pre[:])] = &preimageAndState{
 		preimage: pre,
+		state:    channeldb.WAITING,
+	}
+
+	return nil
+}
+
+func (m *mockWitnessBeacon) FinalizeState(pre []byte) error {
+	m.Lock()
+	defer m.Unlock()
+
+	// NOTE: We know the preimage here because then we don't have to call
+	// LookupPreimage if a payhash is instead passed as the parameter.
+
+	m.cache[sha256.Sum256(pre[:])] = &preimageAndState{
+		preimage: pre,
+		state:    channeldb.FINALIZED,
 	}
 
 	return nil
@@ -386,24 +404,25 @@ func (m *mockWitnessBeacon) Stop() error {
 	return nil
 }
 
-// TODO
+// Upon block notification, loop through all *preimageAndState structs and
+// delete the ones with FINALIZED state.
+// TODO - Is this an OK metric for garbage collection in the mock case?
 func (m *mockWitnessBeacon) gc(epochClient *chainntnfs.BlockEpochEvent) {
 	defer m.wg.Done()
 	defer epochClient.Cancel()
 
 	for {
 		select {
-		case epoch, ok := <-epochClient.Epochs:
+		case _, ok := <-epochClient.Epochs:
 			if !ok {
 				// Block epoch was canceled, return.
 				return
 			}
 
-			height := uint32(epoch.Height)
-			// Loop through cache and delete expired preimages.
+			// Loop through cache and deleted finalized preimages
 			m.Lock()
 			for payhash, value := range m.cache {
-				if height > value.expiry {
+				if value.state == channeldb.FINALIZED {
 					delete(m.cache, payhash)
 				}
 			}

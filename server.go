@@ -52,10 +52,6 @@ const (
 	// reconnecting to persistent peers.
 	defaultBackoff = time.Second
 
-	// maximumBackoff is the largest backoff we will permit when
-	// reattempting connections to persistent peers.
-	maximumBackoff = time.Hour
-
 	// defaultStableConnDuration is a floor under which all reconnection
 	// attempts will apply exponential randomized backoff. Connections
 	// durations exceeding this value will be eligible to have their
@@ -2853,8 +2849,8 @@ func parseHexColor(colorStr string) (color.RGBA, error) {
 func computeNextBackoff(currBackoff time.Duration) time.Duration {
 	// Double the current backoff, truncating if it exceeds our maximum.
 	nextBackoff := 2 * currBackoff
-	if nextBackoff > maximumBackoff {
-		nextBackoff = maximumBackoff
+	if nextBackoff > cfg.MaxBackoff {
+		nextBackoff = cfg.MaxBackoff
 	}
 
 	// Using 1/10 of our duration as a margin, compute a random offset to

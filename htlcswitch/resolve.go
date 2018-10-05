@@ -14,17 +14,19 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/channeldb"
 	pb "github.com/lightningnetwork/lnd/lnrpc"
+	"google.golang.org/grpc/credentials"
 )
 
 const (
 	defaultConfigFilename = "resolve.conf"
+	defaultCaFile         = "tls.cert"
 	defaultServerAddress  = "127.0.0.1:8886"
 	defaultTLS            = false
 )
 
 type config struct {
-	TLS                bool `long:"TLS" description:"If TLS should be used or not"`
-	CaFile             string
+	TLS                bool   `long:"TLS" description:"If TLS should be used or not"`
+	CaFile             string `long:"cafile" description:"The file containning the CA root cert file"`
 	ServerAddr         string `long:"serveraddr" description:"host and port of the resolver"`
 	ServerHostOverride string
 }
@@ -32,10 +34,11 @@ type config struct {
 var (
 	cfg = &config{
 		TLS:                defaultTLS,
-		CaFile:             "",
+		CaFile:             defaultCaFile,
 		ServerAddr:         defaultServerAddress,
 		ServerHostOverride: "",
 	}
+	caFile string
 )
 
 func lookupResolverInvoice(rHash chainhash.Hash, cltvDelta uint32, err error) (channeldb.Invoice, uint32, error) {
@@ -80,22 +83,22 @@ func isResolverActive() bool {
 		return false
 	}
 
+	caFile = filepath.Join(dir, "..", cfg.CaFile)
+
 	// if all is well - resolver is active
 	return true
 }
 
 func connectResolver() (*grpc.ClientConn, pb.HashResolverClient, error) {
 	var opts []grpc.DialOption
-	// TODO: add TLS support
 	if cfg.TLS {
-		//if *caFile == "" {
-		//	*caFile = testdata.Path("ca.pem")
-		//}
-		//	creds, err := credentials.NewClientTLSFromFile(*caFile, *serverHostOverride)
-		//	if err != nil {
-		//		log.Fatalf("Failed to create TLS credentials %v", err)
-		//	}
-		//	opts = append(opts, grpc.WithTransportCredentials(creds))
+		creds, err := credentials.NewClientTLSFromFile(caFile, "")
+		if err != nil {
+			err = errors.New("Failed to create TLS credentials from " + caFile + " " + err.Error())
+			log.Error(err)
+			return nil, nil, err
+		}
+		opts = append(opts, grpc.WithTransportCredentials(creds))
 	} else {
 		opts = append(opts, grpc.WithInsecure())
 	}

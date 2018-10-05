@@ -1134,11 +1134,11 @@ func testCatchUpClientOnMissedBlocks(miner *rpctest.Harness,
 	// the notifier's best block is at the tip of the chain. If it isn't, the
 	// client may not receive all historical notifications.
 	bestHeight := outdatedHeight + numBlocks
-	if err := notifier.UnsafeStart(
-		bestHeight, nil, bestHeight, generateBlocks); err != nil {
-
-		t.Fatalf("Unable to unsafe start the notifier: %v", err)
+	err = notifier.UnsafeStart(bestHeight, nil, bestHeight, generateBlocks)
+	if err != nil {
+		t.Fatalf("unable to unsafe start the notifier: %v", err)
 	}
+	defer notifier.Stop()
 
 	// Create numClients clients whose best known block is 10 blocks behind
 	// the tip of the chain. We expect each client to receive numBlocks
@@ -1223,11 +1223,13 @@ func testCatchUpOnMissedBlocks(miner *rpctest.Harness,
 	}
 
 	// Next, start the notifier with outdated best block information.
-	if err := notifier.UnsafeStart(bestHeight,
-		nil, bestHeight+numBlocks, generateBlocks); err != nil {
-
-		t.Fatalf("Unable to unsafe start the notifier: %v", err)
+	err = notifier.UnsafeStart(
+		bestHeight, nil, bestHeight+numBlocks, generateBlocks,
+	)
+	if err != nil {
+		t.Fatalf("unable to unsafe start the notifier: %v", err)
 	}
+	defer notifier.Stop()
 
 	// Create numClients clients who will listen for block notifications.
 	clients := make([]*chainntnfs.BlockEpochEvent, 0, numClients)
@@ -1396,11 +1398,13 @@ func testCatchUpOnMissedBlocksWithReorg(miner1 *rpctest.Harness,
 	// shorter chain, to test that the notifier correctly rewinds to
 	// the common ancestor between the two chains.
 	syncHeight := nodeHeight1 + numBlocks + 1
-	if err := notifier.UnsafeStart(nodeHeight1+numBlocks,
-		blocks[numBlocks-1], syncHeight, nil); err != nil {
-
+	err = notifier.UnsafeStart(
+		nodeHeight1+numBlocks, blocks[numBlocks-1], syncHeight, nil,
+	)
+	if err != nil {
 		t.Fatalf("Unable to unsafe start the notifier: %v", err)
 	}
+	defer notifier.Stop()
 
 	// Create numClients clients who will listen for block notifications.
 	clients := make([]*chainntnfs.BlockEpochEvent, 0, numClients)
@@ -1680,9 +1684,6 @@ func TestInterfaces(t *testing.T) {
 			success := t.Run(testName, func(t *testing.T) {
 				blockCatchupTest.test(miner, notifier, t)
 			})
-
-			notifier.Stop()
-
 			if !success {
 				break
 			}

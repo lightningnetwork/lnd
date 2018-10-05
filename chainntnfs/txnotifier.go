@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 )
 
@@ -68,6 +69,31 @@ func newConfNtfnSet() *confNtfnSet {
 	}
 }
 
+// spendNtfnSet holds all known, registered spend notifications for an outpoint.
+// If duplicate notifications are requested, only one historical dispatch will
+// be spawned to ensure redundant scans are not permitted.
+type spendNtfnSet struct {
+	// ntfns keeps tracks of all the active client notification requests for
+	// an outpoint.
+	ntfns map[uint64]*SpendNtfn
+
+	// rescanStatus represents the current rescan state for the outpoint.
+	rescanStatus rescanState
+
+	// details serves as a cache of the spend details for an outpoint that
+	// we'll use to determine if an outpoint has already been spent at the
+	// time of registration.
+	details *SpendDetail
+}
+
+// newSpendNtfnSet constructs a new spend notification set.
+func newSpendNtfnSet() *spendNtfnSet {
+	return &spendNtfnSet{
+		ntfns:        make(map[uint64]*SpendNtfn),
+		rescanStatus: rescanNotStarted,
+	}
+}
+
 // ConfNtfn represents a notifier client's request to receive a notification
 // once the target transaction gets sufficient confirmations. The client is
 // asynchronously notified via the ConfirmationEvent channels.
@@ -126,28 +152,78 @@ type HistoricalConfDispatch struct {
 	EndHeight uint32
 }
 
+// SpendNtfn represents a client's request to receive a notification once an
+// outpoint has been spent on-chain. The client is asynchronously notified via
+// the SpendEvent channels.
+type SpendNtfn struct {
+	// SpendID uniquely identies the spend notification request for the
+	// specified outpoint.
+	SpendID uint64
+
+	// OutPoint is the outpoint for which a client has requested a spend
+	// notification for.
+	OutPoint wire.OutPoint
+
+	// PkScript is the script of the outpoint. This is needed in order to
+	// match compact filters when attempting a historical rescan to
+	// determine if the outpoint has already been spent.
+	PkScript []byte
+
+	// Event contains references to the channels that the notifications are
+	// to be sent over.
+	Event *SpendEvent
+
+	// HeightHint is the earliest height in the chain that we expect to find
+	// the spending transaction of the specified outpoint. This value will
+	// be overridden by the spend hint cache if it contains an entry for it.
+	HeightHint uint32
+
+	// dispatched signals whether a spend notification has been disptached
+	// to the client.
+	dispatched bool
 }
 
-// TxNotifier is used to register transaction confirmation notifications and
-// dispatch them as the transactions confirm. A client can request to be
-// notified when a particular transaction has sufficient on-chain confirmations
-// (or be notified immediately if the tx already does), and the TxNotifier
-// will watch changes to the blockchain in order to satisfy these requests.
+// HistoricalSpendDispatch parameterizes a manual rescan to determine the
+// spending details (if any) of an outpoint. The parameters include the start
+// and end block heights specifying the range of blocks to scan.
+type HistoricalSpendDispatch struct {
+	// OutPoint is the outpoint which we should attempt to find the spending
+	OutPoint wire.OutPoint
+
+	// PkScript is the script of the outpoint. This is needed in order to
+	// match compact filters when attempting a historical rescan.
+	PkScript []byte
+
+	// StartHeight specified the block height at which to begin the
+	// historical rescan.
+	StartHeight uint32
+
+	// EndHeight specifies the last block height (inclusive) that the
+	// historical rescan should consider.
+	EndHeight uint32
+}
+
+// TxNotifier is a struct responsible for delivering transaction notifications
+// to subscribers. These notifications can be of two different types:
+// transaction confirmations and/or outpoint spends. The TxNotifier will watch
+// the blockchain as new blocks come in, in order to satisfy its client
+// requests.
 type TxNotifier struct {
 	// currentHeight is the height of the tracked blockchain. It is used to
 	// determine the number of confirmations a tx has and ensure blocks are
 	// connected and disconnected in order.
 	currentHeight uint32
 
-	// reorgSafetyLimit is the chain depth beyond which it is assumed a block
-	// will not be reorganized out of the chain. This is used to determine when
-	// to prune old confirmation requests so that reorgs are handled correctly.
-	// The coinbase maturity period is a reasonable value to use.
+	// reorgSafetyLimit is the chain depth beyond which it is assumed a
+	// block will not be reorganized out of the chain. This is used to
+	// determine when to prune old notification requests so that reorgs are
+	// handled correctly. The coinbase maturity period is a reasonable value
+	// to use.
 	reorgSafetyLimit uint32
 
-	// reorgDepth is the depth of a chain organization that this system is being
-	// informed of. This is incremented as long as a sequence of blocks are
-	// disconnected without being interrupted by a new block.
+	// reorgDepth is the depth of a chain organization that this system is
+	// being informed of. This is incremented as long as a sequence of
+	// blocks are disconnected without being interrupted by a new block.
 	reorgDepth uint32
 
 	// confNotifications is an index of notification requests by transaction
@@ -156,18 +232,33 @@ type TxNotifier struct {
 
 	// txsByInitialHeight is an index of watched transactions by the height
 	// that they are included at in the blockchain. This is tracked so that
-	// incorrect notifications are not sent if a transaction is reorganized
-	// out of the chain and so that negative confirmations can be recognized.
+	// incorrect notifications are not sent if a transaction is reorged out
+	// of the chain and so that negative confirmations can be recognized.
 	txsByInitialHeight map[uint32]map[chainhash.Hash]struct{}
 
-	// ntfnsByConfirmHeight is an index of notification requests by the height
-	// at which the transaction will have sufficient confirmations.
+	// ntfnsByConfirmHeight is an index of notification requests by the
+	// height at which the transaction will have sufficient confirmations.
 	ntfnsByConfirmHeight map[uint32]map[*ConfNtfn]struct{}
 
-	// confirmHintCache is a cache used to maintain the latest height hints for
-	// transactions. Each height hint represents the earliest height at
+	// spendNotifications is an index of all active notification requests
+	// per outpoint.
+	spendNotifications map[wire.OutPoint]*spendNtfnSet
+
+	// opsBySpendHeight is an index that keeps tracks of the spending height
+	// of an outpoint we are currently tracking notifications for. This is
+	// used in order to recover from the spending transaction of an outpoint
+	// being reorged out of the chain.
+	opsBySpendHeight map[uint32]map[wire.OutPoint]struct{}
+
+	// confirmHintCache is a cache used to maintain the latest height hints
+	// for transactions. Each height hint represents the earliest height at
 	// which the transactions could have been confirmed within the chain.
 	confirmHintCache ConfirmHintCache
+
+	// spendHintCache is a cache used to maintain the latest height hints
+	// for outpoints. Each height hint represents the earliest height at
+	// which the outpoints could have been spent within the chain.
+	spendHintCache SpendHintCache
 
 	// quit is closed in order to signal that the notifier is gracefully
 	// exiting.
@@ -177,9 +268,12 @@ type TxNotifier struct {
 }
 
 // NewTxNotifier creates a TxNotifier. The current height of the blockchain is
-// accepted as a parameter.
+// accepted as a parameter. The different hint caches (confirm and spend) are
+// used as an optimization in order to retrieve a better starting point when
+// dispatching a recan for a historical event in the chain.
 func NewTxNotifier(startHeight uint32, reorgSafetyLimit uint32,
-	confirmHintCache ConfirmHintCache) *TxNotifier {
+	confirmHintCache ConfirmHintCache,
+	spendHintCache SpendHintCache) *TxNotifier {
 
 	return &TxNotifier{
 		currentHeight:        startHeight,
@@ -187,7 +281,10 @@ func NewTxNotifier(startHeight uint32, reorgSafetyLimit uint32,
 		confNotifications:    make(map[chainhash.Hash]*confNtfnSet),
 		txsByInitialHeight:   make(map[uint32]map[chainhash.Hash]struct{}),
 		ntfnsByConfirmHeight: make(map[uint32]map[*ConfNtfn]struct{}),
+		spendNotifications:   make(map[wire.OutPoint]*spendNtfnSet),
+		opsBySpendHeight:     make(map[uint32]map[wire.OutPoint]struct{}),
 		confirmHintCache:     confirmHintCache,
+		spendHintCache:       spendHintCache,
 		quit:                 make(chan struct{}),
 	}
 }

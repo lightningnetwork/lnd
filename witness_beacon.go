@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/sha256"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -76,11 +75,9 @@ func (p *preimageBeacon) SubscribeUpdates() *contractcourt.WitnessSubscription {
 	}
 }
 
-// LookupPreImage attempts to lookup a preimage. True is returned for the
-// second argument if the preimage is found.
-// TODO - If preimages are stored in a ChannelBucket, lookups will be changed
-// if access to the ShortChanID is not available.
-func (p *preimageBeacon) LookupPreimage(payHash []byte) ([]byte, bool) {
+// LookupPreImage attempts to lookup a preimage given its hash and associated
+// ShortChannelID. True is returned for the second argument if the preimage is found.
+func (p *preimageBeacon) LookupPreimage(payHash []byte, chanID lnwire.ShortChannelID) ([]byte, bool) {
 	p.RLock()
 	defer p.RUnlock()
 
@@ -105,7 +102,7 @@ func (p *preimageBeacon) LookupPreimage(payHash []byte) ([]byte, bool) {
 
 	// Otherwise, we'll perform a final check using the witness cache.
 	preimage, err := p.wCache.LookupWitness(
-		channeldb.Sha256HashWitness, payHash,
+		channeldb.Sha256HashWitness, payHash, chanID,
 	)
 	if err != nil {
 		ltndLog.Errorf("unable to lookup witness: %v", err)
@@ -115,9 +112,9 @@ func (p *preimageBeacon) LookupPreimage(payHash []byte) ([]byte, bool) {
 	return preimage, true
 }
 
-// AddPreImage adds a newly discovered preimage to the global cache, and also
-// signals any subscribers of the newly discovered witness.
-// TODO - ShortChanID
+// AddPreImage adds a newly discovered preimage to the global cache with its
+// associated ShortChannelID, and also signals any subscribers of the newly
+// discovered witness.
 func (p *preimageBeacon) AddPreimage(pre []byte, chanID lnwire.ShortChannelID) error {
 	p.Lock()
 	defer p.Unlock()
@@ -125,7 +122,7 @@ func (p *preimageBeacon) AddPreimage(pre []byte, chanID lnwire.ShortChannelID) e
 	srvrLog.Infof("Adding preimage=%x to witness cache", pre[:])
 
 	// First, we'll add the witness and height to the decaying witness cache.
-	err := p.wCache.AddWitness(channeldb.Sha256HashWitness, pre)
+	err := p.wCache.AddWitness(channeldb.Sha256HashWitness, pre, chanID)
 	if err != nil {
 		return err
 	}
@@ -180,7 +177,8 @@ func (p *preimageBeacon) Stop() error {
 
 // garbageCollector calls gcExpiredPreimages, which actually does the garbage
 // collecting, upon receiving new block notifications from the epochClient.
-// TODO - FINALIZED flag, ChannelBucket
+// TODO - Change the garbage collection heuristic? This totally doesn't handle
+// block reorgs. Or is this more of a contractcourt problem?
 func (p *preimageBeacon) garbageCollector(epochClient *chainntnfs.BlockEpochEvent) {
 	defer p.wg.Done()
 	defer epochClient.Cancel()
@@ -195,10 +193,11 @@ func (p *preimageBeacon) garbageCollector(epochClient *chainntnfs.BlockEpochEven
 				return
 			}
 
-			// Using the current block height, scrub the cache
-			// of expired preimages.
 			height := uint32(epoch.Height)
-			numStale, err := p.gcExpiredPreimages(height)
+
+			// We received a new block, so we scrub the cache if we
+			// can.
+			numStale, err := p.gcExpiredPreimages()
 
 			// We don't log ErrNoWitnesses in case the WitnessBucket
 			// hasn't been created yet. Otherwise, this would cause
@@ -221,26 +220,32 @@ func (p *preimageBeacon) garbageCollector(epochClient *chainntnfs.BlockEpochEven
 }
 
 // gcExpiredPreimages is the function that actually removes the preimages.
-// NOTE: We could remove the preimages when their associated HTLC's has been swept
-// and confirmed or when we receive a revocation key from the remote party, but
-// as the preimages already have a set termination date, this is unnecessary.
-// TODO - The new approach doesn't rely on expiry heights.
-func (p *preimageBeacon) gcExpiredPreimages(height uint32) (uint32, error) {
+// Currently, preimages are deleted in bulk for a specific ShortChannelID when
+// the associated channel is in the FINALIZED state and 6 blocks have passed.
+func (p *preimageBeacon) gcExpiredPreimages() (uint32, error) {
 	p.Lock()
 	defer p.Unlock()
 	var numExpiredPreimages uint32
 
-	witnesses, err := p.wCache.FetchAllWitnesses(channeldb.Sha256HashWitness)
+	// Call FetchAllChannelStates so we can filter out non-FINALIZED channels.
+	cids, states, counts, err := p.wCache.FetchAllChannelStates(channeldb.Sha256HashWitness)
 	if err != nil {
 		return 0, err
 	}
 
-	for i := 0; i < len(witnesses); i++ {
-		if expiryHeights[i] < height {
-			key := sha256.Sum256(witnesses[i])
-			witnessKey := key[:]
-			p.wCache.DeleteWitness(channeldb.Sha256HashWitness, witnessKey)
-			numExpiredPreimages++
+	for i := 0; i < len(cids); i++ {
+		if states[i] == channeldb.FINALIZED {
+			// If the block counter is >= 6, we delete the channel's
+			// preimages and the channel from the witness cache.
+			// Otherwise, we just increment the block counter.
+			if counts[i] >= 6 {
+				p.wCache.DeleteChannel(channeldb.Sha256HashWitness, cids[i])
+				numExpiredPreimages++
+			} else {
+				p.wCache.UpdateChannelCounter(
+					channeldb.Sha256HashWitness, cids[i], counts[i],
+				)
+			}
 		}
 	}
 

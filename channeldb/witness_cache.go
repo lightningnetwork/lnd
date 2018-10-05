@@ -52,7 +52,7 @@ func (w WitnessType) toDBKey() ([]byte, error) {
 // contractcourt.WitnessBeacon to garbage collect old witnesses based on
 // this state and some other heuristic.
 // TODO - Revise last bit of comment with what we actually decide to do re: gc.
-type ChannelState uint8
+type ChannelState uint16
 
 const (
 	// WAITING is the state a ShortChanId is in when it is first added to
@@ -159,7 +159,13 @@ func (w *WitnessCache) AddWitness(wType WitnessType, witness []byte,
 		if channelBucket.Get(cid) == nil {
 			// Store the chanID with the default, WAITING state in the channelBucket
 			// and store the witness along with its key in the channelWitnessBucket.
-			if err = channelBucket.Put(cid, byte(WAITING)); err != nil {
+			// Also store a block counter starting at 0.
+			var writer bytes.Buffer
+			if err := WriteElements(&writer, WAITING, uint16(0)); err != nil {
+				return err
+			}
+
+			if err = channelBucket.Put(cid, writer.Bytes()); err != nil {
 				return err
 			}
 		}
@@ -249,6 +255,48 @@ func (w *WitnessCache) LookupWitness(wType WitnessType, witnessKey []byte,
 	return witness, nil
 }
 
+// UpdateChannelCounter updates a channel's block counter with the passed-in variable
+// incremented by 1. We use the passed-in variable to save time with a wasteful
+// disk lookup.
+func (w *WitnessCache) UpdateChannelCounter(wType WitnessType, chanID lnwire.ShortChannelID,
+	counter uint16) error {
+	return w.db.Batch(func(tx *bolt.Tx) error {
+		witnessBucket, err := tx.CreateBucketIfNotExists(witnessBucketKey)
+		if err != nil {
+			return err
+		}
+
+		witnessTypeBucketKey, err := wType.toDBKey()
+		if err != nil {
+			return err
+		}
+		witnessTypeBucket, err := witnessBucket.CreateBucketIfNotExists(
+			witnessTypeBucketKey,
+		)
+		if err != nil {
+			return err
+		}
+
+		channelBucket, err := witnessTypeBucket.CreateBucketIfNotExists(
+			channelBucketKey,
+		)
+		if err != nil {
+			return err
+		}
+
+		var cid [8]byte
+		byteOrder.PutUint64(cid, chanID.ToUint64())
+
+		var writer bytes.Buffer
+		counter++
+		if err := WriteElements(&writer, FINALIZED, counter); err != nil {
+			return err
+		}
+
+		return channelBucket.Put(cid, writer.Bytes())
+	})
+}
+
 // FinalizeChannelState takes a WitnessType and a ShortChannelID and attempts to
 // update the internally stored ChannelState to the FINALIZED state. Returns an
 // error if one occurs.
@@ -280,18 +328,25 @@ func (w *WitnessCache) FinalizeChannelState(wType WitnessType, chanID lnwire.Sho
 		var cid [8]byte
 		byteOrder.PutUint64(cid[:], chanID.ToUint64())
 
-		return channelBucket.Put(cid, byte(FINALIZED))
+		var writer bytes.Buffer
+		if err := WriteElements(&writer, FINALIZED, uint16(0)); err != nil {
+			return err
+		}
+
+		return channelBucket.Put(cid, writer.Bytes())
 	});
 }
 
-// FetchAllChannelStates retrieves all ShortChannelIDs and ChannelStates from
-// the ChannelBucket for a given WitnessType. This is used by the garbage collector
-// to determine if the ShortChannelID's set of witnesses should be collected.
+// FetchAllChannelStates retrieves all ShortChannelIDs and ChannelStates and
+// block counters from the ChannelBucket for a given WitnessType. This is used
+// by the garbage collector to determine if the ShortChannelID's set of witnesses
+// should be collected.
 func (w *WitnessCache) FetchAllChannelStates(wType WitnessType) ([]lnwire.ShortChannelID,
-	[]ChannelState, error) {
+	[]ChannelState, []uint16, error) {
 
 	var chanIDs []lnwire.ShortChannelID
 	var chanStates []ChannelState
+	var counters []uint16
 	err := w.db.View(func(tx *bolt.Tx) error {
 		witnessBucket := tx.Bucket(witnessBucketKey)
 		if witnessBucket == nil {
@@ -318,20 +373,21 @@ func (w *WitnessCache) FetchAllChannelStates(wType WitnessType) ([]lnwire.ShortC
 
 			var chanID lnwire.ShortChannelID
 			var chanState ChannelState
+			var counter uint16
 
 			r := bytes.NewReader(id)
 			if err := ReadElements(r, &chanID); err != nil {
 				return err
 			}
 
-			if len(state) != 1 {
-				return ErrNoChannels
+			r2 := bytes.NewReader(state)
+			if err := ReadElements(r2, &chanState, &counter); err != nil {
+				return err
 			}
-
-			chanState = uint8(state[0])
 
 			chanIDs = append(chanIDs, chanID)
 			chanStates = append(chanStates, chanState)
+			counters = append(counters, counter)
 
 			return nil
 
@@ -342,7 +398,7 @@ func (w *WitnessCache) FetchAllChannelStates(wType WitnessType) ([]lnwire.ShortC
 		return nil
 	})
 
-	return chanIDs, chanStates, err
+	return chanIDs, chanStates, counters, err
 }
 
 // DeleteWitnessClass attempts to delete an *entire* class of witnesses. After

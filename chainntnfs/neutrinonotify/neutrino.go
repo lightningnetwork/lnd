@@ -932,7 +932,7 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	// for `dispatch` will be returned if we are required to perform a
 	// manual scan for the confirmation. Otherwise the notifier will begin
 	// watching at tip for the transaction to confirm.
-	dispatch, err := n.txNotifier.Register(ntfn)
+	dispatch, err := n.txNotifier.RegisterConf(ntfn)
 	if err != nil {
 		return nil, err
 	}

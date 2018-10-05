@@ -1023,7 +1023,7 @@ func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash, _ []byte,
 	// for `dispatch` will be returned if we are required to perform a
 	// manual scan for the confirmation. Otherwise the notifier will begin
 	// watching at tip for the transaction to confirm.
-	dispatch, err := b.txNotifier.Register(ntfn)
+	dispatch, err := b.txNotifier.RegisterConf(ntfn)
 	if err != nil {
 		return nil, err
 	}

@@ -192,19 +192,18 @@ func NewTxNotifier(startHeight uint32, reorgSafetyLimit uint32,
 	}
 }
 
-// Register handles a new notification request. The client will be notified when
-// the transaction gets a sufficient number of confirmations on the blockchain.
-// The registration succeeds if no error is returned. If the returned
-// HistoricalConfDispatch is non-nil, the caller is responsible for attempting
-// to manually rescan blocks for the txid between the start and end heights.
+// RegisterConf handles a new notification request. The client will be notified
+// when the transaction gets a sufficient number of confirmations on the
+// blockchain. The registration succeeds if no error is returned. If the
+// returned HistoricalConfDispatch is non-nil, the caller is responsible for
+// attempting to manually rescan blocks for the txid between the start and end
+// heights.
 //
 // NOTE: If the transaction has already been included in a block on the chain,
 // the confirmation details must be provided with the UpdateConfDetails method,
 // otherwise we will wait for the transaction to confirm even though it already
 // has.
-func (n *TxNotifier) Register(
-	ntfn *ConfNtfn) (*HistoricalConfDispatch, error) {
-
+func (n *TxNotifier) RegisterConf(ntfn *ConfNtfn) (*HistoricalConfDispatch, error) {
 	select {
 	case <-n.quit:
 		return nil, ErrTxNotifierExiting

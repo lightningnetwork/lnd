@@ -392,10 +392,10 @@ func GetClientMissedBlocks(chainConn ChainConn, clientBestBlock *BlockEpoch,
 	return missedBlocks, nil
 }
 
-// RewindChain handles internal state updates for the notifier's TxConfNotifier
-// It has no effect if given a height greater than or equal to our current best
+// RewindChain handles internal state updates for the notifier's TxNotifier It
+// has no effect if given a height greater than or equal to our current best
 // known height. It returns the new best block for the notifier.
-func RewindChain(chainConn ChainConn, txConfNotifier *TxConfNotifier,
+func RewindChain(chainConn ChainConn, txNotifier *TxNotifier,
 	currBestBlock BlockEpoch, targetHeight int32) (BlockEpoch, error) {
 
 	newBestBlock := BlockEpoch{
@@ -414,7 +414,7 @@ func RewindChain(chainConn ChainConn, txConfNotifier *TxConfNotifier,
 		Log.Infof("Block disconnected from main chain: "+
 			"height=%v, sha=%v", height, newBestBlock.Hash)
 
-		err = txConfNotifier.DisconnectTip(uint32(height))
+		err = txNotifier.DisconnectTip(uint32(height))
 		if err != nil {
 			return newBestBlock, fmt.Errorf("unable to "+
 				" disconnect tip for height=%d: %v",
@@ -436,7 +436,7 @@ func RewindChain(chainConn ChainConn, txConfNotifier *TxConfNotifier,
 // returned in case a chain rewind occurs and partially completes before
 // erroring. In the case where there is no rewind, the notifier's
 // current best block is returned.
-func HandleMissedBlocks(chainConn ChainConn, txConfNotifier *TxConfNotifier,
+func HandleMissedBlocks(chainConn ChainConn, txNotifier *TxNotifier,
 	currBestBlock BlockEpoch, newHeight int32,
 	backendStoresReorgs bool) (BlockEpoch, []BlockEpoch, error) {
 
@@ -462,7 +462,7 @@ func HandleMissedBlocks(chainConn ChainConn, txConfNotifier *TxConfNotifier,
 				"common ancestor: %v", err)
 		}
 
-		currBestBlock, err = RewindChain(chainConn, txConfNotifier,
+		currBestBlock, err = RewindChain(chainConn, txNotifier,
 			currBestBlock, startingHeight)
 		if err != nil {
 			return currBestBlock, nil, fmt.Errorf("unable to "+

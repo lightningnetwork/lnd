@@ -2,7 +2,6 @@ package channeldb
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -16,6 +15,10 @@ import (
 )
 
 var (
+	// UnknownPreimage is an all-zeroes preimage that indicates that the
+	// preimage for this invoice is not yet known.
+	UnknownPreimage lntypes.Preimage
+
 	// invoiceBucket is the name of the bucket within the database that
 	// stores all data related to invoices no matter their final state.
 	// Within the invoice bucket, each invoice is keyed by its invoice ID
@@ -218,7 +221,9 @@ func validateInvoice(i *Invoice) error {
 // insertion will be aborted and rejected due to the strict policy banning any
 // duplicate payment hashes. A side effect of this function is that it sets
 // AddIndex on newInvoice.
-func (d *DB) AddInvoice(newInvoice *Invoice) (uint64, error) {
+func (d *DB) AddInvoice(newInvoice *Invoice, paymentHash lntypes.Hash) (
+	uint64, error) {
+
 	if err := validateInvoice(newInvoice); err != nil {
 		return 0, err
 	}
@@ -245,9 +250,6 @@ func (d *DB) AddInvoice(newInvoice *Invoice) (uint64, error) {
 
 		// Ensure that an invoice an identical payment hash doesn't
 		// already exist within the index.
-		paymentHash := sha256.Sum256(
-			newInvoice.Terms.PaymentPreimage[:],
-		)
 		if invoiceIndex.Get(paymentHash[:]) != nil {
 			return ErrDuplicateInvoice
 		}
@@ -269,6 +271,7 @@ func (d *DB) AddInvoice(newInvoice *Invoice) (uint64, error) {
 
 		newIndex, err := putInvoice(
 			invoices, invoiceIndex, addIndex, newInvoice, invoiceNum,
+			paymentHash,
 		)
 		if err != nil {
 			return err
@@ -744,7 +747,8 @@ func (d *DB) InvoicesSettledSince(sinceSettleIndex uint64) ([]Invoice, error) {
 }
 
 func putInvoice(invoices, invoiceIndex, addIndex *bbolt.Bucket,
-	i *Invoice, invoiceNum uint32) (uint64, error) {
+	i *Invoice, invoiceNum uint32, paymentHash lntypes.Hash) (
+	uint64, error) {
 
 	// Create the invoice key which is just the big-endian representation
 	// of the invoice number.
@@ -763,7 +767,6 @@ func putInvoice(invoices, invoiceIndex, addIndex *bbolt.Bucket,
 	// Add the payment hash to the invoice index. This will let us quickly
 	// identify if we can settle an incoming payment, and also to possibly
 	// allow a single invoice to have multiple payment installations.
-	paymentHash := sha256.Sum256(i.Terms.PaymentPreimage[:])
 	err := invoiceIndex.Put(paymentHash[:], invoiceKey[:])
 	if err != nil {
 		return 0, err

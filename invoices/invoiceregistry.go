@@ -392,7 +392,7 @@ func (i *InvoiceRegistry) AddInvoice(invoice *channeldb.Invoice,
 		return spew.Sdump(invoice)
 	}))
 
-	addIndex, err := i.cdb.AddInvoice(invoice)
+	addIndex, err := i.cdb.AddInvoice(invoice, paymentHash)
 	if err != nil {
 		return 0, err
 	}

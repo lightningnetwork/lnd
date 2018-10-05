@@ -68,8 +68,6 @@ type BitcoindNotifier struct {
 	notificationCancels  chan interface{}
 	notificationRegistry chan interface{}
 
-	spendNotifications map[wire.OutPoint]map[uint64]*spendNotification
-
 	txNotifier *chainntnfs.TxNotifier
 
 	blockEpochClients map[uint64]*blockEpochRegistration
@@ -105,8 +103,6 @@ func New(chainConn *chain.BitcoindConn, spendHintCache chainntnfs.SpendHintCache
 		notificationRegistry: make(chan interface{}),
 
 		blockEpochClients: make(map[uint64]*blockEpochRegistration),
-
-		spendNotifications: make(map[wire.OutPoint]map[uint64]*spendNotification),
 
 		spendHintCache:   spendHintCache,
 		confirmHintCache: confirmHintCache,
@@ -173,11 +169,6 @@ func (b *BitcoindNotifier) Stop() error {
 
 	// Notify all pending clients of our shutdown by closing the related
 	// notification channels.
-	for _, spendClients := range b.spendNotifications {
-		for _, spendClient := range spendClients {
-			close(spendClient.spendChan)
-		}
-	}
 	for _, epochClient := range b.blockEpochClients {
 		close(epochClient.cancelChan)
 		epochClient.wg.Wait()
@@ -204,19 +195,6 @@ out:
 		select {
 		case cancelMsg := <-b.notificationCancels:
 			switch msg := cancelMsg.(type) {
-			case *spendCancel:
-				chainntnfs.Log.Infof("Cancelling spend "+
-					"notification for out_point=%v, "+
-					"spend_id=%v", msg.op, msg.spendID)
-
-				// Before we attempt to close the spendChan,
-				// ensure that the notification hasn't already
-				// yet been dispatched.
-				if outPointClients, ok := b.spendNotifications[msg.op]; ok {
-					close(outPointClients[msg.spendID].spendChan)
-					delete(b.spendNotifications[msg.op], msg.spendID)
-				}
-
 			case *epochCancel:
 				chainntnfs.Log.Infof("Cancelling epoch "+
 					"notification, epoch_id=%v", msg.epochID)
@@ -244,16 +222,6 @@ out:
 			}
 		case registerMsg := <-b.notificationRegistry:
 			switch msg := registerMsg.(type) {
-			case *spendNotification:
-				chainntnfs.Log.Infof("New spend subscription: "+
-					"utxo=%v", msg.targetOutpoint)
-				op := *msg.targetOutpoint
-
-				if _, ok := b.spendNotifications[op]; !ok {
-					b.spendNotifications[op] = make(map[uint64]*spendNotification)
-				}
-				b.spendNotifications[op][msg.spendID] = msg
-
 			case *chainntnfs.HistoricalConfDispatch:
 				// Look up whether the transaction is already
 				// included in the active chain. We'll do this
@@ -326,9 +294,6 @@ out:
 					}
 				}
 				msg.errorChan <- nil
-
-			case chain.RelevantTx:
-				b.handleRelevantTx(msg, b.bestBlock.Height)
 			}
 
 		case ntfn := <-b.chainConn.Notifications():
@@ -618,27 +583,6 @@ func (b *BitcoindNotifier) handleBlockConnected(block chainntnfs.BlockEpoch) err
 	chainntnfs.Log.Infof("New block: height=%v, sha=%v", block.Height,
 		block.Hash)
 
-	// Finally, we'll update the spend height hint for all of our watched
-	// outpoints that have not been spent yet. This is safe to do as we do
-	// not watch already spent outpoints for spend notifications.
-	ops := make([]wire.OutPoint, 0, len(b.spendNotifications))
-	for op := range b.spendNotifications {
-		ops = append(ops, op)
-	}
-
-	if len(ops) > 0 {
-		err := b.spendHintCache.CommitSpendHint(
-			uint32(block.Height), ops...,
-		)
-		if err != nil {
-			// The error is not fatal since we are connecting a
-			// block, and advancing the spend hint is an optimistic
-			// optimization.
-			chainntnfs.Log.Errorf("Unable to update spend hint to "+
-				"%d for %v: %v", block.Height, ops, err)
-		}
-	}
-
 	// We want to set the best block before dispatching notifications so
 	// if any subscribers make queries based on their received block epoch,
 	// our state is fully updated in time.
@@ -673,28 +617,6 @@ func (b *BitcoindNotifier) notifyBlockEpochClient(epochClient *blockEpochRegistr
 	case <-epochClient.cancelChan:
 	case <-b.quit:
 	}
-}
-
-// spendNotification couples a target outpoint along with the channel used for
-// notifications once a spend of the outpoint has been detected.
-type spendNotification struct {
-	targetOutpoint *wire.OutPoint
-
-	spendChan chan *chainntnfs.SpendDetail
-
-	spendID uint64
-
-	heightHint uint32
-}
-
-// spendCancel is a message sent to the BitcoindNotifier when a client wishes
-// to cancel an outstanding spend notification that has yet to be dispatched.
-type spendCancel struct {
-	// op is the target outpoint of the notification to be cancelled.
-	op wire.OutPoint
-
-	// spendID the ID of the notification to cancel.
-	spendID uint64
 }
 
 // RegisterSpendNtfn registers an intent to be notified once the target

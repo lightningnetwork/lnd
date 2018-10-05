@@ -3251,8 +3251,16 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	}
 
 	if invoice.RPreimage != nil {
+		preimage, err := lntypes.NewPreimage(invoice.RPreimage)
+		if err != nil {
+			return nil, err
+		}
+		addInvoiceData.Preimage = &preimage
+	}
+
+	if invoice.RPreimage != nil {
 		var err error
-		preimage, err := lntypes.NewHash(invoice.RPreimage)
+		preimage, err := lntypes.NewPreimage(invoice.RPreimage)
 		if err != nil {
 			return nil, err
 		}

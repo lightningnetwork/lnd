@@ -216,7 +216,9 @@ func validateInvoice(i *Invoice) error {
 // insertion will be aborted and rejected due to the strict policy banning any
 // duplicate payment hashes. A side effect of this function is that it sets
 // AddIndex on newInvoice.
-func (d *DB) AddInvoice(newInvoice *Invoice) (uint64, error) {
+func (d *DB) AddInvoice(newInvoice *Invoice) (
+	uint64, error) {
+
 	if err := validateInvoice(newInvoice); err != nil {
 		return 0, err
 	}

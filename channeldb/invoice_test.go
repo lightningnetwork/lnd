@@ -80,7 +80,6 @@ func TestInvoiceWorkflow(t *testing.T) {
 	// Attempt to retrieve the invoice which was just added to the
 	// database. It should be found, and the invoice returned should be
 	// identical to the one created above.
-
 	dbInvoice, err := db.LookupInvoice(paymentHash)
 	if err != nil {
 		t.Fatalf("unable to find invoice: %v", err)

@@ -59,6 +59,10 @@ type WitnessBeacon interface {
 	// its associated ShortChannelID.
 	AddPreimage(pre []byte, chanID lnwire.ShortChannelID) error
 
+	// FinalizeChannelState modifies the ChannelState to FINALIZED of a
+	// ShortChannelID in the global cache.
+	FinalizeChannelState(chanID lnwire.ShortChannelID) error
+
 	// Start starts the WitnessBeacon's witness garbage collector.
 	// This is run in a goroutine.
 	Start() error

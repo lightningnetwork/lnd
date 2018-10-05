@@ -185,6 +185,11 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 				return fmt.Errorf("notifier quit")
 			}
 
+			err := h.PreimageDB.FinalizeChannelState(h.ShortChanID)
+			if err != nil {
+				return fmt.Errorf("error finalizing chan state")
+			}
+
 		case <-h.Quit:
 			return fmt.Errorf("quitting")
 		}
@@ -540,6 +545,11 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 				return nil, fmt.Errorf("quitting")
 			}
 
+			err := h.PreimageDB.FinalizeChannelState(h.ShortChanID)
+			if err != nil {
+				return fmt.Errorf("error finalizing chan state")
+			}
+
 		case <-h.Quit:
 			return nil, fmt.Errorf("quitting")
 		}
@@ -598,6 +608,11 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	case _, ok := <-spendNtfn.Spend:
 		if !ok {
 			return nil, fmt.Errorf("quitting")
+		}
+
+		err := h.PreimageDB.FinalizeChannelState(h.ShortChanID)
+		if err != nil {
+			return fmt.Errorf("error finalizing chan state")
 		}
 
 	case <-h.Quit:
@@ -1369,6 +1384,11 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	case confInfo, ok := <-confNtfn.Confirmed:
 		if !ok {
 			return nil, fmt.Errorf("quitting")
+		}
+
+		err := c.PreimageDB.FinalizeChannelState(c.ShortChanID)
+		if err != nil {
+			return fmt.Errorf("error finalizing chan state")
 		}
 
 		log.Infof("ChannelPoint(%v) commit tx is fully resolved, at height: %v",

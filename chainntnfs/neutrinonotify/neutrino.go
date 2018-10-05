@@ -68,8 +68,6 @@ type NeutrinoNotifier struct {
 	notificationCancels  chan interface{}
 	notificationRegistry chan interface{}
 
-	spendNotifications map[wire.OutPoint]map[uint64]*spendNotification
-
 	txNotifier *chainntnfs.TxNotifier
 
 	blockEpochClients map[uint64]*blockEpochRegistration
@@ -108,8 +106,6 @@ func New(node *neutrino.ChainService, spendHintCache chainntnfs.SpendHintCache,
 		notificationRegistry: make(chan interface{}),
 
 		blockEpochClients: make(map[uint64]*blockEpochRegistration),
-
-		spendNotifications: make(map[wire.OutPoint]map[uint64]*spendNotification),
 
 		p2pNode: node,
 
@@ -196,11 +192,6 @@ func (n *NeutrinoNotifier) Stop() error {
 
 	// Notify all pending clients of our shutdown by closing the related
 	// notification channels.
-	for _, spendClients := range n.spendNotifications {
-		for _, spendClient := range spendClients {
-			close(spendClient.spendChan)
-		}
-	}
 	for _, epochClient := range n.blockEpochClients {
 		close(epochClient.cancelChan)
 		epochClient.wg.Wait()
@@ -264,19 +255,6 @@ out:
 		select {
 		case cancelMsg := <-n.notificationCancels:
 			switch msg := cancelMsg.(type) {
-			case *spendCancel:
-				chainntnfs.Log.Infof("Cancelling spend "+
-					"notification for out_point=%v, "+
-					"spend_id=%v", msg.op, msg.spendID)
-
-				// Before we attempt to close the spendChan,
-				// ensure that the notification hasn't already
-				// yet been dispatched.
-				if outPointClients, ok := n.spendNotifications[msg.op]; ok {
-					close(outPointClients[msg.spendID].spendChan)
-					delete(n.spendNotifications[msg.op], msg.spendID)
-				}
-
 			case *epochCancel:
 				chainntnfs.Log.Infof("Cancelling epoch "+
 					"notification, epoch_id=%v", msg.epochID)
@@ -304,17 +282,6 @@ out:
 
 		case registerMsg := <-n.notificationRegistry:
 			switch msg := registerMsg.(type) {
-			case *spendNotification:
-				chainntnfs.Log.Infof("New spend subscription: "+
-					"utxo=%v, height_hint=%v",
-					msg.targetOutpoint, msg.heightHint)
-				op := *msg.targetOutpoint
-
-				if _, ok := n.spendNotifications[op]; !ok {
-					n.spendNotifications[op] = make(map[uint64]*spendNotification)
-				}
-				n.spendNotifications[op][msg.spendID] = msg
-
 			case *chainntnfs.HistoricalConfDispatch:
 				// Look up whether the transaction is already
 				// included in the active chain. We'll do this
@@ -657,28 +624,6 @@ func (n *NeutrinoNotifier) notifyBlockEpochClient(epochClient *blockEpochRegistr
 	case <-epochClient.cancelChan:
 	case <-n.quit:
 	}
-}
-
-// spendNotification couples a target outpoint along with the channel used for
-// notifications once a spend of the outpoint has been detected.
-type spendNotification struct {
-	targetOutpoint *wire.OutPoint
-
-	spendChan chan *chainntnfs.SpendDetail
-
-	spendID uint64
-
-	heightHint uint32
-}
-
-// spendCancel is a message sent to the NeutrinoNotifier when a client wishes
-// to cancel an outstanding spend notification that has yet to be dispatched.
-type spendCancel struct {
-	// op is the target outpoint of the notification to be cancelled.
-	op wire.OutPoint
-
-	// spendID the ID of the notification to cancel.
-	spendID uint64
 }
 
 // RegisterSpendNtfn registers an intent to be notified once the target

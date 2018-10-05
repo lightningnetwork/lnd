@@ -123,10 +123,10 @@ type TxNotifier struct {
 	// at which the transaction will have sufficient confirmations.
 	ntfnsByConfirmHeight map[uint32]map[*ConfNtfn]struct{}
 
-	// hintCache is a cache used to maintain the latest height hints for
+	// confirmHintCache is a cache used to maintain the latest height hints for
 	// transactions. Each height hint represents the earliest height at
 	// which the transactions could have been confirmed within the chain.
-	hintCache ConfirmHintCache
+	confirmHintCache ConfirmHintCache
 
 	// quit is closed in order to signal that the notifier is gracefully
 	// exiting.
@@ -179,7 +179,7 @@ func newConfNtfnSet() *confNtfnSet {
 // NewTxNotifier creates a TxNotifier. The current height of the blockchain is
 // accepted as a parameter.
 func NewTxNotifier(startHeight uint32, reorgSafetyLimit uint32,
-	hintCache ConfirmHintCache) *TxNotifier {
+	confirmHintCache ConfirmHintCache) *TxNotifier {
 
 	return &TxNotifier{
 		currentHeight:        startHeight,
@@ -187,7 +187,7 @@ func NewTxNotifier(startHeight uint32, reorgSafetyLimit uint32,
 		confNotifications:    make(map[chainhash.Hash]*confNtfnSet),
 		txsByInitialHeight:   make(map[uint32]map[chainhash.Hash]struct{}),
 		ntfnsByConfirmHeight: make(map[uint32]map[*ConfNtfn]struct{}),
-		hintCache:            hintCache,
+		confirmHintCache:     confirmHintCache,
 		quit:                 make(chan struct{}),
 	}
 }
@@ -221,7 +221,7 @@ func (n *TxNotifier) RegisterConf(ntfn *ConfNtfn) (*HistoricalConfDispatch, erro
 	//
 	// TODO(conner): verify that all submitted height hints are identical.
 	startHeight := ntfn.HeightHint
-	hint, err := n.hintCache.QueryConfirmHint(*ntfn.TxID)
+	hint, err := n.confirmHintCache.QueryConfirmHint(*ntfn.TxID)
 	if err == nil {
 		if hint > startHeight {
 			Log.Debugf("Using height hint %d retrieved "+
@@ -361,7 +361,7 @@ func (n *TxNotifier) UpdateConfDetails(txid chainhash.Hash,
 
 	Log.Debugf("Updating conf details for txid=%v details", txid)
 
-	err := n.hintCache.CommitConfirmHint(details.BlockHeight, txid)
+	err := n.confirmHintCache.CommitConfirmHint(details.BlockHeight, txid)
 	if err != nil {
 		// The error is not fatal, so we should not return an error to
 		// the caller.
@@ -584,7 +584,7 @@ out:
 	}
 
 	if len(txsToUpdateHints) > 0 {
-		err := n.hintCache.CommitConfirmHint(
+		err := n.confirmHintCache.CommitConfirmHint(
 			n.currentHeight, txsToUpdateHints...,
 		)
 		if err != nil {
@@ -684,7 +684,7 @@ func (n *TxNotifier) DisconnectTip(blockHeight uint32) error {
 		txs = append(txs, tx)
 	}
 
-	err := n.hintCache.CommitConfirmHint(n.currentHeight, txs...)
+	err := n.confirmHintCache.CommitConfirmHint(n.currentHeight, txs...)
 	if err != nil {
 		Log.Errorf("Unable to update confirm hint to %d for %v: %v",
 			n.currentHeight, txs, err)

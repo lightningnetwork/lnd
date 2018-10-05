@@ -158,6 +158,10 @@ type torConfig struct {
 	PrivateKeyPath  string `long:"privatekeypath" description:"The path to the private key of the onion service being created"`
 }
 
+type spiderConfig struct {
+	Active		bool	`long:"active" description:"Enable SPIDER payment network"`
+}
+
 // config defines the configuration options for lnd.
 //
 // See loadConfig for further details regarding the configuration
@@ -218,6 +222,8 @@ type config struct {
 	Autopilot *autoPilotConfig `group:"Autopilot" namespace:"autopilot"`
 
 	Tor *torConfig `group:"Tor" namespace:"tor"`
+
+	Spider *spiderConfig `group:"Spider" namespace:"spider"`
 
 	Hodl *hodl.Config `group:"hodl" namespace:"hodl"`
 
@@ -307,6 +313,8 @@ func loadConfig() (*config, error) {
 			SOCKS:   defaultTorSOCKS,
 			DNS:     defaultTorDNS,
 			Control: defaultTorControl,
+		},
+		Spider: &spiderConfig{
 		},
 		net: &tor.ClearNet{},
 	}
@@ -519,6 +527,10 @@ func loadConfig() (*config, error) {
 			DNS:             cfg.Tor.DNS,
 			StreamIsolation: cfg.Tor.StreamIsolation,
 		}
+	}
+
+	if cfg.Spider.Active {
+		fmt.Println("SPIDER is enabled")
 	}
 
 	if cfg.DisableListen && cfg.NAT {

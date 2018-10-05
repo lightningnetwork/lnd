@@ -126,14 +126,6 @@ type HistoricalConfDispatch struct {
 	EndHeight uint32
 }
 
-// NewConfirmationEvent constructs a new ConfirmationEvent with newly opened
-// channels.
-func NewConfirmationEvent(numConfs uint32) *ConfirmationEvent {
-	return &ConfirmationEvent{
-		Confirmed:    make(chan *TxConfirmation, 1),
-		Updates:      make(chan uint32, numConfs),
-		NegativeConf: make(chan int32, 1),
-	}
 }
 
 // TxNotifier is used to register transaction confirmation notifications and

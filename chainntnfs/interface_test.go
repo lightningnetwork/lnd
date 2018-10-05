@@ -232,6 +232,8 @@ func checkNotificationFields(ntfn *chainntnfs.SpendDetail,
 	outpoint *wire.OutPoint, spenderSha *chainhash.Hash,
 	height int32, t *testing.T) {
 
+	t.Helper()
+
 	if *ntfn.SpentOutPoint != *outpoint {
 		t.Fatalf("ntfn includes wrong output, reports "+
 			"%v instead of %v",
@@ -756,6 +758,8 @@ func testSpendBeforeNtfnRegistration(miner *rpctest.Harness,
 	// already happened. The notifier should dispatch a spend notification
 	// immediately.
 	checkSpends := func() {
+		t.Helper()
+
 		const numClients = 2
 		spendClients := make([]*chainntnfs.SpendEvent, numClients)
 		for i := 0; i < numClients; i++ {
@@ -1105,6 +1109,156 @@ func testReorgConf(miner *rpctest.Harness, notifier chainntnfs.TestChainNotifier
 	case <-confIntent.Confirmed:
 	case <-time.After(20 * time.Second):
 		t.Fatalf("confirmation notification never received")
+	}
+}
+
+// testReorgSpend ensures that the different ChainNotifier implementations
+// correctly handle outpoints whose spending transaction has been reorged out of
+// the chain.
+func testReorgSpend(miner *rpctest.Harness,
+	notifier chainntnfs.TestChainNotifier, t *testing.T) {
+
+	// We'll start by creating an output and registering a spend
+	// notification for it.
+	outpoint, pkScript := chainntnfs.CreateSpendableOutput(t, miner)
+	_, currentHeight, err := miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to retrieve current height: %v", err)
+	}
+	spendIntent, err := notifier.RegisterSpendNtfn(
+		outpoint, pkScript, uint32(currentHeight),
+	)
+	if err != nil {
+		t.Fatalf("unable to register for spend: %v", err)
+	}
+
+	// Set up a new miner that we can use to cause a reorg.
+	miner2, err := rpctest.New(chainntnfs.NetParams, nil, []string{"--txindex"})
+	if err != nil {
+		t.Fatalf("unable to create mining node: %v", err)
+	}
+	if err := miner2.SetUp(false, 0); err != nil {
+		t.Fatalf("unable to set up mining node: %v", err)
+	}
+	defer miner2.TearDown()
+
+	// We start by connecting the new miner to our original miner, in order
+	// to have a consistent view of the chain from both miners. They should
+	// be on the same block height.
+	if err := rpctest.ConnectNode(miner, miner2); err != nil {
+		t.Fatalf("unable to connect miners: %v", err)
+	}
+	nodeSlice := []*rpctest.Harness{miner, miner2}
+	if err := rpctest.JoinNodes(nodeSlice, rpctest.Blocks); err != nil {
+		t.Fatalf("unable to sync miners: %v", err)
+	}
+	_, minerHeight1, err := miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get miner1's current height: %v", err)
+	}
+	_, minerHeight2, err := miner2.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get miner2's current height: %v", err)
+	}
+	if minerHeight1 != minerHeight2 {
+		t.Fatalf("expected both miners to be on the same height: "+
+			"%v vs %v", minerHeight1, minerHeight2)
+	}
+
+	// We disconnect the two nodes, such that we can start mining on them
+	// individually without the other one learning about the new blocks.
+	err = miner.Node.AddNode(miner2.P2PAddress(), rpcclient.ANRemove)
+	if err != nil {
+		t.Fatalf("unable to disconnect miners: %v", err)
+	}
+
+	// Craft the spending transaction for the outpoint created above and
+	// confirm it under the chain of the original miner.
+	spendTx := chainntnfs.CreateSpendTx(t, outpoint, pkScript)
+	spendTxHash, err := miner.Node.SendRawTransaction(spendTx, true)
+	if err != nil {
+		t.Fatalf("unable to broadcast spend tx: %v", err)
+	}
+	if err := chainntnfs.WaitForMempoolTx(miner, spendTxHash); err != nil {
+		t.Fatalf("spend tx not relayed to miner: %v", err)
+	}
+	const numBlocks = 1
+	if _, err := miner.Node.Generate(numBlocks); err != nil {
+		t.Fatalf("unable to generate blocks: %v", err)
+	}
+
+	// We should see a spend notification dispatched with the correct spend
+	// details.
+	select {
+	case spendDetails := <-spendIntent.Spend:
+		checkNotificationFields(
+			spendDetails, outpoint, spendTxHash,
+			currentHeight+numBlocks, t,
+		)
+	case <-time.After(5 * time.Second):
+		t.Fatal("expected spend notification to be dispatched")
+	}
+
+	// Now, with the other miner, we'll generate one more block than the
+	// other miner and connect them to cause a reorg.
+	if _, err := miner2.Node.Generate(numBlocks + 1); err != nil {
+		t.Fatalf("unable to generate blocks: %v", err)
+	}
+	if err := rpctest.ConnectNode(miner, miner2); err != nil {
+		t.Fatalf("unable to connect miners: %v", err)
+	}
+	nodeSlice = []*rpctest.Harness{miner2, miner}
+	if err := rpctest.JoinNodes(nodeSlice, rpctest.Blocks); err != nil {
+		t.Fatalf("unable to sync miners: %v", err)
+	}
+	_, minerHeight1, err = miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get miner1's current height: %v", err)
+	}
+	_, minerHeight2, err = miner2.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get miner2's current height: %v", err)
+	}
+	if minerHeight1 != minerHeight2 {
+		t.Fatalf("expected both miners to be on the same height: "+
+			"%v vs %v", minerHeight1, minerHeight2)
+	}
+
+	// We should receive a reorg notification.
+	select {
+	case _, ok := <-spendIntent.Reorg:
+		if !ok {
+			t.Fatal("unexpected reorg channel closed")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("expected to receive reorg notification")
+	}
+
+	// Now that both miners are on the same chain, we'll confirm the
+	// spending transaction of the outpoint and receive a notification for
+	// it.
+	if _, err = miner2.Node.SendRawTransaction(spendTx, true); err != nil {
+		t.Fatalf("unable to broadcast spend tx: %v", err)
+	}
+	if err := chainntnfs.WaitForMempoolTx(miner, spendTxHash); err != nil {
+		t.Fatalf("tx not relayed to miner: %v", err)
+	}
+	_, currentHeight, err = miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to retrieve current height: %v", err)
+	}
+	if _, err := miner.Node.Generate(numBlocks); err != nil {
+		t.Fatalf("unable to generate single block: %v", err)
+	}
+
+	select {
+	case spendDetails := <-spendIntent.Spend:
+		checkNotificationFields(
+			spendDetails, outpoint, spendTxHash,
+			currentHeight+numBlocks, t,
+		)
+	case <-time.After(5 * time.Second):
+		t.Fatal("expected spend notification to be dispatched")
 	}
 }
 
@@ -1548,6 +1702,10 @@ var ntfnTests = []testCase{
 	{
 		name: "reorg conf",
 		test: testReorgConf,
+	},
+	{
+		name: "reorg spend",
+		test: testReorgSpend,
 	},
 }
 

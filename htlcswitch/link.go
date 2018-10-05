@@ -2569,6 +2569,19 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		return true, nil
 	}
 
+	// Reject invoices with unknown preimages.
+	if invoice.Terms.PaymentPreimage == channeldb.UnknownPreimage {
+		log.Errorf("rejecting htlc because preimage is unknown")
+
+		failure := lnwire.NewFailUnknownPaymentHash(pd.Amount)
+		l.sendHTLCError(
+			pd.HtlcIndex, failure, obfuscator,
+			pd.SourceRef,
+		)
+
+		return true, nil
+	}
+
 	// If the invoice is already settled, we choose to accept the payment to
 	// simplify failure recovery.
 	//

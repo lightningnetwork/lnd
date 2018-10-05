@@ -85,7 +85,9 @@ func (p *preimageBeacon) LookupPreimage(
 
 	// If we've found the invoice, then we can return the preimage
 	// directly.
-	if err != channeldb.ErrInvoiceNotFound {
+	if err != channeldb.ErrInvoiceNotFound &&
+		invoice.Terms.PaymentPreimage != channeldb.UnknownPreimage {
+
 		return invoice.Terms.PaymentPreimage, true
 	}
 

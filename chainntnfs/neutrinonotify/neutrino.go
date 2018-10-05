@@ -70,7 +70,7 @@ type NeutrinoNotifier struct {
 
 	spendNotifications map[wire.OutPoint]map[uint64]*spendNotification
 
-	txConfNotifier *chainntnfs.TxConfNotifier
+	txNotifier *chainntnfs.TxNotifier
 
 	blockEpochClients map[uint64]*blockEpochRegistration
 
@@ -162,7 +162,7 @@ func (n *NeutrinoNotifier) Start() error {
 		neutrino.WatchInputs(zeroInput),
 	}
 
-	n.txConfNotifier = chainntnfs.NewTxConfNotifier(
+	n.txNotifier = chainntnfs.NewTxNotifier(
 		n.bestHeight, reorgSafetyLimit, n.confirmHintCache,
 	)
 
@@ -206,7 +206,7 @@ func (n *NeutrinoNotifier) Stop() error {
 
 		close(epochClient.epochChan)
 	}
-	n.txConfNotifier.TearDown()
+	n.txNotifier.TearDown()
 
 	return nil
 }
@@ -350,7 +350,7 @@ out:
 					// begin safely updating the height hint
 					// cache at tip, since any pending
 					// rescans have now completed.
-					err = n.txConfNotifier.UpdateConfDetails(
+					err = n.txNotifier.UpdateConfDetails(
 						*msg.TxID, confDetails,
 					)
 					if err != nil {
@@ -426,7 +426,7 @@ out:
 					_, missedBlocks, err :=
 						chainntnfs.HandleMissedBlocks(
 							n.chainConn,
-							n.txConfNotifier,
+							n.txNotifier,
 							bestBlock,
 							int32(update.height),
 							false,
@@ -482,7 +482,7 @@ out:
 				Hash:   hash,
 			}
 			newBestBlock, err := chainntnfs.RewindChain(
-				n.chainConn, n.txConfNotifier, notifierBestBlock,
+				n.chainConn, n.txNotifier, notifierBestBlock,
 				int32(update.height-1),
 			)
 			if err != nil {
@@ -593,7 +593,7 @@ func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 	// First process the block for our internal state. A new block has
 	// been connected to the main chain. Send out any N confirmation
 	// notifications which may have been triggered by this new block.
-	err := n.txConfNotifier.ConnectTip(
+	err := n.txNotifier.ConnectTip(
 		&newBlock.hash, newBlock.height, newBlock.txns,
 	)
 	if err != nil {
@@ -928,11 +928,11 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	chainntnfs.Log.Infof("New confirmation subscription: "+
 		"txid=%v, numconfs=%v", txid, numConfs)
 
-	// Register the conf notification with txconfnotifier. A non-nil value
+	// Register the conf notification with the TxNotifier. A non-nil value
 	// for `dispatch` will be returned if we are required to perform a
 	// manual scan for the confirmation. Otherwise the notifier will begin
 	// watching at tip for the transaction to confirm.
-	dispatch, err := n.txConfNotifier.Register(ntfn)
+	dispatch, err := n.txNotifier.Register(ntfn)
 	if err != nil {
 		return nil, err
 	}

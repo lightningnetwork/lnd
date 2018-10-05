@@ -76,7 +76,7 @@ type BtcdNotifier struct {
 
 	spendNotifications map[wire.OutPoint]map[uint64]*spendNotification
 
-	txConfNotifier *chainntnfs.TxConfNotifier
+	txNotifier *chainntnfs.TxNotifier
 
 	blockEpochClients map[uint64]*blockEpochRegistration
 
@@ -166,7 +166,7 @@ func (b *BtcdNotifier) Start() error {
 		return err
 	}
 
-	b.txConfNotifier = chainntnfs.NewTxConfNotifier(
+	b.txNotifier = chainntnfs.NewTxNotifier(
 		uint32(currentHeight), reorgSafetyLimit, b.confirmHintCache,
 	)
 
@@ -214,7 +214,7 @@ func (b *BtcdNotifier) Stop() error {
 
 		close(epochClient.epochChan)
 	}
-	b.txConfNotifier.TearDown()
+	b.txNotifier.TearDown()
 
 	return nil
 }
@@ -348,7 +348,7 @@ out:
 					// begin safely updating the height hint
 					// cache at tip, since any pending
 					// rescans have now completed.
-					err = b.txConfNotifier.UpdateConfDetails(
+					err = b.txNotifier.UpdateConfDetails(
 						*msg.TxID, confDetails,
 					)
 					if err != nil {
@@ -398,7 +398,7 @@ out:
 					newBestBlock, missedBlocks, err :=
 						chainntnfs.HandleMissedBlocks(
 							b.chainConn,
-							b.txConfNotifier,
+							b.txNotifier,
 							b.bestBlock,
 							update.blockHeight,
 							true,
@@ -436,7 +436,7 @@ out:
 			}
 
 			newBestBlock, err := chainntnfs.RewindChain(
-				b.chainConn, b.txConfNotifier, b.bestBlock,
+				b.chainConn, b.txNotifier, b.bestBlock,
 				update.blockHeight-1,
 			)
 			if err != nil {
@@ -703,7 +703,7 @@ func (b *BtcdNotifier) handleBlockConnected(epoch chainntnfs.BlockEpoch) error {
 		connect: true,
 	}
 
-	err = b.txConfNotifier.ConnectTip(
+	err = b.txNotifier.ConnectTip(
 		&newBlock.hash, newBlock.height, newBlock.txns,
 	)
 	if err != nil {
@@ -1019,11 +1019,11 @@ func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash, _ []byte,
 	chainntnfs.Log.Infof("New confirmation subscription: "+
 		"txid=%v, numconfs=%v", txid, numConfs)
 
-	// Register the conf notification with txconfnotifier. A non-nil value
+	// Register the conf notification with the TxNotifier. A non-nil value
 	// for `dispatch` will be returned if we are required to perform a
 	// manual scan for the confirmation. Otherwise the notifier will begin
 	// watching at tip for the transaction to confirm.
-	dispatch, err := b.txConfNotifier.Register(ntfn)
+	dispatch, err := b.txNotifier.Register(ntfn)
 	if err != nil {
 		return nil, err
 	}

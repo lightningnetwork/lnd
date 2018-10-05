@@ -96,8 +96,8 @@ func newMockHintCache() *mockHintCache {
 	}
 }
 
-// TestTxConfFutureDispatch tests that the TxConfNotifier dispatches
-// registered notifications when the transaction confirms after registration.
+// TestTxConfFutureDispatch tests that the TxNotifier dispatches registered
+// notifications when the transaction confirms after registration.
 func TestTxConfFutureDispatch(t *testing.T) {
 	t.Parallel()
 
@@ -113,10 +113,10 @@ func TestTxConfFutureDispatch(t *testing.T) {
 	)
 
 	hintCache := newMockHintCache()
-	tcn := chainntnfs.NewTxConfNotifier(10, 100, hintCache)
+	n := chainntnfs.NewTxNotifier(10, 100, hintCache)
 
-	// Create the test transactions and register them with the
-	// TxConfNotifier before including them in a block to receive future
+	// Create the test transactions and register them with the TxNotifier
+	// before including them in a block to receive future
 	// notifications.
 	tx1Hash := tx1.TxHash()
 	ntfn1 := chainntnfs.ConfNtfn{
@@ -124,7 +124,7 @@ func TestTxConfFutureDispatch(t *testing.T) {
 		NumConfirmations: tx1NumConfs,
 		Event:            chainntnfs.NewConfirmationEvent(tx1NumConfs),
 	}
-	if _, err := tcn.Register(&ntfn1); err != nil {
+	if _, err := n.Register(&ntfn1); err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
@@ -134,7 +134,7 @@ func TestTxConfFutureDispatch(t *testing.T) {
 		NumConfirmations: tx2NumConfs,
 		Event:            chainntnfs.NewConfirmationEvent(tx2NumConfs),
 	}
-	if _, err := tcn.Register(&ntfn2); err != nil {
+	if _, err := n.Register(&ntfn2); err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
@@ -156,13 +156,13 @@ func TestTxConfFutureDispatch(t *testing.T) {
 	default:
 	}
 
-	// Include the transactions in a block and add it to the TxConfNotifier.
+	// Include the transactions in a block and add it to the TxNotifier.
 	// This should confirm tx1, but not tx2.
 	block1 := btcutil.NewBlock(&wire.MsgBlock{
 		Transactions: []*wire.MsgTx{&tx1, &tx2, &tx3},
 	})
 
-	err := tcn.ConnectTip(
+	err := n.ConnectTip(
 		block1.Hash(), 11, block1.Transactions(),
 	)
 	if err != nil {
@@ -219,13 +219,13 @@ func TestTxConfFutureDispatch(t *testing.T) {
 	default:
 	}
 
-	// Create a new block and add it to the TxConfNotifier at the next
-	// height. This should confirm tx2.
+	// Create a new block and add it to the TxNotifier at the next height.
+	// This should confirm tx2.
 	block2 := btcutil.NewBlock(&wire.MsgBlock{
 		Transactions: []*wire.MsgTx{&tx3},
 	})
 
-	err = tcn.ConnectTip(block2.Hash(), 12, block2.Transactions())
+	err = n.ConnectTip(block2.Hash(), 12, block2.Transactions())
 	if err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
 	}
@@ -269,9 +269,8 @@ func TestTxConfFutureDispatch(t *testing.T) {
 	}
 }
 
-// TestTxConfHistoricalDispatch tests that the TxConfNotifier dispatches
-// registered notifications when the transaction is confirmed before
-// registration.
+// TestTxConfHistoricalDispatch tests that the TxNotifier dispatches registered
+// notifications when the transaction is confirmed before registration.
 func TestTxConfHistoricalDispatch(t *testing.T) {
 	t.Parallel()
 
@@ -287,9 +286,9 @@ func TestTxConfHistoricalDispatch(t *testing.T) {
 	)
 
 	hintCache := newMockHintCache()
-	tcn := chainntnfs.NewTxConfNotifier(10, 100, hintCache)
+	n := chainntnfs.NewTxNotifier(10, 100, hintCache)
 
-	// Create the test transactions at a height before the TxConfNotifier's
+	// Create the test transactions at a height before the TxNotifier's
 	// starting height so that they are confirmed once registering them.
 	tx1Hash := tx1.TxHash()
 	ntfn1 := chainntnfs.ConfNtfn{
@@ -298,7 +297,7 @@ func TestTxConfHistoricalDispatch(t *testing.T) {
 		NumConfirmations: tx1NumConfs,
 		Event:            chainntnfs.NewConfirmationEvent(tx1NumConfs),
 	}
-	if _, err := tcn.Register(&ntfn1); err != nil {
+	if _, err := n.Register(&ntfn1); err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
@@ -309,7 +308,7 @@ func TestTxConfHistoricalDispatch(t *testing.T) {
 		NumConfirmations: tx2NumConfs,
 		Event:            chainntnfs.NewConfirmationEvent(tx2NumConfs),
 	}
-	if _, err := tcn.Register(&ntfn2); err != nil {
+	if _, err := n.Register(&ntfn2); err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
@@ -320,7 +319,7 @@ func TestTxConfHistoricalDispatch(t *testing.T) {
 		BlockHeight: 9,
 		TxIndex:     1,
 	}
-	err := tcn.UpdateConfDetails(tx1Hash, &txConf1)
+	err := n.UpdateConfDetails(tx1Hash, &txConf1)
 	if err != nil {
 		t.Fatalf("unable to update conf details: %v", err)
 	}
@@ -353,7 +352,7 @@ func TestTxConfHistoricalDispatch(t *testing.T) {
 		BlockHeight: 9,
 		TxIndex:     2,
 	}
-	err = tcn.UpdateConfDetails(tx2Hash, &txConf2)
+	err = n.UpdateConfDetails(tx2Hash, &txConf2)
 	if err != nil {
 		t.Fatalf("unable to update conf details: %v", err)
 	}
@@ -375,13 +374,13 @@ func TestTxConfHistoricalDispatch(t *testing.T) {
 	default:
 	}
 
-	// Create a new block and add it to the TxConfNotifier at the next
-	// height. This should confirm tx2.
+	// Create a new block and add it to the TxNotifier at the next height.
+	// This should confirm tx2.
 	block := btcutil.NewBlock(&wire.MsgBlock{
 		Transactions: []*wire.MsgTx{&tx3},
 	})
 
-	err = tcn.ConnectTip(block.Hash(), 11, block.Transactions())
+	err = n.ConnectTip(block.Hash(), 11, block.Transactions())
 	if err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
 	}
@@ -420,7 +419,7 @@ func TestTxConfHistoricalDispatch(t *testing.T) {
 	}
 }
 
-// TestTxConfChainReorg tests that TxConfNotifier dispatches Confirmed and
+// TestTxConfChainReorg tests that TxNotifier dispatches Confirmed and
 // NegativeConf notifications appropriately when there is a chain
 // reorganization.
 func TestTxConfChainReorg(t *testing.T) {
@@ -439,7 +438,7 @@ func TestTxConfChainReorg(t *testing.T) {
 	)
 
 	hintCache := newMockHintCache()
-	tcn := chainntnfs.NewTxConfNotifier(7, 100, hintCache)
+	n := chainntnfs.NewTxNotifier(7, 100, hintCache)
 
 	// Tx 1 will be confirmed in block 9 and requires 2 confs.
 	tx1Hash := tx1.TxHash()
@@ -448,11 +447,11 @@ func TestTxConfChainReorg(t *testing.T) {
 		NumConfirmations: tx1NumConfs,
 		Event:            chainntnfs.NewConfirmationEvent(tx1NumConfs),
 	}
-	if _, err := tcn.Register(&ntfn1); err != nil {
+	if _, err := n.Register(&ntfn1); err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
-	if err := tcn.UpdateConfDetails(*ntfn1.TxID, nil); err != nil {
+	if err := n.UpdateConfDetails(*ntfn1.TxID, nil); err != nil {
 		t.Fatalf("unable to deliver conf details: %v", err)
 	}
 
@@ -463,11 +462,11 @@ func TestTxConfChainReorg(t *testing.T) {
 		NumConfirmations: tx2NumConfs,
 		Event:            chainntnfs.NewConfirmationEvent(tx2NumConfs),
 	}
-	if _, err := tcn.Register(&ntfn2); err != nil {
+	if _, err := n.Register(&ntfn2); err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
-	if err := tcn.UpdateConfDetails(*ntfn2.TxID, nil); err != nil {
+	if err := n.UpdateConfDetails(*ntfn2.TxID, nil); err != nil {
 		t.Fatalf("unable to deliver conf details: %v", err)
 	}
 
@@ -478,11 +477,11 @@ func TestTxConfChainReorg(t *testing.T) {
 		NumConfirmations: tx3NumConfs,
 		Event:            chainntnfs.NewConfirmationEvent(tx3NumConfs),
 	}
-	if _, err := tcn.Register(&ntfn3); err != nil {
+	if _, err := n.Register(&ntfn3); err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
-	if err := tcn.UpdateConfDetails(*ntfn3.TxID, nil); err != nil {
+	if err := n.UpdateConfDetails(*ntfn3.TxID, nil); err != nil {
 		t.Fatalf("unable to deliver conf details: %v", err)
 	}
 
@@ -490,11 +489,11 @@ func TestTxConfChainReorg(t *testing.T) {
 	block1 := btcutil.NewBlock(&wire.MsgBlock{
 		Transactions: []*wire.MsgTx{&tx1},
 	})
-	err := tcn.ConnectTip(nil, 8, block1.Transactions())
+	err := n.ConnectTip(nil, 8, block1.Transactions())
 	if err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
 	}
-	err = tcn.ConnectTip(nil, 9, nil)
+	err = n.ConnectTip(nil, 9, nil)
 	if err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
 	}
@@ -502,7 +501,7 @@ func TestTxConfChainReorg(t *testing.T) {
 	block2 := btcutil.NewBlock(&wire.MsgBlock{
 		Transactions: []*wire.MsgTx{&tx2, &tx3},
 	})
-	err = tcn.ConnectTip(nil, 10, block2.Transactions())
+	err = n.ConnectTip(nil, 10, block2.Transactions())
 	if err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
 	}
@@ -559,17 +558,17 @@ func TestTxConfChainReorg(t *testing.T) {
 
 	// The block that included tx2 and tx3 is disconnected and two next
 	// blocks without them are connected.
-	err = tcn.DisconnectTip(10)
+	err = n.DisconnectTip(10)
 	if err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
 	}
 
-	err = tcn.ConnectTip(nil, 10, nil)
+	err = n.ConnectTip(nil, 10, nil)
 	if err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
 	}
 
-	err = tcn.ConnectTip(nil, 11, nil)
+	err = n.ConnectTip(nil, 11, nil)
 	if err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
 	}
@@ -617,12 +616,12 @@ func TestTxConfChainReorg(t *testing.T) {
 	})
 	block4 := btcutil.NewBlock(&wire.MsgBlock{})
 
-	err = tcn.ConnectTip(block3.Hash(), 12, block3.Transactions())
+	err = n.ConnectTip(block3.Hash(), 12, block3.Transactions())
 	if err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
 	}
 
-	err = tcn.ConnectTip(block4.Hash(), 13, block4.Transactions())
+	err = n.ConnectTip(block4.Hash(), 13, block4.Transactions())
 	if err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
 	}
@@ -701,9 +700,9 @@ func TestTxConfHeightHintCache(t *testing.T) {
 		tx2Height      = 203
 	)
 
-	// Initialize our TxConfNotifier instance backed by a height hint cache.
+	// Initialize our TxNotifier instance backed by a height hint cache.
 	hintCache := newMockHintCache()
-	tcn := chainntnfs.NewTxConfNotifier(
+	n := chainntnfs.NewTxNotifier(
 		startingHeight, 100, hintCache,
 	)
 
@@ -724,10 +723,10 @@ func TestTxConfHeightHintCache(t *testing.T) {
 		Event:            chainntnfs.NewConfirmationEvent(2),
 	}
 
-	if _, err := tcn.Register(ntfn1); err != nil {
+	if _, err := n.Register(ntfn1); err != nil {
 		t.Fatalf("unable to register tx1: %v", err)
 	}
-	if _, err := tcn.Register(ntfn2); err != nil {
+	if _, err := n.Register(ntfn2); err != nil {
 		t.Fatalf("unable to register tx2: %v", err)
 	}
 
@@ -754,7 +753,7 @@ func TestTxConfHeightHintCache(t *testing.T) {
 		Transactions: []*wire.MsgTx{&txDummy},
 	})
 
-	err = tcn.ConnectTip(
+	err = n.ConnectTip(
 		block1.Hash(), txDummyHeight, block1.Transactions(),
 	)
 	if err != nil {
@@ -781,10 +780,10 @@ func TestTxConfHeightHintCache(t *testing.T) {
 
 	// Now, update the conf details reporting that the neither txn was found
 	// in the historical dispatch.
-	if err := tcn.UpdateConfDetails(tx1Hash, nil); err != nil {
+	if err := n.UpdateConfDetails(tx1Hash, nil); err != nil {
 		t.Fatalf("unable to update conf details: %v", err)
 	}
-	if err := tcn.UpdateConfDetails(tx2Hash, nil); err != nil {
+	if err := n.UpdateConfDetails(tx2Hash, nil); err != nil {
 		t.Fatalf("unable to update conf details: %v", err)
 	}
 
@@ -794,7 +793,7 @@ func TestTxConfHeightHintCache(t *testing.T) {
 		Transactions: []*wire.MsgTx{&tx1},
 	})
 
-	err = tcn.ConnectTip(
+	err = n.ConnectTip(
 		block2.Hash(), tx1Height, block2.Transactions(),
 	)
 	if err != nil {
@@ -828,7 +827,7 @@ func TestTxConfHeightHintCache(t *testing.T) {
 		Transactions: []*wire.MsgTx{&tx2},
 	})
 
-	err = tcn.ConnectTip(
+	err = n.ConnectTip(
 		block3.Hash(), tx2Height, block3.Transactions(),
 	)
 	if err != nil {
@@ -858,7 +857,7 @@ func TestTxConfHeightHintCache(t *testing.T) {
 
 	// Finally, we'll attempt do disconnect the last block in order to
 	// simulate a chain reorg.
-	if err := tcn.DisconnectTip(tx2Height); err != nil {
+	if err := n.DisconnectTip(tx2Height); err != nil {
 		t.Fatalf("Failed to disconnect block: %v", err)
 	}
 
@@ -894,20 +893,20 @@ func TestTxConfTearDown(t *testing.T) {
 	)
 
 	hintCache := newMockHintCache()
-	tcn := chainntnfs.NewTxConfNotifier(10, 100, hintCache)
+	n := chainntnfs.NewTxNotifier(10, 100, hintCache)
 
-	// Create the test transactions and register them with the
-	// TxConfNotifier to receive notifications.
+	// Create the test transactions and register them with the TxNotifier to
+	// receive notifications.
 	tx1Hash := tx1.TxHash()
 	ntfn1 := chainntnfs.ConfNtfn{
 		TxID:             &tx1Hash,
 		NumConfirmations: 1,
 		Event:            chainntnfs.NewConfirmationEvent(1),
 	}
-	if _, err := tcn.Register(&ntfn1); err != nil {
+	if _, err := n.Register(&ntfn1); err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
-	if err := tcn.UpdateConfDetails(*ntfn1.TxID, nil); err != nil {
+	if err := n.UpdateConfDetails(*ntfn1.TxID, nil); err != nil {
 		t.Fatalf("unable to update conf details: %v", err)
 	}
 
@@ -917,20 +916,20 @@ func TestTxConfTearDown(t *testing.T) {
 		NumConfirmations: 2,
 		Event:            chainntnfs.NewConfirmationEvent(2),
 	}
-	if _, err := tcn.Register(&ntfn2); err != nil {
+	if _, err := n.Register(&ntfn2); err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
-	if err := tcn.UpdateConfDetails(*ntfn2.TxID, nil); err != nil {
+	if err := n.UpdateConfDetails(*ntfn2.TxID, nil); err != nil {
 		t.Fatalf("unable to update conf details: %v", err)
 	}
 
-	// Include the transactions in a block and add it to the TxConfNotifier.
+	// Include the transactions in a block and add it to the TxNotifier.
 	// This should confirm tx1, but not tx2.
 	block := btcutil.NewBlock(&wire.MsgBlock{
 		Transactions: []*wire.MsgTx{&tx1, &tx2},
 	})
 
-	err := tcn.ConnectTip(block.Hash(), 11, block.Transactions())
+	err := n.ConnectTip(block.Hash(), 11, block.Transactions())
 	if err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
 	}
@@ -966,10 +965,10 @@ func TestTxConfTearDown(t *testing.T) {
 	// The notification channels should be closed for notifications that
 	// have not been dispatched yet, so we should not expect to receive any
 	// more updates.
-	tcn.TearDown()
+	n.TearDown()
 
 	// tx1 should not receive any more updates because it has already been
-	// confirmed and the TxConfNotifier has been shut down.
+	// confirmed and the TxNotifier has been shut down.
 	select {
 	case <-ntfn1.Event.Updates:
 		t.Fatal("Received unexpected confirmation update for tx1")
@@ -979,7 +978,7 @@ func TestTxConfTearDown(t *testing.T) {
 	}
 
 	// tx2 should not receive any more updates after the notifications
-	// channels have been closed and the TxConfNotifier shut down.
+	// channels have been closed and the TxNotifier shut down.
 	select {
 	case _, more := <-ntfn2.Event.Updates:
 		if more {

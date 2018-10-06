@@ -2539,6 +2539,46 @@ func listPayments(ctx *cli.Context) error {
 	return nil
 }
 
+var lookupPaymentStatusCommand = cli.Command{
+	Name:      "lookuppaymentstatus",
+	Category:  "Payments",
+	Usage:     "Look up the status of an outgoing payment.",
+	ArgsUsage: "payment_hash",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "payment_hash",
+			Usage: "the hex-encoded payment hash of an outgoing " +
+				"payment",
+		},
+	},
+	Action: actionDecorator(lookupPaymentStatus),
+}
+
+func lookupPaymentStatus(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	var paymentHash string
+	switch {
+	case ctx.IsSet("payment_hash"):
+		paymentHash = ctx.String("payment_hash")
+	case ctx.Args().Present():
+		paymentHash = ctx.Args().First()
+	default:
+		return fmt.Errorf("a payment hash must be provided")
+	}
+
+	req := &lnrpc.PaymentHash{RHashStr: paymentHash}
+	paymentStatus, err := client.LookupPaymentStatus(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(paymentStatus)
+	return nil
+}
+
 var getChanInfoCommand = cli.Command{
 	Name:     "getchaninfo",
 	Category: "Channels",

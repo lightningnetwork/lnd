@@ -761,6 +761,39 @@
         ]
       }
     },
+    "/v1/payment/status/{r_hash_str}": {
+      "get": {
+        "summary": "* lncli: `lookuppaymentstatus`\nLookupPaymentStatus returns the status of a payment.",
+        "operationId": "LookupPaymentStatus",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcPaymentStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "r_hash_str",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "r_hash",
+            "description": "/ The payment hash of the invoice to be looked up.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/payments": {
       "get": {
         "summary": "* lncli: `listpayments`\nListPayments returns a list of all outgoing payments.",
@@ -995,6 +1028,16 @@
         "ABANDONED"
       ],
       "default": "COOPERATIVE_CLOSE"
+    },
+    "PaymentStatusStatus": {
+      "type": "string",
+      "enum": [
+        "GROUNDED",
+        "IN_FLIGHT",
+        "COMPLETED"
+      ],
+      "default": "GROUNDED",
+      "description": " - GROUNDED: *\nThe status where a payment has never been initiated, or has been\ninitiated and received an intermittent failure.\n - IN_FLIGHT: *\nThe status where a payment has been initiated, but a response has not\nbeen received.\n - COMPLETED: *\nThe status where a payment has been initiated and the payment was\ncompleted successfully."
     },
     "PendingChannelsResponseClosedChannel": {
       "type": "object",
@@ -2340,6 +2383,15 @@
           "type": "string",
           "format": "int64",
           "title": "/ The value of the payment in milli-satoshis"
+        }
+      }
+    },
+    "lnrpcPaymentStatus": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/PaymentStatusStatus",
+          "description": "The status of the payment."
         }
       }
     },

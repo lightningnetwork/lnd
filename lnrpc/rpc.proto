@@ -505,6 +505,15 @@ service Lightning {
         };
     }
 
+    /** lncli: `lookuppaymentstatus`
+    LookupPaymentStatus returns the status of an outgoing payment.
+    */
+    rpc LookupPaymentStatus(PaymentHash) returns (PaymentStatus) {
+        option (google.api.http) = {
+            get: "/v1/payment/status/{r_hash_str}"
+        };
+    }
+
     /** lncli: `listpayments`
     ListPayments returns a list of all outgoing payments.
     */
@@ -1731,6 +1740,31 @@ message PaymentHash {
 
     /// The payment hash of the invoice to be looked up.
     bytes r_hash = 2 [json_name = "r_hash"];
+}
+
+message PaymentStatus {
+    enum Status {
+        /**
+        The status where a payment has never been initiated, or has been
+        initiated and received an intermittent failure.
+        */
+        GROUNDED = 0;
+
+        /**
+        The status where a payment has been initiated, but a response has not
+        been received.
+        */
+        IN_FLIGHT = 1;
+
+        /**
+        The status where a payment has been initiated and the payment was
+        completed successfully.
+        */
+        COMPLETED = 2;
+    }
+
+    // The status of the payment.
+    Status status = 1 [json_name = "status"];
 }
 
 message ListInvoiceRequest {

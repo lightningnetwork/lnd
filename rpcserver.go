@@ -3709,6 +3709,56 @@ func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopol
 	}
 }
 
+// LookupPaymentStatus returns the status of an outgoing payment.
+func (r *rpcServer) LookupPaymentStatus(ctx context.Context,
+	req *lnrpc.PaymentHash) (*lnrpc.PaymentStatus, error) {
+
+	// If the payment hash was provided as a raw string, then decode it and
+	// use it directly. Otherwise, we'll use the raw bytes provided.
+	var rHash []byte
+	if req.RHashStr != "" {
+		var err error
+		rHash, err = hex.DecodeString(req.RHashStr)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		rHash = req.RHash
+	}
+
+	// Ensure that the payment hash is *exactly* 32-bytes.
+	if len(rHash) != 32 {
+		return nil, fmt.Errorf("payment hash must be exactly 32 "+
+			"bytes, is instead %v", len(rHash))
+	}
+	var paymentHash [32]byte
+	copy(paymentHash[:], rHash)
+
+	// Now that we have the payment hash, we can query for its status in the
+	// database.
+	paymentStatus, err := r.server.chanDB.FetchPaymentStatus(paymentHash)
+	if err != nil {
+		return nil, err
+	}
+
+	// With the payment status retrieved, we'll map the response to the
+	// equivalent lnrpc payment status.
+	var status lnrpc.PaymentStatus_Status
+	switch paymentStatus {
+	case channeldb.StatusGrounded:
+		status = lnrpc.PaymentStatus_GROUNDED
+	case channeldb.StatusInFlight:
+		status = lnrpc.PaymentStatus_IN_FLIGHT
+	case channeldb.StatusCompleted:
+		status = lnrpc.PaymentStatus_COMPLETED
+	default:
+		return nil, fmt.Errorf("unknown payment status %v",
+			paymentStatus)
+	}
+
+	return &lnrpc.PaymentStatus{Status: status}, nil
+}
+
 // ListPayments returns a list of all outgoing payments.
 func (r *rpcServer) ListPayments(ctx context.Context,
 	_ *lnrpc.ListPaymentsRequest) (*lnrpc.ListPaymentsResponse, error) {

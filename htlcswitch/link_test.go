@@ -53,7 +53,7 @@ func (c *concurrentTester) Fatalf(format string, args ...interface{}) {
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 
-	c.T.Fatalf(format, args)
+	c.T.Fatalf(format, args...)
 }
 
 // messageToString is used to produce less spammy log messages in trace mode by

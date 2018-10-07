@@ -185,16 +185,25 @@ flake-unit:
 # TRAVIS
 # ======
 
-ifeq ($(RACE), false)
+ifeq ($(RACE)$(USE_LINT), FALSETRUE)
 travis: dep lint build itest unit-cover $(GOVERALLS_BIN)
 	@$(call print, "Sending coverage report.")
 	$(GOVERALLS_BIN) -coverprofile=profile.cov -service=travis-ci
 endif
 
-ifeq ($(RACE), true)
+ifeq ($(RACE)$(USE_LINT), FALSEFALSE)
+travis: dep build itest unit-cover $(GOVERALLS_BIN)
+	@$(call print, "Sending coverage report.")
+	$(GOVERALLS_BIN) -coverprofile=profile.cov -service=travis-ci
+endif
+
+ifeq ($(RACE)$(USE_LINT), TRUETRUE)
 travis: dep lint btcd unit-race
 endif
 
+ifeq ($(RACE)$(USE_LINT), TRUEFALSE)
+travis: dep btcd unit-race
+endif
 
 # =========
 # UTILITIES

@@ -101,7 +101,7 @@ func newCircuitMap(t *testing.T) (*htlcswitch.CircuitMapConfig,
 	onionProcessor := newOnionProcessor(t)
 
 	circuitMapCfg := &htlcswitch.CircuitMapConfig{
-		DB: makeCircuitDB(t, ""),
+		DB:                    makeCircuitDB(t, ""),
 		ExtractErrorEncrypter: onionProcessor.ExtractErrorEncrypter,
 	}
 
@@ -660,7 +660,7 @@ func restartCircuitMap(t *testing.T, cfg *htlcswitch.CircuitMapConfig) (
 
 	// Reinitialize circuit map with same db path.
 	cfg2 := &htlcswitch.CircuitMapConfig{
-		DB: makeCircuitDB(t, dbPath),
+		DB:                    makeCircuitDB(t, dbPath),
 		ExtractErrorEncrypter: cfg.ExtractErrorEncrypter,
 	}
 	cm2, err := htlcswitch.NewCircuitMap(cfg2)

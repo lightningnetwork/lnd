@@ -491,6 +491,12 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 
 		// To ensure we can route through this channel now that the peer
 		// is back online, we'll attempt to send an update to enable it.
+		// If the channel is already enabled in the database, we won't
+		// send an update, to avoid spamming unnecessarily.
+		if selfPolicy != nil && selfPolicy.Flags&lnwire.ChanUpdateDisabled == 0 {
+			continue
+		}
+
 		// This will only be used for non-pending public channels, as
 		// they are the only ones capable of routing.
 		chanIsPublic := dbChan.ChannelFlags&lnwire.FFAnnounceChannel != 0

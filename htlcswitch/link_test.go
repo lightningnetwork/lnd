@@ -5129,6 +5129,11 @@ func TestChannelLinkFail(t *testing.T) {
 		// force close the channel in response to the actions performed
 		// during the linkTest.
 		shouldForceClose bool
+
+		// permanentFailure indicates whether we expect the link to
+		// consider the failure permanent in response to the actions
+		// performed during the linkTest.
+		permanentFailure bool
 	}{
 		{
 			// Test that we don't force close if syncing states
@@ -5143,6 +5148,7 @@ func TestChannelLinkFail(t *testing.T) {
 			func(t *testing.T, c *channelLink, _ *lnwallet.LightningChannel) {
 				// Should fail at startup.
 			},
+			false,
 			false,
 		},
 		{
@@ -5160,6 +5166,7 @@ func TestChannelLinkFail(t *testing.T) {
 				// Should fail at startup.
 			},
 			false,
+			false,
 		},
 		{
 			// Test that we force close the channel if we receive
@@ -5176,6 +5183,7 @@ func TestChannelLinkFail(t *testing.T) {
 				c.HandleChannelUpdate(htlcSettle)
 			},
 			true,
+			false,
 		},
 		{
 			// Test that we force close the channel if we receive
@@ -5213,6 +5221,7 @@ func TestChannelLinkFail(t *testing.T) {
 				c.HandleChannelUpdate(commitSig)
 			},
 			true,
+			false,
 		},
 		{
 			// Test that we force close the channel if we receive
@@ -5251,6 +5260,19 @@ func TestChannelLinkFail(t *testing.T) {
 
 				c.HandleChannelUpdate(commitSig)
 			},
+			true,
+			false,
+		},
+		{
+			// Test that we consider the failure permanent if we
+			// receive a link error from the remote.
+			func(c *channelLink) {
+			},
+			func(t *testing.T, c *channelLink, remoteChannel *lnwallet.LightningChannel) {
+				err := &lnwire.Error{}
+				c.HandleChannelUpdate(err)
+			},
+			false,
 			true,
 		},
 	}
@@ -5300,6 +5322,12 @@ func TestChannelLinkFail(t *testing.T) {
 			t.Fatalf("%d) Expected Alice to force close(%v), "+
 				"instead got(%v)", i, test.shouldForceClose,
 				linkErr.ForceClose)
+		}
+
+		if test.permanentFailure != linkErr.PermanentFailure {
+			t.Fatalf("%d) Expected Alice set permanent failure(%v), "+
+				"instead got(%v)", i, test.permanentFailure,
+				linkErr.PermanentFailure)
 		}
 
 		// Clean up before starting next test case.

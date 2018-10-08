@@ -15,6 +15,9 @@ import (
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
+	"golang.org/x/crypto/salsa20"
+	"google.golang.org/grpc"
+
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -24,8 +27,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
-	"golang.org/x/crypto/salsa20"
-	"google.golang.org/grpc"
 )
 
 const (

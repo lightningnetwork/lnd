@@ -22,8 +22,8 @@ HAVE_LINTER := $(shell command -v $(LINT_BIN) 2> /dev/null)
 
 BTCD_DIR :=${GOPATH}/src/$(BTCD_PKG)
 
-COMMIT := $(shell git rev-parse HEAD)
-LDFLAGS := -ldflags "-X main.Commit=$(COMMIT)"
+COMMIT := $(shell git describe --abbrev=40 --dirty --broken)
+LDFLAGS := -ldflags "-X $(PKG)/build.Commit=$(COMMIT)"
 
 GLIDE_COMMIT := 84607742b10f492430762d038e954236bbaf23f7
 BTCD_COMMIT := $(shell cat Gopkg.toml | \
@@ -47,8 +47,11 @@ XARGS := xargs -L 1
 
 include make/testing_flags.mk
 
+DEV_TAGS := $(if ${tags},$(DEV_TAGS) ${tags},$(DEV_TAGS))
+PROD_TAGS := $(if ${tags},$(PROD_TAGS) ${tags},$(PROD_TAGS))
+
 COVER = for dir in $(GOLISTCOVER); do \
-		$(GOTEST) -tags="$(TEST_TAGS)" \
+		$(GOTEST) -tags="$(DEV_TAGS) $(LOG_TAGS)" \
 			-covermode=count \
 			-coverprofile=$$dir/profile.tmp $$dir; \
 		\
@@ -130,13 +133,13 @@ btcd: $(GLIDE_BIN) $(BTCD_DIR)
 
 build:
 	@$(call print, "Building debug lnd and lncli.")
-	$(GOBUILD) -tags="$(TEST_TAGS) ${tags}" -o lnd-debug $(LDFLAGS) $(PKG)
-	$(GOBUILD) -tags="$(TEST_TAGS) ${tags}" -o lncli-debug $(LDFLAGS) $(PKG)/cmd/lncli
+	$(GOBUILD) -tags="$(DEV_TAGS)" -o lnd-debug $(LDFLAGS) $(PKG)
+	$(GOBUILD) -tags="$(DEV_TAGS)" -o lncli-debug $(LDFLAGS) $(PKG)/cmd/lncli
 
 install:
 	@$(call print, "Installing lnd and lncli.")
-	go install -v -tags="${tags}" $(LDFLAGS) $(PKG)
-	go install -v -tags="${tags}" $(LDFLAGS) $(PKG)/cmd/lncli
+	go install -v -tags="$(PROD_TAGS)" $(LDFLAGS) $(PKG)
+	go install -v -tags="$(PROD_TAGS)" $(LDFLAGS) $(PKG)/cmd/lncli
 
 scratch: dep build
 

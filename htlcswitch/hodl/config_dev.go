@@ -1,4 +1,4 @@
-// +build debug
+// +build dev
 
 package hodl
 
@@ -61,7 +61,7 @@ func (c *Config) Mask() Mask {
 	}
 
 	// NOTE: The value returned here will only honor the configuration if
-	// the debug build flag is present. In production, this method always
+	// the dev build flag is present. In production, this method always
 	// returns hodl.MaskNone and Active(*) always returns false.
 	return MaskFromFlags(flags...)
 }

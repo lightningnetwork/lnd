@@ -24,6 +24,7 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -1190,12 +1191,12 @@ out:
 func (r *rpcServer) AbandonChannel(ctx context.Context,
 	in *lnrpc.AbandonChannelRequest) (*lnrpc.AbandonChannelResponse, error) {
 
-	// If this isn't the debug build, then we won't allow the RPC to be
+	// If this isn't the dev build, then we won't allow the RPC to be
 	// executed, as it's an advanced feature and won't be activated in
 	// regular production/release builds.
-	if !DebugBuild {
+	if !build.IsDevBuild() {
 		return nil, fmt.Errorf("AbandonChannel RPC call only " +
-			"available in debug builds")
+			"available in dev builds")
 	}
 
 	// We'll parse out the arguments to we can obtain the chanPoint of the
@@ -1364,7 +1365,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		Uris:                uris,
 		Alias:               nodeAnn.Alias.String(),
 		BestHeaderTimestamp: int64(bestHeaderTimestamp),
-		Version:             version(),
+		Version:             build.Version(),
 	}, nil
 }
 

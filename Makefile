@@ -22,7 +22,7 @@ HAVE_LINTER := $(shell command -v $(LINT_BIN) 2> /dev/null)
 
 BTCD_DIR :=${GOPATH}/src/$(BTCD_PKG)
 
-COMMIT := $(shell git describe --abbrev=40 --dirty --broken)
+COMMIT := $(shell git describe --abbrev=40 --dirty)
 LDFLAGS := -ldflags "-X $(PKG)/build.Commit=$(COMMIT)"
 
 GLIDE_COMMIT := 84607742b10f492430762d038e954236bbaf23f7

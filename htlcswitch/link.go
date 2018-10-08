@@ -1900,9 +1900,14 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// Error received from remote, MUST fail channel, but should
 		// only print the contents of the error message if all
 		// characters are printable ASCII.
-		l.fail(LinkFailureError{code: ErrRemoteError},
+		l.fail(
+			LinkFailureError{
+				code:             ErrRemoteError,
+				PermanentFailure: true,
+			},
 			"ChannelPoint(%v): received error from peer: %v",
-			l.channel.ChannelPoint(), msg.Error())
+			l.channel.ChannelPoint(), msg.Error(),
+		)
 	default:
 		l.log.Warnf("received unknown message of type %T", msg)
 	}

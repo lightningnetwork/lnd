@@ -704,9 +704,9 @@ func TestEdgeInfoUpdates(t *testing.T) {
 		MinHTLC:                   2342135,
 		FeeBaseMSat:               4352345,
 		FeeProportionalMillionths: 3452352,
-		Node:            secondNode,
-		ExtraOpaqueData: []byte("new unknown feature2"),
-		db:              db,
+		Node:                      secondNode,
+		ExtraOpaqueData:           []byte("new unknown feature2"),
+		db:                        db,
 	}
 	edge2 := &ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
@@ -717,9 +717,9 @@ func TestEdgeInfoUpdates(t *testing.T) {
 		MinHTLC:                   2342135,
 		FeeBaseMSat:               4352345,
 		FeeProportionalMillionths: 90392423,
-		Node:            firstNode,
-		ExtraOpaqueData: []byte("new unknown feature1"),
-		db:              db,
+		Node:                      firstNode,
+		ExtraOpaqueData:           []byte("new unknown feature1"),
+		db:                        db,
 	}
 
 	// Next, insert both nodes into the database, they should both be
@@ -796,7 +796,7 @@ func newEdgePolicy(chanID uint64, op wire.OutPoint, db *DB,
 		MinHTLC:                   lnwire.MilliSatoshi(prand.Int63()),
 		FeeBaseMSat:               lnwire.MilliSatoshi(prand.Int63()),
 		FeeProportionalMillionths: lnwire.MilliSatoshi(prand.Int63()),
-		db: db,
+		db:                        db,
 	}
 }
 

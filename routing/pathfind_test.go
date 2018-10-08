@@ -973,7 +973,7 @@ func TestNewRoute(t *testing.T) {
 
 		return &ChannelHop{
 			ChannelEdgePolicy: &channeldb.ChannelEdgePolicy{
-				Node: &channeldb.LightningNode{},
+				Node:                      &channeldb.LightningNode{},
 				FeeProportionalMillionths: feeRate,
 				FeeBaseMSat:               baseFee,
 				TimeLockDelta:             timeLockDelta,

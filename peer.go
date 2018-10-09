@@ -1893,10 +1893,7 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 	// out this channel on-chain, so we execute the cooperative channel
 	// closure workflow.
 	case htlcswitch.CloseRegular:
-		// First, we'll fetch a fresh delivery address that we'll use
-		// to send the funds to in the case of a successful
-		// negotiation.
-		deliveryAddr, err := p.genDeliveryScript()
+		deliveryAddr, err := txscript.PayToAddrScript(req.DeliveryAddr)
 		if err != nil {
 			peerLog.Errorf(err.Error())
 			req.Err <- err

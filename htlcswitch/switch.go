@@ -116,6 +116,9 @@ type ChanClose struct {
 	// process for the cooperative closure transaction kicks off.
 	TargetFeePerKw lnwallet.SatPerKWeight
 
+	// Address for sending local funds
+	DeliveryAddr btcutil.Address
+
 	// Updates is used by request creator to receive the notifications about
 	// execution of the close channel request.
 	Updates chan interface{}
@@ -1416,12 +1419,13 @@ func (s *Switch) teardownCircuit(pkt *htlcPacket) error {
 
 // CloseLink creates and sends the close channel command to the target link
 // directing the specified closure type. If the closure type if CloseRegular,
-// then the last parameter should be the ideal fee-per-kw that will be used as
-// a starting point for close negotiation.
+// then the one-before-last parameter should be the ideal fee-per-kw that will
+// be used as a starting point for close negotiation, and the last optional
+// parameter is a delivery address for the funds, passed in the shutdown
+// message to peer.
 func (s *Switch) CloseLink(chanPoint *wire.OutPoint, closeType ChannelCloseType,
-	targetFeePerKw lnwallet.SatPerKWeight) (chan interface{},
-	chan error) {
-
+	targetFeePerKw lnwallet.SatPerKWeight,
+	deliveryAddr btcutil.Address) (chan interface{}, chan error) {
 	// TODO(roasbeef) abstract out the close updates.
 	updateChan := make(chan interface{}, 2)
 	errChan := make(chan error, 1)
@@ -1431,6 +1435,7 @@ func (s *Switch) CloseLink(chanPoint *wire.OutPoint, closeType ChannelCloseType,
 		ChanPoint:      chanPoint,
 		Updates:        updateChan,
 		TargetFeePerKw: targetFeePerKw,
+		DeliveryAddr:   deliveryAddr,
 		Err:            errChan,
 	}
 

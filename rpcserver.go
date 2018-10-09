@@ -1506,8 +1506,9 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		chanPoint, force)
 
 	var (
-		updateChan chan interface{}
-		errChan    chan error
+		updateChan   chan interface{}
+		errChan      chan error
+		deliveryAddr btcutil.Address
 	)
 
 	// TODO(roasbeef): if force and peer online then don't force?
@@ -1617,9 +1618,29 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		// cooperative channel closure. So we'll forward the request to
 		// the htlc switch which will handle the negotiation and
 		// broadcast details.
+
+		// Unless a delivery address was specifically requested,
+		// fetch a fresh delivery address that we'll use
+		// to send the funds to in the case of a successful
+		// negotiation.
+		if len(in.DeliveryAddr) > 0 {
+			deliveryAddr, err = btcutil.DecodeAddress(in.DeliveryAddr,
+				activeNetParams.Params)
+			if err != nil {
+				return fmt.Errorf("invalid delivery address: %v",
+					err)
+			}
+		} else {
+			deliveryAddr, err = r.server.cc.wallet.NewAddress(
+				lnwallet.WitnessPubKey, false)
+			if err != nil {
+				return fmt.Errorf("failed to generate new wallet address: %v",
+					err)
+			}
+		}
+
 		updateChan, errChan = r.server.htlcSwitch.CloseLink(
-			chanPoint, htlcswitch.CloseRegular, feeRate,
-		)
+			chanPoint, htlcswitch.CloseRegular, feeRate, deliveryAddr)
 	}
 out:
 	for {

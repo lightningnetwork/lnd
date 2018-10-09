@@ -3,15 +3,23 @@
 package main
 
 import (
+	"bytes"
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+)
+
+var (
+	// addresses for testing
+	p2wkhAddr  = "sb1q2zry0xjxcqvgf8a6ju40y267jv7s6jya95gv83"
+	np2wkhAddr = "rspse8WDLzYvekoYRUEoxraoQYGW6wLbPd"
 )
 
 // TestPeerChannelClosureAcceptFeeResponder tests the shutdown responder's
@@ -119,6 +127,13 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	}
 	defer cleanUp()
 
+	// Use a Pay-to-witness-key-hash (p2wkh) address
+	deliveryAddr, err := btcutil.DecodeAddress(p2wkhAddr,
+		activeNetParams.Params)
+	if err != nil {
+		t.Fatalf("invalid delivery address: %v", err)
+	}
+
 	// We make the initiator send a shutdown request.
 	updateChan := make(chan interface{}, 1)
 	errChan := make(chan error, 1)
@@ -127,6 +142,7 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 		ChanPoint:      initiatorChan.ChannelPoint(),
 		Updates:        updateChan,
 		TargetFeePerKw: 12500,
+		DeliveryAddr:   deliveryAddr,
 		Err:            errChan,
 	}
 	initiator.localCloseChanReqs <- closeCommand
@@ -408,6 +424,13 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	}
 	defer cleanUp()
 
+	// Use a Pay-to-witness-key-hash (p2wkh) address
+	deliveryAddr, err := btcutil.DecodeAddress(p2wkhAddr,
+		activeNetParams.Params)
+	if err != nil {
+		t.Fatalf("invalid delivery address: %v", err)
+	}
+
 	// We make the initiator send a shutdown request.
 	updateChan := make(chan interface{}, 1)
 	errChan := make(chan error, 1)
@@ -416,6 +439,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 		ChanPoint:      initiatorChan.ChannelPoint(),
 		Updates:        updateChan,
 		TargetFeePerKw: 12500,
+		DeliveryAddr:   deliveryAddr,
 		Err:            errChan,
 	}
 
@@ -586,5 +610,118 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	case <-broadcastTxChan:
 	case <-time.After(time.Second * 5):
 		t.Fatalf("closing tx not broadcast")
+	}
+}
+
+// TestPeerChannelClosureDeliveryAddressInitiator tests that the delivery
+// address of a shutdown message can be set to a specified address (e.g.
+// if requested through rpc). The test also checks that the local close
+// request handler errors, and does not send Shutdown messages to peer, if
+// the close request is issued for a bogus channel.
+
+func TestPeerChannelClosureDeliveryAddressInitiator(t *testing.T) {
+	t.Parallel()
+
+	notifier := &mockNotfier{
+		confChannel: make(chan *chainntnfs.TxConfirmation),
+	}
+	broadcastTxChan := make(chan *wire.MsgTx)
+
+	// Open a channel.
+	initiator, initiatorChan, _, cleanUp, err := createTestPeer(
+		notifier, broadcastTxChan)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// Use a Pay-to-nested-witness-key-hash (np2wkh) address
+	deliveryAddr, err := btcutil.DecodeAddress(np2wkhAddr,
+		activeNetParams.Params)
+	if err != nil {
+		t.Fatalf("invalid delivery address: %v", err)
+	}
+
+	// Request initiator to cooperatively close the channel, with
+	// a specified delivery address.
+	updateChan := make(chan interface{}, 1)
+	errChan := make(chan error, 1)
+	chanPoint := initiatorChan.ChannelPoint()
+	closeCommand := htlcswitch.ChanClose{
+		CloseType:      htlcswitch.CloseRegular,
+		ChanPoint:      chanPoint,
+		Updates:        updateChan,
+		TargetFeePerKw: 12500,
+		DeliveryAddr:   deliveryAddr,
+		Err:            errChan,
+	}
+
+	// Check first that local close handler does not send Shutdown messages
+	// for bogus channels, but rather errors correctly.
+	bogusChanPoint := wire.OutPoint{
+		Index: chanPoint.Index + 1,
+		Hash:  chanPoint.Hash,
+	}
+	bogusCloseCommand := closeCommand
+	bogusCloseCommand.ChanPoint = &bogusChanPoint
+	initiator.localCloseChanReqs <- &bogusCloseCommand
+
+	select {
+	case outBugosMsg := <-initiator.outgoingQueue:
+		t.Fatalf("message of type %v sent to bogus channel",
+			outBugosMsg.msg.MsgType())
+	case <-time.After(time.Second * 5):
+		t.Fatalf("no such channel error expected but not received.")
+	case <-errChan:
+		// expected behavior,
+	}
+
+	// Check that local close handler does not send Shutdown messages
+	// for bogus delivery address, but rather errors correctly.
+	var bogusDeliveryAddress *btcutil.AddressPubKeyHash
+	bogusCloseCommand = closeCommand
+	bogusCloseCommand.DeliveryAddr = bogusDeliveryAddress
+	initiator.localCloseChanReqs <- &bogusCloseCommand
+
+	select {
+	case outBugosMsg := <-initiator.outgoingQueue:
+		t.Fatalf("message of type %v sent with bogus delivery address.",
+			outBugosMsg.msg.MsgType())
+	case <-time.After(time.Second * 5):
+		t.Fatalf("nil address error expected but not received.")
+	case <-errChan:
+		// expected behavior
+	}
+
+	// Send the close command for the correct channel.
+	initiator.localCloseChanReqs <- &closeCommand
+
+	// We should now be getting the Shutdown message.
+	var msg lnwire.Message
+	select {
+	case outMsg := <-initiator.outgoingQueue:
+		msg = outMsg.msg
+	case <-time.After(time.Second * 5):
+		t.Fatalf("did not receive Shutdown message")
+	case err := <-errChan:
+		t.Fatalf("error closing channel: %v", err)
+	}
+
+	shutdownMsg, ok := msg.(*lnwire.Shutdown)
+	if !ok {
+		t.Fatalf("expected Shutdown message, got %T", msg)
+	}
+
+	// Check that the Shutdown message includes the specified delivery
+	// address.
+	initiatorDeliveryScript := shutdownMsg.Address
+	expectedDeliveryScript, err := txscript.PayToAddrScript(deliveryAddr)
+	if err != nil {
+		t.Fatalf("failed to derive script for delivery address")
+	}
+
+	if !bytes.Equal(initiatorDeliveryScript, expectedDeliveryScript) {
+		t.Fatalf("delivery script different than expected, got %v expected %v",
+			initiatorDeliveryScript, expectedDeliveryScript)
 	}
 }

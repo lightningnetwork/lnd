@@ -656,9 +656,14 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	// Construct a closure that wraps the htlcswitch's CloseLink method.
 	closeLink := func(chanPoint *wire.OutPoint,
 		closureType htlcswitch.ChannelCloseType) {
+
+		// Create a new address for delivery upon cooperative channel close.
+		deliveryAddr, _ := s.cc.wallet.NewAddress(
+			lnwallet.WitnessPubKey, false)
+
 		// TODO(conner): Properly respect the update and error channels
 		// returned by CloseLink.
-		s.htlcSwitch.CloseLink(chanPoint, closureType, 0)
+		s.htlcSwitch.CloseLink(chanPoint, closureType, 0, deliveryAddr)
 	}
 
 	// We will use the following channel to reliably hand off contract

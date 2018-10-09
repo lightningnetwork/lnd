@@ -15,7 +15,7 @@ import (
 // heuristic. This means that given a threshold to allocate to automatic
 // channel establishment, the heuristic will attempt to favor connecting to
 // nodes which already have a set amount of links, selected by sampling from a
-// power law distribution. The attachment ins non-linear in that it favors
+// power law distribution. The attachment is non-linear in that it favors
 // nodes with a higher in-degree but less so that regular linear preferential
 // attachment. As a result, this creates smaller and less clusters than regular
 // linear preferential attachment.
@@ -193,7 +193,7 @@ func (p *ConstrainedPrefAttachment) Select(self *btcec.PublicKey, g ChannelGraph
 				return nil
 			}
 
-			// Additionally, if this node is in the backlist, then
+			// Additionally, if this node is in the blacklist, then
 			// we'll skip it.
 			if _, ok := skipNodes[nID]; ok {
 				return nil

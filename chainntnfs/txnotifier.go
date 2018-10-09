@@ -19,6 +19,55 @@ var (
 	ErrTxMaxConfs = errors.New("too many confirmations requested")
 )
 
+// rescanState indicates the progression of a registration before the notifier
+// can begin dispatching confirmations at tip.
+type rescanState byte
+
+const (
+	// rescanNotStarted is the initial state, denoting that a historical
+	// dispatch may be required.
+	rescanNotStarted rescanState = iota
+
+	// rescanPending indicates that a dispatch has already been made, and we
+	// are waiting for its completion. No other rescans should be dispatched
+	// while in this state.
+	rescanPending
+
+	// rescanComplete signals either that a rescan was dispatched and has
+	// completed, or that we began watching at tip immediately. In either
+	// case, the notifier can only dispatch notifications from tip when in
+	// this state.
+	rescanComplete
+)
+
+// confNtfnSet holds all known, registered confirmation notifications for a
+// single txid. If duplicates notifications are requested, only one historical
+// dispatch will be spawned to ensure redundant scans are not permitted. A
+// single conf detail will be constructed and dispatched to all interested
+// clients.
+type confNtfnSet struct {
+	// ntfns keeps tracks of all the active client notification requests for
+	// a transaction.
+	ntfns map[uint64]*ConfNtfn
+
+	// rescanStatus represents the current rescan state for the transaction.
+	rescanStatus rescanState
+
+	// details serves as a cache of the confirmation details of a
+	// transaction that we'll use to determine if a transaction has already
+	// confirmed at the time of registration.
+	details *TxConfirmation
+}
+
+// newConfNtfnSet constructs a fresh confNtfnSet for a group of clients
+// interested in a notification for a particular txid.
+func newConfNtfnSet() *confNtfnSet {
+	return &confNtfnSet{
+		ntfns:        make(map[uint64]*ConfNtfn),
+		rescanStatus: rescanNotStarted,
+	}
+}
+
 // ConfNtfn represents a notifier client's request to receive a notification
 // once the target transaction gets sufficient confirmations. The client is
 // asynchronously notified via the ConfirmationEvent channels.
@@ -133,47 +182,6 @@ type TxNotifier struct {
 	quit chan struct{}
 
 	sync.Mutex
-}
-
-// rescanState indicates the progression of a registration before the notifier
-// can begin dispatching confirmations at tip.
-type rescanState uint8
-
-const (
-	// rescanNotStarted is the initial state, denoting that a historical
-	// dispatch may be required.
-	rescanNotStarted rescanState = iota
-
-	// rescanPending indicates that a dispatch has already been made, and we
-	// are waiting for its completion. No other rescans should be dispatched
-	// while in this state.
-	rescanPending
-
-	// rescanComplete signals either that a rescan was dispatched and has
-	// completed, or that we began watching at tip immediately. In either
-	// case, the notifier can only dispatch notifications from tip when in
-	// this state.
-	rescanComplete
-)
-
-// confNtfnSet holds all known, registered confirmation notifications for a
-// single txid. If duplicates notifications are requested, only one historical
-// dispatch will be spawned to ensure redundant scans are not permitted. A
-// single conf detail will be constructed and dispatched to all interested
-// clients.
-type confNtfnSet struct {
-	ntfns        map[uint64]*ConfNtfn
-	rescanStatus rescanState
-	details      *TxConfirmation
-}
-
-// newConfNtfnSet constructs a fresh confNtfnSet for a group of clients
-// interested in a notification for a particular txid.
-func newConfNtfnSet() *confNtfnSet {
-	return &confNtfnSet{
-		ntfns:        make(map[uint64]*ConfNtfn),
-		rescanStatus: rescanNotStarted,
-	}
 }
 
 // NewTxNotifier creates a TxNotifier. The current height of the blockchain is

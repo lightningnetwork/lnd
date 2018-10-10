@@ -31,7 +31,7 @@ able to achieve the following security and privacy features:
   * Participants in a route don't know their exact position within the route
   * Participants within a route don't know the source of the payment, nor the
     ultimate destination of the payment
-  * Participants within a route aren't away _exactly_ how many other
+  * Participants within a route aren't aware _exactly_ how many other
     participants were involved in the payment route
   * Each new payment route is computationally indistinguishable from any other
     payment route

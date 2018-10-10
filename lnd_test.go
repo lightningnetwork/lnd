@@ -5522,26 +5522,6 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 }
 
-func copyFile(dest, src string) error {
-	s, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer s.Close()
-
-	d, err := os.Create(dest)
-	if err != nil {
-		return err
-	}
-
-	if _, err := io.Copy(d, s); err != nil {
-		d.Close()
-		return err
-	}
-
-	return d.Close()
-}
-
 // waitForTxInMempool polls until finding one transaction in the provided
 // miner's mempool. An error is returned if *one* transaction isn't found within
 // the given timeout.
@@ -6154,7 +6134,7 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 	// With the temporary file created, copy Bob's current state into the
 	// temporary file we created above. Later after more updates, we'll
 	// restore this state.
-	if err := copyFile(bobTempDbFile, net.Bob.DBPath()); err != nil {
+	if err := lntest.CopyFile(bobTempDbFile, net.Bob.DBPath()); err != nil {
 		t.Fatalf("unable to copy database files: %v", err)
 	}
 
@@ -6394,7 +6374,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 	// With the temporary file created, copy Carol's current state into the
 	// temporary file we created above. Later after more updates, we'll
 	// restore this state.
-	if err := copyFile(carolTempDbFile, carol.DBPath()); err != nil {
+	if err := lntest.CopyFile(carolTempDbFile, carol.DBPath()); err != nil {
 		t.Fatalf("unable to copy database files: %v", err)
 	}
 
@@ -6710,7 +6690,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	// With the temporary file created, copy Carol's current state into the
 	// temporary file we created above. Later after more updates, we'll
 	// restore this state.
-	if err := copyFile(carolTempDbFile, carol.DBPath()); err != nil {
+	if err := lntest.CopyFile(carolTempDbFile, carol.DBPath()); err != nil {
 		t.Fatalf("unable to copy database files: %v", err)
 	}
 
@@ -7110,7 +7090,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 		// With the temporary file created, copy the current state into
 		// the temporary file we created above. Later after more
 		// updates, we'll restore this state.
-		if err := copyFile(tempDbFile, node.DBPath()); err != nil {
+		if err := lntest.CopyFile(tempDbFile, node.DBPath()); err != nil {
 			t.Fatalf("unable to copy database files: %v", err)
 		}
 

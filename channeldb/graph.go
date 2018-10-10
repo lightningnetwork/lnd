@@ -2839,6 +2839,12 @@ func putLightningNode(nodeBucket *bbolt.Bucket, aliasBucket *bbolt.Bucket,
 		}
 	}
 
+	sigLen := len(node.AuthSigBytes)
+	if sigLen > 80 {
+		return fmt.Errorf("max sig len allowed is 80, had %v",
+			sigLen)
+	}
+
 	err = wire.WriteVarBytes(&b, 0, node.AuthSigBytes)
 	if err != nil {
 		return err

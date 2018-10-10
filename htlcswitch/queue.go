@@ -1,10 +1,10 @@
 package htlcswitch
 
 import (
+	"container/heap"
 	"sync"
 	"sync/atomic"
 	"time"
-  "container/heap"
 
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -64,7 +64,7 @@ func newPacketQueue(maxFreeSlots int, maxQueueLen int32) *packetQueue {
 		outgoingPkts: make(chan *htlcPacket),
 		freeSlots:    make(chan struct{}, maxFreeSlots),
 		quit:         make(chan struct{}),
-		maxQueueLen:	maxQueueLen,
+		maxQueueLen:  maxQueueLen,
 	}
 	p.queueCond = sync.NewCond(&p.queueMtx)
 

@@ -1,9 +1,9 @@
 package htlcswitch
 
 import (
+	"container/heap"
 	"testing"
 	"time"
-	"container/heap"
 
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -11,26 +11,29 @@ import (
 // Generate a packet with the given packet id
 func makePacket(pkt_id uint64) *htlcPacket {
 	return &htlcPacket{
-		incomingHTLCID : pkt_id,
-		htlc           : &lnwire.UpdateAddHTLC{},
+		incomingHTLCID: pkt_id,
+		htlc:           &lnwire.UpdateAddHTLC{},
 	}
 }
 
-// Test priority of packets
+// Test priority of packets. The packet which was created before should be
+// popped first
 func TestHtlcPriority(t *testing.T) {
 	q := make(priorityQueue, 2)
 	q[0] = makeNode(makePacket(100))
 	q[1] = makeNode(makePacket(200))
 
+	// Since priorityQueue has a min heap implementation, the element created
+	// earlier should have a lesser priority value
 	if !q.Less(0, 1) {
 		t.Fatalf("wrong priority order p0=%v, p1=%v", q[0].priority, q[1].priority)
 	}
 }
 
-// Test input/output of priority queue
+// Test input/output of priority queue in a sequential setting.
 func TestPriorityQueue(t *testing.T) {
 	q := make(priorityQueue, 0)
-	
+
 	for i := 0; i < 100; i++ {
 		pkt := makePacket(uint64(i))
 		heap.Push(&q, makeNode(pkt))
@@ -78,7 +81,7 @@ func TestWaitingQueueThreadSafety(t *testing.T) {
 		select {
 		case packet := <-q.outgoingPkts:
 			if packet.incomingHTLCID != uint64(i) {
-				t.Fatalf("wrong output element: expected packet %v, got %v", i, 
+				t.Fatalf("wrong output element: expected packet %v, got %v", i,
 					packet.incomingHTLCID)
 			}
 

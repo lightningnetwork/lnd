@@ -1032,6 +1032,15 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		return
 	}
 
+	// If request specifies non-zero push amount and 'rejectpush' is set,
+	// signal an error.
+	if cfg.RejectPush && msg.PushAmount > 0 {
+		f.failFundingFlow(
+			fmsg.peer, fmsg.msg.PendingChannelID,
+			lnwallet.ErrNonZeroPushAmount())
+		return
+	}
+
 	fndgLog.Infof("Recv'd fundingRequest(amt=%v, push=%v, delay=%v, "+
 		"pendingId=%x) from peer(%x)", amt, msg.PushAmount,
 		msg.CsvDelay, msg.PendingChannelID,

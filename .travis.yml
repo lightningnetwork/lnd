@@ -2,7 +2,7 @@ language: go
 matrix:
   include:
   - go: "1.11"
-    env: RACE=FALSE USE_LINT=TRUE
+    env: RACE=TRUE USE_LINT=TRUE
   - go: "1.11"
     env: RACE=FALSE USE_LINT=TRUE
   - go: "1.10"

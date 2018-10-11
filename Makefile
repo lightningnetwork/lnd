@@ -110,7 +110,6 @@ $(GOVERALLS_BIN):
 $(LINT_BIN):
 	@$(call print, "Fetching gometalinter.v2")
 	go get -u $(LINT_PKG)
-	$(GOINSTALL) $(LINT_PKG)
 
 dep: $(DEP_BIN)
 	@$(call print, "Compiling dependencies.")

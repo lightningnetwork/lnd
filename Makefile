@@ -186,26 +186,6 @@ flake-unit:
 	GOTRACEBACK=all $(UNIT) -count=1
 	while [ $$? -eq 0 ]; do /bin/sh -c "GOTRACEBACK=all $(UNIT) -count=1"; done
 
-# ======
-# TRAVIS
-# ======
-
-ifeq ($(RACE)$(USE_LINT), FALSETRUE)
-travis: dep lint build itest unit-cover goveralls
-endif
-
-ifeq ($(RACE)$(USE_LINT), FALSEFALSE)
-travis: dep build itest unit-cover goveralls
-endif
-
-ifeq ($(RACE)$(USE_LINT), TRUETRUE)
-travis: dep lint btcd unit-race
-endif
-
-ifeq ($(RACE)$(USE_LINT), TRUEFALSE)
-travis: dep btcd unit-race
-endif
-
 # =========
 # UTILITIES
 # =========
@@ -252,7 +232,6 @@ clean:
 	goveralls \
 	flakehunter \
 	flake-unit \
-	travis \
 	fmt \
 	lint \
 	list \

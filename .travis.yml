@@ -1,8 +1,18 @@
 language: go
+cache:
+  directories:
+    - vendor/
+    - $GOCACHE
+    - $GOPATH/src/github.com/btcsuite
+    - $GOPATH/src/github.com/golang
+    - $GOPATH/src/gopkg.in/alecthomas
+
 go:
   - "1.11.x"
 
 env:
+  global:
+    - GOCACHE=$HOME/.go-build
   matrix:
     - RACE=true LINT=true
     - ITEST=true

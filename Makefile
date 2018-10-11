@@ -167,6 +167,10 @@ unit-race:
 	export CGO_ENABLED=1; env GORACE="history_size=7 halt_on_errors=1" $(UNIT_RACE)
 	export CGO_ENABLED=$(CGO_STATUS_QUO)
 
+goveralls: $(GOVERALLS_BIN)
+	@$(call print, "Sending coverage report.")
+	$(GOVERALLS_BIN) -coverprofile=profile.cov -service=travis-ci
+
 # =============
 # FLAKE HUNTING
 # =============
@@ -185,15 +189,11 @@ flake-unit:
 # ======
 
 ifeq ($(RACE)$(USE_LINT), FALSETRUE)
-travis: dep lint build itest unit-cover $(GOVERALLS_BIN)
-	@$(call print, "Sending coverage report.")
-	$(GOVERALLS_BIN) -coverprofile=profile.cov -service=travis-ci
+travis: dep lint build itest unit-cover goveralls
 endif
 
 ifeq ($(RACE)$(USE_LINT), FALSEFALSE)
-travis: dep build itest unit-cover $(GOVERALLS_BIN)
-	@$(call print, "Sending coverage report.")
-	$(GOVERALLS_BIN) -coverprofile=profile.cov -service=travis-ci
+travis: dep build itest unit-cover goveralls
 endif
 
 ifeq ($(RACE)$(USE_LINT), TRUETRUE)
@@ -246,6 +246,7 @@ clean:
 	unit \
 	unit-cover \
 	unit-race \
+	goveralls \
 	flakehunter \
 	flake-unit \
 	travis \

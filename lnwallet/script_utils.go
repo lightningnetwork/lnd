@@ -152,11 +152,11 @@ func FindScriptOutputIndex(tx *wire.MsgTx, script []byte) (bool, uint32) {
 	return found, index
 }
 
-// ripemd160H calculates the ripemd160 of the passed byte slice. This is used to
+// Ripemd160H calculates the ripemd160 of the passed byte slice. This is used to
 // calculate the intermediate hash for payment pre-images. Payment hashes are
 // the result of ripemd160(sha256(paymentPreimage)). As a result, the value
 // passed in should be the sha256 of the payment hash.
-func ripemd160H(d []byte) []byte {
+func Ripemd160H(d []byte) []byte {
 	h := ripemd160.New()
 	h.Write(d)
 	return h.Sum(nil)
@@ -256,7 +256,7 @@ func senderHTLCScript(senderHtlcKey, receiverHtlcKey,
 	// pre-image. By using this little trick we're able save space on-chain
 	// as the witness includes a 20-byte hash rather than a 32-byte hash.
 	builder.AddOp(txscript.OP_HASH160)
-	builder.AddData(ripemd160H(paymentHash))
+	builder.AddData(Ripemd160H(paymentHash))
 	builder.AddOp(txscript.OP_EQUALVERIFY)
 
 	// This checks the receiver's signature so that a third party with
@@ -457,7 +457,7 @@ func receiverHTLCScript(cltvExpiry uint32, senderHtlcKey,
 	// payment pre-image, then we'll continue. Otherwise, we'll end the
 	// script here as this is the invalid payment pre-image.
 	builder.AddOp(txscript.OP_HASH160)
-	builder.AddData(ripemd160H(paymentHash))
+	builder.AddData(Ripemd160H(paymentHash))
 	builder.AddOp(txscript.OP_EQUALVERIFY)
 
 	// If the payment hash matches, then we'll also need to satisfy the

@@ -318,7 +318,7 @@ func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredB
 func (c *CfFilteredChainView) UpdateFilter(ops []channeldb.EdgePoint,
 	updateHeight uint32) error {
 
-	log.Debugf("Updating chain filter with new UTXO's: %v", ops)
+	log.Tracef("Updating chain filter with new UTXO's: %v", ops)
 
 	// First, we'll update the current chain view, by adding any new
 	// UTXO's, ignoring duplicates in the process.

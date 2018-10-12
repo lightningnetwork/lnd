@@ -36,6 +36,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/lightningnetwork/lnd/tor"
 )
@@ -59,6 +60,27 @@ const (
 	// backoffs reduced.
 	defaultStableConnDuration = 10 * time.Minute
 )
+
+// peerEventType is used to distinguish the events happening to our peers, and
+// notify any interested client about the event.
+type peerEventType uint8
+
+const (
+	// connected indicates that the peer became connected.
+	connected peerEventType = 0
+
+	// disconnected indicates that the peer became disconnected.
+	disconnected peerEventType = 1
+)
+
+// peerEvent is a struct sent to subscribers on peer events.
+type peerEvent struct {
+	// peer is the public key of the peer that triggered this event.
+	peer *btcec.PublicKey
+
+	// eventType is the type of event.
+	eventType peerEventType
+}
 
 var (
 	// ErrPeerNotConnected signals that the server has no connection to the
@@ -131,6 +153,10 @@ type server struct {
 	// prior peer has cleaned up successfully, before adding the new peer
 	// intended to replace it.
 	scheduledPeerConnection map[string]func()
+
+	// peerEvents is a subscription server that handles clients listening
+	// to our peer events.
+	peerEvents *subscribe.Server
 
 	cc *chainControl
 
@@ -280,8 +306,9 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		inboundPeers:           make(map[string]*peer),
 		outboundPeers:          make(map[string]*peer),
 		peerConnectedListeners: make(map[string][]chan<- lnpeer.Peer),
-		sentDisabled:           make(map[wire.OutPoint]bool),
+		peerEvents:             subscribe.NewServer(),
 
+		sentDisabled: make(map[wire.OutPoint]bool),
 		globalFeatures: lnwire.NewFeatureVector(globalFeatures,
 			lnwire.GlobalFeatures),
 		quit: make(chan struct{}),
@@ -924,6 +951,11 @@ func (s *server) Start() error {
 		go s.watchExternalIP()
 	}
 
+	// Start the peer events server.
+	if err := s.peerEvents.Start(); err != nil {
+		return err
+	}
+
 	// Start the notification server. This is used so channel management
 	// goroutines can be notified when a funding transaction reaches a
 	// sufficient number of confirmations, or when the input for the
@@ -1030,6 +1062,7 @@ func (s *server) Stop() error {
 	s.cc.feeEstimator.Stop()
 	s.invoices.Stop()
 	s.fundingMgr.Stop()
+	s.peerEvents.Stop()
 
 	// Disconnect from each active peers to ensure that
 	// peerTerminationWatchers signal completion to each peer.
@@ -2350,6 +2383,15 @@ func (s *server) peerInitializer(p *peer) {
 
 	pubStr := string(p.addr.IdentityKey.SerializeCompressed())
 
+	// Send the connected event to all peer event subscribers.
+	err := s.peerEvents.SendUpdate(&peerEvent{
+		peer:      p.addr.IdentityKey,
+		eventType: connected,
+	})
+	if err != nil {
+		srvrLog.Errorf("unable to notify peer event: %v", err)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -2545,6 +2587,15 @@ func (s *server) removePeer(p *peer) {
 		delete(s.inboundPeers, pubStr)
 	} else {
 		delete(s.outboundPeers, pubStr)
+	}
+
+	// Send the disconnected event to all peer event subscribers.
+	err := s.peerEvents.SendUpdate(&peerEvent{
+		peer:      p.addr.IdentityKey,
+		eventType: disconnected,
+	})
+	if err != nil {
+		srvrLog.Errorf("unable to notify peer event: %v", err)
 	}
 }
 

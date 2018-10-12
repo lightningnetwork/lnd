@@ -542,9 +542,8 @@ func (n *NeutrinoNotifier) historicalConfDetails(targetHash *chainhash.Hash,
 // transactions included this block will processed to either send notifications
 // now or after numConfirmations confs.
 func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
-	// First process the block for our internal state. A new block has
-	// been connected to the main chain. Send out any N confirmation
-	// notifications which may have been triggered by this new block.
+	// We'll extend the txNotifier's height with the information of this new
+	// block, which will handle all of the notification logic for us.
 	err := n.txNotifier.ConnectTip(
 		&newBlock.hash, newBlock.height, newBlock.txns,
 	)
@@ -555,16 +554,15 @@ func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 	chainntnfs.Log.Infof("New block: height=%v, sha=%v", newBlock.height,
 		newBlock.hash)
 
-	// We want to set the best block before dispatching notifications
-	// so if any subscribers make queries based on their received
-	// block epoch, our state is fully updated in time.
+	// Now that we've guaranteed the new block extends the txNotifier's
+	// current tip, we'll proceed to dispatch notifications to all of our
+	// registered clients whom have had notifications fulfilled. Before
+	// doing so, we'll make sure update our in memory state in order to
+	// satisfy any client requests based upon the new block.
 	n.bestHeight = newBlock.height
 
-	// With all persistent changes committed, notify any subscribed clients
-	// of the block.
 	n.notifyBlockEpochs(int32(newBlock.height), &newBlock.hash)
-
-	return nil
+	return n.txNotifier.NotifyHeight(newBlock.height)
 }
 
 // getFilteredBlock is a utility to retrieve the full filtered block from a block epoch.

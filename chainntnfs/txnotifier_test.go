@@ -165,11 +165,12 @@ func TestTxNotifierFutureConfDispatch(t *testing.T) {
 		Transactions: []*wire.MsgTx{&tx1, &tx2, &tx3},
 	})
 
-	err := n.ConnectTip(
-		block1.Hash(), 11, block1.Transactions(),
-	)
+	err := n.ConnectTip(block1.Hash(), 11, block1.Transactions())
 	if err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
+	}
+	if err := n.NotifyHeight(11); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
 	}
 
 	// We should only receive one update for tx1 since it only requires
@@ -231,6 +232,9 @@ func TestTxNotifierFutureConfDispatch(t *testing.T) {
 	err = n.ConnectTip(block2.Hash(), 12, block2.Transactions())
 	if err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
+	}
+	if err := n.NotifyHeight(12); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
 	}
 
 	// We should not receive any event notifications for tx1 since it has
@@ -388,6 +392,9 @@ func TestTxNotifierHistoricalConfDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
 	}
+	if err := n.NotifyHeight(11); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
+	}
 
 	// We should not receive any event notifications for tx1 since it has
 	// already been confirmed.
@@ -462,6 +469,9 @@ func TestTxNotifierFutureSpendDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to connect block: %v", err)
 	}
+	if err := n.NotifyHeight(11); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
+	}
 
 	expectedSpendDetails := &chainntnfs.SpendDetail{
 		SpentOutPoint:     &ntfn.OutPoint,
@@ -490,6 +500,9 @@ func TestTxNotifierFutureSpendDispatch(t *testing.T) {
 	err = n.ConnectTip(block.Hash(), 12, block.Transactions())
 	if err != nil {
 		t.Fatalf("unable to connect block: %v", err)
+	}
+	if err := n.NotifyHeight(12); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
 	}
 
 	select {
@@ -569,6 +582,9 @@ func TestTxNotifierHistoricalSpendDispatch(t *testing.T) {
 	err = n.ConnectTip(block.Hash(), startingHeight+1, block.Transactions())
 	if err != nil {
 		t.Fatalf("unable to connect block: %v", err)
+	}
+	if err := n.NotifyHeight(startingHeight + 1); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
 	}
 
 	select {
@@ -931,6 +947,9 @@ func TestTxNotifierCancelSpend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to connect block: %v", err)
 	}
+	if err := n.NotifyHeight(startingHeight + 1); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
+	}
 
 	// The first request should still be active, so we should receive a
 	// spend notification with the correct spending details.
@@ -1024,21 +1043,27 @@ func TestTxNotifierConfReorg(t *testing.T) {
 	block1 := btcutil.NewBlock(&wire.MsgBlock{
 		Transactions: []*wire.MsgTx{&tx1},
 	})
-	err := n.ConnectTip(nil, 8, block1.Transactions())
-	if err != nil {
+	if err := n.ConnectTip(nil, 8, block1.Transactions()); err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
 	}
-	err = n.ConnectTip(nil, 9, nil)
-	if err != nil {
+	if err := n.NotifyHeight(8); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
+	}
+	if err := n.ConnectTip(nil, 9, nil); err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
+	}
+	if err := n.NotifyHeight(9); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
 	}
 
 	block2 := btcutil.NewBlock(&wire.MsgBlock{
 		Transactions: []*wire.MsgTx{&tx2, &tx3},
 	})
-	err = n.ConnectTip(nil, 10, block2.Transactions())
-	if err != nil {
+	if err := n.ConnectTip(nil, 10, block2.Transactions()); err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
+	}
+	if err := n.NotifyHeight(10); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
 	}
 
 	// We should receive two updates for tx1 since it requires two
@@ -1093,19 +1118,22 @@ func TestTxNotifierConfReorg(t *testing.T) {
 
 	// The block that included tx2 and tx3 is disconnected and two next
 	// blocks without them are connected.
-	err = n.DisconnectTip(10)
-	if err != nil {
+	if err := n.DisconnectTip(10); err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
 	}
 
-	err = n.ConnectTip(nil, 10, nil)
-	if err != nil {
+	if err := n.ConnectTip(nil, 10, nil); err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
 	}
+	if err := n.NotifyHeight(10); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
+	}
 
-	err = n.ConnectTip(nil, 11, nil)
-	if err != nil {
+	if err := n.ConnectTip(nil, 11, nil); err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
+	}
+	if err := n.NotifyHeight(11); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
 	}
 
 	select {
@@ -1151,14 +1179,20 @@ func TestTxNotifierConfReorg(t *testing.T) {
 	})
 	block4 := btcutil.NewBlock(&wire.MsgBlock{})
 
-	err = n.ConnectTip(block3.Hash(), 12, block3.Transactions())
+	err := n.ConnectTip(block3.Hash(), 12, block3.Transactions())
 	if err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
+	}
+	if err := n.NotifyHeight(12); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
 	}
 
 	err = n.ConnectTip(block4.Hash(), 13, block4.Transactions())
 	if err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
+	}
+	if err := n.NotifyHeight(13); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
 	}
 
 	// We should only receive one update for tx2 since it only requires
@@ -1293,11 +1327,12 @@ func TestTxNotifierSpendReorg(t *testing.T) {
 	block1 := btcutil.NewBlock(&wire.MsgBlock{
 		Transactions: []*wire.MsgTx{spendTx1},
 	})
-	err := n.ConnectTip(
-		block1.Hash(), startingHeight+1, block1.Transactions(),
-	)
+	err := n.ConnectTip(block1.Hash(), startingHeight+1, block1.Transactions())
 	if err != nil {
 		t.Fatalf("unable to connect block: %v", err)
+	}
+	if err := n.NotifyHeight(startingHeight + 1); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
 	}
 
 	// We should receive a spend notification for the first outpoint with
@@ -1322,11 +1357,12 @@ func TestTxNotifierSpendReorg(t *testing.T) {
 	block2 := btcutil.NewBlock(&wire.MsgBlock{
 		Transactions: []*wire.MsgTx{spendTx2},
 	})
-	err = n.ConnectTip(
-		block2.Hash(), startingHeight+2, block2.Transactions(),
-	)
+	err = n.ConnectTip(block2.Hash(), startingHeight+2, block2.Transactions())
 	if err != nil {
 		t.Fatalf("unable to connect block: %v", err)
+	}
+	if err := n.NotifyHeight(startingHeight + 2); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
 	}
 
 	// We should not receive another spend notification for the first
@@ -1381,6 +1417,9 @@ func TestTxNotifierSpendReorg(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to disconnect block: %v", err)
 	}
+	if err := n.NotifyHeight(startingHeight + 2); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
+	}
 
 	// We shouldn't receive notifications for either of the outpoints.
 	select {
@@ -1402,6 +1441,9 @@ func TestTxNotifierSpendReorg(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("unable to connect block: %v", err)
+	}
+	if err := n.NotifyHeight(startingHeight + 3); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
 	}
 
 	// We should now receive a spend notification once again for the second
@@ -1489,11 +1531,12 @@ func TestTxNotifierConfirmHintCache(t *testing.T) {
 		Transactions: []*wire.MsgTx{&txDummy},
 	})
 
-	err = n.ConnectTip(
-		block1.Hash(), txDummyHeight, block1.Transactions(),
-	)
+	err = n.ConnectTip(block1.Hash(), txDummyHeight, block1.Transactions())
 	if err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
+	}
+	if err := n.NotifyHeight(txDummyHeight); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
 	}
 
 	// Since UpdateConfDetails has not been called for either transaction,
@@ -1529,11 +1572,12 @@ func TestTxNotifierConfirmHintCache(t *testing.T) {
 		Transactions: []*wire.MsgTx{&tx1},
 	})
 
-	err = n.ConnectTip(
-		block2.Hash(), tx1Height, block2.Transactions(),
-	)
+	err = n.ConnectTip(block2.Hash(), tx1Height, block2.Transactions())
 	if err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
+	}
+	if err := n.NotifyHeight(tx1Height); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
 	}
 
 	// Now that both notifications are waiting at tip for confirmations,
@@ -1563,11 +1607,12 @@ func TestTxNotifierConfirmHintCache(t *testing.T) {
 		Transactions: []*wire.MsgTx{&tx2},
 	})
 
-	err = n.ConnectTip(
-		block3.Hash(), tx2Height, block3.Transactions(),
-	)
+	err = n.ConnectTip(block3.Hash(), tx2Height, block3.Transactions())
 	if err != nil {
 		t.Fatalf("Failed to connect block: %v", err)
+	}
+	if err := n.NotifyHeight(tx2Height); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
 	}
 
 	// The height hint for the first transaction should remain the same.
@@ -1682,6 +1727,9 @@ func TestTxNotifierSpendHintCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to connect block: %v", err)
 	}
+	if err := n.NotifyHeight(dummyHeight); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
+	}
 
 	// Since we haven't called UpdateSpendDetails on any of the test
 	// outpoints, this implies that there is a still a pending historical
@@ -1720,6 +1768,9 @@ func TestTxNotifierSpendHintCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to connect block: %v", err)
 	}
+	if err := n.NotifyHeight(op1Height); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
+	}
 
 	// Both outpoints should have their spend hints reflect the height of
 	// the new block being connected due to the first outpoint being spent
@@ -1748,6 +1799,9 @@ func TestTxNotifierSpendHintCache(t *testing.T) {
 	err = n.ConnectTip(block2.Hash(), op2Height, block2.Transactions())
 	if err != nil {
 		t.Fatalf("unable to connect block: %v", err)
+	}
+	if err := n.NotifyHeight(op2Height); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
 	}
 
 	// Only the second outpoint should have its spend hint updated due to

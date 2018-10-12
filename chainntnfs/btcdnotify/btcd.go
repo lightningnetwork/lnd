@@ -622,14 +622,13 @@ func (b *BtcdNotifier) confDetailsManually(txid *chainhash.Hash, startHeight,
 // TODO(halseth): this is reusing the neutrino notifier implementation, unify
 // them.
 func (b *BtcdNotifier) handleBlockConnected(epoch chainntnfs.BlockEpoch) error {
-	// First process the block for our internal state. A new block has
-	// been connected to the main chain. Send out any N confirmation
-	// notifications which may have been triggered by this new block.
+	// First, we'll fetch the raw block as we'll need to gather all the
+	// transactions to determine whether any are relevant to our registered
+	// clients.
 	rawBlock, err := b.chainConn.GetBlock(epoch.Hash)
 	if err != nil {
 		return fmt.Errorf("unable to get block: %v", err)
 	}
-
 	newBlock := &filteredBlock{
 		hash:    *epoch.Hash,
 		height:  uint32(epoch.Height),
@@ -637,6 +636,9 @@ func (b *BtcdNotifier) handleBlockConnected(epoch chainntnfs.BlockEpoch) error {
 		connect: true,
 	}
 
+	// We'll then extend the txNotifier's height with the information of
+	// this new block, which will handle all of the notification logic for
+	// us.
 	err = b.txNotifier.ConnectTip(
 		&newBlock.hash, newBlock.height, newBlock.txns,
 	)
@@ -647,13 +649,15 @@ func (b *BtcdNotifier) handleBlockConnected(epoch chainntnfs.BlockEpoch) error {
 	chainntnfs.Log.Infof("New block: height=%v, sha=%v", epoch.Height,
 		epoch.Hash)
 
-	// We want to set the best block before dispatching notifications so if
-	// any subscribers make queries based on their received block epoch, our
-	// state is fully updated in time.
+	// Now that we've guaranteed the new block extends the txNotifier's
+	// current tip, we'll proceed to dispatch notifications to all of our
+	// registered clients whom have had notifications fulfilled. Before
+	// doing so, we'll make sure update our in memory state in order to
+	// satisfy any client requests based upon the new block.
 	b.bestBlock = epoch
-	b.notifyBlockEpochs(int32(newBlock.height), &newBlock.hash)
 
-	return nil
+	b.notifyBlockEpochs(epoch.Height, epoch.Hash)
+	return b.txNotifier.NotifyHeight(uint32(epoch.Height))
 }
 
 // notifyBlockEpochs notifies all registered block epoch clients of the newly

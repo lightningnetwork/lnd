@@ -568,14 +568,19 @@ func (b *BitcoindNotifier) confDetailsManually(txid *chainhash.Hash,
 // transactions included this block will processed to either send notifications
 // now or after numConfirmations confs.
 func (b *BitcoindNotifier) handleBlockConnected(block chainntnfs.BlockEpoch) error {
+	// First, we'll fetch the raw block as we'll need to gather all the
+	// transactions to determine whether any are relevant to our registered
+	// clients.
 	rawBlock, err := b.chainConn.GetBlock(block.Hash)
 	if err != nil {
 		return fmt.Errorf("unable to get block: %v", err)
 	}
-
 	txns := btcutil.NewBlock(rawBlock).Transactions()
-	err = b.txNotifier.ConnectTip(
-		block.Hash, uint32(block.Height), txns)
+
+	// We'll then extend the txNotifier's height with the information of
+	// this new block, which will handle all of the notification logic for
+	// us.
+	err = b.txNotifier.ConnectTip(block.Hash, uint32(block.Height), txns)
 	if err != nil {
 		return fmt.Errorf("unable to connect tip: %v", err)
 	}
@@ -583,15 +588,15 @@ func (b *BitcoindNotifier) handleBlockConnected(block chainntnfs.BlockEpoch) err
 	chainntnfs.Log.Infof("New block: height=%v, sha=%v", block.Height,
 		block.Hash)
 
-	// We want to set the best block before dispatching notifications so
-	// if any subscribers make queries based on their received block epoch,
-	// our state is fully updated in time.
+	// Now that we've guaranteed the new block extends the txNotifier's
+	// current tip, we'll proceed to dispatch notifications to all of our
+	// registered clients whom have had notifications fulfilled. Before
+	// doing so, we'll make sure update our in memory state in order to
+	// satisfy any client requests based upon the new block.
 	b.bestBlock = block
 
-	// Lastly we'll notify any subscribed clients of the block.
 	b.notifyBlockEpochs(block.Height, block.Hash)
-
-	return nil
+	return b.txNotifier.NotifyHeight(uint32(block.Height))
 }
 
 // notifyBlockEpochs notifies all registered block epoch clients of the newly

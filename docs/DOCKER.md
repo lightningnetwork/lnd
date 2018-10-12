@@ -36,7 +36,7 @@ $ docker create --name=lnd -v /media/lnd-docker/:/root/.lnd lightninglabs/lnd [c
 Here is an example testnet `lnd` that uses Neutrino:
 
 ```
-$ docker create --name lnd-testnet lightninglabs/lnd --bitcoin.active --bitcoin.testnet --bitcoin.node=neutrino --neutrino.connect=faucet.lightning.community
+$ docker create --name=lnd-testnet lightninglabs/lnd --bitcoin.active --bitcoin.testnet --bitcoin.node=neutrino --neutrino.connect=faucet.lightning.community
 ```
 
 Start the container:

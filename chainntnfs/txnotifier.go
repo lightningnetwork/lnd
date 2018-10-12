@@ -887,9 +887,13 @@ func (n *TxNotifier) dispatchSpendDetails(ntfn *SpendNtfn, details *SpendDetail)
 //   confirmation registration for.
 //
 // In the event that the transaction is relevant, a confirmation/spend
-// notification will be dispatched to the relevant clients. Confirmation
-// notifications will only be dispatched for transactions that have met the
-// required number of confirmations required by the client.
+// notification will be queued for dispatch to the relevant clients.
+// Confirmation notifications will only be dispatched for transactions that have
+// met the required number of confirmations required by the client.
+//
+// NOTE: In order to actually dispatch the relevant transaction notifications to
+// clients, NotifyHeight must be called with the same block height in order to
+// maintain correctness.
 func (n *TxNotifier) ConnectTip(blockHash *chainhash.Hash, blockHeight uint32,
 	txns []*btcutil.Tx) error {
 
@@ -1017,14 +1021,24 @@ func (n *TxNotifier) ConnectTip(blockHash *chainhash.Hash, blockHeight uint32,
 		}
 	}
 
-	// Now that we've determined which transactions were confirmed and which
-	// outpoints were spent within the new block, we can update their
-	// entries in their respective caches, along with all of our unconfirmed
-	// transactions and unspent outpoints.
+	// Finally, now that we've determined which transactions were confirmed
+	// and which outpoints were spent within the new block, we can update
+	// their entries in their respective caches, along with all of our
+	// unconfirmed transactions and unspent outpoints.
 	n.updateHints(blockHeight)
 
-	// Next, we'll dispatch an update to all of the notification clients for
-	// our watched transactions with the number of confirmations left at
+	return nil
+}
+
+// NotifyHeight dispatches confirmation and spend notifications to the clients
+// who registered for a notification which has been fulfilled at the passed
+// height.
+func (n *TxNotifier) NotifyHeight(height uint32) error {
+	n.Lock()
+	defer n.Unlock()
+
+	// First, we'll dispatch an update to all of the notification clients
+	// for our watched transactions with the number of confirmations left at
 	// this new height.
 	for _, txHashes := range n.txsByInitialHeight {
 		for txHash := range txHashes {
@@ -1032,7 +1046,7 @@ func (n *TxNotifier) ConnectTip(blockHash *chainhash.Hash, blockHeight uint32,
 			for _, ntfn := range confSet.ntfns {
 				txConfHeight := confSet.details.BlockHeight +
 					ntfn.NumConfirmations - 1
-				numConfsLeft := txConfHeight - blockHeight
+				numConfsLeft := txConfHeight - height
 
 				// Since we don't clear notifications until
 				// transactions are no longer under the risk of
@@ -1054,7 +1068,7 @@ func (n *TxNotifier) ConnectTip(blockHash *chainhash.Hash, blockHeight uint32,
 
 	// Then, we'll dispatch notifications for all the transactions that have
 	// become confirmed at this new block height.
-	for ntfn := range n.ntfnsByConfirmHeight[blockHeight] {
+	for ntfn := range n.ntfnsByConfirmHeight[height] {
 		confSet := n.confNotifications[*ntfn.TxID]
 
 		Log.Infof("Dispatching %v conf notification for %v",
@@ -1067,11 +1081,11 @@ func (n *TxNotifier) ConnectTip(blockHash *chainhash.Hash, blockHeight uint32,
 			return ErrTxNotifierExiting
 		}
 	}
-	delete(n.ntfnsByConfirmHeight, blockHeight)
+	delete(n.ntfnsByConfirmHeight, height)
 
 	// We'll also dispatch spend notifications for all the outpoints that
 	// were spent at this new block height.
-	for op := range n.opsBySpendHeight[blockHeight] {
+	for op := range n.opsBySpendHeight[height] {
 		spendSet := n.spendNotifications[op]
 		for _, ntfn := range spendSet.ntfns {
 			err := n.dispatchSpendDetails(ntfn, spendSet.details)
@@ -1084,8 +1098,8 @@ func (n *TxNotifier) ConnectTip(blockHash *chainhash.Hash, blockHeight uint32,
 	// Finally, we'll clear the entries from our set of notifications for
 	// transactions and outpoints that are no longer under the risk of being
 	// reorged out of the chain.
-	if blockHeight >= n.reorgSafetyLimit {
-		matureBlockHeight := blockHeight - n.reorgSafetyLimit
+	if height >= n.reorgSafetyLimit {
+		matureBlockHeight := height - n.reorgSafetyLimit
 		for tx := range n.txsByInitialHeight[matureBlockHeight] {
 			delete(n.confNotifications, tx)
 		}

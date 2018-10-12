@@ -11,9 +11,9 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/zpay32"
 )
 
@@ -415,7 +415,7 @@ type invoiceSubscription struct {
 	// are sent out.
 	settleIndex uint64
 
-	ntfnQueue *chainntnfs.ConcurrentQueue
+	ntfnQueue *queue.ConcurrentQueue
 
 	id uint32
 
@@ -456,7 +456,7 @@ func (i *invoiceRegistry) SubscribeNotifications(addIndex, settleIndex uint64) *
 		addIndex:        addIndex,
 		settleIndex:     settleIndex,
 		inv:             i,
-		ntfnQueue:       chainntnfs.NewConcurrentQueue(20),
+		ntfnQueue:       queue.NewConcurrentQueue(20),
 		cancelChan:      make(chan struct{}),
 	}
 	client.ntfnQueue.Start()

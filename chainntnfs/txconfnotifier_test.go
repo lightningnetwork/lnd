@@ -320,7 +320,7 @@ func TestTxConfHistoricalDispatch(t *testing.T) {
 		BlockHeight: 9,
 		TxIndex:     1,
 	}
-	err := tcn.UpdateConfDetails(tx1Hash, ntfn1.ConfID, &txConf1)
+	err := tcn.UpdateConfDetails(tx1Hash, &txConf1)
 	if err != nil {
 		t.Fatalf("unable to update conf details: %v", err)
 	}
@@ -353,7 +353,7 @@ func TestTxConfHistoricalDispatch(t *testing.T) {
 		BlockHeight: 9,
 		TxIndex:     2,
 	}
-	err = tcn.UpdateConfDetails(tx2Hash, ntfn2.ConfID, &txConf2)
+	err = tcn.UpdateConfDetails(tx2Hash, &txConf2)
 	if err != nil {
 		t.Fatalf("unable to update conf details: %v", err)
 	}
@@ -452,7 +452,7 @@ func TestTxConfChainReorg(t *testing.T) {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
-	if err := tcn.UpdateConfDetails(*ntfn1.TxID, 0, nil); err != nil {
+	if err := tcn.UpdateConfDetails(*ntfn1.TxID, nil); err != nil {
 		t.Fatalf("unable to deliver conf details: %v", err)
 	}
 
@@ -463,12 +463,11 @@ func TestTxConfChainReorg(t *testing.T) {
 		NumConfirmations: tx2NumConfs,
 		Event:            chainntnfs.NewConfirmationEvent(tx2NumConfs),
 	}
-	if _, _, err := tcn.Register(&ntfn2); err != nil {
 	if _, err := tcn.Register(&ntfn2); err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
-	if err := tcn.UpdateConfDetails(*ntfn2.TxID, 0, nil); err != nil {
+	if err := tcn.UpdateConfDetails(*ntfn2.TxID, nil); err != nil {
 		t.Fatalf("unable to deliver conf details: %v", err)
 	}
 
@@ -483,7 +482,7 @@ func TestTxConfChainReorg(t *testing.T) {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
-	if err := tcn.UpdateConfDetails(*ntfn3.TxID, 0, nil); err != nil {
+	if err := tcn.UpdateConfDetails(*ntfn3.TxID, nil); err != nil {
 		t.Fatalf("unable to deliver conf details: %v", err)
 	}
 
@@ -782,10 +781,10 @@ func TestTxConfHeightHintCache(t *testing.T) {
 
 	// Now, update the conf details reporting that the neither txn was found
 	// in the historical dispatch.
-	if err := tcn.UpdateConfDetails(tx1Hash, 0, nil); err != nil {
+	if err := tcn.UpdateConfDetails(tx1Hash, nil); err != nil {
 		t.Fatalf("unable to update conf details: %v", err)
 	}
-	if err := tcn.UpdateConfDetails(tx2Hash, 0, nil); err != nil {
+	if err := tcn.UpdateConfDetails(tx2Hash, nil); err != nil {
 		t.Fatalf("unable to update conf details: %v", err)
 	}
 
@@ -908,7 +907,7 @@ func TestTxConfTearDown(t *testing.T) {
 	if _, err := tcn.Register(&ntfn1); err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
-	if err := tcn.UpdateConfDetails(*ntfn1.TxID, 0, nil); err != nil {
+	if err := tcn.UpdateConfDetails(*ntfn1.TxID, nil); err != nil {
 		t.Fatalf("unable to update conf details: %v", err)
 	}
 
@@ -921,7 +920,7 @@ func TestTxConfTearDown(t *testing.T) {
 	if _, err := tcn.Register(&ntfn2); err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
-	if err := tcn.UpdateConfDetails(*ntfn2.TxID, 0, nil); err != nil {
+	if err := tcn.UpdateConfDetails(*ntfn2.TxID, nil); err != nil {
 		t.Fatalf("unable to update conf details: %v", err)
 	}
 

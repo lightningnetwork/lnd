@@ -1978,6 +1978,8 @@ func calculateFeeLimit(feeLimit *lnrpc.FeeLimit,
 // bi-directional stream allowing clients to rapidly send payments through the
 // Lightning Network with a single persistent connection.
 func (r *rpcServer) SendPayment(stream lnrpc.Lightning_SendPaymentServer) error {
+	var lock sync.Mutex
+
 	return r.sendPayment(&paymentStream{
 		recv: func() (*rpcPaymentRequest, error) {
 			req, err := stream.Recv()
@@ -1989,7 +1991,12 @@ func (r *rpcServer) SendPayment(stream lnrpc.Lightning_SendPaymentServer) error 
 				SendRequest: req,
 			}, nil
 		},
-		send: stream.Send,
+		send: func(r *lnrpc.SendResponse) error {
+			// Calling stream.Send concurrently is not safe.
+			lock.Lock()
+			defer lock.Unlock()
+			return stream.Send(r)
+		},
 	})
 }
 
@@ -1999,6 +2006,8 @@ func (r *rpcServer) SendPayment(stream lnrpc.Lightning_SendPaymentServer) error 
 // rapidly send payments through the Lightning Network with a single persistent
 // connection.
 func (r *rpcServer) SendToRoute(stream lnrpc.Lightning_SendToRouteServer) error {
+	var lock sync.Mutex
+
 	return r.sendPayment(&paymentStream{
 		recv: func() (*rpcPaymentRequest, error) {
 			req, err := stream.Recv()
@@ -2028,7 +2037,12 @@ func (r *rpcServer) SendToRoute(stream lnrpc.Lightning_SendToRouteServer) error 
 				routes: routes,
 			}, nil
 		},
-		send: stream.Send,
+		send: func(r *lnrpc.SendResponse) error {
+			// Calling stream.Send concurrently is not safe.
+			lock.Lock()
+			defer lock.Unlock()
+			return stream.Send(r)
+		},
 	})
 }
 
@@ -2319,6 +2333,10 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 	defer func() {
 		close(reqQuit)
 	}()
+
+	// TODO(joostjager): Callers expect result to come in in the same order
+	// as the request were sent, but this is far from guarantueed in the
+	// code below.
 	go func() {
 		for {
 			select {

@@ -1951,6 +1951,21 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 				)
 				continue
 
+			// If we crafted a route that contains a too long time
+			// lock for an intermediate node, we'll prune the node.
+			// As there currently is no way of knowing that node's
+			// maximum acceptable cltv, we cannot take this
+			// constraint into account during routing.
+			//
+			// TODO(joostjager): Record the rejected cltv and use
+			// that as a hint during future path finding through
+			// that node.
+			case *lnwire.FailExpiryTooFar:
+				pruneVertexFailure(
+					paySession, route, errSource, false,
+				)
+				continue
+
 			// If we get a permanent channel or node failure, then
 			// we'll note this (exclude the vertex/edge), and
 			// continue with the rest of the routes.

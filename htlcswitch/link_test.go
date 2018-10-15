@@ -5119,3 +5119,77 @@ func TestForwardingAsymmetricTimeLockPolicies(t *testing.T) {
 		t.Fatalf("unable to send payment: %v", err)
 	}
 }
+
+// TestHtlcSatisfyPolicy tests that a link is properly enforcing the HTLC
+// forwarding policy.
+func TestHtlcSatisfyPolicy(t *testing.T) {
+
+	fetchLastChannelUpdate := func(lnwire.ShortChannelID) (
+		*lnwire.ChannelUpdate, error) {
+
+		return &lnwire.ChannelUpdate{}, nil
+	}
+
+	link := channelLink{
+		cfg: ChannelLinkConfig{
+			FwrdingPolicy: ForwardingPolicy{
+				TimeLockDelta: 20,
+				MinHTLC:       500,
+				BaseFee:       10,
+			},
+			FetchLastChannelUpdate: fetchLastChannelUpdate,
+		},
+	}
+
+	var hash [32]byte
+
+	t.Run("satisfied", func(t *testing.T) {
+		result := link.HtlcSatifiesPolicy(hash, 1500, 1000,
+			200, 150, 0)
+		if result != nil {
+			t.Fatalf("expected policy to be satisfied")
+		}
+	})
+
+	t.Run("below minhtlc", func(t *testing.T) {
+		result := link.HtlcSatifiesPolicy(hash, 100, 50,
+			200, 150, 0)
+		if _, ok := result.(*lnwire.FailAmountBelowMinimum); !ok {
+			t.Fatalf("expected FailAmountBelowMinimum failure code")
+		}
+	})
+
+	t.Run("insufficient fee", func(t *testing.T) {
+		result := link.HtlcSatifiesPolicy(hash, 1005, 1000,
+			200, 150, 0)
+		if _, ok := result.(*lnwire.FailFeeInsufficient); !ok {
+			t.Fatalf("expected FailFeeInsufficient failure code")
+		}
+	})
+
+	t.Run("expiry too soon", func(t *testing.T) {
+		result := link.HtlcSatifiesPolicy(hash, 1500, 1000,
+			200, 150, 190)
+		if _, ok := result.(*lnwire.FailExpiryTooSoon); !ok {
+			t.Fatalf("expected FailExpiryTooSoon failure code")
+		}
+	})
+
+	t.Run("incorrect cltv expiry", func(t *testing.T) {
+		result := link.HtlcSatifiesPolicy(hash, 1500, 1000,
+			200, 190, 0)
+		if _, ok := result.(*lnwire.FailIncorrectCltvExpiry); !ok {
+			t.Fatalf("expected FailIncorrectCltvExpiry failure code")
+		}
+
+	})
+
+	t.Run("cltv expiry too far in the future", func(t *testing.T) {
+		// Check that expiry isn't too far in the future.
+		result := link.HtlcSatifiesPolicy(hash, 1500, 1000,
+			10200, 10100, 0)
+		if _, ok := result.(*lnwire.FailExpiryTooFar); !ok {
+			t.Fatalf("expected FailExpiryTooFar failure code")
+		}
+	})
+}

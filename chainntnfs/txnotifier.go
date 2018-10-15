@@ -447,6 +447,20 @@ func (n *TxNotifier) UpdateConfDetails(txid chainhash.Hash,
 	if details == nil {
 		Log.Debugf("Conf details for txid=%v not found during "+
 			"historical dispatch, waiting to dispatch at tip", txid)
+
+		// We'll commit the current height as the confirm hint to
+		// prevent another potentially long rescan if we restart before
+		// a new block comes in.
+		err := n.confirmHintCache.CommitConfirmHint(
+			n.currentHeight, txid,
+		)
+		if err != nil {
+			// The error is not fatal as this is an optimistic
+			// optimization, so we'll avoid returning an error.
+			Log.Debugf("Unable to update confirm hint to %d for "+
+				"%v: %v", n.currentHeight, txid, err)
+		}
+
 		return nil
 	}
 
@@ -792,6 +806,17 @@ func (n *TxNotifier) updateSpendDetails(op wire.OutPoint,
 	// If the historical rescan was not able to find a spending transaction
 	// for this outpoint, then we can track the spend at tip.
 	if details == nil {
+		// We'll commit the current height as the spend hint to prevent
+		// another potentially long rescan if we restart before a new
+		// block comes in.
+		err := n.spendHintCache.CommitSpendHint(n.currentHeight, op)
+		if err != nil {
+			// The error is not fatal as this is an optimistic
+			// optimization, so we'll avoid returning an error.
+			Log.Debugf("Unable to update spend hint to %d for %v: %v",
+				n.currentHeight, op, err)
+		}
+
 		return nil
 	}
 

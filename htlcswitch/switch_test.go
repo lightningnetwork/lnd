@@ -36,7 +36,7 @@ func TestSwitchAddDuplicateLink(t *testing.T) {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
 
-	s, err := initSwitchWithDB(testStartingHeight, nil)
+	s, err := initSwitchWithDB(testStartingHeight, nil, nil)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestSwitchSendPending(t *testing.T) {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
 
-	s, err := initSwitchWithDB(testStartingHeight, nil)
+	s, err := initSwitchWithDB(testStartingHeight, nil, alicePeer.registry)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestSwitchForward(t *testing.T) {
 		t.Fatalf("unable to create bob server: %v", err)
 	}
 
-	s, err := initSwitchWithDB(testStartingHeight, nil)
+	s, err := initSwitchWithDB(testStartingHeight, nil, nil)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -306,7 +306,7 @@ func TestSwitchForwardFailAfterFullAdd(t *testing.T) {
 		t.Fatalf("unable to open channeldb: %v", err)
 	}
 
-	s, err := initSwitchWithDB(testStartingHeight, cdb)
+	s, err := initSwitchWithDB(testStartingHeight, cdb, nil)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -401,7 +401,7 @@ func TestSwitchForwardFailAfterFullAdd(t *testing.T) {
 		t.Fatalf("unable to reopen channeldb: %v", err)
 	}
 
-	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
+	s2, err := initSwitchWithDB(testStartingHeight, cdb2, nil)
 	if err != nil {
 		t.Fatalf("unable reinit switch: %v", err)
 	}
@@ -497,7 +497,7 @@ func TestSwitchForwardSettleAfterFullAdd(t *testing.T) {
 		t.Fatalf("unable to open channeldb: %v", err)
 	}
 
-	s, err := initSwitchWithDB(testStartingHeight, cdb)
+	s, err := initSwitchWithDB(testStartingHeight, cdb, nil)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -592,7 +592,7 @@ func TestSwitchForwardSettleAfterFullAdd(t *testing.T) {
 		t.Fatalf("unable to reopen channeldb: %v", err)
 	}
 
-	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
+	s2, err := initSwitchWithDB(testStartingHeight, cdb2, nil)
 	if err != nil {
 		t.Fatalf("unable reinit switch: %v", err)
 	}
@@ -691,7 +691,7 @@ func TestSwitchForwardDropAfterFullAdd(t *testing.T) {
 		t.Fatalf("unable to open channeldb: %v", err)
 	}
 
-	s, err := initSwitchWithDB(testStartingHeight, cdb)
+	s, err := initSwitchWithDB(testStartingHeight, cdb, nil)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -778,7 +778,7 @@ func TestSwitchForwardDropAfterFullAdd(t *testing.T) {
 		t.Fatalf("unable to reopen channeldb: %v", err)
 	}
 
-	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
+	s2, err := initSwitchWithDB(testStartingHeight, cdb2, nil)
 	if err != nil {
 		t.Fatalf("unable reinit switch: %v", err)
 	}
@@ -854,7 +854,7 @@ func TestSwitchForwardFailAfterHalfAdd(t *testing.T) {
 		t.Fatalf("unable to open channeldb: %v", err)
 	}
 
-	s, err := initSwitchWithDB(testStartingHeight, cdb)
+	s, err := initSwitchWithDB(testStartingHeight, cdb, nil)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -936,7 +936,7 @@ func TestSwitchForwardFailAfterHalfAdd(t *testing.T) {
 		t.Fatalf("unable to reopen channeldb: %v", err)
 	}
 
-	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
+	s2, err := initSwitchWithDB(testStartingHeight, cdb2, nil)
 	if err != nil {
 		t.Fatalf("unable reinit switch: %v", err)
 	}
@@ -1012,7 +1012,7 @@ func TestSwitchForwardCircuitPersistence(t *testing.T) {
 		t.Fatalf("unable to open channeldb: %v", err)
 	}
 
-	s, err := initSwitchWithDB(testStartingHeight, cdb)
+	s, err := initSwitchWithDB(testStartingHeight, cdb, nil)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -1093,7 +1093,7 @@ func TestSwitchForwardCircuitPersistence(t *testing.T) {
 		t.Fatalf("unable to reopen channeldb: %v", err)
 	}
 
-	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
+	s2, err := initSwitchWithDB(testStartingHeight, cdb2, nil)
 	if err != nil {
 		t.Fatalf("unable reinit switch: %v", err)
 	}
@@ -1186,7 +1186,7 @@ func TestSwitchForwardCircuitPersistence(t *testing.T) {
 		t.Fatalf("unable to reopen channeldb: %v", err)
 	}
 
-	s3, err := initSwitchWithDB(testStartingHeight, cdb3)
+	s3, err := initSwitchWithDB(testStartingHeight, cdb3, nil)
 	if err != nil {
 		t.Fatalf("unable reinit switch: %v", err)
 	}
@@ -1233,7 +1233,7 @@ func TestSkipIneligibleLinksMultiHopForward(t *testing.T) {
 		t.Fatalf("unable to create bob server: %v", err)
 	}
 
-	s, err := initSwitchWithDB(testStartingHeight, nil)
+	s, err := initSwitchWithDB(testStartingHeight, nil, nil)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -1299,7 +1299,7 @@ func TestSkipIneligibleLinksLocalForward(t *testing.T) {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
 
-	s, err := initSwitchWithDB(testStartingHeight, nil)
+	s, err := initSwitchWithDB(testStartingHeight, nil, nil)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -1354,7 +1354,7 @@ func TestSwitchCancel(t *testing.T) {
 		t.Fatalf("unable to create bob server: %v", err)
 	}
 
-	s, err := initSwitchWithDB(testStartingHeight, nil)
+	s, err := initSwitchWithDB(testStartingHeight, nil, nil)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -1467,7 +1467,7 @@ func TestSwitchAddSamePayment(t *testing.T) {
 		t.Fatalf("unable to create bob server: %v", err)
 	}
 
-	s, err := initSwitchWithDB(testStartingHeight, nil)
+	s, err := initSwitchWithDB(testStartingHeight, nil, nil)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}
@@ -1622,7 +1622,7 @@ func TestSwitchSendPayment(t *testing.T) {
 		t.Fatalf("unable to create alice server: %v", err)
 	}
 
-	s, err := initSwitchWithDB(testStartingHeight, nil)
+	s, err := initSwitchWithDB(testStartingHeight, nil, nil)
 	if err != nil {
 		t.Fatalf("unable to init switch: %v", err)
 	}

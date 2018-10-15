@@ -138,7 +138,9 @@ func initDB() (*channeldb.DB, error) {
 	return db, err
 }
 
-func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) {
+func initSwitchWithDB(startingHeight uint32, db *channeldb.DB,
+	registry InvoiceDatabase) (*Switch, error) {
+
 	var err error
 
 	if db == nil {
@@ -160,6 +162,7 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 		Notifier:       &mockNotifier{},
 		FwdEventTicker: ticker.MockNew(DefaultFwdEventInterval),
 		LogEventTicker: ticker.MockNew(DefaultLogInterval),
+		InvoiceSettler: NewInvoiceSettler(registry),
 	}
 
 	return New(cfg, startingHeight)
@@ -172,7 +175,9 @@ func newMockServer(t testing.TB, name string, startingHeight uint32,
 	h := sha256.Sum256([]byte(name))
 	copy(id[:], h[:])
 
-	htlcSwitch, err := initSwitchWithDB(startingHeight, db)
+	registry := newMockRegistry(defaultDelta)
+
+	htlcSwitch, err := initSwitchWithDB(startingHeight, db, registry)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +188,7 @@ func newMockServer(t testing.TB, name string, startingHeight uint32,
 		name:             name,
 		messages:         make(chan lnwire.Message, 3000),
 		quit:             make(chan struct{}),
-		registry:         newMockRegistry(defaultDelta),
+		registry:         registry,
 		htlcSwitch:       htlcSwitch,
 		interceptorFuncs: make([]messageInterceptor, 0),
 	}, nil

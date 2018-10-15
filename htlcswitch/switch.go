@@ -176,6 +176,8 @@ type Config struct {
 	// LogEventTicker is a signal instructing the htlcswitch to log
 	// aggregate stats about it's forwarding during the last interval.
 	LogEventTicker ticker.Ticker
+
+	InvoiceSettler *InvoiceSettler
 }
 
 // Switch is the central messaging bus for all incoming/outgoing HTLCs.
@@ -1004,6 +1006,12 @@ func (s *Switch) parseFailedPayment(payment *pendingPayment, pkt *htlcPacket,
 	return failure
 }
 
+func (s *Switch) handleLocalForward(pkt *htlcPacket) error {
+	err := s.cfg.InvoiceSettler.handleIncoming(pkt)
+
+	return err
+}
+
 // handlePacketForward is used in cases when we need forward the htlc update
 // from one channel link to another and be able to propagate the settle/fail
 // updates back. This behaviour is achieved by creation of payment circuits.
@@ -1018,6 +1026,9 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			// A blank incomingChanID indicates that this is
 			// a pending user-initiated payment.
 			return s.handleLocalDispatch(packet)
+		}
+		if packet.outgoingChanID == exitHop {
+			return s.handleLocalForward(packet)
 		}
 
 		s.indexMtx.RLock()
@@ -1516,6 +1527,41 @@ func (s *Switch) htlcForwarder() {
 	s.cfg.FwdEventTicker.Resume()
 	defer s.cfg.FwdEventTicker.Stop()
 
+	handleResolutionMsg := func(resolutionMsg *resolutionMsg) {
+		pkt := &htlcPacket{
+			outgoingChanID: resolutionMsg.SourceChan,
+			outgoingHTLCID: resolutionMsg.HtlcIndex,
+			isResolution:   true,
+		}
+
+		// Resolution messages will either be cancelling
+		// backwards an existing HTLC, or settling a previously
+		// outgoing HTLC. Based on this, we'll map the message
+		// to the proper htlcPacket.
+		if resolutionMsg.Failure != nil {
+			pkt.htlc = &lnwire.UpdateFailHTLC{}
+		} else {
+			pkt.htlc = &lnwire.UpdateFulfillHTLC{
+				PaymentPreimage: *resolutionMsg.PreImage,
+			}
+		}
+
+		log.Infof("Received outside contract resolution, "+
+			"mapping to: %v", spew.Sdump(pkt))
+
+		// We don't check the error, as the only failure we can
+		// encounter is due to the circuit already being
+		// closed. This is fine, as processing this message is
+		// meant to be idempotent.
+		err := s.handlePacketForward(pkt)
+		if err != nil {
+			log.Errorf("Unable to forward resolution msg: %v", err)
+		}
+
+		// With the message processed, we'll now close out
+		close(resolutionMsg.doneChan)
+	}
+
 out:
 	for {
 		select {
@@ -1550,38 +1596,9 @@ out:
 			go s.cfg.LocalChannelClose(peerPub[:], req)
 
 		case resolutionMsg := <-s.resolutionMsgs:
-			pkt := &htlcPacket{
-				outgoingChanID: resolutionMsg.SourceChan,
-				outgoingHTLCID: resolutionMsg.HtlcIndex,
-				isResolution:   true,
-			}
-
-			// Resolution messages will either be cancelling
-			// backwards an existing HTLC, or settling a previously
-			// outgoing HTLC. Based on this, we'll map the message
-			// to the proper htlcPacket.
-			if resolutionMsg.Failure != nil {
-				pkt.htlc = &lnwire.UpdateFailHTLC{}
-			} else {
-				pkt.htlc = &lnwire.UpdateFulfillHTLC{
-					PaymentPreimage: *resolutionMsg.PreImage,
-				}
-			}
-
-			log.Infof("Received outside contract resolution, "+
-				"mapping to: %v", spew.Sdump(pkt))
-
-			// We don't check the error, as the only failure we can
-			// encounter is due to the circuit already being
-			// closed. This is fine, as processing this message is
-			// meant to be idempotent.
-			err := s.handlePacketForward(pkt)
-			if err != nil {
-				log.Errorf("Unable to forward resolution msg: %v", err)
-			}
-
-			// With the message processed, we'll now close out
-			close(resolutionMsg.doneChan)
+			handleResolutionMsg(resolutionMsg)
+		case resolutionMsg := <-s.cfg.InvoiceSettler.ResolutionMsgs:
+			handleResolutionMsg(&resolutionMsg)
 
 		// A new packet has arrived for forwarding, we'll interpret the
 		// packet concretely, then either forward it along, or

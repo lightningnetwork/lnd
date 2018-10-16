@@ -2249,6 +2249,11 @@
           "type": "integer",
           "format": "int32",
           "description": "/ The minimum number of confirmations each one of your outputs used for the funding transaction must satisfy."
+        },
+        "spend_unconfirmed": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "/ Whether unconfirmed outputs should be used as inputs for the funding transaction."
         }
       }
     },

@@ -2124,13 +2124,13 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 
 	case nil:
 		// We already have a connection with the incoming peer. If the
-		// connection we've already established should be kept, then
-		// we'll close out this connection s.t there's only a single
-		// connection between us.
+		// connection we've already established should be kept and is not of
+		// the same type of the new connection (inbound), then we'll close out
+		// the new connection s.t there's only a single connection between us.
 		localPub := s.identityPriv.PubKey()
-		if !shouldDropLocalConnection(localPub, nodePub) {
-			srvrLog.Warnf("Received inbound connection from "+
-				"peer %x, but already connected, dropping conn",
+		if !connectedPeer.inbound && !shouldDropLocalConnection(localPub, nodePub) {
+			srvrLog.Warnf("Received inbound connection from peer %x, "+
+				"but already have outbound connection, dropping conn",
 				nodePub.SerializeCompressed())
 			conn.Close()
 			return
@@ -2230,14 +2230,14 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		s.peerConnected(conn, connReq, false)
 
 	case nil:
-		// We already have a connection open with the target peer.
-		// If our (this) connection should be dropped, then we'll do
-		// so, in order to ensure we don't have any duplicate
-		// connections.
+		// We already have a connection with the incoming peer. If the
+		// connection we've already established should be kept and is not of
+		// the same type of the new connection (outbound), then we'll close out
+		// the new connection s.t there's only a single connection between us.
 		localPub := s.identityPriv.PubKey()
-		if shouldDropLocalConnection(localPub, nodePub) {
-			srvrLog.Warnf("Established outbound connection to "+
-				"peer %x, but already connected, dropping conn",
+		if connectedPeer.inbound && shouldDropLocalConnection(localPub, nodePub) {
+			srvrLog.Warnf("Established outbound connection to peer %x, "+
+				"but already have inbound connection, dropping conn",
 				nodePub.SerializeCompressed())
 			if connReq != nil {
 				s.connMgr.Remove(connReq.ID())

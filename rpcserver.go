@@ -710,6 +710,42 @@ func (r *rpcServer) DisconnectPeer(ctx context.Context,
 	return &lnrpc.DisconnectPeerResponse{}, nil
 }
 
+// extractOpenChannelMinConfs extracts the minimum number of confirmations from
+// the OpenChannelRequest that each output used to fund the channel's funding
+// transaction should satisfy.
+func extractOpenChannelMinConfs(in *lnrpc.OpenChannelRequest) (int32, error) {
+	switch {
+	// Ensure that the MinConfs parameter is non-negative.
+	case in.MinConfs < 0:
+		return 0, errors.New("minimum number of confirmations must " +
+			"be a non-negative number")
+
+	// The funding transaction should not be funded with unconfirmed outputs
+	// unless explicitly specified by SpendUnconfirmed. We do this to
+	// provide sane defaults to the OpenChannel RPC, as otherwise, if the
+	// MinConfs field isn't explicitly set by the caller, we'll use
+	// unconfirmed outputs without the caller being aware.
+	case in.MinConfs == 0 && !in.SpendUnconfirmed:
+		return 1, nil
+
+	// In the event that the caller set MinConfs > 0 and SpendUnconfirmed to
+	// true, we'll return an error to indicate the conflict.
+	case in.MinConfs > 0 && in.SpendUnconfirmed:
+		return 0, errors.New("SpendUnconfirmed set to true with " +
+			"MinConfs > 0")
+
+	// The funding transaction of the new channel to be created can be
+	// funded with unconfirmed outputs.
+	case in.SpendUnconfirmed:
+		return 0, nil
+
+	// If none of the above cases matched, we'll return the value set
+	// explicitly by the caller.
+	default:
+		return in.MinConfs, nil
+	}
+}
+
 // OpenChannel attempts to open a singly funded channel specified in the
 // request to a remote peer.
 func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
@@ -755,16 +791,17 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 			"size is: %v SAT", int64(minChanFundingSize))
 	}
 
-	// Ensure that the MinConfs parameter is non-negative.
-	if in.MinConfs < 0 {
-		return errors.New("minimum number of confirmations must be a " +
-			"non-negative number")
+	// Then, we'll extract the minimum number of confirmations that each
+	// output we use to fund the channel's funding transaction should
+	// satisfy.
+	minConfs, err := extractOpenChannelMinConfs(in)
+	if err != nil {
+		return err
 	}
 
 	var (
 		nodePubKey      *btcec.PublicKey
 		nodePubKeyBytes []byte
-		err             error
 	)
 
 	// TODO(roasbeef): also return channel ID?
@@ -813,7 +850,7 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 		fundingFeePerKw: feeRate,
 		private:         in.Private,
 		remoteCsvDelay:  remoteCsvDelay,
-		minConfs:        in.MinConfs,
+		minConfs:        minConfs,
 	}
 
 	updateChan, errChan := r.server.OpenChannel(req)
@@ -928,10 +965,12 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 			"size is: %v SAT", int64(minChanFundingSize))
 	}
 
-	// Ensure that the MinConfs parameter is non-negative.
-	if in.MinConfs < 0 {
-		return nil, errors.New("minimum number of confirmations must " +
-			"be a non-negative number")
+	// Then, we'll extract the minimum number of confirmations that each
+	// output we use to fund the channel's funding transaction should
+	// satisfy.
+	minConfs, err := extractOpenChannelMinConfs(in)
+	if err != nil {
+		return nil, err
 	}
 
 	// Based on the passed fee related parameters, we'll determine an
@@ -955,7 +994,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 		fundingFeePerKw: feeRate,
 		private:         in.Private,
 		remoteCsvDelay:  remoteCsvDelay,
-		minConfs:        in.MinConfs,
+		minConfs:        minConfs,
 	}
 
 	updateChan, errChan := r.server.OpenChannel(req)

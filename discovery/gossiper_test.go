@@ -616,40 +616,10 @@ func TestProcessAnnouncement(t *testing.T) {
 		}
 	}
 
-	// Create node valid, signed announcement, process it with
-	// gossiper service, check that valid announcement have been
-	// propagated farther into the lightning network, and check that we
-	// added new node into router.
-	na, err := createNodeAnnouncement(nodeKeyPriv1, timestamp)
-	if err != nil {
-		t.Fatalf("can't create node announcement: %v", err)
-	}
-
 	nodePeer := &mockPeer{nodeKeyPriv1.PubKey(), nil, nil}
 
-	select {
-	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(na, nodePeer):
-	case <-time.After(2 * time.Second):
-		t.Fatal("remote announcement not processed")
-	}
-	if err != nil {
-		t.Fatalf("can't process remote announcement: %v", err)
-	}
-
-	select {
-	case msg := <-ctx.broadcastedMessage:
-		assertSenderExistence(nodePeer.IdentityKey(), msg)
-	case <-time.After(2 * trickleDelay):
-		t.Fatal("announcement wasn't proceeded")
-	}
-
-	if len(ctx.router.nodes) != 1 {
-		t.Fatalf("node wasn't added to router: %v", err)
-	}
-
-	// Pretending that we receive the valid channel announcement from
-	// remote side, and check that we broadcasted it to the our network,
-	// and added channel info in the router.
+	// First, we'll craft a valid remote channel announcement and send it to
+	// the gossiper so that it can be processed.
 	ca, err := createRemoteChannelAnnouncement(0)
 	if err != nil {
 		t.Fatalf("can't create channel announcement: %v", err)
@@ -664,6 +634,8 @@ func TestProcessAnnouncement(t *testing.T) {
 		t.Fatalf("can't process remote announcement: %v", err)
 	}
 
+	// The announcement should be broadcast and included in our local view
+	// of the graph.
 	select {
 	case msg := <-ctx.broadcastedMessage:
 		assertSenderExistence(nodePeer.IdentityKey(), msg)
@@ -675,9 +647,8 @@ func TestProcessAnnouncement(t *testing.T) {
 		t.Fatalf("edge wasn't added to router: %v", err)
 	}
 
-	// Pretending that we received valid channel policy update from remote
-	// side, and check that we broadcasted it to the other network, and
-	// added updates to the router.
+	// We'll then craft the channel policy of the remote party and also send
+	// it to the gossiper.
 	ua, err := createUpdateAnnouncement(0, 0, nodeKeyPriv1, timestamp)
 	if err != nil {
 		t.Fatalf("can't create update announcement: %v", err)
@@ -692,6 +663,7 @@ func TestProcessAnnouncement(t *testing.T) {
 		t.Fatalf("can't process remote announcement: %v", err)
 	}
 
+	// The channel policy should be broadcast to the rest of the network.
 	select {
 	case msg := <-ctx.broadcastedMessage:
 		assertSenderExistence(nodePeer.IdentityKey(), msg)
@@ -701,6 +673,34 @@ func TestProcessAnnouncement(t *testing.T) {
 
 	if len(ctx.router.edges) != 1 {
 		t.Fatalf("edge update wasn't added to router: %v", err)
+	}
+
+	// Finally, we'll craft the remote party's node announcement.
+	na, err := createNodeAnnouncement(nodeKeyPriv1, timestamp)
+	if err != nil {
+		t.Fatalf("can't create node announcement: %v", err)
+	}
+
+	select {
+	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(na, nodePeer):
+	case <-time.After(2 * time.Second):
+		t.Fatal("remote announcement not processed")
+	}
+	if err != nil {
+		t.Fatalf("can't process remote announcement: %v", err)
+	}
+
+	// It should also be broadcast to the network and included in our local
+	// view of the graph.
+	select {
+	case msg := <-ctx.broadcastedMessage:
+		assertSenderExistence(nodePeer.IdentityKey(), msg)
+	case <-time.After(2 * trickleDelay):
+		t.Fatal("announcement wasn't proceeded")
+	}
+
+	if len(ctx.router.nodes) != 1 {
+		t.Fatalf("node wasn't added to router: %v", err)
 	}
 }
 

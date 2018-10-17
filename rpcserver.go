@@ -210,6 +210,10 @@ var (
 			Entity: "peers",
 			Action: "read",
 		}},
+		"/lnrpc.Lightning/SubscribePeerEvents": {{
+			Entity: "peers",
+			Action: "read",
+		}},
 		"/lnrpc.Lightning/WalletBalance": {{
 			Entity: "onchain",
 			Action: "read",
@@ -1415,6 +1419,59 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 	rpcsLog.Debugf("[listpeers] yielded %v peers", serverPeers)
 
 	return resp, nil
+}
+
+// SubscribePeerEvents creates a uni-directional streaming RPC that allows the
+// client to be notified about events related to the connection status of our
+// peers.
+func (r *rpcServer) SubscribePeerEvents(req *lnrpc.PeerEventsSubscription,
+	eventStream lnrpc.Lightning_SubscribePeerEventsServer) error {
+
+	client, err := r.server.peerEvents.Subscribe()
+	if err != nil {
+		return err
+	}
+
+	// Ensure that the resources for the client is cleaned up once either
+	// the server, or client exists.
+	defer client.Cancel()
+
+	for {
+		select {
+
+		// A new update has been sent by the channel router, we'll
+		// marshal it into the form expected by the gRPC client, then
+		// send it off.
+		case e := <-client.Updates():
+			event := e.(*peerEvent)
+
+			// Convert the peerEvent to lnrpc type.
+			resp := &lnrpc.PeerEvent{
+				PubKey: hex.EncodeToString(
+					event.peer.SerializeCompressed(),
+				),
+			}
+			switch event.eventType {
+			case connected:
+				resp.EventType = lnrpc.PeerEvent_CONNECTED
+			case disconnected:
+				resp.EventType = lnrpc.PeerEvent_DISCONNECTED
+			}
+
+			if err := eventStream.Send(resp); err != nil {
+				return err
+			}
+
+		// The client is exiting.
+		case <-client.Quit():
+			return nil
+
+		// The rpcserver is quitting, so we'll exit immediately.
+		// Returning nil will close the clients read end of the stream.
+		case <-r.quit:
+			return nil
+		}
+	}
 }
 
 // WalletBalance returns total unspent outputs(confirmed and unconfirmed), all

@@ -996,6 +996,14 @@
       ],
       "default": "COOPERATIVE_CLOSE"
     },
+    "PeerEventEventType": {
+      "type": "string",
+      "enum": [
+        "CONNECTED",
+        "DISCONNECTED"
+      ],
+      "default": "CONNECTED"
+    },
     "PendingChannelsResponseClosedChannel": {
       "type": "object",
       "properties": {
@@ -2383,6 +2391,19 @@
           "type": "string",
           "format": "int64",
           "title": "/ Ping time to this peer"
+        }
+      }
+    },
+    "lnrpcPeerEvent": {
+      "type": "object",
+      "properties": {
+        "pub_key": {
+          "type": "string",
+          "title": "/ The identity pubkey of the peer"
+        },
+        "event_type": {
+          "$ref": "#/definitions/PeerEventEventType",
+          "title": "/ The type of event"
         }
       }
     },

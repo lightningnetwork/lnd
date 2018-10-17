@@ -750,17 +750,5 @@ func (b *BtcWallet) IsSynced() (bool, int64, error) {
 		return false, bestTimestamp, nil
 	}
 
-	// If this is neutrino, then we'll also want to wait until the set of
-	// filter headers also match
-	if neutrinoNode, ok := b.chain.(*chain.NeutrinoClient); ok {
-		filterDB := neutrinoNode.CS.RegFilterHeaders
-		_, filterHeaderTip, err := filterDB.ChainTip()
-		if err != nil {
-			return false, 0, err
-		}
-
-		return filterHeaderTip == uint32(bestHeight), bestTimestamp, nil
-	}
-
 	return true, bestTimestamp, nil
 }

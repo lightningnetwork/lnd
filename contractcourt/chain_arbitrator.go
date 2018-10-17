@@ -3,6 +3,7 @@ package contractcourt
 import (
 	"errors"
 	"fmt"
+	"github.com/lightningnetwork/lnd/sweep"
 	"sync"
 	"sync/atomic"
 
@@ -130,6 +131,9 @@ type ChainArbitratorConfig struct {
 	// DisableChannel disables a channel, resulting in it not being able to
 	// forward payments.
 	DisableChannel func(wire.OutPoint) error
+
+	// Sweeper allows resolvers to sweep their final outputs.
+	Sweeper *sweep.UtxoSweeper
 }
 
 // ChainArbitrator is a sub-system that oversees the on-chain resolution of all

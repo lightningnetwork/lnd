@@ -522,7 +522,9 @@ func (m *FeeLimit) String() string            { return proto.CompactTextString(m
 func (*FeeLimit) ProtoMessage()               {}
 func (*FeeLimit) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{11} }
 
-type isFeeLimit_Limit interface{ isFeeLimit_Limit() }
+type isFeeLimit_Limit interface {
+	isFeeLimit_Limit()
+}
 
 type FeeLimit_Fixed struct {
 	Fixed int64 `protobuf:"varint,1,opt,name=fixed,oneof"`
@@ -789,7 +791,9 @@ func (m *ChannelPoint) String() string            { return proto.CompactTextStri
 func (*ChannelPoint) ProtoMessage()               {}
 func (*ChannelPoint) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{15} }
 
-type isChannelPoint_FundingTxid interface{ isChannelPoint_FundingTxid() }
+type isChannelPoint_FundingTxid interface {
+	isChannelPoint_FundingTxid()
+}
 
 type ChannelPoint_FundingTxidBytes struct {
 	FundingTxidBytes []byte `protobuf:"bytes,1,opt,name=funding_txid_bytes,proto3,oneof"`
@@ -2037,7 +2041,9 @@ func (m *CloseStatusUpdate) String() string            { return proto.CompactTex
 func (*CloseStatusUpdate) ProtoMessage()               {}
 func (*CloseStatusUpdate) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{47} }
 
-type isCloseStatusUpdate_Update interface{ isCloseStatusUpdate_Update() }
+type isCloseStatusUpdate_Update interface {
+	isCloseStatusUpdate_Update()
+}
 
 type CloseStatusUpdate_ClosePending struct {
 	ClosePending *PendingUpdate `protobuf:"bytes,1,opt,name=close_pending,oneof"`
@@ -2309,7 +2315,9 @@ func (m *OpenStatusUpdate) String() string            { return proto.CompactText
 func (*OpenStatusUpdate) ProtoMessage()               {}
 func (*OpenStatusUpdate) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{50} }
 
-type isOpenStatusUpdate_Update interface{ isOpenStatusUpdate_Update() }
+type isOpenStatusUpdate_Update interface {
+	isOpenStatusUpdate_Update()
+}
 
 type OpenStatusUpdate_ChanPending struct {
 	ChanPending *PendingUpdate `protobuf:"bytes,1,opt,name=chan_pending,oneof"`
@@ -4639,7 +4647,9 @@ func (m *PolicyUpdateRequest) String() string            { return proto.CompactT
 func (*PolicyUpdateRequest) ProtoMessage()               {}
 func (*PolicyUpdateRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{102} }
 
-type isPolicyUpdateRequest_Scope interface{ isPolicyUpdateRequest_Scope() }
+type isPolicyUpdateRequest_Scope interface {
+	isPolicyUpdateRequest_Scope()
+}
 
 type PolicyUpdateRequest_Global struct {
 	Global bool `protobuf:"varint,1,opt,name=global,oneof"`

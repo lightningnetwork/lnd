@@ -740,6 +740,7 @@ func (n *NetworkHarness) OpenChannel(ctx context.Context,
 		PushSat:            int64(p.PushAmt),
 		Private:            p.Private,
 		MinConfs:           minConfs,
+		SpendUnconfirmed:   p.SpendUnconfirmed,
 		MinHtlcMsat:        int64(p.MinHtlc),
 	}
 

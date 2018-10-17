@@ -8,30 +8,27 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
-// UtxoSweeper provides the functionality to generate sweep txes. The plan is to
-// extend UtxoSweeper in the future to also manage the actual sweeping process
-// by itself.
+// UtxoSweeper provides the functionality to generate sweep txes. The plan is
+// to extend UtxoSweeper in the future to also manage the actual sweeping
+// process by itself.
 type UtxoSweeper struct {
 	cfg *UtxoSweeperConfig
 }
 
 // UtxoSweeperConfig contains dependencies of UtxoSweeper.
 type UtxoSweeperConfig struct {
-	// GenSweepScript generates a P2WKH script belonging to the wallet where
-	// funds can be swept.
+	// GenSweepScript generates a P2WKH script belonging to the wallet
+	// where funds can be swept.
 	GenSweepScript func() ([]byte, error)
 
 	// Estimator is used when crafting sweep transactions to estimate the
-	// necessary fee relative to the expected size of the sweep transaction.
+	// necessary fee relative to the expected size of the sweep
+	// transaction.
 	Estimator lnwallet.FeeEstimator
 
 	// Signer is used by the sweeper to generate valid witnesses at the
 	// time the incubated outputs need to be spent.
 	Signer lnwallet.Signer
-
-	// ConfTarget specifies a target for the number of blocks until an
-	// initial confirmation.
-	ConfTarget uint32
 }
 
 // New returns a new UtxoSweeper instance.
@@ -45,18 +42,18 @@ func New(cfg *UtxoSweeperConfig) *UtxoSweeper {
 // spends from them. This method also makes an accurate fee estimate before
 // generating the required witnesses.
 //
-// The created transaction has a single output sending all the funds back to the
-// source wallet, after accounting for the fee estimate.
+// The created transaction has a single output sending all the funds back to
+// the source wallet, after accounting for the fee estimate.
 //
-// The value of currentBlockHeight argument will be set as the tx locktime. This
-// function assumes that all CLTV inputs will be unlocked after
+// The value of currentBlockHeight argument will be set as the tx locktime.
+// This function assumes that all CLTV inputs will be unlocked after
 // currentBlockHeight. Reasons not to use the maximum of all actual CLTV expiry
 // values of the inputs:
 //
 // - Make handling re-orgs easier.
 // - Thwart future possible fee sniping attempts.
 // - Make us blend in with the bitcoind wallet.
-func (s *UtxoSweeper) CreateSweepTx(inputs []Input,
+func (s *UtxoSweeper) CreateSweepTx(inputs []Input, confTarget uint32,
 	currentBlockHeight uint32) (*wire.MsgTx, error) {
 
 	// Generate the receiving script to which the funds will be swept.
@@ -66,7 +63,7 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []Input,
 	}
 
 	// Using the txn weight estimate, compute the required txn fee.
-	feePerKw, err := s.cfg.Estimator.EstimateFeePerKW(s.cfg.ConfTarget)
+	feePerKw, err := s.cfg.Estimator.EstimateFeePerKW(confTarget)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +97,6 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []Input,
 
 	// Add all inputs to the sweep transaction. Ensure that for each
 	// csvInput, we set the sequence number properly.
-
 	for _, input := range inputs {
 		sweepTx.AddTxIn(&wire.TxIn{
 			PreviousOutPoint: *input.OutPoint(),
@@ -110,9 +106,10 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []Input,
 
 	// Before signing the transaction, check to ensure that it meets some
 	// basic validity requirements.
-	// TODO(conner): add more control to sanity checks, allowing us to delay
-	// spending "problem" outputs, e.g. possibly batching with other classes
-	// if fees are too low.
+	//
+	// TODO(conner): add more control to sanity checks, allowing us to
+	// delay spending "problem" outputs, e.g. possibly batching with other
+	// classes if fees are too low.
 	btx := btcutil.NewTx(sweepTx)
 	if err := blockchain.CheckTransactionSanity(btx); err != nil {
 		return nil, err
@@ -149,13 +146,11 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []Input,
 // getWeightEstimate returns a weight estimate for the given inputs.
 // Additionally, it returns counts for the number of csv and cltv inputs.
 func (s *UtxoSweeper) getWeightEstimate(inputs []Input) ([]Input, int64, int, int) {
-
-	// Create a transaction which sweeps all the newly mature outputs into
-	// an output controlled by the wallet.
-
+	// We initialize a weight estimator so we can accurately asses the
+	// amount of fees we need to pay for this sweep transaction.
+	//
 	// TODO(roasbeef): can be more intelligent about buffering outputs to
 	// be more efficient on-chain.
-
 	var weightEstimate lnwallet.TxWeightEstimator
 
 	// Our sweep transaction will pay to a single segwit p2wkh address,
@@ -165,10 +160,10 @@ func (s *UtxoSweeper) getWeightEstimate(inputs []Input) ([]Input, int64, int, in
 	// For each output, use its witness type to determine the estimate
 	// weight of its witness, and add it to the proper set of spendable
 	// outputs.
-	csvCount := 0
-	cltvCount := 0
-
-	var sweepInputs []Input
+	var (
+		sweepInputs         []Input
+		csvCount, cltvCount int
+	)
 	for i := range inputs {
 		input := inputs[i]
 

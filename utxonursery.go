@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/lightningnetwork/lnd/sweep"
 	"io"
 	"sync"
 	"sync/atomic"
+
+	"github.com/lightningnetwork/lnd/sweep"
 
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -181,6 +182,10 @@ type NurseryConfig struct {
 	// ConfDepth is the number of blocks the nursery store waits before
 	// determining outputs in the chain as confirmed.
 	ConfDepth uint32
+
+	// SweepTxConfTarget assigns a confirmation target for sweep txes on
+	// which the fee calculation will be based.
+	SweepTxConfTarget uint32
 
 	// FetchClosedChannels provides access to a user's channels, such that
 	// they can be marked fully closed after incubation has concluded.
@@ -871,15 +876,15 @@ func (u *utxoNursery) graduateClass(classHeight uint32) error {
 		// generated a sweep txn for this height. Generate one if there
 		// are kindergarten outputs or cltv crib outputs to be spent.
 		if len(kgtnOutputs) > 0 {
-			sweepInputs := make([]sweep.Input,
-				len(kgtnOutputs))
+			sweepInputs := make([]sweep.Input, len(kgtnOutputs))
 			for i := range kgtnOutputs {
 				sweepInputs[i] = &kgtnOutputs[i]
 			}
 
 			finalTx, err = u.cfg.Sweeper.CreateSweepTx(
-				sweepInputs, classHeight)
-
+				sweepInputs, u.cfg.SweepTxConfTarget,
+				classHeight,
+			)
 			if err != nil {
 				utxnLog.Errorf("Failed to create sweep txn at "+
 					"height=%d", classHeight)

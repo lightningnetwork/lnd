@@ -16,9 +16,9 @@ type Input interface {
 	// be generated in order to spend this output.
 	WitnessType() lnwallet.WitnessType
 
-	// SignDesc returns a reference to a spendable output's sign descriptor,
-	// which is used during signing to compute a valid witness that spends
-	// this output.
+	// SignDesc returns a reference to a spendable output's sign
+	// descriptor, which is used during signing to compute a valid witness
+	// that spends this output.
 	SignDesc() *lnwallet.SignDescriptor
 
 	// BuildWitness returns a valid witness allowing this output to be
@@ -41,8 +41,8 @@ type inputKit struct {
 	signDesc    lnwallet.SignDescriptor
 }
 
-// OutPoint returns the breached output's identifier that is to be included as a
-// transaction input.
+// OutPoint returns the breached output's identifier that is to be included as
+// a transaction input.
 func (i *inputKit) OutPoint() *wire.OutPoint {
 	return &i.outpoint
 }
@@ -67,8 +67,7 @@ type BaseInput struct {
 
 // MakeBaseInput assembles a new BaseInput that can be used to construct a
 // sweep transaction.
-func MakeBaseInput(outpoint *wire.OutPoint,
-	witnessType lnwallet.WitnessType,
+func MakeBaseInput(outpoint *wire.OutPoint, witnessType lnwallet.WitnessType,
 	signDescriptor *lnwallet.SignDescriptor) BaseInput {
 
 	return BaseInput{
@@ -82,8 +81,8 @@ func MakeBaseInput(outpoint *wire.OutPoint,
 
 // BuildWitness computes a valid witness that allows us to spend from the
 // breached output. It does so by generating the witness generation function,
-// which is parameterized primarily by the witness type and sign descriptor. The
-// method then returns the witness computed by invoking this function.
+// which is parameterized primarily by the witness type and sign descriptor.
+// The method then returns the witness computed by invoking this function.
 func (bi *BaseInput) BuildWitness(signer lnwallet.Signer, txn *wire.MsgTx,
 	hashCache *txscript.TxSigHashes, txinIdx int) ([][]byte, error) {
 
@@ -102,8 +101,8 @@ func (bi *BaseInput) BlocksToMaturity() uint32 {
 }
 
 // HtlcSucceedInput constitutes a sweep input that needs a pre-image. The input
-// is expected to reside on the commitment tx of the remote party and should not
-// be a second level tx output.
+// is expected to reside on the commitment tx of the remote party and should
+// not be a second level tx output.
 type HtlcSucceedInput struct {
 	inputKit
 
@@ -127,8 +126,8 @@ func MakeHtlcSucceedInput(outpoint *wire.OutPoint,
 }
 
 // BuildWitness computes a valid witness that allows us to spend from the
-// breached output. For HtlcSpendInput it will need to make the preimage part of
-// the witness.
+// breached output. For HtlcSpendInput it will need to make the preimage part
+// of the witness.
 func (h *HtlcSucceedInput) BuildWitness(signer lnwallet.Signer, txn *wire.MsgTx,
 	hashCache *txscript.TxSigHashes, txinIdx int) ([][]byte, error) {
 
@@ -149,6 +148,7 @@ func (h *HtlcSucceedInput) BlocksToMaturity() uint32 {
 	return 0
 }
 
-// Add compile-time constraint ensuring input structs implement Input interface.
+// Compile-time constraints to ensure each input struct implement the Input
+// interface.
 var _ Input = (*BaseInput)(nil)
 var _ Input = (*HtlcSucceedInput)(nil)

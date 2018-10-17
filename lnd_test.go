@@ -4661,6 +4661,23 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	)
 
+	// We'll also create a public channel between Bob and Carol to ensure
+	// that Bob gets selected as the only routing hint. We do this as
+	// we should only include routing hints for nodes that are publicly
+	// advertised, otherwise we'd end up leaking information about nodes
+	// that wish to stay unadvertised.
+	if err := net.ConnectNodes(ctxb, net.Bob, carol); err != nil {
+		t.Fatalf("unable to connect alice to carol: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPointBobCarol := openChannelAndAssert(
+		ctxt, t, net, net.Bob, carol,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: chanAmt / 2,
+		},
+	)
+
 	// Then, we'll create Dave's node and open a private channel between him
 	// and Alice. We will not include a push amount in order to not consider
 	// this channel as a routing hint as it will not have enough remote
@@ -4707,7 +4724,8 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 	// Make sure all the channels have been opened.
 	nodeNames := []string{"bob", "carol", "dave", "eve"}
 	aliceChans := []*lnrpc.ChannelPoint{
-		chanPointBob, chanPointCarol, chanPointDave, chanPointEve,
+		chanPointBob, chanPointCarol, chanPointBobCarol, chanPointDave,
+		chanPointEve,
 	}
 	for i, chanPoint := range aliceChans {
 		ctxt, _ := context.WithTimeout(ctxb, timeout)
@@ -4798,6 +4816,8 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointBob, false)
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointCarol, false)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPointBobCarol, false)
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointDave, false)
 

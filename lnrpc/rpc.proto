@@ -1488,6 +1488,12 @@ message ChannelEdge {
 }
 
 message ChannelGraphRequest {
+     /**
+     Whether unannounced channels are included in the response or not. If set,
+     unannounced channels are included. Unannounced channels are both private
+     channels, and public channels that are not yet announced to the network.
+     */
+     bool include_unannounced = 1 [json_name = "include_unannounced"];
 }
 
 /// Returns a new instance of the directed channel graph.

@@ -1613,13 +1613,26 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			return nil
 		}
 
-		// Node announcement was successfully proceeded and know it
-		// might be broadcast to other connected nodes.
-		announcements = append(announcements, networkMsg{
-			peer:   nMsg.peer,
-			source: nMsg.source,
-			msg:    msg,
-		})
+		// In order to ensure we don't leak unadvertised nodes, we'll
+		// make a quick check to ensure this node intends to publicly
+		// advertise itself to the network.
+		isPublic, err := d.cfg.Router.IsPublicNode(node.PubKeyBytes)
+		if err != nil {
+			log.Errorf("Unable to determine if node %x is "+
+				"advertised: %v", node.PubKeyBytes, err)
+			nMsg.err <- err
+			return nil
+		}
+
+		// If it does, we'll add their announcement to our batch so that
+		// it can be broadcast to the rest of our peers.
+		if isPublic {
+			announcements = append(announcements, networkMsg{
+				peer:   nMsg.peer,
+				source: nMsg.source,
+				msg:    msg,
+			})
+		}
 
 		nMsg.err <- nil
 		// TODO(roasbeef): get rid of the above

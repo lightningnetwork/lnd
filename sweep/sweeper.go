@@ -41,9 +41,12 @@ func New(cfg *UtxoSweeperConfig) *UtxoSweeper {
 	}
 }
 
-// CreateSweepTx accepts a list of outputs and signs and generates a txn that
+// CreateSweepTx accepts a list of inputs and signs and generates a txn that
 // spends from them. This method also makes an accurate fee estimate before
 // generating the required witnesses.
+//
+// The created transaction has a single output sending all the funds back to the
+// source wallet, after accounting for the fee estimate.
 //
 // The value of currentBlockHeight argument will be set as the tx locktime. This
 // function assumes that all CLTV inputs will be unlocked after
@@ -55,6 +58,98 @@ func New(cfg *UtxoSweeperConfig) *UtxoSweeper {
 // - Make us blend in with the bitcoind wallet.
 func (s *UtxoSweeper) CreateSweepTx(inputs []Input,
 	currentBlockHeight uint32) (*wire.MsgTx, error) {
+
+	// Generate the receiving script to which the funds will be swept.
+	pkScript, err := s.cfg.GenSweepScript()
+	if err != nil {
+		return nil, err
+	}
+
+	txWeight, csvCount, cltvCount := s.getWeightEstimate(inputs)
+
+	// Using the txn weight estimate, compute the required txn fee.
+	feePerKw, err := s.cfg.Estimator.EstimateFeePerKW(s.cfg.ConfTarget)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Infof("Creating sweep transaction for %v inputs (%v CSV, %v CLTV) "+
+		"using %v sat/kw", len(inputs), csvCount, cltvCount,
+		int64(feePerKw))
+
+	txFee := feePerKw.FeeForWeight(txWeight)
+
+	// Sum up the total value contained in the inputs.
+	var totalSum btcutil.Amount
+	for _, o := range inputs {
+		totalSum += btcutil.Amount(o.SignDesc().Output.Value)
+	}
+
+	// Sweep as much possible, after subtracting txn fees.
+	sweepAmt := int64(totalSum - txFee)
+
+	// Create the sweep transaction that we will be building. We use
+	// version 2 as it is required for CSV. The txn will sweep the amount
+	// after fees to the pkscript generated above.
+	sweepTx := wire.NewMsgTx(2)
+	sweepTx.AddTxOut(&wire.TxOut{
+		PkScript: pkScript,
+		Value:    sweepAmt,
+	})
+
+	sweepTx.LockTime = currentBlockHeight
+
+	// Add all inputs to the sweep transaction. Ensure that for each
+	// csvInput, we set the sequence number properly.
+
+	for _, input := range inputs {
+		sweepTx.AddTxIn(&wire.TxIn{
+			PreviousOutPoint: *input.OutPoint(),
+			Sequence:         input.BlocksToMaturity(),
+		})
+	}
+
+	// Before signing the transaction, check to ensure that it meets some
+	// basic validity requirements.
+	// TODO(conner): add more control to sanity checks, allowing us to delay
+	// spending "problem" outputs, e.g. possibly batching with other classes
+	// if fees are too low.
+	btx := btcutil.NewTx(sweepTx)
+	if err := blockchain.CheckTransactionSanity(btx); err != nil {
+		return nil, err
+	}
+
+	hashCache := txscript.NewTxSigHashes(sweepTx)
+
+	// With all the inputs in place, use each output's unique witness
+	// function to generate the final witness required for spending.
+	addWitness := func(idx int, tso Input) error {
+		witness, err := tso.BuildWitness(
+			s.cfg.Signer, sweepTx, hashCache, idx,
+		)
+		if err != nil {
+			return err
+		}
+
+		sweepTx.TxIn[idx].Witness = witness
+
+		return nil
+	}
+
+	// Finally we'll attach a valid witness to each csv and cltv input
+	// within the sweeping transaction.
+	for i, input := range inputs {
+		if err := addWitness(i, input); err != nil {
+			return nil, err
+		}
+	}
+
+	return sweepTx, nil
+}
+
+// getWeightEstimate returns a weight estimate for the given inputs.
+// Additionally, it returns counts for the number of csv and cltv inputs.
+func (s *UtxoSweeper) getWeightEstimate(inputs []Input) (int64, int, int) {
 
 	// Create a transaction which sweeps all the newly mature outputs into
 	// an output controlled by the wallet.
@@ -73,7 +168,7 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []Input,
 	// outputs.
 	csvCount := 0
 	cltvCount := 0
-	unknownCount := 0
+
 	for i := range inputs {
 		input := inputs[i]
 
@@ -126,7 +221,6 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []Input,
 			)
 
 		default:
-			unknownCount++
 			log.Warnf("kindergarten output in nursery store "+
 				"contains unexpected witness type: %v",
 				input.WitnessType())
@@ -134,99 +228,7 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []Input,
 		}
 	}
 
-	log.Infof("Creating sweep transaction for %v inputs (%v CSV, %v CLTV)",
-		len(inputs)-unknownCount, csvCount, cltvCount)
-
 	txWeight := int64(weightEstimate.Weight())
-	return s.populateSweepTx(txWeight, currentBlockHeight, inputs)
-}
 
-// populateSweepTx populate the final sweeping transaction with all witnesses
-// in place for all inputs using the provided txn fee. The created transaction
-// has a single output sending all the funds back to the source wallet, after
-// accounting for the fee estimate.
-func (s *UtxoSweeper) populateSweepTx(txWeight int64, currentBlockHeight uint32,
-	inputs []Input) (*wire.MsgTx, error) {
-
-	// Generate the receiving script to which the funds will be swept.
-	pkScript, err := s.cfg.GenSweepScript()
-	if err != nil {
-		return nil, err
-	}
-
-	// Sum up the total value contained in the inputs.
-	var totalSum btcutil.Amount
-	for _, o := range inputs {
-		totalSum += btcutil.Amount(o.SignDesc().Output.Value)
-	}
-
-	// Using the txn weight estimate, compute the required txn fee.
-	feePerKw, err := s.cfg.Estimator.EstimateFeePerKW(s.cfg.ConfTarget)
-	if err != nil {
-		return nil, err
-	}
-
-	log.Debugf("Using %v sat/kw for sweep tx", int64(feePerKw))
-
-	txFee := feePerKw.FeeForWeight(txWeight)
-
-	// Sweep as much possible, after subtracting txn fees.
-	sweepAmt := int64(totalSum - txFee)
-
-	// Create the sweep transaction that we will be building. We use
-	// version 2 as it is required for CSV. The txn will sweep the amount
-	// after fees to the pkscript generated above.
-	sweepTx := wire.NewMsgTx(2)
-	sweepTx.AddTxOut(&wire.TxOut{
-		PkScript: pkScript,
-		Value:    sweepAmt,
-	})
-
-	sweepTx.LockTime = currentBlockHeight
-
-	// Add all inputs to the sweep transaction. Ensure that for each
-	// csvInput, we set the sequence number properly.
-	for _, input := range inputs {
-		sweepTx.AddTxIn(&wire.TxIn{
-			PreviousOutPoint: *input.OutPoint(),
-			Sequence:         input.BlocksToMaturity(),
-		})
-	}
-
-	// Before signing the transaction, check to ensure that it meets some
-	// basic validity requirements.
-	// TODO(conner): add more control to sanity checks, allowing us to delay
-	// spending "problem" outputs, e.g. possibly batching with other classes
-	// if fees are too low.
-	btx := btcutil.NewTx(sweepTx)
-	if err := blockchain.CheckTransactionSanity(btx); err != nil {
-		return nil, err
-	}
-
-	hashCache := txscript.NewTxSigHashes(sweepTx)
-
-	// With all the inputs in place, use each output's unique witness
-	// function to generate the final witness required for spending.
-	addWitness := func(idx int, tso Input) error {
-		witness, err := tso.BuildWitness(
-			s.cfg.Signer, sweepTx, hashCache, idx,
-		)
-		if err != nil {
-			return err
-		}
-
-		sweepTx.TxIn[idx].Witness = witness
-
-		return nil
-	}
-
-	// Finally we'll attach a valid witness to each csv and cltv input
-	// within the sweeping transaction.
-	for i, input := range inputs {
-		if err := addWitness(i, input); err != nil {
-			return nil, err
-		}
-	}
-
-	return sweepTx, nil
+	return txWeight, csvCount, cltvCount
 }

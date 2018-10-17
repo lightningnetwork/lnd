@@ -344,7 +344,7 @@ func lndMain() error {
 		}
 		defer lis.Close()
 		go func() {
-			rpcsLog.Infof("RPC server listening on %s", lis.Addr())
+			rpcsLog.Infof("gRPC proxy listening on %s", lis.Addr())
 			grpcServer.Serve(lis)
 		}()
 	}
@@ -368,7 +368,7 @@ func lndMain() error {
 		}
 		defer lis.Close()
 		go func() {
-			rpcsLog.Infof("gRPC proxy started at %s", lis.Addr())
+			rpcsLog.Infof("REST server listening on %s", lis.Addr())
 			http.Serve(lis, mux)
 		}()
 	}

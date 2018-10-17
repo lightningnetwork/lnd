@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"github.com/lightningnetwork/lnd/sweep"
 	"image/color"
 	"math/big"
 	"net"
@@ -15,6 +14,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/lightningnetwork/lnd/sweep"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -59,10 +60,6 @@ const (
 	// durations exceeding this value will be eligible to have their
 	// backoffs reduced.
 	defaultStableConnDuration = 10 * time.Minute
-
-	// sweepTxConfirmationTarget assigns a confirmation target for sweep
-	// txes on which the fee calculation will be based.
-	sweepTxConfirmationTarget = 6
 )
 
 var (
@@ -591,13 +588,13 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		GenSweepScript: func() ([]byte, error) {
 			return newSweepPkScript(cc.wallet)
 		},
-		Signer:     cc.wallet.Cfg.Signer,
-		ConfTarget: sweepTxConfirmationTarget,
+		Signer: cc.wallet.Cfg.Signer,
 	})
 
 	s.utxoNursery = newUtxoNursery(&NurseryConfig{
 		ChainIO:             cc.chainIO,
 		ConfDepth:           1,
+		SweepTxConfTarget:   6,
 		FetchClosedChannels: chanDB.FetchClosedChannels,
 		FetchClosedChannel:  chanDB.FetchClosedChannel,
 		Notifier:            cc.chainNotifier,

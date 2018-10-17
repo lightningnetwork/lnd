@@ -1,22 +1,18 @@
 package discovery
 
 import (
+	"bytes"
 	"encoding/hex"
 	"fmt"
+	"io/ioutil"
+	"math/big"
+	prand "math/rand"
 	"net"
+	"os"
 	"reflect"
 	"sync"
-
-	prand "math/rand"
-
 	"testing"
-
-	"math/big"
-
 	"time"
-
-	"io/ioutil"
-	"os"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -211,6 +207,22 @@ func (r *mockGraphSource) IsStaleNode(nodePub routing.Vertex, timestamp time.Tim
 	}
 
 	return false
+}
+
+// IsPublicNode determines whether the given vertex is seen as a public node in
+// the graph from the graph's source node's point of view.
+func (r *mockGraphSource) IsPublicNode(node routing.Vertex) (bool, error) {
+	for _, info := range r.infos {
+		if !bytes.Equal(node[:], info.NodeKey1Bytes[:]) &&
+			!bytes.Equal(node[:], info.NodeKey2Bytes[:]) {
+			continue
+		}
+
+		if info.AuthProof != nil {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // IsKnownEdge returns true if the graph source already knows of the passed
@@ -441,10 +453,9 @@ func createUpdateAnnouncement(blockHeight uint32, flags lnwire.ChanUpdateFlag,
 	return a, nil
 }
 
-func createRemoteChannelAnnouncement(blockHeight uint32,
-	extraBytes ...[]byte) (*lnwire.ChannelAnnouncement, error) {
+func createAnnouncementWithoutProof(blockHeight uint32,
+	extraBytes ...[]byte) *lnwire.ChannelAnnouncement {
 
-	var err error
 	a := &lnwire.ChannelAnnouncement{
 		ShortChannelID: lnwire.ShortChannelID{
 			BlockHeight: blockHeight,
@@ -460,6 +471,14 @@ func createRemoteChannelAnnouncement(blockHeight uint32,
 	if len(extraBytes) == 1 {
 		a.ExtraOpaqueData = extraBytes[0]
 	}
+
+	return a
+}
+
+func createRemoteChannelAnnouncement(blockHeight uint32,
+	extraBytes ...[]byte) (*lnwire.ChannelAnnouncement, error) {
+
+	a := createAnnouncementWithoutProof(blockHeight, extraBytes...)
 
 	pub := nodeKeyPriv1.PubKey()
 	signer := mockSigner{nodeKeyPriv1}
@@ -1963,6 +1982,115 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	}
 	if len(announcements.nodeAnnouncements) != 0 {
 		t.Fatal("node announcements map not empty after reset")
+	}
+}
+
+// TestForwardPrivateNodeAnnouncement ensures that we do not forward node
+// announcements for nodes who do not intend to publicly advertise themselves.
+func TestForwardPrivateNodeAnnouncement(t *testing.T) {
+	t.Parallel()
+
+	const (
+		startingHeight = 100
+		timestamp      = 123456
+	)
+
+	ctx, cleanup, err := createTestCtx(startingHeight)
+	if err != nil {
+		t.Fatalf("can't create context: %v", err)
+	}
+	defer cleanup()
+
+	// We'll start off by processing a channel announcement without a proof
+	// (i.e., an unadvertised channel), followed by a node announcement for
+	// this same channel announcement.
+	chanAnn := createAnnouncementWithoutProof(startingHeight - 2)
+	pubKey := nodeKeyPriv1.PubKey()
+
+	select {
+	case err := <-ctx.gossiper.ProcessLocalAnnouncement(chanAnn, pubKey):
+		if err != nil {
+			t.Fatalf("unable to process local announcement: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("local announcement not processed")
+	}
+
+	// The gossiper should not broadcast the announcement due to it not
+	// having its announcement signatures.
+	select {
+	case <-ctx.broadcastedMessage:
+		t.Fatal("gossiper should not have broadcast channel announcement")
+	case <-time.After(2 * trickleDelay):
+	}
+
+	nodeAnn, err := createNodeAnnouncement(nodeKeyPriv1, timestamp)
+	if err != nil {
+		t.Fatalf("unable to create node announcement: %v", err)
+	}
+
+	select {
+	case err := <-ctx.gossiper.ProcessLocalAnnouncement(nodeAnn, pubKey):
+		if err != nil {
+			t.Fatalf("unable to process remote announcement: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("remote announcement not processed")
+	}
+
+	// The gossiper should also not broadcast the node announcement due to
+	// it not being part of any advertised channels.
+	select {
+	case <-ctx.broadcastedMessage:
+		t.Fatal("gossiper should not have broadcast node announcement")
+	case <-time.After(2 * trickleDelay):
+	}
+
+	// Now, we'll attempt to forward the NodeAnnouncement for the same node
+	// by opening a public channel on the network. We'll create a
+	// ChannelAnnouncement and hand it off to the gossiper in order to
+	// process it.
+	remoteChanAnn, err := createRemoteChannelAnnouncement(startingHeight - 1)
+	if err != nil {
+		t.Fatalf("unable to create remote channel announcement: %v", err)
+	}
+	peer := &mockPeer{pubKey, nil, nil}
+
+	select {
+	case err := <-ctx.gossiper.ProcessRemoteAnnouncement(remoteChanAnn, peer):
+		if err != nil {
+			t.Fatalf("unable to process remote announcement: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("remote announcement not processed")
+	}
+
+	select {
+	case <-ctx.broadcastedMessage:
+	case <-time.After(2 * trickleDelay):
+		t.Fatal("gossiper should have broadcast the channel announcement")
+	}
+
+	// We'll recreate the NodeAnnouncement with an updated timestamp to
+	// prevent a stale update. The NodeAnnouncement should now be forwarded.
+	nodeAnn, err = createNodeAnnouncement(nodeKeyPriv1, timestamp+1)
+	if err != nil {
+		t.Fatalf("unable to create node announcement: %v", err)
+	}
+
+	select {
+	case err := <-ctx.gossiper.ProcessRemoteAnnouncement(nodeAnn, peer):
+		if err != nil {
+			t.Fatalf("unable to process remote announcement: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("remote announcement not processed")
+	}
+
+	select {
+	case <-ctx.broadcastedMessage:
+	case <-time.After(2 * trickleDelay):
+		t.Fatal("gossiper should have broadcast the node announcement")
 	}
 }
 

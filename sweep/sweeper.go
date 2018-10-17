@@ -65,14 +65,13 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []Input,
 		return nil, err
 	}
 
-	txWeight, csvCount, cltvCount := s.getWeightEstimate(inputs)
-
 	// Using the txn weight estimate, compute the required txn fee.
 	feePerKw, err := s.cfg.Estimator.EstimateFeePerKW(s.cfg.ConfTarget)
 	if err != nil {
 		return nil, err
 	}
 
+	inputs, txWeight, csvCount, cltvCount := s.getWeightEstimate(inputs)
 	log.Infof("Creating sweep transaction for %v inputs (%v CSV, %v CLTV) "+
 		"using %v sat/kw", len(inputs), csvCount, cltvCount,
 		int64(feePerKw))
@@ -149,7 +148,7 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []Input,
 
 // getWeightEstimate returns a weight estimate for the given inputs.
 // Additionally, it returns counts for the number of csv and cltv inputs.
-func (s *UtxoSweeper) getWeightEstimate(inputs []Input) (int64, int, int) {
+func (s *UtxoSweeper) getWeightEstimate(inputs []Input) ([]Input, int64, int, int) {
 
 	// Create a transaction which sweeps all the newly mature outputs into
 	// an output controlled by the wallet.
@@ -169,6 +168,7 @@ func (s *UtxoSweeper) getWeightEstimate(inputs []Input) (int64, int, int) {
 	csvCount := 0
 	cltvCount := 0
 
+	var sweepInputs []Input
 	for i := range inputs {
 		input := inputs[i]
 
@@ -178,6 +178,7 @@ func (s *UtxoSweeper) getWeightEstimate(inputs []Input) (int64, int, int) {
 		// to us.
 		case lnwallet.CommitmentNoDelay:
 			weightEstimate.AddP2WKHInput()
+			sweepInputs = append(sweepInputs, input)
 
 		// Outputs on a past commitment transaction that pay directly
 		// to us.
@@ -185,6 +186,7 @@ func (s *UtxoSweeper) getWeightEstimate(inputs []Input) (int64, int, int) {
 			weightEstimate.AddWitnessInput(
 				lnwallet.ToLocalTimeoutWitnessSize,
 			)
+			sweepInputs = append(sweepInputs, input)
 			csvCount++
 
 		// Outgoing second layer HTLC's that have confirmed within the
@@ -194,6 +196,7 @@ func (s *UtxoSweeper) getWeightEstimate(inputs []Input) (int64, int, int) {
 			weightEstimate.AddWitnessInput(
 				lnwallet.ToLocalTimeoutWitnessSize,
 			)
+			sweepInputs = append(sweepInputs, input)
 			csvCount++
 
 		// Incoming second layer HTLC's that have confirmed within the
@@ -203,6 +206,7 @@ func (s *UtxoSweeper) getWeightEstimate(inputs []Input) (int64, int, int) {
 			weightEstimate.AddWitnessInput(
 				lnwallet.ToLocalTimeoutWitnessSize,
 			)
+			sweepInputs = append(sweepInputs, input)
 			csvCount++
 
 		// An HTLC on the commitment transaction of the remote party,
@@ -211,6 +215,7 @@ func (s *UtxoSweeper) getWeightEstimate(inputs []Input) (int64, int, int) {
 			weightEstimate.AddWitnessInput(
 				lnwallet.AcceptedHtlcTimeoutWitnessSize,
 			)
+			sweepInputs = append(sweepInputs, input)
 			cltvCount++
 
 		// An HTLC on the commitment transaction of the remote party,
@@ -219,16 +224,16 @@ func (s *UtxoSweeper) getWeightEstimate(inputs []Input) (int64, int, int) {
 			weightEstimate.AddWitnessInput(
 				lnwallet.OfferedHtlcSuccessWitnessSize,
 			)
+			sweepInputs = append(sweepInputs, input)
 
 		default:
 			log.Warnf("kindergarten output in nursery store "+
 				"contains unexpected witness type: %v",
 				input.WitnessType())
-			continue
 		}
 	}
 
 	txWeight := int64(weightEstimate.Weight())
 
-	return txWeight, csvCount, cltvCount
+	return sweepInputs, txWeight, csvCount, cltvCount
 }

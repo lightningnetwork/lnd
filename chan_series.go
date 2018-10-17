@@ -89,6 +89,22 @@ func (c *chanSeries) UpdatesInHorizon(chain chainhash.Hash,
 		return nil, err
 	}
 	for _, nodeAnn := range nodeAnnsInHorizon {
+		// Ensure we only forward nodes that are publicly advertised to
+		// prevent leaking information about nodes.
+		isNodePublic, err := c.graph.IsPublicNode(nodeAnn.PubKeyBytes)
+		if err != nil {
+			srvrLog.Errorf("Unable to determine if node %x is "+
+				"advertised: %v", nodeAnn.PubKeyBytes, err)
+			continue
+		}
+
+		if !isNodePublic {
+			srvrLog.Tracef("Skipping forwarding announcement for "+
+				"node %x due to being unadvertised",
+				nodeAnn.PubKeyBytes)
+			continue
+		}
+
 		nodeUpdate, err := nodeAnn.NodeAnnouncement(true)
 		if err != nil {
 			return nil, err

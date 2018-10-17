@@ -106,7 +106,7 @@
   revision = "ab6388e0c60ae4834a1f57511e20c17b5f78be4b"
 
 [[projects]]
-  digest = "1:e6575f3ee773e72a38319dbd8f4cb7f1b574eccfed7cb103c3a25c254d5c250f"
+  digest = "1:ac01796bf202b80d6cb1b92d42df0fbbf3aff964451376bfa7c39bc2bf94d108"
   name = "github.com/btcsuite/btcwallet"
   packages = [
     "chain",
@@ -126,7 +126,7 @@
     "wtxmgr",
   ]
   pruneopts = "UT"
-  revision = "421298df22601db0fe4adb8f4be71b7014324ba9"
+  revision = "c4dd27e481f9801866cf5226bfe532084772ec2a"
 
 [[projects]]
   branch = "master"
@@ -268,7 +268,7 @@
   revision = "462a8a75388506b68f76661af8d649f0b88e5301"
 
 [[projects]]
-  digest = "1:48a9bc825edca0f6b562512f77d935b26a4fa3a645dc5468ed96bdd6897f4d82"
+  digest = "1:231ca602530410e89201db1f6377f8699ebdb6b690bf57fd83f292722d6f2be6"
   name = "github.com/lightninglabs/neutrino"
   packages = [
     ".",
@@ -279,7 +279,7 @@
     "headerlist",
   ]
   pruneopts = "UT"
-  revision = "838f7ba74d217d188efc223604bd280b4e3f0238"
+  revision = "4d60692991302a44509d1a9234ccd51373c120b4"
 
 [[projects]]
   digest = "1:58ab6d6525898cbeb86dc29a68f8e9bfe95254b9032134eb9458779574872260"

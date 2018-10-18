@@ -465,13 +465,13 @@ out:
 
 			n.heightMtx.Lock()
 			if update.height != uint32(n.bestHeight) {
-				chainntnfs.Log.Infof("Missed disconnected" +
+				chainntnfs.Log.Infof("Missed disconnected " +
 					"blocks, attempting to catch up")
 			}
 
 			hash, err := n.p2pNode.GetBlockHash(int64(n.bestHeight))
 			if err != nil {
-				chainntnfs.Log.Errorf("Unable to fetch block hash"+
+				chainntnfs.Log.Errorf("Unable to fetch block hash "+
 					"for height %d: %v", n.bestHeight, err)
 				n.heightMtx.Unlock()
 				continue

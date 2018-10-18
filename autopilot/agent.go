@@ -43,7 +43,7 @@ type Config struct {
 	DisconnectPeer func(*btcec.PublicKey) error
 
 	// WalletBalance is a function closure that should return the current
-	// available balance o the backing wallet.
+	// available balance of the backing wallet.
 	WalletBalance func() (btcutil.Amount, error)
 
 	// Graph is an abstract channel graph that the Heuristic and the Agent
@@ -53,7 +53,7 @@ type Config struct {
 
 	// MaxPendingOpens is the maximum number of pending channel
 	// establishment goroutines that can be lingering. We cap this value in
-	// order to control the level of parallelism caused by the autopiloit
+	// order to control the level of parallelism caused by the autopilot
 	// agent.
 	MaxPendingOpens uint16
 
@@ -62,7 +62,7 @@ type Config struct {
 }
 
 // channelState is a type that represents the set of active channels of the
-// backing LN node that the Agent should be ware of. This type contains a few
+// backing LN node that the Agent should be aware of. This type contains a few
 // helper utility methods.
 type channelState map[lnwire.ShortChannelID]Channel
 
@@ -485,7 +485,7 @@ func (a *Agent) controller() {
 		log.Infof("Triggering attachment directive dispatch, "+
 			"total_funds=%v", a.totalBalance)
 
-		// We're to attempt an attachment so we'll o obtain the set of
+		// We're to attempt an attachment so we'll obtain the set of
 		// nodes that we currently have channels with so we avoid
 		// duplicate edges.
 		connectedNodes := a.chanState.ConnectedNodes()

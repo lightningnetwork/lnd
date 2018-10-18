@@ -13,6 +13,10 @@ var (
 	// ErrTxConfNotifierExiting is an error returned when attempting to
 	// interact with the TxConfNotifier but it been shut down.
 	ErrTxConfNotifierExiting = errors.New("TxConfNotifier is exiting")
+
+	// ErrTxMaxConfs signals that the user requested a number of
+	// confirmations beyond the reorg safety limit.
+	ErrTxMaxConfs = errors.New("too many confirmations requested")
 )
 
 // ConfNtfn represents a notifier client's request to receive a notification
@@ -45,10 +49,6 @@ type ConfNtfn struct {
 	// HeightHint is the minimum height in the chain that we expect to find
 	// this txid.
 	HeightHint uint32
-
-	// details describes the transaction's position is the blockchain. May be
-	// nil for unconfirmed transactions.
-	details *TxConfirmation
 
 	// dispatched is false if the confirmed notification has not been sent yet.
 	dispatched bool
@@ -211,6 +211,12 @@ func (tcn *TxConfNotifier) Register(
 	default:
 	}
 
+	// Enforce that we will not dispatch confirmations beyond the reorg
+	// safety limit.
+	if ntfn.NumConfirmations > tcn.reorgSafetyLimit {
+		return nil, ErrTxMaxConfs
+	}
+
 	// Before proceeding to register the notification, we'll query our
 	// height hint cache to determine whether a better one exists.
 	//
@@ -259,7 +265,6 @@ func (tcn *TxConfNotifier) Register(
 	case rescanPending:
 		Log.Debugf("Waiting for pending rescan to finish before "+
 			"notifying txid=%v at tip", ntfn.TxID)
-
 		return nil, nil
 
 	// If no rescan has been dispatched, attempt to do so now.
@@ -326,6 +331,14 @@ func (tcn *TxConfNotifier) UpdateConfDetails(txid chainhash.Hash,
 		return fmt.Errorf("no notification found with TxID %v", txid)
 	}
 
+	// If the conf details were already found at tip, all existing
+	// notifications will have been dispatched or queued for dispatch. We
+	// can exit early to avoid sending too many notifications on the
+	// buffered channels.
+	if confSet.details != nil {
+		return nil
+	}
+
 	// The historical dispatch has been completed for this confSet. We'll
 	// update the rescan status and cache any details that were found. If
 	// the details are nil, that implies we did not find them and will
@@ -382,15 +395,6 @@ func (tcn *TxConfNotifier) dispatchConfDetails(
 			ntfn.TxID)
 		return nil
 	}
-
-	// Set the confirmation details for this notification, only if the
-	// notification doesn't already have details. This ensure we only fall
-	// through the following logic at most once, which could cause the
-	// buffered channels to block when exceeding their allocated capacity.
-	if ntfn.details != nil {
-		return nil
-	}
-	ntfn.details = details
 
 	// Now, we'll examine whether the transaction of this
 	// notification request has reached its required number of
@@ -512,8 +516,6 @@ func (tcn *TxConfNotifier) ConnectTip(blockHash *chainhash.Hash,
 		confSet.rescanStatus = rescanComplete
 		confSet.details = details
 		for _, ntfn := range confSet.ntfns {
-			ntfn.details = details
-
 			// In the event that this notification was aware that
 			// the transaction was reorged out of the chain, we'll
 			// consume the reorg notification if it hasn't been done
@@ -627,11 +629,13 @@ out:
 	// Then, we'll dispatch notifications for all the transactions that have
 	// become confirmed at this new block height.
 	for ntfn := range tcn.ntfnsByConfirmHeight[blockHeight] {
+		confSet := tcn.confNotifications[*ntfn.TxID]
+
 		Log.Infof("Dispatching %v conf notification for %v",
 			ntfn.NumConfirmations, ntfn.TxID)
 
 		select {
-		case ntfn.Event.Confirmed <- ntfn.details:
+		case ntfn.Event.Confirmed <- confSet.details:
 			ntfn.dispatched = true
 		case <-tcn.quit:
 			return ErrTxConfNotifierExiting

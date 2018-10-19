@@ -1,4 +1,4 @@
-package chainntnfs
+package queue
 
 import (
 	"container/list"

@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/queue"
 	"golang.org/x/time/rate"
 )
 
@@ -220,9 +221,9 @@ type gossipSyncer struct {
 	// NOTE: This variable MUST be used atomically.
 	state uint32
 
-	// gossipMsgs is a channel that all messages from the target peer will
-	// be sent over.
-	gossipMsgs chan lnwire.Message
+	// gossipMsgs is a thread-safe queue that all messages from the target
+	// peer will be sent over.
+	gossipMsgs *queue.ConcurrentQueue
 
 	// bufferedChanRangeReplies is used in the waitingQueryChanReply to
 	// buffer all the chunked response to our query.
@@ -278,7 +279,7 @@ func newGossiperSyncer(cfg gossipSyncerCfg) *gossipSyncer {
 	return &gossipSyncer{
 		cfg:         cfg,
 		rateLimiter: rateLimiter,
-		gossipMsgs:  make(chan lnwire.Message, 100),
+		gossipMsgs:  queue.New(100),
 		quit:        make(chan struct{}),
 	}
 }
@@ -292,6 +293,8 @@ func (g *gossipSyncer) Start() error {
 
 	log.Debugf("Starting gossipSyncer(%x)", g.peerPub[:])
 
+	g.gossipMsgs.Start()
+
 	g.wg.Add(1)
 	go g.channelGraphSyncer()
 
@@ -304,6 +307,8 @@ func (g *gossipSyncer) Stop() error {
 	if !atomic.CompareAndSwapUint32(&g.stopped, 0, 1) {
 		return nil
 	}
+
+	g.gossipMsgs.Stop()
 
 	close(g.quit)
 
@@ -363,13 +368,24 @@ func (g *gossipSyncer) channelGraphSyncer() {
 			// remote party, or exit due to the gossiper exiting,
 			// or us being signalled to do so.
 			select {
-			case msg := <-g.gossipMsgs:
+			case msg := <-g.gossipMsgs.ChanOut():
+				// Ensure that this is at least an
+				// lnwire.Message, otherwise, we can't properly
+				// manipulate it.
+				netMsg, ok := msg.(lnwire.Message)
+				if !ok {
+					log.Errorf("unable to handle queue "+
+						"item of type %T, expected "+
+						"lnwire.Message", netMsg)
+					continue
+				}
+
 				// The remote peer is sending a response to our
 				// initial query, we'll collate this response,
 				// and see if it's the final one in the series.
 				// If so, we can then transition to querying
 				// for the new channels.
-				queryReply, ok := msg.(*lnwire.ReplyChannelRange)
+				queryReply, ok := netMsg.(*lnwire.ReplyChannelRange)
 				if ok {
 					err := g.processChanRangeReply(queryReply)
 					if err != nil {
@@ -384,7 +400,7 @@ func (g *gossipSyncer) channelGraphSyncer() {
 
 				// Otherwise, it's the remote peer performing a
 				// query, which we'll attempt to reply to.
-				err := g.replyPeerQueries(msg)
+				err := g.replyPeerQueries(netMsg)
 				if err != nil && err != ErrGossipSyncerExiting {
 					log.Errorf("unable to reply to peer "+
 						"query: %v", err)
@@ -426,19 +442,32 @@ func (g *gossipSyncer) channelGraphSyncer() {
 			// an ending reply, or just another query from the
 			// remote peer.
 			select {
-			case msg := <-g.gossipMsgs:
+			case msg := <-g.gossipMsgs.ChanOut():
+				// Ensure that this is at least an
+				// lnwire.Message, otherwise, we can't properly
+				// manipulate it.
+				netMsg, ok := msg.(lnwire.Message)
+				if !ok {
+					log.Errorf("unable to handle queue "+
+						"item of type %T, expected "+
+						"lnwire.Message", netMsg)
+					continue
+				}
+
 				// If this is the final reply to one of our
 				// queries, then we'll loop back into our query
 				// state to send of the remaining query chunks.
-				_, ok := msg.(*lnwire.ReplyShortChanIDsEnd)
+				_, ok = netMsg.(*lnwire.ReplyShortChanIDsEnd)
 				if ok {
-					atomic.StoreUint32(&g.state, uint32(queryNewChannels))
+					atomic.StoreUint32(
+						&g.state, uint32(queryNewChannels),
+					)
 					continue
 				}
 
 				// Otherwise, it's the remote peer performing a
 				// query, which we'll attempt to deploy to.
-				err := g.replyPeerQueries(msg)
+				err := g.replyPeerQueries(netMsg)
 				if err != nil && err != ErrGossipSyncerExiting {
 					log.Errorf("unable to reply to peer "+
 						"query: %v", err)
@@ -481,8 +510,19 @@ func (g *gossipSyncer) channelGraphSyncer() {
 			// With our horizon set, we'll simply reply to any new
 			// message and exit if needed.
 			select {
-			case msg := <-g.gossipMsgs:
-				err := g.replyPeerQueries(msg)
+			case msg := <-g.gossipMsgs.ChanOut():
+				// Ensure that this is at least an
+				// lnwire.Message, otherwise, we can't properly
+				// manipulate it.
+				netMsg, ok := msg.(lnwire.Message)
+				if !ok {
+					log.Errorf("unable to handle queue "+
+						"item of type %T, expected "+
+						"lnwire.Message", netMsg)
+					continue
+				}
+
+				err := g.replyPeerQueries(netMsg)
 				if err != nil && err != ErrGossipSyncerExiting {
 					log.Errorf("unable to reply to peer "+
 						"query: %v", err)
@@ -984,7 +1024,7 @@ func (g *gossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
 // queries to the internal processing goroutine.
 func (g *gossipSyncer) ProcessQueryMsg(msg lnwire.Message) {
 	select {
-	case g.gossipMsgs <- msg:
+	case g.gossipMsgs.ChanIn() <- msg:
 		return
 	case <-g.quit:
 		return

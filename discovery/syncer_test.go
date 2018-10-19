@@ -1066,7 +1066,7 @@ func TestGossipSyncerDelayDOS(t *testing.T) {
 			case <-time.After(time.Second * 2):
 				t.Fatalf("node 2 didn't read msg")
 
-			case syncer2.gossipMsgs <- msg:
+			case syncer2.gossipMsgs.ChanIn() <- msg:
 
 			}
 		}
@@ -1088,7 +1088,7 @@ func TestGossipSyncerDelayDOS(t *testing.T) {
 			case <-time.After(time.Second * 2):
 				t.Fatalf("node 2 didn't read msg")
 
-			case syncer1.gossipMsgs <- msg:
+			case syncer1.gossipMsgs.ChanIn() <- msg:
 
 			}
 		}
@@ -1135,7 +1135,7 @@ func TestGossipSyncerDelayDOS(t *testing.T) {
 				case <-time.After(time.Second * 2):
 					t.Fatalf("node 2 didn't read msg")
 
-				case syncer2.gossipMsgs <- msg:
+				case syncer2.gossipMsgs.ChanIn() <- msg:
 				}
 			}
 		}
@@ -1157,7 +1157,7 @@ func TestGossipSyncerDelayDOS(t *testing.T) {
 				case <-time.After(time.Second * 2):
 					t.Fatalf("node 2 didn't read msg")
 
-				case syncer1.gossipMsgs <- msg:
+				case syncer1.gossipMsgs.ChanIn() <- msg:
 				}
 			}
 		}
@@ -1204,7 +1204,7 @@ func TestGossipSyncerDelayDOS(t *testing.T) {
 				case <-time.After(time.Second * 2):
 					t.Fatalf("node 2 didn't read msg")
 
-				case syncer2.gossipMsgs <- msg:
+				case syncer2.gossipMsgs.ChanIn() <- msg:
 
 				}
 			}
@@ -1226,7 +1226,7 @@ func TestGossipSyncerDelayDOS(t *testing.T) {
 				case <-time.After(time.Second * 2):
 					t.Fatalf("node 2 didn't read msg")
 
-				case syncer1.gossipMsgs <- msg:
+				case syncer1.gossipMsgs.ChanIn() <- msg:
 
 				}
 			}
@@ -1348,7 +1348,7 @@ func TestGossipSyncerDelayDOS(t *testing.T) {
 				case <-time.After(time.Second * 2):
 					t.Fatalf("node 2 didn't read msg")
 
-				case syncer2.gossipMsgs <- msg:
+				case syncer2.gossipMsgs.ChanIn() <- msg:
 
 				}
 			}
@@ -1370,7 +1370,7 @@ func TestGossipSyncerDelayDOS(t *testing.T) {
 				case <-time.After(time.Second * 2):
 					t.Fatalf("node 2 didn't read msg")
 
-				case syncer1.gossipMsgs <- msg:
+				case syncer1.gossipMsgs.ChanIn() <- msg:
 
 				}
 			}
@@ -1439,7 +1439,7 @@ func TestGossipSyncerRoutineSync(t *testing.T) {
 			case <-time.After(time.Second * 2):
 				t.Fatalf("node 2 didn't read msg")
 
-			case syncer2.gossipMsgs <- msg:
+			case syncer2.gossipMsgs.ChanIn() <- msg:
 
 			}
 		}
@@ -1461,7 +1461,7 @@ func TestGossipSyncerRoutineSync(t *testing.T) {
 			case <-time.After(time.Second * 2):
 				t.Fatalf("node 2 didn't read msg")
 
-			case syncer1.gossipMsgs <- msg:
+			case syncer1.gossipMsgs.ChanIn() <- msg:
 
 			}
 		}
@@ -1508,7 +1508,7 @@ func TestGossipSyncerRoutineSync(t *testing.T) {
 				case <-time.After(time.Second * 2):
 					t.Fatalf("node 2 didn't read msg")
 
-				case syncer2.gossipMsgs <- msg:
+				case syncer2.gossipMsgs.ChanIn() <- msg:
 				}
 			}
 		}
@@ -1531,7 +1531,7 @@ func TestGossipSyncerRoutineSync(t *testing.T) {
 				case <-time.After(time.Second * 2):
 					t.Fatalf("node 2 didn't read msg")
 
-				case syncer1.gossipMsgs <- msg:
+				case syncer1.gossipMsgs.ChanIn() <- msg:
 				}
 			}
 		}
@@ -1578,7 +1578,7 @@ func TestGossipSyncerRoutineSync(t *testing.T) {
 				case <-time.After(time.Second * 2):
 					t.Fatalf("node 2 didn't read msg")
 
-				case syncer2.gossipMsgs <- msg:
+				case syncer2.gossipMsgs.ChanIn() <- msg:
 
 				}
 			}
@@ -1600,7 +1600,7 @@ func TestGossipSyncerRoutineSync(t *testing.T) {
 				case <-time.After(time.Second * 2):
 					t.Fatalf("node 2 didn't read msg")
 
-				case syncer1.gossipMsgs <- msg:
+				case syncer1.gossipMsgs.ChanIn() <- msg:
 
 				}
 			}
@@ -1642,7 +1642,7 @@ func TestGossipSyncerRoutineSync(t *testing.T) {
 				case <-time.After(time.Second * 2):
 					t.Fatalf("node 2 didn't read msg")
 
-				case syncer2.gossipMsgs <- msg:
+				case syncer2.gossipMsgs.ChanIn() <- msg:
 
 				}
 			}
@@ -1664,7 +1664,7 @@ func TestGossipSyncerRoutineSync(t *testing.T) {
 				case <-time.After(time.Second * 2):
 					t.Fatalf("node 2 didn't read msg")
 
-				case syncer1.gossipMsgs <- msg:
+				case syncer1.gossipMsgs.ChanIn() <- msg:
 
 				}
 			}
@@ -1690,7 +1690,7 @@ func TestGossipSyncerRoutineSync(t *testing.T) {
 			case <-time.After(time.Second * 2):
 				t.Fatalf("node 2 didn't read msg")
 
-			case syncer2.gossipMsgs <- msg:
+			case syncer2.gossipMsgs.ChanIn() <- msg:
 
 			}
 		}
@@ -1712,7 +1712,7 @@ func TestGossipSyncerRoutineSync(t *testing.T) {
 			case <-time.After(time.Second * 2):
 				t.Fatalf("node 2 didn't read msg")
 
-			case syncer1.gossipMsgs <- msg:
+			case syncer1.gossipMsgs.ChanIn() <- msg:
 
 			}
 		}
@@ -1779,7 +1779,7 @@ func TestGossipSyncerAlreadySynced(t *testing.T) {
 			case <-time.After(time.Second * 2):
 				t.Fatalf("node 2 didn't read msg")
 
-			case syncer2.gossipMsgs <- msg:
+			case syncer2.gossipMsgs.ChanIn() <- msg:
 
 			}
 		}
@@ -1801,7 +1801,7 @@ func TestGossipSyncerAlreadySynced(t *testing.T) {
 			case <-time.After(time.Second * 2):
 				t.Fatalf("node 2 didn't read msg")
 
-			case syncer1.gossipMsgs <- msg:
+			case syncer1.gossipMsgs.ChanIn() <- msg:
 
 			}
 		}
@@ -1847,7 +1847,7 @@ func TestGossipSyncerAlreadySynced(t *testing.T) {
 				case <-time.After(time.Second * 2):
 					t.Fatalf("node 2 didn't read msg")
 
-				case syncer2.gossipMsgs <- msg:
+				case syncer2.gossipMsgs.ChanIn() <- msg:
 				}
 			}
 		}
@@ -1870,7 +1870,7 @@ func TestGossipSyncerAlreadySynced(t *testing.T) {
 				case <-time.After(time.Second * 2):
 					t.Fatalf("node 2 didn't read msg")
 
-				case syncer1.gossipMsgs <- msg:
+				case syncer1.gossipMsgs.ChanIn() <- msg:
 				}
 			}
 		}
@@ -1913,7 +1913,7 @@ func TestGossipSyncerAlreadySynced(t *testing.T) {
 			case <-time.After(time.Second * 2):
 				t.Fatalf("node 2 didn't read msg")
 
-			case syncer2.gossipMsgs <- msg:
+			case syncer2.gossipMsgs.ChanIn() <- msg:
 
 			}
 		}
@@ -1935,7 +1935,7 @@ func TestGossipSyncerAlreadySynced(t *testing.T) {
 			case <-time.After(time.Second * 2):
 				t.Fatalf("node 2 didn't read msg")
 
-			case syncer1.gossipMsgs <- msg:
+			case syncer1.gossipMsgs.ChanIn() <- msg:
 
 			}
 		}

@@ -308,20 +308,19 @@ func (c *Controller) getAuthCookie() ([]byte, error) {
 	} else if !safeCookieSupport  {
 		return nil, errors.New("the Tor server is currently not " +
 			"configured for cookie authentication")
-	} else {
-
-		// Read the cookie from the file and ensure it has the correct length.
-		cookie, err := ioutil.ReadFile(cookieFilePath)
-		if err != nil {
-			return nil, err
-		}
-
-		if len(cookie) != cookieLen {
-			return nil, errors.New("invalid authentication cookie length")
-		}
-
-		return cookie, nil
 	}
+
+	// Read the cookie from the file and ensure it has the correct length.
+	cookie, err := ioutil.ReadFile(cookieFilePath)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(cookie) != cookieLen {
+		return nil, errors.New("invalid authentication cookie length")
+	}
+
+	return cookie, nil
 }
 
 // computeHMAC256 computes the HMAC-SHA256 of a key and message.

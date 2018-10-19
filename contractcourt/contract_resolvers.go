@@ -5,9 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
-	"github.com/lightningnetwork/lnd/sweep"
 	"io"
 	"io/ioutil"
+
+	"github.com/lightningnetwork/lnd/sweep"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
@@ -18,6 +19,12 @@ import (
 
 var (
 	endian = binary.BigEndian
+)
+
+const (
+	// sweepConfTarget is the default number of blocks that we'll use as a
+	// confirmation target when sweeping.
+	sweepConfTarget = 6
 )
 
 // ContractResolver is an interface which packages a state machine which is
@@ -446,19 +453,27 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 				"incoming+remote htlc confirmed", h,
 				h.payHash[:])
 
+			// Before we can craft out sweeping transaction, we
+			// need to create an input which contains all the items
+			// required to add this input to a sweeping transaction,
+			// and generate a witness.
 			input := sweep.MakeHtlcSucceedInput(
 				&h.htlcResolution.ClaimOutpoint,
 				&h.htlcResolution.SweepSignDesc,
 				h.htlcResolution.Preimage[:],
 			)
 
+			// With the input created, we can now generate the full
+			// sweep transaction, that we'll use to move these
+			// coins back into the backing wallet.
+			//
+			// TODO: Set tx lock time to current block height
+			// instead of zero. Will be taken care of once sweeper
+			// implementation is complete.
 			var err error
-
-			// TODO: Set tx lock time to current block height instead of
-			// zero. Will be taken care of once sweeper implementation is
-			// complete.
 			h.sweepTx, err = h.Sweeper.CreateSweepTx(
-				[]sweep.Input{&input}, 0)
+				[]sweep.Input{&input}, sweepConfTarget, 0,
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -1216,16 +1231,26 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	// If the sweep transaction isn't already generated, and the remote
 	// party broadcast the commitment transaction then we'll create it now.
 	case c.sweepTx == nil && !isLocalCommitTx:
+		// As we haven't already generated the sweeping transaction,
+		// we'll now craft an input with all the information required
+		// to create a fully valid sweeping transaction to recover
+		// these coins.
 		input := sweep.MakeBaseInput(
 			&c.commitResolution.SelfOutPoint,
 			lnwallet.CommitmentNoDelay,
-			&c.commitResolution.SelfOutputSignDesc)
+			&c.commitResolution.SelfOutputSignDesc,
+		)
 
+		// With out input constructed, we'll now request that the
+		// sweeper construct a valid sweeping transaction for this
+		// input.
+		//
 		// TODO: Set tx lock time to current block height instead of
 		// zero. Will be taken care of once sweeper implementation is
 		// complete.
 		c.sweepTx, err = c.Sweeper.CreateSweepTx(
-			[]sweep.Input{&input}, 0)
+			[]sweep.Input{&input}, sweepConfTarget, 0,
+		)
 		if err != nil {
 			return nil, err
 		}

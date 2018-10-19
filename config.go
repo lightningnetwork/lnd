@@ -57,6 +57,7 @@ const (
 	defaultTorDNSHost              = "soa.nodes.lightning.directory"
 	defaultTorDNSPort              = 53
 	defaultTorControlPort          = 9051
+	defaultTorControlPassword      = ""
 	defaultTorV2PrivateKeyFilename = "v2_onion_private_key"
 	defaultTorV3PrivateKeyFilename = "v3_onion_private_key"
 
@@ -154,6 +155,7 @@ type torConfig struct {
 	DNS             string `long:"dns" description:"The DNS server as host:port that Tor will use for SRV queries - NOTE must have TCP resolution enabled"`
 	StreamIsolation bool   `long:"streamisolation" description:"Enable Tor stream isolation by randomizing user credentials for each connection."`
 	Control         string `long:"control" description:"The host:port that Tor is listening on for Tor control connections"`
+	ControlPassword string `long:"controlpassword" default-mask:"-" description:"Password for Tor HashedControlPassword authentication"`
 	V2              bool   `long:"v2" description:"Automatically set up a v2 onion service to listen for inbound connections"`
 	V3              bool   `long:"v3" description:"Automatically set up a v3 onion service to listen for inbound connections"`
 	PrivateKeyPath  string `long:"privatekeypath" description:"The path to the private key of the onion service being created"`
@@ -305,9 +307,10 @@ func loadConfig() (*config, error) {
 		Color:               defaultColor,
 		MinChanSize:         int64(minChanFundingSize),
 		Tor: &torConfig{
-			SOCKS:   defaultTorSOCKS,
-			DNS:     defaultTorDNS,
-			Control: defaultTorControl,
+			SOCKS:           defaultTorSOCKS,
+			DNS:             defaultTorDNS,
+			Control:         defaultTorControl,
+			ControlPassword: defaultTorControlPassword,
 		},
 		net: &tor.ClearNet{},
 	}

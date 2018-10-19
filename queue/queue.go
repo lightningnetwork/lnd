@@ -16,11 +16,11 @@ type ConcurrentQueue struct {
 	overflow *list.List
 }
 
-// NewConcurrentQueue constructs a ConcurrentQueue. The bufferSize parameter is
+// New constructs a new ConcurrentQueue instance. The bufferSize parameter is
 // the capacity of the output channel. When the size of the queue is below this
 // threshold, pushes do not incur the overhead of the less efficient overflow
 // structure.
-func NewConcurrentQueue(bufferSize int) *ConcurrentQueue {
+func New(bufferSize int) *ConcurrentQueue {
 	return &ConcurrentQueue{
 		chanIn:   make(chan interface{}),
 		chanOut:  make(chan interface{}, bufferSize),
@@ -46,16 +46,21 @@ func (cq *ConcurrentQueue) ChanOut() <-chan interface{} {
 func (cq *ConcurrentQueue) Start() {
 	go func() {
 		for {
+			// Overflow queue is empty so incoming items can be
+			// pushed directly to the output channel. If output
+			// channel is full though, push to overflow.
 			nextElement := cq.overflow.Front()
 			if nextElement == nil {
-				// Overflow queue is empty so incoming items can be pushed
-				// directly to the output channel. If output channel is full
-				// though, push to overflow.
 				select {
 				case item := <-cq.chanIn:
 					select {
+					// Optimistically push directly to
+					// chanOut if we can.
 					case cq.chanOut <- item:
-						// Optimistically push directly to chanOut
+
+					// Otherwise, add it to the overflow
+					// queue, to be emptied in the
+					// subsequent loop iterations.
 					default:
 						cq.overflow.PushBack(item)
 					}
@@ -63,13 +68,16 @@ func (cq *ConcurrentQueue) Start() {
 					return
 				}
 			} else {
-				// Overflow queue is not empty, so any new items get pushed to
-				// the back to preserve order.
+				// Overflow queue is not empty, so any new
+				// items get pushed to the back to preserve
+				// order.
 				select {
 				case item := <-cq.chanIn:
 					cq.overflow.PushBack(item)
+
 				case cq.chanOut <- nextElement.Value:
 					cq.overflow.Remove(nextElement)
+
 				case <-cq.quit:
 					return
 				}

@@ -304,6 +304,8 @@ func (c *Controller) getAuthCookie() ([]byte, error) {
 			"a supplied controlPassword, but the Tor server is " +
 			"currently not configured for hashed password " +
 			"authentication")
+	} else if len(c.controlPass) > 0 {
+		return nil, nil
 	} else if !safeCookieSupport  {
 		return nil, errors.New("the Tor server is currently not " +
 			"configured for cookie authentication")
@@ -321,7 +323,6 @@ func (c *Controller) getAuthCookie() ([]byte, error) {
 
 		return cookie, nil
 	}
-	return nil, nil
 }
 
 // computeHMAC256 computes the HMAC-SHA256 of a key and message.

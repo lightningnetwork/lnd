@@ -52,7 +52,7 @@ var (
 
 // Controller is an implementation of the Tor Control protocol. This is used in
 // order to communicate with a Tor server. Its only supported methods of
-// authentication are the SAFECOOKIE and ControlPassword methods.
+// authentication are the SAFECOOKIE and HASHEDPASSWORD methods.
 //
 // NOTE: The connection to the Tor server must be authenticated before
 // proceeding to send commands. Otherwise, the connection will be closed.
@@ -169,7 +169,6 @@ func parseTorReply(reply string) map[string]string {
 // authenticate authenticates the connection between the controller and the
 // Tor server using the SAFECOOKIE authentication method.
 func (c *Controller) authenticate() error {
-
 	// Before proceeding to authenticate the connection, we'll retrieve
 	// the authentication cookie of the Tor server. This will be used
 	// throughout the authentication routine. We do this before as once the

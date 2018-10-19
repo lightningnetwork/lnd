@@ -79,7 +79,7 @@ type Controller struct {
 	// controller connections on.
 	controlAddr string
 
-	// controlPass is the password used to authenticate to the tor control 
+	// controlPass is the password used to authenticate to the tor control
 	// port, if provided
 	controlPass string
 
@@ -286,7 +286,7 @@ func (c *Controller) getAuthCookie() ([]byte, error) {
 	// used later on.
 	c.version = version
 
-	// Ensure that the Tor server supports the SAFECOOKIE or HASHEDPASSWORD 
+	// Ensure that the Tor server supports the SAFECOOKIE or HASHEDPASSWORD
 	// authentication method.
 	hashedPasswordSupport := false
 	safeCookieSupport := false
@@ -305,7 +305,7 @@ func (c *Controller) getAuthCookie() ([]byte, error) {
 			"authentication")
 	} else if len(c.controlPass) > 0 {
 		return nil, nil
-	} else if !safeCookieSupport  {
+	} else if !safeCookieSupport {
 		return nil, errors.New("the Tor server is currently not " +
 			"configured for cookie authentication")
 	}

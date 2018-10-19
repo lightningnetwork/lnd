@@ -4805,6 +4805,16 @@ func TestChannelUnilateralClosePendingCommit(t *testing.T) {
 		t.Fatalf("unable to find alice's commit resolution")
 	}
 
+	// The proper short channel ID should also be set in Alice's close
+	// channel summary.
+	if aliceCloseSummary.ChannelCloseSummary.ShortChanID !=
+		aliceChannel.ShortChanID() {
+
+		t.Fatalf("wrong short chan ID, expected %v got %v",
+			aliceChannel.ShortChanID(),
+			aliceCloseSummary.ChannelCloseSummary.ShortChanID)
+	}
+
 	aliceSignDesc := aliceCloseSummary.CommitResolution.SelfOutputSignDesc
 
 	// Finally, we'll ensure that we're able to properly sweep our output

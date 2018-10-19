@@ -249,12 +249,7 @@ service Lightning {
     /** lncli: `newaddress`
     NewAddress creates a new address under control of the local wallet.
     */
-    rpc NewAddress (NewAddressRequest) returns (NewAddressResponse);
-
-    /**
-    NewWitnessAddress creates a new witness address under control of the local wallet.
-    */
-    rpc NewWitnessAddress (NewWitnessAddressRequest) returns (NewAddressResponse) {
+    rpc NewAddress (NewAddressRequest) returns (NewAddressResponse) {
         option (google.api.http) = {
             get: "/v1/newaddress"
         };
@@ -389,6 +384,19 @@ service Lightning {
         };
     }
 
+    /** lncli: `abandonchannel`
+    AbandonChannel removes all channel state from the database except for a
+    close summary. This method can be used to get rid of permanently unusable
+    channels due to bugs fixed in newer versions of lnd. Only available
+    when in debug builds of lnd.
+    */
+    rpc AbandonChannel (AbandonChannelRequest) returns (AbandonChannelResponse) {
+        option (google.api.http) = {
+            delete: "/v1/channels/{channel_point.funding_txid_str}/{channel_point.output_index}"
+        };
+    }
+
+
     /** lncli: `sendpayment`
     SendPayment dispatches a bi-directional streaming RPC for sending payments
     through the Lightning Network. A single RPC invocation creates a persistent
@@ -470,7 +478,7 @@ service Lightning {
     }
 
     /**
-    SubscribeInvoices returns a uni-directional stream (sever -> client) for
+    SubscribeInvoices returns a uni-directional stream (server -> client) for
     notifying the client of newly added/settled invoices. The caller can
     optionally specify the add_index and/or the settle_index. If the add_index
     is specified, then we'll first start by sending add invoice events for all
@@ -643,7 +651,7 @@ message Transaction {
     /// The transaction hash
     string tx_hash = 1 [ json_name = "tx_hash" ];
 
-    /// The transaction ammount, denominated in satoshis
+    /// The transaction amount, denominated in satoshis
     int64 amount = 2 [ json_name = "amount" ];
 
     /// The number of confirmations
@@ -794,7 +802,6 @@ message SendCoinsResponse {
 
 - `p2wkh`: Pay to witness key hash (`WITNESS_PUBKEY_HASH` = 0)
 - `np2wkh`: Pay to nested witness key hash (`NESTED_PUBKEY_HASH` = 1)
-- `p2pkh`:  Pay to public key hash (`PUBKEY_HASH` = 2)
 */
 message NewAddressRequest {
     enum AddressType {
@@ -805,10 +812,6 @@ message NewAddressRequest {
     /// The address type
     AddressType type = 1;
 }
-
-message NewWitnessAddressRequest {
-}
-
 message NewAddressResponse {
     /// The newly generated wallet address
     string address = 1 [json_name = "address"];
@@ -991,6 +994,7 @@ message ChannelCloseSummary {
         REMOTE_FORCE_CLOSE = 2;
         BREACH_CLOSE = 3;
         FUNDING_CANCELED = 4;
+        ABANDONED = 5;
     }
 
     /// Details on how the channel was closed.
@@ -1003,6 +1007,7 @@ message ClosedChannelsRequest {
     bool remote_force = 3;
     bool breach = 4;
     bool funding_canceled = 5;
+    bool abandoned = 6;
 }
 
 message ClosedChannelsResponse { 
@@ -1483,6 +1488,12 @@ message ChannelEdge {
 }
 
 message ChannelGraphRequest {
+     /**
+     Whether unannounced channels are included in the response or not. If set,
+     unannounced channels are included. Unannounced channels are both private
+     channels, and public channels that are not yet announced to the network.
+     */
+     bool include_unannounced = 1 [json_name = "include_unannounced"];
 }
 
 /// Returns a new instance of the directed channel graph.
@@ -1790,8 +1801,8 @@ message Payment {
     /// The payment hash
     string payment_hash = 1 [json_name = "payment_hash"];
 
-    /// The value of the payment in satoshis
-    int64 value = 2 [json_name = "value"];
+    /// Deprecated, use value_sat or value_msat.
+    int64 value = 2 [json_name = "value", deprecated = true];
 
     /// The date of this payment
     int64 creation_date = 3 [json_name = "creation_date"];
@@ -1804,6 +1815,12 @@ message Payment {
 
     /// The payment preimage
     string payment_preimage = 6 [json_name = "payment_preimage"];
+
+    /// The value of the payment in satoshis
+    int64 value_sat = 7 [json_name = "value_sat"];
+
+    /// The value of the payment in milli-satoshis
+    int64 value_msat = 8 [json_name = "value_msat"];
 }
 
 message ListPaymentsRequest {
@@ -1819,6 +1836,14 @@ message DeleteAllPaymentsRequest {
 
 message DeleteAllPaymentsResponse {
 }
+
+message AbandonChannelRequest {
+    ChannelPoint channel_point = 1;
+}
+
+message AbandonChannelResponse {
+}
+
 
 message DebugLevelRequest {
     bool show = 1;

@@ -15,6 +15,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/lightningnetwork/lnd/sweep"
+
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/connmgr"
@@ -432,7 +434,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	// If we were requested to route connections through Tor and to
 	// automatically create an onion service, we'll initiate our Tor
 	// controller and establish a connection to the Tor server.
-	if cfg.Tor.Active {
+	if cfg.Tor.Active && (cfg.Tor.V2 || cfg.Tor.V3) {
 		s.torController = tor.NewController(cfg.Tor.Control)
 	}
 
@@ -581,18 +583,24 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		return nil, err
 	}
 
-	s.utxoNursery = newUtxoNursery(&NurseryConfig{
-		ChainIO:   cc.chainIO,
-		ConfDepth: 1,
-		DB:        chanDB,
+	sweeper := sweep.New(&sweep.UtxoSweeperConfig{
 		Estimator: cc.feeEstimator,
 		GenSweepScript: func() ([]byte, error) {
 			return newSweepPkScript(cc.wallet)
 		},
-		Notifier:           cc.chainNotifier,
-		PublishTransaction: cc.wallet.PublishTransaction,
-		Signer:             cc.wallet.Cfg.Signer,
-		Store:              utxnStore,
+		Signer: cc.wallet.Cfg.Signer,
+	})
+
+	s.utxoNursery = newUtxoNursery(&NurseryConfig{
+		ChainIO:             cc.chainIO,
+		ConfDepth:           1,
+		SweepTxConfTarget:   6,
+		FetchClosedChannels: chanDB.FetchClosedChannels,
+		FetchClosedChannel:  chanDB.FetchClosedChannel,
+		Notifier:            cc.chainNotifier,
+		PublishTransaction:  cc.wallet.PublishTransaction,
+		Store:               utxnStore,
+		Sweeper:             sweeper,
 	})
 
 	// Construct a closure that wraps the htlcswitch's CloseLink method.
@@ -628,7 +636,8 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		IncubateOutputs: func(chanPoint wire.OutPoint,
 			commitRes *lnwallet.CommitOutputResolution,
 			outHtlcRes *lnwallet.OutgoingHtlcResolution,
-			inHtlcRes *lnwallet.IncomingHtlcResolution) error {
+			inHtlcRes *lnwallet.IncomingHtlcResolution,
+			broadcastHeight uint32) error {
 
 			var (
 				inRes  []lnwallet.IncomingHtlcResolution
@@ -643,6 +652,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 
 			return s.utxoNursery.IncubateOutputs(
 				chanPoint, commitRes, outRes, inRes,
+				broadcastHeight,
 			)
 		},
 		PreimageDB:   s.witnessBeacon,
@@ -655,10 +665,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 			s.htlcSwitch.RemoveLink(chanID)
 			return nil
 		},
-		IsOurAddress: func(addr btcutil.Address) bool {
-			_, err := cc.wallet.GetPrivKey(addr)
-			return err == nil
-		},
+		IsOurAddress: cc.wallet.IsOurAddress,
 		ContractBreach: func(chanPoint wire.OutPoint,
 			breachRet *lnwallet.BreachRetribution) error {
 			event := &ContractBreachEvent{
@@ -685,6 +692,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		DisableChannel: func(op wire.OutPoint) error {
 			return s.announceChanStatus(op, true)
 		},
+		Sweeper: sweeper,
 	}, chanDB)
 
 	s.breachArbiter = newBreachArbiter(&BreachConfig{
@@ -743,7 +751,9 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		},
 		NotifyWhenOnline: s.NotifyWhenOnline,
 		TempChanIDSeed:   chanIDSeed,
-		FindChannel: func(chanID lnwire.ChannelID) (*lnwallet.LightningChannel, error) {
+		FindChannel: func(chanID lnwire.ChannelID) (
+			*channeldb.OpenChannel, error) {
+
 			dbChannels, err := chanDB.FetchAllChannels()
 			if err != nil {
 				return nil, err
@@ -751,10 +761,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 
 			for _, channel := range dbChannels {
 				if chanID.IsChanPoint(&channel.FundingOutpoint) {
-					return lnwallet.NewLightningChannel(
-						cc.signer, s.witnessBeacon,
-						channel,
-					)
+					return channel, nil
 				}
 			}
 
@@ -1050,7 +1057,7 @@ func (s *server) Stopped() bool {
 	return atomic.LoadInt32(&s.shutdown) != 0
 }
 
-// configurePortForwarding attempts to set up port forwarding for the diffrent
+// configurePortForwarding attempts to set up port forwarding for the different
 // ports that the server will be listening on.
 //
 // NOTE: This should only be used when using some kind of NAT traversal to
@@ -1091,7 +1098,7 @@ func (s *server) removePortForwarding() {
 	}
 }
 
-// watchExternalIP continously checks for an updated external IP address every
+// watchExternalIP continuously checks for an updated external IP address every
 // 15 minutes. Once a new IP address has been detected, it will automatically
 // handle port forwarding rules and send updated node announcements to the
 // currently connected peers.
@@ -1162,7 +1169,7 @@ out:
 			}
 
 			// Now, we'll need to update the addresses in our node's
-			// announcement in order to propogate the update
+			// announcement in order to propagate the update
 			// throughout the network. We'll only include addresses
 			// that have a different IP from the previous one, as
 			// the previous IP is no longer valid.
@@ -2338,7 +2345,7 @@ func (s *server) peerInitializer(p *peer) {
 	s.wg.Add(1)
 	go s.peerTerminationWatcher(p, ready)
 
-	// Start teh peer! If an error occurs, we Disconnect the peer, which
+	// Start the peer! If an error occurs, we Disconnect the peer, which
 	// will unblock the peerTerminationWatcher.
 	if err := p.Start(); err != nil {
 		p.Disconnect(fmt.Errorf("unable to start peer: %v", err))
@@ -2845,8 +2852,6 @@ func (s *server) announceChanStatus(op wire.OutPoint, disabled bool) error {
 		return nil
 	}
 
-	srvrLog.Debugf("Announcing channel(%v) disabled=%v", op, disabled)
-
 	// Retrieve the latest update for this channel. We'll use this
 	// as our starting point to send the new update.
 	chanUpdate, err := s.fetchLastChanUpdateByOutPoint(op)
@@ -2885,6 +2890,8 @@ func (s *server) announceChanStatus(op wire.OutPoint, disabled bool) error {
 	if err != nil {
 		return err
 	}
+
+	srvrLog.Debugf("Announcing channel(%v) disabled=%v", op, disabled)
 
 	// Once signed, we'll send the new update to all of our peers.
 	if err := s.applyChannelUpdate(chanUpdate); err != nil {
@@ -3051,8 +3058,8 @@ func (s *server) watchChannelStatus() {
 			newStatus := make(map[wire.OutPoint]activeStatus)
 			for _, c := range channels {
 				// We'll skip any private channels, as they
-				// aren't used for routing within the network
-				// by other nodes.
+				// aren't used for routing within the network by
+				// other nodes.
 				if c.ChannelFlags&lnwire.FFAnnounceChannel == 0 {
 					continue
 				}
@@ -3111,10 +3118,12 @@ func (s *server) watchChannelStatus() {
 					delete(status, op)
 
 					err = s.announceChanStatus(op, disable)
-					if err != nil {
+					if err != nil &&
+						err != channeldb.ErrEdgeNotFound {
+
 						srvrLog.Errorf("Unable to "+
-							"disable channel: %v",
-							err)
+							"disable channel %v: %v",
+							op, err)
 					}
 				}
 			}

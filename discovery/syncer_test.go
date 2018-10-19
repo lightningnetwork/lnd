@@ -204,7 +204,7 @@ func TestGossipSyncerFilterGossipMsgsAllInMemory(t *testing.T) {
 	// through the gossiper to the target peer. Our message will consist of
 	// one node announcement above the horizon, one below. Additionally,
 	// we'll include a chan ann with an update below the horizon, one
-	// with an update timestmap above the horizon, and one without any
+	// with an update timestamp above the horizon, and one without any
 	// channel updates at all.
 	msgs := []msgWithSenders{
 		{

@@ -1477,7 +1477,8 @@ func (m *mockPeer) SendMessage(sync bool, msgs ...lnwire.Message) error {
 	}
 	return nil
 }
-func (m *mockPeer) AddNewChannel(_ *lnwallet.LightningChannel, _ <-chan struct{}) error {
+func (m *mockPeer) AddNewChannel(_ *channeldb.OpenChannel,
+	_ <-chan struct{}) error {
 	return nil
 }
 func (m *mockPeer) WipeChannel(*wire.OutPoint) error {
@@ -2856,7 +2857,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	assertLinkBandwidth(t, alice.link, aliceStartingBandwidth)
 
 	// Now, try to commit the last two payment circuits, which are unused
-	// thus far. These should succeed without hestiation.
+	// thus far. These should succeed without hesitation.
 	fwdActions = alice.commitCircuits(circuits[halfHtlcs:])
 	if len(fwdActions.Adds) != halfHtlcs {
 		t.Fatalf("expected %d packets to be added", halfHtlcs)
@@ -4528,7 +4529,7 @@ func TestChannelLinkCleanupSpuriousResponses(t *testing.T) {
 	// We start with he following scenario: Bob sends Alice two HTLCs, and a
 	// commitment dance ensures, leaving two HTLCs that Alice can respond
 	// to. Since Alice is in ExitSettle mode, we will then take over and
-	// provide targetted fail messages to test the link's ability to cleanup
+	// provide targeted fail messages to test the link's ability to cleanup
 	// spurious responses.
 	//
 	//  Bob               Alice
@@ -5117,4 +5118,78 @@ func TestForwardingAsymmetricTimeLockPolicies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
+}
+
+// TestHtlcSatisfyPolicy tests that a link is properly enforcing the HTLC
+// forwarding policy.
+func TestHtlcSatisfyPolicy(t *testing.T) {
+
+	fetchLastChannelUpdate := func(lnwire.ShortChannelID) (
+		*lnwire.ChannelUpdate, error) {
+
+		return &lnwire.ChannelUpdate{}, nil
+	}
+
+	link := channelLink{
+		cfg: ChannelLinkConfig{
+			FwrdingPolicy: ForwardingPolicy{
+				TimeLockDelta: 20,
+				MinHTLC:       500,
+				BaseFee:       10,
+			},
+			FetchLastChannelUpdate: fetchLastChannelUpdate,
+		},
+	}
+
+	var hash [32]byte
+
+	t.Run("satisfied", func(t *testing.T) {
+		result := link.HtlcSatifiesPolicy(hash, 1500, 1000,
+			200, 150, 0)
+		if result != nil {
+			t.Fatalf("expected policy to be satisfied")
+		}
+	})
+
+	t.Run("below minhtlc", func(t *testing.T) {
+		result := link.HtlcSatifiesPolicy(hash, 100, 50,
+			200, 150, 0)
+		if _, ok := result.(*lnwire.FailAmountBelowMinimum); !ok {
+			t.Fatalf("expected FailAmountBelowMinimum failure code")
+		}
+	})
+
+	t.Run("insufficient fee", func(t *testing.T) {
+		result := link.HtlcSatifiesPolicy(hash, 1005, 1000,
+			200, 150, 0)
+		if _, ok := result.(*lnwire.FailFeeInsufficient); !ok {
+			t.Fatalf("expected FailFeeInsufficient failure code")
+		}
+	})
+
+	t.Run("expiry too soon", func(t *testing.T) {
+		result := link.HtlcSatifiesPolicy(hash, 1500, 1000,
+			200, 150, 190)
+		if _, ok := result.(*lnwire.FailExpiryTooSoon); !ok {
+			t.Fatalf("expected FailExpiryTooSoon failure code")
+		}
+	})
+
+	t.Run("incorrect cltv expiry", func(t *testing.T) {
+		result := link.HtlcSatifiesPolicy(hash, 1500, 1000,
+			200, 190, 0)
+		if _, ok := result.(*lnwire.FailIncorrectCltvExpiry); !ok {
+			t.Fatalf("expected FailIncorrectCltvExpiry failure code")
+		}
+
+	})
+
+	t.Run("cltv expiry too far in the future", func(t *testing.T) {
+		// Check that expiry isn't too far in the future.
+		result := link.HtlcSatifiesPolicy(hash, 1500, 1000,
+			10200, 10100, 0)
+		if _, ok := result.(*lnwire.FailExpiryTooFar); !ok {
+			t.Fatalf("expected FailExpiryTooFar failure code")
+		}
+	})
 }

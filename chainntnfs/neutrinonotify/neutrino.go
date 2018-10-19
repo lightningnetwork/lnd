@@ -18,6 +18,7 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/queue"
 )
 
 const (
@@ -75,7 +76,7 @@ type NeutrinoNotifier struct {
 
 	rescanErr <-chan error
 
-	chainUpdates *chainntnfs.ConcurrentQueue
+	chainUpdates *queue.ConcurrentQueue
 
 	// spendHintCache is a cache used to query and update the latest height
 	// hints for an outpoint. Each height hint represents the earliest
@@ -114,7 +115,7 @@ func New(node *neutrino.ChainService, spendHintCache chainntnfs.SpendHintCache,
 
 		rescanErr: make(chan error),
 
-		chainUpdates: chainntnfs.NewConcurrentQueue(10),
+		chainUpdates: queue.NewConcurrentQueue(10),
 
 		spendHintCache:   spendHintCache,
 		confirmHintCache: confirmHintCache,
@@ -137,15 +138,12 @@ func (n *NeutrinoNotifier) Start() error {
 	// start the auto-rescan from this point. Once a caller actually wishes
 	// to register a chain view, the rescan state will be rewound
 	// accordingly.
-	bestHeader, bestHeight, err := n.p2pNode.BlockHeaders.ChainTip()
+	startingPoint, err := n.p2pNode.BestBlock()
 	if err != nil {
 		return err
 	}
-	startingPoint := &waddrmgr.BlockStamp{
-		Height: int32(bestHeight),
-		Hash:   bestHeader.BlockHash(),
-	}
-	n.bestHeight = bestHeight
+
+	n.bestHeight = uint32(startingPoint.Height)
 
 	// Next, we'll create our set of rescan options. Currently it's
 	// required that a user MUST set an addr/outpoint/txid when creating a
@@ -165,7 +163,7 @@ func (n *NeutrinoNotifier) Start() error {
 	}
 
 	n.txConfNotifier = chainntnfs.NewTxConfNotifier(
-		bestHeight, reorgSafetyLimit, n.confirmHintCache,
+		n.bestHeight, reorgSafetyLimit, n.confirmHintCache,
 	)
 
 	n.chainConn = &NeutrinoChainConn{n.p2pNode}
@@ -476,20 +474,17 @@ out:
 					"blocks, attempting to catch up")
 			}
 
-			header, err := n.p2pNode.BlockHeaders.FetchHeaderByHeight(
-				n.bestHeight,
-			)
+			hash, err := n.p2pNode.GetBlockHash(int64(n.bestHeight))
 			if err != nil {
-				chainntnfs.Log.Errorf("Unable to fetch header"+
+				chainntnfs.Log.Errorf("Unable to fetch block hash"+
 					"for height %d: %v", n.bestHeight, err)
 				n.heightMtx.Unlock()
 				continue
 			}
 
-			hash := header.BlockHash()
 			notifierBestBlock := chainntnfs.BlockEpoch{
 				Height: int32(n.bestHeight),
-				Hash:   &hash,
+				Hash:   hash,
 			}
 			newBestBlock, err := chainntnfs.RewindChain(
 				n.chainConn, n.txConfNotifier, notifierBestBlock,
@@ -536,17 +531,16 @@ func (n *NeutrinoNotifier) historicalConfDetails(targetHash *chainhash.Hash,
 
 		// First, we'll fetch the block header for this height so we
 		// can compute the current block hash.
-		header, err := n.p2pNode.BlockHeaders.FetchHeaderByHeight(scanHeight)
+		blockHash, err := n.p2pNode.GetBlockHash(int64(scanHeight))
 		if err != nil {
 			return nil, fmt.Errorf("unable to get header for height=%v: %v",
 				scanHeight, err)
 		}
-		blockHash := header.BlockHash()
 
 		// With the hash computed, we can now fetch the basic filter
 		// for this height.
 		regFilter, err := n.p2pNode.GetCFilter(
-			blockHash, wire.GCSFilterRegular,
+			*blockHash, wire.GCSFilterRegular,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to retrieve regular filter for "+
@@ -562,7 +556,7 @@ func (n *NeutrinoNotifier) historicalConfDetails(targetHash *chainhash.Hash,
 
 		// In the case that the filter exists, we'll attempt to see if
 		// any element in it matches our target public key script.
-		key := builder.DeriveKey(&blockHash)
+		key := builder.DeriveKey(blockHash)
 		match, err := regFilter.Match(key, pkScript)
 		if err != nil {
 			return nil, fmt.Errorf("unable to query filter: %v", err)
@@ -577,7 +571,7 @@ func (n *NeutrinoNotifier) historicalConfDetails(targetHash *chainhash.Hash,
 		// In the case that we do have a match, we'll fetch the block
 		// from the network so we can find the positional data required
 		// to send the proper response.
-		block, err := n.p2pNode.GetBlock(blockHash)
+		block, err := n.p2pNode.GetBlock(*blockHash)
 		if err != nil {
 			return nil, fmt.Errorf("unable to get block from network: %v", err)
 		}
@@ -585,7 +579,7 @@ func (n *NeutrinoNotifier) historicalConfDetails(targetHash *chainhash.Hash,
 			txHash := tx.Hash()
 			if txHash.IsEqual(targetHash) {
 				confDetails := chainntnfs.TxConfirmation{
-					BlockHash:   &blockHash,
+					BlockHash:   blockHash,
 					BlockHeight: scanHeight,
 					TxIndex:     uint32(j),
 				}
@@ -614,13 +608,16 @@ func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 	chainntnfs.Log.Infof("New block: height=%v, sha=%v", newBlock.height,
 		newBlock.hash)
 
-	n.bestHeight = newBlock.height
+	// Create a helper struct for coalescing spend notifications triggered
+	// by this block.
+	type spendNtfnBatch struct {
+		details *chainntnfs.SpendDetail
+		clients map[uint64]*spendNotification
+	}
 
-	// Next, notify any subscribed clients of the block.
-	n.notifyBlockEpochs(int32(newBlock.height), &newBlock.hash)
-
-	// Scan over the list of relevant transactions and possibly dispatch
-	// notifications for spends.
+	// Scan over the list of relevant transactions and assemble the
+	// possible spend notifications we need to dispatch.
+	spendBatches := make(map[wire.OutPoint]spendNtfnBatch)
 	for _, tx := range newBlock.txns {
 		mtx := tx.MsgTx()
 		txSha := mtx.TxHash()
@@ -630,12 +627,13 @@ func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 
 			// If this transaction indeed does spend an output which
 			// we have a registered notification for, then create a
-			// spend summary, finally sending off the details to the
-			// notification subscriber.
+			// spend summary and add it to our batch of spend
+			// notifications to be delivered.
 			clients, ok := n.spendNotifications[prevOut]
 			if !ok {
 				continue
 			}
+			delete(n.spendNotifications, prevOut)
 
 			spendDetails := &chainntnfs.SpendDetail{
 				SpentOutPoint:     &prevOut,
@@ -645,25 +643,15 @@ func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 				SpendingHeight:    int32(newBlock.height),
 			}
 
-			for _, ntfn := range clients {
-				chainntnfs.Log.Infof("Dispatching spend "+
-					"notification for outpoint=%v",
-					ntfn.targetOutpoint)
-
-				ntfn.spendChan <- spendDetails
-
-				// Close spendChan to ensure that any calls to
-				// Cancel will not block. This is safe to do
-				// since the channel is buffered, and the
-				// message can still be read by the receiver.
-				close(ntfn.spendChan)
+			spendBatches[prevOut] = spendNtfnBatch{
+				details: spendDetails,
+				clients: clients,
 			}
 
-			delete(n.spendNotifications, prevOut)
 		}
 	}
 
-	// Finally, we'll update the spend height hint for all of our watched
+	// Now, we'll update the spend height hint for all of our watched
 	// outpoints that have not been spent yet. This is safe to do as we do
 	// not watch already spent outpoints for spend notifications.
 	ops := make([]wire.OutPoint, 0, len(n.spendNotifications))
@@ -674,10 +662,37 @@ func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 	if len(ops) > 0 {
 		err := n.spendHintCache.CommitSpendHint(newBlock.height, ops...)
 		if err != nil {
-			// The error is not fatal, so we should not return an
-			// error to the caller.
+			// The error is not fatal since we are connecting a
+			// block, and advancing the spend hint is an optimistic
+			// optimization.
 			chainntnfs.Log.Errorf("Unable to update spend hint to "+
 				"%d for %v: %v", newBlock.height, ops, err)
+		}
+	}
+
+	// We want to set the best block before dispatching notifications
+	// so if any subscribers make queries based on their received
+	// block epoch, our state is fully updated in time.
+	n.bestHeight = newBlock.height
+
+	// With all persistent changes committed, notify any subscribed clients
+	// of the block.
+	n.notifyBlockEpochs(int32(newBlock.height), &newBlock.hash)
+
+	// Finally, send off the spend details to the notification subscribers.
+	for _, batch := range spendBatches {
+		for _, ntfn := range batch.clients {
+			chainntnfs.Log.Infof("Dispatching spend "+
+				"notification for outpoint=%v",
+				ntfn.targetOutpoint)
+
+			ntfn.spendChan <- batch.details
+
+			// Close spendChan to ensure that any calls to
+			// Cancel will not block. This is safe to do
+			// since the channel is buffered, and the
+			// message can still be read by the receiver.
+			close(ntfn.spendChan)
 		}
 	}
 
@@ -810,11 +825,11 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	}
 
 	// Ensure that neutrino is caught up to the height hint before we
-	// attempt to fetch the utxo fromt the chain. If we're behind, then we
+	// attempt to fetch the utxo from the chain. If we're behind, then we
 	// may miss a notification dispatch.
 	for {
 		n.heightMtx.RLock()
-		currentHeight := n.bestHeight
+		currentHeight = n.bestHeight
 		n.heightMtx.RUnlock()
 
 		if currentHeight < heightHint {
@@ -954,7 +969,7 @@ type blockEpochRegistration struct {
 
 	epochChan chan *chainntnfs.BlockEpoch
 
-	epochQueue *chainntnfs.ConcurrentQueue
+	epochQueue *queue.ConcurrentQueue
 
 	cancelChan chan struct{}
 
@@ -979,7 +994,7 @@ func (n *NeutrinoNotifier) RegisterBlockEpochNtfn(
 	bestBlock *chainntnfs.BlockEpoch) (*chainntnfs.BlockEpochEvent, error) {
 
 	reg := &blockEpochRegistration{
-		epochQueue: chainntnfs.NewConcurrentQueue(20),
+		epochQueue: queue.NewConcurrentQueue(20),
 		epochChan:  make(chan *chainntnfs.BlockEpoch, 20),
 		cancelChan: make(chan struct{}),
 		epochID:    atomic.AddUint64(&n.epochClientCounter, 1),
@@ -1064,11 +1079,7 @@ type NeutrinoChainConn struct {
 
 // GetBlockHeader returns the block header for a hash.
 func (n *NeutrinoChainConn) GetBlockHeader(blockHash *chainhash.Hash) (*wire.BlockHeader, error) {
-	header, _, err := n.p2pNode.BlockHeaders.FetchHeader(blockHash)
-	if err != nil {
-		return nil, err
-	}
-	return header, nil
+	return n.p2pNode.GetBlockHeader(blockHash)
 }
 
 // GetBlockHeaderVerbose returns a verbose block header result for a hash. This
@@ -1076,7 +1087,7 @@ func (n *NeutrinoChainConn) GetBlockHeader(blockHash *chainhash.Hash) (*wire.Blo
 func (n *NeutrinoChainConn) GetBlockHeaderVerbose(blockHash *chainhash.Hash) (
 	*btcjson.GetBlockHeaderVerboseResult, error) {
 
-	_, height, err := n.p2pNode.BlockHeaders.FetchHeader(blockHash)
+	height, err := n.p2pNode.GetBlockHeight(blockHash)
 	if err != nil {
 		return nil, err
 	}
@@ -1086,10 +1097,5 @@ func (n *NeutrinoChainConn) GetBlockHeaderVerbose(blockHash *chainhash.Hash) (
 
 // GetBlockHash returns the hash from a block height.
 func (n *NeutrinoChainConn) GetBlockHash(blockHeight int64) (*chainhash.Hash, error) {
-	header, err := n.p2pNode.BlockHeaders.FetchHeaderByHeight(uint32(blockHeight))
-	if err != nil {
-		return nil, err
-	}
-	hash := header.BlockHash()
-	return &hash, nil
+	return n.p2pNode.GetBlockHash(blockHeight)
 }

@@ -870,7 +870,9 @@ func assertChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
 	advertisingNode string, expectedPolicy *lnrpc.RoutingPolicy,
 	chanPoints ...*lnrpc.ChannelPoint) {
 
-	descReq := &lnrpc.ChannelGraphRequest{}
+	descReq := &lnrpc.ChannelGraphRequest{
+		IncludeUnannounced: true,
+	}
 	chanGraph, err := node.DescribeGraph(context.Background(), descReq)
 	if err != nil {
 		t.Fatalf("unable to query for alice's graph: %v", err)
@@ -1496,7 +1498,9 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Alice should now have 1 edge in her graph.
-	req := &lnrpc.ChannelGraphRequest{}
+	req := &lnrpc.ChannelGraphRequest{
+		IncludeUnannounced: true,
+	}
 	chanGraph, err := net.Alice.DescribeGraph(ctxb, req)
 	if err != nil {
 		t.Fatalf("unable to query for alice's routing table: %v", err)
@@ -1538,7 +1542,9 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Since the fundingtx was reorged out, Alice should now have no edges
 	// in her graph.
-	req = &lnrpc.ChannelGraphRequest{}
+	req = &lnrpc.ChannelGraphRequest{
+		IncludeUnannounced: true,
+	}
 	chanGraph, err = net.Alice.DescribeGraph(ctxb, req)
 	if err != nil {
 		t.Fatalf("unable to query for alice's routing table: %v", err)
@@ -4122,6 +4128,116 @@ func testSendToRouteErrorPropagation(net *lntest.NetworkHarness, t *harnessTest)
 	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarol, false)
 }
 
+// testUnannouncedChannels checks unannounced channels are not returned by
+// describeGraph RPC request unless explicity asked for.
+func testUnannouncedChannels(net *lntest.NetworkHarness, t *harnessTest) {
+	timeout := time.Duration(time.Second * 5)
+	ctb := context.Background()
+	amount := maxBtcFundingAmount
+
+	// Open a channel between Alice and Bob, ensuring the
+	// channel has been opened properly.
+	ctx, _ := context.WithTimeout(ctb, timeout)
+	chanOpenUpdate, err := net.OpenChannel(
+		ctx, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt: amount,
+		},
+	)
+	if err != nil {
+		t.Fatalf("unable to open channel: %v", err)
+	}
+
+	// Mine 2 blocks, and check that the channel is opened but not yet
+	// announced to the network.
+	mineBlocks(t, net, 2)
+
+	// One block is enough to make the channel ready for use, since the
+	// nodes have defaultNumConfs=1 set.
+	ctx, _ = context.WithTimeout(ctb, timeout)
+	fundingChanPoint, err := net.WaitForChannelOpen(ctx, chanOpenUpdate)
+	if err != nil {
+		t.Fatalf("error while waiting for channel open: %v", err)
+	}
+
+	// Alice should have 1 edge in her graph.
+	req := &lnrpc.ChannelGraphRequest{
+		IncludeUnannounced: true,
+	}
+	ctx, _ = context.WithTimeout(ctb, timeout)
+	chanGraph, err := net.Alice.DescribeGraph(ctx, req)
+	if err != nil {
+		t.Fatalf("unable to query alice's graph: %v", err)
+	}
+
+	numEdges := len(chanGraph.Edges)
+	if numEdges != 1 {
+		t.Fatalf("expected to find 1 edge in the graph, found %d", numEdges)
+	}
+
+	// Channels should not be announced yet, hence Alice should have no
+	// announced edges in her graph.
+	req.IncludeUnannounced = false
+	ctx, _ = context.WithTimeout(ctb, timeout)
+	chanGraph, err = net.Alice.DescribeGraph(ctx, req)
+	if err != nil {
+		t.Fatalf("unable to query alice's graph: %v", err)
+	}
+
+	numEdges = len(chanGraph.Edges)
+	if numEdges != 0 {
+		t.Fatalf("expected to find 0 announced edges in the graph, found %d",
+			numEdges)
+	}
+
+	// Mine 4 more blocks, and check that the channel is now announced.
+	mineBlocks(t, net, 4)
+
+	// Give the network a chance to learn that auth proof is confirmed.
+	var predErr error
+	err = lntest.WaitPredicate(func() bool {
+		// The channel should now be announced. Check that Alice has 1
+		// announced edge.
+		req.IncludeUnannounced = false
+		ctx, _ = context.WithTimeout(ctb, timeout)
+		chanGraph, err = net.Alice.DescribeGraph(ctx, req)
+		if err != nil {
+			predErr = fmt.Errorf("unable to query alice's graph: %v", err)
+			return false
+		}
+
+		numEdges = len(chanGraph.Edges)
+		if numEdges != 1 {
+			predErr = fmt.Errorf("expected to find 1 announced edge in "+
+				"the graph, found %d", numEdges)
+			return false
+		}
+		return true
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf("%v", predErr)
+	}
+
+	// The channel should now be announced. Check that Alice has 1 announced
+	// edge.
+	req.IncludeUnannounced = false
+	ctx, _ = context.WithTimeout(ctb, timeout)
+	chanGraph, err = net.Alice.DescribeGraph(ctx, req)
+	if err != nil {
+		t.Fatalf("unable to query alice's graph: %v", err)
+	}
+
+	numEdges = len(chanGraph.Edges)
+	if numEdges != 1 {
+		t.Fatalf("expected to find 1 announced edge in the graph, found %d",
+			numEdges)
+	}
+
+	// Close the channel used during the test.
+	ctx, _ = context.WithTimeout(ctb, timeout)
+	closeChannelAndAssert(ctx, t, net, net.Alice, fundingChanPoint, false)
+}
+
 // testPrivateChannels tests that a private channel can be used for
 // routing by the two endpoints of the channel, but is not known by
 // the rest of the nodes in the graph.
@@ -4432,8 +4548,10 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// nodes know about. Carol and Alice should know about 4, while
 	// Bob and Dave should only know about 3, since one channel is
 	// private.
-	numChannels := func(node *lntest.HarnessNode) int {
-		req := &lnrpc.ChannelGraphRequest{}
+	numChannels := func(node *lntest.HarnessNode, includeUnannounced bool) int {
+		req := &lnrpc.ChannelGraphRequest{
+			IncludeUnannounced: includeUnannounced,
+		}
 		ctxt, _ := context.WithTimeout(ctxb, timeout)
 		chanGraph, err := node.DescribeGraph(ctxt, req)
 		if err != nil {
@@ -4444,25 +4562,37 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 
 	var predErr error
 	err = lntest.WaitPredicate(func() bool {
-		aliceChans := numChannels(net.Alice)
+		aliceChans := numChannels(net.Alice, true)
 		if aliceChans != 4 {
 			predErr = fmt.Errorf("expected Alice to know 4 edges, "+
 				"had %v", aliceChans)
 			return false
 		}
-		bobChans := numChannels(net.Bob)
+		alicePubChans := numChannels(net.Alice, false)
+		if alicePubChans != 3 {
+			predErr = fmt.Errorf("expected Alice to know 3 public edges, "+
+				"had %v", alicePubChans)
+			return false
+		}
+		bobChans := numChannels(net.Bob, true)
 		if bobChans != 3 {
 			predErr = fmt.Errorf("expected Bob to know 3 edges, "+
 				"had %v", bobChans)
 			return false
 		}
-		carolChans := numChannels(carol)
+		carolChans := numChannels(carol, true)
 		if carolChans != 4 {
 			predErr = fmt.Errorf("expected Carol to know 4 edges, "+
 				"had %v", carolChans)
 			return false
 		}
-		daveChans := numChannels(dave)
+		carolPubChans := numChannels(carol, false)
+		if carolPubChans != 3 {
+			predErr = fmt.Errorf("expected Carol to know 3 public edges, "+
+				"had %v", carolPubChans)
+			return false
+		}
+		daveChans := numChannels(dave, true)
 		if daveChans != 3 {
 			predErr = fmt.Errorf("expected Dave to know 3 edges, "+
 				"had %v", daveChans)
@@ -4492,7 +4622,7 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 	timeout := time.Duration(15 * time.Second)
 	const chanAmt = btcutil.Amount(100000)
 
-	// Throughout this test, we'll be opening a channel betwen Alice and
+	// Throughout this test, we'll be opening a channel between Alice and
 	// several other parties.
 	//
 	// First, we'll create a private channel between Alice and Bob. This
@@ -5781,7 +5911,9 @@ func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Finally, we'll ensure that Bob and Carol no longer show in Alice's
 	// channel graph.
-	describeGraphReq := &lnrpc.ChannelGraphRequest{}
+	describeGraphReq := &lnrpc.ChannelGraphRequest{
+		IncludeUnannounced: true,
+	}
 	channelGraph, err := net.Alice.DescribeGraph(ctxb, describeGraphReq)
 	if err != nil {
 		t.Fatalf("unable to query for alice's channel graph: %v", err)
@@ -9544,7 +9676,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	assertTxInBlock(t, block, commitHash)
 
 	// After the force close transacion is mined, Carol should broadcast
-	// her second level HTLC transacion. Bob will braodcast a sweep tx to
+	// her second level HTLC transacion. Bob will broadcast a sweep tx to
 	// sweep his output in the channel with Carol. He can do this
 	// immediately, as the output is not timelocked since Carol was the one
 	// force closing.
@@ -9872,7 +10004,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	assertTxInBlock(t, block, commitHash)
 
 	// After the force close transacion is mined, Carol should broadcast
-	// her second level HTLC transacion. Bob will braodcast a sweep tx to
+	// her second level HTLC transacion. Bob will broadcast a sweep tx to
 	// sweep his output in the channel with Carol. He can do this
 	// immediately, as the output is not timelocked since Carol was the one
 	// force closing.
@@ -11494,7 +11626,7 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 
 		// For all hops except the last, we check that fee equals feePerHop
-		// and amount to foward deducts feePerHop on each hop.
+		// and amount to forward deducts feePerHop on each hop.
 		expectedAmtToForwardMSat := expectedTotalAmtMSat
 		for j, hop := range route.Hops[:len(route.Hops)-1] {
 			expectedAmtToForwardMSat -= feePerHopMSat
@@ -11520,7 +11652,7 @@ func testQueryRoutes(net *lntest.NetworkHarness, t *harnessTest) {
 					i, j, expectedAmtToForwardMSat, hop.AmtToForwardMsat)
 			}
 		}
-		// Last hop should have zero fee and amount to foward should equal
+		// Last hop should have zero fee and amount to forward should equal
 		// payment amount.
 		hop := route.Hops[len(route.Hops)-1]
 
@@ -11671,7 +11803,7 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 	}
 
-	// The payments should only be succesful across the route:
+	// The payments should only be successful across the route:
 	//	Alice -> Bob -> Dave
 	// Therefore, we'll update the fee policy on Carol's side for the
 	// channel between her and Dave to invalidate the route:
@@ -12009,6 +12141,103 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	mineBlocks(t, net, 1)
 }
 
+// testAbandonChannel abandones a channel and asserts that it is no
+// longer open and not in one of the pending closure states. It also
+// verifies that the abandoned channel is reported as closed with close
+// type 'abandoned'.
+func testAbandonChannel(net *lntest.NetworkHarness, t *harnessTest) {
+	timeout := time.Duration(time.Second * 5)
+	ctxb := context.Background()
+
+	// First establish a channel between Alice and Bob.
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+
+	channelParam := lntest.OpenChannelParams{
+		Amt:     maxBtcFundingAmount,
+		PushAmt: btcutil.Amount(100000),
+	}
+
+	chanPoint := openChannelAndAssert(
+		ctxt, t, net, net.Alice, net.Bob, channelParam)
+
+	// Wait for channel to be confirmed open.
+	ctxt, _ = context.WithTimeout(ctxb, time.Second*15)
+	err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	if err != nil {
+		t.Fatalf("alice didn't report channel: %v", err)
+	}
+	err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	if err != nil {
+		t.Fatalf("bob didn't report channel: %v", err)
+	}
+
+	// Send request to abandon channel.
+	abandonChannelRequest := &lnrpc.AbandonChannelRequest{
+		ChannelPoint: chanPoint,
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	_, err = net.Alice.AbandonChannel(ctxt, abandonChannelRequest)
+
+	if err != nil {
+		t.Fatalf("unable to abandon channel: %v", err)
+	}
+
+	// Assert that channel in no longer open.
+	listReq := &lnrpc.ListChannelsRequest{}
+	aliceChannelList, err := net.Alice.ListChannels(ctxb, listReq)
+	if err != nil {
+		t.Fatalf("unable to list channels: %v", err)
+	}
+	if len(aliceChannelList.Channels) != 0 {
+		t.Fatalf("alice should only have no channels open, "+
+			"instead she has %v",
+			len(aliceChannelList.Channels))
+	}
+
+	// Assert that channel is not pending closure.
+	pendingReq := &lnrpc.PendingChannelsRequest{}
+	alicePendingList, err := net.Alice.PendingChannels(ctxb, pendingReq)
+	if err != nil {
+		t.Fatalf("unable to list pending channels: %v", err)
+	}
+	if len(alicePendingList.PendingClosingChannels) != 0 {
+		t.Fatalf("alice should only have no pending closing channels, "+
+			"instead she has %v",
+			len(alicePendingList.PendingClosingChannels))
+	}
+	if len(alicePendingList.PendingForceClosingChannels) != 0 {
+		t.Fatalf("alice should only have no pending force closing "+
+			"channels instead she has %v",
+			len(alicePendingList.PendingForceClosingChannels))
+	}
+	if len(alicePendingList.WaitingCloseChannels) != 0 {
+		t.Fatalf("alice should only have no waiting close "+
+			"channels instead she has %v",
+			len(alicePendingList.WaitingCloseChannels))
+	}
+
+	// Assert that channel is listed as abandoned.
+	closedReq := &lnrpc.ClosedChannelsRequest{
+		Abandoned: true,
+	}
+	aliceClosedList, err := net.Alice.ClosedChannels(ctxb, closedReq)
+	if err != nil {
+		t.Fatalf("unable to list closed channels: %v", err)
+	}
+	if len(aliceClosedList.Channels) != 1 {
+		t.Fatalf("alice should only have a single abandoned channel, "+
+			"instead she has %v",
+			len(aliceClosedList.Channels))
+	}
+
+	// Now that we're done with the test, the channel can be closed. This is
+	// necessary to avoid unexpected outcomes of other tests that use Bob's
+	// lnd instance.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPoint, true)
+}
+
 type testCase struct {
 	name string
 	test func(net *lntest.NetworkHarness, t *harnessTest)
@@ -12086,6 +12315,10 @@ var testsCases = []*testCase{
 	{
 		name: "send to route error propagation",
 		test: testSendToRouteErrorPropagation,
+	},
+	{
+		name: "unannounced channels",
+		test: testUnannouncedChannels,
 	},
 	{
 		name: "private channels",
@@ -12195,6 +12428,10 @@ var testsCases = []*testCase{
 	{
 		name: "garbage collect link nodes",
 		test: testGarbageCollectLinkNodes,
+	},
+	{
+		name: "abandonchannel",
+		test: testAbandonChannel,
 	},
 	{
 		name: "revoked uncooperative close retribution zero value remote output",

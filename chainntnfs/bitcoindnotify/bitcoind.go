@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/queue"
 )
 
 const (
@@ -496,7 +497,7 @@ func (b *BitcoindNotifier) confDetailsFromTxIndex(txid *chainhash.Hash,
 	// then we may be able to dispatch it immediately.
 	tx, err := b.chainConn.GetRawTransactionVerbose(txid)
 	if err != nil {
-		// If the transaction lookup was succesful, but it wasn't found
+		// If the transaction lookup was successful, but it wasn't found
 		// within the index itself, then we can exit early. We'll also
 		// need to look at the error message returned as the error code
 		// is used for multiple errors.
@@ -632,13 +633,6 @@ func (b *BitcoindNotifier) handleBlockConnected(block chainntnfs.BlockEpoch) err
 	chainntnfs.Log.Infof("New block: height=%v, sha=%v", block.Height,
 		block.Hash)
 
-	// We want to set the best block before dispatching notifications so
-	// if any subscribers make queries based on their received block epoch,
-	// our state is fully updated in time.
-	b.bestBlock = block
-
-	b.notifyBlockEpochs(block.Height, block.Hash)
-
 	// Finally, we'll update the spend height hint for all of our watched
 	// outpoints that have not been spent yet. This is safe to do as we do
 	// not watch already spent outpoints for spend notifications.
@@ -652,12 +646,21 @@ func (b *BitcoindNotifier) handleBlockConnected(block chainntnfs.BlockEpoch) err
 			uint32(block.Height), ops...,
 		)
 		if err != nil {
-			// The error is not fatal, so we should not return an
-			// error to the caller.
+			// The error is not fatal since we are connecting a
+			// block, and advancing the spend hint is an optimistic
+			// optimization.
 			chainntnfs.Log.Errorf("Unable to update spend hint to "+
 				"%d for %v: %v", block.Height, ops, err)
 		}
 	}
+
+	// We want to set the best block before dispatching notifications so
+	// if any subscribers make queries based on their received block epoch,
+	// our state is fully updated in time.
+	b.bestBlock = block
+
+	// Lastly we'll notify any subscribed clients of the block.
+	b.notifyBlockEpochs(block.Height, block.Hash)
 
 	return nil
 }
@@ -994,7 +997,7 @@ type blockEpochRegistration struct {
 
 	epochChan chan *chainntnfs.BlockEpoch
 
-	epochQueue *chainntnfs.ConcurrentQueue
+	epochQueue *queue.ConcurrentQueue
 
 	bestBlock *chainntnfs.BlockEpoch
 
@@ -1019,7 +1022,7 @@ func (b *BitcoindNotifier) RegisterBlockEpochNtfn(
 	bestBlock *chainntnfs.BlockEpoch) (*chainntnfs.BlockEpochEvent, error) {
 
 	reg := &blockEpochRegistration{
-		epochQueue: chainntnfs.NewConcurrentQueue(20),
+		epochQueue: queue.NewConcurrentQueue(20),
 		epochChan:  make(chan *chainntnfs.BlockEpoch, 20),
 		cancelChan: make(chan struct{}),
 		epochID:    atomic.AddUint64(&b.epochClientCounter, 1),

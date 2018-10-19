@@ -15,7 +15,7 @@ func init() {
 // DisableLog disables all library log output.  Logging output is disabled
 // by default until UseLogger is called.
 func DisableLog() {
-	log = btclog.Disabled
+	UseLogger(btclog.Disabled)
 }
 
 // UseLogger uses a specified Logger to output package logging info.

@@ -233,7 +233,7 @@ func IsOnionHost(host string) bool {
 
 	// We'll now attempt to decode the host without its suffix, as the
 	// suffix includes invalid characters. This will tell us if the host is
-	// actually valid if succesful.
+	// actually valid if successful.
 	host = host[:suffixIndex]
 	if _, err := Base32Encoding.DecodeString(host); err != nil {
 		return false

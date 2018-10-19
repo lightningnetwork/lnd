@@ -3,6 +3,7 @@ package contractcourt
 import (
 	"errors"
 	"fmt"
+	"github.com/lightningnetwork/lnd/sweep"
 	"sync"
 	"sync/atomic"
 
@@ -105,7 +106,7 @@ type ChainArbitratorConfig struct {
 	// absolute/relative item block.
 	IncubateOutputs func(wire.OutPoint, *lnwallet.CommitOutputResolution,
 		*lnwallet.OutgoingHtlcResolution,
-		*lnwallet.IncomingHtlcResolution) error
+		*lnwallet.IncomingHtlcResolution, uint32) error
 
 	// PreimageDB is a global store of all known pre-images. We'll use this
 	// to decide if we should broadcast a commitment transaction to claim
@@ -130,6 +131,9 @@ type ChainArbitratorConfig struct {
 	// DisableChannel disables a channel, resulting in it not being able to
 	// forward payments.
 	DisableChannel func(wire.OutPoint) error
+
+	// Sweeper allows resolvers to sweep their final outputs.
+	Sweeper *sweep.UtxoSweeper
 }
 
 // ChainArbitrator is a sub-system that oversees the on-chain resolution of all

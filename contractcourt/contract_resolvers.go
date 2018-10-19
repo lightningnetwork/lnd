@@ -8,7 +8,8 @@ import (
 	"io"
 	"io/ioutil"
 
-	"github.com/btcsuite/btcd/txscript"
+	"github.com/lightningnetwork/lnd/sweep"
+
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -18,6 +19,12 @@ import (
 
 var (
 	endian = binary.BigEndian
+)
+
+const (
+	// sweepConfTarget is the default number of blocks that we'll use as a
+	// confirmation target when sweeping.
+	sweepConfTarget = 6
 )
 
 // ContractResolver is an interface which packages a state machine which is
@@ -152,7 +159,10 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 		log.Tracef("%T(%v): incubating htlc output", h,
 			h.htlcResolution.ClaimOutpoint)
 
-		err := h.IncubateOutputs(h.ChanPoint, nil, &h.htlcResolution, nil)
+		err := h.IncubateOutputs(
+			h.ChanPoint, nil, &h.htlcResolution, nil,
+			h.broadcastHeight,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -443,58 +453,26 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 				"incoming+remote htlc confirmed", h,
 				h.payHash[:])
 
-			// In this case, we can sweep it directly from the
-			// commitment output. We'll first grab a fresh address
-			// from the wallet to sweep the output.
-			addr, err := h.NewSweepAddr()
-			if err != nil {
-				return nil, err
-			}
-
-			// With our address obtained, we'll query for an
-			// estimate to be confirmed at ease.
-			//
-			// TODO(roasbeef): signal up if fee would be too large
-			// to sweep singly, need to batch
-			feePerKw, err := h.FeeEstimator.EstimateFeePerKW(6)
-			if err != nil {
-				return nil, err
-			}
-
-			log.Debugf("%T(%x): using %v sat/kw to sweep htlc"+
-				"incoming+remote htlc confirmed", h,
-				h.payHash[:], int64(feePerKw))
-
-			// Using a weight estimator, we'll compute the total
-			// fee required, and from that the value we'll end up
-			// with.
-			totalWeight := (&lnwallet.TxWeightEstimator{}).
-				AddWitnessInput(lnwallet.OfferedHtlcSuccessWitnessSize).
-				AddP2WKHOutput().Weight()
-			totalFees := feePerKw.FeeForWeight(int64(totalWeight))
-			sweepAmt := h.htlcResolution.SweepSignDesc.Output.Value -
-				int64(totalFees)
-
-			// With the fee computation finished, we'll now
-			// construct the sweep transaction.
-			htlcPoint := h.htlcResolution.ClaimOutpoint
-			h.sweepTx = wire.NewMsgTx(2)
-			h.sweepTx.AddTxIn(&wire.TxIn{
-				PreviousOutPoint: htlcPoint,
-			})
-			h.sweepTx.AddTxOut(&wire.TxOut{
-				PkScript: addr,
-				Value:    sweepAmt,
-			})
-
-			// With the transaction fully assembled, we can now
-			// generate a valid witness for the transaction.
-			h.htlcResolution.SweepSignDesc.SigHashes = txscript.NewTxSigHashes(
-				h.sweepTx,
-			)
-			h.sweepTx.TxIn[0].Witness, err = lnwallet.SenderHtlcSpendRedeem(
-				h.Signer, &h.htlcResolution.SweepSignDesc, h.sweepTx,
+			// Before we can craft out sweeping transaction, we
+			// need to create an input which contains all the items
+			// required to add this input to a sweeping transaction,
+			// and generate a witness.
+			input := sweep.MakeHtlcSucceedInput(
+				&h.htlcResolution.ClaimOutpoint,
+				&h.htlcResolution.SweepSignDesc,
 				h.htlcResolution.Preimage[:],
+			)
+
+			// With the input created, we can now generate the full
+			// sweep transaction, that we'll use to move these
+			// coins back into the backing wallet.
+			//
+			// TODO: Set tx lock time to current block height
+			// instead of zero. Will be taken care of once sweeper
+			// implementation is complete.
+			var err error
+			h.sweepTx, err = h.Sweeper.CreateSweepTx(
+				[]sweep.Input{&input}, sweepConfTarget, 0,
 			)
 			if err != nil {
 				return nil, err
@@ -568,7 +546,10 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 		log.Infof("%T(%x): incubating incoming htlc output",
 			h, h.payHash[:])
 
-		err := h.IncubateOutputs(h.ChanPoint, nil, nil, &h.htlcResolution)
+		err := h.IncubateOutputs(
+			h.ChanPoint, nil, nil, &h.htlcResolution,
+			h.broadcastHeight,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -1250,45 +1231,25 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	// If the sweep transaction isn't already generated, and the remote
 	// party broadcast the commitment transaction then we'll create it now.
 	case c.sweepTx == nil && !isLocalCommitTx:
-		// Now that the commitment transaction has confirmed, we'll
-		// craft a transaction to sweep this output into the wallet.
-		signDesc := c.commitResolution.SelfOutputSignDesc
+		// As we haven't already generated the sweeping transaction,
+		// we'll now craft an input with all the information required
+		// to create a fully valid sweeping transaction to recover
+		// these coins.
+		input := sweep.MakeBaseInput(
+			&c.commitResolution.SelfOutPoint,
+			lnwallet.CommitmentNoDelay,
+			&c.commitResolution.SelfOutputSignDesc,
+		)
 
-		// First, we'll estimate the total weight so we can compute
-		// fees properly. We'll use a lax estimate, as this output is
-		// in no immediate danger.
-		feePerKw, err := c.FeeEstimator.EstimateFeePerKW(6)
-		if err != nil {
-			return nil, err
-		}
-
-		log.Debugf("%T(%v): using %v sat/kw for sweep tx", c,
-			c.chanPoint, int64(feePerKw))
-
-		totalWeight := (&lnwallet.TxWeightEstimator{}).
-			AddP2WKHInput().
-			AddP2WKHOutput().Weight()
-		totalFees := feePerKw.FeeForWeight(int64(totalWeight))
-		sweepAmt := signDesc.Output.Value - int64(totalFees)
-
-		c.sweepTx = wire.NewMsgTx(2)
-		c.sweepTx.AddTxIn(&wire.TxIn{
-			PreviousOutPoint: c.commitResolution.SelfOutPoint,
-		})
-		sweepAddr, err := c.NewSweepAddr()
-		if err != nil {
-			return nil, err
-		}
-		c.sweepTx.AddTxOut(&wire.TxOut{
-			PkScript: sweepAddr,
-			Value:    sweepAmt,
-		})
-
-		// With the transaction fully assembled, we can now generate a
-		// valid witness for the transaction.
-		signDesc.SigHashes = txscript.NewTxSigHashes(c.sweepTx)
-		c.sweepTx.TxIn[0].Witness, err = lnwallet.CommitSpendNoDelay(
-			c.Signer, &signDesc, c.sweepTx,
+		// With out input constructed, we'll now request that the
+		// sweeper construct a valid sweeping transaction for this
+		// input.
+		//
+		// TODO: Set tx lock time to current block height instead of
+		// zero. Will be taken care of once sweeper implementation is
+		// complete.
+		c.sweepTx, err = c.Sweeper.CreateSweepTx(
+			[]sweep.Input{&input}, sweepConfTarget, 0,
 		)
 		if err != nil {
 			return nil, err

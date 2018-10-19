@@ -44,7 +44,7 @@
 
 [[constraint]]
   name = "github.com/lightninglabs/neutrino"
-  revision = "bee0ed11601a4ad0c3b23d462cd71089fc11f2cd"
+  revision = "8018ab76e70acd3a56bc3857a80743f0ed1c86ce"
 
 [[constraint]]
   name = "github.com/lightningnetwork/lightning-onion"
@@ -72,7 +72,7 @@
 
 [[constraint]]
   name = "github.com/btcsuite/btcwallet"
-  revision = "421298df22601db0fe4adb8f4be71b7014324ba9"
+  revision = "c4dd27e481f9801866cf5226bfe532084772ec2a"
 
 [[constraint]]
   name = "github.com/tv42/zbase32"
@@ -108,7 +108,7 @@
 
 [[constraint]]
   name = "google.golang.org/grpc"
-  revision = "b3ddf786825de56a4178401b7e174ee332173b66"
+  revision = "8dea3dc473e90c8179e519d91302d0597c0ca1d1"
 
 [[override]]
   name = "gopkg.in/errgo.v1"

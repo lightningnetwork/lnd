@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/queue"
 )
 
 const (
@@ -81,8 +82,8 @@ type BtcdNotifier struct {
 
 	bestBlock chainntnfs.BlockEpoch
 
-	chainUpdates *chainntnfs.ConcurrentQueue
-	txUpdates    *chainntnfs.ConcurrentQueue
+	chainUpdates *queue.ConcurrentQueue
+	txUpdates    *queue.ConcurrentQueue
 
 	// spendHintCache is a cache used to query and update the latest height
 	// hints for an outpoint. Each height hint represents the earliest
@@ -115,8 +116,8 @@ func New(config *rpcclient.ConnConfig, spendHintCache chainntnfs.SpendHintCache,
 
 		spendNotifications: make(map[wire.OutPoint]map[uint64]*spendNotification),
 
-		chainUpdates: chainntnfs.NewConcurrentQueue(10),
-		txUpdates:    chainntnfs.NewConcurrentQueue(10),
+		chainUpdates: queue.NewConcurrentQueue(10),
+		txUpdates:    queue.NewConcurrentQueue(10),
 
 		spendHintCache:   spendHintCache,
 		confirmHintCache: confirmHintCache,
@@ -566,7 +567,7 @@ func (b *BtcdNotifier) confDetailsFromTxIndex(txid *chainhash.Hash,
 	// then we may be able to dispatch it immediately.
 	tx, err := b.chainConn.GetRawTransactionVerbose(txid)
 	if err != nil {
-		// If the transaction lookup was succesful, but it wasn't found
+		// If the transaction lookup was successful, but it wasn't found
 		// within the index itself, then we can exit early. We'll also
 		// need to look at the error message returned as the error code
 		// is used for multiple errors.
@@ -715,16 +716,16 @@ func (b *BtcdNotifier) handleBlockConnected(epoch chainntnfs.BlockEpoch) error {
 	chainntnfs.Log.Infof("New block: height=%v, sha=%v", epoch.Height,
 		epoch.Hash)
 
-	// We want to set the best block before dispatching notifications
-	// so if any subscribers make queries based on their received
-	// block epoch, our state is fully updated in time.
-	b.bestBlock = epoch
-
-	// Next we'll notify any subscribed clients of the block.
-	b.notifyBlockEpochs(int32(newBlock.height), &newBlock.hash)
+	// Define a helper struct for coalescing the spend notifications we will
+	// dispatch after trying to commit the spend hints.
+	type spendNtfnBatch struct {
+		details *chainntnfs.SpendDetail
+		clients map[uint64]*spendNotification
+	}
 
 	// Scan over the list of relevant transactions and possibly dispatch
 	// notifications for spends.
+	spendBatches := make(map[wire.OutPoint]spendNtfnBatch)
 	for _, tx := range newBlock.txns {
 		mtx := tx.MsgTx()
 		txSha := mtx.TxHash()
@@ -740,6 +741,7 @@ func (b *BtcdNotifier) handleBlockConnected(epoch chainntnfs.BlockEpoch) error {
 			if !ok {
 				continue
 			}
+			delete(b.spendNotifications, prevOut)
 
 			spendDetails := &chainntnfs.SpendDetail{
 				SpentOutPoint:     &prevOut,
@@ -749,21 +751,10 @@ func (b *BtcdNotifier) handleBlockConnected(epoch chainntnfs.BlockEpoch) error {
 				SpendingHeight:    int32(newBlock.height),
 			}
 
-			for _, ntfn := range clients {
-				chainntnfs.Log.Infof("Dispatching spend "+
-					"notification for outpoint=%v",
-					ntfn.targetOutpoint)
-
-				ntfn.spendChan <- spendDetails
-
-				// Close spendChan to ensure that any calls to
-				// Cancel will not block. This is safe to do
-				// since the channel is buffered, and the
-				// message can still be read by the receiver.
-				close(ntfn.spendChan)
+			spendBatches[prevOut] = spendNtfnBatch{
+				details: spendDetails,
+				clients: clients,
 			}
-
-			delete(b.spendNotifications, prevOut)
 		}
 	}
 
@@ -780,10 +771,36 @@ func (b *BtcdNotifier) handleBlockConnected(epoch chainntnfs.BlockEpoch) error {
 			uint32(epoch.Height), ops...,
 		)
 		if err != nil {
-			// The error is not fatal, so we should not return an
-			// error to the caller.
+			// The error is not fatal since we are connecting a
+			// block, and advancing the spend hint is an optimistic
+			// optimization.
 			chainntnfs.Log.Errorf("Unable to update spend hint to "+
 				"%d for %v: %v", epoch.Height, ops, err)
+		}
+	}
+
+	// We want to set the best block before dispatching notifications
+	// so if any subscribers make queries based on their received
+	// block epoch, our state is fully updated in time.
+	b.bestBlock = epoch
+
+	// Next we'll notify any subscribed clients of the block.
+	b.notifyBlockEpochs(int32(newBlock.height), &newBlock.hash)
+
+	// Finally, send off the spend details to the notification subscribers.
+	for _, batch := range spendBatches {
+		for _, ntfn := range batch.clients {
+			chainntnfs.Log.Infof("Dispatching spend "+
+				"notification for outpoint=%v",
+				ntfn.targetOutpoint)
+
+			ntfn.spendChan <- batch.details
+
+			// Close spendChan to ensure that any calls to
+			// Cancel will not block. This is safe to do
+			// since the channel is buffered, and the
+			// message can still be read by the receiver.
+			close(ntfn.spendChan)
 		}
 	}
 
@@ -1040,7 +1057,7 @@ type blockEpochRegistration struct {
 
 	epochChan chan *chainntnfs.BlockEpoch
 
-	epochQueue *chainntnfs.ConcurrentQueue
+	epochQueue *queue.ConcurrentQueue
 
 	bestBlock *chainntnfs.BlockEpoch
 
@@ -1065,7 +1082,7 @@ func (b *BtcdNotifier) RegisterBlockEpochNtfn(
 	bestBlock *chainntnfs.BlockEpoch) (*chainntnfs.BlockEpochEvent, error) {
 
 	reg := &blockEpochRegistration{
-		epochQueue: chainntnfs.NewConcurrentQueue(20),
+		epochQueue: queue.NewConcurrentQueue(20),
 		epochChan:  make(chan *chainntnfs.BlockEpoch, 20),
 		cancelChan: make(chan struct{}),
 		epochID:    atomic.AddUint64(&b.epochClientCounter, 1),

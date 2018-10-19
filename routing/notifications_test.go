@@ -78,7 +78,7 @@ func randEdgePolicy(chanID *lnwire.ShortChannelID,
 		MinHTLC:                   lnwire.MilliSatoshi(prand.Int31()),
 		FeeBaseMSat:               lnwire.MilliSatoshi(prand.Int31()),
 		FeeProportionalMillionths: lnwire.MilliSatoshi(prand.Int31()),
-		Node: node,
+		Node:                      node,
 	}
 }
 

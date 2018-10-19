@@ -77,6 +77,7 @@ const (
 	CodeFinalExpiryTooSoon            FailCode = 17
 	CodeFinalIncorrectCltvExpiry      FailCode = 18
 	CodeFinalIncorrectHtlcAmount      FailCode = 19
+	CodeExpiryTooFar                  FailCode = 21
 )
 
 // String returns the string representation of the failure code.
@@ -144,6 +145,9 @@ func (c FailCode) String() string {
 
 	case CodeFinalIncorrectHtlcAmount:
 		return "FinalIncorrectHtlcAmount"
+
+	case CodeExpiryTooFar:
+		return "ExpiryTooFar"
 
 	default:
 		return "<unknown>"
@@ -1038,6 +1042,26 @@ func (f *FailFinalIncorrectHtlcAmount) Encode(w io.Writer, pver uint32) error {
 	return writeElement(w, f.IncomingHTLCAmount)
 }
 
+// FailExpiryTooFar is returned if the CLTV expiry in the HTLC is too far in the
+// future.
+//
+// NOTE: May be returned by any node in the payment route.
+type FailExpiryTooFar struct{}
+
+// Code returns the failure unique code.
+//
+// NOTE: Part of the FailureMessage interface.
+func (f FailExpiryTooFar) Code() FailCode {
+	return CodeExpiryTooFar
+}
+
+// Returns a human readable string describing the target FailureMessage.
+//
+// NOTE: Implements the error interface.
+func (f FailExpiryTooFar) Error() string {
+	return f.Code().String()
+}
+
 // DecodeFailure decodes, validates, and parses the lnwire onion failure, for
 // the provided protocol version.
 func DecodeFailure(r io.Reader, pver uint32) (FailureMessage, error) {
@@ -1199,6 +1223,10 @@ func makeEmptyOnionError(code FailCode) (FailureMessage, error) {
 
 	case CodeFinalIncorrectHtlcAmount:
 		return &FailFinalIncorrectHtlcAmount{}, nil
+
+	case CodeExpiryTooFar:
+		return &FailExpiryTooFar{}, nil
+
 	default:
 		return nil, errors.Errorf("unknown error code: %v", code)
 	}

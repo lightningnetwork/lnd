@@ -320,11 +320,7 @@ func testSpendNotification(miner *rpctest.Harness,
 	// Make sure notifications are not yet sent. We launch a go routine for
 	// all the spend clients, such that we can wait for them all in
 	// parallel.
-	//
-	// Since bitcoind is at times very slow at notifying about txs in the
-	// mempool, we use a quite large timeout of 10 seconds.
-	// TODO(halseth): change this when mempool spends are removed.
-	mempoolSpendTimeout := 10 * time.Second
+	mempoolSpendTimeout := 2 * chainntnfs.TrickleInterval
 	mempoolSpends := make(chan *chainntnfs.SpendDetail, numClients)
 	for _, c := range spendClients {
 		go func(client *chainntnfs.SpendEvent) {

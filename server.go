@@ -742,8 +742,9 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		DisableChannel: func(op wire.OutPoint) error {
 			return s.announceChanStatus(op, true)
 		},
-		Sweeper:       s.sweeper,
-		SettleInvoice: s.invoices.SettleInvoice,
+		Sweeper:             s.sweeper,
+		SettleInvoice:       s.invoices.SettleInvoice,
+		NotifyClosedChannel: s.channelNotifier.NotifyClosedChannelEvent,
 	}, chanDB)
 
 	s.breachArbiter = newBreachArbiter(&BreachConfig{

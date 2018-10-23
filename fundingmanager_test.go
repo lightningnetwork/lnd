@@ -250,7 +250,9 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	signer := &mockSigner{
 		key: alicePrivKey,
 	}
-	bio := &mockChainIO{}
+	bio := &mockChainIO{
+		bestHeight: fundingBroadcastHeight,
+	}
 
 	dbDir := filepath.Join(tempTestDir, "cdb")
 	cdb, err := channeldb.Open(dbDir)

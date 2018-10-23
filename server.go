@@ -16,8 +16,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/lightningnetwork/lnd/sweep"
-
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/connmgr"
@@ -39,6 +37,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/lightningnetwork/lnd/tor"
 )
@@ -158,6 +157,8 @@ type server struct {
 	authGossiper *discovery.AuthenticatedGossiper
 
 	utxoNursery *utxoNursery
+
+	sweeper *sweep.UtxoSweeper
 
 	chainArb *contractcourt.ChainArbitrator
 
@@ -597,24 +598,34 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		return nil, err
 	}
 
-	sweeper := sweep.New(&sweep.UtxoSweeperConfig{
+	srvrLog.Tracef("Sweeper batch window duration: %v",
+		sweep.DefaultBatchWindowDuration)
+
+	s.sweeper = sweep.New(&sweep.UtxoSweeperConfig{
 		Estimator: cc.feeEstimator,
 		GenSweepScript: func() ([]byte, error) {
 			return newSweepPkScript(cc.wallet)
 		},
-		Signer: cc.wallet.Cfg.Signer,
+		Signer:             cc.wallet.Cfg.Signer,
+		PublishTransaction: cc.wallet.PublishTransaction,
+		NewBatchTimer: func() <-chan time.Time {
+			return time.NewTimer(sweep.DefaultBatchWindowDuration).C
+		},
+		SweepTxConfTarget: 6,
+		Notifier:          cc.chainNotifier,
+		ChainIO:           cc.chainIO,
+		MaxInputsPerTx:    sweep.DefaultMaxInputsPerTx,
 	})
 
 	s.utxoNursery = newUtxoNursery(&NurseryConfig{
 		ChainIO:             cc.chainIO,
 		ConfDepth:           1,
-		SweepTxConfTarget:   6,
 		FetchClosedChannels: chanDB.FetchClosedChannels,
 		FetchClosedChannel:  chanDB.FetchClosedChannel,
 		Notifier:            cc.chainNotifier,
 		PublishTransaction:  cc.wallet.PublishTransaction,
 		Store:               utxnStore,
-		Sweeper:             sweeper,
+		Sweeper:             s.sweeper,
 	})
 
 	// Construct a closure that wraps the htlcswitch's CloseLink method.
@@ -706,7 +717,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		DisableChannel: func(op wire.OutPoint) error {
 			return s.announceChanStatus(op, true)
 		},
-		Sweeper: sweeper,
+		Sweeper: s.sweeper,
 	}, chanDB)
 
 	s.breachArbiter = newBreachArbiter(&BreachConfig{
@@ -960,6 +971,9 @@ func (s *server) Start() error {
 	if err := s.htlcSwitch.Start(); err != nil {
 		return err
 	}
+	if err := s.sweeper.Start(); err != nil {
+		return err
+	}
 	if err := s.utxoNursery.Start(); err != nil {
 		return err
 	}
@@ -1046,6 +1060,7 @@ func (s *server) Stop() error {
 	s.breachArbiter.Stop()
 	s.authGossiper.Stop()
 	s.chainArb.Stop()
+	s.sweeper.Stop()
 	s.cc.wallet.Shutdown()
 	s.cc.chainView.Stop()
 	s.connMgr.Stop()

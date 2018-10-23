@@ -1,4 +1,4 @@
-package routerpc
+package routerrpc
 
 import (
 	"github.com/btcsuite/btclog"

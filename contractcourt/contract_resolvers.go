@@ -472,6 +472,8 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 			// TODO: Set tx lock time to current block height
 			// instead of zero. Will be taken care of once sweeper
 			// implementation is complete.
+			//
+			// TODO: Use time-based sweeper and result chan.
 			var err error
 			h.sweepTx, err = h.Sweeper.CreateSweepTx(
 				[]sweep.Input{&input}, sweepConfTarget, 0,
@@ -1265,6 +1267,8 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		// TODO: Set tx lock time to current block height instead of
 		// zero. Will be taken care of once sweeper implementation is
 		// complete.
+		//
+		// TODO: Use time-based sweeper and result chan.
 		c.sweepTx, err = c.Sweeper.CreateSweepTx(
 			[]sweep.Input{&input}, sweepConfTarget, 0,
 		)

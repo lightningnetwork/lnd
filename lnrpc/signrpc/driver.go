@@ -34,10 +34,13 @@ func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
 			&Config{}, signServerConf)
 	}
 
+	// Before we try to make the new signer service instance, we'll perform
+	// some sanity checks on the arguments to ensure that they're useable.
+
+	switch {
 	// If the macaroon service is set (we should use macaroons), then
 	// ensure that we know where to look for them, or create them if not
 	// found.
-	switch {
 	case config.MacService != nil && config.NetworkDir == "":
 		return nil, nil, fmt.Errorf("NetworkDir must be set to create " +
 			"Signrpc")
@@ -52,7 +55,9 @@ func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
 func init() {
 	subServer := &lnrpc.SubServerDriver{
 		SubServerName: subServerName,
-		New: func(c lnrpc.SubServerConfigDispatcher) (lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
+		New: func(c lnrpc.SubServerConfigDispatcher) (
+			lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
+
 			return createNewSubServer(c)
 		},
 	}

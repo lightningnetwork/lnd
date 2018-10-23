@@ -10,9 +10,11 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/autopilotrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/routing"
 )
 
 // subRPCServerConfigs is special sub-config in the main configuration that
@@ -44,6 +46,12 @@ type subRPCServerConfigs struct {
 	// InvoicesRPC is a sub-RPC server that exposes invoice related methods
 	// as a gRPC service.
 	InvoicesRPC *invoicesrpc.Config `group:"invoicesrpc" namespace:"invoicesrpc"`
+
+	// RouterRPC is a sub-RPC server the exposes functionality that allows
+	// clients to send payments on the network, and perform Lightning
+	// payment related queries such as requests for estimates of off-chain
+	// fees.
+	RouterRPC *routerrpc.Config `group:"routerrpc" namespace:"routerrpc"`
 }
 
 // PopulateDependencies attempts to iterate through all the sub-server configs
@@ -56,7 +64,8 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 	networkDir string, macService *macaroons.Service,
 	atpl *autopilot.Manager,
 	invoiceRegistry *invoices.InvoiceRegistry,
-	activeNetParams *chaincfg.Params) error {
+	activeNetParams *chaincfg.Params,
+	chanRouter *routing.ChannelRouter) error {
 
 	// First, we'll use reflect to obtain a version of the config struct
 	// that allows us to programmatically inspect its fields.
@@ -148,6 +157,22 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 			)
 			subCfgValue.FieldByName("ChainParams").Set(
 				reflect.ValueOf(activeNetParams),
+			)
+
+		case *routerrpc.Config:
+			subCfgValue := extractReflectValue(cfg)
+
+			subCfgValue.FieldByName("NetworkDir").Set(
+				reflect.ValueOf(networkDir),
+			)
+			subCfgValue.FieldByName("ActiveNetParams").Set(
+				reflect.ValueOf(activeNetParams),
+			)
+			subCfgValue.FieldByName("MacService").Set(
+				reflect.ValueOf(macService),
+			)
+			subCfgValue.FieldByName("Router").Set(
+				reflect.ValueOf(chanRouter),
 			)
 
 		default:

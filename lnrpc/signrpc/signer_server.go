@@ -1,4 +1,4 @@
-// +build signerrpc
+// +build signrpc
 
 package signrpc
 
@@ -16,7 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	grpc "google.golang.org/grpc"
+	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
@@ -75,7 +75,7 @@ func fileExists(name string) bool {
 }
 
 // New returns a new instance of the signrpc Signer sub-server. We also return
-// the set of permission s for the macaroons that we may create within this
+// the set of permissions for the macaroons that we may create within this
 // method. If the macaroons we need aren't found in the filepath, then we'll
 // create them on start up. If we're unable to locate, or create the macaroons
 // we need, then we'll return with an error.

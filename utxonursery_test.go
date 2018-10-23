@@ -9,8 +9,9 @@ import (
 	"github.com/lightningnetwork/lnd/sweep"
 	"io/ioutil"
 	"math"
+	"os"
 	"reflect"
-	"sync"
+	"runtime/pprof"
 	"testing"
 	"time"
 
@@ -19,7 +20,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
@@ -396,11 +396,14 @@ func TestBabyOutputSerialization(t *testing.T) {
 
 type nurseryTestContext struct {
 	nursery     *utxoNursery
-	notifier    *nurseryMockNotifier
+	notifier    *sweep.MockNotifier
+	chainIO     *mockChainIO
 	publishChan chan wire.MsgTx
 	store       *nurseryStoreInterceptor
 	restart     func() bool
 	receiveTx   func() wire.MsgTx
+	sweeper     *sweep.UtxoSweeper
+	timeoutChan chan chan time.Time
 	t           *testing.T
 }
 
@@ -430,17 +433,50 @@ func createNurseryTestContext(t *testing.T,
 	// test.
 	storeIntercepter := newNurseryStoreInterceptor(store)
 
-	notifier := newNurseryMockNotifier(t)
+	notifier := sweep.NewMockNotifier(t)
 
-	sweeper := sweep.New(&sweep.UtxoSweeperConfig{
+	publishChan := make(chan wire.MsgTx, 1)
+	publishFunc := func(tx *wire.MsgTx, source string) error {
+		utxnLog.Tracef("Publishing tx %v by %v", tx.TxHash(), source)
+		publishChan <- *tx
+		return nil
+	}
+
+	timeoutChan := make(chan chan time.Time)
+
+	chainIO := &mockChainIO{
+		bestHeight: 0,
+	}
+
+	sweeperStore := sweep.NewMockSweeperStore()
+
+	sweeperCfg := &sweep.UtxoSweeperConfig{
 		GenSweepScript: func() ([]byte, error) {
 			return []byte{}, nil
 		},
 		Estimator: &lnwallet.StaticFeeEstimator{},
 		Signer:    &nurseryMockSigner{},
-	})
+		Notifier:  notifier,
+		PublishTransaction: func(tx *wire.MsgTx) error {
+			return publishFunc(tx, "sweeper")
+		},
+		NewBatchTimer: func() <-chan time.Time {
+			c := make(chan time.Time, 1)
+			timeoutChan <- c
+			return c
+		},
+		ChainIO:              chainIO,
+		Store:                sweeperStore,
+		MaxInputsPerTx:       10,
+		MaxSweepAttempts:     5,
+		NextAttemptDeltaFunc: func(int) int32 { return 1 },
+	}
 
-	cfg := NurseryConfig{
+	sweeper := sweep.New(sweeperCfg)
+
+	sweeper.Start()
+
+	nurseryCfg := NurseryConfig{
 		Notifier: notifier,
 		FetchClosedChannels: func(pendingOnly bool) (
 			[]*channeldb.ChannelCloseSummary, error) {
@@ -453,52 +489,89 @@ func createNurseryTestContext(t *testing.T,
 			}, nil
 		},
 		Store:   storeIntercepter,
-		ChainIO: &mockChainIO{},
+		ChainIO: chainIO,
 		Sweeper: sweeper,
+		PublishTransaction: func(tx *wire.MsgTx) error {
+			return publishFunc(tx, "nursery")
+		},
 	}
 
-	publishChan := make(chan wire.MsgTx, 1)
-	cfg.PublishTransaction = func(tx *wire.MsgTx) error {
-		t.Logf("Publishing tx %v", tx.TxHash())
-		publishChan <- *tx
-		return nil
-	}
-
-	nursery := newUtxoNursery(&cfg)
+	nursery := newUtxoNursery(&nurseryCfg)
 	nursery.Start()
 
 	ctx := &nurseryTestContext{
 		nursery:     nursery,
 		notifier:    notifier,
+		chainIO:     chainIO,
 		store:       storeIntercepter,
 		publishChan: publishChan,
+		sweeper:     sweeper,
+		timeoutChan: timeoutChan,
 		t:           t,
-	}
-
-	ctx.restart = func() bool {
-		return checkStartStop(func() {
-			ctx.nursery.Stop()
-			// Simulate lnd restart.
-			ctx.nursery = newUtxoNursery(ctx.nursery.cfg)
-			ctx.nursery.Start()
-		})
 	}
 
 	ctx.receiveTx = func() wire.MsgTx {
 		var tx wire.MsgTx
 		select {
 		case tx = <-ctx.publishChan:
+			utxnLog.Debugf("Published tx %v", tx.TxHash())
 			return tx
-		case <-time.After(5 * time.Second):
+		case <-time.After(defaultTestTimeout):
+			pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
+
 			t.Fatalf("tx not published")
 		}
 		return tx
+	}
+
+	ctx.restart = func() bool {
+		return checkStartStop(func() {
+			utxnLog.Tracef("Restart sweeper and nursery")
+			// Simulate lnd restart.
+			ctx.nursery.Stop()
+
+			// Also restart sweeper to test behaviour as one unit.
+			//
+			// TODO(joostjager): Mock sweeper to test nursery in
+			// isolation.
+			ctx.sweeper.Stop()
+
+			// Find out if there is a last tx stored. If so, we
+			// expect it to be republished on startup.
+			hasLastTx, err := sweeperCfg.Store.GetLastPublishedTx()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Restart sweeper.
+			ctx.sweeper = sweep.New(sweeperCfg)
+			ctx.sweeper.Start()
+
+			// Receive last tx if expected.
+			if hasLastTx != nil {
+				utxnLog.Debugf("Expecting republish")
+				ctx.receiveTx()
+			} else {
+				utxnLog.Debugf("Expecting no republish")
+			}
+
+			/// Restart nursery.
+			nurseryCfg.Sweeper = ctx.sweeper
+			ctx.nursery = newUtxoNursery(&nurseryCfg)
+			ctx.nursery.Start()
+
+		})
 	}
 
 	// Start with testing an immediate restart.
 	ctx.restart()
 
 	return ctx
+}
+
+func (ctx *nurseryTestContext) notifyEpoch(height int32) {
+	ctx.chainIO.bestHeight = height
+	ctx.notifier.NotifyEpoch(height)
 }
 
 func (ctx *nurseryTestContext) finish() {
@@ -556,6 +629,8 @@ func (ctx *nurseryTestContext) finish() {
 	if len(activeHeights) > 0 {
 		ctx.t.Fatalf("Expected height index to be empty")
 	}
+
+	ctx.sweeper.Stop()
 }
 
 func createOutgoingRes(onLocalCommitment bool) *lnwallet.OutgoingHtlcResolution {
@@ -703,6 +778,8 @@ func testRestartLoop(t *testing.T, test func(*testing.T,
 
 				return true
 			}
+			utxnLog.Debugf("Skipping restart point %v",
+				currentStartStopIdx)
 			return false
 		}
 
@@ -739,7 +816,7 @@ func testNurseryOutgoingHtlcSuccessOnLocal(t *testing.T,
 	ctx.restart()
 
 	// Notify arrival of block where HTLC CLTV expires.
-	ctx.notifier.notifyEpoch(125)
+	ctx.notifyEpoch(125)
 
 	// This should trigger nursery to publish the timeout tx.
 	ctx.receiveTx()
@@ -751,7 +828,7 @@ func testNurseryOutgoingHtlcSuccessOnLocal(t *testing.T,
 
 	// Confirm the timeout tx. This should promote the HTLC to KNDR state.
 	timeoutTxHash := outgoingRes.SignedTimeoutTx.TxHash()
-	if err := ctx.notifier.confirmTx(&timeoutTxHash, 126); err != nil {
+	if err := ctx.notifier.ConfirmTx(&timeoutTxHash, 126); err != nil {
 		t.Fatal(err)
 	}
 
@@ -765,7 +842,7 @@ func testNurseryOutgoingHtlcSuccessOnLocal(t *testing.T,
 	ctx.restart()
 
 	// Notify arrival of block where second level HTLC unlocks.
-	ctx.notifier.notifyEpoch(128)
+	ctx.notifyEpoch(128)
 
 	// Check final sweep into wallet.
 	testSweepHtlc(t, ctx)
@@ -790,7 +867,7 @@ func testNurseryOutgoingHtlcSuccessOnRemote(t *testing.T,
 	// resolving remote commitment tx.
 	//
 	// TODO(joostjager): This is probably not correct?
-	err := ctx.notifier.confirmTx(&outgoingRes.ClaimOutpoint.Hash, 124)
+	err := ctx.notifier.ConfirmTx(&outgoingRes.ClaimOutpoint.Hash, 124)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -805,7 +882,7 @@ func testNurseryOutgoingHtlcSuccessOnRemote(t *testing.T,
 	ctx.restart()
 
 	// Notify arrival of block where HTLC CLTV expires.
-	ctx.notifier.notifyEpoch(125)
+	ctx.notifyEpoch(125)
 
 	// Check final sweep into wallet.
 	testSweepHtlc(t, ctx)
@@ -840,7 +917,7 @@ func testNurseryCommitSuccessOnLocal(t *testing.T,
 	ctx.restart()
 
 	// Notify confirmation of the commitment tx.
-	err = ctx.notifier.confirmTx(&commitRes.SelfOutPoint.Hash, 124)
+	err = ctx.notifier.ConfirmTx(&commitRes.SelfOutPoint.Hash, 124)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -855,7 +932,7 @@ func testNurseryCommitSuccessOnLocal(t *testing.T,
 	ctx.restart()
 
 	// Notify arrival of block where commit output CSV expires.
-	ctx.notifier.notifyEpoch(126)
+	ctx.notifyEpoch(126)
 
 	// Check final sweep into wallet.
 	testSweep(t, ctx, func() {
@@ -876,27 +953,28 @@ func testSweepHtlc(t *testing.T, ctx *nurseryTestContext) {
 
 func testSweep(t *testing.T, ctx *nurseryTestContext,
 	afterPublishAssert func()) {
+
 	// Wait for nursery to publish the sweep tx.
+	ctx.tick()
 	sweepTx := ctx.receiveTx()
 
 	if ctx.restart() {
-		// Restart will trigger rebroadcast of sweep tx.
-		sweepTx = ctx.receiveTx()
+		// Nursery reoffers its input. Sweeper needs a tick to create the sweep
+		// tx.
+		ctx.tick()
+		ctx.receiveTx()
 	}
 
 	afterPublishAssert()
 
 	// Confirm the sweep tx.
-	sweepTxHash := sweepTx.TxHash()
-	err := ctx.notifier.confirmTx(&sweepTxHash, 129)
-	if err != nil {
-		t.Fatal(err)
-	}
+	ctx.notifier.SpendOutpoint(sweepTx.TxIn[0].PreviousOutPoint, sweepTx)
 
 	// Wait for output to be promoted in store to GRAD.
 	select {
 	case <-ctx.store.graduateKinderChan:
 	case <-time.After(defaultTestTimeout):
+		pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
 		t.Fatalf("output not graduated")
 	}
 
@@ -905,6 +983,19 @@ func testSweep(t *testing.T, ctx *nurseryTestContext,
 	// As there only was one output to graduate, we expect the channel to be
 	// closed and no report available anymore.
 	assertNurseryReportUnavailable(t, ctx.nursery)
+}
+
+func (ctx *nurseryTestContext) tick() {
+	select {
+	case c := <-ctx.timeoutChan:
+		select {
+		case c <- time.Time{}:
+		case <-time.After(defaultTestTimeout):
+			ctx.t.Fatal("tick timeout - tick not consumed")
+		}
+	case <-time.After(defaultTestTimeout):
+		ctx.t.Fatal("tick timeout - no new timer created")
+	}
 }
 
 type nurseryStoreInterceptor struct {
@@ -941,16 +1032,18 @@ func (i *nurseryStoreInterceptor) CribToKinder(babyOutput *babyOutput) error {
 	return err
 }
 
-func (i *nurseryStoreInterceptor) PreschoolToKinder(kidOutput *kidOutput) error {
-	err := i.ns.PreschoolToKinder(kidOutput)
+func (i *nurseryStoreInterceptor) PreschoolToKinder(kidOutput *kidOutput,
+	lastGradHeight uint32) error {
+
+	err := i.ns.PreschoolToKinder(kidOutput, lastGradHeight)
 
 	i.preschoolToKinderChan <- struct{}{}
 
 	return err
 }
 
-func (i *nurseryStoreInterceptor) GraduateKinder(height uint32) error {
-	err := i.ns.GraduateKinder(height)
+func (i *nurseryStoreInterceptor) GraduateKinder(height uint32, kid *kidOutput) error {
+	err := i.ns.GraduateKinder(height, kid)
 
 	i.graduateKinderChan <- struct{}{}
 
@@ -961,28 +1054,10 @@ func (i *nurseryStoreInterceptor) FetchPreschools() ([]kidOutput, error) {
 	return i.ns.FetchPreschools()
 }
 
-func (i *nurseryStoreInterceptor) FetchClass(height uint32) (*wire.MsgTx,
+func (i *nurseryStoreInterceptor) FetchClass(height uint32) (
 	[]kidOutput, []babyOutput, error) {
 
 	return i.ns.FetchClass(height)
-}
-
-func (i *nurseryStoreInterceptor) FinalizeKinder(height uint32,
-	tx *wire.MsgTx) error {
-
-	return i.ns.FinalizeKinder(height, tx)
-}
-
-func (i *nurseryStoreInterceptor) LastFinalizedHeight() (uint32, error) {
-	return i.ns.LastFinalizedHeight()
-}
-
-func (i *nurseryStoreInterceptor) GraduateHeight(height uint32) error {
-	return i.ns.GraduateHeight(height)
-}
-
-func (i *nurseryStoreInterceptor) LastGraduatedHeight() (uint32, error) {
-	return i.ns.LastGraduatedHeight()
 }
 
 func (i *nurseryStoreInterceptor) HeightsBelowOrEqual(height uint32) (
@@ -1024,93 +1099,4 @@ func (m *nurseryMockSigner) ComputeInputScript(tx *wire.MsgTx,
 	signDesc *lnwallet.SignDescriptor) (*lnwallet.InputScript, error) {
 
 	return &lnwallet.InputScript{}, nil
-}
-
-type nurseryMockNotifier struct {
-	confChannel map[chainhash.Hash]chan *chainntnfs.TxConfirmation
-	epochChan   chan *chainntnfs.BlockEpoch
-	spendChan   chan *chainntnfs.SpendDetail
-	mutex       sync.RWMutex
-	t           *testing.T
-}
-
-func newNurseryMockNotifier(t *testing.T) *nurseryMockNotifier {
-	return &nurseryMockNotifier{
-		confChannel: make(map[chainhash.Hash]chan *chainntnfs.TxConfirmation),
-		epochChan:   make(chan *chainntnfs.BlockEpoch),
-		spendChan:   make(chan *chainntnfs.SpendDetail),
-		t:           t,
-	}
-}
-
-func (m *nurseryMockNotifier) notifyEpoch(height int32) {
-	select {
-	case m.epochChan <- &chainntnfs.BlockEpoch{
-		Height: height,
-	}:
-	case <-time.After(defaultTestTimeout):
-		m.t.Fatal("epoch event not consumed")
-	}
-}
-
-func (m *nurseryMockNotifier) confirmTx(txid *chainhash.Hash, height uint32) error {
-	confirm := &chainntnfs.TxConfirmation{
-		BlockHeight: height,
-	}
-	select {
-	case m.getConfChannel(txid) <- confirm:
-	case <-time.After(defaultTestTimeout):
-		return fmt.Errorf("confirmation not consumed")
-	}
-	return nil
-}
-
-func (m *nurseryMockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
-	_ []byte, numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent,
-	error) {
-
-	return &chainntnfs.ConfirmationEvent{
-		Confirmed: m.getConfChannel(txid),
-	}, nil
-}
-
-func (m *nurseryMockNotifier) getConfChannel(
-	txid *chainhash.Hash) chan *chainntnfs.TxConfirmation {
-
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	channel, ok := m.confChannel[*txid]
-	if ok {
-		return channel
-	}
-	channel = make(chan *chainntnfs.TxConfirmation)
-	m.confChannel[*txid] = channel
-
-	return channel
-}
-
-func (m *nurseryMockNotifier) RegisterBlockEpochNtfn(
-	bestBlock *chainntnfs.BlockEpoch) (*chainntnfs.BlockEpochEvent, error) {
-	return &chainntnfs.BlockEpochEvent{
-		Epochs: m.epochChan,
-		Cancel: func() {},
-	}, nil
-}
-
-func (m *nurseryMockNotifier) Start() error {
-	return nil
-}
-
-func (m *nurseryMockNotifier) Stop() error {
-	return nil
-}
-
-func (m *nurseryMockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	_ []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
-
-	return &chainntnfs.SpendEvent{
-		Spend:  m.spendChan,
-		Cancel: func() {},
-	}, nil
 }

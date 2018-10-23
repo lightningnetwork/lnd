@@ -168,10 +168,12 @@ func (m *mockSpendNotifier) Spend(outpoint *wire.OutPoint, height int32,
 	}
 }
 
-type mockChainIO struct{}
+type mockChainIO struct {
+	bestHeight int32
+}
 
-func (*mockChainIO) GetBestBlock() (*chainhash.Hash, int32, error) {
-	return activeNetParams.GenesisHash, fundingBroadcastHeight, nil
+func (m *mockChainIO) GetBestBlock() (*chainhash.Hash, int32, error) {
+	return activeNetParams.GenesisHash, m.bestHeight, nil
 }
 
 func (*mockChainIO) GetUtxo(op *wire.OutPoint, _ []byte,

@@ -316,7 +316,9 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	}
 	bobPool.Start()
 
-	chainIO := &mockChainIO{}
+	chainIO := &mockChainIO{
+		bestHeight: fundingBroadcastHeight,
+	}
 	wallet := &lnwallet.LightningWallet{
 		WalletController: &mockWalletController{
 			rootKey:               aliceKeyPriv,

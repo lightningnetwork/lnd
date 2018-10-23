@@ -2,12 +2,142 @@ package sweep
 
 import (
 	"fmt"
+	"github.com/btcsuite/btcwallet/wallet/txrules"
+
+	"sort"
+
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
+
+var (
+	// DefaultMaxInputsPerTx specifies the default maximum number of inputs
+	// allowed in a single sweep tx. If more need to be swept, multiple txes
+	// are created and published.
+	DefaultMaxInputsPerTx = 100
+)
+
+type inputSet []Input
+
+// generateInputPartitionings goes through all given inputs and constructs sets
+// of inputs that can be used to generate a sensible transaction. Each set
+// contains up to the configured maximum number of inputs. Negative yield inputs
+// are skipped. No input sets with a total value after fees below the dust limit
+// are not returned.
+func generateInputPartitionings(sweepableInputs []Input,
+	relayFeePerKW, feePerKW lnwallet.SatPerKWeight,
+	maxInputsPerTx int) ([]inputSet, error) {
+
+	// Calculate dust limit based on the P2WPKH output script of the sweep
+	// txes.
+	dustLimit := int64(txrules.GetDustThreshold(
+		lnwallet.P2WPKHSize,
+		btcutil.Amount(relayFeePerKW.FeePerKVByte())))
+
+	log.Tracef("Sweepable inputs count: %v", len(sweepableInputs))
+
+	// Sort input by yield. We will start constructing input sets starting
+	// with the highest yield inputs. This is to prevent the construction of
+	// a set with an output below the dust limit, causing the sweep process
+	// to stop, while there are still higher value inputs available. It also
+	// allows us to stop evaluating more inputs when the first input in this
+	// ordering is encountered with a negative yield.
+	//
+	// Yield is calculated as the difference between value and added fee for
+	// this input. The fee calculation excludes fee components that are
+	// common to all inputs, as those wouldn't influence the order. The
+	// single component that is differentiating is witness size.
+	//
+	// For witness size, the upper limit is taken. The actual size depends
+	// on the signature length, which is not known yet at this point.
+	yields := make(map[wire.OutPoint]int64)
+	for _, input := range sweepableInputs {
+		size, err := getInputWitnessSizeUpperBound(input)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed adding input weight: %v", err)
+		}
+
+		yields[*input.OutPoint()] = input.SignDesc().Output.Value -
+			int64(feePerKW.FeeForWeight(int64(size)))
+	}
+
+	sort.Slice(sweepableInputs, func(i, j int) bool {
+		return yields[*sweepableInputs[i].OutPoint()] >
+			yields[*sweepableInputs[j].OutPoint()]
+	})
+
+	// Select blocks of inputs up to the configured maximum number.
+	var sets []inputSet
+	stopSweep := false
+	for len(sweepableInputs) > 0 && !stopSweep {
+		var weightEstimate lnwallet.TxWeightEstimator
+
+		// Add the sweep tx output to the weight estimate.
+		weightEstimate.AddP2WKHOutput()
+
+		var inputList inputSet
+		var total, outputValue int64
+		for len(sweepableInputs) > 0 {
+			input := sweepableInputs[0]
+			sweepableInputs = sweepableInputs[1:]
+
+			// Can ignore error, because it has already been checked
+			// when calculating the yields.
+			size, _ := getInputWitnessSizeUpperBound(input)
+
+			weightEstimate.AddWitnessInput(size)
+
+			newTotal := total +
+				input.SignDesc().Output.Value
+
+			weight := weightEstimate.Weight()
+			fee := feePerKW.FeeForWeight(int64(weight))
+			newOutputValue := newTotal - int64(fee)
+
+			// If adding this input makes the total output value of
+			// the set decrease, this is a negative yield input. It
+			// shouldn't be added to the set. We also don't need to
+			// consider further inputs. Because of the sorting by
+			// value, subsequent inputs almost certainly have an
+			// even higher negative yield.
+			if newOutputValue <= outputValue {
+				stopSweep = true
+				break
+			}
+
+			inputList = append(inputList, input)
+			total = newTotal
+			outputValue = newOutputValue
+			if len(inputList) >= maxInputsPerTx {
+				break
+			}
+		}
+
+		// We can get an empty input list if all of the inputs had a
+		// negative yield. In that case, we can stop here.
+		if len(inputList) == 0 {
+			return sets, nil
+		}
+
+		// If the output value of this block of inputs does not reach
+		// the dust limit, stop sweeping. Because of the sorting,
+		// continuing with remaining inputs will only lead to sets with
+		// a even lower output value.
+		if outputValue < dustLimit {
+			log.Debugf("Set value %v below dust limit of %v",
+				outputValue, dustLimit)
+			return sets, nil
+		}
+
+		sets = append(sets, inputList)
+	}
+
+	return sets, nil
+}
 
 func createSweepTx(inputs []Input, outputPkScript []byte,
 	currentBlockHeight uint32, feePerKw lnwallet.SatPerKWeight,
@@ -88,6 +218,8 @@ func createSweepTx(inputs []Input, outputPkScript []byte,
 	return sweepTx, nil
 }
 
+// getInputWitnessSizeUpperBound returns the maximum length of the witness for
+// the given input if it would be included in a tx.
 func getInputWitnessSizeUpperBound(input Input) (int, error) {
 	switch input.WitnessType() {
 

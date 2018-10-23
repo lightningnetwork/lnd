@@ -1,24 +1,24 @@
 package lnrpc
 
 import (
-	fmt "fmt"
+	"fmt"
 	"sync"
 
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
-// MacaroonPerms is a map from the FullMethod of an invoked gRPC command.  to
-// the set of operations that the macaroon presented with the command MUST
+// MacaroonPerms is a map from the FullMethod of an invoked gRPC command. It
+// maps the set of operations that the macaroon presented with the command MUST
 // satisfy. With this map, all sub-servers are able to communicate to the
 // primary macaroon service what type of macaroon must be passed with each
 // method present on the service of the sub-server.
 type MacaroonPerms map[string][]bakery.Op
 
 // SubServer is a child server of the main lnrpc gRPC server. Sub-servers allow
-// lnd to expose discrete services that can be use with or independent of the
+// lnd to expose discrete services that can be used with or independent of the
 // main RPC server. The main rpcserver will create, start, stop, and manage
-// each ubs-server in a generalized manner.
+// each sub-server in a generalized manner.
 type SubServer interface {
 	// Start starts the sub-server and all goroutines it needs to operate.
 	Start() error

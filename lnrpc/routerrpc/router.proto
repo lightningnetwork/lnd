@@ -1,0 +1,103 @@
+syntax = "proto3";
+
+package routerrpc;
+
+message PaymentRequest {
+    /**
+    A serialized BOLT-11 payment request that contains all information
+    required to dispatch the payment. If the pay req is invalid, or expired,
+    an error will be returned.
+    */
+    string pay_req = 1;
+
+    /**
+    An absolute limit on the highest fee we should pay when looking for a route
+    to the destination. Routes with fees higher than this will be ignored, if
+    there are no routes with a fee below this amount, an error will be
+    returned.
+    */
+    int64 fee_limit_sat = 2;
+
+    /**
+    An absolute limit on the cumulative CLTV value along the route for this
+    payment. Routes with total CLTV values higher than this will be ignored,
+    if there are no routes with a CLTV value below this amount, an error will
+    be returned.
+    */
+    int32 cltv_limit = 3;
+
+    /**
+    An upper limit on the amount of time we should spend when attempting to
+    fulfill the payment. This is expressed in seconds. If we cannot make a
+    successful payment within this time frame, an error will be returned.
+    */
+    int32 timeout_seconds = 4;
+
+    /**
+    The channel id of the channel that must be taken to the first hop. If zero,
+    any channel may be used.
+    */
+    int64 outgoing_channel_id = 5;
+}
+
+message PaymentResponse {
+    /**
+    The payment hash that we paid to. Provided so callers are able to map
+    responses (which may be streaming) back to their original requests.
+    */
+    bytes pay_hash = 1;
+
+    /**
+    The pre-image of the payment successfully completed.
+    */
+    bytes pre_image = 2;
+
+    /**
+    If not an empty string, then a string representation of the payment error.
+    */
+    string payment_err = 3;
+}
+
+message RouteFeeRequest {
+    /**
+    The destination once wishes to obtain a routing fee quote to.
+    */
+    bytes dest = 1;
+
+    /**
+    The amount one wishes to send to the target destination.
+    */
+    int64 amt_sat = 2;
+}
+
+message RouteFeeResponse {
+    /**
+    A lower bound of the estimated fee to the target destination within the
+    network, expressed in milli-satoshis.
+    */
+    int64 routing_fee_msat = 1;
+
+    /**
+    An estimate of the worst case time delay that can occur. Note that callers
+    will still need to factor in the final CLTV delta of the last hop into this
+    value.
+    */
+    int64 time_lock_delay = 2;
+}
+
+service Router {
+    /**
+    SendPayment attempts to route a payment described by the passed
+    PaymentRequest to the final destination. If we are unable to route the
+    payment, or cannot find a route that satisfies the constraints in the
+    PaymentRequest, then an error will be returned. Otherwise, the payment
+    pre-image, along with the final route will be returned.
+    */
+    rpc SendPayment(PaymentRequest) returns (PaymentResponse);
+
+    /**
+    EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
+    may cost to send an HTLC to the target end destination.
+    */
+    rpc EstimateRouteFee(RouteFeeRequest) returns (RouteFeeResponse);
+}

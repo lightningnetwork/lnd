@@ -2048,7 +2048,8 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			if err != nil {
 				log.Errorf("unable to send channel update -- "+
 					"could not find peer %x: %v",
-					remotePub, err)
+					remotePub.SerializeCompressed(),
+					err)
 			} else {
 				// Send ChannelUpdate directly to remotePeer.
 				// TODO(halseth): make reliable send?

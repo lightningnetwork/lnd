@@ -1170,6 +1170,9 @@ message OpenChannelRequest {
 
     /// The minimum number of confirmations each one of your outputs used for the funding transaction must satisfy.
     int32 min_confs = 11 [json_name = "min_confs"];
+
+    /// Whether unconfirmed outputs should be used as inputs for the funding transaction.
+    bool spend_unconfirmed = 12 [json_name = "spend_unconfirmed"];
 }
 message OpenStatusUpdate {
     oneof update {

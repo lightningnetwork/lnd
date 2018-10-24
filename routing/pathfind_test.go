@@ -1551,6 +1551,132 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	}
 }
 
+// TestPathSourceEdgesBandwidth tests that explicitly passing in a set of
+// bandwidth hints is used by the path finding algorithm to consider whether to
+// use a local channel.
+func TestPathSourceEdgesBandwidth(t *testing.T) {
+	t.Parallel()
+
+	graph, err := parseTestGraph(basicGraphFilePath)
+	defer graph.cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+
+	sourceNode, err := graph.graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+	}
+	ignoredEdges := make(map[uint64]struct{})
+	ignoredVertexes := make(map[Vertex]struct{})
+
+	// First, we'll try to route from roasbeef -> sophon. This should
+	// succeed without issue, and return a path via songoku, as that's the
+	// cheapest path.
+	target := graph.aliasMap["sophon"]
+	payAmt := lnwire.NewMSatFromSatoshis(50000)
+	path, err := findPath(
+		&graphParams{
+			graph: graph.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, payAmt,
+	)
+	if err != nil {
+		t.Fatalf("unable to find path: %v", err)
+	}
+	assertExpectedPath(t, path, "songoku", "sophon")
+
+	// Now we'll set the bandwidth of the edge roasbeef->songoku and
+	// roasbeef->phamnuwen to 0.
+	roasToSongoku := uint64(12345)
+	roasToPham := uint64(999991)
+	bandwidths := map[uint64]lnwire.MilliSatoshi{
+		roasToSongoku: 0,
+		roasToPham:    0,
+	}
+
+	// Since both these edges has a bandwidth of zero, no path should be
+	// found.
+	_, err = findPath(
+		&graphParams{
+			graph:          graph.graph,
+			bandwidthHints: bandwidths,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, payAmt,
+	)
+	if !IsError(err, ErrNoPathFound) {
+		t.Fatalf("graph shouldn't be able to support payment: %v", err)
+	}
+
+	// Set the bandwidth of roasbeef->phamnuwen high enough to carry the
+	// payment.
+	bandwidths[roasToPham] = 2 * payAmt
+
+	// Now, if we attempt to route again, we should find the path via
+	// phamnuven, as the other source edge won't be considered.
+	path, err = findPath(
+		&graphParams{
+			graph:          graph.graph,
+			bandwidthHints: bandwidths,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, payAmt,
+	)
+	if err != nil {
+		t.Fatalf("unable to find path: %v", err)
+	}
+	assertExpectedPath(t, path, "phamnuwen", "sophon")
+
+	// Finally, set the roasbeef->songoku bandwidth, but also set its
+	// disable flag.
+	bandwidths[roasToSongoku] = 2 * payAmt
+	_, e1, e2, err := graph.graph.FetchChannelEdgesByID(roasToSongoku)
+	if err != nil {
+		t.Fatalf("unable to fetch edge: %v", err)
+	}
+	e1.Flags |= lnwire.ChanUpdateDisabled
+	if err := graph.graph.UpdateEdgePolicy(e1); err != nil {
+		t.Fatalf("unable to update edge: %v", err)
+	}
+	e2.Flags |= lnwire.ChanUpdateDisabled
+	if err := graph.graph.UpdateEdgePolicy(e2); err != nil {
+		t.Fatalf("unable to update edge: %v", err)
+	}
+
+	// Since we ignore disable flags for local channels, a path should
+	// still be found.
+	path, err = findPath(
+		&graphParams{
+			graph:          graph.graph,
+			bandwidthHints: bandwidths,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, payAmt,
+	)
+	if err != nil {
+		t.Fatalf("unable to find path: %v", err)
+	}
+	assertExpectedPath(t, path, "songoku", "sophon")
+}
+
 func TestPathInsufficientCapacityWithFee(t *testing.T) {
 	t.Parallel()
 

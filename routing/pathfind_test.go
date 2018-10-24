@@ -578,8 +578,15 @@ func TestFindLowestFeePath(t *testing.T) {
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := testGraphInstance.aliasMap["target"]
 	path, err := findPath(
-		nil, testGraphInstance.graph, nil, sourceNode, target,
-		ignoredVertexes, ignoredEdges, paymentAmt, noFeeLimit, nil,
+		&graphParams{
+			graph: testGraphInstance.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, paymentAmt,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -717,8 +724,15 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 	paymentAmt := lnwire.NewMSatFromSatoshis(test.paymentAmt)
 	target := graphInstance.aliasMap[test.target]
 	path, err := findPath(
-		nil, graphInstance.graph, nil, sourceNode, target,
-		ignoredVertexes, ignoredEdges, paymentAmt, test.feeLimit, nil,
+		&graphParams{
+			graph: graphInstance.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     test.feeLimit,
+		},
+		sourceNode, target, paymentAmt,
 	)
 	if test.expectFailureNoPath {
 		if err == nil {
@@ -905,8 +919,14 @@ func TestPathFindingWithAdditionalEdges(t *testing.T) {
 
 	// We should now be able to find a path from roasbeef to doge.
 	path, err := findPath(
-		nil, graph.graph, additionalEdges, sourceNode, dogePubKey, nil, nil,
-		paymentAmt, noFeeLimit, nil,
+		&graphParams{
+			graph:           graph.graph,
+			additionalEdges: additionalEdges,
+		},
+		&restrictParams{
+			feeLimit: noFeeLimit,
+		},
+		sourceNode, dogePubKey, paymentAmt,
 	)
 	if err != nil {
 		t.Fatalf("unable to find private path to doge: %v", err)
@@ -1261,12 +1281,19 @@ func TestNewRoutePathTooLong(t *testing.T) {
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 
-	// We start by confirming that routing a payment 20 hops away is possible.
-	// Alice should be able to find a valid route to ursula.
+	// We start by confirming that routing a payment 20 hops away is
+	// possible. Alice should be able to find a valid route to ursula.
 	target := graph.aliasMap["ursula"]
 	_, err = findPath(
-		nil, graph.graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, paymentAmt, noFeeLimit, nil,
+		&graphParams{
+			graph: graph.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, paymentAmt,
 	)
 	if err != nil {
 		t.Fatalf("path should have been found")
@@ -1276,8 +1303,15 @@ func TestNewRoutePathTooLong(t *testing.T) {
 	// presented to Alice.
 	target = graph.aliasMap["vincent"]
 	path, err := findPath(
-		nil, graph.graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, paymentAmt, noFeeLimit, nil,
+		&graphParams{
+			graph: graph.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, paymentAmt,
 	)
 	if err == nil {
 		t.Fatalf("should not have been able to find path, supposed to be "+
@@ -1318,8 +1352,15 @@ func TestPathNotAvailable(t *testing.T) {
 	}
 
 	_, err = findPath(
-		nil, graph.graph, nil, sourceNode, unknownNode, ignoredVertexes,
-		ignoredEdges, 100, noFeeLimit, nil,
+		&graphParams{
+			graph: graph.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, unknownNode, 100,
 	)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("path shouldn't have been found: %v", err)
@@ -1354,8 +1395,15 @@ func TestPathInsufficientCapacity(t *testing.T) {
 
 	payAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 	_, err = findPath(
-		nil, graph.graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, payAmt, noFeeLimit, nil,
+		&graphParams{
+			graph: graph.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, payAmt,
 	)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
@@ -1386,8 +1434,15 @@ func TestRouteFailMinHTLC(t *testing.T) {
 	target := graph.aliasMap["songoku"]
 	payAmt := lnwire.MilliSatoshi(10)
 	_, err = findPath(
-		nil, graph.graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, payAmt, noFeeLimit, nil,
+		&graphParams{
+			graph: graph.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, payAmt,
 	)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
@@ -1418,8 +1473,15 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	target := graph.aliasMap["sophon"]
 	payAmt := lnwire.NewMSatFromSatoshis(105000)
 	_, err = findPath(
-		nil, graph.graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, payAmt, noFeeLimit, nil,
+		&graphParams{
+			graph: graph.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, payAmt,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -1439,8 +1501,15 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	// Now, if we attempt to route through that edge, we should get a
 	// failure as it is no longer eligible.
 	_, err = findPath(
-		nil, graph.graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, payAmt, noFeeLimit, nil,
+		&graphParams{
+			graph: graph.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, payAmt,
 	)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)

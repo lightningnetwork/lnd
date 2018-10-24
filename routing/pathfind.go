@@ -446,6 +446,42 @@ func edgeWeight(lockedAmt lnwire.MilliSatoshi, fee lnwire.MilliSatoshi,
 	return int64(fee) + timeLockPenalty
 }
 
+// graphParams wraps the set of graph parameters passed to findPath.
+type graphParams struct {
+	// tx can be set to an existing db transaction. If not set, a new
+	// transaction will be started.
+	tx *bbolt.Tx
+
+	// graph is the ChannelGraph to be used during path finding.
+	graph *channeldb.ChannelGraph
+
+	// additionalEdges is an optional set of edges that should be
+	// considered during path finding, that is not already found in the
+	// channel graph.
+	additionalEdges map[Vertex][]*channeldb.ChannelEdgePolicy
+
+	// bandwidthHints is an optional map from channels to bandwidths that
+	// can be populated if the caller has a better estimate of the current
+	// channel bandwidth than what is found in the graph.
+	bandwidthHints map[uint64]lnwire.MilliSatoshi
+}
+
+// restrictParams wraps the set of restrictions passed to findPath that the
+// found path must adhere to.
+type restrictParams struct {
+	// ignoredNodes is an optional set of nodes that should be ignored if
+	// encountered during path finding.
+	ignoredNodes map[Vertex]struct{}
+
+	// ignoredEdges is an optional set of edges that should be ignored if
+	// encountered during path finding.
+	ignoredEdges map[uint64]struct{}
+
+	// feeLimit is a maximum fee amount allowed to be used on the path from
+	// the source to the target.
+	feeLimit lnwire.MilliSatoshi
+}
+
 // findPath attempts to find a path from the source node within the
 // ChannelGraph to the target node that's capable of supporting a payment of
 // `amt` value. The current approach implemented is modified version of
@@ -457,16 +493,14 @@ func edgeWeight(lockedAmt lnwire.MilliSatoshi, fee lnwire.MilliSatoshi,
 // destination node back to source. This is to properly accumulate fees
 // that need to be paid along the path and accurately check the amount
 // to forward at every node against the available bandwidth.
-func findPath(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
-	additionalEdges map[Vertex][]*channeldb.ChannelEdgePolicy,
+func findPath(g *graphParams, r *restrictParams,
 	sourceNode *channeldb.LightningNode, target *btcec.PublicKey,
-	ignoredNodes map[Vertex]struct{}, ignoredEdges map[uint64]struct{},
-	amt lnwire.MilliSatoshi, feeLimit lnwire.MilliSatoshi,
-	bandwidthHints map[uint64]lnwire.MilliSatoshi) ([]*channeldb.ChannelEdgePolicy, error) {
+	amt lnwire.MilliSatoshi) ([]*channeldb.ChannelEdgePolicy, error) {
 
 	var err error
+	tx := g.tx
 	if tx == nil {
-		tx, err = graph.Database().Begin(false)
+		tx, err = g.graph.Database().Begin(false)
 		if err != nil {
 			return nil, err
 		}
@@ -483,7 +517,8 @@ func findPath(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 	// also returns the source node, so there is no need to add the source
 	// node explicitly.
 	distance := make(map[Vertex]nodeWithDist)
-	if err := graph.ForEachNode(tx, func(_ *bbolt.Tx, node *channeldb.LightningNode) error {
+	if err := g.graph.ForEachNode(tx, func(_ *bbolt.Tx,
+		node *channeldb.LightningNode) error {
 		// TODO(roasbeef): with larger graph can just use disk seeks
 		// with a visited map
 		distance[Vertex(node.PubKeyBytes)] = nodeWithDist{
@@ -496,7 +531,7 @@ func findPath(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 	}
 
 	additionalEdgesWithSrc := make(map[Vertex][]*edgePolicyWithSource)
-	for vertex, outgoingEdgePolicies := range additionalEdges {
+	for vertex, outgoingEdgePolicies := range g.additionalEdges {
 		// We'll also include all the nodes found within the additional
 		// edges that are not known to us yet in the distance map.
 		node := &channeldb.LightningNode{PubKeyBytes: vertex}
@@ -559,10 +594,10 @@ func findPath(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 
 		// If this vertex or edge has been black listed, then we'll
 		// skip exploring this edge.
-		if _, ok := ignoredNodes[fromVertex]; ok {
+		if _, ok := r.ignoredNodes[fromVertex]; ok {
 			return
 		}
-		if _, ok := ignoredEdges[edge.ChannelID]; ok {
+		if _, ok := r.ignoredEdges[edge.ChannelID]; ok {
 			return
 		}
 
@@ -609,7 +644,7 @@ func findPath(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 		// Check if accumulated fees would exceed fee limit when this
 		// node would be added to the path.
 		totalFee := amountToReceive - amt
-		if totalFee > feeLimit {
+		if totalFee > r.feeLimit {
 			return
 		}
 
@@ -697,7 +732,7 @@ func findPath(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 			// We'll query the lower layer to see if we can obtain
 			// any more up to date information concerning the
 			// bandwidth of this edge.
-			edgeBandwidth, ok := bandwidthHints[edgeInfo.ChannelID]
+			edgeBandwidth, ok := g.bandwidthHints[edgeInfo.ChannelID]
 			if !ok {
 				// If we don't have a hint for this edge, then
 				// we'll just use the known Capacity as the
@@ -734,7 +769,8 @@ func findPath(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 		// and use the payment amount as its capacity.
 		bandWidth := partialPath.amountToReceive
 		for _, reverseEdge := range additionalEdgesWithSrc[bestNode.PubKeyBytes] {
-			processEdge(reverseEdge.sourceNode, reverseEdge.edge, bandWidth, pivot)
+			processEdge(reverseEdge.sourceNode, reverseEdge.edge,
+				bandWidth, pivot)
 		}
 	}
 
@@ -745,7 +781,8 @@ func findPath(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 			"destination")
 	}
 
-	// Use the nextHop map to unravel the forward path from source to target.
+	// Use the nextHop map to unravel the forward path from source to
+	// target.
 	pathEdges := make([]*channeldb.ChannelEdgePolicy, 0, len(next))
 	currentNode := sourceVertex
 	for currentNode != targetVertex { // TODO(roasbeef): assumes no cycles
@@ -802,8 +839,17 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 	// selfNode) to the target destination that's capable of carrying amt
 	// satoshis along the path before fees are calculated.
 	startingPath, err := findPath(
-		tx, graph, nil, source, target, ignoredVertexes, ignoredEdges,
-		amt, feeLimit, bandwidthHints,
+		&graphParams{
+			tx:             tx,
+			graph:          graph,
+			bandwidthHints: bandwidthHints,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     feeLimit,
+		},
+		source, target, amt,
 	)
 	if err != nil {
 		log.Errorf("Unable to find path: %v", err)
@@ -874,9 +920,16 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 			// root path removed, we'll attempt to find another
 			// shortest path from the spur node to the destination.
 			spurPath, err := findPath(
-				tx, graph, nil, spurNode, target,
-				ignoredVertexes, ignoredEdges, amt, feeLimit,
-				bandwidthHints,
+				&graphParams{
+					tx:             tx,
+					graph:          graph,
+					bandwidthHints: bandwidthHints,
+				},
+				&restrictParams{
+					ignoredNodes: ignoredVertexes,
+					ignoredEdges: ignoredEdges,
+					feeLimit:     feeLimit,
+				}, spurNode, target, amt,
 			)
 
 			// If we weren't able to find a path, we'll continue to

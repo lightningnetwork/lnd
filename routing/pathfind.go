@@ -266,22 +266,28 @@ func newRoute(amtToSend, feeLimit lnwire.MilliSatoshi, sourceVertex Vertex,
 	pathEdges []*channeldb.ChannelEdgePolicy, currentHeight uint32,
 	finalCLTVDelta uint16) (*Route, error) {
 
-	var hops []*Hop
+	var (
+		hops []*Hop
 
-	totalTimeLock := currentHeight
+		// totalTimeLock will accumulate the cumulative time lock
+		// across the entire route. This value represents how long the
+		// sender will need to wait in the *worst* case.
+		totalTimeLock = currentHeight
+
+		// nextIncomingAmount is the amount that will need to flow into
+		// the *next* hop. Since we're going to be walking the route
+		// backwards below, this next hop gets closer and closer to the
+		// sender of the payment.
+		nextIncomingAmount lnwire.MilliSatoshi
+	)
 
 	pathLength := len(pathEdges)
-
-	var nextIncomingAmount lnwire.MilliSatoshi
-
 	for i := pathLength - 1; i >= 0; i-- {
+		// Now we'll start to calculate the items within the per-hop
+		// payload for the hop this edge is leading to.
 		edge := pathEdges[i]
 
-		// Now we'll start to calculate the items within the per-hop
-		// payload for the hop this edge is leading to. This hop will
-		// be called the 'current hop'.
-
-		// If it is the last hop, then the hop payload will contain
+		// If this is the last hop, then the hop payload will contain
 		// the exact amount. In BOLT #4: Onion Routing
 		// Protocol / "Payload for the Last Node", this is detailed.
 		amtToForward := amtToSend
@@ -331,23 +337,27 @@ func newRoute(amtToSend, feeLimit lnwire.MilliSatoshi, sourceVertex Vertex,
 			outgoingTimeLock = totalTimeLock - delta
 		}
 
-		// Now we create the hop struct for the current hop.
+		// Since we're traversing the path backwards atm, we prepend
+		// each new hop such that, the final slice of hops will be in
+		// the forwards order.
 		currentHop := &Hop{
 			PubKeyBytes:      Vertex(edge.Node.PubKeyBytes),
 			ChannelID:        edge.ChannelID,
 			AmtToForward:     amtToForward,
 			OutgoingTimeLock: outgoingTimeLock,
 		}
-
 		hops = append([]*Hop{currentHop}, hops...)
 
+		// Finally, we update the amount that needs to flow into the
+		// *next* hop, which is the amount this hop needs to forward,
+		// accounting for the fee that it takes.
 		nextIncomingAmount = amtToForward + fee
 	}
 
 	// With the base routing data expressed as hops, build the full route
-	// structure.
-	newRoute := NewRouteFromHops(nextIncomingAmount, totalTimeLock,
-		sourceVertex, hops)
+	newRoute := NewRouteFromHops(
+		nextIncomingAmount, totalTimeLock, sourceVertex, hops,
+	)
 
 	// Invalidate this route if its total fees exceed our fee limit.
 	if newRoute.TotalFees > feeLimit {
@@ -359,17 +369,17 @@ func newRoute(amtToSend, feeLimit lnwire.MilliSatoshi, sourceVertex Vertex,
 	return newRoute, nil
 }
 
-// NewRouteFromHops creates a new Route structure from the minimally
-// required information to perform the payment. It infers fee amounts and
-// populates the node, chan and prev/next hop maps.
+// NewRouteFromHops creates a new Route structure from the minimally required
+// information to perform the payment. It infers fee amounts and populates the
+// node, chan and prev/next hop maps.
 func NewRouteFromHops(amtToSend lnwire.MilliSatoshi, timeLock uint32,
 	sourceVertex Vertex, hops []*Hop) *Route {
 
 	// First, we'll create a route struct and populate it with the fields
 	// for which the values are provided as arguments of this function.
 	// TotalFees is determined based on the difference between the amount
-	// that is send from the source and the final amount that is received by
-	// the destination.
+	// that is send from the source and the final amount that is received
+	// by the destination.
 	route := &Route{
 		Hops:          hops,
 		TotalTimeLock: timeLock,
@@ -382,8 +392,8 @@ func NewRouteFromHops(amtToSend lnwire.MilliSatoshi, timeLock uint32,
 	}
 
 	// Then we'll update the node and channel index, to indicate that this
-	// Vertex and incoming channel link are present within this route. Also,
-	// the prev and next hop maps will be populated.
+	// Vertex and incoming channel link are present within this route.
+	// Also, the prev and next hop maps will be populated.
 	prevNode := sourceVertex
 	for i := 0; i < len(hops); i++ {
 		hop := hops[i]

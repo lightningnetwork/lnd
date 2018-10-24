@@ -230,7 +230,7 @@ type config struct {
 	NoSeedBackup bool `long:"noseedbackup" description:"If true, NO SEED WILL BE EXPOSED AND THE WALLET WILL BE ENCRYPTED USING THE DEFAULT PASSPHRASE -- EVER. THIS FLAG IS ONLY FOR TESTING AND IS BEING DEPRECATED."`
 
 	TrickleDelay        int           `long:"trickledelay" description:"Time in milliseconds between each release of announcements to the network"`
-	InactiveChanTimeout time.Duration `long:"inactivechantimeout" description:"If a channel has been inactive for the set time, send a ChannelUpdate disabling it."`
+	InactiveChanTimeout time.Duration `long:"inactivechantimeout" description:"If a channel has been inactive for the set time, send a ChannelUpdate disabling it. If the channel becomes active again, send an enabling ChannelUpdate after the same timeout."`
 
 	Alias       string `long:"alias" description:"The node alias. Used as a moniker by peers and intelligence services"`
 	Color       string `long:"color" description:"The color of the node in hex format (i.e. '#3399FF'). Used to customize node appearance in intelligence services"`

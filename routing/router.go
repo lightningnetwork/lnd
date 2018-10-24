@@ -1758,6 +1758,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			}
 
 			errSource := fErr.ErrorSource
+			errVertex := NewVertex(errSource)
 
 			log.Tracef("node=%x reported failure when sending "+
 				"htlc=%x", errSource.SerializeCompressed(),
@@ -1806,9 +1807,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 				update := onionErr.Update
 				r.applyChannelUpdate(&update, errSource)
 
-				pruneVertexFailure(
-					paySession, errSource,
-				)
+				paySession.ReportVertexFailure(errVertex)
 				continue
 
 			// If we hit an instance of onion payload corruption or
@@ -1849,9 +1848,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 				chanID := update.ShortChannelID
 				_, ok := errFailedFeeChans[chanID]
 				if ok {
-					pruneVertexFailure(
-						paySession, errSource,
-					)
+					paySession.ReportVertexFailure(errVertex)
 					continue
 				}
 
@@ -1868,9 +1865,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 				update := onionErr.Update
 				r.applyChannelUpdate(&update, errSource)
 
-				pruneVertexFailure(
-					paySession, errSource,
-				)
+				paySession.ReportVertexFailure(errVertex)
 				continue
 
 			// The outgoing channel that this node was meant to
@@ -1897,18 +1892,14 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// required features, then we'll note this error and
 			// continue.
 			case *lnwire.FailRequiredNodeFeatureMissing:
-				pruneVertexFailure(
-					paySession, errSource,
-				)
+				paySession.ReportVertexFailure(errVertex)
 				continue
 
 			// If the send fail due to a node not having the
 			// required features, then we'll note this error and
 			// continue.
 			case *lnwire.FailRequiredChannelFeatureMissing:
-				pruneVertexFailure(
-					paySession, errSource,
-				)
+				paySession.ReportVertexFailure(errVertex)
 				continue
 
 			// If the next hop in the route wasn't known or
@@ -1926,15 +1917,11 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// reason, then we'll note this and continue with the
 			// routes.
 			case *lnwire.FailTemporaryNodeFailure:
-				pruneVertexFailure(
-					paySession, errSource,
-				)
+				paySession.ReportVertexFailure(errVertex)
 				continue
 
 			case *lnwire.FailPermanentNodeFailure:
-				pruneVertexFailure(
-					paySession, errSource,
-				)
+				paySession.ReportVertexFailure(errVertex)
 				continue
 
 			// If we crafted a route that contains a too long time
@@ -1947,9 +1934,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// that as a hint during future path finding through
 			// that node.
 			case *lnwire.FailExpiryTooFar:
-				pruneVertexFailure(
-					paySession, errSource,
-				)
+				paySession.ReportVertexFailure(errVertex)
 				continue
 
 			// If we get a permanent channel or node failure, then
@@ -1966,19 +1951,6 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 
 		return preImage, route, nil
 	}
-}
-
-// pruneVertexFailure will attempt to prune a vertex from the current available
-// vertexes of the target payment session in response to an encountered routing
-// error.
-func pruneVertexFailure(paySession *paymentSession, errSource *btcec.PublicKey) {
-	// By default, we'll try to prune the node that actually sent us the
-	// error.
-	errNode := NewVertex(errSource)
-
-	// Once we've located the vertex, we'll report this failure to
-	// missionControl and restart path finding.
-	paySession.ReportVertexFailure(errNode)
 }
 
 // pruneEdgeFailure will attempts to prune an edge from the current available

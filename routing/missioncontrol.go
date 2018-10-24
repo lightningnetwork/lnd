@@ -339,6 +339,31 @@ func (p *paymentSession) ReportChannelFailure(e uint64) {
 	p.mc.Unlock()
 }
 
+// ReportChannelPolicyFailure handles a failure message that relates to a
+// channel policy. For these types of failures, the policy is updated and we
+// want to keep it included during path finding. This function does mark the
+// edge as 'policy failed once'. The next time it fails, the whole node will be
+// pruned. This is to prevent nodes from keeping us busy by continuously sending
+// new channel updates.
+func (p *paymentSession) ReportChannelPolicyFailure(
+	errSource Vertex, failedChanID uint64) {
+
+	// Check to see if we've already reported a policy related failure for
+	// this channel. If so, then we'll prune out the vertex.
+	_, ok := p.errFailedPolicyChans[failedChanID]
+	if ok {
+		// TODO(joostjager): is this aggresive pruning still necessary?
+		// Just pruning edges may also work unless there is a huge
+		// number of failing channels from that node?
+		p.ReportVertexFailure(errSource)
+
+		return
+	}
+
+	// Finally, we'll record a policy failure from this node and move on.
+	p.errFailedPolicyChans[failedChanID] = struct{}{}
+}
+
 // RequestRoute returns a route which is likely to be capable for successfully
 // routing the specified HTLC payment to the target node. Initially the first
 // set of paths returned from this method may encounter routing failure along

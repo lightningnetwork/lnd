@@ -1758,6 +1758,49 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 				"htlc=%x", errSource.SerializeCompressed(),
 				payment.PaymentHash[:])
 
+			// Always determine chan id ourselves, because a channel
+			// update with id may not be available.
+			failedChanID, err := getFailedChannelID(route, errSource)
+			if err != nil {
+				return preImage, nil, err
+			}
+
+			// processChannelUpdateAndRetry is a closure that
+			// handles a failure message containing a channel
+			// update. This function always tries to apply the
+			// channel update and passes on the result to the
+			// payment session to adjust its view on the reliability
+			// of the network.
+			//
+			// As channel id, the locally determined channel id is
+			// used. It does not rely on the channel id that is part
+			// of the channel update message, because the remote
+			// node may lie to us or the update may be corrupt.
+			processChannelUpdateAndRetry := func(
+				update *lnwire.ChannelUpdate,
+				pubKey *btcec.PublicKey) {
+
+				// Try to apply the channel update.
+				updateOk := r.applyChannelUpdate(update, pubKey)
+
+				// If the update could not be applied, prune the
+				// edge. There is no reason to continue trying
+				// this channel.
+				//
+				// TODO: Could even prune the node completely?
+				// Or is there a valid reason for the channel
+				// update to fail?
+				if !updateOk {
+					paySession.ReportChannelFailure(
+						failedChanID,
+					)
+				}
+
+				paySession.ReportChannelPolicyFailure(
+					NewVertex(errSource), failedChanID,
+				)
+			}
+
 			switch onionErr := fErr.FailureMessage.(type) {
 			// If the end destination didn't know they payment
 			// hash, then we'll terminate immediately.
@@ -1798,9 +1841,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// that sent us this error, as it doesn't now what the
 			// correct block height is.
 			case *lnwire.FailExpiryTooSoon:
-				update := onionErr.Update
-				r.applyChannelUpdate(&update, errSource)
-
+				r.applyChannelUpdate(&onionErr.Update, errSource)
 				paySession.ReportVertexFailure(errVertex)
 				continue
 
@@ -1814,72 +1855,47 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			case *lnwire.FailInvalidOnionKey:
 				return preImage, nil, sendError
 
-			// If the onion error includes a channel update, and
-			// isn't necessarily fatal, then we'll apply the update
-			// and continue with the rest of the routes.
+			// If we get a failure due to violating the minimum
+			// amount, we'll apply the new minimum amount and retry
+			// routing.
 			case *lnwire.FailAmountBelowMinimum:
-				update := onionErr.Update
-				r.applyChannelUpdate(&update, errSource)
+				processChannelUpdateAndRetry(
+					&onionErr.Update, errSource,
+				)
+				continue
 
-				return preImage, nil, sendError
-
-			// If we get a failure due to a fee, so we'll apply the
+			// If we get a failure due to a fee, we'll apply the
 			// new fee update, and retry our attempt using the
 			// newly updated fees.
 			case *lnwire.FailFeeInsufficient:
-				update := onionErr.Update
-				updateOk := r.applyChannelUpdate(&update, errSource)
-				if !updateOk {
-					pruneEdgeFailure(
-						paySession, route, errSource,
-					)
-				}
-
-				// We'll now check to see if we've already
-				// reported a fee related failure for this
-				// node. If so, then we'll actually prune out
-				// the vertex for now.
-				chanID := update.ShortChannelID.ToUint64()
-				_, ok := paySession.errFailedPolicyChans[chanID]
-				if ok {
-					paySession.ReportVertexFailure(errVertex)
-					continue
-				}
-
-				// Finally, we'll record a fee failure from
-				// this node and move on.
-				paySession.errFailedPolicyChans[chanID] = struct{}{}
+				processChannelUpdateAndRetry(
+					&onionErr.Update, errSource,
+				)
 				continue
 
 			// If we get the failure for an intermediate node that
 			// disagrees with our time lock values, then we'll
-			// prune it out for now, and continue with path
-			// finding.
+			// apply the new delta value and try it once more.
 			case *lnwire.FailIncorrectCltvExpiry:
-				update := onionErr.Update
-				r.applyChannelUpdate(&update, errSource)
-
-				paySession.ReportVertexFailure(errVertex)
+				processChannelUpdateAndRetry(
+					&onionErr.Update, errSource,
+				)
 				continue
 
 			// The outgoing channel that this node was meant to
 			// forward one is currently disabled, so we'll apply
 			// the update and continue.
 			case *lnwire.FailChannelDisabled:
-				update := onionErr.Update
-				r.applyChannelUpdate(&update, errSource)
-
-				pruneEdgeFailure(paySession, route, errSource)
+				r.applyChannelUpdate(&onionErr.Update, errSource)
+				paySession.ReportChannelFailure(failedChanID)
 				continue
 
 			// It's likely that the outgoing channel didn't have
 			// sufficient capacity, so we'll prune this edge for
 			// now, and continue onwards with our path finding.
 			case *lnwire.FailTemporaryChannelFailure:
-				update := onionErr.Update
-				r.applyChannelUpdate(update, errSource)
-
-				pruneEdgeFailure(paySession, route, errSource)
+				r.applyChannelUpdate(onionErr.Update, errSource)
+				paySession.ReportChannelFailure(failedChanID)
 				continue
 
 			// If the send fail due to a node not having the
@@ -1904,7 +1920,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// returning errors in order to attempt to black list
 			// another node.
 			case *lnwire.FailUnknownNextPeer:
-				pruneEdgeFailure(paySession, route, errSource)
+				paySession.ReportChannelFailure(failedChanID)
 				continue
 
 			// If the node wasn't able to forward for which ever
@@ -1935,7 +1951,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// we'll note this (exclude the vertex/edge), and
 			// continue with the rest of the routes.
 			case *lnwire.FailPermanentChannelFailure:
-				pruneEdgeFailure(paySession, route, errSource)
+				paySession.ReportChannelFailure(failedChanID)
 				continue
 
 			default:
@@ -1947,34 +1963,31 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 	}
 }
 
-// pruneEdgeFailure will attempts to prune an edge from the current available
-// edges of the target payment session in response to an encountered routing
-// error.
-func pruneEdgeFailure(paySession *paymentSession, route *Route,
-	errSource *btcec.PublicKey) {
+// getFailedChannelID tries to locate the failing channel given a route and the
+// pubkey of the node that sent the error. It will assume that the error is
+// associated with the outgoing channel of the error node.
+func getFailedChannelID(route *Route, errSource *btcec.PublicKey) (
+	uint64, error) {
 
 	// As this error indicates that the target channel was unable to carry
 	// this HTLC (for w/e reason), we'll query the index to find the
 	// _outgoing_ channel the source of the error was meant to pass the
 	// HTLC along to.
-	badChan, ok := route.nextHopChannel(errSource)
-	if !ok {
-		// If we weren't able to find the hop *after* this node, then
-		// we'll attempt to disable the previous channel.
-		prevChan, ok := route.prevHopChannel(
-			errSource,
-		)
-
-		if !ok {
-			return
-		}
-
-		badChan = prevChan
+	if badChan, ok := route.nextHopChannel(errSource); ok {
+		return badChan.ChannelID, nil
 	}
 
-	// If the channel was found, then we'll inform mission control of this
-	// failure so future attempts avoid this link temporarily.
-	paySession.ReportChannelFailure(badChan.ChannelID)
+	// If we weren't able to find the hop *after* this node, then we'll
+	// attempt to disable the previous channel.
+	//
+	// TODO(joostjager): errSource must be the final hop then? In that case,
+	// certain types of errors are not expected. For example
+	// FailUnknownNextPeer. This could be a reason to prune the node?
+	if prevChan, ok := route.prevHopChannel(errSource); ok {
+		return prevChan.ChannelID, nil
+	}
+
+	return 0, fmt.Errorf("cannot find channel in route")
 }
 
 // applyChannelUpdate validates a channel update and if valid, applies it to the

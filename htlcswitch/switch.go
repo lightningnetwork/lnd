@@ -354,11 +354,12 @@ func (s *Switch) ProcessContractResolution(msg contractcourt.ResolutionMsg) erro
 func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID,
 	htlc *lnwire.UpdateAddHTLC,
 	deobfuscator ErrorDecrypter) ([sha256.Size]byte, error) {
-
+	fmt.Printf("SendHTLC\n");
 	// Before sending, double check that we don't already have 1) an
 	// in-flight payment to this payment hash, or 2) a complete payment for
 	// the same hash.
 	if err := s.control.ClearForTakeoff(htlc); err != nil {
+		fmt.Printf("clear for takeoff failed\n");
 		return zeroPreimage, err
 	}
 
@@ -374,6 +375,7 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID,
 
 	paymentID, err := s.paymentSequencer.NextID()
 	if err != nil {
+		fmt.Printf("payement sequencer failed\n");
 		return zeroPreimage, err
 	}
 
@@ -391,14 +393,17 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID,
 		htlc:           htlc,
 	}
 
+	fmt.Printf("in SendHTLC, before s.forward\n");
 	if err := s.forward(packet); err != nil {
 		s.removePendingPayment(paymentID)
 		if err := s.control.Fail(htlc.PaymentHash); err != nil {
+			fmt.Printf("in SendHTLC s.forward error1\n");
 			return zeroPreimage, err
 		}
-
+		fmt.Printf("in SendHTLC s.forward error2\n");
 		return zeroPreimage, err
 	}
+	fmt.Printf("after s.forward!!!\n");
 
 	// Returns channels so that other subsystem might wait/skip the
 	// waiting of handling of payment.
@@ -416,8 +421,8 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID,
 		preimage = p
 	case <-s.quit:
 		return zeroPreimage, ErrSwitchExiting
-	}
-
+	}	
+	fmt.Printf("returning from sendHTLC\n");
 	return preimage, err
 }
 
@@ -484,13 +489,14 @@ func (s *Switch) UpdateForwardingPolicies(newPolicy ForwardingPolicy,
 func (s *Switch) forward(packet *htlcPacket) error {
 	switch htlc := packet.htlc.(type) {
 	case *lnwire.UpdateAddHTLC:
+		fmt.Printf("UpdateAddHTLC packet!\n");
 		circuit := newPaymentCircuit(&htlc.PaymentHash, packet)
 		actions, err := s.circuits.CommitCircuits(circuit)
 		if err != nil {
+			fmt.Printf("s.circuits.CommitCirciots fails\n");
 			log.Errorf("unable to commit circuit in switch: %v", err)
 			return err
 		}
-
 		// Drop duplicate packet if it has already been seen.
 		switch {
 		case len(actions.Drops) == 1:
@@ -508,16 +514,16 @@ func (s *Switch) forward(packet *htlcPacket) error {
 			if err != nil {
 				failure = &lnwire.FailTemporaryNodeFailure{}
 			} else {
+				fmt.Println("failure 5")
 				failure = lnwire.NewTemporaryChannelFailure(update)
 			}
 			addErr := ErrIncompleteForward
 
 			return s.failAddPacket(packet, failure, addErr)
 		}
-
+		fmt.Printf("set packet.circuit\n");
 		packet.circuit = circuit
 	}
-
 	return s.route(packet)
 }
 
@@ -659,6 +665,7 @@ func (s *Switch) ForwardPackets(linkQuit chan struct{},
 		if err != nil {
 			failure = &lnwire.FailTemporaryNodeFailure{}
 		} else {
+			fmt.Println("failure 6")
 			failure = lnwire.NewTemporaryChannelFailure(update)
 		}
 
@@ -717,13 +724,17 @@ func (s *Switch) route(packet *htlcPacket) error {
 	select {
 	case s.htlcPlex <- command:
 	case <-s.quit:
+		fmt.Printf("s.route: <-s.quit\n")
 		return ErrSwitchExiting
 	}
 
 	select {
 	case err := <-command.err:
+		fmt.Printf("s.route: <-command.err. err is: \n")
+		fmt.Println(err)
 		return err
 	case <-s.quit:
+		fmt.Printf("s.route: ErrSwitchExiting\n");
 		return ErrSwitchExiting
 	}
 }
@@ -773,6 +784,7 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 		link, err := s.getLinkByShortID(pkt.outgoingChanID)
 		s.indexMtx.RUnlock()
 		if err != nil {
+			fmt.Printf("Link %v not found", pkt.outgoingChanID)
 			log.Errorf("Link %v not found", pkt.outgoingChanID)
 			return &ForwardingError{
 				ErrorSource:    s.cfg.SelfKey,
@@ -787,6 +799,7 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 
 			// The update does not need to be populated as the error
 			// will be returned back to the router.
+			fmt.Println("failure 60")
 			htlcErr := lnwire.NewTemporaryChannelFailure(nil)
 			return &ForwardingError{
 				ErrorSource:    s.cfg.SelfKey,
@@ -795,7 +808,7 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 			}
 		}
 
-		if link.Bandwidth() < htlc.Amount {
+		if link.Bandwidth() < htlc.Amount && !SPIDER_FLAG {
 			err := fmt.Errorf("Link %v has insufficient capacity: "+
 				"need %v, has %v", pkt.outgoingChanID,
 				htlc.Amount, link.Bandwidth())
@@ -803,6 +816,7 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 
 			// The update does not need to be populated as the error
 			// will be returned back to the router.
+			fmt.Println("failure 7")
 			htlcErr := lnwire.NewTemporaryChannelFailure(nil)
 			return &ForwardingError{
 				ErrorSource:    s.cfg.SelfKey,
@@ -948,6 +962,7 @@ func (s *Switch) parseFailedPayment(payment *pendingPayment, pkt *htlcPacket,
 			// As this didn't even clear the link, we don't need to
 			// apply an update here since it goes directly to the
 			// router.
+			fmt.Println("failure 8")
 			failureMsg = lnwire.NewTemporaryChannelFailure(nil)
 		}
 		failure = &ForwardingError{
@@ -973,6 +988,7 @@ func (s *Switch) parseFailedPayment(payment *pendingPayment, pkt *htlcPacket,
 	// due to a restart. We'll return a fixed error and signal a temporary
 	// channel failure to the router.
 	case payment == nil:
+		fmt.Println("failure 9")
 		userErr := fmt.Sprintf("error decryptor for payment " +
 			"could not be located, likely due to restart")
 		failure = &ForwardingError{
@@ -989,6 +1005,7 @@ func (s *Switch) parseFailedPayment(payment *pendingPayment, pkt *htlcPacket,
 		// error. If we're unable to then we'll bail early.
 		failure, err = payment.deobfuscator.DecryptError(htlc.Reason)
 		if err != nil {
+			fmt.Println("failure 10")
 			userErr := fmt.Sprintf("unable to de-obfuscate onion "+
 				"failure, htlc with hash(%x): %v",
 				pkt.circuit.PaymentHash[:], err)
@@ -1017,6 +1034,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		if packet.incomingChanID == sourceHop {
 			// A blank incomingChanID indicates that this is
 			// a pending user-initiated payment.
+			fmt.Println(" forwardPacket: == sourceHop")
 			return s.handleLocalDispatch(packet)
 		}
 
@@ -1042,7 +1060,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		// precise link that the sender selected, while optimistically
 		// trying all links to utilize our available bandwidth.
 		linkErrs := make(map[lnwire.ShortChannelID]lnwire.FailureMessage)
-
+		fmt.Println("before for interfaceLinks loop")
 		// Try to find destination channel link with appropriate
 		// bandwidth.
 		var destination ChannelLink
@@ -1096,6 +1114,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			if err != nil {
 				failure = &lnwire.FailTemporaryNodeFailure{}
 			} else {
+				fmt.Println("failure 11")
 				failure = lnwire.NewTemporaryChannelFailure(update)
 			}
 
@@ -1587,6 +1606,7 @@ out:
 		// packet concretely, then either forward it along, or
 		// interpret a return packet to a locally initialized one.
 		case cmd := <-s.htlcPlex:
+			fmt.Println("cmd <- htlcPlex");
 			cmd.err <- s.handlePacketForward(cmd.pkt)
 
 		// When this time ticks, then it indicates that we should

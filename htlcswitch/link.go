@@ -21,6 +21,14 @@ import (
 	"github.com/lightningnetwork/lnd/ticker"
 )
 
+import (
+	//"github.com/btcsuite/btclog"
+	//"github.com/lightningnetwork/lnd/main"
+)
+
+// FIXME: temporary until we can use the global flags
+var SPIDER_FLAG bool = true
+
 func init() {
 	prand.Seed(time.Now().UnixNano())
 }
@@ -769,9 +777,13 @@ func (l *channelLink) htlcManager() {
 		l.wg.Done()
 		log.Infof("ChannelLink(%v) has exited", l)
 	}()
-
+	//lvl, _ := btclog.LevelFromString("debug");
+	//log.SetLevel(lvl);
+	//setLogLevels("debug");
+	//fmt.Printf("set the log level!\n");
 	log.Infof("HTLC manager for ChannelPoint(%v) started, "+
 		"bandwidth=%v", l.channel.ChannelPoint(), l.Bandwidth())
+	fmt.Printf("htlcManager started...\n");
 
 	// TODO(roasbeef): need to call wipe chan whenever D/C?
 
@@ -857,7 +869,6 @@ func (l *channelLink) htlcManager() {
 	// resynchronization have taken affect, causing us only to pull unacked
 	// packets after starting to read from the downstream mailbox.
 	l.mailBox.ResetPackets()
-
 	// After cleaning up any memory pertaining to incoming packets, we now
 	// replay our forwarding packages to handle any htlcs that can be
 	// processed locally, or need to be forwarded out to the switch. We will
@@ -866,6 +877,7 @@ func (l *channelLink) htlcManager() {
 	// reforward.
 	if l.ShortChanID() != sourceHop {
 		if err := l.resolveFwdPkgs(); err != nil {
+			fmt.Printf("shortChanID != sourceHop error\n")
 			l.fail(LinkFailureError{code: ErrInternalError},
 				"unable to resolve fwd pkgs: %v", err)
 			return
@@ -877,12 +889,13 @@ func (l *channelLink) htlcManager() {
 		l.wg.Add(1)
 		go l.fwdPkgGarbager()
 	}
-
 out:
 	for {
+		fmt.Printf("in out: for loop\n")
 		// We must always check if we failed at some point processing
 		// the last update before processing the next.
 		if l.failed {
+			fmt.Printf("l.failed\n");
 			l.errorf("link failed, exiting htlcManager")
 			break out
 		}
@@ -891,6 +904,7 @@ out:
 		// Our update fee timer has fired, so we'll check the network
 		// fee to see if we should adjust our commitment fee.
 		case <-l.updateFeeTimer.C:
+			fmt.Printf("l.updateFeeTimer\n")
 			l.updateFeeTimer.Reset(l.randomFeeUpdateTimeout())
 
 			// If we're not the initiator of the channel, don't we
@@ -929,6 +943,7 @@ out:
 		//
 		// TODO(roasbeef): add force closure? also breach?
 		case <-l.cfg.ChainEvents.RemoteUnilateralClosure:
+			fmt.Printf("ChainEvents\n");
 			log.Warnf("Remote peer has closed ChannelPoint(%v) on-chain",
 				l.channel.ChannelPoint())
 
@@ -944,6 +959,7 @@ out:
 			break out
 
 		case <-l.logCommitTick:
+			fmt.Printf("logCommitTick\n")
 			// If we haven't sent or received a new commitment
 			// update in some time, check to see if we have any
 			// pending updates we need to commit due to our
@@ -959,6 +975,7 @@ out:
 			}
 
 		case <-l.cfg.BatchTicker.Ticks():
+			fmt.Printf("BatchTicker.Ticks()\n")
 			// If the current batch is empty, then we have no work
 			// here. We also disable the batch ticker from waking up
 			// the htlcManager while the batch is empty.
@@ -983,6 +1000,7 @@ out:
 		// we'll attempt to re-process the packet in order to allow it
 		// to continue propagating within the network.
 		case packet := <-l.overflowQueue.outgoingPkts:
+			fmt.Printf("pkt <- overflowQueue.outgoingPkts\n")
 			msg := packet.htlc.(*lnwire.UpdateAddHTLC)
 			log.Tracef("Reprocessing downstream add update "+
 				"with payment hash(%x)", msg.PaymentHash[:])
@@ -1000,12 +1018,15 @@ out:
 		// that the link is an intermediate hop in a multi-hop HTLC
 		// circuit.
 		case pkt := <-l.downstream:
+			fmt.Printf("pkt <- l.downstream\n");
 			// If we have non empty processing queue then we'll add
 			// this to the overflow rather than processing it
 			// directly. Once an active HTLC is either settled or
 			// failed, then we'll free up a new slot.
 			htlc, ok := pkt.htlc.(*lnwire.UpdateAddHTLC)
-			if ok && l.overflowQueue.Length() != 0 {
+			// spider: overflowQueue might have stuff that we did not have enough to
+			// pay for, but we may still be able to service this request.
+			if ok && l.overflowQueue.Length() != 0 && !SPIDER_FLAG {
 				log.Infof("Downstream htlc add update with "+
 					"payment hash(%x) have been added to "+
 					"reprocessing queue, batch_size=%v",
@@ -1029,9 +1050,11 @@ out:
 		// indicates that we have a new incoming HTLC, either directly
 		// for us, or part of a multi-hop HTLC circuit.
 		case msg := <-l.upstream:
+			fmt.Printf("msg <- l.upstream\n");
 			l.handleUpstreamMsg(msg)
 
 		case <-l.quit:
+			fmt.Printf("pkt <- l.quit\n");
 			break out
 		}
 	}
@@ -1053,9 +1076,11 @@ func (l *channelLink) randomFeeUpdateTimeout() time.Duration {
 //
 // TODO(roasbeef): add sync ntfn to ensure switch always has consistent view?
 func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
+	fmt.Printf("handleDownstramPkt\n");
 	var isSettle bool
 	switch htlc := pkt.htlc.(type) {
 	case *lnwire.UpdateAddHTLC:
+		fmt.Printf("lnwire updateAddHTLC\n");
 		// If hodl.AddOutgoing mode is active, we exit early to simulate
 		// arbitrary delays between the switch adding an ADD to the
 		// mailbox, and the HTLC being added to the commitment state.
@@ -1072,6 +1097,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		openCircuitRef := pkt.inKey()
 		index, err := l.channel.AddHTLC(htlc, &openCircuitRef)
 		if err != nil {
+			fmt.Printf("error in handleDownstream! \n");
 			switch err {
 
 			// The channels spare bandwidth is fully allocated, so
@@ -1085,6 +1111,18 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 
 				l.overflowQueue.AddPkt(pkt)
 				return
+			case lnwallet.ErrBelowChanReserve:
+				// CHECK: if the flag is off, then will just fall through to the default case.
+				if (SPIDER_FLAG) {
+					l.infof("Downstream htlc add update with "+
+						"payment hash(%x) have been added to "+
+						"reprocessing queue, batch: %v because there wasn't enough balance on the channel",
+						htlc.PaymentHash[:],
+						l.batchCounter)
+					fmt.Printf("ErrBelowChanReserve case, adding to overflowQueue!!\n")
+					l.overflowQueue.AddPkt(pkt)
+					return
+				}
 
 			// The HTLC was unable to be added to the state
 			// machine, as a result, we'll signal the switch to
@@ -1104,6 +1142,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 				if err != nil {
 					failure = &lnwire.FailTemporaryNodeFailure{}
 				} else {
+					fmt.Println("failure 4")
 					failure = lnwire.NewTemporaryChannelFailure(
 						update,
 					)
@@ -1883,7 +1922,7 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 	incomingHtlcAmt, amtToForward lnwire.MilliSatoshi,
 	incomingTimeout, outgoingTimeout uint32,
 	heightNow uint32) lnwire.FailureMessage {
-
+	fmt.Println("in HtlcSatisfiesPolicy");
 	l.RLock()
 	policy := l.cfg.FwrdingPolicy
 	l.RUnlock()
@@ -1955,6 +1994,7 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 			l.ShortChanID(),
 		)
 		if err != nil {
+			fmt.Println("failure 1")
 			failure = lnwire.NewTemporaryChannelFailure(update)
 		} else {
 			failure = lnwire.NewExpiryTooSoon(*update)
@@ -1987,6 +2027,7 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 			l.ShortChanID(),
 		)
 		if err != nil {
+			fmt.Println("failure 2")
 			failure = lnwire.NewTemporaryChannelFailure(update)
 		} else {
 			failure = lnwire.NewIncorrectCltvExpiry(
@@ -2028,6 +2069,7 @@ func (l *channelLink) HandleSwitchPacket(pkt *htlcPacket) error {
 		pkt.inKey(), pkt.outKey())
 
 	l.mailBox.AddPacket(pkt)
+	fmt.Println("malBox.AddPacket done")
 	return nil
 }
 
@@ -2570,6 +2612,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				if err != nil {
 					failure = &lnwire.FailTemporaryNodeFailure{}
 				} else {
+					fmt.Println("failure 3")
 					failure = lnwire.NewTemporaryChannelFailure(
 						update,
 					)

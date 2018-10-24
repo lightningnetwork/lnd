@@ -6,6 +6,7 @@ import (
 		"time"
 		"github.com/btcsuite/btcutil"
 		"github.com/lightningnetwork/lnd/lnwire"
+		"fmt"
 )
 
 // bob<->alice channel has insufficient BTC capacity/bandwidth. In this test we
@@ -47,12 +48,34 @@ func TestSpiderInsufficentFunds (t *testing.T) {
 		//secondBobBandwidthBefore := n.secondBobChannelLink.Bandwidth()
 		//aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
 
+		go func() {
+			fmt.Println("in the carol->bob payment routine. Will sleep first")
+			// TODO: maybe should add more sleep time here?
+			time.Sleep(2 * time.Second)
+			// Send money from carol -> bob so this stops failing.
+			amount := lnwire.NewMSatFromSatoshis(2 * btcutil.SatoshiPerBitcoin)
+			// FIXME: check the last arg, maybe should be carolChannelLink?
+			htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
+			n.secondBobChannelLink)
+
+			firstHop := n.secondBobChannelLink.ShortChanID()
+			_, err := n.makePayment(
+				n.carolServer, n.bobServer, firstHop, hops, amount, htlcAmt,
+				totalTimelock,
+			).Wait(30 * time.Second)
+
+			if err != nil {
+				t.Fatal("carol->bob FAILED")
+			}
+			fmt.Println("carol->bob SUCCESSFUL")
+		}()
+
 		// We'll attempt to send 4 BTC although the alice-to-bob channel only
 		// has 3 BTC total capacity. As a result, this payment should be
 		// rejected.
 		amount := lnwire.NewMSatFromSatoshis(4 * btcutil.SatoshiPerBitcoin)
 		htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
-		n.firstBobChannelLink, n.carolChannelLink)
+					n.firstBobChannelLink, n.carolChannelLink)
 
 		// Wait for:
 		// * HTLC add request to be sent to from Alice to Bob.
@@ -61,32 +84,18 @@ func TestSpiderInsufficentFunds (t *testing.T) {
 		// * TODO: what should happen next?
 
 		firstHop := n.firstBobChannelLink.ShortChanID()
+		// launch second payment here, which sleeps for a bit, and then pays from
+		// carol to bob.
 		_, err = n.makePayment(
 			n.aliceServer, n.carolServer, firstHop, hops, amount, htlcAmt,
 			totalTimelock,
-		).Wait(30 * time.Second)
-
+		).Wait(40 * time.Second)
 		// modifications on existing test. We do not want it to fail here.
 		if err != nil {
+			fmt.Println(err)
 			t.Fatal("error has been received in first payment, alice->bob")
 		}
-		// TODO: maybe should add more sleep time here?
-		time.Sleep(100 * time.Millisecond)
-		// Send money from carol -> bob so this stops failing.
-		amount = lnwire.NewMSatFromSatoshis(2 * btcutil.SatoshiPerBitcoin)
-		// FIXME: check the last arg, maybe should be carolChannelLink?
-		htlcAmt, totalTimelock, hops = generateHops(amount, testStartingHeight,
-		n.secondBobChannelLink)
-
-		firstHop = n.secondBobChannelLink.ShortChanID()
-		_, err = n.makePayment(
-			n.carolServer, n.bobServer, firstHop, hops, amount, htlcAmt,
-			totalTimelock,
-		).Wait(30 * time.Second)
-
-		if err != nil {
-			t.Fatal("error has been received in second payment carol->bob")
-		}
+		fmt.Println("after first makePayment")
 
 		// sleep some time again
 		time.Sleep(100 * time.Millisecond)

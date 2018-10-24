@@ -1804,11 +1804,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// correct block height is.
 			case *lnwire.FailExpiryTooSoon:
 				update := onionErr.Update
-				err := r.applyChannelUpdate(&update, errSource)
-				if err != nil {
-					log.Errorf("unable to apply channel "+
-						"update for onion error: %v", err)
-				}
+				r.applyChannelUpdate(&update, errSource)
 
 				pruneVertexFailure(
 					paySession, route, errSource, false,
@@ -1830,11 +1826,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// and continue with the rest of the routes.
 			case *lnwire.FailAmountBelowMinimum:
 				update := onionErr.Update
-				err := r.applyChannelUpdate(&update, errSource)
-				if err != nil {
-					log.Errorf("unable to apply channel "+
-						"update for onion error: %v", err)
-				}
+				r.applyChannelUpdate(&update, errSource)
 
 				return preImage, nil, sendError
 
@@ -1843,11 +1835,8 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// newly updated fees.
 			case *lnwire.FailFeeInsufficient:
 				update := onionErr.Update
-				err := r.applyChannelUpdate(&update, errSource)
-				if err != nil {
-					log.Errorf("unable to apply channel "+
-						"update for onion error: %v", err)
-
+				updateOk := r.applyChannelUpdate(&update, errSource)
+				if !updateOk {
 					pruneEdgeFailure(
 						paySession, route, errSource,
 					)
@@ -1877,11 +1866,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// finding.
 			case *lnwire.FailIncorrectCltvExpiry:
 				update := onionErr.Update
-				err := r.applyChannelUpdate(&update, errSource)
-				if err != nil {
-					log.Errorf("unable to apply channel "+
-						"update for onion error: %v", err)
-				}
+				r.applyChannelUpdate(&update, errSource)
 
 				pruneVertexFailure(
 					paySession, route, errSource, false,
@@ -1893,11 +1878,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// the update and continue.
 			case *lnwire.FailChannelDisabled:
 				update := onionErr.Update
-				err := r.applyChannelUpdate(&update, errSource)
-				if err != nil {
-					log.Errorf("unable to apply channel "+
-						"update for onion error: %v", err)
-				}
+				r.applyChannelUpdate(&update, errSource)
 
 				pruneEdgeFailure(paySession, route, errSource)
 				continue
@@ -1907,11 +1888,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// now, and continue onwards with our path finding.
 			case *lnwire.FailTemporaryChannelFailure:
 				update := onionErr.Update
-				err := r.applyChannelUpdate(update, errSource)
-				if err != nil {
-					log.Errorf("unable to apply channel "+
-						"update for onion error: %v", err)
-				}
+				r.applyChannelUpdate(update, errSource)
 
 				pruneEdgeFailure(paySession, route, errSource)
 				continue
@@ -2048,17 +2025,18 @@ func pruneEdgeFailure(paySession *paymentSession, route *Route,
 }
 
 // applyChannelUpdate validates a channel update and if valid, applies it to the
-// database.
+// database. It returns a bool indicating whether the updates was successful.
 func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate,
-	pubKey *btcec.PublicKey) error {
+	pubKey *btcec.PublicKey) bool {
 	// If we get passed a nil channel update (as it's optional with some
-	// onion errors), then we'll exit early with a nil error.
+	// onion errors), then we'll exit early with a success result.
 	if msg == nil {
-		return nil
+		return true
 	}
 
 	if err := ValidateChannelUpdateAnn(pubKey, msg); err != nil {
-		return err
+		log.Errorf("Unable to validate channel update: %v", err)
+		return false
 	}
 
 	err := r.UpdateEdge(&channeldb.ChannelEdgePolicy{
@@ -2072,10 +2050,11 @@ func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate,
 		FeeProportionalMillionths: lnwire.MilliSatoshi(msg.FeeRate),
 	})
 	if err != nil && !IsError(err, ErrIgnored, ErrOutdated) {
-		return fmt.Errorf("Unable to apply channel update: %v", err)
+		log.Errorf("Unable to apply channel update: %v", err)
+		return false
 	}
 
-	return nil
+	return true
 }
 
 // AddNode is used to add information about a node to the router database. If

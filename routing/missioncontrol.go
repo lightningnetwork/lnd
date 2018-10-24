@@ -164,6 +164,12 @@ type paymentSession struct {
 
 	bandwidthHints map[uint64]lnwire.MilliSatoshi
 
+	// errFailedFeeChans is a map of the short channel ID's that were the
+	// source of policy related routing failures during this payment attempt.
+	// We'll use this map to prune out channels when the first error may not
+	// require pruning, but any subsequent ones do.
+	errFailedPolicyChans map[uint64]struct{}
+
 	mc *missionControl
 
 	haveRoutes     bool
@@ -236,10 +242,11 @@ func (m *missionControl) NewPaymentSession(routeHints [][]HopHint,
 	}
 
 	return &paymentSession{
-		pruneViewSnapshot: viewSnapshot,
-		additionalEdges:   edges,
-		bandwidthHints:    bandwidthHints,
-		mc:                m,
+		pruneViewSnapshot:    viewSnapshot,
+		additionalEdges:      edges,
+		bandwidthHints:       bandwidthHints,
+		errFailedPolicyChans: make(map[uint64]struct{}),
+		mc:                   m,
 	}, nil
 }
 
@@ -249,10 +256,11 @@ func (m *missionControl) NewPaymentSession(routeHints [][]HopHint,
 // used for things like channel rebalancing, and swaps.
 func (m *missionControl) NewPaymentSessionFromRoutes(routes []*Route) *paymentSession {
 	return &paymentSession{
-		pruneViewSnapshot: m.GraphPruneView(),
-		haveRoutes:        true,
-		preBuiltRoutes:    routes,
-		mc:                m,
+		pruneViewSnapshot:    m.GraphPruneView(),
+		haveRoutes:           true,
+		preBuiltRoutes:       routes,
+		errFailedPolicyChans: make(map[uint64]struct{}),
+		mc:                   m,
 	}
 }
 

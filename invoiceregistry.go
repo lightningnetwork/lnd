@@ -456,7 +456,7 @@ func (i *invoiceRegistry) SubscribeNotifications(addIndex, settleIndex uint64) *
 		addIndex:        addIndex,
 		settleIndex:     settleIndex,
 		inv:             i,
-		ntfnQueue:       queue.NewConcurrentQueue(20),
+		ntfnQueue:       queue.New(20),
 		cancelChan:      make(chan struct{}),
 	}
 	client.ntfnQueue.Start()

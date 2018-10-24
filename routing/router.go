@@ -1641,12 +1641,6 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 		sendError error
 	)
 
-	// errFailedFeeChans is a map of the short channel ID's that were the
-	// source of fee related routing failures during this payment attempt.
-	// We'll use this map to prune out channels when the first error may
-	// not require pruning, but any subsequent ones do.
-	errFailedFeeChans := make(map[lnwire.ShortChannelID]struct{})
-
 	// We'll also fetch the current block height so we can properly
 	// calculate the required HTLC time locks within the route.
 	_, currentHeight, err := r.cfg.Chain.GetBestBlock()
@@ -1845,8 +1839,8 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 				// reported a fee related failure for this
 				// node. If so, then we'll actually prune out
 				// the vertex for now.
-				chanID := update.ShortChannelID
-				_, ok := errFailedFeeChans[chanID]
+				chanID := update.ShortChannelID.ToUint64()
+				_, ok := paySession.errFailedPolicyChans[chanID]
 				if ok {
 					paySession.ReportVertexFailure(errVertex)
 					continue
@@ -1854,7 +1848,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 
 				// Finally, we'll record a fee failure from
 				// this node and move on.
-				errFailedFeeChans[chanID] = struct{}{}
+				paySession.errFailedPolicyChans[chanID] = struct{}{}
 				continue
 
 			// If we get the failure for an intermediate node that

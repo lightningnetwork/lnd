@@ -1807,7 +1807,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 				r.applyChannelUpdate(&update, errSource)
 
 				pruneVertexFailure(
-					paySession, route, errSource, false,
+					paySession, errSource,
 				)
 				continue
 
@@ -1850,7 +1850,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 				_, ok := errFailedFeeChans[chanID]
 				if ok {
 					pruneVertexFailure(
-						paySession, route, errSource, false,
+						paySession, errSource,
 					)
 					continue
 				}
@@ -1869,7 +1869,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 				r.applyChannelUpdate(&update, errSource)
 
 				pruneVertexFailure(
-					paySession, route, errSource, false,
+					paySession, errSource,
 				)
 				continue
 
@@ -1898,7 +1898,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// continue.
 			case *lnwire.FailRequiredNodeFeatureMissing:
 				pruneVertexFailure(
-					paySession, route, errSource, false,
+					paySession, errSource,
 				)
 				continue
 
@@ -1907,7 +1907,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// continue.
 			case *lnwire.FailRequiredChannelFeatureMissing:
 				pruneVertexFailure(
-					paySession, route, errSource, false,
+					paySession, errSource,
 				)
 				continue
 
@@ -1927,13 +1927,13 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// routes.
 			case *lnwire.FailTemporaryNodeFailure:
 				pruneVertexFailure(
-					paySession, route, errSource, false,
+					paySession, errSource,
 				)
 				continue
 
 			case *lnwire.FailPermanentNodeFailure:
 				pruneVertexFailure(
-					paySession, route, errSource, false,
+					paySession, errSource,
 				)
 				continue
 
@@ -1948,7 +1948,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// that node.
 			case *lnwire.FailExpiryTooFar:
 				pruneVertexFailure(
-					paySession, route, errSource, false,
+					paySession, errSource,
 				)
 				continue
 
@@ -1971,23 +1971,10 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 // pruneVertexFailure will attempt to prune a vertex from the current available
 // vertexes of the target payment session in response to an encountered routing
 // error.
-func pruneVertexFailure(paySession *paymentSession, route *Route,
-	errSource *btcec.PublicKey, nextNode bool) {
-
+func pruneVertexFailure(paySession *paymentSession, errSource *btcec.PublicKey) {
 	// By default, we'll try to prune the node that actually sent us the
 	// error.
 	errNode := NewVertex(errSource)
-
-	// If this failure indicates that the node _after_ the source of the
-	// error was not found. As a result, we'll locate the vertex for that
-	// node itself.
-	if nextNode {
-		nodeToPrune, ok := route.nextHopVertex(errSource)
-
-		if ok {
-			errNode = nodeToPrune
-		}
-	}
 
 	// Once we've located the vertex, we'll report this failure to
 	// missionControl and restart path finding.

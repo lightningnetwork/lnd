@@ -171,6 +171,7 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 
 		if err := h.Checkpoint(h); err != nil {
 			log.Errorf("unable to Checkpoint: %v", err)
+			return nil, err
 		}
 	}
 
@@ -481,21 +482,22 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 			log.Infof("%T(%x): crafted sweep tx=%v", h,
 				h.payHash[:], spew.Sdump(h.sweepTx))
 
-			// With the sweep transaction confirmed, we'll now
+			// With the sweep transaction signed, we'll now
 			// Checkpoint our state.
 			if err := h.Checkpoint(h); err != nil {
 				log.Errorf("unable to Checkpoint: %v", err)
-			}
-
-			// Finally, we'll broadcast the sweep transaction to
-			// the network.
-			//
-			// TODO(roasbeef): validate first?
-			if err := h.PublishTx(h.sweepTx); err != nil {
-				log.Infof("%T(%x): unable to publish tx: %v",
-					h, h.payHash[:], err)
 				return nil, err
 			}
+		}
+
+		// Regardless of whether an existing transaction was found or newly
+		// constructed, we'll broadcast the sweep transaction to the
+		// network.
+		err := h.PublishTx(h.sweepTx)
+		if err != nil && err != lnwallet.ErrDoubleSpend {
+			log.Infof("%T(%x): unable to publish tx: %v",
+				h, h.payHash[:], err)
+			return nil, err
 		}
 
 		// With the sweep transaction broadcast, we'll wait for its
@@ -535,7 +537,8 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	// the claiming process.
 	//
 	// TODO(roasbeef): after changing sighashes send to tx bundler
-	if err := h.PublishTx(h.htlcResolution.SignedSuccessTx); err != nil {
+	err := h.PublishTx(h.htlcResolution.SignedSuccessTx)
+	if err != nil && err != lnwallet.ErrDoubleSpend {
 		return nil, err
 	}
 
@@ -558,6 +561,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 
 		if err := h.Checkpoint(h); err != nil {
 			log.Errorf("unable to Checkpoint: %v", err)
+			return nil, err
 		}
 	}
 
@@ -1258,18 +1262,33 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		log.Infof("%T(%v): sweeping commit output with tx=%v", c,
 			c.chanPoint, spew.Sdump(c.sweepTx))
 
-		// Finally, we'll broadcast the sweep transaction to the
-		// network.
-		if err := c.PublishTx(c.sweepTx); err != nil {
+		// With the sweep transaction constructed, we'll now Checkpoint
+		// our state.
+		if err := c.Checkpoint(c); err != nil {
+			log.Errorf("unable to Checkpoint: %v", err)
+			return nil, err
+		}
+
+		// With the sweep transaction checkpointed, we'll now publish
+		// the transaction. Upon restart, the resolver will immediately
+		// take the case below since the sweep tx is checkpointed.
+		err := c.PublishTx(c.sweepTx)
+		if err != nil && err != lnwallet.ErrDoubleSpend {
 			log.Errorf("%T(%v): unable to publish sweep tx: %v",
 				c, c.chanPoint, err)
 			return nil, err
 		}
 
-		// With the sweep transaction confirmed, we'll now Checkpoint
-		// our state.
-		if err := c.Checkpoint(c); err != nil {
-			log.Errorf("unable to Checkpoint: %v", err)
+	// If the sweep transaction has been generated, and the remote party
+	// broadcast the commit transaction, we'll republish it for reliability
+	// to ensure it confirms. The resolver will enter this case after
+	// checkpointing in the case above, ensuring we reliably on restarts.
+	case c.sweepTx != nil && !isLocalCommitTx:
+		err := c.PublishTx(c.sweepTx)
+		if err != nil && err != lnwallet.ErrDoubleSpend {
+			log.Errorf("%T(%v): unable to publish sweep tx: %v",
+				c, c.chanPoint, err)
+			return nil, err
 		}
 
 	// Otherwise, this is our commitment transaction, So we'll obtain the
@@ -1307,6 +1326,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 
 			if err := c.Checkpoint(c); err != nil {
 				log.Errorf("unable to Checkpoint: %v", err)
+				return nil, err
 			}
 		case <-c.Quit:
 			return nil, fmt.Errorf("quitting")

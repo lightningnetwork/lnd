@@ -167,7 +167,8 @@ func parseTorReply(reply string) map[string]string {
 }
 
 // authenticate authenticates the connection between the controller and the
-// Tor server using the SAFECOOKIE authentication method.
+// Tor server using the SAFECOOKIE or HASHEDCONTROLPASSWORD authentication
+// method.
 func (c *Controller) authenticate() error {
 	// Before proceeding to authenticate the connection, we'll retrieve
 	// the authentication cookie of the Tor server. This will be used
@@ -435,13 +436,13 @@ type AddOnionConfig struct {
 	// VirtualPort is the externally reachable port of the onion address.
 	VirtualPort int
 
-	// TargetPorts is the set of ports that the service will be listening on
-	// locally. The Tor server will use choose a random port from this set
-	// to forward the traffic from the virtual port.
+	// TargetListeners is the set of Listeners that the service will be
+	// listening on locally. The Tor server will use choose a random port
+	// from this set to forward the traffic from the virtual port.
 	//
 	// NOTE: If nil/empty, the virtual port will be used as the only target
 	// port.
-	TargetPorts []int
+	TargetListeners []string
 
 	// PrivateKeyPath is the full path to where the onion service's private
 	// key is stored. This can be used to restore an existing onion service.
@@ -485,13 +486,13 @@ func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
 	// port. If no target ports were specified, we'll use the virtual port
 	// to provide a one-to-one mapping.
 	var portParam string
-	if len(cfg.TargetPorts) == 0 {
+	if len(cfg.TargetListeners) == 0 {
 		portParam += fmt.Sprintf("Port=%d,%d ", cfg.VirtualPort,
 			cfg.VirtualPort)
 	} else {
-		for _, targetPort := range cfg.TargetPorts {
-			portParam += fmt.Sprintf("Port=%d,%d ", cfg.VirtualPort,
-				targetPort)
+		for _, targetListener := range cfg.TargetListeners {
+			portParam += fmt.Sprintf("Port=%d,%v ", cfg.VirtualPort,
+				targetListener)
 		}
 	}
 

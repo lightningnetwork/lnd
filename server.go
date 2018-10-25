@@ -1483,19 +1483,19 @@ func (s *server) initTorController() error {
 	// Determine the different ports the server is listening on. The onion
 	// service's virtual port will map to these ports and one will be picked
 	// at random when the onion service is being accessed.
-	listenPorts := make([]int, 0, len(s.listenAddrs))
+	listeners := make([]string, 0, len(s.listenAddrs))
 	for _, listenAddr := range s.listenAddrs {
-		port := listenAddr.(*net.TCPAddr).Port
-		listenPorts = append(listenPorts, port)
+		listener := listenAddr.(*net.TCPAddr).String()
+		listeners = append(listeners, listener)
 	}
 
 	// Once the port mapping has been set, we can go ahead and automatically
 	// create our onion service. The service's private key will be saved to
 	// disk in order to regain access to this service when restarting `lnd`.
 	onionCfg := tor.AddOnionConfig{
-		VirtualPort:    defaultPeerPort,
-		TargetPorts:    listenPorts,
-		PrivateKeyPath: cfg.Tor.PrivateKeyPath,
+		VirtualPort:     defaultPeerPort,
+		TargetListeners: listeners,
+		PrivateKeyPath:  cfg.Tor.PrivateKeyPath,
 	}
 
 	switch {
@@ -1513,7 +1513,7 @@ func (s *server) initTorController() error {
 	// Now that the onion service has been created, we'll add the onion
 	// address it can be reached at to our list of advertised addresses.
 	s.currentNodeAnn.Addresses = append(s.currentNodeAnn.Addresses, addr)
-
+	srvrLog.Infof("added tor service %v mapping to %v", addr, listeners)
 	return nil
 }
 

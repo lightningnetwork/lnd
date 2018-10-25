@@ -934,8 +934,8 @@ func loadConfig() (*config, error) {
 		}
 	}
 
-	// Finally, ensure that we are only listening on localhost if Tor
-	// inbound support is enabled.
+	// Ensure that we are only listening on localhost if Tor inbound support
+	// is enabled.
 	if cfg.Tor.V2 || cfg.Tor.V3 {
 		for _, addr := range cfg.Listeners {
 			if lncfg.IsLoopback(addr.String()) {
@@ -946,6 +946,14 @@ func loadConfig() (*config, error) {
 				"on localhost when running with Tor inbound " +
 				"support enabled")
 		}
+	}
+
+	// Finally, ensure that the user's color is correctly formatted,
+	// otherwise the server will not be able to start after the unlocking
+	// the wallet.
+	_, err = parseHexColor(cfg.Color)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to parse node color: %v", err)
 	}
 
 	// Warn about missing config file only after all other configuration is

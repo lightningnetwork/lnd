@@ -935,8 +935,8 @@ func loadConfig() (*config, error) {
 	}
 
 	// Finally, ensure that we are only listening on localhost if Tor
-	// inbound support is enabled.
-	if cfg.Tor.V2 || cfg.Tor.V3 {
+	// inbound support via Tor on localhost is enabled.
+	if (cfg.Tor.V2 || cfg.Tor.V3) && lncfg.IsLoopback(cfg.Tor.SOCKS) {
 		for _, addr := range cfg.Listeners {
 			if lncfg.IsLoopback(addr.String()) {
 				continue
@@ -944,7 +944,7 @@ func loadConfig() (*config, error) {
 
 			return nil, errors.New("lnd must *only* be listening " +
 				"on localhost when running with Tor inbound " +
-				"support enabled")
+				"support enabled, and Tor on localhost")
 		}
 	}
 

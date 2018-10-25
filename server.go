@@ -1513,7 +1513,7 @@ func (s *server) initTorController() error {
 	// Now that the onion service has been created, we'll add the onion
 	// address it can be reached at to our list of advertised addresses.
 	s.currentNodeAnn.Addresses = append(s.currentNodeAnn.Addresses, addr)
-	srvrLog.Infof("added tor service %v mapping to %v", addr, listeners)
+
 	return nil
 }
 

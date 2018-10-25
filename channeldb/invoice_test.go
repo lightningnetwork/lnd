@@ -435,6 +435,14 @@ func TestQueryInvoices(t *testing.T) {
 			},
 			expected: invoices,
 		},
+		// Fetch all invoices with a single query, reversed.
+		{
+			query: InvoiceQuery{
+				Reversed:       true,
+				NumMaxInvoices: numInvoices,
+			},
+			expected: invoices,
+		},
 		// Fetch the first 25 invoices.
 		{
 			query: InvoiceQuery{
@@ -459,6 +467,124 @@ func TestQueryInvoices(t *testing.T) {
 				NumMaxInvoices: numInvoices,
 			},
 			expected: invoices[10:],
+		},
+		// Fetch all but the first invoice.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    1,
+				NumMaxInvoices: numInvoices,
+			},
+			expected: invoices[1:],
+		},
+		// Fetch one invoice, reversed, with index offset 3. This
+		// should give us the second invoice in the array.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    3,
+				Reversed:       true,
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[1:2],
+		},
+		// Same as above, at index 2.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    2,
+				Reversed:       true,
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[0:1],
+		},
+		// Fetch one invoice, at index 1, reversed. Since invoice#1 is
+		// the very first, there won't be any left in a reverse search,
+		// so we expect no invoices to be returned.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    1,
+				Reversed:       true,
+				NumMaxInvoices: 1,
+			},
+			expected: nil,
+		},
+		// Same as above, but don't restrict the number of invoices to
+		// 1.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    1,
+				Reversed:       true,
+				NumMaxInvoices: numInvoices,
+			},
+			expected: nil,
+		},
+		// Fetch one invoice, reversed, with no offset set. We expect
+		// the last invoice in the response.
+		{
+			query: InvoiceQuery{
+				Reversed:       true,
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[numInvoices-1:],
+		},
+		// Fetch one invoice, reversed, the offset set at numInvoices+1.
+		// We expect this to return the last invoice.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    numInvoices + 1,
+				Reversed:       true,
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[numInvoices-1:],
+		},
+		// Same as above, at offset numInvoices.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    numInvoices,
+				Reversed:       true,
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[numInvoices-2 : numInvoices-1],
+		},
+		// Fetch one invoice, at no offset (same as offset 0). We
+		// expect the first invoice only in the response.
+		{
+			query: InvoiceQuery{
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[:1],
+		},
+		// Same as above, at offset 1.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    1,
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[1:2],
+		},
+		// Same as above, at offset 2.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    2,
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[2:3],
+		},
+		// Same as above, at offset numInvoices-1. Expect the last
+		// invoice to be returned.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    numInvoices - 1,
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[numInvoices-1:],
+		},
+		// Same as above, at offset numInvoices. No invoices should be
+		// returned, as there are no invoices after this offset.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    numInvoices,
+				NumMaxInvoices: 1,
+			},
+			expected: nil,
 		},
 		// Fetch all pending invoices with a single query.
 		{

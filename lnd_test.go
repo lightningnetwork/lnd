@@ -7858,6 +7858,8 @@ func testNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 	advertisedAddrs := []string{
 		"192.168.1.1:8333",
 		"[2001:db8:85a3:8d3:1319:8a2e:370:7348]:8337",
+		"bkb6azqggsaiskzi.onion:9735",
+		"fomvuglh6h6vcag73xo5t5gv56ombih3zr2xvplkpbfd7wrog4swjwid.onion:1234",
 	}
 
 	var lndArgs []string

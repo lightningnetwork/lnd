@@ -262,9 +262,12 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 		t.Fatalf("expected 2 hops, got %d", len(hops))
 	}
 
-	if hops[0].Channel.Node.Alias != "songoku" {
+	if !bytes.Equal(hops[0].PubKeyBytes[:],
+		ctx.aliases["songoku"].SerializeCompressed()) {
+
 		t.Fatalf("expected first hop through songoku, got %s",
-			hops[0].Channel.Node.Alias)
+			getAliasFromPubKey(hops[0].PubKeyBytes[:],
+				ctx.aliases))
 	}
 }
 
@@ -341,10 +344,13 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 	}
 
 	// The route should have satoshi as the first hop.
-	if route.Hops[0].Channel.Node.Alias != "satoshi" {
+	if !bytes.Equal(route.Hops[0].PubKeyBytes[:],
+		ctx.aliases["satoshi"].SerializeCompressed()) {
+
 		t.Fatalf("route should go through satoshi as first hop, "+
 			"instead passes through: %v",
-			route.Hops[0].Channel.Node.Alias)
+			getAliasFromPubKey(route.Hops[0].PubKeyBytes[:],
+				ctx.aliases))
 	}
 }
 
@@ -406,24 +412,12 @@ func TestChannelUpdateValidation(t *testing.T) {
 
 	hops := []*Hop{
 		{
-			Channel: &ChannelHop{
-				ChannelEdgePolicy: &channeldb.ChannelEdgePolicy{
-					ChannelID: 1,
-					Node: &channeldb.LightningNode{
-						PubKeyBytes: hop1,
-					},
-				},
-			},
+			ChannelID:   1,
+			PubKeyBytes: hop1,
 		},
 		{
-			Channel: &ChannelHop{
-				ChannelEdgePolicy: &channeldb.ChannelEdgePolicy{
-					ChannelID: 2,
-					Node: &channeldb.LightningNode{
-						PubKeyBytes: hop2,
-					},
-				},
-			},
+			ChannelID:   2,
+			PubKeyBytes: hop2,
 		},
 	}
 
@@ -605,10 +599,13 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	}
 
 	// The route should have pham nuwen as the first hop.
-	if route.Hops[0].Channel.Node.Alias != "phamnuwen" {
+	if !bytes.Equal(route.Hops[0].PubKeyBytes[:],
+		ctx.aliases["phamnuwen"].SerializeCompressed()) {
+
 		t.Fatalf("route should go through satoshi as first hop, "+
 			"instead passes through: %v",
-			route.Hops[0].Channel.Node.Alias)
+			getAliasFromPubKey(route.Hops[0].PubKeyBytes[:],
+				ctx.aliases))
 	}
 }
 
@@ -701,10 +698,13 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 		}
 
 		// The route should have satoshi as the first hop.
-		if route.Hops[0].Channel.Node.Alias != "phamnuwen" {
+		if !bytes.Equal(route.Hops[0].PubKeyBytes[:],
+			ctx.aliases["phamnuwen"].SerializeCompressed()) {
+
 			t.Fatalf("route should go through phamnuwen as first hop, "+
 				"instead passes through: %v",
-				route.Hops[0].Channel.Node.Alias)
+				getAliasFromPubKey(route.Hops[0].PubKeyBytes[:],
+					ctx.aliases))
 		}
 	}
 
@@ -868,10 +868,13 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 		t.Fatalf("incorrect preimage used: expected %x got %x",
 			preImage[:], paymentPreImage[:])
 	}
-	if route.Hops[0].Channel.Node.Alias != "satoshi" {
+	if !bytes.Equal(route.Hops[0].PubKeyBytes[:],
+		ctx.aliases["satoshi"].SerializeCompressed()) {
+
 		t.Fatalf("route should go through satoshi as first hop, "+
 			"instead passes through: %v",
-			route.Hops[0].Channel.Node.Alias)
+			getAliasFromPubKey(route.Hops[0].PubKeyBytes[:],
+				ctx.aliases))
 	}
 
 	ctx.router.missionControl.ResetHistory()
@@ -913,10 +916,13 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	}
 
 	// The route should have satoshi as the first hop.
-	if route.Hops[0].Channel.Node.Alias != "satoshi" {
+	if !bytes.Equal(route.Hops[0].PubKeyBytes[:],
+		ctx.aliases["satoshi"].SerializeCompressed()) {
+
 		t.Fatalf("route should go through satoshi as first hop, "+
 			"instead passes through: %v",
-			route.Hops[0].Channel.Node.Alias)
+			getAliasFromPubKey(route.Hops[0].PubKeyBytes[:],
+				ctx.aliases))
 	}
 }
 

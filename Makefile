@@ -36,14 +36,13 @@ GOBUILD := go build -v
 GOINSTALL := go install -v
 GOTEST := go test -v
 
-GOLIST := go list $(PKG)/... | grep -v '/vendor/'
+GOFILES_NOVENDOR = $(shell find . -type f -name '*.go' -not -path "./vendor/*")
 GOLISTCOVER := $(shell go list -f '{{.ImportPath}}' ./... | sed -e 's/^$(ESCPKG)/./')
 GOLISTLINT := $(shell go list -f '{{.Dir}}' ./... | grep -v 'lnrpc')
 
 RM := rm -f
 CP := cp
 MAKE := make
-XARGS := xargs -L 1
 
 include make/testing_flags.mk
 
@@ -211,7 +210,7 @@ endif
 
 fmt:
 	@$(call print, "Formatting source.")
-	$(GOLIST) | $(XARGS) go fmt -x
+	gofmt -l -w -s $(GOFILES_NOVENDOR)
 
 lint: $(LINT_BIN)
 	@$(call print, "Linting source.")

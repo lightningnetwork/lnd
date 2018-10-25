@@ -36,6 +36,7 @@ GOBUILD := go build -v
 GOINSTALL := go install -v
 GOTEST := go test -v
 
+GOFILES_NOVENDOR = $(shell find . -type f -name '*.go' -not -path "./vendor/*")
 GOLIST := go list $(PKG)/... | grep -v '/vendor/'
 GOLISTCOVER := $(shell go list -f '{{.ImportPath}}' ./... | sed -e 's/^$(ESCPKG)/./')
 GOLISTLINT := $(shell go list -f '{{.Dir}}' ./... | grep -v 'lnrpc')
@@ -211,7 +212,7 @@ endif
 
 fmt:
 	@$(call print, "Formatting source.")
-	$(GOLIST) | $(XARGS) go fmt -x
+	gofmt -l -w -s $(GOFILES_NOVENDOR)
 
 lint: $(LINT_BIN)
 	@$(call print, "Linting source.")

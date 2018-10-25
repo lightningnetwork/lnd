@@ -107,6 +107,10 @@ type chainControl struct {
 
 	signer lnwallet.Signer
 
+	keyRing keychain.KeyRing
+
+	wc lnwallet.WalletController
+
 	msgSigner lnwallet.MessageSigner
 
 	chainNotifier chainntnfs.ChainNotifier
@@ -502,6 +506,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 	cc.msgSigner = wc
 	cc.signer = wc
 	cc.chainIO = wc
+	cc.wc = wc
 
 	// Select the default channel constraints for the primary chain.
 	channelConstraints := defaultBtcChannelConstraints
@@ -512,6 +517,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 	keyRing := keychain.NewBtcWalletKeyRing(
 		wc.InternalWallet(), activeNetParams.CoinType,
 	)
+	cc.keyRing = keyRing
 
 	// Create, and start the lnwallet, which handles the core payment
 	// channel logic, and exposes control via proxy state machines.

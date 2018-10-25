@@ -376,6 +376,7 @@ func (m *InputScript) GetSigScript() []byte {
 }
 
 type InputScriptResp struct {
+	// / The set of fully valid input scripts requested.
 	InputScripts []*InputScript `protobuf:"bytes,1,rep,name=input_scripts,json=inputScripts" json:"input_scripts,omitempty"`
 }
 

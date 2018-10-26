@@ -146,6 +146,11 @@ class MacaroonInterceptor < GRPC::ClientInterceptor
     metadata['macaroon'] = macaroon
     yield
   end
+
+  def server_streamer(request:, call:, method:, metadata:)
+    metadata['macaroon'] = macaroon
+    yield
+  end
 end
 ```
 

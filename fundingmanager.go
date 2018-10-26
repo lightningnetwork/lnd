@@ -504,8 +504,9 @@ func (f *fundingManager) Start() error {
 
 			err := f.cfg.PublishTransaction(channel.FundingTxn)
 			if err != nil && err != lnwallet.ErrDoubleSpend {
-				fndgLog.Warnf("unable to rebroadcast funding "+
-					"txn: %v", err)
+				fndgLog.Errorf("Unable to rebroadcast funding "+
+					"tx for ChannelPoint(%v): %v",
+					channel.FundingOutpoint, err)
 			}
 		}
 
@@ -1591,8 +1592,9 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 
 	err = f.cfg.PublishTransaction(fundingTx)
 	if err != nil {
-		fndgLog.Errorf("unable to broadcast funding "+
-			"txn: %v", err)
+		fndgLog.Errorf("Unable to broadcast funding tx for "+
+			"ChannelPoint(%v): %v", completeChan.FundingOutpoint,
+			err)
 		// We failed to broadcast the funding transaction, but watch
 		// the channel regardless, in case the transaction made it to
 		// the network. We will retry broadcast at startup.

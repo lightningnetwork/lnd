@@ -119,10 +119,15 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []Input, confTarget uint32,
 
 	// With all the inputs in place, use each output's unique witness
 	// function to generate the final witness required for spending.
-	addWitness := func(idx int, tso Input) error {
-		witness, err := tso.BuildWitness(
+	addWitness := func(idx int, input Input) error {
+		err := input.BuildWitness(
 			s.cfg.Signer, sweepTx, hashCache, idx,
 		)
+		if err != nil {
+			return err
+		}
+
+		witness, err := input.Witness()
 		if err != nil {
 			return err
 		}

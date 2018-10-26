@@ -462,7 +462,11 @@ type graphParams struct {
 
 	// bandwidthHints is an optional map from channels to bandwidths that
 	// can be populated if the caller has a better estimate of the current
-	// channel bandwidth than what is found in the graph.
+	// channel bandwidth than what is found in the graph. If set, it will
+	// override the capacities and disabled flags found in the graph for
+	// local channels when doing path finding. In particular, it should be
+	// set to the current available sending bandwidth for active local
+	// channels, and 0 for inactive channels.
 	bandwidthHints map[uint64]lnwire.MilliSatoshi
 }
 
@@ -585,10 +589,15 @@ func findPath(g *graphParams, r *restrictParams,
 
 		fromVertex := Vertex(fromNode.PubKeyBytes)
 
-		// If the edge is currently disabled, then we'll stop here, as
-		// we shouldn't attempt to route through it.
+		// If this is not a local channel and it is disabled, we will
+		// skip it.
+		// TODO(halseth): also ignore disable flags for non-local
+		// channels if bandwidth hint is set?
+		isSourceChan := fromVertex == sourceVertex
 		edgeFlags := lnwire.ChanUpdateFlag(edge.Flags)
-		if edgeFlags&lnwire.ChanUpdateDisabled != 0 {
+		isDisabled := edgeFlags&lnwire.ChanUpdateDisabled != 0
+
+		if !isSourceChan && isDisabled {
 			return
 		}
 

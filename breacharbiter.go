@@ -761,6 +761,8 @@ type breachedOutput struct {
 	secondLevelWitnessScript []byte
 
 	witnessFunc lnwallet.WitnessGenerator
+
+	witnessStack [][]byte
 }
 
 // makeBreachedOutput assembles a new breachedOutput that can be used by the
@@ -810,7 +812,7 @@ func (bo *breachedOutput) SignDesc() *lnwallet.SignDescriptor {
 // sign descriptor. The method then returns the witness computed by invoking
 // this function on the first and subsequent calls.
 func (bo *breachedOutput) BuildWitness(signer lnwallet.Signer, txn *wire.MsgTx,
-	hashCache *txscript.TxSigHashes, txinIdx int) ([][]byte, error) {
+	hashCache *txscript.TxSigHashes, txinIdx int) error {
 
 	// First, we ensure that the witness generation function has been
 	// initialized for this breached output.
@@ -821,7 +823,32 @@ func (bo *breachedOutput) BuildWitness(signer lnwallet.Signer, txn *wire.MsgTx,
 	// Now that we have ensured that the witness generation function has
 	// been initialized, we can proceed to execute it and generate the
 	// witness for this particular breached output.
-	return bo.witnessFunc(txn, hashCache, txinIdx)
+	witness, err := bo.witnessFunc(txn, hashCache, txinIdx)
+	if err != nil {
+		return err
+	}
+
+	bo.witnessStack = witness[:len(witness)-1]
+
+	return nil
+}
+
+// SetWitnessStack is implemented as NOP, the witness must be constructed via
+// BuildWitness.
+func (bo *breachedOutput) SetWitnessStack([][]byte) {}
+
+// Witness returns the concatenation of the witness stack and witness script.
+//
+// This method SHOULD be called directly after BuildWitness.
+func (bo *breachedOutput) Witness() ([][]byte, error) {
+	if bo.witnessStack == nil {
+		return nil, sweep.ErrNoWitnessStack
+	}
+
+	witness := make([][]byte, len(bo.witnessStack)+1)
+	witness[copy(witness, bo.witnessStack)] = bo.SignDesc().WitnessScript
+
+	return witness, nil
 }
 
 // BlocksToMaturity returns the relative timelock, as a number of blocks, that
@@ -1066,12 +1093,16 @@ func (b *breachArbiter) sweepSpendableOutputsTxn(txWeight int64,
 	// witness, and attaching it to the transaction. This function accepts
 	// an integer index representing the intended txin index, and the
 	// breached output from which it will spend.
-	addWitness := func(idx int, so sweep.Input) error {
+	addWitness := func(idx int, input sweep.Input) error {
 		// First, we construct a valid witness for this outpoint and
 		// transaction using the SpendableOutput's witness generation
 		// function.
-		witness, err := so.BuildWitness(b.cfg.Signer, txn, hashCache,
-			idx)
+		err := input.BuildWitness(b.cfg.Signer, txn, hashCache, idx)
+		if err != nil {
+			return err
+		}
+
+		witness, err := input.Witness()
 		if err != nil {
 			return err
 		}

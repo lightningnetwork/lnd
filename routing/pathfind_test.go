@@ -1451,7 +1451,9 @@ func TestRouteFailMinHTLC(t *testing.T) {
 
 // TestRouteFailDisabledEdge tests that if we attempt to route to an edge
 // that's disabled, then that edge is disqualified, and the routing attempt
-// will fail.
+// will fail. We also test that this is true only for non-local edges, as we'll
+// ignore the disable flags, with the assumption that the correct bandwidth is
+// found among the bandwidth hints.
 func TestRouteFailDisabledEdge(t *testing.T) {
 	t.Parallel()
 
@@ -1487,19 +1489,52 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 		t.Fatalf("unable to find path: %v", err)
 	}
 
-	// First, we'll modify the edge from roasbeef -> phamnuwen, to read that
-	// it's disabled.
-	_, _, phamnuwenEdge, err := graph.graph.FetchChannelEdgesByID(999991)
+	// Disable the edge roasbeef->phamnuwen. This should not impact the
+	// path finding, as we don't consider the disable flag for local
+	// channels (and roasbeef is the source).
+	roasToPham := uint64(999991)
+	_, e1, e2, err := graph.graph.FetchChannelEdgesByID(roasToPham)
 	if err != nil {
-		t.Fatalf("unable to fetch goku's edge: %v", err)
+		t.Fatalf("unable to fetch edge: %v", err)
 	}
-	phamnuwenEdge.Flags = lnwire.ChanUpdateDisabled | lnwire.ChanUpdateDirection
-	if err := graph.graph.UpdateEdgePolicy(phamnuwenEdge); err != nil {
+	e1.Flags |= lnwire.ChanUpdateDisabled
+	if err := graph.graph.UpdateEdgePolicy(e1); err != nil {
+		t.Fatalf("unable to update edge: %v", err)
+	}
+	e2.Flags |= lnwire.ChanUpdateDisabled
+	if err := graph.graph.UpdateEdgePolicy(e2); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 
-	// Now, if we attempt to route through that edge, we should get a
-	// failure as it is no longer eligible.
+	_, err = findPath(
+		&graphParams{
+			graph: graph.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, payAmt,
+	)
+	if err != nil {
+		t.Fatalf("unable to find path: %v", err)
+	}
+
+	// Now, we'll modify the edge from phamnuwen -> sophon, to read that
+	// it's disabled.
+	phamToSophon := uint64(99999)
+	_, e, _, err := graph.graph.FetchChannelEdgesByID(phamToSophon)
+	if err != nil {
+		t.Fatalf("unable to fetch edge: %v", err)
+	}
+	e.Flags |= lnwire.ChanUpdateDisabled
+	if err := graph.graph.UpdateEdgePolicy(e); err != nil {
+		t.Fatalf("unable to update edge: %v", err)
+	}
+
+	// If we attempt to route through that edge, we should get a failure as
+	// it is no longer eligible.
 	_, err = findPath(
 		&graphParams{
 			graph: graph.graph,

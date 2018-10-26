@@ -1,10 +1,16 @@
 package sweep
 
 import (
+	"errors"
+
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
+
+// ErrNoWitnessStack signals that the witness for a particular input was never
+// computed or set properly.
+var ErrNoWitnessStack = errors.New("witness is not built or set")
 
 // Input contains all data needed to construct a sweep tx input.
 type Input interface {
@@ -26,7 +32,16 @@ type Input interface {
 	// location determined by the given `txinIdx`.
 	BuildWitness(signer lnwallet.Signer, txn *wire.MsgTx,
 		hashCache *txscript.TxSigHashes,
-		txinIdx int) ([][]byte, error)
+		txinIdx int) error
+
+	// SetWitnessStack is used to set the input's witness stack if the
+	// witness was computed externally. This is useful if the witness is
+	// known, but the signing keys are not accessible.
+	SetWitnessStack([][]byte)
+
+	// Witness returns the inputs witness, computed either via signing or by
+	// setting the witness stack directly and appending the witness script.
+	Witness() ([][]byte, error)
 
 	// BlocksToMaturity returns the relative timelock, as a number of
 	// blocks, that must be built on top of the confirmation height before
@@ -36,9 +51,10 @@ type Input interface {
 }
 
 type inputKit struct {
-	outpoint    wire.OutPoint
-	witnessType lnwallet.WitnessType
-	signDesc    lnwallet.SignDescriptor
+	outpoint     wire.OutPoint
+	witnessType  lnwallet.WitnessType
+	signDesc     lnwallet.SignDescriptor
+	witnessStack [][]byte
 }
 
 // OutPoint returns the breached output's identifier that is to be included as
@@ -84,13 +100,50 @@ func MakeBaseInput(outpoint *wire.OutPoint, witnessType lnwallet.WitnessType,
 // which is parameterized primarily by the witness type and sign descriptor.
 // The method then returns the witness computed by invoking this function.
 func (bi *BaseInput) BuildWitness(signer lnwallet.Signer, txn *wire.MsgTx,
-	hashCache *txscript.TxSigHashes, txinIdx int) ([][]byte, error) {
+	hashCache *txscript.TxSigHashes, txinIdx int) error {
 
 	witnessFunc := bi.witnessType.GenWitnessFunc(
 		signer, bi.SignDesc(),
 	)
 
-	return witnessFunc(txn, hashCache, txinIdx)
+	witness, err := witnessFunc(txn, hashCache, txinIdx)
+	switch {
+
+	// If we attempted to sign a preauthorized input, we can ignore this
+	// error and assume the input is already signed for. If it hasn't, the
+	// error will be surfaced when calling Witness().
+	case err == lnwallet.ErrSignPreAuthorized:
+		return nil
+
+	// Any other non-nil errors should be bubbled up.
+	case err != nil:
+		return err
+	}
+
+	bi.witnessStack = witness[:len(witness)-1]
+
+	return nil
+}
+
+// SetWitnessStack is used to set the input's witness stack if the witness was
+// computed externally. This is useful if the witness is known, but the signing
+// keys are not accessible.
+func (bi *BaseInput) SetWitnessStack(witnessStack [][]byte) {
+	bi.witnessStack = witnessStack
+}
+
+// Witness returns the inputs witness, computed either via signing or by setting
+// the witness stack directly and appending the witness script.
+func (bi *BaseInput) Witness() ([][]byte, error) {
+	if bi.witnessStack == nil {
+		return nil, ErrNoWitnessStack
+	}
+
+	// Copy witness stack and set the last element to the witness script.
+	witness := make([][]byte, len(bi.witnessStack)+1)
+	witness[copy(witness, bi.witnessStack)] = bi.SignDesc().WitnessScript
+
+	return witness, nil
 }
 
 // BlocksToMaturity returns the relative timelock, as a number of blocks, that
@@ -129,16 +182,39 @@ func MakeHtlcSucceedInput(outpoint *wire.OutPoint,
 // breached output. For HtlcSpendInput it will need to make the preimage part
 // of the witness.
 func (h *HtlcSucceedInput) BuildWitness(signer lnwallet.Signer, txn *wire.MsgTx,
-	hashCache *txscript.TxSigHashes, txinIdx int) ([][]byte, error) {
+	hashCache *txscript.TxSigHashes, txinIdx int) error {
 
 	desc := h.signDesc
 	desc.SigHashes = hashCache
 	desc.InputIndex = txinIdx
 
-	return lnwallet.SenderHtlcSpendRedeem(
-		signer, &desc, txn,
-		h.preimage,
+	witness, err := lnwallet.SenderHtlcSpendRedeem(
+		signer, &desc, txn, h.preimage,
 	)
+	if err != nil {
+		return err
+	}
+
+	h.witnessStack = witness[:len(witness)-1]
+
+	return nil
+}
+
+// SetWitnessStack is a NOP for this special cased input, it must be constructed
+// via BuildWitness.
+func (h *HtlcSucceedInput) SetWitnessStack(witnessStack [][]byte) {}
+
+// Witness returns the input's witness computed via BuildWitness.
+func (h *HtlcSucceedInput) Witness() ([][]byte, error) {
+	if h.witnessStack == nil {
+		return nil, ErrNoWitnessStack
+	}
+
+	// Copy witness stack and set the last element to the witness script.
+	witness := make([][]byte, len(h.witnessStack)+1)
+	witness[copy(witness, h.witnessStack)] = h.SignDesc().WitnessScript
+
+	return witness, nil
 }
 
 // BlocksToMaturity returns the relative timelock, as a number of blocks, that

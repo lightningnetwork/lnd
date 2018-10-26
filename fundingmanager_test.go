@@ -1933,7 +1933,7 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 	bob.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{}
 
 	// Since this is a private channel, we shouldn't receive the
-	// announcement signatures or node announcement messages.
+	// announcement signatures.
 	select {
 	case ann := <-alice.announceChan:
 		t.Fatalf("unexpectedly got channel announcement message: %v", ann)
@@ -1946,6 +1946,25 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 		t.Fatalf("unexpectedly got channel announcement message: %v", ann)
 	case <-time.After(300 * time.Millisecond):
 		// Expected
+	}
+
+	// We should however receive each side's node announcement.
+	select {
+	case msg := <-alice.msgChan:
+		if _, ok := msg.(*lnwire.NodeAnnouncement); !ok {
+			t.Fatalf("expected to receive node announcement")
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("expected to receive node announcement")
+	}
+
+	select {
+	case msg := <-bob.msgChan:
+		if _, ok := msg.(*lnwire.NodeAnnouncement); !ok {
+			t.Fatalf("expected to receive node announcement")
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("expected to receive node announcement")
 	}
 
 	// The internal state-machine should now have deleted the channelStates
@@ -2013,19 +2032,48 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 	// channel.
 	assertHandleFundingLocked(t, alice, bob)
 
-	// Restart Alice's fundingManager so we can prove that the public
-	// channel announcements are not sent upon restart and that the private
-	// setting persists upon restart.
-	recreateAliceFundingManager(t, alice)
-	time.Sleep(300 * time.Millisecond)
-
 	// Notify that six confirmations has been reached on funding transaction.
 	alice.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{}
 	bob.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{}
 
 	// Since this is a private channel, we shouldn't receive the public
-	// channel announcement messages announcement signatures or
-	// node announcement.
+	// channel announcement messages.
+	select {
+	case ann := <-alice.announceChan:
+		t.Fatalf("unexpectedly got channel announcement message: %v", ann)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	select {
+	case ann := <-bob.announceChan:
+		t.Fatalf("unexpectedly got channel announcement message: %v", ann)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	// We should however receive each side's node announcement.
+	select {
+	case msg := <-alice.msgChan:
+		if _, ok := msg.(*lnwire.NodeAnnouncement); !ok {
+			t.Fatalf("expected to receive node announcement")
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("expected to receive node announcement")
+	}
+
+	select {
+	case msg := <-bob.msgChan:
+		if _, ok := msg.(*lnwire.NodeAnnouncement); !ok {
+			t.Fatalf("expected to receive node announcement")
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("expected to receive node announcement")
+	}
+
+	// Restart Alice's fundingManager so we can prove that the public
+	// channel announcements are not sent upon restart and that the private
+	// setting persists upon restart.
+	recreateAliceFundingManager(t, alice)
+
 	select {
 	case ann := <-alice.announceChan:
 		t.Fatalf("unexpectedly got channel announcement message: %v", ann)

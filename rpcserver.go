@@ -2759,9 +2759,31 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 			}
 
 			if !link.EligibleToForward() {
-				rpcsLog.Debugf("Skipping link %v due to not "+
+				rpcsLog.Debugf("Skipping channel %v due to not "+
 					"being eligible to forward payments",
 					chanPoint)
+				continue
+			}
+
+			// To ensure we don't leak unadvertised nodes, we'll
+			// make sure our counterparty is publicly advertised
+			// within the network. Otherwise, we'll end up leaking
+			// information about nodes that intend to stay
+			// unadvertised, like in the case of a node only having
+			// private channels.
+			var remotePub [33]byte
+			copy(remotePub[:], channel.IdentityPub.SerializeCompressed())
+			isRemoteNodePublic, err := graph.IsPublicNode(remotePub)
+			if err != nil {
+				rpcsLog.Errorf("Unable to determine if node %x "+
+					"is advertised: %v", remotePub, err)
+				continue
+			}
+
+			if !isRemoteNodePublic {
+				rpcsLog.Debugf("Skipping channel %v due to "+
+					"counterparty %x being unadvertised",
+					chanPoint, remotePub)
 				continue
 			}
 
@@ -2778,8 +2800,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 			// Now, we'll need to determine which is the correct
 			// policy for HTLCs being sent from the remote node.
 			var remotePolicy *channeldb.ChannelEdgePolicy
-			remotePub := channel.IdentityPub.SerializeCompressed()
-			if bytes.Equal(remotePub, info.NodeKey1Bytes[:]) {
+			if bytes.Equal(remotePub[:], info.NodeKey1Bytes[:]) {
 				remotePolicy = p1
 			} else {
 				remotePolicy = p2

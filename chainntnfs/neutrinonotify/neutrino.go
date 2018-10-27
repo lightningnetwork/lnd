@@ -314,18 +314,7 @@ out:
 				}
 				n.spendNotifications[op][msg.spendID] = msg
 
-			case *confirmationsNotification:
-				chainntnfs.Log.Infof("New confirmations subscription: "+
-					"txid=%v, numconfs=%v, height_hint=%v",
-					msg.TxID, msg.NumConfirmations, msg.heightHint)
-
-				// If the notification can be partially or
-				// fully dispatched, then we can skip the first
-				// phase for ntfns.
-				n.heightMtx.RLock()
-				currentHeight := n.bestHeight
-				n.heightMtx.RUnlock()
-
+			case *chainntnfs.HistoricalConfDispatch:
 				// Look up whether the transaction is already
 				// included in the active chain. We'll do this
 				// in a goroutine to prevent blocking
@@ -335,7 +324,8 @@ out:
 					defer n.wg.Done()
 
 					confDetails, err := n.historicalConfDetails(
-						msg.TxID, msg.pkScript, currentHeight, msg.heightHint,
+						msg.TxID, msg.PkScript,
+						msg.StartHeight, msg.EndHeight,
 					)
 					if err != nil {
 						chainntnfs.Log.Error(err)
@@ -347,20 +337,27 @@ out:
 					// the script is found in a block.
 					params := n.p2pNode.ChainParams()
 					_, addrs, _, err := txscript.ExtractPkScriptAddrs(
-						msg.pkScript, &params,
+						msg.PkScript, &params,
+					)
+					if err != nil {
+						chainntnfs.Log.Error(err)
+					}
+
+					// If the historical dispatch finished
+					// without error, we will invoke
+					// UpdateConfDetails even if none were
+					// found. This allows the notifier to
+					// begin safely updating the height hint
+					// cache at tip, since any pending
+					// rescans have now completed.
+					err = n.txConfNotifier.UpdateConfDetails(
+						*msg.TxID, confDetails,
 					)
 					if err != nil {
 						chainntnfs.Log.Error(err)
 					}
 
 					if confDetails != nil {
-						err := n.txConfNotifier.UpdateConfDetails(
-							*msg.TxID, msg.ConfID,
-							confDetails,
-						)
-						if err != nil {
-							chainntnfs.Log.Error(err)
-						}
 						return
 					}
 
@@ -370,16 +367,14 @@ out:
 					// future initial confirmation.
 					rescanUpdate := []neutrino.UpdateOption{
 						neutrino.AddAddrs(addrs...),
-						neutrino.Rewind(currentHeight),
+						neutrino.Rewind(msg.EndHeight),
 						neutrino.DisableDisconnectedNtfns(true),
 					}
 					err = n.chainView.Update(rescanUpdate...)
 					if err != nil {
-						chainntnfs.Log.Errorf("Unable "+
-							"to update rescan: %v",
+						chainntnfs.Log.Errorf("Unable to update rescan: %v",
 							err)
 					}
-
 				}()
 
 			case *blockEpochRegistration:
@@ -470,13 +465,13 @@ out:
 
 			n.heightMtx.Lock()
 			if update.height != uint32(n.bestHeight) {
-				chainntnfs.Log.Infof("Missed disconnected" +
+				chainntnfs.Log.Infof("Missed disconnected " +
 					"blocks, attempting to catch up")
 			}
 
 			hash, err := n.p2pNode.GetBlockHash(int64(n.bestHeight))
 			if err != nil {
-				chainntnfs.Log.Errorf("Unable to fetch block hash"+
+				chainntnfs.Log.Errorf("Unable to fetch block hash "+
 					"for height %d: %v", n.bestHeight, err)
 				n.heightMtx.Unlock()
 				continue
@@ -516,11 +511,11 @@ out:
 // confirmation.
 func (n *NeutrinoNotifier) historicalConfDetails(targetHash *chainhash.Hash,
 	pkScript []byte,
-	currentHeight, heightHint uint32) (*chainntnfs.TxConfirmation, error) {
+	startHeight, endHeight uint32) (*chainntnfs.TxConfirmation, error) {
 
 	// Starting from the height hint, we'll walk forwards in the chain to
 	// see if this transaction has already been confirmed.
-	for scanHeight := heightHint; scanHeight <= currentHeight; scanHeight++ {
+	for scanHeight := startHeight; scanHeight <= endHeight; scanHeight++ {
 		// Ensure we haven't been requested to shut down before
 		// processing the next height.
 		select {
@@ -912,14 +907,6 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	return spendEvent, nil
 }
 
-// confirmationNotification represents a client's intent to receive a
-// notification once the target txid reaches numConfirmations confirmations.
-type confirmationsNotification struct {
-	chainntnfs.ConfNtfn
-	heightHint uint32
-	pkScript   []byte
-}
-
 // RegisterConfirmationsNtfn registers a notification with NeutrinoNotifier
 // which will be triggered once the txid reaches numConfs number of
 // confirmations.
@@ -927,35 +914,35 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	pkScript []byte,
 	numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
 
-	// Before proceeding to register the notification, we'll query our
-	// height hint cache to determine whether a better one exists.
-	if hint, err := n.confirmHintCache.QueryConfirmHint(*txid); err == nil {
-		if hint > heightHint {
-			chainntnfs.Log.Debugf("Using height hint %d retrieved "+
-				"from cache for %v", hint, txid)
-			heightHint = hint
-		}
-	}
-
 	// Construct a notification request for the transaction and send it to
 	// the main event loop.
-	ntfn := &confirmationsNotification{
-		ConfNtfn: chainntnfs.ConfNtfn{
-			ConfID:           atomic.AddUint64(&n.confClientCounter, 1),
-			TxID:             txid,
-			NumConfirmations: numConfs,
-			Event:            chainntnfs.NewConfirmationEvent(numConfs),
-		},
-		heightHint: heightHint,
-		pkScript:   pkScript,
+	ntfn := &chainntnfs.ConfNtfn{
+		ConfID:           atomic.AddUint64(&n.confClientCounter, 1),
+		TxID:             txid,
+		PkScript:         pkScript,
+		NumConfirmations: numConfs,
+		Event:            chainntnfs.NewConfirmationEvent(numConfs),
+		HeightHint:       heightHint,
 	}
 
-	if err := n.txConfNotifier.Register(&ntfn.ConfNtfn); err != nil {
+	chainntnfs.Log.Infof("New confirmation subscription: "+
+		"txid=%v, numconfs=%v", txid, numConfs)
+
+	// Register the conf notification with txconfnotifier. A non-nil value
+	// for `dispatch` will be returned if we are required to perform a
+	// manual scan for the confirmation. Otherwise the notifier will begin
+	// watching at tip for the transaction to confirm.
+	dispatch, err := n.txConfNotifier.Register(ntfn)
+	if err != nil {
 		return nil, err
 	}
 
+	if dispatch == nil {
+		return ntfn.Event, nil
+	}
+
 	select {
-	case n.notificationRegistry <- ntfn:
+	case n.notificationRegistry <- dispatch:
 		return ntfn.Event, nil
 	case <-n.quit:
 		return nil, ErrChainNotifierShuttingDown

@@ -848,7 +848,7 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 		pushAmt:         lnwire.NewMSatFromSatoshis(remoteInitialBalance),
 		minHtlc:         minHtlc,
 		fundingFeePerKw: feeRate,
-		private:         in.Private,
+		private:         in.Private || cfg.Private,
 		remoteCsvDelay:  remoteCsvDelay,
 		minConfs:        minConfs,
 	}

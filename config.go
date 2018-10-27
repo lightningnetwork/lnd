@@ -155,7 +155,7 @@ type torConfig struct {
 	DNS             string `long:"dns" description:"The DNS server as host:port that Tor will use for SRV queries - NOTE must have TCP resolution enabled"`
 	StreamIsolation bool   `long:"streamisolation" description:"Enable Tor stream isolation by randomizing user credentials for each connection."`
 	Control         string `long:"control" description:"The host:port that Tor is listening on for Tor control connections"`
-	ControlPassword string `long:"controlpassword" default-mask:"-" description:"Password for tor HashedControlPassword authentication"`
+	ControlPassword string `long:"controlpassword" default-mask:"-" description:"Password for Tor HashedControlPassword authentication"`
 	V2              bool   `long:"v2" description:"Automatically set up a v2 onion service to listen for inbound connections"`
 	V3              bool   `long:"v3" description:"Automatically set up a v3 onion service to listen for inbound connections"`
 	PrivateKeyPath  string `long:"privatekeypath" description:"The path to the private key of the onion service being created"`
@@ -938,8 +938,8 @@ func loadConfig() (*config, error) {
 	}
 
 	// Finally, ensure that we are only listening on localhost if Tor
-	// inbound support is enabled.
-	if (cfg.Tor.V2 || cfg.Tor.V3) && !(len(cfg.Tor.ControlPassword) > 0) {
+	// inbound support via Tor on localhost is enabled.
+	if (cfg.Tor.V2 || cfg.Tor.V3) && lncfg.IsLoopback(cfg.Tor.SOCKS) {
 		for _, addr := range cfg.Listeners {
 			if lncfg.IsLoopback(addr.String()) {
 				continue
@@ -947,7 +947,7 @@ func loadConfig() (*config, error) {
 
 			return nil, errors.New("lnd must *only* be listening " +
 				"on localhost when running with Tor inbound " +
-				"support without ControlPassword enabled")
+				"support enabled, and Tor on localhost")
 		}
 	}
 

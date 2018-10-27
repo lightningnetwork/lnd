@@ -12703,6 +12703,10 @@ var testsCases = []*testCase{
 		test: testPrivateChannels,
 	},
 	{
+		name: "private node",
+		test: testPrivateNode,
+	},
+	{
 		name: "invoice routing hints",
 		test: testInvoiceRoutingHints,
 	},

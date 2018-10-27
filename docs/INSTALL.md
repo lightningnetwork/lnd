@@ -69,7 +69,9 @@ cd $GOPATH/src/github.com/lightningnetwork/lnd
 make && make install
 ```
 
-For Windows WSL users, make will need to be referenced directly via /usr/bin/make/, or alternatively by wrapping quotation marks around make, like so:
+For Windows WSL users, make will need to be referenced directly via
+/usr/bin/make/, or alternatively by wrapping quotation marks around make,
+like so:
 
 ```
 /usr/bin/make && /usr/bin/make install
@@ -333,7 +335,6 @@ Here's a sample `lnd.conf` for `btcd` to get you started:
 ```
 [Application Options]
 debuglevel=trace
-debughtlc=true
 maxpendingchannels=10
 
 [Bitcoin]
@@ -343,6 +344,8 @@ bitcoin.active=1
 Notice the `[Bitcoin]` section. This section houses the parameters for the
 Bitcoin chain. `lnd` also supports Litecoin testnet4 (but not both BTC and LTC
 at the same time), so when working with Litecoin be sure to set to parameters
-for Litecoin accordingly. For node configuration, the sections are called
-`[Btcd]`, `[Bitcoind]`, `[Neutrino]`, `[Ltcd]`, and `[Litecoind]` depending on
-which chain and node type you're using.
+for Litecoin accordingly. See a more detailed sample config file available
+[here](https://github.com/lightningnetwork/lnd/blob/master/sample-lnd.conf)
+and explore the other sections for node configuration, including `[Btcd]`,
+`[Bitcoind]`, `[Neutrino]`, `[Ltcd]`, and `[Litecoind]` depending on which
+chain and node type you're using.

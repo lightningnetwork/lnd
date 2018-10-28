@@ -1,6 +1,7 @@
 package sweep
 
 import (
+	"fmt"
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -68,7 +69,7 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []Input, confTarget uint32,
 		return nil, err
 	}
 
-	inputs, txWeight, csvCount, cltvCount := s.getWeightEstimate(inputs)
+	inputs, txWeight, csvCount, cltvCount := getWeightEstimate(inputs)
 	log.Infof("Creating sweep transaction for %v inputs (%v CSV, %v CLTV) "+
 		"using %v sat/kw", len(inputs), csvCount, cltvCount,
 		int64(feePerKw))
@@ -143,9 +144,49 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []Input, confTarget uint32,
 	return sweepTx, nil
 }
 
+func getInputWitnessSizeUpperBound(input Input) (int, error) {
+	switch input.WitnessType() {
+
+	// Outputs on a remote commitment transaction that pay directly
+	// to us.
+	case lnwallet.CommitmentNoDelay:
+		return lnwallet.P2WKHWitnessSize, nil
+
+	// Outputs on a past commitment transaction that pay directly
+	// to us.
+	case lnwallet.CommitmentTimeLock:
+		return lnwallet.ToLocalTimeoutWitnessSize, nil
+
+	// Outgoing second layer HTLC's that have confirmed within the
+	// chain, and the output they produced is now mature enough to
+	// sweep.
+	case lnwallet.HtlcOfferedTimeoutSecondLevel:
+		return lnwallet.ToLocalTimeoutWitnessSize, nil
+
+	// Incoming second layer HTLC's that have confirmed within the
+	// chain, and the output they produced is now mature enough to
+	// sweep.
+	case lnwallet.HtlcAcceptedSuccessSecondLevel:
+		return lnwallet.ToLocalTimeoutWitnessSize, nil
+
+	// An HTLC on the commitment transaction of the remote party,
+	// that has had its absolute timelock expire.
+	case lnwallet.HtlcOfferedRemoteTimeout:
+		return lnwallet.AcceptedHtlcTimeoutWitnessSize, nil
+
+	// An HTLC on the commitment transaction of the remote party,
+	// that can be swept with the preimage.
+	case lnwallet.HtlcAcceptedRemoteSuccess:
+		return lnwallet.OfferedHtlcSuccessWitnessSize, nil
+
+	}
+
+	return 0, fmt.Errorf("unexpected witness type: %v", input.WitnessType())
+}
+
 // getWeightEstimate returns a weight estimate for the given inputs.
 // Additionally, it returns counts for the number of csv and cltv inputs.
-func (s *UtxoSweeper) getWeightEstimate(inputs []Input) ([]Input, int64, int, int) {
+func getWeightEstimate(inputs []Input) ([]Input, int64, int, int) {
 	// We initialize a weight estimator so we can accurately asses the
 	// amount of fees we need to pay for this sweep transaction.
 	//
@@ -167,65 +208,25 @@ func (s *UtxoSweeper) getWeightEstimate(inputs []Input) ([]Input, int64, int, in
 	for i := range inputs {
 		input := inputs[i]
 
-		switch input.WitnessType() {
+		size, err := getInputWitnessSizeUpperBound(input)
+		if err != nil {
+			log.Warn(err)
 
-		// Outputs on a remote commitment transaction that pay directly
-		// to us.
-		case lnwallet.CommitmentNoDelay:
-			weightEstimate.AddP2WKHInput()
-			sweepInputs = append(sweepInputs, input)
-
-		// Outputs on a past commitment transaction that pay directly
-		// to us.
-		case lnwallet.CommitmentTimeLock:
-			weightEstimate.AddWitnessInput(
-				lnwallet.ToLocalTimeoutWitnessSize,
-			)
-			sweepInputs = append(sweepInputs, input)
-			csvCount++
-
-		// Outgoing second layer HTLC's that have confirmed within the
-		// chain, and the output they produced is now mature enough to
-		// sweep.
-		case lnwallet.HtlcOfferedTimeoutSecondLevel:
-			weightEstimate.AddWitnessInput(
-				lnwallet.ToLocalTimeoutWitnessSize,
-			)
-			sweepInputs = append(sweepInputs, input)
-			csvCount++
-
-		// Incoming second layer HTLC's that have confirmed within the
-		// chain, and the output they produced is now mature enough to
-		// sweep.
-		case lnwallet.HtlcAcceptedSuccessSecondLevel:
-			weightEstimate.AddWitnessInput(
-				lnwallet.ToLocalTimeoutWitnessSize,
-			)
-			sweepInputs = append(sweepInputs, input)
-			csvCount++
-
-		// An HTLC on the commitment transaction of the remote party,
-		// that has had its absolute timelock expire.
-		case lnwallet.HtlcOfferedRemoteTimeout:
-			weightEstimate.AddWitnessInput(
-				lnwallet.AcceptedHtlcTimeoutWitnessSize,
-			)
-			sweepInputs = append(sweepInputs, input)
-			cltvCount++
-
-		// An HTLC on the commitment transaction of the remote party,
-		// that can be swept with the preimage.
-		case lnwallet.HtlcAcceptedRemoteSuccess:
-			weightEstimate.AddWitnessInput(
-				lnwallet.OfferedHtlcSuccessWitnessSize,
-			)
-			sweepInputs = append(sweepInputs, input)
-
-		default:
-			log.Warnf("kindergarten output in nursery store "+
-				"contains unexpected witness type: %v",
-				input.WitnessType())
+			// Skip inputs for which no weight estimate can be
+			// given.
+			continue
 		}
+		weightEstimate.AddWitnessInput(size)
+
+		switch input.WitnessType() {
+		case lnwallet.CommitmentTimeLock,
+			lnwallet.HtlcOfferedTimeoutSecondLevel,
+			lnwallet.HtlcAcceptedSuccessSecondLevel:
+			csvCount++
+		case lnwallet.HtlcOfferedRemoteTimeout:
+			cltvCount++
+		}
+		sweepInputs = append(sweepInputs, input)
 	}
 
 	txWeight := int64(weightEstimate.Weight())

@@ -217,7 +217,7 @@ func (b *BtcWallet) Stop() error {
 func (b *BtcWallet) ConfirmedBalance(confs int32) (btcutil.Amount, error) {
 	var balance btcutil.Amount
 
-	witnessOutputs, err := b.ListUnspentWitness(confs)
+	witnessOutputs, err := b.ListUnspentWitness(confs, math.MaxInt32)
 	if err != nil {
 		return 0, err
 	}
@@ -299,9 +299,9 @@ func (b *BtcWallet) UnlockOutpoint(o wire.OutPoint) {
 // controls which pay to witness programs either directly or indirectly.
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) ListUnspentWitness(minConfs int32) ([]*lnwallet.Utxo, error) {
+func (b *BtcWallet) ListUnspentWitness(minConfs, maxConfs int32) (
+	[]*lnwallet.Utxo, error) {
 	// First, grab all the unfiltered currently unspent outputs.
-	maxConfs := int32(math.MaxInt32)
 	unspentOutputs, err := b.wallet.ListUnspent(minConfs, maxConfs, nil)
 	if err != nil {
 		return nil, err

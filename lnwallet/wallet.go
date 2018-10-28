@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -1276,7 +1277,7 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerKWeight,
 
 	// Find all unlocked unspent witness outputs that satisfy the minimum
 	// number of confirmations required.
-	coins, err := l.ListUnspentWitness(minConfs)
+	coins, err := l.ListUnspentWitness(minConfs, math.MaxInt32)
 	if err != nil {
 		return err
 	}

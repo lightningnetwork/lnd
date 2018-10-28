@@ -160,11 +160,13 @@ type WalletController interface {
 		feeRate SatPerKWeight) (*chainhash.Hash, error)
 
 	// ListUnspentWitness returns all unspent outputs which are version 0
-	// witness programs. The 'confirms' parameter indicates the minimum
-	// number of confirmations an output needs in order to be returned by
-	// this method. Passing -1 as 'confirms' indicates that even
-	// unconfirmed outputs should be returned.
-	ListUnspentWitness(confirms int32) ([]*Utxo, error)
+	// witness programs. The 'minconfirms' and 'maxconfirms' parameters
+	// indicate the minimum and maximum number of confirmations an output
+	// needs in order to be returned by this method. Passing -1 as
+	// 'minconfirms' indicates that even unconfirmed outputs should be
+	// returned. Using MaxInt32 as 'maxconfirms' implies returning all
+	// outputs with at least 'minconfirms'.
+	ListUnspentWitness(minconfirms, maxconfirms int32) ([]*Utxo, error)
 
 	// ListTransactionDetails returns a list of all transactions which are
 	// relevant to the wallet.

@@ -72,6 +72,10 @@ type ChannelGraphSource interface {
 	// the target node.
 	IsStaleNode(node Vertex, timestamp time.Time) bool
 
+	// IsPublicNode determines whether the given vertex is seen as a public
+	// node in the graph from the graph's source node's point of view.
+	IsPublicNode(node Vertex) (bool, error)
+
 	// IsKnownEdge returns true if the graph source already knows of the
 	// passed channel ID.
 	IsKnownEdge(chanID lnwire.ShortChannelID) bool
@@ -2220,6 +2224,14 @@ func (r *ChannelRouter) IsStaleNode(node Vertex, timestamp time.Time) bool {
 	// If our attempt to assert that the node announcement is fresh fails,
 	// then we know that this is actually a stale announcement.
 	return r.assertNodeAnnFreshness(node, timestamp) != nil
+}
+
+// IsPublicNode determines whether the given vertex is seen as a public node in
+// the graph from the graph's source node's point of view.
+//
+// NOTE: This method is part of the ChannelGraphSource interface.
+func (r *ChannelRouter) IsPublicNode(node Vertex) (bool, error) {
+	return r.cfg.Graph.IsPublicNode(node)
 }
 
 // IsKnownEdge returns true if the graph source already knows of the passed

@@ -268,7 +268,7 @@
   revision = "462a8a75388506b68f76661af8d649f0b88e5301"
 
 [[projects]]
-  digest = "1:6b3292ab3b4b5636b1bf10aad46c9377ea84316e662db00edcd4fc763592c2f2"
+  digest = "1:9d36cf09ab96eba14b70775f1284fa9741a212d2b49c08750b7112f9545a807b"
   name = "github.com/lightninglabs/neutrino"
   packages = [
     ".",
@@ -279,7 +279,7 @@
     "headerlist",
   ]
   pruneopts = "UT"
-  revision = "8018ab76e70acd3a56bc3857a80743f0ed1c86ce"
+  revision = "9a42f7df21be82a69f04caa83bce4034dca72764"
 
 [[projects]]
   digest = "1:58ab6d6525898cbeb86dc29a68f8e9bfe95254b9032134eb9458779574872260"

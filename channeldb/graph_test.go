@@ -2438,6 +2438,162 @@ func TestNodePruningUpdateIndexDeletion(t *testing.T) {
 	}
 }
 
+// TestNodeIsPublic ensures that we properly detect nodes that are seen as
+// public within the network graph.
+func TestNodeIsPublic(t *testing.T) {
+	t.Parallel()
+
+	// We'll start off the test by creating a small network of 3
+	// participants with the following graph:
+	//
+	//	Alice <-> Bob <-> Carol
+	//
+	// We'll need to create a separate database and channel graph for each
+	// participant to replicate real-world scenarios (private edges being in
+	// some graphs but not others, etc.).
+	aliceDB, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+	aliceNode, err := createTestVertex(aliceDB)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	aliceGraph := aliceDB.ChannelGraph()
+	if err := aliceGraph.SetSourceNode(aliceNode); err != nil {
+		t.Fatalf("unable to set source node: %v", err)
+	}
+
+	bobDB, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+	bobNode, err := createTestVertex(bobDB)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	bobGraph := bobDB.ChannelGraph()
+	if err := bobGraph.SetSourceNode(bobNode); err != nil {
+		t.Fatalf("unable to set source node: %v", err)
+	}
+
+	carolDB, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+	carolNode, err := createTestVertex(carolDB)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	carolGraph := carolDB.ChannelGraph()
+	if err := carolGraph.SetSourceNode(carolNode); err != nil {
+		t.Fatalf("unable to set source node: %v", err)
+	}
+
+	aliceBobEdge, _ := createEdge(10, 0, 0, 0, aliceNode, bobNode)
+	bobCarolEdge, _ := createEdge(10, 1, 0, 1, bobNode, carolNode)
+
+	// After creating all of our nodes and edges, we'll add them to each
+	// participant's graph.
+	nodes := []*LightningNode{aliceNode, bobNode, carolNode}
+	edges := []*ChannelEdgeInfo{&aliceBobEdge, &bobCarolEdge}
+	dbs := []*DB{aliceDB, bobDB, carolDB}
+	graphs := []*ChannelGraph{aliceGraph, bobGraph, carolGraph}
+	for i, graph := range graphs {
+		for _, node := range nodes {
+			node.db = dbs[i]
+			if err := graph.AddLightningNode(node); err != nil {
+				t.Fatalf("unable to add node: %v", err)
+			}
+		}
+		for _, edge := range edges {
+			edge.db = dbs[i]
+			if err := graph.AddChannelEdge(edge); err != nil {
+				t.Fatalf("unable to add edge: %v", err)
+			}
+		}
+	}
+
+	// checkNodes is a helper closure that will be used to assert that the
+	// given nodes are seen as public/private within the given graphs.
+	checkNodes := func(nodes []*LightningNode, graphs []*ChannelGraph,
+		public bool) {
+
+		t.Helper()
+
+		for _, node := range nodes {
+			for _, graph := range graphs {
+				isPublic, err := graph.IsPublicNode(node.PubKeyBytes)
+				if err != nil {
+					t.Fatalf("unable to determine if pivot "+
+						"is public: %v", err)
+				}
+
+				switch {
+				case isPublic && !public:
+					t.Fatalf("expected %x to be private",
+						node.PubKeyBytes)
+				case !isPublic && public:
+					t.Fatalf("expected %x to be public",
+						node.PubKeyBytes)
+				}
+			}
+		}
+	}
+
+	// Due to the way the edges were set up above, we'll make sure each node
+	// can correctly determine that every other node is public.
+	checkNodes(nodes, graphs, true)
+
+	// Now, we'll remove the edge between Alice and Bob from everyone's
+	// graph. This will make Alice be seen as a private node as it no longer
+	// has any advertised edges.
+	for _, graph := range graphs {
+		err := graph.DeleteChannelEdge(&aliceBobEdge.ChannelPoint)
+		if err != nil {
+			t.Fatalf("unable to remove edge: %v", err)
+		}
+	}
+	checkNodes(
+		[]*LightningNode{aliceNode},
+		[]*ChannelGraph{bobGraph, carolGraph},
+		false,
+	)
+
+	// We'll also make the edge between Bob and Carol private. Within Bob's
+	// and Carol's graph, the edge will exist, but it will not have a proof
+	// that allows it to be advertised. Within Alice's graph, we'll
+	// completely remove the edge as it is not possible for her to know of
+	// it without it being advertised.
+	for i, graph := range graphs {
+		err := graph.DeleteChannelEdge(&bobCarolEdge.ChannelPoint)
+		if err != nil {
+			t.Fatalf("unable to remove edge: %v", err)
+		}
+
+		if graph == aliceGraph {
+			continue
+		}
+
+		bobCarolEdge.AuthProof = nil
+		bobCarolEdge.db = dbs[i]
+		if err := graph.AddChannelEdge(&bobCarolEdge); err != nil {
+			t.Fatalf("unable to add edge: %v", err)
+		}
+	}
+
+	// With the modifications above, Bob should now be seen as a private
+	// node from both Alice's and Carol's perspective.
+	checkNodes(
+		[]*LightningNode{bobNode},
+		[]*ChannelGraph{aliceGraph, carolGraph},
+		false,
+	)
+}
+
 // compareNodes is used to compare two LightningNodes while excluding the
 // Features struct, which cannot be compared as the semantics for reserializing
 // the featuresMap have not been defined.

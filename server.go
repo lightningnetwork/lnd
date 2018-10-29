@@ -1541,6 +1541,7 @@ func (s *server) initTorController() error {
 		Color:        newNodeAnn.RGBColor,
 		AuthSigBytes: newNodeAnn.Signature.ToSignatureBytes(),
 	}
+	copy(selfNode.PubKeyBytes[:], s.identityPriv.PubKey().SerializeCompressed())
 	if err := s.chanDB.ChannelGraph().SetSourceNode(selfNode); err != nil {
 		return fmt.Errorf("can't set self node: %v", err)
 	}

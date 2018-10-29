@@ -27,7 +27,6 @@ import (
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btclog"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
@@ -12544,11 +12543,6 @@ func TestLightningNetworkDaemon(t *testing.T) {
 			}
 		}
 	}()
-
-	// Turn off the btcd rpc logging, otherwise it will lead to panic.
-	// TODO(andrew.shvv|roasbeef) Remove the hack after re-work the way the log
-	// rotator os work.
-	rpcclient.UseLogger(btclog.Disabled)
 
 	if err := btcdHarness.SetUp(true, 50); err != nil {
 		ht.Fatalf("unable to set up mining node: %v", err)

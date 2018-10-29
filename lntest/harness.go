@@ -396,6 +396,28 @@ func (n *NetworkHarness) RegisterNode(node *HarnessNode) {
 	n.mtx.Unlock()
 }
 
+func (n *NetworkHarness) connect(ctx context.Context,
+	req *lnrpc.ConnectPeerRequest, a *HarnessNode) error {
+
+	syncTimeout := time.After(15 * time.Second)
+tryconnect:
+	if _, err := a.ConnectPeer(ctx, req); err != nil {
+		// If the chain backend is still syncing, retry.
+		if strings.Contains(err.Error(), "still syncing") {
+			select {
+			case <-time.After(100 * time.Millisecond):
+				goto tryconnect
+			case <-syncTimeout:
+				return fmt.Errorf("chain backend did not " +
+					"finish syncing")
+			}
+		}
+		return err
+	}
+
+	return nil
+}
+
 // EnsureConnected will try to connect to two nodes, returning no error if they
 // are already connected. If the nodes were not connected previously, this will
 // behave the same as ConnectNodes. If a pending connection request has already
@@ -422,7 +444,7 @@ func (n *NetworkHarness) EnsureConnected(ctx context.Context, a, b *HarnessNode)
 		}
 
 		ctxt, _ = context.WithTimeout(ctx, 15*time.Second)
-		_, err = a.ConnectPeer(ctxt, req)
+		err = n.connect(ctxt, req, a)
 		switch {
 
 		// Request was successful, wait for both to display the
@@ -508,7 +530,8 @@ func (n *NetworkHarness) ConnectNodes(ctx context.Context, a, b *HarnessNode) er
 			Host:   b.cfg.P2PAddr(),
 		},
 	}
-	if _, err := a.ConnectPeer(ctx, req); err != nil {
+
+	if err := n.connect(ctx, req, a); err != nil {
 		return err
 	}
 

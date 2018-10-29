@@ -1560,7 +1560,16 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 			numEdges)
 	}
 
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	// Cleanup by mining the funding tx again, then closing the channel.
+	_, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	if err != nil {
+		t.Fatalf("failed to find funding tx in mempool: %v", err)
+	}
+
+	block = mineBlocks(t, net, 1)[0]
+	assertTxInBlock(t, block, fundingTxID)
+
+	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 }
 

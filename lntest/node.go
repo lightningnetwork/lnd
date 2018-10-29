@@ -126,7 +126,8 @@ func (cfg nodeConfig) RESTAddr() string {
 }
 
 func (cfg nodeConfig) DBPath() string {
-	return filepath.Join(cfg.DataDir, "graph", "simnet/channel.db")
+	return filepath.Join(cfg.DataDir, "graph",
+		fmt.Sprintf("%v/channel.db", cfg.NetParams.Name))
 }
 
 // genArgs generates a slice of command line arguments from the lightning node

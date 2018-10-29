@@ -776,6 +776,10 @@ var closeChannelCommand = cli.Command{
 	--sat_per_byte arguments. This will be the starting value used during
 	fee negotiation. This is optional.
 
+	In the case of a cooperative closure, One can manually set the address
+	to deliver funds to upon closure. This is optional. If not specified the
+	funds will be delivered to a new wallet address.
+
 	To view which funding_txids/output_indexes can be used for a channel close,
 	see the channel_point values within the listchannels command output.
 	The format for a channel_point is 'funding_txid:output_index'.`,
@@ -816,6 +820,11 @@ var closeChannelCommand = cli.Command{
 				"sat/byte that should be used when crafting " +
 				"the transaction",
 		},
+		cli.StringFlag{
+			Name: "delivery_addr",
+			Usage: "(optional) an address to deliver funds " +
+				"upon cooperative channel closing",
+		},
 	},
 	Action: actionDecorator(closeChannel),
 }
@@ -841,6 +850,7 @@ func closeChannel(ctx *cli.Context) error {
 		Force:        ctx.Bool("force"),
 		TargetConf:   int32(ctx.Int64("conf_target")),
 		SatPerByte:   ctx.Int64("sat_per_byte"),
+		DeliveryAddr: ctx.String("delivery_addr"),
 	}
 
 	// After parsing the request, we'll spin up a goroutine that will

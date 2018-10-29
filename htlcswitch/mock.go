@@ -75,6 +75,10 @@ func (m *mockFeeEstimator) EstimateFeePerKW(
 	}
 }
 
+func (m *mockFeeEstimator) RelayFeePerKW() lnwallet.SatPerKWeight {
+	return 1e3
+}
+
 func (m *mockFeeEstimator) Start() error {
 	return nil
 }

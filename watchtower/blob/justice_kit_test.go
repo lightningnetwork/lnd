@@ -27,10 +27,20 @@ func makeSig(i int) lnwire.Sig {
 	return sig
 }
 
+func makeAddr(size int) []byte {
+	addr := make([]byte, size)
+	if _, err := io.ReadFull(rand.Reader, addr); err != nil {
+		panic("unable to create addr")
+	}
+
+	return addr
+}
+
 type descriptorTest struct {
 	name                 string
 	encVersion           uint16
 	decVersion           uint16
+	sweepAddr            []byte
 	revPubKey            blob.PubKey
 	delayPubKey          blob.PubKey
 	csvDelay             uint32
@@ -47,6 +57,7 @@ var descriptorTests = []descriptorTest{
 		name:             "to-local only",
 		encVersion:       0,
 		decVersion:       0,
+		sweepAddr:        makeAddr(22),
 		revPubKey:        makePubKey(0),
 		delayPubKey:      makePubKey(1),
 		csvDelay:         144,
@@ -56,6 +67,7 @@ var descriptorTests = []descriptorTest{
 		name:                 "to-local and p2wkh",
 		encVersion:           0,
 		decVersion:           0,
+		sweepAddr:            makeAddr(22),
 		revPubKey:            makePubKey(0),
 		delayPubKey:          makePubKey(1),
 		csvDelay:             144,
@@ -68,6 +80,7 @@ var descriptorTests = []descriptorTest{
 		name:             "unknown encrypt version",
 		encVersion:       1,
 		decVersion:       0,
+		sweepAddr:        makeAddr(34),
 		revPubKey:        makePubKey(0),
 		delayPubKey:      makePubKey(1),
 		csvDelay:         144,
@@ -78,11 +91,43 @@ var descriptorTests = []descriptorTest{
 		name:             "unknown decrypt version",
 		encVersion:       0,
 		decVersion:       1,
+		sweepAddr:        makeAddr(34),
 		revPubKey:        makePubKey(0),
 		delayPubKey:      makePubKey(1),
 		csvDelay:         144,
 		commitToLocalSig: makeSig(1),
 		decErr:           blob.ErrUnknownBlobVersion,
+	},
+	{
+		name:             "sweep addr length zero",
+		encVersion:       0,
+		decVersion:       0,
+		sweepAddr:        makeAddr(0),
+		revPubKey:        makePubKey(0),
+		delayPubKey:      makePubKey(1),
+		csvDelay:         144,
+		commitToLocalSig: makeSig(1),
+	},
+	{
+		name:             "sweep addr max size",
+		encVersion:       0,
+		decVersion:       0,
+		sweepAddr:        makeAddr(blob.MaxSweepAddrSize),
+		revPubKey:        makePubKey(0),
+		delayPubKey:      makePubKey(1),
+		csvDelay:         144,
+		commitToLocalSig: makeSig(1),
+	},
+	{
+		name:             "sweep addr too long",
+		encVersion:       0,
+		decVersion:       0,
+		sweepAddr:        makeAddr(blob.MaxSweepAddrSize + 1),
+		revPubKey:        makePubKey(0),
+		delayPubKey:      makePubKey(1),
+		csvDelay:         144,
+		commitToLocalSig: makeSig(1),
+		encErr:           blob.ErrSweepAddressToLong,
 	},
 }
 
@@ -100,6 +145,7 @@ func TestBlobJusticeKitEncryptDecrypt(t *testing.T) {
 
 func testBlobJusticeKitEncryptDecrypt(t *testing.T, test descriptorTest) {
 	boj := &blob.JusticeKit{
+		SweepAddress:         test.sweepAddr,
 		RevocationPubKey:     test.revPubKey,
 		LocalDelayPubKey:     test.delayPubKey,
 		CSVDelay:             test.csvDelay,

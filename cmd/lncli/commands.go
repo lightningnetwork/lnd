@@ -2671,7 +2671,7 @@ var queryRoutesCommand = cli.Command{
 		},
 		cli.Int64Flag{
 			Name:  "num_max_routes",
-			Usage: "the max number of routes to be returned (default: 10)",
+			Usage: "the max number of routes to be returned",
 			Value: 10,
 		},
 		cli.Int64Flag{

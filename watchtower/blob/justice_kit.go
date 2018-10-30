@@ -180,12 +180,18 @@ func (b *JusticeKit) CommitToLocalWitnessScript() ([]byte, error) {
 // CommitToLocalRevokeWitnessStack constructs a witness stack spending the
 // revocation clause of the commitment to-local output.
 //   <revocation-sig> 1
-func (b *JusticeKit) CommitToLocalRevokeWitnessStack() [][]byte {
+func (b *JusticeKit) CommitToLocalRevokeWitnessStack() ([][]byte, error) {
+	toLocalSig, err := b.CommitToLocalSig.ToSignature()
+	if err != nil {
+		return nil, err
+	}
+
 	witnessStack := make([][]byte, 2)
-	witnessStack[0] = append(b.CommitToLocalSig[:], byte(txscript.SigHashAll))
+	witnessStack[0] = append(toLocalSig.Serialize(),
+		byte(txscript.SigHashAll))
 	witnessStack[1] = []byte{1}
 
-	return witnessStack
+	return witnessStack, nil
 }
 
 // HasCommitToRemoteOutput returns true if the blob contains a to-remote p2wkh
@@ -207,11 +213,17 @@ func (b *JusticeKit) CommitToRemoteWitnessScript() ([]byte, error) {
 // CommitToRemoteWitnessStack returns a witness stack spending the commitment
 // to-remote output, which is a regular p2wkh.
 //   <to-remote-sig>
-func (b *JusticeKit) CommitToRemoteWitnessStack() [][]byte {
-	witnessStack := make([][]byte, 1)
-	witnessStack[0] = append(b.CommitToRemoteSig[:], byte(txscript.SigHashAll))
+func (b *JusticeKit) CommitToRemoteWitnessStack() ([][]byte, error) {
+	toRemoteSig, err := b.CommitToRemoteSig.ToSignature()
+	if err != nil {
+		return nil, err
+	}
 
-	return witnessStack
+	witnessStack := make([][]byte, 1)
+	witnessStack[0] = append(toRemoteSig.Serialize(),
+		byte(txscript.SigHashAll))
+
+	return witnessStack, nil
 }
 
 // Encrypt encodes the blob of justice using encoding version, and then

@@ -2429,6 +2429,109 @@ func TestExtraDataNodeAnnouncementValidation(t *testing.T) {
 	}
 }
 
+// TestNodeAnnouncementNoChannels tests that NodeAnnouncements for nodes with
+// no existing channels in the graph do not get forwarded.
+func TestNodeAnnouncementNoChannels(t *testing.T) {
+	t.Parallel()
+
+	ctx, cleanup, err := createTestCtx(0)
+	if err != nil {
+		t.Fatalf("can't create context: %v", err)
+	}
+	defer cleanup()
+
+	batch, err := createAnnouncements(0)
+	if err != nil {
+		t.Fatalf("can't generate announcements: %v", err)
+	}
+
+	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:],
+		btcec.S256())
+	if err != nil {
+		t.Fatalf("unable to parse pubkey: %v", err)
+	}
+	remotePeer := &mockPeer{remoteKey, nil, nil}
+
+	// Process the remote node announcement.
+	select {
+	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.nodeAnn2,
+		remotePeer):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	if err != nil {
+		t.Fatalf("unable to process announcement: %v", err)
+	}
+
+	// Since no channels or node announcements were already in the graph,
+	// the node announcement should be ignored, and not forwarded.
+	select {
+	case <-ctx.broadcastedMessage:
+		t.Fatal("node announcement was broadcast")
+	case <-time.After(2 * trickleDelay):
+	}
+
+	// Now add the node's channel to the graph by processing the channel
+	// announement and channel update.
+	select {
+	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.remoteChanAnn,
+		remotePeer):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	if err != nil {
+		t.Fatalf("unable to process announcement: %v", err)
+	}
+
+	select {
+	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.chanUpdAnn2,
+		remotePeer):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	if err != nil {
+		t.Fatalf("unable to process announcement: %v", err)
+	}
+
+	// Now process the node announcement again.
+	select {
+	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.nodeAnn2, remotePeer):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	if err != nil {
+		t.Fatalf("unable to process announcement: %v", err)
+	}
+
+	// This time the node announcement should be forwarded. The same should
+	// the channel announcement and update be.
+	for i := 0; i < 3; i++ {
+		select {
+		case <-ctx.broadcastedMessage:
+		case <-time.After(time.Second):
+			t.Fatal("announcement wasn't broadcast")
+		}
+	}
+
+	// Processing the same node announement again should be ignored, as it
+	// is stale.
+	select {
+	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.nodeAnn2,
+		remotePeer):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	if err != nil {
+		t.Fatalf("unable to process announcement: %v", err)
+	}
+
+	select {
+	case <-ctx.broadcastedMessage:
+		t.Fatal("node announcement was broadcast")
+	case <-time.After(2 * trickleDelay):
+	}
+}
+
 // mockPeer implements the lnpeer.Peer interface and is used to test the
 // gossiper's interaction with peers.
 type mockPeer struct {

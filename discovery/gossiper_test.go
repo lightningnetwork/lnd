@@ -206,7 +206,18 @@ func (r *mockGraphSource) IsStaleNode(nodePub routing.Vertex, timestamp time.Tim
 		}
 	}
 
-	return false
+	// If we did not find the node among our existing graph nodes, we
+	// require the node to already have a channel in the graph to not be
+	// considered stale.
+	for _, info := range r.infos {
+		if info.NodeKey1Bytes == nodePub {
+			return false
+		}
+		if info.NodeKey2Bytes == nodePub {
+			return false
+		}
+	}
+	return true
 }
 
 // IsPublicNode determines whether the given vertex is seen as a public node in

@@ -3443,6 +3443,12 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 
 	feeLimit := calculateFeeLimit(in.FeeLimit, amtMSat)
 
+	// numRoutes will default to 10 if not specified explicitly.
+	numRoutesIn := uint32(in.NumRoutes)
+	if numRoutesIn == 0 {
+		numRoutesIn = 10
+	}
+
 	// Query the channel router for a possible path to the destination that
 	// can carry `in.Amt` satoshis _including_ the total fee required on
 	// the route.
@@ -3452,11 +3458,11 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 	)
 	if in.FinalCltvDelta == 0 {
 		routes, findErr = r.server.chanRouter.FindRoutes(
-			pubKey, amtMSat, feeLimit, uint32(in.NumRoutes),
+			pubKey, amtMSat, feeLimit, numRoutesIn,
 		)
 	} else {
 		routes, findErr = r.server.chanRouter.FindRoutes(
-			pubKey, amtMSat, feeLimit, uint32(in.NumRoutes),
+			pubKey, amtMSat, feeLimit, numRoutesIn,
 			uint16(in.FinalCltvDelta),
 		)
 	}
@@ -3467,9 +3473,9 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 	// As the number of returned routes can be less than the number of
 	// requested routes, we'll clamp down the length of the response to the
 	// minimum of the two.
-	numRoutes := int32(len(routes))
-	if in.NumRoutes < numRoutes {
-		numRoutes = in.NumRoutes
+	numRoutes := uint32(len(routes))
+	if numRoutesIn < numRoutes {
+		numRoutes = numRoutesIn
 	}
 
 	// For each valid route, we'll convert the result into the format
@@ -3477,7 +3483,7 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 	routeResp := &lnrpc.QueryRoutesResponse{
 		Routes: make([]*lnrpc.Route, 0, in.NumRoutes),
 	}
-	for i := int32(0); i < numRoutes; i++ {
+	for i := uint32(0); i < numRoutes; i++ {
 		routeResp.Routes = append(
 			routeResp.Routes, r.marshallRoute(routes[i]),
 		)

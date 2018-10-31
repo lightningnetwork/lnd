@@ -159,19 +159,39 @@ type ConfirmationEvent struct {
 	// Confirmed is a channel that will be sent upon once the transaction
 	// has been fully confirmed. The struct sent will contain all the
 	// details of the channel's confirmation.
-	Confirmed chan *TxConfirmation // MUST be buffered.
+	//
+	// NOTE: This channel must be buffered.
+	Confirmed chan *TxConfirmation
 
 	// Updates is a channel that will sent upon, at every incremental
 	// confirmation, how many confirmations are left to declare the
 	// transaction as fully confirmed.
-	Updates chan uint32 // MUST be buffered.
+	//
+	// NOTE: This channel must be buffered with the number of required
+	// confirmations.
+	Updates chan uint32
 
 	// TODO(roasbeef): all goroutines on ln channel updates should also
 	// have a struct chan that's closed if funding gets re-org out. Need
 	// to sync, to request another confirmation event ntfn, then re-open
 	// channel after confs.
 
-	NegativeConf chan int32 // MUST be buffered.
+	// NegativeConf is a channel that will be sent upon if the transaction
+	// confirms, but is later reorged out of the chain. The integer sent
+	// through the channel represents the reorg depth.
+	//
+	// NOTE: This channel must be buffered.
+	NegativeConf chan int32
+}
+
+// NewConfirmationEvent constructs a new ConfirmationEvent with newly opened
+// channels.
+func NewConfirmationEvent(numConfs uint32) *ConfirmationEvent {
+	return &ConfirmationEvent{
+		Confirmed:    make(chan *TxConfirmation, 1),
+		Updates:      make(chan uint32, numConfs),
+		NegativeConf: make(chan int32, 1),
+	}
 }
 
 // SpendDetail contains details pertaining to a spent output. This struct itself
@@ -196,12 +216,30 @@ type SpendDetail struct {
 type SpendEvent struct {
 	// Spend is a receive only channel which will be sent upon once the
 	// target outpoint has been spent.
-	Spend <-chan *SpendDetail // MUST be buffered.
+	//
+	// NOTE: This channel must be buffered.
+	Spend chan *SpendDetail
+
+	// Reorg is a channel that will be sent upon once we detect the spending
+	// transaction of the outpoint in question has been reorged out of the
+	// chain.
+	//
+	// NOTE: This channel must be buffered.
+	Reorg chan struct{}
 
 	// Cancel is a closure that should be executed by the caller in the
 	// case that they wish to prematurely abandon their registered spend
 	// notification.
 	Cancel func()
+}
+
+// NewSpendEvent constructs a new SpendEvent with newly opened channels.
+func NewSpendEvent(cancel func()) *SpendEvent {
+	return &SpendEvent{
+		Spend:  make(chan *SpendDetail, 1),
+		Reorg:  make(chan struct{}, 1),
+		Cancel: cancel,
+	}
 }
 
 // BlockEpoch represents metadata concerning each new block connected to the
@@ -225,7 +263,9 @@ type BlockEpoch struct {
 type BlockEpochEvent struct {
 	// Epochs is a receive only channel that will be sent upon each time a
 	// new block is connected to the end of the main chain.
-	Epochs <-chan *BlockEpoch // MUST be buffered.
+	//
+	// NOTE: This channel must be buffered.
+	Epochs <-chan *BlockEpoch
 
 	// Cancel is a closure that should be executed by the caller in the
 	// case that they wish to abandon their registered spend notification.
@@ -392,10 +432,10 @@ func GetClientMissedBlocks(chainConn ChainConn, clientBestBlock *BlockEpoch,
 	return missedBlocks, nil
 }
 
-// RewindChain handles internal state updates for the notifier's TxConfNotifier
-// It has no effect if given a height greater than or equal to our current best
+// RewindChain handles internal state updates for the notifier's TxNotifier It
+// has no effect if given a height greater than or equal to our current best
 // known height. It returns the new best block for the notifier.
-func RewindChain(chainConn ChainConn, txConfNotifier *TxConfNotifier,
+func RewindChain(chainConn ChainConn, txNotifier *TxNotifier,
 	currBestBlock BlockEpoch, targetHeight int32) (BlockEpoch, error) {
 
 	newBestBlock := BlockEpoch{
@@ -414,7 +454,7 @@ func RewindChain(chainConn ChainConn, txConfNotifier *TxConfNotifier,
 		Log.Infof("Block disconnected from main chain: "+
 			"height=%v, sha=%v", height, newBestBlock.Hash)
 
-		err = txConfNotifier.DisconnectTip(uint32(height))
+		err = txNotifier.DisconnectTip(uint32(height))
 		if err != nil {
 			return newBestBlock, fmt.Errorf("unable to "+
 				" disconnect tip for height=%d: %v",
@@ -436,7 +476,7 @@ func RewindChain(chainConn ChainConn, txConfNotifier *TxConfNotifier,
 // returned in case a chain rewind occurs and partially completes before
 // erroring. In the case where there is no rewind, the notifier's
 // current best block is returned.
-func HandleMissedBlocks(chainConn ChainConn, txConfNotifier *TxConfNotifier,
+func HandleMissedBlocks(chainConn ChainConn, txNotifier *TxNotifier,
 	currBestBlock BlockEpoch, newHeight int32,
 	backendStoresReorgs bool) (BlockEpoch, []BlockEpoch, error) {
 
@@ -462,7 +502,7 @@ func HandleMissedBlocks(chainConn ChainConn, txConfNotifier *TxConfNotifier,
 				"common ancestor: %v", err)
 		}
 
-		currBestBlock, err = RewindChain(chainConn, txConfNotifier,
+		currBestBlock, err = RewindChain(chainConn, txNotifier,
 			currBestBlock, startingHeight)
 		if err != nil {
 			return currBestBlock, nil, fmt.Errorf("unable to "+

@@ -127,6 +127,10 @@ func (c *HeightHintCache) CommitSpendHint(height uint32, ops ...wire.OutPoint) e
 		return nil
 	}
 
+	if len(ops) == 0 {
+		return nil
+	}
+
 	Log.Tracef("Updating spend hint to height %d for %v", height, ops)
 
 	return c.db.Batch(func(tx *bolt.Tx) error {
@@ -197,6 +201,10 @@ func (c *HeightHintCache) PurgeSpendHint(ops ...wire.OutPoint) error {
 		return nil
 	}
 
+	if len(ops) == 0 {
+		return nil
+	}
+
 	Log.Tracef("Removing spend hints for %v", ops)
 
 	return c.db.Batch(func(tx *bolt.Tx) error {
@@ -225,6 +233,10 @@ func (c *HeightHintCache) PurgeSpendHint(ops ...wire.OutPoint) error {
 // CommitConfirmHint commits a confirm hint for the transactions to the cache.
 func (c *HeightHintCache) CommitConfirmHint(height uint32, txids ...chainhash.Hash) error {
 	if c.disabled {
+		return nil
+	}
+
+	if len(txids) == 0 {
 		return nil
 	}
 
@@ -296,6 +308,10 @@ func (c *HeightHintCache) QueryConfirmHint(txid chainhash.Hash) (uint32, error) 
 // cache.
 func (c *HeightHintCache) PurgeConfirmHint(txids ...chainhash.Hash) error {
 	if c.disabled {
+		return nil
+	}
+
+	if len(txids) == 0 {
 		return nil
 	}
 

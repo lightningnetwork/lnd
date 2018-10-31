@@ -68,9 +68,7 @@ type NeutrinoNotifier struct {
 	notificationCancels  chan interface{}
 	notificationRegistry chan interface{}
 
-	spendNotifications map[wire.OutPoint]map[uint64]*spendNotification
-
-	txConfNotifier *chainntnfs.TxConfNotifier
+	txNotifier *chainntnfs.TxNotifier
 
 	blockEpochClients map[uint64]*blockEpochRegistration
 
@@ -108,8 +106,6 @@ func New(node *neutrino.ChainService, spendHintCache chainntnfs.SpendHintCache,
 		notificationRegistry: make(chan interface{}),
 
 		blockEpochClients: make(map[uint64]*blockEpochRegistration),
-
-		spendNotifications: make(map[wire.OutPoint]map[uint64]*spendNotification),
 
 		p2pNode: node,
 
@@ -162,8 +158,9 @@ func (n *NeutrinoNotifier) Start() error {
 		neutrino.WatchInputs(zeroInput),
 	}
 
-	n.txConfNotifier = chainntnfs.NewTxConfNotifier(
+	n.txNotifier = chainntnfs.NewTxNotifier(
 		n.bestHeight, reorgSafetyLimit, n.confirmHintCache,
+		n.spendHintCache,
 	)
 
 	n.chainConn = &NeutrinoChainConn{n.p2pNode}
@@ -195,18 +192,13 @@ func (n *NeutrinoNotifier) Stop() error {
 
 	// Notify all pending clients of our shutdown by closing the related
 	// notification channels.
-	for _, spendClients := range n.spendNotifications {
-		for _, spendClient := range spendClients {
-			close(spendClient.spendChan)
-		}
-	}
 	for _, epochClient := range n.blockEpochClients {
 		close(epochClient.cancelChan)
 		epochClient.wg.Wait()
 
 		close(epochClient.epochChan)
 	}
-	n.txConfNotifier.TearDown()
+	n.txNotifier.TearDown()
 
 	return nil
 }
@@ -223,6 +215,14 @@ type filteredBlock struct {
 	// connected is true if this update is a new block and false if it is a
 	// disconnected block.
 	connect bool
+}
+
+// rescanFilterUpdate represents a request that will be sent to the
+// notificaionRegistry in order to prevent race conditions between the filter
+// update and new block notifications.
+type rescanFilterUpdate struct {
+	updateOptions []neutrino.UpdateOption
+	errChan       chan error
 }
 
 // onFilteredBlockConnected is a callback which is executed each a new block is
@@ -263,19 +263,6 @@ out:
 		select {
 		case cancelMsg := <-n.notificationCancels:
 			switch msg := cancelMsg.(type) {
-			case *spendCancel:
-				chainntnfs.Log.Infof("Cancelling spend "+
-					"notification for out_point=%v, "+
-					"spend_id=%v", msg.op, msg.spendID)
-
-				// Before we attempt to close the spendChan,
-				// ensure that the notification hasn't already
-				// yet been dispatched.
-				if outPointClients, ok := n.spendNotifications[msg.op]; ok {
-					close(outPointClients[msg.spendID].spendChan)
-					delete(n.spendNotifications[msg.op], msg.spendID)
-				}
-
 			case *epochCancel:
 				chainntnfs.Log.Infof("Cancelling epoch "+
 					"notification, epoch_id=%v", msg.epochID)
@@ -303,21 +290,9 @@ out:
 
 		case registerMsg := <-n.notificationRegistry:
 			switch msg := registerMsg.(type) {
-			case *spendNotification:
-				chainntnfs.Log.Infof("New spend subscription: "+
-					"utxo=%v, height_hint=%v",
-					msg.targetOutpoint, msg.heightHint)
-				op := *msg.targetOutpoint
-
-				if _, ok := n.spendNotifications[op]; !ok {
-					n.spendNotifications[op] = make(map[uint64]*spendNotification)
-				}
-				n.spendNotifications[op][msg.spendID] = msg
-
 			case *chainntnfs.HistoricalConfDispatch:
-				// Look up whether the transaction is already
-				// included in the active chain. We'll do this
-				// in a goroutine to prevent blocking
+				// We'll start a historical rescan chain of the
+				// chain asynchronously to prevent blocking
 				// potentially long rescans.
 				n.wg.Add(1)
 				go func() {
@@ -331,18 +306,6 @@ out:
 						chainntnfs.Log.Error(err)
 					}
 
-					// We'll map the script into an address
-					// type so we can instruct neutrino to
-					// match if the transaction containing
-					// the script is found in a block.
-					params := n.p2pNode.ChainParams()
-					_, addrs, _, err := txscript.ExtractPkScriptAddrs(
-						msg.PkScript, &params,
-					)
-					if err != nil {
-						chainntnfs.Log.Error(err)
-					}
-
 					// If the historical dispatch finished
 					// without error, we will invoke
 					// UpdateConfDetails even if none were
@@ -350,30 +313,11 @@ out:
 					// begin safely updating the height hint
 					// cache at tip, since any pending
 					// rescans have now completed.
-					err = n.txConfNotifier.UpdateConfDetails(
+					err = n.txNotifier.UpdateConfDetails(
 						*msg.TxID, confDetails,
 					)
 					if err != nil {
 						chainntnfs.Log.Error(err)
-					}
-
-					if confDetails != nil {
-						return
-					}
-
-					// If we can't fully dispatch
-					// confirmation, then we'll update our
-					// filter so we can be notified of its
-					// future initial confirmation.
-					rescanUpdate := []neutrino.UpdateOption{
-						neutrino.AddAddrs(addrs...),
-						neutrino.Rewind(msg.EndHeight),
-						neutrino.DisableDisconnectedNtfns(true),
-					}
-					err = n.chainView.Update(rescanUpdate...)
-					if err != nil {
-						chainntnfs.Log.Errorf("Unable to update rescan: %v",
-							err)
 					}
 				}()
 
@@ -399,6 +343,14 @@ out:
 					}
 				}
 				msg.errorChan <- nil
+
+			case *rescanFilterUpdate:
+				err := n.chainView.Update(msg.updateOptions...)
+				if err != nil {
+					chainntnfs.Log.Errorf("Unable to "+
+						"update rescan filter: %v", err)
+				}
+				msg.errChan <- err
 			}
 
 		case item := <-n.chainUpdates.ChanOut():
@@ -426,7 +378,7 @@ out:
 					_, missedBlocks, err :=
 						chainntnfs.HandleMissedBlocks(
 							n.chainConn,
-							n.txConfNotifier,
+							n.txNotifier,
 							bestBlock,
 							int32(update.height),
 							false,
@@ -482,7 +434,7 @@ out:
 				Hash:   hash,
 			}
 			newBestBlock, err := chainntnfs.RewindChain(
-				n.chainConn, n.txConfNotifier, notifierBestBlock,
+				n.chainConn, n.txNotifier, notifierBestBlock,
 				int32(update.height-1),
 			)
 			if err != nil {
@@ -593,7 +545,7 @@ func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 	// First process the block for our internal state. A new block has
 	// been connected to the main chain. Send out any N confirmation
 	// notifications which may have been triggered by this new block.
-	err := n.txConfNotifier.ConnectTip(
+	err := n.txNotifier.ConnectTip(
 		&newBlock.hash, newBlock.height, newBlock.txns,
 	)
 	if err != nil {
@@ -603,68 +555,6 @@ func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 	chainntnfs.Log.Infof("New block: height=%v, sha=%v", newBlock.height,
 		newBlock.hash)
 
-	// Create a helper struct for coalescing spend notifications triggered
-	// by this block.
-	type spendNtfnBatch struct {
-		details *chainntnfs.SpendDetail
-		clients map[uint64]*spendNotification
-	}
-
-	// Scan over the list of relevant transactions and assemble the
-	// possible spend notifications we need to dispatch.
-	spendBatches := make(map[wire.OutPoint]spendNtfnBatch)
-	for _, tx := range newBlock.txns {
-		mtx := tx.MsgTx()
-		txSha := mtx.TxHash()
-
-		for i, txIn := range mtx.TxIn {
-			prevOut := txIn.PreviousOutPoint
-
-			// If this transaction indeed does spend an output which
-			// we have a registered notification for, then create a
-			// spend summary and add it to our batch of spend
-			// notifications to be delivered.
-			clients, ok := n.spendNotifications[prevOut]
-			if !ok {
-				continue
-			}
-			delete(n.spendNotifications, prevOut)
-
-			spendDetails := &chainntnfs.SpendDetail{
-				SpentOutPoint:     &prevOut,
-				SpenderTxHash:     &txSha,
-				SpendingTx:        mtx,
-				SpenderInputIndex: uint32(i),
-				SpendingHeight:    int32(newBlock.height),
-			}
-
-			spendBatches[prevOut] = spendNtfnBatch{
-				details: spendDetails,
-				clients: clients,
-			}
-
-		}
-	}
-
-	// Now, we'll update the spend height hint for all of our watched
-	// outpoints that have not been spent yet. This is safe to do as we do
-	// not watch already spent outpoints for spend notifications.
-	ops := make([]wire.OutPoint, 0, len(n.spendNotifications))
-	for op := range n.spendNotifications {
-		ops = append(ops, op)
-	}
-
-	if len(ops) > 0 {
-		err := n.spendHintCache.CommitSpendHint(newBlock.height, ops...)
-		if err != nil {
-			// The error is not fatal since we are connecting a
-			// block, and advancing the spend hint is an optimistic
-			// optimization.
-			chainntnfs.Log.Errorf("Unable to update spend hint to "+
-				"%d for %v: %v", newBlock.height, ops, err)
-		}
-	}
-
 	// We want to set the best block before dispatching notifications
 	// so if any subscribers make queries based on their received
 	// block epoch, our state is fully updated in time.
@@ -673,23 +563,6 @@ func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 	// With all persistent changes committed, notify any subscribed clients
 	// of the block.
 	n.notifyBlockEpochs(int32(newBlock.height), &newBlock.hash)
-
-	// Finally, send off the spend details to the notification subscribers.
-	for _, batch := range spendBatches {
-		for _, ntfn := range batch.clients {
-			chainntnfs.Log.Infof("Dispatching spend "+
-				"notification for outpoint=%v",
-				ntfn.targetOutpoint)
-
-			ntfn.spendChan <- batch.details
-
-			// Close spendChan to ensure that any calls to
-			// Cancel will not block. This is safe to do
-			// since the channel is buffered, and the
-			// message can still be read by the receiver.
-			close(ntfn.spendChan)
-		}
-	}
 
 	return nil
 }
@@ -737,28 +610,6 @@ func (n *NeutrinoNotifier) notifyBlockEpochClient(epochClient *blockEpochRegistr
 	}
 }
 
-// spendNotification couples a target outpoint along with the channel used for
-// notifications once a spend of the outpoint has been detected.
-type spendNotification struct {
-	targetOutpoint *wire.OutPoint
-
-	spendChan chan *chainntnfs.SpendDetail
-
-	spendID uint64
-
-	heightHint uint32
-}
-
-// spendCancel is a message sent to the NeutrinoNotifier when a client wishes
-// to cancel an outstanding spend notification that has yet to be dispatched.
-type spendCancel struct {
-	// op is the target outpoint of the notification to be cancelled.
-	op wire.OutPoint
-
-	// spendID the ID of the notification to cancel.
-	spendID uint64
-}
-
 // RegisterSpendNtfn registers an intent to be notified once the target
 // outpoint has been spent by a transaction on-chain. Once a spend of the
 // target outpoint has been detected, the details of the spending event will be
@@ -766,86 +617,91 @@ type spendCancel struct {
 func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	pkScript []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
 
-	n.heightMtx.RLock()
-	currentHeight := n.bestHeight
-	n.heightMtx.RUnlock()
-
-	// Before proceeding to register the notification, we'll query our
-	// height hint cache to determine whether a better one exists.
-	if hint, err := n.spendHintCache.QuerySpendHint(*outpoint); err == nil {
-		if hint > heightHint {
-			chainntnfs.Log.Debugf("Using height hint %d retrieved "+
-				"from cache for %v", hint, outpoint)
-			heightHint = hint
-		}
+	// First, we'll construct a spend notification request and hand it off
+	// to the txNotifier.
+	spendID := atomic.AddUint64(&n.spendClientCounter, 1)
+	cancel := func() {
+		n.txNotifier.CancelSpend(*outpoint, spendID)
+	}
+	ntfn := &chainntnfs.SpendNtfn{
+		SpendID:    spendID,
+		OutPoint:   *outpoint,
+		Event:      chainntnfs.NewSpendEvent(cancel),
+		HeightHint: heightHint,
 	}
 
-	// Construct a notification request for the outpoint. We'll defer
-	// sending it to the main event loop until after we've guaranteed that
-	// the outpoint has not been spent.
-	ntfn := &spendNotification{
-		targetOutpoint: outpoint,
-		spendChan:      make(chan *chainntnfs.SpendDetail, 1),
-		spendID:        atomic.AddUint64(&n.spendClientCounter, 1),
-		heightHint:     heightHint,
+	historicalDispatch, err := n.txNotifier.RegisterSpend(ntfn)
+	if err != nil {
+		return nil, err
 	}
 
-	spendEvent := &chainntnfs.SpendEvent{
-		Spend: ntfn.spendChan,
-		Cancel: func() {
-			cancel := &spendCancel{
-				op:      *outpoint,
-				spendID: ntfn.spendID,
-			}
-
-			// Submit spend cancellation to notification dispatcher.
-			select {
-			case n.notificationCancels <- cancel:
-				// Cancellation is being handled, drain the
-				// spend chan until it is closed before yielding
-				// to the caller.
-				for {
-					select {
-					case _, ok := <-ntfn.spendChan:
-						if !ok {
-							return
-						}
-					case <-n.quit:
-						return
-					}
-				}
-			case <-n.quit:
-			}
-		},
+	// If the txNotifier didn't return any details to perform a historical
+	// scan of the chain, then we can return early as there's nothing left
+	// for us to do.
+	if historicalDispatch == nil {
+		return ntfn.Event, nil
 	}
 
-	// Ensure that neutrino is caught up to the height hint before we
-	// attempt to fetch the utxo from the chain. If we're behind, then we
-	// may miss a notification dispatch.
-	for {
-		n.heightMtx.RLock()
-		currentHeight = n.bestHeight
-		n.heightMtx.RUnlock()
-
-		if currentHeight < heightHint {
-			time.Sleep(time.Millisecond * 200)
-			continue
-		}
-
-		break
-	}
-
+	// To determine whether this outpoint has been spent on-chain, we'll
+	// update our filter to watch for the transaction at tip and we'll also
+	// dispatch a historical rescan to determine if it has been spent in the
+	// past.
+	//
+	// We'll update our filter first to ensure we can immediately detect the
+	// spend at tip. To do so, we'll map the script into an address
+	// type so we can instruct neutrino to match if the transaction
+	// containing the script is found in a block.
 	inputToWatch := neutrino.InputWithScript{
 		OutPoint: *outpoint,
 		PkScript: pkScript,
 	}
+	errChan := make(chan error, 1)
+	select {
+	case n.notificationRegistry <- &rescanFilterUpdate{
+		updateOptions: []neutrino.UpdateOption{
+			neutrino.AddInputs(inputToWatch),
+			neutrino.Rewind(historicalDispatch.EndHeight),
+			neutrino.DisableDisconnectedNtfns(true),
+		},
+		errChan: errChan,
+	}:
+	case <-n.quit:
+		return nil, ErrChainNotifierShuttingDown
+	}
 
-	// Before sending off the notification request, we'll attempt to see if
-	// this output is still spent or not at this point in the chain.
+	select {
+	case err = <-errChan:
+	case <-n.quit:
+		return nil, ErrChainNotifierShuttingDown
+	}
+	if err != nil {
+		return nil, fmt.Errorf("unable to update filter: %v", err)
+	}
+
+	// With the filter updated, we'll dispatch our historical rescan to
+	// ensure we detect the spend if it happened in the past. We'll ensure
+	// that neutrino is caught up to the starting height before we attempt
+	// to fetch the UTXO from the chain. If we're behind, then we may miss a
+	// notification dispatch.
+	for {
+		n.heightMtx.RLock()
+		currentHeight := n.bestHeight
+		n.heightMtx.RUnlock()
+
+		if currentHeight >= historicalDispatch.StartHeight {
+			break
+		}
+
+		time.Sleep(time.Millisecond * 200)
+	}
+
 	spendReport, err := n.p2pNode.GetUtxo(
 		neutrino.WatchInputs(inputToWatch),
 		neutrino.StartBlock(&waddrmgr.BlockStamp{
-			Height: int32(heightHint),
+			Height: int32(historicalDispatch.StartHeight),
+		}),
+		neutrino.EndBlock(&waddrmgr.BlockStamp{
+			Height: int32(historicalDispatch.EndHeight),
 		}),
 	)
 	if err != nil && !strings.Contains(err.Error(), "not found") {
@@ -854,57 +710,28 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 
 	// If a spend report was returned, and the transaction is present, then
 	// this means that the output is already spent.
+	var spendDetails *chainntnfs.SpendDetail
 	if spendReport != nil && spendReport.SpendingTx != nil {
-		// As a result, we'll launch a goroutine to immediately
-		// dispatch the notification with a normal response.
-		go func() {
-			txSha := spendReport.SpendingTx.TxHash()
-			select {
-			case ntfn.spendChan <- &chainntnfs.SpendDetail{
-				SpentOutPoint:     outpoint,
-				SpenderTxHash:     &txSha,
-				SpendingTx:        spendReport.SpendingTx,
-				SpenderInputIndex: spendReport.SpendingInputIndex,
-				SpendingHeight:    int32(spendReport.SpendingTxHeight),
-			}:
-			case <-n.quit:
-				return
-			}
-
-		}()
-
-		return spendEvent, nil
+		spendingTxHash := spendReport.SpendingTx.TxHash()
+		spendDetails = &chainntnfs.SpendDetail{
+			SpentOutPoint:     outpoint,
+			SpenderTxHash:     &spendingTxHash,
+			SpendingTx:        spendReport.SpendingTx,
+			SpenderInputIndex: spendReport.SpendingInputIndex,
+			SpendingHeight:    int32(spendReport.SpendingTxHeight),
+		}
 	}
 
-	// If the output is still unspent, then we'll update our rescan's
-	// filter, and send the request to the dispatcher goroutine.
-	rescanUpdate := []neutrino.UpdateOption{
-		neutrino.AddInputs(inputToWatch),
-		neutrino.Rewind(currentHeight),
-		neutrino.DisableDisconnectedNtfns(true),
-	}
-
-	if err := n.chainView.Update(rescanUpdate...); err != nil {
+	// Finally, no matter whether the rescan found a spend in the past or
+	// not, we'll mark our historical rescan as complete to ensure the
+	// outpoint's spend hint gets updated upon connected/disconnected
+	// blocks.
+	err = n.txNotifier.UpdateSpendDetails(*outpoint, spendDetails)
+	if err != nil {
 		return nil, err
 	}
 
-	select {
-	case n.notificationRegistry <- ntfn:
-	case <-n.quit:
-		return nil, ErrChainNotifierShuttingDown
-	}
-
-	// Finally, we'll add a spent hint with the current height to the cache
-	// in order to better keep track of when this outpoint is spent.
-	err = n.spendHintCache.CommitSpendHint(currentHeight, *outpoint)
-	if err != nil {
-		// The error is not fatal, so we should not return an error to
-		// the caller.
-		chainntnfs.Log.Errorf("Unable to update spend hint to %d for "+
-			"%v: %v", currentHeight, outpoint, err)
-	}
-
-	return spendEvent, nil
+	return ntfn.Event, nil
 }
 
 // RegisterConfirmationsNtfn registers a notification with NeutrinoNotifier
@@ -928,11 +755,11 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	chainntnfs.Log.Infof("New confirmation subscription: "+
 		"txid=%v, numconfs=%v", txid, numConfs)
 
-	// Register the conf notification with txconfnotifier. A non-nil value
+	// Register the conf notification with the TxNotifier. A non-nil value
 	// for `dispatch` will be returned if we are required to perform a
 	// manual scan for the confirmation. Otherwise the notifier will begin
 	// watching at tip for the transaction to confirm.
-	dispatch, err := n.txConfNotifier.Register(ntfn)
+	dispatch, err := n.txNotifier.RegisterConf(ntfn)
 	if err != nil {
 		return nil, err
 	}
@@ -941,12 +768,55 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 		return ntfn.Event, nil
 	}
 
+	// To determine whether this transaction has confirmed on-chain, we'll
+	// update our filter to watch for the transaction at tip and we'll also
+	// dispatch a historical rescan to determine if it has confirmed in the
+	// past.
+	//
+	// We'll update our filter first to ensure we can immediately detect the
+	// confirmation at tip. To do so, we'll map the script into an address
+	// type so we can instruct neutrino to match if the transaction
+	// containing the script is found in a block.
+	params := n.p2pNode.ChainParams()
+	_, addrs, _, err := txscript.ExtractPkScriptAddrs(pkScript, &params)
+	if err != nil {
+		return nil, fmt.Errorf("unable to extract script: %v", err)
+	}
+
+	// We'll send the filter update request to the notifier's main event
+	// handler and wait for its response.
+	errChan := make(chan error, 1)
 	select {
-	case n.notificationRegistry <- dispatch:
-		return ntfn.Event, nil
+	case n.notificationRegistry <- &rescanFilterUpdate{
+		updateOptions: []neutrino.UpdateOption{
+			neutrino.AddAddrs(addrs...),
+			neutrino.Rewind(dispatch.EndHeight),
+			neutrino.DisableDisconnectedNtfns(true),
+		},
+		errChan: errChan,
+	}:
 	case <-n.quit:
 		return nil, ErrChainNotifierShuttingDown
 	}
+
+	select {
+	case err = <-errChan:
+	case <-n.quit:
+		return nil, ErrChainNotifierShuttingDown
+	}
+	if err != nil {
+		return nil, fmt.Errorf("unable to update filter: %v", err)
+	}
+
+	// Finally, with the filter updates, we can dispatch the historical
+	// rescan to ensure we can detect if the event happened in the past.
+	select {
+	case n.notificationRegistry <- dispatch:
+	case <-n.quit:
+		return nil, ErrChainNotifierShuttingDown
+	}
+
+	return ntfn.Event, nil
 }
 
 // blockEpochRegistration represents a client's intent to receive a

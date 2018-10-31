@@ -234,7 +234,8 @@ func (*mockWalletController) SendOutputs(outputs []*wire.TxOut,
 
 // ListUnspentWitness is called by the wallet when doing coin selection. We just
 // need one unspent for the funding transaction.
-func (m *mockWalletController) ListUnspentWitness(confirms int32) ([]*lnwallet.Utxo, error) {
+func (m *mockWalletController) ListUnspentWitness(minconfirms,
+	maxconfirms int32) ([]*lnwallet.Utxo, error) {
 	utxo := &lnwallet.Utxo{
 		AddressType: lnwallet.WitnessPubKey,
 		Value:       btcutil.Amount(10 * btcutil.SatoshiPerBitcoin),

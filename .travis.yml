@@ -1,13 +1,13 @@
 language: go
 matrix:
   include:
-  - go: "1.11"
+  - go: "1.11.x"
     env: RACE=TRUE USE_LINT=TRUE
-  - go: "1.11"
+  - go: "1.11.x"
     env: RACE=FALSE USE_LINT=TRUE
-  - go: "1.10"
+  - go: "1.10.x"
     env: RACE=TRUE USE_LINT=FALSE
-  - go: "1.10"
+  - go: "1.10.x"
     env: RACE=FALSE USE_LINT=FALSE
 sudo: required
 install:

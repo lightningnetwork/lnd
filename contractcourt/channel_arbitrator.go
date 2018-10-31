@@ -1,6 +1,7 @@
 package contractcourt
 
 import (
+	"errors"
 	"sync"
 	"sync/atomic"
 
@@ -19,6 +20,13 @@ const (
 	// value, as when redeeming we want to ensure that we have enough time
 	// to redeem the HTLC, well before it times out.
 	broadcastRedeemMultiplier = 2
+)
+
+var (
+	// errAlreadyForceClosed is an error returned when we attempt to force
+	// close a channel that's already in the process of doing so.
+	errAlreadyForceClosed = errors.New("channel is already in the " +
+		"process of being force closed")
 )
 
 // WitnessSubscription represents an intent to be notified once new witnesses
@@ -1652,6 +1660,16 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 		// channel. We'll
 		case closeReq := <-c.forceCloseReqs:
 			if c.state != StateDefault {
+				select {
+				case closeReq.closeTx <- nil:
+				case <-c.quit:
+				}
+
+				select {
+				case closeReq.errResp <- errAlreadyForceClosed:
+				case <-c.quit:
+				}
+
 				continue
 			}
 

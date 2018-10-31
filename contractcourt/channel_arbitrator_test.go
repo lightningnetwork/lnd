@@ -1143,3 +1143,47 @@ func TestChannelArbitratorEmptyResolutions(t *testing.T) {
 	}
 	chanArb.Stop()
 }
+
+// TestChannelArbitratorAlreadyForceClosed ensures that we cannot force close a
+// channel that is already in the process of doing so.
+func TestChannelArbitratorAlreadyForceClosed(t *testing.T) {
+	t.Parallel()
+
+	// We'll create the arbitrator and its backing log to signal that it's
+	// already in the process of being force closed.
+	log := &mockArbitratorLog{
+		state: StateCommitmentBroadcasted,
+	}
+	chanArb, _, err := createTestChannelArbitrator(log)
+	if err != nil {
+		t.Fatalf("unable to create ChannelArbitrator: %v", err)
+	}
+	if err := chanArb.Start(); err != nil {
+		t.Fatalf("unable to start ChannelArbitrator: %v", err)
+	}
+	defer chanArb.Stop()
+
+	// Then, we'll create a request to signal a force close request to the
+	// channel arbitrator.
+	errChan := make(chan error, 1)
+	respChan := make(chan *wire.MsgTx, 1)
+
+	select {
+	case chanArb.forceCloseReqs <- &forceCloseReq{
+		closeTx: respChan,
+		errResp: errChan,
+	}:
+	case <-chanArb.quit:
+	}
+
+	// Finally, we should ensure that we are not able to do so by seeing the
+	// expected errAlreadyForceClosed error.
+	select {
+	case err = <-errChan:
+		if err != errAlreadyForceClosed {
+			t.Fatalf("expected errAlreadyForceClosed, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected to receive error response")
+	}
+}

@@ -128,7 +128,7 @@ macaroon = macaroon_binary.each_byte.map { |b| b.to_s(16).rjust(2,'0') }.join
 The simplest approach to use the macaroon is to include the metadata in each request as shown below.
 
 ```ruby
-stub.get_info(Lnrpc::GetInfoRequest.new, metadata: {metadata: macaroon})
+stub.get_info(Lnrpc::GetInfoRequest.new, metadata: {macaroon: macaroon})
 ```
 
 However, this can get tiresome to do for each request. We can use gRPC interceptors to add this metadata to each request automatically. Our interceptor class would look like this.
@@ -143,6 +143,11 @@ class MacaroonInterceptor < GRPC::ClientInterceptor
   end
 
   def request_response(request:, call:, method:, metadata:)
+    metadata['macaroon'] = macaroon
+    yield
+  end
+
+  def server_streamer(request:, call:, method:, metadata:)
     metadata['macaroon'] = macaroon
     yield
   end

@@ -18,8 +18,8 @@ func TestSpiderInsufficentFunds (t *testing.T) {
 	t.Parallel()
 
 	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*3,
-		btcutil.SatoshiPerBitcoin*5)
+		btcutil.SatoshiPerBitcoin*5,
+		btcutil.SatoshiPerBitcoin*3)
 		if err != nil {
 			t.Fatalf("unable to create channel: %v", err)
 		}
@@ -41,6 +41,14 @@ func TestSpiderInsufficentFunds (t *testing.T) {
 			n.bobServer.intersect(createLogFunc("bob",
 			n.firstBobChannelLink.ChanID()))
 		}
+		fmt.Printf("alice channel link, short chan id: %s\n" , n.aliceChannelLink.shortChanID);
+		fmt.Printf("alice channel link, chan id: %s\n" , n.aliceChannelLink.ChanID());
+		fmt.Printf("first bob channel link, short chan id: %s\n" , n.firstBobChannelLink.shortChanID);
+		fmt.Printf("first bob channel link, chan id: %s\n" , n.firstBobChannelLink.ChanID());
+		fmt.Printf("second bob channel link, short chan id: %s\n" , n.secondBobChannelLink.shortChanID);
+		fmt.Printf("second bob channel link, chan id: %s\n" , n.secondBobChannelLink.ChanID());
+		fmt.Printf("carol channel link, short chan id: %s\n" , n.carolChannelLink.shortChanID);
+		fmt.Printf("carol channel link, chan id: %s\n" , n.carolChannelLink.ChanID());
 
 		// TODO: uncomment when I add tests for these.
 		//carolBandwidthBefore := n.carolChannelLink.Bandwidth()
@@ -51,7 +59,8 @@ func TestSpiderInsufficentFunds (t *testing.T) {
 		go func() {
 			fmt.Println("in the carol->bob payment routine. Will sleep first")
 			// TODO: maybe should add more sleep time here?
-			time.Sleep(2 * time.Second)
+			time.Sleep(1 * time.Second)
+			fmt.Println("woke up in the carol->bob payment routine");
 			// Send money from carol -> bob so this stops failing.
 			amount := lnwire.NewMSatFromSatoshis(2 * btcutil.SatoshiPerBitcoin)
 			// FIXME: check the last arg, maybe should be carolChannelLink?
@@ -89,7 +98,7 @@ func TestSpiderInsufficentFunds (t *testing.T) {
 		_, err = n.makePayment(
 			n.aliceServer, n.carolServer, firstHop, hops, amount, htlcAmt,
 			totalTimelock,
-		).Wait(40 * time.Second)
+		).Wait(80 * time.Second)
 		// modifications on existing test. We do not want it to fail here.
 		if err != nil {
 			fmt.Println(err)

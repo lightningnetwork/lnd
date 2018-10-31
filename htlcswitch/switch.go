@@ -355,6 +355,8 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID,
 	htlc *lnwire.UpdateAddHTLC,
 	deobfuscator ErrorDecrypter) ([sha256.Size]byte, error) {
 	fmt.Printf("SendHTLC\n");
+	fmt.Printf("first channel id is %s\n", firstHop);
+
 	// Before sending, double check that we don't already have 1) an
 	// in-flight payment to this payment hash, or 2) a complete payment for
 	// the same hash.
@@ -393,7 +395,6 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID,
 		htlc:           htlc,
 	}
 
-	fmt.Printf("in SendHTLC, before s.forward\n");
 	if err := s.forward(packet); err != nil {
 		s.removePendingPayment(paymentID)
 		if err := s.control.Fail(htlc.PaymentHash); err != nil {
@@ -403,7 +404,6 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID,
 		fmt.Printf("in SendHTLC s.forward error2\n");
 		return zeroPreimage, err
 	}
-	fmt.Printf("after s.forward!!!\n");
 
 	// Returns channels so that other subsystem might wait/skip the
 	// waiting of handling of payment.
@@ -421,7 +421,7 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID,
 		preimage = p
 	case <-s.quit:
 		return zeroPreimage, ErrSwitchExiting
-	}	
+	}
 	fmt.Printf("returning from sendHTLC\n");
 	return preimage, err
 }
@@ -521,7 +521,6 @@ func (s *Switch) forward(packet *htlcPacket) error {
 
 			return s.failAddPacket(packet, failure, addErr)
 		}
-		fmt.Printf("set packet.circuit\n");
 		packet.circuit = circuit
 	}
 	return s.route(packet)
@@ -730,8 +729,8 @@ func (s *Switch) route(packet *htlcPacket) error {
 
 	select {
 	case err := <-command.err:
-		fmt.Printf("s.route: <-command.err. err is: \n")
-		fmt.Println(err)
+		//fmt.Printf("s.route: <-command.err. err is: \n")
+		//fmt.Println(err)
 		return err
 	case <-s.quit:
 		fmt.Printf("s.route: ErrSwitchExiting\n");
@@ -1034,7 +1033,6 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		if packet.incomingChanID == sourceHop {
 			// A blank incomingChanID indicates that this is
 			// a pending user-initiated payment.
-			fmt.Println(" forwardPacket: == sourceHop")
 			return s.handleLocalDispatch(packet)
 		}
 
@@ -1086,14 +1084,26 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 				packet.amount, packet.incomingTimeout,
 				packet.outgoingTimeout, currentHeight,
 			)
+			fmt.Printf("link being considered is: %s\n", link.ShortChanID());
 			if err != nil {
-				linkErrs[link.ShortChanID()] = err
-				continue
+				fmt.Println("err was not nil!")
+				fmt.Println(err)
+				switch err {
+					case lnwallet.ErrBelowChanReserve:
+						fmt.Printf("lnwallet.ErrBelowChanReserve when checking future links. We don't care\n")
+						destination = link
+						break
+					default:
+						linkErrs[link.ShortChanID()] = err
+						continue
+				}
+			} else {
+				fmt.Println("err was nil!")
 			}
-
-			if link.Bandwidth() >= htlc.Amount {
+			// Note: for spider, we would still send the funds even if the link can't
+			// currently support it.
+			if link.Bandwidth() >= htlc.Amount || SPIDER_FLAG {
 				destination = link
-
 				break
 			}
 		}
@@ -1606,7 +1616,7 @@ out:
 		// packet concretely, then either forward it along, or
 		// interpret a return packet to a locally initialized one.
 		case cmd := <-s.htlcPlex:
-			fmt.Println("cmd <- htlcPlex");
+			fmt.Println("In htlcForwarder, cmd <- htlcPlex");
 			cmd.err <- s.handlePacketForward(cmd.pkt)
 
 		// When this time ticks, then it indicates that we should

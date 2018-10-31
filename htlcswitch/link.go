@@ -783,7 +783,8 @@ func (l *channelLink) htlcManager() {
 	//fmt.Printf("set the log level!\n");
 	log.Infof("HTLC manager for ChannelPoint(%v) started, "+
 		"bandwidth=%v", l.channel.ChannelPoint(), l.Bandwidth())
-	fmt.Printf("htlcManager started...\n");
+	fmt.Printf("HTLC manager for ChannelPoint(%v) started, "+
+		"bandwidth=%v\n", l.channel.ChannelPoint(), l.Bandwidth())
 
 	// TODO(roasbeef): need to call wipe chan whenever D/C?
 
@@ -891,7 +892,6 @@ func (l *channelLink) htlcManager() {
 	}
 out:
 	for {
-		fmt.Printf("in out: for loop\n")
 		// We must always check if we failed at some point processing
 		// the last update before processing the next.
 		if l.failed {
@@ -900,6 +900,8 @@ out:
 			break out
 		}
 
+		fmt.Printf("OFL, ID: %s\n", l.shortChanID);
+		//fmt.Printf("before handling out-for loop\n. l.chanID is: %s\n ", l.ChanID());
 		select {
 		// Our update fee timer has fired, so we'll check the network
 		// fee to see if we should adjust our commitment fee.
@@ -975,7 +977,6 @@ out:
 			}
 
 		case <-l.cfg.BatchTicker.Ticks():
-			fmt.Printf("BatchTicker.Ticks()\n")
 			// If the current batch is empty, then we have no work
 			// here. We also disable the batch ticker from waking up
 			// the htlcManager while the batch is empty.
@@ -1004,6 +1005,8 @@ out:
 			msg := packet.htlc.(*lnwire.UpdateAddHTLC)
 			log.Tracef("Reprocessing downstream add update "+
 				"with payment hash(%x)", msg.PaymentHash[:])
+			fmt.Printf("Reprocessing downstream add update "+
+				"with payment hash(%x)", msg.PaymentHash[:])
 
 			l.handleDownStreamPkt(packet, true)
 
@@ -1019,6 +1022,7 @@ out:
 		// circuit.
 		case pkt := <-l.downstream:
 			fmt.Printf("pkt <- l.downstream\n");
+			fmt.Printf("ID: %s\n", l.shortChanID);
 			// If we have non empty processing queue then we'll add
 			// this to the overflow rather than processing it
 			// directly. Once an active HTLC is either settled or
@@ -1028,6 +1032,11 @@ out:
 			// pay for, but we may still be able to service this request.
 			if ok && l.overflowQueue.Length() != 0 && !SPIDER_FLAG {
 				log.Infof("Downstream htlc add update with "+
+					"payment hash(%x) have been added to "+
+					"reprocessing queue, batch_size=%v",
+					htlc.PaymentHash[:],
+					l.batchCounter)
+				fmt.Printf("Downstream htlc add update with "+
 					"payment hash(%x) have been added to "+
 					"reprocessing queue, batch_size=%v",
 					htlc.PaymentHash[:],
@@ -1050,7 +1059,8 @@ out:
 		// indicates that we have a new incoming HTLC, either directly
 		// for us, or part of a multi-hop HTLC circuit.
 		case msg := <-l.upstream:
-			fmt.Printf("msg <- l.upstream\n");
+			fmt.Printf("pkt <- l.upstream\n");
+			fmt.Printf("ID: %s\n", l.shortChanID);
 			l.handleUpstreamMsg(msg)
 
 		case <-l.quit:
@@ -1076,7 +1086,7 @@ func (l *channelLink) randomFeeUpdateTimeout() time.Duration {
 //
 // TODO(roasbeef): add sync ntfn to ensure switch always has consistent view?
 func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
-	fmt.Printf("handleDownstramPkt\n");
+	fmt.Printf("handleDownstreamPkt\n");
 	var isSettle bool
 	switch htlc := pkt.htlc.(type) {
 	case *lnwire.UpdateAddHTLC:
@@ -1094,16 +1104,23 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		// so we add the new HTLC to our local log, then update the
 		// commitment chains.
 		htlc.ChanID = l.ChanID()
+		//fmt.Println("htlcChanId is: ")
+		//fmt.Println(htlc.ChanID)
 		openCircuitRef := pkt.inKey()
 		index, err := l.channel.AddHTLC(htlc, &openCircuitRef)
 		if err != nil {
-			fmt.Printf("error in handleDownstream! \n");
+			//fmt.Printf("error in handleDownstream! \n");
 			switch err {
 
 			// The channels spare bandwidth is fully allocated, so
 			// we'll put this HTLC into the overflow queue.
 			case lnwallet.ErrMaxHTLCNumber:
 				l.infof("Downstream htlc add update with "+
+					"payment hash(%x) have been added to "+
+					"reprocessing queue, batch: %v",
+					htlc.PaymentHash[:],
+					l.batchCounter)
+				fmt.Printf("Downstream htlc add update with "+
 					"payment hash(%x) have been added to "+
 					"reprocessing queue, batch: %v",
 					htlc.PaymentHash[:],
@@ -1119,7 +1136,12 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 						"reprocessing queue, batch: %v because there wasn't enough balance on the channel",
 						htlc.PaymentHash[:],
 						l.batchCounter)
-					fmt.Printf("ErrBelowChanReserve case, adding to overflowQueue!!\n")
+					fmt.Printf("Downstream htlc add update with "+
+						"payment hash(%x) have been added to "+
+						"reprocessing queue, batch: %v because there wasn't enough balance on the channel\n",
+						htlc.PaymentHash[:],
+						l.batchCounter)
+
 					l.overflowQueue.AddPkt(pkt)
 					return
 				}
@@ -1201,6 +1223,9 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 
 		l.tracef("Received downstream htlc: payment_hash=%x, "+
 			"local_log_index=%v, batch_size=%v",
+			htlc.PaymentHash[:], index, l.batchCounter+1)
+		fmt.Printf("Received downstream htlc: payment_hash=%x, "+
+			"local_log_index=%v, batch_size=%v\n",
 			htlc.PaymentHash[:], index, l.batchCounter+1)
 
 		pkt.outgoingChanID = l.ShortChanID()
@@ -1428,8 +1453,15 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 
 		l.tracef("Receive upstream htlc with payment hash(%x), "+
 			"assigning index: %v", msg.PaymentHash[:], index)
+		fmt.Printf("Receive upstream htlc with payment hash(%x), "+
+			"assigning index: %v\n", msg.PaymentHash[:], index)
+		// this might be too early to signal free slot?
+		fmt.Printf("signaling to the overflow queue, for channel\n: %s\n", l.shortChanID);
+		l.overflowQueue.SignalFreeSlot()
+		fmt.Printf("current queue len at this node is: %d\n", l.overflowQueue.queueLen);
 
 	case *lnwire.UpdateFulfillHTLC:
+		fmt.Printf("UpdateFulfillHTLC in chan: %s\n", l.shortChanID);
 		pre := msg.PaymentPreimage
 		idx := msg.ID
 		if err := l.channel.ReceiveHTLCSettle(pre, idx); err != nil {
@@ -2069,7 +2101,6 @@ func (l *channelLink) HandleSwitchPacket(pkt *htlcPacket) error {
 		pkt.inKey(), pkt.outKey())
 
 	l.mailBox.AddPacket(pkt)
-	fmt.Println("malBox.AddPacket done")
 	return nil
 }
 
@@ -2164,6 +2195,7 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 			// notify the overflow queue that a spare spot has been
 			// freed up within the commitment state.
 			switchPackets = append(switchPackets, settlePacket)
+			fmt.Printf("l.SignalFreeSlot happening in settle, for chan id: %s\n", l.shortChanID);
 			l.overflowQueue.SignalFreeSlot()
 
 		// A failureCode message for a previously forwarded HTLC has
@@ -2194,6 +2226,7 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 			// notify the overflow queue that a spare spot has been
 			// freed up within the commitment state.
 			switchPackets = append(switchPackets, failPacket)
+			fmt.Printf("l.SignalFreeSlot happening in fail, for chan id: %s\n", l.shortChanID);
 			l.overflowQueue.SignalFreeSlot()
 		}
 	}

@@ -5,7 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
+	"fmt"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -132,7 +132,11 @@ func (p *packetQueue) packetCoordinator() {
 		// or for the link's htlcForwarder to wake up.
 		select {
 		case <-p.freeSlots:
-
+			fmt.Println("free slots indicated")
+			if (SPIDER_FLAG) {
+				// FIXME: just go to sleep for test.
+				time.Sleep(time.Millisecond * 2000)
+			}
 			// Pop item with highest priority from the front of the queue. This will
 			// set us up for the next iteration. If the queue is empty at this point,
 			// then we'll block at the top.
@@ -147,6 +151,7 @@ func (p *packetQueue) packetCoordinator() {
 			case p.outgoingPkts <- nextPkt:
 				// Only decrease the queueLen and totalHtlcAmt once the packet has been
 				// sent out
+				fmt.Println("going to remove nextPkt from the queue")
 				atomic.AddInt32(&p.queueLen, -1)
 				atomic.AddInt64(&p.totalHtlcAmt, int64(-nextPkt.amount))
 			case <-p.quit:
@@ -192,6 +197,8 @@ func (p *packetQueue) SignalFreeSlot() {
 	// We'll only send over a free slot signal if the queue *is not* empty.
 	// Otherwise, it's possible that we attempt to overfill the free slots
 	// semaphore and block indefinitely below.
+	fmt.Println("signalFree slot!")
+	fmt.Printf("queue len is %d\n", p.queueLen)
 	if atomic.LoadInt32(&p.queueLen) == 0 {
 		return
 	}
@@ -199,6 +206,7 @@ func (p *packetQueue) SignalFreeSlot() {
 	select {
 	case p.freeSlots <- struct{}{}:
 	case <-p.quit:
+		fmt.Println("they made us quit instead of signal free slot")
 		return
 	}
 }

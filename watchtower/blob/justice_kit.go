@@ -33,14 +33,19 @@ const (
 	CiphertextExpansion = 16
 
 	// V0PlaintextSize is the plaintext size of a version 0 encoded blob.
-	//    sweep address:                  42 bytes
+	//    sweep address length:            1 byte
+	//    padded sweep address:           42 bytes
 	//    revocation pubkey:              33 bytes
 	//    local delay pubkey:             33 bytes
 	//    csv delay:                       4 bytes
 	//    commit to-local revocation sig: 64 bytes
 	//    commit to-remote pubkey:        33 bytes, maybe blank
 	//    commit to-remote sig:           64 bytes, maybe blank
-	V0PlaintextSize = 273
+	V0PlaintextSize = 274
+
+	// MaxSweepAddrSize defines the maximum sweep address size that can be
+	// encoded in a blob.
+	MaxSweepAddrSize = 42
 )
 
 // Size returns the size of the encoded-and-encrypted blob in bytes.
@@ -89,6 +94,14 @@ var (
 	ErrNoCommitToRemoteOutput = errors.New(
 		"cannot obtain commit to-remote p2wkh output script from blob",
 	)
+
+	// ErrSweepAddressToLong is returned when trying to encode or decode a
+	// sweep address with length greater than the maximum length of 42
+	// bytes, which supports p2wkh and p2sh addresses.
+	ErrSweepAddressToLong = fmt.Errorf(
+		"sweep address must be less than or equal to %d bytes long",
+		MaxSweepAddrSize,
+	)
 )
 
 // PubKey is a 33-byte, serialized compressed public key.
@@ -108,7 +121,7 @@ type JusticeKit struct {
 	//
 	// NOTE: This is chosen to be the length of a maximally sized witness
 	// program.
-	SweepAddress [42]byte
+	SweepAddress []byte
 
 	// RevocationPubKey is the compressed pubkey that guards the revocation
 	// clause of the remote party's to-local output.
@@ -318,10 +331,11 @@ func (b *JusticeKit) decode(r io.Reader, ver uint16) error {
 // encodeV0 encodes the JusticeKit using the version 0 encoding scheme to the
 // provided io.Writer. The encoding supports sweeping of the commit to-local
 // output, and  optionally the  commit to-remote output. The encoding produces a
-// constant-size plaintext size of 273 bytes.
+// constant-size plaintext size of 274 bytes.
 //
 // blob version 0 plaintext encoding:
-//    sweep address:                  42 bytes
+//    sweep address length:            1 byte
+//    padded sweep address:           42 bytes
 //    revocation pubkey:              33 bytes
 //    local delay pubkey:             33 bytes
 //    csv delay:                       4 bytes
@@ -329,8 +343,23 @@ func (b *JusticeKit) decode(r io.Reader, ver uint16) error {
 //    commit to-remote pubkey:        33 bytes, maybe blank
 //    commit to-remote sig:           64 bytes, maybe blank
 func (b *JusticeKit) encodeV0(w io.Writer) error {
-	// Write 42-byte sweep address where client funds will be deposited.
-	_, err := w.Write(b.SweepAddress[:])
+	// Assert the sweep address length is sane.
+	if len(b.SweepAddress) > MaxSweepAddrSize {
+		return ErrSweepAddressToLong
+	}
+
+	// Write the actual length of the sweep address as a single byte.
+	err := binary.Write(w, byteOrder, uint8(len(b.SweepAddress)))
+	if err != nil {
+		return err
+	}
+
+	// Pad the sweep address to our maximum length of 42 bytes.
+	var sweepAddressBuf [MaxSweepAddrSize]byte
+	copy(sweepAddressBuf[:], b.SweepAddress)
+
+	// Write padded 42-byte sweep address.
+	_, err = w.Write(sweepAddressBuf[:])
 	if err != nil {
 		return err
 	}
@@ -371,12 +400,13 @@ func (b *JusticeKit) encodeV0(w io.Writer) error {
 }
 
 // decodeV0 reconstructs a JusticeKit from the io.Reader, using version 0
-// encoding scheme. This will parse a constant size input stream of 273 bytes to
+// encoding scheme. This will parse a constant size input stream of 274 bytes to
 // recover information for the commit to-local output, and possibly the commit
 // to-remote output.
 //
 // blob version 0 plaintext encoding:
-//    sweep address:                  42 bytes
+//    sweep address length:            1 byte
+//    padded sweep address:           42 bytes
 //    revocation pubkey:              33 bytes
 //    local delay pubkey:             33 bytes
 //    csv delay:                       4 bytes
@@ -384,11 +414,28 @@ func (b *JusticeKit) encodeV0(w io.Writer) error {
 //    commit to-remote pubkey:        33 bytes, maybe blank
 //    commit to-remote sig:           64 bytes, maybe blank
 func (b *JusticeKit) decodeV0(r io.Reader) error {
-	// Read 42-byte sweep address where client funds will be deposited.
-	_, err := io.ReadFull(r, b.SweepAddress[:])
+	// Read the sweep address length as a single byte.
+	var sweepAddrLen uint8
+	err := binary.Read(r, byteOrder, &sweepAddrLen)
 	if err != nil {
 		return err
 	}
+
+	// Assert the sweep address length is sane.
+	if sweepAddrLen > MaxSweepAddrSize {
+		return ErrSweepAddressToLong
+	}
+
+	// Read padded 42-byte sweep address.
+	var sweepAddressBuf [MaxSweepAddrSize]byte
+	_, err = io.ReadFull(r, sweepAddressBuf[:])
+	if err != nil {
+		return err
+	}
+
+	// Parse sweep address from padded buffer.
+	b.SweepAddress = make([]byte, sweepAddrLen)
+	copy(b.SweepAddress, sweepAddressBuf[:])
 
 	// Read 33-byte revocation public key.
 	_, err = io.ReadFull(r, b.RevocationPubKey[:])

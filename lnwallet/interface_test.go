@@ -2153,7 +2153,7 @@ func TestLightningWallet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create db: %v", err)
 	}
-	hintCache, err := chainntnfs.NewHeightHintCache(db, true)
+	hintCache, err := chainntnfs.NewHeightHintCache(db)
 	if err != nil {
 		t.Fatalf("unable to create height hint cache: %v", err)
 	}

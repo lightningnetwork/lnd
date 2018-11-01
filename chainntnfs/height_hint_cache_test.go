@@ -10,7 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 )
 
-func initHintCache(t *testing.T, disable bool) *HeightHintCache {
+func initHintCache(t *testing.T) *HeightHintCache {
 	t.Helper()
 
 	tempDir, err := ioutil.TempDir("", "kek")
@@ -21,7 +21,7 @@ func initHintCache(t *testing.T, disable bool) *HeightHintCache {
 	if err != nil {
 		t.Fatalf("unable to create db: %v", err)
 	}
-	hintCache, err := NewHeightHintCache(db, disable)
+	hintCache, err := NewHeightHintCache(db)
 	if err != nil {
 		t.Fatalf("unable to create hint cache: %v", err)
 	}
@@ -34,7 +34,7 @@ func initHintCache(t *testing.T, disable bool) *HeightHintCache {
 func TestHeightHintCacheConfirms(t *testing.T) {
 	t.Parallel()
 
-	hintCache := initHintCache(t, false)
+	hintCache := initHintCache(t)
 
 	// Querying for a transaction hash not found within the cache should
 	// return an error indication so.
@@ -93,7 +93,7 @@ func TestHeightHintCacheConfirms(t *testing.T) {
 func TestHeightHintCacheSpends(t *testing.T) {
 	t.Parallel()
 
-	hintCache := initHintCache(t, false)
+	hintCache := initHintCache(t)
 
 	// Querying for an outpoint not found within the cache should return an
 	// error indication so.
@@ -144,78 +144,5 @@ func TestHeightHintCacheSpends(t *testing.T) {
 		if err != ErrSpendHintNotFound {
 			t.Fatalf("expected ErrSpendHintNotFound, got: %v", err)
 		}
-	}
-}
-
-// TestHeightHintCacheDisabled asserts that a disabled height hint cache never
-// returns spend or confirm hints that are committed.
-func TestHeightHintCacheDisabled(t *testing.T) {
-	t.Parallel()
-
-	const height uint32 = 100
-
-	// Create a disabled height hint cache.
-	hintCache := initHintCache(t, true)
-
-	// Querying a disabled cache w/ no spend hint should return not found.
-	var outpoint wire.OutPoint
-	_, err := hintCache.QuerySpendHint(outpoint)
-	if err != ErrSpendHintNotFound {
-		t.Fatalf("expected ErrSpendHintNotFound, got: %v", err)
-	}
-
-	// Commit a spend hint to the disabled cache, which should be a noop.
-	if err := hintCache.CommitSpendHint(height, outpoint); err != nil {
-		t.Fatalf("unable to commit spend hint: %v", err)
-	}
-
-	// Querying a disabled cache after commit noop should return not found.
-	_, err = hintCache.QuerySpendHint(outpoint)
-	if err != ErrSpendHintNotFound {
-		t.Fatalf("expected ErrSpendHintNotFound, got: %v", err)
-	}
-
-	// Reenable the cache, this time actually committing a spend hint.
-	hintCache.disabled = false
-	if err := hintCache.CommitSpendHint(height, outpoint); err != nil {
-		t.Fatalf("unable to commit spend hint: %v", err)
-	}
-
-	// Disable the cache again, spend hint should not be found.
-	hintCache.disabled = true
-	_, err = hintCache.QuerySpendHint(outpoint)
-	if err != ErrSpendHintNotFound {
-		t.Fatalf("expected ErrSpendHintNotFound, got: %v", err)
-	}
-
-	// Querying a disabled cache w/ no conf hint should return not found.
-	var txid chainhash.Hash
-	_, err = hintCache.QueryConfirmHint(txid)
-	if err != ErrConfirmHintNotFound {
-		t.Fatalf("expected ErrConfirmHintNotFound, got: %v", err)
-	}
-
-	// Commit a conf hint to the disabled cache, which should be a noop.
-	if err := hintCache.CommitConfirmHint(height, txid); err != nil {
-		t.Fatalf("unable to commit spend hint: %v", err)
-	}
-
-	// Querying a disabled cache after commit noop should return not found.
-	_, err = hintCache.QueryConfirmHint(txid)
-	if err != ErrConfirmHintNotFound {
-		t.Fatalf("expected ErrConfirmHintNotFound, got: %v", err)
-	}
-
-	// Reenable the cache, this time actually committing a conf hint.
-	hintCache.disabled = false
-	if err := hintCache.CommitConfirmHint(height, txid); err != nil {
-		t.Fatalf("unable to commit spend hint: %v", err)
-	}
-
-	// Disable the cache again, conf hint should not be found.
-	hintCache.disabled = true
-	_, err = hintCache.QueryConfirmHint(txid)
-	if err != ErrConfirmHintNotFound {
-		t.Fatalf("expected ErrConfirmHintNotFound, got: %v", err)
 	}
 }

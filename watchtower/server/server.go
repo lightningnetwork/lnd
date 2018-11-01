@@ -108,7 +108,11 @@ func (s *Server) Start() error {
 		return nil
 	}
 
+	log.Infof("Starting watchtower server")
+
 	s.connMgr.Start()
+
+	log.Infof("Watchtower server started successfully")
 
 	return nil
 }
@@ -120,10 +124,14 @@ func (s *Server) Stop() error {
 		return nil
 	}
 
+	log.Infof("Stopping watchtower server")
+
 	s.connMgr.Stop()
 
 	close(s.quit)
 	s.wg.Wait()
+
+	log.Infof("Watchtower server stopped successfully")
 
 	return nil
 }

@@ -1,4 +1,4 @@
-package server
+package wtserver
 
 import (
 	"github.com/btcsuite/btclog"

@@ -2,6 +2,7 @@ package blob
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -22,8 +23,8 @@ const (
 	// MaxVersion is the maximumm blob version supported by this package.
 	MaxVersion = 0
 
-	// NonceSize is the length of a chacha20poly1305 nonce, 12 bytes.
-	NonceSize = chacha20poly1305.NonceSize
+	// NonceSize is the length of a chacha20poly1305 nonce, 24 bytes.
+	NonceSize = chacha20poly1305.NonceSizeX
 
 	// KeySize is the length of a chacha20poly1305 key, 32 bytes.
 	KeySize = chacha20poly1305.KeySize
@@ -49,10 +50,11 @@ const (
 )
 
 // Size returns the size of the encoded-and-encrypted blob in bytes.
-//      enciphered plaintext:  n bytes
-//      MAC:                  16 bytes
+//   nonce:                24 bytes
+//   enciphered plaintext:  n bytes
+//   MAC:                  16 bytes
 func Size(ver uint16) int {
-	return PlaintextSize(ver) + CiphertextExpansion
+	return NonceSize + PlaintextSize(ver) + CiphertextExpansion
 }
 
 // PlaintextSize returns the size of the encoded-but-unencrypted blob in bytes.
@@ -77,11 +79,6 @@ var (
 	// ciphertext is smaller than the ciphertext expansion factor.
 	ErrCiphertextTooSmall = errors.New(
 		"ciphertext is too small for chacha20poly1305",
-	)
-
-	// ErrNonceSize signals that the provided nonce is improperly sized.
-	ErrNonceSize = fmt.Errorf(
-		"chacha20poly1305 nonce must be %d bytes", NonceSize,
 	)
 
 	// ErrKeySize signals that the provided key is improperly sized.
@@ -232,15 +229,9 @@ func (b *JusticeKit) CommitToRemoteWitnessStack() ([][]byte, error) {
 //
 // NOTE: It is the caller's responsibility to ensure that this method is only
 // called once for a given (nonce, key) pair.
-func (b *JusticeKit) Encrypt(nonce, key []byte, version uint16) ([]byte, error) {
-	switch {
-
-	// Fail if the nonce is not 12-bytes.
-	case len(nonce) != NonceSize:
-		return nil, ErrNonceSize
-
+func (b *JusticeKit) Encrypt(key []byte, version uint16) ([]byte, error) {
 	// Fail if the nonce is not 32-bytes.
-	case len(key) != KeySize:
+	if len(key) != KeySize {
 		return nil, ErrKeySize
 	}
 
@@ -253,19 +244,25 @@ func (b *JusticeKit) Encrypt(nonce, key []byte, version uint16) ([]byte, error) 
 	}
 
 	// Create a new chacha20poly1305 cipher, using a 32-byte key.
-	cipher, err := chacha20poly1305.New(key)
+	cipher, err := chacha20poly1305.NewX(key)
 	if err != nil {
 		return nil, err
 	}
 
-	// Allocate the ciphertext, which will contain the encrypted plaintext
-	// and MAC.
+	// Allocate the ciphertext, which will contain the nonce, encrypted
+	// plaintext and MAC.
 	plaintext := ptxtBuf.Bytes()
-	ciphertext := make([]byte, len(plaintext)+CiphertextExpansion)
+	ciphertext := make([]byte, Size(version))
+
+	// Generate a random  24-byte nonce in the ciphertext's prefix.
+	nonce := ciphertext[:NonceSize]
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, err
+	}
 
 	// Finally, encrypt the plaintext using the given nonce, storing the
 	// result in the ciphertext buffer.
-	cipher.Seal(ciphertext[:0], nonce, plaintext, nil)
+	cipher.Seal(ciphertext[NonceSize:NonceSize], nonce, plaintext, nil)
 
 	return ciphertext, nil
 }
@@ -273,16 +270,13 @@ func (b *JusticeKit) Encrypt(nonce, key []byte, version uint16) ([]byte, error) 
 // Decrypt unenciphers a blob of justice by decrypting the ciphertext using
 // chacha20poly1305 with the chosen (nonce, key) pair. The internal plaintext is
 // then deserialized using the given encoding version.
-func Decrypt(nonce, key, ciphertext []byte, version uint16) (*JusticeKit, error) {
+func Decrypt(key, ciphertext []byte, version uint16) (*JusticeKit, error) {
 	switch {
 
-	// Fail if the blob's overall length is less than the expansion factor.
-	case len(ciphertext) < CiphertextExpansion:
+	// Fail if the blob's overall length is less than required for the nonce
+	// and expansion factor.
+	case len(ciphertext) < NonceSize+CiphertextExpansion:
 		return nil, ErrCiphertextTooSmall
-
-	// Fail if the nonce is not 12-bytes.
-	case len(nonce) != NonceSize:
-		return nil, ErrNonceSize
 
 	// Fail if the key is not 32-bytes.
 	case len(key) != KeySize:
@@ -290,7 +284,7 @@ func Decrypt(nonce, key, ciphertext []byte, version uint16) (*JusticeKit, error)
 	}
 
 	// Create a new chacha20poly1305 cipher, using a 32-byte key.
-	cipher, err := chacha20poly1305.New(key)
+	cipher, err := chacha20poly1305.NewX(key)
 	if err != nil {
 		return nil, err
 	}
@@ -302,7 +296,8 @@ func Decrypt(nonce, key, ciphertext []byte, version uint16) (*JusticeKit, error)
 
 	// Decrypt the ciphertext, placing the resulting plaintext in our
 	// plaintext buffer.
-	_, err = cipher.Open(plaintext[:0], nonce, ciphertext, nil)
+	nonce := ciphertext[:NonceSize]
+	_, err = cipher.Open(plaintext[:0], nonce, ciphertext[NonceSize:], nil)
 	if err != nil {
 		return nil, err
 	}

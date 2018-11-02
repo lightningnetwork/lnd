@@ -478,7 +478,7 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(msg lnwire.Message,
 
 		// If we've found the message target, then we'll dispatch the
 		// message directly to it.
-		syncer.ProcessQueryMsg(m)
+		syncer.ProcessQueryMsg(m, peer.QuitSignal())
 
 		errChan <- nil
 		return errChan

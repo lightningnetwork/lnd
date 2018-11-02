@@ -456,12 +456,67 @@ func (d *AuthenticatedGossiper) Stop() {
 func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(msg lnwire.Message,
 	peer lnpeer.Peer) chan error {
 
+	errChan := make(chan error, 1)
+
+	// For messages in the known set of channel series queries, we'll
+	// dispatch the message directly to the gossipSyncer, and skip the main
+	// processing loop.
+	switch m := msg.(type) {
+	case *lnwire.QueryShortChanIDs,
+		*lnwire.QueryChannelRange,
+		*lnwire.ReplyChannelRange,
+		*lnwire.ReplyShortChanIDsEnd:
+
+		syncer, err := d.findGossipSyncer(peer.IdentityKey())
+		if err != nil {
+			log.Warnf("Unable to find gossip syncer for "+
+				"peer=%x: %v", peer.PubKey(), err)
+
+			errChan <- err
+			return errChan
+		}
+
+		// If we've found the message target, then we'll dispatch the
+		// message directly to it.
+		syncer.ProcessQueryMsg(m)
+
+		errChan <- nil
+		return errChan
+
+	// If a peer is updating its current update horizon, then we'll dispatch
+	// that directly to the proper gossipSyncer.
+	case *lnwire.GossipTimestampRange:
+		syncer, err := d.findGossipSyncer(peer.IdentityKey())
+		if err != nil {
+			log.Warnf("Unable to find gossip syncer for "+
+				"peer=%x: %v", peer.PubKey(), err)
+
+			errChan <- err
+			return errChan
+		}
+
+		// If we've found the message target, then we'll dispatch the
+		// message directly to it.
+		err = syncer.ApplyGossipFilter(m)
+		if err != nil {
+			log.Warnf("unable to apply gossip "+
+				"filter for peer=%x: %v",
+				peer.PubKey(), err)
+
+			errChan <- err
+			return errChan
+		}
+
+		errChan <- nil
+		return errChan
+	}
+
 	nMsg := &networkMsg{
 		msg:      msg,
 		isRemote: true,
 		peer:     peer,
 		source:   peer.IdentityKey(),
-		err:      make(chan error, 1),
+		err:      errChan,
 	}
 
 	select {
@@ -965,7 +1020,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			policyUpdate.errResp <- nil
 
 		case announcement := <-d.networkMsgs:
-			switch msg := announcement.msg.(type) {
+			switch announcement.msg.(type) {
 			// Channel announcement signatures are amongst the only
 			// messages that we'll process serially.
 			case *lnwire.AnnounceSignatures:
@@ -977,51 +1032,6 @@ func (d *AuthenticatedGossiper) networkHandler() {
 						emittedAnnouncements...,
 					)
 				}
-				continue
-
-			// If a peer is updating its current update horizon,
-			// then we'll dispatch that directly to the proper
-			// gossipSyncer.
-			case *lnwire.GossipTimestampRange:
-				syncer, err := d.findGossipSyncer(
-					announcement.source,
-				)
-				if err != nil {
-					log.Warnf("Unable to find gossip "+
-						"syncer for peer=%x: %v",
-						announcement.peer.PubKey(), err)
-					continue
-				}
-
-				// If we've found the message target, then
-				// we'll dispatch the message directly to it.
-				err = syncer.ApplyGossipFilter(msg)
-				if err != nil {
-					log.Warnf("unable to apply gossip "+
-						"filter for peer=%x: %v",
-						announcement.peer.PubKey(), err)
-				}
-				continue
-
-			// For messages in the known set of channel series
-			// queries, we'll dispatch the message directly to the
-			// peer, and skip the main processing loop.
-			case *lnwire.QueryShortChanIDs,
-				*lnwire.QueryChannelRange,
-				*lnwire.ReplyChannelRange,
-				*lnwire.ReplyShortChanIDsEnd:
-
-				syncer, err := d.findGossipSyncer(
-					announcement.source,
-				)
-				if err != nil {
-					log.Warnf("Unable to find gossip "+
-						"syncer for peer=%x: %v",
-						announcement.source, err)
-					continue
-				}
-
-				syncer.ProcessQueryMsg(announcement.msg)
 				continue
 			}
 

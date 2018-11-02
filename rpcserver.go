@@ -383,7 +383,7 @@ var _ lnrpc.LightningServer = (*rpcServer)(nil)
 // base level options passed to the grPC server. This typically includes things
 // like requiring TLS, etc.
 func newRPCServer(s *server, macService *macaroons.Service,
-	subServerCgs *subRpcServerConfigs, serverOpts []grpc.ServerOption,
+	subServerCgs *subRPCServerConfigs, serverOpts []grpc.ServerOption,
 	restServerOpts []grpc.DialOption,
 	tlsCfg *tls.Config) (*rpcServer, error) {
 
@@ -395,7 +395,7 @@ func newRPCServer(s *server, macService *macaroons.Service,
 	// Before we create any of the sub-servers, we need to ensure that all
 	// the dependencies they need are properly populated within each sub
 	// server configuration struct.
-	err := subServerCgs.PopulateDependancies(
+	err := subServerCgs.PopulateDependencies(
 		s.cc, networkDir, macService,
 	)
 	if err != nil {
@@ -454,7 +454,7 @@ func newRPCServer(s *server, macService *macaroons.Service,
 	// Finally, with all the pre-set up complete,  we can create the main
 	// gRPC server, and register the main lnrpc server along side.
 	grpcServer := grpc.NewServer(serverOpts...)
-	rootRpcServer := &rpcServer{
+	rootRPCServer := &rpcServer{
 		restServerOpts: restServerOpts,
 		subServers:     subServers,
 		tlsCfg:         tlsCfg,
@@ -462,7 +462,7 @@ func newRPCServer(s *server, macService *macaroons.Service,
 		server:         s,
 		quit:           make(chan struct{}, 1),
 	}
-	lnrpc.RegisterLightningServer(grpcServer, rootRpcServer)
+	lnrpc.RegisterLightningServer(grpcServer, rootRPCServer)
 
 	// Now the main RPC server has been registered, we'll iterate through
 	// all the sub-RPC servers and register them to ensure that requests
@@ -476,7 +476,7 @@ func newRPCServer(s *server, macService *macaroons.Service,
 		}
 	}
 
-	return rootRpcServer, nil
+	return rootRPCServer, nil
 }
 
 // Start launches any helper goroutines required for the rpcServer to function.
@@ -572,6 +572,8 @@ func (r *rpcServer) Stop() error {
 			subServer.Name())
 
 		if err := subServer.Stop(); err != nil {
+			rpcsLog.Errorf("unable to stop sub-server %v: %v",
+				subServer.Name(), err)
 			continue
 		}
 	}

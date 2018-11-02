@@ -315,7 +315,7 @@ func lndMain() error {
 	// Initialize, and register our implementation of the gRPC interface
 	// exported by the rpcServer.
 	rpcServer, err := newRPCServer(
-		server, macaroonService, cfg.SubRpcServers, serverOpts,
+		server, macaroonService, cfg.SubRPCServers, serverOpts,
 		proxyOpts, tlsConf,
 	)
 	if err != nil {

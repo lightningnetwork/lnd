@@ -28,6 +28,8 @@ _testmain.go
 /lnd-debug
 /lncli
 /lncli-debug
+/lnd-itest
+/lncli-itest
 
 # Integration test log files
 output*.log

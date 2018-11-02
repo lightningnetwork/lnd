@@ -793,7 +793,7 @@ func (ms *msgStream) msgConsumer() {
 
 // AddMsg adds a new message to the msgStream. This function is safe for
 // concurrent access.
-func (ms *msgStream) AddMsg(msg lnwire.Message, quit chan struct{}) {
+func (ms *msgStream) AddMsg(msg lnwire.Message) {
 	// First, we'll attempt to receive from the producerSema struct. This
 	// acts as a sempahore to prevent us from indefinitely buffering
 	// incoming items from the wire. Either the msg queue isn't full, and
@@ -801,7 +801,7 @@ func (ms *msgStream) AddMsg(msg lnwire.Message, quit chan struct{}) {
 	// we're signalled to quit, or a slot is freed up.
 	select {
 	case <-ms.producerSema:
-	case <-quit:
+	case <-ms.peer.quit:
 		return
 	case <-ms.quit:
 		return
@@ -1019,7 +1019,7 @@ out:
 			// forward the error to all channels with this peer.
 			case msg.ChanID == lnwire.ConnectionWideID:
 				for chanID, chanStream := range chanMsgStreams {
-					chanStream.AddMsg(nextMsg, p.quit)
+					chanStream.AddMsg(nextMsg)
 
 					// Also marked this channel as failed,
 					// so we won't try to restart it on
@@ -1081,7 +1081,7 @@ out:
 			*lnwire.ReplyChannelRange,
 			*lnwire.ReplyShortChanIDsEnd:
 
-			discStream.AddMsg(msg, p.quit)
+			discStream.AddMsg(msg)
 
 		default:
 			peerLog.Errorf("unknown message %v received from peer "+
@@ -1104,7 +1104,7 @@ out:
 
 			// With the stream obtained, add the message to the
 			// stream so we can continue processing message.
-			chanStream.AddMsg(nextMsg, p.quit)
+			chanStream.AddMsg(nextMsg)
 		}
 
 		idleTimer.Reset(idleTimeout)

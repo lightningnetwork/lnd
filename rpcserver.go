@@ -3704,7 +3704,7 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 				// stream, and we can exit normally.
 				nextPayment, err := stream.recv()
 				if err == io.EOF {
-					errChan <- nil
+					close(payChan)
 					return
 				} else if err != nil {
 					rpcsLog.Errorf("Failed receiving from "+
@@ -3755,6 +3755,7 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 		}
 	}()
 
+sendLoop:
 	for {
 		select {
 
@@ -3766,7 +3767,14 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 		case <-r.quit:
 			return errors.New("rpc server shutting down")
 
-		case payIntent := <-payChan:
+		case payIntent, ok := <-payChan:
+			// If the receive loop is done, we break the send loop
+			// and wait for the ongoing payments to finish before
+			// exiting.
+			if !ok {
+				break sendLoop
+			}
+
 			// We launch a new goroutine to execute the current
 			// payment so we can continue to serve requests while
 			// this payment is being dispatched.

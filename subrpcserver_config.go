@@ -8,25 +8,25 @@ import (
 	"github.com/lightningnetwork/lnd/macaroons"
 )
 
-// subRpcServerConfigs is special sub-config in the main configuration that
+// subRPCServerConfigs is special sub-config in the main configuration that
 // houses the configuration for the optional sub-servers. These sub-RPC servers
 // are meant to house experimental new features that may eventually make it
 // into the main RPC server that lnd exposes. Special methods are present on
 // this struct to allow the main RPC server to create and manipulate the
 // sub-RPC servers in a generalized manner.
-type subRpcServerConfigs struct {
+type subRPCServerConfigs struct {
 	// SignRPC is a sub-RPC server that exposes signing of arbitrary inputs
 	// as a gRPC service.
 	SignRPC *signrpc.Config `group:"signrpc" namespace:"signrpc"`
 }
 
-// PopulateDependancies attempts to iterate through all the sub-server configs
+// PopulateDependencies attempts to iterate through all the sub-server configs
 // within this struct, and populate the items it requires based on the main
 // configuration file, and the chain control.
 //
 // NOTE: This MUST be called before any callers are permitted to execute the
 // FetchConfig method.
-func (s *subRpcServerConfigs) PopulateDependancies(cc *chainControl,
+func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 	networkDir string, macService *macaroons.Service) error {
 
 	// First, we'll use reflect to obtain a version of the config struct
@@ -80,7 +80,7 @@ func (s *subRpcServerConfigs) PopulateDependancies(cc *chainControl,
 // subServerName name, then false will be returned for the second parameter.
 //
 // NOTE: Part of the lnrpc.SubServerConfigDispatcher interface.
-func (s *subRpcServerConfigs) FetchConfig(subServerName string) (interface{}, bool) {
+func (s *subRPCServerConfigs) FetchConfig(subServerName string) (interface{}, bool) {
 	// First, we'll use reflect to obtain a version of the config struct
 	// that allows us to programmatically inspect its fields.
 	selfVal := extractReflectValue(s)

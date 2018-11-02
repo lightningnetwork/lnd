@@ -1671,7 +1671,7 @@ out:
 
 			// Otherwise, we'll log this diff, then accumulate the
 			// new stats into the running total.
-			log.Infof("Sent %d satoshis and received %d satoshis "+
+			log.Debugf("Sent %d satoshis and received %d satoshis "+
 				"in the last 10 seconds (%f tx/sec)",
 				diffSatSent, diffSatRecv,
 				float64(diffNumUpdates)/10)

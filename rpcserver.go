@@ -3707,10 +3707,12 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 					errChan <- nil
 					return
 				} else if err != nil {
+					rpcsLog.Errorf("Failed receiving from "+
+						"stream: %v", err)
+
 					select {
 					case errChan <- err:
-					case <-reqQuit:
-						return
+					default:
 					}
 					return
 				}
@@ -3728,18 +3730,22 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 						PaymentError: err.Error(),
 						PaymentHash:  payIntent.rHash[:],
 					}); err != nil {
+						rpcsLog.Errorf("Failed "+
+							"sending on "+
+							"stream: %v", err)
+
 						select {
 						case errChan <- err:
-						case <-reqQuit:
-							return
+						default:
 						}
+						return
 					}
 					continue
 				}
 
 				// If the payment was well formed, then we'll
 				// send to the dispatch goroutine, or exit,
-				// which ever comes first
+				// which ever comes first.
 				select {
 				case payChan <- &payIntent:
 				case <-reqQuit:
@@ -3751,6 +3757,9 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 
 	for {
 		select {
+
+		// If we encounter and error either during sending or
+		// receiving, we return directly, closing the stream.
 		case err := <-errChan:
 			return err
 
@@ -3779,7 +3788,13 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 				// payment, then we'll return the error to the
 				// user, and terminate.
 				case saveErr != nil:
-					errChan <- saveErr
+					rpcsLog.Errorf("Failed dispatching "+
+						"payment intent: %v", saveErr)
+
+					select {
+					case errChan <- saveErr:
+					default:
+					}
 					return
 
 				// If we receive payment error than, instead of
@@ -3791,7 +3806,14 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 						PaymentHash:  payIntent.rHash[:],
 					})
 					if err != nil {
-						errChan <- err
+						rpcsLog.Errorf("Failed "+
+							"sending error "+
+							"response: %v", err)
+
+						select {
+						case errChan <- err:
+						default:
+						}
 					}
 					return
 				}
@@ -3811,7 +3833,13 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 					PaymentRoute:    marshalledRouted,
 				})
 				if err != nil {
-					errChan <- err
+					rpcsLog.Errorf("Failed sending "+
+						"response: %v", err)
+
+					select {
+					case errChan <- err:
+					default:
+					}
 					return
 				}
 			}()

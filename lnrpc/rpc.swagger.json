@@ -504,7 +504,7 @@
         ]
       }
     },
-    "/v1/graph/routes/{pub_key}/{amt}": {
+    "/v1/graph/routes/{pub_key}/{amt}/{num_routes}": {
       "get": {
         "summary": "* lncli: `queryroutes`\nQueryRoutes attempts to query the daemon's Channel Router for a possible\nroute to a target destination capable of carrying a specific amount of\nsatoshis. The retuned route contains the full details required to craft and\nsend an HTLC, also including the necessary information that should be\npresent within the Sphinx packet encapsulated within the HTLC.",
         "operationId": "QueryRoutes",
@@ -532,9 +532,8 @@
           },
           {
             "name": "num_routes",
-            "description": "/ The max number of routes to return.",
-            "in": "query",
-            "required": false,
+            "in": "path",
+            "required": true,
             "type": "integer",
             "format": "int32"
           },

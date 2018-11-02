@@ -568,7 +568,7 @@ service Lightning {
     */
     rpc QueryRoutes(QueryRoutesRequest) returns (QueryRoutesResponse) {
         option (google.api.http) = {
-            get: "/v1/graph/routes/{pub_key}/{amt}"
+            get: "/v1/graph/routes/{pub_key}/{amt}/{num_routes}"
         };
     }
 

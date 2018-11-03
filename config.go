@@ -235,6 +235,8 @@ type config struct {
 
 	NoChanUpdates bool `long:"nochanupdates" description:"If specified, lnd will not request real-time channel updates from connected peers. This option should be used by routing nodes to save bandwidth."`
 
+	RejectPush bool `long:"rejectpush" description:"If true, lnd will not accept channel opening requests with non-zero push amounts. This should prevent accidental pushes to merchant nodes."`
+
 	net tor.Net
 
 	Routing *routing.Conf `group:"routing" namespace:"routing"`

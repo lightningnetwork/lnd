@@ -2477,3 +2477,63 @@ func TestFundingManagerMaxPendingChannels(t *testing.T) {
 		t, bob.msgChan, "AcceptChannel",
 	).(*lnwire.AcceptChannel)
 }
+
+// TestFundingManagerRejectPush checks behaviour of 'rejectpush'
+// option, namely that non-zero incoming push amounts are disabled.
+func TestFundingManagerRejectPush(t *testing.T) {
+	// Enable 'rejectpush' option and initialize funding managers.
+	alice, bob := setupFundingManagers(t, defaultMaxPendingChannels)
+	rejectPush := cfg.RejectPush
+	cfg.RejectPush = true
+	defer func() {
+		tearDownFundingManagers(t, alice, bob)
+		cfg.RejectPush = rejectPush
+	}()
+
+	// Create a funding request and start the workflow.
+	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+	errChan := make(chan error, 1)
+	initReq := &openChanReq{
+		targetPubkey:    bob.privKey.PubKey(),
+		chainHash:       *activeNetParams.GenesisHash,
+		localFundingAmt: 500000,
+		pushAmt:         lnwire.NewMSatFromSatoshis(10),
+		private:         true,
+		updates:         updateChan,
+		err:             errChan,
+	}
+
+	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+
+	// Alice should have sent the OpenChannel message to Bob.
+	var aliceMsg lnwire.Message
+	select {
+	case aliceMsg = <-alice.msgChan:
+	case err := <-initReq.err:
+		t.Fatalf("error init funding workflow: %v", err)
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice did not send OpenChannel message")
+	}
+
+	openChannelReq, ok := aliceMsg.(*lnwire.OpenChannel)
+	if !ok {
+		errorMsg, gotError := aliceMsg.(*lnwire.Error)
+		if gotError {
+			t.Fatalf("expected OpenChannel to be sent "+
+				"from bob, instead got error: %v",
+				lnwire.ErrorCode(errorMsg.Data[0]))
+		}
+		t.Fatalf("expected OpenChannel to be sent from "+
+			"alice, instead got %T", aliceMsg)
+	}
+
+	// Let Bob handle the init message.
+	bob.fundingMgr.processFundingOpen(openChannelReq, alice)
+
+	// Assert Bob responded with an ErrNonZeroPushAmount error.
+	err := assertFundingMsgSent(t, bob.msgChan, "Error").(*lnwire.Error)
+	if "Non-zero push amounts are disabled" != string(err.Data) {
+		t.Fatalf("expected ErrNonZeroPushAmount error, got \"%v\"",
+			string(err.Data))
+	}
+}

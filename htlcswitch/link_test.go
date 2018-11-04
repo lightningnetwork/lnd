@@ -1278,10 +1278,11 @@ func TestChannelLinkExpiryTooSoonExitNode(t *testing.T) {
 
 	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 
-	// We'll craft an HTLC packet, but set the starting height to 10 blocks
-	// before the current true height.
+	// We'll craft an HTLC packet, but set the final hop CLTV to only 1 block
+	// after the current true height.
+	lastHopDelta := n.firstBobChannelLink.cfg.FwrdingPolicy.TimeLockDelta
 	htlcAmt, totalTimelock, hops := generateHops(amount,
-		startingHeight-10, n.firstBobChannelLink)
+		startingHeight+1-lastHopDelta, n.firstBobChannelLink)
 
 	// Now we'll send out the payment from Alice to Bob.
 	firstHop := n.firstBobChannelLink.ShortChanID()

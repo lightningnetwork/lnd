@@ -890,6 +890,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 		fwdPkgTimeout       = 15 * time.Second
 		minFeeUpdateTimeout = 30 * time.Minute
 		maxFeeUpdateTimeout = 40 * time.Minute
+		expiryGraceDelta    = 3
 	)
 
 	pCache := &mockPreimageCache{
@@ -931,6 +932,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			MinFeeUpdateTimeout: minFeeUpdateTimeout,
 			MaxFeeUpdateTimeout: maxFeeUpdateTimeout,
 			OnChannelFailure:    func(lnwire.ChannelID, lnwire.ShortChannelID, LinkFailureError) {},
+			ExpiryGraceDelta:    expiryGraceDelta,
 		},
 		aliceChannel,
 	)
@@ -974,6 +976,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			MinFeeUpdateTimeout: minFeeUpdateTimeout,
 			MaxFeeUpdateTimeout: maxFeeUpdateTimeout,
 			OnChannelFailure:    func(lnwire.ChannelID, lnwire.ShortChannelID, LinkFailureError) {},
+			ExpiryGraceDelta:    expiryGraceDelta,
 		},
 		firstBobChannel,
 	)
@@ -1017,6 +1020,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			MinFeeUpdateTimeout: minFeeUpdateTimeout,
 			MaxFeeUpdateTimeout: maxFeeUpdateTimeout,
 			OnChannelFailure:    func(lnwire.ChannelID, lnwire.ShortChannelID, LinkFailureError) {},
+			ExpiryGraceDelta:    expiryGraceDelta,
 		},
 		secondBobChannel,
 	)
@@ -1060,6 +1064,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			MinFeeUpdateTimeout: minFeeUpdateTimeout,
 			MaxFeeUpdateTimeout: maxFeeUpdateTimeout,
 			OnChannelFailure:    func(lnwire.ChannelID, lnwire.ShortChannelID, LinkFailureError) {},
+			ExpiryGraceDelta:    expiryGraceDelta,
 		},
 		carolChannel,
 	)

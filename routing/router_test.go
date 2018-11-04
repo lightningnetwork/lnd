@@ -183,7 +183,7 @@ func TestFindRoutesFeeSorting(t *testing.T) {
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := ctx.aliases["luoji"]
 	routes, err := ctx.router.FindRoutes(
-		target, paymentAmt, noFeeLimit, defaultNumRoutes,
+		target, paymentAmt, PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit}, defaultNumRoutes,
 		DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -242,7 +242,7 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 	feeLimit := lnwire.NewMSatFromSatoshis(10)
 
 	routes, err := ctx.router.FindRoutes(
-		target, paymentAmt, feeLimit, defaultNumRoutes,
+		target, paymentAmt, PathRestrictions{FeeLimit: feeLimit, MaxCltvDelay: noCltvLimit}, defaultNumRoutes,
 		DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -290,10 +290,10 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 	var payHash [32]byte
 	paymentAmt := lnwire.NewMSatFromSatoshis(1000)
 	payment := LightningPayment{
-		Target:      ctx.aliases["luoji"],
-		Amount:      paymentAmt,
-		FeeLimit:    noFeeLimit,
-		PaymentHash: payHash,
+		Target:       ctx.aliases["luoji"],
+		Amount:       paymentAmt,
+		Restrictions: PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit},
+		PaymentHash:  payHash,
 	}
 
 	var preImage [32]byte
@@ -525,10 +525,10 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	var payHash [32]byte
 	amt := lnwire.NewMSatFromSatoshis(1000)
 	payment := LightningPayment{
-		Target:      ctx.aliases["sophon"],
-		Amount:      amt,
-		FeeLimit:    noFeeLimit,
-		PaymentHash: payHash,
+		Target:       ctx.aliases["sophon"],
+		Amount:       amt,
+		Restrictions: PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit},
+		PaymentHash:  payHash,
 	}
 
 	var preImage [32]byte
@@ -629,10 +629,10 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	var payHash [32]byte
 	amt := lnwire.NewMSatFromSatoshis(1000)
 	payment := LightningPayment{
-		Target:      ctx.aliases["sophon"],
-		Amount:      amt,
-		FeeLimit:    noFeeLimit,
-		PaymentHash: payHash,
+		Target:       ctx.aliases["sophon"],
+		Amount:       amt,
+		Restrictions: PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit},
+		PaymentHash:  payHash,
 	}
 
 	var preImage [32]byte
@@ -764,10 +764,10 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	var payHash [32]byte
 	paymentAmt := lnwire.NewMSatFromSatoshis(1000)
 	payment := LightningPayment{
-		Target:      ctx.aliases["luoji"],
-		Amount:      paymentAmt,
-		FeeLimit:    noFeeLimit,
-		PaymentHash: payHash,
+		Target:       ctx.aliases["luoji"],
+		Amount:       paymentAmt,
+		Restrictions: PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit},
+		PaymentHash:  payHash,
 	}
 
 	var preImage [32]byte
@@ -1215,7 +1215,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	targetNode := priv2.PubKey()
 	routes, err := ctx.router.FindRoutes(
-		targetNode, paymentAmt, noFeeLimit, defaultNumRoutes,
+		targetNode, paymentAmt, PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit}, defaultNumRoutes,
 		DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -1260,7 +1260,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// Should still be able to find the routes, and the info should be
 	// updated.
 	routes, err = ctx.router.FindRoutes(
-		targetNode, paymentAmt, noFeeLimit, defaultNumRoutes,
+		targetNode, paymentAmt, PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit}, defaultNumRoutes,
 		DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -1872,8 +1872,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	// path even though the direct path has a higher potential time lock.
 	path, err := findPath(
 		nil, ctx.graph, nil, sourceNode, target, ignoreVertex,
-		ignoreEdge, amt, noFeeLimit, nil,
-	)
+		ignoreEdge, amt, PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit}, nil)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
 	}

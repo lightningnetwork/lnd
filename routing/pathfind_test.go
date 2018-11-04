@@ -44,6 +44,9 @@ const (
 	// can use this value to signal there is no fee limit since payments
 	// should never be larger than this.
 	noFeeLimit = lnwire.MilliSatoshi(math.MaxUint32)
+
+	// noCltvLimit is specified by setting it to 0
+	noCltvLimit = 0
 )
 
 var (
@@ -575,17 +578,22 @@ func TestFindLowestFeePath(t *testing.T) {
 		finalHopCLTV   = 1
 	)
 
+	routingLimits := PathRestrictions{
+		FeeLimit:     noFeeLimit,
+		MaxCltvDelay: noCltvLimit,
+	}
+
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := testGraphInstance.aliasMap["target"]
 	path, err := findPath(
 		nil, testGraphInstance.graph, nil, sourceNode, target,
-		ignoredVertexes, ignoredEdges, paymentAmt, noFeeLimit, nil,
+		ignoredVertexes, ignoredEdges, paymentAmt, routingLimits, nil,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
 	}
 	route, err := newRoute(
-		paymentAmt, infinity, sourceVertex, path, startingHeight,
+		paymentAmt, routingLimits, sourceVertex, path, startingHeight,
 		finalHopCLTV)
 	if err != nil {
 		t.Fatalf("unable to create path: %v", err)
@@ -620,26 +628,30 @@ type expectedHop struct {
 }
 
 type basicGraphPathFindingTestCase struct {
+	name                  string
 	target                string
 	paymentAmt            btcutil.Amount
-	feeLimit              lnwire.MilliSatoshi
+	pathRestrictions      PathRestrictions
 	expectedTotalAmt      lnwire.MilliSatoshi
 	expectedTotalTimeLock uint32
 	expectedHops          []expectedHop
-	expectFailureNoPath   bool
+	expectError           bool
+	expectedFailure       errorCode
 }
 
 var basicGraphPathFindingTests = []basicGraphPathFindingTestCase{
 	// Basic route with one intermediate hop.
-	{target: "sophon", paymentAmt: 100, feeLimit: noFeeLimit,
-		expectedTotalTimeLock: 102, expectedTotalAmt: 100110,
+	{name: "BasicRouteIntermediateHop ", target: "sophon", paymentAmt: 100,
+		pathRestrictions:      PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit},
+		expectedTotalTimeLock: 245, expectedTotalAmt: 100110,
 		expectedHops: []expectedHop{
 			{alias: "songoku", fwdAmount: 100000, fee: 110, timeLock: 101},
 			{alias: "sophon", fwdAmount: 100000, fee: 0, timeLock: 101},
 		}},
 
 	// Basic direct (one hop) route.
-	{target: "luoji", paymentAmt: 100, feeLimit: noFeeLimit,
+	{name: "BasicRouteDirect", target: "luoji", paymentAmt: 100,
+		pathRestrictions:      PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit},
 		expectedTotalTimeLock: 101, expectedTotalAmt: 100000,
 		expectedHops: []expectedHop{
 			{alias: "luoji", fwdAmount: 100000, fee: 0, timeLock: 101},
@@ -647,29 +659,55 @@ var basicGraphPathFindingTests = []basicGraphPathFindingTestCase{
 
 	// Three hop route where fees need to be added in to the forwarding amount.
 	// The high fee hop phamnewun should be avoided.
-	{target: "elst", paymentAmt: 50000, feeLimit: noFeeLimit,
-		expectedTotalTimeLock: 103, expectedTotalAmt: 50050210,
+	{name: "AvoidHighFees", target: "elst",
+		paymentAmt: 50000, pathRestrictions: PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit},
+		expectedTotalTimeLock: 389, expectedTotalAmt: 50050210,
 		expectedHops: []expectedHop{
-			{alias: "songoku", fwdAmount: 50000200, fee: 50010, timeLock: 102},
+			{alias: "songoku", fwdAmount: 50000200, fee: 50010, timeLock: 245},
 			{alias: "sophon", fwdAmount: 50000000, fee: 200, timeLock: 101},
 			{alias: "elst", fwdAmount: 50000000, fee: 0, timeLock: 101},
 		}},
+	// Force taking the expensive route by setting a maximum cltv delay.
+	// The low fee, longer delay path should be avoided.
+	{name: "AvoidHighCltvPath", target: "elst", paymentAmt: 50000,
+		pathRestrictions:      PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: 10},
+		expectedTotalTimeLock: 255, expectedTotalAmt: 55010220,
+		expectedHops: []expectedHop{
+			{alias: "phamnuwen", fwdAmount: 50000200, fee: 5010020, timeLock: 245},
+			{alias: "sophon", fwdAmount: 50000000, fee: 200, timeLock: 101},
+			{alias: "elst", fwdAmount: 50000000, fee: 0, timeLock: 101},
+		}},
+
 	// Three hop route where fees need to be added in to the forwarding amount.
 	// However this time the fwdAmount becomes too large for the roasbeef <->
 	// songoku channel. Then there is no other option than to choose the
 	// expensive phamnuwen channel. This test case was failing before
 	// the route search was executed backwards.
-	{target: "elst", paymentAmt: 100000, feeLimit: noFeeLimit,
-		expectedTotalTimeLock: 103, expectedTotalAmt: 110010220,
+	{name: "ForceHighFeePath", target: "elst", paymentAmt: 100000,
+		pathRestrictions:      PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit},
+		expectedTotalTimeLock: 255, expectedTotalAmt: 110010220,
 		expectedHops: []expectedHop{
-			{alias: "phamnuwen", fwdAmount: 100000200, fee: 10010020, timeLock: 102},
+			{alias: "phamnuwen", fwdAmount: 100000200, fee: 10010020, timeLock: 245},
 			{alias: "sophon", fwdAmount: 100000000, fee: 200, timeLock: 101},
 			{alias: "elst", fwdAmount: 100000000, fee: 0, timeLock: 101},
 		}},
 
 	// Basic route with fee limit.
-	{target: "sophon", paymentAmt: 100, feeLimit: 50,
-		expectFailureNoPath: true,
+	{name: "MaxFeeLimit", target: "sophon", paymentAmt: 100,
+		pathRestrictions: PathRestrictions{FeeLimit: 50, MaxCltvDelay: noCltvLimit},
+		expectError:      true, expectedFailure: ErrNoPathFound,
+	},
+
+	// Basic route with max cltv delay limit.
+	{name: "MaxCltvLimit", target: "elst", paymentAmt: 100,
+		pathRestrictions: PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: 9},
+		expectError:      true, expectedFailure: ErrNoPathFound,
+	},
+
+	// Test routing a value for which there is no capacity
+	{name: "InsufficentCapacity", target: "sophon", paymentAmt: 1e8,
+		pathRestrictions: PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit},
+		expectError:      true, expectedFailure: ErrNoPathFound,
 	}}
 
 func TestBasicGraphPathFinding(t *testing.T) {
@@ -687,7 +725,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	// finding.
 
 	for _, testCase := range basicGraphPathFindingTests {
-		t.Run(testCase.target, func(subT *testing.T) {
+		t.Run(testCase.name, func(subT *testing.T) {
 			testBasicGraphPathFindingCase(subT, testGraphInstance, &testCase)
 		})
 	}
@@ -718,20 +756,25 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 	target := graphInstance.aliasMap[test.target]
 	path, err := findPath(
 		nil, graphInstance.graph, nil, sourceNode, target,
-		ignoredVertexes, ignoredEdges, paymentAmt, test.feeLimit, nil,
+		ignoredVertexes, ignoredEdges, paymentAmt, test.pathRestrictions, nil,
 	)
-	if test.expectFailureNoPath {
-		if err == nil {
-			t.Fatal("expected no path to be found")
-		}
-		return
-	}
+
 	if err != nil {
-		t.Fatalf("unable to find path: %v", err)
+
+		if !test.expectError {
+			t.Fatal("did not expect error from path finding:", err)
+		} else if IsError(err, test.expectedFailure) {
+			return
+		} else {
+			t.Fatal("did not get expected error from path finding:", err)
+		}
+
+	} else if test.expectError {
+		t.Fatal("expected an error from path finding")
 	}
 
 	route, err := newRoute(
-		paymentAmt, test.feeLimit, sourceVertex, path, startingHeight,
+		paymentAmt, test.pathRestrictions, sourceVertex, path, startingHeight,
 		finalHopCLTV,
 	)
 	if err != nil {
@@ -820,7 +863,7 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 	}
 
 	if route.TotalTimeLock != test.expectedTotalTimeLock {
-		t.Fatalf("expected time lock of %v, instead have %v", 2,
+		t.Fatalf("expected total-time lock of %v, instead have %v", test.expectedTotalTimeLock,
 			route.TotalTimeLock)
 	}
 
@@ -906,7 +949,7 @@ func TestPathFindingWithAdditionalEdges(t *testing.T) {
 	// We should now be able to find a path from roasbeef to doge.
 	path, err := findPath(
 		nil, graph.graph, additionalEdges, sourceNode, dogePubKey, nil, nil,
-		paymentAmt, noFeeLimit, nil,
+		paymentAmt, PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit}, nil,
 	)
 	if err != nil {
 		t.Fatalf("unable to find private path to doge: %v", err)
@@ -931,6 +974,8 @@ func TestKShortestPathFinding(t *testing.T) {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
 
+	finalCltvDelta := uint16(1)
+
 	// In this test we'd like to ensure that our algorithm to find the
 	// k-shortest paths from a given source node to any destination node
 	// works as expected.
@@ -942,8 +987,9 @@ func TestKShortestPathFinding(t *testing.T) {
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := graph.aliasMap["luoji"]
 	paths, err := findPaths(
-		nil, graph.graph, sourceNode, target, paymentAmt, noFeeLimit, 100,
-		nil,
+		nil, graph.graph, sourceNode, target, paymentAmt,
+		PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit}, 100,
+		nil, finalCltvDelta,
 	)
 	if err != nil {
 		t.Fatalf("unable to find paths between roasbeef and "+
@@ -1035,7 +1081,7 @@ func TestNewRoute(t *testing.T) {
 		// expectError is true.
 		expectedErrorCode errorCode
 
-		feeLimit lnwire.MilliSatoshi
+		pathRestrictions PathRestrictions
 	}{
 		{
 			// For a single hop payment, no fees are expected to be paid.
@@ -1048,7 +1094,7 @@ func TestNewRoute(t *testing.T) {
 			expectedTimeLocks:     []uint32{1},
 			expectedTotalAmount:   100000,
 			expectedTotalTimeLock: 1,
-			feeLimit:              noFeeLimit,
+			pathRestrictions:      PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit},
 		}, {
 			// For a two hop payment, only the fee for the first hop
 			// needs to be paid. The destination hop does not require
@@ -1063,7 +1109,7 @@ func TestNewRoute(t *testing.T) {
 			expectedTimeLocks:     []uint32{1, 1},
 			expectedTotalAmount:   100130,
 			expectedTotalTimeLock: 6,
-			feeLimit:              noFeeLimit,
+			pathRestrictions:      PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit},
 		}, {
 			// A three hop payment where the first and second hop
 			// will both charge 1 msat. The fee for the first hop
@@ -1081,7 +1127,7 @@ func TestNewRoute(t *testing.T) {
 			expectedTotalAmount:   100002,
 			expectedTimeLocks:     []uint32{4, 1, 1},
 			expectedTotalTimeLock: 9,
-			feeLimit:              noFeeLimit,
+			pathRestrictions:      PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit},
 		}, {
 			// A three hop payment where the fee of the first hop
 			// is slightly higher (11) than the fee at the second hop,
@@ -1097,7 +1143,7 @@ func TestNewRoute(t *testing.T) {
 			expectedTotalAmount:   102010,
 			expectedTimeLocks:     []uint32{4, 1, 1},
 			expectedTotalTimeLock: 9,
-			feeLimit:              noFeeLimit,
+			pathRestrictions:      PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit},
 		}, {
 			// A three hop payment where the fee policies of the first and
 			// second hop are just high enough to show the fee carry over
@@ -1119,7 +1165,7 @@ func TestNewRoute(t *testing.T) {
 			expectedTotalAmount:   101101,
 			expectedTimeLocks:     []uint32{4, 1, 1},
 			expectedTotalTimeLock: 9,
-			feeLimit:              noFeeLimit,
+			pathRestrictions:      PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit},
 		},
 		// Check fee limit behaviour
 		{
@@ -1133,7 +1179,7 @@ func TestNewRoute(t *testing.T) {
 			expectedFees:          []lnwire.MilliSatoshi{100, 0},
 			expectedTimeLocks:     []uint32{1, 1},
 			expectedTotalTimeLock: 145,
-			feeLimit:              150,
+			pathRestrictions:      PathRestrictions{FeeLimit: 150, MaxCltvDelay: noCltvLimit},
 		}, {
 			name:          "two hop success with fee limit (equal)",
 			paymentAmount: 100000,
@@ -1145,7 +1191,7 @@ func TestNewRoute(t *testing.T) {
 			expectedFees:          []lnwire.MilliSatoshi{100, 0},
 			expectedTimeLocks:     []uint32{1, 1},
 			expectedTotalTimeLock: 145,
-			feeLimit:              100,
+			pathRestrictions:      PathRestrictions{FeeLimit: 100, MaxCltvDelay: noCltvLimit},
 		}, {
 			name:          "two hop failure with fee limit (smaller)",
 			paymentAmount: 100000,
@@ -1153,7 +1199,7 @@ func TestNewRoute(t *testing.T) {
 				createHop(0, 1000, 1000000, 144),
 				createHop(0, 1000, 1000000, 144),
 			},
-			feeLimit:          50,
+			pathRestrictions:  PathRestrictions{FeeLimit: 50, MaxCltvDelay: noCltvLimit},
 			expectError:       true,
 			expectedErrorCode: ErrFeeLimitExceeded,
 		}, {
@@ -1163,10 +1209,11 @@ func TestNewRoute(t *testing.T) {
 				createHop(0, 1000, 1000000, 144),
 				createHop(0, 1000, 1000000, 144),
 			},
-			feeLimit:          0,
+			pathRestrictions:  PathRestrictions{FeeLimit: 0, MaxCltvDelay: noCltvLimit},
 			expectError:       true,
 			expectedErrorCode: ErrFeeLimitExceeded,
-		}}
+		},
+	}
 
 	for _, testCase := range testCases {
 		assertRoute := func(t *testing.T, route *Route) {
@@ -1216,7 +1263,7 @@ func TestNewRoute(t *testing.T) {
 
 		t.Run(testCase.name, func(t *testing.T) {
 			route, err := newRoute(testCase.paymentAmount,
-				testCase.feeLimit,
+				testCase.pathRestrictions,
 				sourceVertex, testCase.hops, startingHeight,
 				finalHopCLTV)
 
@@ -1266,7 +1313,7 @@ func TestNewRoutePathTooLong(t *testing.T) {
 	target := graph.aliasMap["ursula"]
 	_, err = findPath(
 		nil, graph.graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, paymentAmt, noFeeLimit, nil,
+		ignoredEdges, paymentAmt, PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit}, nil,
 	)
 	if err != nil {
 		t.Fatalf("path should have been found")
@@ -1277,7 +1324,7 @@ func TestNewRoutePathTooLong(t *testing.T) {
 	target = graph.aliasMap["vincent"]
 	path, err := findPath(
 		nil, graph.graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, paymentAmt, noFeeLimit, nil,
+		ignoredEdges, paymentAmt, PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit}, nil,
 	)
 	if err == nil {
 		t.Fatalf("should not have been able to find path, supposed to be "+
@@ -1319,7 +1366,7 @@ func TestPathNotAvailable(t *testing.T) {
 
 	_, err = findPath(
 		nil, graph.graph, nil, sourceNode, unknownNode, ignoredVertexes,
-		ignoredEdges, 100, noFeeLimit, nil,
+		ignoredEdges, 100, PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit}, nil,
 	)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("path shouldn't have been found: %v", err)
@@ -1355,7 +1402,7 @@ func TestPathInsufficientCapacity(t *testing.T) {
 	payAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 	_, err = findPath(
 		nil, graph.graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, payAmt, noFeeLimit, nil,
+		ignoredEdges, payAmt, PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit}, nil,
 	)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
@@ -1377,6 +1424,7 @@ func TestRouteFailMinHTLC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
+
 	ignoredEdges := make(map[uint64]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
@@ -1387,7 +1435,7 @@ func TestRouteFailMinHTLC(t *testing.T) {
 	payAmt := lnwire.MilliSatoshi(10)
 	_, err = findPath(
 		nil, graph.graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, payAmt, noFeeLimit, nil,
+		ignoredEdges, payAmt, PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit}, nil,
 	)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
@@ -1419,7 +1467,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	payAmt := lnwire.NewMSatFromSatoshis(105000)
 	_, err = findPath(
 		nil, graph.graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, payAmt, noFeeLimit, nil,
+		ignoredEdges, payAmt, PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit}, nil,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -1440,7 +1488,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	// failure as it is no longer eligible.
 	_, err = findPath(
 		nil, graph.graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, payAmt, noFeeLimit, nil,
+		ignoredEdges, payAmt, PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit}, nil,
 	)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
@@ -1492,7 +1540,8 @@ func TestPathFindSpecExample(t *testing.T) {
 	// Query for a route of 4,999,999 mSAT to carol.
 	carol := ctx.aliases["C"]
 	const amt lnwire.MilliSatoshi = 4999999
-	routes, err := ctx.router.FindRoutes(carol, amt, noFeeLimit, 100)
+	routes, err := ctx.router.FindRoutes(carol, amt, PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit},
+		100)
 	if err != nil {
 		t.Fatalf("unable to find route: %v", err)
 	}
@@ -1553,7 +1602,8 @@ func TestPathFindSpecExample(t *testing.T) {
 
 	// We'll now request a route from A -> B -> C.
 	ctx.router.routeCache = make(map[routeTuple][]*Route)
-	routes, err = ctx.router.FindRoutes(carol, amt, noFeeLimit, 100)
+	routes, err = ctx.router.FindRoutes(carol, amt, PathRestrictions{FeeLimit: noFeeLimit, MaxCltvDelay: noCltvLimit},
+		100)
 	if err != nil {
 		t.Fatalf("unable to find routes: %v", err)
 	}

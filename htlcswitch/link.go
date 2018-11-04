@@ -26,16 +26,6 @@ func init() {
 }
 
 const (
-	// expiryGraceDelta is a grace period that the timeout of incoming
-	// HTLC's that pay directly to us (i.e we're the "exit node") must up
-	// hold. We'll reject any HTLC's who's timeout minus this value is less
-	// that or equal to the current block height. We require this in order
-	// to ensure that if the extending party goes to the chain, then we'll
-	// be able to claim the HTLC still.
-	//
-	// TODO(roasbeef): must be < default delta
-	expiryGraceDelta = 2
-
 	// maxCltvExpiry is the maximum outgoing time lock that the node accepts
 	// for forwarded payments. The value is relative to the current block
 	// height. The reason to have a maximum is to prevent funds getting
@@ -1957,14 +1947,13 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 		return failure
 	}
 
-	// We want to avoid accepting an HTLC which will expire in the near
-	// future, so we'll reject an HTLC if its expiration time is too close
-	// to the current height.
-	timeDelta := policy.TimeLockDelta
-	if incomingTimeout-timeDelta <= heightNow {
+	// We want to avoid offering an HTLC which will expire in the near
+	// future, so we'll reject an HTLC if the outgoing expiration time is too
+	// close to the current height.
+	if outgoingTimeout-l.cfg.ExpiryGraceDelta <= heightNow {
 		l.errorf("htlc(%x) has an expiry that's too soon: "+
 			"outgoing_expiry=%v, best_height=%v", payHash[:],
-			incomingTimeout-timeDelta, heightNow)
+			outgoingTimeout, heightNow)
 
 		var failure lnwire.FailureMessage
 		update, err := l.cfg.FetchLastChannelUpdate(
@@ -1991,6 +1980,7 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 	// the following constraint: the incoming time-lock minus our time-lock
 	// delta should equal the outgoing time lock. Otherwise, whether the
 	// sender messed up, or an intermediate node tampered with the HTLC.
+	timeDelta := policy.TimeLockDelta
 	if incomingTimeout-timeDelta < outgoingTimeout {
 		l.errorf("Incoming htlc(%x) has incorrect time-lock value: "+
 			"expected at least %v block delta, got %v block delta",
@@ -2307,7 +2297,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// First, we'll check the expiry of the HTLC itself
 			// against, the current block height. If the timeout is
 			// too soon, then we'll reject the HTLC.
-			if pd.Timeout-expiryGraceDelta <= heightNow {
+			if pd.Timeout-l.cfg.ExpiryGraceDelta <= heightNow {
 				log.Errorf("htlc(%x) has an expiry that's too "+
 					"soon: expiry=%v, best_height=%v",
 					pd.RHash[:], pd.Timeout, heightNow)

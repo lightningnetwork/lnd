@@ -237,6 +237,18 @@ type ChannelLinkConfig struct {
 	// fee rate. A random timeout will be selected between these values.
 	MinFeeUpdateTimeout time.Duration
 	MaxFeeUpdateTimeout time.Duration
+
+	// ExpiryGraceDelta is the minimum difference between the current block
+	// height and the CLTV we require on 1) an outgoing HTLC in order to
+	// forward as an intermediary hop, or 2) an incoming HTLC to reveal the
+	// preimage as the final hop. We'll reject any HTLC's who's timeout minus
+	// this value is less than or equal to the current block height. We require
+	// this in order to ensure that we have sufficient time to claim or
+	// timeout an HTLC on chain.
+	//
+	// This MUST be greater than the maximum BroadcastDelta of the
+	// ChannelArbitrator for the outbound channel.
+	ExpiryGraceDelta uint32
 }
 
 // channelLink is the service which drives a channel's commitment update

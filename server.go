@@ -652,9 +652,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	contractBreaches := make(chan *ContractBreachEvent, 1)
 
 	s.chainArb = contractcourt.NewChainArbitrator(contractcourt.ChainArbitratorConfig{
-		ChainHash: *activeNetParams.GenesisHash,
-		// TODO(roasbeef): properly configure
-		//  * needs to be << or specified final hop time delta
+		ChainHash:      *activeNetParams.GenesisHash,
 		BroadcastDelta: defaultBroadcastDelta,
 		NewSweepAddr: func() ([]byte, error) {
 			return newSweepPkScript(cc.wallet)

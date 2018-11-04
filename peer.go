@@ -52,6 +52,13 @@ const (
 	// messages to be sent across the wire, requested by objects outside
 	// this struct.
 	outgoingQueueLen = 50
+
+	// extraExpiryGraceDelta is the additional number of blocks required by the
+	// ExpiryGraceDelta of the forwarding policy beyond the maximum broadcast
+	// delta. This is the minimum number of blocks between the expiry on an
+	// accepted or offered HTLC and the block height at which we will go to
+	// chain.
+	extraExpiryGraceDelta = 3
 )
 
 // outgoingMsg packages an lnwire.Message to be sent out on the wire, along with
@@ -582,6 +589,7 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 		UnsafeReplay:        cfg.UnsafeReplay,
 		MinFeeUpdateTimeout: htlcswitch.DefaultMinLinkFeeUpdateTimeout,
 		MaxFeeUpdateTimeout: htlcswitch.DefaultMaxLinkFeeUpdateTimeout,
+		ExpiryGraceDelta:    defaultBroadcastDelta + extraExpiryGraceDelta,
 	}
 
 	link := htlcswitch.NewChannelLink(linkCfg, lnChan)

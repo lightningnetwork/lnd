@@ -2091,12 +2091,13 @@ func (r *rpcServer) SendToRoute(stream lnrpc.Lightning_SendToRouteServer) error 
 // hints), or we'll get a fully populated route from the user that we'll pass
 // directly to the channel router for dispatching.
 type rpcPaymentIntent struct {
-	msat       lnwire.MilliSatoshi
-	feeLimit   lnwire.MilliSatoshi
-	dest       *btcec.PublicKey
-	rHash      [32]byte
-	cltvDelta  uint16
-	routeHints [][]routing.HopHint
+	msat         lnwire.MilliSatoshi
+	feeLimit     lnwire.MilliSatoshi
+	maxCltvDelay uint32
+	dest         *btcec.PublicKey
+	rHash        [32]byte
+	cltvDelta    uint16
+	routeHints   [][]routing.HopHint
 
 	routes []*routing.Route
 }
@@ -2279,9 +2280,12 @@ func (r *rpcServer) dispatchPaymentIntent(
 	// router, otherwise we'll create a payment session to execute it.
 	if len(payIntent.routes) == 0 {
 		payment := &routing.LightningPayment{
-			Target:      payIntent.dest,
-			Amount:      payIntent.msat,
-			FeeLimit:    payIntent.feeLimit,
+			Target: payIntent.dest,
+			Amount: payIntent.msat,
+			Restrictions: routing.PathRestrictions{
+				FeeLimit:     payIntent.feeLimit,
+				MaxCltvDelay: payIntent.maxCltvDelay,
+			},
 			PaymentHash: payIntent.rHash,
 			RouteHints:  payIntent.routeHints,
 		}
@@ -3437,16 +3441,13 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 		routes  []*routing.Route
 		findErr error
 	)
-	if in.FinalCltvDelta == 0 {
-		routes, findErr = r.server.chanRouter.FindRoutes(
-			pubKey, amtMSat, feeLimit, uint32(in.NumRoutes),
-		)
-	} else {
-		routes, findErr = r.server.chanRouter.FindRoutes(
-			pubKey, amtMSat, feeLimit, uint32(in.NumRoutes),
-			uint16(in.FinalCltvDelta),
-		)
-	}
+	routes, findErr = r.server.chanRouter.FindRoutes(
+		pubKey, amtMSat, routing.PathRestrictions{
+			FeeLimit:     feeLimit,
+			MaxCltvDelay: uint32(in.MaxCltvDelay),
+		},
+		uint32(in.NumRoutes), uint16(in.FinalCltvDelta),
+	)
 	if findErr != nil {
 		return nil, findErr
 	}

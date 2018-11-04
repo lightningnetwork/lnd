@@ -1279,7 +1279,7 @@ func pruneChannelFromRoutes(routes []*Route, skipChan uint64) []*Route {
 // initial set of paths as it's possible we drop a route if it can't handle the
 // total payment flow after fees are calculated.
 func pathsToFeeSortedRoutes(source Vertex, paths [][]*channeldb.ChannelEdgePolicy,
-	finalCLTVDelta uint16, amt, feeLimit lnwire.MilliSatoshi,
+	finalCLTVDelta uint16, amt lnwire.MilliSatoshi, routingLimits PathRestrictions,
 	currentHeight uint32) ([]*Route, error) {
 
 	validRoutes := make([]*Route, 0, len(paths))
@@ -1288,7 +1288,7 @@ func pathsToFeeSortedRoutes(source Vertex, paths [][]*channeldb.ChannelEdgePolic
 		// hop in the path as it contains a "self-hop" that is inserted
 		// by our KSP algorithm.
 		route, err := newRoute(
-			amt, feeLimit, source, path[1:], currentHeight,
+			amt, routingLimits, source, path[1:], currentHeight,
 			finalCLTVDelta,
 		)
 		if err != nil {
@@ -1338,8 +1338,8 @@ func pathsToFeeSortedRoutes(source Vertex, paths [][]*channeldb.ChannelEdgePolic
 // route that will be ranked the highest is the one with the lowest cumulative
 // fee along the route.
 func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
-	amt, feeLimit lnwire.MilliSatoshi, numPaths uint32,
-	finalExpiry ...uint16) ([]*Route, error) {
+	amt lnwire.MilliSatoshi, routingLimits PathRestrictions,
+	numPaths uint32, finalExpiry ...uint16) ([]*Route, error) {
 
 	var finalCLTVDelta uint16
 	if len(finalExpiry) == 0 {
@@ -1408,8 +1408,8 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	// we'll execute our KSP algorithm to find the k-shortest paths from
 	// our source to the destination.
 	shortestPaths, err := findPaths(
-		tx, r.cfg.Graph, r.selfNode, target, amt, feeLimit, numPaths,
-		bandwidthHints,
+		tx, r.cfg.Graph, r.selfNode, target, amt, routingLimits, numPaths,
+		bandwidthHints, finalCLTVDelta,
 	)
 	if err != nil {
 		tx.Rollback()
@@ -1425,7 +1425,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	// factored in.
 	sourceVertex := Vertex(r.selfNode.PubKeyBytes)
 	validRoutes, err := pathsToFeeSortedRoutes(
-		sourceVertex, shortestPaths, finalCLTVDelta, amt, feeLimit,
+		sourceVertex, shortestPaths, finalCLTVDelta, amt, routingLimits,
 		uint32(currentHeight),
 	)
 	if err != nil {
@@ -1521,6 +1521,20 @@ func generateSphinxPacket(route *Route, paymentHash []byte) ([]byte,
 	}, nil
 }
 
+// PathRestrictions specifies the restrictions to be used when
+// making a payment or querying routes within a graph
+type PathRestrictions struct {
+
+	// FeeLimit is the maximum fee in millisatoshis that the payment should
+	// accept when sending it through the network. The payment will fail
+	// if there isn't a route with lower fees than this limit.
+	FeeLimit lnwire.MilliSatoshi
+
+	// MaxCltvDelay is the maximum absolute time lock value accross the
+	// hops in the payment
+	MaxCltvDelay uint32
+}
+
 // LightningPayment describes a payment to be sent through the network to the
 // final destination.
 type LightningPayment struct {
@@ -1531,10 +1545,8 @@ type LightningPayment struct {
 	// milli-satoshis.
 	Amount lnwire.MilliSatoshi
 
-	// FeeLimit is the maximum fee in millisatoshis that the payment should
-	// accept when sending it through the network. The payment will fail
-	// if there isn't a route with lower fees than this limit.
-	FeeLimit lnwire.MilliSatoshi
+	// Restrictions to filter possible payment routes
+	Restrictions PathRestrictions
 
 	// PaymentHash is the r-hash value to use within the HTLC extended to
 	// the first hop.

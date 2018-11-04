@@ -51,6 +51,10 @@ const (
 	// ErrFeeLimitExceeded is returned when the total fees of a route exceed
 	// the user-specified fee limit.
 	ErrFeeLimitExceeded
+
+	// ErrMaxCltvDelayExceeded is returned when the total time lock across a
+	// route exceeds the user specified amount
+	ErrMaxCltvDelayExceeded
 )
 
 // routerError is a structure that represent the error inside the routing package,

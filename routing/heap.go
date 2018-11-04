@@ -21,6 +21,9 @@ type nodeWithDist struct {
 	// amount that includes also the fees for subsequent hops.
 	amountToReceive lnwire.MilliSatoshi
 
+	// Total cltv amount from this node to the destination
+	cltvTotal uint32
+
 	// fee is the fee that this node is charging for forwarding.
 	fee lnwire.MilliSatoshi
 }

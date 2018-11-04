@@ -262,8 +262,8 @@ func (r *Route) ToHopPayloads() []sphinx.HopData {
 //
 // NOTE: The passed slice of ChannelHops MUST be sorted in forward order: from
 // the source to the target node of the path finding attempt.
-func newRoute(amtToSend, feeLimit lnwire.MilliSatoshi, sourceVertex Vertex,
-	pathEdges []*channeldb.ChannelEdgePolicy, currentHeight uint32,
+func newRoute(amtToSend lnwire.MilliSatoshi, routingLimit PathRestrictions,
+	sourceVertex Vertex, pathEdges []*channeldb.ChannelEdgePolicy, currentHeight uint32,
 	finalCLTVDelta uint16) (*Route, error) {
 
 	var (
@@ -279,7 +279,13 @@ func newRoute(amtToSend, feeLimit lnwire.MilliSatoshi, sourceVertex Vertex,
 		// backwards below, this next hop gets closer and closer to the
 		// sender of the payment.
 		nextIncomingAmount lnwire.MilliSatoshi
+
+		// Total intermediate cltv
+		totalIntermediateCltv uint32
 	)
+
+	feeLimit := routingLimit.FeeLimit
+	maxCltvDelay := routingLimit.MaxCltvDelay
 
 	pathLength := len(pathEdges)
 	for i := pathLength - 1; i >= 0; i-- {
@@ -309,6 +315,11 @@ func newRoute(amtToSend, feeLimit lnwire.MilliSatoshi, sourceVertex Vertex,
 			// is stored as part of the incoming channel of
 			// the next hop.
 			fee = computeFee(amtToForward, pathEdges[i+1])
+		}
+
+		// Keep track of the total intermediate cltv in the path
+		if i != len(pathEdges)-1 && i != 0 {
+			totalIntermediateCltv += uint32(pathEdges[i].TimeLockDelta)
 		}
 
 		// If this is the last hop, then for verification purposes, the
@@ -361,9 +372,13 @@ func newRoute(amtToSend, feeLimit lnwire.MilliSatoshi, sourceVertex Vertex,
 
 	// Invalidate this route if its total fees exceed our fee limit.
 	if newRoute.TotalFees > feeLimit {
-		err := fmt.Sprintf("total route fees exceeded fee "+
+		return nil, newErrf(ErrFeeLimitExceeded, "total route fees exceeded fee "+
 			"limit of %v", feeLimit)
-		return nil, newErrf(ErrFeeLimitExceeded, err)
+	}
+
+	if maxCltvDelay > 0 && totalIntermediateCltv > maxCltvDelay {
+		return nil, newErrf(ErrMaxCltvDelayExceeded, "total intermidate cltv delay exceeded "+
+			"limit of %v", maxCltvDelay)
 	}
 
 	return newRoute, nil
@@ -461,10 +476,16 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	additionalEdges map[Vertex][]*channeldb.ChannelEdgePolicy,
 	sourceNode *channeldb.LightningNode, target *btcec.PublicKey,
 	ignoredNodes map[Vertex]struct{}, ignoredEdges map[uint64]struct{},
-	amt lnwire.MilliSatoshi, feeLimit lnwire.MilliSatoshi,
+	amt lnwire.MilliSatoshi, pathRestrictions PathRestrictions,
 	bandwidthHints map[uint64]lnwire.MilliSatoshi) ([]*channeldb.ChannelEdgePolicy, error) {
 
-	var err error
+	var (
+		err error
+	)
+
+	feeLimit := pathRestrictions.FeeLimit
+	cltvLimit := pathRestrictions.MaxCltvDelay
+
 	if tx == nil {
 		tx, err = graph.Database().Begin(false)
 		if err != nil {
@@ -535,6 +556,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		node:            targetNode,
 		amountToReceive: amt,
 		fee:             0,
+		cltvTotal:       0,
 	}
 
 	// We'll use this map as a series of "next" hop pointers. So to get
@@ -599,6 +621,19 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			timeLockDelta = edge.TimeLockDelta
 		}
 
+		// We only calculate the timelockDelta for intermediate hops
+		if toNode == targetVertex {
+			timeLockDelta = 0
+		}
+
+		accumulatedCltvDelay := toNodeDist.cltvTotal + uint32(timeLockDelta)
+
+		// Check that we have cltv limit, a value greater than 0 and that
+		// we are within it.
+		if cltvLimit > 0 && accumulatedCltvDelay > cltvLimit {
+			return
+		}
+
 		// amountToReceive is the amount that the node that is added to
 		// the distance map needs to receive from a (to be found)
 		// previous node in the route. That previous node will need to
@@ -649,6 +684,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			node:            fromNode,
 			amountToReceive: amountToReceive,
 			fee:             fee,
+			cltvTotal:       accumulatedCltvDelay,
 		}
 
 		next[fromVertex] = edge
@@ -785,8 +821,8 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 // algorithm in a block box manner.
 func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	source *channeldb.LightningNode, target *btcec.PublicKey,
-	amt lnwire.MilliSatoshi, feeLimit lnwire.MilliSatoshi, numPaths uint32,
-	bandwidthHints map[uint64]lnwire.MilliSatoshi) ([][]*channeldb.ChannelEdgePolicy, error) {
+	amt lnwire.MilliSatoshi, pathRestrictions PathRestrictions, numPaths uint32,
+	bandwidthHints map[uint64]lnwire.MilliSatoshi, finalCltvDelta uint16) ([][]*channeldb.ChannelEdgePolicy, error) {
 
 	ignoredEdges := make(map[uint64]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
@@ -803,7 +839,7 @@ func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	// satoshis along the path before fees are calculated.
 	startingPath, err := findPath(
 		tx, graph, nil, source, target, ignoredVertexes, ignoredEdges,
-		amt, feeLimit, bandwidthHints,
+		amt, pathRestrictions, bandwidthHints,
 	)
 	if err != nil {
 		log.Errorf("Unable to find path: %v", err)
@@ -875,7 +911,7 @@ func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			// shortest path from the spur node to the destination.
 			spurPath, err := findPath(
 				tx, graph, nil, spurNode, target,
-				ignoredVertexes, ignoredEdges, amt, feeLimit,
+				ignoredVertexes, ignoredEdges, amt, pathRestrictions,
 				bandwidthHints,
 			)
 

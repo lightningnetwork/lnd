@@ -375,7 +375,7 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	path, err := findPath(
 		nil, p.mc.graph, p.additionalEdges, p.mc.selfNode,
 		payment.Target, pruneView.vertexes, pruneView.edges,
-		payment.Amount, payment.FeeLimit, p.bandwidthHints,
+		payment.Amount, payment.Restrictions, p.bandwidthHints,
 	)
 	if err != nil {
 		return nil, err
@@ -385,7 +385,7 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	// a route by applying the time-lock and fee requirements.
 	sourceVertex := Vertex(p.mc.selfNode.PubKeyBytes)
 	route, err := newRoute(
-		payment.Amount, payment.FeeLimit, sourceVertex, path, height,
+		payment.Amount, payment.Restrictions, sourceVertex, path, height,
 		finalCltvDelta,
 	)
 	if err != nil {

@@ -725,6 +725,9 @@ message SendRequest {
     send the payment.
     */
     FeeLimit fee_limit = 8;
+
+    /// An optional maximum total cltv delay within the intermediate route
+    int32 max_cltv_delay = 9;
 }
 message SendResponse {
     string payment_error = 1 [json_name = "payment_error"];
@@ -1347,6 +1350,9 @@ message QueryRoutesRequest {
     send the payment.
     */
     FeeLimit fee_limit = 5;
+
+    /// An optional maximum total cltv delay within the intermediate route
+    int32 max_cltv_delay = 6;
 }
 message QueryRoutesResponse {
     repeated Route routes = 1 [json_name = "routes"];

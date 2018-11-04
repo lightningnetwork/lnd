@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/lightningnetwork/lnd/routing"
 	"io"
 	"io/ioutil"
 	"math"
@@ -1784,6 +1785,12 @@ var sendPaymentCommand = cli.Command{
 		cli.Int64Flag{
 			Name:  "final_cltv_delta",
 			Usage: "the number of blocks the last hop has to reveal the preimage",
+			Value: routing.DefaultFinalCLTVDelta,
+		},
+		cli.Int64Flag{
+			Name:  "max_cltv_delay",
+			Usage: "the total absolute time lock limit across the intermediate path",
+			Value: 1440,
 		},
 		cli.BoolFlag{
 			Name:  "force, f",
@@ -1881,6 +1888,7 @@ func sendPayment(ctx *cli.Context) error {
 			PaymentRequest: ctx.String("pay_req"),
 			Amt:            ctx.Int64("amt"),
 			FeeLimit:       feeLimit,
+			MaxCltvDelay:   int32(ctx.Int("max_cltv_delay")),
 		}
 
 		return sendPaymentRequest(client, req)
@@ -2644,11 +2652,14 @@ func getNodeInfo(ctx *cli.Context) error {
 }
 
 var queryRoutesCommand = cli.Command{
-	Name:        "queryroutes",
-	Category:    "Payments",
-	Usage:       "Query a route to a destination.",
-	Description: "Queries the channel router for a potential path to the destination that has sufficient flow for the amount including fees",
-	ArgsUsage:   "dest amt",
+	Name:     "queryroutes",
+	Category: "Payments",
+	Usage:    "Query a route to a destination.",
+	Description: `
+			Queries the channel router for a potential path to the destination that has sufficient flow for 
+			the amount including fees. By default the fee limit capped at the send amount.
+		`,
+	ArgsUsage: "dest amt",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name: "dest",
@@ -2671,13 +2682,19 @@ var queryRoutesCommand = cli.Command{
 		},
 		cli.Int64Flag{
 			Name:  "num_max_routes",
-			Usage: "the max number of routes to be returned (default: 10)",
+			Usage: "the max number of routes to be returned",
 			Value: 10,
 		},
 		cli.Int64Flag{
+			Name:  "max_cltv_delay",
+			Usage: "the total absolute time lock limit across the intermediate path",
+			Value: 1440,
+		},
+		cli.Int64Flag{
 			Name: "final_cltv_delta",
-			Usage: "(optional) number of blocks the last hop has to reveal " +
+			Usage: "number of blocks the last hop has to reveal " +
 				"the preimage",
+			Value: routing.DefaultFinalCLTVDelta,
 		},
 	},
 	Action: actionDecorator(queryRoutes),
@@ -2695,6 +2712,11 @@ func queryRoutes(ctx *cli.Context) error {
 	)
 
 	args := ctx.Args()
+
+	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
+		cli.ShowCommandHelp(ctx, "queryroutes")
+		return nil
+	}
 
 	switch {
 	case ctx.IsSet("dest"):
@@ -2728,6 +2750,7 @@ func queryRoutes(ctx *cli.Context) error {
 		Amt:            amt,
 		FeeLimit:       feeLimit,
 		NumRoutes:      int32(ctx.Int("num_max_routes")),
+		MaxCltvDelay:   int32(ctx.Int("max_cltv_delay")),
 		FinalCltvDelta: int32(ctx.Int("final_cltv_delta")),
 	}
 

@@ -16,15 +16,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-const (
-	// broadcastRedeemMultiplier is the additional factor that we'll scale
-	// the normal broadcastDelta by when deciding whether or not to
-	// broadcast a commitment to claim an HTLC on-chain. We use a scaled
-	// value, as when redeeming we want to ensure that we have enough time
-	// to redeem the HTLC, well before it times out.
-	broadcastRedeemMultiplier = 2
-)
-
 var (
 	// errAlreadyForceClosed is an error returned when we attempt to force
 	// close a channel that's already in the process of doing so.
@@ -1101,7 +1092,6 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 		"height=%v", c.cfg.ChanPoint, height)
 
 	actionMap := make(ChainActionMap)
-	redeemCutoff := c.cfg.BroadcastDelta * broadcastRedeemMultiplier
 
 	// First, we'll make an initial pass over the set of incoming and
 	// outgoing HTLC's to decide if we need to go on chain at all.
@@ -1134,7 +1124,7 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 			continue
 		}
 		haveChainActions = haveChainActions || c.shouldGoOnChain(
-			htlc.RefundTimeout, redeemCutoff, height,
+			htlc.RefundTimeout, c.cfg.BroadcastDelta, height,
 		)
 	}
 

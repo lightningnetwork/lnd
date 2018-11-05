@@ -2366,6 +2366,31 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			})
 		}
 
+		// We'll also send along the node announcements for each channel
+		// participant if we know of them.
+		node1Ann, err := d.fetchNodeAnn(chanInfo.NodeKey1Bytes)
+		if err != nil {
+			log.Debugf("Unable to fetch node announcement for "+
+				"%x: %v", chanInfo.NodeKey1Bytes, err)
+		} else {
+			announcements = append(announcements, networkMsg{
+				peer:   nMsg.peer,
+				source: nMsg.source,
+				msg:    node1Ann,
+			})
+		}
+		node2Ann, err := d.fetchNodeAnn(chanInfo.NodeKey2Bytes)
+		if err != nil {
+			log.Debugf("Unable to fetch node announcement for "+
+				"%x: %v", chanInfo.NodeKey2Bytes, err)
+		} else {
+			announcements = append(announcements, networkMsg{
+				peer:   nMsg.peer,
+				source: nMsg.source,
+				msg:    node2Ann,
+			})
+		}
+
 		nMsg.err <- nil
 		return announcements
 
@@ -2373,6 +2398,19 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		nMsg.err <- errors.New("wrong type of the announcement")
 		return nil
 	}
+}
+
+// fetchNodeAnn fetches the latest signed node announcement from our point of
+// view for the node with the given public key.
+func (d *AuthenticatedGossiper) fetchNodeAnn(
+	pubKey [33]byte) (*lnwire.NodeAnnouncement, error) {
+
+	node, err := d.cfg.Router.FetchLightningNode(pubKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return node.NodeAnnouncement(true)
 }
 
 // sendAnnSigReliably will try to send the provided local AnnounceSignatures

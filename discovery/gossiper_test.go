@@ -196,6 +196,18 @@ func (r *mockGraphSource) GetChannelByID(chanID lnwire.ShortChannelID) (
 	return chanInfo, edges[0], edges[1], nil
 }
 
+func (r *mockGraphSource) FetchLightningNode(
+	nodePub routing.Vertex) (*channeldb.LightningNode, error) {
+
+	for _, node := range r.nodes {
+		if bytes.Equal(nodePub[:], node.PubKeyBytes[:]) {
+			return node, nil
+		}
+	}
+
+	return nil, channeldb.ErrGraphNodeNotFound
+}
+
 // IsStaleNode returns true if the graph source has a node announcement for the
 // target node with a more recent timestamp.
 func (r *mockGraphSource) IsStaleNode(nodePub routing.Vertex, timestamp time.Time) bool {

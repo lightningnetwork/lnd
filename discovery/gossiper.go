@@ -1642,6 +1642,9 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 				source: nMsg.source,
 				msg:    msg,
 			})
+		} else {
+			log.Tracef("Skipping broadcasting node announcement "+
+				"for %x due to being unadvertised", msg.NodeID)
 		}
 
 		nMsg.err <- nil

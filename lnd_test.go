@@ -43,7 +43,12 @@ var (
 )
 
 const (
-	testFeeBase = 1e+6
+	testFeeBase         = 1e+6
+	defaultCSV          = lntest.DefaultCSV
+	defaultTimeout      = lntest.DefaultTimeout
+	minerMempoolTimeout = lntest.MinerMempoolTimeout
+	channelOpenTimeout  = lntest.ChannelOpenTimeout
+	channelCloseTimeout = lntest.ChannelCloseTimeout
 )
 
 // harnessTest wraps a regular testing.T providing enhanced error detection

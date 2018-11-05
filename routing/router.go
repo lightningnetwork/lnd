@@ -100,6 +100,11 @@ type ChannelGraphSource interface {
 	GetChannelByID(chanID lnwire.ShortChannelID) (*channeldb.ChannelEdgeInfo,
 		*channeldb.ChannelEdgePolicy, *channeldb.ChannelEdgePolicy, error)
 
+	// FetchLightningNode attempts to look up a target node by its identity
+	// public key. channeldb.ErrGraphNodeNotFound is returned if the node
+	// doesn't exist within the graph.
+	FetchLightningNode(Vertex) (*channeldb.LightningNode, error)
+
 	// ForEachNode is used to iterate over every node in the known graph.
 	ForEachNode(func(node *channeldb.LightningNode) error) error
 
@@ -2161,6 +2166,19 @@ func (r *ChannelRouter) GetChannelByID(chanID lnwire.ShortChannelID) (
 	*channeldb.ChannelEdgePolicy, error) {
 
 	return r.cfg.Graph.FetchChannelEdgesByID(chanID.ToUint64())
+}
+
+// FetchLightningNode attempts to look up a target node by its identity public
+// key. channeldb.ErrGraphNodeNotFound is returned if the node doesn't exist
+// within the graph.
+//
+// NOTE: This method is part of the ChannelGraphSource interface.
+func (r *ChannelRouter) FetchLightningNode(node Vertex) (*channeldb.LightningNode, error) {
+	pubKey, err := btcec.ParsePubKey(node[:], btcec.S256())
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse raw public key: %v", err)
+	}
+	return r.cfg.Graph.FetchLightningNode(pubKey)
 }
 
 // ForEachNode is used to iterate over every node in router topology.

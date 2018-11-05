@@ -408,7 +408,13 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
 		return nil, err
 	}
 
-	return r.server.cc.wallet.SendOutputs(outputs, feeRate)
+	tx, err := r.server.cc.wallet.SendOutputs(outputs, feeRate)
+	if err != nil {
+		return nil, err
+	}
+
+	txHash := tx.TxHash()
+	return &txHash, err
 }
 
 // determineFeePerKw will determine the fee in sat/kw that should be paid given

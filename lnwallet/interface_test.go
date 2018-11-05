@@ -1069,11 +1069,12 @@ func testListTransactionDetails(miner *rpctest.Harness,
 		t.Fatalf("unable to make output script: %v", err)
 	}
 	burnOutput := wire.NewTxOut(outputAmt, outputScript)
-	burnTXID, err := alice.SendOutputs([]*wire.TxOut{burnOutput}, 2500)
+	burnTX, err := alice.SendOutputs([]*wire.TxOut{burnOutput}, 2500)
 	if err != nil {
 		t.Fatalf("unable to create burn tx: %v", err)
 	}
-	err = waitForMempoolTx(miner, burnTXID)
+	burnTXID := burnTX.TxHash()
+	err = waitForMempoolTx(miner, &burnTXID)
 	if err != nil {
 		t.Fatalf("tx not relayed to miner: %v", err)
 	}
@@ -1281,11 +1282,12 @@ func testTransactionSubscriptions(miner *rpctest.Harness,
 		t.Fatalf("unable to make output script: %v", err)
 	}
 	burnOutput := wire.NewTxOut(outputAmt, outputScript)
-	txid, err := alice.SendOutputs([]*wire.TxOut{burnOutput}, 2500)
+	tx, err := alice.SendOutputs([]*wire.TxOut{burnOutput}, 2500)
 	if err != nil {
 		t.Fatalf("unable to create burn tx: %v", err)
 	}
-	err = waitForMempoolTx(miner, txid)
+	txid := tx.TxHash()
+	err = waitForMempoolTx(miner, &txid)
 	if err != nil {
 		t.Fatalf("tx not relayed to miner: %v", err)
 	}
@@ -1304,7 +1306,7 @@ func testTransactionSubscriptions(miner *rpctest.Harness,
 	case <-time.After(time.Second * 10):
 		t.Fatalf("transactions not received after 10 seconds")
 	case unConfTx := <-txClient.UnconfirmedTransactions():
-		if unConfTx.Hash != *txid {
+		if unConfTx.Hash != txid {
 			t.Fatalf("wrong txn notified: expected %v got %v",
 				txid, unConfTx.Hash)
 		}
@@ -1457,27 +1459,24 @@ func testPublishTransaction(r *rpctest.Harness,
 			Value:    btcutil.SatoshiPerBitcoin,
 			PkScript: keyScript,
 		}
-		txid, err := alice.SendOutputs([]*wire.TxOut{newOutput}, 2500)
+		tx, err := alice.SendOutputs([]*wire.TxOut{newOutput}, 2500)
 		if err != nil {
 			t.Fatalf("unable to create output: %v", err)
 		}
+		txid := tx.TxHash()
 
 		// Query for the transaction generated above so we can located
 		// the index of our output.
-		err = waitForMempoolTx(r, txid)
+		err = waitForMempoolTx(r, &txid)
 		if err != nil {
 			t.Fatalf("tx not relayed to miner: %v", err)
 		}
-		tx, err := r.Node.GetRawTransaction(txid)
-		if err != nil {
-			t.Fatalf("unable to query for tx: %v", err)
-		}
 
-		if err := mineAndAssert(tx.MsgTx()); err != nil {
+		if err := mineAndAssert(tx); err != nil {
 			t.Fatalf("unable to mine tx: %v", err)
 		}
 		txFee := btcutil.Amount(0.1 * btcutil.SatoshiPerBitcoin)
-		tx1 := txFromOutput(tx.MsgTx(), pubKey.PubKey, txFee)
+		tx1 := txFromOutput(tx, pubKey.PubKey, txFee)
 
 		return tx1
 	}
@@ -1702,23 +1701,19 @@ func testSignOutputUsingTweaks(r *rpctest.Harness,
 			Value:    btcutil.SatoshiPerBitcoin,
 			PkScript: keyScript,
 		}
-		txid, err := alice.SendOutputs([]*wire.TxOut{newOutput}, 2500)
+		tx, err := alice.SendOutputs([]*wire.TxOut{newOutput}, 2500)
 		if err != nil {
 			t.Fatalf("unable to create output: %v", err)
 		}
-
+		txid := tx.TxHash()
 		// Query for the transaction generated above so we can located
 		// the index of our output.
-		err = waitForMempoolTx(r, txid)
+		err = waitForMempoolTx(r, &txid)
 		if err != nil {
 			t.Fatalf("tx not relayed to miner: %v", err)
 		}
-		tx, err := r.Node.GetRawTransaction(txid)
-		if err != nil {
-			t.Fatalf("unable to query for tx: %v", err)
-		}
 		var outputIndex uint32
-		if bytes.Equal(tx.MsgTx().TxOut[0].PkScript, keyScript) {
+		if bytes.Equal(tx.TxOut[0].PkScript, keyScript) {
 			outputIndex = 0
 		} else {
 			outputIndex = 1
@@ -1729,7 +1724,7 @@ func testSignOutputUsingTweaks(r *rpctest.Harness,
 		sweepTx := wire.NewMsgTx(2)
 		sweepTx.AddTxIn(&wire.TxIn{
 			PreviousOutPoint: wire.OutPoint{
-				Hash:  tx.MsgTx().TxHash(),
+				Hash:  txid,
 				Index: outputIndex,
 			},
 		})
@@ -1828,11 +1823,12 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 		Value:    1e8,
 		PkScript: script,
 	}
-	txid, err := w.SendOutputs([]*wire.TxOut{output}, 2500)
+	tx, err := w.SendOutputs([]*wire.TxOut{output}, 2500)
 	if err != nil {
 		t.Fatalf("unable to send outputs: %v", err)
 	}
-	err = waitForMempoolTx(r, txid)
+	txid := tx.TxHash()
+	err = waitForMempoolTx(r, &txid)
 	if err != nil {
 		t.Fatalf("tx not relayed to miner: %v", err)
 	}

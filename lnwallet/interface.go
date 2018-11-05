@@ -157,7 +157,7 @@ type WalletController interface {
 	// This method also takes the target fee expressed in sat/kw that should
 	// be used when crafting the transaction.
 	SendOutputs(outputs []*wire.TxOut,
-		feeRate SatPerKWeight) (*chainhash.Hash, error)
+		feeRate SatPerKWeight) (*wire.MsgTx, error)
 
 	// ListUnspentWitness returns all unspent outputs which are version 0
 	// witness programs. The 'minconfirms' and 'maxconfirms' parameters

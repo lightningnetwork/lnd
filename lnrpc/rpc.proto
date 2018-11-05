@@ -392,7 +392,7 @@ service Lightning {
     */
     rpc AbandonChannel (AbandonChannelRequest) returns (AbandonChannelResponse) {
         option (google.api.http) = {
-            delete: "/v1/channels/{channel_point.funding_txid_str}/{channel_point.output_index}"
+            delete: "/v1/channels/abandon/{channel_point.funding_txid_str}/{channel_point.output_index}"
         };
     }
 

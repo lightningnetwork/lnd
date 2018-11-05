@@ -7746,6 +7746,12 @@ out:
 		t.Fatalf("unable to generate carol invoice: %v", err)
 	}
 
+	carolPayReq, err := carol.DecodePayReq(ctxb,
+		&lnrpc.PayReqString{carolInvoice.PaymentRequest})
+	if err != nil {
+		t.Fatalf("unable to decode generated payment request: %v", err)
+	}
+
 	// Before we send the payment, ensure that the announcement of the new
 	// channel has been processed by Alice.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -7762,6 +7768,7 @@ out:
 		PaymentHashString: hex.EncodeToString(makeFakePayHash(t)),
 		DestString:        hex.EncodeToString(carol.PubKey[:]),
 		Amt:               payAmt,
+		FinalCltvDelta:    int32(carolPayReq.CltvExpiry),
 	}
 	resp, err := net.Alice.SendPaymentSync(ctxt, sendReq)
 	if err != nil {
@@ -7791,6 +7798,7 @@ out:
 		PaymentHashString: hex.EncodeToString(carolInvoice.RHash),
 		DestString:        hex.EncodeToString(carol.PubKey[:]),
 		Amt:               1000, // 10k satoshis are expected.
+		FinalCltvDelta:    int32(carolPayReq.CltvExpiry),
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	resp, err = net.Alice.SendPaymentSync(ctxt, sendReq)

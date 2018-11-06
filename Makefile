@@ -232,7 +232,9 @@ fuzz-run: $(GOFUZZ_BIN)
 # UTILITIES
 # =========
 
-fmt:
+fmt: goimports
+	@$(call print, "Fixing imports.")
+	goimports -w $(GOFILES_NOVENDOR)
 	@$(call print, "Formatting source.")
 	gofmt -l -w -s $(GOFILES_NOVENDOR)
 

@@ -194,6 +194,7 @@ type config struct {
 	ExternalIPs      []net.Addr
 	DisableListen    bool `long:"nolisten" description:"Disable listening for incoming peer connections"`
 	NAT              bool `long:"nat" description:"Toggle NAT traversal support (using either UPnP or NAT-PMP) to automatically advertise your external IP address to the network -- NOTE this does not support devices behind multiple NATs"`
+	NATWatchOnly     bool `long:"nat-watch-only" description:"Use together with --nat: If true, then no port forwardings will be attempted. Either UPnP or NAT-PMP will only be used to discover external IP."`
 
 	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
 

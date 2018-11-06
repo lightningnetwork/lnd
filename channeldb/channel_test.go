@@ -826,6 +826,16 @@ func TestFetchClosedChannels(t *testing.T) {
 			spew.Sdump(summary), spew.Sdump(closed[0]))
 	}
 
+	// Check that FetchClosedChannel works too.
+	fetchedSummary, err := cdb.FetchClosedChannel(&state.FundingOutpoint)
+	if err != nil {
+		t.Fatalf("failed to fetch channel: %v", err)
+	}
+	if !reflect.DeepEqual(summary, fetchedSummary) {
+		t.Fatalf("database summary doesn't match: expected %v got %v",
+			spew.Sdump(summary), spew.Sdump(fetchedSummary))
+	}
+
 	// Mark the channel as fully closed.
 	err = cdb.MarkChanFullyClosed(&state.FundingOutpoint)
 	if err != nil {

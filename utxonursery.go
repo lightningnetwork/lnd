@@ -1554,8 +1554,6 @@ type kidOutput struct {
 	// NOTE: This will only be set for: outgoing HTLC's on the commitment
 	// transaction of the remote party.
 	absoluteMaturity uint32
-
-	confHeight uint32
 }
 
 func makeKidOutput(outpoint, originChanPoint *wire.OutPoint,
@@ -1569,9 +1567,14 @@ func makeKidOutput(outpoint, originChanPoint *wire.OutPoint,
 	isHtlc := (witnessType == lnwallet.HtlcAcceptedSuccessSecondLevel ||
 		witnessType == lnwallet.HtlcOfferedRemoteTimeout)
 
+	// heightHint can be safely set to zero here, because after this
+	// function returns, nursery will set a proper confirmation height in
+	// waitForTimeoutConf or waitForPreschoolConf.
+	heightHint := uint32(0)
+
 	return kidOutput{
 		breachedOutput: makeBreachedOutput(
-			outpoint, witnessType, nil, signDescriptor,
+			outpoint, witnessType, nil, signDescriptor, heightHint,
 		),
 		isHtlc:           isHtlc,
 		originChanPoint:  *originChanPoint,

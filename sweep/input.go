@@ -33,12 +33,17 @@ type Input interface {
 	// the output can be spent. For non-CSV locked inputs this is always
 	// zero.
 	BlocksToMaturity() uint32
+
+	// HeightHint returns the minimum height at which a confirmed spending
+	// tx can occur.
+	HeightHint() uint32
 }
 
 type inputKit struct {
 	outpoint    wire.OutPoint
 	witnessType lnwallet.WitnessType
 	signDesc    lnwallet.SignDescriptor
+	heightHint  uint32
 }
 
 // OutPoint returns the breached output's identifier that is to be included as
@@ -59,6 +64,12 @@ func (i *inputKit) SignDesc() *lnwallet.SignDescriptor {
 	return &i.signDesc
 }
 
+// HeightHint returns the minimum height at which a confirmed spending
+// tx can occur.
+func (i *inputKit) HeightHint() uint32 {
+	return i.heightHint
+}
+
 // BaseInput contains all the information needed to sweep a basic output
 // (CSV/CLTV/no time lock)
 type BaseInput struct {
@@ -68,13 +79,14 @@ type BaseInput struct {
 // MakeBaseInput assembles a new BaseInput that can be used to construct a
 // sweep transaction.
 func MakeBaseInput(outpoint *wire.OutPoint, witnessType lnwallet.WitnessType,
-	signDescriptor *lnwallet.SignDescriptor) BaseInput {
+	signDescriptor *lnwallet.SignDescriptor, heightHint uint32) BaseInput {
 
 	return BaseInput{
 		inputKit{
 			outpoint:    *outpoint,
 			witnessType: witnessType,
 			signDesc:    *signDescriptor,
+			heightHint:  heightHint,
 		},
 	}
 }
@@ -113,13 +125,14 @@ type HtlcSucceedInput struct {
 // construct a sweep transaction.
 func MakeHtlcSucceedInput(outpoint *wire.OutPoint,
 	signDescriptor *lnwallet.SignDescriptor,
-	preimage []byte) HtlcSucceedInput {
+	preimage []byte, heightHint uint32) HtlcSucceedInput {
 
 	return HtlcSucceedInput{
 		inputKit: inputKit{
 			outpoint:    *outpoint,
 			witnessType: lnwallet.HtlcAcceptedRemoteSuccess,
 			signDesc:    *signDescriptor,
+			heightHint:  heightHint,
 		},
 		preimage: preimage,
 	}

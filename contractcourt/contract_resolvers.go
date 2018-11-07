@@ -462,6 +462,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 				&h.htlcResolution.ClaimOutpoint,
 				&h.htlcResolution.SweepSignDesc,
 				h.htlcResolution.Preimage[:],
+				h.broadcastHeight,
 			)
 
 			// With the input created, we can now generate the full
@@ -1254,6 +1255,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 			&c.commitResolution.SelfOutPoint,
 			lnwallet.CommitmentNoDelay,
 			&c.commitResolution.SelfOutputSignDesc,
+			c.broadcastHeight,
 		)
 
 		// With out input constructed, we'll now request that the

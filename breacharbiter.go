@@ -757,6 +757,7 @@ type breachedOutput struct {
 	outpoint    wire.OutPoint
 	witnessType lnwallet.WitnessType
 	signDesc    lnwallet.SignDescriptor
+	confHeight  uint32
 
 	secondLevelWitnessScript []byte
 
@@ -768,7 +769,8 @@ type breachedOutput struct {
 func makeBreachedOutput(outpoint *wire.OutPoint,
 	witnessType lnwallet.WitnessType,
 	secondLevelScript []byte,
-	signDescriptor *lnwallet.SignDescriptor) breachedOutput {
+	signDescriptor *lnwallet.SignDescriptor,
+	confHeight uint32) breachedOutput {
 
 	amount := signDescriptor.Output.Value
 
@@ -778,6 +780,7 @@ func makeBreachedOutput(outpoint *wire.OutPoint,
 		secondLevelWitnessScript: secondLevelScript,
 		witnessType:              witnessType,
 		signDesc:                 *signDescriptor,
+		confHeight:               confHeight,
 	}
 }
 
@@ -831,6 +834,12 @@ func (bo *breachedOutput) BlocksToMaturity() uint32 {
 	return 0
 }
 
+// HeightHint returns the minimum height at which a confirmed spending tx can
+// occur.
+func (bo *breachedOutput) HeightHint() uint32 {
+	return bo.confHeight
+}
+
 // Add compile-time constraint ensuring breachedOutput implements the Input
 // interface.
 var _ sweep.Input = (*breachedOutput)(nil)
@@ -878,7 +887,8 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 			// No second level script as this is a commitment
 			// output.
 			nil,
-			breachInfo.LocalOutputSignDesc)
+			breachInfo.LocalOutputSignDesc,
+			breachInfo.BreachHeight)
 
 		breachedOutputs = append(breachedOutputs, localOutput)
 	}
@@ -895,7 +905,8 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 			// No second level script as this is a commitment
 			// output.
 			nil,
-			breachInfo.RemoteOutputSignDesc)
+			breachInfo.RemoteOutputSignDesc,
+			breachInfo.BreachHeight)
 
 		breachedOutputs = append(breachedOutputs, remoteOutput)
 	}
@@ -919,7 +930,8 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 			&breachInfo.HtlcRetributions[i].OutPoint,
 			htlcWitnessType,
 			breachInfo.HtlcRetributions[i].SecondLevelWitnessScript,
-			&breachInfo.HtlcRetributions[i].SignDesc)
+			&breachInfo.HtlcRetributions[i].SignDesc,
+			breachInfo.BreachHeight)
 
 		breachedOutputs = append(breachedOutputs, htlcOutput)
 	}

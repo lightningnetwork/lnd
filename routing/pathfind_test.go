@@ -556,10 +556,10 @@ func TestFindLowestFeePath(t *testing.T) {
 	}
 
 	testGraphInstance, err := createTestGraphFromChannels(testChannels)
-	defer testGraphInstance.cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
+	defer testGraphInstance.cleanUp()
 
 	sourceNode, err := testGraphInstance.graph.SourceNode()
 	if err != nil {
@@ -683,10 +683,10 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	t.Parallel()
 
 	testGraphInstance, err := parseTestGraph(basicGraphFilePath)
-	defer testGraphInstance.cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
+	defer testGraphInstance.cleanUp()
 
 	// With the test graph loaded, we'll test some basic path finding using
 	// the pre-generated graph. Consult the testdata/basic_graph.json file
@@ -872,10 +872,10 @@ func TestPathFindingWithAdditionalEdges(t *testing.T) {
 	t.Parallel()
 
 	graph, err := parseTestGraph(basicGraphFilePath)
-	defer graph.cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
+	defer graph.cleanUp()
 
 	sourceNode, err := graph.graph.SourceNode()
 	if err != nil {
@@ -941,10 +941,10 @@ func TestKShortestPathFinding(t *testing.T) {
 	t.Parallel()
 
 	graph, err := parseTestGraph(basicGraphFilePath)
-	defer graph.cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
+	defer graph.cleanUp()
 
 	sourceNode, err := graph.graph.SourceNode()
 	if err != nil {
@@ -1266,10 +1266,10 @@ func TestNewRoutePathTooLong(t *testing.T) {
 	// Ensure that potential paths which are over the maximum hop-limit are
 	// rejected.
 	graph, err := parseTestGraph(excessiveHopsGraphFilePath)
-	defer graph.cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
+	defer graph.cleanUp()
 
 	sourceNode, err := graph.graph.SourceNode()
 	if err != nil {
@@ -1325,10 +1325,10 @@ func TestPathNotAvailable(t *testing.T) {
 	t.Parallel()
 
 	graph, err := parseTestGraph(basicGraphFilePath)
-	defer graph.cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
+	defer graph.cleanUp()
 
 	sourceNode, err := graph.graph.SourceNode()
 	if err != nil {
@@ -1371,10 +1371,10 @@ func TestPathInsufficientCapacity(t *testing.T) {
 	t.Parallel()
 
 	graph, err := parseTestGraph(basicGraphFilePath)
-	defer graph.cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
+	defer graph.cleanUp()
 
 	sourceNode, err := graph.graph.SourceNode()
 	if err != nil {
@@ -1416,10 +1416,10 @@ func TestRouteFailMinHTLC(t *testing.T) {
 	t.Parallel()
 
 	graph, err := parseTestGraph(basicGraphFilePath)
-	defer graph.cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
+	defer graph.cleanUp()
 
 	sourceNode, err := graph.graph.SourceNode()
 	if err != nil {
@@ -1458,10 +1458,10 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	t.Parallel()
 
 	graph, err := parseTestGraph(basicGraphFilePath)
-	defer graph.cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
+	defer graph.cleanUp()
 
 	sourceNode, err := graph.graph.SourceNode()
 	if err != nil {
@@ -1558,10 +1558,10 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 	t.Parallel()
 
 	graph, err := parseTestGraph(basicGraphFilePath)
-	defer graph.cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
+	defer graph.cleanUp()
 
 	sourceNode, err := graph.graph.SourceNode()
 	if err != nil {
@@ -1695,10 +1695,10 @@ func TestPathFindSpecExample(t *testing.T) {
 	// height.
 	const startingHeight = 100
 	ctx, cleanUp, err := createTestCtxFromFile(startingHeight, specExampleFilePath)
-	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
 	}
+	defer cleanUp()
 
 	const (
 		aliceFinalCLTV = 10

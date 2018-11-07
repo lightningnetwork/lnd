@@ -1713,6 +1713,11 @@
           "format": "int64",
           "title": "/ Number of active channels"
         },
+        "num_inactive_channels": {
+          "type": "integer",
+          "format": "int64",
+          "title": "/ Number of inactive channels"
+        },
         "num_peers": {
           "type": "integer",
           "format": "int64",
@@ -1759,11 +1764,6 @@
         "version": {
           "type": "string",
           "description": "/ The version of the LND software that the node is running."
-        },
-        "num_inactive_channels": {
-          "type": "integer",
-          "format": "int64",
-          "title": "/ Number of inactive channels"
         }
       }
     },

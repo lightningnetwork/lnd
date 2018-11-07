@@ -1063,6 +1063,9 @@ message GetInfoResponse {
     /// Number of active channels
     uint32 num_active_channels = 4 [json_name = "num_active_channels"];
 
+    /// Number of inactive channels
+    uint32 num_inactive_channels = 15 [json_name = "num_inactive_channels"];
+
     /// Number of peers
     uint32 num_peers = 5 [json_name = "num_peers"];
 
@@ -1089,9 +1092,6 @@ message GetInfoResponse {
 
     /// The version of the LND software that the node is running.
     string version = 14 [ json_name = "version" ];
-
-    /// Number of inactive channels
-    uint32 num_inactive_channels = 15 [json_name = "num_inactive_channels"];
 }
 
 message ConfirmationUpdate {

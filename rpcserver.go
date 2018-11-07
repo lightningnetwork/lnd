@@ -1351,6 +1351,12 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		activeChannels += uint32(len(serverPeer.ChannelSnapshots()))
 	}
 
+	openChannels, err := r.server.chanDB.FetchAllOpenChannels()
+	if err != nil {
+		return nil, err
+	}
+	inactiveChannels := uint32(len(openChannels)) - activeChannels
+
 	pendingChannels, err := r.server.chanDB.FetchPendingChannels()
 	if err != nil {
 		return nil, fmt.Errorf("unable to get retrieve pending "+
@@ -1395,6 +1401,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		IdentityPubkey:      encodedIDPub,
 		NumPendingChannels:  nPendingChannels,
 		NumActiveChannels:   activeChannels,
+		NumInactiveChannels: inactiveChannels,
 		NumPeers:            uint32(len(serverPeers)),
 		BlockHeight:         uint32(bestHeight),
 		BlockHash:           bestHash.String(),

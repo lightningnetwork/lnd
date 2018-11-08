@@ -53,7 +53,7 @@ func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*wire.TxOut, error) 
 	return output, nil
 }
 
-// fetchOutputKey attempts to fetch the managed address corresponding to the
+// fetchOutputAddr attempts to fetch the managed address corresponding to the
 // passed output script. This function is used to look up the proper key which
 // should be used to sign a specified input.
 func (b *BtcWallet) fetchOutputAddr(script []byte) (waddrmgr.ManagedAddress, error) {
@@ -184,7 +184,7 @@ func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx,
 	return sig[:len(sig)-1], nil
 }
 
-// ComputeInputScript generates a complete InputIndex for the passed
+// ComputeInputScript generates a complete InputScript for the passed
 // transaction with the signature as defined within the passed SignDescriptor.
 // This method is capable of generating the proper input script for both
 // regular p2wkh output and p2wkh outputs nested within a regular p2sh output.

@@ -46,6 +46,9 @@ const (
 	// writeMessageTimeout is the timeout used when writing a message to peer.
 	writeMessageTimeout = 50 * time.Second
 
+	// handshakeTimeout is the timeout used when waiting for peer init message.
+	handshakeTimeout = 15 * time.Second
+
 	// outgoingQueueLen is the buffer size of the channel which houses
 	// messages to be sent across the wire, requested by objects outside
 	// this struct.
@@ -269,10 +272,10 @@ func (p *peer) Start() error {
 
 	select {
 	// In order to avoid blocking indefinitely, we'll give the other peer
-	// an upper timeout of 15 seconds to respond before we bail out early.
-	case <-time.After(time.Second * 15):
-		return fmt.Errorf("peer did not complete handshake within 5 " +
-			"seconds")
+	// an upper timeout to respond before we bail out early.
+	case <-time.After(handshakeTimeout):
+		return fmt.Errorf("peer did not complete handshake within %v",
+			handshakeTimeout)
 	case err := <-readErr:
 		if err != nil {
 			return fmt.Errorf("unable to read init msg: %v", err)

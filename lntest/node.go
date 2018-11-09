@@ -165,7 +165,6 @@ func (cfg nodeConfig) genArgs() []string {
 	args = append(args, fmt.Sprintf("--adminmacaroonpath=%v", cfg.AdminMacPath))
 	args = append(args, fmt.Sprintf("--readonlymacaroonpath=%v", cfg.ReadMacPath))
 	args = append(args, fmt.Sprintf("--invoicemacaroonpath=%v", cfg.InvoiceMacPath))
-	args = append(args, fmt.Sprintf("--externalip=%s", cfg.P2PAddr()))
 	args = append(args, fmt.Sprintf("--trickledelay=%v", trickleDelay))
 
 	if !cfg.HasSeed {

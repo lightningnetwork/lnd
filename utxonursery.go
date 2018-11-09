@@ -1722,38 +1722,6 @@ func readOutpoint(r io.Reader, o *wire.OutPoint) error {
 	return nil
 }
 
-func writeTxOut(w io.Writer, txo *wire.TxOut) error {
-	scratch := make([]byte, 8)
-
-	byteOrder.PutUint64(scratch, uint64(txo.Value))
-	if _, err := w.Write(scratch); err != nil {
-		return err
-	}
-
-	if err := wire.WriteVarBytes(w, 0, txo.PkScript); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func readTxOut(r io.Reader, txo *wire.TxOut) error {
-	scratch := make([]byte, 8)
-
-	if _, err := r.Read(scratch); err != nil {
-		return err
-	}
-	txo.Value = int64(byteOrder.Uint64(scratch))
-
-	pkScript, err := wire.ReadVarBytes(r, 0, 80, "pkScript")
-	if err != nil {
-		return err
-	}
-	txo.PkScript = pkScript
-
-	return nil
-}
-
 // Compile-time constraint to ensure kidOutput implements the
 // Input interface.
 

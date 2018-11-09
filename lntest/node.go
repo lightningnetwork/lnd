@@ -148,7 +148,7 @@ func (cfg nodeConfig) genArgs() []string {
 	args = append(args, "--nobootstrap")
 	args = append(args, "--debuglevel=debug")
 	args = append(args, "--bitcoin.defaultchanconfs=1")
-	args = append(args, "--bitcoin.defaultremotedelay=4")
+	args = append(args, fmt.Sprintf("--bitcoin.defaultremotedelay=%v", DefaultCSV))
 	args = append(args, fmt.Sprintf("--btcd.rpchost=%v", cfg.RPCConfig.Host))
 	args = append(args, fmt.Sprintf("--btcd.rpcuser=%v", cfg.RPCConfig.User))
 	args = append(args, fmt.Sprintf("--btcd.rpcpass=%v", cfg.RPCConfig.Pass))

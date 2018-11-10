@@ -1,6 +1,9 @@
 package btcwallet
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -44,7 +47,20 @@ func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*wire.TxOut, error) 
 		return nil, lnwallet.ErrNotMine
 	}
 
+	// With the output retrieved, we'll make an additional check to ensure
+	// we actually have control of this output. We do this because the check
+	// above only guarantees that the transaction is somehow relevant to us,
+	// like in the event of us being the sender of the transaction.
 	output = txDetail.TxRecord.MsgTx.TxOut[prevOut.Index]
+	_, err = b.fetchOutputAddr(output.PkScript)
+	switch {
+	case err != nil && strings.Contains(err.Error(), "not found"):
+		return nil, lnwallet.ErrNotMine
+	case err != nil:
+		return nil, fmt.Errorf("unable to determine if output %v is "+
+			"under our control: %v", prevOut, err)
+	default:
+	}
 
 	b.cacheMtx.Lock()
 	b.utxoCache[*prevOut] = output
@@ -72,7 +88,7 @@ func (b *BtcWallet) fetchOutputAddr(script []byte) (waddrmgr.ManagedAddress, err
 		}
 	}
 
-	return nil, errors.Errorf("address not found")
+	return nil, fmt.Errorf("address for script %x not found", script)
 }
 
 // fetchPrivKey attempts to retrieve the raw private key corresponding to the
@@ -196,7 +212,7 @@ func (b *BtcWallet) ComputeInputScript(tx *wire.MsgTx,
 	outputScript := signDesc.Output.PkScript
 	walletAddr, err := b.fetchOutputAddr(outputScript)
 	if err != nil {
-		return nil, nil
+		return nil, err
 	}
 
 	pka := walletAddr.(waddrmgr.ManagedPubKeyAddress)

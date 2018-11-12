@@ -260,7 +260,12 @@ service Lightning {
     signature string is `zbase32` encoded and pubkey recoverable, meaning that
     only the message digest and signature are needed for verification.
     */
-    rpc SignMessage (SignMessageRequest) returns (SignMessageResponse);
+    rpc SignMessage (SignMessageRequest) returns (SignMessageResponse) {
+        option (google.api.http) = {
+            post: "/v1/signmessage"
+            body: "*"
+        };
+    }
 
     /** lncli: `verifymessage`
     VerifyMessage verifies a signature over a msg. The signature must be
@@ -268,7 +273,12 @@ service Lightning {
     channel database. In addition to returning the validity of the signature,
     VerifyMessage also returns the recovered pubkey from the signature.
     */
-    rpc VerifyMessage (VerifyMessageRequest) returns (VerifyMessageResponse);
+    rpc VerifyMessage (VerifyMessageRequest) returns (VerifyMessageResponse) {
+        option (google.api.http) = {
+            post: "/v1/verifymessage"
+            body: "*"
+        };
+    }
 
     /** lncli: `connect`
     ConnectPeer attempts to establish a connection to a remote peer. This is at

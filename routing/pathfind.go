@@ -280,7 +280,7 @@ func newRoute(amtToSend lnwire.MilliSatoshi, routingLimit PathRestrictions,
 		// sender of the payment.
 		nextIncomingAmount lnwire.MilliSatoshi
 
-		// Total intermediate cltv
+		// Total intermediate cltv.
 		totalIntermediateCltv uint32
 	)
 
@@ -317,7 +317,9 @@ func newRoute(amtToSend lnwire.MilliSatoshi, routingLimit PathRestrictions,
 			fee = computeFee(amtToForward, pathEdges[i+1])
 		}
 
-		// Keep track of the total intermediate cltv in the path
+		// Keep track of the total intermediate cltv in the path.
+		// We keep a total by accumulating TimeLockDelatas for hops
+		// not at the start or end of the path.
 		if i != len(pathEdges)-1 && i != 0 {
 			totalIntermediateCltv += uint32(pathEdges[i].TimeLockDelta)
 		}
@@ -372,12 +374,16 @@ func newRoute(amtToSend lnwire.MilliSatoshi, routingLimit PathRestrictions,
 
 	// Invalidate this route if its total fees exceed our fee limit.
 	if newRoute.TotalFees > feeLimit {
-		return nil, newErrf(ErrFeeLimitExceeded, "total route fees exceeded fee "+
+		return nil, newErrf(ErrFeeLimitExceeded,
+			"total route fees exceeded fee "+
 			"limit of %v", feeLimit)
 	}
 
+	// Invalidate this route if we have a cltv limit and the total
+	// intermediate cltv exceeds it
 	if maxCltvDelay > 0 && totalIntermediateCltv > maxCltvDelay {
-		return nil, newErrf(ErrMaxCltvDelayExceeded, "total intermidate cltv delay exceeded "+
+		return nil, newErrf(ErrMaxCltvDelayExceeded, "" +
+			"total intermidate cltv delay exceeded "+
 			"limit of %v", maxCltvDelay)
 	}
 
@@ -615,15 +621,22 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		// route if fromNode is selected. If fromNode is the source
 		// node, no additional timelock is required.
 		var fee lnwire.MilliSatoshi
-		var timeLockDelta uint16
 		if fromVertex != sourceVertex {
 			fee = computeFee(amountToSend, edge)
-			timeLockDelta = edge.TimeLockDelta
 		}
 
-		// We only calculate the timelockDelta for intermediate hops
-		if toNode == targetVertex {
-			timeLockDelta = 0
+		// When choosing a path with a total cltv restriction we only
+		// care about the intermediate hops that don't start/end on a
+		// source/destination node. We want to track this component
+		// because unlike the start and end hop it varies between
+		// different paths.
+		//
+		// Therefore, when calculating the total cltv limit for the
+		// intermediate path, we only need to keep track of nodes
+		// which aren't connected to the source or destination.
+		var timeLockDelta uint16
+		if fromVertex != sourceVertex && toNode != targetVertex {
+			timeLockDelta = edge.TimeLockDelta
 		}
 
 		accumulatedCltvDelay := toNodeDist.cltvTotal + uint32(timeLockDelta)

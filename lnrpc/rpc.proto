@@ -2009,14 +2009,17 @@ message ForwardingEvent {
     /// The outgoing channel ID that carried the preimage that completed the circuit.
     uint64 chan_id_out = 4 [json_name = "chan_id_out"];
 
-    /// The total amount of the incoming HTLC that created half the circuit.
+    /// The total amount (in satoshis) of the incoming HTLC that created half the circuit.
     uint64 amt_in = 5 [json_name = "amt_in"];
 
-    /// The total amount of the outgoign HTLC that created the second half of the circuit.
+    /// The total amount (in satoshis) of the outgoing HTLC that created the second half of the circuit.
     uint64 amt_out = 6 [json_name = "amt_out"];
 
-    /// The total fee that this payment circuit carried.
+    /// The total fee (in satoshis) that this payment circuit carried.
     uint64 fee = 7 [json_name = "fee"];
+
+    /// The total fee (in milli-satoshis) that this payment circuit carried.
+    uint64 fee_msat = 8 [json_name = "fee_msat"];
 
     // TODO(roasbeef): add settlement latency?
     //  * use FPE on the chan id?

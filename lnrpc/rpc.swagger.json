@@ -1750,17 +1750,22 @@
         "amt_in": {
           "type": "string",
           "format": "uint64",
-          "description": "/ The total amount of the incoming HTLC that created half the circuit."
+          "description": "/ The total amount (in satoshis) of the incoming HTLC that created half the circuit."
         },
         "amt_out": {
           "type": "string",
           "format": "uint64",
-          "description": "/ The total amount of the outgoign HTLC that created the second half of the circuit."
+          "description": "/ The total amount (in satoshis) of the outgoing HTLC that created the second half of the circuit."
         },
         "fee": {
           "type": "string",
           "format": "uint64",
-          "description": "/ The total fee that this payment circuit carried."
+          "description": "/ The total fee (in satoshis) that this payment circuit carried."
+        },
+        "fee_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The total fee (in milli-satoshis) that this payment circuit carried."
         }
       }
     },

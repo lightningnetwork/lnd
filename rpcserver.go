@@ -4693,6 +4693,7 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 	for i, event := range timeSlice.ForwardingEvents {
 		amtInSat := event.AmtIn.ToSatoshis()
 		amtOutSat := event.AmtOut.ToSatoshis()
+		feeMsat := event.AmtIn - event.AmtOut
 
 		resp.ForwardingEvents[i] = &lnrpc.ForwardingEvent{
 			Timestamp: uint64(event.Timestamp.Unix()),
@@ -4700,7 +4701,8 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 			ChanIdOut: event.OutgoingChanID.ToUint64(),
 			AmtIn:     uint64(amtInSat),
 			AmtOut:    uint64(amtOutSat),
-			Fee:       uint64(amtInSat - amtOutSat),
+			Fee:       uint64(feeMsat.ToSatoshis()),
+			FeeMsat:   uint64(feeMsat),
 		}
 	}
 

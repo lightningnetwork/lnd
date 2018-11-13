@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/lightningnetwork/lnd/routing"
 	"io"
 	"io/ioutil"
 	"math"
@@ -21,6 +20,7 @@ import (
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/routing"
 	"github.com/urfave/cli"
 	"golang.org/x/crypto/ssh/terminal"
 	"golang.org/x/net/context"
@@ -33,7 +33,13 @@ import (
 
 // TODO(roasbeef): expose all fee conf targets
 
-const defaultRecoveryWindow int32 = 250
+const (
+	defaultRecoveryWindow int32 = 250
+
+	// DefaultMaxCltvLimit is the default maximum cltv limit across routes
+	// if one is left unspecified
+	DefaultMaxCltvLimit = 1440
+)
 
 func printJSON(resp interface{}) {
 	b, err := json.Marshal(resp)
@@ -1790,7 +1796,7 @@ var sendPaymentCommand = cli.Command{
 		cli.Int64Flag{
 			Name:  "max_cltv_delay",
 			Usage: "the total absolute time lock limit across the intermediate path",
-			Value: 1440,
+			Value: DefaultMaxCltvLimit,
 		},
 		cli.BoolFlag{
 			Name:  "force, f",
@@ -1888,6 +1894,7 @@ func sendPayment(ctx *cli.Context) error {
 			PaymentRequest: ctx.String("pay_req"),
 			Amt:            ctx.Int64("amt"),
 			FeeLimit:       feeLimit,
+			FinalCltvDelta: int32(ctx.Int("final_cltv_delta")),
 			MaxCltvDelay:   int32(ctx.Int("max_cltv_delay")),
 		}
 
@@ -2657,7 +2664,7 @@ var queryRoutesCommand = cli.Command{
 	Usage:    "Query a route to a destination.",
 	Description: `
 			Queries the channel router for a potential path to the destination that has sufficient flow for 
-			the amount including fees. By default the fee limit capped at the send amount.
+			the amount including fees.
 		`,
 	ArgsUsage: "dest amt",
 	Flags: []cli.Flag{
@@ -2673,7 +2680,7 @@ var queryRoutesCommand = cli.Command{
 		cli.Int64Flag{
 			Name: "fee_limit",
 			Usage: "maximum fee allowed in satoshis when sending " +
-				"the payment",
+				"the payment. By default the fee limit capped at the send amount",
 		},
 		cli.Int64Flag{
 			Name: "fee_limit_percent",
@@ -2686,15 +2693,15 @@ var queryRoutesCommand = cli.Command{
 			Value: 10,
 		},
 		cli.Int64Flag{
-			Name:  "max_cltv_delay",
-			Usage: "the total absolute time lock limit across the intermediate path",
-			Value: 1440,
-		},
-		cli.Int64Flag{
 			Name: "final_cltv_delta",
 			Usage: "number of blocks the last hop has to reveal " +
 				"the preimage",
 			Value: routing.DefaultFinalCLTVDelta,
+		},
+		cli.Int64Flag{
+			Name:  "max_cltv_delay",
+			Usage: "the total absolute time lock limit across the intermediate path",
+			Value: DefaultMaxCltvLimit,
 		},
 	},
 	Action: actionDecorator(queryRoutes),
@@ -2750,8 +2757,8 @@ func queryRoutes(ctx *cli.Context) error {
 		Amt:            amt,
 		FeeLimit:       feeLimit,
 		NumRoutes:      int32(ctx.Int("num_max_routes")),
-		MaxCltvDelay:   int32(ctx.Int("max_cltv_delay")),
 		FinalCltvDelta: int32(ctx.Int("final_cltv_delta")),
+		MaxCltvDelay:   int32(ctx.Int("max_cltv_delay")),
 	}
 
 	route, err := client.QueryRoutes(ctxb, req)

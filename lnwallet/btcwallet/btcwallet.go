@@ -268,7 +268,7 @@ func (b *BtcWallet) IsOurAddress(a btcutil.Address) bool {
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
-	feeRate lnwallet.SatPerKWeight) (*chainhash.Hash, error) {
+	feeRate lnwallet.SatPerKWeight) (*wire.MsgTx, error) {
 
 	// Convert our fee rate from sat/kw to sat/kb since it's required by
 	// SendOutputs.

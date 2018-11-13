@@ -1297,6 +1297,11 @@
           "type": "string",
           "format": "int64",
           "title": "/ Sum of channels pending balances denominated in satoshis"
+        },
+        "remote_balance_sat": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ Sum of channels remote balances denominated in satoshis"
         }
       }
     },

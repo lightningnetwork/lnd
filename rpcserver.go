@@ -1505,9 +1505,11 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 		return nil, err
 	}
 
-	var balance btcutil.Amount
+	var balance, remoteBalanceSat btcutil.Amount
 	for _, channel := range openChannels {
 		balance += channel.LocalCommitment.LocalBalance.ToSatoshis()
+		remoteBalanceSat += channel.LocalCommitment.RemoteBalance.ToSatoshis()
+
 	}
 
 	pendingChannels, err := r.server.chanDB.FetchPendingChannels()
@@ -1523,6 +1525,7 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 	return &lnrpc.ChannelBalanceResponse{
 		Balance:            int64(balance),
 		PendingOpenBalance: int64(pendingOpenBalance),
+		RemoteBalanceSat:   int64(remoteBalanceSat),
 	}, nil
 }
 

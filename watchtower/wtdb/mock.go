@@ -2,16 +2,23 @@
 
 package wtdb
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/lightningnetwork/lnd/chainntnfs"
+)
 
 type MockDB struct {
-	mu       sync.Mutex
-	sessions map[SessionID]*SessionInfo
+	mu        sync.Mutex
+	lastEpoch *chainntnfs.BlockEpoch
+	sessions  map[SessionID]*SessionInfo
+	blobs     map[BreachHint]map[SessionID]*SessionStateUpdate
 }
 
 func NewMockDB() *MockDB {
 	return &MockDB{
 		sessions: make(map[SessionID]*SessionInfo),
+		blobs:    make(map[BreachHint]map[SessionID]*SessionStateUpdate),
 	}
 }
 
@@ -28,6 +35,13 @@ func (db *MockDB) InsertStateUpdate(update *SessionStateUpdate) (uint16, error) 
 	if err != nil {
 		return info.LastApplied, err
 	}
+
+	sessionsToUpdates, ok := db.blobs[update.Hint]
+	if !ok {
+		sessionsToUpdates = make(map[SessionID]*SessionStateUpdate)
+		db.blobs[update.Hint] = sessionsToUpdates
+	}
+	sessionsToUpdates[update.ID] = update
 
 	return info.LastApplied, nil
 }
@@ -53,5 +67,48 @@ func (db *MockDB) InsertSessionInfo(info *SessionInfo) error {
 
 	db.sessions[info.ID] = info
 
+	return nil
+}
+
+func (db *MockDB) GetLookoutTip() (*chainntnfs.BlockEpoch, error) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	return db.lastEpoch, nil
+}
+
+func (db *MockDB) QueryMatches(breachHints []BreachHint) ([]Match, error) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	var matches []Match
+	for _, hint := range breachHints {
+		sessionsToUpdates, ok := db.blobs[hint]
+		if !ok {
+			continue
+		}
+
+		for id, update := range sessionsToUpdates {
+			info, ok := db.sessions[id]
+			if !ok {
+				panic("session not found")
+			}
+
+			match := Match{
+				ID:            id,
+				SeqNum:        update.SeqNum,
+				Hint:          hint,
+				EncryptedBlob: update.EncryptedBlob,
+				SessionInfo:   info,
+			}
+			matches = append(matches, match)
+		}
+	}
+
+	return matches, nil
+}
+
+func (db *MockDB) SetLookoutTip(epoch *chainntnfs.BlockEpoch) error {
+	db.lastEpoch = epoch
 	return nil
 }

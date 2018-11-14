@@ -163,15 +163,9 @@ func testBlobJusticeKitEncryptDecrypt(t *testing.T, test descriptorTest) {
 		t.Fatalf("unable to generate blob encryption key: %v", err)
 	}
 
-	nonce := make([]byte, blob.NonceSize)
-	_, err = io.ReadFull(rand.Reader, nonce)
-	if err != nil {
-		t.Fatalf("unable to generate nonce nonce: %v", err)
-	}
-
 	// Encrypt the blob plaintext using the generated key and
 	// target version for this test.
-	ctxt, err := boj.Encrypt(nonce, key, test.encVersion)
+	ctxt, err := boj.Encrypt(key, test.encVersion)
 	if err != test.encErr {
 		t.Fatalf("unable to encrypt blob: %v", err)
 	} else if test.encErr != nil {
@@ -191,7 +185,7 @@ func testBlobJusticeKitEncryptDecrypt(t *testing.T, test descriptorTest) {
 	// Decrypt the encrypted blob, reconstructing the original
 	// blob plaintext from the decrypted contents. We use the target
 	// decryption version specified by this test case.
-	boj2, err := blob.Decrypt(nonce, key, ctxt, test.decVersion)
+	boj2, err := blob.Decrypt(key, ctxt, test.decVersion)
 	if err != test.decErr {
 		t.Fatalf("unable to decrypt blob: %v", err)
 	} else if test.decErr != nil {

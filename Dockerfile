@@ -28,6 +28,9 @@ RUN apk --no-cache add \
 COPY --from=builder /go/bin/lncli /bin/
 COPY --from=builder /go/bin/lnd /bin/
 
+# Expose lnd ports (p2p, rpc).
+EXPOSE 9735 10009
+
 # Specify the start command and entrypoint as the lnd daemon.
 ENTRYPOINT ["lnd"]
 CMD ["lnd"]

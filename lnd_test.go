@@ -280,6 +280,89 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest,
 	return closingTxid
 }
 
+// waitForChannelPendingForceClose waits for the node to report that the
+// channel is pending force close, and that the UTXO nursery is aware of it.
+func waitForChannelPendingForceClose(ctx context.Context,
+	node *lntest.HarnessNode, fundingChanPoint *lnrpc.ChannelPoint) error {
+
+	txidHash, err := getChanPointFundingTxid(fundingChanPoint)
+	if err != nil {
+		return err
+	}
+
+	txid, err := chainhash.NewHash(txidHash)
+	if err != nil {
+		return err
+	}
+
+	op := wire.OutPoint{
+		Hash:  *txid,
+		Index: fundingChanPoint.OutputIndex,
+	}
+
+	var predErr error
+	err = lntest.WaitPredicate(func() bool {
+		pendingChansRequest := &lnrpc.PendingChannelsRequest{}
+		pendingChanResp, err := node.PendingChannels(
+			ctx, pendingChansRequest,
+		)
+		if err != nil {
+			predErr = fmt.Errorf("unable to get pending "+
+				"channels: %v", err)
+			return false
+		}
+
+		forceClose, err := findForceClosedChannel(pendingChanResp, &op)
+		if err != nil {
+			predErr = err
+			return false
+		}
+
+		// We must wait until the UTXO nursery has received the channel
+		// and is aware of its maturity height.
+		if forceClose.MaturityHeight == 0 {
+			predErr = fmt.Errorf("channel had maturity height of 0")
+			return false
+		}
+		return true
+	}, time.Second*15)
+	if err != nil {
+		return predErr
+	}
+
+	return nil
+}
+
+// cleanupForceClose mines a force close commitment found in the mempool and
+// the following sweep transaction from the force closing node.
+func cleanupForceClose(t *harnessTest, net *lntest.NetworkHarness,
+	node *lntest.HarnessNode, chanPoint *lnrpc.ChannelPoint) {
+	ctxb := context.Background()
+
+	// Wait for the channel to be marked pending force close.
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	err := waitForChannelPendingForceClose(ctxt, node, chanPoint)
+	if err != nil {
+		t.Fatalf("channel not pending force close: %v", err)
+	}
+
+	// Mine enough blocks for the node to sweep its funds from the force
+	// closed channel.
+	_, err = net.Miner.Node.Generate(defaultCSV)
+	if err != nil {
+		t.Fatalf("unable to generate blocks: %v", err)
+	}
+
+	// THe node should now sweep the funds, clean up by mining the sweeping
+	// tx.
+	txid, err := waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	if err != nil {
+		t.Fatalf("unable to find sweeping tx in mempool: %v", err)
+	}
+	block := mineBlocks(t, net, 1)[0]
+	assertTxInBlock(t, block, txid)
+}
+
 // numOpenChannelsPending sends an RPC request to a node to get a count of the
 // node's channels that are currently in a pending state (with a broadcast, but
 // not confirmed funding transaction).
@@ -1701,12 +1784,8 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 	// Check existing connection.
 	assertNumConnections(ctxb, t, net.Alice, net.Bob, 1)
 
-	// Mine enough blocks to clear the force closed outputs from the UTXO
-	// nursery.
-	if _, err := net.Miner.Node.Generate(4); err != nil {
-		t.Fatalf("unable to mine blocks: %v", err)
-	}
-	time.Sleep(300 * time.Millisecond)
+	// Cleanup by mining the force close and sweep transaction.
+	cleanupForceClose(t, net, net.Alice, chanPoint)
 }
 
 // testFundingPersistence is intended to ensure that the Funding Manager
@@ -2989,6 +3068,9 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, carol, chanPoint, true)
+
+	// Cleanup by mining the force close and sweep transaction.
+	cleanupForceClose(t, net, carol, chanPoint)
 }
 
 func testSingleHopInvoice(net *lntest.NetworkHarness, t *harnessTest) {
@@ -4838,6 +4920,9 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 	// is offline.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointEve, true)
+
+	// Cleanup by mining the force close and sweep transaction.
+	cleanupForceClose(t, net, net.Alice, chanPointEve)
 }
 
 // testMultiHopOverPrivateChannels tests that private channels can be used as
@@ -5892,9 +5977,12 @@ func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, forceCloseChanPoint, true)
 
+	// Cleanup by mining the force close and sweep transaction.
+	cleanupForceClose(t, net, net.Alice, forceCloseChanPoint)
+
 	// We'll need to mine some blocks in order to mark the channel fully
 	// closed.
-	_, err = net.Miner.Node.Generate(defaultBitcoinTimeLockDelta)
+	_, err = net.Miner.Node.Generate(defaultBitcoinTimeLockDelta - defaultCSV)
 	if err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
@@ -7589,14 +7677,12 @@ out:
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
 
-	// Force close Bob's final channel, also mining enough blocks to
-	// trigger a sweep of the funds by the utxoNursery.
-	// TODO(roasbeef): use config value for default CSV here.
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	// Force close Bob's final channel.
+	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
 	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPointBob, true)
-	if _, err := net.Miner.Node.Generate(5); err != nil {
-		t.Fatalf("unable to generate blocks: %v", err)
-	}
+
+	// Cleanup by mining the force close and sweep transaction.
+	cleanupForceClose(t, net, net.Bob, chanPointBob)
 }
 
 // graphSubscription houses the proxied update and error chans for a node's
@@ -9552,6 +9638,8 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 		// registration. As a result, we'll mine another block and
 		// repeat the check. If it doesn't go through this time, then
 		// we'll fail.
+		// TODO(halseth): can we use waitForChannelPendingForceClose to
+		// avoid this hack?
 		if _, err := net.Miner.Node.Generate(1); err != nil {
 			t.Fatalf("unable to generate block: %v", err)
 		}
@@ -10003,10 +10091,30 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	aliceForceClose := closeChannelAndAssert(ctxt, t, net, net.Alice,
 		aliceChanPoint, true)
 
+	// Wait for the channel to be marked pending force close.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = waitForChannelPendingForceClose(ctxt, net.Alice, aliceChanPoint)
+	if err != nil {
+		t.Fatalf("channel not pending force close: %v", err)
+	}
+
+	// Mine enough blocks for Alice to sweep her funds from the force
+	// closed channel.
+	_, err = net.Miner.Node.Generate(defaultCSV)
+	if err != nil {
+		t.Fatalf("unable to generate blocks: %v", err)
+	}
+
+	// Alice should now sweep her funds.
+	_, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	if err != nil {
+		t.Fatalf("unable to find sweeping tx in mempool: %v", err)
+	}
+
 	// We'll now mine enough blocks so Carol decides that she needs to go
 	// on-chain to claim the HTLC as Bob has been inactive.
 	claimDelta := uint32(2 * defaultBroadcastDelta)
-	numBlocks := uint32(defaultBitcoinTimeLockDelta - claimDelta)
+	numBlocks := uint32(defaultBitcoinTimeLockDelta-claimDelta) - defaultCSV
 	if _, err := net.Miner.Node.Generate(numBlocks); err != nil {
 		t.Fatalf("unable to generate blocks")
 	}
@@ -12281,6 +12389,9 @@ func testAbandonChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	// lnd instance.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPoint, true)
+
+	// Cleanup by mining the force close and sweep transaction.
+	cleanupForceClose(t, net, net.Bob, chanPoint)
 }
 
 type testCase struct {

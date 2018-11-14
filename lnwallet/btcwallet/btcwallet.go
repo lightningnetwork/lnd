@@ -714,6 +714,11 @@ func (b *BtcWallet) SubscribeTransactions() (lnwallet.TransactionSubscription, e
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) IsSynced() (bool, int64, error) {
+	// First, we'll ensure the wallet is not currently undergoing a rescan.
+	if !b.wallet.ChainSynced() {
+		return false, 0, nil
+	}
+
 	// Grab the best chain state the wallet is currently aware of.
 	syncState := b.wallet.Manager.SyncedTo()
 

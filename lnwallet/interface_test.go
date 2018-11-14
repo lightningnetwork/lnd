@@ -134,6 +134,124 @@ func assertReservationDeleted(res *lnwallet.ChannelReservation, t *testing.T) {
 	}
 }
 
+// mineAndAssertTxInBlock asserts that a transaction is included within the next
+// block mined.
+func mineAndAssertTxInBlock(t *testing.T, miner *rpctest.Harness,
+	txid chainhash.Hash) {
+
+	t.Helper()
+
+	// First, we'll wait for the transaction to arrive in the mempool.
+	if err := waitForMempoolTx(miner, &txid); err != nil {
+		t.Fatalf("unable to find %v in the mempool: %v", txid, err)
+	}
+
+	// We'll mined a block to confirm it.
+	blockHashes, err := miner.Node.Generate(1)
+	if err != nil {
+		t.Fatalf("unable to generate new block: %v", err)
+	}
+
+	// Finally, we'll check it was actually mined in this block.
+	block, err := miner.Node.GetBlock(blockHashes[0])
+	if err != nil {
+		t.Fatalf("unable to get block %v: %v", blockHashes[0], err)
+	}
+	if len(block.Transactions) != 2 {
+		t.Fatalf("expected 2 transactions in block, found %d",
+			len(block.Transactions))
+	}
+	txHash := block.Transactions[1].TxHash()
+	if txHash != txid {
+		t.Fatalf("expected transaction %v to be mined, found %v", txid,
+			txHash)
+	}
+}
+
+// newPkScript generates a new public key script of the given address type.
+func newPkScript(t *testing.T, w *lnwallet.LightningWallet,
+	addrType lnwallet.AddressType) []byte {
+
+	t.Helper()
+
+	addr, err := w.NewAddress(addrType, false)
+	if err != nil {
+		t.Fatalf("unable to create new address: %v", err)
+	}
+	pkScript, err := txscript.PayToAddrScript(addr)
+	if err != nil {
+		t.Fatalf("unable to create output script: %v", err)
+	}
+
+	return pkScript
+}
+
+// sendCoins is a helper function that encompasses all the things needed for two
+// parties to send on-chain funds to each other.
+func sendCoins(t *testing.T, miner *rpctest.Harness,
+	sender, receiver *lnwallet.LightningWallet, output *wire.TxOut,
+	feeRate lnwallet.SatPerKWeight) *wire.MsgTx {
+
+	t.Helper()
+
+	tx, err := sender.SendOutputs([]*wire.TxOut{output}, 2500)
+	if err != nil {
+		t.Fatalf("unable to send transaction: %v", err)
+	}
+
+	mineAndAssertTxInBlock(t, miner, tx.TxHash())
+
+	if err := waitForWalletSync(miner, sender); err != nil {
+		t.Fatalf("unable to sync alice: %v", err)
+	}
+	if err := waitForWalletSync(miner, receiver); err != nil {
+		t.Fatalf("unable to sync bob: %v", err)
+	}
+
+	return tx
+}
+
+// assertTxInWallet asserts that a transaction exists in the wallet with the
+// expected confirmation status.
+func assertTxInWallet(t *testing.T, w *lnwallet.LightningWallet,
+	txHash chainhash.Hash, confirmed bool) {
+
+	t.Helper()
+
+	// If the backend is Neutrino, then we can't determine unconfirmed
+	// transactions since it's not aware of the mempool.
+	if !confirmed && w.BackEnd() == "neutrino" {
+		return
+	}
+
+	// We'll fetch all of our transaction and go through each one until
+	// finding the expected transaction with its expected confirmation
+	// status.
+	txs, err := w.ListTransactionDetails()
+	if err != nil {
+		t.Fatalf("unable to retrieve transactions: %v", err)
+	}
+	for _, tx := range txs {
+		if tx.Hash != txHash {
+			continue
+		}
+		if tx.NumConfirmations <= 0 && confirmed {
+			t.Fatalf("expected transaction %v to be confirmed",
+				txHash)
+		}
+		if tx.NumConfirmations > 0 && !confirmed {
+			t.Fatalf("expected transaction %v to be unconfirmed",
+				txHash)
+		}
+
+		// We've found the transaction and it matches the desired
+		// confirmation status, so we can exit.
+		return
+	}
+
+	t.Fatalf("transaction %v not found", txHash)
+}
+
 // calcStaticFee calculates appropriate fees for commitment transactions.  This
 // function provides a simple way to allow test balance assertions to take fee
 // calculations into account.
@@ -1962,6 +2080,90 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 	}
 }
 
+// testChangeOutputSpendConfirmation ensures that when we attempt to spend a
+// change output created by the wallet, the wallet receives its confirmation
+// once included in the chain.
+func testChangeOutputSpendConfirmation(r *rpctest.Harness,
+	alice, bob *lnwallet.LightningWallet, t *testing.T) {
+
+	// In order to test that we see the confirmation of a transaction that
+	// spends an output created by SendOutputs, we'll start by emptying
+	// Alice's wallet so that no other UTXOs can be picked. To do so, we'll
+	// generate an address for Bob, who will receive all the coins.
+	// Assuming a balance of 80 BTC and a transaction fee of 2500 sat/kw,
+	// we'll craft the following transaction so that Alice doesn't have any
+	// UTXOs left.
+	aliceBalance, err := alice.ConfirmedBalance(0)
+	if err != nil {
+		t.Fatalf("unable to retrieve alice's balance: %v", err)
+	}
+	bobPkScript := newPkScript(t, bob, lnwallet.WitnessPubKey)
+
+	// We'll use a transaction fee of 13020 satoshis, which will allow us to
+	// sweep all of Alice's balance in one transaction containing 1 input
+	// and 1 output.
+	//
+	// TODO(wilmer): replace this once SendOutputs easily supports sending
+	// all funds in one transaction.
+	txFeeRate := lnwallet.SatPerKWeight(2500)
+	txFee := btcutil.Amount(14380)
+	output := &wire.TxOut{
+		Value:    int64(aliceBalance - txFee),
+		PkScript: bobPkScript,
+	}
+	tx := sendCoins(t, r, alice, bob, output, txFeeRate)
+	txHash := tx.TxHash()
+	assertTxInWallet(t, alice, txHash, true)
+	assertTxInWallet(t, bob, txHash, true)
+
+	// With the transaction sent and confirmed, Alice's balance should now
+	// be 0.
+	aliceBalance, err = alice.ConfirmedBalance(0)
+	if err != nil {
+		t.Fatalf("unable to retrieve alice's balance: %v", err)
+	}
+	if aliceBalance != 0 {
+		t.Fatalf("expected alice's balance to be 0 BTC, found %v",
+			aliceBalance)
+	}
+
+	// Now, we'll send an output back to Alice from Bob of 1 BTC.
+	alicePkScript := newPkScript(t, alice, lnwallet.WitnessPubKey)
+	output = &wire.TxOut{
+		Value:    btcutil.SatoshiPerBitcoin,
+		PkScript: alicePkScript,
+	}
+	tx = sendCoins(t, r, bob, alice, output, txFeeRate)
+	txHash = tx.TxHash()
+	assertTxInWallet(t, alice, txHash, true)
+	assertTxInWallet(t, bob, txHash, true)
+
+	// Alice now has an available output to spend, but it was not a change
+	// output, which is what the test expects. Therefore, we'll generate one
+	// by sending Bob back some coins.
+	output = &wire.TxOut{
+		Value:    btcutil.SatoshiPerBitcent,
+		PkScript: bobPkScript,
+	}
+	tx = sendCoins(t, r, alice, bob, output, txFeeRate)
+	txHash = tx.TxHash()
+	assertTxInWallet(t, alice, txHash, true)
+	assertTxInWallet(t, bob, txHash, true)
+
+	// Then, we'll spend the change output and ensure we see its
+	// confirmation come in.
+	tx = sendCoins(t, r, alice, bob, output, txFeeRate)
+	txHash = tx.TxHash()
+	assertTxInWallet(t, alice, txHash, true)
+	assertTxInWallet(t, bob, txHash, true)
+
+	// Finally, we'll replenish Alice's wallet with some more coins to
+	// ensure she has enough for any following test cases.
+	if err := loadTestCredits(r, alice, 20, 4); err != nil {
+		t.Fatalf("unable to replenish alice's wallet: %v", err)
+	}
+}
+
 type walletTestCase struct {
 	name string
 	test func(miner *rpctest.Harness, alice, bob *lnwallet.LightningWallet,
@@ -1969,6 +2171,13 @@ type walletTestCase struct {
 }
 
 var walletTests = []walletTestCase{
+	{
+		// TODO(wilmer): this test should remain first until the wallet
+		// can properly craft a transaction that spends all of its
+		// on-chain funds.
+		name: "change output spend confirmation",
+		test: testChangeOutputSpendConfirmation,
+	},
 	{
 		name: "insane fee reject",
 		test: testReservationInitiatorBalanceBelowDustCancel,

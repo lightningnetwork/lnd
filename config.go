@@ -544,10 +544,6 @@ func loadConfig() (*config, error) {
 			"litecoin.active must be set to 1 (true)", funcName)
 
 	case cfg.Litecoin.Active:
-		if cfg.Litecoin.SimNet {
-			str := "%s: simnet mode for litecoin not currently supported"
-			return nil, fmt.Errorf(str, funcName)
-		}
 		if cfg.Litecoin.RegTest {
 			str := "%s: regnet mode for litecoin not currently supported"
 			return nil, fmt.Errorf(str, funcName)
@@ -563,6 +559,10 @@ func loadConfig() (*config, error) {
 		// while we're at it.
 		numNets := 0
 		var ltcParams litecoinNetParams
+		if cfg.Litecoin.SimNet {
+			numNets++
+			ltcParams = litecoinSimNetParams
+		}
 		if cfg.Litecoin.MainNet {
 			numNets++
 			ltcParams = litecoinMainNetParams
@@ -611,10 +611,6 @@ func loadConfig() (*config, error) {
 				return nil, err
 			}
 		case "litecoind":
-			if cfg.Litecoin.SimNet {
-				return nil, fmt.Errorf("%s: litecoind does not "+
-					"support simnet", funcName)
-			}
 			err := parseRPCParams(cfg.Litecoin, cfg.LitecoindMode,
 				litecoinChain, funcName)
 			if err != nil {

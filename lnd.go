@@ -117,7 +117,7 @@ func lndMain() error {
 	case cfg.Bitcoin.MainNet || cfg.Litecoin.MainNet:
 		network = "mainnet"
 
-	case cfg.Bitcoin.SimNet:
+	case cfg.Bitcoin.SimNet || cfg.Litecoin.SimNet:
 		network = "simnet"
 
 	case cfg.Bitcoin.RegTest:

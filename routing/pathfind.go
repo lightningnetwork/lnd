@@ -816,7 +816,8 @@ func findPath(g *graphParams, r *restrictParams,
 func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 	source *channeldb.LightningNode, target *btcec.PublicKey,
 	amt lnwire.MilliSatoshi, feeLimit lnwire.MilliSatoshi, numPaths uint32,
-	bandwidthHints map[uint64]lnwire.MilliSatoshi) ([][]*channeldb.ChannelEdgePolicy, error) {
+	bandwidthHints map[uint64]lnwire.MilliSatoshi,
+	additionalEdges map[Vertex][]*channeldb.ChannelEdgePolicy) ([][]*channeldb.ChannelEdgePolicy, error) {
 
 	ignoredEdges := make(map[edgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
@@ -833,9 +834,10 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 	// satoshis along the path before fees are calculated.
 	startingPath, err := findPath(
 		&graphParams{
-			tx:             tx,
-			graph:          graph,
-			bandwidthHints: bandwidthHints,
+			tx:              tx,
+			graph:           graph,
+			bandwidthHints:  bandwidthHints,
+			additionalEdges: additionalEdges,
 		},
 		&restrictParams{
 			ignoredNodes: ignoredVertexes,
@@ -917,9 +919,10 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 			// shortest path from the spur node to the destination.
 			spurPath, err := findPath(
 				&graphParams{
-					tx:             tx,
-					graph:          graph,
-					bandwidthHints: bandwidthHints,
+					tx:              tx,
+					graph:           graph,
+					bandwidthHints:  bandwidthHints,
+					additionalEdges: additionalEdges,
 				},
 				&restrictParams{
 					ignoredNodes: ignoredVertexes,

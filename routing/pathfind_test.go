@@ -945,7 +945,7 @@ func TestKShortestPathFinding(t *testing.T) {
 	target := graph.aliasMap["luoji"]
 	paths, err := findPaths(
 		nil, graph.graph, sourceNode, target, paymentAmt, noFeeLimit, 100,
-		nil,
+		nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("unable to find paths between roasbeef and "+
@@ -1704,7 +1704,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	// Query for a route of 4,999,999 mSAT to carol.
 	carol := ctx.aliases["C"]
 	const amt lnwire.MilliSatoshi = 4999999
-	routes, err := ctx.router.FindRoutes(carol, amt, noFeeLimit, 100)
+	routes, err := ctx.router.FindRoutes(carol, amt, noFeeLimit, 100, nil)
 	if err != nil {
 		t.Fatalf("unable to find route: %v", err)
 	}
@@ -1765,7 +1765,7 @@ func TestPathFindSpecExample(t *testing.T) {
 
 	// We'll now request a route from A -> B -> C.
 	ctx.router.routeCache = make(map[routeTuple][]*Route)
-	routes, err = ctx.router.FindRoutes(carol, amt, noFeeLimit, 100)
+	routes, err = ctx.router.FindRoutes(carol, amt, noFeeLimit, 100, nil)
 	if err != nil {
 		t.Fatalf("unable to find routes: %v", err)
 	}

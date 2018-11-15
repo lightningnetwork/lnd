@@ -183,7 +183,7 @@ func TestFindRoutesFeeSorting(t *testing.T) {
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := ctx.aliases["luoji"]
 	routes, err := ctx.router.FindRoutes(
-		target, paymentAmt, noFeeLimit, defaultNumRoutes,
+		target, paymentAmt, noFeeLimit, defaultNumRoutes, nil,
 		DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -242,7 +242,7 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 	feeLimit := lnwire.NewMSatFromSatoshis(10)
 
 	routes, err := ctx.router.FindRoutes(
-		target, paymentAmt, feeLimit, defaultNumRoutes,
+		target, paymentAmt, feeLimit, defaultNumRoutes, nil,
 		DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -1025,6 +1025,100 @@ func TestIgnoreNodeAnnouncement(t *testing.T) {
 	}
 }
 
+// TestRouteHints tests that the the router can reach a node that is
+// not in the graph using route hints.
+func TestRouteHintsToTarget(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx, cleanUp, err := createTestCtxFromFile(startingBlockHeight,
+		basicGraphFilePath)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	// Add a (private) channel between pham nuwen and node1. Check that
+	// we can route to it using hints.
+	connectNode := ctx.aliases["phamnuwen"]
+	if connectNode == nil {
+		t.Fatalf("could not find node to connect to")
+	}
+
+	var (
+		pubKey1 *btcec.PublicKey
+		pubKey2 *btcec.PublicKey
+	)
+	node1Bytes := priv1.PubKey().SerializeCompressed()
+	node2Bytes := connectNode.SerializeCompressed()
+	if bytes.Compare(node1Bytes, node2Bytes) == -1 {
+		pubKey1 = priv1.PubKey()
+		pubKey2 = connectNode
+	} else {
+		pubKey1 = connectNode
+		pubKey2 = priv1.PubKey()
+	}
+
+	fundingTx, _, chanID, err := createChannelEdge(ctx,
+		pubKey1.SerializeCompressed(), pubKey2.SerializeCompressed(),
+		10000, 510)
+	if err != nil {
+		t.Fatalf("unable to create channel edge: %v", err)
+	}
+	fundingBlock := &wire.MsgBlock{
+		Transactions: []*wire.MsgTx{fundingTx},
+	}
+	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
+
+	// We check that that we can reach node1 if we add a route hint that
+	// connects between pham nuwen and node1 across the private channel
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+	targetNode := priv1.PubKey()
+	routeHints := [][]HopHint{
+		{
+			{
+				NodeID:                    connectNode,
+				ChannelID:                 chanID.ToUint64(),
+				FeeBaseMSat:               12,
+				FeeProportionalMillionths: 1200,
+				CLTVExpiryDelta:           10,
+			},
+		},
+	}
+	routes, err := ctx.router.FindRoutes(
+		targetNode, paymentAmt, noFeeLimit, defaultNumRoutes, routeHints,
+		DefaultFinalCLTVDelta,
+	)
+	if err != nil {
+		t.Fatalf("unable to find any routes: %v", err)
+	}
+	if len(routes) != 2 {
+		t.Fatalf("expected to find 2 route, found: %v", len(routes))
+	}
+
+	// First route should have 2 hops, from roasbeef to pham nuven and
+	// then to node1
+	if len(routes[0].Hops) != 2 {
+		t.Fatalf("expected to find 2 hops, found: %v", len(routes[0].Hops))
+	}
+
+	// Second route should have 4 hops, from roasbeef to son goku, to sophon,
+	// to pham nuven and then to node1
+	if len(routes[1].Hops) != 4 {
+		t.Fatalf("expected to find 4 hops, found: %v", len(routes[0].Hops))
+	}
+
+	// Make sure that without the hint, node1 is unreachable
+	routes, err = ctx.router.FindRoutes(
+		targetNode, paymentAmt, noFeeLimit, defaultNumRoutes, nil,
+		DefaultFinalCLTVDelta,
+	)
+	if err == nil {
+		t.Fatalf("expected to find no route, found: %v", len(routes))
+	}
+
+}
+
 // TestAddEdgeUnknownVertexes tests that if an edge is added that contains two
 // vertexes which we don't know of, the edge should be available for use
 // regardless. This is due to the fact that we don't actually need node
@@ -1221,7 +1315,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	targetNode := priv2.PubKey()
 	routes, err := ctx.router.FindRoutes(
-		targetNode, paymentAmt, noFeeLimit, defaultNumRoutes,
+		targetNode, paymentAmt, noFeeLimit, defaultNumRoutes, nil,
 		DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -1229,6 +1323,12 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	}
 	if len(routes) != 2 {
 		t.Fatalf("expected to find 2 route, found: %v", len(routes))
+	}
+
+	// Routes should have 4 hops, from roasbeef to either son goku or pham
+	// nuwen, to sophon, to node1 and to node2.
+	if len(routes[0].Hops) != 4 {
+		t.Fatalf("expected to find 4 hops, found: %v", len(routes[0].Hops))
 	}
 
 	// Now check that we can update the node info for the partial node
@@ -1266,7 +1366,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// Should still be able to find the routes, and the info should be
 	// updated.
 	routes, err = ctx.router.FindRoutes(
-		targetNode, paymentAmt, noFeeLimit, defaultNumRoutes,
+		targetNode, paymentAmt, noFeeLimit, defaultNumRoutes, nil,
 		DefaultFinalCLTVDelta,
 	)
 	if err != nil {

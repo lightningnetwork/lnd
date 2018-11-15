@@ -1388,7 +1388,7 @@ func pathsToFeeSortedRoutes(source Vertex, paths [][]*channeldb.ChannelEdgePolic
 // fee along the route.
 func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	amt, feeLimit lnwire.MilliSatoshi, numPaths uint32,
-	finalExpiry ...uint16) ([]*Route, error) {
+	routeHints [][]HopHint, finalExpiry ...uint16) ([]*Route, error) {
 
 	var finalCLTVDelta uint16
 	if len(finalExpiry) == 0 {
@@ -1425,7 +1425,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	targetVertex := NewVertex(target)
 	if _, exists, err := r.cfg.Graph.HasLightningNode(targetVertex); err != nil {
 		return nil, err
-	} else if !exists {
+	} else if !exists && routeHints == nil {
 		log.Debugf("Target %x is not in known graph", dest)
 		return nil, newErrf(ErrTargetNotInNetwork, "target not found")
 	}
@@ -1447,6 +1447,23 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 		return nil, err
 	}
 
+	// If route hints were provided, pass it on. Reuse the payment session
+	// code for coverting hints to edge policies.
+	// An assumption is made here that the last hop leads to the target, e.g.
+	// that the route hints bridge over the last set of private edges.
+	// TODO(bluetegu): support also mid-route hints; calculate the last hop
+	// end node from the last hop's node id and channel id
+	var additionalEdges map[Vertex][]*channeldb.ChannelEdgePolicy
+	if routeHints != nil && len(routeHints) > 0 {
+		paySession, err := r.missionControl.NewPaymentSession(
+			routeHints, target,
+		)
+		if err != nil {
+			return nil, err
+		}
+		additionalEdges = paySession.additionalEdges
+	}
+
 	tx, err := r.cfg.Graph.Database().Begin(false)
 	if err != nil {
 		tx.Rollback()
@@ -1458,7 +1475,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	// our source to the destination.
 	shortestPaths, err := findPaths(
 		tx, r.cfg.Graph, r.selfNode, target, amt, feeLimit, numPaths,
-		bandwidthHints,
+		bandwidthHints, additionalEdges,
 	)
 	if err != nil {
 		tx.Rollback()

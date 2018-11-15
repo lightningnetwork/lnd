@@ -2824,11 +2824,41 @@ func getNodeInfo(ctx *cli.Context) error {
 }
 
 var queryRoutesCommand = cli.Command{
-	Name:        "queryroutes",
-	Category:    "Payments",
-	Usage:       "Query a route to a destination.",
-	Description: "Queries the channel router for a potential path to the destination that has sufficient flow for the amount including fees",
-	ArgsUsage:   "dest amt",
+	Name:     "queryroutes",
+	Category: "Payments",
+	Usage:    "Query a route to a destination.",
+	Description: `
+	Queries the channel router for a potential path to the destination that
+	has sufficient flow for the amount including fees.
+
+	The destination and amount must be specified, unless a pay request is
+	provided. To query a route to a private destination, either a pay request
+	that includes routing hints to cross the private edge(s) should be
+	provided, or the destination and the routing hints should be provided
+	explicitly.
+
+	Only routing hints leading to the final destination are supported; an
+	assumption is made that the destination is the last hop in each route.
+
+	Below is an example of a query using routing hints:
+
+	lncli queryroutes --hints='{"route_hints": [
+        {
+            "hop_hints": [
+                {
+                    "node_id": "026a52eadd42eabb70e9b0481af7001d299f7d7b41030977bb37a2faac7bbe0012",
+                    "chan_id": "2043992116101120",
+                    "fee_base_msat": 10000,
+                    "fee_proportional_millionths": 0,
+                    "cltv_expiry_delta": 144
+                }
+            ]
+        }
+	]}' "034a15c028970d4070c60f532018cfdb943b584ba267c83fe333ef1ad70b10feaf" 333
+
+	Note the single quote used to encapsulate the hints.
+	`,
+	ArgsUsage: "dest amt",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name: "dest",
@@ -2859,6 +2889,17 @@ var queryRoutesCommand = cli.Command{
 			Usage: "(optional) number of blocks the last hop has to reveal " +
 				"the preimage",
 		},
+		cli.StringFlag{
+			Name:  "pay_req",
+			Usage: "(optional) the bech32 encoded payment request",
+		},
+		cli.StringFlag{
+			Name: "hints",
+			Usage: "(optional) a json array string in the format of the " +
+				"route information (hints) in invoices. The hints contain " +
+				"one or more ordered entries, indicating the forward route " +
+				"from a public node to the final destination",
+		},
 	},
 	Action: actionDecorator(queryRoutes),
 }
@@ -2882,6 +2923,8 @@ func queryRoutes(ctx *cli.Context) error {
 	case args.Present():
 		dest = args.First()
 		args = args.Tail()
+	case ctx.IsSet("pay_req"):
+		break
 	default:
 		return fmt.Errorf("dest argument missing")
 	}
@@ -2891,9 +2934,11 @@ func queryRoutes(ctx *cli.Context) error {
 		amt = ctx.Int64("amt")
 	case args.Present():
 		amt, err = strconv.ParseInt(args.First(), 10, 64)
-		if err != nil {
+		if err != nil && !ctx.IsSet("pay_req") {
 			return fmt.Errorf("unable to decode amt argument: %v", err)
 		}
+	case ctx.IsSet("pay_req"):
+		break
 	default:
 		return fmt.Errorf("amt argument missing")
 	}
@@ -2903,12 +2948,26 @@ func queryRoutes(ctx *cli.Context) error {
 		return err
 	}
 
+	var routeHints []*lnrpc.RouteHint
+	if ctx.IsSet("hints") {
+		jsonHints := ctx.String("hints")
+		hints := &lnrpc.RouteHints{}
+		err = jsonpb.UnmarshalString(jsonHints, hints)
+		if err != nil {
+			return fmt.Errorf("unable to unmarshal json string "+
+				"from incoming array of hints: %v", err)
+		}
+		routeHints = hints.RouteHints
+	}
+
 	req := &lnrpc.QueryRoutesRequest{
 		PubKey:         dest,
 		Amt:            amt,
 		FeeLimit:       feeLimit,
 		NumRoutes:      int32(ctx.Int("num_max_routes")),
 		FinalCltvDelta: int32(ctx.Int("final_cltv_delta")),
+		PaymentRequest: ctx.String("pay_req"),
+		Hints:          routeHints,
 	}
 
 	route, err := client.QueryRoutes(ctxb, req)

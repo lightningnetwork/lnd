@@ -1479,6 +1479,19 @@ message QueryRoutesRequest {
     send the payment.
     */
     FeeLimit fee_limit = 5;
+
+    /**
+    A bare-bones invoice for a payment within the Lightning Network.  With the
+    details of the invoice, the sender has all the data necessary to send a
+    payment to the recipient.
+    */
+    string payment_request = 6;
+
+    /**
+    Optional routing hints. Useful mainly for querying routes across private
+    edges.
+    */
+    repeated RouteHint hints = 7;
 }
 message QueryRoutesResponse {
     repeated Route routes = 1 [json_name = "routes"];
@@ -1503,6 +1516,13 @@ message Hop {
     can be executed without relying on a copy of the channel graph.
     */
     string pub_key = 8 [json_name = "pub_key"];
+}
+
+/**
+A set of hops, ordered, as provided in the routing hints of an invoice
+*/
+message Hops {
+    repeated Hop hops = 1 [json_name = "hops"];
 }
 
 /**
@@ -1745,6 +1765,10 @@ message RouteHint {
     specific destination.
     */
     repeated HopHint hop_hints = 1 [json_name = "hop_hints"];
+}
+
+message RouteHints {
+    repeated RouteHint route_hints = 1 [json_name = "route_hints"];
 }
 
 message Invoice {

@@ -593,6 +593,13 @@
             "required": false,
             "type": "string",
             "format": "int64"
+          },
+          {
+            "name": "payment_request",
+            "description": "*\nA bare-bones invoice for a payment within the Lightning Network.  With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient.",
+            "in": "query",
+            "required": false,
+            "type": "string"
           }
         ],
         "tags": [

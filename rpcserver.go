@@ -3969,25 +3969,114 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 func (r *rpcServer) QueryRoutes(ctx context.Context,
 	in *lnrpc.QueryRoutesRequest) (*lnrpc.QueryRoutesResponse, error) {
 
-	// First parse the hex-encoded public key into a full public key object
-	// we can properly manipulate.
-	pubKeyBytes, err := hex.DecodeString(in.PubKey)
-	if err != nil {
-		return nil, err
+	var (
+		err        error
+		pubKey     *btcec.PublicKey
+		amtMSat    lnwire.MilliSatoshi
+		routeHints [][]routing.HopHint
+		payReq     *zpay32.Invoice
+	)
+
+	// If a payment request was specified, extract the destination, amount,
+	// and hops from it.
+	if len(in.PaymentRequest) > 0 {
+		payReq, err = zpay32.Decode(
+			in.PaymentRequest, activeNetParams.Params,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse payment " +
+				"request")
+		}
 	}
-	pubKey, err := btcec.ParsePubKey(pubKeyBytes, btcec.S256())
-	if err != nil {
-		return nil, err
+
+	// Parse the hex-encoded public key into a full public key object
+	// we can properly manipulate.
+	switch {
+	case len(in.PubKey) > 0:
+		pubKeyBytes, err := hex.DecodeString(in.PubKey)
+		if err != nil {
+			return nil, err
+		}
+		pubKey, err = btcec.ParsePubKey(pubKeyBytes, btcec.S256())
+		if err != nil {
+			return nil, err
+		}
+	case len(in.PaymentRequest) > 0:
+		pubKey = payReq.Destination
+	default:
+		return nil, fmt.Errorf("Destination not specified")
+	}
+
+	// Route hints can be read either from the invoice or from an
+	// explicit set of route hints provided.
+	for _, rh := range in.Hints {
+		var route []routing.HopHint
+		for _, h := range rh.HopHints {
+			var nodeID *btcec.PublicKey
+			if len(h.NodeId) == 0 {
+				return nil, fmt.Errorf("Hint node Id is " +
+					"missing")
+			}
+			nodeIDBytes, err := hex.DecodeString(h.NodeId)
+			if err != nil {
+				return nil, fmt.Errorf("Failed to decode " +
+					"hint node Id")
+			}
+			nodeID, err = btcec.ParsePubKey(nodeIDBytes,
+				btcec.S256())
+			if err != nil {
+				return nil, fmt.Errorf("Failed to parse " +
+					"hint public key from node Id")
+			}
+			feeRate := h.FeeProportionalMillionths
+			expDelta := uint16(h.CltvExpiryDelta)
+			route = append(route, routing.HopHint{
+				NodeID:                    nodeID,
+				ChannelID:                 h.ChanId,
+				FeeBaseMSat:               h.FeeBaseMsat,
+				FeeProportionalMillionths: feeRate,
+				CLTVExpiryDelta:           expDelta,
+			})
+		}
+		routeHints = append(routeHints, route)
+	}
+	// Explicit route hints take precedence over hints
+	// provided in invoice
+	if len(routeHints) == 0 && payReq != nil {
+		routeHints = payReq.RouteHints
+	}
+
+	// Parse the hex-encoded public key into a full public key object
+	// we can properly manipulate.
+	switch {
+	case len(in.PubKey) > 0:
+		pubKeyBytes, err := hex.DecodeString(in.PubKey)
+		if err != nil {
+			return nil, err
+		}
+		pubKey, err = btcec.ParsePubKey(pubKeyBytes, btcec.S256())
+		if err != nil {
+			return nil, err
+		}
+	case len(in.PaymentRequest) > 0:
+		pubKey = payReq.Destination
+	default:
+		return nil, fmt.Errorf("Destination not specified")
 	}
 
 	// Currently, within the bootstrap phase of the network, we limit the
 	// largest payment size allotted to (2^32) - 1 mSAT or 4.29 million
 	// satoshis.
-	amt := btcutil.Amount(in.Amt)
-	amtMSat := lnwire.NewMSatFromSatoshis(amt)
+	if in.Amt != 0 {
+		amt := btcutil.Amount(in.Amt)
+		amtMSat = lnwire.NewMSatFromSatoshis(amt)
+	} else if payReq != nil {
+		amtMSat = *payReq.MilliSat
+	}
 	if amtMSat > maxPaymentMSat {
-		return nil, fmt.Errorf("payment of %v is too large, max payment "+
-			"allowed is %v", amt, maxPaymentMSat.ToSatoshis())
+		return nil, fmt.Errorf("payment of %v is too large, max "+
+			"payment allowed is %v", amtMSat.ToSatoshis(),
+			maxPaymentMSat.ToSatoshis())
 	}
 
 	feeLimit := calculateFeeLimit(in.FeeLimit, amtMSat)
@@ -4007,11 +4096,11 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 	)
 	if in.FinalCltvDelta == 0 {
 		routes, findErr = r.server.chanRouter.FindRoutes(
-			pubKey, amtMSat, feeLimit, numRoutesIn,
+			pubKey, amtMSat, feeLimit, numRoutesIn, routeHints,
 		)
 	} else {
 		routes, findErr = r.server.chanRouter.FindRoutes(
-			pubKey, amtMSat, feeLimit, numRoutesIn,
+			pubKey, amtMSat, feeLimit, numRoutesIn, routeHints,
 			uint16(in.FinalCltvDelta),
 		)
 	}

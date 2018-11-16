@@ -72,7 +72,7 @@
 
 [[constraint]]
   name = "github.com/btcsuite/btcwallet"
-  revision = "4c01c0878c4ea6ff80711dbfe49e49199ca07607"
+  revision = "55c7c63993216f15d57f0118e86e3fe832e37f15"
 
 [[constraint]]
   name = "github.com/tv42/zbase32"

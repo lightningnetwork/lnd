@@ -5,10 +5,6 @@ matrix:
     env: RACE=true LINT=true
   - go: "1.11.x"
     env: ITEST=true COVER=true LINT=true
-  - go: "1.10.x"
-    env: RACE=true LINT=false
-  - go: "1.10.x"
-    env: ITEST=true COVER=true LINT=false
 
 sudo: required
 install:

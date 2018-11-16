@@ -1,10 +1,12 @@
 language: go
-matrix:
-  include:
-  - go: "1.11.x"
-    env: RACE=true LINT=true
-  - go: "1.11.x"
-    env: ITEST=true COVER=true LINT=true
+go:
+  - "1.11.x"
+
+env:
+  matrix:
+    - RACE=true LINT=true
+    - ITEST=true
+    - COVER=true
 
 sudo: required
 install:

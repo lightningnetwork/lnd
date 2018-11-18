@@ -769,13 +769,89 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		return nil, err
 	}
 
-	rpcsLog.Infof("[sendcoins] addr=%v, amt=%v, sat/kw=%v", in.Addr,
-		btcutil.Amount(in.Amount), int64(feePerKw))
+	rpcsLog.Infof("[sendcoins] addr=%v, amt=%v, sat/kw=%v, sweep_all=%v",
+		in.Addr, btcutil.Amount(in.Amount), int64(feePerKw),
+		in.SendAll)
 
-	paymentMap := map[string]int64{in.Addr: in.Amount}
-	txid, err := r.sendCoinsOnChain(paymentMap, feePerKw)
-	if err != nil {
-		return nil, err
+	var txid *chainhash.Hash
+
+	wallet := r.server.cc.wallet
+
+	// If the send all flag is active, then we'll attempt to sweep all the
+	// coins in the wallet in a single transaction (if possible),
+	// otherwise, we'll respect the amount, and attempt a regular 2-output
+	// send.
+	if in.SendAll {
+		// At this point, the amount shouldn't be set since we've been
+		// instructed to sweep all the coins from the wallet.
+		if in.Amount != 0 {
+			return nil, fmt.Errorf("amount set while SendAll is " +
+				"active")
+		}
+
+		// Additionally, we'll need to convert the sweep address passed
+		// into a useable struct, and also query for the latest block
+		// height so we can properly construct the transaction.
+		sweepAddr, err := btcutil.DecodeAddress(
+			in.Addr, activeNetParams.Params,
+		)
+		if err != nil {
+			return nil, err
+		}
+		_, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
+		if err != nil {
+			return nil, err
+		}
+
+		// With the sweeper instance created, we can now generate a
+		// transaction that will sweep ALL outputs from the wallet in a
+		// single transaction. This will be generated in a concurrent
+		// safe manner, so no need to worry about locking.
+		sweepTxPkg, err := sweep.CraftSweepAllTx(
+			feePerKw, uint32(bestHeight), sweepAddr, wallet,
+			wallet.WalletController, wallet.WalletController,
+			r.server.cc.feeEstimator, r.server.cc.signer,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		rpcsLog.Debugf("Sweeping all coins from wallet to addr=%v, "+
+			"with tx=%v", in.Addr, spew.Sdump(sweepTxPkg.SweepTx))
+
+		// As our sweep transaction was created, successfully, we'll
+		// now attempt to publish it, cancelling the sweep pkg to
+		// return all outputs if it fails.
+		err = wallet.PublishTransaction(sweepTxPkg.SweepTx)
+		if err != nil {
+			sweepTxPkg.CancelSweepAttempt()
+
+			return nil, fmt.Errorf("unable to broadcast sweep "+
+				"transaction: %v", err)
+		}
+
+		sweepTXID := sweepTxPkg.SweepTx.TxHash()
+		txid = &sweepTXID
+	} else {
+
+		// We'll now construct out payment map, and use the wallet's
+		// coin selection synchronization method to ensure that no coin
+		// selection (funding, sweep alls, other sends) can proceed
+		// while we instruct the wallet to send this transaction.
+		paymentMap := map[string]int64{in.Addr: in.Amount}
+		err := wallet.WithCoinSelectLock(func() error {
+			newTXID, err := r.sendCoinsOnChain(paymentMap, feePerKw)
+			if err != nil {
+				return err
+			}
+
+			txid = newTXID
+
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	rpcsLog.Infof("[sendcoins] spend generated txid: %v", txid.String())

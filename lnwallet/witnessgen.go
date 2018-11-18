@@ -69,6 +69,16 @@ const (
 	// broadcast a revoked commitment, but then also immediately attempt to
 	// go to the second level to claim the HTLC.
 	HtlcSecondLevelRevoke WitnessType = 9
+
+	// WitnessKeyHash is a witness type that allows us to spend a regular
+	// p2wkh output that's sent to an output which is under complete
+	// control of the backing wallet.
+	WitnessKeyHash WitnessType = 10
+
+	// NestedWitnessKeyHash is a witness type that allows us to sweep an
+	// output that sends to a nested P2SH script that pays to a key solely
+	// under our control. The witness generated needs to include the
+	NestedWitnessKeyHash WitnessType = 11
 )
 
 // Stirng returns a human readable version of the target WitnessType.
@@ -225,6 +235,10 @@ func (wt WitnessType) GenWitnessFunc(signer Signer,
 				Witness: witness,
 			}, nil
 
+		case WitnessKeyHash:
+			fallthrough
+		case NestedWitnessKeyHash:
+			return signer.ComputeInputScript(tx, desc)
 
 		default:
 			return nil, fmt.Errorf("unknown witness type: %v", wt)

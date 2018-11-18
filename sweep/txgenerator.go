@@ -216,25 +216,29 @@ func createSweepTx(inputs []Input, outputPkScript []byte,
 
 	hashCache := txscript.NewTxSigHashes(sweepTx)
 
-	// With all the inputs in place, use each output's unique witness
+	// With all the inputs in place, use each output's unique input script
 	// function to generate the final witness required for spending.
-	addWitness := func(idx int, tso Input) error {
-		witness, err := tso.BuildWitness(
+	addInputScript := func(idx int, tso Input) error {
+		inputScript, err := tso.CraftInputScript(
 			signer, sweepTx, hashCache, idx,
 		)
 		if err != nil {
 			return err
 		}
 
-		sweepTx.TxIn[idx].Witness = witness
+		sweepTx.TxIn[idx].Witness = inputScript.Witness
+
+		if len(inputScript.SigScript) != 0 {
+			sweepTx.TxIn[idx].SignatureScript = inputScript.SigScript
+		}
 
 		return nil
 	}
 
-	// Finally we'll attach a valid witness to each csv and cltv input
+	// Finally we'll attach a valid input script to each csv and cltv input
 	// within the sweeping transaction.
 	for i, input := range inputs {
-		if err := addWitness(i, input); err != nil {
+		if err := addInputScript(i, input); err != nil {
 			return nil, err
 		}
 	}

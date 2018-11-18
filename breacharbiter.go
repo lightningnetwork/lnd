@@ -807,13 +807,13 @@ func (bo *breachedOutput) SignDesc() *lnwallet.SignDescriptor {
 	return &bo.signDesc
 }
 
-// BuildWitness computes a valid witness that allows us to spend from the
+// CraftInputScript computes a valid witness that allows us to spend from the
 // breached output. It does so by first generating and memoizing the witness
 // generation function, which parameterized primarily by the witness type and
 // sign descriptor. The method then returns the witness computed by invoking
 // this function on the first and subsequent calls.
-func (bo *breachedOutput) BuildWitness(signer lnwallet.Signer, txn *wire.MsgTx,
-	hashCache *txscript.TxSigHashes, txinIdx int) ([][]byte, error) {
+func (bo *breachedOutput) CraftInputScript(signer lnwallet.Signer, txn *wire.MsgTx,
+	hashCache *txscript.TxSigHashes, txinIdx int) (*lnwallet.InputScript, error) {
 
 	// First, we ensure that the witness generation function has been
 	// initialized for this breached output.
@@ -1082,15 +1082,16 @@ func (b *breachArbiter) sweepSpendableOutputsTxn(txWeight int64,
 		// First, we construct a valid witness for this outpoint and
 		// transaction using the SpendableOutput's witness generation
 		// function.
-		witness, err := so.BuildWitness(b.cfg.Signer, txn, hashCache,
-			idx)
+		inputScript, err := so.CraftInputScript(
+			b.cfg.Signer, txn, hashCache, idx,
+		)
 		if err != nil {
 			return err
 		}
 
 		// Then, we add the witness to the transaction at the
 		// appropriate txin index.
-		txn.TxIn[idx].Witness = witness
+		txn.TxIn[idx].Witness = inputScript.Witness
 
 		return nil
 	}

@@ -127,7 +127,7 @@ type TransactionSubscription interface {
 type WalletController interface {
 	// FetchInputInfo queries for the WalletController's knowledge of the
 	// passed outpoint. If the base wallet determines this output is under
-	// its control, then the original txout should be returned. Otherwise,
+	// its control, then the original txout should be returned.  Otherwise,
 	// a non-nil error value of ErrNotMine should be returned instead.
 	FetchInputInfo(prevOut *wire.OutPoint) (*wire.TxOut, error)
 

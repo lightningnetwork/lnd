@@ -39,6 +39,7 @@ import (
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/signal"
+	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/tv42/zbase32"
 	"golang.org/x/net/context"
@@ -637,53 +638,7 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
 	}
 
 	txHash := tx.TxHash()
-	return &txHash, err
-}
-
-// determineFeePerKw will determine the fee in sat/kw that should be paid given
-// an estimator, a confirmation target, and a manual value for sat/byte. A value
-// is chosen based on the two free parameters as one, or both of them can be
-// zero.
-func determineFeePerKw(feeEstimator lnwallet.FeeEstimator, targetConf int32,
-	feePerByte int64) (lnwallet.SatPerKWeight, error) {
-
-	switch {
-	// If the target number of confirmations is set, then we'll use that to
-	// consult our fee estimator for an adequate fee.
-	case targetConf != 0:
-		feePerKw, err := feeEstimator.EstimateFeePerKW(
-			uint32(targetConf),
-		)
-		if err != nil {
-			return 0, fmt.Errorf("unable to query fee "+
-				"estimator: %v", err)
-		}
-
-		return feePerKw, nil
-
-	// If a manual sat/byte fee rate is set, then we'll use that directly.
-	// We'll need to convert it to sat/kw as this is what we use internally.
-	case feePerByte != 0:
-		feePerKW := lnwallet.SatPerKVByte(feePerByte * 1000).FeePerKWeight()
-		if feePerKW < lnwallet.FeePerKwFloor {
-			rpcsLog.Infof("Manual fee rate input of %d sat/kw is "+
-				"too low, using %d sat/kw instead", feePerKW,
-				lnwallet.FeePerKwFloor)
-			feePerKW = lnwallet.FeePerKwFloor
-		}
-		return feePerKW, nil
-
-	// Otherwise, we'll attempt a relaxed confirmation target for the
-	// transaction
-	default:
-		feePerKw, err := feeEstimator.EstimateFeePerKW(6)
-		if err != nil {
-			return 0, fmt.Errorf("unable to query fee estimator: "+
-				"%v", err)
-		}
-
-		return feePerKw, nil
-	}
+	return &txHash, nil
 }
 
 // ListUnspent returns useful information about each unspent output owned by
@@ -803,8 +758,12 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 
 	// Based on the passed fee related parameters, we'll determine an
 	// appropriate fee rate for this transaction.
-	feePerKw, err := determineFeePerKw(
-		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
+	satPerKw := lnwallet.SatPerKVByte(in.SatPerByte * 1000).FeePerKWeight()
+	feePerKw, err := sweep.DetermineFeePerKw(
+		r.server.cc.feeEstimator, sweep.FeePreference{
+			ConfTarget: uint32(in.TargetConf),
+			FeeRate:    satPerKw,
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -831,8 +790,12 @@ func (r *rpcServer) SendMany(ctx context.Context,
 
 	// Based on the passed fee related parameters, we'll determine an
 	// appropriate fee rate for this transaction.
-	feePerKw, err := determineFeePerKw(
-		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
+	satPerKw := lnwallet.SatPerKVByte(in.SatPerByte * 1000).FeePerKWeight()
+	feePerKw, err := sweep.DetermineFeePerKw(
+		r.server.cc.feeEstimator, sweep.FeePreference{
+			ConfTarget: uint32(in.TargetConf),
+			FeeRate:    satPerKw,
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -1167,8 +1130,12 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 
 	// Based on the passed fee related parameters, we'll determine an
 	// appropriate fee rate for the funding transaction.
-	feeRate, err := determineFeePerKw(
-		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
+	satPerKw := lnwallet.SatPerKVByte(in.SatPerByte * 1000).FeePerKWeight()
+	feeRate, err := sweep.DetermineFeePerKw(
+		r.server.cc.feeEstimator, sweep.FeePreference{
+			ConfTarget: uint32(in.TargetConf),
+			FeeRate:    satPerKw,
+		},
 	)
 	if err != nil {
 		return err
@@ -1314,8 +1281,12 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 
 	// Based on the passed fee related parameters, we'll determine an
 	// appropriate fee rate for the funding transaction.
-	feeRate, err := determineFeePerKw(
-		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
+	satPerKw := lnwallet.SatPerKVByte(in.SatPerByte * 1000).FeePerKWeight()
+	feeRate, err := sweep.DetermineFeePerKw(
+		r.server.cc.feeEstimator, sweep.FeePreference{
+			ConfTarget: uint32(in.TargetConf),
+			FeeRate:    satPerKw,
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -1503,8 +1474,14 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		// Based on the passed fee related parameters, we'll determine
 		// an appropriate fee rate for the cooperative closure
 		// transaction.
-		feeRate, err := determineFeePerKw(
-			r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
+		satPerKw := lnwallet.SatPerKVByte(
+			in.SatPerByte * 1000,
+		).FeePerKWeight()
+		feeRate, err := sweep.DetermineFeePerKw(
+			r.server.cc.feeEstimator, sweep.FeePreference{
+				ConfTarget: uint32(in.TargetConf),
+				FeeRate:    satPerKw,
+			},
 		)
 		if err != nil {
 			return err

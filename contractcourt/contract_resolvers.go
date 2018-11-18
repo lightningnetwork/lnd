@@ -476,7 +476,10 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 			// TODO: Use time-based sweeper and result chan.
 			var err error
 			h.sweepTx, err = h.Sweeper.CreateSweepTx(
-				[]sweep.Input{&input}, sweepConfTarget, 0,
+				[]sweep.Input{&input},
+				sweep.FeePreference{
+					ConfTarget: sweepConfTarget,
+				}, 0,
 			)
 			if err != nil {
 				return nil, err
@@ -1270,7 +1273,10 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		//
 		// TODO: Use time-based sweeper and result chan.
 		c.sweepTx, err = c.Sweeper.CreateSweepTx(
-			[]sweep.Input{&input}, sweepConfTarget, 0,
+			[]sweep.Input{&input},
+			sweep.FeePreference{
+				ConfTarget: sweepConfTarget,
+			}, 0,
 		)
 		if err != nil {
 			return nil, err

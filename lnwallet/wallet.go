@@ -1252,6 +1252,17 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	l.limboMtx.Unlock()
 }
 
+// WithCoinSelectLock will execute the passed function closure in a
+// synchronized manner preventing any coin selection operations from proceeding
+// while the closure if executing. This can be seen as the ability to execute a
+// function closure under an exclusive coin selection lock.
+func (l *LightningWallet) WithCoinSelectLock(f func() error) error {
+	l.coinSelectMtx.Lock()
+	defer l.coinSelectMtx.Unlock()
+
+	return f()
+}
+
 // selectCoinsAndChange performs coin selection in order to obtain witness
 // outputs which sum to at least 'numCoins' amount of satoshis. If coin
 // selection is successful/possible, then the selected coins are available

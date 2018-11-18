@@ -804,7 +804,24 @@ func (r *rpcServer) SendMany(ctx context.Context,
 	rpcsLog.Infof("[sendmany] outputs=%v, sat/kw=%v",
 		spew.Sdump(in.AddrToAmount), int64(feePerKw))
 
-	txid, err := r.sendCoinsOnChain(in.AddrToAmount, feePerKw)
+	var txid *chainhash.Hash
+
+	// We'll attempt to send to the target set of outputs, ensuring that we
+	// synchronize with any other ongoing coin selection attempts which
+	// happen to also be concurrently executing.
+	wallet := r.server.cc.wallet
+	err = wallet.WithCoinSelectLock(func() error {
+		sendManyTXID, err := r.sendCoinsOnChain(
+			in.AddrToAmount, feePerKw,
+		)
+		if err != nil {
+			return err
+		}
+
+		txid = sendManyTXID
+
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}

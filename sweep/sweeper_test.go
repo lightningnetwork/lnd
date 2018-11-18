@@ -135,7 +135,7 @@ func createSweeperTestContext(t *testing.T) *sweeperTestContext {
 			outputScriptCount++
 			return script, nil
 		},
-		Estimator:        estimator,
+		FeeEstimator:     estimator,
 		MaxInputsPerTx:   testMaxInputsPerTx,
 		MaxSweepAttempts: testMaxSweepAttempts,
 		NextAttemptDeltaFunc: func(attempts int) int32 {

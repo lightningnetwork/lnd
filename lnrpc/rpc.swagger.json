@@ -1288,10 +1288,12 @@
       "type": "object",
       "properties": {
         "chain": {
-          "type": "string"
+          "type": "string",
+          "title": "/ The blockchain the node is on (eg bitcoin, litecoin)"
         },
         "network": {
-          "type": "string"
+          "type": "string",
+          "title": "/ The network the node is on (eg regtest, testnet, mainnet)"
         }
       }
     },
@@ -2782,6 +2784,11 @@
           "type": "string",
           "format": "int64",
           "description": "/ A manual fee rate set in sat/byte that should be used when crafting the transaction."
+        },
+        "send_all": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "*\nIf set, then the amount field will be ignored, and lnd will attempt to\nsend all the coins under control of the internal wallet to the specified\naddress."
         }
       }
     },

@@ -837,6 +837,13 @@ message SendCoinsRequest {
 
     /// A manual fee rate set in sat/byte that should be used when crafting the transaction.
     int64 sat_per_byte = 5;
+
+    /**
+    If set, then the amount field will be ignored, and lnd will attempt to
+    send all the coins under control of the internal wallet to the specified
+    address.
+    */
+    bool send_all = 6; 
 }
 message SendCoinsResponse {
     /// The transaction ID of the transaction

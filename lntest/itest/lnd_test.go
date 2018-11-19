@@ -8842,6 +8842,169 @@ out:
 	cleanupForceClose(t, net, net.Bob, chanPointBob)
 }
 
+// testRejectHTLC tests that a node can be created with the flag --rejecthtlc.
+// This means that the node will reject all forwarded HTLCs but can still
+// accept direct HTLCs as well as send HTLCs.
+func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
+	//             RejectHTLC
+	// Alice ------> Carol ------> Bob
+	//
+	const chanAmt = btcutil.Amount(1000000)
+	ctxb := context.Background()
+	timeout := time.Duration(time.Second * 5)
+
+	// Create Carol with reject htlc flag.
+	carol, err := net.NewNode("Carol", []string{"--rejecthtlc"})
+	if err != nil {
+		t.Fatalf("unable to create new node: %v", err)
+	}
+	defer shutdownAndAssert(net, t, carol)
+
+	// Connect Alice to Carol.
+	if err := net.ConnectNodes(ctxb, net.Alice, carol); err != nil {
+		t.Fatalf("unable to connect alice to carol: %v", err)
+	}
+
+	// Connect Carol to Bob.
+	if err := net.ConnectNodes(ctxb, carol, net.Bob); err != nil {
+		t.Fatalf("unable to conenct carol to net.Bob: %v", err)
+	}
+
+	// Send coins to Carol.
+	err = net.SendCoins(ctxb, btcutil.SatoshiPerBitcoin, carol)
+	if err != nil {
+		t.Fatalf("unable to send coins to carol: %v", err)
+	}
+
+	// Send coins to Alice.
+	err = net.SendCoins(ctxb, btcutil.SatoshiPerBitcent, net.Alice)
+	if err != nil {
+		t.Fatalf("unable to send coins to alice: %v", err)
+	}
+
+	// Open a channel between Alice and Carol.
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	chanPointAlice := openChannelAndAssert(
+		ctxt, t, net, net.Alice, carol,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
+	)
+
+	// Open a channel between Carol and Bob.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPointCarol := openChannelAndAssert(
+		ctxt, t, net, carol, net.Bob,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
+	)
+
+	// Channel should be ready for payments.
+	const payAmt = 100
+
+	// Helper closure to generate a random pre image.
+	genPreImage := func() []byte {
+		preimage := make([]byte, 32)
+
+		_, err = rand.Read(preimage)
+		if err != nil {
+			t.Fatalf("unable to generate preimage: %v", err)
+		}
+
+		return preimage
+	}
+
+	// Create an invoice from Carol of 100 satoshis.
+	// We expect Alice to be able to pay this invoice.
+	preimage := genPreImage()
+
+	carolInvoice := &lnrpc.Invoice{
+		Memo:      "testing - alice should pay carol",
+		RPreimage: preimage,
+		Value:     payAmt,
+	}
+
+	// Carol adds the invoice to her database.
+	resp, err := carol.AddInvoice(ctxb, carolInvoice)
+	if err != nil {
+		t.Fatalf("unable to add invoice: %v", err)
+	}
+
+	// Alice pays Carols invoice.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = completePaymentRequests(
+		ctxt, net.Alice, []string{resp.PaymentRequest}, true,
+	)
+	if err != nil {
+		t.Fatalf("unable to send payments from alice to carol: %v", err)
+	}
+
+	// Create an invoice from Bob of 100 satoshis.
+	// We expect Carol to be able to pay this invoice.
+	preimage = genPreImage()
+
+	bobInvoice := &lnrpc.Invoice{
+		Memo:      "testing - carol should pay bob",
+		RPreimage: preimage,
+		Value:     payAmt,
+	}
+
+	// Bob adds the invoice to his database.
+	resp, err = net.Bob.AddInvoice(ctxb, bobInvoice)
+	if err != nil {
+		t.Fatalf("unable to add invoice: %v", err)
+	}
+
+	// Carol pays Bobs invoice.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = completePaymentRequests(
+		ctxt, carol, []string{resp.PaymentRequest}, true,
+	)
+	if err != nil {
+		t.Fatalf("unable to send payments from carol to bob: %v", err)
+	}
+
+	// Create an invoice from Bob of 100 satoshis.
+	// Alice attempts to pay Bob but this should fail, since we are
+	// using Carol as a hop and her node will reject onward HTLCs.
+	preimage = genPreImage()
+
+	bobInvoice = &lnrpc.Invoice{
+		Memo:      "testing - alice tries to pay bob",
+		RPreimage: preimage,
+		Value:     payAmt,
+	}
+
+	// Bob adds the invoice to his database.
+	resp, err = net.Bob.AddInvoice(ctxb, bobInvoice)
+	if err != nil {
+		t.Fatalf("unable to add invoice: %v", err)
+	}
+
+	// Alice attempts to pay Bobs invoice. This payment should be rejected since
+	// we are using Carol as an intermediary hop, Carol is running lnd with
+	// --rejecthtlc.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = completePaymentRequests(
+		ctxt, net.Alice, []string{resp.PaymentRequest}, true,
+	)
+	if err == nil {
+		t.Fatalf(
+			"should have been rejected, carol will not accept forwarded htlcs",
+		)
+	}
+	if !strings.Contains(err.Error(), lnwire.CodeChannelDisabled.String()) {
+		t.Fatalf("error returned should have been Channel Disabled")
+	}
+
+	// Close all channels.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarol, false)
+}
+
 // graphSubscription houses the proxied update and error chans for a node's
 // graph subscriptions.
 type graphSubscription struct {
@@ -14046,6 +14209,10 @@ var testsCases = []*testCase{
 	{
 		name: "multi-hop htlc error propagation",
 		test: testHtlcErrorPropagation,
+	},
+	{
+		name: "reject onward htlc",
+		test: testRejectHTLC,
 	},
 	// TODO(roasbeef): multi-path integration test
 	{

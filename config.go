@@ -39,7 +39,7 @@ const (
 	defaultAdminMacFilename    = "admin.macaroon"
 	defaultReadMacFilename     = "readonly.macaroon"
 	defaultInvoiceMacFilename  = "invoice.macaroon"
-	defaultLogLevel            = "info"
+	defaultLogLevel            = "debug"
 	defaultLogDirname          = "logs"
 	defaultLogFilename         = "lnd.log"
 	defaultRPCPort             = 10009
@@ -316,6 +316,7 @@ func loadConfig() (*config, error) {
 			Control: defaultTorControl,
 		},
 		Spider: &spiderConfig{
+			Active: true,
 		},
 		net: &tor.ClearNet{},
 	}

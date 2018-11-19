@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	testStartingHeight = 100
+	testStartingHeight = 1
 )
 
 // concurrentTester is a thread-safe wrapper around the Fatalf method of a

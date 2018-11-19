@@ -516,7 +516,7 @@ func getChanID(msg lnwire.Message) (lnwire.ChannelID, error) {
 // invoice which should be added by destination peer.
 func generatePayment(invoiceAmt, htlcAmt lnwire.MilliSatoshi, timelock uint32,
 	blob [lnwire.OnionPacketSize]byte) (*channeldb.Invoice, *lnwire.UpdateAddHTLC, error) {
-
+	//fmt.Printf("starting generate Payment\n");
 	var preimage [sha256.Size]byte
 	r, err := generateRandomBytes(sha256.Size)
 	if err != nil {
@@ -540,6 +540,7 @@ func generatePayment(invoiceAmt, htlcAmt lnwire.MilliSatoshi, timelock uint32,
 		Expiry:      timelock,
 		OnionBlob:   blob,
 	}
+	//fmt.Printf("returning from generate Payment\n");
 
 	return invoice, htlc, nil
 }
@@ -667,6 +668,7 @@ func (n *threeHopNetwork) makePayment(sendingPeer, receivingPeer lnpeer.Peer,
 	firstHop lnwire.ShortChannelID, hops []ForwardingInfo,
 	invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 	timelock uint32) *paymentResponse {
+	//fmt.Printf("starting makePayment\n");
 
 	paymentErr := make(chan error, 1)
 
@@ -679,6 +681,7 @@ func (n *threeHopNetwork) makePayment(sendingPeer, receivingPeer lnpeer.Peer,
 	// htlc add request.
 	blob, err := generateRoute(hops...)
 	if err != nil {
+		fmt.Printf("makePayment, err != nil\n");
 		paymentErr <- err
 		return &paymentResponse{
 			rhash: rhash,
@@ -689,6 +692,7 @@ func (n *threeHopNetwork) makePayment(sendingPeer, receivingPeer lnpeer.Peer,
 	// Generate payment: invoice and htlc.
 	invoice, htlc, err := generatePayment(invoiceAmt, htlcAmt, timelock, blob)
 	if err != nil {
+		fmt.Printf("generatePayment failed\n");
 		paymentErr <- err
 		return &paymentResponse{
 			rhash: rhash,
@@ -699,6 +703,7 @@ func (n *threeHopNetwork) makePayment(sendingPeer, receivingPeer lnpeer.Peer,
 
 	// Check who is last in the route and add invoice to server registry.
 	if err := receiver.registry.AddInvoice(*invoice); err != nil {
+		fmt.Printf("receiver registry failed \n");
 		paymentErr <- err
 		return &paymentResponse{
 			rhash: rhash,
@@ -714,6 +719,7 @@ func (n *threeHopNetwork) makePayment(sendingPeer, receivingPeer lnpeer.Peer,
 		paymentErr <- err
 	}()
 
+	//fmt.Printf("returning from makePayment\n");
 	return &paymentResponse{
 		rhash: rhash,
 		err:   paymentErr,

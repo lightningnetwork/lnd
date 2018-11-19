@@ -10,9 +10,9 @@ import (
 )
 
 // bob<->alice channel has insufficient BTC capacity/bandwidth. In this test we
-// send the payment from Carol to Alice over Bob peer. (Carol -> Bob -> Alice)
+// sduration the payment from Carol to Alice over Bob peer. (Carol -> Bob -> Alice)
 // Right now this payment returns an error immediately. Instead, we want it to
-// be queued on Bob -> Alice channel, until Alice sends a payment upstream to
+// be queued on Bob -> Alice channel, until Alice sdurations a payment upstream to
 // Bob, and then this payment should be processed.
 func TestSpiderInsufficentFunds (t *testing.T) {
 	t.Parallel()
@@ -41,14 +41,14 @@ func TestSpiderInsufficentFunds (t *testing.T) {
 			n.bobServer.intersect(createLogFunc("bob",
 			n.firstBobChannelLink.ChanID()))
 		}
-		fmt.Printf("alice channel link, short chan id: %s\n" , n.aliceChannelLink.shortChanID);
-		fmt.Printf("alice channel link, chan id: %s\n" , n.aliceChannelLink.ChanID());
-		fmt.Printf("first bob channel link, short chan id: %s\n" , n.firstBobChannelLink.shortChanID);
-		fmt.Printf("first bob channel link, chan id: %s\n" , n.firstBobChannelLink.ChanID());
-		fmt.Printf("second bob channel link, short chan id: %s\n" , n.secondBobChannelLink.shortChanID);
-		fmt.Printf("second bob channel link, chan id: %s\n" , n.secondBobChannelLink.ChanID());
-		fmt.Printf("carol channel link, short chan id: %s\n" , n.carolChannelLink.shortChanID);
-		fmt.Printf("carol channel link, chan id: %s\n" , n.carolChannelLink.ChanID());
+		//fmt.Printf("alice channel link, short chan id: %s\n" , n.aliceChannelLink.shortChanID);
+		//fmt.Printf("alice channel link, chan id: %s\n" , n.aliceChannelLink.ChanID());
+		//fmt.Printf("first bob channel link, short chan id: %s\n" , n.firstBobChannelLink.shortChanID);
+		//fmt.Printf("first bob channel link, chan id: %s\n" , n.firstBobChannelLink.ChanID());
+		//fmt.Printf("second bob channel link, short chan id: %s\n" , n.secondBobChannelLink.shortChanID);
+		//fmt.Printf("second bob channel link, chan id: %s\n" , n.secondBobChannelLink.ChanID());
+		//fmt.Printf("carol channel link, short chan id: %s\n" , n.carolChannelLink.shortChanID);
+		//fmt.Printf("carol channel link, chan id: %s\n" , n.carolChannelLink.ChanID());
 
 		// TODO: uncomment when I add tests for these.
 		//carolBandwidthBefore := n.carolChannelLink.Bandwidth()
@@ -61,7 +61,7 @@ func TestSpiderInsufficentFunds (t *testing.T) {
 			// TODO: maybe should add more sleep time here?
 			time.Sleep(1 * time.Second)
 			fmt.Println("woke up in the carol->bob payment routine");
-			// Send money from carol -> bob so this stops failing.
+			// Sduration money from carol -> bob so this stops failing.
 			amount := lnwire.NewMSatFromSatoshis(2 * btcutil.SatoshiPerBitcoin)
 			// FIXME: check the last arg, maybe should be carolChannelLink?
 			htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
@@ -79,7 +79,7 @@ func TestSpiderInsufficentFunds (t *testing.T) {
 			fmt.Println("carol->bob SUCCESSFUL")
 		}()
 
-		// We'll attempt to send 4 BTC although the alice-to-bob channel only
+		// We'll attempt to sduration 4 BTC although the alice-to-bob channel only
 		// has 3 BTC total capacity. As a result, this payment should be
 		// rejected.
 		amount := lnwire.NewMSatFromSatoshis(4 * btcutil.SatoshiPerBitcoin)
@@ -114,5 +114,46 @@ func TestSpiderInsufficentFunds (t *testing.T) {
 }
 
 
+func TestSpiderThroughput (t *testing.T) {
+	t.Parallel()
+	var NUM_PAYMENTS = int(10000)
+  // FIXME: do we even care about the second channel?
+	channels, cleanUp, _, err := createClusterChannels(
+		btcutil.SatoshiPerBitcoin*5000000,
+		btcutil.SatoshiPerBitcoin*5000000)
+		if err != nil {
+			t.Fatalf("unable to create channel: %v", err)
+		}
+		defer cleanUp()
+		n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
+				channels.bobToCarol, channels.carolToBob, testStartingHeight)
+		if err := n.start(); err != nil {
+			t.Fatalf("unable to start three hop network: %v", err)
+		}
+		defer n.stop()
+		var startTime = time.Now()
+		for i := 0; i < NUM_PAYMENTS; i++ {
+			go func() {
+				amount := lnwire.NewMSatFromSatoshis(0.01*btcutil.SatoshiPerBitcoin)
+				htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
+									n.firstBobChannelLink)
+				firstHop := n.firstBobChannelLink.ShortChanID()
+				//totalTimelock = 108
+				_, err := n.makePayment(
+					n.aliceServer, n.bobServer, firstHop, hops, amount, htlcAmt,
+					totalTimelock,
+				).Wait(200 * time.Second)
 
-
+				if err != nil {
+					t.Fatal("alice->bob FAILED")
+				}
+			}()
+		}
+		duration :=  time.Since(startTime)
+		fmt.Printf("generating all the payments took: %s\n", duration)
+		ms := float64(duration / time.Millisecond)
+		//fmt.Println(seconds)
+		//fmt.Println(float64(seconds))
+		fmt.Printf("throughput: %f/s\n", (float64(NUM_PAYMENTS) / (float64(ms)/1000.00)))
+		time.Sleep(250 * time.Second)
+}

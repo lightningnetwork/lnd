@@ -1010,10 +1010,10 @@ var abandonChannelCommand = cli.Command{
 	Category: "Channels",
 	Usage:    "Abandons an existing channel.",
 	Description: `
-	Removes all channel state from the database except for a close 
+	Removes all channel state from the database except for a close
 	summary. This method can be used to get rid of permanently unusable
-	channels due to bugs fixed in newer versions of lnd. 
-	
+	channels due to bugs fixed in newer versions of lnd.
+
 	Only available when lnd is built in debug mode.
 
 	To view which funding_txids/output_indexes can be used for this command,
@@ -2671,7 +2671,7 @@ var queryRoutesCommand = cli.Command{
 		},
 		cli.Int64Flag{
 			Name:  "num_max_routes",
-			Usage: "the max number of routes to be returned (default: 10)",
+			Usage: "the max number of routes to be returned",
 			Value: 10,
 		},
 		cli.Int64Flag{

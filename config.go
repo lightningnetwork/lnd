@@ -39,7 +39,7 @@ const (
 	defaultAdminMacFilename    = "admin.macaroon"
 	defaultReadMacFilename     = "readonly.macaroon"
 	defaultInvoiceMacFilename  = "invoice.macaroon"
-	defaultLogLevel            = "debug"
+	defaultLogLevel            = "info"
 	defaultLogDirname          = "logs"
 	defaultLogFilename         = "lnd.log"
 	defaultRPCPort             = 10009
@@ -529,10 +529,6 @@ func loadConfig() (*config, error) {
 			DNS:             cfg.Tor.DNS,
 			StreamIsolation: cfg.Tor.StreamIsolation,
 		}
-	}
-
-	if cfg.Spider.Active {
-		fmt.Println("SPIDER is enabled")
 	}
 
 	if cfg.DisableListen && cfg.NAT {

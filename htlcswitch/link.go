@@ -21,11 +21,6 @@ import (
 	"github.com/lightningnetwork/lnd/ticker"
 )
 
-import (
-	//"github.com/btcsuite/btclog"
-	//"github.com/lightningnetwork/lnd/main"
-)
-
 func init() {
 	prand.Seed(time.Now().UnixNano())
 }
@@ -774,10 +769,6 @@ func (l *channelLink) htlcManager() {
 		l.wg.Done()
 		log.Infof("ChannelLink(%v) has exited", l)
 	}()
-	//lvl, _ := btclog.LevelFromString("debug");
-	//log.SetLevel(lvl);
-	//setLogLevels("debug");
-	//debug_print(fmt.Sprintf("set the log level!\n"))
 	log.Infof("HTLC manager for ChannelPoint(%v) started, "+
 		"bandwidth=%v", l.channel.ChannelPoint(), l.Bandwidth())
 	debug_print(fmt.Sprintf("HTLC manager for ChannelPoint(%v) started, "+
@@ -2192,7 +2183,7 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 			// notify the overflow queue that a spare spot has been
 			// freed up within the commitment state.
 			switchPackets = append(switchPackets, settlePacket)
-			debug_print(fmt.Sprintf("l.SignalFreeSlot happening in settle, for chan id: %s\n", l.shortChanID))
+			//debug_print(fmt.Sprintf("l.SignalFreeSlot happening in settle, for chan id: %s\n", l.shortChanID))
 			l.overflowQueue.SignalFreeSlot()
 
 		// A failureCode message for a previously forwarded HTLC has
@@ -2223,7 +2214,7 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 			// notify the overflow queue that a spare spot has been
 			// freed up within the commitment state.
 			switchPackets = append(switchPackets, failPacket)
-			debug_print(fmt.Sprintf("l.SignalFreeSlot happening in fail, for chan id: %s\n", l.shortChanID))
+			//debug_print(fmt.Sprintf("l.SignalFreeSlot happening in fail, for chan id: %s\n", l.shortChanID))
 			l.overflowQueue.SignalFreeSlot()
 		}
 	}

@@ -402,6 +402,7 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID,
 			return zeroPreimage, err
 		}
 		debug_print(fmt.Sprintf("in SendHTLC s.forward error2\n"))
+
 		return zeroPreimage, err
 	}
 
@@ -715,6 +716,7 @@ func (s *Switch) proxyFwdErrs(num *int, wg *sync.WaitGroup,
 // route sends a single htlcPacket through the switch and synchronously awaits a
 // response.
 func (s *Switch) route(packet *htlcPacket) error {
+	debug_print("route\n")
 	command := &plexPacket{
 		pkt: packet,
 		err: make(chan error, 1),
@@ -824,10 +826,12 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 			}
 		}
 
+		debug_print("before link.HandleSwitchPacket\n")
 		return link.HandleSwitchPacket(pkt)
 	}
 
 	s.wg.Add(1)
+	debug_print("before handleLocalResponse\n")
 	go s.handleLocalResponse(pkt)
 
 	return nil
@@ -926,6 +930,7 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 	// Deliver the payment error and preimage to the application, if it is
 	// waiting for a response.
 	if payment != nil {
+		debug_print("payment != nil, in switch.go\n")
 		payment.err <- paymentErr
 		payment.preimage <- preimage
 		s.removePendingPayment(pkt.incomingHTLCID)

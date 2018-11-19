@@ -135,7 +135,7 @@ func (p *packetQueue) packetCoordinator() {
 			debug_print("free slots indicated")
 			if (SPIDER_FLAG) {
 				// FIXME: just go to sleep for test.
-				time.Sleep(time.Millisecond * 2000)
+				time.Sleep(time.Millisecond * 200)
 			}
 			// Pop item with highest priority from the front of the queue. This will
 			// set us up for the next iteration. If the queue is empty at this point,

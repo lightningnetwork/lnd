@@ -1,7 +1,6 @@
 package htlcswitch
 
 import (
-		//"strings"
 		"testing"
 		"time"
 		"github.com/btcsuite/btcutil"
@@ -31,39 +30,12 @@ func TestSpiderInsufficentFunds (t *testing.T) {
 			t.Fatalf("unable to start three hop network: %v", err)
 		}
 		defer n.stop()
-		debug := false
-		if debug {
-			// Log message that alice receives.
-			n.aliceServer.intersect(createLogFunc("alice",
-			n.aliceChannelLink.ChanID()))
-
-			// Log message that bob receives.
-			n.bobServer.intersect(createLogFunc("bob",
-			n.firstBobChannelLink.ChanID()))
-		}
-		//fmt.Printf("alice channel link, short chan id: %s\n" , n.aliceChannelLink.shortChanID);
-		//fmt.Printf("alice channel link, chan id: %s\n" , n.aliceChannelLink.ChanID());
-		//fmt.Printf("first bob channel link, short chan id: %s\n" , n.firstBobChannelLink.shortChanID);
-		//fmt.Printf("first bob channel link, chan id: %s\n" , n.firstBobChannelLink.ChanID());
-		//fmt.Printf("second bob channel link, short chan id: %s\n" , n.secondBobChannelLink.shortChanID);
-		//fmt.Printf("second bob channel link, chan id: %s\n" , n.secondBobChannelLink.ChanID());
-		//fmt.Printf("carol channel link, short chan id: %s\n" , n.carolChannelLink.shortChanID);
-		//fmt.Printf("carol channel link, chan id: %s\n" , n.carolChannelLink.ChanID());
-
-		// TODO: uncomment when I add tests for these.
-		//carolBandwidthBefore := n.carolChannelLink.Bandwidth()
-		//firstBobBandwidthBefore := n.firstBobChannelLink.Bandwidth()
-		//secondBobBandwidthBefore := n.secondBobChannelLink.Bandwidth()
-		//aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
 
 		go func() {
 			fmt.Println("in the carol->bob payment routine. Will sleep first")
-			// TODO: maybe should add more sleep time here?
 			time.Sleep(1 * time.Second)
 			fmt.Println("woke up in the carol->bob payment routine");
-			// Sduration money from carol -> bob so this stops failing.
 			amount := lnwire.NewMSatFromSatoshis(2 * btcutil.SatoshiPerBitcoin)
-			// FIXME: check the last arg, maybe should be carolChannelLink?
 			htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
 			n.secondBobChannelLink)
 
@@ -74,23 +46,25 @@ func TestSpiderInsufficentFunds (t *testing.T) {
 			).Wait(30 * time.Second)
 
 			if err != nil {
-				t.Fatal("carol->bob FAILED")
+				t.Fatal("carol->bob failed")
 			}
-			fmt.Println("carol->bob SUCCESSFUL")
+			fmt.Println("carol->bob successful")
 		}()
 
-		// We'll attempt to sduration 4 BTC although the alice-to-bob channel only
-		// has 3 BTC total capacity. As a result, this payment should be
-		// rejected.
 		amount := lnwire.NewMSatFromSatoshis(4 * btcutil.SatoshiPerBitcoin)
 		htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
 					n.firstBobChannelLink, n.carolChannelLink)
 
-		// Wait for:
+		// What we expect to happen:
 		// * HTLC add request to be sent to from Alice to Bob.
 		// * Alice<->Bob commitment states to be updated.
 		// * Bob trying to add HTLC add request in Bob<->Carol channel.
-		// * TODO: what should happen next?
+		// * Not enough funds for that, so it gets added to overFlowQueue in
+		// Bob->Carol channel.
+		// * Carol sends Bob money.
+		// * Bob -> Carol channel now has enough money, and the Bob -> Carol
+		// payment should succeed, thereby letting the Alice -> Carol payment to
+		// succeed as well.
 
 		firstHop := n.firstBobChannelLink.ShortChanID()
 		// launch second payment here, which sleeps for a bit, and then pays from
@@ -104,17 +78,11 @@ func TestSpiderInsufficentFunds (t *testing.T) {
 			fmt.Println(err)
 			t.Fatal("error has been received in first payment, alice->bob")
 		}
-		fmt.Println("after first makePayment")
-
-		// sleep some time again
-		time.Sleep(100 * time.Millisecond)
-
-		// by now the queries should be updated.
-		// TODO: test all updates.
+		// if we reach this point, then all the payments have succeeded.
 }
 
 
-func TestSpiderThroughput (t *testing.T) {
+func NotTestSpiderThroughput (t *testing.T) {
 	t.Parallel()
 	var NUM_PAYMENTS = int(10000)
   // FIXME: do we even care about the second channel?

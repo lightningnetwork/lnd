@@ -5116,6 +5116,15 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer Signer,
 		LocalChanConfig:         chanState.LocalChanCfg,
 	}
 
+	// Attempt to add a channel sync message to the close summary.
+	chanSync, err := ChanSyncMsg(chanState)
+	if err != nil {
+		walletLog.Errorf("ChannelPoint(%v): unable to create channel sync "+
+			"message: %v", chanState.FundingOutpoint, err)
+	} else {
+		closeSummary.LastChanSyncMsg = chanSync
+	}
+
 	return &UnilateralCloseSummary{
 		SpendDetail:         commitSpend,
 		ChannelCloseSummary: closeSummary,

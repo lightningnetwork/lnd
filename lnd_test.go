@@ -7272,6 +7272,91 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 
 	assertNodeNumChannels(t, ctxb, dave, 0)
 	assertNodeNumChannels(t, ctxb, carol, 0)
+
+	// As a second part of this test, we will test the the scenario where a
+	// channel is closed while Dave is offline, loses his state and comes
+	// back online. In this case the node should attempt to resync the
+	// channel, and the peer should resend a channel sync message for the
+	// closed channel, such that Dave can retrieve his funds.
+	//
+	// We start by letting Dave time travel back to an outdated state.
+	restartDave, chanPoint2, daveStartingBalance, err := timeTravel(dave)
+	if err != nil {
+		t.Fatalf("unable to time travel eve: %v", err)
+	}
+
+	carolBalResp, err = carol.WalletBalance(ctxb, balReq)
+	if err != nil {
+		t.Fatalf("unable to get carol's balance: %v", err)
+	}
+	carolStartingBalance = carolBalResp.ConfirmedBalance
+
+	// Now let Carol force close the channel while Dave is offline.
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, carol, chanPoint2, true)
+
+	// Wait for the channel to be marked pending force close.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = waitForChannelPendingForceClose(ctxt, carol, chanPoint2)
+	if err != nil {
+		t.Fatalf("channel not pending force close: %v", err)
+	}
+
+	// Mine enough blocks for Carol to sweep her funds.
+	mineBlocks(t, net, defaultCSV)
+
+	carolSweep, err = waitForTxInMempool(net.Miner.Node, 15*time.Second)
+	if err != nil {
+		t.Fatalf("unable to find Carol's sweep tx in mempool: %v", err)
+	}
+	block = mineBlocks(t, net, 1)[0]
+	assertTxInBlock(t, block, carolSweep)
+
+	// Now the channel should be fully closed also from Carol's POV.
+	assertNumPendingChannels(t, carol, 0, 0)
+
+	// Make sure Carol got her balance back.
+	carolBalResp, err = carol.WalletBalance(ctxb, balReq)
+	if err != nil {
+		t.Fatalf("unable to get carol's balance: %v", err)
+	}
+	carolBalance = carolBalResp.ConfirmedBalance
+	if carolBalance <= carolStartingBalance {
+		t.Fatalf("expected carol to have balance above %d, "+
+			"instead had %v", carolStartingBalance,
+			carolBalance)
+	}
+
+	assertNodeNumChannels(t, ctxb, carol, 0)
+
+	// When Dave comes online, he will reconnect to Carol, try to resync
+	// the channel, but it will already be closed. Carol should resend the
+	// information Dave needs to sweep his funds.
+	if err := restartDave(); err != nil {
+		t.Fatalf("unabel to restart Eve: %v", err)
+	}
+
+	// Dave should sweep his funds.
+	_, err = waitForTxInMempool(net.Miner.Node, 15*time.Second)
+	if err != nil {
+		t.Fatalf("unable to find Dave's sweep tx in mempool: %v", err)
+	}
+
+	// Mine a block to confirm the sweep, and make sure Dave got his
+	// balance back.
+	mineBlocks(t, net, 1)
+	assertNodeNumChannels(t, ctxb, dave, 0)
+
+	daveBalResp, err = dave.WalletBalance(ctxb, balReq)
+	if err != nil {
+		t.Fatalf("unable to get dave's balance: %v", err)
+	}
+
+	daveBalance = daveBalResp.ConfirmedBalance
+	if daveBalance <= daveStartingBalance {
+		t.Fatalf("expected dave to have balance above %d, intead had %v",
+			daveStartingBalance, daveBalance)
+	}
 }
 
 // assertNodeNumChannels polls the provided node's list channels rpc until it

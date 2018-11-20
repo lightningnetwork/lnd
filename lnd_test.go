@@ -580,6 +580,24 @@ func createPayReqs(ctx context.Context, node *lntest.HarnessNode,
 	return payReqs, rHashes, invoices, nil
 }
 
+// getChanInfo is a helper method for getting channel info for a node's sole
+// channel.
+func getChanInfo(ctx context.Context, node *lntest.HarnessNode) (
+	*lnrpc.Channel, error) {
+
+	req := &lnrpc.ListChannelsRequest{}
+	channelInfo, err := node.ListChannels(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if len(channelInfo.Channels) != 1 {
+		return nil, fmt.Errorf("node should only have a single "+
+			"channel, instead he has %v", len(channelInfo.Channels))
+	}
+
+	return channelInfo.Channels[0], nil
+}
+
 const (
 	AddrTypeWitnessPubkeyHash = lnrpc.NewAddressRequest_WITNESS_PUBKEY_HASH
 	AddrTypeNestedPubkeyHash  = lnrpc.NewAddressRequest_NESTED_PUBKEY_HASH
@@ -2251,23 +2269,6 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
-	// As we'll be querying the state of Alice's channels frequently we'll
-	// create a closure helper function for the purpose.
-	getAliceChanInfo := func() (*lnrpc.Channel, error) {
-		req := &lnrpc.ListChannelsRequest{}
-		aliceChannelInfo, err := net.Alice.ListChannels(ctxb, req)
-		if err != nil {
-			return nil, err
-		}
-		if len(aliceChannelInfo.Channels) != 1 {
-			t.Fatalf("alice should only have a single channel, "+
-				"instead he has %v",
-				len(aliceChannelInfo.Channels))
-		}
-
-		return aliceChannelInfo.Channels[0], nil
-	}
-
 	// Fetch starting height of this test so we can compute the block
 	// heights we expect certain events to take place.
 	_, curHeight, err := net.Miner.Node.GetBestBlock()
@@ -2284,7 +2285,8 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 		htlcCsvMaturityHeight = startHeight + defaultCLTV + 1 + defaultCSV
 	)
 
-	aliceChan, err := getAliceChanInfo()
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	aliceChan, err := getChanInfo(ctxt, net.Alice)
 	if err != nil {
 		t.Fatalf("unable to get alice's channel info: %v", err)
 	}
@@ -6094,22 +6096,6 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to create pay reqs: %v", err)
 	}
 
-	// As we'll be querying the state of bob's channels frequently we'll
-	// create a closure helper function for the purpose.
-	getBobChanInfo := func() (*lnrpc.Channel, error) {
-		req := &lnrpc.ListChannelsRequest{}
-		bobChannelInfo, err := net.Bob.ListChannels(ctxb, req)
-		if err != nil {
-			return nil, err
-		}
-		if len(bobChannelInfo.Channels) != 1 {
-			t.Fatalf("bob should only have a single channel, instead he has %v",
-				len(bobChannelInfo.Channels))
-		}
-
-		return bobChannelInfo.Channels[0], nil
-	}
-
 	// Wait for Carol to receive the channel edge from the funding manager.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	err = carol.WaitForNetworkChannelOpen(ctxt, chanPoint)
@@ -6132,7 +6118,8 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 	var bobChan *lnrpc.Channel
 	var predErr error
 	err = lntest.WaitPredicate(func() bool {
-		bChan, err := getBobChanInfo()
+		ctxt, _ = context.WithTimeout(ctxb, timeout)
+		bChan, err := getChanInfo(ctxt, net.Bob)
 		if err != nil {
 			t.Fatalf("unable to get bob's channel info: %v", err)
 		}
@@ -6180,7 +6167,8 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to send payments: %v", err)
 	}
 
-	bobChan, err = getBobChanInfo()
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	bobChan, err = getChanInfo(ctxt, net.Bob)
 	if err != nil {
 		t.Fatalf("unable to get bob chan info: %v", err)
 	}
@@ -6197,7 +6185,8 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Now query for Bob's channel state, it should show that he's at a
 	// state number in the past, not the *latest* state.
-	bobChan, err = getBobChanInfo()
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	bobChan, err = getChanInfo(ctxt, net.Bob)
 	if err != nil {
 		t.Fatalf("unable to get bob chan info: %v", err)
 	}
@@ -6368,22 +6357,6 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 		t.Fatalf("unable to create pay reqs: %v", err)
 	}
 
-	// As we'll be querying the state of Carols's channels frequently we'll
-	// create a closure helper function for the purpose.
-	getCarolChanInfo := func() (*lnrpc.Channel, error) {
-		req := &lnrpc.ListChannelsRequest{}
-		carolChannelInfo, err := carol.ListChannels(ctxb, req)
-		if err != nil {
-			return nil, err
-		}
-		if len(carolChannelInfo.Channels) != 1 {
-			t.Fatalf("carol should only have a single channel, "+
-				"instead he has %v", len(carolChannelInfo.Channels))
-		}
-
-		return carolChannelInfo.Channels[0], nil
-	}
-
 	// Wait for Dave to receive the channel edge from the funding manager.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	err = dave.WaitForNetworkChannelOpen(ctxt, chanPoint)
@@ -6394,7 +6367,8 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 
 	// Next query for Carol's channel state, as we sent 0 payments, Carol
 	// should now see her balance as being 0 satoshis.
-	carolChan, err := getCarolChanInfo()
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	carolChan, err := getChanInfo(ctxt, carol)
 	if err != nil {
 		t.Fatalf("unable to get carol's channel info: %v", err)
 	}
@@ -6431,7 +6405,8 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 		t.Fatalf("unable to send payments: %v", err)
 	}
 
-	carolChan, err = getCarolChanInfo()
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	carolChan, err = getChanInfo(ctxt, carol)
 	if err != nil {
 		t.Fatalf("unable to get carol chan info: %v", err)
 	}
@@ -6448,7 +6423,8 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 
 	// Now query for Carol's channel state, it should show that he's at a
 	// state number in the past, not the *latest* state.
-	carolChan, err = getCarolChanInfo()
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	carolChan, err = getChanInfo(ctxt, carol)
 	if err != nil {
 		t.Fatalf("unable to get carol chan info: %v", err)
 	}
@@ -6629,26 +6605,11 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 		t.Fatalf("unable to create pay reqs: %v", err)
 	}
 
-	// As we'll be querying the state of Carol's channels frequently we'll
-	// create a closure helper function for the purpose.
-	getCarolChanInfo := func() (*lnrpc.Channel, error) {
-		req := &lnrpc.ListChannelsRequest{}
-		carolChannelInfo, err := carol.ListChannels(ctxb, req)
-		if err != nil {
-			return nil, err
-		}
-		if len(carolChannelInfo.Channels) != 1 {
-			t.Fatalf("carol should only have a single channel, instead he has %v",
-				len(carolChannelInfo.Channels))
-		}
-
-		return carolChannelInfo.Channels[0], nil
-	}
-
 	// We'll introduce a closure to validate that Carol's current balance
 	// matches the given expected amount.
 	checkCarolBalance := func(expectedAmt int64) {
-		carolChan, err := getCarolChanInfo()
+		ctxt, _ = context.WithTimeout(ctxb, timeout)
+		carolChan, err := getChanInfo(ctxt, carol)
 		if err != nil {
 			t.Fatalf("unable to get carol's channel info: %v", err)
 		}
@@ -6663,7 +6624,8 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	// number of updates is at least as large as the provided minimum
 	// number.
 	checkCarolNumUpdatesAtLeast := func(minimum uint64) {
-		carolChan, err := getCarolChanInfo()
+		ctxt, _ = context.WithTimeout(ctxb, timeout)
+		carolChan, err := getChanInfo(ctxt, carol)
 		if err != nil {
 			t.Fatalf("unable to get carol's channel info: %v", err)
 		}
@@ -6717,7 +6679,8 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	// Next query for Carol's channel state, as we sent 3 payments of 10k
 	// satoshis each, however Carol should now see her balance as being
 	// equal to the push amount in satoshis since she has not settled.
-	carolChan, err := getCarolChanInfo()
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	carolChan, err := getChanInfo(ctxt, carol)
 	if err != nil {
 		t.Fatalf("unable to get carol's channel info: %v", err)
 	}
@@ -6786,7 +6749,8 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 
 	// Now query for Carol's channel state, it should show that she's at a
 	// state number in the past, *not* the latest state.
-	carolChan, err = getCarolChanInfo()
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	carolChan, err = getChanInfo(ctxt, carol)
 	if err != nil {
 		t.Fatalf("unable to get carol chan info: %v", err)
 	}
@@ -8100,23 +8064,6 @@ func testNodeSignVerify(net *lntest.NetworkHarness, t *harnessTest) {
 func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
-	// As we'll be querying the channels  state frequently we'll
-	// create a closure helper function for the purpose.
-	getChanInfo := func(node *lntest.HarnessNode) (*lnrpc.Channel, error) {
-		req := &lnrpc.ListChannelsRequest{}
-		channelInfo, err := node.ListChannels(ctxb, req)
-		if err != nil {
-			return nil, err
-		}
-		if len(channelInfo.Channels) != 1 {
-			t.Fatalf("node should only have a single channel, "+
-				"instead he has %v",
-				len(channelInfo.Channels))
-		}
-
-		return channelInfo.Channels[0], nil
-	}
-
 	const (
 		timeout    = time.Duration(time.Second * 15)
 		paymentAmt = 100
@@ -8134,7 +8081,8 @@ func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	)
 
-	info, err := getChanInfo(net.Alice)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	info, err := getChanInfo(ctxt, net.Alice)
 	if err != nil {
 		t.Fatalf("unable to get alice channel info: %v", err)
 	}
@@ -8219,7 +8167,8 @@ func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Next query for Bob's and Alice's channel states, in order to confirm
 	// that all payment have been successful transmitted.
-	aliceChan, err := getChanInfo(net.Alice)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	aliceChan, err := getChanInfo(ctxt, net.Alice)
 	if len(aliceChan.PendingHtlcs) != 0 {
 		t.Fatalf("alice's pending htlcs is incorrect, got %v, "+
 			"expected %v", len(aliceChan.PendingHtlcs), 0)
@@ -8239,7 +8188,8 @@ func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// Wait for Bob to receive revocation from Alice.
 	time.Sleep(2 * time.Second)
 
-	bobChan, err := getChanInfo(net.Bob)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	bobChan, err := getChanInfo(ctxt, net.Bob)
 	if err != nil {
 		t.Fatalf("unable to get bob's channel info: %v", err)
 	}
@@ -8271,23 +8221,6 @@ func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
-	// As we'll be querying the channels  state frequently we'll
-	// create a closure helper function for the purpose.
-	getChanInfo := func(node *lntest.HarnessNode) (*lnrpc.Channel, error) {
-		req := &lnrpc.ListChannelsRequest{}
-		channelInfo, err := node.ListChannels(ctxb, req)
-		if err != nil {
-			return nil, err
-		}
-		if len(channelInfo.Channels) != 1 {
-			t.Fatalf("node should only have a single channel, "+
-				"instead he has %v",
-				len(channelInfo.Channels))
-		}
-
-		return channelInfo.Channels[0], nil
-	}
-
 	const (
 		timeout    = time.Duration(time.Second * 5)
 		paymentAmt = 1000
@@ -8305,7 +8238,8 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 		},
 	)
 
-	info, err := getChanInfo(net.Alice)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	info, err := getChanInfo(ctxt, net.Alice)
 	if err != nil {
 		t.Fatalf("unable to get alice channel info: %v", err)
 	}
@@ -8435,7 +8369,8 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 	// states, i.e. balance info.
 	time.Sleep(1 * time.Second)
 
-	aliceInfo, err := getChanInfo(net.Alice)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	aliceInfo, err := getChanInfo(ctxt, net.Alice)
 	if err != nil {
 		t.Fatalf("unable to get bob's channel info: %v", err)
 	}
@@ -8454,7 +8389,8 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 
 	// Next query for Bob's and Alice's channel states, in order to confirm
 	// that all payment have been successful transmitted.
-	bobInfo, err := getChanInfo(net.Bob)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	bobInfo, err := getChanInfo(ctxt, net.Bob)
 	if err != nil {
 		t.Fatalf("unable to get bob's channel info: %v", err)
 	}

@@ -546,6 +546,40 @@ func makeFakePayHash(t *harnessTest) []byte {
 	return randBuf
 }
 
+// createPayReqs is a helper method that will create a slice of payment
+// requests for the given node.
+func createPayReqs(ctx context.Context, node *lntest.HarnessNode,
+	paymentAmt btcutil.Amount, numInvoices int) ([]string, [][]byte,
+	[]*lnrpc.Invoice, error) {
+
+	payReqs := make([]string, numInvoices)
+	rHashes := make([][]byte, numInvoices)
+	invoices := make([]*lnrpc.Invoice, numInvoices)
+	for i := 0; i < numInvoices; i++ {
+		preimage := make([]byte, 32)
+		_, err := rand.Read(preimage)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("unable to generate "+
+				"preimage: %v", err)
+		}
+		invoice := &lnrpc.Invoice{
+			Memo:      "testing",
+			RPreimage: preimage,
+			Value:     int64(paymentAmt),
+		}
+		resp, err := node.AddInvoice(ctx, invoice)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("unable to add "+
+				"invoice: %v", err)
+		}
+
+		payReqs[i] = resp.PaymentRequest
+		rHashes[i] = resp.RHash
+		invoices[i] = invoice
+	}
+	return payReqs, rHashes, invoices, nil
+}
+
 const (
 	AddrTypeWitnessPubkeyHash = lnrpc.NewAddressRequest_WITNESS_PUBKEY_HASH
 	AddrTypeNestedPubkeyHash  = lnrpc.NewAddressRequest_NESTED_PUBKEY_HASH
@@ -3599,18 +3633,12 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// satoshis with a different preimage each time.
 	const numPayments = 5
 	const paymentAmt = 1000
-	payReqs := make([]string, numPayments)
-	for i := 0; i < numPayments; i++ {
-		invoice := &lnrpc.Invoice{
-			Memo:  "testing",
-			Value: paymentAmt,
-		}
-		resp, err := net.Bob.AddInvoice(ctxb, invoice)
-		if err != nil {
-			t.Fatalf("unable to add invoice: %v", err)
-		}
-
-		payReqs[i] = resp.PaymentRequest
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	payReqs, _, _, err := createPayReqs(
+		ctxt, net.Bob, paymentAmt, numPayments,
+	)
+	if err != nil {
+		t.Fatalf("unable to create pay reqs: %v", err)
 	}
 
 	// We'll wait for all parties to recognize the new channels within the
@@ -3828,17 +3856,12 @@ func testSingleHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 	// Create 5 invoices for Bob, which expect a payment from Alice for 1k
 	// satoshis with a different preimage each time.
 	const numPayments = 5
-	rHashes := make([][]byte, numPayments)
-	for i := 0; i < numPayments; i++ {
-		invoice := &lnrpc.Invoice{
-			Value: paymentAmt,
-		}
-		resp, err := net.Bob.AddInvoice(ctxb, invoice)
-		if err != nil {
-			t.Fatalf("unable to add invoice: %v", err)
-		}
-
-		rHashes[i] = resp.RHash
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	_, rHashes, _, err := createPayReqs(
+		ctxt, net.Bob, paymentAmt, numPayments,
+	)
+	if err != nil {
+		t.Fatalf("unable to create pay reqs: %v", err)
 	}
 
 	// We'll wait for all parties to recognize the new channels within the
@@ -4016,17 +4039,12 @@ func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 	// Create 5 invoices for Carol, which expect a payment from Alice for 1k
 	// satoshis with a different preimage each time.
 	const numPayments = 5
-	rHashes := make([][]byte, numPayments)
-	for i := 0; i < numPayments; i++ {
-		invoice := &lnrpc.Invoice{
-			Value: paymentAmt,
-		}
-		resp, err := carol.AddInvoice(ctxb, invoice)
-		if err != nil {
-			t.Fatalf("unable to add invoice: %v", err)
-		}
-
-		rHashes[i] = resp.RHash
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	_, rHashes, _, err := createPayReqs(
+		ctxt, carol, paymentAmt, numPayments,
+	)
+	if err != nil {
+		t.Fatalf("unable to create pay reqs: %v", err)
 	}
 
 	// We'll wait for all parties to recognize the new channels within the
@@ -4532,25 +4550,12 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// by only using one of the channels.
 	const numPayments = 2
 	const paymentAmt = 70000
-	payReqs := make([]string, numPayments)
-	for i := 0; i < numPayments; i++ {
-		preimage := make([]byte, 32)
-		_, err := rand.Read(preimage)
-		if err != nil {
-			t.Fatalf("unable to generate preimage: %v", err)
-		}
-
-		invoice := &lnrpc.Invoice{
-			Memo:      "testing",
-			RPreimage: preimage,
-			Value:     paymentAmt,
-		}
-		resp, err := net.Bob.AddInvoice(ctxb, invoice)
-		if err != nil {
-			t.Fatalf("unable to add invoice: %v", err)
-		}
-
-		payReqs[i] = resp.PaymentRequest
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	payReqs, _, _, err := createPayReqs(
+		ctxt, net.Bob, paymentAmt, numPayments,
+	)
+	if err != nil {
+		t.Fatalf("unable to create pay reqs: %v", err)
 	}
 
 	time.Sleep(time.Millisecond * 50)
@@ -4602,25 +4607,12 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// Alice should also be able to route payments using this channel,
 	// so send two payments of 60k back to Carol.
 	const paymentAmt60k = 60000
-	payReqs = make([]string, numPayments)
-	for i := 0; i < numPayments; i++ {
-		preimage := make([]byte, 32)
-		_, err := rand.Read(preimage)
-		if err != nil {
-			t.Fatalf("unable to generate preimage: %v", err)
-		}
-
-		invoice := &lnrpc.Invoice{
-			Memo:      "testing",
-			RPreimage: preimage,
-			Value:     paymentAmt60k,
-		}
-		resp, err := carol.AddInvoice(ctxb, invoice)
-		if err != nil {
-			t.Fatalf("unable to add invoice: %v", err)
-		}
-
-		payReqs[i] = resp.PaymentRequest
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	payReqs, _, _, err = createPayReqs(
+		ctxt, carol, paymentAmt60k, numPayments,
+	)
+	if err != nil {
+		t.Fatalf("unable to create pay reqs: %v", err)
 	}
 
 	time.Sleep(time.Millisecond * 50)
@@ -5267,22 +5259,12 @@ func testInvoiceSubscriptions(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// We'll now add 3 more invoices to Bob's invoice registry.
 	const numInvoices = 3
-	newInvoices := make([]*lnrpc.Invoice, numInvoices)
-	payReqs := make([]string, numInvoices)
-	for i := 0; i < numInvoices; i++ {
-		preimage := bytes.Repeat([]byte{byte(90 + 1 + i)}, 32)
-		invoice := &lnrpc.Invoice{
-			Memo:      "testing",
-			RPreimage: preimage,
-			Value:     paymentAmt,
-		}
-		resp, err := net.Bob.AddInvoice(ctxb, invoice)
-		if err != nil {
-			t.Fatalf("unable to add invoice: %v", err)
-		}
-
-		newInvoices[i] = invoice
-		payReqs[i] = resp.PaymentRequest
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	payReqs, _, newInvoices, err := createPayReqs(
+		ctxt, net.Bob, paymentAmt, numInvoices,
+	)
+	if err != nil {
+		t.Fatalf("unable to create pay reqs: %v", err)
 	}
 
 	// Now that the set of invoices has been added, we'll re-register for
@@ -6104,20 +6086,12 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// With the channel open, we'll create a few invoices for Bob that
 	// Carol will pay to in order to advance the state of the channel.
-	bobPayReqs := make([]string, numInvoices)
-	for i := 0; i < numInvoices; i++ {
-		preimage := bytes.Repeat([]byte{byte(255 - i)}, 32)
-		invoice := &lnrpc.Invoice{
-			Memo:      "testing",
-			RPreimage: preimage,
-			Value:     paymentAmt,
-		}
-		resp, err := net.Bob.AddInvoice(ctxb, invoice)
-		if err != nil {
-			t.Fatalf("unable to add invoice: %v", err)
-		}
-
-		bobPayReqs[i] = resp.PaymentRequest
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	bobPayReqs, _, _, err := createPayReqs(
+		ctxt, net.Bob, paymentAmt, numInvoices,
+	)
+	if err != nil {
+		t.Fatalf("unable to create pay reqs: %v", err)
 	}
 
 	// As we'll be querying the state of bob's channels frequently we'll
@@ -6386,20 +6360,12 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 
 	// With the channel open, we'll create a few invoices for Carol that
 	// Dave will pay to in order to advance the state of the channel.
-	carolPayReqs := make([]string, numInvoices)
-	for i := 0; i < numInvoices; i++ {
-		preimage := bytes.Repeat([]byte{byte(192 - i)}, 32)
-		invoice := &lnrpc.Invoice{
-			Memo:      "testing",
-			RPreimage: preimage,
-			Value:     paymentAmt,
-		}
-		resp, err := carol.AddInvoice(ctxb, invoice)
-		if err != nil {
-			t.Fatalf("unable to add invoice: %v", err)
-		}
-
-		carolPayReqs[i] = resp.PaymentRequest
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	carolPayReqs, _, _, err := createPayReqs(
+		ctxt, carol, paymentAmt, numInvoices,
+	)
+	if err != nil {
+		t.Fatalf("unable to create pay reqs: %v", err)
 	}
 
 	// As we'll be querying the state of Carols's channels frequently we'll
@@ -6655,20 +6621,12 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 
 	// With the channel open, we'll create a few invoices for Carol that
 	// Dave will pay to in order to advance the state of the channel.
-	carolPayReqs := make([]string, numInvoices)
-	for i := 0; i < numInvoices; i++ {
-		preimage := bytes.Repeat([]byte{byte(192 - i)}, 32)
-		invoice := &lnrpc.Invoice{
-			Memo:      "testing",
-			RPreimage: preimage,
-			Value:     paymentAmt,
-		}
-		resp, err := carol.AddInvoice(ctxb, invoice)
-		if err != nil {
-			t.Fatalf("unable to add invoice: %v", err)
-		}
-
-		carolPayReqs[i] = resp.PaymentRequest
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	carolPayReqs, _, _, err := createPayReqs(
+		ctxt, carol, paymentAmt, numInvoices,
+	)
+	if err != nil {
+		t.Fatalf("unable to create pay reqs: %v", err)
 	}
 
 	// As we'll be querying the state of Carol's channels frequently we'll
@@ -6739,20 +6697,12 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	// At this point, we'll also send over a set of HTLC's from Carol to
 	// Dave. This ensures that the final revoked transaction has HTLC's in
 	// both directions.
-	davePayReqs := make([]string, numInvoices)
-	for i := 0; i < numInvoices; i++ {
-		preimage := bytes.Repeat([]byte{byte(199 - i)}, 32)
-		invoice := &lnrpc.Invoice{
-			Memo:      "testing",
-			RPreimage: preimage,
-			Value:     paymentAmt,
-		}
-		resp, err := dave.AddInvoice(ctxb, invoice)
-		if err != nil {
-			t.Fatalf("unable to add invoice: %v", err)
-		}
-
-		davePayReqs[i] = resp.PaymentRequest
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	davePayReqs, _, _, err := createPayReqs(
+		ctxt, dave, paymentAmt, numInvoices,
+	)
+	if err != nil {
+		t.Fatalf("unable to create pay reqs: %v", err)
 	}
 
 	// Send payments from Carol to Dave using 3 of Dave's payment hashes
@@ -8168,7 +8118,7 @@ func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	const (
-		timeout    = time.Duration(time.Second * 5)
+		timeout    = time.Duration(time.Second * 15)
 		paymentAmt = 100
 	)
 
@@ -8203,25 +8153,12 @@ func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// With the channel open, we'll create invoices for Bob that Alice
 	// will pay to in order to advance the state of the channel.
-	bobPayReqs := make([]string, numInvoices)
-	for i := 0; i < numInvoices; i++ {
-		preimage := make([]byte, 32)
-		_, err := rand.Read(preimage)
-		if err != nil {
-			t.Fatalf("unable to generate preimage: %v", err)
-		}
-
-		invoice := &lnrpc.Invoice{
-			Memo:      "testing",
-			RPreimage: preimage,
-			Value:     paymentAmt,
-		}
-		resp, err := net.Bob.AddInvoice(ctxb, invoice)
-		if err != nil {
-			t.Fatalf("unable to add invoice: %v", err)
-		}
-
-		bobPayReqs[i] = resp.PaymentRequest
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	bobPayReqs, _, _, err := createPayReqs(
+		ctxt, net.Bob, paymentAmt, numInvoices,
+	)
+	if err != nil {
+		t.Fatalf("unable to create pay reqs: %v", err)
 	}
 
 	// Wait for Alice to receive the channel edge from the funding manager.
@@ -8383,48 +8320,22 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 
 	// With the channel open, we'll create invoices for Bob that Alice
 	// will pay to in order to advance the state of the channel.
-	bobPayReqs := make([]string, numInvoices)
-	for i := 0; i < numInvoices; i++ {
-		preimage := make([]byte, 32)
-		_, err := rand.Read(preimage)
-		if err != nil {
-			t.Fatalf("unable to generate preimage: %v", err)
-		}
-
-		invoice := &lnrpc.Invoice{
-			Memo:      "testing",
-			RPreimage: preimage,
-			Value:     paymentAmt,
-		}
-		resp, err := net.Bob.AddInvoice(ctxb, invoice)
-		if err != nil {
-			t.Fatalf("unable to add invoice: %v", err)
-		}
-
-		bobPayReqs[i] = resp.PaymentRequest
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	bobPayReqs, _, _, err := createPayReqs(
+		ctxt, net.Bob, paymentAmt, numInvoices,
+	)
+	if err != nil {
+		t.Fatalf("unable to create pay reqs: %v", err)
 	}
 
 	// With the channel open, we'll create invoices for Alice that Bob
 	// will pay to in order to advance the state of the channel.
-	alicePayReqs := make([]string, numInvoices)
-	for i := 0; i < numInvoices; i++ {
-		preimage := make([]byte, 32)
-		_, err := rand.Read(preimage)
-		if err != nil {
-			t.Fatalf("unable to generate preimage: %v", err)
-		}
-
-		invoice := &lnrpc.Invoice{
-			Memo:      "testing",
-			RPreimage: preimage,
-			Value:     paymentAmt,
-		}
-		resp, err := net.Alice.AddInvoice(ctxb, invoice)
-		if err != nil {
-			t.Fatalf("unable to add invoice: %v", err)
-		}
-
-		alicePayReqs[i] = resp.PaymentRequest
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	alicePayReqs, _, _, err := createPayReqs(
+		ctxt, net.Alice, paymentAmt, numInvoices,
+	)
+	if err != nil {
+		t.Fatalf("unable to create pay reqs: %v", err)
 	}
 
 	// Wait for Alice to receive the channel edge from the funding manager.
@@ -10433,18 +10344,12 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	// satoshis with a different preimage each time.
 	const numPayments = 5
 	const paymentAmt = 1000
-	payReqs := make([]string, numPayments)
-	for i := 0; i < numPayments; i++ {
-		invoice := &lnrpc.Invoice{
-			Memo:  "testing",
-			Value: paymentAmt,
-		}
-		resp, err := carol.AddInvoice(ctxb, invoice)
-		if err != nil {
-			t.Fatalf("unable to add invoice: %v", err)
-		}
-
-		payReqs[i] = resp.PaymentRequest
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	payReqs, _, _, err := createPayReqs(
+		ctxt, carol, paymentAmt, numPayments,
+	)
+	if err != nil {
+		t.Fatalf("unable to create pay reqs: %v", err)
 	}
 
 	// We'll wait for all parties to recognize the new channels within the
@@ -10775,18 +10680,12 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	// satoshis with a different preimage each time.
 	const numPayments = 5
 	const paymentAmt = 1000
-	payReqs := make([]string, numPayments)
-	for i := 0; i < numPayments; i++ {
-		invoice := &lnrpc.Invoice{
-			Memo:  "testing",
-			Value: paymentAmt,
-		}
-		resp, err := carol.AddInvoice(ctxb, invoice)
-		if err != nil {
-			t.Fatalf("unable to add invoice: %v", err)
-		}
-
-		payReqs[i] = resp.PaymentRequest
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	payReqs, _, _, err := createPayReqs(
+		ctxt, carol, paymentAmt, numPayments,
+	)
+	if err != nil {
+		t.Fatalf("unable to create pay reqs: %v", err)
 	}
 
 	// We'll wait for all parties to recognize the new channels within the
@@ -11125,18 +11024,12 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	// satoshis with a different preimage each time.
 	const numPayments = 5
 	const paymentAmt = 1000
-	payReqs := make([]string, numPayments)
-	for i := 0; i < numPayments; i++ {
-		invoice := &lnrpc.Invoice{
-			Memo:  "testing",
-			Value: paymentAmt,
-		}
-		resp, err := carol.AddInvoice(ctxb, invoice)
-		if err != nil {
-			t.Fatalf("unable to add invoice: %v", err)
-		}
-
-		payReqs[i] = resp.PaymentRequest
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	payReqs, _, _, err := createPayReqs(
+		ctxt, carol, paymentAmt, numPayments,
+	)
+	if err != nil {
+		t.Fatalf("unable to create pay reqs: %v", err)
 	}
 
 	// We'll wait for all parties to recognize the new channels within the
@@ -11479,18 +11372,12 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	// satoshis with a different preimage each time.
 	const numPayments = 5
 	const paymentAmt = 1000
-	payReqs := make([]string, numPayments)
-	for i := 0; i < numPayments; i++ {
-		invoice := &lnrpc.Invoice{
-			Memo:  "testing",
-			Value: paymentAmt,
-		}
-		resp, err := carol.AddInvoice(ctxb, invoice)
-		if err != nil {
-			t.Fatalf("unable to add invoice: %v", err)
-		}
-
-		payReqs[i] = resp.PaymentRequest
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	payReqs, _, _, err := createPayReqs(
+		ctxt, carol, paymentAmt, numPayments,
+	)
+	if err != nil {
+		t.Fatalf("unable to create pay reqs: %v", err)
 	}
 
 	// We'll wait for all parties to recognize the new channels within the

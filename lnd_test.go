@@ -20,7 +20,6 @@ import (
 
 	"crypto/rand"
 	"crypto/sha256"
-	prand "math/rand"
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -8202,9 +8201,6 @@ func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// Send one more payment in order to cause insufficient capacity error.
 	numInvoices++
 
-	// Initialize seed random in order to generate invoices.
-	prand.Seed(time.Now().UnixNano())
-
 	// With the channel open, we'll create invoices for Bob that Alice
 	// will pay to in order to advance the state of the channel.
 	bobPayReqs := make([]string, numInvoices)
@@ -8384,9 +8380,6 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 	// at the end balances should remain the same.
 	aliceAmt := info.LocalBalance
 	bobAmt := info.RemoteBalance
-
-	// Initialize seed random in order to generate invoices.
-	prand.Seed(time.Now().UnixNano())
 
 	// With the channel open, we'll create invoices for Bob that Alice
 	// will pay to in order to advance the state of the channel.

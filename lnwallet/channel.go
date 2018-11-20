@@ -3446,19 +3446,22 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 //      it.
 //   3. We didn't get the last RevokeAndAck message they sent, so they'll
 //      re-send it.
-func (lc *LightningChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
+func ChanSyncMsg(c *channeldb.OpenChannel) (*lnwire.ChannelReestablish, error) {
+	c.Lock()
+	defer c.Unlock()
+
 	// The remote commitment height that we'll send in the
 	// ChannelReestablish message is our current commitment height plus
 	// one. If the receiver thinks that our commitment height is actually
 	// *equal* to this value, then they'll re-send the last commitment that
 	// they sent but we never fully processed.
-	localHeight := lc.localCommitChain.tip().height
+	localHeight := c.LocalCommitment.CommitHeight
 	nextLocalCommitHeight := localHeight + 1
 
 	// The second value we'll send is the height of the remote commitment
 	// from our PoV. If the receiver thinks that their height is actually
 	// *one plus* this value, then they'll re-send their last revocation.
-	remoteChainTipHeight := lc.remoteCommitChain.tail().height
+	remoteChainTipHeight := c.RemoteCommitment.CommitHeight
 
 	// If this channel has undergone a commitment update, then in order to
 	// prove to the remote party our knowledge of their prior commitment
@@ -3466,7 +3469,7 @@ func (lc *LightningChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
 	// remote party sent.
 	var lastCommitSecret [32]byte
 	if remoteChainTipHeight != 0 {
-		remoteSecret, err := lc.channelState.RevocationStore.LookUp(
+		remoteSecret, err := c.RevocationStore.LookUp(
 			remoteChainTipHeight - 1,
 		)
 		if err != nil {
@@ -3477,7 +3480,7 @@ func (lc *LightningChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
 
 	// Additionally, we'll send over the current unrevoked commitment on
 	// our local commitment transaction.
-	currentCommitSecret, err := lc.channelState.RevocationProducer.AtIndex(
+	currentCommitSecret, err := c.RevocationProducer.AtIndex(
 		localHeight,
 	)
 	if err != nil {
@@ -3486,7 +3489,7 @@ func (lc *LightningChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
 
 	return &lnwire.ChannelReestablish{
 		ChanID: lnwire.NewChanIDFromOutPoint(
-			&lc.channelState.FundingOutpoint,
+			&c.FundingOutpoint,
 		),
 		NextLocalCommitHeight:  nextLocalCommitHeight,
 		RemoteCommitTailHeight: remoteChainTipHeight,
@@ -6188,7 +6191,7 @@ func (lc *LightningChannel) IsPending() bool {
 	return lc.channelState.IsPending
 }
 
-// State provides access to the channel's internal state for testing.
+// State provides access to the channel's internal state.
 func (lc *LightningChannel) State() *channeldb.OpenChannel {
 	return lc.channelState
 }

@@ -3,6 +3,7 @@ package channeldb
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -1832,6 +1833,10 @@ type ChannelCloseSummary struct {
 
 	// LocalChanCfg is the channel configuration for the local node.
 	LocalChanConfig ChannelConfig
+
+	// LastChanSyncMsg is the ChannelReestablish message for this channel
+	// for the state at the point where it was closed.
+	LastChanSyncMsg *lnwire.ChannelReestablish
 }
 
 // CloseChannel closes a previously active Lightning channel. Closing a channel
@@ -2090,6 +2095,18 @@ func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
 		}
 	}
 
+	// Write whether the channel sync message is present.
+	if err := WriteElements(w, cs.LastChanSyncMsg != nil); err != nil {
+		return err
+	}
+
+	// Write the channel sync message, if present.
+	if cs.LastChanSyncMsg != nil {
+		if err := WriteElements(w, cs.LastChanSyncMsg); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -2160,6 +2177,32 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	// Check if we have a channel sync message to read.
+	var hasChanSyncMsg bool
+	err = ReadElements(r, &hasChanSyncMsg)
+	if err == io.EOF {
+		return c, nil
+	} else if err != nil {
+		return nil, err
+	}
+
+	// If a chan sync message is present, read it.
+	if hasChanSyncMsg {
+		// We must pass in reference to a lnwire.Message for the codec
+		// to support it.
+		var msg lnwire.Message
+		if err := ReadElements(r, &msg); err != nil {
+			return nil, err
+		}
+
+		chanSync, ok := msg.(*lnwire.ChannelReestablish)
+		if !ok {
+			return nil, errors.New("unable cast db Message to " +
+				"ChannelReestablish")
+		}
+		c.LastChanSyncMsg = chanSync
 	}
 
 	return c, nil

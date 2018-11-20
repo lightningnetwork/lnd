@@ -2433,7 +2433,7 @@ func assertNoChanSyncNeeded(t *testing.T, aliceChannel *LightningChannel,
 
 	_, _, line, _ := runtime.Caller(1)
 
-	aliceChanSyncMsg, err := aliceChannel.ChanSyncMsg()
+	aliceChanSyncMsg, err := ChanSyncMsg(aliceChannel.channelState)
 	if err != nil {
 		t.Fatalf("line #%v: unable to produce chan sync msg: %v",
 			line, err)
@@ -2448,7 +2448,7 @@ func assertNoChanSyncNeeded(t *testing.T, aliceChannel *LightningChannel,
 			"instead wants to send: %v", line, spew.Sdump(bobMsgsToSend))
 	}
 
-	bobChanSyncMsg, err := bobChannel.ChanSyncMsg()
+	bobChanSyncMsg, err := ChanSyncMsg(bobChannel.channelState)
 	if err != nil {
 		t.Fatalf("line #%v: unable to produce chan sync msg: %v",
 			line, err)
@@ -2681,11 +2681,11 @@ func TestChanSyncOweCommitment(t *testing.T) {
 	// Bob doesn't get this message so upon reconnection, they need to
 	// synchronize. Alice should conclude that she owes Bob a commitment,
 	// while Bob should think he's properly synchronized.
-	aliceSyncMsg, err := aliceChannel.ChanSyncMsg()
+	aliceSyncMsg, err := ChanSyncMsg(aliceChannel.channelState)
 	if err != nil {
 		t.Fatalf("unable to produce chan sync msg: %v", err)
 	}
-	bobSyncMsg, err := bobChannel.ChanSyncMsg()
+	bobSyncMsg, err := ChanSyncMsg(bobChannel.channelState)
 	if err != nil {
 		t.Fatalf("unable to produce chan sync msg: %v", err)
 	}
@@ -2995,11 +2995,11 @@ func TestChanSyncOweRevocation(t *testing.T) {
 	// If we fetch the channel sync messages at this state, then Alice
 	// should report that she owes Bob a revocation message, while Bob
 	// thinks they're fully in sync.
-	aliceSyncMsg, err := aliceChannel.ChanSyncMsg()
+	aliceSyncMsg, err := ChanSyncMsg(aliceChannel.channelState)
 	if err != nil {
 		t.Fatalf("unable to produce chan sync msg: %v", err)
 	}
-	bobSyncMsg, err := bobChannel.ChanSyncMsg()
+	bobSyncMsg, err := ChanSyncMsg(bobChannel.channelState)
 	if err != nil {
 		t.Fatalf("unable to produce chan sync msg: %v", err)
 	}
@@ -3164,11 +3164,11 @@ func TestChanSyncOweRevocationAndCommit(t *testing.T) {
 	// If we now attempt to resync, then Alice should conclude that she
 	// doesn't need any further updates, while Bob concludes that he needs
 	// to re-send both his revocation and commit sig message.
-	aliceSyncMsg, err := aliceChannel.ChanSyncMsg()
+	aliceSyncMsg, err := ChanSyncMsg(aliceChannel.channelState)
 	if err != nil {
 		t.Fatalf("unable to produce chan sync msg: %v", err)
 	}
-	bobSyncMsg, err := bobChannel.ChanSyncMsg()
+	bobSyncMsg, err := ChanSyncMsg(bobChannel.channelState)
 	if err != nil {
 		t.Fatalf("unable to produce chan sync msg: %v", err)
 	}
@@ -3374,11 +3374,11 @@ func TestChanSyncOweRevocationAndCommitForceTransition(t *testing.T) {
 	// Now if we attempt to synchronize states at this point, Alice should
 	// detect that she owes nothing, while Bob should re-send both his
 	// RevokeAndAck as well as his commitment message.
-	aliceSyncMsg, err := aliceChannel.ChanSyncMsg()
+	aliceSyncMsg, err := ChanSyncMsg(aliceChannel.channelState)
 	if err != nil {
 		t.Fatalf("unable to produce chan sync msg: %v", err)
 	}
-	bobSyncMsg, err := bobChannel.ChanSyncMsg()
+	bobSyncMsg, err := ChanSyncMsg(bobChannel.channelState)
 	if err != nil {
 		t.Fatalf("unable to produce chan sync msg: %v", err)
 	}
@@ -3573,11 +3573,11 @@ func TestChanSyncFailure(t *testing.T) {
 	// assertLocalDataLoss checks that aliceOld and bobChannel detects that
 	// Alice has lost state during sync.
 	assertLocalDataLoss := func(aliceOld *LightningChannel) {
-		aliceSyncMsg, err := aliceOld.ChanSyncMsg()
+		aliceSyncMsg, err := ChanSyncMsg(aliceOld.channelState)
 		if err != nil {
 			t.Fatalf("unable to produce chan sync msg: %v", err)
 		}
-		bobSyncMsg, err := bobChannel.ChanSyncMsg()
+		bobSyncMsg, err := ChanSyncMsg(bobChannel.channelState)
 		if err != nil {
 			t.Fatalf("unable to produce chan sync msg: %v", err)
 		}
@@ -3629,7 +3629,7 @@ func TestChanSyncFailure(t *testing.T) {
 	// If we remove the recovery options from Bob's message, Alice cannot
 	// tell if she lost state, since Bob might be lying. She still should
 	// be able to detect that chains cannot be synced.
-	bobSyncMsg, err := bobChannel.ChanSyncMsg()
+	bobSyncMsg, err := ChanSyncMsg(bobChannel.channelState)
 	if err != nil {
 		t.Fatalf("unable to produce chan sync msg: %v", err)
 	}
@@ -3643,7 +3643,7 @@ func TestChanSyncFailure(t *testing.T) {
 	// If Bob lies about the NextLocalCommitHeight, making it greater than
 	// what Alice expect, she cannot tell for sure whether she lost state,
 	// but should detect the desync.
-	bobSyncMsg, err = bobChannel.ChanSyncMsg()
+	bobSyncMsg, err = ChanSyncMsg(bobChannel.channelState)
 	if err != nil {
 		t.Fatalf("unable to produce chan sync msg: %v", err)
 	}
@@ -3656,7 +3656,7 @@ func TestChanSyncFailure(t *testing.T) {
 
 	// If Bob's NextLocalCommitHeight is lower than what Alice expects, Bob
 	// probably lost state.
-	bobSyncMsg, err = bobChannel.ChanSyncMsg()
+	bobSyncMsg, err = ChanSyncMsg(bobChannel.channelState)
 	if err != nil {
 		t.Fatalf("unable to produce chan sync msg: %v", err)
 	}
@@ -3669,7 +3669,7 @@ func TestChanSyncFailure(t *testing.T) {
 
 	// If Alice and Bob's states are in sync, but Bob is sending the wrong
 	// LocalUnrevokedCommitPoint, Alice should detect this.
-	bobSyncMsg, err = bobChannel.ChanSyncMsg()
+	bobSyncMsg, err = ChanSyncMsg(bobChannel.channelState)
 	if err != nil {
 		t.Fatalf("unable to produce chan sync msg: %v", err)
 	}
@@ -3695,7 +3695,7 @@ func TestChanSyncFailure(t *testing.T) {
 	// when there's a pending remote commit.
 	halfAdvance()
 
-	bobSyncMsg, err = bobChannel.ChanSyncMsg()
+	bobSyncMsg, err = ChanSyncMsg(bobChannel.channelState)
 	if err != nil {
 		t.Fatalf("unable to produce chan sync msg: %v", err)
 	}
@@ -3785,11 +3785,11 @@ func TestChannelRetransmissionFeeUpdate(t *testing.T) {
 	// Bob doesn't get this message so upon reconnection, they need to
 	// synchronize. Alice should conclude that she owes Bob a commitment,
 	// while Bob should think he's properly synchronized.
-	aliceSyncMsg, err := aliceChannel.ChanSyncMsg()
+	aliceSyncMsg, err := ChanSyncMsg(aliceChannel.channelState)
 	if err != nil {
 		t.Fatalf("unable to produce chan sync msg: %v", err)
 	}
-	bobSyncMsg, err := bobChannel.ChanSyncMsg()
+	bobSyncMsg, err := ChanSyncMsg(bobChannel.channelState)
 	if err != nil {
 		t.Fatalf("unable to produce chan sync msg: %v", err)
 	}
@@ -4015,11 +4015,11 @@ func TestChanSyncInvalidLastSecret(t *testing.T) {
 	}
 
 	// Next, we'll produce the ChanSync messages for both parties.
-	aliceChanSync, err := aliceChannel.ChanSyncMsg()
+	aliceChanSync, err := ChanSyncMsg(aliceChannel.channelState)
 	if err != nil {
 		t.Fatalf("unable to generate chan sync msg: %v", err)
 	}
-	bobChanSync, err := bobChannel.ChanSyncMsg()
+	bobChanSync, err := ChanSyncMsg(bobChannel.channelState)
 	if err != nil {
 		t.Fatalf("unable to generate chan sync msg: %v", err)
 	}

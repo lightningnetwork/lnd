@@ -898,6 +898,11 @@ out:
 
 				break out
 			}
+
+		// The client canceled stream context, so we exit.
+		case <-updateStream.Context().Done():
+			return updateStream.Context().Err()
+
 		case <-r.quit:
 			return nil
 		}
@@ -1028,6 +1033,8 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 				FundingTxidBytes: chanUpdate.Txid,
 			},
 		}, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	case <-r.quit:
 		return nil, nil
 	}
@@ -1222,6 +1229,11 @@ out:
 					"txid(%v)", h)
 				break out
 			}
+
+		// The client canceled stream context, so we exit.
+		case <-updateStream.Context().Done():
+			return updateStream.Context().Err()
+
 		case <-r.quit:
 			return nil
 		}
@@ -1995,6 +2007,7 @@ func validatePayReqExpiry(payReq *zpay32.Invoice) error {
 type paymentStream struct {
 	recv func() (*rpcPaymentRequest, error)
 	send func(*lnrpc.SendResponse) error
+	ctx  context.Context
 }
 
 // rpcPaymentRequest wraps lnrpc.SendRequest so that routes from
@@ -2049,6 +2062,7 @@ func (r *rpcServer) SendPayment(stream lnrpc.Lightning_SendPaymentServer) error 
 			defer lock.Unlock()
 			return stream.Send(r)
 		},
+		ctx: stream.Context(),
 	})
 }
 
@@ -2095,6 +2109,7 @@ func (r *rpcServer) SendToRoute(stream lnrpc.Lightning_SendToRouteServer) error 
 			defer lock.Unlock()
 			return stream.Send(r)
 		},
+		ctx: stream.Context(),
 	})
 }
 
@@ -2397,6 +2412,8 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 			case <-r.quit:
 				errChan <- nil
 				return
+			case <-stream.ctx.Done():
+				return
 			default:
 				// Receive the next pending payment within the
 				// stream sent by the client. If we read the
@@ -2410,6 +2427,8 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 					select {
 					case errChan <- err:
 					case <-reqQuit:
+						return
+					case <-stream.ctx.Done():
 						return
 					}
 					return
@@ -2429,6 +2448,8 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 						case errChan <- err:
 						case <-reqQuit:
 							return
+						case <-stream.ctx.Done():
+							return
 						}
 					}
 					continue
@@ -2440,6 +2461,8 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 				select {
 				case payChan <- &payIntent:
 				case <-reqQuit:
+					return
+				case <-stream.ctx.Done():
 					return
 				}
 			}
@@ -3110,6 +3133,10 @@ func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 				return err
 			}
 
+		// The client canceled stream context, so we exit.
+		case <-updateStream.Context().Done():
+			return updateStream.Context().Err()
+
 		case <-r.quit:
 			return nil
 		}
@@ -3153,6 +3180,10 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 			if err := updateStream.Send(detail); err != nil {
 				return err
 			}
+
+		// The client canceled stream context, so we exit.
+		case <-updateStream.Context().Done():
+			return updateStream.Context().Err()
 
 		case <-r.quit:
 			return nil
@@ -3800,6 +3831,10 @@ func (r *rpcServer) SubscribeChannelGraph(req *lnrpc.GraphTopologySubscription,
 			if err := updateStream.Send(graphUpdate); err != nil {
 				return err
 			}
+
+		// The client canceled stream context, so we exit.
+		case <-updateStream.Context().Done():
+			return updateStream.Context().Err()
 
 		// The server is quitting, so we'll exit immediately. Returning
 		// nil will close the clients read end of the stream.

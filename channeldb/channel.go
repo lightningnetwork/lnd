@@ -2059,7 +2059,12 @@ func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
 	// If this is a close channel summary created before the addition of
 	// the new fields, then we can exit here.
 	if cs.RemoteCurrentRevocation == nil {
-		return nil
+		return WriteElements(w, false)
+	}
+
+	// If fields are present, write boolean to indicate this, and continue.
+	if err := WriteElements(w, true); err != nil {
+		return err
 	}
 
 	if err := WriteElements(w, cs.RemoteCurrentRevocation); err != nil {
@@ -2070,14 +2075,22 @@ func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
 		return err
 	}
 
-	// We'll write this field last, as it's possible for a channel to be
-	// closed before we learn of the next unrevoked revocation point for
-	// the remote party.
-	if cs.RemoteNextRevocation == nil {
-		return nil
+	// The RemoteNextRevocation field is optional, as it's possible for a
+	// channel to be closed before we learn of the next unrevoked
+	// revocation point for the remote party. Write a boolen indicating
+	// whether this field is present or not.
+	if err := WriteElements(w, cs.RemoteNextRevocation != nil); err != nil {
+		return err
 	}
 
-	return WriteElements(w, cs.RemoteNextRevocation)
+	// Write the field, if present.
+	if cs.RemoteNextRevocation != nil {
+		if err = WriteElements(w, cs.RemoteNextRevocation); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func fetchChannelCloseSummary(tx *bolt.Tx,
@@ -2111,15 +2124,19 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 
 	// We'll now check to see if the channel close summary was encoded with
 	// any of the additional optional fields.
-	err = ReadElements(r, &c.RemoteCurrentRevocation)
-	switch {
-	case err == io.EOF:
-		return c, nil
+	var hasNewFields bool
+	err = ReadElements(r, &hasNewFields)
+	if err != nil {
+		return nil, err
+	}
 
-	// If we got a non-eof error, then we know there's an actually issue.
-	// Otherwise, it may have been the case that this summary didn't have
-	// the set of optional fields.
-	case err != nil:
+	// If fields are not present, we can return.
+	if !hasNewFields {
+		return c, nil
+	}
+
+	// Otherwise read the new fields.
+	if err := ReadElements(r, &c.RemoteCurrentRevocation); err != nil {
 		return nil, err
 	}
 
@@ -2129,15 +2146,20 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 
 	// Finally, we'll attempt to read the next unrevoked commitment point
 	// for the remote party. If we closed the channel before receiving a
-	// funding locked message, then this can be nil. As a result, we'll use
-	// the same technique to read the field, only if there's still data
-	// left in the buffer.
-	err = ReadElements(r, &c.RemoteNextRevocation)
-	if err != nil && err != io.EOF {
-		// If we got a non-eof error, then we know there's an actually
-		// issue. Otherwise, it may have been the case that this
-		// summary didn't have the set of optional fields.
+	// funding locked message then this might not be present. A boolean
+	// indicating whether the field is present will come first.
+	var hasRemoteNextRevocation bool
+	err = ReadElements(r, &hasRemoteNextRevocation)
+	if err != nil {
 		return nil, err
+	}
+
+	// If this field was written, read it.
+	if hasRemoteNextRevocation {
+		err = ReadElements(r, &c.RemoteNextRevocation)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return c, nil

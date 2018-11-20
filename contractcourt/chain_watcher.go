@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -14,6 +15,16 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
+)
+
+const (
+	// minCommitPointPollTimeout is the minimum time we'll wait before
+	// polling the database for a channel's commitpoint.
+	minCommitPointPollTimeout = 1 * time.Second
+
+	// maxCommitPointPollTimeout is the maximum time we'll wait before
+	// polling the database for a channel's commitpoint.
+	maxCommitPointPollTimeout = 10 * time.Minute
 )
 
 // LocalUnilateralCloseInfo encapsulates all the informnation we need to act
@@ -402,16 +413,38 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 
 			// If we are lucky, the remote peer sent us the correct
 			// commitment point during channel sync, such that we
-			// can sweep our funds.
-			// TODO(halseth): must handle the case where we haven't
-			// yet processed the chan sync message.
-			commitPoint, err := c.cfg.chanState.DataLossCommitPoint()
-			if err != nil {
+			// can sweep our funds. If we cannot find the commit
+			// point, there's not much we can do other than wait
+			// for us to retrieve it. We will attempt to retrieve
+			// it from the peer each time we connect to it.
+			// TODO(halseth): actively initiate re-connection to
+			// the peer?
+			var commitPoint *btcec.PublicKey
+			backoff := minCommitPointPollTimeout
+			for {
+				commitPoint, err = c.cfg.chanState.DataLossCommitPoint()
+				if err == nil {
+					break
+				}
+
 				log.Errorf("Unable to retrieve commitment "+
 					"point for channel(%v) with lost "+
-					"state: %v",
-					c.cfg.chanState.FundingOutpoint, err)
-				return
+					"state: %v. Retrying in %v.",
+					c.cfg.chanState.FundingOutpoint,
+					err, backoff)
+
+				select {
+				// Wait before retrying, with an exponential
+				// backoff.
+				case <-time.After(backoff):
+					backoff = 2 * backoff
+					if backoff > maxCommitPointPollTimeout {
+						backoff = maxCommitPointPollTimeout
+					}
+
+				case <-c.quit:
+					return
+				}
 			}
 
 			log.Infof("Recovered commit point(%x) for "+

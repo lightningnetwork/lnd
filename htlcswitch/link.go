@@ -789,9 +789,6 @@ func (l *channelLink) htlcManager() {
 			// We failed syncing the commit chains, probably
 			// because the remote has lost state. We should force
 			// close the channel.
-			// TODO(halseth): store sent chanSync message to
-			// database, such that it can be resent to peer in case
-			// it tries to sync the channel again.
 			case err == lnwallet.ErrCommitSyncRemoteDataLoss:
 				fallthrough
 

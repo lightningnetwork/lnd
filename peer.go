@@ -836,11 +836,11 @@ func newChanMsgStream(p *peer, cid lnwire.ChannelID) *msgStream {
 		fmt.Sprintf("Update stream for ChannelID(%x) exiting", cid[:]),
 		1000,
 		func(msg lnwire.Message) {
-			_, isChanSycMsg := msg.(*lnwire.ChannelReestablish)
+			_, isChanSyncMsg := msg.(*lnwire.ChannelReestablish)
 
 			// If this is the chanSync message, then we'll deliver
 			// it immediately to the active link.
-			if !isChanSycMsg {
+			if !isChanSyncMsg {
 				// We'll send a message to the funding manager
 				// and wait iff an active funding process for
 				// this channel hasn't yet completed.  We do
@@ -875,8 +875,9 @@ func newChanMsgStream(p *peer, cid lnwire.ChannelID) *msgStream {
 			if chanLink == nil {
 				link, err := p.server.htlcSwitch.GetLink(cid)
 				if err != nil {
-					peerLog.Errorf("recv'd update for unknown "+
-						"channel %v from %v", cid, p)
+					peerLog.Errorf("recv'd update for "+
+						"unknown channel %v from %v: "+
+						"%v", cid, p, err)
 					return
 				}
 				chanLink = link

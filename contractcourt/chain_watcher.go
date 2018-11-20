@@ -522,6 +522,15 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 		LocalChanConfig:         c.cfg.chanState.LocalChanCfg,
 	}
 
+	// Attempt to add a channel sync message to the close summary.
+	chanSync, err := lnwallet.ChanSyncMsg(c.cfg.chanState)
+	if err != nil {
+		log.Errorf("ChannelPoint(%v): unable to create channel sync "+
+			"message: %v", c.cfg.chanState.FundingOutpoint, err)
+	} else {
+		closeSummary.LastChanSyncMsg = chanSync
+	}
+
 	// Create a summary of all the information needed to handle the
 	// cooperative closure.
 	closeInfo := &CooperativeCloseInfo{
@@ -588,6 +597,15 @@ func (c *chainWatcher) dispatchLocalForceClose(
 	for _, htlc := range forceClose.HtlcResolutions.OutgoingHTLCs {
 		htlcValue := btcutil.Amount(htlc.SweepSignDesc.Output.Value)
 		closeSummary.TimeLockedBalance += htlcValue
+	}
+
+	// Attempt to add a channel sync message to the close summary.
+	chanSync, err := lnwallet.ChanSyncMsg(c.cfg.chanState)
+	if err != nil {
+		log.Errorf("ChannelPoint(%v): unable to create channel sync "+
+			"message: %v", c.cfg.chanState.FundingOutpoint, err)
+	} else {
+		closeSummary.LastChanSyncMsg = chanSync
 	}
 
 	// With the event processed, we'll now notify all subscribers of the
@@ -747,6 +765,15 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 		RemoteCurrentRevocation: c.cfg.chanState.RemoteCurrentRevocation,
 		RemoteNextRevocation:    c.cfg.chanState.RemoteNextRevocation,
 		LocalChanConfig:         c.cfg.chanState.LocalChanCfg,
+	}
+
+	// Attempt to add a channel sync message to the close summary.
+	chanSync, err := lnwallet.ChanSyncMsg(c.cfg.chanState)
+	if err != nil {
+		log.Errorf("ChannelPoint(%v): unable to create channel sync "+
+			"message: %v", c.cfg.chanState.FundingOutpoint, err)
+	} else {
+		closeSummary.LastChanSyncMsg = chanSync
 	}
 
 	if err := c.cfg.chanState.CloseChannel(&closeSummary); err != nil {

@@ -1023,11 +1023,10 @@ type commitmentChain struct {
 	startingHeight uint64
 }
 
-// newCommitmentChain creates a new commitment chain from an initial height.
-func newCommitmentChain(initialHeight uint64) *commitmentChain {
+// newCommitmentChain creates a new commitment chain.
+func newCommitmentChain() *commitmentChain {
 	return &commitmentChain{
-		commitments:    list.New(),
-		startingHeight: initialHeight,
+		commitments: list.New(),
 	}
 }
 
@@ -1381,8 +1380,8 @@ func NewLightningChannel(signer Signer, pCache PreimageCache,
 		Signer:            signer,
 		pCache:            pCache,
 		currentHeight:     localCommit.CommitHeight,
-		remoteCommitChain: newCommitmentChain(remoteCommit.CommitHeight),
-		localCommitChain:  newCommitmentChain(localCommit.CommitHeight),
+		remoteCommitChain: newCommitmentChain(),
+		localCommitChain:  newCommitmentChain(),
 		channelState:      state,
 		localChanCfg:      &state.LocalChanCfg,
 		remoteChanCfg:     &state.RemoteChanCfg,

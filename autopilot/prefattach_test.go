@@ -230,10 +230,8 @@ var chanGraphs = []struct {
 	},
 }
 
-// TestConstrainedPrefAttachmentSelectEmptyGraph ensures that when passed en
-// empty graph, the Select function always detects the state, and returns nil.
-// Otherwise, it would be possible for the main Select loop to entire an
-// infinite loop.
+// TestConstrainedPrefAttachmentSelectEmptyGraph ensures that when passed an
+// empty graph, the NodeSores function always returns a score of 0.
 func TestConstrainedPrefAttachmentSelectEmptyGraph(t *testing.T) {
 	const (
 		minChanSize = 0
@@ -249,15 +247,18 @@ func TestConstrainedPrefAttachmentSelectEmptyGraph(t *testing.T) {
 		Allocation:  threshold,
 	}
 
-	// First, we'll generate a random key that represents "us", and create
-	// a new instance of the heuristic with our set parameters.
-	self, err := randKey()
-	if err != nil {
-		t.Fatalf("unable to generate self key: %v", err)
-	}
 	prefAttach := NewConstrainedPrefAttachment(constraints)
 
-	skipNodes := make(map[NodeID]struct{})
+	// Create a random public key, which we will query to get a score for.
+	pub, err := randKey()
+	if err != nil {
+		t.Fatalf("unable to generate key: %v", err)
+	}
+
+	nodes := map[NodeID]struct{}{
+		NewNodeID(pub): {},
+	}
+
 	for _, graph := range chanGraphs {
 		success := t.Run(graph.name, func(t1 *testing.T) {
 			graph, cleanup, err := graph.genFunc()
@@ -268,23 +269,21 @@ func TestConstrainedPrefAttachmentSelectEmptyGraph(t *testing.T) {
 				defer cleanup()
 			}
 
-			// With the necessary state initialized, we'll not
-			// attempt to select a set of candidates channel for
-			// creation given the current state of the graph.
+			// With the necessary state initialized, we'll now
+			// attempt to get the score for this one node.
 			const walletFunds = btcutil.SatoshiPerBitcoin
-			directives, err := prefAttach.Select(self, graph,
-				walletFunds, 5, skipNodes)
+			scores, err := prefAttach.NodeScores(graph, nil,
+				walletFunds, nodes)
 			if err != nil {
 				t1.Fatalf("unable to select attachment "+
 					"directives: %v", err)
 			}
 
-			// We shouldn't have selected any new directives as we
-			// started with an empty graph.
-			if len(directives) != 0 {
-				t1.Fatalf("zero attachment directives "+
-					"should have been returned instead %v were",
-					len(directives))
+			// Since the graph is empty, we expect the score to be
+			// 0, giving an empty return map.
+			if len(scores) != 0 {
+				t1.Fatalf("expected empty score map, "+
+					"instead got %v ", len(scores))
 			}
 		})
 		if !success {
@@ -293,9 +292,50 @@ func TestConstrainedPrefAttachmentSelectEmptyGraph(t *testing.T) {
 	}
 }
 
+// completeGraph is a helper method that adds numNodes fully connected nodes to
+// the graph.
+func completeGraph(t *testing.T, g testGraph, numNodes int) {
+	const chanCapacity = btcutil.SatoshiPerBitcoin
+	nodes := make(map[int]*btcec.PublicKey)
+	for i := 0; i < numNodes; i++ {
+		for j := i + 1; j < numNodes; j++ {
+
+			node1 := nodes[i]
+			node2 := nodes[j]
+			edge1, edge2, err := g.addRandChannel(
+				node1, node2, chanCapacity)
+			if err != nil {
+				t.Fatalf("unable to generate channel: %v", err)
+			}
+
+			if node1 == nil {
+				pubKeyBytes := edge1.Peer.PubKey()
+				nodes[i], err = btcec.ParsePubKey(
+					pubKeyBytes[:], btcec.S256(),
+				)
+				if err != nil {
+					t.Fatalf("unable to parse pubkey: %v",
+						err)
+				}
+			}
+
+			if node2 == nil {
+				pubKeyBytes := edge2.Peer.PubKey()
+				nodes[j], err = btcec.ParsePubKey(
+					pubKeyBytes[:], btcec.S256(),
+				)
+				if err != nil {
+					t.Fatalf("unable to parse pubkey: %v",
+						err)
+				}
+			}
+		}
+	}
+}
+
 // TestConstrainedPrefAttachmentSelectTwoVertexes ensures that when passed a
-// graph with only two eligible vertexes, then both are selected (without any
-// repeats), and the funds are appropriately allocated across each peer.
+// graph with only two eligible vertexes, then both are given the same score,
+// and the funds are appropriately allocated across each peer.
 func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 	t.Parallel()
 
@@ -314,7 +354,6 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 		ChanLimit:   chanLimit,
 		Allocation:  threshold,
 	}
-	skipNodes := make(map[NodeID]struct{})
 	for _, graph := range chanGraphs {
 		success := t.Run(graph.name, func(t1 *testing.T) {
 			graph, cleanup, err := graph.genFunc()
@@ -325,13 +364,6 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 				defer cleanup()
 			}
 
-			// First, we'll generate a random key that represents
-			// "us", and create a new instance of the heuristic
-			// with our set parameters.
-			self, err := randKey()
-			if err != nil {
-				t1.Fatalf("unable to generate self key: %v", err)
-			}
 			prefAttach := NewConstrainedPrefAttachment(constraints)
 
 			// For this set, we'll load the memory graph with two
@@ -342,43 +374,67 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 				t1.Fatalf("unable to generate channel: %v", err)
 			}
 
-			// With the necessary state initialized, we'll not
-			// attempt to select a set of candidates channel for
-			// creation given the current state of the graph.
+			// Get the score for all nodes found in the graph at
+			// this point.
+			nodes := make(map[NodeID]struct{})
+			if err := graph.ForEachNode(func(n Node) error {
+				nodes[n.PubKey()] = struct{}{}
+				return nil
+			}); err != nil {
+				t1.Fatalf("unable to traverse graph: %v", err)
+			}
+
+			if len(nodes) != 2 {
+				t1.Fatalf("expected 2 nodes, found %d", len(nodes))
+			}
+
+			// With the necessary state initialized, we'll now
+			// attempt to get our candidates channel score given
+			// the current state of the graph.
 			const walletFunds = btcutil.SatoshiPerBitcoin * 10
-			directives, err := prefAttach.Select(self, graph,
-				walletFunds, 2, skipNodes)
+			candidates, err := prefAttach.NodeScores(graph, nil,
+				walletFunds, nodes)
 			if err != nil {
-				t1.Fatalf("unable to select attachment directives: %v", err)
+				t1.Fatalf("unable to select attachment "+
+					"directives: %v", err)
 			}
 
-			// Two new directives should have been selected, one
-			// for each node already present within the graph.
-			if len(directives) != 2 {
-				t1.Fatalf("two attachment directives should have been "+
-					"returned instead %v were", len(directives))
+			if len(candidates) != len(nodes) {
+				t1.Fatalf("all nodes should be scored, "+
+					"instead %v were", len(candidates))
 			}
 
-			// The node attached to should be amongst the two edges
+			// The candidates should be amongst the two edges
 			// created above.
-			for _, directive := range directives {
+			for nodeID, candidate := range candidates {
 				edge1Pub := edge1.Peer.PubKey()
 				edge2Pub := edge2.Peer.PubKey()
 
 				switch {
-				case bytes.Equal(directive.NodeID[:], edge1Pub[:]):
-				case bytes.Equal(directive.NodeID[:], edge2Pub[:]):
+				case bytes.Equal(nodeID[:], edge1Pub[:]):
+				case bytes.Equal(nodeID[:], edge2Pub[:]):
 				default:
 					t1.Fatalf("attached to unknown node: %x",
-						directive.NodeID[:])
+						nodeID[:])
 				}
 
 				// As the number of funds available exceed the
 				// max channel size, both edges should consume
 				// the maximum channel size.
-				if directive.ChanAmt != maxChanSize {
-					t1.Fatalf("max channel size should be allocated, "+
-						"instead %v was: ", maxChanSize)
+				if candidate.ChanAmt != maxChanSize {
+					t1.Fatalf("max channel size should be "+
+						"allocated, instead %v was: ",
+						maxChanSize)
+				}
+
+				// Since each of the nodes has 1 channel, out
+				// of only one channel in the graph, we expect
+				// their score to be 0.5.
+				expScore := float64(0.5)
+				if candidate.Score != expScore {
+					t1.Fatalf("expected candidate score "+
+						"to be %v, instead was %v",
+						expScore, candidate.Score)
 				}
 			}
 		})
@@ -410,7 +466,6 @@ func TestConstrainedPrefAttachmentSelectInsufficientFunds(t *testing.T) {
 		Allocation:  threshold,
 	}
 
-	skipNodes := make(map[NodeID]struct{})
 	for _, graph := range chanGraphs {
 		success := t.Run(graph.name, func(t1 *testing.T) {
 			graph, cleanup, err := graph.genFunc()
@@ -421,28 +476,36 @@ func TestConstrainedPrefAttachmentSelectInsufficientFunds(t *testing.T) {
 				defer cleanup()
 			}
 
-			// First, we'll generate a random key that represents
-			// "us", and create a new instance of the heuristic
-			// with our set parameters.
-			self, err := randKey()
-			if err != nil {
-				t1.Fatalf("unable to generate self key: %v", err)
-			}
+			// Add 10 nodes to the graph, with channels between
+			// them.
+			completeGraph(t, graph, 10)
+
 			prefAttach := NewConstrainedPrefAttachment(constraints)
 
-			// Next, we'll attempt to select a set of candidates,
+			nodes := make(map[NodeID]struct{})
+			if err := graph.ForEachNode(func(n Node) error {
+				nodes[n.PubKey()] = struct{}{}
+				return nil
+			}); err != nil {
+				t1.Fatalf("unable to traverse graph: %v", err)
+			}
+
+			// With the necessary state initialized, we'll now
+			// attempt to get the score for our list of nodes,
 			// passing zero for the amount of wallet funds. This
-			// should return an empty slice of directives.
-			directives, err := prefAttach.Select(self, graph, 0,
-				0, skipNodes)
+			// should return an all-zero score set.
+			scores, err := prefAttach.NodeScores(graph, nil,
+				0, nodes)
 			if err != nil {
 				t1.Fatalf("unable to select attachment "+
 					"directives: %v", err)
 			}
-			if len(directives) != 0 {
-				t1.Fatalf("zero attachment directives "+
-					"should have been returned instead %v were",
-					len(directives))
+
+			// Since all should be given a score of 0, the map
+			// should be empty.
+			if len(scores) != 0 {
+				t1.Fatalf("expected empty score map, "+
+					"instead got %v ", len(scores))
 			}
 		})
 		if !success {
@@ -452,9 +515,8 @@ func TestConstrainedPrefAttachmentSelectInsufficientFunds(t *testing.T) {
 }
 
 // TestConstrainedPrefAttachmentSelectGreedyAllocation tests that if upon
-// deciding a set of candidates, we're unable to evenly split our funds, then
-// we attempt to greedily allocate all funds to each selected vertex (up to the
-// max channel size).
+// returning node scores, the NodeScores method will attempt to greedily
+// allocate all funds to each vertex (up to the max channel size).
 func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 	t.Parallel()
 
@@ -474,7 +536,6 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 		Allocation:  threshold,
 	}
 
-	skipNodes := make(map[NodeID]struct{})
 	for _, graph := range chanGraphs {
 		success := t.Run(graph.name, func(t1 *testing.T) {
 			graph, cleanup, err := graph.genFunc()
@@ -485,13 +546,6 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 				defer cleanup()
 			}
 
-			// First, we'll generate a random key that represents
-			// "us", and create a new instance of the heuristic
-			// with our set parameters.
-			self, err := randKey()
-			if err != nil {
-				t1.Fatalf("unable to generate self key: %v", err)
-			}
 			prefAttach := NewConstrainedPrefAttachment(constraints)
 
 			const chanCapacity = btcutil.SatoshiPerBitcoin
@@ -521,9 +575,10 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 			// graph, with node node having two edges.
 			numNodes := 0
 			twoChans := false
+			nodes := make(map[NodeID]struct{})
 			if err := graph.ForEachNode(func(n Node) error {
 				numNodes++
-
+				nodes[n.PubKey()] = struct{}{}
 				numChans := 0
 				err := n.ForEachChannel(func(c ChannelEdge) error {
 					numChans++
@@ -553,38 +608,61 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 			// result, the heuristic should try to greedily
 			// allocate funds to channels.
 			const availableBalance = btcutil.SatoshiPerBitcoin * 2.5
-			directives, err := prefAttach.Select(self, graph,
-				availableBalance, 5, skipNodes)
+			scores, err := prefAttach.NodeScores(graph, nil,
+				availableBalance, nodes)
 			if err != nil {
 				t1.Fatalf("unable to select attachment "+
 					"directives: %v", err)
 			}
 
-			// Three directives should have been returned.
-			if len(directives) != 3 {
-				t1.Fatalf("expected 3 directives, instead "+
-					"got: %v", len(directives))
+			if len(scores) != len(nodes) {
+				t1.Fatalf("all nodes should be scored, "+
+					"instead %v were", len(scores))
 			}
 
-			// The two directive should have the max channel amount
-			// allocated.
-			if directives[0].ChanAmt != maxChanSize {
-				t1.Fatalf("expected recommendation of %v, "+
-					"instead got %v", maxChanSize,
-					directives[0].ChanAmt)
-			}
-			if directives[1].ChanAmt != maxChanSize {
-				t1.Fatalf("expected recommendation of %v, "+
-					"instead got %v", maxChanSize,
-					directives[1].ChanAmt)
+			// The candidates should have a non-zero score, and
+			// have the max chan size funds recommended channel
+			// size.
+			for _, candidate := range scores {
+				if candidate.Score == 0 {
+					t1.Fatalf("Expected non-zero score")
+				}
+
+				if candidate.ChanAmt != maxChanSize {
+					t1.Fatalf("expected recommendation "+
+						"of %v, instead got %v",
+						maxChanSize, candidate.ChanAmt)
+				}
 			}
 
-			// The third channel should have been allocated the
-			// remainder, or 0.5 BTC.
-			if directives[2].ChanAmt != (btcutil.SatoshiPerBitcoin * 0.5) {
-				t1.Fatalf("expected recommendation of %v, "+
-					"instead got %v", maxChanSize,
-					directives[2].ChanAmt)
+			// Imagine a few channels are being opened, and there's
+			// only 0.5 BTC left. That should leave us with channel
+			// candidates of that size.
+			const remBalance = btcutil.SatoshiPerBitcoin * 0.5
+			scores, err = prefAttach.NodeScores(graph, nil,
+				remBalance, nodes)
+			if err != nil {
+				t1.Fatalf("unable to select attachment "+
+					"directives: %v", err)
+			}
+
+			if len(scores) != len(nodes) {
+				t1.Fatalf("all nodes should be scored, "+
+					"instead %v were", len(scores))
+			}
+
+			// Check that the recommended channel sizes are now the
+			// remaining channel balance.
+			for _, candidate := range scores {
+				if candidate.Score == 0 {
+					t1.Fatalf("Expected non-zero score")
+				}
+
+				if candidate.ChanAmt != remBalance {
+					t1.Fatalf("expected recommendation "+
+						"of %v, instead got %v",
+						remBalance, candidate.ChanAmt)
+				}
 			}
 		})
 		if !success {
@@ -594,8 +672,8 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 }
 
 // TestConstrainedPrefAttachmentSelectSkipNodes ensures that if a node was
-// already select for attachment, then that node is excluded from the set of
-// candidate nodes.
+// already selected as a channel counterparty, then that node will get a score
+// of zero during scoring.
 func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
 	t.Parallel()
 
@@ -617,8 +695,6 @@ func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
 
 	for _, graph := range chanGraphs {
 		success := t.Run(graph.name, func(t1 *testing.T) {
-			skipNodes := make(map[NodeID]struct{})
-
 			graph, cleanup, err := graph.genFunc()
 			if err != nil {
 				t1.Fatalf("unable to create graph: %v", err)
@@ -627,13 +703,6 @@ func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
 				defer cleanup()
 			}
 
-			// First, we'll generate a random key that represents
-			// "us", and create a new instance of the heuristic
-			// with our set parameters.
-			self, err := randKey()
-			if err != nil {
-				t1.Fatalf("unable to generate self key: %v", err)
-			}
 			prefAttach := NewConstrainedPrefAttachment(constraints)
 
 			// Next, we'll create a simple topology of two nodes,
@@ -645,44 +714,74 @@ func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
 				t1.Fatalf("unable to create channel: %v", err)
 			}
 
-			// With our graph created, we'll now execute the Select
-			// function to recommend potential attachment
-			// candidates.
+			nodes := make(map[NodeID]struct{})
+			if err := graph.ForEachNode(func(n Node) error {
+				nodes[n.PubKey()] = struct{}{}
+				return nil
+			}); err != nil {
+				t1.Fatalf("unable to traverse graph: %v", err)
+			}
+
+			if len(nodes) != 2 {
+				t1.Fatalf("expected 2 nodes, found %d", len(nodes))
+			}
+
+			// With our graph created, we'll now get the scores for
+			// all nodes in the graph.
 			const availableBalance = btcutil.SatoshiPerBitcoin * 2.5
-			directives, err := prefAttach.Select(self, graph,
-				availableBalance, 2, skipNodes)
+			scores, err := prefAttach.NodeScores(graph, nil,
+				availableBalance, nodes)
 			if err != nil {
 				t1.Fatalf("unable to select attachment "+
 					"directives: %v", err)
 			}
 
-			// As the channel limit is three, and two nodes are
-			// present in the graph, both should be selected.
-			if len(directives) != 2 {
-				t1.Fatalf("expected two directives, instead "+
-					"got %v", len(directives))
+			if len(scores) != len(nodes) {
+				t1.Fatalf("all nodes should be scored, "+
+					"instead %v were", len(scores))
+			}
+
+			// THey should all have a score, and a maxChanSize
+			// channel size recommendation.
+			for _, candidate := range scores {
+				if candidate.Score == 0 {
+					t1.Fatalf("Expected non-zero score")
+				}
+
+				if candidate.ChanAmt != maxChanSize {
+					t1.Fatalf("expected recommendation "+
+						"of %v, instead got %v",
+						maxChanSize, candidate.ChanAmt)
+				}
 			}
 
 			// We'll simulate a channel update by adding the nodes
-			// we just establish channel with the to set of nodes
-			// to be skipped.
-			skipNodes[directives[0].NodeID] = struct{}{}
-			skipNodes[directives[1].NodeID] = struct{}{}
+			// to our set of channels.
+			var chans []Channel
+			for _, candidate := range scores {
+				chans = append(chans,
+					Channel{
+						Node: candidate.NodeID,
+					},
+				)
+			}
 
-			// If we attempt to make a call to the Select function,
-			// without providing any new information, then we
-			// should get no new directives as both nodes has
-			// already been attached to.
-			directives, err = prefAttach.Select(self, graph,
-				availableBalance, 2, skipNodes)
+			// If we attempt to make a call to the NodeScores
+			// function, without providing any new information,
+			// then all nodes should have a score of zero, since we
+			// already got channels to them.
+			scores, err = prefAttach.NodeScores(graph, chans,
+				availableBalance, nodes)
 			if err != nil {
 				t1.Fatalf("unable to select attachment "+
 					"directives: %v", err)
 			}
 
-			if len(directives) != 0 {
-				t1.Fatalf("zero new directives should have been "+
-					"selected, but %v were", len(directives))
+			// Since all should be given a score of 0, the map
+			// should be empty.
+			if len(scores) != 0 {
+				t1.Fatalf("expected empty score map, "+
+					"instead got %v ", len(scores))
 			}
 		})
 		if !success {

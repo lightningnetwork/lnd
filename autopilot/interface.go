@@ -121,17 +121,6 @@ type AttachmentHeuristic interface {
 	// ideal state.
 	NeedMoreChans(chans []Channel, balance btcutil.Amount) (btcutil.Amount, uint32, bool)
 
-	// Select is a method that given the current state of the channel
-	// graph, a set of nodes to ignore, and an amount of available funds,
-	// should return a set of attachment directives which describe which
-	// additional channels should be opened within the graph to push the
-	// heuristic back towards its equilibrium state. The numNewChans
-	// argument represents the additional number of channels that should be
-	// open.
-	Select(self *btcec.PublicKey, graph ChannelGraph,
-		amtToUse btcutil.Amount, numNewChans uint32,
-		skipNodes map[NodeID]struct{}) ([]AttachmentDirective, error)
-
 	// NodeScores is a method that given the current channel graph, current
 	// set of local channels and funds available, scores the given nodes
 	// according to the preference of opening a channel with them. The

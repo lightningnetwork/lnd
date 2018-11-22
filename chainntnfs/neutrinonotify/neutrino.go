@@ -467,7 +467,7 @@ func (n *NeutrinoNotifier) historicalConfDetails(targetHash *chainhash.Hash,
 
 	// Starting from the height hint, we'll walk forwards in the chain to
 	// see if this transaction has already been confirmed.
-	for scanHeight := startHeight; scanHeight <= endHeight; scanHeight++ {
+	for scanHeight := endHeight; scanHeight >= startHeight && scanHeight > 0; scanHeight-- {
 		// Ensure we haven't been requested to shut down before
 		// processing the next height.
 		select {

@@ -93,6 +93,13 @@ func (m *mockHeuristic) Select(self *btcec.PublicKey, graph ChannelGraph,
 	}
 }
 
+func (m *mockHeuristic) NodeScores(g ChannelGraph, chans []Channel,
+	fundsAvailable btcutil.Amount, nodes map[NodeID]struct{}) (
+	map[NodeID]*AttachmentDirective, error) {
+
+	return nil, nil
+}
+
 var _ AttachmentHeuristic = (*mockHeuristic)(nil)
 
 type openChanIntent struct {

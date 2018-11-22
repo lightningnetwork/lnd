@@ -167,8 +167,10 @@ func TestAgentChannelOpenSignal(t *testing.T) {
 		DisconnectPeer: func(*btcec.PublicKey) error {
 			return nil
 		},
-		Graph:           memGraph,
-		MaxPendingOpens: 10,
+		Graph: memGraph,
+		Constraints: &HeuristicConstraints{
+			MaxPendingOpens: 10,
+		},
 	}
 	initialChans := []Channel{}
 	agent, err := New(testCfg, initialChans)
@@ -288,8 +290,10 @@ func TestAgentChannelFailureSignal(t *testing.T) {
 		DisconnectPeer: func(*btcec.PublicKey) error {
 			return nil
 		},
-		Graph:           memGraph,
-		MaxPendingOpens: 10,
+		Graph: memGraph,
+		Constraints: &HeuristicConstraints{
+			MaxPendingOpens: 10,
+		},
 	}
 
 	initialChans := []Channel{}
@@ -389,8 +393,10 @@ func TestAgentChannelCloseSignal(t *testing.T) {
 		DisconnectPeer: func(*btcec.PublicKey) error {
 			return nil
 		},
-		Graph:           memGraph,
-		MaxPendingOpens: 10,
+		Graph: memGraph,
+		Constraints: &HeuristicConstraints{
+			MaxPendingOpens: 10,
+		},
 	}
 
 	// We'll start the agent with two channels already being active.
@@ -503,8 +509,10 @@ func TestAgentBalanceUpdate(t *testing.T) {
 		DisconnectPeer: func(*btcec.PublicKey) error {
 			return nil
 		},
-		Graph:           memGraph,
-		MaxPendingOpens: 10,
+		Graph: memGraph,
+		Constraints: &HeuristicConstraints{
+			MaxPendingOpens: 10,
+		},
 	}
 	initialChans := []Channel{}
 	agent, err := New(testCfg, initialChans)
@@ -608,8 +616,10 @@ func TestAgentImmediateAttach(t *testing.T) {
 		DisconnectPeer: func(*btcec.PublicKey) error {
 			return nil
 		},
-		Graph:           memGraph,
-		MaxPendingOpens: 10,
+		Graph: memGraph,
+		Constraints: &HeuristicConstraints{
+			MaxPendingOpens: 10,
+		},
 	}
 	initialChans := []Channel{}
 	agent, err := New(testCfg, initialChans)
@@ -743,8 +753,10 @@ func TestAgentPrivateChannels(t *testing.T) {
 		DisconnectPeer: func(*btcec.PublicKey) error {
 			return nil
 		},
-		Graph:           memGraph,
-		MaxPendingOpens: 10,
+		Graph: memGraph,
+		Constraints: &HeuristicConstraints{
+			MaxPendingOpens: 10,
+		},
 	}
 	agent, err := New(cfg, nil)
 	if err != nil {
@@ -866,8 +878,10 @@ func TestAgentPendingChannelState(t *testing.T) {
 		DisconnectPeer: func(*btcec.PublicKey) error {
 			return nil
 		},
-		Graph:           memGraph,
-		MaxPendingOpens: 10,
+		Graph: memGraph,
+		Constraints: &HeuristicConstraints{
+			MaxPendingOpens: 10,
+		},
 	}
 	initialChans := []Channel{}
 	agent, err := New(testCfg, initialChans)
@@ -1035,8 +1049,10 @@ func TestAgentPendingOpenChannel(t *testing.T) {
 		WalletBalance: func() (btcutil.Amount, error) {
 			return walletBalance, nil
 		},
-		Graph:           memGraph,
-		MaxPendingOpens: 10,
+		Graph: memGraph,
+		Constraints: &HeuristicConstraints{
+			MaxPendingOpens: 10,
+		},
 	}
 	agent, err := New(cfg, nil)
 	if err != nil {
@@ -1118,8 +1134,10 @@ func TestAgentOnNodeUpdates(t *testing.T) {
 		WalletBalance: func() (btcutil.Amount, error) {
 			return walletBalance, nil
 		},
-		Graph:           memGraph,
-		MaxPendingOpens: 10,
+		Graph: memGraph,
+		Constraints: &HeuristicConstraints{
+			MaxPendingOpens: 10,
+		},
 	}
 	agent, err := New(cfg, nil)
 	if err != nil {
@@ -1232,8 +1250,10 @@ func TestAgentSkipPendingConns(t *testing.T) {
 		DisconnectPeer: func(*btcec.PublicKey) error {
 			return nil
 		},
-		Graph:           memGraph,
-		MaxPendingOpens: 10,
+		Graph: memGraph,
+		Constraints: &HeuristicConstraints{
+			MaxPendingOpens: 10,
+		},
 	}
 	initialChans := []Channel{}
 	agent, err := New(testCfg, initialChans)

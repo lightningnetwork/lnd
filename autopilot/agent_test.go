@@ -66,12 +66,6 @@ type directiveArg struct {
 	nodes map[NodeID]struct{}
 }
 
-func (m *mockHeuristic) Select(self *btcec.PublicKey, graph ChannelGraph,
-	amtToUse btcutil.Amount, numChans uint32,
-	skipChans map[NodeID]struct{}) ([]AttachmentDirective, error) {
-	return nil, nil
-}
-
 func (m *mockHeuristic) NodeScores(g ChannelGraph, chans []Channel,
 	fundsAvailable btcutil.Amount, nodes map[NodeID]struct{}) (
 	map[NodeID]*AttachmentDirective, error) {

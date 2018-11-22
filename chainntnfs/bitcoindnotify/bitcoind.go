@@ -521,7 +521,7 @@ func (b *BitcoindNotifier) confDetailsManually(txid *chainhash.Hash,
 
 	// Begin scanning blocks at every height to determine where the
 	// transaction was included in.
-	for height := heightHint; height <= currentHeight; height++ {
+	for height := currentHeight; height >= heightHint && height > 0; height-- {
 		// Ensure we haven't been requested to shut down before
 		// processing the next height.
 		select {
@@ -749,7 +749,7 @@ func (b *BitcoindNotifier) dispatchSpendDetailsManually(
 
 	// Begin scanning blocks at every height to determine if the outpoint
 	// was spent.
-	for height := startHeight; height <= endHeight; height++ {
+	for height := endHeight; height >= startHeight && height > 0; height-- {
 		// Ensure we haven't been requested to shut down before
 		// processing the next height.
 		select {

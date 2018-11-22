@@ -572,7 +572,7 @@ func (b *BtcdNotifier) confDetailsManually(txid *chainhash.Hash, startHeight,
 
 	// Begin scanning blocks at every height to determine where the
 	// transaction was included in.
-	for height := startHeight; height <= endHeight; height++ {
+	for height := endHeight; height >= startHeight && height > 0; height-- {
 		// Ensure we haven't been requested to shut down before
 		// processing the next height.
 		select {

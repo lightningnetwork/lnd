@@ -51,11 +51,9 @@ type Config struct {
 	// within the graph.
 	Graph ChannelGraph
 
-	// MaxPendingOpens is the maximum number of pending channel
-	// establishment goroutines that can be lingering. We cap this value in
-	// order to control the level of parallelism caused by the autopilot
-	// agent.
-	MaxPendingOpens uint16
+	// Constraints is the set of constraints the autopilot must adhere to
+	// when opening channels.
+	Constraints *HeuristicConstraints
 
 	// TODO(roasbeef): add additional signals from fee rates and revenue of
 	// currently opened channels
@@ -525,12 +523,12 @@ func (a *Agent) controller() {
 		// connections succeed, we will they will be ignored and made
 		// available to future heuristic selections.
 		pendingMtx.Lock()
-		if uint16(len(pendingOpens)) >= a.cfg.MaxPendingOpens {
+		if uint16(len(pendingOpens)) >= a.cfg.Constraints.MaxPendingOpens {
 			pendingMtx.Unlock()
 			log.Debugf("Reached cap of %v pending "+
 				"channel opens, will retry "+
 				"after success/failure",
-				a.cfg.MaxPendingOpens)
+				a.cfg.Constraints.MaxPendingOpens)
 			continue
 		}
 
@@ -587,7 +585,7 @@ func (a *Agent) controller() {
 				// finished first.
 				pendingMtx.Lock()
 				if uint16(len(pendingOpens)) >=
-					a.cfg.MaxPendingOpens {
+					a.cfg.Constraints.MaxPendingOpens {
 					// Since we've reached our max number of
 					// pending opens, we'll disconnect this
 					// peer and exit. However, if we were

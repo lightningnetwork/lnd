@@ -29,6 +29,13 @@ func TestConstrainedPrefAttachmentNeedMoreChan(t *testing.T) {
 		threshold = 0.5
 	)
 
+	constraints := &HeuristicConstraints{
+		MinChanSize: minChanSize,
+		MaxChanSize: maxChanSize,
+		ChanLimit:   chanLimit,
+		Allocation:  threshold,
+	}
+
 	randChanID := func() lnwire.ShortChannelID {
 		return lnwire.NewShortChanIDFromInt(uint64(prand.Int63()))
 	}
@@ -146,8 +153,7 @@ func TestConstrainedPrefAttachmentNeedMoreChan(t *testing.T) {
 		},
 	}
 
-	prefAttach := NewConstrainedPrefAttachment(minChanSize, maxChanSize,
-		chanLimit, threshold)
+	prefAttach := NewConstrainedPrefAttachment(constraints)
 
 	for i, testCase := range testCases {
 		amtToAllocate, numMore, needMore := prefAttach.NeedMoreChans(
@@ -236,14 +242,20 @@ func TestConstrainedPrefAttachmentSelectEmptyGraph(t *testing.T) {
 		threshold   = 0.5
 	)
 
+	constraints := &HeuristicConstraints{
+		MinChanSize: minChanSize,
+		MaxChanSize: maxChanSize,
+		ChanLimit:   chanLimit,
+		Allocation:  threshold,
+	}
+
 	// First, we'll generate a random key that represents "us", and create
 	// a new instance of the heuristic with our set parameters.
 	self, err := randKey()
 	if err != nil {
 		t.Fatalf("unable to generate self key: %v", err)
 	}
-	prefAttach := NewConstrainedPrefAttachment(minChanSize, maxChanSize,
-		chanLimit, threshold)
+	prefAttach := NewConstrainedPrefAttachment(constraints)
 
 	skipNodes := make(map[NodeID]struct{})
 	for _, graph := range chanGraphs {
@@ -296,6 +308,12 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 		threshold   = 0.5
 	)
 
+	constraints := &HeuristicConstraints{
+		MinChanSize: minChanSize,
+		MaxChanSize: maxChanSize,
+		ChanLimit:   chanLimit,
+		Allocation:  threshold,
+	}
 	skipNodes := make(map[NodeID]struct{})
 	for _, graph := range chanGraphs {
 		success := t.Run(graph.name, func(t1 *testing.T) {
@@ -314,8 +332,7 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 			if err != nil {
 				t1.Fatalf("unable to generate self key: %v", err)
 			}
-			prefAttach := NewConstrainedPrefAttachment(minChanSize, maxChanSize,
-				chanLimit, threshold)
+			prefAttach := NewConstrainedPrefAttachment(constraints)
 
 			// For this set, we'll load the memory graph with two
 			// nodes, and a random channel connecting them.
@@ -386,6 +403,13 @@ func TestConstrainedPrefAttachmentSelectInsufficientFunds(t *testing.T) {
 		threshold   = 0.5
 	)
 
+	constraints := &HeuristicConstraints{
+		MinChanSize: minChanSize,
+		MaxChanSize: maxChanSize,
+		ChanLimit:   chanLimit,
+		Allocation:  threshold,
+	}
+
 	skipNodes := make(map[NodeID]struct{})
 	for _, graph := range chanGraphs {
 		success := t.Run(graph.name, func(t1 *testing.T) {
@@ -404,9 +428,7 @@ func TestConstrainedPrefAttachmentSelectInsufficientFunds(t *testing.T) {
 			if err != nil {
 				t1.Fatalf("unable to generate self key: %v", err)
 			}
-			prefAttach := NewConstrainedPrefAttachment(
-				minChanSize, maxChanSize, chanLimit, threshold,
-			)
+			prefAttach := NewConstrainedPrefAttachment(constraints)
 
 			// Next, we'll attempt to select a set of candidates,
 			// passing zero for the amount of wallet funds. This
@@ -445,6 +467,13 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 		threshold   = 0.5
 	)
 
+	constraints := &HeuristicConstraints{
+		MinChanSize: minChanSize,
+		MaxChanSize: maxChanSize,
+		ChanLimit:   chanLimit,
+		Allocation:  threshold,
+	}
+
 	skipNodes := make(map[NodeID]struct{})
 	for _, graph := range chanGraphs {
 		success := t.Run(graph.name, func(t1 *testing.T) {
@@ -463,9 +492,7 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 			if err != nil {
 				t1.Fatalf("unable to generate self key: %v", err)
 			}
-			prefAttach := NewConstrainedPrefAttachment(
-				minChanSize, maxChanSize, chanLimit, threshold,
-			)
+			prefAttach := NewConstrainedPrefAttachment(constraints)
 
 			const chanCapacity = btcutil.SatoshiPerBitcoin
 
@@ -581,6 +608,13 @@ func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
 		threshold   = 0.5
 	)
 
+	constraints := &HeuristicConstraints{
+		MinChanSize: minChanSize,
+		MaxChanSize: maxChanSize,
+		ChanLimit:   chanLimit,
+		Allocation:  threshold,
+	}
+
 	for _, graph := range chanGraphs {
 		success := t.Run(graph.name, func(t1 *testing.T) {
 			skipNodes := make(map[NodeID]struct{})
@@ -600,9 +634,7 @@ func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
 			if err != nil {
 				t1.Fatalf("unable to generate self key: %v", err)
 			}
-			prefAttach := NewConstrainedPrefAttachment(
-				minChanSize, maxChanSize, chanLimit, threshold,
-			)
+			prefAttach := NewConstrainedPrefAttachment(constraints)
 
 			// Next, we'll create a simple topology of two nodes,
 			// with a single channel connecting them.

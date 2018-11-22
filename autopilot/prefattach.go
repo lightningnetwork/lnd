@@ -22,28 +22,20 @@ import (
 //
 // TODO(roasbeef): BA, with k=-3
 type ConstrainedPrefAttachment struct {
-	minChanSize btcutil.Amount
-	maxChanSize btcutil.Amount
-
-	chanLimit uint16
-
-	threshold float64
+	constraints *HeuristicConstraints
 }
 
 // NewConstrainedPrefAttachment creates a new instance of a
 // ConstrainedPrefAttachment heuristics given bounds on allowed channel sizes,
 // and an allocation amount which is interpreted as a percentage of funds that
 // is to be committed to channels at all times.
-func NewConstrainedPrefAttachment(minChanSize, maxChanSize btcutil.Amount,
-	chanLimit uint16, allocation float64) *ConstrainedPrefAttachment {
+func NewConstrainedPrefAttachment(
+	cfg *HeuristicConstraints) *ConstrainedPrefAttachment {
 
 	prand.Seed(time.Now().Unix())
 
 	return &ConstrainedPrefAttachment{
-		minChanSize: minChanSize,
-		chanLimit:   chanLimit,
-		maxChanSize: maxChanSize,
-		threshold:   allocation,
+		constraints: cfg,
 	}
 }
 
@@ -61,45 +53,11 @@ var _ AttachmentHeuristic = (*ConstrainedPrefAttachment)(nil)
 func (p *ConstrainedPrefAttachment) NeedMoreChans(channels []Channel,
 	funds btcutil.Amount) (btcutil.Amount, uint32, bool) {
 
-	// If we're already over our maximum allowed number of channels, then
-	// we'll instruct the controller not to create any more channels.
-	if len(channels) >= int(p.chanLimit) {
-		return 0, 0, false
-	}
-
-	// The number of additional channels that should be opened is the
-	// difference between the channel limit, and the number of channels we
-	// already have open.
-	numAdditionalChans := uint32(p.chanLimit) - uint32(len(channels))
-
-	// First, we'll tally up the total amount of funds that are currently
-	// present within the set of active channels.
-	var totalChanAllocation btcutil.Amount
-	for _, channel := range channels {
-		totalChanAllocation += channel.Capacity
-	}
-
-	// With this value known, we'll now compute the total amount of fund
-	// allocated across regular utxo's and channel utxo's.
-	totalFunds := funds + totalChanAllocation
-
-	// Once the total amount has been computed, we then calculate the
-	// fraction of funds currently allocated to channels.
-	fundsFraction := float64(totalChanAllocation) / float64(totalFunds)
-
-	// If this fraction is below our threshold, then we'll return true, to
-	// indicate the controller should call Select to obtain a candidate set
-	// of channels to attempt to open.
-	needMore := fundsFraction < p.threshold
-	if !needMore {
-		return 0, 0, false
-	}
-
-	// Now that we know we need more funds, we'll compute the amount of
-	// additional funds we should allocate towards channels.
-	targetAllocation := btcutil.Amount(float64(totalFunds) * p.threshold)
-	fundsAvailable := targetAllocation - totalChanAllocation
-	return fundsAvailable, numAdditionalChans, true
+	// We'll try to open more channels as long as the constraints allow it.
+	availableFunds, availableChans := p.constraints.availableChans(
+		channels, funds,
+	)
+	return availableFunds, availableChans, availableChans > 0
 }
 
 // NodeID is a simple type that holds an EC public key serialized in compressed
@@ -150,7 +108,7 @@ func (p *ConstrainedPrefAttachment) Select(self *btcec.PublicKey, g ChannelGraph
 
 	var directives []AttachmentDirective
 
-	if fundsAvailable < p.minChanSize {
+	if fundsAvailable < p.constraints.MinChanSize {
 		return directives, nil
 	}
 
@@ -263,9 +221,9 @@ func (p *ConstrainedPrefAttachment) Select(self *btcec.PublicKey, g ChannelGraph
 	// If we have enough available funds to distribute the maximum channel
 	// size for each of the selected peers to attach to, then we'll
 	// allocate the maximum amount to each peer.
-	case int64(fundsAvailable) >= numSelectedNodes*int64(p.maxChanSize):
+	case int64(fundsAvailable) >= numSelectedNodes*int64(p.constraints.MaxChanSize):
 		for i := 0; i < int(numSelectedNodes); i++ {
-			directives[i].ChanAmt = p.maxChanSize
+			directives[i].ChanAmt = p.constraints.MaxChanSize
 		}
 
 		return directives, nil
@@ -273,14 +231,14 @@ func (p *ConstrainedPrefAttachment) Select(self *btcec.PublicKey, g ChannelGraph
 	// Otherwise, we'll greedily allocate our funds to the channels
 	// successively until we run out of available funds, or can't create a
 	// channel above the min channel size.
-	case int64(fundsAvailable) < numSelectedNodes*int64(p.maxChanSize):
+	case int64(fundsAvailable) < numSelectedNodes*int64(p.constraints.MaxChanSize):
 		i := 0
-		for fundsAvailable > p.minChanSize {
+		for fundsAvailable > p.constraints.MinChanSize {
 			// We'll attempt to allocate the max channel size
 			// initially. If we don't have enough funds to do this,
 			// then we'll allocate the remainder of the funds
 			// available to the channel.
-			delta := p.maxChanSize
+			delta := p.constraints.MaxChanSize
 			if fundsAvailable-delta < 0 {
 				delta = fundsAvailable
 			}

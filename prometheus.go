@@ -504,7 +504,7 @@ func newChannelsCollector(server *server) prometheus.Collector {
 	return &channelsCollector{
 		server: server,
 		localBalanceDesc: prometheus.NewDesc(
-			"lnd_channelLocal_balance_by_channel",
+			"lnd_channe_local_balance_by_channel",
 			"Local balance of a channel in satoshis by channel",
 			channelLabels, nil),
 		remoteBalanceDesc: prometheus.NewDesc(

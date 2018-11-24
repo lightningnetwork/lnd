@@ -114,7 +114,7 @@ func exportPrometheusStats(server *server) {
 			// transactional model.
 			graph := server.chanDB.ChannelGraph()
 
-			var edges uint64 = 0
+			var edges uint64
 			err := graph.ForEachChannel(func(edgeInfo *channeldb.ChannelEdgeInfo,
 				c1, c2 *channeldb.ChannelEdgePolicy) error {
 				edges++
@@ -310,9 +310,9 @@ func (c *peerCollector) Collect(ch chan<- prometheus.Metric) {
 
 	ch <- prometheus.MustNewConstMetric(c.countDesc, prometheus.GaugeValue, float64(len(serverPeers)))
 
-	var peerIPv4 uint64 = 0
-	var peerIPv6 uint64 = 0
-	var peerUnknownProtocol uint64 = 0
+	var peerIPv4 uint64
+	var peerIPv6 uint64
+	var peerUnknownProtocol uint64
 
 	for _, serverPeer := range serverPeers {
 		var (
@@ -402,9 +402,9 @@ func (c *transactionCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 	ch <- prometheus.MustNewConstMetric(c.countDesc, prometheus.CounterValue, float64(len(transactions)))
 
-	var totalFees int64 = 0
-	var totalReceived int64 = 0
-	var totalSent int64 = 0
+	var totalFees int64
+	var totalReceived int64
+	var totalSent int64
 	for _, tx := range transactions {
 		totalFees += tx.TotalFees
 		if tx.Value > 0 {
@@ -465,8 +465,8 @@ func (c *invoicesCollector) Collect(ch chan<- prometheus.Metric) {
 	allInvoicesCount := len(dbInvoices)
 	ch <- prometheus.MustNewConstMetric(c.countDesc, prometheus.CounterValue, float64(allInvoicesCount))
 
-	var pendingInvoicesCount int64 = 0
-	var settledInvoicesCount int64 = 0
+	var pendingInvoicesCount int64
+	var settledInvoicesCount int64
 	for _, invoice := range dbInvoices {
 		if !invoice.Terms.Settled {
 			settledInvoicesCount++
@@ -500,53 +500,53 @@ type channelsCollector struct {
 func newChannelsCollector(server *server) prometheus.Collector {
 	// We do not add 'active' as a label here, as this just pollutes information
 	// about channels, as they flip between active and invactive.
-	channel_labels := []string{"channel_id", "public"}
+	channelLabels := []string{"channel_id", "public"}
 	return &channelsCollector{
 		server: server,
 		localBalanceDesc: prometheus.NewDesc(
-			"lnd_channel_local_balance_by_channel",
+			"lnd_channelLocal_balance_by_channel",
 			"Local balance of a channel in satoshis by channel",
-			channel_labels, nil),
+			channelLabels, nil),
 		remoteBalanceDesc: prometheus.NewDesc(
 			"lnd_channel_remote_balance_by_channel",
 			"Remote balance of a channel in satoshis by channel",
-			channel_labels, nil),
+			channelLabels, nil),
 		commitWeightDesc: prometheus.NewDesc(
 			"lnd_channel_commit_weight_by_channel",
 			"Commit weight by channel.",
-			channel_labels, nil),
+			channelLabels, nil),
 		externalCommitFeeDesc: prometheus.NewDesc(
 			"lnd_channel_external_commit_fee_by_channel",
 			"External commit fee in satoshis by channel.",
-			channel_labels, nil),
+			channelLabels, nil),
 		capacityDesc: prometheus.NewDesc(
 			"lnd_channel_capacity_by_channel",
 			"Capacity of the the channel in satoshis by channel",
-			channel_labels, nil),
+			channelLabels, nil),
 		feePerKwDesc: prometheus.NewDesc(
 			"lnd_channel_fee_per_kw_by_channel",
 			"Fee per kw in satoshis by channel",
-			channel_labels, nil),
+			channelLabels, nil),
 		totalSatoshisSentDesc: prometheus.NewDesc(
 			"lnd_channel_satoshis_sent_by_channel",
 			"Total sent in satoshis over channel by channel",
-			channel_labels, nil),
+			channelLabels, nil),
 		totalSatoshisReceivedDesc: prometheus.NewDesc(
 			"lnd_channel_satoshis_received_by_channel",
 			"Total received in satoshis over channel by channel",
-			channel_labels, nil),
+			channelLabels, nil),
 		updatesCountDesc: prometheus.NewDesc(
 			"lnd_channel_updates_count_by_channel",
 			"Local commit height by channel.",
-			channel_labels, nil),
+			channelLabels, nil),
 		pendingHtlcsCountDesc: prometheus.NewDesc(
 			"lnd_channel_pending_htlcs_count_by_channel",
 			"Local commit HTLCs count by channel.",
-			channel_labels, nil),
+			channelLabels, nil),
 		csvDelayDesc: prometheus.NewDesc(
 			"lnd_channel_csv_delay_by_channel",
 			"Local channel config CSV delay by channel.",
-			channel_labels, nil),
+			channelLabels, nil),
 	}
 }
 
@@ -702,16 +702,16 @@ func (c *nodesCollector) Collect(ch chan<- prometheus.Metric) {
 	// transactional model.
 	graph := c.server.chanDB.ChannelGraph()
 
-	var nodes uint64 = 0
+	var nodes uint64
 
-	var addressesAll uint64 = 0
-	var addressesTcpIPv4 uint64 = 0
-	var addressesTcpIPv6 uint64 = 0
-	var addressesTcpUnknown uint64 = 0
-	var addressesUnix uint64 = 0
-	var addressesUnknown uint64 = 0 // exotic transports (udp, sctp, quik, http/2, etc).
+	var addressesAll uint64
+	var addressesTCPIPv4 uint64
+	var addressesTCPIPv6 uint64
+	var addressesTCPUnknown uint64
+	var addressesUnix uint64
+	var addressesUnknown uint64 // exotic transports (udp, sctp, quik, http/2, etc).
 
-	var nodesWithoutAddress = 0
+	var nodesWithoutAddress uint64
 
 	protocols := map[string]int{}
 
@@ -731,11 +731,11 @@ func (c *nodesCollector) Collect(ch chan<- prometheus.Metric) {
 			if addr.Network() == "tcp" {
 				t := addressType(addr.String())
 				if t == "ipv6" {
-					addressesTcpIPv6++
+					addressesTCPIPv6++
 				} else if t == "ipv4" {
-					addressesTcpIPv4++
+					addressesTCPIPv4++
 				} else {
-					addressesTcpUnknown++
+					addressesTCPUnknown++
 				}
 			} else if strings.HasPrefix("unix", addr.Network()) {
 				addressesUnix++
@@ -752,8 +752,8 @@ func (c *nodesCollector) Collect(ch chan<- prometheus.Metric) {
 
 	ch <- prometheus.MustNewConstMetric(c.nodeCountDesc, prometheus.GaugeValue, float64(nodes))
 	ch <- prometheus.MustNewConstMetric(c.nodeAddressCountDesc, prometheus.GaugeValue, float64(addressesAll))
-	ch <- prometheus.MustNewConstMetric(c.nodeAddressCountByProtocolDesc, prometheus.GaugeValue, float64(addressesTcpIPv4), "ipv4")
-	ch <- prometheus.MustNewConstMetric(c.nodeAddressCountByProtocolDesc, prometheus.GaugeValue, float64(addressesTcpIPv6), "ipv6")
+	ch <- prometheus.MustNewConstMetric(c.nodeAddressCountByProtocolDesc, prometheus.GaugeValue, float64(addressesTCPIPv4), "ipv4")
+	ch <- prometheus.MustNewConstMetric(c.nodeAddressCountByProtocolDesc, prometheus.GaugeValue, float64(addressesTCPIPv6), "ipv6")
 	ch <- prometheus.MustNewConstMetric(c.nodeAddressCountByProtocolDesc, prometheus.GaugeValue, float64(addressesUnix), "unix")
 	ch <- prometheus.MustNewConstMetric(c.nodeAddressCountByProtocolDesc, prometheus.GaugeValue, float64(addressesUnknown), "unknown")
 	ch <- prometheus.MustNewConstMetric(c.nodeWithoutAddressCountDesc, prometheus.GaugeValue, float64(nodesWithoutAddress))

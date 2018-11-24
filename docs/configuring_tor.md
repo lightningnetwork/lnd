@@ -21,8 +21,9 @@ time of writing this documentation, `lnd` supports both types of onion services:
 v2 and v3.
 
 Before following the remainder of this documentation, you should ensure that you
-already have Tor installed locally. Official instructions to install the latest
-release of Tor can be found
+already have Tor installed locally. **If you want to run v3 Onion Services, make
+sure that you run at least version 0.3.3.6.**
+Official instructions to install the latest release of Tor can be found
 [here](https://www.torproject.org/docs/tor-doc-unix.html.en).
 
 **NOTE**: This documentation covers how to ensure that `lnd`'s _Lightning
@@ -142,10 +143,12 @@ benefits, see [Intro to Next Gen Onion Services](https://trac.torproject.org/pro
 
 Both types can be created and used automatically by `lnd`. Specifying which type
 should be used can easily be done by either using the `tor.v2` or `tor.v3` flag.
+To prevent unintentional leaking of identifying information, it is also necessary
+to add the flag `listen=localhost`.  
 
 For example, v3 onion services can be used with the following flags:
 ```
-⛰  ./lnd --tor.active --tor.v3
+⛰  ./lnd --tor.active --tor.v3 --listen=localhost
 ```
 
 This will automatically create a hidden service for your node to use to listen

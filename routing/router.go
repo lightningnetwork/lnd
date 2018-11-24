@@ -74,6 +74,10 @@ type ChannelGraphSource interface {
 	// the target node.
 	IsStaleNode(node Vertex, timestamp time.Time) bool
 
+	// IsPublicNode determines whether the given vertex is seen as a public
+	// node in the graph from the graph's source node's point of view.
+	IsPublicNode(node Vertex) (bool, error)
+
 	// IsKnownEdge returns true if the graph source already knows of the
 	// passed channel ID.
 	IsKnownEdge(chanID lnwire.ShortChannelID) bool
@@ -97,6 +101,11 @@ type ChannelGraphSource interface {
 	// GetChannelByID return the channel by the channel id.
 	GetChannelByID(chanID lnwire.ShortChannelID) (*channeldb.ChannelEdgeInfo,
 		*channeldb.ChannelEdgePolicy, *channeldb.ChannelEdgePolicy, error)
+
+	// FetchLightningNode attempts to look up a target node by its identity
+	// public key. channeldb.ErrGraphNodeNotFound is returned if the node
+	// doesn't exist within the graph.
+	FetchLightningNode(Vertex) (*channeldb.LightningNode, error)
 
 	// ForEachNode is used to iterate over every node in the known graph.
 	ForEachNode(func(node *channeldb.LightningNode) error) error
@@ -1285,7 +1294,7 @@ func pruneChannelFromRoutes(routes []*Route, skipChan uint64) []*Route {
 // fee information attached. The set of routes returned may be less than the
 // initial set of paths as it's possible we drop a route if it can't handle the
 // total payment flow after fees are calculated.
-func pathsToFeeSortedRoutes(source Vertex, paths [][]*ChannelHop,
+func pathsToFeeSortedRoutes(source Vertex, paths [][]*channeldb.ChannelEdgePolicy,
 	finalCLTVDelta uint16, amt, feeLimit lnwire.MilliSatoshi,
 	currentHeight uint32) ([]*Route, error) {
 
@@ -1472,19 +1481,13 @@ func generateSphinxPacket(route *Route, paymentHash []byte) ([]byte,
 	// in each hop.
 	nodes := make([]*btcec.PublicKey, len(route.Hops))
 	for i, hop := range route.Hops {
-		// We create a new instance of the public key to avoid possibly
-		// mutating the curve parameters, which are unset in a higher
-		// level in order to avoid spamming the logs.
-		nodePub, err := hop.Channel.Node.PubKey()
+		pub, err := btcec.ParsePubKey(hop.PubKeyBytes[:],
+			btcec.S256())
 		if err != nil {
 			return nil, nil, err
 		}
-		pub := btcec.PublicKey{
-			Curve: btcec.S256(),
-			X:     nodePub.X,
-			Y:     nodePub.Y,
-		}
-		nodes[i] = &pub
+
+		nodes[i] = pub
 	}
 
 	// Next we generate the per-hop payload which gives each node within
@@ -1747,7 +1750,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 		// the payment. If this attempt fails, then we'll continue on
 		// to the next available route.
 		firstHop := lnwire.NewShortChanIDFromInt(
-			route.Hops[0].Channel.ChannelID,
+			route.Hops[0].ChannelID,
 		)
 		preImage, sendError = r.cfg.SendToSwitch(
 			firstHop, htlcAdd, circuit,
@@ -1968,6 +1971,21 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 				)
 				continue
 
+			// If we crafted a route that contains a too long time
+			// lock for an intermediate node, we'll prune the node.
+			// As there currently is no way of knowing that node's
+			// maximum acceptable cltv, we cannot take this
+			// constraint into account during routing.
+			//
+			// TODO(joostjager): Record the rejected cltv and use
+			// that as a hint during future path finding through
+			// that node.
+			case *lnwire.FailExpiryTooFar:
+				pruneVertexFailure(
+					paySession, route, errSource, false,
+				)
+				continue
+
 			// If we get a permanent channel or node failure, then
 			// we'll note this (exclude the vertex/edge), and
 			// continue with the rest of the routes.
@@ -2161,6 +2179,19 @@ func (r *ChannelRouter) GetChannelByID(chanID lnwire.ShortChannelID) (
 	return r.cfg.Graph.FetchChannelEdgesByID(chanID.ToUint64())
 }
 
+// FetchLightningNode attempts to look up a target node by its identity public
+// key. channeldb.ErrGraphNodeNotFound is returned if the node doesn't exist
+// within the graph.
+//
+// NOTE: This method is part of the ChannelGraphSource interface.
+func (r *ChannelRouter) FetchLightningNode(node Vertex) (*channeldb.LightningNode, error) {
+	pubKey, err := btcec.ParsePubKey(node[:], btcec.S256())
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse raw public key: %v", err)
+	}
+	return r.cfg.Graph.FetchLightningNode(pubKey)
+}
+
 // ForEachNode is used to iterate over every node in router topology.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
@@ -2222,6 +2253,14 @@ func (r *ChannelRouter) IsStaleNode(node Vertex, timestamp time.Time) bool {
 	// If our attempt to assert that the node announcement is fresh fails,
 	// then we know that this is actually a stale announcement.
 	return r.assertNodeAnnFreshness(node, timestamp) != nil
+}
+
+// IsPublicNode determines whether the given vertex is seen as a public node in
+// the graph from the graph's source node's point of view.
+//
+// NOTE: This method is part of the ChannelGraphSource interface.
+func (r *ChannelRouter) IsPublicNode(node Vertex) (bool, error) {
+	return r.cfg.Graph.IsPublicNode(node)
 }
 
 // IsKnownEdge returns true if the graph source already knows of the passed

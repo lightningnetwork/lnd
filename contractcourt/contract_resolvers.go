@@ -8,7 +8,8 @@ import (
 	"io"
 	"io/ioutil"
 
-	"github.com/btcsuite/btcd/txscript"
+	"github.com/lightningnetwork/lnd/sweep"
+
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -18,6 +19,12 @@ import (
 
 var (
 	endian = binary.BigEndian
+)
+
+const (
+	// sweepConfTarget is the default number of blocks that we'll use as a
+	// confirmation target when sweeping.
+	sweepConfTarget = 6
 )
 
 // ContractResolver is an interface which packages a state machine which is
@@ -164,6 +171,7 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 
 		if err := h.Checkpoint(h); err != nil {
 			log.Errorf("unable to Checkpoint: %v", err)
+			return nil, err
 		}
 	}
 
@@ -446,58 +454,26 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 				"incoming+remote htlc confirmed", h,
 				h.payHash[:])
 
-			// In this case, we can sweep it directly from the
-			// commitment output. We'll first grab a fresh address
-			// from the wallet to sweep the output.
-			addr, err := h.NewSweepAddr()
-			if err != nil {
-				return nil, err
-			}
-
-			// With our address obtained, we'll query for an
-			// estimate to be confirmed at ease.
-			//
-			// TODO(roasbeef): signal up if fee would be too large
-			// to sweep singly, need to batch
-			feePerKw, err := h.FeeEstimator.EstimateFeePerKW(6)
-			if err != nil {
-				return nil, err
-			}
-
-			log.Debugf("%T(%x): using %v sat/kw to sweep htlc"+
-				"incoming+remote htlc confirmed", h,
-				h.payHash[:], int64(feePerKw))
-
-			// Using a weight estimator, we'll compute the total
-			// fee required, and from that the value we'll end up
-			// with.
-			totalWeight := (&lnwallet.TxWeightEstimator{}).
-				AddWitnessInput(lnwallet.OfferedHtlcSuccessWitnessSize).
-				AddP2WKHOutput().Weight()
-			totalFees := feePerKw.FeeForWeight(int64(totalWeight))
-			sweepAmt := h.htlcResolution.SweepSignDesc.Output.Value -
-				int64(totalFees)
-
-			// With the fee computation finished, we'll now
-			// construct the sweep transaction.
-			htlcPoint := h.htlcResolution.ClaimOutpoint
-			h.sweepTx = wire.NewMsgTx(2)
-			h.sweepTx.AddTxIn(&wire.TxIn{
-				PreviousOutPoint: htlcPoint,
-			})
-			h.sweepTx.AddTxOut(&wire.TxOut{
-				PkScript: addr,
-				Value:    sweepAmt,
-			})
-
-			// With the transaction fully assembled, we can now
-			// generate a valid witness for the transaction.
-			h.htlcResolution.SweepSignDesc.SigHashes = txscript.NewTxSigHashes(
-				h.sweepTx,
-			)
-			h.sweepTx.TxIn[0].Witness, err = lnwallet.SenderHtlcSpendRedeem(
-				h.Signer, &h.htlcResolution.SweepSignDesc, h.sweepTx,
+			// Before we can craft out sweeping transaction, we
+			// need to create an input which contains all the items
+			// required to add this input to a sweeping transaction,
+			// and generate a witness.
+			input := sweep.MakeHtlcSucceedInput(
+				&h.htlcResolution.ClaimOutpoint,
+				&h.htlcResolution.SweepSignDesc,
 				h.htlcResolution.Preimage[:],
+			)
+
+			// With the input created, we can now generate the full
+			// sweep transaction, that we'll use to move these
+			// coins back into the backing wallet.
+			//
+			// TODO: Set tx lock time to current block height
+			// instead of zero. Will be taken care of once sweeper
+			// implementation is complete.
+			var err error
+			h.sweepTx, err = h.Sweeper.CreateSweepTx(
+				[]sweep.Input{&input}, sweepConfTarget, 0,
 			)
 			if err != nil {
 				return nil, err
@@ -506,21 +482,22 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 			log.Infof("%T(%x): crafted sweep tx=%v", h,
 				h.payHash[:], spew.Sdump(h.sweepTx))
 
-			// With the sweep transaction confirmed, we'll now
+			// With the sweep transaction signed, we'll now
 			// Checkpoint our state.
 			if err := h.Checkpoint(h); err != nil {
 				log.Errorf("unable to Checkpoint: %v", err)
-			}
-
-			// Finally, we'll broadcast the sweep transaction to
-			// the network.
-			//
-			// TODO(roasbeef): validate first?
-			if err := h.PublishTx(h.sweepTx); err != nil {
-				log.Infof("%T(%x): unable to publish tx: %v",
-					h, h.payHash[:], err)
 				return nil, err
 			}
+		}
+
+		// Regardless of whether an existing transaction was found or newly
+		// constructed, we'll broadcast the sweep transaction to the
+		// network.
+		err := h.PublishTx(h.sweepTx)
+		if err != nil && err != lnwallet.ErrDoubleSpend {
+			log.Infof("%T(%x): unable to publish tx: %v",
+				h, h.payHash[:], err)
+			return nil, err
 		}
 
 		// With the sweep transaction broadcast, we'll wait for its
@@ -560,7 +537,8 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	// the claiming process.
 	//
 	// TODO(roasbeef): after changing sighashes send to tx bundler
-	if err := h.PublishTx(h.htlcResolution.SignedSuccessTx); err != nil {
+	err := h.PublishTx(h.htlcResolution.SignedSuccessTx)
+	if err != nil && err != lnwallet.ErrDoubleSpend {
 		return nil, err
 	}
 
@@ -583,6 +561,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 
 		if err := h.Checkpoint(h); err != nil {
 			log.Errorf("unable to Checkpoint: %v", err)
+			return nil, err
 		}
 	}
 
@@ -855,10 +834,21 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 	// If the current height is >= expiry-1, then a spend will be valid to
 	// be included in the next block, and we can immediately return the
 	// resolver.
+	//
+	// TODO(joostjager): Statement above may not be valid. For CLTV locks,
+	// the expiry value is the last _invalid_ block. The likely reason that
+	// this does not create a problem, is that utxonursery is checking the
+	// expiry again (in the proper way). Same holds for minus one operation
+	// below.
+	//
+	// Source:
+	// https://github.com/btcsuite/btcd/blob/991d32e72fe84d5fbf9c47cd604d793a0cd3a072/blockchain/validate.go#L154
+
 	if uint32(currentHeight) >= h.htlcResolution.Expiry-1 {
 		log.Infof("%T(%v): HTLC has expired (height=%v, expiry=%v), "+
 			"transforming into timeout resolver", h,
-			h.htlcResolution.ClaimOutpoint)
+			h.htlcResolution.ClaimOutpoint, currentHeight,
+			h.htlcResolution.Expiry)
 		return &h.htlcTimeoutResolver, nil
 	}
 
@@ -1256,45 +1246,25 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	// If the sweep transaction isn't already generated, and the remote
 	// party broadcast the commitment transaction then we'll create it now.
 	case c.sweepTx == nil && !isLocalCommitTx:
-		// Now that the commitment transaction has confirmed, we'll
-		// craft a transaction to sweep this output into the wallet.
-		signDesc := c.commitResolution.SelfOutputSignDesc
+		// As we haven't already generated the sweeping transaction,
+		// we'll now craft an input with all the information required
+		// to create a fully valid sweeping transaction to recover
+		// these coins.
+		input := sweep.MakeBaseInput(
+			&c.commitResolution.SelfOutPoint,
+			lnwallet.CommitmentNoDelay,
+			&c.commitResolution.SelfOutputSignDesc,
+		)
 
-		// First, we'll estimate the total weight so we can compute
-		// fees properly. We'll use a lax estimate, as this output is
-		// in no immediate danger.
-		feePerKw, err := c.FeeEstimator.EstimateFeePerKW(6)
-		if err != nil {
-			return nil, err
-		}
-
-		log.Debugf("%T(%v): using %v sat/kw for sweep tx", c,
-			c.chanPoint, int64(feePerKw))
-
-		totalWeight := (&lnwallet.TxWeightEstimator{}).
-			AddP2WKHInput().
-			AddP2WKHOutput().Weight()
-		totalFees := feePerKw.FeeForWeight(int64(totalWeight))
-		sweepAmt := signDesc.Output.Value - int64(totalFees)
-
-		c.sweepTx = wire.NewMsgTx(2)
-		c.sweepTx.AddTxIn(&wire.TxIn{
-			PreviousOutPoint: c.commitResolution.SelfOutPoint,
-		})
-		sweepAddr, err := c.NewSweepAddr()
-		if err != nil {
-			return nil, err
-		}
-		c.sweepTx.AddTxOut(&wire.TxOut{
-			PkScript: sweepAddr,
-			Value:    sweepAmt,
-		})
-
-		// With the transaction fully assembled, we can now generate a
-		// valid witness for the transaction.
-		signDesc.SigHashes = txscript.NewTxSigHashes(c.sweepTx)
-		c.sweepTx.TxIn[0].Witness, err = lnwallet.CommitSpendNoDelay(
-			c.Signer, &signDesc, c.sweepTx,
+		// With out input constructed, we'll now request that the
+		// sweeper construct a valid sweeping transaction for this
+		// input.
+		//
+		// TODO: Set tx lock time to current block height instead of
+		// zero. Will be taken care of once sweeper implementation is
+		// complete.
+		c.sweepTx, err = c.Sweeper.CreateSweepTx(
+			[]sweep.Input{&input}, sweepConfTarget, 0,
 		)
 		if err != nil {
 			return nil, err
@@ -1303,18 +1273,33 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		log.Infof("%T(%v): sweeping commit output with tx=%v", c,
 			c.chanPoint, spew.Sdump(c.sweepTx))
 
-		// Finally, we'll broadcast the sweep transaction to the
-		// network.
-		if err := c.PublishTx(c.sweepTx); err != nil {
+		// With the sweep transaction constructed, we'll now Checkpoint
+		// our state.
+		if err := c.Checkpoint(c); err != nil {
+			log.Errorf("unable to Checkpoint: %v", err)
+			return nil, err
+		}
+
+		// With the sweep transaction checkpointed, we'll now publish
+		// the transaction. Upon restart, the resolver will immediately
+		// take the case below since the sweep tx is checkpointed.
+		err := c.PublishTx(c.sweepTx)
+		if err != nil && err != lnwallet.ErrDoubleSpend {
 			log.Errorf("%T(%v): unable to publish sweep tx: %v",
 				c, c.chanPoint, err)
 			return nil, err
 		}
 
-		// With the sweep transaction confirmed, we'll now Checkpoint
-		// our state.
-		if err := c.Checkpoint(c); err != nil {
-			log.Errorf("unable to Checkpoint: %v", err)
+	// If the sweep transaction has been generated, and the remote party
+	// broadcast the commit transaction, we'll republish it for reliability
+	// to ensure it confirms. The resolver will enter this case after
+	// checkpointing in the case above, ensuring we reliably on restarts.
+	case c.sweepTx != nil && !isLocalCommitTx:
+		err := c.PublishTx(c.sweepTx)
+		if err != nil && err != lnwallet.ErrDoubleSpend {
+			log.Errorf("%T(%v): unable to publish sweep tx: %v",
+				c, c.chanPoint, err)
+			return nil, err
 		}
 
 	// Otherwise, this is our commitment transaction, So we'll obtain the
@@ -1352,6 +1337,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 
 			if err := c.Checkpoint(c); err != nil {
 				log.Errorf("unable to Checkpoint: %v", err)
+				return nil, err
 			}
 		case <-c.Quit:
 			return nil, fmt.Errorf("quitting")

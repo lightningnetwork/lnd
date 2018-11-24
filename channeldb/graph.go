@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"image/color"
 	"io"
@@ -1767,6 +1768,84 @@ func (l *LightningNode) AddPubKey(key *btcec.PublicKey) {
 	copy(l.PubKeyBytes[:], key.SerializeCompressed())
 }
 
+// NodeAnnouncement retrieves the latest node announcement of the node.
+func (l *LightningNode) NodeAnnouncement(signed bool) (*lnwire.NodeAnnouncement,
+	error) {
+
+	if !l.HaveNodeAnnouncement {
+		return nil, fmt.Errorf("node does not have node announcement")
+	}
+
+	alias, err := lnwire.NewNodeAlias(l.Alias)
+	if err != nil {
+		return nil, err
+	}
+
+	nodeAnn := &lnwire.NodeAnnouncement{
+		Features:        l.Features.RawFeatureVector,
+		NodeID:          l.PubKeyBytes,
+		RGBColor:        l.Color,
+		Alias:           alias,
+		Addresses:       l.Addresses,
+		Timestamp:       uint32(l.LastUpdate.Unix()),
+		ExtraOpaqueData: l.ExtraOpaqueData,
+	}
+
+	if !signed {
+		return nodeAnn, nil
+	}
+
+	sig, err := lnwire.NewSigFromRawSignature(l.AuthSigBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	nodeAnn.Signature = sig
+
+	return nodeAnn, nil
+}
+
+// isPublic determines whether the node is seen as public within the graph from
+// the source node's point of view. An existing database transaction can also be
+// specified.
+func (l *LightningNode) isPublic(tx *bolt.Tx, sourcePubKey []byte) (bool, error) {
+	// In order to determine whether this node is publicly advertised within
+	// the graph, we'll need to look at all of its edges and check whether
+	// they extend to any other node than the source node. errDone will be
+	// used to terminate the check early.
+	nodeIsPublic := false
+	errDone := errors.New("done")
+	err := l.ForEachChannel(tx, func(_ *bolt.Tx, info *ChannelEdgeInfo,
+		_, _ *ChannelEdgePolicy) error {
+
+		// If this edge doesn't extend to the source node, we'll
+		// terminate our search as we can now conclude that the node is
+		// publicly advertised within the graph due to the local node
+		// knowing of the current edge.
+		if !bytes.Equal(info.NodeKey1Bytes[:], sourcePubKey) &&
+			!bytes.Equal(info.NodeKey2Bytes[:], sourcePubKey) {
+
+			nodeIsPublic = true
+			return errDone
+		}
+
+		// Since the edge _does_ extend to the source node, we'll also
+		// need to ensure that this is a public edge.
+		if info.AuthProof != nil {
+			nodeIsPublic = true
+			return errDone
+		}
+
+		// Otherwise, we'll continue our search.
+		return nil
+	})
+	if err != nil && err != errDone {
+		return false, err
+	}
+
+	return nodeIsPublic, nil
+}
+
 // FetchLightningNode attempts to look up a target node by its identity public
 // key. If the node isn't found in the database, then ErrGraphNodeNotFound is
 // returned.
@@ -2527,6 +2606,35 @@ func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64) (*ChannelEdgeInfo, *
 	}
 
 	return edgeInfo, policy1, policy2, nil
+}
+
+// IsPublicNode is a helper method that determines whether the node with the
+// given public key is seen as a public node in the graph from the graph's
+// source node's point of view.
+func (c *ChannelGraph) IsPublicNode(pubKey [33]byte) (bool, error) {
+	var nodeIsPublic bool
+	err := c.db.View(func(tx *bolt.Tx) error {
+		nodes := tx.Bucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNodesNotFound
+		}
+		ourPubKey := nodes.Get(sourceKey)
+		if ourPubKey == nil {
+			return ErrSourceNodeNotSet
+		}
+		node, err := fetchLightningNode(nodes, pubKey[:])
+		if err != nil {
+			return err
+		}
+
+		nodeIsPublic, err = node.isPublic(tx, ourPubKey)
+		return err
+	})
+	if err != nil {
+		return false, err
+	}
+
+	return nodeIsPublic, nil
 }
 
 // genMultiSigP2WSH generates the p2wsh'd multisig script for 2 of 2 pubkeys.

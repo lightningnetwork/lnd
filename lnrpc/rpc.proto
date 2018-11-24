@@ -392,7 +392,7 @@ service Lightning {
     */
     rpc AbandonChannel (AbandonChannelRequest) returns (AbandonChannelResponse) {
         option (google.api.http) = {
-            delete: "/v1/channels/{channel_point.funding_txid_str}/{channel_point.output_index}"
+            delete: "/v1/channels/abandon/{channel_point.funding_txid_str}/{channel_point.output_index}"
         };
     }
 
@@ -1090,6 +1090,8 @@ message GetInfoResponse {
     /// The version of the LND software that the node is running.
     string version = 14 [ json_name = "version" ];
 
+    /// Number of inactive channels
+    uint32 num_inactive_channels = 15 [json_name = "num_inactive_channels"];
 }
 
 message ConfirmationUpdate {
@@ -1170,6 +1172,9 @@ message OpenChannelRequest {
 
     /// The minimum number of confirmations each one of your outputs used for the funding transaction must satisfy.
     int32 min_confs = 11 [json_name = "min_confs"];
+
+    /// Whether unconfirmed outputs should be used as inputs for the funding transaction.
+    bool spend_unconfirmed = 12 [json_name = "spend_unconfirmed"];
 }
 message OpenStatusUpdate {
     oneof update {
@@ -1362,6 +1367,12 @@ message Hop {
     uint32 expiry = 5 [json_name = "expiry"];
     int64 amt_to_forward_msat = 6 [json_name = "amt_to_forward_msat"];
     int64 fee_msat = 7 [json_name = "fee_msat"];
+
+    /**
+    An optional public key of the hop. If the public key is given, the payment
+    can be executed without relying on a copy of the channel graph.
+    */
+    string pub_key = 8 [json_name = "pub_key"];
 }
 
 /**
@@ -1488,6 +1499,12 @@ message ChannelEdge {
 }
 
 message ChannelGraphRequest {
+     /**
+     Whether unannounced channels are included in the response or not. If set,
+     unannounced channels are included. Unannounced channels are both private
+     channels, and public channels that are not yet announced to the network.
+     */
+     bool include_unannounced = 1 [json_name = "include_unannounced"];
 }
 
 /// Returns a new instance of the directed channel graph.

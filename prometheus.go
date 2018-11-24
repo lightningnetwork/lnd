@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/hex"
-	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -21,12 +21,12 @@ import (
 
 func addressType(addr string) string {
 	if len(addr) >= 1 && addr[0] == '[' {
-		return "ipv6";
+		return "ipv6"
 	}
 	if len(addr) >= 1 && '0' <= addr[0] && addr[0] <= '9' {
-		return "ipv4";
+		return "ipv4"
 	}
-	return "unknown";
+	return "unknown"
 }
 
 func exportPrometheusStats(server *server) {
@@ -39,8 +39,9 @@ func exportPrometheusStats(server *server) {
 			Help: "Version of LND running.",
 		},
 		[]string{"version", "commit"})
-	versionSimple := fmt.Sprintf("%d.%d.%d", appMajor, appMinor, appPatch)
-	versionGauge.WithLabelValues(versionSimple, Commit).Set(1)
+	versionSimple := build.Version()
+	versionCommit := ""
+	versionGauge.WithLabelValues(versionSimple, versionCommit).Set(1)
 	prometheus.Register(versionGauge)
 
 	startTime := time.Now()
@@ -245,11 +246,11 @@ type peerCollector struct {
 	countByProtocolDesc *prometheus.Desc
 
 	// ByPeer (pub_key)
-	pingDesc            *prometheus.Desc
-	satSentDesc         *prometheus.Desc
-	satRecvDesc         *prometheus.Desc
-	bytesSentDesc       *prometheus.Desc
-	bytesRecvDesc       *prometheus.Desc
+	pingDesc      *prometheus.Desc
+	satSentDesc   *prometheus.Desc
+	satRecvDesc   *prometheus.Desc
+	bytesSentDesc *prometheus.Desc
+	bytesRecvDesc *prometheus.Desc
 }
 
 func newPeerCollector(server *server) prometheus.Collector {
@@ -309,9 +310,9 @@ func (c *peerCollector) Collect(ch chan<- prometheus.Metric) {
 
 	ch <- prometheus.MustNewConstMetric(c.countDesc, prometheus.GaugeValue, float64(len(serverPeers)))
 
-	var peer_ipv4 uint64 = 0
-	var peer_ipv6 uint64 = 0
-	var peer_unknown_protocol uint64 = 0
+	var peerIPv4 uint64 = 0
+	var peerIPv6 uint64 = 0
+	var peerUnknownProtocol uint64 = 0
 
 	for _, serverPeer := range serverPeers {
 		var (
@@ -342,17 +343,17 @@ func (c *peerCollector) Collect(ch chan<- prometheus.Metric) {
 
 		t := addressType(serverPeer.addr.String())
 		if t == "ipv4" {
-			peer_ipv4++
+			peerIPv4++
 		} else if t == "ipv6" {
-			peer_ipv6++
+			peerIPv6++
 		} else {
-			peer_unknown_protocol++
+			peerUnknownProtocol++
 		}
 	}
 
-	ch <- prometheus.MustNewConstMetric(c.countByProtocolDesc, prometheus.GaugeValue, float64(peer_ipv4), "ipv4")
-	ch <- prometheus.MustNewConstMetric(c.countByProtocolDesc, prometheus.GaugeValue, float64(peer_ipv6), "ipv6")
-	ch <- prometheus.MustNewConstMetric(c.countByProtocolDesc, prometheus.GaugeValue, float64(peer_unknown_protocol), "unknown")
+	ch <- prometheus.MustNewConstMetric(c.countByProtocolDesc, prometheus.GaugeValue, float64(peerIPv4), "ipv4")
+	ch <- prometheus.MustNewConstMetric(c.countByProtocolDesc, prometheus.GaugeValue, float64(peerIPv6), "ipv6")
+	ch <- prometheus.MustNewConstMetric(c.countByProtocolDesc, prometheus.GaugeValue, float64(peerUnknownProtocol), "unknown")
 }
 
 // Custom collector, so we only do one atomic pass over transactions,
@@ -571,8 +572,8 @@ func (c *channelsCollector) Collect(ch chan<- prometheus.Metric) {
 	if err != nil {
 		return
 	}
-	active_count := 0
-	public_count := 0
+	activeCount := 0
+	publicCount := 0
 
 	for _, dbChannel := range dbChannels {
 		nodePub := dbChannel.IdentityPub
@@ -630,12 +631,12 @@ func (c *channelsCollector) Collect(ch chan<- prometheus.Metric) {
 		externalCommitFee := dbChannel.Capacity - sumOutputs
 
 		if isActive {
-			active_count++
+			activeCount++
 		}
 		publicString := "false"
 		if isPublic {
 			publicString = "true"
-			public_count++
+			publicCount++
 		}
 		labelValues := []string{strconv.FormatUint(chanID, 10), publicString}
 
@@ -703,14 +704,14 @@ func (c *nodesCollector) Collect(ch chan<- prometheus.Metric) {
 
 	var nodes uint64 = 0
 
-	var addresses_all uint64 = 0
-	var addresses_tcp_ipv4 uint64 = 0
-	var addresses_tcp_ipv6 uint64 = 0
-	var addresses_tcp_unknown uint64 = 0
-	var addresses_unix uint64 = 0
-	var addresses_unknown uint64 = 0  // exotic transports (udp, sctp, quik, http/2, etc).
+	var addressesAll uint64 = 0
+	var addressesTcpIPv4 uint64 = 0
+	var addressesTcpIPv6 uint64 = 0
+	var addressesTcpUnknown uint64 = 0
+	var addressesUnix uint64 = 0
+	var addressesUnknown uint64 = 0 // exotic transports (udp, sctp, quik, http/2, etc).
 
-	var nodes_without_address = 0
+	var nodesWithoutAddress = 0
 
 	protocols := map[string]int{}
 
@@ -720,26 +721,26 @@ func (c *nodesCollector) Collect(ch chan<- prometheus.Metric) {
 		nodes++
 
 		if len(node.Addresses) == 0 {
-			nodes_without_address++
+			nodesWithoutAddress++
 		}
 
-		addresses_all += uint64(len(node.Addresses))
+		addressesAll += uint64(len(node.Addresses))
 		for _, addr := range node.Addresses {
 			protocols[addr.Network()]++
 			// Do not assume anything about address format of non-tcp network.
 			if addr.Network() == "tcp" {
 				t := addressType(addr.String())
 				if t == "ipv6" {
-					addresses_tcp_ipv6++
+					addressesTcpIPv6++
 				} else if t == "ipv4" {
-					addresses_tcp_ipv4++
+					addressesTcpIPv4++
 				} else {
-					addresses_tcp_unknown++
+					addressesTcpUnknown++
 				}
 			} else if strings.HasPrefix("unix", addr.Network()) {
-				addresses_unix++
+				addressesUnix++
 			} else {
-				addresses_unknown++
+				addressesUnknown++
 			}
 		}
 
@@ -750,10 +751,10 @@ func (c *nodesCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 
 	ch <- prometheus.MustNewConstMetric(c.nodeCountDesc, prometheus.GaugeValue, float64(nodes))
-	ch <- prometheus.MustNewConstMetric(c.nodeAddressCountDesc, prometheus.GaugeValue, float64(addresses_all))
-	ch <- prometheus.MustNewConstMetric(c.nodeAddressCountByProtocolDesc, prometheus.GaugeValue, float64(addresses_tcp_ipv4), "ipv4")
-	ch <- prometheus.MustNewConstMetric(c.nodeAddressCountByProtocolDesc, prometheus.GaugeValue, float64(addresses_tcp_ipv6), "ipv6")
-	ch <- prometheus.MustNewConstMetric(c.nodeAddressCountByProtocolDesc, prometheus.GaugeValue, float64(addresses_unix), "unix")
-	ch <- prometheus.MustNewConstMetric(c.nodeAddressCountByProtocolDesc, prometheus.GaugeValue, float64(addresses_unknown), "unknown")
-	ch <- prometheus.MustNewConstMetric(c.nodeWithoutAddressCountDesc, prometheus.GaugeValue, float64(nodes_without_address))
+	ch <- prometheus.MustNewConstMetric(c.nodeAddressCountDesc, prometheus.GaugeValue, float64(addressesAll))
+	ch <- prometheus.MustNewConstMetric(c.nodeAddressCountByProtocolDesc, prometheus.GaugeValue, float64(addressesTcpIPv4), "ipv4")
+	ch <- prometheus.MustNewConstMetric(c.nodeAddressCountByProtocolDesc, prometheus.GaugeValue, float64(addressesTcpIPv6), "ipv6")
+	ch <- prometheus.MustNewConstMetric(c.nodeAddressCountByProtocolDesc, prometheus.GaugeValue, float64(addressesUnix), "unix")
+	ch <- prometheus.MustNewConstMetric(c.nodeAddressCountByProtocolDesc, prometheus.GaugeValue, float64(addressesUnknown), "unknown")
+	ch <- prometheus.MustNewConstMetric(c.nodeWithoutAddressCountDesc, prometheus.GaugeValue, float64(nodesWithoutAddress))
 }

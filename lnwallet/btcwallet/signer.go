@@ -44,7 +44,14 @@ func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*wire.TxOut, error) 
 		return nil, lnwallet.ErrNotMine
 	}
 
+	// With the output retrieved, we'll make an additional check to ensure
+	// we actually have control of this output. We do this because the check
+	// above only guarantees that the transaction is somehow relevant to us,
+	// like in the event of us being the sender of the transaction.
 	output = txDetail.TxRecord.MsgTx.TxOut[prevOut.Index]
+	if _, err := b.fetchOutputAddr(output.PkScript); err != nil {
+		return nil, err
+	}
 
 	b.cacheMtx.Lock()
 	b.utxoCache[*prevOut] = output
@@ -53,7 +60,7 @@ func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*wire.TxOut, error) 
 	return output, nil
 }
 
-// fetchOutputKey attempts to fetch the managed address corresponding to the
+// fetchOutputAddr attempts to fetch the managed address corresponding to the
 // passed output script. This function is used to look up the proper key which
 // should be used to sign a specified input.
 func (b *BtcWallet) fetchOutputAddr(script []byte) (waddrmgr.ManagedAddress, error) {
@@ -72,7 +79,7 @@ func (b *BtcWallet) fetchOutputAddr(script []byte) (waddrmgr.ManagedAddress, err
 		}
 	}
 
-	return nil, errors.Errorf("address not found")
+	return nil, lnwallet.ErrNotMine
 }
 
 // fetchPrivKey attempts to retrieve the raw private key corresponding to the
@@ -184,7 +191,7 @@ func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx,
 	return sig[:len(sig)-1], nil
 }
 
-// ComputeInputScript generates a complete InputIndex for the passed
+// ComputeInputScript generates a complete InputScript for the passed
 // transaction with the signature as defined within the passed SignDescriptor.
 // This method is capable of generating the proper input script for both
 // regular p2wkh output and p2wkh outputs nested within a regular p2sh output.
@@ -196,7 +203,7 @@ func (b *BtcWallet) ComputeInputScript(tx *wire.MsgTx,
 	outputScript := signDesc.Output.PkScript
 	walletAddr, err := b.fetchOutputAddr(outputScript)
 	if err != nil {
-		return nil, nil
+		return nil, err
 	}
 
 	pka := walletAddr.(waddrmgr.ManagedPubKeyAddress)

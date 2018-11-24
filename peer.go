@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
+
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -46,6 +47,9 @@ const (
 
 	// writeMessageTimeout is the timeout used when writing a message to peer.
 	writeMessageTimeout = 50 * time.Second
+
+	// handshakeTimeout is the timeout used when waiting for peer init message.
+	handshakeTimeout = 15 * time.Second
 
 	// outgoingQueueLen is the buffer size of the channel which houses
 	// messages to be sent across the wire, requested by objects outside
@@ -270,10 +274,10 @@ func (p *peer) Start() error {
 
 	select {
 	// In order to avoid blocking indefinitely, we'll give the other peer
-	// an upper timeout of 15 seconds to respond before we bail out early.
-	case <-time.After(time.Second * 15):
-		return fmt.Errorf("peer did not complete handshake within 5 " +
-			"seconds")
+	// an upper timeout to respond before we bail out early.
+	case <-time.After(handshakeTimeout):
+		return fmt.Errorf("peer did not complete handshake within %v",
+			handshakeTimeout)
 	case err := <-readErr:
 		if err != nil {
 			return fmt.Errorf("unable to read init msg: %v", err)
@@ -796,7 +800,7 @@ func (ms *msgStream) msgConsumer() {
 
 // AddMsg adds a new message to the msgStream. This function is safe for
 // concurrent access.
-func (ms *msgStream) AddMsg(msg lnwire.Message, quit chan struct{}) {
+func (ms *msgStream) AddMsg(msg lnwire.Message) {
 	// First, we'll attempt to receive from the producerSema struct. This
 	// acts as a sempahore to prevent us from indefinitely buffering
 	// incoming items from the wire. Either the msg queue isn't full, and
@@ -804,7 +808,7 @@ func (ms *msgStream) AddMsg(msg lnwire.Message, quit chan struct{}) {
 	// we're signalled to quit, or a slot is freed up.
 	select {
 	case <-ms.producerSema:
-	case <-quit:
+	case <-ms.peer.quit:
 		return
 	case <-ms.quit:
 		return
@@ -1022,7 +1026,7 @@ out:
 			// forward the error to all channels with this peer.
 			case msg.ChanID == lnwire.ConnectionWideID:
 				for chanID, chanStream := range chanMsgStreams {
-					chanStream.AddMsg(nextMsg, p.quit)
+					chanStream.AddMsg(nextMsg)
 
 					// Also marked this channel as failed,
 					// so we won't try to restart it on
@@ -1084,7 +1088,7 @@ out:
 			*lnwire.ReplyChannelRange,
 			*lnwire.ReplyShortChanIDsEnd:
 
-			discStream.AddMsg(msg, p.quit)
+			discStream.AddMsg(msg)
 
 		default:
 			peerLog.Errorf("unknown message %v received from peer "+
@@ -1107,7 +1111,7 @@ out:
 
 			// With the stream obtained, add the message to the
 			// stream so we can continue processing message.
-			chanStream.AddMsg(nextMsg, p.quit)
+			chanStream.AddMsg(nextMsg)
 		}
 
 		idleTimer.Reset(idleTimeout)

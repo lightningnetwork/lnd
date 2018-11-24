@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/sweep"
 	"io/ioutil"
 	"math"
 	"reflect"
@@ -431,6 +432,14 @@ func createNurseryTestContext(t *testing.T,
 
 	notifier := newNurseryMockNotifier(t)
 
+	sweeper := sweep.New(&sweep.UtxoSweeperConfig{
+		GenSweepScript: func() ([]byte, error) {
+			return []byte{}, nil
+		},
+		Estimator: &lnwallet.StaticFeeEstimator{},
+		Signer:    &nurseryMockSigner{},
+	})
+
 	cfg := NurseryConfig{
 		Notifier: notifier,
 		FetchClosedChannels: func(pendingOnly bool) (
@@ -445,11 +454,7 @@ func createNurseryTestContext(t *testing.T,
 		},
 		Store:   storeIntercepter,
 		ChainIO: &mockChainIO{},
-		GenSweepScript: func() ([]byte, error) {
-			return []byte{}, nil
-		},
-		Estimator: &mockFeeEstimator{},
-		Signer:    &nurseryMockSigner{},
+		Sweeper: sweeper,
 	}
 
 	publishChan := make(chan wire.MsgTx, 1)
@@ -1004,21 +1009,6 @@ func (i *nurseryStoreInterceptor) IsMatureChannel(chanPoint *wire.OutPoint) (
 
 func (i *nurseryStoreInterceptor) RemoveChannel(chanPoint *wire.OutPoint) error {
 	return i.ns.RemoveChannel(chanPoint)
-}
-
-type mockFeeEstimator struct{}
-
-func (m *mockFeeEstimator) EstimateFeePerKW(
-	numBlocks uint32) (lnwallet.SatPerKWeight, error) {
-
-	return lnwallet.SatPerKWeight(10000), nil
-}
-
-func (m *mockFeeEstimator) Start() error {
-	return nil
-}
-func (m *mockFeeEstimator) Stop() error {
-	return nil
 }
 
 type nurseryMockSigner struct {

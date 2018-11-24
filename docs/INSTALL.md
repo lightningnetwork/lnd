@@ -7,14 +7,14 @@
   * **Go:** `lnd` is written in Go. To install, run one of the following commands:
 
 
-    **Note**: The minimum version of Go supported is Go 1.9. We recommend that
+    **Note**: The minimum version of Go supported is Go 1.10. We recommend that
     users use the latest version of Go, which at the time of writing is
-    [`1.10`](https://blog.golang.org/go1.10).
+    [`1.11`](https://blog.golang.org/go1.11).
 
 
     On Linux:
     ```
-    sudo apt-get install golang-1.10-go
+    sudo apt-get install golang-1.11-go
     ```
     > Note that golang-1.10-go puts binaries in /usr/lib/go-1.10/bin. If you want them on your PATH, you need to make that change yourself. Alternatively, you can run:
     ```
@@ -69,7 +69,9 @@ cd $GOPATH/src/github.com/lightningnetwork/lnd
 make && make install
 ```
 
-For Windows WSL users, make will need to be referenced directly via /usr/bin/make/, or alternatively by wrapping quotation marks around make, like so:
+For Windows WSL users, make will need to be referenced directly via
+/usr/bin/make/, or alternatively by wrapping quotation marks around make,
+like so:
 
 ```
 /usr/bin/make && /usr/bin/make install
@@ -93,7 +95,7 @@ commands:
 ```
 cd $GOPATH/src/github.com/lightningnetwork/lnd
 git pull
-make && make install
+make clean && make && make install
 ```
 
 On FreeBSD, use gmake instead of make.
@@ -333,7 +335,6 @@ Here's a sample `lnd.conf` for `btcd` to get you started:
 ```
 [Application Options]
 debuglevel=trace
-debughtlc=true
 maxpendingchannels=10
 
 [Bitcoin]
@@ -343,6 +344,8 @@ bitcoin.active=1
 Notice the `[Bitcoin]` section. This section houses the parameters for the
 Bitcoin chain. `lnd` also supports Litecoin testnet4 (but not both BTC and LTC
 at the same time), so when working with Litecoin be sure to set to parameters
-for Litecoin accordingly. For node configuration, the sections are called
-`[Btcd]`, `[Bitcoind]`, `[Neutrino]`, `[Ltcd]`, and `[Litecoind]` depending on
-which chain and node type you're using.
+for Litecoin accordingly. See a more detailed sample config file available
+[here](https://github.com/lightningnetwork/lnd/blob/master/sample-lnd.conf)
+and explore the other sections for node configuration, including `[Btcd]`,
+`[Bitcoind]`, `[Neutrino]`, `[Ltcd]`, and `[Litecoind]` depending on which
+chain and node type you're using.

@@ -1010,10 +1010,10 @@ var abandonChannelCommand = cli.Command{
 	Category: "Channels",
 	Usage:    "Abandons an existing channel.",
 	Description: `
-	Removes all channel state from the database except for a close 
+	Removes all channel state from the database except for a close
 	summary. This method can be used to get rid of permanently unusable
-	channels due to bugs fixed in newer versions of lnd. 
-	
+	channels due to bugs fixed in newer versions of lnd.
+
 	Only available when lnd is built in debug mode.
 
 	To view which funding_txids/output_indexes can be used for this command,
@@ -2467,7 +2467,15 @@ var describeGraphCommand = cli.Command{
 	Category: "Peers",
 	Description: "Prints a human readable version of the known channel " +
 		"graph from the PoV of the node",
-	Usage:  "Describe the network graph.",
+	Usage: "Describe the network graph.",
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name: "include_unannounced",
+			Usage: "If set, unannounced channels will be included in the " +
+				"graph. Unannounced channels are both private channels, and " +
+				"public channels that are not yet announced to the network.",
+		},
+	},
 	Action: actionDecorator(describeGraph),
 }
 
@@ -2475,7 +2483,9 @@ func describeGraph(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	req := &lnrpc.ChannelGraphRequest{}
+	req := &lnrpc.ChannelGraphRequest{
+		IncludeUnannounced: ctx.Bool("include_unannounced"),
+	}
 
 	graph, err := client.DescribeGraph(context.Background(), req)
 	if err != nil {
@@ -2661,7 +2671,7 @@ var queryRoutesCommand = cli.Command{
 		},
 		cli.Int64Flag{
 			Name:  "num_max_routes",
-			Usage: "the max number of routes to be returned (default: 10)",
+			Usage: "the max number of routes to be returned",
 			Value: 10,
 		},
 		cli.Int64Flag{

@@ -89,7 +89,23 @@ func (c *chanSeries) UpdatesInHorizon(chain chainhash.Hash,
 		return nil, err
 	}
 	for _, nodeAnn := range nodeAnnsInHorizon {
-		nodeUpdate, err := makeNodeAnn(&nodeAnn)
+		// Ensure we only forward nodes that are publicly advertised to
+		// prevent leaking information about nodes.
+		isNodePublic, err := c.graph.IsPublicNode(nodeAnn.PubKeyBytes)
+		if err != nil {
+			srvrLog.Errorf("Unable to determine if node %x is "+
+				"advertised: %v", nodeAnn.PubKeyBytes, err)
+			continue
+		}
+
+		if !isNodePublic {
+			srvrLog.Tracef("Skipping forwarding announcement for "+
+				"node %x due to being unadvertised",
+				nodeAnn.PubKeyBytes)
+			continue
+		}
+
+		nodeUpdate, err := nodeAnn.NodeAnnouncement(true)
 		if err != nil {
 			return nil, err
 		}
@@ -151,25 +167,6 @@ func (c *chanSeries) FilterChannelRange(chain chainhash.Hash,
 	return chanResp, nil
 }
 
-func makeNodeAnn(n *channeldb.LightningNode) (*lnwire.NodeAnnouncement, error) {
-	alias, _ := lnwire.NewNodeAlias(n.Alias)
-
-	wireSig, err := lnwire.NewSigFromRawSignature(n.AuthSigBytes)
-	if err != nil {
-		return nil, err
-	}
-	return &lnwire.NodeAnnouncement{
-		Signature:       wireSig,
-		Timestamp:       uint32(n.LastUpdate.Unix()),
-		Addresses:       n.Addresses,
-		NodeID:          n.PubKeyBytes,
-		Features:        n.Features.RawFeatureVector,
-		RGBColor:        n.Color,
-		Alias:           alias,
-		ExtraOpaqueData: n.ExtraOpaqueData,
-	}, nil
-}
-
 // FetchChanAnns returns a full set of channel announcements as well as their
 // updates that match the set of specified short channel ID's.  We'll use this
 // to reply to a QueryShortChanIDs message sent by a remote peer. The response
@@ -221,7 +218,7 @@ func (c *chanSeries) FetchChanAnns(chain chainhash.Hash,
 			nodePub := channel.Policy1.Node.PubKeyBytes
 			hasNodeAnn := channel.Policy1.Node.HaveNodeAnnouncement
 			if _, ok := nodePubsSent[nodePub]; !ok && hasNodeAnn {
-				nodeAnn, err := makeNodeAnn(channel.Policy1.Node)
+				nodeAnn, err := channel.Policy1.Node.NodeAnnouncement(true)
 				if err != nil {
 					return nil, err
 				}
@@ -238,7 +235,7 @@ func (c *chanSeries) FetchChanAnns(chain chainhash.Hash,
 			nodePub := channel.Policy2.Node.PubKeyBytes
 			hasNodeAnn := channel.Policy2.Node.HaveNodeAnnouncement
 			if _, ok := nodePubsSent[nodePub]; !ok && hasNodeAnn {
-				nodeAnn, err := makeNodeAnn(channel.Policy2.Node)
+				nodeAnn, err := channel.Policy2.Node.NodeAnnouncement(true)
 				if err != nil {
 					return nil, err
 				}

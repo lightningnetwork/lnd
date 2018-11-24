@@ -88,7 +88,7 @@ func (d dbNode) ForEachChannel(cb func(ChannelEdge) error) error {
 		// Skip channels for which no outgoing edge policy is available.
 		//
 		// TODO(joostjager): Ideally the case where channels have a nil
-		// policy should be supported, as auto pilot is not looking at
+		// policy should be supported, as autopilot is not looking at
 		// the policies. For now, it is not easily possible to get a
 		// reference to the other end LightningNode object without
 		// retrieving the policy.
@@ -229,7 +229,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		MinHTLC:                   1,
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
-		Flags: 0,
+		Flags:                     0,
 	}
 
 	if err := d.db.UpdateEdgePolicy(edgePolicy); err != nil {
@@ -243,7 +243,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		MinHTLC:                   1,
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
-		Flags: 1,
+		Flags:                     1,
 	}
 	if err := d.db.UpdateEdgePolicy(edgePolicy); err != nil {
 		return nil, nil, err

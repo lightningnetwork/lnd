@@ -39,6 +39,8 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware"
 	"github.com/grpc-ecosystem/go-grpc-prometheus"
 	flags "github.com/jessevdk/go-flags"
+
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -57,10 +59,6 @@ const (
 )
 
 var (
-	// Commit stores the current commit hash of this build. This should be
-	// set using -ldflags during compilation.
-	Commit string
-
 	cfg              *config
 	registeredChains = newChainRegistry()
 
@@ -96,12 +94,6 @@ var (
 // defers created in the top-level scope of a main method aren't executed if
 // os.Exit() is called.
 func lndMain() error {
-	defer func() {
-		if logRotatorPipe != nil {
-			ltndLog.Info("Shutdown complete")
-		}
-	}()
-
 	// Load the configuration, and parse any command line options. This
 	// function will also set up logging properly.
 	loadedConfig, err := loadConfig()
@@ -111,12 +103,14 @@ func lndMain() error {
 	cfg = loadedConfig
 	defer func() {
 		if logRotator != nil {
+			ltndLog.Info("Shutdown complete")
 			logRotator.Close()
 		}
 	}()
 
 	// Show version at startup.
-	ltndLog.Infof("Version %s", version())
+	ltndLog.Infof("Version: %s, build=%s, logging=%s",
+		build.Version(), build.Deployment, build.LoggingType)
 
 	var network string
 	switch {
@@ -590,7 +584,7 @@ func genCertPair(certFile, keyFile string) error {
 
 		KeyUsage: x509.KeyUsageKeyEncipherment |
 			x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
-		IsCA: true, // so can sign self.
+		IsCA:                  true, // so can sign self.
 		BasicConstraintsValid: true,
 
 		DNSNames:    dnsNames,

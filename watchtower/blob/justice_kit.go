@@ -2,6 +2,7 @@ package blob
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -22,8 +23,8 @@ const (
 	// MaxVersion is the maximumm blob version supported by this package.
 	MaxVersion = 0
 
-	// NonceSize is the length of a chacha20poly1305 nonce, 12 bytes.
-	NonceSize = chacha20poly1305.NonceSize
+	// NonceSize is the length of a chacha20poly1305 nonce, 24 bytes.
+	NonceSize = chacha20poly1305.NonceSizeX
 
 	// KeySize is the length of a chacha20poly1305 key, 32 bytes.
 	KeySize = chacha20poly1305.KeySize
@@ -33,21 +34,27 @@ const (
 	CiphertextExpansion = 16
 
 	// V0PlaintextSize is the plaintext size of a version 0 encoded blob.
-	//    sweep address:                  42 bytes
+	//    sweep address length:            1 byte
+	//    padded sweep address:           42 bytes
 	//    revocation pubkey:              33 bytes
 	//    local delay pubkey:             33 bytes
 	//    csv delay:                       4 bytes
 	//    commit to-local revocation sig: 64 bytes
 	//    commit to-remote pubkey:        33 bytes, maybe blank
 	//    commit to-remote sig:           64 bytes, maybe blank
-	V0PlaintextSize = 273
+	V0PlaintextSize = 274
+
+	// MaxSweepAddrSize defines the maximum sweep address size that can be
+	// encoded in a blob.
+	MaxSweepAddrSize = 42
 )
 
 // Size returns the size of the encoded-and-encrypted blob in bytes.
-//      enciphered plaintext:  n bytes
-//      MAC:                  16 bytes
+//   nonce:                24 bytes
+//   enciphered plaintext:  n bytes
+//   MAC:                  16 bytes
 func Size(ver uint16) int {
-	return PlaintextSize(ver) + CiphertextExpansion
+	return NonceSize + PlaintextSize(ver) + CiphertextExpansion
 }
 
 // PlaintextSize returns the size of the encoded-but-unencrypted blob in bytes.
@@ -74,11 +81,6 @@ var (
 		"ciphertext is too small for chacha20poly1305",
 	)
 
-	// ErrNonceSize signals that the provided nonce is improperly sized.
-	ErrNonceSize = fmt.Errorf(
-		"chacha20poly1305 nonce must be %d bytes", NonceSize,
-	)
-
 	// ErrKeySize signals that the provided key is improperly sized.
 	ErrKeySize = fmt.Errorf(
 		"chacha20poly1305 key size must be %d bytes", KeySize,
@@ -88,6 +90,14 @@ var (
 	// commit to-remote output from the blob, though none exists.
 	ErrNoCommitToRemoteOutput = errors.New(
 		"cannot obtain commit to-remote p2wkh output script from blob",
+	)
+
+	// ErrSweepAddressToLong is returned when trying to encode or decode a
+	// sweep address with length greater than the maximum length of 42
+	// bytes, which supports p2wkh and p2sh addresses.
+	ErrSweepAddressToLong = fmt.Errorf(
+		"sweep address must be less than or equal to %d bytes long",
+		MaxSweepAddrSize,
 	)
 )
 
@@ -108,7 +118,7 @@ type JusticeKit struct {
 	//
 	// NOTE: This is chosen to be the length of a maximally sized witness
 	// program.
-	SweepAddress [42]byte
+	SweepAddress []byte
 
 	// RevocationPubKey is the compressed pubkey that guards the revocation
 	// clause of the remote party's to-local output.
@@ -167,12 +177,18 @@ func (b *JusticeKit) CommitToLocalWitnessScript() ([]byte, error) {
 // CommitToLocalRevokeWitnessStack constructs a witness stack spending the
 // revocation clause of the commitment to-local output.
 //   <revocation-sig> 1
-func (b *JusticeKit) CommitToLocalRevokeWitnessStack() [][]byte {
+func (b *JusticeKit) CommitToLocalRevokeWitnessStack() ([][]byte, error) {
+	toLocalSig, err := b.CommitToLocalSig.ToSignature()
+	if err != nil {
+		return nil, err
+	}
+
 	witnessStack := make([][]byte, 2)
-	witnessStack[0] = append(b.CommitToLocalSig[:], byte(txscript.SigHashAll))
+	witnessStack[0] = append(toLocalSig.Serialize(),
+		byte(txscript.SigHashAll))
 	witnessStack[1] = []byte{1}
 
-	return witnessStack
+	return witnessStack, nil
 }
 
 // HasCommitToRemoteOutput returns true if the blob contains a to-remote p2wkh
@@ -194,11 +210,17 @@ func (b *JusticeKit) CommitToRemoteWitnessScript() ([]byte, error) {
 // CommitToRemoteWitnessStack returns a witness stack spending the commitment
 // to-remote output, which is a regular p2wkh.
 //   <to-remote-sig>
-func (b *JusticeKit) CommitToRemoteWitnessStack() [][]byte {
-	witnessStack := make([][]byte, 1)
-	witnessStack[0] = append(b.CommitToRemoteSig[:], byte(txscript.SigHashAll))
+func (b *JusticeKit) CommitToRemoteWitnessStack() ([][]byte, error) {
+	toRemoteSig, err := b.CommitToRemoteSig.ToSignature()
+	if err != nil {
+		return nil, err
+	}
 
-	return witnessStack
+	witnessStack := make([][]byte, 1)
+	witnessStack[0] = append(toRemoteSig.Serialize(),
+		byte(txscript.SigHashAll))
+
+	return witnessStack, nil
 }
 
 // Encrypt encodes the blob of justice using encoding version, and then
@@ -207,15 +229,9 @@ func (b *JusticeKit) CommitToRemoteWitnessStack() [][]byte {
 //
 // NOTE: It is the caller's responsibility to ensure that this method is only
 // called once for a given (nonce, key) pair.
-func (b *JusticeKit) Encrypt(nonce, key []byte, version uint16) ([]byte, error) {
-	switch {
-
-	// Fail if the nonce is not 12-bytes.
-	case len(nonce) != NonceSize:
-		return nil, ErrNonceSize
-
+func (b *JusticeKit) Encrypt(key []byte, version uint16) ([]byte, error) {
 	// Fail if the nonce is not 32-bytes.
-	case len(key) != KeySize:
+	if len(key) != KeySize {
 		return nil, ErrKeySize
 	}
 
@@ -228,19 +244,25 @@ func (b *JusticeKit) Encrypt(nonce, key []byte, version uint16) ([]byte, error) 
 	}
 
 	// Create a new chacha20poly1305 cipher, using a 32-byte key.
-	cipher, err := chacha20poly1305.New(key)
+	cipher, err := chacha20poly1305.NewX(key)
 	if err != nil {
 		return nil, err
 	}
 
-	// Allocate the ciphertext, which will contain the encrypted plaintext
-	// and MAC.
+	// Allocate the ciphertext, which will contain the nonce, encrypted
+	// plaintext and MAC.
 	plaintext := ptxtBuf.Bytes()
-	ciphertext := make([]byte, len(plaintext)+CiphertextExpansion)
+	ciphertext := make([]byte, Size(version))
+
+	// Generate a random  24-byte nonce in the ciphertext's prefix.
+	nonce := ciphertext[:NonceSize]
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, err
+	}
 
 	// Finally, encrypt the plaintext using the given nonce, storing the
 	// result in the ciphertext buffer.
-	cipher.Seal(ciphertext[:0], nonce, plaintext, nil)
+	cipher.Seal(ciphertext[NonceSize:NonceSize], nonce, plaintext, nil)
 
 	return ciphertext, nil
 }
@@ -248,16 +270,13 @@ func (b *JusticeKit) Encrypt(nonce, key []byte, version uint16) ([]byte, error) 
 // Decrypt unenciphers a blob of justice by decrypting the ciphertext using
 // chacha20poly1305 with the chosen (nonce, key) pair. The internal plaintext is
 // then deserialized using the given encoding version.
-func Decrypt(nonce, key, ciphertext []byte, version uint16) (*JusticeKit, error) {
+func Decrypt(key, ciphertext []byte, version uint16) (*JusticeKit, error) {
 	switch {
 
-	// Fail if the blob's overall length is less than the expansion factor.
-	case len(ciphertext) < CiphertextExpansion:
+	// Fail if the blob's overall length is less than required for the nonce
+	// and expansion factor.
+	case len(ciphertext) < NonceSize+CiphertextExpansion:
 		return nil, ErrCiphertextTooSmall
-
-	// Fail if the nonce is not 12-bytes.
-	case len(nonce) != NonceSize:
-		return nil, ErrNonceSize
 
 	// Fail if the key is not 32-bytes.
 	case len(key) != KeySize:
@@ -265,7 +284,7 @@ func Decrypt(nonce, key, ciphertext []byte, version uint16) (*JusticeKit, error)
 	}
 
 	// Create a new chacha20poly1305 cipher, using a 32-byte key.
-	cipher, err := chacha20poly1305.New(key)
+	cipher, err := chacha20poly1305.NewX(key)
 	if err != nil {
 		return nil, err
 	}
@@ -277,7 +296,8 @@ func Decrypt(nonce, key, ciphertext []byte, version uint16) (*JusticeKit, error)
 
 	// Decrypt the ciphertext, placing the resulting plaintext in our
 	// plaintext buffer.
-	_, err = cipher.Open(plaintext[:0], nonce, ciphertext, nil)
+	nonce := ciphertext[:NonceSize]
+	_, err = cipher.Open(plaintext[:0], nonce, ciphertext[NonceSize:], nil)
 	if err != nil {
 		return nil, err
 	}
@@ -318,10 +338,11 @@ func (b *JusticeKit) decode(r io.Reader, ver uint16) error {
 // encodeV0 encodes the JusticeKit using the version 0 encoding scheme to the
 // provided io.Writer. The encoding supports sweeping of the commit to-local
 // output, and  optionally the  commit to-remote output. The encoding produces a
-// constant-size plaintext size of 273 bytes.
+// constant-size plaintext size of 274 bytes.
 //
 // blob version 0 plaintext encoding:
-//    sweep address:                  42 bytes
+//    sweep address length:            1 byte
+//    padded sweep address:           42 bytes
 //    revocation pubkey:              33 bytes
 //    local delay pubkey:             33 bytes
 //    csv delay:                       4 bytes
@@ -329,8 +350,23 @@ func (b *JusticeKit) decode(r io.Reader, ver uint16) error {
 //    commit to-remote pubkey:        33 bytes, maybe blank
 //    commit to-remote sig:           64 bytes, maybe blank
 func (b *JusticeKit) encodeV0(w io.Writer) error {
-	// Write 42-byte sweep address where client funds will be deposited.
-	_, err := w.Write(b.SweepAddress[:])
+	// Assert the sweep address length is sane.
+	if len(b.SweepAddress) > MaxSweepAddrSize {
+		return ErrSweepAddressToLong
+	}
+
+	// Write the actual length of the sweep address as a single byte.
+	err := binary.Write(w, byteOrder, uint8(len(b.SweepAddress)))
+	if err != nil {
+		return err
+	}
+
+	// Pad the sweep address to our maximum length of 42 bytes.
+	var sweepAddressBuf [MaxSweepAddrSize]byte
+	copy(sweepAddressBuf[:], b.SweepAddress)
+
+	// Write padded 42-byte sweep address.
+	_, err = w.Write(sweepAddressBuf[:])
 	if err != nil {
 		return err
 	}
@@ -371,12 +407,13 @@ func (b *JusticeKit) encodeV0(w io.Writer) error {
 }
 
 // decodeV0 reconstructs a JusticeKit from the io.Reader, using version 0
-// encoding scheme. This will parse a constant size input stream of 273 bytes to
+// encoding scheme. This will parse a constant size input stream of 274 bytes to
 // recover information for the commit to-local output, and possibly the commit
 // to-remote output.
 //
 // blob version 0 plaintext encoding:
-//    sweep address:                  42 bytes
+//    sweep address length:            1 byte
+//    padded sweep address:           42 bytes
 //    revocation pubkey:              33 bytes
 //    local delay pubkey:             33 bytes
 //    csv delay:                       4 bytes
@@ -384,11 +421,28 @@ func (b *JusticeKit) encodeV0(w io.Writer) error {
 //    commit to-remote pubkey:        33 bytes, maybe blank
 //    commit to-remote sig:           64 bytes, maybe blank
 func (b *JusticeKit) decodeV0(r io.Reader) error {
-	// Read 42-byte sweep address where client funds will be deposited.
-	_, err := io.ReadFull(r, b.SweepAddress[:])
+	// Read the sweep address length as a single byte.
+	var sweepAddrLen uint8
+	err := binary.Read(r, byteOrder, &sweepAddrLen)
 	if err != nil {
 		return err
 	}
+
+	// Assert the sweep address length is sane.
+	if sweepAddrLen > MaxSweepAddrSize {
+		return ErrSweepAddressToLong
+	}
+
+	// Read padded 42-byte sweep address.
+	var sweepAddressBuf [MaxSweepAddrSize]byte
+	_, err = io.ReadFull(r, sweepAddressBuf[:])
+	if err != nil {
+		return err
+	}
+
+	// Parse sweep address from padded buffer.
+	b.SweepAddress = make([]byte, sweepAddrLen)
+	copy(b.SweepAddress, sweepAddressBuf[:])
 
 	// Read 33-byte revocation public key.
 	_, err = io.ReadFull(r, b.RevocationPubKey[:])

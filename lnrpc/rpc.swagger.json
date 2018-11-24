@@ -148,6 +148,38 @@
         ]
       }
     },
+    "/v1/channels/abandon/{channel_point.funding_txid_str}/{channel_point.output_index}": {
+      "delete": {
+        "summary": "* lncli: `abandonchannel`\nAbandonChannel removes all channel state from the database except for a\nclose summary. This method can be used to get rid of permanently unusable\nchannels due to bugs fixed in newer versions of lnd. Only available\nwhen in debug builds of lnd.",
+        "operationId": "AbandonChannel",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcAbandonChannelResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "channel_point.funding_txid_str",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "channel_point.output_index",
+            "in": "path",
+            "required": true,
+            "type": "integer",
+            "format": "int64"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/channels/closed": {
       "get": {
         "summary": "* lncli: `closedchannels`\nClosedChannels returns a description of all the closed channels that \nthis node was a participant in.",
@@ -282,13 +314,13 @@
     },
     "/v1/channels/{channel_point.funding_txid_str}/{channel_point.output_index}": {
       "delete": {
-        "summary": "* lncli: `abandonchannel`\nAbandonChannel removes all channel state from the database except for a\nclose summary. This method can be used to get rid of permanently unusable\nchannels due to bugs fixed in newer versions of lnd. Only available\nwhen in debug builds of lnd.",
-        "operationId": "AbandonChannel",
+        "summary": "* lncli: `closechannel`\nCloseChannel attempts to close an active channel identified by its channel\noutpoint (ChannelPoint). The actions of this method can additionally be\naugmented to attempt a force close after a timeout period in the case of an\ninactive peer. If a non-force close (cooperative closure) is requested,\nthen the user can specify either a target number of blocks until the\nclosure transaction is confirmed, or a manual fee rate. If neither are\nspecified, then a default lax, block confirmation target is used.",
+        "operationId": "CloseChannel",
         "responses": {
           "200": {
-            "description": "",
+            "description": "(streaming responses)",
             "schema": {
-              "$ref": "#/definitions/lnrpcAbandonChannelResponse"
+              "$ref": "#/definitions/lnrpcCloseStatusUpdate"
             }
           }
         },
@@ -421,6 +453,16 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "include_unannounced",
+            "description": "*\nWhether unannounced channels are included in the response or not. If set,\nunannounced channels are included. Unannounced channels are both private\nchannels, and public channels that are not yet announced to the network.",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
+          }
+        ],
         "tags": [
           "Lightning"
         ]
@@ -1749,6 +1791,11 @@
         "version": {
           "type": "string",
           "description": "/ The version of the LND software that the node is running."
+        },
+        "num_inactive_channels": {
+          "type": "integer",
+          "format": "int64",
+          "title": "/ Number of inactive channels"
         }
       }
     },
@@ -1827,6 +1874,10 @@
         "fee_msat": {
           "type": "string",
           "format": "int64"
+        },
+        "pub_key": {
+          "type": "string",
+          "description": "*\nAn optional public key of the hop. If the public key is given, the payment\ncan be executed without relying on a copy of the channel graph."
         }
       }
     },
@@ -2239,6 +2290,11 @@
           "type": "integer",
           "format": "int32",
           "description": "/ The minimum number of confirmations each one of your outputs used for the funding transaction must satisfy."
+        },
+        "spend_unconfirmed": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "/ Whether unconfirmed outputs should be used as inputs for the funding transaction."
         }
       }
     },

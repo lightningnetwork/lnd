@@ -126,7 +126,8 @@ func (cfg nodeConfig) RESTAddr() string {
 }
 
 func (cfg nodeConfig) DBPath() string {
-	return filepath.Join(cfg.DataDir, "graph", "simnet/channel.db")
+	return filepath.Join(cfg.DataDir, "graph",
+		fmt.Sprintf("%v/channel.db", cfg.NetParams.Name))
 }
 
 // genArgs generates a slice of command line arguments from the lightning node
@@ -148,7 +149,7 @@ func (cfg nodeConfig) genArgs() []string {
 	args = append(args, "--nobootstrap")
 	args = append(args, "--debuglevel=debug")
 	args = append(args, "--bitcoin.defaultchanconfs=1")
-	args = append(args, "--bitcoin.defaultremotedelay=4")
+	args = append(args, fmt.Sprintf("--bitcoin.defaultremotedelay=%v", DefaultCSV))
 	args = append(args, fmt.Sprintf("--btcd.rpchost=%v", cfg.RPCConfig.Host))
 	args = append(args, fmt.Sprintf("--btcd.rpcuser=%v", cfg.RPCConfig.User))
 	args = append(args, fmt.Sprintf("--btcd.rpcpass=%v", cfg.RPCConfig.Pass))
@@ -165,7 +166,6 @@ func (cfg nodeConfig) genArgs() []string {
 	args = append(args, fmt.Sprintf("--adminmacaroonpath=%v", cfg.AdminMacPath))
 	args = append(args, fmt.Sprintf("--readonlymacaroonpath=%v", cfg.ReadMacPath))
 	args = append(args, fmt.Sprintf("--invoicemacaroonpath=%v", cfg.InvoiceMacPath))
-	args = append(args, fmt.Sprintf("--externalip=%s", cfg.P2PAddr()))
 	args = append(args, fmt.Sprintf("--trickledelay=%v", trickleDelay))
 
 	if !cfg.HasSeed {

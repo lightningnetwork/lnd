@@ -78,6 +78,13 @@ func ErrChanReserveTooLarge(reserve,
 	}
 }
 
+// ErrNonZeroPushAmount is returned by a remote peer that receives a
+// FundingOpen request for a channel with non-zero push amount while
+// they have 'rejectpush' enabled.
+func ErrNonZeroPushAmount() ReservationError {
+	return ReservationError{errors.New("Non-zero push amounts are disabled")}
+}
+
 // ErrMinHtlcTooLarge returns an error indicating that the MinHTLC value the
 // remote required is too large to be accepted.
 func ErrMinHtlcTooLarge(minHtlc,

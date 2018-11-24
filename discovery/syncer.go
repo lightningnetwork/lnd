@@ -982,12 +982,11 @@ func (g *gossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
 
 // ProcessQueryMsg is used by outside callers to pass new channel time series
 // queries to the internal processing goroutine.
-func (g *gossipSyncer) ProcessQueryMsg(msg lnwire.Message) {
+func (g *gossipSyncer) ProcessQueryMsg(msg lnwire.Message, peerQuit <-chan struct{}) {
 	select {
 	case g.gossipMsgs <- msg:
-		return
+	case <-peerQuit:
 	case <-g.quit:
-		return
 	}
 }
 

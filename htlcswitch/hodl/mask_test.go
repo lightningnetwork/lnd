@@ -3,6 +3,7 @@ package hodl_test
 import (
 	"testing"
 
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 )
 
@@ -87,8 +88,8 @@ var hodlMaskTests = []struct {
 // correctly reports active for flags in the tests' expected flags, and inactive
 // for all others.
 func TestMask(t *testing.T) {
-	if !hodl.DebugBuild {
-		t.Fatalf("htlcswitch tests must be run with '-tags debug'")
+	if !build.IsDevBuild() {
+		t.Fatalf("htlcswitch tests must be run with '-tags=dev'")
 	}
 
 	for i, test := range hodlMaskTests {

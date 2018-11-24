@@ -504,8 +504,9 @@ func (f *fundingManager) Start() error {
 
 			err := f.cfg.PublishTransaction(channel.FundingTxn)
 			if err != nil && err != lnwallet.ErrDoubleSpend {
-				fndgLog.Warnf("unable to rebroadcast funding "+
-					"txn: %v", err)
+				fndgLog.Errorf("Unable to rebroadcast funding "+
+					"tx for ChannelPoint(%v): %v",
+					channel.FundingOutpoint, err)
 			}
 		}
 
@@ -1028,6 +1029,15 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 			fmsg.peer, fmsg.msg.PendingChannelID,
 			lnwallet.ErrChanTooSmall(amt, btcutil.Amount(f.cfg.MinChanSize)),
 		)
+		return
+	}
+
+	// If request specifies non-zero push amount and 'rejectpush' is set,
+	// signal an error.
+	if cfg.RejectPush && msg.PushAmount > 0 {
+		f.failFundingFlow(
+			fmsg.peer, fmsg.msg.PendingChannelID,
+			lnwallet.ErrNonZeroPushAmount())
 		return
 	}
 
@@ -1591,8 +1601,9 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 
 	err = f.cfg.PublishTransaction(fundingTx)
 	if err != nil {
-		fndgLog.Errorf("unable to broadcast funding "+
-			"txn: %v", err)
+		fndgLog.Errorf("Unable to broadcast funding tx for "+
+			"ChannelPoint(%v): %v", completeChan.FundingOutpoint,
+			err)
 		// We failed to broadcast the funding transaction, but watch
 		// the channel regardless, in case the transaction made it to
 		// the network. We will retry broadcast at startup.
@@ -2148,16 +2159,44 @@ func (f *fundingManager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 func (f *fundingManager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 	shortChanID *lnwire.ShortChannelID) error {
 
-	// If this channel is meant to be announced to the greater network,
-	// wait until the funding tx has reached 6 confirmations before
-	// announcing it.
+	// If this channel is not meant to be announced to the greater network,
+	// we'll only send our NodeAnnouncement to our counterparty to ensure we
+	// don't leak any of our information.
 	announceChan := completeChan.ChannelFlags&lnwire.FFAnnounceChannel != 0
 	if !announceChan {
 		fndgLog.Debugf("Will not announce private channel %v.",
 			shortChanID.ToUint64())
+
+		peerChan := make(chan lnpeer.Peer, 1)
+		f.cfg.NotifyWhenOnline(completeChan.IdentityPub, peerChan)
+
+		var peer lnpeer.Peer
+		select {
+		case peer = <-peerChan:
+		case <-f.quit:
+			return ErrFundingManagerShuttingDown
+		}
+
+		nodeAnn, err := f.cfg.CurrentNodeAnnouncement()
+		if err != nil {
+			return fmt.Errorf("unable to retrieve current node "+
+				"announcement: %v", err)
+		}
+
+		chanID := lnwire.NewChanIDFromOutPoint(
+			&completeChan.FundingOutpoint,
+		)
+		pubKey := peer.PubKey()
+		fndgLog.Debugf("Sending our NodeAnnouncement for "+
+			"ChannelID(%v) to %x", chanID, pubKey)
+
+		if err := peer.SendMessage(true, &nodeAnn); err != nil {
+			return fmt.Errorf("unable to send node announcement "+
+				"to peer %x: %v", pubKey, err)
+		}
 	} else {
-		// Register with the ChainNotifier for a notification once the
-		// funding transaction reaches at least 6 confirmations.
+		// Otherwise, we'll wait until the funding transaction has
+		// reached 6 confirmations before announcing it.
 		numConfs := uint32(completeChan.NumConfsRequired)
 		if numConfs < 6 {
 			numConfs = 6
@@ -2175,8 +2214,11 @@ func (f *fundingManager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 				completeChan.FundingOutpoint, err)
 		}
 
+		// Register with the ChainNotifier for a notification once the
+		// funding transaction reaches at least 6 confirmations.
 		confNtfn, err := f.cfg.Notifier.RegisterConfirmationsNtfn(
-			&txid, fundingScript, numConfs, completeChan.FundingBroadcastHeight,
+			&txid, fundingScript, numConfs,
+			completeChan.FundingBroadcastHeight,
 		)
 		if err != nil {
 			return fmt.Errorf("Unable to register for "+

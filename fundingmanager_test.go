@@ -18,12 +18,10 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btclog"
 	"github.com/btcsuite/btcutil"
-	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
+
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -199,13 +197,6 @@ func (n *testNode) AddNewChannel(channel *channeldb.OpenChannel,
 	case <-quit:
 		return ErrFundingManagerShuttingDown
 	}
-}
-
-func init() {
-	channeldb.UseLogger(btclog.Disabled)
-	lnwallet.UseLogger(btclog.Disabled)
-	contractcourt.UseLogger(btclog.Disabled)
-	fndgLog = btclog.Disabled
 }
 
 func createTestWallet(cdb *channeldb.DB, netParams *chaincfg.Params,
@@ -1942,7 +1933,7 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 	bob.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{}
 
 	// Since this is a private channel, we shouldn't receive the
-	// announcement signatures or node announcement messages.
+	// announcement signatures.
 	select {
 	case ann := <-alice.announceChan:
 		t.Fatalf("unexpectedly got channel announcement message: %v", ann)
@@ -1955,6 +1946,25 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 		t.Fatalf("unexpectedly got channel announcement message: %v", ann)
 	case <-time.After(300 * time.Millisecond):
 		// Expected
+	}
+
+	// We should however receive each side's node announcement.
+	select {
+	case msg := <-alice.msgChan:
+		if _, ok := msg.(*lnwire.NodeAnnouncement); !ok {
+			t.Fatalf("expected to receive node announcement")
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("expected to receive node announcement")
+	}
+
+	select {
+	case msg := <-bob.msgChan:
+		if _, ok := msg.(*lnwire.NodeAnnouncement); !ok {
+			t.Fatalf("expected to receive node announcement")
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("expected to receive node announcement")
 	}
 
 	// The internal state-machine should now have deleted the channelStates
@@ -2022,19 +2032,48 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 	// channel.
 	assertHandleFundingLocked(t, alice, bob)
 
-	// Restart Alice's fundingManager so we can prove that the public
-	// channel announcements are not sent upon restart and that the private
-	// setting persists upon restart.
-	recreateAliceFundingManager(t, alice)
-	time.Sleep(300 * time.Millisecond)
-
 	// Notify that six confirmations has been reached on funding transaction.
 	alice.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{}
 	bob.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{}
 
 	// Since this is a private channel, we shouldn't receive the public
-	// channel announcement messages announcement signatures or
-	// node announcement.
+	// channel announcement messages.
+	select {
+	case ann := <-alice.announceChan:
+		t.Fatalf("unexpectedly got channel announcement message: %v", ann)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	select {
+	case ann := <-bob.announceChan:
+		t.Fatalf("unexpectedly got channel announcement message: %v", ann)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	// We should however receive each side's node announcement.
+	select {
+	case msg := <-alice.msgChan:
+		if _, ok := msg.(*lnwire.NodeAnnouncement); !ok {
+			t.Fatalf("expected to receive node announcement")
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("expected to receive node announcement")
+	}
+
+	select {
+	case msg := <-bob.msgChan:
+		if _, ok := msg.(*lnwire.NodeAnnouncement); !ok {
+			t.Fatalf("expected to receive node announcement")
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("expected to receive node announcement")
+	}
+
+	// Restart Alice's fundingManager so we can prove that the public
+	// channel announcements are not sent upon restart and that the private
+	// setting persists upon restart.
+	recreateAliceFundingManager(t, alice)
+
 	select {
 	case ann := <-alice.announceChan:
 		t.Fatalf("unexpectedly got channel announcement message: %v", ann)
@@ -2437,4 +2476,64 @@ func TestFundingManagerMaxPendingChannels(t *testing.T) {
 	_ = assertFundingMsgSent(
 		t, bob.msgChan, "AcceptChannel",
 	).(*lnwire.AcceptChannel)
+}
+
+// TestFundingManagerRejectPush checks behaviour of 'rejectpush'
+// option, namely that non-zero incoming push amounts are disabled.
+func TestFundingManagerRejectPush(t *testing.T) {
+	// Enable 'rejectpush' option and initialize funding managers.
+	alice, bob := setupFundingManagers(t, defaultMaxPendingChannels)
+	rejectPush := cfg.RejectPush
+	cfg.RejectPush = true
+	defer func() {
+		tearDownFundingManagers(t, alice, bob)
+		cfg.RejectPush = rejectPush
+	}()
+
+	// Create a funding request and start the workflow.
+	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+	errChan := make(chan error, 1)
+	initReq := &openChanReq{
+		targetPubkey:    bob.privKey.PubKey(),
+		chainHash:       *activeNetParams.GenesisHash,
+		localFundingAmt: 500000,
+		pushAmt:         lnwire.NewMSatFromSatoshis(10),
+		private:         true,
+		updates:         updateChan,
+		err:             errChan,
+	}
+
+	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+
+	// Alice should have sent the OpenChannel message to Bob.
+	var aliceMsg lnwire.Message
+	select {
+	case aliceMsg = <-alice.msgChan:
+	case err := <-initReq.err:
+		t.Fatalf("error init funding workflow: %v", err)
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice did not send OpenChannel message")
+	}
+
+	openChannelReq, ok := aliceMsg.(*lnwire.OpenChannel)
+	if !ok {
+		errorMsg, gotError := aliceMsg.(*lnwire.Error)
+		if gotError {
+			t.Fatalf("expected OpenChannel to be sent "+
+				"from bob, instead got error: %v",
+				lnwire.ErrorCode(errorMsg.Data[0]))
+		}
+		t.Fatalf("expected OpenChannel to be sent from "+
+			"alice, instead got %T", aliceMsg)
+	}
+
+	// Let Bob handle the init message.
+	bob.fundingMgr.processFundingOpen(openChannelReq, alice)
+
+	// Assert Bob responded with an ErrNonZeroPushAmount error.
+	err := assertFundingMsgSent(t, bob.msgChan, "Error").(*lnwire.Error)
+	if "Non-zero push amounts are disabled" != string(err.Data) {
+		t.Fatalf("expected ErrNonZeroPushAmount error, got \"%v\"",
+			string(err.Data))
+	}
 }

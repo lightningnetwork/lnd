@@ -160,6 +160,8 @@ Arguments:
 - `pkg=<package>` 
 - `case=<testcase>`
 - `timeout=<timeout>`
+- `log="stdlog[ <log-level>]"` prints logs to stdout
+  - `<log-level>` can be `info` (default), `debug`, `trace`, `warn`, `error`, `critical`, or `off`
 
 `unit-cover`
 ------------
@@ -170,6 +172,8 @@ Arguments:
 - `pkg=<package>` 
 - `case=<testcase>`
 - `timeout=<timeout>`
+- `log="stdlog[ <log-level>]"` prints logs to stdout
+  - `<log-level>` can be `info` (default), `debug`, `trace`, `warn`, `error`, `critical`, or `off`
 
 Related: [`unit`](#unit)
 
@@ -181,6 +185,8 @@ Arguments:
 - `pkg=<package>` 
 - `case=<testcase>`
 - `timeout=<timeout>`
+- `log="stdlog[ <log-level>]"` prints logs to stdout
+  - `<log-level>` can be `info` (default), `debug`, `trace`, `warn`, `error`, `critical`, or `off`
 
 Related: [`unit`](#unit)
 

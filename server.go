@@ -2371,7 +2371,8 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 
 	// Now that we've established a connection, create a peer, and it to
 	// the set of currently active peers.
-	p, err := newPeer(conn, connReq, s, peerAddr, inbound, localFeatures)
+	p, err := newPeer(conn, connReq, s, peerAddr, inbound, localFeatures,
+		defaultBroadcastDelta+extraExpiryGraceDelta)
 	if err != nil {
 		srvrLog.Errorf("unable to create peer %v", err)
 		return

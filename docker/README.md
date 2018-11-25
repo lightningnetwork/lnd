@@ -294,11 +294,9 @@ bitcoins. The schema will be following:
 First of all you need to run `btcd` node in `testnet` and wait for it to be 
 synced with test network (`May the Force and Patience be with you`).
 ```bash 
-# Init bitcoin network env variable:
-$ export NETWORK="testnet"
 
-# Run "btcd" node:
-$ docker-compose up -d "btcd"
+# Run "btcd" and set environment variable to testnet:
+$ docker-compose run -d -e NETWORK=testnet "btcd"
 ```
 
 After `btcd` synced, connect `Alice` to the `Faucet` node.

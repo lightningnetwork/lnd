@@ -38,24 +38,34 @@ set_default() {
    return "$VARIABLE"
 }
 
-# Set default variables if needed.
-RPCUSER=$(set_default "$RPCUSER" "devuser")
-RPCPASS=$(set_default "$RPCPASS" "devpass")
-DEBUG=$(set_default "$DEBUG" "info")
-NETWORK=$(set_default "$NETWORK" "simnet")
+if [ -z "$NETWORK" ] || [ "$NETWORK" == "mainnet" ]
+then
+  PARAMS=$(echo \
+      "--debuglevel=$DEBUG" \
+      "--rpcuser=$RPCUSER" \
+      "--rpcpass=$RPCPASS" \
+      "--datadir=/data" \
+      "--logdir=/data" \
+      "--rpccert=/rpc/rpc.cert" \
+      "--rpckey=/rpc/rpc.key" \
+      "--rpclisten=0.0.0.0" \
+      "--txindex"
+  )
+else
+  PARAMS=$(echo \
+      "--$NETWORK" \
+      "--debuglevel=$DEBUG" \
+      "--rpcuser=$RPCUSER" \
+      "--rpcpass=$RPCPASS" \
+      "--datadir=/data" \
+      "--logdir=/data" \
+      "--rpccert=/rpc/rpc.cert" \
+      "--rpckey=/rpc/rpc.key" \
+      "--rpclisten=0.0.0.0" \
+      "--txindex"
+  )
+fi
 
-PARAMS=$(echo \
-    "--$NETWORK" \
-    "--debuglevel=$DEBUG" \
-    "--rpcuser=$RPCUSER" \
-    "--rpcpass=$RPCPASS" \
-    "--datadir=/data" \
-    "--logdir=/data" \
-    "--rpccert=/rpc/rpc.cert" \
-    "--rpckey=/rpc/rpc.key" \
-    "--rpclisten=0.0.0.0" \
-    "--txindex"
-)
 
 # Set the mining flag only if address is non empty.
 if [[ -n "$MINING_ADDRESS" ]]; then

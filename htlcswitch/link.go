@@ -516,7 +516,7 @@ func (l *channelLink) syncChanStates() error {
 	// First, we'll generate our ChanSync message to send to the other
 	// side. Based on this message, the remote party will decide if they
 	// need to retransmit any data or not.
-	localChanSyncMsg, err := l.channel.ChanSyncMsg()
+	localChanSyncMsg, err := lnwallet.ChanSyncMsg(l.channel.State())
 	if err != nil {
 		return fmt.Errorf("unable to generate chan sync message for "+
 			"ChannelPoint(%v)", l.channel.ChannelPoint())
@@ -789,9 +789,6 @@ func (l *channelLink) htlcManager() {
 			// We failed syncing the commit chains, probably
 			// because the remote has lost state. We should force
 			// close the channel.
-			// TODO(halseth): store sent chanSync message to
-			// database, such that it can be resent to peer in case
-			// it tries to sync the channel again.
 			case err == lnwallet.ErrCommitSyncRemoteDataLoss:
 				fallthrough
 

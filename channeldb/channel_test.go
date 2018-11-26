@@ -248,10 +248,10 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	t.Parallel()
 
 	cdb, cleanUp, err := makeTestDB()
-	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}
+	defer cleanUp()
 
 	// Create the test channel state, then add an additional fake HTLC
 	// before syncing to disk.
@@ -368,10 +368,10 @@ func TestChannelStateTransition(t *testing.T) {
 	t.Parallel()
 
 	cdb, cleanUp, err := makeTestDB()
-	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}
+	defer cleanUp()
 
 	// First create a minimal channel, then perform a full sync in order to
 	// persist the data.

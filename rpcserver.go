@@ -2951,6 +2951,7 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 		FallbackAddr:    fallbackAddr,
 		RouteHints:      routeHints,
 		AddIndex:        invoice.AddIndex,
+		Private:         len(routeHints) > 0,
 		SettleIndex:     invoice.SettleIndex,
 		AmtPaidSat:      int64(satAmtPaid),
 		AmtPaidMsat:     int64(invoice.AmtPaid),

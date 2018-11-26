@@ -7,8 +7,8 @@ automatically by their `docker-compose` config file.
 ### Prerequisites
 Name  | Version 
 --------|---------
-docker-compose | 1.9.0
-docker | 1.13.0
+docker-compose | 1.23.1
+docker | 18.06.1-ce
   
 ### Table of content
  * [Create lightning network cluster](#create-lightning-network-cluster)

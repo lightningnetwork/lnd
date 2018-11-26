@@ -1027,6 +1027,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 			FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
 				FundingTxidBytes: chanUpdate.Txid,
 			},
+			OutputIndex: chanUpdate.OutputIndex,
 		}, nil
 	case <-r.quit:
 		return nil, nil

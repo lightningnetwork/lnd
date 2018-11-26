@@ -404,6 +404,7 @@ func newRPCServer(s *server, macService *macaroons.Service,
 	subServerCgs *subRPCServerConfigs, serverOpts []grpc.ServerOption,
 	restServerOpts []grpc.DialOption, atpl *autopilot.Manager,
 	invoiceRegistry *invoices.InvoiceRegistry,
+	htlcSwitch *htlcswitch.Switch,
 	tlsCfg *tls.Config) (*rpcServer, error) {
 
 	var (
@@ -417,6 +418,7 @@ func newRPCServer(s *server, macService *macaroons.Service,
 	err := subServerCgs.PopulateDependencies(
 		s.cc, networkDir, macService, atpl, invoiceRegistry,
 		s.htlcSwitch, activeNetParams.Params, s.nodeSigner, s.chanDB,
+		s.witnessBeacon,
 	)
 	if err != nil {
 		return nil, err

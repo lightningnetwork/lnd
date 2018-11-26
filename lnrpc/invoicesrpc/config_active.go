@@ -5,6 +5,7 @@ package invoicesrpc
 import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -52,4 +53,8 @@ type Config struct {
 	// ChanDB is a global boltdb instance which is needed to access the
 	// channel graph.
 	ChanDB *channeldb.DB
+
+	// PreimageBeacon is used to add preimages discovered through the
+	// SettleInvoice rpc.
+	PreimageBeacon contractcourt.WitnessBeacon
 }

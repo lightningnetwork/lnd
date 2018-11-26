@@ -4,6 +4,7 @@ package invoicesrpc
 
 import (
 	"context"
+	"crypto/sha256"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"gopkg.in/macaroon-bakery.v2/bakery"
 
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 )
@@ -43,6 +45,10 @@ var (
 		"/invoicesrpc.Invoices/SubscribeSingleInvoice": {{
 			Entity: "invoices",
 			Action: "read",
+		}},
+		"/invoicesrpc.Invoices/SettleInvoice": {{
+			Entity: "invoices",
+			Action: "write",
 		}},
 		"/invoicesrpc.Invoices/CancelInvoice": {{
 			Entity: "invoices",
@@ -193,6 +199,44 @@ func (s *Server) SubscribeSingleInvoice(req *lnrpc.PaymentHash,
 
 		case <-s.quit:
 			return nil
+		}
+	}
+}
+
+// SettleInvoice settles an accepted invoice. If the invoice is already settled,
+// this call will succeed.
+func (s *Server) SettleInvoice(ctx context.Context,
+	in *SettleInvoiceMsg) (*SettleInvoiceResp, error) {
+
+	preimage, err := lntypes.NewPreimage(in.PreImage)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add revealed preimage to the preimage beacon. This allows contract
+	// resolvers to claim a contested htlc.
+	err = s.cfg.PreimageBeacon.AddPreimage(preimage[:])
+	if err != nil {
+		return nil, err
+	}
+
+	paymentHash := lntypes.Hash(sha256.Sum256(preimage[:]))
+
+	// Wait for the invoice to move to a final state.
+	sub := s.cfg.InvoiceRegistry.SubscribeSingleInvoice(paymentHash)
+	defer sub.Cancel()
+	for {
+		select {
+		case update := <-sub.Updates:
+			log.Debugf("invoice state: %v", update.Terms.State)
+			switch update.Terms.State {
+			case channeldb.ContractCanceled:
+				return nil, channeldb.ErrInvoiceAlreadyCanceled
+			case channeldb.ContractSettled:
+				return &SettleInvoiceResp{}, nil
+			}
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc/autopilotrpc"
@@ -62,7 +63,8 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 	htlcSwitch *htlcswitch.Switch,
 	activeNetParams *chaincfg.Params,
 	nodeSigner *netann.NodeSigner,
-	chanDB *channeldb.DB) error {
+	chanDB *channeldb.DB,
+	preimageBeacon contractcourt.WitnessBeacon) error {
 
 	// First, we'll use reflect to obtain a version of the config struct
 	// that allows us to programmatically inspect its fields.
@@ -173,6 +175,9 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 			)
 			subCfgValue.FieldByName("ChanDB").Set(
 				reflect.ValueOf(chanDB),
+			)
+			subCfgValue.FieldByName("PreimageBeacon").Set(
+				reflect.ValueOf(preimageBeacon),
 			)
 
 		default:

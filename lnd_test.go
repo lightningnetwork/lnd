@@ -3421,13 +3421,15 @@ func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
 // assertAmountPaid checks that the ListChannels command of the provided
 // node list the total amount sent and received as expected for the
 // provided channel.
-func assertAmountPaid(t *harnessTest, ctxb context.Context, channelName string,
+func assertAmountPaid(t *harnessTest, channelName string,
 	node *lntest.HarnessNode, chanPoint wire.OutPoint, amountSent,
 	amountReceived int64) {
+	ctxb := context.Background()
 
 	checkAmountPaid := func() error {
 		listReq := &lnrpc.ListChannelsRequest{}
-		resp, err := node.ListChannels(ctxb, listReq)
+		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+		resp, err := node.ListChannels(ctxt, listReq)
 		if err != nil {
 			return fmt.Errorf("unable to for node's "+
 				"channels: %v", err)
@@ -3719,9 +3721,9 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// The final node bob expects to get paid five times 1000 sat.
 	expectedAmountPaidAtoB := int64(5 * 1000)
 
-	assertAmountPaid(t, ctxb, "Alice(local) => Bob(remote)", net.Bob,
+	assertAmountPaid(t, "Alice(local) => Bob(remote)", net.Bob,
 		aliceFundPoint, int64(0), expectedAmountPaidAtoB)
-	assertAmountPaid(t, ctxb, "Alice(local) => Bob(remote)", net.Alice,
+	assertAmountPaid(t, "Alice(local) => Bob(remote)", net.Alice,
 		aliceFundPoint, expectedAmountPaidAtoB, int64(0))
 
 	// To forward a payment of 1000 sat, Alice is charging a fee of
@@ -3731,9 +3733,9 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// Dave needs to pay what Alice pays plus Alice's fee.
 	expectedAmountPaidDtoA := expectedAmountPaidAtoB + expectedFeeAlice
 
-	assertAmountPaid(t, ctxb, "Dave(local) => Alice(remote)", net.Alice,
+	assertAmountPaid(t, "Dave(local) => Alice(remote)", net.Alice,
 		daveFundPoint, int64(0), expectedAmountPaidDtoA)
-	assertAmountPaid(t, ctxb, "Dave(local) => Alice(remote)", dave,
+	assertAmountPaid(t, "Dave(local) => Alice(remote)", dave,
 		daveFundPoint, expectedAmountPaidDtoA, int64(0))
 
 	// To forward a payment of 1101 sat, Dave is charging a fee of
@@ -3743,9 +3745,9 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// Carol needs to pay what Dave pays plus Dave's fee.
 	expectedAmountPaidCtoD := expectedAmountPaidDtoA + expectedFeeDave
 
-	assertAmountPaid(t, ctxb, "Carol(local) => Dave(remote)", dave,
+	assertAmountPaid(t, "Carol(local) => Dave(remote)", dave,
 		carolFundPoint, int64(0), expectedAmountPaidCtoD)
-	assertAmountPaid(t, ctxb, "Carol(local) => Dave(remote)", carol,
+	assertAmountPaid(t, "Carol(local) => Dave(remote)", carol,
 		carolFundPoint, expectedAmountPaidCtoD, int64(0))
 
 	// Now that we know all the balances have been settled out properly,
@@ -3939,9 +3941,9 @@ func testSingleHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 	// increasing of time is needed to embed the HTLC in commitment
 	// transaction, in channel Alice->Bob, order is Bob and then Alice.
 	const amountPaid = int64(5000)
-	assertAmountPaid(t, ctxb, "Alice(local) => Bob(remote)", net.Bob,
+	assertAmountPaid(t, "Alice(local) => Bob(remote)", net.Bob,
 		aliceFundPoint, int64(0), amountPaid)
-	assertAmountPaid(t, ctxb, "Alice(local) => Bob(remote)", net.Alice,
+	assertAmountPaid(t, "Alice(local) => Bob(remote)", net.Alice,
 		aliceFundPoint, amountPaid, int64(0))
 
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
@@ -4127,13 +4129,13 @@ func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 	// transaction, in channel Alice->Bob->Carol, order is Carol, Bob,
 	// Alice.
 	const amountPaid = int64(5000)
-	assertAmountPaid(t, ctxb, "Bob(local) => Carol(remote)", carol,
+	assertAmountPaid(t, "Bob(local) => Carol(remote)", carol,
 		bobFundPoint, int64(0), amountPaid)
-	assertAmountPaid(t, ctxb, "Bob(local) => Carol(remote)", net.Bob,
+	assertAmountPaid(t, "Bob(local) => Carol(remote)", net.Bob,
 		bobFundPoint, amountPaid, int64(0))
-	assertAmountPaid(t, ctxb, "Alice(local) => Bob(remote)", net.Bob,
+	assertAmountPaid(t, "Alice(local) => Bob(remote)", net.Bob,
 		aliceFundPoint, int64(0), amountPaid+(baseFee*numPayments))
-	assertAmountPaid(t, ctxb, "Alice(local) => Bob(remote)", net.Alice,
+	assertAmountPaid(t, "Alice(local) => Bob(remote)", net.Alice,
 		aliceFundPoint, amountPaid+(baseFee*numPayments), int64(0))
 
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
@@ -4600,35 +4602,35 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	const baseFee = 1
 
 	// Bob should have received 140k satoshis from Alice.
-	assertAmountPaid(t, ctxb, "Alice(local) => Bob(remote)", net.Bob,
+	assertAmountPaid(t, "Alice(local) => Bob(remote)", net.Bob,
 		aliceFundPoint, int64(0), 2*paymentAmt)
 
 	// Alice sent 140k to Bob.
-	assertAmountPaid(t, ctxb, "Alice(local) => Bob(remote)", net.Alice,
+	assertAmountPaid(t, "Alice(local) => Bob(remote)", net.Alice,
 		aliceFundPoint, 2*paymentAmt, int64(0))
 
 	// Alice received 70k + fee from Dave.
-	assertAmountPaid(t, ctxb, "Dave(local) => Alice(remote)", net.Alice,
+	assertAmountPaid(t, "Dave(local) => Alice(remote)", net.Alice,
 		daveFundPoint, int64(0), paymentAmt+baseFee)
 
 	// Dave sent 70k+fee to Alice.
-	assertAmountPaid(t, ctxb, "Dave(local) => Alice(remote)", dave,
+	assertAmountPaid(t, "Dave(local) => Alice(remote)", dave,
 		daveFundPoint, paymentAmt+baseFee, int64(0))
 
 	// Dave received 70k+fee of two hops from Carol.
-	assertAmountPaid(t, ctxb, "Carol(local) => Dave(remote)", dave,
+	assertAmountPaid(t, "Carol(local) => Dave(remote)", dave,
 		carolFundPoint, int64(0), paymentAmt+baseFee*2)
 
 	// Carol sent 70k+fee of two hops to Dave.
-	assertAmountPaid(t, ctxb, "Carol(local) => Dave(remote)", carol,
+	assertAmountPaid(t, "Carol(local) => Dave(remote)", carol,
 		carolFundPoint, paymentAmt+baseFee*2, int64(0))
 
 	// Alice received 70k+fee from Carol.
-	assertAmountPaid(t, ctxb, "Carol(local) [private=>] Alice(remote)",
+	assertAmountPaid(t, "Carol(local) [private=>] Alice(remote)",
 		net.Alice, privateFundPoint, int64(0), paymentAmt+baseFee)
 
 	// Carol sent 70k+fee to Alice.
-	assertAmountPaid(t, ctxb, "Carol(local) [private=>] Alice(remote)",
+	assertAmountPaid(t, "Carol(local) [private=>] Alice(remote)",
 		carol, privateFundPoint, paymentAmt+baseFee, int64(0))
 
 	// Alice should also be able to route payments using this channel,
@@ -5133,27 +5135,27 @@ func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest)
 	const baseFee = 1
 
 	// Dave should have received 20k satoshis from Carol.
-	assertAmountPaid(t, ctxb, "Carol(local) [private=>] Dave(remote)",
+	assertAmountPaid(t, "Carol(local) [private=>] Dave(remote)",
 		dave, carolFundPoint, 0, paymentAmt)
 
 	// Carol should have sent 20k satoshis to Dave.
-	assertAmountPaid(t, ctxb, "Carol(local) [private=>] Dave(remote)",
+	assertAmountPaid(t, "Carol(local) [private=>] Dave(remote)",
 		carol, carolFundPoint, paymentAmt, 0)
 
 	// Carol should have received 20k satoshis + fee for one hop from Bob.
-	assertAmountPaid(t, ctxb, "Bob(local) => Carol(remote)",
+	assertAmountPaid(t, "Bob(local) => Carol(remote)",
 		carol, bobFundPoint, 0, paymentAmt+baseFee)
 
 	// Bob should have sent 20k satoshis + fee for one hop to Carol.
-	assertAmountPaid(t, ctxb, "Bob(local) => Carol(remote)",
+	assertAmountPaid(t, "Bob(local) => Carol(remote)",
 		net.Bob, bobFundPoint, paymentAmt+baseFee, 0)
 
 	// Bob should have received 20k satoshis + fee for two hops from Alice.
-	assertAmountPaid(t, ctxb, "Alice(local) [private=>] Bob(remote)", net.Bob,
+	assertAmountPaid(t, "Alice(local) [private=>] Bob(remote)", net.Bob,
 		aliceFundPoint, 0, paymentAmt+baseFee*2)
 
 	// Alice should have sent 20k satoshis + fee for two hops to Bob.
-	assertAmountPaid(t, ctxb, "Alice(local) [private=>] Bob(remote)", net.Alice,
+	assertAmountPaid(t, "Alice(local) [private=>] Bob(remote)", net.Alice,
 		aliceFundPoint, paymentAmt+baseFee*2, 0)
 
 	// At this point, the payment was successful. We can now close all the
@@ -10476,17 +10478,17 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	// transaction, in channel Bob->Alice->David->Carol, order is Carol,
 	// David, Alice, Bob.
 	var amountPaid = int64(5000)
-	assertAmountPaid(t, ctxb, "Dave(local) => Carol(remote)", carol,
+	assertAmountPaid(t, "Dave(local) => Carol(remote)", carol,
 		carolFundPoint, int64(0), amountPaid)
-	assertAmountPaid(t, ctxb, "Dave(local) => Carol(remote)", dave,
+	assertAmountPaid(t, "Dave(local) => Carol(remote)", dave,
 		carolFundPoint, amountPaid, int64(0))
-	assertAmountPaid(t, ctxb, "Alice(local) => Dave(remote)", dave,
+	assertAmountPaid(t, "Alice(local) => Dave(remote)", dave,
 		daveFundPoint, int64(0), amountPaid+(baseFee*numPayments))
-	assertAmountPaid(t, ctxb, "Alice(local) => Dave(remote)", net.Alice,
+	assertAmountPaid(t, "Alice(local) => Dave(remote)", net.Alice,
 		daveFundPoint, amountPaid+(baseFee*numPayments), int64(0))
-	assertAmountPaid(t, ctxb, "Bob(local) => Alice(remote)", net.Alice,
+	assertAmountPaid(t, "Bob(local) => Alice(remote)", net.Alice,
 		aliceFundPoint, int64(0), amountPaid+((baseFee*numPayments)*2))
-	assertAmountPaid(t, ctxb, "Bob(local) => Alice(remote)", net.Bob,
+	assertAmountPaid(t, "Bob(local) => Alice(remote)", net.Bob,
 		aliceFundPoint, amountPaid+(baseFee*numPayments)*2, int64(0))
 
 	// Lastly, we will send one more payment to ensure all channels are
@@ -10511,17 +10513,17 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	amountPaid = int64(6000)
-	assertAmountPaid(t, ctxb, "Dave(local) => Carol(remote)", carol,
+	assertAmountPaid(t, "Dave(local) => Carol(remote)", carol,
 		carolFundPoint, int64(0), amountPaid)
-	assertAmountPaid(t, ctxb, "Dave(local) => Carol(remote)", dave,
+	assertAmountPaid(t, "Dave(local) => Carol(remote)", dave,
 		carolFundPoint, amountPaid, int64(0))
-	assertAmountPaid(t, ctxb, "Alice(local) => Dave(remote)", dave,
+	assertAmountPaid(t, "Alice(local) => Dave(remote)", dave,
 		daveFundPoint, int64(0), amountPaid+(baseFee*(numPayments+1)))
-	assertAmountPaid(t, ctxb, "Alice(local) => Dave(remote)", net.Alice,
+	assertAmountPaid(t, "Alice(local) => Dave(remote)", net.Alice,
 		daveFundPoint, amountPaid+(baseFee*(numPayments+1)), int64(0))
-	assertAmountPaid(t, ctxb, "Bob(local) => Alice(remote)", net.Alice,
+	assertAmountPaid(t, "Bob(local) => Alice(remote)", net.Alice,
 		aliceFundPoint, int64(0), amountPaid+((baseFee*(numPayments+1))*2))
-	assertAmountPaid(t, ctxb, "Bob(local) => Alice(remote)", net.Bob,
+	assertAmountPaid(t, "Bob(local) => Alice(remote)", net.Bob,
 		aliceFundPoint, amountPaid+(baseFee*(numPayments+1))*2, int64(0))
 
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
@@ -10817,17 +10819,17 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	// transaction, in channel Bob->Alice->David->Carol, order is Carol,
 	// David, Alice, Bob.
 	var amountPaid = int64(5000)
-	assertAmountPaid(t, ctxb, "Dave(local) => Carol(remote)", carol,
+	assertAmountPaid(t, "Dave(local) => Carol(remote)", carol,
 		carolFundPoint, int64(0), amountPaid)
-	assertAmountPaid(t, ctxb, "Dave(local) => Carol(remote)", dave,
+	assertAmountPaid(t, "Dave(local) => Carol(remote)", dave,
 		carolFundPoint, amountPaid, int64(0))
-	assertAmountPaid(t, ctxb, "Alice(local) => Dave(remote)", dave,
+	assertAmountPaid(t, "Alice(local) => Dave(remote)", dave,
 		daveFundPoint, int64(0), amountPaid+(baseFee*numPayments))
-	assertAmountPaid(t, ctxb, "Alice(local) => Dave(remote)", net.Alice,
+	assertAmountPaid(t, "Alice(local) => Dave(remote)", net.Alice,
 		daveFundPoint, amountPaid+(baseFee*numPayments), int64(0))
-	assertAmountPaid(t, ctxb, "Bob(local) => Alice(remote)", net.Alice,
+	assertAmountPaid(t, "Bob(local) => Alice(remote)", net.Alice,
 		aliceFundPoint, int64(0), amountPaid+((baseFee*numPayments)*2))
-	assertAmountPaid(t, ctxb, "Bob(local) => Alice(remote)", net.Bob,
+	assertAmountPaid(t, "Bob(local) => Alice(remote)", net.Bob,
 		aliceFundPoint, amountPaid+(baseFee*numPayments)*2, int64(0))
 
 	// Lastly, we will send one more payment to ensure all channels are
@@ -10852,17 +10854,17 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	amountPaid = int64(6000)
-	assertAmountPaid(t, ctxb, "Dave(local) => Carol(remote)", carol,
+	assertAmountPaid(t, "Dave(local) => Carol(remote)", carol,
 		carolFundPoint, int64(0), amountPaid)
-	assertAmountPaid(t, ctxb, "Dave(local) => Carol(remote)", dave,
+	assertAmountPaid(t, "Dave(local) => Carol(remote)", dave,
 		carolFundPoint, amountPaid, int64(0))
-	assertAmountPaid(t, ctxb, "Alice(local) => Dave(remote)", dave,
+	assertAmountPaid(t, "Alice(local) => Dave(remote)", dave,
 		daveFundPoint, int64(0), amountPaid+(baseFee*(numPayments+1)))
-	assertAmountPaid(t, ctxb, "Alice(local) => Dave(remote)", net.Alice,
+	assertAmountPaid(t, "Alice(local) => Dave(remote)", net.Alice,
 		daveFundPoint, amountPaid+(baseFee*(numPayments+1)), int64(0))
-	assertAmountPaid(t, ctxb, "Bob(local) => Alice(remote)", net.Alice,
+	assertAmountPaid(t, "Bob(local) => Alice(remote)", net.Alice,
 		aliceFundPoint, int64(0), amountPaid+((baseFee*(numPayments+1))*2))
-	assertAmountPaid(t, ctxb, "Bob(local) => Alice(remote)", net.Bob,
+	assertAmountPaid(t, "Bob(local) => Alice(remote)", net.Bob,
 		aliceFundPoint, amountPaid+(baseFee*(numPayments+1))*2, int64(0))
 
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
@@ -11157,17 +11159,17 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	// transaction, in channel Bob->Alice->David->Carol, order is Carol,
 	// David, Alice, Bob.
 	var amountPaid = int64(5000)
-	assertAmountPaid(t, ctxb, "Dave(local) => Carol(remote)", carol,
+	assertAmountPaid(t, "Dave(local) => Carol(remote)", carol,
 		carolFundPoint, int64(0), amountPaid)
-	assertAmountPaid(t, ctxb, "Dave(local) => Carol(remote)", dave,
+	assertAmountPaid(t, "Dave(local) => Carol(remote)", dave,
 		carolFundPoint, amountPaid, int64(0))
-	assertAmountPaid(t, ctxb, "Alice(local) => Dave(remote)", dave,
+	assertAmountPaid(t, "Alice(local) => Dave(remote)", dave,
 		daveFundPoint, int64(0), amountPaid+(baseFee*numPayments))
-	assertAmountPaid(t, ctxb, "Alice(local) => Dave(remote)", net.Alice,
+	assertAmountPaid(t, "Alice(local) => Dave(remote)", net.Alice,
 		daveFundPoint, amountPaid+(baseFee*numPayments), int64(0))
-	assertAmountPaid(t, ctxb, "Bob(local) => Alice(remote)", net.Alice,
+	assertAmountPaid(t, "Bob(local) => Alice(remote)", net.Alice,
 		aliceFundPoint, int64(0), amountPaid+((baseFee*numPayments)*2))
-	assertAmountPaid(t, ctxb, "Bob(local) => Alice(remote)", net.Bob,
+	assertAmountPaid(t, "Bob(local) => Alice(remote)", net.Bob,
 		aliceFundPoint, amountPaid+(baseFee*numPayments)*2, int64(0))
 
 	// Lastly, we will send one more payment to ensure all channels are
@@ -11200,17 +11202,17 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	}
 
 	amountPaid = int64(6000)
-	assertAmountPaid(t, ctxb, "Dave(local) => Carol(remote)", carol,
+	assertAmountPaid(t, "Dave(local) => Carol(remote)", carol,
 		carolFundPoint, int64(0), amountPaid)
-	assertAmountPaid(t, ctxb, "Dave(local) => Carol(remote)", dave,
+	assertAmountPaid(t, "Dave(local) => Carol(remote)", dave,
 		carolFundPoint, amountPaid, int64(0))
-	assertAmountPaid(t, ctxb, "Alice(local) => Dave(remote)", dave,
+	assertAmountPaid(t, "Alice(local) => Dave(remote)", dave,
 		daveFundPoint, int64(0), amountPaid+(baseFee*(numPayments+1)))
-	assertAmountPaid(t, ctxb, "Alice(local) => Dave(remote)", net.Alice,
+	assertAmountPaid(t, "Alice(local) => Dave(remote)", net.Alice,
 		daveFundPoint, amountPaid+(baseFee*(numPayments+1)), int64(0))
-	assertAmountPaid(t, ctxb, "Bob(local) => Alice(remote)", net.Alice,
+	assertAmountPaid(t, "Bob(local) => Alice(remote)", net.Alice,
 		aliceFundPoint, int64(0), amountPaid+((baseFee*(numPayments+1))*2))
-	assertAmountPaid(t, ctxb, "Bob(local) => Alice(remote)", net.Bob,
+	assertAmountPaid(t, "Bob(local) => Alice(remote)", net.Bob,
 		aliceFundPoint, amountPaid+(baseFee*(numPayments+1))*2, int64(0))
 
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
@@ -11458,9 +11460,9 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	// The amount transferred should be exactly equal to the invoice total
 	// payment amount, 5k satsohis.
 	const amountPaid = int64(5000)
-	assertAmountPaid(t, ctxb, "Dave(local) => Carol(remote)", carol,
+	assertAmountPaid(t, "Dave(local) => Carol(remote)", carol,
 		carolFundPoint, int64(0), amountPaid)
-	assertAmountPaid(t, ctxb, "Dave(local) => Carol(remote)", dave,
+	assertAmountPaid(t, "Dave(local) => Carol(remote)", dave,
 		carolFundPoint, amountPaid, int64(0))
 
 	// Shutdown carol and leave her offline for the rest of the test. This
@@ -11509,13 +11511,13 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	// corresponds to increasing of time is needed to embed the HTLC in
 	// commitment transaction, in channel Bob->Alice->David, order is David,
 	// Alice, Bob.
-	assertAmountPaid(t, ctxb, "Alice(local) => Dave(remote)", dave,
+	assertAmountPaid(t, "Alice(local) => Dave(remote)", dave,
 		daveFundPoint, int64(0), amountPaid+(baseFee*numPayments))
-	assertAmountPaid(t, ctxb, "Alice(local) => Dave(remote)", net.Alice,
+	assertAmountPaid(t, "Alice(local) => Dave(remote)", net.Alice,
 		daveFundPoint, amountPaid+(baseFee*numPayments), int64(0))
-	assertAmountPaid(t, ctxb, "Bob(local) => Alice(remote)", net.Alice,
+	assertAmountPaid(t, "Bob(local) => Alice(remote)", net.Alice,
 		aliceFundPoint, int64(0), amountPaid+((baseFee*numPayments)*2))
-	assertAmountPaid(t, ctxb, "Bob(local) => Alice(remote)", net.Bob,
+	assertAmountPaid(t, "Bob(local) => Alice(remote)", net.Bob,
 		aliceFundPoint, amountPaid+(baseFee*numPayments)*2, int64(0))
 
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)

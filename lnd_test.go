@@ -6290,7 +6290,7 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("justice tx wasn't mined")
 	}
 
-	assertNodeNumChannels(t, ctxb, carol, 0)
+	assertNodeNumChannels(t, carol, 0)
 }
 
 // testRevokedCloseRetributionZeroValueRemoteOutput tests that Dave is able
@@ -6532,7 +6532,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 		t.Fatalf("justice tx wasn't mined")
 	}
 
-	assertNodeNumChannels(t, ctxb, dave, 0)
+	assertNodeNumChannels(t, dave, 0)
 }
 
 // testRevokedCloseRetributionRemoteHodl tests that Dave properly responds to a
@@ -6939,7 +6939,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	assertTxInBlock(t, block, justiceTxid)
 
 	// Dave should have no open channels.
-	assertNodeNumChannels(t, ctxb, dave, 0)
+	assertNodeNumChannels(t, dave, 0)
 }
 
 // assertNumPendingChannels checks that a PendingChannels response from the
@@ -7150,7 +7150,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 		if nodeChan.NumUpdates != stateNumPreCopy {
 			t.Fatalf("db copy failed: %v", nodeChan.NumUpdates)
 		}
-		assertNodeNumChannels(t, ctxb, node, 1)
+		assertNodeNumChannels(t, node, 1)
 
 		balReq := &lnrpc.WalletBalanceRequest{}
 		balResp, err := node.WalletBalance(ctxb, balReq)
@@ -7271,8 +7271,8 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 			carolBalance)
 	}
 
-	assertNodeNumChannels(t, ctxb, dave, 0)
-	assertNodeNumChannels(t, ctxb, carol, 0)
+	assertNodeNumChannels(t, dave, 0)
+	assertNodeNumChannels(t, carol, 0)
 
 	// As a second part of this test, we will test the the scenario where a
 	// channel is closed while Dave is offline, loses his state and comes
@@ -7328,7 +7328,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 			carolBalance)
 	}
 
-	assertNodeNumChannels(t, ctxb, carol, 0)
+	assertNodeNumChannels(t, carol, 0)
 
 	// When Dave comes online, he will reconnect to Carol, try to resync
 	// the channel, but it will already be closed. Carol should resend the
@@ -7346,7 +7346,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 	// Mine a block to confirm the sweep, and make sure Dave got his
 	// balance back.
 	mineBlocks(t, net, 1, 1)
-	assertNodeNumChannels(t, ctxb, dave, 0)
+	assertNodeNumChannels(t, dave, 0)
 
 	daveBalResp, err = dave.WalletBalance(ctxb, balReq)
 	if err != nil {
@@ -7362,15 +7362,17 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 
 // assertNodeNumChannels polls the provided node's list channels rpc until it
 // reaches the desired number of total channels.
-func assertNodeNumChannels(t *harnessTest, ctxb context.Context,
-	node *lntest.HarnessNode, numChannels int) {
+func assertNodeNumChannels(t *harnessTest, node *lntest.HarnessNode,
+	numChannels int) {
+	ctxb := context.Background()
 
 	// Poll node for its list of channels.
 	req := &lnrpc.ListChannelsRequest{}
 
 	var predErr error
 	pred := func() bool {
-		chanInfo, err := node.ListChannels(ctxb, req)
+		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+		chanInfo, err := node.ListChannels(ctxt, req)
 		if err != nil {
 			predErr = fmt.Errorf("unable to query for node's "+
 				"channels: %v", err)

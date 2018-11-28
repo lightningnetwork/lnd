@@ -437,8 +437,9 @@ func assertNumOpenChannelsPending(ctxt context.Context, t *harnessTest,
 }
 
 // assertNumConnections asserts number current connections between two peers.
-func assertNumConnections(ctxt context.Context, t *harnessTest,
-	alice, bob *lntest.HarnessNode, expected int) {
+func assertNumConnections(t *harnessTest, alice, bob *lntest.HarnessNode,
+	expected int) {
+	ctxb := context.Background()
 
 	const nPolls = 10
 
@@ -448,11 +449,14 @@ func assertNumConnections(ctxt context.Context, t *harnessTest,
 	for i := nPolls - 1; i >= 0; i-- {
 		select {
 		case <-tick.C:
+			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 			aNumPeers, err := alice.ListPeers(ctxt, &lnrpc.ListPeersRequest{})
 			if err != nil {
 				t.Fatalf("unable to fetch alice's node (%v) list peers %v",
 					alice.NodeID, err)
 			}
+
+			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 			bNumPeers, err := bob.ListPeers(ctxt, &lnrpc.ListPeersRequest{})
 			if err != nil {
 				t.Fatalf("unable to fetch bob's node (%v) list peers %v",
@@ -1738,7 +1742,7 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
 	// Check existing connection.
-	assertNumConnections(ctxb, t, net.Alice, net.Bob, 1)
+	assertNumConnections(t, net.Alice, net.Bob, 1)
 
 	chanAmt := maxBtcFundingAmount
 	pushAmt := btcutil.Amount(0)
@@ -1769,7 +1773,7 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 	time.Sleep(time.Millisecond * 300)
 
 	// Check existing connection.
-	assertNumConnections(ctxb, t, net.Alice, net.Bob, 1)
+	assertNumConnections(t, net.Alice, net.Bob, 1)
 
 	fundingTxID, err := chainhash.NewHash(pendingUpdate.Txid)
 	if err != nil {
@@ -1825,7 +1829,7 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Check existing connection.
-	assertNumConnections(ctxb, t, net.Alice, net.Bob, 1)
+	assertNumConnections(t, net.Alice, net.Bob, 1)
 
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, true)
@@ -1846,7 +1850,7 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Check zero peer connections.
-	assertNumConnections(ctxb, t, net.Alice, net.Bob, 0)
+	assertNumConnections(t, net.Alice, net.Bob, 0)
 
 	// Finally, re-connect both nodes.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -1855,7 +1859,7 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Check existing connection.
-	assertNumConnections(ctxb, t, net.Alice, net.Bob, 1)
+	assertNumConnections(t, net.Alice, net.Bob, 1)
 
 	// Cleanup by mining the force close and sweep transaction.
 	cleanupForceClose(t, net, net.Alice, chanPoint)

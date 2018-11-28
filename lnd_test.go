@@ -2256,7 +2256,10 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// Send payments from Alice to Carol, since Carol is htlchodl mode, the
 	// htlc outputs should be left unsettled, and should be swept by the
 	// utxo nursery.
-	alicePayStream, err := net.Alice.SendPayment(ctxb)
+	ctx, cancel := context.WithCancel(ctxb)
+	defer cancel()
+
+	alicePayStream, err := net.Alice.SendPayment(ctx)
 	if err != nil {
 		t.Fatalf("unable to create payment stream for alice: %v", err)
 	}
@@ -7567,7 +7570,10 @@ out:
 	// Next we'll test an error that occurs mid-route due to an outgoing
 	// link having insufficient capacity. In order to do so, we'll first
 	// need to unbalance the link connecting Bob<->Carol.
-	bobPayStream, err := net.Bob.SendPayment(ctxb)
+	ctx, cancel := context.WithCancel(ctxb)
+	defer cancel()
+
+	bobPayStream, err := net.Bob.SendPayment(ctx)
 	if err != nil {
 		t.Fatalf("unable to create payment stream: %v", err)
 	}
@@ -8369,12 +8375,18 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 
 	// Open up a payment streams to Alice and to Bob, that we'll use to
 	// send payment between nodes.
-	alicePayStream, err := net.Alice.SendPayment(ctxb)
+	ctx, cancel := context.WithCancel(ctxb)
+	defer cancel()
+
+	alicePayStream, err := net.Alice.SendPayment(ctx)
 	if err != nil {
 		t.Fatalf("unable to create payment stream for alice: %v", err)
 	}
 
-	bobPayStream, err := net.Bob.SendPayment(ctxb)
+	ctx, cancel = context.WithCancel(ctxb)
+	defer cancel()
+
+	bobPayStream, err := net.Bob.SendPayment(ctx)
 	if err != nil {
 		t.Fatalf("unable to create payment stream for bob: %v", err)
 	}
@@ -8717,7 +8729,11 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 		htlcAmt        = btcutil.Amount(30000)
 		finalCltvDelta = 40
 	)
-	alicePayStream, err := net.Alice.SendPayment(ctxb)
+
+	ctx, cancel := context.WithCancel(ctxb)
+	defer cancel()
+
+	alicePayStream, err := net.Alice.SendPayment(ctx)
 	if err != nil {
 		t.Fatalf("unable to create payment stream for alice: %v", err)
 	}
@@ -8952,7 +8968,10 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	// Now that we've created the invoice, we'll send a single payment from
 	// Alice to Carol. We won't wait for the response however, as Carol
 	// will not immediately settle the payment.
-	alicePayStream, err := net.Alice.SendPayment(ctxb)
+	ctx, cancel := context.WithCancel(ctxb)
+	defer cancel()
+
+	alicePayStream, err := net.Alice.SendPayment(ctx)
 	if err != nil {
 		t.Fatalf("unable to create payment stream for alice: %v", err)
 	}
@@ -9173,7 +9192,10 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 		finalCltvDelta = 40
 		htlcAmt        = btcutil.Amount(30000)
 	)
-	alicePayStream, err := net.Alice.SendPayment(ctxb)
+	ctx, cancel := context.WithCancel(ctxb)
+	defer cancel()
+
+	alicePayStream, err := net.Alice.SendPayment(ctx)
 	if err != nil {
 		t.Fatalf("unable to create payment stream for alice: %v", err)
 	}
@@ -9428,7 +9450,11 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 		finalCltvDelta = 40
 		htlcAmt        = btcutil.Amount(30000)
 	)
-	alicePayStream, err := net.Alice.SendPayment(ctxb)
+
+	ctx, cancel := context.WithCancel(ctxb)
+	defer cancel()
+
+	alicePayStream, err := net.Alice.SendPayment(ctx)
 	if err != nil {
 		t.Fatalf("unable to create payment stream for alice: %v", err)
 	}
@@ -9643,7 +9669,10 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	// Now that we've created the invoice, we'll send a single payment from
 	// Alice to Carol. We won't wait for the response however, as Carol
 	// will not immediately settle the payment.
-	alicePayStream, err := net.Alice.SendPayment(ctxb)
+	ctx, cancel := context.WithCancel(ctxb)
+	defer cancel()
+
+	alicePayStream, err := net.Alice.SendPayment(ctx)
 	if err != nil {
 		t.Fatalf("unable to create payment stream for alice: %v", err)
 	}
@@ -9973,7 +10002,10 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// Now that we've created the invoice, we'll send a single payment from
 	// Alice to Carol. We won't wait for the response however, as Carol
 	// will not immediately settle the payment.
-	alicePayStream, err := net.Alice.SendPayment(ctxb)
+	ctx, cancel := context.WithCancel(ctxb)
+	defer cancel()
+
+	alicePayStream, err := net.Alice.SendPayment(ctx)
 	if err != nil {
 		t.Fatalf("unable to create payment stream for alice: %v", err)
 	}

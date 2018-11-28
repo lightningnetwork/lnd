@@ -317,10 +317,6 @@ type WalletDriver struct {
 	// initialization flexibility, thereby accommodating several potential
 	// WalletController implementations.
 	New func(args ...interface{}) (WalletController, error)
-
-	// BackEnds returns a list of available chain service drivers for the
-	// wallet driver. This could be e.g. bitcoind, btcd, neutrino, etc.
-	BackEnds func() []string
 }
 
 var (

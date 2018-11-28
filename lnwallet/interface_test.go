@@ -2371,7 +2371,7 @@ func TestLightningWallet(t *testing.T) {
 	}
 
 	for _, walletDriver := range lnwallet.RegisteredWallets() {
-		for _, backEnd := range walletDriver.BackEnds() {
+		for _, backEnd := range chain.BackEnds() {
 			runTests(t, walletDriver, backEnd, miningNode,
 				rpcConfig, chainNotifier)
 		}

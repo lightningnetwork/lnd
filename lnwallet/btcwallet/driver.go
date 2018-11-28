@@ -3,8 +3,7 @@ package btcwallet
 import (
 	"fmt"
 
-	"github.com/btcsuite/btcwallet/chain"
-	"github.com/lightningnetwork/lnd/lnwallet"
+		"github.com/lightningnetwork/lnd/lnwallet"
 )
 
 const (
@@ -37,7 +36,6 @@ func init() {
 	driver := &lnwallet.WalletDriver{
 		WalletType: walletType,
 		New:        createNewWallet,
-		BackEnds:   chain.BackEnds,
 	}
 
 	if err := lnwallet.RegisterWallet(driver); err != nil {

@@ -1,4 +1,4 @@
-package server
+package wtserver
 
 import (
 	"bytes"
@@ -108,7 +108,11 @@ func (s *Server) Start() error {
 		return nil
 	}
 
+	log.Infof("Starting watchtower server")
+
 	s.connMgr.Start()
+
+	log.Infof("Watchtower server started successfully")
 
 	return nil
 }
@@ -120,10 +124,14 @@ func (s *Server) Stop() error {
 		return nil
 	}
 
+	log.Infof("Stopping watchtower server")
+
 	s.connMgr.Stop()
 
 	close(s.quit)
 	s.wg.Wait()
+
+	log.Infof("Watchtower server stopped successfully")
 
 	return nil
 }
@@ -287,6 +295,8 @@ func (s *Server) handleClient(peer Peer) {
 	}
 }
 
+// handleInit accepts the local and remote Init messages, and verifies that the
+// client is not requesting any required features that are unknown to the tower.
 func (s *Server) handleInit(localInit, remoteInit *wtwire.Init) error {
 	remoteLocalFeatures := lnwire.NewFeatureVector(
 		remoteInit.LocalFeatures, wtwire.LocalFeatures,
@@ -310,33 +320,6 @@ func (s *Server) handleInit(localInit, remoteInit *wtwire.Init) error {
 	}
 
 	return nil
-}
-
-func (s *Server) readMessage(peer Peer) (wtwire.Message, error) {
-	// Set a read timeout to ensure we drop the client if not sent in a
-	// timely manner.
-	err := peer.SetReadDeadline(time.Now().Add(s.cfg.ReadTimeout))
-	if err != nil {
-		err = fmt.Errorf("unable to set read deadline: %v", err)
-		return nil, err
-	}
-
-	// Pull the next message off the wire, and parse it according to the
-	// watchtower wire specification.
-	rawMsg, err := peer.ReadNextMessage()
-	if err != nil {
-		err = fmt.Errorf("unable to read message: %v", err)
-		return nil, err
-	}
-
-	msgReader := bytes.NewReader(rawMsg)
-	nextMsg, err := wtwire.ReadMessage(msgReader, 0)
-	if err != nil {
-		err = fmt.Errorf("unable to parse message: %v", err)
-		return nil, err
-	}
-
-	return nextMsg, nil
 }
 
 // handleCreateSession processes a CreateSession message from the peer, and returns
@@ -548,6 +531,37 @@ func (s *Server) replyStateUpdate(peer Peer, id *wtdb.SessionID,
 		ID:   *id,
 		Code: uint16(code),
 	}
+}
+
+// readMessage receives and parses the next message from the given Peer. An
+// error is returned if a message is not received before the server's read
+// timeout, the read off the wire failed, or the message could not be
+// deserialized.
+func (s *Server) readMessage(peer Peer) (wtwire.Message, error) {
+	// Set a read timeout to ensure we drop the client if not sent in a
+	// timely manner.
+	err := peer.SetReadDeadline(time.Now().Add(s.cfg.ReadTimeout))
+	if err != nil {
+		err = fmt.Errorf("unable to set read deadline: %v", err)
+		return nil, err
+	}
+
+	// Pull the next message off the wire, and parse it according to the
+	// watchtower wire specification.
+	rawMsg, err := peer.ReadNextMessage()
+	if err != nil {
+		err = fmt.Errorf("unable to read message: %v", err)
+		return nil, err
+	}
+
+	msgReader := bytes.NewReader(rawMsg)
+	nextMsg, err := wtwire.ReadMessage(msgReader, 0)
+	if err != nil {
+		err = fmt.Errorf("unable to parse message: %v", err)
+		return nil, err
+	}
+
+	return nextMsg, nil
 }
 
 // sendMessage sends a watchtower wire message to the target peer.

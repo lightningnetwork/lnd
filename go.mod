@@ -56,3 +56,7 @@ require (
 	gopkg.in/mgo.v2 v2.0.0-20180705113604-9856a29383ce // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 )
+
+replace github.com/btcsuite/btcd => github.com/halseth/btcd v0.0.0-20181129120711-4210b8eabc80
+
+// replace github.com/btcsuite/btcd => ../../btcsuite/btcd

@@ -137,16 +137,6 @@ Compiles all dependencies and builds the `./lnd` and `./lncli` binaries.
 Equivalent to [`lint`](#lint) [`dep`](#dep) [`btcd`](#btcd)
 [`unit-race`](#unit-race).
 
-`travis`
---------
-**Note**: This must be run with either `RACE=true` or `RACE=false`.
-- `RACE=true` runs [`lint`](#lint) [`scratch`](#scratch) [`btcd`](#btcd)
-  [`unit-race`](#unit-race).
-- `RACE=false` runs [`lint`](#lint) [`scratch`](#scratch) [`itest`](#itest) 
-  [`unit-cover`](#unit-cover). Afterwards,
-  [`github.com/mattn/goveralls`][goveralls] is installed, and the coverage stats
-  are uploaded to [coveralls.io](https://coveralls.io).
-
 `unit`
 ------
 Runs the unit test suite. By default, this will run all known unit tests.

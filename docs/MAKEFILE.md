@@ -79,11 +79,6 @@ Removes compiled versions of both `./lnd` and `./lncli`, and removes the
 ---------
 Alias for [`scratch`](#scratch).
 
-`dep`
-------
-Ensures that [`github.com/golang/dep/cmd/dep`][dep] is installed, then
-updates then dependencies in the `vendor` tree using `dep ensure`.
-
 `flake-unit`
 ------------
 Runs the unit test endlessly until a failure is detected.

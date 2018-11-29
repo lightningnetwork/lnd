@@ -851,6 +851,12 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to send coins to carol: %v", err)
 	}
 
+	// Make sure the unconfirmed tx is seen in the mempool.
+	_, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	if err != nil {
+		t.Fatalf("failed to find tx in miner mempool: %v", err)
+	}
+
 	// Now, we'll connect her to Alice so that they can open a channel
 	// together. The funding flow should select Carol's unconfirmed output
 	// as she doesn't have any other funds since it's a new node.
@@ -1572,6 +1578,12 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 		chanAmt, pushAmt)
 	if err != nil {
 		t.Fatalf("unable to open channel: %v", err)
+	}
+
+	// Wait for miner to have seen the funding tx.
+	_, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	if err != nil {
+		t.Fatalf("failed to find funding tx in mempool: %v", err)
 	}
 
 	// At this point, the channel's funding transaction will have been
@@ -2346,6 +2358,11 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Mine a block which should confirm the commitment transaction
 	// broadcast as a result of the force closure.
+	_, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	if err != nil {
+		t.Fatalf("failed to find commitment in miner mempool: %v", err)
+	}
+
 	if _, err := net.Miner.Node.Generate(1); err != nil {
 		t.Fatalf("unable to generate block: %v", err)
 	}
@@ -2409,6 +2426,14 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// (the "kindergarten" bucket.)
 	if err := net.RestartNode(net.Alice, nil); err != nil {
 		t.Fatalf("Node restart failed: %v", err)
+	}
+
+	// Carol's sweep tx should be in the mempool already, as her output is
+	// not timelocked.
+	_, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	if err != nil {
+		t.Fatalf("failed to find Carol's sweep in miner mempool: %v",
+			err)
 	}
 
 	// Currently within the codebase, the default CSV is 4 relative blocks.
@@ -9631,6 +9656,13 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	ctxt, _ := context.WithTimeout(ctxb, channelCloseTimeout)
 	bobForceClose := closeChannelAndAssert(ctxt, t, net, net.Bob,
 		aliceChanPoint, true)
+
+	// Alice will sweep her output immediately.
+	_, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	if err != nil {
+		t.Fatalf("unable to find alice's sweep tx in miner mempool: %v",
+			err)
+	}
 
 	// We'll now mine enough blocks so Carol decides that she needs to go
 	// on-chain to claim the HTLC as Bob has been inactive.

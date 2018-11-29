@@ -845,35 +845,6 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 		t.Fatalf("expected time lock of %v, instead have %v", 2,
 			route.TotalTimeLock)
 	}
-
-	// The next and prev hop maps should be properly set.
-	for i := 0; i < expectedHopCount; i++ {
-		prevChan, ok := route.prevHopChannel(aliases[expectedHops[i].alias])
-		if !ok {
-			t.Fatalf("hop didn't have prev chan but should have")
-		}
-		if prevChan.ChannelID != route.Hops[i].ChannelID {
-			t.Fatalf("incorrect prev chan: expected %v, got %v",
-				prevChan.ChannelID, route.Hops[i].ChannelID)
-		}
-	}
-
-	for i := 0; i < expectedHopCount-1; i++ {
-		nextChan, ok := route.nextHopChannel(aliases[expectedHops[i].alias])
-		if !ok {
-			t.Fatalf("hop didn't have prev chan but should have")
-		}
-		if nextChan.ChannelID != route.Hops[i+1].ChannelID {
-			t.Fatalf("incorrect prev chan: expected %v, got %v",
-				nextChan.ChannelID, route.Hops[i+1].ChannelID)
-		}
-	}
-
-	// Final hop shouldn't have a next chan
-	if _, ok := route.nextHopChannel(aliases[expectedHops[lastHopIndex].alias]); ok {
-		t.Fatalf("incorrect next hop map, no vertexes should " +
-			"be after sophon")
-	}
 }
 
 func TestPathFindingWithAdditionalEdges(t *testing.T) {

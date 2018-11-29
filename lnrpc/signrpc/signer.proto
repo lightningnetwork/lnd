@@ -103,6 +103,22 @@ message SignResp {
     repeated bytes raw_sigs = 1;
 }
 
+message InputScript {
+    /// The serializes witness stack for the specified input.
+    repeated bytes witness = 1;
+
+    /***
+    The optional sig script for the specified witness that will only be set if
+    the input specified is a nested p2sh witness program.
+    */
+    bytes sig_script = 2;
+}
+
+message InputScriptResp {
+    /// The set of fully valid input scripts requested.
+    repeated InputScript input_scripts = 1;
+}
+
 service Signer {
     /**
     SignOutputRaw is a method that can be used to generated a signature for a
@@ -111,8 +127,22 @@ service Signer {
     signed with, and also any optional tweaks. The return value is a fixed
     64-byte signature (the same format as we use on the wire in Lightning). 
     
-    If we're unable to sign using the specified keys, then an error will be
+    If we are  unable to sign using the specified keys, then an error will be
     returned.
     */
     rpc SignOutputRaw(SignReq) returns (SignResp);
+
+    /**
+    ComputeInputScript generates a complete InputIndex for the passed
+    transaction with the signature as defined within the passed SignDescriptor.
+    This method should be capable of generating the proper input script for
+    both regular p2wkh output and p2wkh outputs nested within a regular p2sh
+    output.
+
+    Note that when using this method to sign inputs belonging to the wallet,
+    the only items of the SignDescriptor that need to be populated are pkScript
+    in the TxOut field, the value in that same field, and finally the input
+    index.
+    */
+    rpc ComputeInputScript(SignReq) returns (InputScriptResp); 
 }

@@ -575,7 +575,7 @@ func TestFindLowestFeePath(t *testing.T) {
 	}
 	sourceVertex := Vertex(sourceNode.PubKeyBytes)
 
-	ignoredEdges := make(map[uint64]struct{})
+	ignoredEdges := make(map[edgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	const (
@@ -721,7 +721,7 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 	}
 	sourceVertex := Vertex(sourceNode.PubKeyBytes)
 
-	ignoredEdges := make(map[uint64]struct{})
+	ignoredEdges := make(map[edgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	const (
@@ -1255,7 +1255,7 @@ func TestNewRoutePathTooLong(t *testing.T) {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
 
-	ignoredEdges := make(map[uint64]struct{})
+	ignoredEdges := make(map[edgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
@@ -1314,7 +1314,7 @@ func TestPathNotAvailable(t *testing.T) {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
 
-	ignoredEdges := make(map[uint64]struct{})
+	ignoredEdges := make(map[edgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	// With the test graph loaded, we'll test that queries for target that
@@ -1359,7 +1359,7 @@ func TestPathInsufficientCapacity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
-	ignoredEdges := make(map[uint64]struct{})
+	ignoredEdges := make(map[edgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	// Next, test that attempting to find a path in which the current
@@ -1404,7 +1404,7 @@ func TestRouteFailMinHTLC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
-	ignoredEdges := make(map[uint64]struct{})
+	ignoredEdges := make(map[edgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	// We'll not attempt to route an HTLC of 10 SAT from roasbeef to Son
@@ -1446,7 +1446,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
-	ignoredEdges := make(map[uint64]struct{})
+	ignoredEdges := make(map[edgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	// First, we'll try to route from roasbeef -> sophon. This should
@@ -1546,7 +1546,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
-	ignoredEdges := make(map[uint64]struct{})
+	ignoredEdges := make(map[edgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	// First, we'll try to route from roasbeef -> sophon. This should

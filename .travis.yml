@@ -27,7 +27,6 @@ install:
 
 script:
   # Common for all builds.
-  - make dep
   - make btcd
 
   # Run linter if LINT=true.

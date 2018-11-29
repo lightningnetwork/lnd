@@ -140,8 +140,9 @@ func (svc *Service) StreamServerInterceptor(
 				"for method", info.FullMethod)
 		}
 
-		err := svc.ValidateMacaroon(ss.Context(),
-			permissionMap[info.FullMethod])
+		err := svc.ValidateMacaroon(
+			ss.Context(), permissionMap[info.FullMethod],
+		)
 		if err != nil {
 			return err
 		}

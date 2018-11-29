@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/lncfg"
+	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/tor"
@@ -220,6 +221,8 @@ type config struct {
 
 	Tor *torConfig `group:"Tor" namespace:"tor"`
 
+	SubRPCServers *subRPCServerConfigs `group:"subrpc"`
+
 	Hodl *hodl.Config `group:"hodl" namespace:"hodl"`
 
 	NoNetBootstrap bool `long:"nobootstrap" description:"If true, then automatic network bootstrapping will not be attempted."`
@@ -295,6 +298,9 @@ func loadConfig() (*config, error) {
 		},
 		MaxPendingChannels: defaultMaxPendingChannels,
 		NoSeedBackup:       defaultNoSeedBackup,
+		SubRPCServers: &subRPCServerConfigs{
+			SignRPC: &signrpc.Config{},
+		},
 		Autopilot: &autoPilotConfig{
 			MaxChannels:    5,
 			Allocation:     0.6,

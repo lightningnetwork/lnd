@@ -146,6 +146,10 @@ type Route struct {
 	// amount of fees.
 	TotalAmount lnwire.MilliSatoshi
 
+	// SourcePubKey is the pubkey of the node where this route originates
+	// from.
+	SourcePubKey Vertex
+
 	// Hops contains details concerning the specific forwarding details at
 	// each hop.
 	Hops []*Hop
@@ -158,16 +162,6 @@ type Route struct {
 	// is present in this route or not. Channels are identified by the
 	// uint64 version of the short channel ID.
 	chanIndex map[uint64]struct{}
-
-	// nextHop maps a node, to the next channel that it will pass the HTLC
-	// off to. With this map, we can easily look up the next outgoing
-	// channel or node for pruning purposes.
-	nextHopMap map[Vertex]*Hop
-
-	// prevHop maps a node, to the channel that was directly before it
-	// within the route. With this map, we can easily look up the previous
-	// channel or node for pruning purposes.
-	prevHopMap map[Vertex]*Hop
 }
 
 // HopFee returns the fee charged by the route hop indicated by hopIndex.
@@ -181,29 +175,6 @@ func (r *Route) HopFee(hopIndex int) lnwire.MilliSatoshi {
 
 	// Fee is calculated as difference between incoming and outgoing amount.
 	return incomingAmt - r.Hops[hopIndex].AmtToForward
-}
-
-// nextHopVertex returns the next hop (by Vertex) after the target node. If the
-// target node is not found in the route, then false is returned.
-func (r *Route) nextHopVertex(n *btcec.PublicKey) (Vertex, bool) {
-	hop, ok := r.nextHopMap[NewVertex(n)]
-	return Vertex(hop.PubKeyBytes), ok
-}
-
-// nextHopChannel returns the uint64 channel ID of the next hop after the
-// target node. If the target node is not found in the route, then false is
-// returned.
-func (r *Route) nextHopChannel(n *btcec.PublicKey) (*Hop, bool) {
-	hop, ok := r.nextHopMap[NewVertex(n)]
-	return hop, ok
-}
-
-// prevHopChannel returns the uint64 channel ID of the before hop after the
-// target node. If the target node is not found in the route, then false is
-// returned.
-func (r *Route) prevHopChannel(n *btcec.PublicKey) (*Hop, bool) {
-	hop, ok := r.prevHopMap[NewVertex(n)]
-	return hop, ok
 }
 
 // containsNode returns true if a node is present in the target route, and
@@ -381,31 +352,21 @@ func NewRouteFromHops(amtToSend lnwire.MilliSatoshi, timeLock uint32,
 	// that is send from the source and the final amount that is received
 	// by the destination.
 	route := &Route{
+		SourcePubKey:  sourceVertex,
 		Hops:          hops,
 		TotalTimeLock: timeLock,
 		TotalAmount:   amtToSend,
 		TotalFees:     amtToSend - hops[len(hops)-1].AmtToForward,
 		nodeIndex:     make(map[Vertex]struct{}),
 		chanIndex:     make(map[uint64]struct{}),
-		nextHopMap:    make(map[Vertex]*Hop),
-		prevHopMap:    make(map[Vertex]*Hop),
 	}
 
 	// Then we'll update the node and channel index, to indicate that this
 	// Vertex and incoming channel link are present within this route.
-	// Also, the prev and next hop maps will be populated.
-	prevNode := sourceVertex
-	for i := 0; i < len(hops); i++ {
-		hop := hops[i]
-
+	for _, hop := range hops {
 		v := Vertex(hop.PubKeyBytes)
-
 		route.nodeIndex[v] = struct{}{}
 		route.chanIndex[hop.ChannelID] = struct{}{}
-		route.prevHopMap[v] = hop
-		route.nextHopMap[prevNode] = hop
-
-		prevNode = v
 	}
 
 	return route

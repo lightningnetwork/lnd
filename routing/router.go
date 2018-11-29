@@ -1760,7 +1760,9 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 
 			// Always determine chan id ourselves, because a channel
 			// update with id may not be available.
-			failedChanID, err := getFailedChannelID(route, errSource)
+			failedChanID, err := getFailedChannelID(
+				route, errVertex,
+			)
 			if err != nil {
 				return preImage, nil, err
 			}
@@ -1966,28 +1968,40 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 // getFailedChannelID tries to locate the failing channel given a route and the
 // pubkey of the node that sent the error. It will assume that the error is
 // associated with the outgoing channel of the error node.
-func getFailedChannelID(route *Route, errSource *btcec.PublicKey) (
+func getFailedChannelID(route *Route, errSource Vertex) (
 	uint64, error) {
 
-	// As this error indicates that the target channel was unable to carry
-	// this HTLC (for w/e reason), we'll query the index to find the
-	// _outgoing_ channel the source of the error was meant to pass the
-	// HTLC along to.
-	if badChan, ok := route.nextHopChannel(errSource); ok {
-		return badChan.ChannelID, nil
+	// If the error originates from ourselves, report our outgoing channel
+	// as failing.
+	if errSource == route.SourcePubKey {
+		return route.Hops[0].ChannelID, nil
 	}
 
-	// If we weren't able to find the hop *after* this node, then we'll
-	// attempt to disable the previous channel.
-	//
-	// TODO(joostjager): errSource must be the final hop then? In that case,
-	// certain types of errors are not expected. For example
-	// FailUnknownNextPeer. This could be a reason to prune the node?
-	if prevChan, ok := route.prevHopChannel(errSource); ok {
-		return prevChan.ChannelID, nil
+	hopCount := len(route.Hops)
+	for i, hop := range route.Hops {
+		if errSource != hop.PubKeyBytes {
+			continue
+		}
+
+		// If the errSource is the final hop, we assume that the
+		// failing channel is the incoming channel.
+		//
+		// TODO(joostjager): In this case, certain types of
+		// errors are not expected. For example
+		// FailUnknownNextPeer. This could be a reason to prune
+		// the node?
+		if i == hopCount-1 {
+			return route.Hops[i].ChannelID, nil
+		}
+
+		// As this error indicates that the target channel was
+		// unable to carry this HTLC (for w/e reason), we'll
+		// query return the _outgoing_ channel that the source
+		// of the error was meant to pass the HTLC along to.
+		return route.Hops[i+1].ChannelID, nil
 	}
 
-	return 0, fmt.Errorf("cannot find channel in route")
+	return 0, fmt.Errorf("cannot find error source node in route")
 }
 
 // applyChannelUpdate validates a channel update and if valid, applies it to the

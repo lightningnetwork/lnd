@@ -7,7 +7,7 @@
   * **Go:** `lnd` is written in Go. To install, run one of the following commands:
 
 
-    **Note**: The minimum version of Go supported is Go 1.10. We recommend that
+    **Note**: The minimum version of Go supported is Go 1.11. We recommend that
     users use the latest version of Go, which at the time of writing is
     [`1.11`](https://blog.golang.org/go1.11).
 
@@ -16,9 +16,9 @@
     ```
     sudo apt-get install golang-1.11-go
     ```
-    > Note that golang-1.10-go puts binaries in /usr/lib/go-1.10/bin. If you want them on your PATH, you need to make that change yourself. Alternatively, you can run:
+    > Note that golang-1.11-go puts binaries in /usr/lib/go-1.11/bin. If you want them on your PATH, you need to make that change yourself. Alternatively, you can run:
     ```
-    sudo ln -s /usr/lib/go-1.10/bin/go /usr/local/bin/go
+    sudo ln -s /usr/lib/go-1.11/bin/go /usr/local/bin/go
     ```
 
     On Mac OS X:
@@ -49,15 +49,12 @@
     We recommend placing the above in your .bashrc or in a setup script so that
     you can avoid typing this every time you open a new terminal window.
 
-  * **dep:** This project uses `dep` to manage dependencies as well
-    as to provide *reproducible builds*.
+  * **go modules:** This project uses [go modules](https://github.com/golang/go/wiki/Modules) 
+    to manage dependencies as well as to provide *reproducible builds*.
 
-    **Note**: `dep` is automatically installed via the `make`. To fetch `dep`
-    manually, use the following command (assumes you already have Go properly
-    installed):
-    ```
-    go get -u github.com/golang/dep/cmd/dep
-    ```
+    Usage of go modules (with go 1.11) means that you no longer need to clone
+    `lnd` into your `$GOPATH` for development purposes. Instead, your `lnd`
+    repo can now live anywhere!
 
 ### Installing lnd
 
@@ -68,6 +65,10 @@ go get -d github.com/lightningnetwork/lnd
 cd $GOPATH/src/github.com/lightningnetwork/lnd
 make && make install
 ```
+
+**NOTE**: Our instructions still use the `$GOPATH` directory from prior
+versions of Go, but with go 1.11, it's now possible for `lnd` to live
+_anywhere_ on your file system.
 
 For Windows WSL users, make will need to be referenced directly via
 /usr/bin/make/, or alternatively by wrapping quotation marks around make,
@@ -84,8 +85,7 @@ On FreeBSD, use gmake instead of make.
 Alternatively, if one doesn't wish to use `make`, then the `go` commands can be
 used directly:
 ```
-dep ensure -v
-go install -v ./...
+GO111MODULE=on go install -v ./...
 ```
 
 **Updating**
@@ -105,8 +105,7 @@ used directly:
 ```
 cd $GOPATH/src/github.com/lightningnetwork/lnd
 git pull
-dep ensure -v
-go install -v ./...
+GO111MODULE=on go install -v ./...
 ```
 
 **Tests**

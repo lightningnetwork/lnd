@@ -3,6 +3,7 @@ cache:
   directories:
     - vendor/
     - $GOCACHE
+    - $GOPATH/pkg/mod
     - $GOPATH/src/github.com/btcsuite
     - $GOPATH/src/github.com/golang
     - $GOPATH/src/gopkg.in/alecthomas
@@ -26,6 +27,8 @@ install:
   - export PATH=$PATH:$PWD/linux-amd64/
 
 script:
+  - env GO111MODULE=on
+
   # Common for all builds.
   - make btcd
 

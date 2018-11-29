@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"math"
 	"math/big"
@@ -230,6 +231,13 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 		node2Bytes, err := hex.DecodeString(edge.Node2)
 		if err != nil {
 			return nil, err
+		}
+
+		if bytes.Compare(node1Bytes, node2Bytes) == 1 {
+			return nil, fmt.Errorf(
+				"channel %v node order incorrect",
+				edge.ChannelID,
+			)
 		}
 
 		fundingTXID := strings.Split(edge.ChannelPoint, ":")[0]

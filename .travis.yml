@@ -29,6 +29,8 @@ install:
 script:
   - env GO111MODULE=on
 
+  - make clean
+
   # Common for all builds.
   - make btcd
 

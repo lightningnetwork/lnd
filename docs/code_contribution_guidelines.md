@@ -451,7 +451,7 @@ Rejoice as you will now be listed as a [contributor](https://github.com/lightnin
 
 #### 6.1. Contribution Checklist
 
-- [&nbsp;&nbsp;] All changes are Go version 1.9 compliant
+- [&nbsp;&nbsp;] All changes are Go version 1.11 compliant
 - [&nbsp;&nbsp;] The code being submitted is commented according to the
   [Code Documentation and Commenting](#CodeDocumentation) section
 - [&nbsp;&nbsp;] For new code: Code is accompanied by tests which exercise both

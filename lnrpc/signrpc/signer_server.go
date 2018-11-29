@@ -313,3 +313,78 @@ func (s *Server) SignOutputRaw(ctx context.Context, in *SignReq) (*SignResp, err
 
 	return resp, nil
 }
+
+// ComputeInputScript generates a complete InputIndex for the passed
+// transaction with the signature as defined within the passed SignDescriptor.
+// This method should be capable of generating the proper input script for both
+// regular p2wkh output and p2wkh outputs nested within a regular p2sh output.
+//
+// Note that when using this method to sign inputs belonging to the wallet, the
+// only items of the SignDescriptor that need to be populated are pkScript in
+// the TxOut field, the value in that same field, and finally the input index.
+func (s *Server) ComputeInputScript(ctx context.Context,
+	in *SignReq) (*InputScriptResp, error) {
+
+	switch {
+	// If the client doesn't specify a transaction, then there's nothing to
+	// sign, so we'll exit early.
+	case len(in.RawTxBytes) == 0:
+		return nil, fmt.Errorf("a transaction to sign MUST be " +
+			"passed in")
+
+	// If the client doesn't tell us *how* to sign the transaction, then we
+	// can't sign anything, so we'll exit early.
+	case len(in.SignDescs) == 0:
+		return nil, fmt.Errorf("at least one SignDescs MUST be " +
+			"passed in")
+	}
+
+	// Now that we know we have an actual transaction to decode, we'll
+	// deserialize it into something that we can properly utilize.
+	var txToSign wire.MsgTx
+	txReader := bytes.NewReader(in.RawTxBytes)
+	if err := txToSign.Deserialize(txReader); err != nil {
+		return nil, fmt.Errorf("unable to decode tx: %v", err)
+	}
+
+	sigHashCache := txscript.NewTxSigHashes(&txToSign)
+
+	signDescs := make([]*lnwallet.SignDescriptor, 0, len(in.SignDescs))
+	for _, signDesc := range in.SignDescs {
+		// For this method, the only fields that we care about are the
+		// hash type, and the information concerning the output as we
+		// only know how to provide full witnesses for outputs that we
+		// solely control.
+		signDescs = append(signDescs, &lnwallet.SignDescriptor{
+			Output: &wire.TxOut{
+				Value:    signDesc.Output.Value,
+				PkScript: signDesc.Output.PkScript,
+			},
+			HashType:  txscript.SigHashType(signDesc.Sighash),
+			SigHashes: sigHashCache,
+		})
+	}
+
+	// With all of our signDescs assembled, we can now generate a valid
+	// input script for each of them, and collate the responses to return
+	// back to the caller.
+	numWitnesses := len(in.SignDescs)
+	resp := &InputScriptResp{
+		InputScripts: make([]*InputScript, numWitnesses),
+	}
+	for i, signDesc := range signDescs {
+		inputScript, err := s.cfg.Signer.ComputeInputScript(
+			&txToSign, signDesc,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		resp.InputScripts[i] = &InputScript{
+			Witness:   inputScript.Witness,
+			SigScript: inputScript.ScriptSig,
+		}
+	}
+
+	return resp, nil
+}

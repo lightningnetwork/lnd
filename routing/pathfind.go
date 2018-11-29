@@ -440,7 +440,7 @@ type restrictParams struct {
 
 	// ignoredEdges is an optional set of edges that should be ignored if
 	// encountered during path finding.
-	ignoredEdges map[uint64]struct{}
+	ignoredEdges map[edgeLocator]struct{}
 
 	// feeLimit is a maximum fee amount allowed to be used on the path from
 	// the source to the target.
@@ -567,7 +567,9 @@ func findPath(g *graphParams, r *restrictParams,
 		if _, ok := r.ignoredNodes[fromVertex]; ok {
 			return
 		}
-		if _, ok := r.ignoredEdges[edge.ChannelID]; ok {
+
+		locator := newEdgeLocator(edge)
+		if _, ok := r.ignoredEdges[*locator]; ok {
 			return
 		}
 
@@ -795,7 +797,7 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 	amt lnwire.MilliSatoshi, feeLimit lnwire.MilliSatoshi, numPaths uint32,
 	bandwidthHints map[uint64]lnwire.MilliSatoshi) ([][]*channeldb.ChannelEdgePolicy, error) {
 
-	ignoredEdges := make(map[uint64]struct{})
+	ignoredEdges := make(map[edgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	// TODO(roasbeef): modifying ordering within heap to eliminate final
@@ -850,7 +852,7 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 			// we'll exclude from the next path finding attempt.
 			// These are required to ensure the paths are unique
 			// and loopless.
-			ignoredEdges = make(map[uint64]struct{})
+			ignoredEdges = make(map[edgeLocator]struct{})
 			ignoredVertexes = make(map[Vertex]struct{})
 
 			// Our spur node is the i-th node in the prior shortest
@@ -868,8 +870,11 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 				// shortest path, then we'll remove the edge
 				// directly _after_ our spur node from the
 				// graph so we don't repeat paths.
-				if len(path) > i+1 && isSamePath(rootPath, path[:i+1]) {
-					ignoredEdges[path[i+1].ChannelID] = struct{}{}
+				if len(path) > i+1 &&
+					isSamePath(rootPath, path[:i+1]) {
+
+					locator := newEdgeLocator(path[i+1])
+					ignoredEdges[*locator] = struct{}{}
 				}
 			}
 

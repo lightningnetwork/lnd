@@ -110,7 +110,6 @@ $(GOVERALLS_BIN):
 $(LINT_BIN):
 	@$(call print, "Fetching gometalinter.v2")
 	go get -u $(LINT_PKG)
-	$(GOINSTALL) $(LINT_PKG)
 
 dep: $(DEP_BIN)
 	@$(call print, "Compiling dependencies.")
@@ -150,9 +149,11 @@ scratch: dep build
 
 check: unit itest
 
-itest: btcd build
+itest-only: 
 	@$(call print, "Running integration tests.")
 	$(ITEST)
+
+itest: btcd build itest-only
 
 unit: btcd
 	@$(call print, "Running unit tests.")
@@ -168,6 +169,10 @@ unit-race:
 	export CGO_ENABLED=1; env GORACE="history_size=7 halt_on_errors=1" $(UNIT_RACE)
 	export CGO_ENABLED=$(CGO_STATUS_QUO)
 
+goveralls: $(GOVERALLS_BIN)
+	@$(call print, "Sending coverage report.")
+	$(GOVERALLS_BIN) -coverprofile=profile.cov -service=travis-ci
+
 # =============
 # FLAKE HUNTING
 # =============
@@ -180,30 +185,6 @@ flake-unit:
 	@$(call print, "Flake hunting unit tests.")
 	GOTRACEBACK=all $(UNIT) -count=1
 	while [ $$? -eq 0 ]; do /bin/sh -c "GOTRACEBACK=all $(UNIT) -count=1"; done
-
-# ======
-# TRAVIS
-# ======
-
-ifeq ($(RACE)$(USE_LINT), FALSETRUE)
-travis: dep lint build itest unit-cover $(GOVERALLS_BIN)
-	@$(call print, "Sending coverage report.")
-	$(GOVERALLS_BIN) -coverprofile=profile.cov -service=travis-ci
-endif
-
-ifeq ($(RACE)$(USE_LINT), FALSEFALSE)
-travis: dep build itest unit-cover $(GOVERALLS_BIN)
-	@$(call print, "Sending coverage report.")
-	$(GOVERALLS_BIN) -coverprofile=profile.cov -service=travis-ci
-endif
-
-ifeq ($(RACE)$(USE_LINT), TRUETRUE)
-travis: dep lint btcd unit-race
-endif
-
-ifeq ($(RACE)$(USE_LINT), TRUEFALSE)
-travis: dep btcd unit-race
-endif
 
 # =========
 # UTILITIES
@@ -243,13 +224,14 @@ clean:
 	install \
 	scratch \
 	check \
+	itest-only \
 	itest \
 	unit \
 	unit-cover \
 	unit-race \
+	goveralls \
 	flakehunter \
 	flake-unit \
-	travis \
 	fmt \
 	lint \
 	list \

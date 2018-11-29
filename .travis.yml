@@ -27,8 +27,6 @@ install:
   - export PATH=$PATH:$PWD/linux-amd64/
 
 script:
-  - env GO111MODULE=on
-
   # Common for all builds.
   - make btcd
 

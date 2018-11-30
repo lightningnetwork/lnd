@@ -134,7 +134,7 @@ func (l *Lookout) watchBlocks(epochs *chainntnfs.BlockEpochEvent) {
 			// that we are monitoring on behalf of our clients.
 			err = l.processEpoch(epoch, block)
 			if err != nil {
-				log.Errorf("Unable to process %s: %v",
+				log.Errorf("Unable to process %v: %v",
 					epoch, err)
 			}
 

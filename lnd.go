@@ -246,7 +246,8 @@ func lndMain() error {
 		)
 		if err != nil {
 			srvrLog.Errorf("unable to create macaroon service: %v", err)
-			return err		}
+			return err
+		}
 		defer macaroonService.Close()
 
 		// Try to unlock the macaroon store with the private password.
@@ -382,8 +383,6 @@ func lndMain() error {
 		return err
 	}
 	defer server.Stop()
-
-//	grpc_prometheus.Register(grpcServer)
 
 	// Now that the server has started, if the autopilot mode is currently
 	// active, then we'll initialize a fresh instance of it and start it.

@@ -81,7 +81,7 @@ func NewPaymentControl(strict bool, db *channeldb.DB) ControlTower {
 // payment identified by the same payment hash.
 func (p *paymentControl) ClearForTakeoff(htlc *lnwire.UpdateAddHTLC) error {
 	var takeoffErr error
-	err := p.db.Batch(func(tx *bolt.Tx) error {
+	err := p.db.Batch(func(tx *bbolt.Tx) error {
 		// Retrieve current status of payment from local database.
 		paymentStatus, err := channeldb.FetchPaymentStatusTx(
 			tx, htlc.PaymentHash,
@@ -133,7 +133,7 @@ func (p *paymentControl) ClearForTakeoff(htlc *lnwire.UpdateAddHTLC) error {
 // attempts for the same payment hash.
 func (p *paymentControl) Success(paymentHash [32]byte) error {
 	var updateErr error
-	err := p.db.Batch(func(tx *bolt.Tx) error {
+	err := p.db.Batch(func(tx *bbolt.Tx) error {
 		paymentStatus, err := channeldb.FetchPaymentStatusTx(
 			tx, paymentHash,
 		)
@@ -190,7 +190,7 @@ func (p *paymentControl) Success(paymentHash [32]byte) error {
 // for the same payment hash.
 func (p *paymentControl) Fail(paymentHash [32]byte) error {
 	var updateErr error
-	err := p.db.Batch(func(tx *bolt.Tx) error {
+	err := p.db.Batch(func(tx *bbolt.Tx) error {
 		paymentStatus, err := channeldb.FetchPaymentStatusTx(
 			tx, paymentHash,
 		)

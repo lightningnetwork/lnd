@@ -1152,7 +1152,7 @@ func newRetributionStore(db *channeldb.DB) *retributionStore {
 // Add adds a retribution state to the retributionStore, which is then persisted
 // to disk.
 func (rs *retributionStore) Add(ret *retributionInfo) error {
-	return rs.db.Update(func(tx *bolt.Tx) error {
+	return rs.db.Update(func(tx *bbolt.Tx) error {
 		// If this is our first contract breach, the retributionBucket
 		// won't exist, in which case, we just create a new bucket.
 		retBucket, err := tx.CreateBucketIfNotExists(retributionBucket)
@@ -1179,7 +1179,7 @@ func (rs *retributionStore) Add(ret *retributionInfo) error {
 // startup and re-register for confirmation notifications.
 func (rs *retributionStore) Finalize(chanPoint *wire.OutPoint,
 	finalTx *wire.MsgTx) error {
-	return rs.db.Update(func(tx *bolt.Tx) error {
+	return rs.db.Update(func(tx *bbolt.Tx) error {
 		justiceBkt, err := tx.CreateBucketIfNotExists(justiceTxnBucket)
 		if err != nil {
 			return err
@@ -1206,7 +1206,7 @@ func (rs *retributionStore) GetFinalizedTxn(
 	chanPoint *wire.OutPoint) (*wire.MsgTx, error) {
 
 	var finalTxBytes []byte
-	if err := rs.db.View(func(tx *bolt.Tx) error {
+	if err := rs.db.View(func(tx *bbolt.Tx) error {
 		justiceBkt := tx.Bucket(justiceTxnBucket)
 		if justiceBkt == nil {
 			return nil
@@ -1240,7 +1240,7 @@ func (rs *retributionStore) GetFinalizedTxn(
 // that has already been breached.
 func (rs *retributionStore) IsBreached(chanPoint *wire.OutPoint) (bool, error) {
 	var found bool
-	err := rs.db.View(func(tx *bolt.Tx) error {
+	err := rs.db.View(func(tx *bbolt.Tx) error {
 		retBucket := tx.Bucket(retributionBucket)
 		if retBucket == nil {
 			return nil
@@ -1265,7 +1265,7 @@ func (rs *retributionStore) IsBreached(chanPoint *wire.OutPoint) (bool, error) {
 // Remove removes a retribution state and finalized justice transaction by
 // channel point  from the retribution store.
 func (rs *retributionStore) Remove(chanPoint *wire.OutPoint) error {
-	return rs.db.Update(func(tx *bolt.Tx) error {
+	return rs.db.Update(func(tx *bbolt.Tx) error {
 		retBucket := tx.Bucket(retributionBucket)
 
 		// We return an error if the bucket is not already created,
@@ -1304,7 +1304,7 @@ func (rs *retributionStore) Remove(chanPoint *wire.OutPoint) error {
 // ForAll iterates through all stored retributions and executes the passed
 // callback function on each retribution.
 func (rs *retributionStore) ForAll(cb func(*retributionInfo) error) error {
-	return rs.db.View(func(tx *bolt.Tx) error {
+	return rs.db.View(func(tx *bbolt.Tx) error {
 		// If the bucket does not exist, then there are no pending
 		// retributions.
 		retBucket := tx.Bucket(retributionBucket)

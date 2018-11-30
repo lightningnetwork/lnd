@@ -49,7 +49,7 @@ func ChannelGraphFromDatabase(db *channeldb.ChannelGraph) ChannelGraph {
 // channeldb.LightningNode. The wrapper method implement the autopilot.Node
 // interface.
 type dbNode struct {
-	tx *bolt.Tx
+	tx *bbolt.Tx
 
 	node *channeldb.LightningNode
 }
@@ -82,7 +82,7 @@ func (d dbNode) Addrs() []net.Addr {
 //
 // NOTE: Part of the autopilot.Node interface.
 func (d dbNode) ForEachChannel(cb func(ChannelEdge) error) error {
-	return d.node.ForEachChannel(d.tx, func(tx *bolt.Tx,
+	return d.node.ForEachChannel(d.tx, func(tx *bbolt.Tx,
 		ei *channeldb.ChannelEdgeInfo, ep, _ *channeldb.ChannelEdgePolicy) error {
 
 		// Skip channels for which no outgoing edge policy is available.
@@ -119,7 +119,7 @@ func (d dbNode) ForEachChannel(cb func(ChannelEdge) error) error {
 //
 // NOTE: Part of the autopilot.ChannelGraph interface.
 func (d *databaseChannelGraph) ForEachNode(cb func(Node) error) error {
-	return d.db.ForEachNode(nil, func(tx *bolt.Tx, n *channeldb.LightningNode) error {
+	return d.db.ForEachNode(nil, func(tx *bbolt.Tx, n *channeldb.LightningNode) error {
 
 		// We'll skip over any node that doesn't have any advertised
 		// addresses. As we won't be able to reach them to actually

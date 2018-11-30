@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 
+	"github.com/coreos/bbolt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
@@ -14,8 +15,6 @@ import (
 	macaroon "gopkg.in/macaroon.v2"
 
 	"golang.org/x/net/context"
-
-	"github.com/coreos/bbolt"
 )
 
 var (
@@ -50,8 +49,8 @@ func NewService(dir string, checks ...Checker) (*Service, error) {
 
 	// Open the database that we'll use to store the primary macaroon key,
 	// and all generated macaroons+caveats.
-	macaroonDB, err := bolt.Open(
-		path.Join(dir, DBFilename), 0600, bolt.DefaultOptions,
+	macaroonDB, err := bbolt.Open(
+		path.Join(dir, DBFilename), 0600, bbolt.DefaultOptions,
 	)
 	if err != nil {
 		return nil, err

@@ -1642,7 +1642,7 @@ func (s *server) establishPersistentConnections() error {
 	// TODO(roasbeef): instead iterate over link nodes and query graph for
 	// each of the nodes.
 	err = sourceNode.ForEachChannel(nil, func(
-		_ *bolt.Tx,
+		_ *bbolt.Tx,
 		_ *channeldb.ChannelEdgeInfo,
 		policy, _ *channeldb.ChannelEdgePolicy) error {
 

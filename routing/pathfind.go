@@ -457,7 +457,7 @@ func edgeWeight(lockedAmt lnwire.MilliSatoshi, fee lnwire.MilliSatoshi,
 // destination node back to source. This is to properly accumulate fees
 // that need to be paid along the path and accurately check the amount
 // to forward at every node against the available bandwidth.
-func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
+func findPath(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 	additionalEdges map[Vertex][]*channeldb.ChannelEdgePolicy,
 	sourceNode *channeldb.LightningNode, target *btcec.PublicKey,
 	ignoredNodes map[Vertex]struct{}, ignoredEdges map[uint64]struct{},
@@ -483,7 +483,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	// also returns the source node, so there is no need to add the source
 	// node explicitly.
 	distance := make(map[Vertex]nodeWithDist)
-	if err := graph.ForEachNode(tx, func(_ *bolt.Tx, node *channeldb.LightningNode) error {
+	if err := graph.ForEachNode(tx, func(_ *bbolt.Tx, node *channeldb.LightningNode) error {
 		// TODO(roasbeef): with larger graph can just use disk seeks
 		// with a visited map
 		distance[Vertex(node.PubKeyBytes)] = nodeWithDist{
@@ -682,7 +682,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		// examine all the incoming edges (channels) from this node to
 		// further our graph traversal.
 		pivot := Vertex(bestNode.PubKeyBytes)
-		err := bestNode.ForEachChannel(tx, func(tx *bolt.Tx,
+		err := bestNode.ForEachChannel(tx, func(tx *bbolt.Tx,
 			edgeInfo *channeldb.ChannelEdgeInfo,
 			_, inEdge *channeldb.ChannelEdgePolicy) error {
 
@@ -783,7 +783,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 // make our inner path finding algorithm aware of our k-shortest paths
 // algorithm, rather than attempting to use an unmodified path finding
 // algorithm in a block box manner.
-func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
+func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 	source *channeldb.LightningNode, target *btcec.PublicKey,
 	amt lnwire.MilliSatoshi, feeLimit lnwire.MilliSatoshi, numPaths uint32,
 	bandwidthHints map[uint64]lnwire.MilliSatoshi) ([][]*channeldb.ChannelEdgePolicy, error) {

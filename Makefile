@@ -95,7 +95,7 @@ $(LINT_BIN):
 	GO111MODULE=off go get -u $(LINT_PKG)
 
 btcd: 
-	@$(call print, "Installing btcd...")
+	@$(call print, "Installing btcd.")
 	go get -v github.com/btcsuite/btcd/@v0.0.0-20180823030728-$(BTCD_COMMIT)
 
 # ============

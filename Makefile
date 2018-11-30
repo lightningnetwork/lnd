@@ -95,16 +95,9 @@ $(LINT_BIN):
 	@$(call print, "Fetching gometalinter.v2")
 	GO111MODULE=off go get -u $(LINT_PKG)
 
-$(BTCD_DIR):
-	@$(call print, "Fetching btcd.")
-	go get -d github.com/btcsuite/btcd
-
-btcd: $(BTCD_DIR)
-	@$(call print, "Compiling btcd dependencies.")
-	cd $(BTCD_DIR) && ( git checkout $(BTCD_COMMIT) || ( git fetch --all && git checkout $(BTCD_COMMIT) ) )
-	@$(call print, "Installing btcd and btcctl.")
-	$(GOINSTALL) $(BTCD_PKG)
-	$(GOINSTALL) $(BTCD_PKG)/cmd/btcctl
+btcd: 
+	@$(call print, "Installing btcd...")
+	go get -v github.com/btcsuite/btcd/@v0.0.0-20180823030728-$(BTCD_COMMIT)
 
 # ============
 # INSTALLATION

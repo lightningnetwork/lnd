@@ -2163,33 +2163,6 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 	return resp, nil
 }
 
-// savePayment saves a successfully completed payment to the database for
-// historical record keeping.
-func (r *rpcServer) savePayment(route *routing.Route,
-	amount lnwire.MilliSatoshi, preImage []byte) error {
-
-	paymentPath := make([][33]byte, len(route.Hops))
-	for i, hop := range route.Hops {
-		hopPub := hop.PubKeyBytes
-		copy(paymentPath[i][:], hopPub[:])
-	}
-
-	payment := &channeldb.OutgoingPayment{
-		Invoice: channeldb.Invoice{
-			Terms: channeldb.ContractTerm{
-				Value: amount,
-			},
-			CreationDate: time.Now(),
-		},
-		Path:           paymentPath,
-		Fee:            route.TotalFees,
-		TimeLockLength: route.TotalTimeLock,
-	}
-	copy(payment.PaymentPreimage[:], preImage)
-
-	return r.server.chanDB.AddPayment(payment)
-}
-
 // validatePayReqExpiry checks if the passed payment request has expired. In
 // the case it has expired, an error will be returned.
 func validatePayReqExpiry(payReq *zpay32.Invoice) error {
@@ -2547,15 +2520,6 @@ func (r *rpcServer) dispatchPaymentIntent(
 		amt = route.TotalAmount - route.TotalFees
 	} else {
 		amt = payIntent.msat
-	}
-
-	// Save the completed payment to the database for record keeping
-	// purposes.
-	err := r.savePayment(route, amt, preImage[:])
-	if err != nil {
-		// We weren't able to save the payment, so we return the save
-		// err, but a nil routing err.
-		return nil, err
 	}
 
 	return &paymentIntentResponse{

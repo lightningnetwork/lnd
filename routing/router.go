@@ -146,6 +146,10 @@ type ChannelPolicy struct {
 // the configuration MUST be non-nil for the ChannelRouter to carry out its
 // duties.
 type Config struct {
+	// DB is the database that the ChannelRouter will use to store
+	// payments when they are initiated.
+	DB *channeldb.DB
+
 	// Graph is the channel graph that the ChannelRouter will use to gather
 	// metrics from and also to carry out path finding queries.
 	// TODO(roasbeef): make into an interface
@@ -1654,6 +1658,13 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 		return [32]byte{}, nil, err
 	}
 
+	// We save the payment in the database before attempting any payments
+	// so that we will have a record of its' existence despite the outcome.
+	err := r.savePayment(payment)
+	if err != nil {
+		return preImage, nil, err
+	}
+
 	var finalCLTVDelta uint16
 	if payment.FinalCLTVDelta == nil {
 		finalCLTVDelta = DefaultFinalCLTVDelta
@@ -1714,6 +1725,13 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 				return spew.Sdump(route)
 			}),
 		)
+
+		// Update the payment's route so that if it succeeds
+		// we know what path it took and what the fees were.
+		err := r.addPaymentRoute(payment, route)
+		if err != nil {
+			return preImage, nil, err
+		}
 
 		// Generate the raw encoded sphinx packet to be included along
 		// with the htlcAdd message that we send directly to the
@@ -1989,6 +2007,32 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 
 		return preImage, route, nil
 	}
+}
+
+// savePayment saves a payment before any attempts have taken place
+// in the router.
+func (r *ChannelRouter) savePayment(payment *LightningPayment) error {
+	return r.cfg.DB.AddPayment(payment.paymentHash, payment.Amount)
+}
+
+// addPaymentRoute updates an existing payment with a particular route
+// for a given routing attempt.
+func (r *ChannelRouter) addPaymentRoute(payment *LightningPayment,
+	route *Route) error {
+
+	paymentPath := make([][33]byte, len(route.Hops))
+	for i, hop := range route.Hops {
+		hopPub := hop.PubKeyBytes
+		copy(paymentPath[i][:], hopPub[:])
+	}
+
+	r := &channeldb.OutgoingPaymentRoute{
+		Path:           paymentPath,
+		Fee:            route.TotalFees,
+		TimeLockLength: route.TotalTimeLock,
+	}
+
+	return r.cfg.DB.UpdatePaymentRoute(payment.PaymentHash, r)
 }
 
 // pruneVertexFailure will attempt to prune a vertex from the current available

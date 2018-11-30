@@ -39,6 +39,14 @@ var (
 	// created.
 	ErrNoPaymentsCreated = fmt.Errorf("there are no existing payments")
 
+	// ErrDuplicatePayment is returned when a payment with the target payment
+	// hash already exists.
+	ErrDuplicatePayment = fmt.Errorf("payment with payment hash already exists")
+
+	// ErrPaymentNotFound is returned when a payment with the target payment
+	// hash can't be found.
+	ErrPaymentNotFound = fmt.Errorf("unable to locate payment with that hash")
+
 	// ErrNodeNotFound is returned when node bucket exists, but node with
 	// specific identity can't be found.
 	ErrNodeNotFound = fmt.Errorf("link node with target identity not found")

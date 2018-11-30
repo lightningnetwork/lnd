@@ -2,9 +2,11 @@ package channeldb
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"io"
+	"time"
 
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -18,6 +20,12 @@ var (
 	// which is a monotonically increasing uint64.  BoltDB's sequence
 	// feature is used for generating monotonically increasing id.
 	paymentBucket = []byte("payments")
+
+	// paymentIndexBucket is the name of the bucket within the database that
+	// indexes all payments by their payment hash. This index is used to look
+	// up payments by their hash and allow payments to be updated after they
+	// are created.
+	paymentIndexBucket = []byte("payment-index")
 
 	// paymentStatusBucket is the name of the bucket within the database that
 	// stores the status of a payment indexed by the payment's preimage.
@@ -77,13 +85,11 @@ func (ps PaymentStatus) String() string {
 	}
 }
 
-// OutgoingPayment represents a successful payment between the daemon and a
-// remote node. Details such as the total fee paid, and the time of the payment
-// are stored.
-type OutgoingPayment struct {
-	Invoice
-
-	// Fee is the total fee paid for the payment in milli-satoshis.
+// OutgoingPaymentRoute represents the route taken by a payment between the
+// daemon and a remote node. Details include the fee paid, the time lock, and
+// the path taken.
+type OutgoingPaymentRoute struct {
+	// Fee is the total fee paid for the route in milli-satoshis.
 	Fee lnwire.MilliSatoshi
 
 	// TotalTimeLock is the total cumulative time-lock in the HTLC extended
@@ -94,15 +100,37 @@ type OutgoingPayment struct {
 	// excludes the outgoing node and consists of the hex-encoded
 	// compressed public key of each of the nodes involved in the payment.
 	Path [][33]byte
+}
+
+// OutgoingPayment represents a payment between the daemon and a
+// remote node. Details include the amount of the payment, it's routing
+// information, and the preimage for the completed payment.
+type OutgoingPayment struct {
+	Invoice
+
+	OutgoingPaymentRoute
 
 	// PaymentPreimage is the preImage of a successful payment. This is used
 	// to calculate the PaymentHash as well as serve as a proof of payment.
 	PaymentPreimage [32]byte
 }
 
-// AddPayment saves a successful payment to the database. It is assumed that
-// all payment are sent using unique payment hashes.
-func (db *DB) AddPayment(payment *OutgoingPayment) error {
+// AddPayment saves an payment to the database and indexes it by payment
+// hash for later retrieval and update. It only includes part of the info
+// that a complete payment has as until it is complete, the route
+// and preimage are unknown.
+func (db *DB) AddPayment(paymentHash [32]byte,
+	amount lnwire.MilliSatoshi) error {
+
+	payment := &OutgoingPayment{
+		Invoice: Invoice{
+			Terms: ContractTerm{
+				Value: amount,
+			},
+			CreationDate: time.Now(),
+		},
+	}
+
 	// Validate the field of the inner voice within the outgoing payment,
 	// these must also adhere to the same constraints as regular invoices.
 	if err := validateInvoice(&payment.Invoice); err != nil {
@@ -124,6 +152,18 @@ func (db *DB) AddPayment(payment *OutgoingPayment) error {
 			return err
 		}
 
+		paymentIndex, err := tx.CreateBucketIfNotExists(paymentIndexBucket)
+		if err != nil {
+			return err
+		}
+
+		// Ensure that no payment with this hash has already been
+		// stored in the database.
+		paymentIDBytes := paymentIndex.Get(paymentHash[:])
+		if paymentIDBytes != nil {
+			return ErrDuplicatePayment
+		}
+
 		// Obtain the new unique sequence number for this payment.
 		paymentID, err := payments.NextSequence()
 		if err != nil {
@@ -133,10 +173,105 @@ func (db *DB) AddPayment(payment *OutgoingPayment) error {
 		// We use BigEndian for keys as it orders keys in
 		// ascending order. This allows bucket scans to order payments
 		// in the order in which they were created.
-		paymentIDBytes := make([]byte, 8)
+		paymentIDBytes = make([]byte, 8)
 		binary.BigEndian.PutUint64(paymentIDBytes, paymentID)
 
+		// Store this payment's sequence number indexed by its hash for
+		// later lookup.
+		if err := paymentIndex.Put(paymentHash[:], paymentIDBytes); err != nil {
+			return err
+		}
+
 		return payments.Put(paymentIDBytes, paymentBytes)
+	})
+}
+
+// UpdatePaymentRoute updates an existing Payment in the DB
+// with its route information for a particular payment attempt.
+func (db *DB) UpdatePaymentRoute(paymentHash [32]byte,
+	route *OutgoingPaymentRoute) error {
+
+	updateRoute := func(payment *OutgoingPayment) *OutgoingPayment {
+
+		// Add all of the route specific information to this payment
+		// so it can be persisted before the route is attempted.
+		payment.Fee = route.Fee
+		payment.TimeLockLength = route.TimeLockLength
+		payment.Path = route.Path
+
+		return payment
+	}
+
+	return db.updatePayment(paymentHash, updateRoute)
+}
+
+// UpdatePaymentPreimage updates an existing Payment in the DB
+// with its Preimage, marking that payment as effectively complete.
+func (db *DB) UpdatePaymentPreimage(paymentPreimage [32]byte) error {
+	paymentHash := sha256.Sum256(paymentPreimage[:])
+
+	updatePreimage := func(payment *OutgoingPayment) *OutgoingPayment {
+		// We update the OutgoingPayment that existed in the DB
+		// to include the PaymentPreimage provided by the caller.
+		payment.PaymentPreimage = paymentPreimage
+
+		return payment
+	}
+
+	return db.updatePayment(paymentHash, updatePreimage)
+}
+
+type paymentUpdater func(*OutgoingPayment) *OutgoingPayment
+
+// updatePayment retrieves an existing payment in the database
+// and updates it prior to saving it back to the database. It
+// is called with a function literal that should modify and
+// return the OutgoingPayment.
+func (db *DB) updatePayment(paymentHash [32]byte,
+	updater paymentUpdater) error {
+	return db.Batch(func(tx *bolt.Tx) error {
+		payments := tx.Bucket(paymentBucket)
+		if payments == nil {
+			return ErrNoPaymentsCreated
+		}
+
+		paymentIndex := tx.Bucket(paymentIndexBucket)
+		if paymentIndex == nil {
+			return ErrNoPaymentsCreated
+		}
+
+		// Find the ID of the payment in the index so that the payment
+		// itself can be retrieved and updated.
+		paymentIDBytes := paymentIndex.Get(paymentHash[:])
+		if paymentIDBytes == nil {
+			return ErrPaymentNotFound
+		}
+
+		// We retrieve the existing payment from the DB based on
+		// its ID.
+		existingPaymentBytes := payments.Get(paymentIDBytes)
+		if existingPaymentBytes == nil {
+			return ErrPaymentNotFound
+		}
+
+		r := bytes.NewReader(existingPaymentBytes)
+		payment, err := deserializeOutgoingPayment(r)
+		if err != nil {
+			return err
+		}
+
+		// Update the payment with the caller-provided function
+		updatedPayment := updater(payment)
+
+		// Then we re-serialize the payment before updating in the
+		// DB.
+		var b bytes.Buffer
+		if err := serializeOutgoingPayment(&b, updatedPayment); err != nil {
+			return err
+		}
+		updatedPaymentBytes := b.Bytes()
+
+		return payments.Put(paymentIDBytes, updatedPaymentBytes)
 	})
 }
 

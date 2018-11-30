@@ -282,7 +282,7 @@ type Switch struct {
 // New creates the new instance of htlc switch.
 func New(cfg Config, currentHeight uint32) (*Switch, error) {
 	circuitMap, err := NewCircuitMap(&CircuitMapConfig{
-		DB:                    cfg.DB,
+		DB: cfg.DB,
 		ExtractErrorEncrypter: cfg.ExtractErrorEncrypter,
 	})
 	if err != nil {
@@ -889,6 +889,16 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 		}
 
 		preimage = htlc.PaymentPreimage
+
+		// Update this payment's record with the preimage now that
+		// we have it. This will allow us to retrieve the preimage
+		// if the payment is attempted in the future.
+		err = s.cfg.DB.UpdatePaymentPreimage(preimage)
+		if err != nil {
+			log.Warnf("Unable to persist payment preimage %x: %v",
+				pkt.circuit.PaymentHash, err)
+			return
+		}
 
 	// We've received a fail update which means we can finalize the user
 	// payment and return fail response.

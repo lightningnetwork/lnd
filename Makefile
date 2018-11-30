@@ -42,7 +42,6 @@ XARGS := xargs -L 1
 include make/testing_flags.mk
 
 DEV_TAGS := $(if ${tags},$(DEV_TAGS) ${tags},$(DEV_TAGS))
-PROD_TAGS := $(if ${tags},$(PROD_TAGS) ${tags},$(PROD_TAGS))
 
 COVER = for dir in $(GOLISTCOVER); do \
 		$(GOTEST) -tags="$(DEV_TAGS) $(LOG_TAGS)" \
@@ -110,8 +109,8 @@ build:
 
 install:
 	@$(call print, "Installing lnd and lncli.")
-	$(GOINSTALL) -tags="$(PROD_TAGS)" $(LDFLAGS) $(PKG)
-	$(GOINSTALL) -tags="$(PROD_TAGS)" $(LDFLAGS) $(PKG)/cmd/lncli
+	$(GOINSTALL) -tags="${tags}" $(LDFLAGS) $(PKG)
+	$(GOINSTALL) -tags="${tags}" $(LDFLAGS) $(PKG)/cmd/lncli
 
 scratch: build
 

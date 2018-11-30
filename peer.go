@@ -840,11 +840,11 @@ func newChanMsgStream(p *peer, cid lnwire.ChannelID) *msgStream {
 		fmt.Sprintf("Update stream for ChannelID(%x) exiting", cid[:]),
 		1000,
 		func(msg lnwire.Message) {
-			_, isChanSycMsg := msg.(*lnwire.ChannelReestablish)
+			_, isChanSyncMsg := msg.(*lnwire.ChannelReestablish)
 
 			// If this is the chanSync message, then we'll deliver
 			// it immediately to the active link.
-			if !isChanSycMsg {
+			if !isChanSyncMsg {
 				// We'll send a message to the funding manager
 				// and wait iff an active funding process for
 				// this channel hasn't yet completed.  We do
@@ -878,9 +878,36 @@ func newChanMsgStream(p *peer, cid lnwire.ChannelID) *msgStream {
 			// active goroutine dedicated to this channel.
 			if chanLink == nil {
 				link, err := p.server.htlcSwitch.GetLink(cid)
-				if err != nil {
-					peerLog.Errorf("recv'd update for unknown "+
-						"channel %v from %v", cid, p)
+				switch {
+
+				// If we failed to find the link in question,
+				// and the message received was a channel sync
+				// message, then this might be a peer trying to
+				// resync closed channel. In this case we'll
+				// try to resend our last channel sync message,
+				// such that the peer can recover funds from
+				// the closed channel.
+				case err != nil && isChanSyncMsg:
+					peerLog.Debugf("Unable to find "+
+						"link(%v) to handle channel "+
+						"sync, attempting to resend "+
+						"last ChanSync message", cid)
+
+					err := p.resendChanSyncMsg(cid)
+					if err != nil {
+						// TODO(halseth): send error to
+						// peer?
+						peerLog.Errorf(
+							"resend failed: %v",
+							err,
+						)
+					}
+					return
+
+				case err != nil:
+					peerLog.Errorf("recv'd update for "+
+						"unknown channel %v from %v: "+
+						"%v", cid, p, err)
 					return
 				}
 				chanLink = link
@@ -2164,6 +2191,35 @@ func (p *peer) sendInitMsg() error {
 	)
 
 	return p.writeMessage(msg)
+}
+
+// resendChanSyncMsg will attempt to find a channel sync message for the closed
+// channel and resend it to our peer.
+func (p *peer) resendChanSyncMsg(cid lnwire.ChannelID) error {
+	// Check if we have any channel sync messages stored for this channel.
+	c, err := p.server.chanDB.FetchClosedChannelForID(cid)
+	if err != nil {
+		return fmt.Errorf("unable to fetch channel sync messages for "+
+			"peer %v: %v", p, err)
+	}
+
+	if c.LastChanSyncMsg == nil {
+		return fmt.Errorf("no chan sync message stored for channel %v",
+			cid)
+	}
+
+	peerLog.Debugf("Re-sending channel sync message for channel %v to "+
+		"peer %v", cid, p)
+
+	if err := p.SendMessage(true, c.LastChanSyncMsg); err != nil {
+		return fmt.Errorf("Failed resending channel sync "+
+			"message to peer %v: %v", p, err)
+	}
+
+	peerLog.Debugf("Re-sent channel sync message for channel %v to peer "+
+		"%v", cid, p)
+
+	return nil
 }
 
 // SendMessage sends a variadic number of message to remote peer. The first

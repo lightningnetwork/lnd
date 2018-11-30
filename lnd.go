@@ -36,8 +36,6 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcwallet/wallet"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
-	"github.com/grpc-ecosystem/go-grpc-middleware"
-	"github.com/grpc-ecosystem/go-grpc-prometheus"
 	flags "github.com/jessevdk/go-flags"
 
 	"github.com/lightningnetwork/lnd/build"
@@ -323,79 +321,20 @@ func lndMain() error {
 		return err
 	}
 
-	var unaryInterceptors []grpc.UnaryServerInterceptor
-	var streamInterceptors []grpc.StreamServerInterceptor
-
-	// Check macaroon authentication if macaroons aren't disabled.
-	if macaroonService != nil {
-		unaryInterceptors = append(unaryInterceptors,
-			macaroonService.UnaryServerInterceptor(permissions))
-		streamInterceptors = append(streamInterceptors,
-			macaroonService.StreamServerInterceptor(permissions))
-	}
-
 	// Initialize, and register our implementation of the gRPC interface
 	// exported by the rpcServer.
-	rpcServer := newRPCServer(server)
+	rpcServer, err := newRPCServer(
+		server, macaroonService, cfg.SubRPCServers, serverOpts,
+		proxyOpts, tlsConf,
+	)
+	if err != nil {
+		srvrLog.Errorf("unable to start RPC server: %v", err)
+		return err
+	}
 	if err := rpcServer.Start(); err != nil {
 		return err
 	}
 	defer rpcServer.Stop()
-
-	if len(cfg.PrometheusIPs) != 0 {
-		exportPrometheusStats(server)
-
-		streamInterceptors = append(streamInterceptors, grpc_prometheus.StreamServerInterceptor)
-		unaryInterceptors = append(unaryInterceptors, grpc_prometheus.UnaryServerInterceptor)
-	}
-
-	serverOpts = append(serverOpts,
-		grpc.StreamInterceptor(grpc_middleware.ChainStreamServer(streamInterceptors...)),
-		grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(unaryInterceptors...)),
-	)
-
-	grpcServer := grpc.NewServer(serverOpts...)
-	lnrpc.RegisterLightningServer(grpcServer, rpcServer)
-
-	// Next, Start the gRPC server listening for HTTP/2 connections.
-	for _, listener := range cfg.RPCListeners {
-		lis, err := lncfg.ListenOnAddress(listener)
-		if err != nil {
-			ltndLog.Errorf(
-				"RPC server unable to listen on %s", listener,
-			)
-			return err
-		}
-		defer lis.Close()
-		go func() {
-			rpcsLog.Infof("RPC server listening on %s", lis.Addr())
-			grpcServer.Serve(lis)
-		}()
-	}
-
-	// Finally, start the REST proxy for our gRPC server above.
-	mux := proxy.NewServeMux()
-	err = lnrpc.RegisterLightningHandlerFromEndpoint(
-		ctx, mux, cfg.RPCListeners[0].String(), proxyOpts,
-	)
-	if err != nil {
-		return err
-	}
-	for _, restEndpoint := range cfg.RESTListeners {
-		lis, err := lncfg.TLSListenOnAddress(restEndpoint, tlsConf)
-		if err != nil {
-			ltndLog.Errorf(
-				"gRPC proxy unable to listen on %s",
-				restEndpoint,
-			)
-			return err
-		}
-		defer lis.Close()
-		go func() {
-			rpcsLog.Infof("gRPC proxy started at %s", lis.Addr())
-			http.Serve(lis, mux)
-		}()
-	}
 
 	// If we're not in simnet mode, We'll wait until we're fully synced to
 	// continue the start up of the remainder of the daemon. This ensures
@@ -444,7 +383,7 @@ func lndMain() error {
 	}
 	defer server.Stop()
 
-	grpc_prometheus.Register(grpcServer)
+//	grpc_prometheus.Register(grpcServer)
 
 	// Now that the server has started, if the autopilot mode is currently
 	// active, then we'll initialize a fresh instance of it and start it.
@@ -628,9 +567,9 @@ func genCertPair(certFile, keyFile string) error {
 	return nil
 }
 
-// genMacaroons generates three macaroon files; one admin-level, one
-// for invoice access and one read-only. These can also be used
-// to generate more granular macaroons.
+// genMacaroons generates three macaroon files; one admin-level, one for
+// invoice access and one read-only. These can also be used to generate more
+// granular macaroons.
 func genMacaroons(ctx context.Context, svc *macaroons.Service,
 	admFile, roFile, invoiceFile string) error {
 

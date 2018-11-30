@@ -1,23 +1,51 @@
 language: go
-matrix:
-  include:
-  - go: "1.11.x"
-    env: RACE=TRUE USE_LINT=TRUE
-  - go: "1.11.x"
-    env: RACE=FALSE USE_LINT=TRUE
-  - go: "1.10.x"
-    env: RACE=TRUE USE_LINT=FALSE
-  - go: "1.10.x"
-    env: RACE=FALSE USE_LINT=FALSE
+cache:
+  directories:
+    - vendor/
+    - $GOCACHE
+    - $GOPATH/pkg/mod
+    - $GOPATH/src/github.com/btcsuite
+    - $GOPATH/src/github.com/golang
+    - $GOPATH/src/gopkg.in/alecthomas
+
+go:
+  - "1.11.x"
+
+env:
+  global:
+    - GOCACHE=$HOME/.go-build
+  matrix:
+    - RACE=true LINT=true
+    - ITEST=true
+    - COVER=true
+
 sudo: required
 install:
   - sudo add-apt-repository -y ppa:bitcoin/bitcoin -y
   - sudo apt-get update -q
   - sudo apt-get install bitcoind -y
   - export PATH=$PATH:$PWD/linux-amd64/
+
 script:
-  - export PATH=$PATH:$GOPATH/bin
-  - make travis
+  - env GO111MODULE=on
+
+  # Common for all builds.
+  - make btcd
+
+  # Run linter if LINT=true.
+  - 'if [ "$LINT" = true ]; then make lint ; fi'
+
+  # Run unit tests with race condition detector.
+  - 'if [ "$RACE" = true ]; then make unit-race ; fi'
+
+  # Run integration tests.
+  - 'if [ "$ITEST" = true ]; then make build ; fi'
+  - 'if [ "$ITEST" = true ]; then make itest-only ; fi'
+
+  # Run unit tests and generate coverage report.
+  - 'if [ "$COVER" = true ]; then make unit-cover; fi'
+  - 'if [ "$COVER" = true ]; then make goveralls; fi'
+
 after_script:
   - echo "Uploading to termbin.com..." && find *.log | xargs -I{} sh -c "cat {} | nc termbin.com 9999 | xargs -r0 printf '{} uploaded to %s'"
   - echo "Uploading to file.io..." && tar -zcvO *.log | curl -s -F 'file=@-;filename=logs.tar.gz' https://file.io | xargs -r0 printf 'logs.tar.gz uploaded to %s\n'

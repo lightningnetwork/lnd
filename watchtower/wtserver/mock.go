@@ -1,6 +1,6 @@
 // +build dev
 
-package server
+package wtserver
 
 import (
 	"fmt"

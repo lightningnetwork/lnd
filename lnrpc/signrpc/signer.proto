@@ -1,0 +1,148 @@
+syntax = "proto3";
+
+package signrpc;
+
+message KeyLocator {
+    /// The family of key being identified.
+    int32 key_family = 1;
+
+    /// The precise index of the key being identified.
+    int32 key_index = 2;
+}
+
+message KeyDescriptor {
+     oneof key {
+         /**
+         The raw bytes of the key being identified. Either this or the KeyLocator
+         must be specified.
+         */
+         bytes raw_key_bytes = 1;
+
+         /** 
+         The key locator that identifies which key to use for signing. Either this
+         or the raw bytes of the target key must be specified.
+         */
+         KeyLocator key_loc = 2;
+     }
+}
+
+message TxOut {
+    /// The value of the output being spent.
+    int64 value = 1;
+
+    /// The script of the output being spent.
+    bytes pk_script = 2;
+}
+
+message SignDescriptor {
+    /**
+    A descriptor that precisely describes *which* key to use for signing. This
+    may provide the raw public key directly, or require the Signer to re-derive
+    the key according to the populated derivation path.
+    */
+    KeyDescriptor key_desc = 1;
+
+    /**
+    A scalar value that will be added to the private key corresponding to the
+    above public key to obtain the private key to be used to sign this input.
+    This value is typically derived via the following computation:
+
+      * derivedKey = privkey + sha256(perCommitmentPoint || pubKey) mod N
+    */
+    bytes single_tweak = 2;
+
+    /**
+    A private key that will be used in combination with its corresponding
+    private key to derive the private key that is to be used to sign the target
+    input. Within the Lightning protocol, this value is typically the
+    commitment secret from a previously revoked commitment transaction. This
+    value is in combination with two hash values, and the original private key
+    to derive the private key to be used when signing.
+   
+     * k = (privKey*sha256(pubKey || tweakPub) +
+           tweakPriv*sha256(tweakPub || pubKey)) mod N
+    */
+    bytes double_tweak = 3;
+
+    /**
+    The full script required to properly redeem the output.  This field will
+    only be populated if a p2wsh or a p2sh output is being signed.
+    */
+    bytes witness_script = 4;
+
+    /**
+    A description of the output being spent. The value and script MUST be provided.
+    */
+    TxOut output = 5;
+
+    /**
+    The target sighash type that should be used when generating the final
+    sighash, and signature.
+    */
+    uint32 sighash = 7;
+
+    /**
+    The target input within the transaction that should be signed.
+    */
+    int32 input_index = 8;
+}
+
+message SignReq {
+    /// The raw bytes of the transaction to be signed.
+    bytes raw_tx_bytes = 1;
+
+    /// A set of sign descriptors, for each input to be signed.
+    repeated SignDescriptor sign_descs = 2;
+}
+
+message SignResp {
+    /**
+    A set of signatures realized in a fixed 64-byte format ordered in ascending
+    input order.
+    */
+    repeated bytes raw_sigs = 1;
+}
+
+message InputScript {
+    /// The serializes witness stack for the specified input.
+    repeated bytes witness = 1;
+
+    /***
+    The optional sig script for the specified witness that will only be set if
+    the input specified is a nested p2sh witness program.
+    */
+    bytes sig_script = 2;
+}
+
+message InputScriptResp {
+    /// The set of fully valid input scripts requested.
+    repeated InputScript input_scripts = 1;
+}
+
+service Signer {
+    /**
+    SignOutputRaw is a method that can be used to generated a signature for a
+    set of inputs/outputs to a transaction. Each request specifies details
+    concerning how the outputs should be signed, which keys they should be
+    signed with, and also any optional tweaks. The return value is a fixed
+    64-byte signature (the same format as we use on the wire in Lightning). 
+    
+    If we are  unable to sign using the specified keys, then an error will be
+    returned.
+    */
+    rpc SignOutputRaw(SignReq) returns (SignResp);
+
+    /**
+    ComputeInputScript generates a complete InputIndex for the passed
+    transaction with the signature as defined within the passed SignDescriptor.
+    This method should be capable of generating the proper input script for
+    both regular p2wkh output and p2wkh outputs nested within a regular p2sh
+    output.
+
+    Note that when using this method to sign inputs belonging to the wallet,
+    the only items of the SignDescriptor that need to be populated are pkScript
+    in the TxOut field, the value in that same field, and finally the input
+    index.
+    */
+    rpc ComputeInputScript(SignReq) returns (InputScriptResp); 
+}

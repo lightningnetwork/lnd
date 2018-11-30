@@ -1,4 +1,4 @@
-package server
+package wtserver
 
 import (
 	"github.com/btcsuite/btclog"
@@ -12,7 +12,7 @@ var log btclog.Logger
 
 // The default amount of logging is none.
 func init() {
-	UseLogger(build.NewSubLogger("WTSV", nil))
+	UseLogger(build.NewSubLogger("WTWR", nil))
 }
 
 // DisableLog disables all library log output.  Logging output is disabled

@@ -573,3 +573,40 @@ func migratePruneEdgeUpdateIndex(tx *bolt.Tx) error {
 
 	return nil
 }
+
+// migrateOptionalChannelCloseSummaryFields migrates the serialized format of
+// ChannelCloseSummary to a format where optional fields' presence is indicated
+// with boolean markers.
+func migrateOptionalChannelCloseSummaryFields(tx *bolt.Tx) error {
+	closedChanBucket := tx.Bucket(closedChannelBucket)
+	if closedChanBucket == nil {
+		return nil
+	}
+
+	log.Info("Migrating to new closed channel format...")
+	err := closedChanBucket.ForEach(func(chanID, summary []byte) error {
+		r := bytes.NewReader(summary)
+
+		// Read the old (v6) format from the database.
+		c, err := deserializeCloseChannelSummaryV6(r)
+		if err != nil {
+			return err
+		}
+
+		// Serialize using the new format, and put back into the
+		// bucket.
+		var b bytes.Buffer
+		if err := serializeChannelCloseSummary(&b, c); err != nil {
+			return err
+		}
+
+		return closedChanBucket.Put(chanID, b.Bytes())
+	})
+	if err != nil {
+		return fmt.Errorf("unable to update closed channels: %v", err)
+	}
+
+	log.Info("Migration to new closed channel format complete!")
+
+	return nil
+}

@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/lncfg"
+	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/tor"
@@ -224,6 +225,8 @@ type config struct {
 
 	Tor *torConfig `group:"Tor" namespace:"tor"`
 
+	SubRPCServers *subRPCServerConfigs `group:"subrpc"`
+
 	Hodl *hodl.Config `group:"hodl" namespace:"hodl"`
 
 	NoNetBootstrap bool `long:"nobootstrap" description:"If true, then automatic network bootstrapping will not be attempted."`
@@ -299,6 +302,9 @@ func loadConfig() (*config, error) {
 		},
 		MaxPendingChannels: defaultMaxPendingChannels,
 		NoSeedBackup:       defaultNoSeedBackup,
+		SubRPCServers: &subRPCServerConfigs{
+			SignRPC: &signrpc.Config{},
+		},
 		Autopilot: &autoPilotConfig{
 			MaxChannels:    5,
 			Allocation:     0.6,
@@ -951,8 +957,8 @@ func loadConfig() (*config, error) {
 		}
 	}
 
-	// Finally, ensure that we are only listening on localhost if Tor
-	// inbound support is enabled.
+	// Ensure that we are only listening on localhost if Tor inbound support
+	// is enabled.
 	if cfg.Tor.V2 || cfg.Tor.V3 {
 		for _, addr := range cfg.Listeners {
 			if lncfg.IsLoopback(addr.String()) {
@@ -963,6 +969,14 @@ func loadConfig() (*config, error) {
 				"on localhost when running with Tor inbound " +
 				"support enabled")
 		}
+	}
+
+	// Finally, ensure that the user's color is correctly formatted,
+	// otherwise the server will not be able to start after the unlocking
+	// the wallet.
+	_, err = parseHexColor(cfg.Color)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to parse node color: %v", err)
 	}
 
 	// Warn about missing config file only after all other configuration is

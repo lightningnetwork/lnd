@@ -79,11 +79,6 @@ Removes compiled versions of both `./lnd` and `./lncli`, and removes the
 ---------
 Alias for [`scratch`](#scratch).
 
-`dep`
-------
-Ensures that [`github.com/golang/dep/cmd/dep`][dep] is installed, then
-updates then dependencies in the `vendor` tree using `dep ensure`.
-
 `flake-unit`
 ------------
 Runs the unit test endlessly until a failure is detected.
@@ -141,16 +136,6 @@ Compiles the `lnrpc` proto files.
 Compiles all dependencies and builds the `./lnd` and `./lncli` binaries.
 Equivalent to [`lint`](#lint) [`dep`](#dep) [`btcd`](#btcd)
 [`unit-race`](#unit-race).
-
-`travis`
---------
-**Note**: This must be run with either `RACE=true` or `RACE=false`.
-- `RACE=true` runs [`lint`](#lint) [`scratch`](#scratch) [`btcd`](#btcd)
-  [`unit-race`](#unit-race).
-- `RACE=false` runs [`lint`](#lint) [`scratch`](#scratch) [`itest`](#itest) 
-  [`unit-cover`](#unit-cover). Afterwards,
-  [`github.com/mattn/goveralls`][goveralls] is installed, and the coverage stats
-  are uploaded to [coveralls.io](https://coveralls.io).
 
 `unit`
 ------

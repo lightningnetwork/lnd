@@ -1,11 +1,17 @@
 package channeldb
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
+	"fmt"
+	"reflect"
 	"testing"
 
+	"github.com/btcsuite/btcutil"
 	"github.com/coreos/bbolt"
+	"github.com/davecgh/go-spew/spew"
+	"github.com/go-errors/errors"
 )
 
 // TestPaymentStatusesMigration checks that already completed payments will have
@@ -188,4 +194,277 @@ func TestPaymentStatusesMigration(t *testing.T) {
 		afterMigrationFunc,
 		paymentStatusesMigration,
 		false)
+}
+
+// TestMigrateOptionalChannelCloseSummaryFields properly converts a
+// ChannelCloseSummary to the v7 format, where optional fields have their
+// presence indicated with boolean markers.
+func TestMigrateOptionalChannelCloseSummaryFields(t *testing.T) {
+	t.Parallel()
+
+	chanState, err := createTestChannelState(nil)
+	if err != nil {
+		t.Fatalf("unable to create channel state: %v", err)
+	}
+
+	var chanPointBuf bytes.Buffer
+	err = writeOutpoint(&chanPointBuf, &chanState.FundingOutpoint)
+	if err != nil {
+		t.Fatalf("unable to write outpoint: %v", err)
+	}
+
+	chanID := chanPointBuf.Bytes()
+
+	testCases := []struct {
+		closeSummary     *ChannelCloseSummary
+		oldSerialization func(c *ChannelCloseSummary) []byte
+	}{
+		{
+			// A close summary where none of the new fields are
+			// set.
+			closeSummary: &ChannelCloseSummary{
+				ChanPoint:      chanState.FundingOutpoint,
+				ShortChanID:    chanState.ShortChanID(),
+				ChainHash:      chanState.ChainHash,
+				ClosingTXID:    testTx.TxHash(),
+				CloseHeight:    100,
+				RemotePub:      chanState.IdentityPub,
+				Capacity:       chanState.Capacity,
+				SettledBalance: btcutil.Amount(50000),
+				CloseType:      RemoteForceClose,
+				IsPending:      true,
+
+				// The last fields will be unset.
+				RemoteCurrentRevocation: nil,
+				LocalChanConfig:         ChannelConfig{},
+				RemoteNextRevocation:    nil,
+			},
+
+			// In the old format the last field written is the
+			// IsPendingField. It should be converted by adding an
+			// extra boolean marker at the end to indicate that the
+			// remaining fields are not there.
+			oldSerialization: func(cs *ChannelCloseSummary) []byte {
+				var buf bytes.Buffer
+				err := WriteElements(&buf, cs.ChanPoint,
+					cs.ShortChanID, cs.ChainHash,
+					cs.ClosingTXID, cs.CloseHeight,
+					cs.RemotePub, cs.Capacity,
+					cs.SettledBalance, cs.TimeLockedBalance,
+					cs.CloseType, cs.IsPending,
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				// For the old format, these are all the fields
+				// that are written.
+				return buf.Bytes()
+			},
+		},
+		{
+			// A close summary where the new fields are present,
+			// but the optional RemoteNextRevocation field is not
+			// set.
+			closeSummary: &ChannelCloseSummary{
+				ChanPoint:               chanState.FundingOutpoint,
+				ShortChanID:             chanState.ShortChanID(),
+				ChainHash:               chanState.ChainHash,
+				ClosingTXID:             testTx.TxHash(),
+				CloseHeight:             100,
+				RemotePub:               chanState.IdentityPub,
+				Capacity:                chanState.Capacity,
+				SettledBalance:          btcutil.Amount(50000),
+				CloseType:               RemoteForceClose,
+				IsPending:               true,
+				RemoteCurrentRevocation: chanState.RemoteCurrentRevocation,
+				LocalChanConfig:         chanState.LocalChanCfg,
+
+				// RemoteNextRevocation is optional, and here
+				// it is not set.
+				RemoteNextRevocation: nil,
+			},
+
+			// In the old format the last field written is the
+			// LocalChanConfig. This indicates that the optional
+			// RemoteNextRevocation field is not present. It should
+			// be converted by adding boolean markers for all these
+			// fields.
+			oldSerialization: func(cs *ChannelCloseSummary) []byte {
+				var buf bytes.Buffer
+				err := WriteElements(&buf, cs.ChanPoint,
+					cs.ShortChanID, cs.ChainHash,
+					cs.ClosingTXID, cs.CloseHeight,
+					cs.RemotePub, cs.Capacity,
+					cs.SettledBalance, cs.TimeLockedBalance,
+					cs.CloseType, cs.IsPending,
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				err = WriteElements(&buf, cs.RemoteCurrentRevocation)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				err = writeChanConfig(&buf, &cs.LocalChanConfig)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				// RemoteNextRevocation is not written.
+				return buf.Bytes()
+			},
+		},
+		{
+			// A close summary where all fields are present.
+			closeSummary: &ChannelCloseSummary{
+				ChanPoint:               chanState.FundingOutpoint,
+				ShortChanID:             chanState.ShortChanID(),
+				ChainHash:               chanState.ChainHash,
+				ClosingTXID:             testTx.TxHash(),
+				CloseHeight:             100,
+				RemotePub:               chanState.IdentityPub,
+				Capacity:                chanState.Capacity,
+				SettledBalance:          btcutil.Amount(50000),
+				CloseType:               RemoteForceClose,
+				IsPending:               true,
+				RemoteCurrentRevocation: chanState.RemoteCurrentRevocation,
+				LocalChanConfig:         chanState.LocalChanCfg,
+
+				// RemoteNextRevocation is optional, and in
+				// this case we set it.
+				RemoteNextRevocation: chanState.RemoteNextRevocation,
+			},
+
+			// In the old format all the fields are written. It
+			// should be converted by adding boolean markers for
+			// all these fields.
+			oldSerialization: func(cs *ChannelCloseSummary) []byte {
+				var buf bytes.Buffer
+				err := WriteElements(&buf, cs.ChanPoint,
+					cs.ShortChanID, cs.ChainHash,
+					cs.ClosingTXID, cs.CloseHeight,
+					cs.RemotePub, cs.Capacity,
+					cs.SettledBalance, cs.TimeLockedBalance,
+					cs.CloseType, cs.IsPending,
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				err = WriteElements(&buf, cs.RemoteCurrentRevocation)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				err = writeChanConfig(&buf, &cs.LocalChanConfig)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				err = WriteElements(&buf, cs.RemoteNextRevocation)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				return buf.Bytes()
+			},
+		},
+	}
+
+	for _, test := range testCases {
+
+		// Before the migration we must add the old format to the DB.
+		beforeMigrationFunc := func(d *DB) {
+
+			// Get the old serialization format for this test's
+			// close summary, and it to the closed channel bucket.
+			old := test.oldSerialization(test.closeSummary)
+			err = d.Update(func(tx *bolt.Tx) error {
+				closedChanBucket, err := tx.CreateBucketIfNotExists(
+					closedChannelBucket,
+				)
+				if err != nil {
+					return err
+				}
+				return closedChanBucket.Put(chanID, old)
+			})
+			if err != nil {
+				t.Fatalf("unable to add old serialization: %v",
+					err)
+			}
+		}
+
+		// After the migration it should be found in the new format.
+		afterMigrationFunc := func(d *DB) {
+			meta, err := d.FetchMeta(nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if meta.DbVersionNumber != 1 {
+				t.Fatal("migration wasn't applied")
+			}
+
+			// We generate the new serialized version, to check
+			// against what is found in the DB.
+			var b bytes.Buffer
+			err = serializeChannelCloseSummary(&b, test.closeSummary)
+			if err != nil {
+				t.Fatalf("unable to serialize: %v", err)
+			}
+			newSerialization := b.Bytes()
+
+			var dbSummary []byte
+			err = d.View(func(tx *bolt.Tx) error {
+				closedChanBucket := tx.Bucket(closedChannelBucket)
+				if closedChanBucket == nil {
+					return errors.New("unable to find bucket")
+				}
+
+				// Get the serialized verision from the DB and
+				// make sure it matches what we expected.
+				dbSummary = closedChanBucket.Get(chanID)
+				if !bytes.Equal(dbSummary, newSerialization) {
+					return fmt.Errorf("unexpected new " +
+						"serialization")
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatalf("unable to view DB: %v", err)
+			}
+
+			// Finally we fetch the deserialized summary from the
+			// DB and check that it is equal to our original one.
+			dbChannels, err := d.FetchClosedChannels(false)
+			if err != nil {
+				t.Fatalf("unable to fetch closed channels: %v",
+					err)
+			}
+
+			if len(dbChannels) != 1 {
+				t.Fatalf("expected 1 closed channels, found %v",
+					len(dbChannels))
+			}
+
+			dbChan := dbChannels[0]
+			if !reflect.DeepEqual(dbChan, test.closeSummary) {
+				dbChan.RemotePub.Curve = nil
+				test.closeSummary.RemotePub.Curve = nil
+				t.Fatalf("not equal: %v vs %v",
+					spew.Sdump(dbChan),
+					spew.Sdump(test.closeSummary))
+			}
+
+		}
+
+		applyMigration(t,
+			beforeMigrationFunc,
+			afterMigrationFunc,
+			migrateOptionalChannelCloseSummaryFields,
+			false)
+	}
 }

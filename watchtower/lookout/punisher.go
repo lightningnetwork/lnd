@@ -45,7 +45,7 @@ func (p *BreachPunisher) Punish(desc *JusticeDescriptor, quit <-chan struct{}) e
 
 	err = p.cfg.PublishTx(justiceTxn)
 	if err != nil && err != lnwallet.ErrDoubleSpend {
-		log.Errorf("Unable to publish justice txn for client=%s",
+		log.Errorf("Unable to publish justice txn for client=%s"+
 			"with breach-txid=%x: %v",
 			desc.SessionInfo.ID, desc.BreachedCommitTx.TxHash(), err)
 		return err

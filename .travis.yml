@@ -29,13 +29,13 @@ script:
   - export GO111MODULE=on
 
   # Run unit tests with race condition detector.
-  - 'if [ "$RACE" = true ]; then make btcd && make unit-race ; fi'
+  - 'if [ "$RACE" = true ]; then make travis-race ; fi'
 
   # Run integration tests.
-  - 'if [ "$ITEST" = true ]; then make btcd && make build && make itest-only; fi'
+  - 'if [ "$ITEST" = true ]; then make itest; fi'
 
   # Run unit tests and generate coverage report.
-  - 'if [ "$COVER" = true ]; then make btcd && make lint && make unit-cover && make goveralls; fi'
+  - 'if [ "$COVER" = true ]; then make travis-cover; fi'
 
 after_script:
   - echo "Uploading to termbin.com..." && find *.log | xargs -I{} sh -c "cat {} | nc termbin.com 9999 | xargs -r0 printf '{} uploaded to %s'"

@@ -14,7 +14,7 @@ import (
 // (one for nodes and one for edges) to keep track of the last time a node or
 // edge was updated on the network. These new indexes allow us to implement the
 // new graph sync protocol added.
-func migrateNodeAndEdgeUpdateIndex(tx *bolt.Tx) error {
+func migrateNodeAndEdgeUpdateIndex(tx *bbolt.Tx) error {
 	// First, we'll populating the node portion of the new index. Before we
 	// can add new values to the index, we'll first create the new bucket
 	// where these items will be housed.
@@ -119,7 +119,7 @@ func migrateNodeAndEdgeUpdateIndex(tx *bolt.Tx) error {
 // invoices an index in the add and/or the settle index. Additionally, all
 // existing invoices will have their bytes padded out in order to encode the
 // add+settle index as well as the amount paid.
-func migrateInvoiceTimeSeries(tx *bolt.Tx) error {
+func migrateInvoiceTimeSeries(tx *bbolt.Tx) error {
 	invoices, err := tx.CreateBucketIfNotExists(invoiceBucket)
 	if err != nil {
 		return err
@@ -238,7 +238,7 @@ func migrateInvoiceTimeSeries(tx *bolt.Tx) error {
 // migrateInvoiceTimeSeries migration. As at the time of writing, the
 // OutgoingPayment struct embeddeds an instance of the Invoice struct. As a
 // result, we also need to migrate the internal invoice to the new format.
-func migrateInvoiceTimeSeriesOutgoingPayments(tx *bolt.Tx) error {
+func migrateInvoiceTimeSeriesOutgoingPayments(tx *bbolt.Tx) error {
 	payBucket := tx.Bucket(paymentBucket)
 	if payBucket == nil {
 		return nil
@@ -307,7 +307,7 @@ func migrateInvoiceTimeSeriesOutgoingPayments(tx *bolt.Tx) error {
 // bucket. It ensure that edges with unknown policies will also have an entry
 // in the bucket. After the migration, there will be two edge entries for
 // every channel, regardless of whether the policies are known.
-func migrateEdgePolicies(tx *bolt.Tx) error {
+func migrateEdgePolicies(tx *bbolt.Tx) error {
 	nodes := tx.Bucket(nodeBucket)
 	if nodes == nil {
 		return nil
@@ -379,7 +379,7 @@ func migrateEdgePolicies(tx *bolt.Tx) error {
 // paymentStatusesMigration is a database migration intended for adding payment
 // statuses for each existing payment entity in bucket to be able control
 // transitions of statuses and prevent cases such as double payment
-func paymentStatusesMigration(tx *bolt.Tx) error {
+func paymentStatusesMigration(tx *bbolt.Tx) error {
 	// Get the bucket dedicated to storing statuses of payments,
 	// where a key is payment hash, value is payment status.
 	paymentStatuses, err := tx.CreateBucketIfNotExists(paymentStatusBucket)
@@ -466,7 +466,7 @@ func paymentStatusesMigration(tx *bolt.Tx) error {
 // migration also fixes the case where the public keys within edge policies were
 // being serialized with an extra byte, causing an even greater error when
 // attempting to perform the offset calculation described earlier.
-func migratePruneEdgeUpdateIndex(tx *bolt.Tx) error {
+func migratePruneEdgeUpdateIndex(tx *bbolt.Tx) error {
 	// To begin the migration, we'll retrieve the update index bucket. If it
 	// does not exist, we have nothing left to do so we can simply exit.
 	edges := tx.Bucket(edgeBucket)
@@ -577,7 +577,7 @@ func migratePruneEdgeUpdateIndex(tx *bolt.Tx) error {
 // migrateOptionalChannelCloseSummaryFields migrates the serialized format of
 // ChannelCloseSummary to a format where optional fields' presence is indicated
 // with boolean markers.
-func migrateOptionalChannelCloseSummaryFields(tx *bolt.Tx) error {
+func migrateOptionalChannelCloseSummaryFields(tx *bbolt.Tx) error {
 	closedChanBucket := tx.Bucket(closedChannelBucket)
 	if closedChanBucket == nil {
 		return nil

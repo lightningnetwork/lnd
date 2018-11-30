@@ -307,7 +307,7 @@ func newNurseryStore(chainHash *chainhash.Hash,
 // CSV-delayed outputs (commitment and incoming HTLC's), commitment output and
 // a list of outgoing two-stage htlc outputs.
 func (ns *nurseryStore) Incubate(kids []kidOutput, babies []babyOutput) error {
-	return ns.db.Update(func(tx *bolt.Tx) error {
+	return ns.db.Update(func(tx *bbolt.Tx) error {
 		// If we have any kid outputs to incubate, then we'll attempt
 		// to add each of them to the nursery store. Any duplicate
 		// outputs will be ignored.
@@ -334,7 +334,7 @@ func (ns *nurseryStore) Incubate(kids []kidOutput, babies []babyOutput) error {
 // kindergarten bucket. The now mature kidOutput contained in the babyOutput
 // will be stored as it waits out the kidOutput's CSV delay.
 func (ns *nurseryStore) CribToKinder(bby *babyOutput) error {
-	return ns.db.Update(func(tx *bolt.Tx) error {
+	return ns.db.Update(func(tx *bbolt.Tx) error {
 
 		// First, retrieve or create the channel bucket corresponding to
 		// the baby output's origin channel point.
@@ -416,7 +416,7 @@ func (ns *nurseryStore) CribToKinder(bby *babyOutput) error {
 // the kindergarten bucket. This transition should be executed after receiving
 // confirmation of the preschool output's commitment transaction.
 func (ns *nurseryStore) PreschoolToKinder(kid *kidOutput) error {
-	return ns.db.Update(func(tx *bolt.Tx) error {
+	return ns.db.Update(func(tx *bbolt.Tx) error {
 		// Create or retrieve the channel bucket corresponding to the
 		// kid output's origin channel point.
 		chanPoint := kid.OriginChanPoint()
@@ -521,7 +521,7 @@ func (ns *nurseryStore) PreschoolToKinder(kid *kidOutput) error {
 // kindergarten sweep txn. The height bucket will be opportunistically pruned
 // from the height index as outputs are removed.
 func (ns *nurseryStore) GraduateKinder(height uint32) error {
-	return ns.db.Update(func(tx *bolt.Tx) error {
+	return ns.db.Update(func(tx *bbolt.Tx) error {
 
 		// Since all kindergarten outputs at a particular height are
 		// swept in a single txn, we can now safely delete the finalized
@@ -606,7 +606,7 @@ func (ns *nurseryStore) GraduateKinder(height uint32) error {
 func (ns *nurseryStore) FinalizeKinder(height uint32,
 	finalTx *wire.MsgTx) error {
 
-	return ns.db.Update(func(tx *bolt.Tx) error {
+	return ns.db.Update(func(tx *bbolt.Tx) error {
 		return ns.finalizeKinder(tx, height, finalTx)
 	})
 }
@@ -615,7 +615,7 @@ func (ns *nurseryStore) FinalizeKinder(height uint32,
 // graduated height.
 func (ns *nurseryStore) GraduateHeight(height uint32) error {
 
-	return ns.db.Update(func(tx *bolt.Tx) error {
+	return ns.db.Update(func(tx *bbolt.Tx) error {
 		return ns.putLastGraduatedHeight(tx, height)
 	})
 }
@@ -632,7 +632,7 @@ func (ns *nurseryStore) FetchClass(
 	var finalTx *wire.MsgTx
 	var kids []kidOutput
 	var babies []babyOutput
-	if err := ns.db.View(func(tx *bolt.Tx) error {
+	if err := ns.db.View(func(tx *bbolt.Tx) error {
 
 		var err error
 		finalTx, err = ns.getFinalizedTxn(tx, height)
@@ -693,7 +693,7 @@ func (ns *nurseryStore) FetchClass(
 // preschool bucket.
 func (ns *nurseryStore) FetchPreschools() ([]kidOutput, error) {
 	var kids []kidOutput
-	if err := ns.db.View(func(tx *bolt.Tx) error {
+	if err := ns.db.View(func(tx *bbolt.Tx) error {
 
 		// Retrieve the existing chain bucket for this nursery store.
 		chainBucket := tx.Bucket(ns.pfxChainKey)
@@ -766,7 +766,7 @@ func (ns *nurseryStore) FetchPreschools() ([]kidOutput, error) {
 // index at or below the provided upper bound.
 func (ns *nurseryStore) HeightsBelowOrEqual(height uint32) ([]uint32, error) {
 	var activeHeights []uint32
-	err := ns.db.View(func(tx *bolt.Tx) error {
+	err := ns.db.View(func(tx *bbolt.Tx) error {
 		// Ensure that the chain bucket for this nursery store exists.
 		chainBucket := tx.Bucket(ns.pfxChainKey)
 		if chainBucket == nil {
@@ -811,7 +811,7 @@ func (ns *nurseryStore) HeightsBelowOrEqual(height uint32) ([]uint32, error) {
 func (ns *nurseryStore) ForChanOutputs(chanPoint *wire.OutPoint,
 	callback func([]byte, []byte) error) error {
 
-	return ns.db.View(func(tx *bolt.Tx) error {
+	return ns.db.View(func(tx *bbolt.Tx) error {
 		return ns.forChanOutputs(tx, chanPoint, callback)
 	})
 }
@@ -819,7 +819,7 @@ func (ns *nurseryStore) ForChanOutputs(chanPoint *wire.OutPoint,
 // ListChannels returns all channels the nursery is currently tracking.
 func (ns *nurseryStore) ListChannels() ([]wire.OutPoint, error) {
 	var activeChannels []wire.OutPoint
-	if err := ns.db.View(func(tx *bolt.Tx) error {
+	if err := ns.db.View(func(tx *bbolt.Tx) error {
 		// Retrieve the existing chain bucket for this nursery store.
 		chainBucket := tx.Bucket(ns.pfxChainKey)
 		if chainBucket == nil {
@@ -853,7 +853,7 @@ func (ns *nurseryStore) ListChannels() ([]wire.OutPoint, error) {
 // IsMatureChannel determines the whether or not all of the outputs in a
 // particular channel bucket have been marked as graduated.
 func (ns *nurseryStore) IsMatureChannel(chanPoint *wire.OutPoint) (bool, error) {
-	err := ns.db.View(func(tx *bolt.Tx) error {
+	err := ns.db.View(func(tx *bbolt.Tx) error {
 		// Iterate over the contents of the channel bucket, computing
 		// both total number of outputs, and those that have the grad
 		// prefix.
@@ -882,7 +882,7 @@ var ErrImmatureChannel = errors.New("cannot remove immature channel, " +
 // provided channel point.
 // NOTE: The channel's entries in the height index are assumed to be removed.
 func (ns *nurseryStore) RemoveChannel(chanPoint *wire.OutPoint) error {
-	return ns.db.Update(func(tx *bolt.Tx) error {
+	return ns.db.Update(func(tx *bbolt.Tx) error {
 		// Retrieve the existing chain bucket for this nursery store.
 		chainBucket := tx.Bucket(ns.pfxChainKey)
 		if chainBucket == nil {
@@ -942,7 +942,7 @@ func (ns *nurseryStore) RemoveChannel(chanPoint *wire.OutPoint) error {
 // store has finalized a kindergarten class.
 func (ns *nurseryStore) LastFinalizedHeight() (uint32, error) {
 	var lastFinalizedHeight uint32
-	err := ns.db.View(func(tx *bolt.Tx) error {
+	err := ns.db.View(func(tx *bbolt.Tx) error {
 		var err error
 		lastFinalizedHeight, err = ns.getLastFinalizedHeight(tx)
 		return err
@@ -955,7 +955,7 @@ func (ns *nurseryStore) LastFinalizedHeight() (uint32, error) {
 // store has successfully graduated all outputs.
 func (ns *nurseryStore) LastGraduatedHeight() (uint32, error) {
 	var lastGraduatedHeight uint32
-	err := ns.db.View(func(tx *bolt.Tx) error {
+	err := ns.db.View(func(tx *bbolt.Tx) error {
 		var err error
 		lastGraduatedHeight, err = ns.getLastGraduatedHeight(tx)
 		return err
@@ -970,7 +970,7 @@ func (ns *nurseryStore) LastGraduatedHeight() (uint32, error) {
 // its two-stage process of sweeping funds back to the user's wallet. These
 // outputs are persisted in the nursery store in the crib state, and will be
 // revisited after the first-stage output's CLTV has expired.
-func (ns *nurseryStore) enterCrib(tx *bolt.Tx, baby *babyOutput) error {
+func (ns *nurseryStore) enterCrib(tx *bbolt.Tx, baby *babyOutput) error {
 	// First, retrieve or create the channel bucket corresponding to the
 	// baby output's origin channel point.
 	chanPoint := baby.OriginChanPoint()
@@ -1025,7 +1025,7 @@ func (ns *nurseryStore) enterCrib(tx *bolt.Tx, baby *babyOutput) error {
 // through a single stage before sweeping. Outputs are stored in the preschool
 // bucket until the commitment transaction has been confirmed, at which point
 // they will be moved to the kindergarten bucket.
-func (ns *nurseryStore) enterPreschool(tx *bolt.Tx, kid *kidOutput) error {
+func (ns *nurseryStore) enterPreschool(tx *bbolt.Tx, kid *kidOutput) error {
 	// First, retrieve or create the channel bucket corresponding to the
 	// baby output's origin channel point.
 	chanPoint := kid.OriginChanPoint()
@@ -1058,8 +1058,8 @@ func (ns *nurseryStore) enterPreschool(tx *bolt.Tx, kid *kidOutput) error {
 
 // createChannelBucket creates or retrieves a channel bucket for the provided
 // channel point.
-func (ns *nurseryStore) createChannelBucket(tx *bolt.Tx,
-	chanPoint *wire.OutPoint) (*bolt.Bucket, error) {
+func (ns *nurseryStore) createChannelBucket(tx *bbolt.Tx,
+	chanPoint *wire.OutPoint) (*bbolt.Bucket, error) {
 
 	// Ensure that the chain bucket for this nursery store exists.
 	chainBucket, err := tx.CreateBucketIfNotExists(ns.pfxChainKey)
@@ -1089,8 +1089,8 @@ func (ns *nurseryStore) createChannelBucket(tx *bolt.Tx,
 // getChannelBucket retrieves an existing channel bucket from the nursery store,
 // using the given channel point.  If the bucket does not exist, or any bucket
 // along its path does not exist, a nil value is returned.
-func (ns *nurseryStore) getChannelBucket(tx *bolt.Tx,
-	chanPoint *wire.OutPoint) *bolt.Bucket {
+func (ns *nurseryStore) getChannelBucket(tx *bbolt.Tx,
+	chanPoint *wire.OutPoint) *bbolt.Bucket {
 
 	// Retrieve the existing chain bucket for this nursery store.
 	chainBucket := tx.Bucket(ns.pfxChainKey)
@@ -1116,8 +1116,8 @@ func (ns *nurseryStore) getChannelBucket(tx *bolt.Tx,
 
 // createHeightBucket creates or retrieves an existing bucket from the height
 // index, corresponding to the provided height.
-func (ns *nurseryStore) createHeightBucket(tx *bolt.Tx,
-	height uint32) (*bolt.Bucket, error) {
+func (ns *nurseryStore) createHeightBucket(tx *bbolt.Tx,
+	height uint32) (*bbolt.Bucket, error) {
 
 	// Ensure that the chain bucket for this nursery store exists.
 	chainBucket, err := tx.CreateBucketIfNotExists(ns.pfxChainKey)
@@ -1144,8 +1144,8 @@ func (ns *nurseryStore) createHeightBucket(tx *bolt.Tx,
 // getHeightBucketPath retrieves an existing height bucket from the nursery
 // store, using the provided block height. If the bucket does not exist, or any
 // bucket along its path does not exist, a nil value is returned.
-func (ns *nurseryStore) getHeightBucketPath(tx *bolt.Tx,
-	height uint32) (*bolt.Bucket, *bolt.Bucket, *bolt.Bucket) {
+func (ns *nurseryStore) getHeightBucketPath(tx *bbolt.Tx,
+	height uint32) (*bbolt.Bucket, *bbolt.Bucket, *bbolt.Bucket) {
 
 	// Retrieve the existing chain bucket for this nursery store.
 	chainBucket := tx.Bucket(ns.pfxChainKey)
@@ -1170,8 +1170,8 @@ func (ns *nurseryStore) getHeightBucketPath(tx *bolt.Tx,
 // getHeightBucket retrieves an existing height bucket from the nursery store,
 // using the provided block height. If the bucket does not exist, or any bucket
 // along its path does not exist, a nil value is returned.
-func (ns *nurseryStore) getHeightBucket(tx *bolt.Tx,
-	height uint32) *bolt.Bucket {
+func (ns *nurseryStore) getHeightBucket(tx *bbolt.Tx,
+	height uint32) *bbolt.Bucket {
 	_, _, hghtBucket := ns.getHeightBucketPath(tx, height)
 
 	return hghtBucket
@@ -1180,8 +1180,8 @@ func (ns *nurseryStore) getHeightBucket(tx *bolt.Tx,
 // createHeightChanBucket creates or retrieves an existing height-channel bucket
 // for the provided block height and channel point. This method will attempt to
 // instantiate all buckets along the path if required.
-func (ns *nurseryStore) createHeightChanBucket(tx *bolt.Tx,
-	height uint32, chanPoint *wire.OutPoint) (*bolt.Bucket, error) {
+func (ns *nurseryStore) createHeightChanBucket(tx *bbolt.Tx,
+	height uint32, chanPoint *wire.OutPoint) (*bbolt.Bucket, error) {
 
 	// Ensure that the height bucket for this nursery store exists.
 	hghtBucket, err := ns.createHeightBucket(tx, height)
@@ -1206,8 +1206,8 @@ func (ns *nurseryStore) createHeightChanBucket(tx *bolt.Tx,
 // nursery store, using the provided block height and channel point. if the
 // bucket does not exist, or any bucket along its path does not exist, a nil
 // value is returned.
-func (ns *nurseryStore) getHeightChanBucket(tx *bolt.Tx,
-	height uint32, chanPoint *wire.OutPoint) *bolt.Bucket {
+func (ns *nurseryStore) getHeightChanBucket(tx *bbolt.Tx,
+	height uint32, chanPoint *wire.OutPoint) *bbolt.Bucket {
 
 	// Retrieve the existing height bucket from this nursery store.
 	hghtBucket := ns.getHeightBucket(tx, height)
@@ -1233,7 +1233,7 @@ func (ns *nurseryStore) getHeightChanBucket(tx *bolt.Tx,
 // enumerate crib and kindergarten outputs at a particular height. The callback
 // is invoked with serialized bytes retrieved for each output of interest,
 // allowing the caller to deserialize them into the appropriate type.
-func (ns *nurseryStore) forEachHeightPrefix(tx *bolt.Tx, prefix []byte,
+func (ns *nurseryStore) forEachHeightPrefix(tx *bbolt.Tx, prefix []byte,
 	height uint32, callback func([]byte) error) error {
 
 	// Start by retrieving the height bucket corresponding to the provided
@@ -1321,7 +1321,7 @@ func (ns *nurseryStore) forEachHeightPrefix(tx *bolt.Tx, prefix []byte,
 // provided callback. The callback accepts a key-value pair of byte slices
 // corresponding to the prefixed-output key and the serialized output,
 // respectively.
-func (ns *nurseryStore) forChanOutputs(tx *bolt.Tx, chanPoint *wire.OutPoint,
+func (ns *nurseryStore) forChanOutputs(tx *bbolt.Tx, chanPoint *wire.OutPoint,
 	callback func([]byte, []byte) error) error {
 
 	chanBucket := ns.getChannelBucket(tx, chanPoint)
@@ -1334,7 +1334,7 @@ func (ns *nurseryStore) forChanOutputs(tx *bolt.Tx, chanPoint *wire.OutPoint,
 
 // getLastFinalizedHeight is a helper method that retrieves the last height for
 // which the database finalized its persistent state.
-func (ns *nurseryStore) getLastFinalizedHeight(tx *bolt.Tx) (uint32, error) {
+func (ns *nurseryStore) getLastFinalizedHeight(tx *bbolt.Tx) (uint32, error) {
 	// Retrieve the chain bucket associated with the given nursery store.
 	chainBucket := tx.Bucket(ns.pfxChainKey)
 	if chainBucket == nil {
@@ -1362,7 +1362,7 @@ func (ns *nurseryStore) getLastFinalizedHeight(tx *bolt.Tx) (uint32, error) {
 // finalized, and we skip the process of writing the txn. When the class is
 // loaded, a nil value will be returned if no txn has been written to a
 // finalized height bucket.
-func (ns *nurseryStore) finalizeKinder(tx *bolt.Tx, height uint32,
+func (ns *nurseryStore) finalizeKinder(tx *bbolt.Tx, height uint32,
 	finalTx *wire.MsgTx) error {
 
 	// TODO(conner) ensure height is greater that current finalized height.
@@ -1409,7 +1409,7 @@ func (ns *nurseryStore) finalizeKinder(tx *bolt.Tx, height uint32,
 
 // getFinalizedTxn retrieves the finalized kindergarten sweep txn at the given
 // height, returning nil if one was not found.
-func (ns *nurseryStore) getFinalizedTxn(tx *bolt.Tx,
+func (ns *nurseryStore) getFinalizedTxn(tx *bbolt.Tx,
 	height uint32) (*wire.MsgTx, error) {
 
 	hghtBucket := ns.getHeightBucket(tx, height)
@@ -1435,7 +1435,7 @@ func (ns *nurseryStore) getFinalizedTxn(tx *bolt.Tx,
 
 // getLastGraduatedHeight is a helper method that retrieves the last height for
 // which the database graduated all outputs successfully.
-func (ns *nurseryStore) getLastGraduatedHeight(tx *bolt.Tx) (uint32, error) {
+func (ns *nurseryStore) getLastGraduatedHeight(tx *bbolt.Tx) (uint32, error) {
 	// Retrieve the chain bucket associated with the given nursery store.
 	chainBucket := tx.Bucket(ns.pfxChainKey)
 	if chainBucket == nil {
@@ -1455,7 +1455,7 @@ func (ns *nurseryStore) getLastGraduatedHeight(tx *bolt.Tx) (uint32, error) {
 
 // pubLastGraduatedHeight is a helper method that writes the provided height under
 // the last graduated height key.
-func (ns *nurseryStore) putLastGraduatedHeight(tx *bolt.Tx, height uint32) error {
+func (ns *nurseryStore) putLastGraduatedHeight(tx *bbolt.Tx, height uint32) error {
 
 	// Ensure that the chain bucket for this nursery store exists.
 	chainBucket, err := tx.CreateBucketIfNotExists(ns.pfxChainKey)
@@ -1478,7 +1478,7 @@ var errBucketNotEmpty = errors.New("bucket is not empty, cannot be pruned")
 // removeOutputFromHeight will delete the given output from the specified
 // height-channel bucket, and attempt to prune the upstream directories if they
 // are empty.
-func (ns *nurseryStore) removeOutputFromHeight(tx *bolt.Tx, height uint32,
+func (ns *nurseryStore) removeOutputFromHeight(tx *bbolt.Tx, height uint32,
 	chanPoint *wire.OutPoint, pfxKey []byte) error {
 
 	// Retrieve the height-channel bucket and delete the prefixed output.
@@ -1530,7 +1530,7 @@ func (ns *nurseryStore) removeOutputFromHeight(tx *bolt.Tx, height uint32,
 // all active outputs at this height have been removed from their respective
 // height-channel buckets. The returned boolean value indicated whether or not
 // this invocation successfully pruned the height bucket.
-func (ns *nurseryStore) pruneHeight(tx *bolt.Tx, height uint32) (bool, error) {
+func (ns *nurseryStore) pruneHeight(tx *bbolt.Tx, height uint32) (bool, error) {
 	// Fetch the existing height index and height bucket.
 	_, hghtIndex, hghtBucket := ns.getHeightBucketPath(tx, height)
 	if hghtBucket == nil {
@@ -1576,7 +1576,7 @@ func (ns *nurseryStore) pruneHeight(tx *bolt.Tx, height uint32) (bool, error) {
 
 // removeBucketIfEmpty attempts to delete a bucket specified by name from the
 // provided parent bucket.
-func removeBucketIfEmpty(parent *bolt.Bucket, bktName []byte) error {
+func removeBucketIfEmpty(parent *bbolt.Bucket, bktName []byte) error {
 	// Attempt to fetch the named bucket from its parent.
 	bkt := parent.Bucket(bktName)
 	if bkt == nil {
@@ -1594,7 +1594,7 @@ func removeBucketIfEmpty(parent *bolt.Bucket, bktName []byte) error {
 
 // removeBucketIfExists safely deletes the named bucket by first checking
 // that it exists in the parent bucket.
-func removeBucketIfExists(parent *bolt.Bucket, bktName []byte) error {
+func removeBucketIfExists(parent *bbolt.Bucket, bktName []byte) error {
 	// Attempt to fetch the named bucket from its parent.
 	bkt := parent.Bucket(bktName)
 	if bkt == nil {
@@ -1607,7 +1607,7 @@ func removeBucketIfExists(parent *bolt.Bucket, bktName []byte) error {
 
 // isBucketEmpty returns errBucketNotEmpty if the bucket has a non-zero number
 // of children.
-func isBucketEmpty(parent *bolt.Bucket) error {
+func isBucketEmpty(parent *bbolt.Bucket) error {
 	return parent.ForEach(func(_, _ []byte) error {
 		return errBucketNotEmpty
 	})

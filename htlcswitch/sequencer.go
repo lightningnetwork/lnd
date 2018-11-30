@@ -87,7 +87,7 @@ func (s *persistentSequencer) NextID() (uint64, error) {
 	// allocated will start from the last known tip on disk, which is fine
 	// as we only require uniqueness of the allocated numbers.
 	var nextHorizonID uint64
-	if err := s.db.Update(func(tx *bolt.Tx) error {
+	if err := s.db.Update(func(tx *bbolt.Tx) error {
 		nextIDBkt := tx.Bucket(nextPaymentIDKey)
 		if nextIDBkt == nil {
 			return ErrSequencerCorrupted
@@ -121,7 +121,7 @@ func (s *persistentSequencer) NextID() (uint64, error) {
 
 // initDB populates the bucket used to generate payment sequence numbers.
 func (s *persistentSequencer) initDB() error {
-	return s.db.Update(func(tx *bolt.Tx) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(nextPaymentIDKey)
 		return err
 	})

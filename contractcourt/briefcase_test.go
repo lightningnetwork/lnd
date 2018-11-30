@@ -95,7 +95,7 @@ var (
 	}
 )
 
-func makeTestDB() (*bolt.DB, func(), error) {
+func makeTestDB() (*bbolt.DB, func(), error) {
 	// First, create a temporary directory to be used for the duration of
 	// this test.
 	tempDirName, err := ioutil.TempDir("", "arblog")
@@ -103,7 +103,7 @@ func makeTestDB() (*bolt.DB, func(), error) {
 		return nil, nil, err
 	}
 
-	db, err := bolt.Open(tempDirName+"/test.db", 0600, nil)
+	db, err := bbolt.Open(tempDirName+"/test.db", 0600, nil)
 	if err != nil {
 		return nil, nil, err
 	}

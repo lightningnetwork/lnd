@@ -2,18 +2,15 @@ PKG := github.com/lightningnetwork/lnd
 ESCPKG := github.com\/lightningnetwork\/lnd
 
 BTCD_PKG := github.com/btcsuite/btcd
-GLIDE_PKG := github.com/Masterminds/glide
 GOVERALLS_PKG := github.com/mattn/goveralls
 LINT_PKG := gopkg.in/alecthomas/gometalinter.v2
 
 GO_BIN := ${GOPATH}/bin
 BTCD_BIN := $(GO_BIN)/btcd
-GLIDE_BIN := $(GO_BIN)/glide
 GOVERALLS_BIN := $(GO_BIN)/goveralls
 LINT_BIN := $(GO_BIN)/gometalinter.v2
 
 HAVE_BTCD := $(shell command -v $(BTCD_BIN) 2> /dev/null)
-HAVE_GLIDE := $(shell command -v $(GLIDE_BIN) 2> /dev/null)
 HAVE_GOVERALLS := $(shell command -v $(GOVERALLS_BIN) 2> /dev/null)
 HAVE_LINTER := $(shell command -v $(LINT_BIN) 2> /dev/null)
 
@@ -22,7 +19,6 @@ BTCD_DIR :=${GOPATH}/src/$(BTCD_PKG)
 COMMIT := $(shell git describe --abbrev=40 --dirty)
 LDFLAGS := -ldflags "-X $(PKG)/build.Commit=$(COMMIT)"
 
-GLIDE_COMMIT := 84607742b10f492430762d038e954236bbaf23f7
 BTCD_COMMIT := $(shell cat go.sum | \
 		grep $(BTCD_PKG) | \
 		tail -n1 | \
@@ -32,7 +28,7 @@ BTCD_COMMIT := $(shell cat go.sum | \
 
 GOBUILD := GO111MODULE=on go build -v
 GOINSTALL := GO111MODULE=on go install -v
-GOTEST := go test -v
+GOTEST := GO111MODULE=on go test -v
 
 GOLIST := go list $(PKG)/... | grep -v '/vendor/'
 GOLISTCOVER := $(shell go list -f '{{.ImportPath}}' ./... | sed -e 's/^$(ESCPKG)/./')
@@ -91,30 +87,17 @@ all: scratch check install
 # DEPENDENCIES
 # ============
 
-$(GLIDE_BIN):
-	@$(call print, "Fetching glide.")
-	go get -d $(GLIDE_PKG)
-	cd ${GOPATH}/src/$(GLIDE_PKG) && ( git checkout $(GLIDE_COMMIT) || ( git fetch --all && git checkout $(GLIDE_COMMIT) ) )
-	$(GOINSTALL) $(GLIDE_PKG)
-
 $(GOVERALLS_BIN):
 	@$(call print, "Fetching goveralls.")
 	go get -u $(GOVERALLS_PKG)
 
 $(LINT_BIN):
 	@$(call print, "Fetching gometalinter.v2")
-	go get -u $(LINT_PKG)
+	GO111MODULE=off go get -u $(LINT_PKG)
 
-$(BTCD_DIR):
-	@$(call print, "Fetching btcd.")
-	go get -d github.com/btcsuite/btcd
-
-btcd: $(GLIDE_BIN) $(BTCD_DIR)
-	@$(call print, "Compiling btcd dependencies.")
-	cd $(BTCD_DIR) && ( git checkout $(BTCD_COMMIT) || ( git fetch --all && git checkout $(BTCD_COMMIT) ) ) && glide install
-	@$(call print, "Installing btcd and btcctl.")
-	$(GOINSTALL) $(BTCD_PKG)
-	$(GOINSTALL) $(BTCD_PKG)/cmd/btcctl
+btcd: 
+	@$(call print, "Installing btcd...")
+	go get -v github.com/btcsuite/btcd/@v0.0.0-20180823030728-$(BTCD_COMMIT)
 
 # ============
 # INSTALLATION
@@ -186,7 +169,7 @@ fmt:
 
 lint: $(LINT_BIN)
 	@$(call print, "Linting source.")
-	$(LINT_BIN) --install 1> /dev/null
+	GO111MODULE=off $(LINT_BIN) --install 1> /dev/null
 	test -z "$$($(LINT))"
 
 list:

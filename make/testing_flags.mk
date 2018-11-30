@@ -49,7 +49,7 @@ UNIT_RACE := $(GOTEST) -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS) -race $(UNI
 endif
 
 ifeq ($(UNIT_TARGETED), no)
-UNIT := $(GOLIST) | $(XARGS) $(GOTEST) -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS)
+UNIT := $(GOLIST) | $(XARGS) env $(GOTEST) -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS)
 UNIT_RACE := $(UNIT) -race
 endif
 

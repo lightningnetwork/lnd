@@ -405,7 +405,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		aliceStoredChannels, err := dbAlice.FetchOpenChannels(aliceKeyPub)
 		switch err {
 		case nil:
-		case bolt.ErrDatabaseNotOpen:
+		case bbolt.ErrDatabaseNotOpen:
 			dbAlice, err = channeldb.Open(dbAlice.Path())
 			if err != nil {
 				return nil, nil, errors.Errorf("unable to reopen alice "+
@@ -444,7 +444,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		bobStoredChannels, err := dbBob.FetchOpenChannels(bobKeyPub)
 		switch err {
 		case nil:
-		case bolt.ErrDatabaseNotOpen:
+		case bbolt.ErrDatabaseNotOpen:
 			dbBob, err = channeldb.Open(dbBob.Path())
 			if err != nil {
 				return nil, nil, errors.Errorf("unable to reopen bob "+

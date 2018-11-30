@@ -146,6 +146,10 @@ goveralls: $(GOVERALLS_BIN)
 	@$(call print, "Sending coverage report.")
 	$(GOVERALLS_BIN) -coverprofile=profile.cov -service=travis-ci
 
+travis-race: btcd unit-race
+
+travis-cover: btcd lint unit-cover goveralls
+
 # =============
 # FLAKE HUNTING
 # =============
@@ -202,6 +206,8 @@ clean:
 	unit-cover \
 	unit-race \
 	goveralls \
+	travis-race \
+	travis-cover \
 	flakehunter \
 	flake-unit \
 	fmt \

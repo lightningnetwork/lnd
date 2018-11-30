@@ -1,5 +1,4 @@
 DEV_TAGS = dev
-PROD_TAGS = prod
 LOG_TAGS =
 TEST_FLAGS =
 

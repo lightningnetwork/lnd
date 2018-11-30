@@ -177,7 +177,7 @@ fmt:
 lint: $(LINT_BIN)
 	@$(call print, "Linting source.")
 	GO111MODULE=off $(LINT_BIN) --install 1> /dev/null
-	test -z "$$($(LINT))"
+	GO111MODULE=on test -z "$$($(LINT))"
 
 list:
 	@$(call print, "Listing commands.")

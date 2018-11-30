@@ -107,56 +107,6 @@ const (
 	chanRangeQueryBuffer = 144
 )
 
-// ChannelGraphTimeSeries is an interface that provides time and block based
-// querying into our view of the channel graph. New channels will have
-// monotonically increasing block heights, and new channel updates will have
-// increasing timestamps. Once we connect to a peer, we'll use the methods in
-// this interface to determine if we're already in sync, or need to request
-// some new information from them.
-type ChannelGraphTimeSeries interface {
-	// HighestChanID should return the channel ID of the channel we know of
-	// that's furthest in the target chain. This channel will have a block
-	// height that's close to the current tip of the main chain as we
-	// know it.  We'll use this to start our QueryChannelRange dance with
-	// the remote node.
-	HighestChanID(chain chainhash.Hash) (*lnwire.ShortChannelID, error)
-
-	// UpdatesInHorizon returns all known channel and node updates with an
-	// update timestamp between the start time and end time. We'll use this
-	// to catch up a remote node to the set of channel updates that they
-	// may have missed out on within the target chain.
-	UpdatesInHorizon(chain chainhash.Hash,
-		startTime time.Time, endTime time.Time) ([]lnwire.Message, error)
-
-	// FilterKnownChanIDs takes a target chain, and a set of channel ID's,
-	// and returns a filtered set of chan ID's. This filtered set of chan
-	// ID's represents the ID's that we don't know of which were in the
-	// passed superSet.
-	FilterKnownChanIDs(chain chainhash.Hash,
-		superSet []lnwire.ShortChannelID) ([]lnwire.ShortChannelID, error)
-
-	// FilterChannelRange returns the set of channels that we created
-	// between the start height and the end height. We'll use this to to a
-	// remote peer's QueryChannelRange message.
-	FilterChannelRange(chain chainhash.Hash,
-		startHeight, endHeight uint32) ([]lnwire.ShortChannelID, error)
-
-	// FetchChanAnns returns a full set of channel announcements as well as
-	// their updates that match the set of specified short channel ID's.
-	// We'll use this to reply to a QueryShortChanIDs message sent by a
-	// remote peer. The response will contain a unique set of
-	// ChannelAnnouncements, the latest ChannelUpdate for each of the
-	// announcements, and a unique set of NodeAnnouncements.
-	FetchChanAnns(chain chainhash.Hash,
-		shortChanIDs []lnwire.ShortChannelID) ([]lnwire.Message, error)
-
-	// FetchChanUpdates returns the latest channel update messages for the
-	// specified short channel ID. If no channel updates are known for the
-	// channel, then an empty slice will be returned.
-	FetchChanUpdates(chain chainhash.Hash,
-		shortChanID lnwire.ShortChannelID) ([]*lnwire.ChannelUpdate, error)
-}
-
 // gossipSyncerCfg is a struct that packages all the information a gossipSyncer
 // needs to carry out its duties.
 type gossipSyncerCfg struct {

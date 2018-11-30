@@ -826,7 +826,7 @@ func (d *AuthenticatedGossiper) resendAnnounceSignatures() error {
 	// TODO(halseth): database access should be abstracted
 	// behind interface.
 	var msgsResend []msgTuple
-	if err := d.cfg.DB.View(func(tx *bolt.Tx) error {
+	if err := d.cfg.DB.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(messageStoreKey)
 		if bucket == nil {
 			return nil
@@ -872,7 +872,7 @@ func (d *AuthenticatedGossiper) resendAnnounceSignatures() error {
 	deleteMsg := func(t msgTuple) error {
 		log.Debugf("Deleting message for chanID=%v from "+
 			"messageStore", t.msg.ChannelID)
-		if err := d.cfg.DB.Update(func(tx *bolt.Tx) error {
+		if err := d.cfg.DB.Update(func(tx *bbolt.Tx) error {
 			bucket := tx.Bucket(messageStoreKey)
 			if bucket == nil {
 				return fmt.Errorf("bucket " +
@@ -2429,7 +2429,7 @@ func (d *AuthenticatedGossiper) sendAnnSigReliably(
 	copy(key[:33], remotePeer.SerializeCompressed())
 	binary.BigEndian.PutUint64(key[33:], msg.ShortChannelID.ToUint64())
 
-	err := d.cfg.DB.Update(func(tx *bolt.Tx) error {
+	err := d.cfg.DB.Update(func(tx *bbolt.Tx) error {
 		bucket, err := tx.CreateBucketIfNotExists(messageStoreKey)
 		if err != nil {
 			return err

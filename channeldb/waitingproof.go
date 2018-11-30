@@ -61,7 +61,7 @@ func (s *WaitingProofStore) Add(proof *WaitingProof) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	err := s.db.Update(func(tx *bolt.Tx) error {
+	err := s.db.Update(func(tx *bbolt.Tx) error {
 		var err error
 		var b bytes.Buffer
 
@@ -100,7 +100,7 @@ func (s *WaitingProofStore) Remove(key WaitingProofKey) error {
 		return ErrWaitingProofNotFound
 	}
 
-	err := s.db.Update(func(tx *bolt.Tx) error {
+	err := s.db.Update(func(tx *bbolt.Tx) error {
 		// Get or create the top bucket.
 		bucket := tx.Bucket(waitingProofsBucketKey)
 		if bucket == nil {
@@ -123,7 +123,7 @@ func (s *WaitingProofStore) Remove(key WaitingProofKey) error {
 // ForAll iterates thought all waiting proofs and passing the waiting proof
 // in the given callback.
 func (s *WaitingProofStore) ForAll(cb func(*WaitingProof) error) error {
-	return s.db.View(func(tx *bolt.Tx) error {
+	return s.db.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(waitingProofsBucketKey)
 		if bucket == nil {
 			return ErrWaitingProofNotFound
@@ -158,7 +158,7 @@ func (s *WaitingProofStore) Get(key WaitingProofKey) (*WaitingProof, error) {
 		return nil, ErrWaitingProofNotFound
 	}
 
-	err := s.db.View(func(tx *bolt.Tx) error {
+	err := s.db.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(waitingProofsBucketKey)
 		if bucket == nil {
 			return ErrWaitingProofNotFound

@@ -318,7 +318,7 @@ type SettleFailRef struct {
 type SettleFailAcker interface {
 	// AckSettleFails atomically updates the settle-fail filters in *other*
 	// channels' forwarding packages.
-	AckSettleFails(tx *bolt.Tx, settleFailRefs ...SettleFailRef) error
+	AckSettleFails(tx *bbolt.Tx, settleFailRefs ...SettleFailRef) error
 }
 
 // GlobalFwdPkgReader is an interface used to retrieve the forwarding packages
@@ -326,7 +326,7 @@ type SettleFailAcker interface {
 type GlobalFwdPkgReader interface {
 	// LoadChannelFwdPkgs loads all known forwarding packages for the given
 	// channel.
-	LoadChannelFwdPkgs(tx *bolt.Tx,
+	LoadChannelFwdPkgs(tx *bbolt.Tx,
 		source lnwire.ShortChannelID) ([]*FwdPkg, error)
 }
 
@@ -357,14 +357,14 @@ func NewSwitchPackager() *SwitchPackager {
 // AckSettleFails atomically updates the settle-fail filters in *other*
 // channels' forwarding packages, to mark that the switch has received a settle
 // or fail residing in the forwarding package of a link.
-func (*SwitchPackager) AckSettleFails(tx *bolt.Tx,
+func (*SwitchPackager) AckSettleFails(tx *bbolt.Tx,
 	settleFailRefs ...SettleFailRef) error {
 
 	return ackSettleFails(tx, settleFailRefs)
 }
 
 // LoadChannelFwdPkgs loads all forwarding packages for a particular channel.
-func (*SwitchPackager) LoadChannelFwdPkgs(tx *bolt.Tx,
+func (*SwitchPackager) LoadChannelFwdPkgs(tx *bbolt.Tx,
 	source lnwire.ShortChannelID) ([]*FwdPkg, error) {
 
 	return loadChannelFwdPkgs(tx, source)
@@ -376,19 +376,19 @@ func (*SwitchPackager) LoadChannelFwdPkgs(tx *bolt.Tx,
 type FwdPackager interface {
 	// AddFwdPkg serializes and writes a FwdPkg for this channel at the
 	// remote commitment height included in the forwarding package.
-	AddFwdPkg(tx *bolt.Tx, fwdPkg *FwdPkg) error
+	AddFwdPkg(tx *bbolt.Tx, fwdPkg *FwdPkg) error
 
 	// SetFwdFilter looks up the forwarding package at the remote `height`
 	// and sets the `fwdFilter`, marking the Adds for which:
 	// 1) We are not the exit node
 	// 2) Passed all validation
 	// 3) Should be forwarded to the switch immediately after a failure
-	SetFwdFilter(tx *bolt.Tx, height uint64, fwdFilter *PkgFilter) error
+	SetFwdFilter(tx *bbolt.Tx, height uint64, fwdFilter *PkgFilter) error
 
 	// AckAddHtlcs atomically updates the add filters in this channel's
 	// forwarding packages to mark the resolution of an Add that was
 	// received from the remote party.
-	AckAddHtlcs(tx *bolt.Tx, addRefs ...AddRef) error
+	AckAddHtlcs(tx *bbolt.Tx, addRefs ...AddRef) error
 
 	// SettleFailAcker allows a link to acknowledge settle/fail HTLCs
 	// belonging to other channels.
@@ -396,11 +396,11 @@ type FwdPackager interface {
 
 	// LoadFwdPkgs loads all known forwarding packages owned by this
 	// channel.
-	LoadFwdPkgs(tx *bolt.Tx) ([]*FwdPkg, error)
+	LoadFwdPkgs(tx *bbolt.Tx) ([]*FwdPkg, error)
 
 	// RemovePkg deletes a forwarding package owned by this channel at
 	// the provided remote `height`.
-	RemovePkg(tx *bolt.Tx, height uint64) error
+	RemovePkg(tx *bbolt.Tx, height uint64) error
 }
 
 // ChannelPackager is used by a channel to manage the lifecycle of its forwarding
@@ -420,7 +420,7 @@ func NewChannelPackager(source lnwire.ShortChannelID) *ChannelPackager {
 }
 
 // AddFwdPkg writes a newly locked in forwarding package to disk.
-func (*ChannelPackager) AddFwdPkg(tx *bolt.Tx, fwdPkg *FwdPkg) error {
+func (*ChannelPackager) AddFwdPkg(tx *bbolt.Tx, fwdPkg *FwdPkg) error {
 	fwdPkgBkt, err := tx.CreateBucketIfNotExists(fwdPackagesKey)
 	if err != nil {
 		return err
@@ -485,7 +485,7 @@ func (*ChannelPackager) AddFwdPkg(tx *bolt.Tx, fwdPkg *FwdPkg) error {
 }
 
 // putLogUpdate writes an htlc to the provided `bkt`, using `index` as the key.
-func putLogUpdate(bkt *bolt.Bucket, idx uint16, htlc *LogUpdate) error {
+func putLogUpdate(bkt *bbolt.Bucket, idx uint16, htlc *LogUpdate) error {
 	var b bytes.Buffer
 	if err := htlc.Encode(&b); err != nil {
 		return err
@@ -497,12 +497,12 @@ func putLogUpdate(bkt *bolt.Bucket, idx uint16, htlc *LogUpdate) error {
 // LoadFwdPkgs scans the forwarding log for any packages that haven't been
 // processed, and returns their deserialized log updates in a map indexed by the
 // remote commitment height at which the updates were locked in.
-func (p *ChannelPackager) LoadFwdPkgs(tx *bolt.Tx) ([]*FwdPkg, error) {
+func (p *ChannelPackager) LoadFwdPkgs(tx *bbolt.Tx) ([]*FwdPkg, error) {
 	return loadChannelFwdPkgs(tx, p.source)
 }
 
 // loadChannelFwdPkgs loads all forwarding packages owned by `source`.
-func loadChannelFwdPkgs(tx *bolt.Tx, source lnwire.ShortChannelID) ([]*FwdPkg, error) {
+func loadChannelFwdPkgs(tx *bbolt.Tx, source lnwire.ShortChannelID) ([]*FwdPkg, error) {
 	fwdPkgBkt := tx.Bucket(fwdPackagesKey)
 	if fwdPkgBkt == nil {
 		return nil, nil
@@ -543,7 +543,7 @@ func loadChannelFwdPkgs(tx *bolt.Tx, source lnwire.ShortChannelID) ([]*FwdPkg, e
 
 // loadFwPkg reads the packager's fwd pkg at a given height, and determines the
 // appropriate FwdState.
-func loadFwdPkg(fwdPkgBkt *bolt.Bucket, source lnwire.ShortChannelID,
+func loadFwdPkg(fwdPkgBkt *bbolt.Bucket, source lnwire.ShortChannelID,
 	height uint64) (*FwdPkg, error) {
 
 	sourceKey := makeLogKey(source.ToUint64())
@@ -649,7 +649,7 @@ func loadFwdPkg(fwdPkgBkt *bolt.Bucket, source lnwire.ShortChannelID,
 
 // loadHtlcs retrieves all serialized htlcs in a bucket, returning
 // them in order of the indexes they were written under.
-func loadHtlcs(bkt *bolt.Bucket) ([]LogUpdate, error) {
+func loadHtlcs(bkt *bbolt.Bucket) ([]LogUpdate, error) {
 	var htlcs []LogUpdate
 	if err := bkt.ForEach(func(_, v []byte) error {
 		var htlc LogUpdate
@@ -674,7 +674,7 @@ func loadHtlcs(bkt *bolt.Bucket) ([]LogUpdate, error) {
 // leaving this channel. After a restart, we skip validation of these Adds,
 // since they are assumed to have already been validated, and make the switch or
 // outgoing link responsible for handling replays.
-func (p *ChannelPackager) SetFwdFilter(tx *bolt.Tx, height uint64,
+func (p *ChannelPackager) SetFwdFilter(tx *bbolt.Tx, height uint64,
 	fwdFilter *PkgFilter) error {
 
 	fwdPkgBkt := tx.Bucket(fwdPackagesKey)
@@ -713,7 +713,7 @@ func (p *ChannelPackager) SetFwdFilter(tx *bolt.Tx, height uint64,
 // AckAddHtlcs accepts a list of references to add htlcs, and updates the
 // AckAddFilter of those forwarding packages to indicate that a settle or fail
 // has been received in response to the add.
-func (p *ChannelPackager) AckAddHtlcs(tx *bolt.Tx, addRefs ...AddRef) error {
+func (p *ChannelPackager) AckAddHtlcs(tx *bbolt.Tx, addRefs ...AddRef) error {
 	if len(addRefs) == 0 {
 		return nil
 	}
@@ -753,7 +753,7 @@ func (p *ChannelPackager) AckAddHtlcs(tx *bolt.Tx, addRefs ...AddRef) error {
 
 // ackAddHtlcsAtHeight updates the AddAckFilter of a single forwarding package
 // with a list of indexes, writing the resulting filter back in its place.
-func ackAddHtlcsAtHeight(sourceBkt *bolt.Bucket, height uint64,
+func ackAddHtlcsAtHeight(sourceBkt *bbolt.Bucket, height uint64,
 	indexes []uint16) error {
 
 	heightKey := makeLogKey(height)
@@ -796,12 +796,12 @@ func ackAddHtlcsAtHeight(sourceBkt *bolt.Bucket, height uint64,
 // package. This should only be called after the source of the Add has locked in
 // the settle/fail, or it becomes otherwise safe to forgo retransmitting the
 // settle/fail after a restart.
-func (p *ChannelPackager) AckSettleFails(tx *bolt.Tx, settleFailRefs ...SettleFailRef) error {
+func (p *ChannelPackager) AckSettleFails(tx *bbolt.Tx, settleFailRefs ...SettleFailRef) error {
 	return ackSettleFails(tx, settleFailRefs)
 }
 
 // ackSettleFails persistently acknowledges a batch of settle fail references.
-func ackSettleFails(tx *bolt.Tx, settleFailRefs []SettleFailRef) error {
+func ackSettleFails(tx *bbolt.Tx, settleFailRefs []SettleFailRef) error {
 	if len(settleFailRefs) == 0 {
 		return nil
 	}
@@ -855,7 +855,7 @@ func ackSettleFails(tx *bolt.Tx, settleFailRefs []SettleFailRef) error {
 
 // ackSettleFailsAtHeight given a destination bucket, acks the provided indexes
 // at particular a height by updating the settle fail filter.
-func ackSettleFailsAtHeight(destBkt *bolt.Bucket, height uint64,
+func ackSettleFailsAtHeight(destBkt *bbolt.Bucket, height uint64,
 	indexes []uint16) error {
 
 	heightKey := makeLogKey(height)
@@ -895,7 +895,7 @@ func ackSettleFailsAtHeight(destBkt *bolt.Bucket, height uint64,
 
 // RemovePkg deletes the forwarding package at the given height from the
 // packager's source bucket.
-func (p *ChannelPackager) RemovePkg(tx *bolt.Tx, height uint64) error {
+func (p *ChannelPackager) RemovePkg(tx *bbolt.Tx, height uint64) error {
 	fwdPkgBkt := tx.Bucket(fwdPackagesKey)
 	if fwdPkgBkt == nil {
 		return nil

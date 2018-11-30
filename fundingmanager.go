@@ -3028,7 +3028,7 @@ func copyPubKey(pub *btcec.PublicKey) *btcec.PublicKey {
 // chanPoint to the channelOpeningStateBucket.
 func (f *fundingManager) saveChannelOpeningState(chanPoint *wire.OutPoint,
 	state channelOpeningState, shortChanID *lnwire.ShortChannelID) error {
-	return f.cfg.Wallet.Cfg.Database.Update(func(tx *bolt.Tx) error {
+	return f.cfg.Wallet.Cfg.Database.Update(func(tx *bbolt.Tx) error {
 
 		bucket, err := tx.CreateBucketIfNotExists(channelOpeningStateBucket)
 		if err != nil {
@@ -3058,7 +3058,7 @@ func (f *fundingManager) getChannelOpeningState(chanPoint *wire.OutPoint) (
 
 	var state channelOpeningState
 	var shortChanID lnwire.ShortChannelID
-	err := f.cfg.Wallet.Cfg.Database.View(func(tx *bolt.Tx) error {
+	err := f.cfg.Wallet.Cfg.Database.View(func(tx *bbolt.Tx) error {
 
 		bucket := tx.Bucket(channelOpeningStateBucket)
 		if bucket == nil {
@@ -3090,7 +3090,7 @@ func (f *fundingManager) getChannelOpeningState(chanPoint *wire.OutPoint) (
 
 // deleteChannelOpeningState removes any state for chanPoint from the database.
 func (f *fundingManager) deleteChannelOpeningState(chanPoint *wire.OutPoint) error {
-	return f.cfg.Wallet.Cfg.Database.Update(func(tx *bolt.Tx) error {
+	return f.cfg.Wallet.Cfg.Database.Update(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(channelOpeningStateBucket)
 		if bucket == nil {
 			return fmt.Errorf("Bucket not found")

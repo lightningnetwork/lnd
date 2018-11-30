@@ -76,7 +76,7 @@ func (d *DB) NewWitnessCache() *WitnessCache {
 //
 // TODO(roasbeef): fake closure to map instead a constructor?
 func (w *WitnessCache) AddWitness(wType WitnessType, witness []byte) error {
-	return w.db.Batch(func(tx *bolt.Tx) error {
+	return w.db.Batch(func(tx *bbolt.Tx) error {
 		witnessBucket, err := tx.CreateBucketIfNotExists(witnessBucketKey)
 		if err != nil {
 			return err
@@ -111,7 +111,7 @@ func (w *WitnessCache) AddWitness(wType WitnessType, witness []byte) error {
 // will be returned.
 func (w *WitnessCache) LookupWitness(wType WitnessType, witnessKey []byte) ([]byte, error) {
 	var witness []byte
-	err := w.db.View(func(tx *bolt.Tx) error {
+	err := w.db.View(func(tx *bbolt.Tx) error {
 		witnessBucket := tx.Bucket(witnessBucketKey)
 		if witnessBucket == nil {
 			return ErrNoWitnesses
@@ -145,7 +145,7 @@ func (w *WitnessCache) LookupWitness(wType WitnessType, witnessKey []byte) ([]by
 
 // DeleteWitness attempts to delete a particular witness from the database.
 func (w *WitnessCache) DeleteWitness(wType WitnessType, witnessKey []byte) error {
-	return w.db.Batch(func(tx *bolt.Tx) error {
+	return w.db.Batch(func(tx *bbolt.Tx) error {
 		witnessBucket, err := tx.CreateBucketIfNotExists(witnessBucketKey)
 		if err != nil {
 			return err
@@ -169,7 +169,7 @@ func (w *WitnessCache) DeleteWitness(wType WitnessType, witnessKey []byte) error
 // DeleteWitnessClass attempts to delete an *entire* class of witnesses. After
 // this function return with a non-nil error,
 func (w *WitnessCache) DeleteWitnessClass(wType WitnessType) error {
-	return w.db.Batch(func(tx *bolt.Tx) error {
+	return w.db.Batch(func(tx *bbolt.Tx) error {
 		witnessBucket, err := tx.CreateBucketIfNotExists(witnessBucketKey)
 		if err != nil {
 			return err

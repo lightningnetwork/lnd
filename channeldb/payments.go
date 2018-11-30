@@ -118,7 +118,7 @@ func (db *DB) AddPayment(payment *OutgoingPayment) error {
 	}
 	paymentBytes := b.Bytes()
 
-	return db.Batch(func(tx *bolt.Tx) error {
+	return db.Batch(func(tx *bbolt.Tx) error {
 		payments, err := tx.CreateBucketIfNotExists(paymentBucket)
 		if err != nil {
 			return err
@@ -144,7 +144,7 @@ func (db *DB) AddPayment(payment *OutgoingPayment) error {
 func (db *DB) FetchAllPayments() ([]*OutgoingPayment, error) {
 	var payments []*OutgoingPayment
 
-	err := db.View(func(tx *bolt.Tx) error {
+	err := db.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(paymentBucket)
 		if bucket == nil {
 			return ErrNoPaymentsCreated
@@ -176,9 +176,9 @@ func (db *DB) FetchAllPayments() ([]*OutgoingPayment, error) {
 
 // DeleteAllPayments deletes all payments from DB.
 func (db *DB) DeleteAllPayments() error {
-	return db.Update(func(tx *bolt.Tx) error {
+	return db.Update(func(tx *bbolt.Tx) error {
 		err := tx.DeleteBucket(paymentBucket)
-		if err != nil && err != bolt.ErrBucketNotFound {
+		if err != nil && err != bbolt.ErrBucketNotFound {
 			return err
 		}
 
@@ -190,7 +190,7 @@ func (db *DB) DeleteAllPayments() error {
 // UpdatePaymentStatus sets the payment status for outgoing/finished payments in
 // local database.
 func (db *DB) UpdatePaymentStatus(paymentHash [32]byte, status PaymentStatus) error {
-	return db.Batch(func(tx *bolt.Tx) error {
+	return db.Batch(func(tx *bbolt.Tx) error {
 		return UpdatePaymentStatusTx(tx, paymentHash, status)
 	})
 }
@@ -199,7 +199,7 @@ func (db *DB) UpdatePaymentStatus(paymentHash [32]byte, status PaymentStatus) er
 // outgoing/finished payments in the local database. This method accepts a
 // boltdb transaction such that the operation can be composed into other
 // database transactions.
-func UpdatePaymentStatusTx(tx *bolt.Tx,
+func UpdatePaymentStatusTx(tx *bbolt.Tx,
 	paymentHash [32]byte, status PaymentStatus) error {
 
 	paymentStatuses, err := tx.CreateBucketIfNotExists(paymentStatusBucket)
@@ -214,7 +214,7 @@ func UpdatePaymentStatusTx(tx *bolt.Tx,
 // If status of the payment isn't found, it will default to "StatusGrounded".
 func (db *DB) FetchPaymentStatus(paymentHash [32]byte) (PaymentStatus, error) {
 	var paymentStatus = StatusGrounded
-	err := db.View(func(tx *bolt.Tx) error {
+	err := db.View(func(tx *bbolt.Tx) error {
 		var err error
 		paymentStatus, err = FetchPaymentStatusTx(tx, paymentHash)
 		return err
@@ -230,7 +230,7 @@ func (db *DB) FetchPaymentStatus(paymentHash [32]byte) (PaymentStatus, error) {
 // outgoing payment.  If status of the payment isn't found, it will default to
 // "StatusGrounded". It accepts the boltdb transactions such that this method
 // can be composed into other atomic operations.
-func FetchPaymentStatusTx(tx *bolt.Tx, paymentHash [32]byte) (PaymentStatus, error) {
+func FetchPaymentStatusTx(tx *bbolt.Tx, paymentHash [32]byte) (PaymentStatus, error) {
 	// The default status for all payments that aren't recorded in database.
 	var paymentStatus = StatusGrounded
 

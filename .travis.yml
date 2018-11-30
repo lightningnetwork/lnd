@@ -15,9 +15,9 @@ env:
   global:
     - GOCACHE=$HOME/.go-build
   matrix:
-    - RACE=true LINT=true
+    - RACE=true
     - ITEST=true
-    - COVER=true
+    - COVER=true 
 
 sudo: required
 install:
@@ -32,19 +32,14 @@ script:
   # Common for all builds.
   - make btcd
 
-  # Run linter if LINT=true.
-  - 'if [ "$LINT" = true ]; then make lint ; fi'
-
   # Run unit tests with race condition detector.
   - 'if [ "$RACE" = true ]; then make unit-race ; fi'
 
   # Run integration tests.
-  - 'if [ "$ITEST" = true ]; then make build ; fi'
-  - 'if [ "$ITEST" = true ]; then make itest-only ; fi'
+  - 'if [ "$ITEST" = true ]; then make build && make itest-only; fi'
 
   # Run unit tests and generate coverage report.
-  - 'if [ "$COVER" = true ]; then make unit-cover; fi'
-  - 'if [ "$COVER" = true ]; then make goveralls; fi'
+  - 'if [ "$COVER" = true ]; then make lint && make unit-cover && make goveralls; fi'
 
 after_script:
   - echo "Uploading to termbin.com..." && find *.log | xargs -I{} sh -c "cat {} | nc termbin.com 9999 | xargs -r0 printf '{} uploaded to %s'"

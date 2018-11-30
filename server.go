@@ -564,12 +564,16 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		return nil, fmt.Errorf("can't create router: %v", err)
 	}
 
+	chanSeries := discovery.NewChanSeries(
+		s.chanDB.ChannelGraph(),
+	)
+
 	s.authGossiper, err = discovery.New(discovery.Config{
 		Router:     s.chanRouter,
 		Notifier:   s.cc.chainNotifier,
 		ChainHash:  *activeNetParams.GenesisHash,
 		Broadcast:  s.BroadcastMessage,
-		ChanSeries: &chanSeries{s.chanDB.ChannelGraph()},
+		ChanSeries: chanSeries,
 		SendToPeer: s.SendToPeer,
 		FindPeer: func(pub *btcec.PublicKey) (lnpeer.Peer, error) {
 			return s.FindPeer(pub)

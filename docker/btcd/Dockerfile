@@ -1,18 +1,15 @@
-FROM golang:1.10-alpine as builder
+FROM golang:1.11-alpine as builder
 
 MAINTAINER Olaoluwa Osuntokun <laolu@lightning.network>
 
 # Install build dependencies such as git and glide.
-RUN apk add --no-cache \
-    git \
-&&  go get -u github.com/Masterminds/glide
+RUN apk add --no-cache git gcc musl-dev
 
 WORKDIR $GOPATH/src/github.com/btcsuite/btcd
 
 # Grab and install the latest version of of btcd and all related dependencies.
-RUN git clone https://github.com/btcsuite/btcd . \
-&&  glide install \
-&&  go install . ./cmd/...
+RUN git clone https://github.com/btcsuite/btcd.git . \
+    &&  GO111MODULE=on go install -v . ./cmd/...
 
 # Start a new image
 FROM alpine as final

@@ -42,7 +42,6 @@ XARGS := xargs -L 1
 include make/testing_flags.mk
 
 DEV_TAGS := $(if ${tags},$(DEV_TAGS) ${tags},$(DEV_TAGS))
-PROD_TAGS := $(if ${tags},$(PROD_TAGS) ${tags},$(PROD_TAGS))
 
 COVER = for dir in $(GOLISTCOVER); do \
 		$(GOTEST) -tags="$(DEV_TAGS) $(LOG_TAGS)" \
@@ -96,7 +95,7 @@ $(LINT_BIN):
 	GO111MODULE=off go get -u $(LINT_PKG)
 
 btcd: 
-	@$(call print, "Installing btcd...")
+	@$(call print, "Installing btcd.")
 	go get -v github.com/btcsuite/btcd/@v0.0.0-20180823030728-$(BTCD_COMMIT)
 
 # ============
@@ -110,8 +109,8 @@ build:
 
 install:
 	@$(call print, "Installing lnd and lncli.")
-	$(GOINSTALL) -tags="$(PROD_TAGS)" $(LDFLAGS) $(PKG)
-	$(GOINSTALL) -tags="$(PROD_TAGS)" $(LDFLAGS) $(PKG)/cmd/lncli
+	$(GOINSTALL) -tags="${tags}" $(LDFLAGS) $(PKG)
+	$(GOINSTALL) -tags="${tags}" $(LDFLAGS) $(PKG)/cmd/lncli
 
 scratch: build
 
@@ -145,6 +144,10 @@ unit-race:
 goveralls: $(GOVERALLS_BIN)
 	@$(call print, "Sending coverage report.")
 	$(GOVERALLS_BIN) -coverprofile=profile.cov -service=travis-ci
+
+travis-race: btcd unit-race
+
+travis-cover: btcd lint unit-cover goveralls
 
 # =============
 # FLAKE HUNTING
@@ -202,6 +205,8 @@ clean:
 	unit-cover \
 	unit-race \
 	goveralls \
+	travis-race \
+	travis-cover \
 	flakehunter \
 	flake-unit \
 	fmt \

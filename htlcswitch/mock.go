@@ -158,8 +158,8 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 			return nil, nil
 		},
 		Notifier:       &mockNotifier{},
-		FwdEventTicker: ticker.MockNew(DefaultFwdEventInterval),
-		LogEventTicker: ticker.MockNew(DefaultLogInterval),
+		FwdEventTicker: ticker.MockNew(2 * time.Second),
+		LogEventTicker: ticker.MockNew(2 * time.Second),
 	}
 
 	return New(cfg, startingHeight)

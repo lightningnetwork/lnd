@@ -1,4 +1,4 @@
-FROM golang:1.10-alpine as builder
+FROM golang:1.11-alpine as builder
 
 MAINTAINER Olaoluwa Osuntokun <lightning.engineering>
 
@@ -10,7 +10,7 @@ COPY . /go/src/github.com/lightningnetwork/lnd
 ENV GODEBUG netdns=cgo
 
 # Install dependencies and install/build lnd.
-RUN apk add --no-cache \
+RUN apk add --no-cache --update alpine-sdk \
     git \
     make \
 &&  cd /go/src/github.com/lightningnetwork/lnd \

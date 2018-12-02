@@ -10,10 +10,6 @@ BTCD_BIN := $(GO_BIN)/btcd
 GOVERALLS_BIN := $(GO_BIN)/goveralls
 LINT_BIN := $(GO_BIN)/gometalinter.v2
 
-HAVE_BTCD := $(shell command -v $(BTCD_BIN) 2> /dev/null)
-HAVE_GOVERALLS := $(shell command -v $(GOVERALLS_BIN) 2> /dev/null)
-HAVE_LINTER := $(shell command -v $(LINT_BIN) 2> /dev/null)
-
 BTCD_DIR :=${GOPATH}/src/$(BTCD_PKG)
 
 COMMIT := $(shell git describe --abbrev=40 --dirty)
@@ -69,8 +65,6 @@ LINT = $(LINT_BIN) \
 	--deadline=4m $(GOLISTLINT) 2>&1 | \
 	grep -v 'ALL_CAPS\|OP_' 2>&1 | \
 	tee /dev/stderr
-
-CGO_STATUS_QUO := ${CGO_ENABLED}
 
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"
@@ -138,8 +132,7 @@ unit-cover:
 		
 unit-race:
 	@$(call print, "Running unit race tests.")
-	export CGO_ENABLED=1; env GORACE="history_size=7 halt_on_errors=1" $(UNIT_RACE)
-	export CGO_ENABLED=$(CGO_STATUS_QUO)
+	env CGO_ENABLED=1 GORACE="history_size=7 halt_on_errors=1" $(UNIT_RACE)
 
 goveralls: $(GOVERALLS_BIN)
 	@$(call print, "Sending coverage report.")

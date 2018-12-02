@@ -14,7 +14,7 @@ This section enumerates what you need to do to write a client that communicates 
 
 `gRPC` is based on protocol buffers, and as such, you will need to compile the `lnd` proto file in C# before you can use it to communicate with `lnd`.
 
-
+This assumes you are using a Windows machine, but it applies equally to Mac and Linux.
 
 * Open a `Cygwin` terminal and create a folder to work in:
 ```bash
@@ -31,6 +31,7 @@ curl -o nuget.exe https://dist.nuget.org/win-x86-commandline/latest/nuget.exe
 
 * `cd` to the location of the `protoc.exe` tool:  (note the version name in the folder)
 ```bash
+## replace with linux_x86 or macosx_x86 depending on your OS
 cd Grpc.Tools.X.XX.X/tools/windows_x86
 ```
 
@@ -59,10 +60,10 @@ curl -o google/protobuf/descriptor.proto -s https://raw.githubusercontent.com/pr
 
 * Compile the proto file:
 ```bash
-./protoc.exe --csharp_out . --grpc_out . rpc.proto --plugin=protoc-gen-grpc=grpc_csharp_plugin.exe
+./protoc.exe --csharp_out ../../../ --grpc_out ../../../ rpc.proto --plugin=protoc-gen-grpc=grpc_csharp_plugin.exe
 ```
 
-After following these steps, two files `Rpc.cs` and `RpcGrpc.cs` will be generated in the current directory. These files will need to be imported in your project any time you use C# `gRPC`.
+After following these steps, two files `Rpc.cs` and `RpcGrpc.cs` will be generated in the base of your folder. These files will need to be imported in your project any time you use C# `gRPC`.
 
 
 
@@ -163,7 +164,7 @@ IEnumerable<SendRequest> SendPayment()
             DestString = "<DEST_PUB_KEY>",
             Amt = 100,
             PaymentHashString = "<R_HASH>",
-            FinalCltvDelta = "<CLTV_DELTA>"
+            FinalCltvDelta = <CLTV_DELTA>
         };
         yield return request;
         System.Threading.Thread.Sleep(2000);

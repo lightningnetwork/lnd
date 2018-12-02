@@ -94,9 +94,9 @@ $(LINT_BIN):
 	@$(call print, "Fetching gometalinter.v2")
 	GO111MODULE=off go get -u $(LINT_PKG)
 
-btcd: 
+btcd:
 	@$(call print, "Installing btcd.")
-	go get -v github.com/btcsuite/btcd/@v0.0.0-20180823030728-$(BTCD_COMMIT)
+	GO111MODULE=on go get -v github.com/btcsuite/btcd/@v0.0.0-20180823030728-$(BTCD_COMMIT)
 
 # ============
 # INSTALLATION
@@ -121,7 +121,7 @@ scratch: build
 
 check: unit itest
 
-itest-only: 
+itest-only:
 	@$(call print, "Running integration tests.")
 	$(ITEST)
 
@@ -135,7 +135,7 @@ unit-cover:
 	@$(call print, "Running unit coverage tests.")
 	echo "mode: count" > profile.cov
 	$(COVER)
-		
+
 unit-race:
 	@$(call print, "Running unit race tests.")
 	export CGO_ENABLED=1; env GORACE="history_size=7 halt_on_errors=1" $(UNIT_RACE)

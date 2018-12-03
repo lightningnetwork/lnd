@@ -1,0 +1,235 @@
+syntax = "proto3";
+
+import "github.com/lightningnetwork/lnd/lnrpc/rpc.proto";
+
+package invoicerpc;
+
+
+/**
+InvoiceService has the suffix Service to prevent name clash with the Invoice
+message.
+*/
+service Invoices {
+
+    /** lncli: `addinvoice`
+    AddInvoice attempts to add a new invoice to the invoice database. Any
+    duplicated invoices are rejected, therefore all invoices *must* have a
+    unique payment preimage.
+    */
+    rpc AddInvoice (Invoice) returns (AddInvoiceResponse) {}
+
+    /** lncli: `listinvoices`
+    ListInvoices returns a list of all the invoices currently stored within the
+    database. Any active debug invoices are ignored. It has full support for
+    paginated responses, allowing users to query for specific invoices through
+    their add_index. This can be done by using either the first_index_offset or
+    last_index_offset fields included in the response as the index_offset of the
+    next request. The reversed flag is set by default in order to paginate
+    backwards. If you wish to paginate forwards, you must explicitly set the
+    flag to false. If none of the parameters are specified, then the last 100
+    invoices will be returned.
+    */
+    rpc ListInvoices (ListInvoiceRequest) returns (ListInvoiceResponse) {}
+
+    /** lncli: `lookupinvoice`
+    LookupInvoice attempts to look up an invoice according to its payment hash.
+    The passed payment hash *must* be exactly 32 bytes, if not, an error is
+    returned.
+    */
+    rpc LookupInvoice (lnrpc.PaymentHash) returns (Invoice) {}
+
+    /**
+    SubscribeInvoices returns a uni-directional stream (server -> client) for
+    notifying the client of newly added/settled invoices. The caller can
+    optionally specify the add_index and/or the settle_index. If the add_index
+    is specified, then we'll first start by sending add invoice events for all
+    invoices with an add_index greater than the specified value.  If the
+    settle_index is specified, the next, we'll send out all settle events for
+    invoices with a settle_index greater than the specified value.  One or both
+    of these fields can be set. If no fields are set, then we'll only send out
+    the latest add/settle events.
+    */
+    rpc SubscribeInvoices (InvoiceSubscription) returns (stream Invoice) {}
+}
+
+message Invoice {
+    /**
+    An optional memo to attach along with the invoice. Used for record keeping
+    purposes for the invoice's creator, and will also be set in the description
+    field of the encoded payment request if the description_hash field is not
+    being used.
+    */
+    string memo = 1;
+
+    /// An optional cryptographic receipt of payment
+    bytes receipt = 2;
+
+    /**
+    The hex-encoded preimage (32 byte) which will allow settling an incoming
+    HTLC payable to this preimage
+    */
+    bytes r_preimage = 3;
+
+    /// The hash of the preimage
+    bytes r_hash = 4;
+
+    /// The value of this invoice in satoshis
+    int64 value = 5;
+
+    /// Whether this invoice has been fulfilled
+    bool settled = 6;
+
+    /// When this invoice was created
+    int64 creation_date = 7;
+
+    /// When this invoice was settled
+    int64 settle_date = 8;
+
+    /**
+    A bare-bones invoice for a payment within the Lightning Network.  With the
+    details of the invoice, the sender has all the data necessary to send a
+    payment to the recipient.
+    */
+    string payment_request = 9;
+
+    /**
+    Hash (SHA-256) of a description of the payment. Used if the description of
+    payment (memo) is too long to naturally fit within the description field
+    of an encoded payment request.
+    */
+    bytes description_hash = 10;
+
+    /// Payment request expiry time in seconds. Default is 3600 (1 hour).
+    int64 expiry = 11;
+
+    /// Fallback on-chain address.
+    string fallback_addr = 12;
+
+    /// Delta to use for the time-lock of the CLTV extended to the final hop.
+    uint64 cltv_expiry = 13;
+
+    /**
+    Route hints that can each be individually used to assist in reaching the
+    invoice's destination.
+    */
+    repeated lnrpc.RouteHint route_hints = 14;
+
+    /// Whether this invoice should include routing hints for private channels.
+    bool private = 15;
+
+    /**
+    The "add" index of this invoice. Each newly created invoice will increment
+    this index making it monotonically increasing. Callers to the
+    SubscribeInvoices call can use this to instantly get notified of all added
+    invoices with an add_index greater than this one.
+    */
+    uint64 add_index = 16;
+
+    /**
+    The "settle" index of this invoice. Each newly settled invoice will
+    increment this index making it monotonically increasing. Callers to the
+    SubscribeInvoices call can use this to instantly get notified of all
+    settled invoices with an settle_index greater than this one.
+    */
+    uint64 settle_index = 17;
+
+    /// Deprecated, use amt_paid_sat or amt_paid_msat.
+    int64 amt_paid = 18;
+
+    /**
+    The amount that was accepted for this invoice, in satoshis. This will ONLY
+    be set if this invoice has been settled. We provide this field as if the
+    invoice was created with a zero value, then we need to record what amount
+    was ultimately accepted. Additionally, it's possible that the sender paid
+    MORE that was specified in the original invoice. So we'll record that here
+    as well.
+    */
+    int64 amt_paid_sat = 19;
+
+    /**
+    The amount that was accepted for this invoice, in millisatoshis. This will
+    ONLY be set if this invoice has been settled. We provide this field as if
+    the invoice was created with a zero value, then we need to record what
+    amount was ultimately accepted. Additionally, it's possible that the sender
+    paid MORE that was specified in the original invoice. So we'll record that
+    here as well.
+    */
+    int64 amt_paid_msat = 20;
+}
+
+message AddInvoiceResponse {
+    bytes r_hash = 1;
+
+    /**
+    A bare-bones invoice for a payment within the Lightning Network.  With the
+    details of the invoice, the sender has all the data necessary to send a
+    payment to the recipient.
+    */
+    string payment_request = 2;
+
+    /**
+    The "add" index of this invoice. Each newly created invoice will increment
+    this index making it monotonically increasing. Callers to the
+    SubscribeInvoices call can use this to instantly get notified of all added
+    invoices with an add_index greater than this one.
+    */
+    uint64 add_index = 16;
+}
+
+message ListInvoiceRequest {
+    /// If set, only unsettled invoices will be returned in the response.
+    bool pending_only = 1 [json_name = "pending_only"];
+
+    /**
+    The index of an invoice that will be used as either the start or end of a
+    query to determine which invoices should be returned in the response.
+    */
+    uint64 index_offset = 4 [json_name = "index_offset"];
+
+    /// The max number of invoices to return in the response to this query.
+    uint64 num_max_invoices = 5 [json_name = "num_max_invoices"];
+
+    /**
+    If set, the invoices returned will result from seeking backwards from the
+    specified index offset. This can be used to paginate backwards.
+    */
+    bool reversed = 6 [json_name = "reversed"];
+}
+
+message ListInvoiceResponse {
+    /**
+    A list of invoices from the time slice of the time series specified in the
+    request.
+    */
+    repeated Invoice invoices = 1 [json_name = "invoices"];
+
+    /**
+    The index of the last item in the set of returned invoices. This can be used
+    to seek further, pagination style.
+    */
+    uint64 last_index_offset = 2 [json_name = "last_index_offset"];
+
+    /**
+    The index of the last item in the set of returned invoices. This can be used
+    to seek backwards, pagination style.
+    */
+    uint64 first_index_offset = 3 [json_name = "first_index_offset"];
+}
+
+message InvoiceSubscription {
+    /**
+    If specified (non-zero), then we'll first start by sending out
+    notifications for all added indexes with an add_index greater than this
+    value. This allows callers to catch up on any events they missed while they
+    weren't connected to the streaming RPC.
+    */
+    uint64 add_index = 1;
+
+    /**
+    If specified (non-zero), then we'll first start by sending out
+    notifications for all settled indexes with an settle_index greater than
+    this value. This allows callers to catch up on any events they missed while
+    they weren't connected to the streaming RPC.
+    */
+    uint64 settle_index = 2;
+}

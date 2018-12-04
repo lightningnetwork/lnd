@@ -652,13 +652,14 @@ func (c *ChannelGraph) UpdateChannelEdge(edge *ChannelEdgeInfo) error {
 	binary.BigEndian.PutUint64(chanKey[:], edge.ChannelID)
 
 	return c.db.Update(func(tx *bbolt.Tx) error {
-		edges, err := tx.CreateBucketIfNotExists(edgeBucket)
-		if err != nil {
-			return err
+		edges := tx.Bucket(edgeBucket)
+		if edge == nil {
+			return ErrEdgeNotFound
 		}
-		edgeIndex, err := edges.CreateBucketIfNotExists(edgeIndexBucket)
-		if err != nil {
-			return err
+
+		edgeIndex := edges.Bucket(edgeIndexBucket)
+		if edgeIndex == nil {
+			return ErrEdgeNotFound
 		}
 
 		if edgeInfo := edgeIndex.Get(chanKey[:]); edgeInfo == nil {

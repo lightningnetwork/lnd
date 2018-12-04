@@ -927,6 +927,33 @@
         ]
       }
     },
+    "/v1/signmessage": {
+      "post": {
+        "summary": "* lncli: `signmessage`\nSignMessage signs a message with this node's private key. The returned\nsignature string is `zbase32` encoded and pubkey recoverable, meaning that\nonly the message digest and signature are needed for verification.",
+        "operationId": "SignMessage",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcSignMessageResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcSignMessageRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/switch": {
       "post": {
         "summary": "* lncli: `fwdinghistory`\nForwardingHistory allows the caller to query the htlcswitch for a record of\nall HTLC's forwarded within the target time range, and integer offset\nwithin that time range. If no time-range is specified, then the first chunk\nof the past 24 hrs of forwarding history are returned.",
@@ -1021,6 +1048,33 @@
         ],
         "tags": [
           "WalletUnlocker"
+        ]
+      }
+    },
+    "/v1/verifymessage": {
+      "post": {
+        "summary": "* lncli: `verifymessage`\nVerifyMessage verifies a signature over a msg. The signature must be\nzbase32 encoded and signed by an active node in the resident node's\nchannel database. In addition to returning the validity of the signature,\nVerifyMessage also returns the recovered pubkey from the signature.",
+        "operationId": "VerifyMessage",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcVerifyMessageResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcVerifyMessageRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
         ]
       }
     }
@@ -2764,6 +2818,16 @@
         }
       }
     },
+    "lnrpcSignMessageRequest": {
+      "type": "object",
+      "properties": {
+        "msg": {
+          "type": "string",
+          "format": "byte",
+          "title": "/ The message to be signed"
+        }
+      }
+    },
     "lnrpcSignMessageResponse": {
       "type": "object",
       "properties": {
@@ -2850,6 +2914,20 @@
     },
     "lnrpcUnlockWalletResponse": {
       "type": "object"
+    },
+    "lnrpcVerifyMessageRequest": {
+      "type": "object",
+      "properties": {
+        "msg": {
+          "type": "string",
+          "format": "byte",
+          "title": "/ The message over which the signature is to be verified"
+        },
+        "signature": {
+          "type": "string",
+          "title": "/ The signature to be verified over the given message"
+        }
+      }
     },
     "lnrpcVerifyMessageResponse": {
       "type": "object",

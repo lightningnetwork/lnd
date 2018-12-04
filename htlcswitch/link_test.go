@@ -1758,6 +1758,9 @@ func updateState(batchTick chan time.Time, link *channelLink,
 // TODO(roasbeef): add sync hook into packet processing so can eliminate all
 // sleep in this test and the one below
 func TestChannelLinkBandwidthConsistency(t *testing.T) {
+	if !hodl.DebugBuild {
+		t.Fatalf("htlcswitch tests must be run with '-tags debug")
+	}
 	t.Parallel()
 
 	// TODO(roasbeef): replace manual bit twiddling with concept of
@@ -2693,6 +2696,10 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 // TestChannelLinkTrimCircuitsNoCommit checks that the switch and link properly trim
 // circuits if the ADDs corresponding to open circuits are never committed.
 func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
+	if !hodl.DebugBuild {
+		t.Fatalf("htlcswitch tests must be run with '-tags debug")
+	}
+
 	t.Parallel()
 
 	const (

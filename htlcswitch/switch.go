@@ -361,35 +361,49 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID,
 	preimageChan := make(chan [sha256.Size]byte, 1)
 	errChan := make(chan error, 1)
 
-	// Before sending, double check that we don't already have 1) an
-	// in-flight payment to this payment hash, or 2) a complete payment for
-	// the same hash.
-	if err := s.control.ClearForTakeoff(htlc); err != nil {
-		errChan <- err
-		return preimageChan, errChan
-	}
-
-	// Create payment and add to the map of payment in order later to be
-	// able to retrieve it and return response to the user.
-	payment := &pendingPayment{
-		err:          errChan,
-		preimage:     preimageChan,
-		paymentHash:  htlc.PaymentHash,
-		amount:       htlc.Amount,
-		deobfuscator: deobfuscator,
-	}
-
 	paymentID, err := s.paymentSequencer.NextID()
 	if err != nil {
 		errChan <- err
 		return preimageChan, errChan
 	}
 
+	// Before sending, double check that we don't already have 1) an
+	// in-flight payment to this payment hash, or 2) a complete payment for
+	// the same hash.
 	s.pendingMutex.Lock()
-	s.pendingPayments[paymentID] = append(
-		s.pendingPayments[paymentID], payment,
-	)
-	s.pendingMutex.Unlock()
+	err = s.control.ClearForTakeoff(htlc)
+	switch {
+
+	// If the payment was either not yet initiated, or already in flight,
+	// we'll add it to the set of pending payments, such that we can
+	// respond to the caller when the result comes back.
+	case err == nil || err == ErrPaymentInFlight:
+		// Create payment and add to the map of payment in order later to be
+		// able to retrieve it and return response to the user.
+		payment := &pendingPayment{
+			err:          errChan,
+			preimage:     preimageChan,
+			paymentHash:  htlc.PaymentHash,
+			amount:       htlc.Amount,
+			deobfuscator: deobfuscator,
+		}
+		s.pendingPayments[paymentID] = append(
+			s.pendingPayments[paymentID], payment,
+		)
+		s.pendingMutex.Unlock()
+
+		// If the payment was already was in flight, we are done and
+		// can return early.
+		if err == ErrPaymentInFlight {
+			return preimageChan, errChan
+		}
+
+	default:
+		s.pendingMutex.Unlock()
+		errChan <- err
+
+		return preimageChan, errChan
+	}
 
 	// Send the HTLC async, returning the response channels immediately to
 	// the caller.

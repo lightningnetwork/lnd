@@ -206,7 +206,7 @@ type Switch struct {
 	// settled. The map is used to later look up the payments and notify the
 	// user of the result when they are complete. Each payment is given a unique
 	// integer ID when it is created.
-	pendingPayments map[uint64]*pendingPayment
+	pendingPayments map[uint64][]*pendingPayment
 	pendingMutex    sync.RWMutex
 
 	paymentSequencer Sequencer
@@ -305,7 +305,7 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 		forwardingIndex:   make(map[lnwire.ShortChannelID]ChannelLink),
 		interfaceIndex:    make(map[[33]byte]map[lnwire.ChannelID]ChannelLink),
 		pendingLinkIndex:  make(map[lnwire.ChannelID]ChannelLink),
-		pendingPayments:   make(map[uint64]*pendingPayment),
+		pendingPayments:   make(map[uint64][]*pendingPayment),
 		htlcPlex:          make(chan *plexPacket),
 		chanCloseRequests: make(chan *ChanClose),
 		resolutionMsgs:    make(chan *resolutionMsg),
@@ -378,7 +378,9 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID,
 	}
 
 	s.pendingMutex.Lock()
-	s.pendingPayments[paymentID] = payment
+	s.pendingPayments[paymentID] = append(
+		s.pendingPayments[paymentID], payment,
+	)
 	s.pendingMutex.Unlock()
 
 	// Generate and send new update packet, if error will be received on
@@ -866,7 +868,7 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 	// Locate the pending payment to notify the application that this
 	// payment has failed. If one is not found, it likely means the daemon
 	// has been restarted since sending the payment.
-	payment := s.findPayment(pkt.incomingHTLCID)
+	payments := s.findPayment(pkt.incomingHTLCID)
 
 	var (
 		preimage   [32]byte
@@ -903,6 +905,13 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 			return
 		}
 
+		// If we pending payments waiting for this payment ID, we use
+		// the first one to properly parse the error. If not we'll just
+		// pass nil and the error will be handled in a generic fashion.
+		var payment *pendingPayment
+		if len(payments) > 0 {
+			payment = payments[0]
+		}
 		paymentErr = s.parseFailedPayment(payment, pkt, htlc)
 
 	default:
@@ -912,11 +921,11 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 
 	// Deliver the payment error and preimage to the application, if it is
 	// waiting for a response.
-	if payment != nil {
+	for _, payment := range payments {
 		payment.err <- paymentErr
 		payment.preimage <- preimage
-		s.removePendingPayment(pkt.incomingHTLCID)
 	}
+	s.removePendingPayment(pkt.incomingHTLCID)
 }
 
 // parseFailedPayment determines the appropriate failure message to return to
@@ -2130,18 +2139,18 @@ func (s *Switch) removePendingPayment(paymentID uint64) {
 }
 
 // findPayment is the helper function which find the payment.
-func (s *Switch) findPayment(paymentID uint64) *pendingPayment {
+func (s *Switch) findPayment(paymentID uint64) []*pendingPayment {
 	s.pendingMutex.RLock()
 	defer s.pendingMutex.RUnlock()
 
-	payment, ok := s.pendingPayments[paymentID]
+	payments, ok := s.pendingPayments[paymentID]
 	if !ok {
 		log.Errorf("Cannot find pending payment with ID %d",
 			paymentID)
 		return nil
 	}
 
-	return payment
+	return payments
 }
 
 // CircuitModifier returns a reference to subset of the interfaces provided by

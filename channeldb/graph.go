@@ -277,7 +277,14 @@ func (c *ChannelGraph) ForEachNode(tx *bbolt.Tx, cb func(*bbolt.Tx, *LightningNo
 func (c *ChannelGraph) SourceNode() (*LightningNode, error) {
 	var source *LightningNode
 	err := c.db.View(func(tx *bbolt.Tx) error {
-		node, err := c.sourceNode(tx)
+		// First grab the nodes bucket which stores the mapping from
+		// pubKey to node information.
+		nodes := tx.Bucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNotFound
+		}
+
+		node, err := c.sourceNode(nodes)
 		if err != nil {
 			return err
 		}
@@ -296,14 +303,7 @@ func (c *ChannelGraph) SourceNode() (*LightningNode, error) {
 // of the graph. The source node is treated as the center node within a
 // star-graph. This method may be used to kick off a path finding algorithm in
 // order to explore the reachability of another node based off the source node.
-func (c *ChannelGraph) sourceNode(tx *bbolt.Tx) (*LightningNode, error) {
-	// First grab the nodes bucket which stores the mapping from
-	// pubKey to node information.
-	nodes := tx.Bucket(nodeBucket)
-	if nodes == nil {
-		return nil, ErrGraphNotFound
-	}
-
+func (c *ChannelGraph) sourceNode(nodes *bbolt.Bucket) (*LightningNode, error) {
 	selfPub := nodes.Get(sourceKey)
 	if selfPub == nil {
 		return nil, ErrSourceNodeNotSet
@@ -823,7 +823,7 @@ func (c *ChannelGraph) pruneGraphNodes(tx *bbolt.Tx, nodes *bbolt.Bucket,
 
 	// We'll retrieve the graph's source node to ensure we don't remove it
 	// even if it no longer has any open channels.
-	sourceNode, err := c.sourceNode(tx)
+	sourceNode, err := c.sourceNode(nodes)
 	if err != nil {
 		return err
 	}

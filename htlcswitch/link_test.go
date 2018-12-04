@@ -22,6 +22,7 @@ import (
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
@@ -1758,7 +1759,7 @@ func updateState(batchTick chan time.Time, link *channelLink,
 // TODO(roasbeef): add sync hook into packet processing so can eliminate all
 // sleep in this test and the one below
 func TestChannelLinkBandwidthConsistency(t *testing.T) {
-	if !hodl.DebugBuild {
+	if !build.IsDevBuild() {
 		t.Fatalf("htlcswitch tests must be run with '-tags debug")
 	}
 	t.Parallel()
@@ -2696,7 +2697,7 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 // TestChannelLinkTrimCircuitsNoCommit checks that the switch and link properly trim
 // circuits if the ADDs corresponding to open circuits are never committed.
 func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
-	if !hodl.DebugBuild {
+	if !build.IsDevBuild() {
 		t.Fatalf("htlcswitch tests must be run with '-tags debug")
 	}
 

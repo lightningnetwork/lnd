@@ -710,9 +710,9 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 		if err != nil {
 			return err
 		}
-		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
-		if err != nil {
-			return err
+		nodes := tx.Bucket(nodeBucket)
+		if nodes == nil {
+			return ErrSourceNodeNotSet
 		}
 
 		// For each of the outpoints that have been spent within the

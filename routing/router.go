@@ -445,7 +445,8 @@ func (r *ChannelRouter) Start() error {
 	// Finally, before we proceed, we'll prune any unconnected nodes from
 	// the graph in order to ensure we maintain a tight graph of "useful"
 	// nodes.
-	if err := r.cfg.Graph.PruneGraphNodes(); err != nil {
+	err = r.cfg.Graph.PruneGraphNodes()
+	if err != nil && err != channeldb.ErrGraphNodesNotFound {
 		return err
 	}
 

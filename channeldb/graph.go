@@ -1083,9 +1083,10 @@ func (c *ChannelGraph) DeleteChannelEdge(chanPoint *wire.OutPoint) error {
 		if chanIndex == nil {
 			return ErrEdgeNotFound
 		}
-		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
-		if err != nil {
-			return err
+
+		nodes := tx.Bucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNodeNotFound
 		}
 
 		return delChannelByEdge(

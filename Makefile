@@ -15,7 +15,7 @@ BTCD_DIR :=${GOPATH}/src/$(BTCD_PKG)
 COMMIT := $(shell git describe --abbrev=40 --dirty)
 LDFLAGS := -ldflags "-X $(PKG)/build.Commit=$(COMMIT)"
 
-BTCD_COMMIT := $(shell cat go.sum | \
+BTCD_COMMIT := $(shell cat go.mod | \
 		grep $(BTCD_PKG) | \
 		tail -n1 | \
 		awk -F " " '{ print $$2 }' | \

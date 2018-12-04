@@ -19,9 +19,18 @@ var (
 	// feature is used for generating monotonically increasing id.
 	paymentBucket = []byte("payments")
 
-	// paymentStatusBucket is the name of the bucket within the database that
-	// stores the status of a payment indexed by the payment's preimage.
+	// paymentStatusBucket is the name of the bucket within the database
+	// that stores the status of a payment indexed by the payment's
+	// payment hash.
 	paymentStatusBucket = []byte("payment-status")
+
+	// paymentPreimageBucket is the name of the bucket where we'll store a
+	// payment hash's preimage on payment success.
+	paymentPreimageBucket = []byte("payment-preimage")
+
+	// ErrPaymentHashNotFound is returned if the queried payment hash is
+	// not found.
+	ErrPaymentHashNotFound = errors.New("payment hash not found")
 )
 
 // PaymentStatus represent current status of payment
@@ -247,6 +256,41 @@ func FetchPaymentStatusTx(tx *bbolt.Tx, paymentHash [32]byte) (PaymentStatus, er
 	paymentStatus.FromBytes(paymentStatusBytes)
 
 	return paymentStatus, nil
+}
+
+// UpdatePaymentPreimageTx stores the mapping from the given paymentHash to
+// preimage in the payment preimage bucket.
+func UpdatePaymentPreimageTx(tx *bbolt.Tx,
+	paymentHash, preimage [32]byte) error {
+
+	preimages, err := tx.CreateBucketIfNotExists(paymentPreimageBucket)
+	if err != nil {
+		return err
+	}
+
+	return preimages.Put(paymentHash[:], preimage[:])
+}
+
+// FetchPaymentPreimageTx fetches the preimage stored in the database for the
+// given payment hash. If the queried payment hash is not found,
+// ErrPaymentHashNotFound will be returned.
+func FetchPaymentPreimageTx(tx *bbolt.Tx,
+	paymentHash [32]byte) ([32]byte, error) {
+
+	var preimage [32]byte
+	bucket := tx.Bucket(paymentPreimageBucket)
+	if bucket == nil {
+		return preimage, ErrPaymentHashNotFound
+	}
+
+	preimageSlice := bucket.Get(paymentHash[:])
+	if preimageSlice == nil {
+		return preimage, ErrPaymentHashNotFound
+	}
+
+	copy(preimage[:], preimageSlice)
+
+	return preimage, nil
 }
 
 func serializeOutgoingPayment(w io.Writer, p *OutgoingPayment) error {

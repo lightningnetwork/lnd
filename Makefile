@@ -19,7 +19,6 @@ BTCD_COMMIT := $(shell cat go.mod | \
 		grep $(BTCD_PKG) | \
 		tail -n1 | \
 		awk -F " " '{ print $$2 }' | \
-		awk -F "-" '{ print $$3 }' | \
 		awk -F "/" '{ print $$1 }')
 
 GOBUILD := GO111MODULE=on go build -v
@@ -90,7 +89,7 @@ $(LINT_BIN):
 
 btcd:
 	@$(call print, "Installing btcd.")
-	GO111MODULE=on go get -v github.com/btcsuite/btcd/@v0.0.0-20180823030728-$(BTCD_COMMIT)
+	GO111MODULE=on go get -v github.com/btcsuite/btcd/@$(BTCD_COMMIT)
 
 # ============
 # INSTALLATION

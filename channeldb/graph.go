@@ -1067,25 +1067,30 @@ func (c *ChannelGraph) DeleteChannelEdge(chanPoint *wire.OutPoint) error {
 	return c.db.Update(func(tx *bbolt.Tx) error {
 		// First grab the edges bucket which houses the information
 		// we'd like to delete
-		edges, err := tx.CreateBucketIfNotExists(edgeBucket)
-		if err != nil {
-			return err
+		edges := tx.Bucket(edgeBucket)
+		if edges == nil {
+			return ErrEdgeNotFound
 		}
-		// Next grab the two edge indexes which will also need to be updated.
-		edgeIndex, err := edges.CreateBucketIfNotExists(edgeIndexBucket)
-		if err != nil {
-			return err
+
+		// Next grab the two edge indexes which will also need to be
+		// updated.
+		edgeIndex := edges.Bucket(edgeIndexBucket)
+		if edgeIndex == nil {
+			return ErrEdgeNotFound
 		}
-		chanIndex, err := edges.CreateBucketIfNotExists(channelPointBucket)
-		if err != nil {
-			return err
+
+		chanIndex := edges.Bucket(channelPointBucket)
+		if chanIndex == nil {
+			return ErrEdgeNotFound
 		}
 		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
 		if err != nil {
 			return err
 		}
 
-		return delChannelByEdge(edges, edgeIndex, chanIndex, nodes, chanPoint)
+		return delChannelByEdge(
+			edges, edgeIndex, chanIndex, nodes, chanPoint,
+		)
 	})
 }
 

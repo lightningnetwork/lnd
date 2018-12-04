@@ -28,6 +28,10 @@ var (
 	// payment hash's preimage on payment success.
 	paymentPreimageBucket = []byte("payment-preimage")
 
+	// paymentIDsBucket is the name of the bucket that maps payment hashes
+	// to unique payment IDs.
+	paymentIDsBucket = []byte("payment-ids")
+
 	// ErrPaymentHashNotFound is returned if the queried payment hash is
 	// not found.
 	ErrPaymentHashNotFound = errors.New("payment hash not found")
@@ -256,6 +260,40 @@ func FetchPaymentStatusTx(tx *bbolt.Tx, paymentHash [32]byte) (PaymentStatus, er
 	paymentStatus.FromBytes(paymentStatusBytes)
 
 	return paymentStatus, nil
+}
+
+// UpdatePaymentIDTx stores the association between the given payment hash and
+// payment ID in the database.
+func UpdatePaymentIDTx(tx *bbolt.Tx, paymentHash [32]byte,
+	paymentID uint64) error {
+
+	paymentIDs, err := tx.CreateBucketIfNotExists(paymentIDsBucket)
+	if err != nil {
+		return err
+	}
+
+	var pid [8]byte
+	byteOrder.PutUint64(pid[:], paymentID)
+
+	return paymentIDs.Put(paymentHash[:], pid[:])
+}
+
+// FetchPaymentIDTx fetches the payment ID for the given payment hash. If the
+// payment hash is not found in the database, ErrPaymentHashNotFound is
+// returned.
+func FetchPaymentIDTx(tx *bbolt.Tx, paymentHash [32]byte) (uint64, error) {
+	bucket := tx.Bucket(paymentIDsBucket)
+	if bucket == nil {
+		return 0, ErrPaymentHashNotFound
+	}
+
+	pidBytes := bucket.Get(paymentHash[:])
+	if pidBytes == nil {
+		return 0, ErrPaymentHashNotFound
+	}
+
+	pid := byteOrder.Uint64(pidBytes)
+	return pid, nil
 }
 
 // UpdatePaymentPreimageTx stores the mapping from the given paymentHash to

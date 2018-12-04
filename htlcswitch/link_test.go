@@ -3776,21 +3776,19 @@ func TestChannelLinkAcceptDuplicatePayment(t *testing.T) {
 		t.Fatalf("no response sending payment")
 	}
 
-	// Now, if we attempt to send the payment *again* it should be rejected
-	// as it's a duplicate request.
-	_, errChan = n.aliceServer.htlcSwitch.SendHTLC(
+	// Now, if we attempt to send the payment *again* it should immediately
+	// return the preimage, as it's a duplicate request.
+	preImg, errChan = n.aliceServer.htlcSwitch.SendHTLC(
 		n.firstBobChannelLink.ShortChanID(), htlc,
 		newMockDeobfuscator(),
 	)
 
 	select {
-	case err = <-errChan:
+	case <-preImg:
+	case <-errChan:
+		t.Fatalf("error sending HTLC: %v", err)
 	case <-time.After(5 * time.Second):
 		t.Fatalf("no response sending payment")
-	}
-
-	if err != ErrAlreadyPaid {
-		t.Fatalf("ErrAlreadyPaid should have been received got: %v", err)
 	}
 }
 

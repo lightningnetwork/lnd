@@ -373,7 +373,7 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID,
 	// in-flight payment to this payment hash, or 2) a complete payment for
 	// the same hash.
 	s.pendingMutex.Lock()
-	paymentID, err := s.control.ClearForTakeoff(newPaymentID, htlc)
+	paymentID, preimage, err := s.control.ClearForTakeoff(newPaymentID, htlc)
 	switch {
 
 	// If the payment was either not yet initiated, or already in flight,
@@ -399,6 +399,14 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID,
 		if err == ErrPaymentInFlight {
 			return preimageChan, errChan
 		}
+
+	// The payment was already made, we can return the preimage
+	// immediately.
+	case err == ErrAlreadyPaid:
+		s.pendingMutex.Unlock()
+		preimageChan <- preimage
+
+		return preimageChan, errChan
 
 	default:
 		s.pendingMutex.Unlock()

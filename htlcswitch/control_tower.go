@@ -44,9 +44,10 @@ type ControlTower interface {
 	// to be assigned to this payment hash if it doesn't already exists.
 	// The first returned value will be the payment ID ultimately assigned
 	// to this payment hash, either newPID or an already existing payment
-	// ID.
+	// ID. In case of ErrAlready paid, the preimage obtained will also be
+	// returned.
 	ClearForTakeoff(newPID uint64, htlc *lnwire.UpdateAddHTLC) (uint64,
-		error)
+		[32]byte, error)
 
 	// Success transitions an InFlight payment into a Completed payment.
 	// After invoking this method, ClearForTakeoff should always return an
@@ -88,10 +89,10 @@ func NewPaymentControl(strict bool, db *channeldb.DB) ControlTower {
 // ClearForTakeoff checks that we don't already have an InFlight or Completed
 // payment identified by the same payment hash.
 func (p *paymentControl) ClearForTakeoff(newPID uint64,
-	htlc *lnwire.UpdateAddHTLC) (uint64, error) {
+	htlc *lnwire.UpdateAddHTLC) (uint64, [32]byte, error) {
 
 	var pid uint64
-
+	var preimage [32]byte
 	err := p.db.Batch(func(tx *bbolt.Tx) error {
 		// Retrieve current status of payment from local database.
 		paymentStatus, err := channeldb.FetchPaymentStatusTx(
@@ -140,13 +141,19 @@ func (p *paymentControl) ClearForTakeoff(newPID uint64,
 		case channeldb.StatusCompleted:
 			// We've already completed a payment to this payment
 			// hash, forbid the switch from sending another.
+			preimage, err = channeldb.FetchPaymentPreimageTx(
+				tx, htlc.PaymentHash,
+			)
+			if err != nil {
+				return err
+			}
 			return ErrAlreadyPaid
 
 		default:
 			return ErrUnknownPaymentStatus
 		}
 	})
-	return pid, err
+	return pid, preimage, err
 }
 
 // Success transitions an InFlight payment to Completed, otherwise it returns an

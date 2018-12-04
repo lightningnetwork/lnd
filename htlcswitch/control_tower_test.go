@@ -98,7 +98,7 @@ func testPaymentControlSwitchFail(t *testing.T, strict bool) {
 	pid := uint64(1)
 
 	// Sends base htlc message which initiate StatusInFlight.
-	if _, err := pControl.ClearForTakeoff(pid, htlc); err != nil {
+	if _, _, err := pControl.ClearForTakeoff(pid, htlc); err != nil {
 		t.Fatalf("unable to send htlc message: %v", err)
 	}
 
@@ -114,7 +114,7 @@ func testPaymentControlSwitchFail(t *testing.T, strict bool) {
 
 	// Sends the htlc again, which should succeed since the prior payment
 	// failed.
-	if _, err := pControl.ClearForTakeoff(pid, htlc); err != nil {
+	if _, _, err := pControl.ClearForTakeoff(pid, htlc); err != nil {
 		t.Fatalf("unable to send htlc message: %v", err)
 	}
 
@@ -129,7 +129,7 @@ func testPaymentControlSwitchFail(t *testing.T, strict bool) {
 
 	// Attempt a final payment, which should now fail since the prior
 	// payment succeed.
-	if _, err := pControl.ClearForTakeoff(pid, htlc); err != ErrAlreadyPaid {
+	if _, _, err := pControl.ClearForTakeoff(pid, htlc); err != ErrAlreadyPaid {
 		t.Fatalf("unable to send htlc message: %v", err)
 	}
 }
@@ -155,7 +155,7 @@ func testPaymentControlSwitchDoubleSend(t *testing.T, strict bool) {
 
 	// Sends base htlc message which initiate base status and move it to
 	// StatusInFlight and verifies that it was changed.
-	if _, err := pControl.ClearForTakeoff(pid, htlc); err != nil {
+	if _, _, err := pControl.ClearForTakeoff(pid, htlc); err != nil {
 		t.Fatalf("unable to send htlc message: %v", err)
 	}
 
@@ -164,7 +164,7 @@ func testPaymentControlSwitchDoubleSend(t *testing.T, strict bool) {
 	// Try to initiate double sending of htlc message with the same
 	// payment hash, should result in error indicating that payment has
 	// already been sent.
-	_, err = pControl.ClearForTakeoff(pid, htlc)
+	_, _, err = pControl.ClearForTakeoff(pid, htlc)
 	if err != ErrPaymentInFlight {
 		t.Fatalf("payment control wrong behaviour: " +
 			"double sending must trigger ErrPaymentInFlight error")
@@ -191,7 +191,7 @@ func testPaymentControlSwitchDoublePay(t *testing.T, strict bool) {
 	pid := uint64(1)
 
 	// Sends base htlc message which initiate StatusInFlight.
-	if _, err := pControl.ClearForTakeoff(pid, htlc); err != nil {
+	if _, _, err := pControl.ClearForTakeoff(pid, htlc); err != nil {
 		t.Fatalf("unable to send htlc message: %v", err)
 	}
 
@@ -206,7 +206,7 @@ func testPaymentControlSwitchDoublePay(t *testing.T, strict bool) {
 	// Verify that payment is Completed.
 	assertPaymentStatus(t, db, htlc.PaymentHash, channeldb.StatusCompleted)
 
-	if _, err := pControl.ClearForTakeoff(pid, htlc); err != ErrAlreadyPaid {
+	if _, _, err := pControl.ClearForTakeoff(pid, htlc); err != ErrAlreadyPaid {
 		t.Fatalf("payment control wrong behaviour:" +
 			" double payment must trigger ErrAlreadyPaid")
 	}

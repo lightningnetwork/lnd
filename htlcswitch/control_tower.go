@@ -44,8 +44,9 @@ type ControlTower interface {
 	// Success transitions an InFlight payment into a Completed payment.
 	// After invoking this method, ClearForTakeoff should always return an
 	// error to prevent us from making duplicate payments to the same
-	// payment hash.
-	Success(paymentHash [32]byte) error
+	// payment hash. On success the preimage corresponding to the payment
+	// hash should be supplied, for easy retrieval later.
+	Success(paymentHash, preImage [32]byte) error
 
 	// Fail transitions an InFlight payment into a Grounded Payment. After
 	// invoking this method, ClearForTakeoff should return nil on its next
@@ -120,7 +121,7 @@ func (p *paymentControl) ClearForTakeoff(htlc *lnwire.UpdateAddHTLC) error {
 // Success transitions an InFlight payment to Completed, otherwise it returns an
 // error. After calling Success, ClearForTakeoff should prevent any further
 // attempts for the same payment hash.
-func (p *paymentControl) Success(paymentHash [32]byte) error {
+func (p *paymentControl) Success(paymentHash, preimage [32]byte) error {
 	return p.db.Batch(func(tx *bbolt.Tx) error {
 		paymentStatus, err := channeldb.FetchPaymentStatusTx(
 			tx, paymentHash,
@@ -148,8 +149,16 @@ func (p *paymentControl) Success(paymentHash [32]byte) error {
 			// A successful response was received for an InFlight
 			// payment, mark it as completed to prevent sending to
 			// this payment hash again.
-			return channeldb.UpdatePaymentStatusTx(
+			err := channeldb.UpdatePaymentStatusTx(
 				tx, paymentHash, channeldb.StatusCompleted,
+			)
+			if err != nil {
+				return err
+			}
+
+			// Also store the preimage in the database.
+			return channeldb.UpdatePaymentPreimageTx(
+				tx, paymentHash, preimage,
 			)
 
 		case paymentStatus == channeldb.StatusCompleted:

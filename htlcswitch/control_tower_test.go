@@ -9,10 +9,11 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-func genHtlc() (*lnwire.UpdateAddHTLC, error) {
+func genHtlc() ([32]byte, *lnwire.UpdateAddHTLC, error) {
 	preimage, err := genPreimage()
 	if err != nil {
-		return nil, fmt.Errorf("unable to generate preimage: %v", err)
+		return preimage, nil,
+			fmt.Errorf("unable to generate preimage: %v", err)
 	}
 
 	rhash := fastsha256.Sum256(preimage[:])
@@ -21,7 +22,7 @@ func genHtlc() (*lnwire.UpdateAddHTLC, error) {
 		Amount:      1,
 	}
 
-	return htlc, nil
+	return preimage, htlc, nil
 }
 
 type paymentControlTestCase func(*testing.T, bool)
@@ -89,7 +90,7 @@ func testPaymentControlSwitchFail(t *testing.T, strict bool) {
 
 	pControl := NewPaymentControl(strict, db)
 
-	htlc, err := genHtlc()
+	preimg, htlc, err := genHtlc()
 	if err != nil {
 		t.Fatalf("unable to generate htlc message: %v", err)
 	}
@@ -118,7 +119,7 @@ func testPaymentControlSwitchFail(t *testing.T, strict bool) {
 	assertPaymentStatus(t, db, htlc.PaymentHash, channeldb.StatusInFlight)
 
 	// Verifies that status was changed to StatusCompleted.
-	if err := pControl.Success(htlc.PaymentHash); err != nil {
+	if err := pControl.Success(htlc.PaymentHash, preimg); err != nil {
 		t.Fatalf("error shouldn't have been received, got: %v", err)
 	}
 
@@ -143,7 +144,7 @@ func testPaymentControlSwitchDoubleSend(t *testing.T, strict bool) {
 
 	pControl := NewPaymentControl(strict, db)
 
-	htlc, err := genHtlc()
+	_, htlc, err := genHtlc()
 	if err != nil {
 		t.Fatalf("unable to generate htlc message: %v", err)
 	}
@@ -177,7 +178,7 @@ func testPaymentControlSwitchDoublePay(t *testing.T, strict bool) {
 
 	pControl := NewPaymentControl(strict, db)
 
-	htlc, err := genHtlc()
+	preimg, htlc, err := genHtlc()
 	if err != nil {
 		t.Fatalf("unable to generate htlc message: %v", err)
 	}
@@ -191,7 +192,7 @@ func testPaymentControlSwitchDoublePay(t *testing.T, strict bool) {
 	assertPaymentStatus(t, db, htlc.PaymentHash, channeldb.StatusInFlight)
 
 	// Move payment to completed status, second payment should return error.
-	if err := pControl.Success(htlc.PaymentHash); err != nil {
+	if err := pControl.Success(htlc.PaymentHash, preimg); err != nil {
 		t.Fatalf("error shouldn't have been received, got: %v", err)
 	}
 
@@ -219,18 +220,18 @@ func TestPaymentControlNonStrictSuccessesWithoutInFlight(t *testing.T) {
 
 	pControl := NewPaymentControl(false, db)
 
-	htlc, err := genHtlc()
+	preimg, htlc, err := genHtlc()
 	if err != nil {
 		t.Fatalf("unable to generate htlc message: %v", err)
 	}
 
-	if err := pControl.Success(htlc.PaymentHash); err != nil {
+	if err := pControl.Success(htlc.PaymentHash, preimg); err != nil {
 		t.Fatalf("unable to mark payment hash success: %v", err)
 	}
 
 	assertPaymentStatus(t, db, htlc.PaymentHash, channeldb.StatusCompleted)
 
-	err = pControl.Success(htlc.PaymentHash)
+	err = pControl.Success(htlc.PaymentHash, preimg)
 	if err != ErrPaymentAlreadyCompleted {
 		t.Fatalf("unable to remark payment hash failed: %v", err)
 	}
@@ -251,7 +252,7 @@ func TestPaymentControlNonStrictFailsWithoutInFlight(t *testing.T) {
 
 	pControl := NewPaymentControl(false, db)
 
-	htlc, err := genHtlc()
+	preimg, htlc, err := genHtlc()
 	if err != nil {
 		t.Fatalf("unable to generate htlc message: %v", err)
 	}
@@ -269,7 +270,7 @@ func TestPaymentControlNonStrictFailsWithoutInFlight(t *testing.T) {
 
 	assertPaymentStatus(t, db, htlc.PaymentHash, channeldb.StatusGrounded)
 
-	err = pControl.Success(htlc.PaymentHash)
+	err = pControl.Success(htlc.PaymentHash, preimg)
 	if err != nil {
 		t.Fatalf("unable to remark payment hash success: %v", err)
 	}
@@ -296,12 +297,12 @@ func TestPaymentControlStrictSuccessesWithoutInFlight(t *testing.T) {
 
 	pControl := NewPaymentControl(true, db)
 
-	htlc, err := genHtlc()
+	preimg, htlc, err := genHtlc()
 	if err != nil {
 		t.Fatalf("unable to generate htlc message: %v", err)
 	}
 
-	err = pControl.Success(htlc.PaymentHash)
+	err = pControl.Success(htlc.PaymentHash, preimg)
 	if err != ErrPaymentNotInitiated {
 		t.Fatalf("expected ErrPaymentNotInitiated, got %v", err)
 	}
@@ -321,7 +322,7 @@ func TestPaymentControlStrictFailsWithoutInFlight(t *testing.T) {
 
 	pControl := NewPaymentControl(true, db)
 
-	htlc, err := genHtlc()
+	_, htlc, err := genHtlc()
 	if err != nil {
 		t.Fatalf("unable to generate htlc message: %v", err)
 	}

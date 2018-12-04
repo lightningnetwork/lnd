@@ -894,7 +894,9 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 		// Persistently mark that a payment to this payment hash
 		// succeeded. This will prevent us from ever making another
 		// payment to this hash.
-		err := s.control.Success(pkt.circuit.PaymentHash)
+		err := s.control.Success(
+			pkt.circuit.PaymentHash, htlc.PaymentPreimage,
+		)
 		if err != nil && err != ErrPaymentAlreadyCompleted {
 			log.Warnf("Unable to mark completed payment %x: %v",
 				pkt.circuit.PaymentHash, err)

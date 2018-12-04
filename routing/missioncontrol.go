@@ -164,6 +164,12 @@ type paymentSession struct {
 
 	bandwidthHints map[uint64]lnwire.MilliSatoshi
 
+	// errFailedFeeChans is a map of the short channel ID's that were the
+	// source of policy related routing failures during this payment attempt.
+	// We'll use this map to prune out channels when the first error may not
+	// require pruning, but any subsequent ones do.
+	errFailedPolicyChans map[uint64]struct{}
+
 	mc *missionControl
 
 	haveRoutes     bool
@@ -236,10 +242,11 @@ func (m *missionControl) NewPaymentSession(routeHints [][]HopHint,
 	}
 
 	return &paymentSession{
-		pruneViewSnapshot: viewSnapshot,
-		additionalEdges:   edges,
-		bandwidthHints:    bandwidthHints,
-		mc:                m,
+		pruneViewSnapshot:    viewSnapshot,
+		additionalEdges:      edges,
+		bandwidthHints:       bandwidthHints,
+		errFailedPolicyChans: make(map[uint64]struct{}),
+		mc:                   m,
 	}, nil
 }
 
@@ -249,10 +256,11 @@ func (m *missionControl) NewPaymentSession(routeHints [][]HopHint,
 // used for things like channel rebalancing, and swaps.
 func (m *missionControl) NewPaymentSessionFromRoutes(routes []*Route) *paymentSession {
 	return &paymentSession{
-		pruneViewSnapshot: m.GraphPruneView(),
-		haveRoutes:        true,
-		preBuiltRoutes:    routes,
-		mc:                m,
+		pruneViewSnapshot:    m.GraphPruneView(),
+		haveRoutes:           true,
+		preBuiltRoutes:       routes,
+		errFailedPolicyChans: make(map[uint64]struct{}),
+		mc:                   m,
 	}
 }
 
@@ -329,6 +337,31 @@ func (p *paymentSession) ReportChannelFailure(e uint64) {
 	p.mc.Lock()
 	p.mc.failedEdges[e] = time.Now()
 	p.mc.Unlock()
+}
+
+// ReportChannelPolicyFailure handles a failure message that relates to a
+// channel policy. For these types of failures, the policy is updated and we
+// want to keep it included during path finding. This function does mark the
+// edge as 'policy failed once'. The next time it fails, the whole node will be
+// pruned. This is to prevent nodes from keeping us busy by continuously sending
+// new channel updates.
+func (p *paymentSession) ReportChannelPolicyFailure(
+	errSource Vertex, failedChanID uint64) {
+
+	// Check to see if we've already reported a policy related failure for
+	// this channel. If so, then we'll prune out the vertex.
+	_, ok := p.errFailedPolicyChans[failedChanID]
+	if ok {
+		// TODO(joostjager): is this aggresive pruning still necessary?
+		// Just pruning edges may also work unless there is a huge
+		// number of failing channels from that node?
+		p.ReportVertexFailure(errSource)
+
+		return
+	}
+
+	// Finally, we'll record a policy failure from this node and move on.
+	p.errFailedPolicyChans[failedChanID] = struct{}{}
 }
 
 // RequestRoute returns a route which is likely to be capable for successfully

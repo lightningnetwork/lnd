@@ -1528,11 +1528,10 @@ func delEdgeUpdateIndexEntry(edgesBucket *bbolt.Bucket, chanID uint64,
 
 	// First, we'll fetch the edge update index bucket which currently
 	// stores an entry for the channel we're about to delete.
-	updateIndex, err := edgesBucket.CreateBucketIfNotExists(
-		edgeUpdateIndexBucket,
-	)
-	if err != nil {
-		return err
+	updateIndex := edgesBucket.Bucket(edgeUpdateIndexBucket)
+	if updateIndex == nil {
+		// No edges in bucket, return early.
+		return nil
 	}
 
 	// Now that we have the bucket, we'll attempt to construct a template

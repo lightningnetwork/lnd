@@ -420,19 +420,21 @@ func (c *ChannelGraph) LookupAlias(pub *btcec.PublicKey) (string, error) {
 func (c *ChannelGraph) DeleteLightningNode(nodePub *btcec.PublicKey) error {
 	// TODO(roasbeef): ensure dangling edges are removed...
 	return c.db.Update(func(tx *bbolt.Tx) error {
-		return c.deleteLightningNode(tx, nodePub.SerializeCompressed())
+		nodes := tx.Bucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNodeNotFound
+		}
+
+		return c.deleteLightningNode(
+			nodes, nodePub.SerializeCompressed(),
+		)
 	})
 }
 
 // deleteLightningNode uses an existing database transaction to remove a
 // vertex/node from the database according to the node's public key.
-func (c *ChannelGraph) deleteLightningNode(tx *bbolt.Tx,
+func (c *ChannelGraph) deleteLightningNode(nodes *bbolt.Bucket,
 	compressedPubKey []byte) error {
-
-	nodes := tx.Bucket(nodeBucket)
-	if nodes == nil {
-		return ErrGraphNodesNotFound
-	}
 
 	aliases := nodes.Bucket(aliasIndexBucket)
 	if aliases == nil {
@@ -781,7 +783,7 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 		// Now that the graph has been pruned, we'll also attempt to
 		// prune any nodes that have had a channel closed within the
 		// latest block.
-		return c.pruneGraphNodes(tx, nodes, edgeIndex)
+		return c.pruneGraphNodes(nodes, edgeIndex)
 	})
 	if err != nil {
 		return nil, err
@@ -809,14 +811,14 @@ func (c *ChannelGraph) PruneGraphNodes() error {
 			return ErrGraphNoEdgesFound
 		}
 
-		return c.pruneGraphNodes(tx, nodes, edgeIndex)
+		return c.pruneGraphNodes(nodes, edgeIndex)
 	})
 }
 
 // pruneGraphNodes attempts to remove any nodes from the graph who have had a
 // channel closed within the current block. If the node still has existing
 // channels in the graph, this will act as a no-op.
-func (c *ChannelGraph) pruneGraphNodes(tx *bbolt.Tx, nodes *bbolt.Bucket,
+func (c *ChannelGraph) pruneGraphNodes(nodes *bbolt.Bucket,
 	edgeIndex *bbolt.Bucket) error {
 
 	log.Trace("Pruning nodes from graph with no open channels")
@@ -889,7 +891,7 @@ func (c *ChannelGraph) pruneGraphNodes(tx *bbolt.Tx, nodes *bbolt.Bucket,
 
 		// If we reach this point, then there are no longer any edges
 		// that connect this node, so we can delete it.
-		if err := c.deleteLightningNode(tx, nodePubKey[:]); err != nil {
+		if err := c.deleteLightningNode(nodes, nodePubKey[:]); err != nil {
 			log.Warnf("Unable to prune node %x from the "+
 				"graph: %v", nodePubKey, err)
 			continue

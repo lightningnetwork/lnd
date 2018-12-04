@@ -2489,7 +2489,7 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 		t.Fatalf("unable to process :%v", err)
 	}
 
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 4; i++ {
 		select {
 		case <-ctx.broadcastedMessage:
 		case <-time.After(time.Second):

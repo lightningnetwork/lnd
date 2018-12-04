@@ -11,19 +11,17 @@ message KeyLocator {
 }
 
 message KeyDescriptor {
-     oneof key {
-         /**
-         The raw bytes of the key being identified. Either this or the KeyLocator
-         must be specified.
-         */
-         bytes raw_key_bytes = 1;
+     /**
+     The raw bytes of the key being identified. Either this or the KeyLocator
+     must be specified.
+     */
+     bytes raw_key_bytes = 1;
 
-         /** 
-         The key locator that identifies which key to use for signing. Either this
-         or the raw bytes of the target key must be specified.
-         */
-         KeyLocator key_loc = 2;
-     }
+     /** 
+     The key locator that identifies which key to use for signing. Either this
+     or the raw bytes of the target key must be specified.
+     */
+     KeyLocator key_loc = 2;
 }
 
 message TxOut {

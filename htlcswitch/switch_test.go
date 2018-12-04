@@ -1664,22 +1664,6 @@ func TestSwitchSendPayment(t *testing.T) {
 		aliceChannelLink.ShortChanID(), update,
 		newMockDeobfuscator())
 
-	// Send the payment with the same payment hash and same
-	// amount and check that it will be propagated successfully
-	_, errChan2 := s.SendHTLC(
-		aliceChannelLink.ShortChanID(), update,
-		newMockDeobfuscator(),
-	)
-
-	select {
-	case err := <-errChan2:
-		if err != ErrPaymentInFlight {
-			t.Fatalf("unable to send second payment: %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("request was not propagated to destination")
-	}
-
 	select {
 	case packet := <-aliceChannelLink.packets:
 		if err := aliceChannelLink.completeCircuit(packet); err != nil {
@@ -1690,6 +1674,22 @@ func TestSwitchSendPayment(t *testing.T) {
 		t.Fatalf("unable to send payment: %v", err)
 	case <-time.After(time.Second):
 		t.Fatal("request was not propagated to destination")
+	}
+
+	// Send the payment with the same payment hash and same
+	// amount and check that it will be propagated successfully
+	pre2, errChan2 := s.SendHTLC(
+		aliceChannelLink.ShortChanID(), update,
+		newMockDeobfuscator(),
+	)
+
+	// No success or error should be returned yet.
+	select {
+	case <-pre2:
+		t.Fatalf("unexpected preimage")
+	case <-errChan2:
+		t.Fatalf("unexpected error: %v", err)
+	default:
 	}
 
 	if s.numPendingPayments() != 1 {
@@ -1723,9 +1723,20 @@ func TestSwitchSendPayment(t *testing.T) {
 		t.Fatalf("can't forward htlc packet: %v", err)
 	}
 
+	// Both payments should receive the same error.
+	expectedErr := errors.New(lnwire.CodeIncorrectPaymentAmount).Error()
 	select {
 	case err := <-errChan:
-		if err.Error() != errors.New(lnwire.CodeIncorrectPaymentAmount).Error() {
+		if err.Error() != expectedErr {
+			t.Fatal("err wasn't received")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("err wasn't received")
+	}
+
+	select {
+	case err := <-errChan2:
+		if err.Error() != expectedErr {
 			t.Fatal("err wasn't received")
 		}
 	case <-time.After(time.Second):

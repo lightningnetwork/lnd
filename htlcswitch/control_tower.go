@@ -39,7 +39,14 @@ type ControlTower interface {
 	// ClearForTakeoff atomically checks that no inflight or completed
 	// payments exist for this payment hash. If none are found, this method
 	// atomically transitions the status for this payment hash as InFlight.
-	ClearForTakeoff(htlc *lnwire.UpdateAddHTLC) error
+	// If a payment is found ErrPaymentInFlight or ErrAlready paid is
+	// returned. The newPID argument should be set to a unique payment ID
+	// to be assigned to this payment hash if it doesn't already exists.
+	// The first returned value will be the payment ID ultimately assigned
+	// to this payment hash, either newPID or an already existing payment
+	// ID.
+	ClearForTakeoff(newPID uint64, htlc *lnwire.UpdateAddHTLC) (uint64,
+		error)
 
 	// Success transitions an InFlight payment into a Completed payment.
 	// After invoking this method, ClearForTakeoff should always return an
@@ -80,8 +87,12 @@ func NewPaymentControl(strict bool, db *channeldb.DB) ControlTower {
 
 // ClearForTakeoff checks that we don't already have an InFlight or Completed
 // payment identified by the same payment hash.
-func (p *paymentControl) ClearForTakeoff(htlc *lnwire.UpdateAddHTLC) error {
-	return p.db.Batch(func(tx *bbolt.Tx) error {
+func (p *paymentControl) ClearForTakeoff(newPID uint64,
+	htlc *lnwire.UpdateAddHTLC) (uint64, error) {
+
+	var pid uint64
+
+	err := p.db.Batch(func(tx *bbolt.Tx) error {
 		// Retrieve current status of payment from local database.
 		paymentStatus, err := channeldb.FetchPaymentStatusTx(
 			tx, htlc.PaymentHash,
@@ -97,14 +108,33 @@ func (p *paymentControl) ClearForTakeoff(htlc *lnwire.UpdateAddHTLC) error {
 			// haven't left one in flight. Since this one is
 			// grounded, Transition the payment status to InFlight
 			// to prevent others.
-			return channeldb.UpdatePaymentStatusTx(
+			err := channeldb.UpdatePaymentStatusTx(
 				tx, htlc.PaymentHash, channeldb.StatusInFlight,
 			)
+			if err != nil {
+				return err
+			}
+
+			err = channeldb.UpdatePaymentIDTx(
+				tx, htlc.PaymentHash, newPID,
+			)
+			if err != nil {
+				return err
+			}
+
+			pid = newPID
+			return nil
 
 		case channeldb.StatusInFlight:
 			// We already have an InFlight payment on the network.
 			// We will disallow any more payment until a response
 			// is received.
+			pid, err = channeldb.FetchPaymentIDTx(
+				tx, htlc.PaymentHash,
+			)
+			if err != nil {
+				return err
+			}
 			return ErrPaymentInFlight
 
 		case channeldb.StatusCompleted:
@@ -116,6 +146,7 @@ func (p *paymentControl) ClearForTakeoff(htlc *lnwire.UpdateAddHTLC) error {
 			return ErrUnknownPaymentStatus
 		}
 	})
+	return pid, err
 }
 
 // Success transitions an InFlight payment to Completed, otherwise it returns an

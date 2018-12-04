@@ -80,8 +80,7 @@ func NewPaymentControl(strict bool, db *channeldb.DB) ControlTower {
 // ClearForTakeoff checks that we don't already have an InFlight or Completed
 // payment identified by the same payment hash.
 func (p *paymentControl) ClearForTakeoff(htlc *lnwire.UpdateAddHTLC) error {
-	var takeoffErr error
-	err := p.db.Batch(func(tx *bbolt.Tx) error {
+	return p.db.Batch(func(tx *bbolt.Tx) error {
 		// Retrieve current status of payment from local database.
 		paymentStatus, err := channeldb.FetchPaymentStatusTx(
 			tx, htlc.PaymentHash,
@@ -89,10 +88,6 @@ func (p *paymentControl) ClearForTakeoff(htlc *lnwire.UpdateAddHTLC) error {
 		if err != nil {
 			return err
 		}
-
-		// Reset the takeoff error, to avoid carrying over an error
-		// from a previous execution of the batched db transaction.
-		takeoffErr = nil
 
 		switch paymentStatus {
 
@@ -106,34 +101,27 @@ func (p *paymentControl) ClearForTakeoff(htlc *lnwire.UpdateAddHTLC) error {
 			)
 
 		case channeldb.StatusInFlight:
-			// We already have an InFlight payment on the network. We will
-			// disallow any more payment until a response is received.
-			takeoffErr = ErrPaymentInFlight
+			// We already have an InFlight payment on the network.
+			// We will disallow any more payment until a response
+			// is received.
+			return ErrPaymentInFlight
 
 		case channeldb.StatusCompleted:
-			// We've already completed a payment to this payment hash,
-			// forbid the switch from sending another.
-			takeoffErr = ErrAlreadyPaid
+			// We've already completed a payment to this payment
+			// hash, forbid the switch from sending another.
+			return ErrAlreadyPaid
 
 		default:
-			takeoffErr = ErrUnknownPaymentStatus
+			return ErrUnknownPaymentStatus
 		}
-
-		return nil
 	})
-	if err != nil {
-		return err
-	}
-
-	return takeoffErr
 }
 
 // Success transitions an InFlight payment to Completed, otherwise it returns an
 // error. After calling Success, ClearForTakeoff should prevent any further
 // attempts for the same payment hash.
 func (p *paymentControl) Success(paymentHash [32]byte) error {
-	var updateErr error
-	err := p.db.Batch(func(tx *bbolt.Tx) error {
+	return p.db.Batch(func(tx *bbolt.Tx) error {
 		paymentStatus, err := channeldb.FetchPaymentStatusTx(
 			tx, paymentHash,
 		)
@@ -141,16 +129,13 @@ func (p *paymentControl) Success(paymentHash [32]byte) error {
 			return err
 		}
 
-		// Reset the update error, to avoid carrying over an error
-		// from a previous execution of the batched db transaction.
-		updateErr = nil
-
 		switch {
 
 		case paymentStatus == channeldb.StatusGrounded && p.strict:
-			// Our records show the payment as still being grounded,
-			// meaning it never should have left the switch.
-			updateErr = ErrPaymentNotInitiated
+			// Our records show the payment as still being
+			// grounded, meaning it never should have left the
+			// switch.
+			return ErrPaymentNotInitiated
 
 		case paymentStatus == channeldb.StatusGrounded && !p.strict:
 			// Though our records show the payment as still being
@@ -170,27 +155,19 @@ func (p *paymentControl) Success(paymentHash [32]byte) error {
 		case paymentStatus == channeldb.StatusCompleted:
 			// The payment was completed previously, alert the
 			// caller that this may be a duplicate call.
-			updateErr = ErrPaymentAlreadyCompleted
+			return ErrPaymentAlreadyCompleted
 
 		default:
-			updateErr = ErrUnknownPaymentStatus
+			return ErrUnknownPaymentStatus
 		}
-
-		return nil
 	})
-	if err != nil {
-		return err
-	}
-
-	return updateErr
 }
 
 // Fail transitions an InFlight payment to Grounded, otherwise it returns an
 // error. After calling Fail, ClearForTakeoff should fail any further attempts
 // for the same payment hash.
 func (p *paymentControl) Fail(paymentHash [32]byte) error {
-	var updateErr error
-	err := p.db.Batch(func(tx *bbolt.Tx) error {
+	return p.db.Batch(func(tx *bbolt.Tx) error {
 		paymentStatus, err := channeldb.FetchPaymentStatusTx(
 			tx, paymentHash,
 		)
@@ -198,16 +175,13 @@ func (p *paymentControl) Fail(paymentHash [32]byte) error {
 			return err
 		}
 
-		// Reset the update error, to avoid carrying over an error
-		// from a previous execution of the batched db transaction.
-		updateErr = nil
-
 		switch {
 
 		case paymentStatus == channeldb.StatusGrounded && p.strict:
-			// Our records show the payment as still being grounded,
-			// meaning it never should have left the switch.
-			updateErr = ErrPaymentNotInitiated
+			// Our records show the payment as still being
+			// grounded, meaning it never should have left the
+			// switch.
+			return ErrPaymentNotInitiated
 
 		case paymentStatus == channeldb.StatusGrounded && !p.strict:
 			// Though our records show the payment as still being
@@ -229,17 +203,10 @@ func (p *paymentControl) Fail(paymentHash [32]byte) error {
 			// reporting that it has failed. Leave the status as
 			// completed, but alert the user that something is
 			// wrong.
-			updateErr = ErrPaymentAlreadyCompleted
+			return ErrPaymentAlreadyCompleted
 
 		default:
-			updateErr = ErrUnknownPaymentStatus
+			return ErrUnknownPaymentStatus
 		}
-
-		return nil
 	})
-	if err != nil {
-		return err
-	}
-
-	return updateErr
 }

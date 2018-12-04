@@ -795,9 +795,9 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 // node gains more channels, it will be re-added back to the graph.
 func (c *ChannelGraph) PruneGraphNodes() error {
 	return c.db.Update(func(tx *bbolt.Tx) error {
-		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
-		if err != nil {
-			return err
+		nodes := tx.Bucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNodesNotFound
 		}
 		edges := tx.Bucket(edgeBucket)
 		if edges == nil {

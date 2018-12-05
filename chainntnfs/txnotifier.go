@@ -17,6 +17,10 @@ const (
 	// handled correctly. The average number of blocks in a day is a
 	// reasonable value to use.
 	ReorgSafetyLimit = 144
+
+	// MaxNumConfs is the maximum number of confirmations that can be
+	// requested on a transaction.
+	MaxNumConfs = ReorgSafetyLimit
 )
 
 var (

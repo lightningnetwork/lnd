@@ -20,11 +20,6 @@ const (
 	// notifierType uniquely identifies this concrete implementation of the
 	// ChainNotifier interface.
 	notifierType = "bitcoind"
-
-	// reorgSafetyLimit is assumed maximum depth of a chain reorganization.
-	// After this many confirmation, transaction confirmation info will be
-	// pruned.
-	reorgSafetyLimit = 100
 )
 
 var (
@@ -138,8 +133,8 @@ func (b *BitcoindNotifier) Start() error {
 	}
 
 	b.txNotifier = chainntnfs.NewTxNotifier(
-		uint32(currentHeight), reorgSafetyLimit, b.confirmHintCache,
-		b.spendHintCache,
+		uint32(currentHeight), chainntnfs.ReorgSafetyLimit,
+		b.confirmHintCache, b.spendHintCache,
 	)
 
 	b.bestBlock = chainntnfs.BlockEpoch{

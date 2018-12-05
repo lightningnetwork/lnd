@@ -30,8 +30,8 @@ func (b *BitcoindNotifier) UnsafeStart(bestHeight int32, bestHash *chainhash.Has
 	}
 
 	b.txNotifier = chainntnfs.NewTxNotifier(
-		uint32(bestHeight), reorgSafetyLimit, b.confirmHintCache,
-		b.spendHintCache,
+		uint32(bestHeight), chainntnfs.ReorgSafetyLimit,
+		b.confirmHintCache, b.spendHintCache,
 	)
 
 	if generateBlocks != nil {

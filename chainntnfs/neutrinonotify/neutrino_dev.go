@@ -49,8 +49,8 @@ func (n *NeutrinoNotifier) UnsafeStart(bestHeight int32,
 	}
 
 	n.txNotifier = chainntnfs.NewTxNotifier(
-		uint32(bestHeight), reorgSafetyLimit, n.confirmHintCache,
-		n.spendHintCache,
+		uint32(bestHeight), chainntnfs.ReorgSafetyLimit,
+		n.confirmHintCache, n.spendHintCache,
 	)
 
 	n.chainConn = &NeutrinoChainConn{n.p2pNode}

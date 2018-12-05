@@ -18,7 +18,7 @@ require (
 	github.com/fsnotify/fsnotify v1.4.7 // indirect
 	github.com/go-errors/errors v1.0.1
 	github.com/golang/protobuf v1.2.0
-	github.com/grpc-ecosystem/grpc-gateway v0.0.0-20170724004829-f2862b476edc
+	github.com/grpc-ecosystem/grpc-gateway v1.5.1
 	github.com/hpcloud/tail v1.0.0 // indirect
 	github.com/jackpal/gateway v1.0.4
 	github.com/jackpal/go-nat-pmp v0.0.0-20170405195558-28a68d0c24ad
@@ -44,8 +44,8 @@ require (
 	golang.org/x/net v0.0.0-20181106065722-10aee1819953
 	golang.org/x/sync v0.0.0-20181108010431-42b317875d0f // indirect
 	golang.org/x/time v0.0.0-20180412165947-fbb02b2291d2
-	google.golang.org/genproto v0.0.0-20181127195345-31ac5d88444a
-	google.golang.org/grpc v1.16.0
+	google.golang.org/genproto v0.0.0-20181202183823-bd91e49a0898
+	google.golang.org/grpc v1.17.0
 	gopkg.in/errgo.v1 v1.0.0 // indirect
 	gopkg.in/fsnotify.v1 v1.4.7 // indirect
 	gopkg.in/macaroon-bakery.v2 v2.0.1

@@ -2794,6 +2794,10 @@
         },
         "payment_route": {
           "$ref": "#/definitions/lnrpcRoute"
+        },
+        "payment_hash": {
+          "type": "string",
+          "format": "byte"
         }
       }
     },

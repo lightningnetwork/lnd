@@ -50,7 +50,7 @@ func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
 		if err == nil && shouldFail {
 			t.Fatal("error wasn't received on migration stage")
 		} else if err != nil && !shouldFail {
-			t.Fatal("error was received on migration stage")
+			t.Fatalf("error was received on migration stage: %v", err)
 		}
 
 		// afterMigration usually used for checking the database state and

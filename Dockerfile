@@ -5,9 +5,10 @@ FROM golang:alpine as builder
 ENV GODEBUG netdns=cgo
 
 # Install dependencies and build the binaries.
-RUN apk add --no-cache \
+RUN apk add --no-cache --update alpine-sdk \
     git \
     make \
+    gcc \
 &&  git clone https://github.com/lightningnetwork/lnd /go/src/github.com/lightningnetwork/lnd \
 &&  cd /go/src/github.com/lightningnetwork/lnd \
 &&  make \

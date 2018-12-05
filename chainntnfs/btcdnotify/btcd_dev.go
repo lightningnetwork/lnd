@@ -29,8 +29,8 @@ func (b *BtcdNotifier) UnsafeStart(bestHeight int32, bestHash *chainhash.Hash,
 	}
 
 	b.txNotifier = chainntnfs.NewTxNotifier(
-		uint32(bestHeight), reorgSafetyLimit, b.confirmHintCache,
-		b.spendHintCache,
+		uint32(bestHeight), chainntnfs.ReorgSafetyLimit,
+		b.confirmHintCache, b.spendHintCache,
 	)
 
 	b.chainUpdates.Start()

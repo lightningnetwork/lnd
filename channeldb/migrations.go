@@ -323,29 +323,56 @@ func migrateEdgePolicies(tx *bbolt.Tx) error {
 		return nil
 	}
 
-	// checkKey gets the policy from the database with a low-level call
+	// checkEdge gets the policy from the database with a low-level call
 	// so that it is still possible to distinguish between unknown and
 	// not present.
-	checkKey := func(channelId uint64, keyBytes []byte) error {
+	checkEdge := func(channelId uint64, nodeA, nodeB [33]byte) error {
 		var channelID [8]byte
 		byteOrder.PutUint64(channelID[:], channelId)
 
-		_, err := fetchChanEdgePolicy(edges,
-			channelID[:], keyBytes, nodes)
-
-		if err == ErrEdgeNotFound {
-			log.Tracef("Adding unknown edge policy present for node %x, channel %v",
-				keyBytes, channelId)
-
-			err := putChanEdgePolicyUnknown(edges, channelId, keyBytes)
-			if err != nil {
-				return err
+		// To fix buggy DBs where an edge was added without a
+		// corresponding node, first check that the nodes exist in the
+		// graph, add them if not.
+		for _, nodePub := range [][33]byte{nodeA, nodeB} {
+			b := nodes.Get(nodePub[:])
+			if b == nil {
+				log.Tracef("Adding missing node %x", nodePub[:])
+				node := &LightningNode{
+					PubKeyBytes:          nodePub,
+					HaveNodeAnnouncement: false,
+				}
+				err := addLightningNode(tx, node)
+				if err != nil {
+					return fmt.Errorf("unable to add "+
+						"node %x", nodePub[:])
+				}
 			}
-
-			return nil
 		}
 
-		return err
+		// Check both policies, adding an "unknown" policy if not
+		// found.
+		for _, nodePub := range [][33]byte{nodeA, nodeB} {
+			_, err := fetchChanEdgePolicy(edges,
+				channelID[:], nodePub[:], nodes)
+
+			if err == ErrEdgeNotFound {
+				log.Tracef("Adding unknown edge policy "+
+					"present for node %x, channel %v\n",
+					nodePub[:], channelId)
+
+				err := putChanEdgePolicyUnknown(
+					edges, channelId, nodePub[:],
+				)
+				if err != nil {
+					return err
+				}
+
+			} else if err != nil {
+				return err
+			}
+		}
+
+		return nil
 	}
 
 	// Iterate over all channels and check both edge policies.
@@ -353,18 +380,13 @@ func migrateEdgePolicies(tx *bbolt.Tx) error {
 		infoReader := bytes.NewReader(edgeInfoBytes)
 		edgeInfo, err := deserializeChanEdgeInfo(infoReader)
 		if err != nil {
-			return err
+			return fmt.Errorf("unable to parse edge info: %v", err)
 		}
 
-		for _, key := range [][]byte{edgeInfo.NodeKey1Bytes[:],
-			edgeInfo.NodeKey2Bytes[:]} {
-
-			if err := checkKey(edgeInfo.ChannelID, key); err != nil {
-				return err
-			}
-		}
-
-		return nil
+		return checkEdge(
+			edgeInfo.ChannelID, edgeInfo.NodeKey1Bytes,
+			edgeInfo.NodeKey2Bytes,
+		)
 	})
 
 	if err != nil {

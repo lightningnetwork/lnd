@@ -556,10 +556,10 @@ func TestFindLowestFeePath(t *testing.T) {
 	}
 
 	testGraphInstance, err := createTestGraphFromChannels(testChannels)
-	defer testGraphInstance.cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
+	defer testGraphInstance.cleanUp()
 
 	sourceNode, err := testGraphInstance.graph.SourceNode()
 	if err != nil {
@@ -578,8 +578,15 @@ func TestFindLowestFeePath(t *testing.T) {
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := testGraphInstance.aliasMap["target"]
 	path, err := findPath(
-		nil, testGraphInstance.graph, nil, sourceNode, target,
-		ignoredVertexes, ignoredEdges, paymentAmt, noFeeLimit, nil,
+		&graphParams{
+			graph: testGraphInstance.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, paymentAmt,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -676,10 +683,10 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	t.Parallel()
 
 	testGraphInstance, err := parseTestGraph(basicGraphFilePath)
-	defer testGraphInstance.cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
+	defer testGraphInstance.cleanUp()
 
 	// With the test graph loaded, we'll test some basic path finding using
 	// the pre-generated graph. Consult the testdata/basic_graph.json file
@@ -717,8 +724,15 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 	paymentAmt := lnwire.NewMSatFromSatoshis(test.paymentAmt)
 	target := graphInstance.aliasMap[test.target]
 	path, err := findPath(
-		nil, graphInstance.graph, nil, sourceNode, target,
-		ignoredVertexes, ignoredEdges, paymentAmt, test.feeLimit, nil,
+		&graphParams{
+			graph: graphInstance.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     test.feeLimit,
+		},
+		sourceNode, target, paymentAmt,
 	)
 	if test.expectFailureNoPath {
 		if err == nil {
@@ -858,10 +872,10 @@ func TestPathFindingWithAdditionalEdges(t *testing.T) {
 	t.Parallel()
 
 	graph, err := parseTestGraph(basicGraphFilePath)
-	defer graph.cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
+	defer graph.cleanUp()
 
 	sourceNode, err := graph.graph.SourceNode()
 	if err != nil {
@@ -905,8 +919,14 @@ func TestPathFindingWithAdditionalEdges(t *testing.T) {
 
 	// We should now be able to find a path from roasbeef to doge.
 	path, err := findPath(
-		nil, graph.graph, additionalEdges, sourceNode, dogePubKey, nil, nil,
-		paymentAmt, noFeeLimit, nil,
+		&graphParams{
+			graph:           graph.graph,
+			additionalEdges: additionalEdges,
+		},
+		&restrictParams{
+			feeLimit: noFeeLimit,
+		},
+		sourceNode, dogePubKey, paymentAmt,
 	)
 	if err != nil {
 		t.Fatalf("unable to find private path to doge: %v", err)
@@ -921,10 +941,10 @@ func TestKShortestPathFinding(t *testing.T) {
 	t.Parallel()
 
 	graph, err := parseTestGraph(basicGraphFilePath)
-	defer graph.cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
+	defer graph.cleanUp()
 
 	sourceNode, err := graph.graph.SourceNode()
 	if err != nil {
@@ -1246,10 +1266,10 @@ func TestNewRoutePathTooLong(t *testing.T) {
 	// Ensure that potential paths which are over the maximum hop-limit are
 	// rejected.
 	graph, err := parseTestGraph(excessiveHopsGraphFilePath)
-	defer graph.cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
+	defer graph.cleanUp()
 
 	sourceNode, err := graph.graph.SourceNode()
 	if err != nil {
@@ -1261,12 +1281,19 @@ func TestNewRoutePathTooLong(t *testing.T) {
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 
-	// We start by confirming that routing a payment 20 hops away is possible.
-	// Alice should be able to find a valid route to ursula.
+	// We start by confirming that routing a payment 20 hops away is
+	// possible. Alice should be able to find a valid route to ursula.
 	target := graph.aliasMap["ursula"]
 	_, err = findPath(
-		nil, graph.graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, paymentAmt, noFeeLimit, nil,
+		&graphParams{
+			graph: graph.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, paymentAmt,
 	)
 	if err != nil {
 		t.Fatalf("path should have been found")
@@ -1276,8 +1303,15 @@ func TestNewRoutePathTooLong(t *testing.T) {
 	// presented to Alice.
 	target = graph.aliasMap["vincent"]
 	path, err := findPath(
-		nil, graph.graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, paymentAmt, noFeeLimit, nil,
+		&graphParams{
+			graph: graph.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, paymentAmt,
 	)
 	if err == nil {
 		t.Fatalf("should not have been able to find path, supposed to be "+
@@ -1291,10 +1325,10 @@ func TestPathNotAvailable(t *testing.T) {
 	t.Parallel()
 
 	graph, err := parseTestGraph(basicGraphFilePath)
-	defer graph.cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
+	defer graph.cleanUp()
 
 	sourceNode, err := graph.graph.SourceNode()
 	if err != nil {
@@ -1318,8 +1352,15 @@ func TestPathNotAvailable(t *testing.T) {
 	}
 
 	_, err = findPath(
-		nil, graph.graph, nil, sourceNode, unknownNode, ignoredVertexes,
-		ignoredEdges, 100, noFeeLimit, nil,
+		&graphParams{
+			graph: graph.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, unknownNode, 100,
 	)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("path shouldn't have been found: %v", err)
@@ -1330,10 +1371,10 @@ func TestPathInsufficientCapacity(t *testing.T) {
 	t.Parallel()
 
 	graph, err := parseTestGraph(basicGraphFilePath)
-	defer graph.cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
+	defer graph.cleanUp()
 
 	sourceNode, err := graph.graph.SourceNode()
 	if err != nil {
@@ -1354,8 +1395,15 @@ func TestPathInsufficientCapacity(t *testing.T) {
 
 	payAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 	_, err = findPath(
-		nil, graph.graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, payAmt, noFeeLimit, nil,
+		&graphParams{
+			graph: graph.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, payAmt,
 	)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
@@ -1368,10 +1416,10 @@ func TestRouteFailMinHTLC(t *testing.T) {
 	t.Parallel()
 
 	graph, err := parseTestGraph(basicGraphFilePath)
-	defer graph.cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
+	defer graph.cleanUp()
 
 	sourceNode, err := graph.graph.SourceNode()
 	if err != nil {
@@ -1386,8 +1434,15 @@ func TestRouteFailMinHTLC(t *testing.T) {
 	target := graph.aliasMap["songoku"]
 	payAmt := lnwire.MilliSatoshi(10)
 	_, err = findPath(
-		nil, graph.graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, payAmt, noFeeLimit, nil,
+		&graphParams{
+			graph: graph.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, payAmt,
 	)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
@@ -1396,15 +1451,17 @@ func TestRouteFailMinHTLC(t *testing.T) {
 
 // TestRouteFailDisabledEdge tests that if we attempt to route to an edge
 // that's disabled, then that edge is disqualified, and the routing attempt
-// will fail.
+// will fail. We also test that this is true only for non-local edges, as we'll
+// ignore the disable flags, with the assumption that the correct bandwidth is
+// found among the bandwidth hints.
 func TestRouteFailDisabledEdge(t *testing.T) {
 	t.Parallel()
 
 	graph, err := parseTestGraph(basicGraphFilePath)
-	defer graph.cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
+	defer graph.cleanUp()
 
 	sourceNode, err := graph.graph.SourceNode()
 	if err != nil {
@@ -1418,33 +1475,206 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	target := graph.aliasMap["sophon"]
 	payAmt := lnwire.NewMSatFromSatoshis(105000)
 	_, err = findPath(
-		nil, graph.graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, payAmt, noFeeLimit, nil,
+		&graphParams{
+			graph: graph.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, payAmt,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
 	}
 
-	// First, we'll modify the edge from roasbeef -> phamnuwen, to read that
-	// it's disabled.
-	_, _, phamnuwenEdge, err := graph.graph.FetchChannelEdgesByID(999991)
+	// Disable the edge roasbeef->phamnuwen. This should not impact the
+	// path finding, as we don't consider the disable flag for local
+	// channels (and roasbeef is the source).
+	roasToPham := uint64(999991)
+	_, e1, e2, err := graph.graph.FetchChannelEdgesByID(roasToPham)
 	if err != nil {
-		t.Fatalf("unable to fetch goku's edge: %v", err)
+		t.Fatalf("unable to fetch edge: %v", err)
 	}
-	phamnuwenEdge.Flags = lnwire.ChanUpdateDisabled | lnwire.ChanUpdateDirection
-	if err := graph.graph.UpdateEdgePolicy(phamnuwenEdge); err != nil {
+	e1.Flags |= lnwire.ChanUpdateDisabled
+	if err := graph.graph.UpdateEdgePolicy(e1); err != nil {
+		t.Fatalf("unable to update edge: %v", err)
+	}
+	e2.Flags |= lnwire.ChanUpdateDisabled
+	if err := graph.graph.UpdateEdgePolicy(e2); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 
-	// Now, if we attempt to route through that edge, we should get a
-	// failure as it is no longer eligible.
 	_, err = findPath(
-		nil, graph.graph, nil, sourceNode, target, ignoredVertexes,
-		ignoredEdges, payAmt, noFeeLimit, nil,
+		&graphParams{
+			graph: graph.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, payAmt,
+	)
+	if err != nil {
+		t.Fatalf("unable to find path: %v", err)
+	}
+
+	// Now, we'll modify the edge from phamnuwen -> sophon, to read that
+	// it's disabled.
+	phamToSophon := uint64(99999)
+	_, e, _, err := graph.graph.FetchChannelEdgesByID(phamToSophon)
+	if err != nil {
+		t.Fatalf("unable to fetch edge: %v", err)
+	}
+	e.Flags |= lnwire.ChanUpdateDisabled
+	if err := graph.graph.UpdateEdgePolicy(e); err != nil {
+		t.Fatalf("unable to update edge: %v", err)
+	}
+
+	// If we attempt to route through that edge, we should get a failure as
+	// it is no longer eligible.
+	_, err = findPath(
+		&graphParams{
+			graph: graph.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, payAmt,
 	)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
 	}
+}
+
+// TestPathSourceEdgesBandwidth tests that explicitly passing in a set of
+// bandwidth hints is used by the path finding algorithm to consider whether to
+// use a local channel.
+func TestPathSourceEdgesBandwidth(t *testing.T) {
+	t.Parallel()
+
+	graph, err := parseTestGraph(basicGraphFilePath)
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+	defer graph.cleanUp()
+
+	sourceNode, err := graph.graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+	}
+	ignoredEdges := make(map[uint64]struct{})
+	ignoredVertexes := make(map[Vertex]struct{})
+
+	// First, we'll try to route from roasbeef -> sophon. This should
+	// succeed without issue, and return a path via songoku, as that's the
+	// cheapest path.
+	target := graph.aliasMap["sophon"]
+	payAmt := lnwire.NewMSatFromSatoshis(50000)
+	path, err := findPath(
+		&graphParams{
+			graph: graph.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, payAmt,
+	)
+	if err != nil {
+		t.Fatalf("unable to find path: %v", err)
+	}
+	assertExpectedPath(t, path, "songoku", "sophon")
+
+	// Now we'll set the bandwidth of the edge roasbeef->songoku and
+	// roasbeef->phamnuwen to 0.
+	roasToSongoku := uint64(12345)
+	roasToPham := uint64(999991)
+	bandwidths := map[uint64]lnwire.MilliSatoshi{
+		roasToSongoku: 0,
+		roasToPham:    0,
+	}
+
+	// Since both these edges has a bandwidth of zero, no path should be
+	// found.
+	_, err = findPath(
+		&graphParams{
+			graph:          graph.graph,
+			bandwidthHints: bandwidths,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, payAmt,
+	)
+	if !IsError(err, ErrNoPathFound) {
+		t.Fatalf("graph shouldn't be able to support payment: %v", err)
+	}
+
+	// Set the bandwidth of roasbeef->phamnuwen high enough to carry the
+	// payment.
+	bandwidths[roasToPham] = 2 * payAmt
+
+	// Now, if we attempt to route again, we should find the path via
+	// phamnuven, as the other source edge won't be considered.
+	path, err = findPath(
+		&graphParams{
+			graph:          graph.graph,
+			bandwidthHints: bandwidths,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, payAmt,
+	)
+	if err != nil {
+		t.Fatalf("unable to find path: %v", err)
+	}
+	assertExpectedPath(t, path, "phamnuwen", "sophon")
+
+	// Finally, set the roasbeef->songoku bandwidth, but also set its
+	// disable flag.
+	bandwidths[roasToSongoku] = 2 * payAmt
+	_, e1, e2, err := graph.graph.FetchChannelEdgesByID(roasToSongoku)
+	if err != nil {
+		t.Fatalf("unable to fetch edge: %v", err)
+	}
+	e1.Flags |= lnwire.ChanUpdateDisabled
+	if err := graph.graph.UpdateEdgePolicy(e1); err != nil {
+		t.Fatalf("unable to update edge: %v", err)
+	}
+	e2.Flags |= lnwire.ChanUpdateDisabled
+	if err := graph.graph.UpdateEdgePolicy(e2); err != nil {
+		t.Fatalf("unable to update edge: %v", err)
+	}
+
+	// Since we ignore disable flags for local channels, a path should
+	// still be found.
+	path, err = findPath(
+		&graphParams{
+			graph:          graph.graph,
+			bandwidthHints: bandwidths,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, payAmt,
+	)
+	if err != nil {
+		t.Fatalf("unable to find path: %v", err)
+	}
+	assertExpectedPath(t, path, "songoku", "sophon")
 }
 
 func TestPathInsufficientCapacityWithFee(t *testing.T) {
@@ -1465,10 +1695,10 @@ func TestPathFindSpecExample(t *testing.T) {
 	// height.
 	const startingHeight = 100
 	ctx, cleanUp, err := createTestCtxFromFile(startingHeight, specExampleFilePath)
-	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
 	}
+	defer cleanUp()
 
 	const (
 		aliceFinalCLTV = 10

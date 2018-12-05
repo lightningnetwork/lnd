@@ -99,6 +99,36 @@ func newMockHintCache() *mockHintCache {
 	}
 }
 
+// TestTxNotifierMaxConfs ensures that we are not able to register for more
+// confirmations on a transaction than the maximum supported.
+func TestTxNotifierMaxConfs(t *testing.T) {
+	t.Parallel()
+
+	hintCache := newMockHintCache()
+	n := chainntnfs.NewTxNotifier(
+		10, chainntnfs.ReorgSafetyLimit, hintCache, hintCache,
+	)
+
+	// Registering one confirmation above the maximum should fail with
+	// ErrTxMaxConfs.
+	ntfn := &chainntnfs.ConfNtfn{
+		ConfID:           1,
+		TxID:             &zeroHash,
+		NumConfirmations: chainntnfs.MaxNumConfs + 1,
+		Event: chainntnfs.NewConfirmationEvent(
+			chainntnfs.MaxNumConfs,
+		),
+	}
+	if _, err := n.RegisterConf(ntfn); err != chainntnfs.ErrTxMaxConfs {
+		t.Fatalf("expected chainntnfs.ErrTxMaxConfs, got %v", err)
+	}
+
+	ntfn.NumConfirmations--
+	if _, err := n.RegisterConf(ntfn); err != nil {
+		t.Fatalf("unable to register conf ntfn: %v", err)
+	}
+}
+
 // TestTxNotifierFutureConfDispatch tests that the TxNotifier dispatches
 // registered notifications when a transaction confirms after registration.
 func TestTxNotifierFutureConfDispatch(t *testing.T) {

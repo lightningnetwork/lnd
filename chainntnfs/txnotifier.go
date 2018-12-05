@@ -26,7 +26,8 @@ var (
 
 	// ErrTxMaxConfs signals that the user requested a number of
 	// confirmations beyond the reorg safety limit.
-	ErrTxMaxConfs = errors.New("too many confirmations requested")
+	ErrTxMaxConfs = fmt.Errorf("too many confirmations requested, max is %d",
+		MaxNumConfs)
 )
 
 // rescanState indicates the progression of a registration before the notifier

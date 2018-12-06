@@ -197,23 +197,15 @@ func (p *ConstrainedPrefAttachment) Select(self *btcec.PublicKey, g ChannelGraph
 		// With the node selected, we'll add this (node, amount) tuple
 		// to out set of recommended directives.
 		pubBytes := selectedNode.PubKey()
-		pub, err := btcec.ParsePubKey(pubBytes[:], btcec.S256())
-		if err != nil {
-			return nil, err
-		}
+		nID := NodeID(pubBytes)
 		directives = append(directives, AttachmentDirective{
-			// TODO(roasbeef): need curve?
-			NodeKey: &btcec.PublicKey{
-				X: pub.X,
-				Y: pub.Y,
-			},
-			NodeID: NewNodeID(pub),
+			NodeID: nID,
 			Addrs:  selectedNode.Addrs(),
 		})
 
 		// With the node selected, we'll add it to the set of visited
 		// nodes to avoid attaching to it again.
-		visited[NodeID(pubBytes)] = struct{}{}
+		visited[nID] = struct{}{}
 	}
 
 	numSelectedNodes := int64(len(directives))

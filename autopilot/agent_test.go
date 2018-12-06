@@ -325,7 +325,6 @@ func TestAgentChannelFailureSignal(t *testing.T) {
 	// request attachment directives, return a fake so the agent will
 	// attempt to open a channel.
 	var fakeDirective = AttachmentDirective{
-		NodeKey: self,
 		NodeID:  NewNodeID(self),
 		ChanAmt: btcutil.SatoshiPerBitcoin,
 		Addrs: []net.Addr{
@@ -669,7 +668,6 @@ func TestAgentImmediateAttach(t *testing.T) {
 		}
 		nodeID := NewNodeID(pub)
 		directives[i] = AttachmentDirective{
-			NodeKey: pub,
 			NodeID:  nodeID,
 			ChanAmt: btcutil.SatoshiPerBitcoin,
 			Addrs: []net.Addr{
@@ -802,7 +800,6 @@ func TestAgentPrivateChannels(t *testing.T) {
 			t.Fatalf("unable to generate key: %v", err)
 		}
 		directives[i] = AttachmentDirective{
-			NodeKey: pub,
 			NodeID:  NewNodeID(pub),
 			ChanAmt: btcutil.SatoshiPerBitcoin,
 			Addrs: []net.Addr{
@@ -925,7 +922,6 @@ func TestAgentPendingChannelState(t *testing.T) {
 	}
 	nodeID := NewNodeID(nodeKey)
 	nodeDirective := AttachmentDirective{
-		NodeKey: nodeKey,
 		NodeID:  nodeID,
 		ChanAmt: 0.5 * btcutil.SatoshiPerBitcoin,
 		Addrs: []net.Addr{
@@ -1309,7 +1305,6 @@ func TestAgentSkipPendingConns(t *testing.T) {
 		t.Fatalf("unable to generate key: %v", err)
 	}
 	nodeDirective := AttachmentDirective{
-		NodeKey: nodeKey,
 		NodeID:  NewNodeID(nodeKey),
 		ChanAmt: 0.5 * btcutil.SatoshiPerBitcoin,
 		Addrs: []net.Addr{

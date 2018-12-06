@@ -66,6 +66,10 @@ const (
 	// currently accepted on the Litecoin chain within the Lightning
 	// Protocol.
 	maxLtcFundingAmount = maxBtcFundingAmount * btcToLtcConversionRate
+
+	// msgFlags indicates whether optional fields are present in a channel
+	// update.
+	msgFlags lnwire.ChanUpdateFlag = 0
 )
 
 var (
@@ -2480,7 +2484,8 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey,
 		ShortChannelID: shortChanID,
 		ChainHash:      chainHash,
 		Timestamp:      uint32(time.Now().Unix()),
-		Flags:          chanFlags,
+		ChannelFlags:   chanFlags,
+		MessageFlags:   msgFlags,
 		TimeLockDelta:  uint16(f.cfg.DefaultRoutingPolicy.TimeLockDelta),
 
 		// We use the HtlcMinimumMsat that the remote party required us

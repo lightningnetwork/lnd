@@ -101,8 +101,8 @@ func WriteElement(w io.Writer, element interface{}) error {
 			return err
 		}
 	case ChanUpdateFlag:
-		var b [2]byte
-		binary.BigEndian.PutUint16(b[:], uint16(e))
+		var b [1]byte
+		b[0] = uint8(e)
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
@@ -454,11 +454,11 @@ func ReadElement(r io.Reader, element interface{}) error {
 		}
 		*e = binary.BigEndian.Uint16(b[:])
 	case *ChanUpdateFlag:
-		var b [2]byte
-		if _, err := io.ReadFull(r, b[:]); err != nil {
+		var b [1]uint8
+		if _, err := r.Read(b[:]); err != nil {
 			return err
 		}
-		*e = ChanUpdateFlag(binary.BigEndian.Uint16(b[:]))
+		*e = ChanUpdateFlag(b[0])
 	case *ErrorCode:
 		var b [2]byte
 		if _, err := io.ReadFull(r, b[:]); err != nil {

@@ -321,13 +321,18 @@ func (c *ChanSeries) FetchChanUpdates(chain chainhash.Hash,
 		return nil, err
 	}
 
+	// msgFlags indicates the presence of optional fields in a channel update.
+	// Zero indicates no optional fields.
+	msgFlags := lnwire.ChanUpdateFlag(0)
+
 	chanUpdates := make([]*lnwire.ChannelUpdate, 0, 2)
 	if e1 != nil {
 		chanUpdate := &lnwire.ChannelUpdate{
 			ChainHash:       chanInfo.ChainHash,
 			ShortChannelID:  shortChanID,
 			Timestamp:       uint32(e1.LastUpdate.Unix()),
-			Flags:           e1.Flags,
+			ChannelFlags:    e1.Flags,
+			MessageFlags:    msgFlags,
 			TimeLockDelta:   e1.TimeLockDelta,
 			HtlcMinimumMsat: e1.MinHTLC,
 			BaseFee:         uint32(e1.FeeBaseMSat),
@@ -346,7 +351,8 @@ func (c *ChanSeries) FetchChanUpdates(chain chainhash.Hash,
 			ChainHash:       chanInfo.ChainHash,
 			ShortChannelID:  shortChanID,
 			Timestamp:       uint32(e2.LastUpdate.Unix()),
-			Flags:           e2.Flags,
+			ChannelFlags:    e2.Flags,
+			MessageFlags:    msgFlags,
 			TimeLockDelta:   e2.TimeLockDelta,
 			HtlcMinimumMsat: e2.MinHTLC,
 			BaseFee:         uint32(e2.FeeBaseMSat),

@@ -11,7 +11,7 @@ import (
 // ChanUpdateFlag is a bitfield that signals various options concerning a
 // particular channel edge. Each bit is to be examined in order to determine
 // how the ChannelUpdate message is to be interpreted.
-type ChanUpdateFlag uint16
+type ChanUpdateFlag uint8
 
 const (
 	// ChanUpdateDirection indicates the direction of a channel update. If
@@ -48,13 +48,18 @@ type ChannelUpdate struct {
 	// the last-received.
 	Timestamp uint32
 
+	// MessageFlags is a bitfield that describes additional meta-data concerning
+	// how the update is to be interpreted. Currently, the least-significant
+	// bit must be set to 1 if the optional field MaxHtlc is present.
+	MessageFlags ChanUpdateFlag
+
 	// Flags is a bitfield that describes additional meta-data concerning
 	// how the update is to be interpreted. Currently, the
 	// least-significant bit must be set to 0 if the creating node
 	// corresponds to the first node in the previously sent channel
 	// announcement and 1 otherwise. If the second bit is set, then the
 	// channel is set to be disabled.
-	Flags ChanUpdateFlag
+	ChannelFlags ChanUpdateFlag
 
 	// TimeLockDelta is the minimum number of blocks this node requires to
 	// be added to the expiry of HTLCs. This is a security parameter
@@ -98,7 +103,8 @@ func (a *ChannelUpdate) Decode(r io.Reader, pver uint32) error {
 		a.ChainHash[:],
 		&a.ShortChannelID,
 		&a.Timestamp,
-		&a.Flags,
+		&a.MessageFlags,
+		&a.ChannelFlags,
 		&a.TimeLockDelta,
 		&a.HtlcMinimumMsat,
 		&a.BaseFee,
@@ -133,7 +139,8 @@ func (a *ChannelUpdate) Encode(w io.Writer, pver uint32) error {
 		a.ChainHash[:],
 		a.ShortChannelID,
 		a.Timestamp,
-		a.Flags,
+		a.MessageFlags,
+		a.ChannelFlags,
 		a.TimeLockDelta,
 		a.HtlcMinimumMsat,
 		a.BaseFee,
@@ -168,7 +175,8 @@ func (a *ChannelUpdate) DataToSign() ([]byte, error) {
 		a.ChainHash[:],
 		a.ShortChannelID,
 		a.Timestamp,
-		a.Flags,
+		a.MessageFlags,
+		a.ChannelFlags,
 		a.TimeLockDelta,
 		a.HtlcMinimumMsat,
 		a.BaseFee,

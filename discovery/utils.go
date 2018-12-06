@@ -63,6 +63,10 @@ func CreateChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 	// will need to be processed before either of the channel update
 	// networkMsgs.
 
+	// msgFlags indicates the presence of optional fields in a channel update.
+	// Zero indicates no optional fields.
+	msgFlags := lnwire.ChanUpdateFlag(0)
+
 	// Since it's up to a node's policy as to whether they advertise the
 	// edge in a direction, we don't create an advertisement if the edge is
 	// nil.
@@ -72,7 +76,8 @@ func CreateChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 			ChainHash:       chanInfo.ChainHash,
 			ShortChannelID:  chanID,
 			Timestamp:       uint32(e1.LastUpdate.Unix()),
-			Flags:           e1.Flags,
+			ChannelFlags:    e1.Flags,
+			MessageFlags:    msgFlags,
 			TimeLockDelta:   e1.TimeLockDelta,
 			HtlcMinimumMsat: e1.MinHTLC,
 			BaseFee:         uint32(e1.FeeBaseMSat),
@@ -89,7 +94,8 @@ func CreateChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 			ChainHash:       chanInfo.ChainHash,
 			ShortChannelID:  chanID,
 			Timestamp:       uint32(e2.LastUpdate.Unix()),
-			Flags:           e2.Flags,
+			ChannelFlags:    e2.Flags,
+			MessageFlags:    msgFlags,
 			TimeLockDelta:   e2.TimeLockDelta,
 			HtlcMinimumMsat: e2.MinHTLC,
 			BaseFee:         uint32(e2.FeeBaseMSat),

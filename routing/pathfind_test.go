@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"math"
 	"math/big"
@@ -230,6 +231,13 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 		node2Bytes, err := hex.DecodeString(edge.Node2)
 		if err != nil {
 			return nil, err
+		}
+
+		if bytes.Compare(node1Bytes, node2Bytes) == 1 {
+			return nil, fmt.Errorf(
+				"channel %v node order incorrect",
+				edge.ChannelID,
+			)
 		}
 
 		fundingTXID := strings.Split(edge.ChannelPoint, ":")[0]
@@ -567,7 +575,7 @@ func TestFindLowestFeePath(t *testing.T) {
 	}
 	sourceVertex := Vertex(sourceNode.PubKeyBytes)
 
-	ignoredEdges := make(map[uint64]struct{})
+	ignoredEdges := make(map[edgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	const (
@@ -713,7 +721,7 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 	}
 	sourceVertex := Vertex(sourceNode.PubKeyBytes)
 
-	ignoredEdges := make(map[uint64]struct{})
+	ignoredEdges := make(map[edgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	const (
@@ -836,35 +844,6 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 	if route.TotalTimeLock != test.expectedTotalTimeLock {
 		t.Fatalf("expected time lock of %v, instead have %v", 2,
 			route.TotalTimeLock)
-	}
-
-	// The next and prev hop maps should be properly set.
-	for i := 0; i < expectedHopCount; i++ {
-		prevChan, ok := route.prevHopChannel(aliases[expectedHops[i].alias])
-		if !ok {
-			t.Fatalf("hop didn't have prev chan but should have")
-		}
-		if prevChan.ChannelID != route.Hops[i].ChannelID {
-			t.Fatalf("incorrect prev chan: expected %v, got %v",
-				prevChan.ChannelID, route.Hops[i].ChannelID)
-		}
-	}
-
-	for i := 0; i < expectedHopCount-1; i++ {
-		nextChan, ok := route.nextHopChannel(aliases[expectedHops[i].alias])
-		if !ok {
-			t.Fatalf("hop didn't have prev chan but should have")
-		}
-		if nextChan.ChannelID != route.Hops[i+1].ChannelID {
-			t.Fatalf("incorrect prev chan: expected %v, got %v",
-				nextChan.ChannelID, route.Hops[i+1].ChannelID)
-		}
-	}
-
-	// Final hop shouldn't have a next chan
-	if _, ok := route.nextHopChannel(aliases[expectedHops[lastHopIndex].alias]); ok {
-		t.Fatalf("incorrect next hop map, no vertexes should " +
-			"be after sophon")
 	}
 }
 
@@ -1276,7 +1255,7 @@ func TestNewRoutePathTooLong(t *testing.T) {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
 
-	ignoredEdges := make(map[uint64]struct{})
+	ignoredEdges := make(map[edgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
@@ -1335,7 +1314,7 @@ func TestPathNotAvailable(t *testing.T) {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
 
-	ignoredEdges := make(map[uint64]struct{})
+	ignoredEdges := make(map[edgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	// With the test graph loaded, we'll test that queries for target that
@@ -1380,7 +1359,7 @@ func TestPathInsufficientCapacity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
-	ignoredEdges := make(map[uint64]struct{})
+	ignoredEdges := make(map[edgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	// Next, test that attempting to find a path in which the current
@@ -1425,7 +1404,7 @@ func TestRouteFailMinHTLC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
-	ignoredEdges := make(map[uint64]struct{})
+	ignoredEdges := make(map[edgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	// We'll not attempt to route an HTLC of 10 SAT from roasbeef to Son
@@ -1467,7 +1446,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
-	ignoredEdges := make(map[uint64]struct{})
+	ignoredEdges := make(map[edgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	// First, we'll try to route from roasbeef -> sophon. This should
@@ -1567,7 +1546,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
-	ignoredEdges := make(map[uint64]struct{})
+	ignoredEdges := make(map[edgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	// First, we'll try to route from roasbeef -> sophon. This should

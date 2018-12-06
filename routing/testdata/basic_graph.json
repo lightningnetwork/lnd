@@ -142,11 +142,11 @@
             "capacity": 120000
         },
         {
-            "node_1": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6",
-	    "node_2": "032b480de5d002f1a8fd1fe1bbf0a0f1b07760f65f052e66d56f15d71097c01add",
+            "node_1": "032b480de5d002f1a8fd1fe1bbf0a0f1b07760f65f052e66d56f15d71097c01add",
+            "node_2": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6",
             "channel_id": 12345, 
             "channel_point": "89dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
-            "flags": 0, 
+            "flags": 1, 
             "expiry": 1,
             "min_htlc": 1000, 
             "fee_base_msat": 10, 
@@ -154,11 +154,11 @@
             "capacity": 100000
         },
         {
-            "node_1": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6",
-	    "node_2": "032b480de5d002f1a8fd1fe1bbf0a0f1b07760f65f052e66d56f15d71097c01add",
+            "node_1": "032b480de5d002f1a8fd1fe1bbf0a0f1b07760f65f052e66d56f15d71097c01add",
+            "node_2": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6",
             "channel_id": 12345, 
             "channel_point": "89dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
-            "flags": 1, 
+            "flags": 0, 
             "expiry": 1,
             "min_htlc": 1, 
             "fee_base_msat": 10, 
@@ -166,7 +166,7 @@
             "capacity": 100000
         },
         {
-	    "node_1": "032b480de5d002f1a8fd1fe1bbf0a0f1b07760f65f052e66d56f15d71097c01add",
+            "node_1": "032b480de5d002f1a8fd1fe1bbf0a0f1b07760f65f052e66d56f15d71097c01add",
             "node_2": "036264734b40c9e91d3d990a8cdfbbe23b5b0b7ad3cd0e080a25dcd05d39eeb7eb",
             "channel_id": 3495345, 
             "channel_point": "9f155756b33a0a6827713965babbd561b55f9520444ac5db0cf7cb2eb0deb5bc:0", 
@@ -178,7 +178,7 @@
             "capacity": 110000
         },
         {
-	    "node_1": "032b480de5d002f1a8fd1fe1bbf0a0f1b07760f65f052e66d56f15d71097c01add",
+            "node_1": "032b480de5d002f1a8fd1fe1bbf0a0f1b07760f65f052e66d56f15d71097c01add",
             "node_2": "036264734b40c9e91d3d990a8cdfbbe23b5b0b7ad3cd0e080a25dcd05d39eeb7eb",
             "channel_id": 3495345, 
             "channel_point": "9f155756b33a0a6827713965babbd561b55f9520444ac5db0cf7cb2eb0deb5bc:0", 
@@ -214,11 +214,11 @@
             "capacity": 10000
         },
         {
-            "node_1": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6",
-            "node_2": "02e7b1aaac10977c38e9c61c74dc66840de211bcec3021603e7977bc5e28edabfd",
+            "node_1": "02e7b1aaac10977c38e9c61c74dc66840de211bcec3021603e7977bc5e28edabfd",
+            "node_2": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6",
             "channel_id": 689530843, 
             "channel_point": "25376aa6cb81913ad30416bd22d4083241bd6d68e811d0284d3c3a17795c458a:0", 
-            "flags": 0, 
+            "flags": 1, 
             "expiry": 10,
             "min_htlc": 1, 
             "fee_base_msat": 10, 
@@ -226,11 +226,11 @@
             "capacity": 100000 
         },
         {
-            "node_1": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6",
-            "node_2": "02e7b1aaac10977c38e9c61c74dc66840de211bcec3021603e7977bc5e28edabfd",
+            "node_1": "02e7b1aaac10977c38e9c61c74dc66840de211bcec3021603e7977bc5e28edabfd",
+            "node_2": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6",
             "channel_id": 689530843, 
             "channel_point": "25376aa6cb81913ad30416bd22d4083241bd6d68e811d0284d3c3a17795c458a:0", 
-            "flags": 1, 
+            "flags": 0, 
             "expiry": 1,
             "min_htlc": 1, 
             "fee_base_msat": 10, 

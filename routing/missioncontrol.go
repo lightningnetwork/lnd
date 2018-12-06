@@ -47,7 +47,7 @@ type missionControl struct {
 	// it was added to the prune view. Edges are added to this map if a
 	// caller reports to missionControl a failure localized to that edge
 	// when sending a payment.
-	failedEdges map[uint64]time.Time
+	failedEdges map[edgeLocator]time.Time
 
 	// failedVertexes maps a node's public key that should be pruned, to
 	// the time that it was added to the prune view. Vertexes are added to
@@ -76,7 +76,7 @@ func newMissionControl(g *channeldb.ChannelGraph, selfNode *channeldb.LightningN
 	qb func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi) *missionControl {
 
 	return &missionControl{
-		failedEdges:    make(map[uint64]time.Time),
+		failedEdges:    make(map[edgeLocator]time.Time),
 		failedVertexes: make(map[Vertex]time.Time),
 		selfNode:       selfNode,
 		queryBandwidth: qb,
@@ -90,7 +90,7 @@ func newMissionControl(g *channeldb.ChannelGraph, selfNode *channeldb.LightningN
 // state of the wider network from the PoV of mission control compiled via HTLC
 // routing attempts in the past.
 type graphPruneView struct {
-	edges map[uint64]struct{}
+	edges map[edgeLocator]struct{}
 
 	vertexes map[Vertex]struct{}
 }
@@ -125,7 +125,7 @@ func (m *missionControl) GraphPruneView() graphPruneView {
 
 	// We'll also do the same for edges, but use the edgeDecay this time
 	// rather than the decay for vertexes.
-	edges := make(map[uint64]struct{})
+	edges := make(map[edgeLocator]struct{})
 	for edge, pruneTime := range m.failedEdges {
 		if now.Sub(pruneTime) >= edgeDecay {
 			log.Tracef("Pruning decayed failure report for edge %v "+
@@ -164,11 +164,11 @@ type paymentSession struct {
 
 	bandwidthHints map[uint64]lnwire.MilliSatoshi
 
-	// errFailedFeeChans is a map of the short channel ID's that were the
+	// errFailedFeeChans is a map of the short channel IDs that were the
 	// source of policy related routing failures during this payment attempt.
 	// We'll use this map to prune out channels when the first error may not
 	// require pruning, but any subsequent ones do.
-	errFailedPolicyChans map[uint64]struct{}
+	errFailedPolicyChans map[edgeLocator]struct{}
 
 	mc *missionControl
 
@@ -245,7 +245,7 @@ func (m *missionControl) NewPaymentSession(routeHints [][]HopHint,
 		pruneViewSnapshot:    viewSnapshot,
 		additionalEdges:      edges,
 		bandwidthHints:       bandwidthHints,
-		errFailedPolicyChans: make(map[uint64]struct{}),
+		errFailedPolicyChans: make(map[edgeLocator]struct{}),
 		mc:                   m,
 	}, nil
 }
@@ -259,7 +259,7 @@ func (m *missionControl) NewPaymentSessionFromRoutes(routes []*Route) *paymentSe
 		pruneViewSnapshot:    m.GraphPruneView(),
 		haveRoutes:           true,
 		preBuiltRoutes:       routes,
-		errFailedPolicyChans: make(map[uint64]struct{}),
+		errFailedPolicyChans: make(map[edgeLocator]struct{}),
 		mc:                   m,
 	}
 }
@@ -325,17 +325,17 @@ func (p *paymentSession) ReportVertexFailure(v Vertex) {
 // retrying an edge after its pruning has expired.
 //
 // TODO(roasbeef): also add value attempted to send and capacity of channel
-func (p *paymentSession) ReportChannelFailure(e uint64) {
+func (p *paymentSession) ReportEdgeFailure(e *edgeLocator) {
 	log.Debugf("Reporting edge %v failure to Mission Control", e)
 
 	// First, we'll add the failed edge to our local prune view snapshot.
-	p.pruneViewSnapshot.edges[e] = struct{}{}
+	p.pruneViewSnapshot.edges[*e] = struct{}{}
 
 	// With the edge added, we'll now report back to the global prune view,
 	// with this new piece of information so it can be utilized for new
 	// payment sessions.
 	p.mc.Lock()
-	p.mc.failedEdges[e] = time.Now()
+	p.mc.failedEdges[*e] = time.Now()
 	p.mc.Unlock()
 }
 
@@ -345,12 +345,12 @@ func (p *paymentSession) ReportChannelFailure(e uint64) {
 // edge as 'policy failed once'. The next time it fails, the whole node will be
 // pruned. This is to prevent nodes from keeping us busy by continuously sending
 // new channel updates.
-func (p *paymentSession) ReportChannelPolicyFailure(
-	errSource Vertex, failedChanID uint64) {
+func (p *paymentSession) ReportEdgePolicyFailure(
+	errSource Vertex, failedEdge *edgeLocator) {
 
 	// Check to see if we've already reported a policy related failure for
 	// this channel. If so, then we'll prune out the vertex.
-	_, ok := p.errFailedPolicyChans[failedChanID]
+	_, ok := p.errFailedPolicyChans[*failedEdge]
 	if ok {
 		// TODO(joostjager): is this aggresive pruning still necessary?
 		// Just pruning edges may also work unless there is a huge
@@ -361,7 +361,7 @@ func (p *paymentSession) ReportChannelPolicyFailure(
 	}
 
 	// Finally, we'll record a policy failure from this node and move on.
-	p.errFailedPolicyChans[failedChanID] = struct{}{}
+	p.errFailedPolicyChans[*failedEdge] = struct{}{}
 }
 
 // RequestRoute returns a route which is likely to be capable for successfully
@@ -442,7 +442,7 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 // if no payment attempts have been made.
 func (m *missionControl) ResetHistory() {
 	m.Lock()
-	m.failedEdges = make(map[uint64]time.Time)
+	m.failedEdges = make(map[edgeLocator]time.Time)
 	m.failedVertexes = make(map[Vertex]time.Time)
 	m.Unlock()
 }

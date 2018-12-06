@@ -1859,7 +1859,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	}
 
 	ignoreVertex := make(map[Vertex]struct{})
-	ignoreEdge := make(map[uint64]struct{})
+	ignoreEdge := make(map[edgeLocator]struct{})
 
 	amt := lnwire.MilliSatoshi(100)
 

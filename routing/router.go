@@ -213,6 +213,45 @@ func newRouteTuple(amt lnwire.MilliSatoshi, dest []byte) routeTuple {
 	return r
 }
 
+// edgeLocator is a struct used to identify a specific edge. The direction
+// fields takes the value of 0 or 1 and is identical in definition to the
+// channel direction flag. A value of 0 means the direction from the lower node
+// pubkey to the higher.
+type edgeLocator struct {
+	channelID uint64
+	direction uint8
+}
+
+// newEdgeLocatorByPubkeys returns an edgeLocator based on its end point
+// pubkeys.
+func newEdgeLocatorByPubkeys(channelID uint64, fromNode, toNode *Vertex) *edgeLocator {
+	// Determine direction based on lexicographical ordering of both
+	// pubkeys.
+	var direction uint8
+	if bytes.Compare(fromNode[:], toNode[:]) == 1 {
+		direction = 1
+	}
+
+	return &edgeLocator{
+		channelID: channelID,
+		direction: direction,
+	}
+}
+
+// newEdgeLocator extracts an edgeLocator based for a full edge policy
+// structure.
+func newEdgeLocator(edge *channeldb.ChannelEdgePolicy) *edgeLocator {
+	return &edgeLocator{
+		channelID: edge.ChannelID,
+		direction: uint8(edge.Flags & lnwire.ChanUpdateDirection),
+	}
+}
+
+// String returns a human readable version of the edgeLocator values.
+func (e *edgeLocator) String() string {
+	return fmt.Sprintf("%v:%v", e.channelID, e.direction)
+}
+
 // ChannelRouter is the layer 3 router within the Lightning stack. Below the
 // ChannelRouter is the HtlcSwitch, and below that is the Bitcoin blockchain
 // itself. The primary role of the ChannelRouter is to respond to queries for
@@ -1755,12 +1794,11 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			errVertex := NewVertex(errSource)
 
 			log.Tracef("node=%x reported failure when sending "+
-				"htlc=%x", errSource.SerializeCompressed(),
-				payment.PaymentHash[:])
+				"htlc=%x", errVertex, payment.PaymentHash[:])
 
 			// Always determine chan id ourselves, because a channel
 			// update with id may not be available.
-			failedChanID, err := getFailedChannelID(route, errSource)
+			failedEdge, err := getFailedEdge(route, errVertex)
 			if err != nil {
 				return preImage, nil, err
 			}
@@ -1791,13 +1829,13 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 				// Or is there a valid reason for the channel
 				// update to fail?
 				if !updateOk {
-					paySession.ReportChannelFailure(
-						failedChanID,
+					paySession.ReportEdgeFailure(
+						failedEdge,
 					)
 				}
 
-				paySession.ReportChannelPolicyFailure(
-					NewVertex(errSource), failedChanID,
+				paySession.ReportEdgePolicyFailure(
+					NewVertex(errSource), failedEdge,
 				)
 			}
 
@@ -1887,7 +1925,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// the update and continue.
 			case *lnwire.FailChannelDisabled:
 				r.applyChannelUpdate(&onionErr.Update, errSource)
-				paySession.ReportChannelFailure(failedChanID)
+				paySession.ReportEdgeFailure(failedEdge)
 				continue
 
 			// It's likely that the outgoing channel didn't have
@@ -1895,7 +1933,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// now, and continue onwards with our path finding.
 			case *lnwire.FailTemporaryChannelFailure:
 				r.applyChannelUpdate(onionErr.Update, errSource)
-				paySession.ReportChannelFailure(failedChanID)
+				paySession.ReportEdgeFailure(failedEdge)
 				continue
 
 			// If the send fail due to a node not having the
@@ -1920,7 +1958,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			// returning errors in order to attempt to black list
 			// another node.
 			case *lnwire.FailUnknownNextPeer:
-				paySession.ReportChannelFailure(failedChanID)
+				paySession.ReportEdgeFailure(failedEdge)
 				continue
 
 			// If the node wasn't able to forward for which ever
@@ -1948,10 +1986,17 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 				continue
 
 			// If we get a permanent channel or node failure, then
-			// we'll note this (exclude the vertex/edge), and
+			// we'll prune the channel in both directions and
 			// continue with the rest of the routes.
 			case *lnwire.FailPermanentChannelFailure:
-				paySession.ReportChannelFailure(failedChanID)
+				paySession.ReportEdgeFailure(&edgeLocator{
+					channelID: failedEdge.channelID,
+					direction: 0,
+				})
+				paySession.ReportEdgeFailure(&edgeLocator{
+					channelID: failedEdge.channelID,
+					direction: 1,
+				})
 				continue
 
 			default:
@@ -1963,31 +2008,43 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 	}
 }
 
-// getFailedChannelID tries to locate the failing channel given a route and the
+// getFailedEdge tries to locate the failing channel given a route and the
 // pubkey of the node that sent the error. It will assume that the error is
 // associated with the outgoing channel of the error node.
-func getFailedChannelID(route *Route, errSource *btcec.PublicKey) (
-	uint64, error) {
+func getFailedEdge(route *Route, errSource Vertex) (
+	*edgeLocator, error) {
 
-	// As this error indicates that the target channel was unable to carry
-	// this HTLC (for w/e reason), we'll query the index to find the
-	// _outgoing_ channel the source of the error was meant to pass the
-	// HTLC along to.
-	if badChan, ok := route.nextHopChannel(errSource); ok {
-		return badChan.ChannelID, nil
+	hopCount := len(route.Hops)
+	fromNode := route.SourcePubKey
+	for i, hop := range route.Hops {
+		toNode := hop.PubKeyBytes
+
+		// Determine if we have a failure from the final hop.
+		//
+		// TODO(joostjager): In this case, certain types of errors are
+		// not expected. For example FailUnknownNextPeer. This could be
+		// a reason to prune the node?
+		finalHopFailing := i == hopCount-1 && errSource == toNode
+
+		// As this error indicates that the target channel was unable to
+		// carry this HTLC (for w/e reason), we'll return the _outgoing_
+		// channel that the source of the error was meant to pass the
+		// HTLC along to.
+		//
+		// If the errSource is the final hop, we assume that the failing
+		// channel is the incoming channel.
+		if errSource == fromNode || finalHopFailing {
+			return newEdgeLocatorByPubkeys(
+				hop.ChannelID,
+				&fromNode,
+				&toNode,
+			), nil
+		}
+
+		fromNode = toNode
 	}
 
-	// If we weren't able to find the hop *after* this node, then we'll
-	// attempt to disable the previous channel.
-	//
-	// TODO(joostjager): errSource must be the final hop then? In that case,
-	// certain types of errors are not expected. For example
-	// FailUnknownNextPeer. This could be a reason to prune the node?
-	if prevChan, ok := route.prevHopChannel(errSource); ok {
-		return prevChan.ChannelID, nil
-	}
-
-	return 0, fmt.Errorf("cannot find channel in route")
+	return nil, fmt.Errorf("cannot find error source node in route")
 }
 
 // applyChannelUpdate validates a channel update and if valid, applies it to the

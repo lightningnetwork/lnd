@@ -545,7 +545,10 @@ func (a *Agent) controller() {
 			}
 			pendingConns[nodeID] = struct{}{}
 
+			a.wg.Add(1)
 			go func(directive AttachmentDirective) {
+				defer a.wg.Done()
+
 				// We'll start out by attempting to connect to
 				// the peer in order to begin the funding
 				// workflow.

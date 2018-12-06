@@ -31,28 +31,28 @@ import (
 )
 
 const (
-	defaultConfigFilename      = "lnd.conf"
-	defaultDataDirname         = "data"
-	defaultChainSubDirname     = "chain"
-	defaultGraphSubDirname     = "graph"
-	defaultTLSCertFilename     = "tls.cert"
-	defaultTLSKeyFilename      = "tls.key"
-	defaultAdminMacFilename    = "admin.macaroon"
-	defaultReadMacFilename     = "readonly.macaroon"
-	defaultInvoiceMacFilename  = "invoice.macaroon"
-	defaultLogLevel            = "info"
-	defaultLogDirname          = "logs"
-	defaultLogFilename         = "lnd.log"
-	defaultRPCPort             = 10009
-	defaultRESTPort            = 8080
-	defaultPeerPort            = 9735
-	defaultRPCHost             = "localhost"
-	defaultMaxPendingChannels  = 1
-	defaultNoSeedBackup        = false
-	defaultTrickleDelay        = 30 * 1000
-	defaultInactiveChanTimeout = 20 * time.Minute
-	defaultMaxLogFiles         = 3
-	defaultMaxLogFileSize      = 10
+	defaultConfigFilename     = "lnd.conf"
+	defaultDataDirname        = "data"
+	defaultChainSubDirname    = "chain"
+	defaultGraphSubDirname    = "graph"
+	defaultTLSCertFilename    = "tls.cert"
+	defaultTLSKeyFilename     = "tls.key"
+	defaultAdminMacFilename   = "admin.macaroon"
+	defaultReadMacFilename    = "readonly.macaroon"
+	defaultInvoiceMacFilename = "invoice.macaroon"
+	defaultLogLevel           = "info"
+	defaultLogDirname         = "logs"
+	defaultLogFilename        = "lnd.log"
+	defaultRPCPort            = 10009
+	defaultRESTPort           = 8080
+	defaultPeerPort           = 9735
+	defaultRPCHost            = "localhost"
+	defaultMaxPendingChannels = 1
+	defaultNoSeedBackup       = false
+	defaultTrickleDelay       = 30 * 1000
+	defaultChanStatusInterval = 20 * time.Minute
+	defaultMaxLogFiles        = 3
+	defaultMaxLogFileSize     = 10
 
 	defaultTorSOCKSPort            = 9050
 	defaultTorDNSHost              = "soa.nodes.lightning.directory"
@@ -229,8 +229,8 @@ type config struct {
 
 	NoSeedBackup bool `long:"noseedbackup" description:"If true, NO SEED WILL BE EXPOSED AND THE WALLET WILL BE ENCRYPTED USING THE DEFAULT PASSPHRASE -- EVER. THIS FLAG IS ONLY FOR TESTING AND IS BEING DEPRECATED."`
 
-	TrickleDelay        int           `long:"trickledelay" description:"Time in milliseconds between each release of announcements to the network"`
-	InactiveChanTimeout time.Duration `long:"inactivechantimeout" description:"If a channel has been inactive for the set time, send a ChannelUpdate disabling it."`
+	TrickleDelay       int           `long:"trickledelay" description:"Time in milliseconds between each release of announcements to the network"`
+	ChanStatusInterval time.Duration `long:"chanstatusinterval" description:"The duration that should elapse between detecting that a channel has been enabled or disabled and announcing the updated status to the network."`
 
 	Alias       string `long:"alias" description:"The node alias. Used as a moniker by peers and intelligence services"`
 	Color       string `long:"color" description:"The color of the node in hex format (i.e. '#3399FF'). Used to customize node appearance in intelligence services"`
@@ -307,11 +307,11 @@ func loadConfig() (*config, error) {
 			MinChannelSize: int64(minChanFundingSize),
 			MaxChannelSize: int64(maxFundingAmount),
 		},
-		TrickleDelay:        defaultTrickleDelay,
-		InactiveChanTimeout: defaultInactiveChanTimeout,
-		Alias:               defaultAlias,
-		Color:               defaultColor,
-		MinChanSize:         int64(minChanFundingSize),
+		TrickleDelay:       defaultTrickleDelay,
+		ChanStatusInterval: defaultChanStatusInterval,
+		Alias:              defaultAlias,
+		Color:              defaultColor,
+		MinChanSize:        int64(minChanFundingSize),
 		Tor: &torConfig{
 			SOCKS:   defaultTorSOCKS,
 			DNS:     defaultTorDNS,

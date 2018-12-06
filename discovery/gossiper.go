@@ -1577,22 +1577,20 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 	case *lnwire.NodeAnnouncement:
 		timestamp := time.Unix(int64(msg.Timestamp), 0)
 
-		if nMsg.isRemote {
-			// We'll quickly ask the router if it already has a
-			// newer update for this node so we can skip validating
-			// signatures if not required.
-			if d.cfg.Router.IsStaleNode(msg.NodeID, timestamp) {
-				nMsg.err <- nil
-				return nil
-			}
+		// We'll quickly ask the router if it already has a
+		// newer update for this node so we can skip validating
+		// signatures if not required.
+		if d.cfg.Router.IsStaleNode(msg.NodeID, timestamp) {
+			nMsg.err <- nil
+			return nil
+		}
 
-			if err := routing.ValidateNodeAnn(msg); err != nil {
-				err := fmt.Errorf("unable to validate "+
-					"node announcement: %v", err)
-				log.Error(err)
-				nMsg.err <- err
-				return nil
-			}
+		if err := routing.ValidateNodeAnn(msg); err != nil {
+			err := fmt.Errorf("unable to validate "+
+				"node announcement: %v", err)
+			log.Error(err)
+			nMsg.err <- err
+			return nil
 		}
 
 		features := lnwire.NewFeatureVector(

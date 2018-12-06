@@ -1237,7 +1237,7 @@ func messageSummary(msg lnwire.Message) string {
 	case *lnwire.ChannelUpdate:
 		return fmt.Sprintf("chain_hash=%v, short_chan_id=%v, flag=%v, "+
 			"update_time=%v", msg.ChainHash,
-			msg.ShortChannelID.ToUint64(), msg.Flags,
+			msg.ShortChannelID.ToUint64(), msg.ChannelFlags,
 			time.Unix(int64(msg.Timestamp), 0))
 
 	case *lnwire.NodeAnnouncement:

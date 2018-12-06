@@ -1231,6 +1231,7 @@ func TestAgentSkipPendingConns(t *testing.T) {
 	const walletBalance = btcutil.SatoshiPerBitcoin * 6
 
 	connect := make(chan chan error)
+	quit := make(chan struct{})
 
 	// With the dependencies we created, we can now create the initial
 	// agent itself.
@@ -1243,9 +1244,19 @@ func TestAgentSkipPendingConns(t *testing.T) {
 		},
 		ConnectToPeer: func(*btcec.PublicKey, []net.Addr) (bool, error) {
 			errChan := make(chan error)
-			connect <- errChan
-			err := <-errChan
-			return false, err
+
+			select {
+			case connect <- errChan:
+			case <-quit:
+				return false, errors.New("quit")
+			}
+
+			select {
+			case err := <-errChan:
+				return false, err
+			case <-quit:
+				return false, errors.New("quit")
+			}
 		},
 		DisconnectPeer: func(*btcec.PublicKey) error {
 			return nil
@@ -1271,6 +1282,11 @@ func TestAgentSkipPendingConns(t *testing.T) {
 		t.Fatalf("unable to start agent: %v", err)
 	}
 	defer agent.Stop()
+
+	// We must defer the closing of quit after the defer agent.Stop(), to
+	// make sure ConnectToPeer won't block preventing the agent from
+	// exiting.
+	defer close(quit)
 
 	// We'll send an initial "yes" response to advance the agent past its
 	// initial check. This will cause it to try to get directives from the

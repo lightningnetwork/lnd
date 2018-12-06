@@ -379,7 +379,6 @@ func (p *peer) QuitSignal() <-chan struct{} {
 // loadActiveChannels creates indexes within the peer for tracking all active
 // channels returned by the database.
 func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
-	var activePublicChans []wire.OutPoint
 	for _, dbChan := range chans {
 		lnChan, err := lnwallet.NewLightningChannel(
 			p.server.cc.signer, p.server.witnessBeacon, dbChan,
@@ -491,32 +490,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		p.activeChanMtx.Lock()
 		p.activeChannels[chanID] = lnChan
 		p.activeChanMtx.Unlock()
-
-		// To ensure we can route through this channel now that the peer
-		// is back online, we'll attempt to send an update to enable it.
-		// This will only be used for non-pending public channels, as
-		// they are the only ones capable of routing.
-		chanIsPublic := dbChan.ChannelFlags&lnwire.FFAnnounceChannel != 0
-		if chanIsPublic && !dbChan.IsPending {
-			activePublicChans = append(activePublicChans, *chanPoint)
-		}
 	}
-
-	// As a final measure we launch a goroutine that will ensure the newly
-	// loaded public channels are not currently disabled, as that will make
-	// us skip it during path finding.
-	go func() {
-		for _, chanPoint := range activePublicChans {
-			// Set the channel disabled=false by sending out a new
-			// ChannelUpdate. If this channel is already active,
-			// the update won't be sent.
-			err := p.server.announceChanStatus(chanPoint, false)
-			if err != nil && err != channeldb.ErrEdgeNotFound {
-				srvrLog.Errorf("Unable to enable channel %v: %v",
-					chanPoint, err)
-			}
-		}
-	}()
 
 	return nil
 }
@@ -1548,6 +1522,11 @@ func (p *peer) genDeliveryScript() ([]byte, error) {
 func (p *peer) channelManager() {
 	defer p.wg.Done()
 
+	// reenableTimeout will fire once after the configured channel status
+	// interval  has elapsed. This will trigger us to sign new channel
+	// updates and broadcast them with the "disabled" flag unset.
+	reenableTimeout := time.After(cfg.ChanStatusInterval)
+
 out:
 	for {
 		select {
@@ -1753,6 +1732,23 @@ out:
 			// relevant sub-systems and launching a goroutine to
 			// wait for close tx conf.
 			p.finalizeChanClosure(chanCloser)
+
+		// The channel reannounce delay has elapsed, broadcast the
+		// reenabled channel updates to the network. This should only
+		// fire once, so we set the reenableTimeout channel to nil to
+		// mark it for garbage collection. If the peer is torn down
+		// before firing, reenabling will not be attempted.
+		case <-reenableTimeout:
+			p.reenableActiveChannels()
+
+			// Since this channel will never fire again during the
+			// lifecycle of the peer, we nil the channel to mark it
+			// eligible for garbage collection, and make this
+			// explicity ineligible to receive in future calls to
+			// select. This also shaves a few CPU cycles since the
+			// select will ignore this case entirely.
+			reenableTimeout = nil
+
 		case <-p.quit:
 
 			// As, we've been signalled to exit, we'll reset all
@@ -1764,6 +1760,40 @@ out:
 			p.activeChanMtx.Unlock()
 
 			break out
+		}
+	}
+}
+
+// reenableActiveChannels searches the index of channels maintained with this
+// peer, and reenables each public, non-pending channel. This is done at the
+// gossip level by broadcasting a new ChannelUpdate with the disabled bit unset.
+// No message will be sent if the channel is already enabled.
+func (p *peer) reenableActiveChannels() {
+	// First, filter all known channels with this peer for ones that are
+	// both public and not pending.
+	var activePublicChans []wire.OutPoint
+	p.activeChanMtx.RLock()
+	for _, lnChan := range p.activeChannels {
+		dbChan := lnChan.State()
+		isPublic := dbChan.ChannelFlags&lnwire.FFAnnounceChannel != 0
+		if !isPublic || dbChan.IsPending {
+			continue
+		}
+
+		activePublicChans = append(
+			activePublicChans, dbChan.FundingOutpoint,
+		)
+	}
+	p.activeChanMtx.RUnlock()
+
+	// For each of the public, non-pending channels, set the channel
+	// disabled bit to false and send out a new ChannelUpdate. If this
+	// channel is already active, the update won't be sent.
+	for _, chanPoint := range activePublicChans {
+		err := p.server.announceChanStatus(chanPoint, false)
+		if err != nil && err != channeldb.ErrEdgeNotFound {
+			srvrLog.Errorf("Unable to enable channel %v: %v",
+				chanPoint, err)
 		}
 	}
 }

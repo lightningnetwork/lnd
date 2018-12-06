@@ -8,11 +8,18 @@ It is generated from these files:
 	invoicerpc/invoice.proto
 
 It has these top-level messages:
+	AddInvoiceRequest
 	Invoice
+	InvoiceEvent
+	InvoiceDynamicData
 	AddInvoiceResponse
 	ListInvoiceRequest
 	ListInvoiceResponse
 	InvoiceSubscription
+	SettleInvoiceMsg
+	SettleInvoiceResp
+	CancelInvoiceMsg
+	CancelInvoiceResp
 */
 package invoicerpc
 
@@ -37,7 +44,56 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
 
-type Invoice struct {
+type InvoiceState int32
+
+const (
+	// *
+	// Invoice are created in the open state. We have not yet received an htlc
+	// or the total value of all received htlcs is less than the invoice
+	// amount. No htlc has been settled yet. If the total value of received
+	// htlcs reaches the invoice amount, the invoice either moves to ACCEPTED
+	// or SETTLED based on the hold invoice field value.
+	InvoiceState_OPEN InvoiceState = 0
+	// *
+	// In the accepted state, we have received one or more htlcs that add up
+	// to at least the invoice amount. The htlcs can be accepted by calling
+	// the SettleInvoice rpc. When an htlc times out, it may be that the
+	// invoice moves back to the open state.
+	InvoiceState_ACCEPTED InvoiceState = 1
+	// *
+	// In the settled state, the invoice isn't payable anymore. We have
+	// settled one or more htlcs that add up to at least the invoice amount.
+	InvoiceState_SETTLED InvoiceState = 2
+	// *
+	// In the canceled state, the invoice isn't payable anymore. Any htlcs
+	// associated with this invoice have been canceled. An invoice can be
+	// canceled using the CancelInvoice rpc or canceled automatically when it
+	// expires.
+	InvoiceState_CANCELED InvoiceState = 3
+)
+
+var InvoiceState_name = map[int32]string{
+	0: "OPEN",
+	1: "ACCEPTED",
+	2: "SETTLED",
+	3: "CANCELED",
+}
+var InvoiceState_value = map[string]int32{
+	"OPEN":     0,
+	"ACCEPTED": 1,
+	"SETTLED":  2,
+	"CANCELED": 3,
+}
+
+func (x InvoiceState) String() string {
+	return proto.EnumName(InvoiceState_name, int32(x))
+}
+func (InvoiceState) EnumDescriptor() ([]byte, []int) { return fileDescriptor0, []int{0} }
+
+// *
+// AddInvoiceRequest is a separate message that contains only the parameters
+// required to add a new invoice
+type AddInvoiceRequest struct {
 	// *
 	// An optional memo to attach along with the invoice. Used for record keeping
 	// purposes for the invoice's creator, and will also be set in the description
@@ -45,85 +101,163 @@ type Invoice struct {
 	// being used.
 	Memo string `protobuf:"bytes,1,opt,name=memo" json:"memo,omitempty"`
 	// *
+	// Whether this invoice should be held in the accepted state until a settle rpc
+	// comes in. It is allowed to add a hold invoice that already specifies
+	// r_preimage or haves lnd generate a preimage.
+	Hold bool `protobuf:"varint,2,opt,name=hold" json:"hold,omitempty"`
+	// *
 	// The hex-encoded preimage (32 byte) which will allow settling an incoming
-	// HTLC payable to this preimage
+	// HTLC payable to this preimage. If this field is left empty, a random preimage
+	// will be generated.
 	RPreimage []byte `protobuf:"bytes,3,opt,name=r_preimage,json=rPreimage,proto3" json:"r_preimage,omitempty"`
-	// / The hash of the preimage
+	// *
+	// The hash of the preimage. Setting this field is only allowed if
+	// r_preimage is empty and hold is true. In this case we only know the hash
+	// of the invoice, we want to accept the htlc when it comes in and hold
+	// on to it until we learn the preimage.
 	RHash []byte `protobuf:"bytes,4,opt,name=r_hash,json=rHash,proto3" json:"r_hash,omitempty"`
 	// / The value of this invoice in satoshis
 	Value int64 `protobuf:"varint,5,opt,name=value" json:"value,omitempty"`
-	// / Whether this invoice has been fulfilled
-	Settled bool `protobuf:"varint,6,opt,name=settled" json:"settled,omitempty"`
-	// / When this invoice was created
-	CreationDate int64 `protobuf:"varint,7,opt,name=creation_date,json=creationDate" json:"creation_date,omitempty"`
-	// / When this invoice was settled
-	SettleDate int64 `protobuf:"varint,8,opt,name=settle_date,json=settleDate" json:"settle_date,omitempty"`
-	// *
-	// A bare-bones invoice for a payment within the Lightning Network.  With the
-	// details of the invoice, the sender has all the data necessary to send a
-	// payment to the recipient.
-	PaymentRequest string `protobuf:"bytes,9,opt,name=payment_request,json=paymentRequest" json:"payment_request,omitempty"`
-	// / Payment request expiry time in seconds. Default is 3600 (1 hour).
-	Expiry int64 `protobuf:"varint,11,opt,name=expiry" json:"expiry,omitempty"`
+	// * Payment request expiry time in seconds. Default is 3600 (1 hour). When
+	// the invoice expires, it is moved to the canceled state. Any accepted but
+	// still unsettled htlcs are canceled back.
+	Expiry int64 `protobuf:"varint,6,opt,name=expiry" json:"expiry,omitempty"`
 	// / Fallback on-chain address.
-	FallbackAddr string `protobuf:"bytes,12,opt,name=fallback_addr,json=fallbackAddr" json:"fallback_addr,omitempty"`
+	FallbackAddr string `protobuf:"bytes,7,opt,name=fallback_addr,json=fallbackAddr" json:"fallback_addr,omitempty"`
 	// / Delta to use for the time-lock of the CLTV extended to the final hop.
-	CltvExpiry uint64 `protobuf:"varint,13,opt,name=cltv_expiry,json=cltvExpiry" json:"cltv_expiry,omitempty"`
+	CltvExpiry uint64 `protobuf:"varint,8,opt,name=cltv_expiry,json=cltvExpiry" json:"cltv_expiry,omitempty"`
 	// *
 	// Route hints that can each be individually used to assist in reaching the
 	// invoice's destination.
-	RouteHints []*lnrpc.RouteHint `protobuf:"bytes,14,rep,name=route_hints,json=routeHints" json:"route_hints,omitempty"`
+	RouteHints []*lnrpc.RouteHint `protobuf:"bytes,9,rep,name=route_hints,json=routeHints" json:"route_hints,omitempty"`
 	// / Whether this invoice should include routing hints for private channels.
-	Private bool `protobuf:"varint,15,opt,name=private" json:"private,omitempty"`
-	// *
-	// The "add" index of this invoice. Each newly created invoice will increment
-	// this index making it monotonically increasing. Callers to the
-	// SubscribeInvoices call can use this to instantly get notified of all added
-	// invoices with an add_index greater than this one.
-	AddIndex uint64 `protobuf:"varint,16,opt,name=add_index,json=addIndex" json:"add_index,omitempty"`
-	// *
-	// The "settle" index of this invoice. Each newly settled invoice will
-	// increment this index making it monotonically increasing. Callers to the
-	// SubscribeInvoices call can use this to instantly get notified of all
-	// settled invoices with an settle_index greater than this one.
-	SettleIndex uint64 `protobuf:"varint,17,opt,name=settle_index,json=settleIndex" json:"settle_index,omitempty"`
-	// / Deprecated, use amt_paid_sat or amt_paid_msat.
-	AmtPaid int64 `protobuf:"varint,18,opt,name=amt_paid,json=amtPaid" json:"amt_paid,omitempty"`
-	// *
-	// The amount that was accepted for this invoice, in satoshis. This will ONLY
-	// be set if this invoice has been settled. We provide this field as if the
-	// invoice was created with a zero value, then we need to record what amount
-	// was ultimately accepted. Additionally, it's possible that the sender paid
-	// MORE that was specified in the original invoice. So we'll record that here
-	// as well.
-	AmtPaidSat int64 `protobuf:"varint,19,opt,name=amt_paid_sat,json=amtPaidSat" json:"amt_paid_sat,omitempty"`
-	// *
-	// The amount that was accepted for this invoice, in millisatoshis. This will
-	// ONLY be set if this invoice has been settled. We provide this field as if
-	// the invoice was created with a zero value, then we need to record what
-	// amount was ultimately accepted. Additionally, it's possible that the sender
-	// paid MORE that was specified in the original invoice. So we'll record that
-	// here as well.
-	AmtPaidMsat int64 `protobuf:"varint,20,opt,name=amt_paid_msat,json=amtPaidMsat" json:"amt_paid_msat,omitempty"`
+	Private bool `protobuf:"varint,10,opt,name=private" json:"private,omitempty"`
 }
 
-func (m *Invoice) Reset()                    { *m = Invoice{} }
-func (m *Invoice) String() string            { return proto.CompactTextString(m) }
-func (*Invoice) ProtoMessage()               {}
-func (*Invoice) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{0} }
+func (m *AddInvoiceRequest) Reset()                    { *m = AddInvoiceRequest{} }
+func (m *AddInvoiceRequest) String() string            { return proto.CompactTextString(m) }
+func (*AddInvoiceRequest) ProtoMessage()               {}
+func (*AddInvoiceRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{0} }
 
-func (m *Invoice) GetMemo() string {
+func (m *AddInvoiceRequest) GetMemo() string {
 	if m != nil {
 		return m.Memo
 	}
 	return ""
 }
 
-func (m *Invoice) GetRPreimage() []byte {
+func (m *AddInvoiceRequest) GetHold() bool {
+	if m != nil {
+		return m.Hold
+	}
+	return false
+}
+
+func (m *AddInvoiceRequest) GetRPreimage() []byte {
 	if m != nil {
 		return m.RPreimage
 	}
 	return nil
+}
+
+func (m *AddInvoiceRequest) GetRHash() []byte {
+	if m != nil {
+		return m.RHash
+	}
+	return nil
+}
+
+func (m *AddInvoiceRequest) GetValue() int64 {
+	if m != nil {
+		return m.Value
+	}
+	return 0
+}
+
+func (m *AddInvoiceRequest) GetExpiry() int64 {
+	if m != nil {
+		return m.Expiry
+	}
+	return 0
+}
+
+func (m *AddInvoiceRequest) GetFallbackAddr() string {
+	if m != nil {
+		return m.FallbackAddr
+	}
+	return ""
+}
+
+func (m *AddInvoiceRequest) GetCltvExpiry() uint64 {
+	if m != nil {
+		return m.CltvExpiry
+	}
+	return 0
+}
+
+func (m *AddInvoiceRequest) GetRouteHints() []*lnrpc.RouteHint {
+	if m != nil {
+		return m.RouteHints
+	}
+	return nil
+}
+
+func (m *AddInvoiceRequest) GetPrivate() bool {
+	if m != nil {
+		return m.Private
+	}
+	return false
+}
+
+type Invoice struct {
+	// *
+	// An optional memo to attach along with the invoice. Used for record keeping
+	// purposes for the invoice's creator, and will also be set in the description
+	// field of the encoded payment request if the description_hash field is not
+	// being used.
+	Memo string `protobuf:"bytes,1,opt,name=memo" json:"memo,omitempty"`
+	// / The hash of the preimage
+	RHash []byte `protobuf:"bytes,3,opt,name=r_hash,json=rHash,proto3" json:"r_hash,omitempty"`
+	// / The value of this invoice in satoshis
+	Value int64 `protobuf:"varint,4,opt,name=value" json:"value,omitempty"`
+	// / When this invoice was created
+	CreationDate int64 `protobuf:"varint,5,opt,name=creation_date,json=creationDate" json:"creation_date,omitempty"`
+	// *
+	// A bare-bones invoice for a payment within the Lightning Network.  With the
+	// details of the invoice, the sender has all the data necessary to send a
+	// payment to the recipient.
+	PaymentRequest string `protobuf:"bytes,7,opt,name=payment_request,json=paymentRequest" json:"payment_request,omitempty"`
+	// / Payment request expiry time in seconds. Default is 3600 (1 hour).
+	Expiry int64 `protobuf:"varint,8,opt,name=expiry" json:"expiry,omitempty"`
+	// / Fallback on-chain address.
+	FallbackAddr string `protobuf:"bytes,9,opt,name=fallback_addr,json=fallbackAddr" json:"fallback_addr,omitempty"`
+	// / Delta to use for the time-lock of the CLTV extended to the final hop.
+	CltvExpiry uint64 `protobuf:"varint,10,opt,name=cltv_expiry,json=cltvExpiry" json:"cltv_expiry,omitempty"`
+	// *
+	// Route hints that can each be individually used to assist in reaching the
+	// invoice's destination.
+	RouteHints []*lnrpc.RouteHint `protobuf:"bytes,11,rep,name=route_hints,json=routeHints" json:"route_hints,omitempty"`
+	// / Whether this invoice should include routing hints for private channels.
+	Private bool `protobuf:"varint,12,opt,name=private" json:"private,omitempty"`
+	// *
+	// The number of this invoice. Each newly created invoice will increment
+	// this number making it monotonically increasing.
+	InvoiceNumber uint64 `protobuf:"varint,13,opt,name=invoice_number,json=invoiceNumber" json:"invoice_number,omitempty"`
+	// *
+	// A snapshot of the most recent invoice dynamic data.
+	DynamicData *InvoiceDynamicData `protobuf:"bytes,14,opt,name=dynamic_data,json=dynamicData" json:"dynamic_data,omitempty"`
+}
+
+func (m *Invoice) Reset()                    { *m = Invoice{} }
+func (m *Invoice) String() string            { return proto.CompactTextString(m) }
+func (*Invoice) ProtoMessage()               {}
+func (*Invoice) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{1} }
+
+func (m *Invoice) GetMemo() string {
+	if m != nil {
+		return m.Memo
+	}
+	return ""
 }
 
 func (m *Invoice) GetRHash() []byte {
@@ -140,23 +274,9 @@ func (m *Invoice) GetValue() int64 {
 	return 0
 }
 
-func (m *Invoice) GetSettled() bool {
-	if m != nil {
-		return m.Settled
-	}
-	return false
-}
-
 func (m *Invoice) GetCreationDate() int64 {
 	if m != nil {
 		return m.CreationDate
-	}
-	return 0
-}
-
-func (m *Invoice) GetSettleDate() int64 {
-	if m != nil {
-		return m.SettleDate
 	}
 	return 0
 }
@@ -203,35 +323,122 @@ func (m *Invoice) GetPrivate() bool {
 	return false
 }
 
-func (m *Invoice) GetAddIndex() uint64 {
+func (m *Invoice) GetInvoiceNumber() uint64 {
 	if m != nil {
-		return m.AddIndex
+		return m.InvoiceNumber
 	}
 	return 0
 }
 
-func (m *Invoice) GetSettleIndex() uint64 {
+func (m *Invoice) GetDynamicData() *InvoiceDynamicData {
 	if m != nil {
-		return m.SettleIndex
+		return m.DynamicData
+	}
+	return nil
+}
+
+type InvoiceEvent struct {
+	// *
+	// The number of this invoice. Each newly created invoice will increment
+	// this number making it monotonically increasing.
+	InvoiceNumber uint64 `protobuf:"varint,1,opt,name=invoice_number,json=invoiceNumber" json:"invoice_number,omitempty"`
+	// *
+	// A snapshot of the invoice dynamic data.
+	DynamicData *InvoiceDynamicData `protobuf:"bytes,2,opt,name=dynamic_data,json=dynamicData" json:"dynamic_data,omitempty"`
+}
+
+func (m *InvoiceEvent) Reset()                    { *m = InvoiceEvent{} }
+func (m *InvoiceEvent) String() string            { return proto.CompactTextString(m) }
+func (*InvoiceEvent) ProtoMessage()               {}
+func (*InvoiceEvent) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{2} }
+
+func (m *InvoiceEvent) GetInvoiceNumber() uint64 {
+	if m != nil {
+		return m.InvoiceNumber
 	}
 	return 0
 }
 
-func (m *Invoice) GetAmtPaid() int64 {
+func (m *InvoiceEvent) GetDynamicData() *InvoiceDynamicData {
 	if m != nil {
-		return m.AmtPaid
+		return m.DynamicData
+	}
+	return nil
+}
+
+type InvoiceDynamicData struct {
+	State InvoiceState `protobuf:"varint,1,opt,name=state,enum=invoicerpc.InvoiceState" json:"state,omitempty"`
+	// *
+	// The hex-encoded preimage (32 byte) which will allow settling an incoming
+	// HTLC payable to this preimage.
+	//
+	// Preimage is part of the event stream because it doesn't necessarily need to
+	// be known when the invoice is created.
+	RPreimage []byte `protobuf:"bytes,2,opt,name=r_preimage,json=rPreimage,proto3" json:"r_preimage,omitempty"`
+	// / When this invoice was settled
+	SettleDate int64 `protobuf:"varint,3,opt,name=settle_date,json=settleDate" json:"settle_date,omitempty"`
+	// *
+	// A system wide index for this particular update of the dynamic data.
+	UpdateIndex uint64 `protobuf:"varint,4,opt,name=update_index,json=updateIndex" json:"update_index,omitempty"`
+	// *
+	// The amount amt_paid_msat rounded down to satoshis
+	AmtPaidSat int64 `protobuf:"varint,5,opt,name=amt_paid_sat,json=amtPaidSat" json:"amt_paid_sat,omitempty"`
+	// *
+	// The amount that was accepted or settled for this invoice, in millisatoshis.
+	// This will be set in both the ACCEPTED and SETTLED invoice states.
+	//
+	// We provide this field as if the invoice was created with a zero value, then
+	// we need to record what amount was ultimately accepted. Additionally, it's
+	// possible that the sender paid MORE than what was specified in the original
+	// invoice. So we'll record that here as well.
+	//
+	// In the OPEN state, there may be htlc(s) accepted, but their value is not
+	// reported (yet). Only when the sum reaches the invoice amount, the invoice
+	// moves to ACCEPTED or SETTLED and amt_paid_sat is reported.
+	AmtPaidMsat int64 `protobuf:"varint,6,opt,name=amt_paid_msat,json=amtPaidMsat" json:"amt_paid_msat,omitempty"`
+}
+
+func (m *InvoiceDynamicData) Reset()                    { *m = InvoiceDynamicData{} }
+func (m *InvoiceDynamicData) String() string            { return proto.CompactTextString(m) }
+func (*InvoiceDynamicData) ProtoMessage()               {}
+func (*InvoiceDynamicData) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{3} }
+
+func (m *InvoiceDynamicData) GetState() InvoiceState {
+	if m != nil {
+		return m.State
+	}
+	return InvoiceState_OPEN
+}
+
+func (m *InvoiceDynamicData) GetRPreimage() []byte {
+	if m != nil {
+		return m.RPreimage
+	}
+	return nil
+}
+
+func (m *InvoiceDynamicData) GetSettleDate() int64 {
+	if m != nil {
+		return m.SettleDate
 	}
 	return 0
 }
 
-func (m *Invoice) GetAmtPaidSat() int64 {
+func (m *InvoiceDynamicData) GetUpdateIndex() uint64 {
+	if m != nil {
+		return m.UpdateIndex
+	}
+	return 0
+}
+
+func (m *InvoiceDynamicData) GetAmtPaidSat() int64 {
 	if m != nil {
 		return m.AmtPaidSat
 	}
 	return 0
 }
 
-func (m *Invoice) GetAmtPaidMsat() int64 {
+func (m *InvoiceDynamicData) GetAmtPaidMsat() int64 {
 	if m != nil {
 		return m.AmtPaidMsat
 	}
@@ -246,17 +453,15 @@ type AddInvoiceResponse struct {
 	// payment to the recipient.
 	PaymentRequest string `protobuf:"bytes,2,opt,name=payment_request,json=paymentRequest" json:"payment_request,omitempty"`
 	// *
-	// The "add" index of this invoice. Each newly created invoice will increment
-	// this index making it monotonically increasing. Callers to the
-	// SubscribeInvoices call can use this to instantly get notified of all added
-	// invoices with an add_index greater than this one.
-	AddIndex uint64 `protobuf:"varint,16,opt,name=add_index,json=addIndex" json:"add_index,omitempty"`
+	// The number of this invoice. Each newly created invoice will increment
+	// this index making it monotonically increasing.
+	InvoiceNumber uint64 `protobuf:"varint,3,opt,name=invoice_number,json=invoiceNumber" json:"invoice_number,omitempty"`
 }
 
 func (m *AddInvoiceResponse) Reset()                    { *m = AddInvoiceResponse{} }
 func (m *AddInvoiceResponse) String() string            { return proto.CompactTextString(m) }
 func (*AddInvoiceResponse) ProtoMessage()               {}
-func (*AddInvoiceResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{1} }
+func (*AddInvoiceResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{4} }
 
 func (m *AddInvoiceResponse) GetRHash() []byte {
 	if m != nil {
@@ -272,9 +477,9 @@ func (m *AddInvoiceResponse) GetPaymentRequest() string {
 	return ""
 }
 
-func (m *AddInvoiceResponse) GetAddIndex() uint64 {
+func (m *AddInvoiceResponse) GetInvoiceNumber() uint64 {
 	if m != nil {
-		return m.AddIndex
+		return m.InvoiceNumber
 	}
 	return 0
 }
@@ -297,7 +502,7 @@ type ListInvoiceRequest struct {
 func (m *ListInvoiceRequest) Reset()                    { *m = ListInvoiceRequest{} }
 func (m *ListInvoiceRequest) String() string            { return proto.CompactTextString(m) }
 func (*ListInvoiceRequest) ProtoMessage()               {}
-func (*ListInvoiceRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{2} }
+func (*ListInvoiceRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{5} }
 
 func (m *ListInvoiceRequest) GetPendingOnly() bool {
 	if m != nil {
@@ -345,7 +550,7 @@ type ListInvoiceResponse struct {
 func (m *ListInvoiceResponse) Reset()                    { *m = ListInvoiceResponse{} }
 func (m *ListInvoiceResponse) String() string            { return proto.CompactTextString(m) }
 func (*ListInvoiceResponse) ProtoMessage()               {}
-func (*ListInvoiceResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{3} }
+func (*ListInvoiceResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{6} }
 
 func (m *ListInvoiceResponse) GetInvoices() []*Invoice {
 	if m != nil {
@@ -371,43 +576,99 @@ func (m *ListInvoiceResponse) GetFirstIndexOffset() uint64 {
 type InvoiceSubscription struct {
 	// *
 	// If specified (non-zero), then we'll first start by sending out
-	// notifications for all added indexes with an add_index greater than this
-	// value. This allows callers to catch up on any events they missed while they
+	// all invoices that have an last_update_index greater than this value. This allows
+	// callers to retrieve up to date versions of invoices that changed when they
 	// weren't connected to the streaming RPC.
-	AddIndex uint64 `protobuf:"varint,1,opt,name=add_index,json=addIndex" json:"add_index,omitempty"`
-	// *
-	// If specified (non-zero), then we'll first start by sending out
-	// notifications for all settled indexes with an settle_index greater than
-	// this value. This allows callers to catch up on any events they missed while
-	// they weren't connected to the streaming RPC.
-	SettleIndex uint64 `protobuf:"varint,2,opt,name=settle_index,json=settleIndex" json:"settle_index,omitempty"`
+	LastUpdateIndex uint64 `protobuf:"varint,1,opt,name=last_update_index,json=lastUpdateIndex" json:"last_update_index,omitempty"`
 }
 
 func (m *InvoiceSubscription) Reset()                    { *m = InvoiceSubscription{} }
 func (m *InvoiceSubscription) String() string            { return proto.CompactTextString(m) }
 func (*InvoiceSubscription) ProtoMessage()               {}
-func (*InvoiceSubscription) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{4} }
+func (*InvoiceSubscription) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{7} }
 
-func (m *InvoiceSubscription) GetAddIndex() uint64 {
+func (m *InvoiceSubscription) GetLastUpdateIndex() uint64 {
 	if m != nil {
-		return m.AddIndex
+		return m.LastUpdateIndex
 	}
 	return 0
 }
 
-func (m *InvoiceSubscription) GetSettleIndex() uint64 {
-	if m != nil {
-		return m.SettleIndex
-	}
-	return 0
+type SettleInvoiceMsg struct {
+	// / Hash corresponding to the (hold) invoice to settle.
+	PaymentHash []byte `protobuf:"bytes,1,opt,name=payment_hash,json=paymentHash,proto3" json:"payment_hash,omitempty"`
+	// * Optional preimage to settle the invoice with. Only needs to be supplied
+	// when lnd isn't aware of the preimage yet. This is the case for an externally
+	// discovered preimage.
+	PreImage []byte `protobuf:"bytes,2,opt,name=pre_image,json=preImage,proto3" json:"pre_image,omitempty"`
 }
+
+func (m *SettleInvoiceMsg) Reset()                    { *m = SettleInvoiceMsg{} }
+func (m *SettleInvoiceMsg) String() string            { return proto.CompactTextString(m) }
+func (*SettleInvoiceMsg) ProtoMessage()               {}
+func (*SettleInvoiceMsg) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{8} }
+
+func (m *SettleInvoiceMsg) GetPaymentHash() []byte {
+	if m != nil {
+		return m.PaymentHash
+	}
+	return nil
+}
+
+func (m *SettleInvoiceMsg) GetPreImage() []byte {
+	if m != nil {
+		return m.PreImage
+	}
+	return nil
+}
+
+type SettleInvoiceResp struct {
+}
+
+func (m *SettleInvoiceResp) Reset()                    { *m = SettleInvoiceResp{} }
+func (m *SettleInvoiceResp) String() string            { return proto.CompactTextString(m) }
+func (*SettleInvoiceResp) ProtoMessage()               {}
+func (*SettleInvoiceResp) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{9} }
+
+type CancelInvoiceMsg struct {
+	// / Hash corresponding to the (hold) invoice to fail.
+	PaymentHash []byte `protobuf:"bytes,1,opt,name=payment_hash,json=paymentHash,proto3" json:"payment_hash,omitempty"`
+}
+
+func (m *CancelInvoiceMsg) Reset()                    { *m = CancelInvoiceMsg{} }
+func (m *CancelInvoiceMsg) String() string            { return proto.CompactTextString(m) }
+func (*CancelInvoiceMsg) ProtoMessage()               {}
+func (*CancelInvoiceMsg) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{10} }
+
+func (m *CancelInvoiceMsg) GetPaymentHash() []byte {
+	if m != nil {
+		return m.PaymentHash
+	}
+	return nil
+}
+
+type CancelInvoiceResp struct {
+}
+
+func (m *CancelInvoiceResp) Reset()                    { *m = CancelInvoiceResp{} }
+func (m *CancelInvoiceResp) String() string            { return proto.CompactTextString(m) }
+func (*CancelInvoiceResp) ProtoMessage()               {}
+func (*CancelInvoiceResp) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{11} }
 
 func init() {
+	proto.RegisterType((*AddInvoiceRequest)(nil), "invoicerpc.AddInvoiceRequest")
 	proto.RegisterType((*Invoice)(nil), "invoicerpc.Invoice")
+	proto.RegisterType((*InvoiceEvent)(nil), "invoicerpc.InvoiceEvent")
+	proto.RegisterType((*InvoiceDynamicData)(nil), "invoicerpc.InvoiceDynamicData")
 	proto.RegisterType((*AddInvoiceResponse)(nil), "invoicerpc.AddInvoiceResponse")
 	proto.RegisterType((*ListInvoiceRequest)(nil), "invoicerpc.ListInvoiceRequest")
 	proto.RegisterType((*ListInvoiceResponse)(nil), "invoicerpc.ListInvoiceResponse")
 	proto.RegisterType((*InvoiceSubscription)(nil), "invoicerpc.InvoiceSubscription")
+	proto.RegisterType((*SettleInvoiceMsg)(nil), "invoicerpc.SettleInvoiceMsg")
+	proto.RegisterType((*SettleInvoiceResp)(nil), "invoicerpc.SettleInvoiceResp")
+	proto.RegisterType((*CancelInvoiceMsg)(nil), "invoicerpc.CancelInvoiceMsg")
+	proto.RegisterType((*CancelInvoiceResp)(nil), "invoicerpc.CancelInvoiceResp")
+	proto.RegisterEnum("invoicerpc.InvoiceState", InvoiceState_name, InvoiceState_value)
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -425,12 +686,12 @@ type InvoicesClient interface {
 	// AddInvoice attempts to add a new invoice to the invoice database. Any
 	// duplicated invoices are rejected, therefore all invoices *must* have a
 	// unique payment preimage.
-	AddInvoice(ctx context.Context, in *Invoice, opts ...grpc.CallOption) (*AddInvoiceResponse, error)
+	AddInvoice(ctx context.Context, in *AddInvoiceRequest, opts ...grpc.CallOption) (*AddInvoiceResponse, error)
 	// * lncli: `listinvoices`
 	// ListInvoices returns a list of all the invoices currently stored within the
 	// database. Any active debug invoices are ignored. It has full support for
 	// paginated responses, allowing users to query for specific invoices through
-	// their add_index. This can be done by using either the first_index_offset or
+	// their invoice_number. This can be done by using either the first_index_offset or
 	// last_index_offset fields included in the response as the index_offset of the
 	// next request. The reversed flag is set by default in order to paginate
 	// backwards. If you wish to paginate forwards, you must explicitly set the
@@ -444,15 +705,22 @@ type InvoicesClient interface {
 	LookupInvoice(ctx context.Context, in *lnrpc.PaymentHash, opts ...grpc.CallOption) (*Invoice, error)
 	// *
 	// SubscribeInvoices returns a uni-directional stream (server -> client) for
-	// notifying the client of newly added/settled invoices. The caller can
-	// optionally specify the add_index and/or the settle_index. If the add_index
-	// is specified, then we'll first start by sending add invoice events for all
-	// invoices with an add_index greater than the specified value.  If the
-	// settle_index is specified, the next, we'll send out all settle events for
-	// invoices with a settle_index greater than the specified value.  One or both
-	// of these fields can be set. If no fields are set, then we'll only send out
-	// the latest add/settle events.
+	// notifying the client of invoice updates. The caller can optionally specify
+	// a last_update_index to catch up with missed updates.
 	SubscribeInvoices(ctx context.Context, in *InvoiceSubscription, opts ...grpc.CallOption) (Invoices_SubscribeInvoicesClient, error)
+	// *
+	// SettleInvoice settles the specified hold invoice. If lnd isn't aware of the
+	// preimage yet, it needs to be supplied with this call.
+	SettleInvoice(ctx context.Context, in *SettleInvoiceMsg, opts ...grpc.CallOption) (*SettleInvoiceResp, error)
+	// *
+	// CancelInvoice cancels the specified invoice. This can be a hold invoice
+	// in the accepted state, in which case the accepted htlc(s) are canceled back
+	// and the invoice moves to the canceled state. In the canceled state, no
+	// further htlcs paying to this invoice are accepted.
+	//
+	// In this call, a regular (non-hold) invoice can be specified too. It makes
+	// the invoice unpayable.
+	CancelInvoice(ctx context.Context, in *CancelInvoiceMsg, opts ...grpc.CallOption) (*CancelInvoiceResp, error)
 }
 
 type invoicesClient struct {
@@ -463,7 +731,7 @@ func NewInvoicesClient(cc *grpc.ClientConn) InvoicesClient {
 	return &invoicesClient{cc}
 }
 
-func (c *invoicesClient) AddInvoice(ctx context.Context, in *Invoice, opts ...grpc.CallOption) (*AddInvoiceResponse, error) {
+func (c *invoicesClient) AddInvoice(ctx context.Context, in *AddInvoiceRequest, opts ...grpc.CallOption) (*AddInvoiceResponse, error) {
 	out := new(AddInvoiceResponse)
 	err := grpc.Invoke(ctx, "/invoicerpc.Invoices/AddInvoice", in, out, c.cc, opts...)
 	if err != nil {
@@ -506,7 +774,7 @@ func (c *invoicesClient) SubscribeInvoices(ctx context.Context, in *InvoiceSubsc
 }
 
 type Invoices_SubscribeInvoicesClient interface {
-	Recv() (*Invoice, error)
+	Recv() (*InvoiceEvent, error)
 	grpc.ClientStream
 }
 
@@ -514,12 +782,30 @@ type invoicesSubscribeInvoicesClient struct {
 	grpc.ClientStream
 }
 
-func (x *invoicesSubscribeInvoicesClient) Recv() (*Invoice, error) {
-	m := new(Invoice)
+func (x *invoicesSubscribeInvoicesClient) Recv() (*InvoiceEvent, error) {
+	m := new(InvoiceEvent)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
 	return m, nil
+}
+
+func (c *invoicesClient) SettleInvoice(ctx context.Context, in *SettleInvoiceMsg, opts ...grpc.CallOption) (*SettleInvoiceResp, error) {
+	out := new(SettleInvoiceResp)
+	err := grpc.Invoke(ctx, "/invoicerpc.Invoices/SettleInvoice", in, out, c.cc, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *invoicesClient) CancelInvoice(ctx context.Context, in *CancelInvoiceMsg, opts ...grpc.CallOption) (*CancelInvoiceResp, error) {
+	out := new(CancelInvoiceResp)
+	err := grpc.Invoke(ctx, "/invoicerpc.Invoices/CancelInvoice", in, out, c.cc, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // Server API for Invoices service
@@ -529,12 +815,12 @@ type InvoicesServer interface {
 	// AddInvoice attempts to add a new invoice to the invoice database. Any
 	// duplicated invoices are rejected, therefore all invoices *must* have a
 	// unique payment preimage.
-	AddInvoice(context.Context, *Invoice) (*AddInvoiceResponse, error)
+	AddInvoice(context.Context, *AddInvoiceRequest) (*AddInvoiceResponse, error)
 	// * lncli: `listinvoices`
 	// ListInvoices returns a list of all the invoices currently stored within the
 	// database. Any active debug invoices are ignored. It has full support for
 	// paginated responses, allowing users to query for specific invoices through
-	// their add_index. This can be done by using either the first_index_offset or
+	// their invoice_number. This can be done by using either the first_index_offset or
 	// last_index_offset fields included in the response as the index_offset of the
 	// next request. The reversed flag is set by default in order to paginate
 	// backwards. If you wish to paginate forwards, you must explicitly set the
@@ -548,15 +834,22 @@ type InvoicesServer interface {
 	LookupInvoice(context.Context, *lnrpc.PaymentHash) (*Invoice, error)
 	// *
 	// SubscribeInvoices returns a uni-directional stream (server -> client) for
-	// notifying the client of newly added/settled invoices. The caller can
-	// optionally specify the add_index and/or the settle_index. If the add_index
-	// is specified, then we'll first start by sending add invoice events for all
-	// invoices with an add_index greater than the specified value.  If the
-	// settle_index is specified, the next, we'll send out all settle events for
-	// invoices with a settle_index greater than the specified value.  One or both
-	// of these fields can be set. If no fields are set, then we'll only send out
-	// the latest add/settle events.
+	// notifying the client of invoice updates. The caller can optionally specify
+	// a last_update_index to catch up with missed updates.
 	SubscribeInvoices(*InvoiceSubscription, Invoices_SubscribeInvoicesServer) error
+	// *
+	// SettleInvoice settles the specified hold invoice. If lnd isn't aware of the
+	// preimage yet, it needs to be supplied with this call.
+	SettleInvoice(context.Context, *SettleInvoiceMsg) (*SettleInvoiceResp, error)
+	// *
+	// CancelInvoice cancels the specified invoice. This can be a hold invoice
+	// in the accepted state, in which case the accepted htlc(s) are canceled back
+	// and the invoice moves to the canceled state. In the canceled state, no
+	// further htlcs paying to this invoice are accepted.
+	//
+	// In this call, a regular (non-hold) invoice can be specified too. It makes
+	// the invoice unpayable.
+	CancelInvoice(context.Context, *CancelInvoiceMsg) (*CancelInvoiceResp, error)
 }
 
 func RegisterInvoicesServer(s *grpc.Server, srv InvoicesServer) {
@@ -564,7 +857,7 @@ func RegisterInvoicesServer(s *grpc.Server, srv InvoicesServer) {
 }
 
 func _Invoices_AddInvoice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(Invoice)
+	in := new(AddInvoiceRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -576,7 +869,7 @@ func _Invoices_AddInvoice_Handler(srv interface{}, ctx context.Context, dec func
 		FullMethod: "/invoicerpc.Invoices/AddInvoice",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(InvoicesServer).AddInvoice(ctx, req.(*Invoice))
+		return srv.(InvoicesServer).AddInvoice(ctx, req.(*AddInvoiceRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -626,7 +919,7 @@ func _Invoices_SubscribeInvoices_Handler(srv interface{}, stream grpc.ServerStre
 }
 
 type Invoices_SubscribeInvoicesServer interface {
-	Send(*Invoice) error
+	Send(*InvoiceEvent) error
 	grpc.ServerStream
 }
 
@@ -634,8 +927,44 @@ type invoicesSubscribeInvoicesServer struct {
 	grpc.ServerStream
 }
 
-func (x *invoicesSubscribeInvoicesServer) Send(m *Invoice) error {
+func (x *invoicesSubscribeInvoicesServer) Send(m *InvoiceEvent) error {
 	return x.ServerStream.SendMsg(m)
+}
+
+func _Invoices_SettleInvoice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SettleInvoiceMsg)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InvoicesServer).SettleInvoice(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/invoicerpc.Invoices/SettleInvoice",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InvoicesServer).SettleInvoice(ctx, req.(*SettleInvoiceMsg))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Invoices_CancelInvoice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CancelInvoiceMsg)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InvoicesServer).CancelInvoice(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/invoicerpc.Invoices/CancelInvoice",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InvoicesServer).CancelInvoice(ctx, req.(*CancelInvoiceMsg))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 var _Invoices_serviceDesc = grpc.ServiceDesc{
@@ -654,6 +983,14 @@ var _Invoices_serviceDesc = grpc.ServiceDesc{
 			MethodName: "LookupInvoice",
 			Handler:    _Invoices_LookupInvoice_Handler,
 		},
+		{
+			MethodName: "SettleInvoice",
+			Handler:    _Invoices_SettleInvoice_Handler,
+		},
+		{
+			MethodName: "CancelInvoice",
+			Handler:    _Invoices_CancelInvoice_Handler,
+		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
@@ -668,49 +1005,66 @@ var _Invoices_serviceDesc = grpc.ServiceDesc{
 func init() { proto.RegisterFile("invoicerpc/invoice.proto", fileDescriptor0) }
 
 var fileDescriptor0 = []byte{
-	// 698 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x84, 0x54, 0x4d, 0x6f, 0xdb, 0x38,
-	0x10, 0x8d, 0x6c, 0xc7, 0x96, 0xc7, 0x72, 0x3e, 0xe8, 0xec, 0x82, 0xeb, 0xc5, 0x6e, 0xbc, 0xda,
-	0x43, 0x8d, 0xa2, 0xb0, 0xdb, 0xf4, 0xd6, 0x5b, 0xd0, 0x16, 0x48, 0x80, 0x04, 0x48, 0x15, 0xf4,
-	0x4c, 0xd0, 0x22, 0x6d, 0x13, 0x91, 0x28, 0x85, 0xa4, 0xdd, 0xe4, 0xff, 0xf4, 0xda, 0xbf, 0xd0,
-	0xdf, 0x56, 0x88, 0xa2, 0x15, 0xbb, 0x76, 0xda, 0x9b, 0xe6, 0xcd, 0x9b, 0xe1, 0xcc, 0xe3, 0xa3,
-	0x00, 0x0b, 0xb9, 0xcc, 0x44, 0xcc, 0x55, 0x1e, 0x8f, 0xdd, 0xe7, 0x28, 0x57, 0x99, 0xc9, 0x10,
-	0x3c, 0x65, 0xfa, 0xe3, 0x99, 0x30, 0xf3, 0xc5, 0x64, 0x14, 0x67, 0xe9, 0x38, 0x11, 0xb3, 0xb9,
-	0x91, 0x42, 0xce, 0x24, 0x37, 0x5f, 0x32, 0x75, 0x37, 0x4e, 0x24, 0x1b, 0x27, 0xb2, 0x68, 0xa0,
-	0xf2, 0xb8, 0x2c, 0x0e, 0xbf, 0x37, 0xa0, 0x75, 0x59, 0xd6, 0x23, 0x04, 0x8d, 0x94, 0xa7, 0x19,
-	0xf6, 0x06, 0xde, 0xb0, 0x1d, 0xd9, 0x6f, 0xf4, 0x0f, 0x80, 0x22, 0xb9, 0xe2, 0x22, 0xa5, 0x33,
-	0x8e, 0xeb, 0x03, 0x6f, 0x18, 0x44, 0x6d, 0x75, 0xe3, 0x00, 0xf4, 0x07, 0x34, 0x15, 0x99, 0x53,
-	0x3d, 0xc7, 0x0d, 0x9b, 0xda, 0x57, 0x17, 0x54, 0xcf, 0xd1, 0x09, 0xec, 0x2f, 0x69, 0xb2, 0xe0,
-	0x78, 0x7f, 0xe0, 0x0d, 0xeb, 0x51, 0x19, 0x20, 0x0c, 0x2d, 0xcd, 0x8d, 0x49, 0x38, 0xc3, 0xcd,
-	0x81, 0x37, 0xf4, 0xa3, 0x55, 0x88, 0xfe, 0x87, 0x6e, 0xac, 0x38, 0x35, 0x22, 0x93, 0x84, 0x51,
-	0xc3, 0x71, 0xcb, 0xd6, 0x05, 0x2b, 0xf0, 0x03, 0x35, 0x1c, 0x9d, 0x42, 0xa7, 0xe4, 0x97, 0x14,
-	0xdf, 0x52, 0xa0, 0x84, 0x2c, 0xe1, 0x05, 0x1c, 0xe6, 0xf4, 0x31, 0xe5, 0xd2, 0x10, 0xc5, 0xef,
-	0x17, 0x5c, 0x1b, 0xdc, 0xb6, 0xab, 0x1c, 0x38, 0x38, 0x2a, 0x51, 0xf4, 0x27, 0x34, 0xf9, 0x43,
-	0x2e, 0xd4, 0x23, 0xee, 0xd8, 0x26, 0x2e, 0x2a, 0xc6, 0x98, 0xd2, 0x24, 0x99, 0xd0, 0xf8, 0x8e,
-	0x50, 0xc6, 0x14, 0x0e, 0x6c, 0x79, 0xb0, 0x02, 0xcf, 0x19, 0x53, 0xc5, 0x18, 0x71, 0x62, 0x96,
-	0xc4, 0x75, 0xe8, 0x0e, 0xbc, 0x61, 0x23, 0x82, 0x02, 0xfa, 0x58, 0x76, 0x79, 0x03, 0x1d, 0x95,
-	0x2d, 0x0c, 0x27, 0x73, 0x21, 0x8d, 0xc6, 0x07, 0x83, 0xfa, 0xb0, 0x73, 0x76, 0x34, 0xb2, 0xca,
-	0x8f, 0xa2, 0x22, 0x73, 0x21, 0xa4, 0x89, 0x40, 0xad, 0x3e, 0x75, 0xa1, 0x4c, 0xae, 0xc4, 0xb2,
-	0x58, 0xeb, 0xb0, 0x54, 0xc6, 0x85, 0xe8, 0x6f, 0x68, 0x53, 0xc6, 0x88, 0x90, 0x8c, 0x3f, 0xe0,
-	0x23, 0x7b, 0x96, 0x4f, 0x19, 0xbb, 0x2c, 0x62, 0xf4, 0x1f, 0x04, 0x4e, 0x91, 0x32, 0x7f, 0x6c,
-	0xf3, 0x4e, 0xa5, 0x92, 0xf2, 0x17, 0xf8, 0x34, 0x35, 0x24, 0xa7, 0x82, 0x61, 0x64, 0x97, 0x6d,
-	0xd1, 0xd4, 0xdc, 0x50, 0xc1, 0xd0, 0x00, 0x82, 0x55, 0x8a, 0x68, 0x6a, 0x70, 0xaf, 0x14, 0xd4,
-	0xa5, 0x6f, 0xa9, 0x41, 0x21, 0x74, 0x2b, 0x46, 0x5a, 0x50, 0x4e, 0x2c, 0xa5, 0xe3, 0x28, 0xd7,
-	0x9a, 0x9a, 0xf0, 0x1e, 0xd0, 0x79, 0x31, 0x8f, 0xb5, 0x50, 0xc4, 0x75, 0x9e, 0x49, 0xbd, 0xee,
-	0x0b, 0x6f, 0xdd, 0x17, 0x3b, 0x6e, 0xa8, 0xb6, 0xf3, 0x86, 0x7e, 0xb5, 0x76, 0xf8, 0xd5, 0x03,
-	0x74, 0x25, 0xb4, 0xa9, 0x0e, 0x2d, 0x6b, 0x42, 0x08, 0x72, 0x2e, 0x99, 0x90, 0x33, 0x92, 0xc9,
-	0xe4, 0xd1, 0x9e, 0xec, 0x47, 0x1b, 0x58, 0xc1, 0xb1, 0x3d, 0x49, 0x36, 0x9d, 0x6a, 0x6e, 0xac,
-	0x6b, 0x1b, 0xd1, 0x06, 0x86, 0x5e, 0xc2, 0x91, 0x5c, 0xa4, 0x24, 0xa5, 0x0f, 0xc4, 0xbd, 0x2c,
-	0x6d, 0x7d, 0xdc, 0x88, 0xb6, 0x70, 0xd4, 0x07, 0x5f, 0xf1, 0x25, 0x57, 0xba, 0xf2, 0x74, 0x15,
-	0x17, 0x63, 0xf6, 0x36, 0xc6, 0x74, 0xda, 0x8c, 0xc1, 0xaf, 0xfa, 0x7a, 0xd6, 0x1c, 0xbd, 0xd1,
-	0xd3, 0x13, 0x1e, 0xad, 0xe8, 0x15, 0x09, 0xbd, 0x82, 0xe3, 0x84, 0x6a, 0x43, 0x36, 0x26, 0xaf,
-	0xd9, 0x89, 0xb6, 0x13, 0x68, 0x04, 0x68, 0x2a, 0xd4, 0xcf, 0xf4, 0xba, 0xa5, 0xef, 0xc8, 0x84,
-	0x9f, 0xa1, 0xe7, 0x8e, 0xbc, 0x5d, 0x4c, 0x74, 0xac, 0x44, 0x5e, 0xbc, 0xb8, 0xcd, 0x1b, 0xf0,
-	0x7e, 0x63, 0xbc, 0xda, 0x96, 0xf1, 0xce, 0xbe, 0xd5, 0xc0, 0xbf, 0x5c, 0x6d, 0xf0, 0x1e, 0xe0,
-	0xc9, 0x24, 0x68, 0xd7, 0xba, 0xfd, 0x7f, 0xd7, 0xc1, 0x6d, 0x47, 0x85, 0x7b, 0xe8, 0x13, 0x04,
-	0x6b, 0x72, 0x6a, 0xb4, 0x51, 0xb1, 0xed, 0x87, 0xfe, 0xe9, 0xb3, 0xf9, 0xaa, 0xe5, 0x3b, 0xe8,
-	0x5e, 0x65, 0xd9, 0xdd, 0x22, 0xaf, 0x7e, 0x81, 0xee, 0x99, 0xde, 0x94, 0x76, 0x2c, 0x4c, 0xdb,
-	0xdf, 0x35, 0x6e, 0xb8, 0x87, 0xae, 0xe1, 0xd8, 0x09, 0x36, 0xe1, 0xd5, 0x4c, 0xa7, 0x3b, 0xb8,
-	0xeb, 0xb2, 0x3e, 0xd3, 0xec, 0xb5, 0x37, 0x69, 0xda, 0xff, 0xf1, 0xdb, 0x1f, 0x01, 0x00, 0x00,
-	0xff, 0xff, 0x72, 0x0e, 0x12, 0x10, 0xe8, 0x05, 0x00, 0x00,
+	// 967 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x94, 0x56, 0xd1, 0x6e, 0xeb, 0x44,
+	0x10, 0xad, 0x93, 0xb4, 0x75, 0xc6, 0x4e, 0x6f, 0xba, 0x05, 0x64, 0x05, 0xee, 0x6d, 0xf0, 0x15,
+	0x22, 0xaa, 0x50, 0x02, 0x45, 0xbc, 0xf0, 0x16, 0x25, 0x91, 0x6e, 0xa5, 0xb6, 0x04, 0xb7, 0x3c,
+	0x5b, 0x1b, 0x7b, 0x9b, 0x58, 0xb5, 0xd7, 0x66, 0x77, 0x13, 0x5a, 0xf1, 0x3b, 0xbc, 0xf2, 0xc2,
+	0xd7, 0xf0, 0x13, 0xfc, 0x03, 0xda, 0xf5, 0x26, 0xb1, 0x13, 0x97, 0x4b, 0xdf, 0x76, 0xcf, 0x8c,
+	0x67, 0x66, 0xcf, 0x9c, 0x99, 0x04, 0x9c, 0x88, 0xae, 0xd2, 0x28, 0x20, 0x2c, 0x0b, 0x06, 0xfa,
+	0xd8, 0xcf, 0x58, 0x2a, 0x52, 0x04, 0x5b, 0x4b, 0x67, 0x30, 0x8f, 0xc4, 0x62, 0x39, 0xeb, 0x07,
+	0x69, 0x32, 0x88, 0xa3, 0xf9, 0x42, 0xd0, 0x88, 0xce, 0x29, 0x11, 0xbf, 0xa5, 0xec, 0x71, 0x10,
+	0xd3, 0x70, 0x10, 0x53, 0x19, 0x80, 0x65, 0x41, 0xfe, 0xb1, 0xfb, 0x57, 0x0d, 0x4e, 0x87, 0x61,
+	0x78, 0x95, 0x87, 0xf0, 0xc8, 0xaf, 0x4b, 0xc2, 0x05, 0x42, 0xd0, 0x48, 0x48, 0x92, 0x3a, 0x46,
+	0xd7, 0xe8, 0x35, 0x3d, 0x75, 0x96, 0xd8, 0x22, 0x8d, 0x43, 0xa7, 0xd6, 0x35, 0x7a, 0xa6, 0xa7,
+	0xce, 0xe8, 0x2d, 0x00, 0xf3, 0x33, 0x46, 0xa2, 0x04, 0xcf, 0x89, 0x53, 0xef, 0x1a, 0x3d, 0xdb,
+	0x6b, 0xb2, 0xa9, 0x06, 0xd0, 0xa7, 0x70, 0xc4, 0xfc, 0x05, 0xe6, 0x0b, 0xa7, 0xa1, 0x4c, 0x87,
+	0xec, 0x03, 0xe6, 0x0b, 0xf4, 0x09, 0x1c, 0xae, 0x70, 0xbc, 0x24, 0xce, 0x61, 0xd7, 0xe8, 0xd5,
+	0xbd, 0xfc, 0x82, 0x3e, 0x83, 0x23, 0xf2, 0x94, 0x45, 0xec, 0xd9, 0x39, 0x52, 0xb0, 0xbe, 0xa1,
+	0xf7, 0xd0, 0x7a, 0xc0, 0x71, 0x3c, 0xc3, 0xc1, 0xa3, 0x8f, 0xc3, 0x90, 0x39, 0xc7, 0xaa, 0x28,
+	0x7b, 0x0d, 0x0e, 0xc3, 0x90, 0xa1, 0x73, 0xb0, 0x82, 0x58, 0xac, 0x7c, 0x1d, 0xc1, 0xec, 0x1a,
+	0xbd, 0x86, 0x07, 0x12, 0x9a, 0xe4, 0x51, 0xbe, 0x03, 0x8b, 0xa5, 0x4b, 0x41, 0xfc, 0x45, 0x44,
+	0x05, 0x77, 0x9a, 0xdd, 0x7a, 0xcf, 0xba, 0x6c, 0xf7, 0x15, 0x1d, 0x7d, 0x4f, 0x5a, 0x3e, 0x44,
+	0x54, 0x78, 0xc0, 0xd6, 0x47, 0x8e, 0x1c, 0x38, 0xce, 0x58, 0xb4, 0xc2, 0x82, 0x38, 0xa0, 0xde,
+	0xbc, 0xbe, 0xba, 0x7f, 0xd6, 0xe1, 0x58, 0x33, 0x56, 0x49, 0xd5, 0xf6, 0xdd, 0xf5, 0xca, 0x77,
+	0x37, 0x8a, 0xef, 0x7e, 0x0f, 0xad, 0x80, 0x11, 0x2c, 0xa2, 0x94, 0xfa, 0xa1, 0x4c, 0x96, 0xb3,
+	0x62, 0xaf, 0xc1, 0x31, 0x16, 0x04, 0x7d, 0x0d, 0x6f, 0x32, 0xfc, 0x9c, 0x10, 0x2a, 0x7c, 0x96,
+	0xf7, 0x48, 0xd3, 0x70, 0xa2, 0xe1, 0x75, 0xe7, 0xb6, 0x2c, 0x9a, 0xff, 0xcd, 0x62, 0xf3, 0xe3,
+	0x2c, 0xc2, 0xc7, 0x58, 0xb4, 0x5e, 0xc7, 0xa2, 0x5d, 0x62, 0x11, 0x7d, 0x05, 0x27, 0x5a, 0xb9,
+	0x3e, 0x5d, 0x26, 0x33, 0xc2, 0x9c, 0x96, 0x4a, 0xd8, 0xd2, 0xe8, 0xad, 0x02, 0xd1, 0x10, 0xec,
+	0xf0, 0x99, 0xe2, 0x24, 0x0a, 0x24, 0x3d, 0xd8, 0x39, 0xe9, 0x1a, 0x3d, 0xeb, 0xf2, 0x5d, 0x7f,
+	0xab, 0xfa, 0xbe, 0xee, 0xc5, 0x38, 0x77, 0x1b, 0x63, 0x81, 0x3d, 0x2b, 0xdc, 0x5e, 0xdc, 0x27,
+	0xb0, 0xb5, 0xcb, 0x64, 0x45, 0xa8, 0xa8, 0xc8, 0x6c, 0xfc, 0x9f, 0xcc, 0xb5, 0xd7, 0x67, 0xfe,
+	0xc7, 0x00, 0xb4, 0xef, 0x83, 0xfa, 0x70, 0xc8, 0x85, 0xa4, 0x44, 0xe6, 0x3d, 0xb9, 0x74, 0x2a,
+	0x42, 0xde, 0x49, 0xbb, 0x97, 0xbb, 0xed, 0xcc, 0x59, 0x6d, 0x77, 0xce, 0xce, 0xc1, 0xe2, 0x44,
+	0x88, 0x98, 0xe4, 0x02, 0xaa, 0xab, 0xce, 0x43, 0x0e, 0x29, 0xf9, 0x7c, 0x09, 0xf6, 0x32, 0x93,
+	0x36, 0x3f, 0xa2, 0x21, 0x79, 0x52, 0x02, 0x6c, 0x78, 0x56, 0x8e, 0x5d, 0x49, 0x08, 0x75, 0xc1,
+	0xc6, 0x89, 0xf0, 0x33, 0x1c, 0x85, 0x3e, 0xc7, 0x42, 0xab, 0x10, 0x70, 0x22, 0xa6, 0x38, 0x0a,
+	0xef, 0xb0, 0x40, 0x2e, 0xb4, 0x36, 0x1e, 0x89, 0x74, 0xc9, 0xe7, 0xd4, 0xd2, 0x2e, 0x37, 0x1c,
+	0x0b, 0xf7, 0x77, 0x40, 0xc5, 0x6d, 0xc2, 0xb3, 0x94, 0xf2, 0xe2, 0x1e, 0x30, 0x8a, 0xf3, 0x50,
+	0x21, 0xea, 0x5a, 0xa5, 0xa8, 0xf7, 0xfb, 0x55, 0xaf, 0xe8, 0x97, 0xfb, 0x87, 0x01, 0xe8, 0x3a,
+	0xe2, 0x62, 0x67, 0x99, 0xb9, 0x60, 0x67, 0x84, 0x86, 0x11, 0x9d, 0xfb, 0x29, 0x8d, 0x9f, 0x55,
+	0x0d, 0xa6, 0x57, 0xc2, 0xa4, 0x8f, 0x62, 0xc6, 0x4f, 0x1f, 0x1e, 0x38, 0x11, 0x9a, 0xa0, 0x12,
+	0x86, 0x2e, 0xa0, 0x4d, 0x97, 0x89, 0x9f, 0xe0, 0x27, 0x5f, 0xe7, 0xe5, 0x8a, 0xa5, 0x86, 0xb7,
+	0x87, 0xa3, 0x0e, 0x98, 0x8c, 0xac, 0x08, 0xe3, 0x24, 0x54, 0x34, 0x99, 0xde, 0xe6, 0x2e, 0xcb,
+	0x3c, 0x2b, 0x95, 0xa9, 0x59, 0x1a, 0x80, 0xb9, 0x89, 0x6b, 0xa8, 0xc9, 0x3a, 0xab, 0xd0, 0x85,
+	0xb7, 0x71, 0x42, 0xdf, 0xc0, 0x69, 0x8c, 0xb9, 0xf0, 0x4b, 0x95, 0xd7, 0x54, 0x45, 0xfb, 0x06,
+	0xd4, 0x07, 0xf4, 0x10, 0xb1, 0x5d, 0xf7, 0x9c, 0xc8, 0x0a, 0x8b, 0x3b, 0x84, 0xb3, 0xb5, 0x14,
+	0x97, 0x33, 0x1e, 0xb0, 0x28, 0x93, 0xdb, 0x08, 0x5d, 0xe8, 0xa4, 0x25, 0x3d, 0xe5, 0xe3, 0xf3,
+	0x46, 0x1a, 0x7e, 0xd9, 0x6a, 0xca, 0xf5, 0xa0, 0x7d, 0xa7, 0x44, 0xa8, 0x03, 0xdd, 0xf0, 0xb9,
+	0x94, 0xe2, 0xba, 0xe9, 0x05, 0x45, 0x58, 0x1a, 0x53, 0xba, 0xf8, 0x1c, 0x9a, 0x19, 0x23, 0x7e,
+	0x51, 0xec, 0x66, 0xc6, 0xc8, 0x95, 0xbc, 0xbb, 0x67, 0x70, 0x5a, 0x8a, 0x29, 0xe9, 0x73, 0x7f,
+	0x80, 0xf6, 0x08, 0xd3, 0x80, 0xc4, 0xaf, 0x4a, 0x24, 0x63, 0x95, 0x3e, 0x93, 0xb1, 0x2e, 0x86,
+	0x9b, 0x65, 0xa1, 0x46, 0x10, 0x99, 0xd0, 0xf8, 0x69, 0x3a, 0xb9, 0x6d, 0x1f, 0x20, 0x1b, 0xcc,
+	0xe1, 0x68, 0x34, 0x99, 0xde, 0x4f, 0xc6, 0x6d, 0x03, 0x59, 0x70, 0x7c, 0x37, 0xb9, 0xbf, 0xbf,
+	0x9e, 0x8c, 0xdb, 0x35, 0x69, 0x1a, 0x0d, 0x6f, 0x47, 0x13, 0x79, 0xab, 0x5f, 0xfe, 0x5d, 0x07,
+	0xf3, 0x6a, 0xdd, 0xa5, 0x1b, 0x80, 0xed, 0x48, 0xa0, 0xb7, 0xc5, 0x96, 0xee, 0xfd, 0xf0, 0x76,
+	0xde, 0xbd, 0x64, 0xce, 0x35, 0xe2, 0x1e, 0xa0, 0x9f, 0xc1, 0x2e, 0x88, 0x87, 0xa3, 0xd2, 0x17,
+	0xfb, 0xea, 0xef, 0x9c, 0xbf, 0x68, 0xdf, 0x84, 0xfc, 0x11, 0x5a, 0xd7, 0x69, 0xfa, 0xb8, 0xcc,
+	0x36, 0xbf, 0x69, 0x7a, 0xa3, 0x4f, 0xb7, 0x5c, 0x75, 0xaa, 0xb4, 0xe8, 0x1e, 0x20, 0x0f, 0x4e,
+	0xb5, 0x3c, 0x66, 0x64, 0x53, 0xd3, 0x79, 0xd5, 0x3e, 0x2b, 0x88, 0xa8, 0x53, 0xb5, 0xf0, 0xd4,
+	0x6a, 0x76, 0x0f, 0xbe, 0x35, 0xd0, 0x35, 0xb4, 0x4a, 0x2d, 0x46, 0x5f, 0x14, 0xdd, 0x77, 0x15,
+	0xd5, 0x79, 0xfb, 0xa2, 0x55, 0xbe, 0x51, 0x46, 0x2b, 0x35, 0xb9, 0x1c, 0x6d, 0x57, 0x36, 0xe5,
+	0x68, 0x7b, 0xea, 0x98, 0x1d, 0xa9, 0xbf, 0x4d, 0xdf, 0xff, 0x1b, 0x00, 0x00, 0xff, 0xff, 0xc8,
+	0x9f, 0x81, 0x0d, 0x8f, 0x09, 0x00, 0x00,
 }

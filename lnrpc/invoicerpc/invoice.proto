@@ -16,13 +16,13 @@ service Invoices {
     duplicated invoices are rejected, therefore all invoices *must* have a
     unique payment preimage.
     */
-    rpc AddInvoice (Invoice) returns (AddInvoiceResponse) {}
+    rpc AddInvoice (AddInvoiceRequest) returns (AddInvoiceResponse) {}
 
     /** lncli: `listinvoices`
     ListInvoices returns a list of all the invoices currently stored within the
     database. Any active debug invoices are ignored. It has full support for
     paginated responses, allowing users to query for specific invoices through
-    their add_index. This can be done by using either the first_index_offset or
+    their invoice_number. This can be done by using either the first_index_offset or
     last_index_offset fields included in the response as the index_offset of the
     next request. The reversed flag is set by default in order to paginate
     backwards. If you wish to paginate forwards, you must explicitly set the
@@ -40,16 +40,89 @@ service Invoices {
 
     /**
     SubscribeInvoices returns a uni-directional stream (server -> client) for
-    notifying the client of newly added/settled invoices. The caller can
-    optionally specify the add_index and/or the settle_index. If the add_index
-    is specified, then we'll first start by sending add invoice events for all
-    invoices with an add_index greater than the specified value.  If the
-    settle_index is specified, the next, we'll send out all settle events for
-    invoices with a settle_index greater than the specified value.  One or both
-    of these fields can be set. If no fields are set, then we'll only send out
-    the latest add/settle events.
+    notifying the client of invoice updates. The caller can optionally specify
+    a last_update_index to catch up with missed updates.
     */
-    rpc SubscribeInvoices (InvoiceSubscription) returns (stream Invoice) {}
+    rpc SubscribeInvoices (InvoiceSubscription) returns (stream InvoiceEvent) {}
+
+    /**
+    SettleInvoice settles the specified hold invoice. If lnd isn't aware of the
+    preimage yet, it needs to be supplied with this call.
+    */
+    rpc SettleInvoice(SettleInvoiceMsg) returns (SettleInvoiceResp);
+
+    /**
+    CancelInvoice cancels the specified invoice. This can be a hold invoice
+    in the accepted state, in which case the accepted htlc(s) are canceled back
+    and the invoice moves to the canceled state. In the canceled state, no
+    further htlcs paying to this invoice are accepted.
+
+    In this call, a regular (non-hold) invoice can be specified too. It makes
+    the invoice unpayable.
+    */
+    rpc CancelInvoice(CancelInvoiceMsg) returns (CancelInvoiceResp);
+}
+
+
+/**
+AddInvoiceRequest is a separate message that contains only the parameters
+required to add a new invoice
+*/
+message AddInvoiceRequest {
+    /**
+    An optional memo to attach along with the invoice. Used for record keeping
+    purposes for the invoice's creator, and will also be set in the description
+    field of the encoded payment request if the description_hash field is not
+    being used.
+    */
+    string memo = 1;
+
+    /** 
+    Whether this invoice should be held in the accepted state until a settle rpc
+    comes in. It is allowed to add a hold invoice that already specifies 
+    r_preimage or haves lnd generate a preimage.
+    */
+    bool hold = 2;
+
+    /**
+    The hex-encoded preimage (32 byte) which will allow settling an incoming
+    HTLC payable to this preimage. If this field is left empty, a random preimage
+    will be generated. 
+    */
+    bytes r_preimage = 3;
+
+    /**
+    The hash of the preimage. Setting this field is only allowed if
+    r_preimage is empty and hold is true. In this case we only know the hash
+    of the invoice, we want to accept the htlc when it comes in and hold
+    on to it until we learn the preimage.
+    */
+    bytes r_hash = 4;
+
+    /// The value of this invoice in satoshis
+    int64 value = 5;
+
+    /** Payment request expiry time in seconds. Default is 3600 (1 hour). When
+    the invoice expires, it is moved to the canceled state. Any accepted but
+    still unsettled htlcs are canceled back.
+    */
+    int64 expiry = 6;
+
+    /// Fallback on-chain address.
+    string fallback_addr = 7;
+
+    /// Delta to use for the time-lock of the CLTV extended to the final hop.
+    uint64 cltv_expiry = 8;
+
+    /**
+    Route hints that can each be individually used to assist in reaching the
+    invoice's destination.
+    */
+    repeated lnrpc.RouteHint route_hints = 9;
+
+    /// Whether this invoice should include routing hints for private channels.
+    bool private = 10;
+
 }
 
 message Invoice {
@@ -60,91 +133,143 @@ message Invoice {
     being used.
     */
     string memo = 1;
-
-    /**
-    The hex-encoded preimage (32 byte) which will allow settling an incoming
-    HTLC payable to this preimage
-    */
-    bytes r_preimage = 3;
-
+    
     /// The hash of the preimage
-    bytes r_hash = 4;
+    bytes r_hash = 3;
 
     /// The value of this invoice in satoshis
-    int64 value = 5;
-
-    /// Whether this invoice has been fulfilled
-    bool settled = 6;
+    int64 value = 4;
 
     /// When this invoice was created
-    int64 creation_date = 7;
-
-    /// When this invoice was settled
-    int64 settle_date = 8;
+    int64 creation_date = 5;
 
     /**
     A bare-bones invoice for a payment within the Lightning Network.  With the
     details of the invoice, the sender has all the data necessary to send a
     payment to the recipient.
     */
-    string payment_request = 9;
+    string payment_request = 7;
 
     /// Payment request expiry time in seconds. Default is 3600 (1 hour).
-    int64 expiry = 11;
+    int64 expiry = 8;
 
     /// Fallback on-chain address.
-    string fallback_addr = 12;
+    string fallback_addr = 9;
 
     /// Delta to use for the time-lock of the CLTV extended to the final hop.
-    uint64 cltv_expiry = 13;
+    uint64 cltv_expiry = 10;
 
     /**
     Route hints that can each be individually used to assist in reaching the
     invoice's destination.
     */
-    repeated lnrpc.RouteHint route_hints = 14;
+    repeated lnrpc.RouteHint route_hints = 11;
 
     /// Whether this invoice should include routing hints for private channels.
-    bool private = 15;
+    bool private = 12;
 
     /**
-    The "add" index of this invoice. Each newly created invoice will increment
-    this index making it monotonically increasing. Callers to the
-    SubscribeInvoices call can use this to instantly get notified of all added
-    invoices with an add_index greater than this one.
+    The number of this invoice. Each newly created invoice will increment
+    this number making it monotonically increasing. 
     */
-    uint64 add_index = 16;
+    uint64 invoice_number = 13;
 
     /**
-    The "settle" index of this invoice. Each newly settled invoice will
-    increment this index making it monotonically increasing. Callers to the
-    SubscribeInvoices call can use this to instantly get notified of all
-    settled invoices with an settle_index greater than this one.
+    A snapshot of the most recent invoice dynamic data.
     */
-    uint64 settle_index = 17;
+    InvoiceDynamicData dynamic_data = 14;
+}
 
-    /// Deprecated, use amt_paid_sat or amt_paid_msat.
-    int64 amt_paid = 18;
+message InvoiceEvent {
+    /**
+    The number of this invoice. Each newly created invoice will increment
+    this number making it monotonically increasing. 
+    */
+    uint64 invoice_number = 1;
 
     /**
-    The amount that was accepted for this invoice, in satoshis. This will ONLY
-    be set if this invoice has been settled. We provide this field as if the
-    invoice was created with a zero value, then we need to record what amount
-    was ultimately accepted. Additionally, it's possible that the sender paid
-    MORE that was specified in the original invoice. So we'll record that here
-    as well.
+    A snapshot of the invoice dynamic data.
     */
-    int64 amt_paid_sat = 19;
+    InvoiceDynamicData dynamic_data = 2;
+}
+
+message InvoiceDynamicData {
+    InvoiceState state = 1;
 
     /**
-    The amount that was accepted for this invoice, in millisatoshis. This will
-    ONLY be set if this invoice has been settled. We provide this field as if
-    the invoice was created with a zero value, then we need to record what
-    amount was ultimately accepted. Additionally, it's possible that the sender
-    paid MORE that was specified in the original invoice. So we'll record that
-    here as well.
+    The hex-encoded preimage (32 byte) which will allow settling an incoming
+    HTLC payable to this preimage.
+
+    Preimage is part of the event stream because it doesn't necessarily need to
+    be known when the invoice is created.
     */
-    int64 amt_paid_msat = 20;
+    bytes r_preimage = 2;
+
+    /// When this invoice was settled
+    int64 settle_date = 3;
+
+    /**
+    TODO: Do we need an accept_date? Invoices can move from ACCEPT back to 
+    the OPEN state, so there can be multiple ACCEPT dates?
+    */
+    
+    /**
+    A system wide index for this particular update of the dynamic data.
+    */
+    uint64 update_index = 4;
+
+    /**
+    The amount amt_paid_msat rounded down to satoshis
+    */
+    int64 amt_paid_sat = 5;
+
+    /**
+    The amount that was accepted or settled for this invoice, in millisatoshis. 
+    This will be set in both the ACCEPTED and SETTLED invoice states. 
+    
+    We provide this field as if the invoice was created with a zero value, then
+    we need to record what amount was ultimately accepted. Additionally, it's
+    possible that the sender paid MORE than what was specified in the original
+    invoice. So we'll record that here as well.
+
+    In the OPEN state, there may be htlc(s) accepted, but their value is not
+    reported (yet). Only when the sum reaches the invoice amount, the invoice
+    moves to ACCEPTED or SETTLED and amt_paid_sat is reported.
+    */
+    int64 amt_paid_msat = 6;
+}
+
+enum InvoiceState {
+    /**
+    Invoice are created in the open state. We have not yet received an htlc
+    or the total value of all received htlcs is less than the invoice
+    amount. No htlc has been settled yet. If the total value of received
+    htlcs reaches the invoice amount, the invoice either moves to ACCEPTED
+    or SETTLED based on the hold invoice field value.
+    */
+    OPEN = 0;
+
+    /**
+    In the accepted state, we have received one or more htlcs that add up 
+    to at least the invoice amount. The htlcs can be accepted by calling
+    the SettleInvoice rpc. When an htlc times out, it may be that the
+    invoice moves back to the open state.
+    */
+    ACCEPTED = 1;
+
+    /**
+    In the settled state, the invoice isn't payable anymore. We have
+    settled one or more htlcs that add up to at least the invoice amount.
+    */
+    SETTLED = 2;
+
+    /**
+    In the canceled state, the invoice isn't payable anymore. Any htlcs
+    associated with this invoice have been canceled. An invoice can be
+    canceled using the CancelInvoice rpc or canceled automatically when it
+    expires.
+    */
+    CANCELED = 3;
 }
 
 message AddInvoiceResponse {
@@ -158,12 +283,10 @@ message AddInvoiceResponse {
     string payment_request = 2;
 
     /**
-    The "add" index of this invoice. Each newly created invoice will increment
-    this index making it monotonically increasing. Callers to the
-    SubscribeInvoices call can use this to instantly get notified of all added
-    invoices with an add_index greater than this one.
+    The number of this invoice. Each newly created invoice will increment
+    this index making it monotonically increasing. 
     */
-    uint64 add_index = 16;
+    uint64 invoice_number = 3;
 }
 
 message ListInvoiceRequest {
@@ -209,17 +332,29 @@ message ListInvoiceResponse {
 message InvoiceSubscription {
     /**
     If specified (non-zero), then we'll first start by sending out
-    notifications for all added indexes with an add_index greater than this
-    value. This allows callers to catch up on any events they missed while they
+    all invoices that have an last_update_index greater than this value. This allows
+    callers to retrieve up to date versions of invoices that changed when they
     weren't connected to the streaming RPC.
     */
-    uint64 add_index = 1;
-
-    /**
-    If specified (non-zero), then we'll first start by sending out
-    notifications for all settled indexes with an settle_index greater than
-    this value. This allows callers to catch up on any events they missed while
-    they weren't connected to the streaming RPC.
-    */
-    uint64 settle_index = 2;
+    uint64 last_update_index = 1;
 }
+
+message SettleInvoiceMsg {
+    /// Hash corresponding to the (hold) invoice to settle.
+    bytes payment_hash = 1;
+
+    /** Optional preimage to settle the invoice with. Only needs to be supplied
+    when lnd isn't aware of the preimage yet. This is the case for an externally
+    discovered preimage.
+    */
+    bytes pre_image = 2;
+}
+
+message SettleInvoiceResp {}
+
+message CancelInvoiceMsg {
+    /// Hash corresponding to the (hold) invoice to fail.
+    bytes payment_hash = 1;
+} 
+
+message CancelInvoiceResp {}

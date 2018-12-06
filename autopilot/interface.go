@@ -85,12 +85,10 @@ type ChannelGraph interface {
 // AttachmentHeuristic. It details to which node a channel should be created
 // to, and also the parameters which should be used in the channel creation.
 type AttachmentDirective struct {
-	// NodeKey is the target node for this attachment directive. It can be
-	// identified by its public key, and therefore can be used along with
-	// a ChannelOpener implementation to execute the directive.
-	NodeKey *btcec.PublicKey
-
-	// NodeID is the serialized compressed pubkey of the target node.
+	// NodeID is the serialized compressed pubkey of the target node for
+	// this attachment directive. It can be identified by its public key,
+	// and therefore can be used along with a ChannelOpener implementation
+	// to execute the directive.
 	NodeID NodeID
 
 	// ChanAmt is the size of the channel that should be opened, expressed

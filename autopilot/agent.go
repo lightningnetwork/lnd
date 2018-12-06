@@ -574,8 +574,13 @@ func (a *Agent) executeDirective(directive AttachmentDirective) {
 
 	// We'll start out by attempting to connect to the peer in order to
 	// begin the funding workflow.
-	pub := directive.NodeKey
 	nodeID := directive.NodeID
+	pub, err := btcec.ParsePubKey(nodeID[:], btcec.S256())
+	if err != nil {
+		log.Errorf("Unable to parse pubkey %x: %v", nodeID, err)
+		return
+	}
+
 	alreadyConnected, err := a.cfg.ConnectToPeer(pub, directive.Addrs)
 	if err != nil {
 		log.Warnf("Unable to connect to %x: %v",

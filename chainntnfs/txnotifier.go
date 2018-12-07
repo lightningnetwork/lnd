@@ -310,6 +310,42 @@ func (r SpendRequest) SpendHintKey() ([]byte, error) {
 	return outpoint.Bytes(), nil
 }
 
+// MatchesTx determines whether the given transaction satisfies the spend
+// request. If the spend request is for an outpoint, then we'll check all of
+// the outputs being spent by the inputs of the transaction to determine if it
+// matches. Otherwise, we'll need to match on the output script being spent, so
+// we'll recompute it for each input of the transaction to determine if it
+// matches.
+func (r SpendRequest) MatchesTx(tx *wire.MsgTx) (bool, uint32, error) {
+	if r.OutPoint != ZeroOutPoint {
+		for i, txIn := range tx.TxIn {
+			if txIn.PreviousOutPoint == r.OutPoint {
+				return true, uint32(i), nil
+			}
+		}
+
+		return false, 0, nil
+	}
+
+	for i, txIn := range tx.TxIn {
+		pkScript, err := txscript.ComputePkScript(
+			txIn.SignatureScript, txIn.Witness,
+		)
+		if err == txscript.ErrUnsupportedScriptType {
+			continue
+		}
+		if err != nil {
+			return false, 0, err
+		}
+
+		if bytes.Equal(pkScript.Script(), r.PkScript.Script()) {
+			return true, uint32(i), nil
+		}
+	}
+
+	return false, 0, nil
+}
+
 // SpendNtfn represents a client's request to receive a notification once an
 // outpoint/output script has been spent on-chain. The client is asynchronously
 // notified via the SpendEvent channels.

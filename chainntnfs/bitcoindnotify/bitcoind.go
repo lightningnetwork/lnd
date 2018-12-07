@@ -1,7 +1,6 @@
 package bitcoindnotify
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"strings"
@@ -272,8 +271,11 @@ out:
 					if err != nil {
 						chainntnfs.Log.Errorf("Rescan to "+
 							"determine the spend "+
-							"details of %v failed: %v",
-							msg.OutPoint, err)
+							"details of %v within "+
+							"range %d-%d failed: %v",
+							msg.SpendRequest,
+							msg.StartHeight,
+							msg.EndHeight, err)
 					}
 				}()
 
@@ -379,14 +381,14 @@ out:
 					continue
 				}
 
-				tx := &item.TxRecord.MsgTx
+				tx := btcutil.NewTx(&item.TxRecord.MsgTx)
 				err := b.txNotifier.ProcessRelevantSpendTx(
-					tx, item.Block.Height,
+					tx, uint32(item.Block.Height),
 				)
 				if err != nil {
 					chainntnfs.Log.Errorf("Unable to "+
 						"process transaction %v: %v",
-						tx.TxHash(), err)
+						tx.Hash(), err)
 				}
 			}
 
@@ -639,31 +641,55 @@ func (b *BitcoindNotifier) notifyBlockEpochClient(epochClient *blockEpochRegistr
 }
 
 // RegisterSpendNtfn registers an intent to be notified once the target
-// outpoint has been spent by a transaction on-chain. Once a spend of the target
-// outpoint has been detected, the details of the spending event will be sent
-// across the 'Spend' channel. The heightHint should represent the earliest
-// height in the chain where the transaction could have been spent in.
+// outpoint/output script has been spent by a transaction on-chain. When
+// intending to be notified of the spend of an output script, a nil outpoint
+// must be used. The heightHint should represent the earliest height in the
+// chain of the transaction that spent the outpoint/output script.
+//
+// Once a spend of has been detected, the details of the spending event will be
+// sent across the 'Spend' channel.
 func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	pkScript []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
 
 	// First, we'll construct a spend notification request and hand it off
 	// to the txNotifier.
 	spendID := atomic.AddUint64(&b.spendClientCounter, 1)
-	cancel := func() {
-		b.txNotifier.CancelSpend(*outpoint, spendID)
+	spendRequest, err := chainntnfs.NewSpendRequest(outpoint, pkScript)
+	if err != nil {
+		return nil, err
 	}
-
 	ntfn := &chainntnfs.SpendNtfn{
-		SpendID:    spendID,
-		OutPoint:   *outpoint,
-		PkScript:   pkScript,
-		Event:      chainntnfs.NewSpendEvent(cancel),
+		SpendID:      spendID,
+		SpendRequest: spendRequest,
+		Event: chainntnfs.NewSpendEvent(func() {
+			b.txNotifier.CancelSpend(spendRequest, spendID)
+		}),
 		HeightHint: heightHint,
 	}
 
-	historicalDispatch, err := b.txNotifier.RegisterSpend(ntfn)
+	historicalDispatch, _, err := b.txNotifier.RegisterSpend(ntfn)
 	if err != nil {
 		return nil, err
+	}
+
+	// We'll then request the backend to notify us when it has detected the
+	// outpoint/output script as spent.
+	//
+	// TODO(wilmer): use LoadFilter API instead.
+	if spendRequest.OutPoint == chainntnfs.ZeroOutPoint {
+		addr, err := spendRequest.PkScript.Address(b.chainParams)
+		if err != nil {
+			return nil, err
+		}
+		addrs := []btcutil.Address{addr}
+		if err := b.chainConn.NotifyReceived(addrs); err != nil {
+			return nil, err
+		}
+	} else {
+		ops := []*wire.OutPoint{&spendRequest.OutPoint}
+		if err := b.chainConn.NotifySpent(ops); err != nil {
+			return nil, err
+		}
 	}
 
 	// If the txNotifier didn't return any details to perform a historical
@@ -673,23 +699,39 @@ func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		return ntfn.Event, nil
 	}
 
-	// We'll then request the backend to notify us when it has detected the
-	// outpoint as spent.
-	if err := b.chainConn.NotifySpent([]*wire.OutPoint{outpoint}); err != nil {
-		return nil, err
+	// Otherwise, we'll need to dispatch a historical rescan to determine if
+	// the outpoint was already spent at a previous height.
+	//
+	// We'll short-circuit the path when dispatching the spend of a script,
+	// rather than an outpoint, as there aren't any additional checks we can
+	// make for scripts.
+	if spendRequest.OutPoint == chainntnfs.ZeroOutPoint {
+		select {
+		case b.notificationRegistry <- historicalDispatch:
+		case <-b.quit:
+			return nil, ErrChainNotifierShuttingDown
+		}
+
+		return ntfn.Event, nil
 	}
 
-	// In addition to the check above, we'll also check the backend's UTXO
-	// set to determine whether the outpoint has been spent. If it hasn't,
-	// we can return to the caller as well.
-	txOut, err := b.chainConn.GetTxOut(&outpoint.Hash, outpoint.Index, true)
+	// When dispatching spends of outpoints, there are a number of checks we
+	// can make to start our rescan from a better height or completely avoid
+	// it.
+	//
+	// We'll start by checking the backend's UTXO set to determine whether
+	// the outpoint has been spent. If it hasn't, we can return to the
+	// caller as well.
+	txOut, err := b.chainConn.GetTxOut(
+		&spendRequest.OutPoint.Hash, spendRequest.OutPoint.Index, true,
+	)
 	if err != nil {
 		return nil, err
 	}
 	if txOut != nil {
 		// We'll let the txNotifier know the outpoint is still unspent
 		// in order to begin updating its spend hint.
-		err := b.txNotifier.UpdateSpendDetails(*outpoint, nil)
+		err := b.txNotifier.UpdateSpendDetails(spendRequest, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -697,22 +739,21 @@ func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		return ntfn.Event, nil
 	}
 
-	// Otherwise, we'll determine when the output was spent by scanning the
-	// chain. We'll begin by determining where to start our historical
-	// rescan.
+	// Since the outpoint was spent, as it no longer exists within the UTXO
+	// set, we'll determine when it happened by scanning the chain.
 	//
 	// As a minimal optimization, we'll query the backend's transaction
 	// index (if enabled) to determine if we have a better rescan starting
 	// height. We can do this as the GetRawTransaction call will return the
 	// hash of the block it was included in within the chain.
-	tx, err := b.chainConn.GetRawTransactionVerbose(&outpoint.Hash)
+	tx, err := b.chainConn.GetRawTransactionVerbose(&spendRequest.OutPoint.Hash)
 	if err != nil {
 		// Avoid returning an error if the transaction was not found to
 		// proceed with fallback methods.
 		jsonErr, ok := err.(*btcjson.RPCError)
 		if !ok || jsonErr.Code != btcjson.ErrRPCNoTxInfo {
-			return nil, fmt.Errorf("unable to query for "+
-				"txid %v: %v", outpoint.Hash, err)
+			return nil, fmt.Errorf("unable to query for txid %v: %v",
+				spendRequest.OutPoint.Hash, err)
 		}
 	}
 
@@ -741,23 +782,24 @@ func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	}
 
 	// Now that we've determined the starting point of our rescan, we can
-	// dispatch it.
+	// dispatch it and return.
 	select {
 	case b.notificationRegistry <- historicalDispatch:
-		return ntfn.Event, nil
 	case <-b.quit:
 		return nil, ErrChainNotifierShuttingDown
 	}
+
+	return ntfn.Event, nil
 }
 
 // disaptchSpendDetailsManually attempts to manually scan the chain within the
-// given height range for a transaction that spends the given outpoint. If one
-// is found, it's spending details are sent to the notifier dispatcher, which
-// will then dispatch the notification to all of its clients.
+// given height range for a transaction that spends the given outpoint/output
+// script. If one is found, it's spending details are sent to the TxNotifier,
+// which will then dispatch the notification to all of its clients.
 func (b *BitcoindNotifier) dispatchSpendDetailsManually(
 	historicalDispatchDetails *chainntnfs.HistoricalSpendDispatch) error {
 
-	op := historicalDispatchDetails.OutPoint
+	spendRequest := historicalDispatchDetails.SpendRequest
 	startHeight := historicalDispatchDetails.StartHeight
 	endHeight := historicalDispatchDetails.EndHeight
 
@@ -784,31 +826,31 @@ func (b *BitcoindNotifier) dispatchSpendDetailsManually(
 				"%v: %v", blockHash, err)
 		}
 
-		// Then, we'll manually go over every transaction in it and
-		// determine whether it spends the outpoint in question.
+		// Then, we'll manually go over every input in every transaction
+		// in it and determine whether it spends the request in
+		// question. If we find one, we'll dispatch the spend details.
 		for _, tx := range block.Transactions {
-			for i, txIn := range tx.TxIn {
-				if txIn.PreviousOutPoint != op {
-					continue
-				}
-
-				// If it does, we'll construct its spend details
-				// and hand them over to the TxNotifier so that
-				// it can properly notify its registered
-				// clients.
-				txHash := tx.TxHash()
-				details := &chainntnfs.SpendDetail{
-					SpentOutPoint:     &op,
-					SpenderTxHash:     &txHash,
-					SpendingTx:        tx,
-					SpenderInputIndex: uint32(i),
-					SpendingHeight:    int32(height),
-				}
-
-				return b.txNotifier.UpdateSpendDetails(
-					op, details,
-				)
+			matches, inputIdx, err := spendRequest.MatchesTx(tx)
+			if err != nil {
+				return err
 			}
+			if !matches {
+				continue
+			}
+
+			txHash := tx.TxHash()
+			details := &chainntnfs.SpendDetail{
+				SpentOutPoint:     &tx.TxIn[inputIdx].PreviousOutPoint,
+				SpenderTxHash:     &txHash,
+				SpendingTx:        tx,
+				SpenderInputIndex: inputIdx,
+				SpendingHeight:    int32(height),
+			}
+
+			return b.txNotifier.UpdateSpendDetails(
+				historicalDispatchDetails.SpendRequest,
+				details,
+			)
 		}
 	}
 

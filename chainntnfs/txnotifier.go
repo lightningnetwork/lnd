@@ -1474,59 +1474,57 @@ func (n *TxNotifier) DisconnectTip(blockHeight uint32) error {
 }
 
 // updateHints attempts to update the confirm and spend hints for all relevant
-// transactions and outpoints respectively. The height parameter is used to
-// determine which transactions and outpoints we should update based on whether
-// a new block is being connected/disconnected.
+// requests respectively. The height parameter is used to determine which
+// requests we should update based on whether a new block is being
+// connected/disconnected.
 //
 // NOTE: This must be called with the TxNotifier's lock held and after its
 // height has already been reflected by a block being connected/disconnected.
 func (n *TxNotifier) updateHints(height uint32) {
 	// TODO(wilmer): update under one database transaction.
 	//
-	// To update the height hint for all the required transactions under one
-	// database transaction, we'll gather the set of unconfirmed
-	// transactions along with the ones that confirmed at the height being
+	// To update the height hint for all the required confirmation requests
+	// under one database transaction, we'll gather the set of unconfirmed
+	// requests along with the ones that confirmed at the height being
 	// connected/disconnected.
-	txsToUpdateHints := n.unconfirmedTxs()
-	for confirmedTx := range n.txsByInitialHeight[height] {
-		txsToUpdateHints = append(txsToUpdateHints, confirmedTx)
+	confRequests := n.unconfirmedRequests()
+	for confRequest := range n.confsByInitialHeight[height] {
+		confRequests = append(confRequests, confRequest)
 	}
 	err := n.confirmHintCache.CommitConfirmHint(
-		n.currentHeight, txsToUpdateHints...,
+		n.currentHeight, confRequests...,
 	)
 	if err != nil {
 		// The error is not fatal as this is an optimistic optimization,
 		// so we'll avoid returning an error.
 		Log.Debugf("Unable to update confirm hints to %d for "+
-			"%v: %v", n.currentHeight, txsToUpdateHints, err)
+			"%v: %v", n.currentHeight, confRequests, err)
 	}
 
-	// Similarly, to update the height hint for all the required outpoints
-	// under one database transaction, we'll gather the set of unspent
-	// outpoints along with the ones that were spent at the height being
-	// connected/disconnected.
-	opsToUpdateHints := n.unspentOutPoints()
-	for spentOp := range n.opsBySpendHeight[height] {
-		opsToUpdateHints = append(opsToUpdateHints, spentOp)
+	// Similarly, to update the height hint for all the required spend
+	// requests under one database transaction, we'll gather the set of
+	// unspent requests along with the ones that were spent at the height
+	// being connected/disconnected.
+	spendRequests := n.unspentRequests()
+	for spendRequest := range n.spendsByHeight[height] {
+		spendRequests = append(spendRequests, spendRequest)
 	}
-	err = n.spendHintCache.CommitSpendHint(
-		n.currentHeight, opsToUpdateHints...,
-	)
+	err = n.spendHintCache.CommitSpendHint(n.currentHeight, spendRequests...)
 	if err != nil {
 		// The error is not fatal as this is an optimistic optimization,
 		// so we'll avoid returning an error.
 		Log.Debugf("Unable to update spend hints to %d for "+
-			"%v: %v", n.currentHeight, opsToUpdateHints, err)
+			"%v: %v", n.currentHeight, spendRequests, err)
 	}
 }
 
-// unconfirmedTxs returns the set of transactions that are still seen as
-// unconfirmed by the TxNotifier.
+// unconfirmedRequests returns the set of confirmation requests that are
+// still seen as unconfirmed by the TxNotifier.
 //
 // NOTE: This method must be called with the TxNotifier's lock held.
-func (n *TxNotifier) unconfirmedTxs() []chainhash.Hash {
-	var unconfirmedTxs []chainhash.Hash
-	for tx, confNtfnSet := range n.confNotifications {
+func (n *TxNotifier) unconfirmedRequests() []ConfRequest {
+	var unconfirmed []ConfRequest
+	for confRequest, confNtfnSet := range n.confNotifications {
 		// If the notification is already aware of its confirmation
 		// details, or it's in the process of learning them, we'll skip
 		// it as we can't yet determine if it's confirmed or not.
@@ -1535,19 +1533,19 @@ func (n *TxNotifier) unconfirmedTxs() []chainhash.Hash {
 			continue
 		}
 
-		unconfirmedTxs = append(unconfirmedTxs, tx)
+		unconfirmed = append(unconfirmed, confRequest)
 	}
 
-	return unconfirmedTxs
+	return unconfirmed
 }
 
-// unspentOutPoints returns the set of outpoints that are still seen as unspent
-// by the TxNotifier.
+// unspentRequests returns the set of spend requests that are still seen as
+// unspent by the TxNotifier.
 //
 // NOTE: This method must be called with the TxNotifier's lock held.
-func (n *TxNotifier) unspentOutPoints() []wire.OutPoint {
-	var unspentOps []wire.OutPoint
-	for op, spendNtfnSet := range n.spendNotifications {
+func (n *TxNotifier) unspentRequests() []SpendRequest {
+	var unspent []SpendRequest
+	for spendRequest, spendNtfnSet := range n.spendNotifications {
 		// If the notification is already aware of its spend details, or
 		// it's in the process of learning them, we'll skip it as we
 		// can't yet determine if it's unspent or not.
@@ -1556,10 +1554,10 @@ func (n *TxNotifier) unspentOutPoints() []wire.OutPoint {
 			continue
 		}
 
-		unspentOps = append(unspentOps, op)
+		unspent = append(unspent, spendRequest)
 	}
 
-	return unspentOps
+	return unspent
 }
 
 // dispatchConfReorg dispatches a reorg notification to the client if the

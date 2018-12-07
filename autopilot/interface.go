@@ -85,12 +85,10 @@ type ChannelGraph interface {
 // AttachmentHeuristic. It details to which node a channel should be created
 // to, and also the parameters which should be used in the channel creation.
 type AttachmentDirective struct {
-	// NodeKey is the target node for this attachment directive. It can be
-	// identified by its public key, and therefore can be used along with
-	// a ChannelOpener implementation to execute the directive.
-	NodeKey *btcec.PublicKey
-
-	// NodeID is the serialized compressed pubkey of the target node.
+	// NodeID is the serialized compressed pubkey of the target node for
+	// this attachment directive. It can be identified by its public key,
+	// and therefore can be used along with a ChannelOpener implementation
+	// to execute the directive.
 	NodeID NodeID
 
 	// ChanAmt is the size of the channel that should be opened, expressed
@@ -100,6 +98,10 @@ type AttachmentDirective struct {
 	// Addrs is a list of addresses that the target peer may be reachable
 	// at.
 	Addrs []net.Addr
+
+	// Score is the score given by the heuristic for opening a channel of
+	// the given size to this node.
+	Score float64
 }
 
 // AttachmentHeuristic is one of the primary interfaces within this package.
@@ -119,16 +121,23 @@ type AttachmentHeuristic interface {
 	// ideal state.
 	NeedMoreChans(chans []Channel, balance btcutil.Amount) (btcutil.Amount, uint32, bool)
 
-	// Select is a method that given the current state of the channel
-	// graph, a set of nodes to ignore, and an amount of available funds,
-	// should return a set of attachment directives which describe which
-	// additional channels should be opened within the graph to push the
-	// heuristic back towards its equilibrium state. The numNewChans
-	// argument represents the additional number of channels that should be
-	// open.
-	Select(self *btcec.PublicKey, graph ChannelGraph,
-		amtToUse btcutil.Amount, numNewChans uint32,
-		skipNodes map[NodeID]struct{}) ([]AttachmentDirective, error)
+	// NodeScores is a method that given the current channel graph, current
+	// set of local channels and funds available, scores the given nodes
+	// according to the preference of opening a channel with them. The
+	// returned channel candidates maps the NodeID to an attachemnt
+	// directive containing a score and a channel size.
+	//
+	// The scores will be in the range [0, M], where 0 indicates no
+	// improvement in connectivity if a channel is opened to this node,
+	// while M is the maximum possible improvement in connectivity. The
+	// size of M is up to the implementation of this interface, so scores
+	// must be normalized if compared against other implementations.
+	//
+	// NOTE: A NodeID not found in the returned map is implicitly given a
+	// score of 0.
+	NodeScores(g ChannelGraph, chans []Channel,
+		fundsAvailable btcutil.Amount, nodes map[NodeID]struct{}) (
+		map[NodeID]*AttachmentDirective, error)
 }
 
 // ChannelController is a simple interface that allows an auto-pilot agent to

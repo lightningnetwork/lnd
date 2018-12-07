@@ -85,12 +85,19 @@ var _ autopilot.ChannelController = (*chanController)(nil)
 func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) {
 	atplLog.Infof("Instantiating autopilot with cfg: %v", spew.Sdump(cfg))
 
+	// Set up the constraints the autopilot heuristics must adhere to.
+	atplConstraints := &autopilot.HeuristicConstraints{
+		MinChanSize:     btcutil.Amount(cfg.MinChannelSize),
+		MaxChanSize:     btcutil.Amount(cfg.MaxChannelSize),
+		ChanLimit:       uint16(cfg.MaxChannels),
+		Allocation:      cfg.Allocation,
+		MaxPendingOpens: 10,
+	}
+
 	// First, we'll create the preferential attachment heuristic,
 	// initialized with the passed auto pilot configuration parameters.
 	prefAttachment := autopilot.NewConstrainedPrefAttachment(
-		btcutil.Amount(cfg.MinChannelSize),
-		btcutil.Amount(cfg.MaxChannelSize),
-		uint16(cfg.MaxChannels), cfg.Allocation,
+		atplConstraints,
 	)
 
 	// With the heuristic itself created, we can now populate the remainder
@@ -107,8 +114,8 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 		WalletBalance: func() (btcutil.Amount, error) {
 			return svr.cc.wallet.ConfirmedBalance(cfg.MinConfs)
 		},
-		Graph:           autopilot.ChannelGraphFromDatabase(svr.chanDB.ChannelGraph()),
-		MaxPendingOpens: 10,
+		Graph:       autopilot.ChannelGraphFromDatabase(svr.chanDB.ChannelGraph()),
+		Constraints: atplConstraints,
 		ConnectToPeer: func(target *btcec.PublicKey, addrs []net.Addr) (bool, error) {
 			// First, we'll check if we're already connected to the
 			// target peer. If we are, we can exit early. Otherwise,

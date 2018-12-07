@@ -53,6 +53,7 @@ const (
 	defaultInactiveChanTimeout = 20 * time.Minute
 	defaultMaxLogFiles         = 3
 	defaultMaxLogFileSize      = 10
+	defaultMaxBackoff          = time.Hour
 
 	defaultTorSOCKSPort            = 9050
 	defaultTorDNSHost              = "soa.nodes.lightning.directory"
@@ -194,8 +195,9 @@ type config struct {
 	RESTListeners    []net.Addr
 	Listeners        []net.Addr
 	ExternalIPs      []net.Addr
-	DisableListen    bool `long:"nolisten" description:"Disable listening for incoming peer connections"`
-	NAT              bool `long:"nat" description:"Toggle NAT traversal support (using either UPnP or NAT-PMP) to automatically advertise your external IP address to the network -- NOTE this does not support devices behind multiple NATs"`
+	DisableListen    bool          `long:"nolisten" description:"Disable listening for incoming peer connections"`
+	NAT              bool          `long:"nat" description:"Toggle NAT traversal support (using either UPnP or NAT-PMP) to automatically advertise your external IP address to the network -- NOTE this does not support devices behind multiple NATs"`
+	MaxBackoff       time.Duration `long:"maxbackoff" description:"Longest backoff when reconnecting to persistent peers. Valid time units are {s, m, h}."`
 
 	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
 
@@ -298,6 +300,7 @@ func loadConfig() (*config, error) {
 		},
 		MaxPendingChannels: defaultMaxPendingChannels,
 		NoSeedBackup:       defaultNoSeedBackup,
+		MaxBackoff:         defaultMaxBackoff,
 		SubRPCServers: &subRPCServerConfigs{
 			SignRPC: &signrpc.Config{},
 		},

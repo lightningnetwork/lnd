@@ -1295,21 +1295,21 @@ func (n *TxNotifier) NotifyHeight(height uint32) error {
 	defer n.Unlock()
 
 	// First, we'll dispatch an update to all of the notification clients
-	// for our watched transactions with the number of confirmations left at
+	// for our watched requests with the number of confirmations left at
 	// this new height.
-	for _, txHashes := range n.txsByInitialHeight {
-		for txHash := range txHashes {
-			confSet := n.confNotifications[txHash]
+	for _, confRequests := range n.confsByInitialHeight {
+		for confRequest := range confRequests {
+			confSet := n.confNotifications[confRequest]
 			for _, ntfn := range confSet.ntfns {
 				txConfHeight := confSet.details.BlockHeight +
 					ntfn.NumConfirmations - 1
 				numConfsLeft := txConfHeight - height
 
 				// Since we don't clear notifications until
-				// transactions are no longer under the risk of
-				// being reorganized out of the chain, we'll
-				// skip sending updates for transactions that
-				// have already been confirmed.
+				// transactions/output scripts are no longer
+				// under the risk of being reorganized out of
+				// the chain, we'll skip sending updates for
+				// those that have already been confirmed.
 				if int32(numConfsLeft) < 0 {
 					continue
 				}
@@ -1323,13 +1323,13 @@ func (n *TxNotifier) NotifyHeight(height uint32) error {
 		}
 	}
 
-	// Then, we'll dispatch notifications for all the transactions that have
+	// Then, we'll dispatch notifications for all the requests that have
 	// become confirmed at this new block height.
 	for ntfn := range n.ntfnsByConfirmHeight[height] {
-		confSet := n.confNotifications[*ntfn.TxID]
+		confSet := n.confNotifications[ntfn.ConfRequest]
 
-		Log.Infof("Dispatching %v conf notification for %v",
-			ntfn.NumConfirmations, ntfn.TxID)
+		Log.Infof("Dispatching %v confirmation notification for %v",
+			ntfn.NumConfirmations, ntfn.ConfRequest)
 
 		select {
 		case ntfn.Event.Confirmed <- confSet.details:
@@ -1340,10 +1340,10 @@ func (n *TxNotifier) NotifyHeight(height uint32) error {
 	}
 	delete(n.ntfnsByConfirmHeight, height)
 
-	// We'll also dispatch spend notifications for all the outpoints that
+	// We'll also dispatch spend notifications for all the requests that
 	// were spent at this new block height.
-	for op := range n.opsBySpendHeight[height] {
-		spendSet := n.spendNotifications[op]
+	for spendRequest := range n.spendsByHeight[height] {
+		spendSet := n.spendNotifications[spendRequest]
 		for _, ntfn := range spendSet.ntfns {
 			err := n.dispatchSpendDetails(ntfn, spendSet.details)
 			if err != nil {
@@ -1353,18 +1353,18 @@ func (n *TxNotifier) NotifyHeight(height uint32) error {
 	}
 
 	// Finally, we'll clear the entries from our set of notifications for
-	// transactions and outpoints that are no longer under the risk of being
-	// reorged out of the chain.
+	// requests that are no longer under the risk of being reorged out of
+	// the chain.
 	if height >= n.reorgSafetyLimit {
 		matureBlockHeight := height - n.reorgSafetyLimit
-		for tx := range n.txsByInitialHeight[matureBlockHeight] {
-			delete(n.confNotifications, tx)
+		for confRequest := range n.confsByInitialHeight[matureBlockHeight] {
+			delete(n.confNotifications, confRequest)
 		}
-		delete(n.txsByInitialHeight, matureBlockHeight)
-		for op := range n.opsBySpendHeight[matureBlockHeight] {
-			delete(n.spendNotifications, op)
+		delete(n.confsByInitialHeight, matureBlockHeight)
+		for spendRequest := range n.spendsByHeight[matureBlockHeight] {
+			delete(n.spendNotifications, spendRequest)
 		}
-		delete(n.opsBySpendHeight, matureBlockHeight)
+		delete(n.spendsByHeight, matureBlockHeight)
 	}
 
 	return nil

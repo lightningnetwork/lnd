@@ -2036,6 +2036,134 @@ func testChannelBalance(net *lntest.NetworkHarness, t *harnessTest) {
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 }
 
+// testChannelUnsettledBalance will test that the UnsettledBalance field
+// is updated according to the number of Pending Htlcs.
+// Alice will send Htlcs to Carol while she is in hodl mode. This will result
+// in a build of pending Htlcs. We expect the channels unsettled balance to
+// equal the sum of all the Pending Htlcs.
+func testChannelUnsettledBalance(net *lntest.NetworkHarness, t *harnessTest) {
+	const chanAmt = btcutil.Amount(1000000)
+	ctxb := context.Background()
+
+	// Create carol in hodl mode.
+	carol, err := net.NewNode("Carol", []string{
+		"--debughtlc",
+		"--hodl.exit-settle",
+	})
+	if err != nil {
+		t.Fatalf("unable to create new nodes: %v", err)
+	}
+	defer shutdownAndAssert(net, t, carol)
+
+	// Connect Alice to Carol.
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	if err := net.ConnectNodes(ctxb, net.Alice, carol); err != nil {
+		t.Fatalf("unable to connect alice to carol: %v", err)
+	}
+
+	// Open a channel between Alice and Carol.
+	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
+	chanPointAlice := openChannelAndAssert(
+		ctxt, t, net, net.Alice, carol,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
+	)
+
+	// Wait for Alice and Carol to receive the channel edge from the
+	// funding manager.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPointAlice)
+	if err != nil {
+		t.Fatalf("alice didn't see the alice->carol channel before "+
+			"timeout: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = carol.WaitForNetworkChannelOpen(ctxt, chanPointAlice)
+	if err != nil {
+		t.Fatalf("alice didn't see the alice->carol channel before "+
+			"timeout: %v", err)
+	}
+
+	// Channel should be ready for payments.
+	const (
+		payAmt      = 100
+		numInvoices = 6
+	)
+
+	// Create a paystream from Alice to Carol to enable Alice to make
+	// a series of payments.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	alicePayStream, err := net.Alice.SendPayment(ctxt)
+	if err != nil {
+		t.Fatalf("unable to create payment stream for alice: %v", err)
+	}
+
+	// Send payments from Alice to Carol a number of numInvoices
+	// times.
+	carolPubKey := carol.PubKey[:]
+	for i := 0; i < numInvoices; i++ {
+		err = alicePayStream.Send(&lnrpc.SendRequest{
+			Dest:           carolPubKey,
+			Amt:            int64(payAmt),
+			PaymentHash:    makeFakePayHash(t),
+			FinalCltvDelta: defaultBitcoinTimeLockDelta,
+		})
+		if err != nil {
+			t.Fatalf("unable to send alice htlc: %v", err)
+		}
+	}
+
+	// Test that the UnsettledBalance for both Alice and Carol
+	// is equal to the amount of invoices * payAmt.
+	var unsettledErr error
+	nodes := []*lntest.HarnessNode{net.Alice, carol}
+	err = lntest.WaitPredicate(func() bool {
+		// There should be a number of PendingHtlcs equal
+		// to the amount of Invoices sent.
+		unsettledErr = assertNumActiveHtlcs(nodes, numInvoices)
+		if unsettledErr != nil {
+			return false
+		}
+
+		// Set the amount expected for the Unsettled Balance for
+		// this channel.
+		expectedBalance := numInvoices * payAmt
+
+		// Check each nodes UnsettledBalance field.
+		for _, node := range nodes {
+			// Get channel info for the node.
+			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+			chanInfo, err := getChanInfo(ctxt, node)
+			if err != nil {
+				unsettledErr = err
+				return false
+			}
+
+			// Check that UnsettledBalance is what we expect.
+			if int(chanInfo.UnsettledBalance) != expectedBalance {
+				unsettledErr = fmt.Errorf("unsettled balance failed "+
+					"expected: %v, received: %v", expectedBalance,
+					chanInfo.UnsettledBalance)
+				return false
+			}
+		}
+
+		return true
+	}, defaultTimeout)
+	if err != nil {
+		t.Fatalf("unsettled balace error: %v", unsettledErr)
+	}
+
+	// Force and assert the channel closure.
+	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, true)
+
+	// Cleanup by mining the force close and sweep transaction.
+	cleanupForceClose(t, net, net.Alice, chanPointAlice)
+}
+
 // findForceClosedChannel searches a pending channel response for a particular
 // channel, returning the force closed channel upon success.
 func findForceClosedChannel(pendingChanResp *lnrpc.PendingChannelsResponse,
@@ -12290,6 +12418,10 @@ var testsCases = []*testCase{
 	{
 		name: "channel balance",
 		test: testChannelBalance,
+	},
+	{
+		name: "channel unsettled balance",
+		test: testChannelUnsettledBalance,
 	},
 	{
 		name: "single hop invoice",

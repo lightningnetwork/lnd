@@ -11,9 +11,9 @@ import (
 // createNewNotifier creates a new instance of the ChainNotifier interface
 // implemented by NeutrinoNotifier.
 func createNewNotifier(args ...interface{}) (chainntnfs.ChainNotifier, error) {
-	if len(args) != 2 {
+	if len(args) != 3 {
 		return nil, fmt.Errorf("incorrect number of arguments to "+
-			".New(...), expected 2, instead passed %v", len(args))
+			".New(...), expected 3, instead passed %v", len(args))
 	}
 
 	config, ok := args[0].(*neutrino.ChainService)
@@ -34,7 +34,7 @@ func createNewNotifier(args ...interface{}) (chainntnfs.ChainNotifier, error) {
 			"is  incorrect, expected a chainntfs.ConfirmHintCache")
 	}
 
-	return New(config, spendHintCache, confirmHintCache)
+	return New(config, spendHintCache, confirmHintCache), nil
 }
 
 // init registers a driver for the NeutrinoNotify concrete implementation of

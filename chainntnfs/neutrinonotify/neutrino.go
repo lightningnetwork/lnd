@@ -93,15 +93,16 @@ var _ chainntnfs.ChainNotifier = (*NeutrinoNotifier)(nil)
 // NOTE: The passed neutrino node should already be running and active before
 // being passed into this function.
 func New(node *neutrino.ChainService, spendHintCache chainntnfs.SpendHintCache,
-	confirmHintCache chainntnfs.ConfirmHintCache) (*NeutrinoNotifier, error) {
+	confirmHintCache chainntnfs.ConfirmHintCache) *NeutrinoNotifier {
 
-	notifier := &NeutrinoNotifier{
+	return &NeutrinoNotifier{
 		notificationCancels:  make(chan interface{}),
 		notificationRegistry: make(chan interface{}),
 
 		blockEpochClients: make(map[uint64]*blockEpochRegistration),
 
-		p2pNode: node,
+		p2pNode:   node,
+		chainConn: &NeutrinoChainConn{node},
 
 		rescanErr: make(chan error),
 
@@ -112,8 +113,6 @@ func New(node *neutrino.ChainService, spendHintCache chainntnfs.SpendHintCache,
 
 		quit: make(chan struct{}),
 	}
-
-	return notifier, nil
 }
 
 // Start contacts the running neutrino light client and kicks off an initial
@@ -132,8 +131,11 @@ func (n *NeutrinoNotifier) Start() error {
 	if err != nil {
 		return err
 	}
-
 	n.bestHeight = uint32(startingPoint.Height)
+	n.txNotifier = chainntnfs.NewTxNotifier(
+		n.bestHeight, chainntnfs.ReorgSafetyLimit, n.confirmHintCache,
+		n.spendHintCache,
+	)
 
 	// Next, we'll create our set of rescan options. Currently it's
 	// required that a user MUST set an addr/outpoint/txid when creating a
@@ -151,13 +153,6 @@ func (n *NeutrinoNotifier) Start() error {
 		),
 		neutrino.WatchInputs(zeroInput),
 	}
-
-	n.txNotifier = chainntnfs.NewTxNotifier(
-		n.bestHeight, chainntnfs.ReorgSafetyLimit, n.confirmHintCache,
-		n.spendHintCache,
-	)
-
-	n.chainConn = &NeutrinoChainConn{n.p2pNode}
 
 	// Finally, we'll create our rescan struct, start it, and launch all
 	// the goroutines we need to operate this ChainNotifier instance.

@@ -70,31 +70,41 @@ func (t TxConfStatus) String() string {
 type ChainNotifier interface {
 	// RegisterConfirmationsNtfn registers an intent to be notified once
 	// txid reaches numConfs confirmations. We also pass in the pkScript as
-	// the default light client instead needs to match on scripts created
-	// in the block. The returned ConfirmationEvent should properly notify
-	// the client once the specified number of confirmations has been
-	// reached for the txid, as well as if the original tx gets re-org'd
-	// out of the mainchain.  The heightHint parameter is provided as a
-	// convenience to light clients. The heightHint denotes the earliest
-	// height in the blockchain in which the target txid _could_ have been
-	// included in the chain.  This can be used to bound the search space
-	// when checking to see if a notification can immediately be dispatched
-	// due to historical data.
+	// the default light client instead needs to match on scripts created in
+	// the block. If a nil txid is passed in, then not only should we match
+	// on the script, but we should also dispatch once the transaction
+	// containing the script reaches numConfs confirmations. This can be
+	// useful in instances where we only know the script in advance, but not
+	// the transaction containing it.
+	//
+	// The returned ConfirmationEvent should properly notify the client once
+	// the specified number of confirmations has been reached for the txid,
+	// as well as if the original tx gets re-org'd out of the mainchain. The
+	// heightHint parameter is provided as a convenience to light clients.
+	// It heightHint denotes the earliest height in the blockchain in which
+	// the target txid _could_ have been included in the chain. This can be
+	// used to bound the search space when checking to see if a notification
+	// can immediately be dispatched due to historical data.
 	//
 	// NOTE: Dispatching notifications to multiple clients subscribed to
 	// the same (txid, numConfs) tuple MUST be supported.
-	RegisterConfirmationsNtfn(txid *chainhash.Hash, pkScript []byte, numConfs,
-		heightHint uint32) (*ConfirmationEvent, error)
+	RegisterConfirmationsNtfn(txid *chainhash.Hash, pkScript []byte,
+		numConfs, heightHint uint32) (*ConfirmationEvent, error)
 
 	// RegisterSpendNtfn registers an intent to be notified once the target
 	// outpoint is successfully spent within a transaction. The script that
 	// the outpoint creates must also be specified. This allows this
-	// interface to be implemented by BIP 158-like filtering. The returned
-	// SpendEvent will receive a send on the 'Spend' transaction once a
-	// transaction spending the input is detected on the blockchain.  The
-	// heightHint parameter is provided as a convenience to light clients.
-	// The heightHint denotes the earliest height in the blockchain in
-	// which the target output could have been created.
+	// interface to be implemented by BIP 158-like filtering. If a nil
+	// outpoint is passed in, then not only should we match on the script,
+	// but we should also dispatch once a transaction spends the output
+	// containing said script. This can be useful in instances where we only
+	// know the script in advance, but not the outpoint itself.
+	//
+	// The returned SpendEvent will receive a send on the 'Spend'
+	// transaction once a transaction spending the input is detected on the
+	// blockchain. The heightHint parameter is provided as a convenience to
+	// light clients. It denotes the earliest height in the blockchain in
+	// which the target output could have been spent.
 	//
 	// NOTE: The notification should only be triggered when the spending
 	// transaction receives a single confirmation.

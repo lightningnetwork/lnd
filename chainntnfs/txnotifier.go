@@ -187,6 +187,25 @@ func (r ConfRequest) ConfHintKey() ([]byte, error) {
 	return txid.Bytes(), nil
 }
 
+// MatchesTx determines whether the given transaction satisfies the confirmation
+// request. If the confirmation request is for a script, then we'll check all of
+// the outputs of the transaction to determine if it matches. Otherwise, we'll
+// match on the txid.
+func (r ConfRequest) MatchesTx(tx *wire.MsgTx) bool {
+	if r.TxID != ZeroHash {
+		return r.TxID == tx.TxHash()
+	}
+
+	pkScript := r.PkScript.Script()
+	for _, txOut := range tx.TxOut {
+		if bytes.Equal(txOut.PkScript, pkScript) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // ConfNtfn represents a notifier client's request to receive a notification
 // once the target transaction/ouput script gets sufficient confirmations. The
 // client is asynchronously notified via the ConfirmationEvent channels.

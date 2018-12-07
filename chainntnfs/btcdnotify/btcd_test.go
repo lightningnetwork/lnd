@@ -3,6 +3,7 @@
 package btcdnotify
 
 import (
+	"bytes"
 	"io/ioutil"
 	"testing"
 
@@ -10,6 +11,20 @@ import (
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+)
+
+var (
+	testScript = []byte{
+		// OP_HASH160
+		0xA9,
+		// OP_DATA_20
+		0x14,
+		// <20-byte hash>
+		0xec, 0x6f, 0x7a, 0x5a, 0xa8, 0xf2, 0xb1, 0x0c, 0xa5, 0x15,
+		0x04, 0x52, 0x3a, 0x60, 0xd4, 0x03, 0x06, 0xf6, 0x96, 0xcd,
+		// OP_EQUAL
+		0x87,
+	}
 )
 
 func initHintCache(t *testing.T) *chainntnfs.HeightHintCache {
@@ -64,8 +79,13 @@ func TestHistoricalConfDetailsTxIndex(t *testing.T) {
 	// A transaction unknown to the node should not be found within the
 	// txindex even if it is enabled, so we should not proceed with any
 	// fallback methods.
-	var zeroHash chainhash.Hash
-	_, txStatus, err := notifier.historicalConfDetails(&zeroHash, 0, 0)
+	var unknownHash chainhash.Hash
+	copy(unknownHash[:], bytes.Repeat([]byte{0x10}, 32))
+	unknownConfReq, err := chainntnfs.NewConfRequest(&unknownHash, testScript)
+	if err != nil {
+		t.Fatalf("unable to create conf request: %v", err)
+	}
+	_, txStatus, err := notifier.historicalConfDetails(unknownConfReq, 0, 0)
 	if err != nil {
 		t.Fatalf("unable to retrieve historical conf details: %v", err)
 	}
@@ -80,16 +100,20 @@ func TestHistoricalConfDetailsTxIndex(t *testing.T) {
 
 	// Now, we'll create a test transaction and attempt to retrieve its
 	// confirmation details.
-	txid, _, err := chainntnfs.GetTestTxidAndScript(harness)
+	txid, pkScript, err := chainntnfs.GetTestTxidAndScript(harness)
 	if err != nil {
 		t.Fatalf("unable to create tx: %v", err)
 	}
 	if err := chainntnfs.WaitForMempoolTx(harness, txid); err != nil {
 		t.Fatalf("unable to find tx in the mempool: %v", err)
 	}
+	confReq, err := chainntnfs.NewConfRequest(txid, pkScript)
+	if err != nil {
+		t.Fatalf("unable to create conf request: %v", err)
+	}
 
 	// The transaction should be found in the mempool at this point.
-	_, txStatus, err = notifier.historicalConfDetails(txid, 0, 0)
+	_, txStatus, err = notifier.historicalConfDetails(confReq, 0, 0)
 	if err != nil {
 		t.Fatalf("unable to retrieve historical conf details: %v", err)
 	}
@@ -109,7 +133,7 @@ func TestHistoricalConfDetailsTxIndex(t *testing.T) {
 		t.Fatalf("unable to generate block: %v", err)
 	}
 
-	_, txStatus, err = notifier.historicalConfDetails(txid, 0, 0)
+	_, txStatus, err = notifier.historicalConfDetails(confReq, 0, 0)
 	if err != nil {
 		t.Fatalf("unable to retrieve historical conf details: %v", err)
 	}
@@ -139,8 +163,13 @@ func TestHistoricalConfDetailsNoTxIndex(t *testing.T) {
 	// Since the node has its txindex disabled, we fall back to scanning the
 	// chain manually. A transaction unknown to the network should not be
 	// found.
-	var zeroHash chainhash.Hash
-	_, txStatus, err := notifier.historicalConfDetails(&zeroHash, 0, 0)
+	var unknownHash chainhash.Hash
+	copy(unknownHash[:], bytes.Repeat([]byte{0x10}, 32))
+	unknownConfReq, err := chainntnfs.NewConfRequest(&unknownHash, testScript)
+	if err != nil {
+		t.Fatalf("unable to create conf request: %v", err)
+	}
+	_, txStatus, err := notifier.historicalConfDetails(unknownConfReq, 0, 0)
 	if err != nil {
 		t.Fatalf("unable to retrieve historical conf details: %v", err)
 	}
@@ -161,15 +190,19 @@ func TestHistoricalConfDetailsNoTxIndex(t *testing.T) {
 		t.Fatalf("unable to retrieve current height: %v", err)
 	}
 
-	txid, _, err := chainntnfs.GetTestTxidAndScript(harness)
+	txid, pkScript, err := chainntnfs.GetTestTxidAndScript(harness)
 	if err != nil {
 		t.Fatalf("unable to create tx: %v", err)
 	}
 	if err := chainntnfs.WaitForMempoolTx(harness, txid); err != nil {
 		t.Fatalf("unable to find tx in the mempool: %v", err)
 	}
+	confReq, err := chainntnfs.NewConfRequest(txid, pkScript)
+	if err != nil {
+		t.Fatalf("unable to create conf request: %v", err)
+	}
 
-	_, txStatus, err = notifier.historicalConfDetails(txid, 0, 0)
+	_, txStatus, err = notifier.historicalConfDetails(confReq, 0, 0)
 	if err != nil {
 		t.Fatalf("unable to retrieve historical conf details: %v", err)
 	}
@@ -188,7 +221,7 @@ func TestHistoricalConfDetailsNoTxIndex(t *testing.T) {
 	}
 
 	_, txStatus, err = notifier.historicalConfDetails(
-		txid, uint32(currentHeight), uint32(currentHeight)+1,
+		confReq, uint32(currentHeight), uint32(currentHeight)+1,
 	)
 	if err != nil {
 		t.Fatalf("unable to retrieve historical conf details: %v", err)

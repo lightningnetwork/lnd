@@ -870,9 +870,11 @@ func (n *TxNotifier) CancelSpend(spendRequest SpendRequest, spendID uint64) {
 
 // ProcessRelevantSpendTx processes a transaction provided externally. This will
 // check whether the transaction is relevant to the notifier if it spends any
-// outputs for which we currently have registered notifications for. If it is
-// relevant, spend notifications will be dispatched to the caller.
-func (n *TxNotifier) ProcessRelevantSpendTx(tx *wire.MsgTx, txHeight int32) error {
+// outpoints/output scripts for which we currently have registered notifications
+// for. If it is relevant, spend notifications will be dispatched to the caller.
+func (n *TxNotifier) ProcessRelevantSpendTx(tx *btcutil.Tx,
+	blockHeight uint32) error {
+
 	select {
 	case <-n.quit:
 		return ErrTxNotifierExiting
@@ -884,31 +886,26 @@ func (n *TxNotifier) ProcessRelevantSpendTx(tx *wire.MsgTx, txHeight int32) erro
 	n.Lock()
 	defer n.Unlock()
 
-	// Grab the set of active registered outpoints to determine if the
-	// transaction spends any of them.
-	spendNtfns := n.spendNotifications
+	// We'll use a channel to coalesce all the spend requests that this
+	// transaction fulfills.
+	type spend struct {
+		request *SpendRequest
+		details *SpendDetail
+	}
 
-	// We'll check if this transaction spends an output that has an existing
-	// spend notification for it.
-	for i, txIn := range tx.TxIn {
-		// If this input doesn't spend an existing registered outpoint,
-		// we'll go on to the next.
-		prevOut := txIn.PreviousOutPoint
-		if _, ok := spendNtfns[prevOut]; !ok {
-			continue
-		}
+	// We'll set up the onSpend filter callback to gather all the fulfilled
+	// spends requests within this transaction.
+	var spends []spend
+	onSpend := func(request SpendRequest, details *SpendDetail) {
+		spends = append(spends, spend{&request, details})
+	}
+	n.filterTx(tx, nil, blockHeight, nil, onSpend)
 
-		// Otherwise, we'll create a spend summary and send off the
-		// details to the notification subscribers.
-		txHash := tx.TxHash()
-		details := &SpendDetail{
-			SpentOutPoint:     &prevOut,
-			SpenderTxHash:     &txHash,
-			SpendingTx:        tx,
-			SpenderInputIndex: uint32(i),
-			SpendingHeight:    txHeight,
-		}
-		if err := n.updateSpendDetails(prevOut, details); err != nil {
+	// After the transaction has been filtered, we can finally dispatch
+	// notifications for each request.
+	for _, spend := range spends {
+		err := n.updateSpendDetails(*spend.request, spend.details)
+		if err != nil {
 			return err
 		}
 	}

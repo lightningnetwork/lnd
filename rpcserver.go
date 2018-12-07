@@ -129,6 +129,10 @@ var (
 			Entity: "invoices",
 			Action: "write",
 		},
+		{
+			Entity: "signer",
+			Action: "generate",
+		},
 	}
 
 	// invoicePermissions is a slice of all the entities that allows a user

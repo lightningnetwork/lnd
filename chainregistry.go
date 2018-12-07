@@ -256,12 +256,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 		// Next we'll create the instances of the ChainNotifier and
 		// FilteredChainView interface which is backed by the neutrino
 		// light client.
-		cc.chainNotifier, err = neutrinonotify.New(
-			svc, hintCache, hintCache,
-		)
-		if err != nil {
-			return nil, nil, err
-		}
+		cc.chainNotifier = neutrinonotify.New(svc, hintCache, hintCache)
 		cc.chainView, err = chainview.NewCfFilteredChainView(svc)
 		if err != nil {
 			return nil, nil, err
@@ -336,7 +331,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 		}
 
 		cc.chainNotifier = bitcoindnotify.New(
-			bitcoindConn, hintCache, hintCache,
+			bitcoindConn, activeNetParams.Params, hintCache, hintCache,
 		)
 		cc.chainView = chainview.NewBitcoindFilteredChainView(bitcoindConn)
 		walletConfig.ChainSource = bitcoindConn.NewBitcoindClient()
@@ -446,7 +441,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			DisableAutoReconnect: false,
 		}
 		cc.chainNotifier, err = btcdnotify.New(
-			rpcConfig, hintCache, hintCache,
+			rpcConfig, activeNetParams.Params, hintCache, hintCache,
 		)
 		if err != nil {
 			return nil, nil, err

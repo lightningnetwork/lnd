@@ -1777,14 +1777,16 @@ func TestInterfaces(t *testing.T) {
 			)
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
 				return bitcoindnotify.New(
-					bitcoindConn, hintCache, hintCache,
+					bitcoindConn, chainntnfs.NetParams,
+					hintCache, hintCache,
 				), nil
 			}
 
 		case "btcd":
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
 				return btcdnotify.New(
-					&rpcConfig, hintCache, hintCache,
+					&rpcConfig, chainntnfs.NetParams,
+					hintCache, hintCache,
 				)
 			}
 
@@ -1796,7 +1798,7 @@ func TestInterfaces(t *testing.T) {
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
 				return neutrinonotify.New(
 					spvNode, hintCache, hintCache,
-				)
+				), nil
 			}
 		}
 

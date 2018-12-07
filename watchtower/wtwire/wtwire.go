@@ -148,12 +148,12 @@ func ReadElement(r io.Reader, element interface{}) error {
 
 	case *[32]byte:
 		if _, err := io.ReadFull(r, e[:]); err != nil {
-
+			return err
 		}
 
 	case *[33]byte:
 		if _, err := io.ReadFull(r, e[:]); err != nil {
-
+			return err
 		}
 
 	case *[]byte:

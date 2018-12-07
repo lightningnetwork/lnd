@@ -37,7 +37,7 @@ func setUpNotifier(t *testing.T, h *rpctest.Harness) *BtcdNotifier {
 	hintCache := initHintCache(t)
 
 	rpcCfg := h.RPCConfig()
-	notifier, err := New(&rpcCfg, hintCache, hintCache)
+	notifier, err := New(&rpcCfg, chainntnfs.NetParams, hintCache, hintCache)
 	if err != nil {
 		t.Fatalf("unable to create notifier: %v", err)
 	}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcjson"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
@@ -64,7 +65,8 @@ type BtcdNotifier struct {
 	started int32 // To be used atomically.
 	stopped int32 // To be used atomically.
 
-	chainConn *rpcclient.Client
+	chainConn   *rpcclient.Client
+	chainParams *chaincfg.Params
 
 	notificationCancels  chan interface{}
 	notificationRegistry chan interface{}
@@ -98,10 +100,13 @@ var _ chainntnfs.ChainNotifier = (*BtcdNotifier)(nil)
 // New returns a new BtcdNotifier instance. This function assumes the btcd node
 // detailed in the passed configuration is already running, and willing to
 // accept new websockets clients.
-func New(config *rpcclient.ConnConfig, spendHintCache chainntnfs.SpendHintCache,
+func New(config *rpcclient.ConnConfig, chainParams *chaincfg.Params,
+	spendHintCache chainntnfs.SpendHintCache,
 	confirmHintCache chainntnfs.ConfirmHintCache) (*BtcdNotifier, error) {
 
 	notifier := &BtcdNotifier{
+		chainParams: chainParams,
+
 		notificationCancels:  make(chan interface{}),
 		notificationRegistry: make(chan interface{}),
 

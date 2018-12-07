@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/btcsuite/btcd/btcjson"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
@@ -58,7 +59,8 @@ type BitcoindNotifier struct {
 	started int32 // To be used atomically.
 	stopped int32 // To be used atomically.
 
-	chainConn *chain.BitcoindClient
+	chainConn   *chain.BitcoindClient
+	chainParams *chaincfg.Params
 
 	notificationCancels  chan interface{}
 	notificationRegistry chan interface{}
@@ -88,12 +90,15 @@ type BitcoindNotifier struct {
 var _ chainntnfs.ChainNotifier = (*BitcoindNotifier)(nil)
 
 // New returns a new BitcoindNotifier instance. This function assumes the
-// bitcoind node  detailed in the passed configuration is already running, and
+// bitcoind node detailed in the passed configuration is already running, and
 // willing to accept RPC requests and new zmq clients.
-func New(chainConn *chain.BitcoindConn, spendHintCache chainntnfs.SpendHintCache,
+func New(chainConn *chain.BitcoindConn, chainParams *chaincfg.Params,
+	spendHintCache chainntnfs.SpendHintCache,
 	confirmHintCache chainntnfs.ConfirmHintCache) *BitcoindNotifier {
 
 	notifier := &BitcoindNotifier{
+		chainParams: chainParams,
+
 		notificationCancels:  make(chan interface{}),
 		notificationRegistry: make(chan interface{}),
 

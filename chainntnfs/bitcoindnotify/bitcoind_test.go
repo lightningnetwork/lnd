@@ -41,7 +41,10 @@ func setUpNotifier(t *testing.T, bitcoindConn *chain.BitcoindConn,
 
 	t.Helper()
 
-	notifier := New(bitcoindConn, spendHintCache, confirmHintCache)
+	notifier := New(
+		bitcoindConn, chainntnfs.NetParams, spendHintCache,
+		confirmHintCache,
+	)
 	if err := notifier.Start(); err != nil {
 		t.Fatalf("unable to start notifier: %v", err)
 	}

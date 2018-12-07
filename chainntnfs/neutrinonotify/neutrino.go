@@ -288,7 +288,7 @@ out:
 					defer n.wg.Done()
 
 					confDetails, err := n.historicalConfDetails(
-						msg.TxID, msg.PkScript,
+						msg.ConfRequest,
 						msg.StartHeight, msg.EndHeight,
 					)
 					if err != nil {
@@ -303,7 +303,7 @@ out:
 					// cache at tip, since any pending
 					// rescans have now completed.
 					err = n.txNotifier.UpdateConfDetails(
-						*msg.TxID, confDetails,
+						msg.ConfRequest, confDetails,
 					)
 					if err != nil {
 						chainntnfs.Log.Error(err)
@@ -447,15 +447,14 @@ out:
 	}
 }
 
-// historicalConfDetails looks up whether a transaction is already included in
-// a block in the active chain and, if so, returns details about the
-// confirmation.
-func (n *NeutrinoNotifier) historicalConfDetails(targetHash *chainhash.Hash,
-	pkScript []byte,
+// historicalConfDetails looks up whether a confirmation request (txid/output
+// script) has already been included in a block in the active chain and, if so,
+// returns details about said block.
+func (n *NeutrinoNotifier) historicalConfDetails(confRequest chainntnfs.ConfRequest,
 	startHeight, endHeight uint32) (*chainntnfs.TxConfirmation, error) {
 
 	// Starting from the height hint, we'll walk forwards in the chain to
-	// see if this transaction has already been confirmed.
+	// see if this transaction/output script has already been confirmed.
 	for scanHeight := endHeight; scanHeight >= startHeight && scanHeight > 0; scanHeight-- {
 		// Ensure we haven't been requested to shut down before
 		// processing the next height.
@@ -493,7 +492,7 @@ func (n *NeutrinoNotifier) historicalConfDetails(targetHash *chainhash.Hash,
 		// In the case that the filter exists, we'll attempt to see if
 		// any element in it matches our target public key script.
 		key := builder.DeriveKey(blockHash)
-		match, err := regFilter.Match(key, pkScript)
+		match, err := regFilter.Match(key, confRequest.PkScript.Script())
 		if err != nil {
 			return nil, fmt.Errorf("unable to query filter: %v", err)
 		}
@@ -511,16 +510,20 @@ func (n *NeutrinoNotifier) historicalConfDetails(targetHash *chainhash.Hash,
 		if err != nil {
 			return nil, fmt.Errorf("unable to get block from network: %v", err)
 		}
-		for j, tx := range block.Transactions() {
-			txHash := tx.Hash()
-			if txHash.IsEqual(targetHash) {
-				confDetails := chainntnfs.TxConfirmation{
-					BlockHash:   blockHash,
-					BlockHeight: scanHeight,
-					TxIndex:     uint32(j),
-				}
-				return &confDetails, nil
+
+		// For every transaction in the block, check which one matches
+		// our request. If we find one that does, we can dispatch its
+		// confirmation details.
+		for i, tx := range block.Transactions() {
+			if !confRequest.MatchesTx(tx.MsgTx()) {
+				continue
 			}
+
+			return &chainntnfs.TxConfirmation{
+				BlockHash:   blockHash,
+				BlockHeight: scanHeight,
+				TxIndex:     uint32(i),
+			}, nil
 		}
 	}
 
@@ -721,38 +724,43 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	return ntfn.Event, nil
 }
 
-// RegisterConfirmationsNtfn registers a notification with NeutrinoNotifier
-// which will be triggered once the txid reaches numConfs number of
-// confirmations.
+// RegisterConfirmationsNtfn registers an intent to be notified once the target
+// txid/output script has reached numConfs confirmations on-chain. When
+// intending to be notified of the confirmation of an output script, a nil txid
+// must be used. The heightHint should represent the earliest height at which
+// the txid/output script could have been included in the chain.
+//
+// Progress on the number of confirmations left can be read from the 'Updates'
+// channel. Once it has reached all of its confirmations, a notification will be
+// sent across the 'Confirmed' channel.
 func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	pkScript []byte,
 	numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
 
 	// Construct a notification request for the transaction and send it to
 	// the main event loop.
+	confRequest, err := chainntnfs.NewConfRequest(txid, pkScript)
+	if err != nil {
+		return nil, err
+	}
 	ntfn := &chainntnfs.ConfNtfn{
 		ConfID:           atomic.AddUint64(&n.confClientCounter, 1),
-		TxID:             txid,
-		PkScript:         pkScript,
+		ConfRequest:      confRequest,
 		NumConfirmations: numConfs,
 		Event:            chainntnfs.NewConfirmationEvent(numConfs),
 		HeightHint:       heightHint,
 	}
 
-	chainntnfs.Log.Infof("New confirmation subscription: "+
-		"txid=%v, numconfs=%v", txid, numConfs)
+	chainntnfs.Log.Infof("New confirmation subscription: %v, num_confs=%v",
+		confRequest, numConfs)
 
 	// Register the conf notification with the TxNotifier. A non-nil value
 	// for `dispatch` will be returned if we are required to perform a
 	// manual scan for the confirmation. Otherwise the notifier will begin
 	// watching at tip for the transaction to confirm.
-	dispatch, err := n.txNotifier.RegisterConf(ntfn)
+	dispatch, txNotifierTip, err := n.txNotifier.RegisterConf(ntfn)
 	if err != nil {
 		return nil, err
-	}
-
-	if dispatch == nil {
-		return ntfn.Event, nil
 	}
 
 	// To determine whether this transaction has confirmed on-chain, we'll
@@ -765,7 +773,9 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	// type so we can instruct neutrino to match if the transaction
 	// containing the script is found in a block.
 	params := n.p2pNode.ChainParams()
-	_, addrs, _, err := txscript.ExtractPkScriptAddrs(pkScript, &params)
+	_, addrs, _, err := txscript.ExtractPkScriptAddrs(
+		confRequest.PkScript.Script(), &params,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to extract script: %v", err)
 	}
@@ -777,7 +787,7 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	case n.notificationRegistry <- &rescanFilterUpdate{
 		updateOptions: []neutrino.UpdateOption{
 			neutrino.AddAddrs(addrs...),
-			neutrino.Rewind(dispatch.EndHeight),
+			neutrino.Rewind(txNotifierTip),
 			neutrino.DisableDisconnectedNtfns(true),
 		},
 		errChan: errChan,
@@ -795,7 +805,13 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 		return nil, fmt.Errorf("unable to update filter: %v", err)
 	}
 
-	// Finally, with the filter updates, we can dispatch the historical
+	// If a historical rescan was not requested by the txNotifier, then we
+	// can return to the caller.
+	if dispatch == nil {
+		return ntfn.Event, nil
+	}
+
+	// Finally, with the filter updated, we can dispatch the historical
 	// rescan to ensure we can detect if the event happened in the past.
 	select {
 	case n.notificationRegistry <- dispatch:

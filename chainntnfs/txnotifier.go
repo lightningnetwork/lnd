@@ -1,6 +1,7 @@
 package chainntnfs
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"sync"
@@ -8,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/channeldb"
 )
 
 const (
@@ -165,6 +167,21 @@ func (r ConfRequest) String() string {
 	return fmt.Sprintf("script=%v", r.PkScript)
 }
 
+// ConfHintKey returns the key that will be used to index the confirmation
+// request's hint within the height hint cache.
+func (r ConfRequest) ConfHintKey() ([]byte, error) {
+	if r.TxID == ZeroHash {
+		return r.PkScript.Script(), nil
+	}
+
+	var txid bytes.Buffer
+	if err := channeldb.WriteElement(&txid, r.TxID); err != nil {
+		return nil, err
+	}
+
+	return txid.Bytes(), nil
+}
+
 // ConfNtfn represents a notifier client's request to receive a notification
 // once the target transaction gets sufficient confirmations. The client is
 // asynchronously notified via the ConfirmationEvent channels.
@@ -263,6 +280,22 @@ func (r SpendRequest) String() string {
 		return fmt.Sprintf("outpoint=%v", r.OutPoint)
 	}
 	return fmt.Sprintf("script=%v", r.PkScript)
+}
+
+// SpendHintKey returns the key that will be used to index the spend request's
+// hint within the height hint cache.
+func (r SpendRequest) SpendHintKey() ([]byte, error) {
+	if r.OutPoint == ZeroOutPoint {
+		return r.PkScript.Script(), nil
+	}
+
+	var outpoint bytes.Buffer
+	err := channeldb.WriteElement(&outpoint, r.OutPoint)
+	if err != nil {
+		return nil, err
+	}
+
+	return outpoint.Bytes(), nil
 }
 
 // SpendNtfn represents a client's request to receive a notification once an

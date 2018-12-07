@@ -17,29 +17,31 @@ var (
 
 type mockHintCache struct {
 	mu         sync.Mutex
-	confHints  map[chainhash.Hash]uint32
-	spendHints map[wire.OutPoint]uint32
+	confHints  map[chainntnfs.ConfRequest]uint32
+	spendHints map[chainntnfs.SpendRequest]uint32
 }
 
 var _ chainntnfs.SpendHintCache = (*mockHintCache)(nil)
 var _ chainntnfs.ConfirmHintCache = (*mockHintCache)(nil)
 
-func (c *mockHintCache) CommitSpendHint(heightHint uint32, ops ...wire.OutPoint) error {
+func (c *mockHintCache) CommitSpendHint(heightHint uint32,
+	spendRequests ...chainntnfs.SpendRequest) error {
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	for _, op := range ops {
-		c.spendHints[op] = heightHint
+	for _, spendRequest := range spendRequests {
+		c.spendHints[spendRequest] = heightHint
 	}
 
 	return nil
 }
 
-func (c *mockHintCache) QuerySpendHint(op wire.OutPoint) (uint32, error) {
+func (c *mockHintCache) QuerySpendHint(spendRequest chainntnfs.SpendRequest) (uint32, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	hint, ok := c.spendHints[op]
+	hint, ok := c.spendHints[spendRequest]
 	if !ok {
 		return 0, chainntnfs.ErrSpendHintNotFound
 	}
@@ -47,33 +49,35 @@ func (c *mockHintCache) QuerySpendHint(op wire.OutPoint) (uint32, error) {
 	return hint, nil
 }
 
-func (c *mockHintCache) PurgeSpendHint(ops ...wire.OutPoint) error {
+func (c *mockHintCache) PurgeSpendHint(spendRequests ...chainntnfs.SpendRequest) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	for _, op := range ops {
-		delete(c.spendHints, op)
+	for _, spendRequest := range spendRequests {
+		delete(c.spendHints, spendRequest)
 	}
 
 	return nil
 }
 
-func (c *mockHintCache) CommitConfirmHint(heightHint uint32, txids ...chainhash.Hash) error {
+func (c *mockHintCache) CommitConfirmHint(heightHint uint32,
+	confRequests ...chainntnfs.ConfRequest) error {
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	for _, txid := range txids {
-		c.confHints[txid] = heightHint
+	for _, confRequest := range confRequests {
+		c.confHints[confRequest] = heightHint
 	}
 
 	return nil
 }
 
-func (c *mockHintCache) QueryConfirmHint(txid chainhash.Hash) (uint32, error) {
+func (c *mockHintCache) QueryConfirmHint(confRequest chainntnfs.ConfRequest) (uint32, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	hint, ok := c.confHints[txid]
+	hint, ok := c.confHints[confRequest]
 	if !ok {
 		return 0, chainntnfs.ErrConfirmHintNotFound
 	}
@@ -81,12 +85,12 @@ func (c *mockHintCache) QueryConfirmHint(txid chainhash.Hash) (uint32, error) {
 	return hint, nil
 }
 
-func (c *mockHintCache) PurgeConfirmHint(txids ...chainhash.Hash) error {
+func (c *mockHintCache) PurgeConfirmHint(confRequests ...chainntnfs.ConfRequest) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	for _, txid := range txids {
-		delete(c.confHints, txid)
+	for _, confRequest := range confRequests {
+		delete(c.confHints, confRequest)
 	}
 
 	return nil
@@ -94,8 +98,8 @@ func (c *mockHintCache) PurgeConfirmHint(txids ...chainhash.Hash) error {
 
 func newMockHintCache() *mockHintCache {
 	return &mockHintCache{
-		confHints:  make(map[chainhash.Hash]uint32),
-		spendHints: make(map[wire.OutPoint]uint32),
+		confHints:  make(map[chainntnfs.ConfRequest]uint32),
+		spendHints: make(map[chainntnfs.SpendRequest]uint32),
 	}
 }
 

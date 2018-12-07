@@ -1,0 +1,122 @@
+syntax = "proto3";
+
+import "github.com/lightningnetwork/lnd/lnrpc/signrpc/signer.proto";
+
+package walletrpc;
+
+message KeyReq {
+    /**
+    Is the key finger print of the root pubkey that this request is targeting.
+    This allows the WalletKit to possibly serve out keys for multiple HD chains
+    via public derivation.
+    */
+    int32 key_finger_print = 1;
+
+    /**
+    The target key family to derive a key from. In other contexts, this is
+    known as the "account".
+    */
+    int32 key_family = 2;
+}
+
+message AddrRequest{
+    // No fields, as we always give out a p2wkh address.
+}
+message AddrResponse {
+    /**
+    The address encoded using a bech32 format.
+    */
+    string addr = 1;
+}
+
+message Transaction {
+    /**
+    The raw serialized transaction.
+    */
+    bytes tx_hex = 1;
+}
+message PublishResponse {
+    /**
+    If blank, then no error occurred and the transaction was successfully
+    published. If not the empty string, then a string representation of the
+    broadcast error.
+
+    TODO(roasbeef): map to a proper enum type
+    */
+    string publish_error = 1;
+}
+
+message SendOutputsRequest {
+    /**
+    The number of satoshis per kilo weight that should be used when crafting
+    this transaction.
+    */
+    int64 sat_per_kw = 1;
+
+    /**
+    A slice of the outputs that should be created in the transaction produced.
+    */
+    repeated signrpc.TxOut outputs = 2;
+}
+message SendOutputsResponse {
+    /**
+    The serialized transaction sent out on the network.
+    */
+    bytes raw_tx = 1;
+}
+
+message EstimateFeeRequest {
+    /**
+    The number of confirmations to shoot for when estimating the fee.
+    */
+    int32 conf_target = 1;
+}
+message EstimateFeeResponse {
+    /**
+    The amount of satoshis per kw that should be used in order to reach the
+    confirmation target in the request.
+    */
+    int64 sat_per_kw = 1;
+}
+
+service WalletKit {
+    /**
+    DeriveNextKey attempts to derive the *next* key within the key family
+    (account in BIP43) specified. This method should return the next external
+    child within this branch.
+    */
+    rpc DeriveNextKey(KeyReq) returns (signrpc.KeyDescriptor);
+
+    /**
+    DeriveKey attempts to derive an arbitrary key specified by the passed
+    KeyLocator. 
+    */
+    rpc DeriveKey(signrpc.KeyLocator) returns (signrpc.KeyDescriptor);
+
+    /**
+    NextAddr returns the next unused address within the wallet.
+    */
+    rpc NextAddr(AddrRequest) returns (AddrResponse);
+
+    /**
+    PublishTransaction attempts to publish the passed transaction to the
+    network. Once this returns without an error, the wallet will continually
+    attempt to re-broadcast the transaction on start up, until it enters the
+    chain.
+    */
+    rpc PublishTransaction(Transaction) returns (PublishResponse);
+
+    /**
+    SendOutputs is similar to the existing sendmany call in Bitcoind, and
+    allows the caller to create a transaction that sends to several outputs at
+    once. This is ideal when wanting to batch create a set of transactions.
+    */
+    rpc SendOutputs(SendOutputsRequest) returns (SendOutputsResponse);
+
+    /**
+    EstimateFee attempts to query the internal fee estimator of the wallet to
+    determine the fee (in sat/kw) to attach to a transaction in order to
+    achieve the confirmation target.
+    */
+    rpc EstimateFee(EstimateFeeRequest) returns (EstimateFeeResponse);
+}

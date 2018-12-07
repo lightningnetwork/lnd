@@ -197,7 +197,7 @@ func TestHistoricalConfDetailsTxIndex(t *testing.T) {
 // historical confirmation details using the set of fallback methods when the
 // backend node's txindex is disabled.
 func TestHistoricalConfDetailsNoTxIndex(t *testing.T) {
-	miner, tearDown := chainntnfs.NewMiner(t, nil, true, 400)
+	miner, tearDown := chainntnfs.NewMiner(t, nil, true, 25)
 	defer tearDown()
 
 	bitcoindConn, cleanUp := chainntnfs.NewBitcoindBackend(

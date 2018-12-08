@@ -2435,6 +2435,10 @@ type ChannelEdgePolicy struct {
 	// in millisatoshi.
 	MinHTLC lnwire.MilliSatoshi
 
+	// MaxHTLC is the largest value HTLC this node will accept, expressed
+	// in millisatoshi.
+	MaxHTLC lnwire.MilliSatoshi
+
 	// FeeBaseMSat is the base HTLC fee that will be charged for forwarding
 	// ANY HTLC, expressed in mSAT's.
 	FeeBaseMSat lnwire.MilliSatoshi
@@ -3201,6 +3205,9 @@ func putChanEdgePolicy(edges, nodes *bbolt.Bucket, edge *ChannelEdgePolicy,
 	if err := binary.Write(&b, byteOrder, uint64(edge.FeeProportionalMillionths)); err != nil {
 		return err
 	}
+	if err := binary.Write(&b, byteOrder, uint64(edge.MaxHTLC)); err != nil {
+		return err
+	}
 
 	if _, err := b.Write(to); err != nil {
 		return err
@@ -3385,6 +3392,11 @@ func deserializeChanEdgePolicy(r io.Reader,
 		return nil, err
 	}
 	edge.FeeProportionalMillionths = lnwire.MilliSatoshi(n)
+
+	if err := binary.Read(r, byteOrder, &n); err != nil {
+		return nil, err
+	}
+	edge.MaxHTLC = lnwire.MilliSatoshi(n)
 
 	var pub [33]byte
 	if _, err := r.Read(pub[:]); err != nil {

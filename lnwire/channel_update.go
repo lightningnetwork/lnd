@@ -80,6 +80,9 @@ type ChannelUpdate struct {
 	// satoshi.
 	FeeRate uint32
 
+	// HtlcMaximumMsat is the maximum HTLC value which will be accepted.
+	HtlcMaximumMsat MilliSatoshi
+
 	// ExtraOpaqueData is the set of data that was appended to this
 	// message, some of which we may not actually know how to iterate or
 	// parse. By holding onto this data, we ensure that we're able to
@@ -114,6 +117,13 @@ func (a *ChannelUpdate) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
+	// Now check whether the max HTLC field is present and read it if so.
+	if a.MessageFlags != 0 {
+		if err := ReadElements(r, &a.HtlcMaximumMsat); err != nil {
+			return err
+		}
+	}
+
 	// Now that we've read out all the fields that we explicitly know of,
 	// we'll collect the remainder into the ExtraOpaqueData field. If there
 	// aren't any bytes, then we'll snip off the slice to avoid carrying
@@ -134,7 +144,7 @@ func (a *ChannelUpdate) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (a *ChannelUpdate) Encode(w io.Writer, pver uint32) error {
-	return WriteElements(w,
+	elements := []interface{}{
 		a.Signature,
 		a.ChainHash[:],
 		a.ShortChannelID,
@@ -145,8 +155,18 @@ func (a *ChannelUpdate) Encode(w io.Writer, pver uint32) error {
 		a.HtlcMinimumMsat,
 		a.BaseFee,
 		a.FeeRate,
-		a.ExtraOpaqueData,
-	)
+	}
+
+	// Now append optional fields if they are set. Currently, the only
+	// optional field is max HTLC.
+	if a.HtlcMaximumMsat != 0 {
+		elements = append(elements, a.HtlcMaximumMsat)
+	}
+
+	// Finally, append any extra opaque data.
+	elements = append(elements, a.ExtraOpaqueData)
+
+	return WriteElements(w, elements...)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the
@@ -181,6 +201,7 @@ func (a *ChannelUpdate) DataToSign() ([]byte, error) {
 		a.HtlcMinimumMsat,
 		a.BaseFee,
 		a.FeeRate,
+		a.HtlcMaximumMsat,
 		a.ExtraOpaqueData,
 	)
 	if err != nil {

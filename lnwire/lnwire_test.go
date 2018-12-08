@@ -612,6 +612,7 @@ func TestLightningWireProtocol(t *testing.T) {
 				MessageFlags:    ChanUpdateFlag(r.Int31()),
 				TimeLockDelta:   uint16(r.Int31()),
 				HtlcMinimumMsat: MilliSatoshi(r.Int63()),
+				HtlcMaximumMsat: MilliSatoshi(r.Int63()),
 				BaseFee:         uint32(r.Int31()),
 				FeeRate:         uint32(r.Int31()),
 			}

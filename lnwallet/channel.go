@@ -6336,3 +6336,9 @@ func (lc *LightningChannel) RemoteCommitHeight() uint64 {
 func (lc *LightningChannel) FwdMinHtlc() lnwire.MilliSatoshi {
 	return lc.localChanCfg.MinHTLC
 }
+
+// MaxPendingAmount returns the maximum HTLC value that can be pending at
+// any time over this channel.
+func (lc *LightningChannel) MaxPendingAmount() lnwire.MilliSatoshi {
+	return lc.localChanCfg.MaxPendingAmount
+}

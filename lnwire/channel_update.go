@@ -80,6 +80,9 @@ type ChannelUpdate struct {
 	// satoshi.
 	FeeRate uint32
 
+	// HtlcMaximumMsat is the maximum HTLC value which will be accepted.
+	HtlcMaximumMsat MilliSatoshi
+
 	// ExtraOpaqueData is the set of data that was appended to this
 	// message, some of which we may not actually know how to iterate or
 	// parse. By holding onto this data, we ensure that we're able to
@@ -109,6 +112,7 @@ func (a *ChannelUpdate) Decode(r io.Reader, pver uint32) error {
 		&a.HtlcMinimumMsat,
 		&a.BaseFee,
 		&a.FeeRate,
+		&a.HtlcMaximumMsat,
 	)
 	if err != nil {
 		return err
@@ -145,6 +149,7 @@ func (a *ChannelUpdate) Encode(w io.Writer, pver uint32) error {
 		a.HtlcMinimumMsat,
 		a.BaseFee,
 		a.FeeRate,
+		a.HtlcMaximumMsat,
 		a.ExtraOpaqueData,
 	)
 }
@@ -181,6 +186,7 @@ func (a *ChannelUpdate) DataToSign() ([]byte, error) {
 		a.HtlcMinimumMsat,
 		a.BaseFee,
 		a.FeeRate,
+		a.HtlcMaximumMsat,
 		a.ExtraOpaqueData,
 	)
 	if err != nil {

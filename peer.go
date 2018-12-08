@@ -1670,15 +1670,17 @@ out:
 				continue
 			}
 
-			// We'll query the localChanCfg of the new channel to
-			// determine the minimum HTLC value that can be
-			// forwarded. For fees we'll use the default values, as
-			// they currently are always set to the default values
-			// at initial channel creation.
+			// We'll query the localChanCfg of the new channel to determine the
+			// minimum HTLC value that can be forwarded. For the maximum HTLC
+			// value that can be forwarded and fees we'll use the default
+			// values, as they currently are always set to the default values
+			// at initial channel creation. Note that the maximum HTLC value
+			// defaults to the cap on the total value of outstanding HTLCs.
 			fwdMinHtlc := lnChan.FwdMinHtlc()
 			defaultPolicy := p.server.cc.routingPolicy
 			forwardingPolicy := &htlcswitch.ForwardingPolicy{
 				MinHTLC:       fwdMinHtlc,
+				MaxHTLC:       lnChan.MaxPendingAmount(),
 				BaseFee:       defaultPolicy.BaseFee,
 				FeeRate:       defaultPolicy.FeeRate,
 				TimeLockDelta: defaultPolicy.TimeLockDelta,

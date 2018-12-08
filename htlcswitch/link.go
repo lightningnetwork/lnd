@@ -71,6 +71,9 @@ type ForwardingPolicy struct {
 	// lifetime of the channel.
 	MinHTLC lnwire.MilliSatoshi
 
+	// MaxHTLC is the largest HTLC that is to be forwarded.
+	MaxHTLC lnwire.MilliSatoshi
+
 	// BaseFee is the base fee, expressed in milli-satoshi that must be
 	// paid for each incoming HTLC. This field, combined with FeeRate is
 	// used to compute the required fee for a given HTLC.

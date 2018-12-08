@@ -2439,6 +2439,10 @@ type ChannelEdgePolicy struct {
 	// in millisatoshi.
 	MinHTLC lnwire.MilliSatoshi
 
+	// MaxHTLC is the largest value HTLC this node will accept, expressed
+	// in millisatoshi.
+	MaxHTLC lnwire.MilliSatoshi
+
 	// FeeBaseMSat is the base HTLC fee that will be charged for forwarding
 	// ANY HTLC, expressed in mSAT's.
 	FeeBaseMSat lnwire.MilliSatoshi
@@ -3213,6 +3217,12 @@ func putChanEdgePolicy(edges, nodes *bbolt.Bucket, edge *ChannelEdgePolicy,
 		return err
 	}
 
+	if edge.MessageFlags != 0 {
+		if err := binary.Write(&b, byteOrder, uint64(edge.MaxHTLC)); err != nil {
+			return err
+		}
+	}
+
 	if len(edge.ExtraOpaqueData) > MaxAllowedExtraOpaqueBytes {
 		return ErrTooManyExtraOpaqueBytes(len(edge.ExtraOpaqueData))
 	}
@@ -3405,6 +3415,14 @@ func deserializeChanEdgePolicy(r io.Reader,
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch node: %x, %v",
 			pub[:], err)
+	}
+
+	// See if optional fields are present.
+	if edge.MessageFlags != 0 {
+		if err := binary.Read(r, byteOrder, &n); err != nil {
+			return nil, err
+		}
+		edge.MaxHTLC = lnwire.MilliSatoshi(n)
 	}
 
 	// We'll try and see if there are any opaque bytes left, if not, then

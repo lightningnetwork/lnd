@@ -703,6 +703,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 		MessageFlags:              1,
 		TimeLockDelta:             99,
 		MinHTLC:                   2342135,
+		MaxHTLC:                   13928598,
 		FeeBaseMSat:               4352345,
 		FeeProportionalMillionths: 3452352,
 		Node:                      secondNode,
@@ -717,6 +718,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 		MessageFlags:              1,
 		TimeLockDelta:             99,
 		MinHTLC:                   2342135,
+		MaxHTLC:                   13928598,
 		FeeBaseMSat:               4352345,
 		FeeProportionalMillionths: 90392423,
 		Node:                      firstNode,
@@ -796,6 +798,7 @@ func newEdgePolicy(chanID uint64, op wire.OutPoint, db *DB,
 		LastUpdate:                time.Unix(updateTime, 0),
 		TimeLockDelta:             uint16(prand.Int63()),
 		MinHTLC:                   lnwire.MilliSatoshi(prand.Int63()),
+		MaxHTLC:                   lnwire.MilliSatoshi(prand.Int63()),
 		FeeBaseMSat:               lnwire.MilliSatoshi(prand.Int63()),
 		FeeProportionalMillionths: lnwire.MilliSatoshi(prand.Int63()),
 		MessageFlags:              1,
@@ -2663,6 +2666,10 @@ func compareEdgePolicies(a, b *ChannelEdgePolicy) error {
 	if a.MinHTLC != b.MinHTLC {
 		return fmt.Errorf("MinHTLC doesn't match: expected %v, "+
 			"got %v", a.MinHTLC, b.MinHTLC)
+	}
+	if a.MaxHTLC != b.MaxHTLC {
+		return fmt.Errorf("MaxHTLC doesn't match: expected %v, "+
+			"got %v", a.MaxHTLC, b.MaxHTLC)
 	}
 	if a.FeeBaseMSat != b.FeeBaseMSat {
 		return fmt.Errorf("FeeBaseMSat doesn't match: expected %v, "+

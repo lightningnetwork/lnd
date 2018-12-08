@@ -432,6 +432,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 			FeeRate:       1000,
 			TimeLockDelta: 10,
 		},
+		RequiredRemoteMaxValue: oldCfg.RequiredRemoteMaxValue,
 		PublishTransaction: func(txn *wire.MsgTx) error {
 			publishChan <- txn
 			return nil
@@ -818,7 +819,7 @@ func assertAddedToRouterGraph(t *testing.T, alice, bob *testNode,
 // advertised value will be checked against the other node's default min_htlc
 // value.
 func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
-	customMinHtlc ...lnwire.MilliSatoshi) {
+	capacity btcutil.Amount, customMinHtlc ...lnwire.MilliSatoshi) {
 
 	// After the FundingLocked message is sent, Alice and Bob will each
 	// send the following messages to their gossiper:
@@ -868,6 +869,19 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 					t.Fatalf("expected ChannelUpdate to "+
 						"advertise min HTLC %v, had %v",
 						minHtlc, m.HtlcMinimumMsat)
+				}
+
+				if m.MsgFlags != 1 {
+					t.Fatalf("expected ChannelUpdate to include msg flags")
+				}
+
+				maxPendingMsat := alice.fundingMgr.cfg.RequiredRemoteMaxValue(
+					capacity,
+				)
+				if maxPendingMsat != m.HtlcMaximumMsat {
+					t.Fatalf("expected ChannelUpdate to "+
+						"advertise max HTLC %v, had %v",
+						maxPendingMsat, m.HtlcMaximumMsat)
 				}
 
 				gotChannelUpdate = true
@@ -1004,7 +1018,8 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 
 	// Run through the process of opening the channel, up until the funding
 	// transaction is broadcasted.
-	fundingOutPoint := openChannel(t, alice, bob, 500000, 0, 1, updateChan,
+	capacity := btcutil.Amount(500000)
+	fundingOutPoint := openChannel(t, alice, bob, capacity, 0, 1, updateChan,
 		true)
 
 	// Check that neither Alice nor Bob sent an error message.
@@ -1036,7 +1051,7 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob)
+	assertChannelAnnouncements(t, alice, bob, capacity)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
@@ -1072,7 +1087,8 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	// Run through the process of opening the channel, up until the funding
 	// transaction is broadcasted.
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
-	fundingOutPoint := openChannel(t, alice, bob, 500000, 0, 1, updateChan,
+	capacity := btcutil.Amount(500000)
+	fundingOutPoint := openChannel(t, alice, bob, capacity, 0, 1, updateChan,
 		true)
 
 	// After the funding transaction gets mined, both nodes will send the
@@ -1174,7 +1190,7 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob)
+	assertChannelAnnouncements(t, alice, bob, capacity)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
@@ -1207,7 +1223,8 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 	// Run through the process of opening the channel, up until the funding
 	// transaction is broadcasted.
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
-	fundingOutPoint := openChannel(t, alice, bob, 500000, 0, 1, updateChan,
+	capacity := btcutil.Amount(500000)
+	fundingOutPoint := openChannel(t, alice, bob, capacity, 0, 1, updateChan,
 		true)
 
 	// After the funding transaction gets mined, both nodes will send the
@@ -1298,7 +1315,7 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob)
+	assertChannelAnnouncements(t, alice, bob, capacity)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
@@ -1655,7 +1672,8 @@ func TestFundingManagerReceiveFundingLockedTwice(t *testing.T) {
 
 	// Run through the process of opening the channel, up until the funding
 	// transaction is broadcasted.
-	fundingOutPoint := openChannel(t, alice, bob, 500000, 0, 1, updateChan,
+	capacity := btcutil.Amount(500000)
+	fundingOutPoint := openChannel(t, alice, bob, capacity, 0, 1, updateChan,
 		true)
 
 	// Notify that transaction was mined
@@ -1683,7 +1701,7 @@ func TestFundingManagerReceiveFundingLockedTwice(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob)
+	assertChannelAnnouncements(t, alice, bob, capacity)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
@@ -1744,7 +1762,8 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 
 	// Run through the process of opening the channel, up until the funding
 	// transaction is broadcasted.
-	fundingOutPoint := openChannel(t, alice, bob, 500000, 0, 1, updateChan,
+	capacity := btcutil.Amount(500000)
+	fundingOutPoint := openChannel(t, alice, bob, capacity, 0, 1, updateChan,
 		true)
 
 	// Notify that transaction was mined
@@ -1772,7 +1791,7 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob)
+	assertChannelAnnouncements(t, alice, bob, capacity)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
@@ -1818,7 +1837,8 @@ func TestFundingManagerRestartAfterReceivingFundingLocked(t *testing.T) {
 
 	// Run through the process of opening the channel, up until the funding
 	// transaction is broadcasted.
-	fundingOutPoint := openChannel(t, alice, bob, 500000, 0, 1, updateChan,
+	capacity := btcutil.Amount(500000)
+	fundingOutPoint := openChannel(t, alice, bob, capacity, 0, 1, updateChan,
 		true)
 
 	// Notify that transaction was mined
@@ -1859,7 +1879,7 @@ func TestFundingManagerRestartAfterReceivingFundingLocked(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob)
+	assertChannelAnnouncements(t, alice, bob, capacity)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
@@ -1888,7 +1908,8 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 
 	// Run through the process of opening the channel, up until the funding
 	// transaction is broadcasted.
-	fundingOutPoint := openChannel(t, alice, bob, 500000, 0, 1, updateChan,
+	capacity := btcutil.Amount(500000)
+	fundingOutPoint := openChannel(t, alice, bob, capacity, 0, 1, updateChan,
 		false)
 
 	// Notify that transaction was mined
@@ -1916,7 +1937,7 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob)
+	assertChannelAnnouncements(t, alice, bob, capacity)
 
 	// The funding transaction is now confirmed, wait for the
 	// OpenStatusUpdate_ChanOpen update
@@ -1987,7 +2008,8 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 
 	// Run through the process of opening the channel, up until the funding
 	// transaction is broadcasted.
-	fundingOutPoint := openChannel(t, alice, bob, 500000, 0, 1, updateChan,
+	capacity := btcutil.Amount(500000)
+	fundingOutPoint := openChannel(t, alice, bob, capacity, 0, 1, updateChan,
 		false)
 
 	// Notify that transaction was mined
@@ -2015,7 +2037,7 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob)
+	assertChannelAnnouncements(t, alice, bob, capacity)
 
 	// Note: We don't check for the addedToRouterGraph state because in
 	// the private channel mode, the state is quickly changed from
@@ -2112,10 +2134,11 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	// Create a funding request with the custom parameters and start the
 	// workflow.
 	errChan := make(chan error, 1)
+	capacity := btcutil.Amount(5000000)
 	initReq := &openChanReq{
 		targetPubkey:    bob.privKey.PubKey(),
 		chainHash:       *activeNetParams.GenesisHash,
-		localFundingAmt: 5000000,
+		localFundingAmt: capacity,
 		pushAmt:         lnwire.NewMSatFromSatoshis(0),
 		private:         false,
 		minHtlc:         minHtlc,
@@ -2312,7 +2335,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	// announcements. Alice should advertise the default MinHTLC value of
 	// 5, while bob should advertise the value minHtlc, since Alice
 	// required him to use it.
-	assertChannelAnnouncements(t, alice, bob, 5, minHtlc)
+	assertChannelAnnouncements(t, alice, bob, capacity, 5, minHtlc)
 
 	// The funding transaction is now confirmed, wait for the
 	// OpenStatusUpdate_ChanOpen update

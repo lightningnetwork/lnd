@@ -2815,6 +2815,10 @@
         "disabled": {
           "type": "boolean",
           "format": "boolean"
+        },
+        "max_htlc": {
+          "type": "string",
+          "format": "uint64"
         }
       }
     },

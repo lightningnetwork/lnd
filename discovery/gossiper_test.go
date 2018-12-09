@@ -452,15 +452,20 @@ func createUpdateAnnouncement(blockHeight uint32, flags lnwire.ChanUpdateFlag,
 
 	var err error
 
+	htlcMinMsat := lnwire.MilliSatoshi(prand.Int63())
 	a := &lnwire.ChannelUpdate{
 		ShortChannelID: lnwire.ShortChannelID{
 			BlockHeight: blockHeight,
 		},
 		Timestamp:       timestamp,
 		TimeLockDelta:   uint16(prand.Int63()),
-		HtlcMinimumMsat: lnwire.MilliSatoshi(prand.Int63()),
+		HtlcMinimumMsat: htlcMinMsat,
 		ChannelFlags:    flags,
-		MessageFlags:    0,
+		MessageFlags:    1,
+
+		// Since the max HTLC must be greater than the min HTLC to pass channel
+		// update validation, set it to double the min htlc.
+		HtlcMaximumMsat: 2 * htlcMinMsat,
 		FeeRate:         uint32(prand.Int31()),
 		BaseFee:         uint32(prand.Int31()),
 	}

@@ -3060,14 +3060,19 @@ func extractChannelUpdate(ownerPubKey []byte,
 func createChannelUpdate(info *channeldb.ChannelEdgeInfo,
 	policy *channeldb.ChannelEdgePolicy) (*lnwire.ChannelUpdate, error) {
 
+	msgFlags := 1
+	if policy.MaxHTLC == 0 {
+		msgFlags = 0
+	}
 	update := &lnwire.ChannelUpdate{
 		ChainHash:       info.ChainHash,
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(policy.ChannelID),
 		Timestamp:       uint32(policy.LastUpdate.Unix()),
 		ChannelFlags:    policy.Flags,
-		MessageFlags:    msgFlags,
+		MessageFlags:    lnwire.ChanUpdateFlag(msgFlags),
 		TimeLockDelta:   policy.TimeLockDelta,
 		HtlcMinimumMsat: policy.MinHTLC,
+		HtlcMaximumMsat: policy.MaxHTLC,
 		BaseFee:         uint32(policy.FeeBaseMSat),
 		FeeRate:         uint32(policy.FeeProportionalMillionths),
 		ExtraOpaqueData: policy.ExtraOpaqueData,

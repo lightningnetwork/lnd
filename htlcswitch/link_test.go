@@ -772,6 +772,73 @@ func TestLinkForwardMinHTLCPolicyMismatch(t *testing.T) {
 	}
 }
 
+// TestLinkForwardMaxHTLCPolicyMismatch tests that if a node is an intermediate
+// node and receives an HTLC which is _above_ its max HTLC policy then the
+// HTLC will be rejected.
+func TestLinkForwardMaxHTLCPolicyMismatch(t *testing.T) {
+	t.Parallel()
+
+	channels, cleanUp, _, err := createClusterChannels(
+		btcutil.SatoshiPerBitcoin*5, btcutil.SatoshiPerBitcoin*5,
+	)
+	if err != nil {
+		t.Fatalf("unable to create channel: %v", err)
+	}
+	defer cleanUp()
+
+	n := newThreeHopNetwork(
+		t, channels.aliceToBob, channels.bobToAlice, channels.bobToCarol,
+		channels.carolToBob, testStartingHeight,
+	)
+	if err := n.start(); err != nil {
+		t.Fatal(err)
+	}
+	defer n.stop()
+
+	// In order to trigger this failure mode, we'll update our policy to have
+	// a new max HTLC of 10 satoshis.
+	maxHtlc := lnwire.NewMSatFromSatoshis(10)
+
+	// First we'll generate a route over 2 hops within the network that
+	// attempts to pay out an amount greater than the max HTLC we're about to
+	// set.
+	amountNoFee := maxHtlc + 1
+	htlcAmt, htlcExpiry, hops := generateHops(
+		amountNoFee, testStartingHeight, n.firstBobChannelLink,
+		n.carolChannelLink,
+	)
+
+	// We'll now update Bob's policy to set the max HTLC we chose earlier.
+	n.secondBobChannelLink.cfg.FwrdingPolicy.MaxHTLC = maxHtlc
+
+	// Finally, we'll make the payment which'll send an HTLC with our
+	// specified parameters.
+	firstHop := n.firstBobChannelLink.ShortChanID()
+	_, err = makePayment(
+		n.aliceServer, n.carolServer, firstHop, hops, amountNoFee,
+		htlcAmt, htlcExpiry,
+	).Wait(30 * time.Second)
+
+	// We should get an error indicating a temporary channel failure, The
+	// failure is temporary because this payment would be allowed if Bob
+	// updated his policy to increase the max HTLC.
+	if err == nil {
+		t.Fatalf("payment should have failed but didn't")
+	}
+
+	ferr, ok := err.(*ForwardingError)
+	if !ok {
+		t.Fatalf("expected a ForwardingError, instead got: %T", err)
+	}
+
+	switch ferr.FailureMessage.(type) {
+	case *lnwire.FailTemporaryChannelFailure:
+	default:
+		t.Fatalf("incorrect error, expected temporary channel failure, "+
+			"instead have: %v", err)
+	}
+}
+
 // TestUpdateForwardingPolicy tests that the forwarding policy for a link is
 // able to be updated properly. We'll first create an HTLC that meets the
 // specified policy, assert that it succeeds, update the policy (to invalidate
@@ -5423,6 +5490,14 @@ func TestHtlcSatisfyPolicy(t *testing.T) {
 			200, 150, 0)
 		if _, ok := result.(*lnwire.FailAmountBelowMinimum); !ok {
 			t.Fatalf("expected FailAmountBelowMinimum failure code")
+		}
+	})
+
+	t.Run("above maxhtlc", func(t *testing.T) {
+		result := link.HtlcSatifiesPolicy(hash, 1500, 1200,
+			200, 150, 0)
+		if _, ok := result.(*lnwire.FailTemporaryChannelFailure); !ok {
+			t.Fatalf("expected FailTemporaryChannelFailure failure code")
 		}
 	})
 

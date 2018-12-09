@@ -1528,6 +1528,7 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 		}
 		globalPolicy = ForwardingPolicy{
 			MinHTLC:       lnwire.NewMSatFromSatoshis(5),
+			MaxHTLC:       lnwire.NewMSatFromSatoshis(chanAmt),
 			BaseFee:       lnwire.NewMSatFromSatoshis(1),
 			TimeLockDelta: 6,
 		}
@@ -5400,6 +5401,7 @@ func TestHtlcSatisfyPolicy(t *testing.T) {
 			FwrdingPolicy: ForwardingPolicy{
 				TimeLockDelta: 20,
 				MinHTLC:       500,
+				MaxHTLC:       1000,
 				BaseFee:       10,
 			},
 			FetchLastChannelUpdate: fetchLastChannelUpdate,

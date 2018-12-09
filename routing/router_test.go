@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 
 	sphinx "github.com/lightningnetwork/lightning-onion"
@@ -361,16 +362,19 @@ func TestChannelUpdateValidation(t *testing.T) {
 	t.Parallel()
 
 	// Setup a three node network.
+	chanCapSat := btcutil.Amount(100000)
 	testChannels := []*testChannel{
-		symmetricTestChannel("a", "b", 100000, &testChannelPolicy{
+		symmetricTestChannel("a", "b", chanCapSat, &testChannelPolicy{
 			Expiry:  144,
 			FeeRate: 400,
 			MinHTLC: 1,
+			MaxHTLC: lnwire.NewMSatFromSatoshis(chanCapSat),
 		}, 1),
-		symmetricTestChannel("b", "c", 100000, &testChannelPolicy{
+		symmetricTestChannel("b", "c", chanCapSat, &testChannelPolicy{
 			Expiry:  144,
 			FeeRate: 400,
 			MinHTLC: 1,
+			MaxHTLC: lnwire.NewMSatFromSatoshis(chanCapSat),
 		}, 2),
 	}
 
@@ -542,20 +546,21 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	// son goku. We'll obtain this as we'll need to to generate the
 	// FeeInsufficient error that we'll send back.
 	chanID := uint64(12345)
-	_, _, edgeUpateToFail, err := ctx.graph.FetchChannelEdgesByID(chanID)
+	_, _, edgeUpdateToFail, err := ctx.graph.FetchChannelEdgesByID(chanID)
 	if err != nil {
 		t.Fatalf("unable to fetch chan id: %v", err)
 	}
 
 	errChanUpdate := lnwire.ChannelUpdate{
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(chanID),
-		Timestamp:       uint32(edgeUpateToFail.LastUpdate.Unix()),
-		MessageFlags:    edgeUpateToFail.MessageFlags,
-		ChannelFlags:    edgeUpateToFail.ChannelFlags,
-		TimeLockDelta:   edgeUpateToFail.TimeLockDelta,
-		HtlcMinimumMsat: edgeUpateToFail.MinHTLC,
-		BaseFee:         uint32(edgeUpateToFail.FeeBaseMSat),
-		FeeRate:         uint32(edgeUpateToFail.FeeProportionalMillionths),
+		Timestamp:       uint32(edgeUpdateToFail.LastUpdate.Unix()),
+		MessageFlags:    edgeUpdateToFail.MessageFlags,
+		ChannelFlags:    edgeUpdateToFail.ChannelFlags,
+		TimeLockDelta:   edgeUpdateToFail.TimeLockDelta,
+		HtlcMinimumMsat: edgeUpdateToFail.MinHTLC,
+		HtlcMaximumMsat: edgeUpdateToFail.MaxHTLC,
+		BaseFee:         uint32(edgeUpdateToFail.FeeBaseMSat),
+		FeeRate:         uint32(edgeUpdateToFail.FeeProportionalMillionths),
 	}
 
 	// The error will be returned by Son Goku.
@@ -649,20 +654,21 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	// block height is.
 	chanID := uint64(12345)
 	roasbeefSongoku := lnwire.NewShortChanIDFromInt(chanID)
-	_, _, edgeUpateToFail, err := ctx.graph.FetchChannelEdgesByID(chanID)
+	_, _, edgeUpdateToFail, err := ctx.graph.FetchChannelEdgesByID(chanID)
 	if err != nil {
 		t.Fatalf("unable to fetch chan id: %v", err)
 	}
 
 	errChanUpdate := lnwire.ChannelUpdate{
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(chanID),
-		Timestamp:       uint32(edgeUpateToFail.LastUpdate.Unix()),
-		MessageFlags:    edgeUpateToFail.MessageFlags,
-		ChannelFlags:    edgeUpateToFail.ChannelFlags,
-		TimeLockDelta:   edgeUpateToFail.TimeLockDelta,
-		HtlcMinimumMsat: edgeUpateToFail.MinHTLC,
-		BaseFee:         uint32(edgeUpateToFail.FeeBaseMSat),
-		FeeRate:         uint32(edgeUpateToFail.FeeProportionalMillionths),
+		Timestamp:       uint32(edgeUpdateToFail.LastUpdate.Unix()),
+		MessageFlags:    edgeUpdateToFail.MessageFlags,
+		ChannelFlags:    edgeUpdateToFail.ChannelFlags,
+		TimeLockDelta:   edgeUpdateToFail.TimeLockDelta,
+		HtlcMinimumMsat: edgeUpdateToFail.MinHTLC,
+		HtlcMaximumMsat: edgeUpdateToFail.MaxHTLC,
+		BaseFee:         uint32(edgeUpdateToFail.FeeBaseMSat),
+		FeeRate:         uint32(edgeUpdateToFail.FeeProportionalMillionths),
 	}
 
 	// The error will be returned by Son Goku.

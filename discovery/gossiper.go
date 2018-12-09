@@ -2013,6 +2013,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			Flags:                     msg.ChannelFlags,
 			TimeLockDelta:             msg.TimeLockDelta,
 			MinHTLC:                   msg.HtlcMinimumMsat,
+			MaxHTLC:                   msg.HtlcMaximumMsat,
 			FeeBaseMSat:               lnwire.MilliSatoshi(msg.BaseFee),
 			FeeProportionalMillionths: lnwire.MilliSatoshi(msg.FeeRate),
 			ExtraOpaqueData:           msg.ExtraOpaqueData,

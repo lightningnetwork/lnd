@@ -63,23 +63,24 @@ func CreateChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 	// will need to be processed before either of the channel update
 	// networkMsgs.
 
-	// msgFlags indicates the presence of optional fields in a channel update.
-	// Zero indicates no optional fields.
-	msgFlags := lnwire.ChanUpdateFlag(0)
-
 	// Since it's up to a node's policy as to whether they advertise the
 	// edge in a direction, we don't create an advertisement if the edge is
 	// nil.
 	var edge1Ann, edge2Ann *lnwire.ChannelUpdate
 	if e1 != nil {
+		msgFlags := 1
+		if e1.MaxHTLC == 0 {
+			msgFlags = 0
+		}
 		edge1Ann = &lnwire.ChannelUpdate{
 			ChainHash:       chanInfo.ChainHash,
 			ShortChannelID:  chanID,
 			Timestamp:       uint32(e1.LastUpdate.Unix()),
 			ChannelFlags:    e1.Flags,
-			MessageFlags:    msgFlags,
+			MessageFlags:    lnwire.ChanUpdateFlag(msgFlags),
 			TimeLockDelta:   e1.TimeLockDelta,
 			HtlcMinimumMsat: e1.MinHTLC,
+			HtlcMaximumMsat: e1.MaxHTLC,
 			BaseFee:         uint32(e1.FeeBaseMSat),
 			FeeRate:         uint32(e1.FeeProportionalMillionths),
 			ExtraOpaqueData: e1.ExtraOpaqueData,
@@ -90,14 +91,19 @@ func CreateChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 		}
 	}
 	if e2 != nil {
+		msgFlags := 1
+		if e2.MaxHTLC == 0 {
+			msgFlags = 0
+		}
 		edge2Ann = &lnwire.ChannelUpdate{
 			ChainHash:       chanInfo.ChainHash,
 			ShortChannelID:  chanID,
 			Timestamp:       uint32(e2.LastUpdate.Unix()),
 			ChannelFlags:    e2.Flags,
-			MessageFlags:    msgFlags,
+			MessageFlags:    lnwire.ChanUpdateFlag(msgFlags),
 			TimeLockDelta:   e2.TimeLockDelta,
 			HtlcMinimumMsat: e2.MinHTLC,
+			HtlcMaximumMsat: e2.MaxHTLC,
 			BaseFee:         uint32(e2.FeeBaseMSat),
 			FeeRate:         uint32(e2.FeeProportionalMillionths),
 			ExtraOpaqueData: e2.ExtraOpaqueData,

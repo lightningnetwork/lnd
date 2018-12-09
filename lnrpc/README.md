@@ -147,15 +147,22 @@ $ unzip protoc-3.4.0-osx-x86_64.zip -d protoc
 $ export PATH=$PWD/protoc/bin:$PATH
 ```
 
-2. Install `golang/protobuf` at commit `ab9f9a6dab164b7d1246e0e688b0ab7b94d8553e`.
+2. Install `golang/protobuf` at commit `bbd03ef6da3a115852eaf24c8a1c46aeb39aa175`.
 ```bash
 $ git clone https://github.com/golang/protobuf $GOPATH/src/github.com/golang/protobuf
 $ cd $GOPATH/src/github.com/golang/protobuf
-$ git reset --hard ab9f9a6dab164b7d1246e0e688b0ab7b94d8553e
+$ git reset --hard bbd03ef6da3a115852eaf24c8a1c46aeb39aa175
 $ make
 ```
 
-3. Install `grpc-ecosystem/grpc-gateway` at commit `f2862b476edcef83412c7af8687c9cd8e4097c0f`.
+3. Install 'genproto' at commit `a8101f21cf983e773d0c1133ebc5424792003214`.
+```bash
+$ go get google.golang.org/genproto
+$ cd $GOPATH/src/google.golang.org/genproto
+$ git reset --hard a8101f21cf983e773d0c1133ebc5424792003214
+```
+
+4. Install `grpc-ecosystem/grpc-gateway` at commit `f2862b476edcef83412c7af8687c9cd8e4097c0f`.
 ```bash
 $ git clone https://github.com/grpc-ecosystem/grpc-gateway $GOPATH/src/github.com/grpc-ecosystem/grpc-gateway
 $ cd $GOPATH/src/github.com/grpc-ecosystem/grpc-gateway
@@ -163,4 +170,4 @@ $ git reset --hard f2862b476edcef83412c7af8687c9cd8e4097c0f
 $ go install ./protoc-gen-grpc-gateway ./protoc-gen-swagger
 ```
 
-4. Run [`gen_protos.sh`](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/gen_protos.sh) to generate new protobuf definitions.
+5. Run [`gen_protos.sh`](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/gen_protos.sh) to generate new protobuf definitions.

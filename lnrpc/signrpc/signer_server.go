@@ -44,6 +44,10 @@ var (
 			Entity: "signer",
 			Action: "generate",
 		}},
+		"/signrpc.Signer/ComputeInputScript": {{
+			Entity: "signer",
+			Action: "generate",
+		}},
 	}
 
 	// DefaultSignerMacFilename is the default name of the signer macaroon

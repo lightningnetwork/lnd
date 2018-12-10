@@ -145,11 +145,21 @@ message InitWalletRequest {
     /**
     recovery_window is an optional argument specifying the address lookahead
     when restoring a wallet seed. The recovery window applies to each
-    invdividual branch of the BIP44 derivation paths. Supplying a recovery
+    individual branch of the BIP44 derivation paths. Supplying a recovery
     window of zero indicates that no addresses should be recovered, such after
     the first initialization of the wallet.
     */
     int32 recovery_window = 4;
+
+    /**
+    channel_backups is an optional argument that allows clients to recover the
+    settled funds within a set of channels. This should be populated if the
+    user was unable to close out all channels and sweep funds before partial or
+    total data loss occurred. If specified, then after on-chain recovery of
+    funds, lnd begin to carry out the data loss recovery protocol in order to
+    recover the funds in each channel from a remote force closed transaction.
+    */
+    ChanBackupSnapshot channel_backups = 5;
 }
 message InitWalletResponse {
 }
@@ -170,6 +180,16 @@ message UnlockWalletRequest {
     the first initialization of the wallet.
     */
     int32 recovery_window = 2;
+
+    /**
+    channel_backups is an optional argument that allows clients to recover the
+    settled funds within a set of channels. This should be populated if the
+    user was unable to close out all channels and sweep funds before partial or
+    total data loss occurred. If specified, then after on-chain recovery of
+    funds, lnd begin to carry out the data loss recovery protocol in order to
+    recover the funds in each channel from a remote force closed transaction.
+    */
+    ChanBackupSnapshot channel_backups = 3;
 }
 message UnlockWalletResponse {}
 
@@ -668,7 +688,7 @@ service Lightning {
 
     /** lncli: `fwdinghistory`
     ForwardingHistory allows the caller to query the htlcswitch for a record of
-    all HTLC's forwarded within the target time range, and integer offset
+    all HTLCs forwarded within the target time range, and integer offset
     within that time range. If no time-range is specified, then the first chunk
     of the past 24 hrs of forwarding history are returned.
 
@@ -683,6 +703,48 @@ service Lightning {
             post: "/v1/switch"
             body: "*"
         };
+    };
+
+    /** lncli: `exportchanbackup`
+    ExportChannelBackup attempts to return an encrypted static channel backup
+    for the target channel identified by it channel point. The backup is
+    encrypted with a key generated from the aezeed seed of the user. The
+    returned backup can either be restored using the RestoreChannelBackup
+    method once lnd is running, or via the InitWallet and UnlockWallet methods
+    from the WalletUnlocker service.
+    */
+    rpc ExportChannelBackup(ExportChannelBackupRequest) returns (ChannelBackup) {
+    };
+
+    /**
+    ExportAllChannelBackups returns static channel backups for all existing
+    channels known to lnd. A set of regular singular static channel backups for
+    each channel are returned. Additionally, a multi-channel backup is returned
+    as well, which contains a single encrypted blob containing the backups of
+    each channel.
+    */
+    rpc ExportAllChannelBackups(ChanBackupExportRequest) returns (ChanBackupSnapshot) {
+    };
+
+    /** lncli: `restorechanbackup`
+    RestoreChannelBackups accepts a set of singular channel backups, or a
+    single encrypted multi-chan backup and attempts to recover any funds
+    remaining within the channel. If we are able to unpack the backup, then the
+    new channel will be shown under listchannels, as well as pending channels.
+    */
+    rpc RestoreChannelBackups(RestoreChanBackupRequest) returns (RestoreBackupResponse)  {
+    };
+
+    /**
+    SubscribeChannelBackups allows a client to sub-subscribe to the most up to
+    date information concerning the state of all channel backups. Each time a
+    new channel is added, we return the new set of channels, along with a
+    multi-chan backup containing the backup info for all channels. Each time a
+    channel is closed, we send a new update, which contains new new chan back
+    ups, but the updated set of encrypted multi-chan backups with the closed
+    channel(s) removed.
+    */
+    rpc SubscribeChannelBackups(ChannelBackupSubscription) returns (stream ChanBackupSnapshot) {
     };
 }
 
@@ -1067,9 +1129,8 @@ message Channel {
     repeated HTLC pending_htlcs = 15 [json_name = "pending_htlcs"];
 
     /**
-    The CSV delay expressed in relative blocks. If the channel is force
-    closed, we'll need to wait for this many blocks before we can regain our
-    funds.
+    The CSV delay expressed in relative blocks. If the channel is force closed,
+    we will need to wait for this many blocks before we can regain our funds.
     */
     uint32 csv_delay = 16 [json_name = "csv_delay"];
 
@@ -1078,6 +1139,9 @@ message Channel {
 
     /// True if we were the ones that created the channel.
     bool initiator = 18 [json_name = "initiator"];
+
+    /// A set of flags showing the current state of the cahnnel.
+    string chan_status_flags = 19 [json_name = "chan_status_flags"];
 }
 
 
@@ -2190,3 +2254,69 @@ message ForwardingHistoryResponse {
    /// The index of the last time in the set of returned forwarding events. Can be used to seek further, pagination style.
    uint32 last_offset_index = 2 [json_name = "last_offset_index"];
 }
+
+message ExportChannelBackupRequest {
+    /// The target chanenl point to obtain a back up for.
+    ChannelPoint chan_point = 1;
+}
+
+message ChannelBackup {
+    /**
+    Identifies the channel that this backup belongs to.
+    */
+    ChannelPoint chan_point = 1 [ json_name = "chan_point" ];
+
+    /**
+    Is an encrypted single-chan backup. this can be passed to
+    RestoreChannelBackups, or the WalletUnlocker Innit and Unlock methods in
+    order to trigger the recovery protocol.
+    */
+    bytes chan_backup = 2 [ json_name = "chan_backup" ];
+}
+
+message MultiChanBackup {
+    /**
+    Is the set of all channels that are included in this multi-channel backup.
+    */
+    repeated ChannelPoint chan_points = 1 [ json_name = "chan_points" ];
+
+    /**
+    A single encrypted blob containing all the static channel backups of the
+    channel listed above. This can be stored as a single file or blob, and
+    safely be replaced with any prior/future versions.
+    */
+    bytes multi_chan_backup = 2 [ json_name = "multi_chan_backup" ];
+}
+
+message ChanBackupExportRequest {}
+message ChanBackupSnapshot  {
+    /**
+    The set of new channels that have been added since the last channel backup
+    snapshot was requested.
+    */
+    ChannelBackups single_chan_backups = 1 [ json_name = "single_chan_backups" ];
+
+    /**
+    A multi-channel backup that covers all open channels currently known to
+    lnd.
+    */
+    MultiChanBackup multi_chan_backup  = 2 [ json_name = "multi_chan_backup" ];
+}
+
+message ChannelBackups {
+    /**
+    A set of single-chan static channel backups.
+    */
+    repeated ChannelBackup chan_backups = 1 [ json_name = "chan_backups" ];
+}
+
+message RestoreChanBackupRequest {
+    oneof backup {
+        ChannelBackups chan_backups = 1 [ json_name = "chan_backups" ];
+
+        bytes multi_chan_backup = 2 [ json_name = "multi_chan_backup" ];
+    }
+}
+message RestoreBackupResponse {}
+
+message ChannelBackupSubscription {}

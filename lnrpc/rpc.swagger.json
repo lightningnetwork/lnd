@@ -976,7 +976,7 @@
     },
     "/v1/switch": {
       "post": {
-        "summary": "* lncli: `fwdinghistory`\nForwardingHistory allows the caller to query the htlcswitch for a record of\nall HTLC's forwarded within the target time range, and integer offset\nwithin that time range. If no time-range is specified, then the first chunk\nof the past 24 hrs of forwarding history are returned.",
+        "summary": "* lncli: `fwdinghistory`\nForwardingHistory allows the caller to query the htlcswitch for a record of\nall HTLCs forwarded within the target time range, and integer offset\nwithin that time range. If no time-range is specified, then the first chunk\nof the past 24 hrs of forwarding history are returned.",
         "description": "A list of forwarding events are returned. The size of each forwarding event\nis 40 bytes, and the max message size able to be returned in gRPC is 4 MiB.\nAs a result each message can only contain 50k entries.  Each response has\nthe index offset of the last entry. The index offset can be provided to the\nrequest to allow the caller to skip a series of records.",
         "operationId": "ForwardingHistory",
         "responses": {
@@ -1358,6 +1358,19 @@
         }
       }
     },
+    "lnrpcChanBackupSnapshot": {
+      "type": "object",
+      "properties": {
+        "single_chan_backups": {
+          "$ref": "#/definitions/lnrpcChannelBackups",
+          "description": "*\nThe set of new channels that have been added since the last channel backup\nsnapshot was requested."
+        },
+        "multi_chan_backup": {
+          "$ref": "#/definitions/lnrpcMultiChanBackup",
+          "description": "*\nA multi-channel backup that covers all open channels currently known to\nlnd."
+        }
+      }
+    },
     "lnrpcChangePasswordRequest": {
       "type": "object",
       "properties": {
@@ -1457,7 +1470,7 @@
         "csv_delay": {
           "type": "integer",
           "format": "int64",
-          "description": "*\nThe CSV delay expressed in relative blocks. If the channel is force\nclosed, we'll need to wait for this many blocks before we can regain our\nfunds."
+          "description": "*\nThe CSV delay expressed in relative blocks. If the channel is force closed,\nwe will need to wait for this many blocks before we can regain our funds."
         },
         "private": {
           "type": "boolean",
@@ -1468,6 +1481,36 @@
           "type": "boolean",
           "format": "boolean",
           "description": "/ True if we were the ones that created the channel."
+        },
+        "chan_status_flags": {
+          "type": "string",
+          "description": "/ A set of flags showing the current state of the cahnnel."
+        }
+      }
+    },
+    "lnrpcChannelBackup": {
+      "type": "object",
+      "properties": {
+        "chan_point": {
+          "$ref": "#/definitions/lnrpcChannelPoint",
+          "description": "*\nIdentifies the channel that this backup belongs to."
+        },
+        "chan_backup": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\nIs an encrypted single-chan backup. this can be passed to\nRestoreChannelBackups, or the WalletUnlocker Innit and Unlock methods in\norder to trigger the recovery protocol."
+        }
+      }
+    },
+    "lnrpcChannelBackups": {
+      "type": "object",
+      "properties": {
+        "chan_backups": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcChannelBackup"
+          },
+          "description": "*\nA set of single-chan static channel backups."
         }
       }
     },
@@ -2139,7 +2182,11 @@
         "recovery_window": {
           "type": "integer",
           "format": "int32",
-          "description": "*\nrecovery_window is an optional argument specifying the address lookahead\nwhen restoring a wallet seed. The recovery window applies to each\ninvdividual branch of the BIP44 derivation paths. Supplying a recovery\nwindow of zero indicates that no addresses should be recovered, such after\nthe first initialization of the wallet."
+          "description": "*\nrecovery_window is an optional argument specifying the address lookahead\nwhen restoring a wallet seed. The recovery window applies to each\nindividual branch of the BIP44 derivation paths. Supplying a recovery\nwindow of zero indicates that no addresses should be recovered, such after\nthe first initialization of the wallet."
+        },
+        "channel_backups": {
+          "$ref": "#/definitions/lnrpcChanBackupSnapshot",
+          "description": "*\nchannel_backups is an optional argument that allows clients to recover the\nsettled funds within a set of channels. This should be populated if the\nuser was unable to close out all channels and sweep funds before partial or\ntotal data loss occurred. If specified, then after on-chain recovery of\nfunds, lnd begin to carry out the data loss recovery protocol in order to\nrecover the funds in each channel from a remote force closed transaction."
         }
       }
     },
@@ -2359,6 +2406,23 @@
             "$ref": "#/definitions/lnrpcUtxo"
           },
           "title": "/ A list of utxos"
+        }
+      }
+    },
+    "lnrpcMultiChanBackup": {
+      "type": "object",
+      "properties": {
+        "chan_points": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcChannelPoint"
+          },
+          "description": "*\nIs the set of all channels that are included in this multi-channel backup."
+        },
+        "multi_chan_backup": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\nA single encrypted blob containing all the static channel backups of the\nchannel listed above. This can be stored as a single file or blob, and\nsafely be replaced with any prior/future versions."
         }
       }
     },
@@ -2812,6 +2876,9 @@
         }
       }
     },
+    "lnrpcRestoreBackupResponse": {
+      "type": "object"
+    },
     "lnrpcRoute": {
       "type": "object",
       "properties": {
@@ -3124,6 +3191,10 @@
           "type": "integer",
           "format": "int32",
           "description": "*\nrecovery_window is an optional argument specifying the address lookahead\nwhen restoring a wallet seed. The recovery window applies to each\ninvdividual branch of the BIP44 derivation paths. Supplying a recovery\nwindow of zero indicates that no addresses should be recovered, such after\nthe first initialization of the wallet."
+        },
+        "channel_backups": {
+          "$ref": "#/definitions/lnrpcChanBackupSnapshot",
+          "description": "*\nchannel_backups is an optional argument that allows clients to recover the\nsettled funds within a set of channels. This should be populated if the\nuser was unable to close out all channels and sweep funds before partial or\ntotal data loss occurred. If specified, then after on-chain recovery of\nfunds, lnd begin to carry out the data loss recovery protocol in order to\nrecover the funds in each channel from a remote force closed transaction."
         }
       }
     },

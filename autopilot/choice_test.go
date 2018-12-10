@@ -15,6 +15,159 @@ var (
 	nID4 = NodeID([33]byte{4})
 )
 
+// TestWeightedChoiceEmptyMap tests that passing in an empty slice of weights
+// returns an error.
+func TestWeightedChoiceEmptyMap(t *testing.T) {
+	t.Parallel()
+
+	var w []float64
+	_, err := weightedChoice(w)
+	if err != ErrNoPositive {
+		t.Fatalf("expected ErrNoPositive when choosing in "+
+			"empty map, instead got %v", err)
+	}
+}
+
+// singeNonZero is a type used to generate float64 slices with one non-zero
+// element.
+type singleNonZero []float64
+
+// Generate generates a value of type sinelNonZero to be used during
+// QuickTests.
+func (singleNonZero) Generate(rand *rand.Rand, size int) reflect.Value {
+	w := make([]float64, size)
+
+	// Pick a random index and set it to a random float.
+	i := rand.Intn(size)
+	w[i] = rand.Float64()
+
+	return reflect.ValueOf(w)
+}
+
+// TestWeightedChoiceSingleIndex tests that choosing randomly in a slice with
+// one positive element always returns that one index.
+func TestWeightedChoiceSingleIndex(t *testing.T) {
+	t.Parallel()
+
+	// Helper that returns the index of the non-zero element.
+	allButOneZero := func(weights []float64) (bool, int) {
+		var (
+			numZero   uint32
+			nonZeroEl int
+		)
+
+		for i, w := range weights {
+			if w != 0 {
+				numZero++
+				nonZeroEl = i
+			}
+		}
+
+		return numZero == 1, nonZeroEl
+	}
+
+	property := func(weights singleNonZero) bool {
+		// Make sure the generated slice has exactly one non-zero
+		// element.
+		conditionMet, nonZeroElem := allButOneZero(weights[:])
+		if !conditionMet {
+			return false
+		}
+
+		// Call weightedChoice and assert it picks the non-zero
+		// element.
+		choice, err := weightedChoice(weights[:])
+		if err != nil {
+			return false
+		}
+		return choice == nonZeroElem
+	}
+
+	if err := quick.Check(property, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// nonNegative is a type used to generate float64 slices with non-negative
+// elements.
+type nonNegative []float64
+
+// Generate generates a value of type nonNegative to be used during
+// QuickTests.
+func (nonNegative) Generate(rand *rand.Rand, size int) reflect.Value {
+	const precision = 100
+	w := make([]float64, size)
+
+	for i := range w {
+		r := rand.Float64()
+
+		// For very small weights it won't work to check deviation from
+		// expected value, so we set them to zero.
+		if r < 0.01*float64(size) {
+			r = 0
+		}
+		w[i] = float64(r)
+	}
+	return reflect.ValueOf(w)
+}
+
+func assertChoice(w []float64, iterations int) bool {
+	var sum float64
+	for _, v := range w {
+		sum += v
+	}
+
+	// Calculate the expected frequency of each choice.
+	expFrequency := make([]float64, len(w))
+	for i, ww := range w {
+		expFrequency[i] = ww / sum
+	}
+
+	chosen := make(map[int]int)
+	for i := 0; i < iterations; i++ {
+		res, err := weightedChoice(w)
+		if err != nil {
+			return false
+		}
+		chosen[res]++
+	}
+
+	// Since this is random we check that the number of times chosen is
+	// within 20% of the expected value.
+	totalChoices := 0
+	for i, f := range expFrequency {
+		exp := float64(iterations) * f
+		v := float64(chosen[i])
+		totalChoices += chosen[i]
+		expHigh := exp + exp/5
+		expLow := exp - exp/5
+		if v < expLow || v > expHigh {
+			return false
+		}
+	}
+
+	// The sum of choices must be exactly iterations of course.
+	if totalChoices != iterations {
+		return false
+	}
+	return true
+
+}
+
+// TestWeightedChoiceDistribution asserts that the weighted choice algorithm
+// chooses among indexes according to their scores.
+func TestWeightedChoiceDistribution(t *testing.T) {
+	const iterations = 100000
+
+	property := func(weights nonNegative) bool {
+		return assertChoice(weights, iterations)
+	}
+
+	if err := quick.Check(property, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestChooseNEmptyMap checks that chooseN returns an empty result when no
 // nodes are chosen among.
 func TestChooseNEmptyMap(t *testing.T) {

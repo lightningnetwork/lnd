@@ -293,37 +293,44 @@ type ChannelCommitment struct {
 type ChannelStatus uint8
 
 var (
-	// Default is the normal state of an open channel.
-	Default ChannelStatus
+	// ChanStatusDefault is the normal state of an open channel.
+	ChanStatusDefault ChannelStatus
 
-	// Borked indicates that the channel has entered an irreconcilable
-	// state, triggered by a state desynchronization or channel breach.
-	// Channels in this state should never be added to the htlc switch.
-	Borked ChannelStatus = 1
+	// ChanStatusBorked indicates that the channel has entered an
+	// irreconcilable state, triggered by a state desynchronization or
+	// channel breach.  Channels in this state should never be added to the
+	// htlc switch.
+	ChanStatusBorked ChannelStatus = 1
 
-	// CommitmentBroadcasted indicates that a commitment for this channel
-	// has been broadcasted.
-	CommitmentBroadcasted ChannelStatus = 1 << 1
+	// ChanStatusCommitBroadcasted indicates that a commitment for this
+	// channel has been broadcasted.
+	ChanStatusCommitBroadcasted ChannelStatus = 1 << 1
 
-	// LocalDataLoss indicates that we have lost channel state for this
-	// channel, and broadcasting our latest commitment might be considered
-	// a breach.
+	// ChanStatusLocalDataLoss indicates that we have lost channel state
+	// for this channel, and broadcasting our latest commitment might be
+	// considered a breach.
+	//
 	// TODO(halseh): actually enforce that we are not force closing such a
 	// channel.
-	LocalDataLoss ChannelStatus = 1 << 2
+	ChanStatusLocalDataLoss ChannelStatus = 1 << 2
+
+	// ChanStatusRestored is a status flag that signals that the chanel has
+	// been restored, and doesn't have all the fields a typical channel
+	// will have.
+	ChanStatusRestored ChannelStatus = 1 << 3
 )
 
 // String returns a human-readable representation of the ChannelStatus.
 func (c ChannelStatus) String() string {
 	switch c {
-	case Default:
-		return "Default"
-	case Borked:
-		return "Borked"
-	case CommitmentBroadcasted:
-		return "CommitmentBroadcasted"
-	case LocalDataLoss:
-		return "LocalDataLoss"
+	case ChanStatusDefault:
+		return "ChanStatusDefault"
+	case ChanStatusBorked:
+		return "ChanStatusBorked"
+	case ChanStatusCommitBroadcasted:
+		return "ChanStatusCommitBroadcasted"
+	case ChanStatusLocalDataLoss:
+		return "ChanStatusLocalDataLoss"
 	default:
 		return fmt.Sprintf("Unknown(%08b)", c)
 	}
@@ -664,7 +671,7 @@ func (c *OpenChannel) MarkDataLoss(commitPoint *btcec.PublicKey) error {
 
 		// Add status LocalDataLoss to the existing bitvector found in
 		// the DB.
-		status = channel.chanStatus | LocalDataLoss
+		status = channel.chanStatus | ChanStatusLocalDataLoss
 		channel.chanStatus = status
 
 		var b bytes.Buffer
@@ -730,7 +737,7 @@ func (c *OpenChannel) MarkBorked() error {
 	c.Lock()
 	defer c.Unlock()
 
-	return c.putChanStatus(Borked)
+	return c.putChanStatus(ChanStatusBorked)
 }
 
 // MarkCommitmentBroadcasted marks the channel as a commitment transaction has
@@ -740,7 +747,7 @@ func (c *OpenChannel) MarkCommitmentBroadcasted() error {
 	c.Lock()
 	defer c.Unlock()
 
-	return c.putChanStatus(CommitmentBroadcasted)
+	return c.putChanStatus(ChanStatusCommitBroadcasted)
 }
 
 func (c *OpenChannel) putChanStatus(status ChannelStatus) error {

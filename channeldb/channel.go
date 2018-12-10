@@ -316,8 +316,8 @@ var (
 	// channel.
 	ChanStatusLocalDataLoss ChannelStatus = 1 << 2
 
-	// ChanStatusRestored is a status flag that signals that the chanel has
-	// been restored, and doesn't have all the fields a typical channel
+	// ChanStatusRestored is a status flag that signals that the channel
+	// has been restored, and doesn't have all the fields a typical channel
 	// will have.
 	ChanStatusRestored ChannelStatus = 1 << 3
 )
@@ -529,6 +529,28 @@ func (c *OpenChannel) ChanStatus() ChannelStatus {
 	defer c.RUnlock()
 
 	return c.chanStatus
+}
+
+// ApplyChanStatus allows the caller to modify the internal channel state in a
+// thead-safe manner.
+func (c *OpenChannel) ApplyChanStatus(status ChannelStatus) error {
+	c.Lock()
+	defer c.Unlock()
+
+	return c.putChanStatus(status)
+}
+
+// HasChanStatus returns true if the internal bitfield channel status of the
+// target channel has the specified status bit set.
+func (c *OpenChannel) HasChanStatus(status ChannelStatus) bool {
+	c.RLock()
+	defer c.RUnlock()
+
+	return c.hasChanStatus(status)
+}
+
+func (c *OpenChannel) hasChanStatus(status ChannelStatus) bool {
+	return c.chanStatus&status == status
 }
 
 // RefreshShortChanID updates the in-memory short channel ID using the latest

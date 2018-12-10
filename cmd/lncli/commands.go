@@ -17,6 +17,7 @@ import (
 	"syscall"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -1324,7 +1325,29 @@ var createCommand = cli.Command{
 	was provided by the user. This should be written down as it can be used
 	to potentially recover all on-chain funds, and most off-chain funds as
 	well.
+
+	Finally, it's also possible to use this command and a set of static
+	channel backups to trigger a recover attempt for the provided Static
+	Channel Backups. Only one of the three parameters will be accepted. See
+	the restorechanbackup command for further details w.r.t the format
+	accepted.
 	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "single_backup",
+			Usage: "a hex encoded single channel backup obtained " +
+				"from exportchanbackup",
+		},
+		cli.StringFlag{
+			Name: "multi_backup",
+			Usage: "a hex encoded multi-channel backup obtained " +
+				"from exportchanbackup",
+		},
+		cli.StringFlag{
+			Name:  "multi_file",
+			Usage: "the path to a multi-channel back up file",
+		},
+	},
 	Action: actionDecorator(create),
 }
 
@@ -1566,6 +1589,30 @@ mnemonicCheck:
 	fmt.Println("\n!!!YOU MUST WRITE DOWN THIS SEED TO BE ABLE TO " +
 		"RESTORE THE WALLET!!!")
 
+	// We'll also check to see if they provided any static channel backups,
+	// if so, then we'll also tack these onto the final innit wallet
+	// request.
+	var chanBackups *lnrpc.ChanBackupSnapshot
+	backups, err := parseChanBackups(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to parse chan "+
+			"backups: %v", err)
+	}
+
+	if backups != nil {
+		switch {
+		case backups.GetChanBackups() != nil:
+			singleBackup := backups.GetChanBackups()
+			chanBackups.SingleChanBackups = singleBackup
+
+		case backups.GetMultiChanBackup() != nil:
+			multiBackup := backups.GetMultiChanBackup()
+			chanBackups.MultiChanBackup = &lnrpc.MultiChanBackup{
+				MultiChanBackup: multiBackup,
+			}
+		}
+	}
+
 	// With either the user's prior cipher seed, or a newly generated one,
 	// we'll go ahead and initialize the wallet.
 	req := &lnrpc.InitWalletRequest{
@@ -1573,6 +1620,7 @@ mnemonicCheck:
 		CipherSeedMnemonic: cipherSeedMnemonic,
 		AezeedPassphrase:   aezeedPass,
 		RecoveryWindow:     recoveryWindow,
+		ChannelBackups:     chanBackups,
 	}
 	if _, err := client.InitWallet(ctxb, req); err != nil {
 		return err
@@ -1645,6 +1693,8 @@ func unlock(ctx *cli.Context) error {
 	}
 
 	fmt.Println("\nlnd successfully unlocked!")
+
+	// TODO(roasbeef): add ability to accept hex single and multi backups
 
 	return nil
 }
@@ -3328,6 +3378,31 @@ var updateChannelPolicyCommand = cli.Command{
 	Action: actionDecorator(updateChannelPolicy),
 }
 
+func parseChanPoint(s string) (*lnrpc.ChannelPoint, error) {
+	split := strings.Split(s, ":")
+	if len(split) != 2 {
+		return nil, fmt.Errorf("expecting chan_point to be in format of: " +
+			"txid:index")
+	}
+
+	index, err := strconv.ParseInt(split[1], 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode output index: %v", err)
+	}
+
+	txid, err := chainhash.NewHashFromStr(split[0])
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse hex string: %v", err)
+	}
+
+	return &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: txid[:],
+		},
+		OutputIndex: uint32(index),
+	}, nil
+}
+
 func updateChannelPolicy(ctx *cli.Context) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
@@ -3396,22 +3471,9 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	}
 
 	if chanPointStr != "" {
-		split := strings.Split(chanPointStr, ":")
-		if len(split) != 2 {
-			return fmt.Errorf("expecting chan_point to be in format of: " +
-				"txid:index")
-		}
-
-		index, err := strconv.ParseInt(split[1], 10, 32)
+		chanPoint, err = parseChanPoint(chanPointStr)
 		if err != nil {
-			return fmt.Errorf("unable to decode output index: %v", err)
-		}
-
-		chanPoint = &lnrpc.ChannelPoint{
-			FundingTxid: &lnrpc.ChannelPoint_FundingTxidStr{
-				FundingTxidStr: split[0],
-			},
-			OutputIndex: uint32(index),
+			return fmt.Errorf("unable to parse chan point: %v", err)
 		}
 	}
 
@@ -3552,5 +3614,303 @@ func forwardingHistory(ctx *cli.Context) error {
 	}
 
 	printRespJSON(resp)
+	return nil
+}
+
+var exportChanBackupCommand = cli.Command{
+	Name:     "exportchanbackup",
+	Category: "Channels",
+	Usage: "Obtain a static channel back up for a selected channels, " +
+		"or all known channels",
+	ArgsUsage: "[chan_point] [--all] [--output_file]",
+	Description: `
+	This command allows a user to export a Static Channel Backup (SCB) for
+	as selected channel. SCB's are encrypted backups of a channel's initial
+	state that are encrypted with a key derived from the seed of a user.In
+	the case of partial or complete data loss, the SCB will allow the user
+	to reclaim settled funds in the channel at its final state. The
+	exported channel backups can be restored at a later time using the
+	restorechanbackup command.
+
+	This command will return one of two types of channel backups depending
+	on the set of passed arguments:
+
+	   * If a target channel point is specified, then a single channel
+	     backup containing only the information for that channel will be
+	     returned.
+
+	   * If the --all flag is passed, then a multi-channel backup will be
+	     returned. A multi backup is a single encrypted blob (displayed in
+	     hex encoding) that contains several channels in a single cipher
+	     text.
+	
+	Both of the backup types can be restored using the restorechanbackup
+	command.
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "chan_point",
+			Usage: "the target channel to obtain an SCB for",
+		},
+		cli.BoolFlag{
+			Name: "all",
+			Usage: "if specified, then a multi backup of all " +
+				"active channels will be returned",
+		},
+		cli.StringFlag{
+			Name: "output_file",
+			Usage: `
+			if specified, then rather than printing a JSON output
+			of the static channel backup, a serialized version of
+			the backup (either Single or Multi) will be written to
+			the target file, this is the same format used by lnd in
+			its channels.backup file `,
+		},
+	},
+	Action: actionDecorator(exportChanBackup),
+}
+
+func exportChanBackup(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	// Show command help if no arguments provided
+	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
+		cli.ShowCommandHelp(ctx, "exportchanbackup")
+		return nil
+	}
+
+	var (
+		err          error
+		chanPointStr string
+	)
+	args := ctx.Args()
+
+	switch {
+	case ctx.IsSet("chan_point"):
+		chanPointStr = ctx.String("chan_point")
+
+	case args.Present():
+		chanPointStr = args.First()
+
+	case !ctx.IsSet("all"):
+		return fmt.Errorf("must specify chan_point if --all isn't set")
+	}
+
+	if chanPointStr != "" {
+		chanPointRPC, err := parseChanPoint(chanPointStr)
+		if err != nil {
+			return err
+		}
+
+		chanBackup, err := client.ExportChannelBackup(
+			ctxb, &lnrpc.ExportChannelBackupRequest{
+				ChanPoint: chanPointRPC,
+			},
+		)
+		if err != nil {
+			return err
+		}
+
+		txid, err := chainhash.NewHash(
+			chanPointRPC.GetFundingTxidBytes(),
+		)
+		if err != nil {
+			return err
+		}
+
+		chanPoint := wire.OutPoint{
+			Hash:  *txid,
+			Index: chanPointRPC.OutputIndex,
+		}
+
+		printJSON(struct {
+			ChanPoint  string `json:"chan_point"`
+			ChanBackup string `json:"chan_backup"`
+		}{
+			ChanPoint: chanPoint.String(),
+			ChanBackup: hex.EncodeToString(
+				chanBackup.ChanBackup,
+			),
+		},
+		)
+		return nil
+	}
+
+	if !ctx.IsSet("all") {
+		return fmt.Errorf("if a channel isn't specified, -all must be")
+	}
+
+	chanBackup, err := client.ExportAllChannelBackups(
+		ctxb, &lnrpc.ChanBackupExportRequest{},
+	)
+	if err != nil {
+		return err
+	}
+
+	if ctx.IsSet("output_file") {
+		return ioutil.WriteFile(
+			ctx.String("output_file"),
+			chanBackup.MultiChanBackup.MultiChanBackup,
+			0666,
+		)
+	}
+
+	// TODO(roasbeef): support for export | restore ?
+
+	var chanPoints []string
+	for _, chanPoint := range chanBackup.MultiChanBackup.ChanPoints {
+		txid, err := chainhash.NewHash(chanPoint.GetFundingTxidBytes())
+		if err != nil {
+			return err
+		}
+
+		chanPoints = append(chanPoints, wire.OutPoint{
+			Hash:  *txid,
+			Index: chanPoint.OutputIndex,
+		}.String())
+	}
+
+	printJSON(struct {
+		ChanPoints      []string `json:"chan_points"`
+		MultiChanBackup string   `json:"multi_chan_backup"`
+	}{
+		ChanPoints: chanPoints,
+		MultiChanBackup: hex.EncodeToString(
+			chanBackup.MultiChanBackup.MultiChanBackup,
+		),
+	},
+	)
+	return nil
+}
+
+var restoreChanBackupCommand = cli.Command{
+	Name:     "restorechanbackup",
+	Category: "Channels",
+	Usage: "Restore an existing single or multi-channel static channel " +
+		"backup",
+	ArgsUsage: "[--single_backup] [--multi_backup] [--multi_file=",
+	Description: `
+	Allows a suer to restore a Static Channel Backup (SCB) that was
+	obtained either via the exportchanbackup command, or from lnd's
+	automatically manged channels.backup file. This command should be used
+	if a user is attempting to restore a channel due to data loss on a
+	running node restored with the same seed as the node that created the
+	channel. If successful, this command will allows the user to recover
+	the settled funds stored in the recovered channels.
+
+	The command will accept backups in one of three forms:
+
+	   * A single channel packed SCB, which can be obtained from
+	     exportchanbackup. This should be passed in hex encoded format.
+
+	   * A packed multi-channel SCB, which couples several individual
+	     static channel backups in single blob.
+
+	   * A file path which points to a packed multi-channel backup within a
+	     file, using the same format that lnd does in its channels.backup
+	     file.
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "single_backup",
+			Usage: "a hex encoded single channel backup obtained " +
+				"from exportchanbackup",
+		},
+		cli.StringFlag{
+			Name: "multi_backup",
+			Usage: "a hex encoded multi-channel backup obtained " +
+				"from exportchanbackup",
+		},
+		cli.StringFlag{
+			Name:  "multi_file",
+			Usage: "the path to a multi-channel back up file",
+		},
+	},
+	Action: actionDecorator(restoreChanBackup),
+}
+
+func parseChanBackups(ctx *cli.Context) (*lnrpc.RestoreChanBackupRequest, error) {
+	switch {
+	case ctx.IsSet("single_backup"):
+		packedBackup, err := hex.DecodeString(
+			ctx.String("single_backup"),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode single packed "+
+				"backup: %v", err)
+		}
+
+		return &lnrpc.RestoreChanBackupRequest{
+			Backup: &lnrpc.RestoreChanBackupRequest_ChanBackups{
+				ChanBackups: &lnrpc.ChannelBackups{
+					ChanBackups: []*lnrpc.ChannelBackup{
+						{
+							ChanBackup: packedBackup,
+						},
+					},
+				},
+			},
+		}, nil
+
+	case ctx.IsSet("multi_backup"):
+		packedMulti, err := hex.DecodeString(
+			ctx.String("multi_backup"),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode multi packed "+
+				"backup: %v", err)
+		}
+
+		return &lnrpc.RestoreChanBackupRequest{
+			Backup: &lnrpc.RestoreChanBackupRequest_MultiChanBackup{
+				MultiChanBackup: packedMulti,
+			},
+		}, nil
+
+	case ctx.IsSet("multi_file"):
+		packedMulti, err := ioutil.ReadFile(ctx.String("multi_file"))
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode multi packed "+
+				"backup: %v", err)
+		}
+
+		return &lnrpc.RestoreChanBackupRequest{
+			Backup: &lnrpc.RestoreChanBackupRequest_MultiChanBackup{
+				MultiChanBackup: packedMulti,
+			},
+		}, nil
+
+	default:
+		return nil, nil
+	}
+}
+
+func restoreChanBackup(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	// Show command help if no arguments provided
+	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
+		cli.ShowCommandHelp(ctx, "restorechanbackup")
+		return nil
+	}
+
+	var req lnrpc.RestoreChanBackupRequest
+
+	backups, err := parseChanBackups(ctx)
+	if err != nil {
+		return err
+	}
+
+	req.Backup = backups.Backup
+
+	_, err = client.RestoreChannelBackups(ctxb, &req)
+	if err != nil {
+		return fmt.Errorf("unable to restore chan backups: %v", err)
+	}
+
 	return nil
 }

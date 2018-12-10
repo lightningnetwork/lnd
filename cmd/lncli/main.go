@@ -295,6 +295,8 @@ func main() {
 		feeReportCommand,
 		updateChannelPolicyCommand,
 		forwardingHistoryCommand,
+		exportChanBackupCommand,
+		restoreChanBackupCommand,
 	}
 
 	// Add any extra autopilot commands determined by build flags.

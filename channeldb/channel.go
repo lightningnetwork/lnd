@@ -972,7 +972,9 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment) error {
 
 		// With the proper bucket fetched, we'll now write toe latest
 		// commitment state to dis for the target party.
-		err = putChanCommitment(chanBucket, newCommitment, true)
+		err = putChanCommitment(
+			chanBucket, newCommitment, true,
+		)
 		if err != nil {
 			return fmt.Errorf("unable to store chan "+
 				"revocations: %v", err)
@@ -1540,7 +1542,9 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg) error {
 		if err != nil {
 			return err
 		}
-		err = putChanCommitment(chanBucket, &newCommit.Commitment, false)
+		err = putChanCommitment(
+			chanBucket, &newCommit.Commitment, false,
+		)
 		if err != nil {
 			return err
 		}
@@ -2353,12 +2357,22 @@ func putChanCommitment(chanBucket *bbolt.Bucket, c *ChannelCommitment,
 }
 
 func putChanCommitments(chanBucket *bbolt.Bucket, channel *OpenChannel) error {
-	err := putChanCommitment(chanBucket, &channel.LocalCommitment, true)
+	// If this is a restored channel, then we don't have any commitments to
+	// write.
+	if channel.hasChanStatus(ChanStatusRestored) {
+		return nil
+	}
+
+	err := putChanCommitment(
+		chanBucket, &channel.LocalCommitment, true,
+	)
 	if err != nil {
 		return err
 	}
 
-	return putChanCommitment(chanBucket, &channel.RemoteCommitment, false)
+	return putChanCommitment(
+		chanBucket, &channel.RemoteCommitment, false,
+	)
 }
 
 func putChanRevocationState(chanBucket *bbolt.Bucket, channel *OpenChannel) error {
@@ -2472,6 +2486,12 @@ func fetchChanCommitment(chanBucket *bbolt.Bucket, local bool) (ChannelCommitmen
 
 func fetchChanCommitments(chanBucket *bbolt.Bucket, channel *OpenChannel) error {
 	var err error
+
+	// If this is a restored channel, then we don't have any commitments to
+	// read.
+	if channel.hasChanStatus(ChanStatusRestored) {
+		return nil
+	}
 
 	channel.LocalCommitment, err = fetchChanCommitment(chanBucket, true)
 	if err != nil {

@@ -108,7 +108,7 @@ type chainControl struct {
 
 	signer input.Signer
 
-	keyRing keychain.KeyRing
+	keyRing keychain.SecretKeyRing
 
 	wc lnwallet.WalletController
 

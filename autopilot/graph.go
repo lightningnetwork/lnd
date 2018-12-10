@@ -335,6 +335,11 @@ func (m *memChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		if !ok {
 			vertex1 = memNode{
 				pub: node1,
+				addrs: []net.Addr{
+					&net.TCPAddr{
+						IP: bytes.Repeat([]byte("a"), 16),
+					},
+				},
 			}
 		}
 	} else {
@@ -344,6 +349,11 @@ func (m *memChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		}
 		vertex1 = memNode{
 			pub: newPub,
+			addrs: []net.Addr{
+				&net.TCPAddr{
+					IP: bytes.Repeat([]byte("a"), 16),
+				},
+			},
 		}
 	}
 
@@ -352,6 +362,11 @@ func (m *memChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		if !ok {
 			vertex2 = memNode{
 				pub: node2,
+				addrs: []net.Addr{
+					&net.TCPAddr{
+						IP: bytes.Repeat([]byte("a"), 16),
+					},
+				},
 			}
 		}
 	} else {
@@ -361,6 +376,11 @@ func (m *memChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		}
 		vertex2 = memNode{
 			pub: newPub,
+			addrs: []net.Addr{
+				&net.TCPAddr{
+					IP: bytes.Repeat([]byte("a"), 16),
+				},
+			},
 		}
 	}
 

@@ -1072,20 +1072,25 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		return
 	}
 
-	// As we're the responder, we get to specify the number of
-	// confirmations that we require before both of us consider the channel
-	// open. We'll use out mapping to derive the proper number of
-	// confirmations based on the amount of the channel, and also if any
-	// funds are being pushed to us.
+	// As we're the responder, we get to specify the number of confirmations
+	// that we require before both of us consider the channel open. We'll
+	// use out mapping to derive the proper number of confirmations based on
+	// the amount of the channel, and also if any funds are being pushed to
+	// us.
 	numConfsReq := f.cfg.NumRequiredConfs(msg.FundingAmount, msg.PushAmount)
 	reservation.SetNumConfsRequired(numConfsReq)
 
 	// We'll also validate and apply all the constraints the initiating
 	// party is attempting to dictate for our commitment transaction.
-	err = reservation.CommitConstraints(
-		msg.CsvDelay, msg.MaxAcceptedHTLCs, msg.MaxValueInFlight,
-		msg.HtlcMinimum, msg.ChannelReserve, msg.DustLimit,
-	)
+	channelConstraints := &channeldb.ChannelConstraints{
+		DustLimit:        msg.DustLimit,
+		ChanReserve:      msg.ChannelReserve,
+		MaxPendingAmount: msg.MaxValueInFlight,
+		MinHTLC:          msg.HtlcMinimum,
+		MaxAcceptedHtlcs: msg.MaxAcceptedHTLCs,
+		CsvDelay:         msg.CsvDelay,
+	}
+	err = reservation.CommitConstraints(channelConstraints)
 	if err != nil {
 		fndgLog.Errorf("Unacceptable channel constraints: %v", err)
 		f.failFundingFlow(fmsg.peer, fmsg.msg.PendingChannelID, err)
@@ -1229,10 +1234,15 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 	// required confirmations, and also the set of channel constraints
 	// they've specified for commitment states we can create.
 	resCtx.reservation.SetNumConfsRequired(uint16(msg.MinAcceptDepth))
-	err = resCtx.reservation.CommitConstraints(
-		msg.CsvDelay, msg.MaxAcceptedHTLCs, msg.MaxValueInFlight,
-		msg.HtlcMinimum, msg.ChannelReserve, msg.DustLimit,
-	)
+	channelConstraints := &channeldb.ChannelConstraints{
+		DustLimit:        msg.DustLimit,
+		ChanReserve:      msg.ChannelReserve,
+		MaxPendingAmount: msg.MaxValueInFlight,
+		MinHTLC:          msg.HtlcMinimum,
+		MaxAcceptedHtlcs: msg.MaxAcceptedHTLCs,
+		CsvDelay:         msg.CsvDelay,
+	}
+	err = resCtx.reservation.CommitConstraints(channelConstraints)
 	if err != nil {
 		fndgLog.Warnf("Unacceptable channel constraints: %v", err)
 		f.failFundingFlow(fmsg.peer, fmsg.msg.PendingChannelID, err)
@@ -1860,7 +1870,7 @@ func (f *fundingManager) waitForFundingConfirmation(completeChan *channeldb.Open
 	)
 	if err != nil {
 		fndgLog.Errorf("Unable to register for confirmation of "+
-			"ChannelPoint(%v)", completeChan.FundingOutpoint)
+			"ChannelPoint(%v): %v", completeChan.FundingOutpoint, err)
 		return
 	}
 

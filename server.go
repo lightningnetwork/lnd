@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/brontide"
+	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
@@ -41,6 +42,7 @@ import (
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/lightningnetwork/lnd/tor"
+	"github.com/lightningnetwork/lnd/walletunlocker"
 )
 
 const (
@@ -179,6 +181,10 @@ type server struct {
 	sentDisabled    map[wire.OutPoint]bool
 	sentDisabledMtx sync.Mutex
 
+	// chansToRestore is the set of channels that upon starting, the server
+	// should attempt to restore/recover.
+	chansToRestore walletunlocker.ChannelsToRecover
+
 	quit chan struct{}
 
 	wg sync.WaitGroup
@@ -232,7 +238,8 @@ func noiseDial(idPriv *btcec.PrivateKey) func(net.Addr) (net.Conn, error) {
 // newServer creates a new instance of the server which is to listen using the
 // passed listener address.
 func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
-	privKey *btcec.PrivateKey) (*server, error) {
+	privKey *btcec.PrivateKey,
+	chansToRestore walletunlocker.ChannelsToRecover) (*server, error) {
 
 	var err error
 
@@ -262,9 +269,10 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	sphinxRouter := sphinx.NewRouter(privKey, activeNetParams.Params, replayLog)
 
 	s := &server{
-		chanDB:  chanDB,
-		cc:      cc,
-		sigPool: lnwallet.NewSigPool(runtime.NumCPU()*2, cc.signer),
+		chanDB:         chanDB,
+		cc:             cc,
+		chansToRestore: chansToRestore,
+		sigPool:        lnwallet.NewSigPool(runtime.NumCPU()*2, cc.signer),
 
 		invoices: newInvoiceRegistry(chanDB),
 
@@ -1006,11 +1014,40 @@ func (s *server) Start() error {
 	if err := s.fundingMgr.Start(); err != nil {
 		return err
 	}
-	s.connMgr.Start()
-
 	if err := s.invoices.Start(); err != nil {
 		return err
 	}
+
+	// Before we start the connMgr, we'll check to see if we have any
+	// backups to recover. We do this now as we want to ensure that have
+	// all the information we need to handle channel recovery _before_ we
+	// even accept connections from any peers.
+	chanRestorer := &chanDBRestorer{
+		db:         s.chanDB,
+		secretKeys: s.cc.keyRing,
+	}
+	if len(s.chansToRestore.PackedSingleChanBackups) != 0 {
+		err := chanbackup.UnpackAndRecoverSingles(
+			s.chansToRestore.PackedSingleChanBackups,
+			s.cc.keyRing, chanRestorer, s,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to unpack single "+
+				"backups: %v", err)
+		}
+	}
+	if len(s.chansToRestore.PackedMultiChanBackup) != 0 {
+		err := chanbackup.UnpackAndRecoverMulti(
+			s.chansToRestore.PackedMultiChanBackup,
+			s.cc.keyRing, chanRestorer, s,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to unpack chan "+
+				"backup: %v", err)
+		}
+	}
+
+	s.connMgr.Start()
 
 	// With all the relevant sub-systems started, we'll now attempt to
 	// establish persistent connections to our direct channel collaborators
@@ -2713,7 +2750,8 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress, perm bool) error {
 			s.persistentPeersBackoff[targetPub] = defaultBackoff
 		}
 		s.persistentConnReqs[targetPub] = append(
-			s.persistentConnReqs[targetPub], connReq)
+			s.persistentConnReqs[targetPub], connReq,
+		)
 		s.mu.Unlock()
 
 		go s.connMgr.Connect(connReq)

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
@@ -860,6 +861,112 @@ func (d *DB) PruneLinkNodes() error {
 
 		for _, linkNode := range linkNodes {
 			err := d.pruneLinkNode(tx, linkNode.IdentityPub)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
+// ChannelShell is a shell of a channel that is meant to be used for channel
+// recovery purposes. It contains a minimal OpenChannel instance along with
+// addresses for that target node.
+type ChannelShell struct {
+	// NodeAddrs the set of addresses that this node has known to be
+	// reachable at in the past.
+	NodeAddrs []net.Addr
+
+	// Chan is a shell of an OpenChannel, it contains only the items
+	// required to restore the channel on disk.
+	Chan *OpenChannel
+}
+
+// RestoreChannelShells is a method that allows the caller to reconstruct the
+// state of an OpenChannel from the ChannelShell. We'll attempt to write the
+// new channel to disk, create a LinkNode instance with the passed node
+// addresses, and finally create an edge within the graph for the channel as
+// well. This method is idempotent, so repeated calls with the same set of
+// channel shells won't modify the database after the initial call.
+func (d *DB) RestoreChannelShells(channelShells ...*ChannelShell) error {
+	chanGraph := ChannelGraph{d}
+
+	return d.Update(func(tx *bbolt.Tx) error {
+		for _, channelShell := range channelShells {
+			channel := channelShell.Chan
+
+			// First, we'll attempt to create a new open channel
+			// and link node for this channel. If the channel
+			// already exists, then in order to ensure this method
+			// is idempotent, we'll continue to the next step.
+			channel.Db = d
+			err := syncNewChannel(
+				tx, channel, channelShell.NodeAddrs,
+			)
+			if err != nil {
+				return err
+			}
+
+			// Next, we'll create an active edge in the graph
+			// database for this channel in order to restore our
+			// partial view of the network.
+			//
+			// TODO(roasbeef): if we restore *after* the channel
+			// has been closed on chain, then need to inform the
+			// router that it should try and prune these values as
+			// we can detect them
+			edgeInfo := ChannelEdgeInfo{
+				ChannelID:    channel.ShortChannelID.ToUint64(),
+				ChainHash:    channel.ChainHash,
+				ChannelPoint: channel.FundingOutpoint,
+			}
+
+			nodes := tx.Bucket(nodeBucket)
+			if nodes == nil {
+				return ErrGraphNotFound
+			}
+			selfNode, err := chanGraph.sourceNode(nodes)
+			if err != nil {
+				return err
+			}
+
+			// Depending on which pub key is smaller, we'll assign
+			// our roles as "node1" and "node2".
+			chanPeer := channel.IdentityPub.SerializeCompressed()
+			selfIsSmaller := bytes.Compare(
+				selfNode.PubKeyBytes[:], chanPeer,
+			) == -1
+			if selfIsSmaller {
+				copy(edgeInfo.NodeKey1Bytes[:], selfNode.PubKeyBytes[:])
+				copy(edgeInfo.NodeKey2Bytes[:], chanPeer)
+			} else {
+				copy(edgeInfo.NodeKey1Bytes[:], chanPeer)
+				copy(edgeInfo.NodeKey2Bytes[:], selfNode.PubKeyBytes[:])
+			}
+
+			// With the edge info shell constructed, we'll now add
+			// it to the graph.
+			err = chanGraph.addChannelEdge(tx, &edgeInfo)
+			if err != nil {
+				return err
+			}
+
+			// Similarly, we'll construct a channel edge shell and
+			// add that itself to the graph.
+			chanEdge := ChannelEdgePolicy{
+				ChannelID:  edgeInfo.ChannelID,
+				LastUpdate: time.Now(),
+			}
+
+			// If their pubkey is larger, then we'll flip the
+			// direction bit to indicate that us, the "second" node
+			// is updating their policy.
+			if !selfIsSmaller {
+				chanEdge.ChannelFlags |= lnwire.ChanUpdateDirection
+			}
+
+			err = updateEdgePolicy(tx, &chanEdge)
 			if err != nil {
 				return err
 			}

@@ -2,10 +2,12 @@ package channeldb
 
 import (
 	"io/ioutil"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -145,5 +147,66 @@ func TestFetchClosedChannelForID(t *testing.T) {
 	_, err = cdb.FetchClosedChannelForID(cid)
 	if err != ErrClosedChannelNotFound {
 		t.Fatalf("expected ErrClosedChannelNotFound, instead got: %v", err)
+	}
+}
+
+// TestAddrsForNode tests the we're able to properly obtain all the addresses
+// for a target node.
+func TestAddrsForNode(t *testing.T) {
+	t.Parallel()
+
+	cdb, cleanUp, err := makeTestDB()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+	defer cleanUp()
+
+	graph := cdb.ChannelGraph()
+
+	// We'll make a test vertex to insert into the database, as the source
+	// node, but this node will only have half the number of addresses it
+	// usually does.
+	testNode, err := createTestVertex(cdb)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	testNode.Addresses = []net.Addr{testAddr}
+	if err := graph.SetSourceNode(testNode); err != nil {
+		t.Fatalf("unable to set source node: %v", err)
+	}
+
+	// Next, we'll make a link node with the same pubkey, but with an
+	// additional address.
+	nodePub, err := testNode.PubKey()
+	if err != nil {
+		t.Fatalf("unable to recv node pub: %v", err)
+	}
+	linkNode := cdb.NewLinkNode(
+		wire.MainNet, nodePub, anotherAddr,
+	)
+	if err := linkNode.Sync(); err != nil {
+		t.Fatalf("unable to sync link node: %v", err)
+	}
+
+	// Now that we've created a link node, as well as a vertex for the
+	// node, we'll query for all its addresses.
+	nodeAddrs, err := cdb.AddrsForNode(nodePub)
+	if err != nil {
+		t.Fatalf("unable to obtain node addrs: %v", err)
+	}
+
+	expectedAddrs := make(map[string]struct{})
+	expectedAddrs[testAddr.String()] = struct{}{}
+	expectedAddrs[anotherAddr.String()] = struct{}{}
+
+	// Finally, ensure that all the expected addresses are found.
+	if len(nodeAddrs) != len(expectedAddrs) {
+		t.Fatalf("expected %v addrs, got %v",
+			len(expectedAddrs), len(nodeAddrs))
+	}
+	for _, addr := range nodeAddrs {
+		if _, ok := expectedAddrs[addr.String()]; !ok {
+			t.Fatalf("unexpected addr: %v", addr)
+		}
 	}
 }

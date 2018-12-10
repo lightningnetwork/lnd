@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
@@ -770,6 +771,59 @@ func (d *DB) PruneLinkNodes() error {
 
 		return nil
 	})
+}
+
+// AddrsForNode consults the graph and channel database for all addresses known
+// to the passed node public key.
+func (d *DB) AddrsForNode(nodePub *btcec.PublicKey) ([]net.Addr, error) {
+	var (
+		linkNode  *LinkNode
+		graphNode LightningNode
+	)
+
+	dbErr := d.View(func(tx *bbolt.Tx) error {
+		var err error
+
+		linkNode, err = fetchLinkNode(tx, nodePub)
+		if err != nil {
+			return err
+		}
+
+		// We'll also query the graph for this peer to see if they have
+		// any addresses that we don't currently have stored within the
+		// link node database.
+		nodes := tx.Bucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNotFound
+		}
+		compressedPubKey := nodePub.SerializeCompressed()
+		graphNode, err = fetchLightningNode(nodes, compressedPubKey)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	// Now that we have both sources of addrs for this node, we'll use a
+	// map to de-duplicate any addresses between the two sources, and
+	// produce a final list of the combined addrs.
+	addrs := make(map[string]net.Addr)
+	for _, addr := range linkNode.Addresses {
+		addrs[addr.String()] = addr
+	}
+	for _, addr := range graphNode.Addresses {
+		addrs[addr.String()] = addr
+	}
+	dedupedAddrs := make([]net.Addr, 0, len(addrs))
+	for _, addr := range addrs {
+		dedupedAddrs = append(dedupedAddrs, addr)
+	}
+
+	return dedupedAddrs, nil
 }
 
 // syncVersions function is used for safe db version synchronization. It

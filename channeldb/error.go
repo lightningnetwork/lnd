@@ -103,6 +103,11 @@ var (
 	// indicate it should be.
 	ErrEdgePolicyOptionalFieldNotFound = fmt.Errorf("optional field not " +
 		"present")
+
+	// ErrChanAlreadyExists is return when the caller attempts to create a
+	// channel with a channel point that is already present in the
+	// database.
+	ErrChanAlreadyExists = fmt.Errorf("channel already exists")
 )
 
 // ErrTooManyExtraOpaqueBytes creates an error which should be returned if the

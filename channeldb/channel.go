@@ -656,16 +656,20 @@ func (c *OpenChannel) fullSync(tx *bbolt.Tx) error {
 	}
 
 	// With the bucket for the node fetched, we can now go down another
-	// level, creating the bucket (if it doesn't exist), for this channel
-	// itself.
+	// level, creating the bucket for this channel itself.
 	var chanPointBuf bytes.Buffer
 	if err := writeOutpoint(&chanPointBuf, &c.FundingOutpoint); err != nil {
 		return err
 	}
-	chanBucket, err := chainBucket.CreateBucketIfNotExists(
+	chanBucket, err := chainBucket.CreateBucket(
 		chanPointBuf.Bytes(),
 	)
-	if err != nil {
+	switch {
+	case err == bbolt.ErrBucketExists:
+		// If this channel already exists, then in order to avoid
+		// overriding it, we'll return an error back up to the caller.
+		return ErrChanAlreadyExists
+	case err != nil:
 		return err
 	}
 
@@ -911,33 +915,38 @@ func (c *OpenChannel) SyncPending(addr net.Addr, pendingHeight uint32) error {
 	c.FundingBroadcastHeight = pendingHeight
 
 	return c.Db.Update(func(tx *bbolt.Tx) error {
-		// First, sync all the persistent channel state to disk.
-		if err := c.fullSync(tx); err != nil {
-			return err
-		}
-
-		nodeInfoBucket, err := tx.CreateBucketIfNotExists(nodeInfoBucket)
-		if err != nil {
-			return err
-		}
-
-		// If a LinkNode for this identity public key already exists,
-		// then we can exit early.
-		nodePub := c.IdentityPub.SerializeCompressed()
-		if nodeInfoBucket.Get(nodePub) != nil {
-			return nil
-		}
-
-		// Next, we need to establish a (possibly) new LinkNode
-		// relationship for this channel. The LinkNode metadata
-		// contains reachability, up-time, and service bits related
-		// information.
-		linkNode := c.Db.NewLinkNode(wire.MainNet, c.IdentityPub, addr)
-
-		// TODO(roasbeef): do away with link node all together?
-
-		return putLinkNode(nodeInfoBucket, linkNode)
+		return syncNewChannel(tx, c, []net.Addr{addr})
 	})
+}
+
+// syncNewChannel will write the passed channel to disk, and also create a
+// LinkNode (if needed) for the channel peer.
+func syncNewChannel(tx *bbolt.Tx, c *OpenChannel, addrs []net.Addr) error {
+	// First, sync all the persistent channel state to disk.
+	if err := c.fullSync(tx); err != nil {
+		return err
+	}
+
+	nodeInfoBucket, err := tx.CreateBucketIfNotExists(nodeInfoBucket)
+	if err != nil {
+		return err
+	}
+
+	// If a LinkNode for this identity public key already exists,
+	// then we can exit early.
+	nodePub := c.IdentityPub.SerializeCompressed()
+	if nodeInfoBucket.Get(nodePub) != nil {
+		return nil
+	}
+
+	// Next, we need to establish a (possibly) new LinkNode relationship
+	// for this channel. The LinkNode metadata contains reachability,
+	// up-time, and service bits related information.
+	linkNode := c.Db.NewLinkNode(wire.MainNet, c.IdentityPub, addrs...)
+
+	// TODO(roasbeef): do away with link node all together?
+
+	return putLinkNode(nodeInfoBucket, linkNode)
 }
 
 // UpdateCommitment updates the commitment state for the specified party

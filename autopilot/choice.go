@@ -1,9 +1,14 @@
 package autopilot
 
 import (
+	"errors"
 	"fmt"
 	"math/rand"
 )
+
+// ErrNoPositive is returned from weightedChoice when there are no positive
+// weights left to choose from.
+var ErrNoPositive = errors.New("no positive weights left")
 
 // weightedChoice draws a random index from the map of channel candidates, with
 // a probability propotional to their score.
@@ -15,7 +20,7 @@ func weightedChoice(s map[NodeID]*AttachmentDirective) (NodeID, error) {
 	}
 
 	if sum <= 0 {
-		return NodeID{}, fmt.Errorf("non-positive sum")
+		return NodeID{}, ErrNoPositive
 	}
 
 	// Create a map of normalized scores such, that they sum to 1.0.
@@ -42,7 +47,7 @@ func weightedChoice(s map[NodeID]*AttachmentDirective) (NodeID, error) {
 			return k, nil
 		}
 	}
-	return NodeID{}, fmt.Errorf("no choice made")
+	return NodeID{}, fmt.Errorf("unable to make choice")
 }
 
 // chooseN picks at random min[n, len(s)] nodes if from the
@@ -61,7 +66,9 @@ func chooseN(n int, s map[NodeID]*AttachmentDirective) (
 	chosen := make(map[NodeID]*AttachmentDirective)
 	for len(chosen) < n && len(rem) > 0 {
 		choice, err := weightedChoice(rem)
-		if err != nil {
+		if err == ErrNoPositive {
+			return chosen, nil
+		} else if err != nil {
 			return nil, err
 		}
 

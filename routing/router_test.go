@@ -421,10 +421,13 @@ func TestChannelUpdateValidation(t *testing.T) {
 		},
 	}
 
-	route := NewRouteFromHops(
+	route, err := NewRouteFromHops(
 		lnwire.MilliSatoshi(10000), 100,
 		NewVertex(ctx.aliases["a"]), hops,
 	)
+	if err != nil {
+		t.Fatalf("unable to create route: %v", err)
+	}
 
 	// Set up a channel update message with an invalid signature to be
 	// returned to the sender.

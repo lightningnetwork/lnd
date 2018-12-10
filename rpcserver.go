@@ -3854,12 +3854,15 @@ func (r *rpcServer) unmarshallRoute(rpcroute *lnrpc.Route,
 		prevNodePubKey = routeHop.PubKeyBytes
 	}
 
-	route := routing.NewRouteFromHops(
+	route, err := routing.NewRouteFromHops(
 		lnwire.MilliSatoshi(rpcroute.TotalAmtMsat),
 		rpcroute.TotalTimeLock,
 		sourceNode.PubKeyBytes,
 		hops,
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	return route, nil
 }

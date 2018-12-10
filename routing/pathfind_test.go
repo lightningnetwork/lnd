@@ -1903,3 +1903,15 @@ func assertExpectedPath(t *testing.T, path []*channeldb.ChannelEdgePolicy,
 		}
 	}
 }
+
+// TestNewRouteFromEmptyHops tests that the NewRouteFromHops function returns an
+// error when the hop list is empty.
+func TestNewRouteFromEmptyHops(t *testing.T) {
+	t.Parallel()
+
+	var source Vertex
+	_, err := NewRouteFromHops(0, 0, source, []*Hop{})
+	if err != ErrNoRouteHopsProvided {
+		t.Fatalf("expected empty hops error: instead got: %v", err)
+	}
+}

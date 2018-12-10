@@ -326,9 +326,12 @@ func newRoute(amtToSend, feeLimit lnwire.MilliSatoshi, sourceVertex Vertex,
 	}
 
 	// With the base routing data expressed as hops, build the full route
-	newRoute := NewRouteFromHops(
+	newRoute, err := NewRouteFromHops(
 		nextIncomingAmount, totalTimeLock, sourceVertex, hops,
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	// Invalidate this route if its total fees exceed our fee limit.
 	if newRoute.TotalFees > feeLimit {
@@ -344,7 +347,11 @@ func newRoute(amtToSend, feeLimit lnwire.MilliSatoshi, sourceVertex Vertex,
 // information to perform the payment. It infers fee amounts and populates the
 // node, chan and prev/next hop maps.
 func NewRouteFromHops(amtToSend lnwire.MilliSatoshi, timeLock uint32,
-	sourceVertex Vertex, hops []*Hop) *Route {
+	sourceVertex Vertex, hops []*Hop) (*Route, error) {
+
+	if len(hops) == 0 {
+		return nil, ErrNoRouteHopsProvided
+	}
 
 	// First, we'll create a route struct and populate it with the fields
 	// for which the values are provided as arguments of this function.
@@ -369,7 +376,7 @@ func NewRouteFromHops(amtToSend lnwire.MilliSatoshi, timeLock uint32,
 		route.chanIndex[hop.ChannelID] = struct{}{}
 	}
 
-	return route
+	return route, nil
 }
 
 // Vertex is a simple alias for the serialization of a compressed Bitcoin

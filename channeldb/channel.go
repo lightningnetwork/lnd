@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -320,20 +322,54 @@ var (
 	ChanStatusRestored ChannelStatus = 1 << 3
 )
 
+// chanStatusStrings maps a ChannelStatus to a human friendly string that
+// describes that status.
+var chanStatusStrings = map[ChannelStatus]string{
+	ChanStatusDefault:           "ChanStatusDefault",
+	ChanStatusBorked:            "ChanStatusBorked",
+	ChanStatusCommitBroadcasted: "ChanStatusCommitBroadcasted",
+	ChanStatusLocalDataLoss:     "ChanStatusLocalDataLoss",
+	ChanStatusRestored:          "ChanStatusRestored",
+}
+
+// orderedChanStatusFlags is an in-order list of all that channel status flags.
+var orderedChanStatusFlags = []ChannelStatus{
+	ChanStatusDefault,
+	ChanStatusBorked,
+	ChanStatusCommitBroadcasted,
+	ChanStatusLocalDataLoss,
+	ChanStatusRestored,
+}
+
 // String returns a human-readable representation of the ChannelStatus.
 func (c ChannelStatus) String() string {
-	switch c {
-	case ChanStatusDefault:
-		return "ChanStatusDefault"
-	case ChanStatusBorked:
-		return "ChanStatusBorked"
-	case ChanStatusCommitBroadcasted:
-		return "ChanStatusCommitBroadcasted"
-	case ChanStatusLocalDataLoss:
-		return "ChanStatusLocalDataLoss"
-	default:
-		return fmt.Sprintf("Unknown(%08b)", c)
+	// If no flags are set, then this is the default case.
+	if c == 0 {
+		return chanStatusStrings[ChanStatusDefault]
 	}
+
+	// Add individual bit flags.
+	statusStr := ""
+	for _, flag := range orderedChanStatusFlags {
+		if c&flag == flag {
+			statusStr += chanStatusStrings[flag] + "|"
+			c -= flag
+		}
+	}
+
+	// Remove anything to the right of the final bar, including it as well.
+	statusStr = strings.TrimRight(statusStr, "|")
+
+	// Add any remaining flags which aren't accounted for as hex.
+	if c != 0 {
+		statusStr += "|0x" + strconv.FormatUint(uint64(c), 16)
+	}
+
+	// If this was purely an unknown flag, then remove the extra bar at the
+	// start of the string.
+	statusStr = strings.TrimLeft(statusStr, "|")
+
+	return statusStr
 }
 
 // OpenChannel encapsulates the persistent and dynamic state of an open channel

@@ -2617,11 +2617,20 @@
         },
         "num_channels": {
           "type": "integer",
-          "format": "int64"
+          "format": "int64",
+          "description": "/ The total number of channels for the node."
         },
         "total_capacity": {
           "type": "string",
-          "format": "int64"
+          "format": "int64",
+          "description": "/ The sum of all channels capacity for the node, denominated in satoshis."
+        },
+        "channels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcChannelEdge"
+          },
+          "description": "/ A list of all public channels for the node."
         }
       }
     },

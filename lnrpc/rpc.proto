@@ -1735,8 +1735,14 @@ message NodeInfo {
     */
     LightningNode node = 1 [json_name = "node"];
 
+    /// The total number of channels for the node.
     uint32 num_channels = 2 [json_name = "num_channels"];
+
+    /// The sum of all channels capacity for the node, denominated in satoshis.
     int64 total_capacity = 3 [json_name = "total_capacity"];
+
+    /// A list of all public channels for the node.
+    repeated ChannelEdge channels = 4 [json_name = "channels"];
 }
 
 /**

@@ -166,6 +166,11 @@ func (p *ConstrainedPrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 		// skip it for now, which implicitly gives it a score of 0.
 		case len(addrs) == 0:
 			continue
+
+		// If the node had no channels, we skip it, since it would have
+		// gotten a zero score anyway.
+		case nodeChans == 0:
+			continue
 		}
 
 		// Otherwise we score the node according to its fraction of

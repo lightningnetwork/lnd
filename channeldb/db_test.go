@@ -5,10 +5,12 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -208,5 +210,64 @@ func TestAddrsForNode(t *testing.T) {
 		if _, ok := expectedAddrs[addr.String()]; !ok {
 			t.Fatalf("unexpected addr: %v", addr)
 		}
+	}
+}
+
+// TestFetchChannel tests that we're able to fetch an arbitrary channel from
+// disk.
+func TestFetchChannel(t *testing.T) {
+	t.Parallel()
+
+	cdb, cleanUp, err := makeTestDB()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+	defer cleanUp()
+
+	// Create the test channel state that we'll sync to the database
+	// shortly.
+	channelState, err := createTestChannelState(cdb)
+	if err != nil {
+		t.Fatalf("unable to create channel state: %v", err)
+	}
+
+	// Mark the channel as pending, then immediately mark it as open to it
+	// can be fully visible.
+	addr := &net.TCPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 18555,
+	}
+	if err := channelState.SyncPending(addr, 9); err != nil {
+		t.Fatalf("unable to save and serialize channel state: %v", err)
+	}
+	err = channelState.MarkAsOpen(lnwire.NewShortChanIDFromInt(99))
+	if err != nil {
+		t.Fatalf("unable to mark channel open: %v", err)
+	}
+
+	// Next, attempt to fetch the channel by its chan point.
+	dbChannel, err := cdb.FetchChannel(channelState.FundingOutpoint)
+	if err != nil {
+		t.Fatalf("unable to fetch channel: %v", err)
+	}
+
+	// The decoded channel state should be identical to what we stored
+	// above.
+	if !reflect.DeepEqual(channelState, dbChannel) {
+		t.Fatalf("channel state doesn't match:: %v vs %v",
+			spew.Sdump(channelState), spew.Sdump(dbChannel))
+	}
+
+	// If we attempt to query for a non-exist ante channel, then we should
+	// get an error.
+	channelState2, err := createTestChannelState(cdb)
+	if err != nil {
+		t.Fatalf("unable to create channel state: %v", err)
+	}
+	channelState2.FundingOutpoint.Index ^= 1
+
+	_, err = cdb.FetchChannel(channelState2.FundingOutpoint)
+	if err == nil {
+		t.Fatalf("expected query to fail")
 	}
 }

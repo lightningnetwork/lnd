@@ -408,6 +408,102 @@ func (d *DB) fetchNodeChannels(chainBucket *bbolt.Bucket) ([]*OpenChannel, error
 	return channels, nil
 }
 
+// FetchChannel attempts to locate a channel specified by the passed channel
+// point. If the channel cannot be found, then an error will be returned.
+func (d *DB) FetchChannel(chanPoint wire.OutPoint) (*OpenChannel, error) {
+	var (
+		targetChan      *OpenChannel
+		targetChanPoint bytes.Buffer
+	)
+
+	if err := writeOutpoint(&targetChanPoint, &chanPoint); err != nil {
+		return nil, err
+	}
+
+	// chanScan will traverse the following bucket structure:
+	//  * nodePub => chainHash => chanPoint
+	//
+	// At each level we go one further, ensuring that we're traversing the
+	// proper key (that's actually a bucket). By only reading the bucket
+	// structure and skipping fully decoding each channel, we save a good
+	// bit of CPU as we don't need to do things like decompress public
+	// keys.
+	chanScan := func(tx *bbolt.Tx) error {
+		// Get the bucket dedicated to storing the metadata for open
+		// channels.
+		openChanBucket := tx.Bucket(openChannelBucket)
+		if openChanBucket == nil {
+			return ErrNoActiveChannels
+		}
+
+		// Within the node channel bucket, are the set of node pubkeys
+		// we have channels with, we don't know the entire set, so
+		// we'll check them all.
+		return openChanBucket.ForEach(func(nodePub, v []byte) error {
+			// Ensure that this is a key the same size as a pubkey,
+			// and also that it leads directly to a bucket.
+			if len(nodePub) != 33 || v != nil {
+				return nil
+			}
+
+			nodeChanBucket := openChanBucket.Bucket(nodePub)
+			if nodeChanBucket == nil {
+				return nil
+			}
+
+			// The next layer down is all the chains that this node
+			// has channels on with us.
+			return nodeChanBucket.ForEach(func(chainHash, v []byte) error {
+				// If there's a value, it's not a bucket so
+				// ignore it.
+				if v != nil {
+					return nil
+				}
+
+				chainBucket := nodeChanBucket.Bucket(chainHash)
+				if chainBucket == nil {
+					return fmt.Errorf("unable to read "+
+						"bucket for chain=%x", chainHash[:])
+				}
+
+				// Finally we reach the leaf bucket that stores
+				// all the chanPoints for this node.
+				chanBucket := chainBucket.Bucket(
+					targetChanPoint.Bytes(),
+				)
+				if chanBucket == nil {
+					return nil
+				}
+
+				channel, err := fetchOpenChannel(
+					chanBucket, &chanPoint,
+				)
+				if err != nil {
+					return err
+				}
+
+				targetChan = channel
+				targetChan.Db = d
+
+				return nil
+			})
+		})
+	}
+
+	err := d.View(chanScan)
+	if err != nil {
+		return nil, err
+	}
+
+	if targetChan != nil {
+		return targetChan, nil
+	}
+
+	// If we can't find the channel, then we return with an error, as we
+	// have nothing to  backup.
+	return nil, ErrChannelNotFound
+}
+
 // FetchAllChannels attempts to retrieve all open channels currently stored
 // within the database, including pending open, fully open and channels waiting
 // for a closing transaction to confirm.

@@ -148,6 +148,7 @@ func (p *ConstrainedPrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 		}
 
 		_, ok := existingPeers[nID]
+		addrs := addresses[nID]
 
 		switch {
 
@@ -160,6 +161,16 @@ func (p *ConstrainedPrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 		// another channel.
 		case chanSize == 0 || chanSize < p.constraints.MinChanSize:
 			continue
+
+		// If the node has no addresses, we cannot connect to it, so we
+		// skip it for now, which implicitly gives it a score of 0.
+		case len(addrs) == 0:
+			continue
+
+		// If the node had no channels, we skip it, since it would have
+		// gotten a zero score anyway.
+		case nodeChans == 0:
+			continue
 		}
 
 		// Otherwise we score the node according to its fraction of
@@ -168,6 +179,7 @@ func (p *ConstrainedPrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 		candidates[nID] = &AttachmentDirective{
 			NodeID:  nID,
 			ChanAmt: chanSize,
+			Addrs:   addrs,
 			Score:   score,
 		}
 	}

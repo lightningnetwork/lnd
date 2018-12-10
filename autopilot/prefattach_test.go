@@ -182,6 +182,8 @@ type testGraph interface {
 
 	addRandChannel(*btcec.PublicKey, *btcec.PublicKey,
 		btcutil.Amount) (*ChannelEdge, *ChannelEdge, error)
+
+	addRandNode() (*btcec.PublicKey, error)
 }
 
 func newDiskChanGraph() (testGraph, func(), error) {
@@ -374,6 +376,12 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 				t1.Fatalf("unable to generate channel: %v", err)
 			}
 
+			// We also add a third, non-connected node to the graph.
+			_, err = graph.addRandNode()
+			if err != nil {
+				t1.Fatalf("unable to add random node: %v", err)
+			}
+
 			// Get the score for all nodes found in the graph at
 			// this point.
 			nodes := make(map[NodeID]struct{})
@@ -384,7 +392,7 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 				t1.Fatalf("unable to traverse graph: %v", err)
 			}
 
-			if len(nodes) != 2 {
+			if len(nodes) != 3 {
 				t1.Fatalf("expected 2 nodes, found %d", len(nodes))
 			}
 
@@ -399,8 +407,10 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 					"directives: %v", err)
 			}
 
-			if len(candidates) != len(nodes) {
-				t1.Fatalf("all nodes should be scored, "+
+			// We expect two candidates, since one of the nodes
+			// doesn't have any channels.
+			if len(candidates) != 2 {
+				t1.Fatalf("2 nodes should be scored, "+
 					"instead %v were", len(candidates))
 			}
 
@@ -435,6 +445,11 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 					t1.Fatalf("expected candidate score "+
 						"to be %v, instead was %v",
 						expScore, candidate.Score)
+				}
+
+				if len(candidate.Addrs) == 0 {
+					t1.Fatalf("expected node to have " +
+						"available addresses, didn't")
 				}
 			}
 		})
@@ -633,6 +648,11 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 						"of %v, instead got %v",
 						maxChanSize, candidate.ChanAmt)
 				}
+
+				if len(candidate.Addrs) == 0 {
+					t1.Fatalf("expected node to have " +
+						"available addresses, didn't")
+				}
 			}
 
 			// Imagine a few channels are being opened, and there's
@@ -662,6 +682,11 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 					t1.Fatalf("expected recommendation "+
 						"of %v, instead got %v",
 						remBalance, candidate.ChanAmt)
+				}
+
+				if len(candidate.Addrs) == 0 {
+					t1.Fatalf("expected node to have " +
+						"available addresses, didn't")
 				}
 			}
 		})
@@ -752,6 +777,11 @@ func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
 					t1.Fatalf("expected recommendation "+
 						"of %v, instead got %v",
 						maxChanSize, candidate.ChanAmt)
+				}
+
+				if len(candidate.Addrs) == 0 {
+					t1.Fatalf("expected node to have " +
+						"available addresses, didn't")
 				}
 			}
 

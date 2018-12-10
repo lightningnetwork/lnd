@@ -71,7 +71,7 @@ var _ Message = (*ChannelReestablish)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (a *ChannelReestablish) Encode(w io.Writer, pver uint32) error {
-	err := writeElements(w,
+	err := WriteElements(w,
 		a.ChanID,
 		a.NextLocalCommitHeight,
 		a.RemoteCommitTailHeight,
@@ -87,7 +87,7 @@ func (a *ChannelReestablish) Encode(w io.Writer, pver uint32) error {
 	}
 
 	// Otherwise, we'll write out the remaining elements.
-	return writeElements(w, a.LastRemoteCommitSecret[:],
+	return WriteElements(w, a.LastRemoteCommitSecret[:],
 		a.LocalUnrevokedCommitPoint)
 }
 
@@ -96,7 +96,7 @@ func (a *ChannelReestablish) Encode(w io.Writer, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (a *ChannelReestablish) Decode(r io.Reader, pver uint32) error {
-	err := readElements(r,
+	err := ReadElements(r,
 		&a.ChanID,
 		&a.NextLocalCommitHeight,
 		&a.RemoteCommitTailHeight,
@@ -129,7 +129,7 @@ func (a *ChannelReestablish) Decode(r io.Reader, pver uint32) error {
 	// We'll conclude by parsing out the commitment point. We don't check
 	// the error in this case, as it hey included the commit secret, then
 	// they MUST also include the commit point.
-	return readElement(r, &a.LocalUnrevokedCommitPoint)
+	return ReadElement(r, &a.LocalUnrevokedCommitPoint)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

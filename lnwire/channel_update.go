@@ -93,7 +93,7 @@ var _ Message = (*ChannelUpdate)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (a *ChannelUpdate) Decode(r io.Reader, pver uint32) error {
-	err := readElements(r,
+	err := ReadElements(r,
 		&a.Signature,
 		a.ChainHash[:],
 		&a.ShortChannelID,
@@ -128,7 +128,7 @@ func (a *ChannelUpdate) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (a *ChannelUpdate) Encode(w io.Writer, pver uint32) error {
-	return writeElements(w,
+	return WriteElements(w,
 		a.Signature,
 		a.ChainHash[:],
 		a.ShortChannelID,
@@ -164,7 +164,7 @@ func (a *ChannelUpdate) DataToSign() ([]byte, error) {
 
 	// We should not include the signatures itself.
 	var w bytes.Buffer
-	err := writeElements(&w,
+	err := WriteElements(&w,
 		a.ChainHash[:],
 		a.ShortChannelID,
 		a.Timestamp,

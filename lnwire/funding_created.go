@@ -36,7 +36,7 @@ var _ Message = (*FundingCreated)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (f *FundingCreated) Encode(w io.Writer, pver uint32) error {
-	return writeElements(w, f.PendingChannelID[:], f.FundingPoint, f.CommitSig)
+	return WriteElements(w, f.PendingChannelID[:], f.FundingPoint, f.CommitSig)
 }
 
 // Decode deserializes the serialized FundingCreated stored in the passed
@@ -45,7 +45,7 @@ func (f *FundingCreated) Encode(w io.Writer, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (f *FundingCreated) Decode(r io.Reader, pver uint32) error {
-	return readElements(r, f.PendingChannelID[:], &f.FundingPoint, &f.CommitSig)
+	return ReadElements(r, f.PendingChannelID[:], &f.FundingPoint, &f.CommitSig)
 }
 
 // MsgType returns the uint32 code which uniquely identifies this message as a

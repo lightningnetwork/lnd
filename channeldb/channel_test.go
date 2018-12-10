@@ -136,8 +136,8 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 			ChanReserve:      btcutil.Amount(rand.Int63()),
 			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
+			CsvDelay:         uint16(rand.Int31()),
 		},
-		CsvDelay: uint16(rand.Int31()),
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: privKey.PubKey(),
 		},
@@ -161,8 +161,8 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 			ChanReserve:      btcutil.Amount(rand.Int63()),
 			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
+			CsvDelay:         uint16(rand.Int31()),
 		},
-		CsvDelay: uint16(rand.Int31()),
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: privKey.PubKey(),
 			KeyLocator: keychain.KeyLocator{

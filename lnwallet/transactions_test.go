@@ -379,8 +379,8 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 				DustLimit:        tc.dustLimit,
 				MaxPendingAmount: lnwire.NewMSatFromSatoshis(tc.fundingAmount),
 				MaxAcceptedHtlcs: MaxHTLCNumber,
+				CsvDelay:         tc.localCsvDelay,
 			},
-			CsvDelay: tc.localCsvDelay,
 			MultiSigKey: keychain.KeyDescriptor{
 				PubKey: tc.localFundingPubKey,
 			},

@@ -169,6 +169,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		ChanReserve:      aliceReserve,
 		MinHTLC:          0,
 		MaxAcceptedHtlcs: lnwallet.MaxHTLCNumber / 2,
+		CsvDelay:         uint16(csvTimeoutAlice),
 	}
 
 	bobConstraints := &channeldb.ChannelConstraints{
@@ -178,6 +179,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		ChanReserve:      bobReserve,
 		MinHTLC:          0,
 		MaxAcceptedHtlcs: lnwallet.MaxHTLCNumber / 2,
+		CsvDelay:         uint16(csvTimeoutBob),
 	}
 
 	var hash [sha256.Size]byte
@@ -195,7 +197,6 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 
 	aliceCfg := channeldb.ChannelConfig{
 		ChannelConstraints: *aliceConstraints,
-		CsvDelay:           uint16(csvTimeoutAlice),
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: aliceKeyPub,
 		},
@@ -214,7 +215,6 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	}
 	bobCfg := channeldb.ChannelConfig{
 		ChannelConstraints: *bobConstraints,
-		CsvDelay:           uint16(csvTimeoutBob),
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: bobKeyPub,
 		},

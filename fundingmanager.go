@@ -1136,8 +1136,8 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 				ChanReserve:      chanReserve,
 				MinHTLC:          minHtlc,
 				MaxAcceptedHtlcs: maxHtlcs,
+				CsvDelay:         remoteCsvDelay,
 			},
-			CsvDelay: remoteCsvDelay,
 			MultiSigKey: keychain.KeyDescriptor{
 				PubKey: copyPubKey(msg.FundingKey),
 			},
@@ -1259,8 +1259,8 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 				ChanReserve:      chanReserve,
 				MinHTLC:          resCtx.remoteMinHtlc,
 				MaxAcceptedHtlcs: maxHtlcs,
+				CsvDelay:         resCtx.remoteCsvDelay,
 			},
-			CsvDelay: resCtx.remoteCsvDelay,
 			MultiSigKey: keychain.KeyDescriptor{
 				PubKey: copyPubKey(msg.FundingKey),
 			},

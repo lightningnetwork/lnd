@@ -2430,7 +2430,7 @@ var listInvoicesCommand = cli.Command{
 	Name:     "listinvoices",
 	Category: "Payments",
 	Usage: "List all invoices currently stored within the database. Any " +
-		"active debug invoices are ingnored.",
+		"active debug invoices are ignored.",
 	Description: `
 	This command enables the retrieval of all invoices currently stored
 	within the database. It has full support for paginationed responses,

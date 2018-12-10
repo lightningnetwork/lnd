@@ -143,9 +143,12 @@ func TestAgentChannelOpenSignal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to generate key: %v", err)
 	}
+
+	quit := make(chan struct{})
 	heuristic := &mockHeuristic{
 		moreChansResps:  make(chan moreChansResp),
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
+		quit:            quit,
 	}
 	chanController := &mockChanController{
 		openChanSignals: make(chan openChanIntent, 10),
@@ -188,6 +191,11 @@ func TestAgentChannelOpenSignal(t *testing.T) {
 		t.Fatalf("unable to start agent: %v", err)
 	}
 	defer agent.Stop()
+
+	// We must defer the closing of quit after the defer agent.Stop(), to
+	// make sure ConnectToPeer won't block preventing the agent from
+	// exiting.
+	defer close(quit)
 
 	// We'll send an initial "no" response to advance the agent past its
 	// initial check.
@@ -268,9 +276,12 @@ func TestAgentChannelFailureSignal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to generate key: %v", err)
 	}
+
+	quit := make(chan struct{})
 	heuristic := &mockHeuristic{
 		moreChansResps:  make(chan moreChansResp),
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
+		quit:            quit,
 	}
 	chanController := &mockFailingChanController{}
 	memGraph, _, _ := newMemChanGraph()
@@ -312,6 +323,11 @@ func TestAgentChannelFailureSignal(t *testing.T) {
 		t.Fatalf("unable to start agent: %v", err)
 	}
 	defer agent.Stop()
+
+	// We must defer the closing of quit after the defer agent.Stop(), to
+	// make sure ConnectToPeer won't block preventing the agent from
+	// exiting.
+	defer close(quit)
 
 	// First ensure the agent will attempt to open a new channel. Return
 	// that we need more channels, and have 5BTC to use.
@@ -371,9 +387,12 @@ func TestAgentChannelCloseSignal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to generate key: %v", err)
 	}
+
+	quit := make(chan struct{})
 	heuristic := &mockHeuristic{
 		moreChansResps:  make(chan moreChansResp),
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
+		quit:            quit,
 	}
 	chanController := &mockChanController{
 		openChanSignals: make(chan openChanIntent),
@@ -428,6 +447,11 @@ func TestAgentChannelCloseSignal(t *testing.T) {
 	}
 	defer agent.Stop()
 
+	// We must defer the closing of quit after the defer agent.Stop(), to
+	// make sure ConnectToPeer won't block preventing the agent from
+	// exiting.
+	defer close(quit)
+
 	// We'll send an initial "no" response to advance the agent past its
 	// initial check.
 	select {
@@ -481,9 +505,12 @@ func TestAgentBalanceUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to generate key: %v", err)
 	}
+
+	quit := make(chan struct{})
 	heuristic := &mockHeuristic{
 		moreChansResps:  make(chan moreChansResp),
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
+		quit:            quit,
 	}
 	chanController := &mockChanController{
 		openChanSignals: make(chan openChanIntent),
@@ -532,6 +559,11 @@ func TestAgentBalanceUpdate(t *testing.T) {
 		t.Fatalf("unable to start agent: %v", err)
 	}
 	defer agent.Stop()
+
+	// We must defer the closing of quit after the defer agent.Stop(), to
+	// make sure ConnectToPeer won't block preventing the agent from
+	// exiting.
+	defer close(quit)
 
 	// We'll send an initial "no" response to advance the agent past its
 	// initial check.
@@ -591,9 +623,12 @@ func TestAgentImmediateAttach(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to generate key: %v", err)
 	}
+
+	quit := make(chan struct{})
 	heuristic := &mockHeuristic{
 		moreChansResps:  make(chan moreChansResp),
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
+		quit:            quit,
 	}
 	chanController := &mockChanController{
 		openChanSignals: make(chan openChanIntent),
@@ -639,6 +674,11 @@ func TestAgentImmediateAttach(t *testing.T) {
 		t.Fatalf("unable to start agent: %v", err)
 	}
 	defer agent.Stop()
+
+	// We must defer the closing of quit after the defer agent.Stop(), to
+	// make sure ConnectToPeer won't block preventing the agent from
+	// exiting.
+	defer close(quit)
 
 	const numChans = 5
 
@@ -726,9 +766,12 @@ func TestAgentPrivateChannels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to generate key: %v", err)
 	}
+
+	quit := make(chan struct{})
 	heuristic := &mockHeuristic{
 		moreChansResps:  make(chan moreChansResp),
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
+		quit:            quit,
 	}
 	// The chanController should be initialized such that all of its open
 	// channel requests are for private channels.
@@ -776,6 +819,11 @@ func TestAgentPrivateChannels(t *testing.T) {
 		t.Fatalf("unable to start agent: %v", err)
 	}
 	defer agent.Stop()
+
+	// We must defer the closing of quit after the defer agent.Stop(), to
+	// make sure ConnectToPeer won't block preventing the agent from
+	// exiting.
+	defer close(quit)
 
 	const numChans = 5
 
@@ -850,9 +898,12 @@ func TestAgentPendingChannelState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to generate key: %v", err)
 	}
+
+	quit := make(chan struct{})
 	heuristic := &mockHeuristic{
 		moreChansResps:  make(chan moreChansResp),
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
+		quit:            quit,
 	}
 	chanController := &mockChanController{
 		openChanSignals: make(chan openChanIntent),
@@ -902,6 +953,11 @@ func TestAgentPendingChannelState(t *testing.T) {
 		t.Fatalf("unable to start agent: %v", err)
 	}
 	defer agent.Stop()
+
+	// We must defer the closing of quit after the defer agent.Stop(), to
+	// make sure ConnectToPeer won't block preventing the agent from
+	// exiting.
+	defer close(quit)
 
 	// Once again, we'll start by telling the agent as part of its first
 	// query, that it needs more channels and has 3 BTC available for
@@ -1034,9 +1090,12 @@ func TestAgentPendingOpenChannel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to generate key: %v", err)
 	}
+
+	quit := make(chan struct{})
 	heuristic := &mockHeuristic{
 		moreChansResps:  make(chan moreChansResp),
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
+		quit:            quit,
 	}
 	chanController := &mockChanController{
 		openChanSignals: make(chan openChanIntent),
@@ -1075,6 +1134,11 @@ func TestAgentPendingOpenChannel(t *testing.T) {
 		t.Fatalf("unable to start agent: %v", err)
 	}
 	defer agent.Stop()
+
+	// We must defer the closing of quit after the defer agent.Stop(), to
+	// make sure ConnectToPeer won't block preventing the agent from
+	// exiting.
+	defer close(quit)
 
 	// We'll send an initial "no" response to advance the agent past its
 	// initial check.
@@ -1119,9 +1183,12 @@ func TestAgentOnNodeUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to generate key: %v", err)
 	}
+
+	quit := make(chan struct{})
 	heuristic := &mockHeuristic{
 		moreChansResps:  make(chan moreChansResp),
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
+		quit:            quit,
 	}
 	chanController := &mockChanController{
 		openChanSignals: make(chan openChanIntent),
@@ -1160,6 +1227,11 @@ func TestAgentOnNodeUpdates(t *testing.T) {
 		t.Fatalf("unable to start agent: %v", err)
 	}
 	defer agent.Stop()
+
+	// We must defer the closing of quit after the defer agent.Stop(), to
+	// make sure ConnectToPeer won't block preventing the agent from
+	// exiting.
+	defer close(quit)
 
 	// We'll send an initial "yes" response to advance the agent past its
 	// initial check. This will cause it to try to get directives from an
@@ -1224,9 +1296,12 @@ func TestAgentSkipPendingConns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to generate key: %v", err)
 	}
+
+	quit := make(chan struct{})
 	heuristic := &mockHeuristic{
 		moreChansResps:  make(chan moreChansResp),
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
+		quit:            quit,
 	}
 	chanController := &mockChanController{
 		openChanSignals: make(chan openChanIntent),
@@ -1237,7 +1312,6 @@ func TestAgentSkipPendingConns(t *testing.T) {
 	const walletBalance = btcutil.SatoshiPerBitcoin * 6
 
 	connect := make(chan chan error)
-	quit := make(chan struct{})
 
 	// With the dependencies we created, we can now create the initial
 	// agent itself.

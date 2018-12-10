@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -6273,4 +6274,34 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 	// HTLC an add height.
 	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 0, 2, 1)
 	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 1, 2, 2)
+}
+
+// TestForceCloseFailLocalDataLoss tests that we don't allow a force close of a
+// channel that's in a non-default state.
+func TestForceCloseFailLocalDataLoss(t *testing.T) {
+	t.Parallel()
+
+	aliceChannel, _, cleanUp, err := CreateTestChannels()
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// Now that we have our set of channels, we'll modify the channel state
+	// to have a non-default channel flag.
+	err = aliceChannel.channelState.ApplyChanStatus(
+		channeldb.ChanStatusLocalDataLoss,
+	)
+	if err != nil {
+		t.Fatalf("unable to apply channel state: %v", err)
+	}
+
+	// Due to the change above, if we attempt to force close this
+	// channel, we should fail as it isn't safe to force close a
+	// channel that isn't in the pure default state.
+	_, err = aliceChannel.ForceClose()
+	if err == nil {
+		t.Fatalf("expected force close to fail due to non-default " +
+			"chan state")
+	}
 }

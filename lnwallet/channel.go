@@ -5640,14 +5640,24 @@ func (lc *LightningChannel) ForceClose() (*LocalForceCloseSummary, error) {
 	lc.Lock()
 	defer lc.Unlock()
 
+	// If we've detected local data loss for this channel, then we won't
+	// allow a force close, as it may be the case that we have a dated
+	// version of the commitment, or this is actually a channel shell.
+	if lc.channelState.HasChanStatus(channeldb.ChanStatusLocalDataLoss) {
+		return nil, fmt.Errorf("cannot force close channel with "+
+			"state: %v", lc.channelState.ChanStatus())
+	}
+
 	commitTx, err := lc.getSignedCommitTx()
 	if err != nil {
 		return nil, err
 	}
 
 	localCommitment := lc.channelState.LocalCommitment
-	summary, err := NewLocalForceCloseSummary(lc.channelState,
-		lc.Signer, lc.pCache, commitTx, localCommitment)
+	summary, err := NewLocalForceCloseSummary(
+		lc.channelState, lc.Signer, lc.pCache, commitTx,
+		localCommitment,
+	)
 	if err != nil {
 		return nil, err
 	}

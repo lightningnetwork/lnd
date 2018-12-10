@@ -182,6 +182,8 @@ type testGraph interface {
 
 	addRandChannel(*btcec.PublicKey, *btcec.PublicKey,
 		btcutil.Amount) (*ChannelEdge, *ChannelEdge, error)
+
+	addRandNode() (*btcec.PublicKey, error)
 }
 
 func newDiskChanGraph() (testGraph, func(), error) {

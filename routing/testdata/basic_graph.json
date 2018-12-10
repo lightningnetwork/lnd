@@ -39,7 +39,8 @@
         }, 
         {
             "source": false, 
-            "pubkey": "032b480de5d002f1a8fd1fe1bbf0a0f1b07760f65f052e66d56f15d71097c01add", 
+            "pubkey": "026c43a8ac1cd8519985766e90748e1e06871dab0ff6b8af27e8c1a61640481318",
+            "privkey": "82b266f659bd83a976bac11b2cc442baec5508e84e61085d7ec2b0fc52156c87",
             "alias": "songoku" 
         }, 
         {
@@ -154,7 +155,7 @@
             "capacity": 120000
         },
         {
-            "node_1": "032b480de5d002f1a8fd1fe1bbf0a0f1b07760f65f052e66d56f15d71097c01add",
+            "node_1": "026c43a8ac1cd8519985766e90748e1e06871dab0ff6b8af27e8c1a61640481318",
             "node_2": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6",
             "channel_id": 12345, 
             "channel_point": "89dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
@@ -168,7 +169,7 @@
             "capacity": 100000
         },
         {
-            "node_1": "032b480de5d002f1a8fd1fe1bbf0a0f1b07760f65f052e66d56f15d71097c01add",
+            "node_1": "026c43a8ac1cd8519985766e90748e1e06871dab0ff6b8af27e8c1a61640481318",
             "node_2": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6",
             "channel_id": 12345, 
             "channel_point": "89dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
@@ -182,7 +183,7 @@
             "capacity": 100000
         },
         {
-            "node_1": "032b480de5d002f1a8fd1fe1bbf0a0f1b07760f65f052e66d56f15d71097c01add",
+            "node_1": "026c43a8ac1cd8519985766e90748e1e06871dab0ff6b8af27e8c1a61640481318",
             "node_2": "036264734b40c9e91d3d990a8cdfbbe23b5b0b7ad3cd0e080a25dcd05d39eeb7eb",
             "channel_id": 3495345, 
             "channel_point": "9f155756b33a0a6827713965babbd561b55f9520444ac5db0cf7cb2eb0deb5bc:0", 
@@ -196,7 +197,7 @@
             "capacity": 110000
         },
         {
-            "node_1": "032b480de5d002f1a8fd1fe1bbf0a0f1b07760f65f052e66d56f15d71097c01add",
+            "node_1": "026c43a8ac1cd8519985766e90748e1e06871dab0ff6b8af27e8c1a61640481318",
             "node_2": "036264734b40c9e91d3d990a8cdfbbe23b5b0b7ad3cd0e080a25dcd05d39eeb7eb",
             "channel_id": 3495345, 
             "channel_point": "9f155756b33a0a6827713965babbd561b55f9520444ac5db0cf7cb2eb0deb5bc:0", 

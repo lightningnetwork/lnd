@@ -33,6 +33,8 @@ type testCtx struct {
 
 	aliases map[string]Vertex
 
+	privKeys map[string]*btcec.PrivateKey
+
 	chain *mockChain
 
 	chainView *mockChainView
@@ -112,6 +114,7 @@ func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGr
 		router:    router,
 		graph:     graphInstance.graph,
 		aliases:   graphInstance.aliasMap,
+		privKeys:  graphInstance.privKeyMap,
 		chain:     chain,
 		chainView: chainView,
 	}

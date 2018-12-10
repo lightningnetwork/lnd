@@ -31,6 +31,7 @@ import (
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -354,6 +355,22 @@ var (
 			Action: "write",
 		}},
 		"/lnrpc.Lightning/ForwardingHistory": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/RestoreChannelBackups": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/ExportChannelBackup": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/ExportAllChannelBackups": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/SubscribeChannelBackups": {{
 			Entity: "offchain",
 			Action: "read",
 		}},
@@ -1415,17 +1432,12 @@ out:
 			switch update := fundingUpdate.Update.(type) {
 			case *lnrpc.OpenStatusUpdate_ChanOpen:
 				chanPoint := update.ChanOpen.ChannelPoint
-				txidHash, err := getChanPointFundingTxid(chanPoint)
-				if err != nil {
-					return err
-				}
-
-				h, err := chainhash.NewHash(txidHash)
+				txid, err := getChanPointFundingTxid(chanPoint)
 				if err != nil {
 					return err
 				}
 				outpoint = wire.OutPoint{
-					Hash:  *h,
+					Hash:  *txid,
 					Index: chanPoint.OutputIndex,
 				}
 
@@ -1573,7 +1585,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 
 // getChanPointFundingTxid returns the given channel point's funding txid in
 // raw bytes.
-func getChanPointFundingTxid(chanPoint *lnrpc.ChannelPoint) ([]byte, error) {
+func getChanPointFundingTxid(chanPoint *lnrpc.ChannelPoint) (*chainhash.Hash, error) {
 	var txid []byte
 
 	// A channel point's funding txid can be get/set as a byte slice or a
@@ -1591,7 +1603,7 @@ func getChanPointFundingTxid(chanPoint *lnrpc.ChannelPoint) ([]byte, error) {
 		txid = h[:]
 	}
 
-	return txid, nil
+	return chainhash.NewHash(txid)
 }
 
 // CloseChannel attempts to close an active channel identified by its channel
@@ -1608,14 +1620,9 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 	force := in.Force
 	index := in.ChannelPoint.OutputIndex
-	txidHash, err := getChanPointFundingTxid(in.GetChannelPoint())
+	txid, err := getChanPointFundingTxid(in.GetChannelPoint())
 	if err != nil {
 		rpcsLog.Errorf("[closechannel] unable to get funding txid: %v", err)
-		return err
-	}
-	txid, err := chainhash.NewHash(txidHash)
-	if err != nil {
-		rpcsLog.Errorf("[closechannel] invalid txid: %v", err)
 		return err
 	}
 	chanPoint := wire.NewOutPoint(txid, index)
@@ -1821,11 +1828,7 @@ func (r *rpcServer) AbandonChannel(ctx context.Context,
 
 	// We'll parse out the arguments to we can obtain the chanPoint of the
 	// target channel.
-	txidHash, err := getChanPointFundingTxid(in.GetChannelPoint())
-	if err != nil {
-		return nil, err
-	}
-	txid, err := chainhash.NewHash(txidHash)
+	txid, err := getChanPointFundingTxid(in.GetChannelPoint())
 	if err != nil {
 		return nil, err
 	}
@@ -2433,6 +2436,8 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 
 	resp := &lnrpc.ListChannelsResponse{}
 
+	// TODO(roasbeef): expose chan status flags as well
+
 	graph := r.server.chanDB.ChannelGraph()
 
 	dbChannels, err := r.server.chanDB.FetchAllOpenChannels()
@@ -2540,6 +2545,7 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 		PendingHtlcs:          make([]*lnrpc.HTLC, len(localCommit.Htlcs)),
 		CsvDelay:              uint32(dbChannel.LocalChanCfg.CsvDelay),
 		Initiator:             dbChannel.IsInitiator,
+		ChanStatusFlags:       dbChannel.ChanStatus().String(),
 	}
 
 	for i, htlc := range localCommit.Htlcs {
@@ -4503,11 +4509,7 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 	// Otherwise, we're targeting an individual channel by its channel
 	// point.
 	case *lnrpc.PolicyUpdateRequest_ChanPoint:
-		txidHash, err := getChanPointFundingTxid(scope.ChanPoint)
-		if err != nil {
-			return nil, err
-		}
-		txid, err := chainhash.NewHash(txidHash)
+		txid, err := getChanPointFundingTxid(scope.ChanPoint)
 		if err != nil {
 			return nil, err
 		}
@@ -4675,4 +4677,232 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 	}
 
 	return resp, nil
+}
+
+// ExportChannelBackup attempts to return an encrypted static channel backup
+// for the target channel identified by it channel point. The backup is
+// encrypted with a key generated from the aezeed seed of the user. The
+// returned backup can either be restored using the RestoreChannelBackup method
+// once lnd is running, or via the InitWallet and UnlockWallet methods from the
+// WalletUnlocker service.
+func (r *rpcServer) ExportChannelBackup(ctx context.Context,
+	in *lnrpc.ChannelPoint) (*lnrpc.ChannelBackup, error) {
+
+	// First, we'll convert the lnrpc channel point into a wire.OutPoint
+	// that we can manipulate.
+	txid, err := getChanPointFundingTxid(in)
+	if err != nil {
+		return nil, err
+	}
+	chanPoint := wire.OutPoint{
+		Hash:  *txid,
+		Index: in.OutputIndex,
+	}
+
+	// Next, we'll attempt to fetch a channel backup for this channel from
+	// the database. If this channel has been closed, or the outpoint is
+	// unknown, then we'll return an error
+	unpackedBackup, err := chanbackup.FetchBackupForChan(
+		chanPoint, r.server.chanDB,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// At this point, we have an unpacked backup (plaintext) so we'll now
+	// attempt to serialize and encrypt it in order to create a packed
+	// backup.
+	packedBackups, err := chanbackup.PackStaticChanBackups(
+		[]chanbackup.Single{*unpackedBackup},
+		r.server.cc.keyRing,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("packing of back ups failed: %v", err)
+	}
+
+	// Before we proceed, we'll ensure that we received a backup for this
+	// channel, otherwise, we'll bail out.
+	packedBackup, ok := packedBackups[chanPoint]
+	if !ok {
+		return nil, fmt.Errorf("expected single backup for "+
+			"ChannelPoint(%v), got %v", chanPoint,
+			len(packedBackup))
+	}
+
+	return &lnrpc.ChannelBackup{
+		ChanPoint:  in,
+		ChanBackup: packedBackup,
+	}, nil
+}
+
+// createBackupSnapshot converts the passed Single backup into a snapshot which
+// contains individual packed single backups, as well as a single packed multi
+// backup.
+func (r *rpcServer) createBackupSnapshot(backups []chanbackup.Single) (
+	*lnrpc.ChanBackupSnapshot, error) {
+
+	// Once we have the set of back ups, we'll attempt to pack them all
+	// into a series of single channel backups.
+	singleChanPackedBackups, err := chanbackup.PackStaticChanBackups(
+		backups, r.server.cc.keyRing,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to pack set of chan "+
+			"backups: %v", err)
+	}
+
+	// Now that we have our set of single packed backups, we'll morph that
+	// into a form that the proto response requires.
+	numBackups := len(singleChanPackedBackups)
+	singleBackupResp := &lnrpc.ChannelBackups{
+		ChanBackups: make([]*lnrpc.ChannelBackup, 0, numBackups),
+	}
+	for chanPoint, singlePackedBackup := range singleChanPackedBackups {
+		txid := chanPoint.Hash
+		rpcChanPoint := &lnrpc.ChannelPoint{
+			FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+				FundingTxidBytes: txid[:],
+			},
+			OutputIndex: chanPoint.Index,
+		}
+
+		singleBackupResp.ChanBackups = append(
+			singleBackupResp.ChanBackups,
+			&lnrpc.ChannelBackup{
+				ChanPoint:  rpcChanPoint,
+				ChanBackup: singlePackedBackup,
+			},
+		)
+	}
+
+	// In addition, to the set of single chan backups, we'll also create a
+	// single multi-channel backup which can be serialized into a single
+	// file for safe storage.
+	var b bytes.Buffer
+	unpackedMultiBackup := chanbackup.Multi{
+		StaticBackups: backups,
+	}
+	err = unpackedMultiBackup.PackToWriter(&b, r.server.cc.keyRing)
+	if err != nil {
+		return nil, fmt.Errorf("unable to multi-pack backups: %v", err)
+	}
+
+	multiBackupResp := &lnrpc.MultiChanBackup{
+		MultiChanBackup: b.Bytes(),
+	}
+	for _, singleBackup := range singleBackupResp.ChanBackups {
+		multiBackupResp.ChanPoints = append(
+			multiBackupResp.ChanPoints, singleBackup.ChanPoint,
+		)
+	}
+
+	return &lnrpc.ChanBackupSnapshot{
+		SingleChanBackups: singleBackupResp,
+		MultiChanBackup:   multiBackupResp,
+	}, nil
+}
+
+// ExportAllChannelBackups returns static channel backups for all existing
+// channels known to lnd. A set of regular singular static channel backups for
+// each channel are returned. Additionally, a multi-channel backup is returned
+// as well, which contains a single encrypted blob containing the backups of
+// each channel.
+func (r *rpcServer) ExportAllChannelBackups(ctx context.Context,
+	in *lnrpc.ChanBackupExportRequest) (*lnrpc.ChanBackupSnapshot, error) {
+
+	// First, we'll attempt to read back ups for ALL currently opened
+	// channels from disk.
+	allUnpackedBackups, err := chanbackup.FetchStaticChanBackups(
+		r.server.chanDB,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch all static chan "+
+			"backups: %v", err)
+	}
+
+	// With the backups assembled, we'll create a full snapshot.
+	return r.createBackupSnapshot(allUnpackedBackups)
+}
+
+// RestoreChannelBackups accepts a set of singular channel backups, or a single
+// encrypted multi-chan backup and attempts to recover any funds remaining
+// within the channel. If we're able to unpack the backup, then the new channel
+// will be shown under listchannels, as well as pending channels.
+func (r *rpcServer) RestoreChannelBackups(ctx context.Context,
+	in *lnrpc.RestoreChanBackupRequest) (*lnrpc.RestoreBackupResponse, error) {
+
+	// First, we'll make our implementation of the
+	// chanbackup.ChannelRestorer interface which we'll use to properly
+	// restore either a set of chanbackup.Single or chanbackup.Multi
+	// backups.
+	chanRestorer := &chanDBRestorer{
+		db:         r.server.chanDB,
+		secretKeys: r.server.cc.keyRing,
+		chainArb:   r.server.chainArb,
+	}
+
+	// We'll accept either a list of Single backups, or a single Multi
+	// backup which contains several single backups.
+	switch {
+	case in.GetChanBackups() != nil:
+		chanBackupsProtos := in.GetChanBackups()
+
+		// Now that we know what type of backup we're working with,
+		// we'll parse them all out into a more suitable format.
+		packedBackups := make([][]byte, 0, len(chanBackupsProtos.ChanBackups))
+		for _, chanBackup := range chanBackupsProtos.ChanBackups {
+			packedBackups = append(
+				packedBackups, chanBackup.ChanBackup,
+			)
+		}
+
+		// With our backups obtained, we'll now restore them which will
+		// write the new backups to disk, and then attempt to connect
+		// out to any peers that we know of which were our prior
+		// channel peers.
+		err := chanbackup.UnpackAndRecoverSingles(
+			chanbackup.PackedSingles(packedBackups),
+			r.server.cc.keyRing, chanRestorer, r.server,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to unpack single "+
+				"backups: %v", err)
+		}
+
+	case in.GetMultiChanBackup() != nil:
+		packedMultiBackup := in.GetMultiChanBackup()
+
+		// With our backups obtained, we'll now restore them which will
+		// write the new backups to disk, and then attempt to connect
+		// out to any peers that we know of which were our prior
+		// channel peers.
+		packedMulti := chanbackup.PackedMulti(packedMultiBackup)
+		err := chanbackup.UnpackAndRecoverMulti(
+			packedMulti, r.server.cc.keyRing, chanRestorer,
+			r.server,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to unpack chan "+
+				"backup: %v", err)
+		}
+	}
+
+	return &lnrpc.RestoreBackupResponse{}, nil
+}
+
+// SubscribeChannelBackups allows a client to sub-subscribe to the most up to
+// date information concerning the state of all channel back ups. Each time a
+// new channel is added, we return the new set of channels, along with a
+// multi-chan backup containing the backup info for all channels. Each time a
+// channel is closed, we send a new update, which contains new new chan back
+// ups, but the updated set of encrypted multi-chan backups with the closed
+// channel(s) removed.
+func (r *rpcServer) SubscribeChannelBackups(req *lnrpc.ChannelBackupSubscription,
+	updateStream lnrpc.Lightning_SubscribeChannelBackupsServer) error {
+
+	// TODO(roasbeef): hook up to chan notifier
+
+	// TODO(roasbeef): make chanbackup.SubSwapper
+
+	return nil
 }

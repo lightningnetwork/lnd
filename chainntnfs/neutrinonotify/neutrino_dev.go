@@ -89,7 +89,8 @@ func (n *NeutrinoNotifier) UnsafeStart(bestHeight int32,
 
 	// Run notificationDispatcher after setting the notifier's best height
 	// to avoid a race condition.
-	n.bestHeight = uint32(bestHeight)
+	n.bestBlock.Hash = bestHash
+	n.bestBlock.Height = bestHeight
 
 	n.wg.Add(1)
 	go n.notificationDispatcher()

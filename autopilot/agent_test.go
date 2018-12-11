@@ -1453,9 +1453,7 @@ func TestAgentSkipPendingConns(t *testing.T) {
 		t.Fatalf("agent did not receive connection timeout")
 	}
 
-	// Signal the agent to try again, now that there are no pending conns.
-	agent.OnNodeUpdates()
-
+	// The agent will now retry since the last connection attempt failed.
 	// The heuristic again informs the agent that we need more channels.
 	select {
 	case heuristic.moreChansResps <- moreChansResp{

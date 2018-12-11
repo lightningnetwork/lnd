@@ -1,12 +1,19 @@
 package chainntnfs
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+)
+
+var (
+	// ErrChainNotifierShuttingDown is used when we are trying to
+	// measure a spend notification when notifier is already stopped.
+	ErrChainNotifierShuttingDown = errors.New("chain notifier shutting down")
 )
 
 // TxConfStatus denotes the status of a transaction's lookup.

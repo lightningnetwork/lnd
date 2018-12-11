@@ -26,13 +26,6 @@ const (
 	notifierType = "btcd"
 )
 
-var (
-	// ErrChainNotifierShuttingDown is used when we are trying to
-	// measure a spend notification when notifier is already stopped.
-	ErrChainNotifierShuttingDown = errors.New("chainntnfs: system interrupt " +
-		"while attempting to register for spend notification.")
-)
-
 // chainUpdate encapsulates an update to the current main chain. This struct is
 // used as an element within an unbounded queue in order to avoid blocking the
 // main rpc dispatch rule.
@@ -610,7 +603,7 @@ func (b *BtcdNotifier) confDetailsManually(confRequest chainntnfs.ConfRequest,
 		select {
 		case <-b.quit:
 			return nil, chainntnfs.TxNotFoundManually,
-				ErrChainNotifierShuttingDown
+				chainntnfs.ErrChainNotifierShuttingDown
 		default:
 		}
 
@@ -964,7 +957,7 @@ func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	case b.notificationRegistry <- dispatch:
 		return ntfn.Event, nil
 	case <-b.quit:
-		return nil, ErrChainNotifierShuttingDown
+		return nil, chainntnfs.ErrChainNotifierShuttingDown
 	}
 }
 

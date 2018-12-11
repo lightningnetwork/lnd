@@ -26,11 +26,6 @@ const (
 )
 
 var (
-	// ErrChainNotifierShuttingDown is used when we are trying to
-	// measure a spend notification when notifier is already stopped.
-	ErrChainNotifierShuttingDown = errors.New("chainntnfs: system interrupt " +
-		"while attempting to register for spend notification.")
-
 	// ErrTransactionNotFound is an error returned when we attempt to find a
 	// transaction by manually scanning the chain within a specific range
 	// but it is not found.
@@ -498,7 +493,6 @@ func (b *BitcoindNotifier) confDetailsFromTxIndex(txid *chainhash.Hash,
 			fmt.Errorf("unable to get block hash %v for "+
 				"historical dispatch: %v", rawTxRes.BlockHash, err)
 	}
-
 	block, err := b.chainConn.GetBlockVerbose(blockHash)
 	if err != nil {
 		return nil, chainntnfs.TxNotFoundIndex,
@@ -559,7 +553,7 @@ func (b *BitcoindNotifier) confDetailsManually(confRequest chainntnfs.ConfReques
 		select {
 		case <-b.quit:
 			return nil, chainntnfs.TxNotFoundManually,
-				ErrChainNotifierShuttingDown
+				chainntnfs.ErrChainNotifierShuttingDown
 		default:
 		}
 
@@ -728,7 +722,7 @@ func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		select {
 		case b.notificationRegistry <- historicalDispatch:
 		case <-b.quit:
-			return nil, ErrChainNotifierShuttingDown
+			return nil, chainntnfs.ErrChainNotifierShuttingDown
 		}
 
 		return ntfn.Event, nil
@@ -805,7 +799,7 @@ func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	select {
 	case b.notificationRegistry <- historicalDispatch:
 	case <-b.quit:
-		return nil, ErrChainNotifierShuttingDown
+		return nil, chainntnfs.ErrChainNotifierShuttingDown
 	}
 
 	return ntfn.Event, nil
@@ -829,7 +823,7 @@ func (b *BitcoindNotifier) dispatchSpendDetailsManually(
 		// processing the next height.
 		select {
 		case <-b.quit:
-			return ErrChainNotifierShuttingDown
+			return chainntnfs.ErrChainNotifierShuttingDown
 		default:
 		}
 
@@ -923,7 +917,7 @@ func (b *BitcoindNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	case b.notificationRegistry <- dispatch:
 		return ntfn.Event, nil
 	case <-b.quit:
-		return nil, ErrChainNotifierShuttingDown
+		return nil, chainntnfs.ErrChainNotifierShuttingDown
 	}
 }
 

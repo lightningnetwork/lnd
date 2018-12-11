@@ -27,13 +27,6 @@ const (
 	notifierType = "neutrino"
 )
 
-var (
-	// ErrChainNotifierShuttingDown is used when we are trying to
-	// measure a spend notification when notifier is already stopped.
-	ErrChainNotifierShuttingDown = errors.New("chainntnfs: system interrupt " +
-		"while attempting to register for spend notification.")
-)
-
 // NeutrinoNotifier is a version of ChainNotifier that's backed by the neutrino
 // Bitcoin light client. Unlike other implementations, this implementation
 // speaks directly to the p2p network. As a result, this implementation of the
@@ -503,7 +496,7 @@ func (n *NeutrinoNotifier) historicalConfDetails(confRequest chainntnfs.ConfRequ
 		// processing the next height.
 		select {
 		case <-n.quit:
-			return nil, ErrChainNotifierShuttingDown
+			return nil, chainntnfs.ErrChainNotifierShuttingDown
 		default:
 		}
 
@@ -710,13 +703,13 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		errChan:       errChan,
 	}:
 	case <-n.quit:
-		return nil, ErrChainNotifierShuttingDown
+		return nil, chainntnfs.ErrChainNotifierShuttingDown
 	}
 
 	select {
 	case err = <-errChan:
 	case <-n.quit:
-		return nil, ErrChainNotifierShuttingDown
+		return nil, chainntnfs.ErrChainNotifierShuttingDown
 	}
 	if err != nil {
 		return nil, fmt.Errorf("unable to update filter: %v", err)
@@ -856,13 +849,13 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 		errChan: errChan,
 	}:
 	case <-n.quit:
-		return nil, ErrChainNotifierShuttingDown
+		return nil, chainntnfs.ErrChainNotifierShuttingDown
 	}
 
 	select {
 	case err = <-errChan:
 	case <-n.quit:
-		return nil, ErrChainNotifierShuttingDown
+		return nil, chainntnfs.ErrChainNotifierShuttingDown
 	}
 	if err != nil {
 		return nil, fmt.Errorf("unable to update filter: %v", err)
@@ -879,7 +872,7 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	select {
 	case n.notificationRegistry <- dispatch:
 	case <-n.quit:
-		return nil, ErrChainNotifierShuttingDown
+		return nil, chainntnfs.ErrChainNotifierShuttingDown
 	}
 
 	return ntfn.Event, nil

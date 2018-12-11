@@ -2110,6 +2110,152 @@ func TestTxNotifierSpendHintCache(t *testing.T) {
 	}
 }
 
+// TestTxNotifierNtfnDone ensures that a notification is sent to registered
+// clients through the Done channel once the notification request is no longer
+// under the risk of being reorged out of the chain.
+func TestTxNotifierNtfnDone(t *testing.T) {
+	t.Parallel()
+
+	hintCache := newMockHintCache()
+	const reorgSafetyLimit = 100
+	n := chainntnfs.NewTxNotifier(10, reorgSafetyLimit, hintCache, hintCache)
+
+	// We'll start by creating two notification requests: one confirmation
+	// and one spend.
+	confNtfn := &chainntnfs.ConfNtfn{
+		ConfID: 1,
+		ConfRequest: chainntnfs.ConfRequest{
+			TxID:     chainntnfs.ZeroHash,
+			PkScript: testScript,
+		},
+		NumConfirmations: 1,
+		Event:            chainntnfs.NewConfirmationEvent(1, nil),
+	}
+	if _, _, err := n.RegisterConf(confNtfn); err != nil {
+		t.Fatalf("unable to register conf ntfn: %v", err)
+	}
+
+	spendNtfn := &chainntnfs.SpendNtfn{
+		SpendID: 2,
+		SpendRequest: chainntnfs.SpendRequest{
+			OutPoint: chainntnfs.ZeroOutPoint,
+			PkScript: testScript,
+		},
+		Event: chainntnfs.NewSpendEvent(nil),
+	}
+	if _, _, err := n.RegisterSpend(spendNtfn); err != nil {
+		t.Fatalf("unable to register spend: %v", err)
+	}
+
+	// We'll create two transactions that will satisfy the notification
+	// requests above and include them in the next block of the chain.
+	tx := wire.NewMsgTx(1)
+	tx.AddTxOut(&wire.TxOut{PkScript: testRawScript})
+	spendTx := wire.NewMsgTx(1)
+	spendTx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{Index: 1},
+		SignatureScript:  testSigScript,
+	})
+	block := btcutil.NewBlock(&wire.MsgBlock{
+		Transactions: []*wire.MsgTx{tx, spendTx},
+	})
+
+	err := n.ConnectTip(block.Hash(), 11, block.Transactions())
+	if err != nil {
+		t.Fatalf("unable to connect block: %v", err)
+	}
+	if err := n.NotifyHeight(11); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
+	}
+
+	// With the chain extended, we should see notifications dispatched for
+	// both requests.
+	select {
+	case <-confNtfn.Event.Confirmed:
+	default:
+		t.Fatal("expected to receive confirmation notification")
+	}
+
+	select {
+	case <-spendNtfn.Event.Spend:
+	default:
+		t.Fatal("expected to receive spend notification")
+	}
+
+	// The done notifications should not be dispatched yet as the requests
+	// are still under the risk of being reorged out the chain.
+	select {
+	case <-confNtfn.Event.Done:
+		t.Fatal("received unexpected done notification for confirmation")
+	case <-spendNtfn.Event.Done:
+		t.Fatal("received unexpected done notification for spend")
+	default:
+	}
+
+	// Now, we'll disconnect the block at tip to simulate a reorg. The reorg
+	// notifications should be dispatched to the respective clients.
+	if err := n.DisconnectTip(11); err != nil {
+		t.Fatalf("unable to disconnect block: %v", err)
+	}
+
+	select {
+	case <-confNtfn.Event.NegativeConf:
+	default:
+		t.Fatal("expected to receive reorg notification for confirmation")
+	}
+
+	select {
+	case <-spendNtfn.Event.Reorg:
+	default:
+		t.Fatal("expected to receive reorg notification for spend")
+	}
+
+	// We'll reconnect the block that satisfies both of these requests.
+	// We should see notifications dispatched for both once again.
+	err = n.ConnectTip(block.Hash(), 11, block.Transactions())
+	if err != nil {
+		t.Fatalf("unable to connect block: %v", err)
+	}
+	if err := n.NotifyHeight(11); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
+	}
+
+	select {
+	case <-confNtfn.Event.Confirmed:
+	default:
+		t.Fatal("expected to receive confirmation notification")
+	}
+
+	select {
+	case <-spendNtfn.Event.Spend:
+	default:
+		t.Fatal("expected to receive spend notification")
+	}
+
+	// Finally, we'll extend the chain with blocks until the requests are no
+	// longer under the risk of being reorged out of the chain. We should
+	// expect the done notifications to be dispatched.
+	nextHeight := uint32(12)
+	for i := nextHeight; i < nextHeight+reorgSafetyLimit; i++ {
+		dummyBlock := btcutil.NewBlock(&wire.MsgBlock{})
+		if err := n.ConnectTip(dummyBlock.Hash(), i, nil); err != nil {
+			t.Fatalf("unable to connect block: %v", err)
+		}
+	}
+
+	select {
+	case <-confNtfn.Event.Done:
+	default:
+		t.Fatal("expected to receive done notification for confirmation")
+	}
+
+	select {
+	case <-spendNtfn.Event.Done:
+	default:
+		t.Fatal("expected to receive done notification for spend")
+	}
+}
+
 // TestTxNotifierTearDown ensures that the TxNotifier properly alerts clients
 // that it is shutting down and will be unable to deliver notifications.
 func TestTxNotifierTearDown(t *testing.T) {

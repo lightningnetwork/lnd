@@ -199,6 +199,12 @@ type ConfirmationEvent struct {
 	// NOTE: This channel must be buffered.
 	NegativeConf chan int32
 
+	// Done is a channel that gets sent upon once the confirmation request
+	// is no longer under the risk of being reorged out of the chain.
+	//
+	// NOTE: This channel must be buffered.
+	Done chan struct{}
+
 	// Cancel is a closure that should be executed by the caller in the case
 	// that they wish to prematurely abandon their registered confirmation
 	// notification.
@@ -212,6 +218,7 @@ func NewConfirmationEvent(numConfs uint32, cancel func()) *ConfirmationEvent {
 		Confirmed:    make(chan *TxConfirmation, 1),
 		Updates:      make(chan uint32, numConfs),
 		NegativeConf: make(chan int32, 1),
+		Done:         make(chan struct{}, 1),
 		Cancel:       cancel,
 	}
 }
@@ -249,6 +256,12 @@ type SpendEvent struct {
 	// NOTE: This channel must be buffered.
 	Reorg chan struct{}
 
+	// Done is a channel that gets sent upon once the confirmation request
+	// is no longer under the risk of being reorged out of the chain.
+	//
+	// NOTE: This channel must be buffered.
+	Done chan struct{}
+
 	// Cancel is a closure that should be executed by the caller in the case
 	// that they wish to prematurely abandon their registered spend
 	// notification.
@@ -260,6 +273,7 @@ func NewSpendEvent(cancel func()) *SpendEvent {
 	return &SpendEvent{
 		Spend:  make(chan *SpendDetail, 1),
 		Reorg:  make(chan struct{}, 1),
+		Done:   make(chan struct{}, 1),
 		Cancel: cancel,
 	}
 }

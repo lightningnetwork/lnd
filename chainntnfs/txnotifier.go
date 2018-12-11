@@ -952,6 +952,7 @@ func (n *TxNotifier) CancelSpend(spendRequest SpendRequest, spendID uint64) {
 	// their cancel request has been fulfilled.
 	close(ntfn.Event.Spend)
 	close(ntfn.Event.Reorg)
+	close(ntfn.Event.Done)
 	delete(spendSet.ntfns, spendID)
 }
 
@@ -1749,6 +1750,7 @@ func (n *TxNotifier) TearDown() {
 			close(ntfn.Event.Confirmed)
 			close(ntfn.Event.Updates)
 			close(ntfn.Event.NegativeConf)
+			close(ntfn.Event.Done)
 		}
 	}
 
@@ -1756,6 +1758,7 @@ func (n *TxNotifier) TearDown() {
 		for _, ntfn := range spendSet.ntfns {
 			close(ntfn.Event.Spend)
 			close(ntfn.Event.Reorg)
+			close(ntfn.Event.Done)
 		}
 	}
 }

@@ -325,23 +325,40 @@ out:
 
 			case *blockEpochRegistration:
 				chainntnfs.Log.Infof("New block epoch subscription")
-				b.blockEpochClients[msg.epochID] = msg
-				if msg.bestBlock != nil {
-					missedBlocks, err :=
-						chainntnfs.GetClientMissedBlocks(
-							b.chainConn, msg.bestBlock,
-							b.bestBlock.Height, true,
-						)
-					if err != nil {
-						msg.errorChan <- err
-						continue
-					}
-					for _, block := range missedBlocks {
-						b.notifyBlockEpochClient(msg,
-							block.Height, block.Hash)
-					}
 
+				b.blockEpochClients[msg.epochID] = msg
+
+				// If the client did not provide their best
+				// known block, then we'll immediately dispatch
+				// a notification for the current tip.
+				if msg.bestBlock == nil {
+					b.notifyBlockEpochClient(
+						msg, b.bestBlock.Height,
+						b.bestBlock.Hash,
+					)
+
+					msg.errorChan <- nil
+					continue
 				}
+
+				// Otherwise, we'll attempt to deliver the
+				// backlog of notifications from their best
+				// known block.
+				missedBlocks, err := chainntnfs.GetClientMissedBlocks(
+					b.chainConn, msg.bestBlock,
+					b.bestBlock.Height, true,
+				)
+				if err != nil {
+					msg.errorChan <- err
+					continue
+				}
+
+				for _, block := range missedBlocks {
+					b.notifyBlockEpochClient(
+						msg, block.Height, block.Hash,
+					)
+				}
+
 				msg.errorChan <- nil
 			}
 
@@ -991,7 +1008,9 @@ type epochCancel struct {
 // RegisterBlockEpochNtfn returns a BlockEpochEvent which subscribes the
 // caller to receive notifications, of each new block connected to the main
 // chain. Clients have the option of passing in their best known block, which
-// the notifier uses to check if they are behind on blocks and catch them up.
+// the notifier uses to check if they are behind on blocks and catch them up. If
+// they do not provide one, then a notification will be dispatched immediately
+// for the current tip of the chain upon a successful registration.
 func (b *BtcdNotifier) RegisterBlockEpochNtfn(
 	bestBlock *chainntnfs.BlockEpoch) (*chainntnfs.BlockEpochEvent, error) {
 
@@ -1003,6 +1022,7 @@ func (b *BtcdNotifier) RegisterBlockEpochNtfn(
 		bestBlock:  bestBlock,
 		errorChan:  make(chan error, 1),
 	}
+
 	reg.epochQueue.Start()
 
 	// Before we send the request to the main goroutine, we'll launch a new

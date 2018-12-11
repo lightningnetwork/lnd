@@ -127,7 +127,9 @@ type ChainNotifier interface {
 	// Clients have the option of passing in their best known block.
 	// If they specify a block, the ChainNotifier checks whether the client
 	// is behind on blocks. If they are, the ChainNotifier sends a backlog
-	// of block notifications for the missed blocks.
+	// of block notifications for the missed blocks. If they do not provide
+	// one, then a notification will be dispatched immediately for the
+	// current tip of the chain upon a successful registration.
 	RegisterBlockEpochNtfn(*BlockEpoch) (*BlockEpochEvent, error)
 
 	// Start the ChainNotifier. Once started, the implementation should be

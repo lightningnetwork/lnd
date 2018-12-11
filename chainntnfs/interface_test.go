@@ -398,22 +398,23 @@ func testBlockEpochNotification(miner *rpctest.Harness,
 	// block epoch notifications.
 
 	const numBlocks = 10
+	const numNtfns = numBlocks + 1
 	const numClients = 5
 	var wg sync.WaitGroup
 
 	// Create numClients clients which will listen for block notifications. We
-	// expect each client to receive 10 notifications for each of the ten
-	// blocks we generate below. So we'll use a WaitGroup to synchronize the
-	// test.
+	// expect each client to receive 11 notifications, one for the current
+	// tip of the chain, and one for each of the ten blocks we generate
+	// below. So we'll use a WaitGroup to synchronize the test.
 	for i := 0; i < numClients; i++ {
 		epochClient, err := notifier.RegisterBlockEpochNtfn(nil)
 		if err != nil {
 			t.Fatalf("unable to register for epoch notification")
 		}
 
-		wg.Add(numBlocks)
+		wg.Add(numNtfns)
 		go func() {
-			for i := 0; i < numBlocks; i++ {
+			for i := 0; i < numNtfns; i++ {
 				<-epochClient.Epochs
 				wg.Done()
 			}
@@ -1494,6 +1495,16 @@ func testCatchUpOnMissedBlocks(miner *rpctest.Harness,
 		if err != nil {
 			t.Fatalf("unable to register for epoch notification: %v", err)
 		}
+
+		// Drain the notification dispatched upon registration as we're
+		// not interested in it.
+		select {
+		case <-epochClient.Epochs:
+		case <-time.After(5 * time.Second):
+			t.Fatal("expected to receive epoch for current block " +
+				"upon registration")
+		}
+
 		clients = append(clients, epochClient)
 	}
 
@@ -1669,6 +1680,16 @@ func testCatchUpOnMissedBlocksWithReorg(miner1 *rpctest.Harness,
 		if err != nil {
 			t.Fatalf("unable to register for epoch notification: %v", err)
 		}
+
+		// Drain the notification dispatched upon registration as we're
+		// not interested in it.
+		select {
+		case <-epochClient.Epochs:
+		case <-time.After(5 * time.Second):
+			t.Fatal("expected to receive epoch for current block " +
+				"upon registration")
+		}
+
 		clients = append(clients, epochClient)
 	}
 

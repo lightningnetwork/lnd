@@ -72,8 +72,6 @@ func (t TxConfStatus) String() string {
 //
 // Concrete implementations of ChainNotifier should be able to support multiple
 // concurrent client requests, as well as multiple concurrent notification events.
-// TODO(roasbeef): all events should have a Cancel() method to free up the
-// resource
 type ChainNotifier interface {
 	// RegisterConfirmationsNtfn registers an intent to be notified once
 	// txid reaches numConfs confirmations. We also pass in the pkScript as
@@ -175,6 +173,9 @@ type TxConfirmation struct {
 // If the event that the original transaction becomes re-org'd out of the main
 // chain, the 'NegativeConf' will be sent upon with a value representing the
 // depth of the re-org.
+//
+// NOTE: If the caller wishes to cancel their registered spend notification,
+// the Cancel closure MUST be called.
 type ConfirmationEvent struct {
 	// Confirmed is a channel that will be sent upon once the transaction
 	// has been fully confirmed. The struct sent will contain all the
@@ -191,26 +192,27 @@ type ConfirmationEvent struct {
 	// confirmations.
 	Updates chan uint32
 
-	// TODO(roasbeef): all goroutines on ln channel updates should also
-	// have a struct chan that's closed if funding gets re-org out. Need
-	// to sync, to request another confirmation event ntfn, then re-open
-	// channel after confs.
-
 	// NegativeConf is a channel that will be sent upon if the transaction
 	// confirms, but is later reorged out of the chain. The integer sent
 	// through the channel represents the reorg depth.
 	//
 	// NOTE: This channel must be buffered.
 	NegativeConf chan int32
+
+	// Cancel is a closure that should be executed by the caller in the case
+	// that they wish to prematurely abandon their registered confirmation
+	// notification.
+	Cancel func()
 }
 
 // NewConfirmationEvent constructs a new ConfirmationEvent with newly opened
 // channels.
-func NewConfirmationEvent(numConfs uint32) *ConfirmationEvent {
+func NewConfirmationEvent(numConfs uint32, cancel func()) *ConfirmationEvent {
 	return &ConfirmationEvent{
 		Confirmed:    make(chan *TxConfirmation, 1),
 		Updates:      make(chan uint32, numConfs),
 		NegativeConf: make(chan int32, 1),
+		Cancel:       cancel,
 	}
 }
 
@@ -247,8 +249,8 @@ type SpendEvent struct {
 	// NOTE: This channel must be buffered.
 	Reorg chan struct{}
 
-	// Cancel is a closure that should be executed by the caller in the
-	// case that they wish to prematurely abandon their registered spend
+	// Cancel is a closure that should be executed by the caller in the case
+	// that they wish to prematurely abandon their registered spend
 	// notification.
 	Cancel func()
 }
@@ -287,8 +289,8 @@ type BlockEpochEvent struct {
 	// NOTE: This channel must be buffered.
 	Epochs <-chan *BlockEpoch
 
-	// Cancel is a closure that should be executed by the caller in the
-	// case that they wish to abandon their registered spend notification.
+	// Cancel is a closure that should be executed by the caller in the case
+	// that they wish to abandon their registered block epochs notification.
 	Cancel func()
 }
 

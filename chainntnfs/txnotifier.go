@@ -602,6 +602,38 @@ func (n *TxNotifier) RegisterConf(ntfn *ConfNtfn) (*HistoricalConfDispatch,
 	return dispatch, n.currentHeight, nil
 }
 
+// CancelConf cancels an existing request for a spend notification of an
+// outpoint/output script. The request is identified by its spend ID.
+func (n *TxNotifier) CancelConf(confRequest ConfRequest, confID uint64) {
+	select {
+	case <-n.quit:
+		return
+	default:
+	}
+
+	n.Lock()
+	defer n.Unlock()
+
+	confSet, ok := n.confNotifications[confRequest]
+	if !ok {
+		return
+	}
+	ntfn, ok := confSet.ntfns[confID]
+	if !ok {
+		return
+	}
+
+	Log.Infof("Canceling confirmation notification: conf_id=%d, %v", confID,
+		confRequest)
+
+	// We'll close all the notification channels to let the client know
+	// their cancel request has been fulfilled.
+	close(ntfn.Event.Confirmed)
+	close(ntfn.Event.Updates)
+	close(ntfn.Event.NegativeConf)
+	delete(confSet.ntfns, confID)
+}
+
 // UpdateConfDetails attempts to update the confirmation details for an active
 // notification within the notifier. This should only be used in the case of a
 // transaction/output script that has confirmed before the notifier's current
@@ -904,9 +936,6 @@ func (n *TxNotifier) CancelSpend(spendRequest SpendRequest, spendID uint64) {
 	n.Lock()
 	defer n.Unlock()
 
-	Log.Infof("Canceling spend notification: spend_id=%d, %v", spendID,
-		spendRequest)
-
 	spendSet, ok := n.spendNotifications[spendRequest]
 	if !ok {
 		return
@@ -915,6 +944,9 @@ func (n *TxNotifier) CancelSpend(spendRequest SpendRequest, spendID uint64) {
 	if !ok {
 		return
 	}
+
+	Log.Infof("Canceling spend notification: spend_id=%d, %v", spendID,
+		spendRequest)
 
 	// We'll close all the notification channels to let the client know
 	// their cancel request has been fulfilled.

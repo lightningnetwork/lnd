@@ -925,16 +925,19 @@ func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 
 	// Construct a notification request for the transaction and send it to
 	// the main event loop.
+	confID := atomic.AddUint64(&b.confClientCounter, 1)
 	confRequest, err := chainntnfs.NewConfRequest(txid, pkScript)
 	if err != nil {
 		return nil, err
 	}
 	ntfn := &chainntnfs.ConfNtfn{
-		ConfID:           atomic.AddUint64(&b.confClientCounter, 1),
+		ConfID:           confID,
 		ConfRequest:      confRequest,
 		NumConfirmations: numConfs,
-		Event:            chainntnfs.NewConfirmationEvent(numConfs),
-		HeightHint:       heightHint,
+		Event: chainntnfs.NewConfirmationEvent(numConfs, func() {
+			b.txNotifier.CancelConf(confRequest, confID)
+		}),
+		HeightHint: heightHint,
 	}
 
 	chainntnfs.Log.Infof("New confirmation subscription: %v, num_confs=%v ",

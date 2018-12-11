@@ -2642,6 +2642,7 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 				if err != nil {
 					if err := stream.send(&lnrpc.SendResponse{
 						PaymentError: err.Error(),
+						PaymentHash:  payIntent.rHash[:],
 					}); err != nil {
 						select {
 						case errChan <- err:
@@ -2700,6 +2701,7 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 				case resp.Err != nil:
 					err := stream.send(&lnrpc.SendResponse{
 						PaymentError: resp.Err.Error(),
+						PaymentHash:  payIntent.rHash[:],
 					})
 					if err != nil {
 						errChan <- err
@@ -2709,6 +2711,7 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 
 				marshalledRouted := r.marshallRoute(resp.Route)
 				err := stream.send(&lnrpc.SendResponse{
+					PaymentHash:     payIntent.rHash[:],
 					PaymentPreimage: resp.Preimage[:],
 					PaymentRoute:    marshalledRouted,
 				})
@@ -2793,10 +2796,12 @@ func (r *rpcServer) sendPaymentSync(ctx context.Context,
 	case resp.Err != nil:
 		return &lnrpc.SendResponse{
 			PaymentError: resp.Err.Error(),
+			PaymentHash:  payIntent.rHash[:],
 		}, nil
 	}
 
 	return &lnrpc.SendResponse{
+		PaymentHash:     payIntent.rHash[:],
 		PaymentPreimage: resp.Preimage[:],
 		PaymentRoute:    r.marshallRoute(resp.Route),
 	}, nil

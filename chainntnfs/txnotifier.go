@@ -1177,11 +1177,44 @@ func (n *TxNotifier) ConnectTip(blockHash *chainhash.Hash, blockHeight uint32,
 		)
 	}
 
-	// Finally, now that we've determined which requests were confirmed and
-	// spent within the new block, we can update their entries in their
-	// respective caches, along with all of our unconfirmed and unspent
-	// requests.
+	// Now that we've determined which requests were confirmed and spent
+	// within the new block, we can update their entries in their respective
+	// caches, along with all of our unconfirmed and unspent requests.
 	n.updateHints(blockHeight)
+
+	// Finally, we'll clear the entries from our set of notifications for
+	// requests that are no longer under the risk of being reorged out of
+	// the chain.
+	if blockHeight >= n.reorgSafetyLimit {
+		matureBlockHeight := blockHeight - n.reorgSafetyLimit
+		for confRequest := range n.confsByInitialHeight[matureBlockHeight] {
+			confSet := n.confNotifications[confRequest]
+			for _, ntfn := range confSet.ntfns {
+				select {
+				case ntfn.Event.Done <- struct{}{}:
+				case <-n.quit:
+					return ErrTxNotifierExiting
+				}
+			}
+
+			delete(n.confNotifications, confRequest)
+		}
+		delete(n.confsByInitialHeight, matureBlockHeight)
+
+		for spendRequest := range n.spendsByHeight[matureBlockHeight] {
+			spendSet := n.spendNotifications[spendRequest]
+			for _, ntfn := range spendSet.ntfns {
+				select {
+				case ntfn.Event.Done <- struct{}{}:
+				case <-n.quit:
+					return ErrTxNotifierExiting
+				}
+			}
+
+			delete(n.spendNotifications, spendRequest)
+		}
+		delete(n.spendsByHeight, matureBlockHeight)
+	}
 
 	return nil
 }
@@ -1425,7 +1458,7 @@ func (n *TxNotifier) NotifyHeight(height uint32) error {
 	}
 	delete(n.ntfnsByConfirmHeight, height)
 
-	// We'll also dispatch spend notifications for all the requests that
+	// Finally, we'll dispatch spend notifications for all the requests that
 	// were spent at this new block height.
 	for spendRequest := range n.spendsByHeight[height] {
 		spendSet := n.spendNotifications[spendRequest]
@@ -1435,21 +1468,6 @@ func (n *TxNotifier) NotifyHeight(height uint32) error {
 				return err
 			}
 		}
-	}
-
-	// Finally, we'll clear the entries from our set of notifications for
-	// requests that are no longer under the risk of being reorged out of
-	// the chain.
-	if height >= n.reorgSafetyLimit {
-		matureBlockHeight := height - n.reorgSafetyLimit
-		for confRequest := range n.confsByInitialHeight[matureBlockHeight] {
-			delete(n.confNotifications, confRequest)
-		}
-		delete(n.confsByInitialHeight, matureBlockHeight)
-		for spendRequest := range n.spendsByHeight[matureBlockHeight] {
-			delete(n.spendNotifications, spendRequest)
-		}
-		delete(n.spendsByHeight, matureBlockHeight)
 	}
 
 	return nil

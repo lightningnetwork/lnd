@@ -150,6 +150,9 @@ type TxConfirmation struct {
 	// TxIndex is the index within the block of the ultimate confirmed
 	// transaction.
 	TxIndex uint32
+
+	// Tx is the transaction for which the notification was requested for.
+	Tx *wire.MsgTx
 }
 
 // ConfirmationEvent encapsulates a confirmation notification. With this struct,

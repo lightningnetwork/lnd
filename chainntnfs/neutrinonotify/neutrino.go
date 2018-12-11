@@ -563,6 +563,7 @@ func (n *NeutrinoNotifier) historicalConfDetails(confRequest chainntnfs.ConfRequ
 			}
 
 			return &chainntnfs.TxConfirmation{
+				Tx:          tx.MsgTx(),
 				BlockHash:   blockHash,
 				BlockHeight: scanHeight,
 				TxIndex:     uint32(i),

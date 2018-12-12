@@ -61,9 +61,6 @@ message Invoice {
     */
     string memo = 1;
 
-    /// An optional cryptographic receipt of payment
-    bytes receipt = 2;
-
     /**
     The hex-encoded preimage (32 byte) which will allow settling an incoming
     HTLC payable to this preimage
@@ -91,13 +88,6 @@ message Invoice {
     payment to the recipient.
     */
     string payment_request = 9;
-
-    /**
-    Hash (SHA-256) of a description of the payment. Used if the description of
-    payment (memo) is too long to naturally fit within the description field
-    of an encoded payment request.
-    */
-    bytes description_hash = 10;
 
     /// Payment request expiry time in seconds. Default is 3600 (1 hour).
     int64 expiry = 11;
